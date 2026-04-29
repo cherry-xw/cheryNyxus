@@ -1,0 +1,5 @@
+{
+  "apiKey": "$LANGSMITH_API_KEY",
+  "baseUrl": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+  "model": "glm-5"
+}
