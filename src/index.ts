@@ -1,8 +1,9 @@
-import config from "../config.ts";
+import config from "../config.json" with { type: "json" };
+
 import { createOpenAIChat } from "./connect/index.ts";
 
 async function main() {
-  const chat = createOpenAIChat(config.openai);
+  const chat = createOpenAIChat(config);
 
   const question = "请简单介绍一下你自己";
 

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
     "start": "ts-node src/index.ts",
-    "postinstall": "ts-node ./init.ts"
+    "postinstall": "cp config.json.example config.json"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
@@ -21,7 +21,9 @@
   },
   "dependencies": {
     "@langchain/core": "^1.1.31",
+    "@langchain/langgraph": "^1.2.9",
     "@langchain/openai": "^1.2.12",
-    "langchain": "^1.2.30"
+    "langchain": "^1.2.30",
+    "zod": "^4.3.6"
   }
 }
