@@ -4,6 +4,27 @@
     "agent": "./src/agent/graph.ts:graph"
   },
   "env": ".env",
+  "config_schema": {
+    "type": "object",
+    "properties": {
+      "LANGSMITH_API_KEY": {
+        "type": "string",
+        "title": "LangSmith API Key（运行时传入）",
+        "description": "可选，通常使用环境变量",
+        "default": ""
+      },
+      "userId": {
+        "type": "string",
+        "title": "用户ID",
+        "default": "default-user"
+      },
+      "temperature": {
+        "type": "number",
+        "title": "模型温度参数",
+        "default": 0.7
+      }
+    }
+  },
   "dependencies": ["."],
   "image_distro": "wolfi"
 }

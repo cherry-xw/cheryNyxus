@@ -4,65 +4,34 @@
  */
 import { StateGraph } from "@langchain/langgraph";
 import { RunnableConfig } from "@langchain/core/runnables";
-import { StateAnnotation } from "./state.js";
+import { AgentState } from "./state.ts";
+// import { ollama } from "../llm/ollama.ts";
 
-/**
- * 定义一个节点，这些节点执行图的工作并应包含大部分逻辑。
- * 必须返回 StateAnnotation 中设置的属性的子集。
- * @param state 图的当前状态。
- * @param config 传入状态图的额外参数。
- * @returns 图状态的某些属性子集，用于更新接下来执行的边和节点的状态。
- */
 const callModel = async (
-  state: typeof StateAnnotation.State,
+  state: typeof AgentState.State,
   _config: RunnableConfig,
-): Promise<typeof StateAnnotation.Update> => {
-  /**
-   * 执行一些工作...（例如调用 LLM）
-   * 例如，使用 LangChain 您可以这样做：
-   *
-   * ```bash
-   * $ npm i @langchain/anthropic
-   * ```
-   *
-   * ```ts
-   * import { ChatAnthropic } from "@langchain/anthropic";
-   * const model = new ChatAnthropic({
-   *   model: "claude-3-5-sonnet-20240620",
-   *   apiKey: process.env.ANTHROPIC_API_KEY,
-   * });
-   * const res = await model.invoke(state.messages);
-   * ```
-   *
-   * 或者，直接使用 SDK：
-   *
-   * ```bash
-   * $ npm i openai
-   * ```
-   *
-   * ```ts
-   * import OpenAI from "openai";
-   * const openai = new OpenAI({
-   *   apiKey: process.env.OPENAI_API_KEY,
-   * });
-   *
-   * const chatCompletion = await openai.chat.completions.create({
-   *   messages: [{
-   *     role: state.messages[0]._getType(),
-   *     content: state.messages[0].content,
-   *   }],
-   *   model: "gpt-4o-mini",
-   * });
-   * ```
-   */
+): Promise<typeof AgentState.Update> => {
   console.log("Current state:", state);
+  // console.log("current config", config);
+  // try {
+  //   const res = await ollama.invoke(state.messages)
+  //   console.log(res);
+  //   return {
+  //     messages: [
+  //       {
+  //         role: "assistant",
+  //         content: res.content,
+  //       },
+  //     ],
+  //   };
+  // } catch (error) {
+  //   console.error(error);
+  // }
+
   return {
-    messages: [
-      {
-        role: "assistant",
-        content: `Hi there! How are you?`,
-      },
-    ],
+    messages: [{ role: "assistant", content: "Hello!" }],
+    userQuery: "bbb",
+    totalTokens: 1,
   };
 };
 
@@ -74,8 +43,10 @@ const callModel = async (
  * @returns 返回 "callModel" 继续研究或 END 结束构建器
  */
 export const route = (
-  state: typeof StateAnnotation.State,
+  state: typeof AgentState.State,
 ): "__end__" | "callModel" => {
+  console.log("route", state);
+
   if (state.messages.length > 0) {
     return "__end__";
   }
@@ -84,7 +55,7 @@ export const route = (
 };
 
 // 最后，创建图本身。
-const builder = new StateGraph(StateAnnotation)
+const builder = new StateGraph(AgentState)
   // 添加节点来执行工作。
   // 以这种方式将节点链接在一起
   // 会更新 StateGraph 实例的类型
