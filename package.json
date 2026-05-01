@@ -5,9 +5,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "esbuild src/agent/index.ts --bundle --platform=node --format=esm --outfile=dist/agent/index.js --external:dotenv --external:ollama --external:openai",
     "start": "node dist/agent/index.js",
-    "dev": "nodemon --exec ts-node --esm src/agent/index.ts"
+    "dev": "nodemon --exec tsx src/agent/index.ts"
   },
   "repository": {
     "type": "git",
@@ -31,12 +31,16 @@
     "lodash": "^4.18.1",
     "lodash-es": "^4.18.1",
     "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.16",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
     "js-yaml": "^4.1.1",
     "nodemon": "^3.1.14",
-    "ollama": "^0.6.3"
+    "ollama": "^0.6.3",
+    "openai": "^6.35.0",
+    "uuid": "^14.0.0"
   }
 }

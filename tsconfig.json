@@ -7,7 +7,6 @@
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-    "module": "nodenext",
     "target": "esnext",
     "types": ["node"],
     // For nodejs:
@@ -23,6 +22,7 @@
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "ignoreDeprecations": "6.0",
 
     // Style Options
     // "noImplicitReturns": true,
@@ -41,6 +41,16 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
-    "noEmit": true
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": true,
+
+    // 为了和 esbuild/tsx 配合，使用 bundler 模块解析
+    "module": "ESNext",
+    "moduleResolution": "bundler",  // 关键！
+    "paths": {
+      "@/*": ["*"]
+    },
+    "baseUrl": "./src"
+
   }
 }

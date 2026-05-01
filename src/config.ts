@@ -5,18 +5,17 @@ import path from 'path';
 
 dotenv.config();
 
-type LLMProvider = Record<string, string | undefined>;
+type LLMProvider = Record<string, string | boolean | undefined>;
 
 interface LLMConfig {
-  providers: {
-    ollama: LLMProvider;
-    openai: LLMProvider;
-  };
+  providers: Record<string, LLMProvider>;
 }
 
 interface Config {
   llm: LLMConfig;
 }
+
+const missingEnvVars: string[] = [];
 
 function replaceEnvVars(value: unknown): unknown {
   if (typeof value === 'string') {
@@ -25,7 +24,8 @@ function replaceEnvVars(value: unknown): unknown {
       const envVarName = envVarMatch[1];
       const envValue = process.env[envVarName];
       if (!envValue) {
-        throw new Error(`Environment variable ${envVarName} is not defined`);
+        missingEnvVars.push(envVarName);
+        return value; // 原样返回
       }
       return envValue;
     }
@@ -58,6 +58,10 @@ function loadConfig(): Config {
   const rawConfig = yaml.load(configFile) as Config;
 
   const config = replaceEnvVars(rawConfig) as Config;
+
+  if (missingEnvVars.length > 0) {
+    console.warn(`⚠️ 环境变量未配置: ${missingEnvVars.join(', ')}`);
+  }
 
   return config;
 }

@@ -7,3 +7,9 @@ llm:
       url: https://api.openai.com/v1
       model: gpt-3.5-turbo
       key: $OPENAI_API_KEY
+    # 模型适配器名称
+    longcat:
+      url: https://api.longcat.chat/openai
+      model: LongCat-Flash-Thinking-2601
+      key: $LONGCAT_API_KEY
+      thinking: true
