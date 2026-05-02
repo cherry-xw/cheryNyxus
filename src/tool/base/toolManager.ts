@@ -1,7 +1,6 @@
 import type { Tool } from "./toolCreator";
 import type { ZodType } from "zod";
-import type { ToolAdapter } from "../adapter/toolAdapter";
-import { getAdapter } from "../adapter/index";
+import { getToolAdapter, type ToolAdapter } from "../adapter";
 
 /**
  * 工具管理器
@@ -14,10 +13,14 @@ export class ToolManager {
 
   /**
    * 构造函数
-   * @param provider - provider 名称，用于自动选择 adapter
+   * @param provider - provider 名称，用于从注册表获取 adapter
    */
   constructor(provider: string) {
-    this._adapter = getAdapter(provider);
+    const adapter = getToolAdapter(provider);
+    if (!adapter) {
+      throw new Error(`Tool adapter for provider "${provider}" not registered`);
+    }
+    this._adapter = adapter;
   }
 
   /**
@@ -140,6 +143,8 @@ export class ToolManager {
     if (!tool) {
       return `Error: Tool "${name}" not found`;
     }
-    return tool.executor.execute(args as Parameters<typeof tool.executor.execute>[0]);
+    return tool.executor.execute(
+      args as Parameters<typeof tool.executor.execute>[0],
+    );
   }
 }

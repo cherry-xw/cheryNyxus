@@ -35,7 +35,7 @@ export const providerRegistry = new Map<string, ProviderAdapter>();
 /**
  * 注册 provider 的 adapter
  */
-export function registerAdapter<T, TStream = unknown>(
+export function registerMessageAdapter<T, TStream = unknown>(
   provider: string,
   adapter: ProviderAdapter<T, TStream>,
 ): void {
@@ -45,7 +45,7 @@ export function registerAdapter<T, TStream = unknown>(
 /**
  * 获取 provider 的 adapter
  */
-export function getAdapter<T = unknown, TStream = unknown>(
+export function getMessageAdapter<T = unknown, TStream = unknown>(
   provider: string,
 ): ProviderAdapter<T, TStream> | undefined {
   return providerRegistry.get(provider) as ProviderAdapter<T, TStream> | undefined;

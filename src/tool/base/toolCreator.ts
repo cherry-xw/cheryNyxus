@@ -40,7 +40,7 @@ export function tool<T extends z.ZodType>(
   description: string,
   schema: T,
   handler: (input: z.infer<T>) => Promise<string>,
-  supervisionLevel: SupervisionLevel = SupervisionLevel.confirm
+  supervisionLevel: SupervisionLevel = SupervisionLevel.confirm,
 ): Tool<T> {
   const jsonSchema = (schema as any).toJSONSchema();
 

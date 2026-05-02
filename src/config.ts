@@ -1,8 +1,8 @@
-import dotenv from 'dotenv';
-import yaml from 'js-yaml';
-import fs from 'fs';
-import path from 'path';
-import { SupervisionLevel } from '@/llm/types';
+import dotenv from "dotenv";
+import yaml from "js-yaml";
+import fs from "fs";
+import path from "path";
+import { SupervisionLevel } from "@/llm/types";
 
 dotenv.config();
 
@@ -13,7 +13,7 @@ type LLMProvider = {
   thinking?: boolean;
   provider: string;
   tool_group?: string; // 使用哪个tool group
-}
+};
 
 interface LLMConfig {
   clients: Record<string, LLMProvider>;
@@ -35,7 +35,7 @@ interface Config {
 const missingEnvVars: string[] = [];
 
 function replaceEnvVars(value: unknown): unknown {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const envVarMatch = value.match(/^\$([A-Z_][A-Z0-9_]*)$/);
     if (envVarMatch && envVarMatch[1]) {
       const envVarName = envVarMatch[1];
@@ -53,7 +53,7 @@ function replaceEnvVars(value: unknown): unknown {
     return value.map(replaceEnvVars);
   }
 
-  if (typeof value === 'object' && value !== null) {
+  if (typeof value === "object" && value !== null) {
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value)) {
       result[key] = replaceEnvVars(val);
@@ -65,19 +65,19 @@ function replaceEnvVars(value: unknown): unknown {
 }
 
 function loadConfig(): Config {
-  const configPath = path.join(process.cwd(), 'config.yaml');
+  const configPath = path.join(process.cwd(), "config.yaml");
 
   if (!fs.existsSync(configPath)) {
     throw new Error(`Config file not found: ${configPath}`);
   }
 
-  const configFile = fs.readFileSync(configPath, 'utf8');
+  const configFile = fs.readFileSync(configPath, "utf8");
   const rawConfig = yaml.load(configFile) as Config;
 
   const config = replaceEnvVars(rawConfig) as Config;
 
   if (missingEnvVars.length > 0) {
-    console.warn(`⚠️ 环境变量未配置: ${missingEnvVars.join(', ')}`);
+    console.warn(`⚠️ 环境变量未配置: ${missingEnvVars.join(", ")}`);
   }
 
   return config;

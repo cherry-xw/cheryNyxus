@@ -5,14 +5,8 @@ import { SupervisionLevel } from "@/llm/types";
 
 const ReadSchema = z.object({
   path: z.string().describe("文件路径，例如: /path/to/file.txt"),
-  limit: z
-    .number()
-    .describe("读取的行数限制，默认读取全部内容")
-    .optional(),
-  offset: z
-    .number()
-    .describe("起始行号偏移量，默认从第0行开始")
-    .optional(),
+  limit: z.number().describe("读取的行数限制，默认读取全部内容").optional(),
+  offset: z.number().describe("起始行号偏移量，默认从第0行开始").optional(),
 });
 
 export const readTool = tool(
@@ -45,5 +39,5 @@ export const readTool = tool(
       return `错误：读取文件 "${input.path}" 失败 - ${(error as Error).message}`;
     }
   },
-  SupervisionLevel.auto // read_file是安全操作，允许自动执行
+  SupervisionLevel.auto, // read_file是安全操作，允许自动执行
 );

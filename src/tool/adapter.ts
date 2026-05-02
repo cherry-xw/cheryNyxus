@@ -1,4 +1,4 @@
-import type { Tool } from "../base/toolCreator";
+import type { Tool } from "./base/toolCreator";
 import type { ZodType } from "zod";
 
 /**
@@ -60,4 +60,26 @@ export interface ToolAdapter {
    * 获取工具调用增量的参数片段（可选）
    */
   getToolCallDeltaArguments(delta: unknown): string | undefined;
+}
+
+/**
+ * Tool Adapter 注册表
+ */
+export const toolAdapterRegistry = new Map<string, ToolAdapter>();
+
+/**
+ * 注册 provider 的 tool adapter
+ */
+export function registerToolAdapter(
+  provider: string,
+  adapter: ToolAdapter,
+): void {
+  toolAdapterRegistry.set(provider, adapter);
+}
+
+/**
+ * 获取 provider 的 tool adapter
+ */
+export function getToolAdapter(provider: string): ToolAdapter | undefined {
+  return toolAdapterRegistry.get(provider);
 }

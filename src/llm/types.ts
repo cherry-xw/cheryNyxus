@@ -1,5 +1,5 @@
 import type { LLMStreamChunk } from "@/message/messageFactory";
-import type { ToolManager } from "@/tool/base/toolManager";
+import type { ToolManager } from "@/tool/index";
 
 /**
  * 工具调用累积器（流式工具调用增量累积）

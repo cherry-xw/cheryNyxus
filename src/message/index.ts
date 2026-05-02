@@ -8,4 +8,4 @@ export {
   type Role,
 } from "./messageFactory";
 
-export { getAdapter, registerAdapter, type ProviderAdapter } from "./adapter";
+export * from "./adapter";

@@ -1,4 +1,9 @@
-export { tool, type Tool, type ToolFunction, type ToolExecutor } from "./base/toolCreator";
+export {
+  tool,
+  type Tool,
+  type ToolFunction,
+  type ToolExecutor,
+} from "./base/toolCreator";
+export * from "./adapter.ts";
 export { ToolManager } from "./base/toolManager";
-export { type ToolAdapter, OpenAIAdapter, OllamaAdapter, adapterMap, getAdapter } from "./adapter/index";
 export { readTool } from "./read";
