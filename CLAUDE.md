@@ -4,40 +4,86 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-cheryClaw 是一个 TypeScript 项目，用于与多个 LLM 提供商（Ollama、OpenAI、LongCat）进行交互。
+cheryClaw 是一个多 LLM Agent 框架，支持 Ollama、OpenAI 等提供商。核心特性：Tool 调用监管、流式响应、两阶段执行。
 
 ## 常用命令
 
 ```bash
-# 开发模式（热重载）
-yarn dev
-
-# 编译 TypeScript
-yarn build
-
-# 运行编译后的代码
-yarn start
+yarn dev          # 开发模式（nodemon + tsx 热重载）
+yarn build        # esbuild 打包到 dist/
+yarn start        # 运行编译产物
 ```
 
-## 架构
+开发时无需编译验证，`yarn dev` 自动重载，人工验证即可。
 
+## 架构设计模式
+
+### Builder 模式 - Agent 配置
+[builder.ts](src/agent/builder.ts) 提供链式配置：
+```ts
+createAgent().use("longcat").bindTools(readTool).build()
 ```
-src/
-├── agent/index.ts    # 应用入口点
-├── config.ts         # 配置加载器，从 config.yaml 读取并替换环境变量
-└── llm/              # LLM 提供商封装
-    ├── ollama.ts     # Ollama API 客户端
-    └── longcat.ts    # LongCat API 客户端（待实现）
-```
 
-## 配置
+### Adapter 模式 - 双层适配
+- **消息适配器** [message/adapter.ts](src/message/adapter.ts): 统一不同 provider 的响应格式（role/content/thinking/toolCalls）
+- **工具适配器** [tool/adapter/](src/tool/adapter/index.ts): 统一工具定义和调用格式（buildTools/parseToolCallArguments）
 
-- `config.yaml` 定义 LLM 提供商配置（URL、模型名称、API 密钥）
-- 使用 `$ENV_VAR_NAME` 语法引用环境变量
-- `.env` 文件存储环境变量（OLLAMA_HOST、OPENAI_API_KEY、LONGCAT_API_KEY）
+### 模板方法模式 - LLM Client
+[base.ts](src/llm/base.ts) 封装公共流程（send/sendStream），子类实现 `_buildMessages`/`chat`/`chatStream`。
+
+### 工厂模式 - Provider 注册
+[llm/index.ts](src/llm/index.ts) 导出 `{ ollama, openai }` 工厂函数，与 config.yaml `provider` 字段对应。
+
+## 核心流程
+
+### 两阶段执行（Tool 监管）
+`send()` 方法根据 `SupervisionLevel` 决定执行策略：
+- `auto` (0): 自动执行，无需确认
+- `confirm` (1): 返回 `pending` 状态，需调用 `confirmToolCall(true/false)`
+- `manual` (2): 禁止自动执行，仅手动触发
+
+配置路径：
+- Tool 定义: `tool()` 函数的 `supervisionLevel` 参数
+- 客户端配置: `config.yaml` → `tool_groups.*.auto_execute_level`
+
+### 消息累积
+[messageFactory.ts](src/message/messageFactory.ts) 的 `accumulateMessages()` 维护会话历史，支持多轮对话。
+
+## 配置系统
+
+- `config.yaml`: LLM 客户端配置 + Tool 分组配置
+- `$ENV_VAR_NAME` 语法引用环境变量（由 [config.ts](src/config.ts) 替换）
+- `.env`: 存储 API 密钥等敏感信息
 
 ## TypeScript 配置
 
-项目使用严格的 TypeScript 配置，启用 `noUncheckedIndexedAccess` 和 `exactOptionalPropertyTypes`。模块系统为 ESM（`"type": "module"` in package.json）。
+- ESM 模块（`"type": "module"`）
+- 严格模式: `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`
+- bundler 模块解析（配合 esbuild/tsx）
+- 路径别名: `@/*` 映射到 `src/*`
 
-开发后不用编译验证，项目已经启动，保存会自动重新执行，人工验证即可。
+## 添加新 LLM Provider
+
+1. 创建 `src/llm/newprovider.ts`，继承 `BaseLLMClient`
+2. 实现 `_buildMessages`/`chat`/`chatStream` 抽象方法
+3. 注册消息适配器: `registerAdapter("newprovider", { role, content, ... })`
+4. 注册工具适配器: 在 [tool/adapter/index.ts](src/tool/adapter/index.ts) 添加 `NewProviderAdapter`
+5. 在 [llm/index.ts](src/llm/index.ts) 导出工厂函数
+6. 在 `config.yaml` 添加客户端配置，`provider` 字段设为 `"newprovider"`
+
+## 添加新 Tool
+
+使用 [toolCreator.ts](src/tool/base/toolCreator.ts) 的 `tool()` 函数：
+```ts
+export const myTool = tool(
+  "my_tool",                    // 名称
+  "描述工具功能",                 // 描述
+  z.object({ path: z.string() }), // Zod schema
+  async ({ path }) => "...",     // 执行函数
+  SupervisionLevel.confirm       // 监管等级（可选）
+);
+```
+
+## 测试文件
+
+`test/` 目录包含临时测试脚本，非正式测试套件。

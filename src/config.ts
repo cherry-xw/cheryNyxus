@@ -2,17 +2,34 @@ import dotenv from 'dotenv';
 import yaml from 'js-yaml';
 import fs from 'fs';
 import path from 'path';
+import { SupervisionLevel } from '@/llm/types';
 
 dotenv.config();
 
-type LLMProvider = Record<string, string | boolean | undefined>;
+type LLMProvider = {
+  url: string;
+  model: string;
+  key?: string;
+  thinking?: boolean;
+  provider: string;
+  tool_group?: string; // 使用哪个tool group
+}
 
 interface LLMConfig {
-  providers: Record<string, LLMProvider>;
+  clients: Record<string, LLMProvider>;
+}
+
+/**
+ * Tool Group 配置
+ */
+interface ToolGroupConfig {
+  auto_execute_level: keyof typeof SupervisionLevel; // 允许自动执行的监管等级
+  tools: string[]; // 包含的tool名称列表
 }
 
 interface Config {
   llm: LLMConfig;
+  tool_groups?: Record<string, ToolGroupConfig>; // tool分组配置
 }
 
 const missingEnvVars: string[] = [];
@@ -66,7 +83,8 @@ function loadConfig(): Config {
   return config;
 }
 
-export const config = loadConfig();
+const config = loadConfig();
 console.log(JSON.stringify(config));
 
-export type { Config, LLMConfig, LLMProvider };
+export type { Config, LLMConfig, LLMProvider, ToolGroupConfig };
+export default config;

@@ -1,15 +1,33 @@
 llm:
-  providers:
-    ollama:
-      url: $OLLAMA_HOST
+  clients:
+    ollama: # 自定义name
+      url: $OLLAMA_HOST # $xxx 在.env中定义
       model: gemma3:1b
+      thinking: false # 思考模式（使用 deepseek-r1 等模型时改为 true）
+      provider: ollama # 用于选择哪个llm，需要与message中的provider对应
+      tool_group: safe_tools # 使用的tool group名称
     openai:
       url: https://api.openai.com/v1
       model: gpt-3.5-turbo
       key: $OPENAI_API_KEY
-    # 模型适配器名称
+      provider: openai
+      tool_group: safe_tools
     longcat:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
       key: $LONGCAT_API_KEY
-      thinking: true
+      thinking: true # 思考模式
+      provider: openai
+      tool_group: safe_tools
+
+# Tool分组配置
+tool_groups:
+  safe_tools:
+    auto_execute_level: auto # 允许自动执行的监管等级（auto/confirm/manual）
+    tools:
+      - read_file
+  dangerous_tools:
+    auto_execute_level: manual # 禁止自动执行，需手动触发
+    tools:
+      - delete_file
+      - execute_command

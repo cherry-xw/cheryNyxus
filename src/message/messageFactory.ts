@@ -12,7 +12,7 @@ export type ProviderType = string;
  * 统一 LLM 响应结构
  */
 export interface LLMResponse<T = unknown> {
-  /** 请求唯一标识（SDK原生id或生成） */
+  /** 请求唯一标识（原生id或生成） */
   id: string;
   role: Role;
   /** 统一提取的文本内容 */
