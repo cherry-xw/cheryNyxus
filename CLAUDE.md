@@ -26,10 +26,10 @@ createAgent().use("longcat").bindTools(readTool).build()
 
 ### Adapter 模式 - 双层适配
 - **消息适配器** [message/adapter.ts](src/message/adapter.ts): 统一不同 provider 的响应格式（role/content/thinking/toolCalls）
-- **工具适配器** [tool/adapter/](src/tool/adapter/index.ts): 统一工具定义和调用格式（buildTools/parseToolCallArguments）
+- **工具适配器** [tool/adapter.ts](src/tool/adapter.ts): 统一工具定义和调用格式（buildTools/parseToolCallArguments）
 
 ### 模板方法模式 - LLM Client
-[base.ts](src/llm/base.ts) 封装公共流程（send/sendStream），子类实现 `_buildMessages`/`chat`/`chatStream`。
+[base.ts](src/llm/index.ts) 封装公共流程（send/sendStream），子类实现 `_buildMessages`/`chat`/`chatStream`。
 
 ### 工厂模式 - Provider 注册
 [llm/index.ts](src/llm/index.ts) 导出 `{ ollama, openai }` 工厂函数，与 config.yaml `provider` 字段对应。
@@ -47,7 +47,19 @@ createAgent().use("longcat").bindTools(readTool).build()
 - 客户端配置: `config.yaml` → `tool_groups.*.auto_execute_level`
 
 ### 消息累积
-[messageFactory.ts](src/message/messageFactory.ts) 的 `accumulateMessages()` 维护会话历史，支持多轮对话。
+
+[messageFactory.ts](src/message/messageFactory.ts) 的 `accumulateMessages()` 维护会话历史：
+
+- 内存存储：`messageStore` Map（sessionId → messages）
+- 同 threadId 消息更新而非追加，支持多轮对话
+
+### 流式响应（Tool Call 累积）
+
+`sendStream()` 处理流式工具调用：
+
+- `_processToolCallDelta()` 累积每个 chunk 的增量（id/name/arguments）
+- `_finalizeToolCalls()` 完成累积后执行工具
+- 流式模式下工具调用自动执行（不支持两阶段确认）
 
 ## 配置系统
 
@@ -67,7 +79,7 @@ createAgent().use("longcat").bindTools(readTool).build()
 1. 创建 `src/llm/newprovider.ts`，继承 `BaseLLMClient`
 2. 实现 `_buildMessages`/`chat`/`chatStream` 抽象方法
 3. 注册消息适配器: `registerAdapter("newprovider", { role, content, ... })`
-4. 注册工具适配器: 在 [tool/adapter/index.ts](src/tool/adapter/index.ts) 添加 `NewProviderAdapter`
+4. 注册工具适配器: 在 [tool/adapter.ts](src/tool/adapter.ts) 调用 `registerToolAdapter("newprovider", { ... })`
 5. 在 [llm/index.ts](src/llm/index.ts) 导出工厂函数
 6. 在 `config.yaml` 添加客户端配置，`provider` 字段设为 `"newprovider"`
 

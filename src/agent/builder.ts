@@ -1,8 +1,6 @@
-import type { LLMClient, ClientConfigBase } from "@/llm/types";
-import type { Tool } from "@/tool/toolCreator";
+import type { Tool } from "@/tool/index";
 import type { ZodType } from "zod";
-import type { ToolGroupConfig } from "@/config";
-import llm from "@/llm/index";
+import llm, { type LLMClient, type ClientConfigBase } from "../llm/index";
 import config from "@/config";
 import { randomUUID } from "crypto";
 import { SupervisionLevel } from "@/llm/types";
@@ -76,15 +74,17 @@ export class AgentBuilder {
     let filteredTools = this.tools;
     if (toolGroupName && config.tool_groups?.[toolGroupName]) {
       const toolGroup = config.tool_groups[toolGroupName];
-      filteredTools = this.tools.filter(t =>
-        toolGroup.tools.includes(t.definition.function.name)
+      filteredTools = this.tools.filter((t) =>
+        toolGroup.tools.includes(t.definition.function.name),
       );
     }
 
     // 设置 autoExecuteLevel 到 clientConfig（仅在有值时添加）
     const enhancedConfig = {
       ...this.clientConfig,
-      ...(this.autoExecuteLevel !== undefined && { autoExecuteLevel: this.autoExecuteLevel }),
+      ...(this.autoExecuteLevel !== undefined && {
+        autoExecuteLevel: this.autoExecuteLevel,
+      }),
     };
 
     // 创建 client（工厂函数签名：sessionId + config）
