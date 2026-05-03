@@ -9,7 +9,7 @@ import { registerToolAdapter, type Tool } from "@/tool/index";
 import type { ZodType } from "zod";
 import type {
   ChatCompletionTool,
-  ChatCompletionMessageToolCall,
+  ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
 
 /**
@@ -21,7 +21,8 @@ export interface OpenAIConfig extends ClientConfigBase {}
 
 registerMessageAdapter<
   ChatCompletion,
-  OpenAI.Chat.Completions.ChatCompletionChunk
+  OpenAI.Chat.Completions.ChatCompletionChunk,
+  ChatCompletionMessageParam
 >("openai", {
   role: () => "assistant",
   content: (raw) => raw.choices[0]?.message?.content ?? "",
@@ -43,6 +44,11 @@ registerMessageAdapter<
   },
   extractStreamToolCallDeltas: (chunk) =>
     chunk.choices[0]?.delta?.tool_calls ?? [],
+  buildMessages: (history) =>
+    history.map((m) => ({
+      role: m.role,
+      content: m.content,
+    })) as ChatCompletionMessageParam[],
   wrapFinalResponse: (threadId, content, thinking, raw) => {
     const response: LLMResponse<ChatCompletion | null> = {
       id: raw?.id ?? `openai-${Date.now()}`,
@@ -61,7 +67,11 @@ registerMessageAdapter<
 
 // ========== OpenAI tool Adapter 注册 ==========
 
-registerToolAdapter("openai", {
+registerToolAdapter<
+  ChatCompletionMessageFunctionToolCall,
+  ChatCompletionMessageParam,
+  ChatCompletion
+>("openai", {
   buildTools(tools: Tool<ZodType>[]): unknown[] {
     return tools.map((t) => ({
       type: "function",
@@ -74,15 +84,21 @@ registerToolAdapter("openai", {
     })) as ChatCompletionTool[];
   },
 
-  buildToolCallMessage(content: string, toolCalls: unknown[]): unknown {
+  buildToolCallMessage(
+    content: string,
+    toolCalls: ChatCompletionMessageFunctionToolCall[],
+  ): ChatCompletionMessageParam {
     return {
       role: "assistant",
       content,
-      tool_calls: toolCalls as ChatCompletionMessageToolCall[],
+      tool_calls: toolCalls,
     } as ChatCompletionMessageParam;
   },
 
-  buildToolResponseMessage(toolCallId: string, result: string): unknown {
+  buildToolResponseMessage(
+    toolCallId: string,
+    result: string,
+  ): ChatCompletionMessageParam {
     return {
       role: "tool",
       tool_call_id: toolCallId,
@@ -90,49 +106,46 @@ registerToolAdapter("openai", {
     } as ChatCompletionMessageParam;
   },
 
-  parseToolCallArguments(raw: unknown): Record<string, unknown> {
-    const tc = raw as { function?: { arguments?: string } };
-    const argsJson = tc.function?.arguments ?? "{}";
+  parseToolCallArguments(
+    raw: ChatCompletionMessageFunctionToolCall,
+  ): Record<string, unknown> {
+    const argsJson = raw.function?.arguments ?? "{}";
     return JSON.parse(argsJson) as Record<string, unknown>;
   },
 
-  getToolCallName(raw: unknown): string {
-    const tc = raw as { function?: { name?: string } };
-    return tc.function?.name ?? "";
+  getToolCallName(raw: ChatCompletionMessageFunctionToolCall): string {
+    return raw.function?.name ?? "";
   },
 
-  getToolCallId(raw: unknown): string {
-    const tc = raw as { id?: string };
-    return tc.id ?? "";
+  getToolCallId(raw: ChatCompletionMessageFunctionToolCall): string {
+    return raw.id ?? "";
   },
 
-  extractToolCalls(response: unknown): unknown[] {
-    const completion = response as {
-      choices?: Array<{ message?: { tool_calls?: unknown[] } }>;
-    };
-    return (completion.choices?.[0]?.message?.tool_calls ?? []) as unknown[];
+  extractToolCalls(response: ChatCompletion): ChatCompletionMessageFunctionToolCall[] {
+    return (response.choices?.[0]?.message?.tool_calls ?? []) as ChatCompletionMessageFunctionToolCall[];
   },
 
-  extractToolCallDeltas(chunk: unknown): unknown[] {
+  extractToolCallDeltas(chunk: unknown): ChatCompletionMessageFunctionToolCall[] {
     const streamChunk = chunk as {
       choices?: Array<{ delta?: { tool_calls?: unknown[] } }>;
     };
-    return (streamChunk.choices?.[0]?.delta?.tool_calls ?? []) as unknown[];
+    return (streamChunk.choices?.[0]?.delta?.tool_calls ?? []) as ChatCompletionMessageFunctionToolCall[];
   },
 
-  getToolCallDeltaId(delta: unknown): string {
-    const tc = delta as { id?: string };
-    return tc.id ?? "";
+  getToolCallDeltaId(delta: ChatCompletionMessageFunctionToolCall): string {
+    return delta.id ?? "";
   },
 
-  getToolCallDeltaName(delta: unknown): string | undefined {
-    const tc = delta as { function?: { name?: string } };
-    return tc.function?.name;
+  getToolCallDeltaName(
+    delta: ChatCompletionMessageFunctionToolCall,
+  ): string | undefined {
+    return delta.function?.name;
   },
 
-  getToolCallDeltaArguments(delta: unknown): string | undefined {
-    const tc = delta as { function?: { arguments?: string } };
-    return tc.function?.arguments;
+  getToolCallDeltaArguments(
+    delta: ChatCompletionMessageFunctionToolCall,
+  ): string | undefined {
+    return delta.function?.arguments;
   },
 });
 
@@ -151,13 +164,6 @@ class OpenAIClient extends BaseLLMClient<OpenAIConfig> {
   }
 
   // ========== 特定实现 ==========
-
-  protected _buildMessages(history: LLMResponse[]): unknown[] {
-    return history.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })) as ChatCompletionMessageParam[];
-  }
 
   protected async chat(
     messages: unknown[],

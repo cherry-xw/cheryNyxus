@@ -4,13 +4,7 @@ import type {
   ToolCallAccumulator,
 } from "./types";
 import { SupervisionLevel } from "./types";
-import {
-  createUserMessage,
-  accumulateMessages,
-  getMessageAdapter,
-  type LLMResponse,
-  type LLMStreamChunk,
-} from "@/message/index";
+import { MessageAdapter, type LLMStreamChunk } from "@/message/index";
 import { ToolManager } from "@/tool/index";
 
 /**
@@ -21,7 +15,7 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
   readonly config: TConfig;
   protected sessionId: string;
   readonly tool: ToolManager;
-  protected adapter: NonNullable<ReturnType<typeof getMessageAdapter>>;
+  readonly message: MessageAdapter;
   /** 消息历史快照（用于两阶段执行恢复） */
   protected messageSnapshot: unknown[] = [];
   /** 待确认的tool调用（用于两阶段执行恢复） */
@@ -38,18 +32,10 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
     this.sessionId = sessionId;
     this.config = config;
     this.tool = new ToolManager(config.provider);
-    this.adapter = getMessageAdapter(config.provider)!;
-    if (!this.adapter) {
-      throw new Error(`Provider "${config.provider}" adapter not registered`);
-    }
+    this.message = new MessageAdapter(sessionId, config.provider);
   }
 
   // ========== 特定抽象方法 ==========
-
-  /**
-   * 构建 特定的消息数组
-   */
-  protected abstract _buildMessages(history: LLMResponse[]): unknown[];
 
   /**
    * 调用ai对话（非流式）
@@ -78,7 +64,7 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
     chunk: unknown,
     accumulated: Map<string, ToolCallAccumulator>,
   ): void {
-    const deltas = this.adapter.extractStreamToolCallDeltas?.(chunk) ?? [];
+    const deltas = this.message.extractStreamToolCallDeltas(chunk) ?? [];
     for (const delta of deltas) {
       const id = this.tool.getToolCallDeltaId(delta);
       if (id && !accumulated.has(id)) {
@@ -94,34 +80,24 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
     }
   }
 
-  /**
-   * 完成工具调用累积
-   */
-  protected _finalizeToolCalls(
-    accumulated: Map<string, ToolCallAccumulator>,
-  ): unknown[] {
-    return Array.from(accumulated.values());
-  }
-
   // ========== 模板方法（流程框架） ==========
 
   /**
    * 发送消息（两阶段执行）
    */
   async send(threadId: string, input: string): Promise<SendResult> {
-    const history = accumulateMessages(
-      this.sessionId,
-      createUserMessage(threadId, input),
+    const history = this.message.accumulate(
+      this.message.createUserMessage(threadId, input),
     );
-    const messages = this._buildMessages(history);
+    const messages = this.message.buildMessages(history);
     const tools = this.tool.getAll().length > 0 ? this.tool.buildTools() : [];
     const options = this.config.thinking ? { thinking: true } : undefined;
 
     let response = await this.chat(messages, tools, options);
 
-    let toolCalls = this.adapter.extractToolCalls?.(response) ?? [];
+    let toolCalls = this.message.extractToolCalls(response);
     while (toolCalls.length > 0) {
-      const content = this.adapter.content(response);
+      const content = this.message.content(response);
       messages.push(this.tool.buildToolCallMessage(content, toolCalls));
 
       for (const tc of toolCalls) {
@@ -156,18 +132,18 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
       }
 
       response = await this.chat(messages, tools, options);
-      toolCalls = this.adapter.extractToolCalls?.(response) ?? [];
+      toolCalls = this.message.extractToolCalls(response);
     }
 
-    const finalContent = this.adapter.content(response);
-    const finalThinking = this.adapter.thinking?.(response);
-    const llmres = this.adapter.wrapFinalResponse(
+    const finalContent = this.message.content(response);
+    const finalThinking = this.message.thinking(response);
+    const llmres = this.message.wrapFinalResponse(
       threadId,
       finalContent,
       finalThinking,
       response,
     );
-    accumulateMessages(this.sessionId, llmres as LLMResponse);
+    this.message.accumulate(llmres);
 
     return {
       status: "success",
@@ -201,15 +177,15 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
       );
 
       const response = await this.chat(messages, tools, options);
-      const finalContent = this.adapter.content(response);
-      const finalThinking = this.adapter.thinking?.(response);
-      const llmres = this.adapter.wrapFinalResponse(
+      const finalContent = this.message.content(response);
+      const finalThinking = this.message.thinking(response);
+      const llmres = this.message.wrapFinalResponse(
         threadId,
         finalContent,
         finalThinking,
         response,
       );
-      accumulateMessages(this.sessionId, llmres as LLMResponse);
+      this.message.accumulate(llmres);
 
       return {
         status: "success",
@@ -225,10 +201,10 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
     messages.push(this.tool.buildToolResponseMessage(toolCallId, result));
 
     let response = await this.chat(messages, tools, options);
-    let toolCalls = this.adapter.extractToolCalls?.(response) ?? [];
+    let toolCalls = this.message.extractToolCalls(response);
 
     while (toolCalls.length > 0) {
-      const content = this.adapter.content(response);
+      const content = this.message.content(response);
       messages.push(this.tool.buildToolCallMessage(content, toolCalls));
 
       for (const tc of toolCalls) {
@@ -263,18 +239,18 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
       }
 
       response = await this.chat(messages, tools, options);
-      toolCalls = this.adapter.extractToolCalls?.(response) ?? [];
+      toolCalls = this.message.extractToolCalls(response);
     }
 
-    const finalContent = this.adapter.content(response);
-    const finalThinking = this.adapter.thinking?.(response);
-    const llmres = this.adapter.wrapFinalResponse(
+    const finalContent = this.message.content(response);
+    const finalThinking = this.message.thinking(response);
+    const llmres = this.message.wrapFinalResponse(
       threadId,
       finalContent,
       finalThinking,
       response,
     );
-    accumulateMessages(this.sessionId, llmres as LLMResponse);
+    this.message.accumulate(llmres);
 
     return {
       status: "success",
@@ -290,11 +266,10 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
     threadId: string,
     input: string,
   ): AsyncGenerator<LLMStreamChunk<unknown>> {
-    const history = accumulateMessages(
-      this.sessionId,
-      createUserMessage(threadId, input),
+    const history = this.message.accumulate(
+      this.message.createUserMessage(threadId, input),
     );
-    const messages = this._buildMessages(history);
+    const messages = this.message.buildMessages(history);
     const tools = this.tool.getAll().length > 0 ? this.tool.buildTools() : [];
     const options = this.config.thinking ? { thinking: true } : undefined;
 
@@ -305,10 +280,10 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
 
     const stream = await this.chatStream(messages, tools, options);
     for await (const chunk of stream) {
-      const delta = this.adapter.extractStreamDelta(chunk);
+      const delta = this.message.extractStreamDelta(chunk);
       accumulated += delta;
 
-      const thinkingDelta = this.adapter.extractStreamThinking?.(chunk) ?? "";
+      const thinkingDelta = this.message.extractStreamThinking(chunk) ?? "";
       thinkingAccumulated += thinkingDelta;
 
       this._processToolCallDelta(chunk, toolCallsAccumulated);
@@ -327,7 +302,7 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
     }
 
     if (toolCallsAccumulated.size > 0) {
-      const toolCalls = this._finalizeToolCalls(toolCallsAccumulated);
+      const toolCalls = Array.from(toolCallsAccumulated.values());
       messages.push(this.tool.buildToolCallMessage(accumulated, toolCalls));
 
       for (const tc of toolCalls) {
@@ -340,10 +315,10 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
 
       const continueStream = await this.chatStream(messages, tools, options);
       for await (const chunk of continueStream) {
-        const delta = this.adapter.extractStreamDelta(chunk);
+        const delta = this.message.extractStreamDelta(chunk);
         accumulated += delta;
 
-        const thinkingDelta = this.adapter.extractStreamThinking?.(chunk) ?? "";
+        const thinkingDelta = this.message.extractStreamThinking(chunk) ?? "";
         thinkingAccumulated += thinkingDelta;
 
         if (delta || thinkingDelta) {
@@ -370,13 +345,13 @@ export abstract class BaseLLMClient<TConfig extends ClientConfigBase> {
       raw: null,
     };
 
-    const finalResponse = this.adapter.wrapFinalResponse(
+    const finalResponse = this.message.wrapFinalResponse(
       threadId,
       accumulated,
       thinkingAccumulated,
       null,
     );
-    accumulateMessages(this.sessionId, finalResponse as LLMResponse);
+    this.message.accumulate(finalResponse);
   }
 }
 

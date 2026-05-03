@@ -48,7 +48,7 @@ createAgent().use("longcat").bindTools(readTool).build()
 
 ### 消息累积
 
-[messageFactory.ts](src/message/messageFactory.ts) 的 `accumulateMessages()` 维护会话历史：
+[messageFactory.ts](src/message/messageFactory.ts) 的 `accumulate()` 维护会话历史：
 
 - 内存存储：`messageStore` Map（sessionId → messages）
 - 同 threadId 消息更新而非追加，支持多轮对话

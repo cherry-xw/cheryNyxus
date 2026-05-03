@@ -17,7 +17,7 @@ export interface OllamaConfig extends ClientConfigBase {}
 
 // ========== Ollama message Adapter 注册 ==========
 
-registerMessageAdapter<ChatResponse, ChatResponse>("ollama", {
+registerMessageAdapter<ChatResponse, ChatResponse, Message>("ollama", {
   role: (raw) => (raw.message?.role as "assistant") ?? "assistant",
   content: (raw) => raw.message?.content ?? "",
   thinking: (raw) => raw.message?.thinking ?? undefined,
@@ -25,6 +25,11 @@ registerMessageAdapter<ChatResponse, ChatResponse>("ollama", {
   extractStreamDelta: (chunk) => chunk.message?.content ?? "",
   extractStreamThinking: (chunk) => chunk.message?.thinking ?? undefined,
   extractStreamToolCallDeltas: (chunk) => chunk.message?.tool_calls ?? [],
+  buildMessages: (history) =>
+    history.map((m) => ({
+      role: m.role,
+      content: m.content,
+    })) as Message[],
   wrapFinalResponse: (threadId, content, thinking, raw) => {
     const response: LLMResponse<ChatResponse | null> = {
       id: `ollama-${Date.now()}`,
@@ -43,7 +48,7 @@ registerMessageAdapter<ChatResponse, ChatResponse>("ollama", {
 
 // ========== Ollama tool Adapter 注册 ==========
 
-registerToolAdapter("ollama", {
+registerToolAdapter<ToolCall, Message, ChatResponse>("ollama", {
   buildTools(tools: Tool<ZodType>[]): unknown[] {
     return tools.map((t) => ({
       type: "function",
@@ -55,58 +60,53 @@ registerToolAdapter("ollama", {
     })) as OllamaTool[];
   },
 
-  buildToolCallMessage(content: string, toolCalls: unknown[]): unknown {
+  buildToolCallMessage(content: string, toolCalls: ToolCall[]): Message {
     return {
       role: "assistant",
       content,
-      tool_calls: toolCalls as ToolCall[],
+      tool_calls: toolCalls,
     } as Message;
   },
 
-  buildToolResponseMessage(_toolCallId: string, result: string): unknown {
+  buildToolResponseMessage(_toolCallId: string, result: string): Message {
     return {
       role: "tool",
       content: result,
     } as Message;
   },
 
-  parseToolCallArguments(raw: unknown): Record<string, unknown> {
-    const tc = raw as ToolCall;
-    return (tc.function?.arguments as Record<string, unknown>) ?? {};
+  parseToolCallArguments(raw: ToolCall): Record<string, unknown> {
+    return (raw.function?.arguments as Record<string, unknown>) ?? {};
   },
 
-  getToolCallName(raw: unknown): string {
-    const tc = raw as ToolCall;
-    return tc.function?.name ?? "";
+  getToolCallName(raw: ToolCall): string {
+    return raw.function?.name ?? "";
   },
 
-  getToolCallId(_raw: unknown): string {
+  getToolCallId(_raw: ToolCall): string {
     return ""; // Ollama 不需要 tool_call_id
   },
 
-  extractToolCalls(response: unknown): unknown[] {
-    const chatResponse = response as { message?: { tool_calls?: unknown[] } };
-    return (chatResponse.message?.tool_calls ?? []) as ToolCall[];
+  extractToolCalls(response: ChatResponse): ToolCall[] {
+    return (response.message?.tool_calls ?? []) as ToolCall[];
   },
 
-  extractToolCallDeltas(chunk: unknown): unknown[] {
+  extractToolCallDeltas(chunk: unknown): ToolCall[] {
     const streamChunk = chunk as { message?: { tool_calls?: unknown[] } };
     return (streamChunk.message?.tool_calls ?? []) as ToolCall[];
   },
 
-  getToolCallDeltaId(_delta: unknown): string {
+  getToolCallDeltaId(_delta: ToolCall): string {
     return ""; // Ollama 不需要 tool_call_id
   },
 
-  getToolCallDeltaName(delta: unknown): string | undefined {
-    const tc = delta as ToolCall;
-    return tc.function?.name;
+  getToolCallDeltaName(delta: ToolCall): string | undefined {
+    return delta.function?.name;
   },
 
-  getToolCallDeltaArguments(delta: unknown): string | undefined {
-    const tc = delta as ToolCall;
+  getToolCallDeltaArguments(delta: ToolCall): string | undefined {
     // Ollama 的 arguments 是对象，需转为 JSON 字符串
-    const args = tc.function?.arguments as Record<string, unknown> | undefined;
+    const args = delta.function?.arguments as Record<string, unknown> | undefined;
     return args ? JSON.stringify(args) : undefined;
   },
 });
@@ -119,13 +119,6 @@ class OllamaClient extends BaseLLMClient<OllamaConfig> {
   }
 
   // ========== 特定实现 ==========
-
-  protected _buildMessages(history: LLMResponse[]): unknown[] {
-    return history.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })) as Message[];
-  }
 
   protected async chat(
     messages: unknown[],

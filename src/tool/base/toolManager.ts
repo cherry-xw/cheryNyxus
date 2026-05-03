@@ -9,7 +9,7 @@ import { getToolAdapter, type ToolAdapter } from "../adapter";
 export class ToolManager {
   private _tools: Tool<ZodType>[] = [];
   private _toolMap: Map<string, Tool<ZodType>> = new Map();
-  private _adapter: ToolAdapter;
+  private _adapter: ToolAdapter<any, any, any>;
 
   /**
    * 构造函数
@@ -51,7 +51,7 @@ export class ToolManager {
   /**
    * 获取 Tool Adapter（内部使用）
    */
-  private _getAdapter(): ToolAdapter {
+  private _getAdapter(): ToolAdapter<any, any, any> {
     return this._adapter;
   }
 
