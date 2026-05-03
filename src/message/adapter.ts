@@ -138,73 +138,10 @@ export class MessageAdapter<T = unknown, TStream = unknown, TMessage = unknown> 
     return this.messageStore;
   }
 
-  // ========== 适配器方法 ==========
-
   /**
-   * 构建特定 provider 的消息数组
+   * 获取底层适配器配置
    */
-  buildMessages(history: LLMResponse[]): TMessage[] {
-    return this.config.buildMessages(history) as TMessage[];
-  }
-
-  /**
-   * 从响应提取 role
-   */
-  role(raw: T): Role {
-    return this.config.role(raw);
-  }
-
-  /**
-   * 从响应提取 content
-   */
-  content(raw: T): string {
-    return this.config.content(raw);
-  }
-
-  /**
-   * 从响应提取 thinking
-   */
-  thinking(raw: T): string | undefined {
-    return this.config.thinking?.(raw);
-  }
-
-  /**
-   * 从响应提取 toolCalls
-   */
-  extractToolCalls(raw: T): unknown[] {
-    return this.config.extractToolCalls?.(raw) ?? [];
-  }
-
-  /**
-   * 从流式 chunk 提取 delta
-   */
-  extractStreamDelta(chunk: TStream): string {
-    return this.config.extractStreamDelta(chunk);
-  }
-
-  /**
-   * 从流式 chunk 提取 thinking delta
-   */
-  extractStreamThinking(chunk: TStream): string | undefined {
-    return this.config.extractStreamThinking?.(chunk);
-  }
-
-  /**
-   * 从流式 chunk 提取 toolCall deltas
-   */
-  extractStreamToolCallDeltas(chunk: TStream): unknown[] {
-    return this.config.extractStreamToolCallDeltas?.(chunk) ?? [];
-  }
-
-  /**
-   * 包装最终响应
-   */
-  wrapFinalResponse(
-    threadId: string,
-    content: string,
-    thinking?: string,
-    raw?: T,
-  ): LLMResponse<T | null> {
-    return this.config.wrapFinalResponse(threadId, content, thinking, raw);
+  getAdapter(): MessageProviderAdapterConfig<T, TStream, TMessage> {
+    return this.config;
   }
 }

@@ -5,7 +5,8 @@ import type {
   Message,
   Tool as OllamaTool,
 } from "ollama";
-import { BaseLLMClient, type ClientConfigBase } from "../llm/index";
+import { BaseLLMClient } from "../llm/base";
+import { type ClientConfigBase } from "../llm/types";
 import { registerMessageAdapter, type LLMResponse } from "@/message/index";
 import { registerToolAdapter, type Tool } from "@/tool/index";
 import type { ZodType } from "zod";
