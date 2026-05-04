@@ -1,10 +1,29 @@
-import createOllamaClient from "@/provider/ollama";
-import createOpenAIClient from "@/provider/openai";
+// 导出类型（不含 llmAdapter，避免冲突）
+export type { SendResult, ClientConfigBase, ToolCallAccumulator } from "./types";
+export { SupervisionLevel } from "./types";
 
-export { BaseLLMClient } from "./base";
-export * from "./types";
+// 导出 middleware（从新位置）
+export {
+  compose,
+  executeMiddleware,
+  executeUntilInterrupt,
+  createDefaultMiddlewareChain,
+  messageMiddleware,
+  toolMiddleware,
+  chunkMiddleware,
+  chatMiddleware,
+  continueToolExecution,
+} from "@/middleware/index";
+export type {
+  MiddlewareContext,
+  MiddlewareHandler,
+  MiddlewareChunk,
+  StreamChunk,
+  InterruptChunk,
+  DoneChunk,
+  LLMStreamChunk,
+  llmAdapter,
+} from "@/middleware/types";
 
-export default {
-  ollama: createOllamaClient,
-  openai: createOpenAIClient,
-};
+// 导出 adapter
+export { registerLLMAdapter, getLLMAdapter } from "./adapter";

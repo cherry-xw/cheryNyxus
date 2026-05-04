@@ -3,7 +3,6 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletion,
 } from "openai/resources/chat/completions";
-import { BaseLLMClient } from "../llm/base";
 import { type ClientConfigBase } from "../llm/types";
 import { registerMessageAdapter, type LLMResponse } from "@/message/index";
 import { registerToolAdapter, type Tool } from "@/tool/index";
@@ -12,45 +11,53 @@ import type {
   ChatCompletionTool,
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
+import { registerLLMAdapter } from "@/llm/adapter";
+import type { llmAdapter } from "@/middleware/types";
 
 /**
  * OpenAI/LongCat 配置扩展
  */
 export interface OpenAIConfig extends ClientConfigBase {}
 
-// ========== OpenAI message Adapter 注册 ==========
+// ========== Adapter 定义（参数分离）==========
 
-registerMessageAdapter<
-  ChatCompletion,
-  OpenAI.Chat.Completions.ChatCompletionChunk,
-  ChatCompletionMessageParam
->("openai", {
-  role: () => "assistant",
-  content: (raw) => raw.choices[0]?.message?.content ?? "",
-  thinking: (raw) => {
+// Message Adapter 配置
+const openaiMessageAdapterConfig = {
+  role: () => "assistant" as const,
+  content: (raw: ChatCompletion) => raw.choices[0]?.message?.content ?? "",
+  thinking: (raw: ChatCompletion) => {
     const msg = raw.choices[0]?.message;
     if (msg && "reasoning_content" in msg && msg.reasoning_content) {
       return msg.reasoning_content as string;
     }
     return undefined;
   },
-  extractToolCalls: (raw) => raw.choices[0]?.message?.tool_calls ?? [],
-  extractStreamDelta: (chunk) => chunk.choices[0]?.delta?.content ?? "",
-  extractStreamThinking: (chunk) => {
+  extractToolCalls: (raw: ChatCompletion) => raw.choices[0]?.message?.tool_calls ?? [],
+  extractStreamDelta: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) => chunk.choices[0]?.delta?.content ?? "",
+  extractStreamThinking: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) => {
     const delta = chunk.choices[0]?.delta;
     if (delta && "reasoning_content" in delta && delta.reasoning_content) {
       return delta.reasoning_content as string;
     }
     return undefined;
   },
-  extractStreamToolCallDeltas: (chunk) =>
+  extractStreamToolCallDeltas: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) =>
     chunk.choices[0]?.delta?.tool_calls ?? [],
-  buildMessages: (history) =>
-    history.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })) as ChatCompletionMessageParam[],
-  wrapFinalResponse: (threadId, content, thinking, raw) => {
+  buildMessages: (history: LLMResponse[]) =>
+    history.map((m) => {
+      if (m.role === "tool") {
+        return {
+          role: "tool",
+          tool_call_id: (m.raw as { toolCallId: string }).toolCallId,
+          content: m.content,
+        } as ChatCompletionMessageParam;
+      }
+      return {
+        role: m.role,
+        content: m.content,
+      } as ChatCompletionMessageParam;
+    }),
+  wrapFinalResponse: (threadId: string, content: string, thinking?: string, raw?: ChatCompletion) => {
     const response: LLMResponse<ChatCompletion | null> = {
       id: raw?.id ?? `openai-${Date.now()}`,
       role: "assistant",
@@ -64,15 +71,10 @@ registerMessageAdapter<
     if (thinking) response.thinking = thinking;
     return response;
   },
-});
+};
 
-// ========== OpenAI tool Adapter 注册 ==========
-
-registerToolAdapter<
-  ChatCompletionMessageFunctionToolCall,
-  ChatCompletionMessageParam,
-  ChatCompletion
->("openai", {
+// Tool Adapter 配置
+const openaiToolAdapterConfig = {
   buildTools(tools: Tool<ZodType>[]): unknown[] {
     return tools.map((t) => ({
       type: "function",
@@ -148,65 +150,72 @@ registerToolAdapter<
   ): string | undefined {
     return delta.function?.arguments;
   },
-});
+};
 
-/**
- * OpenAI Client 实现
- */
-class OpenAIClient extends BaseLLMClient<OpenAIConfig> {
-  private client: OpenAI;
-
-  constructor(sessionId: string, providerConfig: OpenAIConfig) {
-    super(sessionId, providerConfig);
-    this.client = new OpenAI({
-      baseURL: providerConfig.url,
-      apiKey: providerConfig.key ?? "",
-    });
-  }
-
-  // ========== 特定实现 ==========
-
-  protected async chat(
-    messages: unknown[],
-    tools: unknown[],
-    options?: Record<string, unknown>,
-  ): Promise<unknown> {
+// Provider Adapter 定义
+const openaiProviderAdapter: llmAdapter = {
+  name: "openai",
+  async chat(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<unknown> {
     const msgArray = messages as ChatCompletionMessageParam[];
     const toolArray = tools as OpenAI.Chat.Completions.ChatCompletionTool[];
+    const model = options?.model as string;
+    const url = options?.url as string;
+    const key = options?.key as string | undefined;
     const thinking = options?.thinking === true;
-    return this.client.chat.completions.create({
-      model: this.config.model,
+    if (!model || !url) {
+      throw new Error("OpenAI provider requires model and url in options");
+    }
+    const client = new OpenAI({
+      baseURL: url,
+      apiKey: key ?? "",
+    });
+    return client.chat.completions.create({
+      model,
       messages: msgArray,
       ...(thinking ? { thinking: true } : {}),
       ...(toolArray.length > 0 && { tools: toolArray }),
     });
-  }
-
-  protected async chatStream(
-    messages: unknown[],
-    tools: unknown[],
-    options?: Record<string, unknown>,
-  ): Promise<AsyncIterable<unknown>> {
+  },
+  async chatStream(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as ChatCompletionMessageParam[];
     const toolArray = tools as OpenAI.Chat.Completions.ChatCompletionTool[];
+    const model = options?.model as string;
+    const url = options?.url as string;
+    const key = options?.key as string | undefined;
     const thinking = options?.thinking === true;
-    const stream = await this.client.chat.completions.create({
-      model: this.config.model,
+    if (!model || !url) {
+      throw new Error("OpenAI provider requires model and url in options");
+    }
+    const client = new OpenAI({
+      baseURL: url,
+      apiKey: key ?? "",
+    });
+    const stream = await client.chat.completions.create({
+      model,
       messages: msgArray,
       stream: true,
       ...(thinking ? { thinking: true } : {}),
       ...(toolArray.length > 0 && { tools: toolArray }),
     });
     return stream as AsyncIterable<unknown>;
-  }
-}
+  },
+};
 
-/**
- * 工厂函数：创建 OpenAI Client
- */
-export default function createOpenAIClient(
-  sessionId: string,
-  providerConfig: OpenAIConfig,
-): OpenAIClient {
-  return new OpenAIClient(sessionId, providerConfig);
+// ========== 注册函数 ==========
+
+let registered = false;
+
+export function registerOpenAIAdapter(): void {
+  if (registered) return;
+  registered = true;
+
+  registerMessageAdapter<ChatCompletion, OpenAI.Chat.Completions.ChatCompletionChunk, ChatCompletionMessageParam>(
+    "openai",
+    openaiMessageAdapterConfig
+  );
+  registerToolAdapter<ChatCompletionMessageFunctionToolCall, ChatCompletionMessageParam, ChatCompletion>(
+    "openai",
+    openaiToolAdapterConfig
+  );
+  registerLLMAdapter(openaiProviderAdapter);
 }

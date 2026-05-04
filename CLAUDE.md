@@ -18,47 +18,78 @@ yarn start        # 运行编译产物
 
 ## 架构设计模式
 
+### Middleware 模式 - 洋葱模型（核心）
+
+[middleware/index.ts](src/middleware/index.ts) 组合中间件链：
+
+```text
+请求 → Message → Tool → Chunk → Chat → LLM
+响应 ← Message ← Tool ← Chunk ← Chat ← LLM
+```
+
+执行顺序：`compose([messageMiddleware, toolMiddleware, chunkMiddleware, chatMiddleware])`
+
+每个中间件是 Generator，支持：
+
+- 流式 yield `StreamChunk`
+- 两阶段中断 yield `InterruptChunk`
+- 完成 yield `DoneChunk`
+
 ### Builder 模式 - Agent 配置
+
 [builder.ts](src/agent/builder.ts) 提供链式配置：
+
 ```ts
 createAgent().use("longcat").bindTools(readTool).build()
 ```
 
-### Adapter 模式 - 双层适配
-- **消息适配器** [message/adapter.ts](src/message/adapter.ts): 统一不同 provider 的响应格式（role/content/thinking/toolCalls）
-- **工具适配器** [tool/adapter.ts](src/tool/adapter.ts): 统一工具定义和调用格式（buildTools/parseToolCallArguments）
+### Adapter 模式 - 三层适配
 
-### 模板方法模式 - LLM Client
-[base.ts](src/llm/index.ts) 封装公共流程（send/sendStream），子类实现 `_buildMessages`/`chat`/`chatStream`。
+- **消息适配器** [message/adapter.ts](src/message/adapter.ts): 统一响应格式（role/content/thinking/toolCalls）
+- **工具适配器** [tool/adapter.ts](src/tool/adapter.ts): 统一工具定义和调用格式
+- **Provider 适配器** [llm/adapter.ts](src/llm/adapter.ts): 统一 chat/chatStream 接口
 
 ### 工厂模式 - Provider 注册
-[llm/index.ts](src/llm/index.ts) 导出 `{ ollama, openai }` 工厂函数，与 config.yaml `provider` 字段对应。
+
+[builder.ts](src/agent/builder.ts) 内 `providerRegistry` 映射 provider 名称到注册函数，与 config.yaml `provider` 字段对应。
 
 ## 核心流程
 
+### 中间件职责分工
+
+| 中间件 | 职责 |
+| ------ | ---- |
+| [message.ts](src/middleware/message.ts) | 消息累积、历史构建、创建用户消息 |
+| [tool.ts](src/middleware/tool.ts) | 工具执行循环、两阶段确认中断、监管等级判断 |
+| [chunk.ts](src/middleware/chunk.ts) | 流式响应累积、工具调用增量累积 |
+| [chat.ts](src/middleware/chat.ts) | 调用 Provider Adapter、发起 LLM 请求 |
+
 ### 两阶段执行（Tool 监管）
-`send()` 方法根据 `SupervisionLevel` 决定执行策略：
+
+`toolMiddleware` 根据 `SupervisionLevel` 决定执行策略：
+
 - `auto` (0): 自动执行，无需确认
-- `confirm` (1): 返回 `pending` 状态，需调用 `confirmToolCall(true/false)`
+- `confirm` (1): yield `InterruptChunk`，等待 `confirmToolCall()`
 - `manual` (2): 禁止自动执行，仅手动触发
 
 配置路径：
+
 - Tool 定义: `tool()` 函数的 `supervisionLevel` 参数
 - 客户端配置: `config.yaml` → `tool_groups.*.auto_execute_level`
 
 ### 消息累积
 
-[messageFactory.ts](src/message/messageFactory.ts) 的 `accumulate()` 维护会话历史：
+[MessageAdapter](src/message/adapter.ts) 类的 `accumulate()` 方法：
 
-- 内存存储：`messageStore` Map（sessionId → messages）
+- 内存存储：`messageStore` 数组（sessionId 级别）
 - 同 threadId 消息更新而非追加，支持多轮对话
 
 ### 流式响应（Tool Call 累积）
 
-`sendStream()` 处理流式工具调用：
+`chunkMiddleware` 处理流式响应：
 
-- `_processToolCallDelta()` 累积每个 chunk 的增量（id/name/arguments）
-- `_finalizeToolCalls()` 完成累积后执行工具
+- 累积 `thinkingDelta`/`delta` 到 `ctx.thinkingAccumulated`/`ctx.accumulated`
+- 累积工具调用增量到 `ctx.toolCallAccumulated` Map
 - 流式模式下工具调用自动执行（不支持两阶段确认）
 
 ## 配置系统
@@ -86,6 +117,7 @@ createAgent().use("longcat").bindTools(readTool).build()
 ## 添加新 Tool
 
 使用 [toolCreator.ts](src/tool/base/toolCreator.ts) 的 `tool()` 函数：
+
 ```ts
 export const myTool = tool(
   "my_tool",                    // 名称

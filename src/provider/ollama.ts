@@ -5,33 +5,35 @@ import type {
   Message,
   Tool as OllamaTool,
 } from "ollama";
-import { BaseLLMClient } from "../llm/base";
 import { type ClientConfigBase } from "../llm/types";
 import { registerMessageAdapter, type LLMResponse } from "@/message/index";
 import { registerToolAdapter, type Tool } from "@/tool/index";
 import type { ZodType } from "zod";
+import { registerLLMAdapter } from "@/llm/adapter";
+import type { llmAdapter } from "@/middleware/types";
 
 /**
  * Ollama 配置扩展
  */
 export interface OllamaConfig extends ClientConfigBase {}
 
-// ========== Ollama message Adapter 注册 ==========
+// ========== Adapter 定义（参数分离）==========
 
-registerMessageAdapter<ChatResponse, ChatResponse, Message>("ollama", {
-  role: (raw) => (raw.message?.role as "assistant") ?? "assistant",
-  content: (raw) => raw.message?.content ?? "",
-  thinking: (raw) => raw.message?.thinking ?? undefined,
-  extractToolCalls: (raw) => raw.message?.tool_calls ?? [],
-  extractStreamDelta: (chunk) => chunk.message?.content ?? "",
-  extractStreamThinking: (chunk) => chunk.message?.thinking ?? undefined,
-  extractStreamToolCallDeltas: (chunk) => chunk.message?.tool_calls ?? [],
-  buildMessages: (history) =>
+// Message Adapter 配置
+const ollamaMessageAdapterConfig = {
+  role: (raw: ChatResponse) => (raw.message?.role as "assistant") ?? "assistant" as const,
+  content: (raw: ChatResponse) => raw.message?.content ?? "",
+  thinking: (raw: ChatResponse) => raw.message?.thinking ?? undefined,
+  extractToolCalls: (raw: ChatResponse) => raw.message?.tool_calls ?? [],
+  extractStreamDelta: (chunk: ChatResponse) => chunk.message?.content ?? "",
+  extractStreamThinking: (chunk: ChatResponse) => chunk.message?.thinking ?? undefined,
+  extractStreamToolCallDeltas: (chunk: ChatResponse) => chunk.message?.tool_calls ?? [],
+  buildMessages: (history: LLMResponse[]) =>
     history.map((m) => ({
       role: m.role,
       content: m.content,
     })) as Message[],
-  wrapFinalResponse: (threadId, content, thinking, raw) => {
+  wrapFinalResponse: (threadId: string, content: string, thinking?: string, raw?: ChatResponse) => {
     const response: LLMResponse<ChatResponse | null> = {
       id: `ollama-${Date.now()}`,
       role: "assistant",
@@ -45,11 +47,10 @@ registerMessageAdapter<ChatResponse, ChatResponse, Message>("ollama", {
     if (thinking) response.thinking = thinking;
     return response;
   },
-});
+};
 
-// ========== Ollama tool Adapter 注册 ==========
-
-registerToolAdapter<ToolCall, Message, ChatResponse>("ollama", {
+// Tool Adapter 配置
+const ollamaToolAdapterConfig = {
   buildTools(tools: Tool<ZodType>[]): unknown[] {
     return tools.map((t) => ({
       type: "function",
@@ -110,54 +111,56 @@ registerToolAdapter<ToolCall, Message, ChatResponse>("ollama", {
     const args = delta.function?.arguments as Record<string, unknown> | undefined;
     return args ? JSON.stringify(args) : undefined;
   },
-});
-/**
- * Ollama Client 实现
- */
-class OllamaClient extends BaseLLMClient<OllamaConfig> {
-  constructor(sessionId: string, providerConfig: OllamaConfig) {
-    super(sessionId, providerConfig);
-  }
+};
 
-  // ========== 特定实现 ==========
-
-  protected async chat(
-    messages: unknown[],
-    tools: unknown[],
-    _options?: Record<string, unknown>,
-  ): Promise<unknown> {
+// Provider Adapter 定义
+const ollamaProviderAdapter: llmAdapter = {
+  name: "ollama",
+  async chat(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<unknown> {
     const msgArray = messages as Message[];
     const toolArray = tools as OllamaTool[];
+    const model = options?.model as string;
+    if (!model) {
+      throw new Error("Ollama provider requires model in options");
+    }
     return ollama.chat({
-      model: this.config.model,
+      model,
       messages: msgArray,
       ...(toolArray.length > 0 && { tools: toolArray }),
     });
-  }
-
-  protected async chatStream(
-    messages: unknown[],
-    tools: unknown[],
-    _options?: Record<string, unknown>,
-  ): Promise<AsyncIterable<unknown>> {
+  },
+  async chatStream(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as Message[];
     const toolArray = tools as OllamaTool[];
+    const model = options?.model as string;
+    if (!model) {
+      throw new Error("Ollama provider requires model in options");
+    }
     const stream = await ollama.chat({
-      model: this.config.model,
+      model,
       messages: msgArray,
       stream: true,
       ...(toolArray.length > 0 && { tools: toolArray }),
     });
     return stream as AsyncIterable<unknown>;
-  }
-}
+  },
+};
 
-/**
- * 工厂函数：创建 Ollama Client
- */
-export default function createOllamaClient(
-  sessionId: string,
-  providerConfig: OllamaConfig,
-): OllamaClient {
-  return new OllamaClient(sessionId, providerConfig);
+// ========== 注册函数 ==========
+
+let registered = false;
+
+export function registerOllamaAdapter(): void {
+  if (registered) return;
+  registered = true;
+
+  registerMessageAdapter<ChatResponse, ChatResponse, Message>(
+    "ollama",
+    ollamaMessageAdapterConfig
+  );
+  registerToolAdapter<ToolCall, Message, ChatResponse>(
+    "ollama",
+    ollamaToolAdapterConfig
+  );
+  registerLLMAdapter(ollamaProviderAdapter);
 }

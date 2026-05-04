@@ -1,9 +1,25 @@
 import type { Tool } from "@/tool/index";
 import type { ZodType } from "zod";
-import llm, { type LLMClient, type ClientConfigBase } from "../llm/index";
+import type { ClientConfigBase, SendResult } from "@/llm/types";
+import type { LLMStreamChunk } from "@/middleware/types";
+import {
+  send as middlewareSend,
+  sendStream as middlewareSendStream,
+  confirmToolCall as middlewareConfirmToolCall,
+} from "@/middleware/send";
+import { ToolManager } from "@/tool/index";
+import { SupervisionLevel } from "@/middleware/types";
 import config from "@/config";
 import { randomUUID } from "crypto";
-import { SupervisionLevel } from "@/llm/types";
+
+// Provider 注册函数映射
+import { registerOpenAIAdapter } from "@/provider/openai";
+import { registerOllamaAdapter } from "@/provider/ollama";
+
+const providerRegistry: Record<string, () => void> = {
+  openai: registerOpenAIAdapter,
+  ollama: registerOllamaAdapter,
+};
 
 /**
  * Agent Builder - 链式调用配置 agent
@@ -12,7 +28,6 @@ export class AgentBuilder {
   private clientConfig?: ClientConfigBase;
   private tools: Tool<ZodType>[] = [];
   private sessionId: string = randomUUID();
-  /** 允许自动执行的监管等级（从tool_group配置读取） */
   private autoExecuteLevel?: SupervisionLevel;
 
   /**
@@ -26,12 +41,17 @@ export class AgentBuilder {
     }
     this.clientConfig = clientConfig;
 
+    // 根据 provider 动态注册 adapter
+    const provider = clientConfig.provider;
+    if (providerRegistry[provider]) {
+      providerRegistry[provider]();
+    }
+
     // 自动根据 tool_group 配置绑定 tools 和 autoExecuteLevel
     const toolGroupName = clientConfig.tool_group;
     if (toolGroupName && config.tool_groups?.[toolGroupName]) {
       const toolGroup = config.tool_groups[toolGroupName];
       this.autoExecuteLevel = SupervisionLevel[toolGroup.auto_execute_level];
-      // Tool绑定将在build()中根据toolGroup.tools列表筛选
     }
 
     return this;
@@ -62,13 +82,6 @@ export class AgentBuilder {
       throw new Error("必须先调用 use() 选择 LLM 服务");
     }
 
-    // 根据 provider 字段选择对应的工厂函数
-    const provider = this.clientConfig.provider as keyof typeof llm;
-    const factory = llm[provider];
-    if (!factory) {
-      throw new Error(`provider "${provider}" 不支持`);
-    }
-
     // 根据 tool_group 筛选 tools
     const toolGroupName = this.clientConfig.tool_group;
     let filteredTools = this.tools;
@@ -79,54 +92,74 @@ export class AgentBuilder {
       );
     }
 
-    // 设置 autoExecuteLevel 到 clientConfig（仅在有值时添加）
-    const enhancedConfig = {
+    // 设置 autoExecuteLevel 到 clientConfig
+    const enhancedConfig: ClientConfigBase = {
       ...this.clientConfig,
       ...(this.autoExecuteLevel !== undefined && {
         autoExecuteLevel: this.autoExecuteLevel,
       }),
     };
 
-    // 创建 client（工厂函数签名：sessionId + config）
-    const client = factory(this.sessionId, enhancedConfig);
-
-    // 绑定筛选后的工具
+    // 创建 ToolManager 并添加工具
+    const toolManager = new ToolManager(enhancedConfig.provider);
     if (filteredTools.length > 0) {
-      client.tool.add(filteredTools);
+      toolManager.add(filteredTools);
     }
 
-    return new Agent(client);
+    return new Agent(this.sessionId, enhancedConfig, toolManager);
   }
 }
 
 /**
- * Agent 实例 - 封装 LLM 客户端，提供 send/sendStream/confirmToolCall 方法
+ * Agent 实例 - 封装请求处理逻辑
  */
 export class Agent {
-  constructor(private client: LLMClient<ClientConfigBase>) {}
+  constructor(
+    private sessionId: string,
+    private config: ClientConfigBase,
+    private tool: ToolManager,
+  ) {}
 
   /**
    * 发送消息（两阶段执行）
-   * - 自动执行监管等级 ≤ autoExecuteLevel 的 tool
-   * - 需确认的 tool 返回 ToolCallPending 状态
    */
-  async send(threadId: string, input: string) {
-    return this.client.send(threadId, input);
+  async send(threadId: string, input: string): Promise<SendResult> {
+    return middlewareSend(this.sessionId, threadId, input, this.config, this.tool);
   }
 
   /**
    * 确认执行待定的 tool 调用
+   * @param threadId 会话线程ID（从 SendResult.threadId 获取）
    * @param approved 用户是否批准执行
+   * @param interruptInfo 中断信息（从 SendResult.pendingTool 获取）
    */
-  async confirmToolCall(approved: boolean) {
-    return this.client.confirmToolCall(approved);
+  async confirmToolCall(
+    threadId: string,
+    approved: boolean,
+    interruptInfo: {
+      toolCallId: string;
+      toolName: string;
+      args: Record<string, unknown>;
+    },
+  ): Promise<SendResult> {
+    return middlewareConfirmToolCall(
+      this.sessionId,
+      threadId,
+      this.config,
+      approved,
+      interruptInfo,
+      this.tool,
+    );
   }
 
   /**
    * 发送消息（流式）
    */
-  async *sendStream(threadId: string, input: string) {
-    return this.client.sendStream(threadId, input);
+  async *sendStream(
+    threadId: string,
+    input: string,
+  ): AsyncGenerator<LLMStreamChunk<unknown>> {
+    yield* middlewareSendStream(this.sessionId, threadId, input, this.config, this.tool);
   }
 }
 

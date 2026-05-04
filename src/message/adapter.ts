@@ -120,6 +120,27 @@ export class MessageAdapter<T = unknown, TStream = unknown, TMessage = unknown> 
   }
 
   /**
+   * 创建工具结果消息
+   */
+  createToolResultMessage(
+    threadId: string,
+    toolCallId: string,
+    content: string,
+  ): LLMResponse<{ toolCallId: string }> {
+    const now = Date.now();
+    return {
+      id: uuid(),
+      role: "tool",
+      content,
+      threadId,
+      createdAt: now,
+      updateAt: now,
+      raw: { toolCallId },
+      provider: "tool",
+    };
+  }
+
+  /**
    * 累积历史消息
    */
   accumulate(message?: LLMResponse<T>): LLMResponse<T>[] {

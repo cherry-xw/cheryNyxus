@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import yaml from "js-yaml";
 import fs from "fs";
 import path from "path";
-import { SupervisionLevel } from "@/llm/types";
+import { SupervisionLevel } from "@/middleware/types";
 
 dotenv.config();
 
