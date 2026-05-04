@@ -7,6 +7,7 @@ import type { ClientConfigBase } from "@/llm/types";
 import type { MiddlewareContext, LLMStreamChunk, AdaptersGroup } from "./types";
 import { ToolManager } from "@/tool/index";
 import { RetryState, type MiddlewareChunk } from "./types";
+import buildPrompt from "@/prompt/index"
 
 export * from "./types";
 export { compose };
@@ -195,6 +196,7 @@ export default class Middleware {
    * 发送消息（两阶段执行）
    */
   async send(threadId: string, input: string): Promise<SendResult[]> {
+    const prompt = buildPrompt(input);
     const ctx = createMiddlewareContextBase(
       this.sessionId,
       this.config,
@@ -202,7 +204,7 @@ export default class Middleware {
       this.adapters,
       this.tool,
       threadId,
-      input,
+      prompt,
     );
     const generator = this.middlewareChain(ctx);
     const chunks: MiddlewareChunk[] = [];
@@ -272,6 +274,7 @@ export default class Middleware {
     threadId: string,
     input: string,
   ): AsyncGenerator<LLMStreamChunk<unknown>> {
+    const prompt = buildPrompt(input);
     const ctx = createMiddlewareContextBase(
       this.sessionId,
       this.config,
@@ -279,7 +282,7 @@ export default class Middleware {
       this.adapters,
       this.tool,
       threadId,
-      input,
+      prompt,
     );
 
     const streamId = `stream-${Date.now()}`;

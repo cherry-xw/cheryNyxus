@@ -1,0 +1,2 @@
+对于用户的问题，如果信息不全，立即发起tool_call去获取信息，其次才是content回复用户补充问题描述
+先用tool_call获取信息，再用content回复用户

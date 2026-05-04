@@ -77,8 +77,8 @@ const ollamaToolAdapterConfig = {
     } as Message;
   },
 
-  parseToolCallArguments(raw: ToolCall): Record<string, unknown> {
-    return (raw.function?.arguments as Record<string, unknown>) ?? {};
+  getToolCallArguments(raw: ToolCall): string {
+    return JSON.stringify((raw.function?.arguments as Record<string, unknown>) ?? {});
   },
 
   getToolCallName(raw: ToolCall): string {

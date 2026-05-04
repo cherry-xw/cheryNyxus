@@ -109,11 +109,11 @@ const openaiToolAdapterConfig = {
     } as ChatCompletionMessageParam;
   },
 
-  parseToolCallArguments(
+  getToolCallArguments(
     raw: ChatCompletionMessageFunctionToolCall,
-  ): Record<string, unknown> {
+  ): string {
     const argsJson = raw.function?.arguments ?? "{}";
-    return JSON.parse(argsJson) as Record<string, unknown>;
+    return argsJson;
   },
 
   getToolCallName(raw: ChatCompletionMessageFunctionToolCall): string {

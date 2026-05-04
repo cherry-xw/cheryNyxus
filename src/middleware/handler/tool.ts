@@ -1,4 +1,8 @@
-import type { MiddlewareContext, MiddlewareChunk, ToolCallAccumulator } from "../types";
+import type {
+  MiddlewareContext,
+  MiddlewareChunk,
+  ToolCallAccumulator,
+} from "../types";
 import { SupervisionLevel } from "../types";
 
 /**
@@ -27,106 +31,116 @@ export async function* toolMiddleware(
 
 /**
  * 执行 tool calls（分级检查 + 执行 + 结果写入）
- * 非流式：从 ctx.response.raw 或 ctx.tools.pendingToolCalls 提取
- * 流式：从 ctx.tools.toolCallAccumulated 提取
+ * 统一从 ctx.tools.toolCallAccumulated 提取（chunk.ts 已统一处理）
  */
 async function* executeToolCalls(
   ctx: MiddlewareContext,
 ): AsyncGenerator<MiddlewareChunk> {
-  const toolAdapter = ctx.adapters.toolAdapter;
-
-  // 获取 tool calls
-  let toolCalls: unknown[];
-  if (ctx.request.isStream) {
-    toolCalls = extractFromAccumulated(ctx.tools.toolCallAccumulated);
-  } else {
-    // 非流式模式：从响应提取并存入 pendingToolCalls（供 message.ts 构建 assistant 消息）
-    const extracted = toolAdapter.extractToolCalls(ctx.response.raw);
-    ctx.tools.pendingToolCalls = extracted;
-    toolCalls = extracted;
-  }
+  // 获取 tool calls（统一从 toolCallAccumulated）
+  const toolCalls = extractFromAccumulated(ctx.tools.toolCallAccumulated);
+  // console.log("toolCalls");
+  // console.log(toolCalls);
 
   if (toolCalls.length === 0) return;
 
   const autoLevel = ctx.config.autoExecuteLevel ?? SupervisionLevel.confirm;
 
   for (const tc of toolCalls) {
-    const id = toolAdapter.getToolCallId(tc);
-    const name = toolAdapter.getToolCallName(tc);
-    const args = toolAdapter.parseToolCallArguments(tc);
-
+    // extractFromAccumulated 返回的是内部格式 {id, name, arguments}
+    const id = tc.id as string;
+    const name = tc.name as string;
+    const argsJson = tc.arguments as string;
+    const args = argsJson ? JSON.parse(argsJson) : {};
+    // console.log("id,name,args");
+    // console.log(id, name, args);
     const toolDef = ctx.tools.toolManager.get(name);
-
+    // console.log("toolDef");
+    // console.log(toolDef, ctx.tools.toolManager.getAll());
     // 分级检查
-    if (toolDef && toolDef.supervisionLevel <= autoLevel) {
-      // 自动执行
-      try {
-        const result = await ctx.tools.toolManager.execute(name, args);
-
-        // 写入执行结果到 toolCallAccumulated（message 后半部分负责累积到 history）
-        const accumulator = ctx.tools.toolCallAccumulated.get(id);
-        if (accumulator) {
-          accumulator.executionResult = {
-            success: true,
-            result,
-            toolCallId: id,
-            toolName: name,
-          };
-        } else {
-          // 非流式模式下可能没有累积器，创建新的
-          ctx.tools.toolCallAccumulated.set(id, {
-            id,
-            name,
-            arguments: JSON.stringify(args),
-            executionResult: {
+    if (toolDef) {
+      if (toolDef.supervisionLevel <= autoLevel) {
+        // 自动执行
+        try {
+          const result = await ctx.tools.toolManager.execute(name, args);
+          console.log("result");
+          console.log(result);
+          // 写入执行结果到 toolCallAccumulated（message 后半部分负责累积到 history）
+          const accumulator = ctx.tools.toolCallAccumulated.get(id);
+          if (accumulator) {
+            accumulator.executionResult = {
               success: true,
               result,
               toolCallId: id,
               toolName: name,
-            },
-          });
-        }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
+            };
+          } else {
+            // 非流式模式下可能没有累积器，创建新的
+            ctx.tools.toolCallAccumulated.set(id, {
+              id,
+              name,
+              arguments: JSON.stringify(args),
+              executionResult: {
+                success: true,
+                result,
+                toolCallId: id,
+                toolName: name,
+              },
+            });
+          }
+        } catch (error) {
+          const errorMsg =
+            error instanceof Error ? error.message : String(error);
 
-        // 写入失败结果（message 后半部分负责处理）
-        const accumulator = ctx.tools.toolCallAccumulated.get(id);
-        if (accumulator) {
-          accumulator.executionResult = {
-            success: false,
-            error: errorMsg,
-            toolCallId: id,
-            toolName: name,
-          };
-        } else {
-          ctx.tools.toolCallAccumulated.set(id, {
-            id,
-            name,
-            arguments: JSON.stringify(args),
-            executionResult: {
+          // 写入失败结果（message 后半部分负责处理）
+          const accumulator = ctx.tools.toolCallAccumulated.get(id);
+          if (accumulator) {
+            accumulator.executionResult = {
               success: false,
               error: errorMsg,
               toolCallId: id,
               toolName: name,
-            },
-          });
+            };
+          } else {
+            ctx.tools.toolCallAccumulated.set(id, {
+              id,
+              name,
+              arguments: JSON.stringify(args),
+              executionResult: {
+                success: false,
+                error: errorMsg,
+                toolCallId: id,
+                toolName: name,
+              },
+            });
+          }
         }
+      } else {
+        // 需确认，yield 中断
+        ctx.state.needInterrupt = true;
+        ctx.state.interruptInfo = { toolCallId: id, toolName: name, args };
+
+        yield {
+          type: "interrupt",
+          toolCallId: id,
+          toolName: name,
+          args,
+          threadId: ctx.session.threadId,
+        };
+        return;
       }
     } else {
-      // 需确认，yield 中断
-      ctx.state.needInterrupt = true;
-      ctx.state.interruptInfo = { toolCallId: id, toolName: name, args };
-
-      yield {
-        type: "interrupt",
-        toolCallId: id,
-        toolName: name,
-        args,
-        threadId: ctx.session.threadId,
-      };
-      return;
+      // TODO 这是没找到tool函数，也需要重新执行LLM
     }
   }
+}
+
+/**
+ * 内部格式 tool call（从 toolCallAccumulated 提取）
+ */
+interface InternalToolCall {
+  id: string;
+  name: string;
+  arguments: string;
 }
 
 /**
@@ -134,7 +148,7 @@ async function* executeToolCalls(
  */
 function extractFromAccumulated(
   accumulated: Map<string, ToolCallAccumulator>,
-): unknown[] {
+): InternalToolCall[] {
   return Array.from(accumulated.values()).map((acc) => ({
     id: acc.id,
     name: acc.name,

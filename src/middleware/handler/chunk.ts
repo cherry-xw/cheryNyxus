@@ -1,4 +1,10 @@
-import type { MiddlewareContext, MiddlewareChunk, StreamChunk, StagedChunk } from "../types";
+import type {
+  MiddlewareContext,
+  MiddlewareChunk,
+  StreamChunk,
+  StagedChunk,
+} from "../types";
+import { v4 as uuid } from "uuid";
 
 /**
  * Chunk Middleware
@@ -15,6 +21,8 @@ export async function* chunkMiddleware(
       if (chunk.type === "staged") {
         ctx.response.finalContent = chunk.content;
         ctx.response.finalThinking = chunk.thinking;
+        // 非流式模式：统一提取 toolCall 并存储到 toolCallAccumulated
+        extractToolCallsFromResponse(ctx, ctx.response.raw);
       }
       yield chunk;
     }
@@ -26,7 +34,7 @@ export async function* chunkMiddleware(
   ctx.process.thinkingAccumulated = "";
   ctx.process.chunkCount = 0;
   ctx.tools.toolCallAccumulated = new Map();
-  const streamId = `stream-${Date.now()}`;
+  const streamId = `stream-${uuid()}`;
 
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
   for await (const chunk of generator) {
@@ -36,10 +44,13 @@ export async function* chunkMiddleware(
     if (chunk.type === "stream") {
       // 从原始数据提取 delta
       const rawChunk = chunk.raw;
+      // console.log("\n=== RAW CHUNK ===");
+      // console.log(JSON.stringify(rawChunk, null, 2));
       const delta = ctx.adapters.messageAdapter.extractStreamDelta(rawChunk);
       ctx.process.accumulated += delta;
 
-      const thinkingDelta = ctx.adapters.messageAdapter.extractStreamThinking?.(rawChunk) ?? "";
+      const thinkingDelta =
+        ctx.adapters.messageAdapter.extractStreamThinking?.(rawChunk) ?? "";
       ctx.process.thinkingAccumulated += thinkingDelta;
 
       // 累积工具调用增量
@@ -72,22 +83,23 @@ export async function* chunkMiddleware(
   yield stagedChunk;
 }
 
-
 /**
- * 处理工具调用增量
+ * 处理工具调用增量（流式模式）
  */
 function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
   const toolAdapter = ctx.adapters.toolAdapter;
   const deltas = toolAdapter.extractToolCallDeltas(raw);
 
+  // Ollama id 为空时生成唯一 id
+  let key = `tool-${uuid()}`;
   for (const delta of deltas) {
     const id = toolAdapter.getToolCallDeltaId(delta);
     const name = toolAdapter.getToolCallDeltaName(delta) ?? "";
     const argsDelta = toolAdapter.getToolCallDeltaArguments(delta);
 
-    // Ollama id 为空，用 name 作为 key
-    const key = id || name || `tool-${Date.now()}`;
-
+    if (id) {
+      key = id;
+    }
     const existing = ctx.tools.toolCallAccumulated.get(key);
     if (existing) {
       // 累积 arguments（增量模式）
@@ -106,5 +118,37 @@ function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
         arguments: argsDelta ?? "",
       });
     }
+  }
+}
+
+/**
+ * 从非流式响应提取 toolCall 并存储
+ */
+function extractToolCallsFromResponse(
+  ctx: MiddlewareContext,
+  raw: unknown,
+): void {
+  if (!raw) return;
+
+  const toolAdapter = ctx.adapters.toolAdapter;
+  const toolCalls = toolAdapter.extractToolCalls(raw);
+
+  // Ollama id 为空时生成唯一 id
+  let key = `tool-${uuid()}`;
+
+  for (const tc of toolCalls) {
+    const id = toolAdapter.getToolCallId(tc);
+    const name = toolAdapter.getToolCallName(tc);
+    const args = toolAdapter.getToolCallArguments(tc);
+
+    if (id) {
+      key = id;
+    }
+
+    ctx.tools.toolCallAccumulated.set(key, {
+      id: key,
+      name,
+      arguments: args,
+    });
   }
 }

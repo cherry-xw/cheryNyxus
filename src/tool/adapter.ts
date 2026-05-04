@@ -27,7 +27,7 @@ export interface ToolAdapter<TToolCall, TMessage, TResponse> {
   /**
    * 解析工具调用参数
    */
-  parseToolCallArguments(raw: TToolCall): Record<string, unknown>;
+  getToolCallArguments(raw: TToolCall): string;
 
   /**
    * 获取工具调用名称

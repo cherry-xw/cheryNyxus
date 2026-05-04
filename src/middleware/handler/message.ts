@@ -72,7 +72,8 @@ export async function* messageMiddleware(
   const hasToolResults = Array.from(
     ctx.tools.toolCallAccumulated.values(),
   ).some((acc) => acc.executionResult !== undefined);
-
+  console.log("hasToolResults");
+  console.log(hasToolResults);
   // 3. 先累积 assistant content 消息到 history（有 tool results 时）
   if (hasToolResults && ctx.response.finalContent) {
     const assistantResponse = messageAdapter.wrapFinalResponse(
