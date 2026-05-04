@@ -1,14 +1,9 @@
 import type { Tool } from "@/tool/index";
 import type { ZodType } from "zod";
-import type { ClientConfigBase, SendResult } from "@/llm/types";
-import type { LLMStreamChunk, AdaptersGroup } from "@/middleware/types";
-import {
-  send as middlewareSend,
-  sendStream as middlewareSendStream,
-  confirmToolCall as middlewareConfirmToolCall,
-} from "@/middleware/send";
+import type { ClientConfigBase } from "@/llm/types";
+
 import { ToolManager } from "@/tool/index";
-import { SupervisionLevel } from "@/middleware/types";
+import Middleware, { SupervisionLevel, type AdaptersGroup } from "@/middleware/index";
 import config from "@/config";
 import { randomUUID } from "crypto";
 
@@ -94,7 +89,7 @@ export class AgentBuilder {
   /**
    * 构建 Agent 实例
    */
-  build(): Agent {
+  build(): Middleware {
     if (!this.clientConfig) {
       throw new Error("必须先调用 use() 选择 LLM 服务");
     }
@@ -126,61 +121,6 @@ export class AgentBuilder {
       toolManager.add(filteredTools);
     }
 
-    return new Agent(this.sessionId, enhancedConfig, toolManager, this.adapters);
-  }
-}
-
-/**
- * Agent 实例 - 封装请求处理逻辑
- */
-export class Agent {
-  constructor(
-    private sessionId: string,
-    private config: ClientConfigBase,
-    private tool: ToolManager,
-    private adapters: AdaptersGroup,
-  ) {}
-
-  /**
-   * 发送消息（两阶段执行）
-   */
-  async send(threadId: string, input: string): Promise<SendResult> {
-    return middlewareSend(this.sessionId, threadId, input, this.config, this.adapters, this.tool);
-  }
-
-  /**
-   * 确认执行待定的 tool 调用
-   * @param threadId 会话线程ID（从 SendResult.threadId 获取）
-   * @param approved 用户是否批准执行
-   * @param interruptInfo 中断信息（从 SendResult.pendingTool 获取）
-   */
-  async confirmToolCall(
-    threadId: string,
-    approved: boolean,
-    interruptInfo: {
-      toolCallId: string;
-      toolName: string;
-      args: Record<string, unknown>;
-    },
-  ): Promise<SendResult> {
-    return middlewareConfirmToolCall(
-      this.sessionId,
-      threadId,
-      this.config,
-      approved,
-      interruptInfo,
-      this.adapters,
-      this.tool,
-    );
-  }
-
-  /**
-   * 发送消息（流式）
-   */
-  async *sendStream(
-    threadId: string,
-    input: string,
-  ): AsyncGenerator<LLMStreamChunk<unknown>> {
-    yield* middlewareSendStream(this.sessionId, threadId, input, this.config, this.adapters, this.tool);
+    return new Middleware(this.sessionId, enhancedConfig, toolManager, this.adapters);
   }
 }

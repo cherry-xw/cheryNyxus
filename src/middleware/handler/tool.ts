@@ -1,5 +1,5 @@
-import type { MiddlewareContext, MiddlewareChunk, ToolCallAccumulator } from "./types";
-import { SupervisionLevel } from "./types";
+import type { MiddlewareContext, MiddlewareChunk, ToolCallAccumulator } from "../types";
+import { SupervisionLevel } from "../types";
 
 /**
  * Tool Middleware

@@ -1,4 +1,4 @@
-import type { MiddlewareContext, MiddlewareChunk, StreamChunk, DoneChunk } from "./types";
+import type { MiddlewareContext, MiddlewareChunk, StreamChunk, StagedChunk } from "../types";
 
 /**
  * Chunk Middleware
@@ -12,7 +12,7 @@ export async function* chunkMiddleware(
   if (!ctx.request.isStream) {
     const generator = next() as AsyncGenerator<MiddlewareChunk>;
     for await (const chunk of generator) {
-      if (chunk.type === "done") {
+      if (chunk.type === "staged") {
         ctx.response.finalContent = chunk.content;
         ctx.response.finalThinking = chunk.thinking;
       }
@@ -36,10 +36,10 @@ export async function* chunkMiddleware(
     if (chunk.type === "stream") {
       // 从原始数据提取 delta
       const rawChunk = chunk.raw;
-      const delta = extractDelta(ctx, rawChunk);
+      const delta = ctx.adapters.messageAdapter.extractStreamDelta(rawChunk);
       ctx.process.accumulated += delta;
 
-      const thinkingDelta = extractThinking(ctx, rawChunk);
+      const thinkingDelta = ctx.adapters.messageAdapter.extractStreamThinking?.(rawChunk) ?? "";
       ctx.process.thinkingAccumulated += thinkingDelta;
 
       // 累积工具调用增量
@@ -60,8 +60,8 @@ export async function* chunkMiddleware(
   }
 
   // 流式完成
-  const doneChunk: DoneChunk = {
-    type: "done",
+  const stagedChunk: StagedChunk = {
+    type: "staged",
     content: ctx.process.accumulated,
     thinking: ctx.process.thinkingAccumulated,
     threadId: ctx.session.threadId,
@@ -69,27 +69,42 @@ export async function* chunkMiddleware(
   };
   ctx.response.finalContent = ctx.process.accumulated;
   ctx.response.finalThinking = ctx.process.thinkingAccumulated;
-  yield doneChunk;
+  yield stagedChunk;
 }
 
-/**
- * 提取 delta
- */
-function extractDelta(ctx: MiddlewareContext, raw: unknown): string {
-  return ctx.adapters.messageAdapter.extractStreamDelta(raw);
-}
-
-/**
- * 提取 thinking
- */
-function extractThinking(ctx: MiddlewareContext, raw: unknown): string {
-  return ctx.adapters.messageAdapter.extractStreamThinking?.(raw) ?? "";
-}
 
 /**
  * 处理工具调用增量
  */
 function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
-  // 通过 ToolAdapter 提取
-  // 累积到 ctx.tools.toolCallAccumulated
+  const toolAdapter = ctx.adapters.toolAdapter;
+  const deltas = toolAdapter.extractToolCallDeltas(raw);
+
+  for (const delta of deltas) {
+    const id = toolAdapter.getToolCallDeltaId(delta);
+    const name = toolAdapter.getToolCallDeltaName(delta) ?? "";
+    const argsDelta = toolAdapter.getToolCallDeltaArguments(delta);
+
+    // Ollama id 为空，用 name 作为 key
+    const key = id || name || `tool-${Date.now()}`;
+
+    const existing = ctx.tools.toolCallAccumulated.get(key);
+    if (existing) {
+      // 累积 arguments（增量模式）
+      if (argsDelta) {
+        existing.arguments += argsDelta;
+      }
+      // name 可能只在首个 delta 出现，后续 delta 可能为空
+      if (name && !existing.name) {
+        existing.name = name;
+      }
+    } else {
+      // 初始化累积器
+      ctx.tools.toolCallAccumulated.set(key, {
+        id: key,
+        name,
+        arguments: argsDelta ?? "",
+      });
+    }
+  }
 }

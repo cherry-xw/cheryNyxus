@@ -29,16 +29,64 @@ async function main() {
   console.log(`Prompt: ${prompt}\n`);
 
   // 3. 获取响应（非流式）
-  const response = await agent.send(threadId, prompt);
+  const responseArr = await agent.send(threadId, prompt);
 
-  if (response.thinking) {
-    console.log("\n=== Thinking ===");
-    console.log(response.thinking);
+  for (const response of responseArr) {
+    if (response.thinking) {
+      console.log("\n=== Thinking ===");
+      console.log(response.thinking);
+    }
+    console.log("=== LLM 响应 ===");
+    console.log(`Role: ${response.role}`);
+    console.log(`Content: ${response.content}`);
   }
-  console.log("=== LLM 响应 ===");
-  console.log(`Role: ${response.role}`);
-  console.log(`Content: ${response.content}`);
+  console.log("运行结束");
 
 }
 
-main().catch(console.error);
+/**
+ * 流式响应示例：使用 sendStream 获取实时输出
+ */
+async function streamExample() {
+  const threadId = uuid();
+
+  const agent = new AgentBuilder()
+    .use("longcat")
+    .bindTools(readTool)
+    .build();
+
+  const prompt = "请使用 read_file 工具读取 package.json 文件，告诉我项目的名称和版本号";
+
+  console.log("=== 流式请求 ===");
+  console.log(`Prompt: ${prompt}\n`);
+  let step = 0
+  // 遍历 AsyncGenerator 获取流式响应
+  for await (const chunk of agent.sendStream(threadId, prompt)) {
+    // 思考内容增量输出
+    if (chunk.thinkingDelta) {
+      if (step === 0) {
+        console.log("\n=== Thinking ===");
+        step = 1
+      }
+      process.stdout.write(chunk.thinkingDelta);
+    }
+    // 内容增量输出
+    if (chunk.delta) {
+      if (step === 1) {
+        console.log("\n\n=== LLM 响应 ===");
+        step = 0
+      }
+      process.stdout.write(chunk.delta);
+    }
+    // 流结束
+    if (chunk.isDone) {
+      console.log("\n\n=== 流式响应完成 ===");
+      console.log(`累积内容长度: ${chunk.accumulated.length}`);
+    }
+  }
+  console.log("运行结束");
+}
+
+// 运行示例
+// main().catch(console.error);
+streamExample().catch(console.error);

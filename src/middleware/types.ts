@@ -175,7 +175,7 @@ export type MiddlewareHandler = (
 /**
  * 中间件 chunk 类型
  */
-export type MiddlewareChunk = StreamChunk | InterruptChunk | DoneChunk;
+export type MiddlewareChunk = StreamChunk | InterruptChunk | StagedChunk | DoneChunk;
 
 /**
  * 流式 chunk
@@ -202,14 +202,22 @@ export interface InterruptChunk {
 }
 
 /**
- * 完成 chunk
+ * 阶段性结果 chunk（中间状态，非最终完成）
  */
-export interface DoneChunk {
-  type: "done";
+export interface StagedChunk {
+  type: "staged";
   content: string;
   thinking?: string;
   threadId: string;
   raw: unknown;
+}
+
+/**
+ * 完成 chunk（最终结束标记）
+ */
+export interface DoneChunk {
+  type: "done";
+  threadId: string;
 }
 
 /**

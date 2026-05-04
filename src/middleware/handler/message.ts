@@ -1,28 +1,7 @@
-import type { MiddlewareContext, MiddlewareChunk } from "./types";
+import type { MiddlewareContext, MiddlewareChunk, StagedChunk } from "../types";
 import type { LLMResponse } from "@/message/index";
-import { RetryState } from "./types";
+import { RetryState } from "../types";
 import { v4 as uuid } from "uuid";
-
-/**
- * 创建工具结果消息
- */
-function createToolResultMessage(
-  threadId: string,
-  toolCallId: string,
-  content: string,
-): LLMResponse<{ toolCallId: string }> {
-  const now = Date.now();
-  return {
-    id: uuid(),
-    role: "tool",
-    content,
-    threadId,
-    createdAt: now,
-    updateAt: now,
-    raw: { toolCallId },
-    provider: "tool",
-  };
-}
 
 /**
  * 累积消息到历史
@@ -78,17 +57,23 @@ export async function* messageMiddleware(
   // === 调用下一层 ===
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
   for await (const chunk of generator) {
-    yield chunk;
+    if (chunk.type === "stream" || chunk.type === "interrupt") {
+      // stream/interrupt 立即传递，保持流式特性
+      yield chunk;
+    } else if (chunk.type === "staged") {
+      // staged 立即 yield，保持顺序
+      yield chunk;
+    }
   }
 
   // === 后半部分：累积 assistant 消息 + tool 结果 ===
 
-  // 1. 检查是否有 tool 执行结果
+  // 2. 检查是否有 tool 执行结果
   const hasToolResults = Array.from(
     ctx.tools.toolCallAccumulated.values(),
   ).some((acc) => acc.executionResult !== undefined);
 
-  // 2. 先累积 assistant content 消息到 history（有 tool results 时）
+  // 3. 先累积 assistant content 消息到 history（有 tool results 时）
   if (hasToolResults && ctx.response.finalContent) {
     const assistantResponse = messageAdapter.wrapFinalResponse(
       ctx.session.threadId,
@@ -102,7 +87,7 @@ export async function* messageMiddleware(
     );
   }
 
-  // 3. 累积所有 tool 结果消息到 history
+  // 4. 累积所有 tool 结果消息到 history
   if (hasToolResults) {
     for (const [, accumulator] of ctx.tools.toolCallAccumulated) {
       if (accumulator.executionResult) {
@@ -139,6 +124,9 @@ export async function* messageMiddleware(
     return;
   }
 
-  // 5. 重试完成后重置 retryState
+  // 5. 无 tool results，重置 retryState
   ctx.state.retryState = RetryState.none;
+
+  // yield done 标记结束
+  yield { type: "done", threadId: ctx.session.threadId };
 }

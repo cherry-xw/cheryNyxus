@@ -1,13 +1,10 @@
 // 导出类型（不含 llmAdapter，避免冲突）
-export type { SendResult, ClientConfigBase, ToolCallAccumulator } from "./types";
+export type { ClientConfigBase, ToolCallAccumulator } from "./types";
 export { SupervisionLevel } from "./types";
 
 // 导出 middleware（从新位置）
 export {
   compose,
-  executeMiddleware,
-  executeUntilInterrupt,
-  createDefaultMiddlewareChain,
   messageMiddleware,
   toolMiddleware,
   chunkMiddleware,

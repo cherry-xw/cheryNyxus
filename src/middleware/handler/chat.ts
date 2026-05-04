@@ -1,4 +1,4 @@
-import type { MiddlewareContext, MiddlewareChunk, StreamChunk, DoneChunk } from "./types";
+import type { MiddlewareContext, MiddlewareChunk, StreamChunk, StagedChunk } from "../types";
 
 /**
  * Chat Middleware
@@ -57,9 +57,9 @@ async function* handleStream(
     options,
   );
 
-  console.log("\n=== Chat Stream Raw Chunks ===");
+  // console.log("\n=== Chat Stream Raw Chunks ===");
   for await (const rawChunk of streamIterator) {
-    console.log(JSON.stringify(rawChunk, null, 2));
+    // console.log(JSON.stringify(rawChunk, null, 2));
     const chunk: StreamChunk = {
       type: "stream",
       streamId: `stream-${Date.now()}`,
@@ -106,8 +106,8 @@ async function* handleNonStream(
   const content = messageAdapter.content(response);
   const thinking = messageAdapter.thinking?.(response);
 
-  const chunk: DoneChunk = {
-    type: "done",
+  const chunk: StagedChunk = {
+    type: "staged",
     content,
     thinking,
     threadId: ctx.session.threadId,
