@@ -1,7 +1,7 @@
 import type { Tool } from "@/tool/index";
 import type { ZodType } from "zod";
 import type { ClientConfigBase, SendResult } from "@/llm/types";
-import type { LLMStreamChunk } from "@/middleware/types";
+import type { LLMStreamChunk, AdaptersGroup } from "@/middleware/types";
 import {
   send as middlewareSend,
   sendStream as middlewareSendStream,
@@ -12,7 +12,12 @@ import { SupervisionLevel } from "@/middleware/types";
 import config from "@/config";
 import { randomUUID } from "crypto";
 
-// Provider 注册函数映射
+// Adapter 获取函数
+import { getLLMAdapter } from "@/llm/adapter";
+import { getMessageAdapter } from "@/message/adapter";
+import { getToolAdapter } from "@/tool/adapter";
+
+// Provider 注册函数（确保 adapter 已注册）
 import { registerOpenAIAdapter } from "@/provider/openai";
 import { registerOllamaAdapter } from "@/provider/ollama";
 
@@ -29,6 +34,7 @@ export class AgentBuilder {
   private tools: Tool<ZodType>[] = [];
   private sessionId: string = randomUUID();
   private autoExecuteLevel?: SupervisionLevel;
+  private adapters?: AdaptersGroup;
 
   /**
    * 选择 LLM 服务（从 config.yaml 读取配置）
@@ -41,11 +47,22 @@ export class AgentBuilder {
     }
     this.clientConfig = clientConfig;
 
-    // 根据 provider 动态注册 adapter
+    // 根据 provider 注册 adapter（确保已注册）
     const provider = clientConfig.provider;
     if (providerRegistry[provider]) {
       providerRegistry[provider]();
     }
+
+    // 获取 adapter 实例
+    const llmAdapter = getLLMAdapter(provider);
+    const messageAdapter = getMessageAdapter(provider);
+    const toolAdapter = getToolAdapter(provider);
+
+    if (!llmAdapter || !messageAdapter || !toolAdapter) {
+      throw new Error(`Provider "${provider}" adapters not registered`);
+    }
+
+    this.adapters = { llmAdapter, messageAdapter, toolAdapter };
 
     // 自动根据 tool_group 配置绑定 tools 和 autoExecuteLevel
     const toolGroupName = clientConfig.tool_group;
@@ -81,8 +98,11 @@ export class AgentBuilder {
     if (!this.clientConfig) {
       throw new Error("必须先调用 use() 选择 LLM 服务");
     }
+    if (!this.adapters) {
+      throw new Error("必须先调用 use() 初始化 adapters");
+    }
 
-    // 根据 tool_group 筛选 tools
+    // 根据 tool_group 篮选 tools
     const toolGroupName = this.clientConfig.tool_group;
     let filteredTools = this.tools;
     if (toolGroupName && config.tool_groups?.[toolGroupName]) {
@@ -106,7 +126,7 @@ export class AgentBuilder {
       toolManager.add(filteredTools);
     }
 
-    return new Agent(this.sessionId, enhancedConfig, toolManager);
+    return new Agent(this.sessionId, enhancedConfig, toolManager, this.adapters);
   }
 }
 
@@ -118,13 +138,14 @@ export class Agent {
     private sessionId: string,
     private config: ClientConfigBase,
     private tool: ToolManager,
+    private adapters: AdaptersGroup,
   ) {}
 
   /**
    * 发送消息（两阶段执行）
    */
   async send(threadId: string, input: string): Promise<SendResult> {
-    return middlewareSend(this.sessionId, threadId, input, this.config, this.tool);
+    return middlewareSend(this.sessionId, threadId, input, this.config, this.adapters, this.tool);
   }
 
   /**
@@ -148,6 +169,7 @@ export class Agent {
       this.config,
       approved,
       interruptInfo,
+      this.adapters,
       this.tool,
     );
   }
@@ -159,13 +181,6 @@ export class Agent {
     threadId: string,
     input: string,
   ): AsyncGenerator<LLMStreamChunk<unknown>> {
-    yield* middlewareSendStream(this.sessionId, threadId, input, this.config, this.tool);
+    yield* middlewareSendStream(this.sessionId, threadId, input, this.config, this.adapters, this.tool);
   }
-}
-
-/**
- * 创建 AgentBuilder 实例
- */
-export function createAgent(): AgentBuilder {
-  return new AgentBuilder();
 }

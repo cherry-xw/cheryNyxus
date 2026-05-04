@@ -62,7 +62,7 @@ createAgent().use("longcat").bindTools(readTool).build()
 | [message.ts](src/middleware/message.ts) | 消息累积、历史构建、创建用户消息 |
 | [tool.ts](src/middleware/tool.ts) | 工具执行循环、两阶段确认中断、监管等级判断 |
 | [chunk.ts](src/middleware/chunk.ts) | 流式响应累积、工具调用增量累积 |
-| [chat.ts](src/middleware/chat.ts) | 调用 Provider Adapter、发起 LLM 请求 |
+| [chat.ts](src/middleware/chat.ts) | 调用 LLM Adapter、发起 LLM 请求 |
 
 ### 两阶段执行（Tool 监管）
 

@@ -1,5 +1,4 @@
 import type { MiddlewareContext, MiddlewareChunk, StreamChunk, DoneChunk } from "./types";
-import { getMessageProviderAdapterConfig } from "@/message/adapter";
 
 /**
  * Chunk Middleware
@@ -10,13 +9,12 @@ export async function* chunkMiddleware(
   ctx: MiddlewareContext,
   next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  // 非流式模式：处理 DoneChunk 设置 finalContent
-  if (!ctx.isStream) {
+  if (!ctx.request.isStream) {
     const generator = next() as AsyncGenerator<MiddlewareChunk>;
     for await (const chunk of generator) {
       if (chunk.type === "done") {
-        ctx.finalContent = chunk.content;
-        ctx.finalThinking = chunk.thinking;
+        ctx.response.finalContent = chunk.content;
+        ctx.response.finalThinking = chunk.thinking;
       }
       yield chunk;
     }
@@ -24,25 +22,25 @@ export async function* chunkMiddleware(
   }
 
   // 流式模式：处理 chunks
-  ctx.accumulated = "";
-  ctx.thinkingAccumulated = "";
-  ctx.chunkCount = 0;
-  ctx.toolCallAccumulated = new Map();
+  ctx.process.accumulated = "";
+  ctx.process.thinkingAccumulated = "";
+  ctx.process.chunkCount = 0;
+  ctx.tools.toolCallAccumulated = new Map();
   const streamId = `stream-${Date.now()}`;
 
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
   for await (const chunk of generator) {
-    ctx.chunkCount++;
+    ctx.process.chunkCount++;
 
     // 处理原始流式 chunk
     if (chunk.type === "stream") {
       // 从原始数据提取 delta
       const rawChunk = chunk.raw;
       const delta = extractDelta(ctx, rawChunk);
-      ctx.accumulated += delta;
+      ctx.process.accumulated += delta;
 
       const thinkingDelta = extractThinking(ctx, rawChunk);
-      ctx.thinkingAccumulated += thinkingDelta;
+      ctx.process.thinkingAccumulated += thinkingDelta;
 
       // 累积工具调用增量
       processToolCallDelta(ctx, rawChunk);
@@ -53,8 +51,8 @@ export async function* chunkMiddleware(
         streamId,
         thinkingDelta,
         delta,
-        thinkingAccumulated: ctx.thinkingAccumulated,
-        accumulated: ctx.accumulated,
+        thinkingAccumulated: ctx.process.thinkingAccumulated,
+        accumulated: ctx.process.accumulated,
         raw: rawChunk,
       };
       yield assembledChunk;
@@ -64,13 +62,13 @@ export async function* chunkMiddleware(
   // 流式完成
   const doneChunk: DoneChunk = {
     type: "done",
-    content: ctx.accumulated,
-    thinking: ctx.thinkingAccumulated,
-    threadId: ctx.threadId,
+    content: ctx.process.accumulated,
+    thinking: ctx.process.thinkingAccumulated,
+    threadId: ctx.session.threadId,
     raw: null,
   };
-  ctx.finalContent = ctx.accumulated;
-  ctx.finalThinking = ctx.thinkingAccumulated;
+  ctx.response.finalContent = ctx.process.accumulated;
+  ctx.response.finalThinking = ctx.process.thinkingAccumulated;
   yield doneChunk;
 }
 
@@ -78,22 +76,14 @@ export async function* chunkMiddleware(
  * 提取 delta
  */
 function extractDelta(ctx: MiddlewareContext, raw: unknown): string {
-  const msgAdapter = getMessageProviderAdapterConfig(ctx.config.provider);
-  if (!msgAdapter) {
-    throw new Error(`Provider "${ctx.config.provider}" message adapter not registered`);
-  }
-  return msgAdapter.extractStreamDelta(raw);
+  return ctx.adapters.messageAdapter.extractStreamDelta(raw);
 }
 
 /**
  * 提取 thinking
  */
 function extractThinking(ctx: MiddlewareContext, raw: unknown): string {
-  const msgAdapter = getMessageProviderAdapterConfig(ctx.config.provider);
-  if (!msgAdapter) {
-    throw new Error(`Provider "${ctx.config.provider}" message adapter not registered`);
-  }
-  return msgAdapter.extractStreamThinking?.(raw) ?? "";
+  return ctx.adapters.messageAdapter.extractStreamThinking?.(raw) ?? "";
 }
 
 /**
@@ -101,5 +91,5 @@ function extractThinking(ctx: MiddlewareContext, raw: unknown): string {
  */
 function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
   // 通过 ToolAdapter 提取
-  // 累积到 ctx.toolCallAccumulated
+  // 累积到 ctx.tools.toolCallAccumulated
 }

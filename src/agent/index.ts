@@ -1,4 +1,4 @@
-import { createAgent } from "./builder";
+import { AgentBuilder } from "./builder";
 import { readTool } from "@/tool/index";
 import { v4 as uuid } from "uuid";
 
@@ -17,7 +17,7 @@ async function main() {
   const threadId = uuid();
 
   // 1. 创建 builder 并配置
-  const agent = createAgent()
+  const agent = new AgentBuilder()
     .use("longcat")         // 使用 longcat 配置
     .bindTools(readTool)    // 绑定 read_file 工具
     .build();

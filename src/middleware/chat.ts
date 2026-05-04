@@ -1,7 +1,4 @@
 import type { MiddlewareContext, MiddlewareChunk, StreamChunk, DoneChunk } from "./types";
-import { getLLMAdapter } from "@/llm/adapter";
-import { getMessageProviderAdapterConfig } from "@/message/adapter";
-import { getToolAdapter } from "@/tool/adapter";
 
 /**
  * Chat Middleware
@@ -12,38 +9,30 @@ export async function* chatMiddleware(
   ctx: MiddlewareContext,
   next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  const llmAdapter = getLLMAdapter(ctx.config.provider);
-  if (!llmAdapter) {
-    throw new Error(`Provider "${ctx.config.provider}" adapter not registered`);
-  }
+  const { llmAdapter, messageAdapter, toolAdapter } = ctx.adapters;
 
   // 从 history 构建 provider 格式消息
-  const msgAdapter = getMessageProviderAdapterConfig(ctx.config.provider);
-  if (!msgAdapter) {
-    throw new Error(`Provider "${ctx.config.provider}" message adapter not registered`);
-  }
-  const messages = msgAdapter.buildMessages(ctx.history);
+  const messages = messageAdapter.buildMessages(ctx.process.history);
 
   // 构建 tools（从 toolManager）
-  const toolAdapter = getToolAdapter(ctx.config.provider);
-  const tools = ctx.toolManager.getAll().length > 0 && toolAdapter
-    ? toolAdapter.buildTools(ctx.toolManager.getAll())
+  const tools = ctx.tools.toolManager.getAll().length > 0
+    ? toolAdapter.buildTools(ctx.tools.toolManager.getAll())
     : [];
 
   // 构建请求选项（传递必要参数）
-  ctx.options = {
+  const options = {
     model: ctx.config.model,
     url: ctx.config.url,
     key: ctx.config.key,
     ...(ctx.config.thinking && { thinking: true }),
   };
 
-  if (ctx.isStream) {
+  if (ctx.request.isStream) {
     // 流式调用
-    yield* handleStream(ctx, llmAdapter, messages, tools);
+    yield* handleStream(options, llmAdapter, messages, tools);
   } else {
     // 非流式调用
-    yield* handleNonStream(ctx, llmAdapter, messages, tools);
+    yield* handleNonStream(ctx, options, llmAdapter, messages, tools);
   }
 }
 
@@ -51,8 +40,8 @@ export async function* chatMiddleware(
  * 处理流式调用
  */
 async function* handleStream(
-  ctx: MiddlewareContext,
-  llmAdapter: ReturnType<typeof getLLMAdapter>,
+  options: Record<string, unknown>, // LLM请求选项（model/url/key/thinking等）
+  llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
   messages: unknown[],
   tools: unknown[],
 ): AsyncGenerator<MiddlewareChunk> {
@@ -60,15 +49,13 @@ async function* handleStream(
   console.log("\n=== Chat Stream Request ===");
   console.log("Messages:", JSON.stringify(messages, null, 2));
   console.log("Tools:", JSON.stringify(tools, null, 2));
-  console.log("Options:", JSON.stringify(ctx.options, null, 2));
+  console.log("Options:", JSON.stringify(options, null, 2));
 
-  const streamIterator = await llmAdapter!.chatStream(
+  const streamIterator = await llmAdapter.chatStream(
     messages,
     tools,
-    ctx.options,
+    options,
   );
-
-  ctx.streamIterator = streamIterator;
 
   console.log("\n=== Chat Stream Raw Chunks ===");
   for await (const rawChunk of streamIterator) {
@@ -91,7 +78,8 @@ async function* handleStream(
  */
 async function* handleNonStream(
   ctx: MiddlewareContext,
-  llmAdapter: ReturnType<typeof getLLMAdapter>,
+  options: Record<string, unknown>, // LLM请求选项（model/url/key/thinking等）
+  llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
   messages: unknown[],
   tools: unknown[],
 ): AsyncGenerator<MiddlewareChunk> {
@@ -99,34 +87,30 @@ async function* handleNonStream(
   console.log("\n=== Chat Request ===");
   console.log("Messages:", JSON.stringify(messages, null, 2));
   console.log("Tools:", JSON.stringify(tools, null, 2));
-  console.log("Options:", JSON.stringify(ctx.options, null, 2));
+  console.log("Options:", JSON.stringify(options, null, 2));
 
-  const response = await llmAdapter!.chat(
+  const response = await llmAdapter.chat(
     messages,
     tools,
-    ctx.options,
+    options,
   );
 
-  ctx.response = response;
+  ctx.response.raw = response;
 
   // 打印原始响应
   console.log("\n=== Chat Raw Response ===");
   console.log(JSON.stringify(response, null, 2));
 
   // 通过 MessageAdapter 提取内容和思考
-  const msgAdapter = getMessageProviderAdapterConfig(ctx.config.provider);
-  if (!msgAdapter) {
-    throw new Error(`Provider "${ctx.config.provider}" message adapter not registered`);
-  }
-
-  const content = msgAdapter.content(response);
-  const thinking = msgAdapter.thinking?.(response);
+  const { messageAdapter } = ctx.adapters;
+  const content = messageAdapter.content(response);
+  const thinking = messageAdapter.thinking?.(response);
 
   const chunk: DoneChunk = {
     type: "done",
     content,
     thinking,
-    threadId: ctx.threadId,
+    threadId: ctx.session.threadId,
     raw: response,
   };
   yield chunk;

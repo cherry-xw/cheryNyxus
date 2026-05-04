@@ -1,6 +1,5 @@
 import type { MiddlewareContext, MiddlewareChunk, ToolCallAccumulator } from "./types";
 import { SupervisionLevel } from "./types";
-import { getToolAdapter } from "@/tool/adapter";
 
 /**
  * Tool Middleware
@@ -14,7 +13,7 @@ export async function* toolMiddleware(
   next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // === 前半部分：准备阶段 ===
-  ctx.toolCallAccumulated = new Map();
+  ctx.tools.toolCallAccumulated = new Map();
 
   // 调用下一层获取响应
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
@@ -28,23 +27,22 @@ export async function* toolMiddleware(
 
 /**
  * 执行 tool calls（分级检查 + 执行 + 结果写入）
- * 非流式：从 ctx.response 或 ctx.pendingToolCalls 提取
- * 流式：从 ctx.toolCallAccumulated 提取
+ * 非流式：从 ctx.response.raw 或 ctx.tools.pendingToolCalls 提取
+ * 流式：从 ctx.tools.toolCallAccumulated 提取
  */
 async function* executeToolCalls(
   ctx: MiddlewareContext,
 ): AsyncGenerator<MiddlewareChunk> {
-  const toolAdapter = getToolAdapter(ctx.config.provider);
-  if (!toolAdapter) return;
+  const toolAdapter = ctx.adapters.toolAdapter;
 
   // 获取 tool calls
   let toolCalls: unknown[];
-  if (ctx.isStream) {
-    toolCalls = extractFromAccumulated(ctx.toolCallAccumulated);
+  if (ctx.request.isStream) {
+    toolCalls = extractFromAccumulated(ctx.tools.toolCallAccumulated);
   } else {
     // 非流式模式：从响应提取并存入 pendingToolCalls（供 message.ts 构建 assistant 消息）
-    const extracted = toolAdapter.extractToolCalls(ctx.response);
-    ctx.pendingToolCalls = extracted;
+    const extracted = toolAdapter.extractToolCalls(ctx.response.raw);
+    ctx.tools.pendingToolCalls = extracted;
     toolCalls = extracted;
   }
 
@@ -57,16 +55,16 @@ async function* executeToolCalls(
     const name = toolAdapter.getToolCallName(tc);
     const args = toolAdapter.parseToolCallArguments(tc);
 
-    const toolDef = ctx.toolManager.get(name);
+    const toolDef = ctx.tools.toolManager.get(name);
 
     // 分级检查
     if (toolDef && toolDef.supervisionLevel <= autoLevel) {
       // 自动执行
       try {
-        const result = await ctx.toolManager.execute(name, args);
+        const result = await ctx.tools.toolManager.execute(name, args);
 
         // 写入执行结果到 toolCallAccumulated（message 后半部分负责累积到 history）
-        const accumulator = ctx.toolCallAccumulated.get(id);
+        const accumulator = ctx.tools.toolCallAccumulated.get(id);
         if (accumulator) {
           accumulator.executionResult = {
             success: true,
@@ -76,7 +74,7 @@ async function* executeToolCalls(
           };
         } else {
           // 非流式模式下可能没有累积器，创建新的
-          ctx.toolCallAccumulated.set(id, {
+          ctx.tools.toolCallAccumulated.set(id, {
             id,
             name,
             arguments: JSON.stringify(args),
@@ -92,7 +90,7 @@ async function* executeToolCalls(
         const errorMsg = error instanceof Error ? error.message : String(error);
 
         // 写入失败结果（message 后半部分负责处理）
-        const accumulator = ctx.toolCallAccumulated.get(id);
+        const accumulator = ctx.tools.toolCallAccumulated.get(id);
         if (accumulator) {
           accumulator.executionResult = {
             success: false,
@@ -101,7 +99,7 @@ async function* executeToolCalls(
             toolName: name,
           };
         } else {
-          ctx.toolCallAccumulated.set(id, {
+          ctx.tools.toolCallAccumulated.set(id, {
             id,
             name,
             arguments: JSON.stringify(args),
@@ -116,15 +114,15 @@ async function* executeToolCalls(
       }
     } else {
       // 需确认，yield 中断
-      ctx.needInterrupt = true;
-      ctx.interruptInfo = { toolCallId: id, toolName: name, args };
+      ctx.state.needInterrupt = true;
+      ctx.state.interruptInfo = { toolCallId: id, toolName: name, args };
 
       yield {
         type: "interrupt",
         toolCallId: id,
         toolName: name,
         args,
-        threadId: ctx.threadId,
+        threadId: ctx.session.threadId,
       };
       return;
     }
@@ -152,17 +150,17 @@ export async function* continueToolExecution(
   ctx: MiddlewareContext,
   approved: boolean,
 ): AsyncGenerator<MiddlewareChunk> {
-  if (!ctx.interruptInfo) {
+  if (!ctx.state.interruptInfo) {
     throw new Error("No pending tool call to continue");
   }
 
-  const { toolCallId, toolName, args } = ctx.interruptInfo;
-  ctx.interruptInfo = undefined;
-  ctx.needInterrupt = false;
+  const { toolCallId, toolName, args } = ctx.state.interruptInfo;
+  ctx.state.interruptInfo = undefined;
+  ctx.state.needInterrupt = false;
 
   if (!approved) {
     // 用户拒绝
-    const accumulator = ctx.toolCallAccumulated.get(toolCallId);
+    const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
     if (accumulator) {
       accumulator.executionResult = {
         success: false,
@@ -171,7 +169,7 @@ export async function* continueToolExecution(
         toolName,
       };
     } else {
-      ctx.toolCallAccumulated.set(toolCallId, {
+      ctx.tools.toolCallAccumulated.set(toolCallId, {
         id: toolCallId,
         name: toolName,
         arguments: JSON.stringify(args),
@@ -186,8 +184,8 @@ export async function* continueToolExecution(
   } else {
     // 用户确认执行
     try {
-      const result = await ctx.toolManager.execute(toolName, args);
-      const accumulator = ctx.toolCallAccumulated.get(toolCallId);
+      const result = await ctx.tools.toolManager.execute(toolName, args);
+      const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
       if (accumulator) {
         accumulator.executionResult = {
           success: true,
@@ -196,7 +194,7 @@ export async function* continueToolExecution(
           toolName,
         };
       } else {
-        ctx.toolCallAccumulated.set(toolCallId, {
+        ctx.tools.toolCallAccumulated.set(toolCallId, {
           id: toolCallId,
           name: toolName,
           arguments: JSON.stringify(args),
@@ -210,7 +208,7 @@ export async function* continueToolExecution(
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      const accumulator = ctx.toolCallAccumulated.get(toolCallId);
+      const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
       if (accumulator) {
         accumulator.executionResult = {
           success: false,
@@ -219,7 +217,7 @@ export async function* continueToolExecution(
           toolName,
         };
       } else {
-        ctx.toolCallAccumulated.set(toolCallId, {
+        ctx.tools.toolCallAccumulated.set(toolCallId, {
           id: toolCallId,
           name: toolName,
           arguments: JSON.stringify(args),

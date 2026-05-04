@@ -2,6 +2,7 @@ import type { ClientConfigBase, SendResult } from "@/llm/types";
 import type {
   MiddlewareContext,
   LLMStreamChunk,
+  AdaptersGroup,
 } from "./types";
 import { createDefaultMiddlewareChain, executeUntilInterrupt } from "./index";
 import { continueToolExecution } from "./tool";
@@ -17,33 +18,40 @@ function createMiddlewareContext(
   input: string,
   config: ClientConfigBase,
   isStream: boolean,
+  adapters: AdaptersGroup,
   toolManager?: ToolManager,
 ): MiddlewareContext {
   const manager = toolManager ?? new ToolManager(config.provider);
 
   return {
-    sessionId,
-    threadId,
-    input,
+    session: { sessionId, threadId },
+    request: { input, isStream },
     config,
-    isStream,
-    history: [],
-    messages: [],
-    toolManager: manager,
-    toolCallAccumulated: new Map(),
-    supervisionLevel: config.autoExecuteLevel ?? 1,
-    needInterrupt: false,
-    accumulated: "",
-    thinkingAccumulated: "",
-    chunkCount: 0,
-    response: undefined,
-    streamIterator: undefined,
-    options: undefined,
-    finalContent: "",
-    finalThinking: undefined,
-    finalResponse: undefined,
-    retryState: RetryState.none,
-    pendingToolCalls: undefined,
+    adapters,
+    process: {
+      history: [],
+      messages: [],
+      accumulated: "",
+      thinkingAccumulated: "",
+      chunkCount: 0,
+    },
+    tools: {
+      toolManager: manager,
+      toolCallAccumulated: new Map(),
+      pendingToolCalls: undefined,
+      supervisionLevel: config.autoExecuteLevel ?? 1,
+    },
+    response: {
+      raw: undefined,
+      finalContent: "",
+      finalThinking: undefined,
+      finalResponse: undefined,
+    },
+    state: {
+      needInterrupt: false,
+      interruptInfo: undefined,
+      retryState: RetryState.none,
+    },
   };
 }
 
@@ -56,9 +64,10 @@ export async function send(
   threadId: string,
   input: string,
   config: ClientConfigBase,
+  adapters: AdaptersGroup,
   toolManager?: ToolManager,
 ): Promise<SendResult> {
-  const ctx = createMiddlewareContext(sessionId, threadId, input, config, false, toolManager);
+  const ctx = createMiddlewareContext(sessionId, threadId, input, config, false, adapters, toolManager);
   const middlewareChain = createDefaultMiddlewareChain();
 
   const { chunks, interrupted, interruptInfo } = await executeUntilInterrupt(
@@ -92,10 +101,10 @@ export async function send(
   return {
     status: "success",
     role: "assistant",
-    content: ctx.finalContent,
-    ...(ctx.finalThinking && { thinking: ctx.finalThinking }),
+    content: ctx.response.finalContent,
+    ...(ctx.response.finalThinking && { thinking: ctx.response.finalThinking }),
     threadId,
-    raw: ctx.response,
+    raw: ctx.response.raw,
   };
 }
 
@@ -108,9 +117,10 @@ export async function* sendStream(
   threadId: string,
   input: string,
   config: ClientConfigBase,
+  adapters: AdaptersGroup,
   toolManager?: ToolManager,
 ): AsyncGenerator<LLMStreamChunk<unknown>> {
-  const ctx = createMiddlewareContext(sessionId, threadId, input, config, true, toolManager);
+  const ctx = createMiddlewareContext(sessionId, threadId, input, config, true, adapters, toolManager);
   const middlewareChain = createDefaultMiddlewareChain();
 
   const streamId = `stream-${Date.now()}`;
@@ -132,9 +142,9 @@ export async function* sendStream(
       yield {
         streamId,
         thinkingDelta: "",
-        thinkingAccumulated: ctx.thinkingAccumulated,
+        thinkingAccumulated: ctx.process.thinkingAccumulated,
         delta: "",
-        accumulated: ctx.accumulated,
+        accumulated: ctx.process.accumulated,
         isDone: false,
         raw: { type: "interrupt", toolName: chunk.toolName },
       };
@@ -142,9 +152,9 @@ export async function* sendStream(
       yield {
         streamId,
         thinkingDelta: "",
-        thinkingAccumulated: ctx.thinkingAccumulated,
+        thinkingAccumulated: ctx.process.thinkingAccumulated,
         delta: "",
-        accumulated: ctx.accumulated,
+        accumulated: ctx.process.accumulated,
         isDone: true,
         raw: chunk.raw,
       };
@@ -166,12 +176,13 @@ export async function confirmToolCall(
     toolName: string;
     args: Record<string, unknown>;
   },
+  adapters: AdaptersGroup,
   toolManager?: ToolManager,
 ): Promise<SendResult> {
   // 重建上下文，保留中断信息
-  const ctx = createMiddlewareContext(sessionId, threadId, "", config, false, toolManager);
-  ctx.interruptInfo = interruptInfo;
-  ctx.needInterrupt = true;
+  const ctx = createMiddlewareContext(sessionId, threadId, "", config, false, adapters, toolManager);
+  ctx.state.interruptInfo = interruptInfo;
+  ctx.state.needInterrupt = true;
 
   // 执行工具调用（用户确认或拒绝）
   for await (const _ of continueToolExecution(ctx, approved)) {
@@ -179,8 +190,8 @@ export async function confirmToolCall(
   }
 
   // 如果设置了回退状态，重新执行中间件链获取新响应
-  if (ctx.retryState === RetryState.retryMessage) {
-    ctx.retryState = RetryState.none;
+  if (ctx.state.retryState === RetryState.retryMessage) {
+    ctx.state.retryState = RetryState.none;
     const middlewareChain = createDefaultMiddlewareChain();
     const { chunks, interrupted, interruptInfo: newInterrupt } = await executeUntilInterrupt(
       middlewareChain,
@@ -213,9 +224,9 @@ export async function confirmToolCall(
   return {
     status: "success",
     role: "assistant",
-    content: ctx.finalContent,
-    ...(ctx.finalThinking && { thinking: ctx.finalThinking }),
+    content: ctx.response.finalContent,
+    ...(ctx.response.finalThinking && { thinking: ctx.response.finalThinking }),
     threadId,
-    raw: ctx.response,
+    raw: ctx.response.raw,
   };
 }

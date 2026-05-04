@@ -12,7 +12,7 @@ export function compose(
 ): (ctx: MiddlewareContext) => AsyncGenerator<MiddlewareChunk> {
   return async function* (ctx: MiddlewareContext): AsyncGenerator<MiddlewareChunk> {
     // 初始化回退状态
-    ctx.retryState = RetryState.none;
+    ctx.state.retryState = RetryState.none;
 
     let startIndex = 0;
     let executionCount = 0;
@@ -25,7 +25,7 @@ export function compose(
       yield* executeChain(ctx, handlers, startIndex);
 
       // 使用局部变量获取状态，避免控制流分析问题
-      const currentState = ctx.retryState as RetryState;
+      const currentState = ctx.state.retryState as RetryState;
       if (currentState === RetryState.retryMessage) {
         // 回退到 message 入口（索引 0）
         // 不重置 retryState，让 message 检查后自行重置

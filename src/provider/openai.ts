@@ -152,8 +152,8 @@ const openaiToolAdapterConfig = {
   },
 };
 
-// Provider Adapter 定义
-const openaiProviderAdapter: llmAdapter = {
+// LLM Adapter 定义
+const openaiLLMAdapter: llmAdapter = {
   name: "openai",
   async chat(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<unknown> {
     const msgArray = messages as ChatCompletionMessageParam[];
@@ -217,5 +217,5 @@ export function registerOpenAIAdapter(): void {
     "openai",
     openaiToolAdapterConfig
   );
-  registerLLMAdapter(openaiProviderAdapter);
+  registerLLMAdapter(openaiLLMAdapter);
 }

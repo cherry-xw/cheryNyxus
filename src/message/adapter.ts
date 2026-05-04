@@ -76,7 +76,7 @@ export function registerMessageAdapter<T, TStream = unknown, TMessage = unknown>
 /**
  * 获取 provider 适配器配置
  */
-export function getMessageProviderAdapterConfig(provider: string): MessageProviderAdapterConfig | undefined {
+export function getMessageAdapter(provider: string): MessageProviderAdapterConfig | undefined {
   return messageProviderRegistry.get(provider);
 }
 

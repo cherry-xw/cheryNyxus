@@ -113,8 +113,8 @@ const ollamaToolAdapterConfig = {
   },
 };
 
-// Provider Adapter 定义
-const ollamaProviderAdapter: llmAdapter = {
+// LLM Adapter 定义
+const ollamaLLMAdapter: llmAdapter = {
   name: "ollama",
   async chat(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<unknown> {
     const msgArray = messages as Message[];
@@ -162,5 +162,5 @@ export function registerOllamaAdapter(): void {
     "ollama",
     ollamaToolAdapterConfig
   );
-  registerLLMAdapter(ollamaProviderAdapter);
+  registerLLMAdapter(ollamaLLMAdapter);
 }

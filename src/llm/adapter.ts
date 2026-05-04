@@ -5,7 +5,7 @@ export type { llmAdapter };
 /**
  * LLM Adapter 注册表
  */
-const providerRegistry = new Map<string, llmAdapter>();
+const llmAdapterRegistry = new Map<string, llmAdapter>();
 
 /**
  * 注册 LLM Adapter
@@ -13,7 +13,7 @@ const providerRegistry = new Map<string, llmAdapter>();
 export function registerLLMAdapter(
   adapter: llmAdapter,
 ): void {
-  providerRegistry.set(adapter.name, adapter);
+  llmAdapterRegistry.set(adapter.name, adapter);
 }
 
 /**
@@ -22,5 +22,5 @@ export function registerLLMAdapter(
 export function getLLMAdapter(
   provider: string,
 ): llmAdapter | undefined {
-  return providerRegistry.get(provider);
+  return llmAdapterRegistry.get(provider);
 }
