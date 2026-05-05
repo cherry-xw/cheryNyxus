@@ -16,18 +16,25 @@ llm:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
       key: $LONGCAT_API_KEY
-      thinking: true # 思考模式
+      thinking: true # 思考模式（这是对这个模型有没有think能力的配置）
       provider: openai
       tool_group: safe_tools
 
 # Tool分组配置
 tool_groups:
   safe_tools:
-    auto_execute_level: auto # 允许自动执行的监管等级（auto/confirm/manual）
+    supervision: auto # 允许自动执行的监管等级（auto/confirm/manual）
     tools:
       - read_file
+      - Skill
   dangerous_tools:
-    auto_execute_level: manual # 禁止自动执行，需手动触发
+    supervision: manual # 禁止自动执行，需手动触发
     tools:
       - delete_file
       - execute_command
+
+# 全局配置
+global:
+  thinking: true # 是否开启思考模式（如果能思考）
+  supervision: manual # 全局默认的监管等级
+  stream: true # 是否开启流式输出

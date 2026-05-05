@@ -3,7 +3,7 @@ import type {
   MiddlewareChunk,
   ToolCallAccumulator,
 } from "../types";
-import { SupervisionLevel } from "../types";
+import { SupervisionLevel } from "@/config";
 
 /**
  * Tool Middleware
@@ -43,7 +43,7 @@ async function* executeToolCalls(
 
   if (toolCalls.length === 0) return;
 
-  const autoLevel = ctx.config.autoExecuteLevel ?? SupervisionLevel.confirm;
+  const autoLevel = ctx.global.supervision ?? SupervisionLevel.confirm;
 
   for (const tc of toolCalls) {
     // extractFromAccumulated 返回的是内部格式 {id, name, arguments}
@@ -58,12 +58,49 @@ async function* executeToolCalls(
     // console.log(toolDef, ctx.tools.toolManager.getAll());
     // 分级检查
     if (toolDef) {
-      if (toolDef.supervisionLevel <= autoLevel) {
+      if (ctx.global.supervision <= autoLevel) {
+        // Skill工具特殊处理：防止重复加载
+        if (name === "Skill" && args.name) {
+          const skillName = args.name as string;
+          if (ctx.session.loadedSkills.has(skillName)) {
+            // 技能已加载，返回提示信息
+            const accumulator = ctx.tools.toolCallAccumulated.get(id);
+            if (accumulator) {
+              accumulator.executionResult = {
+                success: true,
+                result: `技能"${skillName}"已在本会话中激活，无需重复加载。请根据已加载的指令继续执行。`,
+                toolCallId: id,
+                toolName: name,
+              };
+            } else {
+              ctx.tools.toolCallAccumulated.set(id, {
+                id,
+                name,
+                arguments: JSON.stringify(args),
+                index: -1,
+                executionResult: {
+                  success: true,
+                  result: `技能"${skillName}"已在本会话中激活，无需重复加载。请根据已加载的指令继续执行。`,
+                  toolCallId: id,
+                  toolName: name,
+                },
+              });
+            }
+            continue; // 跳过执行
+          }
+        }
+
         // 自动执行
         try {
           const result = await ctx.tools.toolManager.execute(name, args);
           console.log("result");
           console.log(result);
+
+          // Skill工具执行成功后，记录已加载的技能
+          if (name === "Skill" && args.name) {
+            ctx.session.loadedSkills.add(args.name as string);
+          }
+
           // 写入执行结果到 toolCallAccumulated（message 后半部分负责累积到 history）
           const accumulator = ctx.tools.toolCallAccumulated.get(id);
           if (accumulator) {
@@ -126,7 +163,6 @@ async function* executeToolCalls(
           toolCallId: id,
           toolName: name,
           args,
-          threadId: ctx.session.threadId,
         };
         return;
       }

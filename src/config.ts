@@ -2,21 +2,40 @@ import dotenv from "dotenv";
 import yaml from "js-yaml";
 import fs from "fs";
 import path from "path";
-import { SupervisionLevel } from "@/middleware/types";
 
 dotenv.config();
 
-type LLMProvider = {
+
+/**
+ * Tool 监管等级枚举
+ * - auto: 自动执行，无需确认
+ * - confirm: 需用户确认后执行
+ * - manual: 禁止自动执行，仅手动触发
+ */
+export enum SupervisionLevel {
+  auto = 0,
+  confirm = 1,
+  manual = 2,
+}
+
+/**
+ * LLM Client 配置基础类型
+ * 各 Provider 可扩展具体配置结构
+ */
+interface ClientConfig {
   url: string;
   model: string;
   key?: string;
+  /** 表示这个模型有没有思考能力 */
   thinking?: boolean;
+  /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string;
-  tool_group?: string; // 使用哪个tool group
-};
+  /** 使用哪个tool group */
+  tool_group?: string;
+}
 
 interface LLMConfig {
-  clients: Record<string, LLMProvider>;
+  clients: Record<string, ClientConfig>;
 }
 
 /**
@@ -27,7 +46,17 @@ interface ToolGroupConfig {
   tools: string[]; // 包含的tool名称列表
 }
 
+/**
+ * 全局配置
+ */
+interface GlobalConfig {
+  thinking: boolean; // 是否开启思考模式（如果能思考）
+  supervision: keyof typeof SupervisionLevel; // 全局默认的监管等级
+  stream: boolean; // 是否开启流式输出
+}
+
 interface Config {
+  global: GlobalConfig;
   llm: LLMConfig;
   tool_groups?: Record<string, ToolGroupConfig>; // tool分组配置
 }
@@ -86,5 +115,5 @@ function loadConfig(): Config {
 const config = loadConfig();
 console.log(JSON.stringify(config));
 
-export type { Config, LLMConfig, LLMProvider, ToolGroupConfig };
+export type { Config, LLMConfig, ClientConfig, ToolGroupConfig, GlobalConfig };
 export default config;

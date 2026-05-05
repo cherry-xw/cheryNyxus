@@ -25,20 +25,6 @@ const ollamaMessageAdapterConfig = {
       role: m.role,
       content: m.content,
     })) as Message[],
-  wrapFinalResponse: (threadId: string, content: string, thinking?: string, raw?: ChatResponse) => {
-    const response: LLMResponse<ChatResponse | null> = {
-      id: `ollama-${Date.now()}`,
-      role: "assistant",
-      content,
-      threadId,
-      createdAt: Date.now(),
-      updateAt: Date.now(),
-      raw: raw ?? null,
-      provider: "ollama",
-    };
-    if (thinking) response.thinking = thinking;
-    return response;
-  },
 };
 
 // Tool Adapter 配置

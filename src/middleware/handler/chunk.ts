@@ -1,8 +1,8 @@
 import type {
   MiddlewareContext,
   MiddlewareChunk,
-  StreamChunk,
   StagedChunk,
+  StreamChunk
 } from "../types";
 import { v4 as uuid } from "uuid";
 
@@ -15,12 +15,12 @@ export async function* chunkMiddleware(
   ctx: MiddlewareContext,
   next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  if (!ctx.request.isStream) {
+  if (!ctx.global.stream) {
     const generator = next() as AsyncGenerator<MiddlewareChunk>;
     for await (const chunk of generator) {
       if (chunk.type === "staged") {
-        ctx.response.finalContent = chunk.content;
-        ctx.response.finalThinking = chunk.thinking;
+        ctx.response.finalContent = chunk.content.trim();
+        ctx.response.finalThinking = chunk.thinking?.trim();
         // 非流式模式：统一提取 toolCall 并存储到 toolCallAccumulated
         extractToolCallsFromResponse(ctx, ctx.response.raw);
       }
@@ -69,13 +69,13 @@ export async function* chunkMiddleware(
       yield assembledChunk;
     }
   }
+  ctx.process.accumulated = ctx.process.accumulated.trim();
 
   // 流式完成
   const stagedChunk: StagedChunk = {
     type: "staged",
     content: ctx.process.accumulated,
     thinking: ctx.process.thinkingAccumulated,
-    threadId: ctx.session.threadId,
     raw: null,
   };
   ctx.response.finalContent = ctx.process.accumulated;

@@ -1,4 +1,4 @@
-import type { MiddlewareContext, MiddlewareChunk, StreamChunk, StagedChunk } from "../types";
+import type { StreamChunk, MiddlewareContext, MiddlewareChunk, StagedChunk } from "../types";
 
 /**
  * Chat Middleware
@@ -15,9 +15,10 @@ export async function* chatMiddleware(
   const messages = messageAdapter.buildMessages(ctx.process.history);
 
   // 构建 tools（从 toolManager）
-  const tools = ctx.tools.toolManager.getAll().length > 0
-    ? toolAdapter.buildTools(ctx.tools.toolManager.getAll())
-    : [];
+  const tools =
+    ctx.tools.toolManager.getAll().length > 0
+      ? toolAdapter.buildTools(ctx.tools.toolManager.getAll())
+      : [];
 
   // 构建请求选项（传递必要参数）
   const options = {
@@ -27,7 +28,7 @@ export async function* chatMiddleware(
     ...(ctx.config.thinking && { thinking: true }),
   };
 
-  if (ctx.request.isStream) {
+  if (ctx.global.stream) {
     // 流式调用
     yield* handleStream(options, llmAdapter, messages, tools);
   } else {
@@ -51,11 +52,7 @@ async function* handleStream(
   console.log("Tools:", JSON.stringify(tools, null, 2));
   console.log("Options:", JSON.stringify(options, null, 2));
 
-  const streamIterator = await llmAdapter.chatStream(
-    messages,
-    tools,
-    options,
-  );
+  const streamIterator = await llmAdapter.chatStream(messages, tools, options);
 
   // console.log("\n=== Chat Stream Raw Chunks ===");
   for await (const rawChunk of streamIterator) {
@@ -63,7 +60,7 @@ async function* handleStream(
     const chunk: StreamChunk = {
       type: "stream",
       streamId: `stream-${Date.now()}`,
-      thinkingDelta: "",
+      thinking: "",
       delta: "",
       thinkingAccumulated: "",
       accumulated: "",
@@ -89,11 +86,7 @@ async function* handleNonStream(
   console.log("Tools:", JSON.stringify(tools, null, 2));
   console.log("Options:", JSON.stringify(options, null, 2));
 
-  const response = await llmAdapter.chat(
-    messages,
-    tools,
-    options,
-  );
+  const response = await llmAdapter.chat(messages, tools, options);
 
   ctx.response.raw = response;
 
@@ -110,7 +103,6 @@ async function* handleNonStream(
     type: "staged",
     content,
     thinking,
-    threadId: ctx.session.threadId,
     raw: response,
   };
   yield chunk;

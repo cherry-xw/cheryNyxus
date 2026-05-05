@@ -3,11 +3,18 @@ import { messageMiddleware } from "./handler/message";
 import { toolMiddleware, continueToolExecution } from "./handler/tool";
 import { chunkMiddleware } from "./handler/chunk";
 import { chatMiddleware } from "./handler/chat";
-import type { ClientConfigBase } from "@/llm/types";
-import type { MiddlewareContext, LLMStreamChunk, AdaptersGroup } from "./types";
+
+import type { GlobalConfig, ClientConfig } from "@/config";
 import { ToolManager } from "@/tool/index";
-import { RetryState, type MiddlewareChunk } from "./types";
-import buildPrompt from "@/prompt/index"
+import {
+  RetryState,
+  type MiddlewareChunk,
+  type MiddlewareContext,
+  type AdaptersGroup,
+  type MessageStreamChunk,
+} from "./types";
+import buildPrompt from "@/prompt/index";
+import { v4 as uuid } from "uuid";
 
 export * from "./types";
 export { compose };
@@ -16,43 +23,19 @@ export { continueToolExecution };
 export { RetryState } from "./types";
 
 /**
- * Send方法返回值（统一结构，status区分状态）
- */
-export interface SendResult {
-  status: "success" | "error" | "pending";
-  /** 角色 */
-  role: "assistant";
-  /** 内容（pending时可能为空） */
-  content: string;
-  /** thinking内容（可选） */
-  thinking?: string;
-  /** 会话线程ID */
-  threadId: string;
-  /** 待确认的tool信息（仅pending状态） */
-  pendingTool?: {
-    toolCallId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-  };
-  /** 原始响应（可选） */
-  raw?: unknown;
-}
-
-/**
  * 创建中间件上下文
  */
 function createMiddlewareContextBase(
+  global: GlobalConfig,
   sessionId: string,
-  config: ClientConfigBase,
-  isStream: boolean,
+  threadId: string,
+  config: ClientConfig,
   adapters: AdaptersGroup,
   toolManager: ToolManager,
-  threadId: string,
-  input: string,
 ): MiddlewareContext {
   return {
-    session: { sessionId, threadId },
-    request: { input, isStream },
+    session: { sessionId, threadId, loadedSkills: new Set() },
+    global,
     config,
     adapters,
     process: {
@@ -64,7 +47,6 @@ function createMiddlewareContextBase(
     tools: {
       toolManager,
       toolCallAccumulated: new Map(),
-      supervisionLevel: config.autoExecuteLevel ?? 1,
     },
     response: {
       raw: undefined,
@@ -84,9 +66,11 @@ function createMiddlewareContextBase(
  */
 export default class Middleware {
   middlewareChain: ReturnType<typeof compose>;
+  thread = new Map<string, MiddlewareContext>();
   constructor(
     private sessionId: string,
-    private config: ClientConfigBase,
+    private global: GlobalConfig,
+    private config: ClientConfig,
     private tool: ToolManager,
     private adapters: AdaptersGroup,
   ) {
@@ -98,11 +82,25 @@ export default class Middleware {
     ]);
   }
 
+  createThread() {
+    const threadId = uuid();
+    const ctx = createMiddlewareContextBase(
+      this.global,
+      this.sessionId,
+      threadId,
+      this.config,
+      this.adapters,
+      this.tool,
+    );
+    this.thread.set(threadId, ctx);
+    return threadId;
+  }
+
   /**
    * 确认执行待定的 tool 调用
-   * @param threadId 会话线程ID（从 SendResult.threadId 获取）
+   * @param threadId 会话线程ID（从 MessageStreamChunk.threadId 获取）
    * @param approved 用户是否批准执行
-   * @param interruptInfo 中断信息（从 SendResult.pendingTool 获取）
+   * @param interruptInfo 中断信息（从 MessageStreamChunk.pendingTool 获取）
    */
   async confirmToolCall(
     threadId: string,
@@ -112,16 +110,15 @@ export default class Middleware {
       toolName: string;
       args: Record<string, unknown>;
     },
-  ): Promise<SendResult> {
+  ): Promise<MessageStreamChunk> {
     // 重建上下文，保留中断信息
     const ctx = createMiddlewareContextBase(
+      this.global,
       this.sessionId,
+      "",
       this.config,
-      false,
       this.adapters,
       this.tool,
-      threadId,
-      approved ? "" : "用户拒绝",
     );
     ctx.state.interruptInfo = interruptInfo;
     ctx.state.needInterrupt = true;
@@ -148,7 +145,6 @@ export default class Middleware {
             toolCallId: chunk.toolCallId,
             toolName: chunk.toolName,
             args: chunk.args,
-            threadId: chunk.threadId,
           };
           break;
         }
@@ -157,10 +153,11 @@ export default class Middleware {
       if (interrupted && newInterrupt) {
         return {
           status: "pending",
-          role: "assistant",
-          content: "",
-          threadId,
+          thinkingDelta: "",
+          delta: "",
+          accumulated: "",
           pendingTool: newInterrupt,
+          raw: undefined,
         };
       }
 
@@ -168,10 +165,10 @@ export default class Middleware {
       if (doneChunk && doneChunk.type === "staged") {
         return {
           status: "success",
-          role: "assistant",
-          content: doneChunk.content,
-          ...(doneChunk.thinking && { thinking: doneChunk.thinking }),
-          threadId,
+          thinkingDelta: "",
+          thinkingAccumulated: doneChunk.thinking,
+          delta: "",
+          accumulated: doneChunk.content,
           raw: doneChunk.raw,
         };
       }
@@ -179,12 +176,10 @@ export default class Middleware {
 
     return {
       status: "success",
-      role: "assistant",
-      content: ctx.response.finalContent,
-      ...(ctx.response.finalThinking && {
-        thinking: ctx.response.finalThinking,
-      }),
-      threadId,
+      thinkingDelta: "",
+      thinkingAccumulated: ctx.response.finalThinking,
+      delta: "",
+      accumulated: ctx.response.finalContent,
       raw: ctx.response.raw,
     };
   }
@@ -192,17 +187,27 @@ export default class Middleware {
   /**
    * 发送消息（两阶段执行）
    */
-  async send(threadId: string, input: string): Promise<SendResult[]> {
-    const prompt = buildPrompt(input);
-    const ctx = createMiddlewareContextBase(
-      this.sessionId,
-      this.config,
-      false,
-      this.adapters,
-      this.tool,
-      threadId,
-      prompt,
-    );
+  private async send(
+    ctx: MiddlewareContext,
+    input: string,
+  ): Promise<MessageStreamChunk[]> {
+    const now = Date.now();
+    ctx.process.history.push({
+      id: uuid(),
+      role: "system",
+      content: buildPrompt(),
+      createdAt: now,
+      updateAt: now,
+      raw: undefined,
+    });
+    ctx.process.history.push({
+      id: uuid(),
+      role: "user",
+      content: input,
+      createdAt: now,
+      updateAt: now,
+      raw: undefined,
+    });
     const generator = this.middlewareChain(ctx);
     const chunks: MiddlewareChunk[] = [];
     let interrupted = false;
@@ -215,118 +220,129 @@ export default class Middleware {
           toolCallId: chunk.toolCallId,
           toolName: chunk.toolName,
           args: chunk.args,
-          threadId: threadId,
+          threadId: ctx.session.threadId,
         };
         break;
       }
     }
 
     if (interrupted && interruptInfo) {
-      return [{
-        status: "pending",
-        role: "assistant",
-        content: "",
-        threadId,
-        pendingTool: interruptInfo,
-      }];
+      return [
+        {
+          status: "pending",
+          thinkingDelta: "",
+          delta: "",
+          accumulated: "",
+          pendingTool: interruptInfo,
+          raw: undefined,
+        },
+      ];
     }
 
     // 查找最后一次的 staged chunk（retry 后可能存在多个）
     const stagedChunks = chunks.filter((c) => c.type === "staged");
-    return stagedChunks.map(el => ({
-        status: "success",
-        role: "assistant",
-        content: el.content,
-        ...(el.thinking && { thinking: el.thinking }),
-        threadId,
-        raw: el.raw,
-    }))
-    // if (stagedChunks.length) {
-    //   return {
-    //     status: "success",
-    //     role: "assistant",
-    //     content: doneChunk.content,
-    //     ...(doneChunk.thinking && { thinking: doneChunk.thinking }),
-    //     threadId,
-    //     raw: doneChunk.raw,
-    //   };
-    // }
-
-    // return {
-    //   status: "success",
-    //   role: "assistant",
-    //   content: ctx.response.finalContent,
-    //   ...(ctx.response.finalThinking && {
-    //     thinking: ctx.response.finalThinking,
-    //   }),
-    //   threadId,
-    //   raw: ctx.response.raw,
-    // };
+    return stagedChunks.map((el) => ({
+      status: "success",
+      thinkingDelta: "",
+      thinkingAccumulated: el.thinking,
+      delta: "",
+      accumulated: el.content,
+      raw: el.raw,
+    }));
   }
 
   /**
    * 发送消息（流式）
    */
-  async *sendStream(
-    threadId: string,
+  private async *sendStream(
+    ctx: MiddlewareContext,
     input: string,
-  ): AsyncGenerator<LLMStreamChunk<unknown>> {
-    const prompt = buildPrompt(input);
-    const ctx = createMiddlewareContextBase(
-      this.sessionId,
-      this.config,
-      true,
-      this.adapters,
-      this.tool,
-      threadId,
-      prompt,
-    );
+  ): AsyncGenerator<MessageStreamChunk> {
+    const now = Date.now();
+    ctx.process.history.push({
+      id: uuid(),
+      role: "system",
+      content: buildPrompt(),
+      createdAt: now,
+      updateAt: now,
+      raw: {},
+    });
+    ctx.process.history.push({
+      id: uuid(),
+      role: "user",
+      content: input,
+      createdAt: now,
+      updateAt: now,
+      raw: {},
+    });
 
-    const streamId = `stream-${Date.now()}`;
     const generator = this.middlewareChain(ctx);
     for await (const chunk of generator) {
       if (chunk.type === "stream") {
         yield {
-          streamId,
           thinkingDelta: chunk.thinkingDelta,
           thinkingAccumulated: chunk.thinkingAccumulated,
           delta: chunk.delta,
           accumulated: chunk.accumulated,
-          isDone: false,
+          status: "success",
           raw: chunk.raw,
         };
       } else if (chunk.type === "interrupt") {
         // 流式模式下的工具中断（暂不支持两阶段确认）
         // 直接自动执行
         yield {
-          streamId,
           thinkingDelta: "",
           thinkingAccumulated: ctx.process.thinkingAccumulated,
           delta: "",
           accumulated: ctx.process.accumulated,
-          isDone: false,
+          status: "pending",
+          pendingTool: {
+            toolCallId: chunk.toolCallId,
+            toolName: chunk.toolName,
+            args: chunk.args,
+          },
           raw: { type: "interrupt", toolName: chunk.toolName },
         };
       } else if (chunk.type === "staged") {
         yield {
-          streamId,
           thinkingDelta: "",
           thinkingAccumulated: ctx.process.thinkingAccumulated,
           delta: "",
           accumulated: ctx.process.accumulated,
-          isDone: false,
+          status: "success",
           raw: chunk.raw,
         };
       } else if (chunk.type === "done") {
         yield {
-          streamId,
           thinkingDelta: "",
           thinkingAccumulated: ctx.process.thinkingAccumulated,
           delta: "",
           accumulated: ctx.process.accumulated,
-          isDone: true,
+          status: "success",
           raw: "",
         };
+      }
+    }
+  }
+
+  async *invoke(
+    threadId: string,
+    input: string,
+  ): AsyncGenerator<MessageStreamChunk> {
+    const ctx = this.thread.get(threadId);
+    if (!ctx) {
+      throw new Error("Thread not found");
+    }
+    if (ctx.global.stream) {
+      const generator = this.sendStream(ctx, input);
+      for await (const chunk of generator) {
+        yield chunk;
+      }
+    } else {
+      // 非流式模式：调用 send 方法，将数组转换为 AsyncGenerator
+      const results = await this.send(ctx, input);
+      for (const chunk of results) {
+        yield chunk;
       }
     }
   }

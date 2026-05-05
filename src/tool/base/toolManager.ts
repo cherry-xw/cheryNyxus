@@ -9,7 +9,7 @@ import { getToolAdapter, type ToolAdapter } from "../adapter";
 export class ToolManager {
   private _tools: Tool<ZodType>[] = [];
   private _toolMap: Map<string, Tool<ZodType>> = new Map();
-  private _adapter: ToolAdapter<any, any, any>;
+  private _adapter: ToolAdapter<any, any>;
 
   /**
    * 构造函数
@@ -36,8 +36,8 @@ export class ToolManager {
   add(tool: Tool<ZodType> | Tool<ZodType>[]): void {
     const tools = Array.isArray(tool) ? tool : [tool];
     this._tools.push(...tools);
-    for (const t of tools) {
-      this._toolMap.set(t.definition.function.name, t);
+    for (const tool of tools) {
+      this._toolMap.set(tool.definition.function.name, tool);
     }
   }
 
@@ -51,7 +51,7 @@ export class ToolManager {
   /**
    * 获取底层 Tool Adapter
    */
-  getAdapter(): ToolAdapter<any, any, any> {
+  getAdapter(): ToolAdapter<any, any> {
     return this._adapter;
   }
 

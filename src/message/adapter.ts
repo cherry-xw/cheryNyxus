@@ -4,11 +4,6 @@
 type Role = "system" | "user" | "assistant" | "tool" | "function";
 
 /**
- * MessageProvider 类型（可扩展）
- */
-type MessageProviderType = string;
-
-/**
  * 统一 LLM 响应结构
  */
 export interface LLMResponse<T = unknown> {
@@ -16,23 +11,8 @@ export interface LLMResponse<T = unknown> {
   role: Role;
   content: string;
   thinking?: string;
-  threadId: string;
   createdAt: number;
   updateAt: number;
-  raw: T;
-  provider: MessageProviderType;
-}
-
-/**
- * 流式响应 Chunk 结构
- */
-export interface LLMStreamChunk<T = unknown> {
-  streamId: string;
-  thinkingDelta: string;
-  thinkingAccumulated?: string;
-  delta: string;
-  accumulated?: string;
-  isDone: boolean;
   raw: T;
 }
 
@@ -46,12 +26,6 @@ export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessag
   extractStreamDelta: (chunk: TStream) => string;
   extractStreamThinking?: (chunk: TStream) => string | undefined;
   buildMessages: (history: LLMResponse[]) => TMessage[];
-  wrapFinalResponse: (
-    threadId: string,
-    content: string,
-    thinking?: string,
-    raw?: T
-  ) => LLMResponse<T | null>;
 };
 
 /**

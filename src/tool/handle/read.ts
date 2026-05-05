@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { tool } from "./base/toolCreator";
+import { tool } from "@/tool/base/toolCreator";
 import { readFile } from "fs/promises";
-import { SupervisionLevel } from "@/llm/types";
+import { SupervisionLevel } from "@/config";
 
 const ReadSchema = z.object({
   path: z.string().describe("文件路径，例如: /path/to/file.txt"),

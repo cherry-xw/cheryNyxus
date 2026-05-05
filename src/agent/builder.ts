@@ -1,10 +1,9 @@
 import type { Tool } from "@/tool/index";
 import type { ZodType } from "zod";
-import type { ClientConfigBase } from "@/llm/types";
 
 import { ToolManager } from "@/tool/index";
-import Middleware, { SupervisionLevel, type AdaptersGroup } from "@/middleware/index";
-import config from "@/config";
+import Middleware, { type AdaptersGroup } from "@/middleware/index";
+import config, { SupervisionLevel, type ClientConfig } from "@/config";
 import { randomUUID } from "crypto";
 
 // Adapter 获取函数
@@ -25,10 +24,9 @@ const providerRegistry: Record<string, () => void> = {
  * Agent Builder - 链式调用配置 agent
  */
 export class AgentBuilder {
-  private clientConfig?: ClientConfigBase;
+  private clientConfig?: ClientConfig;
   private tools: Tool<ZodType>[] = [];
   private sessionId: string = randomUUID();
-  private autoExecuteLevel?: SupervisionLevel;
   private adapters?: AdaptersGroup;
 
   /**
@@ -58,13 +56,6 @@ export class AgentBuilder {
     }
 
     this.adapters = { llmAdapter, messageAdapter, toolAdapter };
-
-    // 自动根据 tool_group 配置绑定 tools 和 autoExecuteLevel
-    const toolGroupName = clientConfig.tool_group;
-    if (toolGroupName && config.tool_groups?.[toolGroupName]) {
-      const toolGroup = config.tool_groups[toolGroupName];
-      this.autoExecuteLevel = SupervisionLevel[toolGroup.auto_execute_level];
-    }
 
     return this;
   }
@@ -107,20 +98,18 @@ export class AgentBuilder {
       );
     }
 
-    // 设置 autoExecuteLevel 到 clientConfig
-    const enhancedConfig: ClientConfigBase = {
-      ...this.clientConfig,
-      ...(this.autoExecuteLevel !== undefined && {
-        autoExecuteLevel: this.autoExecuteLevel,
-      }),
-    };
-
     // 创建 ToolManager 并添加工具
-    const toolManager = new ToolManager(enhancedConfig.provider);
+    const toolManager = new ToolManager(this.clientConfig.provider);
     if (filteredTools.length > 0) {
       toolManager.add(filteredTools);
     }
 
-    return new Middleware(this.sessionId, enhancedConfig, toolManager, this.adapters);
+    return new Middleware(
+      this.sessionId,
+      config.global,
+      this.clientConfig,
+      toolManager,
+      this.adapters,
+    );
   }
 }

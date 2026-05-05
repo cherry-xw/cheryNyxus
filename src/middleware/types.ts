@@ -2,7 +2,7 @@ import type { LLMResponse } from "@/message/index";
 import type { MessageProviderAdapterConfig } from "@/message/adapter";
 import type { ToolAdapter } from "@/tool/adapter";
 import type { ToolManager } from "@/tool/index";
-import type { ClientConfigBase } from "@/llm/types";
+import type { GlobalConfig, ClientConfig } from "@/config";
 
 /**
  * 工具调用累积器（流式工具调用增量累积 + 执行结果）
@@ -26,18 +26,6 @@ export interface AdaptersGroup {
   messageAdapter: MessageProviderAdapterConfig;
   /** Tool Adapter，处理工具调用格式转换 */
   toolAdapter: ToolAdapter<unknown, unknown>;
-}
-
-/**
- * Tool 监管等级枚举
- * - auto: 自动执行，无需确认
- * - confirm: 需用户确认后执行
- * - manual: 禁止自动执行，仅手动触发
- */
-export enum SupervisionLevel {
-  auto = 0,
-  confirm = 1,
-  manual = 2,
 }
 
 /**
@@ -65,20 +53,12 @@ export interface ToolExecutionResult {
  * 会话分组 - 会话标识和上下文关联信息
  */
 interface SessionGroup {
-  /** 会话唯一标识，用于消息累积和状态管理 */
+  /** agent实例唯一标识 */
   sessionId: string;
-  /** 线程唯一标识，用于同一线程内消息更新而非追加 */
+  /** agent实例中多轮次会话唯一标记 */
   threadId: string;
-}
-
-/**
- * 请求分组 - 本次请求的输入和模式配置
- */
-interface RequestGroup {
-  /** 用户输入内容 */
-  input: string;
-  /** 是否启用流式响应模式 */
-  isStream: boolean;
+  /** 已加载的技能列表，防止重复加载 */
+  loadedSkills: Set<string>;
 }
 
 /**
@@ -103,8 +83,6 @@ interface ToolsGroup {
   toolManager: ToolManager;
   /** 工具调用累积器Map */
   toolCallAccumulated: Map<string, ToolCallAccumulator>;
-  /** 工具监管等级，决定自动执行策略 */
-  supervisionLevel: SupervisionLevel;
 }
 
 /**
@@ -142,9 +120,9 @@ export interface MiddlewareContext {
   /** 会话分组：会话标识和上下文关联 */
   session: SessionGroup;
   /** 请求分组：本次请求的输入和模式 */
-  request: RequestGroup;
+  global: GlobalConfig;
   /** 配置分组：LLM客户端配置和选项 */
-  config: ClientConfigBase;
+  config: ClientConfig;
   /** Adapter 分组：provider adapter 实例集合 */
   adapters: AdaptersGroup;
   /** 处理分组：消息处理累积状态 */
@@ -171,12 +149,38 @@ export type MiddlewareHandler = (
 export type MiddlewareChunk = StreamChunk | InterruptChunk | StagedChunk | DoneChunk;
 
 /**
+ * 统一响应 Chunk 结构（流式和非流式）
+ */
+export interface MessageStreamChunk<T = unknown> {
+  /** 当前增量思考 */
+  thinkingDelta: string;
+  /** 累积思考（可选） */
+  thinkingAccumulated?: string;
+  /** 当前增量响应 */
+  delta: string;
+  /** 累积/完整响应（可选） */
+  accumulated?: string;
+  /** 状态标识 */
+  status: "success" | "pending" | "error";
+  /** 待确认工具信息（仅 pending 状态） */
+  pendingTool?: {
+    toolCallId: string;
+    toolName: string;
+    args: Record<string, unknown>;
+  };
+  /** 原始响应 */
+  raw: T;
+}
+
+/**
  * 流式 chunk
  */
 export interface StreamChunk {
   type: "stream";
   streamId: string;
+  /** 思考增量 */
   thinkingDelta: string;
+  /** 响应增量 */
   delta: string;
   thinkingAccumulated: string;
   accumulated: string;
@@ -191,7 +195,6 @@ export interface InterruptChunk {
   toolCallId: string;
   toolName: string;
   args: Record<string, unknown>;
-  threadId: string;
 }
 
 /**
@@ -201,7 +204,6 @@ export interface StagedChunk {
   type: "staged";
   content: string;
   thinking?: string;
-  threadId: string;
   raw: unknown;
 }
 
@@ -210,21 +212,7 @@ export interface StagedChunk {
  */
 interface DoneChunk {
   type: "done";
-  threadId: string;
 }
-
-/**
- * LLM Stream Chunk（流式响应）
- */
-export type LLMStreamChunk<T = unknown> = {
-  streamId: string;
-  thinkingDelta: string;
-  thinkingAccumulated: string;
-  delta: string;
-  accumulated: string;
-  isDone: boolean;
-  raw: T;
-};
 
 /**
  * LLM Adapter 接口

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SupervisionLevel } from "@/llm/types";
+import { SupervisionLevel } from "@/config";
 
 export interface ToolFunction {
   type: "function";
