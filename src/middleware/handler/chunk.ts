@@ -90,32 +90,31 @@ function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
   const toolAdapter = ctx.adapters.toolAdapter;
   const deltas = toolAdapter.extractToolCallDeltas(raw);
 
-  // Ollama id 为空时生成唯一 id
-  let key = `tool-${uuid()}`;
   for (const delta of deltas) {
-    const id = toolAdapter.getToolCallDeltaId(delta);
-    const name = toolAdapter.getToolCallDeltaName(delta) ?? "";
-    const argsDelta = toolAdapter.getToolCallDeltaArguments(delta);
+    // 用 id 或 index 作为累积 key
+    const key = delta.id ?? `tool-${delta.index}`;
 
-    if (id) {
-      key = id;
-    }
     const existing = ctx.tools.toolCallAccumulated.get(key);
     if (existing) {
       // 累积 arguments（增量模式）
-      if (argsDelta) {
-        existing.arguments += argsDelta;
+      if (delta.arguments) {
+        existing.arguments += delta.arguments;
       }
       // name 可能只在首个 delta 出现，后续 delta 可能为空
-      if (name && !existing.name) {
-        existing.name = name;
+      if (delta.name && !existing.name) {
+        existing.name = delta.name;
+      }
+      // id 可能在首个 delta 出现
+      if (delta.id && !existing.id) {
+        existing.id = delta.id;
       }
     } else {
       // 初始化累积器
       ctx.tools.toolCallAccumulated.set(key, {
-        id: key,
-        name,
-        arguments: argsDelta ?? "",
+        id: delta.id,
+        name: delta.name ?? "",
+        arguments: delta.arguments,
+        index: delta.index,
       });
     }
   }
@@ -133,22 +132,15 @@ function extractToolCallsFromResponse(
   const toolAdapter = ctx.adapters.toolAdapter;
   const toolCalls = toolAdapter.extractToolCalls(raw);
 
-  // Ollama id 为空时生成唯一 id
-  let key = `tool-${uuid()}`;
-
   for (const tc of toolCalls) {
-    const id = toolAdapter.getToolCallId(tc);
-    const name = toolAdapter.getToolCallName(tc);
-    const args = toolAdapter.getToolCallArguments(tc);
-
-    if (id) {
-      key = id;
-    }
+    // 用 id 或生成 uuid 作为 key
+    const key = tc.id ?? `tool-${uuid()}`;
 
     ctx.tools.toolCallAccumulated.set(key, {
-      id: key,
-      name,
-      arguments: args,
+      id: tc.id,
+      name: tc.name ?? "",
+      arguments: tc.arguments,
+      index: tc.index,
     });
   }
 }

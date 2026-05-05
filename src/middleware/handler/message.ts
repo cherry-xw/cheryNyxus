@@ -116,9 +116,8 @@ export async function* messageMiddleware(
       }
     }
 
-    // 清空 toolCallAccumulated 和 pendingToolCalls，防止下一轮重复累积
+    // 清空 toolCallAccumulated 防止下一轮重复累积
     ctx.tools.toolCallAccumulated.clear();
-    ctx.tools.pendingToolCalls = undefined;
 
     // 设置重试状态，重新执行中间件链
     ctx.state.retryState = RetryState.retryMessage;

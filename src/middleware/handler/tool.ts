@@ -79,6 +79,7 @@ async function* executeToolCalls(
               id,
               name,
               arguments: JSON.stringify(args),
+              index: -1,
               executionResult: {
                 success: true,
                 result,
@@ -105,6 +106,7 @@ async function* executeToolCalls(
               id,
               name,
               arguments: JSON.stringify(args),
+              index: -1,
               executionResult: {
                 success: false,
                 error: errorMsg,
@@ -150,7 +152,7 @@ function extractFromAccumulated(
   accumulated: Map<string, ToolCallAccumulator>,
 ): InternalToolCall[] {
   return Array.from(accumulated.values()).map((acc) => ({
-    id: acc.id,
+    id: acc.id ?? `tool-${acc.index}`,
     name: acc.name,
     arguments: acc.arguments,
   }));
@@ -187,6 +189,7 @@ export async function* continueToolExecution(
         id: toolCallId,
         name: toolName,
         arguments: JSON.stringify(args),
+        index: -1,
         executionResult: {
           success: false,
           error: "用户拒绝执行该操作",
@@ -212,6 +215,7 @@ export async function* continueToolExecution(
           id: toolCallId,
           name: toolName,
           arguments: JSON.stringify(args),
+          index: -1,
           executionResult: {
             success: true,
             result,
@@ -235,6 +239,7 @@ export async function* continueToolExecution(
           id: toolCallId,
           name: toolName,
           arguments: JSON.stringify(args),
+          index: -1,
           executionResult: {
             success: false,
             error: errorMsg,

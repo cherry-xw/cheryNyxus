@@ -8,13 +8,12 @@ import type { ClientConfigBase } from "@/llm/types";
  * 工具调用累积器（流式工具调用增量累积 + 执行结果）
  */
 export interface ToolCallAccumulator {
-  id: string;
+  id?: string;
   name: string;
   arguments: string;
+  index: number;
   // 执行结果（tool 中间件写入）
   executionResult?: ToolExecutionResult;
-  // 待累积的消息（tool 中间件写入）
-  resultMessage?: unknown;
 }
 
 /**
@@ -26,7 +25,7 @@ export interface AdaptersGroup {
   /** Message Adapter，处理消息格式转换 */
   messageAdapter: MessageProviderAdapterConfig;
   /** Tool Adapter，处理工具调用格式转换 */
-  toolAdapter: ToolAdapter<unknown, unknown, unknown>;
+  toolAdapter: ToolAdapter<unknown, unknown>;
 }
 
 /**
@@ -65,7 +64,7 @@ export interface ToolExecutionResult {
 /**
  * 会话分组 - 会话标识和上下文关联信息
  */
-export interface SessionGroup {
+interface SessionGroup {
   /** 会话唯一标识，用于消息累积和状态管理 */
   sessionId: string;
   /** 线程唯一标识，用于同一线程内消息更新而非追加 */
@@ -75,7 +74,7 @@ export interface SessionGroup {
 /**
  * 请求分组 - 本次请求的输入和模式配置
  */
-export interface RequestGroup {
+interface RequestGroup {
   /** 用户输入内容 */
   input: string;
   /** 是否启用流式响应模式 */
@@ -85,11 +84,9 @@ export interface RequestGroup {
 /**
  * 处理分组 - 消息处理过程中的累积状态
  */
-export interface ProcessGroup {
+interface ProcessGroup {
   /** 历史消息记录，用于构建LLM请求上下文 */
   history: LLMResponse[];
-  /** 当前处理的消息列表 */
-  messages: unknown[];
   /** 响应内容累积（流式增量拼接） */
   accumulated: string;
   /** 思考内容累积（流式增量拼接） */
@@ -101,13 +98,11 @@ export interface ProcessGroup {
 /**
  * 工具分组 - 工具管理器和工具调用状态
  */
-export interface ToolsGroup {
+interface ToolsGroup {
   /** 工具管理器，负责工具注册和执行 */
   toolManager: ToolManager;
-  /** 工具调用累积器Map（流式增量累积 + 执行结果） */
+  /** 工具调用累积器Map */
   toolCallAccumulated: Map<string, ToolCallAccumulator>;
-  /** 待处理的工具调用列表（非流式模式） */
-  pendingToolCalls?: unknown[];
   /** 工具监管等级，决定自动执行策略 */
   supervisionLevel: SupervisionLevel;
 }
@@ -115,21 +110,19 @@ export interface ToolsGroup {
 /**
  * 响应分组 - LLM响应和最终结果
  */
-export interface ResponseGroup {
+interface ResponseGroup {
   /** LLM原始响应（非流式模式） */
   raw: unknown;
   /** 最终响应内容（处理完成后） */
   finalContent: string;
   /** 最终思考内容（处理完成后，可选） */
   finalThinking?: string;
-  /** 最终响应对象（包含role/content/thinking/toolCalls） */
-  finalResponse?: LLMResponse;
 }
 
 /**
  * 状态分组 - 执行状态和中断信息
  */
-export interface StateGroup {
+interface StateGroup {
   /** 是否需要中断执行（两阶段确认） */
   needInterrupt: boolean;
   /** 中断信息（工具调用ID/名称/参数） */
@@ -215,7 +208,7 @@ export interface StagedChunk {
 /**
  * 完成 chunk（最终结束标记）
  */
-export interface DoneChunk {
+interface DoneChunk {
   type: "done";
   threadId: string;
 }

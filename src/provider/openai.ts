@@ -3,9 +3,8 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletion,
 } from "openai/resources/chat/completions";
-import { type ClientConfigBase } from "../llm/types";
 import { registerMessageAdapter, type LLMResponse } from "@/message/index";
-import { registerToolAdapter, type Tool } from "@/tool/index";
+import { registerToolAdapter, type Tool, type ToolCallData } from "@/tool/index";
 import type { ZodType } from "zod";
 import type {
   ChatCompletionTool,
@@ -13,11 +12,6 @@ import type {
 } from "openai/resources/chat/completions";
 import { registerLLMAdapter } from "@/llm/adapter";
 import type { llmAdapter } from "@/middleware/types";
-
-/**
- * OpenAI/LongCat 配置扩展
- */
-export interface OpenAIConfig extends ClientConfigBase {}
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -32,7 +26,6 @@ const openaiMessageAdapterConfig = {
     }
     return undefined;
   },
-  extractToolCalls: (raw: ChatCompletion) => raw.choices[0]?.message?.tool_calls ?? [],
   extractStreamDelta: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) => chunk.choices[0]?.delta?.content ?? "",
   extractStreamThinking: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) => {
     const delta = chunk.choices[0]?.delta;
@@ -41,8 +34,6 @@ const openaiMessageAdapterConfig = {
     }
     return undefined;
   },
-  extractStreamToolCallDeltas: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) =>
-    chunk.choices[0]?.delta?.tool_calls ?? [],
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => {
       if (m.role === "tool") {
@@ -89,12 +80,21 @@ const openaiToolAdapterConfig = {
 
   buildToolCallMessage(
     content: string,
-    toolCalls: ChatCompletionMessageFunctionToolCall[],
+    toolCalls: ToolCallData[],
   ): ChatCompletionMessageParam {
+    // 将统一的 ToolCallData 转换为 OpenAI 格式
+    const openaiToolCalls = toolCalls.map(tc => ({
+      id: tc.id ?? `call_${Date.now()}`,
+      type: "function",
+      function: {
+        name: tc.name ?? "",
+        arguments: tc.arguments,
+      },
+    }));
     return {
       role: "assistant",
       content,
-      tool_calls: toolCalls,
+      tool_calls: openaiToolCalls,
     } as ChatCompletionMessageParam;
   },
 
@@ -109,46 +109,27 @@ const openaiToolAdapterConfig = {
     } as ChatCompletionMessageParam;
   },
 
-  getToolCallArguments(
-    raw: ChatCompletionMessageFunctionToolCall,
-  ): string {
-    const argsJson = raw.function?.arguments ?? "{}";
-    return argsJson;
+  extractToolCalls(response: ChatCompletion): ToolCallData[] {
+    const toolCalls = (response.choices?.[0]?.message?.tool_calls ?? []) as ChatCompletionMessageFunctionToolCall[];
+    return toolCalls.map(tc => ({
+      id: tc.id ?? undefined,
+      name: tc.function?.name ?? undefined,
+      index: -1,
+      arguments: tc.function?.arguments ?? "",
+    }));
   },
 
-  getToolCallName(raw: ChatCompletionMessageFunctionToolCall): string {
-    return raw.function?.name ?? "";
-  },
-
-  getToolCallId(raw: ChatCompletionMessageFunctionToolCall): string {
-    return raw.id ?? "";
-  },
-
-  extractToolCalls(response: ChatCompletion): ChatCompletionMessageFunctionToolCall[] {
-    return (response.choices?.[0]?.message?.tool_calls ?? []) as ChatCompletionMessageFunctionToolCall[];
-  },
-
-  extractToolCallDeltas(chunk: unknown): ChatCompletionMessageFunctionToolCall[] {
+  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
     const streamChunk = chunk as {
-      choices?: Array<{ delta?: { tool_calls?: unknown[] } }>;
+      choices?: Array<{ delta?: { tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string } }> } }>;
     };
-    return (streamChunk.choices?.[0]?.delta?.tool_calls ?? []) as ChatCompletionMessageFunctionToolCall[];
-  },
-
-  getToolCallDeltaId(delta: ChatCompletionMessageFunctionToolCall): string {
-    return delta.id ?? "";
-  },
-
-  getToolCallDeltaName(
-    delta: ChatCompletionMessageFunctionToolCall,
-  ): string | undefined {
-    return delta.function?.name;
-  },
-
-  getToolCallDeltaArguments(
-    delta: ChatCompletionMessageFunctionToolCall,
-  ): string | undefined {
-    return delta.function?.arguments;
+    const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
+    return deltas.map(delta => ({
+      id: delta.id ?? undefined,
+      name: delta.function?.name ?? undefined,
+      index: delta.index ?? 0,
+      arguments: delta.function?.arguments ?? "",
+    }));
   },
 };
 
@@ -213,7 +194,7 @@ export function registerOpenAIAdapter(): void {
     "openai",
     openaiMessageAdapterConfig
   );
-  registerToolAdapter<ChatCompletionMessageFunctionToolCall, ChatCompletionMessageParam, ChatCompletion>(
+  registerToolAdapter<ChatCompletionMessageParam, ChatCompletion>(
     "openai",
     openaiToolAdapterConfig
   );

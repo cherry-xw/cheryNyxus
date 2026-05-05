@@ -57,7 +57,6 @@ function createMiddlewareContextBase(
     adapters,
     process: {
       history: [],
-      messages: [],
       accumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,
@@ -65,14 +64,12 @@ function createMiddlewareContextBase(
     tools: {
       toolManager,
       toolCallAccumulated: new Map(),
-      pendingToolCalls: undefined,
       supervisionLevel: config.autoExecuteLevel ?? 1,
     },
     response: {
       raw: undefined,
       finalContent: "",
       finalThinking: undefined,
-      finalResponse: undefined,
     },
     state: {
       needInterrupt: false,

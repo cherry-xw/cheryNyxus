@@ -5,17 +5,11 @@ import type {
   Message,
   Tool as OllamaTool,
 } from "ollama";
-import { type ClientConfigBase } from "../llm/types";
 import { registerMessageAdapter, type LLMResponse } from "@/message/index";
-import { registerToolAdapter, type Tool } from "@/tool/index";
+import { registerToolAdapter, type Tool, type ToolCallData } from "@/tool/index";
 import type { ZodType } from "zod";
 import { registerLLMAdapter } from "@/llm/adapter";
 import type { llmAdapter } from "@/middleware/types";
-
-/**
- * Ollama 配置扩展
- */
-export interface OllamaConfig extends ClientConfigBase {}
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -24,10 +18,8 @@ const ollamaMessageAdapterConfig = {
   role: (raw: ChatResponse) => (raw.message?.role as "assistant") ?? "assistant" as const,
   content: (raw: ChatResponse) => raw.message?.content ?? "",
   thinking: (raw: ChatResponse) => raw.message?.thinking ?? undefined,
-  extractToolCalls: (raw: ChatResponse) => raw.message?.tool_calls ?? [],
   extractStreamDelta: (chunk: ChatResponse) => chunk.message?.content ?? "",
   extractStreamThinking: (chunk: ChatResponse) => chunk.message?.thinking ?? undefined,
-  extractStreamToolCallDeltas: (chunk: ChatResponse) => chunk.message?.tool_calls ?? [],
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => ({
       role: m.role,
@@ -62,11 +54,18 @@ const ollamaToolAdapterConfig = {
     })) as OllamaTool[];
   },
 
-  buildToolCallMessage(content: string, toolCalls: ToolCall[]): Message {
+  buildToolCallMessage(content: string, toolCalls: ToolCallData[]): Message {
+    // 将统一的 ToolCallData 转换为 Ollama 格式
+    const ollamaToolCalls = toolCalls.map(tc => ({
+      function: {
+        name: tc.name ?? "",
+        arguments: JSON.parse(tc.arguments || "{}"),
+      },
+    }));
     return {
       role: "assistant",
       content,
-      tool_calls: toolCalls,
+      tool_calls: ollamaToolCalls,
     } as Message;
   },
 
@@ -77,39 +76,25 @@ const ollamaToolAdapterConfig = {
     } as Message;
   },
 
-  getToolCallArguments(raw: ToolCall): string {
-    return JSON.stringify((raw.function?.arguments as Record<string, unknown>) ?? {});
+  extractToolCalls(response: ChatResponse): ToolCallData[] {
+    const toolCalls = (response.message?.tool_calls ?? []) as ToolCall[];
+    return toolCalls.map(tc => ({
+      id: undefined, // Ollama 无 id
+      name: tc.function?.name ?? undefined,
+      index: -1,
+      arguments: JSON.stringify(tc.function?.arguments ?? {}),
+    }));
   },
 
-  getToolCallName(raw: ToolCall): string {
-    return raw.function?.name ?? "";
-  },
-
-  getToolCallId(_raw: ToolCall): string {
-    return ""; // Ollama 不需要 tool_call_id
-  },
-
-  extractToolCalls(response: ChatResponse): ToolCall[] {
-    return (response.message?.tool_calls ?? []) as ToolCall[];
-  },
-
-  extractToolCallDeltas(chunk: unknown): ToolCall[] {
+  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
     const streamChunk = chunk as { message?: { tool_calls?: unknown[] } };
-    return (streamChunk.message?.tool_calls ?? []) as ToolCall[];
-  },
-
-  getToolCallDeltaId(_delta: ToolCall): string {
-    return ""; // Ollama 不需要 tool_call_id
-  },
-
-  getToolCallDeltaName(delta: ToolCall): string | undefined {
-    return delta.function?.name;
-  },
-
-  getToolCallDeltaArguments(delta: ToolCall): string | undefined {
-    // Ollama 的 arguments 是对象，需转为 JSON 字符串
-    const args = delta.function?.arguments as Record<string, unknown> | undefined;
-    return args ? JSON.stringify(args) : undefined;
+    const toolCalls = (streamChunk.message?.tool_calls ?? []) as ToolCall[];
+    return toolCalls.map(tc => ({
+      id: undefined, // Ollama 无 id
+      name: tc.function?.name ?? undefined,
+      index: 0, // Ollama 流式无 index，默认 0
+      arguments: JSON.stringify(tc.function?.arguments ?? {}),
+    }));
   },
 };
 
@@ -158,7 +143,7 @@ export function registerOllamaAdapter(): void {
     "ollama",
     ollamaMessageAdapterConfig
   );
-  registerToolAdapter<ToolCall, Message, ChatResponse>(
+  registerToolAdapter<Message, ChatResponse>(
     "ollama",
     ollamaToolAdapterConfig
   );
