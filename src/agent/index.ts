@@ -15,7 +15,7 @@ import { AgentBuilder } from "./builder";
  */
 async function streamExample() {
 
-  const agent = new AgentBuilder()
+  const agent = await new AgentBuilder()
     .use("longcat")
     .build();
 

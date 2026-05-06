@@ -1,4 +1,4 @@
-import { ToolManager, getTools, type Tool } from "@/tool/index";
+import { ToolManager, getTools, ensureToolsLoaded, type Tool } from "@/tool/index";
 import Middleware, { type AdaptersGroup } from "@/middleware/index";
 import config, { type ClientConfig } from "@/config";
 import { randomUUID } from "crypto";
@@ -68,13 +68,16 @@ export class AgentBuilder {
   /**
    * 构建 Agent 实例
    */
-  build(): Middleware {
+  async build(): Promise<Middleware> {
     if (!this.clientConfig) {
       throw new Error("必须先调用 use() 选择 LLM 服务");
     }
     if (!this.adapters) {
       throw new Error("必须先调用 use() 初始化 adapters");
     }
+
+    // 确保工具已加载
+    await ensureToolsLoaded();
 
     // 根据 tool_group 配置加载工具
     const toolGroupName = this.clientConfig.tool_group;

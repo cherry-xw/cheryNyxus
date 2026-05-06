@@ -1,7 +1,8 @@
 import type { ZodType } from "zod";
 import type { Tool } from "./base/toolCreator";
-import read from "./handle/read";
-import skill from "./handle/skill";
+import { readdirSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
 export {
   tool,
@@ -14,10 +15,39 @@ export { ToolManager } from "./base/toolManager";
  * 工具注册表：工具名 → Tool 实例
  * 用于按名称获取工具实例
  */
-const toolRegistry: Record<string, Tool<ZodType>> = {
-  read_file: read,
-  Skill: skill,
-};
+const toolRegistry: Record<string, Tool<ZodType>> = {};
+
+/**
+ * 动态加载 handle 目录下的所有工具模块
+ */
+async function loadTools(): Promise<void> {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  const handleDir = join(currentDir, "handle");
+
+  const files = readdirSync(handleDir)
+    .filter(file => file.endsWith(".ts") && !file.endsWith(".d.ts"));
+
+  await Promise.all(
+    files.map(async (file) => {
+      const modulePath = join(handleDir, file);
+      const module = await import(`file://${modulePath}`);
+      const tool = module.default as Tool<ZodType>;
+      if (tool?.definition?.function?.name) {
+        toolRegistry[tool.definition.function.name] = tool;
+      }
+    })
+  );
+}
+
+// 启动时加载所有工具
+const loadPromise = loadTools();
+
+/**
+ * 确保工具已加载完成
+ */
+export async function ensureToolsLoaded(): Promise<void> {
+  await loadPromise;
+}
 
 /**
  * 获取单个工具实例
