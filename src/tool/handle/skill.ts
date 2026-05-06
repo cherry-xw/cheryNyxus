@@ -10,9 +10,13 @@ import { getSkill } from "@/prompt/loadSkill.js";
  */
 export const loadSkillTool = tool(
   "Skill",
-  "激活一个技能，加载其完整指令。当用户的问题与任何技能的描述匹配时，你必须调用此工具。",
+  `核心功能：激活一个技能，加载其完整指令
+当用户的问题与任何技能的描述匹配时，你必须调用此工具
+必须严格遵守那些指令，就像它们是你系统提示的一部分
+将问题方法论化流程化，有效理解以解决问题
+**技能严禁重复加载**`,
   z.object({
-    name: z.string().describe("技能名称，必须与 <skill> 中的 name 字段完全一致"),
+    name: z.string().describe("技能名称，必须与 <skill> 中的`name`字段完全一致"),
   }),
   async ({ name }) => {
     const skill = getSkill(name);
