@@ -1,10 +1,8 @@
-import type { Tool } from "@/tool/index";
-import type { ZodType } from "zod";
-
-import { ToolManager } from "@/tool/index";
+import { ToolManager, getTools, type Tool } from "@/tool/index";
 import Middleware, { type AdaptersGroup } from "@/middleware/index";
-import config, { SupervisionLevel, type ClientConfig } from "@/config";
+import config, { type ClientConfig } from "@/config";
 import { randomUUID } from "crypto";
+import type { ZodType } from "zod";
 
 // Adapter 获取函数
 import { getLLMAdapter } from "@/llm/adapter";
@@ -25,7 +23,6 @@ const providerRegistry: Record<string, () => void> = {
  */
 export class AgentBuilder {
   private clientConfig?: ClientConfig;
-  private tools: Tool<ZodType>[] = [];
   private sessionId: string = randomUUID();
   private adapters?: AdaptersGroup;
 
@@ -61,15 +58,6 @@ export class AgentBuilder {
   }
 
   /**
-   * 绑定工具（单个或数组）
-   */
-  bindTools(tool: Tool<ZodType> | Tool<ZodType>[]): AgentBuilder {
-    const toolsArray = Array.isArray(tool) ? tool : [tool];
-    this.tools.push(...toolsArray);
-    return this;
-  }
-
-  /**
    * 设置会话 ID（可选）
    */
   setSessionId(id: string): AgentBuilder {
@@ -88,20 +76,19 @@ export class AgentBuilder {
       throw new Error("必须先调用 use() 初始化 adapters");
     }
 
-    // 根据 tool_group 篮选 tools
+    // 根据 tool_group 配置加载工具
     const toolGroupName = this.clientConfig.tool_group;
-    let filteredTools = this.tools;
+    let tools: Tool<ZodType>[] = [];
+
     if (toolGroupName && config.tool_groups?.[toolGroupName]) {
       const toolGroup = config.tool_groups[toolGroupName];
-      filteredTools = this.tools.filter((t) =>
-        toolGroup.tools.includes(t.definition.function.name),
-      );
+      tools = getTools(toolGroup.tools);
     }
 
     // 创建 ToolManager 并添加工具
     const toolManager = new ToolManager(this.clientConfig.provider);
-    if (filteredTools.length > 0) {
-      toolManager.add(filteredTools);
+    if (tools.length > 0) {
+      toolManager.add(tools);
     }
 
     return new Middleware(

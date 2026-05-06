@@ -8,7 +8,7 @@ import { getSkill } from "@/prompt/loadSkill.js";
  * 参数: skill name
  * 返回: SkillData (name, description, content)
  */
-export const loadSkillTool = tool(
+export default tool(
   "Skill",
   `核心功能：激活一个技能，加载其完整指令
 当用户的问题与任何技能的描述匹配时，你必须调用此工具

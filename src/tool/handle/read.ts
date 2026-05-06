@@ -9,7 +9,7 @@ const ReadSchema = z.object({
   offset: z.number().describe("起始行号偏移量，默认从第0行开始").optional(),
 });
 
-export const readTool = tool(
+export default tool(
   "read_file",
   "读取指定文件的内容，支持分段读取",
   ReadSchema,

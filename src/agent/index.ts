@@ -1,5 +1,4 @@
 import { AgentBuilder } from "./builder";
-import { readTool, loadSkillTool } from "@/tool/index";
 
 /**
  * Agent 示例：使用 longcat 配置访问 package.json 数据
@@ -7,9 +6,8 @@ import { readTool, loadSkillTool } from "@/tool/index";
  * 流程：
  * 1. 创建 AgentBuilder
  * 2. 选择 longcat 服务
- * 3. 绑定 read_file 工具
- * 4. 构建 Agent
- * 5. 发送消息，让 LLM 读取 package.json
+ * 3. 构建 Agent（工具自动从 config.yaml 的 tool_group 配置加载）
+ * 4. 发送消息，让 LLM 读取 package.json
  */
 
 /**
@@ -19,7 +17,6 @@ async function streamExample() {
 
   const agent = new AgentBuilder()
     .use("longcat")
-    .bindTools([readTool, loadSkillTool])
     .build();
 
   const threadId = agent.createThread();

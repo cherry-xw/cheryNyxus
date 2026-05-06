@@ -93,6 +93,15 @@ export default class Middleware {
       this.tool,
     );
     this.thread.set(threadId, ctx);
+    const now = Date.now();
+    ctx.process.history.push({
+      id: uuid(),
+      role: "system",
+      content: buildPrompt(),
+      createdAt: now,
+      updateAt: now,
+      raw: undefined,
+    });
     return threadId;
   }
 
@@ -194,14 +203,6 @@ export default class Middleware {
     const now = Date.now();
     ctx.process.history.push({
       id: uuid(),
-      role: "system",
-      content: buildPrompt(),
-      createdAt: now,
-      updateAt: now,
-      raw: undefined,
-    });
-    ctx.process.history.push({
-      id: uuid(),
       role: "user",
       content: input,
       createdAt: now,
@@ -259,14 +260,6 @@ export default class Middleware {
     input: string,
   ): AsyncGenerator<MessageStreamChunk> {
     const now = Date.now();
-    ctx.process.history.push({
-      id: uuid(),
-      role: "system",
-      content: buildPrompt(),
-      createdAt: now,
-      updateAt: now,
-      raw: {},
-    });
     ctx.process.history.push({
       id: uuid(),
       role: "user",

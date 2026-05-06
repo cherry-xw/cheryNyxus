@@ -56,8 +56,10 @@ src/
 [builder.ts](src/agent/builder.ts) 提供链式配置：
 
 ```ts
-createAgent().use("longcat").bindTools(readTool).build()
+createAgent().use("longcat").build()
 ```
+
+工具自动从 `config.yaml` 的 `tool_group` 配置加载。
 
 ### Adapter 模式 - 三层适配
 
