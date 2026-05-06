@@ -2,7 +2,7 @@
  * LangGraph.js 入门模板
  * 将此代码改造成您自己的！
  */
-import { StateGraph } from "@langchain/langgraph";
+import { StateGraph, START, END } from "@langchain/langgraph";
 import { RunnableConfig } from "@langchain/core/runnables";
 import { AgentState } from "./state.ts";
 // import { ollama } from "../llm/ollama.ts";
@@ -64,7 +64,7 @@ const builder = new StateGraph(AgentState)
   // 常规边表示"在节点 A 完成后始终转换到节点 B"
   // "__start__" 和 "__end__" 节点是"虚拟"节点，始终存在
   // 代表构建器的开始和结束。
-  .addEdge("__start__", "callModel")
+  .addEdge(START, "callModel")
   // 条件边根据条件可选地路由到不同的节点（或结束）
   .addConditionalEdges("callModel", route);
 

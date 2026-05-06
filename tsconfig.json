@@ -13,6 +13,8 @@
     "noUnusedParameters": true,
     "useDefineForClassFields": true,
     "strictPropertyInitialization": false,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "allowJs": true,
     "strict": true,
     "allowImportingTsExtensions": true,
