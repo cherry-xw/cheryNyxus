@@ -2,20 +2,24 @@ import { z } from "zod";
 import { tool } from "@/tool/base/toolCreator";
 import { readFile } from "fs/promises";
 import { SupervisionLevel } from "@/config";
+import { resolvePath } from "@/utils/env.js";
 
 const ReadSchema = z.object({
-  path: z.string().describe("文件路径，例如: /path/to/file.txt"),
+  path: z.string().describe("文件路径，支持相对路径（相对于工作目录）或绝对路径"),
   limit: z.number().describe("读取的行数限制，默认读取全部内容").optional(),
   offset: z.number().describe("起始行号偏移量，默认从第0行开始").optional(),
 });
 
 export default tool(
   "read_file",
-  "读取指定文件的内容，支持分段读取",
+  "读取指定文件的内容，支持分段读取。路径可以是绝对路径或相对于工作目录的相对路径",
   ReadSchema,
   async (input) => {
     try {
-      const content = await readFile(input.path, "utf-8");
+      // 转换相对路径为绝对路径
+      const absolutePath = resolvePath(input.path);
+
+      const content = await readFile(absolutePath, "utf-8");
       const lines = content.split("\n");
 
       const offset = input.offset ?? 0;

@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { join, dirname } from "path";
 import { getSkillMetas } from "./loadSkill.js";
+import { getEnvInfo } from "@/utils/env.js";
 
 // ESM 下获取当前模块目录
 const promptModulePath = fileURLToPath(import.meta.url);
@@ -16,6 +17,7 @@ const systemPrompt = readFileSync(join(promptDir, "system.md"), "utf-8").trim();
  */
 export default function buildFirstSystemPrompt(): string {
   const skills = getSkillMetas();
+  const envInfo = getEnvInfo();
 
   const skillsSection = skills
     .map((s) => `<skill name="${s.name}">\n${s.description}\n</skill>`)
@@ -25,12 +27,14 @@ export default function buildFirstSystemPrompt(): string {
 ${systemPrompt}
 </system-reminder>
 
+<environment>
+工作目录: ${envInfo.workDir}
+操作系统: ${envInfo.os}
+当前日期: ${envInfo.date}
+当前时间: ${envInfo.time}
+</environment>
+
 <skills>
 ${skillsSection}
 </skills>`;
 }
-
-// TODO 添加运行环境相关信息
-// <environment>
-//  ${cwd, os, etc.}
-// </environment>

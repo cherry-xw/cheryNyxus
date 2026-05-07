@@ -3,6 +3,7 @@ import Middleware, { type AdaptersGroup } from "@/middleware/index";
 import config, { type ClientConfig } from "@/config";
 import { randomUUID } from "crypto";
 import type { ZodType } from "zod";
+import { initEnvInfo } from "@/utils/env.js";
 
 // Adapter 获取函数
 import { getLLMAdapter } from "@/llm/adapter";
@@ -78,6 +79,9 @@ export class AgentBuilder {
 
     // 确保工具已加载
     await ensureToolsLoaded();
+
+    // 初始化环境信息
+    initEnvInfo(process.cwd());
 
     // 根据 tool_group 配置加载工具
     const toolGroupName = this.clientConfig.tool_group;
