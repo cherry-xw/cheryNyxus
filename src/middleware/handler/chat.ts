@@ -49,8 +49,8 @@ async function* handleStream(
   // 打印入参信息
   console.log("\n=== Chat Stream Request ===");
   console.log("Messages:", JSON.stringify(messages, null, 2));
-  console.log("Tools:", JSON.stringify(tools, null, 2));
-  console.log("Options:", JSON.stringify(options, null, 2));
+  // console.log("Tools:", JSON.stringify(tools, null, 2));
+  // console.log("Options:", JSON.stringify(options, null, 2));
 
   const streamIterator = await llmAdapter.chatStream(messages, tools, options);
 
@@ -60,7 +60,7 @@ async function* handleStream(
     const chunk: StreamChunk = {
       type: "stream",
       streamId: `stream-${Date.now()}`,
-      thinking: "",
+      thinkingDelta: "",
       delta: "",
       thinkingAccumulated: "",
       accumulated: "",

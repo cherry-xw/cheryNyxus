@@ -91,20 +91,19 @@ function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
   const deltas = toolAdapter.extractToolCallDeltas(raw);
 
   for (const delta of deltas) {
-    // 用 id 或 index 作为累积 key
-    const key = delta.id ?? `tool-${delta.index}`;
+    // 统一用 index 作为累积 key（流式增量模式最可靠）
+    const key = `tool-${delta.index}`;
 
     const existing = ctx.tools.toolCallAccumulated.get(key);
     if (existing) {
-      // 累积 arguments（增量模式）
+      // 累积 arguments 增量
       if (delta.arguments) {
         existing.arguments += delta.arguments;
       }
-      // name 可能只在首个 delta 出现，后续 delta 可能为空
+      // name/id 只在首个 chunk 出现，补充到已有条目
       if (delta.name && !existing.name) {
         existing.name = delta.name;
       }
-      // id 可能在首个 delta 出现
       if (delta.id && !existing.id) {
         existing.id = delta.id;
       }

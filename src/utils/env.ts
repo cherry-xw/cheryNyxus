@@ -18,6 +18,8 @@ export function initEnvInfo(workDir: string): void {
   envInfo = {
     workDir,
     os: `${os.type()} ${os.release()}`,
+    date: dayjs().format("YYYY-MM-DD"),
+    time: dayjs().toISOString(),
   };
 }
 

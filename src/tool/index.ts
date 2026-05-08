@@ -3,6 +3,7 @@ import type { Tool } from "./base/toolCreator";
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { SupervisionLevel } from "@/config";
 
 export {
   tool,
@@ -16,6 +17,12 @@ export { ToolManager } from "./base/toolManager";
  * 用于按名称获取工具实例
  */
 const toolRegistry: Record<string, Tool<ZodType>> = {};
+
+/**
+ * 工具监管等级注册表：工具名 → SupervisionLevel
+ * 用于按名称获取工具的监管等级
+ */
+const supervisionRegistry: Record<string, SupervisionLevel> = {};
 
 /**
  * 动态加载 handle 目录下的所有工具模块
@@ -33,7 +40,10 @@ async function loadTools(): Promise<void> {
       const module = await import(`file://${modulePath}`);
       const tool = module.default as Tool<ZodType>;
       if (tool?.definition?.function?.name) {
-        toolRegistry[tool.definition.function.name] = tool;
+        const toolName = tool.definition.function.name;
+        toolRegistry[toolName] = tool;
+        // 注册工具监管等级
+        supervisionRegistry[toolName] = tool.supervisionLevel;
       }
     })
   );
@@ -65,4 +75,13 @@ export function getTool(name: string): Tool<ZodType> | undefined {
  */
 export function getTools(names: string[]): Tool<ZodType>[] {
   return names.map(name => toolRegistry[name]).filter((tool): tool is Tool<ZodType> => tool !== undefined);
+}
+
+/**
+ * 获取工具监管等级
+ * @param name 工具名称
+ * @returns 监管等级或 undefined（未找到）
+ */
+export function getToolSupervision(name: string): SupervisionLevel | undefined {
+  return supervisionRegistry[name];
 }

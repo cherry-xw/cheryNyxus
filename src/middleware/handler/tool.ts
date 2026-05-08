@@ -43,8 +43,6 @@ async function* executeToolCalls(
 
   if (toolCalls.length === 0) return;
 
-  const autoLevel = ctx.global.supervision ?? SupervisionLevel.confirm;
-
   for (const tc of toolCalls) {
     // extractFromAccumulated 返回的是内部格式 {id, name, arguments}
     const id = tc.id as string;
@@ -56,9 +54,10 @@ async function* executeToolCalls(
     const toolDef = ctx.tools.toolManager.get(name);
     // console.log("toolDef");
     // console.log(toolDef, ctx.tools.toolManager.getAll());
-    // 分级检查
+    // 分级检查：使用工具的 supervisionLevel
     if (toolDef) {
-      if (ctx.global.supervision <= autoLevel) {
+      // 只有 auto 级别的工具允许自动执行
+      if (toolDef.supervisionLevel <= SupervisionLevel.auto) {
         // Skill工具特殊处理：防止重复加载
         if (name === "Skill" && args.name) {
           const skillName = args.name as string;

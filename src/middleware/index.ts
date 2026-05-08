@@ -120,17 +120,25 @@ export default class Middleware {
       args: Record<string, unknown>;
     },
   ): Promise<MessageStreamChunk> {
-    // 重建上下文，保留中断信息
-    const ctx = createMiddlewareContextBase(
-      this.global,
-      this.sessionId,
-      "",
-      this.config,
-      this.adapters,
-      this.tool,
-    );
-    ctx.state.interruptInfo = interruptInfo;
-    ctx.state.needInterrupt = true;
+    // 恢复原thread的context
+    const ctx = this.thread.get(threadId);
+    if (!ctx) {
+      throw new Error("Thread not found");
+    }
+
+    // 验证interrupt状态
+    if (!ctx.state.needInterrupt || !ctx.state.interruptInfo) {
+      throw new Error("No pending interrupt in this thread");
+    }
+
+    // 验证传入的interruptInfo与当前状态匹配
+    const currentInfo = ctx.state.interruptInfo;
+    if (
+      currentInfo.toolCallId !== interruptInfo.toolCallId ||
+      currentInfo.toolName !== interruptInfo.toolName
+    ) {
+      throw new Error("Interrupt info mismatch");
+    }
 
     // 执行工具调用（用户确认或拒绝）
     for await (const _ of continueToolExecution(ctx, approved)) {

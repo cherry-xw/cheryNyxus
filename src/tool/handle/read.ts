@@ -12,7 +12,7 @@ const ReadSchema = z.object({
 
 export default tool(
   "read_file",
-  "读取指定文件的内容，支持分段读取。路径可以是绝对路径或相对于工作目录的相对路径",
+  "读取指定文件的内容，支持分段读取。路径可以是绝对路径或相对于工作目录的相对路径，注意：读取单个文件主要使用`read_file`，而不是使用bash命令。",
   ReadSchema,
   async (input) => {
     try {

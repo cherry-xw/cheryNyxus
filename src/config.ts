@@ -30,8 +30,8 @@ interface ClientConfig {
   thinking?: boolean;
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string;
-  /** 使用哪个tool group */
-  tool_group?: string;
+  /** 使用哪个tool group（支持单个或多个工具组） */
+  tool_group?: string | string[];
 }
 
 interface LLMConfig {
@@ -42,7 +42,6 @@ interface LLMConfig {
  * Tool Group 配置
  */
 interface ToolGroupConfig {
-  auto_execute_level: keyof typeof SupervisionLevel; // 允许自动执行的监管等级
   tools: string[]; // 包含的tool名称列表
 }
 
@@ -53,6 +52,7 @@ interface GlobalConfig {
   thinking: boolean; // 是否开启思考模式（如果能思考）
   supervision: keyof typeof SupervisionLevel; // 全局默认的监管等级
   stream: boolean; // 是否开启流式输出
+  tool_execute_timeout?: number; // 工具执行超时时间（毫秒）
 }
 
 interface Config {
@@ -113,7 +113,7 @@ function loadConfig(): Config {
 }
 
 const config = loadConfig();
-console.log(JSON.stringify(config));
+// console.log(JSON.stringify(config));
 
 export type { Config, LLMConfig, ClientConfig, ToolGroupConfig, GlobalConfig };
 export default config;

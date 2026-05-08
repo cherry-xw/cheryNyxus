@@ -155,7 +155,7 @@ const openaiLLMAdapter: llmAdapter = {
     return client.chat.completions.create({
       model,
       messages: msgArray,
-      ...(thinking ? { thinking: true } : {}),
+      ...(thinking ? { thinking: { type: "enabled" } } : {}),
       ...(toolArray.length > 0 && { tools: toolArray }),
     });
   },
@@ -181,7 +181,7 @@ const openaiLLMAdapter: llmAdapter = {
       model,
       messages: msgArray,
       stream: true,
-      ...(thinking ? { thinking: true } : {}),
+      ...(thinking ? { thinking: { type: "enabled" } } : {}),
       ...(toolArray.length > 0 && { tools: toolArray }),
     });
     return stream as AsyncIterable<unknown>;

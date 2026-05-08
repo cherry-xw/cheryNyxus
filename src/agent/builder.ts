@@ -3,7 +3,7 @@ import Middleware, { type AdaptersGroup } from "@/middleware/index";
 import config, { type ClientConfig } from "@/config";
 import { randomUUID } from "crypto";
 import type { ZodType } from "zod";
-import { initEnvInfo } from "@/utils/env.js";
+import { initEnvInfo, resolvePath } from "@/utils/env.js";
 
 // Adapter 获取函数
 import { getLLMAdapter } from "@/llm/adapter";
@@ -26,6 +26,7 @@ export class AgentBuilder {
   private clientConfig?: ClientConfig;
   private sessionId: string = randomUUID();
   private adapters?: AdaptersGroup;
+  private workDir?: string; // 自定义工作目录
 
   /**
    * 选择 LLM 服务（从 config.yaml 读取配置）
@@ -67,6 +68,15 @@ export class AgentBuilder {
   }
 
   /**
+   * 设置工作目录（可选）
+   * @param dir 工作目录路径（绝对路径或相对路径）
+   */
+  setWorkDir(dir: string): AgentBuilder {
+    this.workDir = dir;
+    return this;
+  }
+
+  /**
    * 构建 Agent 实例
    */
   async build(): Promise<Middleware> {
@@ -80,16 +90,43 @@ export class AgentBuilder {
     // 确保工具已加载
     await ensureToolsLoaded();
 
-    // 初始化环境信息
-    initEnvInfo(process.cwd());
+    // 初始化环境信息（使用自定义工作目录或 process.cwd()）
+    initEnvInfo(this.workDir ? resolvePath(this.workDir) : process.cwd());
 
-    // 根据 tool_group 配置加载工具
-    const toolGroupName = this.clientConfig.tool_group;
+    // 根据 tool_group 配置加载工具（支持单个或多个工具组）
+    const toolGroupNames = this.clientConfig.tool_group
+      ? (Array.isArray(this.clientConfig.tool_group)
+          ? this.clientConfig.tool_group
+          : [this.clientConfig.tool_group])
+      : [];
+
     let tools: Tool<ZodType>[] = [];
 
-    if (toolGroupName && config.tool_groups?.[toolGroupName]) {
-      const toolGroup = config.tool_groups[toolGroupName];
-      tools = getTools(toolGroup.tools);
+    for (const groupName of toolGroupNames) {
+      const toolGroup = config.tool_groups?.[groupName];
+      if (!toolGroup) {
+        console.warn(`Tool group "${groupName}" not found, skipping`);
+        continue;
+      }
+
+      const groupTools = getTools(toolGroup.tools);
+
+      // 工具去重：后加载覆盖前加载
+      for (const tool of groupTools) {
+        const toolName = tool.definition.function.name;
+        const existingIndex = tools.findIndex(
+          (t) => t.definition.function.name === toolName
+        );
+
+        if (existingIndex >= 0) {
+          console.warn(
+            `Tool "${toolName}" already loaded, overriding with group "${groupName}"`
+          );
+          tools[existingIndex] = tool;
+        } else {
+          tools.push(tool);
+        }
+      }
     }
 
     // 创建 ToolManager 并添加工具

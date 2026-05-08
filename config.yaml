@@ -18,23 +18,30 @@ llm:
       key: $LONGCAT_API_KEY
       thinking: true # 思考模式（这是对这个模型有没有think能力的配置）
       provider: openai
-      tool_group: safe_tools
+      tool_group: [safe_tools, dangerous_tools]
+    deepseek:
+      url: https://api.deepseek.com
+      model: deepseek-v4-flash
+      key: $DEEPSEEK_API_KEY
+      thinking: true
+      provider: openai
+      tool_group: [safe_tools, dangerous_tools]
 
 # Tool分组配置
 tool_groups:
   safe_tools:
-    supervision: auto # 允许自动执行的监管等级（auto/confirm/manual）
     tools:
       - read_file
       - Skill
   dangerous_tools:
-    supervision: manual # 禁止自动执行，需手动触发
     tools:
       - delete_file
       - execute_command
+      - write_file
 
 # 全局配置
 global:
   thinking: true # 是否开启思考模式（如果能思考）
   supervision: manual # 全局默认的监管等级
   stream: true # 是否开启流式输出
+  tool_execute_timeout: 60000 # 工具执行超时时间（毫秒），默认 60 秒

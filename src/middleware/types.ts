@@ -167,6 +167,7 @@ export interface MessageStreamChunk<T = unknown> {
     toolCallId: string;
     toolName: string;
     args: Record<string, unknown>;
+    threadId?: string;
   };
   /** 原始响应 */
   raw: T;
