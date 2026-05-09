@@ -56,7 +56,7 @@ const openaiMessageAdapterConfig = {
           content: m.content || null,
           ...(m.thinking && { reasoning_content: m.thinking }),
           tool_calls: m.toolCalls.map((tc) => ({
-            id: tc.id,
+            id: tc.tid,
             type: "function",
             function: {
               name: tc.name,
@@ -99,7 +99,7 @@ const openaiToolAdapterConfig = {
   ): ChatCompletionMessageParam {
     // 将统一的 ToolCallData 转换为 OpenAI 格式
     const openaiToolCalls = toolCalls.map((tc) => ({
-      id: tc.id ?? `call_${Date.now()}`,
+      id: tc.tid,
       type: "function",
       function: {
         name: tc.name ?? "",
@@ -127,10 +127,9 @@ const openaiToolAdapterConfig = {
   extractToolCalls(response: ChatCompletion): ToolCallData[] {
     const toolCalls = (response.choices?.[0]?.message?.tool_calls ??
       []) as ChatCompletionMessageFunctionToolCall[];
-    return toolCalls.map((tc) => ({
-      id: tc.id ?? undefined,
+    return toolCalls.map((tc, index) => ({
+      tid: tc.id ?? `tool-${index}`,
       name: tc.function?.name ?? undefined,
-      index: -1,
       arguments: tc.function?.arguments ?? "",
     }));
   },
@@ -149,9 +148,8 @@ const openaiToolAdapterConfig = {
     };
     const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
     return deltas.map((delta) => ({
-      id: delta.id ?? undefined,
+      tid: delta.id ?? `tool-${delta.index ?? 0}`,
       name: delta.function?.name ?? undefined,
-      index: delta.index ?? 0,
       arguments: delta.function?.arguments ?? "",
     }));
   },

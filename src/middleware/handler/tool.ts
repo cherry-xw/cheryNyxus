@@ -12,20 +12,19 @@ import { SupervisionLevel } from "@/config";
  */
 export function writeToolResult(
   ctx: MiddlewareContext,
-  toolCallId: string,
+  tid: string,
   toolName: string,
   args: Record<string, unknown>,
   result: ToolExecutionResult,
 ): void {
-  const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
+  const accumulator = ctx.process.toolCallAccumulated.get(tid);
   if (accumulator) {
     accumulator.executionResult = result;
   } else {
-    ctx.tools.toolCallAccumulated.set(toolCallId, {
-      id: toolCallId,
+    ctx.process.toolCallAccumulated.set(tid, {
+      tid,
       name: toolName,
       arguments: JSON.stringify(args),
-      index: -1,
       executionResult: result,
     });
   }
@@ -44,9 +43,9 @@ export async function* toolMiddleware(
 ): AsyncGenerator<MiddlewareChunk> {
   // === 前半部分：准备阶段 ===
   // 保留已执行的tool结果，只清空未执行的
-  for (const [id, acc] of ctx.tools.toolCallAccumulated) {
+  for (const [tid, acc] of ctx.process.toolCallAccumulated) {
     if (!acc.executionResult) {
-      ctx.tools.toolCallAccumulated.delete(id);
+      ctx.process.toolCallAccumulated.delete(tid);
     }
   }
 
@@ -68,21 +67,24 @@ async function* executeToolCalls(
   ctx: MiddlewareContext,
 ): AsyncGenerator<MiddlewareChunk> {
   // 获取 tool calls（统一从 toolCallAccumulated）
-  const toolCalls = extractFromAccumulated(ctx.tools.toolCallAccumulated);
+  const toolCalls = Array.from(ctx.process.toolCallAccumulated.values()).map((acc) => ({
+    tid: acc.tid,
+    name: acc.name,
+    arguments: acc.arguments,
+  }));
   console.log("toolCalls");
   console.log(toolCalls);
 
   if (toolCalls.length === 0) return;
 
   for (const tc of toolCalls) {
-    // extractFromAccumulated 返回的是内部格式 {id, name, arguments}
-    const id = tc.id as string;
-    const name = tc.name as string;
-    const argsJson = tc.arguments as string;
+    const tid = tc.tid;
+    const name = tc.name;
+    const argsJson = tc.arguments;
     const args = argsJson ? JSON.parse(argsJson) : {};
 
     // 检查是否已执行（跳过已执行的tool）
-    const accumulator = ctx.tools.toolCallAccumulated.get(id);
+    const accumulator = ctx.process.toolCallAccumulated.get(tid);
     if (accumulator?.executionResult) {
       continue; // 已执行，跳过
     }
@@ -97,7 +99,7 @@ async function* executeToolCalls(
       // 只有 auto 级别的工具允许自动执行
       if (toolDef.supervisionLevel <= SupervisionLevel.auto) {
         // Skill工具特殊处理：防止重复加载
-        if (handleSkillDuplicate(ctx, id, name, args)) {
+        if (handleSkillDuplicate(ctx, tid, name, args)) {
           continue;
         }
 
@@ -111,30 +113,30 @@ async function* executeToolCalls(
           if (name === "Skill" && args.name) {
             ctx.session.loadedSkills.add(args.name as string);
           }
-          writeToolResult(ctx, id, name, args, {
+          writeToolResult(ctx, tid, name, args, {
             success: true,
             result,
-            toolCallId: id,
+            toolCallId: tid,
             toolName: name,
           });
         } catch (error) {
           const errorMsg =
             error instanceof Error ? error.message : String(error);
-          writeToolResult(ctx, id, name, args, {
+          writeToolResult(ctx, tid, name, args, {
             success: false,
             error: errorMsg,
-            toolCallId: id,
+            toolCallId: tid,
             toolName: name,
           });
         }
       } else {
         // 需确认，yield 中断
         ctx.state.needInterrupt = true;
-        ctx.state.interruptInfo = { toolCallId: id, toolName: name, args };
+        ctx.state.interruptInfo = { toolCallId: tid, toolName: name, args };
 
         yield {
           type: "interrupt",
-          toolCallId: id,
+          toolCallId: tid,
           toolName: name,
           args,
         };
@@ -147,34 +149,12 @@ async function* executeToolCalls(
 }
 
 /**
- * 内部格式 tool call（从 toolCallAccumulated 提取）
- */
-interface InternalToolCall {
-  id: string;
-  name: string;
-  arguments: string;
-}
-
-/**
- * 从累积器提取完整的 tool calls
- */
-function extractFromAccumulated(
-  accumulated: Map<string, ToolCallAccumulator>,
-): InternalToolCall[] {
-  return Array.from(accumulated.values()).map((acc) => ({
-    id: acc.id ?? `tool-${acc.index}`,
-    name: acc.name,
-    arguments: acc.arguments,
-  }));
-}
-
-/**
  * 处理 Skill 工具重复加载检测
  * 返回 true 表示已加载，应跳过执行
  */
 function handleSkillDuplicate(
   ctx: MiddlewareContext,
-  id: string,
+  tid: string,
   name: string,
   args: Record<string, unknown>,
 ): boolean {
@@ -183,10 +163,10 @@ function handleSkillDuplicate(
   const skillName = args.name as string;
   if (!ctx.session.loadedSkills.has(skillName)) return false;
 
-  writeToolResult(ctx, id, name, args, {
+  writeToolResult(ctx, tid, name, args, {
     success: true,
     result: `技能"${skillName}"已在本会话中激活，无需重复加载。请根据已加载的指令继续执行。`,
-    toolCallId: id,
+    toolCallId: tid,
     toolName: name,
   });
   return true;

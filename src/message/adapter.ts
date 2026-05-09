@@ -7,7 +7,7 @@ type Role = "system" | "user" | "assistant" | "tool" | "function";
  * Tool Call 数据结构
  */
 export interface ToolCallInfo {
-  id: string;
+  tid: string;
   name: string;
   arguments: string;
 }

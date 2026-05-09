@@ -65,9 +65,8 @@ const ollamaToolAdapterConfig = {
   extractToolCalls(response: ChatResponse): ToolCallData[] {
     const toolCalls = (response.message?.tool_calls ?? []) as ToolCall[];
     return toolCalls.map(tc => ({
-      id: undefined, // Ollama 无 id
+      tid: "", // Ollama 无 id
       name: tc.function?.name ?? undefined,
-      index: -1,
       arguments: JSON.stringify(tc.function?.arguments ?? {}),
     }));
   },
@@ -76,9 +75,8 @@ const ollamaToolAdapterConfig = {
     const streamChunk = chunk as { message?: { tool_calls?: unknown[] } };
     const toolCalls = (streamChunk.message?.tool_calls ?? []) as ToolCall[];
     return toolCalls.map(tc => ({
-      id: undefined, // Ollama 无 id
+      tid: "", // Ollama 无 id
       name: tc.function?.name ?? undefined,
-      index: 0, // Ollama 流式无 index，默认 0
       arguments: JSON.stringify(tc.function?.arguments ?? {}),
     }));
   },

@@ -8,10 +8,10 @@ import type { GlobalConfig, ClientConfig } from "@/config";
  * 工具调用累积器（流式工具调用增量累积 + 执行结果）
  */
 export interface ToolCallAccumulator {
-  id?: string;
+  /** 工具调用唯一标识：id 或 tool-${index} */
+  tid: string;
   name: string;
   arguments: string;
-  index: number;
   // 执行结果（tool 中间件写入）
   executionResult?: ToolExecutionResult;
 }

@@ -181,7 +181,7 @@ export default class Middleware {
       role: "assistant",
       content: ctx.response.finalContent || "",
       thinking: ctx.response.finalThinking,
-      toolCalls: [{ id: toolCallId, name: toolName, arguments: JSON.stringify(args) }],
+      toolCalls: [{ tid: toolCallId, name: toolName, arguments: JSON.stringify(args) }],
       createdAt: now,
       updateAt: now,
       raw: ctx.response.raw ?? null,
@@ -239,9 +239,9 @@ export default class Middleware {
    * 清空未执行的 toolCallAccumulated
    */
   private clearPendingToolCalls(ctx: MiddlewareContext): void {
-    for (const [id, acc] of ctx.process.toolCallAccumulated) {
+    for (const [tid, acc] of ctx.process.toolCallAccumulated) {
       if (!acc.executionResult) {
-        ctx.process.toolCallAccumulated.delete(id);
+        ctx.process.toolCallAccumulated.delete(tid);
       }
     }
   }

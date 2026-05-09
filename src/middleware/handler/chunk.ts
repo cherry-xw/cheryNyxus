@@ -91,29 +91,24 @@ function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
   const deltas = toolAdapter.extractToolCallDeltas(raw);
 
   for (const delta of deltas) {
-    // 统一用 index 作为累积 key（流式增量模式最可靠）
-    const key = `tool-${delta.index}`;
-
+    // 用 tid 作为累积 key
+    const key = delta.tid;
     const existing = ctx.process.toolCallAccumulated.get(key);
     if (existing) {
       // 累积 arguments 增量
       if (delta.arguments) {
         existing.arguments += delta.arguments;
       }
-      // name/id 只在首个 chunk 出现，补充到已有条目
+      // name 只在首个 chunk 出现，补充到已有条目
       if (delta.name && !existing.name) {
         existing.name = delta.name;
-      }
-      if (delta.id && !existing.id) {
-        existing.id = delta.id;
       }
     } else {
       // 初始化累积器
       ctx.process.toolCallAccumulated.set(key, {
-        id: delta.id,
+        tid: delta.tid,
         name: delta.name ?? "",
         arguments: delta.arguments,
-        index: delta.index,
       });
     }
   }
@@ -132,14 +127,10 @@ function extractToolCallsFromResponse(
   const toolCalls = toolAdapter.extractToolCalls(raw);
 
   for (const tc of toolCalls) {
-    // 用 id 或生成 uuid 作为 key
-    const key = tc.id ?? `tool-${uuid()}`;
-
-    ctx.process.toolCallAccumulated.set(key, {
-      id: tc.id,
+    ctx.process.toolCallAccumulated.set(tc.tid, {
+      tid: tc.tid,
       name: tc.name ?? "",
       arguments: tc.arguments,
-      index: tc.index,
     });
   }
 }

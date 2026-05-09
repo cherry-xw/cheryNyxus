@@ -6,12 +6,10 @@ import type { ZodType } from "zod";
  * 流式增量与非流式完整响应共用
  */
 export interface ToolCallData {
-  /** 工具调用 ID（OpenAI 非流式必需，流式增量可能为空） */
-  id?: string;
+  /** 工具调用唯一标识：id 或 tool-${index} */
+  tid: string;
   /** 工具名称（首个 delta 出现，后续可能为空） */
   name?: string;
-  /** 调用索引（流式增量用于关联，非流式设为 -1） */
-  index: number;
   /** 参数 JSON 字符串（必需，增量时为空字符串） */
   arguments: string;
 }
