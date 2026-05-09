@@ -175,12 +175,17 @@ export interface StreamChunk {
 
 /**
  * 中断 chunk（工具两阶段确认）
+ * continue/abort 由 invoke 层注入闭包绑定，内部持有 threadId
  */
 export interface InterruptChunk {
   type: "interrupt";
   toolCallId: string;
   toolName: string;
   args: Record<string, unknown>;
+  /** 继续执行（用户批准），自动恢复中间件链 */
+  continue: (reason?: string) => Promise<void>;
+  /** 中止执行 */
+  abort: () => void;
 }
 
 /**

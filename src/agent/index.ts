@@ -11,7 +11,7 @@ import { AgentBuilder } from "./builder";
  */
 
 /**
- * 流式响应示例：使用 sendStream 获取实时输出
+ * 流式响应示例：使用 send 获取实时输出
  */
 async function streamExample() {
 
@@ -34,13 +34,13 @@ async function streamExample() {
     let step = 0;
 
     // 遍历 AsyncGenerator 获取流式响应
-    for await (const chunk of agent.invoke(threadId, currentPrompt)) {
-      // pending 状态检测
-      if (chunk.status === "pending" && chunk.pendingTool) {
+    for await (const chunk of agent.send(threadId, currentPrompt)) {
+      // interrupt 状态检测
+      if (chunk.type === "interrupt") {
         hasPending = true;
         console.log("\n=== Tool 需要确认 ===");
-        console.log(`Tool: ${chunk.pendingTool.toolName}`);
-        console.log(`Args: ${JSON.stringify(chunk.pendingTool.args, null, 2)}`);
+        console.log(`Tool: ${chunk.toolName}`);
+        console.log(`Args: ${JSON.stringify(chunk.args, null, 2)}`);
 
         // 用户交互确认
         console.log("\n是否批准执行？(Y/N)");
@@ -53,44 +53,49 @@ async function streamExample() {
         const approved = input === "Y" || input === "YES";
         console.log(`用户选择: ${approved ? "批准" : "拒绝"}\n`);
 
-        // 调用 confirmToolCall
-        const result = await agent.confirmToolCall(
-          threadId,  // 使用已知的 threadId
-          approved,
-          chunk.pendingTool,
-        );
-
-        // 显示确认后的结果
-        if (result.status === "success") {
-          console.log("=== Tool 执行完成 ===");
-          console.log(result.content);
-        } else if (result.status === "pending") {
-          // 还有新的 interrupt，继续循环
-          console.log("=== 还有新的 tool 需要确认 ===");
+        // 使用 chunk 的 continue/abort
+        if (approved) {
+          await chunk.continue("用户批准执行");
+        } else {
+          chunk.abort();
         }
 
         break; // 跳出当前 for 循环，进入下一次 while 循环
       }
 
-      // 思考内容增量输出
-      if (chunk.thinkingDelta) {
-        if (step === 0) {
-          console.log("\n=== Thinking ===");
-          step = 1;
+      // stream chunk 处理
+      if (chunk.type === "stream") {
+        // 思考内容增量输出
+        if (chunk.thinkingDelta) {
+          if (step === 0) {
+            console.log("\n=== Thinking ===");
+            step = 1;
+          }
+          process.stdout.write(chunk.thinkingDelta);
         }
-        process.stdout.write(chunk.thinkingDelta);
+        // 内容增量输出
+        if (chunk.contentDelta) {
+          if (step === 1) {
+            console.log("\n\n=== LLM 响应 ===");
+            step = 0;
+          }
+          process.stdout.write(chunk.contentDelta);
+        }
       }
-      // 内容增量输出
-      if (chunk.contentDelta) {
-        if (step === 1) {
-          console.log("\n\n=== LLM 响应 ===");
-          step = 0;
+
+      // staged/done 处理
+      if (chunk.type === "staged" || chunk.type === "done") {
+        if (chunk.type === "staged") {
+          console.log("\n=== 响应完成 ===");
+          if (chunk.thinking) {
+            console.log(`Thinking: ${chunk.thinking}`);
+          }
+          console.log(`Content: ${chunk.content}`);
         }
-        process.stdout.write(chunk.contentDelta);
       }
     }
 
-    // 如果有 pending，下一轮不再发送新 prompt（confirmToolCall 会触发 retry）
+    // 如果有 pending，下一轮不再发送新 prompt（continue 会触发 retry）
     if (hasPending) {
       currentPrompt = ""; // 空字符串，retry 时不添加新 user 消息
     }
@@ -100,32 +105,31 @@ async function streamExample() {
   console.log("\n\n=== 流式响应完成 ===");
 
   console.log("使用上面提示词自由发挥,给出最终笑话内容示例");
-  // 3. 获取响应（非流式）
-  let step = 0;
-  const responseArr1 = agent.invoke(
+  // 获取新响应
+  let step2 = 0;
+  for await (const chunk of agent.send(
     threadId,
     "使用上面提示词自由发挥,给出最终笑话内容示例",
-  );
-
-  for await (const chunk of responseArr1) {
-    // 思考内容增量输出
-    if (chunk.thinkingDelta) {
-      if (step === 0) {
-        console.log("\n=== Thinking ===");
-        step = 1;
+  )) {
+    // stream chunk 处理
+    if (chunk.type === "stream") {
+      if (chunk.thinkingDelta) {
+        if (step2 === 0) {
+          console.log("\n=== Thinking ===");
+          step2 = 1;
+        }
+        process.stdout.write(chunk.thinkingDelta);
       }
-      process.stdout.write(chunk.thinkingDelta);
-    }
-    // 内容增量输出
-    if (chunk.contentDelta) {
-      if (step === 1) {
-        console.log("\n\n=== LLM 响应 ===");
-        step = 0;
+      if (chunk.contentDelta) {
+        if (step2 === 1) {
+          console.log("\n\n=== LLM 响应 ===");
+          step2 = 0;
+        }
+        process.stdout.write(chunk.contentDelta);
       }
-      process.stdout.write(chunk.contentDelta);
     }
   }
-  console.log("运行结束");
+  console.log("\n运行结束");
 }
 
 // 运行示例
