@@ -63,7 +63,7 @@ async function streamExample() {
         // 显示确认后的结果
         if (result.status === "success") {
           console.log("=== Tool 执行完成 ===");
-          console.log(result.contentAccumulated);
+          console.log(result.content);
         } else if (result.status === "pending") {
           // 还有新的 interrupt，继续循环
           console.log("=== 还有新的 tool 需要确认 ===");
@@ -81,12 +81,12 @@ async function streamExample() {
         process.stdout.write(chunk.thinkingDelta);
       }
       // 内容增量输出
-      if (chunk.delta) {
+      if (chunk.contentDelta) {
         if (step === 1) {
           console.log("\n\n=== LLM 响应 ===");
           step = 0;
         }
-        process.stdout.write(chunk.delta);
+        process.stdout.write(chunk.contentDelta);
       }
     }
 
@@ -117,12 +117,12 @@ async function streamExample() {
       process.stdout.write(chunk.thinkingDelta);
     }
     // 内容增量输出
-    if (chunk.delta) {
+    if (chunk.contentDelta) {
       if (step === 1) {
         console.log("\n\n=== LLM 响应 ===");
         step = 0;
       }
-      process.stdout.write(chunk.delta);
+      process.stdout.write(chunk.contentDelta);
     }
   }
   console.log("运行结束");

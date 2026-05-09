@@ -47,11 +47,6 @@ function createMiddlewareContextBase(
     tools: {
       toolManager,
     },
-    response: {
-      raw: undefined,
-      finalContent: "",
-      finalThinking: undefined,
-    },
     state: {
       needInterrupt: false,
       interruptInfo: undefined,
@@ -179,12 +174,12 @@ export default class Middleware {
     ctx.process.history.push({
       id: uuid(),
       role: "assistant",
-      content: ctx.response.finalContent || "",
-      thinking: ctx.response.finalThinking,
+      content: "",
+      thinking: "",
       toolCalls: [{ tid: toolCallId, name: toolName, arguments: JSON.stringify(args) }],
       createdAt: now,
       updateAt: now,
-      raw: ctx.response.raw ?? null,
+      raw: null,
     });
   }
 
@@ -270,8 +265,8 @@ export default class Middleware {
       return {
         status: "pending",
         thinkingDelta: "",
-        delta: "",
-        contentAccumulated: "",
+        contentDelta: "",
+        content: "",
         pendingTool: newInterrupt,
         raw: undefined,
       };
@@ -282,9 +277,9 @@ export default class Middleware {
       return {
         status: "success",
         thinkingDelta: "",
-        thinkingAccumulated: stagedChunk.thinking,
-        delta: "",
-        contentAccumulated: stagedChunk.content,
+        thinking: stagedChunk.thinking,
+        contentDelta: "",
+        content: stagedChunk.content,
         raw: stagedChunk.raw,
       };
     }
@@ -292,10 +287,10 @@ export default class Middleware {
     return {
       status: "success",
       thinkingDelta: "",
-      thinkingAccumulated: ctx.response.finalThinking,
-      delta: "",
-      contentAccumulated: ctx.response.finalContent,
-      raw: ctx.response.raw,
+      thinking: "",
+      contentDelta: "",
+      content: "",
+      raw: undefined,
     };
   }
 
@@ -338,8 +333,8 @@ export default class Middleware {
         {
           status: "pending",
           thinkingDelta: "",
-          delta: "",
-          contentAccumulated: "",
+          contentDelta: "",
+          content: "",
           pendingTool: interruptInfo,
           raw: undefined,
         },
@@ -352,7 +347,7 @@ export default class Middleware {
       status: "success",
       thinkingDelta: "",
       thinkingAccumulated: el.thinking,
-      delta: "",
+      contentDelta: "",
       raw: el.raw,
     }));
   }
@@ -382,9 +377,9 @@ export default class Middleware {
       if (chunk.type === "stream") {
         yield {
           thinkingDelta: chunk.thinkingDelta,
-          thinkingAccumulated: chunk.thinkingAccumulated,
-          delta: chunk.delta,
-          contentAccumulated: chunk.contentAccumulated,
+          thinking: chunk.thinkingAccumulated,
+          contentDelta: chunk.contentDelta,
+          content: chunk.contentAccumulated,
           status: "success",
           raw: chunk.raw,
         };
@@ -393,9 +388,9 @@ export default class Middleware {
         // 直接自动执行
         yield {
           thinkingDelta: "",
-          thinkingAccumulated: ctx.process.thinkingAccumulated,
-          delta: "",
-          contentAccumulated: ctx.process.contentAccumulated,
+          thinking: ctx.process.thinkingAccumulated,
+          contentDelta: "",
+          content: ctx.process.contentAccumulated,
           status: "pending",
           pendingTool: {
             toolCallId: chunk.toolCallId,
@@ -407,18 +402,18 @@ export default class Middleware {
       } else if (chunk.type === "staged") {
         yield {
           thinkingDelta: "",
-          thinkingAccumulated: ctx.process.thinkingAccumulated,
-          delta: "",
-          contentAccumulated: ctx.process.contentAccumulated,
+          thinking: ctx.process.thinkingAccumulated,
+          contentDelta: "",
+          content: ctx.process.contentAccumulated,
           status: "success",
           raw: chunk.raw,
         };
       } else if (chunk.type === "done") {
         yield {
           thinkingDelta: "",
-          thinkingAccumulated: ctx.process.thinkingAccumulated,
-          delta: "",
-          contentAccumulated: ctx.process.contentAccumulated,
+          thinking: ctx.process.thinkingAccumulated,
+          contentDelta: "",
+          content: ctx.process.contentAccumulated,
           status: "success",
           raw: "",
         };

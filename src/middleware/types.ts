@@ -86,18 +86,6 @@ interface ToolsGroup {
 }
 
 /**
- * 响应分组 - LLM响应和最终结果
- */
-interface ResponseGroup {
-  /** LLM原始响应（非流式模式） */
-  raw: unknown;
-  /** 最终响应内容（处理完成后） */
-  finalContent: string;
-  /** 最终思考内容（处理完成后，可选） */
-  finalThinking?: string;
-}
-
-/**
  * 状态分组 - 执行状态和中断信息
  */
 interface StateGroup {
@@ -129,8 +117,6 @@ export interface MiddlewareContext {
   process: ProcessGroup;
   /** 工具分组：工具管理器和调用状态 */
   tools: ToolsGroup;
-  /** 响应分组：LLM响应和最终结果 */
-  response: ResponseGroup;
   /** 状态分组：执行状态和中断信息 */
   state: StateGroup;
 }
@@ -155,11 +141,11 @@ export interface MessageStreamChunk<T = unknown> {
   /** 当前增量思考 */
   thinkingDelta: string;
   /** 累积思考（可选） */
-  thinkingAccumulated?: string;
+  thinking?: string;
   /** 当前增量响应 */
-  delta: string;
+  contentDelta: string;
   /** 累积/完整响应（可选） */
-  contentAccumulated?: string;
+  content?: string;
   /** 状态标识 */
   status: "success" | "pending" | "error";
   /** 待确认工具信息（仅 pending 状态） */
@@ -178,11 +164,10 @@ export interface MessageStreamChunk<T = unknown> {
  */
 export interface StreamChunk {
   type: "stream";
-  streamId: string;
   /** 思考增量 */
   thinkingDelta: string;
   /** 响应增量 */
-  delta: string;
+  contentDelta: string;
   thinkingAccumulated: string;
   contentAccumulated: string;
   raw: unknown;

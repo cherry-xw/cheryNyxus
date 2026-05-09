@@ -136,7 +136,10 @@ const openaiToolAdapterConfig = {
 
   assembleToolCallChunks(chunks: unknown[]): unknown {
     // 按 index 累积 tool call 数据
-    const toolCallsMap = new Map<number, { id?: string; name?: string; arguments: string }>();
+    const toolCallsMap = new Map<
+      number,
+      { id?: string; name?: string; arguments: string }
+    >();
 
     for (const chunk of chunks) {
       const streamChunk = chunk as {
@@ -190,11 +193,13 @@ const openaiToolAdapterConfig = {
       }));
 
     return {
-      choices: [{
-        message: {
-          tool_calls: toolCalls,
+      choices: [
+        {
+          message: {
+            tool_calls: toolCalls,
+          },
         },
-      }],
+      ],
     } as ChatCompletion;
   },
 };

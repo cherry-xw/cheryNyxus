@@ -59,9 +59,8 @@ async function* handleStream(
     // console.log(JSON.stringify(rawChunk, null, 2));
     const chunk: StreamChunk = {
       type: "stream",
-      streamId: `stream-${Date.now()}`,
       thinkingDelta: "",
-      delta: "",
+      contentDelta: "",
       thinkingAccumulated: "",
       contentAccumulated: "",
       raw: rawChunk,
@@ -87,8 +86,6 @@ async function* handleNonStream(
   console.log("Options:", JSON.stringify(options, null, 2));
 
   const response = await llmAdapter.chat(messages, tools, options);
-
-  ctx.response.raw = response;
 
   // 打印原始响应
   console.log("\n=== Chat Raw Response ===");
