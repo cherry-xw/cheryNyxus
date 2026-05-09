@@ -140,55 +140,114 @@ export default class Middleware {
       throw new Error("Interrupt info mismatch");
     }
 
-    // 执行工具调用（用户确认或拒绝）
-    for await (const _ of continueToolExecution(ctx, approved)) {
-      // 遍历 Generator 执行完毕
+    const { toolCallId, toolName, args } = currentInfo;
+
+    // 清理interrupt状态（在执行前）
+    ctx.state.interruptInfo = undefined;
+    ctx.state.needInterrupt = false;
+
+    // 先累积 assistant 消息（包含 tool_calls）到 history
+    const now = Date.now();
+    ctx.process.history.push({
+      id: uuid(),
+      role: "assistant",
+      content: ctx.response.finalContent || "",
+      thinking: ctx.response.finalThinking,
+      toolCalls: [
+        {
+          id: toolCallId,
+          name: toolName,
+          arguments: JSON.stringify(args),
+        },
+      ],
+      createdAt: now,
+      updateAt: now,
+      raw: ctx.response.raw ?? null,
+    });
+
+    // 执行或拒绝 tool
+    if (!approved) {
+      // 用户拒绝，累积失败结果到 history
+      ctx.process.history.push({
+        id: uuid(),
+        role: "tool",
+        content: "用户拒绝执行该操作",
+        createdAt: now,
+        updateAt: now,
+        raw: { toolCallId },
+      });
+    } else {
+      // 用户确认执行
+      try {
+        const result = await this.tool.execute(toolName, args);
+        ctx.process.history.push({
+          id: uuid(),
+          role: "tool",
+          content: typeof result === "string" ? result : JSON.stringify(result),
+          createdAt: now,
+          updateAt: now,
+          raw: { toolCallId },
+        });
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        ctx.process.history.push({
+          id: uuid(),
+          role: "tool",
+          content: `Tool execution failed: ${errorMsg}`,
+          createdAt: now,
+          updateAt: now,
+          raw: { toolCallId },
+        });
+      }
     }
 
-    // 如果设置了回退状态，重新执行中间件链获取新响应
-    if (ctx.state.retryState === RetryState.retryMessage) {
-      ctx.state.retryState = RetryState.none;
-
-      const chunks: MiddlewareChunk[] = [];
-      let interrupted = false;
-      let newInterrupt: any;
-
-      const generator = this.middlewareChain(ctx);
-      for await (const chunk of generator) {
-        chunks.push(chunk);
-        if (chunk.type === "interrupt") {
-          interrupted = true;
-          newInterrupt = {
-            toolCallId: chunk.toolCallId,
-            toolName: chunk.toolName,
-            args: chunk.args,
-          };
-          break;
-        }
+    // 清空 toolCallAccumulated（保留已执行的，防止第二轮重复处理）
+    for (const [id, acc] of ctx.tools.toolCallAccumulated) {
+      if (!acc.executionResult) {
+        ctx.tools.toolCallAccumulated.delete(id);
       }
+    }
 
-      if (interrupted && newInterrupt) {
-        return {
-          status: "pending",
-          thinkingDelta: "",
-          delta: "",
-          accumulated: "",
-          pendingTool: newInterrupt,
-          raw: undefined,
+    // 重新执行中间件链获取新响应
+    const chunks: MiddlewareChunk[] = [];
+    let interrupted = false;
+    let newInterrupt: any;
+
+    const generator = this.middlewareChain(ctx);
+    for await (const chunk of generator) {
+      chunks.push(chunk);
+      if (chunk.type === "interrupt") {
+        interrupted = true;
+        newInterrupt = {
+          toolCallId: chunk.toolCallId,
+          toolName: chunk.toolName,
+          args: chunk.args,
         };
+        break;
       }
+    }
 
-      const doneChunk = chunks.find((c) => c.type === "staged");
-      if (doneChunk && doneChunk.type === "staged") {
-        return {
-          status: "success",
-          thinkingDelta: "",
-          thinkingAccumulated: doneChunk.thinking,
-          delta: "",
-          accumulated: doneChunk.content,
-          raw: doneChunk.raw,
-        };
-      }
+    if (interrupted && newInterrupt) {
+      return {
+        status: "pending",
+        thinkingDelta: "",
+        delta: "",
+        accumulated: "",
+        pendingTool: newInterrupt,
+        raw: undefined,
+      };
+    }
+
+    const doneChunk = chunks.find((c) => c.type === "staged");
+    if (doneChunk && doneChunk.type === "staged") {
+      return {
+        status: "success",
+        thinkingDelta: "",
+        thinkingAccumulated: doneChunk.thinking,
+        delta: "",
+        accumulated: doneChunk.content,
+        raw: doneChunk.raw,
+      };
     }
 
     return {
@@ -267,15 +326,18 @@ export default class Middleware {
     ctx: MiddlewareContext,
     input: string,
   ): AsyncGenerator<MessageStreamChunk> {
-    const now = Date.now();
-    ctx.process.history.push({
-      id: uuid(),
-      role: "user",
-      content: input,
-      createdAt: now,
-      updateAt: now,
-      raw: {},
-    });
+    // 空输入（retry 模式）不添加 user 消息
+    if (input.trim()) {
+      const now = Date.now();
+      ctx.process.history.push({
+        id: uuid(),
+        role: "user",
+        content: input,
+        createdAt: now,
+        updateAt: now,
+        raw: {},
+      });
+    }
 
     const generator = this.middlewareChain(ctx);
     for await (const chunk of generator) {

@@ -43,12 +43,38 @@ const openaiMessageAdapterConfig = {
   },
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => {
+      if (m.role === "tool") {
+        return {
+          role: m.role,
+          content: m.content,
+          tool_call_id: (m.raw as { toolCallId: string }).toolCallId,
+        } as ChatCompletionMessageParam;
+      }
+      if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+        return {
+          role: m.role,
+          content: m.content || null,
+          ...(m.thinking && { reasoning_content: m.thinking }),
+          tool_calls: m.toolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function",
+            function: {
+              name: tc.name,
+              arguments: tc.arguments,
+            },
+          })),
+        } as ChatCompletionMessageParam;
+      }
+      if (m.role === "assistant" && m.thinking) {
+        return {
+          role: m.role,
+          content: m.content,
+          reasoning_content: m.thinking,
+        } as ChatCompletionMessageParam;
+      }
       return {
         role: m.role,
         content: m.content,
-        ...(m.role === "tool"
-          ? { tool_call_id: (m.raw as { toolCallId: string }).toolCallId }
-          : {}),
       } as ChatCompletionMessageParam;
     }),
 };

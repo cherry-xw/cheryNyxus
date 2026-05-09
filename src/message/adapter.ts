@@ -4,6 +4,15 @@
 type Role = "system" | "user" | "assistant" | "tool" | "function";
 
 /**
+ * Tool Call 数据结构
+ */
+export interface ToolCallInfo {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+/**
  * 统一 LLM 响应结构
  */
 export interface LLMResponse<T = unknown> {
@@ -11,6 +20,7 @@ export interface LLMResponse<T = unknown> {
   role: Role;
   content: string;
   thinking?: string;
+  toolCalls?: ToolCallInfo[];
   createdAt: number;
   updateAt: number;
   raw: T;

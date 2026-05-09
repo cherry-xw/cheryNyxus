@@ -1,5 +1,5 @@
 import type { MiddlewareContext, MiddlewareChunk, StagedChunk } from "../types";
-import type { LLMResponse } from "@/message/index";
+import type { LLMResponse, ToolCallInfo } from "@/message/index";
 import { RetryState } from "../types";
 import { v4 as uuid } from "uuid";
 
@@ -31,22 +31,48 @@ export async function* messageMiddleware(
 
   // === 后半部分：累积 assistant 消息 + tool 结果 ===
 
-  // 2. 检查是否有 tool 执行结果
+  // interrupt状态下，中止执行流，不进入retry逻辑
+  if (ctx.state.needInterrupt) {
+    return;
+  }
+
+  // 检查是否有 tool 执行结果
   const hasToolResults = Array.from(
     ctx.tools.toolCallAccumulated.values(),
   ).some((acc) => acc.executionResult !== undefined);
   console.log("\nhasToolResults", hasToolResults);
-  // 3. 先累积 assistant content 消息到 history（有 tool results 时）
-  if (hasToolResults && ctx.response.finalContent) {
+
+  // 检查是否有 tool calls（无论是否有 content）
+  const hasToolCalls = ctx.tools.toolCallAccumulated.size > 0;
+  console.log("hasToolCalls", hasToolCalls);
+  console.log("toolCallAccumulated", Array.from(ctx.tools.toolCallAccumulated.values()));
+
+  // 3. 先累积 assistant 消息到 history（有 tool calls 时必须累积）
+  if (hasToolCalls) {
+    // 提取 tool_calls 信息（按 ID 去重）
+    const toolCalls: ToolCallInfo[] = Array.from(
+      ctx.tools.toolCallAccumulated.values(),
+    )
+      .filter((acc) => acc.name) // 只取有 name 的（完整 tool call）
+      .map((acc) => ({
+        id: acc.id ?? `call_${Date.now()}`,
+        name: acc.name,
+        arguments: acc.arguments,
+      }))
+      .filter((tc, index, arr) =>
+        arr.findIndex(t => t.id === tc.id) === index
+      ); // 按 ID 去重
+
     const raw = ctx.response.raw as any;
     ctx.process.history.push({
       id: raw?.id ?? `${Date.now()}`,
       role: "assistant",
-      content: ctx.response.finalContent,
+      content: ctx.response.finalContent || "", // 可能为空
+      thinking: ctx.response.finalThinking,
+      toolCalls,
       createdAt: Date.now(),
       updateAt: Date.now(),
       raw: raw ?? null,
-      thinking: ctx.response.finalThinking,
     });
   }
 

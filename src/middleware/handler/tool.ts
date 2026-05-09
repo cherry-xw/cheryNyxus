@@ -17,7 +17,12 @@ export async function* toolMiddleware(
   next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // === 前半部分：准备阶段 ===
-  ctx.tools.toolCallAccumulated = new Map();
+  // 保留已执行的tool结果，只清空未执行的
+  for (const [id, acc] of ctx.tools.toolCallAccumulated) {
+    if (!acc.executionResult) {
+      ctx.tools.toolCallAccumulated.delete(id);
+    }
+  }
 
   // 调用下一层获取响应
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
@@ -38,8 +43,8 @@ async function* executeToolCalls(
 ): AsyncGenerator<MiddlewareChunk> {
   // 获取 tool calls（统一从 toolCallAccumulated）
   const toolCalls = extractFromAccumulated(ctx.tools.toolCallAccumulated);
-  // console.log("toolCalls");
-  // console.log(toolCalls);
+  console.log("toolCalls");
+  console.log(toolCalls);
 
   if (toolCalls.length === 0) return;
 
@@ -49,6 +54,13 @@ async function* executeToolCalls(
     const name = tc.name as string;
     const argsJson = tc.arguments as string;
     const args = argsJson ? JSON.parse(argsJson) : {};
+
+    // 检查是否已执行（跳过已执行的tool）
+    const accumulator = ctx.tools.toolCallAccumulated.get(id);
+    if (accumulator?.executionResult) {
+      continue; // 已执行，跳过
+    }
+
     // console.log("id,name,args");
     // console.log(id, name, args);
     const toolDef = ctx.tools.toolManager.get(name);
@@ -206,8 +218,6 @@ export async function* continueToolExecution(
   }
 
   const { toolCallId, toolName, args } = ctx.state.interruptInfo;
-  ctx.state.interruptInfo = undefined;
-  ctx.state.needInterrupt = false;
 
   if (!approved) {
     // 用户拒绝
