@@ -68,7 +68,7 @@ interface ProcessGroup {
   /** 历史消息记录，用于构建LLM请求上下文 */
   history: LLMResponse[];
   /** 响应内容累积（流式增量拼接） */
-  accumulated: string;
+  contentAccumulated: string;
   /** 思考内容累积（流式增量拼接） */
   thinkingAccumulated: string;
   /** 流式响应块计数 */
@@ -159,7 +159,7 @@ export interface MessageStreamChunk<T = unknown> {
   /** 当前增量响应 */
   delta: string;
   /** 累积/完整响应（可选） */
-  accumulated?: string;
+  contentAccumulated?: string;
   /** 状态标识 */
   status: "success" | "pending" | "error";
   /** 待确认工具信息（仅 pending 状态） */
@@ -184,7 +184,7 @@ export interface StreamChunk {
   /** 响应增量 */
   delta: string;
   thinkingAccumulated: string;
-  accumulated: string;
+  contentAccumulated: string;
   raw: unknown;
 }
 

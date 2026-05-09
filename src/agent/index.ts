@@ -63,7 +63,7 @@ async function streamExample() {
         // 显示确认后的结果
         if (result.status === "success") {
           console.log("=== Tool 执行完成 ===");
-          console.log(result.accumulated);
+          console.log(result.contentAccumulated);
         } else if (result.status === "pending") {
           // 还有新的 interrupt，继续循环
           console.log("=== 还有新的 tool 需要确认 ===");

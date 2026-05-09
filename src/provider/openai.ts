@@ -134,24 +134,68 @@ const openaiToolAdapterConfig = {
     }));
   },
 
-  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
-    const streamChunk = chunk as {
-      choices?: Array<{
-        delta?: {
-          tool_calls?: Array<{
-            index?: number;
-            id?: string;
-            function?: { name?: string; arguments?: string };
-          }>;
-        };
-      }>;
-    };
-    const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
-    return deltas.map((delta) => ({
-      tid: delta.id ?? `tool-${delta.index ?? 0}`,
-      name: delta.function?.name ?? undefined,
-      arguments: delta.function?.arguments ?? "",
-    }));
+  assembleToolCallChunks(chunks: unknown[]): unknown {
+    // 按 index 累积 tool call 数据
+    const toolCallsMap = new Map<number, { id?: string; name?: string; arguments: string }>();
+
+    for (const chunk of chunks) {
+      const streamChunk = chunk as {
+        choices?: Array<{
+          delta?: {
+            tool_calls?: Array<{
+              index?: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+        }>;
+      };
+      const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
+      for (const delta of deltas) {
+        const index = delta.index ?? 0;
+        const existing = toolCallsMap.get(index);
+        if (existing) {
+          // 累积 arguments
+          if (delta.function?.arguments) {
+            existing.arguments += delta.function.arguments;
+          }
+          // id 和 name 只在首个 chunk 出现
+          if (delta.id && !existing.id) {
+            existing.id = delta.id;
+          }
+          if (delta.function?.name && !existing.name) {
+            existing.name = delta.function.name;
+          }
+        } else {
+          // 初始化
+          toolCallsMap.set(index, {
+            id: delta.id,
+            name: delta.function?.name,
+            arguments: delta.function?.arguments ?? "",
+          });
+        }
+      }
+    }
+
+    // 模拟 ChatCompletion 结构
+    const toolCalls = Array.from(toolCallsMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([index, tc]) => ({
+        id: tc.id ?? `tool-${index}`,
+        type: "function",
+        function: {
+          name: tc.name ?? "",
+          arguments: tc.arguments,
+        },
+      }));
+
+    return {
+      choices: [{
+        message: {
+          tool_calls: toolCalls,
+        },
+      }],
+    } as ChatCompletion;
   },
 };
 

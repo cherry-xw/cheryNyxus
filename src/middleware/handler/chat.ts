@@ -63,7 +63,7 @@ async function* handleStream(
       thinkingDelta: "",
       delta: "",
       thinkingAccumulated: "",
-      accumulated: "",
+      contentAccumulated: "",
       raw: rawChunk,
     };
     yield chunk;

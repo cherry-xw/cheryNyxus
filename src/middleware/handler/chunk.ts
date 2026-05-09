@@ -30,11 +30,14 @@ export async function* chunkMiddleware(
   }
 
   // 流式模式：处理 chunks
-  ctx.process.accumulated = "";
+  ctx.process.contentAccumulated = "";
   ctx.process.thinkingAccumulated = "";
   ctx.process.chunkCount = 0;
   ctx.process.toolCallAccumulated = new Map();
   const streamId = `stream-${uuid()}`;
+
+  // 临时缓存所有 chunks
+  const chunksBuffer: unknown[] = [];
 
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
   for await (const chunk of generator) {
@@ -44,17 +47,14 @@ export async function* chunkMiddleware(
     if (chunk.type === "stream") {
       // 从原始数据提取 delta
       const rawChunk = chunk.raw;
-      // console.log("\n=== RAW CHUNK ===");
-      // console.log(JSON.stringify(rawChunk, null, 2));
+      chunksBuffer.push(rawChunk);
+
       const delta = ctx.adapters.messageAdapter.extractStreamDelta(rawChunk);
-      ctx.process.accumulated += delta;
+      ctx.process.contentAccumulated += delta;
 
       const thinkingDelta =
         ctx.adapters.messageAdapter.extractStreamThinking?.(rawChunk) ?? "";
       ctx.process.thinkingAccumulated += thinkingDelta;
-
-      // 累积工具调用增量
-      processToolCallDelta(ctx, rawChunk);
 
       // 组装后 yield
       const assembledChunk: StreamChunk = {
@@ -63,54 +63,53 @@ export async function* chunkMiddleware(
         thinkingDelta,
         delta,
         thinkingAccumulated: ctx.process.thinkingAccumulated,
-        accumulated: ctx.process.accumulated,
+        contentAccumulated: ctx.process.contentAccumulated,
         raw: rawChunk,
       };
       yield assembledChunk;
     }
   }
-  ctx.process.accumulated = ctx.process.accumulated.trim();
+  ctx.process.contentAccumulated = ctx.process.contentAccumulated.trim();
+
+  // 流式完成：整合 tool call chunks
+  if (chunksBuffer.length > 0) {
+    assembleAndExtractToolCalls(ctx, chunksBuffer);
+  }
 
   // 流式完成
   const stagedChunk: StagedChunk = {
     type: "staged",
-    content: ctx.process.accumulated,
+    content: ctx.process.contentAccumulated,
     thinking: ctx.process.thinkingAccumulated,
     raw: null,
   };
-  ctx.response.finalContent = ctx.process.accumulated;
+  ctx.response.finalContent = ctx.process.contentAccumulated;
   ctx.response.finalThinking = ctx.process.thinkingAccumulated;
   yield stagedChunk;
 }
 
 /**
- * 处理工具调用增量（流式模式）
+ * 整合 tool call chunks 并提取 ToolCallData
  */
-function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
+function assembleAndExtractToolCalls(
+  ctx: MiddlewareContext,
+  buffer: unknown[],
+): void {
   const toolAdapter = ctx.adapters.toolAdapter;
-  const deltas = toolAdapter.extractToolCallDeltas(raw);
 
-  for (const delta of deltas) {
-    // 用 tid 作为累积 key
-    const key = delta.tid;
-    const existing = ctx.process.toolCallAccumulated.get(key);
-    if (existing) {
-      // 累积 arguments 增量
-      if (delta.arguments) {
-        existing.arguments += delta.arguments;
-      }
-      // name 只在首个 chunk 出现，补充到已有条目
-      if (delta.name && !existing.name) {
-        existing.name = delta.name;
-      }
-    } else {
-      // 初始化累积器
-      ctx.process.toolCallAccumulated.set(key, {
-        tid: delta.tid,
-        name: delta.name ?? "",
-        arguments: delta.arguments,
-      });
-    }
+  // 整合为 provider 原生格式
+  const assembled = toolAdapter.assembleToolCallChunks(buffer);
+
+  // 提取 ToolCallData
+  const toolCalls = toolAdapter.extractToolCalls(assembled);
+
+  // 存储到 toolCallAccumulated
+  for (const tc of toolCalls) {
+    ctx.process.toolCallAccumulated.set(tc.tid, {
+      tid: tc.tid,
+      name: tc.name ?? "",
+      arguments: tc.arguments,
+    });
   }
 }
 

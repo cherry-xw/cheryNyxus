@@ -1,7 +1,6 @@
 import type {
   MiddlewareContext,
   MiddlewareChunk,
-  ToolCallAccumulator,
   ToolExecutionResult,
 } from "../types";
 import { SupervisionLevel } from "@/config";
@@ -89,11 +88,7 @@ async function* executeToolCalls(
       continue; // 已执行，跳过
     }
 
-    // console.log("id,name,args");
-    // console.log(id, name, args);
     const toolDef = ctx.tools.toolManager.get(name);
-    // console.log("toolDef");
-    // console.log(toolDef, ctx.tools.toolManager.getAll());
     // 分级检查：使用工具的 supervisionLevel
     if (toolDef) {
       // 只有 auto 级别的工具允许自动执行

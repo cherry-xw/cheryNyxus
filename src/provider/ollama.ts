@@ -71,14 +71,24 @@ const ollamaToolAdapterConfig = {
     }));
   },
 
-  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
-    const streamChunk = chunk as { message?: { tool_calls?: unknown[] } };
-    const toolCalls = (streamChunk.message?.tool_calls ?? []) as ToolCall[];
-    return toolCalls.map(tc => ({
-      tid: "", // Ollama 无 id
-      name: tc.function?.name ?? undefined,
-      arguments: JSON.stringify(tc.function?.arguments ?? {}),
-    }));
+  assembleToolCallChunks(chunks: unknown[]): unknown {
+    // Ollama 每个 chunk 可能包含完整 tool_call，直接累积
+    const allToolCalls: ToolCall[] = [];
+
+    for (const chunk of chunks) {
+      const streamChunk = chunk as { message?: { tool_calls?: ToolCall[] } };
+      const toolCalls = streamChunk.message?.tool_calls ?? [];
+      for (const tc of toolCalls) {
+        allToolCalls.push(tc);
+      }
+    }
+
+    // 模拟 ChatResponse 结构
+    return {
+      message: {
+        tool_calls: allToolCalls,
+      },
+    } as ChatResponse;
   },
 };
 

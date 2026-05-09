@@ -44,10 +44,11 @@ export interface ToolAdapter<TMessage, TResponse> {
   extractToolCalls(response: TResponse): ToolCallData[];
 
   /**
-   * 从流式响应提取工具调用增量列表
-   * 返回统一 ToolCallData 结构（index 用于关联）
+   * 整合流式 tool call chunks 为 provider 原生格式
+   * 流式模式下缓存所有 chunks，流结束后调用此方法整合
+   * 返回值可直接传给 extractToolCalls 提取 ToolCallData
    */
-  extractToolCallDeltas(chunk: unknown): ToolCallData[];
+  assembleToolCallChunks(chunks: unknown[]): unknown;
 }
 
 /**

@@ -39,7 +39,7 @@ function createMiddlewareContextBase(
     adapters,
     process: {
       history: [],
-      accumulated: "",
+      contentAccumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,
       toolCallAccumulated: new Map(),
@@ -271,7 +271,7 @@ export default class Middleware {
         status: "pending",
         thinkingDelta: "",
         delta: "",
-        accumulated: "",
+        contentAccumulated: "",
         pendingTool: newInterrupt,
         raw: undefined,
       };
@@ -284,7 +284,7 @@ export default class Middleware {
         thinkingDelta: "",
         thinkingAccumulated: stagedChunk.thinking,
         delta: "",
-        accumulated: stagedChunk.content,
+        contentAccumulated: stagedChunk.content,
         raw: stagedChunk.raw,
       };
     }
@@ -294,7 +294,7 @@ export default class Middleware {
       thinkingDelta: "",
       thinkingAccumulated: ctx.response.finalThinking,
       delta: "",
-      accumulated: ctx.response.finalContent,
+      contentAccumulated: ctx.response.finalContent,
       raw: ctx.response.raw,
     };
   }
@@ -339,7 +339,7 @@ export default class Middleware {
           status: "pending",
           thinkingDelta: "",
           delta: "",
-          accumulated: "",
+          contentAccumulated: "",
           pendingTool: interruptInfo,
           raw: undefined,
         },
@@ -353,7 +353,6 @@ export default class Middleware {
       thinkingDelta: "",
       thinkingAccumulated: el.thinking,
       delta: "",
-      accumulated: el.content,
       raw: el.raw,
     }));
   }
@@ -385,7 +384,7 @@ export default class Middleware {
           thinkingDelta: chunk.thinkingDelta,
           thinkingAccumulated: chunk.thinkingAccumulated,
           delta: chunk.delta,
-          accumulated: chunk.accumulated,
+          contentAccumulated: chunk.contentAccumulated,
           status: "success",
           raw: chunk.raw,
         };
@@ -396,7 +395,7 @@ export default class Middleware {
           thinkingDelta: "",
           thinkingAccumulated: ctx.process.thinkingAccumulated,
           delta: "",
-          accumulated: ctx.process.accumulated,
+          contentAccumulated: ctx.process.contentAccumulated,
           status: "pending",
           pendingTool: {
             toolCallId: chunk.toolCallId,
@@ -410,7 +409,7 @@ export default class Middleware {
           thinkingDelta: "",
           thinkingAccumulated: ctx.process.thinkingAccumulated,
           delta: "",
-          accumulated: ctx.process.accumulated,
+          contentAccumulated: ctx.process.contentAccumulated,
           status: "success",
           raw: chunk.raw,
         };
@@ -419,7 +418,7 @@ export default class Middleware {
           thinkingDelta: "",
           thinkingAccumulated: ctx.process.thinkingAccumulated,
           delta: "",
-          accumulated: ctx.process.accumulated,
+          contentAccumulated: ctx.process.contentAccumulated,
           status: "success",
           raw: "",
         };
