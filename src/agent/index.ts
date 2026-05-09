@@ -16,11 +16,11 @@ import { AgentBuilder } from "./builder";
 async function streamExample() {
 
   const agent = await new AgentBuilder()
-    .use("deepseek")
+    .use("longcat")
     .build();
 
   const threadId = agent.createThread();
-  const prompt = "使用bash工具列出当前项目目录的文件列表，使用ls -la命令";
+  const prompt = "给我讲一个笑话";
 
   console.log("=== 流式请求 ===");
   console.log(`Prompt: ${prompt}\n`);

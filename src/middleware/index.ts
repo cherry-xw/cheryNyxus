@@ -1,6 +1,6 @@
 import { compose } from "./compose";
 import { messageMiddleware } from "./handler/message";
-import { toolMiddleware, continueToolExecution } from "./handler/tool";
+import { toolMiddleware } from "./handler/tool";
 import { chunkMiddleware } from "./handler/chunk";
 import { chatMiddleware } from "./handler/chat";
 
@@ -19,7 +19,6 @@ import { v4 as uuid } from "uuid";
 export * from "./types";
 export { compose };
 export { messageMiddleware, toolMiddleware, chunkMiddleware, chatMiddleware };
-export { continueToolExecution };
 export { RetryState } from "./types";
 
 /**
@@ -43,10 +42,10 @@ function createMiddlewareContextBase(
       accumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,
+      toolCallAccumulated: new Map(),
     },
     tools: {
       toolManager,
-      toolCallAccumulated: new Map(),
     },
     response: {
       raw: undefined,
@@ -120,18 +119,42 @@ export default class Middleware {
       args: Record<string, unknown>;
     },
   ): Promise<MessageStreamChunk> {
-    // 恢复原thread的context
+    const ctx = this.validateInterrupt(threadId, interruptInfo);
+    const { toolCallId, toolName, args } = ctx.state.interruptInfo!;
+
+    // 清理interrupt状态
+    ctx.state.interruptInfo = undefined;
+    ctx.state.needInterrupt = false;
+
+    // 累积 assistant 消息
+    this.accumulateAssistantMessage(ctx, toolCallId, toolName, args);
+
+    // 执行或拒绝 tool
+    await this.executeOrRejectTool(ctx, approved, toolCallId, toolName, args);
+
+    // 清空未执行的 toolCallAccumulated
+    this.clearPendingToolCalls(ctx);
+
+    // 重新执行中间件链
+    return this.restartChain(ctx);
+  }
+
+  /**
+   * 验证中断状态
+   */
+  private validateInterrupt(
+    threadId: string,
+    interruptInfo: { toolCallId: string; toolName: string; args: Record<string, unknown> },
+  ): MiddlewareContext {
     const ctx = this.thread.get(threadId);
     if (!ctx) {
       throw new Error("Thread not found");
     }
 
-    // 验证interrupt状态
     if (!ctx.state.needInterrupt || !ctx.state.interruptInfo) {
       throw new Error("No pending interrupt in this thread");
     }
 
-    // 验证传入的interruptInfo与当前状态匹配
     const currentInfo = ctx.state.interruptInfo;
     if (
       currentInfo.toolCallId !== interruptInfo.toolCallId ||
@@ -140,34 +163,44 @@ export default class Middleware {
       throw new Error("Interrupt info mismatch");
     }
 
-    const { toolCallId, toolName, args } = currentInfo;
+    return ctx;
+  }
 
-    // 清理interrupt状态（在执行前）
-    ctx.state.interruptInfo = undefined;
-    ctx.state.needInterrupt = false;
-
-    // 先累积 assistant 消息（包含 tool_calls）到 history
+  /**
+   * 累积 assistant 消息（包含 tool_calls）到 history
+   */
+  private accumulateAssistantMessage(
+    ctx: MiddlewareContext,
+    toolCallId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): void {
     const now = Date.now();
     ctx.process.history.push({
       id: uuid(),
       role: "assistant",
       content: ctx.response.finalContent || "",
       thinking: ctx.response.finalThinking,
-      toolCalls: [
-        {
-          id: toolCallId,
-          name: toolName,
-          arguments: JSON.stringify(args),
-        },
-      ],
+      toolCalls: [{ id: toolCallId, name: toolName, arguments: JSON.stringify(args) }],
       createdAt: now,
       updateAt: now,
       raw: ctx.response.raw ?? null,
     });
+  }
 
-    // 执行或拒绝 tool
+  /**
+   * 执行或拒绝 tool，累积结果到 history
+   */
+  private async executeOrRejectTool(
+    ctx: MiddlewareContext,
+    approved: boolean,
+    toolCallId: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<void> {
+    const now = Date.now();
+
     if (!approved) {
-      // 用户拒绝，累积失败结果到 history
       ctx.process.history.push({
         id: uuid(),
         role: "tool",
@@ -176,48 +209,54 @@ export default class Middleware {
         updateAt: now,
         raw: { toolCallId },
       });
-    } else {
-      // 用户确认执行
-      try {
-        const result = await this.tool.execute(toolName, args);
-        ctx.process.history.push({
-          id: uuid(),
-          role: "tool",
-          content: typeof result === "string" ? result : JSON.stringify(result),
-          createdAt: now,
-          updateAt: now,
-          raw: { toolCallId },
-        });
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        ctx.process.history.push({
-          id: uuid(),
-          role: "tool",
-          content: `Tool execution failed: ${errorMsg}`,
-          createdAt: now,
-          updateAt: now,
-          raw: { toolCallId },
-        });
-      }
+      return;
     }
 
-    // 清空 toolCallAccumulated（保留已执行的，防止第二轮重复处理）
-    for (const [id, acc] of ctx.tools.toolCallAccumulated) {
+    try {
+      const result = await this.tool.execute(toolName, args);
+      ctx.process.history.push({
+        id: uuid(),
+        role: "tool",
+        content: typeof result === "string" ? result : JSON.stringify(result),
+        createdAt: now,
+        updateAt: now,
+        raw: { toolCallId },
+      });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      ctx.process.history.push({
+        id: uuid(),
+        role: "tool",
+        content: `Tool execution failed: ${errorMsg}`,
+        createdAt: now,
+        updateAt: now,
+        raw: { toolCallId },
+      });
+    }
+  }
+
+  /**
+   * 清空未执行的 toolCallAccumulated
+   */
+  private clearPendingToolCalls(ctx: MiddlewareContext): void {
+    for (const [id, acc] of ctx.process.toolCallAccumulated) {
       if (!acc.executionResult) {
-        ctx.tools.toolCallAccumulated.delete(id);
+        ctx.process.toolCallAccumulated.delete(id);
       }
     }
+  }
 
-    // 重新执行中间件链获取新响应
+  /**
+   * 重新执行中间件链并返回结果
+   */
+  private async restartChain(ctx: MiddlewareContext): Promise<MessageStreamChunk> {
     const chunks: MiddlewareChunk[] = [];
-    let interrupted = false;
-    let newInterrupt: any;
+    let newInterrupt: { toolCallId: string; toolName: string; args: Record<string, unknown> } | null = null;
 
     const generator = this.middlewareChain(ctx);
     for await (const chunk of generator) {
       chunks.push(chunk);
       if (chunk.type === "interrupt") {
-        interrupted = true;
         newInterrupt = {
           toolCallId: chunk.toolCallId,
           toolName: chunk.toolName,
@@ -227,7 +266,7 @@ export default class Middleware {
       }
     }
 
-    if (interrupted && newInterrupt) {
+    if (newInterrupt) {
       return {
         status: "pending",
         thinkingDelta: "",
@@ -238,15 +277,15 @@ export default class Middleware {
       };
     }
 
-    const doneChunk = chunks.find((c) => c.type === "staged");
-    if (doneChunk && doneChunk.type === "staged") {
+    const stagedChunk = chunks.find((c) => c.type === "staged");
+    if (stagedChunk && stagedChunk.type === "staged") {
       return {
         status: "success",
         thinkingDelta: "",
-        thinkingAccumulated: doneChunk.thinking,
+        thinkingAccumulated: stagedChunk.thinking,
         delta: "",
-        accumulated: doneChunk.content,
-        raw: doneChunk.raw,
+        accumulated: stagedChunk.content,
+        raw: stagedChunk.raw,
       };
     }
 

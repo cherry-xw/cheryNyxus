@@ -2,8 +2,34 @@ import type {
   MiddlewareContext,
   MiddlewareChunk,
   ToolCallAccumulator,
+  ToolExecutionResult,
 } from "../types";
 import { SupervisionLevel } from "@/config";
+
+/**
+ * 写入工具执行结果到 toolCallAccumulated
+ * 统一处理已存在 accumulator 和不存在的情况
+ */
+export function writeToolResult(
+  ctx: MiddlewareContext,
+  toolCallId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  result: ToolExecutionResult,
+): void {
+  const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
+  if (accumulator) {
+    accumulator.executionResult = result;
+  } else {
+    ctx.tools.toolCallAccumulated.set(toolCallId, {
+      id: toolCallId,
+      name: toolName,
+      arguments: JSON.stringify(args),
+      index: -1,
+      executionResult: result,
+    });
+  }
+}
 
 /**
  * Tool Middleware
@@ -71,34 +97,8 @@ async function* executeToolCalls(
       // 只有 auto 级别的工具允许自动执行
       if (toolDef.supervisionLevel <= SupervisionLevel.auto) {
         // Skill工具特殊处理：防止重复加载
-        if (name === "Skill" && args.name) {
-          const skillName = args.name as string;
-          if (ctx.session.loadedSkills.has(skillName)) {
-            // 技能已加载，返回提示信息
-            const accumulator = ctx.tools.toolCallAccumulated.get(id);
-            if (accumulator) {
-              accumulator.executionResult = {
-                success: true,
-                result: `技能"${skillName}"已在本会话中激活，无需重复加载。请根据已加载的指令继续执行。`,
-                toolCallId: id,
-                toolName: name,
-              };
-            } else {
-              ctx.tools.toolCallAccumulated.set(id, {
-                id,
-                name,
-                arguments: JSON.stringify(args),
-                index: -1,
-                executionResult: {
-                  success: true,
-                  result: `技能"${skillName}"已在本会话中激活，无需重复加载。请根据已加载的指令继续执行。`,
-                  toolCallId: id,
-                  toolName: name,
-                },
-              });
-            }
-            continue; // 跳过执行
-          }
+        if (handleSkillDuplicate(ctx, id, name, args)) {
+          continue;
         }
 
         // 自动执行
@@ -111,58 +111,21 @@ async function* executeToolCalls(
           if (name === "Skill" && args.name) {
             ctx.session.loadedSkills.add(args.name as string);
           }
-
-          // 写入执行结果到 toolCallAccumulated（message 后半部分负责累积到 history）
-          const accumulator = ctx.tools.toolCallAccumulated.get(id);
-          if (accumulator) {
-            accumulator.executionResult = {
-              success: true,
-              result,
-              toolCallId: id,
-              toolName: name,
-            };
-          } else {
-            // 非流式模式下可能没有累积器，创建新的
-            ctx.tools.toolCallAccumulated.set(id, {
-              id,
-              name,
-              arguments: JSON.stringify(args),
-              index: -1,
-              executionResult: {
-                success: true,
-                result,
-                toolCallId: id,
-                toolName: name,
-              },
-            });
-          }
+          writeToolResult(ctx, id, name, args, {
+            success: true,
+            result,
+            toolCallId: id,
+            toolName: name,
+          });
         } catch (error) {
           const errorMsg =
             error instanceof Error ? error.message : String(error);
-
-          // 写入失败结果（message 后半部分负责处理）
-          const accumulator = ctx.tools.toolCallAccumulated.get(id);
-          if (accumulator) {
-            accumulator.executionResult = {
-              success: false,
-              error: errorMsg,
-              toolCallId: id,
-              toolName: name,
-            };
-          } else {
-            ctx.tools.toolCallAccumulated.set(id, {
-              id,
-              name,
-              arguments: JSON.stringify(args),
-              index: -1,
-              executionResult: {
-                success: false,
-                error: errorMsg,
-                toolCallId: id,
-                toolName: name,
-              },
-            });
-          }
+          writeToolResult(ctx, id, name, args, {
+            success: false,
+            error: errorMsg,
+            toolCallId: id,
+            toolName: name,
+          });
         }
       } else {
         // 需确认，yield 中断
@@ -206,93 +169,25 @@ function extractFromAccumulated(
 }
 
 /**
- * 继续执行工具调用（用户确认后）
- * 由外部调用
+ * 处理 Skill 工具重复加载检测
+ * 返回 true 表示已加载，应跳过执行
  */
-export async function* continueToolExecution(
+function handleSkillDuplicate(
   ctx: MiddlewareContext,
-  approved: boolean,
-): AsyncGenerator<MiddlewareChunk> {
-  if (!ctx.state.interruptInfo) {
-    throw new Error("No pending tool call to continue");
-  }
+  id: string,
+  name: string,
+  args: Record<string, unknown>,
+): boolean {
+  if (name !== "Skill" || !args.name) return false;
 
-  const { toolCallId, toolName, args } = ctx.state.interruptInfo;
+  const skillName = args.name as string;
+  if (!ctx.session.loadedSkills.has(skillName)) return false;
 
-  if (!approved) {
-    // 用户拒绝
-    const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
-    if (accumulator) {
-      accumulator.executionResult = {
-        success: false,
-        error: "用户拒绝执行该操作",
-        toolCallId,
-        toolName,
-      };
-    } else {
-      ctx.tools.toolCallAccumulated.set(toolCallId, {
-        id: toolCallId,
-        name: toolName,
-        arguments: JSON.stringify(args),
-        index: -1,
-        executionResult: {
-          success: false,
-          error: "用户拒绝执行该操作",
-          toolCallId,
-          toolName,
-        },
-      });
-    }
-  } else {
-    // 用户确认执行
-    try {
-      const result = await ctx.tools.toolManager.execute(toolName, args);
-      const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
-      if (accumulator) {
-        accumulator.executionResult = {
-          success: true,
-          result,
-          toolCallId,
-          toolName,
-        };
-      } else {
-        ctx.tools.toolCallAccumulated.set(toolCallId, {
-          id: toolCallId,
-          name: toolName,
-          arguments: JSON.stringify(args),
-          index: -1,
-          executionResult: {
-            success: true,
-            result,
-            toolCallId,
-            toolName,
-          },
-        });
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      const accumulator = ctx.tools.toolCallAccumulated.get(toolCallId);
-      if (accumulator) {
-        accumulator.executionResult = {
-          success: false,
-          error: errorMsg,
-          toolCallId,
-          toolName,
-        };
-      } else {
-        ctx.tools.toolCallAccumulated.set(toolCallId, {
-          id: toolCallId,
-          name: toolName,
-          arguments: JSON.stringify(args),
-          index: -1,
-          executionResult: {
-            success: false,
-            error: errorMsg,
-            toolCallId,
-            toolName,
-          },
-        });
-      }
-    }
-  }
+  writeToolResult(ctx, id, name, args, {
+    success: true,
+    result: `技能"${skillName}"已在本会话中激活，无需重复加载。请根据已加载的指令继续执行。`,
+    toolCallId: id,
+    toolName: name,
+  });
+  return true;
 }

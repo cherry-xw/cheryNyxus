@@ -62,7 +62,7 @@ interface SessionGroup {
 }
 
 /**
- * 处理分组 - 消息处理过程中的累积状态
+ * 对话数据组 和 最新一次接口响应数据累积
  */
 interface ProcessGroup {
   /** 历史消息记录，用于构建LLM请求上下文 */
@@ -73,6 +73,8 @@ interface ProcessGroup {
   thinkingAccumulated: string;
   /** 流式响应块计数 */
   chunkCount: number;
+  /** 工具调用累积器Map */
+  toolCallAccumulated: Map<string, ToolCallAccumulator>;
 }
 
 /**
@@ -81,8 +83,6 @@ interface ProcessGroup {
 interface ToolsGroup {
   /** 工具管理器，负责工具注册和执行 */
   toolManager: ToolManager;
-  /** 工具调用累积器Map */
-  toolCallAccumulated: Map<string, ToolCallAccumulator>;
 }
 
 /**

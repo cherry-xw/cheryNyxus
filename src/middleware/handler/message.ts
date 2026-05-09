@@ -15,7 +15,6 @@ export async function* messageMiddleware(
   ctx: MiddlewareContext,
   next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  const { messageAdapter } = ctx.adapters;
 
   // === 调用下一层 ===
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
@@ -38,20 +37,20 @@ export async function* messageMiddleware(
 
   // 检查是否有 tool 执行结果
   const hasToolResults = Array.from(
-    ctx.tools.toolCallAccumulated.values(),
+    ctx.process.toolCallAccumulated.values(),
   ).some((acc) => acc.executionResult !== undefined);
   console.log("\nhasToolResults", hasToolResults);
 
   // 检查是否有 tool calls（无论是否有 content）
-  const hasToolCalls = ctx.tools.toolCallAccumulated.size > 0;
+  const hasToolCalls = ctx.process.toolCallAccumulated.size > 0;
   console.log("hasToolCalls", hasToolCalls);
-  console.log("toolCallAccumulated", Array.from(ctx.tools.toolCallAccumulated.values()));
+  console.log("toolCallAccumulated", Array.from(ctx.process.toolCallAccumulated.values()));
 
   // 3. 先累积 assistant 消息到 history（有 tool calls 时必须累积）
   if (hasToolCalls) {
     // 提取 tool_calls 信息（按 ID 去重）
     const toolCalls: ToolCallInfo[] = Array.from(
-      ctx.tools.toolCallAccumulated.values(),
+      ctx.process.toolCallAccumulated.values(),
     )
       .filter((acc) => acc.name) // 只取有 name 的（完整 tool call）
       .map((acc) => ({
@@ -78,7 +77,7 @@ export async function* messageMiddleware(
 
   // 4. 累积所有 tool 结果消息到 history
   if (hasToolResults) {
-    for (const [, accumulator] of ctx.tools.toolCallAccumulated) {
+    for (const [, accumulator] of ctx.process.toolCallAccumulated) {
       if (accumulator.executionResult) {
         const { toolCallId, success, result, error } =
           accumulator.executionResult;
@@ -100,7 +99,7 @@ export async function* messageMiddleware(
     }
 
     // 清空 toolCallAccumulated 防止下一轮重复累积
-    ctx.tools.toolCallAccumulated.clear();
+    ctx.process.toolCallAccumulated.clear();
 
     // 设置重试状态，重新执行中间件链
     ctx.state.retryState = RetryState.retryMessage;

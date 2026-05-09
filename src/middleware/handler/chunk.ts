@@ -33,7 +33,7 @@ export async function* chunkMiddleware(
   ctx.process.accumulated = "";
   ctx.process.thinkingAccumulated = "";
   ctx.process.chunkCount = 0;
-  ctx.tools.toolCallAccumulated = new Map();
+  ctx.process.toolCallAccumulated = new Map();
   const streamId = `stream-${uuid()}`;
 
   const generator = next() as AsyncGenerator<MiddlewareChunk>;
@@ -94,7 +94,7 @@ function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
     // 统一用 index 作为累积 key（流式增量模式最可靠）
     const key = `tool-${delta.index}`;
 
-    const existing = ctx.tools.toolCallAccumulated.get(key);
+    const existing = ctx.process.toolCallAccumulated.get(key);
     if (existing) {
       // 累积 arguments 增量
       if (delta.arguments) {
@@ -109,7 +109,7 @@ function processToolCallDelta(ctx: MiddlewareContext, raw: unknown): void {
       }
     } else {
       // 初始化累积器
-      ctx.tools.toolCallAccumulated.set(key, {
+      ctx.process.toolCallAccumulated.set(key, {
         id: delta.id,
         name: delta.name ?? "",
         arguments: delta.arguments,
@@ -135,7 +135,7 @@ function extractToolCallsFromResponse(
     // 用 id 或生成 uuid 作为 key
     const key = tc.id ?? `tool-${uuid()}`;
 
-    ctx.tools.toolCallAccumulated.set(key, {
+    ctx.process.toolCallAccumulated.set(key, {
       id: tc.id,
       name: tc.name ?? "",
       arguments: tc.arguments,
