@@ -2,167 +2,142 @@ import type {
   MiddlewareContext,
   MiddlewareChunk,
   ToolExecutionResult,
+  ToolCallAccumulator,
 } from "../types";
 import { SupervisionLevel } from "@/config";
-
-/**
- * 写入工具执行结果到 toolCallAccumulated
- * 统一处理已存在 accumulator 和不存在的情况
- */
-export function writeToolResult(
-  ctx: MiddlewareContext,
-  tid: string,
-  toolName: string,
-  args: Record<string, unknown>,
-  result: ToolExecutionResult,
-): void {
-  const accumulator = ctx.process.toolCallAccumulated.get(tid);
-  if (accumulator) {
-    accumulator.executionResult = result;
-  } else {
-    ctx.process.toolCallAccumulated.set(tid, {
-      tid,
-      name: toolName,
-      arguments: JSON.stringify(args),
-      executionResult: result,
-    });
-  }
-}
+import { v4 as uuid } from "uuid";
 
 /**
  * Tool Middleware
  * 职责：
  * 1. 工具定义构建（前半部分）
  * 2. 流式工具调用累积（前半部分）
- * 3. 分级检查 + tool 执行 + 结果写入（后半部分）
+ * 3. 分级检查 + tool 执行 + 结果写入 history（后半部分）
  */
 export async function* toolMiddleware(
   ctx: MiddlewareContext,
-  next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
+  next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // === 前半部分：准备阶段 ===
-  // 保留已执行的tool结果，只清空未执行的
-  for (const [tid, acc] of ctx.process.toolCallAccumulated) {
-    if (!acc.executionResult) {
-      ctx.process.toolCallAccumulated.delete(tid);
-    }
-  }
 
   // 调用下一层获取响应
-  const generator = next() as AsyncGenerator<MiddlewareChunk>;
-  for await (const chunk of generator) {
-    yield chunk;
-  }
+  yield* next();
 
   // === 后半部分：tool 执行阶段 ===
-  yield* executeToolCalls(ctx);
-}
-
-/**
- * 执行 tool calls（分级检查 + 执行 + 结果写入）
- * 统一从 ctx.tools.toolCallAccumulated 提取（chunk.ts 已统一处理）
- */
-async function* executeToolCalls(
-  ctx: MiddlewareContext,
-): AsyncGenerator<MiddlewareChunk> {
-  // 获取 tool calls（统一从 toolCallAccumulated）
-  const toolCalls = Array.from(ctx.process.toolCallAccumulated.values()).map((acc) => ({
-    tid: acc.tid,
-    name: acc.name,
-    arguments: acc.arguments,
-  }));
-  console.log("toolCalls");
-  console.log(toolCalls);
+  // 过滤出未执行的工具
+  const toolCalls = Array.from(ctx.process.toolCallAccumulated.values()).filter(
+    (acc) => !acc.approved,
+  );
 
   if (toolCalls.length === 0) return;
 
+  // 执行工具调用
   for (const tc of toolCalls) {
-    const tid = tc.tid;
-    const name = tc.name;
-    const argsJson = tc.arguments;
-    const args = argsJson ? JSON.parse(argsJson) : {};
-
-    // 检查是否已执行（跳过已执行的tool）
-    const accumulator = ctx.process.toolCallAccumulated.get(tid);
-    if (accumulator?.executionResult) {
-      continue; // 已执行，跳过
-    }
-
-    const toolDef = ctx.tools.toolManager.get(name);
-    // 分级检查：使用工具的 supervisionLevel
+    const toolDef = ctx.tools.toolManager.get(tc.name);
     if (toolDef) {
-      // 只有 auto 级别的工具允许自动执行
-      if (toolDef.supervisionLevel <= SupervisionLevel.auto) {
-        // Skill工具特殊处理：防止重复加载
-        if (handleSkillDuplicate(ctx, tid, name, args)) {
-          continue;
-        }
-
-        // 自动执行
-        try {
-          const result = await ctx.tools.toolManager.execute(name, args);
-          console.log("result");
-          console.log(result);
-
-          // Skill工具执行成功后，记录已加载的技能
-          if (name === "Skill" && args.name) {
-            ctx.session.loadedSkills.add(args.name as string);
-          }
-          writeToolResult(ctx, tid, name, args, {
-            success: true,
-            result,
-            toolCallId: tid,
-            toolName: name,
-          });
-        } catch (error) {
-          const errorMsg =
-            error instanceof Error ? error.message : String(error);
-          writeToolResult(ctx, tid, name, args, {
-            success: false,
-            error: errorMsg,
-            toolCallId: tid,
-            toolName: name,
-          });
-        }
+      const tid = tc.tid;
+      const name = tc.name;
+      const argsJson = tc.arguments;
+      const args = argsJson ? JSON.parse(argsJson) : {};
+      // Skill工具重复检测（已废弃，使用统一hashCheck机制）
+      if (toolDef.supervisionLevel <= ctx.global.supervision) {
+        await executeSingleToolCall(ctx, tid, name, args);
       } else {
         // 需确认，yield 中断
-        ctx.state.needInterrupt = true;
-        ctx.state.interruptInfo = { toolCallId: tid, toolName: name, args };
-
         yield {
           type: "interrupt",
           toolCallId: tid,
           toolName: name,
           args,
+          acknowledge: async (action: "accept" | "reject", reason?: string) => {
+            if (action === "accept") {
+              // 接受：执行工具调用
+              await executeSingleToolCall(ctx, tid, name, args);
+            } else {
+              whiteHistory(
+                ctx,
+                tid,
+                `用户拒绝执行${reason ? `，原因是${reason}` : ""}`,
+              );
+            }
+          },
         };
-        return;
       }
     } else {
-      // TODO 这是没找到tool函数，也需要重新执行LLM
+      whiteHistory(ctx, tc.tid, `Tool "${tc.name}" not found`);
     }
   }
 }
 
 /**
- * 处理 Skill 工具重复加载检测
- * 返回 true 表示已加载，应跳过执行
+ * 执行单个工具调用（阻塞执行，执行结束立即删除当前任务，同时将结果存入 history）
+ * @param ctx 中间件上下文
+ * @param tid 工具调用ID
+ * @param name 工具名称
+ * @param args 工具参数
  */
-function handleSkillDuplicate(
+export async function executeSingleToolCall(
   ctx: MiddlewareContext,
   tid: string,
   name: string,
   args: Record<string, unknown>,
-): boolean {
-  if (name !== "Skill" || !args.name) return false;
+): Promise<void> {
+  // 自动执行
+  try {
+    const result = await ctx.tools.toolManager.execute(name, args);
 
-  const skillName = args.name as string;
-  if (!ctx.session.loadedSkills.has(skillName)) return false;
+    // 去重检查（hash为""时跳过）
+    if (result.hash) {
+      if (ctx.session.hashCheck.has(result.hash)) {
+        whiteHistory(
+          ctx,
+          tid,
+          `[已跳过”${name}“重复调用] 前面已有完全相同操作，本次直接跳过`,
+        );
+        return;
+      }
+      ctx.session.hashCheck.set(result.hash, "");
+    }
 
-  writeToolResult(ctx, tid, name, args, {
-    success: true,
-    result: `技能"${skillName}"已在本会话中激活，无需重复加载。请根据已加载的指令继续执行。`,
-    toolCallId: tid,
-    toolName: name,
+    whiteHistory(ctx, tid, result.content);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    whiteHistory(ctx, tid, `Tool execution failed: ${errorMsg}`);
+  }
+}
+
+function whiteHistory(ctx: MiddlewareContext, tid: string, content: string) {
+  const history = ctx.process.history;
+  const currentToolCall = ctx.process.toolCallAccumulated.get(tid);
+
+  // 首次调用：先 push assistant(toolCalls)
+  if (currentToolCall) {
+    history.push({
+      id: uuid(),
+      role: "assistant",
+      content: ctx.process.contentAccumulated || "",
+      thinking: ctx.process.thinkingAccumulated,
+      toolCalls: [
+        {
+          tid: currentToolCall.tid,
+          name: currentToolCall.name,
+          arguments: currentToolCall.arguments,
+        },
+      ],
+      createdAt: Date.now(),
+      updateAt: Date.now(),
+      raw: null,
+    });
+  }
+  // push tool 消息
+  const now = Date.now();
+  history.push({
+    id: tid,
+    role: "tool",
+    content,
+    createdAt: now,
+    updateAt: now,
+    raw: { toolCallId: tid },
   });
-  return true;
+  ctx.process.toolCallAccumulated.delete(tid);
 }

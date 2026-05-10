@@ -1,66 +1,44 @@
-import type { MiddlewareChunk, MessageStreamChunk, InterruptChunk } from "./types";
+import type { HistoryProxy } from "./types";
+import type { LLMResponse } from "@/message/index";
 
 /**
- * 将 MiddlewareChunk[] 整合为 MessageStreamChunk[]
- * 供需要整合结果的消费者使用
+ * 创建 HistoryProxy（使用 Proxy 劫持 Array，兼容数组类型）
  */
-export function aggregateChunks(
-  chunks: MiddlewareChunk[],
-): MessageStreamChunk[] {
-  const result: MessageStreamChunk[] = [];
+export function createHistoryProxy(): HistoryProxy {
+  const history: LLMResponse[] = [];
+  let _lastAStagedIndex = -1;
 
-  for (const chunk of chunks) {
-    switch (chunk.type) {
-      case "stream":
-        result.push({
-          status: "success",
-          thinkingDelta: chunk.thinkingDelta,
-          thinking: chunk.thinkingAccumulated,
-          contentDelta: chunk.contentDelta,
-          content: chunk.contentAccumulated,
-          raw: chunk.raw,
-        });
-        break;
-
-      case "interrupt": {
-        const ic = chunk as InterruptChunk;
-        result.push({
-          status: "pending",
-          thinkingDelta: "",
-          contentDelta: "",
-          content: "",
-          pendingTool: {
-            toolCallId: ic.toolCallId,
-            toolName: ic.toolName,
-            args: ic.args,
-          },
-          raw: undefined,
-        });
-        break;
+  // 使用 Proxy 劫持数组操作
+  const proxy = new Proxy(history, {
+    get(target, prop) {
+      // 劫持 push 方法
+      if (prop === "push") {
+        return function (item: LLMResponse) {
+          target.push(item);
+          if (item.role === "assistant") {
+            _lastAStagedIndex = target.length - 1;
+          }
+        };
       }
 
-      case "staged":
-        result.push({
-          status: "success",
-          thinkingDelta: "",
-          thinking: chunk.thinking,
-          contentDelta: "",
-          content: chunk.content,
-          raw: chunk.raw,
-        });
-        break;
+      // 自定义属性
+      if (prop === "_lastAssistantIndex") {
+        return _lastAStagedIndex;
+      }
 
-      case "done":
-        result.push({
-          status: "success",
-          thinkingDelta: "",
-          contentDelta: "",
-          content: "",
-          raw: "",
-        });
-        break;
-    }
-  }
+      if (prop === "lastAssistant") {
+        return _lastAStagedIndex >= 0 ? target[_lastAStagedIndex] : undefined;
+      }
 
-  return result;
+      // 其他属性直接访问原始数组
+      const value = target[prop as keyof LLMResponse[]];
+      // 绑定方法到原始数组（如 map/filter 等）
+      if (typeof value === "function") {
+        return value.bind(target);
+      }
+      return value;
+    },
+  }) as HistoryProxy;
+
+  return proxy;
 }

@@ -12,8 +12,10 @@ export interface ToolCallAccumulator {
   tid: string;
   name: string;
   arguments: string;
-  // 执行结果（tool 中间件写入）
-  executionResult?: ToolExecutionResult;
+  /** 是否已审批过 */
+  approved: boolean;
+  /** 触发时间戳（用于超时判断） */
+  triggeredAt: number;
 }
 
 /**
@@ -28,19 +30,6 @@ export interface AdaptersGroup {
   toolAdapter: ToolAdapter<unknown, unknown>;
 }
 
-/**
- * 回退状态枚举
- * - none: 正常执行，无需回退
- * - retryMessage: 回退到 message 入口重新执行
- */
-export enum RetryState {
-  none = 0,
-  retryMessage = 1,
-}
-
-/**
- * 工具执行结果
- */
 export interface ToolExecutionResult {
   success: boolean;
   result?: unknown;
@@ -50,6 +39,17 @@ export interface ToolExecutionResult {
 }
 
 /**
+ * HistoryProxy - 劫持 Array.push，维护 assistant 索引指针
+ * 兼容 LLMResponse[] 数组类型，可直接传递给 messageAdapter.buildMessages
+ */
+export type HistoryProxy = LLMResponse[] & {
+  /** 最后一条 assistant 索引（内部维护） */
+  _lastAStagedIndex: number;
+  /** getter：直接索引访问最后 assistant */
+  readonly lastAssistant: LLMResponse | undefined;
+};
+
+/**
  * 会话分组 - 会话标识和上下文关联信息
  */
 interface SessionGroup {
@@ -57,16 +57,16 @@ interface SessionGroup {
   sessionId: string;
   /** agent实例中多轮次会话唯一标记 */
   threadId: string;
-  /** 已加载的技能列表，防止重复加载 */
-  loadedSkills: Set<string>;
+  /** 工具调用去重检查（toolName → hash → 空字符串） */
+  hashCheck: Map<string, string>;
 }
 
 /**
  * 对话数据组 和 最新一次接口响应数据累积
  */
 interface ProcessGroup {
-  /** 历史消息记录，用于构建LLM请求上下文 */
-  history: LLMResponse[];
+  /** 历史消息记录，用于构建LLM请求上下文（使用 HistoryProxy） */
+  history: HistoryProxy;
   /** 响应内容累积（流式增量拼接） */
   contentAccumulated: string;
   /** 思考内容累积（流式增量拼接） */
@@ -86,22 +86,6 @@ interface ToolsGroup {
 }
 
 /**
- * 状态分组 - 执行状态和中断信息
- */
-interface StateGroup {
-  /** 是否需要中断执行（两阶段确认） */
-  needInterrupt: boolean;
-  /** 中断信息（工具调用ID/名称/参数） */
-  interruptInfo?: {
-    toolCallId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-  };
-  /** 回退状态，控制是否重新执行 */
-  retryState: RetryState;
-}
-
-/**
  * 中间件上下文 - 八分组嵌套结构
  */
 export interface MiddlewareContext {
@@ -117,8 +101,6 @@ export interface MiddlewareContext {
   process: ProcessGroup;
   /** 工具分组：工具管理器和调用状态 */
   tools: ToolsGroup;
-  /** 状态分组：执行状态和中断信息 */
-  state: StateGroup;
 }
 
 /**
@@ -126,38 +108,13 @@ export interface MiddlewareContext {
  */
 export type MiddlewareHandler = (
   ctx: MiddlewareContext,
-  next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
+  next: () => AsyncGenerator<MiddlewareChunk>,
 ) => AsyncGenerator<MiddlewareChunk>;
 
 /**
  * 中间件 chunk 类型
  */
 export type MiddlewareChunk = StreamChunk | InterruptChunk | StagedChunk | DoneChunk;
-
-/**
- * 统一响应 Chunk 结构（流式和非流式）
- */
-export interface MessageStreamChunk<T = unknown> {
-  /** 当前增量思考 */
-  thinkingDelta: string;
-  /** 累积思考（可选） */
-  thinking?: string;
-  /** 当前增量响应 */
-  contentDelta: string;
-  /** 累积/完整响应（可选） */
-  content?: string;
-  /** 状态标识 */
-  status: "success" | "pending" | "error";
-  /** 待确认工具信息（仅 pending 状态） */
-  pendingTool?: {
-    toolCallId: string;
-    toolName: string;
-    args: Record<string, unknown>;
-    threadId?: string;
-  };
-  /** 原始响应 */
-  raw: T;
-}
 
 /**
  * 流式 chunk
@@ -175,17 +132,15 @@ export interface StreamChunk {
 
 /**
  * 中断 chunk（工具两阶段确认）
- * continue/abort 由 invoke 层注入闭包绑定，内部持有 threadId
+ * acknowledge 由 tool 中间件注入闭包绑定
  */
 export interface InterruptChunk {
   type: "interrupt";
   toolCallId: string;
   toolName: string;
   args: Record<string, unknown>;
-  /** 继续执行（用户批准），自动恢复中间件链 */
-  continue: (reason?: string) => Promise<void>;
-  /** 中止执行 */
-  abort: () => void;
+  /** 确认执行（接受/拒绝指令） */
+  acknowledge: (action: "accept" | "reject", reason?: string) => Promise<void>;
 }
 
 /**

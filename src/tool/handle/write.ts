@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { tool } from "@/tool/base/toolCreator";
+import { tool, type ToolResult } from "@/tool/base/toolCreator";
 import { writeFile, rename, copyFile, unlink } from "fs/promises";
 import { SupervisionLevel } from "@/config";
 import { resolvePath } from "@/utils/env.js";
@@ -15,10 +15,13 @@ export default tool(
   "write_file",
   "写入内容到指定文件。路径可以是绝对路径或相对于工作目录的相对路径。如果文件已存在将被覆盖，如果目录不存在将报错。先写入临时目录后移动到目标位置，确保数据安全。注意：写入文件主要使用`write_file`，而不是使用bash命令。",
   WriteSchema,
-  async (input) => {
+  async (input): Promise<ToolResult> => {
     try {
       // 转换相对路径为绝对路径
       const absolutePath = resolvePath(input.path);
+
+      // write hash返回空字符串
+      const hash = "";
 
       // 获取临时目录（跨平台兼容）
       const tmpDir = os.tmpdir();
@@ -33,24 +36,33 @@ export default tool(
       // 尝试移动临时文件到目标位置
       try {
         await rename(tmpFilePath, absolutePath);
-        return `成功写入文件 "${input.path}"`;
+        return { content: `成功写入文件 "${input.path}"`, hash };
       } catch (renameError) {
         // rename() 跨文件系统可能失败，尝试 copy + delete
         if ((renameError as NodeJS.ErrnoException).code === "EXDEV") {
           await copyFile(tmpFilePath, absolutePath);
           await unlink(tmpFilePath);
-          return `成功写入文件 "${input.path}"（跨文件系统移动）`;
+          return { content: `成功写入文件 "${input.path}"（跨文件系统移动）`, hash };
         }
         throw renameError;
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return `错误：目录不存在，无法写入文件 "${input.path}"`;
+        return {
+          content: `错误：目录不存在，无法写入文件 "${input.path}"`,
+          hash: "", // 错误情况不参与去重
+        };
       }
       if ((error as NodeJS.ErrnoException).code === "EACCES") {
-        return `错误：权限不足，无法写入文件 "${input.path}"`;
+        return {
+          content: `错误：权限不足，无法写入文件 "${input.path}"`,
+          hash: "", // 错误情况不参与去重
+        };
       }
-      return `错误：写入文件 "${input.path}" 失败 - ${(error as Error).message}`;
+      return {
+        content: `错误：写入文件 "${input.path}" 失败 - ${(error as Error).message}`,
+        hash: "", // 错误情况不参与去重
+      };
     }
   },
   SupervisionLevel.manual, // write_file 禁止自动执行，需手动触发

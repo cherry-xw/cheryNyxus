@@ -7,7 +7,7 @@ import type { StreamChunk, MiddlewareContext, MiddlewareChunk, StagedChunk } fro
  */
 export async function* chatMiddleware(
   ctx: MiddlewareContext,
-  next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
+  next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   const { llmAdapter, messageAdapter, toolAdapter } = ctx.adapters;
 
@@ -49,14 +49,10 @@ async function* handleStream(
   // 打印入参信息
   console.log("\n=== Chat Stream Request ===");
   console.log("Messages:", JSON.stringify(messages, null, 2));
-  // console.log("Tools:", JSON.stringify(tools, null, 2));
-  // console.log("Options:", JSON.stringify(options, null, 2));
 
   const streamIterator = await llmAdapter.chatStream(messages, tools, options);
 
-  // console.log("\n=== Chat Stream Raw Chunks ===");
   for await (const rawChunk of streamIterator) {
-    // console.log(JSON.stringify(rawChunk, null, 2));
     const chunk: StreamChunk = {
       type: "stream",
       thinkingDelta: "",
@@ -82,14 +78,8 @@ async function* handleNonStream(
   // 打印入参信息
   console.log("\n=== Chat Request ===");
   console.log("Messages:", JSON.stringify(messages, null, 2));
-  console.log("Tools:", JSON.stringify(tools, null, 2));
-  console.log("Options:", JSON.stringify(options, null, 2));
 
   const response = await llmAdapter.chat(messages, tools, options);
-
-  // 打印原始响应
-  console.log("\n=== Chat Raw Response ===");
-  console.log(JSON.stringify(response, null, 2));
 
   // 通过 MessageAdapter 提取内容和思考
   const { messageAdapter } = ctx.adapters;

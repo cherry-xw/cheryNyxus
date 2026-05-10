@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { SupervisionLevel } from "@/config";
 
+/**
+ * 工具执行结果
+ */
+export interface ToolResult {
+  content: string;
+  hash: string;
+}
+
 export interface ToolFunction {
   type: "function";
   function: {
@@ -25,7 +33,7 @@ export interface ToolFunction {
 
 export interface ToolExecutor<T extends z.ZodType> {
   schema: T;
-  execute: (input: z.infer<T>) => Promise<string>;
+  execute: (input: z.infer<T>) => Promise<ToolResult>;
 }
 
 export interface Tool<T extends z.ZodType> {
@@ -39,7 +47,7 @@ export function tool<T extends z.ZodType>(
   name: string,
   description: string,
   schema: T,
-  handler: (input: z.infer<T>) => Promise<string>,
+  handler: (input: z.infer<T>) => Promise<ToolResult>,
   supervisionLevel: SupervisionLevel = SupervisionLevel.confirm,
 ): Tool<T> {
   const jsonSchema = (schema as any).toJSONSchema();

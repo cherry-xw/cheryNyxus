@@ -50,7 +50,7 @@ interface ToolGroupConfig {
  */
 interface GlobalConfig {
   thinking: boolean; // 是否开启思考模式（如果能思考）
-  supervision: keyof typeof SupervisionLevel; // 全局默认的监管等级
+  supervision: SupervisionLevel; // 全局默认的监管等级
   stream: boolean; // 是否开启流式输出
   tool_execute_timeout?: number; // 工具执行超时时间（毫秒）
 }

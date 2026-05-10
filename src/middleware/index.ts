@@ -3,14 +3,15 @@ import { messageMiddleware } from "./handler/message";
 import { toolMiddleware } from "./handler/tool";
 import { chunkMiddleware } from "./handler/chunk";
 import { chatMiddleware } from "./handler/chat";
+import { createHistoryProxy } from "./utils";
 
 import type { GlobalConfig, ClientConfig } from "@/config";
 import { ToolManager } from "@/tool/index";
 import {
-  RetryState,
   type MiddlewareChunk,
   type MiddlewareContext,
   type AdaptersGroup,
+  type InterruptChunk,
 } from "./types";
 import buildPrompt from "@/prompt/index";
 import { v4 as uuid } from "uuid";
@@ -18,8 +19,6 @@ import { v4 as uuid } from "uuid";
 export * from "./types";
 export { compose };
 export { messageMiddleware, toolMiddleware, chunkMiddleware, chatMiddleware };
-export { RetryState } from "./types";
-export { aggregateChunks } from "./utils";
 
 /**
  * 创建中间件上下文
@@ -33,12 +32,12 @@ function createMiddlewareContextBase(
   toolManager: ToolManager,
 ): MiddlewareContext {
   return {
-    session: { sessionId, threadId, loadedSkills: new Set() },
+    session: { sessionId, threadId, hashCheck: new Map() },
     global,
     config,
     adapters,
     process: {
-      history: [],
+      history: createHistoryProxy(),
       contentAccumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,
@@ -46,11 +45,6 @@ function createMiddlewareContextBase(
     },
     tools: {
       toolManager,
-    },
-    state: {
-      needInterrupt: false,
-      interruptInfo: undefined,
-      retryState: RetryState.none,
     },
   };
 }
@@ -87,6 +81,7 @@ export default class Middleware {
       this.tool,
     );
     this.thread.set(threadId, ctx);
+    // 初始化系统消息
     const now = Date.now();
     ctx.process.history.push({
       id: uuid(),
@@ -100,7 +95,7 @@ export default class Middleware {
   }
 
   /**
-   * 队列状态（每 threadId 独立）
+   * 队列状态（每 threadId 独立，存储用户消息队列）
    */
   private queueStates = new Map<string, {
     queue: Array<{ input: string; resolve: (value: MiddlewareChunk) => void; reject: (err: unknown) => void }>;
@@ -118,7 +113,7 @@ export default class Middleware {
   }
 
   /**
-   * 发送消息（队列模式，统一返回 AsyncGenerator）
+   * 发送消息（loop 执行模式）
    */
   async *send(
     threadId: string,
@@ -154,64 +149,42 @@ export default class Middleware {
     }
 
     try {
+      // loop 执行机制
       while (!state.aborted) {
         const generator = this.middlewareChain(ctx);
 
         for await (const chunk of generator) {
-          if (chunk.type === "interrupt") {
-            // 注入 continue/abort 闭包
-            const ic = chunk as import("./types").InterruptChunk;
-            let resumeResolve: (() => void) | null = null;
-            const resumePromise = new Promise<void>((resolve) => { resumeResolve = resolve; });
-
-            ic.continue = async (reason?: string) => {
-              ctx.state.needInterrupt = false;
-              ctx.state.interruptInfo = undefined;
-              ctx.state.retryState = RetryState.retryMessage;
-              // 累积批准理由到 history
-              if (reason?.trim()) {
-                const now = Date.now();
-                ctx.process.history.push({
-                  id: uuid(),
-                  role: "tool",
-                  content: `用户批准执行: ${reason}`,
-                  createdAt: now,
-                  updateAt: now,
-                  raw: { approved: true },
-                });
-              }
-              resumeResolve?.();
-            };
-
-            ic.abort = () => {
-              state.aborted = true;
-              // 累积拒绝消息到 history
-              const now = Date.now();
-              ctx.process.history.push({
-                id: uuid(),
-                role: "tool",
-                content: "用户拒绝执行该操作",
-                createdAt: now,
-                updateAt: now,
-                raw: { approved: false },
-              });
-              resumeResolve?.();
-            };
-
-            yield ic;
-            await resumePromise;
-
-            if (state.aborted) return;
-            // continue 被调用，retryState 已设置，外层 while 会重新执行中间件链
-            break;
-          }
-
           yield chunk;
           if (chunk.type === "done") break;
         }
 
-        // 无 interrupt，执行完成
-        if (ctx.state.retryState !== RetryState.retryMessage) break;
+        // 检查 loop 停止条件
+        // 1. toolCallAccumulated 有数据 → 有未执行的 tool_calls → 继续 loop
+        if (ctx.process.toolCallAccumulated.size > 0) {
+          continue;
+        }
+
+        // 2. 检查最后一条消息
+        const lastMessage = ctx.process.history[ctx.process.history.length - 1];
+        if (!lastMessage) break;
+
+        // 2.1 最后一条是 tool → 刚执行完 → 继续 loop
+        if (lastMessage.role === "tool") {
+          continue;
+        }
+
+        // 2.2 最后一条是 assistant
+        if (lastMessage.role === "assistant") {
+          // 有 toolCalls → 已执行完 → 继续 loop
+          if (lastMessage.toolCalls && lastMessage.toolCalls.length > 0) {
+            continue;
+          }
+          // 无 toolCalls → 停止 loop
+          break;
+        }
+
+        // 其他情况（user/system）→ 停止 loop
+        break;
       }
     } finally {
       state.aborted = false;

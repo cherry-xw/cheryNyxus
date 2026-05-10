@@ -13,10 +13,10 @@ import { v4 as uuid } from "uuid";
  */
 export async function* chunkMiddleware(
   ctx: MiddlewareContext,
-  next: () => Promise<void> | AsyncGenerator<MiddlewareChunk>,
+  next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   if (!ctx.global.stream) {
-    const generator = next() as AsyncGenerator<MiddlewareChunk>;
+    const generator = next();
     for await (const chunk of generator) {
       if (chunk.type === "staged") {
         // 非流式模式：统一提取 toolCall 并存储到 toolCallAccumulated
@@ -28,15 +28,15 @@ export async function* chunkMiddleware(
   }
 
   // 流式模式：处理 chunks
+  // 注意：不在此处重置 toolCallAccumulated，保留已有的累积器（支持多轮累积）
   ctx.process.contentAccumulated = "";
   ctx.process.thinkingAccumulated = "";
   ctx.process.chunkCount = 0;
-  ctx.process.toolCallAccumulated = new Map();
 
   // 临时缓存所有 chunks
   const chunksBuffer: unknown[] = [];
 
-  const generator = next() as AsyncGenerator<MiddlewareChunk>;
+  const generator = next();
   const { extractStreamDelta, extractStreamThinking } =
     ctx.adapters.messageAdapter;
   for await (const chunk of generator) {
@@ -98,12 +98,14 @@ function assembleAndExtractToolCalls(
   // 提取 ToolCallData
   const toolCalls = toolAdapter.extractToolCalls(assembled);
 
-  // 存储到 toolCallAccumulated
+  // 存储到 toolCallAccumulated（添加 triggeredAt）
   for (const tc of toolCalls) {
     ctx.process.toolCallAccumulated.set(tc.tid, {
       tid: tc.tid,
       name: tc.name ?? "",
       arguments: tc.arguments,
+      triggeredAt: Date.now(),
+      approved: false,
     });
   }
 }
@@ -125,6 +127,8 @@ function extractToolCallsFromResponse(
       tid: tc.tid,
       name: tc.name ?? "",
       arguments: tc.arguments,
+      triggeredAt: Date.now(),
+      approved: false,
     });
   }
 }

@@ -16,11 +16,11 @@ import { AgentBuilder } from "./builder";
 async function streamExample() {
 
   const agent = await new AgentBuilder()
-    .use("longcat")
+    .use("deepseek")
     .build();
 
   const threadId = agent.createThread();
-  const prompt = "给我讲一个笑话";
+  const prompt = "看一下这是什么项目";
 
   console.log("=== 流式请求 ===");
   console.log(`Prompt: ${prompt}\n`);
@@ -53,12 +53,8 @@ async function streamExample() {
         const approved = input === "Y" || input === "YES";
         console.log(`用户选择: ${approved ? "批准" : "拒绝"}\n`);
 
-        // 使用 chunk 的 continue/abort
-        if (approved) {
-          await chunk.continue("用户批准执行");
-        } else {
-          chunk.abort();
-        }
+        // 使用 chunk 的 acknowledge
+        await chunk.acknowledge(approved ? "accept" : "reject");
 
         break; // 跳出当前 for 循环，进入下一次 while 循环
       }
@@ -104,31 +100,31 @@ async function streamExample() {
   // 流结束
   console.log("\n\n=== 流式响应完成 ===");
 
-  console.log("使用上面提示词自由发挥,给出最终笑话内容示例");
-  // 获取新响应
-  let step2 = 0;
-  for await (const chunk of agent.send(
-    threadId,
-    "使用上面提示词自由发挥,给出最终笑话内容示例",
-  )) {
-    // stream chunk 处理
-    if (chunk.type === "stream") {
-      if (chunk.thinkingDelta) {
-        if (step2 === 0) {
-          console.log("\n=== Thinking ===");
-          step2 = 1;
-        }
-        process.stdout.write(chunk.thinkingDelta);
-      }
-      if (chunk.contentDelta) {
-        if (step2 === 1) {
-          console.log("\n\n=== LLM 响应 ===");
-          step2 = 0;
-        }
-        process.stdout.write(chunk.contentDelta);
-      }
-    }
-  }
+  // console.log("使用上面提示词自由发挥,给出最终笑话内容示例");
+  // // 获取新响应
+  // let step2 = 0;
+  // for await (const chunk of agent.send(
+  //   threadId,
+  //   "使用上面提示词自由发挥,给出最终笑话内容示例",
+  // )) {
+  //   // stream chunk 处理
+  //   if (chunk.type === "stream") {
+  //     if (chunk.thinkingDelta) {
+  //       if (step2 === 0) {
+  //         console.log("\n=== Thinking ===");
+  //         step2 = 1;
+  //       }
+  //       process.stdout.write(chunk.thinkingDelta);
+  //     }
+  //     if (chunk.contentDelta) {
+  //       if (step2 === 1) {
+  //         console.log("\n\n=== LLM 响应 ===");
+  //         step2 = 0;
+  //       }
+  //       process.stdout.write(chunk.contentDelta);
+  //     }
+  //   }
+  // }
   console.log("\n运行结束");
 }
 

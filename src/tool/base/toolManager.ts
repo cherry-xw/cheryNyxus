@@ -1,4 +1,4 @@
-import type { Tool } from "./toolCreator";
+import type { Tool, ToolResult } from "./toolCreator";
 import type { ZodType } from "zod";
 import { getToolAdapter, type ToolAdapter } from "../adapter";
 
@@ -58,10 +58,13 @@ export class ToolManager {
   /**
    * 执行工具
    */
-  async execute(name: string, args: Record<string, unknown>): Promise<string> {
+  async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
     const tool = this._toolMap.get(name);
     if (!tool) {
-      return `Error: Tool "${name}" not found`;
+      return {
+        content: `Error: Tool "${name}" not found`,
+        hash: "", // 错误情况不参与去重
+      };
     }
     return tool.executor.execute(
       args as Parameters<typeof tool.executor.execute>[0],

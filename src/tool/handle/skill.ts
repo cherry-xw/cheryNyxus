@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { tool } from "@/tool/base/toolCreator.js";
+import { tool, type ToolResult } from "@/tool/base/toolCreator.js";
 import { SupervisionLevel } from "@/config";
 import { getSkill } from "@/prompt/loadSkill.js";
+import { generateHash } from "@/utils/hash.js";
 
 /**
  * 加载 skill content 的 tool
@@ -18,16 +19,20 @@ export default tool(
   z.object({
     name: z.string().describe("技能名称，必须与 <skill> 中的`name`字段完全一致"),
   }),
-  async ({ name }) => {
+  async ({ name }): Promise<ToolResult> => {
     const skill = getSkill(name);
 
     if (!skill) {
-      return `Error: skill "${name}" not found`;
+      return {
+        content: `Error: skill "${name}" not found`,
+        hash: "", // 错误情况不参与去重
+      };
     }
 
-    return `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：
+    const hash = generateHash(`skill::${name}`);
+    const content = `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`;
 
-${skill.content}`;
+    return { content, hash };
   },
   SupervisionLevel.auto
 );
