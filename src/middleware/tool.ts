@@ -1,10 +1,9 @@
 import type {
   MiddlewareContext,
   MiddlewareChunk,
-  ToolExecutionResult,
   ToolCallAccumulator,
-} from "../types";
-import { SupervisionLevel } from "@/config";
+} from "@/core/middleware/types";
+import { SupervisionLevel } from "@/core/config";
 import { v4 as uuid } from "uuid";
 
 /**
@@ -99,7 +98,7 @@ export async function executeSingleToolCall(
         whiteHistory(
           ctx,
           tid,
-          `[已跳过”${name}“重复调用] 前面已有完全相同操作，本次直接跳过`,
+          `[已跳过"${name}"重复调用] 前面已有完全相同操作，本次直接跳过`,
         );
         return;
       }

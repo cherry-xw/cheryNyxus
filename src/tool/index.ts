@@ -1,16 +1,13 @@
 import type { ZodType } from "zod";
-import type { Tool } from "./base/toolCreator";
+import type { Tool } from "@/core/tool";
 import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { SupervisionLevel } from "@/config";
+import { SupervisionLevel } from "@/core/config";
 
-export {
-  tool,
-} from "./base/toolCreator";
-export type { Tool };
-export * from "./adapter.ts";
-export { ToolManager } from "./base/toolManager";
+export { tool, ToolManager } from "@/core/tool";
+export type { Tool, ToolResult } from "@/core/tool";
+export { SupervisionLevel } from "@/core/config";
 
 /**
  * 工具注册表：工具名 → Tool 实例
@@ -29,15 +26,13 @@ const supervisionRegistry: Record<string, SupervisionLevel> = {};
  */
 async function loadTools(): Promise<void> {
   const currentDir = dirname(fileURLToPath(import.meta.url));
-  const handleDir = join(currentDir, "handle");
 
-  const files = readdirSync(handleDir)
-    .filter(file => file.endsWith(".ts") && !file.endsWith(".d.ts"));
+  const files = readdirSync(currentDir)
+    .filter(file => file.endsWith(".ts") && !file.endsWith(".d.ts") && file !== "index.ts");
 
   await Promise.all(
     files.map(async (file) => {
-      const modulePath = join(handleDir, file);
-      const module = await import(`file://${modulePath}`);
+      const module = await import(`file://${join(currentDir, file)}`);
       const tool = module.default as Tool<ZodType>;
       if (tool?.definition?.function?.name) {
         const toolName = tool.definition.function.name;

@@ -1,14 +1,14 @@
 import { ToolManager, getTools, ensureToolsLoaded, type Tool } from "@/tool/index";
-import Middleware, { type AdaptersGroup } from "@/middleware/index";
+import Middleware, { defaultHandlers, type AdaptersGroup } from "@/middleware/index";
 import config, { type ClientConfig } from "@/config";
 import { randomUUID } from "crypto";
 import type { ZodType } from "zod";
 import { initEnvInfo, resolvePath } from "@/utils/env.js";
 
 // Adapter 获取函数
-import { getLLMAdapter } from "@/llm/adapter";
-import { getMessageAdapter } from "@/message/adapter";
-import { getToolAdapter } from "@/tool/adapter";
+import { getLLMAdapter } from "@/core/llm/adapter";
+import { getMessageAdapter } from "@/core/message/adapter";
+import { getToolAdapter } from "@/core/tool/adapter";
 
 // Provider 注册函数（确保 adapter 已注册）
 import { registerOpenAIAdapter } from "@/provider/openai";
@@ -141,6 +141,7 @@ export class AgentBuilder {
       this.clientConfig,
       toolManager,
       this.adapters,
+      defaultHandlers,
     );
   }
 }

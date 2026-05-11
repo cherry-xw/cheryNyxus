@@ -1,4 +1,4 @@
-import type { llmAdapter } from "@/middleware/types";
+import type { llmAdapter } from "../middleware/types";
 
 export type { llmAdapter };
 

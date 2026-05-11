@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { tool, type ToolResult } from "@/tool/base/toolCreator";
+import { tool, type ToolResult } from "@/core/tool";
 import { writeFile, rename, copyFile, unlink } from "fs/promises";
-import { SupervisionLevel } from "@/config";
+import { SupervisionLevel } from "@/core/config";
 import { resolvePath } from "@/utils/env.js";
 import os from "os";
 import path from "path";

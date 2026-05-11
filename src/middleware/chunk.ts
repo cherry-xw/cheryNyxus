@@ -3,8 +3,7 @@ import type {
   MiddlewareChunk,
   StagedChunk,
   StreamChunk,
-} from "../types";
-import { v4 as uuid } from "uuid";
+} from "@/core/middleware/types";
 
 /**
  * Chunk Middleware

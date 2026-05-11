@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { spawn, type ChildProcess } from "child_process";
-import { tool, type ToolResult } from "@/tool/base/toolCreator";
-import { SupervisionLevel } from "@/config";
+import { tool, type ToolResult } from "@/core/tool";
+import { SupervisionLevel } from "@/core/config";
 import { resolvePath, getWorkDir } from "@/utils/env.js";
 import config from "@/config";
 

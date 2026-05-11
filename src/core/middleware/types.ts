@@ -1,7 +1,7 @@
-import type { LLMResponse } from "@/message/index";
-import type { MessageProviderAdapterConfig } from "@/message/adapter";
-import type { ToolAdapter } from "@/tool/adapter";
-import type { ToolManager } from "@/tool/index";
+import type { LLMResponse } from "../message/index";
+import type { MessageProviderAdapterConfig } from "../message/adapter";
+import type { ToolAdapter } from "../tool/adapter";
+import type { ToolManager } from "../tool/index";
 import type { GlobalConfig, ClientConfig } from "@/config";
 
 /**

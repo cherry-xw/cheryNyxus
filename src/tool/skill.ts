@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { tool, type ToolResult } from "@/tool/base/toolCreator.js";
-import { SupervisionLevel } from "@/config";
-import { getSkill } from "@/prompt/loadSkill.js";
+import { tool, type ToolResult } from "@/core/tool";
+import { SupervisionLevel } from "@/core/config";
+import { getSkill } from "@/core/prompt/loadSkill";
 import { generateHash } from "@/utils/hash.js";
 
 /**

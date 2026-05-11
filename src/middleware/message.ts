@@ -1,4 +1,4 @@
-import type { MiddlewareContext, MiddlewareChunk, StagedChunk } from "../types";
+import type { MiddlewareContext, MiddlewareChunk, StagedChunk } from "@/core/middleware/types";
 import { v4 as uuid } from "uuid";
 
 /**

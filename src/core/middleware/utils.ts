@@ -1,5 +1,5 @@
 import type { HistoryProxy } from "./types";
-import type { LLMResponse } from "@/message/index";
+import type { LLMResponse } from "../message/index";
 
 /**
  * 创建 HistoryProxy（使用 Proxy 劫持 Array，兼容数组类型）

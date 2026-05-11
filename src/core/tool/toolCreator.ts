@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SupervisionLevel } from "@/config";
+import { SupervisionLevel } from "../config";
 
 /**
  * 工具执行结果

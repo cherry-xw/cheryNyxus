@@ -2,21 +2,12 @@ import dotenv from "dotenv";
 import yaml from "js-yaml";
 import fs from "fs";
 import path from "path";
+import { SupervisionLevel } from "@/core/config";
 
 dotenv.config();
 
-
-/**
- * Tool 监管等级枚举
- * - auto: 自动执行，无需确认
- * - confirm: 需用户确认后执行
- * - manual: 禁止自动执行，仅手动触发
- */
-export enum SupervisionLevel {
-  auto = 0,
-  confirm = 1,
-  manual = 2,
-}
+// 从 core 层重新导出 SupervisionLevel
+export { SupervisionLevel } from "@/core/config";
 
 /**
  * LLM Client 配置基础类型

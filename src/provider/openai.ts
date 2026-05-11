@@ -3,19 +3,19 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletion,
 } from "openai/resources/chat/completions";
-import { registerMessageAdapter, type LLMResponse } from "@/message/index";
+import { registerMessageAdapter, type LLMResponse } from "@/core/message";
 import {
   registerToolAdapter,
   type Tool,
   type ToolCallData,
-} from "@/tool/index";
+} from "@/core/tool";
 import type { ZodType } from "zod";
 import type {
   ChatCompletionTool,
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
-import { registerLLMAdapter } from "@/llm/adapter";
-import type { llmAdapter } from "@/middleware/types";
+import { registerLLMAdapter } from "@/core/llm/adapter";
+import type { llmAdapter } from "@/core/middleware/types";
 
 // ========== Adapter 定义（参数分离）==========
 

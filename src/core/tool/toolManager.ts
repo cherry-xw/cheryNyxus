@@ -1,6 +1,6 @@
 import type { Tool, ToolResult } from "./toolCreator";
 import type { ZodType } from "zod";
-import { getToolAdapter, type ToolAdapter } from "../adapter";
+import { getToolAdapter, type ToolAdapter } from "./adapter";
 
 /**
  * 工具管理器

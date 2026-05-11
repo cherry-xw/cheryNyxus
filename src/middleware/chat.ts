@@ -1,4 +1,4 @@
-import type { StreamChunk, MiddlewareContext, MiddlewareChunk, StagedChunk } from "../types";
+import type { StreamChunk, MiddlewareContext, MiddlewareChunk, StagedChunk } from "@/core/middleware/types";
 
 /**
  * Chat Middleware
@@ -7,7 +7,7 @@ import type { StreamChunk, MiddlewareContext, MiddlewareChunk, StagedChunk } fro
  */
 export async function* chatMiddleware(
   ctx: MiddlewareContext,
-  next: () => AsyncGenerator<MiddlewareChunk>,
+  _next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   const { llmAdapter, messageAdapter, toolAdapter } = ctx.adapters;
 
