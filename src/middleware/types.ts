@@ -62,6 +62,14 @@ interface SessionGroup {
 }
 
 /**
+ * 待注入用户消息条目
+ */
+export interface PendingInputEntry {
+  input: string;
+  time: number;
+}
+
+/**
  * 对话数据组 和 最新一次接口响应数据累积
  */
 interface ProcessGroup {
@@ -75,6 +83,8 @@ interface ProcessGroup {
   chunkCount: number;
   /** 工具调用累积器Map */
   toolCallAccumulated: Map<string, ToolCallAccumulator>;
+  /** 待注入的用户消息队列（send() 存储，chain 执行前注入） */
+  pendingInputs: PendingInputEntry[];
 }
 
 /**

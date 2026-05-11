@@ -31,19 +31,26 @@ export async function* toolMiddleware(
 
   if (toolCalls.length === 0) return;
 
-  // 执行工具调用
+  // 执行工具调用（串行处理，interrupt 时 yield 暂停）
   for (const tc of toolCalls) {
+    // 每次循环开始前，重新检查是否已执行（acknowledge 可能已处理）
+    const currentTc = ctx.process.toolCallAccumulated.get(tc.tid);
+    if (!currentTc || currentTc.approved) {
+      continue;
+    }
+
     const toolDef = ctx.tools.toolManager.get(tc.name);
     if (toolDef) {
       const tid = tc.tid;
       const name = tc.name;
       const argsJson = tc.arguments;
       const args = argsJson ? JSON.parse(argsJson) : {};
-      // Skill工具重复检测（已废弃，使用统一hashCheck机制）
+
       if (toolDef.supervisionLevel <= ctx.global.supervision) {
+        // 自动执行
         await executeSingleToolCall(ctx, tid, name, args);
       } else {
-        // 需确认，yield 中断
+        // 需确认：yield interrupt，generator 暂停等待外部 acknowledge
         yield {
           type: "interrupt",
           toolCallId: tid,
@@ -51,7 +58,6 @@ export async function* toolMiddleware(
           args,
           acknowledge: async (action: "accept" | "reject", reason?: string) => {
             if (action === "accept") {
-              // 接受：执行工具调用
               await executeSingleToolCall(ctx, tid, name, args);
             } else {
               whiteHistory(
@@ -62,6 +68,7 @@ export async function* toolMiddleware(
             }
           },
         };
+        // yield 后 generator 暂停，外部 acknowledge 执行后，for await 继续，generator 从这里恢复
       }
     } else {
       whiteHistory(ctx, tc.tid, `Tool "${tc.name}" not found`);

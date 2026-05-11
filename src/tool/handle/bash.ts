@@ -16,6 +16,7 @@ interface ProcessInfo {
 
 // 进程追踪存储
 const processMap = new Map<number, ProcessInfo>();
+const timeoutMs = config.global.tool_execute_timeout ?? 60000;
 
 const BashSchema = z.object({
   action: z
@@ -28,21 +29,19 @@ const BashSchema = z.object({
     .optional(),
   workdir: z
     .string()
-    .describe("工作目录（可选）。相对路径将基于初始工作目录解析，绝对路径直接使用")
-    .optional(),
-  timeout: z
-    .number()
-    .describe("超时时间（毫秒）。默认使用配置中的 tool_execute_timeout")
+    .describe(
+      "工作目录（可选）。相对路径将基于初始工作目录解析，绝对路径直接使用",
+    )
     .optional(),
   pid: z.number().describe("进程 PID（action=poll/kill 时必需）").optional(),
 });
 
 export default tool(
   "execute_command",
-  "执行 bash 命令。支持指定工作目录和超时时间。输出分为 stdout 和 stderr 两部分标注。超时后返回 PID，可通过 poll 获取后续输出，通过 kill 终止进程。",
+  `执行 bash 命令。支持指定工作目录。输出分为 stdout 和 stderr 两部分标注。如果执行时间超过${timeoutMs}ms触发超时。超时后返回PID，可通过 poll 获取后续输出，通过 kill 终止进程。`,
   BashSchema,
   async (input): Promise<ToolResult> => {
-    const { action, command, workdir, timeout, pid } = input;
+    const { action, command, workdir, pid } = input;
 
     // poll 操作（不参与去重）
     if (action === "poll") {
@@ -71,7 +70,10 @@ export default tool(
       }
 
       if (info.status !== "running") {
-        return { content: `[ERROR] 进程 PID ${pid} 已结束（状态: ${info.status})`, hash: "" };
+        return {
+          content: `[ERROR] 进程 PID ${pid} 已结束（状态: ${info.status})`,
+          hash: "",
+        };
       }
 
       info.proc.kill("SIGTERM");
@@ -95,8 +97,6 @@ export default tool(
     } else {
       cwd = getWorkDir();
     }
-
-    const timeoutMs = timeout ?? config.global.tool_execute_timeout ?? 60000;
 
     // bash hash返回空字符串
     const hash = "";
@@ -123,8 +123,9 @@ export default tool(
       // 设置超时定时器
       const timer = setTimeout(() => {
         timedOut = true;
+        const triggerTime = new Date(info.startTime).toLocaleString('zh-CN', { hour12: false });
         resolve({
-          content: `[TIMEOUT] 命令执行超时（PID: ${processPid}，进程仍在后台运行）\n\n[stdout]:\n${info.stdoutCache}\n[stderr]:\n${info.stderrCache}\n\n提示：使用 poll 操作获取后续输出，使用 kill 操作终止进程`,
+          content: `[TIMEOUT] 命令执行超时（PID: ${processPid}，进程仍在后台运行）\n[触发时间: ${triggerTime}]\n\n[stdout]:\n${info.stdoutCache}\n[stderr]:\n${info.stderrCache}\n\n提示：使用 poll 操作获取后续输出，使用 kill 操作终止进程`,
           hash, // timeout也返回hash，可能需要去重
         });
       }, timeoutMs);
@@ -170,5 +171,5 @@ export default tool(
       });
     });
   },
-  SupervisionLevel.manual
+  SupervisionLevel.manual,
 );

@@ -53,6 +53,7 @@ interface GlobalConfig {
   supervision: SupervisionLevel; // 全局默认的监管等级
   stream: boolean; // 是否开启流式输出
   tool_execute_timeout?: number; // 工具执行超时时间（毫秒）
+  maxLoopCount?: number; // loop 最大执行次数（默认 30）
 }
 
 interface Config {

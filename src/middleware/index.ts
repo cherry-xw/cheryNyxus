@@ -42,6 +42,7 @@ function createMiddlewareContextBase(
       thinkingAccumulated: "",
       chunkCount: 0,
       toolCallAccumulated: new Map(),
+      pendingInputs: [],
     },
     tools: {
       toolManager,
@@ -55,6 +56,9 @@ function createMiddlewareContextBase(
 export default class Middleware {
   middlewareChain: ReturnType<typeof compose>;
   thread = new Map<string, MiddlewareContext>();
+  /** 活跃的 generator（按 threadId 存储） */
+  private activeGenerators = new Map<string, AsyncGenerator<MiddlewareChunk, void, unknown>>();
+
   constructor(
     private sessionId: string,
     private global: GlobalConfig,
@@ -95,105 +99,118 @@ export default class Middleware {
   }
 
   /**
-   * 队列状态（每 threadId 独立，存储用户消息队列）
-   */
-  private queueStates = new Map<string, {
-    queue: Array<{ input: string; resolve: (value: MiddlewareChunk) => void; reject: (err: unknown) => void }>;
-    processing: boolean;
-    aborted: boolean;
-  }>();
-
-  private getQueueState(threadId: string) {
-    let state = this.queueStates.get(threadId);
-    if (!state) {
-      state = { queue: [], processing: false, aborted: false };
-      this.queueStates.set(threadId, state);
-    }
-    return state;
-  }
-
-  /**
-   * 发送消息（loop 执行模式）
+   * 发送消息并返回 generator
+   * - 将 input 存入 pendingInputs（不立即注入 history）
+   * - 如果已有活跃 generator，返回当前 generator
+   * - 如果无活跃 generator，创建新 generator 并执行 loop
    */
   async *send(
     threadId: string,
     input: string,
-  ): AsyncGenerator<MiddlewareChunk> {
+  ): AsyncGenerator<MiddlewareChunk, void, unknown> {
     const ctx = this.thread.get(threadId);
     if (!ctx) {
       throw new Error("Thread not found");
     }
 
-    const state = this.getQueueState(threadId);
-
-    // 等待前一个 invocation 完成
-    while (state.processing) {
-      await new Promise<void>((resolve) => {
-        state.queue.push({ input: "", resolve: () => resolve(), reject: () => resolve() });
-      });
-    }
-
-    state.processing = true;
-
-    // 累积用户消息
+    // 存储待注入的用户消息
     if (input.trim()) {
-      const now = Date.now();
-      ctx.process.history.push({
-        id: uuid(),
-        role: "user",
-        content: input,
-        createdAt: now,
-        updateAt: now,
-        raw: {},
+      ctx.process.pendingInputs.push({
+        input: input.trim(),
+        time: Date.now(),
       });
     }
+
+    // 检查是否有正在运行的 generator
+    const existing = this.activeGenerators.get(threadId);
+    if (existing) {
+      yield* existing;
+      return;
+    }
+
+    // 创建新 generator
+    const generator = this.executeLoop(ctx);
+    this.activeGenerators.set(threadId, generator);
 
     try {
-      // loop 执行机制
-      while (!state.aborted) {
-        const generator = this.middlewareChain(ctx);
+      yield* generator;
+    } finally {
+      this.activeGenerators.delete(threadId);
+    }
+  }
 
-        for await (const chunk of generator) {
-          yield chunk;
-          if (chunk.type === "done") break;
+  /**
+   * 执行 loop（内部方法）
+   * - while(times < maxLoop) 执行 middleware chain
+   * - 每次 chain 执行前注入 pendingInputs
+   * - 每次 loop 后检查是否需要继续
+   */
+  private async *executeLoop(
+    ctx: MiddlewareContext,
+  ): AsyncGenerator<MiddlewareChunk, void, unknown> {
+    const maxLoop = this.global.maxLoopCount ?? 30;
+    let times = 0;
+
+    while (times < maxLoop) {
+      times++;
+
+      // chain 执行前注入 pendingInputs
+      while (ctx.process.pendingInputs.length > 0) {
+        const entry = ctx.process.pendingInputs.shift();
+        if (entry) {
+          ctx.process.history.push({
+            id: uuid(),
+            role: "user",
+            content: entry.input,
+            createdAt: entry.time,
+            updateAt: entry.time,
+            raw: {},
+          });
         }
+      }
 
-        // 检查 loop 停止条件
-        // 1. toolCallAccumulated 有数据 → 有未执行的 tool_calls → 继续 loop
-        if (ctx.process.toolCallAccumulated.size > 0) {
+      // 重置累积状态
+      ctx.process.contentAccumulated = "";
+      ctx.process.thinkingAccumulated = "";
+      ctx.process.chunkCount = 0;
+
+      const generator = this.middlewareChain(ctx);
+
+      for await (const chunk of generator) {
+        yield chunk;
+        if (chunk.type === "done") break;
+      }
+
+      // 检查 loop 停止条件
+      // 1. toolCallAccumulated 有数据 → 有未执行的 tool_calls → 继续 loop
+      if (ctx.process.toolCallAccumulated.size > 0) {
+        continue;
+      }
+
+      // 2. 检查最后一条消息
+      const lastMessage = ctx.process.history[ctx.process.history.length - 1];
+      if (!lastMessage) break;
+
+      // 2.1 最后一条是 tool → 刚执行完 → 继续 loop
+      if (lastMessage.role === "tool") {
+        continue;
+      }
+
+      // 2.2 最后一条是 assistant
+      if (lastMessage.role === "assistant") {
+        // 有 toolCalls → 已执行完 → 继续 loop
+        if (lastMessage.toolCalls && lastMessage.toolCalls.length > 0) {
           continue;
         }
-
-        // 2. 检查最后一条消息
-        const lastMessage = ctx.process.history[ctx.process.history.length - 1];
-        if (!lastMessage) break;
-
-        // 2.1 最后一条是 tool → 刚执行完 → 继续 loop
-        if (lastMessage.role === "tool") {
-          continue;
-        }
-
-        // 2.2 最后一条是 assistant
-        if (lastMessage.role === "assistant") {
-          // 有 toolCalls → 已执行完 → 继续 loop
-          if (lastMessage.toolCalls && lastMessage.toolCalls.length > 0) {
-            continue;
-          }
-          // 无 toolCalls → 停止 loop
-          break;
-        }
-
-        // 其他情况（user/system）→ 停止 loop
+        // 无 toolCalls → 停止 loop
         break;
       }
-    } finally {
-      state.aborted = false;
-      state.processing = false;
-      // 处理队列中等待的下一个请求
-      while (state.queue.length > 0) {
-        const next = state.queue.shift()!;
-        next.resolve({ type: "done" } as MiddlewareChunk);
-      }
+
+      // 其他情况（user/system）→ 停止 loop
+      break;
     }
+
+    // loop 结束，yield done
+    yield { type: "done" };
   }
 }
