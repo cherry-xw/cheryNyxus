@@ -2,7 +2,7 @@ import type { LLMResponse } from "../message/index";
 import type { MessageProviderAdapterConfig } from "../message/adapter";
 import type { ToolAdapter } from "../tool/adapter";
 import type { ToolManager } from "../tool/index";
-import type { GlobalConfig, ClientConfig } from "@/config";
+import type { GlobalConfig, ClientConfig } from "@/utils/config";
 
 /**
  * 工具调用累积器（流式工具调用增量累积 + 执行结果）

@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "child_process";
 import { tool, type ToolResult } from "@/core/tool";
 import { SupervisionLevel } from "@/core/config";
 import { resolvePath, getWorkDir } from "@/utils/env.js";
-import config from "@/config";
+import config from "@/utils/config";
 
 interface ProcessInfo {
   proc: ChildProcess;

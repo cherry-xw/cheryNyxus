@@ -26,6 +26,13 @@ llm:
       thinking: true
       provider: openai
       tool_group: [safe_tools, dangerous_tools]
+    doubao:
+      url: http://yz.xcherry.top:11411/v1
+      model: doubao2.0-pro
+      key: $DOUBAO_API_KEY
+      thinking: true
+      provider: openai
+      tool_group: [safe_tools, dangerous_tools]
 
 # Tool分组配置
 tool_groups:

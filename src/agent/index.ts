@@ -7,7 +7,7 @@ import { AgentBuilder } from "./builder";
 async function streamExample() {
 
   const agent = await new AgentBuilder()
-    .use("deepseek")
+    .use("doubao")
     .build();
 
   const threadId = agent.createThread();

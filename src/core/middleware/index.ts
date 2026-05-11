@@ -4,7 +4,7 @@ import { createHistoryProxy } from "./utils";
 import type { MiddlewareChunk, MiddlewareContext, AdaptersGroup } from "./types";
 import type { MiddlewareHandler } from "./types";
 import type { ToolManager } from "../tool/index";
-import type { GlobalConfig, ClientConfig } from "@/config";
+import type { GlobalConfig, ClientConfig } from "@/utils/config";
 import buildPrompt from "../prompt/index";
 import { v4 as uuid } from "uuid";
 

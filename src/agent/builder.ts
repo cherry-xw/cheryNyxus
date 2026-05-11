@@ -1,6 +1,6 @@
 import { ToolManager, getTools, ensureToolsLoaded, type Tool } from "./tool/index";
 import Middleware, { defaultHandlers, type AdaptersGroup } from "./middleware/index";
-import config, { type ClientConfig } from "@/config";
+import config, { type ClientConfig } from "@/utils/config";
 import { randomUUID } from "crypto";
 import type { ZodType } from "zod";
 import { initEnvInfo, resolvePath } from "@/utils/env.js";

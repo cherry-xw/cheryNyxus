@@ -1,4 +1,9 @@
-import type { StreamChunk, MiddlewareContext, MiddlewareChunk, StagedChunk } from "@/core/middleware/types";
+import type {
+  StreamChunk,
+  MiddlewareContext,
+  MiddlewareChunk,
+  StagedChunk,
+} from "@/core/middleware/types";
 
 /**
  * Chat Middleware
