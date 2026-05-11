@@ -142,15 +142,17 @@ export interface StreamChunk {
 
 /**
  * 中断 chunk（工具两阶段确认）
- * acknowledge 由 tool 中间件注入闭包绑定
+ * 支持批量 handle，每个独立审批
  */
 export interface InterruptChunk {
   type: "interrupt";
-  toolCallId: string;
-  toolName: string;
-  args: Record<string, unknown>;
-  /** 确认执行（接受/拒绝指令） */
-  acknowledge: (action: "accept" | "reject", reason?: string) => Promise<void>;
+  /** 批量 handle 数组（每个独立审批，reason 由中间件生成供外部显示） */
+  handles: Array<{
+    /** 确认执行（接受/拒绝指令） */
+    acknowledge: (action: "accept" | "reject", reason?: string) => Promise<void>;
+    /** 工具调用描述（由中间件生成：name + args） */
+    reason: string;
+  }>;
 }
 
 /**

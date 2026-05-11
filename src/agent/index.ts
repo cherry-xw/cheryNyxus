@@ -7,7 +7,7 @@ import { AgentBuilder } from "./builder";
 async function streamExample() {
 
   const agent = await new AgentBuilder()
-    .use("doubao")
+    .use("deepseek")
     .build();
 
   const threadId = agent.createThread();
@@ -22,23 +22,36 @@ async function streamExample() {
     // interrupt 状态检测
     if (chunk.type === "interrupt") {
       console.log("\n=== Tool 需要确认 ===");
-      console.log(`Tool: ${chunk.toolName}`);
-      console.log(`Args: ${JSON.stringify(chunk.args, null, 2)}`);
+      console.log(`共 ${chunk.handles.length} 个工具调用待审批：\n`);
 
-      // 用户交互确认
-      console.log("\n是否批准执行？(Y/N)");
-      const input = await new Promise<string>((resolve) => {
-        process.stdin.once("data", (data) => {
-          resolve(data.toString().trim().toUpperCase());
+      // 显示所有 handles
+      for (let i = 0; i < chunk.handles.length; i++) {
+        const handle = chunk.handles[i];
+        if (handle) {
+          console.log(`[${i + 1}] ${handle.reason}`);
+        }
+      }
+
+      // 独立审批每个 handle，批量调用 acknowledge（不 await）
+      for (let i = 0; i < chunk.handles.length; i++) {
+        const handle = chunk.handles[i];
+        if (!handle) continue;
+
+        console.log(`\n[${i + 1}] 是否批准执行？(Y/N)`);
+        const input = await new Promise<string>((resolve) => {
+          process.stdin.once("data", (data) => {
+            resolve(data.toString().trim().toUpperCase());
+          });
         });
-      });
 
-      const approved = input === "Y" || input === "YES";
-      console.log(`用户选择: ${approved ? "批准" : "拒绝"}\n`);
+        const approved = input === "Y" || input === "YES";
+        console.log(`用户选择: ${approved ? "批准" : "拒绝"}\n`);
 
-      // 使用 chunk 的 acknowledge（执行工具调用后 generator 继续）
-      await chunk.acknowledge(approved ? "accept" : "reject");
-      // acknowledge 后 for await 继续迭代，generator 继续执行
+        // 调用 acknowledge（不 await，同步填充 execList，异步 promise 在 generator 内部 await）
+        handle.acknowledge(approved ? "accept" : "reject");
+      }
+
+      // generator 继续执行
       continue;
     }
 
