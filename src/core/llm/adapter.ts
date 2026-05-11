@@ -11,9 +11,10 @@ const llmAdapterRegistry = new Map<string, llmAdapter>();
  * 注册 LLM Adapter
  */
 export function registerLLMAdapter(
+  name: string,
   adapter: llmAdapter,
 ): void {
-  llmAdapterRegistry.set(adapter.name, adapter);
+  llmAdapterRegistry.set(name, adapter);
 }
 
 /**

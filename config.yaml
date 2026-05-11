@@ -32,7 +32,7 @@ tool_groups:
   safe_tools:
     tools:
       - read_file
-      - Skill
+      - skill
   dangerous_tools:
     tools:
       - delete_file

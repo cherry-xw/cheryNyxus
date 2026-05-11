@@ -1,5 +1,5 @@
-import { ToolManager, getTools, ensureToolsLoaded, type Tool } from "@/tool/index";
-import Middleware, { defaultHandlers, type AdaptersGroup } from "@/middleware/index";
+import { ToolManager, getTools, ensureToolsLoaded, type Tool } from "./tool/index";
+import Middleware, { defaultHandlers, type AdaptersGroup } from "./middleware/index";
 import config, { type ClientConfig } from "@/config";
 import { randomUUID } from "crypto";
 import type { ZodType } from "zod";
@@ -11,8 +11,8 @@ import { getMessageAdapter } from "@/core/message/adapter";
 import { getToolAdapter } from "@/core/tool/adapter";
 
 // Provider 注册函数（确保 adapter 已注册）
-import { registerOpenAIAdapter } from "@/provider/openai";
-import { registerOllamaAdapter } from "@/provider/ollama";
+import { registerOpenAIAdapter } from "./provider/openai";
+import { registerOllamaAdapter } from "./provider/ollama";
 
 const providerRegistry: Record<string, () => void> = {
   openai: registerOpenAIAdapter,

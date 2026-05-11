@@ -43,41 +43,39 @@ src/
 │       ├── adapter.ts       # ToolAdapter 注册表
 │       └── index.ts         # 导出
 │
-├── middleware/              # 实例层中间件实现
-│   ├── index.ts             # 导出 handlers + Middleware
-│   ├── message.ts           # 消息累积中间件
-│   ├── tool.ts              # 工具执行中间件
-│   ├── chunk.ts             # 流式响应处理中间件
-│   └── chat.ts              # LLM 调用中间件
-│
-├── tool/                    # 实例层工具实现
-│   ├── index.ts             # 工具注册表 + 导出
-│   ├── bash.ts              # execute_command 工具
-│   ├── read.ts              # read_file 工具
-│   ├── write.ts             # write_file 工具
-│   └── skill.ts             # Skill 激活工具
-│
-├── provider/                # Provider 注册
-│   ├── openai.ts            # OpenAI Adapter 注册
-│   └── ollama.ts            # Ollama Adapter 注册
-│
-├── agent/                   # Agent Builder
+├── agent/                   # Agent 层（具体实现）
 │   ├── builder.ts           # AgentBuilder 类
-│   └── index.ts             # 导出
+│   ├── index.ts             # 入口文件
+│   ├── middleware/          # 中间件实现
+│   │   ├── index.ts         # 导出 handlers + Middleware
+│   │   ├── message.ts       # 消息累积中间件
+│   │   ├── tool.ts          # 工具执行中间件
+│   │   ├── chunk.ts         # 流式响应处理中间件
+│   │   └── chat.ts          # LLM 调用中间件
+│   ├── tool/                # 工具实现
+│   │   ├── index.ts         # 工具注册表 + 导出
+│   │   ├── bash.ts          # execute_command 工具
+│   │   ├── read.ts          # read_file 工具
+│   │   ├── write.ts         # write_file 工具
+│   │   └── skill.ts         # Skill 激活工具
+│   ├── provider/            # Provider 注册
+│   │   ├── openai.ts        # OpenAI Adapter 注册
+│   │   └── ollama.ts        # Ollama Adapter 注册
+│   └── skills/              # 技能定义目录
+│       └── <name>/SKILL.md  # 技能定义文件
 │
-├── utils/                   # 工具函数
+├── utils/                   # 工具函数（core 和 agent 共用）
 │   ├── env.ts               # 环境信息管理
 │   └── hash.ts              # Hash 生成
 │
-├── skills/                  # 技能定义目录
-│   └── <name>/SKILL.md      # 技能定义文件
+├── config.ts                # YAML 配置加载 + 环境变量替换
 │
-└── config.ts                # YAML 配置加载 + 环境变量替换
+└── test/                    # 临时测试脚本
 ```
 
 ## 架构分层
 
-### Core 层 vs 实例层
+### Core 层（框架抽象）
 
 **Core 层** (`src/core/`): 框架抽象，不含具体实现
 - 类型定义（LLMResponse、MiddlewareContext、ToolCallData）
@@ -85,11 +83,21 @@ src/
 - Middleware 类（接收 handlers 参数，不硬编码引用）
 - Tool 工厂函数（tool()、ToolManager）
 
-**实例层** (`src/middleware/`、`src/tool/`、`src/provider/`): 具体实现
+### Agent 层（具体实现）
+
+**Agent 层** (`src/agent/`): 具体实现，可直接使用
+- AgentBuilder（链式配置）
 - 中间件实现（message/tool/chunk/chat）
 - 工具实现（bash/read/write/skill）
 - Provider Adapter 实现（OpenAI/Ollama）
-- 工具注册表（动态加载 handle 目录）
+- 技能定义（skills 目录）
+
+### 共用层
+
+**共用层** (`src/utils/`、`src/config.ts`): Core 和 Agent 都需要访问
+- 环境信息管理（env.ts）
+- Hash 生成（hash.ts）
+- YAML 配置加载（config.ts）
 
 ## 架构设计模式
 
@@ -104,7 +112,7 @@ new Middleware(
   config,
   toolManager,
   adapters,
-  handlers,  // 由实例层提供
+  handlers,  // 由 Agent 层提供
 );
 ```
 
@@ -118,7 +126,7 @@ new Middleware(
 
 ### Builder 模式 - Agent 配置
 
-[builder.ts](src/agent/builder.ts) 提供链式配置：
+[agent/builder.ts](src/agent/builder.ts) 提供链式配置：
 
 ```ts
 createAgent().use("longcat").build()
@@ -138,7 +146,7 @@ createAgent().use("longcat").build()
 
 ### 工厂模式 - Provider 注册
 
-[builder.ts](src/agent/builder.ts) 内 `providerRegistry` 映射 provider 名称到注册函数，与 config.yaml `provider` 字段对应。
+[agent/builder.ts](src/agent/builder.ts) 内 `providerRegistry` 映射 provider 名称到注册函数，与 config.yaml `provider` 字段对应。
 
 ## 核心流程
 
@@ -159,10 +167,10 @@ createAgent().use("longcat").build()
 
 | 中间件 | 职责 |
 | ------ | ---- |
-| [message.ts](src/middleware/message.ts) | 消息累积、历史构建、创建用户消息、tool 结果累积 |
-| [tool.ts](src/middleware/tool.ts) | 工具执行循环、两阶段确认中断、监管等级判断 |
-| [chunk.ts](src/middleware/chunk.ts) | 流式响应累积、工具调用增量累积、非流式 toolCall 提取 |
-| [chat.ts](src/middleware/chat.ts) | 调用 LLM Adapter、发起 LLM 请求、流式/非流式切换 |
+| [agent/middleware/message.ts](src/agent/middleware/message.ts) | 消息累积、历史构建、创建用户消息、tool 结果累积 |
+| [agent/middleware/tool.ts](src/agent/middleware/tool.ts) | 工具执行循环、两阶段确认中断、监管等级判断 |
+| [agent/middleware/chunk.ts](src/agent/middleware/chunk.ts) | 流式响应累积、工具调用增量累积、非流式 toolCall 提取 |
+| [agent/middleware/chat.ts](src/agent/middleware/chat.ts) | 调用 LLM Adapter、发起 LLM 请求、流式/非流式切换 |
 
 ### 两阶段执行（Tool 监管）
 
@@ -208,7 +216,7 @@ while (条件满足) {
 [core/prompt/index.ts](src/core/prompt/index.ts) 构建完整 prompt，包含：
 
 - **系统 prompt**: [core/prompt/system.md](src/core/prompt/system.md)
-- **Skills 加载**: 自动扫描 `src/skills/*/SKILL.md`，解析 frontmatter
+- **Skills 加载**: 自动扫描 `src/agent/skills/*/SKILL.md`，解析 frontmatter
 - **环境信息**: 工作目录、操作系统、当前日期时间
 
 输出格式：
@@ -221,7 +229,7 @@ while (条件满足) {
 
 ### Skills 定义格式
 
-在 `src/skills/<name>/SKILL.md` 中定义：
+在 `src/agent/skills/<name>/SKILL.md` 中定义：
 
 ```markdown
 ---
@@ -263,12 +271,12 @@ tool_group: [safe_tools, dangerous_tools]
 
 ## 添加新 LLM Provider
 
-1. 创建 `src/provider/newprovider.ts`
+1. 创建 `src/agent/provider/newprovider.ts`
 2. 定义 Message Adapter 配置（role/content/thinking/buildMessages）
 3. 定义 Tool Adapter 配置（buildTools/extractToolCalls/assembleToolCallChunks）
 4. 定义 LLM Adapter（chat/chatStream）
 5. 创建注册函数并导出
-6. 在 [builder.ts](src/agent/builder.ts) 的 `providerRegistry` 中注册
+6. 在 [agent/builder.ts](src/agent/builder.ts) 的 `providerRegistry` 中注册
 7. 在 `config.yaml` 添加客户端配置，`provider` 字段设为 `"newprovider"`
 
 ## 添加新 Tool
@@ -285,22 +293,23 @@ export default tool(
 );
 ```
 
-在 `src/tool/` 目录创建文件，工具会自动被 [tool/index.ts](src/tool/index.ts) 加载。
+在 `src/agent/tool/` 目录创建文件，工具会自动被 [agent/tool/index.ts](src/agent/tool/index.ts) 加载。
 
 ## 添加新 Skill
 
-1. 创建 `src/skills/<skill_name>/` 目录
+1. 创建 `src/agent/skills/<skill_name>/` 目录
 2. 添加 `SKILL.md` 文件，包含 frontmatter（name/description）
 3. prompt 系统自动加载并注入
 
 ## 添加新中间件
 
-1. 在 `src/middleware/` 目录创建新的中间件文件
+1. 在 `src/agent/middleware/` 目录创建新的中间件文件
 2. 实现 `MiddlewareHandler` 类型签名
-3. 在 [middleware/index.ts](src/middleware/index.ts) 的 `defaultHandlers` 数组中添加
+3. 在 [agent/middleware/index.ts](src/agent/middleware/index.ts) 的 `defaultHandlers` 数组中添加
 
 ## 测试文件
 
 `test/` 目录包含临时测试脚本，非正式测试套件。
+
 # currentDate
 Today's date is 2026/05/11.

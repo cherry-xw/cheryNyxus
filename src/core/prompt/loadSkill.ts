@@ -62,7 +62,7 @@ function parseSkillFrontmatter(
  * 返回 Skill Map（key: skill name, value: SkillData）
  */
 function loadSkills(): Map<string, SkillData> {
-  const skillsDir = join(promptDir, "../skills");
+  const skillsDir = join(promptDir, "../../agent/skills");
   if (!existsSync(skillsDir)) return new Map();
 
   const skillMap = new Map<string, SkillData>();

@@ -15,11 +15,13 @@ import type { llmAdapter } from "@/core/middleware/types";
 
 // Message Adapter 配置
 const ollamaMessageAdapterConfig = {
-  role: (raw: ChatResponse) => (raw.message?.role as "assistant") ?? "assistant" as const,
+  role: (raw: ChatResponse) =>
+    (raw.message?.role as "assistant") ?? ("assistant" as const),
   content: (raw: ChatResponse) => raw.message?.content ?? "",
   thinking: (raw: ChatResponse) => raw.message?.thinking ?? undefined,
   extractStreamDelta: (chunk: ChatResponse) => chunk.message?.content ?? "",
-  extractStreamThinking: (chunk: ChatResponse) => chunk.message?.thinking ?? undefined,
+  extractStreamThinking: (chunk: ChatResponse) =>
+    chunk.message?.thinking ?? undefined,
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => ({
       role: m.role,
@@ -42,7 +44,7 @@ const ollamaToolAdapterConfig = {
 
   buildToolCallMessage(content: string, toolCalls: ToolCallData[]): Message {
     // 将统一的 ToolCallData 转换为 Ollama 格式
-    const ollamaToolCalls = toolCalls.map(tc => ({
+    const ollamaToolCalls = toolCalls.map((tc) => ({
       function: {
         name: tc.name ?? "",
         arguments: JSON.parse(tc.arguments || "{}"),
@@ -64,7 +66,7 @@ const ollamaToolAdapterConfig = {
 
   extractToolCalls(response: ChatResponse): ToolCallData[] {
     const toolCalls = (response.message?.tool_calls ?? []) as ToolCall[];
-    return toolCalls.map(tc => ({
+    return toolCalls.map((tc) => ({
       tid: "", // Ollama 无 id
       name: tc.function?.name ?? undefined,
       arguments: JSON.stringify(tc.function?.arguments ?? {}),
@@ -94,8 +96,11 @@ const ollamaToolAdapterConfig = {
 
 // LLM Adapter 定义
 const ollamaLLMAdapter: llmAdapter = {
-  name: "ollama",
-  async chat(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<unknown> {
+  async chat(
+    messages: unknown[],
+    tools: unknown[],
+    options?: Record<string, unknown>,
+  ): Promise<unknown> {
     const msgArray = messages as Message[];
     const toolArray = tools as OllamaTool[];
     const model = options?.model as string;
@@ -108,7 +113,11 @@ const ollamaLLMAdapter: llmAdapter = {
       ...(toolArray.length > 0 && { tools: toolArray }),
     });
   },
-  async chatStream(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<AsyncIterable<unknown>> {
+  async chatStream(
+    messages: unknown[],
+    tools: unknown[],
+    options?: Record<string, unknown>,
+  ): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as Message[];
     const toolArray = tools as OllamaTool[];
     const model = options?.model as string;
@@ -135,11 +144,8 @@ export function registerOllamaAdapter(): void {
 
   registerMessageAdapter<ChatResponse, ChatResponse, Message>(
     "ollama",
-    ollamaMessageAdapterConfig
+    ollamaMessageAdapterConfig,
   );
-  registerToolAdapter<Message, ChatResponse>(
-    "ollama",
-    ollamaToolAdapterConfig
-  );
-  registerLLMAdapter(ollamaLLMAdapter);
+  registerToolAdapter<Message, ChatResponse>("ollama", ollamaToolAdapterConfig);
+  registerLLMAdapter("ollama", ollamaLLMAdapter);
 }

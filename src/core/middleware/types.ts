@@ -174,7 +174,6 @@ interface DoneChunk {
  * LLM Adapter 接口
  */
 export interface llmAdapter {
-  name: string;
   chat(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<unknown>;
   chatStream(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<AsyncIterable<unknown>>;
 }

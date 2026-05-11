@@ -4,11 +4,7 @@ import type {
   ChatCompletion,
 } from "openai/resources/chat/completions";
 import { registerMessageAdapter, type LLMResponse } from "@/core/message";
-import {
-  registerToolAdapter,
-  type Tool,
-  type ToolCallData,
-} from "@/core/tool";
+import { registerToolAdapter, type Tool, type ToolCallData } from "@/core/tool";
 import type { ZodType } from "zod";
 import type {
   ChatCompletionTool,
@@ -206,7 +202,6 @@ const openaiToolAdapterConfig = {
 
 // LLM Adapter 定义
 const openaiLLMAdapter: llmAdapter = {
-  name: "openai",
   async chat(
     messages: unknown[],
     tools: unknown[],
@@ -278,5 +273,5 @@ export function registerOpenAIAdapter(): void {
     "openai",
     openaiToolAdapterConfig,
   );
-  registerLLMAdapter(openaiLLMAdapter);
+  registerLLMAdapter("openai", openaiLLMAdapter);
 }

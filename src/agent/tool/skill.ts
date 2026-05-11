@@ -10,7 +10,7 @@ import { generateHash } from "@/utils/hash.js";
  * 返回: SkillData (name, description, content)
  */
 export default tool(
-  "Skill",
+  "skill",
   `核心功能：激活一个技能，加载其完整指令
 当用户的问题与任何技能的描述匹配时，你必须调用此工具
 必须严格遵守那些指令，就像它们是你系统提示的一部分
