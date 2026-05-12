@@ -97,6 +97,13 @@ function loadConfig(): Config {
 
   const config = replaceEnvVars(rawConfig) as Config;
 
+  // 将字符串转换为枚举
+  if (typeof config.global.supervision === "string") {
+    config.global.supervision = SupervisionLevel[
+      config.global.supervision as keyof typeof SupervisionLevel
+    ];
+  }
+
   if (missingEnvVars.length > 0) {
     console.warn(`⚠️ 环境变量未配置: ${missingEnvVars.join(", ")}`);
   }

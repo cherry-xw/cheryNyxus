@@ -3,8 +3,8 @@ import type {
   MiddlewareChunk,
   ToolCallAccumulator,
 } from "@/core/middleware/types";
-import { SupervisionLevel } from "@/core/config";
 import { v4 as uuid } from "uuid";
+import { SupervisionLevel } from "@/core/config";
 
 /**
  * Tool Middleware
@@ -40,6 +40,7 @@ export async function* toolMiddleware(
 
   for (const tc of toolCalls) {
     const toolDef = ctx.tools.toolManager.get(tc.name);
+    console.log("监管等级：", tc.name, toolDef?.supervisionLevel, ctx.global.supervision)
     if (!toolDef) {
       // Tool 不存在：加入 execList（错误信息）
       execList.push(
@@ -50,13 +51,24 @@ export async function* toolMiddleware(
           result: `Tool "${tc.name}" not found`,
         }),
       );
-    } else if (toolDef.supervisionLevel <= ctx.global.supervision) {
-      // 自动执行：加入 execList
-      const args = tc.arguments ? JSON.parse(tc.arguments) : {};
-      execList.push(executeSingleToolCall(ctx, tc.tid, tc.name, args));
     } else {
-      // 需确认：加入 confirmList
-      confirmList.push(tc);
+      // 全局配置优先级更高
+      if (ctx.global.supervision === SupervisionLevel.auto) {
+        // 全局 auto：全部自动执行
+        const args = tc.arguments ? JSON.parse(tc.arguments) : {};
+        execList.push(executeSingleToolCall(ctx, tc.tid, tc.name, args));
+      } else if (ctx.global.supervision === SupervisionLevel.manual) {
+        // 全局 manual：全部需确认
+        confirmList.push(tc);
+      } else {
+        // 全局 confirm：按工具声明走
+        if (toolDef.supervisionLevel === SupervisionLevel.auto) {
+          const args = tc.arguments ? JSON.parse(tc.arguments) : {};
+          execList.push(executeSingleToolCall(ctx, tc.tid, tc.name, args));
+        } else {
+          confirmList.push(tc);
+        }
+      }
     }
   }
 

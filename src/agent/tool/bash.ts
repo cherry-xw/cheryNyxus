@@ -14,6 +14,9 @@ interface ProcessInfo {
   status: "running" | "completed" | "killed";
 }
 
+// bash hash返回空字符串
+const hash = "";
+
 // 进程追踪存储
 const processMap = new Map<number, ProcessInfo>();
 const timeoutMs = config.global.tool_execute_timeout ?? 60000;
@@ -46,33 +49,32 @@ export default tool(
     // poll 操作（不参与去重）
     if (action === "poll") {
       if (!pid) {
-        return { content: "[ERROR] poll 操作需要提供 pid 参数", hash: "" };
+        return { content: "[ERROR] poll 操作需要提供 pid 参数", hash };
       }
       const info = processMap.get(pid);
       if (!info) {
-        return { content: `[ERROR] 进程 PID ${pid} 不存在或已结束`, hash: "" };
+        return { content: `[ERROR] 进程 PID ${pid} 不存在或已结束`, hash };
       }
-
       let result = `[PID: ${pid}] [状态: ${info.status}]\n`;
       result += `[stdout]:\n${info.stdoutCache}\n`;
       if (info.stderrCache) result += `[stderr]:\n${info.stderrCache}\n`;
-      return { content: result, hash: "" };
+      return { content: result, hash };
     }
 
     // kill 操作（不参与去重）
     if (action === "kill") {
       if (!pid) {
-        return { content: "[ERROR] kill 操作需要提供 pid 参数", hash: "" };
+        return { content: "[ERROR] kill 操作需要提供 pid 参数", hash };
       }
       const info = processMap.get(pid);
       if (!info) {
-        return { content: `[ERROR] 进程 PID ${pid} 不存在或已结束`, hash: "" };
+        return { content: `[ERROR] 进程 PID ${pid} 不存在或已结束`, hash };
       }
 
       if (info.status !== "running") {
         return {
           content: `[ERROR] 进程 PID ${pid} 已结束（状态: ${info.status})`,
-          hash: "",
+          hash,
         };
       }
 
@@ -82,12 +84,12 @@ export default tool(
       let result = `[KILLED] 进程 PID ${pid} 已终止\n`;
       result += `[stdout]:\n${info.stdoutCache}\n`;
       if (info.stderrCache) result += `[stderr]:\n${info.stderrCache}\n`;
-      return { content: result, hash: "" };
+      return { content: result, hash };
     }
 
     // execute 操作
     if (!command) {
-      return { content: "[ERROR] execute 操作需要提供 command 参数", hash: "" };
+      return { content: "[ERROR] execute 操作需要提供 command 参数", hash };
     }
 
     // 解析工作目录
@@ -97,10 +99,7 @@ export default tool(
     } else {
       cwd = getWorkDir();
     }
-
-    // bash hash返回空字符串
-    const hash = "";
-
+    const startTime = Date.now();
     return new Promise((resolve) => {
       let timedOut = false;
 
@@ -123,7 +122,9 @@ export default tool(
       // 设置超时定时器
       const timer = setTimeout(() => {
         timedOut = true;
-        const triggerTime = new Date(info.startTime).toLocaleString('zh-CN', { hour12: false });
+        const triggerTime = new Date(info.startTime).toLocaleString("zh-CN", {
+          hour12: false,
+        });
         resolve({
           content: `[TIMEOUT] 命令执行超时（PID: ${processPid}，进程仍在后台运行）\n[触发时间: ${triggerTime}]\n\n[stdout]:\n${info.stdoutCache}\n[stderr]:\n${info.stderrCache}\n\n提示：使用 poll 操作获取后续输出，使用 kill 操作终止进程`,
           hash, // timeout也返回hash，可能需要去重
@@ -144,11 +145,10 @@ export default tool(
         clearTimeout(timer);
         if (!timedOut) {
           info.status = "completed";
-          let result = "";
+          let result = `[启动时间: ${startTime}] [PID: ${processPid}] `;
           if (code !== 0) {
             result = `[ERROR] 命令退出码: ${code}\n\n`;
           }
-          result += `[PID: ${processPid}]\n`;
           result += `[stdout]:\n${info.stdoutCache}\n`;
           if (info.stderrCache) result += `[stderr]:\n${info.stderrCache}\n`;
           if (!info.stdoutCache && !info.stderrCache) {
@@ -165,7 +165,7 @@ export default tool(
           info.status = "completed";
           resolve({
             content: `[ERROR] 命令执行失败: ${err.message}\n\n${info.stdoutCache ? `[stdout]:\n${info.stdoutCache}\n` : ""}${info.stderrCache ? `[stderr]:\n${info.stderrCache}` : ""}`,
-            hash: "", // 错误情况不参与去重
+            hash, // 错误情况不参与去重
           });
         }
       });
