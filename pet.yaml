@@ -1,0 +1,176 @@
+# cheryClaw 桌宠配置文件
+
+# 全局设置
+animation_speed: 500
+character_color: "#ffffff"
+default_frame: "idle"
+
+# 动画帧定义
+frames:
+  - name: "idle"
+    lines:
+      - "   /\\_/\\  "
+      - "  ( o.o ) "
+      - "   > ^ <  "
+      - "  /|   |\\ "
+      - "   |_|_|  "
+    hit_areas:
+      - name: "head"
+        x: 30
+        y: 0
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "happy"
+      - name: "body"
+        x: 30
+        y: 30
+        width: 90
+        height: 60
+        action_type: "builtin"
+        action_value: "idle2"
+      - name: "feet"
+        x: 30
+        y: 90
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "walk"
+
+  - name: "idle2"
+    lines:
+      - "   /\\_/\\  "
+      - "  ( -.- ) "
+      - "   > ~ <  "
+      - "  /|   |\\ "
+      - "   |_|_|  "
+    hit_areas:
+      - name: "head"
+        x: 30
+        y: 0
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "sleep"
+      - name: "body"
+        x: 30
+        y: 30
+        width: 90
+        height: 60
+        action_type: "builtin"
+        action_value: "idle"
+
+  - name: "happy"
+    lines:
+      - "   /\\_/\\  "
+      - "  ( ^.^ ) "
+      - "   > o <  "
+      - "  /|   |\\ "
+      - "   |_|_|  "
+    hit_areas:
+      - name: "head"
+        x: 30
+        y: 0
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "idle"
+      - name: "body"
+        x: 30
+        y: 30
+        width: 90
+        height: 60
+        action_type: "builtin"
+        action_value: "idle"
+
+  - name: "sleep"
+    lines:
+      - "   /\\_/\\  "
+      - "  ( -.- )z"
+      - "   > Zz<  "
+      - "  /|   |\\ "
+      - "   |_|_|  "
+    hit_areas:
+      - name: "head"
+        x: 30
+        y: 0
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "idle"
+      - name: "body"
+        x: 30
+        y: 30
+        width: 90
+        height: 60
+        action_type: "builtin"
+        action_value: "idle"
+
+  - name: "walk_left"
+    lines:
+      - "   /\\_/\\  "
+      - "  ( o.o ) "
+      - "  <  ^  > "
+      - " /|     |\\"
+      - "  |_|_|_| "
+    hit_areas:
+      - name: "head"
+        x: 30
+        y: 0
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "idle"
+      - name: "body"
+        x: 30
+        y: 30
+        width: 90
+        height: 60
+        action_type: "signal"
+        action_value: "moveLeft"
+
+  - name: "walk_right"
+    lines:
+      - "   /\\_/\\  "
+      - "  ( o.o ) "
+      - "  >  ^  < "
+      - " /|     |\\"
+      - "  |_|_|_| "
+    hit_areas:
+      - name: "head"
+        x: 30
+        y: 0
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "idle"
+      - name: "body"
+        x: 30
+        y: 30
+        width: 90
+        height: 60
+        action_type: "signal"
+        action_value: "moveRight"
+
+  - name: "angry"
+    lines:
+      - "   /\\_/\\  "
+      - "  ( >.< ) "
+      - "   > ! <  "
+      - "  /|   |\\ "
+      - "   |_|_|  "
+    hit_areas:
+      - name: "head"
+        x: 30
+        y: 0
+        width: 90
+        height: 30
+        action_type: "builtin"
+        action_value: "idle"
+      - name: "body"
+        x: 30
+        y: 30
+        width: 90
+        height: 60
+        action_type: "shell"
+        action_value: "echo 'angry pet!'"
