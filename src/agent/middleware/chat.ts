@@ -1,9 +1,6 @@
-import type {
-  StreamChunk,
-  MiddlewareContext,
-  MiddlewareChunk,
-  StagedChunk,
-} from "@/core/middleware/types";
+import type { MiddlewareContext } from "@/core/middleware/types";
+import type { StagedChunk, StreamChunk } from "./chunk";
+import type { ToolFunction } from "@/core/tool";
 
 /**
  * Chat Middleware
@@ -12,8 +9,8 @@ import type {
  */
 export async function* chatMiddleware(
   ctx: MiddlewareContext,
-  _next: () => AsyncGenerator<MiddlewareChunk>,
-): AsyncGenerator<MiddlewareChunk> {
+  _next: () => AsyncGenerator<unknown>,
+): AsyncGenerator<StreamChunk | StagedChunk> {
   const { llmAdapter, messageAdapter, toolAdapter } = ctx.adapters;
 
   // 从 history 构建 provider 格式消息
@@ -49,8 +46,8 @@ async function* handleStream(
   options: Record<string, unknown>, // LLM请求选项（model/url/key/thinking等）
   llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
   messages: unknown[],
-  tools: unknown[],
-): AsyncGenerator<MiddlewareChunk> {
+  tools: ToolFunction[],
+): AsyncGenerator<StreamChunk> {
   // 打印入参信息
   console.log("\n=== Chat Stream Request ===");
   console.log("Messages:", JSON.stringify(messages, null, 2));
@@ -78,8 +75,8 @@ async function* handleNonStream(
   options: Record<string, unknown>, // LLM请求选项（model/url/key/thinking等）
   llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
   messages: unknown[],
-  tools: unknown[],
-): AsyncGenerator<MiddlewareChunk> {
+  tools: ToolFunction[],
+): AsyncGenerator<StagedChunk> {
   // 打印入参信息
   console.log("\n=== Chat Request ===");
   console.log("Messages:", JSON.stringify(messages, null, 2));

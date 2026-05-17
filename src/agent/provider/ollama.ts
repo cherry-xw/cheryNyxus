@@ -3,10 +3,9 @@ import type {
   ChatResponse,
   ToolCall,
   Message,
-  Tool as OllamaTool,
 } from "ollama";
 import { registerMessageAdapter, type LLMResponse } from "@/core/message";
-import { registerToolAdapter, type Tool, type ToolCallData } from "@/core/tool";
+import { registerToolAdapter, type Tool, type ToolCallData, type ToolFunction } from "@/core/tool";
 import type { ZodType } from "zod";
 import { registerLLMAdapter } from "@/core/llm/adapter";
 import type { llmAdapter } from "@/core/middleware/types";
@@ -31,7 +30,7 @@ const ollamaMessageAdapterConfig = {
 
 // Tool Adapter 配置
 const ollamaToolAdapterConfig = {
-  buildTools(tools: Tool<ZodType>[]): unknown[] {
+  buildTools(tools: Tool<ZodType>[]): ToolFunction[] {
     return tools.map((t) => ({
       type: "function",
       function: {
@@ -39,7 +38,7 @@ const ollamaToolAdapterConfig = {
         description: t.definition.function.description,
         parameters: t.definition.function.parameters,
       },
-    })) as OllamaTool[];
+    }));
   },
 
   buildToolCallMessage(content: string, toolCalls: ToolCallData[]): Message {
@@ -98,11 +97,10 @@ const ollamaToolAdapterConfig = {
 const ollamaLLMAdapter: llmAdapter = {
   async chat(
     messages: unknown[],
-    tools: unknown[],
+    tools: ToolFunction[],
     options?: Record<string, unknown>,
   ): Promise<unknown> {
     const msgArray = messages as Message[];
-    const toolArray = tools as OllamaTool[];
     const model = options?.model as string;
     if (!model) {
       throw new Error("Ollama provider requires model in options");
@@ -110,16 +108,15 @@ const ollamaLLMAdapter: llmAdapter = {
     return ollama.chat({
       model,
       messages: msgArray,
-      ...(toolArray.length > 0 && { tools: toolArray }),
+      ...(tools.length > 0 && { tools }),
     });
   },
   async chatStream(
     messages: unknown[],
-    tools: unknown[],
+    tools: ToolFunction[],
     options?: Record<string, unknown>,
   ): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as Message[];
-    const toolArray = tools as OllamaTool[];
     const model = options?.model as string;
     if (!model) {
       throw new Error("Ollama provider requires model in options");
@@ -128,7 +125,7 @@ const ollamaLLMAdapter: llmAdapter = {
       model,
       messages: msgArray,
       stream: true,
-      ...(toolArray.length > 0 && { tools: toolArray }),
+      ...(tools.length > 0 && { tools }),
     });
     return stream as AsyncIterable<unknown>;
   },

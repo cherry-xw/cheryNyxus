@@ -33,6 +33,13 @@ llm:
       thinking: true
       provider: openai
       tool_group: [safe_tools, dangerous_tools]
+    ali_glm5:
+      url: https://coding.dashscope.aliyuncs.com/v1
+      model: glm-5
+      key: $ALI_API_KEY
+      thinking: true
+      provider: openai
+      tool_group: [safe_tools, dangerous_tools]
 
 # Tool分组配置
 tool_groups:

@@ -1,4 +1,4 @@
-import type { Tool } from "./base/toolCreator";
+import type { Tool, ToolFunction } from "./toolCreator";
 import type { ZodType } from "zod";
 
 /**
@@ -23,8 +23,9 @@ export interface ToolCallData {
 export interface ToolAdapter<TMessage, TResponse> {
   /**
    * 构建 Tool 特定的工具数组
+   * 返回统一的 ToolFunction 格式（各 provider 格式基本一致）
    */
-  buildTools(tools: Tool<ZodType>[]): unknown[];
+  buildTools(tools: Tool<ZodType>[]): ToolFunction[];
 
   /**
    * 构建工具调用消息（assistant 消息）

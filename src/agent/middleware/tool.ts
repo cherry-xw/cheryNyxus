@@ -1,10 +1,21 @@
-import type {
-  MiddlewareContext,
-  MiddlewareChunk,
-  ToolCallAccumulator,
-} from "@/core/middleware/types";
+import type { MiddlewareContext, ToolCallAccumulator } from "@/core/middleware/types";
 import { v4 as uuid } from "uuid";
 import { SupervisionLevel } from "@/core/config";
+
+/**
+ * 中断 chunk（工具两阶段确认）
+ * 支持批量 handle，每个独立审批
+ */
+export interface InterruptChunk {
+  type: "interrupt";
+  /** 批量 handle 数组（每个独立审批，reason 由中间件生成供外部显示） */
+  handles: Array<{
+    /** 确认执行（接受/拒绝指令） */
+    acknowledge: (action: "accept" | "reject", reason?: string) => Promise<void>;
+    /** 工具调用描述（由中间件生成：name + args） */
+    reason: string;
+  }>;
+}
 
 /**
  * Tool Middleware
@@ -15,8 +26,8 @@ import { SupervisionLevel } from "@/core/config";
  */
 export async function* toolMiddleware(
   ctx: MiddlewareContext,
-  next: () => AsyncGenerator<MiddlewareChunk>,
-): AsyncGenerator<MiddlewareChunk> {
+  next: () => AsyncGenerator<unknown>,
+): AsyncGenerator<InterruptChunk | unknown> {
   // === 前半部分：准备阶段 ===
   yield* next();
 

@@ -4,10 +4,9 @@ import type {
   ChatCompletion,
 } from "openai/resources/chat/completions";
 import { registerMessageAdapter, type LLMResponse } from "@/core/message";
-import { registerToolAdapter, type Tool, type ToolCallData } from "@/core/tool";
+import { registerToolAdapter, type Tool, type ToolCallData, type ToolFunction } from "@/core/tool";
 import type { ZodType } from "zod";
 import type {
-  ChatCompletionTool,
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
 import { registerLLMAdapter } from "@/core/llm/adapter";
@@ -77,7 +76,7 @@ const openaiMessageAdapterConfig = {
 
 // Tool Adapter 配置
 const openaiToolAdapterConfig = {
-  buildTools(tools: Tool<ZodType>[]): unknown[] {
+  buildTools(tools: Tool<ZodType>[]): ToolFunction[] {
     return tools.map((t) => ({
       type: "function",
       function: {
@@ -86,7 +85,7 @@ const openaiToolAdapterConfig = {
         parameters: t.definition.function.parameters,
         strict: t.definition.function.strict,
       },
-    })) as ChatCompletionTool[];
+    }));
   },
 
   buildToolCallMessage(
@@ -204,11 +203,10 @@ const openaiToolAdapterConfig = {
 const openaiLLMAdapter: llmAdapter = {
   async chat(
     messages: unknown[],
-    tools: unknown[],
+    tools: ToolFunction[],
     options?: Record<string, unknown>,
   ): Promise<unknown> {
     const msgArray = messages as ChatCompletionMessageParam[];
-    const toolArray = tools as OpenAI.Chat.Completions.ChatCompletionTool[];
     const model = options?.model as string;
     const url = options?.url as string;
     const key = options?.key as string | undefined;
@@ -224,16 +222,15 @@ const openaiLLMAdapter: llmAdapter = {
       model,
       messages: msgArray,
       ...(thinking ? { thinking: { type: "enabled" } } : {}),
-      ...(toolArray.length > 0 && { tools: toolArray }),
+      ...(tools.length > 0 && { tools }),
     });
   },
   async chatStream(
     messages: unknown[],
-    tools: unknown[],
+    tools: ToolFunction[],
     options?: Record<string, unknown>,
   ): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as ChatCompletionMessageParam[];
-    const toolArray = tools as OpenAI.Chat.Completions.ChatCompletionTool[];
     const model = options?.model as string;
     const url = options?.url as string;
     const key = options?.key as string | undefined;
@@ -250,7 +247,7 @@ const openaiLLMAdapter: llmAdapter = {
       messages: msgArray,
       stream: true,
       ...(thinking ? { thinking: { type: "enabled" } } : {}),
-      ...(toolArray.length > 0 && { tools: toolArray }),
+      ...(tools.length > 0 && { tools }),
     });
     return stream as AsyncIterable<unknown>;
   },

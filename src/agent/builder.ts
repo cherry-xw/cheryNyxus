@@ -1,5 +1,5 @@
 import { ToolManager, getTools, ensureToolsLoaded, type Tool } from "./tool/index";
-import Middleware, { defaultHandlers, type AdaptersGroup } from "./middleware/index";
+import Middleware, { defaultHandlers, type AdaptersGroup, type MiddlewareChunk } from "./middleware/index";
 import config, { type ClientConfig } from "@/utils/config";
 import { randomUUID } from "crypto";
 import type { ZodType } from "zod";
@@ -79,7 +79,7 @@ export class AgentBuilder {
   /**
    * 构建 Agent 实例
    */
-  async build(): Promise<Middleware> {
+  async build(): Promise<Middleware<MiddlewareChunk>> {
     if (!this.clientConfig) {
       throw new Error("必须先调用 use() 选择 LLM 服务");
     }
@@ -135,7 +135,7 @@ export class AgentBuilder {
       toolManager.add(tools);
     }
 
-    return new Middleware(
+    return new Middleware<MiddlewareChunk>(
       this.sessionId,
       config.global,
       this.clientConfig,

@@ -1,7 +1,7 @@
 import type { LLMResponse } from "../message/index";
 import type { MessageProviderAdapterConfig } from "../message/adapter";
 import type { ToolAdapter } from "../tool/adapter";
-import type { ToolManager } from "../tool/index";
+import type { ToolManager, ToolFunction } from "../tool/index";
 import type { GlobalConfig, ClientConfig } from "@/utils/config";
 
 /**
@@ -114,68 +114,26 @@ export interface MiddlewareContext {
 }
 
 /**
- * 中间件处理函数（Generator 支持）
- */
-export type MiddlewareHandler = (
-  ctx: MiddlewareContext,
-  next: () => AsyncGenerator<MiddlewareChunk>,
-) => AsyncGenerator<MiddlewareChunk>;
-
-/**
- * 中间件 chunk 类型
- */
-export type MiddlewareChunk = StreamChunk | InterruptChunk | StagedChunk | DoneChunk;
-
-/**
- * 流式 chunk
- */
-export interface StreamChunk {
-  type: "stream";
-  /** 思考增量 */
-  thinkingDelta: string;
-  /** 响应增量 */
-  contentDelta: string;
-  thinkingAccumulated: string;
-  contentAccumulated: string;
-  raw: unknown;
-}
-
-/**
- * 中断 chunk（工具两阶段确认）
- * 支持批量 handle，每个独立审批
- */
-export interface InterruptChunk {
-  type: "interrupt";
-  /** 批量 handle 数组（每个独立审批，reason 由中间件生成供外部显示） */
-  handles: Array<{
-    /** 确认执行（接受/拒绝指令） */
-    acknowledge: (action: "accept" | "reject", reason?: string) => Promise<void>;
-    /** 工具调用描述（由中间件生成：name + args） */
-    reason: string;
-  }>;
-}
-
-/**
- * 阶段性结果 chunk（中间状态，非最终完成）
- */
-export interface StagedChunk {
-  type: "staged";
-  content: string;
-  thinking?: string;
-  raw: unknown;
-}
-
-/**
  * 完成 chunk（最终结束标记）
+ * 内置类型，标记中间件链执行结束
  */
-interface DoneChunk {
+export interface DoneChunk {
   type: "done";
 }
+
+/**
+ * 中间件处理函数（Generator 支持）
+ * 泛型参数 T 表示 yield 的 chunk 类型
+ */
+export type MiddlewareHandler<T = unknown> = (
+  ctx: MiddlewareContext,
+  next: () => AsyncGenerator<T>,
+) => AsyncGenerator<T>;
 
 /**
  * LLM Adapter 接口
  */
 export interface llmAdapter {
-  chat(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<unknown>;
-  chatStream(messages: unknown[], tools: unknown[], options?: Record<string, unknown>): Promise<AsyncIterable<unknown>>;
+  chat(messages: unknown[], tools: ToolFunction[], options?: Record<string, unknown>): Promise<unknown>;
+  chatStream(messages: unknown[], tools: ToolFunction[], options?: Record<string, unknown>): Promise<AsyncIterable<unknown>>;
 }

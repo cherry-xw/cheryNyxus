@@ -1,9 +1,28 @@
-import type {
-  MiddlewareContext,
-  MiddlewareChunk,
-  StagedChunk,
-  StreamChunk,
-} from "@/core/middleware/types";
+import type { MiddlewareContext } from "@/core/middleware/types";
+
+/**
+ * 流式 chunk
+ */
+export interface StreamChunk {
+  type: "stream";
+  /** 思考增量 */
+  thinkingDelta: string;
+  /** 响应增量 */
+  contentDelta: string;
+  thinkingAccumulated: string;
+  contentAccumulated: string;
+  raw: unknown;
+}
+
+/**
+ * 阶段性结果 chunk（中间状态，非最终完成）
+ */
+export interface StagedChunk {
+  type: "staged";
+  content: string;
+  thinking?: string;
+  raw: unknown;
+}
 
 /**
  * Chunk Middleware
@@ -12,12 +31,12 @@ import type {
  */
 export async function* chunkMiddleware(
   ctx: MiddlewareContext,
-  next: () => AsyncGenerator<MiddlewareChunk>,
-): AsyncGenerator<MiddlewareChunk> {
+  next: () => AsyncGenerator<unknown>,
+): AsyncGenerator<StreamChunk | StagedChunk | unknown> {
   if (!ctx.global.stream) {
     const generator = next();
     for await (const chunk of generator) {
-      if (chunk.type === "staged") {
+      if (isStagedChunk(chunk)) {
         // 非流式模式：统一提取 toolCall 并存储到 toolCallAccumulated
         extractToolCallsFromResponse(ctx, chunk.raw);
       }
@@ -27,7 +46,6 @@ export async function* chunkMiddleware(
   }
 
   // 流式模式：处理 chunks
-  // 注意：不在此处重置 toolCallAccumulated，保留已有的累积器（支持多轮累积）
   ctx.process.contentAccumulated = "";
   ctx.process.thinkingAccumulated = "";
   ctx.process.chunkCount = 0;
@@ -36,13 +54,12 @@ export async function* chunkMiddleware(
   const chunksBuffer: unknown[] = [];
 
   const generator = next();
-  const { extractStreamDelta, extractStreamThinking } =
-    ctx.adapters.messageAdapter;
+  const { extractStreamDelta, extractStreamThinking } = ctx.adapters.messageAdapter;
   for await (const chunk of generator) {
     ctx.process.chunkCount++;
 
     // 处理原始流式 chunk
-    if (chunk.type === "stream") {
+    if (isStreamChunk(chunk)) {
       // 从原始数据提取 delta
       const rawChunk = chunk.raw;
       chunksBuffer.push(rawChunk);
@@ -63,6 +80,9 @@ export async function* chunkMiddleware(
         raw: rawChunk,
       };
       yield assembledChunk;
+    } else {
+      // 透传其他类型的 chunk
+      yield chunk;
     }
   }
   ctx.process.contentAccumulated = ctx.process.contentAccumulated.trim();
@@ -80,6 +100,28 @@ export async function* chunkMiddleware(
     raw: null,
   };
   yield stagedChunk;
+}
+
+/**
+ * 类型守卫：判断是否为 StreamChunk
+ */
+function isStreamChunk(chunk: unknown): chunk is StreamChunk {
+  return (
+    typeof chunk === "object" &&
+    chunk !== null &&
+    (chunk as StreamChunk).type === "stream"
+  );
+}
+
+/**
+ * 类型守卫：判断是否为 StagedChunk
+ */
+function isStagedChunk(chunk: unknown): chunk is StagedChunk {
+  return (
+    typeof chunk === "object" &&
+    chunk !== null &&
+    (chunk as StagedChunk).type === "staged"
+  );
 }
 
 /**

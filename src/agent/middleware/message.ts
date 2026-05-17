@@ -1,5 +1,6 @@
-import type { MiddlewareContext, MiddlewareChunk, StagedChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, DoneChunk } from "@/core/middleware/types";
 import { v4 as uuid } from "uuid";
+import type { StagedChunk } from "./chunk";
 
 /**
  * Message Middleware
@@ -9,13 +10,13 @@ import { v4 as uuid } from "uuid";
  */
 export async function* messageMiddleware(
   ctx: MiddlewareContext,
-  next: () => AsyncGenerator<MiddlewareChunk>,
-): AsyncGenerator<MiddlewareChunk> {
+  next: () => AsyncGenerator<unknown>,
+): AsyncGenerator<DoneChunk | unknown> {
   // === 调用下一层 ===
   const generator = next();
   for await (const chunk of generator) {
     yield chunk;
-    if (chunk.type === "staged") {
+    if (isStagedChunk(chunk)) {
       // staged: 无 tool call 时 push assistant（有 tool call 由 tool.ts 处理）
       if (ctx.process.toolCallAccumulated.size === 0) {
         ctx.process.history.push({
@@ -34,4 +35,15 @@ export async function* messageMiddleware(
 
   // yield done 标记结束
   yield { type: "done" };
+}
+
+/**
+ * 类型守卫：判断是否为 StagedChunk
+ */
+function isStagedChunk(chunk: unknown): chunk is StagedChunk {
+  return (
+    typeof chunk === "object" &&
+    chunk !== null &&
+    (chunk as StagedChunk).type === "staged"
+  );
 }

@@ -1,7 +1,7 @@
 import { compose } from "./compose";
 import { createHistoryProxy } from "./utils";
 
-import type { MiddlewareChunk, MiddlewareContext, AdaptersGroup } from "./types";
+import type { MiddlewareContext, AdaptersGroup } from "./types";
 import type { MiddlewareHandler } from "./types";
 import type { ToolManager } from "../tool/index";
 import type { GlobalConfig, ClientConfig } from "@/utils/config";
@@ -45,12 +45,13 @@ function createMiddlewareContextBase(
 /**
  * Middleware 实例 - 封装请求处理逻辑
  * handlers 由外部传入（实例层提供）
+ * 泛型参数 T 表示 yield 的 chunk 类型
  */
-export default class Middleware {
-  middlewareChain: ReturnType<typeof compose>;
+export default class Middleware<T = unknown> {
+  middlewareChain: ReturnType<typeof compose<T>>;
   thread = new Map<string, MiddlewareContext>();
   /** 活跃的 generator（按 threadId 存储） */
-  private activeGenerators = new Map<string, AsyncGenerator<MiddlewareChunk, void, unknown>>();
+  private activeGenerators = new Map<string, AsyncGenerator<T, void, unknown>>();
 
   constructor(
     private sessionId: string,
@@ -58,7 +59,7 @@ export default class Middleware {
     private config: ClientConfig,
     private tool: ToolManager,
     private adapters: AdaptersGroup,
-    handlers: MiddlewareHandler[],
+    handlers: MiddlewareHandler<T>[],
   ) {
     this.middlewareChain = compose(handlers);
   }
@@ -96,7 +97,7 @@ export default class Middleware {
   async *send(
     threadId: string,
     input: string,
-  ): AsyncGenerator<MiddlewareChunk, void, unknown> {
+  ): AsyncGenerator<T, void, unknown> {
     const ctx = this.thread.get(threadId);
     if (!ctx) {
       throw new Error("Thread not found");
@@ -136,7 +137,7 @@ export default class Middleware {
    */
   private async *executeLoop(
     ctx: MiddlewareContext,
-  ): AsyncGenerator<MiddlewareChunk, void, unknown> {
+  ): AsyncGenerator<T, void, unknown> {
     const maxLoop = this.global.maxLoopCount ?? 30;
     let times = 0;
 
@@ -167,7 +168,7 @@ export default class Middleware {
 
       for await (const chunk of generator) {
         yield chunk;
-        if (chunk.type === "done") break;
+        if (isDoneChunk(chunk)) break;
       }
 
       // 检查 loop 停止条件
@@ -200,6 +201,17 @@ export default class Middleware {
     }
 
     // loop 结束，yield done
-    yield { type: "done" };
+    yield { type: "done" } as T;
   }
+}
+
+/**
+ * 类型守卫：判断是否为 DoneChunk
+ */
+function isDoneChunk(chunk: unknown): boolean {
+  return (
+    typeof chunk === "object" &&
+    chunk !== null &&
+    (chunk as { type: string }).type === "done"
+  );
 }

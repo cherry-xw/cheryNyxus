@@ -27,7 +27,8 @@ export interface ToolFunction {
       required: string[];
       additionalProperties: boolean;
     };
-    strict: boolean;
+    /** 严格模式（可选，部分 provider 不支持） */
+    strict?: boolean;
   };
 }
 
