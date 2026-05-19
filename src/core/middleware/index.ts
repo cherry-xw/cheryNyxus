@@ -24,7 +24,7 @@ function createMiddlewareContextBase(
   toolManager: ToolManager,
 ): MiddlewareContext {
   return {
-    session: { sessionId, threadId, hashCheck: new Map() },
+    session: { sessionId, threadId, hashCheck: new Map(), toolSharedData: new Map() },
     global,
     config,
     adapters,

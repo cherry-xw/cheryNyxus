@@ -1,4 +1,4 @@
-import type { Tool, ToolResult } from "./toolCreator";
+import type { Tool, ToolResult, ToolSharedData } from "./toolCreator";
 import type { ZodType } from "zod";
 import { getToolAdapter, type ToolAdapter } from "./adapter";
 
@@ -57,8 +57,15 @@ export class ToolManager {
 
   /**
    * 执行工具
+   * @param name - 工具名称
+   * @param args - 工具参数
+   * @param toolSharedData - 可选的toolSharedData参数，仅needsSession为true的工具需要
    */
-  async execute(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    name: string,
+    args: Record<string, unknown>,
+    toolSharedData: ToolSharedData,
+  ): Promise<ToolResult> {
     const tool = this._toolMap.get(name);
     if (!tool) {
       return {
@@ -68,6 +75,7 @@ export class ToolManager {
     }
     return tool.executor.execute(
       args as Parameters<typeof tool.executor.execute>[0],
+      toolSharedData,
     );
   }
 }

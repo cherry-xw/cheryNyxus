@@ -32,9 +32,13 @@ export interface ToolFunction {
   };
 }
 
+/** Tool间共享数据结构 */
+export type ToolSharedData = Map<string, Map<string, unknown>>;
+
 export interface ToolExecutor<T extends z.ZodType> {
   schema: T;
-  execute: (input: z.infer<T>) => Promise<ToolResult>;
+  /** execute支持可选toolSharedData参数，需共享数据的tool可声明第二个参数 */
+  execute: (input: z.infer<T>, toolSharedData: ToolSharedData) => Promise<ToolResult>;
 }
 
 export interface Tool<T extends z.ZodType> {
@@ -48,7 +52,7 @@ export function tool<T extends z.ZodType>(
   name: string,
   description: string,
   schema: T,
-  handler: (input: z.infer<T>) => Promise<ToolResult>,
+  handler: (input: z.infer<T>, toolSharedData: ToolSharedData) => Promise<ToolResult>,
   supervisionLevel: SupervisionLevel = SupervisionLevel.confirm,
 ): Tool<T> {
   const jsonSchema = (schema as any).toJSONSchema();

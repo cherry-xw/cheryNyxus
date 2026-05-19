@@ -52,13 +52,15 @@ export type HistoryProxy = LLMResponse[] & {
 /**
  * 会话分组 - 会话标识和上下文关联信息
  */
-interface SessionGroup {
+export interface SessionGroup {
   /** agent实例唯一标识 */
   sessionId: string;
   /** agent实例中多轮次会话唯一标记 */
   threadId: string;
   /** 工具调用去重检查（toolName → hash → 空字符串） */
   hashCheck: Map<string, string>;
+  /** Tool间共享数据（namespace → identifier → data） */
+  toolSharedData: Map<string, Map<string, unknown>>;
 }
 
 /**

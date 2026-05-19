@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool, type ToolResult } from "@/core/tool";
 import { SupervisionLevel } from "@/core/config";
 import { getSkill } from "@/core/prompt/loadSkill";
-import { generateHash } from "@/utils/hash.js";
+import { hashGenerator } from "@/utils/hash.js";
 
 /**
  * 加载 skill content 的 tool
@@ -29,7 +29,7 @@ export default tool(
       };
     }
 
-    const hash = generateHash(`skill::${name}`);
+    const hash = hashGenerator("skill", name);
     const content = `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`;
 
     return { content, hash };

@@ -142,7 +142,7 @@ export async function executeSingleToolCall(
   const argsJson = JSON.stringify(args);
 
   try {
-    const execResult = await ctx.tools.toolManager.execute(name, args);
+    const execResult = await ctx.tools.toolManager.execute(name, args, ctx.session.toolSharedData);
 
     // 去重检查（hash为""时跳过）
     if (execResult.hash) {
@@ -154,7 +154,7 @@ export async function executeSingleToolCall(
           result: `[已跳过"${name}"重复调用] 前面已有完全相同操作，本次直接跳过`,
         };
       }
-      ctx.session.hashCheck.set(execResult.hash, "");
+      ctx.session.hashCheck.set(execResult.hash, name);
     }
 
     return { tid, name, arguments: argsJson, result: execResult.content };
