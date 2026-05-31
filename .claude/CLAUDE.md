@@ -7,9 +7,11 @@ cheryClaw 是一个多 LLM Agent 框架，支持 Ollama、OpenAI 等提供商。
 ## 常用命令
 
 ```bash
-yarn dev          # 开发模式（nodemon + tsx 热重载）
-yarn build        # esbuild 打包到 dist/
+yarn dev          # 开发模式（vite build --ssr --watch + nodemon）
+yarn build        # Vite 8 SSR 打包到 dist/
 yarn start        # 运行编译产物
+yarn test         # 运行测试（vitest）
+yarn test:watch   # 测试监听模式
 ```
 
 开发时无需编译验证，`yarn dev` 自动重载，人工验证即可。
@@ -17,6 +19,11 @@ yarn start        # 运行编译产物
 ## 目录结构
 
 ```text
+.chery/                      # 外置配置目录（不走打包）
+├── system.md                # 系统 prompt 模板
+└── skills/                  # 技能定义目录
+    └── <name>/SKILL.md      # 技能定义文件
+
 src/
 ├── core/                    # 核心架构层（框架抽象）
 │   ├── config.ts            # SupervisionLevel 监管等级枚举
@@ -33,8 +40,7 @@ src/
 │   │   └── index.ts         # Middleware 类（接收 handlers 参数）
 │   ├── prompt/              # Prompt 构建系统
 │   │   ├── index.ts         # buildFirstSystemPrompt()
-│   │   ├── loadSkill.ts     # Skills 加载与解析
-│   │   └── system.md        # 系统 prompt 模板
+│   │   └── loadSkill.ts     # Skills 加载与解析
 │   └── tool/                # Tool 核心抽象
 │       ├── toolCreator.ts   # tool() 工厂函数
 │       ├── toolManager.ts   # ToolManager 类
@@ -49,6 +55,7 @@ src/
 │   │   ├── message.ts       # 消息累积中间件
 │   │   ├── tool.ts          # 工具执行中间件
 │   │   ├── chunk.ts         # 流式响应处理中间件
+│   │   ├── retry.ts         # 自动重试中间件
 │   │   └── chat.ts          # LLM 调用中间件
 │   ├── tool/                # 工具实现
 │   │   ├── index.ts         # 工具注册表 + 导出
@@ -59,16 +66,26 @@ src/
 │   ├── provider/            # Provider 注册
 │   │   ├── openai.ts        # OpenAI Adapter 注册
 │   │   └── ollama.ts        # Ollama Adapter 注册
-│   └── skills/              # 技能定义目录
-│       └── <name>/SKILL.md  # 技能定义文件
+│   └── skills/              # （已迁移到 .chery/skills/）
 │
 ├── utils/                   # 工具函数（core 和 agent 共用）
 │   ├── env.ts               # 环境信息管理
-│   └── hash.ts              # Hash 生成
+│   ├── hash.ts              # Hash 生成
+│   ├── config.ts            # YAML 配置加载 + 环境变量替换
+│   ├── drain/               # Drain 日志模板挖掘算法
+│   └── bashLogger.ts        # Bash 日志管理
 │
-├── config.ts                # YAML 配置加载 + 环境变量替换
+├── config.ts                # （已合并到 utils/config.ts）
 │
-└── test/                    # 临时测试脚本
+└── test/                    # 测试套件（vitest）
+    ├── agent/               # Agent 层测试
+    ├── core/                # Core 层测试
+    ├── utils/               # Utils 层测试
+    ├── helpers/             # 测试辅助工具
+    └── __mocks__/           # Mock 文件
+
+config.yaml                  # LLM 客户端配置 + 全局配置
+vite.config.ts               # Vite 8 + Vitest 统一配置
 ```
 
 ## 架构分层
@@ -85,17 +102,26 @@ src/
 
 **Agent 层** (`src/agent/`): 具体实现，可直接使用
 - AgentBuilder（链式配置）
-- 中间件实现（message/tool/chunk/chat）
+- 中间件实现（message/tool/chunk/retry/chat）
 - 工具实现（bash/read/write/skill）
 - Provider Adapter 实现（OpenAI/Ollama）
-- 技能定义（skills 目录）
 
 ### 共用层
 
-**共用层** (`src/utils/`、`src/config.ts`): Core 和 Agent 都需要访问
+**共用层** (`src/utils/`): Core 和 Agent 都需要访问
 - 环境信息管理（env.ts）
 - Hash 生成（hash.ts）
 - YAML 配置加载（config.ts）
+- Drain 日志挖掘算法（drain/）
+- Bash 日志管理（bashLogger.ts）
+
+### 配置层（外置）
+
+**配置层** (`/.chery/`): 运行时配置，不走打包
+- 系统提示词模板（system.md）
+- 技能定义目录（skills/）
+
+通过 `config.yaml` 配置绝对路径引用。
 
 ## 架构设计模式
 
@@ -168,6 +194,7 @@ createAgent().use("longcat").build()
 | [agent/middleware/message.ts](src/agent/middleware/message.ts) | 消息累积、历史构建、创建用户消息、tool 结果累积 |
 | [agent/middleware/tool.ts](src/agent/middleware/tool.ts) | 工具执行循环、两阶段确认中断、监管等级判断 |
 | [agent/middleware/chunk.ts](src/agent/middleware/chunk.ts) | 流式响应累积、工具调用增量累积、非流式 toolCall 提取 |
+| [agent/middleware/retry.ts](src/agent/middleware/retry.ts) | 自动重试机制、错误恢复 |
 | [agent/middleware/chat.ts](src/agent/middleware/chat.ts) | 调用 LLM Adapter、发起 LLM 请求、流式/非流式切换 |
 
 ### 两阶段执行（Tool 监管）
@@ -213,8 +240,8 @@ while (条件满足) {
 
 [core/prompt/index.ts](src/core/prompt/index.ts) 构建完整 prompt，包含：
 
-- **系统 prompt**: [core/prompt/system.md](src/core/prompt/system.md)
-- **Skills 加载**: 自动扫描 `src/agent/skills/*/SKILL.md`，解析 frontmatter
+- **系统 prompt**: [.chery/system.md](.chery/system.md)（通过 config.yaml 配置路径）
+- **Skills 加载**: 自动扫描 `.chery/skills/*/SKILL.md`，解析 frontmatter
 - **环境信息**: 工作目录、操作系统、当前日期时间
 
 输出格式：
@@ -227,7 +254,7 @@ while (条件满足) {
 
 ### Skills 定义格式
 
-在 `src/agent/skills/<name>/SKILL.md` 中定义：
+在 `.chery/skills/<name>/SKILL.md` 中定义：
 
 ```markdown
 ---
@@ -243,10 +270,23 @@ frontmatter 由 [core/prompt/loadSkill.ts](src/core/prompt/loadSkill.ts) 解析�
 
 ## 配置系统
 
-- `config.yaml`: LLM 客户端配置 + Tool 分组配置
-- `$ENV_VAR_NAME` 语法引用环境变量（由 [config.ts](src/config.ts) 替换）
+- `config.yaml`: LLM 客户端配置 + Tool 分组配置 + 全局配置
+- `$ENV_VAR_NAME` 语法引用环境变量（由 [utils/config.ts](src/utils/config.ts) 替换）
 - `.env`: 存储 API 密钥等敏感信息
 - 环境变量缺失时仅警告，不阻断启动
+
+### 全局配置项
+
+```yaml
+global:
+  thinking: true              # 是否开启思考模式
+  supervision: manual         # 默认监管等级（auto/confirm/manual）
+  stream: true                # 是否开启流式输出
+  tool_execute_timeout: 10000 # 工具执行超时（毫秒）
+  bash_log_retention_hours: 24 # Bash 日志保留时间
+  skills_dir: /path/to/.chery/skills    # Skills 目录绝对路径
+  system_prompt: /path/to/.chery/system.md # 系统提示词绝对路径
+```
 
 ### Tool Group 配置
 
@@ -264,8 +304,8 @@ tool_group: [safe_tools, dangerous_tools]
 
 - ESM 模块（`"type": "module"`）
 - 严格模式: `noUncheckedIndexedAccess`
-- bundler 模块解析（配合 esbuild/tsx）
-- 路径别名: `@/*` 映射到 `src/*`
+- bundler 模块解析（配合 Vite 8）
+- 路径别名: `@/*` 映射到 `src/*`，`@test/*` 映射到 `test/*`
 - verbatimModuleSyntax: 类型导入必须使用 `import type`
 
 ### 类型导入规范（verbatimModuleSyntax）
@@ -281,6 +321,70 @@ tool_group: [safe_tools, dangerous_tools]
 - 函数、常量等运行时值
 
 判断口诀：有运行时值的用import，纯类型定义用import type
+
+## 测试模块
+
+测试使用 Vitest 框架，配置统一在 [vite.config.ts](vite.config.ts) 中。
+
+### 测试目录结构
+
+```text
+test/
+├── agent/                   # Agent 层测试
+│   ├── middleware/          # 中间件测试
+│   │   ├── chat.test.ts     # Chat 中间件
+│   │   ├── chunk.test.ts    # Chunk 处理
+│   │   ├── message.test.ts  # 消息累积
+│   │   ├── retry.test.ts    # 重试机制
+│   │   └── tool.test.ts     # 工具执行
+│   ├── provider/            # Provider 测试
+│   │   ├── ollama.test.ts   # Ollama Adapter
+│   │   └── openai.test.ts   # OpenAI Adapter
+│   ├── tool/                # 工具测试
+│   │   ├── bash.test.ts     # execute_command
+│   │   ├── read.test.ts     # read_file
+│   │   ├── write.test.ts    # write_file
+│   │   └── skill.test.ts    # Skill 激活
+│   ├── builder.test.ts      # AgentBuilder
+│   └── index.test.ts        # Agent 入口
+│
+├── core/                    # Core 层测试
+│   ├── llm/                 # LLM Adapter 测试
+│   ├── message/             # Message Adapter 测试
+│   ├── middleware/          # Middleware 核心（compose/types/utils）
+│   ├── prompt/              # Prompt 系统
+│   ├── tool/                # Tool 核心
+│   └── config.test.ts       # SupervisionLevel 枚举
+│
+├── utils/                   # Utils 层测试
+│   ├── drain/               # Drain 算法测试
+│   ├── bashLogger.test.ts   # Bash 日志管理
+│   ├── config.test.ts       # YAML 配置加载
+│   ├── env.test.ts          # 环境信息
+│   └── hash.test.ts         # Hash 生成
+│
+├── helpers/                 # 测试辅助工具
+│   └── tempDir.ts           # 临时目录管理
+│
+└── __mocks__/               # Mock 文件
+    ├── ollama.ts            # Ollama Mock
+    └── openai.ts            # OpenAI Mock
+```
+
+### 测试命令
+
+```bash
+yarn test              # 单次运行所有测试
+yarn test:watch        # 监听模式
+yarn test:coverage     # 生成覆盖率报告
+```
+
+### 测试规范
+
+- 测试文件命名：`*.test.ts`
+- 测试目录结构与 src/ 对应
+- Mock 文件放在 `test/__mocks__/`
+- 使用 Vitest globals（describe/it/expect/vi）
 
 ## 添加新 LLM Provider
 
@@ -306,11 +410,11 @@ export default tool(
 );
 ```
 
-在 `src/agent/tool/` 目录创建文件，工具会自动被 [agent/tool/index.ts](src/agent/tool/index.ts) 加载。
+在 `src/agent/tool/` 目录创建文件，并在 [agent/tool/index.ts](src/agent/tool/index.ts) 中显式导入注册。
 
 ## 添加新 Skill
 
-1. 创建 `src/agent/skills/<skill_name>/` 目录
+1. 在 `.chery/skills/` 目录创建 `<skill_name>/` 子目录
 2. 添加 `SKILL.md` 文件，包含 frontmatter（name/description）
 3. prompt 系统自动加载并注入
 
@@ -319,7 +423,3 @@ export default tool(
 1. 在 `src/agent/middleware/` 目录创建新的中间件文件
 2. 实现 `MiddlewareHandler` 类型签名
 3. 在 [agent/middleware/index.ts](src/agent/middleware/index.ts) 的 `defaultHandlers` 数组中添加
-
-## 测试文件
-
-`test/` 目录包含临时测试脚本，非正式测试套件。

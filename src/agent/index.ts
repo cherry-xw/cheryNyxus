@@ -1,8 +1,23 @@
 import { AgentBuilder } from "./builder";
+import * as readline from "readline";
 
 /**
  * Agent 示例：使用 deepseek 配置访问 package.json 数据
  */
+
+// 创建 readline 接口（复用）
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
+
+async function promptUser(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      resolve(answer.trim().toUpperCase());
+    });
+  });
+}
 
 async function streamExample() {
 
@@ -37,12 +52,7 @@ async function streamExample() {
         const handle = chunk.handles[i];
         if (!handle) continue;
 
-        console.log(`\n[${i + 1}] 是否批准执行？(Y/N)`);
-        const input = await new Promise<string>((resolve) => {
-          process.stdin.once("data", (data) => {
-            resolve(data.toString().trim().toUpperCase());
-          });
-        });
+        const input = await promptUser(`\n[${i + 1}] 是否批准执行？(Y/N)`);
 
         const approved = input === "Y" || input === "YES";
         console.log(`用户选择: ${approved ? "批准" : "拒绝"}\n`);
@@ -80,6 +90,7 @@ async function streamExample() {
   }
 
   console.log("\n运行结束");
+  rl.close();
 }
 
 streamExample().catch(console.error);

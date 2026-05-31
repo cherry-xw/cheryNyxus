@@ -1,14 +1,13 @@
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { join, dirname } from "path";
+import { readFileSync, existsSync } from "fs";
 import { getSkillMetas } from "./loadSkill.js";
 import { getEnvInfo } from "@/utils/env.js";
+import config from "@/utils/config.js";
 
-// ESM 下获取当前模块目录
-const promptModulePath = fileURLToPath(import.meta.url);
-const promptDir = dirname(promptModulePath);
-
-const systemPrompt = readFileSync(join(promptDir, "system.md"), "utf-8").trim();
+// 从配置中读取 system.md，配置为空则使用空字符串
+const systemPromptPath = config.global.system_prompt;
+const systemPrompt = systemPromptPath && existsSync(systemPromptPath)
+  ? readFileSync(systemPromptPath, "utf-8").trim()
+  : "";
 
 /**
  * 构建完整 prompt

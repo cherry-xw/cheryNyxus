@@ -57,6 +57,8 @@ interface GlobalConfig {
   maxLoopCount?: number; // loop 最大执行次数（默认 30）
   bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig; // 文件压缩配置
+  skills_dir?: string; // skills 目录绝对路径（为空则禁用 skills 功能）
+  system_prompt?: string; // 系统提示词文件绝对路径
 }
 
 interface Config {

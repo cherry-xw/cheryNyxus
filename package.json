@@ -5,9 +5,9 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild src/agent/index.ts --bundle --platform=node --format=esm --outfile=dist/agent/index.js --external:dotenv --external:ollama --external:openai",
-    "start": "node dist/agent/index.js",
-    "dev": "nodemon --exec tsx src/agent/index.ts",
+    "build": "vite build --ssr",
+    "start": "node dist/index.js",
+    "dev": "vite build --ssr --watch & nodemon dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
@@ -38,6 +38,7 @@
     "tsc-alias": "^1.8.16",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
+    "vite": "^8.0.14",
     "vitest": "^4.1.7"
   },
   "dependencies": {

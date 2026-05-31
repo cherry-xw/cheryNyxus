@@ -1,9 +1,12 @@
 import type { ZodType } from "zod";
 import type { Tool } from "@/core/tool";
-import { readdirSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
 import { SupervisionLevel } from "@/core/config";
+
+// 显式导入所有工具模块
+import bashTool from "./bash";
+import readTool from "./read";
+import writeTool from "./write";
+import skillTool from "./skill";
 
 export { tool, ToolManager } from "@/core/tool";
 export type { Tool, ToolResult } from "@/core/tool";
@@ -22,36 +25,28 @@ const toolRegistry: Record<string, Tool<ZodType>> = {};
 const supervisionRegistry: Record<string, SupervisionLevel> = {};
 
 /**
- * 动态加载 handle 目录下的所有工具模块
+ * 注册所有工具（静态导入，无需动态扫描）
  */
-async function loadTools(): Promise<void> {
-  const currentDir = dirname(fileURLToPath(import.meta.url));
+function registerTools(): void {
+  const tools = [bashTool, readTool, writeTool, skillTool];
 
-  const files = readdirSync(currentDir)
-    .filter(file => file.endsWith(".ts") && !file.endsWith(".d.ts") && file !== "index.ts");
-
-  await Promise.all(
-    files.map(async (file) => {
-      const module = await import(`file://${join(currentDir, file)}`);
-      const tool = module.default as Tool<ZodType>;
-      if (tool?.definition?.function?.name) {
-        const toolName = tool.definition.function.name;
-        toolRegistry[toolName] = tool;
-        // 注册工具监管等级
-        supervisionRegistry[toolName] = tool.supervisionLevel;
-      }
-    })
-  );
+  for (const tool of tools) {
+    if (tool?.definition?.function?.name) {
+      const toolName = tool.definition.function.name;
+      toolRegistry[toolName] = tool;
+      supervisionRegistry[toolName] = tool.supervisionLevel;
+    }
+  }
 }
 
-// 启动时加载所有工具
-const loadPromise = loadTools();
+// 启动时立即注册
+registerTools();
 
 /**
- * 确保工具已加载完成
+ * 确保工具已加载完成（静态注册后立即完成）
  */
 export async function ensureToolsLoaded(): Promise<void> {
-  await loadPromise;
+  // 静态导入已完成，无需等待
 }
 
 /**

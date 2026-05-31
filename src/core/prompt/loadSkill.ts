@@ -1,9 +1,10 @@
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
-import { join, dirname } from "path";
+import { join, dirname, resolve } from "path";
 import yaml from "js-yaml";
+import config from "@/utils/config.js";
 
-// ESM 下获取当前模块目录
+// ESM 下获取当前模块目录（用于 fallback）
 const promptModulePath = fileURLToPath(import.meta.url);
 const promptDir = dirname(promptModulePath);
 
@@ -62,7 +63,11 @@ function parseSkillFrontmatter(
  * 返回 Skill Map（key: skill name, value: SkillData）
  */
 function loadSkills(): Map<string, SkillData> {
-  const skillsDir = join(promptDir, "../../agent/skills");
+  const skillsDir = config.global.skills_dir;
+
+  // 配置为空则禁用 skills 功能
+  if (!skillsDir) return new Map();
+
   if (!existsSync(skillsDir)) return new Map();
 
   const skillMap = new Map<string, SkillData>();
