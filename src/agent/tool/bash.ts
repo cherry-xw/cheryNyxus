@@ -1,24 +1,61 @@
 import { z } from "zod";
 import { spawn } from "child_process";
-import { readFileSync } from "fs";
+import { writeFileSync } from "fs";
 import { tool, type ToolResult } from "@/core/tool";
 import { SupervisionLevel } from "@/core/config";
 import { getWorkDir } from "@/utils/env.js";
 import config from "@/utils/config";
 import {
   createLogFile,
-  createLogStream,
   formatLogHeader,
-  getLogSize,
-  shouldShowPartialLog,
-  getLogSizeThreshold,
-  formatLogSize,
   cleanOldLogs,
   type BashLogInfo,
 } from "@/utils/bashLogger.js";
 
 const DEFAULT_TIMEOUT = config.global.tool_execute_timeout ?? 30000;
 const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24;
+
+/** Bash 工具执行结果结构 */
+interface BashResult {
+  status: 'success' | 'timeout' | 'error';
+  pid: number;
+  exitCode?: number;
+  duration: number;
+  command: string;
+  description: string;
+  output: string;
+  logPath?: string;
+  message?: string;
+}
+
+/** 格式化 BashResult 为字符串 */
+function formatBashResult(result: BashResult): string {
+  let content = `状态: ${result.status}\n`;
+  content += `进程ID: ${result.pid}\n`;
+  if (result.exitCode !== undefined) {
+    content += `退出码: ${result.exitCode}\n`;
+  }
+  content += `执行时长: ${result.duration}ms\n`;
+  if (result.logPath) {
+    content += `日志路径: ${result.logPath}（详细信息使用 read_file 读取）\n`;
+  }
+  if (result.message) {
+    content += `说明: ${result.message}\n`;
+  }
+
+  // output 截取策略：超过30行显示前15+后15，中间省略
+  const outputLines = result.output.split('\n');
+  if (outputLines.length > 30) {
+    const first15 = outputLines.slice(0, 15).join('\n');
+    const last15 = outputLines.slice(-15).join('\n');
+    const middleCount = outputLines.length - 30;
+    content += `\n[输出]\n${first15}\n... 省略 ${middleCount} 行 ...\n${last15}`;
+  } else {
+    content += `\n[输出]\n${result.output}`;
+  }
+
+  return content;
+}
 
 const BashSchema = z.object({
   command: z
@@ -31,21 +68,19 @@ const BashSchema = z.object({
 
 export default tool(
   "execute_command",
-  `执行 shell 命令（Unix: bash/sh，Windows: cmd/powershell）。默认超时时间${DEFAULT_TIMEOUT/1000}秒，超时后进程在后台继续运行，日志记录到临时文件。可使用 read_file 工具读取完整日志。如需切换工作目录，请在命令中使用 "cd <目录> && ..." 格式（Unix）或 "cd <目录> & ..." 格式（Windows）。`,
+  `执行 shell 命令（Unix: bash/sh，Windows: cmd/powershell）。如需切换工作目录，请在命令中使用 "cd <目录> && ..." 格式`,
   BashSchema,
   async (input): Promise<ToolResult> => {
     const { command, description } = input;
 
     const startTime = Date.now();
-    const logPath = createLogFile(startTime, startTime);
-    const logStream = createLogStream(logPath);
-
     const hash = "";
 
     cleanOldLogs(LOG_RETENTION_HOURS);
 
     return new Promise((resolve) => {
       let timedOut = false;
+      let outputBuffer = ''; // 实时累积 stdout/stderr
 
       const proc = spawn(command, [], {
         shell: true,
@@ -54,105 +89,82 @@ export default tool(
 
       const processPid = proc.pid!;
 
-      const logInfo: BashLogInfo = {
-        pid: processPid,
-        command,
-        startTime,
-        logPath,
-        description,
-        status: 'running',
-      };
-
-      logStream.write(formatLogHeader(logInfo));
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-
-        logStream.write(`\n[Timeout Triggered]: ${new Date().toLocaleString('zh-CN', { hour12: false })}\n`);
-
-        const logSize = getLogSize(logPath);
-        const showPartial = shouldShowPartialLog(logPath);
-        const threshold = getLogSizeThreshold();
-
-        let partialLog: string;
-        try {
-          const content = readFileSync(logPath, 'utf-8');
-          partialLog = showPartial ? content.substring(0, threshold) : content;
-        } catch (err) {
-          partialLog = `[ERROR] 读取日志失败: ${(err as Error).message}`;
-        }
-
-        let result = `[TIMEOUT] 命令执行超时（PID: ${processPid}）\n`;
-        result += `[触发时间: ${new Date(startTime).toLocaleString('zh-CN', { hour12: false })}]\n\n`;
-
-        if (showPartial) {
-          result += `日志文件已生成：${logPath}\n`;
-          result += `日志大小：${formatLogSize(logSize)}（超过${formatLogSize(threshold)}阈值，仅显示前${formatLogSize(threshold)}）\n\n`;
-        } else {
-          result += `进程仍在后台运行，日志记录位置：\n${logPath}\n\n`;
-        }
-
-        result += `最近输出：\n${partialLog}\n\n`;
-        result += `提示：进程仍在运行，可稍后使用 read_file 工具读取完整日志文件`;
-
-        resolve({
-          content: result,
-          hash,
-        });
-      }, DEFAULT_TIMEOUT);
-
       proc.stdout.on('data', (data) => {
-        const output = data.toString();
-        logStream.write(`[stdout]: ${output}\n`);
+        outputBuffer += data.toString();
       });
 
       proc.stderr.on('data', (data) => {
-        const output = data.toString();
-        logStream.write(`[stderr]: ${output}\n`);
+        outputBuffer += data.toString();
       });
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+
+        // 超时场景：创建日志文件，进程进入后台运行
+        const logPath = createLogFile(startTime, endTime);
+        const logInfo: BashLogInfo = {
+          pid: processPid,
+          command,
+          startTime,
+          logPath,
+          description,
+          status: 'running',
+        };
+        writeFileSync(logPath, formatLogHeader(logInfo) + outputBuffer);
+
+        const result: BashResult = {
+          status: 'timeout',
+          pid: processPid,
+          duration,
+          command,
+          description,
+          output: outputBuffer,
+          logPath,
+          message: '进程进入后台运行',
+        };
+
+        resolve({ content: formatBashResult(result), hash });
+      }, DEFAULT_TIMEOUT);
 
       proc.on('close', (code) => {
         clearTimeout(timer);
-        logStream.write(`\n[Exit Code]: ${code}\n`);
-        logStream.write(`[EndTime]: ${new Date().toLocaleString('zh-CN', { hour12: false })}\n`);
-        logStream.end();
-
         if (!timedOut) {
-          let logContent: string;
-          try {
-            logContent = readFileSync(logPath, 'utf-8');
-          } catch (err) {
-            logContent = `[ERROR] 读取日志失败: ${(err as Error).message}`;
-          }
+          const endTime = Date.now();
+          const duration = endTime - startTime;
 
-          let result = `[完成] 命令执行成功（PID: ${processPid}）\n`;
-          if (code !== 0) {
-            result = `[ERROR] 命令退出码: ${code}（PID: ${processPid}）\n`;
-          }
-          result += `\n${logContent}`;
+          const result: BashResult = {
+            status: code === 0 ? 'success' : 'error',
+            pid: processPid,
+            exitCode: code ?? undefined,
+            duration,
+            command,
+            description,
+            output: outputBuffer,
+          };
 
-          resolve({ content: result, hash });
+          resolve({ content: formatBashResult(result), hash });
         }
       });
 
       proc.on('error', (err) => {
         clearTimeout(timer);
-        logStream.write(`\n[Error]: ${err.message}\n`);
-        logStream.write(`[EndTime]: ${new Date().toLocaleString('zh-CN', { hour12: false })}\n`);
-        logStream.end();
-
         if (!timedOut) {
-          let logContent: string;
-          try {
-            logContent = readFileSync(logPath, 'utf-8');
-          } catch {
-            logContent = '';
-          }
+          const endTime = Date.now();
+          const duration = endTime - startTime;
 
-          resolve({
-            content: `[ERROR] 命令执行失败: ${err.message}\n\n日志文件：${logPath}\n\n${logContent}`,
-            hash,
-          });
+          const result: BashResult = {
+            status: 'error',
+            pid: processPid,
+            duration,
+            command,
+            description,
+            output: outputBuffer,
+            message: err.message,
+          };
+
+          resolve({ content: formatBashResult(result), hash });
         }
       });
     });
