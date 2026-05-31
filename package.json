@@ -5,7 +5,10 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "vite build --ssr",
+    "postinstall": "test -f .env || cp .env.example .env",
+    "build": "vite build --ssr && cp .env.example dist/.env",
+    "build:test": "vite build --ssr --mode test && cp .env.example dist/.env",
+    "build:prod": "vite build --ssr --mode prod && cp .env.example dist/.env",
     "start": "node dist/index.js",
     "dev": "vite build --ssr --watch & nodemon dist/index.js",
     "test": "vitest run",

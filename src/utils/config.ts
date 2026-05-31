@@ -2,9 +2,20 @@ import dotenv from "dotenv";
 import yaml from "js-yaml";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { SupervisionLevel } from "@/core/config";
 
-dotenv.config();
+// ESM 模块中获取 __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// 优先加载 dist/.env（生产环境），否则加载根目录 .env（开发环境）
+const distEnvPath = path.join(__dirname, ".env");
+if (fs.existsSync(distEnvPath)) {
+  dotenv.config({ path: distEnvPath });
+} else {
+  dotenv.config();
+}
 
 // 从 core 层重新导出 SupervisionLevel
 export { SupervisionLevel } from "@/core/config";
