@@ -7,7 +7,10 @@
   "scripts": {
     "build": "esbuild src/agent/index.ts --bundle --platform=node --format=esm --outfile=dist/agent/index.js --external:dotenv --external:ollama --external:openai",
     "start": "node dist/agent/index.js",
-    "dev": "nodemon --exec tsx src/agent/index.ts"
+    "dev": "nodemon --exec tsx src/agent/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "repository": {
     "type": "git",
@@ -26,6 +29,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.7",
     "chery-fetch": "^1.0.13",
     "eslint": "^10.2.1",
     "lodash": "^4.18.1",
@@ -33,7 +37,8 @@
     "ts-node": "^10.9.2",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "dayjs": "^1.11.20",

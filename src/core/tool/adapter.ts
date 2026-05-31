@@ -1,6 +1,9 @@
 import type { Tool, ToolFunction } from "./toolCreator";
 import type { ZodType } from "zod";
 
+// 重新导出 ToolFunction 供外部使用
+export type { ToolFunction };
+
 /**
  * 统一的工具调用数据结构
  * 流式增量与非流式完整响应共用

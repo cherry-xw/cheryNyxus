@@ -10,7 +10,7 @@ export interface Profiler {
 }
 
 export class NullProfiler implements Profiler {
-  startSection(): void {}
+  startSection(_sectionName: string): void {}
   endSection(): void {}
 }
 
