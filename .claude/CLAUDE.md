@@ -19,10 +19,18 @@ yarn test:watch   # 测试监听模式
 ## 目录结构
 
 ```text
-.chery/                      # 外置配置目录（不走打包）
+.chery/                      # 外置配置目录（不走打包，运行时读取）
+├── config.yaml              # LLM 客户端配置 + Tool 分组配置 + 全局配置
 ├── system.md                # 系统 prompt 模板
-└── skills/                  # 技能定义目录
-    └── <name>/SKILL.md      # 技能定义文件
+├── skills/                  # 技能定义目录
+│   └── <name>/SKILL.md      # 技能定义文件
+└── tools/                   # 外部自定义工具目录
+    └── <name>.ts            # 工具定义文件（简化格式）
+
+dist/                        # 编译产物目录
+├── index.js                 # SSR 打包主产物
+└── custom/                  # 外部工具编译产物
+    └── <name>.js            # 编译后的工具 JS 文件
 
 src/
 ├── core/                    # 核心架构层（框架抽象）
@@ -118,10 +126,12 @@ vite.config.ts               # Vite 8 + Vitest 统一配置
 ### 配置层（外置）
 
 **配置层** (`/.chery/`): 运行时配置，不走打包
+- 配置文件（config.yaml）：LLM 客户端、Tool 分组、全局配置
 - 系统提示词模板（system.md）
 - 技能定义目录（skills/）
+- 外部工具定义目录（tools/）
 
-通过 `config.yaml` 配置绝对路径引用。
+配置路径通过环境变量 `CHERY_DIR` 指定（默认 `process.cwd()`）。
 
 ## 架构设计模式
 
@@ -270,23 +280,33 @@ frontmatter 由 [core/prompt/loadSkill.ts](src/core/prompt/loadSkill.ts) 解析�
 
 ## 配置系统
 
-- `config.yaml`: LLM 客户端配置 + Tool 分组配置 + 全局配置
+- `.chery/config.yaml`: LLM 客户端配置 + Tool 分组配置 + 全局配置（运行时读取，不走打包）
 - `$ENV_VAR_NAME` 语法引用环境变量（由 [utils/config.ts](src/utils/config.ts) 替换）
-- `.env`: 存储 API 密钥等敏感信息
+- `.env`: 存储 API 密钥、`CHERY_DIR` 等敏感信息
 - 环境变量缺失时仅警告，不阻断启动
+
+### 环境变量配置
+
+```bash
+# .env 文件
+CHERY_DIR=/path/to/project    # .chery 目录所在路径（可选，默认 process.cwd()）
+OLLAMA_HOST=http://localhost:11434
+OPENAI_API_KEY=sk-xxx
+```
 
 ### 全局配置项
 
 ```yaml
+# .chery/config.yaml
 global:
   thinking: true              # 是否开启思考模式
   supervision: manual         # 默认监管等级（auto/confirm/manual）
   stream: true                # 是否开启流式输出
   tool_execute_timeout: 10000 # 工具执行超时（毫秒）
   bash_log_retention_hours: 24 # Bash 日志保留时间
-  skills_dir: /path/to/.chery/skills    # Skills 目录绝对路径
-  system_prompt: /path/to/.chery/system.md # 系统提示词绝对路径
 ```
+
+注意：`skills_dir`、`tools_dir`、`system_prompt` 路径自动补全，无需配置。
 
 ### Tool Group 配置
 
@@ -398,9 +418,16 @@ yarn test:coverage     # 生成覆盖率报告
 
 ## 添加新 Tool
 
+### 内置工具（打包进产物）
+
 使用 [core/tool/toolCreator.ts](src/core/tool/toolCreator.ts) 的 `tool()` 函数：
 
 ```ts
+// src/agent/tool/my_tool.ts
+import { z } from "zod";
+import { tool, type ToolResult } from "@/core/tool";
+import { SupervisionLevel } from "@/core/config";
+
 export default tool(
   "my_tool",                    // 名称
   "描述工具功能",                 // 描述
@@ -411,6 +438,53 @@ export default tool(
 ```
 
 在 `src/agent/tool/` 目录创建文件，并在 [agent/tool/index.ts](src/agent/tool/index.ts) 中显式导入注册。
+
+### 外部工具（运行时加载）
+
+在 `.chery/tools/` 目录创建 `.ts` 文件，使用**简化格式**（无需手动导入）：
+
+```ts
+// .chery/tools/my_custom_tool.ts
+// 无需导入 zod、tool、SupervisionLevel，编译系统自动注入
+
+const MySchema = z.object({
+  text: z.string().describe("输入文本"),
+});
+
+export default tool(
+  "my_custom_tool",
+  "自定义工具描述",
+  MySchema,
+  async (input) => {
+    return { content: `处理结果: ${input.text}`, hash: "" };
+  },
+  SupervisionLevel.confirm,
+);
+```
+
+**编译流程**：
+1. 运行时预处理：自动注入 `zod`、`tool`、`SupervisionLevel` 导入
+2. Vite 编译为 JS：输出到 `dist/custom/my_custom_tool.js`
+3. 动态加载：从 `dist/custom/` 导入并注册到 toolRegistry
+
+**配置使用**：
+在 `.chery/config.yaml` 的 `tool_groups` 中添加工具名称：
+
+```yaml
+tool_groups:
+  custom_tools:
+    tools:
+      - my_custom_tool
+```
+
+然后在客户端配置中引用：
+
+```yaml
+llm:
+  clients:
+    my_client:
+      tool_group: [safe_tools, custom_tools]
+```
 
 ## 添加新 Skill
 

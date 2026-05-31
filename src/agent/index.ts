@@ -1,6 +1,10 @@
 import { AgentBuilder } from "./builder";
 import * as readline from "readline";
 
+// 导出 tool 相关内容，供外部 tool 编译后使用
+export { z, tool, SupervisionLevel, registerTool, registerTools } from "./tool/index.js";
+export type { Tool, ToolResult } from "./tool/index.js";
+
 /**
  * Agent 示例：使用 deepseek 配置访问 package.json 数据
  */

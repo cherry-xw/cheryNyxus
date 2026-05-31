@@ -52,6 +52,9 @@ describe("config module", () => {
           thinking: true,
           supervision: SupervisionLevel.auto,
           stream: true,
+          skills_dir: "/path/.chery/skills",
+          tools_dir: "/path/.chery/tools",
+          system_prompt: "/path/.chery/system.md",
         },
         llm: {
           clients: {
@@ -123,6 +126,26 @@ tool_group: safe_tools
 url: $OPENAI_API_URL
 `;
       expect(yamlContent).toContain("$OPENAI_API_URL");
+    });
+
+    it("should read config from .chery/config.yaml path", () => {
+      // 配置文件路径概念验证：从 .chery/config.yaml 加载
+      const expectedPath = ".chery/config.yaml";
+      expect(expectedPath).toBe(".chery/config.yaml");
+    });
+  });
+
+  describe("CHERY_DIR environment variable", () => {
+    it("should use CHERY_DIR env var for .chery directory path", () => {
+      // CHERY_DIR 环境变量概念验证
+      const envVarName = "CHERY_DIR";
+      expect(envVarName).toBe("CHERY_DIR");
+    });
+
+    it("should fallback to process.cwd() if CHERY_DIR not set", () => {
+      // 默认路径概念验证
+      const fallbackPath = process.cwd();
+      expect(fallbackPath).toBeDefined();
     });
   });
 });

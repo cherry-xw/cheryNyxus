@@ -3,9 +3,9 @@ import { getSkillMetas } from "./loadSkill.js";
 import { getEnvInfo } from "@/utils/env.js";
 import config from "@/utils/config.js";
 
-// 从配置中读取 system.md，配置为空则使用空字符串
+// 使用自动补全的 system_prompt 路径
 const systemPromptPath = config.global.system_prompt;
-const systemPrompt = systemPromptPath && existsSync(systemPromptPath)
+const systemPrompt = existsSync(systemPromptPath)
   ? readFileSync(systemPromptPath, "utf-8").trim()
   : "";
 

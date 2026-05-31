@@ -39,7 +39,7 @@ llm:
       key: $ALI_API_KEY
       thinking: true
       provider: openai
-      tool_group: [safe_tools, dangerous_tools]
+      tool_group: [safe_tools, dangerous_tools, custom_tools]
 
 # Tool分组配置
 tool_groups:
@@ -51,6 +51,9 @@ tool_groups:
     tools:
       - execute_command
       - write_file
+  custom_tools:
+    tools:
+      - echo_text
 
 # 全局配置
 global:
@@ -59,8 +62,6 @@ global:
   stream: true # 是否开启流式输出
   tool_execute_timeout: 10000 # 工具执行超时时间（毫秒），默认 30 秒
   bash_log_retention_hours: 24 # bash 日志文件保留时间（小时），默认 24 小时
-  skills_dir: /home/chery/self/cheryClaw/.chery/skills # skills 目录绝对路径（为空则禁用 skills 功能）
-  system_prompt: /home/chery/self/cheryClaw/.chery/system.md # 系统提示词文件绝对路径
 
   # 文件压缩配置
   file_compression:

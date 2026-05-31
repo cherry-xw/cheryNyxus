@@ -1,6 +1,14 @@
 import type { ZodType } from "zod";
 import type { Tool } from "@/core/tool";
-import { SupervisionLevel } from "@/core/config";
+import { registerTools, registerTool, getTool, getTools, getToolSupervision } from "@/core/tool";
+import { readdirSync, existsSync } from "fs";
+import { join } from "path";
+import config from "@/utils/config.js";
+import { preprocessAndCompileAllTools } from "@/utils/toolCompiler.js";
+
+// 导出 zod 和 tool 函数，供外部 tool 编译后使用
+export { z } from "zod";
+export { tool } from "@/core/tool";
 
 // 显式导入所有工具模块
 import bashTool from "./bash";
@@ -8,70 +16,73 @@ import readTool from "./read";
 import writeTool from "./write";
 import skillTool from "./skill";
 
-export { tool, ToolManager } from "@/core/tool";
+export { registerTool, registerTools, getTool, getTools, getToolSupervision, ToolManager } from "@/core/tool";
 export type { Tool, ToolResult } from "@/core/tool";
-export { SupervisionLevel } from "@/core/config";
+export { SupervisionLevel } from "@/core/tool";
 
 /**
- * 工具注册表：工具名 → Tool 实例
- * 用于按名称获取工具实例
+ * 注册内置工具
  */
-const toolRegistry: Record<string, Tool<ZodType>> = {};
+function registerStaticTools(): void {
+  registerTools([bashTool, readTool, writeTool, skillTool]);
+}
+
+// 启动时立即注册内置工具
+registerStaticTools();
 
 /**
- * 工具监管等级注册表：工具名 → SupervisionLevel
- * 用于按名称获取工具的监管等级
+ * 动态加载自定义工具（从 dist/custom/ 目录）
  */
-const supervisionRegistry: Record<string, SupervisionLevel> = {};
+async function loadCustomTools(): Promise<void> {
+  const cheryDir = config.global.chery_dir || process.cwd();
+  const customDir = join(cheryDir, "dist", "custom");
 
-/**
- * 注册所有工具（静态导入，无需动态扫描）
- */
-function registerTools(): void {
-  const tools = [bashTool, readTool, writeTool, skillTool];
+  // 预处理并编译所有外部 tool 文件
+  const compiledPaths = await preprocessAndCompileAllTools();
 
-  for (const tool of tools) {
-    if (tool?.definition?.function?.name) {
-      const toolName = tool.definition.function.name;
-      toolRegistry[toolName] = tool;
-      supervisionRegistry[toolName] = tool.supervisionLevel;
+  if (compiledPaths.length === 0) {
+    // 检查是否已有编译产物
+    if (!existsSync(customDir)) return;
+
+    const files = readdirSync(customDir);
+    const jsFiles = files.filter(f => f.endsWith(".js"));
+
+    for (const file of jsFiles) {
+      const filePath = join(customDir, file);
+      try {
+        const module = await import(filePath);
+        const tool = module.default as Tool<ZodType>;
+
+        if (tool?.definition?.function?.name) {
+          registerTool(tool);
+          console.log(`✓ 自定义工具已加载: ${tool.definition.function.name}`);
+        }
+      } catch (err) {
+        console.warn(`⚠ 自定义工具加载失败: ${file}`, (err as Error).message);
+      }
+    }
+    return;
+  }
+
+  // 加载新编译的文件
+  for (const compiledPath of compiledPaths) {
+    try {
+      const module = await import(compiledPath);
+      const tool = module.default as Tool<ZodType>;
+
+      if (tool?.definition?.function?.name) {
+        registerTool(tool);
+        console.log(`✓ 自定义工具已加载: ${tool.definition.function.name}`);
+      }
+    } catch (err) {
+      console.warn(`⚠ 自定义工具加载失败: ${compiledPath}`, (err as Error).message);
     }
   }
 }
 
-// 启动时立即注册
-registerTools();
-
 /**
- * 确保工具已加载完成（静态注册后立即完成）
+ * 确保工具已加载完成（内置工具 + 自定义工具）
  */
 export async function ensureToolsLoaded(): Promise<void> {
-  // 静态导入已完成，无需等待
-}
-
-/**
- * 获取单个工具实例
- * @param name 工具名称
- * @returns Tool 实例或 undefined
- */
-export function getTool(name: string): Tool<ZodType> | undefined {
-  return toolRegistry[name];
-}
-
-/**
- * 批量获取工具实例
- * @param names 工具名称列表
- * @returns Tool 实例数组（过滤掉未找到的工具）
- */
-export function getTools(names: string[]): Tool<ZodType>[] {
-  return names.map(name => toolRegistry[name]).filter((tool): tool is Tool<ZodType> => tool !== undefined);
-}
-
-/**
- * 获取工具监管等级
- * @param name 工具名称
- * @returns 监管等级或 undefined（未找到）
- */
-export function getToolSupervision(name: string): SupervisionLevel | undefined {
-  return supervisionRegistry[name];
+  await loadCustomTools();
 }

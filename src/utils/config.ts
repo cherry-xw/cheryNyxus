@@ -57,12 +57,19 @@ interface GlobalConfig {
   maxLoopCount?: number; // loop 最大执行次数（默认 30）
   bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig; // 文件压缩配置
-  skills_dir?: string; // skills 目录绝对路径（为空则禁用 skills 功能）
-  system_prompt?: string; // 系统提示词文件绝对路径
+}
+
+/**
+ * 扩展全局配置（包含自动补全的路径）
+ */
+interface ExtendedGlobalConfig extends GlobalConfig {
+  skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
+  tools_dir: string; // 自动补全：chery_dir + "/.chery/tools"
+  system_prompt: string; // 自动补全：chery_dir + "/.chery/system.md"
 }
 
 interface Config {
-  global: GlobalConfig;
+  global: ExtendedGlobalConfig;
   llm: LLMConfig;
   tool_groups?: Record<string, ToolGroupConfig>; // tool分组配置
 }
@@ -100,7 +107,8 @@ function replaceEnvVars(value: unknown): unknown {
 }
 
 function loadConfig(): Config {
-  const configPath = path.join(process.cwd(), "config.yaml");
+  // 从 .chery/config.yaml 读取配置（运行时配置，不走打包）
+  const configPath = path.join(process.cwd(), ".chery", "config.yaml");
 
   if (!fs.existsSync(configPath)) {
     throw new Error(`Config file not found: ${configPath}`);
@@ -118,6 +126,17 @@ function loadConfig(): Config {
     ];
   }
 
+  // 自动补全 .chery 目录路径（从环境变量读取，默认 process.cwd()）
+  const cheryDir = process.env.CHERY_DIR || process.cwd();
+  config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
+  config.global.tools_dir = path.join(cheryDir, ".chery", "tools");
+  config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
+
+  // 添加环境变量缺失警告
+  if (!process.env.CHERY_DIR) {
+    console.warn(`⚠️ 环境变量 CHERY_DIR 未配置，使用默认路径: ${cheryDir}`);
+  }
+
   if (missingEnvVars.length > 0) {
     console.warn(`⚠️ 环境变量未配置: ${missingEnvVars.join(", ")}`);
   }
@@ -128,5 +147,5 @@ function loadConfig(): Config {
 const config = loadConfig();
 // console.log(JSON.stringify(config));
 
-export type { Config, LLMConfig, ClientConfig, ToolGroupConfig, GlobalConfig, FileCompressionConfig };
+export type { Config, LLMConfig, ClientConfig, ToolGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig };
 export default config;
