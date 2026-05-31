@@ -37,6 +37,16 @@ interface ToolGroupConfig {
 }
 
 /**
+ * 文件压缩配置
+ */
+interface FileCompressionConfig {
+  truncate_threshold?: number; // 截断阈值（字节），默认150KB
+  truncate_preview_lines?: number; // 截断保留行数，默认100行
+  log_file_extensions?: string[]; // 日志文件扩展名列表
+  drain_preview_count?: number; // Drain模板实例数，默认3
+}
+
+/**
  * 全局配置
  */
 interface GlobalConfig {
@@ -45,6 +55,8 @@ interface GlobalConfig {
   stream: boolean; // 是否开启流式输出
   tool_execute_timeout?: number; // 工具执行超时时间（毫秒）
   maxLoopCount?: number; // loop 最大执行次数（默认 30）
+  bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
+  file_compression?: FileCompressionConfig; // 文件压缩配置
 }
 
 interface Config {
@@ -114,5 +126,5 @@ function loadConfig(): Config {
 const config = loadConfig();
 // console.log(JSON.stringify(config));
 
-export type { Config, LLMConfig, ClientConfig, ToolGroupConfig, GlobalConfig };
+export type { Config, LLMConfig, ClientConfig, ToolGroupConfig, GlobalConfig, FileCompressionConfig };
 export default config;

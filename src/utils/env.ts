@@ -75,8 +75,8 @@ export function getEnvInfo(): EnvInfo {
  * 转换相对路径为绝对路径
  */
 export function resolvePath(inputPath: string): string {
-  if (inputPath.startsWith('/')) {
-    return inputPath; // 已经是绝对路径
+  if (path.isAbsolute(inputPath)) {
+    return inputPath; // 已经是绝对路径（支持 Unix 和 Windows）
   }
   const workDir = getWorkDir();
   return path.resolve(workDir, inputPath); // 使用 path.resolve 处理 ./ ../ 等

@@ -58,4 +58,16 @@ global:
   thinking: true # 是否开启思考模式（如果能思考）
   supervision: manual # 全局默认的监管等级，可选 auto:全部自动、confirm:按工具默认、manual:全部手动确认
   stream: true # 是否开启流式输出
-  tool_execute_timeout: 60000 # 工具执行超时时间（毫秒），默认 60 秒
+  tool_execute_timeout: 10000 # 工具执行超时时间（毫秒），默认 30 秒
+  bash_log_retention_hours: 24 # bash 日志文件保留时间（小时），默认 24 小时
+
+  # 文件压缩配置
+  file_compression:
+    truncate_threshold: 150000 # 150KB截断阈值（字节），超过此大小触发截断
+    truncate_preview_lines: 100 # 截断时保留的行数
+    log_file_extensions: # 日志文件扩展名列表（用于自动判断）
+      - .log
+      - .txt
+      - .out
+      - .err
+    drain_preview_count: 3 # Drain算法每个模板显示的实例数
