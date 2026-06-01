@@ -212,4 +212,95 @@ describe("AgentBuilder", () => {
       expect(middleware).toBeDefined();
     });
   });
+
+  describe("build() edge cases", () => {
+    it("should warn when tool group not found", async () => {
+      const { AgentBuilder } = await import("@/agent/builder");
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const builder = new AgentBuilder();
+      // Use openai_client which has tool_group: ["safe_tools", "dangerous_tools"]
+      // Override config to include a non-existent group
+      const config = (await import("@/utils/config")).default;
+      const origClient = config.llm.clients.ollama_client;
+      config.llm.clients.ollama_client = {
+        ...origClient,
+        tool_group: ["nonexistent_group"],
+      };
+
+      builder.use("ollama_client");
+      const middleware = await builder.build();
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("nonexistent_group"));
+      expect(middleware).toBeDefined();
+
+      config.llm.clients.ollama_client = origClient;
+      warnSpy.mockRestore();
+    });
+
+    it("should warn when tool name duplicates across groups", async () => {
+      const { AgentBuilder } = await import("@/agent/builder");
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const config = (await import("@/utils/config")).default;
+      const origClient = config.llm.clients.ollama_client;
+      config.llm.clients.ollama_client = {
+        ...origClient,
+        tool_group: ["safe_tools", "dup_tools"],
+      };
+      config.tool_groups.dup_tools = { tools: ["read_file"] };
+
+      const builder = new AgentBuilder();
+      builder.use("ollama_client");
+      const middleware = await builder.build();
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("already loaded"));
+      expect(middleware).toBeDefined();
+
+      config.llm.clients.ollama_client = origClient;
+      delete config.tool_groups.dup_tools;
+      warnSpy.mockRestore();
+    });
+
+    it("should build with no tool_group configured", async () => {
+      const { AgentBuilder } = await import("@/agent/builder");
+      const config = (await import("@/utils/config")).default;
+      const origClient = config.llm.clients.ollama_client;
+      config.llm.clients.ollama_client = {
+        ...origClient,
+        tool_group: undefined,
+      };
+
+      const builder = new AgentBuilder();
+      builder.use("ollama_client");
+      const middleware = await builder.build();
+
+      expect(middleware).toBeDefined();
+
+      config.llm.clients.ollama_client = origClient;
+    });
+
+    it("should apply group-level supervision override", async () => {
+      const { AgentBuilder } = await import("@/agent/builder");
+      const config = (await import("@/utils/config")).default;
+      const origClient = config.llm.clients.ollama_client;
+      config.llm.clients.ollama_client = {
+        ...origClient,
+        tool_group: ["supervised_tools"],
+      };
+      config.tool_groups.supervised_tools = {
+        tools: ["read_file"],
+        supervision: 2,
+      };
+
+      const builder = new AgentBuilder();
+      builder.use("ollama_client");
+      const middleware = await builder.build();
+
+      expect(middleware).toBeDefined();
+
+      config.llm.clients.ollama_client = origClient;
+      delete config.tool_groups.supervised_tools;
+    });
+  });
 });

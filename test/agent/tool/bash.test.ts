@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import bashTool from "@/agent/tool/bash";
 import { SupervisionLevel } from "@/core/config";
+import type { ToolSharedData } from "@/core/tool";
 
-// Mock config - 使用正确的路径格式
 vi.mock("@/utils/config", () => ({
   default: {
     global: {
@@ -12,12 +12,10 @@ vi.mock("@/utils/config", () => ({
   },
 }));
 
-// Mock env
 vi.mock("@/utils/env", () => ({
   getWorkDir: vi.fn(() => process.cwd()),
 }));
 
-// Mock bashLogger
 vi.mock("@/utils/bashLogger", () => ({
   createLogFile: vi.fn(() => "/tmp/test-log.log"),
   createLogStream: vi.fn(() => ({
@@ -45,11 +43,111 @@ describe("Bash Tool", () => {
     it("should have valid schema", () => {
       expect(bashTool.definition.function.parameters).toBeDefined();
     });
-  });
 
-  describe("tool description", () => {
     it("should have description", () => {
       expect(bashTool.definition.function.description).toBeDefined();
+    });
+  });
+
+  describe("executor", () => {
+    const sharedData: ToolSharedData = new Map();
+    let cleanOldLogs: ReturnType<typeof vi.fn>;
+
+    beforeAll(async () => {
+      const mod = await import("@/utils/bashLogger");
+      cleanOldLogs = vi.mocked(mod.cleanOldLogs);
+    });
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("should execute command successfully (exit code 0)", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "echo hello", description: "test echo" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("状态: success");
+      expect(result.content).toContain("退出码: 0");
+      expect(result.content).toContain("hello");
+      expect(result.hash).toBe("");
+      expect(cleanOldLogs).toHaveBeenCalledWith(24);
+    });
+
+    it("should handle command failure (non-zero exit code)", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "exit 1", description: "test failure" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("状态: error");
+      expect(result.content).toContain("退出码: 1");
+    });
+
+    it("should capture both stdout and stderr", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "echo out && echo err >&2", description: "test output" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("out");
+      expect(result.content).toContain("err");
+    });
+
+    it("should include duration in output", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "echo test", description: "test duration" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("执行时长:");
+      expect(result.content).toContain("ms");
+    });
+
+    it("should include process ID in output", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "echo test", description: "test pid" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("进程ID:");
+    });
+
+    it("should handle spawn error", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "nonexistent_command_xyz_12345", description: "test error" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("状态: error");
+    });
+
+    it("should call cleanOldLogs before execution", async () => {
+      await bashTool.executor.execute(
+        { command: "echo test", description: "test clean" },
+        sharedData,
+      );
+
+      expect(cleanOldLogs).toHaveBeenCalledTimes(1);
+    });
+
+    it("should truncate long output (>30 lines)", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "seq 50", description: "test long output" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("省略");
+    });
+
+    it("should not truncate short output (<=30 lines)", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "seq 10", description: "test short output" },
+        sharedData,
+      );
+
+      expect(result.content).not.toContain("省略");
     });
   });
 });

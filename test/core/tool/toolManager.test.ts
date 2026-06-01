@@ -170,4 +170,62 @@ describe("ToolManager", () => {
       expect(manager.getAdapter()).toBe(mockAdapter);
     });
   });
+
+  describe("setSupervision", () => {
+    it("overrides tool supervision level", () => {
+      const manager = new ToolManager("test-provider");
+      const testTool = tool(
+        "supervision_override",
+        "Test",
+        z.object({}),
+        async () => ({ content: "", hash: "" }),
+        SupervisionLevel.auto,
+      );
+      manager.add(testTool);
+
+      manager.setSupervision("supervision_override", SupervisionLevel.manual);
+
+      expect(testTool.supervisionLevel).toBe(SupervisionLevel.manual);
+    });
+
+    it("does nothing for non-existent tool", () => {
+      const manager = new ToolManager("test-provider");
+      expect(() => manager.setSupervision("non_existent", SupervisionLevel.auto)).not.toThrow();
+    });
+  });
+
+  describe("fillSupervisionDefault", () => {
+    it("fills undefined supervision levels with provided level", () => {
+      const manager = new ToolManager("test-provider");
+      const testTool = tool(
+        "no_supervision",
+        "Test",
+        z.object({}),
+        async () => ({ content: "", hash: "" }),
+      );
+      manager.add(testTool);
+
+      expect(testTool.supervisionLevel).toBeUndefined();
+
+      manager.fillSupervisionDefault(SupervisionLevel.confirm);
+
+      expect(testTool.supervisionLevel).toBe(SupervisionLevel.confirm);
+    });
+
+    it("skips tools that already have a supervision level", () => {
+      const manager = new ToolManager("test-provider");
+      const testTool = tool(
+        "has_supervision",
+        "Test",
+        z.object({}),
+        async () => ({ content: "", hash: "" }),
+        SupervisionLevel.manual,
+      );
+      manager.add(testTool);
+
+      manager.fillSupervisionDefault(SupervisionLevel.auto);
+
+      expect(testTool.supervisionLevel).toBe(SupervisionLevel.manual);
+    });
+  });
 });
