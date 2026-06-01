@@ -9,12 +9,12 @@ import { SupervisionLevel } from "@/core/config";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 优先加载 dist/.env（生产环境），否则加载根目录 .env（开发环境）
-const distEnvPath = path.join(__dirname, ".env");
-if (fs.existsSync(distEnvPath)) {
-  dotenv.config({ path: distEnvPath });
+// 根目录 .env（开发环境 dist/ 上级）优先，回退到 dist/.env（生产环境）
+const rootEnvPath = path.join(__dirname, "..", ".env");
+if (fs.existsSync(rootEnvPath)) {
+  dotenv.config({ path: rootEnvPath });
 } else {
-  dotenv.config();
+  dotenv.config({ path: path.join(__dirname, ".env") });
 }
 
 // 从 core 层重新导出 SupervisionLevel
@@ -119,11 +119,16 @@ function replaceEnvVars(value: unknown): unknown {
 }
 
 function loadConfig(): Config {
+  // .chery 目录路径（从环境变量读取，默认 process.cwd()）
+  const cheryDir = process.env.CHERY_DIR || process.cwd();
+
   // 从 .chery/config.yaml 读取配置（运行时配置，不走打包）
-  const configPath = path.join(process.cwd(), ".chery", "config.yaml");
+  const configPath = path.join(cheryDir, ".chery", "config.yaml");
 
   if (!fs.existsSync(configPath)) {
-    throw new Error(`Config file not found: ${configPath}`);
+    console.error(`✗ 配置文件不存在: ${configPath}`);
+    console.error(`  请确认 CHERY_DIR 环境变量指向正确的项目根目录（当前: ${cheryDir}）`);
+    process.exit(1);
   }
 
   const configFile = fs.readFileSync(configPath, "utf8");
@@ -149,8 +154,7 @@ function loadConfig(): Config {
     }
   }
 
-  // 自动补全 .chery 目录路径（从环境变量读取，默认 process.cwd()）
-  const cheryDir = process.env.CHERY_DIR || process.cwd();
+  // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.tools_dir = path.join(cheryDir, ".chery", "tools");
   config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");

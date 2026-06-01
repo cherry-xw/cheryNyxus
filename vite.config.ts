@@ -1,11 +1,44 @@
+import { copyFileSync, existsSync, mkdirSync } from "fs";
+import { dirname, resolve } from "path";
+import { createRequire } from "module";
+import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
-import { resolve } from "path";
+
+function copyRuntimeAssets(mode: string): Plugin {
+  return {
+    name: "copy-runtime-assets",
+    writeBundle() {
+      const distDir = resolve(__dirname, "dist");
+      const envSource = mode === "dev"
+        ? resolve(__dirname, ".env")
+        : resolve(__dirname, ".env.example");
+      const envTarget = resolve(distDir, ".env");
+
+      if (existsSync(envSource)) {
+        copyFileSync(envSource, envTarget);
+      }
+
+      const require = createRequire(import.meta.url);
+      const swcPackagePath = require.resolve("@swc/wasm/package.json");
+      const swcDir = dirname(swcPackagePath);
+      const targetDir = resolve(distDir, "lib", "@swc", "wasm");
+
+      mkdirSync(targetDir, { recursive: true });
+      for (const file of ["wasm.js", "wasm_bg.wasm", "package.json"]) {
+        copyFileSync(resolve(swcDir, file), resolve(targetDir, file));
+      }
+    },
+  };
+}
 
 export default defineConfig(({ mode }) => {
-  const isProd = mode === "prod";
-  const isTest = mode === "test" || !mode;
+  const normalizedMode = mode || "test";
+  const isProd = normalizedMode === "prod";
+  const isTest = normalizedMode === "test";
 
   return {
+    plugins: [copyRuntimeAssets(normalizedMode)],
+
     build: {
       ssr: true,
       outDir: "dist",
@@ -25,7 +58,7 @@ export default defineConfig(({ mode }) => {
     },
 
     ssr: {
-      noExternal: /^(?!vite)/,
+      noExternal: /^(?!vite|@swc\/wasm)/,
     },
 
     test: {

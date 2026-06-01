@@ -1,29 +1,40 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "fs";
-import { join, basename, extname } from "path";
-import { build } from "vite";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "fs";
+import { join, basename, extname, dirname } from "path";
+import { fileURLToPath } from "url";
+import { createRequire } from "module";
 import config from "./config.js";
+import { hashGenerator } from "./hash.js";
 
 /**
- * 外部 tool 文件必须的导入语句
+ * 动态加载 @swc/wasm
+ * 优先使用 dist/vendor/@swc/wasm（独立部署场景）
+ * 回退到 node_modules/@swc/wasm（开发场景）
  */
-const REQUIRED_IMPORTS = [
-  'import { z } from "zod";',
-  'import { tool, type ToolResult } from "@/core/tool";',
-  'import { SupervisionLevel } from "@/core/config";',
-];
+function loadSwcWasm(): { transformSync: (code: string, opts: any) => { code: string } } {
+  const require = createRequire(import.meta.url);
+  const here = dirname(fileURLToPath(import.meta.url));
+  const vendored = join(here, "lib", "@swc", "wasm", "wasm.js");
+
+  if (existsSync(vendored)) {
+    return require(vendored);
+  }
+  return require("@swc/wasm");
+}
+
+const { transformSync } = loadSwcWasm();
+
+/** 源码中的 import source → 需要注入的完整 import 行 */
+const IMPORT_MAP: Record<string, string> = {
+  zod: 'import { z } from "../index.js";',
+  "@/core/tool": 'import { tool } from "../index.js";',
+  "@/core/config": 'import { SupervisionLevel } from "../index.js";',
+};
 
 /**
- * 检测文件是否已包含某个导入语句
- * 只检测真正的 import 行，忽略注释中的内容
+ * 检测文件中是否已从某个 source 导入
  */
-function hasImport(content: string, importStmt: string): boolean {
-  const sourceMatch = importStmt.match(/from\s+"([^"]+)"/);
-  if (!sourceMatch || !sourceMatch[1]) return false;
-
-  const source = sourceMatch[1];
+function hasImportFrom(content: string, source: string): boolean {
   const lines = content.split('\n');
-
-  // 只检测以 import 开头的行（排除注释）
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('import ') && !trimmed.startsWith('//') && !trimmed.startsWith('*')) {
@@ -32,18 +43,16 @@ function hasImport(content: string, importStmt: string): boolean {
       }
     }
   }
-
   return false;
 }
 
 /**
- * 注入缺少的导入语句
+ * 注入缺少的导入语句（直接使用目标路径 ../index.js）
  */
 function injectImports(content: string): string {
   const lines = content.split('\n');
   let lastImportIndex = -1;
 
-  // 找到最后一个 import 语句的位置
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (line && line.trim().startsWith('import ') && !line.trim().startsWith('import type')) {
@@ -51,19 +60,18 @@ function injectImports(content: string): string {
     }
   }
 
-  // 收集缺少的导入语句
-  const missingImports = REQUIRED_IMPORTS.filter(stmt => !hasImport(content, stmt));
+  const missingImports = Object.entries(IMPORT_MAP)
+    .filter(([source]) => !hasImportFrom(content, source))
+    .map(([, stmt]) => stmt);
 
   if (missingImports.length === 0) {
-    return content; // 无需注入
+    return content;
   }
 
-  // 如果文件没有 import，在文件开头注入
   if (lastImportIndex === -1) {
     return [...missingImports, '', ...lines].join('\n');
   }
 
-  // 在最后一个 import 后注入缺少的导入
   const injectPosition = lastImportIndex + 1;
   return [
     ...lines.slice(0, injectPosition),
@@ -82,109 +90,98 @@ function preprocessToolFile(sourcePath: string, outputDir: string): string {
   const fileName = basename(sourcePath, extname(sourcePath));
   const outputPath = join(outputDir, `${fileName}.ts`);
 
-  // 确保输出目录存在
   if (!existsSync(outputDir)) {
     mkdirSync(outputDir, { recursive: true });
   }
 
-  // 写入注入后的 TS 文件
   writeFileSync(outputPath, injectedContent, 'utf-8');
-
   return outputPath;
 }
 
 /**
- * 编译预处理后的 TS 文件为 JS
- * 使用 Vite build 编译单个文件
+ * 使用 @swc/wasm 编译 TS 文件为 JS
+ * 首行写入 hash 注释用于增量编译
  */
-async function compileToolFile(tsPath: string, outputDir: string): Promise<string> {
+async function compileToolFile(tsPath: string, outputDir: string, sourceHash: string): Promise<string> {
   const fileName = basename(tsPath, extname(tsPath));
-  const projectRoot = config.global.chery_dir || process.cwd();
+  const outputPath = join(outputDir, `${fileName}.js`);
 
   try {
-    // 使用 Vite 编译单个文件
-    await build({
-      configFile: false,
-      build: {
-        emptyOutDir: false,
-        outDir: outputDir,
-        lib: {
-          entry: tsPath,
-          formats: ['es'],
-          fileName: () => `${fileName}.js`,
-        },
-        rollupOptions: {
-          // zod 和 @/core/* 作为 external
-          external: ['zod', '@/core/tool', '@/core/config'],
-        },
-        minify: false,
-        sourcemap: false,
+    const sourceContent = readFileSync(tsPath, "utf-8");
+
+    const result = transformSync(sourceContent, {
+      jsc: {
+        parser: { syntax: "typescript" },
+        target: "es2022",
       },
-      resolve: {
-        alias: {
-          // 路径别名指向 src 目录（用于编译时类型检查）
-          '@': join(projectRoot, 'src'),
-        },
-      },
-      // 自定义插件：替换导入路径为 ../index.js
-      plugins: [{
-        name: 'rewrite-imports',
-        enforce: 'post',
-        generateBundle(_options, bundle) {
-          for (const chunk of Object.values(bundle)) {
-            if (chunk.type === 'chunk' && chunk.code) {
-              // 替换 @/core/tool 和 @/core/config 为 ../index.js
-              chunk.code = chunk.code
-                .replace(/from\s+"@\/core\/tool"/g, 'from "../index.js"')
-                .replace(/from\s+"@\/core\/config"/g, 'from "../index.js"')
-                .replace(/from\s+'@\/core\/tool'/g, 'from "../index.js"')
-                .replace(/from\s+'@\/core\/config'/g, 'from "../index.js"');
-            }
-          }
-        },
-      }],
+      module: { type: "es6" },
     });
 
-    return join(outputDir, `${fileName}.js`);
+    const outputContent = `// hash:${sourceHash}\n${result.code}`;
+    writeFileSync(outputPath, outputContent, "utf-8");
+    return outputPath;
   } catch (err) {
-    // Vite 编译失败时使用简易转译
-    return transpileToolFile(tsPath, outputDir);
+    throw new Error(`工具编译失败 ${fileName}: ${(err as Error).message}`);
+  }
+}
+
+/** 计算 TS 源码 hash */
+function computeSourceHash(sourceContent: string, fileName: string): string {
+  return hashGenerator("tool", sourceContent, fileName);
+}
+
+/** 读取 JS 文件首行嵌入的 hash，无则返回 null */
+function readEmbeddedHash(jsPath: string): string | null {
+  if (!existsSync(jsPath)) return null;
+  const firstLine = readFileSync(jsPath, "utf-8").split("\n")[0];
+  if (!firstLine) return null;
+  const match = firstLine.match(/^\/\/ hash:([a-f0-9]+)$/);
+  return match ? (match[1] ?? null) : null;
+}
+
+/** @test 注解中的测试用例 */
+export interface TestCase {
+  input: Record<string, unknown>;
+  output: { content: string; hash: string };
+}
+
+/** 编译结果 */
+export interface CompiledToolInfo {
+  compiledPath: string;
+  sourcePath: string;
+  testCases: TestCase[];
+}
+
+/**
+ * 从源码中解析 /* @test [...] *​/ 注解
+ */
+export function parseTestCases(sourceContent: string): TestCase[] {
+  const match = sourceContent.match(/\/\*\s*@test\s+([\s\S]*?)\s*\*\//);
+  if (!match || !match[1]) return [];
+  try {
+    const parsed = JSON.parse(match[1]);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (tc): tc is TestCase =>
+        tc && typeof tc === 'object' && tc.input && tc.output
+        && typeof tc.output.content === 'string'
+        && typeof tc.output.hash === 'string',
+    );
+  } catch {
+    return [];
   }
 }
 
 /**
- * 简易转译：替换路径别名 + 移除 TypeScript 类型语法
- */
-function transpileToolFile(tsPath: string, outputDir: string): string {
-  const content = readFileSync(tsPath, 'utf-8');
-  const fileName = basename(tsPath, extname(tsPath));
-  const outputPath = join(outputDir, `${fileName}.js`);
-
-  // 替换路径别名 @/ 为相对路径（指向 dist/index.js 同级）
-  // dist/custom/xxx.js 需要 import from ../index.js 中的导出
-  const transpiled = content
-    .replace(/from\s+"@\/core\/tool"/g, 'from "../index.js"')
-    .replace(/from\s+"@\/core\/config"/g, 'from "../index.js"')
-    .replace(/: Promise<ToolResult>/g, '')
-    .replace(/: z\.infer<[^>]+>/g, '')
-    .replace(/as Tool<[^>]+>/g, '');
-
-  writeFileSync(outputPath, transpiled, 'utf-8');
-  return outputPath;
-}
-
-/**
  * 预处理并编译所有外部 tool 文件
- * 输出到 dist/custom/ 目录（打包产物同级）
+ * 输出到 index.js 同级的 tools/ 目录
  */
-export async function preprocessAndCompileAllTools(): Promise<string[]> {
+export async function preprocessAndCompileAllTools(): Promise<CompiledToolInfo[]> {
   const toolsDir = config.global.tools_dir;
-  const cheryDir = config.global.chery_dir || process.cwd();
 
-  // 输出到 dist/custom/ 目录
-  const distDir = join(cheryDir, 'dist');
-  const outputDir = join(distDir, 'custom');
-  const tempDir = join(cheryDir, '.chery', 'tools', 'temp');
+  const distDir = dirname(fileURLToPath(import.meta.url));
+  const outputDir = join(distDir, 'tools');
+  const tempDir = join(distDir, '.tool-temp');
 
   if (!existsSync(toolsDir)) {
     return [];
@@ -197,7 +194,6 @@ export async function preprocessAndCompileAllTools(): Promise<string[]> {
     return [];
   }
 
-  // 确保目录存在
   if (!existsSync(tempDir)) {
     mkdirSync(tempDir, { recursive: true });
   }
@@ -205,23 +201,33 @@ export async function preprocessAndCompileAllTools(): Promise<string[]> {
     mkdirSync(outputDir, { recursive: true });
   }
 
-  const compiledPaths: string[] = [];
+  const results: CompiledToolInfo[] = [];
 
-  for (const file of tsFiles) {
-    const sourcePath = join(toolsDir, file);
-    try {
-      // Step 1: 预处理（注入导入语句）
+  try {
+    for (const file of tsFiles) {
+      const sourcePath = join(toolsDir, file);
+      const sourceContent = readFileSync(sourcePath, 'utf-8');
+      const sourceHash = computeSourceHash(sourceContent, file);
+      const fileName = basename(file, extname(file));
+      const expectedJsPath = join(outputDir, `${fileName}.js`);
+      const testCases = parseTestCases(sourceContent);
+
+      if (readEmbeddedHash(expectedJsPath) === sourceHash) {
+        console.log(`✓ 工具未变化，跳过编译: ${file}`);
+        results.push({ compiledPath: expectedJsPath, sourcePath, testCases });
+        continue;
+      }
+
       const preprocessedPath = preprocessToolFile(sourcePath, tempDir);
       console.log(`✓ 工具预处理成功: ${file}`);
 
-      // Step 2: 编译为 JS
-      const compiledPath = await compileToolFile(preprocessedPath, outputDir);
-      compiledPaths.push(compiledPath);
+      const compiledPath = await compileToolFile(preprocessedPath, outputDir, sourceHash);
+      results.push({ compiledPath, sourcePath, testCases });
       console.log(`✓ 工具编译成功: ${file} -> ${compiledPath}`);
-    } catch (err) {
-      console.warn(`⚠ 工具编译失败: ${file}`, (err as Error).message);
     }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
   }
 
-  return compiledPaths;
+  return results;
 }

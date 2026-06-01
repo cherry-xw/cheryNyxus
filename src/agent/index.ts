@@ -1,9 +1,41 @@
 import { AgentBuilder } from "./builder";
 import * as readline from "readline";
+import { preprocessAndCompileAllTools } from "@/utils/toolCompiler.js";
 
 // 导出 tool 相关内容，供外部 tool 编译后使用
 export { z, tool, SupervisionLevel, registerTool, registerTools } from "./tool/index.js";
 export type { Tool, ToolResult } from "./tool/index.js";
+
+/**
+ * 子命令：编译外部工具
+ * 预处理 .chery/tools/ 下的 .ts 文件，编译到 dist/tools/
+ */
+async function compileToolsCommand(): Promise<void> {
+  console.log("=== 编译外部工具 ===\n");
+
+  const results = await preprocessAndCompileAllTools();
+
+  if (results.length === 0) {
+    console.log("未找到外部工具源文件");
+    return;
+  }
+
+  console.log(`\n编译完成: ${results.length} 个工具`);
+  for (const info of results) {
+    console.log(`  ✓ ${info.sourcePath} -> ${info.compiledPath}`);
+  }
+}
+
+/**
+ * 子命令分发
+ */
+const subcommand = process.argv[2];
+
+if (subcommand === "compile-tools") {
+  compileToolsCommand().catch(console.error);
+} else {
+  streamExample().catch(console.error);
+}
 
 /**
  * Agent 示例：使用 deepseek 配置访问 package.json 数据
@@ -96,5 +128,3 @@ async function streamExample() {
   console.log("\n运行结束");
   rl.close();
 }
-
-streamExample().catch(console.error);

@@ -418,6 +418,11 @@
   resolved "https://registry.npmmirror.com/@standard-schema/spec/-/spec-1.1.0.tgz#a79b55dbaf8604812f52d140b2c9ab41bc150bb8"
   integrity sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==
 
+"@swc/wasm@^1.15.40":
+  version "1.15.40"
+  resolved "https://registry.npmmirror.com/@swc/wasm/-/wasm-1.15.40.tgz#bf4b4ad35ee76fb6832b3538d70305798cc8174c"
+  integrity sha512-FVS3SEJXBxjpxVUGSzaTaCdJjnXUalRftA/6hILMAJIcYHBoiBfJlxuH6s47iajlAJZP25e5Kf4HNHvvwyOEgw==
+
 "@tsconfig/node10@^1.0.7":
   version "1.0.12"
   resolved "https://mirrors.huaweicloud.com/repository/npm/@tsconfig/node10/-/node10-1.0.12.tgz#be57ceac1e4692b41be9de6be8c32a106636dba4"

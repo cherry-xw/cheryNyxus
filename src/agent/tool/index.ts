@@ -1,10 +1,10 @@
 import type { ZodType } from "zod";
 import type { Tool } from "@/core/tool";
-import { registerTools, registerTool, getTool, getTools, getToolSupervision } from "@/core/tool";
+import type { TestCase } from "@/utils/toolCompiler.js";
+import { registerTool, registerTools, getTool, getTools, getToolSupervision } from "@/core/tool";
 import { readdirSync, existsSync } from "fs";
-import { join } from "path";
-import config from "@/utils/config.js";
-import { preprocessAndCompileAllTools } from "@/utils/toolCompiler.js";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
 // 导出 zod 和 tool 函数，供外部 tool 编译后使用
 export { z } from "zod";
@@ -31,51 +31,69 @@ function registerStaticTools(): void {
 registerStaticTools();
 
 /**
- * 动态加载自定义工具（从 dist/custom/ 目录）
+ * 执行工具自测用例
+ * 任一用例失败返回 false
+ */
+export async function runToolTests(
+  toolInstance: Tool<ZodType>,
+  testCases: TestCase[],
+): Promise<boolean> {
+  for (const tc of testCases) {
+    try {
+      const parsedInput = toolInstance.executor.schema.parse(tc.input);
+      const result = await toolInstance.executor.execute(parsedInput, new Map());
+      if (result.content !== tc.output.content || result.hash !== tc.output.hash) {
+        console.error(
+          `✗ 工具测试失败: ${toolInstance.definition.function.name}`,
+          `\n  input:    ${JSON.stringify(tc.input)}`,
+          `\n  expected: ${JSON.stringify(tc.output)}`,
+          `\n  actual:   ${JSON.stringify(result)}`,
+        );
+        return false;
+      }
+    } catch (err) {
+      console.error(
+        `✗ 工具测试执行异常: ${toolInstance.definition.function.name}`,
+        (err as Error).message,
+      );
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * 动态加载自定义工具（从 index.js 同级的 tools/ 目录）
+ * 需先通过 compile:tools 命令编译外部工具
  */
 async function loadCustomTools(): Promise<void> {
-  const cheryDir = config.global.chery_dir || process.cwd();
-  const customDir = join(cheryDir, "dist", "custom");
+  const toolsDir = join(dirname(fileURLToPath(import.meta.url)), "tools");
 
-  // 预处理并编译所有外部 tool 文件
-  const compiledPaths = await preprocessAndCompileAllTools();
-
-  if (compiledPaths.length === 0) {
-    // 检查是否已有编译产物
-    if (!existsSync(customDir)) return;
-
-    const files = readdirSync(customDir);
-    const jsFiles = files.filter(f => f.endsWith(".js"));
-
-    for (const file of jsFiles) {
-      const filePath = join(customDir, file);
-      try {
-        const module = await import(filePath);
-        const tool = module.default as Tool<ZodType>;
-
-        if (tool?.definition?.function?.name) {
-          registerTool(tool);
-          console.log(`✓ 自定义工具已加载: ${tool.definition.function.name}`);
-        }
-      } catch (err) {
-        console.warn(`⚠ 自定义工具加载失败: ${file}`, (err as Error).message);
-      }
-    }
+  if (!existsSync(toolsDir)) {
+    console.warn("⚠ 未找到编译产物目录，自定义工具未加载。请先运行 compile:tools 命令编译外部工具。");
     return;
   }
 
-  // 加载新编译的文件
-  for (const compiledPath of compiledPaths) {
-    try {
-      const module = await import(compiledPath);
-      const tool = module.default as Tool<ZodType>;
+  const files = readdirSync(toolsDir);
+  const jsFiles = files.filter(f => f.endsWith(".js"));
 
-      if (tool?.definition?.function?.name) {
-        registerTool(tool);
-        console.log(`✓ 自定义工具已加载: ${tool.definition.function.name}`);
+  if (jsFiles.length === 0) {
+    console.warn("⚠ 未找到编译产物，自定义工具未加载。请先运行 compile:tools 命令编译外部工具。");
+    return;
+  }
+
+  for (const file of jsFiles) {
+    const filePath = join(toolsDir, file);
+    try {
+      const module = await import(filePath);
+      const toolInstance = module.default as Tool<ZodType>;
+
+      if (toolInstance?.definition?.function?.name) {
+        registerTool(toolInstance);
+        console.log(`✓ 自定义工具已加载: ${toolInstance.definition.function.name}`);
       }
     } catch (err) {
-      console.warn(`⚠ 自定义工具加载失败: ${compiledPath}`, (err as Error).message);
+      console.warn(`⚠ 自定义工具加载失败: ${file}`, (err as Error).message);
     }
   }
 }
