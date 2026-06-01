@@ -101,6 +101,7 @@ export class AgentBuilder {
       : [];
 
     let tools: Tool<ZodType>[] = [];
+    const groupSupervisions: Array<{ tools: string[]; supervision: import("@/core/config").SupervisionLevel }> = [];
 
     for (const groupName of toolGroupNames) {
       const toolGroup = config.tool_groups?.[groupName];
@@ -127,13 +128,28 @@ export class AgentBuilder {
           tools.push(tool);
         }
       }
+
+      // 暂存 group supervision 配置（后加载覆盖同名工具）
+      if (toolGroup.supervision !== undefined) {
+        groupSupervisions.push({ tools: toolGroup.tools, supervision: toolGroup.supervision });
+      }
     }
 
-    // 创建 ToolManager 并添加工具
+    // 创建 ToolManager 并注册工具
     const toolManager = new ToolManager(this.clientConfig.provider);
     if (tools.length > 0) {
       toolManager.add(tools);
     }
+
+    // 注入 group 级别 supervision（后加载覆盖同名工具）
+    for (const { tools: toolNames, supervision } of groupSupervisions) {
+      for (const toolName of toolNames) {
+        toolManager.setSupervision(toolName, supervision);
+      }
+    }
+
+    // 未声明 supervisionLevel 的工具 fallback 到 global || confirm
+    toolManager.fillSupervisionDefault(config.global.supervision);
 
     return new Middleware<MiddlewareChunk>(
       this.sessionId,

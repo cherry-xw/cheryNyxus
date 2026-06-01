@@ -10,7 +10,7 @@
     "build:test": "vite build --ssr --mode test && cp .env.example dist/.env",
     "build:prod": "vite build --ssr --mode prod && cp .env.example dist/.env",
     "start": "node dist/index.js",
-    "dev": "vite build --ssr --watch & nodemon dist/index.js",
+    "dev": "vite build --ssr --watch & nodemon --watch dist/index.js dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
@@ -41,7 +41,6 @@
     "tsc-alias": "^1.8.16",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
-    "vite": "^8.0.14",
     "vitest": "^4.1.7"
   },
   "dependencies": {
@@ -52,6 +51,7 @@
     "ollama": "^0.6.3",
     "openai": "^6.35.0",
     "uuid": "^14.0.0",
+    "vite": "^8.0.14",
     "zod": "^4.4.1",
     "zod-to-json-schema": "^3.25.2"
   }

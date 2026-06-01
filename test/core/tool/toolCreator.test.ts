@@ -99,7 +99,7 @@ describe("tool factory function", () => {
   });
 
   describe("supervision level", () => {
-    it("defaults to confirm level", () => {
+    it("defaults to undefined when not specified", () => {
       const testTool = tool(
         "default_level",
         "Default supervision",
@@ -107,7 +107,7 @@ describe("tool factory function", () => {
         async () => ({ content: "ok", hash: "" }),
       );
 
-      expect(testTool.supervisionLevel).toBe(SupervisionLevel.confirm);
+      expect(testTool.supervisionLevel).toBeUndefined();
     });
 
     it("accepts custom supervision level", () => {

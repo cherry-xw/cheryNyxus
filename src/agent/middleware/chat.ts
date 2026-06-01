@@ -49,9 +49,9 @@ async function* handleStream(
   tools: ToolFunction[],
 ): AsyncGenerator<StreamChunk> {
   // 打印入参信息
-  console.log("\n=== Chat Stream Request ===");
-  console.log("Messages:", JSON.stringify(messages, null, 2));
-  console.log("Tools:", JSON.stringify(tools, null, 2));
+  // console.log("\n=== Chat Stream Request ===");
+  // console.log("Messages:", JSON.stringify(messages, null, 2));
+  // console.log("Tools:", JSON.stringify(tools, null, 2));
 
   const streamIterator = await llmAdapter.chatStream(messages, tools, options);
 

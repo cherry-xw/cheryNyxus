@@ -242,6 +242,9 @@ const openaiLLMAdapter: llmAdapter = {
       baseURL: url,
       apiKey: key ?? "",
     });
+    // console.log("\n\n---------------------------------------------------------------")
+    // console.log(JSON.stringify(tools, null, 2))
+    // console.log("---------------------------------------------------------------\n\n")
     const stream = await client.chat.completions.create({
       model,
       messages: msgArray,

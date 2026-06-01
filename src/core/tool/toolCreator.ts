@@ -44,8 +44,8 @@ export interface ToolExecutor<T extends z.ZodType> {
 export interface Tool<T extends z.ZodType> {
   definition: ToolFunction;
   executor: ToolExecutor<T>;
-  /** Tool监管等级（默认confirm） */
-  supervisionLevel: SupervisionLevel;
+  /** Tool自身声明的监管等级（未声明时由外部 fallback 到 global || confirm） */
+  supervisionLevel: SupervisionLevel | undefined;
 }
 
 export function tool<T extends z.ZodType>(
@@ -53,7 +53,7 @@ export function tool<T extends z.ZodType>(
   description: string,
   schema: T,
   handler: (input: z.infer<T>, toolSharedData: ToolSharedData) => Promise<ToolResult>,
-  supervisionLevel: SupervisionLevel = SupervisionLevel.confirm,
+  supervisionLevel?: SupervisionLevel,
 ): Tool<T> {
   const jsonSchema = (schema as any).toJSONSchema();
 

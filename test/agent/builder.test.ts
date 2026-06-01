@@ -105,6 +105,8 @@ vi.mock("@/agent/tool/index", () => {
       add = mockAdd;
       get = vi.fn();
       execute = vi.fn();
+      setSupervision = vi.fn();
+      fillSupervisionDefault = vi.fn();
     },
   };
 });

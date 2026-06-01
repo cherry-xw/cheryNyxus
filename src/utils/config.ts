@@ -45,6 +45,7 @@ interface LLMConfig {
  */
 interface ToolGroupConfig {
   tools: string[]; // 包含的tool名称列表
+  supervision?: SupervisionLevel; // 组级别监管等级，设置后强制覆盖组内所有工具自身声明
 }
 
 /**
@@ -135,6 +136,17 @@ function loadConfig(): Config {
     config.global.supervision = SupervisionLevel[
       config.global.supervision as keyof typeof SupervisionLevel
     ];
+  }
+
+  // tool_groups 内的 supervision 同样转枚举
+  if (config.tool_groups) {
+    for (const group of Object.values(config.tool_groups)) {
+      if (typeof group.supervision === "string") {
+        group.supervision = SupervisionLevel[
+          group.supervision as keyof typeof SupervisionLevel
+        ];
+      }
+    }
   }
 
   // 自动补全 .chery 目录路径（从环境变量读取，默认 process.cwd()）

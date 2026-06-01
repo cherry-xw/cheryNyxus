@@ -2,10 +2,6 @@ import type { Tool, ToolResult, ToolSharedData } from "./toolCreator";
 import type { ZodType } from "zod";
 import { getToolAdapter, type ToolAdapter } from "./adapter";
 
-/**
- * 工具管理器
- * 职责：存储工具、查找工具、Tool 适配、执行工具
- */
 export class ToolManager {
   private _tools: Tool<ZodType>[] = [];
   private _toolMap: Map<string, Tool<ZodType>> = new Map();
@@ -53,6 +49,27 @@ export class ToolManager {
    */
   getAdapter(): ToolAdapter<any, any> {
     return this._adapter;
+  }
+
+  /**
+   * 覆盖指定工具的监管等级（由 tool_group 配置注入）
+   */
+  setSupervision(toolName: string, level: import("../config").SupervisionLevel): void {
+    const tool = this._toolMap.get(toolName);
+    if (tool) {
+      tool.supervisionLevel = level;
+    }
+  }
+
+  /**
+   * 填充未声明监管等级的工具（fallback 到 global）
+   */
+  fillSupervisionDefault(level: import("../config").SupervisionLevel): void {
+    for (const tool of this._tools) {
+      if (tool.supervisionLevel === undefined) {
+        tool.supervisionLevel = level;
+      }
+    }
   }
 
   /**

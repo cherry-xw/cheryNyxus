@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   toolMiddleware,
   executeSingleToolCall,
@@ -18,9 +18,7 @@ function createMockToolManager(): ToolManager {
   } as unknown as ToolManager;
 }
 
-function createMockContext(
-  supervision: SupervisionLevel = SupervisionLevel.confirm,
-): MiddlewareContext {
+function createMockContext(): MiddlewareContext {
   const toolManager = createMockToolManager();
   return {
     session: {
@@ -31,7 +29,7 @@ function createMockContext(
     },
     global: {
       thinking: false,
-      supervision,
+      supervision: SupervisionLevel.confirm,
       stream: true,
       maxLoopCount: 10,
     },
@@ -67,6 +65,18 @@ function createToolCall(
     triggeredAt: Date.now(),
   };
 }
+
+const mockToolBase: any = {
+  definition: {
+    type: "function" as const,
+    function: {
+      name: "test_tool",
+      description: "test",
+      parameters: { type: "object" as const, properties: {}, required: [] as string[], additionalProperties: false },
+    },
+  },
+  executor: {},
+};
 
 describe("toolMiddleware", () => {
   describe("InterruptChunk structure", () => {
@@ -125,7 +135,7 @@ describe("toolMiddleware", () => {
     });
 
     it("should handle tool not found", async () => {
-      const ctx = createMockContext(SupervisionLevel.auto);
+      const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
         createToolCall("tc-1", "unknown_tool"),
@@ -141,22 +151,20 @@ describe("toolMiddleware", () => {
         // consume
       }
 
-      // Check history for error message
       const toolMessages = ctx.process.history.filter((m) => m.role === "tool");
       expect(toolMessages.length).toBeGreaterThan(0);
-      expect(toolMessages[0].content).toContain("not found");
+      expect(toolMessages[0]!.content).toContain("not found");
     });
 
-    it("should auto execute when global supervision is auto", async () => {
-      const ctx = createMockContext(SupervisionLevel.auto);
+    it("should auto execute when tool supervisionLevel is auto", async () => {
+      const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
         createToolCall("tc-1", "test_tool"),
       );
       ctx.tools.toolManager.get = vi.fn(() => ({
-        name: "test_tool",
-        description: "test",
-        supervisionLevel: SupervisionLevel.confirm,
+        ...mockToolBase,
+        supervisionLevel: SupervisionLevel.auto,
       }));
 
       const next = vi.fn(async function* () {
@@ -171,16 +179,15 @@ describe("toolMiddleware", () => {
       expect(ctx.tools.toolManager.execute).toHaveBeenCalled();
     });
 
-    it("should yield interrupt when global supervision is manual", async () => {
-      const ctx = createMockContext(SupervisionLevel.manual);
+    it("should yield interrupt when tool supervisionLevel is confirm", async () => {
+      const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
         createToolCall("tc-1", "test_tool"),
       );
       ctx.tools.toolManager.get = vi.fn(() => ({
-        name: "test_tool",
-        description: "test",
-        supervisionLevel: SupervisionLevel.auto,
+        ...mockToolBase,
+        supervisionLevel: SupervisionLevel.confirm,
       }));
 
       const next = vi.fn(async function* () {
@@ -195,21 +202,19 @@ describe("toolMiddleware", () => {
 
       const interruptChunk = chunks.find(
         (c) => (c as InterruptChunk).type === "interrupt",
-      ) as InterruptChunk;
+      ) as InterruptChunk | undefined;
       expect(interruptChunk).toBeDefined();
-      expect(interruptChunk.handles.length).toBe(1);
+      expect(interruptChunk!.handles.length).toBe(1);
     });
 
-    it("should respect tool supervision level when global is confirm", async () => {
-      const ctx = createMockContext(SupervisionLevel.confirm);
+    it("should respect tool supervisionLevel for mixed tools", async () => {
+      const ctx = createMockContext();
 
-      // Auto tool should execute immediately
       ctx.process.toolCallAccumulated.set(
         "tc-auto",
         createToolCall("tc-auto", "auto_tool"),
       );
 
-      // Confirm tool should yield interrupt
       ctx.process.toolCallAccumulated.set(
         "tc-confirm",
         createToolCall("tc-confirm", "confirm_tool"),
@@ -217,9 +222,9 @@ describe("toolMiddleware", () => {
 
       ctx.tools.toolManager.get = vi.fn((name: string) => {
         if (name === "auto_tool") {
-          return { supervisionLevel: SupervisionLevel.auto };
+          return { ...mockToolBase, supervisionLevel: SupervisionLevel.auto };
         }
-        return { supervisionLevel: SupervisionLevel.confirm };
+        return { ...mockToolBase, supervisionLevel: SupervisionLevel.confirm };
       });
 
       const next = vi.fn(async function* () {
@@ -232,33 +237,31 @@ describe("toolMiddleware", () => {
         chunks.push(chunk);
       }
 
-      // Should have interrupt for confirm_tool
       const interruptChunk = chunks.find(
         (c) => (c as InterruptChunk).type === "interrupt",
-      ) as InterruptChunk;
+      ) as InterruptChunk | undefined;
       expect(interruptChunk).toBeDefined();
-      expect(interruptChunk.handles.length).toBe(1);
-      expect(interruptChunk.handles[0].reason).toContain("confirm_tool");
+      expect(interruptChunk!.handles.length).toBe(1);
+      expect(interruptChunk!.handles[0]!.reason).toContain("confirm_tool");
     });
   });
 
   describe("acknowledge callback", () => {
     it("should execute tool when accept", async () => {
-      const ctx = createMockContext(SupervisionLevel.manual);
+      const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
         createToolCall("tc-1", "test_tool", '{"arg": "value"}'),
       );
       ctx.tools.toolManager.get = vi.fn(() => ({
-        name: "test_tool",
-        supervisionLevel: SupervisionLevel.auto,
+        ...mockToolBase,
+        supervisionLevel: SupervisionLevel.confirm,
       }));
 
       const next = vi.fn(async function* () {
         yield { type: "test" };
       });
 
-      // Simulate accept
       let acknowledgeCallback:
         | ((action: "accept" | "reject", reason?: string) => Promise<void>)
         | undefined;
@@ -266,9 +269,8 @@ describe("toolMiddleware", () => {
       const generator = toolMiddleware(ctx, next);
       for await (const chunk of generator) {
         if ((chunk as InterruptChunk).type === "interrupt") {
-          acknowledgeCallback = (chunk as InterruptChunk).handles[0].acknowledge;
-          // Accept immediately
-          await acknowledgeCallback("accept");
+          acknowledgeCallback = (chunk as InterruptChunk).handles[0]?.acknowledge;
+          await acknowledgeCallback!("accept");
         }
       }
 
@@ -278,14 +280,14 @@ describe("toolMiddleware", () => {
     });
 
     it("should return reject message when reject", async () => {
-      const ctx = createMockContext(SupervisionLevel.manual);
+      const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
         createToolCall("tc-1", "test_tool"),
       );
       ctx.tools.toolManager.get = vi.fn(() => ({
-        name: "test_tool",
-        supervisionLevel: SupervisionLevel.auto,
+        ...mockToolBase,
+        supervisionLevel: SupervisionLevel.confirm,
       }));
 
       const next = vi.fn(async function* () {
@@ -299,23 +301,23 @@ describe("toolMiddleware", () => {
       const generator = toolMiddleware(ctx, next);
       for await (const chunk of generator) {
         if ((chunk as InterruptChunk).type === "interrupt") {
-          acknowledgeCallback = (chunk as InterruptChunk).handles[0].acknowledge;
-          await acknowledgeCallback("reject", "unsafe operation");
+          acknowledgeCallback = (chunk as InterruptChunk).handles[0]?.acknowledge;
+          await acknowledgeCallback!("reject", "unsafe operation");
         }
       }
 
       const toolMessages = ctx.process.history.filter((m) => m.role === "tool");
       expect(toolMessages.length).toBeGreaterThan(0);
-      expect(toolMessages[0].content).toContain("拒绝执行");
+      expect(toolMessages[0]!.content).toContain("拒绝执行");
     });
 
     it("should mark tool call as approved after acknowledge", async () => {
-      const ctx = createMockContext(SupervisionLevel.manual);
+      const ctx = createMockContext();
       const tc = createToolCall("tc-1", "test_tool");
       ctx.process.toolCallAccumulated.set("tc-1", tc);
       ctx.tools.toolManager.get = vi.fn(() => ({
-        name: "test_tool",
-        supervisionLevel: SupervisionLevel.auto,
+        ...mockToolBase,
+        supervisionLevel: SupervisionLevel.confirm,
       }));
 
       const next = vi.fn(async function* () {
@@ -325,7 +327,7 @@ describe("toolMiddleware", () => {
       const generator = toolMiddleware(ctx, next);
       for await (const chunk of generator) {
         if ((chunk as InterruptChunk).type === "interrupt") {
-          await (chunk as InterruptChunk).handles[0].acknowledge("accept");
+          await (chunk as InterruptChunk).handles[0]!.acknowledge("accept");
         }
       }
 
@@ -382,13 +384,12 @@ describe("executeSingleToolCall", () => {
     const ctx = createMockContext();
     ctx.tools.toolManager.execute = vi.fn(async () => ({
       content: "result",
-      hash: "", // Empty hash
+      hash: "",
     }));
 
     const result = await executeSingleToolCall(ctx, "tc-1", "test_tool", {});
 
     expect(result.result).toBe("result");
-    // Hash should not be stored
     expect(ctx.session.hashCheck.size).toBe(0);
   });
 
