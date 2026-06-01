@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
-import { preprocessAndCompileAllTools, parseTestCases } from "@/utils/toolCompiler.js";
+import { compileTools, parseTestCases } from "@/core/tool/compiler/index.js";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
+import { runToolTests } from "@/agent/tool/index.js";
+import { tool } from "@/core/tool/index.js";
+import { z } from "zod";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 
 vi.mock("@/utils/config", () => ({
@@ -84,7 +87,7 @@ export default tool(
 );
 `, "utf-8");
 
-    const compiledInfos = await preprocessAndCompileAllTools();
+    const compiledInfos = (await compileTools()).succeeded;
     expect(compiledInfos.length).toBeGreaterThan(0);
 
     const info = compiledInfos.find(r => r.compiledPath.endsWith("test_tool.js"));
@@ -106,7 +109,7 @@ export default tool(
 );
 `, "utf-8");
 
-    await preprocessAndCompileAllTools();
+    (await compileTools()).succeeded;
 
     const jsPath = join(distDir, "compile_test.js");
     if (existsSync(jsPath)) {
@@ -121,7 +124,7 @@ export default tool(
     const origDir = config.global.tools_dir;
     config.global.tools_dir = "/nonexistent/path/tools";
 
-    const result = await preprocessAndCompileAllTools();
+    const result = (await compileTools()).succeeded;
     expect(result).toEqual([]);
 
     config.global.tools_dir = origDir;
@@ -135,21 +138,41 @@ export default tool(
     const origDir = config.global.tools_dir;
     config.global.tools_dir = emptyDir;
 
-    const result = await preprocessAndCompileAllTools();
+    const result = (await compileTools()).succeeded;
     expect(result).toEqual([]);
 
     config.global.tools_dir = origDir;
     rmSync(emptyDir, { recursive: true, force: true });
   });
 
-  it("should throw on invalid TypeScript syntax", async () => {
+  it("should collect syntax failures and continue compiling other tools", async () => {
+    const badToolPath = join(testDir, "bad_syntax_collect.ts");
+    const goodToolPath = join(testDir, "good_after_bad.ts");
+    createdTestFiles.push(badToolPath, goodToolPath);
+
+    writeFileSync(badToolPath, `
+const x = ;
+`, "utf-8");
+    writeFileSync(goodToolPath, `
+const Schema = z.object({ text: z.string() });
+export default tool("good_after_bad", "good", Schema, async (input) => ({ content: input.text, hash: "" }));
+`, "utf-8");
+
+    const summary = await compileTools();
+
+    expect(summary.failed.some(f => f.fileName === "bad_syntax_collect.ts" && f.type === "syntax")).toBe(true);
+    expect(summary.succeeded.some(info => info.compiledPath.endsWith("good_after_bad.js"))).toBe(true);
+  });
+
+  it("should collect syntax failure for invalid TypeScript syntax", async () => {
     const testToolPath = join(testDir, "bad_syntax.ts");
     createdTestFiles.push(testToolPath);
     writeFileSync(testToolPath, `
 const x = ;
 `, "utf-8");
 
-    await expect(preprocessAndCompileAllTools()).rejects.toThrow("工具编译失败");
+    const summary = await compileTools();
+    expect(summary.failed.some(f => f.fileName === "bad_syntax.ts" && f.message.includes("工具编译失败"))).toBe(true);
   });
 
   it("should not duplicate imports when source already has target path", async () => {
@@ -171,7 +194,7 @@ export default tool(
 );
 `, "utf-8");
 
-    await preprocessAndCompileAllTools();
+    (await compileTools()).succeeded;
 
     const preprocessedPath = join(tempDir, "full_import.ts");
     if (existsSync(preprocessedPath)) {
@@ -200,7 +223,7 @@ export default tool(
 );
 `, "utf-8");
 
-    await preprocessAndCompileAllTools();
+    (await compileTools()).succeeded;
 
     const jsPath = join(distDir, "source_import.js");
     if (existsSync(jsPath)) {
@@ -227,6 +250,20 @@ export default tool("test", "test", Schema, async (input) => ({ content: input.t
       expect(cases).toHaveLength(1);
       expect(cases[0]!.input).toEqual({ text: "hello" });
       expect(cases[0]!.output).toEqual({ content: "Echo: hello", hash: "" });
+    });
+
+    it("should ignore inline @test text in documentation comments", () => {
+      const source = `
+/** docs mention /* @test [...] */ inline */
+
+/* @test [
+  { "input": { "text": "hello" }, "output": { "content": "hello", "hash": "" } }
+] */
+const Schema = z.object({ text: z.string() });
+`;
+      const cases = parseTestCases(source);
+      expect(cases).toHaveLength(1);
+      expect(cases[0]!.input).toEqual({ text: "hello" });
     });
 
     it("should return empty array when no @test annotation", () => {
@@ -258,6 +295,50 @@ export default tool("test", "test", Schema, async (input) => ({ content: input.t
     });
   });
 
+  describe("runToolTests", () => {
+    it("should pass when tool output matches test cases", async () => {
+      const schema = z.object({ text: z.string() });
+      const toolInstance = tool(
+        "runtime_pass",
+        "runtime pass",
+        schema,
+        async (input) => ({ content: input.text, hash: "" }),
+      );
+
+      await expect(runToolTests(toolInstance, [
+        { input: { text: "ok" }, output: { content: "ok", hash: "" } },
+      ])).resolves.toBe(true);
+    });
+
+    it("should fail when tool output mismatches test cases", async () => {
+      const schema = z.object({ text: z.string() });
+      const toolInstance = tool(
+        "runtime_mismatch",
+        "runtime mismatch",
+        schema,
+        async (input) => ({ content: input.text, hash: "" }),
+      );
+
+      await expect(runToolTests(toolInstance, [
+        { input: { text: "ok" }, output: { content: "wrong", hash: "" } },
+      ])).resolves.toBe(false);
+    });
+
+    it("should fail when tool execution throws", async () => {
+      const schema = z.object({ text: z.string() });
+      const toolInstance = tool(
+        "runtime_throw",
+        "runtime throw",
+        schema,
+        async () => { throw new Error("boom"); },
+      );
+
+      await expect(runToolTests(toolInstance, [
+        { input: { text: "ok" }, output: { content: "ok", hash: "" } },
+      ])).resolves.toBe(false);
+    });
+  });
+
   // --- hash-based incremental compilation tests ---
 
   describe("hash incremental compilation", () => {
@@ -269,7 +350,7 @@ const Schema = z.object({ text: z.string() });
 export default tool("hash_embed", "hash test", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
-      const infos = await preprocessAndCompileAllTools();
+      const infos = (await compileTools()).succeeded;
       const info = infos.find(r => r.compiledPath.endsWith("hash_embed.js"));
       expect(info).toBeDefined();
 
@@ -285,7 +366,7 @@ const Schema = z.object({ text: z.string() });
 export default tool("hash_skip", "hash skip test", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
-      const first = await preprocessAndCompileAllTools();
+      const first = (await compileTools()).succeeded;
       const firstInfo = first.find(r => r.compiledPath.endsWith("hash_skip.js"));
       expect(firstInfo).toBeDefined();
 
@@ -293,7 +374,7 @@ export default tool("hash_skip", "hash skip test", Schema, async (input) => ({ c
       const firstContent = readFileSync(jsPath, "utf-8");
 
       // Second compile — source unchanged, should skip
-      const second = await preprocessAndCompileAllTools();
+      const second = (await compileTools()).succeeded;
       const secondInfo = second.find(r => r.compiledPath.endsWith("hash_skip.js"));
       expect(secondInfo).toBeDefined();
       expect(secondInfo!.compiledPath).toBe(jsPath);
@@ -311,7 +392,7 @@ const Schema = z.object({ text: z.string() });
 export default tool("hash_change", "v1", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
-      const first = await preprocessAndCompileAllTools();
+      const first = (await compileTools()).succeeded;
       const firstInfo = first.find(r => r.compiledPath.endsWith("hash_change.js"));
       const firstHash = readFileSync(firstInfo!.compiledPath, "utf-8").split("\n")[0];
 
@@ -321,7 +402,7 @@ const Schema = z.object({ text: z.string() });
 export default tool("hash_change", "v2", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
-      const second = await preprocessAndCompileAllTools();
+      const second = (await compileTools()).succeeded;
       const secondInfo = second.find(r => r.compiledPath.endsWith("hash_change.js"));
       const secondHash = readFileSync(secondInfo!.compiledPath, "utf-8").split("\n")[0];
 
@@ -343,7 +424,7 @@ const Schema = z.object({ msg: z.string() });
 export default tool("with_tests", "test cases tool", Schema, async (input) => ({ content: input.msg, hash: "" }));
 `, "utf-8");
 
-    const results = await preprocessAndCompileAllTools();
+    const results = (await compileTools()).succeeded;
     const info = results.find(r => r.compiledPath.endsWith("with_tests.js"));
     expect(info).toBeDefined();
     expect(info!.testCases).toHaveLength(2);

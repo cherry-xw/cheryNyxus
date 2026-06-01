@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import bashTool from "@/agent/tool/bash";
 import { SupervisionLevel } from "@/core/config";
 import type { ToolSharedData } from "@/core/tool";
@@ -16,18 +16,18 @@ vi.mock("@/utils/env", () => ({
   getWorkDir: vi.fn(() => process.cwd()),
 }));
 
-vi.mock("@/utils/bashLogger", () => ({
-  createLogFile: vi.fn(() => "/tmp/test-log.log"),
+vi.mock("@/utils/logger/bashLogger", () => ({
+  createBashLogPath: vi.fn(() => "/tmp/test-log.log"),
   createLogStream: vi.fn(() => ({
     write: vi.fn(),
     end: vi.fn(),
   })),
-  formatLogHeader: vi.fn(() => "Header"),
+  formatBashLogHeader: vi.fn(() => "Header"),
   getLogSize: vi.fn(() => 1024),
   shouldShowPartialLog: vi.fn(() => false),
   getLogSizeThreshold: vi.fn(() => 10240),
   formatLogSize: vi.fn((size: number) => `${size}B`),
-  cleanOldLogs: vi.fn(),
+  cleanOldBashLogs: vi.fn(),
 }));
 
 describe("Bash Tool", () => {
@@ -51,11 +51,11 @@ describe("Bash Tool", () => {
 
   describe("executor", () => {
     const sharedData: ToolSharedData = new Map();
-    let cleanOldLogs: ReturnType<typeof vi.fn>;
+    let cleanOldBashLogs: ReturnType<typeof vi.fn>;
 
     beforeAll(async () => {
-      const mod = await import("@/utils/bashLogger");
-      cleanOldLogs = vi.mocked(mod.cleanOldLogs);
+      const mod = await import("@/utils/logger/bashLogger");
+      cleanOldBashLogs = vi.mocked(mod.cleanOldBashLogs);
     });
 
     beforeEach(() => {
@@ -72,7 +72,7 @@ describe("Bash Tool", () => {
       expect(result.content).toContain("退出码: 0");
       expect(result.content).toContain("hello");
       expect(result.hash).toBe("");
-      expect(cleanOldLogs).toHaveBeenCalledWith(24);
+      expect(cleanOldBashLogs).toHaveBeenCalledWith(24);
     });
 
     it("should handle command failure (non-zero exit code)", async () => {
@@ -123,13 +123,13 @@ describe("Bash Tool", () => {
       expect(result.content).toContain("状态: error");
     });
 
-    it("should call cleanOldLogs before execution", async () => {
+    it("should call cleanOldBashLogs before execution", async () => {
       await bashTool.executor.execute(
         { command: "echo test", description: "test clean" },
         sharedData,
       );
 
-      expect(cleanOldLogs).toHaveBeenCalledTimes(1);
+      expect(cleanOldBashLogs).toHaveBeenCalledTimes(1);
     });
 
     it("should truncate long output (>30 lines)", async () => {

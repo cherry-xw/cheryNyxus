@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
-  getLogDir,
-  createLogFile,
-  formatLogHeader,
+  getBashLogDir,
+  createBashLogPath,
+  formatBashLogHeader,
   getLogSize,
   shouldShowPartialLog,
   getLogSizeThreshold,
   formatLogSize,
   createLogStream,
-  cleanOldLogs,
+  cleanOldBashLogs,
   type BashLogInfo,
-} from "@/utils/bashLogger";
+} from "@/utils/logger/bashLogger";
 import { createTempDir, cleanupTempDir, createTempFile } from "@test/helpers/tempDir";
 import { join } from "path";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, readdirSync, statSync } from "fs";
@@ -26,43 +26,43 @@ describe("bashLogger module", () => {
     cleanupTempDir(tempDir);
   });
 
-  describe("getLogDir", () => {
+  describe("getBashLogDir", () => {
     it("should return log directory path", () => {
-      const logDir = getLogDir();
+      const logDir = getBashLogDir();
       expect(logDir).toContain("cheryClaw-bash-logs");
       expect(existsSync(logDir)).toBe(true);
     });
 
     it("should create directory if not exists", () => {
-      const logDir = getLogDir();
+      const logDir = getBashLogDir();
       expect(existsSync(logDir)).toBe(true);
     });
 
     it("should return same directory on multiple calls", () => {
-      const dir1 = getLogDir();
-      const dir2 = getLogDir();
+      const dir1 = getBashLogDir();
+      const dir2 = getBashLogDir();
       expect(dir1).toBe(dir2);
     });
   });
 
-  describe("createLogFile", () => {
+  describe("createBashLogPath", () => {
     it("should create log file path with timestamp and pid", () => {
       const startTime = 1234567890;
       const pid = 12345;
-      const logPath = createLogFile(pid, startTime);
+      const logPath = createBashLogPath(pid, startTime);
 
       expect(logPath).toContain("1234567890-12345.log");
       expect(logPath).toContain("cheryClaw-bash-logs");
     });
 
     it("should create log file in correct directory", () => {
-      const logPath = createLogFile(12345, 1234567890);
-      const expectedDir = getLogDir();
+      const logPath = createBashLogPath(12345, 1234567890);
+      const expectedDir = getBashLogDir();
       expect(logPath.startsWith(expectedDir)).toBe(true);
     });
   });
 
-  describe("formatLogHeader", () => {
+  describe("formatBashLogHeader", () => {
     it("should format header with basic info", () => {
       const info: BashLogInfo = {
         pid: 12345,
@@ -72,7 +72,7 @@ describe("bashLogger module", () => {
         status: "running",
       };
 
-      const header = formatLogHeader(info);
+      const header = formatBashLogHeader(info);
 
       expect(header).toContain("PID: 12345");
       expect(header).toContain("Command: ls -la");
@@ -91,7 +91,7 @@ describe("bashLogger module", () => {
         status: "running",
       };
 
-      const header = formatLogHeader(info);
+      const header = formatBashLogHeader(info);
 
       expect(header).toContain("Description: Build the project");
     });
@@ -105,7 +105,7 @@ describe("bashLogger module", () => {
         status: "completed",
       };
 
-      const header = formatLogHeader(info);
+      const header = formatBashLogHeader(info);
 
       expect(header).not.toContain("Description:");
     });
@@ -120,7 +120,7 @@ describe("bashLogger module", () => {
         status: "running",
       };
 
-      const header = formatLogHeader(info);
+      const header = formatBashLogHeader(info);
 
       expect(header).toContain("StartTime: 2023");
     });
@@ -202,7 +202,7 @@ describe("bashLogger module", () => {
     });
   });
 
-  describe("cleanOldLogs concept", () => {
+  describe("cleanOldBashLogs concept", () => {
     it("should identify old files by timestamp", () => {
       const oldTime = Date.now() - 25 * 60 * 60 * 1000; // 25 hours ago
       const recentTime = Date.now() - 1 * 60 * 60 * 1000; // 1 hour ago
@@ -214,23 +214,23 @@ describe("bashLogger module", () => {
     });
   });
 
-  describe("cleanOldLogs", () => {
+  describe("cleanOldBashLogs", () => {
     it("should handle non-existent directory gracefully", () => {
       // 测试不存在的目录时应该优雅处理
-      // 由于 cleanOldLogs 使用全局日志目录，我们无法直接测试
+      // 由于 cleanOldBashLogs 使用全局日志目录，我们无法直接测试
       // 但可以验证函数存在且可调用
-      expect(cleanOldLogs).toBeDefined();
-      expect(typeof cleanOldLogs).toBe("function");
+      expect(cleanOldBashLogs).toBeDefined();
+      expect(typeof cleanOldBashLogs).toBe("function");
     });
 
     it("should skip non-log files", () => {
-      const logDir = getLogDir();
+      const logDir = getBashLogDir();
       // 创建非 .log 文件
       const nonLogFile = join(logDir, "test-data.txt");
       writeFileSync(nonLogFile, "test content");
 
       // 调用清理（1小时保留期）
-      cleanOldLogs(1);
+      cleanOldBashLogs(1);
 
       // 非 .log 文件应该仍然存在
       expect(existsSync(nonLogFile)).toBe(true);
@@ -240,13 +240,13 @@ describe("bashLogger module", () => {
     });
 
     it("should preserve recent log files", () => {
-      const logDir = getLogDir();
+      const logDir = getBashLogDir();
       // 创建新的 .log 文件（当前时间戳）
-      const recentLogFile = createLogFile(Date.now(), Date.now());
+      const recentLogFile = createBashLogPath(Date.now(), Date.now());
       writeFileSync(recentLogFile, "recent log");
 
       // 调用清理（24小时保留期）
-      cleanOldLogs(24);
+      cleanOldBashLogs(24);
 
       // 最近文件应该保留
       expect(existsSync(recentLogFile)).toBe(true);
@@ -256,7 +256,7 @@ describe("bashLogger module", () => {
     });
 
     it("should handle empty directory", () => {
-      const logDir = getLogDir();
+      const logDir = getBashLogDir();
       // 确保目录存在但为空（移除所有测试文件）
       const files = readdirSync(logDir);
       for (const file of files) {
@@ -270,7 +270,7 @@ describe("bashLogger module", () => {
       }
 
       // 调用清理应该不报错
-      cleanOldLogs(24);
+      cleanOldBashLogs(24);
     });
   });
 });

@@ -31,35 +31,57 @@ function registerStaticTools(): void {
 registerStaticTools();
 
 /**
+ * 测试结果详情
+ */
+export interface TestResultDetail {
+  passed: boolean;
+  passedCount: number;
+  totalCount: number;
+  failures: { input: unknown; expected: unknown; actual: unknown }[];
+  error?: string;
+}
+
+/**
  * 执行工具自测用例
- * 任一用例失败返回 false
+ * 返回详细测试结果
  */
 export async function runToolTests(
   toolInstance: Tool<ZodType>,
   testCases: TestCase[],
-): Promise<boolean> {
+): Promise<TestResultDetail> {
+  const failures: { input: unknown; expected: unknown; actual: unknown }[] = [];
+  let passedCount = 0;
+
   for (const tc of testCases) {
     try {
       const parsedInput = toolInstance.executor.schema.parse(tc.input);
       const result = await toolInstance.executor.execute(parsedInput, new Map());
       if (result.content !== tc.output.content || result.hash !== tc.output.hash) {
-        console.error(
-          `✗ 工具测试失败: ${toolInstance.definition.function.name}`,
-          `\n  input:    ${JSON.stringify(tc.input)}`,
-          `\n  expected: ${JSON.stringify(tc.output)}`,
-          `\n  actual:   ${JSON.stringify(result)}`,
-        );
-        return false;
+        failures.push({
+          input: tc.input,
+          expected: tc.output,
+          actual: result,
+        });
+      } else {
+        passedCount++;
       }
     } catch (err) {
-      console.error(
-        `✗ 工具测试执行异常: ${toolInstance.definition.function.name}`,
-        (err as Error).message,
-      );
-      return false;
+      return {
+        passed: false,
+        passedCount,
+        totalCount: testCases.length,
+        failures,
+        error: (err as Error).message,
+      };
     }
   }
-  return true;
+
+  return {
+    passed: failures.length === 0,
+    passedCount,
+    totalCount: testCases.length,
+    failures,
+  };
 }
 
 /**

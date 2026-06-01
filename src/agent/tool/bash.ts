@@ -6,9 +6,9 @@ import { SupervisionLevel } from "@/core/config";
 import { getWorkDir } from "@/utils/env.js";
 import config from "@/utils/config";
 import {
-  createLogFile,
-  formatLogHeader,
-  cleanOldLogs,
+  createBashLogPath,
+  formatBashLogHeader,
+  cleanOldBashLogs,
   type BashLogInfo,
 } from "@/utils/bashLogger.js";
 
@@ -76,7 +76,7 @@ export default tool(
     const startTime = Date.now();
     const hash = "";
 
-    cleanOldLogs(LOG_RETENTION_HOURS);
+    cleanOldBashLogs(LOG_RETENTION_HOURS);
 
     return new Promise((resolve) => {
       let timedOut = false;
@@ -103,7 +103,7 @@ export default tool(
         const duration = endTime - startTime;
 
         // 超时场景：创建日志文件，进程进入后台运行
-        const logPath = createLogFile(startTime, endTime);
+        const logPath = createBashLogPath(startTime, endTime);
         const logInfo: BashLogInfo = {
           pid: processPid,
           command,
@@ -112,7 +112,7 @@ export default tool(
           description,
           status: 'running',
         };
-        writeFileSync(logPath, formatLogHeader(logInfo) + outputBuffer);
+        writeFileSync(logPath, formatBashLogHeader(logInfo) + outputBuffer);
 
         const result: BashResult = {
           status: 'timeout',

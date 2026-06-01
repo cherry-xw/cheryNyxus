@@ -1,6 +1,10 @@
 import { AgentBuilder } from "./builder";
 import * as readline from "readline";
-import { preprocessAndCompileAllTools } from "@/utils/toolCompiler.js";
+import { compileTools } from "@/core/tool/compiler/index.js";
+import {
+  reportToolCompileResult,
+  runToolTestsAndCollect,
+} from "./tool/compileToolsReporter.js";
 
 // 导出 tool 相关内容，供外部 tool 编译后使用
 export { z, tool, SupervisionLevel, registerTool, registerTools } from "./tool/index.js";
@@ -11,18 +15,22 @@ export type { Tool, ToolResult } from "./tool/index.js";
  * 预处理 .chery/tools/ 下的 .ts 文件，编译到 dist/tools/
  */
 async function compileToolsCommand(): Promise<void> {
-  console.log("=== 编译外部工具 ===\n");
+  const summary = await compileTools();
 
-  const results = await preprocessAndCompileAllTools();
-
-  if (results.length === 0) {
+  if (summary.succeeded.length === 0 && summary.failed.length === 0) {
     console.log("未找到外部工具源文件");
     return;
   }
 
-  console.log(`\n编译完成: ${results.length} 个工具`);
-  for (const info of results) {
-    console.log(`  ✓ ${info.sourcePath} -> ${info.compiledPath}`);
+  const testResults = await runToolTestsAndCollect(summary.succeeded);
+  reportToolCompileResult(summary, testResults);
+
+  // 检查是否有失败
+  const hasFailure = summary.failed.length > 0 ||
+    [...testResults.values()].some(r => !r.passed && r.error);
+
+  if (hasFailure) {
+    process.exitCode = 1;
   }
 }
 
@@ -41,13 +49,7 @@ if (subcommand === "compile-tools") {
  * Agent 示例：使用 deepseek 配置访问 package.json 数据
  */
 
-// 创建 readline 接口（复用）
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
-async function promptUser(question: string): Promise<string> {
+async function promptUser(rl: readline.Interface, question: string): Promise<string> {
   return new Promise((resolve) => {
     rl.question(question, (answer) => {
       resolve(answer.trim().toUpperCase());
@@ -56,6 +58,10 @@ async function promptUser(question: string): Promise<string> {
 }
 
 async function streamExample() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
 
   const agent = await new AgentBuilder()
     .use("ali_glm5")
@@ -88,7 +94,7 @@ async function streamExample() {
         const handle = chunk.handles[i];
         if (!handle) continue;
 
-        const input = await promptUser(`\n[${i + 1}] 是否批准执行？(Y/N)`);
+        const input = await promptUser(rl, `\n[${i + 1}] 是否批准执行？(Y/N)`);
 
         const approved = input === "Y" || input === "YES";
         console.log(`用户选择: ${approved ? "批准" : "拒绝"}\n`);
