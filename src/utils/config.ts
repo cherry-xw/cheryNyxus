@@ -24,7 +24,7 @@ export { SupervisionLevel } from "@/core/config";
  * LLM Client 配置基础类型
  * 各 Provider 可扩展具体配置结构
  */
-interface ClientConfig {
+interface AIServerConfig {
   url: string;
   model: string;
   key?: string;
@@ -37,7 +37,7 @@ interface ClientConfig {
 }
 
 interface LLMConfig {
-  clients: Record<string, ClientConfig>;
+  agent: Record<string, AIServerConfig>;
 }
 
 /**
@@ -174,5 +174,5 @@ function loadConfig(): Config {
 const config = loadConfig();
 // console.log(JSON.stringify(config));
 
-export type { Config, LLMConfig, ClientConfig, ToolGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig };
+export type { Config, LLMConfig, AIServerConfig, ToolGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig };
 export default config;
