@@ -19,54 +19,28 @@ function loadSwcWasm(): { transformSync: (code: string, opts: unknown) => { code
 
 const { transformSync } = loadSwcWasm();
 
-const IMPORT_MAP: Record<string, string> = {
-  zod: "import { z } from \"../index.js\";",
-  "@/core/tool": "import { tool } from \"../index.js\";",
-  "@/core/config": "import { SupervisionLevel } from \"../index.js\";",
-};
+// 不再注入外部依赖，编译产物为纯代码
+// 运行时通过 new Function() 在当前上下文执行，z/tool/SupervisionLevel 由上下文提供
 
-function hasImportFrom(content: string, source: string): boolean {
+function stripImports(content: string): string {
+  // 移除所有 import 语句，只保留代码
   const lines = content.split("\n");
+  const codeLines: string[] = [];
+
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("import ") && !trimmed.startsWith("//") && !trimmed.startsWith("*")) {
-      if (trimmed.includes(`from \"${source}\"`) || trimmed.includes(`from '${source}'`)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-function injectImports(content: string): string {
-  const lines = content.split("\n");
-  let lastImportIndex = -1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line && line.trim().startsWith("import ") && !line.trim().startsWith("import type")) {
-      lastImportIndex = i;
+    // 保留非 import 行
+    if (!trimmed.startsWith("import ")) {
+      codeLines.push(line);
     }
   }
 
-  const missingImports = Object.entries(IMPORT_MAP)
-    .filter(([source]) => !hasImportFrom(content, source))
-    .map(([, stmt]) => stmt);
-
-  if (missingImports.length === 0) return content;
-  if (lastImportIndex === -1) return [...missingImports, "", ...lines].join("\n");
-
-  const injectPosition = lastImportIndex + 1;
-  return [
-    ...lines.slice(0, injectPosition),
-    ...missingImports,
-    ...lines.slice(injectPosition),
-  ].join("\n");
+  return codeLines.join("\n");
 }
 
 function preprocessToolFile(sourcePath: string, outputDir: string): string {
   const sourceContent = readFileSync(sourcePath, "utf-8");
-  const injectedContent = injectImports(sourceContent);
+  const strippedContent = stripImports(sourceContent);
 
   const fileName = basename(sourcePath, extname(sourcePath));
   const outputPath = join(outputDir, `${fileName}.ts`);
@@ -75,7 +49,7 @@ function preprocessToolFile(sourcePath: string, outputDir: string): string {
     mkdirSync(outputDir, { recursive: true });
   }
 
-  writeFileSync(outputPath, injectedContent, "utf-8");
+  writeFileSync(outputPath, strippedContent, "utf-8");
   return outputPath;
 }
 
