@@ -4,10 +4,6 @@ export * from "./adapter";
 export { ToolManager } from "./toolManager";
 export { SupervisionLevel } from "../config";
 export {
-  registerTool,
   registerTools,
-  getTool,
   getTools,
-  getToolSupervision,
-  getAllToolNames,
 } from "./toolRegistry";

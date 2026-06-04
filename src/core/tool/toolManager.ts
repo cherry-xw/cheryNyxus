@@ -1,5 +1,8 @@
 import type { Tool, ToolResult, ToolSharedData } from "./toolCreator";
 import type { ZodType } from "zod";
+import type { ToolGroupConfig } from "@/utils/config";
+import { SupervisionLevel } from "../config";
+import { getTools } from "./toolRegistry";
 import { getToolAdapter, type ToolAdapter } from "./adapter";
 
 export class ToolManager {
@@ -62,13 +65,40 @@ export class ToolManager {
   }
 
   /**
-   * 填充未声明监管等级的工具（fallback 到 global）
+   * 批量加载工具组（封装完整的加载、去重、监管注入流程）
+   * @param groupNames - 工具组名称列表
+   * @param toolGroups - 工具组配置（来自 config.tool_groups）
+   * @param globalSupervision - 全局监管等级（用于 fallback）
    */
-  fillSupervisionDefault(level: import("../config").SupervisionLevel): void {
-    for (const tool of this._tools) {
-      if (tool.supervisionLevel === undefined) {
-        tool.supervisionLevel = level;
+  loadFromGroups(
+    groupNames: string[],
+    toolGroups: Record<string, ToolGroupConfig> | undefined,
+    globalSupervision: SupervisionLevel,
+  ): void {
+    const result = new Map<string, Tool<ZodType>>();
+
+    for (const groupName of groupNames) {
+      const group = toolGroups?.[groupName];
+      if (!group) {
+        console.warn(`Tool group "${groupName}" not found, skipping`);
+        continue;
       }
+
+      for (const tool of getTools(group.tools)) {
+        const name = tool.definition.function.name;
+        const prev = result.get(name);
+        if (prev) {
+          console.warn(`Tool "${name}" already loaded, overriding with group "${groupName}"`);
+        }
+        // 优先级：组监管 > 前组已解析监管 > 工具内置监管 > 全局默认
+        tool.supervisionLevel =
+          group.supervision ?? prev?.supervisionLevel ?? tool.supervisionLevel ?? globalSupervision;
+        result.set(name, tool);
+      }
+    }
+
+    if (result.size > 0) {
+      this.add([...result.values()]);
     }
   }
 

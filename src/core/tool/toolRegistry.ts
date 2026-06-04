@@ -1,63 +1,36 @@
 import type { ZodType } from "zod";
 import type { Tool } from "./toolCreator";
-import { SupervisionLevel } from "../config";
 
 /**
- * 工具注册表：工具名 → Tool 实例
+ * 全局工具注册表：工具名 → Tool 实例
+ *
+ * 所有内置工具（bash/read/write/skill）和外部自定义工具在启动时注册到此表。
+ * AgentBuilder 通过 tool_group 配置按名称从中取工具子集，添加到 ToolManager 实例。
+ *
+ * 注意：此注册表是全局共享的，不同 agent 的工具隔离由 ToolManager 实例实现，
+ * 而非此注册表。tool_group 决定每个 agent 可见哪些工具。
+ *
  */
 const toolRegistry: Record<string, Tool<ZodType>> = {};
 
 /**
- * 工具监管等级注册表：工具名 → SupervisionLevel
- */
-const supervisionRegistry: Record<string, SupervisionLevel> = {};
-
-/**
- * 注册单个工具
- */
-export function registerTool(tool: Tool<ZodType>): void {
-  if (tool?.definition?.function?.name) {
-    const toolName = tool.definition.function.name;
-    toolRegistry[toolName] = tool;
-    supervisionRegistry[toolName] = tool.supervisionLevel;
-  }
-}
-
-/**
- * 批量注册工具
+ * 批量注册工具到全局注册表
  */
 export function registerTools(tools: Tool<ZodType>[]): void {
   for (const tool of tools) {
-    registerTool(tool);
+    if (tool?.definition?.function?.name) {
+      const toolName = tool.definition.function.name;
+      toolRegistry[toolName] = tool;
+    }
   }
 }
 
 /**
- * 获取单个工具实例
- */
-export function getTool(name: string): Tool<ZodType> | undefined {
-  return toolRegistry[name];
-}
-
-/**
- * 批量获取工具实例
+ * 按名称批量获取工具实例
+ * 自动过滤未找到的工具（不抛错）
  */
 export function getTools(names: string[]): Tool<ZodType>[] {
   return names
     .map(name => toolRegistry[name])
     .filter((tool): tool is Tool<ZodType> => tool !== undefined);
-}
-
-/**
- * 获取工具监管等级
- */
-export function getToolSupervision(name: string): SupervisionLevel | undefined {
-  return supervisionRegistry[name];
-}
-
-/**
- * 获取所有已注册工具名称
- */
-export function getAllToolNames(): string[] {
-  return Object.keys(toolRegistry);
 }
