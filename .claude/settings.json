@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(npx vitest *)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(npm search *)",
+      "Bash(npx tsc *)",
+      "Bash(yarn test *)",
+      "Bash(yarn build *)",
+      "Read(//home/chc/.claude/**)"
+    ],
+    "additionalDirectories": [
+      "/home/chc/.claude"
     ]
   }
 }

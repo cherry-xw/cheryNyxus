@@ -481,7 +481,7 @@ tool_groups:
 
 ```yaml
 llm:
-  clients:
+  agent:
     my_client:
       tool_group: [safe_tools, custom_tools]
 ```

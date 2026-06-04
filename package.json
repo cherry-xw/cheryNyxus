@@ -43,10 +43,14 @@
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
+    "vite-plugin-native-modules": "^2.2.1",
     "vitest": "^4.1.7"
   },
   "dependencies": {
     "@swc/wasm": "^1.15.40",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/ws": "^8.18.1",
+    "better-sqlite3": "^12.10.0",
     "dayjs": "^1.11.20",
     "dotenv": "^17.4.2",
     "js-yaml": "^4.1.1",
@@ -54,6 +58,7 @@
     "ollama": "^0.6.3",
     "openai": "^6.35.0",
     "uuid": "^14.0.0",
+    "ws": "^8.21.0",
     "zod": "^4.4.1",
     "zod-to-json-schema": "^3.25.2"
   }

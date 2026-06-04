@@ -1,5 +1,5 @@
 llm:
-  clients:
+  agent:
     ollama: # 自定义name
       url: $OLLAMA_HOST # $xxx 在.env中定义
       model: gemma3:1b
