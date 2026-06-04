@@ -132,13 +132,7 @@ const ollamaLLMAdapter: llmAdapter = {
 };
 
 // ========== 注册函数 ==========
-
-let registered = false;
-
 export function registerOllamaAdapter(): void {
-  if (registered) return;
-  registered = true;
-
   registerMessageAdapter<ChatResponse, ChatResponse, Message>(
     "ollama",
     ollamaMessageAdapterConfig,

@@ -257,13 +257,7 @@ const openaiLLMAdapter: llmAdapter = {
 };
 
 // ========== 注册函数 ==========
-
-let registered = false;
-
 export function registerOpenAIAdapter(): void {
-  if (registered) return;
-  registered = true;
-
   registerMessageAdapter<
     ChatCompletion,
     OpenAI.Chat.Completions.ChatCompletionChunk,
