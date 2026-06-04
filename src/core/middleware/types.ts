@@ -1,8 +1,7 @@
-import type { LLMResponse } from "../message/index";
-import type { MessageProviderAdapterConfig } from "../message/adapter";
+import type { LLMResponse } from "../message/index";import type { MessageProviderAdapterConfig } from "../message/adapter";
 import type { ToolAdapter } from "../tool/adapter";
 import type { ToolManager, ToolFunction } from "../tool/index";
-import type { GlobalConfig, ClientConfig } from "@/utils/config";
+import type { GlobalConfig, AIServerConfig } from "@/utils/config";
 
 /**
  * 工具调用累积器（流式工具调用增量累积 + 执行结果）
@@ -39,17 +38,6 @@ export interface ToolExecutionResult {
 }
 
 /**
- * HistoryProxy - 劫持 Array.push，维护 assistant 索引指针
- * 兼容 LLMResponse[] 数组类型，可直接传递给 messageAdapter.buildMessages
- */
-export type HistoryProxy = LLMResponse[] & {
-  /** 最后一条 assistant 索引（内部维护） */
-  _lastAStagedIndex: number;
-  /** getter：直接索引访问最后 assistant */
-  readonly lastAssistant: LLMResponse | undefined;
-};
-
-/**
  * 会话分组 - 会话标识和上下文关联信息
  */
 export interface SessionGroup {
@@ -75,8 +63,8 @@ export interface PendingInputEntry {
  * 对话数据组 和 最新一次接口响应数据累积
  */
 interface ProcessGroup {
-  /** 历史消息记录，用于构建LLM请求上下文（使用 HistoryProxy） */
-  history: HistoryProxy;
+  /** 历史消息记录，用于构建LLM请求上下文 */
+  history: LLMResponse[];
   /** 响应内容累积（流式增量拼接） */
   contentAccumulated: string;
   /** 思考内容累积（流式增量拼接） */
@@ -85,7 +73,7 @@ interface ProcessGroup {
   chunkCount: number;
   /** 工具调用累积器Map */
   toolCallAccumulated: Map<string, ToolCallAccumulator>;
-  /** 待注入的用户消息队列（send() 存储，chain 执行前注入） */
+  /** 待消费的用户消息队列（send() 存储，chain 执行前注入） */
   pendingInputs: PendingInputEntry[];
 }
 
@@ -106,7 +94,7 @@ export interface MiddlewareContext {
   /** 请求分组：本次请求的输入和模式 */
   global: GlobalConfig;
   /** 配置分组：LLM客户端配置和选项 */
-  config: ClientConfig;
+  config: AIServerConfig;
   /** Adapter 分组：provider adapter 实例集合 */
   adapters: AdaptersGroup;
   /** 处理分组：消息处理累积状态 */
@@ -131,6 +119,15 @@ export type MiddlewareHandler<T = unknown> = (
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<T>,
 ) => AsyncGenerator<T>;
+
+/**
+ * 循环策略处理函数
+ * 包装单次 chain 执行，由 agent 层提供循环逻辑
+ */
+export type LoopHandler<T = unknown> = (
+  ctx: MiddlewareContext,
+  runChain: () => AsyncGenerator<T, void, unknown>,
+) => AsyncGenerator<T, void, unknown>;
 
 /**
  * LLM Adapter 接口

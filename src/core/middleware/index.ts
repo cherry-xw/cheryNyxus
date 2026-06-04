@@ -1,46 +1,15 @@
 import { compose } from "./compose";
-import { createHistoryProxy } from "./utils";
 
 import type { MiddlewareContext, AdaptersGroup } from "./types";
-import type { MiddlewareHandler } from "./types";
+import type { LLMResponse } from "../message/index";
+import type { MiddlewareHandler, LoopHandler } from "./types";
 import type { ToolManager } from "../tool/index";
-import type { GlobalConfig, ClientConfig } from "@/utils/config";
-import buildPrompt from "../prompt/index";
+import type { GlobalConfig, AIServerConfig } from "@/utils/config";
+import buildFirstSystemPrompt from "../prompt/index";
 import { v4 as uuid } from "uuid";
 
 export * from "./types";
-export { compose };
-export type { MiddlewareHandler };
-
-/**
- * 创建中间件上下文
- */
-function createMiddlewareContextBase(
-  global: GlobalConfig,
-  sessionId: string,
-  threadId: string,
-  config: ClientConfig,
-  adapters: AdaptersGroup,
-  toolManager: ToolManager,
-): MiddlewareContext {
-  return {
-    session: { sessionId, threadId, hashCheck: new Map(), toolSharedData: new Map() },
-    global,
-    config,
-    adapters,
-    process: {
-      history: createHistoryProxy(),
-      contentAccumulated: "",
-      thinkingAccumulated: "",
-      chunkCount: 0,
-      toolCallAccumulated: new Map(),
-      pendingInputs: [],
-    },
-    tools: {
-      toolManager,
-    },
-  };
-}
+export type { MiddlewareHandler, LoopHandler };
 
 /**
  * Middleware 实例 - 封装请求处理逻辑
@@ -49,38 +18,65 @@ function createMiddlewareContextBase(
  */
 export default class Middleware<T = unknown> {
   middlewareChain: ReturnType<typeof compose<T>>;
-  thread = new Map<string, MiddlewareContext>();
-  /** 活跃的 generator（按 threadId 存储） */
-  private activeGenerators = new Map<string, AsyncGenerator<T, void, unknown>>();
+  threadMap = new Map<string, MiddlewareContext>();
+  /** 活跃的会话迭代器 generator（按 threadId 存储） */
+  private activeGenerators = new Map<
+    string,
+    AsyncGenerator<T, void, unknown>
+  >();
+  private loopHandler?: LoopHandler<T>;
 
   constructor(
     private sessionId: string,
     private global: GlobalConfig,
-    private config: ClientConfig,
+    private aiServerConfig: AIServerConfig,
     private tool: ToolManager,
     private adapters: AdaptersGroup,
     handlers: MiddlewareHandler<T>[],
+    loopHandler?: LoopHandler<T>,
   ) {
     this.middlewareChain = compose(handlers);
+    this.loopHandler = loopHandler;
   }
 
-  createThread() {
-    const threadId = uuid();
-    const ctx = createMiddlewareContextBase(
-      this.global,
-      this.sessionId,
-      threadId,
-      this.config,
-      this.adapters,
-      this.tool,
-    );
-    this.thread.set(threadId, ctx);
+  /**
+   * 创建新一轮会话
+   * @param threadId 会话id
+   * @returns 会话id
+   */
+  createThread(threadId: string) {
+    if (this.threadMap.has(threadId)) {
+      return threadId;
+    }
+    const history: LLMResponse[] = [];
+    this.threadMap.set(threadId, {
+      session: {
+        sessionId: this.sessionId,
+        threadId: threadId,
+        hashCheck: new Map(),
+        toolSharedData: new Map(),
+      },
+      global: this.global,
+      config: this.aiServerConfig,
+      adapters: this.adapters,
+      process: {
+        history,
+        contentAccumulated: "",
+        thinkingAccumulated: "",
+        chunkCount: 0,
+        toolCallAccumulated: new Map(),
+        pendingInputs: [],
+      },
+      tools: {
+        toolManager: this.tool,
+      },
+    });
     // 初始化系统消息
     const now = Date.now();
-    ctx.process.history.push({
+    history.push({
       id: uuid(),
       role: "system",
-      content: buildPrompt(),
+      content: buildFirstSystemPrompt(),
       createdAt: now,
       updateAt: now,
       raw: undefined,
@@ -89,16 +85,54 @@ export default class Middleware<T = unknown> {
   }
 
   /**
+   * 单次 chain 执行
+   * - 注入 pendingInputs 到 history
+   * - 重置累积状态
+   * - 执行 middleware chain
+   */
+  private async *runChain(
+    ctx: MiddlewareContext,
+  ): AsyncGenerator<T, void, unknown> {
+    // 注入用户消息
+    while (ctx.process.pendingInputs.length > 0) {
+      const entry = ctx.process.pendingInputs.shift();
+      if (entry) {
+        ctx.process.history.push({
+          id: uuid(),
+          role: "user",
+          content: entry.input,
+          createdAt: entry.time,
+          updateAt: Date.now(),
+          raw: {},
+        });
+      }
+    }
+
+    // 重置累积消息
+    ctx.process.contentAccumulated = "";
+    ctx.process.thinkingAccumulated = "";
+    ctx.process.chunkCount = 0;
+
+    // 执行 middleware chain
+    const generator = this.middlewareChain(ctx);
+
+    for await (const chunk of generator) {
+      yield chunk;
+      if (isDoneChunk(chunk)) break;
+    }
+  }
+
+  /**
    * 发送消息并返回 generator
    * - 将 input 存入 pendingInputs（不立即注入 history）
    * - 如果已有活跃 generator，返回当前 generator
-   * - 如果无活跃 generator，创建新 generator 并执行 loop
+   * - 如果无活跃 generator，创建新 generator 并执行
    */
   async *send(
     threadId: string,
     input: string,
   ): AsyncGenerator<T, void, unknown> {
-    const ctx = this.thread.get(threadId);
+    const ctx = this.threadMap.get(threadId);
     if (!ctx) {
       throw new Error("Thread not found");
     }
@@ -118,8 +152,10 @@ export default class Middleware<T = unknown> {
       return;
     }
 
-    // 创建新 generator
-    const generator = this.executeLoop(ctx);
+    // 创建 generator：有 loopHandler 则委托，否则单次执行
+    const generator = this.loopHandler
+      ? this.loopHandler(ctx, () => this.runChain(ctx))
+      : this.runChain(ctx);
     this.activeGenerators.set(threadId, generator);
 
     try {
@@ -127,81 +163,6 @@ export default class Middleware<T = unknown> {
     } finally {
       this.activeGenerators.delete(threadId);
     }
-  }
-
-  /**
-   * 执行 loop（内部方法）
-   * - while(times < maxLoop) 执行 middleware chain
-   * - 每次 chain 执行前注入 pendingInputs
-   * - 每次 loop 后检查是否需要继续
-   */
-  private async *executeLoop(
-    ctx: MiddlewareContext,
-  ): AsyncGenerator<T, void, unknown> {
-    const maxLoop = this.global.maxLoopCount ?? 30;
-    let times = 0;
-
-    while (times < maxLoop) {
-      times++;
-
-      // chain 执行前注入 pendingInputs
-      while (ctx.process.pendingInputs.length > 0) {
-        const entry = ctx.process.pendingInputs.shift();
-        if (entry) {
-          ctx.process.history.push({
-            id: uuid(),
-            role: "user",
-            content: entry.input,
-            createdAt: entry.time,
-            updateAt: entry.time,
-            raw: {},
-          });
-        }
-      }
-
-      // 重置累积状态
-      ctx.process.contentAccumulated = "";
-      ctx.process.thinkingAccumulated = "";
-      ctx.process.chunkCount = 0;
-
-      const generator = this.middlewareChain(ctx);
-
-      for await (const chunk of generator) {
-        yield chunk;
-        if (isDoneChunk(chunk)) break;
-      }
-
-      // 检查 loop 停止条件
-      // 1. toolCallAccumulated 有数据 → 有未执行的 tool_calls → 继续 loop
-      if (ctx.process.toolCallAccumulated.size > 0) {
-        continue;
-      }
-
-      // 2. 检查最后一条消息
-      const lastMessage = ctx.process.history[ctx.process.history.length - 1];
-      if (!lastMessage) break;
-
-      // 2.1 最后一条是 tool → 刚执行完 → 继续 loop
-      if (lastMessage.role === "tool") {
-        continue;
-      }
-
-      // 2.2 最后一条是 assistant
-      if (lastMessage.role === "assistant") {
-        // 有 toolCalls → 已执行完 → 继续 loop
-        if (lastMessage.toolCalls && lastMessage.toolCalls.length > 0) {
-          continue;
-        }
-        // 无 toolCalls → 停止 loop
-        break;
-      }
-
-      // 其他情况（user/system）→ 停止 loop
-      break;
-    }
-
-    // loop 结束，yield done
-    yield { type: "done" } as T;
   }
 }
 
