@@ -2,7 +2,6 @@ import { z } from "zod";
 import { tool, type ToolResult, type ToolSharedData } from "@/core/tool";
 import { writeFile, rename, copyFile, unlink, stat } from "fs/promises";
 import { SupervisionLevel } from "@/core/config";
-import { resolvePath } from "@/utils/env.js";
 import { hashGenerator } from "@/utils/hash.js";
 import os from "os";
 import path from "path";
@@ -15,18 +14,17 @@ interface FileInfo {
 }
 
 const WriteSchema = z.object({
-  path: z.string().describe("文件路径，支持相对路径（相对于工作目录）或绝对路径"),
+  path: z.string().describe("文件绝对路径"),
   content: z.string().describe("要写入文件的内容"),
 });
 
 export default tool(
   "write_file",
-  "写入内容到指定文件。路径可以是绝对路径或相对于工作目录的相对路径。如果文件已存在将被覆盖，如果目录不存在将报错。先写入临时目录后移动到目标位置，确保数据安全。注意：写入文件主要使用`write_file`，而不是使用bash命令。",
+  "写入内容到指定文件。仅支持绝对路径。如果文件已存在将被覆盖，如果目录不存在将报错。先写入临时目录后移动到目标位置，确保数据安全。注意：写入文件主要使用`write_file`，而不是使用bash命令。",
   WriteSchema,
   async (input, toolSharedData: ToolSharedData): Promise<ToolResult> => {
     try {
-      // 转换相对路径为绝对路径
-      const absolutePath = resolvePath(input.path);
+      const absolutePath = input.path;
 
       // 检查文件是否被修改过（写入前检测）
       const readNamespace = toolSharedData.get("read_file");

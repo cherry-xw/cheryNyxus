@@ -3,7 +3,6 @@ import { spawn } from "child_process";
 import { writeFileSync } from "fs";
 import { tool, type ToolResult } from "@/core/tool";
 import { SupervisionLevel } from "@/core/config";
-import { getWorkDir } from "@/utils/env.js";
 import config from "@/utils/config";
 import {
   createBashLogPath,
@@ -84,7 +83,6 @@ export default tool(
 
       const proc = spawn(command, [], {
         shell: true,
-        cwd: getWorkDir(),
       });
 
       const processPid = proc.pid!;

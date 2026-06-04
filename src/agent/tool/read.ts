@@ -3,7 +3,6 @@ import { readFile, stat } from "fs/promises";
 import path from "path";
 import { tool, type ToolResult, type ToolSharedData } from "@/core/tool";
 import { SupervisionLevel } from "@/core/config";
-import { getWorkDir } from "@/utils/env.js";
 import { hashGenerator } from "@/utils/hash.js";
 import config from "@/utils/config.js";
 import { compressLog } from "@/utils/drain/index.js";
@@ -67,7 +66,7 @@ export default tool(
       // 检查路径是否为绝对路径（支持跨平台）
       if (!path.isAbsolute(input.path)) {
         return {
-          content: `错误：路径 "${input.path}" 不是绝对路径。Unix需以 / 开头，Windows需以盘符开头（如 C:\\）。当前工作目录: ${getWorkDir()}`,
+          content: `错误：路径 "${input.path}" 不是绝对路径。Unix需以 / 开头，Windows需以盘符开头（如 C:\\）。`,
           hash: "", // 错误情况不参与去重
         };
       }

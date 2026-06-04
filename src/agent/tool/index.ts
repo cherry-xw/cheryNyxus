@@ -1,14 +1,13 @@
 import type { ZodType } from "zod";
 import type { Tool } from "@/core/tool";
-import type { TestCase } from "@/utils/toolCompiler.js";
-import { registerTool, registerTools, getTool, getTools, getToolSupervision } from "@/core/tool";
-import { readdirSync, existsSync } from "fs";
+import type { TestCase } from "@/core/tool/compiler/types.js";
+import { registerTools } from "@/core/tool";
+import { readdirSync, existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-
-// 导出 zod 和 tool 函数，供外部 tool 编译后使用
-export { z } from "zod";
-export { tool } from "@/core/tool";
+import { z } from "zod";
+import { tool } from "@/core/tool";
+import { SupervisionLevel } from "@/core/tool";
 
 // 显式导入所有工具模块
 import bashTool from "./bash";
@@ -16,9 +15,11 @@ import readTool from "./read";
 import writeTool from "./write";
 import skillTool from "./skill";
 
-export { registerTool, registerTools, getTool, getTools, getToolSupervision, ToolManager } from "@/core/tool";
+export { registerTools, getTools, ToolManager } from "@/core/tool";
 export type { Tool, ToolResult } from "@/core/tool";
 export { SupervisionLevel } from "@/core/tool";
+export { z } from "zod";
+export { tool } from "@/core/tool";
 
 /**
  * 注册内置工具
@@ -84,9 +85,17 @@ export async function runToolTests(
   };
 }
 
+// 提供运行时上下文给 new Function() 执行
+const runtimeContext = {
+  z,
+  tool,
+  SupervisionLevel,
+  registerTools,
+};
+
 /**
- * 动态加载自定义工具（从 index.js 同级的 tools/ 目录）
- * 需先通过 compile:tools 命令编译外部工具
+ * 动态加载自定义工具（从编译产物目录）
+ * 使用 new Function() 在当前上下文执行，无需 import
  */
 async function loadCustomTools(): Promise<void> {
   const toolsDir = join(dirname(fileURLToPath(import.meta.url)), "tools");
@@ -107,12 +116,24 @@ async function loadCustomTools(): Promise<void> {
   for (const file of jsFiles) {
     const filePath = join(toolsDir, file);
     try {
-      const module = await import(filePath);
-      const toolInstance = module.default as Tool<ZodType>;
+      const code = readFileSync(filePath, "utf-8");
+      // 移除 hash 注释行
+      const pureCode = code.replace(/^\/\/ hash:[a-f0-9]+\n/, "");
 
-      if (toolInstance?.definition?.function?.name) {
-        registerTool(toolInstance);
-        console.log(`✓ 自定义工具已加载: ${toolInstance.definition.function.name}`);
+      // 使用 new Function 在当前上下文执行
+      // 传入运行时上下文变量
+      const fn = new Function("z", "tool", "SupervisionLevel", "registerTools", pureCode);
+      const result = fn(
+        runtimeContext.z,
+        runtimeContext.tool,
+        runtimeContext.SupervisionLevel,
+        runtimeContext.registerTools,
+      );
+
+      // 如果代码返回 tool 实例，直接注册
+      if (result?.definition?.function?.name) {
+        registerTools([result]);
+        console.log(`✓ 自定义工具已加载: ${result.definition.function.name}`);
       }
     } catch (err) {
       console.warn(`⚠ 自定义工具加载失败: ${file}`, (err as Error).message);
@@ -123,6 +144,6 @@ async function loadCustomTools(): Promise<void> {
 /**
  * 确保工具已加载完成（内置工具 + 自定义工具）
  */
-export async function ensureToolsLoaded(): Promise<void> {
+export async function ensureCustomToolsLoaded(): Promise<void> {
   await loadCustomTools();
 }
