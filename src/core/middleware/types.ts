@@ -3,6 +3,7 @@ import type { MessageProviderAdapterConfig } from "../message/adapter";
 import type { ToolAdapter, ToolCallData, ToolFunction } from "../tool/adapter";
 import type { ToolManager } from "../tool/index";
 import type { GlobalConfig, AIServerConfig } from "@/utils/config";
+import { SupervisionLevel } from "../config.js";
 
 /**
  * 用户输入条目
@@ -169,7 +170,9 @@ export interface ToolTriggerChunk {
   /** 工具参数 JSON */
   arguments: string;
   /** 监管等级 */
-  supervisionLevel: "auto" | "confirm" | "manual";
+  supervisionLevel: SupervisionLevel;
+  /** 审批结果（confirm/manual 时使用，外部设置） */
+  approval?: { action: "accept" | "reject"; reason?: string };
 }
 
 /**

@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { SupervisionLevel } from "@/core/config.js";
 
 // ========== 消息基础类型 ==========
 
@@ -145,7 +146,7 @@ export interface InterruptNotificationData {
   interruptId: string;
   toolName: string;
   arguments: string;
-  supervisionLevel: string;
+  supervisionLevel: SupervisionLevel;
 }
 
 export interface CompleteNotificationData {

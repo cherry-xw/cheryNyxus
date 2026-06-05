@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { MiddlewareContext, MiddlewareChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, MiddlewareChunk, StreamChunk } from "@/core/middleware/types";
 import { checkpointRepo } from "@/db/checkpoint.js";
 import { CheckpointState } from "./checkpointState.js";
 
@@ -13,6 +13,7 @@ import { CheckpointState } from "./checkpointState.js";
  * 5. 管理 pendingTools
  * 6. 持久化关键状态
  * 7. yield consumed notification
+ * 8. 边界检测：思考结束时 yield staged(thinking)，正文结束后 yield staged(content)
  */
 export async function* checkpointMiddleware(
   ctx: MiddlewareContext,
@@ -37,34 +38,68 @@ export async function* checkpointMiddleware(
     ctx.session.messages = messages;
     // 清空 userInputs（避免重复处理）
     userInputs.length = 0;
-  }
 
-  const state = new CheckpointState();
-
-  // === 执行内层 handlers ===
-  for await (const chunk of next()) {
-    state.ingest(chunk);
-    yield chunk;
-  }
-
-  // === yield staged ===
-  const staged = state.getStagedData();
-  yield {
-    type: "staged",
-    content: staged.content,
-    thinking: staged.thinking,
-  };
-
-  // === 追加 assistant 响应和 tool 结果到 messages ===
-  state.appendResponseMessages(ctx);
-
-  // === yield consumed notification（如有消费）===
-  if (consumedCount > 0) {
+    // yield consumed notification（注入时立即通知）
     yield {
       type: "consumed",
       count: consumedCount,
     } as MiddlewareChunk;
   }
+
+  const state = new CheckpointState();
+  let thinkingStagedYielded = false;  // 标记思考阶段 staged 是否已 yield
+  let hasThinkingAccumulated = false; // 标记是否有累积的思考内容
+
+  // === 执行内层 handlers ===
+  for await (const chunk of next()) {
+    state.ingest(chunk);
+
+    // 边界检测：思考结束 → 正文开始的转换点
+    if (chunk.type === "stream") {
+      const streamChunk = chunk as StreamChunk;
+
+      // 检测是否有累积的思考
+      if (streamChunk.thinkingDelta) {
+        hasThinkingAccumulated = true;
+      }
+
+      // 检测思考→正文边界：首次出现 contentDelta 且有累积思考
+      if (!thinkingStagedYielded && hasThinkingAccumulated && streamChunk.contentDelta) {
+        thinkingStagedYielded = true;
+        // yield 思考阶段的 staged
+        yield {
+          type: "staged",
+          content: "",
+          thinking: state.getThinking(),
+        } as MiddlewareChunk;
+      }
+    }
+
+    yield chunk;
+  }
+
+  // === yield 正文阶段的 staged ===
+  const staged = state.getStagedData();
+  // 如果没有 yield 思考 staged（即只有正文没有思考），则 yield 完整 staged
+  // 如果已经 yield 思考 staged，则只 yield 正文 staged
+  if (!thinkingStagedYielded) {
+    // 无思考或有思考但无边界转换（只有思考无正文）
+    yield {
+      type: "staged",
+      content: staged.content,
+      thinking: staged.thinking,
+    };
+  } else if (staged.content) {
+    // 有正文内容，yield 正文 staged
+    yield {
+      type: "staged",
+      content: staged.content,
+      thinking: "",
+    } as MiddlewareChunk;
+  }
+
+  // === 追加 assistant 响应和 tool 结果到 messages ===
+  state.appendResponseMessages(ctx);
 
   // === 持久化 checkpoint ===
   await checkpointRepo.create({

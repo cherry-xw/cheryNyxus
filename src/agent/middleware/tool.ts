@@ -1,5 +1,4 @@
-import type { MiddlewareContext, MiddlewareChunk, ToolTriggerChunk, ToolCompleteChunk, StreamChunk } from "@/core/middleware/types";
-import { interruptManager } from "@/service/agent/interrupt.js";
+import type { MiddlewareContext, MiddlewareChunk, ToolTriggerChunk, StreamChunk } from "@/core/middleware/types";
 import { safeJsonParse } from "@/utils/json.js";
 import { SupervisionLevel } from "@/core/config";
 
@@ -8,7 +7,8 @@ import { SupervisionLevel } from "@/core/config";
  * 职责：
  * 1. 从 stream chunks 实时收集 toolDelta
  * 2. 检测完整 tool call 并立即执行
- * 3. auto 工具自动执行，confirm 工具创建 interrupt
+ * 3. auto 工具自动执行，confirm/manual 工具 yield tool_trigger chunk
+ * 4. interrupt 创建和审批由 service 层 interruptMiddleware 处理
  */
 export async function* toolMiddleware(
   ctx: MiddlewareContext,
@@ -76,20 +76,43 @@ async function* executeToolCall(
   id: string,
   name: string,
   argsJson: string,
-): AsyncGenerator<ToolCompleteChunk> {
+): AsyncGenerator<MiddlewareChunk> {
   // 获取工具监管级别
   const toolDef = ctx.toolManager.get(name);
   const supervisionLevel = toolDef?.supervisionLevel ?? SupervisionLevel.auto;
 
-  if (supervisionLevel === SupervisionLevel.auto) {
+  // 构建 trigger chunk
+  const trigger: ToolTriggerChunk = {
+    type: "tool_trigger",
+    id,
+    name,
+    arguments: argsJson,
+    supervisionLevel,
+  };
+
+  // 所有工具先 yield tool_trigger
+  yield trigger;
+
+  // 执行或拒绝
+  if (supervisionLevel > SupervisionLevel.auto) {
+    // confirm/manual：检查外部挂载的审批结果
+    const decision = trigger.approval;
+    if (decision?.action === "accept") {
+      const result = await doExecuteTool(ctx, name, argsJson);
+      yield { type: "tool_complete", id, name, result };
+    } else {
+      yield {
+        type: "tool_complete",
+        id,
+        name,
+        result: decision?.reason ?? "用户拒绝执行",
+      };
+    }
+  } else {
     // auto：直接执行
     const result = await doExecuteTool(ctx, name, argsJson);
     yield { type: "tool_complete", id, name, result };
-  } else if (supervisionLevel === SupervisionLevel.confirm) {
-    // confirm：创建 interrupt，等待确认
-    yield* handleConfirmToolCall(ctx, id, name, argsJson);
   }
-  // manual：不执行，直接跳过（不 yield tool_complete）
 }
 
 /**
@@ -117,82 +140,6 @@ async function doExecuteTool(
     const errorMsg = error instanceof Error ? error.message : String(error);
     return `Tool execution failed: ${errorMsg}`;
   }
-}
-
-/**
- * 处理需确认的 tool call
- */
-async function* handleConfirmToolCall(
-  ctx: MiddlewareContext,
-  id: string,
-  name: string,
-  argsJson: string,
-): AsyncGenerator<ToolCompleteChunk> {
-  // 创建 interrupt（构建临时 trigger 格式）
-  const trigger: ToolTriggerChunk = {
-    type: "tool_trigger",
-    id,
-    name,
-    arguments: argsJson,
-    supervisionLevel: "confirm",
-  };
-
-  await interruptManager.createSingleInterrupt(ctx, trigger);
-
-  // 等待确认
-  const decision = await waitForConfirmation(id);
-
-  // 根据决策执行或跳过
-  if (decision.action === "accept") {
-    const result = await doExecuteTool(ctx, name, argsJson);
-    yield { type: "tool_complete", id, name, result };
-  } else {
-    yield {
-      type: "tool_complete",
-      id,
-      name,
-      result: `用户拒绝执行${decision.reason ? `，原因是${decision.reason}` : ""}`,
-    };
-  }
-
-  await interruptManager.completeInterrupt(id);
-}
-
-/**
- * 等待确认（指数退避轮询）
- */
-async function waitForConfirmation(
-  interruptId: string,
-): Promise<{ action: "accept" | "reject"; reason?: string }> {
-  return new Promise((resolve) => {
-    let delay = 1000;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const poll = async () => {
-      try {
-        const entry = interruptManager.getHandle(interruptId);
-        if (!entry) {
-          // 已被确认，默认 accept
-          resolve({ action: "accept" as const });
-          return;
-        }
-      } catch {
-        // 继续轮询
-      }
-      // 指数退避：1s → 2s → 4s → ... → max 30s
-      delay = Math.min(delay * 2, 30000);
-      timer = setTimeout(poll, delay);
-    };
-
-    // 首次轮询
-    timer = setTimeout(poll, delay);
-
-    // 超时 10 分钟
-    setTimeout(() => {
-      if (timer) clearTimeout(timer);
-      resolve({ action: "reject" as const, reason: "Timeout" });
-    }, 600000);
-  });
 }
 
 export default toolMiddleware;

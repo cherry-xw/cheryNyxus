@@ -9,11 +9,13 @@ import { SupervisionLevel } from "@/core/config";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 根目录 .env（开发环境 dist/ 上级）优先，回退到 dist/.env（生产环境）
-const rootEnvPath = path.join(__dirname, "..", ".env");
+// 根目录 .env（从 src/utils/ 向上两级）
+// tsx 运行时: __dirname = src/utils/ → rootEnvPath = src/../.env = 项目根
+const rootEnvPath = path.join(__dirname, "..", "..", ".env");
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
 } else {
+  // 回退到 dist/.env（生产环境）
   dotenv.config({ path: path.join(__dirname, ".env") });
 }
 
