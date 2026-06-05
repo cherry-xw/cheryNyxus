@@ -1,18 +1,18 @@
-import type { llmAdapter } from "../middleware/types";
+import type { LLMAdapter } from "../middleware/types";
 
-export type { llmAdapter };
+export type { LLMAdapter };
 
 /**
  * LLM Adapter 注册表
  */
-const llmAdapterRegistry = new Map<string, llmAdapter>();
+const llmAdapterRegistry = new Map<string, LLMAdapter>();
 
 /**
  * 注册 LLM Adapter
  */
 export function registerLLMAdapter(
   name: string,
-  adapter: llmAdapter,
+  adapter: LLMAdapter,
 ): void {
   llmAdapterRegistry.set(name, adapter);
 }
@@ -22,6 +22,6 @@ export function registerLLMAdapter(
  */
 export function getLLMAdapter(
   provider: string,
-): llmAdapter | undefined {
+): LLMAdapter | undefined {
   return llmAdapterRegistry.get(provider);
 }

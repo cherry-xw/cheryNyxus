@@ -10,7 +10,8 @@ import type {
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
 import { registerLLMAdapter } from "@/core/llm/adapter";
-import type { llmAdapter } from "@/core/middleware/types";
+import type { LLMAdapter } from "@/core/middleware/types";
+import { buildBaseToolFunction } from "@/core/tool/compiler/utils.js";
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -36,13 +37,14 @@ const openaiMessageAdapterConfig = {
     }
     return undefined;
   },
+  thinkingFieldName: "reasoning_content",
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => {
       if (m.role === "tool") {
         return {
           role: m.role,
           content: m.content,
-          tool_call_id: (m.raw as { toolCallId: string }).toolCallId,
+          tool_call_id: m.id,
         } as ChatCompletionMessageParam;
       }
       if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
@@ -51,7 +53,7 @@ const openaiMessageAdapterConfig = {
           content: m.content || null,
           ...(m.thinking && { reasoning_content: m.thinking }),
           tool_calls: m.toolCalls.map((tc) => ({
-            id: tc.tid,
+            id: tc.id,
             type: "function",
             function: {
               name: tc.name,
@@ -80,9 +82,7 @@ const openaiToolAdapterConfig = {
     return tools.map((t) => ({
       type: "function",
       function: {
-        name: t.definition.function.name,
-        description: t.definition.function.description,
-        parameters: t.definition.function.parameters,
+        ...buildBaseToolFunction(t),
         strict: t.definition.function.strict,
       },
     }));
@@ -94,7 +94,7 @@ const openaiToolAdapterConfig = {
   ): ChatCompletionMessageParam {
     // 将统一的 ToolCallData 转换为 OpenAI 格式
     const openaiToolCalls = toolCalls.map((tc) => ({
-      id: tc.tid,
+      id: tc.id,
       type: "function",
       function: {
         name: tc.name ?? "",
@@ -119,88 +119,36 @@ const openaiToolAdapterConfig = {
     } as ChatCompletionMessageParam;
   },
 
-  extractToolCalls(response: ChatCompletion): ToolCallData[] {
+  toolCalls(response: ChatCompletion): ToolCallData[] {
     const toolCalls = (response.choices?.[0]?.message?.tool_calls ??
       []) as ChatCompletionMessageFunctionToolCall[];
     return toolCalls.map((tc, index) => ({
-      tid: tc.id ?? `tool-${index}`,
+      index,
+      id: tc.id ?? `tool-${index}`,
       name: tc.function?.name ?? undefined,
       arguments: tc.function?.arguments ?? "",
     }));
   },
 
-  assembleToolCallChunks(chunks: unknown[]): unknown {
-    // 按 index 累积 tool call 数据
-    const toolCallsMap = new Map<
-      number,
-      { id?: string; name?: string; arguments: string }
-    >();
-
-    for (const chunk of chunks) {
-      const streamChunk = chunk as {
-        choices?: Array<{
-          delta?: {
-            tool_calls?: Array<{
-              index?: number;
-              id?: string;
-              function?: { name?: string; arguments?: string };
-            }>;
-          };
-        }>;
-      };
-      const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
-      for (const delta of deltas) {
-        const index = delta.index ?? 0;
-        const existing = toolCallsMap.get(index);
-        if (existing) {
-          // 累积 arguments
-          if (delta.function?.arguments) {
-            existing.arguments += delta.function.arguments;
-          }
-          // id 和 name 只在首个 chunk 出现
-          if (delta.id && !existing.id) {
-            existing.id = delta.id;
-          }
-          if (delta.function?.name && !existing.name) {
-            existing.name = delta.function.name;
-          }
-        } else {
-          // 初始化
-          toolCallsMap.set(index, {
-            id: delta.id,
-            name: delta.function?.name,
-            arguments: delta.function?.arguments ?? "",
-          });
-        }
-      }
-    }
-
-    // 模拟 ChatCompletion 结构
-    const toolCalls = Array.from(toolCallsMap.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([index, tc]) => ({
-        id: tc.id ?? `tool-${index}`,
-        type: "function",
-        function: {
-          name: tc.name ?? "",
-          arguments: tc.arguments,
-        },
-      }));
-
-    return {
-      choices: [
-        {
-          message: {
-            tool_calls: toolCalls,
-          },
-        },
-      ],
-    } as ChatCompletion;
+  /**
+   * 从流式 chunk 提取 tool call 增量
+   * OpenAI 流式响应结构：choices[0].delta.tool_calls[]
+   * 返回 ToolCallData（index 定位，arguments 为增量片段）
+   */
+  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
+    const streamChunk = chunk as OpenAI.Chat.Completions.ChatCompletionChunk;
+    const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
+    return deltas.map((delta) => ({
+      index: delta.index ?? 0,
+      id: delta.id ?? `tool-${delta.index ?? 0}`,
+      name: delta.function?.name ?? undefined,
+      arguments: delta.function?.arguments ?? "",
+    }));
   },
 };
 
 // LLM Adapter 定义
-const openaiLLMAdapter: llmAdapter = {
+const openaiLLMAdapter: LLMAdapter = {
   async chat(
     messages: unknown[],
     tools: ToolFunction[],
@@ -242,9 +190,6 @@ const openaiLLMAdapter: llmAdapter = {
       baseURL: url,
       apiKey: key ?? "",
     });
-    // console.log("\n\n---------------------------------------------------------------")
-    // console.log(JSON.stringify(tools, null, 2))
-    // console.log("---------------------------------------------------------------\n\n")
     const stream = await client.chat.completions.create({
       model,
       messages: msgArray,

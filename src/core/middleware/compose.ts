@@ -29,7 +29,12 @@ async function* executeChain<T>(
       const handler = handlers[index];
       if (handler) {
         index++;
-        yield* handler(ctx, next);
+        try {
+          yield* handler(ctx, next);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          throw new Error(`[compose] handler at index ${index - 1} threw: ${message}`, { cause: err });
+        }
       }
     }
   }

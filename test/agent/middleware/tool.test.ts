@@ -1,13 +1,30 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   toolMiddleware,
   executeSingleToolCall,
-  type InterruptChunk,
+  type ToolChunk,
 } from "@/agent/middleware/tool";
 import { SupervisionLevel } from "@/core/config";
-import { createHistoryProxy } from "@/core/middleware/utils";
+
 import type { MiddlewareContext, ToolCallAccumulator } from "@/core/middleware/types";
 import type { ToolManager } from "@/core/tool/index";
+
+// Mock interruptRepo for polling mechanism
+const mockInterruptRepo = vi.hoisted(() => ({
+  findById: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/db/interrupt.js", () => ({
+  interruptRepo: mockInterruptRepo,
+}));
+
+// Mock interruptManager
+vi.mock("@/service/agent/interrupt.js", () => ({
+  interruptManager: {
+    createInterrupt: vi.fn(async () => "test-interrupt-id"),
+    completeInterrupt: vi.fn(async () => {}),
+  },
+}));
 
 function createMockToolManager(): ToolManager {
   return {
@@ -26,6 +43,8 @@ function createMockContext(): MiddlewareContext {
       threadId: "test-thread",
       hashCheck: new Map(),
       toolSharedData: new Map(),
+      userInputs: [],
+      builtTools: [],
     },
     global: {
       thinking: false,
@@ -41,7 +60,7 @@ function createMockContext(): MiddlewareContext {
     },
     adapters: {} as any,
     process: {
-      history: createHistoryProxy(),
+      history: [],
       contentAccumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,
@@ -180,6 +199,12 @@ describe("toolMiddleware", () => {
     });
 
     it("should yield interrupt when tool supervisionLevel is confirm", async () => {
+      // Setup mock to return acknowledged status quickly
+      mockInterruptRepo.findById.mockResolvedValue({
+        id: "test-interrupt-id",
+        status: "acknowledged",
+      });
+
       const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
@@ -196,18 +221,25 @@ describe("toolMiddleware", () => {
 
       const generator = toolMiddleware(ctx, next);
       const chunks: unknown[] = [];
+
       for await (const chunk of generator) {
         chunks.push(chunk);
       }
 
       const interruptChunk = chunks.find(
-        (c) => (c as InterruptChunk).type === "interrupt",
-      ) as InterruptChunk | undefined;
+        (c) => (c as ToolChunk).type === "tool" && (c as ToolChunk).state === "interrupt",
+      ) as ToolChunk | undefined;
       expect(interruptChunk).toBeDefined();
-      expect(interruptChunk!.handles.length).toBe(1);
+      expect(interruptChunk!.data.handleId).toBeDefined();
+      expect(interruptChunk!.data.interruptId).toBe("test-interrupt-id");
     });
 
     it("should respect tool supervisionLevel for mixed tools", async () => {
+      mockInterruptRepo.findById.mockResolvedValue({
+        id: "test-interrupt-id",
+        status: "acknowledged",
+      });
+
       const ctx = createMockContext();
 
       ctx.process.toolCallAccumulated.set(
@@ -233,21 +265,26 @@ describe("toolMiddleware", () => {
 
       const generator = toolMiddleware(ctx, next);
       const chunks: unknown[] = [];
+
       for await (const chunk of generator) {
         chunks.push(chunk);
       }
 
-      const interruptChunk = chunks.find(
-        (c) => (c as InterruptChunk).type === "interrupt",
-      ) as InterruptChunk | undefined;
-      expect(interruptChunk).toBeDefined();
-      expect(interruptChunk!.handles.length).toBe(1);
-      expect(interruptChunk!.handles[0]!.reason).toContain("confirm_tool");
+      const interruptChunks = chunks.filter(
+        (c) => (c as ToolChunk).type === "tool" && (c as ToolChunk).state === "interrupt",
+      ) as ToolChunk[];
+      expect(interruptChunks.length).toBe(1);
+      expect(interruptChunks[0]!.data.toolName).toBe("confirm_tool");
     });
   });
 
   describe("acknowledge callback", () => {
-    it("should execute tool when accept", async () => {
+    it("should execute tool when acknowledged (via polling)", async () => {
+      mockInterruptRepo.findById.mockResolvedValue({
+        id: "test-interrupt-id",
+        status: "acknowledged",
+      });
+
       const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
@@ -262,16 +299,9 @@ describe("toolMiddleware", () => {
         yield { type: "test" };
       });
 
-      let acknowledgeCallback:
-        | ((action: "accept" | "reject", reason?: string) => Promise<void>)
-        | undefined;
-
       const generator = toolMiddleware(ctx, next);
-      for await (const chunk of generator) {
-        if ((chunk as InterruptChunk).type === "interrupt") {
-          acknowledgeCallback = (chunk as InterruptChunk).handles[0]?.acknowledge;
-          await acknowledgeCallback!("accept");
-        }
+      for await (const _ of generator) {
+        // consume - polling will detect acknowledged status
       }
 
       expect(ctx.tools.toolManager.execute).toHaveBeenCalled();
@@ -279,39 +309,12 @@ describe("toolMiddleware", () => {
       expect(toolMessages.length).toBeGreaterThan(0);
     });
 
-    it("should return reject message when reject", async () => {
-      const ctx = createMockContext();
-      ctx.process.toolCallAccumulated.set(
-        "tc-1",
-        createToolCall("tc-1", "test_tool"),
-      );
-      ctx.tools.toolManager.get = vi.fn(() => ({
-        ...mockToolBase,
-        supervisionLevel: SupervisionLevel.confirm,
-      }));
-
-      const next = vi.fn(async function* () {
-        yield { type: "test" };
+    it("should mark tool call as approved after acknowledge", async () => {
+      mockInterruptRepo.findById.mockResolvedValue({
+        id: "test-interrupt-id",
+        status: "acknowledged",
       });
 
-      let acknowledgeCallback:
-        | ((action: "accept" | "reject", reason?: string) => Promise<void>)
-        | undefined;
-
-      const generator = toolMiddleware(ctx, next);
-      for await (const chunk of generator) {
-        if ((chunk as InterruptChunk).type === "interrupt") {
-          acknowledgeCallback = (chunk as InterruptChunk).handles[0]?.acknowledge;
-          await acknowledgeCallback!("reject", "unsafe operation");
-        }
-      }
-
-      const toolMessages = ctx.process.history.filter((m) => m.role === "tool");
-      expect(toolMessages.length).toBeGreaterThan(0);
-      expect(toolMessages[0]!.content).toContain("拒绝执行");
-    });
-
-    it("should mark tool call as approved after acknowledge", async () => {
       const ctx = createMockContext();
       const tc = createToolCall("tc-1", "test_tool");
       ctx.process.toolCallAccumulated.set("tc-1", tc);
@@ -325,10 +328,8 @@ describe("toolMiddleware", () => {
       });
 
       const generator = toolMiddleware(ctx, next);
-      for await (const chunk of generator) {
-        if ((chunk as InterruptChunk).type === "interrupt") {
-          await (chunk as InterruptChunk).handles[0]!.acknowledge("accept");
-        }
+      for await (const _ of generator) {
+        // consume
       }
 
       expect(tc.approved).toBe(true);

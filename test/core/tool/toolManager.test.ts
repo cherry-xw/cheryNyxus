@@ -4,11 +4,12 @@ import {
   registerToolAdapter,
   toolAdapterRegistry,
   type ToolAdapter,
-  type ToolCallData,
 } from "@/core/tool/adapter";
-import { tool, type ToolResult } from "@/core/tool/toolCreator";
+import { registerTools } from "@/core/tool/toolRegistry";
+import { tool } from "@/core/tool/toolCreator";
 import { SupervisionLevel } from "@/core/config";
-import { z, type ZodType } from "zod";
+import { z } from "zod";
+import type { ToolGroupConfig } from "@/utils/config";
 
 // Mock ToolAdapter
 const mockAdapter: ToolAdapter<unknown, unknown> = {
@@ -226,6 +227,83 @@ describe("ToolManager", () => {
       manager.fillSupervisionDefault(SupervisionLevel.auto);
 
       expect(testTool.supervisionLevel).toBe(SupervisionLevel.manual);
+    });
+  });
+
+  describe("loadFromGroups", () => {
+    it("loads tools from single group", () => {
+      const manager = new ToolManager("test-provider");
+      const tool1 = tool("g1_tool", "Group1", z.object({}), async () => ({ content: "", hash: "" }));
+      registerTools([tool1]);
+
+      const toolGroups: Record<string, ToolGroupConfig> = {
+        group1: { tools: ["g1_tool"] },
+      };
+
+      manager.loadFromGroups(["group1"], toolGroups, SupervisionLevel.auto);
+
+      expect(manager.get("g1_tool")).toBe(tool1);
+      expect(tool1.supervisionLevel).toBe(SupervisionLevel.auto);
+    });
+
+    it("loads tools from multiple groups with dedup (later overrides)", () => {
+      const manager = new ToolManager("test-provider");
+      const tool1v1 = tool("shared", "V1", z.object({}), async () => ({ content: "v1", hash: "" }));
+      const tool1v2 = tool("shared", "V2", z.object({}), async () => ({ content: "v2", hash: "" }));
+      registerTools([tool1v1]);
+      // Re-register overrides
+      registerTools([tool1v2]);
+
+      const toolGroups: Record<string, ToolGroupConfig> = {
+        group1: { tools: ["shared"] },
+        group2: { tools: ["shared"] },
+      };
+
+      manager.loadFromGroups(["group1", "group2"], toolGroups, SupervisionLevel.confirm);
+
+      // 后加载覆盖前加载
+      expect(manager.get("shared")).toBe(tool1v2);
+    });
+
+    it("applies group-level supervision override", () => {
+      const manager = new ToolManager("test-provider");
+      const tool1 = tool(
+        "g_tool",
+        "Test",
+        z.object({}),
+        async () => ({ content: "", hash: "" }),
+        SupervisionLevel.auto, // 工具自身声明
+      );
+      registerTools([tool1]);
+
+      const toolGroups: Record<string, ToolGroupConfig> = {
+        strict: { tools: ["g_tool"], supervision: SupervisionLevel.manual },
+      };
+
+      manager.loadFromGroups(["strict"], toolGroups, SupervisionLevel.confirm);
+
+      // 组级别覆盖工具自身声明
+      expect(tool1.supervisionLevel).toBe(SupervisionLevel.manual);
+    });
+
+    it("skips missing groups with warning", () => {
+      const manager = new ToolManager("test-provider");
+      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      manager.loadFromGroups(["nonexistent"], {}, SupervisionLevel.auto);
+
+      expect(consoleSpy).toHaveBeenCalledWith('Tool group "nonexistent" not found, skipping');
+      expect(manager.getAll()).toHaveLength(0);
+
+      consoleSpy.mockRestore();
+    });
+
+    it("handles empty group names", () => {
+      const manager = new ToolManager("test-provider");
+
+      manager.loadFromGroups([], undefined, SupervisionLevel.auto);
+
+      expect(manager.getAll()).toHaveLength(0);
     });
   });
 });

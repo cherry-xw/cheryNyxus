@@ -8,7 +8,9 @@ import { registerMessageAdapter, type LLMResponse } from "@/core/message";
 import { registerToolAdapter, type Tool, type ToolCallData, type ToolFunction } from "@/core/tool";
 import type { ZodType } from "zod";
 import { registerLLMAdapter } from "@/core/llm/adapter";
-import type { llmAdapter } from "@/core/middleware/types";
+import { safeJsonParse } from "@/utils/json.js";
+import type { LLMAdapter } from "@/core/middleware/types";
+import { buildBaseToolFunction } from "@/core/tool/compiler/utils.js";
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -33,11 +35,7 @@ const ollamaToolAdapterConfig = {
   buildTools(tools: Tool<ZodType>[]): ToolFunction[] {
     return tools.map((t) => ({
       type: "function",
-      function: {
-        name: t.definition.function.name,
-        description: t.definition.function.description,
-        parameters: t.definition.function.parameters,
-      },
+      function: buildBaseToolFunction(t),
     }));
   },
 
@@ -46,7 +44,7 @@ const ollamaToolAdapterConfig = {
     const ollamaToolCalls = toolCalls.map((tc) => ({
       function: {
         name: tc.name ?? "",
-        arguments: JSON.parse(tc.arguments || "{}"),
+        arguments: safeJsonParse(tc.arguments || "{}", {}),
       },
     }));
     return {
@@ -63,38 +61,35 @@ const ollamaToolAdapterConfig = {
     } as Message;
   },
 
-  extractToolCalls(response: ChatResponse): ToolCallData[] {
+  toolCalls(response: ChatResponse): ToolCallData[] {
     const toolCalls = (response.message?.tool_calls ?? []) as ToolCall[];
-    return toolCalls.map((tc) => ({
-      tid: "", // Ollama 无 id
+    return toolCalls.map((tc, index) => ({
+      index,
+      id: `tool-${index}`, // Ollama 无 id，用 index 生成
       name: tc.function?.name ?? undefined,
       arguments: JSON.stringify(tc.function?.arguments ?? {}),
     }));
   },
 
-  assembleToolCallChunks(chunks: unknown[]): unknown {
-    // Ollama 每个 chunk 可能包含完整 tool_call，直接累积
-    const allToolCalls: ToolCall[] = [];
-
-    for (const chunk of chunks) {
-      const streamChunk = chunk as { message?: { tool_calls?: ToolCall[] } };
-      const toolCalls = streamChunk.message?.tool_calls ?? [];
-      for (const tc of toolCalls) {
-        allToolCalls.push(tc);
-      }
-    }
-
-    // 模拟 ChatResponse 结构
-    return {
-      message: {
-        tool_calls: allToolCalls,
-      },
-    } as ChatResponse;
+  /**
+   * 从流式 chunk 提取 tool call 增量
+   * Ollama 流式响应：每个 chunk 包含完整 tool_call（非增量）
+   * 返回 ToolCallData（index 定位）
+   */
+  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
+    const streamChunk = chunk as ChatResponse;
+    const toolCalls = (streamChunk.message?.tool_calls ?? []) as ToolCall[];
+    return toolCalls.map((tc, index) => ({
+      index,
+      id: `tool-${index}`,
+      name: tc.function?.name ?? undefined,
+      arguments: JSON.stringify(tc.function?.arguments ?? {}),
+    }));
   },
 };
 
 // LLM Adapter 定义
-const ollamaLLMAdapter: llmAdapter = {
+const ollamaLLMAdapter: LLMAdapter = {
   async chat(
     messages: unknown[],
     tools: ToolFunction[],

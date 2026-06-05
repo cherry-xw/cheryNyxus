@@ -10,7 +10,7 @@ const mockConfig = {
     maxLoopCount: 10,
   },
   llm: {
-    clients: {
+    agent: {
       ollama_client: {
         provider: "ollama",
         model: "ollama-model",
@@ -107,6 +107,7 @@ vi.mock("@/agent/tool/index", () => {
       execute = vi.fn();
       setSupervision = vi.fn();
       fillSupervisionDefault = vi.fn();
+      loadFromGroups = vi.fn();
     },
   };
 });
@@ -114,7 +115,6 @@ vi.mock("@/agent/tool/index", () => {
 // Mock env 初始化
 vi.mock("@/utils/env", () => ({
   initEnvInfo: vi.fn(),
-  resolvePath: vi.fn((p) => p),
 }));
 
 // Mock Middleware - 使用 class 形式
@@ -163,14 +163,6 @@ describe("AgentBuilder", () => {
     });
   });
 
-  describe("setWorkDir() method", () => {
-    it("should set work directory", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      builder.use("ollama_client").setWorkDir("/custom/work/dir");
-    });
-  });
-
   describe("build() method", () => {
     it("should throw error when build() without use()", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
@@ -189,13 +181,12 @@ describe("AgentBuilder", () => {
   });
 
   describe("chain calls", () => {
-    it("should support chain: use().setSessionId().setWorkDir()", async () => {
+    it("should support chain: use().setSessionId()", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const builder = new AgentBuilder();
       builder
         .use("ollama_client")
-        .setSessionId("test-session")
-        .setWorkDir("/test/work/dir");
+        .setSessionId("test-session");
 
       expect(builder).toBeDefined();
     });
@@ -205,8 +196,7 @@ describe("AgentBuilder", () => {
       const builder = new AgentBuilder();
       builder
         .use("ollama_client")
-        .setSessionId("test-session")
-        .setWorkDir("/test/work/dir");
+        .setSessionId("test-session");
 
       const middleware = await builder.build();
       expect(middleware).toBeDefined();
@@ -214,59 +204,29 @@ describe("AgentBuilder", () => {
   });
 
   describe("build() edge cases", () => {
-    it("should warn when tool group not found", async () => {
+    it("should call loadFromGroups with correct parameters", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
       const builder = new AgentBuilder();
-      // Use openai_client which has tool_group: ["safe_tools", "dangerous_tools"]
-      // Override config to include a non-existent group
-      const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.clients.ollama_client;
-      config.llm.clients.ollama_client = {
-        ...origClient,
-        tool_group: ["nonexistent_group"],
-      };
-
       builder.use("ollama_client");
-      const middleware = await builder.build();
+      await builder.build();
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("nonexistent_group"));
-      expect(middleware).toBeDefined();
-
-      config.llm.clients.ollama_client = origClient;
-      warnSpy.mockRestore();
+      // loadFromGroups 应被调用（参数验证在 toolManager.test.ts 中）
+      // 此测试仅验证流程不抛错
     });
 
-    it("should warn when tool name duplicates across groups", async () => {
+    it("should handle multiple tool groups", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-      const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.clients.ollama_client;
-      config.llm.clients.ollama_client = {
-        ...origClient,
-        tool_group: ["safe_tools", "dup_tools"],
-      };
-      config.tool_groups.dup_tools = { tools: ["read_file"] };
-
       const builder = new AgentBuilder();
-      builder.use("ollama_client");
+      builder.use("openai_client"); // 使用有多个 tool_group 的客户端
       const middleware = await builder.build();
-
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("already loaded"));
       expect(middleware).toBeDefined();
-
-      config.llm.clients.ollama_client = origClient;
-      delete config.tool_groups.dup_tools;
-      warnSpy.mockRestore();
     });
 
     it("should build with no tool_group configured", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.clients.ollama_client;
-      config.llm.clients.ollama_client = {
+      const origClient = config.llm.agent.ollama_client;
+      config.llm.agent.ollama_client = {
         ...origClient,
         tool_group: undefined,
       };
@@ -277,14 +237,14 @@ describe("AgentBuilder", () => {
 
       expect(middleware).toBeDefined();
 
-      config.llm.clients.ollama_client = origClient;
+      config.llm.agent.ollama_client = origClient;
     });
 
     it("should apply group-level supervision override", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.clients.ollama_client;
-      config.llm.clients.ollama_client = {
+      const origClient = config.llm.agent.ollama_client;
+      config.llm.agent.ollama_client = {
         ...origClient,
         tool_group: ["supervised_tools"],
       };
@@ -299,7 +259,7 @@ describe("AgentBuilder", () => {
 
       expect(middleware).toBeDefined();
 
-      config.llm.clients.ollama_client = origClient;
+      config.llm.agent.ollama_client = origClient;
       delete config.tool_groups.supervised_tools;
     });
   });

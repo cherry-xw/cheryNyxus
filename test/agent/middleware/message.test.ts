@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { messageMiddleware } from "@/agent/middleware/message";
-import { createHistoryProxy } from "@/core/middleware/utils";
+
 import type { LLMResponse } from "@/core/message/index";
 
 // 创建完整的 Mock 上下文
@@ -47,7 +47,7 @@ function createMockContext() {
       },
     },
     process: {
-      history: createHistoryProxy(),
+      history: [],
       contentAccumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,
@@ -109,7 +109,7 @@ describe("messageMiddleware", () => {
         // consume generator
       }
 
-      const lastMessage = ctx.process.history.lastAssistant;
+      const lastMessage = ctx.process.history.filter(m => m.role === "assistant").pop();
       expect(lastMessage).toBeDefined();
       expect(lastMessage?.role).toBe("assistant");
       expect(lastMessage?.content).toBe("AI response");

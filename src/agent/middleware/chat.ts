@@ -1,70 +1,96 @@
-import type { MiddlewareContext } from "@/core/middleware/types";
-import type { StagedChunk, StreamChunk } from "./chunk";
-import type { ToolFunction } from "@/core/tool";
+import type {
+  MiddlewareContext,
+  MiddlewareChunk,
+  StreamChunk,
+} from "@/core/middleware/types";
+import type { ToolFunction } from "@/core/tool/adapter";
 
 /**
  * Chat Middleware
- * 职责：API 调用、流式/非流式切换
- * 从 history 构建 provider 格式消息
+ * 职责：API 调用、流式输出
+ * yield StreamChunk（包含 toolDelta）
+ * tool_trigger 逻辑交给 checkpoint 中间件处理
  */
 export async function* chatMiddleware(
   ctx: MiddlewareContext,
-  _next: () => AsyncGenerator<unknown>,
-): AsyncGenerator<StreamChunk | StagedChunk> {
+  next: () => AsyncGenerator<MiddlewareChunk>,
+): AsyncGenerator<MiddlewareChunk> {
   const { llmAdapter, messageAdapter, toolAdapter } = ctx.adapters;
 
-  // 从 history 构建 provider 格式消息
-  const messages = messageAdapter.buildMessages(ctx.process.history);
+  // 从 ctx.session.messages 构建 provider 格式消息
+  const messages = messageAdapter.buildMessages(ctx.session.messages || []);
 
-  // 构建 tools（从 toolManager）
-  const tools =
-    ctx.tools.toolManager.getAll().length > 0
-      ? toolAdapter.buildTools(ctx.tools.toolManager.getAll())
-      : [];
+  // 使用预构建的 tools（builder 层一次性构建）
+  const tools = ctx.session.builtTools;
 
-  // 构建请求选项（传递必要参数）
+  // 构建请求选项
   const options = {
-    model: ctx.config.model,
-    url: ctx.config.url,
-    key: ctx.config.key,
-    ...(ctx.config.thinking && { thinking: true }),
+    model: ctx.aiServer.model,
+    url: ctx.aiServer.url,
+    key: ctx.aiServer.key,
+    ...(ctx.aiServer.thinking && { thinking: true }),
   };
 
   if (ctx.global.stream) {
     // 流式调用
-    yield* handleStream(options, llmAdapter, messages, tools);
+    yield* handleStream(
+      ctx,
+      options,
+      llmAdapter,
+      messageAdapter,
+      toolAdapter,
+      messages,
+      tools,
+    );
   } else {
     // 非流式调用
-    yield* handleNonStream(ctx, options, llmAdapter, messages, tools);
+    yield* handleNonStream(
+      ctx,
+      options,
+      llmAdapter,
+      messageAdapter,
+      toolAdapter,
+      messages,
+      tools,
+    );
   }
+
+  // 执行下游
+  yield* next();
 }
 
 /**
  * 处理流式调用
  */
 async function* handleStream(
-  options: Record<string, unknown>, // LLM请求选项（model/url/key/thinking等）
+  ctx: MiddlewareContext,
+  options: Record<string, unknown>,
   llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
+  messageAdapter: MiddlewareContext["adapters"]["messageAdapter"],
+  toolAdapter: MiddlewareContext["adapters"]["toolAdapter"],
   messages: unknown[],
   tools: ToolFunction[],
 ): AsyncGenerator<StreamChunk> {
-  // 打印入参信息
-  // console.log("\n=== Chat Stream Request ===");
-  // console.log("Messages:", JSON.stringify(messages, null, 2));
-  // console.log("Tools:", JSON.stringify(tools, null, 2));
-
   const streamIterator = await llmAdapter.chatStream(messages, tools, options);
 
   for await (const rawChunk of streamIterator) {
-    const chunk: StreamChunk = {
-      type: "stream",
-      thinkingDelta: "",
-      contentDelta: "",
-      thinkingAccumulated: "",
-      contentAccumulated: "",
-      raw: rawChunk,
-    };
-    yield chunk;
+    // 提取增量
+    const thinkingDelta =
+      messageAdapter.extractStreamThinking?.(rawChunk) || "";
+    const contentDelta = messageAdapter.extractStreamDelta?.(rawChunk) || "";
+
+    // 提取 tool call 增量
+    const toolDelta = toolAdapter.extractToolCallDeltas(rawChunk);
+
+    // yield stream chunk（包含 toolDelta）
+    if (thinkingDelta || contentDelta || toolDelta.length > 0) {
+      yield {
+        type: "stream",
+        thinkingDelta,
+        contentDelta,
+        toolDelta: toolDelta.length > 0 ? toolDelta : undefined,
+      };
+    }
   }
 }
 
@@ -73,27 +99,31 @@ async function* handleStream(
  */
 async function* handleNonStream(
   ctx: MiddlewareContext,
-  options: Record<string, unknown>, // LLM请求选项（model/url/key/thinking等）
+  options: Record<string, unknown>,
   llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
+  messageAdapter: MiddlewareContext["adapters"]["messageAdapter"],
+  toolAdapter: MiddlewareContext["adapters"]["toolAdapter"],
   messages: unknown[],
   tools: ToolFunction[],
-): AsyncGenerator<StagedChunk> {
-  // 打印入参信息
-  console.log("\n=== Chat Request ===");
-  console.log("Messages:", JSON.stringify(messages, null, 2));
-
+): AsyncGenerator<StreamChunk> {
   const response = await llmAdapter.chat(messages, tools, options);
 
-  // 通过 MessageAdapter 提取内容和思考
-  const { messageAdapter } = ctx.adapters;
+  // 提取内容和思考
   const content = messageAdapter.content(response);
   const thinking = messageAdapter.thinking?.(response);
 
-  const chunk: StagedChunk = {
-    type: "staged",
-    content,
-    thinking,
-    raw: response,
-  };
-  yield chunk;
+  // 提取 tool calls（非流式为完整数据）
+  const toolDelta = toolAdapter.toolCalls(response);
+
+  // yield stream chunk（包含 toolDelta）
+  if (content || thinking || toolDelta.length > 0) {
+    yield {
+      type: "stream",
+      thinkingDelta: thinking || "",
+      contentDelta: content || "",
+      toolDelta: toolDelta.length > 0 ? toolDelta : undefined,
+    };
+  }
 }
+
+export default chatMiddleware;

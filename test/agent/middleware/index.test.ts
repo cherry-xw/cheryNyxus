@@ -108,6 +108,7 @@ describe("Middleware Index", () => {
     it("should export InterruptChunk type", () => {
       const interruptChunk: InterruptChunk = {
         type: "interrupt",
+        interruptId: "test-interrupt-id",
         handles: [],
       };
       expect(interruptChunk.type).toBe("interrupt");
@@ -148,6 +149,7 @@ describe("Middleware Index", () => {
     it("should accept InterruptChunk", () => {
       const chunk: MiddlewareChunk = {
         type: "interrupt",
+        interruptId: "test-interrupt-id",
         handles: [],
       };
       expect(chunk).toBeDefined();

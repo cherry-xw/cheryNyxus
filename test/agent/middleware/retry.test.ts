@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { retryMiddleware, type ErrorChunk } from "@/agent/middleware/retry";
-import { createHistoryProxy } from "@/core/middleware/utils";
+
 
 // 创建完整的 Mock 上下文
 function createMockContext() {
@@ -46,7 +46,7 @@ function createMockContext() {
       },
     },
     process: {
-      history: createHistoryProxy(),
+      history: [],
       contentAccumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,

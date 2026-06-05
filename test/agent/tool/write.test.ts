@@ -8,10 +8,6 @@ vi.mock("@/utils/config", () => ({
   default: {},
 }));
 
-vi.mock("@/utils/env", () => ({
-  resolvePath: vi.fn((p: string) => p.startsWith("/") ? p : `/workdir/${p}`),
-}));
-
 vi.mock("@/utils/hash", () => ({
   hashGenerator: vi.fn(() => "test-hash"),
 }));
@@ -65,17 +61,6 @@ describe("Write Tool", () => {
       expect(result.hash).toBe("");
       expect(vi.mocked(writeFile)).toHaveBeenCalled();
       expect(vi.mocked(rename)).toHaveBeenCalled();
-    });
-
-    it("should resolve relative path", async () => {
-      const { resolvePath } = vi.mocked(await import("@/utils/env"));
-      const result = await writeTool.executor.execute(
-        { path: "relative.txt", content: "test" },
-        sharedData,
-      );
-
-      expect(resolvePath).toHaveBeenCalledWith("relative.txt");
-      expect(result.content).toContain("成功写入文件");
     });
 
     it("should detect file modification conflict", async () => {

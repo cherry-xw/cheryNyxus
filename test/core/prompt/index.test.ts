@@ -4,7 +4,6 @@ import buildFirstSystemPrompt from "@/core/prompt/index";
 // Mock getEnvInfo
 vi.mock("@/utils/env", () => ({
   getEnvInfo: () => ({
-    workDir: "/test/dir",
     os: "test-os",
     date: "2024-01-01",
     time: "10:00:00",
@@ -39,7 +38,6 @@ describe("buildFirstSystemPrompt", () => {
 
     expect(prompt).toContain("<environment>");
     expect(prompt).toContain("</environment>");
-    expect(prompt).toContain("工作目录");
     expect(prompt).toContain("操作系统");
     expect(prompt).toContain("当前日期");
     expect(prompt).toContain("当前时间");

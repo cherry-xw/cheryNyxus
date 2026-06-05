@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compose } from "@/core/middleware/compose";
-import { createHistoryProxy } from "@/core/middleware/utils";
+
 
 // Mock context - 使用类型断言绕过类型检查
 function createMockContext() {
@@ -25,7 +25,7 @@ function createMockContext() {
     },
     adapters: {} as any,
     process: {
-      history: createHistoryProxy(),
+      history: [],
       contentAccumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,

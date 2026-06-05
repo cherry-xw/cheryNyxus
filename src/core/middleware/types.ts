@@ -1,44 +1,89 @@
-import type { LLMResponse } from "../message/index";import type { MessageProviderAdapterConfig } from "../message/adapter";
-import type { ToolAdapter } from "../tool/adapter";
-import type { ToolManager, ToolFunction } from "../tool/index";
+import type { LLMResponse } from "../message/index";
+import type { MessageProviderAdapterConfig } from "../message/adapter";
+import type { ToolAdapter, ToolCallData, ToolFunction } from "../tool/adapter";
+import type { ToolManager } from "../tool/index";
 import type { GlobalConfig, AIServerConfig } from "@/utils/config";
 
 /**
- * 工具调用累积器（流式工具调用增量累积 + 执行结果）
+ * 用户输入条目
  */
-export interface ToolCallAccumulator {
-  /** 工具调用唯一标识：id 或 tool-${index} */
-  tid: string;
-  name: string;
-  arguments: string;
-  /** 是否已审批过 */
-  approved: boolean;
-  /** 触发时间戳（用于超时判断） */
-  triggeredAt: number;
+export interface UserInputEntry {
+  content: string;
+  time: number;
 }
 
 /**
- * Adapter 分组 - provider adapter 实例集合
+ * 会话身份标识（创建后不可变）
  */
-export interface AdaptersGroup {
-  /** LLM Adapter，处理 chat/chatStream 调用 */
-  llmAdapter: llmAdapter;
-  /** Message Adapter，处理消息格式转换 */
-  messageAdapter: MessageProviderAdapterConfig;
-  /** Tool Adapter，处理工具调用格式转换 */
-  toolAdapter: ToolAdapter<unknown, unknown>;
-}
-
-export interface ToolExecutionResult {
-  success: boolean;
-  result?: unknown;
-  error?: string;
-  toolCallId: string;
-  toolName: string;
+export interface SessionIdentity {
+  /** agent实例唯一标识 */
+  readonly sessionId: string;
+  /** agent实例中多轮次会话唯一标记 */
+  readonly threadId: string;
 }
 
 /**
- * 会话分组 - 会话标识和上下文关联信息
+ * 工具协调（runtime ephemeral，不持久化）
+ */
+export interface ToolCoordination {
+  /** 工具调用去重检查（callId → resultHash） */
+  hashCheck: Map<string, string>;
+  /** Tool间共享数据（namespace → identifier → data） */
+  sharedData: Map<string, Map<string, unknown>>;
+}
+
+/**
+ * 消息历史
+ */
+export interface MessageHistory {
+  /** 完整对话历史（前端交互用，格式固定，信息完整） */
+  fullMessages: LLMResponse[];
+  /** 简化消息（AI接口用，仅API必需字段，预转换存储） */
+  apiMessages: APIMessage[];
+  /** 消息窗口起始索引（滑动窗口，两数组共用） */
+  baseIndex: number;
+  /** 用户输入队列（send 事件注入，checkpoint消费后清空） */
+  pendingInputs: UserInputEntry[];
+}
+
+/**
+ * 预编译工具
+ */
+export interface PrecompiledTools {
+  /** 工具名称 → 最终监管等级（优先级前置计算） */
+  toolConfigs: Map<string, number>;
+  /** 预构建的 API 工具参数（builder层一次性构建） */
+  builtTools: ToolFunction[];
+}
+
+/**
+ * AI接口消息（仅API必需字段）
+ */
+export interface APIMessage {
+  role: "system" | "user" | "assistant" | "tool" | "function";
+  content: string;
+  toolCalls?: import("../message/adapter").ToolCallInfo[];
+  /** 仅tool角色需要（tool_call_id） */
+  id?: string;
+}
+
+/**
+ * 会话上下文（分解后）
+ */
+export interface SessionContext {
+  /** 身份标识 */
+  identity: SessionIdentity;
+  /** 工具协调 */
+  tools: ToolCoordination;
+  /** 消息历史 */
+  history: MessageHistory;
+  /** 预编译工具 */
+  precompiled: PrecompiledTools;
+}
+
+/**
+ * 会话分组 - 兼容旧代码
+ * @deprecated 使用 SessionContext 替代
  */
 export interface SessionGroup {
   /** agent实例唯一标识 */
@@ -49,90 +94,178 @@ export interface SessionGroup {
   hashCheck: Map<string, string>;
   /** Tool间共享数据（namespace → identifier → data） */
   toolSharedData: Map<string, Map<string, unknown>>;
+  /** 用户输入队列（send 事件注入） */
+  userInputs: UserInputEntry[];
+  /** 预构建的 tools（builder 层一次性构建，避免每次迭代重复构建） */
+  builtTools: ToolFunction[];
+  /** AI message 参数（checkpoint 构建后放置） */
+  messages?: LLMResponse[];
 }
 
 /**
- * 待注入用户消息条目
+ * Adapter 分组 - provider adapter 实例集合
  */
-export interface PendingInputEntry {
-  input: string;
-  time: number;
+export interface AdaptersGroup {
+  /** LLM Adapter，处理 chat/chatStream 调用 */
+  llmAdapter: LLMAdapter;
+  /** Message Adapter，处理消息格式转换 */
+  messageAdapter: MessageProviderAdapterConfig;
+  /** Tool Adapter，处理工具调用格式转换 */
+  toolAdapter: ToolAdapter<unknown, unknown>;
 }
 
 /**
- * 对话数据组 和 最新一次接口响应数据累积
- */
-interface ProcessGroup {
-  /** 历史消息记录，用于构建LLM请求上下文 */
-  history: LLMResponse[];
-  /** 响应内容累积（流式增量拼接） */
-  contentAccumulated: string;
-  /** 思考内容累积（流式增量拼接） */
-  thinkingAccumulated: string;
-  /** 流式响应块计数 */
-  chunkCount: number;
-  /** 工具调用累积器Map */
-  toolCallAccumulated: Map<string, ToolCallAccumulator>;
-  /** 待消费的用户消息队列（send() 存储，chain 执行前注入） */
-  pendingInputs: PendingInputEntry[];
-}
-
-/**
- * 工具分组 - 工具管理器和工具调用状态
- */
-interface ToolsGroup {
-  /** 工具管理器，负责工具注册和执行 */
-  toolManager: ToolManager;
-}
-
-/**
- * 中间件上下文 - 八分组嵌套结构
+ * 中间件上下文 - 简化结构
  */
 export interface MiddlewareContext {
   /** 会话分组：会话标识和上下文关联 */
   session: SessionGroup;
   /** 请求分组：本次请求的输入和模式 */
   global: GlobalConfig;
-  /** 配置分组：LLM客户端配置和选项 */
-  config: AIServerConfig;
+  /** AI 服务配置 */
+  aiServer: AIServerConfig;
   /** Adapter 分组：provider adapter 实例集合 */
   adapters: AdaptersGroup;
-  /** 处理分组：消息处理累积状态 */
-  process: ProcessGroup;
-  /** 工具分组：工具管理器和调用状态 */
-  tools: ToolsGroup;
+  /** 工具管理器 */
+  toolManager: ToolManager;
 }
 
 /**
- * 完成 chunk（最终结束标记）
- * 内置类型，标记中间件链执行结束
+ * 工具调用增量事件
+ * 显式定义 chat.ts → checkpoint.ts 的数据契约
+ */
+export interface ToolDeltaEvent {
+  /** 数据来源 */
+  source: "stream" | "non-stream";
+  /** 工具调用增量数据 */
+  deltas: ToolCallData[];
+  /** 是否完整（非流式时为 true） */
+  isComplete: boolean;
+}
+
+/**
+ * 流式增量
+ */
+export interface StreamChunk {
+  type: "stream";
+  /** 思考增量 */
+  thinkingDelta: string;
+  /** 响应增量 */
+  contentDelta: string;
+  /** Tool call 增量（可选，流式过程中实时传递，index 定位，arguments 为片段） */
+  toolDelta?: ToolCallData[];
+}
+
+/**
+ * 工具触发（待消费）
+ * id 使用 AI 响应的 tool_call.id，AI 没有则自己创建
+ */
+export interface ToolTriggerChunk {
+  type: "tool_trigger";
+  /** AI 响应的 tool_call.id */
+  id: string;
+  /** 工具名称 */
+  name: string;
+  /** 工具参数 JSON */
+  arguments: string;
+  /** 监管等级 */
+  supervisionLevel: "auto" | "confirm" | "manual";
+}
+
+/**
+ * 工具完成
+ * id 与 tool_trigger.id 一致
+ */
+export interface ToolCompleteChunk {
+  type: "tool_complete";
+  /** 与 tool_trigger.id 一致 */
+  id: string;
+  /** 工具名称 */
+  name: string;
+  /** 执行结果 */
+  result: string;
+}
+
+/**
+ * 阶段完成（checkpoint 归纳后 yield）
+ */
+export interface StagedChunk {
+  type: "staged";
+  /** 累积的响应内容 */
+  content: string;
+  /** 累积的思考内容 */
+  thinking: string;
+}
+
+/**
+ * 完成
  */
 export interface DoneChunk {
   type: "done";
 }
 
 /**
- * 中间件处理函数（Generator 支持）
- * 泛型参数 T 表示 yield 的 chunk 类型
+ * 已消费（用户输入已进入消息循环）
  */
-export type MiddlewareHandler<T = unknown> = (
+export interface ConsumedChunk {
+  type: "consumed";
+  count: number;
+}
+
+/**
+ * 错误 chunk（重试失败或超限时传递）
+ */
+export interface ErrorChunk {
+  type: "error";
+  errors: Array<{
+    attempt: number;
+    timestamp: number;
+    message: string;
+    stack?: string;
+    /** 是否可恢复（可重试） */
+    recoverable: boolean;
+    /** 错误分类 */
+    category: "network" | "provider" | "timeout" | "validation" | "unknown";
+  }>;
+}
+
+/**
+ * 中间件 chunk 联合类型
+ */
+export type MiddlewareChunk =
+  | StreamChunk
+  | ToolTriggerChunk
+  | ToolCompleteChunk
+  | StagedChunk
+  | ConsumedChunk
+  | DoneChunk
+  | ErrorChunk;
+
+/**
+ * 中间件处理函数（Generator 支持）
+ */
+export type MiddlewareHandler<T = MiddlewareChunk> = (
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<T>,
 ) => AsyncGenerator<T>;
 
 /**
  * 循环策略处理函数
- * 包装单次 chain 执行，由 agent 层提供循环逻辑
  */
-export type LoopHandler<T = unknown> = (
+export type LoopHandler<T = MiddlewareChunk> = (
   ctx: MiddlewareContext,
   runChain: () => AsyncGenerator<T, void, unknown>,
 ) => AsyncGenerator<T, void, unknown>;
 
 /**
  * LLM Adapter 接口
+ * 泛型参数支持类型强化，默认参数保持向后兼容
  */
-export interface llmAdapter {
-  chat(messages: unknown[], tools: ToolFunction[], options?: Record<string, unknown>): Promise<unknown>;
-  chatStream(messages: unknown[], tools: ToolFunction[], options?: Record<string, unknown>): Promise<AsyncIterable<unknown>>;
+export interface LLMAdapter<
+  TMessages = unknown[],
+  TResponse = unknown,
+  TStreamChunk = unknown
+> {
+  chat(messages: TMessages, tools: ToolFunction[], options?: Record<string, unknown>): Promise<TResponse>;
+  chatStream(messages: TMessages, tools: ToolFunction[], options?: Record<string, unknown>): Promise<AsyncIterable<TStreamChunk>>;
 }

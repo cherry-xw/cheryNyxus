@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import Middleware from "@/core/middleware/index";
 import { compose } from "@/core/middleware/compose";
-import type { MiddlewareContext, MiddlewareHandler, ToolCallAccumulator } from "@/core/middleware/types";
+import type { MiddlewareContext, MiddlewareHandler, LoopHandler } from "@/core/middleware/types";
 import type { ToolManager } from "@/core/tool/index";
 
 // Mock dependencies
@@ -62,7 +62,7 @@ function createMockAdapters() {
 
 // Mock context for compose tests
 const mockContext: MiddlewareContext = {
-  session: { sessionId: "test", threadId: "thread-1", hashCheck: new Map(), toolSharedData: new Map() },
+  session: { sessionId: "test", threadId: "thread-1", hashCheck: new Map(), toolSharedData: new Map(), userInputs: [], builtTools: [] },
   global: { thinking: false, supervision: 1, stream: true, maxLoopCount: 10 },
   config: { model: "test", provider: "test", url: "http://test", tool_group: "test" },
   adapters: {} as any,
@@ -82,6 +82,22 @@ const simpleHandler: MiddlewareHandler = async function* (ctx, next) {
   yield { type: "test" };
   yield* next();
 };
+
+/** 简单循环策略（模拟 agent 层 loopHandler） */
+function createTestLoopHandler(maxLoop: number = 30): LoopHandler {
+  return async function* (ctx, runChain) {
+    let times = 0;
+    while (times < maxLoop) {
+      times++;
+      yield* runChain();
+      if (ctx.process.toolCallAccumulated.size > 0) continue;
+      const lastMessage = ctx.process.history[ctx.process.history.length - 1]!;
+      if (lastMessage.role === "tool") continue;
+      if (lastMessage.role === "assistant" && lastMessage.toolCalls?.length) continue;
+      break;
+    }
+  };
+}
 
 describe("Middleware", () => {
   describe("exports", () => {
@@ -134,33 +150,33 @@ describe("Middleware class", () => {
 
   describe("createThread", () => {
     it("should create thread and return threadId", () => {
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
-      expect(threadId).toBe("test-uuid-1234");
-      expect(middleware.thread.has(threadId)).toBe(true);
+      expect(threadId).toBe("test-thread-1");
+      expect(middleware.threadMap.has(threadId)).toBe(true);
     });
 
     it("should initialize system message in history", () => {
-      const threadId = middleware.createThread();
-      const ctx = middleware.thread.get(threadId);
+      const threadId = middleware.createThread("test-thread-1");
+      const ctx = middleware.threadMap.get(threadId);
 
       expect(ctx).toBeDefined();
       expect(ctx?.process.history.length).toBe(1);
-      expect(ctx?.process.history[0].role).toBe("system");
-      expect(ctx?.process.history[0].content).toBe("mock system prompt");
+      expect(ctx!.process.history[0]!.role).toBe("system");
+      expect(ctx!.process.history[0]!.content).toBe("mock system prompt");
     });
 
     it("should set correct sessionId and threadId", () => {
-      const threadId = middleware.createThread();
-      const ctx = middleware.thread.get(threadId);
+      const threadId = middleware.createThread("test-thread-1");
+      const ctx = middleware.threadMap.get(threadId);
 
       expect(ctx?.session.sessionId).toBe("test-session");
-      expect(ctx?.session.threadId).toBe("test-uuid-1234");
+      expect(ctx?.session.threadId).toBe("test-thread-1");
     });
 
     it("should initialize empty accumulators", () => {
-      const threadId = middleware.createThread();
-      const ctx = middleware.thread.get(threadId);
+      const threadId = middleware.createThread("test-thread-1");
+      const ctx = middleware.threadMap.get(threadId);
 
       expect(ctx?.process.contentAccumulated).toBe("");
       expect(ctx?.process.thinkingAccumulated).toBe("");
@@ -169,8 +185,8 @@ describe("Middleware class", () => {
     });
 
     it("should initialize hashCheck and toolSharedData maps", () => {
-      const threadId = middleware.createThread();
-      const ctx = middleware.thread.get(threadId);
+      const threadId = middleware.createThread("test-thread-1");
+      const ctx = middleware.threadMap.get(threadId);
 
       expect(ctx?.session.hashCheck).toBeInstanceOf(Map);
       expect(ctx?.session.toolSharedData).toBeInstanceOf(Map);
@@ -200,19 +216,32 @@ describe("Middleware class", () => {
         createMockAdapters(),
         [handler],
       );
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "   ");
       for await (const _ of gen) {
         // consume
       }
 
-      const ctx = middleware.thread.get(threadId);
+      const ctx = middleware.threadMap.get(threadId);
       expect(ctx?.process.pendingInputs.length).toBe(0);
     });
 
     it("should yield done chunk when loop completes", async () => {
-      const threadId = middleware.createThread();
+      const handler: MiddlewareHandler = async function* (_ctx, next) {
+        yield { type: "done" };
+        yield* next();
+      };
+      middleware = new Middleware(
+        "test-session",
+        createMockGlobalConfig(),
+        createMockClientConfig(),
+        mockToolManager,
+        createMockAdapters(),
+        [handler],
+      );
+
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "test");
       const chunks: unknown[] = [];
@@ -236,17 +265,17 @@ describe("Middleware class", () => {
         createMockAdapters(),
         [handler],
       );
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "user message");
       for await (const _ of gen) {
         // consume
       }
 
-      const ctx = middleware.thread.get(threadId);
+      const ctx = middleware.threadMap.get(threadId);
       // Should have system + user messages
       expect(ctx?.process.history.length).toBeGreaterThan(1);
-      const userMessages = ctx?.process.history.filter((m) => m.role === "user");
+      const userMessages = ctx?.process.history.filter((m: { role: string }) => m.role === "user");
       expect(userMessages?.length).toBeGreaterThan(0);
     });
   });
@@ -270,8 +299,9 @@ describe("Middleware class", () => {
         mockToolManager,
         createMockAdapters(),
         [handler],
+        createTestLoopHandler(maxLoop),
       );
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "test");
       for await (const _ of gen) {
@@ -303,7 +333,7 @@ describe("Middleware class", () => {
         createMockAdapters(),
         [handler],
       );
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "test");
       const chunks: unknown[] = [];
@@ -349,8 +379,9 @@ describe("Middleware class", () => {
         mockToolManager,
         createMockAdapters(),
         [handler],
+        createTestLoopHandler(10),
       );
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "test");
       for await (const _ of gen) {
@@ -395,8 +426,9 @@ describe("Middleware class", () => {
         mockToolManager,
         createMockAdapters(),
         [handler],
+        createTestLoopHandler(10),
       );
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "test");
       for await (const _ of gen) {
@@ -423,7 +455,7 @@ describe("Middleware class", () => {
         createMockAdapters(),
         [handler],
       );
-      const threadId = middleware.createThread();
+      const threadId = middleware.createThread("test-thread-1");
 
       const gen = middleware.send(threadId, "test");
       for await (const _ of gen) {

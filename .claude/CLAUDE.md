@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-cheryClaw 是一个多 LLM Agent 框架，支持 Ollama、OpenAI 等提供商。核心特性：Tool 调用监管、流式响应、两阶段执行、Prompt 系统与 Skills 加载。
+多 LLM Agent 框架，支持 Ollama、OpenAI 等提供商。核心特性：Tool 调用监管、流式响应、两阶段执行、Prompt 系统与 Skills 加载。
 
 ## 常用命令
 
@@ -14,486 +14,170 @@ yarn test         # 运行测试（vitest）
 yarn test:watch   # 测试监听模式
 ```
 
-开发时无需编译验证，`yarn dev` 自动重载，人工验证即可。
+> 当前测试套件存在预存问题，后续统一修复。开发阶段仅关注 TSC 类型检查通过。
 
 ## 目录结构
 
 ```text
-.chery/                      # 外置配置目录（不走打包，运行时读取）
-├── config.yaml              # LLM 客户端配置 + Tool 分组配置 + 全局配置
+.chery/                      # 外置配置（不走打包，运行时读取）
+├── config.yaml              # LLM 客户端 + Tool 分组 + 全局配置
 ├── system.md                # 系统 prompt 模板
-├── skills/                  # 技能定义目录
-│   └── <name>/SKILL.md      # 技能定义文件
-└── tools/                   # 外部自定义工具目录
-    └── <name>.ts            # 工具定义文件（简化格式）
-
-dist/                        # 编译产物目录
-├── index.js                 # SSR 打包主产物
-└── custom/                  # 外部工具编译产物
-    └── <name>.js            # 编译后的工具 JS 文件
+├── skills/<name>/SKILL.md   # 技能定义
+└── tools/<name>.ts          # 外部自定义工具
 
 src/
-├── core/                    # 核心架构层（框架抽象）
-│   ├── config.ts            # SupervisionLevel 监管等级枚举
-│   ├── llm/                 # LLM Adapter 注册与获取
-│   │   ├── adapter.ts       # LLM Adapter 注册表
-│   │   └── index.ts         # 导出
+├── index.ts                 # 入口：WebSocket 服务 / compile-tools 子命令
+├── core/                    # 框架抽象（不含具体实现）
+│   ├── config.ts            # SupervisionLevel 枚举
+│   ├── llm/                 # LLM Adapter 注册表
 │   ├── message/             # Message Adapter 抽象
-│   │   ├── adapter.ts       # LLMResponse 类型 + MessageAdapter 类
-│   │   └── index.ts         # 导出
 │   ├── middleware/          # 中间件核心（洋葱模型）
 │   │   ├── compose.ts       # 中间件组合器
-│   │   ├── types.ts         # MiddlewareContext/Chunk 类型定义
-│   │   ├── utils.ts         # HistoryProxy 创建
-│   │   └── index.ts         # Middleware 类（接收 handlers 参数）
-│   ├── prompt/              # Prompt 构建系统
-│   │   ├── index.ts         # buildFirstSystemPrompt()
-│   │   └── loadSkill.ts     # Skills 加载与解析
-│   └── tool/                # Tool 核心抽象
-│       ├── toolCreator.ts   # tool() 工厂函数
-│       ├── toolManager.ts   # ToolManager 类
-│       ├── adapter.ts       # ToolAdapter 注册表
-│       └── index.ts         # 导出
-│
-├── agent/                   # Agent 层（具体实现）
-│   ├── builder.ts           # AgentBuilder 类
-│   ├── index.ts             # 入口文件
-│   ├── middleware/          # 中间件实现
-│   │   ├── index.ts         # 导出 handlers + Middleware
-│   │   ├── message.ts       # 消息累积中间件
-│   │   ├── tool.ts          # 工具执行中间件
-│   │   ├── chunk.ts         # 流式响应处理中间件
-│   │   ├── retry.ts         # 自动重试中间件
-│   │   └── chat.ts          # LLM 调用中间件
-│   ├── tool/                # 工具实现
-│   │   ├── index.ts         # 工具注册表 + 导出
-│   │   ├── bash.ts          # execute_command 工具
-│   │   ├── read.ts          # read_file 工具
-│   │   ├── write.ts         # write_file 工具
-│   │   └── skill.ts         # Skill 激活工具
-│   ├── provider/            # Provider 注册
-│   │   ├── openai.ts        # OpenAI Adapter 注册
-│   │   └── ollama.ts        # Ollama Adapter 注册
-│   └── skills/              # （已迁移到 .chery/skills/）
-│
-├── utils/                   # 工具函数（core 和 agent 共用）
-│   ├── env.ts               # 环境信息管理
-│   ├── hash.ts              # Hash 生成
-│   ├── config.ts            # YAML 配置加载 + 环境变量替换
-│   ├── drain/               # Drain 日志模板挖掘算法
-│   └── bashLogger.ts        # Bash 日志管理
-│
-├── config.ts                # （已合并到 utils/config.ts）
-│
-└── test/                    # 测试套件（vitest）
-    ├── agent/               # Agent 层测试
-    ├── core/                # Core 层测试
-    ├── utils/               # Utils 层测试
-    ├── helpers/             # 测试辅助工具
-    └── __mocks__/           # Mock 文件
+│   │   ├── types.ts         # 类型定义
+│   │   └── index.ts         # Middleware 类
+│   ├── prompt/              # Prompt 构建 + Skills 加载
+│   └── tool/                # Tool 核心（工厂、注册表、编译器、ToolManager）
+├── agent/                   # 具体实现
+│   ├── builder.ts           # AgentBuilder 链式配置
+│   ├── middleware/           # 中间件实现（checkpoint/chat/tool/retry/loop）
+│   ├── tool/                # 内置工具（bash/read/write/skill）
+│   └── provider/            # Provider 注册（OpenAI/Ollama）
+├── service/                 # 服务层（WebSocket、会话管理、中断恢复）
+│   ├── agent/               # Agent 生命周期、执行、中断、恢复
+│   ├── message/             # 消息路由
+│   └── websocket/           # WebSocket 连接管理
+├── db/                      # 数据持久化（checkpoint、session、interrupt、thread）
+└── utils/                   # 工具函数
+    ├── config.ts            # YAML 配置加载 + 环境变量替换
+    ├── hash.ts              # Hash 生成
+    ├── drain/               # Drain 日志模板挖掘算法
+    └── logger/              # 日志管理
 
-config.yaml                  # LLM 客户端配置 + 全局配置
-vite.config.ts               # Vite 8 + Vitest 统一配置
+test/                        # 测试套件（vitest），结构镜像 src/
 ```
 
 ## 架构分层
 
-### Core 层（框架抽象）
+| 层 | 路径 | 职责 |
+|----|------|------|
+| Core | `src/core/` | 框架抽象：类型、Adapter 注册表、Middleware 类、Tool 工厂 |
+| Agent | `src/agent/` | 具体实现：Builder、中间件、工具、Provider |
+| Service | `src/service/` | 服务层：WebSocket、会话、中断恢复 |
+| DB | `src/db/` | 数据持久化：checkpoint、session |
+| Utils | `src/utils/` | 共用工具函数 |
+| 配置 | `.chery/` | 运行时配置，不走打包。路径通过 `CHERY_DIR` 环境变量指定 |
 
-**Core 层** (`src/core/`): 框架抽象，不含具体实现
-- 类型定义（LLMResponse、MiddlewareContext、ToolCallData）
-- Adapter 注册表（静态 Map + register/get 函数）
-- Middleware 类（接收 handlers 参数，不硬编码引用）
-- Tool 工厂函数（tool()、ToolManager）
+## 核心设计模式
 
-### Agent 层（具体实现）
-
-**Agent 层** (`src/agent/`): 具体实现，可直接使用
-- AgentBuilder（链式配置）
-- 中间件实现（message/tool/chunk/retry/chat）
-- 工具实现（bash/read/write/skill）
-- Provider Adapter 实现（OpenAI/Ollama）
-
-### 共用层
-
-**共用层** (`src/utils/`): Core 和 Agent 都需要访问
-- 环境信息管理（env.ts）
-- Hash 生成（hash.ts）
-- YAML 配置加载（config.ts）
-- Drain 日志挖掘算法（drain/）
-- Bash 日志管理（bashLogger.ts）
-
-### 配置层（外置）
-
-**配置层** (`/.chery/`): 运行时配置，不走打包
-- 配置文件（config.yaml）：LLM 客户端、Tool 分组、全局配置
-- 系统提示词模板（system.md）
-- 技能定义目录（skills/）
-- 外部工具定义目录（tools/）
-
-配置路径通过环境变量 `CHERY_DIR` 指定（默认 `process.cwd()`）。
-
-## 架构设计模式
-
-### Middleware 模式 - 洋葱模型（核心）
+### Middleware - 洋葱模型
 
 [core/middleware/index.ts](src/core/middleware/index.ts) Middleware 类接收 handlers 参数：
 
 ```ts
-new Middleware(
-  sessionId,
-  global,
-  config,
-  toolManager,
-  adapters,
-  handlers,  // 由 Agent 层提供
-);
+new Middleware(sessionId, global, aiServerConfig, toolManager, adapters, handlers, loopHandler?, builtTools?)
 ```
 
-执行顺序：`compose([messageMiddleware, toolMiddleware, chunkMiddleware, chatMiddleware])`
+Handler 执行顺序（由外到内）：`checkpointMiddleware → chatMiddleware → toolMiddleware → retryMiddleware`
 
-每个中间件是 Generator，支持：
-- 流式 yield `StreamChunk`
-- 两阶段中断 yield `InterruptChunk`
-- 阶段性结果 yield `StagedChunk`
-- 完成 yield `DoneChunk`
+每个中间件是 Generator，通过 yield 传递 chunk 类型：`StreamChunk | ToolTriggerChunk | ToolCompleteChunk | StagedChunk | ErrorChunk | DoneChunk`
 
-### Builder 模式 - Agent 配置
+### MiddlewareContext
 
-[agent/builder.ts](src/agent/builder.ts) 提供链式配置：
-
-```ts
-createAgent().use("longcat").build()
-```
-
-工具自动从 `config.yaml` 的 `tool_group` 配置加载。
-
-**可选配置**：
-- `setSessionId(id)`: 自定义会话 ID（默认 UUID）
-- `setWorkDir(dir)`: 设置工具执行工作目录（默认 `process.cwd()`）
-
-### Adapter 模式 - 三层适配
-
-- **消息适配器** [core/message/adapter.ts](src/core/message/adapter.ts): 统一响应格式（role/content/thinking/toolCalls）
-- **工具适配器** [core/tool/adapter.ts](src/core/tool/adapter.ts): 统一工具定义和调用格式
-- **LLM 适配器** [core/llm/adapter.ts](src/core/llm/adapter.ts): 统一 chat/chatStream 接口
-
-### 工厂模式 - Provider 注册
-
-[agent/builder.ts](src/agent/builder.ts) 内 `providerRegistry` 映射 provider 名称到注册函数，与 config.yaml `provider` 字段对应。
-
-## 核心流程
-
-### MiddlewareContext 数据结构
-
-核心上下文对象包含六个分组（参见 [core/middleware/types.ts](src/core/middleware/types.ts)）：
+参见 [core/middleware/types.ts](src/core/middleware/types.ts)：
 
 | 分组 | 职责 |
-| ---- | ---- |
-| `session` | sessionId/threadId/hashCheck |
-| `global` | 全局配置（thinking/supervision/stream/timeout/maxLoopCount） |
-| `config` | 当前客户端配置（model/provider/tool_group） |
+|------|------|
+| `session` | sessionId/threadId/hashCheck/toolSharedData/userInputs/builtTools/messages |
+| `global` | 全局配置（thinking/supervision/stream/maxLoopCount） |
+| `aiServer` | 客户端配置（model/provider/url/key） |
 | `adapters` | LLM/Message/Tool Adapter 实例 |
-| `process` | history/累积状态/toolCallAccumulated Map/pendingInputs |
-| `tools` | ToolManager 实例 |
+| `toolManager` | ToolManager 实例 |
 
-### 中间件职责分工
+### Builder - Agent 配置
 
-| 中间件 | 职责 |
-| ------ | ---- |
-| [agent/middleware/message.ts](src/agent/middleware/message.ts) | 消息累积、历史构建、创建用户消息、tool 结果累积 |
-| [agent/middleware/tool.ts](src/agent/middleware/tool.ts) | 工具执行循环、两阶段确认中断、监管等级判断 |
-| [agent/middleware/chunk.ts](src/agent/middleware/chunk.ts) | 流式响应累积、工具调用增量累积、非流式 toolCall 提取 |
-| [agent/middleware/retry.ts](src/agent/middleware/retry.ts) | 自动重试机制、错误恢复 |
-| [agent/middleware/chat.ts](src/agent/middleware/chat.ts) | 调用 LLM Adapter、发起 LLM 请求、流式/非流式切换 |
+[agent/builder.ts](src/agent/builder.ts)：`createAgent().use("longcat").build()`
 
-### 两阶段执行（Tool 监管）
+`build()` 阶段预构建 tools（`toolAdapter.buildTools()`），存入 `ctx.session.builtTools`，避免每次迭代重复构建。
 
-`toolMiddleware` 根据 `SupervisionLevel` 决定执行策略：
+### Adapter - 三层适配
 
-- `auto` (0): 自动执行，无需确认
-- `confirm` (1): yield `InterruptChunk`，等待确认
-- `manual` (2): 禁止自动执行，仅手动触发
+- **Message** [core/message/adapter.ts](src/core/message/adapter.ts)：统一响应格式
+- **Tool** [core/tool/adapter.ts](src/core/tool/adapter.ts)：统一工具定义和调用格式
+- **LLM** [core/llm/adapter.ts](src/core/llm/adapter.ts)：统一 chat/chatStream 接口
 
-配置路径：
-- Tool 定义: `tool()` 函数的 `supervisionLevel` 参数
-- 客户端配置: `config.yaml` → `tool_groups.*.auto_execute_level`
-- 全局配置: `config.yaml` → `global.supervision`（默认监管等级）
+### Loop 执行
 
-### Loop 执行机制
-
-[core/middleware/index.ts](src/core/middleware/index.ts) 的 `send()` 方法实现循环执行：
-
-```text
-while (条件满足) {
-  执行中间件链 → 检查结果 → 决定是否继续
-}
-```
-
-**继续条件**：
-- `toolCallAccumulated.size > 0`: 有待执行 tool_calls
-- 最后消息是 `tool`: 刚执行完工具
-- 最后消息是 `assistant` 且有 `toolCalls`: 工具已执行完毕
-
-**停止条件**：
-- 最后消息是 `assistant` 且无 `toolCalls`
-- 最后消息是 `user` 或 `system`
+[agent/middleware/loop.ts](src/agent/middleware/loop.ts) `createLoopHandler` 循环执行中间件链，直到最后消息为 assistant 且无 toolCalls。
 
 ### Thread 管理
 
-每个 Middleware 实例维护 `thread` Map：
-- `createThread()`: 创建新 threadId，初始化 context
-- 创建时自动注入系统 prompt（`buildPrompt()` 结果）
-- 每个 threadId 独立队列状态（防止并发冲突）
+Middleware 维护 `threadMap`（Map<string, MiddlewareContext>）：
+- `createThread(threadId)`：初始化 context（含 system 消息）
+- `send(threadId, input)`：注入 userInputs，执行 chain，支持活跃 generator 复用
 
-## Prompt 系统
+## 中间件职责
 
-[core/prompt/index.ts](src/core/prompt/index.ts) 构建完整 prompt，包含：
+| 中间件 | 职责 |
+|--------|------|
+| [checkpoint.ts](src/agent/middleware/checkpoint.ts) | 收集 toolDelta 合并生成 tool_trigger、追加 messages、持久化 |
+| [chat.ts](src/agent/middleware/chat.ts) | LLM 调用、流式/非流式、yield StreamChunk |
+| [tool.ts](src/agent/middleware/tool.ts) | 收集 tool_trigger、执行工具、yield tool_complete |
+| [retry.ts](src/agent/middleware/retry.ts) | 自动重试、错误恢复、yield ErrorChunk |
 
-- **系统 prompt**: [.chery/system.md](.chery/system.md)（通过 config.yaml 配置路径）
-- **Skills 加载**: 自动扫描 `.chery/skills/*/SKILL.md`，解析 frontmatter
-- **环境信息**: 工作目录、操作系统、当前日期时间
+## Tool 监管
 
-输出格式：
+`toolMiddleware` 根据 `SupervisionLevel` 决定执行策略：
+- `auto` (0)：自动执行
+- `confirm` (1)：yield InterruptChunk，等待确认
+- `manual` (2)：禁止自动执行
 
-```xml
-<system-reminder>系统 prompt</system-reminder>
-<environment>环境信息</environment>
-<skills>技能列表</skills>
-```
-
-### Skills 定义格式
-
-在 `.chery/skills/<name>/SKILL.md` 中定义：
-
-```markdown
----
-name: skill_name
-description: 技能描述
----
-
-# skill_name
-详细说明...
-```
-
-frontmatter 由 [core/prompt/loadSkill.ts](src/core/prompt/loadSkill.ts) 解析，注入到 prompt 中。
+配置层级：Tool 定义 → `config.yaml` tool_groups → `global.supervision`
 
 ## 配置系统
 
-- `.chery/config.yaml`: LLM 客户端配置 + Tool 分组配置 + 全局配置（运行时读取，不走打包）
-- `$ENV_VAR_NAME` 语法引用环境变量（由 [utils/config.ts](src/utils/config.ts) 替换）
-- `.env`: 存储 API 密钥、`CHERY_DIR` 等敏感信息
-- 环境变量缺失时仅警告，不阻断启动
-
-### 环境变量配置
-
-```bash
-# .env 文件
-CHERY_DIR=/path/to/project    # .chery 目录所在路径（可选，默认 process.cwd()）
-OLLAMA_HOST=http://localhost:11434
-OPENAI_API_KEY=sk-xxx
-```
-
-### 全局配置项
+`.chery/config.yaml`（运行时读取，不走打包），`$ENV_VAR_NAME` 引用环境变量（[utils/config.ts](src/utils/config.ts) 替换）。
 
 ```yaml
-# .chery/config.yaml
 global:
-  thinking: true              # 是否开启思考模式
-  supervision: manual         # 默认监管等级（auto/confirm/manual）
-  stream: true                # 是否开启流式输出
-  tool_execute_timeout: 10000 # 工具执行超时（毫秒）
-  bash_log_retention_hours: 24 # Bash 日志保留时间
+  thinking: true
+  supervision: manual      # auto/confirm/manual
+  stream: true
+  tool_execute_timeout: 10000
+  bash_log_retention_hours: 24
 ```
 
-注意：`skills_dir`、`tools_dir`、`system_prompt` 路径自动补全，无需配置。
-
-### Tool Group 配置
-
-`tool_group` 支持单个或多个工具组：
+Tool Group 支持单组或多组（多组工具去重：后加载覆盖前加载）：
 
 ```yaml
-# 单组
-tool_group: safe_tools
-
-# 多组（工具去重：后加载覆盖前加载）
 tool_group: [safe_tools, dangerous_tools]
 ```
 
 ## TypeScript 配置
 
-- ESM 模块（`"type": "module"`）
-- 严格模式: `noUncheckedIndexedAccess`
-- bundler 模块解析（配合 Vite 8）
-- 路径别名: `@/*` 映射到 `src/*`，`@test/*` 映射到 `test/*`
-- verbatimModuleSyntax: 类型导入必须使用 `import type`
+- ESM（`"type": "module"`），严格模式（`noUncheckedIndexedAccess`）
+- bundler 模块解析（Vite 8），路径别名 `@/*` → `src/*`，`@test/*` → `test/*`
+- verbatimModuleSyntax：`interface`/`type` 用 `import type`；`class`/`enum`/函数用 `import`
 
-### 类型导入规范（verbatimModuleSyntax）
+## 扩展指南
 
-必须使用 `import type`：
-- `interface`（纯类型定义）
-- `type alias`（纯类型定义）
+### 添加 Provider
 
-必须使用普通 `import`：
-- `class`（既是类型也是值，可实例化、extends）
-- `abstract class`（既是类型也是值，extends需要值）
-- `enum`（既是类型也是值，可访问成员如Enum.VALUE）
-- 函数、常量等运行时值
+1. 创建 `src/agent/provider/<name>.ts`，定义 Message/Tool/LLM Adapter 配置
+2. 导出注册函数，在 [builder.ts](src/agent/builder.ts) 中调用
+3. 在 `config.yaml` 添加客户端配置，`provider` 字段对应
 
-判断口诀：有运行时值的用import，纯类型定义用import type
+### 添加内置 Tool
 
-## 测试模块
+使用 [toolCreator.ts](src/core/tool/toolCreator.ts) 的 `tool()` 函数，在 `src/agent/tool/` 创建文件，在 [index.ts](src/agent/tool/index.ts) 导入注册。
 
-测试使用 Vitest 框架，配置统一在 [vite.config.ts](vite.config.ts) 中。
+### 添加外部 Tool
 
-### 测试目录结构
+在 `.chery/tools/` 创建 `.ts` 文件（编译系统自动注入 zod/tool/SupervisionLevel 导入），在 `config.yaml` tool_groups 中引用。
 
-```text
-test/
-├── agent/                   # Agent 层测试
-│   ├── middleware/          # 中间件测试
-│   │   ├── chat.test.ts     # Chat 中间件
-│   │   ├── chunk.test.ts    # Chunk 处理
-│   │   ├── message.test.ts  # 消息累积
-│   │   ├── retry.test.ts    # 重试机制
-│   │   └── tool.test.ts     # 工具执行
-│   ├── provider/            # Provider 测试
-│   │   ├── ollama.test.ts   # Ollama Adapter
-│   │   └── openai.test.ts   # OpenAI Adapter
-│   ├── tool/                # 工具测试
-│   │   ├── bash.test.ts     # execute_command
-│   │   ├── read.test.ts     # read_file
-│   │   ├── write.test.ts    # write_file
-│   │   └── skill.test.ts    # Skill 激活
-│   ├── builder.test.ts      # AgentBuilder
-│   └── index.test.ts        # Agent 入口
-│
-├── core/                    # Core 层测试
-│   ├── llm/                 # LLM Adapter 测试
-│   ├── message/             # Message Adapter 测试
-│   ├── middleware/          # Middleware 核心（compose/types/utils）
-│   ├── prompt/              # Prompt 系统
-│   ├── tool/                # Tool 核心
-│   └── config.test.ts       # SupervisionLevel 枚举
-│
-├── utils/                   # Utils 层测试
-│   ├── drain/               # Drain 算法测试
-│   ├── bashLogger.test.ts   # Bash 日志管理
-│   ├── config.test.ts       # YAML 配置加载
-│   ├── env.test.ts          # 环境信息
-│   └── hash.test.ts         # Hash 生成
-│
-├── helpers/                 # 测试辅助工具
-│   └── tempDir.ts           # 临时目录管理
-│
-└── __mocks__/               # Mock 文件
-    ├── ollama.ts            # Ollama Mock
-    └── openai.ts            # OpenAI Mock
-```
+### 添加 Skill
 
-### 测试命令
+在 `.chery/skills/<name>/` 创建 `SKILL.md`（含 frontmatter），prompt 系统自动加载。
 
-```bash
-yarn test              # 单次运行所有测试
-yarn test:watch        # 监听模式
-yarn test:coverage     # 生成覆盖率报告
-```
+### 添加中间件
 
-### 测试规范
-
-- 测试文件命名：`*.test.ts`
-- 测试目录结构与 src/ 对应
-- Mock 文件放在 `test/__mocks__/`
-- 使用 Vitest globals（describe/it/expect/vi）
-
-## 添加新 LLM Provider
-
-1. 创建 `src/agent/provider/newprovider.ts`
-2. 定义 Message Adapter 配置（role/content/thinking/buildMessages）
-3. 定义 Tool Adapter 配置（buildTools/extractToolCalls/assembleToolCallChunks）
-4. 定义 LLM Adapter（chat/chatStream）
-5. 创建注册函数并导出
-6. 在 [agent/builder.ts](src/agent/builder.ts) 的 `providerRegistry` 中注册
-7. 在 `config.yaml` 添加客户端配置，`provider` 字段设为 `"newprovider"`
-
-## 添加新 Tool
-
-### 内置工具（打包进产物）
-
-使用 [core/tool/toolCreator.ts](src/core/tool/toolCreator.ts) 的 `tool()` 函数：
-
-```ts
-// src/agent/tool/my_tool.ts
-import { z } from "zod";
-import { tool, type ToolResult } from "@/core/tool";
-import { SupervisionLevel } from "@/core/config";
-
-export default tool(
-  "my_tool",                    // 名称
-  "描述工具功能",                 // 描述
-  z.object({ path: z.string() }), // Zod schema
-  async ({ path }) => "...",     // 执行函数
-  SupervisionLevel.confirm       // 监管等级（可选）
-);
-```
-
-在 `src/agent/tool/` 目录创建文件，并在 [agent/tool/index.ts](src/agent/tool/index.ts) 中显式导入注册。
-
-### 外部工具（运行时加载）
-
-在 `.chery/tools/` 目录创建 `.ts` 文件，使用**简化格式**（无需手动导入）：
-
-```ts
-// .chery/tools/my_custom_tool.ts
-// 无需导入 zod、tool、SupervisionLevel，编译系统自动注入
-
-const MySchema = z.object({
-  text: z.string().describe("输入文本"),
-});
-
-export default tool(
-  "my_custom_tool",
-  "自定义工具描述",
-  MySchema,
-  async (input) => {
-    return { content: `处理结果: ${input.text}`, hash: "" };
-  },
-  SupervisionLevel.confirm,
-);
-```
-
-**编译流程**：
-1. 运行时预处理：自动注入 `zod`、`tool`、`SupervisionLevel` 导入
-2. Vite 编译为 JS：输出到 `dist/custom/my_custom_tool.js`
-3. 动态加载：从 `dist/custom/` 导入并注册到 toolRegistry
-
-**配置使用**：
-在 `.chery/config.yaml` 的 `tool_groups` 中添加工具名称：
-
-```yaml
-tool_groups:
-  custom_tools:
-    tools:
-      - my_custom_tool
-```
-
-然后在客户端配置中引用：
-
-```yaml
-llm:
-  agent:
-    my_client:
-      tool_group: [safe_tools, custom_tools]
-```
-
-## 添加新 Skill
-
-1. 在 `.chery/skills/` 目录创建 `<skill_name>/` 子目录
-2. 添加 `SKILL.md` 文件，包含 frontmatter（name/description）
-3. prompt 系统自动加载并注入
-
-## 添加新中间件
-
-1. 在 `src/agent/middleware/` 目录创建新的中间件文件
-2. 实现 `MiddlewareHandler` 类型签名
-3. 在 [agent/middleware/index.ts](src/agent/middleware/index.ts) 的 `defaultHandlers` 数组中添加
+在 `src/agent/middleware/` 创建文件，实现 `MiddlewareHandler` 类型，在 [index.ts](src/agent/middleware/index.ts) 的 `defaultHandlers` 中添加。

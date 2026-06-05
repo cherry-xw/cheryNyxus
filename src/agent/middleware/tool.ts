@@ -1,201 +1,198 @@
-import type { MiddlewareContext, ToolCallAccumulator } from "@/core/middleware/types";
-import { v4 as uuid } from "uuid";
+import type { MiddlewareContext, MiddlewareChunk, ToolTriggerChunk, ToolCompleteChunk, StreamChunk } from "@/core/middleware/types";
+import { interruptManager } from "@/service/agent/interrupt.js";
+import { safeJsonParse } from "@/utils/json.js";
 import { SupervisionLevel } from "@/core/config";
-
-/**
- * 中断 chunk（工具两阶段确认）
- * 支持批量 handle，每个独立审批
- */
-export interface InterruptChunk {
-  type: "interrupt";
-  /** 批量 handle 数组（每个独立审批，reason 由中间件生成供外部显示） */
-  handles: Array<{
-    /** 确认执行（接受/拒绝指令） */
-    acknowledge: (action: "accept" | "reject", reason?: string) => Promise<void>;
-    /** 工具调用描述（由中间件生成：name + args） */
-    reason: string;
-  }>;
-}
 
 /**
  * Tool Middleware
  * 职责：
- * 1. 工具定义构建（前半部分）
- * 2. 流式工具调用累积（前半部分）
- * 3. 分级检查 + 批量并发执行 + 结果写入 history（后半部分）
+ * 1. 从 stream chunks 实时收集 toolDelta
+ * 2. 检测完整 tool call 并立即执行
+ * 3. auto 工具自动执行，confirm 工具创建 interrupt
  */
 export async function* toolMiddleware(
   ctx: MiddlewareContext,
-  next: () => AsyncGenerator<unknown>,
-): AsyncGenerator<InterruptChunk | unknown> {
-  // === 前半部分：准备阶段 ===
-  yield* next();
+  next: () => AsyncGenerator<MiddlewareChunk>,
+): AsyncGenerator<MiddlewareChunk> {
+  // toolDelta 累积器（按 index 累积）
+  const toolDeltaMap = new Map<number, { id?: string; name?: string; argsJson: string }>();
+  let lastIndex = -1;
 
-  // === 后半部分：tool 执行阶段 ===
-  const toolCalls = Array.from(ctx.process.toolCallAccumulated.values()).filter(
-    (acc) => !acc.approved,
-  );
+  // 收集 stream chunks 的 toolDelta，实时检测完整 tool call
+  for await (const chunk of next()) {
+    // 处理 stream chunk 中的 toolDelta
+    if (chunk.type === "stream") {
+      const streamChunk = chunk as StreamChunk;
+      if (streamChunk.toolDelta && streamChunk.toolDelta.length > 0) {
+        for (const delta of streamChunk.toolDelta) {
+          const index = delta.index ?? 0;
 
-  if (toolCalls.length === 0) return;
+          // index 变化 → 前一个 tool call 完成
+          if (lastIndex !== -1 && index !== lastIndex) {
+            const prevTc = toolDeltaMap.get(lastIndex);
+            if (prevTc && prevTc.name) {
+              // 立即执行前一个完整的 tool call
+              yield* executeToolCall(ctx, prevTc.id ?? "", prevTc.name, prevTc.argsJson);
+            }
+            toolDeltaMap.delete(lastIndex);
+          }
 
-  // execList: Promise 数组，存放 executeSingleToolCall 返回值
-  const execList: Promise<{
-    tid: string;
-    name: string;
-    arguments: string;
-    result: string;
-  }>[] = [];
+          // 累积当前 toolDelta
+          const existing = toolDeltaMap.get(index);
+          if (existing) {
+            existing.argsJson += delta.arguments ?? "";
+            if (delta.id) existing.id = delta.id;
+            if (delta.name) existing.name = delta.name;
+          } else {
+            toolDeltaMap.set(index, {
+              id: delta.id,
+              name: delta.name,
+              argsJson: delta.arguments ?? "",
+            });
+          }
 
-  // 收集需确认的 toolcalls
-  const confirmList: ToolCallAccumulator[] = [];
-
-  for (const tc of toolCalls) {
-    const toolDef = ctx.tools.toolManager.get(tc.name);
-    if (!toolDef) {
-      execList.push(
-        Promise.resolve({
-          tid: tc.tid,
-          name: tc.name,
-          arguments: tc.arguments,
-          result: `Tool "${tc.name}" not found`,
-        }),
-      );
-    } else {
-      console.log("监管等级：", tc.name, toolDef.supervisionLevel)
-      if (toolDef.supervisionLevel === SupervisionLevel.auto) {
-        const args = tc.arguments ? JSON.parse(tc.arguments) : {};
-        execList.push(executeSingleToolCall(ctx, tc.tid, tc.name, args));
-      } else {
-        confirmList.push(tc);
+          lastIndex = index;
+        }
       }
     }
+
+    // 透传其他 chunk
+    yield chunk;
   }
 
-  // 批量 yield interrupt（如有需确认的）
-  if (confirmList.length > 0) {
-    yield {
-      type: "interrupt",
-      handles: confirmList.map((tc) => ({
-        acknowledge: async (action: "accept" | "reject", reason?: string) => {
-          if (action === "accept") {
-            const args = tc.arguments ? JSON.parse(tc.arguments) : {};
-            execList.push(executeSingleToolCall(ctx, tc.tid, tc.name, args));
-          } else {
-            execList.push(
-              Promise.resolve({
-                tid: tc.tid,
-                name: tc.name,
-                arguments: tc.arguments,
-                result: `用户拒绝执行${reason ? `，原因是${reason}` : ""}`,
-              }),
-            );
-          }
-          // 标记已审批
-          const current = ctx.process.toolCallAccumulated.get(tc.tid);
-          if (current) current.approved = true;
-        },
-        reason: `${tc.name}(${tc.arguments})`,
-      })),
-    };
-
-    // yield 后 generator 暂停，外部批量 acknowledge 后恢复
+  // 流结束后，处理剩余的 tool call
+  for (const [, tc] of toolDeltaMap) {
+    if (tc.name) {
+      yield* executeToolCall(ctx, tc.id ?? "", tc.name, tc.argsJson);
+    }
   }
-
-  // 并发执行 execList（Promise.all）
-  const results = await Promise.all(execList);
-
-  // 批量 writeHistory
-  whiteHistory(ctx, results);
 }
 
 /**
- * 执行单个工具调用（仅执行，返回完整信息，不做 writeHistory）
- * @param ctx 中间件上下文
- * @param tid 工具调用ID
- * @param name 工具名称
- * @param args 工具参数
- * @returns 完整执行结果
+ * 执行单个 tool call（根据 supervisionLevel 决定执行策略）
  */
-export async function executeSingleToolCall(
+async function* executeToolCall(
   ctx: MiddlewareContext,
-  tid: string,
+  id: string,
   name: string,
-  args: Record<string, unknown>,
-): Promise<{
-  tid: string;
-  name: string;
-  arguments: string;
-  result: string;
-}> {
-  const argsJson = JSON.stringify(args);
+  argsJson: string,
+): AsyncGenerator<ToolCompleteChunk> {
+  // 获取工具监管级别
+  const toolDef = ctx.toolManager.get(name);
+  const supervisionLevel = toolDef?.supervisionLevel ?? SupervisionLevel.auto;
 
+  if (supervisionLevel === SupervisionLevel.auto) {
+    // auto：直接执行
+    const result = await doExecuteTool(ctx, name, argsJson);
+    yield { type: "tool_complete", id, name, result };
+  } else if (supervisionLevel === SupervisionLevel.confirm) {
+    // confirm：创建 interrupt，等待确认
+    yield* handleConfirmToolCall(ctx, id, name, argsJson);
+  }
+  // manual：不执行，直接跳过（不 yield tool_complete）
+}
+
+/**
+ * 实际执行工具
+ */
+async function doExecuteTool(
+  ctx: MiddlewareContext,
+  name: string,
+  argsJson: string,
+): Promise<string> {
   try {
-    const execResult = await ctx.tools.toolManager.execute(name, args, ctx.session.toolSharedData);
+    const args = argsJson ? safeJsonParse(argsJson, {}) : {};
+    const result = await ctx.toolManager.execute(name, args, ctx.session.toolSharedData);
 
-    // 去重检查（hash为""时跳过）
-    if (execResult.hash) {
-      if (ctx.session.hashCheck.has(execResult.hash)) {
-        return {
-          tid,
-          name,
-          arguments: argsJson,
-          result: `[已跳过"${name}"重复调用] 前面已有完全相同操作，本次直接跳过`,
-        };
+    // 去重检查
+    if (result.hash) {
+      if (ctx.session.hashCheck.has(result.hash)) {
+        return `[已跳过"${name}"重复调用] 前面已有完全相同操作`;
       }
-      ctx.session.hashCheck.set(execResult.hash, name);
+      ctx.session.hashCheck.set(result.hash, name);
     }
 
-    return { tid, name, arguments: argsJson, result: execResult.content };
+    return result.content;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    return { tid, name, arguments: argsJson, result: `Tool execution failed: ${errorMsg}` };
+    return `Tool execution failed: ${errorMsg}`;
   }
 }
 
 /**
- * 批量写入 history（一条 assistant + 多条 tool）
- * @param ctx 中间件上下文
- * @param results 执行结果数组
+ * 处理需确认的 tool call
  */
-function whiteHistory(
+async function* handleConfirmToolCall(
   ctx: MiddlewareContext,
-  results: Array<{
-    tid: string;
-    name: string;
-    arguments: string;
-    result: string;
-  }>,
-) {
-  const history = ctx.process.history;
+  id: string,
+  name: string,
+  argsJson: string,
+): AsyncGenerator<ToolCompleteChunk> {
+  // 创建 interrupt（构建临时 trigger 格式）
+  const trigger: ToolTriggerChunk = {
+    type: "tool_trigger",
+    id,
+    name,
+    arguments: argsJson,
+    supervisionLevel: "confirm",
+  };
 
-  // 1. push 一条 assistant（包含所有 toolCalls）
-  history.push({
-    id: uuid(),
-    role: "assistant",
-    content: ctx.process.contentAccumulated || "",
-    thinking: ctx.process.thinkingAccumulated,
-    toolCalls: results.map((r) => ({
-      tid: r.tid,
-      name: r.name,
-      arguments: r.arguments,
-    })),
-    createdAt: Date.now(),
-    updateAt: Date.now(),
-    raw: null,
-  });
+  await interruptManager.createSingleInterrupt(ctx, trigger);
 
-  // 2. push 多条 tool 消息
-  const now = Date.now();
-  for (const r of results) {
-    history.push({
-      id: r.tid,
-      role: "tool",
-      content: r.result,
-      createdAt: now,
-      updateAt: now,
-      raw: { toolCallId: r.tid },
-    });
-    // 删除已处理的 toolCallAccumulated
-    ctx.process.toolCallAccumulated.delete(r.tid);
+  // 等待确认
+  const decision = await waitForConfirmation(id);
+
+  // 根据决策执行或跳过
+  if (decision.action === "accept") {
+    const result = await doExecuteTool(ctx, name, argsJson);
+    yield { type: "tool_complete", id, name, result };
+  } else {
+    yield {
+      type: "tool_complete",
+      id,
+      name,
+      result: `用户拒绝执行${decision.reason ? `，原因是${decision.reason}` : ""}`,
+    };
   }
+
+  await interruptManager.completeInterrupt(id);
 }
+
+/**
+ * 等待确认（指数退避轮询）
+ */
+async function waitForConfirmation(
+  interruptId: string,
+): Promise<{ action: "accept" | "reject"; reason?: string }> {
+  return new Promise((resolve) => {
+    let delay = 1000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const poll = async () => {
+      try {
+        const entry = interruptManager.getHandle(interruptId);
+        if (!entry) {
+          // 已被确认，默认 accept
+          resolve({ action: "accept" as const });
+          return;
+        }
+      } catch {
+        // 继续轮询
+      }
+      // 指数退避：1s → 2s → 4s → ... → max 30s
+      delay = Math.min(delay * 2, 30000);
+      timer = setTimeout(poll, delay);
+    };
+
+    // 首次轮询
+    timer = setTimeout(poll, delay);
+
+    // 超时 10 分钟
+    setTimeout(() => {
+      if (timer) clearTimeout(timer);
+      resolve({ action: "reject" as const, reason: "Timeout" });
+    }, 600000);
+  });
+}
+
+export default toolMiddleware;

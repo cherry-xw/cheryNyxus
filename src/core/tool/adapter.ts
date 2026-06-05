@@ -9,11 +9,13 @@ export type { ToolFunction };
  * 流式增量与非流式完整响应共用
  */
 export interface ToolCallData {
+  /** 累积定位索引（流式时使用，OpenAI delta.tool_calls[].index） */
+  index?: number;
   /** 工具调用唯一标识：id 或 tool-${index} */
-  tid: string;
+  id: string;
   /** 工具名称（首个 delta 出现，后续可能为空） */
   name?: string;
-  /** 参数 JSON 字符串（必需，增量时为空字符串） */
+  /** 参数 JSON 字符串（完整参数或增量片段） */
   arguments: string;
 }
 
@@ -45,14 +47,14 @@ export interface ToolAdapter<TMessage, TResponse> {
    * 从完整响应提取工具调用列表
    * 返回统一 ToolCallData 结构
    */
-  extractToolCalls(response: TResponse): ToolCallData[];
+  toolCalls(response: TResponse): ToolCallData[];
 
   /**
-   * 整合流式 tool call chunks 为 provider 原生格式
-   * 流式模式下缓存所有 chunks，流结束后调用此方法整合
-   * 返回值可直接传给 extractToolCalls 提取 ToolCallData
+   * 从流式 chunk 提取 tool call 增量
+   * 用于实时展示 tool call 参数累积进度
+   * 返回 ToolCallData 数组（index 定位，arguments 为增量片段）
    */
-  assembleToolCallChunks(chunks: unknown[]): unknown;
+  extractToolCallDeltas(chunk: unknown): ToolCallData[];
 }
 
 /**

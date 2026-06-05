@@ -12,10 +12,6 @@ vi.mock("@/utils/config", () => ({
   },
 }));
 
-vi.mock("@/utils/env", () => ({
-  getWorkDir: vi.fn(() => process.cwd()),
-}));
-
 vi.mock("@/utils/logger/bashLogger", () => ({
   createBashLogPath: vi.fn(() => "/tmp/test-log.log"),
   createLogStream: vi.fn(() => ({

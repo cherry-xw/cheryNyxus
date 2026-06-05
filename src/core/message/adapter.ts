@@ -7,7 +7,7 @@ type Role = "system" | "user" | "assistant" | "tool" | "function";
  * Tool Call 数据结构
  */
 export interface ToolCallInfo {
-  tid: string;
+  id: string;
   name: string;
   arguments: string;
 }
@@ -15,7 +15,7 @@ export interface ToolCallInfo {
 /**
  * 统一 LLM 响应结构
  */
-export interface LLMResponse<T = unknown> {
+export interface LLMResponse {
   id: string;
   role: Role;
   content: string;
@@ -23,7 +23,6 @@ export interface LLMResponse<T = unknown> {
   toolCalls?: ToolCallInfo[];
   createdAt: number;
   updateAt: number;
-  raw: T;
 }
 
 /**
@@ -36,6 +35,8 @@ export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessag
   extractStreamDelta: (chunk: TStream) => string;
   extractStreamThinking?: (chunk: TStream) => string | undefined;
   buildMessages: (history: LLMResponse[]) => TMessage[];
+  /** thinking 字段在 API 消息中的名称（如 OpenAI: reasoning_content, Ollama: thinking） */
+  thinkingFieldName?: string;
 };
 
 /**

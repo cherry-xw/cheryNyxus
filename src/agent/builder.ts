@@ -2,9 +2,9 @@ import { ToolManager, ensureCustomToolsLoaded } from "./tool/index";
 import Middleware, {
   defaultHandlers,
   createLoopHandler,
-  type AdaptersGroup,
   type MiddlewareChunk,
 } from "./middleware/index";
+import type { AdaptersGroup } from "@/core/middleware/types";
 import config, { type AIServerConfig } from "@/utils/config";
 import { randomUUID } from "crypto";
 
@@ -94,6 +94,11 @@ export class AgentBuilder {
       config.global.supervision,
     );
 
+    // 预构建 tools（避免每次迭代重复构建）
+    const builtTools = this.adapters.toolAdapter.buildTools(
+      toolManager.getAll(),
+    );
+
     return new Middleware<MiddlewareChunk>(
       this.sessionId,
       config.global,
@@ -102,6 +107,7 @@ export class AgentBuilder {
       this.adapters,
       defaultHandlers,
       createLoopHandler(config.global.maxLoopCount),
+      builtTools,
     );
   }
 }

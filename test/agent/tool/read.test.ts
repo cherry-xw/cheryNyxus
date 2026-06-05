@@ -17,10 +17,6 @@ vi.mock("@/utils/config", () => ({
   },
 }));
 
-vi.mock("@/utils/env", () => ({
-  getWorkDir: vi.fn(() => process.cwd()),
-}));
-
 vi.mock("@/utils/hash", () => ({
   hashGenerator: vi.fn(() => "test-hash"),
 }));

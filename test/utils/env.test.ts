@@ -6,19 +6,20 @@ describe("env module", () => {
   });
 
   describe("initEnvInfo", () => {
-    it("should initialize envInfo with workDir", async () => {
-      const testDir = "/test/work/dir";
+    it("should initialize envInfo", async () => {
       const { initEnvInfo, getEnvInfo } = await import("@/utils/env");
 
-      initEnvInfo(testDir);
+      initEnvInfo();
 
       const info = getEnvInfo();
-      expect(info.workDir).toBe(testDir);
+      expect(info).toHaveProperty("os");
+      expect(info).toHaveProperty("date");
+      expect(info).toHaveProperty("time");
     });
 
     it("should populate os field", async () => {
       const { initEnvInfo, getEnvInfo } = await import("@/utils/env");
-      initEnvInfo("/test");
+      initEnvInfo();
       const info = getEnvInfo();
       expect(info.os).toBeTruthy();
       expect(typeof info.os).toBe("string");
@@ -26,30 +27,16 @@ describe("env module", () => {
 
     it("should populate date field with YYYY-MM-DD format", async () => {
       const { initEnvInfo, getEnvInfo } = await import("@/utils/env");
-      initEnvInfo("/test");
+      initEnvInfo();
       const info = getEnvInfo();
       expect(info.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
     it("should populate time field with ISO format", async () => {
       const { initEnvInfo, getEnvInfo } = await import("@/utils/env");
-      initEnvInfo("/test");
+      initEnvInfo();
       const info = getEnvInfo();
       expect(info.time).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
-    });
-  });
-
-  describe("getWorkDir", () => {
-    it("should throw error if not initialized", async () => {
-      const { getWorkDir } = await import("@/utils/env");
-      expect(() => getWorkDir()).toThrow("EnvInfo not initialized");
-    });
-
-    it("should return workDir after initialization", async () => {
-      const testDir = "/my/work/dir";
-      const { initEnvInfo, getWorkDir } = await import("@/utils/env");
-      initEnvInfo(testDir);
-      expect(getWorkDir()).toBe(testDir);
     });
   });
 
@@ -61,7 +48,7 @@ describe("env module", () => {
 
     it("should return os string after initialization", async () => {
       const { initEnvInfo, getOS } = await import("@/utils/env");
-      initEnvInfo("/test");
+      initEnvInfo();
       const os = getOS();
       expect(os).toBeTruthy();
       expect(typeof os).toBe("string");
@@ -107,10 +94,9 @@ describe("env module", () => {
 
     it("should return complete envInfo object", async () => {
       const { initEnvInfo, getEnvInfo } = await import("@/utils/env");
-      initEnvInfo("/test/dir");
+      initEnvInfo();
       const info = getEnvInfo();
 
-      expect(info).toHaveProperty("workDir");
       expect(info).toHaveProperty("os");
       expect(info).toHaveProperty("date");
       expect(info).toHaveProperty("time");
@@ -118,7 +104,7 @@ describe("env module", () => {
 
     it("should return real-time updated time", async () => {
       const { initEnvInfo, getEnvInfo } = await import("@/utils/env");
-      initEnvInfo("/test");
+      initEnvInfo();
 
       const info1 = getEnvInfo();
       await new Promise(resolve => setTimeout(resolve, 10));
@@ -126,48 +112,6 @@ describe("env module", () => {
 
       expect(info1.date).toBe(info2.date);
       expect(info1.time).not.toBe(info2.time);
-    });
-  });
-
-  describe("resolvePath", () => {
-    it("should return absolute path unchanged", async () => {
-      const { initEnvInfo, resolvePath } = await import("@/utils/env");
-      initEnvInfo("/base/work/dir");
-
-      const absolutePath = "/absolute/path/to/file";
-      expect(resolvePath(absolutePath)).toBe(absolutePath);
-    });
-
-    it("should resolve relative path to absolute", async () => {
-      const { initEnvInfo, resolvePath } = await import("@/utils/env");
-      initEnvInfo("/base/work/dir");
-
-      const relativePath = "./relative/path";
-      const resolved = resolvePath(relativePath);
-      expect(resolved).toBe("/base/work/dir/relative/path");
-    });
-
-    it("should resolve parent directory references", async () => {
-      const { initEnvInfo, resolvePath } = await import("@/utils/env");
-      initEnvInfo("/base/work/dir");
-
-      const relativePath = "../parent/dir";
-      const resolved = resolvePath(relativePath);
-      expect(resolved).toBe("/base/work/parent/dir");
-    });
-
-    it("should resolve simple relative path", async () => {
-      const { initEnvInfo, resolvePath } = await import("@/utils/env");
-      initEnvInfo("/base/work/dir");
-
-      const relativePath = "simple/path";
-      const resolved = resolvePath(relativePath);
-      expect(resolved).toBe("/base/work/dir/simple/path");
-    });
-
-    it("should throw error if not initialized", async () => {
-      const { resolvePath } = await import("@/utils/env");
-      expect(() => resolvePath("test")).toThrow();
     });
   });
 });

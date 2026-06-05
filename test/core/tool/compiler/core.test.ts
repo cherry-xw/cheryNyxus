@@ -115,8 +115,7 @@ export default tool(
     if (existsSync(jsPath)) {
       const jsContent = readFileSync(jsPath, "utf-8");
       expect(jsContent).toContain("export default");
-      // 编译产物应使用 ../index.js 而非 zod 或 @/core/*
-      expect(jsContent).toContain('from "../index.js"');
+      expect(jsContent).toContain("tool(");
     }
   });
 
@@ -228,10 +227,11 @@ export default tool(
     const jsPath = join(distDir, "source_import.js");
     if (existsSync(jsPath)) {
       const jsContent = readFileSync(jsPath, "utf-8");
-      // 编译产物中所有 import 应指向 ../index.js
-      expect(jsContent).toContain('from "../index.js"');
-      expect(jsContent).not.toContain('from "zod"');
-      expect(jsContent).not.toContain('from "@/core/');
+      // 编译产物应无 import 语句（预处理时移除）
+      expect(jsContent).not.toContain('import { z }');
+      expect(jsContent).not.toContain('import { tool }');
+      expect(jsContent).toContain("export default");
+      expect(jsContent).toContain("tool(");
     }
   });
 
@@ -305,9 +305,12 @@ const Schema = z.object({ text: z.string() });
         async (input) => ({ content: input.text, hash: "" }),
       );
 
-      await expect(runToolTests(toolInstance, [
+      const result = await runToolTests(toolInstance, [
         { input: { text: "ok" }, output: { content: "ok", hash: "" } },
-      ])).resolves.toBe(true);
+      ]);
+      expect(result.passed).toBe(true);
+      expect(result.passedCount).toBe(1);
+      expect(result.totalCount).toBe(1);
     });
 
     it("should fail when tool output mismatches test cases", async () => {
@@ -319,9 +322,11 @@ const Schema = z.object({ text: z.string() });
         async (input) => ({ content: input.text, hash: "" }),
       );
 
-      await expect(runToolTests(toolInstance, [
+      const result = await runToolTests(toolInstance, [
         { input: { text: "ok" }, output: { content: "wrong", hash: "" } },
-      ])).resolves.toBe(false);
+      ]);
+      expect(result.passed).toBe(false);
+      expect(result.failures.length).toBeGreaterThan(0);
     });
 
     it("should fail when tool execution throws", async () => {
@@ -333,9 +338,11 @@ const Schema = z.object({ text: z.string() });
         async () => { throw new Error("boom"); },
       );
 
-      await expect(runToolTests(toolInstance, [
+      const result = await runToolTests(toolInstance, [
         { input: { text: "ok" }, output: { content: "ok", hash: "" } },
-      ])).resolves.toBe(false);
+      ]);
+      expect(result.passed).toBe(false);
+      expect(result.error).toBe("boom");
     });
   });
 

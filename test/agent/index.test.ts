@@ -10,7 +10,7 @@ const mockConfig = {
     maxLoopCount: 10,
   },
   llm: {
-    clients: {
+    agent: {
       test_client: {
         provider: "ollama",
         model: "test-model",
@@ -78,7 +78,6 @@ vi.mock("@/agent/tool/index", () => ({
 // Mock env 初始化
 vi.mock("@/utils/env", () => ({
   initEnvInfo: vi.fn(),
-  resolvePath: vi.fn((p) => p),
 }));
 
 describe("Agent Index - AgentBuilder Basic Usage", () => {
@@ -105,14 +104,6 @@ describe("Agent Index - AgentBuilder Basic Usage", () => {
     const { AgentBuilder } = await import("@/agent/builder");
     const builder = new AgentBuilder();
     const result = builder.setSessionId("test-session");
-    expect(result).toBeInstanceOf(AgentBuilder);
-    expect(result).toBe(builder);
-  });
-
-  it("should chain setWorkDir() method", async () => {
-    const { AgentBuilder } = await import("@/agent/builder");
-    const builder = new AgentBuilder();
-    const result = builder.setWorkDir("/tmp/test");
     expect(result).toBeInstanceOf(AgentBuilder);
     expect(result).toBe(builder);
   });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { chatMiddleware } from "@/agent/middleware/chat";
-import { createHistoryProxy } from "@/core/middleware/utils";
+
 
 // 创建完整的 Mock 上下文
 function createMockContext(stream: boolean) {
@@ -52,7 +52,7 @@ function createMockContext(stream: boolean) {
       },
     },
     process: {
-      history: createHistoryProxy(),
+      history: [],
       contentAccumulated: "",
       thinkingAccumulated: "",
       chunkCount: 0,
