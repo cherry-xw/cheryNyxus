@@ -1,46 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  toolMiddleware,
-  executeSingleSenseCall,
-  type ToolChunk,
-} from "@/agent/middleware/tool";
+import { senseMiddleware } from "@/agent/middleware/tool.js";
 import { SupervisionLevel } from "@/core/config";
 
-import type { MiddlewareContext, SenseCallAccumulator } from "@/core/middleware/types";
-import type { SenseManager } from "@/core/sense/index";
-
-// Mock interruptRepo for polling mechanism
-const mockInterruptRepo = vi.hoisted(() => ({
-  findById: vi.fn().mockResolvedValue(null),
-}));
-
-vi.mock("@/db/interrupt.js", () => ({
-  interruptRepo: mockInterruptRepo,
-}));
-
-// Mock interruptManager
-vi.mock("@/service/agent/interrupt.js", () => ({
-  interruptManager: {
-    createInterrupt: vi.fn(async () => "test-interrupt-id"),
-    completeInterrupt: vi.fn(async () => {}),
-  },
-}));
+import type { MiddlewareContext, StreamChunk, SenseTriggerChunk, SenseCompleteChunk } from "@/core/middleware/types";
+import type { SenseManager, SenseFunction } from "@/core/sense/index";
+import type { LLMAdapter, MessageProviderAdapterConfig, SenseAdapter } from "@/core/index.js";
 
 function createMockSenseManager(): SenseManager {
   return {
     add: vi.fn(),
     get: vi.fn(),
-    execute: vi.fn(async () => ({ content: "tool result", hash: "test-hash" })),
+    execute: vi.fn(async () => ({ content: "sense result", hash: "test-hash" })),
     senses: new Map(),
   } as unknown as SenseManager;
 }
 
-function createMockContext(): MiddlewareContext {
+function createMockContext(overrides?: Partial<MiddlewareContext>): MiddlewareContext {
   const senseManager = createMockSenseManager();
   return {
-    session: {
-      sessionId: "test-session",
-      threadId: "test-thread",
+    soul: {
+      soulId: "test-soul",
+      chatId: "test-chat",
       hashCheck: new Map(),
       senseSharedData: new Map(),
       userInputs: [],
@@ -48,361 +28,361 @@ function createMockContext(): MiddlewareContext {
     },
     global: {
       thinking: false,
-      supervision: SupervisionLevel.confirm,
+      supervision: SupervisionLevel.auto,
       stream: true,
       maxLoopCount: 10,
     },
-    config: {
+    brain: {
       model: "test-model",
       provider: "test",
       url: "http://localhost",
-      sense_group: "test",
     },
-    adapters: {} as any,
-    process: {
-      history: [],
-      contentAccumulated: "",
-      thinkingAccumulated: "",
-      chunkCount: 0,
-      toolCallAccumulated: new Map(),
-      pendingInputs: [],
+    adapters: {
+      llmAdapter: {} as LLMAdapter,
+      messageAdapter: {} as MessageProviderAdapterConfig,
+      senseAdapter: {} as SenseAdapter<unknown, unknown>,
     },
-    senses: { senseManager },
+    senseManager,
+    ...overrides,
   };
 }
 
-function createSenseCall(
-  tid: string,
-  name: string,
-  args: string = "{}",
-): SenseCallAccumulator {
+function createStreamChunk(deltas?: { id?: string; name?: string; arguments?: string; index?: number }[]): StreamChunk {
   return {
-    tid,
-    name,
-    arguments: args,
-    approved: false,
-    triggeredAt: Date.now(),
+    type: "stream",
+    thinkingDelta: "",
+    contentDelta: "",
+    senseDelta: deltas?.map((d, i) => ({
+      index: d.index ?? i,
+      id: d.id ?? `tc-${i}`,
+      name: d.name ?? "test_sense",
+      arguments: d.arguments ?? "{}",
+    })),
   };
 }
 
-const mockToolBase: any = {
+const mockSenseDef = {
   definition: {
     type: "function" as const,
     function: {
-      name: "test_tool",
+      name: "test_sense",
       description: "test",
       parameters: { type: "object" as const, properties: {}, required: [] as string[], additionalProperties: false },
     },
   },
+  supervisionLevel: SupervisionLevel.auto,
   executor: {},
 };
 
-describe("toolMiddleware", () => {
-  describe("InterruptChunk structure", () => {
-    it("should have type 'interrupt'", () => {
-      const chunk = { type: "interrupt", handles: [] };
-      expect(chunk.type).toBe("interrupt");
-    });
-
-    it("should include handles array", () => {
-      const chunk = { type: "interrupt", handles: [] };
-      expect(Array.isArray(chunk.handles)).toBe(true);
-    });
-  });
-
-  describe("SenseCallAccumulator", () => {
-    it("should have required properties", () => {
-      const accumulator = createSenseCall("tool-0", "test_tool");
-
-      expect(accumulator.tid).toBeDefined();
-      expect(accumulator.name).toBeDefined();
-      expect(accumulator.arguments).toBeDefined();
-      expect(accumulator.approved).toBeDefined();
-      expect(accumulator.triggeredAt).toBeDefined();
-    });
-  });
-
-  describe("supervision level behavior", () => {
-    it("auto level should allow immediate execution", () => {
-      expect(SupervisionLevel.auto).toBe(0);
-    });
-
-    it("confirm level should require user approval", () => {
-      expect(SupervisionLevel.confirm).toBe(1);
-    });
-
-    it("manual level should block execution", () => {
-      expect(SupervisionLevel.manual).toBe(2);
-    });
-  });
-
+describe("senseMiddleware", () => {
   describe("middleware execution", () => {
-    it("should pass through when no senseCalls", async () => {
+    it("should pass through non-stream chunks", async () => {
       const ctx = createMockContext();
       const next = vi.fn(async function* () {
-        yield { type: "test" };
+        yield { type: "done" };
       });
 
-      const generator = toolMiddleware(ctx, next);
+      const generator = senseMiddleware(ctx, next);
       const chunks: unknown[] = [];
       for await (const chunk of generator) {
         chunks.push(chunk);
       }
 
       expect(next).toHaveBeenCalled();
-      expect(chunks).toContainEqual({ type: "test" });
+      expect(chunks).toContainEqual({ type: "done" });
     });
 
-    it("should handle tool not found", async () => {
+    it("should pass through stream chunks without senseDelta", async () => {
       const ctx = createMockContext();
-      ctx.process.toolCallAccumulated.set(
-        "tc-1",
-        createSenseCall("tc-1", "unknown_tool"),
-      );
-      ctx.senses.senseManager.get = vi.fn(() => undefined);
-
       const next = vi.fn(async function* () {
-        yield { type: "test" };
+        yield { type: "stream", thinkingDelta: "think", contentDelta: "content" };
+        yield { type: "done" };
       });
 
-      const generator = toolMiddleware(ctx, next);
-      for await (const _ of generator) {
-        // consume
+      const generator = senseMiddleware(ctx, next);
+      const chunks: unknown[] = [];
+      for await (const chunk of generator) {
+        chunks.push(chunk);
       }
 
-      const toolMessages = ctx.process.history.filter((m) => m.role === "tool");
-      expect(toolMessages.length).toBeGreaterThan(0);
-      expect(toolMessages[0]!.content).toContain("not found");
+      expect(chunks.length).toBe(2);
+      expect((chunks[0] as StreamChunk).contentDelta).toBe("content");
     });
 
-    it("should auto execute when tool supervisionLevel is auto", async () => {
+    it("should execute sense call when senseDelta is complete", async () => {
       const ctx = createMockContext();
-      ctx.process.toolCallAccumulated.set(
-        "tc-1",
-        createSenseCall("tc-1", "test_tool"),
-      );
-      ctx.senses.senseManager.get = vi.fn(() => ({
-        ...mockToolBase,
+      ctx.senseManager.get = vi.fn(() => mockSenseDef as unknown as SenseFunction);
+
+      const next = vi.fn(async function* () {
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
+      });
+
+      const generator = senseMiddleware(ctx, next);
+      const chunks: unknown[] = [];
+      for await (const chunk of generator) {
+        chunks.push(chunk);
+      }
+
+      // Should yield: stream, sense_trigger, sense_complete, done
+      const triggerChunks = chunks.filter((c) => (c as SenseTriggerChunk).type === "sense_trigger");
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+
+      expect(triggerChunks.length).toBe(1);
+      expect(completeChunks.length).toBe(1);
+      expect(ctx.senseManager.execute).toHaveBeenCalled();
+    });
+
+    it("should accumulate senseDelta across multiple chunks", async () => {
+      const ctx = createMockContext();
+      ctx.senseManager.get = vi.fn(() => mockSenseDef as unknown as SenseFunction);
+
+      const next = vi.fn(async function* () {
+        // First chunk with partial arguments
+        yield {
+          type: "stream",
+          thinkingDelta: "",
+          contentDelta: "",
+          senseDelta: [{ index: 0, id: "tc-1", name: "test_sense", arguments: '{"a":' }],
+        };
+        // Second chunk completing the arguments
+        yield {
+          type: "stream",
+          thinkingDelta: "",
+          contentDelta: "",
+          senseDelta: [{ index: 0, arguments: '1}' }],
+        };
+        yield { type: "done" };
+      });
+
+      const generator = senseMiddleware(ctx, next);
+      const chunks: unknown[] = [];
+      for await (const chunk of generator) {
+        chunks.push(chunk);
+      }
+
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+      expect(completeChunks.length).toBe(1);
+    });
+
+    it("should handle multiple sense calls", async () => {
+      const ctx = createMockContext();
+      ctx.senseManager.get = vi.fn(() => mockSenseDef as unknown as SenseFunction);
+
+      const next = vi.fn(async function* () {
+        yield createStreamChunk([
+          { id: "tc-1", name: "sense_a", arguments: "{}", index: 0 },
+          { id: "tc-2", name: "sense_b", arguments: "{}", index: 1 },
+        ]);
+        yield { type: "done" };
+      });
+
+      const generator = senseMiddleware(ctx, next);
+      const chunks: unknown[] = [];
+      for await (const chunk of generator) {
+        chunks.push(chunk);
+      }
+
+      const triggerChunks = chunks.filter((c) => (c as SenseTriggerChunk).type === "sense_trigger");
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+
+      expect(triggerChunks.length).toBe(2);
+      expect(completeChunks.length).toBe(2);
+    });
+  });
+
+  describe("supervision level behavior", () => {
+    it("should auto execute when supervisionLevel is auto", async () => {
+      const ctx = createMockContext();
+      ctx.senseManager.get = vi.fn(() => ({
+        ...mockSenseDef,
         supervisionLevel: SupervisionLevel.auto,
-      }));
+      }) as unknown as SenseFunction);
 
       const next = vi.fn(async function* () {
-        yield { type: "test" };
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
       });
 
-      const generator = toolMiddleware(ctx, next);
-      for await (const _ of generator) {
-        // consume
-      }
-
-      expect(ctx.senses.senseManager.execute).toHaveBeenCalled();
-    });
-
-    it("should yield interrupt when tool supervisionLevel is confirm", async () => {
-      // Setup mock to return acknowledged status quickly
-      mockInterruptRepo.findById.mockResolvedValue({
-        id: "test-interrupt-id",
-        status: "acknowledged",
-      });
-
-      const ctx = createMockContext();
-      ctx.process.toolCallAccumulated.set(
-        "tc-1",
-        createSenseCall("tc-1", "test_tool"),
-      );
-      ctx.senses.senseManager.get = vi.fn(() => ({
-        ...mockToolBase,
-        supervisionLevel: SupervisionLevel.confirm,
-      }));
-
-      const next = vi.fn(async function* () {
-        yield { type: "test" };
-      });
-
-      const generator = toolMiddleware(ctx, next);
+      const generator = senseMiddleware(ctx, next);
       const chunks: unknown[] = [];
-
       for await (const chunk of generator) {
         chunks.push(chunk);
       }
 
-      const interruptChunk = chunks.find(
-        (c) => (c as ToolChunk).type === "tool" && (c as ToolChunk).state === "interrupt",
-      ) as ToolChunk | undefined;
-      expect(interruptChunk).toBeDefined();
-      expect(interruptChunk!.data.handleId).toBeDefined();
-      expect(interruptChunk!.data.interruptId).toBe("test-interrupt-id");
+      expect(ctx.senseManager.execute).toHaveBeenCalled();
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+      expect(completeChunks.length).toBe(1);
     });
 
-    it("should respect tool supervisionLevel for mixed tools", async () => {
-      mockInterruptRepo.findById.mockResolvedValue({
-        id: "test-interrupt-id",
-        status: "acknowledged",
+    it("should yield sense_trigger with approvalResolve for confirm level", async () => {
+      const ctx = createMockContext();
+      ctx.senseManager.get = vi.fn(() => ({
+        ...mockSenseDef,
+        supervisionLevel: SupervisionLevel.confirm,
+      }) as unknown as SenseFunction);
+
+      const next = vi.fn(async function* () {
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
       });
 
-      const ctx = createMockContext();
+      // Start the generator
+      const generator = senseMiddleware(ctx, next);
+      const chunks: unknown[] = [];
 
-      ctx.process.toolCallAccumulated.set(
-        "tc-auto",
-        createSenseCall("tc-auto", "auto_tool"),
-      );
+      // Iterate and collect chunks until we hit the sense_trigger (which blocks on approval)
+      const iterator = generator[Symbol.asyncIterator]();
+      let trigger: SenseTriggerChunk | null = null;
 
-      ctx.process.toolCallAccumulated.set(
-        "tc-confirm",
-        createSenseCall("tc-confirm", "confirm_tool"),
-      );
+      // Collect all chunks - will block after sense_trigger until approval
+      // Use Promise.race to detect when we're blocked
+      const collectChunks = async () => {
+        let result = await iterator.next();
+        while (!result.done) {
+          const chunk = result.value as { type: string };
+          chunks.push(chunk);
 
-      ctx.senses.senseManager.get = vi.fn((name: string) => {
-        if (name === "auto_tool") {
-          return { ...mockToolBase, supervisionLevel: SupervisionLevel.auto };
+          if (chunk.type === "sense_trigger") {
+            trigger = chunk as SenseTriggerChunk;
+            // Simulate approval to unblock the generator
+            trigger.approvalResolve!("accept");
+          }
+
+          result = await iterator.next();
         }
-        return { ...mockToolBase, supervisionLevel: SupervisionLevel.confirm };
-      });
+      };
+
+      await collectChunks();
+
+      // Verify trigger was yielded with correct properties
+      expect(trigger).not.toBeNull();
+      expect(trigger!.supervisionLevel).toBe(SupervisionLevel.confirm);
+      expect(trigger!.approvalResolve).toBeDefined();
+
+      // Should have: stream, sense_trigger, sense_complete, done
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+      expect(completeChunks.length).toBe(1);
+    });
+
+    it("should handle reject action", async () => {
+      const ctx = createMockContext();
+      ctx.senseManager.get = vi.fn(() => ({
+        ...mockSenseDef,
+        supervisionLevel: SupervisionLevel.confirm,
+      }) as unknown as SenseFunction);
 
       const next = vi.fn(async function* () {
-        yield { type: "test" };
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
       });
 
-      const generator = toolMiddleware(ctx, next);
+      const generator = senseMiddleware(ctx, next);
       const chunks: unknown[] = [];
+      const iterator = generator[Symbol.asyncIterator]();
 
+      // Iterate and handle trigger
+      let result = await iterator.next();
+      while (!result.done) {
+        const chunk = result.value as { type: string };
+        chunks.push(chunk);
+
+        if (chunk.type === "sense_trigger") {
+          const trigger = chunk as SenseTriggerChunk;
+          // Reject the execution
+          trigger.approvalResolve!("reject", "User rejected");
+        }
+
+        result = await iterator.next();
+      }
+
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+      const complete = completeChunks[0] as SenseCompleteChunk;
+      expect(complete.type).toBe("sense_complete");
+      expect(complete.result).toBe("User rejected");
+    });
+  });
+
+  describe("sense execution", () => {
+    it("should skip duplicate hash", async () => {
+      const ctx = createMockContext();
+      ctx.soul.hashCheck.set("test-hash", "previous_sense");
+      ctx.senseManager.get = vi.fn(() => mockSenseDef as unknown as SenseFunction);
+      ctx.senseManager.execute = vi.fn(async () => ({ content: "result", hash: "test-hash" }));
+
+      const next = vi.fn(async function* () {
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
+      });
+
+      const generator = senseMiddleware(ctx, next);
+      const chunks: unknown[] = [];
       for await (const chunk of generator) {
         chunks.push(chunk);
       }
 
-      const interruptChunks = chunks.filter(
-        (c) => (c as ToolChunk).type === "tool" && (c as ToolChunk).state === "interrupt",
-      ) as ToolChunk[];
-      expect(interruptChunks.length).toBe(1);
-      expect(interruptChunks[0]!.data.toolName).toBe("confirm_tool");
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+      const complete = completeChunks[0] as SenseCompleteChunk;
+      expect(complete.result).toContain("已跳过");
     });
-  });
 
-  describe("acknowledge callback", () => {
-    it("should execute tool when acknowledged (via polling)", async () => {
-      mockInterruptRepo.findById.mockResolvedValue({
-        id: "test-interrupt-id",
-        status: "acknowledged",
-      });
-
+    it("should handle execution error", async () => {
       const ctx = createMockContext();
-      ctx.process.toolCallAccumulated.set(
-        "tc-1",
-        createSenseCall("tc-1", "test_tool", '{"arg": "value"}'),
-      );
-      ctx.senses.senseManager.get = vi.fn(() => ({
-        ...mockToolBase,
-        supervisionLevel: SupervisionLevel.confirm,
-      }));
+      ctx.senseManager.get = vi.fn(() => mockSenseDef as unknown as SenseFunction);
+      ctx.senseManager.execute = vi.fn(async () => {
+        throw new Error("execution failed");
+      });
 
       const next = vi.fn(async function* () {
-        yield { type: "test" };
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
       });
 
-      const generator = toolMiddleware(ctx, next);
-      for await (const _ of generator) {
-        // consume - polling will detect acknowledged status
+      const generator = senseMiddleware(ctx, next);
+      const chunks: unknown[] = [];
+      for await (const chunk of generator) {
+        chunks.push(chunk);
       }
 
-      expect(ctx.senses.senseManager.execute).toHaveBeenCalled();
-      const toolMessages = ctx.process.history.filter((m) => m.role === "tool");
-      expect(toolMessages.length).toBeGreaterThan(0);
+      const completeChunks = chunks.filter((c) => (c as SenseCompleteChunk).type === "sense_complete");
+      const complete = completeChunks[0] as SenseCompleteChunk;
+      expect(complete.result).toContain("failed");
     });
 
-    it("should mark tool call as approved after acknowledge", async () => {
-      mockInterruptRepo.findById.mockResolvedValue({
-        id: "test-interrupt-id",
-        status: "acknowledged",
-      });
-
+    it("should store hash after successful execution", async () => {
       const ctx = createMockContext();
-      const tc = createSenseCall("tc-1", "test_tool");
-      ctx.process.toolCallAccumulated.set("tc-1", tc);
-      ctx.senses.senseManager.get = vi.fn(() => ({
-        ...mockToolBase,
-        supervisionLevel: SupervisionLevel.confirm,
-      }));
+      ctx.senseManager.get = vi.fn(() => mockSenseDef as unknown as SenseFunction);
+      ctx.senseManager.execute = vi.fn(async () => ({ content: "result", hash: "new-hash" }));
 
       const next = vi.fn(async function* () {
-        yield { type: "test" };
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
       });
 
-      const generator = toolMiddleware(ctx, next);
+      const generator = senseMiddleware(ctx, next);
       for await (const _ of generator) {
         // consume
       }
 
-      expect(tc.approved).toBe(true);
-    });
-  });
-});
-
-describe("executeSingleSenseCall", () => {
-  it("should return tool result on success", async () => {
-    const ctx = createMockContext();
-    ctx.senses.senseManager.execute = vi.fn(async () => ({
-      content: "success result",
-      hash: "hash-123",
-    }));
-
-    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {
-      arg: "value",
+      expect(ctx.soul.hashCheck.has("new-hash")).toBe(true);
     });
 
-    expect(result.tid).toBe("tc-1");
-    expect(result.name).toBe("test_tool");
-    expect(result.result).toBe("success result");
-    expect(result.arguments).toBe('{"arg":"value"}');
-  });
+    it("should handle empty hash (no dedup)", async () => {
+      const ctx = createMockContext();
+      ctx.senseManager.get = vi.fn(() => mockSenseDef as unknown as SenseFunction);
+      ctx.senseManager.execute = vi.fn(async () => ({ content: "result", hash: "" }));
 
-  it("should skip duplicate hash", async () => {
-    const ctx = createMockContext();
-    ctx.session.hashCheck.set("hash-123", "previous_tool");
-    ctx.senses.senseManager.execute = vi.fn(async () => ({
-      content: "result",
-      hash: "hash-123",
-    }));
+      const next = vi.fn(async function* () {
+        yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
+        yield { type: "done" };
+      });
 
-    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
+      const generator = senseMiddleware(ctx, next);
+      for await (const _ of generator) {
+        // consume
+      }
 
-    expect(result.result).toContain("已跳过");
-    expect(result.result).toContain("重复调用");
-  });
-
-  it("should handle execution error", async () => {
-    const ctx = createMockContext();
-    ctx.senses.senseManager.execute = vi.fn(async () => {
-      throw new Error("execution failed");
+      expect(ctx.soul.hashCheck.size).toBe(0);
     });
-
-    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
-
-    expect(result.result).toContain("Tool execution failed");
-    expect(result.result).toContain("execution failed");
-  });
-
-  it("should skip hash check when hash is empty", async () => {
-    const ctx = createMockContext();
-    ctx.senses.senseManager.execute = vi.fn(async () => ({
-      content: "result",
-      hash: "",
-    }));
-
-    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
-
-    expect(result.result).toBe("result");
-    expect(ctx.session.hashCheck.size).toBe(0);
-  });
-
-  it("should store hash after successful execution", async () => {
-    const ctx = createMockContext();
-    ctx.senses.senseManager.execute = vi.fn(async () => ({
-      content: "result",
-      hash: "hash-123",
-    }));
-
-    await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
-
-    expect(ctx.session.hashCheck.has("hash-123")).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { z } from "zod";
-import { tool } from "@/core/sense/senseCreator";
+import { sense } from "@/core/sense/senseCreator";
 import { SupervisionLevel } from "@/core/config";
 
 describe("senseRegistry", () => {
@@ -13,10 +13,10 @@ describe("senseRegistry", () => {
     return mod;
   }
 
-  function createTestTool(name: string, level?: SupervisionLevel) {
-    return tool(
+  function createTestSense(name: string, level?: SupervisionLevel) {
+    return sense(
       name,
-      `Test tool ${name}`,
+      `Test sense ${name}`,
       z.object({}),
       async () => ({ content: "ok", hash: "" }),
       level,
@@ -24,14 +24,14 @@ describe("senseRegistry", () => {
   }
 
   describe("getSenses", () => {
-    it("should return only existing tools", async () => {
+    it("should return only existing senses", async () => {
       const { registerSenses, getSenses } = await getRegistry();
-      const t = createTestTool("existing");
-      registerSenses([t]);
+      const s = createTestSense("existing");
+      registerSenses([s]);
 
       const result = getSenses(["existing", "non_existent"]);
       expect(result).toHaveLength(1);
-      expect(result[0]).toBe(t);
+      expect(result[0]).toBe(s);
     });
 
     it("should return empty array for empty input", async () => {

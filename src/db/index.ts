@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { join } from "path";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 
 let db: Database.Database | null = null;
 
@@ -12,6 +12,10 @@ export function getDb(): Database.Database {
 
     if (!existsSync(dbDir)) {
       mkdirSync(dbDir, { recursive: true });
+    }
+
+    if (!existsSync(dbPath)) {
+      writeFileSync(dbPath, "");
     }
 
     db = new Database(dbPath);

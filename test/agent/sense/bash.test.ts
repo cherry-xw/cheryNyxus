@@ -1,28 +1,12 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from "vitest";
 import bashTool from "@/agent/sense/bash";
 import { SupervisionLevel } from "@/core/config";
 import type { ToolSharedData } from "@/core/sense";
 
-vi.mock("@/utils/config", () => ({
-  default: {
-    global: {
-      sense_execute_timeout: 30000,
-      bash_log_retention_hours: 24,
-    },
-  },
-}));
-
-vi.mock("@/utils/logger/bashLogger", () => ({
+// Mock with correct import path
+vi.mock("@/utils/bashLogger.js", () => ({
   createBashLogPath: vi.fn(() => "/tmp/test-log.log"),
-  createLogStream: vi.fn(() => ({
-    write: vi.fn(),
-    end: vi.fn(),
-  })),
   formatBashLogHeader: vi.fn(() => "Header"),
-  getLogSize: vi.fn(() => 1024),
-  shouldShowPartialLog: vi.fn(() => false),
-  getLogSizeThreshold: vi.fn(() => 10240),
-  formatLogSize: vi.fn((size: number) => `${size}B`),
   cleanOldBashLogs: vi.fn(),
 }));
 
@@ -48,10 +32,12 @@ describe("Bash Tool", () => {
   describe("executor", () => {
     const sharedData: ToolSharedData = new Map();
     let cleanOldBashLogs: ReturnType<typeof vi.fn>;
+    let createBashLogPath: ReturnType<typeof vi.fn>;
 
     beforeAll(async () => {
-      const mod = await import("@/utils/logger/bashLogger");
+      const mod = await import("@/utils/bashLogger.js");
       cleanOldBashLogs = vi.mocked(mod.cleanOldBashLogs);
+      createBashLogPath = vi.mocked(mod.createBashLogPath);
     });
 
     beforeEach(() => {
@@ -144,6 +130,72 @@ describe("Bash Tool", () => {
       );
 
       expect(result.content).not.toContain("省略");
+    });
+
+    it("should handle timeout and create log file", async () => {
+      // Use a command that sleeps longer than the timeout
+      // The mock returns 30000ms timeout, but actual config is used
+      // We need to test with a command that will actually timeout
+      vi.useFakeTimers();
+
+      const executePromise = bashTool.executor.execute(
+        { command: "sleep 100", description: "test timeout" },
+        sharedData,
+      );
+
+      // Advance timers past the timeout (30000ms)
+      await vi.advanceTimersByTimeAsync(35000);
+
+      const result = await executePromise;
+
+      expect(result.content).toContain("状态: timeout");
+      expect(result.content).toContain("日志路径:");
+      expect(result.content).toContain("说明: 进程进入后台运行");
+      expect(result.content).not.toContain("退出码:");
+      expect(createBashLogPath).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it("should include log path in output for timeout", async () => {
+      vi.useFakeTimers();
+      createBashLogPath.mockReturnValue("/tmp/custom-timeout.log");
+
+      const executePromise = bashTool.executor.execute(
+        { command: "sleep 100", description: "timeout with log" },
+        sharedData,
+      );
+
+      await vi.advanceTimersByTimeAsync(35000);
+
+      const result = await executePromise;
+
+      expect(result.content).toContain("/tmp/custom-timeout.log");
+      expect(result.content).toContain("read_file");
+
+      vi.useRealTimers();
+    });
+
+    it("should handle exit code undefined (signal kill)", async () => {
+      // Commands killed by signal may have null exit code
+      const result = await bashTool.executor.execute(
+        { command: "sh -c 'kill -9 $$'", description: "signal kill" },
+        sharedData,
+      );
+
+      // Exit code may be undefined or non-zero
+      expect(result.content).toContain("状态:");
+      // Should not crash, no exit code line if undefined
+    });
+
+    it("should handle command that exits quickly", async () => {
+      const result = await bashTool.executor.execute(
+        { command: "true", description: "quick success" },
+        sharedData,
+      );
+
+      expect(result.content).toContain("状态: success");
+      expect(result.content).toContain("退出码: 0");
     });
   });
 });

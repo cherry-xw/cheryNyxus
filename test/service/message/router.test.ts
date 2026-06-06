@@ -2,22 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RpcRouter, createRouter } from "@/service/message/router.js";
 import type { HandlerContext, HandlerFn } from "@/service/message/router.js";
 import {
-  createRpcRequest,
-  createRpcResponse,
-  createRpcEvent,
-  createRpcTool,
+  createRequest,
+  createResponse,
+  createNotification,
+  createChunk,
   ErrorCode,
-  EventType,
 } from "@/service/message/types.js";
-import type { RpcRequest, RpcResponse, RpcEvent, RpcTool } from "@/service/message/types.js";
+import type { Request, Response, Notification, Chunk } from "@/service/message/types.js";
 
 function createMockCtx(): HandlerContext {
   return {
     connectionId: "conn-1",
-    sessionId: "sess-1",
-    sendEvent: vi.fn(),
-    setTimeout: vi.fn(),
-    clearTimeout: vi.fn(),
+    sendChunk: vi.fn(),
+    sendNotification: vi.fn(),
   };
 }
 
@@ -42,7 +39,7 @@ describe("RpcRouter", () => {
 
     it("should register with streaming flag", () => {
       async function* streamHandler(_ctx: HandlerContext, _params: unknown) {
-        yield createRpcEvent(EventType.STREAM, { delta: "a" });
+        yield createChunk("stream", "req-1", { content: "a" });
         return { done: true };
       }
       router.register("stream.method", streamHandler, true);
@@ -76,28 +73,28 @@ describe("RpcRouter", () => {
       const handler = vi.fn(async () => ({ result: "ok" }));
       router.register("test.method", handler);
 
-      const req = createRpcRequest("test.method", { x: 1 });
+      const req = createRequest("test.method", {} as any);
       const ctx = createMockCtx();
       const result = await router.handle(req, ctx);
 
       expect(result).toBeDefined();
-      const resp = result as RpcResponse;
+      const resp = result as Response;
       expect(resp.kind).toBe("response");
       expect(resp.success).toBe(true);
       expect(resp.requestId).toBe(req.id);
-      expect(resp.result).toEqual({ result: "ok" });
+      expect(resp.data).toEqual({ result: "ok" });
     });
 
     it("should pass ctx and params to handler", async () => {
       const handler = vi.fn(async () => null);
       router.register("check.params", handler);
 
-      const req = createRpcRequest("check.params", { foo: "bar" });
+      const req = createRequest("check.params", {} as any);
       const ctx = createMockCtx();
       await router.handle(req, ctx);
 
       expect(handler).toHaveBeenCalledOnce();
-      expect(handler).toHaveBeenCalledWith(ctx, { foo: "bar" });
+      expect(handler).toHaveBeenCalledWith(ctx, {} as any);
     });
   });
 
@@ -107,11 +104,11 @@ describe("RpcRouter", () => {
 
   describe("handle unknown method", () => {
     it("should return METHOD_NOT_FOUND error", async () => {
-      const req = createRpcRequest("unknown.method", {});
+      const req = createRequest("unknown.method", {} as any);
       const ctx = createMockCtx();
       const result = await router.handle(req, ctx);
 
-      const resp = result as RpcResponse;
+      const resp = result as Response;
       expect(resp.success).toBe(false);
       expect(resp.error).toBeDefined();
       expect(resp.error!.code).toBe(ErrorCode.METHOD_NOT_FOUND);
@@ -130,11 +127,11 @@ describe("RpcRouter", () => {
       });
       router.register("boom", handler);
 
-      const req = createRpcRequest("boom", {});
+      const req = createRequest("boom", {} as any);
       const ctx = createMockCtx();
       const result = await router.handle(req, ctx);
 
-      const resp = result as RpcResponse;
+      const resp = result as Response;
       expect(resp.success).toBe(false);
       expect(resp.error).toBeDefined();
       expect(resp.error!.code).toBe(ErrorCode.INTERNAL);
@@ -149,39 +146,39 @@ describe("RpcRouter", () => {
   describe("handle with streaming handler", () => {
     it("should return AsyncGenerator", async () => {
       async function* streamHandler(_ctx: HandlerContext, _params: unknown) {
-        yield createRpcEvent(EventType.STREAM, { delta: "hello" });
+        yield createChunk("stream", "req-1", { content: "hello" });
         return { result: "done" };
       }
       router.register("stream.test", streamHandler);
 
-      const req = createRpcRequest("stream.test", {});
+      const req = createRequest("stream.test", {} as any);
       const ctx = createMockCtx();
       const result = await router.handle(req, ctx);
 
       // handle() returns the generator (synchronously, no await needed for the generator itself)
       // but handle() is async and returns the generator directly
-      const gen = result as AsyncGenerator<RpcEvent | RpcTool, RpcResponse, unknown>;
+      const gen = result as AsyncGenerator<Chunk | Notification, Response, unknown>;
       expect(gen).toBeDefined();
       expect(typeof gen.next).toBe("function");
 
       // Consume the generator
-      const items: (RpcEvent | RpcTool)[] = [];
-      let finalResult: RpcResponse | undefined;
+      const items: (Chunk | Notification)[] = [];
+      let finalResult: Response | undefined;
       while (true) {
         const { value, done } = await gen.next();
         if (done) {
-          finalResult = value as RpcResponse;
+          finalResult = value as Response;
           break;
         }
-        items.push(value as RpcEvent | RpcTool);
+        items.push(value as Chunk | Notification);
       }
 
-      // Should have yielded one event
+      // Should have yielded one chunk
       expect(items).toHaveLength(1);
-      const yieldedEvent = items[0]! as RpcEvent;
-      expect(yieldedEvent.kind).toBe("event");
-      expect(yieldedEvent.event).toBe(EventType.STREAM);
-      expect(yieldedEvent.data).toEqual({ delta: "hello" });
+      const yieldedChunk = items[0]! as Chunk;
+      expect(yieldedChunk.kind).toBe("chunk");
+      expect(yieldedChunk.type).toBe("stream");
+      expect(yieldedChunk.data).toEqual({ content: "hello" });
 
       // Final result should be a success response
       expect(finalResult).toBeDefined();
@@ -195,14 +192,14 @@ describe("RpcRouter", () => {
       async function* streamHandler(ctx: HandlerContext, params: unknown) {
         receivedArgs.ctx = ctx;
         receivedArgs.params = params;
-        yield createRpcEvent(EventType.DONE, null);
+        yield createNotification("done", "req-1", null);
         return null;
       }
       router.register("args.check", streamHandler);
 
-      const req = createRpcRequest("args.check", { key: "val" });
+      const req = createRequest("args.check", {} as any);
       const ctx = createMockCtx();
-      const gen = (await router.handle(req, ctx)) as AsyncGenerator<RpcEvent | RpcTool, RpcResponse, unknown>;
+      const gen = (await router.handle(req, ctx)) as AsyncGenerator<Chunk | Notification, Response, unknown>;
 
       // Consume generator to trigger execution
       await gen.next();
@@ -212,7 +209,7 @@ describe("RpcRouter", () => {
       }
 
       expect(receivedArgs.ctx).toBe(ctx);
-      expect(receivedArgs.params).toEqual({ key: "val" });
+      expect(receivedArgs.params).toEqual({} as any);
     });
   });
 
@@ -223,34 +220,34 @@ describe("RpcRouter", () => {
   describe("wrapStreamingHandler error", () => {
     it("should yield ERROR event and return error response when generator throws", async () => {
       async function* failingHandler(_ctx: HandlerContext, _params: unknown) {
-        yield createRpcEvent(EventType.STREAM, { delta: "start" });
+        yield createChunk("stream", "req-1", { content: "start" });
         throw new Error("generator broke");
       }
       router.register("fail.stream", failingHandler);
 
-      const req = createRpcRequest("fail.stream", {});
+      const req = createRequest("fail.stream", {} as any);
       const ctx = createMockCtx();
-      const gen = (await router.handle(req, ctx)) as AsyncGenerator<RpcEvent | RpcTool, RpcResponse, unknown>;
+      const gen = (await router.handle(req, ctx)) as AsyncGenerator<Chunk | Notification, Response, unknown>;
 
-      const items: (RpcEvent | RpcTool)[] = [];
-      let finalResult: RpcResponse | undefined;
+      const items: (Chunk | Notification)[] = [];
+      let finalResult: Response | undefined;
       while (true) {
         const { value, done } = await gen.next();
         if (done) {
-          finalResult = value as RpcResponse;
+          finalResult = value as Response;
           break;
         }
-        items.push(value as RpcEvent | RpcTool);
+        items.push(value as Chunk | Notification);
       }
 
-      // Should have yielded: STREAM event + ERROR event
+      // Should have yielded: STREAM chunk + ERROR notification
       expect(items).toHaveLength(2);
 
-      const errorEvent = items[1]! as RpcEvent;
-      expect(errorEvent.kind).toBe("event");
-      expect(errorEvent.event).toBe(EventType.ERROR);
-      expect(errorEvent.data).toEqual({ error: "generator broke" });
-      expect(errorEvent.requestId).toBe(req.id);
+      const errorNotification = items[1]! as Notification;
+      expect(errorNotification.kind).toBe("notification");
+      expect(errorNotification.type).toBe("error");
+      expect(errorNotification.data).toEqual({ message: "generator broke" });
+      expect(errorNotification.requestId).toBe(req.id);
 
       // Final response should be error
       expect(finalResult!.success).toBe(false);

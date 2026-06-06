@@ -40,11 +40,19 @@ describe("db/index", () => {
   });
 
   describe("initTables", () => {
-    it("should create threads table", async () => {
+    it("should create souls table", async () => {
       const { getDb } = await import("@/db/index.js");
       const db = getDb();
 
-      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='threads'").get();
+      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='souls'").get();
+      expect(table).toBeDefined();
+    });
+
+    it("should create chats table", async () => {
+      const { getDb } = await import("@/db/index.js");
+      const db = getDb();
+
+      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chats'").get();
       expect(table).toBeDefined();
     });
 
@@ -56,19 +64,43 @@ describe("db/index", () => {
       expect(table).toBeDefined();
     });
 
-    it("should create idx_messages_thread index", async () => {
+    it("should create approvals table", async () => {
       const { getDb } = await import("@/db/index.js");
       const db = getDb();
 
-      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_messages_thread'").get();
+      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='approvals'").get();
+      expect(table).toBeDefined();
+    });
+
+    it("should create idx_messages_chat index", async () => {
+      const { getDb } = await import("@/db/index.js");
+      const db = getDb();
+
+      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_messages_chat'").get();
       expect(idx).toBeDefined();
     });
 
-    it("should create idx_threads_session index", async () => {
+    it("should create idx_chats_soul index", async () => {
       const { getDb } = await import("@/db/index.js");
       const db = getDb();
 
-      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_threads_session'").get();
+      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_chats_soul'").get();
+      expect(idx).toBeDefined();
+    });
+
+    it("should create idx_approvals_soul index", async () => {
+      const { getDb } = await import("@/db/index.js");
+      const db = getDb();
+
+      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_approvals_soul'").get();
+      expect(idx).toBeDefined();
+    });
+
+    it("should create idx_approvals_status index", async () => {
+      const { getDb } = await import("@/db/index.js");
+      const db = getDb();
+
+      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_approvals_status'").get();
       expect(idx).toBeDefined();
     });
   });

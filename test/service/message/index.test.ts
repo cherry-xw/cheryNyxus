@@ -1,42 +1,38 @@
 import { describe, it, expect } from "vitest";
 import * as mod from "@/service/message/index.js";
 import {
-  createRpcRequest,
-  createRpcResponse,
-  createRpcError,
-  createRpcEvent,
-  createRpcTool,
-  isRpcRequest,
-  isRpcResponse,
-  isRpcEvent,
-  isRpcTool,
+  createRequest,
+  createResponse,
+  createError,
+  createNotification,
+  isRequest,
+  isResponse,
+  isNotification,
+  isChunk,
   ErrorCode,
   Method,
-  EventType,
   RpcRouter,
   createRouter,
 } from "@/service/message/index.js";
 
 describe("service/message/index re-exports", () => {
   it("should export types.ts factories", () => {
-    expect(typeof createRpcRequest).toBe("function");
-    expect(typeof createRpcResponse).toBe("function");
-    expect(typeof createRpcError).toBe("function");
-    expect(typeof createRpcEvent).toBe("function");
-    expect(typeof createRpcTool).toBe("function");
+    expect(typeof createRequest).toBe("function");
+    expect(typeof createResponse).toBe("function");
+    expect(typeof createError).toBe("function");
+    expect(typeof createNotification).toBe("function");
   });
 
   it("should export type guards", () => {
-    expect(typeof isRpcRequest).toBe("function");
-    expect(typeof isRpcResponse).toBe("function");
-    expect(typeof isRpcEvent).toBe("function");
-    expect(typeof isRpcTool).toBe("function");
+    expect(typeof isRequest).toBe("function");
+    expect(typeof isResponse).toBe("function");
+    expect(typeof isNotification).toBe("function");
+    expect(typeof isChunk).toBe("function");
   });
 
   it("should export constants", () => {
     expect(ErrorCode).toBeDefined();
     expect(Method).toBeDefined();
-    expect(EventType).toBeDefined();
   });
 
   it("should export router.ts members", () => {
@@ -45,8 +41,8 @@ describe("service/message/index re-exports", () => {
   });
 
   it("should allow creating a request via re-exported factory", () => {
-    const req = createRpcRequest("agent.create", { model: "test" });
+    const req = createRequest("soul.create", { brain: "test" });
     expect(req.kind).toBe("request");
-    expect(isRpcRequest(req)).toBe(true);
+    expect(isRequest(req)).toBe(true);
   });
 });

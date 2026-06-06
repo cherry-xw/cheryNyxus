@@ -3,7 +3,7 @@ import { compileSenses, parseTestCases } from "@/core/sense/compiler/index.js";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { runSenseTests } from "@/agent/sense/index.js";
-import { tool } from "@/core/sense/index.js";
+import { sense, SupervisionLevel } from "@/core/sense/index.js";
 import { z } from "zod";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 
@@ -76,7 +76,7 @@ const TestSchema = z.object({
   message: z.string().describe("测试消息"),
 });
 
-export default tool(
+export default sense(
   "test_tool",
   "测试工具",
   TestSchema,
@@ -100,7 +100,7 @@ export default tool(
     writeFileSync(testToolPath, `
 const Schema = z.object({ text: z.string() });
 
-export default tool(
+export default sense(
   "compile_test",
   "编译测试",
   Schema,
@@ -115,7 +115,7 @@ export default tool(
     if (existsSync(jsPath)) {
       const jsContent = readFileSync(jsPath, "utf-8");
       expect(jsContent).toContain("export default");
-      expect(jsContent).toContain("tool(");
+      expect(jsContent).toContain("sense(");
     }
   });
 
@@ -154,7 +154,7 @@ const x = ;
 `, "utf-8");
     writeFileSync(goodToolPath, `
 const Schema = z.object({ text: z.string() });
-export default tool("good_after_bad", "good", Schema, async (input) => ({ content: input.text, hash: "" }));
+export default sense("good_after_bad", "good", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
     const summary = await compileSenses();
@@ -171,7 +171,7 @@ const x = ;
 `, "utf-8");
 
     const summary = await compileSenses();
-    expect(summary.failed.some(f => f.fileName === "bad_syntax.ts" && f.message.includes("工具编译失败"))).toBe(true);
+    expect(summary.failed.some(f => f.fileName === "bad_syntax.ts" && f.message.includes("感官编译失败"))).toBe(true);
   });
 
   it("should not duplicate imports when source already has target path", async () => {
@@ -184,7 +184,7 @@ import { SupervisionLevel } from "../index.js";
 
 const Schema = z.object({ text: z.string() });
 
-export default tool(
+export default sense(
   "full_import",
   "Full import test",
   Schema,
@@ -213,7 +213,7 @@ import { SupervisionLevel } from "@/core/config";
 
 const Schema = z.object({ text: z.string() });
 
-export default tool(
+export default sense(
   "source_import",
   "Source import test",
   Schema,
@@ -231,7 +231,7 @@ export default tool(
       expect(jsContent).not.toContain('import { z }');
       expect(jsContent).not.toContain('import { tool }');
       expect(jsContent).toContain("export default");
-      expect(jsContent).toContain("tool(");
+      expect(jsContent).toContain("sense(");
     }
   });
 
@@ -244,7 +244,7 @@ export default tool(
   { "input": { "text": "hello" }, "output": { "content": "Echo: hello", "hash": "" } }
 ] */
 const Schema = z.object({ text: z.string() });
-export default tool("test", "test", Schema, async (input) => ({ content: input.text, hash: "" }));
+export default sense("test", "test", Schema, async (input) => ({ content: input.text, hash: "" }));
 `;
       const cases = parseTestCases(source);
       expect(cases).toHaveLength(1);
@@ -298,7 +298,7 @@ const Schema = z.object({ text: z.string() });
   describe("runSenseTests", () => {
     it("should pass when tool output matches test cases", async () => {
       const schema = z.object({ text: z.string() });
-      const toolInstance = tool(
+      const toolInstance = sense(
         "runtime_pass",
         "runtime pass",
         schema,
@@ -315,7 +315,7 @@ const Schema = z.object({ text: z.string() });
 
     it("should fail when tool output mismatches test cases", async () => {
       const schema = z.object({ text: z.string() });
-      const toolInstance = tool(
+      const toolInstance = sense(
         "runtime_mismatch",
         "runtime mismatch",
         schema,
@@ -331,7 +331,7 @@ const Schema = z.object({ text: z.string() });
 
     it("should fail when tool execution throws", async () => {
       const schema = z.object({ text: z.string() });
-      const toolInstance = tool(
+      const toolInstance = sense(
         "runtime_throw",
         "runtime throw",
         schema,
@@ -354,7 +354,7 @@ const Schema = z.object({ text: z.string() });
       createdTestFiles.push(testToolPath);
       writeFileSync(testToolPath, `
 const Schema = z.object({ text: z.string() });
-export default tool("hash_embed", "hash test", Schema, async (input) => ({ content: input.text, hash: "" }));
+export default sense("hash_embed", "hash test", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
       const infos = (await compileSenses()).succeeded;
@@ -370,7 +370,7 @@ export default tool("hash_embed", "hash test", Schema, async (input) => ({ conte
       createdTestFiles.push(testToolPath);
       writeFileSync(testToolPath, `
 const Schema = z.object({ text: z.string() });
-export default tool("hash_skip", "hash skip test", Schema, async (input) => ({ content: input.text, hash: "" }));
+export default sense("hash_skip", "hash skip test", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
       const first = (await compileSenses()).succeeded;
@@ -396,7 +396,7 @@ export default tool("hash_skip", "hash skip test", Schema, async (input) => ({ c
       createdTestFiles.push(testToolPath);
       writeFileSync(testToolPath, `
 const Schema = z.object({ text: z.string() });
-export default tool("hash_change", "v1", Schema, async (input) => ({ content: input.text, hash: "" }));
+export default sense("hash_change", "v1", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
       const first = (await compileSenses()).succeeded;
@@ -406,7 +406,7 @@ export default tool("hash_change", "v1", Schema, async (input) => ({ content: in
       // Modify source
       writeFileSync(testToolPath, `
 const Schema = z.object({ text: z.string() });
-export default tool("hash_change", "v2", Schema, async (input) => ({ content: input.text, hash: "" }));
+export default sense("hash_change", "v2", Schema, async (input) => ({ content: input.text, hash: "" }));
 `, "utf-8");
 
       const second = (await compileSenses()).succeeded;
@@ -428,7 +428,7 @@ export default tool("hash_change", "v2", Schema, async (input) => ({ content: in
   { "input": { "msg": "bye" }, "output": { "content": "bye", "hash": "" } }
 ] */
 const Schema = z.object({ msg: z.string() });
-export default tool("with_tests", "test cases tool", Schema, async (input) => ({ content: input.msg, hash: "" }));
+export default sense("with_tests", "test cases tool", Schema, async (input) => ({ content: input.msg, hash: "" }));
 `, "utf-8");
 
     const results = (await compileSenses()).succeeded;

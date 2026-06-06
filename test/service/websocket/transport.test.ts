@@ -1,11 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Transport } from "@/service/websocket/transport.js";
 import {
-  createRpcEvent,
-  createRpcTool,
-  EventType,
+  createChunk,
+  createNotification,
 } from "@/service/message/types.js";
-import type { RpcEvent, RpcTool } from "@/service/message/types.js";
+import type { Chunk, Notification } from "@/service/message/types.js";
 
 describe("Transport", () => {
   let transport: Transport;
@@ -20,14 +19,14 @@ describe("Transport", () => {
 
   describe("parseMessage", () => {
     it("should parse JSON string", () => {
-      const obj = { kind: "request", method: "test" };
+      const obj = { kind: "chunk", type: "stream", requestId: "test" };
       const result = transport.parseMessage(JSON.stringify(obj));
 
       expect(result).toEqual(obj);
     });
 
     it("should parse Buffer", () => {
-      const obj = { kind: "response", success: true };
+      const obj = { kind: "notification", type: "done", requestId: "test" };
       const buf = Buffer.from(JSON.stringify(obj), "utf-8");
       const result = transport.parseMessage(buf);
 
@@ -41,7 +40,7 @@ describe("Transport", () => {
 
   describe("serializeMessage", () => {
     it("should produce JSON string", () => {
-      const msg = { kind: "request", id: "abc" };
+      const msg = { kind: "chunk", requestId: "abc" };
       const result = transport.serializeMessage(msg);
 
       expect(result).toBe(JSON.stringify(msg));
@@ -53,14 +52,14 @@ describe("Transport", () => {
   // encode - binary mode (STREAM frame)
   // --------------------------------------------------------------------------
 
-  describe("encode binary mode - STREAM event", () => {
+  describe("encode binary mode - chunk with seq", () => {
     beforeEach(() => {
       process.env.CHERY_TRANSPORT = "binary";
     });
 
-    it("should produce Buffer starting with 0x01 for STREAM event with seq", () => {
-      const evt = createRpcEvent(EventType.STREAM, { delta: "hello" }, "req-1", 42);
-      const result = transport.encode(evt);
+    it("should produce Buffer starting with 0x01 for chunk with seq", () => {
+      const chunk = createChunk("stream", "req-1", { content: "hello" }, 42);
+      const result = transport.encode(chunk);
 
       expect(Buffer.isBuffer(result)).toBe(true);
       const buf = result as Buffer;
@@ -68,34 +67,23 @@ describe("Transport", () => {
     });
 
     it("should encode seq as 4-byte big-endian", () => {
-      const evt = createRpcEvent(EventType.STREAM, { delta: "x" }, "req-1", 256);
-      const buf = transport.encode(evt) as Buffer;
+      const chunk = createChunk("stream", "req-1", { content: "x" }, 256);
+      const buf = transport.encode(chunk) as Buffer;
 
       // seq at offset 1, 4 bytes big-endian: 256 = 0x00000100
       expect(buf.readUInt32BE(1)).toBe(256);
     });
 
-    it("should encode requestId and delta correctly", () => {
-      const evt = createRpcEvent(EventType.STREAM, { delta: "world" }, "req-99", 1);
-      const buf = transport.encode(evt) as Buffer;
+    it("should encode requestId and data correctly", () => {
+      const chunk = createChunk("stream", "req-99", { content: "world" }, 1);
+      const buf = transport.encode(chunk) as Buffer;
 
       const requestIdLen = buf.readUInt8(5);
       const requestId = buf.slice(6, 6 + requestIdLen).toString("utf-8");
-      const delta = buf.slice(6 + requestIdLen).toString("utf-8");
+      const data = buf.slice(6 + requestIdLen).toString("utf-8");
 
       expect(requestId).toBe("req-99");
-      expect(delta).toBe('{"delta":"world"}');
-    });
-
-    it("should handle string data directly as delta", () => {
-      // data is { delta: "hello" }, which is an object -> JSON.stringify
-      const evt = createRpcEvent(EventType.STREAM, "raw text", "req-1", 0);
-      const buf = transport.encode(evt) as Buffer;
-
-      const requestIdLen = buf.readUInt8(5);
-      const delta = buf.slice(6 + requestIdLen).toString("utf-8");
-
-      expect(delta).toBe("raw text");
+      expect(data).toBe('{"content":"world"}');
     });
   });
 
@@ -103,47 +91,40 @@ describe("Transport", () => {
   // encode - binary mode (JSON frame)
   // --------------------------------------------------------------------------
 
-  describe("encode binary mode - non-STREAM event", () => {
+  describe("encode binary mode - notification", () => {
     beforeEach(() => {
       process.env.CHERY_TRANSPORT = "binary";
     });
 
-    it("should produce Buffer starting with 0x02 for non-STREAM event", () => {
-      const evt = createRpcEvent(EventType.DONE, null, "req-1");
-      const result = transport.encode(evt);
+    it("should produce Buffer starting with 0x02 for notification", () => {
+      const notification = createNotification("done", "req-1", null);
+      const result = transport.encode(notification);
 
       expect(Buffer.isBuffer(result)).toBe(true);
       const buf = result as Buffer;
       expect(buf.readUInt8(0)).toBe(0x02);
     });
 
-    it("should encode event as JSON after type byte", () => {
-      const evt = createRpcEvent(EventType.INTERRUPT, { handles: [] }, "req-1");
-      const buf = transport.encode(evt) as Buffer;
+    it("should encode notification as JSON after type byte", () => {
+      const notification = createNotification("interrupt", "req-1", {
+        approvalId: "approval-1",
+        senseName: "bash",
+        arguments: "{}",
+        supervisionLevel: 1,
+      });
+      const buf = transport.encode(notification) as Buffer;
 
       const json = buf.slice(1).toString("utf-8");
       const parsed = JSON.parse(json);
 
-      expect(parsed.kind).toBe("event");
-      expect(parsed.event).toBe(EventType.INTERRUPT);
+      expect(parsed.kind).toBe("notification");
+      expect(parsed.type).toBe("interrupt");
     });
 
-    it("should produce JSON frame for RpcTool", () => {
-      const tool = createRpcTool("req-1", "trigger", { handleId: "h-1", toolName: "bash" });
-      const buf = transport.encode(tool) as Buffer;
-
-      expect(buf.readUInt8(0)).toBe(0x02);
-      const json = buf.slice(1).toString("utf-8");
-      const parsed = JSON.parse(json);
-
-      expect(parsed.kind).toBe("tool");
-      expect(parsed.state).toBe("trigger");
-    });
-
-    it("should produce JSON frame for STREAM event without seq", () => {
-      const evt = createRpcEvent(EventType.STREAM, { delta: "no-seq" }, "req-1");
+    it("should produce JSON frame for chunk without seq", () => {
+      const chunk = createChunk("stream", "req-1", { content: "no-seq" });
       // seq is undefined, so it falls through to JSON frame
-      const buf = transport.encode(evt) as Buffer;
+      const buf = transport.encode(chunk) as Buffer;
 
       expect(buf.readUInt8(0)).toBe(0x02);
     });
@@ -159,37 +140,34 @@ describe("Transport", () => {
     });
 
     it("should return JSON string", () => {
-      const evt = createRpcEvent(EventType.STREAM, { delta: "hi" }, "req-1", 1);
-      const result = transport.encode(evt);
+      const chunk = createChunk("stream", "req-1", { content: "hi" }, 1);
+      const result = transport.encode(chunk);
 
       expect(typeof result).toBe("string");
       const parsed = JSON.parse(result as string);
-      expect(parsed.kind).toBe("event");
-      expect(parsed.event).toBe(EventType.STREAM);
+      expect(parsed.kind).toBe("chunk");
+      expect(parsed.type).toBe("stream");
     });
   });
 
   // --------------------------------------------------------------------------
-  // encode/decode round-trip - STREAM
+  // encode/decode round-trip - chunk with seq
   // --------------------------------------------------------------------------
 
-  describe("round-trip STREAM event", () => {
+  describe("round-trip chunk with seq", () => {
     beforeEach(() => {
       process.env.CHERY_TRANSPORT = "binary";
     });
 
-    it("should preserve seq, requestId, and delta after encode+decode", () => {
-      // encodeStreamFrame: data is stringified if not string → delta = JSON.stringify(data)
-      // decodeStreamFrame: delta is read as raw string → data = { delta: <stringified data> }
-      const original = createRpcEvent(EventType.STREAM, { delta: "round trip" }, "req-rt", 100);
+    it("should preserve seq, requestId, and data after encode+decode", () => {
+      const original = createChunk("stream", "req-rt", { content: "round trip" }, 100);
       const encoded = transport.encode(original);
-      const decoded = transport.decode(encoded as Buffer) as RpcEvent;
+      const decoded = transport.decode(encoded as Buffer) as Chunk;
 
-      expect(decoded.event).toBe(EventType.STREAM);
+      expect(decoded.kind).toBe("chunk");
       expect(decoded.seq).toBe(100);
       expect(decoded.requestId).toBe("req-rt");
-      // delta in data gets double-stringified: { delta: "round trip" } → '{"delta":"round trip"}'
-      expect(decoded.data).toEqual({ delta: '{"delta":"round trip"}' });
+      expect(decoded.data).toEqual({ content: "round trip" });
     });
   });
 
@@ -197,36 +175,41 @@ describe("Transport", () => {
   // encode/decode round-trip - JSON frame
   // --------------------------------------------------------------------------
 
-  describe("round-trip JSON-frame event", () => {
+  describe("round-trip JSON-frame notification", () => {
     beforeEach(() => {
       process.env.CHERY_TRANSPORT = "binary";
     });
 
-    it("should preserve event fields after encode+decode", () => {
-      const original = createRpcEvent(EventType.DONE, { reason: "complete" }, "req-done");
+    it("should preserve notification fields after encode+decode", () => {
+      const original = createNotification("done", "req-done", null);
       const encoded = transport.encode(original);
-      const decoded = transport.decode(encoded as Buffer) as RpcEvent;
+      const decoded = transport.decode(encoded as Buffer) as Notification;
 
-      expect(decoded.kind).toBe("event");
-      expect(decoded.event).toBe(EventType.DONE);
+      expect(decoded.kind).toBe("notification");
+      expect(decoded.type).toBe("done");
       expect(decoded.requestId).toBe("req-done");
-      expect(decoded.data).toEqual({ reason: "complete" });
+      expect(decoded.data).toBeNull();
     });
 
-    it("should preserve RpcTool fields after encode+decode", () => {
-      const original = createRpcTool("req-tool", "complete", {
-        handleId: "h-42",
-        toolName: "read_file",
-        result: "file contents",
+    it("should preserve interrupt notification data after encode+decode", () => {
+      const original = createNotification("interrupt", "req-int", {
+        approvalId: "approval-42",
+        senseName: "read_file",
+        arguments: '{"path":"/test"}',
+        supervisionLevel: 2,
       });
       const encoded = transport.encode(original);
-      const decoded = transport.decode(encoded as Buffer) as RpcTool;
+      const decoded = transport.decode(encoded as Buffer) as Notification;
 
-      expect(decoded.kind).toBe("tool");
-      expect(decoded.requestId).toBe("req-tool");
-      expect(decoded.state).toBe("complete");
-      expect(decoded.data.handleId).toBe("h-42");
-      expect(decoded.data.toolName).toBe("read_file");
+      expect(decoded.kind).toBe("notification");
+      expect(decoded.type).toBe("interrupt");
+      expect(decoded.requestId).toBe("req-int");
+      expect(decoded.data).toEqual({
+        approvalId: "approval-42",
+        senseName: "read_file",
+        arguments: '{"path":"/test"}',
+        supervisionLevel: 2,
+      });
     });
   });
 });

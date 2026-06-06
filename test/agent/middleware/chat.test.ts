@@ -5,11 +5,14 @@ import { chatMiddleware } from "@/agent/middleware/chat";
 // 创建完整的 Mock 上下文
 function createMockContext(stream: boolean) {
   return {
-    session: {
-      sessionId: "test-session",
-      threadId: "test-thread",
+    soul: {
+      soulId: "test-soul",
+      chatId: "test-chat",
       hashCheck: new Map(),
       senseSharedData: new Map(),
+      userInputs: [],
+      builtSenses: [],
+      messages: [],
     },
     global: {
       thinking: false,
@@ -17,7 +20,7 @@ function createMockContext(stream: boolean) {
       stream,
       maxLoopCount: 10,
     },
-    config: {
+    brain: {
       provider: "test",
       model: "test-model",
       url: "http://localhost",
@@ -44,29 +47,16 @@ function createMockContext(stream: boolean) {
         buildMessages: vi.fn(() => [{ role: "user", content: "test message" }]),
       },
       senseAdapter: {
-        buildTools: vi.fn(() => []),
-        buildSenseCallMessage: vi.fn(),
-        buildToolResponseMessage: vi.fn(),
-        extractSenseCalls: vi.fn(() => []),
-        assembleSenseCallChunks: vi.fn(() => []),
+        buildSenses: vi.fn(() => []),
+        extractSenseCallDeltas: vi.fn(() => []),
+        senseCalls: vi.fn(() => []),
       },
     },
-    process: {
-      history: [],
-      contentAccumulated: "",
-      thinkingAccumulated: "",
-      chunkCount: 0,
-      toolCallAccumulated: new Map(),
-      pendingInputs: [],
-    },
-    senses: {
-      senseManager: {
-        add: vi.fn(),
-        getAll: vi.fn(() => []),
-        get: vi.fn(),
-        execute: vi.fn(),
-        getAdapter: vi.fn(),
-      },
+    senseManager: {
+      add: vi.fn(),
+      getAll: vi.fn(() => []),
+      get: vi.fn(),
+      execute: vi.fn(),
     },
   } as any;
 }
@@ -96,7 +86,7 @@ describe("chatMiddleware", () => {
       const ctx = createMockContext(true);
 
       async function* mockNext() {
-        yield { type: "stream", raw: { choices: [{ delta: { content: "test" } }] } };
+        yield { type: "staged", content: "response" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);
@@ -126,7 +116,7 @@ describe("chatMiddleware", () => {
       expect(ctx.adapters.llmAdapter.chat).toHaveBeenCalled();
     });
 
-    it("should yield StagedChunk with content", async () => {
+    it("should yield StreamChunk with content", async () => {
       const ctx = createMockContext(false);
 
       async function* mockNext() {
@@ -140,14 +130,14 @@ describe("chatMiddleware", () => {
         results.push(chunk);
       }
 
-      expect(results.length).toBe(1);
+      expect(results.length).toBe(2);
     });
   });
 
   describe("options handling", () => {
-    it("should pass model from config", async () => {
+    it("should pass model from brain config", async () => {
       const ctx = createMockContext(true);
-      ctx.config.model = "gpt-4";
+      ctx.brain.model = "gpt-4";
 
       async function* mockNext() {
         yield { type: "staged", content: "response" };
@@ -161,9 +151,9 @@ describe("chatMiddleware", () => {
       expect(ctx.adapters.llmAdapter.chatStream).toHaveBeenCalled();
     });
 
-    it("should pass url from config", async () => {
+    it("should pass url from brain config", async () => {
       const ctx = createMockContext(true);
-      ctx.config.url = "http://localhost:11434";
+      ctx.brain.url = "http://localhost:11434";
 
       async function* mockNext() {
         yield { type: "staged", content: "response" };
@@ -179,7 +169,7 @@ describe("chatMiddleware", () => {
 
     it("should pass thinking option when enabled", async () => {
       const ctx = createMockContext(true);
-      ctx.global.thinking = true;
+      ctx.brain.thinking = true;
 
       async function* mockNext() {
         yield { type: "staged", content: "response" };
@@ -191,27 +181,6 @@ describe("chatMiddleware", () => {
       }
 
       expect(ctx.adapters.llmAdapter.chatStream).toHaveBeenCalled();
-    });
-  });
-
-  describe("tools handling", () => {
-    it("should build tools from senseManager", async () => {
-      const ctx = createMockContext(true);
-      // 添加一个 mock tool，让 senseManager.getAll() 返回非空数组
-      ctx.senses.senseManager.getAll = vi.fn(() => [
-        { name: "test_tool", description: "test", parameters: {}, execute: vi.fn() },
-      ]);
-
-      async function* mockNext() {
-        yield { type: "staged", content: "response" };
-      }
-
-      const generator = chatMiddleware(ctx, mockNext);
-      for await (const _ of generator) {
-        // consume generator
-      }
-
-      expect(ctx.adapters.senseAdapter.buildTools).toHaveBeenCalled();
     });
   });
 });

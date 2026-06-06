@@ -1,30 +1,30 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { tool, type ToolFunction, type ToolResult } from "@/core/sense/senseCreator";
+import { sense, type SenseFunction, type SenseResult } from "@/core/sense/senseCreator";
 import { SupervisionLevel } from "@/core/config";
 import { z } from "zod";
 
-describe("tool factory function", () => {
+describe("sense factory function", () => {
   describe("definition generation", () => {
     it("creates correct function definition", () => {
-      const testTool = tool(
-        "test_tool",
-        "A test tool",
+      const testSense = sense(
+        "test_sense",
+        "A test sense",
         z.object({ path: z.string() }),
         async () => ({ content: "ok", hash: "" }),
       );
 
-      expect(testTool.definition.type).toBe("function");
-      expect(testTool.definition.function.name).toBe("test_tool");
-      expect(testTool.definition.function.description).toBe("A test tool");
-      expect(testTool.definition.function.parameters.type).toBe("object");
-      expect(testTool.definition.function.parameters.required).toEqual(["path"]);
-      expect(testTool.definition.function.strict).toBe(true);
+      expect(testSense.definition.type).toBe("function");
+      expect(testSense.definition.function.name).toBe("test_sense");
+      expect(testSense.definition.function.description).toBe("A test sense");
+      expect(testSense.definition.function.parameters.type).toBe("object");
+      expect(testSense.definition.function.parameters.required).toEqual(["path"]);
+      expect(testSense.definition.function.strict).toBe(true);
     });
 
     it("creates correct schema for multiple parameters", () => {
-      const testTool = tool(
+      const testSense = sense(
         "multi_params",
-        "Tool with multiple params",
+        "Sense with multiple params",
         z.object({
           path: z.string(),
           count: z.number(),
@@ -33,13 +33,13 @@ describe("tool factory function", () => {
         async () => ({ content: "ok", hash: "" }),
       );
 
-      expect(testTool.definition.function.parameters.required).toEqual(["path", "count"]);
+      expect(testSense.definition.function.parameters.required).toEqual(["path", "count"]);
     });
 
     it("handles optional parameters", () => {
-      const testTool = tool(
+      const testSense = sense(
         "optional_params",
-        "Tool with optional params",
+        "Sense with optional params",
         z.object({
           required: z.string(),
           optional: z.string().optional(),
@@ -47,32 +47,32 @@ describe("tool factory function", () => {
         async () => ({ content: "ok", hash: "" }),
       );
 
-      expect(testTool.definition.function.parameters.required).toEqual(["required"]);
+      expect(testSense.definition.function.parameters.required).toEqual(["required"]);
     });
   });
 
   describe("executor creation", () => {
     it("creates executor with correct schema", () => {
       const schema = z.object({ input: z.string() });
-      const testTool = tool(
+      const testSense = sense(
         "schema_test",
         "Test schema",
         schema,
         async () => ({ content: "ok", hash: "" }),
       );
 
-      expect(testTool.executor.schema).toBe(schema);
+      expect(testSense.executor.schema).toBe(schema);
     });
 
-    it("executor execute function returns ToolResult", async () => {
-      const testTool = tool(
+    it("executor execute function returns SenseResult", async () => {
+      const testSense = sense(
         "executor_test",
         "Test executor",
         z.object({ msg: z.string() }),
         async ({ msg }) => ({ content: `received: ${msg}`, hash: "test-hash" }),
       );
 
-      const result = await testTool.executor.execute({ msg: "hello" }, new Map());
+      const result = await testSense.executor.execute({ msg: "hello" }, new Map());
       expect(result).toHaveProperty("content");
       expect(result).toHaveProperty("hash");
       expect(result.content).toBe("received: hello");
@@ -83,7 +83,7 @@ describe("tool factory function", () => {
       const sharedData = new Map<string, Map<string, unknown>>();
       sharedData.set("test", new Map([["key", "value"]]));
 
-      const testTool = tool(
+      const testSense = sense(
         "shared_data_test",
         "Test shared data",
         z.object({}),
@@ -93,42 +93,42 @@ describe("tool factory function", () => {
         }),
       );
 
-      const result = await testTool.executor.execute({}, sharedData);
+      const result = await testSense.executor.execute({}, sharedData);
       expect(result.content).toContain("test");
     });
   });
 
   describe("supervision level", () => {
     it("defaults to undefined when not specified", () => {
-      const testTool = tool(
+      const testSense = sense(
         "default_level",
         "Default supervision",
         z.object({}),
         async () => ({ content: "ok", hash: "" }),
       );
 
-      expect(testTool.supervisionLevel).toBeUndefined();
+      expect(testSense.supervisionLevel).toBeUndefined();
     });
 
     it("accepts custom supervision level", () => {
-      const autoTool = tool(
-        "auto_tool",
+      const autoSense = sense(
+        "auto_sense",
         "Auto execution",
         z.object({}),
         async () => ({ content: "ok", hash: "" }),
         SupervisionLevel.auto,
       );
 
-      const manualTool = tool(
-        "manual_tool",
+      const manualSense = sense(
+        "manual_sense",
         "Manual execution",
         z.object({}),
         async () => ({ content: "ok", hash: "" }),
         SupervisionLevel.manual,
       );
 
-      expect(autoTool.supervisionLevel).toBe(SupervisionLevel.auto);
-      expect(manualTool.supervisionLevel).toBe(SupervisionLevel.manual);
+      expect(autoSense.supervisionLevel).toBe(SupervisionLevel.auto);
+      expect(manualSense.supervisionLevel).toBe(SupervisionLevel.manual);
     });
   });
 });

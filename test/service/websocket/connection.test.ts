@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RpcClient } from "@test/helpers/rpcClient.js";
 
-vi.mock("@/db/interrupt.js", () => ({
-  interruptRepo: {
+vi.mock("@/db/approval.js", () => ({
+  approvalRepo: {
     update: vi.fn().mockResolvedValue(undefined),
   },
 }));
-vi.mock("@/service/agent/interrupt.js", () => ({
-  interruptManager: {
-    cleanupSession: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/service/approval/manager.js", () => ({
+  approvalManager: {
+    cleanupSoul: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -41,7 +41,7 @@ describe("ConnectionManager", () => {
     const state = manager.create(ws);
     expect(state.id).toBeDefined();
     expect(state.ws).toBe(ws);
-    expect(state.sessionId).toBeUndefined();
+    expect(state.soulId).toBeUndefined();
     expect(state.pendingRequests).toBeInstanceOf(Map);
   });
 
@@ -55,15 +55,15 @@ describe("ConnectionManager", () => {
     expect(manager.get(createMockWs())).toBeUndefined();
   });
 
-  it("should set sessionId on state", () => {
+  it("should set soulId on state", () => {
     const ws = createMockWs();
     manager.create(ws);
-    manager.setSession(ws, "sess-1");
-    expect(manager.get(ws)!.sessionId).toBe("sess-1");
+    manager.setSoul(ws, "soul-1");
+    expect(manager.get(ws)!.soulId).toBe("soul-1");
   });
 
-  it("should ignore setSession for unknown ws", () => {
-    expect(() => manager.setSession(createMockWs(), "sess-1")).not.toThrow();
+  it("should ignore setSoul for unknown ws", () => {
+    expect(() => manager.setSoul(createMockWs(), "soul-1")).not.toThrow();
   });
 
   it("should add pending request", () => {
@@ -95,12 +95,12 @@ describe("ConnectionManager", () => {
     expect(manager.get(ws)!.pendingRequests.get("req-1")!.generator).toBe(gen);
   });
 
-  it("should set request interruptId", () => {
+  it("should set request approvalId", () => {
     const ws = createMockWs();
     manager.create(ws);
     manager.addPendingRequest(ws, "req-1");
-    manager.setRequestInterruptId(ws, "req-1", "int-1");
-    expect(manager.get(ws)!.pendingRequests.get("req-1")!.interruptId).toBe("int-1");
+    manager.setRequestApprovalId(ws, "req-1", "approval-1");
+    expect(manager.get(ws)!.pendingRequests.get("req-1")!.approvalId).toBe("approval-1");
   });
 
   it("should start and trigger approval timeout", () => {
@@ -108,7 +108,7 @@ describe("ConnectionManager", () => {
     const ws = createMockWs();
     manager.create(ws);
     manager.addPendingRequest(ws, "req-1", 1000);
-    manager.setRequestInterruptId(ws, "req-1", "int-1");
+    manager.setRequestApprovalId(ws, "req-1", "approval-1");
     const cb = vi.fn();
     manager.startApprovalTimeout(ws, "req-1", cb);
     vi.advanceTimersByTime(1000);
@@ -121,7 +121,7 @@ describe("ConnectionManager", () => {
     const ws = createMockWs();
     manager.create(ws);
     manager.addPendingRequest(ws, "req-1", 1000);
-    manager.setRequestInterruptId(ws, "req-1", "int-1");
+    manager.setRequestApprovalId(ws, "req-1", "approval-1");
     const cb = vi.fn();
     manager.startApprovalTimeout(ws, "req-1", cb);
     manager.clearApprovalTimeout(ws, "req-1");
@@ -135,7 +135,7 @@ describe("ConnectionManager", () => {
     const ws = createMockWs();
     manager.create(ws);
     manager.addPendingRequest(ws, "req-1", 1000);
-    manager.setRequestInterruptId(ws, "req-1", "int-1");
+    manager.setRequestApprovalId(ws, "req-1", "approval-1");
     const cb = vi.fn();
     manager.startApprovalTimeout(ws, "req-1", cb);
     manager.removePendingRequest(ws, "req-1");
@@ -145,14 +145,14 @@ describe("ConnectionManager", () => {
     vi.useRealTimers();
   });
 
-  it("should persist interrupt on close", async () => {
-    const { interruptRepo } = await import("@/db/interrupt.js");
+  it("should persist approval on close", async () => {
+    const { approvalRepo } = await import("@/db/approval.js");
     const ws = createMockWs();
     manager.create(ws);
     manager.addPendingRequest(ws, "req-1");
-    manager.setRequestInterruptId(ws, "req-1", "int-1");
+    manager.setRequestApprovalId(ws, "req-1", "approval-1");
     await manager.close(ws);
-    expect(interruptRepo.update).toHaveBeenCalledWith("int-1", expect.objectContaining({ status: "pending" }));
+    expect(approvalRepo.update).toHaveBeenCalledWith("approval-1", expect.objectContaining({ status: "pending" }));
   });
 
   it("should terminate generator on close", async () => {
@@ -166,14 +166,14 @@ describe("ConnectionManager", () => {
     expect(returnSpy).toHaveBeenCalled();
   });
 
-  it("should call cleanupSession on close when sessionId set", async () => {
-    const { interruptManager } = await import("@/service/agent/interrupt.js");
+  it("should call cleanupSoul on close when soulId set", async () => {
+    const { approvalManager } = await import("@/service/approval/manager.js");
     const ws = createMockWs();
     manager.create(ws);
-    manager.setSession(ws, "sess-1");
+    manager.setSoul(ws, "soul-1");
     manager.addPendingRequest(ws, "req-1");
     await manager.close(ws);
-    expect(interruptManager.cleanupSession).toHaveBeenCalledWith("sess-1", "Connection closed");
+    expect(approvalManager.cleanupSoul).toHaveBeenCalledWith("soul-1");
   });
 
   it("should remove connection from map on close", async () => {
@@ -194,11 +194,11 @@ describe("ConnectionManager", () => {
     expect(manager.getAll()).toHaveLength(3);
   });
 
-  it("getBySessionId returns matching connection", () => {
+  it("getBySoulId returns matching connection", () => {
     const ws = createMockWs();
     manager.create(ws);
-    manager.setSession(ws, "sess-1");
-    expect(manager.getBySessionId("sess-1")).toBeDefined();
-    expect(manager.getBySessionId("sess-2")).toBeUndefined();
+    manager.setSoul(ws, "soul-1");
+    expect(manager.getBySoulId("soul-1")).toBeDefined();
+    expect(manager.getBySoulId("soul-2")).toBeUndefined();
   });
 });

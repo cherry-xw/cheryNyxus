@@ -5,29 +5,29 @@ import {
   getSenseAdapter,
   type SenseAdapter,
   type SenseCallData,
-  type ToolFunction,
+  type SenseFunction,
 } from "@/core/sense/adapter";
-import type { Tool, ToolResult, ToolSharedData } from "@/core/sense/senseCreator";
+import type { Sense, SenseResult, SenseSharedData } from "@/core/sense/senseCreator";
 import { z, type ZodType } from "zod";
 
 // Mock SenseAdapter
 const mockAdapter: SenseAdapter<unknown, unknown> = {
-  buildTools: (senses: Tool<ZodType>[]) => tools.map((t) => t.definition),
+  buildSenses: (senses: Sense<ZodType>[]) => senses.map((s) => s.definition),
   buildSenseCallMessage: (content: string, senseCalls: SenseCallData[]) => ({
     role: "assistant",
     content,
     senseCalls,
   }),
-  buildToolResponseMessage: (id: string, result: string) => ({
+  buildSenseResponseMessage: (id: string, result: string) => ({
     role: "tool",
     toolCallId: id,
     content: result,
   }),
-  extractSenseCalls: () => [],
-  assembleSenseCallChunks: () => [],
+  senseCalls: () => [],
+  extractSenseCallDeltas: () => [],
 };
 
-describe("Tool Adapter Registry", () => {
+describe("Sense Adapter Registry", () => {
   beforeEach(() => {
     // Clear registry before each test
     senseAdapterRegistry.clear();
@@ -53,7 +53,7 @@ describe("Tool Adapter Registry", () => {
 
       const newAdapter: SenseAdapter<unknown, unknown> = {
         ...mockAdapter,
-        buildTools: () => [],
+        buildSenses: () => [],
       };
       registerSenseAdapter("provider", newAdapter);
 
@@ -76,8 +76,8 @@ describe("Tool Adapter Registry", () => {
   });
 
   describe("SenseAdapter interface", () => {
-    it("buildTools returns ToolFunction array", () => {
-      const toolDefinition: ToolFunction = {
+    it("buildSenses returns SenseFunction array", () => {
+      const senseDefinition: SenseFunction = {
         type: "function",
         function: {
           name: "test",
@@ -91,23 +91,23 @@ describe("Tool Adapter Registry", () => {
         },
       };
 
-      const mockTool: Tool<ZodType> = {
-        definition: toolDefinition,
+      const mockSense: Sense<ZodType> = {
+        definition: senseDefinition,
         executor: {
           schema: z.object({}),
-          execute: async (): Promise<ToolResult> => ({ content: "", hash: "" }),
+          execute: async (): Promise<SenseResult> => ({ content: "", hash: "" }),
         },
         supervisionLevel: 1,
       };
 
-      const tools = mockAdapter.buildTools([mockTool]);
-      expect(Array.isArray(tools)).toBe(true);
-      expect(tools[0]).toBe(toolDefinition);
+      const senses = mockAdapter.buildSenses([mockSense]);
+      expect(Array.isArray(senses)).toBe(true);
+      expect(senses[0]).toBe(senseDefinition);
     });
 
     it("buildSenseCallMessage creates assistant message", () => {
       const senseCalls: SenseCallData[] = [
-        { tid: "call-1", name: "test", arguments: "{}" },
+        { id: "call-1", name: "test", arguments: "{}" },
       ];
 
       const message = mockAdapter.buildSenseCallMessage("content", senseCalls);
@@ -115,19 +115,19 @@ describe("Tool Adapter Registry", () => {
       expect(message).toHaveProperty("content", "content");
     });
 
-    it("buildToolResponseMessage creates tool message", () => {
-      const message = mockAdapter.buildToolResponseMessage("id-1", "result");
+    it("buildSenseResponseMessage creates tool message", () => {
+      const message = mockAdapter.buildSenseResponseMessage("id-1", "result");
       expect(message).toHaveProperty("role", "tool");
       expect(message).toHaveProperty("toolCallId", "id-1");
     });
 
-    it("extractSenseCalls returns array", () => {
-      const calls = mockAdapter.extractSenseCalls({});
+    it("senseCalls returns array", () => {
+      const calls = mockAdapter.senseCalls({});
       expect(Array.isArray(calls)).toBe(true);
     });
 
-    it("assembleSenseCallChunks returns result", () => {
-      const result = mockAdapter.assembleSenseCallChunks([]);
+    it("extractSenseCallDeltas returns result", () => {
+      const result = mockAdapter.extractSenseCallDeltas({});
       expect(result).toBeDefined();
     });
   });

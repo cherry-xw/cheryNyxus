@@ -1,15 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { retryMiddleware, type ErrorChunk } from "@/agent/middleware/retry";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { retryMiddleware } from "@/agent/middleware/retry";
+import type { ErrorChunk } from "@/core/middleware/types";
 
 
 // 创建完整的 Mock 上下文
 function createMockContext() {
   return {
-    session: {
-      sessionId: "test-session",
-      threadId: "test-thread",
+    soul: {
+      soulId: "test-soul",
+      chatId: "test-chat",
       hashCheck: new Map(),
       senseSharedData: new Map(),
+      userInputs: [],
+      builtSenses: [],
+      messages: [],
     },
     global: {
       thinking: false,
@@ -17,7 +21,7 @@ function createMockContext() {
       stream: true,
       maxLoopCount: 10,
     },
-    config: {
+    brain: {
       provider: "test",
       model: "test-model",
       url: "http://localhost",
@@ -38,29 +42,16 @@ function createMockContext() {
         buildMessages: vi.fn(),
       },
       senseAdapter: {
-        buildTools: vi.fn(() => []),
-        buildSenseCallMessage: vi.fn(),
-        buildToolResponseMessage: vi.fn(),
-        extractSenseCalls: vi.fn(() => []),
-        assembleSenseCallChunks: vi.fn(() => []),
+        buildSenses: vi.fn(() => []),
+        extractSenseCallDeltas: vi.fn(() => []),
+        senseCalls: vi.fn(() => []),
       },
     },
-    process: {
-      history: [],
-      contentAccumulated: "",
-      thinkingAccumulated: "",
-      chunkCount: 0,
-      toolCallAccumulated: new Map(),
-      pendingInputs: [],
-    },
-    senses: {
-      senseManager: {
-        add: vi.fn(),
-        getAll: vi.fn(() => []),
-        get: vi.fn(),
-        execute: vi.fn(),
-        getAdapter: vi.fn(),
-      },
+    senseManager: {
+      add: vi.fn(),
+      getAll: vi.fn(() => []),
+      get: vi.fn(),
+      execute: vi.fn(),
     },
   } as any;
 }
@@ -68,6 +59,10 @@ function createMockContext() {
 describe("retryMiddleware", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   describe("successful execution", () => {
@@ -117,14 +112,14 @@ describe("retryMiddleware", () => {
   });
 
   describe("retry logic", () => {
-    it("should retry on first error", async () => {
+    it("should retry on recoverable error (network)", async () => {
       const ctx = createMockContext();
       let attemptCount = 0;
 
       async function* mockNext() {
         attemptCount++;
         if (attemptCount === 1) {
-          throw new Error("First attempt failed");
+          throw new Error("Network connection failed");
         }
         yield { type: "staged", content: "success" };
       }
@@ -140,13 +135,60 @@ describe("retryMiddleware", () => {
       expect(results.length).toBe(1);
     });
 
-    it("should retry MAX_RETRIES times (3)", async () => {
+    it("should retry on timeout error", async () => {
       const ctx = createMockContext();
       let attemptCount = 0;
 
       async function* mockNext() {
         attemptCount++;
-        throw new Error(`Attempt ${attemptCount} failed`);
+        if (attemptCount === 1) {
+          throw new Error("Request timed out");
+        }
+        yield { type: "staged", content: "success" };
+      }
+
+      const generator = retryMiddleware(ctx, mockNext);
+      const results = [];
+
+      for await (const chunk of generator) {
+        results.push(chunk);
+      }
+
+      expect(attemptCount).toBe(2);
+      expect(results.length).toBe(1);
+    });
+
+    it("should not retry on validation error (non-recoverable)", async () => {
+      const ctx = createMockContext();
+      let attemptCount = 0;
+
+      async function* mockNext() {
+        attemptCount++;
+        throw new Error("Invalid schema validation");
+      }
+
+      const generator = retryMiddleware(ctx, mockNext);
+      const results = [];
+
+      for await (const chunk of generator) {
+        results.push(chunk);
+      }
+
+      // Non-recoverable error should not retry
+      expect(attemptCount).toBe(1);
+      expect(results.length).toBe(1);
+      const errorChunk = results[0] as ErrorChunk;
+      expect(errorChunk.type).toBe("error");
+      expect(errorChunk.errors.length).toBe(1);
+    });
+
+    it("should retry MAX_RETRIES times for recoverable errors", async () => {
+      const ctx = createMockContext();
+      let attemptCount = 0;
+
+      async function* mockNext() {
+        attemptCount++;
+        throw new Error(`Network connection attempt ${attemptCount} failed`);
       }
 
       const generator = retryMiddleware(ctx, mockNext);
@@ -160,11 +202,11 @@ describe("retryMiddleware", () => {
       expect(results.length).toBe(1);
     });
 
-    it("should yield ErrorChunk after MAX_RETRIES", async () => {
+    it("should yield ErrorChunk after MAX_RETRIES exhausted", async () => {
       const ctx = createMockContext();
 
       async function* mockNext() {
-        throw new Error("Always fails");
+        throw new Error("Network timeout always fails");
       }
 
       const generator = retryMiddleware(ctx, mockNext);
@@ -178,7 +220,6 @@ describe("retryMiddleware", () => {
       const errorChunk = results[0] as ErrorChunk;
       expect(errorChunk.type).toBe("error");
       expect(errorChunk.errors.length).toBe(3);
-      expect(errorChunk.finalError).toBe(true);
     });
   });
 
@@ -187,7 +228,7 @@ describe("retryMiddleware", () => {
       const ctx = createMockContext();
 
       async function* mockNext() {
-        throw new Error("Test error");
+        throw new Error("Test network error");
       }
 
       const generator = retryMiddleware(ctx, mockNext);
@@ -199,7 +240,7 @@ describe("retryMiddleware", () => {
 
       const errorChunk = results[0] as ErrorChunk;
       expect(errorChunk.errors[0]?.attempt).toBe(1);
-      expect(errorChunk.errors[0]?.message).toBe("Test error");
+      expect(errorChunk.errors[0]?.message).toBe("Test network error");
       expect(errorChunk.errors[0]?.timestamp).toBeDefined();
     });
 
@@ -207,7 +248,7 @@ describe("retryMiddleware", () => {
       const ctx = createMockContext();
 
       async function* mockNext() {
-        const error = new Error("Test error with stack");
+        const error = new Error("Network error with stack");
         throw error;
       }
 
@@ -226,7 +267,7 @@ describe("retryMiddleware", () => {
       const ctx = createMockContext();
 
       async function* mockNext() {
-        throw "String error";
+        throw "String network error";
       }
 
       const generator = retryMiddleware(ctx, mockNext);
@@ -237,13 +278,32 @@ describe("retryMiddleware", () => {
       }
 
       const errorChunk = results[0] as ErrorChunk;
-      expect(errorChunk.errors[0]?.message).toBe("String error");
+      expect(errorChunk.errors[0]?.message).toBe("String network error");
       expect(errorChunk.errors[0]?.stack).toBeUndefined();
+    });
+
+    it("should classify error category correctly", async () => {
+      const ctx = createMockContext();
+
+      async function* mockNext() {
+        throw new Error("ECONNREFUSED connection refused");
+      }
+
+      const generator = retryMiddleware(ctx, mockNext);
+      const results = [];
+
+      for await (const chunk of generator) {
+        results.push(chunk);
+      }
+
+      const errorChunk = results[0] as ErrorChunk;
+      expect(errorChunk.errors[0]?.category).toBe("network");
+      expect(errorChunk.errors[0]?.recoverable).toBe(true);
     });
   });
 
   describe("retry delay", () => {
-    it("should delay between retries", async () => {
+    it("should delay between retries for recoverable errors", async () => {
       const ctx = createMockContext();
       const delays: number[] = [];
 
@@ -258,7 +318,7 @@ describe("retryMiddleware", () => {
       async function* mockNext() {
         attemptCount++;
         if (attemptCount < 3) {
-          throw new Error("Retry needed");
+          throw new Error("Network retry needed");
         }
         yield { type: "staged", content: "success" };
       }
@@ -269,7 +329,7 @@ describe("retryMiddleware", () => {
         // consume generator
       }
 
-      // RETRY_DELAY_MS = 1000
+      // RETRY_DELAY_MS = 1000, only delay between attempts (not before first)
       expect(delays.length).toBe(2);
       expect(delays[0]).toBe(1000);
       expect(delays[1]).toBe(1000);
@@ -277,7 +337,7 @@ describe("retryMiddleware", () => {
       vi.restoreAllMocks();
     });
 
-    it("should not delay on last attempt", async () => {
+    it("should not delay for non-recoverable errors", async () => {
       const ctx = createMockContext();
       const delays: number[] = [];
 
@@ -288,7 +348,7 @@ describe("retryMiddleware", () => {
       });
 
       async function* mockNext() {
-        throw new Error("Always fails");
+        throw new Error("Validation error invalid schema");
       }
 
       const generator = retryMiddleware(ctx, mockNext);
@@ -297,8 +357,8 @@ describe("retryMiddleware", () => {
         // consume generator
       }
 
-      // Only delay between attempts, not after last
-      expect(delays.length).toBe(2);
+      // Non-recoverable errors don't trigger retry delay
+      expect(delays.length).toBe(0);
 
       vi.restoreAllMocks();
     });

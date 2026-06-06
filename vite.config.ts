@@ -108,6 +108,31 @@ export default defineConfig(({ mode }) => {
       testTimeout: 10000,
       hookTimeout: 10000,
       reporters: ["verbose"],
+      coverage: {
+        provider: "v8",
+        reporter: ["text", "text-summary", "html"],
+        // 忽略纯导出文件（只做 re-export，无业务逻辑）
+        exclude: [
+          // 排除测试文件本身
+          "test/**",
+          // 排除类型定义文件
+          "**/*.d.ts",
+          // 排除编译产物
+          "dist/**",
+          // 排除工具测试 fixtures
+          "src/utils/tools/**",
+          "src/utils/custom/**",
+          // 真正的纯导出文件（只有 export 语句）
+          "src/core/llm/index.ts",
+          "src/core/message/index.ts",
+          "src/core/sense/compiler/index.ts",
+          "src/core/sense/index.ts",
+          "src/service/message/index.ts",
+          "src/utils/logger/bashLogger.ts",
+        ],
+        // 包含所有 src 文件
+        include: ["src/**"],
+      },
     },
 
     resolve: {

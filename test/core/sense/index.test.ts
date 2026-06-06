@@ -1,24 +1,24 @@
 import { describe, it, expect } from "vitest";
-import * as toolIndex from "@/core/sense/index";
+import * as senseIndex from "@/core/sense/index";
 
-describe("tool index exports", () => {
+describe("sense index exports", () => {
   it("exports senseCreator", () => {
-    expect(toolIndex.tool).toBeDefined();
-    expect(typeof toolIndex.tool).toBe("function");
+    expect(senseIndex.sense).toBeDefined();
+    expect(typeof senseIndex.sense).toBe("function");
   });
 
   it("exports SenseManager", () => {
-    expect(toolIndex.SenseManager).toBeDefined();
-    expect(typeof toolIndex.SenseManager).toBe("function");
+    expect(senseIndex.SenseManager).toBeDefined();
+    expect(typeof senseIndex.SenseManager).toBe("function");
   });
 
   it("exports registerSenseAdapter", () => {
-    expect(toolIndex.registerSenseAdapter).toBeDefined();
-    expect(typeof toolIndex.registerSenseAdapter).toBe("function");
+    expect(senseIndex.registerSenseAdapter).toBeDefined();
+    expect(typeof senseIndex.registerSenseAdapter).toBe("function");
   });
 
   it("exports getSenseAdapter", () => {
-    expect(toolIndex.getSenseAdapter).toBeDefined();
-    expect(typeof toolIndex.getSenseAdapter).toBe("function");
+    expect(senseIndex.getSenseAdapter).toBeDefined();
+    expect(typeof senseIndex.getSenseAdapter).toBe("function");
   });
 });

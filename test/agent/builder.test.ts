@@ -10,7 +10,7 @@ const mockConfig = {
     maxLoopCount: 10,
   },
   llm: {
-    agent: {
+    brain: {
       ollama_client: {
         provider: "ollama",
         model: "ollama-model",
@@ -66,7 +66,7 @@ const mockMessageAdapter = {
 };
 
 const mockSenseAdapter = {
-  buildTools: vi.fn(),
+  buildSenses: vi.fn(() => []),
   extractSenseCalls: vi.fn(),
   assembleSenseCallChunks: vi.fn(),
 };
@@ -87,23 +87,11 @@ vi.mock("@/core/sense/adapter", () => ({
 vi.mock("@/agent/sense/index", () => {
   const mockAdd = vi.fn();
   return {
-    ensureToolsLoaded: vi.fn(),
-    getSenses: vi.fn((names: string[]) =>
-      names.map((name: string) => ({
-        definition: {
-          function: {
-            name,
-            description: `Mock ${name}`,
-            parameters: {},
-          },
-        },
-        supervisionLevel: 0,
-      }))
-    ),
-    // 使用类形式 mock SenseManager
+    ensureCustomSensesLoaded: vi.fn(),
     SenseManager: class MockSenseManager {
       add = mockAdd;
       get = vi.fn();
+      getAll = vi.fn(() => []);
       execute = vi.fn();
       setSupervision = vi.fn();
       fillSupervisionDefault = vi.fn();
@@ -111,11 +99,6 @@ vi.mock("@/agent/sense/index", () => {
     },
   };
 });
-
-// Mock env 初始化
-vi.mock("@/utils/env", () => ({
-  initEnvInfo: vi.fn(),
-}));
 
 // Mock Middleware - 使用 class 形式
 vi.mock("@/agent/middleware/index", () => {
@@ -125,6 +108,7 @@ vi.mock("@/agent/middleware/index", () => {
   return {
     default: MockMiddleware,
     defaultHandlers: [],
+    createLoopHandler: vi.fn(() => vi.fn()),
   };
 });
 
@@ -155,11 +139,11 @@ describe("AgentBuilder", () => {
     });
   });
 
-  describe("setSessionId() method", () => {
-    it("should set custom session ID", async () => {
+  describe("setSoulId() method", () => {
+    it("should set custom soul ID", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const builder = new AgentBuilder();
-      builder.use("ollama_client").setSessionId("custom-session-id");
+      builder.use("ollama_client").setSoulId("custom-soul-id");
     });
   });
 
@@ -181,12 +165,12 @@ describe("AgentBuilder", () => {
   });
 
   describe("chain calls", () => {
-    it("should support chain: use().setSessionId()", async () => {
+    it("should support chain: use().setSoulId()", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const builder = new AgentBuilder();
       builder
         .use("ollama_client")
-        .setSessionId("test-session");
+        .setSoulId("test-soul");
 
       expect(builder).toBeDefined();
     });
@@ -196,7 +180,7 @@ describe("AgentBuilder", () => {
       const builder = new AgentBuilder();
       builder
         .use("ollama_client")
-        .setSessionId("test-session");
+        .setSoulId("test-soul");
 
       const middleware = await builder.build();
       expect(middleware).toBeDefined();

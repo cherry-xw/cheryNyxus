@@ -31,12 +31,12 @@ function createMockGlobalConfig() {
   };
 }
 
-function createMockClientConfig() {
+function createMockBrainConfig() {
   return {
     model: "test-model",
     provider: "test",
     url: "http://localhost",
-    sense_group: "test",
+    sense_group: ["test"],
   };
 }
 
@@ -62,19 +62,19 @@ function createMockAdapters() {
 
 // Mock context for compose tests
 const mockContext: MiddlewareContext = {
-  session: { sessionId: "test", threadId: "thread-1", hashCheck: new Map(), senseSharedData: new Map(), userInputs: [], builtSenses: [] },
-  global: { thinking: false, supervision: 1, stream: true, maxLoopCount: 10 },
-  config: { model: "test", provider: "test", url: "http://test", sense_group: "test" },
-  adapters: {} as any,
-  process: {
-    history: [] as any,
-    contentAccumulated: "",
-    thinkingAccumulated: "",
-    chunkCount: 0,
-    toolCallAccumulated: new Map(),
-    pendingInputs: [],
+  soul: {
+    soulId: "test",
+    chatId: "chat-1",
+    hashCheck: new Map(),
+    senseSharedData: new Map(),
+    userInputs: [],
+    builtSenses: [],
+    messages: [],
   },
-  senses: { senseManager: {} as any },
+  global: { thinking: false, supervision: 1, stream: true, maxLoopCount: 10 },
+  brain: { model: "test", provider: "test", url: "http://test", sense_group: ["test"] },
+  adapters: {} as any,
+  senseManager: {} as any,
 };
 
 // Simple handler for testing
@@ -90,11 +90,9 @@ function createTestLoopHandler(maxLoop: number = 30): LoopHandler {
     while (times < maxLoop) {
       times++;
       yield* runChain();
-      if (ctx.process.toolCallAccumulated.size > 0) continue;
-      const lastMessage = ctx.process.history[ctx.process.history.length - 1]!;
-      if (lastMessage.role === "tool") continue;
-      if (lastMessage.role === "assistant" && lastMessage.senseCalls?.length) continue;
-      break;
+      const lastMessage = ctx.soul.messages[ctx.soul.messages.length - 1];
+      if (!lastMessage) break;
+      if (lastMessage.role === "assistant" && !lastMessage.senseCalls?.length) break;
     }
   };
 }
@@ -139,68 +137,73 @@ describe("Middleware class", () => {
     vi.clearAllMocks();
     mockSenseManager = createMockSenseManager();
     middleware = new Middleware(
-      "test-session",
+      "test-soul",
       createMockGlobalConfig(),
-      createMockClientConfig(),
+      createMockBrainConfig(),
       mockSenseManager,
       createMockAdapters(),
       [],
     );
   });
 
-  describe("createThread", () => {
-    it("should create thread and return threadId", () => {
-      const threadId = middleware.createThread("test-thread-1");
+  describe("createChat", () => {
+    it("should create chat and return chatId", () => {
+      const chatId = middleware.createChat("test-chat-1");
 
-      expect(threadId).toBe("test-thread-1");
-      expect(middleware.threadMap.has(threadId)).toBe(true);
+      expect(chatId).toBe("test-chat-1");
+      expect(middleware.chatMap.has(chatId)).toBe(true);
     });
 
     it("should initialize system message in history", () => {
-      const threadId = middleware.createThread("test-thread-1");
-      const ctx = middleware.threadMap.get(threadId);
+      const chatId = middleware.createChat("test-chat-1");
+      const ctx = middleware.chatMap.get(chatId);
 
       expect(ctx).toBeDefined();
-      expect(ctx?.process.history.length).toBe(1);
-      expect(ctx!.process.history[0]!.role).toBe("system");
-      expect(ctx!.process.history[0]!.content).toBe("mock system prompt");
+      expect(ctx?.soul.messages.length).toBe(1);
+      expect(ctx!.soul.messages[0]!.role).toBe("system");
+      expect(ctx!.soul.messages[0]!.content).toBe("mock system prompt");
     });
 
-    it("should set correct sessionId and threadId", () => {
-      const threadId = middleware.createThread("test-thread-1");
-      const ctx = middleware.threadMap.get(threadId);
+    it("should set correct soulId and chatId", () => {
+      const chatId = middleware.createChat("test-chat-1");
+      const ctx = middleware.chatMap.get(chatId);
 
-      expect(ctx?.session.sessionId).toBe("test-session");
-      expect(ctx?.session.threadId).toBe("test-thread-1");
+      expect(ctx?.soul.soulId).toBe("test-soul");
+      expect(ctx?.soul.chatId).toBe("test-chat-1");
     });
 
-    it("should initialize empty accumulators", () => {
-      const threadId = middleware.createThread("test-thread-1");
-      const ctx = middleware.threadMap.get(threadId);
+    it("should initialize empty userInputs", () => {
+      const chatId = middleware.createChat("test-chat-1");
+      const ctx = middleware.chatMap.get(chatId);
 
-      expect(ctx?.process.contentAccumulated).toBe("");
-      expect(ctx?.process.thinkingAccumulated).toBe("");
-      expect(ctx?.process.toolCallAccumulated.size).toBe(0);
-      expect(ctx?.process.pendingInputs.length).toBe(0);
+      expect(ctx?.soul.userInputs.length).toBe(0);
     });
 
     it("should initialize hashCheck and senseSharedData maps", () => {
-      const threadId = middleware.createThread("test-thread-1");
-      const ctx = middleware.threadMap.get(threadId);
+      const chatId = middleware.createChat("test-chat-1");
+      const ctx = middleware.chatMap.get(chatId);
 
-      expect(ctx?.session.hashCheck).toBeInstanceOf(Map);
-      expect(ctx?.session.senseSharedData).toBeInstanceOf(Map);
+      expect(ctx?.soul.hashCheck).toBeInstanceOf(Map);
+      expect(ctx?.soul.senseSharedData).toBeInstanceOf(Map);
+    });
+
+    it("should return existing chatId if chat already exists", () => {
+      const chatId1 = middleware.createChat("test-chat-1");
+      const chatId2 = middleware.createChat("test-chat-1");
+
+      expect(chatId1).toBe(chatId2);
+      expect(middleware.chatMap.size).toBe(1);
     });
   });
 
   describe("send", () => {
-    it("should throw error when thread not found", async () => {
+    it("should throw error when chat not found", async () => {
       await expect(async () => {
-        const gen = middleware.send("unknown-thread", "test");
+        const gen = middleware.send("unknown-chat", "test");
         for await (const _ of gen) {
           // consume
         }
-      }).rejects.toThrow("Thread not found");
+      }).rejects.toThrow("Chat not found");
     });
 
     it("should not store empty input", async () => {
@@ -209,22 +212,22 @@ describe("Middleware class", () => {
         yield* next();
       };
       middleware = new Middleware(
-        "test-session",
+        "test-soul",
         createMockGlobalConfig(),
-        createMockClientConfig(),
+        createMockBrainConfig(),
         mockSenseManager,
         createMockAdapters(),
         [handler],
       );
-      const threadId = middleware.createThread("test-thread-1");
+      const chatId = middleware.createChat("test-chat-1");
 
-      const gen = middleware.send(threadId, "   ");
+      const gen = middleware.send(chatId, "   ");
       for await (const _ of gen) {
         // consume
       }
 
-      const ctx = middleware.threadMap.get(threadId);
-      expect(ctx?.process.pendingInputs.length).toBe(0);
+      const ctx = middleware.chatMap.get(chatId);
+      expect(ctx?.soul.userInputs.length).toBe(0);
     });
 
     it("should yield done chunk when loop completes", async () => {
@@ -233,17 +236,17 @@ describe("Middleware class", () => {
         yield* next();
       };
       middleware = new Middleware(
-        "test-session",
+        "test-soul",
         createMockGlobalConfig(),
-        createMockClientConfig(),
+        createMockBrainConfig(),
         mockSenseManager,
         createMockAdapters(),
         [handler],
       );
 
-      const threadId = middleware.createThread("test-thread-1");
+      const chatId = middleware.createChat("test-chat-1");
 
-      const gen = middleware.send(threadId, "test");
+      const gen = middleware.send(chatId, "test");
       const chunks: unknown[] = [];
       for await (const chunk of gen) {
         chunks.push(chunk);
@@ -252,36 +255,34 @@ describe("Middleware class", () => {
       expect(chunks.some((c) => (c as any).type === "done")).toBe(true);
     });
 
-    it("should inject user message into history", async () => {
-      const handler: MiddlewareHandler = async function* (ctx, next) {
+    it("should store user input", async () => {
+      const handler: MiddlewareHandler = async function* (_ctx, next) {
         yield { type: "done" };
         yield* next();
       };
       middleware = new Middleware(
-        "test-session",
+        "test-soul",
         createMockGlobalConfig(),
-        createMockClientConfig(),
+        createMockBrainConfig(),
         mockSenseManager,
         createMockAdapters(),
         [handler],
       );
-      const threadId = middleware.createThread("test-thread-1");
+      const chatId = middleware.createChat("test-chat-1");
 
-      const gen = middleware.send(threadId, "user message");
+      const gen = middleware.send(chatId, "user message");
       for await (const _ of gen) {
         // consume
       }
 
-      const ctx = middleware.threadMap.get(threadId);
-      // Should have system + user messages
-      expect(ctx?.process.history.length).toBeGreaterThan(1);
-      const userMessages = ctx?.process.history.filter((m: { role: string }) => m.role === "user");
-      expect(userMessages?.length).toBeGreaterThan(0);
+      const ctx = middleware.chatMap.get(chatId);
+      expect(ctx?.soul.userInputs.length).toBe(1);
+      expect(ctx?.soul.userInputs[0]?.content).toBe("user message");
     });
   });
 
-  describe("executeLoop", () => {
-    it("should respect maxLoopCount", async () => {
+  describe("loop execution", () => {
+    it("should respect maxLoopCount via loopHandler", async () => {
       const maxLoop = 3;
       const globalConfig = { ...createMockGlobalConfig(), maxLoopCount: maxLoop };
 
@@ -293,17 +294,17 @@ describe("Middleware class", () => {
       };
 
       middleware = new Middleware(
-        "test-session",
+        "test-soul",
         globalConfig,
-        createMockClientConfig(),
+        createMockBrainConfig(),
         mockSenseManager,
         createMockAdapters(),
         [handler],
         createTestLoopHandler(maxLoop),
       );
-      const threadId = middleware.createThread("test-thread-1");
+      const chatId = middleware.createChat("test-chat-1");
 
-      const gen = middleware.send(threadId, "test");
+      const gen = middleware.send(chatId, "test");
       for await (const _ of gen) {
         // consume
       }
@@ -313,29 +314,28 @@ describe("Middleware class", () => {
 
     it("should stop when assistant message has no senseCalls", async () => {
       const handler: MiddlewareHandler = async function* (ctx, next) {
-        ctx.process.history.push({
+        ctx.soul.messages.push({
           id: "test-id",
           role: "assistant",
           content: "response",
           createdAt: Date.now(),
           updateAt: Date.now(),
-          raw: null,
         });
         yield { type: "done" };
         yield* next();
       };
 
       middleware = new Middleware(
-        "test-session",
+        "test-soul",
         createMockGlobalConfig(),
-        createMockClientConfig(),
+        createMockBrainConfig(),
         mockSenseManager,
         createMockAdapters(),
         [handler],
       );
-      const threadId = middleware.createThread("test-thread-1");
+      const chatId = middleware.createChat("test-chat-1");
 
-      const gen = middleware.send(threadId, "test");
+      const gen = middleware.send(chatId, "test");
       const chunks: unknown[] = [];
       for await (const chunk of gen) {
         chunks.push(chunk);
@@ -344,28 +344,27 @@ describe("Middleware class", () => {
       expect(chunks.some((c) => (c as any).type === "done")).toBe(true);
     });
 
-    it("should continue when toolCallAccumulated has data", async () => {
+    it("should continue loop when assistant has senseCalls", async () => {
       let iterations = 0;
       const handler: MiddlewareHandler = async function* (ctx, next) {
         iterations++;
         if (iterations === 1) {
-          ctx.process.toolCallAccumulated.set("tc-1", {
-            tid: "tc-1",
-            name: "test-tool",
-            arguments: "{}",
-            approved: false,
-            triggeredAt: Date.now(),
+          ctx.soul.messages.push({
+            id: "test-id",
+            role: "assistant",
+            content: "response",
+            senseCalls: [{ id: "sc-1", name: "test-tool", arguments: "{}" }],
+            createdAt: Date.now(),
+            updateAt: Date.now(),
           });
           yield { type: "test" };
         } else {
-          ctx.process.toolCallAccumulated.clear();
-          ctx.process.history.push({
-            id: "test-id",
+          ctx.soul.messages.push({
+            id: "test-id-2",
             role: "assistant",
             content: "done",
             createdAt: Date.now(),
             updateAt: Date.now(),
-            raw: null,
           });
           yield { type: "done" };
         }
@@ -373,94 +372,38 @@ describe("Middleware class", () => {
       };
 
       middleware = new Middleware(
-        "test-session",
+        "test-soul",
         { ...createMockGlobalConfig(), maxLoopCount: 10 },
-        createMockClientConfig(),
+        createMockBrainConfig(),
         mockSenseManager,
         createMockAdapters(),
         [handler],
         createTestLoopHandler(10),
       );
-      const threadId = middleware.createThread("test-thread-1");
+      const chatId = middleware.createChat("test-chat-1");
 
-      const gen = middleware.send(threadId, "test");
+      const gen = middleware.send(chatId, "test");
       for await (const _ of gen) {
         // consume
       }
 
       expect(iterations).toBeGreaterThanOrEqual(2);
     });
+  });
 
-    it("should continue when last message is tool", async () => {
-      let iterations = 0;
-      const handler: MiddlewareHandler = async function* (ctx, next) {
-        iterations++;
-        if (iterations === 1) {
-          ctx.process.history.push({
-            id: "tool-id",
-            role: "tool",
-            content: "tool result",
-            createdAt: Date.now(),
-            updateAt: Date.now(),
-            raw: {},
-          });
-          yield { type: "test" };
-        } else {
-          ctx.process.history.push({
-            id: "assistant-id",
-            role: "assistant",
-            content: "final",
-            createdAt: Date.now(),
-            updateAt: Date.now(),
-            raw: null,
-          });
-          yield { type: "done" };
-        }
-        yield* next();
-      };
+  describe("getContext", () => {
+    it("should return context for existing chat", () => {
+      const chatId = middleware.createChat("test-chat-1");
+      const ctx = middleware.getContext(chatId);
 
-      middleware = new Middleware(
-        "test-session",
-        { ...createMockGlobalConfig(), maxLoopCount: 10 },
-        createMockClientConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-        createTestLoopHandler(10),
-      );
-      const threadId = middleware.createThread("test-thread-1");
-
-      const gen = middleware.send(threadId, "test");
-      for await (const _ of gen) {
-        // consume
-      }
-
-      expect(iterations).toBeGreaterThanOrEqual(2);
+      expect(ctx).toBeDefined();
+      expect(ctx?.soul.chatId).toBe("test-chat-1");
     });
 
-    it("should reset accumulators before each loop", async () => {
-      const handler: MiddlewareHandler = async function* (ctx, next) {
-        if (ctx.process.chunkCount !== 0) {
-          throw new Error("chunkCount not reset");
-        }
-        yield { type: "done" };
-        yield* next();
-      };
+    it("should return undefined for non-existing chat", () => {
+      const ctx = middleware.getContext("unknown-chat");
 
-      middleware = new Middleware(
-        "test-session",
-        createMockGlobalConfig(),
-        createMockClientConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-      );
-      const threadId = middleware.createThread("test-thread-1");
-
-      const gen = middleware.send(threadId, "test");
-      for await (const _ of gen) {
-        // consume
-      }
+      expect(ctx).toBeUndefined();
     });
   });
 });
