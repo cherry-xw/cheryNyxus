@@ -225,8 +225,8 @@ describe("AgentBuilder", () => {
     it("should build with no tool_group configured", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.agent.ollama_client;
-      config.llm.agent.ollama_client = {
+      const origClient = config.llm.brain.ollama_client;
+      config.llm.brain.ollama_client = {
         ...origClient,
         tool_group: undefined,
       };
@@ -237,14 +237,14 @@ describe("AgentBuilder", () => {
 
       expect(middleware).toBeDefined();
 
-      config.llm.agent.ollama_client = origClient;
+      config.llm.brain.ollama_client = origClient;
     });
 
     it("should apply group-level supervision override", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.agent.ollama_client;
-      config.llm.agent.ollama_client = {
+      const origClient = config.llm.brain.ollama_client;
+      config.llm.brain.ollama_client = {
         ...origClient,
         tool_group: ["supervised_tools"],
       };
@@ -259,7 +259,7 @@ describe("AgentBuilder", () => {
 
       expect(middleware).toBeDefined();
 
-      config.llm.agent.ollama_client = origClient;
+      config.llm.brain.ollama_client = origClient;
       delete config.tool_groups.supervised_tools;
     });
   });

@@ -39,7 +39,7 @@ interface AIServerConfig {
 }
 
 interface LLMConfig {
-  agent: Record<string, AIServerConfig>;
+  brain: Record<string, AIServerConfig>;
 }
 
 /**

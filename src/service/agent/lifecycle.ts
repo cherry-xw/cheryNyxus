@@ -66,7 +66,7 @@ export async function handleAgentCreate(
   }
 
   // 新建 session
-  const agentConfig = config.llm.agent[p.agent];
+  const agentConfig = config.llm.brain[p.agent];
   if (!agentConfig) {
     throw new Error(`Agent "${p.agent}" 不存在`);
   }

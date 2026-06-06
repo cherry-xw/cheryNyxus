@@ -34,7 +34,7 @@ export class AgentBuilder {
    * @param name config.yaml 中的客户端名称（如 "longcat"）
    */
   use(name: string): AgentBuilder {
-    const aiServerConfig = config.llm.agent[name];
+    const aiServerConfig = config.llm.brain[name];
     if (!aiServerConfig) {
       throw new Error(`配置 "${name}" 不存在`);
     }

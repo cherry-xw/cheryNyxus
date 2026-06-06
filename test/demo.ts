@@ -17,7 +17,7 @@ async function main() {
 
   const sessionId = "demo-session";
   const threadId = "demo-thread";
-  const aiConfig = config.llm.agent.ali_glm5!;
+  const aiConfig = config.llm.brain.ali_glm5!;
 
   // 创建 session 和 thread 数据库记录（interrupt 外键依赖）
   if (!getSession(sessionId)) {
