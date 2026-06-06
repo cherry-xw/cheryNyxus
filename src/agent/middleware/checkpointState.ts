@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
-import type { MiddlewareContext, ToolCompleteChunk } from "@/core/middleware/types";
-import type { ToolCallData } from "@/core/tool/adapter";
+import type { MiddlewareContext, SenseCompleteChunk } from "@/core/middleware/types";
+import type { SenseCallData } from "@/core/sense/adapter";
 
 /**
  * Checkpoint 状态管理
@@ -9,26 +9,26 @@ import type { ToolCallData } from "@/core/tool/adapter";
 export class CheckpointState {
   private thinking = "";
   private content = "";
-  private toolDeltas: ToolCallData[] = [];
-  private pendingTools = new Map<string, { id: string; name: string; arguments: string }>();
-  private toolResults: ToolCompleteChunk[] = [];
+  private senseDeltas: SenseCallData[] = [];
+  private pendingSenses = new Map<string, { id: string; name: string; arguments: string }>();
+  private senseResults: SenseCompleteChunk[] = [];
 
   /**
    * 摄入 chunk，更新内部状态
    */
-  ingest(chunk: { type: string; thinkingDelta?: string; contentDelta?: string; toolDelta?: ToolCallData[]; id?: string; name?: string; arguments?: string; result?: string }): void {
+  ingest(chunk: { type: string; thinkingDelta?: string; contentDelta?: string; senseDelta?: SenseCallData[]; id?: string; name?: string; arguments?: string; result?: string }): void {
     switch (chunk.type) {
       case "stream":
         this.thinking += chunk.thinkingDelta ?? "";
         this.content += chunk.contentDelta ?? "";
-        if (chunk.toolDelta) {
-          this.toolDeltas.push(...chunk.toolDelta);
+        if (chunk.senseDelta) {
+          this.senseDeltas.push(...chunk.senseDelta);
         }
         break;
 
-      case "tool_trigger":
+      case "sense_trigger":
         if (chunk.id) {
-          this.pendingTools.set(chunk.id, {
+          this.pendingSenses.set(chunk.id, {
             id: chunk.id,
             name: chunk.name ?? "",
             arguments: chunk.arguments ?? "",
@@ -36,11 +36,11 @@ export class CheckpointState {
         }
         break;
 
-      case "tool_complete":
+      case "sense_complete":
         if (chunk.id) {
-          this.pendingTools.delete(chunk.id);
+          this.pendingSenses.delete(chunk.id);
         }
-        this.toolResults.push(chunk as ToolCompleteChunk);
+        this.senseResults.push(chunk as SenseCompleteChunk);
         break;
     }
   }
@@ -56,36 +56,36 @@ export class CheckpointState {
   }
 
   /**
-   * 追加 assistant 响应和 tool 结果到 messages
+   * 追加 assistant 响应和 sense 结果到 messages
    * （userInputs 已在 checkpoint.ts next() 调用前处理）
    */
   appendResponseMessages(ctx: MiddlewareContext): void {
-    const mergedToolCalls = mergeToolDeltas(this.toolDeltas);
-    const messages = ctx.session.messages ?? [];
+    const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas);
+    const messages = ctx.soul.messages ?? [];
 
-    // assistant 响应（包含 thinking 和 toolCalls）
-    if (this.content || this.thinking || mergedToolCalls.length > 0) {
+    // assistant 响应（包含 thinking 和 senseCalls）
+    if (this.content || this.thinking || mergedSenseCalls.length > 0) {
       messages.push({
         id: randomUUID(),
         role: "assistant",
         content: this.content,
         thinking: this.thinking,
-        toolCalls: mergedToolCalls
-          .filter(tc => tc.name)
-          .map(tc => ({
-            id: tc.id,
-            name: tc.name!,
-            arguments: tc.arguments,
+        senseCalls: mergedSenseCalls
+          .filter(sc => sc.name)
+          .map(sc => ({
+            id: sc.id,
+            name: sc.name!,
+            arguments: sc.arguments,
           })),
         createdAt: Date.now(),
         updateAt: Date.now(),
       });
 
-      // tool 结果
-      for (const r of this.toolResults) {
+      // sense 结果
+      for (const r of this.senseResults) {
         messages.push({
           id: r.id,
-          role: "tool",
+          role: "sense",
           content: r.result,
           createdAt: Date.now(),
           updateAt: Date.now(),
@@ -93,14 +93,14 @@ export class CheckpointState {
       }
     }
 
-    ctx.session.messages = messages;
+    ctx.soul.messages = messages;
   }
 
   /**
-   * 获取持久化所需的 pendingTools
+   * 获取持久化所需的 pendingSenses
    */
-  getPendingToolsArray(): Array<[string, { id: string; name: string; arguments: string }]> {
-    return Array.from(this.pendingTools);
+  getPendingSensesArray(): Array<[string, { id: string; name: string; arguments: string }]> {
+    return Array.from(this.pendingSenses);
   }
 
   /**
@@ -119,13 +119,13 @@ export class CheckpointState {
 }
 
 /**
- * 合并 toolDelta（按 index 合并 arguments）
+ * 合并 senseDelta（按 index 合并 arguments）
  * OpenAI 流式：首个 delta 带 id/name，后续只有 arguments 片段
- * Ollama 流式：每个 delta 可能是完整 tool_call
+ * Ollama 流式：每个 delta 可能是完整 sense_call
  */
-function mergeToolDeltas(deltas: ToolCallData[]): ToolCallData[] {
+function mergeSenseDeltas(deltas: SenseCallData[]): SenseCallData[] {
   // 按 index 累积
-  const mergedMap = new Map<number, ToolCallData>();
+  const mergedMap = new Map<number, SenseCallData>();
 
   for (const delta of deltas) {
     const index = delta.index ?? 0;
@@ -150,5 +150,5 @@ function mergeToolDeltas(deltas: ToolCallData[]): ToolCallData[] {
   // 按 index 排序返回
   return Array.from(mergedMap.entries())
     .sort(([a], [b]) => a - b)
-    .map(([, tc]) => tc);
+    .map(([, sc]) => sc);
 }

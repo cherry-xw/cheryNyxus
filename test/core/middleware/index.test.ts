@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import Middleware from "@/core/middleware/index";
 import { compose } from "@/core/middleware/compose";
 import type { MiddlewareContext, MiddlewareHandler, LoopHandler } from "@/core/middleware/types";
-import type { ToolManager } from "@/core/tool/index";
+import type { SenseManager } from "@/core/sense/index";
 
 // Mock dependencies
 vi.mock("@/core/prompt/index", () => ({
@@ -13,13 +13,13 @@ vi.mock("uuid", () => ({
   v4: vi.fn(() => "test-uuid-1234"),
 }));
 
-function createMockToolManager(): ToolManager {
+function createMockSenseManager(): SenseManager {
   return {
     add: vi.fn(),
     get: vi.fn(),
     execute: vi.fn(async () => ({ content: "result", hash: "test-hash" })),
-    tools: new Map(),
-  } as unknown as ToolManager;
+    senses: new Map(),
+  } as unknown as SenseManager;
 }
 
 function createMockGlobalConfig() {
@@ -36,7 +36,7 @@ function createMockClientConfig() {
     model: "test-model",
     provider: "test",
     url: "http://localhost",
-    tool_group: "test",
+    sense_group: "test",
   };
 }
 
@@ -52,19 +52,19 @@ function createMockAdapters() {
       extractStreamDelta: vi.fn(() => ""),
       buildMessages: vi.fn(() => []),
     },
-    toolAdapter: {
+    senseAdapter: {
       buildTools: vi.fn(() => []),
-      extractToolCalls: vi.fn(() => []),
-      assembleToolCallChunks: vi.fn(() => []),
+      extractSenseCalls: vi.fn(() => []),
+      assembleSenseCallChunks: vi.fn(() => []),
     },
   } as any;
 }
 
 // Mock context for compose tests
 const mockContext: MiddlewareContext = {
-  session: { sessionId: "test", threadId: "thread-1", hashCheck: new Map(), toolSharedData: new Map(), userInputs: [], builtTools: [] },
+  session: { sessionId: "test", threadId: "thread-1", hashCheck: new Map(), senseSharedData: new Map(), userInputs: [], builtSenses: [] },
   global: { thinking: false, supervision: 1, stream: true, maxLoopCount: 10 },
-  config: { model: "test", provider: "test", url: "http://test", tool_group: "test" },
+  config: { model: "test", provider: "test", url: "http://test", sense_group: "test" },
   adapters: {} as any,
   process: {
     history: [] as any,
@@ -74,7 +74,7 @@ const mockContext: MiddlewareContext = {
     toolCallAccumulated: new Map(),
     pendingInputs: [],
   },
-  tools: { toolManager: {} as any },
+  senses: { senseManager: {} as any },
 };
 
 // Simple handler for testing
@@ -93,7 +93,7 @@ function createTestLoopHandler(maxLoop: number = 30): LoopHandler {
       if (ctx.process.toolCallAccumulated.size > 0) continue;
       const lastMessage = ctx.process.history[ctx.process.history.length - 1]!;
       if (lastMessage.role === "tool") continue;
-      if (lastMessage.role === "assistant" && lastMessage.toolCalls?.length) continue;
+      if (lastMessage.role === "assistant" && lastMessage.senseCalls?.length) continue;
       break;
     }
   };
@@ -133,16 +133,16 @@ describe("Middleware", () => {
 
 describe("Middleware class", () => {
   let middleware: Middleware;
-  let mockToolManager: ToolManager;
+  let mockSenseManager: SenseManager;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockToolManager = createMockToolManager();
+    mockSenseManager = createMockSenseManager();
     middleware = new Middleware(
       "test-session",
       createMockGlobalConfig(),
       createMockClientConfig(),
-      mockToolManager,
+      mockSenseManager,
       createMockAdapters(),
       [],
     );
@@ -184,12 +184,12 @@ describe("Middleware class", () => {
       expect(ctx?.process.pendingInputs.length).toBe(0);
     });
 
-    it("should initialize hashCheck and toolSharedData maps", () => {
+    it("should initialize hashCheck and senseSharedData maps", () => {
       const threadId = middleware.createThread("test-thread-1");
       const ctx = middleware.threadMap.get(threadId);
 
       expect(ctx?.session.hashCheck).toBeInstanceOf(Map);
-      expect(ctx?.session.toolSharedData).toBeInstanceOf(Map);
+      expect(ctx?.session.senseSharedData).toBeInstanceOf(Map);
     });
   });
 
@@ -212,7 +212,7 @@ describe("Middleware class", () => {
         "test-session",
         createMockGlobalConfig(),
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
       );
@@ -236,7 +236,7 @@ describe("Middleware class", () => {
         "test-session",
         createMockGlobalConfig(),
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
       );
@@ -261,7 +261,7 @@ describe("Middleware class", () => {
         "test-session",
         createMockGlobalConfig(),
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
       );
@@ -296,7 +296,7 @@ describe("Middleware class", () => {
         "test-session",
         globalConfig,
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
         createTestLoopHandler(maxLoop),
@@ -311,7 +311,7 @@ describe("Middleware class", () => {
       expect(loopCount).toBeLessThanOrEqual(maxLoop);
     });
 
-    it("should stop when assistant message has no toolCalls", async () => {
+    it("should stop when assistant message has no senseCalls", async () => {
       const handler: MiddlewareHandler = async function* (ctx, next) {
         ctx.process.history.push({
           id: "test-id",
@@ -329,7 +329,7 @@ describe("Middleware class", () => {
         "test-session",
         createMockGlobalConfig(),
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
       );
@@ -376,7 +376,7 @@ describe("Middleware class", () => {
         "test-session",
         { ...createMockGlobalConfig(), maxLoopCount: 10 },
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
         createTestLoopHandler(10),
@@ -423,7 +423,7 @@ describe("Middleware class", () => {
         "test-session",
         { ...createMockGlobalConfig(), maxLoopCount: 10 },
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
         createTestLoopHandler(10),
@@ -451,7 +451,7 @@ describe("Middleware class", () => {
         "test-session",
         createMockGlobalConfig(),
         createMockClientConfig(),
-        mockToolManager,
+        mockSenseManager,
         createMockAdapters(),
         [handler],
       );

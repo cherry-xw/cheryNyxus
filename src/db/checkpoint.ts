@@ -6,10 +6,10 @@ import { getDb } from "./index.js";
  */
 export interface CheckpointEntity {
   id: string;
-  sessionId: string;
-  threadId: string;
+  soulId: string;
+  chatId: string;
   phase: string;
-  pendingTools: string;
+  pendingSenses: string;
   thinkingAccumulated: string;
   contentAccumulated: string;
   messages: string;
@@ -21,10 +21,10 @@ export interface CheckpointEntity {
  */
 interface CheckpointRepository {
   create(entity: CheckpointEntity): Promise<void>;
-  findLatest(sessionId: string, threadId: string): Promise<CheckpointEntity | null>;
-  findBySessionId(sessionId: string): Promise<CheckpointEntity[]>;
+  findLatest(soulId: string, chatId: string): Promise<CheckpointEntity | null>;
+  findBySoulId(soulId: string): Promise<CheckpointEntity[]>;
   delete(id: string): Promise<void>;
-  cleanup(sessionId: string, threadId: string): Promise<void>;
+  cleanup(soulId: string, chatId: string): Promise<void>;
 }
 
 /**
@@ -39,35 +39,38 @@ export class SQLiteCheckpointRepository implements CheckpointRepository {
   }
 
   private initTable(): void {
+    // 删除旧表结构（使用 thread_id/session_id 列名）
+    this.db.exec(`DROP TABLE IF EXISTS checkpoints`);
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS checkpoints (
         id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        thread_id TEXT NOT NULL,
+        soul_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
         phase TEXT NOT NULL,
-        pending_tools TEXT NOT NULL,
+        pending_senses TEXT NOT NULL,
         thinking_accumulated TEXT NOT NULL,
         content_accumulated TEXT NOT NULL,
         messages TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS idx_checkpoints_thread ON checkpoints(thread_id, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_checkpoints_session ON checkpoints(session_id);
+      CREATE INDEX IF NOT EXISTS idx_checkpoints_chat ON checkpoints(chat_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_checkpoints_soul ON checkpoints(soul_id);
     `);
   }
 
   async create(entity: CheckpointEntity): Promise<void> {
     const stmt = this.db.prepare(`
-      INSERT INTO checkpoints (id, session_id, thread_id, phase, pending_tools, thinking_accumulated, content_accumulated, messages, created_at)
+      INSERT INTO checkpoints (id, soul_id, chat_id, phase, pending_senses, thinking_accumulated, content_accumulated, messages, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       entity.id,
-      entity.sessionId,
-      entity.threadId,
+      entity.soulId,
+      entity.chatId,
       entity.phase,
-      entity.pendingTools,
+      entity.pendingSenses,
       entity.thinkingAccumulated,
       entity.contentAccumulated,
       entity.messages,
@@ -75,25 +78,25 @@ export class SQLiteCheckpointRepository implements CheckpointRepository {
     );
   }
 
-  async findLatest(sessionId: string, threadId: string): Promise<CheckpointEntity | null> {
+  async findLatest(soulId: string, chatId: string): Promise<CheckpointEntity | null> {
     const stmt = this.db.prepare(`
       SELECT * FROM checkpoints
-      WHERE session_id = ? AND thread_id = ?
+      WHERE soul_id = ? AND chat_id = ?
       ORDER BY created_at DESC
       LIMIT 1
     `);
-    const row = stmt.get(sessionId, threadId) as CheckpointRow | undefined;
+    const row = stmt.get(soulId, chatId) as CheckpointRow | undefined;
     if (!row) return null;
     return this.rowToEntity(row);
   }
 
-  async findBySessionId(sessionId: string): Promise<CheckpointEntity[]> {
+  async findBySoulId(soulId: string): Promise<CheckpointEntity[]> {
     const stmt = this.db.prepare(`
       SELECT * FROM checkpoints
-      WHERE session_id = ?
+      WHERE soul_id = ?
       ORDER BY created_at DESC
     `);
-    const rows = stmt.all(sessionId) as CheckpointRow[];
+    const rows = stmt.all(soulId) as CheckpointRow[];
     return rows.map(this.rowToEntity);
   }
 
@@ -102,20 +105,20 @@ export class SQLiteCheckpointRepository implements CheckpointRepository {
     stmt.run(id);
   }
 
-  async cleanup(sessionId: string, threadId: string): Promise<void> {
+  async cleanup(soulId: string, chatId: string): Promise<void> {
     const stmt = this.db.prepare(
-      "DELETE FROM checkpoints WHERE session_id = ? AND thread_id = ?",
+      "DELETE FROM checkpoints WHERE soul_id = ? AND chat_id = ?",
     );
-    stmt.run(sessionId, threadId);
+    stmt.run(soulId, chatId);
   }
 
   private rowToEntity(row: CheckpointRow): CheckpointEntity {
     return {
       id: row.id,
-      sessionId: row.session_id,
-      threadId: row.thread_id,
+      soulId: row.soul_id,
+      chatId: row.chat_id,
       phase: row.phase,
-      pendingTools: row.pending_tools,
+      pendingSenses: row.pending_senses,
       thinkingAccumulated: row.thinking_accumulated,
       contentAccumulated: row.content_accumulated,
       messages: row.messages,
@@ -126,10 +129,10 @@ export class SQLiteCheckpointRepository implements CheckpointRepository {
 
 interface CheckpointRow {
   id: string;
-  session_id: string;
-  thread_id: string;
+  soul_id: string;
+  chat_id: string;
   phase: string;
-  pending_tools: string;
+  pending_senses: string;
   thinking_accumulated: string;
   content_accumulated: string;
   messages: string;

@@ -5,12 +5,12 @@ import type {
   Message,
 } from "ollama";
 import { registerMessageAdapter, type LLMResponse } from "@/core/message";
-import { registerToolAdapter, type Tool, type ToolCallData, type ToolFunction } from "@/core/tool";
+import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
 import type { ZodType } from "zod";
 import { registerLLMAdapter } from "@/core/llm/adapter";
 import { safeJsonParse } from "@/utils/json.js";
 import type { LLMAdapter } from "@/core/middleware/types";
-import { buildBaseToolFunction } from "@/core/tool/compiler/utils.js";
+import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -30,60 +30,60 @@ const ollamaMessageAdapterConfig = {
     })) as Message[],
 };
 
-// Tool Adapter 配置
-const ollamaToolAdapterConfig = {
-  buildTools(tools: Tool<ZodType>[]): ToolFunction[] {
-    return tools.map((t) => ({
+// Sense Adapter 配置
+const ollamaSenseAdapterConfig = {
+  buildSenses(senses: Sense<ZodType>[]): SenseFunction[] {
+    return senses.map((s) => ({
       type: "function",
-      function: buildBaseToolFunction(t),
+      function: buildBaseSenseFunction(s),
     }));
   },
 
-  buildToolCallMessage(content: string, toolCalls: ToolCallData[]): Message {
-    // 将统一的 ToolCallData 转换为 Ollama 格式
-    const ollamaToolCalls = toolCalls.map((tc) => ({
+  buildSenseCallMessage(content: string, senseCalls: SenseCallData[]): Message {
+    // 将统一的 SenseCallData 转换为 Ollama 格式
+    const ollamaSenseCalls = senseCalls.map((sc) => ({
       function: {
-        name: tc.name ?? "",
-        arguments: safeJsonParse(tc.arguments || "{}", {}),
+        name: sc.name ?? "",
+        arguments: safeJsonParse(sc.arguments || "{}", {}),
       },
     }));
     return {
       role: "assistant",
       content,
-      tool_calls: ollamaToolCalls,
+      tool_calls: ollamaSenseCalls,
     } as Message;
   },
 
-  buildToolResponseMessage(_toolCallId: string, result: string): Message {
+  buildSenseResponseMessage(_senseCallId: string, result: string): Message {
     return {
-      role: "tool",
+      role: "sense",
       content: result,
     } as Message;
   },
 
-  toolCalls(response: ChatResponse): ToolCallData[] {
-    const toolCalls = (response.message?.tool_calls ?? []) as ToolCall[];
-    return toolCalls.map((tc, index) => ({
+  senseCalls(response: ChatResponse): SenseCallData[] {
+    const senseCalls = (response.message?.tool_calls ?? []) as ToolCall[];
+    return senseCalls.map((sc, index) => ({
       index,
-      id: `tool-${index}`, // Ollama 无 id，用 index 生成
-      name: tc.function?.name ?? undefined,
-      arguments: JSON.stringify(tc.function?.arguments ?? {}),
+      id: `sense-${index}`, // Ollama 无 id，用 index 生成
+      name: sc.function?.name ?? undefined,
+      arguments: JSON.stringify(sc.function?.arguments ?? {}),
     }));
   },
 
   /**
-   * 从流式 chunk 提取 tool call 增量
+   * 从流式 chunk 提取 sense call 增量
    * Ollama 流式响应：每个 chunk 包含完整 tool_call（非增量）
-   * 返回 ToolCallData（index 定位）
+   * 返回 SenseCallData（index 定位）
    */
-  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
+  extractSenseCallDeltas(chunk: unknown): SenseCallData[] {
     const streamChunk = chunk as ChatResponse;
-    const toolCalls = (streamChunk.message?.tool_calls ?? []) as ToolCall[];
-    return toolCalls.map((tc, index) => ({
+    const senseCalls = (streamChunk.message?.tool_calls ?? []) as ToolCall[];
+    return senseCalls.map((sc, index) => ({
       index,
-      id: `tool-${index}`,
-      name: tc.function?.name ?? undefined,
-      arguments: JSON.stringify(tc.function?.arguments ?? {}),
+      id: `sense-${index}`,
+      name: sc.function?.name ?? undefined,
+      arguments: JSON.stringify(sc.function?.arguments ?? {}),
     }));
   },
 };
@@ -92,7 +92,7 @@ const ollamaToolAdapterConfig = {
 const ollamaLLMAdapter: LLMAdapter = {
   async chat(
     messages: unknown[],
-    tools: ToolFunction[],
+    senses: SenseFunction[],
     options?: Record<string, unknown>,
   ): Promise<unknown> {
     const msgArray = messages as Message[];
@@ -103,12 +103,12 @@ const ollamaLLMAdapter: LLMAdapter = {
     return ollama.chat({
       model,
       messages: msgArray,
-      ...(tools.length > 0 && { tools }),
+      ...(senses.length > 0 && { tools: senses }),
     });
   },
   async chatStream(
     messages: unknown[],
-    tools: ToolFunction[],
+    senses: SenseFunction[],
     options?: Record<string, unknown>,
   ): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as Message[];
@@ -120,7 +120,7 @@ const ollamaLLMAdapter: LLMAdapter = {
       model,
       messages: msgArray,
       stream: true,
-      ...(tools.length > 0 && { tools }),
+      ...(senses.length > 0 && { tools: senses }),
     });
     return stream as AsyncIterable<unknown>;
   },
@@ -132,6 +132,6 @@ export function registerOllamaAdapter(): void {
     "ollama",
     ollamaMessageAdapterConfig,
   );
-  registerToolAdapter<Message, ChatResponse>("ollama", ollamaToolAdapterConfig);
+  registerSenseAdapter<Message, ChatResponse>("ollama", ollamaSenseAdapterConfig);
   registerLLMAdapter("ollama", ollamaLLMAdapter);
 }

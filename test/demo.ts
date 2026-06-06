@@ -4,9 +4,9 @@
  */
 import { AgentBuilder } from "@/agent/builder";
 import type { MiddlewareChunk, MiddlewareContext } from "@/core/middleware/types";
-import { createSession, getSession } from "@/db/session.js";
-import { createThread, getThread } from "@/db/thread.js";
-import { interruptManager } from "@/service/agent/interrupt.js";
+import { createSoul, getSoul } from "@/db/soul.js";
+import { createChat, getChat } from "@/db/chat.js";
+import { approvalManager } from "@/service/approval/manager.js";
 import { SupervisionLevel } from "@/core/config.js";
 import config from "@/utils/config.js";
 import readline from "readline";
@@ -15,32 +15,32 @@ async function main() {
   console.log("=== Terminal Demo ===");
   console.log("使用 ali_glm5 配置\n");
 
-  const sessionId = "demo-session";
-  const threadId = "demo-thread";
+  const soulId = "demo-soul";
+  const chatId = "demo-chat";
   const aiConfig = config.llm.brain.ali_glm5!;
 
-  // 创建 session 和 thread 数据库记录（interrupt 外键依赖）
-  if (!getSession(sessionId)) {
-    createSession(sessionId, {
+  // 创建 soul 和 chat 数据库记录（approval 外键依赖）
+  if (!getSoul(soulId)) {
+    createSoul(soulId, {
       agentName: "demo",
       provider: aiConfig.provider,
       model: aiConfig.model,
-      toolGroup: aiConfig.tool_group,
+      senseGroup: aiConfig.sense_group,
     });
   }
-  if (!getThread(threadId)) {
-    createThread(threadId, sessionId);
+  if (!getChat(chatId)) {
+    createChat(chatId, soulId);
   }
 
   // 构建 Agent
   const agent = await new AgentBuilder()
     .use("ali_glm5")
-    .setSessionId(sessionId)
+    .setSoulId(soulId)
     .build();
 
-  // 创建线程
-  agent.createThread(threadId);
-  console.log(`线程已创建: ${threadId}\n`);
+  // 创建聊天
+  agent.createChat(chatId);
+  console.log(`聊天已创建: ${chatId}\n`);
 
   // stdin 审批监听
   const rl = readline.createInterface({
@@ -54,18 +54,22 @@ async function main() {
   console.log(`用户输入: ${input}\n`);
   console.log("--- 响应开始 ---\n");
 
-  // 获取 context 用于 interrupt middleware
-  const ctx = agent.getContext(threadId)!;
+  // 获取 context 用于 approval middleware
+  const ctx = agent.getContext(chatId)!;
 
-  // 流式执行（包装 interrupt 处理）
-  const generator = wrapWithInterrupt(ctx, agent.send(threadId, input));
+  // 流式执行（包装 approval 处理）
+  const generator = wrapWithApproval(ctx, agent.send(chatId, input));
 
   for await (const chunk of generator) {
-    if (chunk.type === "tool_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
+    if (chunk.type === "sense_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
       // 需审批：打印信息，等待 stdin
       console.log(`\n[需审批] ${chunk.name}`);
       console.log(`参数: ${chunk.arguments}`);
-      chunk.approval = await askApproval(rl);
+      const decision = await askApproval(rl);
+      // 通过 approvalResolve 回调通知 generator
+      if (chunk.approvalResolve) {
+        chunk.approvalResolve(decision.action, decision.reason);
+      }
     }
     handleChunk(chunk);
   }
@@ -75,15 +79,15 @@ async function main() {
 }
 
 /**
- * 包装 interrupt 处理（创建 interrupt 记录）
+ * 包装 approval 处理（创建 approval 记录）
  */
-async function* wrapWithInterrupt(
+async function* wrapWithApproval(
   ctx: MiddlewareContext,
   generator: AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   for await (const chunk of generator) {
-    if (chunk.type === "tool_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
-      await interruptManager.createSingleInterrupt(ctx, chunk);
+    if (chunk.type === "sense_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
+      await approvalManager.createSingleApproval(ctx, chunk);
     }
     yield chunk;
   }
@@ -133,10 +137,10 @@ function handleChunk(chunk: MiddlewareChunk) {
         process.stdout.write(chunk.contentDelta);
       }
       break;
-    case "tool_trigger":
+    case "sense_trigger":
       console.log(`\n[工具触发] ${chunk.name} (${chunk.supervisionLevel})`);
       break;
-    case "tool_complete":
+    case "sense_complete":
       console.log(`\n[工具完成] ${chunk.name}`);
       const resultPreview =
         chunk.result.length > 100

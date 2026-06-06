@@ -4,14 +4,14 @@ import type {
   ChatCompletion,
 } from "openai/resources/chat/completions";
 import { registerMessageAdapter, type LLMResponse } from "@/core/message";
-import { registerToolAdapter, type Tool, type ToolCallData, type ToolFunction } from "@/core/tool";
+import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
 import type { ZodType } from "zod";
 import type {
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
 import { registerLLMAdapter } from "@/core/llm/adapter";
 import type { LLMAdapter } from "@/core/middleware/types";
-import { buildBaseToolFunction } from "@/core/tool/compiler/utils.js";
+import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -40,24 +40,24 @@ const openaiMessageAdapterConfig = {
   thinkingFieldName: "reasoning_content",
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => {
-      if (m.role === "tool") {
+      if (m.role === "sense") {
         return {
-          role: m.role,
+          role: "tool",
           content: m.content,
           tool_call_id: m.id,
         } as ChatCompletionMessageParam;
       }
-      if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+      if (m.role === "assistant" && m.senseCalls && m.senseCalls.length > 0) {
         return {
           role: m.role,
           content: m.content || null,
           ...(m.thinking && { reasoning_content: m.thinking }),
-          tool_calls: m.toolCalls.map((tc) => ({
-            id: tc.id,
+          tool_calls: m.senseCalls.map((sc) => ({
+            id: sc.id,
             type: "function",
             function: {
-              name: tc.name,
-              arguments: tc.arguments,
+              name: sc.name,
+              arguments: sc.arguments,
             },
           })),
         } as ChatCompletionMessageParam;
@@ -76,71 +76,71 @@ const openaiMessageAdapterConfig = {
     }),
 };
 
-// Tool Adapter 配置
-const openaiToolAdapterConfig = {
-  buildTools(tools: Tool<ZodType>[]): ToolFunction[] {
-    return tools.map((t) => ({
+// Sense Adapter 配置
+const openaiSenseAdapterConfig = {
+  buildSenses(senses: Sense<ZodType>[]): SenseFunction[] {
+    return senses.map((s) => ({
       type: "function",
       function: {
-        ...buildBaseToolFunction(t),
-        strict: t.definition.function.strict,
+        ...buildBaseSenseFunction(s),
+        strict: s.definition.function.strict,
       },
     }));
   },
 
-  buildToolCallMessage(
+  buildSenseCallMessage(
     content: string,
-    toolCalls: ToolCallData[],
+    senseCall: SenseCallData[],
   ): ChatCompletionMessageParam {
-    // 将统一的 ToolCallData 转换为 OpenAI 格式
-    const openaiToolCalls = toolCalls.map((tc) => ({
-      id: tc.id,
+    // 将统一的 SenseCallData 转换为 OpenAI 格式
+    const openaiSenseCalls = senseCall.map((sc) => ({
+      id: sc.id,
       type: "function",
       function: {
-        name: tc.name ?? "",
-        arguments: tc.arguments,
+        name: sc.name ?? "",
+        arguments: sc.arguments,
       },
     }));
     return {
       role: "assistant",
       content,
-      tool_calls: openaiToolCalls,
+      tool_calls: openaiSenseCalls,
     } as ChatCompletionMessageParam;
   },
 
-  buildToolResponseMessage(
-    toolCallId: string,
+  buildSenseResponseMessage(
+    senseCallId: string,
     result: string,
   ): ChatCompletionMessageParam {
     return {
       role: "tool",
-      tool_call_id: toolCallId,
+      tool_call_id: senseCallId,
       content: result,
     } as ChatCompletionMessageParam;
   },
 
-  toolCalls(response: ChatCompletion): ToolCallData[] {
-    const toolCalls = (response.choices?.[0]?.message?.tool_calls ??
+  senseCalls(response: ChatCompletion): SenseCallData[] {
+    const senseCalls = (response.choices?.[0]?.message?.tool_calls ??
       []) as ChatCompletionMessageFunctionToolCall[];
-    return toolCalls.map((tc, index) => ({
+    return senseCalls.map((sc, index) => ({
       index,
-      id: tc.id ?? `tool-${index}`,
-      name: tc.function?.name ?? undefined,
-      arguments: tc.function?.arguments ?? "",
+      id: sc.id ?? `sense-${index}`,
+      name: sc.function?.name ?? undefined,
+      arguments: sc.function?.arguments ?? "",
     }));
   },
 
   /**
-   * 从流式 chunk 提取 tool call 增量
+   * 从流式 chunk 提取 sense call 增量
    * OpenAI 流式响应结构：choices[0].delta.tool_calls[]
-   * 返回 ToolCallData（index 定位，arguments 为增量片段）
+   * 返回 SenseCallData（index 定位，arguments 为增量片段）
    */
-  extractToolCallDeltas(chunk: unknown): ToolCallData[] {
+  extractSenseCallDeltas(chunk: unknown): SenseCallData[] {
     const streamChunk = chunk as OpenAI.Chat.Completions.ChatCompletionChunk;
     const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
     return deltas.map((delta) => ({
       index: delta.index ?? 0,
-      id: delta.id ?? `tool-${delta.index ?? 0}`,
+      id: delta.id ?? `sense-${delta.index ?? 0}`,
       name: delta.function?.name ?? undefined,
       arguments: delta.function?.arguments ?? "",
     }));
@@ -151,7 +151,7 @@ const openaiToolAdapterConfig = {
 const openaiLLMAdapter: LLMAdapter = {
   async chat(
     messages: unknown[],
-    tools: ToolFunction[],
+    senses: SenseFunction[],
     options?: Record<string, unknown>,
   ): Promise<unknown> {
     const msgArray = messages as ChatCompletionMessageParam[];
@@ -170,12 +170,12 @@ const openaiLLMAdapter: LLMAdapter = {
       model,
       messages: msgArray,
       ...(thinking ? { thinking: { type: "enabled" } } : {}),
-      ...(tools.length > 0 && { tools }),
+      ...(senses.length > 0 && { tools: senses }),
     });
   },
   async chatStream(
     messages: unknown[],
-    tools: ToolFunction[],
+    senses: SenseFunction[],
     options?: Record<string, unknown>,
   ): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as ChatCompletionMessageParam[];
@@ -195,7 +195,7 @@ const openaiLLMAdapter: LLMAdapter = {
       messages: msgArray,
       stream: true,
       ...(thinking ? { thinking: { type: "enabled" } } : {}),
-      ...(tools.length > 0 && { tools }),
+      ...(senses.length > 0 && { tools: senses }),
     });
     return stream as AsyncIterable<unknown>;
   },
@@ -208,9 +208,9 @@ export function registerOpenAIAdapter(): void {
     OpenAI.Chat.Completions.ChatCompletionChunk,
     ChatCompletionMessageParam
   >("openai", openaiMessageAdapterConfig);
-  registerToolAdapter<ChatCompletionMessageParam, ChatCompletion>(
+  registerSenseAdapter<ChatCompletionMessageParam, ChatCompletion>(
     "openai",
-    openaiToolAdapterConfig,
+    openaiSenseAdapterConfig,
   );
   registerLLMAdapter("openai", openaiLLMAdapter);
 }

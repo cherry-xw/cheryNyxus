@@ -24,3 +24,5 @@ Thumbs.db
 
 .chery/data.db-shm
 .chery/data.db-wal
+
+log/

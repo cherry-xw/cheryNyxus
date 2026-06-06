@@ -16,23 +16,23 @@ const mockConfig = {
         model: "ollama-model",
         url: "http://localhost:11434",
         key: "",
-        tool_group: "safe_tools",
+        sense_group: "safe_senses",
       },
       openai_client: {
         provider: "openai",
         model: "gpt-4",
         url: "https://api.openai.com/v1",
         key: "test-key",
-        tool_group: ["safe_tools", "dangerous_tools"],
+        sense_group: ["safe_senses", "dangerous_senses"],
       },
     },
   },
-  tool_groups: {
-    safe_tools: {
-      tools: ["read_file"],
+  sense_groups: {
+    safe_senses: {
+      senses: ["read_file"],
     },
-    dangerous_tools: {
-      tools: ["execute_command"],
+    dangerous_senses: {
+      senses: ["execute_command"],
     },
   },
 };
@@ -65,10 +65,10 @@ const mockMessageAdapter = {
   buildMessages: vi.fn(),
 };
 
-const mockToolAdapter = {
+const mockSenseAdapter = {
   buildTools: vi.fn(),
-  extractToolCalls: vi.fn(),
-  assembleToolCallChunks: vi.fn(),
+  extractSenseCalls: vi.fn(),
+  assembleSenseCallChunks: vi.fn(),
 };
 
 vi.mock("@/core/llm/adapter", () => ({
@@ -79,16 +79,16 @@ vi.mock("@/core/message/adapter", () => ({
   getMessageAdapter: vi.fn(() => mockMessageAdapter),
 }));
 
-vi.mock("@/core/tool/adapter", () => ({
-  getToolAdapter: vi.fn(() => mockToolAdapter),
+vi.mock("@/core/sense/adapter", () => ({
+  getSenseAdapter: vi.fn(() => mockSenseAdapter),
 }));
 
 // Mock 工具加载 - 使用函数形式避免构造函数问题
-vi.mock("@/agent/tool/index", () => {
+vi.mock("@/agent/sense/index", () => {
   const mockAdd = vi.fn();
   return {
     ensureToolsLoaded: vi.fn(),
-    getTools: vi.fn((names: string[]) =>
+    getSenses: vi.fn((names: string[]) =>
       names.map((name: string) => ({
         definition: {
           function: {
@@ -100,8 +100,8 @@ vi.mock("@/agent/tool/index", () => {
         supervisionLevel: 0,
       }))
     ),
-    // 使用类形式 mock ToolManager
-    ToolManager: class MockToolManager {
+    // 使用类形式 mock SenseManager
+    SenseManager: class MockSenseManager {
       add = mockAdd;
       get = vi.fn();
       execute = vi.fn();
@@ -210,25 +210,25 @@ describe("AgentBuilder", () => {
       builder.use("ollama_client");
       await builder.build();
 
-      // loadFromGroups 应被调用（参数验证在 toolManager.test.ts 中）
+      // loadFromGroups 应被调用（参数验证在 senseManager.test.ts 中）
       // 此测试仅验证流程不抛错
     });
 
     it("should handle multiple tool groups", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const builder = new AgentBuilder();
-      builder.use("openai_client"); // 使用有多个 tool_group 的客户端
+      builder.use("openai_client"); // 使用有多个 sense_group 的客户端
       const middleware = await builder.build();
       expect(middleware).toBeDefined();
     });
 
-    it("should build with no tool_group configured", async () => {
+    it("should build with no sense_group configured", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const config = (await import("@/utils/config")).default;
       const origClient = config.llm.brain.ollama_client;
       config.llm.brain.ollama_client = {
         ...origClient,
-        tool_group: undefined,
+        sense_group: undefined,
       };
 
       const builder = new AgentBuilder();
@@ -246,10 +246,10 @@ describe("AgentBuilder", () => {
       const origClient = config.llm.brain.ollama_client;
       config.llm.brain.ollama_client = {
         ...origClient,
-        tool_group: ["supervised_tools"],
+        sense_group: ["supervised_senses"],
       };
-      config.tool_groups.supervised_tools = {
-        tools: ["read_file"],
+      config.sense_groups.supervised_senses = {
+        senses: ["read_file"],
         supervision: 2,
       };
 
@@ -260,7 +260,7 @@ describe("AgentBuilder", () => {
       expect(middleware).toBeDefined();
 
       config.llm.brain.ollama_client = origClient;
-      delete config.tool_groups.supervised_tools;
+      delete config.sense_groups.supervised_senses;
     });
   });
 });

@@ -158,7 +158,7 @@ describe("db/thread", () => {
       const { createThread, addMessage } = await import("@/db/thread.js");
       createThread("thread-1", "session-1");
 
-      const toolCalls: MessageData["toolCalls"] = [
+      const senseCalls: MessageData["senseCalls"] = [
         { id: "tc-1", type: "function", function: { name: "test_tool", arguments: '{"key":"value"}' } },
       ];
 
@@ -166,7 +166,7 @@ describe("db/thread", () => {
         role: "assistant",
         content: "hello",
         thinking: "deep thought",
-        toolCalls,
+        senseCalls,
       });
 
       expect(row.id).toBe("msg-1");
@@ -174,7 +174,7 @@ describe("db/thread", () => {
       expect(row.role).toBe("assistant");
       expect(row.content).toBe("hello");
       expect(row.thinking).toBe("deep thought");
-      expect(JSON.parse(row.tool_calls!)).toEqual(toolCalls);
+      expect(JSON.parse(row.tool_calls!)).toEqual(senseCalls);
     });
 
     it("should update thread updated_at on message insert", async () => {
@@ -237,14 +237,14 @@ describe("db/thread", () => {
   describe("parseMessageRow", () => {
     it("should deserialize full MessageRow with all fields", async () => {
       const { parseMessageRow } = await import("@/db/thread.js");
-      const toolCalls = [{ id: "tc-1", type: "function" as const, function: { name: "tool", arguments: "{}" } }];
+      const senseCalls = [{ id: "tc-1", type: "function" as const, function: { name: "tool", arguments: "{}" } }];
       const row: MessageRow = {
         id: "msg-1",
         thread_id: "thread-1",
         role: "assistant",
         content: "response",
         thinking: "thoughts",
-        tool_calls: JSON.stringify(toolCalls),
+        tool_calls: JSON.stringify(senseCalls),
         created_at: Date.now(),
       };
 
@@ -252,7 +252,7 @@ describe("db/thread", () => {
       expect(data.role).toBe("assistant");
       expect(data.content).toBe("response");
       expect(data.thinking).toBe("thoughts");
-      expect(data.toolCalls).toEqual(toolCalls);
+      expect(data.senseCalls).toEqual(senseCalls);
     });
 
     it("should handle null optional fields", async () => {
@@ -271,7 +271,7 @@ describe("db/thread", () => {
       expect(data.role).toBe("user");
       expect(data.content).toBeUndefined();
       expect(data.thinking).toBeUndefined();
-      expect(data.toolCalls).toBeUndefined();
+      expect(data.senseCalls).toBeUndefined();
     });
   });
 });

@@ -9,7 +9,7 @@ function createMockContext(stream: boolean) {
       sessionId: "test-session",
       threadId: "test-thread",
       hashCheck: new Map(),
-      toolSharedData: new Map(),
+      senseSharedData: new Map(),
     },
     global: {
       thinking: false,
@@ -22,7 +22,7 @@ function createMockContext(stream: boolean) {
       model: "test-model",
       url: "http://localhost",
       key: "",
-      tool_group: [],
+      sense_group: [],
     },
     adapters: {
       llmAdapter: {
@@ -43,12 +43,12 @@ function createMockContext(stream: boolean) {
         extractStreamThinking: vi.fn(),
         buildMessages: vi.fn(() => [{ role: "user", content: "test message" }]),
       },
-      toolAdapter: {
+      senseAdapter: {
         buildTools: vi.fn(() => []),
-        buildToolCallMessage: vi.fn(),
+        buildSenseCallMessage: vi.fn(),
         buildToolResponseMessage: vi.fn(),
-        extractToolCalls: vi.fn(() => []),
-        assembleToolCallChunks: vi.fn(() => []),
+        extractSenseCalls: vi.fn(() => []),
+        assembleSenseCallChunks: vi.fn(() => []),
       },
     },
     process: {
@@ -59,8 +59,8 @@ function createMockContext(stream: boolean) {
       toolCallAccumulated: new Map(),
       pendingInputs: [],
     },
-    tools: {
-      toolManager: {
+    senses: {
+      senseManager: {
         add: vi.fn(),
         getAll: vi.fn(() => []),
         get: vi.fn(),
@@ -195,10 +195,10 @@ describe("chatMiddleware", () => {
   });
 
   describe("tools handling", () => {
-    it("should build tools from toolManager", async () => {
+    it("should build tools from senseManager", async () => {
       const ctx = createMockContext(true);
-      // 添加一个 mock tool，让 toolManager.getAll() 返回非空数组
-      ctx.tools.toolManager.getAll = vi.fn(() => [
+      // 添加一个 mock tool，让 senseManager.getAll() 返回非空数组
+      ctx.senses.senseManager.getAll = vi.fn(() => [
         { name: "test_tool", description: "test", parameters: {}, execute: vi.fn() },
       ]);
 
@@ -211,7 +211,7 @@ describe("chatMiddleware", () => {
         // consume generator
       }
 
-      expect(ctx.adapters.toolAdapter.buildTools).toHaveBeenCalled();
+      expect(ctx.adapters.senseAdapter.buildTools).toHaveBeenCalled();
     });
   });
 });

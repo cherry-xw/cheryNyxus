@@ -16,11 +16,11 @@ const mockConfig = {
         model: "test-model",
         url: "http://localhost:11434",
         key: "",
-        tool_group: [],
+        sense_group: [],
       },
     },
   },
-  tool_groups: {},
+  sense_groups: {},
 };
 
 vi.mock("@/utils/config", () => ({
@@ -55,19 +55,19 @@ vi.mock("@/core/message/adapter", () => ({
   })),
 }));
 
-vi.mock("@/core/tool/adapter", () => ({
-  getToolAdapter: vi.fn(() => ({
+vi.mock("@/core/sense/adapter", () => ({
+  getSenseAdapter: vi.fn(() => ({
     buildTools: vi.fn(),
-    extractToolCalls: vi.fn(),
-    assembleToolCallChunks: vi.fn(),
+    extractSenseCalls: vi.fn(),
+    assembleSenseCallChunks: vi.fn(),
   })),
 }));
 
 // Mock 工具加载
-vi.mock("@/agent/tool/index", () => ({
+vi.mock("@/agent/sense/index", () => ({
   ensureToolsLoaded: vi.fn(),
-  getTools: vi.fn(() => []),
-  ToolManager: vi.fn().mockImplementation(() => ({
+  getSenses: vi.fn(() => []),
+  SenseManager: vi.fn().mockImplementation(() => ({
     add: vi.fn(),
     getAll: vi.fn(() => []),
     get: vi.fn(),

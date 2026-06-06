@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { registerOllamaAdapter } from "@/agent/provider/ollama";
 import { getLLMAdapter } from "@/core/llm/adapter";
 import { getMessageAdapter } from "@/core/message/adapter";
-import { getToolAdapter } from "@/core/tool/adapter";
+import { getSenseAdapter } from "@/core/sense/adapter";
 import type { LLMResponse } from "@/core/message";
-import type { Tool, ToolFunction } from "@/core/tool";
+import type { Tool, ToolFunction } from "@/core/sense";
 import type { ZodType } from "zod";
 
 // Mock Ollama SDK
@@ -55,11 +55,11 @@ describe("Ollama Provider", () => {
 
       const llmAdapter = getLLMAdapter("ollama");
       const messageAdapter = getMessageAdapter("ollama");
-      const toolAdapter = getToolAdapter("ollama");
+      const senseAdapter = getSenseAdapter("ollama");
 
       expect(llmAdapter).toBeDefined();
       expect(messageAdapter).toBeDefined();
-      expect(toolAdapter).toBeDefined();
+      expect(senseAdapter).toBeDefined();
     });
 
     it("should not register twice", () => {
@@ -84,11 +84,11 @@ describe("Ollama Provider", () => {
     it("should have valid tool adapter config", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
+      const config = getSenseAdapter("ollama");
       expect(config).toBeDefined();
       expect(config?.buildTools).toBeDefined();
-      expect(config?.extractToolCalls).toBeDefined();
-      expect(config?.assembleToolCallChunks).toBeDefined();
+      expect(config?.extractSenseCalls).toBeDefined();
+      expect(config?.assembleSenseCallChunks).toBeDefined();
     });
 
     it("should have valid LLM adapter", () => {
@@ -226,7 +226,7 @@ describe("Ollama Provider", () => {
     it("should build tools from definitions", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
+      const config = getSenseAdapter("ollama");
       const tools = [
         {
           definition: {
@@ -240,18 +240,18 @@ describe("Ollama Provider", () => {
         },
       ] as unknown as Tool<ZodType>[];
 
-      const builtTools = config?.buildTools(tools);
-      expect(builtTools?.[0]?.type).toBe("function");
-      expect(builtTools?.[0]?.function?.name).toBe("test_tool");
+      const builtSenses = config?.buildTools(tools);
+      expect(builtSenses?.[0]?.type).toBe("function");
+      expect(builtSenses?.[0]?.function?.name).toBe("test_tool");
     });
 
     it("should build tool call message", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
-      const toolCalls = [{ tid: "", name: "test_tool", arguments: '{"arg":"value"}' }];
+      const config = getSenseAdapter("ollama");
+      const senseCalls = [{ tid: "", name: "test_tool", arguments: '{"arg":"value"}' }];
 
-      const message = config?.buildToolCallMessage?.("content", toolCalls) as { role: string; tool_calls?: unknown };
+      const message = config?.buildSenseCallMessage?.("content", senseCalls) as { role: string; tool_calls?: unknown };
       expect(message?.role).toBe("assistant");
       expect(message?.tool_calls).toBeDefined();
     });
@@ -259,7 +259,7 @@ describe("Ollama Provider", () => {
     it("should build tool response message", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
+      const config = getSenseAdapter("ollama");
 
       const message = config?.buildToolResponseMessage?.("", "result") as { role: string; content: string };
       expect(message?.role).toBe("tool");
@@ -269,7 +269,7 @@ describe("Ollama Provider", () => {
     it("should extract tool calls", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
+      const config = getSenseAdapter("ollama");
       const response = {
         message: {
           tool_calls: [
@@ -278,28 +278,28 @@ describe("Ollama Provider", () => {
         },
       };
 
-      const toolCalls = config?.extractToolCalls(response);
-      expect(toolCalls?.length).toBe(1);
-      expect(toolCalls?.[0]?.name).toBe("test_tool");
-      expect(toolCalls?.[0]?.tid).toBe("");
+      const senseCalls = config?.extractSenseCalls(response);
+      expect(senseCalls?.length).toBe(1);
+      expect(senseCalls?.[0]?.name).toBe("test_tool");
+      expect(senseCalls?.[0]?.tid).toBe("");
     });
 
     it("should handle empty tool calls", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
+      const config = getSenseAdapter("ollama");
       const response = {
         message: {},
       };
 
-      const toolCalls = config?.extractToolCalls(response);
-      expect(toolCalls?.length).toBe(0);
+      const senseCalls = config?.extractSenseCalls(response);
+      expect(senseCalls?.length).toBe(0);
     });
 
     it("should assemble tool call chunks", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
+      const config = getSenseAdapter("ollama");
       const chunks = [
         {
           message: {
@@ -317,15 +317,15 @@ describe("Ollama Provider", () => {
         },
       ];
 
-      const assembled = config?.assembleToolCallChunks(chunks) as { message?: { tool_calls?: unknown[] } };
+      const assembled = config?.assembleSenseCallChunks(chunks) as { message?: { tool_calls?: unknown[] } };
       expect(assembled?.message?.tool_calls?.length).toBe(2);
     });
 
     it("should handle empty chunks", () => {
       registerOllamaAdapter();
 
-      const config = getToolAdapter("ollama");
-      const assembled = config?.assembleToolCallChunks([]) as { message?: { tool_calls?: unknown[] } };
+      const config = getSenseAdapter("ollama");
+      const assembled = config?.assembleSenseCallChunks([]) as { message?: { tool_calls?: unknown[] } };
       expect(assembled?.message?.tool_calls?.length).toBe(0);
     });
   });
@@ -336,7 +336,7 @@ describe("Ollama Provider", () => {
 
       const adapter = getLLMAdapter("ollama");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { model: "llama2" };
 
       const result = await adapter?.chat(messages, tools, options);
@@ -349,7 +349,7 @@ describe("Ollama Provider", () => {
 
       const adapter = getLLMAdapter("ollama");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = {};
 
       await expect(adapter?.chat(messages, tools, options)).rejects.toThrow(
@@ -362,7 +362,7 @@ describe("Ollama Provider", () => {
 
       const adapter = getLLMAdapter("ollama");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { model: "llama2" };
 
       const stream = await adapter?.chatStream(messages, tools, options);
@@ -383,7 +383,7 @@ describe("Ollama Provider", () => {
 
       const adapter = getLLMAdapter("ollama");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = {};
 
       await expect(adapter?.chatStream(messages, tools, options)).rejects.toThrow(

@@ -12,9 +12,9 @@ function createMockContext(): MiddlewareContext {
       sessionId: "test-session",
       threadId: "test-thread",
       hashCheck: new Map(),
-      toolSharedData: new Map(),
+      senseSharedData: new Map(),
       userInputs: [],
-      builtTools: [],
+      builtSenses: [],
     },
     global: {
       thinking: false,
@@ -26,12 +26,12 @@ function createMockContext(): MiddlewareContext {
       provider: "test",
       model: "gpt-test",
       url: "http://localhost",
-      tool_group: ["safe"],
+      sense_group: ["safe"],
     },
     adapters: {
       llmAdapter: { chat: vi.fn(), chatStream: vi.fn() } as any,
       messageAdapter: {} as any,
-      toolAdapter: {} as any,
+      senseAdapter: {} as any,
     },
     process: {
       history: [],
@@ -41,8 +41,8 @@ function createMockContext(): MiddlewareContext {
       toolCallAccumulated: new Map(),
       pendingInputs: [],
     },
-    tools: {
-      toolManager: {} as any,
+    senses: {
+      senseManager: {} as any,
     },
   };
 }

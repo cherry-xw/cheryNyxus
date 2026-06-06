@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ToolCallAccumulator } from "@/core/middleware/types.js";
+import type { SenseCallAccumulator } from "@/core/middleware/types.js";
 import type { InterruptEntity, ContextSnapshot } from "@/db/interrupt.js";
 
 // Use vi.hoisted so the mock object is available inside hoisted vi.mock factory
@@ -19,7 +19,7 @@ vi.mock("@/db/interrupt.js", () => ({
 // Must import after mocks
 import { InterruptManager } from "@/service/agent/interrupt.js";
 
-function createMockToolCall(tid: string, name: string): ToolCallAccumulator {
+function createMockSenseCall(tid: string, name: string): SenseCallAccumulator {
   return {
     tid,
     name,
@@ -35,11 +35,11 @@ function createMockCtx() {
       sessionId: "sess-1",
       threadId: "thread-1",
       hashCheck: new Map<string, string>(),
-      toolSharedData: new Map<string, Map<string, unknown>>(),
+      senseSharedData: new Map<string, Map<string, unknown>>(),
     },
     process: {
       history: [] as unknown[],
-      toolCallAccumulated: new Map<string, ToolCallAccumulator>(),
+      toolCallAccumulated: new Map<string, SenseCallAccumulator>(),
       pendingInputs: [] as Array<{ input: string; time: number }>,
       contentAccumulated: "",
       thinkingAccumulated: "",
@@ -48,7 +48,7 @@ function createMockCtx() {
     config: {
       provider: "test",
       model: "gpt",
-      tool_group: ["safe"] as string[],
+      sense_group: ["safe"] as string[],
     },
   };
 }
@@ -64,7 +64,7 @@ describe("InterruptManager", () => {
   describe("createInterrupt", () => {
     it("persists entity via interruptRepo.create", async () => {
       const ctx = createMockCtx();
-      const tcs = [createMockToolCall("tc-1", "read_file")];
+      const tcs = [createMockSenseCall("tc-1", "read_file")];
 
       const interruptId = await manager.createInterrupt(ctx as any, tcs);
 
@@ -74,14 +74,14 @@ describe("InterruptManager", () => {
       expect(entity.sessionId).toBe("sess-1");
       expect(entity.threadId).toBe("thread-1");
       expect(entity.status).toBe("pending");
-      expect(entity.toolCalls).toEqual(tcs);
+      expect(entity.senseCalls).toEqual(tcs);
     });
 
     it("registers pending handles (without resolve/reject)", async () => {
       const ctx = createMockCtx();
       const tcs = [
-        createMockToolCall("tc-1", "read_file"),
-        createMockToolCall("tc-2", "write_file"),
+        createMockSenseCall("tc-1", "read_file"),
+        createMockSenseCall("tc-2", "write_file"),
       ];
 
       await manager.createInterrupt(ctx as any, tcs);
@@ -108,7 +108,7 @@ describe("InterruptManager", () => {
   describe("getHandle", () => {
     it("returns handle by handleId", async () => {
       const ctx = createMockCtx();
-      const tcs = [createMockToolCall("tc-1", "read_file")];
+      const tcs = [createMockSenseCall("tc-1", "read_file")];
       const interruptId = await manager.createInterrupt(ctx as any, tcs);
 
       const handleId = `${interruptId}-tc-1`;
@@ -128,7 +128,7 @@ describe("InterruptManager", () => {
   describe("confirmHandle", () => {
     it("deletes handle from pending", async () => {
       const ctx = createMockCtx();
-      const tcs = [createMockToolCall("tc-1", "read_file")];
+      const tcs = [createMockSenseCall("tc-1", "read_file")];
       const interruptId = await manager.createInterrupt(ctx as any, tcs);
       const handleId = `${interruptId}-tc-1`;
 
@@ -139,7 +139,7 @@ describe("InterruptManager", () => {
 
     it("calls interruptRepo.update with status acknowledged", async () => {
       const ctx = createMockCtx();
-      const tcs = [createMockToolCall("tc-1", "read_file")];
+      const tcs = [createMockSenseCall("tc-1", "read_file")];
       const interruptId = await manager.createInterrupt(ctx as any, tcs);
       const handleId = `${interruptId}-tc-1`;
 
@@ -166,11 +166,11 @@ describe("InterruptManager", () => {
 
   describe("loadSessionInterrupts", () => {
     it("loads handles from all pending interrupts for session", async () => {
-      const tcs1 = [createMockToolCall("tc-1", "read_file")];
-      const tcs2 = [createMockToolCall("tc-2", "write_file")];
+      const tcs1 = [createMockSenseCall("tc-1", "read_file")];
+      const tcs2 = [createMockSenseCall("tc-2", "write_file")];
       mockRepo.findBySessionId.mockResolvedValue([
-        { id: "int-1", status: "pending", toolCalls: tcs1, createdAt: Date.now() },
-        { id: "int-2", status: "completed", toolCalls: tcs2, createdAt: Date.now() },
+        { id: "int-1", status: "pending", senseCalls: tcs1, createdAt: Date.now() },
+        { id: "int-2", status: "completed", senseCalls: tcs2, createdAt: Date.now() },
       ]);
 
       const handles = await manager.loadSessionInterrupts("sess-1");
@@ -183,7 +183,7 @@ describe("InterruptManager", () => {
 
     it("returns empty array when no pending interrupts", async () => {
       mockRepo.findBySessionId.mockResolvedValue([
-        { id: "int-1", status: "completed", toolCalls: [] },
+        { id: "int-1", status: "completed", senseCalls: [] },
       ]);
 
       const handles = await manager.loadSessionInterrupts("sess-1");
@@ -194,11 +194,11 @@ describe("InterruptManager", () => {
 
   describe("loadInterruptHandles", () => {
     it("loads handles from database to memory", async () => {
-      const tcs = [createMockToolCall("tc-1", "read_file")];
+      const tcs = [createMockSenseCall("tc-1", "read_file")];
       mockRepo.findById.mockResolvedValue({
         id: "int-1",
         status: "pending",
-        toolCalls: tcs,
+        senseCalls: tcs,
         createdAt: Date.now(),
       });
 
@@ -232,7 +232,7 @@ describe("InterruptManager", () => {
   describe("cleanupSession", () => {
     it("deletes all handles for given session", async () => {
       const ctx = createMockCtx();
-      const tcs = [createMockToolCall("tc-1", "read_file")];
+      const tcs = [createMockSenseCall("tc-1", "read_file")];
       const interruptId = await manager.createInterrupt(ctx as any, tcs);
 
       // findById returns entity with matching sessionId
@@ -253,7 +253,7 @@ describe("InterruptManager", () => {
         history: [],
         toolCallAccumulated: [],
         pendingInputs: [],
-        config: { provider: "test", model: "gpt", tool_group: ["safe"] },
+        config: { provider: "test", model: "gpt", sense_group: ["safe"] },
       };
       mockRepo.findById.mockResolvedValue({
         id: "int-1",
@@ -284,7 +284,7 @@ describe("InterruptManager", () => {
 
     it("clears handles from memory", async () => {
       const ctx = createMockCtx();
-      const tcs = [createMockToolCall("tc-1", "read_file")];
+      const tcs = [createMockSenseCall("tc-1", "read_file")];
       const interruptId = await manager.createInterrupt(ctx as any, tcs);
 
       expect(manager.getPendingHandles()).toHaveLength(1);

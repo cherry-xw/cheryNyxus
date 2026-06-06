@@ -11,14 +11,14 @@ vi.mock("@/db/index.js", () => ({
   closeDb: mockCloseDb,
 }));
 
-vi.mock("@/core/tool/compiler/index.js", () => ({
-  compileTools: vi.fn(),
+vi.mock("@/core/sense/compiler/index.js", () => ({
+  compileSenses: vi.fn(),
   parseTestCases: vi.fn(),
 }));
 
-vi.mock("@/agent/tool/compileToolsReporter.js", () => ({
-  runToolTestsAndCollect: vi.fn(),
-  reportToolCompileResult: vi.fn(),
+vi.mock("@/agent/sense/compileSensesReporter.js", () => ({
+  runSenseTestsAndCollect: vi.fn(),
+  reportSenseCompileResult: vi.fn(),
 }));
 
 describe("index.ts entry point", () => {
@@ -60,13 +60,13 @@ describe("index.ts entry point", () => {
     process.argv = ["node", "index.js", "compile-tools"];
 
     vi.resetModules();
-    const { compileTools } = await import("@/core/tool/compiler/index.js");
-    (compileTools as any).mockResolvedValue({
+    const { compileSenses } = await import("@/core/sense/compiler/index.js");
+    (compileSenses as any).mockResolvedValue({
       succeeded: [],
       failed: [],
     });
 
     await import("@/index.js");
-    expect(compileTools).toHaveBeenCalled();
+    expect(compileSenses).toHaveBeenCalled();
   });
 });

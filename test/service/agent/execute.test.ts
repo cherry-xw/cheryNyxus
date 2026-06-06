@@ -64,7 +64,7 @@ function setupMockSession(agent: unknown) {
   mockSessions.set("sess-1", {
     id: "sess-1",
     agent: Promise.resolve(agent),
-    config: { provider: "test", model: "gpt-4", tool_group: ["safe"] },
+    config: { provider: "test", model: "gpt-4", sense_group: ["safe"] },
   });
 }
 
@@ -470,10 +470,10 @@ describe("handleAgentExecute", () => {
 
     // addMessage should have been called for:
     // 1. user message
-    // 2. assistant message with toolCalls
+    // 2. assistant message with senseCalls
     // 3. tool result message
     const assistantCall = mockAddMessage.mock.calls.find(
-      (call: unknown[]) => call[2]?.role === "assistant" && call[2]?.toolCalls,
+      (call: unknown[]) => call[2]?.role === "assistant" && call[2]?.senseCalls,
     );
     const toolResult = mockAddMessage.mock.calls.find(
       (call: unknown[]) => call[2]?.role === "tool",

@@ -91,13 +91,13 @@ async function handleRequest(
   request: Request,
   router: RpcRouter,
 ): Promise<void> {
-  console.log(`处理请求: ${request.method}, id=${request.id}, connectionId=${state.id}, sessionId=${state.sessionId}`);
+  console.log(`处理请求: ${request.method}, id=${request.id}, connectionId=${state.id}, soulId=${state.soulId}`);
 
   connectionManager.addPendingRequest(ws, request.id);
 
   // 创建 handler context
   const ctx = {
-    sessionId: state.sessionId,
+    soulId: state.soulId,
     connectionId: state.id,
     sendChunk: (chunk: Chunk) => {
       ws.send(transport.encode(chunk));
@@ -110,9 +110,9 @@ async function handleRequest(
   // 执行 handler
   const result = await router.handle(request, ctx);
 
-  // 同步 sessionId 回 connectionState（agent.create 设置）
-  if (ctx.sessionId && ctx.sessionId !== state.sessionId) {
-    state.sessionId = ctx.sessionId;
+  // 同步 soulId 回 connectionState（soul.create 设置）
+  if (ctx.soulId && ctx.soulId !== state.soulId) {
+    state.soulId = ctx.soulId;
   }
 
   // 处理结果
@@ -133,12 +133,13 @@ async function handleRequest(
       // Notification 消息
       if (item.kind === "notification") {
         // interrupt 发出后启动审批超时
-        if (item.type === "interrupt" && item.data && "interruptId" in item.data) {
-          connectionManager.setRequestInterruptId(ws, request.id, item.data.interruptId);
+        if (item.type === "interrupt" && item.data && "approvalId" in item.data) {
+          const approvalId = (item.data as { approvalId: string }).approvalId;
+          connectionManager.setRequestApprovalId(ws, request.id, approvalId);
           connectionManager.startApprovalTimeout(ws, request.id, async () => {
-            console.log(`审批超时，释放资源: sessionId=${state.sessionId}`);
+            console.log(`审批超时，释放资源: soulId=${state.soulId}`);
             ws.send(transport.serializeMessage(
-              createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - session ended")),
+              createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - soul ended")),
             ));
             await connectionManager.close(ws);
           });

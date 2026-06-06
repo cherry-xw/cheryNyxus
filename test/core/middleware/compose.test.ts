@@ -9,7 +9,7 @@ function createMockContext() {
       sessionId: "test",
       threadId: "test-thread",
       hashCheck: new Map(),
-      toolSharedData: new Map(),
+      senseSharedData: new Map(),
     },
     global: {
       thinking: false,
@@ -21,7 +21,7 @@ function createMockContext() {
       model: "test-model",
       provider: "test",
       url: "http://localhost",
-      tool_group: "test",
+      sense_group: "test",
     },
     adapters: {} as any,
     process: {
@@ -32,7 +32,7 @@ function createMockContext() {
       toolCallAccumulated: new Map(),
       pendingInputs: [],
     },
-    tools: {} as any,
+    senses: {} as any,
   } as any;
 }
 

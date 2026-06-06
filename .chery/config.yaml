@@ -5,64 +5,64 @@ llm:
       model: gemma3:1b
       thinking: false # 思考模式（使用 deepseek-r1 等模型时改为 true）
       provider: ollama # 用于选择哪个llm，需要与message中的provider对应
-      tool_group: safe_tools # 使用的tool group名称
+      sense_group: safe_senses # 使用的sense group名称
     openai:
       url: https://api.openai.com/v1
       model: gpt-3.5-turbo
       key: $OPENAI_API_KEY
       provider: openai
-      tool_group: safe_tools
+      sense_group: safe_senses
     longcat:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
       key: $LONGCAT_API_KEY
       thinking: true # 思考模式（这是对这个模型有没有think能力的配置）
       provider: openai
-      tool_group: [safe_tools, dangerous_tools]
+      sense_group: [safe_senses, dangerous_senses]
     deepseek:
       url: https://api.deepseek.com
       model: deepseek-v4-flash
       key: $DEEPSEEK_API_KEY
       thinking: true
       provider: openai
-      tool_group: [safe_tools, dangerous_tools]
+      sense_group: [safe_senses, dangerous_senses]
     doubao:
       url: http://yz.xcherry.top:11411/v1
       model: doubao2.0-pro
       key: $DOUBAO_API_KEY
       thinking: true
       provider: openai
-      tool_group: [safe_tools, dangerous_tools]
+      sense_group: [safe_senses, dangerous_senses]
     ali_glm5:
       url: https://coding.dashscope.aliyuncs.com/v1
       model: glm-5
       key: $ALI_API_KEY
       thinking: true
       provider: openai
-      tool_group: [safe_tools, dangerous_tools, custom_tools]
+      sense_group: [safe_senses, dangerous_senses, custom_senses]
 
-# Tool分组配置
-tool_groups:
-  safe_tools:
-    supervision: auto # 组级别监管等级（可选），覆盖组内所有工具自身声明。不设置时使用工具自身声明
-    tools:
+# Sense分组配置
+sense_groups:
+  safe_senses:
+    supervision: auto # 组级别监管等级（可选），覆盖组内所有感官自身声明。不设置时使用感官自身声明
+    senses:
       - read_file
       - skill
-  dangerous_tools:
+  dangerous_senses:
     supervision: confirm
-    tools:
+    senses:
       - execute_command
       - write_file
-  custom_tools:
-    tools:
+  custom_senses:
+    senses:
       - echo_text
 
 # 全局配置
 global:
   thinking: true # 是否开启思考模式（如果能思考）
-  supervision: manual # 全局默认的监管等级，可选 auto:全部自动、confirm:需确认、manual:全部手动确认。仅当 tool_group 和 tool 自身都未声明时生效
+  supervision: manual # 全局默认的监管等级，可选 auto:全部自动、confirm:需确认、manual:全部手动确认。仅当 sense_group 和 sense 自身都未声明时生效
   stream: true # 是否开启流式输出
-  tool_execute_timeout: 10000 # 工具执行超时时间（毫秒），默认 30 秒
+  sense_execute_timeout: 10000 # 感官执行超时时间（毫秒），默认 30 秒
   bash_log_retention_hours: 24 # bash 日志文件保留时间（小时），默认 24 小时
 
   # 文件压缩配置

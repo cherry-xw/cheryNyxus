@@ -9,7 +9,7 @@ function createMockContext(stream: boolean) {
       sessionId: "test-session",
       threadId: "test-thread",
       hashCheck: new Map(),
-      toolSharedData: new Map(),
+      senseSharedData: new Map(),
     },
     global: {
       thinking: false,
@@ -22,7 +22,7 @@ function createMockContext(stream: boolean) {
       model: "test-model",
       url: "http://localhost",
       key: "",
-      tool_group: [],
+      sense_group: [],
     },
     adapters: {
       llmAdapter: {
@@ -36,14 +36,14 @@ function createMockContext(stream: boolean) {
         extractStreamThinking: vi.fn((chunk: any) => chunk.choices?.[0]?.delta?.thinking ?? undefined),
         buildMessages: vi.fn(),
       },
-      toolAdapter: {
+      senseAdapter: {
         buildTools: vi.fn(() => []),
-        buildToolCallMessage: vi.fn(),
+        buildSenseCallMessage: vi.fn(),
         buildToolResponseMessage: vi.fn(),
-        assembleToolCallChunks: vi.fn((chunks: any) => ({
+        assembleSenseCallChunks: vi.fn((chunks: any) => ({
           choices: [{ message: { tool_calls: chunks } }],
         })),
-        extractToolCalls: vi.fn((raw: any) => {
+        extractSenseCalls: vi.fn((raw: any) => {
           if (raw.choices?.[0]?.message?.tool_calls) {
             return [{ tid: "tc-1", name: "test_tool", arguments: "{}" }];
           }
@@ -59,8 +59,8 @@ function createMockContext(stream: boolean) {
       toolCallAccumulated: new Map(),
       pendingInputs: [],
     },
-    tools: {
-      toolManager: {
+    senses: {
+      senseManager: {
         add: vi.fn(),
         getAll: vi.fn(() => []),
         get: vi.fn(),

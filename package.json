@@ -10,7 +10,7 @@
     "build:test": "vite build --ssr --mode test",
     "build:prod": "vite build --ssr --mode prod",
     "start": "node dist/index.js",
-    "compile:tools": "node dist/index.js compile-tools",
+    "compile:senses": "node dist/index.js compile-senses",
     "dev": "vite build --ssr --watch --mode dev & nodemon --watch dist/index.js dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",

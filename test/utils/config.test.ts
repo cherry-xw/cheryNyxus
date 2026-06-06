@@ -20,7 +20,7 @@ describe("config module", () => {
         thinking: true,
         supervision: SupervisionLevel.auto,
         stream: true,
-        tool_execute_timeout: 30000,
+        sense_execute_timeout: 30000,
         maxLoopCount: 30,
         bash_log_retention_hours: 24,
       };
@@ -28,7 +28,7 @@ describe("config module", () => {
       expect(globalConfig.thinking).toBe(true);
       expect(globalConfig.supervision).toBe(SupervisionLevel.auto);
       expect(globalConfig.stream).toBe(true);
-      expect(globalConfig.tool_execute_timeout).toBe(30000);
+      expect(globalConfig.sense_execute_timeout).toBe(30000);
     });
 
     it("should have correct ClientConfig structure", () => {
@@ -37,13 +37,13 @@ describe("config module", () => {
         model: "llama2",
         provider: "ollama",
         thinking: false,
-        tool_group: ["safe_tools"],
+        sense_group: ["safe_senses"],
       };
 
       expect(clientConfig.url).toBe("http://localhost:11434");
       expect(clientConfig.model).toBe("llama2");
       expect(clientConfig.provider).toBe("ollama");
-      expect(clientConfig.tool_group).toEqual(["safe_tools"]);
+      expect(clientConfig.sense_group).toEqual(["safe_senses"]);
     });
 
     it("should have correct Config structure", () => {
@@ -53,7 +53,7 @@ describe("config module", () => {
           supervision: SupervisionLevel.auto,
           stream: true,
           skills_dir: "/path/.chery/skills",
-          tools_dir: "/path/.chery/tools",
+          senses_dir: "/path/.chery/tools",
           system_prompt: "/path/.chery/system.md",
         },
         llm: {
@@ -65,16 +65,16 @@ describe("config module", () => {
             },
           },
         },
-        tool_groups: {
-          safe_tools: {
-            tools: ["read_file", "write_file"],
+        sense_groups: {
+          safe_senses: {
+            senses: ["read_file", "write_file"],
           },
         },
       };
 
       expect(config.global).toBeDefined();
       expect(config.llm.clients).toHaveProperty("ollama");
-      expect(config.tool_groups).toBeDefined();
+      expect(config.sense_groups).toBeDefined();
     });
   });
 
@@ -107,18 +107,18 @@ global:
       expect(yamlContent).toContain("thinking: true");
     });
 
-    it("should handle tool_group as array", () => {
+    it("should handle sense_group as array", () => {
       const yamlContent = `
-tool_group: [group1, group2]
+sense_group: [group1, group2]
 `;
       expect(yamlContent).toContain("[group1, group2]");
     });
 
-    it("should handle tool_group as string", () => {
+    it("should handle sense_group as string", () => {
       const yamlContent = `
-tool_group: safe_tools
+sense_group: safe_senses
 `;
-      expect(yamlContent).toContain("safe_tools");
+      expect(yamlContent).toContain("safe_senses");
     });
 
     it("should handle environment variable syntax", () => {

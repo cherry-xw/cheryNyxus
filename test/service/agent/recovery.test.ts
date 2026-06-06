@@ -36,7 +36,7 @@ function createMockEntity(overrides: Partial<InterruptEntity> = {}): InterruptEn
     threadId: "thread-1",
     sessionId: "sess-1",
     status: "pending",
-    toolCalls: [],
+    senseCalls: [],
     contextSnapshot: {
       history: [],
       toolCallAccumulated: [],
@@ -44,7 +44,7 @@ function createMockEntity(overrides: Partial<InterruptEntity> = {}): InterruptEn
       config: {
         provider: "test",
         model: "gpt-4",
-        tool_group: ["safe"],
+        sense_group: ["safe"],
       },
     },
     createdAt: Date.now(),
@@ -58,7 +58,7 @@ function createTestConfig(overrides: Partial<ClientConfig> = {}): ClientConfig {
     url: "http://localhost",
     provider: "test",
     model: "gpt-4",
-    tool_group: ["safe"],
+    sense_group: ["safe"],
     ...overrides,
   };
 }
@@ -94,7 +94,7 @@ describe("RecoveryService", () => {
       expect(result[0]!.configSnapshot).toEqual({
         provider: "test",
         model: "gpt-4",
-        tool_group: ["safe"],
+        sense_group: ["safe"],
       });
     });
 
@@ -157,18 +157,18 @@ describe("RecoveryService", () => {
       );
     });
 
-    it("detects tool_group mismatch", async () => {
+    it("detects sense_group mismatch", async () => {
       const entity = createMockEntity();
       mockRepo.findById.mockResolvedValue(entity);
 
       const result = await service.validateConfigCompatibility(
         "int-1",
-        createTestConfig({ tool_group: ["dangerous"] }),
+        createTestConfig({ sense_group: ["dangerous"] }),
       );
       expect(result.compatible).toBe(false);
       expect(result.mismatches).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ field: "tool_group" }),
+          expect.objectContaining({ field: "sense_group" }),
         ]),
       );
     });
@@ -194,7 +194,7 @@ describe("RecoveryService", () => {
         history: [],
         toolCallAccumulated: [],
         pendingInputs: [],
-        config: { provider: "test", model: "gpt-4", tool_group: ["safe"] },
+        config: { provider: "test", model: "gpt-4", sense_group: ["safe"] },
       };
       mockInterruptManager.resumeInterrupt.mockResolvedValue(snapshot);
 
@@ -250,7 +250,7 @@ describe("RecoveryService", () => {
         history: [],
         toolCallAccumulated: [],
         pendingInputs: [],
-        config: { provider: "test", model: "gpt-4", tool_group: ["safe"] },
+        config: { provider: "test", model: "gpt-4", sense_group: ["safe"] },
       };
       mockInterruptManager.resumeInterrupt.mockResolvedValue(snapshot);
 
@@ -272,7 +272,7 @@ describe("RecoveryService", () => {
         history: [],
         toolCallAccumulated: [],
         pendingInputs: [],
-        config: { provider: "test", model: "gpt-4", tool_group: ["safe"] },
+        config: { provider: "test", model: "gpt-4", sense_group: ["safe"] },
       };
       mockInterruptManager.resumeInterrupt.mockResolvedValue(snapshot);
 

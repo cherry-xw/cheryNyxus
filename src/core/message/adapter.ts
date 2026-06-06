@@ -1,12 +1,12 @@
 /**
  * Role 类型
  */
-type Role = "system" | "user" | "assistant" | "tool" | "function";
+type Role = "system" | "user" | "assistant" | "sense" | "function";
 
 /**
- * Tool Call 数据结构
+ * Sense Call 数据结构
  */
-export interface ToolCallInfo {
+export interface SenseCallInfo {
   id: string;
   name: string;
   arguments: string;
@@ -20,7 +20,7 @@ export interface LLMResponse {
   role: Role;
   content: string;
   thinking?: string;
-  toolCalls?: ToolCallInfo[];
+  senseCalls?: SenseCallInfo[];
   createdAt: number;
   updateAt: number;
 }

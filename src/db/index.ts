@@ -23,52 +23,52 @@ export function getDb(): Database.Database {
 
 function initTables(database: Database.Database): void {
   database.exec(`
-    CREATE TABLE IF NOT EXISTS agent_sessions (
+    CREATE TABLE IF NOT EXISTS souls (
       id TEXT PRIMARY KEY,
       agent_name TEXT NOT NULL,
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
-      tool_group TEXT,
+      sense_group TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS threads (
+    CREATE TABLE IF NOT EXISTS chats (
       id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
+      soul_id TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       metadata TEXT,
-      FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+      FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
       role TEXT NOT NULL,
       content TEXT,
       thinking TEXT,
-      tool_calls TEXT,
+      sense_calls TEXT,
       created_at INTEGER NOT NULL,
-      FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
+      FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS interrupts (
+    CREATE TABLE IF NOT EXISTS approvals (
       id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      session_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      soul_id TEXT NOT NULL,
       status TEXT NOT NULL,
-      tool_calls TEXT NOT NULL,
+      sense_calls TEXT NOT NULL,
       context_snapshot TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      FOREIGN KEY (session_id) REFERENCES agent_sessions(id) ON DELETE CASCADE
+      FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
     );
 
-    CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
-    CREATE INDEX IF NOT EXISTS idx_threads_session ON threads(session_id);
-    CREATE INDEX IF NOT EXISTS idx_interrupts_session ON interrupts(session_id);
-    CREATE INDEX IF NOT EXISTS idx_interrupts_status ON interrupts(status);
+    CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
+    CREATE INDEX IF NOT EXISTS idx_chats_soul ON chats(soul_id);
+    CREATE INDEX IF NOT EXISTS idx_approvals_soul ON approvals(soul_id);
+    CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
   `);
 }
 

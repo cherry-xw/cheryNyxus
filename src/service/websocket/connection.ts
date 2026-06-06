@@ -1,8 +1,8 @@
 import type { WebSocket } from "ws";
 import { randomUUID } from "crypto";
-import type { InterruptEntity } from "@/db/interrupt.js";
-import { interruptRepo } from "@/db/interrupt.js";
-import { interruptManager } from "@/service/agent/interrupt.js";
+import type { ApprovalEntity } from "@/db/approval.js";
+import { approvalRepo } from "@/db/approval.js";
+import { approvalManager } from "@/service/approval/manager.js";
 
 /**
  * 待处理请求
@@ -11,7 +11,7 @@ interface PendingRequest {
   requestId: string;
   startTime: number;
   generator?: AsyncGenerator;
-  interruptId?: string;
+  approvalId?: string;
   /** 审批超时计时器（interrupt 发出后启动） */
   approvalTimeoutTimer?: NodeJS.Timeout;
   /** 审批超时时间（毫秒） */
@@ -24,7 +24,7 @@ interface PendingRequest {
 export interface ConnectionState {
   id: string;
   ws: WebSocket;
-  sessionId?: string;
+  soulId?: string;
   pendingRequests: Map<string, PendingRequest>;
 }
 
@@ -43,7 +43,7 @@ export class ConnectionManager {
     const state: ConnectionState = {
       id: randomUUID(),
       ws,
-      sessionId: undefined,
+      soulId: undefined,
       pendingRequests: new Map(),
     };
     this.connections.set(ws, state);
@@ -58,12 +58,12 @@ export class ConnectionManager {
   }
 
   /**
-   * 设置 session
+   * 设置 soul
    */
-  setSession(ws: WebSocket, sessionId: string): void {
+  setSoul(ws: WebSocket, soulId: string): void {
     const state = this.connections.get(ws);
     if (state) {
-      state.sessionId = sessionId;
+      state.soulId = soulId;
     }
   }
 
@@ -109,19 +109,19 @@ export class ConnectionManager {
   }
 
   /**
-   * 设置请求的中断 ID（同时启动审批超时）
+   * 设置请求的审批 ID（同时启动审批超时）
    */
-  setRequestInterruptId(
+  setRequestApprovalId(
     ws: WebSocket,
     requestId: string,
-    interruptId: string,
+    approvalId: string,
   ): void {
     const state = this.connections.get(ws);
     if (!state) return;
 
     const pending = state.pendingRequests.get(requestId);
     if (pending) {
-      pending.interruptId = interruptId;
+      pending.approvalId = approvalId;
     }
   }
 
@@ -139,7 +139,7 @@ export class ConnectionManager {
     const pending = state.pendingRequests.get(requestId);
     if (pending && !pending.approvalTimeoutTimer) {
       pending.approvalTimeoutTimer = setTimeout(() => {
-        console.log(`审批超时触发: requestId=${requestId}, interruptId=${pending.interruptId}`);
+        console.log(`审批超时触发: requestId=${requestId}, approvalId=${pending.approvalId}`);
         onTimeout();
       }, pending.approvalTimeoutMs);
     }
@@ -174,7 +174,7 @@ export class ConnectionManager {
   }
 
   /**
-   * 关闭连接（持久化 pending interrupts）
+   * 关闭连接（持久化 pending approvals）
    */
   async close(ws: WebSocket): Promise<void> {
     const state = this.connections.get(ws);
@@ -182,10 +182,10 @@ export class ConnectionManager {
 
     console.log(`关闭连接: ${state.id}, pendingRequests=${state.pendingRequests.size}`);
 
-    // 持久化未完成的中断
+    // 持久化未完成的审批
     for (const [requestId, pending] of state.pendingRequests) {
-      if (pending.interruptId) {
-        await interruptRepo.update(pending.interruptId, {
+      if (pending.approvalId) {
+        await approvalRepo.update(pending.approvalId, {
           status: "pending",
           updatedAt: Date.now(),
         });
@@ -202,9 +202,9 @@ export class ConnectionManager {
       }
     }
 
-    // 清理 session 的所有 pending handles
-    if (state.sessionId) {
-      await interruptManager.cleanupSession(state.sessionId);
+    // 清理 soul 的所有 pending approvals
+    if (state.soulId) {
+      await approvalManager.cleanupSoul(state.soulId);
     }
 
     this.connections.delete(ws);
@@ -219,11 +219,11 @@ export class ConnectionManager {
   }
 
   /**
-   * 按 sessionId 获取连接
+   * 按 soulId 获取连接
    */
-  getBySessionId(sessionId: string): ConnectionState | undefined {
+  getBySoulId(soulId: string): ConnectionState | undefined {
     for (const state of this.connections.values()) {
-      if (state.sessionId === sessionId) {
+      if (state.soulId === soulId) {
         return state;
       }
     }

@@ -8,7 +8,7 @@ const mockSessions: Map<string, {
   agent_name: string;
   provider: string;
   model: string;
-  tool_group: string | null;
+  sense_group: string | null;
   created_at: number;
   updated_at: number;
 }> = new Map();
@@ -26,7 +26,7 @@ vi.mock("@/db/session.js", () => ({
       agent_name: data.agentName,
       provider: data.provider,
       model: data.model,
-      tool_group: toolGroupStr,
+      sense_group: toolGroupStr,
       created_at: now,
       updated_at: now,
     };
@@ -38,15 +38,15 @@ vi.mock("@/db/session.js", () => ({
   deleteSession: vi.fn((sessionId: string) => {
     mockSessions.delete(sessionId);
   }),
-  parseSessionRow: vi.fn((row: { id: string; agent_name: string; provider: string; model: string; tool_group: string | null; created_at: number }) => ({
+  parseSessionRow: vi.fn((row: { id: string; agent_name: string; provider: string; model: string; sense_group: string | null; created_at: number }) => ({
     id: row.id,
     agentName: row.agent_name,
     provider: row.provider,
     model: row.model,
-    toolGroup: row.tool_group
-      ? (row.tool_group.startsWith("[")
-        ? JSON.parse(row.tool_group)
-        : row.tool_group)
+    toolGroup: row.sense_group
+      ? (row.sense_group.startsWith("[")
+        ? JSON.parse(row.sense_group)
+        : row.sense_group)
       : undefined,
     createdAt: row.created_at,
   })),
@@ -79,7 +79,7 @@ vi.mock("@/utils/config", () => ({
         testAgent: {
           provider: "test",
           model: "gpt-test",
-          tool_group: ["safe"],
+          sense_group: ["safe"],
         },
       },
     },
@@ -133,7 +133,7 @@ describe("lifecycle", () => {
       expect(result.config).toEqual({
         provider: "test",
         model: "gpt-test",
-        tool_group: ["safe"],
+        sense_group: ["safe"],
       });
       expect(result.createdAt).toBeDefined();
       expect(agentSessions.has("sess-1")).toBe(true);
@@ -179,7 +179,7 @@ describe("lifecycle", () => {
         agent_name: "testAgent",
         provider: "test",
         model: "gpt-test",
-        tool_group: JSON.stringify(["safe"]),
+        sense_group: JSON.stringify(["safe"]),
         created_at: 1000,
         updated_at: 1000,
       });

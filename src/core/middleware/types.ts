@@ -1,8 +1,8 @@
 import type { LLMResponse } from "../message/index";
 import type { MessageProviderAdapterConfig } from "../message/adapter";
-import type { ToolAdapter, ToolCallData, ToolFunction } from "../tool/adapter";
-import type { ToolManager } from "../tool/index";
-import type { GlobalConfig, AIServerConfig } from "@/utils/config";
+import type { SenseAdapter, SenseCallData, SenseFunction } from "../sense/adapter";
+import type { SenseManager } from "../sense/index";
+import type { GlobalConfig, BrainConfig } from "@/utils/config";
 import { SupervisionLevel } from "../config.js";
 
 /**
@@ -14,22 +14,22 @@ export interface UserInputEntry {
 }
 
 /**
- * 会话身份标识（创建后不可变）
+ * 灵魂身份标识（创建后不可变）
  */
-export interface SessionIdentity {
-  /** agent实例唯一标识 */
-  readonly sessionId: string;
-  /** agent实例中多轮次会话唯一标记 */
-  readonly threadId: string;
+export interface SoulIdentity {
+  /** 灵魂实例唯一标识 */
+  readonly soulId: string;
+  /** 灵魂实例中多轮次聊天唯一标记 */
+  readonly chatId: string;
 }
 
 /**
- * 工具协调（runtime ephemeral，不持久化）
+ * 感官协调（runtime ephemeral，不持久化）
  */
-export interface ToolCoordination {
-  /** 工具调用去重检查（callId → resultHash） */
+export interface SenseCoordination {
+  /** 感官调用去重检查（callId → resultHash） */
   hashCheck: Map<string, string>;
-  /** Tool间共享数据（namespace → identifier → data） */
+  /** Sense间共享数据（namespace → identifier → data） */
   sharedData: Map<string, Map<string, unknown>>;
 }
 
@@ -48,57 +48,57 @@ export interface MessageHistory {
 }
 
 /**
- * 预编译工具
+ * 预编译感官
  */
-export interface PrecompiledTools {
-  /** 工具名称 → 最终监管等级（优先级前置计算） */
-  toolConfigs: Map<string, number>;
-  /** 预构建的 API 工具参数（builder层一次性构建） */
-  builtTools: ToolFunction[];
+export interface PrecompiledSenses {
+  /** 感官名称 → 最终监管等级（优先级前置计算） */
+  senseConfigs: Map<string, number>;
+  /** 预构建的 API 感官参数（builder层一次性构建） */
+  builtSenses: SenseFunction[];
 }
 
 /**
  * AI接口消息（仅API必需字段）
  */
 export interface APIMessage {
-  role: "system" | "user" | "assistant" | "tool" | "function";
+  role: "system" | "user" | "assistant" | "sense" | "function";
   content: string;
-  toolCalls?: import("../message/adapter").ToolCallInfo[];
-  /** 仅tool角色需要（tool_call_id） */
+  senseCalls?: import("../message/adapter").SenseCallInfo[];
+  /** 仅sense角色需要（sense_call_id） */
   id?: string;
 }
 
 /**
- * 会话上下文（分解后）
+ * 灵魂上下文（分解后）
  */
-export interface SessionContext {
+export interface SoulContext {
   /** 身份标识 */
-  identity: SessionIdentity;
-  /** 工具协调 */
-  tools: ToolCoordination;
+  identity: SoulIdentity;
+  /** 感官协调 */
+  senses: SenseCoordination;
   /** 消息历史 */
   history: MessageHistory;
-  /** 预编译工具 */
-  precompiled: PrecompiledTools;
+  /** 预编译感官 */
+  precompiled: PrecompiledSenses;
 }
 
 /**
- * 会话分组 - 兼容旧代码
- * @deprecated 使用 SessionContext 替代
+ * 灵魂分组 - 兼容旧代码
+ * @deprecated 使用 SoulContext 替代
  */
-export interface SessionGroup {
-  /** agent实例唯一标识 */
-  sessionId: string;
-  /** agent实例中多轮次会话唯一标记 */
-  threadId: string;
-  /** 工具调用去重检查（toolName → hash → 空字符串） */
+export interface SoulGroup {
+  /** 灵魂实例唯一标识 */
+  soulId: string;
+  /** 灵魂实例中多轮次聊天唯一标记 */
+  chatId: string;
+  /** 感官调用去重检查（senseName → hash → 空字符串） */
   hashCheck: Map<string, string>;
-  /** Tool间共享数据（namespace → identifier → data） */
-  toolSharedData: Map<string, Map<string, unknown>>;
+  /** Sense间共享数据（namespace → identifier → data） */
+  senseSharedData: Map<string, Map<string, unknown>>;
   /** 用户输入队列（send 事件注入） */
   userInputs: UserInputEntry[];
-  /** 预构建的 tools（builder 层一次性构建，避免每次迭代重复构建） */
-  builtTools: ToolFunction[];
+  /** 预构建的 senses（builder 层一次性构建，避免每次迭代重复构建） */
+  builtSenses: SenseFunction[];
   /** AI message 参数（checkpoint 构建后放置） */
   messages?: LLMResponse[];
 }
@@ -111,35 +111,35 @@ export interface AdaptersGroup {
   llmAdapter: LLMAdapter;
   /** Message Adapter，处理消息格式转换 */
   messageAdapter: MessageProviderAdapterConfig;
-  /** Tool Adapter，处理工具调用格式转换 */
-  toolAdapter: ToolAdapter<unknown, unknown>;
+  /** Sense Adapter，处理感官调用格式转换 */
+  senseAdapter: SenseAdapter<unknown, unknown>;
 }
 
 /**
  * 中间件上下文 - 简化结构
  */
 export interface MiddlewareContext {
-  /** 会话分组：会话标识和上下文关联 */
-  session: SessionGroup;
+  /** 灵魂分组：灵魂标识和上下文关联 */
+  soul: SoulGroup;
   /** 请求分组：本次请求的输入和模式 */
   global: GlobalConfig;
-  /** AI 服务配置 */
-  aiServer: AIServerConfig;
+  /** Brain 服务配置 */
+  brain: BrainConfig;
   /** Adapter 分组：provider adapter 实例集合 */
   adapters: AdaptersGroup;
-  /** 工具管理器 */
-  toolManager: ToolManager;
+  /** 感官管理器 */
+  senseManager: SenseManager;
 }
 
 /**
- * 工具调用增量事件
+ * 感官调用增量事件
  * 显式定义 chat.ts → checkpoint.ts 的数据契约
  */
-export interface ToolDeltaEvent {
+export interface SenseDeltaEvent {
   /** 数据来源 */
   source: "stream" | "non-stream";
-  /** 工具调用增量数据 */
-  deltas: ToolCallData[];
+  /** 感官调用增量数据 */
+  deltas: SenseCallData[];
   /** 是否完整（非流式时为 true） */
   isComplete: boolean;
 }
@@ -153,37 +153,37 @@ export interface StreamChunk {
   thinkingDelta: string;
   /** 响应增量 */
   contentDelta: string;
-  /** Tool call 增量（可选，流式过程中实时传递，index 定位，arguments 为片段） */
-  toolDelta?: ToolCallData[];
+  /** Sense call 增量（可选，流式过程中实时传递，index 定位，arguments 为片段） */
+  senseDelta?: SenseCallData[];
 }
 
 /**
- * 工具触发（待消费）
- * id 使用 AI 响应的 tool_call.id，AI 没有则自己创建
+ * 感官触发（待消费）
+ * id 使用 AI 响应的 sense_call.id，AI 没有则自己创建
  */
-export interface ToolTriggerChunk {
-  type: "tool_trigger";
-  /** AI 响应的 tool_call.id */
+export interface SenseTriggerChunk {
+  type: "sense_trigger";
+  /** AI 响应的 sense_call.id */
   id: string;
-  /** 工具名称 */
+  /** 感官名称 */
   name: string;
-  /** 工具参数 JSON */
+  /** 感官参数 JSON */
   arguments: string;
   /** 监管等级 */
   supervisionLevel: SupervisionLevel;
-  /** 审批结果（confirm/manual 时使用，外部设置） */
-  approval?: { action: "accept" | "reject"; reason?: string };
+  /** 审批 resolve 函数（confirm/manual 时使用，service 层调用） */
+  approvalResolve?: ((action: "accept" | "reject", reason?: string) => void) | null;
 }
 
 /**
- * 工具完成
- * id 与 tool_trigger.id 一致
+ * 感官完成
+ * id 与 sense_trigger.id 一致
  */
-export interface ToolCompleteChunk {
-  type: "tool_complete";
-  /** 与 tool_trigger.id 一致 */
+export interface SenseCompleteChunk {
+  type: "sense_complete";
+  /** 与 sense_trigger.id 一致 */
   id: string;
-  /** 工具名称 */
+  /** 感官名称 */
   name: string;
   /** 执行结果 */
   result: string;
@@ -237,8 +237,8 @@ export interface ErrorChunk {
  */
 export type MiddlewareChunk =
   | StreamChunk
-  | ToolTriggerChunk
-  | ToolCompleteChunk
+  | SenseTriggerChunk
+  | SenseCompleteChunk
   | StagedChunk
   | ConsumedChunk
   | DoneChunk
@@ -269,6 +269,6 @@ export interface LLMAdapter<
   TResponse = unknown,
   TStreamChunk = unknown
 > {
-  chat(messages: TMessages, tools: ToolFunction[], options?: Record<string, unknown>): Promise<TResponse>;
-  chatStream(messages: TMessages, tools: ToolFunction[], options?: Record<string, unknown>): Promise<AsyncIterable<TStreamChunk>>;
+  chat(messages: TMessages, senses: SenseFunction[], options?: Record<string, unknown>): Promise<TResponse>;
+  chatStream(messages: TMessages, senses: SenseFunction[], options?: Record<string, unknown>): Promise<AsyncIterable<TStreamChunk>>;
 }

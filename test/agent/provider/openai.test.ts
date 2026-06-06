@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { registerOpenAIAdapter } from "@/agent/provider/openai";
 import { getLLMAdapter } from "@/core/llm/adapter";
 import { getMessageAdapter } from "@/core/message/adapter";
-import { getToolAdapter } from "@/core/tool/adapter";
+import { getSenseAdapter } from "@/core/sense/adapter";
 import type { LLMResponse } from "@/core/message";
-import type { Tool, ToolFunction } from "@/core/tool";
+import type { Tool, ToolFunction } from "@/core/sense";
 import type { ZodType } from "zod";
 
 // Mock OpenAI SDK
@@ -82,11 +82,11 @@ describe("OpenAI Provider", () => {
 
       const llmAdapter = getLLMAdapter("openai");
       const messageAdapter = getMessageAdapter("openai");
-      const toolAdapter = getToolAdapter("openai");
+      const senseAdapter = getSenseAdapter("openai");
 
       expect(llmAdapter).toBeDefined();
       expect(messageAdapter).toBeDefined();
-      expect(toolAdapter).toBeDefined();
+      expect(senseAdapter).toBeDefined();
     });
 
     it("should not register twice", () => {
@@ -112,11 +112,11 @@ describe("OpenAI Provider", () => {
     it("should have valid tool adapter config", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
       expect(config).toBeDefined();
       expect(config?.buildTools).toBeDefined();
-      expect(config?.extractToolCalls).toBeDefined();
-      expect(config?.assembleToolCallChunks).toBeDefined();
+      expect(config?.extractSenseCalls).toBeDefined();
+      expect(config?.assembleSenseCallChunks).toBeDefined();
     });
 
     it("should have valid LLM adapter", () => {
@@ -223,7 +223,7 @@ describe("OpenAI Provider", () => {
       expect((messages as { role: string; tool_call_id?: string }[])[0]?.tool_call_id).toBe("tc-1");
     });
 
-    it("should build messages for assistant with toolCalls", () => {
+    it("should build messages for assistant with senseCalls", () => {
       registerOpenAIAdapter();
 
       const config = getMessageAdapter("openai");
@@ -232,7 +232,7 @@ describe("OpenAI Provider", () => {
           id: "1",
           role: "assistant",
           content: "",
-          toolCalls: [{ tid: "tc-1", name: "test_tool", arguments: "{}" }],
+          senseCalls: [{ tid: "tc-1", name: "test_tool", arguments: "{}" }],
           createdAt: 0,
           updateAt: 0,
           raw: null,
@@ -322,7 +322,7 @@ describe("OpenAI Provider", () => {
     it("should build tools from definitions", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
       const tools = [
         {
           definition: {
@@ -337,18 +337,18 @@ describe("OpenAI Provider", () => {
         },
       ] as unknown as Tool<ZodType>[];
 
-      const builtTools = config?.buildTools(tools);
-      expect(builtTools?.[0]?.type).toBe("function");
-      expect(builtTools?.[0]?.function?.name).toBe("test_tool");
+      const builtSenses = config?.buildTools(tools);
+      expect(builtSenses?.[0]?.type).toBe("function");
+      expect(builtSenses?.[0]?.function?.name).toBe("test_tool");
     });
 
     it("should build tool call message", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
-      const toolCalls = [{ tid: "tc-1", name: "test_tool", arguments: "{}" }];
+      const config = getSenseAdapter("openai");
+      const senseCalls = [{ tid: "tc-1", name: "test_tool", arguments: "{}" }];
 
-      const message = config?.buildToolCallMessage?.("content", toolCalls) as { role: string; tool_calls?: unknown };
+      const message = config?.buildSenseCallMessage?.("content", senseCalls) as { role: string; tool_calls?: unknown };
       expect(message?.role).toBe("assistant");
       expect(message?.tool_calls).toBeDefined();
     });
@@ -356,7 +356,7 @@ describe("OpenAI Provider", () => {
     it("should build tool response message", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
 
       const message = config?.buildToolResponseMessage?.("tc-1", "result") as { role: string; tool_call_id?: string };
       expect(message?.role).toBe("tool");
@@ -366,7 +366,7 @@ describe("OpenAI Provider", () => {
     it("should extract tool calls with id", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
       const response = {
         choices: [
           {
@@ -379,15 +379,15 @@ describe("OpenAI Provider", () => {
         ],
       };
 
-      const toolCalls = config?.extractToolCalls(response);
-      expect(toolCalls?.[0]?.tid).toBe("tc-1");
-      expect(toolCalls?.[0]?.name).toBe("test_tool");
+      const senseCalls = config?.extractSenseCalls(response);
+      expect(senseCalls?.[0]?.tid).toBe("tc-1");
+      expect(senseCalls?.[0]?.name).toBe("test_tool");
     });
 
     it("should generate tool id when missing", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
       const response = {
         choices: [
           {
@@ -400,26 +400,26 @@ describe("OpenAI Provider", () => {
         ],
       };
 
-      const toolCalls = config?.extractToolCalls(response);
-      expect(toolCalls?.[0]?.tid).toBe("tool-0");
+      const senseCalls = config?.extractSenseCalls(response);
+      expect(senseCalls?.[0]?.tid).toBe("tool-0");
     });
 
     it("should handle empty tool calls", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
       const response = {
         choices: [{ message: {} }],
       };
 
-      const toolCalls = config?.extractToolCalls(response);
-      expect(toolCalls?.length).toBe(0);
+      const senseCalls = config?.extractSenseCalls(response);
+      expect(senseCalls?.length).toBe(0);
     });
 
     it("should assemble tool call chunks", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
       const chunks = [
         {
           choices: [
@@ -445,7 +445,7 @@ describe("OpenAI Provider", () => {
         },
       ];
 
-      const assembled = config?.assembleToolCallChunks(chunks) as { choices?: Array<{ message?: { tool_calls?: Array<{ id?: string; function?: { arguments?: string } }> } }> };
+      const assembled = config?.assembleSenseCallChunks(chunks) as { choices?: Array<{ message?: { tool_calls?: Array<{ id?: string; function?: { arguments?: string } }> } }> };
       expect(assembled?.choices?.[0]?.message?.tool_calls?.[0]?.id).toBe("tc-1");
       expect(assembled?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments).toBe('{"a":"b"}');
     });
@@ -453,7 +453,7 @@ describe("OpenAI Provider", () => {
     it("should assemble multiple tool calls by index", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
+      const config = getSenseAdapter("openai");
       const chunks = [
         {
           choices: [
@@ -469,15 +469,15 @@ describe("OpenAI Provider", () => {
         },
       ];
 
-      const assembled = config?.assembleToolCallChunks(chunks) as { choices?: Array<{ message?: { tool_calls?: unknown[] } }> };
+      const assembled = config?.assembleSenseCallChunks(chunks) as { choices?: Array<{ message?: { tool_calls?: unknown[] } }> };
       expect(assembled?.choices?.[0]?.message?.tool_calls?.length).toBe(2);
     });
 
     it("should handle empty chunks", () => {
       registerOpenAIAdapter();
 
-      const config = getToolAdapter("openai");
-      const assembled = config?.assembleToolCallChunks([]) as { choices?: Array<{ message?: { tool_calls?: unknown[] } }> };
+      const config = getSenseAdapter("openai");
+      const assembled = config?.assembleSenseCallChunks([]) as { choices?: Array<{ message?: { tool_calls?: unknown[] } }> };
       expect(assembled?.choices?.[0]?.message?.tool_calls?.length).toBe(0);
     });
   });
@@ -488,7 +488,7 @@ describe("OpenAI Provider", () => {
 
       const adapter = getLLMAdapter("openai");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { model: "gpt-4", url: "https://api.openai.com/v1", key: "test-key" };
 
       const result = await adapter?.chat(messages, tools, options);
@@ -501,7 +501,7 @@ describe("OpenAI Provider", () => {
 
       const adapter = getLLMAdapter("openai");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { url: "https://api.openai.com/v1" };
 
       await expect(adapter?.chat(messages, tools, options)).rejects.toThrow(
@@ -514,7 +514,7 @@ describe("OpenAI Provider", () => {
 
       const adapter = getLLMAdapter("openai");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { model: "gpt-4" };
 
       await expect(adapter?.chat(messages, tools, options)).rejects.toThrow(
@@ -527,7 +527,7 @@ describe("OpenAI Provider", () => {
 
       const adapter = getLLMAdapter("openai");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { model: "gpt-4", url: "https://api.openai.com/v1", key: "test-key" };
 
       const stream = await adapter?.chatStream(messages, tools, options);
@@ -548,7 +548,7 @@ describe("OpenAI Provider", () => {
 
       const adapter = getLLMAdapter("openai");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { url: "https://api.openai.com/v1" };
 
       await expect(adapter?.chatStream(messages, tools, options)).rejects.toThrow(
@@ -561,7 +561,7 @@ describe("OpenAI Provider", () => {
 
       const adapter = getLLMAdapter("openai");
       const messages = [{ role: "user", content: "Hello" }];
-      const tools: ToolFunction[] = [];
+      const senses: ToolFunction[] = [];
       const options = { model: "gpt-4", url: "https://api.openai.com/v1", thinking: true };
 
       const result = await adapter?.chat(messages, tools, options);

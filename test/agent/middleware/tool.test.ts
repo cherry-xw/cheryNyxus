@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   toolMiddleware,
-  executeSingleToolCall,
+  executeSingleSenseCall,
   type ToolChunk,
 } from "@/agent/middleware/tool";
 import { SupervisionLevel } from "@/core/config";
 
-import type { MiddlewareContext, ToolCallAccumulator } from "@/core/middleware/types";
-import type { ToolManager } from "@/core/tool/index";
+import type { MiddlewareContext, SenseCallAccumulator } from "@/core/middleware/types";
+import type { SenseManager } from "@/core/sense/index";
 
 // Mock interruptRepo for polling mechanism
 const mockInterruptRepo = vi.hoisted(() => ({
@@ -26,25 +26,25 @@ vi.mock("@/service/agent/interrupt.js", () => ({
   },
 }));
 
-function createMockToolManager(): ToolManager {
+function createMockSenseManager(): SenseManager {
   return {
     add: vi.fn(),
     get: vi.fn(),
     execute: vi.fn(async () => ({ content: "tool result", hash: "test-hash" })),
-    tools: new Map(),
-  } as unknown as ToolManager;
+    senses: new Map(),
+  } as unknown as SenseManager;
 }
 
 function createMockContext(): MiddlewareContext {
-  const toolManager = createMockToolManager();
+  const senseManager = createMockSenseManager();
   return {
     session: {
       sessionId: "test-session",
       threadId: "test-thread",
       hashCheck: new Map(),
-      toolSharedData: new Map(),
+      senseSharedData: new Map(),
       userInputs: [],
-      builtTools: [],
+      builtSenses: [],
     },
     global: {
       thinking: false,
@@ -56,7 +56,7 @@ function createMockContext(): MiddlewareContext {
       model: "test-model",
       provider: "test",
       url: "http://localhost",
-      tool_group: "test",
+      sense_group: "test",
     },
     adapters: {} as any,
     process: {
@@ -67,15 +67,15 @@ function createMockContext(): MiddlewareContext {
       toolCallAccumulated: new Map(),
       pendingInputs: [],
     },
-    tools: { toolManager },
+    senses: { senseManager },
   };
 }
 
-function createToolCall(
+function createSenseCall(
   tid: string,
   name: string,
   args: string = "{}",
-): ToolCallAccumulator {
+): SenseCallAccumulator {
   return {
     tid,
     name,
@@ -110,9 +110,9 @@ describe("toolMiddleware", () => {
     });
   });
 
-  describe("ToolCallAccumulator", () => {
+  describe("SenseCallAccumulator", () => {
     it("should have required properties", () => {
-      const accumulator = createToolCall("tool-0", "test_tool");
+      const accumulator = createSenseCall("tool-0", "test_tool");
 
       expect(accumulator.tid).toBeDefined();
       expect(accumulator.name).toBeDefined();
@@ -137,7 +137,7 @@ describe("toolMiddleware", () => {
   });
 
   describe("middleware execution", () => {
-    it("should pass through when no toolCalls", async () => {
+    it("should pass through when no senseCalls", async () => {
       const ctx = createMockContext();
       const next = vi.fn(async function* () {
         yield { type: "test" };
@@ -157,9 +157,9 @@ describe("toolMiddleware", () => {
       const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
-        createToolCall("tc-1", "unknown_tool"),
+        createSenseCall("tc-1", "unknown_tool"),
       );
-      ctx.tools.toolManager.get = vi.fn(() => undefined);
+      ctx.senses.senseManager.get = vi.fn(() => undefined);
 
       const next = vi.fn(async function* () {
         yield { type: "test" };
@@ -179,9 +179,9 @@ describe("toolMiddleware", () => {
       const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
-        createToolCall("tc-1", "test_tool"),
+        createSenseCall("tc-1", "test_tool"),
       );
-      ctx.tools.toolManager.get = vi.fn(() => ({
+      ctx.senses.senseManager.get = vi.fn(() => ({
         ...mockToolBase,
         supervisionLevel: SupervisionLevel.auto,
       }));
@@ -195,7 +195,7 @@ describe("toolMiddleware", () => {
         // consume
       }
 
-      expect(ctx.tools.toolManager.execute).toHaveBeenCalled();
+      expect(ctx.senses.senseManager.execute).toHaveBeenCalled();
     });
 
     it("should yield interrupt when tool supervisionLevel is confirm", async () => {
@@ -208,9 +208,9 @@ describe("toolMiddleware", () => {
       const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
-        createToolCall("tc-1", "test_tool"),
+        createSenseCall("tc-1", "test_tool"),
       );
-      ctx.tools.toolManager.get = vi.fn(() => ({
+      ctx.senses.senseManager.get = vi.fn(() => ({
         ...mockToolBase,
         supervisionLevel: SupervisionLevel.confirm,
       }));
@@ -244,15 +244,15 @@ describe("toolMiddleware", () => {
 
       ctx.process.toolCallAccumulated.set(
         "tc-auto",
-        createToolCall("tc-auto", "auto_tool"),
+        createSenseCall("tc-auto", "auto_tool"),
       );
 
       ctx.process.toolCallAccumulated.set(
         "tc-confirm",
-        createToolCall("tc-confirm", "confirm_tool"),
+        createSenseCall("tc-confirm", "confirm_tool"),
       );
 
-      ctx.tools.toolManager.get = vi.fn((name: string) => {
+      ctx.senses.senseManager.get = vi.fn((name: string) => {
         if (name === "auto_tool") {
           return { ...mockToolBase, supervisionLevel: SupervisionLevel.auto };
         }
@@ -288,9 +288,9 @@ describe("toolMiddleware", () => {
       const ctx = createMockContext();
       ctx.process.toolCallAccumulated.set(
         "tc-1",
-        createToolCall("tc-1", "test_tool", '{"arg": "value"}'),
+        createSenseCall("tc-1", "test_tool", '{"arg": "value"}'),
       );
-      ctx.tools.toolManager.get = vi.fn(() => ({
+      ctx.senses.senseManager.get = vi.fn(() => ({
         ...mockToolBase,
         supervisionLevel: SupervisionLevel.confirm,
       }));
@@ -304,7 +304,7 @@ describe("toolMiddleware", () => {
         // consume - polling will detect acknowledged status
       }
 
-      expect(ctx.tools.toolManager.execute).toHaveBeenCalled();
+      expect(ctx.senses.senseManager.execute).toHaveBeenCalled();
       const toolMessages = ctx.process.history.filter((m) => m.role === "tool");
       expect(toolMessages.length).toBeGreaterThan(0);
     });
@@ -316,9 +316,9 @@ describe("toolMiddleware", () => {
       });
 
       const ctx = createMockContext();
-      const tc = createToolCall("tc-1", "test_tool");
+      const tc = createSenseCall("tc-1", "test_tool");
       ctx.process.toolCallAccumulated.set("tc-1", tc);
-      ctx.tools.toolManager.get = vi.fn(() => ({
+      ctx.senses.senseManager.get = vi.fn(() => ({
         ...mockToolBase,
         supervisionLevel: SupervisionLevel.confirm,
       }));
@@ -337,15 +337,15 @@ describe("toolMiddleware", () => {
   });
 });
 
-describe("executeSingleToolCall", () => {
+describe("executeSingleSenseCall", () => {
   it("should return tool result on success", async () => {
     const ctx = createMockContext();
-    ctx.tools.toolManager.execute = vi.fn(async () => ({
+    ctx.senses.senseManager.execute = vi.fn(async () => ({
       content: "success result",
       hash: "hash-123",
     }));
 
-    const result = await executeSingleToolCall(ctx, "tc-1", "test_tool", {
+    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {
       arg: "value",
     });
 
@@ -358,12 +358,12 @@ describe("executeSingleToolCall", () => {
   it("should skip duplicate hash", async () => {
     const ctx = createMockContext();
     ctx.session.hashCheck.set("hash-123", "previous_tool");
-    ctx.tools.toolManager.execute = vi.fn(async () => ({
+    ctx.senses.senseManager.execute = vi.fn(async () => ({
       content: "result",
       hash: "hash-123",
     }));
 
-    const result = await executeSingleToolCall(ctx, "tc-1", "test_tool", {});
+    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
 
     expect(result.result).toContain("已跳过");
     expect(result.result).toContain("重复调用");
@@ -371,11 +371,11 @@ describe("executeSingleToolCall", () => {
 
   it("should handle execution error", async () => {
     const ctx = createMockContext();
-    ctx.tools.toolManager.execute = vi.fn(async () => {
+    ctx.senses.senseManager.execute = vi.fn(async () => {
       throw new Error("execution failed");
     });
 
-    const result = await executeSingleToolCall(ctx, "tc-1", "test_tool", {});
+    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
 
     expect(result.result).toContain("Tool execution failed");
     expect(result.result).toContain("execution failed");
@@ -383,12 +383,12 @@ describe("executeSingleToolCall", () => {
 
   it("should skip hash check when hash is empty", async () => {
     const ctx = createMockContext();
-    ctx.tools.toolManager.execute = vi.fn(async () => ({
+    ctx.senses.senseManager.execute = vi.fn(async () => ({
       content: "result",
       hash: "",
     }));
 
-    const result = await executeSingleToolCall(ctx, "tc-1", "test_tool", {});
+    const result = await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
 
     expect(result.result).toBe("result");
     expect(ctx.session.hashCheck.size).toBe(0);
@@ -396,12 +396,12 @@ describe("executeSingleToolCall", () => {
 
   it("should store hash after successful execution", async () => {
     const ctx = createMockContext();
-    ctx.tools.toolManager.execute = vi.fn(async () => ({
+    ctx.senses.senseManager.execute = vi.fn(async () => ({
       content: "result",
       hash: "hash-123",
     }));
 
-    await executeSingleToolCall(ctx, "tc-1", "test_tool", {});
+    await executeSingleSenseCall(ctx, "tc-1", "test_tool", {});
 
     expect(ctx.session.hashCheck.has("hash-123")).toBe(true);
   });

@@ -8,9 +8,9 @@ import { CheckpointState } from "./checkpointState.js";
  * 职责：
  * 1. 处理 userInputs → messages（在 next() 调用前）
  * 2. 接收所有 chunk，归纳状态
- * 3. 收集 toolDelta，合并后 yield tool_trigger
- * 4. 构建 messages 放到 ctx.session
- * 5. 管理 pendingTools
+ * 3. 收集 senseDelta，合并后 yield sense_trigger
+ * 4. 构建 messages 放到 ctx.soul
+ * 5. 管理 pendingSenses
  * 6. 持久化关键状态
  * 7. yield consumed notification
  * 8. 边界检测：思考结束时 yield staged(thinking)，正文结束后 yield staged(content)
@@ -20,11 +20,11 @@ export async function* checkpointMiddleware(
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // === 先处理 userInputs：转为 messages（在 next() 调用前）===
-  const userInputs = ctx.session.userInputs;
+  const userInputs = ctx.soul.userInputs;
   let consumedCount = 0;  // 追踪消费的用户输入数量
 
   if (userInputs.length > 0) {
-    const messages = ctx.session.messages ?? [];
+    const messages = ctx.soul.messages ?? [];
     for (const input of userInputs) {
       messages.push({
         id: randomUUID(),
@@ -35,7 +35,7 @@ export async function* checkpointMiddleware(
       });
       consumedCount++;
     }
-    ctx.session.messages = messages;
+    ctx.soul.messages = messages;
     // 清空 userInputs（避免重复处理）
     userInputs.length = 0;
 
@@ -98,19 +98,19 @@ export async function* checkpointMiddleware(
     } as MiddlewareChunk;
   }
 
-  // === 追加 assistant 响应和 tool 结果到 messages ===
+  // === 追加 assistant 响应和 sense 结果到 messages ===
   state.appendResponseMessages(ctx);
 
   // === 持久化 checkpoint ===
   await checkpointRepo.create({
     id: randomUUID(),
-    sessionId: ctx.session.sessionId,
-    threadId: ctx.session.threadId,
+    soulId: ctx.soul.soulId,
+    chatId: ctx.soul.chatId,
     phase: "complete",
-    pendingTools: JSON.stringify(state.getPendingToolsArray()),
+    pendingSenses: JSON.stringify(state.getPendingSensesArray()),
     thinkingAccumulated: state.getThinking(),
     contentAccumulated: state.getContent(),
-    messages: JSON.stringify(ctx.session.messages),
+    messages: JSON.stringify(ctx.soul.messages),
     createdAt: Date.now(),
   });
 

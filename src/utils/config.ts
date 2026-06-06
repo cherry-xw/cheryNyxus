@@ -23,10 +23,10 @@ if (fs.existsSync(rootEnvPath)) {
 export { SupervisionLevel } from "@/core/config";
 
 /**
- * LLM Client 配置基础类型
+ * Brain 配置基础类型
  * 各 Provider 可扩展具体配置结构
  */
-interface AIServerConfig {
+interface BrainConfig {
   url: string;
   model: string;
   key?: string;
@@ -34,20 +34,20 @@ interface AIServerConfig {
   thinking?: boolean;
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string;
-  /** 使用哪个tool group（支持单个或多个工具组） */
-  tool_group?: string | string[];
+  /** 使用哪个 sense group（支持单个或多个感官组） */
+  sense_group?: string | string[];
 }
 
 interface LLMConfig {
-  brain: Record<string, AIServerConfig>;
+  brain: Record<string, BrainConfig>;
 }
 
 /**
- * Tool Group 配置
+ * Sense Group 配置
  */
-interface ToolGroupConfig {
-  tools: string[]; // 包含的tool名称列表
-  supervision?: SupervisionLevel; // 组级别监管等级，设置后强制覆盖组内所有工具自身声明
+interface SenseGroupConfig {
+  senses: string[]; // 包含的sense名称列表
+  supervision?: SupervisionLevel; // 组级别监管等级，设置后强制覆盖组内所有感官自身声明
 }
 
 /**
@@ -67,7 +67,7 @@ interface GlobalConfig {
   thinking: boolean; // 是否开启思考模式（如果能思考）
   supervision: SupervisionLevel; // 全局默认的监管等级
   stream: boolean; // 是否开启流式输出
-  tool_execute_timeout?: number; // 工具执行超时时间（毫秒）
+  sense_execute_timeout?: number; // 感官执行超时时间（毫秒）
   maxLoopCount?: number; // loop 最大执行次数（默认 30）
   bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig; // 文件压缩配置
@@ -78,14 +78,14 @@ interface GlobalConfig {
  */
 interface ExtendedGlobalConfig extends GlobalConfig {
   skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
-  tools_dir: string; // 自动补全：chery_dir + "/.chery/tools"
+  senses_dir: string; // 自动补全：chery_dir + "/.chery/senses"
   system_prompt: string; // 自动补全：chery_dir + "/.chery/system.md"
 }
 
 interface Config {
   global: ExtendedGlobalConfig;
   llm: LLMConfig;
-  tool_groups?: Record<string, ToolGroupConfig>; // tool分组配置
+  sense_groups?: Record<string, SenseGroupConfig>; // sense分组配置
 }
 
 const missingEnvVars: string[] = [];
@@ -145,9 +145,9 @@ function loadConfig(): Config {
     ];
   }
 
-  // tool_groups 内的 supervision 同样转枚举
-  if (config.tool_groups) {
-    for (const group of Object.values(config.tool_groups)) {
+  // sense_groups 内的 supervision 同样转枚举
+  if (config.sense_groups) {
+    for (const group of Object.values(config.sense_groups)) {
       if (typeof group.supervision === "string") {
         group.supervision = SupervisionLevel[
           group.supervision as keyof typeof SupervisionLevel
@@ -158,7 +158,7 @@ function loadConfig(): Config {
 
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
-  config.global.tools_dir = path.join(cheryDir, ".chery", "tools");
+  config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
   config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
 
   // 添加环境变量缺失警告
@@ -176,5 +176,5 @@ function loadConfig(): Config {
 const config = loadConfig();
 // console.log(JSON.stringify(config));
 
-export type { Config, LLMConfig, AIServerConfig, ToolGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig };
+export type { Config, LLMConfig, BrainConfig, SenseGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig };
 export default config;

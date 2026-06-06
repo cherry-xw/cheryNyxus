@@ -47,67 +47,154 @@ export interface Notification {
 }
 
 export type NotificationType =
-  | "interrupt"    // 工具中断（待审批）
-  | "complete"     // 工具执行结果
+  | "interrupt"    // 感官审批请求
+  | "complete"     // 感官执行结果
   | "consumed"     // 消息已消费
+  | "loaded"       // 历史对话已载入
   | "done"         // 执行完成
   | "error";       // 错误
 
 // ========== Request Data ==========
 
 export type RequestData =
-  | ExecuteRequestData
-  | ApprovalRequestData
-  | ThreadRequestData
-  | ToolRequestData;
+  | SoulCreateRequestData
+  | SoulDeleteRequestData
+  | SoulLoadRequestData
+  | ChatListRequestData
+  | ChatGetRequestData
+  | ChatDeleteRequestData
+  | ChatSendRequestData
+  | SenseApprovalRequestData;
 
-export interface ExecuteRequestData {
-  sessionId: string;
-  threadId?: string;
+export interface SoulCreateRequestData {
+  brain: string;
+  soulId?: string;
+}
+
+export interface SoulDeleteRequestData {
+  soulId: string;
+}
+
+export interface SoulLoadRequestData {
+  soulId: string;
+}
+
+export interface ChatListRequestData {
+  soulId: string;
+}
+
+export interface ChatGetRequestData {
+  chatId: string;
+}
+
+export interface ChatDeleteRequestData {
+  chatId: string;
+}
+
+export interface ChatSendRequestData {
+  soulId: string;
+  chatId?: string;
   prompt: string;
 }
 
-export interface ApprovalRequestData {
-  sessionId: string;
-  interruptId: string;
+export interface SenseApprovalRequestData {
+  soulId: string;
+  approvalId: string;
   action: "accept" | "reject";
   reason?: string;
-}
-
-export interface ThreadRequestData {
-  sessionId?: string;
-  threadId?: string;
-}
-
-export interface ToolRequestData {
-  name?: string;
 }
 
 // ========== Response Data ==========
 
 export type ResponseData =
-  | ExecuteResponseData
-  | ApprovalResponseData
-  | ThreadResponseData
-  | PendingResponseData;
+  | SoulCreateResponseData
+  | SoulDeleteResponseData
+  | SoulListResponseData
+  | SoulLoadResponseData
+  | ChatListResponseData
+  | ChatGetResponseData
+  | ChatDeleteResponseData
+  | ChatSendResponseData
+  | SenseApprovalResponseData;
 
-export interface ExecuteResponseData {
-  threadId: string;
+export interface SoulCreateResponseData {
+  soulId: string;
+  config: {
+    provider: string;
+    model: string;
+    sense_group?: string | string[];
+  };
+  createdAt: number;
 }
 
-export interface ApprovalResponseData {
-  interruptId: string;
+export interface SoulDeleteResponseData {
+  soulId: string;
+}
+
+export interface SoulListResponseData {
+  souls: Array<{
+    soulId: string;
+    config: {
+      provider: string;
+      model: string;
+      sense_group?: string | string[];
+    };
+    createdAt: number;
+  }>;
+}
+
+export interface SoulLoadResponseData {
+  soulId: string;
+  config: {
+    provider: string;
+    model: string;
+    sense_group?: string | string[];
+  };
+  createdAt: number;
+  chats: Array<{
+    chatId: string;
+    createdAt: number;
+    updatedAt: number;
+    messageCount: number;
+  }>;
+  pendingApprovals: Array<{
+    approvalId: string;
+    chatId: string;
+    createdAt: number;
+    senseCalls: Array<{
+      id: string;
+      name: string;
+      arguments: string;
+      approved: boolean;
+      triggeredAt: number;
+    }>;
+  }>;
+}
+
+export interface ChatListResponseData {
+  chats: Array<{
+    chatId: string;
+    createdAt: number;
+    updatedAt: number;
+    messageCount: number;
+  }>;
+}
+
+export interface ChatGetResponseData {
+  chatId: string;
+}
+
+export interface ChatDeleteResponseData {
+  chatId: string;
+}
+
+export interface ChatSendResponseData {
+  chatId: string;
+}
+
+export interface SenseApprovalResponseData {
+  approvalId: string;
   action: string;
-  result?: string;
-}
-
-export interface ThreadResponseData {
-  threadId?: string;
-  messages?: unknown[];
-}
-
-export interface PendingResponseData {
-  messages: Array<{ content: string; time: number }>;
 }
 
 // ========== Chunk Data ==========
@@ -117,10 +204,10 @@ export type ChunkData = StreamChunkData | StagedChunkData;
 export interface StreamChunkData {
   thinking?: string;
   content?: string;
-  toolCall?: ToolCallDelta[];
+  senseCall?: SenseCallDelta[];
 }
 
-export interface ToolCallDelta {
+export interface SenseCallDelta {
   index?: number;
   id?: string;
   name?: string;
@@ -128,9 +215,11 @@ export interface ToolCallDelta {
 }
 
 export interface StagedChunkData {
-  type: "thinking_end" | "content_end" | "tool_trigger";
+  type: "thinking_end" | "content_end" | "sense_trigger";
   thinking?: string;
   content?: string;
+  senseName?: string;
+  arguments?: string;
 }
 
 // ========== Notification Data ==========
@@ -143,15 +232,15 @@ export type NotificationData =
   | null;
 
 export interface InterruptNotificationData {
-  interruptId: string;
-  toolName: string;
+  approvalId: string;
+  senseName: string;
   arguments: string;
   supervisionLevel: SupervisionLevel;
 }
 
 export interface CompleteNotificationData {
-  interruptId: string;
-  toolName: string;
+  approvalId: string;
+  senseName: string;
   result: string;
 }
 
@@ -173,33 +262,28 @@ export interface RpcError {
 // ========== 方法常量 ==========
 
 export const Method = {
-  // Agent 管理
-  AGENT_CREATE: "agent.create",
-  AGENT_DELETE: "agent.delete",
-  AGENT_LIST: "agent.list",
-  AGENT_SESSION: "agent.session",
+  // Soul 管理
+  SOUL_CREATE: "soul.create",
+  SOUL_DELETE: "soul.delete",
+  SOUL_LIST: "soul.list",
+  SOUL_LOAD: "soul.load",
 
-  // Agent 执行
-  AGENT_EXECUTE: "agent.execute",
+  // Chat 管理
+  CHAT_LIST: "chat.list",
+  CHAT_GET: "chat.get",
+  CHAT_DELETE: "chat.delete",
+  CHAT_SEND: "chat.send",
 
-  // Tool 审批
-  APPROVAL_TOOL: "agent.approval_tool",
+  // Sense 审批
+  SENSE_APPROVAL: "sense.approval",
 
-  // Thread 管理
-  THREAD_CREATE: "thread.create",
-  THREAD_GET: "thread.get",
-  THREAD_HISTORY: "thread.history",
-  THREAD_DELETE: "thread.delete",
-  THREAD_LIST: "thread.list",
-  THREAD_CLEAR: "thread.clear",
+  // Approval 管理
+  APPROVAL_LIST: "approval.list",
+  APPROVAL_RESUME: "approval.resume",
 
-  // Tool 管理
-  TOOL_COMPILE: "tool.compile",
-  TOOL_LIST: "tool.list",
-
-  // Interrupt
-  INTERRUPT_LIST: "interrupt.list",
-  INTERRUPT_RESUME: "interrupt.resume",
+  // Sense 管理
+  SENSE_COMPILE: "sense.compile",
+  SENSE_LIST: "sense.list",
 } as const;
 
 // ========== 错误码常量 ==========

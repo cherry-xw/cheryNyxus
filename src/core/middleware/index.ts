@@ -1,8 +1,8 @@
 import { compose } from "./compose";
 import type { MiddlewareContext, AdaptersGroup, MiddlewareHandler, LoopHandler } from "./types";
 import type { LLMResponse } from "../message/index";
-import type { ToolManager, ToolFunction } from "../tool/index";
-import type { GlobalConfig, AIServerConfig } from "@/utils/config";
+import type { SenseManager, SenseFunction } from "../sense/index";
+import type { GlobalConfig, BrainConfig } from "@/utils/config";
 import buildFirstSystemPrompt from "../prompt/index";
 import { v4 as uuid } from "uuid";
 
@@ -11,53 +11,53 @@ export type { MiddlewareHandler, LoopHandler };
 
 /**
  * Middleware 实例 - 封装请求处理逻辑
- * 职责：链执行、loopHandler 委托、线程生命周期管理
+ * 职责：链执行、loopHandler 委托、聊天生命周期管理
  * 泛型参数 T 表示 yield 的 chunk 类型
  */
 export default class Middleware<T = unknown> {
-  /** 线程上下文映射 */
-  readonly threadMap = new Map<string, MiddlewareContext>();
+  /** 聊天上下文映射 */
+  readonly chatMap = new Map<string, MiddlewareContext>();
   /** 活跃的会话迭代器 */
   private activeGenerators = new Map<string, AsyncGenerator<T, void, unknown>>();
   middlewareChain: ReturnType<typeof compose<T>>;
   private loopHandler?: LoopHandler<T>;
 
   constructor(
-    sessionId: string,
+    soulId: string,
     global: GlobalConfig,
-    aiServerConfig: AIServerConfig,
-    toolManager: ToolManager,
+    brainConfig: BrainConfig,
+    senseManager: SenseManager,
     adapters: AdaptersGroup,
     handlers: MiddlewareHandler<T>[],
     loopHandler?: LoopHandler<T>,
-    builtTools?: ToolFunction[],
+    builtSenses?: SenseFunction[],
   ) {
     // 初始化配置
-    this.sessionId = sessionId;
+    this.soulId = soulId;
     this.global = global;
-    this.aiServerConfig = aiServerConfig;
-    this.toolManager = toolManager;
+    this.brainConfig = brainConfig;
+    this.senseManager = senseManager;
     this.adapters = adapters;
-    this.builtTools = builtTools ?? [];
+    this.builtSenses = builtSenses ?? [];
 
     this.middlewareChain = compose(handlers);
     this.loopHandler = loopHandler;
   }
 
   // 配置属性（从构造函数注入）
-  private sessionId: string;
+  private soulId: string;
   private global: GlobalConfig;
-  private aiServerConfig: AIServerConfig;
-  private toolManager: ToolManager;
+  private brainConfig: BrainConfig;
+  private senseManager: SenseManager;
   private adapters: AdaptersGroup;
-  private builtTools: ToolFunction[];
+  private builtSenses: SenseFunction[];
 
   /**
-   * 创建新一轮会话
+   * 创建新一轮聊天
    */
-  createThread(threadId: string): string {
-    if (this.threadMap.has(threadId)) {
-      return threadId;
+  createChat(chatId: string): string {
+    if (this.chatMap.has(chatId)) {
+      return chatId;
     }
 
     const now = Date.now();
@@ -70,30 +70,30 @@ export default class Middleware<T = unknown> {
     };
 
     const ctx: MiddlewareContext = {
-      session: {
-        sessionId: this.sessionId,
-        threadId,
+      soul: {
+        soulId: this.soulId,
+        chatId,
         hashCheck: new Map(),
-        toolSharedData: new Map(),
+        senseSharedData: new Map(),
         userInputs: [],
-        builtTools: this.builtTools,
+        builtSenses: this.builtSenses,
         messages: [systemMessage],
       },
       global: this.global,
-      aiServer: this.aiServerConfig,
+      brain: this.brainConfig,
       adapters: this.adapters,
-      toolManager: this.toolManager,
+      senseManager: this.senseManager,
     };
 
-    this.threadMap.set(threadId, ctx);
-    return threadId;
+    this.chatMap.set(chatId, ctx);
+    return chatId;
   }
 
   /**
-   * 获取线程上下文
+   * 获取聊天上下文
    */
-  getContext(threadId: string): MiddlewareContext | undefined {
-    return this.threadMap.get(threadId);
+  getContext(chatId: string): MiddlewareContext | undefined {
+    return this.chatMap.get(chatId);
   }
 
   /**
@@ -110,20 +110,20 @@ export default class Middleware<T = unknown> {
   /**
    * 发送消息并返回 generator
    */
-  async *send(threadId: string, input: string): AsyncGenerator<T, void, unknown> {
-    const ctx = this.getContext(threadId);
-    if (!ctx) throw new Error("Thread not found");
+  async *send(chatId: string, input: string): AsyncGenerator<T, void, unknown> {
+    const ctx = this.getContext(chatId);
+    if (!ctx) throw new Error("Chat not found");
 
     // 存储用户输入
     if (input.trim()) {
-      ctx.session.userInputs.push({
+      ctx.soul.userInputs.push({
         content: input.trim(),
         time: Date.now(),
       });
     }
 
     // 检查是否有正在运行的 generator
-    const existing = this.activeGenerators.get(threadId);
+    const existing = this.activeGenerators.get(chatId);
     if (existing) {
       yield* existing;
       return;
@@ -133,12 +133,12 @@ export default class Middleware<T = unknown> {
     const generator = this.loopHandler
       ? this.loopHandler(ctx, () => this.runChain(ctx))
       : this.runChain(ctx);
-    this.activeGenerators.set(threadId, generator);
+    this.activeGenerators.set(chatId, generator);
 
     try {
       yield* generator;
     } finally {
-      this.activeGenerators.delete(threadId);
+      this.activeGenerators.delete(chatId);
     }
   }
 }

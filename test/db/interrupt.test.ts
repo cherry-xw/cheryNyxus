@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type Database from "better-sqlite3";
 import { createTestDb, closeTestDb } from "@test/helpers/testDb";
 import type { InterruptEntity, ContextSnapshot } from "@/db/interrupt.js";
-import type { ToolCallAccumulator } from "@/core/middleware/types.js";
+import type { SenseCallAccumulator } from "@/core/middleware/types.js";
 
-function makeToolCall(overrides: Partial<ToolCallAccumulator> = {}): ToolCallAccumulator {
+function makeSenseCall(overrides: Partial<SenseCallAccumulator> = {}): SenseCallAccumulator {
   return {
     tid: "tc-1",
     name: "test_tool",
@@ -22,7 +22,7 @@ function makeEntity(overrides: Partial<InterruptEntity> = {}): InterruptEntity {
     threadId: "thread-1",
     sessionId: "session-1",
     status: "pending",
-    toolCalls: [makeToolCall()],
+    senseCalls: [makeSenseCall()],
     contextSnapshot: null,
     createdAt: now,
     updatedAt: now,
@@ -33,11 +33,11 @@ function makeEntity(overrides: Partial<InterruptEntity> = {}): InterruptEntity {
 function makeContextSnapshot(): ContextSnapshot {
   return {
     history: [
-      { id: "h-1", role: "user", content: "hello", thinking: null, toolCalls: null, createdAt: Date.now() },
+      { id: "h-1", role: "user", content: "hello", thinking: null, senseCalls: null, createdAt: Date.now() },
     ],
-    toolCallAccumulated: [["tc-1", makeToolCall()]],
+    toolCallAccumulated: [["tc-1", makeSenseCall()]],
     pendingInputs: [{ input: "test input", time: Date.now() }],
-    config: { provider: "openai", model: "gpt-4", tool_group: "safe_tools" },
+    config: { provider: "openai", model: "gpt-4", sense_group: "safe_senses" },
   };
 }
 
@@ -82,13 +82,13 @@ describe("db/interrupt", () => {
       expect(found!.id).toBe(entity.id);
     });
 
-    it("should serialize toolCalls to JSON in raw storage", async () => {
-      const toolCalls = [makeToolCall({ tid: "tc-99", name: "my_tool" })];
-      const entity = makeEntity({ toolCalls });
+    it("should serialize senseCalls to JSON in raw storage", async () => {
+      const senseCalls = [makeSenseCall({ tid: "tc-99", name: "my_tool" })];
+      const entity = makeEntity({ senseCalls });
       await repo.create(entity);
 
       const raw = db.prepare("SELECT tool_calls FROM interrupts WHERE id = ?").get(entity.id) as { tool_calls: string };
-      expect(JSON.parse(raw.tool_calls)).toEqual(toolCalls);
+      expect(JSON.parse(raw.tool_calls)).toEqual(senseCalls);
     });
 
     it("should store null contextSnapshot when not provided", async () => {
@@ -102,9 +102,9 @@ describe("db/interrupt", () => {
 
   describe("findById", () => {
     it("should return entity with deserialized fields", async () => {
-      const toolCalls = [makeToolCall({ tid: "tc-a" }), makeToolCall({ tid: "tc-b", name: "other_tool" })];
+      const senseCalls = [makeSenseCall({ tid: "tc-a" }), makeSenseCall({ tid: "tc-b", name: "other_tool" })];
       const snapshot = makeContextSnapshot();
-      const entity = makeEntity({ toolCalls, contextSnapshot: snapshot });
+      const entity = makeEntity({ senseCalls, contextSnapshot: snapshot });
       await repo.create(entity);
 
       const found = await repo.findById(entity.id);
@@ -113,7 +113,7 @@ describe("db/interrupt", () => {
       expect(found!.threadId).toBe(entity.threadId);
       expect(found!.sessionId).toBe(entity.sessionId);
       expect(found!.status).toBe(entity.status);
-      expect(found!.toolCalls).toEqual(toolCalls);
+      expect(found!.senseCalls).toEqual(senseCalls);
       expect(found!.contextSnapshot).toEqual(snapshot);
       expect(found!.createdAt).toBe(entity.createdAt);
       expect(found!.updatedAt).toBe(entity.updatedAt);
@@ -207,9 +207,9 @@ describe("db/interrupt", () => {
 
   describe("full round-trip", () => {
     it("should preserve all fields through create and findById", async () => {
-      const toolCalls = [
-        makeToolCall({ tid: "tc-1", name: "first_tool", arguments: '{"a":1}', approved: true }),
-        makeToolCall({ tid: "tc-2", name: "second_tool", arguments: '{"b":2}', approved: false }),
+      const senseCalls = [
+        makeSenseCall({ tid: "tc-1", name: "first_tool", arguments: '{"a":1}', approved: true }),
+        makeSenseCall({ tid: "tc-2", name: "second_tool", arguments: '{"b":2}', approved: false }),
       ];
       const snapshot = makeContextSnapshot();
       const now = Date.now();
@@ -219,7 +219,7 @@ describe("db/interrupt", () => {
         threadId: "thread-rt",
         sessionId: "session-rt",
         status: "pending",
-        toolCalls,
+        senseCalls,
         contextSnapshot: snapshot,
         createdAt: now,
         updatedAt: now,
@@ -233,7 +233,7 @@ describe("db/interrupt", () => {
       expect(found!.threadId).toBe("thread-rt");
       expect(found!.sessionId).toBe("session-rt");
       expect(found!.status).toBe("pending");
-      expect(found!.toolCalls).toEqual(toolCalls);
+      expect(found!.senseCalls).toEqual(senseCalls);
       expect(found!.contextSnapshot).toEqual(snapshot);
       expect(found!.createdAt).toBe(now);
       expect(found!.updatedAt).toBe(now);

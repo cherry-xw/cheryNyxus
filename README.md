@@ -1,6 +1,19 @@
 # cheryClaw
 
-多 LLM Agent 框架，支持 Ollama、OpenAI 等提供商。核心特性：Tool 调用监管、流式响应、两阶段执行。
+多 LLM Brain 框架，支持 Ollama、OpenAI 等提供商。核心特性：Sense 调用监管、流式响应、两阶段执行。
+
+## 隐喻体系
+
+cheryClaw 采用拟人化隐喻设计：
+
+| 概念 | 隐喻 | 说明 |
+|------|------|------|
+| Brain | 大脑 | AI 服务核心，负责思考决策 |
+| Sense | 感官 | 感知操作，神经手脚，与世界交互 |
+| Soul | 灵魂 | 智能体的独立存在，承载记忆与性格 |
+| Chat | 聊天 | 与灵魂的交互通道，承载消息历史 |
+
+**交互流程：** 创建灵魂 → 载入灵魂 → 列出/创建聊天 → 发送消息 → 触发感官 → 大脑思考
 
 ## 启动指令
 
@@ -9,7 +22,7 @@
 | `yarn dev` | 开发模式，热重载，监听 `ws://localhost:8080` |
 | `yarn build` | 构建产物到 `dist/` |
 | `yarn start` | 运行构建产物 |
-| `yarn compile:tools` | 编译 `.chery/tools/` 下的外部工具 |
+| `yarn compile:senses` | 编译 `.chery/senses/` 下的外部感官 |
 | `yarn test` | 运行测试 |
 
 ## WebSocket 协议
@@ -64,18 +77,20 @@ interface Chunk {
 interface StreamChunkData {
   thinking?: string;       // thinking 增量
   content?: string;        // content 增量
-  toolCall?: ToolCallDelta[];
+  senseCall?: SenseCallDelta[];
 }
 
 interface StagedChunkData {
-  type: "thinking_end" | "content_end" | "tool_trigger";
+  type: "thinking_end" | "content_end" | "sense_trigger";
   thinking?: string;
   content?: string;
+  senseName?: string;
+  arguments?: string;
 }
 
 interface Notification {
   kind: "notification";
-  type: "interrupt" | "complete" | "consumed" | "done" | "error";
+  type: "interrupt" | "complete" | "consumed" | "loaded" | "done" | "error";
   requestId: string;
   data: InterruptData | CompleteData | ConsumedData | null | { message: string };
 }
@@ -83,74 +98,107 @@ interface Notification {
 
 ## 数据格式示例
 
-### 创建 Agent
+### 创建灵魂
 
 ```text
-→ {"id":"1","kind":"request","method":"agent.create","params":{"agent":"ollama"}}
-← {"id":"2","kind":"response","requestId":"1","success":true,"data":{"sessionId":"abc","config":{"provider":"ollama","model":"gemma3:1b"}}}
+→ {"id":"1","kind":"request","method":"soul.create","params":{"brain":"ollama"}}
+← {"id":"2","kind":"response","requestId":"1","success":true,"data":{"soulId":"abc","config":{"provider":"ollama","model":"gemma3:1b"}}}
 ```
 
-### 列出 Agents
+### 列出灵魂
 
 ```text
-→ {"id":"2","kind":"request","method":"agent.list","params":{}}
-← {"id":"3","kind":"response","requestId":"2","success":true,"data":{"sessions":[{"sessionId":"abc","config":{"provider":"ollama","model":"gemma3:1b"},"createdAt":1717700000000}]}}
+→ {"id":"2","kind":"request","method":"soul.list","params":{}}
+← {"id":"3","kind":"response","requestId":"2","success":true,"data":{"souls":[{"soulId":"abc","config":{"provider":"ollama","model":"gemma3:1b"},"createdAt":1717700000000}]}}
 ```
 
-### 获取 Session 详情
+### 载入灵魂
 
 ```text
-→ {"id":"3","kind":"request","method":"agent.session","params":{"sessionId":"abc"}}
-← {"id":"4","kind":"response","requestId":"3","success":true,"data":{"sessionId":"abc","config":{...},"threads":[...],"pendingInterrupts":[...]}}
+→ {"id":"3","kind":"request","method":"soul.load","params":{"soulId":"abc"}}
+← {"id":"4","kind":"response","requestId":"3","success":true,"data":{"soulId":"abc","config":{...},"chats":[...],"pendingApprovals":[...]}}
 ```
 
-### 执行 Agent（流式）
+### 列出聊天
 
 ```text
-→ {"id":"10","kind":"request","method":"agent.execute","params":{"sessionId":"abc","prompt":"你好"}}
+→ {"id":"4","kind":"request","method":"chat.list","params":{"soulId":"abc"}}
+← {"id":"5","kind":"response","requestId":"4","success":true,"data":{"chats":[{"chatId":"chat-1","createdAt":1717700000000,"updatedAt":1717700100000,"messageCount":5}]}}
+```
+
+### 获取聊天详情（载入历史对话）
+
+```text
+→ {"id":"5","kind":"request","method":"chat.get","params":{"chatId":"chat-1"}}
+← {"id":"6","kind":"response","requestId":"5","success":true,"data":{"chatId":"chat-1"}}
+← [binary chunk] type:staged, data:{"type":"thinking_end","thinking":"历史思考内容"}
+← [binary chunk] type:staged, data:{"type":"content_end","content":"历史响应内容"}
+← [binary chunk] type:staged, data:{"type":"sense_trigger","senseName":"...","arguments":"..."}
+← {"kind":"notification","type":"complete","requestId":"chat-1","data":{"approvalId":"...","senseName":"...","result":"..."}}
+← {"kind":"notification","type":"loaded","requestId":"chat-1","data":null}
+```
+
+### 发送聊天消息（流式）
+
+```text
+→ {"id":"10","kind":"request","method":"chat.send","params":{"soulId":"abc","prompt":"你好"}}
 ← [binary chunk] seq:1, data:{"content":"你"}
 ← [binary chunk] seq:2, data:{"content":"好"}
-← {"kind":"notification","type":"done","requestId":"thread-1","data":null}
-← {"kind":"response","requestId":"10","success":true,"data":{"threadId":"thread-1"}}
+← {"kind":"notification","type":"done","requestId":"chat-1","data":null}
+← {"kind":"response","requestId":"10","success":true,"data":{"chatId":"chat-1"}}
 ```
 
-### 工具审批流程（confirm 模式）
+### 感官审批流程（confirm 模式）
 
 ```text
-← {"kind":"notification","type":"interrupt","requestId":"thread-1","data":{"interruptId":"tc-1","toolName":"execute_command","arguments":"{\"command\":\"ls\"}","supervisionLevel":"confirm"}}
-→ {"id":"20","kind":"request","method":"agent.approval_tool","params":{"sessionId":"abc","interruptId":"tc-1","action":"accept"}}
-← {"kind":"response","requestId":"20","success":true,"data":{"interruptId":"tc-1","action":"accept"}}
-← {"kind":"notification","type":"complete","requestId":"thread-1","data":{"interruptId":"tc-1","toolName":"execute_command","result":"file1.txt\nfile2.txt"}}
+← {"kind":"notification","type":"interrupt","requestId":"chat-1","data":{"approvalId":"sc-1","senseName":"execute_command","arguments":"{\"command\":\"ls\"}","supervisionLevel":"confirm"}}
+→ {"id":"20","kind":"request","method":"sense.approval","params":{"soulId":"abc","approvalId":"sc-1","action":"accept"}}
+← {"kind":"response","requestId":"20","success":true,"data":{"approvalId":"sc-1","action":"accept"}}
+← {"kind":"notification","type":"complete","requestId":"chat-1","data":{"approvalId":"sc-1","senseName":"execute_command","result":"file1.txt\nfile2.txt"}}
 ```
 
-### 自动执行工具（auto 模式）
+### 自动执行感官（auto 模式）
 
 ```text
-← [binary chunk] seq:5, requestId:thread-1, data:{"toolCall":[{"index":0,"id":"tc-1","name":"read_file","arguments":"{\"path\":\"test.ts\"}"}]}
-← {"kind":"chunk","type":"staged","requestId":"thread-1","data":{"type":"tool_trigger"}}
-← {"kind":"notification","type":"complete","requestId":"thread-1","data":{"interruptId":"tc-1","toolName":"read_file","result":"文件内容..."}}
+← [binary chunk] seq:5, requestId:chat-1, data:{"senseCall":[{"index":0,"id":"sc-1","name":"read_file","arguments":"{\"path\":\"test.ts\"}"}]}
+← {"kind":"chunk","type":"staged","requestId":"chat-1","data":{"type":"sense_trigger","senseName":"read_file","arguments":"{\"path\":\"test.ts\"}"}}
+← {"kind":"notification","type":"complete","requestId":"chat-1","data":{"approvalId":"sc-1","senseName":"read_file","result":"文件内容..."}}
+```
+
+### 删除聊天
+
+```text
+→ {"id":"20","kind":"request","method":"chat.delete","params":{"chatId":"chat-1"}}
+← {"id":"21","kind":"response","requestId":"20","success":true,"data":{"chatId":"chat-1"}}
+```
+
+### 删除灵魂（需先删除所有 Chat）
+
+```text
+→ {"id":"30","kind":"request","method":"soul.delete","params":{"soulId":"abc"}}
+← {"id":"31","kind":"response","requestId":"30","success":false,"error":{"code":"SOUL_HAS_CHATS","message":"Soul has chats, delete them first"}}
 ```
 
 ### 错误处理
 
 ```text
 ← {"kind":"response","requestId":"1","success":false,"error":{"code":"METHOD_NOT_FOUND","message":"Method \"xxx\" not found"}}
-← {"kind":"notification","type":"error","requestId":"thread-1","data":{"message":"执行出错"}}
+← {"kind":"notification","type":"error","requestId":"chat-1","data":{"message":"执行出错"}}
 ```
 
-错误码：`INTERNAL` | `TIMEOUT` | `METHOD_NOT_FOUND` | `SESSION_NOT_FOUND` | `INTERRUPT_NOT_FOUND` | `INVALID_PARAMS`
+错误码：`INTERNAL` | `TIMEOUT` | `METHOD_NOT_FOUND` | `SOUL_NOT_FOUND` | `APPROVAL_NOT_FOUND` | `INVALID_PARAMS` | `SOUL_HAS_CHATS`
 
 ## 配置文件
 
 | 文件 | 说明 |
 |------|------|
 | `.env` | 环境变量：`WS_PORT`、`OLLAMA_HOST`、`OPENAI_API_KEY`、`CHERY_DIR`、`CHERY_TRANSPORT` |
-| [.chery/config.yaml](.chery/config.yaml) | LLM 客户端配置、Tool 分组、全局配置（thinking/supervision/stream） |
+| [.chery/config.yaml](.chery/config.yaml) | LLM 客户端配置、Sense 分组、全局配置（thinking/supervision/stream） |
 | [.chery/system.md](.chery/system.md) | 系统 prompt 模板 |
 | [.chery/skills/](.chery/skills/) | 技能定义目录，每个技能包含 `SKILL.md` |
-| [.chery/tools/](.chery/tools/) | 外部自定义工具目录，`.ts` 文件自动编译注入 |
+| [.chery/senses/](.chery/senses/) | 外部自定义感官目录，`.ts` 文件自动编译注入 |
 
-### Tool 监管等级
+### Sense 监管等级
 
 | 等级 | 行为 |
 |------|------|
@@ -158,4 +206,4 @@ interface Notification {
 | `confirm` | 推送 interrupt notification，等待审批 |
 | `manual` | 推送 interrupt notification，禁止自动执行 |
 
-优先级：工具定义 > tool_group > global.supervision
+优先级：感官定义 > sense_group > global.supervision

@@ -18,7 +18,7 @@ import { isAsyncGenerator } from "@/utils/generator.js";
  * Handler 上下文
  */
 export interface HandlerContext {
-  sessionId?: string;
+  soulId?: string;
   connectionId: string;
   sendChunk: (chunk: Chunk) => void;
   sendNotification: (notification: Notification) => void;

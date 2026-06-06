@@ -10,7 +10,7 @@ function createMockContext() {
       sessionId: "test-session",
       threadId: "test-thread",
       hashCheck: new Map(),
-      toolSharedData: new Map(),
+      senseSharedData: new Map(),
     },
     global: {
       thinking: false,
@@ -23,7 +23,7 @@ function createMockContext() {
       model: "test-model",
       url: "http://localhost",
       key: "",
-      tool_group: [],
+      sense_group: [],
     },
     adapters: {
       llmAdapter: {
@@ -38,12 +38,12 @@ function createMockContext() {
         extractStreamThinking: vi.fn(),
         buildMessages: vi.fn(),
       },
-      toolAdapter: {
+      senseAdapter: {
         buildTools: vi.fn(() => []),
-        buildToolCallMessage: vi.fn(),
+        buildSenseCallMessage: vi.fn(),
         buildToolResponseMessage: vi.fn(),
-        extractToolCalls: vi.fn(() => []),
-        assembleToolCallChunks: vi.fn(() => []),
+        extractSenseCalls: vi.fn(() => []),
+        assembleSenseCallChunks: vi.fn(() => []),
       },
     },
     process: {
@@ -54,8 +54,8 @@ function createMockContext() {
       toolCallAccumulated: new Map(),
       pendingInputs: [],
     },
-    tools: {
-      toolManager: {
+    senses: {
+      senseManager: {
         add: vi.fn(),
         getAll: vi.fn(() => []),
         get: vi.fn(),
