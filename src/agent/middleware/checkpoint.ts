@@ -8,12 +8,12 @@ import { CheckpointState } from "./checkpointState.js";
  * 职责：
  * 1. 处理 userInputs → messages（在 next() 调用前）
  * 2. 接收所有 chunk，归纳状态
- * 3. 收集 senseDelta，合并后 yield sense_trigger staged
+ * 3. 收集 senseDelta，合并后 yield sense_end staged
  * 4. 构建 messages 放到 ctx.soul
  * 5. 管理 pendingSenses
  * 6. 持久化关键状态
  * 7. yield consumed notification
- * 8. 边界检测：thinking_end / content_end / sense_trigger 三种 staged
+ * 8. 边界检测：thinking_end / content_end / sense_end 三种 staged
  */
 export async function* checkpointMiddleware(
   ctx: MiddlewareContext,
@@ -30,8 +30,8 @@ export async function* checkpointMiddleware(
         id: randomUUID(),
         role: "user",
         content: input.content,
-        createdAt: input.time,
-        updateAt: input.time,
+        createdAt: input.time, // 用户发送时间
+        updateAt: Date.now(), // 注入消息列表时间
       });
       consumedCount++;
     }
@@ -108,13 +108,13 @@ export async function* checkpointMiddleware(
       }
     }
 
-    // sense_trigger 时重置状态标记
-    if (chunk.type === "sense_trigger") {
+    // sense_end 时重置状态标记
+    if (chunk.type === "sense_end") {
       const trigger = chunk as SenseTriggerChunk;
-      // yield sense_trigger staged
+      // yield sense_end staged
       const senseStaged: StagedChunk = {
         type: "staged",
-        stagedType: "sense_trigger",
+        stagedType: "sense_end",
         content: "",
         thinking: "",
         senseName: trigger.name,

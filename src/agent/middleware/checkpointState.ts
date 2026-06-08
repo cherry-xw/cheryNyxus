@@ -26,7 +26,7 @@ export class CheckpointState {
         }
         break;
 
-      case "sense_trigger":
+      case "sense_end":
         if (chunk.id) {
           this.pendingSenses.set(chunk.id, {
             id: chunk.id,

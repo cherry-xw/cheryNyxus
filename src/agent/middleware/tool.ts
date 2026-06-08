@@ -7,7 +7,7 @@ import { SupervisionLevel } from "@/core/config";
  * 职责：
  * 1. 从 stream chunks 实时收集 senseDelta
  * 2. 检测完整 sense call 并立即执行
- * 3. auto 感官自动执行，confirm/manual 感官 yield sense_trigger chunk
+ * 3. auto 感官自动执行，confirm/manual 感官 yield sense_end chunk
  * 4. interrupt 创建和审批由 service 层 interruptMiddleware 处理
  */
 export async function* senseMiddleware(
@@ -88,7 +88,7 @@ async function* executeSenseCall(
   });
 
   const trigger: SenseTriggerChunk = {
-    type: "sense_trigger",
+    type: "sense_end",
     id,
     name,
     arguments: argsJson,
@@ -96,7 +96,7 @@ async function* executeSenseCall(
     approvalResolve,
   };
 
-  // 所有感官先 yield sense_trigger
+  // 所有感官先 yield sense_end
   yield trigger;
 
   // 执行或拒绝

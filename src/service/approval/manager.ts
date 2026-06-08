@@ -22,7 +22,7 @@ export class ApprovalManager {
   private pendingApprovals = new Map<string, PendingApprovalEntry>();
 
   /**
-   * 从 sense_trigger 注册审批（service 层使用）
+   * 从 sense_end 注册审批（service 层使用）
    * 不需要完整 ctx，从 trigger 提取信息
    */
   registerFromTrigger(

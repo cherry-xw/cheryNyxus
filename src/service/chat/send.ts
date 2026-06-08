@@ -160,9 +160,9 @@ export async function* handleChatSend(
           stagedData.arguments = staged.senseArguments;
         }
         yield createChunk("staged", chatId, stagedData);
-      } else if (chunk.type === "sense_trigger") {
+      } else if (chunk.type === "sense_end") {
         const sc = chunk as SenseTriggerChunk;
-        console.log(`[ChatSend] sense_trigger, id=${sc.id}, name=${sc.name}, args=${sc.arguments.slice(0, 50)}...`);
+        console.log(`[ChatSend] sense_end, id=${sc.id}, name=${sc.name}, args=${sc.arguments.slice(0, 50)}...`);
 
         // 注册审批到 approvalManager（存储 approvalResolve）
         await approvalManager.registerFromTrigger(sc, data.soulId, chatId);

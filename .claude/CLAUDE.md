@@ -151,7 +151,7 @@ test/                            # 测试套件（vitest），结构镜像 src/
 
 | 类型 | 触发时机 | data |
 |------|----------|------|
-| `interrupt` | sense_trigger 且 supervision > auto | `{approvalId, senseName, arguments, supervisionLevel}` |
+| `interrupt` | sense_end 且 supervision > auto | `{approvalId, senseName, arguments, supervisionLevel}` |
 | `complete` | 感官执行完成 | `{approvalId, senseName, result}` |
 | `consumed` | 用户输入已进入消息循环 | `{count}` |
 | `loaded` | chat.get 历史载入完成 | `null` |
@@ -163,7 +163,7 @@ test/                            # 测试套件（vitest），结构镜像 src/
 | type | 说明 | data 字段 |
 |------|------|-----------|
 | `stream` | 流式增量 | `{thinking?, content?, senseCall?}` |
-| `staged` | 阶段完成 | `{type: "thinking_end"|"content_end"|"sense_trigger", thinking?, content?, senseName?, arguments?}` |
+| `staged` | 阶段完成 | `{type: "thinking_end"|"content_end"|"sense_end", thinking?, content?, senseName?, arguments?}` |
 
 ### 审批流程详解
 
@@ -206,7 +206,7 @@ chatMiddleware yield StreamChunk
   ↓ checkpointMiddleware 收集 delta
   ↓ checkpointMiddleware yield StagedChunk（thinking_end/content_end）
 senseMiddleware yield SenseTriggerChunk
-  ↓ checkpointMiddleware yield StagedChunk（sense_trigger）
+  ↓ checkpointMiddleware yield StagedChunk（sense_end）
 senseMiddleware 执行感官
   ↓ senseMiddleware yield SenseCompleteChunk
 retryMiddleware 捕获错误 yield ErrorChunk

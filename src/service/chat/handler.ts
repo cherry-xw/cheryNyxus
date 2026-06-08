@@ -69,7 +69,7 @@ export async function* handleChatGet(
     if (parsedMsg.senseCall && parsedMsg.senseCall.length > 0) {
       for (const sc of parsedMsg.senseCall) {
         yield createChunk("staged", p.chatId, {
-          type: "sense_trigger",
+          type: "sense_end",
           senseName: sc.name,
           arguments: sc.arguments,
         });

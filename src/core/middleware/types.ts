@@ -162,7 +162,7 @@ export interface StreamChunk {
  * id 使用 AI 响应的 sense_call.id，AI 没有则自己创建
  */
 export interface SenseTriggerChunk {
-  type: "sense_trigger";
+  type: "sense_end";
   /** AI 响应的 sense_call.id */
   id: string;
   /** 感官名称 */
@@ -177,11 +177,11 @@ export interface SenseTriggerChunk {
 
 /**
  * 感官完成
- * id 与 sense_trigger.id 一致
+ * id 与 sense_end.id 一致
  */
 export interface SenseCompleteChunk {
   type: "sense_complete";
-  /** 与 sense_trigger.id 一致 */
+  /** 与 sense_end.id 一致 */
   id: string;
   /** 感官名称 */
   name: string;
@@ -192,7 +192,7 @@ export interface SenseCompleteChunk {
 /**
  * 阶段完成 subtype
  */
-export type StagedType = "thinking_end" | "content_end" | "sense_trigger";
+export type StagedType = "thinking_end" | "content_end" | "sense_end";
 
 /**
  * 阶段完成（checkpoint 归纳后 yield）
@@ -205,9 +205,9 @@ export interface StagedChunk {
   content: string;
   /** 累积的思考内容 */
   thinking: string;
-  /** 感官名称（sense_trigger 时使用） */
+  /** 感官名称（sense_end 时使用） */
   senseName?: string;
-  /** 感官参数（sense_trigger 时使用） */
+  /** 感官参数（sense_end 时使用） */
   senseArguments?: string;
 }
 

@@ -81,7 +81,7 @@ interface StreamChunkData {
 }
 
 interface StagedChunkData {
-  type: "thinking_end" | "content_end" | "sense_trigger";
+  type: "thinking_end" | "content_end" | "sense_end";
   thinking?: string;
   content?: string;
   senseName?: string;
@@ -133,7 +133,7 @@ interface Notification {
 ← {"id":"6","kind":"response","requestId":"5","success":true,"data":{"chatId":"chat-1"}}
 ← [binary chunk] type:staged, data:{"type":"thinking_end","thinking":"历史思考内容"}
 ← [binary chunk] type:staged, data:{"type":"content_end","content":"历史响应内容"}
-← [binary chunk] type:staged, data:{"type":"sense_trigger","senseName":"...","arguments":"..."}
+← [binary chunk] type:staged, data:{"type":"sense_end","senseName":"...","arguments":"..."}
 ← {"kind":"notification","type":"complete","requestId":"chat-1","data":{"approvalId":"...","senseName":"...","result":"..."}}
 ← {"kind":"notification","type":"loaded","requestId":"chat-1","data":null}
 ```
@@ -161,7 +161,7 @@ interface Notification {
 
 ```text
 ← [binary chunk] seq:5, requestId:chat-1, data:{"senseCall":[{"index":0,"id":"sc-1","name":"read_file","arguments":"{\"path\":\"test.ts\"}"}]}
-← {"kind":"chunk","type":"staged","requestId":"chat-1","data":{"type":"sense_trigger","senseName":"read_file","arguments":"{\"path\":\"test.ts\"}"}}
+← {"kind":"chunk","type":"staged","requestId":"chat-1","data":{"type":"sense_end","senseName":"read_file","arguments":"{\"path\":\"test.ts\"}"}}
 ← {"kind":"notification","type":"complete","requestId":"chat-1","data":{"approvalId":"sc-1","senseName":"read_file","result":"文件内容..."}}
 ```
 

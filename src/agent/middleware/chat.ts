@@ -9,7 +9,7 @@ import type { SenseFunction } from "@/core/sense/adapter";
  * Chat Middleware
  * 职责：API 调用、流式输出
  * yield StreamChunk（包含 senseDelta）
- * sense_trigger 逻辑交给 checkpoint 中间件处理
+ * sense_end 逻辑交给 checkpoint 中间件处理
  */
 export async function* chatMiddleware(
   ctx: MiddlewareContext,

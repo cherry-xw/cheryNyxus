@@ -72,7 +72,7 @@ async function main() {
     const generator = wrapWithApproval(ctx, agent.send(chatId, input));
 
     for await (const chunk of generator) {
-      if (chunk.type === "sense_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
+      if (chunk.type === "sense_end" && chunk.supervisionLevel > SupervisionLevel.auto) {
         // 需审批：打印信息，等待 stdin
         console.log(`\n[需审批] ${chunk.name}`);
         console.log(`参数: ${chunk.arguments}`);
@@ -109,7 +109,7 @@ async function* wrapWithApproval(
   generator: AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   for await (const chunk of generator) {
-    if (chunk.type === "sense_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
+    if (chunk.type === "sense_end" && chunk.supervisionLevel > SupervisionLevel.auto) {
       await approvalManager.createSingleApproval(ctx, chunk);
     }
     yield chunk;
@@ -142,7 +142,7 @@ async function askApproval(
 let hasThinkingTitle = false;
 let hasContentTitle = false;
 
-// 审批决策记录（sense_trigger → sense_complete 关联）
+// 审批决策记录（sense_end → sense_complete 关联）
 const approvalDecisions = new Map<string, { action: "accept" | "reject"; reason?: string }>();
 
 function handleChunk(chunk: MiddlewareChunk, decision?: { action: "accept" | "reject"; reason?: string }) {
@@ -163,7 +163,7 @@ function handleChunk(chunk: MiddlewareChunk, decision?: { action: "accept" | "re
         process.stdout.write(chunk.contentDelta);
       }
       break;
-    case "sense_trigger":
+    case "sense_end":
       console.log(`\n[工具触发] ${chunk.name} (${chunk.supervisionLevel})`);
       break;
     case "sense_complete":

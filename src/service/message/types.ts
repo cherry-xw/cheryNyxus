@@ -215,7 +215,7 @@ export interface SenseCallDelta {
 }
 
 export interface StagedChunkData {
-  type: "thinking_end" | "content_end" | "sense_trigger";
+  type: "thinking_end" | "content_end" | "sense_end";
   thinking?: string;
   content?: string;
   senseName?: string;
