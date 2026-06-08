@@ -71,7 +71,7 @@ describe("chatMiddleware", () => {
       const ctx = createMockContext(true);
 
       async function* mockNext() {
-        yield { type: "staged", content: "response" };
+        yield { type: "staged", stagedType: "content_end", content: "response", thinking: "" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);
@@ -86,7 +86,7 @@ describe("chatMiddleware", () => {
       const ctx = createMockContext(true);
 
       async function* mockNext() {
-        yield { type: "staged", content: "response" };
+        yield { type: "staged", stagedType: "content_end", content: "response", thinking: "" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);
@@ -105,7 +105,7 @@ describe("chatMiddleware", () => {
       const ctx = createMockContext(false);
 
       async function* mockNext() {
-        yield { type: "staged", content: "response" };
+        yield { type: "staged", stagedType: "content_end", content: "response", thinking: "" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);
@@ -120,7 +120,7 @@ describe("chatMiddleware", () => {
       const ctx = createMockContext(false);
 
       async function* mockNext() {
-        yield { type: "staged", content: "response" };
+        yield { type: "staged", stagedType: "content_end", content: "response", thinking: "" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);
@@ -140,7 +140,7 @@ describe("chatMiddleware", () => {
       ctx.brain.model = "gpt-4";
 
       async function* mockNext() {
-        yield { type: "staged", content: "response" };
+        yield { type: "staged", stagedType: "content_end", content: "response", thinking: "" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);
@@ -156,7 +156,7 @@ describe("chatMiddleware", () => {
       ctx.brain.url = "http://localhost:11434";
 
       async function* mockNext() {
-        yield { type: "staged", content: "response" };
+        yield { type: "staged", stagedType: "content_end", content: "response", thinking: "" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);
@@ -172,7 +172,7 @@ describe("chatMiddleware", () => {
       ctx.brain.thinking = true;
 
       async function* mockNext() {
-        yield { type: "staged", content: "response" };
+        yield { type: "staged", stagedType: "content_end", content: "response", thinking: "" };
       }
 
       const generator = chatMiddleware(ctx, mockNext);

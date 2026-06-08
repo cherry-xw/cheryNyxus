@@ -91,6 +91,7 @@ describe("Middleware Index", () => {
     it("should export StagedChunk type", () => {
       const stagedChunk: StagedChunk = {
         type: "staged",
+        stagedType: "content_end",
         content: "staged content",
         thinking: "staged thinking",
       };
@@ -147,6 +148,7 @@ describe("Middleware Index", () => {
     it("should accept StagedChunk", () => {
       const chunk: MiddlewareChunk = {
         type: "staged",
+        stagedType: "content_end",
         content: "",
         thinking: "",
       };

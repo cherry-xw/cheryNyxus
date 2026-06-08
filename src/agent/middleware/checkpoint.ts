@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import type { MiddlewareContext, MiddlewareChunk, StreamChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, MiddlewareChunk, StreamChunk, StagedChunk, SenseTriggerChunk } from "@/core/middleware/types";
 import { checkpointRepo } from "@/db/checkpoint.js";
 import { CheckpointState } from "./checkpointState.js";
 
@@ -8,12 +8,12 @@ import { CheckpointState } from "./checkpointState.js";
  * 职责：
  * 1. 处理 userInputs → messages（在 next() 调用前）
  * 2. 接收所有 chunk，归纳状态
- * 3. 收集 senseDelta，合并后 yield sense_trigger
+ * 3. 收集 senseDelta，合并后 yield sense_trigger staged
  * 4. 构建 messages 放到 ctx.soul
  * 5. 管理 pendingSenses
  * 6. 持久化关键状态
  * 7. yield consumed notification
- * 8. 边界检测：思考结束时 yield staged(thinking)，正文结束后 yield staged(content)
+ * 8. 边界检测：thinking_end / content_end / sense_trigger 三种 staged
  */
 export async function* checkpointMiddleware(
   ctx: MiddlewareContext,
@@ -47,55 +47,107 @@ export async function* checkpointMiddleware(
   }
 
   const state = new CheckpointState();
-  let thinkingStagedYielded = false;  // 标记思考阶段 staged 是否已 yield
-  let hasThinkingAccumulated = false; // 标记是否有累积的思考内容
+  // 三 delta 状态机标记
+  let thinkingActive = false;  // thinkingDelta 是否活跃
+  let contentActive = false;   // contentDelta 是否活跃
 
   // === 执行内层 handlers ===
   for await (const chunk of next()) {
     state.ingest(chunk);
 
-    // 边界检测：思考结束 → 正文开始的转换点
+    // 边界检测和 staged yield（三 delta 状态机）
     if (chunk.type === "stream") {
       const streamChunk = chunk as StreamChunk;
 
-      // 检测是否有累积的思考
+      // thinkingDelta 出现 → thinkingActive = true
       if (streamChunk.thinkingDelta) {
-        hasThinkingAccumulated = true;
+        thinkingActive = true;
       }
 
-      // 检测思考→正文边界：首次出现 contentDelta 且有累积思考
-      if (!thinkingStagedYielded && hasThinkingAccumulated && streamChunk.contentDelta) {
-        thinkingStagedYielded = true;
-        // yield 思考阶段的 staged
-        yield {
-          type: "staged",
-          content: "",
-          thinking: state.getThinking(),
-        } as MiddlewareChunk;
+      // contentDelta 出现 → thinking 结束，content 开始
+      if (streamChunk.contentDelta) {
+        // 如果 thinking 活跃，先 yield thinking_end staged
+        if (thinkingActive) {
+          thinkingActive = false;
+          const thinkingStaged: StagedChunk = {
+            type: "staged",
+            stagedType: "thinking_end",
+            content: "",
+            thinking: state.getThinking(),
+          };
+          yield thinkingStaged;
+        }
+        contentActive = true;
+      }
+
+      // senseDelta 出现 → content 结束，sense 开始
+      if (streamChunk.senseDelta && streamChunk.senseDelta.length > 0) {
+        // 如果 thinking 活跃，先 yield thinking_end staged
+        if (thinkingActive) {
+          thinkingActive = false;
+          const thinkingStaged: StagedChunk = {
+            type: "staged",
+            stagedType: "thinking_end",
+            content: "",
+            thinking: state.getThinking(),
+          };
+          yield thinkingStaged;
+        }
+
+        // 如果 content 活跃，yield content_end staged
+        if (contentActive) {
+          contentActive = false;
+          const contentStaged: StagedChunk = {
+            type: "staged",
+            stagedType: "content_end",
+            content: state.getContent(),
+            thinking: "",
+          };
+          yield contentStaged;
+        }
       }
     }
+
+    // sense_trigger 时重置状态标记
+    if (chunk.type === "sense_trigger") {
+      const trigger = chunk as SenseTriggerChunk;
+      // yield sense_trigger staged
+      const senseStaged: StagedChunk = {
+        type: "staged",
+        stagedType: "sense_trigger",
+        content: "",
+        thinking: "",
+        senseName: trigger.name,
+        senseArguments: trigger.arguments,
+      };
+      yield senseStaged;
+    }
+
+    // sense_complete 时不重置标记（本轮 thinking/content 已 yield）
+    // 新一轮标记由新 CheckpointState 初始化
 
     yield chunk;
   }
 
-  // === yield 正文阶段的 staged ===
-  const staged = state.getStagedData();
-  // 如果没有 yield 思考 staged（即只有正文没有思考），则 yield 完整 staged
-  // 如果已经 yield 思考 staged，则只 yield 正文 staged
-  if (!thinkingStagedYielded) {
-    // 无思考或有思考但无边界转换（只有思考无正文）
+  // === 流结束后 yield 最终 staged ===
+  // 如果 thinking/content 仍活跃，说明还有未 yield 的内容
+  if (thinkingActive) {
     yield {
       type: "staged",
-      content: staged.content,
-      thinking: staged.thinking,
-    };
-  } else if (staged.content) {
-    // 有正文内容，yield 正文 staged
+      stagedType: "thinking_end",
+      content: "",
+      thinking: state.getThinking(),
+    } as StagedChunk;
+    thinkingActive = false;
+  }
+  if (contentActive) {
     yield {
       type: "staged",
-      content: staged.content,
+      stagedType: "content_end",
+      content: state.getContent(),
       thinking: "",
-    } as MiddlewareChunk;
+    } as StagedChunk;
+    contentActive = false;
   }
 
   // === 追加 assistant 响应和 sense 结果到 messages ===
@@ -114,7 +166,7 @@ export async function* checkpointMiddleware(
     createdAt: Date.now(),
   });
 
-  yield { type: "done" };
+  // 不再 yield done（由 loop.ts 负责）
 }
 
 export default checkpointMiddleware;

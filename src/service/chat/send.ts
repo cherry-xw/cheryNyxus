@@ -1,14 +1,18 @@
 import type { HandlerContext } from "../message/router.js";
 import {
   createChunk,
+  createError,
   createNotification,
   createResponse,
+  ErrorCode,
   Method,
   type Chunk,
   type Notification,
-  type Response,
+  type Response as RpcResponse,
   type ChatSendRequestData,
+  type ChatSendResponseData,
   type SenseApprovalRequestData,
+  type SenseApprovalResponseData,
 } from "../message/types.js";
 import { agentSouls } from "../soul/lifecycle.js";
 import { createChat, getChat, addMessage, getMessages, parseMessageRow } from "@/db/chat.js";
@@ -17,7 +21,7 @@ import { approvalManager } from "../approval/manager.js";
 import { connectionManager } from "../websocket/connection.js";
 import { AgentBuilder } from "@/agent/builder.js";
 import { randomUUID } from "crypto";
-import type { SenseTriggerChunk, SenseCompleteChunk } from "@/core/middleware/types";
+import type { SenseTriggerChunk, SenseCompleteChunk, StagedChunk } from "@/core/middleware/types";
 
 /**
  * 确保 Soul 存在于内存（从数据库恢复或报错）
@@ -45,7 +49,7 @@ async function ensureSoul(soulId: string): Promise<{
   }
 
   const parsed = parseSoulRow(dbSoul);
-  const builder = new AgentBuilder().use(parsed.agentName);
+  const builder = new AgentBuilder().use(parsed.agentName).setSoulId(soulId);
   const agentInstance = builder.build();
 
   const soul = {
@@ -74,7 +78,7 @@ async function ensureSoul(soulId: string): Promise<{
 export async function* handleChatSend(
   ctx: HandlerContext,
   data: ChatSendRequestData,
-): AsyncGenerator<Chunk | Notification, Response, unknown> {
+): AsyncGenerator<Chunk | Notification, ChatSendResponseData | RpcResponse, unknown> {
   // 从内存或数据库恢复 soul
   const soul = await ensureSoul(data.soulId);
 
@@ -86,71 +90,82 @@ export async function* handleChatSend(
     chat = createChat(chatId, data.soulId);
   }
 
-  // 添加用户消息到 DB
-  addMessage(randomUUID(), chatId, { role: "user", content: data.prompt });
-
   // 测试日志：用户问题
   console.log(`[ChatSend] chatId=${chatId}, prompt="${data.prompt}"`);
 
-  try {
-    const agent = await soul.agent;
+  const agent = await soul.agent;
+  let historyMessages: ReturnType<typeof getMessages> = [];
+  let failureResponse: RpcResponse | undefined;
 
+  try {
     // 确保 Middleware 内部 chat 存在
     agent.createChat(chatId);
+
+    // 从数据库加载历史消息到 context
+    const middlewareCtx = agent.getContext(chatId);
+    if (middlewareCtx && middlewareCtx.soul.messages) {
+      historyMessages = getMessages(chatId);
+      const messages = middlewareCtx.soul.messages;
+      if (historyMessages.length > 0 && messages.length === 1) {
+        // 只有 system 消息时，加载历史消息
+        for (const row of historyMessages) {
+          const parsed = parseMessageRow(row);
+          messages.push({
+            id: row.id,
+            role: parsed.role,
+            content: parsed.content ?? "",
+            thinking: parsed.thinking,
+            senseCalls: parsed.senseCall,
+            createdAt: row.created_at,
+            updateAt: row.created_at,
+          });
+        }
+      }
+    }
 
     const generator = agent.send(chatId, data.prompt);
 
     let seq = 0;
-    let wasThinking = false;
-    let thinkingAccumulated = "";  // 累积 thinking 内容
-    let contentAccumulated = "";   // 累积 content 内容
-    const senseCallsAccumulated: Array<{ id?: string; name?: string; arguments?: string }> = [];  // 累积 sense calls
 
     for await (const chunk of generator) {
       if (chunk.type === "stream") {
-        // Thinking delta
+        // Stream delta - 透传
+        const streamData: Record<string, unknown> = {};
         if (chunk.thinkingDelta) {
-          wasThinking = true;
-          thinkingAccumulated += chunk.thinkingDelta;
-          yield createChunk("stream", chatId, { thinking: chunk.thinkingDelta }, ++seq);
+          streamData.thinking = chunk.thinkingDelta;
         }
-
-        // Thinking → content 过渡
-        if (wasThinking && !chunk.thinkingDelta && chunk.contentDelta) {
-          wasThinking = false;
-          console.log(`[ChatSend] thinking_end, thinking="${thinkingAccumulated.slice(0, 100)}..."`);
-          yield createChunk("staged", chatId, { type: "thinking_end", thinking: thinkingAccumulated });
-        }
-
-        // Content delta
         if (chunk.contentDelta) {
-          contentAccumulated += chunk.contentDelta;
-          yield createChunk("stream", chatId, { content: chunk.contentDelta }, ++seq);
+          streamData.content = chunk.contentDelta;
         }
-
-        // Sense call delta
         if (chunk.senseDelta && chunk.senseDelta.length > 0) {
-          for (const sc of chunk.senseDelta) {
-            const idx = sc.index ?? 0;
-            if (senseCallsAccumulated[idx]) {
-              senseCallsAccumulated[idx] = {
-                ...senseCallsAccumulated[idx],
-                id: sc.id ?? senseCallsAccumulated[idx]?.id,
-                name: sc.name ?? senseCallsAccumulated[idx]?.name,
-                arguments: (senseCallsAccumulated[idx]?.arguments ?? "") + (sc.arguments ?? ""),
-              };
-            } else {
-              senseCallsAccumulated[idx] = sc;
-            }
-          }
-          yield createChunk("stream", chatId, { senseCall: chunk.senseDelta }, ++seq);
+          streamData.senseCall = chunk.senseDelta;
         }
+        yield createChunk("stream", chatId, streamData, ++seq);
+      } else if (chunk.type === "staged") {
+        // Staged chunk - checkpoint 已处理，直接透传
+        const staged = chunk as StagedChunk;
+        const stagedData: Record<string, unknown> = {
+          type: staged.stagedType,
+        };
+        if (staged.thinking) {
+          stagedData.thinking = staged.thinking;
+        }
+        if (staged.content) {
+          stagedData.content = staged.content;
+        }
+        if (staged.senseName) {
+          stagedData.senseName = staged.senseName;
+        }
+        if (staged.senseArguments) {
+          stagedData.arguments = staged.senseArguments;
+        }
+        yield createChunk("staged", chatId, stagedData);
       } else if (chunk.type === "sense_trigger") {
         const sc = chunk as SenseTriggerChunk;
         console.log(`[ChatSend] sense_trigger, id=${sc.id}, name=${sc.name}, args=${sc.arguments.slice(0, 50)}...`);
 
         // 注册审批到 approvalManager（存储 approvalResolve）
-        approvalManager.registerFromTrigger(sc, data.soulId, chatId);
+        await approvalManager.registerFromTrigger(sc, data.soulId, chatId);
 
         yield createNotification("interrupt", chatId, {
           approvalId: sc.id,
@@ -168,28 +183,38 @@ export async function* handleChatSend(
         });
       } else if (chunk.type === "consumed") {
         yield createNotification("consumed", chatId, { count: (chunk as { count?: number }).count || 0 });
-      } else if (chunk.type === "staged") {
-        if (wasThinking) {
-          wasThinking = false;
-          console.log(`[ChatSend] thinking_end (staged), thinking="${thinkingAccumulated.slice(0, 100)}..."`);
-          yield createChunk("staged", chatId, { type: "thinking_end", thinking: thinkingAccumulated });
-        }
-        console.log(`[ChatSend] content_end, content="${contentAccumulated.slice(0, 100)}..."`);
-        yield createChunk("staged", chatId, { type: "content_end", content: contentAccumulated });
       } else if (chunk.type === "error") {
         const e = chunk as { errors: Array<{ message: string }> };
         yield createNotification("error", chatId, { message: e.errors[0]?.message || "Unknown error" });
       } else if (chunk.type === "done") {
-        console.log(`[ChatSend] done, content="${contentAccumulated.slice(0, 100)}...", senseCalls=${senseCallsAccumulated.length}`);
+        console.log(`[ChatSend] done`);
         yield createNotification("done", chatId, null);
       }
     }
   } catch (err) {
     const error = err as Error;
     yield createNotification("error", chatId, { message: error.message });
+    failureResponse = createResponse(chatId, false, undefined, createError(ErrorCode.INTERNAL, error.message));
   }
 
-  return createResponse(chatId, true, { chatId });
+  // 持久化新消息到 messages 表（assistant 和 sense）
+  const middlewareCtx = agent.getContext(chatId);
+  if (middlewareCtx && middlewareCtx.soul.messages) {
+    // 找出比 historyMessages 更新的消息
+    const existingIds = new Set(historyMessages.map(m => m.id));
+    for (const msg of middlewareCtx.soul.messages) {
+      if (!existingIds.has(msg.id) && msg.role !== "system") {
+        addMessage(msg.id, chatId, {
+          role: msg.role as "user" | "assistant" | "sense",
+          content: msg.content,
+          thinking: msg.thinking,
+          senseCall: msg.senseCalls,
+        });
+      }
+    }
+  }
+
+  return failureResponse ?? { chatId };
 }
 
 /**
@@ -198,7 +223,7 @@ export async function* handleChatSend(
 export async function handleSenseApproval(
   ctx: HandlerContext,
   data: SenseApprovalRequestData,
-): Promise<Response> {
+): Promise<SenseApprovalResponseData> {
   await approvalManager.confirmApproval(data.approvalId, data.action, data.reason);
 
   // 审批通过后，清除对应连接的审批超时
@@ -214,10 +239,10 @@ export async function handleSenseApproval(
     }
   }
 
-  return createResponse(data.approvalId, true, {
+  return {
     approvalId: data.approvalId,
     action: data.action,
-  });
+  };
 }
 
 /**

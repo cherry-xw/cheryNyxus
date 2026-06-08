@@ -9,8 +9,19 @@ import {
   createError,
   ErrorCode,
   isRequest,
+  isResponse,
 } from "./types.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
+
+export class RpcHandlerError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "RpcHandlerError";
+  }
+}
 
 // ========== Handler 类型 ==========
 
@@ -19,6 +30,7 @@ import { isAsyncGenerator } from "@/utils/generator.js";
  */
 export interface HandlerContext {
   soulId?: string;
+  requestId?: string;
   connectionId: string;
   sendChunk: (chunk: Chunk) => void;
   sendNotification: (notification: Notification) => void;
@@ -87,14 +99,17 @@ export class RpcRouter {
 
       // 普通 Promise
       const data = await result;
+      if (isResponse(data)) {
+        return data;
+      }
       return createResponse(request.id, true, data);
     } catch (err) {
-      const error = err as Error;
+      const error = toRpcError(err);
       return createResponse(
         request.id,
         false,
         undefined,
-        createError(ErrorCode.INTERNAL, error.message),
+        createError(error.code, error.message),
       );
     }
   }
@@ -107,12 +122,18 @@ export class RpcRouter {
     requestId: string,
   ): AsyncGenerator<Chunk | Notification, Response, unknown> {
     try {
-      for await (const item of generator) {
-        yield item;
+      while (true) {
+        const iter = await generator.next();
+        if (iter.done) {
+          if (isResponse(iter.value)) {
+            return normalizeResponseRequestId(iter.value, requestId);
+          }
+          return createResponse(requestId, true, iter.value as ResponseData | undefined);
+        }
+        yield iter.value;
       }
-      return createResponse(requestId, true);
     } catch (err) {
-      const error = err as Error;
+      const error = toRpcError(err);
       yield {
         kind: "notification",
         type: "error",
@@ -123,7 +144,7 @@ export class RpcRouter {
         requestId,
         false,
         undefined,
-        createError(ErrorCode.INTERNAL, error.message),
+        createError(error.code, error.message),
       );
     }
   }
@@ -148,4 +169,21 @@ export function isRpcRequest(msg: unknown): msg is Request {
  */
 export function createRouter(): RpcRouter {
   return new RpcRouter();
+}
+
+function toRpcError(err: unknown): { code: string; message: string } {
+  if (err instanceof RpcHandlerError) {
+    return { code: err.code, message: err.message };
+  }
+  if (err instanceof Error) {
+    return { code: ErrorCode.INTERNAL, message: err.message };
+  }
+  return { code: ErrorCode.INTERNAL, message: String(err) };
+}
+
+function normalizeResponseRequestId(response: Response, requestId: string): Response {
+  if (response.requestId === requestId) {
+    return response;
+  }
+  return createResponse(requestId, response.success, response.data, response.error);
 }

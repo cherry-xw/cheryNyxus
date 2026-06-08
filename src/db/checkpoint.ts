@@ -39,9 +39,6 @@ export class SQLiteCheckpointRepository implements CheckpointRepository {
   }
 
   private initTable(): void {
-    // 删除旧表结构（使用 thread_id/session_id 列名）
-    this.db.exec(`DROP TABLE IF EXISTS checkpoints`);
-
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS checkpoints (
         id TEXT PRIMARY KEY,

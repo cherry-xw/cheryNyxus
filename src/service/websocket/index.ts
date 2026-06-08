@@ -98,6 +98,7 @@ async function handleRequest(
   // 创建 handler context
   const ctx = {
     soulId: state.soulId,
+    requestId: request.id,
     connectionId: state.id,
     sendChunk: (chunk: Chunk) => {
       ws.send(transport.encode(chunk));

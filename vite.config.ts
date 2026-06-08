@@ -96,8 +96,7 @@ export default defineConfig(({ mode }) => {
     },
 
     ssr: {
-      noExternal: /^(?!vite|@swc\/wasm|better-sqlite3)/,
-      external: ["better-sqlite3"],
+      noExternal: true, // 打包所有依赖，包括 native 模块的 JS 部分
     },
 
     test: {

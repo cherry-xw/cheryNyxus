@@ -80,17 +80,17 @@ export class CheckpointState {
         createdAt: Date.now(),
         updateAt: Date.now(),
       });
+    }
 
-      // sense 结果
-      for (const r of this.senseResults) {
-        messages.push({
-          id: r.id,
-          role: "sense",
-          content: r.result,
-          createdAt: Date.now(),
-          updateAt: Date.now(),
-        });
-      }
+    // sense 结果（独立追加，不受 assistant 消息条件限制）
+    for (const r of this.senseResults) {
+      messages.push({
+        id: r.id,
+        role: "sense",
+        content: r.result,
+        createdAt: Date.now(),
+        updateAt: Date.now(),
+      });
     }
 
     ctx.soul.messages = messages;
@@ -115,6 +115,16 @@ export class CheckpointState {
    */
   getThinking(): string {
     return this.thinking;
+  }
+
+  /**
+   * 重置状态（sense_complete 后新一轮）
+   */
+  reset(): void {
+    this.thinking = "";
+    this.content = "";
+    this.senseDeltas = [];
+    // 不重置 pendingSenses 和 senseResults（跨轮次保持）
   }
 }
 

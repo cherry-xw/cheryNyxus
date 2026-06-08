@@ -125,8 +125,7 @@ export default class Middleware<T = unknown> {
     // 检查是否有正在运行的 generator
     const existing = this.activeGenerators.get(chatId);
     if (existing) {
-      yield* existing;
-      return;
+      throw new Error(`Chat "${chatId}" is already processing a message`);
     }
 
     // 创建 generator

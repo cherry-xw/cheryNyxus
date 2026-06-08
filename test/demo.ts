@@ -13,7 +13,7 @@ import readline from "readline";
 
 async function main() {
   console.log("=== Terminal Demo ===");
-  console.log("使用 ali_glm5 配置\n");
+  console.log("使用 ali_glm5 配置，输入 exit 或空行退出\n");
 
   const soulId = "demo-soul";
   const chatId = "demo-chat";
@@ -48,30 +48,53 @@ async function main() {
     output: process.stdout,
   });
 
-  // 固定输入
-  const input = "帮我分析一下/home/chc/self/cheryClaw文件夹是什么项目";
-
-  console.log(`用户输入: ${input}\n`);
-  console.log("--- 响应开始 ---\n");
-
   // 获取 context 用于 approval middleware
   const ctx = agent.getContext(chatId)!;
 
-  // 流式执行（包装 approval 处理）
-  const generator = wrapWithApproval(ctx, agent.send(chatId, input));
+  // 多轮对话循环
+  while (true) {
+    const input = await new Promise<string>((resolve) => {
+      rl.question("用户输入: ", resolve);
+    });
 
-  for await (const chunk of generator) {
-    if (chunk.type === "sense_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
-      // 需审批：打印信息，等待 stdin
-      console.log(`\n[需审批] ${chunk.name}`);
-      console.log(`参数: ${chunk.arguments}`);
-      const decision = await askApproval(rl);
-      // 通过 approvalResolve 回调通知 generator
-      if (chunk.approvalResolve) {
-        chunk.approvalResolve(decision.action, decision.reason);
+    // 退出条件：空行或 exit
+    if (!input.trim() || input.trim().toLowerCase() === "exit") {
+      break;
+    }
+
+    console.log("\n--- 响应开始 ---\n");
+
+    // 重置标题状态
+    hasThinkingTitle = false;
+    hasContentTitle = false;
+
+    // 流式执行（包装 approval 处理）
+    const generator = wrapWithApproval(ctx, agent.send(chatId, input));
+
+    for await (const chunk of generator) {
+      if (chunk.type === "sense_trigger" && chunk.supervisionLevel > SupervisionLevel.auto) {
+        // 需审批：打印信息，等待 stdin
+        console.log(`\n[需审批] ${chunk.name}`);
+        console.log(`参数: ${chunk.arguments}`);
+        const decision = await askApproval(rl);
+        // 记录决策，用于 sense_complete 显示（用 id 关联）
+        approvalDecisions.set(chunk.id, decision);
+        // 通过 approvalResolve 回调通知 generator
+        if (chunk.approvalResolve) {
+          chunk.approvalResolve(decision.action, decision.reason);
+        }
+      }
+      if (chunk.type === "sense_complete") {
+        // 查找对应的审批决策（用 id 关联）
+        const decision = approvalDecisions.get(chunk.id);
+        approvalDecisions.delete(chunk.id); // 清理
+        handleChunk(chunk, decision);
+      } else {
+        handleChunk(chunk);
       }
     }
-    handleChunk(chunk);
+
+    console.log("\n--- 响应结束 ---\n");
   }
 
   rl.close();
@@ -119,7 +142,10 @@ async function askApproval(
 let hasThinkingTitle = false;
 let hasContentTitle = false;
 
-function handleChunk(chunk: MiddlewareChunk) {
+// 审批决策记录（sense_trigger → sense_complete 关联）
+const approvalDecisions = new Map<string, { action: "accept" | "reject"; reason?: string }>();
+
+function handleChunk(chunk: MiddlewareChunk, decision?: { action: "accept" | "reject"; reason?: string }) {
   switch (chunk.type) {
     case "stream":
       if (chunk.thinkingDelta) {
@@ -141,12 +167,15 @@ function handleChunk(chunk: MiddlewareChunk) {
       console.log(`\n[工具触发] ${chunk.name} (${chunk.supervisionLevel})`);
       break;
     case "sense_complete":
-      console.log(`\n[工具完成] ${chunk.name}`);
-      const resultPreview =
-        chunk.result.length > 100
-          ? chunk.result.slice(0, 100) + "..."
-          : chunk.result;
-      console.log(`  结果: ${resultPreview}`);
+      if (decision?.action === "reject") {
+        console.log(`\n[已拒绝] ${chunk.name}`);
+        if (decision.reason) {
+          console.log(`  原因: ${decision.reason}`);
+        }
+      } else {
+        console.log(`\n[工具完成] ${chunk.name}`);
+        console.log(`  结果: ${chunk.result}`);
+      }
       break;
     case "staged":
       console.log("\n--- 阶段完成 ---");

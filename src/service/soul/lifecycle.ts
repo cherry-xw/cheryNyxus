@@ -1,7 +1,7 @@
 import { AgentBuilder } from "@/agent/builder.js";
 import config from "@/utils/config";
-import type { HandlerContext } from "../message/router.js";
-import { createResponse, createError, ErrorCode, Method } from "../message/types.js";
+import { RpcHandlerError, type HandlerContext } from "../message/router.js";
+import { ErrorCode, Method } from "../message/types.js";
 import {
   createSoul,
   getSoul,
@@ -45,7 +45,7 @@ export async function handleSoulCreate(
   const existingSoul = getSoul(soulId);
   if (existingSoul) {
     const parsed = parseSoulRow(existingSoul);
-    const builder = new AgentBuilder().use(parsed.agentName);
+    const builder = new AgentBuilder().use(parsed.agentName).setSoulId(soulId);
     const agentInstance = builder.build();
 
     const soul = {
@@ -71,7 +71,7 @@ export async function handleSoulCreate(
     throw new Error(`Brain "${p.brain}" 不存在`);
   }
 
-  const builder = new AgentBuilder().use(p.brain);
+  const builder = new AgentBuilder().use(p.brain).setSoulId(soulId);
   const agentInstance = builder.build();
 
   // 持久化到数据库
@@ -112,7 +112,7 @@ export async function handleSoulDelete(
   // 级联检查：是否有关联 Chat
   const chats = listChatsBySoul(p.soulId);
   if (chats.length > 0) {
-    return createError("SOUL_HAS_CHATS", "Soul has chats, delete them first");
+    throw new RpcHandlerError(ErrorCode.SOUL_HAS_CHATS, "Soul has chats, delete them first");
   }
 
   const soul = agentSouls.get(p.soulId);
@@ -172,7 +172,7 @@ export async function handleSoulLoad(
 
   // 如果内存中没有，载入 agent 实例
   if (!agentSouls.has(p.soulId)) {
-    const builder = new AgentBuilder().use(parsed.agentName);
+    const builder = new AgentBuilder().use(parsed.agentName).setSoulId(p.soulId);
     const agentInstance = builder.build();
 
     agentSouls.set(p.soulId, {

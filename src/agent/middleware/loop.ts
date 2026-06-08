@@ -1,4 +1,4 @@
-import type { MiddlewareContext, LoopHandler, ErrorChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk } from "@/core/middleware/types";
 import type { MiddlewareChunk } from "./index";
 
 /**
@@ -56,5 +56,9 @@ export function createLoopHandler(
       };
       yield errorChunk;
     }
+
+    // loop 结束后 yield done（表示整个流程完成）
+    const doneChunk: DoneChunk = { type: "done" };
+    yield doneChunk;
   };
 }

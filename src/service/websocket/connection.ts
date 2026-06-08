@@ -33,8 +33,8 @@ export interface ConnectionState {
  */
 export class ConnectionManager {
   private connections = new Map<WebSocket, ConnectionState>();
-  /** 审批超时时间（默认 5 分钟） */
-  private defaultApprovalTimeout = 300000;
+  /** 审批超时时间（默认 15 分钟） */
+  private defaultApprovalTimeout = 900000;
 
   /**
    * 创建连接状态

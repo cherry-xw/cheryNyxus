@@ -6,13 +6,6 @@ import { hashGenerator } from "@/utils/hash.js";
 import os from "os";
 import path from "path";
 
-/** read_file存储的文件信息类型 */
-interface FileInfo {
-  size: number;
-  mtimeMs: number;
-  baseHash: string;
-}
-
 const WriteSchema = z.object({
   path: z.string().describe("文件绝对路径"),
   content: z.string().describe("要写入文件的内容"),
@@ -28,9 +21,9 @@ export default sense(
 
       // 检查文件是否被修改过（写入前检测）
       const readNamespace = senseSharedData.get("read_file");
-      const readInfo = readNamespace?.get(absolutePath) as FileInfo | undefined;
+      const storedHash = readNamespace?.get(absolutePath) as string | undefined;
 
-      if (readInfo) {
+      if (storedHash) {
         // 尝试获取当前文件状态
         try {
           const currentStat = await stat(absolutePath);
@@ -39,7 +32,7 @@ export default sense(
           );
 
           // 对比hash，不同则提示重新读取
-          if (currentBaseHash !== readInfo.baseHash) {
+          if (currentBaseHash !== storedHash) {
             return {
               content: `[文件修改警告] 发现 "${input.path}" 写入前被修改过，需重新读取。文件状态已变更`,
               hash: "",

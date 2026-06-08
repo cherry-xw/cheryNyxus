@@ -2,13 +2,12 @@ import type { HandlerContext } from "../message/router.js";
 import {
   createChunk,
   createNotification,
-  createResponse,
   Method,
   type Chunk,
   type Notification,
-  type Response,
   type ChatListRequestData,
   type ChatGetRequestData,
+  type ChatGetResponseData,
   type ChatDeleteRequestData,
 } from "../message/types.js";
 import {
@@ -47,7 +46,7 @@ export async function handleChatList(
 export async function* handleChatGet(
   ctx: HandlerContext,
   params: unknown,
-): AsyncGenerator<Chunk | Notification, Response, unknown> {
+): AsyncGenerator<Chunk | Notification, ChatGetResponseData, unknown> {
   const p = params as ChatGetRequestData;
 
   const chat = getChat(p.chatId);
@@ -81,7 +80,7 @@ export async function* handleChatGet(
   // 发送 loaded notification
   yield createNotification("loaded", p.chatId, null);
 
-  return createResponse(p.chatId, true, { chatId: p.chatId });
+  return { chatId: p.chatId };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { startService } from "./service/index.js";
-import { closeDb } from "./db/index.js";
+import { getDb, closeDb } from "./db/index.js";
 import { compileSenses, parseTestCases } from "./core/sense/compiler/index.js";
 import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense/compileToolsReporter.js";
 
@@ -15,6 +15,9 @@ async function main(): Promise<void> {
 
   // 启动 WebSocket 服务
   const wss = startService(WS_PORT);
+
+  // 启动时初始化数据库
+  getDb();
 
   // 优雅关闭
   process.on("SIGINT", () => {

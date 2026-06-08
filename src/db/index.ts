@@ -1,3 +1,4 @@
+import "@/utils/config"; // 确保 dotenv 先加载
 import Database from "better-sqlite3";
 import { join } from "path";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
@@ -19,6 +20,7 @@ export function getDb(): Database.Database {
     }
 
     db = new Database(dbPath);
+    db.pragma("foreign_keys = ON");
     db.pragma("journal_mode = WAL");
     initTables(db);
   }

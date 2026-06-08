@@ -7,6 +7,8 @@ import { approvalRepo, type ApprovalEntity, type ApprovalSenseCall } from "@/db/
  */
 export interface PendingApprovalEntry {
   approvalId: string;
+  soulId: string;
+  chatId: string;
   sc: ApprovalSenseCall;
   createdAt: number;
   /** 审批 resolve 函数（confirm/manual 时使用，用于通知 generator 继续执行） */
@@ -27,24 +29,27 @@ export class ApprovalManager {
     trigger: SenseTriggerChunk,
     soulId: string,
     chatId: string,
-  ): void {
+  ): Promise<void> {
     const approvalId = trigger.id;
+    const createdAt = Date.now();
 
     // 存储 approvalResolve
     this.pendingApprovals.set(approvalId, {
       approvalId,
+      soulId,
+      chatId,
       sc: {
         id: trigger.id,
         name: trigger.name,
         arguments: trigger.arguments,
         approved: false,
-        triggeredAt: Date.now(),
+        triggeredAt: createdAt,
       },
-      createdAt: Date.now(),
+      createdAt,
       approvalResolve: trigger.approvalResolve,
     });
 
-    // 持久化到数据库（可选，service 层可单独处理）
+    return this.persistRuntimeApproval(approvalId, soulId, chatId, trigger, createdAt);
   }
 
   /**
@@ -77,6 +82,8 @@ export class ApprovalManager {
 
     this.pendingApprovals.set(approvalId, {
       approvalId,
+      soulId: ctx.soul.soulId,
+      chatId: ctx.soul.chatId,
       sc: entity.senseCalls[0]!,
       createdAt: entity.createdAt,
       approvalResolve: trigger.approvalResolve,
@@ -139,6 +146,11 @@ export class ApprovalManager {
     const toDelete: string[] = [];
 
     for (const entry of this.pendingApprovals.values()) {
+      if (entry.soulId === soulId) {
+        toDelete.push(entry.approvalId);
+        continue;
+      }
+
       const approval = await approvalRepo.findById(entry.approvalId);
       if (approval?.soulId === soulId) {
         toDelete.push(entry.approvalId);
@@ -163,6 +175,8 @@ export class ApprovalManager {
       if (!this.pendingApprovals.has(approvalId)) {
         this.pendingApprovals.set(approvalId, {
           approvalId,
+          soulId: entity.soulId,
+          chatId: entity.chatId,
           sc,
           createdAt: entity.createdAt,
         });
@@ -184,6 +198,8 @@ export class ApprovalManager {
         if (!this.pendingApprovals.has(approval.id)) {
           this.pendingApprovals.set(approval.id, {
             approvalId: approval.id,
+            soulId: approval.soulId,
+            chatId: approval.chatId,
             sc,
             createdAt: approval.createdAt,
           });
@@ -220,6 +236,40 @@ export class ApprovalManager {
         model: ctx.brain.model ?? "",
       },
     };
+  }
+
+  private async persistRuntimeApproval(
+    approvalId: string,
+    soulId: string,
+    chatId: string,
+    trigger: SenseTriggerChunk,
+    createdAt: number,
+  ): Promise<void> {
+    const existing = await approvalRepo.findById(approvalId);
+    if (existing) {
+      await approvalRepo.update(approvalId, {
+        status: "pending",
+        updatedAt: Date.now(),
+      });
+      return;
+    }
+
+    await approvalRepo.create({
+      id: approvalId,
+      chatId,
+      soulId,
+      status: "pending",
+      senseCalls: [{
+        id: trigger.id,
+        name: trigger.name,
+        arguments: trigger.arguments,
+        approved: false,
+        triggeredAt: createdAt,
+      }],
+      contextSnapshot: null,
+      createdAt,
+      updatedAt: createdAt,
+    });
   }
 }
 

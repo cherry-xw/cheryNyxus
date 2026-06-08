@@ -190,14 +190,25 @@ export interface SenseCompleteChunk {
 }
 
 /**
+ * 阶段完成 subtype
+ */
+export type StagedType = "thinking_end" | "content_end" | "sense_trigger";
+
+/**
  * 阶段完成（checkpoint 归纳后 yield）
  */
 export interface StagedChunk {
   type: "staged";
+  /** 阶段类型 */
+  stagedType: StagedType;
   /** 累积的响应内容 */
   content: string;
   /** 累积的思考内容 */
   thinking: string;
+  /** 感官名称（sense_trigger 时使用） */
+  senseName?: string;
+  /** 感官参数（sense_trigger 时使用） */
+  senseArguments?: string;
 }
 
 /**

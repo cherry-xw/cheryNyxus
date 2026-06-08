@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { senseMiddleware } from "@/agent/middleware/tool.js";
 import { SupervisionLevel } from "@/core/config";
 
-import type { MiddlewareContext, StreamChunk, SenseTriggerChunk, SenseCompleteChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, StreamChunk, SenseTriggerChunk, SenseCompleteChunk, DoneChunk, LLMAdapter } from "@/core/middleware/types";
 import type { SenseManager, SenseFunction } from "@/core/sense/index";
-import type { LLMAdapter, MessageProviderAdapterConfig, SenseAdapter } from "@/core/index.js";
+import type { MessageProviderAdapterConfig, SenseAdapter } from "@/core/sense/adapter";
 
 function createMockSenseManager(): SenseManager {
   return {
@@ -79,7 +79,7 @@ describe("senseMiddleware", () => {
     it("should pass through non-stream chunks", async () => {
       const ctx = createMockContext();
       const next = vi.fn(async function* () {
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -95,8 +95,8 @@ describe("senseMiddleware", () => {
     it("should pass through stream chunks without senseDelta", async () => {
       const ctx = createMockContext();
       const next = vi.fn(async function* () {
-        yield { type: "stream", thinkingDelta: "think", contentDelta: "content" };
-        yield { type: "done" };
+        yield { type: "stream", thinkingDelta: "think", contentDelta: "content" } as StreamChunk;
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -115,7 +115,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -152,7 +152,7 @@ describe("senseMiddleware", () => {
           contentDelta: "",
           senseDelta: [{ index: 0, arguments: '1}' }],
         };
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -174,7 +174,7 @@ describe("senseMiddleware", () => {
           { id: "tc-1", name: "sense_a", arguments: "{}", index: 0 },
           { id: "tc-2", name: "sense_b", arguments: "{}", index: 1 },
         ]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -201,7 +201,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -224,7 +224,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       // Start the generator
@@ -274,7 +274,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -312,7 +312,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -335,7 +335,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -356,7 +356,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
@@ -374,7 +374,7 @@ describe("senseMiddleware", () => {
 
       const next = vi.fn(async function* () {
         yield createStreamChunk([{ id: "tc-1", name: "test_sense", arguments: "{}" }]);
-        yield { type: "done" };
+        yield { type: "done" } as DoneChunk;
       });
 
       const generator = senseMiddleware(ctx, next);
