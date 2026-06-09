@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import type { MiddlewareContext, MiddlewareChunk, StreamChunk, StagedChunk, SenseTriggerChunk } from "@/core/middleware/types";
-import { checkpointRepo } from "@/db/checkpoint.js";
 import { CheckpointState } from "./checkpointState.js";
 
 /**
@@ -168,19 +167,6 @@ export async function* checkpointMiddleware(
     for (const msg of newMessages) {
       persistMessage(ctx, msg);
     }
-
-    // === 持久化 checkpoint ===
-    await checkpointRepo.create({
-      id: randomUUID(),
-      soulId: ctx.soul.soulId,
-      chatId: ctx.soul.chatId,
-      phase: "complete",
-      pendingSenses: JSON.stringify(state.getPendingSensesArray()),
-      thinkingAccumulated: state.getThinking(),
-      contentAccumulated: state.getContent(),
-      messages: JSON.stringify(ctx.soul.messages),
-      createdAt: Date.now(),
-    });
   }
 
   // 不再 yield done（由 loop.ts 负责）

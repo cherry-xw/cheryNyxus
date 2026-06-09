@@ -17,6 +17,7 @@ import {
   getMessages,
   parseMessageRow,
 } from "@/db/chat.js";
+import { clearChatFromMemory } from "../soul/lifecycle.js";
 
 /**
  * 列出聊天
@@ -98,6 +99,10 @@ export async function handleChatDelete(
     throw new Error(`Chat "${p.chatId}" not found`);
   }
 
+  // 清理内存 chatMap（防止删除后重建时数据不一致）
+  await clearChatFromMemory(chat.soul_id, p.chatId);
+
+  // 删除数据库记录
   deleteChat(p.chatId);
 
   return { chatId: p.chatId };

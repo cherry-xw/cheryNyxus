@@ -97,6 +97,14 @@ export default class Middleware<T = unknown> {
   }
 
   /**
+   * 清理聊天上下文（删除 chat 时调用）
+   */
+  clearChat(chatId: string): void {
+    this.chatMap.delete(chatId);
+    this.activeGenerators.delete(chatId);
+  }
+
+  /**
    * 单次 chain 执行
    */
   private async *runChain(ctx: MiddlewareContext): AsyncGenerator<T, void, unknown> {

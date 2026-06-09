@@ -28,6 +28,18 @@ export const agentSouls = new Map<string, {
 }>();
 
 /**
+ * 清理 chat 内存（删除 chat 时调用）
+ * 用于同步清理 agent.chatMap，防止删除后重建时数据不一致
+ */
+export async function clearChatFromMemory(soulId: string, chatId: string): Promise<void> {
+  const soul = agentSouls.get(soulId);
+  if (soul) {
+    const agent = await soul.agent;
+    agent.clearChat(chatId);
+  }
+}
+
+/**
  * 创建 Soul（持久化到数据库）
  */
 export async function handleSoulCreate(

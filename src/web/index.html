@@ -168,6 +168,13 @@ let currentStreamEls = {}; // requestId -> {thinkingEl, contentEl, senseEl}
 let soulIdOptions = new Set(); // collected soulIds from log
 let chatIdOptions = new Set(); // collected chatIds from log
 
+// ===== Time Format =====
+function formatTime(timestamp) {
+  const d = new Date(timestamp);
+  const pad = n => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // ===== UUID =====
 function uuid() {
   return crypto.randomUUID();
@@ -279,13 +286,14 @@ function handleChunk(chunk) {
     }
   } else if (chunk.type === 'staged') {
     const d = chunk.data || {};
+    const role = d.role || 'assistant'; // 默认assistant（流式场景）
     if (d.type === 'thinking_end') {
       if (els.thinkingEl) {
         // 流式结束：折叠 thinking
         els.thinkingEl.open = false;
         els.thinkingEl = null;
-      } else {
-        // 独立 staged（历史加载）：直接创建完整 thinking 块
+      } else if (role === 'assistant') {
+        // 独立 staged（历史加载）：仅assistant显示thinking
         const el = document.createElement('details');
         el.className = 'msg msg-thinking';
         el.innerHTML = `<summary>Thinking</summary><div class="body">${esc(d.thinking || '')}</div>`;
@@ -296,10 +304,15 @@ function handleChunk(chunk) {
         // 流式结束：清空引用
         els.contentEl = null;
       } else if (d.content) {
-        // 独立 staged（历史加载）：直接创建内容
+        // 独立 staged（历史加载）：根据role区分样式
         const el = document.createElement('div');
-        el.className = 'msg msg-content';
-        el.textContent = d.content;
+        if (role === 'user') {
+          el.className = 'msg msg-user';
+          el.textContent = d.content;
+        } else {
+          el.className = 'msg msg-content';
+          el.textContent = d.content;
+        }
         getMsgContainer().appendChild(el);
       }
     } else if (d.type === 'sense_end') {
@@ -510,8 +523,8 @@ async function doSoulList() {
     if (res.success) {
       const souls = res.data.souls || [];
       appendSystemMsg(`📋 Souls (${souls.length}): ` + souls.map(s => s.soulId).join(', '));
-      // 将列表中的 ID 添加到选择框
-      souls.forEach(s => populateIdSelect('soul', s.soulId));
+      // 将列表中的 ID 添加到选择框，传入model信息
+      souls.forEach(s => populateIdSelect('soul', s.soulId, { model: s.config?.model }));
     } else {
       appendErrorMsg(res.error?.message || 'List failed');
     }
@@ -526,9 +539,10 @@ async function doSoulLoad() {
     const res = await sendRpc('soul.load', { soulId: currentSoulId });
     if (res.success) {
       appendSystemMsg(`🧠 Soul loaded: ${res.data.soulId}, chats: ${res.data.chats?.length || 0}`);
+      // 将所有 chats 添加到选择框
       if (res.data.chats?.length > 0) {
+        res.data.chats.forEach(c => populateIdSelect('chat', c.chatId, { messageCount: c.messageCount, updatedAt: c.updatedAt }));
         currentChatId = res.data.chats[0].chatId;
-        populateIdSelect('chat', currentChatId);
         updateInfo();
       }
     } else {
@@ -563,8 +577,8 @@ async function doChatList() {
     if (res.success) {
       const chats = res.data.chats || [];
       appendSystemMsg(`💬 Chats (${chats.length}): ` + chats.map(c => `${c.chatId}(${c.messageCount}msg)`).join(', '));
-      // 将列表中的 chatId 添加到选择框
-      chats.forEach(c => populateIdSelect('chat', c.chatId));
+      // 将列表中的 chatId 添加到选择框，传入消息数和更新时间
+      chats.forEach(c => populateIdSelect('chat', c.chatId, { messageCount: c.messageCount, updatedAt: c.updatedAt }));
     } else {
       appendErrorMsg(res.error?.message || 'List failed');
     }
@@ -707,7 +721,7 @@ function handleManualInputBlur(type) {
   if (!id && select.value === '__manual__') select.value = '';
 }
 
-function populateIdSelect(type, id) {
+function populateIdSelect(type, id, info) {
   if (!id) return;
   const optionsSet = type === 'soul' ? soulIdOptions : chatIdOptions;
   const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
@@ -720,11 +734,25 @@ function populateIdSelect(type, id) {
     return;
   }
   optionsSet.add(id);
+  // 构建显示文本
+  let label = id;
+  if (info) {
+    if (type === 'soul') {
+      // soul: id (model)
+      const model = info.config?.model || info.model || '';
+      if (model) label = `${id} (${model})`;
+    } else {
+      // chat: id (N msg, time)
+      const count = info.messageCount || 0;
+      const time = info.updatedAt ? formatTime(info.updatedAt) : '';
+      if (count || time) label = `${id} (${count}msg${time ? ', ' + time : ''})`;
+    }
+  }
   // 在"手动输入..."前插入新选项
   const manualOption = select.querySelector('option[value="__manual__"]');
   const newOption = document.createElement('option');
   newOption.value = id;
-  newOption.textContent = id;
+  newOption.textContent = label;
   select.insertBefore(newOption, manualOption);
   select.value = id;
   if (type === 'soul') currentSoulId = id;

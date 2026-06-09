@@ -117,8 +117,9 @@ export async function* handleChatSend(
 
       historyMessages = getMessages(chatId);
       const messages = middlewareCtx.soul.messages;
-      if (historyMessages.length > 0 && messages.length === 1) {
-        // 只有 system 消息时，加载历史消息
+      // 使用 historyLoaded 标记判断是否需要加载历史（不依赖 messages.length）
+      const needsLoad = !middlewareCtx.soul.historyLoaded && historyMessages.length > 0;
+      if (needsLoad) {
         for (const row of historyMessages) {
           const parsed = parseMessageRow(row);
           messages.push({
@@ -131,6 +132,8 @@ export async function* handleChatSend(
             updateAt: row.created_at,
           });
         }
+        // 标记已加载，防止重复加载
+        middlewareCtx.soul.historyLoaded = true;
       }
     }
 

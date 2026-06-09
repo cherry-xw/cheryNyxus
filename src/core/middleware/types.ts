@@ -101,6 +101,8 @@ export interface SoulGroup {
   builtSenses: SenseFunction[];
   /** AI message 参数（checkpoint 构建后放置） */
   messages?: LLMResponse[];
+  /** 历史消息已加载标记（防止重复加载） */
+  historyLoaded?: boolean;
 }
 
 /**
