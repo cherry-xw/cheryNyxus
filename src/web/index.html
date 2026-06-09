@@ -6,7 +6,7 @@
 <title>CheryClaw WebSocket Tester</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#1a1a2e;--surface:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--dim:#bbb;--think:#7c4dff;--content:#4caf50;--sense:#ff9800;--error:#f44336}
+:root{--bg:#1a1a2e;--surface:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--dim:#bbb;--think:#b388ff;--content:#81c784;--sense:#ffb74d;--error:#f44336}
 body{font-family:'SF Mono',Consolas,'Courier New',monospace;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 /* top bar */
 .top{display:flex;gap:8px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);align-items:center;flex-shrink:0}
@@ -34,10 +34,11 @@ body{font-family:'SF Mono',Consolas,'Courier New',monospace;background:var(--bg)
 .msg-user{color:#64b5f6}
 .msg-user::before{content:"You: ";font-weight:bold}
 .msg-thinking{color:var(--think);border-left:2px solid var(--think);padding-left:8px;margin:4px 0}
+.msg-thinking .body{white-space:pre-wrap;max-height:400px;overflow-y:auto}
 .msg-thinking summary{cursor:pointer;font-weight:bold;font-size:12px;list-style:none}
 .msg-thinking summary::before{content:"▶ "}
 .msg-thinking[open] summary::before{content:"▼ "}
-.msg-content{color:var(--content)}
+.msg-content{color:var(--content);white-space:pre-wrap;max-height:500px;overflow-y:auto}
 .msg-content::before{content:"AI: ";font-weight:bold}
 .msg-sense{color:var(--sense);border:1px solid var(--sense);border-radius:4px;padding:6px 8px;margin:4px 0;font-size:12px}
 .msg-sense .name{font-weight:bold}
@@ -113,6 +114,7 @@ body{font-family:'SF Mono',Consolas,'Courier New',monospace;background:var(--bg)
         <option value="__manual__">手动输入...</option>
       </select>
       <input type="text" id="chatIdInput" placeholder="chatId (optional)" style="display:none" onkeydown="handleManualInputKey('chat',event)" onblur="handleManualInputBlur('chat')">
+      <button onclick="syncSoulId();doChatCreate()">Create Chat</button>
       <button onclick="syncChatId();doChatList()">List Chats</button>
       <button onclick="syncChatId();doChatGet()">Load History</button>
       <button onclick="syncChatId();doChatDelete()">Delete Chat</button>
@@ -327,7 +329,7 @@ function handleNotification(notif) {
   const d = notif.data;
   switch (notif.type) {
     case 'interrupt':
-      showApprovalModal(notif.requestId, d);
+      if (d.needsApproval) showApprovalModal(notif.requestId, d);
       break;
     case 'accept': {
       const el = document.createElement('div');
@@ -433,7 +435,7 @@ function createSenseEndEl(name, args) {
   const el = document.createElement('div');
   el.className = 'msg msg-sense';
   const argsStr = args ? (typeof args === 'string' ? args : JSON.stringify(args, null, 2)) : '';
-  el.innerHTML = `<div class="name">⚡ ${esc(name)}</div><div class="args">${esc(argsStr)}</div>`;
+  el.innerHTML = `<div class="name">Sense: ${esc(name)}</div><div class="args">${esc(argsStr)}</div>`;
   return el;
 }
 
@@ -568,6 +570,23 @@ async function doSoulDelete() {
   } catch (e) { appendErrorMsg(e.message); }
 }
 
+async function doChatCreate() {
+  const selectedId = getSelectedId('soul');
+  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
+  if (!currentSoulId) { appendErrorMsg('No soulId. Create or load a soul first.'); return; }
+  try {
+    const res = await sendRpc('chat.create', { soulId: currentSoulId });
+    if (res.success) {
+      currentChatId = res.data.chatId;
+      populateIdSelect('chat', currentChatId);
+      updateInfo();
+      appendSystemMsg(`💬 Chat created: ${currentChatId}`);
+    } else {
+      appendErrorMsg(res.error?.message || 'Create failed');
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
 async function doChatList() {
   const selectedId = getSelectedId('soul');
   if (selectedId) { currentSoulId = selectedId; updateInfo(); }
@@ -613,6 +632,7 @@ async function doChatDelete() {
 function doSend() {
   if (!ws || ws.readyState !== WebSocket.OPEN) { appendErrorMsg('Not connected'); return; }
   if (!currentSoulId) { appendErrorMsg('No soulId. Create a soul first.'); return; }
+  if (!currentChatId) { appendErrorMsg('No chatId. Create a chat first.'); return; }
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text) return;
@@ -620,23 +640,17 @@ function doSend() {
 
   appendUserMsg(text);
 
-  const params = { soulId: currentSoulId, prompt: text };
-  if (currentChatId) params.chatId = currentChatId;
+  const params = { soulId: currentSoulId, chatId: currentChatId, prompt: text };
 
   const req = { id: uuid(), kind: "request", method: "chat.send", params };
   ws.send(JSON.stringify(req));
   addLog('send', 'chat.send', req);
 
-  // Track this streaming request to capture chatId from response later
+  // Track this streaming request
   const rid = req.id;
-  const origHandler = pendingRequests.get(rid);
   pendingRequests.set(rid, {
     method: 'chat.send',
     resolve: (res) => {
-      if (res.success && res.data?.chatId) {
-        currentChatId = res.data.chatId;
-        updateInfo();
-      }
       delete currentStreamEls[rid];
     },
     reject: () => { delete currentStreamEls[rid]; }
@@ -797,6 +811,12 @@ function handleLogItemClick(obj, dir) {
 }
 
 // ===== Info =====
+function syncSoulId() {
+  const selectedId = getSelectedId('soul');
+  if (selectedId) { currentSoulId = selectedId; }
+  updateInfo();
+}
+
 function syncChatId() {
   const selectedId = getSelectedId('chat');
   if (selectedId) { currentChatId = selectedId; }

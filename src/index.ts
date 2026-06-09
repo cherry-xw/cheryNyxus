@@ -22,11 +22,9 @@ async function main(): Promise<void> {
 
   // 启动 WebSocket 服务
   const wss = startService(WS_PORT);
-  logger.info(`WebSocket 服务已启动，端口: ${WS_PORT}`);
 
   // 启动 Web 测试页面
   startWebServer(WEB_PORT);
-  logger.info(`Web 服务已启动，端口: ${WEB_PORT}`);
 
   // 启动时初始化数据库
   getDb();

@@ -13,7 +13,7 @@ cheryClaw 采用拟人化隐喻设计：
 | Soul | 灵魂 | 智能体的独立存在，承载记忆与性格 |
 | Chat | 聊天 | 与灵魂的交互通道，承载消息历史 |
 
-**交互流程：** 创建灵魂 → 载入灵魂 → 列出/创建聊天 → 发送消息 → 触发感官 → 大脑思考
+**交互流程：** 创建灵魂 → 载入灵魂 → 创建聊天 → 发送消息 → 触发感官 → 大脑思考
 
 ## 启动指令
 
@@ -120,11 +120,20 @@ interface Notification {
 ← {"id":"4","kind":"response","requestId":"3","success":true,"data":{"soulId":"abc","config":{...},"chats":[...],"pendingApprovals":[...]}}
 ```
 
+### 创建聊天
+
+```text
+→ {"id":"4","kind":"request","method":"chat.create","params":{"soulId":"abc"}}
+← {"id":"5","kind":"response","requestId":"4","success":true,"data":{"chatId":"chat-uuid"}}
+```
+
+**注意：** 发送消息前必须先创建聊天。`chat.send` 不再自动创建 chatId。
+
 ### 列出聊天
 
 ```text
-→ {"id":"4","kind":"request","method":"chat.list","params":{"soulId":"abc"}}
-← {"id":"5","kind":"response","requestId":"4","success":true,"data":{"chats":[{"chatId":"chat-1","createdAt":1717700000000,"updatedAt":1717700100000,"messageCount":5}]}}
+→ {"id":"5","kind":"request","method":"chat.list","params":{"soulId":"abc"}}
+← {"id":"6","kind":"response","requestId":"5","success":true,"data":{"chats":[{"chatId":"chat-1","createdAt":1717700000000,"updatedAt":1717700100000,"messageCount":5}]}}
 ```
 
 ### 获取聊天详情（载入历史对话）
@@ -142,11 +151,11 @@ interface Notification {
 ### 发送聊天消息（流式）
 
 ```text
-→ {"id":"10","kind":"request","method":"chat.send","params":{"soulId":"abc","prompt":"你好"}}
+→ {"id":"10","kind":"request","method":"chat.send","params":{"soulId":"abc","chatId":"chat-uuid","prompt":"你好"}}
 ← [binary chunk] seq:1, data:{"content":"你"}
 ← [binary chunk] seq:2, data:{"content":"好"}
 ← {"kind":"notification","type":"done","requestId":"chat-1","data":null}
-← {"kind":"response","requestId":"10","success":true,"data":{"chatId":"chat-1"}}
+← {"kind":"response","requestId":"10","success":true,"data":{"chatId":"chat-uuid"}}
 ```
 
 ### 感官审批流程（confirm 模式）

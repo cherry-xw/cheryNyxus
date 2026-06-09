@@ -61,6 +61,7 @@ export type RequestData =
   | SoulCreateRequestData
   | SoulDeleteRequestData
   | SoulLoadRequestData
+  | ChatCreateRequestData
   | ChatListRequestData
   | ChatGetRequestData
   | ChatDeleteRequestData
@@ -77,6 +78,10 @@ export interface SoulDeleteRequestData {
 }
 
 export interface SoulLoadRequestData {
+  soulId: string;
+}
+
+export interface ChatCreateRequestData {
   soulId: string;
 }
 
@@ -112,6 +117,7 @@ export type ResponseData =
   | SoulDeleteResponseData
   | SoulListResponseData
   | SoulLoadResponseData
+  | ChatCreateResponseData
   | ChatListResponseData
   | ChatGetResponseData
   | ChatDeleteResponseData
@@ -170,6 +176,10 @@ export interface SoulLoadResponseData {
       triggeredAt: number;
     }>;
   }>;
+}
+
+export interface ChatCreateResponseData {
+  chatId: string;
 }
 
 export interface ChatListResponseData {
@@ -240,6 +250,7 @@ export interface InterruptNotificationData {
   senseName: string;
   arguments: string;
   supervisionLevel: SupervisionLevel;
+  needsApproval: boolean;
 }
 
 export interface AcceptNotificationData {
@@ -279,6 +290,7 @@ export const Method = {
   SOUL_LOAD: "soul.load",
 
   // Chat 管理
+  CHAT_CREATE: "chat.create",
   CHAT_LIST: "chat.list",
   CHAT_GET: "chat.get",
   CHAT_DELETE: "chat.delete",

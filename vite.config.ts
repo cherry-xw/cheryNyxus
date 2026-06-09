@@ -37,6 +37,14 @@ function postBuildFix(): Plugin {
         rmSync(resolve(distDir, f));
       }
 
+      // ===== web/index.html 复制 =====
+      const webHtml = resolve(__dirname, "src/web/index.html");
+      const webTargetDir = resolve(distDir, "web");
+      if (existsSync(webHtml)) {
+        mkdirSync(webTargetDir, { recursive: true });
+        copyFileSync(webHtml, resolve(webTargetDir, "index.html"));
+      }
+
       // ===== index.js 补丁 =====
       if (!existsSync(distFile)) return;
       let code = readFileSync(distFile, "utf-8");

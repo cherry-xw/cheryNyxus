@@ -15,13 +15,13 @@ import {
   type SenseApprovalResponseData,
 } from "../message/types.js";
 import { agentSouls } from "../soul/lifecycle.js";
-import { createChat, getChat, addMessage, getMessages, parseMessageRow } from "@/db/chat.js";
+import { getChat, addMessage, getMessages, parseMessageRow } from "@/db/chat.js";
 import { getSoul, parseSoulRow } from "@/db/soul.js";
 import { approvalManager } from "../approval/manager.js";
 import { connectionManager } from "../websocket/connection.js";
 import { AgentBuilder } from "@/agent/builder.js";
-import { randomUUID } from "crypto";
 import type { SenseTriggerChunk, SenseAcceptChunk, SenseRejectChunk, StagedChunk, PersistMessageData } from "@/core/middleware/types";
+import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 
 /**
@@ -83,12 +83,15 @@ export async function* handleChatSend(
   // 从内存或数据库恢复 soul
   const soul = await ensureSoul(data.soulId);
 
-  const chatId = data.chatId || randomUUID();
+  // 校验 chatId 必须提供且存在
+  if (!data.chatId) {
+    throw new Error("chatId is required");
+  }
+  const chatId = data.chatId;
 
-  // 创建或获取 DB chat
-  let chat = getChat(chatId);
+  const chat = getChat(chatId);
   if (!chat) {
-    chat = createChat(chatId, data.soulId);
+    throw new Error(`Chat "${chatId}" not found`);
   }
 
   // 测试日志：用户问题
@@ -177,7 +180,7 @@ export async function* handleChatSend(
         yield createChunk("staged", rid, stagedData);
       } else if (chunk.type === "sense_end") {
         const sc = chunk as SenseTriggerChunk;
-        logger.info(`[ChatSend] sense_end, id=${sc.id}, name=${sc.name}, args=${sc.arguments}`);
+        logger.info(`[ChatSend] sense_end, id=${sc.id}, name=${sc.name}, args=${sc.arguments}, supervisionLevel=${sc.supervisionLevel}`);
 
         // 注册审批到 approvalManager（存储 approvalResolve）
         await approvalManager.registerFromTrigger(sc, data.soulId, chatId);
@@ -187,6 +190,7 @@ export async function* handleChatSend(
           senseName: sc.name,
           arguments: sc.arguments,
           supervisionLevel: sc.supervisionLevel,
+          needsApproval: sc.supervisionLevel > SupervisionLevel.auto,
         });
       } else if (chunk.type === "sense_accept") {
         const sc = chunk as SenseAcceptChunk;

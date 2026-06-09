@@ -5,19 +5,45 @@ import {
   Method,
   type Chunk,
   type Notification,
+  type ChatCreateRequestData,
+  type ChatCreateResponseData,
   type ChatListRequestData,
   type ChatGetRequestData,
   type ChatGetResponseData,
   type ChatDeleteRequestData,
 } from "../message/types.js";
 import {
+  createChat,
   listChatsBySoul,
   getChat,
   deleteChat,
   getMessages,
   parseMessageRow,
 } from "@/db/chat.js";
+import { getSoul } from "@/db/soul.js";
 import { clearChatFromMemory } from "../soul/lifecycle.js";
+import { randomUUID } from "crypto";
+
+/**
+ * 创建聊天
+ */
+export async function handleChatCreate(
+  ctx: HandlerContext,
+  params: unknown,
+): Promise<ChatCreateResponseData> {
+  const p = params as ChatCreateRequestData;
+
+  // 校验 soul 存在
+  const soul = getSoul(p.soulId);
+  if (!soul) {
+    throw new Error(`Soul "${p.soulId}" not found`);
+  }
+
+  const chatId = randomUUID();
+  createChat(chatId, p.soulId);
+
+  return { chatId };
+}
 
 /**
  * 列出聊天
@@ -112,6 +138,7 @@ export async function handleChatDelete(
  * 注册 Chat 管理 handlers
  */
 export function registerChatManageHandlers(router: import("../message/router.js").RpcRouter): void {
+  router.register(Method.CHAT_CREATE, handleChatCreate);
   router.register(Method.CHAT_LIST, handleChatList);
   router.register(Method.CHAT_GET, handleChatGet, true);  // 流式返回历史
   router.register(Method.CHAT_DELETE, handleChatDelete);

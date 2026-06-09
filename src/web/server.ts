@@ -1,18 +1,22 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { resolve, dirname } from "path";
 import { logger } from "@/utils/logger/index.js";
 
 /**
  * 解析 HTML 文件路径
- * Vite SSR 单文件构建，import.meta.url 指向 dist/index.js，无法用于定位 HTML
- * 使用 process.cwd() 作为项目根目录
+ * 支持两种运行模式：
+ * 1. 项目根目录运行（yarn dev）→ src/web/index.html
+ * 2. dist 目录运行（node dist/index.js）→ dist/web/index.html
  */
 function resolveHtmlPath(): string {
-  const root = process.cwd();
+  // 使用 import.meta.url 获取当前文件所在目录（打包后是 dist/index.js 的目录）
+  const currentDir = dirname(new URL(import.meta.url).pathname);
   const candidates = [
-    resolve(root, "src/web/index.html"),  // dev 模式：源码目录
-    resolve(root, "dist/web/index.html"),  // build 模式：产物目录
+    resolve(currentDir, "web/index.html"),  // build 模式：dist/web/index.html
+    resolve(currentDir, "src/web/index.html"),  // dev 模式（未打包）
+    resolve(process.cwd(), "src/web/index.html"),  // fallback: 从 cwd 查找
+    resolve(process.cwd(), "web/index.html"),  // fallback: dist 目录运行
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
