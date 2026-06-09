@@ -131,9 +131,9 @@ async function* executeSenseCall(
 
     if (decision.action === "accept") {
       logger.info("[SENSE EXEC] Executing sense...");
-      const result = await doExecuteSense(ctx, name, argsJson);
-      logger.info("[SENSE EXEC] Result:", result.slice(0, 200) + (result.length > 200 ? "..." : ""));
-      yield { type: "sense_accept", id, name, result };
+      const { content, hash } = await doExecuteSense(ctx, name, argsJson, id);
+      logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
+      yield { type: "sense_accept", id, name, result: content, hash };
     } else {
       logger.info("[SENSE EXEC] ❌ Rejected by user");
       yield {
@@ -146,9 +146,9 @@ async function* executeSenseCall(
   } else {
     // auto：直接执行
     logger.info("[SENSE EXEC] Auto mode, executing directly...");
-    const result = await doExecuteSense(ctx, name, argsJson);
-    logger.info("[SENSE EXEC] Result:", result.slice(0, 200) + (result.length > 200 ? "..." : ""));
-    yield { type: "sense_accept", id, name, result };
+    const { content, hash } = await doExecuteSense(ctx, name, argsJson, id);
+    logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
+    yield { type: "sense_accept", id, name, result: content, hash };
   }
 
   logger.info("\n[SENSE EXEC] Sense call completed\n");
@@ -161,23 +161,36 @@ async function doExecuteSense(
   ctx: MiddlewareContext,
   name: string,
   argsJson: string,
-): Promise<string> {
+  id: string,
+): Promise<{ content: string; hash?: string }> {
   try {
     const args = argsJson ? safeJsonParse(argsJson, {}) : {};
     const result = await ctx.senseManager.execute(name, args, ctx.soul.senseSharedData);
 
-    // 去重检查
+    // 历史替换逻辑：检查历史 sense 消息是否有相同 hash
     if (result.hash) {
-      if (ctx.soul.hashCheck.has(result.hash)) {
-        return `[已跳过"${name}"重复调用] 前面已有完全相同操作`;
+      const messages = ctx.soul.messages ?? [];
+      for (const msg of messages) {
+        if (msg.role === "sense" && msg.hash === result.hash && !msg.replace?.state) {
+          // 标记历史消息为已被替换
+          msg.replace = {
+            state: true,
+            by: id,
+            content: `旧内容已过时，后续已加载新内容替换。替换该数据的id:${id}`,
+          };
+          msg.originalContent = msg.content;
+          logger.info("\n[SENSE EXEC] 🔄 Replaced historical sense message");
+          logger.info("[SENSE EXEC] Old ID:", msg.id);
+          logger.info("[SENSE EXEC] New ID:", id);
+          logger.info("[SENSE EXEC] Hash:", result.hash);
+        }
       }
-      ctx.soul.hashCheck.set(result.hash, name);
     }
 
-    return result.content;
+    return { content: result.content, hash: result.hash };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    return `Sense execution failed: ${errorMsg}`;
+    return { content: `Sense execution failed: ${errorMsg}` };
   }
 }
 

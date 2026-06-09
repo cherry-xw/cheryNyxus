@@ -24,10 +24,16 @@ const ollamaMessageAdapterConfig = {
   extractStreamThinking: (chunk: ChatResponse) =>
     chunk.message?.thinking ?? undefined,
   buildMessages: (history: LLMResponse[]) =>
-    history.map((m) => ({
-      role: m.role,
-      content: m.content,
-    })) as Message[],
+    history.map((m) => {
+      // 如果是 sense 消息且被替换，使用 replace.content
+      const content = m.role === "sense" && m.replace?.state
+        ? m.replace.content
+        : m.content;
+      return {
+        role: m.role,
+        content,
+      };
+    }) as Message[],
 };
 
 // Sense Adapter 配置

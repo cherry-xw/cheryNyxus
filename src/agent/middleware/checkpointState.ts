@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type { MiddlewareContext, PersistMessageData, SenseAcceptChunk, SenseRejectChunk } from "@/core/middleware/types";
+import type { LLMResponse } from "@/core/message/adapter";
 import type { SenseCallData } from "@/core/sense/adapter";
 import { logger } from "@/utils/logger/index.js";
 
@@ -76,9 +77,9 @@ export class CheckpointState {
 
     // assistant 响应（包含 thinking 和 senseCalls）
     if (this.content || this.thinking || mergedSenseCalls.length > 0) {
-      const assistantMsg = {
+      const assistantMsg: LLMResponse = {
         id: randomUUID(),
-        role: "assistant",
+        role: "assistant" as const,
         content: this.content,
         thinking: this.thinking,
         senseCalls: mergedSenseCalls
@@ -93,7 +94,7 @@ export class CheckpointState {
       };
       messages.push(assistantMsg);
       newMessages.push({
-        id: assistantMsg.id!,
+        id: assistantMsg.id,
         role: "assistant",
         content: this.content || undefined,
         thinking: this.thinking || undefined,
@@ -105,10 +106,13 @@ export class CheckpointState {
 
     // sense 结果（独立追加，不受 assistant 消息条件限制）
     for (const r of this.senseResults) {
-      const senseMsg = {
+      const hash = r.type === "sense_accept" ? r.hash : undefined;
+
+      const senseMsg: LLMResponse = {
         id: r.id,
         role: "sense",
         content: r.type === "sense_accept" ? r.result : `被拒绝: ${r.reason}`,
+        hash,
         createdAt: Date.now(),
         updateAt: Date.now(),
       };
@@ -118,11 +122,13 @@ export class CheckpointState {
         id: r.id,
         role: "sense",
         content: senseMsg.content,
+        hash,
       });
 
       logger.info("\n[CHECKPOINT] ⚡ Appended sense message");
       logger.info("[CHECKPOINT] Type:", r.type);
       logger.info("[CHECKPOINT] ID:", r.id);
+      logger.info("[CHECKPOINT] Hash:", hash || "(none)");
       logger.info("[CHECKPOINT] Content preview:", senseMsg.content.slice(0, 100));
       logger.info("[CHECKPOINT] ⚠️ This will affect loop.ts decision!");
       logger.info("[CHECKPOINT] If type=sense_reject, loop will check: role==='sense' → continue");

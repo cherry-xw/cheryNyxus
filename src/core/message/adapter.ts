@@ -13,6 +13,18 @@ export interface SenseCallInfo {
 }
 
 /**
+ * 消息替换信息
+ */
+export interface ReplaceInfo {
+  /** 是否被替换 */
+  state: boolean;
+  /** 替换者的 tool call id */
+  by: string;
+  /** 替换后的内容 */
+  content: string;
+}
+
+/**
  * 统一 LLM 响应结构
  */
 export interface LLMResponse {
@@ -23,6 +35,12 @@ export interface LLMResponse {
   senseCalls?: SenseCallInfo[];
   createdAt: number;
   updateAt: number;
+  /** 感官执行结果的 hash（仅 sense 消息有） */
+  hash?: string;
+  /** 替换信息（sense消息被后续相同hash调用替换时） */
+  replace?: ReplaceInfo;
+  /** 原内容（被替换时保留，用于溯源/前端显示） */
+  originalContent?: string;
 }
 
 /**

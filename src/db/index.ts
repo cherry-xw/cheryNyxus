@@ -55,6 +55,11 @@ function initTables(database: Database.Database): void {
       content TEXT,
       thinking TEXT,
       sense_calls TEXT,
+      hash TEXT,
+      replace_state INTEGER DEFAULT 0,
+      replace_by TEXT,
+      replace_content TEXT,
+      original_content TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
     );

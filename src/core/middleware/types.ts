@@ -126,6 +126,8 @@ export interface PersistMessageData {
   content?: string;
   thinking?: string;
   senseCalls?: Array<{ id: string; name: string; arguments: string }>;
+  /** 感官执行结果的 hash */
+  hash?: string;
 }
 
 /**
@@ -202,6 +204,8 @@ export interface SenseAcceptChunk {
   name: string;
   /** 执行结果 */
   result: string;
+  /** 结果 hash（用于历史去重） */
+  hash?: string;
 }
 
 /**

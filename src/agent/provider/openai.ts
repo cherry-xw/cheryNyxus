@@ -41,9 +41,11 @@ const openaiMessageAdapterConfig = {
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => {
       if (m.role === "sense") {
+        // 如果被替换，使用 replace.content
+        const content = m.replace?.state ? m.replace.content : m.content;
         return {
           role: "tool",
-          content: m.content,
+          content,
           tool_call_id: m.id,
         } as ChatCompletionMessageParam;
       }
