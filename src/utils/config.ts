@@ -61,6 +61,17 @@ interface FileCompressionConfig {
 }
 
 /**
+ * 日志配置
+ */
+interface LoggerConfig {
+  level?: "debug" | "info" | "warn" | "error" | "silent"; // 日志等级
+  output?: ("console" | "file")[]; // 输出位置数组
+  timestamp?: boolean; // 是否显示时间戳
+  location?: boolean; // 是否显示调用位置
+  format?: "plain" | "json"; // 输出格式
+}
+
+/**
  * 全局配置
  */
 interface GlobalConfig {
@@ -71,6 +82,7 @@ interface GlobalConfig {
   maxLoopCount?: number; // loop 最大执行次数（默认 30）
   bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig; // 文件压缩配置
+  logger?: LoggerConfig; // 日志配置
 }
 
 /**
@@ -174,7 +186,6 @@ function loadConfig(): Config {
 }
 
 const config = loadConfig();
-// console.log(JSON.stringify(config));
 
-export type { Config, LLMConfig, BrainConfig, SenseGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig };
+export type { Config, LLMConfig, BrainConfig, SenseGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig, LoggerConfig };
 export default config;

@@ -4,6 +4,7 @@ import type { SenseGroupConfig } from "@/utils/config";
 import { SupervisionLevel } from "../config";
 import { getSenses } from "./senseRegistry";
 import { getSenseAdapter, type SenseAdapter } from "./adapter";
+import { logger } from "@/utils/logger/index.js";
 
 export class SenseManager {
   private _senses: Sense<ZodType>[] = [];
@@ -80,7 +81,7 @@ export class SenseManager {
     for (const groupName of groupNames) {
       const group = senseGroups?.[groupName];
       if (!group) {
-        console.warn(`Sense group "${groupName}" not found, skipping`);
+        logger.warn(`Sense group "${groupName}" not found, skipping`);
         continue;
       }
 
@@ -88,7 +89,7 @@ export class SenseManager {
         const name = s.definition.function.name;
         const prev = result.get(name);
         if (prev) {
-          console.warn(`Sense "${name}" already loaded, overriding with group "${groupName}"`);
+          logger.warn(`Sense "${name}" already loaded, overriding with group "${groupName}"`);
         }
         // 优先级：组监管 > 前组已解析监管 > 感官内置监管 > 全局默认
         s.supervisionLevel =

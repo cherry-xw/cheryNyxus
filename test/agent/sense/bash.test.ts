@@ -3,11 +3,33 @@ import bashTool from "@/agent/sense/bash";
 import { SupervisionLevel } from "@/core/config";
 import type { ToolSharedData } from "@/core/sense";
 
-// Mock with correct import path
-vi.mock("@/utils/bashLogger.js", () => ({
-  createBashLogPath: vi.fn(() => "/tmp/test-log.log"),
-  formatBashLogHeader: vi.fn(() => "Header"),
-  cleanOldBashLogs: vi.fn(),
+// Mock logger.tools methods
+vi.mock("@/utils/logger/index.js", () => ({
+  initLogger: vi.fn(),
+  logger: {
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    write: vi.fn(),
+    close: vi.fn(),
+    getConfig: vi.fn(),
+    setConfig: vi.fn(),
+    tools: {
+      createBashLogPath: vi.fn(() => "/tmp/test-log.log"),
+      formatBashLogHeader: vi.fn(() => "Header"),
+      cleanOldBashLogs: vi.fn(),
+      getBashLogDir: vi.fn(() => "/tmp/cheryClaw-bash-logs"),
+      getLogDirectory: vi.fn((name: string) => `/tmp/${name}`),
+      createLogFilePath: vi.fn((dir: string, file: string) => `/tmp/${dir}/${file}`),
+      getLogSize: vi.fn(() => 0),
+      shouldShowPartialLog: vi.fn(() => false),
+      getLogSizeThreshold: vi.fn(() => 10240),
+      formatLogSize: vi.fn((b: number) => `${b}B`),
+      createLogStream: vi.fn(),
+      cleanOldLogFiles: vi.fn(),
+    },
+  },
 }));
 
 describe("Bash Tool", () => {
@@ -35,9 +57,9 @@ describe("Bash Tool", () => {
     let createBashLogPath: ReturnType<typeof vi.fn>;
 
     beforeAll(async () => {
-      const mod = await import("@/utils/bashLogger.js");
-      cleanOldBashLogs = vi.mocked(mod.cleanOldBashLogs);
-      createBashLogPath = vi.mocked(mod.createBashLogPath);
+      const mod = await import("@/utils/logger/index.js");
+      cleanOldBashLogs = vi.mocked((mod.logger as any).tools.cleanOldBashLogs);
+      createBashLogPath = vi.mocked((mod.logger as any).tools.createBashLogPath);
     });
 
     beforeEach(() => {

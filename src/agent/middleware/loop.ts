@@ -1,5 +1,6 @@
 import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk } from "@/core/middleware/types";
 import type { MiddlewareChunk } from "./index";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * 创建 agent 层循环策略
@@ -14,13 +15,22 @@ export function createLoopHandler(
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
     let times = 0;
 
+    logger.info("\n" + "▶".repeat(60));
+    logger.info("[LOOP] Starting execution loop (max: " + maxLoop + ")");
+    logger.info("▶".repeat(60) + "\n");
+
     while (times < maxLoop) {
       times++;
+
+      logger.info("\n[LOOP] Iteration #" + times);
+      logger.info("─".repeat(40));
+
       yield* runChain();
 
       // 检查 loop 停止条件（基于 ctx.soul.messages）
       const messages = ctx.soul.messages;
       if (!messages || messages.length === 0) {
+        logger.info("[LOOP] Stop: No messages");
         break;
       }
 
@@ -28,20 +38,26 @@ export function createLoopHandler(
 
       // 1. 最后一条是 sense → 刚执行完感官 → 继续 loop（获取 LLM 新响应）
       if (lastMessage.role === "sense") {
+        logger.info("[LOOP] Continue: Last message is 'sense'");
+        logger.info("[LOOP] Sense content:", lastMessage.content?.slice(0, 100) || "(empty)");
         continue;
       }
 
       // 2. 最后一条是 assistant 且有 senseCalls → 感官调用完成 → 继续 loop（执行下一轮感官）
       if (lastMessage.role === "assistant" && lastMessage.senseCalls?.length) {
+        logger.info("[LOOP] Continue: Assistant has senseCalls");
+        logger.info("[LOOP] Sense calls:", lastMessage.senseCalls.map(sc => sc.name).join(", "));
         continue;
       }
 
       // 3. 其他情况（assistant 无 senseCall / user / system）→ 停止 loop
+      logger.info("[LOOP] Stop: Last message is", lastMessage.role, "(no sense activity)");
       break;
     }
 
     // 超过最大循环次数
     if (times >= maxLoop) {
+      logger.info("\n[LOOP] ⚠ Max loop count reached (" + maxLoop + ")");
       const errorChunk: ErrorChunk = {
         type: "error",
         errors: [
@@ -56,6 +72,9 @@ export function createLoopHandler(
       };
       yield errorChunk;
     }
+
+    logger.info("\n[LOOP] Loop ended after " + times + " iterations");
+    logger.info("▼".repeat(60) + "\n");
 
     // loop 结束后 yield done（表示整个流程完成）
     const doneChunk: DoneChunk = { type: "done" };

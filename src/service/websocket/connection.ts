@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import type { ApprovalEntity } from "@/db/approval.js";
 import { approvalRepo } from "@/db/approval.js";
 import { approvalManager } from "@/service/approval/manager.js";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * 待处理请求
@@ -77,7 +78,7 @@ export class ConnectionManager {
   ): PendingRequest {
     const state = this.connections.get(ws);
     if (!state) {
-      console.error(`Connection not found for ws, available connections: ${this.connections.size}`);
+      logger.error(`Connection not found for ws, available connections: ${this.connections.size}`);
       throw new Error("Connection not found");
     }
 
@@ -139,7 +140,7 @@ export class ConnectionManager {
     const pending = state.pendingRequests.get(requestId);
     if (pending && !pending.approvalTimeoutTimer) {
       pending.approvalTimeoutTimer = setTimeout(() => {
-        console.log(`审批超时触发: requestId=${requestId}, approvalId=${pending.approvalId}`);
+        logger.info(`审批超时触发: requestId=${requestId}, approvalId=${pending.approvalId}`);
         onTimeout();
       }, pending.approvalTimeoutMs);
     }
@@ -180,7 +181,7 @@ export class ConnectionManager {
     const state = this.connections.get(ws);
     if (!state) return;
 
-    console.log(`关闭连接: ${state.id}, pendingRequests=${state.pendingRequests.size}`);
+    logger.info(`关闭连接: ${state.id}, pendingRequests=${state.pendingRequests.size}`);
 
     // 持久化未完成的审批
     for (const [requestId, pending] of state.pendingRequests) {
@@ -208,7 +209,7 @@ export class ConnectionManager {
     }
 
     this.connections.delete(ws);
-    console.log(`连接已从 Map 删除: ${state.id}, 剩余连接数: ${this.connections.size}`);
+    logger.info(`连接已从 Map 删除: ${state.id}, 剩余连接数: ${this.connections.size}`);
   }
 
   /**

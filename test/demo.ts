@@ -5,15 +5,19 @@
 import { AgentBuilder } from "@/agent/builder";
 import type { MiddlewareChunk, MiddlewareContext } from "@/core/middleware/types";
 import { createSoul, getSoul } from "@/db/soul.js";
-import { createChat, getChat } from "@/db/chat.js";
+import { createChat, getChat, addMessage } from "@/db/chat.js";
 import { approvalManager } from "@/service/approval/manager.js";
 import { SupervisionLevel } from "@/core/config.js";
 import config from "@/utils/config.js";
 import readline from "readline";
+import { initLogger, logger } from "@/utils/logger/index.js";
+
+// 初始化 Logger（使用全局配置，使 output: [file] 生效）
+initLogger(config.global.logger);
 
 async function main() {
-  console.log("=== Terminal Demo ===");
-  console.log("使用 ali_glm5 配置，输入 exit 或空行退出\n");
+  logger.info("=== Terminal Demo ===");
+  logger.info("使用 ali_glm5 配置，输入 exit 或空行退出\n");
 
   const soulId = "demo-soul";
   const chatId = "demo-chat";
@@ -40,16 +44,26 @@ async function main() {
 
   // 创建聊天
   agent.createChat(chatId);
-  console.log(`聊天已创建: ${chatId}\n`);
+  logger.info(`聊天已创建: ${chatId}\n`);
 
-  // stdin 审批监听
+  // stdin 审批监听（提示输出到 stderr，终端可见）
   const rl = readline.createInterface({
     input: process.stdin,
-    output: process.stdout,
+    output: process.stderr, // 提示输出到 stderr，不被重定向
   });
 
   // 获取 context 用于 approval middleware
   const ctx = agent.getContext(chatId)!;
+
+  // 注入消息持久化回调（与 WebSocket 模式一致）
+  ctx.persistMessage = (msg) => {
+    addMessage(msg.id, chatId, {
+      role: msg.role,
+      content: msg.content,
+      thinking: msg.thinking,
+      senseCall: msg.senseCalls,
+    });
+  };
 
   // 多轮对话循环
   while (true) {
@@ -62,7 +76,7 @@ async function main() {
       break;
     }
 
-    console.log("\n--- 响应开始 ---\n");
+    logger.info("\n--- 响应开始 ---\n");
 
     // 重置标题状态
     hasThinkingTitle = false;
@@ -74,31 +88,27 @@ async function main() {
     for await (const chunk of generator) {
       if (chunk.type === "sense_end" && chunk.supervisionLevel > SupervisionLevel.auto) {
         // 需审批：打印信息，等待 stdin
-        console.log(`\n[需审批] ${chunk.name}`);
-        console.log(`参数: ${chunk.arguments}`);
+        logger.info(`\n[需审批] ${chunk.name}`);
+        logger.info(`参数: ${chunk.arguments}`);
         const decision = await askApproval(rl);
-        // 记录决策，用于 sense_complete 显示（用 id 关联）
-        approvalDecisions.set(chunk.id, decision);
         // 通过 approvalResolve 回调通知 generator
         if (chunk.approvalResolve) {
           chunk.approvalResolve(decision.action, decision.reason);
         }
       }
-      if (chunk.type === "sense_complete") {
-        // 查找对应的审批决策（用 id 关联）
-        const decision = approvalDecisions.get(chunk.id);
-        approvalDecisions.delete(chunk.id); // 清理
-        handleChunk(chunk, decision);
+      if (chunk.type === "sense_accept" || chunk.type === "sense_reject") {
+        handleChunk(chunk);
       } else {
         handleChunk(chunk);
       }
     }
 
-    console.log("\n--- 响应结束 ---\n");
+    logger.info("\n--- 响应结束 ---\n");
   }
 
   rl.close();
-  console.log("\n=== Demo 完成 ===");
+  logger.info("\n=== Demo 完成 ===");
+  logger.close();
 }
 
 /**
@@ -142,63 +152,59 @@ async function askApproval(
 let hasThinkingTitle = false;
 let hasContentTitle = false;
 
-// 审批决策记录（sense_end → sense_complete 关联）
-const approvalDecisions = new Map<string, { action: "accept" | "reject"; reason?: string }>();
-
-function handleChunk(chunk: MiddlewareChunk, decision?: { action: "accept" | "reject"; reason?: string }) {
+function handleChunk(chunk: MiddlewareChunk) {
   switch (chunk.type) {
     case "stream":
       if (chunk.thinkingDelta) {
         if (!hasThinkingTitle) {
-          console.log("\n[思考]");
+          logger.info("\n[思考]");
           hasThinkingTitle = true;
         }
-        process.stdout.write(chunk.thinkingDelta);
+        logger.write(chunk.thinkingDelta);
       }
       if (chunk.contentDelta) {
         if (!hasContentTitle) {
-          console.log("\n[内容]");
+          logger.info("\n[内容]");
           hasContentTitle = true;
         }
-        process.stdout.write(chunk.contentDelta);
+        logger.write(chunk.contentDelta);
       }
       break;
     case "sense_end":
-      console.log(`\n[工具触发] ${chunk.name} (${chunk.supervisionLevel})`);
+      logger.info(`\n[工具触发] ${chunk.name} (${chunk.supervisionLevel})`);
       break;
-    case "sense_complete":
-      if (decision?.action === "reject") {
-        console.log(`\n[已拒绝] ${chunk.name}`);
-        if (decision.reason) {
-          console.log(`  原因: ${decision.reason}`);
-        }
-      } else {
-        console.log(`\n[工具完成] ${chunk.name}`);
-        console.log(`  结果: ${chunk.result}`);
+    case "sense_accept":
+      logger.info(`\n[工具完成] ${chunk.name}`);
+      logger.info(`  结果: ${chunk.result}`);
+      break;
+    case "sense_reject":
+      logger.info(`\n[已拒绝] ${chunk.name}`);
+      if (chunk.reason) {
+        logger.info(`  原因: ${chunk.reason}`);
       }
       break;
     case "staged":
-      console.log("\n--- 阶段完成 ---");
+      logger.info("\n--- 阶段完成 ---");
       // 重置标题状态，下轮可重新打印
       hasThinkingTitle = false;
       hasContentTitle = false;
       break;
     case "consumed":
-      console.log(`\n[已消费] ${chunk.count} 条输入`);
+      logger.info(`\n[已消费] ${chunk.count} 条输入`);
       break;
     case "error":
-      console.log("\n[错误]");
+      logger.info("\n[错误]");
       chunk.errors.forEach((e) => {
-        console.log(`  - ${e.category}: ${e.message}`);
+        logger.info(`  - ${e.category}: ${e.message}`);
       });
       break;
     case "done":
-      console.log("\n--- 响应结束 ---");
+      logger.info("\n--- 响应结束 ---");
       break;
   }
 }
 
 main().catch((err) => {
-  console.error("执行失败:", err);
+  logger.error("执行失败:", err);
   process.exit(1);
 });

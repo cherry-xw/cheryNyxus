@@ -48,7 +48,8 @@ export interface Notification {
 
 export type NotificationType =
   | "interrupt"    // 感官审批请求
-  | "complete"     // 感官执行结果
+  | "accept"       // 感官执行成功
+  | "rejected"     // 感官执行被拒绝
   | "consumed"     // 消息已消费
   | "loaded"       // 历史对话已载入
   | "done"         // 执行完成
@@ -226,7 +227,8 @@ export interface StagedChunkData {
 
 export type NotificationData =
   | InterruptNotificationData
-  | CompleteNotificationData
+  | AcceptNotificationData
+  | RejectedNotificationData
   | ConsumedNotificationData
   | ErrorNotificationData
   | null;
@@ -238,10 +240,16 @@ export interface InterruptNotificationData {
   supervisionLevel: SupervisionLevel;
 }
 
-export interface CompleteNotificationData {
+export interface AcceptNotificationData {
   approvalId: string;
   senseName: string;
   result: string;
+}
+
+export interface RejectedNotificationData {
+  approvalId: string;
+  senseName: string;
+  reason: string;
 }
 
 export interface ConsumedNotificationData {

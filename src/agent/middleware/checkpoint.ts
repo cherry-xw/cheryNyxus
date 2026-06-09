@@ -4,6 +4,15 @@ import { checkpointRepo } from "@/db/checkpoint.js";
 import { CheckpointState } from "./checkpointState.js";
 
 /**
+ * 持久化消息到 DB（通过回调）
+ */
+function persistMessage(ctx: MiddlewareContext, msg: Parameters<NonNullable<MiddlewareContext["persistMessage"]>>[0]): void {
+  if (ctx.persistMessage) {
+    ctx.persistMessage(msg);
+  }
+}
+
+/**
  * Checkpoint Middleware
  * 职责：
  * 1. 处理 userInputs → messages（在 next() 调用前）
@@ -26,14 +35,18 @@ export async function* checkpointMiddleware(
   if (userInputs.length > 0) {
     const messages = ctx.soul.messages ?? [];
     for (const input of userInputs) {
+      const msgId = randomUUID();
       messages.push({
-        id: randomUUID(),
+        id: msgId,
         role: "user",
         content: input.content,
         createdAt: input.time, // 用户发送时间
         updateAt: Date.now(), // 注入消息列表时间
       });
       consumedCount++;
+
+      // 实时持久化 user 消息（连接中断也不丢失）
+      persistMessage(ctx, { id: msgId, role: "user", content: input.content });
     }
     ctx.soul.messages = messages;
     // 清空 userInputs（避免重复处理）
@@ -52,119 +65,123 @@ export async function* checkpointMiddleware(
   let contentActive = false;   // contentDelta 是否活跃
 
   // === 执行内层 handlers ===
-  for await (const chunk of next()) {
-    state.ingest(chunk);
+  try {
+    for await (const chunk of next()) {
+      state.ingest(chunk);
 
-    // 边界检测和 staged yield（三 delta 状态机）
-    if (chunk.type === "stream") {
-      const streamChunk = chunk as StreamChunk;
+      // 边界检测和 staged yield（三 delta 状态机）
+      if (chunk.type === "stream") {
+        const streamChunk = chunk as StreamChunk;
 
-      // thinkingDelta 出现 → thinkingActive = true
-      if (streamChunk.thinkingDelta) {
-        thinkingActive = true;
-      }
-
-      // contentDelta 出现 → thinking 结束，content 开始
-      if (streamChunk.contentDelta) {
-        // 如果 thinking 活跃，先 yield thinking_end staged
-        if (thinkingActive) {
-          thinkingActive = false;
-          const thinkingStaged: StagedChunk = {
-            type: "staged",
-            stagedType: "thinking_end",
-            content: "",
-            thinking: state.getThinking(),
-          };
-          yield thinkingStaged;
-        }
-        contentActive = true;
-      }
-
-      // senseDelta 出现 → content 结束，sense 开始
-      if (streamChunk.senseDelta && streamChunk.senseDelta.length > 0) {
-        // 如果 thinking 活跃，先 yield thinking_end staged
-        if (thinkingActive) {
-          thinkingActive = false;
-          const thinkingStaged: StagedChunk = {
-            type: "staged",
-            stagedType: "thinking_end",
-            content: "",
-            thinking: state.getThinking(),
-          };
-          yield thinkingStaged;
+        // thinkingDelta 出现 → thinkingActive = true
+        if (streamChunk.thinkingDelta) {
+          thinkingActive = true;
         }
 
-        // 如果 content 活跃，yield content_end staged
-        if (contentActive) {
-          contentActive = false;
-          const contentStaged: StagedChunk = {
-            type: "staged",
-            stagedType: "content_end",
-            content: state.getContent(),
-            thinking: "",
-          };
-          yield contentStaged;
+        // contentDelta 出现 → thinking 结束，content 开始
+        if (streamChunk.contentDelta) {
+          // 如果 thinking 活跃，先 yield thinking_end staged
+          if (thinkingActive) {
+            thinkingActive = false;
+            const thinkingStaged: StagedChunk = {
+              type: "staged",
+              stagedType: "thinking_end",
+              content: "",
+              thinking: state.getThinking(),
+            };
+            yield thinkingStaged;
+          }
+          contentActive = true;
+        }
+
+        // senseDelta 出现 → content 结束，sense 开始
+        if (streamChunk.senseDelta && streamChunk.senseDelta.length > 0) {
+          // 如果 thinking 活跃，先 yield thinking_end staged
+          if (thinkingActive) {
+            thinkingActive = false;
+            const thinkingStaged: StagedChunk = {
+              type: "staged",
+              stagedType: "thinking_end",
+              content: "",
+              thinking: state.getThinking(),
+            };
+            yield thinkingStaged;
+          }
+
+          // 如果 content 活跃，yield content_end staged
+          if (contentActive) {
+            contentActive = false;
+            const contentStaged: StagedChunk = {
+              type: "staged",
+              stagedType: "content_end",
+              content: state.getContent(),
+              thinking: "",
+            };
+            yield contentStaged;
+          }
         }
       }
+
+      // sense_end 时重置状态标记
+      if (chunk.type === "sense_end") {
+        const trigger = chunk as SenseTriggerChunk;
+        // yield sense_end staged
+        const senseStaged: StagedChunk = {
+          type: "staged",
+          stagedType: "sense_end",
+          content: "",
+          thinking: "",
+          senseName: trigger.name,
+          senseArguments: trigger.arguments,
+        };
+        yield senseStaged;
+      }
+
+      // sense_complete 时不重置标记（本轮 thinking/content 已 yield）
+      // 新一轮标记由新 CheckpointState 初始化
+
+      yield chunk;
     }
 
-    // sense_end 时重置状态标记
-    if (chunk.type === "sense_end") {
-      const trigger = chunk as SenseTriggerChunk;
-      // yield sense_end staged
-      const senseStaged: StagedChunk = {
+    // === 流结束后 yield 最终 staged（仅正常完成时） ===
+    if (thinkingActive) {
+      yield {
         type: "staged",
-        stagedType: "sense_end",
+        stagedType: "thinking_end",
         content: "",
+        thinking: state.getThinking(),
+      } as StagedChunk;
+      thinkingActive = false;
+    }
+    if (contentActive) {
+      yield {
+        type: "staged",
+        stagedType: "content_end",
+        content: state.getContent(),
         thinking: "",
-        senseName: trigger.name,
-        senseArguments: trigger.arguments,
-      };
-      yield senseStaged;
+      } as StagedChunk;
+      contentActive = false;
+    }
+  } finally {
+    // === 始终执行：追加消息 + 持久化（即使 generator.return() 也会运行） ===
+    const newMessages = state.appendResponseMessages(ctx);
+    for (const msg of newMessages) {
+      persistMessage(ctx, msg);
     }
 
-    // sense_complete 时不重置标记（本轮 thinking/content 已 yield）
-    // 新一轮标记由新 CheckpointState 初始化
-
-    yield chunk;
+    // === 持久化 checkpoint ===
+    await checkpointRepo.create({
+      id: randomUUID(),
+      soulId: ctx.soul.soulId,
+      chatId: ctx.soul.chatId,
+      phase: "complete",
+      pendingSenses: JSON.stringify(state.getPendingSensesArray()),
+      thinkingAccumulated: state.getThinking(),
+      contentAccumulated: state.getContent(),
+      messages: JSON.stringify(ctx.soul.messages),
+      createdAt: Date.now(),
+    });
   }
-
-  // === 流结束后 yield 最终 staged ===
-  // 如果 thinking/content 仍活跃，说明还有未 yield 的内容
-  if (thinkingActive) {
-    yield {
-      type: "staged",
-      stagedType: "thinking_end",
-      content: "",
-      thinking: state.getThinking(),
-    } as StagedChunk;
-    thinkingActive = false;
-  }
-  if (contentActive) {
-    yield {
-      type: "staged",
-      stagedType: "content_end",
-      content: state.getContent(),
-      thinking: "",
-    } as StagedChunk;
-    contentActive = false;
-  }
-
-  // === 追加 assistant 响应和 sense 结果到 messages ===
-  state.appendResponseMessages(ctx);
-
-  // === 持久化 checkpoint ===
-  await checkpointRepo.create({
-    id: randomUUID(),
-    soulId: ctx.soul.soulId,
-    chatId: ctx.soul.chatId,
-    phase: "complete",
-    pendingSenses: JSON.stringify(state.getPendingSensesArray()),
-    thinkingAccumulated: state.getThinking(),
-    contentAccumulated: state.getContent(),
-    messages: JSON.stringify(ctx.soul.messages),
-    createdAt: Date.now(),
-  });
 
   // 不再 yield done（由 loop.ts 负责）
 }

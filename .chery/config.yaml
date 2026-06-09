@@ -65,6 +65,15 @@ global:
   sense_execute_timeout: 10000 # 感官执行超时时间（毫秒），默认 30 秒
   bash_log_retention_hours: 24 # bash 日志文件保留时间（小时），默认 24 小时
 
+  # 日志配置
+  logger:
+    level: info # 日志等级：debug/info/warn/error/silent
+    output: [file] # 输出位置：console/file（数组可同时输出多处）
+    # 日志文件自动生成：.chery/logs/{YYYY-MM-DD}.log（output 含 file 时生效）
+    timestamp: true # 是否显示时间戳
+    location: true # 是否显示调用位置（文件名:行号）
+    format: plain # 输出格式：plain/json
+
   # 文件压缩配置
   file_compression:
     truncate_threshold: 50000 # 50KB截断阈值（字节），超过此大小触发截断

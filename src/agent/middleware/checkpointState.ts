@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
-import type { MiddlewareContext, SenseCompleteChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, PersistMessageData, SenseAcceptChunk, SenseRejectChunk } from "@/core/middleware/types";
 import type { SenseCallData } from "@/core/sense/adapter";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * Checkpoint 状态管理
@@ -11,7 +12,7 @@ export class CheckpointState {
   private content = "";
   private senseDeltas: SenseCallData[] = [];
   private pendingSenses = new Map<string, { id: string; name: string; arguments: string }>();
-  private senseResults: SenseCompleteChunk[] = [];
+  private senseResults: (SenseAcceptChunk | SenseRejectChunk)[] = [];
 
   /**
    * 摄入 chunk，更新内部状态
@@ -36,11 +37,12 @@ export class CheckpointState {
         }
         break;
 
-      case "sense_complete":
+      case "sense_accept":
+      case "sense_reject":
         if (chunk.id) {
           this.pendingSenses.delete(chunk.id);
         }
-        this.senseResults.push(chunk as SenseCompleteChunk);
+        this.senseResults.push(chunk as SenseAcceptChunk | SenseRejectChunk);
         break;
     }
   }
@@ -58,14 +60,23 @@ export class CheckpointState {
   /**
    * 追加 assistant 响应和 sense 结果到 messages
    * （userInputs 已在 checkpoint.ts next() 调用前处理）
+   * @returns 新创建的消息列表（用于持久化回调）
    */
-  appendResponseMessages(ctx: MiddlewareContext): void {
+  appendResponseMessages(ctx: MiddlewareContext): PersistMessageData[] {
     const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas);
     const messages = ctx.soul.messages ?? [];
+    const newMessages: PersistMessageData[] = [];
+
+    logger.info("\n[CHECKPOINT] Appending response messages");
+    logger.info("[CHECKPOINT] Thinking length:", this.thinking.length);
+    logger.info("[CHECKPOINT] Content length:", this.content.length);
+    logger.info("[CHECKPOINT] Sense deltas:", this.senseDeltas.length);
+    logger.info("[CHECKPOINT] Merged sense calls:", mergedSenseCalls.length);
+    logger.info("[CHECKPOINT] Sense results:", this.senseResults.length);
 
     // assistant 响应（包含 thinking 和 senseCalls）
     if (this.content || this.thinking || mergedSenseCalls.length > 0) {
-      messages.push({
+      const assistantMsg = {
         id: randomUUID(),
         role: "assistant",
         content: this.content,
@@ -79,21 +90,50 @@ export class CheckpointState {
           })),
         createdAt: Date.now(),
         updateAt: Date.now(),
+      };
+      messages.push(assistantMsg);
+      newMessages.push({
+        id: assistantMsg.id!,
+        role: "assistant",
+        content: this.content || undefined,
+        thinking: this.thinking || undefined,
+        senseCalls: assistantMsg.senseCalls,
       });
+      logger.info("[CHECKPOINT] ✅ Appended assistant message");
+      logger.info("[CHECKPOINT] Sense calls in assistant:", assistantMsg.senseCalls?.length || 0);
     }
 
     // sense 结果（独立追加，不受 assistant 消息条件限制）
     for (const r of this.senseResults) {
-      messages.push({
+      const senseMsg = {
         id: r.id,
         role: "sense",
-        content: r.result,
+        content: r.type === "sense_accept" ? r.result : `被拒绝: ${r.reason}`,
         createdAt: Date.now(),
         updateAt: Date.now(),
+      };
+      messages.push(senseMsg);
+
+      newMessages.push({
+        id: r.id,
+        role: "sense",
+        content: senseMsg.content,
       });
+
+      logger.info("\n[CHECKPOINT] ⚡ Appended sense message");
+      logger.info("[CHECKPOINT] Type:", r.type);
+      logger.info("[CHECKPOINT] ID:", r.id);
+      logger.info("[CHECKPOINT] Content preview:", senseMsg.content.slice(0, 100));
+      logger.info("[CHECKPOINT] ⚠️ This will affect loop.ts decision!");
+      logger.info("[CHECKPOINT] If type=sense_reject, loop will check: role==='sense' → continue");
     }
 
     ctx.soul.messages = messages;
+    logger.info("[CHECKPOINT] Total messages:", messages.length);
+    logger.info("[CHECKPOINT] Last message role:", messages[messages.length - 1]?.role);
+    logger.info();
+
+    return newMessages;
   }
 
   /**

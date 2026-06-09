@@ -116,6 +116,17 @@ export interface AdaptersGroup {
 }
 
 /**
+ * 消息持久化数据（middleware → service 层回调）
+ */
+export interface PersistMessageData {
+  id: string;
+  role: "user" | "assistant" | "system" | "sense";
+  content?: string;
+  thinking?: string;
+  senseCalls?: Array<{ id: string; name: string; arguments: string }>;
+}
+
+/**
  * 中间件上下文 - 简化结构
  */
 export interface MiddlewareContext {
@@ -129,6 +140,8 @@ export interface MiddlewareContext {
   adapters: AdaptersGroup;
   /** 感官管理器 */
   senseManager: SenseManager;
+  /** 消息持久化回调（由 service 层注入，middleware 层不直接依赖 DB） */
+  persistMessage?: (message: PersistMessageData) => void;
 }
 
 /**
@@ -176,17 +189,31 @@ export interface SenseTriggerChunk {
 }
 
 /**
- * 感官完成
+ * 感官执行成功
  * id 与 sense_end.id 一致
  */
-export interface SenseCompleteChunk {
-  type: "sense_complete";
+export interface SenseAcceptChunk {
+  type: "sense_accept";
   /** 与 sense_end.id 一致 */
   id: string;
   /** 感官名称 */
   name: string;
   /** 执行结果 */
   result: string;
+}
+
+/**
+ * 感官执行被拒绝
+ * id 与 sense_end.id 一致
+ */
+export interface SenseRejectChunk {
+  type: "sense_reject";
+  /** 与 sense_end.id 一致 */
+  id: string;
+  /** 感官名称 */
+  name: string;
+  /** 拒绝原因 */
+  reason: string;
 }
 
 /**
@@ -249,7 +276,8 @@ export interface ErrorChunk {
 export type MiddlewareChunk =
   | StreamChunk
   | SenseTriggerChunk
-  | SenseCompleteChunk
+  | SenseAcceptChunk
+  | SenseRejectChunk
   | StagedChunk
   | ConsumedChunk
   | DoneChunk

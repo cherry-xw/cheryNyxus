@@ -4,12 +4,7 @@ import { writeFileSync } from "fs";
 import { sense, type SenseResult } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
 import config from "@/utils/config";
-import {
-  createBashLogPath,
-  formatBashLogHeader,
-  cleanOldBashLogs,
-  type BashLogInfo,
-} from "@/utils/bashLogger.js";
+import { logger, type BashLogInfo } from "@/utils/logger/index.js";
 
 const DEFAULT_TIMEOUT = config.global.sense_execute_timeout ?? 30000;
 const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24;
@@ -75,7 +70,7 @@ export default sense(
     const startTime = Date.now();
     const hash = "";
 
-    cleanOldBashLogs(LOG_RETENTION_HOURS);
+    logger.tools.cleanOldBashLogs(LOG_RETENTION_HOURS);
 
     return new Promise((resolve) => {
       let timedOut = false;
@@ -101,7 +96,7 @@ export default sense(
         const duration = endTime - startTime;
 
         // 超时场景：创建日志文件，进程进入后台运行
-        const logPath = createBashLogPath(startTime, endTime);
+        const logPath = logger.tools.createBashLogPath(startTime, endTime);
         const logInfo: BashLogInfo = {
           pid: processPid,
           command,
@@ -110,7 +105,7 @@ export default sense(
           description,
           status: 'running',
         };
-        writeFileSync(logPath, formatBashLogHeader(logInfo) + outputBuffer);
+        writeFileSync(logPath, logger.tools.formatBashLogHeader(logInfo) + outputBuffer);
 
         const result: BashResult = {
           status: 'timeout',

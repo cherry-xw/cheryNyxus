@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import { join, dirname } from "path";
 import yaml from "js-yaml";
 import config from "@/utils/config.js";
+import { logger } from "@/utils/logger/index.js";
 
 // ESM 下获取当前模块目录（用于 fallback）
 const promptModulePath = fileURLToPath(import.meta.url);
@@ -87,7 +88,7 @@ function loadSkills(): Map<string, SkillData> {
 
     // skill name 冲突时警告并覆盖
     if (skillMap.has(meta.name)) {
-      console.warn(
+      logger.warn(
         `[loadSkill] Warning: skill name "${meta.name}" conflict, overwriting with latest`
       );
     }

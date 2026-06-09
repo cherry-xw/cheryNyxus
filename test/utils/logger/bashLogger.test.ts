@@ -1,30 +1,50 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { logger } from "@/utils/logger/index.js";
 
-vi.mock("@/utils/logger/fileLogger.js", () => ({
-  getLogDirectory: vi.fn((name: string) => `/tmp/${name}`),
-  createLogFilePath: vi.fn((dir: string, file: string) => `/tmp/${dir}/${file}`),
-  createLogStream: vi.fn(),
-  formatLogSize: vi.fn((bytes: number) => `${bytes}B`),
-  getLogSize: vi.fn(() => 0),
-  getLogSizeThreshold: vi.fn(() => 10240),
-  shouldShowPartialLog: vi.fn(() => false),
-  cleanOldLogFiles: vi.fn(),
+vi.mock("@/utils/logger/index.js", () => ({
+  initLogger: vi.fn(),
+  logger: {
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    write: vi.fn(),
+    close: vi.fn(),
+    getConfig: vi.fn(),
+    setConfig: vi.fn(),
+    tools: {
+      createBashLogPath: vi.fn((_pid: number, startTime: number) =>
+        `/tmp/cheryClaw-bash-logs/${startTime}-12345.log`),
+      formatBashLogHeader: vi.fn((info: { pid: number; command: string; status: string }) =>
+        `---\nPID: ${info.pid}\nCommand: ${info.command}\nStatus: ${info.status}\n---\n`),
+      cleanOldBashLogs: vi.fn(),
+      getBashLogDir: vi.fn(() => "/tmp/cheryClaw-bash-logs"),
+      getLogDirectory: vi.fn((name: string) => `/tmp/${name}`),
+      createLogFilePath: vi.fn((dir: string, file: string) => `/tmp/${dir}/${file}`),
+      getLogSize: vi.fn(() => 0),
+      shouldShowPartialLog: vi.fn(() => false),
+      getLogSizeThreshold: vi.fn(() => 10240),
+      formatLogSize: vi.fn((b: number) => `${b}B`),
+      createLogStream: vi.fn(),
+      cleanOldLogFiles: vi.fn(),
+    },
+  },
 }));
+
+const tools = logger.tools;
 
 describe("bashLogger", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("should create bash log path with pid and timestamp", async () => {
-    const { createBashLogPath } = await import("@/utils/logger/bashLogger.js");
-    const path = createBashLogPath(12345, 1000000);
+  it("should create bash log path with pid and timestamp", () => {
+    const path = tools.createBashLogPath(12345, 1000000);
     expect(path).toContain("1000000-12345.log");
   });
 
-  it("should format log header with required fields", async () => {
-    const { formatBashLogHeader } = await import("@/utils/logger/bashLogger.js");
-    const header = formatBashLogHeader({
+  it("should format log header with required fields", () => {
+    const header = tools.formatBashLogHeader({
       pid: 12345,
       command: "ls -la",
       startTime: Date.now(),
@@ -36,9 +56,8 @@ describe("bashLogger", () => {
     expect(header).toContain("Status: running");
   });
 
-  it("should include description in header when provided", async () => {
-    const { formatBashLogHeader } = await import("@/utils/logger/bashLogger.js");
-    const header = formatBashLogHeader({
+  it("should include description in header when provided", () => {
+    const header = tools.formatBashLogHeader({
       pid: 12345,
       command: "ls",
       startTime: Date.now(),
@@ -49,12 +68,11 @@ describe("bashLogger", () => {
     expect(header).toContain("Description: list files");
   });
 
-  it("should re-export fileLogger functions", async () => {
-    const mod = await import("@/utils/logger/bashLogger.js");
-    expect(mod.createLogStream).toBeDefined();
-    expect(mod.formatLogSize).toBeDefined();
-    expect(mod.getLogSize).toBeDefined();
-    expect(mod.getLogSizeThreshold).toBeDefined();
-    expect(mod.shouldShowPartialLog).toBeDefined();
+  it("should expose all tools functions", () => {
+    expect(tools.createLogStream).toBeDefined();
+    expect(tools.formatLogSize).toBeDefined();
+    expect(tools.getLogSize).toBeDefined();
+    expect(tools.getLogSizeThreshold).toBeDefined();
+    expect(tools.shouldShowPartialLog).toBeDefined();
   });
 });

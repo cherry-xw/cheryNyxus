@@ -1,4 +1,5 @@
 import type { MiddlewareContext, ErrorChunk } from "@/core/middleware/types";
+import { logger } from "@/utils/logger/index.js";
 
 // ========== 配置常量 ==========
 const MAX_RETRIES = 3;
@@ -77,7 +78,7 @@ export async function* retryMiddleware(
     } catch (error) {
       const errorInfo = createErrorInfo(attempt, error);
       errors.push(errorInfo);
-      console.error(`[Retry] Attempt ${attempt} failed (${errorInfo.category}):`, error instanceof Error ? error.message : String(error));
+      logger.error(`[Retry] Attempt ${attempt} failed (${errorInfo.category}):`, error instanceof Error ? error.message : String(error));
 
       // 非最后一次且可恢复：等待后继续
       if (attempt < MAX_RETRIES && errorInfo.recoverable) {

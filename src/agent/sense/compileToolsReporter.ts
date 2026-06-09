@@ -1,6 +1,7 @@
 import { pathToFileURL } from "url";
 import { runSenseTests, type TestResultDetail } from "./index.js";
 import type { CompiledSenseInfo, SenseCompileSummary } from "@/core/sense/compiler/index.js";
+import { logger } from "@/utils/logger/index.js";
 
 const ANSI = {
   green: "\x1b[32m",
@@ -87,8 +88,8 @@ export function reportSenseCompileResult(
   const col1 = 20;
   const col2 = 8;
   const col3 = 10;
-  console.log(`\n${pad("脚本", col1)}${pad("编译", col2)}${pad("测试", col3)}`);
-  console.log("─".repeat(col1 + col2 + col3));
+  logger.info(`\n${pad("脚本", col1)}${pad("编译", col2)}${pad("测试", col3)}`);
+  logger.info("─".repeat(col1 + col2 + col3));
 
   for (const row of rows) {
     // 编译标记（不带颜色用于计算宽度）
@@ -107,11 +108,11 @@ export function reportSenseCompileResult(
     // 使用原始字符串计算宽度，颜色码不占显示宽度
     const compilePad = " ".repeat(col2 - compileRaw.length);
     const testPad = " ".repeat(col3 - testRaw.length);
-    console.log(`${pad(row.name, col1)}${compileMark}${compilePad}${testMark}${testPad}`);
+    logger.info(`${pad(row.name, col1)}${compileMark}${compilePad}${testMark}${testPad}`);
   }
 
   // 统计摘要
-  console.log(
+  logger.info(
     `\n统计：${ANSI.green}${compileOkCount} 编译成功${ANSI.reset}，` +
       `${compileFailCount > 0 ? `${ANSI.red}${compileFailCount} 编译失败${ANSI.reset}` : `${compileFailCount} 编译失败`} | ` +
       `测试：${ANSI.green}${testPassCount} 通过${ANSI.reset}，` +
@@ -121,30 +122,30 @@ export function reportSenseCompileResult(
 
   // 输出失败详情
   if (failures.length > 0) {
-    console.log(`\n${ANSI.red}失败详情：${ANSI.reset}`);
+    logger.info(`\n${ANSI.red}失败详情：${ANSI.reset}`);
     for (const f of failures) {
-      console.log("─".repeat(50));
+      logger.info("─".repeat(50));
       const typeLabel = f.type === "compile" ? "[编译失败]" : "[测试失败]";
-      console.log(`${ANSI.red}${typeLabel} ${f.name}:${ANSI.reset}`);
+      logger.info(`${ANSI.red}${typeLabel} ${f.name}:${ANSI.reset}`);
       if (f.type === "compile") {
-        console.log(`  错误信息:`);
-        console.log(`    ${ANSI.red}${f.message}${ANSI.reset}`);
+        logger.info(`  错误信息:`);
+        logger.info(`    ${ANSI.red}${f.message}${ANSI.reset}`);
       } else {
         if (f.message) {
-          console.log(`  执行异常:`);
-          console.log(`    ${ANSI.red}${f.message}${ANSI.reset}`);
+          logger.info(`  执行异常:`);
+          logger.info(`    ${ANSI.red}${f.message}${ANSI.reset}`);
         }
         if (f.testFailures && f.testFailures.length > 0) {
-          console.log(`  测试详情:`);
+          logger.info(`  测试详情:`);
           for (const tf of f.testFailures) {
-            console.log(`    input:    ${JSON.stringify(tf.input)}`);
-            console.log(`    expected: ${JSON.stringify(tf.expected)}`);
-            console.log(`    actual:   ${JSON.stringify(tf.actual)}`);
+            logger.info(`    input:    ${JSON.stringify(tf.input)}`);
+            logger.info(`    expected: ${JSON.stringify(tf.expected)}`);
+            logger.info(`    actual:   ${JSON.stringify(tf.actual)}`);
           }
         }
       }
     }
-    console.log("─".repeat(50));
+    logger.info("─".repeat(50));
   }
 }
 

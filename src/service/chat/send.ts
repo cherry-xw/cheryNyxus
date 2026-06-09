@@ -21,7 +21,8 @@ import { approvalManager } from "../approval/manager.js";
 import { connectionManager } from "../websocket/connection.js";
 import { AgentBuilder } from "@/agent/builder.js";
 import { randomUUID } from "crypto";
-import type { SenseTriggerChunk, SenseCompleteChunk, StagedChunk } from "@/core/middleware/types";
+import type { SenseTriggerChunk, SenseAcceptChunk, SenseRejectChunk, StagedChunk, PersistMessageData } from "@/core/middleware/types";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * 确保 Soul 存在于内存（从数据库恢复或报错）
@@ -91,7 +92,7 @@ export async function* handleChatSend(
   }
 
   // 测试日志：用户问题
-  console.log(`[ChatSend] chatId=${chatId}, prompt="${data.prompt}"`);
+  logger.info(`[ChatSend] chatId=${chatId}, prompt="${data.prompt}"`);
 
   const agent = await soul.agent;
   let historyMessages: ReturnType<typeof getMessages> = [];
@@ -104,6 +105,16 @@ export async function* handleChatSend(
     // 从数据库加载历史消息到 context
     const middlewareCtx = agent.getContext(chatId);
     if (middlewareCtx && middlewareCtx.soul.messages) {
+      // 注入消息持久化回调（middleware 层通过回调写入 DB，不直接依赖 DB）
+      middlewareCtx.persistMessage = (msg: PersistMessageData) => {
+        addMessage(msg.id, chatId, {
+          role: msg.role,
+          content: msg.content,
+          thinking: msg.thinking,
+          senseCall: msg.senseCalls,
+        });
+      };
+
       historyMessages = getMessages(chatId);
       const messages = middlewareCtx.soul.messages;
       if (historyMessages.length > 0 && messages.length === 1) {
@@ -126,6 +137,7 @@ export async function* handleChatSend(
     const generator = agent.send(chatId, data.prompt);
 
     let seq = 0;
+    const rid = ctx.requestId ?? chatId;
 
     for await (const chunk of generator) {
       if (chunk.type === "stream") {
@@ -140,7 +152,7 @@ export async function* handleChatSend(
         if (chunk.senseDelta && chunk.senseDelta.length > 0) {
           streamData.senseCall = chunk.senseDelta;
         }
-        yield createChunk("stream", chatId, streamData, ++seq);
+        yield createChunk("stream", rid, streamData, ++seq);
       } else if (chunk.type === "staged") {
         // Staged chunk - checkpoint 已处理，直接透传
         const staged = chunk as StagedChunk;
@@ -159,59 +171,51 @@ export async function* handleChatSend(
         if (staged.senseArguments) {
           stagedData.arguments = staged.senseArguments;
         }
-        yield createChunk("staged", chatId, stagedData);
+        yield createChunk("staged", rid, stagedData);
       } else if (chunk.type === "sense_end") {
         const sc = chunk as SenseTriggerChunk;
-        console.log(`[ChatSend] sense_end, id=${sc.id}, name=${sc.name}, args=${sc.arguments.slice(0, 50)}...`);
+        logger.info(`[ChatSend] sense_end, id=${sc.id}, name=${sc.name}, args=${sc.arguments}`);
 
         // 注册审批到 approvalManager（存储 approvalResolve）
         await approvalManager.registerFromTrigger(sc, data.soulId, chatId);
 
-        yield createNotification("interrupt", chatId, {
+        yield createNotification("interrupt", rid, {
           approvalId: sc.id,
           senseName: sc.name,
           arguments: sc.arguments,
           supervisionLevel: sc.supervisionLevel,
         });
-      } else if (chunk.type === "sense_complete") {
-        const sc = chunk as SenseCompleteChunk;
-        console.log(`[ChatSend] sense_complete, id=${sc.id}, name=${sc.name}, result=${sc.result.slice(0, 50)}...`);
-        yield createNotification("complete", chatId, {
+      } else if (chunk.type === "sense_accept") {
+        const sc = chunk as SenseAcceptChunk;
+        logger.info(`[ChatSend] sense_accept, id=${sc.id}, name=${sc.name}, result=${sc.result}`);
+        yield createNotification("accept", rid, {
           approvalId: sc.id,
           senseName: sc.name,
           result: sc.result,
         });
+      } else if (chunk.type === "sense_reject") {
+        const sc = chunk as SenseRejectChunk;
+        logger.info(`[ChatSend] sense_reject, id=${sc.id}, name=${sc.name}, reason=${sc.reason}`);
+        yield createNotification("rejected", rid, {
+          approvalId: sc.id,
+          senseName: sc.name,
+          reason: sc.reason,
+        });
       } else if (chunk.type === "consumed") {
-        yield createNotification("consumed", chatId, { count: (chunk as { count?: number }).count || 0 });
+        yield createNotification("consumed", rid, { count: (chunk as { count?: number }).count || 0 });
       } else if (chunk.type === "error") {
         const e = chunk as { errors: Array<{ message: string }> };
-        yield createNotification("error", chatId, { message: e.errors[0]?.message || "Unknown error" });
+        yield createNotification("error", rid, { message: e.errors[0]?.message || "Unknown error" });
       } else if (chunk.type === "done") {
-        console.log(`[ChatSend] done`);
-        yield createNotification("done", chatId, null);
+        logger.info(`[ChatSend] done`);
+        yield createNotification("done", rid, null);
       }
     }
   } catch (err) {
     const error = err as Error;
-    yield createNotification("error", chatId, { message: error.message });
-    failureResponse = createResponse(chatId, false, undefined, createError(ErrorCode.INTERNAL, error.message));
-  }
-
-  // 持久化新消息到 messages 表（assistant 和 sense）
-  const middlewareCtx = agent.getContext(chatId);
-  if (middlewareCtx && middlewareCtx.soul.messages) {
-    // 找出比 historyMessages 更新的消息
-    const existingIds = new Set(historyMessages.map(m => m.id));
-    for (const msg of middlewareCtx.soul.messages) {
-      if (!existingIds.has(msg.id) && msg.role !== "system") {
-        addMessage(msg.id, chatId, {
-          role: msg.role as "user" | "assistant" | "sense",
-          content: msg.content,
-          thinking: msg.thinking,
-          senseCall: msg.senseCalls,
-        });
-      }
-    }
+    const rid = ctx.requestId ?? chatId;
+    yield createNotification("error", rid, { message: error.message });
+    failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
   }
 
   return failureResponse ?? { chatId };
@@ -233,7 +237,7 @@ export async function handleSenseApproval(
       for (const [requestId, pending] of connState.pendingRequests) {
         if (pending.approvalId) {
           connectionManager.clearApprovalTimeout(connState.ws, requestId);
-          console.log(`审批通过，清除超时: requestId=${requestId}`);
+          logger.info(`审批通过，清除超时: requestId=${requestId}`);
         }
       }
     }

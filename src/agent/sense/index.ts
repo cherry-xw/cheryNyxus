@@ -14,6 +14,7 @@ import bashSense from "./bash";
 import readSense from "./read";
 import writeSense from "./write";
 import skillSense from "./skill";
+import { logger } from "@/utils/logger/index.js";
 
 export { registerSenses, getSenses, SenseManager } from "@/core/sense";
 export type { Sense, SenseResult } from "@/core/sense";
@@ -101,7 +102,7 @@ async function loadCustomSenses(): Promise<void> {
   const sensesDir = join(dirname(fileURLToPath(import.meta.url)), "senses");
 
   if (!existsSync(sensesDir)) {
-    console.warn("⚠ 未找到编译产物目录，自定义感官未加载。请先运行 compile:senses 命令编译外部感官。");
+    logger.warn("⚠ 未找到编译产物目录，自定义感官未加载。请先运行 compile:senses 命令编译外部感官。");
     return;
   }
 
@@ -109,7 +110,7 @@ async function loadCustomSenses(): Promise<void> {
   const jsFiles = files.filter(f => f.endsWith(".js"));
 
   if (jsFiles.length === 0) {
-    console.warn("⚠ 未找到编译产物，自定义感官未加载。请先运行 compile:senses 命令编译外部感官。");
+    logger.warn("⚠ 未找到编译产物，自定义感官未加载。请先运行 compile:senses 命令编译外部感官。");
     return;
   }
 
@@ -133,10 +134,10 @@ async function loadCustomSenses(): Promise<void> {
       // 如果代码返回 sense 实例，直接注册
       if (result?.definition?.function?.name) {
         registerSenses([result]);
-        console.log(`✓ 自定义感官已加载: ${result.definition.function.name}`);
+        logger.info(`✓ 自定义感官已加载: ${result.definition.function.name}`);
       }
     } catch (err) {
-      console.warn(`⚠ 自定义感官加载失败: ${file}`, (err as Error).message);
+      logger.warn(`⚠ 自定义感官加载失败: ${file}`, (err as Error).message);
     }
   }
 }

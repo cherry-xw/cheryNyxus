@@ -14,6 +14,7 @@ import {
 import { connectionManager, type ConnectionState } from "./connection.js";
 import { transport } from "./transport.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * WebSocket 服务器配置
@@ -32,7 +33,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
 
   wss.on("connection", (ws) => {
     const state = connectionManager.create(ws);
-    console.log(`WebSocket 连接建立: ${state.id}`);
+    logger.info(`WebSocket 连接建立: ${state.id}`);
 
     ws.on("message", async (data) => {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
@@ -51,16 +52,16 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
     });
 
     ws.on("close", async () => {
-      console.log(`WebSocket 连接关闭: ${state.id}`);
+      logger.info(`WebSocket 连接关闭: ${state.id}`);
       await connectionManager.close(ws);
     });
 
     ws.on("error", (err) => {
-      console.error(`WebSocket 错误: ${state.id}`, err.message);
+      logger.error(`WebSocket 错误: ${state.id}`, err.message);
     });
   });
 
-  console.log(`WebSocket 服务启动，端口: ${port}`);
+  logger.info(`WebSocket 服务启动，端口: ${port}`);
   return wss;
 }
 
@@ -91,7 +92,7 @@ async function handleRequest(
   request: Request,
   router: RpcRouter,
 ): Promise<void> {
-  console.log(`处理请求: ${request.method}, id=${request.id}, connectionId=${state.id}, soulId=${state.soulId}`);
+  logger.info(`处理请求: ${request.method}, id=${request.id}, connectionId=${state.id}, soulId=${state.soulId}`);
 
   connectionManager.addPendingRequest(ws, request.id);
 
@@ -138,7 +139,7 @@ async function handleRequest(
           const approvalId = (item.data as { approvalId: string }).approvalId;
           connectionManager.setRequestApprovalId(ws, request.id, approvalId);
           connectionManager.startApprovalTimeout(ws, request.id, async () => {
-            console.log(`审批超时，释放资源: soulId=${state.soulId}`);
+            logger.info(`审批超时，释放资源: soulId=${state.soulId}`);
             ws.send(transport.serializeMessage(
               createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - soul ended")),
             ));

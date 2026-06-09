@@ -1,6 +1,7 @@
 import { Writable } from "node:stream";
 import type { LogClusterInterface, NodeInterface } from "./types";
 import { LogCluster, Node } from "./node";
+import { logger } from "@/utils/logger/index.js";
 
 export interface Profiler {
   /** Starts timing/profiling for a named section. */
@@ -186,7 +187,7 @@ export abstract class DrainBase {
   /**
    * Prints the full prefix tree rooted at `rootNode`.
    *
-   * @param file Optional writable stream destination. Defaults to `console.log`.
+   * @param file Optional writable stream destination. Defaults to `logger.info`.
    * @param maxClusters Maximum clusters to print per leaf node.
    */
   printTree(file?: Writable, maxClusters = 5): void {
@@ -359,7 +360,7 @@ export abstract class DrainBase {
    */
   protected writeLine(text: string, file?: Writable): void {
     if (!file) {
-      console.log(text);
+      logger.info(text);
       return;
     }
 
