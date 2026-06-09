@@ -217,6 +217,8 @@ export interface SenseCallDelta {
 
 export interface StagedChunkData {
   type: "thinking_end" | "content_end" | "sense_end";
+  /** 消息角色，用于区分消息来源（chat.get历史返回时使用） */
+  role?: "user" | "assistant" | "system" | "sense";
   thinking?: string;
   content?: string;
   senseName?: string;

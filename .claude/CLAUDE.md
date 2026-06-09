@@ -162,8 +162,10 @@ test/                            # 测试套件（vitest），结构镜像 src/
 
 | type | 说明 | data 字段 |
 |------|------|-----------|
-| `stream` | 流式增量 | `{thinking?, content?, senseCall?}` |
-| `staged` | 阶段完成 | `{type: "thinking_end"|"content_end"|"sense_end", thinking?, content?, senseName?, arguments?}` |
+| `stream` | 流式增量 | thinking, content, senseCall |
+| `staged` | 阶段完成 | type, role, thinking, content, senseName, arguments |
+
+**role 字段说明：** 消息角色（`user`/`assistant`/`system`/`sense`），用于区分消息来源。chat.get 返回历史时携带。
 
 ### 审批流程详解
 

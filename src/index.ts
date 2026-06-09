@@ -2,6 +2,7 @@ import { startService } from "./service/index.js";
 import { getDb, closeDb } from "./db/index.js";
 import { compileSenses } from "./core/sense/compiler/index.js";
 import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense/compileToolsReporter.js";
+import { startWebServer } from "./web/server.js";
 import { initLogger, logger } from "@/utils/logger/index.js";
 import config from "@/utils/config.js";
 
@@ -9,6 +10,7 @@ import config from "@/utils/config.js";
 initLogger(config.global.logger);
 
 const WS_PORT = parseInt(process.env.WS_PORT || "8080", 10);
+const WEB_PORT = parseInt(process.env.WEB_PORT || "8081", 10);
 
 async function main(): Promise<void> {
   const subcommand = process.argv[2];
@@ -20,6 +22,11 @@ async function main(): Promise<void> {
 
   // 启动 WebSocket 服务
   const wss = startService(WS_PORT);
+  logger.info(`WebSocket 服务已启动，端口: ${WS_PORT}`);
+
+  // 启动 Web 测试页面
+  startWebServer(WEB_PORT);
+  logger.info(`Web 服务已启动，端口: ${WEB_PORT}`);
 
   // 启动时初始化数据库
   getDb();

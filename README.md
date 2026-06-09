@@ -82,6 +82,7 @@ interface StreamChunkData {
 
 interface StagedChunkData {
   type: "thinking_end" | "content_end" | "sense_end";
+  role?: "user" | "assistant" | "system" | "sense";  // 消息角色，chat.get历史返回时使用
   thinking?: string;
   content?: string;
   senseName?: string;
@@ -131,9 +132,9 @@ interface Notification {
 ```text
 → {"id":"5","kind":"request","method":"chat.get","params":{"chatId":"chat-1"}}
 ← {"id":"6","kind":"response","requestId":"5","success":true,"data":{"chatId":"chat-1"}}
-← [binary chunk] type:staged, data:{"type":"thinking_end","thinking":"历史思考内容"}
-← [binary chunk] type:staged, data:{"type":"content_end","content":"历史响应内容"}
-← [binary chunk] type:staged, data:{"type":"sense_end","senseName":"...","arguments":"..."}
+← [binary chunk] type:staged, data:{"type":"thinking_end","role":"assistant","thinking":"历史思考内容"}
+← [binary chunk] type:staged, data:{"type":"content_end","role":"assistant","content":"历史响应内容"}
+← [binary chunk] type:staged, data:{"type":"sense_end","role":"assistant","senseName":"...","arguments":"..."}
 ← {"kind":"notification","type":"complete","requestId":"chat-1","data":{"approvalId":"...","senseName":"...","result":"..."}}
 ← {"kind":"notification","type":"loaded","requestId":"chat-1","data":null}
 ```

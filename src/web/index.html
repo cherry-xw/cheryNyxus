@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CheryClaw WebSocket Tester</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#1a1a2e;--surface:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--dim:#bbb;--think:#7c4dff;--content:#4caf50;--sense:#ff9800;--error:#f44336}
+body{font-family:'SF Mono',Consolas,'Courier New',monospace;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+/* top bar */
+.top{display:flex;gap:8px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border);align-items:center;flex-shrink:0}
+.top input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:4px;font-size:13px;font-family:inherit}
+.top input[type=text]{flex:1}
+.top button{padding:4px 12px;border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:4px;cursor:pointer;font-size:13px;font-family:inherit}
+.top button:hover{border-color:var(--accent)}
+.top .connected{color:var(--content)}
+.top .disconnected{color:var(--error)}
+#status{font-size:12px;min-width:100px;text-align:center}
+/* main layout */
+.main{display:flex;flex:1;overflow:hidden}
+/* left panel */
+.left{width:220px;background:var(--surface);border-right:1px solid var(--border);padding:8px;overflow-y:auto;flex-shrink:0}
+.left h3{font-size:12px;color:var(--dim);margin:8px 0 4px;text-transform:uppercase;letter-spacing:1px}
+.left h3:first-child{margin-top:0}
+.left button{width:100%;margin-bottom:4px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:12px;text-align:left;font-family:inherit}
+.left button:hover{border-color:var(--accent)}
+.left input,.left select,.left textarea{width:100%;margin-bottom:4px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px;font-family:inherit}
+.left .section{margin-bottom:12px}
+/* center chat */
+.center{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.messages{flex:1;overflow-y:auto;padding:12px}
+.msg{margin-bottom:12px;font-size:13px;line-height:1.5}
+.msg-user{color:#64b5f6}
+.msg-user::before{content:"You: ";font-weight:bold}
+.msg-thinking{color:var(--think);border-left:2px solid var(--think);padding-left:8px;margin:4px 0}
+.msg-thinking summary{cursor:pointer;font-weight:bold;font-size:12px;list-style:none}
+.msg-thinking summary::before{content:"▶ "}
+.msg-thinking[open] summary::before{content:"▼ "}
+.msg-content{color:var(--content)}
+.msg-content::before{content:"AI: ";font-weight:bold}
+.msg-sense{color:var(--sense);border:1px solid var(--sense);border-radius:4px;padding:6px 8px;margin:4px 0;font-size:12px}
+.msg-sense .name{font-weight:bold}
+.msg-sense .args{background:var(--bg);padding:4px;margin:4px 0;border-radius:2px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto}
+.msg-sense .result{color:var(--content);background:var(--bg);padding:4px;border-radius:2px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto}
+.msg-done{color:var(--dim);font-style:italic;font-size:12px}
+.msg-error{color:var(--error);font-weight:bold}
+.msg-loaded{color:var(--dim);font-style:italic;font-size:12px}
+/* approval modal */
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:100;justify-content:center;align-items:center}
+.modal-overlay.active{display:flex}
+.modal{background:var(--surface);border:1px solid var(--accent);border-radius:8px;padding:16px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto}
+.modal h3{color:var(--accent);margin-bottom:8px}
+.modal .info{font-size:12px;margin-bottom:8px}
+.modal .info span{color:var(--dim)}
+.modal .args-preview{background:var(--bg);padding:8px;border-radius:4px;font-size:12px;white-space:pre-wrap;word-break:break-all;margin-bottom:12px;max-height:200px;overflow-y:auto}
+.modal textarea{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px;font-size:12px;font-family:inherit;resize:vertical;margin-bottom:8px}
+.modal .actions{display:flex;gap:8px}
+.modal .actions button{flex:1;padding:6px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:13px;border:1px solid var(--border)}
+.modal .btn-accept{background:#1b5e20;color:#fff}
+.modal .btn-reject{background:#b71c1c;color:#fff}
+/* input bar */
+.input-bar{display:flex;gap:8px;padding:8px 12px;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0}
+.input-bar input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:4px;font-size:13px;font-family:inherit}
+.input-bar input:focus{outline:none;border-color:var(--accent)}
+.input-bar button{padding:6px 16px;background:var(--accent);border:none;color:#fff;border-radius:4px;cursor:pointer;font-weight:bold;font-family:inherit}
+.input-bar button:hover{opacity:0.9}
+/* right log */
+.right{width:300px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.right h3{font-size:12px;color:var(--dim);padding:8px;border-bottom:1px solid var(--border)}
+.log-list{flex:1;overflow-y:auto;padding:4px}
+.log-item{font-size:11px;margin-bottom:4px;padding:4px;border-radius:2px;cursor:pointer}
+.log-item:hover{background:var(--bg)}
+.log-item .meta{color:var(--dim);font-size:10px}
+.log-item .meta .dir-send{color:#64b5f6}
+.log-item .meta .dir-recv{color:var(--content)}
+.log-item pre{display:none;background:var(--bg);padding:4px;margin-top:2px;border-radius:2px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;font-size:10px}
+.log-item.expanded pre{display:block}
+.log-item .summary{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div class="top">
+  <input type="text" id="wsUrl" value="ws://localhost:8080" placeholder="ws://host:port">
+  <button id="btnConnect" onclick="doConnect()">Connect</button>
+  <button id="btnDisconnect" onclick="doDisconnect()" disabled>Disconnect</button>
+  <span id="status" class="disconnected">Disconnected</span>
+</div>
+
+<!-- Main -->
+<div class="main">
+  <!-- Left panel -->
+  <div class="left">
+    <div class="section">
+      <h3>Soul</h3>
+      <input type="text" id="brainName" placeholder="brain name" value="ali_glm5">
+      <select id="soulIdSelect" onchange="handleIdSelectChange('soul')">
+        <option value="">-- 从 Log 选择 --</option>
+        <option value="__manual__">手动输入...</option>
+      </select>
+      <input type="text" id="soulIdInput" placeholder="soulId (optional)" style="display:none" onkeydown="handleManualInputKey('soul',event)" onblur="handleManualInputBlur('soul')">
+      <button onclick="doSoulCreate()">Create Soul</button>
+      <button onclick="doSoulList()">List Souls</button>
+      <button onclick="doSoulLoad()">Load Soul</button>
+      <button onclick="doSoulDelete()">Delete Soul</button>
+    </div>
+    <div class="section">
+      <h3>Chat</h3>
+      <select id="chatIdSelect" onchange="handleIdSelectChange('chat')">
+        <option value="">-- 从 Log 选择 --</option>
+        <option value="__manual__">手动输入...</option>
+      </select>
+      <input type="text" id="chatIdInput" placeholder="chatId (optional)" style="display:none" onkeydown="handleManualInputKey('chat',event)" onblur="handleManualInputBlur('chat')">
+      <button onclick="syncChatId();doChatList()">List Chats</button>
+      <button onclick="syncChatId();doChatGet()">Load History</button>
+      <button onclick="syncChatId();doChatDelete()">Delete Chat</button>
+    </div>
+    <div class="section">
+      <h3>Info</h3>
+      <div style="font-size:11px;color:var(--dim)" id="infoPanel">
+        soulId: -<br>chatId: -
+      </div>
+    </div>
+  </div>
+
+  <!-- Center chat -->
+  <div class="center">
+    <div class="messages" id="messages"></div>
+    <div class="input-bar">
+      <input type="text" id="msgInput" placeholder="Type a message..." onkeydown="if(event.key==='Enter')doSend()">
+      <button onclick="doSend()">Send</button>
+    </div>
+  </div>
+
+  <!-- Right log -->
+  <div class="right">
+    <h3>Raw Log <button onclick="clearLog()" style="float:right;font-size:10px;padding:0 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:2px;cursor:pointer">Clear</button></h3>
+    <div class="log-list" id="logList"></div>
+  </div>
+</div>
+
+<!-- Approval modal -->
+<div class="modal-overlay" id="approvalModal">
+  <div class="modal">
+    <h3>⚠ Approval Required</h3>
+    <div class="info">
+      <span>Sense:</span> <strong id="modalSenseName"></strong><br>
+      <span>Approval ID:</span> <code id="modalApprovalId"></code>
+    </div>
+    <div class="args-preview" id="modalArgs"></div>
+    <textarea id="modalReason" rows="2" placeholder="Reason (optional)"></textarea>
+    <div class="actions">
+      <button class="btn-accept" onclick="doApproval('accept')">Accept</button>
+      <button class="btn-reject" onclick="doApproval('reject')">Reject</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== State =====
+let ws = null;
+let currentSoulId = null;
+let currentChatId = null;
+let pendingRequests = new Map(); // id -> {resolve, method}
+let currentStreamEls = {}; // requestId -> {thinkingEl, contentEl, senseEl}
+let soulIdOptions = new Set(); // collected soulIds from log
+let chatIdOptions = new Set(); // collected chatIds from log
+
+// ===== UUID =====
+function uuid() {
+  return crypto.randomUUID();
+}
+
+// ===== Transport =====
+function encodeRequest(method, params) {
+  const req = { id: uuid(), kind: "request", method, params };
+  return JSON.stringify(req);
+}
+
+function decodeMessage(data) {
+  if (typeof data === 'string') return JSON.parse(data);
+  // binary frame
+  const buf = (data instanceof Blob) ? data : new Blob([data]);
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const arr = new Uint8Array(reader.result);
+      const type = arr[0];
+      if (type === 0x01) {
+        // stream chunk: 0x01 | seq(4) | ridLen(1) | rid | dataJson
+        const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+        const seq = view.getUint32(1);
+        const ridLen = arr[5];
+        const rid = new TextDecoder().decode(arr.slice(6, 6 + ridLen));
+        const json = new TextDecoder().decode(arr.slice(6 + ridLen));
+        const parsed = JSON.parse(json);
+        resolve({ kind: "chunk", type: "stream", requestId: rid, seq, data: parsed });
+      } else if (type === 0x02) {
+        const json = new TextDecoder().decode(arr.slice(1));
+        resolve(JSON.parse(json));
+      } else {
+        resolve(null);
+      }
+    };
+    reader.readAsArrayBuffer(buf);
+  });
+}
+
+// ===== RPC =====
+function sendRpc(method, params) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) { appendErrorMsg('Not connected'); return Promise.reject(new Error('Not connected')); }
+  return new Promise((resolve, reject) => {
+    const id = uuid();
+    const req = { id, kind: "request", method, params };
+    pendingRequests.set(id, { resolve, reject, method });
+    ws.send(JSON.stringify(req));
+    addLog('send', method, req);
+    setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        reject(new Error('Request timeout'));
+      }
+    }, 30000);
+  });
+}
+
+// ===== Message Handling =====
+async function handleRawMessage(raw) {
+  const msg = await decodeMessage(raw);
+  if (!msg) return;
+
+  if (msg.kind === 'response') {
+    addLog('recv', `response ${msg.success ? '✓' : '✗'}`, msg);
+    const pending = pendingRequests.get(msg.requestId);
+    if (pending) {
+      pendingRequests.delete(msg.requestId);
+      pending.resolve(msg);
+    }
+  } else if (msg.kind === 'chunk') {
+    addLog('recv', `chunk(${msg.type}${msg.seq ? '#'+msg.seq : ''})`, msg);
+    handleChunk(msg);
+  } else if (msg.kind === 'notification') {
+    addLog('recv', `notify(${msg.type})`, msg);
+    handleNotification(msg);
+  }
+}
+
+function handleChunk(chunk) {
+  const rid = chunk.requestId;
+  if (!currentStreamEls[rid]) {
+    currentStreamEls[rid] = {};
+  }
+  const els = currentStreamEls[rid];
+
+  if (chunk.type === 'stream') {
+    const d = chunk.data || {};
+    if (d.thinking) {
+      if (!els.thinkingEl) {
+        els.thinkingEl = createThinkingEl();
+        getMsgContainer().appendChild(els.thinkingEl);
+      }
+      appendText(els.thinkingEl.querySelector('.body'), d.thinking);
+    }
+    if (d.content) {
+      if (!els.contentEl) {
+        els.contentEl = createContentEl();
+        getMsgContainer().appendChild(els.contentEl);
+      }
+      appendText(els.contentEl, d.content);
+    }
+    if (d.senseCall) {
+      if (!els.senseCallEl) {
+        els.senseCallEl = createSenseCallEl();
+        getMsgContainer().appendChild(els.senseCallEl);
+      }
+      updateSenseCall(els.senseCallEl, d.senseCall);
+    }
+  } else if (chunk.type === 'staged') {
+    const d = chunk.data || {};
+    if (d.type === 'thinking_end') {
+      if (els.thinkingEl) {
+        // 流式结束：折叠 thinking
+        els.thinkingEl.open = false;
+        els.thinkingEl = null;
+      } else {
+        // 独立 staged（历史加载）：直接创建完整 thinking 块
+        const el = document.createElement('details');
+        el.className = 'msg msg-thinking';
+        el.innerHTML = `<summary>Thinking</summary><div class="body">${esc(d.thinking || '')}</div>`;
+        getMsgContainer().appendChild(el);
+      }
+    } else if (d.type === 'content_end') {
+      if (els.contentEl) {
+        // 流式结束：清空引用
+        els.contentEl = null;
+      } else if (d.content) {
+        // 独立 staged（历史加载）：直接创建内容
+        const el = document.createElement('div');
+        el.className = 'msg msg-content';
+        el.textContent = d.content;
+        getMsgContainer().appendChild(el);
+      }
+    } else if (d.type === 'sense_end') {
+      const el = createSenseEndEl(d.senseName, d.arguments);
+      getMsgContainer().appendChild(el);
+    }
+  }
+  scrollBottom();
+}
+
+function handleNotification(notif) {
+  const d = notif.data;
+  switch (notif.type) {
+    case 'interrupt':
+      showApprovalModal(notif.requestId, d);
+      break;
+    case 'accept': {
+      const el = document.createElement('div');
+      el.className = 'msg msg-sense';
+      el.innerHTML = `<div class="name">✅ ${esc(d.senseName)}</div><div class="result">${esc(d.result)}</div>`;
+      getMsgContainer().appendChild(el);
+      scrollBottom();
+      break;
+    }
+    case 'rejected': {
+      const el = document.createElement('div');
+      el.className = 'msg msg-sense';
+      el.innerHTML = `<div class="name">❌ ${esc(d.senseName)}</div><div class="result" style="color:var(--error)">${esc(d.reason)}</div>`;
+      getMsgContainer().appendChild(el);
+      scrollBottom();
+      break;
+    }
+    case 'consumed':
+      break;
+    case 'loaded':
+      appendSystemMsg('📋 History loaded');
+      break;
+    case 'done': {
+      appendSystemMsg('✅ Done');
+      // cleanup stream els for this request
+      if (notif.requestId && currentStreamEls[notif.requestId]) {
+        delete currentStreamEls[notif.requestId];
+      }
+      break;
+    }
+    case 'error':
+      appendErrorMsg(d.message);
+      break;
+  }
+}
+
+// ===== UI Helpers =====
+function getMsgContainer() { return document.getElementById('messages'); }
+function scrollBottom() { const c = getMsgContainer(); c.scrollTop = c.scrollHeight; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function appendText(el, text) {
+  el.textContent += text;
+}
+
+function appendUserMsg(text) {
+  const el = document.createElement('div');
+  el.className = 'msg msg-user';
+  el.textContent = text;
+  getMsgContainer().appendChild(el);
+  scrollBottom();
+}
+
+function appendSystemMsg(text) {
+  const el = document.createElement('div');
+  el.className = 'msg msg-loaded';
+  el.textContent = text;
+  getMsgContainer().appendChild(el);
+  scrollBottom();
+}
+
+function appendErrorMsg(text) {
+  const el = document.createElement('div');
+  el.className = 'msg msg-error';
+  el.textContent = '❌ ' + text;
+  getMsgContainer().appendChild(el);
+  scrollBottom();
+}
+
+function createThinkingEl() {
+  const el = document.createElement('details');
+  el.className = 'msg msg-thinking';
+  el.open = true;
+  el.innerHTML = '<summary>Thinking...</summary><div class="body"></div>';
+  return el;
+}
+
+function createContentEl() {
+  const el = document.createElement('div');
+  el.className = 'msg msg-content';
+  el.textContent = '';
+  return el;
+}
+
+function createSenseCallEl() {
+  const el = document.createElement('div');
+  el.className = 'msg msg-sense';
+  el.innerHTML = '<div class="name">⏳ Sense Call (streaming...)</div><div class="args"></div>';
+  return el;
+}
+
+function updateSenseCall(el, deltas) {
+  const argsEl = el.querySelector('.args');
+  let text = '';
+  for (const d of deltas) {
+    if (d.name) text += `name: ${d.name}\n`;
+    if (d.arguments) text += d.arguments;
+  }
+  argsEl.textContent = text;
+}
+
+function createSenseEndEl(name, args) {
+  const el = document.createElement('div');
+  el.className = 'msg msg-sense';
+  const argsStr = args ? (typeof args === 'string' ? args : JSON.stringify(args, null, 2)) : '';
+  el.innerHTML = `<div class="name">⚡ ${esc(name)}</div><div class="args">${esc(argsStr)}</div>`;
+  return el;
+}
+
+// ===== Log =====
+function addLog(dir, summary, obj) {
+  const list = document.getElementById('logList');
+  const item = document.createElement('div');
+  item.className = 'log-item';
+  const time = new Date().toLocaleTimeString();
+  const cls = dir === 'send' ? 'dir-send' : 'dir-recv';
+  item.innerHTML = `<div class="meta"><span class="${cls}">${dir.toUpperCase()}</span> ${time} ${esc(summary)}</div><div class="summary">${esc(JSON.stringify(obj).slice(0,80))}</div><pre>${esc(JSON.stringify(obj, null, 2))}</pre>`;
+  item.ondblclick = () => item.classList.toggle('expanded');
+  // 单击选择 ID（对发送请求和成功响应有效）
+  if (dir === 'send' && obj.method) {
+    item.onclick = (e) => {
+      if (!item.classList.contains('expanded')) handleLogItemClick(obj, 'send');
+    };
+    item.style.cursor = 'pointer';
+  } else if (dir === 'recv' && obj.success && obj.data) {
+    item.onclick = (e) => {
+      if (!item.classList.contains('expanded')) handleLogItemClick(obj, 'recv');
+    };
+    item.style.cursor = 'pointer';
+  }
+  list.appendChild(item);
+  list.scrollTop = list.scrollHeight;
+}
+
+function clearLog() {
+  document.getElementById('logList').innerHTML = '';
+}
+
+// ===== Actions =====
+function doConnect() {
+  const url = document.getElementById('wsUrl').value;
+  ws = new WebSocket(url);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    document.getElementById('status').textContent = 'Connected';
+    document.getElementById('status').className = 'connected';
+    document.getElementById('btnConnect').disabled = true;
+    document.getElementById('btnDisconnect').disabled = false;
+    appendSystemMsg('🔗 Connected to ' + url);
+  };
+
+  ws.onclose = () => {
+    document.getElementById('status').textContent = 'Disconnected';
+    document.getElementById('status').className = 'disconnected';
+    document.getElementById('btnConnect').disabled = false;
+    document.getElementById('btnDisconnect').disabled = true;
+    appendSystemMsg('🔌 Disconnected');
+    ws = null;
+  };
+
+  ws.onerror = (e) => {
+    appendErrorMsg('WebSocket error');
+  };
+
+  ws.onmessage = (e) => handleRawMessage(e.data);
+}
+
+function doDisconnect() {
+  if (ws) ws.close();
+}
+
+async function doSoulCreate() {
+  const brain = document.getElementById('brainName').value;
+  const soulId = getSelectedId('soul') || undefined;
+  try {
+    const res = await sendRpc('soul.create', { brain, soulId });
+    if (res.success) {
+      currentSoulId = res.data.soulId;
+      // 添加到选择框选项
+      if (currentSoulId) populateIdSelect('soul', currentSoulId);
+      updateInfo();
+      appendSystemMsg(`🧠 Soul created: ${currentSoulId}`);
+    } else {
+      appendErrorMsg(res.error?.message || 'Create failed');
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+async function doSoulList() {
+  try {
+    const res = await sendRpc('soul.list', {});
+    if (res.success) {
+      const souls = res.data.souls || [];
+      appendSystemMsg(`📋 Souls (${souls.length}): ` + souls.map(s => s.soulId).join(', '));
+      // 将列表中的 ID 添加到选择框
+      souls.forEach(s => populateIdSelect('soul', s.soulId));
+    } else {
+      appendErrorMsg(res.error?.message || 'List failed');
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+async function doSoulLoad() {
+  const selectedId = getSelectedId('soul');
+  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
+  if (!currentSoulId) { appendErrorMsg('No soulId set. Create or enter one first.'); return; }
+  try {
+    const res = await sendRpc('soul.load', { soulId: currentSoulId });
+    if (res.success) {
+      appendSystemMsg(`🧠 Soul loaded: ${res.data.soulId}, chats: ${res.data.chats?.length || 0}`);
+      if (res.data.chats?.length > 0) {
+        currentChatId = res.data.chats[0].chatId;
+        populateIdSelect('chat', currentChatId);
+        updateInfo();
+      }
+    } else {
+      appendErrorMsg(res.error?.message || 'Load failed');
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+async function doSoulDelete() {
+  const selectedId = getSelectedId('soul');
+  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
+  if (!currentSoulId) { appendErrorMsg('No soulId'); return; }
+  try {
+    const res = await sendRpc('soul.delete', { soulId: currentSoulId });
+    if (res.success) {
+      appendSystemMsg(`🗑 Soul deleted: ${currentSoulId}`);
+      currentSoulId = null;
+      currentChatId = null;
+      updateInfo();
+    } else {
+      appendErrorMsg(res.error?.message || 'Delete failed');
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+async function doChatList() {
+  const selectedId = getSelectedId('soul');
+  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
+  if (!currentSoulId) { appendErrorMsg('No soulId'); return; }
+  try {
+    const res = await sendRpc('chat.list', { soulId: currentSoulId });
+    if (res.success) {
+      const chats = res.data.chats || [];
+      appendSystemMsg(`💬 Chats (${chats.length}): ` + chats.map(c => `${c.chatId}(${c.messageCount}msg)`).join(', '));
+      // 将列表中的 chatId 添加到选择框
+      chats.forEach(c => populateIdSelect('chat', c.chatId));
+    } else {
+      appendErrorMsg(res.error?.message || 'List failed');
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+async function doChatGet() {
+  if (!currentChatId) { appendErrorMsg('No chatId. Enter a chatId or send a message first.'); return; }
+  try {
+    // chat.get is streaming, we just send and handle chunks/notifications via handleRawMessage
+    const req = { id: uuid(), kind: "request", method: "chat.get", params: { chatId: currentChatId } };
+    ws.send(JSON.stringify(req));
+    addLog('send', 'chat.get', req);
+    appendSystemMsg('📜 Loading history...');
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+async function doChatDelete() {
+  if (!currentChatId) { appendErrorMsg('No chatId'); return; }
+  try {
+    const res = await sendRpc('chat.delete', { chatId: currentChatId });
+    if (res.success) {
+      appendSystemMsg(`🗑 Chat deleted: ${currentChatId}`);
+      currentChatId = null;
+      updateInfo();
+    } else {
+      appendErrorMsg(res.error?.message || 'Delete failed');
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+function doSend() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) { appendErrorMsg('Not connected'); return; }
+  if (!currentSoulId) { appendErrorMsg('No soulId. Create a soul first.'); return; }
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+
+  appendUserMsg(text);
+
+  const params = { soulId: currentSoulId, prompt: text };
+  if (currentChatId) params.chatId = currentChatId;
+
+  const req = { id: uuid(), kind: "request", method: "chat.send", params };
+  ws.send(JSON.stringify(req));
+  addLog('send', 'chat.send', req);
+
+  // Track this streaming request to capture chatId from response later
+  const rid = req.id;
+  const origHandler = pendingRequests.get(rid);
+  pendingRequests.set(rid, {
+    method: 'chat.send',
+    resolve: (res) => {
+      if (res.success && res.data?.chatId) {
+        currentChatId = res.data.chatId;
+        updateInfo();
+      }
+      delete currentStreamEls[rid];
+    },
+    reject: () => { delete currentStreamEls[rid]; }
+  });
+}
+
+// ===== Approval =====
+let pendingApproval = null;
+
+function showApprovalModal(requestId, data) {
+  pendingApproval = { requestId, ...data };
+  document.getElementById('modalSenseName').textContent = data.senseName;
+  document.getElementById('modalApprovalId').textContent = data.approvalId;
+  document.getElementById('modalArgs').textContent = data.arguments || '(no args)';
+  document.getElementById('modalReason').value = '';
+  document.getElementById('approvalModal').classList.add('active');
+}
+
+async function doApproval(action) {
+  if (!pendingApproval || !currentSoulId) return;
+  document.getElementById('approvalModal').classList.remove('active');
+
+  const reason = document.getElementById('modalReason').value.trim();
+  try {
+    const res = await sendRpc('sense.approval', {
+      soulId: currentSoulId,
+      approvalId: pendingApproval.approvalId,
+      action,
+      reason: reason || undefined,
+    });
+    if (!res.success) {
+      appendErrorMsg('Approval failed: ' + (res.error?.message || 'unknown'));
+    }
+  } catch (e) { appendErrorMsg(e.message); }
+  pendingApproval = null;
+}
+
+// ===== ID Select =====
+function handleIdSelectChange(type) {
+  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
+  const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
+  const value = select.value;
+  if (value === '__manual__') {
+    // 选择"手动输入..."：显示输入框，选择框保持显示
+    input.style.display = 'block';
+    input.value = '';
+    input.focus();
+  } else {
+    // 选择其他选项：隐藏输入框，更新当前 ID
+    input.style.display = 'none';
+    if (value) {
+      if (type === 'soul') currentSoulId = value;
+      else currentChatId = value;
+      updateInfo();
+    }
+  }
+}
+
+function handleManualInputKey(type, e) {
+  if (e.key === 'Enter') {
+    const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
+    const id = input.value.trim();
+    if (id) {
+      populateIdSelect(type, id);
+      input.style.display = 'none';
+    }
+  } else if (e.key === 'Escape') {
+    const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
+    input.style.display = 'none';
+    document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect').value = '';
+  }
+}
+
+function handleManualInputBlur(type) {
+  const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
+  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
+  const id = input.value.trim();
+  if (id) {
+    populateIdSelect(type, id);
+  }
+  input.style.display = 'none';
+  if (!id && select.value === '__manual__') select.value = '';
+}
+
+function populateIdSelect(type, id) {
+  if (!id) return;
+  const optionsSet = type === 'soul' ? soulIdOptions : chatIdOptions;
+  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
+  if (optionsSet.has(id)) {
+    // 已存在，直接选中
+    select.value = id;
+    if (type === 'soul') currentSoulId = id;
+    else currentChatId = id;
+    updateInfo();
+    return;
+  }
+  optionsSet.add(id);
+  // 在"手动输入..."前插入新选项
+  const manualOption = select.querySelector('option[value="__manual__"]');
+  const newOption = document.createElement('option');
+  newOption.value = id;
+  newOption.textContent = id;
+  select.insertBefore(newOption, manualOption);
+  select.value = id;
+  if (type === 'soul') currentSoulId = id;
+  else currentChatId = id;
+  updateInfo();
+}
+
+// 获取当前选择的 ID（从选择框或输入框）
+function getSelectedId(type) {
+  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
+  const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
+  const selectValue = select.value;
+  if (selectValue && selectValue !== '__manual__') {
+    return selectValue;
+  }
+  // 如果选择了"手动输入..."且输入框有值
+  if (input.style.display !== 'none' && input.value.trim()) {
+    return input.value.trim();
+  }
+  return '';
+}
+
+function handleLogItemClick(obj, dir) {
+  if (dir === 'send') {
+    // 从请求参数提取 ID
+    const method = obj.method || '';
+    const params = obj.params || {};
+    if (params.soulId) populateIdSelect('soul', params.soulId);
+    if (params.chatId) populateIdSelect('chat', params.chatId);
+  } else if (dir === 'recv') {
+    // 从响应数据提取 ID
+    const data = obj.data || {};
+    if (data.soulId) populateIdSelect('soul', data.soulId);
+    if (data.chatId) populateIdSelect('chat', data.chatId);
+    // soul.load 返回 chats 数组
+    if (data.chats && Array.isArray(data.chats)) {
+      data.chats.forEach(c => {
+        if (c.chatId) populateIdSelect('chat', c.chatId);
+      });
+    }
+  }
+}
+
+// ===== Info =====
+function syncChatId() {
+  const selectedId = getSelectedId('chat');
+  if (selectedId) { currentChatId = selectedId; }
+  updateInfo();
+}
+
+function updateInfo() {
+  document.getElementById('infoPanel').innerHTML =
+    `soulId: ${currentSoulId || '-'}<br>chatId: ${currentChatId || '-'}`;
+}
+</script>
+</body>
+</html>

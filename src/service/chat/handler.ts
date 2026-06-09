@@ -61,15 +61,16 @@ export async function* handleChatGet(
     const parsedMsg = parseMessageRow(msg);
 
     if (parsedMsg.thinking) {
-      yield createChunk("staged", p.chatId, { type: "thinking_end", thinking: parsedMsg.thinking });
+      yield createChunk("staged", p.chatId, { type: "thinking_end", role: parsedMsg.role, thinking: parsedMsg.thinking });
     }
     if (parsedMsg.content) {
-      yield createChunk("staged", p.chatId, { type: "content_end", content: parsedMsg.content });
+      yield createChunk("staged", p.chatId, { type: "content_end", role: parsedMsg.role, content: parsedMsg.content });
     }
     if (parsedMsg.senseCall && parsedMsg.senseCall.length > 0) {
       for (const sc of parsedMsg.senseCall) {
         yield createChunk("staged", p.chatId, {
           type: "sense_end",
+          role: parsedMsg.role,
           senseName: sc.name,
           arguments: sc.arguments,
         });
