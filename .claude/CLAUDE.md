@@ -22,9 +22,14 @@ yarn test:watch   # 测试监听模式
 .chery/                          # 外置配置（不走打包，运行时读取）
 ├── config.yaml                  # LLM 客户端 + Sense 分组 + 全局配置
 ├── system.md                    # 系统 prompt 模板
-├── data.db                      # SQLite 数据库（soul/chat/approval/checkpoint）
 ├── skills/<name>/SKILL.md       # 技能定义
-└── senses/<name>.ts             # 外部自定义感官
+├── senses/<name>.ts             # 外部自定义感官
+└── db/                          # 数据库目录（自动创建）
+    ├── soul.db                  # souls + chats 表
+    │   ├── souls               # 灵魂信息
+    │   └── chats               # 增加 messages_month 字段（YYYY-MM）
+    └── YYYY-MM.db               # messages 表（按月分片）
+        └── messages            # 消息历史，content=NULL 表示 pending
 
 src/
 ├── index.ts                     # 入口：WebSocket 服务 / compile-senses 子命令
@@ -85,9 +90,9 @@ src/
 │   │   └── lifecycle.ts         # soul.create/list/load/delete handlers
 │   ├── chat/
 │   │   ├── handler.ts           # chat.list/get/delete handlers
-│   │   └ send.ts               # chat.send 流式处理、审批注册
+│   │   └ send.ts               # chat.send 流式处理、approvalManager.register() + fillApprovalResult()
 │   ├── approval/
-│   │   └ manager.ts             # ApprovalManager 审批管理、approvalResolve 存储
+│   │   └ manager.ts             # ApprovalManager 极简版，只存储 approvalResolve 回调
 │   ├── message/
 │   │   ├── index.ts             # 消息处理入口
 │   │   ├── router.ts            # RpcRouter 方法路由
@@ -98,11 +103,10 @@ src/
 │   │   └ transport.ts           # 二进制帧编解码
 │
 ├── db/                          # 数据持久化
-│   ├── index.ts                 # SQLite 初始化、建表
-│   ├── soul.ts                  # souls 表 CRUD
-│   ├── chat.ts                  # chats 表 CRUD、messages 表 CRUD
-│   ├── approval.ts              # approvals 表 CRUD
-│   ├── checkpoint.ts            # checkpoints 表 CRUD
+│   ├── index.ts                 # 多数据库实例管理（getSoulDb/getMonthlyDb）、表初始化
+│   ├── soul.ts                  # souls 表 CRUD、deleteSoul 手动清理跨数据库数据
+│   ├── chat.ts                  # chats 表 CRUD（增加 messages_month）、messages 表 CRUD（路由）
+│   └── checkpoint.ts            # checkpoints 表 CRUD
 │
 └── utils/                       # 工具函数
     ├── config.ts                # config.yaml 加载、$ENV 替换、BrainConfig 类型
@@ -124,10 +128,10 @@ test/                            # 测试套件（vitest），结构镜像 src/
 |----|------|------|
 | Core | `src/core/` | 框架抽象：类型、Adapter 注册表、Middleware 类、Sense 工厂 |
 | Agent | `src/agent/` | 具体实现：Builder、中间件、内置感官、Provider |
-| Service | `src/service/` | 服务层：WebSocket、灵魂管理、审批恢复 |
-| DB | `src/db/` | 数据持久化：checkpoint、soul、chat、approval |
+| Service | `src/service/` | 服务层：WebSocket、灵魂管理、审批恢复（极简 ApprovalManager） |
+| DB | `src/db/` | 数据持久化：多数据库实例管理、soul/chat/messages 表（按月路由） |
 | Utils | `src/utils/` | 共用工具函数 |
-| 配置 | `.chery/` | 运行时配置，不走打包。路径通过 `CHERY_DIR` 环境变量指定 |
+| 配置 | `.chery/` + `db/` | 运行时配置 + 数据库存储（soul.db + YYYY-MM.db） |
 
 ## WebSocket 协议补充说明
 
@@ -169,25 +173,36 @@ test/                            # 测试套件（vitest），结构镜像 src/
 
 ### 审批流程详解
 
+**审批极简方案（无 approvals 表）：**
+
+审批状态通过 messages.content 字段判断（`NULL` 表示 pending），ApprovalManager 只存储 approvalResolve 回调。
+
 **confirm 模式流程：**
 
 ```text
 1. chat.send 发送用户消息
 2. LLM 返回 sense_call（如 execute_command）
 3. senseMiddleware 检查 supervisionLevel = confirm
-4. yield SenseTriggerChunk（含 approvalResolve 回调）
-5. send.ts 调用 approvalManager.registerFromTrigger() 存储 approvalResolve
-6. send.ts yield interrupt notification
-7. 客户端收到 interrupt，发送 sense.approval
-8. approvalManager.confirmApproval() 调用 approvalResolve(action, reason)
-9. senseMiddleware Generator 继续，根据 action 执行或拒绝
-10. yield sense_complete notification
+4. addMessage() 创建 sense 消息（content=NULL）
+5. yield SenseTriggerChunk（含 approvalResolve 回调）
+6. send.ts 调用 approvalManager.register() 存储 approvalResolve
+7. send.ts yield interrupt notification
+8. 客户端收到 interrupt，发送 sense.approval
+9. approvalManager.confirm() 调用 approvalResolve(action, reason)
+10. fillApprovalResult() 更新 messages.content（执行结果或拒绝原因）
+11. senseMiddleware Generator 继续，根据 action 执行或拒绝
+12. yield sense_complete notification
 ```
+
+**历史恢复逻辑：**
+
+服务重启后，chat.get 流式加载历史消息时，前端根据 `role='sense' AND content IS NULL` 判断 pending approvals，显示审批弹窗。
 
 **关键代码位置：**
 - 审批等待：[agent/middleware/tool.ts](src/agent/middleware/tool.ts) `executeSenseCall()` 创建 approvalPromise
-- 审批注册：[service/chat/send.ts](src/service/chat/send.ts) `registerFromTrigger()`
-- 审批确认：[service/approval/manager.ts](src/service/approval/manager.ts) `confirmApproval()`
+- 审批注册：[service/chat/send.ts](src/service/chat/send.ts) `approvalManager.register()`
+- 审批确认：[service/chat/send.ts](src/service/chat/send.ts) `approvalManager.confirm()` + `fillApprovalResult()`
+- 状态判断：messages 表 `content IS NULL` 表示 pending
 
 ## 核心设计模式
 

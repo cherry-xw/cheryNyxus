@@ -22,9 +22,7 @@ dist/
 .DS_Store
 Thumbs.db
 
-.chery/data.db
-.chery/data.db-shm
-.chery/data.db-wal
+.chery/db
 
 log/
 docs/

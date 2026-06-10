@@ -148,6 +148,26 @@ export default class Middleware<T = unknown> {
       this.activeGenerators.delete(chatId);
     }
   }
+
+  /**
+   * 从中断点恢复执行（不注入 userInputs，直接启动 chain）
+   * 用于 history recovery：senseMiddleware Phase 0 自动检测 pending approvals
+   */
+  async *resume(chatId: string): AsyncGenerator<T, void, unknown> {
+    const ctx = this.getContext(chatId);
+    if (!ctx) throw new Error(`Chat "${chatId}" not found`);
+
+    const generator = this.loopHandler
+      ? this.loopHandler(ctx, () => this.runChain(ctx))
+      : this.runChain(ctx);
+    this.activeGenerators.set(chatId, generator);
+
+    try {
+      yield* generator;
+    } finally {
+      this.activeGenerators.delete(chatId);
+    }
+  }
 }
 
 /**

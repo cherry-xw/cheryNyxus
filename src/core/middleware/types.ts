@@ -103,6 +103,8 @@ export interface SoulGroup {
   messages?: LLMResponse[];
   /** 历史消息已加载标记（防止重复加载） */
   historyLoaded?: boolean;
+  /** loop 起始计数（recovery 恢复轮次，从最后 user 消息后 assistant 消息数量计算） */
+  loopStartCount?: number;
 }
 
 /**
@@ -146,6 +148,8 @@ export interface MiddlewareContext {
   senseManager: SenseManager;
   /** 消息持久化回调（由 service 层注入，middleware 层不直接依赖 DB） */
   persistMessage?: (message: PersistMessageData) => void;
+  /** 消息更新回调（recovery 场景：UPDATE 已有记录而非 INSERT） */
+  updateMessage?: (id: string, content: string) => void;
 }
 
 /**

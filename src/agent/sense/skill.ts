@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sense, type SenseResult } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
-import { getSkill } from "@/core/prompt/loadSkill";
+import { getSkillRealtime } from "@/core/prompt/loadSkill";
 import { hashGenerator } from "@/utils/hash.js";
 
 /**
@@ -20,16 +20,19 @@ export default sense(
     name: z.string().describe("技能名称，必须与 <skill> 中的`name`字段完全一致"),
   }),
   async ({ name }): Promise<SenseResult> => {
-    const skill = getSkill(name);
+    const result = getSkillRealtime(name);
 
-    if (!skill) {
+    if (!result) {
       return {
         content: `Error: skill "${name}" not found`,
         hash: "", // 错误情况不参与去重
       };
     }
 
-    const hash = hashGenerator("skill", name);
+    const { skill, size, mtimeMs } = result;
+    
+    // 使用文件状态生成 hash，确保内容变化时 hash 也变化
+    const hash = hashGenerator("skill", name, size.toString(), mtimeMs.toString());
     const content = `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`;
 
     return { content, hash };

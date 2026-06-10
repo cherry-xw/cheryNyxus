@@ -13,10 +13,10 @@ export function createLoopHandler(
     ctx: MiddlewareContext,
     runChain: () => AsyncGenerator<MiddlewareChunk, void, unknown>,
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
-    let times = 0;
+    let times = ctx.soul.loopStartCount ?? 0;
 
     logger.info("\n" + "▶".repeat(60));
-    logger.info("[LOOP] Starting execution loop (max: " + maxLoop + ")");
+    logger.info("[LOOP] Starting execution loop (max: " + maxLoop + ", start: " + times + ")");
     logger.info("▶".repeat(60) + "\n");
 
     while (times < maxLoop) {

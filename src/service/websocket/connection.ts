@@ -1,8 +1,5 @@
 import type { WebSocket } from "ws";
 import { randomUUID } from "crypto";
-import type { ApprovalEntity } from "@/db/approval.js";
-import { approvalRepo } from "@/db/approval.js";
-import { approvalManager } from "@/service/approval/manager.js";
 import { logger } from "@/utils/logger/index.js";
 
 /**
@@ -183,15 +180,8 @@ export class ConnectionManager {
 
     logger.info(`关闭连接: ${state.id}, pendingRequests=${state.pendingRequests.size}`);
 
-    // 持久化未完成的审批
+// 终止所有 pending requests 的 generator
     for (const [requestId, pending] of state.pendingRequests) {
-      if (pending.approvalId) {
-        await approvalRepo.update(pending.approvalId, {
-          status: "pending",
-          updatedAt: Date.now(),
-        });
-      }
-
       // 终止 generator
       if (pending.generator) {
         pending.generator.return(undefined);
@@ -203,14 +193,9 @@ export class ConnectionManager {
       }
     }
 
-    // 清理 soul 的所有 pending approvals
-    if (state.soulId) {
-      await approvalManager.cleanupSoul(state.soulId);
-    }
-
-    this.connections.delete(ws);
-    logger.info(`连接已从 Map 删除: ${state.id}, 剩余连接数: ${this.connections.size}`);
-  }
+this.connections.delete(ws);
+logger.info(`连接已从 Map 删除: ${state.id}, 剩余连接数: ${this.connections.size}`);
+}
 
   /**
    * 获取所有连接

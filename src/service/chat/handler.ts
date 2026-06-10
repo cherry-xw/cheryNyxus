@@ -19,7 +19,11 @@ import {
   deleteChat,
   getMessages,
   parseMessageRow,
+  addMessage,
+  fillApprovalResult,
 } from "@/db/chat.js";
+import { ensureSoul, streamAgentChunks } from "./send.js";
+import type { PersistMessageData } from "@/core/middleware/types";
 import { getSoul } from "@/db/soul.js";
 import { clearChatFromMemory } from "../soul/lifecycle.js";
 import { randomUUID } from "crypto";
@@ -102,6 +106,68 @@ export async function* handleChatGet(
           arguments: sc.arguments,
         });
       }
+    }
+  }
+
+  // Phase 4: Recovery — 加载 agent → resume → 流式输出
+  // senseMiddleware Phase 0 自动检测 pending senses → 处理 → LLM 继续
+  const rid = p.chatId;
+  const soul = await ensureSoul(chat.soul_id);
+  const agent = await soul.agent;
+
+  agent.createChat(p.chatId);
+  const middlewareCtx = agent.getContext(p.chatId);
+
+  if (middlewareCtx) {
+    // 注入消息持久化回调
+    middlewareCtx.persistMessage = (msg: PersistMessageData) => {
+      addMessage(msg.id, p.chatId, {
+        role: msg.role,
+        content: msg.content,
+        thinking: msg.thinking,
+        senseCall: msg.senseCalls,
+      });
+    };
+
+    // 注入消息更新回调（recovery 场景：UPDATE 已有记录）
+    middlewareCtx.updateMessage = (id: string, content: string) => {
+      fillApprovalResult(id, content);
+    };
+
+    // 从数据库加载历史消息到 context（供 Phase 0 检测和 LLM 使用）
+    const historyRows = getMessages(p.chatId);
+    const messages = middlewareCtx.soul.messages ?? [];
+    for (const row of historyRows) {
+      const parsed = parseMessageRow(row);
+      messages.push({
+        id: row.id,
+        role: parsed.role,
+        content: parsed.content ?? "",
+        thinking: parsed.thinking,
+        senseCalls: parsed.senseCall,
+        createdAt: row.created_at,
+        updateAt: row.created_at,
+      });
+    }
+    middlewareCtx.soul.messages = messages;
+    middlewareCtx.soul.historyLoaded = true;
+
+    // 检测是否有 pending sense（role=sense, content 为空）
+    const hasPendingSense = messages.some(
+      m => m.role === "sense" && (!m.content || m.content.trim() === "")
+    );
+
+    // 仅有 pending sense 时才 resume（无 pending 时不应调用 LLM）
+    if (hasPendingSense) {
+      // 计算 loop 起始计数（最后 user 消息后的 assistant 消息数）
+      const lastUserIdx = messages.findLastIndex(m => m.role === "user");
+      middlewareCtx.soul.loopStartCount = lastUserIdx >= 0
+        ? messages.slice(lastUserIdx + 1).filter(m => m.role === "assistant").length
+        : 0;
+
+      // resume → senseMiddleware Phase 0 自动检测 pending → 处理 → LLM → loop
+      const generator = agent.resume(p.chatId);
+      yield* streamAgentChunks(generator, rid);
     }
   }
 

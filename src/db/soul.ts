@@ -1,4 +1,4 @@
-import { getDb } from "./index.js";
+import { getSoulDb, getMonthlyDb } from "./index.js";
 import { safeJsonParse } from "@/utils/json.js";
 
 export interface SoulRow {
@@ -22,7 +22,7 @@ export function createSoul(
   soulId: string,
   data: SoulData,
 ): SoulRow {
-  const db = getDb();
+  const db = getSoulDb();
   const now = Date.now();
 
   const senseGroupStr = typeof data.senseGroup === "string"
@@ -50,26 +50,43 @@ export function createSoul(
 }
 
 export function getSoul(soulId: string): SoulRow | undefined {
-  const db = getDb();
+  const db = getSoulDb();
   const stmt = db.prepare("SELECT * FROM souls WHERE id = ?");
   return stmt.get(soulId) as SoulRow | undefined;
 }
 
 export function listSouls(): SoulRow[] {
-  const db = getDb();
+  const db = getSoulDb();
   const stmt = db.prepare("SELECT * FROM souls ORDER BY updated_at DESC");
   return stmt.all() as SoulRow[];
 }
 
 export function updateSoul(soulId: string): void {
-  const db = getDb();
+  const db = getSoulDb();
   const stmt = db.prepare("UPDATE souls SET updated_at = ? WHERE id = ?");
   stmt.run(Date.now(), soulId);
 }
 
 export function deleteSoul(soulId: string): void {
-  const db = getDb();
-  const stmt = db.prepare("DELETE FROM souls WHERE id = ?");
+  const soulDb = getSoulDb();
+
+  // 1. 查询所有 chats（获取 messages_month）
+  const chatStmt = soulDb.prepare("SELECT id, messages_month FROM chats WHERE soul_id = ?");
+  const chats = chatStmt.all(soulId) as Array<{ id: string; messages_month: string }>;
+
+  // 2. 删除各月份文件的 messages
+  for (const chat of chats) {
+    const monthlyDb = getMonthlyDb(chat.messages_month);
+    const msgStmt = monthlyDb.prepare("DELETE FROM messages WHERE chat_id = ?");
+    msgStmt.run(chat.id);
+  }
+
+  // 3. 删除 chats（CASCADE 自动处理，但手动已处理 messages）
+  const deleteChatStmt = soulDb.prepare("DELETE FROM chats WHERE soul_id = ?");
+  deleteChatStmt.run(soulId);
+
+  // 4. 删除 soul
+  const stmt = soulDb.prepare("DELETE FROM souls WHERE id = ?");
   stmt.run(soulId);
 }
 

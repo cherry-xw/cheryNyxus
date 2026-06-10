@@ -92,6 +92,7 @@ interface ExtendedGlobalConfig extends GlobalConfig {
   skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
   senses_dir: string; // 自动补全：chery_dir + "/.chery/senses"
   system_prompt: string; // 自动补全：chery_dir + "/.chery/system.md"
+  db_dir: string; // 自动补全：chery_dir + "/db"
 }
 
 interface Config {
@@ -172,6 +173,7 @@ function loadConfig(): Config {
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
   config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
+  config.global.db_dir = path.join(cheryDir, ".chery", "db");
 
   // 添加环境变量缺失警告
   if (!process.env.CHERY_DIR) {

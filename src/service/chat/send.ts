@@ -15,19 +15,18 @@ import {
   type SenseApprovalResponseData,
 } from "../message/types.js";
 import { agentSouls } from "../soul/lifecycle.js";
-import { getChat, addMessage, getMessages, parseMessageRow } from "@/db/chat.js";
+import { getChat, addMessage, getMessages, parseMessageRow, fillApprovalResult } from "@/db/chat.js";
 import { getSoul, parseSoulRow } from "@/db/soul.js";
 import { approvalManager } from "../approval/manager.js";
-import { connectionManager } from "../websocket/connection.js";
 import { AgentBuilder } from "@/agent/builder.js";
-import type { SenseTriggerChunk, SenseAcceptChunk, SenseRejectChunk, StagedChunk, PersistMessageData } from "@/core/middleware/types";
+import type { MiddlewareChunk, SenseTriggerChunk, SenseAcceptChunk, SenseRejectChunk, StagedChunk, PersistMessageData } from "@/core/middleware/types";
 import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 
 /**
  * 确保 Soul 存在于内存（从数据库恢复或报错）
  */
-async function ensureSoul(soulId: string): Promise<{
+export async function ensureSoul(soulId: string): Promise<{
   id: string;
   agent: ReturnType<AgentBuilder["build"]>;
   config: {
@@ -67,10 +66,92 @@ async function ensureSoul(soulId: string): Promise<{
   // 加载到内存
   agentSouls.set(soulId, soul);
 
-  // 加载 pending approval handles 到内存
-  await approvalManager.loadSoulApprovals(soulId);
-
   return soul;
+}
+
+/**
+ * 将 agent generator 的 MiddlewareChunk 转换为 WebSocket 协议的 Chunk/Notification
+ * handleChatSend 和 handleChatGet recovery 共用
+ */
+export async function* streamAgentChunks(
+  generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
+  rid: string,
+): AsyncGenerator<Chunk | Notification, void, unknown> {
+  let seq = 0;
+
+  for await (const chunk of generator) {
+    if (chunk.type === "stream") {
+      const streamData: Record<string, unknown> = {};
+      if (chunk.thinkingDelta) {
+        streamData.thinking = chunk.thinkingDelta;
+      }
+      if (chunk.contentDelta) {
+        streamData.content = chunk.contentDelta;
+      }
+      if (chunk.senseDelta && chunk.senseDelta.length > 0) {
+        streamData.senseCall = chunk.senseDelta;
+      }
+      yield createChunk("stream", rid, streamData, ++seq);
+    } else if (chunk.type === "staged") {
+      const staged = chunk as StagedChunk;
+      const stagedData: Record<string, unknown> = {
+        type: staged.stagedType,
+      };
+      if (staged.thinking) {
+        stagedData.thinking = staged.thinking;
+      }
+      if (staged.content) {
+        stagedData.content = staged.content;
+      }
+      if (staged.senseName) {
+        stagedData.senseName = staged.senseName;
+      }
+      if (staged.senseArguments) {
+        stagedData.arguments = staged.senseArguments;
+      }
+      yield createChunk("staged", rid, stagedData);
+    } else if (chunk.type === "sense_end") {
+      const sc = chunk as SenseTriggerChunk;
+      logger.info(`[Stream] sense_end, id=${sc.id}, name=${sc.name}, supervision=${sc.supervisionLevel}`);
+
+      // 注册 approvalResolve
+      if (sc.approvalResolve) {
+        approvalManager.register(sc.id, sc.approvalResolve);
+      }
+
+      yield createNotification("interrupt", rid, {
+        approvalId: sc.id,
+        senseName: sc.name,
+        arguments: sc.arguments,
+        supervisionLevel: sc.supervisionLevel,
+        needsApproval: sc.supervisionLevel > SupervisionLevel.auto,
+      });
+    } else if (chunk.type === "sense_accept") {
+      const sc = chunk as SenseAcceptChunk;
+      logger.info(`[Stream] sense_accept, id=${sc.id}, name=${sc.name}`);
+      yield createNotification("accept", rid, {
+        approvalId: sc.id,
+        senseName: sc.name,
+        result: sc.result,
+      });
+    } else if (chunk.type === "sense_reject") {
+      const sc = chunk as SenseRejectChunk;
+      logger.info(`[Stream] sense_reject, id=${sc.id}, name=${sc.name}`);
+      yield createNotification("rejected", rid, {
+        approvalId: sc.id,
+        senseName: sc.name,
+        reason: sc.reason,
+      });
+    } else if (chunk.type === "consumed") {
+      yield createNotification("consumed", rid, { count: (chunk as { count?: number }).count || 0 });
+    } else if (chunk.type === "error") {
+      const e = chunk as { errors: Array<{ message: string }> };
+      yield createNotification("error", rid, { message: e.errors[0]?.message || "Unknown error" });
+    } else if (chunk.type === "done") {
+      logger.info(`[Stream] done`);
+      yield createNotification("done", rid, null);
+    }
+  }
 }
 
 /**
@@ -94,7 +175,6 @@ export async function* handleChatSend(
     throw new Error(`Chat "${chatId}" not found`);
   }
 
-  // 测试日志：用户问题
   logger.info(`[ChatSend] chatId=${chatId}, prompt="${data.prompt}"`);
 
   const agent = await soul.agent;
@@ -108,7 +188,7 @@ export async function* handleChatSend(
     // 从数据库加载历史消息到 context
     const middlewareCtx = agent.getContext(chatId);
     if (middlewareCtx && middlewareCtx.soul.messages) {
-      // 注入消息持久化回调（middleware 层通过回调写入 DB，不直接依赖 DB）
+      // 注入消息持久化回调
       middlewareCtx.persistMessage = (msg: PersistMessageData) => {
         addMessage(msg.id, chatId, {
           role: msg.role,
@@ -118,9 +198,13 @@ export async function* handleChatSend(
         });
       };
 
+      // 注入消息更新回调（pending sense 消息执行后更新 content）
+      middlewareCtx.updateMessage = (id: string, content: string) => {
+        fillApprovalResult(id, content);
+      };
+
       historyMessages = getMessages(chatId);
       const messages = middlewareCtx.soul.messages;
-      // 使用 historyLoaded 标记判断是否需要加载历史（不依赖 messages.length）
       const needsLoad = !middlewareCtx.soul.historyLoaded && historyMessages.length > 0;
       if (needsLoad) {
         for (const row of historyMessages) {
@@ -135,89 +219,14 @@ export async function* handleChatSend(
             updateAt: row.created_at,
           });
         }
-        // 标记已加载，防止重复加载
         middlewareCtx.soul.historyLoaded = true;
       }
     }
 
     const generator = agent.send(chatId, data.prompt);
-
-    let seq = 0;
     const rid = ctx.requestId ?? chatId;
 
-    for await (const chunk of generator) {
-      if (chunk.type === "stream") {
-        // Stream delta - 透传
-        const streamData: Record<string, unknown> = {};
-        if (chunk.thinkingDelta) {
-          streamData.thinking = chunk.thinkingDelta;
-        }
-        if (chunk.contentDelta) {
-          streamData.content = chunk.contentDelta;
-        }
-        if (chunk.senseDelta && chunk.senseDelta.length > 0) {
-          streamData.senseCall = chunk.senseDelta;
-        }
-        yield createChunk("stream", rid, streamData, ++seq);
-      } else if (chunk.type === "staged") {
-        // Staged chunk - checkpoint 已处理，直接透传
-        const staged = chunk as StagedChunk;
-        const stagedData: Record<string, unknown> = {
-          type: staged.stagedType,
-        };
-        if (staged.thinking) {
-          stagedData.thinking = staged.thinking;
-        }
-        if (staged.content) {
-          stagedData.content = staged.content;
-        }
-        if (staged.senseName) {
-          stagedData.senseName = staged.senseName;
-        }
-        if (staged.senseArguments) {
-          stagedData.arguments = staged.senseArguments;
-        }
-        yield createChunk("staged", rid, stagedData);
-      } else if (chunk.type === "sense_end") {
-        const sc = chunk as SenseTriggerChunk;
-        logger.info(`[ChatSend] sense_end, id=${sc.id}, name=${sc.name}, args=${sc.arguments}, supervisionLevel=${sc.supervisionLevel}`);
-
-        // 注册审批到 approvalManager（存储 approvalResolve）
-        await approvalManager.registerFromTrigger(sc, data.soulId, chatId);
-
-        yield createNotification("interrupt", rid, {
-          approvalId: sc.id,
-          senseName: sc.name,
-          arguments: sc.arguments,
-          supervisionLevel: sc.supervisionLevel,
-          needsApproval: sc.supervisionLevel > SupervisionLevel.auto,
-        });
-      } else if (chunk.type === "sense_accept") {
-        const sc = chunk as SenseAcceptChunk;
-        logger.info(`[ChatSend] sense_accept, id=${sc.id}, name=${sc.name}, result=${sc.result}`);
-        yield createNotification("accept", rid, {
-          approvalId: sc.id,
-          senseName: sc.name,
-          result: sc.result,
-        });
-      } else if (chunk.type === "sense_reject") {
-        const sc = chunk as SenseRejectChunk;
-        logger.info(`[ChatSend] sense_reject, id=${sc.id}, name=${sc.name}, reason=${sc.reason}`);
-        yield createNotification("rejected", rid, {
-          approvalId: sc.id,
-          senseName: sc.name,
-          reason: sc.reason,
-        });
-      } else if (chunk.type === "consumed") {
-        yield createNotification("consumed", rid, { count: (chunk as { count?: number }).count || 0 });
-      } else if (chunk.type === "error") {
-        const e = chunk as { errors: Array<{ message: string }> };
-        yield createNotification("error", rid, { message: e.errors[0]?.message || "Unknown error" });
-      } else if (chunk.type === "done") {
-        logger.info(`[ChatSend] done`);
-        yield createNotification("done", rid, null);
-      }
-    }
+    yield* streamAgentChunks(generator, rid);
   } catch (err) {
     const error = err as Error;
     const rid = ctx.requestId ?? chatId;
@@ -232,23 +241,15 @@ export async function* handleChatSend(
  * 审批 Sense
  */
 export async function handleSenseApproval(
-  ctx: HandlerContext,
+  _ctx: HandlerContext,
   data: SenseApprovalRequestData,
 ): Promise<SenseApprovalResponseData> {
-  await approvalManager.confirmApproval(data.approvalId, data.action, data.reason);
+  // 调用 approvalResolve
+  approvalManager.confirm(data.approvalId, data.action, data.reason);
 
-  // 审批通过后，清除对应连接的审批超时
-  if (data.action === "accept") {
-    const connState = connectionManager.getBySoulId(data.soulId);
-    if (connState) {
-      for (const [requestId, pending] of connState.pendingRequests) {
-        if (pending.approvalId) {
-          connectionManager.clearApprovalTimeout(connState.ws, requestId);
-          logger.info(`审批通过，清除超时: requestId=${requestId}`);
-        }
-      }
-    }
-  }
+  // 填充 messages.content（执行结果或拒绝原因）
+  const result = data.action === "accept" ? "approved" : `rejected: ${data.reason ?? "user rejected"}`;
+  fillApprovalResult(data.approvalId, result);
 
   return {
     approvalId: data.approvalId,

@@ -1,5 +1,5 @@
 import { startService } from "./service/index.js";
-import { getDb, closeDb } from "./db/index.js";
+import { getSoulDb, closeAllDbs } from "./db/index.js";
 import { compileSenses } from "./core/sense/compiler/index.js";
 import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense/compileToolsReporter.js";
 import { startWebServer } from "./web/server.js";
@@ -27,19 +27,19 @@ async function main(): Promise<void> {
   startWebServer(WEB_PORT);
 
   // 启动时初始化数据库
-  getDb();
+  getSoulDb();
 
   // 优雅关闭
   process.on("SIGINT", () => {
     logger.info("\n正在关闭服务...");
     wss.close();
-    closeDb();
+    closeAllDbs();
     process.exit(0);
   });
 
   process.on("SIGTERM", () => {
     wss.close();
-    closeDb();
+    closeAllDbs();
     process.exit(0);
   });
 }

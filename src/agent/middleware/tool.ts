@@ -4,46 +4,80 @@ import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 
 /**
- * Sense Middleware
+ * 待批量执行的 sense call
+ */
+interface PendingSenseCall {
+  id: string;
+  name: string;
+  argsJson: string;
+  supervisionLevel: SupervisionLevel;
+  /** confirm/manual 时存在，用于 Promise.all 批量等待审批 */
+  approvalPromise?: Promise<{ action: "accept" | "reject"; reason?: string }>;
+}
+
+/**
+ * Sense Middleware（批量模式 + Recovery）
  * 职责：
- * 1. 从 stream chunks 实时收集 senseDelta
- * 2. 检测完整 sense call 并立即执行
- * 3. auto 感官自动执行，confirm/manual 感官 yield sense_end chunk
- * 4. interrupt 创建和审批由 service 层 interruptMiddleware 处理
+ * 1. Phase 0（Recovery）：从 messages 检测未完成的 pending sense，重新发起审批并执行
+ * 2. Phase 1：从 stream chunks 收集 senseDelta，检测完整 sense call，yield sense_end 触发器
+ * 3. Phase 2：流结束后，auto sense 先执行；confirm/manual 批量 await Promise.all 等待审批后执行
  */
 export async function* senseMiddleware(
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  // senseDelta 累积器（按 index 累积）
-  const senseDeltaMap = new Map<number, { id?: string; name?: string; argsJson: string }>();
-  let lastIndex = -1;
+  const collectedCalls: PendingSenseCall[] = [];
 
   logger.info("\n[SENSE] Middleware started");
 
-  // 收集 stream chunks 的 senseDelta，实时检测完整 sense call
+  // Phase 0: Recovery — 从已有 messages 中检测 pending sense（中断恢复）
+  const pendingInHistory = (ctx.soul.messages ?? []).filter(
+    msg => msg.role === "sense" && (!msg.content || msg.content.trim() === "")
+  );
+
+  if (pendingInHistory.length > 0) {
+    logger.info(`[SENSE] Phase 0: Found ${pendingInHistory.length} pending sense messages for recovery`);
+
+    for (const msg of pendingInHistory) {
+      if (!msg.senseCalls || msg.senseCalls.length === 0) continue;
+      for (const sc of msg.senseCalls) {
+        logger.info("[SENSE] Recovery sense:", sc.name, "id:", sc.id);
+        const { trigger, call } = buildSenseTrigger(ctx, sc.id, sc.name, sc.arguments);
+        collectedCalls.push(call);
+        yield trigger;
+      }
+    }
+
+    // 执行 recovery senses
+    yield* executeCollectedCalls(ctx, collectedCalls);
+    // 清空 collectedCalls，Phase 1 会重新收集
+    collectedCalls.length = 0;
+  }
+
+  // Phase 1: 收集 sense calls + yield sense_end 触发器
+  const senseDeltaMap = new Map<number, { id?: string; name?: string; argsJson: string }>();
+  let lastIndex = -1;
+
   for await (const chunk of next()) {
-    // 处理 stream chunk 中的 senseDelta
     if (chunk.type === "stream") {
       const streamChunk = chunk as StreamChunk;
       if (streamChunk.senseDelta && streamChunk.senseDelta.length > 0) {
         for (const delta of streamChunk.senseDelta) {
           const index = delta.index ?? 0;
 
-          // index 变化 → 前一个 sense call 完成
           if (lastIndex !== -1 && index !== lastIndex) {
             const prevSc = senseDeltaMap.get(lastIndex);
             if (prevSc && prevSc.name) {
               logger.info("\n[SENSE] Complete sense call detected (index changed)");
               logger.info("[SENSE] Name:", prevSc.name);
               logger.info("[SENSE] Args:", prevSc.argsJson);
-              // 立即执行前一个完整的 sense call
-              yield* executeSenseCall(ctx, prevSc.id ?? "", prevSc.name, prevSc.argsJson);
+              const { trigger, call } = buildSenseTrigger(ctx, prevSc.id ?? "", prevSc.name, prevSc.argsJson);
+              collectedCalls.push(call);
+              yield trigger;
             }
             senseDeltaMap.delete(lastIndex);
           }
 
-          // 累积当前 senseDelta
           const existing = senseDeltaMap.get(index);
           if (existing) {
             existing.argsJson += delta.arguments ?? "";
@@ -62,49 +96,119 @@ export async function* senseMiddleware(
       }
     }
 
-    // 透传其他 chunk
     yield chunk;
   }
 
-  // 流结束后，处理剩余的 sense call
+  // 流结束后，处理剩余的 sense calls
   logger.info("\n[SENSE] Stream ended, processing remaining sense calls");
   for (const [, sc] of senseDeltaMap) {
     if (sc.name) {
       logger.info("[SENSE] Remaining sense:", sc.name);
-      yield* executeSenseCall(ctx, sc.id ?? "", sc.name, sc.argsJson);
+      const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? "", sc.name, sc.argsJson);
+      collectedCalls.push(call);
+      yield trigger;
     }
+  }
+
+  // Phase 2: 批量执行
+  if (collectedCalls.length > 0) {
+    logger.info(`\n[SENSE] Batch execution: ${collectedCalls.length} sense calls`);
+    yield* executeCollectedCalls(ctx, collectedCalls);
+  } else {
+    logger.info("[SENSE] No sense calls to execute\n");
   }
 
   logger.info("[SENSE] Middleware ended\n");
 }
 
 /**
- * 执行单个 sense call（根据 supervisionLevel 决定执行策略）
+ * 批量执行收集到的 sense calls
+ * Phase 0 (recovery) 和 Phase 2 (normal) 共用
  */
-async function* executeSenseCall(
+async function* executeCollectedCalls(
+  ctx: MiddlewareContext,
+  calls: PendingSenseCall[],
+): AsyncGenerator<MiddlewareChunk> {
+  // Auto sense 先执行（不等待审批）
+  const autoCalls = calls.filter(c => c.supervisionLevel === SupervisionLevel.auto);
+  for (const call of autoCalls) {
+    logger.info("\n" + "⚡".repeat(40));
+    logger.info(`[SENSE EXEC] Auto mode, executing directly: ${call.name}`);
+    logger.info("[SENSE EXEC] ID:", call.id);
+    logger.info("[SENSE EXEC] Args:", call.argsJson);
+    logger.info("⚡".repeat(40) + "\n");
+
+    const { content, hash } = await doExecuteSense(ctx, call.name, call.argsJson, call.id);
+    logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
+    yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
+  }
+
+  // Confirm/manual senses — 批量等待所有审批后逐一执行
+  const needsApproval = calls.filter(c => c.approvalPromise);
+  if (needsApproval.length > 0) {
+    logger.info(`[SENSE EXEC] ⏳ Waiting for ${needsApproval.length} approvals...`);
+
+    await Promise.all(needsApproval.map(c => c.approvalPromise!));
+
+    logger.info(`\n[SENSE EXEC] ✅ All ${needsApproval.length} approvals received`);
+
+    for (const call of needsApproval) {
+      const decision = await call.approvalPromise!;
+
+      if (decision.action === "accept") {
+        logger.info("\n" + "⚡".repeat(40));
+        logger.info(`[SENSE EXEC] Executing sense: ${call.name}`);
+        logger.info("[SENSE EXEC] ID:", call.id);
+        logger.info("[SENSE EXEC] Args:", call.argsJson);
+        logger.info("⚡".repeat(40) + "\n");
+
+        const { content, hash } = await doExecuteSense(ctx, call.name, call.argsJson, call.id);
+        logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
+        yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
+      } else {
+        logger.info(`[SENSE EXEC] ❌ Rejected: ${call.name}`);
+        logger.info("[SENSE EXEC] Reason:", decision.reason || "(none)");
+        yield {
+          type: "sense_reject",
+          id: call.id,
+          name: call.name,
+          reason: "用户拒绝执行" + (decision.reason ? `理由:${decision.reason}` : ''),
+        };
+      }
+    }
+  }
+}
+
+/**
+ * 构建 sense trigger + pending call（不执行）
+ * trigger 携带 approvalResolve 供 service 层注册到 ApprovalManager
+ * call 携带 approvalPromise 供 senseMiddleware 批量 await
+ */
+function buildSenseTrigger(
   ctx: MiddlewareContext,
   id: string,
   name: string,
   argsJson: string,
-): AsyncGenerator<MiddlewareChunk> {
-  // 获取感官监管级别
+): { trigger: SenseTriggerChunk; call: PendingSenseCall } {
   const senseDef = ctx.senseManager.get(name);
-  // TODO 后半段应该不可能触发才对
   const supervisionLevel = senseDef?.supervisionLevel ?? SupervisionLevel.confirm;
 
   logger.info("\n" + "⚡".repeat(40));
-  logger.info("[SENSE EXEC] Sense call execution");
-  logger.info("[SENSE EXEC] ID:", id);
-  logger.info("[SENSE EXEC] Name:", name);
-  logger.info("[SENSE EXEC] Args:", argsJson);
-  logger.info("[SENSE EXEC] Supervision:", supervisionLevel);
+  logger.info("[SENSE BUILD] Sense trigger built");
+  logger.info("[SENSE BUILD] ID:", id);
+  logger.info("[SENSE BUILD] Name:", name);
+  logger.info("[SENSE BUILD] Args:", argsJson);
+  logger.info("[SENSE BUILD] Supervision:", supervisionLevel);
   logger.info("⚡".repeat(40) + "\n");
 
-  // 构建 trigger chunk，包含 approvalResolve 用于等待审批
   let approvalResolve: ((action: "accept" | "reject", reason?: string) => void) | null = null;
-  const approvalPromise = new Promise<{ action: "accept" | "reject"; reason?: string }>((resolve) => {
-    approvalResolve = (action, reason) => resolve({ action, reason });
-  });
+  let approvalPromise: Promise<{ action: "accept" | "reject"; reason?: string }> | undefined;
+
+  if (supervisionLevel > SupervisionLevel.auto) {
+    approvalPromise = new Promise<{ action: "accept" | "reject"; reason?: string }>((resolve) => {
+      approvalResolve = (action, reason) => resolve({ action, reason });
+    });
+  }
 
   const trigger: SenseTriggerChunk = {
     type: "sense_end",
@@ -115,43 +219,10 @@ async function* executeSenseCall(
     approvalResolve,
   };
 
-  // 所有感官先 yield sense_end
-  yield trigger;
-
-  // 执行或拒绝
-  if (supervisionLevel > SupervisionLevel.auto) {
-    // confirm/manual：等待审批结果
-    logger.info("[SENSE EXEC] ⏳ Waiting for approval...");
-
-    const decision = await approvalPromise;
-
-    logger.info("\n[SENSE EXEC] ✅ Approval received");
-    logger.info("[SENSE EXEC] Action:", decision.action);
-    logger.info("[SENSE EXEC] Reason:", decision.reason || "(none)");
-
-    if (decision.action === "accept") {
-      logger.info("[SENSE EXEC] Executing sense...");
-      const { content, hash } = await doExecuteSense(ctx, name, argsJson, id);
-      logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
-      yield { type: "sense_accept", id, name, result: content, hash };
-    } else {
-      logger.info("[SENSE EXEC] ❌ Rejected by user");
-      yield {
-        type: "sense_reject",
-        id,
-        name,
-        reason: "用户拒绝执行" + (decision.reason ? `理由:${decision.reason}` : ''),
-      };
-    }
-  } else {
-    // auto：直接执行
-    logger.info("[SENSE EXEC] Auto mode, executing directly...");
-    const { content, hash } = await doExecuteSense(ctx, name, argsJson, id);
-    logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
-    yield { type: "sense_accept", id, name, result: content, hash };
-  }
-
-  logger.info("\n[SENSE EXEC] Sense call completed\n");
+  return {
+    trigger,
+    call: { id, name, argsJson, supervisionLevel, approvalPromise },
+  };
 }
 
 /**
@@ -172,7 +243,6 @@ async function doExecuteSense(
       const messages = ctx.soul.messages ?? [];
       for (const msg of messages) {
         if (msg.role === "sense" && msg.hash === result.hash && !msg.replace?.state) {
-          // 标记历史消息为已被替换
           msg.replace = {
             state: true,
             by: id,

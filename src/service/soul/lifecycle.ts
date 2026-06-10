@@ -11,7 +11,6 @@ import {
   type SoulData,
 } from "@/db/soul.js";
 import { listChatsBySoul, getMessages, parseMessageRow } from "@/db/chat.js";
-import { approvalRepo } from "@/db/approval.js";
 
 /**
  * Soul 内存缓存（存储 agent 实例，配置从数据库读取）
@@ -212,16 +211,14 @@ export async function handleSoulLoad(
     };
   });
 
-  // 获取 pending approvals
-  const approvals = await approvalRepo.findBySoulId(p.soulId);
-  const pendingApprovals = approvals
-    .filter(a => a.status === "pending")
-    .map(a => ({
-      approvalId: a.id,
-      chatId: a.chatId,
-      createdAt: a.createdAt,
-      senseCalls: a.senseCalls,
-    }));
+  // pending approvals 通过历史消息流判断（role='sense' AND content IS NULL）
+  // 这里返回空数组，前端在 chat.get 流式加载时自行判断
+  const pendingApprovals: Array<{
+    approvalId: string;
+    chatId: string;
+    createdAt: number;
+    senseCalls: unknown[];
+  }> = [];
 
   return {
     soulId: p.soulId,

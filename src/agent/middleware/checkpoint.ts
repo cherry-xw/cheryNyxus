@@ -134,6 +134,29 @@ export async function* checkpointMiddleware(
           senseArguments: trigger.arguments,
         };
         yield senseStaged;
+
+        // confirm/manual 模式：立即创建 pending sense 消息并持久化
+        // 确保 connection 断开后 DB 中有 pending 记录，供 recovery Phase 0 检测
+        if (trigger.supervisionLevel > 0 /* SupervisionLevel.auto */) {
+          const messages = ctx.soul.messages ?? [];
+          const senseMsg = {
+            id: trigger.id,
+            role: "sense" as const,
+            content: "",
+            senseCalls: [{ id: trigger.id, name: trigger.name, arguments: trigger.arguments }],
+            createdAt: Date.now(),
+            updateAt: Date.now(),
+          };
+          messages.push(senseMsg);
+          ctx.soul.messages = messages;
+
+          persistMessage(ctx, {
+            id: senseMsg.id,
+            role: "sense",
+            content: "",
+            senseCalls: senseMsg.senseCalls,
+          });
+        }
       }
 
       // sense_complete 时不重置标记（本轮 thinking/content 已 yield）

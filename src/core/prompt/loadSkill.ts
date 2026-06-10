@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, existsSync } from "fs";
+import { readFileSync, readdirSync, existsSync, statSync } from "fs";
 import { fileURLToPath } from "url";
 import { join, dirname } from "path";
 import yaml from "js-yaml";
@@ -103,7 +103,7 @@ function loadSkills(): Map<string, SkillData> {
   return skillMap;
 }
 
-// 启动时一次性加载所有 skills
+// 启动时一次性加载所有 skills（用于元数据列表）
 const skillMap = loadSkills();
 
 /**
@@ -114,12 +114,61 @@ export function getSkillMap(): Map<string, SkillData> {
 }
 
 /**
- * 获取单个 skill 数据
+ * 获取单个 skill 数据（从缓存）
  * @param name skill name
  * @returns skill 数据，不存在时返回 undefined
  */
 export function getSkill(name: string): SkillData | undefined {
   return skillMap.get(name);
+}
+
+/**
+ * 实时读取单个 skill 数据（每次都从文件读取最新内容）
+ * @param name skill name
+ * @returns skill 数据 + 文件元信息，不存在时返回 undefined
+ */
+export function getSkillRealtime(name: string): 
+  | { skill: SkillData; size: number; mtimeMs: number }
+  | undefined {
+  const skillsDir = config.global.skills_dir;
+  
+  // 遍历 skills 目录查找匹配的 skill
+  if (!existsSync(skillsDir)) return undefined;
+  
+  const dirs = readdirSync(skillsDir, { withFileTypes: true });
+  
+  for (const dir of dirs) {
+    if (!dir.isDirectory()) continue;
+    const dirName = dir.name;
+    if (!dirName) continue;
+    
+    const skillPath = join(skillsDir, dirName);
+    const files = readdirSync(skillPath);
+    
+    // 查找 SKILL.md 或 skill.md
+    const skillFile = files.find((f) => f.toLowerCase() === "skill.md");
+    if (!skillFile) continue;
+    
+    const filePath = join(skillPath, skillFile);
+    const fileContent = readFileSync(filePath, "utf-8");
+    const meta = parseSkillFrontmatter(fileContent, dirName);
+    
+    // 匹配 skill name
+    if (meta.name === name) {
+      const fileStat = statSync(filePath);
+      return {
+        skill: {
+          name: meta.name,
+          description: meta.description,
+          content: meta.content,
+        },
+        size: fileStat.size,
+        mtimeMs: fileStat.mtimeMs,
+      };
+    }
+  }
+  
+  return undefined;
 }
 
 /**

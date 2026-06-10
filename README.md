@@ -207,6 +207,74 @@ interface Notification {
 | [.chery/system.md](.chery/system.md) | 系统 prompt 模板 |
 | [.chery/skills/](.chery/skills/) | 技能定义目录，每个技能包含 `SKILL.md` |
 | [.chery/senses/](.chery/senses/) | 外部自定义感官目录，`.ts` 文件自动编译注入 |
+| [.chery/db/](.chery/db/) | 数据库存储目录（自动创建） |
+
+### 数据库架构
+
+cheryClaw 采用多文件数据库架构，提升性能与可维护性：
+
+``text
+[CHERY_DIR]/.chery/db/
+├── soul.db                # souls + chats 表
+│   ├── souls             # 灵魂信息（id, agent_name, provider, model, sense_group）
+│   └── chats             # 聊天信息（id, soul_id, messages_month, created_at, updated_at）
+└── YYYY-MM.db             # messages 表（按月分片）
+    └── messages          # 消息历史（id, chat_id, role, content, thinking, sense_calls）
+```
+
+**关键特性：**
+
+- **按月分片**：messages 表按月份存储（如 `2026-06.db`），便于归档与清理
+- **路由机制**：chats 表的 `messages_month` 字段记录消息所在月份文件，查询时自动路由
+- **审批状态**：`role='sense' AND content IS NULL` 的 messages 表示待审批状态
+- **messageId 格式**：`YYYY-MM-uuid`（如 `2026-06-abc123...`），便于月份路由
+
+**表结构：**
+
+```sql
+-- soul.db
+CREATE TABLE souls (
+  id TEXT PRIMARY KEY,
+  agent_name TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  sense_group TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE chats (
+  id TEXT PRIMARY KEY,
+  soul_id TEXT NOT NULL,
+  messages_month TEXT NOT NULL, -- 如 "2026-06"
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  metadata TEXT,
+  FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
+);
+
+-- YYYY-MM.db
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY,         -- 格式：YYYY-MM-uuid
+  chat_id TEXT NOT NULL,       -- 无外键（跨数据库）
+  role TEXT NOT NULL,          -- user/assistant/system/sense
+  content TEXT,                -- NULL 表示 pending（待审批）
+  thinking TEXT,
+  sense_calls TEXT,            -- JSON 数组
+  hash TEXT,
+  replace_state INTEGER,
+  replace_by TEXT,
+  replace_content TEXT,
+  original_content TEXT,
+  created_at INTEGER NOT NULL
+);
+```
+
+**注意：**
+
+- approvals 表已去掉，审批状态通过 messages.content 字段判断
+- 跨数据库的外键约束无法生效，删除时手动清理关联数据
+- 历史数据迁移：建议清空重来，手动删除旧 `data.db` 文件
 
 ### Sense 监管等级
 

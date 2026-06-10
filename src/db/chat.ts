@@ -1,9 +1,11 @@
-import { getDb } from "./index.js";
+import { getSoulDb, getMonthlyDb, getAllMonths } from "./index.js";
 import { safeJsonParse } from "@/utils/json.js";
+import { randomUUID } from "crypto";
 
 export interface ChatRow {
   id: string;
   soul_id: string;
+  messages_month: string;
   created_at: number;
   updated_at: number;
   metadata: string | null;
@@ -16,15 +18,10 @@ export interface MessageRow {
   content: string | null;
   thinking: string | null;
   sense_calls: string | null;
-  /** 感官执行结果的 hash */
   hash: string | null;
-  /** 替换状态 */
   replace_state: number | null;
-  /** 替换者的 tool call id */
   replace_by: string | null;
-  /** 替换后的内容 */
   replace_content: string | null;
-  /** 原内容（被替换时保留） */
   original_content: string | null;
   created_at: number;
 }
@@ -38,7 +35,6 @@ export interface MessageData {
     name: string;
     arguments: string;
   }>;
-  /** 感官执行结果的 hash */
   hash?: string;
   replace?: {
     state: boolean;
@@ -48,69 +44,125 @@ export interface MessageData {
   originalContent?: string;
 }
 
+/**
+ * 格式化年份月份（YYYY-MM）
+ */
+function formatYearMonth(timestamp: number): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * 创建聊天
+ */
 export function createChat(
   chatId: string,
   soulId: string,
   metadata?: Record<string, unknown>,
 ): ChatRow {
-  const db = getDb();
+  const db = getSoulDb();
   const now = Date.now();
+  const messagesMonth = formatYearMonth(now);
 
   const stmt = db.prepare(`
-    INSERT INTO chats (id, soul_id, created_at, updated_at, metadata)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO chats (id, soul_id, messages_month, created_at, updated_at, metadata)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  stmt.run(chatId, soulId, now, now, metadata ? JSON.stringify(metadata) : null);
+  stmt.run(chatId, soulId, messagesMonth, now, now, metadata ? JSON.stringify(metadata) : null);
+
+  // 确保月份文件存在
+  getMonthlyDb(messagesMonth);
 
   return {
     id: chatId,
     soul_id: soulId,
+    messages_month: messagesMonth,
     created_at: now,
     updated_at: now,
     metadata: metadata ? JSON.stringify(metadata) : null,
   };
 }
 
+/**
+ * 获取聊天
+ */
 export function getChat(chatId: string): ChatRow | undefined {
-  const db = getDb();
+  const db = getSoulDb();
   const stmt = db.prepare("SELECT * FROM chats WHERE id = ?");
   return stmt.get(chatId) as ChatRow | undefined;
 }
 
+/**
+ * 列出聊天（按 soulId）
+ */
 export function listChatsBySoul(soulId: string): ChatRow[] {
-  const db = getDb();
+  const db = getSoulDb();
   const stmt = db.prepare("SELECT * FROM chats WHERE soul_id = ? ORDER BY updated_at DESC");
   return stmt.all(soulId) as ChatRow[];
 }
 
+/**
+ * 更新聊天时间戳
+ */
 export function updateChat(chatId: string): void {
-  const db = getDb();
+  const db = getSoulDb();
   const stmt = db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?");
   stmt.run(Date.now(), chatId);
 }
 
+/**
+ * 删除聊天（手动清理 messages）
+ */
 export function deleteChat(chatId: string): void {
-  const db = getDb();
-  const stmt = db.prepare("DELETE FROM chats WHERE id = ?");
+  const soulDb = getSoulDb();
+
+  // 1. 查询 messages_month
+  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
+  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
+
+  if (!chat) return;
+
+  // 2. 删除 messages
+  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const msgStmt = monthlyDb.prepare("DELETE FROM messages WHERE chat_id = ?");
+  msgStmt.run(chatId);
+
+  // 3. 删除 chat
+  const stmt = soulDb.prepare("DELETE FROM chats WHERE id = ?");
   stmt.run(chatId);
 }
 
+/**
+ * 添加消息（路由到月份文件）
+ */
 export function addMessage(
   messageId: string,
   chatId: string,
   data: MessageData,
 ): MessageRow {
-  const db = getDb();
+  // 1. 获取 chat 的 messages_month
+  const soulDb = getSoulDb();
+  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
+  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
+
+  if (!chat) throw new Error(`Chat ${chatId} not found`);
+
+  // 2. 生成包含月份的 messageId
+  const uuid = randomUUID();
+  const finalMessageId = messageId || `${chat.messages_month}-${uuid}`;
+
+  // 3. 路由到月份文件并插入 message
+  const monthlyDb = getMonthlyDb(chat.messages_month);
   const now = Date.now();
 
-  const stmt = db.prepare(`
+  const stmt = monthlyDb.prepare(`
     INSERT INTO messages (id, chat_id, role, content, thinking, sense_calls, hash, replace_state, replace_by, replace_content, original_content, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
-    messageId,
+    finalMessageId,
     chatId,
     data.role,
     data.content ?? null,
@@ -127,7 +179,7 @@ export function addMessage(
   updateChat(chatId);
 
   return {
-    id: messageId,
+    id: finalMessageId,
     chat_id: chatId,
     role: data.role,
     content: data.content ?? null,
@@ -142,19 +194,60 @@ export function addMessage(
   };
 }
 
+/**
+ * 获取消息（路由到月份文件）
+ */
 export function getMessages(chatId: string): MessageRow[] {
-  const db = getDb();
-  const stmt = db.prepare("SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC");
+  // 1. 获取 chat 的 messages_month
+  const soulDb = getSoulDb();
+  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
+  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
+
+  if (!chat) return [];
+
+  // 2. 路由到月份文件
+  const monthlyDb = getMonthlyDb(chat.messages_month);
+
+  // 3. 查询 messages
+  const stmt = monthlyDb.prepare("SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC");
   return stmt.all(chatId) as MessageRow[];
 }
 
+/**
+ * 清空消息（路由到月份文件）
+ */
 export function clearMessages(chatId: string): void {
-  const db = getDb();
-  const stmt = db.prepare("DELETE FROM messages WHERE chat_id = ?");
+  // 1. 获取 chat 的 messages_month
+  const soulDb = getSoulDb();
+  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
+  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
+
+  if (!chat) return;
+
+  // 2. 删除 messages
+  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const stmt = monthlyDb.prepare("DELETE FROM messages WHERE chat_id = ?");
   stmt.run(chatId);
+
   updateChat(chatId);
 }
 
+/**
+ * 填充审批结果（更新 content 字段）
+ * messageId 格式：YYYY-MM-uuid
+ */
+export function fillApprovalResult(messageId: string, result: string): void {
+  // 提取月份（YYYY-MM）
+  const month = messageId.substring(0, 7);
+  const monthlyDb = getMonthlyDb(month);
+
+  const stmt = monthlyDb.prepare("UPDATE messages SET content = ? WHERE id = ?");
+  stmt.run(result, messageId);
+}
+
+/**
+ * 解析消息行
+ */
 export function parseMessageRow(row: MessageRow): MessageData {
   return {
     role: row.role as MessageData["role"],

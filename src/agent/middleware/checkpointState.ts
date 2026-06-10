@@ -108,30 +108,51 @@ export class CheckpointState {
     for (const r of this.senseResults) {
       const hash = r.type === "sense_accept" ? r.hash : undefined;
 
-      const senseMsg: LLMResponse = {
-        id: r.id,
-        role: "sense",
-        content: r.type === "sense_accept" ? r.result : `被拒绝: ${r.reason}`,
-        hash,
-        createdAt: Date.now(),
-        updateAt: Date.now(),
-      };
-      messages.push(senseMsg);
+      const content = r.type === "sense_accept" ? r.result : `被拒绝: ${r.reason}`;
 
-      newMessages.push({
-        id: r.id,
-        role: "sense",
-        content: senseMsg.content,
-        hash,
-      });
+      // 检测是否为 recovery 场景（消息已存在于 context 中）
+      const existingIdx = messages.findIndex(m => m.id === r.id);
+      if (existingIdx !== -1) {
+        // Recovery: 原地更新已有消息（已在 DB，不 INSERT）
+        const existing = messages[existingIdx]!;
+        existing.content = content;
+        if (hash) existing.hash = hash;
+        existing.updateAt = Date.now();
 
-      logger.info("\n[CHECKPOINT] ⚡ Appended sense message");
-      logger.info("[CHECKPOINT] Type:", r.type);
-      logger.info("[CHECKPOINT] ID:", r.id);
-      logger.info("[CHECKPOINT] Hash:", hash || "(none)");
-      logger.info("[CHECKPOINT] Content preview:", senseMsg.content.slice(0, 100));
-      logger.info("[CHECKPOINT] ⚠️ This will affect loop.ts decision!");
-      logger.info("[CHECKPOINT] If type=sense_reject, loop will check: role==='sense' → continue");
+        logger.info("\n[CHECKPOINT] 🔄 Updated existing sense message (recovery)");
+        logger.info("[CHECKPOINT] Type:", r.type);
+        logger.info("[CHECKPOINT] ID:", r.id);
+        logger.info("[CHECKPOINT] Content preview:", content.slice(0, 100));
+
+        // 调用 updateMessage 回调更新 DB（fillApprovalResult）
+        if (ctx.updateMessage) {
+          ctx.updateMessage(r.id, content);
+        }
+      } else {
+        // Normal: 创建新消息并 INSERT
+        const senseMsg: LLMResponse = {
+          id: r.id,
+          role: "sense",
+          content,
+          hash,
+          createdAt: Date.now(),
+          updateAt: Date.now(),
+        };
+        messages.push(senseMsg);
+
+        newMessages.push({
+          id: r.id,
+          role: "sense",
+          content: senseMsg.content,
+          hash,
+        });
+
+        logger.info("\n[CHECKPOINT] ⚡ Appended sense message");
+        logger.info("[CHECKPOINT] Type:", r.type);
+        logger.info("[CHECKPOINT] ID:", r.id);
+        logger.info("[CHECKPOINT] Hash:", hash || "(none)");
+        logger.info("[CHECKPOINT] Content preview:", content.slice(0, 100));
+      }
     }
 
     ctx.soul.messages = messages;
