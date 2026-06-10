@@ -1,5 +1,10 @@
 import { compose } from "./compose";
-import type { MiddlewareContext, AdaptersGroup, MiddlewareHandler, LoopHandler } from "./types";
+import type {
+  MiddlewareContext,
+  AdaptersGroup,
+  MiddlewareHandler,
+  LoopHandler,
+} from "./types";
 import type { LLMResponse } from "../message/index";
 import type { SenseManager, SenseFunction } from "../sense/index";
 import type { GlobalConfig, BrainConfig } from "@/utils/config";
@@ -18,7 +23,10 @@ export default class Middleware<T = unknown> {
   /** 聊天上下文映射 */
   readonly chatMap = new Map<string, MiddlewareContext>();
   /** 活跃的会话迭代器 */
-  private activeGenerators = new Map<string, AsyncGenerator<T, void, unknown>>();
+  private activeGenerators = new Map<
+    string,
+    AsyncGenerator<T, void, unknown>
+  >();
   middlewareChain: ReturnType<typeof compose<T>>;
   private loopHandler?: LoopHandler<T>;
 
@@ -30,7 +38,6 @@ export default class Middleware<T = unknown> {
     adapters: AdaptersGroup,
     handlers: MiddlewareHandler<T>[],
     loopHandler?: LoopHandler<T>,
-    builtSenses?: SenseFunction[],
   ) {
     // 初始化配置
     this.soulId = soulId;
@@ -38,7 +45,6 @@ export default class Middleware<T = unknown> {
     this.brainConfig = brainConfig;
     this.senseManager = senseManager;
     this.adapters = adapters;
-    this.builtSenses = builtSenses ?? [];
 
     this.middlewareChain = compose(handlers);
     this.loopHandler = loopHandler;
@@ -50,7 +56,6 @@ export default class Middleware<T = unknown> {
   private brainConfig: BrainConfig;
   private senseManager: SenseManager;
   private adapters: AdaptersGroup;
-  private builtSenses: SenseFunction[];
 
   /**
    * 创建新一轮聊天
@@ -73,10 +78,11 @@ export default class Middleware<T = unknown> {
       soul: {
         soulId: this.soulId,
         chatId,
-        hashCheck: new Map(),
         senseSharedData: new Map(),
         userInputs: [],
-        builtSenses: this.builtSenses,
+        builtSenses: this.senseManager
+          .getAdapter()
+          .buildSenses(this.senseManager.getAll()),
         messages: [systemMessage],
       },
       global: this.global,
@@ -107,7 +113,9 @@ export default class Middleware<T = unknown> {
   /**
    * 单次 chain 执行
    */
-  private async *runChain(ctx: MiddlewareContext): AsyncGenerator<T, void, unknown> {
+  private async *runChain(
+    ctx: MiddlewareContext,
+  ): AsyncGenerator<T, void, unknown> {
     const generator = this.middlewareChain(ctx);
     for await (const chunk of generator) {
       yield chunk;

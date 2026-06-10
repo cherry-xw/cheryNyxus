@@ -9,7 +9,7 @@ import type { ZodType } from "zod";
 import type {
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
-import { registerLLMAdapter } from "@/core/llm/adapter";
+import { registerLLMAdapter } from "@/core/llm/index";
 import type { LLMAdapter } from "@/core/middleware/types";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 
@@ -37,7 +37,6 @@ const openaiMessageAdapterConfig = {
     }
     return undefined;
   },
-  thinkingFieldName: "reasoning_content",
   buildMessages: (history: LLMResponse[]) =>
     history.map((m) => {
       if (m.role === "sense") {

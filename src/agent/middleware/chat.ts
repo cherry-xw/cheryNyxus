@@ -16,7 +16,8 @@ export async function* chatMiddleware(
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  const { llmAdapter, messageAdapter, senseAdapter } = ctx.adapters;
+  const { llmAdapter, messageAdapter } = ctx.adapters;
+  const senseAdapter = ctx.senseManager.getAdapter();
 
   // 从 ctx.soul.messages 构建 provider 格式消息
   const messages = messageAdapter.buildMessages(ctx.soul.messages || []);
@@ -81,7 +82,7 @@ async function* handleStream(
   options: Record<string, unknown>,
   llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
   messageAdapter: MiddlewareContext["adapters"]["messageAdapter"],
-  senseAdapter: MiddlewareContext["adapters"]["senseAdapter"],
+  senseAdapter: ReturnType<MiddlewareContext["senseManager"]["getAdapter"]>,
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
@@ -151,7 +152,7 @@ async function* handleNonStream(
   options: Record<string, unknown>,
   llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
   messageAdapter: MiddlewareContext["adapters"]["messageAdapter"],
-  senseAdapter: MiddlewareContext["adapters"]["senseAdapter"],
+  senseAdapter: ReturnType<MiddlewareContext["senseManager"]["getAdapter"]>,
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {

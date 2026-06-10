@@ -7,7 +7,7 @@ import type {
 import { registerMessageAdapter, type LLMResponse } from "@/core/message";
 import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
 import type { ZodType } from "zod";
-import { registerLLMAdapter } from "@/core/llm/adapter";
+import { registerLLMAdapter } from "@/core/llm/index";
 import { safeJsonParse } from "@/utils/json.js";
 import type { LLMAdapter } from "@/core/middleware/types";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";

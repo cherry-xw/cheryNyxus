@@ -1,5 +1,5 @@
 import type { LLMResponse } from "../message/index";
-import type { MessageProviderAdapterConfig } from "../message/adapter";
+import type { MessageProviderAdapterConfig } from "../message/index";
 import type { SenseAdapter, SenseCallData, SenseFunction } from "../sense/adapter";
 import type { SenseManager } from "../sense/index";
 import type { GlobalConfig, BrainConfig } from "@/utils/config";
@@ -28,7 +28,6 @@ export interface SoulIdentity {
  */
 export interface SenseCoordination {
   /** 感官调用去重检查（callId → resultHash） */
-  hashCheck: Map<string, string>;
   /** Sense间共享数据（namespace → identifier → data） */
   sharedData: Map<string, Map<string, unknown>>;
 }
@@ -63,7 +62,7 @@ export interface PrecompiledSenses {
 export interface APIMessage {
   role: "system" | "user" | "assistant" | "sense" | "function";
   content: string;
-  senseCalls?: import("../message/adapter").SenseCallInfo[];
+  senseCalls?: import("../message/index").SenseCallInfo[];
   /** 仅sense角色需要（sense_call_id） */
   id?: string;
 }
@@ -91,8 +90,6 @@ export interface SoulGroup {
   soulId: string;
   /** 灵魂实例中多轮次聊天唯一标记 */
   chatId: string;
-  /** 感官调用去重检查（senseName → hash → 空字符串） */
-  hashCheck: Map<string, string>;
   /** Sense间共享数据（namespace → identifier → data） */
   senseSharedData: Map<string, Map<string, unknown>>;
   /** 用户输入队列（send 事件注入） */
@@ -115,8 +112,6 @@ export interface AdaptersGroup {
   llmAdapter: LLMAdapter;
   /** Message Adapter，处理消息格式转换 */
   messageAdapter: MessageProviderAdapterConfig;
-  /** Sense Adapter，处理感官调用格式转换 */
-  senseAdapter: SenseAdapter<unknown, unknown>;
 }
 
 /**

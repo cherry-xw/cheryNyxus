@@ -9,9 +9,8 @@ import config, { type BrainConfig } from "@/utils/config";
 import { randomUUID } from "crypto";
 
 // Adapter 获取函数
-import { getLLMAdapter } from "@/core/llm/adapter";
-import { getMessageAdapter } from "@/core/message/adapter";
-import { getSenseAdapter } from "@/core/sense/adapter";
+import { getLLMAdapter } from "@/core/llm/index";
+import { getMessageAdapter } from "@/core/message/index";
 
 // Provider 注册函数（确保 adapter 已注册）
 import { registerOpenAIAdapter } from "./provider/openai";
@@ -46,13 +45,12 @@ export class AgentBuilder {
     // 获取 adapter 实例
     const llmAdapter = getLLMAdapter(provider);
     const messageAdapter = getMessageAdapter(provider);
-    const senseAdapter = getSenseAdapter(provider);
 
-    if (!llmAdapter || !messageAdapter || !senseAdapter) {
+    if (!llmAdapter || !messageAdapter) {
       throw new Error(`Provider "${provider}" adapters not registered`);
     }
 
-    this.adapters = { llmAdapter, messageAdapter, senseAdapter };
+    this.adapters = { llmAdapter, messageAdapter };
 
     return this;
   }
@@ -94,11 +92,6 @@ export class AgentBuilder {
       config.global.supervision,
     );
 
-    // 预构建 senses（避免每次迭代重复构建）
-    const builtSenses = this.adapters.senseAdapter.buildSenses(
-      senseManager.getAll(),
-    );
-
     return new Middleware<MiddlewareChunk>(
       this.soulId,
       config.global,
@@ -106,8 +99,7 @@ export class AgentBuilder {
       senseManager,
       this.adapters,
       defaultHandlers,
-      createLoopHandler(config.global.maxLoopCount),
-      builtSenses,
+      createLoopHandler(config.global.maxLoopCount)
     );
   }
 }
