@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import type { MiddlewareContext, PersistMessageData, SenseAcceptChunk, SenseRejectChunk } from "@/core/middleware/types";
-import type { LLMResponse } from "@/core/message/adapter";
+import type { LLMResponse } from "@/core/message/index";
 import type { SenseCallData } from "@/core/sense/adapter";
 import { logger } from "@/utils/logger/index.js";
 

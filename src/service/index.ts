@@ -1,8 +1,12 @@
 import { createRouter } from "./message/router.js";
 import { createWebSocketServer } from "./websocket/index.js";
-import { registerSoulHandlers } from "./soul/lifecycle.js";
+import { registerBrainHandlers } from "./brain/list.js";
+import { registerBrainSetHandlers } from "./brain/set.js";
+import { registerSenseHandlers } from "./sense/list.js";
+import { registerSenseSetHandlers } from "./sense/set.js";
 import { registerChatHandlers } from "./chat/send.js";
 import { registerChatManageHandlers } from "./chat/handler.js";
+import { registerResumeHandlers } from "./chat/resume.js";
 
 export { createWebSocketServer } from "./websocket/index.js";
 export { createRouter } from "./message/router.js";
@@ -15,9 +19,13 @@ export function startService(port: number): ReturnType<typeof createWebSocketSer
   const router = createRouter();
 
   // 注册 handlers
-  registerSoulHandlers(router);
+  registerBrainHandlers(router);
+  registerBrainSetHandlers(router);
+  registerSenseHandlers(router);
+  registerSenseSetHandlers(router);
   registerChatHandlers(router);
   registerChatManageHandlers(router);
+  registerResumeHandlers(router);
 
   // 创建 WebSocket 服务器
   const wss = createWebSocketServer({ port, router });

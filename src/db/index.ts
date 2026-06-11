@@ -65,31 +65,18 @@ export function getMonthlyDb(yearMonth: string): Database.Database {
 }
 
 /**
- * 初始化 souls + chats 表（soul.db）
+ * 初始化 chats 表（soul.db）
+ * 仅保留 chats 表，souls 表已废弃
  */
 function initSoulTables(db: Database.Database): void {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS souls (
-      id TEXT PRIMARY KEY,
-      agent_name TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      model TEXT NOT NULL,
-      sense_group TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-
     CREATE TABLE IF NOT EXISTS chats (
       id TEXT PRIMARY KEY,
-      soul_id TEXT NOT NULL,
       messages_month TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      metadata TEXT,
-      FOREIGN KEY (soul_id) REFERENCES souls(id) ON DELETE CASCADE
+      metadata TEXT
     );
-
-    CREATE INDEX IF NOT EXISTS idx_chats_soul ON chats(soul_id);
   `);
 }
 

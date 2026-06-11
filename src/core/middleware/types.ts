@@ -1,7 +1,7 @@
 import type { LLMResponse } from "../message/index";
 import type { MessageProviderAdapterConfig } from "../message/index";
 import type { SenseAdapter, SenseCallData, SenseFunction } from "../sense/adapter";
-import type { SenseManager } from "../sense/index";
+import type { SenseResult, SenseSharedData } from "../sense/senseCreator";
 import type { GlobalConfig, BrainConfig } from "@/utils/config";
 import { SupervisionLevel } from "../config.js";
 
@@ -11,16 +11,6 @@ import { SupervisionLevel } from "../config.js";
 export interface UserInputEntry {
   content: string;
   time: number;
-}
-
-/**
- * 灵魂身份标识（创建后不可变）
- */
-export interface SoulIdentity {
-  /** 灵魂实例唯一标识 */
-  readonly soulId: string;
-  /** 灵魂实例中多轮次聊天唯一标记 */
-  readonly chatId: string;
 }
 
 /**
@@ -68,40 +58,48 @@ export interface APIMessage {
 }
 
 /**
- * 灵魂上下文（分解后）
- */
-export interface SoulContext {
-  /** 身份标识 */
-  identity: SoulIdentity;
-  /** 感官协调 */
-  senses: SenseCoordination;
-  /** 消息历史 */
-  history: MessageHistory;
-  /** 预编译感官 */
-  precompiled: PrecompiledSenses;
-}
-
-/**
- * 灵魂分组 - 兼容旧代码
- * @deprecated 使用 SoulContext 替代
+ * 聊天上下文分组
+ * chatId 唯一标识聊天，brain/senseGroups 每轮可换（运行时由 service 层重建 Middleware）
  */
 export interface SoulGroup {
-  /** 灵魂实例唯一标识 */
-  soulId: string;
-  /** 灵魂实例中多轮次聊天唯一标记 */
+  /** 聊天唯一标记（每轮可换 brain/sense，chatId 不变） */
   chatId: string;
   /** Sense间共享数据（namespace → identifier → data） */
   senseSharedData: Map<string, Map<string, unknown>>;
   /** 用户输入队列（send 事件注入） */
   userInputs: UserInputEntry[];
-  /** 预构建的 senses（builder 层一次性构建，避免每次迭代重复构建） */
-  builtSenses: SenseFunction[];
   /** AI message 参数（checkpoint 构建后放置） */
   messages?: LLMResponse[];
   /** 历史消息已加载标记（防止重复加载） */
   historyLoaded?: boolean;
   /** loop 起始计数（recovery 恢复轮次，从最后 user 消息后 assistant 消息数量计算） */
   loopStartCount?: number;
+}
+
+/**
+ * 感官运行时条目（senseTable 的 value）
+ * 替代 SenseManager.get(name).supervisionLevel 与 execute(name, args)
+ */
+export interface SenseEntry {
+  /** 监管等级（优先级链已前置计算：感官定义 > sense_group > global） */
+  supervisionLevel: SupervisionLevel;
+  /** 执行器（args 已擦除 zod 类型，由 builder 摊平时注入） */
+  execute: (args: Record<string, unknown>, sharedData: SenseSharedData) => Promise<SenseResult>;
+}
+
+/**
+ * Runtime 配置（每轮可换：brain/sense 变更时由 setBrain/setSense 更新）
+ * 由 builder 层构建摊平后注入，ctx 运行期不再依赖 SenseManager。
+ */
+export interface RuntimeConfig {
+  /** Brain 服务配置（model/url/key/thinking/provider） */
+  brain: BrainConfig;
+  /** Provider adapter 实例集合（llm/message/sense，随 brain.provider 决定） */
+  adapters: AdaptersGroup;
+  /** 预构建的 API 感官参数（给 LLM 的 function 列表） */
+  builtSenses: SenseFunction[];
+  /** 感官查找表（name → 监管等级 + 执行器） */
+  senseTable: Map<string, SenseEntry>;
 }
 
 /**
@@ -112,6 +110,8 @@ export interface AdaptersGroup {
   llmAdapter: LLMAdapter;
   /** Message Adapter，处理消息格式转换 */
   messageAdapter: MessageProviderAdapterConfig;
+  /** Sense Adapter，处理感官调用格式转换（随 brain.provider 决定） */
+  senseAdapter: SenseAdapter<unknown, unknown>;
 }
 
 /**
@@ -131,16 +131,12 @@ export interface PersistMessageData {
  * 中间件上下文 - 简化结构
  */
 export interface MiddlewareContext {
-  /** 灵魂分组：灵魂标识和上下文关联 */
+  /** 灵魂分组：聊天标识和上下文关联 */
   soul: SoulGroup;
   /** 请求分组：本次请求的输入和模式 */
   global: GlobalConfig;
-  /** Brain 服务配置 */
-  brain: BrainConfig;
-  /** Adapter 分组：provider adapter 实例集合 */
-  adapters: AdaptersGroup;
-  /** 感官管理器 */
-  senseManager: SenseManager;
+  /** Runtime 配置（每轮可换：brain/sense 变更时更新） */
+  runtime: RuntimeConfig;
   /** 消息持久化回调（由 service 层注入，middleware 层不直接依赖 DB） */
   persistMessage?: (message: PersistMessageData) => void;
   /** 消息更新回调（recovery 场景：UPDATE 已有记录而非 INSERT） */

@@ -1,29 +1,4 @@
 /**
- * 待处理审批条目（简化版）
- * approvalId 直接使用 trigger.id
- */
-export interface PendingApprovalEntry {
-  approvalId: string;
-  soulId: string;
-  chatId: string;
-  sc: ApprovalSenseCall;
-  createdAt: number;
-  /** 审批 resolve 函数（confirm/manual 时使用，用于通知 generator 继续执行） */
-  approvalResolve?: ((action: "accept" | "reject", reason?: string) => void) | null;
-}
-
-/**
- * 审批中的感官调用数据
- */
-export interface ApprovalSenseCall {
-  id: string;
-  name: string;
-  arguments: string;
-  approved: boolean;
-  triggeredAt: number;
-}
-
-/**
  * 审批管理器（极简版）
  * 只存储 approvalResolve 回调，无数据库持久化
  */

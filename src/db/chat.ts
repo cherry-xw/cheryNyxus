@@ -4,7 +4,6 @@ import { randomUUID } from "crypto";
 
 export interface ChatRow {
   id: string;
-  soul_id: string;
   messages_month: string;
   created_at: number;
   updated_at: number;
@@ -53,11 +52,10 @@ function formatYearMonth(timestamp: number): string {
 }
 
 /**
- * 创建聊天
+ * 创建聊天（无需 soulId）
  */
 export function createChat(
   chatId: string,
-  soulId: string,
   metadata?: Record<string, unknown>,
 ): ChatRow {
   const db = getSoulDb();
@@ -65,18 +63,17 @@ export function createChat(
   const messagesMonth = formatYearMonth(now);
 
   const stmt = db.prepare(`
-    INSERT INTO chats (id, soul_id, messages_month, created_at, updated_at, metadata)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO chats (id, messages_month, created_at, updated_at, metadata)
+    VALUES (?, ?, ?, ?, ?)
   `);
 
-  stmt.run(chatId, soulId, messagesMonth, now, now, metadata ? JSON.stringify(metadata) : null);
+  stmt.run(chatId, messagesMonth, now, now, metadata ? JSON.stringify(metadata) : null);
 
   // 确保月份文件存在
   getMonthlyDb(messagesMonth);
 
   return {
     id: chatId,
-    soul_id: soulId,
     messages_month: messagesMonth,
     created_at: now,
     updated_at: now,
@@ -94,12 +91,12 @@ export function getChat(chatId: string): ChatRow | undefined {
 }
 
 /**
- * 列出聊天（按 soulId）
+ * 列出所有聊天（全局，不再按 soulId 过滤）
  */
-export function listChatsBySoul(soulId: string): ChatRow[] {
+export function listAllChats(): ChatRow[] {
   const db = getSoulDb();
-  const stmt = db.prepare("SELECT * FROM chats WHERE soul_id = ? ORDER BY updated_at DESC");
-  return stmt.all(soulId) as ChatRow[];
+  const stmt = db.prepare("SELECT * FROM chats ORDER BY updated_at DESC");
+  return stmt.all() as ChatRow[];
 }
 
 /**

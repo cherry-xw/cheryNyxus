@@ -190,8 +190,8 @@ function buildSenseTrigger(
   name: string,
   argsJson: string,
 ): { trigger: SenseTriggerChunk; call: PendingSenseCall } {
-  const senseDef = ctx.senseManager.get(name);
-  const supervisionLevel = senseDef?.supervisionLevel ?? SupervisionLevel.confirm;
+  const senseEntry = ctx.runtime.senseTable.get(name);
+  const supervisionLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.confirm;
 
   logger.info("\n" + "⚡".repeat(40));
   logger.info("[SENSE BUILD] Sense trigger built");
@@ -236,7 +236,11 @@ async function doExecuteSense(
 ): Promise<{ content: string; hash?: string }> {
   try {
     const args = argsJson ? safeJsonParse(argsJson, {}) : {};
-    const result = await ctx.senseManager.execute(name, args, ctx.soul.senseSharedData);
+    const senseEntry = ctx.runtime.senseTable.get(name);
+    if (!senseEntry) {
+      return { content: `Error: Sense "${name}" not found` };
+    }
+    const result = await senseEntry.execute(args, ctx.soul.senseSharedData);
 
     // 历史替换逻辑：检查历史 sense 消息是否有相同 hash
     if (result.hash) {

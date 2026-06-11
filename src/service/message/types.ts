@@ -58,38 +58,29 @@ export type NotificationType =
 // ========== Request Data ==========
 
 export type RequestData =
-  | SoulCreateRequestData
-  | SoulDeleteRequestData
-  | SoulLoadRequestData
+  | BrainListRequestData
+  | SenseListRequestData
+  | BrainSetRequestData
+  | SenseSetRequestData
   | ChatCreateRequestData
   | ChatListRequestData
   | ChatGetRequestData
   | ChatDeleteRequestData
   | ChatSendRequestData
-  | SenseApprovalRequestData
-  | SenseListRequestData;
+  | ChatResumeRequestData
+  | SenseApprovalRequestData;
 
-export interface SoulCreateRequestData {
-  brain: string;
-  sense_group: string;
-  soulId?: string;
-}
+export interface BrainListRequestData {}
 
-export interface SoulDeleteRequestData {
-  soulId: string;
-}
-
-export interface SoulLoadRequestData {
-  soulId: string;
-}
+export interface SenseListRequestData {}
 
 export interface ChatCreateRequestData {
-  soulId: string;
+  chatId?: string;
+  brain: string;
+  senseGroups: string[];
 }
 
-export interface ChatListRequestData {
-  soulId: string;
-}
+export interface ChatListRequestData {}
 
 export interface ChatGetRequestData {
   chatId: string;
@@ -100,13 +91,25 @@ export interface ChatDeleteRequestData {
 }
 
 export interface ChatSendRequestData {
-  soulId: string;
-  chatId?: string;
+  chatId: string;
   prompt: string;
 }
 
+export interface BrainSetRequestData {
+  chatId: string;
+  brain: string;
+}
+
+export interface SenseSetRequestData {
+  chatId: string;
+  senseGroups: string[];
+}
+
+export interface ChatResumeRequestData {
+  chatId: string;
+}
+
 export interface SenseApprovalRequestData {
-  soulId: string;
   approvalId: string;
   action: "accept" | "reject";
   reason?: string;
@@ -126,69 +129,33 @@ export interface SenseListResponseData {
 // ========== Response Data ==========
 
 export type ResponseData =
-  | SoulCreateResponseData
-  | SoulDeleteResponseData
-  | SoulListResponseData
-  | SoulLoadResponseData
+  | BrainListResponseData
+  | SenseListResponseData
+  | BrainSetResponseData
+  | SenseSetResponseData
   | ChatCreateResponseData
   | ChatListResponseData
   | ChatGetResponseData
   | ChatDeleteResponseData
   | ChatSendResponseData
-  | SenseApprovalResponseData
-  | SenseListResponseData;
+  | ChatResumeResponseData
+  | SenseApprovalResponseData;
 
-export interface SoulCreateResponseData {
-  soulId: string;
-  config: {
+export interface BrainListResponseData {
+  brains: Array<{
+    name: string;
     provider: string;
     model: string;
-    sense_group: string;
-  };
-  createdAt: number;
-}
-
-export interface SoulDeleteResponseData {
-  soulId: string;
-}
-
-export interface SoulListResponseData {
-  souls: Array<{
-    soulId: string;
-    config: {
-      provider: string;
-      model: string;
-      sense_group: string;
-    };
-    createdAt: number;
+    thinking?: boolean;
+    senseGroups?: string | string[];
   }>;
 }
 
-export interface SoulLoadResponseData {
-  soulId: string;
-  config: {
-    provider: string;
-    model: string;
-    sense_group: string;
-  };
-  createdAt: number;
-  chats: Array<{
-    chatId: string;
-    createdAt: number;
-    updatedAt: number;
-    messageCount: number;
-  }>;
-  pendingApprovals: Array<{
-    approvalId: string;
-    chatId: string;
-    createdAt: number;
-    senseCalls: Array<{
-      id: string;
-      name: string;
-      arguments: string;
-      approved: boolean;
-      triggeredAt: number;
-    }>;
+export interface SenseListResponseData {
+  senseGroups: Array<{
+    name: string;
+    supervision?: SupervisionLevel;
+    senses: string[];
   }>;
 }
 
@@ -214,6 +181,20 @@ export interface ChatDeleteResponseData {
 }
 
 export interface ChatSendResponseData {
+  chatId: string;
+}
+
+export interface BrainSetResponseData {
+  chatId: string;
+  brain: string;
+}
+
+export interface SenseSetResponseData {
+  chatId: string;
+  senseGroups: string[];
+}
+
+export interface ChatResumeResponseData {
   chatId: string;
 }
 
@@ -297,11 +278,13 @@ export interface RpcError {
 // ========== 方法常量 ==========
 
 export const Method = {
-  // Soul 管理
-  SOUL_CREATE: "soul.create",
-  SOUL_DELETE: "soul.delete",
-  SOUL_LIST: "soul.list",
-  SOUL_LOAD: "soul.load",
+  // Brain / Sense 列表
+  BRAIN_LIST: "brain.list",
+  SENSE_LIST: "sense.list",
+
+  // Brain / Sense 设置（每轮可换，独立设置）
+  BRAIN_SET: "brain.set",
+  SENSE_SET: "sense.set",
 
   // Chat 管理
   CHAT_CREATE: "chat.create",
@@ -309,17 +292,10 @@ export const Method = {
   CHAT_GET: "chat.get",
   CHAT_DELETE: "chat.delete",
   CHAT_SEND: "chat.send",
+  CHAT_RESUME: "chat.resume",
 
   // Sense 审批
   SENSE_APPROVAL: "sense.approval",
-
-  // Approval 管理
-  APPROVAL_LIST: "approval.list",
-  APPROVAL_RESUME: "approval.resume",
-
-  // Sense 管理
-  SENSE_COMPILE: "sense.compile",
-  SENSE_LIST: "sense.list",
 } as const;
 
 // ========== 错误码常量 ==========
@@ -328,7 +304,6 @@ export const ErrorCode = {
   INVALID_PARAMS: "INVALID_PARAMS",
   NOT_FOUND: "NOT_FOUND",
   METHOD_NOT_FOUND: "METHOD_NOT_FOUND",
-  SOUL_HAS_CHATS: "SOUL_HAS_CHATS",
   INTERNAL: "INTERNAL",
   TIMEOUT: "TIMEOUT",
 } as const;

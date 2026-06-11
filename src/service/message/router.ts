@@ -29,7 +29,6 @@ export class RpcHandlerError extends Error {
  * Handler 上下文
  */
 export interface HandlerContext {
-  soulId?: string;
   requestId?: string;
   connectionId: string;
   sendChunk: (chunk: Chunk) => void;

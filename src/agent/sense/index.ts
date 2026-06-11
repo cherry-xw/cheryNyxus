@@ -16,7 +16,7 @@ import writeSense from "./write";
 import skillSense from "./skill";
 import { logger } from "@/utils/logger/index.js";
 
-export { registerSenses, getSense, SenseManager } from "@/core/sense";
+export { registerSenses, getSenses } from "@/core/sense";
 export type { Sense, SenseResult } from "@/core/sense";
 export { SupervisionLevel } from "@/core/sense";
 export { z } from "zod";

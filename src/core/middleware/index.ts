@@ -2,11 +2,14 @@ import { compose } from "./compose";
 import type {
   MiddlewareContext,
   AdaptersGroup,
+  RuntimeConfig,
+  SenseEntry,
   MiddlewareHandler,
   LoopHandler,
+  PersistMessageData,
 } from "./types";
 import type { LLMResponse } from "../message/index";
-import type { SenseManager, SenseFunction } from "../sense/index";
+import type { SenseFunction } from "../sense/adapter";
 import type { GlobalConfig, BrainConfig } from "@/utils/config";
 import buildFirstSystemPrompt from "../prompt/index";
 import { v4 as uuid } from "uuid";
@@ -15,55 +18,49 @@ export * from "./types";
 export type { MiddlewareHandler, LoopHandler };
 
 /**
- * Middleware 实例 - 封装请求处理逻辑
- * 职责：链执行、loopHandler 委托、聊天生命周期管理
+ * Middleware 实例 - 无状态链执行器（单 chat 绑定）
+ *
+ * 解耦后：
+ * - 一个实例只服务一个 chat（去除 chatMap 模式）
+ * - 构造只接收跨轮不变项（global / handlers / loopHandler）
+ * - brain/sense 为运行时参数，通过 setBrain / setSense 注入 ctx.runtime，每轮可换
+ * - 实例跨轮不重建，messages 天然保留，无需迁移
+ *
  * 泛型参数 T 表示 yield 的 chunk 类型
  */
 export default class Middleware<T = unknown> {
-  /** 聊天上下文映射 */
-  readonly chatMap = new Map<string, MiddlewareContext>();
-  /** 活跃的会话迭代器 */
-  private activeGenerators = new Map<
-    string,
-    AsyncGenerator<T, void, unknown>
-  >();
-  middlewareChain: ReturnType<typeof compose<T>>;
+  private global: GlobalConfig;
+  private middlewareChain: ReturnType<typeof compose<T>>;
   private loopHandler?: LoopHandler<T>;
 
+  /** 单 chat 绑定标识 */
+  private chatId?: string;
+  /** 单 chat 的上下文 */
+  private ctx?: MiddlewareContext;
+  /** 活跃会话迭代器（防止并发 send） */
+  private activeGenerator?: AsyncGenerator<T, void, unknown>;
+
   constructor(
-    soulId: string,
     global: GlobalConfig,
-    brainConfig: BrainConfig,
-    senseManager: SenseManager,
-    adapters: AdaptersGroup,
     handlers: MiddlewareHandler<T>[],
     loopHandler?: LoopHandler<T>,
   ) {
-    // 初始化配置
-    this.soulId = soulId;
     this.global = global;
-    this.brainConfig = brainConfig;
-    this.senseManager = senseManager;
-    this.adapters = adapters;
-
     this.middlewareChain = compose(handlers);
     this.loopHandler = loopHandler;
   }
 
-  // 配置属性（从构造函数注入）
-  private soulId: string;
-  private global: GlobalConfig;
-  private brainConfig: BrainConfig;
-  private senseManager: SenseManager;
-  private adapters: AdaptersGroup;
-
   /**
-   * 创建新一轮聊天
+   * 创建聊天（绑定 chatId，初始化 soul + system 消息）
+   * runtime 占位，待 setBrain / setSense 填充后才能 send。
    */
   createChat(chatId: string): string {
-    if (this.chatMap.has(chatId)) {
-      return chatId;
+    if (this.chatId) {
+      // 已绑定，幂等返回
+      return this.chatId;
     }
+
+    this.chatId = chatId;
 
     const now = Date.now();
     const systemMessage: LLMResponse = {
@@ -74,40 +71,76 @@ export default class Middleware<T = unknown> {
       updateAt: now,
     };
 
-    const ctx: MiddlewareContext = {
+    this.ctx = {
       soul: {
-        soulId: this.soulId,
         chatId,
         senseSharedData: new Map(),
         userInputs: [],
-        builtSenses: this.senseManager
-          .getAdapter()
-          .buildSenses(this.senseManager.getAll()),
         messages: [systemMessage],
       },
       global: this.global,
-      brain: this.brainConfig,
-      adapters: this.adapters,
-      senseManager: this.senseManager,
+      // runtime 由 setBrain/setSense 填充，send 前由 requireRuntime 校验完整性
+      runtime: {} as RuntimeConfig,
     };
 
-    this.chatMap.set(chatId, ctx);
     return chatId;
   }
 
   /**
-   * 获取聊天上下文
+   * 设置 brain（每轮可换）
+   * brain.provider 决定 adapters（llm/message/sense），由 builder 层 resolve 后传入。
    */
-  getContext(chatId: string): MiddlewareContext | undefined {
-    return this.chatMap.get(chatId);
+  setBrain(brain: BrainConfig, adapters: AdaptersGroup): void {
+    const ctx = this.requireCtx();
+    ctx.runtime.brain = brain;
+    ctx.runtime.adapters = adapters;
+  }
+
+  /**
+   * 设置 sense（每轮可换）
+   * builtSenses（给 LLM）+ senseTable（监管等级 + 执行器）由 builder 层摊平后传入。
+   */
+  setSense(builtSenses: SenseFunction[], senseTable: Map<string, SenseEntry>): void {
+    const ctx = this.requireCtx();
+    ctx.runtime.builtSenses = builtSenses;
+    ctx.runtime.senseTable = senseTable;
+  }
+
+  /**
+   * 注入消息持久化回调（middleware 不直接依赖 DB，由 service 层注入）
+   */
+  onPersist(callback: (message: PersistMessageData) => void): void {
+    this.requireCtx().persistMessage = callback;
+  }
+
+  /**
+   * 注入消息更新回调（pending sense 执行后 UPDATE 已有记录而非 INSERT）
+   */
+  onUpdate(callback: (id: string, content: string) => void): void {
+    this.requireCtx().updateMessage = callback;
+  }
+
+  /**
+   * 加载历史消息到内存（幂等：historyLoaded 标记防止重复加载）
+   * 仅接收已解析的 LLMResponse，DB 读取/parse 由 service 层完成。
+   */
+  loadHistory(messages: LLMResponse[]): void {
+    const ctx = this.requireCtx();
+    if (ctx.soul.historyLoaded) return;
+    ctx.soul.messages ??= [];
+    for (const m of messages) {
+      ctx.soul.messages.push(m);
+    }
+    ctx.soul.historyLoaded = true;
   }
 
   /**
    * 清理聊天上下文（删除 chat 时调用）
    */
-  clearChat(chatId: string): void {
-    this.chatMap.delete(chatId);
-    this.activeGenerators.delete(chatId);
+  clearChat(): void {
+    this.chatId = undefined;
+    this.ctx = undefined;
+    this.activeGenerator = undefined;
   }
 
   /**
@@ -128,8 +161,8 @@ export default class Middleware<T = unknown> {
    * 发送消息并返回 generator
    */
   async *send(chatId: string, input: string): AsyncGenerator<T, void, unknown> {
-    const ctx = this.getContext(chatId);
-    if (!ctx) throw new Error("Chat not found");
+    const ctx = this.requireBoundChat(chatId);
+    this.requireRuntime(ctx);
 
     // 存储用户输入
     if (input.trim()) {
@@ -140,8 +173,7 @@ export default class Middleware<T = unknown> {
     }
 
     // 检查是否有正在运行的 generator
-    const existing = this.activeGenerators.get(chatId);
-    if (existing) {
+    if (this.activeGenerator) {
       throw new Error(`Chat "${chatId}" is already processing a message`);
     }
 
@@ -149,32 +181,68 @@ export default class Middleware<T = unknown> {
     const generator = this.loopHandler
       ? this.loopHandler(ctx, () => this.runChain(ctx))
       : this.runChain(ctx);
-    this.activeGenerators.set(chatId, generator);
+    this.activeGenerator = generator;
 
     try {
       yield* generator;
     } finally {
-      this.activeGenerators.delete(chatId);
+      this.activeGenerator = undefined;
     }
   }
 
   /**
    * 从中断点恢复执行（不注入 userInputs，直接启动 chain）
-   * 用于 history recovery：senseMiddleware Phase 0 自动检测 pending approvals
+   * 用于 history recovery：senseMiddleware Phase 0 自动检测 pending approvals 并重执行
    */
   async *resume(chatId: string): AsyncGenerator<T, void, unknown> {
-    const ctx = this.getContext(chatId);
-    if (!ctx) throw new Error(`Chat "${chatId}" not found`);
+    const ctx = this.requireBoundChat(chatId);
+    this.requireRuntime(ctx);
+
+    if (this.activeGenerator) {
+      throw new Error(`Chat "${chatId}" is already processing a message`);
+    }
 
     const generator = this.loopHandler
       ? this.loopHandler(ctx, () => this.runChain(ctx))
       : this.runChain(ctx);
-    this.activeGenerators.set(chatId, generator);
+    this.activeGenerator = generator;
 
     try {
       yield* generator;
     } finally {
-      this.activeGenerators.delete(chatId);
+      this.activeGenerator = undefined;
+    }
+  }
+
+  /**
+   * 校验 ctx 已创建
+   */
+  private requireCtx(): MiddlewareContext {
+    if (!this.ctx) {
+      throw new Error("Chat not created. Call createChat() first.");
+    }
+    return this.ctx;
+  }
+
+  /**
+   * 校验 chatId 绑定一致
+   */
+  private requireBoundChat(chatId: string): MiddlewareContext {
+    if (!this.ctx || this.chatId !== chatId) {
+      throw new Error(`Chat "${chatId}" not bound to this middleware`);
+    }
+    return this.ctx;
+  }
+
+  /**
+   * 校验 runtime 完整性（send/resume 前必须 setBrain + setSense）
+   */
+  private requireRuntime(ctx: MiddlewareContext): void {
+    const r = ctx.runtime;
+    if (!r.brain || !r.adapters || !r.builtSenses || !r.senseTable) {
+      throw new Error(
+        "Runtime not fully configured. Call setBrain() and setSense() before send().",
+      );
     }
   }
 }

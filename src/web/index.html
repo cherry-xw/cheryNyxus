@@ -20,13 +20,15 @@ body{font-family:'SF Mono',Consolas,'Courier New',monospace;background:var(--bg)
 /* main layout */
 .main{display:flex;flex:1;overflow:hidden}
 /* left panel */
-.left{width:220px;background:var(--surface);border-right:1px solid var(--border);padding:8px;overflow-y:auto;flex-shrink:0}
+.left{width:240px;background:var(--surface);border-right:1px solid var(--border);padding:8px;overflow-y:auto;flex-shrink:0}
 .left h3{font-size:12px;color:var(--dim);margin:8px 0 4px;text-transform:uppercase;letter-spacing:1px}
 .left h3:first-child{margin-top:0}
 .left button{width:100%;margin-bottom:4px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;cursor:pointer;font-size:12px;text-align:left;font-family:inherit}
 .left button:hover{border-color:var(--accent)}
-.left input,.left select,.left textarea{width:100%;margin-bottom:4px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px;font-family:inherit}
+.left select,.left input{width:100%;margin-bottom:4px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;font-size:12px;font-family:inherit}
+.left select[multiple]{min-height:90px}
 .left .section{margin-bottom:12px}
+.left .hint{font-size:10px;color:var(--dim);margin-bottom:4px}
 /* center chat */
 .center{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .messages{flex:1;overflow-y:auto;padding:12px}
@@ -95,41 +97,33 @@ body{font-family:'SF Mono',Consolas,'Courier New',monospace;background:var(--bg)
   <!-- Left panel -->
   <div class="left">
     <div class="section">
-      <h3>Soul</h3>
-      <input type="text" id="brainName" placeholder="brain name" value="ali_glm5">
-      <select id="soulIdSelect" onchange="handleIdSelectChange('soul')">
-        <option value="">-- 从 Log 选择 --</option>
-        <option value="__manual__">手动输入...</option>
-      </select>
-      <input type="text" id="soulIdInput" placeholder="soulId (optional)" style="display:none" onkeydown="handleManualInputKey('soul',event)" onblur="handleManualInputBlur('soul')">
-      <button onclick="doSoulCreate()">Create Soul</button>
-      <button onclick="doSoulList()">List Souls</button>
-      <button onclick="doSoulLoad()">Load Soul</button>
-      <button onclick="doSoulDelete()">Delete Soul</button>
+      <h3>Brain</h3>
+      <select id="brainSelect" onchange="doBrainSet()"><option value="">-- 加载中 --</option></select>
+      <button onclick="doBrainList()">刷新 Brain 列表</button>
+    </div>
+    <div class="section">
+      <h3>Sense Group</h3>
+      <div class="hint">按住 Ctrl/Cmd 多选，下一轮生效</div>
+      <select id="senseSelect" multiple onchange="doSenseSet()"></select>
+      <button onclick="doSenseList()">刷新 Sense 列表</button>
     </div>
     <div class="section">
       <h3>Chat</h3>
-      <select id="chatIdSelect" onchange="handleIdSelectChange('chat')">
+      <select id="chatIdSelect" onchange="handleChatIdSelectChange()">
         <option value="">-- 从 Log 选择 --</option>
         <option value="__manual__">手动输入...</option>
       </select>
-      <input type="text" id="chatIdInput" placeholder="chatId (optional)" style="display:none" onkeydown="handleManualInputKey('chat',event)" onblur="handleManualInputBlur('chat')">
-      <button onclick="syncSoulId();doChatCreate()">Create Chat</button>
-      <button onclick="syncChatId();doChatList()">List Chats</button>
+      <input type="text" id="chatIdInput" placeholder="chatId (可选，留空自动生成)" style="display:none" onkeydown="handleChatIdInputKey(event)" onblur="handleChatIdInputBlur()">
+      <button onclick="doChatCreate()">Create Chat</button>
+      <button onclick="doChatList()">List Chats</button>
       <button onclick="syncChatId();doChatGet()">Load History</button>
+      <button onclick="syncChatId();doChatResume()">Resume</button>
       <button onclick="syncChatId();doChatDelete()">Delete Chat</button>
     </div>
     <div class="section">
       <h3>Info</h3>
       <div style="font-size:11px;color:var(--dim)" id="infoPanel">
-        soulId: -<br>chatId: -
-      </div>
-      <div style="font-size:10px;color:var(--dim);margin-top:8px;border-top:1px solid var(--border);padding-top:4px">
-        <strong>DB架构:</strong><br>
-        • soul.db (souls+chats)<br>
-        • YYYY-MM.db (messages)<br>
-        • messages_month路由<br>
-        • content=NULL表示pending
+        chatId: -<br>brain: -<br>senseGroups: -
       </div>
     </div>
   </div>
@@ -170,34 +164,21 @@ body{font-family:'SF Mono',Consolas,'Courier New',monospace;background:var(--bg)
 <script>
 // ===== State =====
 let ws = null;
-let currentSoulId = null;
 let currentChatId = null;
-let pendingRequests = new Map(); // id -> {resolve, method}
-let currentStreamEls = {}; // requestId -> {thinkingEl, contentEl, senseEl}
-let soulIdOptions = new Set(); // collected soulIds from log
-let chatIdOptions = new Set(); // collected chatIds from log
-
-// ===== Time Format =====
-function formatTime(timestamp) {
-  const d = new Date(timestamp);
-  const pad = n => n.toString().padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+let currentBrain = null;
+let currentSenseGroups = [];
+let pendingRequests = new Map();
+let currentStreamEls = {};
+let chatIdOptions = new Set();
+let brainOptions = [];   // [{name, provider, model, ...}]
+let senseGroupOptions = []; // [{name, senses, ...}]
 
 // ===== UUID =====
-function uuid() {
-  return crypto.randomUUID();
-}
+function uuid() { return crypto.randomUUID(); }
 
 // ===== Transport =====
-function encodeRequest(method, params) {
-  const req = { id: uuid(), kind: "request", method, params };
-  return JSON.stringify(req);
-}
-
 function decodeMessage(data) {
   if (typeof data === 'string') return JSON.parse(data);
-  // binary frame
   const buf = (data instanceof Blob) ? data : new Blob([data]);
   return new Promise(resolve => {
     const reader = new FileReader();
@@ -205,17 +186,14 @@ function decodeMessage(data) {
       const arr = new Uint8Array(reader.result);
       const type = arr[0];
       if (type === 0x01) {
-        // stream chunk: 0x01 | seq(4) | ridLen(1) | rid | dataJson
         const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
         const seq = view.getUint32(1);
         const ridLen = arr[5];
         const rid = new TextDecoder().decode(arr.slice(6, 6 + ridLen));
         const json = new TextDecoder().decode(arr.slice(6 + ridLen));
-        const parsed = JSON.parse(json);
-        resolve({ kind: "chunk", type: "stream", requestId: rid, seq, data: parsed });
+        resolve({ kind: "chunk", type: "stream", requestId: rid, seq, data: JSON.parse(json) });
       } else if (type === 0x02) {
-        const json = new TextDecoder().decode(arr.slice(1));
-        resolve(JSON.parse(json));
+        resolve(JSON.parse(new TextDecoder().decode(arr.slice(1))));
       } else {
         resolve(null);
       }
@@ -265,9 +243,7 @@ async function handleRawMessage(raw) {
 
 function handleChunk(chunk) {
   const rid = chunk.requestId;
-  if (!currentStreamEls[rid]) {
-    currentStreamEls[rid] = {};
-  }
+  if (!currentStreamEls[rid]) currentStreamEls[rid] = {};
   const els = currentStreamEls[rid];
 
   if (chunk.type === 'stream') {
@@ -295,14 +271,12 @@ function handleChunk(chunk) {
     }
   } else if (chunk.type === 'staged') {
     const d = chunk.data || {};
-    const role = d.role || 'assistant'; // 默认assistant（流式场景）
+    const role = d.role || 'assistant';
     if (d.type === 'thinking_end') {
       if (els.thinkingEl) {
-        // 流式结束：折叠 thinking
         els.thinkingEl.open = false;
         els.thinkingEl = null;
       } else if (role === 'assistant') {
-        // 独立 staged（历史加载）：仅assistant显示thinking
         const el = document.createElement('details');
         el.className = 'msg msg-thinking';
         el.innerHTML = `<summary>Thinking</summary><div class="body">${esc(d.thinking || '')}</div>`;
@@ -310,18 +284,11 @@ function handleChunk(chunk) {
       }
     } else if (d.type === 'content_end') {
       if (els.contentEl) {
-        // 流式结束：清空引用
         els.contentEl = null;
       } else if (d.content) {
-        // 独立 staged（历史加载）：根据role区分样式
         const el = document.createElement('div');
-        if (role === 'user') {
-          el.className = 'msg msg-user';
-          el.textContent = d.content;
-        } else {
-          el.className = 'msg msg-content';
-          el.textContent = d.content;
-        }
+        if (role === 'user') { el.className = 'msg msg-user'; el.textContent = d.content; }
+        else { el.className = 'msg msg-content'; el.textContent = d.content; }
         getMsgContainer().appendChild(el);
       }
     } else if (d.type === 'sense_end') {
@@ -361,7 +328,6 @@ function handleNotification(notif) {
       break;
     case 'done': {
       appendSystemMsg('✅ Done');
-      // cleanup stream els for this request
       if (notif.requestId && currentStreamEls[notif.requestId]) {
         delete currentStreamEls[notif.requestId];
       }
@@ -377,10 +343,7 @@ function handleNotification(notif) {
 function getMsgContainer() { return document.getElementById('messages'); }
 function scrollBottom() { const c = getMsgContainer(); c.scrollTop = c.scrollHeight; }
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
-
-function appendText(el, text) {
-  el.textContent += text;
-}
+function appendText(el, text) { el.textContent += text; }
 
 function appendUserMsg(text) {
   const el = document.createElement('div');
@@ -389,7 +352,6 @@ function appendUserMsg(text) {
   getMsgContainer().appendChild(el);
   scrollBottom();
 }
-
 function appendSystemMsg(text) {
   const el = document.createElement('div');
   el.className = 'msg msg-loaded';
@@ -397,7 +359,6 @@ function appendSystemMsg(text) {
   getMsgContainer().appendChild(el);
   scrollBottom();
 }
-
 function appendErrorMsg(text) {
   const el = document.createElement('div');
   el.className = 'msg msg-error';
@@ -405,7 +366,6 @@ function appendErrorMsg(text) {
   getMsgContainer().appendChild(el);
   scrollBottom();
 }
-
 function createThinkingEl() {
   const el = document.createElement('details');
   el.className = 'msg msg-thinking';
@@ -413,21 +373,18 @@ function createThinkingEl() {
   el.innerHTML = '<summary>Thinking...</summary><div class="body"></div>';
   return el;
 }
-
 function createContentEl() {
   const el = document.createElement('div');
   el.className = 'msg msg-content';
   el.textContent = '';
   return el;
 }
-
 function createSenseCallEl() {
   const el = document.createElement('div');
   el.className = 'msg msg-sense';
   el.innerHTML = '<div class="name">⏳ Sense Call (streaming...)</div><div class="args"></div>';
   return el;
 }
-
 function updateSenseCall(el, deltas) {
   const argsEl = el.querySelector('.args');
   let text = '';
@@ -437,7 +394,6 @@ function updateSenseCall(el, deltas) {
   }
   argsEl.textContent = text;
 }
-
 function createSenseEndEl(name, args) {
   const el = document.createElement('div');
   el.className = 'msg msg-sense';
@@ -455,25 +411,17 @@ function addLog(dir, summary, obj) {
   const cls = dir === 'send' ? 'dir-send' : 'dir-recv';
   item.innerHTML = `<div class="meta"><span class="${cls}">${dir.toUpperCase()}</span> ${time} ${esc(summary)}</div><div class="summary">${esc(JSON.stringify(obj).slice(0,80))}</div><pre>${esc(JSON.stringify(obj, null, 2))}</pre>`;
   item.ondblclick = () => item.classList.toggle('expanded');
-  // 单击选择 ID（对发送请求和成功响应有效）
   if (dir === 'send' && obj.method) {
-    item.onclick = (e) => {
-      if (!item.classList.contains('expanded')) handleLogItemClick(obj, 'send');
-    };
+    item.onclick = () => { if (!item.classList.contains('expanded')) handleLogItemClick(obj, 'send'); };
     item.style.cursor = 'pointer';
   } else if (dir === 'recv' && obj.success && obj.data) {
-    item.onclick = (e) => {
-      if (!item.classList.contains('expanded')) handleLogItemClick(obj, 'recv');
-    };
+    item.onclick = () => { if (!item.classList.contains('expanded')) handleLogItemClick(obj, 'recv'); };
     item.style.cursor = 'pointer';
   }
   list.appendChild(item);
   list.scrollTop = list.scrollHeight;
 }
-
-function clearLog() {
-  document.getElementById('logList').innerHTML = '';
-}
+function clearLog() { document.getElementById('logList').innerHTML = ''; }
 
 // ===== Actions =====
 function doConnect() {
@@ -487,8 +435,10 @@ function doConnect() {
     document.getElementById('btnConnect').disabled = true;
     document.getElementById('btnDisconnect').disabled = false;
     appendSystemMsg('🔗 Connected to ' + url);
+    // 自动拉取 brain / sense 列表
+    doBrainList();
+    doSenseList();
   };
-
   ws.onclose = () => {
     document.getElementById('status').textContent = 'Disconnected';
     document.getElementById('status').className = 'disconnected';
@@ -497,129 +447,87 @@ function doConnect() {
     appendSystemMsg('🔌 Disconnected');
     ws = null;
   };
-
-  ws.onerror = (e) => {
-    appendErrorMsg('WebSocket error');
-  };
-
+  ws.onerror = () => appendErrorMsg('WebSocket error');
   ws.onmessage = (e) => handleRawMessage(e.data);
 }
+function doDisconnect() { if (ws) ws.close(); }
 
-function doDisconnect() {
-  if (ws) ws.close();
-}
-
-async function doSoulCreate() {
-  const brain = document.getElementById('brainName').value;
-  const soulId = getSelectedId('soul') || undefined;
+// ===== Brain / Sense 列表 =====
+async function doBrainList() {
   try {
-    const res = await sendRpc('soul.create', { brain, soulId });
+    const res = await sendRpc('brain.list', {});
     if (res.success) {
-      currentSoulId = res.data.soulId;
-      // 添加到选择框选项
-      if (currentSoulId) populateIdSelect('soul', currentSoulId);
-      updateInfo();
-      appendSystemMsg(`🧠 Soul created: ${currentSoulId}`);
-    } else {
-      appendErrorMsg(res.error?.message || 'Create failed');
-    }
-  } catch (e) { appendErrorMsg(e.message); }
-}
-
-async function doSoulList() {
-  try {
-    const res = await sendRpc('soul.list', {});
-    if (res.success) {
-      const souls = res.data.souls || [];
-      appendSystemMsg(`📋 Souls (${souls.length}): ` + souls.map(s => s.soulId).join(', '));
-      // 将列表中的 ID 添加到选择框，传入model信息
-      souls.forEach(s => populateIdSelect('soul', s.soulId, { model: s.config?.model }));
-    } else {
-      appendErrorMsg(res.error?.message || 'List failed');
-    }
-  } catch (e) { appendErrorMsg(e.message); }
-}
-
-async function doSoulLoad() {
-  const selectedId = getSelectedId('soul');
-  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
-  if (!currentSoulId) { appendErrorMsg('No soulId set. Create or enter one first.'); return; }
-  try {
-    const res = await sendRpc('soul.load', { soulId: currentSoulId });
-    if (res.success) {
-      appendSystemMsg(`🧠 Soul loaded: ${res.data.soulId}, chats: ${res.data.chats?.length || 0}`);
-      // 将所有 chats 添加到选择框
-      if (res.data.chats?.length > 0) {
-        res.data.chats.forEach(c => populateIdSelect('chat', c.chatId, { messageCount: c.messageCount, updatedAt: c.updatedAt }));
-        currentChatId = res.data.chats[0].chatId;
+      brainOptions = res.data.brains || [];
+      const sel = document.getElementById('brainSelect');
+      sel.innerHTML = brainOptions.length
+        ? brainOptions.map(b => `<option value="${esc(b.name)}">${esc(b.name)} (${esc(b.model)})</option>`).join('')
+        : '<option value="">-- 无 --</option>';
+      if (brainOptions.length) {
+        currentBrain = brainOptions[0].name;
         updateInfo();
       }
-    } else {
-      appendErrorMsg(res.error?.message || 'Load failed');
-    }
+    } else { appendErrorMsg(res.error?.message || 'brain.list failed'); }
   } catch (e) { appendErrorMsg(e.message); }
 }
 
-async function doSoulDelete() {
-  const selectedId = getSelectedId('soul');
-  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
-  if (!currentSoulId) { appendErrorMsg('No soulId'); return; }
+async function doSenseList() {
   try {
-    const res = await sendRpc('soul.delete', { soulId: currentSoulId });
+    const res = await sendRpc('sense.list', {});
     if (res.success) {
-      appendSystemMsg(`🗑 Soul deleted: ${currentSoulId}`);
-      currentSoulId = null;
-      currentChatId = null;
-      updateInfo();
-    } else {
-      appendErrorMsg(res.error?.message || 'Delete failed');
-    }
+      senseGroupOptions = res.data.senseGroups || [];
+      const sel = document.getElementById('senseSelect');
+      sel.innerHTML = senseGroupOptions.map(g =>
+        `<option value="${esc(g.name)}">${esc(g.name)} (${(g.senses||[]).join(', ')})</option>`).join('');
+      // 默认选第一个
+      if (senseGroupOptions.length) {
+        sel.options[0].selected = true;
+        currentSenseGroups = [senseGroupOptions[0].name];
+        updateInfo();
+      }
+    } else { appendErrorMsg(res.error?.message || 'sense.list failed'); }
   } catch (e) { appendErrorMsg(e.message); }
 }
 
+// ===== Chat 管理 =====
 async function doChatCreate() {
-  const selectedId = getSelectedId('soul');
-  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
-  if (!currentSoulId) { appendErrorMsg('No soulId. Create or load a soul first.'); return; }
+  const params = {};
+  const manual = document.getElementById('chatIdInput').value.trim();
+  if (document.getElementById('chatIdInput').style.display !== 'none' && manual) {
+    params.chatId = manual;
+  }
   try {
-    const res = await sendRpc('chat.create', { soulId: currentSoulId });
+    const res = await sendRpc('chat.create', params);
     if (res.success) {
       currentChatId = res.data.chatId;
-      populateIdSelect('chat', currentChatId);
+      populateChatIdSelect(currentChatId);
       updateInfo();
       appendSystemMsg(`💬 Chat created: ${currentChatId}`);
-    } else {
-      appendErrorMsg(res.error?.message || 'Create failed');
-    }
+      // 自动应用当前选择的 brain / sense 到新 chat
+      if (document.getElementById('brainSelect').value) await doBrainSet();
+      if (Array.from(document.getElementById('senseSelect').selectedOptions).length) await doSenseSet();
+    } else { appendErrorMsg(res.error?.message || 'Create failed'); }
   } catch (e) { appendErrorMsg(e.message); }
 }
 
 async function doChatList() {
-  const selectedId = getSelectedId('soul');
-  if (selectedId) { currentSoulId = selectedId; updateInfo(); }
-  if (!currentSoulId) { appendErrorMsg('No soulId'); return; }
   try {
-    const res = await sendRpc('chat.list', { soulId: currentSoulId });
+    const res = await sendRpc('chat.list', {});
     if (res.success) {
       const chats = res.data.chats || [];
       appendSystemMsg(`💬 Chats (${chats.length}): ` + chats.map(c => `${c.chatId}(${c.messageCount}msg)`).join(', '));
-      // 将列表中的 chatId 添加到选择框，传入消息数和更新时间
-      chats.forEach(c => populateIdSelect('chat', c.chatId, { messageCount: c.messageCount, updatedAt: c.updatedAt }));
-    } else {
-      appendErrorMsg(res.error?.message || 'List failed');
-    }
+      chats.forEach(c => populateChatIdSelect(c.chatId, { messageCount: c.messageCount, updatedAt: c.updatedAt }));
+    } else { appendErrorMsg(res.error?.message || 'List failed'); }
   } catch (e) { appendErrorMsg(e.message); }
 }
 
 async function doChatGet() {
-  if (!currentChatId) { appendErrorMsg('No chatId. Enter a chatId or send a message first.'); return; }
-  try {
-    // chat.get is streaming, we just send and handle chunks/notifications via handleRawMessage
-    const req = { id: uuid(), kind: "request", method: "chat.get", params: { chatId: currentChatId } };
-    ws.send(JSON.stringify(req));
-    addLog('send', 'chat.get', req);
-    appendSystemMsg('📜 Loading history...');
-  } catch (e) { appendErrorMsg(e.message); }
+  if (!currentChatId) { appendErrorMsg('No chatId. Create or select one first.'); return; }
+  // 清空消息区
+  document.getElementById('messages').innerHTML = '';
+  const req = { id: uuid(), kind: "request", method: "chat.get", params: { chatId: currentChatId } };
+  ws.send(JSON.stringify(req));
+  addLog('send', 'chat.get', req);
+  appendSystemMsg('📜 Loading history...');
 }
 
 async function doChatDelete() {
@@ -630,16 +538,57 @@ async function doChatDelete() {
       appendSystemMsg(`🗑 Chat deleted: ${currentChatId}`);
       currentChatId = null;
       updateInfo();
-    } else {
-      appendErrorMsg(res.error?.message || 'Delete failed');
-    }
+    } else { appendErrorMsg(res.error?.message || 'Delete failed'); }
   } catch (e) { appendErrorMsg(e.message); }
 }
 
+// ===== Resume（恢复 pending sense 执行） =====
+async function doChatResume() {
+  if (!currentChatId) { appendErrorMsg('No chatId'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { appendErrorMsg('Not connected'); return; }
+  const req = { id: uuid(), kind: "request", method: "chat.resume", params: { chatId: currentChatId } };
+  ws.send(JSON.stringify(req));
+  addLog('send', 'chat.resume', req);
+  appendSystemMsg('▶ Resuming pending senses...');
+  const rid = req.id;
+  pendingRequests.set(rid, {
+    method: 'chat.resume',
+    resolve: () => { delete currentStreamEls[rid]; },
+    reject: () => { delete currentStreamEls[rid]; }
+  });
+}
+
+// ===== Brain / Sense 设置（独立调用，每轮可换） =====
+async function doBrainSet() {
+  const brainSel = document.getElementById('brainSelect');
+  if (!brainSel.value) { return; }
+  currentBrain = brainSel.value;
+  updateInfo();
+  if (!currentChatId) { return; }  // 未创建 chat，仅记录选择
+  try {
+    const res = await sendRpc('brain.set', { chatId: currentChatId, brain: currentBrain });
+    if (!res.success) appendErrorMsg('brain.set failed: ' + (res.error?.message || 'unknown'));
+    else appendSystemMsg(`🧠 Brain set: ${currentBrain}`);
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+async function doSenseSet() {
+  const senseSel = document.getElementById('senseSelect');
+  currentSenseGroups = Array.from(senseSel.selectedOptions).map(o => o.value);
+  updateInfo();
+  if (!currentChatId || currentSenseGroups.length === 0) { return; }
+  try {
+    const res = await sendRpc('sense.set', { chatId: currentChatId, senseGroups: currentSenseGroups });
+    if (!res.success) appendErrorMsg('sense.set failed: ' + (res.error?.message || 'unknown'));
+    else appendSystemMsg(`👁 Sense set: ${currentSenseGroups.join(', ')}`);
+  } catch (e) { appendErrorMsg(e.message); }
+}
+
+// ===== Send =====
 function doSend() {
   if (!ws || ws.readyState !== WebSocket.OPEN) { appendErrorMsg('Not connected'); return; }
-  if (!currentSoulId) { appendErrorMsg('No soulId. Create a soul first.'); return; }
   if (!currentChatId) { appendErrorMsg('No chatId. Create a chat first.'); return; }
+
   const input = document.getElementById('msgInput');
   const text = input.value.trim();
   if (!text) return;
@@ -647,26 +596,24 @@ function doSend() {
 
   appendUserMsg(text);
 
-  const params = { soulId: currentSoulId, chatId: currentChatId, prompt: text };
-
+  const params = {
+    chatId: currentChatId,
+    prompt: text,
+  };
   const req = { id: uuid(), kind: "request", method: "chat.send", params };
   ws.send(JSON.stringify(req));
   addLog('send', 'chat.send', req);
 
-  // Track this streaming request
   const rid = req.id;
   pendingRequests.set(rid, {
     method: 'chat.send',
-    resolve: (res) => {
-      delete currentStreamEls[rid];
-    },
+    resolve: () => { delete currentStreamEls[rid]; },
     reject: () => { delete currentStreamEls[rid]; }
   });
 }
 
 // ===== Approval =====
 let pendingApproval = null;
-
 function showApprovalModal(requestId, data) {
   pendingApproval = { requestId, ...data };
   document.getElementById('modalSenseName').textContent = data.senseName;
@@ -675,164 +622,103 @@ function showApprovalModal(requestId, data) {
   document.getElementById('modalReason').value = '';
   document.getElementById('approvalModal').classList.add('active');
 }
-
 async function doApproval(action) {
-  if (!pendingApproval || !currentSoulId) return;
+  if (!pendingApproval) return;
   document.getElementById('approvalModal').classList.remove('active');
-
   const reason = document.getElementById('modalReason').value.trim();
   try {
     const res = await sendRpc('sense.approval', {
-      soulId: currentSoulId,
       approvalId: pendingApproval.approvalId,
       action,
       reason: reason || undefined,
     });
-    if (!res.success) {
-      appendErrorMsg('Approval failed: ' + (res.error?.message || 'unknown'));
-    }
+    if (!res.success) appendErrorMsg('Approval failed: ' + (res.error?.message || 'unknown'));
   } catch (e) { appendErrorMsg(e.message); }
   pendingApproval = null;
 }
 
-// ===== ID Select =====
-function handleIdSelectChange(type) {
-  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
-  const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
+// ===== Chat ID Select =====
+function handleChatIdSelectChange() {
+  const select = document.getElementById('chatIdSelect');
+  const input = document.getElementById('chatIdInput');
   const value = select.value;
   if (value === '__manual__') {
-    // 选择"手动输入..."：显示输入框，选择框保持显示
     input.style.display = 'block';
     input.value = '';
     input.focus();
   } else {
-    // 选择其他选项：隐藏输入框，更新当前 ID
     input.style.display = 'none';
-    if (value) {
-      if (type === 'soul') currentSoulId = value;
-      else currentChatId = value;
-      updateInfo();
-    }
+    if (value) { currentChatId = value; updateInfo(); }
   }
 }
-
-function handleManualInputKey(type, e) {
+function handleChatIdInputKey(e) {
+  const input = document.getElementById('chatIdInput');
   if (e.key === 'Enter') {
-    const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
     const id = input.value.trim();
-    if (id) {
-      populateIdSelect(type, id);
-      input.style.display = 'none';
-    }
+    if (id) { populateChatIdSelect(id); input.style.display = 'none'; }
   } else if (e.key === 'Escape') {
-    const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
     input.style.display = 'none';
-    document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect').value = '';
+    document.getElementById('chatIdSelect').value = '';
   }
 }
-
-function handleManualInputBlur(type) {
-  const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
-  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
+function handleChatIdInputBlur() {
+  const input = document.getElementById('chatIdInput');
+  const select = document.getElementById('chatIdSelect');
   const id = input.value.trim();
-  if (id) {
-    populateIdSelect(type, id);
-  }
+  if (id) populateChatIdSelect(id);
   input.style.display = 'none';
   if (!id && select.value === '__manual__') select.value = '';
 }
-
-function populateIdSelect(type, id, info) {
+function populateChatIdSelect(id, info) {
   if (!id) return;
-  const optionsSet = type === 'soul' ? soulIdOptions : chatIdOptions;
-  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
-  if (optionsSet.has(id)) {
-    // 已存在，直接选中
+  const select = document.getElementById('chatIdSelect');
+  if (chatIdOptions.has(id)) {
     select.value = id;
-    if (type === 'soul') currentSoulId = id;
-    else currentChatId = id;
+    currentChatId = id;
     updateInfo();
     return;
   }
-  optionsSet.add(id);
-  // 构建显示文本
+  chatIdOptions.add(id);
   let label = id;
   if (info) {
-    if (type === 'soul') {
-      // soul: id (model)
-      const model = info.config?.model || info.model || '';
-      if (model) label = `${id} (${model})`;
-    } else {
-      // chat: id (N msg, time)
-      const count = info.messageCount || 0;
-      const time = info.updatedAt ? formatTime(info.updatedAt) : '';
-      if (count || time) label = `${id} (${count}msg${time ? ', ' + time : ''})`;
-    }
+    const count = info.messageCount || 0;
+    const time = info.updatedAt ? formatTime(info.updatedAt) : '';
+    if (count || time) label = `${id} (${count}msg${time ? ', ' + time : ''})`;
   }
-  // 在"手动输入..."前插入新选项
   const manualOption = select.querySelector('option[value="__manual__"]');
   const newOption = document.createElement('option');
   newOption.value = id;
   newOption.textContent = label;
   select.insertBefore(newOption, manualOption);
   select.value = id;
-  if (type === 'soul') currentSoulId = id;
-  else currentChatId = id;
+  currentChatId = id;
   updateInfo();
 }
-
-// 获取当前选择的 ID（从选择框或输入框）
-function getSelectedId(type) {
-  const select = document.getElementById(type === 'soul' ? 'soulIdSelect' : 'chatIdSelect');
-  const input = document.getElementById(type === 'soul' ? 'soulIdInput' : 'chatIdInput');
-  const selectValue = select.value;
-  if (selectValue && selectValue !== '__manual__') {
-    return selectValue;
-  }
-  // 如果选择了"手动输入..."且输入框有值
-  if (input.style.display !== 'none' && input.value.trim()) {
-    return input.value.trim();
-  }
-  return '';
-}
-
-function handleLogItemClick(obj, dir) {
-  if (dir === 'send') {
-    // 从请求参数提取 ID
-    const method = obj.method || '';
-    const params = obj.params || {};
-    if (params.soulId) populateIdSelect('soul', params.soulId);
-    if (params.chatId) populateIdSelect('chat', params.chatId);
-  } else if (dir === 'recv') {
-    // 从响应数据提取 ID
-    const data = obj.data || {};
-    if (data.soulId) populateIdSelect('soul', data.soulId);
-    if (data.chatId) populateIdSelect('chat', data.chatId);
-    // soul.load 返回 chats 数组
-    if (data.chats && Array.isArray(data.chats)) {
-      data.chats.forEach(c => {
-        if (c.chatId) populateIdSelect('chat', c.chatId);
-      });
-    }
-  }
-}
-
-// ===== Info =====
-function syncSoulId() {
-  const selectedId = getSelectedId('soul');
-  if (selectedId) { currentSoulId = selectedId; }
-  updateInfo();
-}
-
 function syncChatId() {
-  const selectedId = getSelectedId('chat');
-  if (selectedId) { currentChatId = selectedId; }
+  const select = document.getElementById('chatIdSelect');
+  const input = document.getElementById('chatIdInput');
+  const sv = select.value;
+  if (sv && sv !== '__manual__') { currentChatId = sv; }
+  else if (input.style.display !== 'none' && input.value.trim()) { currentChatId = input.value.trim(); }
   updateInfo();
 }
+function handleLogItemClick(obj, dir) {
+  const data = obj.data || {};
+  const params = obj.params || {};
+  if (params.chatId) populateChatIdSelect(params.chatId);
+  if (data.chatId) populateChatIdSelect(data.chatId);
+  if (data.chats && Array.isArray(data)) data.chats.forEach(c => { if (c.chatId) populateChatIdSelect(c.chatId); });
+}
 
+// ===== Time / Info =====
+function formatTime(timestamp) {
+  const d = new Date(timestamp);
+  const pad = n => n.toString().padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 function updateInfo() {
   document.getElementById('infoPanel').innerHTML =
-    `soulId: ${currentSoulId || '-'}<br>chatId: ${currentChatId || '-'}`;
+    `chatId: ${currentChatId || '-'}<br>brain: ${currentBrain || '-'}<br>senseGroups: ${currentSenseGroups.join(', ') || '-'}`;
 }
 </script>
 </body>

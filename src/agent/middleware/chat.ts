@@ -16,28 +16,27 @@ export async function* chatMiddleware(
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  const { llmAdapter, messageAdapter } = ctx.adapters;
-  const senseAdapter = ctx.senseManager.getAdapter();
+  const { llmAdapter, messageAdapter, senseAdapter } = ctx.runtime.adapters;
 
   // 从 ctx.soul.messages 构建 provider 格式消息
   const messages = messageAdapter.buildMessages(ctx.soul.messages || []);
 
-  // 使用预构建的 senses（builder 层一次性构建）
-  const senses = ctx.soul.builtSenses;
+  // 使用预构建的 senses（runtime.builtSenses）
+  const senses = ctx.runtime.builtSenses;
 
   // 构建请求选项
   const options = {
-    model: ctx.brain.model,
-    url: ctx.brain.url,
-    key: ctx.brain.key,
-    ...(ctx.brain.thinking && { thinking: true }),
+    model: ctx.runtime.brain.model,
+    url: ctx.runtime.brain.url,
+    key: ctx.runtime.brain.key,
+    ...(ctx.runtime.brain.thinking && { thinking: true }),
   };
 
   // ========== AI 输入参数日志 ==========
   logger.info("\n" + "=".repeat(60));
   logger.info("[AI INPUT] LLM Request");
   logger.info("=".repeat(60));
-  logger.info("[Provider]", ctx.brain.provider || "unknown");
+  logger.info("[Provider]", ctx.runtime.brain.provider || "unknown");
   logger.info("[Model]", options.model);
   logger.info("[Thinking]", options.thinking ? "enabled" : "disabled");
   logger.info("[Stream]", ctx.global.stream ? "enabled" : "disabled");
@@ -80,9 +79,9 @@ export async function* chatMiddleware(
  */
 async function* handleStream(
   options: Record<string, unknown>,
-  llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
-  messageAdapter: MiddlewareContext["adapters"]["messageAdapter"],
-  senseAdapter: ReturnType<MiddlewareContext["senseManager"]["getAdapter"]>,
+  llmAdapter: MiddlewareContext["runtime"]["adapters"]["llmAdapter"],
+  messageAdapter: MiddlewareContext["runtime"]["adapters"]["messageAdapter"],
+  senseAdapter: MiddlewareContext["runtime"]["adapters"]["senseAdapter"],
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
@@ -150,9 +149,9 @@ async function* handleStream(
  */
 async function* handleNonStream(
   options: Record<string, unknown>,
-  llmAdapter: MiddlewareContext["adapters"]["llmAdapter"],
-  messageAdapter: MiddlewareContext["adapters"]["messageAdapter"],
-  senseAdapter: ReturnType<MiddlewareContext["senseManager"]["getAdapter"]>,
+  llmAdapter: MiddlewareContext["runtime"]["adapters"]["llmAdapter"],
+  messageAdapter: MiddlewareContext["runtime"]["adapters"]["messageAdapter"],
+  senseAdapter: MiddlewareContext["runtime"]["adapters"]["senseAdapter"],
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {

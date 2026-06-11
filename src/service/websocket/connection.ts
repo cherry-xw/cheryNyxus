@@ -22,7 +22,6 @@ interface PendingRequest {
 export interface ConnectionState {
   id: string;
   ws: WebSocket;
-  soulId?: string;
   pendingRequests: Map<string, PendingRequest>;
 }
 
@@ -41,7 +40,6 @@ export class ConnectionManager {
     const state: ConnectionState = {
       id: randomUUID(),
       ws,
-      soulId: undefined,
       pendingRequests: new Map(),
     };
     this.connections.set(ws, state);
@@ -53,16 +51,6 @@ export class ConnectionManager {
    */
   get(ws: WebSocket): ConnectionState | undefined {
     return this.connections.get(ws);
-  }
-
-  /**
-   * 设置 soul
-   */
-  setSoul(ws: WebSocket, soulId: string): void {
-    const state = this.connections.get(ws);
-    if (state) {
-      state.soulId = soulId;
-    }
   }
 
   /**
@@ -202,18 +190,6 @@ logger.info(`连接已从 Map 删除: ${state.id}, 剩余连接数: ${this.conne
    */
   getAll(): ConnectionState[] {
     return Array.from(this.connections.values());
-  }
-
-  /**
-   * 按 soulId 获取连接
-   */
-  getBySoulId(soulId: string): ConnectionState | undefined {
-    for (const state of this.connections.values()) {
-      if (state.soulId === soulId) {
-        return state;
-      }
-    }
-    return undefined;
   }
 }
 

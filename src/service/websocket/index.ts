@@ -92,13 +92,12 @@ async function handleRequest(
   request: Request,
   router: RpcRouter,
 ): Promise<void> {
-  logger.info(`处理请求: ${request.method}, id=${request.id}, connectionId=${state.id}, soulId=${state.soulId}`);
+  logger.info(`处理请求: ${request.method}, id=${request.id}, connectionId=${state.id}`);
 
   connectionManager.addPendingRequest(ws, request.id);
 
   // 创建 handler context
   const ctx = {
-    soulId: state.soulId,
     requestId: request.id,
     connectionId: state.id,
     sendChunk: (chunk: Chunk) => {
@@ -111,11 +110,6 @@ async function handleRequest(
 
   // 执行 handler
   const result = await router.handle(request, ctx);
-
-  // 同步 soulId 回 connectionState（soul.create 设置）
-  if (ctx.soulId && ctx.soulId !== state.soulId) {
-    state.soulId = ctx.soulId;
-  }
 
   // 处理结果
   if (isAsyncGenerator(result)) {
@@ -139,9 +133,9 @@ async function handleRequest(
           const approvalId = (item.data as { approvalId: string }).approvalId;
           connectionManager.setRequestApprovalId(ws, request.id, approvalId);
           connectionManager.startApprovalTimeout(ws, request.id, async () => {
-            logger.info(`审批超时，释放资源: soulId=${state.soulId}`);
+            logger.info(`审批超时，释放资源: connectionId=${state.id}`);
             ws.send(transport.serializeMessage(
-              createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - soul ended")),
+              createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - chat ended")),
             ));
             await connectionManager.close(ws);
           });
