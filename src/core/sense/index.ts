@@ -5,5 +5,5 @@ export { SenseManager } from "./senseManager";
 export { SupervisionLevel } from "../config";
 export {
   registerSenses,
-  getSenses,
+  getSense,
 } from "./senseRegistry";

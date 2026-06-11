@@ -32,7 +32,7 @@ export async function ensureSoul(soulId: string): Promise<{
   config: {
     provider: string;
     model: string;
-    sense_group?: string | string[];
+    sense_group: string;
   };
   createdAt: number;
 }> {
@@ -49,7 +49,10 @@ export async function ensureSoul(soulId: string): Promise<{
   }
 
   const parsed = parseSoulRow(dbSoul);
-  const builder = new AgentBuilder().use(parsed.agentName).setSoulId(soulId);
+  if (!parsed.senseGroup) {
+    throw new Error(`Soul "${soulId}" has no sense_group configured, please recreate`);
+  }
+  const builder = new AgentBuilder().use(parsed.agentName).setSoulId(soulId).setSenseGroup(parsed.senseGroup);
   const agentInstance = builder.build();
 
   const soul = {

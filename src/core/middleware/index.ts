@@ -119,6 +119,7 @@ export default class Middleware<T = unknown> {
     const generator = this.middlewareChain(ctx);
     for await (const chunk of generator) {
       yield chunk;
+      // TODO 疑问？这是内部主动结束设计的吗？
       if (isDoneChunk(chunk)) break;
     }
   }

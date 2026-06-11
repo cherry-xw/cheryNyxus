@@ -1,10 +1,8 @@
 import type { Sense, SenseResult, SenseSharedData } from "./senseCreator";
 import type { ZodType } from "zod";
-import type { SenseGroupConfig } from "@/utils/config";
 import { SupervisionLevel } from "../config";
-import { getSenses } from "./senseRegistry";
+import { getSense } from "./senseRegistry";
 import { getSenseAdapter, type SenseAdapter } from "./adapter";
-import { logger } from "@/utils/logger/index.js";
 
 export class SenseManager {
   private _senses: Sense<ZodType>[] = [];
@@ -18,7 +16,9 @@ export class SenseManager {
   constructor(provider: string) {
     const adapter = getSenseAdapter(provider);
     if (!adapter) {
-      throw new Error(`Sense adapter for provider "${provider}" not registered`);
+      throw new Error(
+        `Sense adapter for provider "${provider}" not registered`,
+      );
     }
     this._adapter = adapter;
   }
@@ -28,17 +28,6 @@ export class SenseManager {
    */
   getAll(): Sense<ZodType>[] {
     return this._senses;
-  }
-
-  /**
-   * 添加感官（单个或数组）
-   */
-  add(sense: Sense<ZodType> | Sense<ZodType>[]): void {
-    const senses = Array.isArray(sense) ? sense : [sense];
-    this._senses.push(...senses);
-    for (const s of senses) {
-      this._senseMap.set(s.definition.function.name, s);
-    }
   }
 
   /**
@@ -56,50 +45,36 @@ export class SenseManager {
   }
 
   /**
-   * 覆盖指定感官的监管等级（由 sense_group 配置注入）
-   */
-  setSupervision(senseName: string, level: import("../config").SupervisionLevel): void {
-    const sense = this._senseMap.get(senseName);
-    if (sense) {
-      sense.supervisionLevel = level;
-    }
-  }
-
-  /**
-   * 批量加载感官组（封装完整的加载、去重、监管注入流程）
-   * @param groupNames - 感官组名称列表
+   * 加载感官组
+   * @param groupName - 感官组名称（单选）
    * @param senseGroups - 感官组配置（来自 config.sense_groups）
    * @param globalSupervision - 全局监管等级（用于 fallback）
+   *
+   * senses 列表支持 "read_file" 或 "execute_command:auto" 格式
    */
   loadFromGroups(
-    groupNames: string[],
-    senseGroups: Record<string, SenseGroupConfig> | undefined,
+    groupName: string,
+    senseGroups: Record<string, string[]> | undefined,
     globalSupervision: SupervisionLevel,
   ): void {
-    const result = new Map<string, Sense<ZodType>>();
-
-    for (const groupName of groupNames) {
-      const group = senseGroups?.[groupName];
-      if (!group) {
-        logger.warn(`Sense group "${groupName}" not found, skipping`);
-        continue;
-      }
-
-      for (const s of getSenses(group.senses)) {
-        const name = s.definition.function.name;
-        const prev = result.get(name);
-        if (prev) {
-          logger.warn(`Sense "${name}" already loaded, overriding with group "${groupName}"`);
-        }
-        // 优先级：组监管 > 前组已解析监管 > 感官内置监管 > 全局默认
-        s.supervisionLevel =
-          group.supervision ?? prev?.supervisionLevel ?? s.supervisionLevel ?? globalSupervision;
-        result.set(name, s);
-      }
+    const group = senseGroups?.[groupName];
+    if (!group) {
+      throw new Error(`Sense group "${groupName}" not found`);
     }
 
-    if (result.size > 0) {
-      this.add([...result.values()]);
+    for (const item of group) {
+      const [name, levelStr] = item.split(":");
+      const s = getSense(name!);
+      if (!s) continue;
+
+      if (levelStr) {
+        const level = SupervisionLevel[levelStr as keyof typeof SupervisionLevel];
+        if (level !== undefined) s.supervisionLevel = level;
+      }
+      s.supervisionLevel ??= globalSupervision;
+
+      this._senses.push(s);
+      this._senseMap.set(s.definition.function.name, s);
     }
   }
 

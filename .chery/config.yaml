@@ -4,58 +4,50 @@ llm:
       url: $OLLAMA_HOST # $xxx 在.env中定义
       model: gemma3:1b
       thinking: false # 思考模式（使用 deepseek-r1 等模型时改为 true）
-      provider: ollama # 用于选择哪个llm，需要与message中的provider对应
-      sense_group: safe_senses # 使用的sense group名称
+      provider: ollama # 用于选择哪个llm模式，需要与message中的provider对应
     openai:
       url: https://api.openai.com/v1
       model: gpt-3.5-turbo
       key: $OPENAI_API_KEY
       provider: openai
-      sense_group: safe_senses
     longcat:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
       key: $LONGCAT_API_KEY
       thinking: true # 思考模式（这是对这个模型有没有think能力的配置）
       provider: openai
-      sense_group: [safe_senses, dangerous_senses]
     deepseek:
       url: https://api.deepseek.com
       model: deepseek-v4-flash
       key: $DEEPSEEK_API_KEY
       thinking: true
       provider: openai
-      sense_group: [safe_senses, dangerous_senses]
     doubao:
       url: http://yz.xcherry.top:11411/v1
       model: doubao2.0-pro
       key: $DOUBAO_API_KEY
       thinking: true
       provider: openai
-      sense_group: [safe_senses, dangerous_senses]
     ali_glm5:
       url: https://coding.dashscope.aliyuncs.com/v1
       model: glm-5
       key: $ALI_API_KEY
       thinking: true
       provider: openai
-      sense_group: [safe_senses, dangerous_senses, custom_senses]
 
 # Sense分组配置
+# 每个分组直接是 senses 列表，支持两种格式：
+#   - read_file            不覆盖监管等级，使用感官内置/全局默认
+#   - execute_command:auto 覆盖监管等级为 auto（可选 auto/confirm/manual）
 sense_groups:
   safe_senses:
-    supervision: auto # 组级别监管等级（可选），覆盖组内所有感官自身声明。不设置时使用感官自身声明
-    senses:
-      - read_file
-      - skill
+    - read_file
+    - skill
   dangerous_senses:
-    supervision: confirm
-    senses:
-      - execute_command
-      - write_file
+    - execute_command
+    - write_file
   custom_senses:
-    senses:
-      - echo_text
+    - echo_text
 
 # 全局配置
 global:

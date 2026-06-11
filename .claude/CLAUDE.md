@@ -141,7 +141,7 @@ test/                            # 测试套件（vitest），结构镜像 src/
 
 | 方法 | 说明 | 流式 |
 |------|------|------|
-| `soul.create` | 创建灵魂 | 否 |
+| `soul.create` | 创建灵魂（需传 brain + sense_group） | 否 |
 | `soul.list` | 列出灵魂 | 否 |
 | `soul.load` | 载入灵魂到内存 | 否 |
 | `soul.delete` | 删除灵魂（需先删除 Chat） | 否 |
@@ -150,6 +150,7 @@ test/                            # 测试套件（vitest），结构镜像 src/
 | `chat.delete` | 删除聊天 | 否 |
 | `chat.send` | 发送聊天消息 | 是 |
 | `sense.approval` | 感官审批 | 否 |
+| `sense.list` | 获取可用 sense_group 列表 | 否 |
 
 ### Notification 类型详解
 
@@ -254,8 +255,9 @@ loopMiddleware 循环直到无 senseCalls
 
 ```ts
 const agent = await new AgentBuilder()
-  .use("longcat")       // 选择 Brain 配置
-  .setSoulId(soulId)    // 设置灵魂 ID
+  .use("longcat")           // 选择 Brain 配置
+  .setSoulId(soulId)        // 设置灵魂 ID
+  .setSenseGroup("safe")    // 设置感官组（必填，运行时由 API 传入）
   .build();
 
 agent.createChat(chatId);  // 创建聊天
@@ -265,7 +267,8 @@ agent.send(chatId, input); // 发送消息
 `build()` 阶段：
 1. 获取 Provider Adapter（LLM/Message/Sense）
 2. 调用 `senseAdapter.buildSenses()` 预构建感官
-3. 创建 Middleware 实例
+3. 加载指定 sense_group 的感官到 SenseManager
+4. 创建 Middleware 实例
 
 ### Adapter - 三层适配
 
@@ -339,7 +342,6 @@ llm:
       url: $OLLAMA_HOST       # 服务地址（$ENV 替换）
       key: $API_KEY           # API 密钥
       thinking: true          # 是否启用 thinking
-      sense_group: [safe]     # 感官分组（单组或多组）
 
 global:
   thinking: true              # 全局 thinking
@@ -350,17 +352,18 @@ global:
 
 sense_groups:
   <name>:                     # 感官分组名称
-    - execute_command         # 感官列表
-    - read_file
+    senses:
+      - execute_command       # 不覆盖监管等级
+      - read_file:confirm     # 覆盖监管等级为 confirm
 ```
 
 ### Sense 监管等级优先级
 
-**优先级链：** 感官定义 > sense_group > global.supervision
+**优先级链：** 感官配置覆盖 > 感官内置声明 > global.supervision
 
 ```text
-1. 感官定义中 supervision 字段（最高优先级）
-2. sense_group 中该感官的配置
+1. sense_groups 中感官配置覆盖（如 "execute_command:auto"，最高优先级）
+2. 感官内置 supervisionLevel 字段
 3. global.supervision（最低优先级）
 ```
 

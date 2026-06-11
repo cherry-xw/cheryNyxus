@@ -66,10 +66,12 @@ export type RequestData =
   | ChatGetRequestData
   | ChatDeleteRequestData
   | ChatSendRequestData
-  | SenseApprovalRequestData;
+  | SenseApprovalRequestData
+  | SenseListRequestData;
 
 export interface SoulCreateRequestData {
   brain: string;
+  sense_group: string;
   soulId?: string;
 }
 
@@ -110,6 +112,17 @@ export interface SenseApprovalRequestData {
   reason?: string;
 }
 
+export interface SenseListRequestData {
+  // 无参数
+}
+
+export interface SenseListResponseData {
+  groups: Array<{
+    name: string;
+    senses: string[];
+  }>;
+}
+
 // ========== Response Data ==========
 
 export type ResponseData =
@@ -122,14 +135,15 @@ export type ResponseData =
   | ChatGetResponseData
   | ChatDeleteResponseData
   | ChatSendResponseData
-  | SenseApprovalResponseData;
+  | SenseApprovalResponseData
+  | SenseListResponseData;
 
 export interface SoulCreateResponseData {
   soulId: string;
   config: {
     provider: string;
     model: string;
-    sense_group?: string | string[];
+    sense_group: string;
   };
   createdAt: number;
 }
@@ -144,7 +158,7 @@ export interface SoulListResponseData {
     config: {
       provider: string;
       model: string;
-      sense_group?: string | string[];
+      sense_group: string;
     };
     createdAt: number;
   }>;
@@ -155,7 +169,7 @@ export interface SoulLoadResponseData {
   config: {
     provider: string;
     model: string;
-    sense_group?: string | string[];
+    sense_group: string;
   };
   createdAt: number;
   chats: Array<{

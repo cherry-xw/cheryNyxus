@@ -1,5 +1,4 @@
 import { getSoulDb, getMonthlyDb } from "./index.js";
-import { safeJsonParse } from "@/utils/json.js";
 
 export interface SoulRow {
   id: string;
@@ -15,7 +14,20 @@ export interface SoulData {
   agentName: string;
   provider: string;
   model: string;
-  senseGroup?: string | string[];
+  senseGroup: string;
+}
+
+/**
+ * parseSoulRow 解析结果
+ * senseGroup 对 legacy 数据可能为 undefined（旧数据未存储 sense_group）
+ */
+export interface ParsedSoul {
+  id: string;
+  agentName: string;
+  provider: string;
+  model: string;
+  senseGroup?: string;
+  createdAt: number;
 }
 
 export function createSoul(
@@ -25,11 +37,7 @@ export function createSoul(
   const db = getSoulDb();
   const now = Date.now();
 
-  const senseGroupStr = typeof data.senseGroup === "string"
-    ? data.senseGroup
-    : data.senseGroup
-      ? JSON.stringify(data.senseGroup)
-      : null;
+  const senseGroupStr = data.senseGroup;
 
   const stmt = db.prepare(`
     INSERT INTO souls (id, agent_name, provider, model, sense_group, created_at, updated_at)
@@ -90,15 +98,13 @@ export function deleteSoul(soulId: string): void {
   stmt.run(soulId);
 }
 
-export function parseSoulRow(row: SoulRow): SoulData & { id: string; createdAt: number } {
+export function parseSoulRow(row: SoulRow): ParsedSoul {
   return {
     id: row.id,
     agentName: row.agent_name,
     provider: row.provider,
     model: row.model,
-    senseGroup: row.sense_group
-      ? safeJsonParse(row.sense_group, row.sense_group)
-      : undefined,
+    senseGroup: row.sense_group ?? undefined,
     createdAt: row.created_at,
   };
 }

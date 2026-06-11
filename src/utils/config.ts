@@ -34,20 +34,10 @@ interface BrainConfig {
   thinking?: boolean;
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string;
-  /** 使用哪个 sense group（支持单个或多个感官组） */
-  sense_group?: string | string[];
 }
 
 interface LLMConfig {
   brain: Record<string, BrainConfig>;
-}
-
-/**
- * Sense Group 配置
- */
-interface SenseGroupConfig {
-  senses: string[]; // 包含的sense名称列表
-  supervision?: SupervisionLevel; // 组级别监管等级，设置后强制覆盖组内所有感官自身声明
 }
 
 /**
@@ -98,7 +88,7 @@ interface ExtendedGlobalConfig extends GlobalConfig {
 interface Config {
   global: ExtendedGlobalConfig;
   llm: LLMConfig;
-  sense_groups?: Record<string, SenseGroupConfig>; // sense分组配置
+  sense_groups?: Record<string, string[]>; // sense分组配置
 }
 
 const missingEnvVars: string[] = [];
@@ -158,17 +148,6 @@ function loadConfig(): Config {
     ];
   }
 
-  // sense_groups 内的 supervision 同样转枚举
-  if (config.sense_groups) {
-    for (const group of Object.values(config.sense_groups)) {
-      if (typeof group.supervision === "string") {
-        group.supervision = SupervisionLevel[
-          group.supervision as keyof typeof SupervisionLevel
-        ];
-      }
-    }
-  }
-
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
@@ -189,5 +168,5 @@ function loadConfig(): Config {
 
 const config = loadConfig();
 
-export type { Config, LLMConfig, BrainConfig, SenseGroupConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig, LoggerConfig };
+export type { Config, LLMConfig, BrainConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig, LoggerConfig };
 export default config;

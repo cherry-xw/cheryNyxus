@@ -224,7 +224,7 @@ describe("AgentBuilder", () => {
       config.llm.brain.ollama_client = origClient;
     });
 
-    it("should apply group-level supervision override", async () => {
+    it("should apply sense-level supervision override", async () => {
       const { AgentBuilder } = await import("@/agent/builder");
       const config = (await import("@/utils/config")).default;
       const origClient = config.llm.brain.ollama_client;
@@ -232,9 +232,8 @@ describe("AgentBuilder", () => {
         ...origClient,
         sense_group: ["supervised_senses"],
       };
-      config.sense_groups.supervised_senses = {
-        senses: ["read_file"],
-        supervision: 2,
+      config.sense_groups!.supervised_senses = {
+        senses: ["read_file:auto"],
       };
 
       const builder = new AgentBuilder();
@@ -244,7 +243,7 @@ describe("AgentBuilder", () => {
       expect(middleware).toBeDefined();
 
       config.llm.brain.ollama_client = origClient;
-      delete config.sense_groups.supervised_senses;
+      delete config.sense_groups!.supervised_senses;
     });
   });
 });

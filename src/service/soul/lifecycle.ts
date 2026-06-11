@@ -10,7 +10,7 @@ import {
   parseSoulRow,
   type SoulData,
 } from "@/db/soul.js";
-import { listChatsBySoul, getMessages, parseMessageRow } from "@/db/chat.js";
+import { listChatsBySoul, getMessages } from "@/db/chat.js";
 
 /**
  * Soul 内存缓存（存储 agent 实例，配置从数据库读取）
@@ -21,7 +21,7 @@ export const agentSouls = new Map<string, {
   config: {
     provider: string;
     model: string;
-    sense_group?: string | string[];
+    sense_group: string;
   };
   createdAt: number;
 }>();
@@ -47,6 +47,7 @@ export async function handleSoulCreate(
 ): Promise<unknown> {
   const p = params as {
     brain: string;
+    sense_group: string;
     soulId?: string;
   };
 
@@ -56,7 +57,10 @@ export async function handleSoulCreate(
   const existingSoul = getSoul(soulId);
   if (existingSoul) {
     const parsed = parseSoulRow(existingSoul);
-    const builder = new AgentBuilder().use(parsed.agentName).setSoulId(soulId);
+    if (!parsed.senseGroup) {
+      throw new Error(`Soul "${soulId}" has no sense_group configured, please recreate`);
+    }
+    const builder = new AgentBuilder().use(parsed.agentName).setSoulId(soulId).setSenseGroup(parsed.senseGroup);
     const agentInstance = builder.build();
 
     const soul = {
@@ -82,7 +86,12 @@ export async function handleSoulCreate(
     throw new Error(`Brain "${p.brain}" 不存在`);
   }
 
-  const builder = new AgentBuilder().use(p.brain).setSoulId(soulId);
+  // 校验 sense_group 是否存在
+  if (!config.sense_groups?.[p.sense_group]) {
+    throw new Error(`Sense group "${p.sense_group}" 不存在`);
+  }
+
+  const builder = new AgentBuilder().use(p.brain).setSoulId(soulId).setSenseGroup(p.sense_group);
   const agentInstance = builder.build();
 
   // 持久化到数据库
@@ -90,7 +99,7 @@ export async function handleSoulCreate(
     agentName: p.brain,
     provider: brainConfig.provider,
     model: brainConfig.model,
-    senseGroup: brainConfig.sense_group,
+    senseGroup: p.sense_group,
   };
   const row = createSoul(soulId, soulData);
 
@@ -100,7 +109,7 @@ export async function handleSoulCreate(
     config: {
       provider: brainConfig.provider,
       model: brainConfig.model,
-      sense_group: brainConfig.sense_group,
+      sense_group: p.sense_group,
     },
     createdAt: row.created_at,
   };
@@ -157,7 +166,7 @@ export async function handleSoulList(
       config: {
         provider: parsed.provider,
         model: parsed.model,
-        sense_group: parsed.senseGroup,
+        sense_group: parsed.senseGroup ?? "",
       },
       createdAt: row.created_at,
     };
@@ -180,10 +189,13 @@ export async function handleSoulLoad(
   }
 
   const parsed = parseSoulRow(dbSoul);
+  if (!parsed.senseGroup) {
+    throw new Error(`Soul "${p.soulId}" has no sense_group configured, please recreate`);
+  }
 
   // 如果内存中没有，载入 agent 实例
   if (!agentSouls.has(p.soulId)) {
-    const builder = new AgentBuilder().use(parsed.agentName).setSoulId(p.soulId);
+    const builder = new AgentBuilder().use(parsed.agentName).setSoulId(p.soulId).setSenseGroup(parsed.senseGroup);
     const agentInstance = builder.build();
 
     agentSouls.set(p.soulId, {
@@ -234,6 +246,25 @@ export async function handleSoulLoad(
 }
 
 /**
+ * 获取可用的 sense group 列表
+ */
+export async function handleSenseList(
+  _ctx: HandlerContext,
+  _params: unknown,
+): Promise<unknown> {
+  const groups = config.sense_groups
+    ? Object.entries(config.sense_groups).map(([name, group]) => ({
+        name,
+        senses: group.map(item => {
+          const colonIndex = item.indexOf(":");
+          return colonIndex === -1 ? item : item.slice(0, colonIndex);
+        }),
+      }))
+    : [];
+  return { groups };
+}
+
+/**
  * 注册 Soul lifecycle handlers
  */
 export function registerSoulHandlers(router: import("../message/router.js").RpcRouter): void {
@@ -241,4 +272,5 @@ export function registerSoulHandlers(router: import("../message/router.js").RpcR
   router.register(Method.SOUL_DELETE, handleSoulDelete);
   router.register(Method.SOUL_LIST, handleSoulList);
   router.register(Method.SOUL_LOAD, handleSoulLoad);
+  router.register(Method.SENSE_LIST, handleSenseList);
 }

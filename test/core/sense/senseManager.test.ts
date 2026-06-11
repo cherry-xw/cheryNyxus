@@ -9,7 +9,6 @@ import { registerSenses } from "@/core/sense/senseRegistry";
 import { sense } from "@/core/sense/senseCreator";
 import { SupervisionLevel } from "@/core/config";
 import { z } from "zod";
-import type { SenseGroupConfig } from "@/utils/config";
 
 // Mock SenseAdapter
 const mockAdapter: SenseAdapter<unknown, unknown> = {
@@ -201,36 +200,17 @@ describe("SenseManager", () => {
       const sense1 = sense("g1_sense", "Group1", z.object({}), async () => ({ content: "", hash: "" }));
       registerSenses([sense1]);
 
-      const senseGroups: Record<string, SenseGroupConfig> = {
-        group1: { senses: ["g1_sense"] },
+      const senseGroups: Record<string, string[]> = {
+        group1: ["g1_sense"],
       };
 
-      manager.loadFromGroups(["group1"], senseGroups, SupervisionLevel.auto);
+      manager.loadFromGroups("group1", senseGroups, SupervisionLevel.auto);
 
       expect(manager.get("g1_sense")).toBe(sense1);
       expect(sense1.supervisionLevel).toBe(SupervisionLevel.auto);
     });
 
-    it("loads senses from multiple groups with dedup (later overrides)", () => {
-      const manager = new SenseManager("test-provider");
-      const sense1v1 = sense("shared", "V1", z.object({}), async () => ({ content: "v1", hash: "" }));
-      const sense1v2 = sense("shared", "V2", z.object({}), async () => ({ content: "v2", hash: "" }));
-      registerSenses([sense1v1]);
-      // Re-register overrides
-      registerSenses([sense1v2]);
-
-      const senseGroups: Record<string, SenseGroupConfig> = {
-        group1: { senses: ["shared"] },
-        group2: { senses: ["shared"] },
-      };
-
-      manager.loadFromGroups(["group1", "group2"], senseGroups, SupervisionLevel.confirm);
-
-      // 后加载覆盖前加载
-      expect(manager.get("shared")).toBe(sense1v2);
-    });
-
-    it("applies group-level supervision override", () => {
+    it("applies sense-level supervision override", () => {
       const manager = new SenseManager("test-provider");
       const sense1 = sense(
         "g_sense",
@@ -241,34 +221,22 @@ describe("SenseManager", () => {
       );
       registerSenses([sense1]);
 
-      const senseGroups: Record<string, SenseGroupConfig> = {
-        strict: { senses: ["g_sense"], supervision: SupervisionLevel.manual },
+      const senseGroups: Record<string, string[]> = {
+        strict: ["g_sense:manual"],
       };
 
-      manager.loadFromGroups(["strict"], senseGroups, SupervisionLevel.confirm);
+      manager.loadFromGroups("strict", senseGroups, SupervisionLevel.confirm);
 
-      // 组级别覆盖感官自身声明
+      // 感官配置覆盖感官自身声明
       expect(sense1.supervisionLevel).toBe(SupervisionLevel.manual);
     });
 
-    it("skips missing groups with warning", () => {
-      const manager = new SenseManager("test-provider");
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-      manager.loadFromGroups(["nonexistent"], {}, SupervisionLevel.auto);
-
-      expect(consoleSpy).toHaveBeenCalledWith('Sense group "nonexistent" not found, skipping');
-      expect(manager.getAll()).toHaveLength(0);
-
-      consoleSpy.mockRestore();
-    });
-
-    it("handles empty group names", () => {
+    it("throws for missing group", () => {
       const manager = new SenseManager("test-provider");
 
-      manager.loadFromGroups([], undefined, SupervisionLevel.auto);
-
-      expect(manager.getAll()).toHaveLength(0);
+      expect(() => manager.loadFromGroups("nonexistent", {}, SupervisionLevel.auto)).toThrow(
+        'Sense group "nonexistent" not found',
+      );
     });
   });
 });

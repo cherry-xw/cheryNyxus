@@ -26,6 +26,7 @@ registerOllamaAdapter();
 export class AgentBuilder {
   private brainConfig?: BrainConfig;
   private soulId: string = randomUUID();
+  private senseGroup?: string;
   private adapters?: AdaptersGroup;
 
   /**
@@ -64,6 +65,15 @@ export class AgentBuilder {
   }
 
   /**
+   * 设置 sense group（必填）
+   * @param groupName sense group 名称
+   */
+  setSenseGroup(groupName: string): AgentBuilder {
+    this.senseGroup = groupName;
+    return this;
+  }
+
+  /**
    * 构建 Agent 实例
    */
   async build(): Promise<Middleware<MiddlewareChunk>> {
@@ -73,21 +83,17 @@ export class AgentBuilder {
     if (!this.adapters) {
       throw new Error("必须先调用 use() 初始化 adapters");
     }
+    if (!this.senseGroup) {
+      throw new Error("必须先调用 setSenseGroup() 选择感官组");
+    }
 
     // 确保自定义感官已加载
     await ensureCustomSensesLoaded();
 
-    // 解析 sense_group 配置
-    const senseGroupNames = this.brainConfig.sense_group
-      ? Array.isArray(this.brainConfig.sense_group)
-        ? this.brainConfig.sense_group
-        : [this.brainConfig.sense_group]
-      : [];
-
     // 创建 SenseManager 并加载感官组
     const senseManager = new SenseManager(this.brainConfig.provider);
     senseManager.loadFromGroups(
-      senseGroupNames,
+      this.senseGroup,
       config.sense_groups,
       config.global.supervision,
     );

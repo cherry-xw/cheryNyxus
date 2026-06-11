@@ -19,18 +19,14 @@ const senseRegistry: Record<string, Sense<ZodType>> = {};
 export function registerSenses(senses: Sense<ZodType>[]): void {
   for (const s of senses) {
     if (s?.definition?.function?.name) {
-      const senseName = s.definition.function.name;
-      senseRegistry[senseName] = s;
+      senseRegistry[s.definition.function.name] = s;
     }
   }
 }
 
 /**
- * 按名称批量获取感官实例
- * 自动过滤未找到的感官（不抛错）
+ * 按名称获取单个感官实例
  */
-export function getSenses(names: string[]): Sense<ZodType>[] {
-  return names
-    .map(name => senseRegistry[name])
-    .filter((s): s is Sense<ZodType> => s !== undefined);
+export function getSense(name: string): Sense<ZodType> | undefined {
+  return senseRegistry[name];
 }
