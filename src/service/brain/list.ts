@@ -14,7 +14,7 @@ export async function handleBrainList(
     provider: cfg.provider,
     model: cfg.model,
     thinking: cfg.thinking,
-    senseGroups: cfg.sense_group,
+    senseGroups: Object.keys(config.sense_groups ?? {}),
   }));
   return { brains };
 }

@@ -1,15 +1,13 @@
 import { randomUUID } from "crypto";
-import type { MiddlewareContext, MiddlewareChunk, StreamChunk, StagedChunk, SenseTriggerChunk } from "@/core/middleware/types";
+import type {
+  AgentMessage,
+  MiddlewareContext,
+  MiddlewareChunk,
+  StreamChunk,
+  StagedChunk,
+  SenseTriggerChunk,
+} from "@/core/middleware/types";
 import { CheckpointState } from "./checkpointState.js";
-
-/**
- * 持久化消息到 DB（通过回调）
- */
-function persistMessage(ctx: MiddlewareContext, msg: Parameters<NonNullable<MiddlewareContext["persistMessage"]>>[0]): void {
-  if (ctx.persistMessage) {
-    ctx.persistMessage(msg);
-  }
-}
 
 /**
  * Checkpoint Middleware
@@ -18,10 +16,9 @@ function persistMessage(ctx: MiddlewareContext, msg: Parameters<NonNullable<Midd
  * 2. 接收所有 chunk，归纳状态
  * 3. 收集 senseDelta，合并后 yield sense_end staged
  * 4. 构建 messages 放到 ctx.soul
- * 5. 管理 pendingSenses
- * 6. 持久化关键状态
- * 7. yield consumed notification
- * 8. 边界检测：thinking_end / content_end / sense_end 三种 staged
+ * 5. yield message/sense effect chunk，由 service observer 处理副作用
+ * 6. yield consumed notification
+ * 7. 边界检测：thinking_end / content_end / sense_end 三种 staged
  */
 export async function* checkpointMiddleware(
   ctx: MiddlewareContext,
@@ -33,6 +30,7 @@ export async function* checkpointMiddleware(
 
   if (userInputs.length > 0) {
     const messages = ctx.soul.messages ?? [];
+    const consumedMessages: AgentMessage[] = [];
     for (const input of userInputs) {
       const msgId = randomUUID();
       messages.push({
@@ -43,18 +41,28 @@ export async function* checkpointMiddleware(
         updateAt: Date.now(), // 注入消息列表时间
       });
       consumedCount++;
-
-      // 实时持久化 user 消息（连接中断也不丢失）
-      persistMessage(ctx, { id: msgId, role: "user", content: input.content });
+      consumedMessages.push({
+        id: msgId,
+        role: "user",
+        content: input.content,
+      });
     }
     ctx.soul.messages = messages;
     // 清空 userInputs（避免重复处理）
     userInputs.length = 0;
 
+    for (const message of consumedMessages) {
+      yield {
+        type: "message_created",
+        message,
+      } as MiddlewareChunk;
+    }
+
     // yield consumed notification（注入时立即通知）
     yield {
       type: "consumed",
       count: consumedCount,
+      messages: consumedMessages,
     } as MiddlewareChunk;
   }
 
@@ -135,8 +143,8 @@ export async function* checkpointMiddleware(
         };
         yield senseStaged;
 
-        // confirm/manual 模式：立即创建 pending sense 消息并持久化
-        // 确保 connection 断开后 DB 中有 pending 记录，供 recovery Phase 0 检测
+        // confirm/manual 模式：立即创建 pending sense 消息，并 yield effect 交给 service 持久化。
+        // 确保 connection 断开前 DB 中有 pending 记录，供 recovery Phase 0 检测。
         if (trigger.supervisionLevel > 0 /* SupervisionLevel.auto */) {
           const messages = ctx.soul.messages ?? [];
           const senseMsg = {
@@ -150,16 +158,28 @@ export async function* checkpointMiddleware(
           messages.push(senseMsg);
           ctx.soul.messages = messages;
 
-          persistMessage(ctx, {
-            id: senseMsg.id,
-            role: "sense",
-            content: "",
-            senseCalls: senseMsg.senseCalls,
-          });
+          yield {
+            type: "message_created",
+            message: {
+              id: senseMsg.id,
+              role: "sense",
+              content: "",
+              senseCalls: senseMsg.senseCalls,
+            },
+          } as MiddlewareChunk;
+
+          yield {
+            type: "sense_pending",
+            approvalId: trigger.id,
+            senseName: trigger.name,
+            arguments: trigger.arguments,
+            supervisionLevel: trigger.supervisionLevel,
+            approvalResolve: trigger.approvalResolve,
+          } as MiddlewareChunk;
         }
       }
 
-      // sense_complete 时不重置标记（本轮 thinking/content 已 yield）
+      // sense_accept/sense_reject 时不重置标记（本轮 thinking/content 已 yield）
       // 新一轮标记由新 CheckpointState 初始化
 
       yield chunk;
@@ -185,10 +205,21 @@ export async function* checkpointMiddleware(
       contentActive = false;
     }
   } finally {
-    // === 始终执行：追加消息 + 持久化（即使 generator.return() 也会运行） ===
-    const newMessages = state.appendResponseMessages(ctx);
-    for (const msg of newMessages) {
-      persistMessage(ctx, msg);
+    // === 追加消息 + yield effect，由外层 observer 统一处理副作用 ===
+    const mutations = state.appendResponseMessages(ctx);
+    for (const mutation of mutations) {
+      if (mutation.type === "created") {
+        yield {
+          type: "message_created",
+          message: mutation.message,
+        } as MiddlewareChunk;
+      } else {
+        yield {
+          type: "message_updated",
+          id: mutation.id,
+          patch: mutation.patch,
+        } as MiddlewareChunk;
+      }
     }
   }
 

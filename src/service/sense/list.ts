@@ -9,10 +9,9 @@ export async function handleSenseList(
   _ctx: HandlerContext,
   _params: unknown,
 ): Promise<SenseListResponseData> {
-  const senseGroups = Object.entries(config.sense_groups ?? {}).map(([name, cfg]) => ({
+  const senseGroups = Object.entries(config.sense_groups ?? {}).map(([name, senses]) => ({
     name,
-    supervision: cfg.supervision,
-    senses: cfg.senses,
+    senses,
   }));
   return { senseGroups };
 }

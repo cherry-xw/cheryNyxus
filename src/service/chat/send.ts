@@ -17,31 +17,34 @@ import {
 import { getChat, addMessage, getMessages, parseMessageRow, fillApprovalResult } from "@/db/chat.js";
 import { approvalManager } from "../approval/manager.js";
 import { AgentBuilder } from "@/agent/builder.js";
-import type { MiddlewareChunk, SenseTriggerChunk, SenseAcceptChunk, SenseRejectChunk, StagedChunk } from "@/core/middleware/types";
+import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
+import type {
+  MiddlewareChunk,
+  SenseTriggerChunk,
+  SenseAcceptChunk,
+  SenseRejectChunk,
+  StagedChunk,
+} from "@/core/middleware/types";
 import { SupervisionLevel } from "@/core/config";
-import type Middleware from "@/core/middleware";
-import type { LLMResponse } from "@/core/message/index";
+import type { LLMResponse } from "@/core/message/adapter";
 import { logger } from "@/utils/logger/index.js";
 
 /**
- * Chat 运行时缓存：chatId → { builder, middleware, provider }（单 chat 绑定，跨轮不重建）
+ * Chat 运行时缓存：chatId → builder + runtime 选择（单 chat 绑定，跨轮不重建）
  *
  * 每个 chatId 独享一个 AgentBuilder 实例（不再全局单例），与 Middleware 一同随 chat 生命周期存在。
- * brain/sense 由 chat.create 原子注入（applyBrain/applySense），中途可经 brain.set/sense.set 更换。
- * provider 缓存自 resolveBrain，供 setSense 复用，免去 ctx 外泄。
+ * runtime selection 由 chat.create/runtime.set 原子注入。
  * 实例不重建，messages 天然保留，无需迁移。
  */
 interface ChatRuntime {
   builder: AgentBuilder;
-  middleware: Middleware<MiddlewareChunk>;
-  /** 当前 brain 的 provider（setBrain 时缓存，setSense 依赖） */
-  provider?: string;
+  selection?: RuntimeSelection;
 }
 
 const chatRuntimes = new Map<string, ChatRuntime>();
 
 /**
- * 取 chat 对应的完整运行时（builder + middleware + provider）。
+ * 取 chat 对应的完整运行时。
  * ensureChat 后必定存在，缺失则视为内部错误。
  */
 async function ensureRuntime(chatId: string): Promise<ChatRuntime> {
@@ -54,40 +57,23 @@ async function ensureRuntime(chatId: string): Promise<ChatRuntime> {
 }
 
 /**
- * 应用 brain 配置（resolve brain config + adapters，注入 runtime，缓存 provider）
- * ensureChat 原子配置与 setBrain export 共用。
+ * 原子解析并注入完整 runtime。
  */
-function applyBrain(runtime: ChatRuntime, brain: string): void {
-  const { brain: brainConfig, adapters } = runtime.builder.resolveBrain(brain);
-  runtime.middleware.setBrain(brainConfig, adapters);
-  runtime.provider = brainConfig.provider;
+function configureRuntime(runtime: ChatRuntime, selection: RuntimeSelection): void {
+  runtime.selection = selection;
+  runtime.builder.configureRuntime(selection);
 }
 
 /**
- * 应用 sense 配置（resolve builtSenses + senseTable，注入 runtime）
- * 依赖 runtime.provider，必须先 applyBrain。
- */
-function applySense(runtime: ChatRuntime, senseGroups: string[]): void {
-  if (!runtime.provider) {
-    throw new Error("必须先 setBrain 再 setSense");
-  }
-  const { builtSenses, senseTable } = runtime.builder.resolveSense(
-    runtime.provider,
-    senseGroups,
-  );
-  runtime.middleware.setSense(builtSenses, senseTable);
-}
-
-/**
- * 从 DB 加载历史消息到 middleware 内存（幂等由 Middleware.loadHistory 保证）
+ * 从 DB 加载历史消息，交给 builder.init 注入 middleware 内存。
  * 仅 ensureChat 创建时调用一次，send/resume 不再重复加载。
  */
-function loadHistoryInto(agent: Middleware<MiddlewareChunk>, chatId: string): void {
+function loadHistory(chatId: string): LLMResponse[] | undefined {
   const rows = getMessages(chatId);
   if (rows.length === 0) {
-    return;
+    return undefined;
   }
-  const messages: LLMResponse[] = rows.map((row) => {
+  return rows.map((row) => {
     const parsed = parseMessageRow(row);
     return {
       id: row.id,
@@ -99,96 +85,100 @@ function loadHistoryInto(agent: Middleware<MiddlewareChunk>, chatId: string): vo
       updateAt: row.created_at,
     };
   });
-  agent.loadHistory(messages);
 }
 
 /**
- * 获取或创建 chat 对应的 Middleware 实例（单 chat 绑定，跨轮不重建）。
+ * 获取或创建 chat 对应的 AgentBuilder 实例（单 chat 绑定，跨轮不重建）。
  *
- * 创建时原子完成：注入持久化回调 → setBrain → setSense → loadHistory。
+ * 创建时完成：原子配置 runtime（如传入）→ 加载历史。
  * 幂等：已存在直接返回，不重新配置。send/resume 不带 brain/senseGroups，
  * 依赖 create 时已配置的 runtime；服务端重启内存丢失后须重新 create。
  *
- * @param brain 可选，chat.create 携带时原子注入；中途换用 brain.set
- * @param senseGroups 可选，依赖 brain 已设置
+ * @param selection 可选，chat.create/runtime.set 携带时参与原子 runtime 配置
  */
 export async function ensureChat(
   chatId: string,
-  brain?: string,
-  senseGroups?: string[],
-): Promise<Middleware<MiddlewareChunk>> {
-  await AgentBuilder.ensureSensesLoaded();
-
+  selection?: RuntimeSelection,
+): Promise<AgentBuilder> {
   const existing = chatRuntimes.get(chatId);
   if (existing) {
-    return existing.middleware;
+    if (selection) {
+      configureRuntime(existing, selection);
+    }
+    return existing.builder;
   }
 
   // 每个 chat 独享一个 AgentBuilder 实例（不再全局单例）
-  const builder = new AgentBuilder();
-  const agent = builder.createMiddleware();
-  agent.createChat(chatId);
+  const builder = new AgentBuilder().build();
 
-  // 注入持久化回调（封装边界：middleware 不直接依赖 DB，不外泄 ctx）
-  agent.onPersist((msg) => {
-    addMessage(msg.id, chatId, {
-      role: msg.role,
-      content: msg.content,
-      thinking: msg.thinking,
-      senseCall: msg.senseCalls,
-    });
-  });
-  agent.onUpdate((id: string, content: string) => {
-    fillApprovalResult(id, content);
-  });
-
-  const runtime: ChatRuntime = { builder, middleware: agent, provider: undefined };
+  const runtime: ChatRuntime = { builder };
   chatRuntimes.set(chatId, runtime);
 
-  // 原子配置 brain/sense（chat.create 携带时）
-  if (brain) {
-    applyBrain(runtime, brain);
-  }
-  if (senseGroups) {
-    applySense(runtime, senseGroups);
+  // 原子配置 runtime selection（chat.create/runtime.set 携带时）
+  if (selection) {
+    configureRuntime(runtime, selection);
   }
 
   // 一次性加载历史到内存
-  loadHistoryInto(agent, chatId);
+  builder.init(chatId, loadHistory(chatId));
 
-  return agent;
+  return builder;
 }
 
 /**
- * 设置 brain（resolve brain config + adapters，注入 runtime，缓存 provider）
- * 由 brain.set handler 调用。
+ * 原子设置 runtime selection。
+ * 由 runtime.set handler 调用。
  */
-export async function setBrain(chatId: string, brain: string): Promise<void> {
-  const runtime = await ensureRuntime(chatId);
-  applyBrain(runtime, brain);
-}
-
-/**
- * 设置 sense（resolve builtSenses + senseTable，注入 runtime）
- * 依赖 runtime.provider，必须先 setBrain。
- * 由 sense.set handler 调用。
- */
-export async function setSense(
+export async function setRuntime(
   chatId: string,
-  senseGroups: string[],
+  selection: RuntimeSelection,
 ): Promise<void> {
   const runtime = await ensureRuntime(chatId);
-  applySense(runtime, senseGroups);
+  configureRuntime(runtime, selection);
 }
 
 /**
  * 将 chatId 从运行时缓存移除（删除 chat 时调用）
  */
 export function clearChatRuntime(chatId: string): void {
-  const runtime = chatRuntimes.get(chatId);
-  if (runtime) {
-    runtime.middleware.clearChat();
-    chatRuntimes.delete(chatId);
+  chatRuntimes.delete(chatId);
+}
+
+/**
+ * 统一消费 agent 内部 effect chunk。
+ * middleware 只产出事实流，service observer 在这里集中处理 DB/approval 副作用。
+ */
+export async function* observeAgentChunks(
+  generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
+  chatId: string,
+): AsyncGenerator<MiddlewareChunk, void, unknown> {
+  for await (const chunk of generator) {
+    if (chunk.type === "message_created") {
+      addMessage(chunk.message.id, chatId, {
+        role: chunk.message.role,
+        content: chunk.message.content,
+        thinking: chunk.message.thinking,
+        senseCall: chunk.message.senseCalls,
+        hash: chunk.message.hash,
+      });
+      continue;
+    }
+
+    if (chunk.type === "message_updated") {
+      if (chunk.patch.content !== undefined) {
+        fillApprovalResult(chunk.id, chunk.patch.content);
+      }
+      continue;
+    }
+
+    if (chunk.type === "sense_pending") {
+      if (chunk.approvalResolve) {
+        approvalManager.register(chunk.approvalId, chunk.approvalResolve);
+      }
+      continue;
+    }
+
+    yield chunk;
   }
 }
 
@@ -237,11 +227,6 @@ export async function* streamAgentChunks(
       const sc = chunk as SenseTriggerChunk;
       logger.info(`[Stream] sense_end, id=${sc.id}, name=${sc.name}, supervision=${sc.supervisionLevel}`);
 
-      // 注册 approvalResolve
-      if (sc.approvalResolve) {
-        approvalManager.register(sc.id, sc.approvalResolve);
-      }
-
       yield createNotification("interrupt", rid, {
         approvalId: sc.id,
         senseName: sc.name,
@@ -273,13 +258,20 @@ export async function* streamAgentChunks(
     } else if (chunk.type === "done") {
       logger.info(`[Stream] done`);
       yield createNotification("done", rid, null);
+    } else if (
+      chunk.type === "message_created" ||
+      chunk.type === "message_updated" ||
+      chunk.type === "sense_pending"
+    ) {
+      // 内部 effect chunk 应由 observeAgentChunks 消费，不进入传输层。
+      continue;
     }
   }
 }
 
 /**
  * 发送聊天消息（流式）
- * brain/sense 由独立的 brain.set/sense.set 设置，send 只携带 chatId + prompt。
+ * runtime 由 chat.create/runtime.set 设置，send 只携带 chatId + prompt。
  */
 export async function* handleChatSend(
   ctx: HandlerContext,
@@ -299,8 +291,9 @@ export async function* handleChatSend(
   let failureResponse: RpcResponse | undefined;
 
   try {
-    // history 已在 chat.create 时一次性加载到内存，此处直接 send
-    const generator = agent.send(chatId, data.prompt);
+    // history 已在 chat.create 时一次性加载到内存。
+    // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
+    const generator = observeAgentChunks(agent.run(data.prompt), chatId);
     const rid = ctx.requestId ?? chatId;
 
     yield* streamAgentChunks(generator, rid);
@@ -323,10 +316,6 @@ export async function handleSenseApproval(
 ): Promise<SenseApprovalResponseData> {
   // 调用 approvalResolve
   approvalManager.confirm(data.approvalId, data.action, data.reason);
-
-  // 填充 messages.content（执行结果或拒绝原因）
-  const result = data.action === "accept" ? "approved" : `rejected: ${data.reason ?? "user rejected"}`;
-  fillApprovalResult(data.approvalId, result);
 
   return {
     approvalId: data.approvalId,

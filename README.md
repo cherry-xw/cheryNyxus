@@ -12,7 +12,7 @@ cheryClaw 采用拟人化隐喻设计：
 | Sense | 感官 | 感知操作，神经手脚，与世界交互 |
 | Chat | 聊天 | 交互通道，承载消息历史 |
 
-**交互流程：** `chat.create`（携带 brain + senseGroups）→ `chat.send` → 触发感官 → 大脑思考（中途可用 `brain.set` / `sense.set` 更换 Brain/Sense）
+**交互流程：** `chat.create`（携带 brain + senseGroups）→ `chat.send` → 触发感官 → 大脑思考（中途可用 `runtime.set` 原子更换 Brain/Sense）
 
 > Brain 与 Sense Group 在每轮对话开始时可更换，不与 Chat 锁定。Chat 仅承载消息历史。
 
@@ -25,6 +25,8 @@ cheryClaw 采用拟人化隐喻设计：
 | `yarn start` | 运行构建产物 |
 | `yarn compile:senses` | 编译 `.chery/senses/` 下的外部感官 |
 | `yarn test` | 运行测试 |
+
+> 启动时会先全局注册 Provider 并重建 Sense registry（内置感官 + 编译产物）。`compile-senses` 子命令完成后会在当前进程调用一次 `reloadSenses()`；长运行服务的热重载触发机制后续单独实现。
 
 ## WebSocket 协议
 
@@ -103,9 +105,8 @@ interface Notification {
 | 方法 | 说明 | 流式 |
 |------|------|------|
 | `brain.list` | 列出所有可用 brain | 否 |
-| `brain.set` | 设置 chat 的 brain（每轮可换） | 否 |
 | `sense.list` | 列出所有可用 sense group | 否 |
-| `sense.set` | 设置 chat 的 sense group（每轮可换） | 否 |
+| `runtime.set` | 原子设置 chat 的 brain + senseGroups（每轮可换） | 否 |
 | `chat.create` | 创建聊天（必带 brain + senseGroups，chatId 可选） | 否 |
 | `chat.list` | 列出所有聊天 | 否 |
 | `chat.get` | 获取聊天详情（载入历史） | 是 |
@@ -137,7 +138,7 @@ interface Notification {
 ← {"id":"5","kind":"response","requestId":"4","success":true,"data":{"chatId":"chat-uuid"}}
 ```
 
-**注意：** `brain` + `senseGroups` 必传——创建时原子注入 runtime 并加载历史。`chatId` 可选（前端自定义），未传则服务端生成。`chat.send` 前必须先 `chat.create`；中途换 brain/sense 用 `brain.set` / `sense.set`。
+**注意：** `brain` + `senseGroups` 必传——创建时原子注入 runtime 并加载历史。`chatId` 可选（前端自定义），未传则服务端生成。`chat.send` 前必须先 `chat.create`；中途换 runtime 用 `runtime.set`，必须同时携带 `brain` + `senseGroups`。
 
 ### 列出聊天
 
@@ -157,21 +158,14 @@ interface Notification {
 ← {"kind":"notification","type":"loaded","requestId":"chat-1","data":null}
 ```
 
-### 设置 Brain（每轮可换）
+### 设置 Runtime（每轮可换）
 
 ```text
-→ {"id":"10","kind":"request","method":"brain.set","params":{"chatId":"chat-uuid","brain":"longcat"}}
-← {"id":"11","kind":"response","requestId":"10","success":true,"data":{"chatId":"chat-uuid","brain":"longcat"}}
+→ {"id":"10","kind":"request","method":"runtime.set","params":{"chatId":"chat-uuid","brain":"longcat","senseGroups":["safe_senses"]}}
+← {"id":"11","kind":"response","requestId":"10","success":true,"data":{"chatId":"chat-uuid","brain":"longcat","senseGroups":["safe_senses"]}}
 ```
 
-### 设置 Sense Group（每轮可换）
-
-```text
-→ {"id":"12","kind":"request","method":"sense.set","params":{"chatId":"chat-uuid","senseGroups":["safe_senses"]}}
-← {"id":"13","kind":"response","requestId":"12","success":true,"data":{"chatId":"chat-uuid","senseGroups":["safe_senses"]}}
-```
-
-> **Brain/Sense 设置：** 首次配置由 `chat.create` 原子完成（注入 runtime + 加载历史）。`brain.set` / `sense.set` 用于中途更换，各自携带 chatId。Middleware 实例跨轮不重建，messages 历史天然保留。`sense.set` 依赖已设置的 `brain.provider`，须先 `brain.set`。
+> **Runtime 设置：** 首次配置由 `chat.create` 原子完成（注入 runtime + 加载历史）。`runtime.set` 用于中途更换，必须同时携带 `chatId`、`brain`、`senseGroups`。Middleware 实例跨轮不重建，messages 历史天然保留。
 
 ### 发送聊天消息（流式）
 
@@ -183,7 +177,7 @@ interface Notification {
 ← {"kind":"response","requestId":"20","success":true,"data":{"chatId":"chat-uuid"}}
 ```
 
-> **send 仅携带 chatId + prompt：** brain/sense 已由 `chat.create` 配置（或中途 `brain.set` / `sense.set` 更换）。send 前必须已完成 runtime 配置，否则服务端返回 runtime 未配置错误。
+> **send 仅携带 chatId + prompt：** runtime 已由 `chat.create` 配置（或中途 `runtime.set` 更换）。send 前必须已完成 runtime 配置，否则服务端返回 runtime 未配置错误。
 
 ### 感官审批流程（confirm 模式）
 
@@ -289,7 +283,7 @@ CREATE TABLE messages (
 **注意：**
 
 - approvals 表已去掉，审批状态通过 messages.content 字段判断
-- brain/senseGroups 为运行时参数，不持久化（由 `brain.set` / `sense.set` 设置，`chat.send` 不携带）
+- brain/senseGroups 为运行时参数，不持久化（由 `chat.create` / `runtime.set` 原子设置，`chat.send` 不携带）
 - 跨数据库的外键约束无法生效，删除时手动清理关联数据
 
 ### Sense 监管等级

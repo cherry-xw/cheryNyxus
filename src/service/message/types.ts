@@ -60,8 +60,7 @@ export type NotificationType =
 export type RequestData =
   | BrainListRequestData
   | SenseListRequestData
-  | BrainSetRequestData
-  | SenseSetRequestData
+  | RuntimeSetRequestData
   | ChatCreateRequestData
   | ChatListRequestData
   | ChatGetRequestData
@@ -95,13 +94,9 @@ export interface ChatSendRequestData {
   prompt: string;
 }
 
-export interface BrainSetRequestData {
+export interface RuntimeSetRequestData {
   chatId: string;
   brain: string;
-}
-
-export interface SenseSetRequestData {
-  chatId: string;
   senseGroups: string[];
 }
 
@@ -115,24 +110,12 @@ export interface SenseApprovalRequestData {
   reason?: string;
 }
 
-export interface SenseListRequestData {
-  // 无参数
-}
-
-export interface SenseListResponseData {
-  groups: Array<{
-    name: string;
-    senses: string[];
-  }>;
-}
-
 // ========== Response Data ==========
 
 export type ResponseData =
   | BrainListResponseData
   | SenseListResponseData
-  | BrainSetResponseData
-  | SenseSetResponseData
+  | RuntimeSetResponseData
   | ChatCreateResponseData
   | ChatListResponseData
   | ChatGetResponseData
@@ -184,13 +167,9 @@ export interface ChatSendResponseData {
   chatId: string;
 }
 
-export interface BrainSetResponseData {
+export interface RuntimeSetResponseData {
   chatId: string;
   brain: string;
-}
-
-export interface SenseSetResponseData {
-  chatId: string;
   senseGroups: string[];
 }
 
@@ -282,9 +261,8 @@ export const Method = {
   BRAIN_LIST: "brain.list",
   SENSE_LIST: "sense.list",
 
-  // Brain / Sense 设置（每轮可换，独立设置）
-  BRAIN_SET: "brain.set",
-  SENSE_SET: "sense.set",
+  // Runtime 设置（每轮可换，必须原子携带 brain + senseGroups）
+  RUNTIME_SET: "runtime.set",
 
   // Chat 管理
   CHAT_CREATE: "chat.create",

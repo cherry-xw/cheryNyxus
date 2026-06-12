@@ -6,7 +6,7 @@ import {
   type ChatResumeRequestData,
   type ChatResumeResponseData,
 } from "../message/types.js";
-import { ensureChat, streamAgentChunks } from "./send.js";
+import { ensureChat, observeAgentChunks, streamAgentChunks } from "./send.js";
 import { getChat } from "@/db/chat.js";
 
 /**
@@ -16,7 +16,7 @@ import { getChat } from "@/db/chat.js";
  * 启动 chain 后 senseMiddleware Phase 0 自动检测 role=sense 且 content 为空的
  * pending 消息，重新发起审批/执行。
  *
- * 前置：须先 chat.create（携带 brain + senseGroups，runtime 完整才能 resume）。
+ * 前置：须先 chat.create 或 runtime.set（携带 brain + senseGroups，runtime 完整才能 resume）。
  */
 export async function* handleChatResume(
   ctx: HandlerContext,
@@ -30,10 +30,10 @@ export async function* handleChatResume(
     throw new Error(`Chat "${chatId}" not found`);
   }
 
-  // ensureChat 幂等：runtime 已由 chat.create 配置（brain/sense + history 一次性加载）
+  // ensureChat 幂等：runtime 已由 chat.create/runtime.set 配置
   const agent = await ensureChat(chatId);
 
-  const generator = agent.resume(chatId);
+  const generator = observeAgentChunks(agent.run(""), chatId);
   const rid = ctx.requestId ?? chatId;
 
   yield* streamAgentChunks(generator, rid);

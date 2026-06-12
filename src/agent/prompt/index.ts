@@ -1,10 +1,9 @@
 import { readFileSync, existsSync } from "fs";
-import { getSkillMetas } from "./loadSkill.js";
-import config from "@/utils/config.js";
 import os from "os";
 import dayjs from "dayjs";
+import config from "@/utils/config.js";
+import { getSkillMetas } from "./loadSkill.js";
 
-// 使用自动补全的 system_prompt 路径
 const systemPromptPath = config.global.system_prompt;
 const systemPrompt = existsSync(systemPromptPath)
   ? readFileSync(systemPromptPath, "utf-8").trim()
@@ -15,8 +14,9 @@ interface EnvInfo {
   date: string;
   time: string;
 }
+
 /**
- * 构建系统提示词 prompt
+ * 构建首条 system prompt。
  */
 export default function buildFirstSystemPrompt(): string {
   const envInfo: EnvInfo = {
@@ -25,9 +25,7 @@ export default function buildFirstSystemPrompt(): string {
     time: dayjs().toISOString(),
   };
 
-  const skills = getSkillMetas();
-
-  const skillsSection = skills
+  const skillsSection = getSkillMetas()
     .map((s) => `<skill name="${s.name}">\n${s.description}\n</skill>`)
     .join("\n");
 

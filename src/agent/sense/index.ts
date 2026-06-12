@@ -1,13 +1,13 @@
 import type { ZodType } from "zod";
 import type { Sense } from "@/core/sense";
 import type { TestCase } from "@/core/sense/compiler/types.js";
-import { registerSenses } from "@/core/sense";
+import { registerSenses, resetSenses } from "@/core/sense";
 import { readdirSync, existsSync, readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod";
 import { sense } from "@/core/sense";
-import { SupervisionLevel } from "@/core/sense";
+import { SupervisionLevel } from "@/core/config";
 
 // 显式导入所有感官模块
 import bashSense from "./bash";
@@ -16,21 +16,17 @@ import writeSense from "./write";
 import skillSense from "./skill";
 import { logger } from "@/utils/logger/index.js";
 
-export { registerSenses, getSenses } from "@/core/sense";
+export { registerSenses, getSense } from "@/core/sense";
 export type { Sense, SenseResult } from "@/core/sense";
-export { SupervisionLevel } from "@/core/sense";
 export { z } from "zod";
 export { sense } from "@/core/sense";
 
 /**
- * 注册内置感官
+ * 注册内置感官。
  */
-function registerStaticSenses(): void {
+function registerBuiltinSenses(): void {
   registerSenses([bashSense, readSense, writeSense, skillSense]);
 }
-
-// 启动时立即注册内置感官
-registerStaticSenses();
 
 /**
  * 测试结果详情
@@ -143,8 +139,13 @@ async function loadCustomSenses(): Promise<void> {
 }
 
 /**
- * 确保感官已加载完成（内置感官 + 自定义感官）
+ * 重新构建全局 sense registry（内置感官 + 编译产物）。
+ *
+ * A 方案：供启动阶段和 compile-senses 命令结束后显式调用。
+ * 长运行服务的热重载可复用该函数，但触发机制另行实现。
  */
-export async function ensureCustomSensesLoaded(): Promise<void> {
+export async function reloadSenses(): Promise<void> {
+  resetSenses();
+  registerBuiltinSenses();
   await loadCustomSenses();
 }

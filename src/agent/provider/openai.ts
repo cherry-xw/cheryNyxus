@@ -3,17 +3,25 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletion,
 } from "openai/resources/chat/completions";
-import { registerMessageAdapter, type LLMResponse } from "@/core/message";
+import { registerMessageAdapter, type LLMResponse } from "@/core/message/adapter";
 import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
 import type { ZodType } from "zod";
 import type {
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
-import { registerLLMAdapter } from "@/core/llm/index";
-import type { LLMAdapter } from "@/core/middleware/types";
+import { registerLLMAdapter, type LLMAdapter } from "@/core/llm/adapter";
+import type { ProviderCapabilities } from "@/core/provider/capabilities";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 
 // ========== Adapter 定义（参数分离）==========
+
+export const openaiCapabilities: ProviderCapabilities = {
+  supportsStreaming: true,
+  supportsToolCalls: true,
+  supportsReasoning: true,
+  supportsStrictSchema: true,
+  generatesToolCallIds: true,
+};
 
 // Message Adapter 配置
 const openaiMessageAdapterConfig = {

@@ -1,13 +1,8 @@
 import { readFileSync, readdirSync, existsSync, statSync } from "fs";
-import { fileURLToPath } from "url";
-import { join, dirname } from "path";
+import { join } from "path";
 import yaml from "js-yaml";
 import config from "@/utils/config.js";
 import { logger } from "@/utils/logger/index.js";
-
-// ESM 下获取当前模块目录（用于 fallback）
-const promptModulePath = fileURLToPath(import.meta.url);
-const promptDir = dirname(promptModulePath);
 
 export interface SkillData {
   name: string;
@@ -26,13 +21,11 @@ interface SkillMeta {
  */
 function parseSkillFrontmatter(
   content: string,
-  defaultName: string
+  defaultName: string,
 ): SkillMeta {
-  // 支持跨平台换行符（Windows \r\n 和 Unix \n）
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
 
   if (!match) {
-    // frontmatter 缺失时使用默认值
     return {
       name: defaultName,
       description: "",
@@ -50,7 +43,6 @@ function parseSkillFrontmatter(
       content: bodyContent,
     };
   } catch {
-    // YAML 解析失败时使用默认值
     return {
       name: defaultName,
       description: "",
@@ -60,8 +52,7 @@ function parseSkillFrontmatter(
 }
 
 /**
- * 遍历 skills 目录，读取所有 SKILL.md/skill.md 文件
- * 返回 Skill Map（key: skill name, value: SkillData）
+ * 遍历 skills 目录，读取所有 SKILL.md/skill.md 文件。
  */
 function loadSkills(): Map<string, SkillData> {
   const skillsDir = config.global.skills_dir;
@@ -73,23 +64,19 @@ function loadSkills(): Map<string, SkillData> {
 
   for (const dir of dirs) {
     if (!dir.isDirectory()) continue;
-    const dirName = dir.name;
-    if (!dirName) continue;
 
+    const dirName = dir.name;
     const skillPath = join(skillsDir, dirName);
     const files = readdirSync(skillPath);
-
-    // 查找 SKILL.md 或 skill.md
     const skillFile = files.find((f) => f.toLowerCase() === "skill.md");
     if (!skillFile) continue;
 
     const fileContent = readFileSync(join(skillPath, skillFile), "utf-8");
     const meta = parseSkillFrontmatter(fileContent, dirName);
 
-    // skill name 冲突时警告并覆盖
     if (skillMap.has(meta.name)) {
       logger.warn(
-        `[loadSkill] Warning: skill name "${meta.name}" conflict, overwriting with latest`
+        `[loadSkill] Warning: skill name "${meta.name}" conflict, overwriting with latest`,
       );
     }
 
@@ -103,57 +90,46 @@ function loadSkills(): Map<string, SkillData> {
   return skillMap;
 }
 
-// 启动时一次性加载所有 skills（用于元数据列表）
 const skillMap = loadSkills();
 
 /**
- * 获取完整 Skill Map
+ * 获取完整 Skill Map。
  */
 export function getSkillMap(): Map<string, SkillData> {
   return skillMap;
 }
 
 /**
- * 获取单个 skill 数据（从缓存）
- * @param name skill name
- * @returns skill 数据，不存在时返回 undefined
+ * 获取单个 skill 数据（从缓存）。
  */
 export function getSkill(name: string): SkillData | undefined {
   return skillMap.get(name);
 }
 
 /**
- * 实时读取单个 skill 数据（每次都从文件读取最新内容）
- * @param name skill name
- * @returns skill 数据 + 文件元信息，不存在时返回 undefined
+ * 实时读取单个 skill 数据。
  */
-export function getSkillRealtime(name: string): 
+export function getSkillRealtime(name: string):
   | { skill: SkillData; size: number; mtimeMs: number }
   | undefined {
   const skillsDir = config.global.skills_dir;
-  
-  // 遍历 skills 目录查找匹配的 skill
   if (!existsSync(skillsDir)) return undefined;
-  
+
   const dirs = readdirSync(skillsDir, { withFileTypes: true });
-  
+
   for (const dir of dirs) {
     if (!dir.isDirectory()) continue;
+
     const dirName = dir.name;
-    if (!dirName) continue;
-    
     const skillPath = join(skillsDir, dirName);
     const files = readdirSync(skillPath);
-    
-    // 查找 SKILL.md 或 skill.md
     const skillFile = files.find((f) => f.toLowerCase() === "skill.md");
     if (!skillFile) continue;
-    
+
     const filePath = join(skillPath, skillFile);
     const fileContent = readFileSync(filePath, "utf-8");
     const meta = parseSkillFrontmatter(fileContent, dirName);
-    
-    // 匹配 skill name
+
     if (meta.name === name) {
       const fileStat = statSync(filePath);
       return {
@@ -167,13 +143,12 @@ export function getSkillRealtime(name: string):
       };
     }
   }
-  
+
   return undefined;
 }
 
 /**
- * 获取所有 skill 的元数据（不含 content）
- * 用于 prompt 构建时注入 skill 列表
+ * 获取所有 skill 的元数据（不含 content）。
  */
 export function getSkillMetas(): Array<{ name: string; description: string }> {
   return Array.from(skillMap.values()).map((s) => ({

@@ -24,6 +24,16 @@ export function registerSenses(senses: Sense<ZodType>[]): void {
 }
 
 /**
+ * 清空全局感官注册表。
+ * 用于重新编译/重新加载 sense 后重建 registry，避免已删除的外部 sense 残留。
+ */
+export function resetSenses(): void {
+  for (const name of Object.keys(senseRegistry)) {
+    delete senseRegistry[name];
+  }
+}
+
+/**
  * 按名称获取单个感官实例
  */
 export function getSense(name: string): Sense<ZodType> | undefined {

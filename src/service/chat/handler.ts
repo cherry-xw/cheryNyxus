@@ -22,10 +22,21 @@ import {
 } from "@/db/chat.js";
 import { clearChatRuntime, ensureChat } from "./send.js";
 import { randomUUID } from "crypto";
+import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
+
+function parseRuntimeSelection(params: ChatCreateRequestData): RuntimeSelection {
+  if (!params.brain || !Array.isArray(params.senseGroups) || params.senseGroups.length === 0) {
+    throw new Error("chat.create requires brain and at least one senseGroups entry");
+  }
+  return {
+    brain: params.brain,
+    senseGroups: params.senseGroups,
+  };
+}
 
 /**
  * 创建聊天（chatId 可选由前端指定）
- * 必携带 brain + senseGroups：原子完成 setBrain + setSense + loadHistory，
+ * 必携带 brain + senseGroups：创建 agent runtime、注册事件任务并加载历史，
  * 返回 chatId。之后 chat.send 无需再带 brain/sense。
  */
 export async function handleChatCreate(
@@ -33,10 +44,11 @@ export async function handleChatCreate(
   params: unknown,
 ): Promise<ChatCreateResponseData> {
   const p = params as ChatCreateRequestData;
+  const selection = parseRuntimeSelection(p);
   const chatId = p.chatId || randomUUID();
   createChat(chatId);
-  // 原子配置 runtime（brain/sense 注入 + 历史一次性加载）
-  await ensureChat(chatId, p.brain, p.senseGroups);
+  // 原子配置 runtime，并一次性加载历史到 agent。
+  await ensureChat(chatId, selection);
   return { chatId };
 }
 
@@ -63,7 +75,7 @@ export async function handleChatList(
 /**
  * 获取聊天详情（载入历史对话）
  * 重构后不再做 pending sense recovery（brain/sense 运行时不持久化），
- * 仅流式返回历史消息，前端重新选择 brain/sense 后 send 即可继续。
+ * 仅流式返回历史消息，前端通过 runtime.set 重新注入 runtime 后即可继续。
  */
 export async function* handleChatGet(
   _ctx: HandlerContext,

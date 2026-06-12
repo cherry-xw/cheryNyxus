@@ -130,8 +130,6 @@ export default defineConfig(({ mode }) => {
           "src/utils/tools/**",
           "src/utils/custom/**",
           // 真正的纯导出文件（只有 export 语句）
-          "src/core/llm/index.ts",
-          "src/core/message/index.ts",
           "src/core/sense/compiler/index.ts",
           "src/core/sense/index.ts",
           "src/service/message/index.ts",

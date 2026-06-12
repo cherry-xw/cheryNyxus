@@ -1,6 +1,12 @@
 import { randomUUID } from "crypto";
-import type { MiddlewareContext, PersistMessageData, SenseAcceptChunk, SenseRejectChunk } from "@/core/middleware/types";
-import type { LLMResponse } from "@/core/message/index";
+import type {
+  AgentMessage,
+  AgentMessagePatch,
+  MiddlewareContext,
+  SenseAcceptChunk,
+  SenseRejectChunk,
+} from "@/core/middleware/types";
+import type { LLMResponse } from "@/core/message/adapter";
 import type { SenseCallData } from "@/core/sense/adapter";
 import { logger } from "@/utils/logger/index.js";
 
@@ -12,13 +18,12 @@ export class CheckpointState {
   private thinking = "";
   private content = "";
   private senseDeltas: SenseCallData[] = [];
-  private pendingSenses = new Map<string, { id: string; name: string; arguments: string }>();
   private senseResults: (SenseAcceptChunk | SenseRejectChunk)[] = [];
 
   /**
    * 摄入 chunk，更新内部状态
    */
-  ingest(chunk: { type: string; thinkingDelta?: string; contentDelta?: string; senseDelta?: SenseCallData[]; id?: string; name?: string; arguments?: string; result?: string }): void {
+  ingest(chunk: { type: string; thinkingDelta?: string; contentDelta?: string; senseDelta?: SenseCallData[]; id?: string; name?: string; arguments?: string; result?: string; reason?: string; hash?: string }): void {
     switch (chunk.type) {
       case "stream":
         this.thinking += chunk.thinkingDelta ?? "";
@@ -28,21 +33,8 @@ export class CheckpointState {
         }
         break;
 
-      case "sense_end":
-        if (chunk.id) {
-          this.pendingSenses.set(chunk.id, {
-            id: chunk.id,
-            name: chunk.name ?? "",
-            arguments: chunk.arguments ?? "",
-          });
-        }
-        break;
-
       case "sense_accept":
       case "sense_reject":
-        if (chunk.id) {
-          this.pendingSenses.delete(chunk.id);
-        }
         this.senseResults.push(chunk as SenseAcceptChunk | SenseRejectChunk);
         break;
     }
@@ -61,12 +53,12 @@ export class CheckpointState {
   /**
    * 追加 assistant 响应和 sense 结果到 messages
    * （userInputs 已在 checkpoint.ts next() 调用前处理）
-   * @returns 新创建的消息列表（用于持久化回调）
+   * @returns 消息变更列表（由 checkpoint 发送事件）
    */
-  appendResponseMessages(ctx: MiddlewareContext): PersistMessageData[] {
+  appendResponseMessages(ctx: MiddlewareContext): CheckpointMessageMutation[] {
     const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas);
     const messages = ctx.soul.messages ?? [];
-    const newMessages: PersistMessageData[] = [];
+    const mutations: CheckpointMessageMutation[] = [];
 
     logger.info("\n[CHECKPOINT] Appending response messages");
     logger.info("[CHECKPOINT] Thinking length:", this.thinking.length);
@@ -93,12 +85,15 @@ export class CheckpointState {
         updateAt: Date.now(),
       };
       messages.push(assistantMsg);
-      newMessages.push({
-        id: assistantMsg.id,
-        role: "assistant",
-        content: this.content || undefined,
-        thinking: this.thinking || undefined,
-        senseCalls: assistantMsg.senseCalls,
+      mutations.push({
+        type: "created",
+        message: {
+          id: assistantMsg.id,
+          role: "assistant",
+          content: this.content || undefined,
+          thinking: this.thinking || undefined,
+          senseCalls: assistantMsg.senseCalls,
+        },
       });
       logger.info("[CHECKPOINT] ✅ Appended assistant message");
       logger.info("[CHECKPOINT] Sense calls in assistant:", assistantMsg.senseCalls?.length || 0);
@@ -124,10 +119,14 @@ export class CheckpointState {
         logger.info("[CHECKPOINT] ID:", r.id);
         logger.info("[CHECKPOINT] Content preview:", content.slice(0, 100));
 
-        // 调用 updateMessage 回调更新 DB（fillApprovalResult）
-        if (ctx.updateMessage) {
-          ctx.updateMessage(r.id, content);
-        }
+        mutations.push({
+          type: "updated",
+          id: r.id,
+          patch: {
+            content,
+            hash,
+          },
+        });
       } else {
         // Normal: 创建新消息并 INSERT
         const senseMsg: LLMResponse = {
@@ -140,11 +139,14 @@ export class CheckpointState {
         };
         messages.push(senseMsg);
 
-        newMessages.push({
-          id: r.id,
-          role: "sense",
-          content: senseMsg.content,
-          hash,
+        mutations.push({
+          type: "created",
+          message: {
+            id: r.id,
+            role: "sense",
+            content: senseMsg.content,
+            hash,
+          },
         });
 
         logger.info("\n[CHECKPOINT] ⚡ Appended sense message");
@@ -160,14 +162,7 @@ export class CheckpointState {
     logger.info("[CHECKPOINT] Last message role:", messages[messages.length - 1]?.role);
     logger.info();
 
-    return newMessages;
-  }
-
-  /**
-   * 获取持久化所需的 pendingSenses
-   */
-  getPendingSensesArray(): Array<[string, { id: string; name: string; arguments: string }]> {
-    return Array.from(this.pendingSenses);
+    return mutations;
   }
 
   /**
@@ -185,15 +180,26 @@ export class CheckpointState {
   }
 
   /**
-   * 重置状态（sense_complete 后新一轮）
+   * 重置状态（sense_accept/sense_reject 后新一轮）
    */
   reset(): void {
     this.thinking = "";
     this.content = "";
     this.senseDeltas = [];
-    // 不重置 pendingSenses 和 senseResults（跨轮次保持）
+    // 不重置 senseResults（跨轮次保持）
   }
 }
+
+export type CheckpointMessageMutation =
+  | {
+      type: "created";
+      message: AgentMessage;
+    }
+  | {
+      type: "updated";
+      id: string;
+      patch: AgentMessagePatch;
+    };
 
 /**
  * 合并 senseDelta（按 index 合并 arguments）

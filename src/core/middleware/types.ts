@@ -1,9 +1,11 @@
-import type { LLMResponse } from "../message/index";
-import type { MessageProviderAdapterConfig } from "../message/index";
+import type { MessageProviderAdapterConfig, LLMResponse } from "../message/adapter";
+import type { LLMAdapter } from "../llm/adapter";
 import type { SenseAdapter, SenseCallData, SenseFunction } from "../sense/adapter";
 import type { SenseResult, SenseSharedData } from "../sense/senseCreator";
 import type { GlobalConfig, BrainConfig } from "@/utils/config";
 import { SupervisionLevel } from "../config.js";
+
+export type { LLMAdapter } from "../llm/adapter";
 
 /**
  * 用户输入条目
@@ -52,7 +54,7 @@ export interface PrecompiledSenses {
 export interface APIMessage {
   role: "system" | "user" | "assistant" | "sense" | "function";
   content: string;
-  senseCalls?: import("../message/index").SenseCallInfo[];
+  senseCalls?: import("../message/adapter").SenseCallInfo[];
   /** 仅sense角色需要（sense_call_id） */
   id?: string;
 }
@@ -70,8 +72,6 @@ export interface SoulGroup {
   userInputs: UserInputEntry[];
   /** AI message 参数（checkpoint 构建后放置） */
   messages?: LLMResponse[];
-  /** 历史消息已加载标记（防止重复加载） */
-  historyLoaded?: boolean;
   /** loop 起始计数（recovery 恢复轮次，从最后 user 消息后 assistant 消息数量计算） */
   loopStartCount?: number;
 }
@@ -88,7 +88,7 @@ export interface SenseEntry {
 }
 
 /**
- * Runtime 配置（每轮可换：brain/sense 变更时由 setBrain/setSense 更新）
+ * Runtime 配置（每轮可换：brain/sense 由上层原子解析后整体更新）
  * 由 builder 层构建摊平后注入，ctx 运行期不再依赖 SenseManager。
  */
 export interface RuntimeConfig {
@@ -115,15 +115,22 @@ export interface AdaptersGroup {
 }
 
 /**
- * 消息持久化数据（middleware → service 层回调）
+ * Agent 运行期消息快照（agent → service 事件载荷）
  */
-export interface PersistMessageData {
+export interface AgentMessage {
   id: string;
   role: "user" | "assistant" | "system" | "sense";
   content?: string;
   thinking?: string;
   senseCalls?: Array<{ id: string; name: string; arguments: string }>;
   /** 感官执行结果的 hash */
+  hash?: string;
+}
+
+export interface AgentMessagePatch {
+  content?: string;
+  thinking?: string;
+  senseCalls?: Array<{ id: string; name: string; arguments: string }>;
   hash?: string;
 }
 
@@ -137,10 +144,6 @@ export interface MiddlewareContext {
   global: GlobalConfig;
   /** Runtime 配置（每轮可换：brain/sense 变更时更新） */
   runtime: RuntimeConfig;
-  /** 消息持久化回调（由 service 层注入，middleware 层不直接依赖 DB） */
-  persistMessage?: (message: PersistMessageData) => void;
-  /** 消息更新回调（recovery 场景：UPDATE 已有记录而非 INSERT） */
-  updateMessage?: (id: string, content: string) => void;
 }
 
 /**
@@ -252,6 +255,37 @@ export interface DoneChunk {
 export interface ConsumedChunk {
   type: "consumed";
   count: number;
+  messages?: AgentMessage[];
+}
+
+/**
+ * 内部副作用：创建消息。
+ * 由 service observer 统一消费，middleware 不直接触发 DB/approval 副作用。
+ */
+export interface MessageCreatedChunk {
+  type: "message_created";
+  message: AgentMessage;
+}
+
+/**
+ * 内部副作用：更新消息。
+ */
+export interface MessageUpdatedChunk {
+  type: "message_updated";
+  id: string;
+  patch: AgentMessagePatch;
+}
+
+/**
+ * 内部副作用：注册待审批 sense。
+ */
+export interface SensePendingChunk {
+  type: "sense_pending";
+  approvalId: string;
+  senseName: string;
+  arguments: string;
+  supervisionLevel: SupervisionLevel;
+  approvalResolve?: ((action: "accept" | "reject", reason?: string) => void) | null;
 }
 
 /**
@@ -281,6 +315,9 @@ export type MiddlewareChunk =
   | SenseRejectChunk
   | StagedChunk
   | ConsumedChunk
+  | MessageCreatedChunk
+  | MessageUpdatedChunk
+  | SensePendingChunk
   | DoneChunk
   | ErrorChunk;
 
@@ -299,16 +336,3 @@ export type LoopHandler<T = MiddlewareChunk> = (
   ctx: MiddlewareContext,
   runChain: () => AsyncGenerator<T, void, unknown>,
 ) => AsyncGenerator<T, void, unknown>;
-
-/**
- * LLM Adapter 接口
- * 泛型参数支持类型强化，默认参数保持向后兼容
- */
-export interface LLMAdapter<
-  TMessages = unknown[],
-  TResponse = unknown,
-  TStreamChunk = unknown
-> {
-  chat(messages: TMessages, senses: SenseFunction[], options?: Record<string, unknown>): Promise<TResponse>;
-  chatStream(messages: TMessages, senses: SenseFunction[], options?: Record<string, unknown>): Promise<AsyncIterable<TStreamChunk>>;
-}

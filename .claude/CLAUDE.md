@@ -64,17 +64,18 @@ src/
 │       └── capabilities.ts      # Provider 能力定义（streaming/sense_calls）
 │
 ├── agent/                       # 具体实现
-│   ├── builder.ts               # AgentBuilder 链式配置、Provider 注册调用
+│   ├── bootstrap.ts             # 启动期注册 Provider + 重建 Sense registry
+│   ├── builder.ts               # AgentBuilder Middleware 工厂/门面
 │   ├── middleware/
 │   │   ├── index.ts             # defaultHandlers、createLoopHandler
-│   │   ├── checkpoint.ts        # checkpointMiddleware 消息持久化
+│   │   ├── checkpoint.ts        # checkpointMiddleware 状态归纳 + effect chunk
 │   │   ├── checkpointState.ts   # CheckpointState 状态管理
 │   │   ├── chat.ts              # chatMiddleware LLM 调用
 │   │   ├── tool.ts              # senseMiddleware 感官执行（文件名待重构）
 │   │   ├── retry.ts             # retryMiddleware 错误重试
 │   │   └── loop.ts              # createLoopHandler 循环执行
 │   ├── sense/                   # 内置感官
-│   │   ├── index.ts             # 注册内置感官
+│   │   ├── index.ts             # reloadSenses：注册内置感官 + 加载编译产物
 │   │   ├── bash.ts              # execute_command 感官
 │   │   ├── read.ts              # read_file 感官
 │   │   ├── write.ts             # write_file 感官
@@ -90,7 +91,7 @@ src/
 │   │   └── lifecycle.ts         # soul.create/list/load/delete handlers
 │   ├── chat/
 │   │   ├── handler.ts           # chat.list/get/delete handlers
-│   │   └ send.ts               # chat.send 流式处理、approvalManager.register() + fillApprovalResult()
+│   │   └ send.ts               # chat.send 流式处理、observer 副作用处理、RPC 转换
 │   ├── approval/
 │   │   └ manager.ts             # ApprovalManager 极简版，只存储 approvalResolve 回调
 │   ├── message/
@@ -148,6 +149,7 @@ test/                            # 测试套件（vitest），结构镜像 src/
 | `chat.list` | 列出聊天 | 否 |
 | `chat.get` | 获取聊天详情（载入历史） | 是 |
 | `chat.delete` | 删除聊天 | 否 |
+| `runtime.set` | 原子设置 chat 的 brain + senseGroups | 否 |
 | `chat.send` | 发送聊天消息 | 是 |
 | `sense.approval` | 感官审批 | 否 |
 | `sense.list` | 获取可用 sense_group 列表 | 否 |
@@ -184,10 +186,10 @@ test/                            # 测试套件（vitest），结构镜像 src/
 1. chat.send 发送用户消息
 2. LLM 返回 sense_call（如 execute_command）
 3. senseMiddleware 检查 supervisionLevel = confirm
-4. addMessage() 创建 sense 消息（content=NULL）
+4. checkpoint 创建 pending sense 内存消息并 yield message_created effect
 5. yield SenseTriggerChunk（含 approvalResolve 回调）
-6. send.ts 调用 approvalManager.register() 存储 approvalResolve
-7. send.ts yield interrupt notification
+6. service observer 消费 sense_pending effect，调用 approvalManager.register()
+7. transport mapper 将 SenseTriggerChunk 转为 interrupt notification
 8. 客户端收到 interrupt，发送 sense.approval
 9. approvalManager.confirm() 调用 approvalResolve(action, reason)
 10. fillApprovalResult() 更新 messages.content（执行结果或拒绝原因）
@@ -225,8 +227,10 @@ chatMiddleware yield StreamChunk
   ↓ checkpointMiddleware yield StagedChunk（thinking_end/content_end）
 senseMiddleware yield SenseTriggerChunk
   ↓ checkpointMiddleware yield StagedChunk（sense_end）
+  ↓ checkpointMiddleware yield message/sense effect chunk
+  ↓ service observer 处理 DB 持久化和 approval 注册
 senseMiddleware 执行感官
-  ↓ senseMiddleware yield SenseCompleteChunk
+  ↓ senseMiddleware yield SenseAcceptChunk/SenseRejectChunk
 retryMiddleware 捕获错误 yield ErrorChunk
 loopMiddleware 循环直到无 senseCalls
   ↓ yield DoneChunk
@@ -254,21 +258,31 @@ loopMiddleware 循环直到无 senseCalls
 [agent/builder.ts](src/agent/builder.ts)：
 
 ```ts
-const agent = await new AgentBuilder()
-  .use("longcat")           // 选择 Brain 配置
-  .setSoulId(soulId)        // 设置灵魂 ID
-  .setSenseGroup("safe")    // 设置感官组（必填，运行时由 API 传入）
-  .build();
+const agent = new AgentBuilder()
+  .build()
+  .configureRuntime({
+    brain: "longcat",
+    senseGroups: ["safe"],
+  })
+  .init(chatId);
 
-agent.createChat(chatId);  // 创建聊天
-agent.send(chatId, input); // 发送消息
+agent.run(input); // 发送消息
 ```
 
 `build()` 阶段：
-1. 获取 Provider Adapter（LLM/Message/Sense）
-2. 调用 `senseAdapter.buildSenses()` 预构建感官
-3. 加载指定 sense_group 的感官到 SenseManager
-4. 创建 Middleware 实例
+1. 创建 Middleware 实例
+2. 注入 global、handlers、loopHandler 等跨轮不变项
+
+Provider 和 Sense registry 不由 Builder 懒加载；服务启动前由 `bootstrapAgentRuntime()` 全局完成：
+1. `registerBuiltinProviders()` 注册内置 Provider Adapter
+2. `reloadSenses()` 清空并重建 Sense registry（内置感官 + 编译产物）
+3. `compile-senses` 子命令结束后会在当前进程调用 `reloadSenses()`，供后续热重载入口复用
+
+`configureRuntime()` 阶段：
+1. 通过 RuntimeResolver 原子解析 brain + senseGroups
+2. 获取 Provider Adapter（LLM/Message/Sense）
+3. 调用 `senseAdapter.buildSenses()` 预构建感官
+4. 摊平 senseTable（监管等级 + 执行器）并注入 Middleware
 
 ### Adapter - 三层适配
 
@@ -299,14 +313,14 @@ yield DoneChunk;
 
 - `chatMap`：Map<string, MiddlewareContext> 聊天上下文映射
 - `createChat(chatId)`：初始化 context，注入 system 消息
-- `send(chatId, input)`：注入 userInputs，执行 chain
+- `send(input)`：单一入口；空闲时注入 userInputs 并执行 chain，运行中调用只入队，下一轮 loop 自动消费
 - 支持 generator 复用（同一 chatId 多次 send）
 
 ## 中间件职责
 
 | 中间件 | 文件 | 输入 | 输出 |
 |--------|------|------|------|
-| checkpoint | [checkpoint.ts](src/agent/middleware/checkpoint.ts) | StreamChunk | StagedChunk（合并 delta） |
+| checkpoint | [checkpoint.ts](src/agent/middleware/checkpoint.ts) | StreamChunk / SenseTriggerChunk / SenseResultChunk | StagedChunk + message/sense effect chunk |
 | chat | [chat.ts](src/agent/middleware/chat.ts) | userInputs | StreamChunk（LLM 响应） |
 | sense | [tool.ts](src/agent/middleware/tool.ts) | SenseTriggerChunk | SenseCompleteChunk |
 | retry | [retry.ts](src/agent/middleware/retry.ts) | ErrorChunk | 重试或继续 |
@@ -317,7 +331,7 @@ yield DoneChunk;
 2. 收集 `contentDelta` → yield `staged(content_end)`
 3. 收集 `senseDelta` → 构建 `SenseTriggerChunk`
 4. 追加消息到 `ctx.soul.messages`
-5. 持久化到 `checkpoints` 表
+5. yield `message_created` / `message_updated` / `sense_pending` effect，由 service observer 统一处理 DB/approval 副作用
 
 ### senseMiddleware
 
@@ -388,7 +402,7 @@ sense_groups:
 1. 创建 `src/agent/provider/<name>.ts`
 2. 定义 MessageAdapter/SenseAdapter/LLMAdapter 配置
 3. 导出 `register<Name>Adapter()` 函数
-4. 在 [builder.ts](src/agent/builder.ts) 调用注册函数
+4. 在 [agent/provider/index.ts](src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用注册函数
 5. 在 `config.yaml` 添加 brain 配置，`provider` 字段对应
 
 ### 添加内置 Sense

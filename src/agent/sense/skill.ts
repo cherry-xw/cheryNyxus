@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sense, type SenseResult } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
-import { getSkillRealtime } from "@/core/prompt/loadSkill";
+import { getSkillRealtime } from "@/agent/prompt/loadSkill";
 import { hashGenerator } from "@/utils/hash.js";
 
 /**

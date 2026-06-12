@@ -2,8 +2,6 @@ import { WebSocketServer, WebSocket } from "ws";
 import {
   RpcRouter,
   createResponse,
-  createChunk,
-  createNotification,
   createError,
   ErrorCode,
   isRpcRequest,

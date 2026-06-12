@@ -16,23 +16,5 @@ export interface ProviderCapabilities {
 }
 
 /**
- * OpenAI Provider 能力配置
+ * Provider 具体能力配置由对应 provider 实现声明。
  */
-export const openaiCapabilities: ProviderCapabilities = {
-  supportsStreaming: true,
-  supportsToolCalls: true,
-  supportsReasoning: true,  // 支持 reasoning_content 字段
-  supportsStrictSchema: true,
-  generatesToolCallIds: true,
-};
-
-/**
- * Ollama Provider 能力配置
- */
-export const ollamaCapabilities: ProviderCapabilities = {
-  supportsStreaming: true,
-  supportsToolCalls: true,
-  supportsReasoning: true,  // 支持 thinking 字段
-  supportsStrictSchema: false,
-  generatesToolCallIds: false,  // 需要手动生成 tool-${index}
-};

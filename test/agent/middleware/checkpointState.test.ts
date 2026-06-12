@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { CheckpointState } from "@/agent/middleware/checkpointState";
-import type { MiddlewareContext, StreamChunk, SenseTriggerChunk, SenseCompleteChunk } from "@/core/middleware/types";
+import type { MiddlewareContext } from "@/core/middleware/types";
 import type { SenseCallData } from "@/core/sense/adapter";
 
 // Mock randomUUID for consistent testing
@@ -109,78 +109,12 @@ describe("CheckpointState", () => {
     });
   });
 
-  describe("ingest - sense_trigger chunk", () => {
-    it("should add to pendingSenses", () => {
-      state.ingest({
-        type: "sense_trigger",
-        id: "sense-1",
-        name: "execute_command",
-        arguments: '{"cmd": "ls"}',
-      });
-
-      const pending = state.getPendingSensesArray();
-      expect(pending).toHaveLength(1);
-      expect(pending[0]).toEqual([
-        "sense-1",
-        { id: "sense-1", name: "execute_command", arguments: '{"cmd": "ls"}' },
-      ]);
-    });
-
-    it("should not add if no id", () => {
-      state.ingest({
-        type: "sense_trigger",
-        name: "execute_command",
-        arguments: '{"cmd": "ls"}',
-      });
-
-      expect(state.getPendingSensesArray()).toHaveLength(0);
-    });
-
-    it("should handle multiple sense triggers", () => {
-      state.ingest({
-        type: "sense_trigger",
-        id: "sense-1",
-        name: "execute_command",
-        arguments: '{"cmd": "ls"}',
-      });
-
-      state.ingest({
-        type: "sense_trigger",
-        id: "sense-2",
-        name: "read_file",
-        arguments: '{"path": "/test"}',
-      });
-
-      expect(state.getPendingSensesArray()).toHaveLength(2);
-    });
-  });
-
-  describe("ingest - sense_complete chunk", () => {
-    it("should remove from pendingSenses", () => {
-      state.ingest({
-        type: "sense_trigger",
-        id: "sense-1",
-        name: "execute_command",
-        arguments: '{"cmd": "ls"}',
-      });
-
-      expect(state.getPendingSensesArray()).toHaveLength(1);
-
-      state.ingest({
-        type: "sense_complete",
-        id: "sense-1",
-        name: "execute_command",
-        result: "file1.txt",
-      });
-
-      expect(state.getPendingSensesArray()).toHaveLength(0);
-    });
-
+  describe("ingest - sense result chunks", () => {
     it("should store sense result", () => {
       // Need content to trigger message append
       state.ingest({ type: "stream", contentDelta: "Response" });
       state.ingest({
-        type: "sense_complete",
+        type: "sense_accept",
         id: "sense-1",
         name: "execute_command",
         result: "file1.txt",
@@ -209,26 +143,6 @@ describe("CheckpointState", () => {
       const staged = state.getStagedData();
       expect(staged.thinking).toBe("");
       expect(staged.content).toBe("");
-    });
-  });
-
-  describe("getPendingSensesArray", () => {
-    it("should return empty array when no pending senses", () => {
-      expect(state.getPendingSensesArray()).toEqual([]);
-    });
-
-    it("should return array of [id, sense] tuples", () => {
-      state.ingest({
-        type: "sense_trigger",
-        id: "sense-1",
-        name: "execute_command",
-        arguments: '{"cmd": "ls"}',
-      });
-
-      const pending = state.getPendingSensesArray();
-      expect(pending).toHaveLength(1);
-      expect(pending[0][0]).toBe("sense-1");
-      expect(pending[0][1].name).toBe("execute_command");
     });
   });
 
@@ -270,7 +184,7 @@ describe("CheckpointState", () => {
 
       state.ingest({ type: "stream", contentDelta: "I will run a command" });
       state.ingest({
-        type: "sense_complete",
+        type: "sense_accept",
         id: "sense-1",
         name: "execute_command",
         result: "file1.txt",
