@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { createRequire } from "module";
 import type { Plugin } from "vite";
@@ -37,12 +37,12 @@ function postBuildFix(): Plugin {
         rmSync(resolve(distDir, f));
       }
 
-      // ===== web/index.html 复制 =====
-      const webHtml = resolve(__dirname, "src/web/index.html");
+      // ===== web 整目录复制（ESM 模块化前端，多文件）=====
+      const webSrcDir = resolve(__dirname, "src/web");
       const webTargetDir = resolve(distDir, "web");
-      if (existsSync(webHtml)) {
-        mkdirSync(webTargetDir, { recursive: true });
-        copyFileSync(webHtml, resolve(webTargetDir, "index.html"));
+      if (existsSync(webSrcDir)) {
+        rmSync(webTargetDir, { recursive: true, force: true });
+        cpSync(webSrcDir, webTargetDir, { recursive: true });
       }
 
       // ===== index.js 补丁 =====
@@ -112,8 +112,11 @@ export default defineConfig(({ mode }) => {
       environment: "node",
       include: ["test/**/*.test.ts"],
       exclude: ["node_modules", "dist"],
-      testTimeout: 10000,
-      hookTimeout: 10000,
+      // test/flows 集成测试环境隔离：CHERY_DIR 指向 fixtures + 清理 DB
+      // 必须在测试文件 import config 链之前执行（setup.ts 不 import config）
+      setupFiles: ["test/flows/setup.ts"],
+      testTimeout: 15000,
+      hookTimeout: 15000,
       reporters: ["verbose"],
       coverage: {
         provider: "v8",

@@ -19,6 +19,20 @@ export interface RuntimeSelection {
   senseGroups: string[];
 }
 
+/**
+ * 解析并校验 runtime selection（brain + senseGroups）。
+ * 供 chat.create / runtime.set 共用，methodName 用于错误消息。
+ */
+export function parseRuntimeSelection(
+  params: { brain?: string; senseGroups?: string[] },
+  methodName: string,
+): RuntimeSelection {
+  if (!params.brain || !Array.isArray(params.senseGroups) || params.senseGroups.length === 0) {
+    throw new Error(`${methodName} requires brain and at least one senseGroups entry`);
+  }
+  return { brain: params.brain, senseGroups: params.senseGroups };
+}
+
 export class RuntimeResolver {
   /**
    * 原子解析完整 runtime。

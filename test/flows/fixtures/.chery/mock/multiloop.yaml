@@ -1,0 +1,28 @@
+# 多轮 sense 链：content → 多 tool call → 多 tool call → content
+# 配合 mixed_confirm 测多轮 loop（write_file 需审批，read_file 视 senseGroup）
+repeat: last
+script:
+  # 轮1：content
+  - content: "好的，我来处理这些任务。"
+  # 轮2：多个 tool call（read_file ×2）
+  - thinking: "需要读取两个文件"
+    content: "让我先读取相关文件"
+    senseCalls:
+      - id: "multi-rf-0"
+        name: "read_file"
+        arguments: '{"path":"a.txt"}'
+      - id: "multi-rf-1"
+        name: "read_file"
+        arguments: '{"path":"b.txt"}'
+  # 轮3：多个 tool call（write_file + read_file）
+  - thinking: "写入结果并再读一个文件"
+    content: "现在写入结果"
+    senseCalls:
+      - id: "multi-wf-0"
+        name: "write_file"
+        arguments: '{"path":"/tmp/cheryclaw-mock-out.txt","content":"result"}'
+      - id: "multi-rf-2"
+        name: "read_file"
+        arguments: '{"path":"c.txt"}'
+  # 轮4：content
+  - content: "所有任务已完成。"

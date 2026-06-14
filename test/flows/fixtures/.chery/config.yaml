@@ -1,0 +1,65 @@
+# test/flows 集成测试专用配置（CHERY_DIR = test/flows/fixtures）
+# 多 mock brain 覆盖各交互流程，provider 全为 mock（离线、无网络）
+llm:
+  brain:
+    mock_content:                # 流程A：单轮纯 content
+      model: mock_content
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/content_only.yaml
+    mock_auto:                   # 流程B：auto sense 两轮
+      model: mock_auto
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/auto_sense.yaml
+    mock_confirm:                # 流程C：confirm sense（accept / reject 由 client 控制）
+      model: mock_confirm
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/confirm_sense.yaml
+    mock_confirm_reject:         # 流程C-reject 独立脚本（id 隔离避免跨 chat 冲突）
+      model: mock_confirm_reject
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/confirm_reject.yaml
+    mock_recover_2:              # 恢复流程：resume Case1（id recover-wf-2）
+      model: mock_recover_2
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/recover_2.yaml
+    mock_recover_3:              # 恢复流程：send staged.reverse（id recover-wf-3）
+      model: mock_recover_3
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/recover_3.yaml
+    mock_multiloop:              # 多轮 sense 链（loop）
+      model: mock_multiloop
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/multiloop.yaml
+
+# sense 分组（:level 后缀覆盖监管等级）
+sense_groups:
+  auto_senses:                   # read_file 自动执行
+    - read_file:auto
+  confirm_senses:                # write_file 需审批
+    - write_file:confirm
+  mixed_confirm:                 # 多感官 confirm
+    - read_file:confirm
+    - write_file:confirm
+
+global:
+  thinking: true
+  supervision: manual            # 全局默认 manual（被 sense_groups :level 覆盖）
+  stream: true
+  sense_execute_timeout: 10000
+  logger:
+    level: warn                  # 测试降噪
+    output: [console]

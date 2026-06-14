@@ -140,34 +140,50 @@ export async function* checkpointMiddleware(
           thinking: "",
           senseName: trigger.name,
           senseArguments: trigger.arguments,
+          id: trigger.id,
         };
         yield senseStaged;
 
-        // confirm/manual 模式：立即创建 pending sense 消息，并 yield effect 交给 service 持久化。
-        // 确保 connection 断开前 DB 中有 pending 记录，供 recovery Phase 0 检测。
-        if (trigger.supervisionLevel > 0 /* SupervisionLevel.auto */) {
-          const messages = ctx.soul.messages ?? [];
-          const senseMsg = {
-            id: trigger.id,
-            role: "sense" as const,
-            content: "",
-            senseCalls: [{ id: trigger.id, name: trigger.name, arguments: trigger.arguments }],
-            createdAt: Date.now(),
-            updateAt: Date.now(),
-          };
-          messages.push(senseMsg);
-          ctx.soul.messages = messages;
-
+        // 先 flush 本轮 assistant（content/thinking/senseCalls 已完整），在 pending sense 前 push，
+        // 保证消息顺序 [user, assistant, sense]；sense_end 在 for-await 循环内，abort 时 effect 已被
+        // observer 消费落库（finally 的 yield 在 gen.return 下死锁，不可依赖）。
+        const flushedAssistant = state.flushAssistant(ctx);
+        if (flushedAssistant) {
           yield {
             type: "message_created",
-            message: {
-              id: senseMsg.id,
-              role: "sense",
-              content: "",
-              senseCalls: senseMsg.senseCalls,
-            },
+            message: flushedAssistant,
           } as MiddlewareChunk;
+        }
 
+        // confirm/manual 模式：创建 pending sense 消息（若不存在），并 yield effect 交给 service 持久化。
+        // resume 续接时 pending 已存在（同 trigger.id）→ 跳过创建，仅注册审批避免重复落库。
+        if (trigger.supervisionLevel > 0 /* SupervisionLevel.auto */) {
+          const messages = ctx.soul.messages ?? [];
+          const exists = messages.some(m => m.id === trigger.id);
+          if (!exists) {
+            const senseMsg = {
+              id: trigger.id,
+              role: "sense" as const,
+              content: "",
+              senseCalls: [{ id: trigger.id, name: trigger.name, arguments: trigger.arguments }],
+              createdAt: Date.now(),
+              updateAt: Date.now(),
+            };
+            messages.push(senseMsg);
+            ctx.soul.messages = messages;
+
+            yield {
+              type: "message_created",
+              message: {
+                id: senseMsg.id,
+                role: "sense",
+                content: "",
+                senseCalls: senseMsg.senseCalls,
+              },
+            } as MiddlewareChunk;
+          }
+
+          // 始终注册审批（resume 时 pending 已存在，仅注册 approvalManager）
           yield {
             type: "sense_pending",
             approvalId: trigger.id,
@@ -175,6 +191,7 @@ export async function* checkpointMiddleware(
             arguments: trigger.arguments,
             supervisionLevel: trigger.supervisionLevel,
             approvalResolve: trigger.approvalResolve,
+            approvalReject: trigger.approvalReject,
           } as MiddlewareChunk;
         }
       }

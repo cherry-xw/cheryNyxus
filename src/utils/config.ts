@@ -23,17 +23,45 @@ if (fs.existsSync(rootEnvPath)) {
 export { SupervisionLevel } from "@/core/config";
 
 /**
+ * mock provider 脚本项（单次 LLM 调用的预定响应）
+ * 用于离线测试 send/resume/revoke/loop 流程，不接真实 LLM。
+ */
+export interface MockScriptResponse {
+  /** 思考增量 */
+  thinking?: string;
+  /** 正文增量 */
+  content?: string;
+  /** 工具调用（监管等级由 sense_groups 的 :level 决定，非脚本） */
+  senseCalls?: { id?: string; name: string; arguments: string }[];
+  /** 抛错（测 retry 中间件） */
+  error?: string;
+}
+
+/**
+ * mock 配置（brain 内）：只保留开关 + 脚本文件路径。
+ * 脚本内容（repeat + script[]）放独立文件，避免 config.yaml 过长。
+ */
+interface MockConfig {
+  /** 开关：是否启用 mock（缺省 true） */
+  enabled?: boolean;
+  /** 脚本文件路径，相对 .chery 目录（如 mock/read_file.yaml） */
+  file: string;
+}
+
+/**
  * Brain 配置基础类型
  * 各 Provider 可扩展具体配置结构
  */
 interface BrainConfig {
-  url: string;
+  url?: string;
   model: string;
   key?: string;
   /** 表示这个模型有没有思考能力 */
   thinking?: boolean;
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string;
+  /** mock provider 专用：脚本化响应 */
+  mock?: MockConfig;
 }
 
 interface LLMConfig {
@@ -168,5 +196,5 @@ function loadConfig(): Config {
 
 const config = loadConfig();
 
-export type { Config, LLMConfig, BrainConfig, GlobalConfig, ExtendedGlobalConfig, FileCompressionConfig, LoggerConfig };
+export type { Config, BrainConfig, GlobalConfig, LoggerConfig };
 export default config;

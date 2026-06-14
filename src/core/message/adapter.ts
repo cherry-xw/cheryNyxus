@@ -41,6 +41,8 @@ export interface LLMResponse {
   replace?: ReplaceInfo;
   /** 原内容（被替换时保留，用于溯源/前端显示） */
   originalContent?: string;
+  /** 已撤回（chat.resume 撤回 pending sense + 对应 assistant，buildMessages 过滤） */
+  revoked?: boolean;
 }
 
 /**

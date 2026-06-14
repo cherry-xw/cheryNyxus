@@ -157,6 +157,8 @@ export interface ChatListResponseData {
 
 export interface ChatGetResponseData {
   chatId: string;
+  /** 末条为 pending sense 时 true，前端据此发起 chat.resume 撤回重跑 */
+  canResume?: boolean;
 }
 
 export interface ChatDeleteResponseData {
@@ -200,13 +202,21 @@ export interface SenseCallDelta {
 }
 
 export interface StagedChunkData {
-  type: "thinking_end" | "content_end" | "sense_end";
+  type: "thinking_end" | "content_end" | "sense_end" | "reverse";
   /** 消息角色，用于区分消息来源（chat.get历史返回时使用） */
   role?: "user" | "assistant" | "system" | "sense";
   thinking?: string;
   content?: string;
   senseName?: string;
   arguments?: string;
+  /** sense 调用 id（= trigger.id = sense message.id），用于前端关联 sense_end 与 role:sense 的 result content_end */
+  id?: string;
+  /** reverse 类型：被撤回的消息 id 列表（chat.send 恢复撤回整个当前周期时携带） */
+  messageIds?: string[];
+  /** 感官去重：该消息已被后续相同 hash 调用替换（chat.get 历史返回时携带，content 仍为原内容） */
+  replace?: { state: boolean; by: string; content: string };
+  /** 被替换时的原内容（溯源/前端展示） */
+  originalContent?: string;
 }
 
 // ========== Notification Data ==========
@@ -279,8 +289,6 @@ export const Method = {
 // ========== 错误码常量 ==========
 
 export const ErrorCode = {
-  INVALID_PARAMS: "INVALID_PARAMS",
-  NOT_FOUND: "NOT_FOUND",
   METHOD_NOT_FOUND: "METHOD_NOT_FOUND",
   INTERNAL: "INTERNAL",
   TIMEOUT: "TIMEOUT",

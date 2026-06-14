@@ -19,6 +19,8 @@ export class CheckpointState {
   private content = "";
   private senseDeltas: SenseCallData[] = [];
   private senseResults: (SenseAcceptChunk | SenseRejectChunk)[] = [];
+  /** 本轮 assistant 是否已在 sense_end 时 flush（避免 finally 重复 push） */
+  private assistantFlushed = false;
 
   /**
    * 摄入 chunk，更新内部状态
@@ -41,12 +43,46 @@ export class CheckpointState {
   }
 
   /**
-   * 获取 staged chunk 数据
+   * 在 sense_end 时增量构建并 push 本轮 assistant（content/thinking/senseCalls 已完整）。
+   *
+   * 为什么不只在 finally 构建：
+   * 1. 顺序：pending sense 在 sense_end push，assistant 若在 finally push 会排在 sense 之后
+   *    （[user, sense, assistant]），破坏 LLM 消息顺序（assistant 应在 tool result 前），
+   *    导致 revokeTrailingCycle 找不到前置 assistant、resume Case1 判定错误。
+   * 2. abort 落库：sense_end 在 for-await 循环内，yield message_created effect 被 observer
+   *    正常消费落库。abort 时此路径已执行，assistant 已在 DB（finally 的 yield 在 gen.return
+   *    传播下会死锁不执行，不可依赖）。
+   *
+   * @returns AgentMessage（供 checkpoint yield message_created effect）；本轮无内容或已 flush 返回 null
    */
-  getStagedData(): { content: string; thinking: string } {
-    return {
+  flushAssistant(ctx: MiddlewareContext): AgentMessage | null {
+    if (this.assistantFlushed) return null;
+    const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas);
+    if (!this.content && !this.thinking && mergedSenseCalls.length === 0) return null;
+
+    const messages = ctx.soul.messages ?? [];
+    const senseCalls = mergedSenseCalls
+      .filter((sc) => sc.name)
+      .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }));
+    const assistantMsg: LLMResponse = {
+      id: randomUUID(),
+      role: "assistant" as const,
       content: this.content,
       thinking: this.thinking,
+      senseCalls,
+      createdAt: Date.now(),
+      updateAt: Date.now(),
+    };
+    messages.push(assistantMsg);
+    ctx.soul.messages = messages;
+    this.assistantFlushed = true;
+
+    return {
+      id: assistantMsg.id,
+      role: "assistant",
+      content: this.content || undefined,
+      thinking: this.thinking || undefined,
+      senseCalls,
     };
   }
 
@@ -68,7 +104,9 @@ export class CheckpointState {
     logger.info("[CHECKPOINT] Sense results:", this.senseResults.length);
 
     // assistant 响应（包含 thinking 和 senseCalls）
-    if (this.content || this.thinking || mergedSenseCalls.length > 0) {
+    // sense_call 流已在 sense_end 时 flush（assistantFlushed=true），此处跳过避免重复 push；
+    // 仅纯 content/thinking 流（未触发 sense_end）在此构建。
+    if (!this.assistantFlushed && (this.content || this.thinking || mergedSenseCalls.length > 0)) {
       const assistantMsg: LLMResponse = {
         id: randomUUID(),
         role: "assistant" as const,
@@ -179,15 +217,6 @@ export class CheckpointState {
     return this.thinking;
   }
 
-  /**
-   * 重置状态（sense_accept/sense_reject 后新一轮）
-   */
-  reset(): void {
-    this.thinking = "";
-    this.content = "";
-    this.senseDeltas = [];
-    // 不重置 senseResults（跨轮次保持）
-  }
 }
 
 export type CheckpointMessageMutation =

@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { createRequire } from "module";
 import config from "@/utils/config.js";
 import { hashGenerator } from "@/utils/hash.js";
-import type { TestCase, SenseCompileOptions, SenseCompileSummary } from "./types.js";
+import type { TestCase, SenseCompileSummary } from "./types.js";
 
 function loadSwcWasm(): { transformSync: (code: string, opts: unknown) => { code: string } } {
   const require = createRequire(import.meta.url);
@@ -114,7 +114,7 @@ export function parseTestCases(sourceContent: string): TestCase[] {
   return [];
 }
 
-export async function compileSenses(options: SenseCompileOptions = {}): Promise<SenseCompileSummary> {
+export async function compileSenses(): Promise<SenseCompileSummary> {
   const sensesDir = config.global.senses_dir;
 
   const outputDir = join(process.cwd(), "dist", "senses");
@@ -151,17 +151,14 @@ export async function compileSenses(options: SenseCompileOptions = {}): Promise<
 
       if (readEmbeddedHash(expectedJsPath) === sourceHash) {
         summary.succeeded.push({ compiledPath: expectedJsPath, sourcePath, testCases });
-        options.onEvent?.({ type: "skipped", fileName: file, sourcePath, compiledPath: expectedJsPath });
         continue;
       }
 
       try {
         const preprocessedPath = preprocessSenseFile(sourcePath, tempDir);
-        options.onEvent?.({ type: "preprocessed", fileName: file, sourcePath });
 
         const compiledPath = await compileSenseFile(preprocessedPath, outputDir, sourceHash);
         summary.succeeded.push({ compiledPath, sourcePath, testCases });
-        options.onEvent?.({ type: "compiled", fileName: file, sourcePath, compiledPath });
       } catch (err) {
         const failure = {
           sourcePath,
@@ -170,7 +167,6 @@ export async function compileSenses(options: SenseCompileOptions = {}): Promise<
           message: (err as Error).message,
         };
         summary.failed.push(failure);
-        options.onEvent?.({ type: "failed", failure });
       }
     }
   } finally {

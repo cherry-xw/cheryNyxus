@@ -93,20 +93,6 @@ function loadSkills(): Map<string, SkillData> {
 const skillMap = loadSkills();
 
 /**
- * 获取完整 Skill Map。
- */
-export function getSkillMap(): Map<string, SkillData> {
-  return skillMap;
-}
-
-/**
- * 获取单个 skill 数据（从缓存）。
- */
-export function getSkill(name: string): SkillData | undefined {
-  return skillMap.get(name);
-}
-
-/**
  * 实时读取单个 skill 数据。
  */
 export function getSkillRealtime(name: string):

@@ -11,11 +11,14 @@ import {
   type Response as RpcResponse,
   type ChatSendRequestData,
   type ChatSendResponseData,
+  type ChatResumeRequestData,
+  type ChatResumeResponseData,
   type SenseApprovalRequestData,
   type SenseApprovalResponseData,
 } from "../message/types.js";
-import { getChat, addMessage, getMessages, parseMessageRow, fillApprovalResult } from "@/db/chat.js";
+import { getChat, addMessage, getMessages, parseMessageRow, fillApprovalResult, markMessagesRevoked, markMessageReplaced, getChatRuntimeSelection, updateChatMetadata } from "@/db/chat.js";
 import { approvalManager } from "../approval/manager.js";
+import { connectionManager } from "../websocket/connection.js";
 import { AgentBuilder } from "@/agent/builder.js";
 import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
 import type {
@@ -59,9 +62,15 @@ async function ensureRuntime(chatId: string): Promise<ChatRuntime> {
 /**
  * 原子解析并注入完整 runtime。
  */
-function configureRuntime(runtime: ChatRuntime, selection: RuntimeSelection): void {
+function configureRuntime(
+  runtime: ChatRuntime,
+  chatId: string,
+  selection: RuntimeSelection,
+): void {
   runtime.selection = selection;
   runtime.builder.configureRuntime(selection);
+  // 持久化 selection 到 metadata.runtime，服务重启后 ensureChat 自动恢复
+  updateChatMetadata(chatId, { runtime: selection });
 }
 
 /**
@@ -81,6 +90,10 @@ function loadHistory(chatId: string): LLMResponse[] | undefined {
       content: parsed.content ?? "",
       thinking: parsed.thinking,
       senseCalls: parsed.senseCall,
+      hash: parsed.hash,
+      replace: parsed.replace,
+      originalContent: parsed.originalContent,
+      revoked: parsed.revoked,
       createdAt: row.created_at,
       updateAt: row.created_at,
     };
@@ -103,7 +116,7 @@ export async function ensureChat(
   const existing = chatRuntimes.get(chatId);
   if (existing) {
     if (selection) {
-      configureRuntime(existing, selection);
+      configureRuntime(existing, chatId, selection);
     }
     return existing.builder;
   }
@@ -114,9 +127,12 @@ export async function ensureChat(
   const runtime: ChatRuntime = { builder };
   chatRuntimes.set(chatId, runtime);
 
-  // 原子配置 runtime selection（chat.create/runtime.set 携带时）
-  if (selection) {
-    configureRuntime(runtime, selection);
+  // 原子配置 runtime selection：
+  //   1. 显式传入（chat.create/runtime.set）
+  //   2. 否则从持久化 metadata.runtime 恢复（服务重启后内存丢失，自动恢复）
+  const resolvedSelection = selection ?? getChatRuntimeSelection(chatId);
+  if (resolvedSelection) {
+    configureRuntime(runtime, chatId, resolvedSelection);
   }
 
   // 一次性加载历史到内存
@@ -134,7 +150,7 @@ export async function setRuntime(
   selection: RuntimeSelection,
 ): Promise<void> {
   const runtime = await ensureRuntime(chatId);
-  configureRuntime(runtime, selection);
+  configureRuntime(runtime, chatId, selection);
 }
 
 /**
@@ -151,34 +167,73 @@ export function clearChatRuntime(chatId: string): void {
 export async function* observeAgentChunks(
   generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
   chatId: string,
+  getMessages: () => LLMResponse[],
 ): AsyncGenerator<MiddlewareChunk, void, unknown> {
-  for await (const chunk of generator) {
-    if (chunk.type === "message_created") {
-      addMessage(chunk.message.id, chatId, {
-        role: chunk.message.role,
-        content: chunk.message.content,
-        thinking: chunk.message.thinking,
-        senseCall: chunk.message.senseCalls,
-        hash: chunk.message.hash,
+  // 历史消息（loadHistory 注入）视为已落库，避免 abort flush 时重复 INSERT 触发 UNIQUE 冲突。
+  const syncedIds = new Set<string>(getMessages().map((m) => m.id));
+  try {
+    for await (const chunk of generator) {
+      if (chunk.type === "message_created") {
+        if (!syncedIds.has(chunk.message.id)) {
+          addMessage(chunk.message.id, chatId, {
+            role: chunk.message.role,
+            content: chunk.message.content,
+            thinking: chunk.message.thinking,
+            senseCall: chunk.message.senseCalls,
+            hash: chunk.message.hash,
+          });
+          syncedIds.add(chunk.message.id);
+        }
+        continue;
+      }
+
+      if (chunk.type === "message_updated") {
+        if (chunk.patch.replace) {
+          // 感官去重：标记历史消息 replaced（只 UPDATE replace_*/original_content，不动 content）
+          markMessageReplaced(chatId, chunk.id, {
+            replace: chunk.patch.replace,
+            originalContent: chunk.patch.originalContent,
+          });
+        } else {
+          // recovery update patch = { content, hash }，整体写入
+          // （旧实现仅判 content 丢 hash → confirm pending sense hash 永远 NULL → 重启去重失效）
+          fillApprovalResult(chatId, chunk.id, {
+            content: chunk.patch.content,
+            hash: chunk.patch.hash,
+          });
+        }
+        syncedIds.add(chunk.id);
+        continue;
+      }
+
+      if (chunk.type === "sense_pending") {
+        if (chunk.approvalResolve && chunk.approvalReject) {
+          approvalManager.register(chunk.approvalId, chunk.approvalResolve, chunk.approvalReject);
+        }
+        continue;
+      }
+
+      yield chunk;
+    }
+  } finally {
+    // abort 兜底：ws.close → connectionManager.close → approvalManager.abort 解除 senseMiddleware
+    // await（不调 gen.return，避免与 catch yield 死锁）。sense_call 流的 assistant 已在 sense_end
+    // 时落库（for-await 内 effect）；纯 content 流的 assistant 在 checkpoint finally yield effect
+    // 被 observer 消费落库。此处兜底 flush 极端情况未 sync 的消息，保证 DB 一致。
+    for (const m of getMessages()) {
+      // 仅落库 user/assistant/sense（system 仅内存 loadHistory 期不入库；function 本项目不产生）
+      if (m.revoked) continue;
+      if (m.role !== "user" && m.role !== "assistant" && m.role !== "sense") continue;
+      if (syncedIds.has(m.id)) continue;
+      addMessage(m.id, chatId, {
+        role: m.role,
+        content: m.content,
+        thinking: m.thinking,
+        senseCall: m.senseCalls,
+        hash: m.hash,
       });
-      continue;
+      syncedIds.add(m.id);
     }
-
-    if (chunk.type === "message_updated") {
-      if (chunk.patch.content !== undefined) {
-        fillApprovalResult(chunk.id, chunk.patch.content);
-      }
-      continue;
-    }
-
-    if (chunk.type === "sense_pending") {
-      if (chunk.approvalResolve) {
-        approvalManager.register(chunk.approvalId, chunk.approvalResolve);
-      }
-      continue;
-    }
-
-    yield chunk;
   }
 }
 
@@ -221,6 +276,9 @@ export async function* streamAgentChunks(
       }
       if (staged.senseArguments) {
         stagedData.arguments = staged.senseArguments;
+      }
+      if (staged.id) {
+        stagedData.id = staged.id;
       }
       yield createChunk("staged", rid, stagedData);
     } else if (chunk.type === "sense_end") {
@@ -288,20 +346,96 @@ export async function* handleChatSend(
   logger.info(`[ChatSend] chatId=${chatId}, prompt="${data.prompt}"`);
 
   const agent = await ensureChat(chatId);
+  const rid = ctx.requestId ?? chatId;
+
+  // 绑定 chatId 到当前连接，拒绝跨连接并发 send（P0-3）
+  try {
+    connectionManager.bindChatConnection(chatId, ctx.connectionId);
+  } catch (e) {
+    const msg = (e as Error).message;
+    logger.error(`[ChatSend] 绑定连接失败: ${msg}`);
+    yield createNotification("error", rid, { message: msg });
+    return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
+  }
+
+  // 恢复场景撤回：仅 idle 时触发（运行中 send 只入队，不撤回）。
+  // 撤回末尾整个当前周期 AI 响应（assistant think/content/tool + 整个 sense 群），
+  // 发 staged.reverse chunk 通知客户端回滚，再 run 用新 prompt 重跑。
+  if (!agent.isRunning()) {
+    const revokedIds = agent.revokeTrailingCycle();
+    if (revokedIds.length > 0) {
+      markMessagesRevoked(chatId, revokedIds);
+      logger.info(`[ChatSend] Recovery revoke ${revokedIds.length} msgs: ${revokedIds.join(", ")}`);
+      yield createChunk("staged", rid, { type: "reverse", messageIds: revokedIds });
+    }
+  }
+
   let failureResponse: RpcResponse | undefined;
 
   try {
     // history 已在 chat.create 时一次性加载到内存。
     // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
-    const generator = observeAgentChunks(agent.run(data.prompt), chatId);
-    const rid = ctx.requestId ?? chatId;
+    const generator = observeAgentChunks(agent.run(data.prompt), chatId, () => agent.getMessages());
 
     yield* streamAgentChunks(generator, rid);
   } catch (err) {
     const error = err as Error;
-    const rid = ctx.requestId ?? chatId;
+    logger.error(`[ChatSend] 执行失败: ${error.message}`, error.stack ?? "");
     yield createNotification("error", rid, { message: error.message });
     failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
+  } finally {
+    connectionManager.releaseChatConnection(chatId, ctx.connectionId);
+  }
+
+  return failureResponse ?? { chatId };
+}
+
+/**
+ * chat.resume — 续接（无 prompt，恢复执行 / 继续 loop）
+ * 前置：chat.get 返回 canResume:true（末尾为未完成周期：pending sense 或 done sense 无后续 assistant）。
+ * Case1（末尾有 pending sense）→ 置 resumePending 标志，首轮 senseMiddleware skip chat 层，
+ *   从历史 pending 重建 SenseTriggerChunk 执行（按监管等级；工具不在 senseTable 写「无此工具」）；
+ * Case2（末尾全 done）→ run("") 正常 loop，LLM 基于 done sense 结果回复。
+ * 整体同默认 send 流一致，仅首轮跳过 chat。前置：须 chat.create / runtime.set 注入完整 runtime。
+ */
+export async function* handleChatResume(
+  ctx: HandlerContext,
+  data: ChatResumeRequestData,
+): AsyncGenerator<Chunk | Notification, ChatResumeResponseData | RpcResponse, unknown> {
+  const chatId = data.chatId;
+  const rid = ctx.requestId ?? chatId;
+
+  const chat = getChat(chatId);
+  if (!chat) {
+    throw new Error(`Chat "${chatId}" not found`);
+  }
+
+  logger.info(`[ChatResume] chatId=${chatId} (continue, no prompt)`);
+
+  const agent = await ensureChat(chatId);
+
+  // 绑定 chatId 到当前连接，拒绝跨连接并发 resume（P0-3）
+  try {
+    connectionManager.bindChatConnection(chatId, ctx.connectionId);
+  } catch (e) {
+    const msg = (e as Error).message;
+    logger.error(`[ChatResume] 绑定连接失败: ${msg}`);
+    yield createNotification("error", rid, { message: msg });
+    return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
+  }
+
+  let failureResponse: RpcResponse | undefined;
+  try {
+    // resume 内部据末尾状态决定 Case1/Case2（见 builder.resume）
+    const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages());
+    yield* streamAgentChunks(generator, rid);
+  } catch (err) {
+    const error = err as Error;
+    logger.error(`[ChatResume] 执行失败: ${error.message}`, error.stack ?? "");
+    yield createNotification("error", rid, { message: error.message });
+    failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
+  } finally {
+    connectionManager.releaseChatConnection(chatId, ctx.connectionId);
   }
 
   return failureResponse ?? { chatId };
@@ -328,5 +462,6 @@ export async function handleSenseApproval(
  */
 export function registerChatHandlers(router: import("../message/router.js").RpcRouter): void {
   router.register(Method.CHAT_SEND, handleChatSend, true);
+  router.register(Method.CHAT_RESUME, handleChatResume, true);
   router.register(Method.SENSE_APPROVAL, handleSenseApproval);
 }

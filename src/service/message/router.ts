@@ -12,6 +12,7 @@ import {
   isResponse,
 } from "./types.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
+import { logger } from "@/utils/logger/index.js";
 
 export class RpcHandlerError extends Error {
   constructor(
@@ -104,6 +105,7 @@ export class RpcRouter {
       return createResponse(request.id, true, data);
     } catch (err) {
       const error = toRpcError(err);
+      logger.error(`[Router] handler 执行失败 (${request.method}): ${error.message}`);
       return createResponse(
         request.id,
         false,
@@ -133,6 +135,7 @@ export class RpcRouter {
       }
     } catch (err) {
       const error = toRpcError(err);
+      logger.error(`[Router] 流式 handler 执行失败 (${requestId}): ${error.message}`);
       yield {
         kind: "notification",
         type: "error",

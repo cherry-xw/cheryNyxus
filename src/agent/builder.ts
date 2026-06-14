@@ -76,6 +76,40 @@ export class AgentBuilder {
   }
 
   /**
+   * 门面：续接（chat.resume，无 prompt）。
+   * Case1（末尾有 pending sense）→ 置 resumePending 标志，首轮 skip chat 层恢复执行；
+   * Case2（全 done）→ 不置标志，run("") 正常 loop（LLM 基于 done sense 回复）。
+   */
+  resume(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+    const agent = this.requireAgent();
+    if (agent.hasPendingTrailingSense()) {
+      agent.setResumePending(true);
+    }
+    return this.run("");
+  }
+
+  /**
+   * 门面：撤回末尾整个当前周期 AI 响应（chat.send 恢复场景）
+   */
+  revokeTrailingCycle(): string[] {
+    return this.requireAgent().revokeTrailingCycle();
+  }
+
+  /**
+   * 门面：是否有活跃会话迭代器（service 判断 send 恢复撤回仅在 idle 时触发）
+   */
+  isRunning(): boolean {
+    return this.requireAgent().isRunning();
+  }
+
+  /**
+   * 门面：暴露内存消息列表（observer abort flush 用）
+   */
+  getMessages(): LLMResponse[] {
+    return this.requireAgent().getMessages();
+  }
+
+  /**
    * 校验 agent 已构建（build 后才可配置/执行）
    */
   private requireAgent(): Middleware<MiddlewareChunk> {

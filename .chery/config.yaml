@@ -34,12 +34,26 @@ llm:
       key: $ALI_API_KEY
       thinking: true
       provider: openai
+    # mock provider：脚本化响应，离线测试 send/resume/revoke/loop 流程（无需真实 LLM）
+    # 接线：chat.create {brain:"mock_test", senseGroups:[...]}
+    # 脚本内容（repeat + script[]）放独立文件 .chery/<file>，config 只留开关 + 路径
+    mock_test:
+      model: mock_test
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/read_file.yaml
 
 # Sense分组配置
 # 每个分组直接是 senses 列表，支持两种格式：
 #   - read_file            不覆盖监管等级，使用感官内置/全局默认
 #   - execute_command:auto 覆盖监管等级为 auto（可选 auto/confirm/manual）
 sense_groups:
+  all_senses:
+    - read_file
+    - skill
+    - write_file
+    - execute_command
   safe_senses:
     - read_file
     - skill

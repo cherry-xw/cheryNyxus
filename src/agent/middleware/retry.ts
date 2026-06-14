@@ -65,12 +65,16 @@ async function delay(ms: number) {
  * 失败：yield ErrorChunk 包含所有错误信息（含分类）
  */
 export async function* retryMiddleware(
-  _ctx: MiddlewareContext,
+  ctx: MiddlewareContext,
   next: () => AsyncGenerator<unknown>,
 ): AsyncGenerator<ErrorChunk | unknown> {
   const errors: ErrorChunk["errors"] = [];
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    // 快照本轮 chain 起始的 messages 长度：chat 流中途失败时，外层 checkpoint 已 append 半截 assistant message，
+    // 重试前回滚到本轮起始状态，避免重复 append 污染历史（P0-5）。
+    // 注：已 yield 的 StreamChunk 无法撤回（retry 固有表现），仅回滚内存 messages。
+    const snapshot = ctx.soul.messages?.length ?? 0;
     try {
       // 透传所有 chunks（chat 只 yield StreamChunk/StagedChunk）
       yield* next();
@@ -79,6 +83,11 @@ export async function* retryMiddleware(
       const errorInfo = createErrorInfo(attempt, error);
       errors.push(errorInfo);
       logger.error(`[Retry] Attempt ${attempt} failed (${errorInfo.category}):`, error instanceof Error ? error.message : String(error));
+
+      // 回滚本轮 checkpoint 已 append 的半截 message，恢复历史干净后再重试
+      if (ctx.soul.messages) {
+        ctx.soul.messages.length = snapshot;
+      }
 
       // 非最后一次且可恢复：等待后继续
       if (attempt < MAX_RETRIES && errorInfo.recoverable) {

@@ -16,11 +16,6 @@ import writeSense from "./write";
 import skillSense from "./skill";
 import { logger } from "@/utils/logger/index.js";
 
-export { registerSenses, getSense } from "@/core/sense";
-export type { Sense, SenseResult } from "@/core/sense";
-export { z } from "zod";
-export { sense } from "@/core/sense";
-
 /**
  * 注册内置感官。
  */

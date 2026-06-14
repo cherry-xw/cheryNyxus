@@ -1,4 +1,5 @@
 import ollama from "ollama";
+import { randomUUID } from "crypto";
 import type {
   ChatResponse,
   ToolCall,
@@ -32,13 +33,15 @@ const ollamaMessageAdapterConfig = {
   extractStreamThinking: (chunk: ChatResponse) =>
     chunk.message?.thinking ?? undefined,
   buildMessages: (history: LLMResponse[]) =>
-    history.map((m) => {
+    history.filter((m) => !m.revoked).map((m) => {
       // 如果是 sense 消息且被替换，使用 replace.content
       const content = m.role === "sense" && m.replace?.state
         ? m.replace.content
         : m.content;
+      // ollama tool 结果需 role:"tool"（与 openai 一致），原 role:"sense" API 不识别
+      const role = m.role === "sense" ? "tool" : m.role;
       return {
-        role: m.role,
+        role,
         content,
       };
     }) as Message[],
@@ -79,7 +82,7 @@ const ollamaSenseAdapterConfig = {
     const senseCalls = (response.message?.tool_calls ?? []) as ToolCall[];
     return senseCalls.map((sc, index) => ({
       index,
-      id: `sense-${index}`, // Ollama 无 id，用 index 生成
+      id: randomUUID(), // Ollama 无 tool_call id，生成跨周期唯一 id（避免 loop 多周期 sense-${index} 冲突）
       name: sc.function?.name ?? undefined,
       arguments: JSON.stringify(sc.function?.arguments ?? {}),
     }));
@@ -95,7 +98,7 @@ const ollamaSenseAdapterConfig = {
     const senseCalls = (streamChunk.message?.tool_calls ?? []) as ToolCall[];
     return senseCalls.map((sc, index) => ({
       index,
-      id: `sense-${index}`,
+      id: randomUUID(),
       name: sc.function?.name ?? undefined,
       arguments: JSON.stringify(sc.function?.arguments ?? {}),
     }));

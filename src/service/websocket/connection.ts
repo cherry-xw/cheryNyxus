@@ -1,14 +1,12 @@
 import type { WebSocket } from "ws";
 import { randomUUID } from "crypto";
+import { approvalManager } from "../approval/manager.js";
 import { logger } from "@/utils/logger/index.js";
 
 /**
  * 待处理请求
  */
 interface PendingRequest {
-  requestId: string;
-  startTime: number;
-  generator?: AsyncGenerator;
   approvalId?: string;
   /** 审批超时计时器（interrupt 发出后启动） */
   approvalTimeoutTimer?: NodeJS.Timeout;
@@ -30,6 +28,8 @@ export interface ConnectionState {
  */
 export class ConnectionManager {
   private connections = new Map<WebSocket, ConnectionState>();
+  /** chatId → connectionId：同 chat 活跃流期间绑定，拒绝跨连接并发（P0-3） */
+  private activeChatConnections = new Map<string, string>();
   /** 审批超时时间（默认 15 分钟） */
   private defaultApprovalTimeout = 900000;
 
@@ -68,30 +68,11 @@ export class ConnectionManager {
     }
 
     const pending: PendingRequest = {
-      requestId,
-      startTime: Date.now(),
       approvalTimeoutMs: approvalTimeoutMs || this.defaultApprovalTimeout,
     };
 
     state.pendingRequests.set(requestId, pending);
     return pending;
-  }
-
-  /**
-   * 设置请求的 generator
-   */
-  setRequestGenerator(
-    ws: WebSocket,
-    requestId: string,
-    generator: AsyncGenerator,
-  ): void {
-    const state = this.connections.get(ws);
-    if (!state) return;
-
-    const pending = state.pendingRequests.get(requestId);
-    if (pending) {
-      pending.generator = generator;
-    }
   }
 
   /**
@@ -160,6 +141,27 @@ export class ConnectionManager {
   }
 
   /**
+   * 绑定 chatId 到 connection（同 chat 活跃流期间拒绝其他连接并发 send/resume，P0-3）
+   * @throws Error 若 chatId 已被其他活跃 connection 绑定
+   */
+  bindChatConnection(chatId: string, connectionId: string): void {
+    const owner = this.activeChatConnections.get(chatId);
+    if (owner && owner !== connectionId) {
+      throw new Error(`Chat "${chatId}" is busy (active on another connection)`);
+    }
+    this.activeChatConnections.set(chatId, connectionId);
+  }
+
+  /**
+   * 释放 chatId 绑定（仅当 connectionId 匹配才解绑，避免误释放后绑定的 owner）
+   */
+  releaseChatConnection(chatId: string, connectionId: string): void {
+    if (this.activeChatConnections.get(chatId) === connectionId) {
+      this.activeChatConnections.delete(chatId);
+    }
+  }
+
+  /**
    * 关闭连接（持久化 pending approvals）
    */
   async close(ws: WebSocket): Promise<void> {
@@ -169,10 +171,17 @@ export class ConnectionManager {
     logger.info(`关闭连接: ${state.id}, pendingRequests=${state.pendingRequests.size}`);
 
 // 终止所有 pending requests 的 generator
-    for (const [requestId, pending] of state.pendingRequests) {
-      // 终止 generator
-      if (pending.generator) {
-        pending.generator.return(undefined);
+    for (const [, pending] of state.pendingRequests) {
+      // 不调 gen.return()：await 态（审批/LLM stream）无法立即终止；
+      // 且 return 传播与 senseMiddleware catch 的 yield 交互会导致链条死锁——
+      // generator suspended 在 return completion 下的 yield，外层 checkpoint/observer finally
+      // 永不执行，assistant 无法落库（恢复回滚失效）。改靠下方 abort reject 让 senseMiddleware
+      // 正常 catch 结束，链条自然 done，finally 正常执行。
+
+      // 中止 pending approval：调用 reject 解除 senseMiddleware 的 await Promise.all，
+      // 使挂起 generator 正常结束可被 GC（P0-1）。pending sense 保持 NULL 待重连 chat.resume。
+      if (pending.approvalId) {
+        approvalManager.abort(pending.approvalId);
       }
 
       // 清除审批超时
@@ -180,6 +189,13 @@ export class ConnectionManager {
         clearTimeout(pending.approvalTimeoutTimer);
       }
     }
+
+// 释放该 connection 绑定的所有 chatId（P0-3）
+for (const [chatId, connId] of this.activeChatConnections) {
+  if (connId === state.id) {
+    this.activeChatConnections.delete(chatId);
+  }
+}
 
 this.connections.delete(ws);
 logger.info(`连接已从 Map 删除: ${state.id}, 剩余连接数: ${this.connections.size}`);

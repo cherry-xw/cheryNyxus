@@ -1,0 +1,5 @@
+# 流程A：单轮纯文本（无 sense 调用）
+repeat: last
+script:
+  - thinking: "思考一下如何回复"
+    content: "你好，这是纯文本回复"

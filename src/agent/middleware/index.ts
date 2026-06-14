@@ -1,19 +1,5 @@
 import Middleware from "@/core/middleware";
-import type {
-  MiddlewareHandler,
-  DoneChunk,
-  MiddlewareChunk,
-  StreamChunk,
-  SenseTriggerChunk,
-  SenseAcceptChunk,
-  SenseRejectChunk,
-  StagedChunk,
-  ErrorChunk,
-  ConsumedChunk,
-  MessageCreatedChunk,
-  MessageUpdatedChunk,
-  SensePendingChunk,
-} from "@/core/middleware/types";
+import type { MiddlewareHandler, MiddlewareChunk } from "@/core/middleware/types";
 import { checkpointMiddleware } from "./checkpoint";
 import { chatMiddleware } from "./chat";
 import { senseMiddleware } from "./tool";
@@ -28,20 +14,7 @@ export {
   retryMiddleware,
   createLoopHandler,
 };
-export type {
-  StreamChunk,
-  SenseTriggerChunk,
-  SenseAcceptChunk,
-  SenseRejectChunk,
-  StagedChunk,
-  ErrorChunk,
-  ConsumedChunk,
-  MessageCreatedChunk,
-  MessageUpdatedChunk,
-  SensePendingChunk,
-  DoneChunk,
-  MiddlewareChunk,
-};
+export type { MiddlewareChunk };
 
 /**
  * 默认 handlers 队列

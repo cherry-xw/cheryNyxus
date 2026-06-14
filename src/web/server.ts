@@ -1,53 +1,97 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
-import { existsSync, readFileSync } from "fs";
-import { resolve, dirname } from "path";
+import { existsSync, readFileSync, statSync } from "fs";
+import { resolve, dirname, join, normalize, extname, sep } from "path";
 import { logger } from "@/utils/logger/index.js";
 
 /**
- * 解析 HTML 文件路径
- * 支持两种运行模式：
- * 1. 项目根目录运行（yarn dev）→ src/web/index.html
- * 2. dist 目录运行（node dist/index.js）→ dist/web/index.html
+ * 静态资源 MIME 映射
+ * .js 必须用 text/javascript（非 application/javascript），否则 <script type="module"> 在部分浏览器不执行
  */
-function resolveHtmlPath(): string {
-  // 使用 import.meta.url 获取当前文件所在目录（打包后是 dist/index.js 的目录）
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+};
+
+/**
+ * 解析 web 目录路径
+ * 支持两种运行模式：
+ * 1. 项目根目录运行（yarn dev）→ src/web
+ * 2. dist 目录运行（node dist/index.js）→ dist/web
+ */
+function resolveWebDir(): string {
   const currentDir = dirname(new URL(import.meta.url).pathname);
   const candidates = [
-    resolve(currentDir, "web/index.html"),  // build 模式：dist/web/index.html
-    resolve(currentDir, "src/web/index.html"),  // dev 模式（未打包）
-    resolve(process.cwd(), "src/web/index.html"),  // fallback: 从 cwd 查找
-    resolve(process.cwd(), "web/index.html"),  // fallback: dist 目录运行
+    resolve(currentDir, "web"), // build 模式：dist/web/
+    resolve(currentDir, "src/web"), // dev 模式（未打包）
+    resolve(process.cwd(), "src/web"), // fallback: 从 cwd 查找
+    resolve(process.cwd(), "web"), // fallback: dist 目录运行
   ];
   for (const p of candidates) {
-    if (existsSync(p)) return p;
+    if (existsSync(p) && statSync(p).isDirectory()) return p;
   }
   return candidates[0]!; // fallback
 }
 
 /**
- * 启动 Web 静态文件服务
+ * 启动 Web 静态文件服务（整目录）
  */
 export function startWebServer(port: number): void {
-  const htmlPath = resolveHtmlPath();
-  logger.info(`Web HTML 路径: ${htmlPath}`);
+  const webDir = resolveWebDir();
+  logger.info(`Web 静态目录: ${webDir}`);
+
+  // path traversal 防护基准：所有解析后路径必须在此根之下
+  const safeRoot = webDir.endsWith(sep) ? webDir : webDir + sep;
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === "/" || req.url === "/index.html") {
-      try {
-        const html = readFileSync(htmlPath, "utf-8");
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-        res.end(html);
-      } catch {
-        res.writeHead(404);
-        res.end("index.html not found");
-      }
-    } else {
+    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+    let pathname = decodeURIComponent(url.pathname);
+    if (pathname === "/" || pathname === "") pathname = "/index.html";
+
+    // 解析 + 规范化，path traversal 双重防护
+    const requested = normalize(join(webDir, pathname));
+    if (!requested.startsWith(safeRoot)) {
+      res.writeHead(403);
+      res.end("Forbidden");
+      return;
+    }
+
+    if (!existsSync(requested) || !statSync(requested).isFile()) {
       res.writeHead(404);
       res.end("Not found");
+      return;
+    }
+
+    const ext = extname(requested).toLowerCase();
+    // 拒绝服务后端 .ts 源码（前端目录仅 .html/.js/.css 等静态资源）
+    if (ext === ".ts") { res.writeHead(403); res.end("Forbidden"); return; }
+    const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
+
+    try {
+      const body = readFileSync(requested);
+      res.writeHead(200, {
+        "Content-Type": contentType,
+        "Cache-Control": "no-cache", // 开发态禁缓存，改 js 刷新即生效
+      });
+      res.end(body);
+    } catch {
+      res.writeHead(500);
+      res.end("Internal error");
     }
   });
 
   server.listen(port, () => {
-    logger.info(`Web 测试页面启动，端口: ${port}`);
+    logger.info(`Web 静态服务启动，端口: ${port}`);
   });
 }

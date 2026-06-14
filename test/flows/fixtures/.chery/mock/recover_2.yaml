@@ -1,0 +1,11 @@
+# recover-resume 场景：confirm sense pending（write_file:confirm）
+# id recover-wf-2 唯一，避免跨 chat 同月份 messages 表冲突
+repeat: last
+script:
+  - thinking: "需要写文件，请求审批"
+    content: "准备写文件"
+    senseCalls:
+      - id: "recover-wf-2"
+        name: "write_file"
+        arguments: '{"path":"/tmp/cheryclaw-recover-2.txt","content":"x"}'
+  - content: "文件已处理完毕"

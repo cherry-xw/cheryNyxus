@@ -305,8 +305,10 @@ export abstract class DrainBase {
 
       matchCluster.size += 1;
 
+      // LRU touch：依赖 LogClusterCache.get() 的 delete+set 副作用更新访问顺序，
+      // 防止 matchCluster 被逐出。返回值故意丢弃。
       if (this.maxClusters !== null) {
-        this.idToCluster.get(matchCluster.id);
+        void this.idToCluster.get(matchCluster.id);
       }
     }
 

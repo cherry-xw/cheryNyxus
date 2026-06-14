@@ -1,4 +1,4 @@
-import type { MessageProviderAdapterConfig, LLMResponse } from "../message/adapter";
+import type { MessageProviderAdapterConfig, LLMResponse, ReplaceInfo } from "../message/adapter";
 import type { LLMAdapter } from "../llm/adapter";
 import type { SenseAdapter, SenseCallData, SenseFunction } from "../sense/adapter";
 import type { SenseResult, SenseSharedData } from "../sense/senseCreator";
@@ -16,50 +16,6 @@ export interface UserInputEntry {
 }
 
 /**
- * 感官协调（runtime ephemeral，不持久化）
- */
-export interface SenseCoordination {
-  /** 感官调用去重检查（callId → resultHash） */
-  /** Sense间共享数据（namespace → identifier → data） */
-  sharedData: Map<string, Map<string, unknown>>;
-}
-
-/**
- * 消息历史
- */
-export interface MessageHistory {
-  /** 完整对话历史（前端交互用，格式固定，信息完整） */
-  fullMessages: LLMResponse[];
-  /** 简化消息（AI接口用，仅API必需字段，预转换存储） */
-  apiMessages: APIMessage[];
-  /** 消息窗口起始索引（滑动窗口，两数组共用） */
-  baseIndex: number;
-  /** 用户输入队列（send 事件注入，checkpoint消费后清空） */
-  pendingInputs: UserInputEntry[];
-}
-
-/**
- * 预编译感官
- */
-export interface PrecompiledSenses {
-  /** 感官名称 → 最终监管等级（优先级前置计算） */
-  senseConfigs: Map<string, number>;
-  /** 预构建的 API 感官参数（builder层一次性构建） */
-  builtSenses: SenseFunction[];
-}
-
-/**
- * AI接口消息（仅API必需字段）
- */
-export interface APIMessage {
-  role: "system" | "user" | "assistant" | "sense" | "function";
-  content: string;
-  senseCalls?: import("../message/adapter").SenseCallInfo[];
-  /** 仅sense角色需要（sense_call_id） */
-  id?: string;
-}
-
-/**
  * 聊天上下文分组
  * chatId 唯一标识聊天，brain/senseGroups 每轮可换（运行时由 service 层重建 Middleware）
  */
@@ -72,8 +28,8 @@ export interface SoulGroup {
   userInputs: UserInputEntry[];
   /** AI message 参数（checkpoint 构建后放置） */
   messages?: LLMResponse[];
-  /** loop 起始计数（recovery 恢复轮次，从最后 user 消息后 assistant 消息数量计算） */
-  loopStartCount?: number;
+  /** 续接标志：chat.resume Case1（末尾有 pending sense）首轮 senseMiddleware 检测后 skip chat 层 */
+  resumePending?: boolean;
 }
 
 /**
@@ -125,6 +81,8 @@ export interface AgentMessage {
   senseCalls?: Array<{ id: string; name: string; arguments: string }>;
   /** 感官执行结果的 hash */
   hash?: string;
+  /** 已撤回 */
+  revoked?: boolean;
 }
 
 export interface AgentMessagePatch {
@@ -132,6 +90,10 @@ export interface AgentMessagePatch {
   thinking?: string;
   senseCalls?: Array<{ id: string; name: string; arguments: string }>;
   hash?: string;
+  /** 感官去重命中：该消息被后续相同 hash 调用替换（observer 据此走 markMessageReplaced） */
+  replace?: ReplaceInfo;
+  /** 被替换时保留的原内容（溯源） */
+  originalContent?: string;
 }
 
 /**
@@ -144,19 +106,6 @@ export interface MiddlewareContext {
   global: GlobalConfig;
   /** Runtime 配置（每轮可换：brain/sense 变更时更新） */
   runtime: RuntimeConfig;
-}
-
-/**
- * 感官调用增量事件
- * 显式定义 chat.ts → checkpoint.ts 的数据契约
- */
-export interface SenseDeltaEvent {
-  /** 数据来源 */
-  source: "stream" | "non-stream";
-  /** 感官调用增量数据 */
-  deltas: SenseCallData[];
-  /** 是否完整（非流式时为 true） */
-  isComplete: boolean;
 }
 
 /**
@@ -188,6 +137,8 @@ export interface SenseTriggerChunk {
   supervisionLevel: SupervisionLevel;
   /** 审批 resolve 函数（confirm/manual 时使用，service 层调用） */
   approvalResolve?: ((action: "accept" | "reject", reason?: string) => void) | null;
+  /** 审批 reject 函数（连接断开/超时由 ApprovalManager.abort 调用，解除 await 使 generator 可释放） */
+  approvalReject?: ((err: Error) => void) | null;
 }
 
 /**
@@ -221,17 +172,12 @@ export interface SenseRejectChunk {
 }
 
 /**
- * 阶段完成 subtype
- */
-export type StagedType = "thinking_end" | "content_end" | "sense_end";
-
-/**
  * 阶段完成（checkpoint 归纳后 yield）
  */
 export interface StagedChunk {
   type: "staged";
   /** 阶段类型 */
-  stagedType: StagedType;
+  stagedType: "thinking_end" | "content_end" | "sense_end";
   /** 累积的响应内容 */
   content: string;
   /** 累积的思考内容 */
@@ -240,6 +186,8 @@ export interface StagedChunk {
   senseName?: string;
   /** 感官参数（sense_end 时使用） */
   senseArguments?: string;
+  /** sense 调用 id（sense_end 时使用，透传至 wire 供前端关联 result） */
+  id?: string;
 }
 
 /**
@@ -286,6 +234,8 @@ export interface SensePendingChunk {
   arguments: string;
   supervisionLevel: SupervisionLevel;
   approvalResolve?: ((action: "accept" | "reject", reason?: string) => void) | null;
+  /** 审批 reject 函数（与 approvalResolve 同源，ApprovalManager.abort 调用） */
+  approvalReject?: ((err: Error) => void) | null;
 }
 
 /**

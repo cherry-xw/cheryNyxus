@@ -46,7 +46,7 @@ const openaiMessageAdapterConfig = {
     return undefined;
   },
   buildMessages: (history: LLMResponse[]) =>
-    history.map((m) => {
+    history.filter((m) => !m.revoked).map((m) => {
       if (m.role === "sense") {
         // 如果被替换，使用 replace.content
         const content = m.replace?.state ? m.replace.content : m.content;

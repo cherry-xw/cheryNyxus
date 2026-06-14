@@ -39,6 +39,7 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
         await handleMessage(ws, state, buffer, router);
       } catch (err) {
         const error = err as Error;
+        logger.error(`消息处理失败: ${state.id}`, error.message);
         try {
           const raw = transport.parseMessage(buffer) as { id?: string };
           const requestId = raw.id || "";
@@ -111,8 +112,6 @@ async function handleRequest(
 
   // 处理结果
   if (isAsyncGenerator(result)) {
-    connectionManager.setRequestGenerator(ws, request.id, result);
-
     while (true) {
       const iter = await result.next();
       if (iter.done) {
@@ -166,5 +165,3 @@ function sendError(ws: WebSocket, message: string, requestId?: string): void {
   );
   ws.send(transport.serializeMessage(response));
 }
-
-export { connectionManager };

@@ -25,11 +25,9 @@ yarn test:watch   # 测试监听模式
 ├── skills/<name>/SKILL.md       # 技能定义
 ├── senses/<name>.ts             # 外部自定义感官
 └── db/                          # 数据库目录（自动创建）
-    ├── soul.db                  # souls + chats 表
-    │   ├── souls               # 灵魂信息
-    │   └── chats               # 增加 messages_month 字段（YYYY-MM）
-    └── YYYY-MM.db               # messages 表（按月分片）
-        └── messages            # 消息历史，content=NULL 表示 pending
+    ├── soul.db                  # chats 表（id, messages_month, created_at, updated_at, metadata）
+    └── YYYY-MM.db               # messages 表（按 chat 创建月固定分片）
+        └── messages            # 消息历史，content 空=pending，revoked=1=撤回
 
 src/
 ├── index.ts                     # 入口：WebSocket 服务 / compile-senses 子命令
@@ -87,27 +85,29 @@ src/
 │
 ├── service/                     # 服务层
 │   ├── index.ts                 # WebSocket 服务启动
-│   ├── soul/
-│   │   └── lifecycle.ts         # soul.create/list/load/delete handlers
+│   ├── brain/
+│   │   └── list.ts              # brain.list handler
+│   ├── runtime/
+│   │   └── set.ts               # runtime.set handler
+│   ├── sense/
+│   │   └── list.ts              # sense.list handler
 │   ├── chat/
-│   │   ├── handler.ts           # chat.list/get/delete handlers
-│   │   └ send.ts               # chat.send 流式处理、observer 副作用处理、RPC 转换
+│   │   ├── handler.ts           # chat.create/list/get/delete handlers
+│   │   └── send.ts              # chat.send/resume 流式、observer 副作用、RPC 转换
 │   ├── approval/
-│   │   └ manager.ts             # ApprovalManager 极简版，只存储 approvalResolve 回调
+│   │   └── manager.ts           # ApprovalManager 极简版，只存储 approvalResolve 回调
 │   ├── message/
 │   │   ├── index.ts             # 消息处理入口
 │   │   ├── router.ts            # RpcRouter 方法路由
-│   │   └ types.ts               # Request/Response/Chunk/Notification 类型、Method 常量
-│   └ websocket/
-│   │   ├── index.ts             # WebSocketServer 封装
-│   │   ├── connection.ts        # ConnectionManager 连接状态管理
-│   │   └ transport.ts           # 二进制帧编解码
+│   │   └── types.ts             # Request/Response/Chunk/Notification 类型、Method 常量
+│   └── websocket/
+│       ├── index.ts             # WebSocketServer 封装
+│       ├── connection.ts        # ConnectionManager 连接状态管理
+│       └── transport.ts         # 二进制帧编解码
 │
 ├── db/                          # 数据持久化
 │   ├── index.ts                 # 多数据库实例管理（getSoulDb/getMonthlyDb）、表初始化
-│   ├── soul.ts                  # souls 表 CRUD、deleteSoul 手动清理跨数据库数据
-│   ├── chat.ts                  # chats 表 CRUD（增加 messages_month）、messages 表 CRUD（路由）
-│   └── checkpoint.ts            # checkpoints 表 CRUD
+│   └── chat.ts                  # chats 表 CRUD（messages_month）、messages 表 CRUD（按月路由）
 │
 └── utils/                       # 工具函数
     ├── config.ts                # config.yaml 加载、$ENV 替换、BrainConfig 类型
@@ -136,33 +136,33 @@ test/                            # 测试套件（vitest），结构镜像 src/
 
 ## WebSocket 协议补充说明
 
-**基础协议（消息结构、传输格式）** → 见 [README.md](../README.md) WebSocket 协议章节
+**基础协议（消息结构、传输格式）** → 见 [docs/websocket.md](../docs/websocket.md)
 
 ### 方法列表
 
 | 方法 | 说明 | 流式 |
 |------|------|------|
-| `soul.create` | 创建灵魂（需传 brain + sense_group） | 否 |
-| `soul.list` | 列出灵魂 | 否 |
-| `soul.load` | 载入灵魂到内存 | 否 |
-| `soul.delete` | 删除灵魂（需先删除 Chat） | 否 |
-| `chat.list` | 列出聊天 | 否 |
-| `chat.get` | 获取聊天详情（载入历史） | 是 |
+| `brain.list` | 列出所有 brain（senseGroups 为全局全量） | 否 |
+| `sense.list` | 列出 sense_groups（senses 含 `:level` 后缀未解析） | 否 |
+| `runtime.set` | 原子设置 chat 的 brain + senseGroups（每轮可换） | 否 |
+| `chat.create` | 创建聊天（必带 brain + senseGroups） | 否 |
+| `chat.list` | 列出所有聊天 | 否 |
+| `chat.get` | 流式载入历史（末条未完成周期时返回 canResume） | 是 |
 | `chat.delete` | 删除聊天 | 否 |
-| `runtime.set` | 原子设置 chat 的 brain + senseGroups | 否 |
-| `chat.send` | 发送聊天消息 | 是 |
-| `sense.approval` | 感官审批 | 否 |
-| `sense.list` | 获取可用 sense_group 列表 | 否 |
+| `chat.send` | 发送消息（仅 chatId + prompt；末尾有 pending 自动撤回 + staged.reverse） | 是 |
+| `chat.resume` | 续接（无 prompt，恢复执行 pending sense / 继续 loop） | 是 |
+| `sense.approval` | 感官审批（accept/reject） | 否 |
 
 ### Notification 类型详解
 
 | 类型 | 触发时机 | data |
 |------|----------|------|
-| `interrupt` | sense_end 且 supervision > auto | `{approvalId, senseName, arguments, supervisionLevel}` |
-| `complete` | 感官执行完成 | `{approvalId, senseName, result}` |
+| `interrupt` | sense_end | `{approvalId, senseName, arguments, supervisionLevel, needsApproval}` |
+| `accept` | sense 执行成功 | `{approvalId, senseName, result}` |
+| `rejected` | sense 被拒 / 审批取消 | `{approvalId, senseName, reason}` |
 | `consumed` | 用户输入已进入消息循环 | `{count}` |
 | `loaded` | chat.get 历史载入完成 | `null` |
-| `done` | chat.send 执行完成 | `null` |
+| `done` | chat.send/resume loop 结束 | `null` |
 | `error` | 执行出错 | `{message}` |
 
 ### Chunk 类型详解
@@ -170,42 +170,44 @@ test/                            # 测试套件（vitest），结构镜像 src/
 | type | 说明 | data 字段 |
 |------|------|-----------|
 | `stream` | 流式增量 | thinking, content, senseCall |
-| `staged` | 阶段完成 | type, role, thinking, content, senseName, arguments |
+| `staged` | 阶段完成 | type, role, thinking, content, senseName, arguments, messageIds |
 
-**role 字段说明：** 消息角色（`user`/`assistant`/`system`/`sense`），用于区分消息来源。chat.get 返回历史时携带。
+`staged.type` 取值：`thinking_end` / `content_end` / `sense_end` / `reverse`。`reverse`（携 messageIds）由 chat.send 自动撤回末尾 pending sense 时发送。`role`（user/assistant/system/sense）仅 chat.get 历史携带。
 
 ### 审批流程详解
 
-**审批极简方案（无 approvals 表）：**
-
-审批状态通过 messages.content 字段判断（`NULL` 表示 pending），ApprovalManager 只存储 approvalResolve 回调。
+**审批极简方案（无 approvals 表）：** 审批状态通过 messages.content 判断（空 = pending），ApprovalManager 只存 approvalResolve 回调。
 
 **confirm 模式流程：**
 
 ```text
 1. chat.send 发送用户消息
-2. LLM 返回 sense_call（如 execute_command）
+2. LLM 返回 sense_call
 3. senseMiddleware 检查 supervisionLevel = confirm
-4. checkpoint 创建 pending sense 内存消息并 yield message_created effect
-5. yield SenseTriggerChunk（含 approvalResolve 回调）
-6. service observer 消费 sense_pending effect，调用 approvalManager.register()
-7. transport mapper 将 SenseTriggerChunk 转为 interrupt notification
-8. 客户端收到 interrupt，发送 sense.approval
-9. approvalManager.confirm() 调用 approvalResolve(action, reason)
-10. fillApprovalResult() 更新 messages.content（执行结果或拒绝原因）
-11. senseMiddleware Generator 继续，根据 action 执行或拒绝
-12. yield sense_complete notification
+4. checkpoint 创建 pending sense 内存消息（message_created effect）
+5. yield SenseTriggerChunk（含 approvalResolve）→ service observer 注册 approvalManager + 发 interrupt notification
+6. 客户端 sense.approval → approvalManager.confirm → approvalResolve(action, reason)
+7. fillApprovalResult 更新 messages.content（执行结果/拒绝原因）
+8. senseMiddleware 继续：accept 执行感官 / reject 跳过 → accept/rejected notification
 ```
 
-**历史恢复逻辑：**
+**末尾未完成处理（send 自动撤回 / resume 续接）：**
 
-服务重启后，chat.get 流式加载历史消息时，前端根据 `role='sense' AND content IS NULL` 判断 pending approvals，显示审批弹窗。
+服务重启后 chat.get 流式回显历史，末条为 loop 未自然结束（pending sense，或 done sense 无后续 assistant）时 response 携带 `canResume:true`。前端两选：
+
+- **发新消息** `chat.send(chatId, prompt)`（仅 chat.get 恢复场景触发）：撤回整个当前周期 AI 响应（think + content + tool/senseCalls + pending sense），回退到上一周期结束（标记 `revoked`，buildMessages 过滤），发 `staged.reverse` chunk（messageIds）通知客户端回滚，加 prompt 重跑
+  - 正常运行中 loop 自动续接不会留 pending；运行中 send 仅入队等下个周期消费，不撤回
+- **点续接按钮** `chat.resume(chatId)`（无 prompt）：恢复执行 / 继续 loop，整体同默认 send 流一致，仅首轮跳过 chat 层（不调 LLM）
+  - 末尾有 pending sense → senseMiddleware 不调 next，重发 sense_end → interrupt，按监管等级执行（auto 直接 / confirm 等审批）；工具不在当前 senseTable → 跳过监管静默写「无此工具」
+  - 末尾全 done → 直接进 loop 调 LLM
+
+> Phase 0（send 自动恢复执行 pending sense）已移除，续接必须由显式 `chat.resume` 按钮触发。详见 [docs/interaction.md](../docs/interaction.md) chat.resume。
 
 **关键代码位置：**
-- 审批等待：[agent/middleware/tool.ts](src/agent/middleware/tool.ts) `executeSenseCall()` 创建 approvalPromise
-- 审批注册：[service/chat/send.ts](src/service/chat/send.ts) `approvalManager.register()`
-- 审批确认：[service/chat/send.ts](src/service/chat/send.ts) `approvalManager.confirm()` + `fillApprovalResult()`
-- 状态判断：messages 表 `content IS NULL` 表示 pending
+
+- 审批等待：[agent/middleware/tool.ts](src/agent/middleware/tool.ts) `buildSenseTrigger` 创建 approvalPromise
+- 审批注册/确认：[service/chat/send.ts](src/service/chat/send.ts) `approvalManager.register()` / `confirm()` + `fillApprovalResult()`
+- 状态判断：messages 表 `content` 空 = pending；`revoked=1` = 撤回
 
 ## 核心设计模式
 
@@ -214,10 +216,10 @@ test/                            # 测试套件（vitest），结构镜像 src/
 [core/middleware/index.ts](src/core/middleware/index.ts) Middleware 类：
 
 ```ts
-new Middleware(soulId, global, brainConfig, senseManager, adapters, handlers, loopHandler?, builtSenses?)
+new Middleware(global, handlers, loopHandler?)
 ```
 
-**执行顺序（由外到内）：** `checkpointMiddleware → chatMiddleware → senseMiddleware → retryMiddleware`
+**执行顺序（由外到内）：** `checkpointMiddleware → senseMiddleware → retryMiddleware → chatMiddleware`
 
 **Chunk 流向：**
 
@@ -242,16 +244,15 @@ loopMiddleware 循环直到无 senseCalls
 
 | 分组 | 字段 | 说明 |
 |------|------|------|
-| `soul` | soulId, chatId | 身份标识 |
-| `soul` | hashCheck | 感官调用去重（callId → resultHash） |
+| `soul` | chatId | 聊天标识（单 chat 绑定） |
 | `soul` | senseSharedData | 感官间共享数据 |
-| `soul` | userInputs | 用户输入队列 |
-| `soul` | builtSenses | 预构建感官函数 |
+| `soul` | userInputs | 用户输入队列（send 注入，checkpoint 消费） |
 | `soul` | messages | 对话历史 |
 | `global` | thinking, supervision, stream, maxLoopCount | 全局配置 |
-| `brain` | model, provider, url, key | Brain 配置 |
-| `adapters` | llmAdapter, messageAdapter, senseAdapter | Adapter 实例 |
-| `senseManager` | SenseManager | 感官管理器 |
+| `runtime` | brain | Brain 配置（model/provider/url/key） |
+| `runtime` | adapters | llmAdapter / messageAdapter / senseAdapter |
+| `runtime` | builtSenses | 预构建 API 感官参数（给 LLM） |
+| `runtime` | senseTable | name → 监管等级 + 执行器 |
 
 ### Builder - Agent 配置
 
@@ -309,21 +310,21 @@ yield DoneChunk;
 
 ### Chat 管理
 
-[core/middleware/index.ts](src/core/middleware/index.ts) `Middleware` 类：
+[core/middleware/index.ts](src/core/middleware/index.ts) `Middleware` 类（单 chat 绑定，跨轮不重建）：
 
-- `chatMap`：Map<string, MiddlewareContext> 聊天上下文映射
-- `createChat(chatId)`：初始化 context，注入 system 消息
-- `send(input)`：单一入口；空闲时注入 userInputs 并执行 chain，运行中调用只入队，下一轮 loop 自动消费
-- 支持 generator 复用（同一 chatId 多次 send）
+- `init(chatId, messages)`：绑定 chatId，注入历史/system 消息
+- `configureRuntime(runtime)`：原子注入 brain/adapters/senseTable（每轮可换）
+- `send(input)`：空闲时入队 userInputs 并启动 loop；运行中只入队，下一轮 loop 消费
+- runtime 缓存（chatRuntimes：Map<chatId, {builder, selection}>）在 [service/chat/send.ts](src/service/chat/send.ts)，非 Middleware 内
 
 ## 中间件职责
 
 | 中间件 | 文件 | 输入 | 输出 |
 |--------|------|------|------|
 | checkpoint | [checkpoint.ts](src/agent/middleware/checkpoint.ts) | StreamChunk / SenseTriggerChunk / SenseResultChunk | StagedChunk + message/sense effect chunk |
-| chat | [chat.ts](src/agent/middleware/chat.ts) | userInputs | StreamChunk（LLM 响应） |
-| sense | [tool.ts](src/agent/middleware/tool.ts) | SenseTriggerChunk | SenseCompleteChunk |
+| sense | [tool.ts](src/agent/middleware/tool.ts) | SenseTriggerChunk（含 approvalResolve） | SenseAccept/SenseRejectChunk |
 | retry | [retry.ts](src/agent/middleware/retry.ts) | ErrorChunk | 重试或继续 |
+| chat | [chat.ts](src/agent/middleware/chat.ts) | userInputs | StreamChunk（LLM 响应） |
 
 ### checkpointMiddleware
 
@@ -335,11 +336,12 @@ yield DoneChunk;
 
 ### senseMiddleware
 
-1. 检查 `supervisionLevel`
-2. `auto`：直接执行感官
-3. `confirm/manual`：yield `SenseTriggerChunk`，等待 `approvalResolve` 回调
-4. 执行感官：`senseManager.execute(name, args)`
-5. yield `SenseCompleteChunk`
+1. Phase 1：从 stream chunks 收集 senseDelta，检测完整 sense call，yield `SenseTriggerChunk`
+2. Phase 2：auto 直接执行；confirm/manual 批量 await approvalPromise 后逐一执行
+3. 执行：`senseTable.get(name).execute(args, senseSharedData)`
+4. yield `SenseAcceptChunk` / `SenseRejectChunk`
+
+> Phase 0（recovery 自动恢复 pending sense）已废弃，改由 chat.resume 撤回处理。
 
 ## 配置系统补充说明
 

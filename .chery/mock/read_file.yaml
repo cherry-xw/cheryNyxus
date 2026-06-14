@@ -1,0 +1,38 @@
+# mock 脚本（mock_test brain 引用）
+# 索引按 LLM 调用序（messages 中 assistant 计数）；耗尽后 repeat:last 重复最后一条
+# 单项字段：thinking? / content? / senseCalls?[{id?,name,arguments}] / error?
+# 监管等级由 config.yaml sense_groups 的 :level 决定，不在此处
+#
+# 本脚本：四轮回放，覆盖「content → 多 tool call → 多 tool call → content」loop 多轮 sense 链
+#   轮1：content（纯文本，无 tool call）
+#   轮2：read_file ×2（多个 tool call）
+#   轮3：write_file + execute_command（多个 tool call，随意组合）
+#   轮4：content（总结）
+# 注意：write_file / execute_command 未在 config.yaml sense_groups 配置，
+#       运行时 senseMiddleware 会按「无此工具」静默跳过，不影响 loop/checkpoint 流程验证。
+#       如需真实执行，在 sense_groups 加这两个感官。
+repeat: last
+script:
+  # 轮1：content 响应
+  - content: "好的，我来处理这些任务。先了解一下情况。"
+
+  # 轮2：多个 tool call（read_file ×2，不同路径）
+  - thinking: "需要读取两个文件了解现状"
+    content: "让我先读取相关文件"
+    senseCalls:
+      - name: "read_file"
+        arguments: '{"path":"/a.txt"}'
+      - name: "read_file"
+        arguments: '{"path":"/b.txt"}'
+
+  # 轮3：多个 tool call（write_file + execute_command，组合）
+  - thinking: "基于读取的内容，写入结果文件并执行命令"
+    content: "现在写入结果并执行命令"
+    senseCalls:
+      - name: "write_file"
+        arguments: '{"path":"/out.txt","content":"hello world"}'
+      - name: "execute_command"
+        arguments: '{"command":"ls -la"}'
+
+  # 轮4：content 响应（总结）
+  - content: "所有任务已完成：文件已读取、结果已写入、命令已执行。"

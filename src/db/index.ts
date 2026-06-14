@@ -1,7 +1,7 @@
 import "@/utils/config"; // 确保 dotenv 先加载
 import Database from "better-sqlite3";
 import { join } from "path";
-import { existsSync, mkdirSync, writeFileSync, readdirSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
 import config from "@/utils/config.js";
 
 // 缓存管理
@@ -40,6 +40,7 @@ export function getSoulDb(): Database.Database {
 /**
  * 获取 YYYY-MM.db 实例（动态，缓存）
  * 包含 messages 表
+ * 注：messages_month 在 createChat 时按 chat 创建月固定分片，跨月不迁移（见 db/chat.ts）
  */
 export function getMonthlyDb(yearMonth: string): Database.Database {
   if (!dbCache.monthlyDbs.has(yearMonth)) {
@@ -82,6 +83,10 @@ function initSoulTables(db: Database.Database): void {
 
 /**
  * 初始化 messages 表（YYYY-MM.db）
+ *
+ * schema migration：旧 db 文件（revoked 列加入前创建）messages 表缺列，
+ * CREATE TABLE IF NOT EXISTS 对已存在表跳过建表 → 列永久缺失。
+ * 建表后按列检查补 ALTER TABLE ADD COLUMN，保证旧库自动升级。
  */
 function initMonthlyTables(db: Database.Database): void {
   db.exec(`
@@ -97,11 +102,31 @@ function initMonthlyTables(db: Database.Database): void {
       replace_by TEXT,
       replace_content TEXT,
       original_content TEXT,
+      revoked INTEGER DEFAULT 0,
       created_at INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
   `);
+
+  ensureMessageColumn(db, "revoked", "INTEGER DEFAULT 0");
+}
+
+/**
+ * 列存在性检查 + 缺失补列。
+ * PRAGMA table_info 返回行无该列名时 ALTER TABLE ADD COLUMN。
+ */
+function ensureMessageColumn(
+  db: Database.Database,
+  column: string,
+  definition: string,
+): void {
+  const cols = db.prepare(`PRAGMA table_info(messages)`).all() as
+    { name: string }[];
+  const exists = cols.some((c) => c.name === column);
+  if (!exists) {
+    db.exec(`ALTER TABLE messages ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 /**
@@ -116,20 +141,4 @@ export function closeAllDbs(): void {
     db.close();
   }
   dbCache.monthlyDbs.clear();
-}
-
-/**
- * 获取所有月份文件列表
- * 用于扫描所有 pending approvals
- */
-export function getAllMonths(): string[] {
-  const dbDir = config.global.db_dir;
-  if (!existsSync(dbDir)) {
-    return [];
-  }
-
-  const files = readdirSync(dbDir);
-  return files
-    .filter(f => f.match(/^\d{4}-\d{2}\.db$/))
-    .map(f => f.replace(".db", ""));
 }

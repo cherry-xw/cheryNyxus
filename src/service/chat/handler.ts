@@ -7,7 +7,6 @@ import {
   type Notification,
   type ChatCreateRequestData,
   type ChatCreateResponseData,
-  type ChatListRequestData,
   type ChatGetRequestData,
   type ChatGetResponseData,
   type ChatDeleteRequestData,
@@ -22,17 +21,7 @@ import {
 } from "@/db/chat.js";
 import { clearChatRuntime, ensureChat } from "./send.js";
 import { randomUUID } from "crypto";
-import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
-
-function parseRuntimeSelection(params: ChatCreateRequestData): RuntimeSelection {
-  if (!params.brain || !Array.isArray(params.senseGroups) || params.senseGroups.length === 0) {
-    throw new Error("chat.create requires brain and at least one senseGroups entry");
-  }
-  return {
-    brain: params.brain,
-    senseGroups: params.senseGroups,
-  };
-}
+import { parseRuntimeSelection } from "@/agent/runtimeResolver.js";
 
 /**
  * 创建聊天（chatId 可选由前端指定）
@@ -44,7 +33,7 @@ export async function handleChatCreate(
   params: unknown,
 ): Promise<ChatCreateResponseData> {
   const p = params as ChatCreateRequestData;
-  const selection = parseRuntimeSelection(p);
+  const selection = parseRuntimeSelection(p, "chat.create");
   const chatId = p.chatId || randomUUID();
   createChat(chatId);
   // 原子配置 runtime，并一次性加载历史到 agent。
@@ -74,8 +63,8 @@ export async function handleChatList(
 
 /**
  * 获取聊天详情（载入历史对话）
- * 重构后不再做 pending sense recovery（brain/sense 运行时不持久化），
- * 仅流式返回历史消息，前端通过 runtime.set 重新注入 runtime 后即可继续。
+ * runtime selection 持久化在 chats.metadata.runtime，服务重启后 ensureChat 自动恢复，
+ * 前端无需重新 runtime.set（除非持久化的 brain/group 已从 config.yaml 删除，恢复时报错）。
  */
 export async function* handleChatGet(
   _ctx: HandlerContext,
@@ -98,7 +87,17 @@ export async function* handleChatGet(
       yield createChunk("staged", p.chatId, { type: "thinking_end", role: parsedMsg.role, thinking: parsedMsg.thinking });
     }
     if (parsedMsg.content) {
-      yield createChunk("staged", p.chatId, { type: "content_end", role: parsedMsg.role, content: parsedMsg.content });
+      yield createChunk("staged", p.chatId, {
+        type: "content_end",
+        role: parsedMsg.role,
+        content: parsedMsg.content,
+        // role:sense 的 content 是 sense 执行结果，带 id（= sense call id）供前端关联到 sense block
+        ...(parsedMsg.role === "sense" ? { id: msg.id } : {}),
+        // 感官去重命中：附加 replace 元数据（content 仍为原内容，前端据此渲染"已过时"）
+        ...(parsedMsg.replace?.state
+          ? { replace: parsedMsg.replace, originalContent: parsedMsg.originalContent }
+          : {}),
+      });
     }
     if (parsedMsg.senseCall && parsedMsg.senseCall.length > 0) {
       for (const sc of parsedMsg.senseCall) {
@@ -107,6 +106,7 @@ export async function* handleChatGet(
           role: parsedMsg.role,
           senseName: sc.name,
           arguments: sc.arguments,
+          id: sc.id,
         });
       }
     }
@@ -115,7 +115,13 @@ export async function* handleChatGet(
   // 发送 loaded notification
   yield createNotification("loaded", p.chatId, null);
 
-  return { chatId: p.chatId };
+  // 末条（跳过已撤回 revoked）为未完成周期 → canResume
+  //   - role=sense：pending 或 done 无后续 assistant（pending sense 待恢复执行 / 继续 loop）
+  //   - role=user：用户消息已入库但 assistant 未响应（异常中断，如服务崩溃），resume Case2 复用末条 user 调 LLM
+  const lastVisible = [...messages].reverse().find(m => !m.revoked);
+  const canResume = !!lastVisible && (lastVisible.role === "sense" || lastVisible.role === "user");
+
+  return { chatId: p.chatId, canResume };
 }
 
 /**

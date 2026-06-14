@@ -1,0 +1,11 @@
+# 流程B：auto sense 两轮（read_file:auto 自动执行）
+# 轮1：content + read_file senseCall；轮2：基于结果回复
+repeat: last
+script:
+  - thinking: "需要读取文件"
+    content: "我来读取文件"
+    senseCalls:
+      - id: "auto-rf-0"
+        name: "read_file"
+        arguments: '{"path":"package.json"}'
+  - content: "文件已读取完毕"

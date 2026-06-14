@@ -22,7 +22,7 @@ export default class Middleware<T = unknown> {
   /** 单 chat 的上下文 */
   private ctx: MiddlewareContext;
   /** 是否有活跃会话迭代器（运行中 send 只入队，不启动第二个 generator） */
-  private isRunning = false;
+  private isRunningFlag = false;
   /** 生成器闭包 */
   private generator: () => AsyncGenerator<T, void, unknown>;
 
@@ -72,6 +72,83 @@ export default class Middleware<T = unknown> {
   }
 
   /**
+   * 撤回末尾整个当前周期 AI 响应（chat.send 恢复场景使用）。
+   * 从末尾向前收集连续 role==="sense" 群 + 紧邻其前的 assistant(senseCalls)，
+   * 整体标记 revoked=true（含 done sense，统一撤回整个周期回退到上一周期结束）。
+   * OpenAI tool_calls 配对约束要求 assistant 与 tool 结果成对移除。
+   * @returns 被撤回的 message id（供 service 层 markMessagesRevoked 持久化）；无未完成周期返回 []
+   */
+  revokeTrailingCycle(): string[] {
+    const messages = this.ctx.soul.messages ?? [];
+    if (messages.length === 0) return [];
+
+    let i = messages.length - 1;
+    while (i >= 0 && messages[i]!.role === "sense") {
+      i--;
+    }
+    const senseStart = i + 1;
+    // 末尾非 sense 群 → 无未完成周期
+    if (senseStart === messages.length) return [];
+    // 紧邻其前必须是带 senseCalls 的 assistant（整个周期的发起者）
+    if (
+      i < 0 ||
+      messages[i]!.role !== "assistant" ||
+      !messages[i]!.senseCalls?.length
+    ) {
+      return [];
+    }
+
+    const revokedIds: string[] = [];
+    // 撤回 assistant（think/content/tool_calls）
+    messages[i]!.revoked = true;
+    revokedIds.push(messages[i]!.id);
+    // 撤回整个 sense 群（含 done）
+    for (let j = senseStart; j < messages.length; j++) {
+      messages[j]!.revoked = true;
+      revokedIds.push(messages[j]!.id);
+    }
+
+    return revokedIds;
+  }
+
+  /**
+   * 末尾连续 sense 群中是否存在 pending（空 content）。
+   * chat.resume 据此判断 Case1（有 pending → 续接执行）vs Case2（全 done → 进 loop）。
+   */
+  hasPendingTrailingSense(): boolean {
+    const messages = this.ctx.soul.messages ?? [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]!;
+      if (m.role !== "sense") break;
+      if (!m.content) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 设置续接标志（chat.resume Case1：首轮 senseMiddleware skip chat 层）。
+   */
+  setResumePending(value: boolean): void {
+    this.ctx.soul.resumePending = value;
+  }
+
+  /**
+   * 是否有活跃会话迭代器（service 层判断 send 恢复撤回仅在 idle 时触发）。
+   */
+  isRunning(): boolean {
+    return this.isRunningFlag;
+  }
+
+  /**
+   * 暴露内存消息列表（service observer flush 时读取，判断哪些未落库）。
+   * abort(return) 时 checkpoint finally 的 effect yield 不被消费，assistant 仅在内存，
+   * 需 observer finally 兜底同步到 DB（见 observeAgentChunks）。
+   */
+  getMessages(): LLMResponse[] {
+    return this.ctx.soul.messages ?? [];
+  }
+
+  /**
    * 单次 chain 执行
    */
   private async *runChain(
@@ -100,14 +177,14 @@ export default class Middleware<T = unknown> {
       });
     }
 
-    if (this.isRunning) return
+    if (this.isRunningFlag) return
 
-    this.isRunning = true;
+    this.isRunningFlag = true;
     const generator = this.generator();
     try {
       yield* generator;
     } finally {
-      this.isRunning = false;
+      this.isRunningFlag = false;
     }
   }
 

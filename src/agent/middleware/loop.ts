@@ -13,10 +13,11 @@ export function createLoopHandler(
     ctx: MiddlewareContext,
     runChain: () => AsyncGenerator<MiddlewareChunk, void, unknown>,
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
-    let times = ctx.soul.loopStartCount ?? 0;
+    let times = 0;
+    let stopped = false;  // 区分 break（正常停止）vs while 条件耗尽（避免误报）
 
     logger.info("\n" + "▶".repeat(60));
-    logger.info("[LOOP] Starting execution loop (max: " + maxLoop + ", start: " + times + ")");
+    logger.info("[LOOP] Starting execution loop (max: " + maxLoop + ")");
     logger.info("▶".repeat(60) + "\n");
 
     while (times < maxLoop) {
@@ -30,7 +31,12 @@ export function createLoopHandler(
       // 检查 loop 停止条件（基于 ctx.soul.messages）
       const messages = ctx.soul.messages;
       if (!messages || messages.length === 0) {
+        if (ctx.soul.userInputs.length > 0) {
+          logger.info("[LOOP] Continue: residual userInputs after empty messages");
+          continue;
+        }
         logger.info("[LOOP] Stop: No messages");
+        stopped = true;
         break;
       }
 
@@ -50,13 +56,19 @@ export function createLoopHandler(
         continue;
       }
 
-      // 3. 其他情况（assistant 无 senseCall / user / system）→ 停止 loop
+      // 3. 其他情况（assistant 无 senseCall / user / system）→ 检查残留输入后再停止
+      if (ctx.soul.userInputs.length > 0) {
+        logger.info("[LOOP] Continue: residual userInputs to consume");
+        continue;
+      }
       logger.info("[LOOP] Stop: Last message is", lastMessage.role, "(no sense activity)");
+      stopped = true;
       break;
     }
 
-    // 超过最大循环次数
-    if (times >= maxLoop) {
+    // 仅当 while 条件耗尽（非 break）才报 max loop 超限。
+    // 旧实现 `times >= maxLoop` 在第 maxLoop 轮正常 break 时（times===maxLoop）会误报。
+    if (!stopped && times >= maxLoop) {
       logger.info("\n[LOOP] ⚠ Max loop count reached (" + maxLoop + ")");
       const errorChunk: ErrorChunk = {
         type: "error",
