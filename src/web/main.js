@@ -1,5 +1,5 @@
 /**
- * 应用入口：装配布局骨架 + 各 view mount + 自动连接默认 WS。
+ * 应用入口：装配布局骨架 + 各 view mount（连接由用户手动 CONNECT）。
  *
  * 布局：#app > topbar + .main(.chat-zone[chat-scroll-wrap(chat-messages + minimap) + approval-zone + input-bar] + .chunk-panel)
  */
@@ -34,5 +34,4 @@ mountApprovalTabs(approvalZone);
 mountInputBar(inputBar);
 mountChunkPanel(chunkPanel);
 
-// 自动连接默认地址（服务未起时 onclose 回 disconnected，用户起服务后手动 CONNECT）
-actions.connect("ws://localhost:8080");
+// 不自动连接：用户填地址后手动 CONNECT（连接成功后自动拉 brain/sense/chat 列表）

@@ -11,6 +11,10 @@ import { h, appendText } from "@web/lib/dom.js";
 import { parseStyled, highlightJSON, levelInfo, renderKV } from "@web/core/format.js";
 import { actions } from "@web/core/actions.js";
 
+// senseCall arguments 流式逐字 reveal 步长（每帧字符数）。
+// Ollama tool_call 非增量（完整 args 一次性到达），靠前端 RAF 打字机模拟逐字效果。
+const ARGS_TYPEWRITER_STEP = 4;
+
 export function createBlock(block) {
   switch (block.kind) {
     case "user": return simple(block, "block block-user", "text");
@@ -41,6 +45,7 @@ function standaloneSense(block) {
   // 橙色外框：标题 + argument（键值表）+ result（顶部「详情」按钮控制显隐）
   let resultWrap = null, resultBody = null, lastResult;
   let lastThink2 = undefined;
+  let staleBadge = null, staleFold = null, lastOriginal = undefined;
   const toggleBtn = h("button", {
     class: "sense-detail-toggle",
     on: { click: () => {
@@ -88,9 +93,35 @@ function standaloneSense(block) {
     sThinkBody.textContent = th ?? "";
     sThink.style.display = th ? "" : "none";
   }
+  // 感官去重命中（read_file hash 相同）：head 加 ⚠ STALE 标记，
+  // result 区内二级折叠显示原长内容（默认收起，主显保留说明文字）。
+  function applyStale(b) {
+    if (!b.replace?.state) return;
+    if (!staleBadge) {
+      staleBadge = h("span", { class: "badge badge-stale" }, "⚠ STALE");
+      head.insertBefore(staleBadge, toggleBtn);
+    }
+    if (!staleFold) {
+      applyResult(b.result ?? ""); // 确保 resultWrap 已建
+      const origBody = h("div", { class: "sense-original raw" });
+      staleFold = h("details", { class: "sense-stale-fold" },
+        h("summary", {}, "ORIGINAL (SUPERSEDED)"), origBody);
+      resultWrap.appendChild(staleFold);
+    }
+    const oc = b.originalContent ?? "";
+    if (oc !== lastOriginal) {
+      lastOriginal = oc;
+      const origBody = staleFold.querySelector(".sense-original");
+      const { ok, text } = parseStyled(oc);
+      origBody.className = `sense-original ${ok ? "json" : "raw"}`;
+      if (ok) origBody.innerHTML = highlightJSON(text);
+      else origBody.textContent = text;
+    }
+  }
   applyArgs(block.arguments);
   applyResult(block.result);
   applyThink(block.thinking);
+  applyStale(block);
 
   if (block.revoked) el.classList.add("revoked");
   return {
@@ -99,6 +130,7 @@ function standaloneSense(block) {
       el.classList.toggle("revoked", !!b.revoked);
       applyThink(b.thinking);
       if (b.result !== lastResult) { lastResult = b.result; applyResult(b.result); }
+      applyStale(b);
     },
   };
 }
@@ -145,7 +177,7 @@ function assistant(block) {
         const senseEl = h("div", { class: "sense-block" }, sThink, header);
         // insertBefore contentEl：工具块在总结块之前（多轮 loop 时工具在前、最终总结在后）
         el.insertBefore(senseEl, contentEl);
-        e = { el: senseEl, header, head, toggleBtn, nameEl, statusEl, argsEl, badgeEl: null, resultWrap: null, resultBody: null, lastArgsCls: null, lastName: "", sThink, sThinkBody, lastSenseThink: undefined };
+        e = { el: senseEl, header, head, toggleBtn, nameEl, statusEl, argsEl, badgeEl: null, resultWrap: null, resultBody: null, lastArgsCls: null, lastName: "", sThink, sThinkBody, lastSenseThink: undefined, staleBadge: null, staleFold: null, lastOriginal: undefined, twShown: 0, twTarget: "", twRaf: 0 };
         senseMap.set(idx, e);
       }
       // badge 补建：sc 由 stream delta 首建时 level 未设（仅 interrupt 后到达），此处补建
@@ -162,13 +194,35 @@ function assistant(block) {
         e.sThinkBody.textContent = sTh ?? "";
         e.sThink.style.display = sTh ? "" : "none";
       }
-      // argument 结构化：对象→键值表 / 非对象 JSON→高亮 / 非法→原样
-      const r = renderKV(sc.arguments || "");
-      const cls = `sense-args ${r.mode}`;
-      if (cls !== e.lastArgsCls) { e.argsEl.className = cls; e.lastArgsCls = cls; }
-      if (r.mode === "kv") { if (e.argsEl.innerHTML !== r.html) e.argsEl.innerHTML = r.html; }
-      else if (r.mode === "json") { const html = highlightJSON(r.text); if (e.argsEl.innerHTML !== html) e.argsEl.innerHTML = html; }
-      else if (e.argsEl.textContent !== r.text) e.argsEl.textContent = r.text;
+      // argument：streaming 态逐字 reveal（部分 JSON 无法结构化 → 逐字期纯 raw 文本）；
+      // 终态（pending/accepted/rejected）停打字机 + 结构化渲染（KV 表 / JSON 高亮 / 原样）。
+      // Ollama 完整 args 一次性到达 → RAF 打字机模拟增量；OpenAI 真增量时 target 持续涨、RAF 跟随。
+      const args = sc.arguments || "";
+      if (sc.status !== "streaming") {
+        if (e.twRaf) { cancelAnimationFrame(e.twRaf); e.twRaf = 0; }
+        e.twShown = args.length; e.twTarget = args;
+        const r = renderKV(args);
+        const cls = `sense-args ${r.mode}`;
+        if (cls !== e.lastArgsCls) { e.argsEl.className = cls; e.lastArgsCls = cls; }
+        if (r.mode === "kv") { if (e.argsEl.innerHTML !== r.html) e.argsEl.innerHTML = r.html; }
+        else if (r.mode === "json") { const html = highlightJSON(r.text); if (e.argsEl.innerHTML !== html) e.argsEl.innerHTML = html; }
+        else if (e.argsEl.textContent !== r.text) e.argsEl.textContent = r.text;
+      } else {
+        if (args.length < e.twShown) e.twShown = 0; // args 缩短（周期 reset）→ 重置已显长度
+        e.twTarget = args;
+        const cls = "sense-args raw";
+        if (cls !== e.lastArgsCls) { e.argsEl.className = cls; e.lastArgsCls = cls; }
+        if (!e.twRaf) {
+          const step = () => {
+            const target = e.twTarget;
+            e.twShown = Math.min(e.twShown + ARGS_TYPEWRITER_STEP, target.length);
+            e.argsEl.textContent = target.slice(0, e.twShown);
+            if (e.twShown < target.length) e.twRaf = requestAnimationFrame(step);
+            else e.twRaf = 0;
+          };
+          e.twRaf = requestAnimationFrame(step);
+        }
+      }
       e.statusEl.textContent = sc.status || "";
       // result 嵌套折叠（懒创建）：argument 后插分割线 + details[RESULT]，默认 closed
       const hasResult = (sc.status === "accepted" && sc.result != null) || (sc.status === "rejected" && sc.reason != null);
@@ -190,6 +244,30 @@ function assistant(block) {
           e.resultBody.className = `sense-result ${rOk ? "json" : "raw"}`;
           if (rOk) { const html = highlightJSON(rText); if (e.resultBody.innerHTML !== html) e.resultBody.innerHTML = html; }
           else if (e.resultBody.textContent !== rText) e.resultBody.textContent = rText;
+        }
+      }
+      // 感官去重命中：head 加 ⚠ STALE，result 区二级折叠原长内容
+      if (sc.replace?.state) {
+        if (!e.staleBadge) {
+          e.staleBadge = h("span", { class: "badge badge-stale" }, "⚠ STALE");
+          e.head.insertBefore(e.staleBadge, e.toggleBtn);
+        }
+        if (e.resultWrap && !e.staleFold) {
+          const origBody = h("div", { class: "sense-original raw" });
+          e.staleFold = h("details", { class: "sense-stale-fold" },
+            h("summary", {}, "ORIGINAL (SUPERSEDED)"), origBody);
+          e.resultWrap.appendChild(e.staleFold);
+        }
+        if (e.staleFold) {
+          const oc = sc.originalContent ?? "";
+          if (oc !== e.lastOriginal) {
+            e.lastOriginal = oc;
+            const origBody = e.staleFold.querySelector(".sense-original");
+            const { ok, text } = parseStyled(oc);
+            origBody.className = `sense-original ${ok ? "json" : "raw"}`;
+            if (ok) origBody.innerHTML = highlightJSON(text);
+            else origBody.textContent = text;
+          }
         }
       }
     });

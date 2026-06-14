@@ -6,3 +6,9 @@ export {
   resetSenses,
   getSense,
 } from "./senseRegistry";
+export {
+  createApproval,
+  resolveApproval,
+  rejectApproval,
+  type ApprovalDecision,
+} from "./approvalRegistry";

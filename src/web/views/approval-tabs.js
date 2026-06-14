@@ -9,7 +9,7 @@
 import { h, clear } from "@web/lib/dom.js";
 import { store } from "@web/core/store.js";
 import { actions } from "@web/core/actions.js";
-import { parseStyled, highlightJSON, prettyJSON, levelInfo } from "@web/core/format.js";
+import { renderKV, highlightJSON, prettyJSON, levelInfo } from "@web/core/format.js";
 
 const reasonCache = new Map(); // approvalId → reason text（保留用户输入，跨重渲染）
 
@@ -62,7 +62,7 @@ export function mountApprovalTabs(container) {
     clear(host);
     for (const a of approvals) {
       const resolved = a.status !== "pending";
-      const mark = a.status === "pending" ? "⟳" : a.status === "accepted" ? "✓" : "✕";
+      const mark = a.status === "pending" ? "⟳" : a.status === "accepted" ? "■" : "□";
       const tab = h("div", {
         class: `approval-tab ${a.status} ${a.approvalId === activeId ? "active" : ""} ${resolved ? "resolved" : ""}`,
         on: { click: () => actions.selectApprovalTab(a.approvalId) },
@@ -82,10 +82,11 @@ export function mountApprovalTabs(container) {
     clear(host);
     if (!a) return;
     const li = levelInfo(a.level);
-    const { ok, text } = parseStyled(a.arguments);
-    const argsEl = h("div", { class: `ap-args ${ok ? "json" : "raw"}` });
-    if (ok) argsEl.innerHTML = highlightJSON(text);
-    else argsEl.textContent = text;
+    const r = renderKV(a.arguments);
+    const argsEl = h("div", { class: `ap-args ${r.mode}` });
+    if (r.mode === "kv") argsEl.innerHTML = r.html;
+    else if (r.mode === "json") argsEl.innerHTML = highlightJSON(r.text);
+    else argsEl.textContent = r.text;
 
     host.append(
       h("div", { class: "ap-sense" },

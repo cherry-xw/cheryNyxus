@@ -18,14 +18,14 @@ export function mountTopbar(container) {
     h("button", { class: "btn btn-accent", id: "btnConn", on: { click: onConnect } }, "CONNECT"),
     h("button", { class: "btn", id: "btnDisc", on: { click: () => actions.disconnect() } }, "DISCONNECT"),
     h("span", { class: "status-dot disconnected", id: "statusDot", title: "link status" }),
-    h("span", { class: "label" }, "BRAIN"),
-    h("select", { class: "select", id: "brainSel", on: { change: onBrainChange } }),
-    h("span", { class: "label" }, "SENSE"),
-    h("select", { class: "select", id: "senseSel", on: { change: onSenseChange } }),
     h("span", { class: "label" }, "CHAT"),
     h("select", { class: "select", id: "chatSel", on: { change: onChatChange } }),
     h("button", { class: "btn", id: "btnNew", on: { click: () => actions.newChat() } }, "NEW"),
-    h("button", { class: "btn", id: "btnDelete", on: { click: () => actions.deleteChat() } }, "DELETE")
+    h("button", { class: "btn", id: "btnDelete", on: { click: () => actions.deleteChat() } }, "DELETE"),
+    h("span", { class: "label" }, "BRAIN"),
+    h("select", { class: "select", id: "brainSel", on: { change: onBrainChange } }),
+    h("span", { class: "label" }, "SENSE"),
+    h("select", { class: "select", id: "senseSel", on: { change: onSenseChange } })
   );
 
   el("#wsUrl").value = "ws://localhost:8080";

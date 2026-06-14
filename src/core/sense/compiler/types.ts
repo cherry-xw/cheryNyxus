@@ -12,7 +12,7 @@ export interface CompiledSenseInfo {
 export interface SenseCompileFailure {
   sourcePath: string;
   fileName: string;
-  type: "syntax" | "runtime-test";
+  type: "syntax";
   message: string;
 }
 

@@ -8,12 +8,15 @@ export interface SkillData {
   name: string;
   description: string;
   content: string;
+  /** P1-5：自动触发条件描述（软提示，拼入 system prompt 供 LLM 判断何时触发） */
+  trigger?: string;
 }
 
 interface SkillMeta {
   name: string;
   description: string;
   content: string;
+  trigger?: string;
 }
 
 /**
@@ -30,6 +33,7 @@ function parseSkillFrontmatter(
       name: defaultName,
       description: "",
       content: content.trim(),
+      trigger: undefined,
     };
   }
 
@@ -40,6 +44,7 @@ function parseSkillFrontmatter(
     return {
       name: (frontmatter.name as string) || defaultName,
       description: (frontmatter.description as string) || "",
+      trigger: (frontmatter.trigger as string) || undefined,
       content: bodyContent,
     };
   } catch {
@@ -47,19 +52,22 @@ function parseSkillFrontmatter(
       name: defaultName,
       description: "",
       content: content.trim(),
+      trigger: undefined,
     };
   }
 }
 
 /**
- * 遍历 skills 目录，读取所有 SKILL.md/skill.md 文件。
+ * 遍历 skills 目录，读取所有 SKILL.md/skill.md 文件（实时，不缓存）。
+ * P1-4：原模块级 skillMap 缓存导致新增/改动 SKILL.md 不反映；改为实时遍历，
+ *       getSkillMetas 每次重读，保证配置热更可见（类比 sense 的 reloadSenses）。
  */
-function loadSkills(): Map<string, SkillData> {
+function readAllSkills(): SkillData[] {
   const skillsDir = config.global.skills_dir;
 
-  if (!existsSync(skillsDir)) return new Map();
+  if (!existsSync(skillsDir)) return [];
 
-  const skillMap = new Map<string, SkillData>();
+  const result: SkillData[] = [];
   const dirs = readdirSync(skillsDir, { withFileTypes: true });
 
   for (const dir of dirs) {
@@ -74,23 +82,21 @@ function loadSkills(): Map<string, SkillData> {
     const fileContent = readFileSync(join(skillPath, skillFile), "utf-8");
     const meta = parseSkillFrontmatter(fileContent, dirName);
 
-    if (skillMap.has(meta.name)) {
+    if (result.some((s) => s.name === meta.name)) {
       logger.warn(
         `[loadSkill] Warning: skill name "${meta.name}" conflict, overwriting with latest`,
       );
     }
-
-    skillMap.set(meta.name, {
+    result.push({
       name: meta.name,
       description: meta.description,
       content: meta.content,
+      trigger: meta.trigger,
     });
   }
 
-  return skillMap;
+  return result;
 }
-
-const skillMap = loadSkills();
 
 /**
  * 实时读取单个 skill 数据。
@@ -123,6 +129,7 @@ export function getSkillRealtime(name: string):
           name: meta.name,
           description: meta.description,
           content: meta.content,
+          trigger: meta.trigger,
         },
         size: fileStat.size,
         mtimeMs: fileStat.mtimeMs,
@@ -136,9 +143,10 @@ export function getSkillRealtime(name: string):
 /**
  * 获取所有 skill 的元数据（不含 content）。
  */
-export function getSkillMetas(): Array<{ name: string; description: string }> {
-  return Array.from(skillMap.values()).map((s) => ({
+export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string }> {
+  return readAllSkills().map((s) => ({
     name: s.name,
     description: s.description,
+    trigger: s.trigger,
   }));
 }

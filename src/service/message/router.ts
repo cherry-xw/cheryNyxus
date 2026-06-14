@@ -8,21 +8,10 @@ import {
   createResponse,
   createError,
   ErrorCode,
-  isRequest,
   isResponse,
 } from "./types.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
 import { logger } from "@/utils/logger/index.js";
-
-export class RpcHandlerError extends Error {
-  constructor(
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "RpcHandlerError";
-  }
-}
 
 // ========== Handler 类型 ==========
 
@@ -32,8 +21,6 @@ export class RpcHandlerError extends Error {
 export interface HandlerContext {
   requestId?: string;
   connectionId: string;
-  sendChunk: (chunk: Chunk) => void;
-  sendNotification: (notification: Notification) => void;
 }
 
 /**
@@ -50,7 +37,6 @@ export type HandlerFn<TData = RequestData, TResult = ResponseData> = (
 interface HandlerDefinition {
   method: string;
   handler: HandlerFn<RequestData, ResponseData>;
-  streaming: boolean;
 }
 
 // ========== Router ==========
@@ -67,9 +53,8 @@ export class RpcRouter {
   register<TData, TResult>(
     method: string,
     handler: HandlerFn<TData, TResult>,
-    streaming = false,
   ): void {
-    this.handlers.set(method, { method, handler: handler as unknown as HandlerFn<RequestData, ResponseData>, streaming });
+    this.handlers.set(method, { method, handler: handler as unknown as HandlerFn<RequestData, ResponseData> });
   }
 
   /**
@@ -150,20 +135,6 @@ export class RpcRouter {
       );
     }
   }
-
-  /**
-   * 获取已注册的方法列表
-   */
-  getMethods(): string[] {
-    return Array.from(this.handlers.keys());
-  }
-}
-
-/**
- * 判断是否为 Request
- */
-export function isRpcRequest(msg: unknown): msg is Request {
-  return isRequest(msg);
 }
 
 /**
@@ -174,9 +145,6 @@ export function createRouter(): RpcRouter {
 }
 
 function toRpcError(err: unknown): { code: string; message: string } {
-  if (err instanceof RpcHandlerError) {
-    return { code: err.code, message: err.message };
-  }
   if (err instanceof Error) {
     return { code: ErrorCode.INTERNAL, message: err.message };
   }

@@ -183,15 +183,14 @@ export async function* checkpointMiddleware(
             } as MiddlewareChunk;
           }
 
-          // 始终注册审批（resume 时 pending 已存在，仅注册 approvalManager）
+          // 始终注册审批（resume 时 pending 已存在，仅注册 approvalManager）。
+          // P1-11：approvalResolve/approvalReject 已移除，service observer 据 approvalId 调 core registry。
           yield {
             type: "sense_pending",
             approvalId: trigger.id,
             senseName: trigger.name,
             arguments: trigger.arguments,
             supervisionLevel: trigger.supervisionLevel,
-            approvalResolve: trigger.approvalResolve,
-            approvalReject: trigger.approvalReject,
           } as MiddlewareChunk;
         }
       }

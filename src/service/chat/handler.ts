@@ -48,15 +48,13 @@ export async function handleChatList(
   _ctx: HandlerContext,
   _params: unknown,
 ): Promise<unknown> {
-  const chats = listAllChats().map(chat => {
-    const messages = getMessages(chat.id);
-    return {
-      chatId: chat.id,
-      createdAt: chat.created_at,
-      updatedAt: chat.updated_at,
-      messageCount: messages.length,
-    };
-  });
+  // P1-8：messageCount 读冗余 message_count 列，消除 chatList N+1 查询
+  const chats = listAllChats().map(chat => ({
+    chatId: chat.id,
+    createdAt: chat.created_at,
+    updatedAt: chat.updated_at,
+    messageCount: chat.message_count,
+  }));
 
   return { chats };
 }
@@ -153,6 +151,6 @@ export async function handleChatDelete(
 export function registerChatManageHandlers(router: import("../message/router.js").RpcRouter): void {
   router.register(Method.CHAT_CREATE, handleChatCreate);
   router.register(Method.CHAT_LIST, handleChatList);
-  router.register(Method.CHAT_GET, handleChatGet, true);  // 流式返回历史
+  router.register(Method.CHAT_GET, handleChatGet);  // 流式返回历史
   router.register(Method.CHAT_DELETE, handleChatDelete);
 }

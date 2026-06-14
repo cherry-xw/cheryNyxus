@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { registerMessageAdapter, type LLMResponse } from "@/core/message/adapter";
 import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
 import type { ZodType } from "zod";
-import { registerLLMAdapter, type LLMAdapter } from "@/core/llm/adapter";
+import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 import config, { type MockScriptResponse } from "@/utils/config";
 import { logger } from "@/utils/logger/index.js";
@@ -132,20 +132,6 @@ const mockSenseAdapterConfig = {
   buildSenses(senses: Sense<ZodType>[]): SenseFunction[] {
     return senses.map(s => ({ type: "function", function: buildBaseSenseFunction(s) }));
   },
-  buildSenseCallMessage(content: string, senseCalls: SenseCallData[]): MockResponse {
-    return {
-      content,
-      toolCalls: senseCalls.map((sc, i) => ({
-        index: i,
-        id: sc.id,
-        name: sc.name ?? "",
-        arguments: sc.arguments,
-      })),
-    };
-  },
-  buildSenseResponseMessage(_senseCallId: string, result: string): MockResponse {
-    return { content: result };
-  },
   senseCalls(response: MockResponse): SenseCallData[] {
     return (response.toolCalls ?? []).map(tc => ({
       index: tc.index,
@@ -168,14 +154,14 @@ const mockSenseAdapterConfig = {
 // ========== LLM Adapter ==========
 
 const mockLLMAdapter: LLMAdapter = {
-  async chat(messages, _senses, options?): Promise<unknown> {
-    const model = options?.model as string;
+  async chat(messages, _senses, options?: LLMOptions): Promise<unknown> {
+    const model = options?.model ?? "";
     const item = pickScriptItem(model, messages as LLMResponse[]);
     if (item.error) throw new Error(item.error);
     return toResponse(item);
   },
-  async chatStream(messages, _senses, options?): Promise<AsyncIterable<unknown>> {
-    const model = options?.model as string;
+  async chatStream(messages, _senses, options?: LLMOptions): Promise<AsyncIterable<unknown>> {
+    const model = options?.model ?? "";
     const item = pickScriptItem(model, messages as LLMResponse[]);
     if (item.error) throw new Error(item.error);
     const resp = toResponse(item);

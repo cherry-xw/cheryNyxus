@@ -2,8 +2,10 @@ import type {
   MiddlewareContext,
   MiddlewareChunk,
   StreamChunk,
+  RuntimeConfig,
 } from "@/core/middleware/types";
 import type { SenseFunction, SenseCallData } from "@/core/sense/adapter";
+import type { LLMOptions } from "@/core/llm/adapter";
 import { logger } from "@/utils/logger/index.js";
 
 /**
@@ -16,6 +18,8 @@ export async function* chatMiddleware(
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
+  // P2-4：runtime 在 send 前 configureRuntime 注入；运行时守卫窄化，消除构造期 {} as 谎言
+  if (!ctx.runtime) throw new Error("Runtime not configured. Call configureRuntime() before send().");
   const { llmAdapter, messageAdapter, senseAdapter } = ctx.runtime.adapters;
 
   // 从 ctx.soul.messages 构建 provider 格式消息
@@ -24,8 +28,8 @@ export async function* chatMiddleware(
   // 使用预构建的 senses（runtime.builtSenses）
   const senses = ctx.runtime.builtSenses;
 
-  // 构建请求选项
-  const options = {
+  // 构建请求选项（P1-6：LLMOptions 显式类型，替代 Record<string, unknown>）
+  const options: LLMOptions = {
     model: ctx.runtime.brain.model,
     url: ctx.runtime.brain.url,
     key: ctx.runtime.brain.key,
@@ -78,10 +82,10 @@ export async function* chatMiddleware(
  * 处理流式调用
  */
 async function* handleStream(
-  options: Record<string, unknown>,
-  llmAdapter: MiddlewareContext["runtime"]["adapters"]["llmAdapter"],
-  messageAdapter: MiddlewareContext["runtime"]["adapters"]["messageAdapter"],
-  senseAdapter: MiddlewareContext["runtime"]["adapters"]["senseAdapter"],
+  options: LLMOptions,
+  llmAdapter: RuntimeConfig["adapters"]["llmAdapter"],
+  messageAdapter: RuntimeConfig["adapters"]["messageAdapter"],
+  senseAdapter: RuntimeConfig["adapters"]["senseAdapter"],
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
@@ -148,10 +152,10 @@ async function* handleStream(
  * 处理非流式调用
  */
 async function* handleNonStream(
-  options: Record<string, unknown>,
-  llmAdapter: MiddlewareContext["runtime"]["adapters"]["llmAdapter"],
-  messageAdapter: MiddlewareContext["runtime"]["adapters"]["messageAdapter"],
-  senseAdapter: MiddlewareContext["runtime"]["adapters"]["senseAdapter"],
+  options: LLMOptions,
+  llmAdapter: RuntimeConfig["adapters"]["llmAdapter"],
+  messageAdapter: RuntimeConfig["adapters"]["messageAdapter"],
+  senseAdapter: RuntimeConfig["adapters"]["senseAdapter"],
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {

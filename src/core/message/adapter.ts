@@ -78,3 +78,10 @@ export function registerMessageAdapter<T, TStream = unknown, TMessage = unknown>
 export function getMessageAdapter(provider: string): MessageProviderAdapterConfig | undefined {
   return messageProviderRegistry.get(provider);
 }
+
+/**
+ * 重置 Message Provider 注册表（P2-5：测试/热更清残留）。
+ */
+export function resetMessageProviders(): void {
+  messageProviderRegistry.clear();
+}

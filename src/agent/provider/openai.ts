@@ -9,19 +9,10 @@ import type { ZodType } from "zod";
 import type {
   ChatCompletionMessageFunctionToolCall,
 } from "openai/resources/chat/completions";
-import { registerLLMAdapter, type LLMAdapter } from "@/core/llm/adapter";
-import type { ProviderCapabilities } from "@/core/provider/capabilities";
+import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 
 // ========== Adapter 定义（参数分离）==========
-
-export const openaiCapabilities: ProviderCapabilities = {
-  supportsStreaming: true,
-  supportsToolCalls: true,
-  supportsReasoning: true,
-  supportsStrictSchema: true,
-  generatesToolCallIds: true,
-};
 
 // Message Adapter 配置
 const openaiMessageAdapterConfig = {
@@ -60,7 +51,6 @@ const openaiMessageAdapterConfig = {
         return {
           role: m.role,
           content: m.content || null,
-          ...(m.thinking && { reasoning_content: m.thinking }),
           tool_calls: m.senseCalls.map((sc) => ({
             id: sc.id,
             type: "function",
@@ -69,13 +59,6 @@ const openaiMessageAdapterConfig = {
               arguments: sc.arguments,
             },
           })),
-        } as ChatCompletionMessageParam;
-      }
-      if (m.role === "assistant" && m.thinking) {
-        return {
-          role: m.role,
-          content: m.content,
-          reasoning_content: m.thinking,
         } as ChatCompletionMessageParam;
       }
       return {
@@ -92,40 +75,9 @@ const openaiSenseAdapterConfig = {
       type: "function",
       function: {
         ...buildBaseSenseFunction(s),
-        strict: s.definition.function.strict,
+        strict: true,
       },
     }));
-  },
-
-  buildSenseCallMessage(
-    content: string,
-    senseCall: SenseCallData[],
-  ): ChatCompletionMessageParam {
-    // 将统一的 SenseCallData 转换为 OpenAI 格式
-    const openaiSenseCalls = senseCall.map((sc) => ({
-      id: sc.id,
-      type: "function",
-      function: {
-        name: sc.name ?? "",
-        arguments: sc.arguments,
-      },
-    }));
-    return {
-      role: "assistant",
-      content,
-      tool_calls: openaiSenseCalls,
-    } as ChatCompletionMessageParam;
-  },
-
-  buildSenseResponseMessage(
-    senseCallId: string,
-    result: string,
-  ): ChatCompletionMessageParam {
-    return {
-      role: "tool",
-      tool_call_id: senseCallId,
-      content: result,
-    } as ChatCompletionMessageParam;
   },
 
   senseCalls(response: ChatCompletion): SenseCallData[] {
@@ -161,12 +113,12 @@ const openaiLLMAdapter: LLMAdapter = {
   async chat(
     messages: unknown[],
     senses: SenseFunction[],
-    options?: Record<string, unknown>,
+    options?: LLMOptions,
   ): Promise<unknown> {
     const msgArray = messages as ChatCompletionMessageParam[];
-    const model = options?.model as string;
-    const url = options?.url as string;
-    const key = options?.key as string | undefined;
+    const model = options?.model;
+    const url = options?.url;
+    const key = options?.key;
     const thinking = options?.thinking === true;
     if (!model || !url) {
       throw new Error("OpenAI provider requires model and url in options");
@@ -185,12 +137,12 @@ const openaiLLMAdapter: LLMAdapter = {
   async chatStream(
     messages: unknown[],
     senses: SenseFunction[],
-    options?: Record<string, unknown>,
+    options?: LLMOptions,
   ): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as ChatCompletionMessageParam[];
-    const model = options?.model as string;
-    const url = options?.url as string;
-    const key = options?.key as string | undefined;
+    const model = options?.model;
+    const url = options?.url;
+    const key = options?.key;
     const thinking = options?.thinking === true;
     if (!model || !url) {
       throw new Error("OpenAI provider requires model and url in options");

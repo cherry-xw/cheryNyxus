@@ -20,7 +20,9 @@ function loadSwcWasm(): { transformSync: (code: string, opts: unknown) => { code
 const { transformSync } = loadSwcWasm();
 
 // 不再注入外部依赖，编译产物为纯代码
-// 运行时通过 new Function() 在当前上下文执行，z/sense/SupervisionLevel 由上下文提供
+// 运行时通过 new Function() 在当前上下文执行，z/sense/SupervisionLevel 由上下文提供。
+// P2-6 安全评估：new Function 在主进程执行编译产物，信任边界 = .chery/senses/*.ts
+//   （本地用户配置，与项目代码同级可信）。当前可接受；未来若支持远程 senses 再升级为 vm 隔离。
 
 function stripImports(content: string): string {
   // 移除所有 import 语句，只保留代码

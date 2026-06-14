@@ -26,6 +26,7 @@ export const actions = {
     conn.on("open", () => {
       store.setConnection({ status: "connected" });
       actions.loadLists();
+      actions.listChats();
     });
     conn.on("close", () => {
       rpc?.clear();
@@ -52,19 +53,34 @@ export const actions = {
   },
 
   // —— 选择（改 selection 后若有 chat 则自动 runtime.set 同步）——
-  // setBrain 额外链式 listChats：选 brain 后立即拉 chat 列表填充下拉
+  // chat 列表在 connect 时已拉取（loadLists + listChats），选 brain 不再重复
   async setBrain(name) {
     store.setSelection({ brain: name });
     await this.applyRuntime();
-    await this.listChats();
   },
   async setSenseGroups(groups) { store.setSelection({ senseGroups: groups }); await this.applyRuntime(); },
 
-  // chat 下拉选中：仅切 currentChatId，不载入历史（由 LOAD 显式触发）。
-  // loaded 留 false：若该 chat 有历史（messageCount>0），输入栏显示 LOAD；空 chat 因 messageCount=0 直接可 SEND
-  selectChat(chatId) {
+  /**
+   * 切换/离开当前 chat 前置：abort current chat。
+   * 发 chat.abort：服务端 clearChatRuntime 清该 chat 内存（Middleware/载入历史）+ abortChat 退出挂起
+   * generator（不执行 sense/不写 content/不动 DB，pending 保留供下次重新审核）。再清前端审批 tab。
+   * 必须在 store.setCurrentChat 之前调用（用旧 currentChatId）。
+   */
+  async _abortCurrentChat() {
+    if (!rpc) return;
+    const { currentChatId } = store.get();
+    if (!currentChatId) return;
+    await rpc.request("chat.abort", { chatId: currentChatId }).catch(() => {});
+    store.clearChatApprovals(currentChatId);
+  },
+
+  // chat 下拉选中：切换即自动载入历史（req2：load 无需点击）。
+  // loadHistory 内部 setCurrentChat + resetReplay + chat.get；空 chat 返回空历史无副作用。
+  // 切换前先 abort current chat（服务端清内存+退出 generator，不动 DB）+ 清前端审批 tab。
+  async selectChat(chatId) {
     if (!chatId) return;
-    store.setCurrentChat(chatId);
+    await this._abortCurrentChat();
+    this.loadHistory(chatId);
   },
 
   async applyRuntime() {
@@ -97,6 +113,7 @@ export const actions = {
       && !(latest.chatId === currentChatId && currentChatSent);
     if (latestEmpty) {
       // 复用空 chat：loaded=false 但 messageCount=0 → 输入栏直接 SEND
+      await this._abortCurrentChat();
       store.setCurrentChat(latest.chatId);
       store.resetReplay();
       await this.applyRuntime();
@@ -117,6 +134,7 @@ export const actions = {
     try {
       const r = await rpc.request("chat.create", params);
       if (r.success) {
+        await this._abortCurrentChat();
         store.setCurrentChat(r.data.chatId);
         store.resetReplay();
         store.addChat(r.data.chatId);
@@ -156,6 +174,7 @@ export const actions = {
     try {
       const r = await rpc.request("chat.delete", { chatId: currentChatId });
       if (r.success) {
+        await this._abortCurrentChat();
         store.removeChat(currentChatId);
         store.setCurrentChat(null);
         store.resetReplay();
@@ -169,7 +188,9 @@ export const actions = {
     const { currentChatId } = store.get();
     if (!currentChatId) { store.pushError("Create a chat first"); return; }
     if (!text.trim()) return;
-    store.pushUserBlock(text);
+    // 入队待消费（不乐观 push）：consumed notification 按 count 顺序 pop 成 user 块，
+    // 对齐服务端入队时机，保证 loop 中 send 时 user 块落在已完成 assistant block 之后、新响应 block 之前。
+    store.enqueueUserInput(text);
     store.markSent();
     rpc.stream("chat.send", { chatId: currentChatId, prompt: text });
   },

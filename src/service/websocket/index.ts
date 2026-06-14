@@ -4,10 +4,8 @@ import {
   createResponse,
   createError,
   ErrorCode,
-  isRpcRequest,
+  isRequest,
   type Request,
-  type Chunk,
-  type Notification,
 } from "../message/index.js";
 import { connectionManager, type ConnectionState } from "./connection.js";
 import { transport } from "./transport.js";
@@ -75,7 +73,7 @@ async function handleMessage(
 ): Promise<void> {
   const raw = transport.parseMessage(data);
 
-  if (isRpcRequest(raw)) {
+  if (isRequest(raw)) {
     await handleRequest(ws, state, raw, router);
   } else {
     sendError(ws, "未知消息类型");
@@ -99,12 +97,6 @@ async function handleRequest(
   const ctx = {
     requestId: request.id,
     connectionId: state.id,
-    sendChunk: (chunk: Chunk) => {
-      ws.send(transport.encode(chunk));
-    },
-    sendNotification: (notification: Notification) => {
-      ws.send(transport.encode(notification));
-    },
   };
 
   // 执行 handler

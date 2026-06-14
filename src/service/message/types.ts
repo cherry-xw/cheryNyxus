@@ -53,7 +53,8 @@ export type NotificationType =
   | "consumed"     // 消息已消费
   | "loaded"       // 历史对话已载入
   | "done"         // 执行完成
-  | "error";       // 错误
+  | "error"        // 错误
+  | "replaced";    // 感官去重命中：历史 sense 结果被新读取替换
 
 // ========== Request Data ==========
 
@@ -67,7 +68,8 @@ export type RequestData =
   | ChatDeleteRequestData
   | ChatSendRequestData
   | ChatResumeRequestData
-  | SenseApprovalRequestData;
+  | SenseApprovalRequestData
+  | ChatAbortRequestData;
 
 export interface BrainListRequestData {}
 
@@ -110,6 +112,10 @@ export interface SenseApprovalRequestData {
   reason?: string;
 }
 
+export interface ChatAbortRequestData {
+  chatId: string;
+}
+
 // ========== Response Data ==========
 
 export type ResponseData =
@@ -122,7 +128,8 @@ export type ResponseData =
   | ChatDeleteResponseData
   | ChatSendResponseData
   | ChatResumeResponseData
-  | SenseApprovalResponseData;
+  | SenseApprovalResponseData
+  | ChatAbortResponseData;
 
 export interface BrainListResponseData {
   brains: Array<{
@@ -184,6 +191,10 @@ export interface SenseApprovalResponseData {
   action: string;
 }
 
+export interface ChatAbortResponseData {
+  chatId: string;
+}
+
 // ========== Chunk Data ==========
 
 export type ChunkData = StreamChunkData | StagedChunkData;
@@ -227,6 +238,7 @@ export type NotificationData =
   | RejectedNotificationData
   | ConsumedNotificationData
   | ErrorNotificationData
+  | ReplacedNotificationData
   | null;
 
 export interface InterruptNotificationData {
@@ -257,6 +269,21 @@ export interface ErrorNotificationData {
   message: string;
 }
 
+/**
+ * 感官去重命中（read_file hash 相同 = 文件未变动）：
+ * 历史 sense 结果被新读取替换。web 据此实时更新对应历史 sense block。
+ */
+export interface ReplacedNotificationData {
+  /** 被替换的历史 sense message id（= sense call id） */
+  id: string;
+  /** 替换后的说明文字（主显，剔除冗长重复内容） */
+  content: string;
+  /** 原长内容（折叠溯源） */
+  originalContent: string;
+  /** 触发替换的新 sense id */
+  by: string;
+}
+
 // ========== Error ==========
 
 export interface RpcError {
@@ -284,6 +311,8 @@ export const Method = {
 
   // Sense 审批
   SENSE_APPROVAL: "sense.approval",
+  // Chat 中止（切换 chat：清内存 + 退出挂起 generator，不动 DB，pending 保留供下次重新审核）
+  CHAT_ABORT: "chat.abort",
 } as const;
 
 // ========== 错误码常量 ==========

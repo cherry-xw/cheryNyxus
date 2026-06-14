@@ -104,8 +104,8 @@ export interface MiddlewareContext {
   soul: SoulGroup;
   /** 请求分组：本次请求的输入和模式 */
   global: GlobalConfig;
-  /** Runtime 配置（每轮可换：brain/sense 变更时更新） */
-  runtime: RuntimeConfig;
+  /** Runtime 配置（每轮可换：brain/sense 变更时更新；constructor 未配置为 undefined，send 前 configureRuntime 注入 + requireRuntime 校验） */
+  runtime?: RuntimeConfig;
 }
 
 /**
@@ -135,10 +135,8 @@ export interface SenseTriggerChunk {
   arguments: string;
   /** 监管等级 */
   supervisionLevel: SupervisionLevel;
-  /** 审批 resolve 函数（confirm/manual 时使用，service 层调用） */
-  approvalResolve?: ((action: "accept" | "reject", reason?: string) => void) | null;
-  /** 审批 reject 函数（连接断开/超时由 ApprovalManager.abort 调用，解除 await 使 generator 可释放） */
-  approvalReject?: ((err: Error) => void) | null;
+  // P1-11：approvalResolve/approvalReject 移除，审批 Promise 由 core approvalRegistry 管理，
+  //        service ApprovalManager 经 resolveApproval/rejectApproval 触发（去 chunk 函数指针，解耦 core↔service）。
 }
 
 /**
@@ -233,9 +231,6 @@ export interface SensePendingChunk {
   senseName: string;
   arguments: string;
   supervisionLevel: SupervisionLevel;
-  approvalResolve?: ((action: "accept" | "reject", reason?: string) => void) | null;
-  /** 审批 reject 函数（与 approvalResolve 同源，ApprovalManager.abort 调用） */
-  approvalReject?: ((err: Error) => void) | null;
 }
 
 /**

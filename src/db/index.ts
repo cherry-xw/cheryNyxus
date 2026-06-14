@@ -76,9 +76,45 @@ function initSoulTables(db: Database.Database): void {
       messages_month TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      metadata TEXT
+      metadata TEXT,
+      message_count INTEGER NOT NULL DEFAULT 0
     );
   `);
+  // P1-8：旧库 chats 表无 message_count，CREATE IF NOT EXISTS 跳过建表，按列检查补 ALTER。
+  ensureChatColumn(db, "message_count", "INTEGER NOT NULL DEFAULT 0");
+}
+
+/**
+ * chats 列存在性检查 + 缺失补列（P1-8 冗余计数列迁移）。
+ * message_count 加列时一次性回填已有 chat 的消息数（按各自 messages_month 路由 COUNT）。
+ */
+function ensureChatColumn(
+  db: Database.Database,
+  column: string,
+  definition: string,
+): void {
+  const cols = db.prepare(`PRAGMA table_info(chats)`).all() as
+    { name: string }[];
+  if (cols.some((c) => c.name === column)) return;
+
+  db.exec(`ALTER TABLE chats ADD COLUMN ${column} ${definition}`);
+
+  if (column === "message_count") {
+    const chats = db.prepare("SELECT id, messages_month FROM chats").all() as {
+      id: string;
+      messages_month: string;
+    }[];
+    for (const c of chats) {
+      const monthlyDb = getMonthlyDb(c.messages_month);
+      const row = monthlyDb
+        .prepare("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?")
+        .get(c.id) as { n: number };
+      db.prepare("UPDATE chats SET message_count = ? WHERE id = ?").run(
+        row.n,
+        c.id,
+      );
+    }
+  }
 }
 
 /**

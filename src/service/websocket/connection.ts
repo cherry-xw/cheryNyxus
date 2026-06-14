@@ -162,6 +162,15 @@ export class ConnectionManager {
   }
 
   /**
+   * 强制释放 chatId 绑定（不校验 owner）。
+   * chat.abort 场景：跨连接重连后旧 owner 仍占用绑定，校验 owner 会清不掉导致 busy 死锁，
+   * abort 是清内存操作，须无条件解绑。
+   */
+  forceReleaseChatConnection(chatId: string): void {
+    this.activeChatConnections.delete(chatId);
+  }
+
+  /**
    * 关闭连接（持久化 pending approvals）
    */
   async close(ws: WebSocket): Promise<void> {

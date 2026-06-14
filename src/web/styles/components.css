@@ -50,8 +50,8 @@
 .ic-empty { color: var(--ph-dim); font-style: italic; }
 
 /* === 消息块 === */
-.block { margin-bottom: 14px; padding: 8px 10px; background: rgba(0, 255, 208, 0.025); }
-.block-user { color: var(--ph-user); background: rgba(102, 217, 255, 0.05); }
+.block { margin-bottom: 14px; padding: 8px 10px; background: rgba(0, 255, 208, 0.02); border-left: 2px solid rgba(0, 255, 208, 0.36); }
+.block-user { color: var(--ph-user); background: rgba(102, 217, 255, 0.22); border-left: 2px solid rgba(102, 217, 255, 0.6); }
 .block-user::before { content: "▸ YOU :: "; color: var(--ph-user); opacity: 0.7; font-weight: 700; }
 .block-system { color: var(--ph-dim); font-style: italic; font-size: 11px; background: rgba(207, 230, 207, 0.03); }
 .block-error { color: var(--ph-error); font-weight: 700; background: rgba(255, 59, 92, 0.07); }
@@ -78,7 +78,7 @@
 
 /* === sense 块（details 外挂折叠）=== */
 .sense-block {
-  border: 1px solid var(--ph-sense-dim); padding: 8px 10px; margin: 6px 0;
+  border: 1px solid var(--ph-sense-faint); padding: 8px 10px; margin: 6px 0;
   background: rgba(255, 79, 216, 0.03);
 }
 /* sticky 头部组：sense-head + sense-args + sep 整体贴顶。直接父是 sense-block，
@@ -126,6 +126,18 @@
 .sense-detail-toggle:hover { color: var(--ph-sense); border-color: var(--ph-sense); }
 .sense-detail-toggle.active { color: var(--ph-sense); border-color: var(--ph-sense); background: var(--ph-sense-faint); }
 
+/* ⚠ STALE 角标：感官去重命中（read_file hash 相同，结果已被新读取替换） */
+.badge-stale { color: var(--ph-error); border-color: var(--ph-error); background: rgba(255, 68, 68, 0.08); }
+
+/* 二级折叠：被替换前的原长内容（默认收起，主显保留说明文字） */
+.sense-stale-fold { margin-top: 6px; border-top: 1px dashed rgba(255, 140, 0, 0.3); padding-top: 4px; }
+.sense-stale-fold > summary { list-style: none; font-weight: 700; color: var(--ph-error); cursor: pointer; font-size: 10px; letter-spacing: 1px; }
+.sense-stale-fold > summary::before { content: "▶ "; }
+.sense-stale-fold[open] > summary::before { content: "▼ "; }
+.sense-original { margin-top: 4px; white-space: pre-wrap; word-break: break-all; font-size: 11px; }
+.sense-original.raw { color: var(--ph-dim); opacity: 0.8; }
+.sense-original.json { color: var(--ph-text); }
+
 /* === argument 键值表（renderKV：对象→key→value 行）=== */
 .sense-args.kv { display: flex; flex-direction: column; gap: 2px; }
 .kv-row { display: flex; align-items: baseline; gap: 6px; }
@@ -140,10 +152,12 @@
   display: flex; flex-direction: column; gap: 2px; padding: 6px 2px;
   background: var(--ph-bg-deep);
   border-left: 1px solid var(--ph-border);
-  overflow: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+.minimap::-webkit-scrollbar { width: 0; height: 0; }
 .mm-mark {
-  flex: 1 1 0; min-height: 4px; width: 100%;
+  flex: 1 1 0; min-height: 14px; width: 100%;
   cursor: pointer; opacity: 0.55; transition: opacity .12s;
 }
 .mm-mark:hover { opacity: 1; }
@@ -209,11 +223,12 @@
   display: flex; align-items: center; gap: 5px; position: relative;
   padding: 4px 12px; border: 1px solid var(--ph-border); border-bottom: none;
   font-size: 11px; color: var(--ph-dim); white-space: nowrap; background: var(--ph-bg-deep);
+  cursor: pointer;
 }
 .approval-tab.active { color: var(--ph-amber); border-color: var(--ph-amber); background: var(--ph-bg); }
 .approval-tab.pending { animation: pulse-amber 1.4s infinite; }
-.approval-tab.accepted { color: var(--ph-cyan); border-color: var(--ph-cyan); }
-.approval-tab.rejected { color: var(--ph-error); border-color: var(--ph-error); }
+.approval-tab.accepted { color: var(--ph-dim); border-color: var(--ph-border); }
+.approval-tab.rejected { color: var(--ph-dim); border-color: var(--ph-border); }
 /* 已决 tab hover 显 ✕ 单独清退 */
 .ap-tab-close { padding: 0 2px; font-size: 12px; line-height: 1; color: var(--ph-dim); opacity: 0; transition: opacity .12s; }
 .approval-tab.resolved:hover .ap-tab-close { opacity: 0.75; }
@@ -223,6 +238,7 @@
 .approval-body .ap-sense { color: var(--ph-sense); font-weight: 700; margin-bottom: 6px; }
 .approval-body .ap-args { background: var(--ph-bg-deep); padding: 8px; white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto; font-size: 11px; margin-bottom: 8px; }
 .approval-body .ap-args.raw { color: var(--ph-dim); }
+.approval-body .ap-args.kv { display: flex; flex-direction: column; gap: 2px; white-space: normal; }
 .approval-body .ap-result { padding: 8px; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; font-size: 11px; margin-bottom: 8px; }
 .approval-body .ap-result.accepted { background: rgba(0, 255, 208, 0.08); color: var(--ph-cyan); border-left: 2px solid var(--ph-cyan); }
 .approval-body .ap-result.rejected { background: rgba(255, 59, 92, 0.08); color: var(--ph-error); border-left: 2px solid var(--ph-error); }

@@ -27,8 +27,6 @@ export interface SenseFunction {
       required: string[];
       additionalProperties: boolean;
     };
-    /** 严格模式（可选，部分 provider 不支持） */
-    strict?: boolean;
   };
 }
 
@@ -68,7 +66,6 @@ export function sense<T extends z.ZodType>(
         required: jsonSchema.required ?? [],
         additionalProperties: false,
       },
-      strict: true,
     },
   };
 

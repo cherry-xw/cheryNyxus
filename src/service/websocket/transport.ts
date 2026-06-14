@@ -83,44 +83,6 @@ export class Transport {
   }
 
   /**
-   * 解码消息
-   */
-  decode(buffer: Buffer): Chunk {
-    const type = buffer.readUInt8(0);
-
-    if (type === FRAME_TYPE.CHUNK) {
-      return this.decodeStreamFrame(buffer);
-    }
-    return this.decodeJsonFrame(buffer);
-  }
-
-  /**
-   * 解码流式二进制帧
-   */
-  private decodeStreamFrame(buffer: Buffer): Chunk {
-    const seq = buffer.readUInt32BE(1);
-    const requestIdLen = buffer.readUInt8(5);
-    const requestId = buffer.slice(6, 6 + requestIdLen).toString("utf-8");
-    const dataStr = buffer.slice(6 + requestIdLen).toString("utf-8");
-
-    return {
-      kind: "chunk",
-      type: "stream",
-      requestId,
-      seq,
-      data: safeJsonParse(dataStr, {}),
-    };
-  }
-
-  /**
-   * 解码 JSON 帧
-   */
-  private decodeJsonFrame(buffer: Buffer): Chunk {
-    const json = buffer.slice(1).toString("utf-8");
-    return safeJsonParse(json, { kind: "chunk", type: "stream", requestId: "", data: {} });
-  }
-
-  /**
    * 解析原始消息（JSON格式，用于 Request/Response）
    */
   parseMessage(data: Buffer | string): unknown {

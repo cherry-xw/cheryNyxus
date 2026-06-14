@@ -33,17 +33,6 @@ export interface SenseAdapter<TMessage, TResponse> {
   buildSenses(senses: Sense<ZodType>[]): SenseFunction[];
 
   /**
-   * 构建感官调用消息（assistant 消息）
-   * 接收统一的 SenseCallData，内部转换为 provider 特定格式
-   */
-  buildSenseCallMessage(content: string, senseCalls: SenseCallData[]): TMessage;
-
-  /**
-   * 构建感官响应消息（sense 消息）
-   */
-  buildSenseResponseMessage(senseCallId: string, result: string): TMessage;
-
-  /**
    * 从完整响应提取感官调用列表
    * 返回统一 SenseCallData 结构
    */

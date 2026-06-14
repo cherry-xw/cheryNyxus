@@ -8,20 +8,11 @@ import type {
 import { registerMessageAdapter, type LLMResponse } from "@/core/message/adapter";
 import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
 import type { ZodType } from "zod";
-import { registerLLMAdapter, type LLMAdapter } from "@/core/llm/adapter";
-import { safeJsonParse } from "@/utils/json.js";
-import type { ProviderCapabilities } from "@/core/provider/capabilities";
+import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
+import { logger } from "@/utils/logger/index.js";
 
 // ========== Adapter 定义（参数分离）==========
-
-export const ollamaCapabilities: ProviderCapabilities = {
-  supportsStreaming: true,
-  supportsToolCalls: true,
-  supportsReasoning: true,
-  supportsStrictSchema: false,
-  generatesToolCallIds: false,
-};
 
 // Message Adapter 配置
 const ollamaMessageAdapterConfig = {
@@ -56,42 +47,23 @@ const ollamaSenseAdapterConfig = {
     }));
   },
 
-  buildSenseCallMessage(content: string, senseCalls: SenseCallData[]): Message {
-    // 将统一的 SenseCallData 转换为 Ollama 格式
-    const ollamaSenseCalls = senseCalls.map((sc) => ({
-      function: {
-        name: sc.name ?? "",
-        arguments: safeJsonParse(sc.arguments || "{}", {}),
-      },
-    }));
-    return {
-      role: "assistant",
-      content,
-      tool_calls: ollamaSenseCalls,
-    } as Message;
-  },
-
-  buildSenseResponseMessage(_senseCallId: string, result: string): Message {
-    return {
-      role: "sense",
-      content: result,
-    } as Message;
-  },
-
   senseCalls(response: ChatResponse): SenseCallData[] {
     const senseCalls = (response.message?.tool_calls ?? []) as ToolCall[];
+    // P1-2：Ollama 响应无 tool_call.id。非流式路径每次 chat() 都重新调 LLM 拿新 response，
+    // id 随新响应新生（非同 call 重放漂移），故 randomUUID 占位可接受。流式不可靠见 extractSenseCallDeltas。
     return senseCalls.map((sc, index) => ({
       index,
-      id: randomUUID(), // Ollama 无 tool_call id，生成跨周期唯一 id（避免 loop 多周期 sense-${index} 冲突）
+      id: randomUUID(),
       name: sc.function?.name ?? undefined,
       arguments: JSON.stringify(sc.function?.arguments ?? {}),
     }));
   },
 
   /**
-   * 从流式 chunk 提取 sense call 增量
-   * Ollama 流式响应：每个 chunk 包含完整 tool_call（非增量）
-   * 返回 SenseCallData（index 定位）
+   * 从流式 chunk 提取 sense call 增量。
+   * ⚠️ P1-2 标记：Ollama 流式响应不稳定返回 tool_calls（多数场景流式不产生 tool_call），且无 tool_call.id。
+   *    randomUUID 仅占位，同 call 多 chunk 由 checkpointState.mergeSenseDeltas 取首 delta id 合并。
+   *    建议需要感官调用时走非流式（senseCalls）路径以获得稳定结果。
    */
   extractSenseCallDeltas(chunk: unknown): SenseCallData[] {
     const streamChunk = chunk as ChatResponse;
@@ -110,10 +82,10 @@ const ollamaLLMAdapter: LLMAdapter = {
   async chat(
     messages: unknown[],
     senses: SenseFunction[],
-    options?: Record<string, unknown>,
+    options?: LLMOptions,
   ): Promise<unknown> {
     const msgArray = messages as Message[];
-    const model = options?.model as string;
+    const model = options?.model;
     if (!model) {
       throw new Error("Ollama provider requires model in options");
     }
@@ -126,12 +98,16 @@ const ollamaLLMAdapter: LLMAdapter = {
   async chatStream(
     messages: unknown[],
     senses: SenseFunction[],
-    options?: Record<string, unknown>,
+    options?: LLMOptions,
   ): Promise<AsyncIterable<unknown>> {
     const msgArray = messages as Message[];
-    const model = options?.model as string;
+    const model = options?.model;
     if (!model) {
       throw new Error("Ollama provider requires model in options");
+    }
+    // P1-2：Ollama 流式不稳定返回 tool_calls，感官调用可能不触发；建议非流式 chat() 路径。
+    if (senses.length > 0) {
+      logger.warn("[Ollama] 流式模式下 tool_call 不可靠，感官调用可能不触发；建议非流式");
     }
     const stream = await ollama.chat({
       model,

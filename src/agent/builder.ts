@@ -110,6 +110,14 @@ export class AgentBuilder {
   }
 
   /**
+   * 门面：中止当前运行的 generator（chat.abort 场景）。
+   * 转发 Middleware.abort → compose.abort 注入错误退出 generator。
+   */
+  abort(): void {
+    this.requireAgent().abort();
+  }
+
+  /**
    * 校验 agent 已构建（build 后才可配置/执行）
    */
   private requireAgent(): Middleware<MiddlewareChunk> {

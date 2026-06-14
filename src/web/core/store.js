@@ -21,6 +21,7 @@ function initialState() {
     currentChatCanResume: false,
     blocks: [],          // 渲染单元（见 _newAssistant）
     activeStreams: new Map(), // rid → { block }
+    pendingUserInputs: [],    // 待消费用户输入队列（sendMessage 入队，consumed 按 count 顺序 pop 成 user 块）
     approvals: [],       // 审批 tab
     log: [],             // 原始帧日志
     ui: { approvalActiveTab: null },
@@ -151,10 +152,17 @@ function applyReplayStaged(data) {
       if (role === "sense") {
         const id = data.id;
         const result = data.content ?? "";
+        const replace = data.replace;
+        const originalContent = data.originalContent ?? "";
         if (id) {
           const sb = state.blocks.find((b) => b.kind === "sense" && b.senseId === id);
-          if (sb) sb.result = result;
-          else pendingSenseResults.set(id, result);
+          if (sb) {
+            sb.result = result;
+            if (replace) { sb.replace = replace; sb.originalContent = originalContent; }
+          } else {
+            // 乱序：sense_end 未到，缓存待 sense_end 建 block 时取用
+            pendingSenseResults.set(id, { result, replace, originalContent });
+          }
         }
         break;
       }
@@ -180,8 +188,8 @@ function applyReplayStaged(data) {
         const exist = state.blocks.find((b) => b.kind === "sense" && b.senseId === id);
         if (exist) { replayAssistant = null; break; }
       }
-      const result = id ? pendingSenseResults.get(id) : undefined;
-      if (id && result !== undefined) pendingSenseResults.delete(id);
+      const pending = id ? pendingSenseResults.get(id) : undefined;
+      if (id && pending !== undefined) pendingSenseResults.delete(id);
       // thinking carrier（thinking_end 建的无 content assistant 块）→ 删除空块，
       // thinking 移入 sense block（sense 样式）。replayCycleThink 供同 cycle 多 sense 复用。
       if (replayAssistant && !replayAssistant.content.done) {
@@ -193,7 +201,9 @@ function applyReplayStaged(data) {
         arguments: data.arguments ?? "",
         status: "accepted",
         senseId: id,
-        result,
+        result: pending?.result,
+        replace: pending?.replace,
+        originalContent: pending?.originalContent,
         thinking: replayCycleThink,
       }));
       replayAssistant = null;
@@ -216,7 +226,12 @@ function applyInterrupt(rid, data) {
       level: data.supervisionLevel, needsApproval: true, requestId: rid,
       status: "pending", reason: null, result: null, ts: Date.now(),
     });
+    // 新审核到达：无 active 或当前 active 已决（已审核过）→ 自动聚焦新 pending
     if (!state.ui.approvalActiveTab) state.ui.approvalActiveTab = data.approvalId;
+    else {
+      const cur = state.approvals.find((a) => a.approvalId === state.ui.approvalActiveTab);
+      if (!cur || cur.status !== "pending") state.ui.approvalActiveTab = data.approvalId;
+    }
   }
 }
 
@@ -238,6 +253,36 @@ function applyRejected(rid, data) {
   }
   const ap = state.approvals.find((a) => a.approvalId === data.approvalId);
   if (ap) { ap.status = "rejected"; ap.reason = data.reason; }
+}
+
+/**
+ * 感官去重命中（read_file hash 相同）：历史 sense 结果被新读取替换。
+ * 被替换的 sense 在 web 上两种形态：
+ *   - replay：standalone sense block（kind:sense, senseId）
+ *   - live：assistant block 的 senseCalls（callId）
+ * 主显改说明文字，原长内容存 originalContent 供折叠。
+ */
+function applyReplaced(rid, data) {
+  const id = data?.id;
+  if (!id) return;
+  const replace = { state: true, by: data.by, content: data.content };
+  for (const b of state.blocks) {
+    if (b.kind === "sense" && b.senseId === id) {
+      b.result = data.content;
+      b.replace = replace;
+      b.originalContent = data.originalContent;
+      return;
+    }
+    if (b.kind === "assistant" && Array.isArray(b.senseCalls)) {
+      const sc = b.senseCalls.find((s) => s.callId === id);
+      if (sc) {
+        sc.result = data.content;
+        sc.replace = replace;
+        sc.originalContent = data.originalContent;
+        return;
+      }
+    }
+  }
 }
 
 function finishStream(rid) {
@@ -309,6 +354,7 @@ export const store = {
     state.currentChatLoaded = false;
     state.currentChatSent = false;
     state.currentChatCanResume = false;
+    state.pendingUserInputs = [];
     pendingSenseResults.clear();
     replayCycleThink = "";
     emit();
@@ -338,6 +384,7 @@ export const store = {
       case "interrupt": applyInterrupt(rid, notif.data); break;
       case "accept": applyAccept(rid, notif.data); break;
       case "rejected": applyRejected(rid, notif.data); break;
+      case "replaced": applyReplaced(rid, notif.data); break;
       case "loaded":
         state.blocks.push(_newBlock("system", rid, { text: "▚ HISTORY LOADED" }));
         break;
@@ -345,15 +392,31 @@ export const store = {
       case "error":
         state.blocks.push(_newBlock("error", rid, { text: notif.data?.message ?? "ERROR" }));
         break;
-      case "consumed": break;
+      case "consumed": {
+        // loop 中 send 的响应复用原 rid 流（服务端 isRunning 时只入队不启新 generator）。
+        // consumed 在每轮 chain 开始时发出（含 count），标志上一 assistant 周期已结束、
+        // 新 user 输入已被服务端消费。按 count 顺序 pop pending 队列成 user 块（紧跟在已完成的 assistant 之后），
+        // 并 finishStream 解绑当前 active stream → 后续同 rid chunk 经 getOrCreateLiveStream 进新 assistant block。
+        // 顺序：[userA, X1(A响应), userB, X2(B响应)]。
+        // 首次 send（activeStreams 空）finishStream 内部跳过，无副作用。
+        const count = notif.data?.count ?? 0;
+        for (let i = 0; i < count; i++) {
+          const text = state.pendingUserInputs.shift();
+          if (text == null) break;
+          state.blocks.push(_newBlock("user", state.currentChatId, { text }));
+        }
+        finishStream(rid);
+        break;
+      }
     }
     emit();
   },
 
   // —— 消息/错误 ——
-  pushUserBlock(text) {
-    state.blocks.push(_newBlock("user", state.currentChatId, { text }));
-    emit();
+  // 入队待消费用户输入（sendMessage 调用）：consumed notification 按 count 顺序 pop 成 user 块。
+  // 不立即 push 是为对齐服务端入队时机，避免 loop 中 send 时 user 块先于响应 block 落位导致顺序错乱。
+  enqueueUserInput(text) {
+    state.pendingUserInputs.push(text);
   },
   pushError(msg) {
     state.blocks.push(_newBlock("error", state.currentChatId, { text: msg }));
@@ -364,6 +427,7 @@ export const store = {
   resetReplay() {
     state.blocks = [];
     state.activeStreams = new Map();
+    state.pendingUserInputs = [];
     replayAssistant = null;
     replayCycleThink = "";
     pendingSenseResults.clear();
@@ -390,6 +454,15 @@ export const store = {
   },
   clearPendingApprovals() {
     state.approvals = state.approvals.filter((a) => a.status !== "pending");
+    if (!state.approvals.some((a) => a.approvalId === state.ui.approvalActiveTab)) {
+      state.ui.approvalActiveTab = state.approvals[0]?.approvalId ?? null;
+    }
+    emit();
+  },
+  // 切换 chat 时清掉该 chat 的所有审批（pending+已决）：与 actions._abortCurrentChatApprovals 配合，
+  // 后者先发 sense.approval.abort 释放服务端挂起 generator，再调此清前端 tab。
+  clearChatApprovals(chatId) {
+    state.approvals = state.approvals.filter((a) => a.requestId !== chatId);
     if (!state.approvals.some((a) => a.approvalId === state.ui.approvalActiveTab)) {
       state.ui.approvalActiveTab = state.approvals[0]?.approvalId ?? null;
     }

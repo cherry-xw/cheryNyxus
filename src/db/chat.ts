@@ -1,6 +1,5 @@
 import { getSoulDb, getMonthlyDb } from "./index.js";
 import { safeJsonParse } from "@/utils/json.js";
-import { randomUUID } from "crypto";
 
 export interface ChatRow {
   id: string;
@@ -8,6 +7,7 @@ export interface ChatRow {
   created_at: number;
   updated_at: number;
   metadata: string | null;
+  message_count: number;
 }
 
 export interface MessageRow {
@@ -82,6 +82,7 @@ export function createChat(
     created_at: now,
     updated_at: now,
     metadata: metadata ? JSON.stringify(metadata) : null,
+    message_count: 0,
   };
 }
 
@@ -203,9 +204,8 @@ export function addMessage(
 
   if (!chat) throw new Error(`Chat ${chatId} not found`);
 
-  // 2. 生成包含月份的 messageId
-  const uuid = randomUUID();
-  const finalMessageId = messageId || `${chat.messages_month}-${uuid}`;
+  // 2. messageId 由调用方传入（checkpoint/loadHistory 生成），直接使用
+  const finalMessageId = messageId;
 
   // 3. 路由到月份文件并插入 message
   const monthlyDb = getMonthlyDb(chat.messages_month);
@@ -231,6 +231,11 @@ export function addMessage(
     data.revoked ? 1 : 0,
     now,
   );
+
+  // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
+  soulDb
+    .prepare("UPDATE chats SET message_count = message_count + 1 WHERE id = ?")
+    .run(chatId);
 
   updateChat(chatId);
 
@@ -268,25 +273,6 @@ export function getMessages(chatId: string): MessageRow[] {
   // 3. 查询 messages
   const stmt = monthlyDb.prepare("SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC");
   return stmt.all(chatId) as MessageRow[];
-}
-
-/**
- * 清空消息（路由到月份文件）
- */
-export function clearMessages(chatId: string): void {
-  // 1. 获取 chat 的 messages_month
-  const soulDb = getSoulDb();
-  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
-  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
-
-  if (!chat) return;
-
-  // 2. 删除 messages
-  const monthlyDb = getMonthlyDb(chat.messages_month);
-  const stmt = monthlyDb.prepare("DELETE FROM messages WHERE chat_id = ?");
-  stmt.run(chatId);
-
-  updateChat(chatId);
 }
 
 /**
@@ -352,6 +338,7 @@ export function markMessageReplaced(
   chatId: string,
   messageId: string,
   fields: {
+    content?: string;
     replace: { state: boolean; by: string; content: string };
     originalContent?: string;
   },
@@ -363,19 +350,27 @@ export function markMessageReplaced(
   if (!chat) return;
 
   const monthlyDb = getMonthlyDb(chat.messages_month);
+  // content 仅在传入时更新（感官去重：改写为短说明，剔除冗长重复内容）；
+  // 未传则保留原 content，避免误清空。
+  const sets = [
+    "replace_state = ?",
+    "replace_by = ?",
+    "replace_content = ?",
+    "original_content = ?",
+  ];
+  const vals: unknown[] = [
+    fields.replace.state ? 1 : 0,
+    fields.replace.by,
+    fields.replace.content,
+    fields.originalContent ?? null,
+  ];
+  if (fields.content !== undefined) {
+    sets.push("content = ?");
+    vals.push(fields.content);
+  }
   monthlyDb
-    .prepare(
-      `UPDATE messages
-       SET replace_state = ?, replace_by = ?, replace_content = ?, original_content = ?
-       WHERE id = ?`,
-    )
-    .run(
-      fields.replace.state ? 1 : 0,
-      fields.replace.by,
-      fields.replace.content,
-      fields.originalContent ?? null,
-      messageId,
-    );
+    .prepare(`UPDATE messages SET ${sets.join(", ")} WHERE id = ?`)
+    .run(...vals, messageId);
 }
 
 /**

@@ -74,20 +74,29 @@ export async function* retryMiddleware(
     // 快照本轮 chain 起始的 messages 长度：chat 流中途失败时，外层 checkpoint 已 append 半截 assistant message，
     // 重试前回滚到本轮起始状态，避免重复 append 污染历史（P0-5）。
     // 注：已 yield 的 StreamChunk 无法撤回（retry 固有表现），仅回滚内存 messages。
-    const snapshot = ctx.soul.messages?.length ?? 0;
+    // P1-1：snapshot 含本轮 checkpoint 已 push 的 user（checkpoint 先于 retry 执行），
+    //   截断仅回滚半截 assistant，本轮 user 保留。resume 路径首轮 senseMiddleware skip chat 层，
+    //   retry.next() 返回空不追加 → snapshot 截断无实质触发，安全。
+    //   messages 类型可选但运行时由 init 赋 []，显式守卫消除 undefined（替代原 ?. 掩盖）。
+    const messages = ctx.soul.messages;
+    if (!messages) throw new Error("soul.messages not initialized before retry");
+    const snapshot = messages.length;
     try {
       // 透传所有 chunks（chat 只 yield StreamChunk/StagedChunk）
       yield* next();
       return; // 成功，结束
     } catch (error) {
+      // compose abort（chat.abort 注入的 throw）：直接 re-throw 传播退出整个 generator，
+      // 不重试、不转 ErrorChunk（保证 abort 在任意挂起点都"直接退出"，由 handleChatSend catch 静默）。
+      if (error instanceof Error && error.message === "approval aborted") {
+        throw error;
+      }
       const errorInfo = createErrorInfo(attempt, error);
       errors.push(errorInfo);
       logger.error(`[Retry] Attempt ${attempt} failed (${errorInfo.category}):`, error instanceof Error ? error.message : String(error));
 
       // 回滚本轮 checkpoint 已 append 的半截 message，恢复历史干净后再重试
-      if (ctx.soul.messages) {
-        ctx.soul.messages.length = snapshot;
-      }
+      messages.length = snapshot;
 
       // 非最后一次且可恢复：等待后继续
       if (attempt < MAX_RETRIES && errorInfo.recoverable) {

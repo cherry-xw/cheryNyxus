@@ -1,4 +1,4 @@
-import { compose } from "./compose";
+import { compose, type ComposedMiddleware } from "./compose";
 import type {
   MiddlewareContext,
   RuntimeConfig,
@@ -7,6 +7,10 @@ import type {
 } from "./types";
 import type { LLMResponse } from "../message/adapter";
 import type { GlobalConfig } from "@/utils/config";
+import { logger } from "@/utils/logger/index.js";
+
+/** P1-3：userInputs 队列容量上限，超限丢弃最早（背压，防高频 send 无限堆积拖长 loop 串行消费） */
+const MAX_USER_INPUTS = 16;
 
 export * from "./types";
 export type { MiddlewareHandler, LoopHandler };
@@ -15,7 +19,7 @@ export type { MiddlewareHandler, LoopHandler };
  * Middleware 实例 - 无状态链执行器（单 chat 绑定）
  */
 export default class Middleware<T = unknown> {
-  private middlewareChain: ReturnType<typeof compose<T>>;
+  private middlewareChain: ComposedMiddleware<T>;
 
   /** 是否初始化过 */
   private inited = false;
@@ -39,8 +43,8 @@ export default class Middleware<T = unknown> {
         messages: [],
       },
       global,
-      // runtime 由 configureRuntime 原子填充，send 前由 requireRuntime 校验完整性
-      runtime: {} as RuntimeConfig,
+      // P2-4：runtime 由 configureRuntime 原子填充，send 前 requireRuntime 校验。
+      //       未配置为 undefined（消除原 {} as RuntimeConfig 类型谎言）。
     };
     this.middlewareChain = compose(handlers);
 
@@ -149,16 +153,24 @@ export default class Middleware<T = unknown> {
   }
 
   /**
+   * 中止当前运行的 generator（chat.abort 等场景）。
+   * 转发 compose.abort：.throw 注入错误到挂起的 await → senseMiddleware catch →
+   * throw 传播退出整个链（不继续 next）。pending sense 在 DB 保持 NULL，
+   * 下次 chat.get canResume=true 重新审核。
+   */
+  abort(): void {
+    this.middlewareChain.abort();
+  }
+
+  /**
    * 单次 chain 执行
    */
   private async *runChain(
     ctx: MiddlewareContext,
   ): AsyncGenerator<T, void, unknown> {
-    const generator = this.middlewareChain(ctx);
+    const generator = this.middlewareChain.run(ctx);
     for await (const chunk of generator) {
       yield chunk;
-      // TODO 疑问？这是内部主动结束设计的吗？
-      if (isDoneChunk(chunk)) break;
     }
   }
 
@@ -171,6 +183,11 @@ export default class Middleware<T = unknown> {
     this.requireRuntime();
     
     if (input.trim()) {
+      // P1-3：背压。userInputs 容量上限，超限丢弃最早，避免运行中高频 send 无限堆积拖长 loop 串行消费。
+      if (this.ctx.soul.userInputs.length >= MAX_USER_INPUTS) {
+        this.ctx.soul.userInputs.shift();
+        logger.warn(`[Middleware] userInputs 达上限 ${MAX_USER_INPUTS}，丢弃最早输入`);
+      }
       this.ctx.soul.userInputs.push({
         content: input.trim(),
         time: Date.now(),
@@ -199,21 +216,10 @@ export default class Middleware<T = unknown> {
 
   private requireRuntime(): void {
     const r = this.ctx.runtime;
-    if (!r.brain || !r.adapters || !r.builtSenses || !r.senseTable) {
+    if (!r || !r.brain || !r.adapters || !r.builtSenses || !r.senseTable) {
       throw new Error(
         "Runtime not fully configured. Call configureRuntime() before send().",
       );
     }
   }
-}
-
-/**
- * 类型守卫：判断是否为 DoneChunk
- */
-function isDoneChunk(chunk: unknown): boolean {
-  return (
-    typeof chunk === "object" &&
-    chunk !== null &&
-    (chunk as { type: string }).type === "done"
-  );
 }

@@ -25,8 +25,12 @@ export default function buildFirstSystemPrompt(): string {
     time: dayjs().toISOString(),
   };
 
+  // P1-5：trigger 作为软提示注入 skill 描述，供 LLM 判断何时自动触发该 skill
   const skillsSection = getSkillMetas()
-    .map((s) => `<skill name="${s.name}">\n${s.description}\n</skill>`)
+    .map((s) => {
+      const trigger = s.trigger ? `\n触发条件: ${s.trigger}` : "";
+      return `<skill name="${s.name}">\n${s.description}${trigger}\n</skill>`;
+    })
     .join("\n");
 
   return `<system-reminder>

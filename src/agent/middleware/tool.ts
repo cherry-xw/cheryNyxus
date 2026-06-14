@@ -2,6 +2,7 @@ import type { MiddlewareContext, MiddlewareChunk, SenseTriggerChunk, StreamChunk
 import type { ReplaceInfo } from "@/core/message/adapter";
 import { safeJsonParse } from "@/utils/json.js";
 import { SupervisionLevel } from "@/core/config";
+import { createApproval } from "@/core/sense";
 import { logger } from "@/utils/logger/index.js";
 
 /**
@@ -130,7 +131,7 @@ async function* executeCollectedCalls(
     yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
     // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
     for (const r of replaced) {
-      yield { type: "message_updated", id: r.id, patch: { replace: r.replace, originalContent: r.originalContent } };
+      yield { type: "message_updated", id: r.id, patch: { content: r.content, replace: r.replace, originalContent: r.originalContent } };
     }
   }
 
@@ -192,6 +193,7 @@ async function* executeCollectedCalls(
 async function* executeResumePending(
   ctx: MiddlewareContext,
 ): AsyncGenerator<MiddlewareChunk> {
+  if (!ctx.runtime) throw new Error("Runtime not configured.");
   const messages = ctx.soul.messages ?? [];
   const pending: { id: string; name: string; argsJson: string }[] = [];
 
@@ -241,6 +243,7 @@ function buildSenseTrigger(
   name: string,
   argsJson: string,
 ): { trigger: SenseTriggerChunk; call: PendingSenseCall } {
+  if (!ctx.runtime) throw new Error("Runtime not configured.");
   const senseEntry = ctx.runtime.senseTable.get(name);
   const supervisionLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.confirm;
 
@@ -252,15 +255,12 @@ function buildSenseTrigger(
   logger.info("[SENSE BUILD] Supervision:", supervisionLevel);
   logger.info("⚡".repeat(40) + "\n");
 
-  let approvalResolve: ((action: "accept" | "reject", reason?: string) => void) | null = null;
-  let approvalReject: ((err: Error) => void) | null = null;
   let approvalPromise: Promise<{ action: "accept" | "reject"; reason?: string }> | undefined;
 
   if (supervisionLevel > SupervisionLevel.auto) {
-    approvalPromise = new Promise<{ action: "accept" | "reject"; reason?: string }>((resolve, reject) => {
-      approvalResolve = (action, reason) => resolve({ action, reason });
-      approvalReject = (err) => reject(err);
-    });
+    // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
+    //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
+    approvalPromise = createApproval(id);
   }
 
   const trigger: SenseTriggerChunk = {
@@ -269,8 +269,6 @@ function buildSenseTrigger(
     name,
     arguments: argsJson,
     supervisionLevel,
-    approvalResolve,
-    approvalReject,
   };
 
   return {
@@ -290,10 +288,11 @@ async function doExecuteSense(
 ): Promise<{
   content: string;
   hash?: string;
-  replaced: Array<{ id: string; replace: ReplaceInfo; originalContent: string }>;
+  replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>;
 }> {
-  const replaced: Array<{ id: string; replace: ReplaceInfo; originalContent: string }> = [];
+  const replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }> = [];
   try {
+    if (!ctx.runtime) throw new Error("Runtime not configured.");
     const args = argsJson ? safeJsonParse(argsJson, {}) : {};
     const senseEntry = ctx.runtime.senseTable.get(name);
     if (!senseEntry) {
@@ -301,19 +300,23 @@ async function doExecuteSense(
     }
     const result = await senseEntry.execute(args, ctx.soul.senseSharedData);
 
-    // 历史替换逻辑：检查历史 sense 消息是否有相同 hash
+    // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
+    // 旧 sense 内容重复且冗长 → 替换为短说明（告知 AI 已被新读取取代），长内容移至 originalContent 折叠溯源。
+    // 文件若被改动 → mtime/size 变 → hash 不同 → 各自独立留存上下文（AI 自行对比，不替换）。
+    // 故 hash 保留 mtime：它是"内容是否变动"的关键判据，去掉会让等长改写误判为相同。
     if (result.hash) {
       const messages = ctx.soul.messages ?? [];
       for (const msg of messages) {
         if (msg.role === "sense" && msg.hash === result.hash && !msg.replace?.state) {
-          const replaceInfo: ReplaceInfo = {
-            state: true,
-            by: id,
-            content: `旧内容已过时，后续已加载新内容替换。替换该数据的id:${id}`,
-          };
-          msg.replace = replaceInfo;
+          // staleNote：剔除冗长重复内容，仅告知 AI 该结果已被新读取取代（by 指向新 sense id）。
+          // 同步写回 msg.content（内存）+ 由 message_updated effect 落库 content/replace/originalContent，
+          // 使 LLM 历史、DB、web 三处一致：主显短说明，长内容折叠在 originalContent。
+          const staleNote = `此条旧读取已被新读取结果取代（新记录 id:${id}），长内容已折叠，以新记录为准。`;
+          const replaceInfo: ReplaceInfo = { state: true, by: id, content: staleNote };
           msg.originalContent = msg.content;
-          replaced.push({ id: msg.id, replace: replaceInfo, originalContent: msg.content });
+          msg.content = staleNote;
+          msg.replace = replaceInfo;
+          replaced.push({ id: msg.id, content: staleNote, replace: replaceInfo, originalContent: msg.originalContent });
           logger.info("\n[SENSE EXEC] 🔄 Replaced historical sense message");
           logger.info("[SENSE EXEC] Old ID:", msg.id);
           logger.info("[SENSE EXEC] New ID:", id);

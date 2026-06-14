@@ -1,6 +1,17 @@
 import type { SenseFunction } from "../sense/adapter";
 
 /**
+ * LLM 调用选项（P1-6：替代 Record<string, unknown>，消除 provider 内强转）。
+ * 各 provider 按需读取；model 必选，其余可选。
+ */
+export interface LLMOptions {
+  model: string;
+  url?: string;
+  key?: string;
+  thinking?: boolean;
+}
+
+/**
  * LLM Adapter 接口
  * 泛型参数支持 provider 侧类型强化，默认参数保持向后兼容。
  */
@@ -12,12 +23,12 @@ export interface LLMAdapter<
   chat(
     messages: TMessages,
     senses: SenseFunction[],
-    options?: Record<string, unknown>,
+    options?: LLMOptions,
   ): Promise<TResponse>;
   chatStream(
     messages: TMessages,
     senses: SenseFunction[],
-    options?: Record<string, unknown>,
+    options?: LLMOptions,
   ): Promise<AsyncIterable<TStreamChunk>>;
 }
 
@@ -43,4 +54,11 @@ export function getLLMAdapter(
   provider: string,
 ): LLMAdapter | undefined {
   return llmAdapterRegistry.get(provider);
+}
+
+/**
+ * 重置 LLM Adapter 注册表（P2-5：测试/热更清残留，与 resetSenses 并列）。
+ */
+export function resetLLMAdapters(): void {
+  llmAdapterRegistry.clear();
 }

@@ -1,67 +1,47 @@
-interface PendingApproval {
-  resolve: (action: "accept" | "reject", reason?: string) => void;
-  reject: (err: Error) => void;
-}
+import { resolveApproval, rejectApproval } from "@/core/sense/approvalRegistry.js";
 
 /**
  * 审批管理器（极简版）
- * 只存储 resolve/reject 回调，无数据库持久化
+ *
+ * P1-11：不再存 resolve/reject 函数指针（解耦 core）。core 审批 Promise 由 approvalRegistry 管理，
+ * 本 manager 仅记录待审批 id；confirm/abort 转调 core registry 触发 senseMiddleware 的 await Promise。
+ * 无数据库持久化（pending sense 靠 messages.content 空判断，见 interaction.md）。
  */
 export class ApprovalManager {
-  private approvals = new Map<string, PendingApproval>();
+  private approvals = new Set<string>();
 
   /**
-   * 注册审批 resolve + reject（service 层使用）
+   * 注册待审批 id（service observer 收 sense_pending 时调用）
    */
-  register(
-    approvalId: string,
-    resolve: (action: "accept" | "reject", reason?: string) => void,
-    reject: (err: Error) => void,
-  ): void {
-    this.approvals.set(approvalId, { resolve, reject });
+  register(approvalId: string): void {
+    this.approvals.add(approvalId);
   }
 
   /**
-   * 确认审批（调用 resolve）
+   * 确认审批：转调 core registry resolve，触发 senseMiddleware await 解除。
    */
   confirm(
     approvalId: string,
     action: "accept" | "reject",
     reason?: string,
   ): void {
-    const approval = this.approvals.get(approvalId);
-    if (approval) {
-      approval.resolve(action, reason);
+    if (this.approvals.has(approvalId)) {
+      resolveApproval(approvalId, action, reason);
       this.approvals.delete(approvalId);
     }
   }
 
   /**
-   * 中止审批：调用 reject 解除 senseMiddleware 的 await Promise.all，
+   * 中止审批：转调 core registry reject，解除 senseMiddleware 的 await Promise.all，
    * 使挂起 generator 正常结束可被 GC（替代旧 remove 仅删 Map 依赖 GC 的不可靠方案）。
    * pending sense 在 DB 保持 content=NULL，重启后 chat.get 判定 canResume=true，
-   * 前端可走 chat.resume 撤回重跑。reject 后 generator catch 并 yield sense_reject，不写 content，pending 语义不变。
+   * 前端可走 chat.resume 撤回重跑。
    */
   abort(approvalId: string): void {
-    const approval = this.approvals.get(approvalId);
-    if (approval) {
-      approval.reject(new Error("approval aborted"));
+    if (this.approvals.has(approvalId)) {
+      rejectApproval(approvalId, new Error("approval aborted"));
       this.approvals.delete(approvalId);
     }
-  }
-
-  /**
-   * 获取 pending approvals（仅内存中）
-   */
-  getPendingApprovals(): string[] {
-    return Array.from(this.approvals.keys());
-  }
-
-  /**
-   * 按 approvalId 判断是否存在（仅内存中）
-   */
-  getApproval(approvalId: string): boolean {
-    return this.approvals.has(approvalId);
   }
 }
 
