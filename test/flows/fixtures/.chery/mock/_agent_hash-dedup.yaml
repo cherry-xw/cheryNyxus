@@ -1,0 +1,12 @@
+repeat: last
+script:
+  - content: read first
+    senseCalls:
+      - id: hd-0
+        name: read_file
+        arguments: '{"path":"/tmp/cheryclaw-test-CeHQT6/dup.txt"}'
+  - senseCalls:
+      - id: hd-1
+        name: read_file
+        arguments: '{"path":"/tmp/cheryclaw-test-CeHQT6/dup.txt"}'
+  - content: done

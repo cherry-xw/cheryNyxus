@@ -2,180 +2,130 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   registerMessageAdapter,
   getMessageAdapter,
-  MessageAdapter,
+  resetMessageProviders,
   type MessageProviderAdapterConfig,
   type LLMResponse,
 } from "@/core/message/adapter";
 
-const createMockAdapterConfig = (): MessageProviderAdapterConfig => ({
-  role: () => "assistant",
-  content: () => "test content",
-  extractStreamDelta: () => "delta",
-  buildMessages: () => [],
-});
+function createConfig(): MessageProviderAdapterConfig {
+  return {
+    role: () => "assistant",
+    content: () => "test content",
+    extractStreamDelta: () => "delta",
+    buildMessages: () => [],
+  };
+}
 
 describe("Message Adapter", () => {
   beforeEach(() => {
-    // Clear registry - need to access internal registry
-    // Since it's a const, we can't clear it directly
-    // Tests should use unique provider names
+    resetMessageProviders();
   });
 
-  describe("registerMessageAdapter", () => {
-    it("registers adapter for provider", () => {
-      const config = createMockAdapterConfig();
-      registerMessageAdapter("test-msg-provider", config);
-
-      const retrieved = getMessageAdapter("test-msg-provider");
-      expect(retrieved).toBe(config);
+  describe("registerMessageAdapter / getMessageAdapter", () => {
+    it("registers and retrieves adapter", () => {
+      const cfg = createConfig();
+      registerMessageAdapter("p1", cfg);
+      expect(getMessageAdapter("p1")).toBe(cfg);
     });
 
     it("allows multiple providers", () => {
-      const config1 = createMockAdapterConfig();
-      const config2 = createMockAdapterConfig();
-
-      registerMessageAdapter("msg-provider-a", config1);
-      registerMessageAdapter("msg-provider-b", config2);
-
-      expect(getMessageAdapter("msg-provider-a")).toBe(config1);
-      expect(getMessageAdapter("msg-provider-b")).toBe(config2);
+      const a = createConfig();
+      const b = createConfig();
+      registerMessageAdapter("pa", a);
+      registerMessageAdapter("pb", b);
+      expect(getMessageAdapter("pa")).toBe(a);
+      expect(getMessageAdapter("pb")).toBe(b);
     });
-  });
 
-  describe("getMessageAdapter", () => {
-    it("returns registered adapter", () => {
-      const config = createMockAdapterConfig();
-      registerMessageAdapter("msg-test", config);
-
-      expect(getMessageAdapter("msg-test")).toBe(config);
+    it("overwrites existing adapter", () => {
+      registerMessageAdapter("p", createConfig());
+      const b: MessageProviderAdapterConfig = {
+        ...createConfig(),
+        content: () => "other",
+      };
+      registerMessageAdapter("p", b);
+      expect(getMessageAdapter("p")).toBe(b);
     });
 
     it("returns undefined for unregistered provider", () => {
-      expect(getMessageAdapter("unknown-msg-provider")).toBeUndefined();
+      expect(getMessageAdapter("nope")).toBeUndefined();
     });
   });
 
-  describe("MessageAdapter class", () => {
-    it("creates instance with registered provider", () => {
-      const config = createMockAdapterConfig();
-      registerMessageAdapter("msg-class-test", config);
-
-      const adapter = new MessageAdapter("session-1", "msg-class-test");
-      expect(adapter).toBeDefined();
-      expect(adapter.getAdapter()).toBe(config);
+  describe("resetMessageProviders", () => {
+    it("clears the registry", () => {
+      registerMessageAdapter("p1", createConfig());
+      resetMessageProviders();
+      expect(getMessageAdapter("p1")).toBeUndefined();
     });
+  });
 
-    it("throws error for unregistered provider", () => {
-      expect(() => new MessageAdapter("session", "unknown-msg")).toThrow(
-        "Provider \"unknown-msg\" adapter not registered"
-      );
-    });
-
-    it("getAdapter returns correct config", () => {
-      const config: MessageProviderAdapterConfig = {
+  describe("MessageProviderAdapterConfig fields", () => {
+    it("role extracts role", () => {
+      const cfg: MessageProviderAdapterConfig = {
         role: (raw) => (raw as any).role || "user",
-        content: (raw) => (raw as any).content || "",
-        extractStreamDelta: (chunk) => (chunk as any).delta || "",
-        buildMessages: (history) => history.map((h) => ({ role: h.role, content: h.content })),
-      };
-
-      registerMessageAdapter("custom-msg", config);
-
-      const adapter = new MessageAdapter("session", "custom-msg");
-      expect(adapter.getAdapter()).toBe(config);
-    });
-  });
-
-  describe("MessageProviderAdapterConfig interface", () => {
-    it("role function extracts role", () => {
-      const config: MessageProviderAdapterConfig = {
-        role: (raw) => "assistant",
         content: () => "",
         extractStreamDelta: () => "",
         buildMessages: () => [],
       };
-
-      registerMessageAdapter("role-test", config);
-
-      const role = config.role({ role: "user" });
-      expect(role).toBe("assistant");
+      expect(cfg.role({ role: "user" })).toBe("user");
     });
 
-    it("content function extracts content", () => {
-      const config: MessageProviderAdapterConfig = {
+    it("content extracts content", () => {
+      const cfg: MessageProviderAdapterConfig = {
         role: () => "assistant",
         content: (raw) => (raw as any).text || "",
         extractStreamDelta: () => "",
         buildMessages: () => [],
       };
-
-      registerMessageAdapter("content-test", config);
-
-      const content = config.content({ text: "hello" });
-      expect(content).toBe("hello");
+      expect(cfg.content({ text: "hello" })).toBe("hello");
     });
 
     it("extractStreamDelta extracts delta", () => {
-      const config: MessageProviderAdapterConfig = {
+      const cfg: MessageProviderAdapterConfig = {
         role: () => "assistant",
         content: () => "",
         extractStreamDelta: (chunk) => (chunk as any).delta.content,
         buildMessages: () => [],
       };
-
-      registerMessageAdapter("delta-test", config);
-
-      const delta = config.extractStreamDelta({ delta: { content: "test" } });
-      expect(delta).toBe("test");
+      expect(cfg.extractStreamDelta({ delta: { content: "x" } })).toBe("x");
     });
 
-    it("buildMessages creates messages array", () => {
-      const config: MessageProviderAdapterConfig = {
-        role: () => "assistant",
-        content: () => "",
-        extractStreamDelta: () => "",
-        buildMessages: (history) =>
-          history.map((h) => ({ role: h.role, content: h.content })),
-      };
-
-      registerMessageAdapter("build-test", config);
-
-      const history: LLMResponse[] = [
-        {
-          id: "1",
-          role: "user",
-          content: "hello",
-          createdAt: 0,
-          updateAt: 0,
-          raw: null,
-        },
-        {
-          id: "2",
-          role: "assistant",
-          content: "hi",
-          createdAt: 0,
-          updateAt: 0,
-          raw: null,
-        },
-      ];
-
-      const messages = config.buildMessages(history);
-      expect(messages).toHaveLength(2);
-    });
-
-    it("optional thinking function", () => {
-      const config: MessageProviderAdapterConfig = {
+    it("optional thinking extracts thinking", () => {
+      const cfg: MessageProviderAdapterConfig = {
         role: () => "assistant",
         content: () => "",
         thinking: (raw) => (raw as any).thinking,
         extractStreamDelta: () => "",
         buildMessages: () => [],
       };
+      expect(cfg.thinking?.({ thinking: "thoughts" })).toBe("thoughts");
+    });
 
-      registerMessageAdapter("thinking-test", config);
+    it("optional extractStreamThinking extracts thinking delta", () => {
+      const cfg: MessageProviderAdapterConfig = {
+        role: () => "assistant",
+        content: () => "",
+        extractStreamDelta: () => "",
+        extractStreamThinking: (chunk) => (chunk as any).thinking,
+        buildMessages: () => [],
+      };
+      expect(cfg.extractStreamThinking?.({ thinking: "th" })).toBe("th");
+    });
 
-      const thinking = config.thinking?.({ thinking: "thoughts" });
-      expect(thinking).toBe("thoughts");
+    it("buildMessages maps history", () => {
+      const cfg: MessageProviderAdapterConfig = {
+        role: () => "assistant",
+        content: () => "",
+        extractStreamDelta: () => "",
+        buildMessages: (history) =>
+          history.map((h) => ({ role: h.role, content: h.content })),
+      };
+      const history: LLMResponse[] = [
+        { id: "1", role: "user", content: "hi", createdAt: 0, updateAt: 0 },
+        { id: "2", role: "assistant", content: "yo", createdAt: 0, updateAt: 0 },
+      ];
+      expect(cfg.buildMessages(history)).toHaveLength(2);
     });
   });
 });

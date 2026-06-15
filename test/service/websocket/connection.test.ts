@@ -1,204 +1,171 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { RpcClient } from "@test/helpers/rpcClient.js";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { WebSocket } from "ws";
 
-vi.mock("@/db/approval.js", () => ({
-  approvalRepo: {
-    update: vi.fn().mockResolvedValue(undefined),
-  },
-}));
-vi.mock("@/service/approval/manager.js", () => ({
-  approvalManager: {
-    cleanupSoul: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+// close() 会调 approvalManager.abort(pending.approvalId)，mock 掉以验证调用且不碰 core registry。
+const approvalMock = vi.hoisted(() => ({ abort: vi.fn() }));
+vi.mock("@/service/approval/manager.js", () => ({ approvalManager: approvalMock }));
 
-describe("ConnectionManager", () => {
-  let ConnectionManager: typeof import("@/service/websocket/connection.js").ConnectionManager;
-  let manager: InstanceType<typeof ConnectionManager>;
+import { ConnectionManager } from "@/service/websocket/connection.js";
 
-  function createMockWs() {
-    const listeners: Record<string, Function[]> = {};
-    return {
-      on: vi.fn((event: string, cb: Function) => {
-        if (!listeners[event]) listeners[event] = [];
-        listeners[event].push(cb);
-      }),
-      send: vi.fn(),
-      close: vi.fn(),
-      readyState: 1,
-      listeners,
-    } as any;
-  }
+function mockWs(): WebSocket {
+  return {} as WebSocket;
+}
 
-  beforeEach(async () => {
-    const mod = await import("@/service/websocket/connection.js");
-    ConnectionManager = mod.ConnectionManager;
-    manager = new ConnectionManager();
+describe("service/websocket/ConnectionManager", () => {
+  let cm: ConnectionManager;
+
+  beforeEach(() => {
+    cm = new ConnectionManager();
+    approvalMock.abort.mockClear();
   });
 
-  it("should create and store ConnectionState", () => {
-    const ws = createMockWs();
-    const state = manager.create(ws);
-    expect(state.id).toBeDefined();
-    expect(state.ws).toBe(ws);
-    expect(state.soulId).toBeUndefined();
-    expect(state.pendingRequests).toBeInstanceOf(Map);
+  describe("create / get / getAll", () => {
+    it("create stores state keyed by ws and get retrieves it", () => {
+      const ws = mockWs();
+      const state = cm.create(ws);
+      expect(state.id).toBeTruthy();
+      expect(state.ws).toBe(ws);
+      expect(state.pendingRequests).toBeInstanceOf(Map);
+      expect(cm.get(ws)).toBe(state);
+    });
+
+    it("get returns undefined for unknown ws", () => {
+      expect(cm.get(mockWs())).toBeUndefined();
+    });
+
+    it("getAll returns all created states", () => {
+      cm.create(mockWs());
+      cm.create(mockWs());
+      expect(cm.getAll()).toHaveLength(2);
+    });
   });
 
-  it("should get state for known ws", () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    expect(manager.get(ws)).toBeDefined();
+  describe("addPendingRequest", () => {
+    it("stores pending with default approval timeout (900000ms)", () => {
+      const ws = mockWs();
+      cm.create(ws);
+      expect(cm.addPendingRequest(ws, "req-1").approvalTimeoutMs).toBe(900000);
+    });
+
+    it("honors custom approval timeout", () => {
+      const ws = mockWs();
+      cm.create(ws);
+      expect(cm.addPendingRequest(ws, "req-1", 5000).approvalTimeoutMs).toBe(5000);
+    });
+
+    it("throws when connection not found", () => {
+      expect(() => cm.addPendingRequest(mockWs(), "req-1")).toThrow(/Connection not found/);
+    });
   });
 
-  it("should return undefined for unknown ws", () => {
-    expect(manager.get(createMockWs())).toBeUndefined();
+  describe("approval timeout lifecycle", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("startApprovalTimeout fires onTimeout after configured ms", () => {
+      const ws = mockWs();
+      cm.create(ws);
+      cm.addPendingRequest(ws, "req-1", 1000);
+      const onTimeout = vi.fn();
+      cm.startApprovalTimeout(ws, "req-1", onTimeout);
+      vi.advanceTimersByTime(999);
+      expect(onTimeout).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it("clearApprovalTimeout cancels the timer", () => {
+      const ws = mockWs();
+      cm.create(ws);
+      cm.addPendingRequest(ws, "req-1", 1000);
+      const onTimeout = vi.fn();
+      cm.startApprovalTimeout(ws, "req-1", onTimeout);
+      cm.clearApprovalTimeout(ws, "req-1");
+      vi.advanceTimersByTime(2000);
+      expect(onTimeout).not.toHaveBeenCalled();
+    });
+
+    it("startApprovalTimeout is idempotent (no double fire)", () => {
+      const ws = mockWs();
+      cm.create(ws);
+      cm.addPendingRequest(ws, "req-1", 1000);
+      const onTimeout = vi.fn();
+      cm.startApprovalTimeout(ws, "req-1", onTimeout);
+      cm.startApprovalTimeout(ws, "req-1", onTimeout);
+      vi.advanceTimersByTime(1000);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it("removePendingRequest clears timer and removes entry", () => {
+      const ws = mockWs();
+      const state = cm.create(ws);
+      cm.addPendingRequest(ws, "req-1", 1000);
+      cm.startApprovalTimeout(ws, "req-1", vi.fn());
+      cm.removePendingRequest(ws, "req-1");
+      expect(state.pendingRequests.has("req-1")).toBe(false);
+    });
   });
 
-  it("should set soulId on state", () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.setSoul(ws, "soul-1");
-    expect(manager.get(ws)!.soulId).toBe("soul-1");
+  describe("setRequestApprovalId", () => {
+    it("records approvalId on pending request", () => {
+      const ws = mockWs();
+      const state = cm.create(ws);
+      cm.addPendingRequest(ws, "req-1");
+      cm.setRequestApprovalId(ws, "req-1", "appr-1");
+      expect(state.pendingRequests.get("req-1")?.approvalId).toBe("appr-1");
+    });
   });
 
-  it("should ignore setSoul for unknown ws", () => {
-    expect(() => manager.setSoul(createMockWs(), "soul-1")).not.toThrow();
+  describe("bindChatConnection / releaseChatConnection / forceReleaseChatConnection", () => {
+    it("bind then re-bind same owner is allowed", () => {
+      expect(() => cm.bindChatConnection("chat-1", "conn-A")).not.toThrow();
+      expect(() => cm.bindChatConnection("chat-1", "conn-A")).not.toThrow();
+    });
+
+    it("bind from a different owner throws busy error", () => {
+      cm.bindChatConnection("chat-1", "conn-A");
+      expect(() => cm.bindChatConnection("chat-1", "conn-B")).toThrow(/busy/);
+    });
+
+    it("release only unbinds when connectionId matches owner", () => {
+      cm.bindChatConnection("chat-1", "conn-A");
+      cm.releaseChatConnection("chat-1", "conn-B"); // no-op (not owner)
+      expect(() => cm.bindChatConnection("chat-1", "conn-C")).toThrow(/busy/);
+
+      cm.releaseChatConnection("chat-1", "conn-A"); // owner releases
+      expect(() => cm.bindChatConnection("chat-1", "conn-C")).not.toThrow();
+    });
+
+    it("forceRelease unbinds unconditionally (chat.abort cross-connection)", () => {
+      cm.bindChatConnection("chat-1", "conn-A");
+      cm.forceReleaseChatConnection("chat-1");
+      expect(() => cm.bindChatConnection("chat-1", "conn-B")).not.toThrow();
+    });
   });
 
-  it("should add pending request", () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    const pending = manager.addPendingRequest(ws, "req-1");
-    expect(pending.requestId).toBe("req-1");
-    expect(pending.approvalTimeoutMs).toBe(300000); // 默认 5 分钟
-    expect(manager.get(ws)!.pendingRequests.has("req-1")).toBe(true);
-  });
+  describe("close", () => {
+    it("removes connection and releases owned chat bindings", async () => {
+      const ws = mockWs();
+      const state = cm.create(ws);
+      cm.bindChatConnection("chat-1", state.id);
+      await cm.close(ws);
+      expect(cm.get(ws)).toBeUndefined();
+      // chat binding released → new connection can bind
+      expect(() => cm.bindChatConnection("chat-1", "new-conn")).not.toThrow();
+    });
 
-  it("should use custom approval timeout", () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    const pending = manager.addPendingRequest(ws, "req-1", 60000);
-    expect(pending.approvalTimeoutMs).toBe(60000);
-  });
+    it("is a no-op for unknown ws", async () => {
+      await expect(cm.close(mockWs())).resolves.toBeUndefined();
+    });
 
-  it("should throw for unknown connection on addPendingRequest", () => {
-    expect(() => manager.addPendingRequest(createMockWs(), "req-1")).toThrow("Connection not found");
-  });
-
-  it("should set request generator", () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.addPendingRequest(ws, "req-1");
-    const gen = (async function* () { yield 1; })();
-    manager.setRequestGenerator(ws, "req-1", gen);
-    expect(manager.get(ws)!.pendingRequests.get("req-1")!.generator).toBe(gen);
-  });
-
-  it("should set request approvalId", () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.addPendingRequest(ws, "req-1");
-    manager.setRequestApprovalId(ws, "req-1", "approval-1");
-    expect(manager.get(ws)!.pendingRequests.get("req-1")!.approvalId).toBe("approval-1");
-  });
-
-  it("should start and trigger approval timeout", () => {
-    vi.useFakeTimers();
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.addPendingRequest(ws, "req-1", 1000);
-    manager.setRequestApprovalId(ws, "req-1", "approval-1");
-    const cb = vi.fn();
-    manager.startApprovalTimeout(ws, "req-1", cb);
-    vi.advanceTimersByTime(1000);
-    expect(cb).toHaveBeenCalled();
-    vi.useRealTimers();
-  });
-
-  it("should clear approval timeout before it fires", () => {
-    vi.useFakeTimers();
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.addPendingRequest(ws, "req-1", 1000);
-    manager.setRequestApprovalId(ws, "req-1", "approval-1");
-    const cb = vi.fn();
-    manager.startApprovalTimeout(ws, "req-1", cb);
-    manager.clearApprovalTimeout(ws, "req-1");
-    vi.advanceTimersByTime(1000);
-    expect(cb).not.toHaveBeenCalled();
-    vi.useRealTimers();
-  });
-
-  it("should remove pending request and clear approval timeout", () => {
-    vi.useFakeTimers();
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.addPendingRequest(ws, "req-1", 1000);
-    manager.setRequestApprovalId(ws, "req-1", "approval-1");
-    const cb = vi.fn();
-    manager.startApprovalTimeout(ws, "req-1", cb);
-    manager.removePendingRequest(ws, "req-1");
-    vi.advanceTimersByTime(1000);
-    expect(cb).not.toHaveBeenCalled();
-    expect(manager.get(ws)!.pendingRequests.has("req-1")).toBe(false);
-    vi.useRealTimers();
-  });
-
-  it("should persist approval on close", async () => {
-    const { approvalRepo } = await import("@/db/approval.js");
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.addPendingRequest(ws, "req-1");
-    manager.setRequestApprovalId(ws, "req-1", "approval-1");
-    await manager.close(ws);
-    expect(approvalRepo.update).toHaveBeenCalledWith("approval-1", expect.objectContaining({ status: "pending" }));
-  });
-
-  it("should terminate generator on close", async () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.addPendingRequest(ws, "req-1");
-    const gen = (async function* () { yield 1; })();
-    const returnSpy = vi.spyOn(gen, "return");
-    manager.setRequestGenerator(ws, "req-1", gen);
-    await manager.close(ws);
-    expect(returnSpy).toHaveBeenCalled();
-  });
-
-  it("should call cleanupSoul on close when soulId set", async () => {
-    const { approvalManager } = await import("@/service/approval/manager.js");
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.setSoul(ws, "soul-1");
-    manager.addPendingRequest(ws, "req-1");
-    await manager.close(ws);
-    expect(approvalManager.cleanupSoul).toHaveBeenCalledWith("soul-1");
-  });
-
-  it("should remove connection from map on close", async () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    await manager.close(ws);
-    expect(manager.get(ws)).toBeUndefined();
-  });
-
-  it("should ignore close for unknown ws", async () => {
-    await expect(manager.close(createMockWs())).resolves.toBeUndefined();
-  });
-
-  it("getAll returns all connections", () => {
-    manager.create(createMockWs());
-    manager.create(createMockWs());
-    manager.create(createMockWs());
-    expect(manager.getAll()).toHaveLength(3);
-  });
-
-  it("getBySoulId returns matching connection", () => {
-    const ws = createMockWs();
-    manager.create(ws);
-    manager.setSoul(ws, "soul-1");
-    expect(manager.getBySoulId("soul-1")).toBeDefined();
-    expect(manager.getBySoulId("soul-2")).toBeUndefined();
+    it("aborts pending approvals on close", async () => {
+      const ws = mockWs();
+      cm.create(ws);
+      cm.addPendingRequest(ws, "req-1");
+      cm.setRequestApprovalId(ws, "req-1", "appr-1");
+      await cm.close(ws);
+      expect(approvalMock.abort).toHaveBeenCalledWith("appr-1");
+      expect(cm.get(ws)).toBeUndefined();
+    });
   });
 });

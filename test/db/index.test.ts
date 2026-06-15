@@ -1,136 +1,132 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
-import { existsSync } from "fs";
-import { join } from "path";
-import { createTempDir, cleanupTempDir } from "@test/helpers/tempDir";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+// config 单例在 setup.ts 中固定 db_dir 指向 fixtures，跨文件并行会污染。
+// 每 db 测试文件 vi.mock config，把 db_dir 重定向到独立 tempDir（见 testDb.ts）。
+const { mockConfig } = vi.hoisted(() => ({
+  mockConfig: {
+    global: { db_dir: "" },
+    llm: { brain: {} },
+    sense_groups: {},
+  },
+}));
+
+vi.mock("@/utils/config.js", () => ({ default: mockConfig }));
+
+import { getSoulDb, getMonthlyDb, closeAllDbs } from "@/db/index.js";
+import { createTempDbDir, cleanupTempDbDir } from "@test/helpers/testDb";
+
+let dbDir: string;
+beforeEach(() => {
+  closeAllDbs();
+  dbDir = createTempDbDir();
+  mockConfig.global.db_dir = dbDir;
+});
+afterEach(() => {
+  closeAllDbs();
+  cleanupTempDbDir(dbDir);
+});
 
 describe("db/index", () => {
-  let tempDir: string;
-  const tempDirs: string[] = [];
-
-  beforeEach(() => {
-    vi.resetModules();
-    tempDir = createTempDir();
-    tempDirs.push(tempDir);
-    process.env.CHERY_DIR = tempDir;
-  });
-
-  afterAll(() => {
-    delete process.env.CHERY_DIR;
-    for (const dir of tempDirs) {
-      cleanupTempDir(dir);
-    }
-  });
-
-  describe("getDb", () => {
-    it("should create .chery directory and database file when needed", async () => {
-      const { getDb } = await import("@/db/index.js");
-      getDb();
-
-      const dbPath = join(tempDir, ".chery", "data.db");
-      expect(existsSync(join(tempDir, ".chery"))).toBe(true);
-      expect(existsSync(dbPath)).toBe(true);
+  describe("getSoulDb", () => {
+    it("returns singleton instance across calls", () => {
+      const a = getSoulDb();
+      const b = getSoulDb();
+      expect(a).toBe(b);
     });
 
-    it("should return same instance on repeated calls (singleton)", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db1 = getDb();
-      const db2 = getDb();
-      expect(db1).toBe(db2);
-    });
-  });
-
-  describe("initTables", () => {
-    it("should create souls table", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='souls'").get();
-      expect(table).toBeDefined();
-    });
-
-    it("should create chats table", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chats'").get();
-      expect(table).toBeDefined();
+    it("initializes chats table with message_count column", () => {
+      const db = getSoulDb();
+      const cols = db.prepare("PRAGMA table_info(chats)").all() as { name: string }[];
+      const names = cols.map((c) => c.name);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          "id",
+          "messages_month",
+          "created_at",
+          "updated_at",
+          "metadata",
+          "message_count",
+        ]),
+      );
     });
 
-    it("should create messages table", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='messages'").get();
-      expect(table).toBeDefined();
+    it("enables WAL journal mode", () => {
+      const db = getSoulDb();
+      const row = db.prepare("PRAGMA journal_mode").get() as { journal_mode: string };
+      expect(row.journal_mode.toLowerCase()).toBe("wal");
     });
 
-    it("should create approvals table", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const table = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='approvals'").get();
-      expect(table).toBeDefined();
-    });
-
-    it("should create idx_messages_chat index", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_messages_chat'").get();
-      expect(idx).toBeDefined();
-    });
-
-    it("should create idx_chats_soul index", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_chats_soul'").get();
-      expect(idx).toBeDefined();
-    });
-
-    it("should create idx_approvals_soul index", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_approvals_soul'").get();
-      expect(idx).toBeDefined();
-    });
-
-    it("should create idx_approvals_status index", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
-
-      const idx = db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_approvals_status'").get();
-      expect(idx).toBeDefined();
+    it("enables foreign_keys pragma", () => {
+      const db = getSoulDb();
+      const row = db.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number };
+      expect(row.foreign_keys).toBe(1);
     });
   });
 
-  describe("closeDb", () => {
-    it("should close and reset singleton (next getDb returns new instance)", async () => {
-      const { getDb, closeDb } = await import("@/db/index.js");
-      const db1 = getDb();
-      closeDb();
-
-      // Re-import to get fresh module state
-      vi.resetModules();
-      const { getDb: getDb2 } = await import("@/db/index.js");
-      const db2 = getDb2();
-      expect(db2).not.toBe(db1);
+  describe("getMonthlyDb", () => {
+    it("returns singleton per yearMonth", () => {
+      const a = getMonthlyDb("2026-06");
+      const b = getMonthlyDb("2026-06");
+      expect(a).toBe(b);
     });
 
-    it("should be safe when no db exists", async () => {
-      const { closeDb } = await import("@/db/index.js");
-      expect(() => closeDb()).not.toThrow();
+    it("returns distinct instance for different month", () => {
+      const a = getMonthlyDb("2026-06");
+      const b = getMonthlyDb("2026-07");
+      expect(a).not.toBe(b);
+    });
+
+    it("initializes messages table (revoked + sense_calls) and chat index", () => {
+      const db = getMonthlyDb("2026-06");
+      const cols = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
+      const names = cols.map((c) => c.name);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          "id",
+          "chat_id",
+          "role",
+          "content",
+          "thinking",
+          "sense_calls",
+          "hash",
+          "replace_state",
+          "replace_by",
+          "replace_content",
+          "original_content",
+          "revoked",
+          "created_at",
+        ]),
+      );
+
+      const indexes = db.prepare("PRAGMA index_list(messages)").all() as { name: string }[];
+      expect(indexes.some((i) => i.name === "idx_messages_chat")).toBe(true);
+    });
+
+    it("enables WAL journal mode", () => {
+      const db = getMonthlyDb("2026-06");
+      const row = db.prepare("PRAGMA journal_mode").get() as { journal_mode: string };
+      expect(row.journal_mode.toLowerCase()).toBe("wal");
     });
   });
 
-  describe("WAL journal mode", () => {
-    it("should set WAL journal mode", async () => {
-      const { getDb } = await import("@/db/index.js");
-      const db = getDb();
+  describe("closeAllDbs", () => {
+    it("clears cache so next getSoulDb returns a new instance", () => {
+      const a = getSoulDb();
+      getMonthlyDb("2026-06");
+      closeAllDbs();
+      const b = getSoulDb();
+      expect(b).not.toBe(a);
+    });
 
-      const row = db.pragma("journal_mode")[0];
-      expect(row.journal_mode).toBe("wal");
+    it("clears monthly cache so next getMonthlyDb returns a new instance", () => {
+      const a = getMonthlyDb("2026-06");
+      closeAllDbs();
+      const b = getMonthlyDb("2026-06");
+      expect(b).not.toBe(a);
+    });
+
+    it("does not throw when no db initialized", () => {
+      expect(() => closeAllDbs()).not.toThrow();
     });
   });
 });

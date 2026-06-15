@@ -7,77 +7,58 @@ import {
   type SenseCallData,
   type SenseFunction,
 } from "@/core/sense/adapter";
-import type { Sense, SenseResult, SenseSharedData } from "@/core/sense/senseCreator";
+import type { Sense, SenseResult } from "@/core/sense/senseCreator";
 import { z, type ZodType } from "zod";
 
-// Mock SenseAdapter
 const mockAdapter: SenseAdapter<unknown, unknown> = {
-  buildSenses: (senses: Sense<ZodType>[]) => senses.map((s) => s.definition),
-  buildSenseCallMessage: (content: string, senseCalls: SenseCallData[]) => ({
-    role: "assistant",
-    content,
-    senseCalls,
-  }),
-  buildSenseResponseMessage: (id: string, result: string) => ({
-    role: "tool",
-    toolCallId: id,
-    content: result,
-  }),
+  buildSenses: (senses) => senses.map((s) => s.definition),
   senseCalls: () => [],
   extractSenseCallDeltas: () => [],
 };
 
 describe("Sense Adapter Registry", () => {
   beforeEach(() => {
-    // Clear registry before each test
     senseAdapterRegistry.clear();
   });
 
   describe("registerSenseAdapter", () => {
     it("registers adapter for provider", () => {
       registerSenseAdapter("test-provider", mockAdapter);
-
       expect(senseAdapterRegistry.has("test-provider")).toBe(true);
-      expect(senseAdapterRegistry.get("test-provider")).toBe(mockAdapter);
+      expect(getSenseAdapter("test-provider")).toBe(mockAdapter);
     });
 
     it("allows multiple providers", () => {
       registerSenseAdapter("provider-a", mockAdapter);
       registerSenseAdapter("provider-b", mockAdapter);
-
       expect(senseAdapterRegistry.size).toBe(2);
     });
 
     it("overwrites existing adapter", () => {
       registerSenseAdapter("provider", mockAdapter);
-
-      const newAdapter: SenseAdapter<unknown, unknown> = {
+      const next: SenseAdapter<unknown, unknown> = {
         ...mockAdapter,
         buildSenses: () => [],
       };
-      registerSenseAdapter("provider", newAdapter);
-
-      expect(senseAdapterRegistry.get("provider")).toBe(newAdapter);
+      registerSenseAdapter("provider", next);
+      expect(getSenseAdapter("provider")).toBe(next);
     });
   });
 
   describe("getSenseAdapter", () => {
     it("returns registered adapter", () => {
       registerSenseAdapter("provider", mockAdapter);
-
-      const retrieved = getSenseAdapter("provider");
-      expect(retrieved).toBe(mockAdapter);
+      expect(getSenseAdapter("provider")).toBe(mockAdapter);
     });
 
     it("returns undefined for unregistered provider", () => {
-      const retrieved = getSenseAdapter("unknown-provider");
-      expect(retrieved).toBeUndefined();
+      expect(getSenseAdapter("unknown-provider")).toBeUndefined();
     });
   });
 
-  describe("SenseAdapter interface", () => {
-    it("buildSenses returns SenseFunction array", () => {
-      const senseDefinition: SenseFunction = {
+  describe("SenseAdapter interface (3 methods)", () => {
+    it("buildSenses returns SenseFunction[] from Sense[]", () => {
+      const def: SenseFunction = {
         type: "function",
         function: {
           name: "test",
@@ -90,9 +71,8 @@ describe("Sense Adapter Registry", () => {
           },
         },
       };
-
-      const mockSense: Sense<ZodType> = {
-        definition: senseDefinition,
+      const s: Sense<ZodType> = {
+        definition: def,
         executor: {
           schema: z.object({}),
           execute: async (): Promise<SenseResult> => ({ content: "", hash: "" }),
@@ -100,25 +80,9 @@ describe("Sense Adapter Registry", () => {
         supervisionLevel: 1,
       };
 
-      const senses = mockAdapter.buildSenses([mockSense]);
-      expect(Array.isArray(senses)).toBe(true);
-      expect(senses[0]).toBe(senseDefinition);
-    });
-
-    it("buildSenseCallMessage creates assistant message", () => {
-      const senseCalls: SenseCallData[] = [
-        { id: "call-1", name: "test", arguments: "{}" },
-      ];
-
-      const message = mockAdapter.buildSenseCallMessage("content", senseCalls);
-      expect(message).toHaveProperty("role", "assistant");
-      expect(message).toHaveProperty("content", "content");
-    });
-
-    it("buildSenseResponseMessage creates tool message", () => {
-      const message = mockAdapter.buildSenseResponseMessage("id-1", "result");
-      expect(message).toHaveProperty("role", "tool");
-      expect(message).toHaveProperty("toolCallId", "id-1");
+      const out = mockAdapter.buildSenses([s]);
+      expect(Array.isArray(out)).toBe(true);
+      expect(out[0]).toBe(def);
     });
 
     it("senseCalls returns array", () => {
@@ -126,9 +90,15 @@ describe("Sense Adapter Registry", () => {
       expect(Array.isArray(calls)).toBe(true);
     });
 
-    it("extractSenseCallDeltas returns result", () => {
-      const result = mockAdapter.extractSenseCallDeltas({});
-      expect(result).toBeDefined();
+    it("extractSenseCallDeltas returns array", () => {
+      const out = mockAdapter.extractSenseCallDeltas({});
+      expect(Array.isArray(out)).toBe(true);
+    });
+
+    it("SenseCallData requires id, optional index/name", () => {
+      const data: SenseCallData = { id: "call-1", arguments: "{}" };
+      expect(data.id).toBe("call-1");
+      expect(data.arguments).toBe("{}");
     });
   });
 });

@@ -66,8 +66,8 @@ export class FlowRpcClient {
   }
 
   /** 发起流式请求（chat.send / chat.resume / chat.get） */
-  beginStream(method: string, params: unknown): StreamFlow {
-    const id = this.makeRequestId(params);
+  beginStream(method: string, params: unknown, idOverride?: string): StreamFlow {
+    const id = idOverride ?? this.makeRequestId(params);
     const state: FlowState = {
       events: [],
       waiters: [],
@@ -90,9 +90,11 @@ export class FlowRpcClient {
     };
   }
 
-  /** 非流式请求（sense.approval / chat.create / brain.list 等） */
-  async call(method: string, params: unknown): Promise<RpcResponse> {
-    const id = this.makeRequestId(params);
+  /** 非流式请求（sense.approval / chat.create / brain.list 等）。
+   *  idOverride：含 chatId 的并发请求（如运行中第二条 chat.send）需用 UUID，
+   *  避免与已 beginStream 的流式 flow（id=chatId）pending state 冲突。 */
+  async call(method: string, params: unknown, idOverride?: string): Promise<RpcResponse> {
+    const id = idOverride ?? this.makeRequestId(params);
     const state: FlowState = {
       events: [],
       waiters: [],

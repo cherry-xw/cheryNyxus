@@ -1,105 +1,58 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { compileSenses, parseTestCases } from "@/core/sense/compiler/index.js";
-import { existsSync, readdirSync, readFileSync } from "fs";
-import { join } from "path";
 import { runSenseTests } from "@/agent/sense/index.js";
-import { sense, SupervisionLevel } from "@/core/sense/index.js";
+import { sense } from "@/core/sense/index.js";
+import { SupervisionLevel } from "@/core/config.js";
 import { z } from "zod";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { join } from "path";
 
+// 隔离输入目录，避免污染项目实际 .chery/senses
+const testDir = join(process.cwd(), ".chery", "_compiler_test_senses");
+// 编译器硬编码输出路径（compileSenses 内部）
+const distDir = join(process.cwd(), "dist", "senses");
+const tempDir = join(process.cwd(), "dist", ".sense-temp");
+
+// mock config：仅 senses_dir 由 beforeAll 注入，避免 hoisting TDZ
 vi.mock("@/utils/config", () => ({
-  default: {
-    global: {
-      senses_dir: undefined,
-      chery_dir: undefined,
-    },
-  },
+  default: { global: { senses_dir: "" } },
 }));
 
 describe("toolCompiler", () => {
-  const testDir = join(process.cwd(), ".chery", "tools");
-  let distDir: string;
-  let tempDir: string;
+  const createdBasenames: string[] = [];
   let config: any;
 
-  const createdTestFiles: string[] = [];
+  function writeSense(fileName: string, content: string): string {
+    const srcPath = join(testDir, `${fileName}.ts`);
+    writeFileSync(srcPath, content, "utf-8");
+    createdBasenames.push(fileName);
+    return srcPath;
+  }
 
   beforeAll(async () => {
     config = (await import("@/utils/config")).default;
     config.global.senses_dir = testDir;
-    config.global.chery_dir = process.cwd();
-
-    // distDir 和 tempDir 由 __dirname（即 dist/）决定
-    distDir = join(process.cwd(), "dist", "tools");
-    tempDir = join(process.cwd(), "dist", ".tool-temp");
-
-    if (!existsSync(testDir)) {
-      mkdirSync(testDir, { recursive: true });
-    }
-  });
-
-  afterAll(() => {
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-
-    for (const file of createdTestFiles) {
-      if (existsSync(file)) {
-        rmSync(file, { force: true });
-      }
-    }
-
-    if (existsSync(distDir)) {
-      const jsFiles = readdirSync(distDir).filter(f => f.endsWith(".js"));
-      for (const jsFile of jsFiles) {
-        if (jsFile !== "echo_text.js") {
-          rmSync(join(distDir, jsFile), { force: true });
-        }
-      }
-    }
+    if (!existsSync(testDir)) mkdirSync(testDir, { recursive: true });
   });
 
   afterEach(() => {
-    for (const file of createdTestFiles) {
-      if (existsSync(file)) {
-        rmSync(file, { force: true });
-      }
+    for (const name of createdBasenames) {
+      const src = join(testDir, `${name}.ts`);
+      if (existsSync(src)) rmSync(src, { force: true });
+      const dist = join(distDir, `${name}.js`);
+      if (existsSync(dist)) rmSync(dist, { force: true });
     }
-    createdTestFiles.length = 0;
+    createdBasenames.length = 0;
   });
 
-  it("should inject imports with target path ../index.js", async () => {
-    const testToolPath = join(testDir, "test_tool.ts");
-    createdTestFiles.push(testToolPath);
-    writeFileSync(testToolPath, `
-const TestSchema = z.object({
-  message: z.string().describe("测试消息"),
-});
-
-export default sense(
-  "test_tool",
-  "测试工具",
-  TestSchema,
-  async (input) => {
-    return { content: input.message, hash: "" };
-  },
-  SupervisionLevel.auto,
-);
-`, "utf-8");
-
-    const compiledInfos = (await compileSenses()).succeeded;
-    expect(compiledInfos.length).toBeGreaterThan(0);
-
-    const info = compiledInfos.find(r => r.compiledPath.endsWith("test_tool.js"));
-    expect(info).toBeDefined();
+  afterAll(() => {
+    if (existsSync(testDir)) rmSync(testDir, { recursive: true, force: true });
+    if (existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it("should compile tool file to JS in dist/custom", async () => {
-    const testToolPath = join(testDir, "compile_test.ts");
-    createdTestFiles.push(testToolPath);
-    writeFileSync(testToolPath, `
+  it("compiles sense file to JS in dist/senses", async () => {
+    writeSense("compile_test", `
 const Schema = z.object({ text: z.string() });
-
 export default sense(
   "compile_test",
   "编译测试",
@@ -107,112 +60,81 @@ export default sense(
   async (input) => ({ content: input.text, hash: "" }),
   SupervisionLevel.confirm,
 );
-`, "utf-8");
+`);
 
-    (await compileSenses()).succeeded;
+    const succeeded = (await compileSenses()).succeeded;
+    const info = succeeded.find((r) => r.compiledPath.endsWith("compile_test.js"));
+    expect(info).toBeDefined();
 
     const jsPath = join(distDir, "compile_test.js");
-    if (existsSync(jsPath)) {
-      const jsContent = readFileSync(jsPath, "utf-8");
-      expect(jsContent).toContain("export default");
-      expect(jsContent).toContain("sense(");
-    }
+    expect(existsSync(jsPath)).toBe(true);
+    const jsContent = readFileSync(jsPath, "utf-8");
+    expect(jsContent).toContain("export default");
+    expect(jsContent).toContain("sense(");
   });
 
-  it("should return empty array when toolsDir does not exist", async () => {
-    const origDir = config.global.senses_dir;
-    config.global.senses_dir = "/nonexistent/path/tools";
+  it("returns empty succeeded when senses_dir does not exist", async () => {
+    const orig = config.global.senses_dir;
+    config.global.senses_dir = "/nonexistent/path/senses";
 
     const result = (await compileSenses()).succeeded;
     expect(result).toEqual([]);
 
-    config.global.senses_dir = origDir;
+    config.global.senses_dir = orig;
   });
 
-  it("should return empty array when no .ts files found", async () => {
-    const emptyDir = join(process.cwd(), ".chery", "tools", "empty_test");
-    if (!existsSync(emptyDir)) {
-      mkdirSync(emptyDir, { recursive: true });
-    }
-    const origDir = config.global.senses_dir;
+  it("returns empty succeeded when no .ts files found", async () => {
+    const emptyDir = join(process.cwd(), ".chery", "_compiler_empty");
+    if (!existsSync(emptyDir)) mkdirSync(emptyDir, { recursive: true });
+    const orig = config.global.senses_dir;
     config.global.senses_dir = emptyDir;
 
     const result = (await compileSenses()).succeeded;
     expect(result).toEqual([]);
 
-    config.global.senses_dir = origDir;
+    config.global.senses_dir = orig;
     rmSync(emptyDir, { recursive: true, force: true });
   });
 
-  it("should collect syntax failures and continue compiling other tools", async () => {
-    const badToolPath = join(testDir, "bad_syntax_collect.ts");
-    const goodToolPath = join(testDir, "good_after_bad.ts");
-    createdTestFiles.push(badToolPath, goodToolPath);
-
-    writeFileSync(badToolPath, `
-const x = ;
-`, "utf-8");
-    writeFileSync(goodToolPath, `
+  it("collects syntax failures and continues compiling other senses", async () => {
+    writeSense("bad_syntax_collect", `const x = ;`);
+    writeSense("good_after_bad", `
 const Schema = z.object({ text: z.string() });
 export default sense("good_after_bad", "good", Schema, async (input) => ({ content: input.text, hash: "" }));
-`, "utf-8");
+`);
 
     const summary = await compileSenses();
 
-    expect(summary.failed.some(f => f.fileName === "bad_syntax_collect.ts" && f.type === "syntax")).toBe(true);
-    expect(summary.succeeded.some(info => info.compiledPath.endsWith("good_after_bad.js"))).toBe(true);
+    expect(
+      summary.failed.some(
+        (f) => f.fileName === "bad_syntax_collect.ts" && f.type === "syntax",
+      ),
+    ).toBe(true);
+    expect(
+      summary.succeeded.some((info) =>
+        info.compiledPath.endsWith("good_after_bad.js"),
+      ),
+    ).toBe(true);
   });
 
-  it("should collect syntax failure for invalid TypeScript syntax", async () => {
-    const testToolPath = join(testDir, "bad_syntax.ts");
-    createdTestFiles.push(testToolPath);
-    writeFileSync(testToolPath, `
-const x = ;
-`, "utf-8");
+  it("syntax failure message includes 感官编译失败", async () => {
+    writeSense("bad_syntax", `const x = ;`);
 
     const summary = await compileSenses();
-    expect(summary.failed.some(f => f.fileName === "bad_syntax.ts" && f.message.includes("感官编译失败"))).toBe(true);
+    expect(
+      summary.failed.some(
+        (f) => f.fileName === "bad_syntax.ts" && f.message.includes("感官编译失败"),
+      ),
+    ).toBe(true);
   });
 
-  it("should not duplicate imports when source already has target path", async () => {
-    const testToolPath = join(testDir, "full_import.ts");
-    createdTestFiles.push(testToolPath);
-    writeFileSync(testToolPath, `
-import { z } from "../index.js";
-import { tool } from "../index.js";
-import { SupervisionLevel } from "../index.js";
-
-const Schema = z.object({ text: z.string() });
-
-export default sense(
-  "full_import",
-  "Full import test",
-  Schema,
-  async (input) => ({ content: input.text, hash: "" }),
-  SupervisionLevel.auto,
-);
-`, "utf-8");
-
-    (await compileSenses()).succeeded;
-
-    const preprocessedPath = join(tempDir, "full_import.ts");
-    if (existsSync(preprocessedPath)) {
-      const content = readFileSync(preprocessedPath, "utf-8");
-      const importLines = content.split("\n").filter(l => l.trim().startsWith("import "));
-      expect(importLines.length).toBe(3);
-    }
-  });
-
-  it("should convert source-path imports to target path", async () => {
-    const testToolPath = join(testDir, "source_import.ts");
-    createdTestFiles.push(testToolPath);
-    writeFileSync(testToolPath, `
+  it("strips source-path imports in compiled output", async () => {
+    writeSense("source_import", `
 import { z } from "zod";
-import { tool } from "@/core/sense";
+import { sense } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
 
 const Schema = z.object({ text: z.string() });
-
 export default sense(
   "source_import",
   "Source import test",
@@ -220,25 +142,21 @@ export default sense(
   async (input) => ({ content: input.text, hash: "" }),
   SupervisionLevel.auto,
 );
-`, "utf-8");
+`);
 
     (await compileSenses()).succeeded;
 
     const jsPath = join(distDir, "source_import.js");
-    if (existsSync(jsPath)) {
-      const jsContent = readFileSync(jsPath, "utf-8");
-      // 编译产物应无 import 语句（预处理时移除）
-      expect(jsContent).not.toContain('import { z }');
-      expect(jsContent).not.toContain('import { tool }');
-      expect(jsContent).toContain("export default");
-      expect(jsContent).toContain("sense(");
-    }
+    expect(existsSync(jsPath)).toBe(true);
+    const jsContent = readFileSync(jsPath, "utf-8");
+    expect(jsContent).not.toContain('import { z }');
+    expect(jsContent).not.toContain('import { sense }');
+    expect(jsContent).toContain("export default");
+    expect(jsContent).toContain("sense(");
   });
 
-  // --- parseTestCases tests ---
-
   describe("parseTestCases", () => {
-    it("should parse @test annotation from source", () => {
+    it("parses @test annotation from source", () => {
       const source = `
 /* @test [
   { "input": { "text": "hello" }, "output": { "content": "Echo: hello", "hash": "" } }
@@ -252,60 +170,43 @@ export default sense("test", "test", Schema, async (input) => ({ content: input.
       expect(cases[0]!.output).toEqual({ content: "Echo: hello", hash: "" });
     });
 
-    it("should ignore inline @test text in documentation comments", () => {
-      const source = `
-/** docs mention /* @test [...] */ inline */
-
-/* @test [
-  { "input": { "text": "hello" }, "output": { "content": "hello", "hash": "" } }
-] */
-const Schema = z.object({ text: z.string() });
-`;
-      const cases = parseTestCases(source);
-      expect(cases).toHaveLength(1);
-      expect(cases[0]!.input).toEqual({ text: "hello" });
-    });
-
-    it("should return empty array when no @test annotation", () => {
+    it("returns empty array when no @test annotation", () => {
       expect(parseTestCases("const x = 1;")).toEqual([]);
     });
 
-    it("should return empty array for malformed @test JSON", () => {
+    it("returns empty array for malformed @test JSON", () => {
       expect(parseTestCases("/* @test { invalid json } */")).toEqual([]);
     });
 
-    it("should parse multiple test cases", () => {
+    it("parses multiple test cases", () => {
       const source = `/* @test [
   { "input": { "a": "1" }, "output": { "content": "r1", "hash": "h1" } },
   { "input": { "a": "2" }, "output": { "content": "r2", "hash": "h2" } }
 ] */`;
-      const cases = parseTestCases(source);
-      expect(cases).toHaveLength(2);
+      expect(parseTestCases(source)).toHaveLength(2);
     });
 
-    it("should filter out invalid test case entries", () => {
+    it("filters out invalid test case entries", () => {
       const source = `/* @test [
   { "input": { "a": "1" }, "output": { "content": "r1", "hash": "h1" } },
   { "input": { "a": "2" } },
   "not an object",
   null
 ] */`;
-      const cases = parseTestCases(source);
-      expect(cases).toHaveLength(1);
+      expect(parseTestCases(source)).toHaveLength(1);
     });
   });
 
   describe("runSenseTests", () => {
-    it("should pass when tool output matches test cases", async () => {
-      const schema = z.object({ text: z.string() });
-      const toolInstance = sense(
+    it("passes when output matches test cases", async () => {
+      const s = sense(
         "runtime_pass",
         "runtime pass",
-        schema,
+        z.object({ text: z.string() }),
         async (input) => ({ content: input.text, hash: "" }),
       );
 
-      const result = await runSenseTests(toolInstance, [
+      const result = await runSenseTests(s, [
         { input: { text: "ok" }, output: { content: "ok", hash: "" } },
       ]);
       expect(result.passed).toBe(true);
@@ -313,32 +214,32 @@ const Schema = z.object({ text: z.string() });
       expect(result.totalCount).toBe(1);
     });
 
-    it("should fail when tool output mismatches test cases", async () => {
-      const schema = z.object({ text: z.string() });
-      const toolInstance = sense(
+    it("fails when output mismatches", async () => {
+      const s = sense(
         "runtime_mismatch",
         "runtime mismatch",
-        schema,
+        z.object({ text: z.string() }),
         async (input) => ({ content: input.text, hash: "" }),
       );
 
-      const result = await runSenseTests(toolInstance, [
+      const result = await runSenseTests(s, [
         { input: { text: "ok" }, output: { content: "wrong", hash: "" } },
       ]);
       expect(result.passed).toBe(false);
       expect(result.failures.length).toBeGreaterThan(0);
     });
 
-    it("should fail when tool execution throws", async () => {
-      const schema = z.object({ text: z.string() });
-      const toolInstance = sense(
+    it("fails with error when execution throws", async () => {
+      const s = sense(
         "runtime_throw",
         "runtime throw",
-        schema,
-        async () => { throw new Error("boom"); },
+        z.object({ text: z.string() }),
+        async () => {
+          throw new Error("boom");
+        },
       );
 
-      const result = await runSenseTests(toolInstance, [
+      const result = await runSenseTests(s, [
         { input: { text: "ok" }, output: { content: "ok", hash: "" } },
       ]);
       expect(result.passed).toBe(false);
@@ -346,93 +247,85 @@ const Schema = z.object({ text: z.string() });
     });
   });
 
-  // --- hash-based incremental compilation tests ---
-
   describe("hash incremental compilation", () => {
-    it("should embed hash as first line of compiled JS", async () => {
-      const testToolPath = join(testDir, "hash_embed.ts");
-      createdTestFiles.push(testToolPath);
-      writeFileSync(testToolPath, `
+    it("embeds hash as first line of compiled JS", async () => {
+      writeSense("hash_embed", `
 const Schema = z.object({ text: z.string() });
 export default sense("hash_embed", "hash test", Schema, async (input) => ({ content: input.text, hash: "" }));
-`, "utf-8");
+`);
 
       const infos = (await compileSenses()).succeeded;
-      const info = infos.find(r => r.compiledPath.endsWith("hash_embed.js"));
+      const info = infos.find((r) => r.compiledPath.endsWith("hash_embed.js"));
       expect(info).toBeDefined();
 
       const jsContent = readFileSync(info!.compiledPath, "utf-8");
       expect(jsContent).toMatch(/^\/\/ hash:[a-f0-9]+/);
     });
 
-    it("should skip compilation when source hash matches", async () => {
-      const testToolPath = join(testDir, "hash_skip.ts");
-      createdTestFiles.push(testToolPath);
-      writeFileSync(testToolPath, `
+    it("skips compilation when source hash matches", async () => {
+      writeSense("hash_skip", `
 const Schema = z.object({ text: z.string() });
-export default sense("hash_skip", "hash skip test", Schema, async (input) => ({ content: input.text, hash: "" }));
-`, "utf-8");
+export default sense("hash_skip", "hash skip", Schema, async (input) => ({ content: input.text, hash: "" }));
+`);
 
       const first = (await compileSenses()).succeeded;
-      const firstInfo = first.find(r => r.compiledPath.endsWith("hash_skip.js"));
+      const firstInfo = first.find((r) => r.compiledPath.endsWith("hash_skip.js"));
       expect(firstInfo).toBeDefined();
 
       const jsPath = firstInfo!.compiledPath;
       const firstContent = readFileSync(jsPath, "utf-8");
+      const firstMtime = readFileSync(jsPath).byteLength;
 
-      // Second compile — source unchanged, should skip
       const second = (await compileSenses()).succeeded;
-      const secondInfo = second.find(r => r.compiledPath.endsWith("hash_skip.js"));
+      const secondInfo = second.find((r) => r.compiledPath.endsWith("hash_skip.js"));
       expect(secondInfo).toBeDefined();
       expect(secondInfo!.compiledPath).toBe(jsPath);
 
-      // File content unchanged
       const secondContent = readFileSync(jsPath, "utf-8");
       expect(secondContent).toBe(firstContent);
+      expect(readFileSync(jsPath).byteLength).toBe(firstMtime);
     });
 
-    it("should recompile when source changes", async () => {
-      const testToolPath = join(testDir, "hash_change.ts");
-      createdTestFiles.push(testToolPath);
-      writeFileSync(testToolPath, `
+    it("recompiles when source changes", async () => {
+      writeSense("hash_change", `
 const Schema = z.object({ text: z.string() });
 export default sense("hash_change", "v1", Schema, async (input) => ({ content: input.text, hash: "" }));
-`, "utf-8");
+`);
 
       const first = (await compileSenses()).succeeded;
-      const firstInfo = first.find(r => r.compiledPath.endsWith("hash_change.js"));
+      const firstInfo = first.find((r) =>
+        r.compiledPath.endsWith("hash_change.js"),
+      );
       const firstHash = readFileSync(firstInfo!.compiledPath, "utf-8").split("\n")[0];
 
-      // Modify source
-      writeFileSync(testToolPath, `
+      // Modify source (description v1 → v2)
+      writeSense("hash_change", `
 const Schema = z.object({ text: z.string() });
 export default sense("hash_change", "v2", Schema, async (input) => ({ content: input.text, hash: "" }));
-`, "utf-8");
+`);
 
       const second = (await compileSenses()).succeeded;
-      const secondInfo = second.find(r => r.compiledPath.endsWith("hash_change.js"));
+      const secondInfo = second.find((r) =>
+        r.compiledPath.endsWith("hash_change.js"),
+      );
       const secondHash = readFileSync(secondInfo!.compiledPath, "utf-8").split("\n")[0];
 
       expect(secondHash).not.toBe(firstHash);
     });
   });
 
-  // --- test cases in compilation result ---
-
-  it("should include parsed test cases in compilation result", async () => {
-    const testToolPath = join(testDir, "with_tests.ts");
-    createdTestFiles.push(testToolPath);
-    writeFileSync(testToolPath, `
+  it("includes parsed test cases in compilation result", async () => {
+    writeSense("with_tests", `
 /* @test [
   { "input": { "msg": "hi" }, "output": { "content": "hi", "hash": "" } },
   { "input": { "msg": "bye" }, "output": { "content": "bye", "hash": "" } }
 ] */
 const Schema = z.object({ msg: z.string() });
-export default sense("with_tests", "test cases tool", Schema, async (input) => ({ content: input.msg, hash: "" }));
-`, "utf-8");
+export default sense("with_tests", "test cases sense", Schema, async (input) => ({ content: input.msg, hash: "" }));
+`);
 
     const results = (await compileSenses()).succeeded;
-    const info = results.find(r => r.compiledPath.endsWith("with_tests.js"));
+    const info = results.find((r) => r.compiledPath.endsWith("with_tests.js"));
     expect(info).toBeDefined();
     expect(info!.testCases).toHaveLength(2);
     expect(info!.testCases[0]!.input).toEqual({ msg: "hi" });

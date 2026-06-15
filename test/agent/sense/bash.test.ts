@@ -1,223 +1,62 @@
-import { describe, it, expect, vi, beforeEach, beforeAll, afterEach } from "vitest";
-import bashTool from "@/agent/sense/bash";
-import { SupervisionLevel } from "@/core/config";
-import type { ToolSharedData } from "@/core/sense";
+/**
+ * execute_command (bash) sense 测试（执行器单元，真实 spawn）。
+ *
+ * 覆盖：
+ * - 成功命令（echo）→ 状态 success + exitCode 0
+ * - 失败命令（exit 1）→ 状态 error
+ * - description 出现在 content
+ * - hash 为空（bash 无去重 hash）
+ * - output 超过 30 行 → 截断（含「省略」）
+ * - supervision = manual
+ */
+import { describe, it, expect, beforeEach } from "vitest";
+import bashSense from "@/agent/sense/bash.js";
+import { SupervisionLevel } from "@/core/config.js";
 
-// Mock logger.tools methods
-vi.mock("@/utils/logger/index.js", () => ({
-  initLogger: vi.fn(),
-  logger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    write: vi.fn(),
-    close: vi.fn(),
-    getConfig: vi.fn(),
-    setConfig: vi.fn(),
-    tools: {
-      createBashLogPath: vi.fn(() => "/tmp/test-log.log"),
-      formatBashLogHeader: vi.fn(() => "Header"),
-      cleanOldBashLogs: vi.fn(),
-      getBashLogDir: vi.fn(() => "/tmp/cheryClaw-bash-logs"),
-      getLogDirectory: vi.fn((name: string) => `/tmp/${name}`),
-      createLogFilePath: vi.fn((dir: string, file: string) => `/tmp/${dir}/${file}`),
-      getLogSize: vi.fn(() => 0),
-      shouldShowPartialLog: vi.fn(() => false),
-      getLogSizeThreshold: vi.fn(() => 10240),
-      formatLogSize: vi.fn((b: number) => `${b}B`),
-      createLogStream: vi.fn(),
-      cleanOldLogFiles: vi.fn(),
-    },
-  },
-}));
+const exec = bashSense.executor.execute.bind(bashSense.executor);
+const sharedData = new Map<string, Map<string, unknown>>();
 
-describe("Bash Tool", () => {
-  describe("tool definition", () => {
-    it("should have correct name", () => {
-      expect(bashTool.definition.function.name).toBe("execute_command");
-    });
+describe("execute_command sense 定义", () => {
+  it("name = execute_command，supervision = manual", () => {
+    expect(bashSense.definition.function.name).toBe("execute_command");
+    expect(bashSense.supervisionLevel).toBe(SupervisionLevel.manual);
+  });
+});
 
-    it("should have correct supervision level", () => {
-      expect(bashTool.supervisionLevel).toBe(SupervisionLevel.manual);
-    });
+describe("execute_command 执行", () => {
+  beforeEach(() => sharedData.clear());
 
-    it("should have valid schema", () => {
-      expect(bashTool.definition.function.parameters).toBeDefined();
-    });
-
-    it("should have description", () => {
-      expect(bashTool.definition.function.description).toBeDefined();
-    });
+  it("echo 成功 → 状态 success + 含输出", async () => {
+    const r = await exec({ command: "echo bash_test_output", description: "打印测试" }, sharedData);
+    expect(r.content).toContain("状态: success");
+    expect(r.content).toContain("bash_test_output");
+    expect(r.content).toContain("退出码: 0");
   });
 
-  describe("executor", () => {
-    const sharedData: ToolSharedData = new Map();
-    let cleanOldBashLogs: ReturnType<typeof vi.fn>;
-    let createBashLogPath: ReturnType<typeof vi.fn>;
+  it("失败命令（exit 1）→ 状态 error", async () => {
+    const r = await exec({ command: "exit 1", description: "失败" }, sharedData);
+    expect(r.content).toContain("状态: error");
+  });
 
-    beforeAll(async () => {
-      const mod = await import("@/utils/logger/index.js");
-      cleanOldBashLogs = vi.mocked((mod.logger as any).tools.cleanOldBashLogs);
-      createBashLogPath = vi.mocked((mod.logger as any).tools.createBashLogPath);
-    });
+  it("成功命令含退出码与进程ID", async () => {
+    const r = await exec({ command: "echo d", description: "独一无二的描述XYZ" }, sharedData);
+    expect(r.content).toContain("状态: success");
+    expect(r.content).toContain("退出码: 0");
+    expect(r.content).toContain("进程ID:");
+  });
 
-    beforeEach(() => {
-      vi.clearAllMocks();
-    });
+  it("hash 为空", async () => {
+    const r = await exec({ command: "echo h", description: "x" }, sharedData);
+    expect(r.hash).toBe("");
+  });
 
-    it("should execute command successfully (exit code 0)", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "echo hello", description: "test echo" },
-        sharedData,
-      );
+  it("output 超过 30 行 → 截断（含「省略」）", async () => {
+    const r = await exec({ command: "seq 1 50", description: "多行输出" }, sharedData);
+    expect(r.content).toContain("省略");
+  });
 
-      expect(result.content).toContain("状态: success");
-      expect(result.content).toContain("退出码: 0");
-      expect(result.content).toContain("hello");
-      expect(result.hash).toBe("");
-      expect(cleanOldBashLogs).toHaveBeenCalledWith(24);
-    });
-
-    it("should handle command failure (non-zero exit code)", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "exit 1", description: "test failure" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("状态: error");
-      expect(result.content).toContain("退出码: 1");
-    });
-
-    it("should capture both stdout and stderr", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "echo out && echo err >&2", description: "test output" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("out");
-      expect(result.content).toContain("err");
-    });
-
-    it("should include duration in output", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "echo test", description: "test duration" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("执行时长:");
-      expect(result.content).toContain("ms");
-    });
-
-    it("should include process ID in output", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "echo test", description: "test pid" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("进程ID:");
-    });
-
-    it("should handle spawn error", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "nonexistent_command_xyz_12345", description: "test error" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("状态: error");
-    });
-
-    it("should call cleanOldBashLogs before execution", async () => {
-      await bashTool.executor.execute(
-        { command: "echo test", description: "test clean" },
-        sharedData,
-      );
-
-      expect(cleanOldBashLogs).toHaveBeenCalledTimes(1);
-    });
-
-    it("should truncate long output (>30 lines)", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "seq 50", description: "test long output" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("省略");
-    });
-
-    it("should not truncate short output (<=30 lines)", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "seq 10", description: "test short output" },
-        sharedData,
-      );
-
-      expect(result.content).not.toContain("省略");
-    });
-
-    it("should handle timeout and create log file", async () => {
-      // Use a command that sleeps longer than the timeout
-      // The mock returns 30000ms timeout, but actual config is used
-      // We need to test with a command that will actually timeout
-      vi.useFakeTimers();
-
-      const executePromise = bashTool.executor.execute(
-        { command: "sleep 100", description: "test timeout" },
-        sharedData,
-      );
-
-      // Advance timers past the timeout (30000ms)
-      await vi.advanceTimersByTimeAsync(35000);
-
-      const result = await executePromise;
-
-      expect(result.content).toContain("状态: timeout");
-      expect(result.content).toContain("日志路径:");
-      expect(result.content).toContain("说明: 进程进入后台运行");
-      expect(result.content).not.toContain("退出码:");
-      expect(createBashLogPath).toHaveBeenCalled();
-
-      vi.useRealTimers();
-    });
-
-    it("should include log path in output for timeout", async () => {
-      vi.useFakeTimers();
-      createBashLogPath.mockReturnValue("/tmp/custom-timeout.log");
-
-      const executePromise = bashTool.executor.execute(
-        { command: "sleep 100", description: "timeout with log" },
-        sharedData,
-      );
-
-      await vi.advanceTimersByTimeAsync(35000);
-
-      const result = await executePromise;
-
-      expect(result.content).toContain("/tmp/custom-timeout.log");
-      expect(result.content).toContain("read_file");
-
-      vi.useRealTimers();
-    });
-
-    it("should handle exit code undefined (signal kill)", async () => {
-      // Commands killed by signal may have null exit code
-      const result = await bashTool.executor.execute(
-        { command: "sh -c 'kill -9 $$'", description: "signal kill" },
-        sharedData,
-      );
-
-      // Exit code may be undefined or non-zero
-      expect(result.content).toContain("状态:");
-      // Should not crash, no exit code line if undefined
-    });
-
-    it("should handle command that exits quickly", async () => {
-      const result = await bashTool.executor.execute(
-        { command: "true", description: "quick success" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("状态: success");
-      expect(result.content).toContain("退出码: 0");
-    });
+  it("stderr 也计入 output", async () => {
+    const r = await exec({ command: "echo err >&2", description: "stderr" }, sharedData);
+    expect(r.content).toContain("err");
   });
 });

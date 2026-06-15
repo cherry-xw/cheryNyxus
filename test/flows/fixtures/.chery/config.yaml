@@ -44,6 +44,12 @@ llm:
       mock:
         enabled: true
         file: mock/multiloop.yaml
+    mock_userloop:               # user in loop 测试（confirm 窗口给第二条 send 入队）
+      model: mock_userloop
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/userloop.yaml
 
 # sense 分组（:level 后缀覆盖监管等级）
 sense_groups:

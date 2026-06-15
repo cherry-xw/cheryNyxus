@@ -1,396 +1,280 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
-import { createTempDir, cleanupTempDir } from "@test/helpers/tempDir";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+const { mockConfig } = vi.hoisted(() => ({
+  mockConfig: {
+    global: { db_dir: "" },
+    llm: { brain: {} },
+    sense_groups: {},
+  },
+}));
+
+vi.mock("@/utils/config.js", () => ({ default: mockConfig }));
+
+import {
+  createChat,
+  getChat,
+  listAllChats,
+  updateChat,
+  updateChatMetadata,
+  getChatRuntimeSelection,
+  deleteChat,
+  addMessage,
+  getMessages,
+  fillApprovalResult,
+  markMessagesRevoked,
+  markMessageReplaced,
+  parseMessageRow,
+  type ChatRow,
+  type MessageRow,
+} from "@/db/chat.js";
+import { closeAllDbs } from "@/db/index.js";
+import { createTempDbDir, cleanupTempDbDir } from "@test/helpers/testDb";
+
+let dbDir: string;
+beforeEach(() => {
+  closeAllDbs();
+  dbDir = createTempDbDir();
+  mockConfig.global.db_dir = dbDir;
+});
+afterEach(() => {
+  closeAllDbs();
+  cleanupTempDbDir(dbDir);
+});
+
+function currentMonth(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
 describe("db/chat", () => {
-  let tempDir: string;
-  const tempDirs: string[] = [];
-
-  beforeEach(async () => {
-    vi.resetModules();
-    tempDir = createTempDir();
-    tempDirs.push(tempDir);
-    process.env.CHERY_DIR = tempDir;
-  });
-
-  afterAll(() => {
-    delete process.env.CHERY_DIR;
-    for (const dir of tempDirs) {
-      cleanupTempDir(dir);
-    }
-  });
-
   describe("createChat", () => {
-    it("should create a chat", async () => {
-      const { createChat, getChat } = await import("@/db/chat.js");
-      // Need to create soul first (foreign key constraint)
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-1", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-
-      const chat = createChat("chat-1", "soul-1");
-
-      expect(chat.id).toBe("chat-1");
-      expect(chat.soul_id).toBe("soul-1");
-      expect(chat.created_at).toBeDefined();
-      expect(chat.updated_at).toBeDefined();
-      expect(chat.metadata).toBeNull();
+    it("creates a chat row with fixed messages_month (current month) and message_count 0", () => {
+      const row = createChat("c1");
+      expect(row.id).toBe("c1");
+      expect(row.messages_month).toBe(currentMonth());
+      expect(row.message_count).toBe(0);
+      expect(row.metadata).toBeNull();
     });
 
-    it("should create a chat with metadata", async () => {
-      const { createChat } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-2", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-
-      const metadata = { foo: "bar", count: 42 };
-      const chat = createChat("chat-2", "soul-2", metadata);
-
-      expect(chat.metadata).toBe(JSON.stringify(metadata));
-    });
-
-    it("should persist chat to database", async () => {
-      const { createChat, getChat } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-3", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-3", "soul-3");
-
-      const chat = getChat("chat-3");
-      expect(chat).toBeDefined();
-      expect(chat?.id).toBe("chat-3");
-      expect(chat?.soul_id).toBe("soul-3");
+    it("persists metadata when provided", () => {
+      const row = createChat("c2", { foo: "bar" });
+      expect(row.metadata).toBe(JSON.stringify({ foo: "bar" }));
     });
   });
 
   describe("getChat", () => {
-    it("should return undefined for non-existent chat", async () => {
-      const { getChat } = await import("@/db/chat.js");
-      const chat = getChat("non-existent");
-      expect(chat).toBeUndefined();
+    it("returns the chat row when found", () => {
+      createChat("c1");
+      expect(getChat("c1")?.id).toBe("c1");
     });
 
-    it("should return existing chat", async () => {
-      const { createChat, getChat } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-get", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-get-test", "soul-get");
-
-      const chat = getChat("chat-get-test");
-      expect(chat).toBeDefined();
-      expect(chat?.id).toBe("chat-get-test");
-      expect(chat?.soul_id).toBe("soul-get");
+    it("returns undefined when not found", () => {
+      expect(getChat("missing")).toBeUndefined();
     });
   });
 
-  describe("listChatsBySoul", () => {
-    it("should return empty array for non-existent soul", async () => {
-      const { listChatsBySoul } = await import("@/db/chat.js");
-      const chats = listChatsBySoul("non-existent");
-      expect(chats).toEqual([]);
-    });
-
-    it("should return chats for a soul", async () => {
-      const { createChat, listChatsBySoul } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-list", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-list-1", "soul-list");
-      createChat("chat-list-2", "soul-list");
-
-      const chats = listChatsBySoul("soul-list");
-      expect(chats).toHaveLength(2);
-    });
-
-    it("should return chats sorted by updated_at DESC", async () => {
-      const { createChat, listChatsBySoul } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-sort", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-old", "soul-sort");
-      await new Promise((r) => setTimeout(r, 10));
-      createChat("chat-new", "soul-sort");
-
-      const chats = listChatsBySoul("soul-sort");
-      expect(chats[0]!.id).toBe("chat-new");
-      expect(chats[1]!.id).toBe("chat-old");
+  describe("listAllChats", () => {
+    it("lists chats ordered by updated_at DESC", () => {
+      createChat("c1");
+      createChat("c2");
+      updateChat("c1"); // bump c1 updated_at to最新
+      const ids = listAllChats().map((c) => c.id);
+      expect(ids[0]).toBe("c1");
+      expect(ids).toHaveLength(2);
     });
   });
 
-  describe("updateChat", () => {
-    it("should update updated_at timestamp", async () => {
-      const { createChat, updateChat, getChat } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-update", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
+  describe("updateChatMetadata", () => {
+    it("merges patch without overwriting other keys", () => {
+      createChat("c1", { a: 1 });
+      updateChatMetadata("c1", { b: 2 });
+      const row = getChat("c1") as ChatRow;
+      expect(JSON.parse(row.metadata!)).toEqual({ a: 1, b: 2 });
+    });
+
+    it("is a no-op when chat does not exist", () => {
+      expect(() => updateChatMetadata("missing", { x: 1 })).not.toThrow();
+    });
+  });
+
+  describe("getChatRuntimeSelection", () => {
+    it("returns persisted runtime selection", () => {
+      createChat("c1");
+      updateChatMetadata("c1", { runtime: { brain: "longcat", senseGroups: ["safe"] } });
+      expect(getChatRuntimeSelection("c1")).toEqual({
+        brain: "longcat",
+        senseGroups: ["safe"],
       });
-      const chat = createChat("chat-update", "soul-update");
-      const originalTime = chat.updated_at;
+    });
 
-      await new Promise((r) => setTimeout(r, 10));
-      updateChat("chat-update");
+    it("returns undefined when no runtime metadata", () => {
+      createChat("c1");
+      expect(getChatRuntimeSelection("c1")).toBeUndefined();
+    });
 
-      const updated = getChat("chat-update");
-      expect(updated?.updated_at).toBeGreaterThan(originalTime);
+    it("returns undefined when runtime selection incomplete (empty senseGroups)", () => {
+      createChat("c1");
+      updateChatMetadata("c1", { runtime: { brain: "longcat", senseGroups: [] } });
+      expect(getChatRuntimeSelection("c1")).toBeUndefined();
     });
   });
 
   describe("deleteChat", () => {
-    it("should delete chat", async () => {
-      const { createChat, deleteChat, getChat } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-delete", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-delete", "soul-delete");
-      deleteChat("chat-delete");
-
-      const chat = getChat("chat-delete");
-      expect(chat).toBeUndefined();
+    it("removes chat and its messages", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "user", content: "hi" });
+      deleteChat("c1");
+      expect(getChat("c1")).toBeUndefined();
+      expect(getMessages("c1")).toEqual([]);
     });
 
-    it("should not throw for non-existent chat", async () => {
-      const { deleteChat } = await import("@/db/chat.js");
-      expect(() => deleteChat("non-existent")).not.toThrow();
+    it("is a no-op when chat does not exist", () => {
+      expect(() => deleteChat("missing")).not.toThrow();
     });
   });
 
   describe("addMessage", () => {
-    it("should add a user message", async () => {
-      const { createChat, addMessage, getMessages } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-msg", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-msg", "soul-msg");
-      const msg = addMessage("msg-1", "chat-msg", {
-        role: "user",
-        content: "Hello",
-      });
+    it("inserts a message and increments message_count", () => {
+      createChat("c1");
+      const row = addMessage("m1", "c1", { role: "user", content: "hello" });
+      expect(row.role).toBe("user");
+      expect(row.content).toBe("hello");
 
-      expect(msg.id).toBe("msg-1");
-      expect(msg.chat_id).toBe("chat-msg");
-      expect(msg.role).toBe("user");
-      expect(msg.content).toBe("Hello");
-      expect(msg.thinking).toBeNull();
-      expect(msg.sense_calls).toBeNull();
+      const chat = getChat("c1") as ChatRow;
+      expect(chat.message_count).toBe(1);
     });
 
-    it("should add an assistant message with thinking", async () => {
-      const { createChat, addMessage } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-msg-thinking", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-msg-thinking", "soul-msg-thinking");
-      const msg = addMessage("msg-2", "chat-msg-thinking", {
+    it("serializes senseCall array into sense_calls", () => {
+      createChat("c1");
+      const row = addMessage("m1", "c1", {
         role: "assistant",
-        content: "Hi there",
-        thinking: "Let me think...",
+        content: "ok",
+        senseCall: [{ id: "sc1", name: "read_file", arguments: '{"path":"/a"}' }],
       });
-
-      expect(msg.role).toBe("assistant");
-      expect(msg.content).toBe("Hi there");
-      expect(msg.thinking).toBe("Let me think...");
+      expect(JSON.parse(row.sense_calls!)).toEqual([
+        { id: "sc1", name: "read_file", arguments: '{"path":"/a"}' },
+      ]);
     });
 
-    it("should add a message with sense calls", async () => {
-      const { createChat, addMessage, getMessages } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-msg-sense", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-msg-sense", "soul-msg-sense");
-      const msg = addMessage("msg-3", "chat-msg-sense", {
-        role: "assistant",
-        content: "Done",
-        senseCall: [{ id: "call-1", name: "execute_command", arguments: "{}" }],
-      });
-
-      expect(msg.sense_calls).not.toBeNull();
-      const calls = JSON.parse(msg.sense_calls as string);
-      expect(calls).toHaveLength(1);
-      expect(calls[0].name).toBe("execute_command");
-    });
-
-    it("should update chat updated_at when message is added", async () => {
-      const { createChat, addMessage, getChat } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-msg-time", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      const chat = createChat("chat-msg-time", "soul-msg-time");
-      const originalTime = chat.updated_at;
-
-      await new Promise((r) => setTimeout(r, 10));
-      addMessage("msg-time", "chat-msg-time", { role: "user", content: "test" });
-
-      const updated = getChat("chat-msg-time");
-      expect(updated?.updated_at).toBeGreaterThan(originalTime);
+    it("throws when chat does not exist", () => {
+      expect(() => addMessage("m1", "missing", { role: "user", content: "x" })).toThrow(
+        /not found/i,
+      );
     });
   });
 
   describe("getMessages", () => {
-    it("should return empty array for chat with no messages", async () => {
-      const { createChat, getMessages } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-no-msg", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-no-msg", "soul-no-msg");
-      const msgs = getMessages("chat-no-msg");
-      expect(msgs).toEqual([]);
+    it("returns messages ordered by created_at ASC", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "user", content: "first" });
+      addMessage("m2", "c1", { role: "assistant", content: "second" });
+      const msgs = getMessages("c1");
+      expect(msgs.map((m) => m.id)).toEqual(["m1", "m2"]);
     });
 
-    it("should return messages sorted by created_at ASC", async () => {
-      const { createChat, addMessage, getMessages } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-msgs", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-msgs", "soul-msgs");
-      addMessage("msg-1", "chat-msgs", { role: "user", content: "First" });
-      await new Promise((r) => setTimeout(r, 10));
-      addMessage("msg-2", "chat-msgs", { role: "assistant", content: "Second" });
-
-      const msgs = getMessages("chat-msgs");
-      expect(msgs).toHaveLength(2);
-      expect(msgs[0]!.id).toBe("msg-1");
-      expect(msgs[1]!.id).toBe("msg-2");
+    it("returns [] when chat does not exist", () => {
+      expect(getMessages("missing")).toEqual([]);
     });
   });
 
-  describe("clearMessages", () => {
-    it("should clear all messages for a chat", async () => {
-      const { createChat, addMessage, getMessages, clearMessages } = await import(
-        "@/db/chat.js"
-      );
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-clear", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
-      });
-      createChat("chat-clear", "soul-clear");
-      addMessage("msg-clear-1", "chat-clear", { role: "user", content: "test" });
-      addMessage("msg-clear-2", "chat-clear", { role: "assistant", content: "response" });
-
-      clearMessages("chat-clear");
-
-      const msgs = getMessages("chat-clear");
-      expect(msgs).toEqual([]);
+  describe("fillApprovalResult", () => {
+    it("updates content and hash of a message", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "sense", content: "" });
+      fillApprovalResult("c1", "m1", { content: "result", hash: "h1" });
+      const msg = getMessages("c1").find((m) => m.id === "m1") as MessageRow;
+      expect(msg.content).toBe("result");
+      expect(msg.hash).toBe("h1");
     });
 
-    it("should update chat updated_at when messages cleared", async () => {
-      const { createChat, addMessage, getChat, clearMessages } = await import("@/db/chat.js");
-      const { createSoul } = await import("@/db/soul.js");
-      createSoul("soul-clear-time", {
-        agentName: "test-agent",
-        provider: "ollama",
-        model: "gemma3:1b",
+    it("is a no-op when chat does not exist", () => {
+      expect(() => fillApprovalResult("missing", "m1", { content: "x" })).not.toThrow();
+    });
+  });
+
+  describe("markMessagesRevoked", () => {
+    it("sets revoked=1 for given message ids", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "user", content: "a" });
+      addMessage("m2", "c1", { role: "assistant", content: "b" });
+      markMessagesRevoked("c1", ["m1"]);
+      const msgs = getMessages("c1");
+      expect(msgs.find((m) => m.id === "m1")?.revoked).toBe(1);
+      expect(msgs.find((m) => m.id === "m2")?.revoked).toBe(0);
+    });
+
+    it("skips empty id list", () => {
+      createChat("c1");
+      expect(() => markMessagesRevoked("c1", [])).not.toThrow();
+    });
+  });
+
+  describe("markMessageReplaced", () => {
+    it("writes replace metadata and optional content", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "sense", content: "original long content" });
+      markMessageReplaced("c1", "m1", {
+        content: "short",
+        replace: { state: true, by: "sc2", content: "short" },
+        originalContent: "original long content",
       });
-      createChat("chat-clear-time", "soul-clear-time");
-      addMessage("msg-c", "chat-clear-time", { role: "user", content: "test" });
-      const beforeClear = getChat("chat-clear-time")?.updated_at;
+      const msg = getMessages("c1").find((m) => m.id === "m1") as MessageRow;
+      expect(msg.replace_state).toBe(1);
+      expect(msg.replace_by).toBe("sc2");
+      expect(msg.content).toBe("short");
+      expect(msg.original_content).toBe("original long content");
+    });
 
-      await new Promise((r) => setTimeout(r, 10));
-      clearMessages("chat-clear-time");
-
-      const afterClear = getChat("chat-clear-time")?.updated_at;
-      expect(afterClear).toBeGreaterThan(beforeClear!);
+    it("preserves content when not provided", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "sense", content: "keep" });
+      markMessageReplaced("c1", "m1", {
+        replace: { state: true, by: "sc2", content: "short" },
+      });
+      const msg = getMessages("c1").find((m) => m.id === "m1") as MessageRow;
+      expect(msg.content).toBe("keep");
     });
   });
 
   describe("parseMessageRow", () => {
-    it("should parse user message", async () => {
-      const { parseMessageRow } = await import("@/db/chat.js");
-      const row = {
-        id: "msg-parse-1",
-        chat_id: "chat-1",
-        role: "user",
-        content: "Hello",
-        thinking: null,
-        sense_calls: null,
-        created_at: Date.now(),
-      };
-
-      const data = parseMessageRow(row);
-      expect(data.role).toBe("user");
-      expect(data.content).toBe("Hello");
-      expect(data.thinking).toBeUndefined();
-      expect(data.senseCall).toBeUndefined();
+    it("parses a full message row including senseCall", () => {
+      createChat("c1");
+      addMessage("m1", "c1", {
+        role: "assistant",
+        content: "c",
+        thinking: "t",
+        senseCall: [{ id: "sc1", name: "read_file", arguments: "{}" }],
+        hash: "h",
+      });
+      const row = getMessages("c1").find((m) => m.id === "m1") as MessageRow;
+      const parsed = parseMessageRow(row);
+      expect(parsed.role).toBe("assistant");
+      expect(parsed.content).toBe("c");
+      expect(parsed.thinking).toBe("t");
+      expect(parsed.senseCall).toEqual([{ id: "sc1", name: "read_file", arguments: "{}" }]);
+      expect(parsed.hash).toBe("h");
+      expect(parsed.revoked).toBe(false);
     });
 
-    it("should parse assistant message with thinking", async () => {
-      const { parseMessageRow } = await import("@/db/chat.js");
-      const row = {
-        id: "msg-parse-2",
-        chat_id: "chat-1",
-        role: "assistant",
-        content: "Response",
-        thinking: "Thinking...",
-        sense_calls: null,
-        created_at: Date.now(),
-      };
-
-      const data = parseMessageRow(row);
-      expect(data.role).toBe("assistant");
-      expect(data.content).toBe("Response");
-      expect(data.thinking).toBe("Thinking...");
+    it("parses replace metadata when replace_state=1", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "sense", content: "x" });
+      markMessageReplaced("c1", "m1", {
+        replace: { state: true, by: "sc2", content: "short" },
+        originalContent: "orig",
+      });
+      const row = getMessages("c1").find((m) => m.id === "m1") as MessageRow;
+      const parsed = parseMessageRow(row);
+      expect(parsed.replace).toEqual({ state: true, by: "sc2", content: "short" });
+      expect(parsed.originalContent).toBe("orig");
     });
 
-    it("should parse message with sense calls", async () => {
-      const { parseMessageRow } = await import("@/db/chat.js");
-      const row = {
-        id: "msg-parse-3",
-        chat_id: "chat-1",
-        role: "assistant",
-        content: null,
-        thinking: null,
-        sense_calls: JSON.stringify([
-          { id: "call-1", name: "read_file", arguments: '{"path":"/test"}' },
-        ]),
-        created_at: Date.now(),
-      };
-
-      const data = parseMessageRow(row);
-      expect(data.senseCall).toBeDefined();
-      expect(data.senseCall).toHaveLength(1);
-      expect(data.senseCall![0]!.name).toBe("read_file");
+    it("parses revoked=1 as revoked true", () => {
+      createChat("c1");
+      addMessage("m1", "c1", { role: "user", content: "x" });
+      markMessagesRevoked("c1", ["m1"]);
+      const row = getMessages("c1").find((m) => m.id === "m1") as MessageRow;
+      expect(parseMessageRow(row).revoked).toBe(true);
     });
   });
 });

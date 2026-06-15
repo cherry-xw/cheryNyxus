@@ -1,90 +1,67 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import skillTool from "@/agent/sense/skill";
-import { SupervisionLevel } from "@/core/config";
-import type { ToolSharedData } from "@/core/sense";
+/**
+ * skill sense 测试（执行器单元）。
+ *
+ * skill sense 调 getSkillRealtime(name) 实时读 config.global.skills_dir。
+ * 测试用临时 skills 目录 + skill.md，运行时改 config.global.skills_dir 指向。
+ *
+ * 覆盖：
+ * - 存在 skill → content 含「技能已激活」+ 指令，hash 非空
+ * - 不存在 skill → error content
+ * - supervision = auto
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import skillSense from "@/agent/sense/skill.js";
+import { SupervisionLevel } from "@/core/config.js";
+import config from "@/utils/config.js";
+import { createTempDir, cleanupTempDir } from "../../helpers/tempDir.js";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 
-const mockGetSkill = vi.fn();
+const exec = skillSense.executor.execute.bind(skillSense.executor);
 
-vi.mock("@/core/prompt/loadSkill", () => ({
-  getSkill: (...args: unknown[]) => mockGetSkill(...args),
-}));
+describe("skill sense 定义", () => {
+  it("name = skill，supervision = auto", () => {
+    expect(skillSense.definition.function.name).toBe("skill");
+    expect(skillSense.supervisionLevel).toBe(SupervisionLevel.auto);
+  });
+});
 
-vi.mock("@/utils/hash", () => ({
-  hashGenerator: vi.fn(() => "skill-hash"),
-}));
-
-describe("Skill Tool", () => {
-  let sharedData: ToolSharedData;
-
+describe("skill 执行", () => {
+  let dir: string;
+  let origSkillsDir: string;
   beforeEach(() => {
-    vi.clearAllMocks();
-    sharedData = new Map();
+    dir = createTempDir();
+    origSkillsDir = config.global.skills_dir;
+    config.global.skills_dir = dir;
+  });
+  afterEach(() => {
+    cleanupTempDir(dir);
+    config.global.skills_dir = origSkillsDir;
   });
 
-  describe("tool definition", () => {
-    it("should have correct name", () => {
-      expect(skillTool.definition.function.name).toBe("skill");
-    });
-
-    it("should have correct supervision level", () => {
-      expect(skillTool.supervisionLevel).toBe(SupervisionLevel.auto);
-    });
-
-    it("should have valid schema", () => {
-      expect(skillTool.definition.function.parameters).toBeDefined();
-    });
-
-    it("should have description", () => {
-      expect(skillTool.definition.function.description).toBeDefined();
-    });
+  it("存在 skill → content 含「技能已激活」+ 指令，hash 非空", async () => {
+    const skillDir = join(dir, "my-skill");
+    mkdirSync(skillDir);
+    writeFileSync(
+      join(skillDir, "skill.md"),
+      "---\nname: my-skill\ndescription: 测试技能\ntrigger: 用户请求测试\n---\n严格遵守此指令XYZ123\n",
+    );
+    const r = await exec({ name: "my-skill" }, new Map());
+    expect(r.content).toContain("my-skill");
+    expect(r.content).toContain("技能已激活");
+    expect(r.content).toContain("严格遵守此指令XYZ123");
+    expect(r.hash).not.toBe("");
   });
 
-  describe("executor", () => {
-    it("should return skill content when skill found", async () => {
-      mockGetSkill.mockReturnValue({
-        name: "my_skill",
-        description: "A test skill",
-        content: "Do something useful",
-      });
+  it("不存在 skill → error content + hash 空", async () => {
+    const r = await exec({ name: "nonexistent-skill" }, new Map());
+    expect(r.content).toContain("not found");
+    expect(r.hash).toBe("");
+  });
 
-      const result = await skillTool.executor.execute(
-        { name: "my_skill" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("my_skill");
-      expect(result.content).toContain("技能已激活");
-      expect(result.content).toContain("Do something useful");
-      expect(result.hash).toBe("skill-hash");
-    });
-
-    it("should return error when skill not found", async () => {
-      mockGetSkill.mockReturnValue(undefined);
-
-      const result = await skillTool.executor.execute(
-        { name: "nonexistent" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("not found");
-      expect(result.hash).toBe("");
-    });
-
-    it("should call hashGenerator with correct args", async () => {
-      mockGetSkill.mockReturnValue({
-        name: "test_skill",
-        description: "Test",
-        content: "Content",
-      });
-
-      const { hashGenerator } = vi.mocked(await import("@/utils/hash"));
-
-      await skillTool.executor.execute(
-        { name: "test_skill" },
-        sharedData,
-      );
-
-      expect(hashGenerator).toHaveBeenCalledWith("skill", "test_skill");
-    });
+  it("skills 目录不存在 → error content", async () => {
+    cleanupTempDir(dir);
+    const r = await exec({ name: "any" }, new Map());
+    expect(r.content).toContain("not found");
   });
 });

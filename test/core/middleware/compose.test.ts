@@ -1,198 +1,212 @@
 import { describe, it, expect } from "vitest";
 import { compose } from "@/core/middleware/compose";
+import type { MiddlewareContext } from "@/core/middleware/types";
 
-
-// Mock context - 使用类型断言绕过类型检查
-function createMockContext() {
+/** 最小 ctx：compose 只透传 ctx 给 handler，不读取其字段 */
+function createMockContext(): MiddlewareContext {
   return {
-    session: {
-      sessionId: "test",
-      threadId: "test-thread",
-      hashCheck: new Map(),
+    soul: {
+      chatId: "test",
       senseSharedData: new Map(),
+      userInputs: [],
+      messages: [],
     },
     global: {
       thinking: false,
       supervision: 1,
       stream: true,
-      maxLoopCount: 10,
     },
-    config: {
-      model: "test-model",
-      provider: "test",
-      url: "http://localhost",
-      sense_group: "test",
-    },
-    adapters: {} as any,
-    process: {
-      history: [],
-      contentAccumulated: "",
-      thinkingAccumulated: "",
-      chunkCount: 0,
-      toolCallAccumulated: new Map(),
-      pendingInputs: [],
-    },
-    senses: {} as any,
-  } as any;
+  } as MiddlewareContext;
+}
+
+async function drain(gen: AsyncGenerator<unknown>): Promise<unknown[]> {
+  const out: unknown[] = [];
+  for await (const chunk of gen) out.push(chunk);
+  return out;
 }
 
 describe("compose middleware", () => {
-  describe("execution order", () => {
-    it("executes in onion model order", async () => {
-      const order: string[] = [];
+  describe("return shape", () => {
+    it("returns object with run and abort (not callable)", () => {
+      const composed = compose([]);
+      expect(composed).toBeDefined();
+      expect(typeof composed.run).toBe("function");
+      expect(typeof composed.abort).toBe("function");
+    });
 
-      const handler1 = async function* (ctx: any, next: any) {
+    it("run returns an async generator", () => {
+      const composed = compose([]);
+      const gen = composed.run(createMockContext());
+      expect(typeof gen.next).toBe("function");
+      expect(typeof gen[Symbol.asyncIterator]).toBe("function");
+    });
+  });
+
+  describe("execution order (onion model)", () => {
+    it("executes enter-before-next, exit-after-next (2 handlers)", async () => {
+      const order: string[] = [];
+      const handler1 = async function* (_ctx: any, next: any) {
         order.push("enter1");
         yield* next();
         order.push("exit1");
       };
-
-      const handler2 = async function* (ctx: any, next: any) {
+      const handler2 = async function* (_ctx: any, next: any) {
         order.push("enter2");
         yield* next();
         order.push("exit2");
       };
 
-      const composed = compose([handler1, handler2]);
-      const ctx = createMockContext();
-
-      // Collect all chunks
-      for await (const chunk of composed(ctx)) {
-        // Do nothing with chunks
-      }
+      await drain(compose([handler1, handler2]).run(createMockContext()));
 
       expect(order).toEqual(["enter1", "enter2", "exit2", "exit1"]);
     });
 
-    it("executes with three handlers", async () => {
+    it("executes nested enter/exit correctly (3 handlers)", async () => {
       const order: string[] = [];
-
       const handlers = [
-        async function* (ctx: any, next: any) {
+        async function* (_c: any, n: any) {
           order.push("a-enter");
-          yield* next();
+          yield* n();
           order.push("a-exit");
         },
-        async function* (ctx: any, next: any) {
+        async function* (_c: any, n: any) {
           order.push("b-enter");
-          yield* next();
+          yield* n();
           order.push("b-exit");
         },
-        async function* (ctx: any, next: any) {
+        async function* (_c: any, n: any) {
           order.push("c-enter");
-          yield* next();
+          yield* n();
           order.push("c-exit");
         },
       ];
 
-      const composed = compose(handlers);
-      const ctx = createMockContext();
-
-      for await (const chunk of composed(ctx)) {
-        // Do nothing
-      }
+      await drain(compose(handlers).run(createMockContext()));
 
       expect(order).toEqual([
-        "a-enter", "b-enter", "c-enter",
-        "c-exit", "b-exit", "a-exit",
+        "a-enter",
+        "b-enter",
+        "c-enter",
+        "c-exit",
+        "b-exit",
+        "a-exit",
       ]);
     });
   });
 
   describe("yield behavior", () => {
-    it("yields chunks from handlers", async () => {
-      const handler = async function* (ctx: any, next: any) {
+    it("yields chunks emitted before and after next()", async () => {
+      const handler = async function* (_c: any, next: any) {
         yield "chunk1";
         yield* next();
         yield "chunk2";
       };
 
-      const composed = compose([handler]);
-      const ctx = createMockContext();
-
-      const chunks: string[] = [];
-      for await (const chunk of composed(ctx)) {
-        chunks.push(chunk as string);
-      }
+      const chunks = await drain(compose([handler]).run(createMockContext()));
 
       expect(chunks).toEqual(["chunk1", "chunk2"]);
     });
 
-    it("yields chunks from nested handlers", async () => {
-      const handler1 = async function* (ctx: any, next: any) {
+    it("yields chunks across nested handlers", async () => {
+      const handler1 = async function* (_c: any, next: any) {
         yield "outer-before";
         yield* next();
         yield "outer-after";
       };
-
-      const handler2 = async function* (ctx: any, next: any) {
+      const handler2 = async function* (_c: any, next: any) {
         yield "inner";
         yield* next();
       };
 
-      const composed = compose([handler1, handler2]);
-      const ctx = createMockContext();
-
-      const chunks: string[] = [];
-      for await (const chunk of composed(ctx)) {
-        chunks.push(chunk as string);
-      }
+      const chunks = await drain(
+        compose([handler1, handler2]).run(createMockContext()),
+      );
 
       expect(chunks).toEqual(["outer-before", "inner", "outer-after"]);
     });
   });
 
   describe("edge cases", () => {
-    it("handles empty handlers array", async () => {
-      const composed = compose([]);
-      const ctx = createMockContext();
-
-      const chunks: unknown[] = [];
-      for await (const chunk of composed(ctx)) {
-        chunks.push(chunk);
-      }
-
+    it("handles empty handlers array (yields nothing)", async () => {
+      const chunks = await drain(compose([]).run(createMockContext()));
       expect(chunks).toHaveLength(0);
     });
 
     it("handles single handler", async () => {
-      const handler = async function* (ctx: any, next: any) {
+      const handler = async function* (_c: any, next: any) {
         yield "single";
         yield* next();
       };
 
-      const composed = compose([handler]);
-      const ctx = createMockContext();
-
-      const chunks: unknown[] = [];
-      for await (const chunk of composed(ctx)) {
-        chunks.push(chunk);
-      }
-
+      const chunks = await drain(compose([handler]).run(createMockContext()));
       expect(chunks).toEqual(["single"]);
     });
 
-    it("handler can skip next", async () => {
+    it("handler can skip next() (short-circuit)", async () => {
       const order: string[] = [];
-
-      const handler1 = async function* (ctx: any, next: any) {
+      const handler1 = async function* () {
         order.push("1");
-        // Skip next
+        // skip next
       };
-
-      const handler2 = async function* (ctx: any, next: any) {
+      const handler2 = async function* (_c: any, next: any) {
         order.push("2");
         yield* next();
       };
 
-      const composed = compose([handler1, handler2]);
-      const ctx = createMockContext();
-
-      for await (const chunk of composed(ctx)) {
-        // Do nothing
-      }
+      await drain(compose([handler1, handler2]).run(createMockContext()));
 
       expect(order).toEqual(["1"]);
+    });
+  });
+
+  describe("error propagation", () => {
+    it("wraps thrown handler errors with index prefix", async () => {
+      const handler = async function* () {
+        throw new Error("boom");
+      };
+
+      await expect(
+        drain(compose([handler]).run(createMockContext())),
+      ).rejects.toThrow("[compose] handler at index 0 threw: boom");
+    });
+  });
+
+  describe("abort", () => {
+    it("is a no-op when no generator has run", () => {
+      const composed = compose([]);
+      expect(() => composed.abort()).not.toThrow();
+    });
+
+    it("is a no-op after generator already drained", async () => {
+      const composed = compose([]);
+      await drain(composed.run(createMockContext()));
+      expect(() => composed.abort()).not.toThrow();
+    });
+
+    it("injects error into suspended generator via .throw", async () => {
+      const seen: string[] = [];
+      const handler = async function* (_c: any, next: any) {
+        try {
+          yield "first";
+          yield "second";
+          yield* next();
+        } catch (err) {
+          seen.push((err as Error).message);
+          throw err;
+        }
+      };
+
+      const composed = compose([handler]);
+      const gen = composed.run(createMockContext());
+
+      const r1 = await gen.next();
+      expect(r1.value).toBe("first");
+
+      composed.abort();
+
+      // abort → gen.throw 异步推进：handler 在 yield 处捕获并 re-throw
+      await new Promise((r) => setTimeout(r, 10));
+      expect(seen.some((m) => m.includes("approval aborted"))).toBe(true);
     });
   });
 });

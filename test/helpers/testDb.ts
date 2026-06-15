@@ -1,41 +1,24 @@
-import Database from "better-sqlite3";
-import { SQLiteInterruptRepository } from "@/db/interrupt.js";
+import { dirname, join } from "path";
+import { createTempDir, cleanupTempDir } from "./tempDir.js";
 
-export function createTestDb(): Database.Database {
-  const db = new Database(":memory:");
-  db.pragma("journal_mode = WAL");
+/**
+ * 临时 db 目录 helper —— 供 db 层测试隔离。
+ *
+ * src/db/index.ts 的 dbCache 是模块级单例，且 config.global.db_dir 在 setup.ts 中
+ * 固定指向 test/flows/fixtures。若 db 测试直接用真实 db，跨测试文件（vitest forks 并行）
+ * 会共享同一物理文件、数据互相污染。
+ *
+ * 方案：每个 db 测试文件 vi.mock("@/utils/config.js")，将 global.db_dir 重定向到每测试
+ * 独立的 tempDir；本 helper 只负责目录创建与清理。closeAllDbs 由测试文件直接从
+ * @/db/index 导入调用，重置单例缓存。
+ */
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS threads (
-      id TEXT PRIMARY KEY,
-      session_id TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      metadata TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT,
-      thinking TEXT,
-      tool_calls TEXT,
-      created_at INTEGER NOT NULL,
-      FOREIGN KEY (thread_id) REFERENCES threads(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
-    CREATE INDEX IF NOT EXISTS idx_threads_session ON threads(session_id);
-  `);
-
-  return db;
+/** 创建独立临时 db 目录（getSoulDb 会 join(dir, "soul.db")）。 */
+export function createTempDbDir(): string {
+  return join(createTempDir(), "db");
 }
 
-export function createTestInterruptRepo(db: Database.Database): SQLiteInterruptRepository {
-  return new SQLiteInterruptRepository(db);
-}
-
-export function closeTestDb(db: Database.Database): void {
-  db.close();
+/** 清理临时 db 目录（含父级 tempDir）。 */
+export function cleanupTempDbDir(dbDir: string): void {
+  cleanupTempDir(dirname(dbDir));
 }

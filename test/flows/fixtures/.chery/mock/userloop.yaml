@@ -1,0 +1,16 @@
+# user in loop 测试：confirm 窗口给第二条 send 入队。
+# 轮1 confirm write_file → interrupt 卡审批（loop iter1 isRunning=true 窗口）
+# 轮2 content done（loop iter2，checkpoint 消费第二条 user）
+# 配 confirm_senses（write_file:confirm）：approval await 期间 server 让出事件循环，
+# 第二条 chat.send 到达时 isRunning=true，走 send.ts:57 短路入队而非 revoke 重跑。
+repeat: last
+script:
+  # 轮1：confirm write_file → interrupt 卡审批窗口
+  - thinking: "需要写文件，请求审批"
+    content: "准备写文件"
+    senseCalls:
+      - id: "userloop-wf-0"
+        name: "write_file"
+        arguments: '{"path":"/tmp/cheryclaw-userloop.txt","content":"x"}'
+  # 轮2：content done（loop iter2，checkpoint 消费第二条 user）
+  - content: "文件已处理完毕。"

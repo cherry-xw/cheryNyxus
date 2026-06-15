@@ -1,409 +1,404 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import Middleware from "@/core/middleware/index";
-import { compose } from "@/core/middleware/compose";
-import type { MiddlewareContext, MiddlewareHandler, LoopHandler } from "@/core/middleware/types";
-import type { SenseManager } from "@/core/sense/index";
+import type {
+  MiddlewareContext,
+  MiddlewareHandler,
+  LoopHandler,
+  RuntimeConfig,
+} from "@/core/middleware/types";
+import type { LLMResponse } from "@/core/message/adapter";
+import { SupervisionLevel } from "@/core/config";
+import type { GlobalConfig, BrainConfig } from "@/utils/config";
 
-// Mock dependencies
-vi.mock("@/core/prompt/index", () => ({
-  default: vi.fn(() => "mock system prompt"),
-}));
+// MAX_USER_INPUTS（背压上限，module-private，值 16）
+const MAX_USER_INPUTS = 16;
 
-vi.mock("uuid", () => ({
-  v4: vi.fn(() => "test-uuid-1234"),
-}));
-
-function createMockSenseManager(): SenseManager {
-  return {
-    add: vi.fn(),
-    get: vi.fn(),
-    execute: vi.fn(async () => ({ content: "result", hash: "test-hash" })),
-    senses: new Map(),
-  } as unknown as SenseManager;
-}
-
-function createMockGlobalConfig() {
+function createMockGlobal(): GlobalConfig {
   return {
     thinking: false,
-    supervision: 0,
+    supervision: SupervisionLevel.auto,
     stream: true,
-    maxLoopCount: 10,
   };
 }
 
-function createMockBrainConfig() {
-  return {
-    model: "test-model",
-    provider: "test",
-    url: "http://localhost",
-    sense_group: ["test"],
-  };
+function createMockBrain(): BrainConfig {
+  return { model: "test-model", provider: "test" };
 }
 
-function createMockAdapters() {
+function createMockRuntime(): RuntimeConfig {
   return {
-    llmAdapter: {
-      chat: vi.fn(),
-      chatStream: vi.fn(),
+    brain: createMockBrain(),
+    adapters: {
+      llmAdapter: {} as any,
+      messageAdapter: {} as any,
+      senseAdapter: {} as any,
     },
-    messageAdapter: {
-      role: vi.fn(() => "assistant" as const),
-      content: vi.fn(() => ""),
-      extractStreamDelta: vi.fn(() => ""),
-      buildMessages: vi.fn(() => []),
-    },
-    senseAdapter: {
-      buildTools: vi.fn(() => []),
-      extractSenseCalls: vi.fn(() => []),
-      assembleSenseCallChunks: vi.fn(() => []),
-    },
-  } as any;
-}
-
-// Mock context for compose tests
-const mockContext: MiddlewareContext = {
-  soul: {
-    soulId: "test",
-    chatId: "chat-1",
-    hashCheck: new Map(),
-    senseSharedData: new Map(),
-    userInputs: [],
     builtSenses: [],
-    messages: [],
-  },
-  global: { thinking: false, supervision: 1, stream: true, maxLoopCount: 10 },
-  brain: { model: "test", provider: "test", url: "http://test", sense_group: ["test"] },
-  adapters: {} as any,
-  senseManager: {} as any,
-};
-
-// Simple handler for testing
-const simpleHandler: MiddlewareHandler = async function* (ctx, next) {
-  yield { type: "test" };
-  yield* next();
-};
-
-/** 简单循环策略（模拟 agent 层 loopHandler） */
-function createTestLoopHandler(maxLoop: number = 30): LoopHandler {
-  return async function* (ctx, runChain) {
-    let times = 0;
-    while (times < maxLoop) {
-      times++;
-      yield* runChain();
-      const lastMessage = ctx.soul.messages[ctx.soul.messages.length - 1];
-      if (!lastMessage) break;
-      if (lastMessage.role === "assistant" && !lastMessage.senseCalls?.length) break;
-    }
+    senseTable: new Map(),
   };
 }
+
+function msg(partial: Partial<LLMResponse> & Pick<LLMResponse, "id" | "role">): LLMResponse {
+  return {
+    content: "",
+    createdAt: 0,
+    updateAt: 0,
+    ...partial,
+  } as LLMResponse;
+}
+
+const flush = () => new Promise((r) => setTimeout(r, 10));
 
 describe("Middleware", () => {
   describe("exports", () => {
-    it("exports compose function", () => {
-      expect(compose).toBeDefined();
-      expect(typeof compose).toBe("function");
-    });
-
-    it("exports Middleware class", () => {
+    it("exports Middleware class (default)", () => {
       expect(Middleware).toBeDefined();
+      expect(typeof Middleware).toBe("function");
     });
   });
 
-  describe("compose", () => {
-    it("returns function that creates generator", () => {
-      const chain = compose([simpleHandler]);
-      expect(typeof chain).toBe("function");
+  describe("init", () => {
+    it("binds chatId and injects initial messages", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      const sys = msg({ id: "sys", role: "system", content: "system prompt" });
+      const chatId = mw.init("chat-1", [sys]);
+
+      expect(chatId).toBe("chat-1");
+      expect(mw.getMessages()).toHaveLength(1);
+      expect(mw.getMessages()[0]).toBe(sys);
     });
 
-    it("generator yields chunks", async () => {
-      const chain = compose([simpleHandler]);
-      const generator = chain(mockContext);
+    it("is idempotent (second init no-op)", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("chat-1", [msg({ id: "m1", role: "user", content: "a" })]);
+      mw.init("chat-2", [msg({ id: "m2", role: "user", content: "b" })]);
 
-      const chunks = [];
-      for await (const chunk of generator) {
-        chunks.push(chunk);
-      }
-
-      expect(chunks.length).toBeGreaterThan(0);
-    });
-  });
-});
-
-describe("Middleware class", () => {
-  let middleware: Middleware;
-  let mockSenseManager: SenseManager;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockSenseManager = createMockSenseManager();
-    middleware = new Middleware(
-      "test-soul",
-      createMockGlobalConfig(),
-      createMockBrainConfig(),
-      mockSenseManager,
-      createMockAdapters(),
-      [],
-    );
-  });
-
-  describe("createChat", () => {
-    it("should create chat and return chatId", () => {
-      const chatId = middleware.createChat("test-chat-1");
-
-      expect(chatId).toBe("test-chat-1");
-      expect(middleware.chatMap.has(chatId)).toBe(true);
-    });
-
-    it("should initialize system message in history", () => {
-      const chatId = middleware.createChat("test-chat-1");
-      const ctx = middleware.chatMap.get(chatId);
-
-      expect(ctx).toBeDefined();
-      expect(ctx?.soul.messages.length).toBe(1);
-      expect(ctx!.soul.messages[0]!.role).toBe("system");
-      expect(ctx!.soul.messages[0]!.content).toBe("mock system prompt");
-    });
-
-    it("should set correct soulId and chatId", () => {
-      const chatId = middleware.createChat("test-chat-1");
-      const ctx = middleware.chatMap.get(chatId);
-
-      expect(ctx?.soul.soulId).toBe("test-soul");
-      expect(ctx?.soul.chatId).toBe("test-chat-1");
-    });
-
-    it("should initialize empty userInputs", () => {
-      const chatId = middleware.createChat("test-chat-1");
-      const ctx = middleware.chatMap.get(chatId);
-
-      expect(ctx?.soul.userInputs.length).toBe(0);
-    });
-
-    it("should initialize hashCheck and senseSharedData maps", () => {
-      const chatId = middleware.createChat("test-chat-1");
-      const ctx = middleware.chatMap.get(chatId);
-
-      expect(ctx?.soul.hashCheck).toBeInstanceOf(Map);
-      expect(ctx?.soul.senseSharedData).toBeInstanceOf(Map);
-    });
-
-    it("should return existing chatId if chat already exists", () => {
-      const chatId1 = middleware.createChat("test-chat-1");
-      const chatId2 = middleware.createChat("test-chat-1");
-
-      expect(chatId1).toBe(chatId2);
-      expect(middleware.chatMap.size).toBe(1);
+      expect(mw.getMessages()).toHaveLength(1);
+      expect(mw.getMessages()[0]!.id).toBe("m1");
     });
   });
 
-  describe("send", () => {
-    it("should throw error when chat not found", async () => {
+  describe("requireRuntime / requireInitialized", () => {
+    it("send throws before init", async () => {
+      const mw = new Middleware(createMockGlobal(), []);
       await expect(async () => {
-        const gen = middleware.send("unknown-chat", "test");
-        for await (const _ of gen) {
-          // consume
+        for await (const _ of mw.send("x")) {
+          // drain
         }
-      }).rejects.toThrow("Chat not found");
+      }).rejects.toThrow("Chat not initialized");
     });
 
-    it("should not store empty input", async () => {
-      const handler: MiddlewareHandler = async function* (_ctx, next) {
-        yield { type: "done" };
-        yield* next();
-      };
-      middleware = new Middleware(
-        "test-soul",
-        createMockGlobalConfig(),
-        createMockBrainConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-      );
-      const chatId = middleware.createChat("test-chat-1");
-
-      const gen = middleware.send(chatId, "   ");
-      for await (const _ of gen) {
-        // consume
-      }
-
-      const ctx = middleware.chatMap.get(chatId);
-      expect(ctx?.soul.userInputs.length).toBe(0);
-    });
-
-    it("should yield done chunk when loop completes", async () => {
-      const handler: MiddlewareHandler = async function* (_ctx, next) {
-        yield { type: "done" };
-        yield* next();
-      };
-      middleware = new Middleware(
-        "test-soul",
-        createMockGlobalConfig(),
-        createMockBrainConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-      );
-
-      const chatId = middleware.createChat("test-chat-1");
-
-      const gen = middleware.send(chatId, "test");
-      const chunks: unknown[] = [];
-      for await (const chunk of gen) {
-        chunks.push(chunk);
-      }
-
-      expect(chunks.some((c) => (c as any).type === "done")).toBe(true);
-    });
-
-    it("should store user input", async () => {
-      const handler: MiddlewareHandler = async function* (_ctx, next) {
-        yield { type: "done" };
-        yield* next();
-      };
-      middleware = new Middleware(
-        "test-soul",
-        createMockGlobalConfig(),
-        createMockBrainConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-      );
-      const chatId = middleware.createChat("test-chat-1");
-
-      const gen = middleware.send(chatId, "user message");
-      for await (const _ of gen) {
-        // consume
-      }
-
-      const ctx = middleware.chatMap.get(chatId);
-      expect(ctx?.soul.userInputs.length).toBe(1);
-      expect(ctx?.soul.userInputs[0]?.content).toBe("user message");
+    it("send throws after init but before configureRuntime", async () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", []);
+      await expect(async () => {
+        for await (const _ of mw.send("x")) {
+          // drain
+        }
+      }).rejects.toThrow("Runtime not fully configured");
     });
   });
 
-  describe("loop execution", () => {
-    it("should respect maxLoopCount via loopHandler", async () => {
-      const maxLoop = 3;
-      const globalConfig = { ...createMockGlobalConfig(), maxLoopCount: maxLoop };
-
-      let loopCount = 0;
-      const handler: MiddlewareHandler = async function* (_ctx, next) {
-        loopCount++;
-        yield { type: "test" };
-        yield* next();
+  describe("configureRuntime", () => {
+    it("allows send after runtime configured", async () => {
+      const handler: MiddlewareHandler = async function* () {
+        yield { type: "done" } as any;
       };
+      const mw = new Middleware(createMockGlobal(), [handler]);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
 
-      middleware = new Middleware(
-        "test-soul",
-        globalConfig,
-        createMockBrainConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-        createTestLoopHandler(maxLoop),
-      );
-      const chatId = middleware.createChat("test-chat-1");
+      const chunks: any[] = [];
+      for await (const c of mw.send("hi")) chunks.push(c);
 
-      const gen = middleware.send(chatId, "test");
-      for await (const _ of gen) {
-        // consume
-      }
+      expect(chunks.some((c) => c.type === "done")).toBe(true);
+    });
+  });
 
-      expect(loopCount).toBeLessThanOrEqual(maxLoop);
+  describe("getMessages", () => {
+    it("returns injected messages", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      const msgs = [
+        msg({ id: "m1", role: "user", content: "q" }),
+        msg({ id: "m2", role: "assistant", content: "a" }),
+      ];
+      mw.init("c1", msgs);
+      expect(mw.getMessages()).toEqual(msgs);
     });
 
-    it("should stop when assistant message has no senseCalls", async () => {
-      const handler: MiddlewareHandler = async function* (ctx, next) {
-        ctx.soul.messages.push({
-          id: "test-id",
+    it("returns empty array before init", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      expect(mw.getMessages()).toEqual([]);
+    });
+  });
+
+  describe("revokeTrailingCycle", () => {
+    it("returns [] for empty messages", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", []);
+      expect(mw.revokeTrailingCycle()).toEqual([]);
+    });
+
+    it("returns [] when trailing message is not sense", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({ id: "u1", role: "user", content: "q" }),
+        msg({ id: "a1", role: "assistant", content: "a", createdAt: 0, updateAt: 0 }),
+      ]);
+      expect(mw.revokeTrailingCycle()).toEqual([]);
+    });
+
+    it("returns [] when sense group not preceded by assistant with senseCalls", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({ id: "u1", role: "user", content: "q" }),
+        msg({ id: "s1", role: "sense", content: "r" }),
+      ]);
+      expect(mw.revokeTrailingCycle()).toEqual([]);
+    });
+
+    it("revokes assistant(senseCalls) + entire trailing sense group", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({ id: "u1", role: "user", content: "q" }),
+        msg({
+          id: "a1",
           role: "assistant",
-          content: "response",
-          createdAt: Date.now(),
-          updateAt: Date.now(),
-        });
-        yield { type: "done" };
-        yield* next();
-      };
+          content: "thinking...",
+          senseCalls: [{ id: "sc1", name: "t", arguments: "{}" }],
+        }),
+        msg({ id: "s1", role: "sense", content: "" }),
+        msg({ id: "s2", role: "sense", content: "done result" }),
+      ]);
 
-      middleware = new Middleware(
-        "test-soul",
-        createMockGlobalConfig(),
-        createMockBrainConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-      );
-      const chatId = middleware.createChat("test-chat-1");
+      const revoked = mw.revokeTrailingCycle();
+      expect(revoked).toEqual(["a1", "s1", "s2"]);
 
-      const gen = middleware.send(chatId, "test");
-      const chunks: unknown[] = [];
-      for await (const chunk of gen) {
-        chunks.push(chunk);
-      }
+      const msgs = mw.getMessages();
+      expect(msgs.find((m) => m.id === "u1")!.revoked).toBeUndefined();
+      expect(msgs.find((m) => m.id === "a1")!.revoked).toBe(true);
+      expect(msgs.find((m) => m.id === "s1")!.revoked).toBe(true);
+      expect(msgs.find((m) => m.id === "s2")!.revoked).toBe(true);
+    });
+  });
 
-      expect(chunks.some((c) => (c as any).type === "done")).toBe(true);
+  describe("hasPendingTrailingSense", () => {
+    it("returns false when last message is not sense", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({ id: "a1", role: "assistant", content: "a" }),
+      ]);
+      expect(mw.hasPendingTrailingSense()).toBe(false);
     });
 
-    it("should continue loop when assistant has senseCalls", async () => {
+    it("returns true when trailing sense has empty content (pending)", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({
+          id: "a1",
+          role: "assistant",
+          content: "",
+          senseCalls: [{ id: "sc1", name: "t", arguments: "{}" }],
+        }),
+        msg({ id: "s1", role: "sense", content: "" }),
+      ]);
+      expect(mw.hasPendingTrailingSense()).toBe(true);
+    });
+
+    it("returns false when trailing sense group all done", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({
+          id: "a1",
+          role: "assistant",
+          content: "",
+          senseCalls: [{ id: "sc1", name: "t", arguments: "{}" }],
+        }),
+        msg({ id: "s1", role: "sense", content: "result" }),
+      ]);
+      expect(mw.hasPendingTrailingSense()).toBe(false);
+    });
+
+    it("stops scanning at first non-sense from the end", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({ id: "s0", role: "sense", content: "" }), // not trailing → ignored
+        msg({ id: "a1", role: "assistant", content: "a" }),
+        msg({ id: "s1", role: "sense", content: "done" }),
+      ]);
+      expect(mw.hasPendingTrailingSense()).toBe(false);
+    });
+  });
+
+  describe("setResumePending", () => {
+    it("does not throw and does not affect requireRuntime", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", []);
+      expect(() => mw.setResumePending(true)).not.toThrow();
+      expect(() => mw.setResumePending(false)).not.toThrow();
+    });
+  });
+
+  describe("isRunning", () => {
+    it("is false initially", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      expect(mw.isRunning()).toBe(false);
+    });
+
+    it("reflects loop state during send", async () => {
+      let release!: () => void;
+      const hang = new Promise<void>((r) => {
+        release = r;
+      });
+      const handler: MiddlewareHandler = async function* () {
+        await hang;
+        yield { type: "done" } as any;
+      };
+      const mw = new Middleware(createMockGlobal(), [handler]);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
+
+      expect(mw.isRunning()).toBe(false);
+
+      const gen = mw.send("x");
+      const consume = (async () => {
+        for await (const _ of gen) {
+          // drain
+        }
+      })();
+      await flush();
+      expect(mw.isRunning()).toBe(true);
+
+      release();
+      await consume;
+      expect(mw.isRunning()).toBe(false);
+    });
+  });
+
+  describe("send (input queue + execution)", () => {
+    it("does not enqueue empty/whitespace input", async () => {
+      let captured: any;
+      const handler: MiddlewareHandler = async function* (ctx) {
+        captured = ctx.soul.userInputs;
+        yield { type: "done" } as any;
+      };
+      const mw = new Middleware(createMockGlobal(), [handler]);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
+
+      for await (const _ of mw.send("   ")) {
+        // drain
+      }
+
+      expect(captured).toHaveLength(0);
+    });
+
+    it("enqueues trimmed non-empty input", async () => {
+      let captured: any;
+      const handler: MiddlewareHandler = async function* (ctx) {
+        captured = ctx.soul.userInputs;
+        yield { type: "done" } as any;
+      };
+      const mw = new Middleware(createMockGlobal(), [handler]);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
+
+      for await (const _ of mw.send("  hello  ")) {
+        // drain
+      }
+
+      expect(captured).toHaveLength(1);
+      expect(captured[0].content).toBe("hello");
+    });
+
+    it("back-pressure: drops oldest beyond MAX_USER_INPUTS", async () => {
+      let captured: any;
+      let release!: () => void;
+      const hang = new Promise<void>((r) => {
+        release = r;
+      });
+      const handler: MiddlewareHandler = async function* (ctx) {
+        captured = ctx.soul.userInputs;
+        await hang;
+        yield { type: "done" } as any;
+      };
+      const mw = new Middleware(createMockGlobal(), [handler]);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
+
+      // 启动 loop（挂起在 hang，isRunning 保持 true）
+      const gen = mw.send("seed");
+      const consume = (async () => {
+        for await (const _ of gen) {
+          // drain
+        }
+      })();
+      await flush();
+
+      // loop 运行中：后续 send 只入队
+      for (let i = 0; i < 20; i++) {
+        for await (const _ of mw.send(`u${i}`)) {
+          // drain (empty: isRunning → return)
+        }
+      }
+
+      expect(captured.length).toBeLessThanOrEqual(MAX_USER_INPUTS);
+
+      release();
+      await consume;
+    });
+  });
+
+  describe("abort", () => {
+    it("does not throw when no generator running", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", []);
+      expect(() => mw.abort()).not.toThrow();
+    });
+  });
+
+  describe("loopHandler integration", () => {
+    it("loops until assistant has no senseCalls, bounded by loopHandler", async () => {
       let iterations = 0;
-      const handler: MiddlewareHandler = async function* (ctx, next) {
+      const handler: MiddlewareHandler = async function* (ctx) {
         iterations++;
         if (iterations === 1) {
-          ctx.soul.messages.push({
-            id: "test-id",
-            role: "assistant",
-            content: "response",
-            senseCalls: [{ id: "sc-1", name: "test-tool", arguments: "{}" }],
-            createdAt: Date.now(),
-            updateAt: Date.now(),
-          });
-          yield { type: "test" };
+          ctx.soul.messages!.push(
+            msg({
+              id: "a1",
+              role: "assistant",
+              content: "c",
+              senseCalls: [{ id: "sc1", name: "t", arguments: "{}" }],
+            }),
+          );
+          yield { type: "stream" } as any;
         } else {
-          ctx.soul.messages.push({
-            id: "test-id-2",
-            role: "assistant",
-            content: "done",
-            createdAt: Date.now(),
-            updateAt: Date.now(),
-          });
-          yield { type: "done" };
+          ctx.soul.messages!.push(
+            msg({ id: "a2", role: "assistant", content: "done" }),
+          );
+          yield { type: "done" } as any;
         }
-        yield* next();
       };
 
-      middleware = new Middleware(
-        "test-soul",
-        { ...createMockGlobalConfig(), maxLoopCount: 10 },
-        createMockBrainConfig(),
-        mockSenseManager,
-        createMockAdapters(),
-        [handler],
-        createTestLoopHandler(10),
-      );
-      const chatId = middleware.createChat("test-chat-1");
+      const loopHandler: LoopHandler = async function* (ctx, runChain) {
+        let times = 0;
+        while (times < 5) {
+          times++;
+          yield* runChain();
+          const last = ctx.soul.messages![ctx.soul.messages!.length - 1]!;
+          if (last.role === "assistant" && !last.senseCalls?.length) break;
+        }
+      };
 
-      const gen = middleware.send(chatId, "test");
-      for await (const _ of gen) {
-        // consume
-      }
+      const mw = new Middleware(createMockGlobal(), [handler], loopHandler);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
+
+      const chunks: any[] = [];
+      for await (const c of mw.send("x")) chunks.push(c);
 
       expect(iterations).toBeGreaterThanOrEqual(2);
-    });
-  });
-
-  describe("getContext", () => {
-    it("should return context for existing chat", () => {
-      const chatId = middleware.createChat("test-chat-1");
-      const ctx = middleware.getContext(chatId);
-
-      expect(ctx).toBeDefined();
-      expect(ctx?.soul.chatId).toBe("test-chat-1");
-    });
-
-    it("should return undefined for non-existing chat", () => {
-      const ctx = middleware.getContext("unknown-chat");
-
-      expect(ctx).toBeUndefined();
+      expect(chunks.some((c) => c.type === "done")).toBe(true);
     });
   });
 });

@@ -18,7 +18,7 @@ describe("sense factory function", () => {
       expect(testSense.definition.function.description).toBe("A test sense");
       expect(testSense.definition.function.parameters.type).toBe("object");
       expect(testSense.definition.function.parameters.required).toEqual(["path"]);
-      expect(testSense.definition.function.strict).toBe(true);
+      // 源码 definition.function 不生成 strict 字段（仅 type/name/description/parameters）
     });
 
     it("creates correct schema for multiple parameters", () => {

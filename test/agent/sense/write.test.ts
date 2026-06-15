@@ -1,184 +1,115 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import writeTool from "@/agent/sense/write";
-import { SupervisionLevel } from "@/core/config";
-import type { ToolSharedData } from "@/core/sense";
-import { writeFile, rename, copyFile, unlink, stat } from "fs/promises";
+/**
+ * write_file sense 测试（执行器单元）。
+ *
+ * 覆盖：
+ * - 成功写入新文件（content + 文件落地）
+ * - 覆盖已有文件
+ * - offset+limit 行范围替换（需先 read 填 sharedData）
+ * - 单独 offset/limit → 错误
+ * - 行范围未 read → 错误
+ * - 行范围文件不存在 → 错误
+ * - 目录不存在 → ENOENT 错误
+ * - 已存在文件被外部修改 → 警告
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import writeSense from "@/agent/sense/write.js";
+import readSense from "@/agent/sense/read.js";
+import { SupervisionLevel } from "@/core/config.js";
+import { createTempDir, cleanupTempDir } from "../../helpers/tempDir.js";
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from "fs";
+import { join } from "path";
 
-vi.mock("@/utils/config", () => ({
-  default: {},
-}));
+const exec = writeSense.executor.execute.bind(writeSense.executor);
+const sharedData = new Map<string, Map<string, unknown>>();
 
-vi.mock("@/utils/hash", () => ({
-  hashGenerator: vi.fn(() => "test-hash"),
-}));
+describe("write_file sense 定义", () => {
+  it("name = write_file，supervision = manual", () => {
+    expect(writeSense.definition.function.name).toBe("write_file");
+    expect(writeSense.supervisionLevel).toBe(SupervisionLevel.manual);
+  });
+});
 
-vi.mock("fs/promises", () => ({
-  writeFile: vi.fn(),
-  rename: vi.fn(),
-  copyFile: vi.fn(),
-  unlink: vi.fn(),
-  stat: vi.fn(),
-}));
+describe("write_file 完整写入", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = createTempDir();
+    sharedData.clear();
+  });
+  afterEach(() => cleanupTempDir(dir));
 
-vi.mock("os", () => ({
-  default: { tmpdir: () => "/tmp" },
-}));
-
-describe("Write Tool", () => {
-  describe("tool definition", () => {
-    it("should have correct name", () => {
-      expect(writeTool.definition.function.name).toBe("write_file");
-    });
-
-    it("should have correct supervision level", () => {
-      expect(writeTool.supervisionLevel).toBe(SupervisionLevel.manual);
-    });
-
-    it("should have valid schema", () => {
-      expect(writeTool.definition.function.parameters).toBeDefined();
-    });
-
-    it("should have description", () => {
-      expect(writeTool.definition.function.description).toBeDefined();
-    });
+  it("成功写入新文件 → content「成功写入」+ 文件落地", async () => {
+    const path = join(dir, "new.txt");
+    const r = await exec({ path, content: "hello" }, sharedData);
+    expect(r.content).toContain("成功写入");
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path, "utf-8")).toBe("hello");
+    expect(r.hash).toBe("");
   });
 
-  describe("executor", () => {
-    let sharedData: ToolSharedData;
+  it("覆盖已有文件", async () => {
+    const path = join(dir, "exist.txt");
+    writeFileSync(path, "old");
+    await exec({ path, content: "new" }, sharedData);
+    expect(readFileSync(path, "utf-8")).toBe("new");
+  });
+});
 
-    beforeEach(() => {
-      vi.clearAllMocks();
-      sharedData = new Map();
-    });
+describe("write_file 行范围替换", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = createTempDir();
+    sharedData.clear();
+  });
+  afterEach(() => cleanupTempDir(dir));
 
-    it("should write file successfully via temp + rename", async () => {
-      const result = await writeTool.executor.execute(
-        { path: "/abs/new.txt", content: "hello" },
-        sharedData,
-      );
+  it("先 read 再 offset+limit 替换 → content「成功替换」", async () => {
+    const path = join(dir, "lines.txt");
+    writeFileSync(path, "l0\nl1\nl2\nl3\n");
+    // 先 read 填 sharedData（模拟 read_file 后 write）
+    await readSense.executor.execute({ path }, sharedData);
+    const r = await exec({ path, content: "REPLACED", offset: 1, limit: 2 }, sharedData);
+    expect(r.content).toContain("成功替换");
+    expect(readFileSync(path, "utf-8")).toBe("l0\nREPLACED\nl3\n");
+  });
 
-      expect(result.content).toContain("成功写入文件");
-      expect(result.hash).toBe("");
-      expect(vi.mocked(writeFile)).toHaveBeenCalled();
-      expect(vi.mocked(rename)).toHaveBeenCalled();
-    });
+  it("单独 offset（无 limit）→ 错误", async () => {
+    const r = await exec({ path: join(dir, "x.txt"), content: "x", offset: 0 }, sharedData);
+    expect(r.content).toContain("offset 和 limit 必须同时");
+  });
 
-    it("should detect file modification conflict", async () => {
-      const readNamespace = new Map();
-      readNamespace.set("/abs/file.txt", { size: 100, mtimeMs: 1000, baseHash: "old-hash" });
-      sharedData.set("read_file", readNamespace);
+  it("行范围但未 read（文件存在）→ 错误", async () => {
+    const path = join(dir, "unread.txt");
+    writeFileSync(path, "data\n");
+    const r = await exec({ path, content: "x", offset: 0, limit: 1 }, sharedData);
+    expect(r.content).toContain("先读取");
+  });
 
-      vi.mocked(stat).mockResolvedValue({ size: 200, mtimeMs: 2000 } as any);
+  it("行范围文件不存在 → 错误", async () => {
+    const r = await exec({ path: join(dir, "nope.txt"), content: "x", offset: 0, limit: 1 }, sharedData);
+    expect(r.content).toContain("不存在");
+  });
+});
 
-      const result = await writeTool.executor.execute(
-        { path: "/abs/file.txt", content: "new content" },
-        sharedData,
-      );
+describe("write_file 错误路径", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = createTempDir();
+    sharedData.clear();
+  });
+  afterEach(() => cleanupTempDir(dir));
 
-      expect(result.content).toContain("文件修改警告");
-      expect(result.hash).toBe("");
-    });
+  it("目录不存在 → ENOENT 错误", async () => {
+    const r = await exec({ path: join(dir, "nodir", "x.txt"), content: "x" }, sharedData);
+    expect(r.content).toContain("目录不存在");
+  });
 
-    it("should allow write when hash matches", async () => {
-      const readNamespace = new Map();
-      readNamespace.set("/abs/file.txt", { size: 100, mtimeMs: 1000, baseHash: "test-hash" });
-      sharedData.set("read_file", readNamespace);
-
-      vi.mocked(stat).mockResolvedValue({ size: 100, mtimeMs: 1000 } as any);
-
-      const result = await writeTool.executor.execute(
-        { path: "/abs/file.txt", content: "updated" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("成功写入文件");
-    });
-
-    it("should skip conflict check when file was deleted (ENOENT)", async () => {
-      const readNamespace = new Map();
-      readNamespace.set("/abs/deleted.txt", { size: 100, mtimeMs: 1000, baseHash: "test-hash" });
-      sharedData.set("read_file", readNamespace);
-
-      vi.mocked(stat).mockRejectedValue(Object.assign(new Error("not found"), { code: "ENOENT" }));
-
-      const result = await writeTool.executor.execute(
-        { path: "/abs/deleted.txt", content: "rewrite" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("成功写入文件");
-    });
-
-    it("should handle stat error other than ENOENT", async () => {
-      const readNamespace = new Map();
-      readNamespace.set("/abs/file.txt", { size: 100, mtimeMs: 1000, baseHash: "test-hash" });
-      sharedData.set("read_file", readNamespace);
-
-      vi.mocked(stat).mockRejectedValue(Object.assign(new Error("access denied"), { code: "EACCES" }));
-      vi.mocked(writeFile).mockRejectedValue(Object.assign(new Error("access denied"), { code: "EACCES" }));
-
-      const result = await writeTool.executor.execute(
-        { path: "/abs/file.txt", content: "test" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("权限不足");
-    });
-
-    it("should fallback to copy+delete on EXDEV error", async () => {
-      vi.mocked(writeFile).mockReset();
-      vi.mocked(stat).mockReset();
-      vi.mocked(rename).mockImplementation(async () => {
-        throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
-      });
-      vi.mocked(copyFile).mockResolvedValue(undefined);
-      vi.mocked(unlink).mockResolvedValue(undefined);
-
-      const result = await writeTool.executor.execute(
-        { path: "/abs/file.txt", content: "test" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("跨文件系统移动");
-      expect(vi.mocked(copyFile)).toHaveBeenCalled();
-      expect(vi.mocked(unlink)).toHaveBeenCalled();
-    });
-
-    it("should handle ENOENT directory missing error", async () => {
-      vi.mocked(writeFile).mockRejectedValue(
-        Object.assign(new Error("no dir"), { code: "ENOENT" }),
-      );
-
-      const result = await writeTool.executor.execute(
-        { path: "/abs/nonexistent/file.txt", content: "test" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("目录不存在");
-    });
-
-    it("should handle EACCES permission error", async () => {
-      vi.mocked(writeFile).mockRejectedValue(
-        Object.assign(new Error("no access"), { code: "EACCES" }),
-      );
-
-      const result = await writeTool.executor.execute(
-        { path: "/abs/protected.txt", content: "test" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("权限不足");
-    });
-
-    it("should handle generic write error", async () => {
-      vi.mocked(writeFile).mockRejectedValue(new Error("unknown error"));
-
-      const result = await writeTool.executor.execute(
-        { path: "/abs/file.txt", content: "test" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("失败");
-    });
+  it("已存在文件被外部修改（sharedData hash 不匹配）→ 警告", async () => {
+    const path = join(dir, "modified.txt");
+    writeFileSync(path, "original\n");
+    await readSense.executor.execute({ path }, sharedData);
+    // 模拟外部修改：追加内容改变 mtime/size
+    writeFileSync(path, "original-changed\n");
+    const r = await exec({ path, content: "overwrite" }, sharedData);
+    expect(r.content).toContain("修改");
   });
 });

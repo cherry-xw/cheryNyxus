@@ -1,403 +1,182 @@
+/**
+ * Ollama provider 测试：adapter 配置 + LLM 调用（vi.mock ollama 包）。
+ *
+ * 覆盖：
+ * - registerOllamaAdapter 注册
+ * - message adapter：content / thinking / extractStream / buildMessages（sense→role:tool / replaced / 过滤 revoked）
+ * - sense adapter：buildSenses（无 strict）/ senseCalls（id=randomUUID，arguments=JSON.stringify）/ extractSenseCallDeltas
+ * - LLM：chat / chatStream / model 缺失 throw
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { registerOllamaAdapter } from "@/agent/provider/ollama";
-import { getLLMAdapter } from "@/core/llm/adapter";
-import { getMessageAdapter } from "@/core/message/adapter";
-import { getSenseAdapter } from "@/core/sense/adapter";
-import type { LLMResponse } from "@/core/message";
-import type { Sense, SenseFunction, SenseCallData } from "@/core/sense";
+import { registerOllamaAdapter } from "@/agent/provider/ollama.js";
+import { getLLMAdapter, resetLLMAdapters } from "@/core/llm/adapter.js";
+import { getMessageAdapter, resetMessageProviders } from "@/core/message/adapter.js";
+import { getSenseAdapter, senseAdapterRegistry } from "@/core/sense/adapter.js";
+import type { LLMResponse } from "@/core/message/adapter.js";
+import type { Sense, SenseFunction } from "@/core/sense/index.js";
 import type { ZodType } from "zod";
 
-// Mock Ollama SDK
-vi.mock("ollama", () => {
-  const mockChat = vi.fn().mockImplementation(async (options) => {
-    if (options.stream) {
-      return {
-        async *[Symbol.asyncIterator]() {
-          yield { message: { content: "Hello", thinking: "thinking..." } };
-          yield { message: { content: " from Ollama" } };
-          yield {
-            message: {
-              tool_calls: [
-                { function: { name: "test_tool", arguments: { arg: "value" } } },
-              ],
-            },
-          };
-        },
-      };
-    }
-    return {
-      message: {
-        role: "assistant",
-        content: "Hello from Ollama",
-        thinking: "test thinking",
-        tool_calls: [
-          { function: { name: "test_tool", arguments: { arg: "value" } } },
-        ],
-      },
-    };
+vi.mock("ollama", () => ({
+  default: {
+    chat: vi.fn(async (opts: { stream?: boolean }) => {
+      if (opts.stream) {
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { message: { content: "Hello" } };
+            yield { message: { content: " from Ollama" } };
+          },
+        };
+      }
+      return { message: { role: "assistant", content: "Hello from Ollama", thinking: "th" } };
+    }),
+  },
+}));
+
+describe("Ollama provider 注册", () => {
+  beforeEach(() => {
+    resetMessageProviders();
+    resetLLMAdapters();
+    senseAdapterRegistry.clear();
   });
 
-  return {
-    default: {
-      chat: mockChat,
-    },
-  };
+  it("注册 message/sense/llm adapter", () => {
+    registerOllamaAdapter();
+    expect(getLLMAdapter("ollama")).toBeDefined();
+    expect(getMessageAdapter("ollama")).toBeDefined();
+    expect(getSenseAdapter("ollama")).toBeDefined();
+  });
 });
 
-describe("Ollama Provider", () => {
+describe("Ollama message adapter", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    resetMessageProviders();
+    resetLLMAdapters();
+    senseAdapterRegistry.clear();
+    registerOllamaAdapter();
   });
 
-  describe("registerOllamaAdapter", () => {
-    it("should register adapters", () => {
-      registerOllamaAdapter();
-
-      const llmAdapter = getLLMAdapter("ollama");
-      const messageAdapter = getMessageAdapter("ollama");
-      const senseAdapter = getSenseAdapter("ollama");
-
-      expect(llmAdapter).toBeDefined();
-      expect(messageAdapter).toBeDefined();
-      expect(senseAdapter).toBeDefined();
-    });
-
-    it("should not register twice", () => {
-      registerOllamaAdapter();
-      registerOllamaAdapter();
-      // Should only register once
-      expect(true).toBe(true);
-    });
+  it("content / thinking 提取", () => {
+    const cfg = getMessageAdapter("ollama")!;
+    expect(cfg.content({ message: { content: "x" } } as never)).toBe("x");
+    expect(cfg.thinking?.({ message: { thinking: "t" } } as never)).toBe("t");
   });
 
-  describe("Adapter configs", () => {
-    it("should have valid message adapter config", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      expect(config).toBeDefined();
-      expect(config?.role).toBeDefined();
-      expect(config?.content).toBeDefined();
-      expect(config?.buildMessages).toBeDefined();
-    });
-
-    it("should have valid sense adapter config", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-      expect(config).toBeDefined();
-      expect(config?.buildSenses).toBeDefined();
-      expect(config?.senseCalls).toBeDefined();
-      expect(config?.extractSenseCallDeltas).toBeDefined();
-    });
-
-    it("should have valid LLM adapter", () => {
-      registerOllamaAdapter();
-
-      const adapter = getLLMAdapter("ollama");
-      expect(adapter).toBeDefined();
-      expect(adapter?.chat).toBeDefined();
-      expect(adapter?.chatStream).toBeDefined();
-    });
+  it("extractStreamDelta / Thinking", () => {
+    const cfg = getMessageAdapter("ollama")!;
+    expect(cfg.extractStreamDelta({ message: { content: "d" } } as never)).toBe("d");
+    expect(cfg.extractStreamThinking?.({ message: { thinking: "st" } } as never)).toBe("st");
   });
 
-  describe("Message adapter functions", () => {
-    it("should extract content from response", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockResponse = { message: { content: "test content" } };
-
-      expect(config?.content(mockResponse)).toBe("test content");
-    });
-
-    it("should return empty string when no content", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockResponse = { message: {} };
-
-      expect(config?.content(mockResponse)).toBe("");
-    });
-
-    it("should extract thinking from response", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockResponse = { message: { thinking: "test thinking" } };
-
-      expect(config?.thinking?.(mockResponse)).toBe("test thinking");
-    });
-
-    it("should return undefined when no thinking", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockResponse = { message: {} };
-
-      expect(config?.thinking?.(mockResponse)).toBeUndefined();
-    });
-
-    it("should extract stream delta", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockChunk = { message: { content: "test delta" } };
-
-      expect(config?.extractStreamDelta(mockChunk)).toBe("test delta");
-    });
-
-    it("should return empty string when no stream delta", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockChunk = { message: {} };
-
-      expect(config?.extractStreamDelta(mockChunk)).toBe("");
-    });
-
-    it("should extract stream thinking", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockChunk = { message: { thinking: "stream thinking" } };
-
-      expect(config?.extractStreamThinking?.(mockChunk)).toBe("stream thinking");
-    });
-
-    it("should return undefined when no stream thinking", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockChunk = { message: {} };
-
-      expect(config?.extractStreamThinking?.(mockChunk)).toBeUndefined();
-    });
-
-    it("should build messages from history", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const history: LLMResponse[] = [
-        {
-          id: "1",
-          role: "user",
-          content: "Hello",
-          createdAt: 0,
-          updateAt: 0,
-          raw: null,
-        },
-        {
-          id: "2",
-          role: "assistant",
-          content: "Hi",
-          createdAt: 0,
-          updateAt: 0,
-          raw: null,
-        },
-      ];
-
-      const messages = config?.buildMessages(history);
-      expect(messages?.length).toBe(2);
-      expect((messages as { role: string; content: string }[])[0]?.role).toBe("user");
-      expect((messages as { role: string; content: string }[])[0]?.content).toBe("Hello");
-    });
-
-    it("should extract role from response", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockResponse = { message: { role: "assistant" } };
-
-      expect(config?.role(mockResponse)).toBe("assistant");
-    });
-
-    it("should return default role when missing", () => {
-      registerOllamaAdapter();
-
-      const config = getMessageAdapter("ollama");
-      const mockResponse = { message: {} };
-
-      expect(config?.role(mockResponse)).toBe("assistant");
-    });
+  it("role 返回 assistant", () => {
+    expect(getMessageAdapter("ollama")!.role({} as never)).toBe("assistant");
   });
 
-  describe("Sense adapter functions", () => {
-    it("should build senses from definitions", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-      const senses = [
-        {
-          definition: {
-            type: "function" as const,
-            function: {
-              name: "test_tool",
-              description: "Test tool",
-              parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
-            },
-          },
-          executor: { schema: {} as ZodType, execute: async () => ({ content: "", hash: "" }) },
-          supervisionLevel: undefined,
-        },
-      ] as Sense<ZodType>[];
-
-      const builtSenses = config?.buildSenses(senses);
-      expect(builtSenses?.[0]?.type).toBe("function");
-      expect(builtSenses?.[0]?.function?.name).toBe("test_tool");
-    });
-
-    it("should build sense call message", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-      const senseCalls: SenseCallData[] = [{ id: "sense-0", name: "test_tool", arguments: '{"arg":"value"}' }];
-
-      const message = config?.buildSenseCallMessage?.("content", senseCalls) as { role: string; tool_calls?: unknown };
-      expect(message?.role).toBe("assistant");
-      expect(message?.tool_calls).toBeDefined();
-    });
-
-    it("should build sense response message", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-
-      const message = config?.buildSenseResponseMessage?.("sense-0", "result") as { role: string; content: string };
-      expect(message?.role).toBe("sense");
-      expect(message?.content).toBe("result");
-    });
-
-    it("should extract sense calls from response", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-      const response = {
-        message: {
-          tool_calls: [
-            { function: { name: "test_tool", arguments: { arg: "value" } } },
-          ],
-        },
-      };
-
-      const senseCalls = config?.senseCalls(response);
-      expect(senseCalls?.length).toBe(1);
-      expect(senseCalls?.[0]?.name).toBe("test_tool");
-      expect(senseCalls?.[0]?.id).toBe("sense-0");
-    });
-
-    it("should handle empty sense calls", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-      const response = {
-        message: {},
-      };
-
-      const senseCalls = config?.senseCalls(response);
-      expect(senseCalls?.length).toBe(0);
-    });
-
-    it("should extract sense call deltas from stream chunk", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-      const chunk = {
-        message: {
-          tool_calls: [
-            { function: { name: "tool1", arguments: { a: 1 } } },
-          ],
-        },
-      };
-
-      const deltas = config?.extractSenseCallDeltas(chunk);
-      expect(deltas?.length).toBe(1);
-      expect(deltas?.[0]?.name).toBe("tool1");
-      expect(deltas?.[0]?.id).toBe("sense-0");
-    });
-
-    it("should handle empty sense call deltas", () => {
-      registerOllamaAdapter();
-
-      const config = getSenseAdapter("ollama");
-      const chunk = { message: {} };
-
-      const deltas = config?.extractSenseCallDeltas(chunk);
-      expect(deltas?.length).toBe(0);
-    });
+  it("buildMessages: sense → role:tool", () => {
+    const cfg = getMessageAdapter("ollama")!;
+    const out = cfg.buildMessages([
+      { id: "s", role: "sense", content: "result", createdAt: 0, updateAt: 0 },
+    ]) as Array<{ role: string; content: string }>;
+    expect(out[0]!.role).toBe("tool");
+    expect(out[0]!.content).toBe("result");
   });
 
-  describe("LLM adapter functions", () => {
-    it("should call chat with valid options", async () => {
-      registerOllamaAdapter();
+  it("buildMessages: sense replaced → content=replace.content", () => {
+    const cfg = getMessageAdapter("ollama")!;
+    const out = cfg.buildMessages([
+      { id: "s", role: "sense", content: "old", replace: { state: true, by: "n", content: "NEW" }, createdAt: 0, updateAt: 0 },
+    ]) as Array<{ content: string }>;
+    expect(out[0]!.content).toBe("NEW");
+  });
 
-      const adapter = getLLMAdapter("ollama");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { model: "llama2" };
+  it("buildMessages: 过滤 revoked", () => {
+    const cfg = getMessageAdapter("ollama")!;
+    const out = cfg.buildMessages([
+      { id: "a", role: "user", content: "keep", createdAt: 0, updateAt: 0 },
+      { id: "r", role: "user", content: "revoked", createdAt: 0, updateAt: 0, revoked: true },
+    ]);
+    expect(out.length).toBe(1);
+  });
+});
 
-      const result = await adapter?.chat(messages, senses, options);
-      expect(result).toBeDefined();
-      expect((result as any).message?.content).toBe("Hello from Ollama");
-    });
+describe("Ollama sense adapter", () => {
+  beforeEach(() => {
+    resetMessageProviders();
+    resetLLMAdapters();
+    senseAdapterRegistry.clear();
+    registerOllamaAdapter();
+  });
 
-    it("should throw error when model missing", async () => {
-      registerOllamaAdapter();
+  it("buildSenses 不带 strict", () => {
+    const cfg = getSenseAdapter("ollama")!;
+    const senses = [{
+      definition: { type: "function" as const, function: { name: "t", description: "d", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } },
+      executor: { schema: {} as ZodType, execute: async () => ({ content: "", hash: "" }) },
+      supervisionLevel: undefined,
+    }] as Sense<ZodType>[];
+    const built = cfg.buildSenses(senses) as SenseFunction[];
+    expect(built[0]!.function.name).toBe("t");
+    expect((built[0] as unknown as { strict?: boolean }).strict).toBeUndefined();
+  });
 
-      const adapter = getLLMAdapter("ollama");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = {};
+  it("senseCalls: id 非空（randomUUID）+ arguments JSON.stringify", () => {
+    const cfg = getSenseAdapter("ollama")!;
+    const out = cfg.senseCalls({ message: { tool_calls: [{ function: { name: "t", arguments: { a: 1 } } }] } } as never);
+    expect(out[0]!.name).toBe("t");
+    expect(out[0]!.id).toBeTruthy();
+    expect(out[0]!.arguments).toBe(JSON.stringify({ a: 1 }));
+  });
 
-      await expect(adapter?.chat(messages, senses, options)).rejects.toThrow(
-        "Ollama provider requires model in options"
-      );
-    });
+  it("senseCalls: 空", () => {
+    const cfg = getSenseAdapter("ollama")!;
+    expect(cfg.senseCalls({ message: {} } as never)).toHaveLength(0);
+  });
 
-    it("should call chatStream with valid options", async () => {
-      registerOllamaAdapter();
+  it("extractSenseCallDeltas", () => {
+    const cfg = getSenseAdapter("ollama")!;
+    const out = cfg.extractSenseCallDeltas({ message: { tool_calls: [{ function: { name: "t", arguments: { x: 1 } } }] } } as never);
+    expect(out[0]!.name).toBe("t");
+    expect(cfg.extractSenseCallDeltas({ message: {} } as never)).toHaveLength(0);
+  });
+});
 
-      const adapter = getLLMAdapter("ollama");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { model: "llama2" };
+describe("Ollama LLM adapter", () => {
+  beforeEach(() => {
+    resetMessageProviders();
+    resetLLMAdapters();
+    senseAdapterRegistry.clear();
+    registerOllamaAdapter();
+  });
 
-      const stream = await adapter?.chatStream(messages, senses, options);
-      expect(stream).toBeDefined();
+  it("chat 调用返回响应", async () => {
+    const llm = getLLMAdapter("ollama")!;
+    const r = await llm.chat([], [], { model: "llama" });
+    expect((r as { message: { content: string } }).message.content).toBe("Hello from Ollama");
+  });
 
-      const chunks: string[] = [];
-      for await (const chunk of stream as AsyncIterable<any>) {
-        if (chunk.message?.content) {
-          chunks.push(chunk.message.content);
-        }
-      }
+  it("chat model 缺失 → throw", async () => {
+    const llm = getLLMAdapter("ollama")!;
+    await expect(llm.chat([], [], {})).rejects.toThrow("requires model");
+  });
 
-      expect(chunks.length).toBeGreaterThan(0);
-    });
+  it("chatStream 返回可迭代", async () => {
+    const llm = getLLMAdapter("ollama")!;
+    const stream = await llm.chatStream([], [], { model: "llama" });
+    const parts: string[] = [];
+    for await (const c of stream as AsyncIterable<{ message?: { content?: string } }>) {
+      if (c.message?.content) parts.push(c.message.content);
+    }
+    expect(parts.join("")).toBe("Hello from Ollama");
+  });
 
-    it("should throw error when model missing in chatStream", async () => {
-      registerOllamaAdapter();
+  it("chatStream model 缺失 → throw", async () => {
+    const llm = getLLMAdapter("ollama")!;
+    await expect(llm.chatStream([], [], {})).rejects.toThrow("requires model");
+  });
 
-      const adapter = getLLMAdapter("ollama");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = {};
-
-      await expect(adapter?.chatStream(messages, senses, options)).rejects.toThrow(
-        "Ollama provider requires model in options"
-      );
-    });
-
-    it("should include senses in request", async () => {
-      registerOllamaAdapter();
-
-      const adapter = getLLMAdapter("ollama");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses = [{ type: "function" as const, function: { name: "test_tool", description: "Test", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] as SenseFunction[];
-      const options = { model: "llama2" };
-
-      const result = await adapter?.chat(messages, senses, options);
-      expect(result).toBeDefined();
-    });
+  it("senses 传入不抛错（warn 流式 tool_call 不可靠）", async () => {
+    const llm = getLLMAdapter("ollama")!;
+    const senses = [{ type: "function", function: { name: "t", description: "d", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] as SenseFunction[];
+    const r = await llm.chat([], senses, { model: "llama" });
+    expect(r).toBeDefined();
   });
 });

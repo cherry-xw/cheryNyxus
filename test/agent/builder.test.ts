@@ -1,249 +1,116 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+/**
+ * AgentBuilder 门面测试：build/configureRuntime/init/run 链 + 门面方法转发 + 错误守卫。
+ *
+ * 复用 flows/fixtures config + bootstrapForTests。深度 Middleware 方法测试见 middleware/index.test。
+ */
+import { describe, it, expect, beforeAll } from "vitest";
+import { AgentBuilder } from "@/agent/builder.js";
+import type { LLMResponse } from "@/core/message/adapter.js";
+import { bootstrapForTests } from "./helpers/agentHarness.js";
+import { collectChunks, hasDone, messageCreated } from "./helpers/chunkAssert.js";
 
-// Mock config.yaml 加载
-const mockConfig = {
-  global: {
-    thinking: false,
-    supervision: 0,
-    stream: true,
-    timeout: 30000,
-    maxLoopCount: 10,
-  },
-  llm: {
-    brain: {
-      ollama_client: {
-        provider: "ollama",
-        model: "ollama-model",
-        url: "http://localhost:11434",
-        key: "",
-        sense_group: "safe_senses",
-      },
-      openai_client: {
-        provider: "openai",
-        model: "gpt-4",
-        url: "https://api.openai.com/v1",
-        key: "test-key",
-        sense_group: ["safe_senses", "dangerous_senses"],
-      },
-    },
-  },
-  sense_groups: {
-    safe_senses: {
-      senses: ["read_file"],
-    },
-    dangerous_senses: {
-      senses: ["execute_command"],
-    },
-  },
-};
+describe("AgentBuilder 链式调用", () => {
+  beforeAll(async () => {
+    await bootstrapForTests();
+  });
 
-vi.mock("@/utils/config", () => ({
-  default: mockConfig,
-}));
+  it("build() 返回 this", () => {
+    const b = new AgentBuilder();
+    expect(b.build()).toBe(b);
+  });
 
-// Mock provider 注册
-vi.mock("@/agent/provider/ollama", () => ({
-  registerOllamaAdapter: vi.fn(),
-}));
+  it("configureRuntime 返回 this（build 后）", () => {
+    const b = new AgentBuilder().build();
+    expect(b.configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] })).toBe(b);
+  });
 
-vi.mock("@/agent/provider/openai", () => ({
-  registerOpenAIAdapter: vi.fn(),
-}));
+  it("init 返回 this", () => {
+    const b = new AgentBuilder().build().configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] });
+    expect(b.init("chat-1")).toBe(b);
+  });
 
-// Mock adapter 获取
-const mockLLMAdapter = {
-  chat: vi.fn(),
-  chatStream: vi.fn(),
-};
-
-const mockMessageAdapter = {
-  role: vi.fn(),
-  content: vi.fn(),
-  thinking: vi.fn(),
-  extractStreamDelta: vi.fn(),
-  extractStreamThinking: vi.fn(),
-  buildMessages: vi.fn(),
-};
-
-const mockSenseAdapter = {
-  buildSenses: vi.fn(() => []),
-  extractSenseCalls: vi.fn(),
-  assembleSenseCallChunks: vi.fn(),
-};
-
-vi.mock("@/core/llm/adapter", () => ({
-  getLLMAdapter: vi.fn(() => mockLLMAdapter),
-}));
-
-vi.mock("@/core/message/adapter", () => ({
-  getMessageAdapter: vi.fn(() => mockMessageAdapter),
-}));
-
-vi.mock("@/core/sense/adapter", () => ({
-  getSenseAdapter: vi.fn(() => mockSenseAdapter),
-}));
-
-// Mock 工具加载 - 使用函数形式避免构造函数问题
-vi.mock("@/agent/sense/index", () => {
-  const mockAdd = vi.fn();
-  return {
-    ensureCustomSensesLoaded: vi.fn(),
-    SenseManager: class MockSenseManager {
-      add = mockAdd;
-      get = vi.fn();
-      getAll = vi.fn(() => []);
-      execute = vi.fn();
-      setSupervision = vi.fn();
-      fillSupervisionDefault = vi.fn();
-      loadFromGroups = vi.fn();
-    },
-  };
+  it("链式 build().configureRuntime().init() 一气呵成", () => {
+    const b = new AgentBuilder()
+      .build()
+      .configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] })
+      .init("chat-chain");
+    expect(b).toBeInstanceOf(AgentBuilder);
+  });
 });
 
-// Mock Middleware - 使用 class 形式
-vi.mock("@/agent/middleware/index", () => {
-  class MockMiddleware {
-    send = vi.fn();
-  }
-  return {
-    default: MockMiddleware,
-    defaultHandlers: [],
-    createLoopHandler: vi.fn(() => vi.fn()),
-  };
+describe("AgentBuilder 错误守卫", () => {
+  beforeAll(async () => {
+    await bootstrapForTests();
+  });
+
+  it("未 build 调 configureRuntime → throw（合法 selection 使 resolve 通过，requireAgent 抛未构建）", () => {
+    const b = new AgentBuilder();
+    expect(() => b.configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] })).toThrow("未构建");
+  });
+
+  it("未 build 调 init → throw", () => {
+    const b = new AgentBuilder();
+    expect(() => b.init("x")).toThrow("未构建");
+  });
+
+  it("未 build 调 run → throw", () => {
+    const b = new AgentBuilder();
+    expect(() => b.run("x")).toThrow("未构建");
+  });
 });
 
-describe("AgentBuilder", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+describe("AgentBuilder 集成（门面转发 Middleware）", () => {
+  beforeAll(async () => {
+    await bootstrapForTests();
   });
 
-  describe("use() method", () => {
-    it("should throw error when client config not found", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      expect(() => builder.use("nonexistent_client")).toThrow("配置 \"nonexistent_client\" 不存在");
-    });
-
-    it("should select ollama provider", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      const result = builder.use("ollama_client");
-      expect(result).toBeInstanceOf(AgentBuilder);
-    });
-
-    it("should select openai provider", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      const result = builder.use("openai_client");
-      expect(result).toBeInstanceOf(AgentBuilder);
-    });
+  it("完整链 build→configure→init→run（content-only）→ done", async () => {
+    const b = new AgentBuilder()
+      .build()
+      .configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] })
+      .init("chat-integration");
+    const chunks = await collectChunks(b.run("集成"));
+    expect(hasDone(chunks)).toBe(true);
+    expect(messageCreated(chunks).some((m) => m.message.role === "assistant")).toBe(true);
   });
 
-  describe("setSoulId() method", () => {
-    it("should set custom soul ID", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      builder.use("ollama_client").setSoulId("custom-soul-id");
-    });
+  it("init 注入 system prompt（缺省 messages）", () => {
+    const b = new AgentBuilder()
+      .build()
+      .configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] })
+      .init("chat-sys");
+    const msgs = b.getMessages();
+    expect(msgs.some((m) => m.role === "system")).toBe(true);
   });
 
-  describe("build() method", () => {
-    it("should throw error when build() without use()", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      await expect(builder.build()).rejects.toThrow("必须先调用 use() 选择 LLM 服务");
-    });
-
-    it("should build successfully with use()", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      builder.use("ollama_client");
-
-      const middleware = await builder.build();
-      expect(middleware).toBeDefined();
-    });
+  it("init 接收自定义 history（非空时不注入 system）", () => {
+    const history: LLMResponse[] = [
+      { id: "custom-sys", role: "system", content: "custom", createdAt: 0, updateAt: 0 },
+    ];
+    const b = new AgentBuilder()
+      .build()
+      .configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] })
+      .init("chat-custom", history);
+    expect(b.getMessages()[0]!.content).toBe("custom");
   });
 
-  describe("chain calls", () => {
-    it("should support chain: use().setSoulId()", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      builder
-        .use("ollama_client")
-        .setSoulId("test-soul");
-
-      expect(builder).toBeDefined();
-    });
-
-    it("should build after chain calls", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      builder
-        .use("ollama_client")
-        .setSoulId("test-soul");
-
-      const middleware = await builder.build();
-      expect(middleware).toBeDefined();
-    });
+  it("getMessages 返回数组", () => {
+    const b = new AgentBuilder().build().configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] }).init("chat-msg");
+    expect(Array.isArray(b.getMessages())).toBe(true);
   });
 
-  describe("build() edge cases", () => {
-    it("should call loadFromGroups with correct parameters", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      builder.use("ollama_client");
-      await builder.build();
+  it("isRunning 初始 false", () => {
+    const b = new AgentBuilder().build().configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] }).init("chat-run");
+    expect(b.isRunning()).toBe(false);
+  });
 
-      // loadFromGroups 应被调用（参数验证在 senseManager.test.ts 中）
-      // 此测试仅验证流程不抛错
-    });
+  it("revokeTrailingCycle 门面（无未完成周期 → 空）", () => {
+    const b = new AgentBuilder().build().configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] }).init("chat-rev");
+    expect(b.revokeTrailingCycle()).toEqual([]);
+  });
 
-    it("should handle multiple tool groups", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const builder = new AgentBuilder();
-      builder.use("openai_client"); // 使用有多个 sense_group 的客户端
-      const middleware = await builder.build();
-      expect(middleware).toBeDefined();
-    });
-
-    it("should build with no sense_group configured", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.brain.ollama_client;
-      config.llm.brain.ollama_client = {
-        ...origClient,
-        sense_group: undefined,
-      };
-
-      const builder = new AgentBuilder();
-      builder.use("ollama_client");
-      const middleware = await builder.build();
-
-      expect(middleware).toBeDefined();
-
-      config.llm.brain.ollama_client = origClient;
-    });
-
-    it("should apply sense-level supervision override", async () => {
-      const { AgentBuilder } = await import("@/agent/builder");
-      const config = (await import("@/utils/config")).default;
-      const origClient = config.llm.brain.ollama_client;
-      config.llm.brain.ollama_client = {
-        ...origClient,
-        sense_group: ["supervised_senses"],
-      };
-      config.sense_groups!.supervised_senses = {
-        senses: ["read_file:auto"],
-      };
-
-      const builder = new AgentBuilder();
-      builder.use("ollama_client");
-      const middleware = await builder.build();
-
-      expect(middleware).toBeDefined();
-
-      config.llm.brain.ollama_client = origClient;
-      delete config.sense_groups!.supervised_senses;
-    });
+  it("abort 门面不抛错", () => {
+    const b = new AgentBuilder().build().configureRuntime({ brain: "mock_content", senseGroups: ["auto_senses"] }).init("chat-abort");
+    expect(() => b.abort()).not.toThrow();
   });
 });

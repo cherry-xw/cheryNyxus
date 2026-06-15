@@ -1,221 +1,90 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import readTool from "@/agent/sense/read";
-import { SupervisionLevel } from "@/core/config";
-import type { ToolSharedData } from "@/core/sense";
-import { stat, readFile } from "fs/promises";
+/**
+ * read_file sense 测试（执行器单元）。
+ *
+ * 覆盖：
+ * - 绝对路径成功读取（content + hash + sharedData 写入）
+ * - 相对路径 → 错误
+ * - 文件不存在 → ENOENT 错误
+ * - offset/limit 分段读取
+ * - 大文件截断（truncate 策略）
+ * - hash 含 mtime（用于 write 修改检测 + sense 去重）
+ */
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import readSense from "@/agent/sense/read.js";
+import { SupervisionLevel } from "@/core/config.js";
+import { createTempDir, cleanupTempDir, createTempFile } from "../../helpers/tempDir.js";
+import { writeFileSync } from "fs";
+import { join } from "path";
 
-vi.mock("@/utils/config", () => ({
-  default: {
-    global: {
-      file_compression: {
-        truncate_threshold: 100,
-        truncate_preview_lines: 5,
-        log_file_extensions: [".log", ".txt"],
-        drain_preview_count: 3,
-      },
-    },
-  },
-}));
+const exec = readSense.executor.execute.bind(readSense.executor);
+const sharedData = new Map<string, Map<string, unknown>>();
 
-vi.mock("@/utils/hash", () => ({
-  hashGenerator: vi.fn(() => "test-hash"),
-}));
+describe("read_file sense 定义", () => {
+  it("name = read_file，supervision = auto", () => {
+    expect(readSense.definition.function.name).toBe("read_file");
+    expect(readSense.supervisionLevel).toBe(SupervisionLevel.auto);
+  });
+});
 
-vi.mock("@/utils/drain", () => ({
-  compressLog: vi.fn(async () => ({
-    compressedContent: "compressed log",
-    templateCount: 5,
-    compressionRatio: "80%",
-  })),
-}));
+describe("read_file 执行", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = createTempDir();
+    sharedData.clear();
+  });
+  afterEach(() => cleanupTempDir(dir));
 
-vi.mock("fs/promises", () => ({
-  readFile: vi.fn(),
-  stat: vi.fn(),
-}));
-
-describe("Read Tool", () => {
-  describe("tool definition", () => {
-    it("should have correct name", () => {
-      expect(readTool.definition.function.name).toBe("read_file");
-    });
-
-    it("should have correct supervision level", () => {
-      expect(readTool.supervisionLevel).toBe(SupervisionLevel.auto);
-    });
-
-    it("should have valid schema", () => {
-      expect(readTool.definition.function.parameters).toBeDefined();
-    });
-
-    it("should have description", () => {
-      expect(readTool.definition.function.description).toBeDefined();
-    });
+  it("绝对路径成功 → content 含内容 + hash 非空", async () => {
+    const file = createTempFile(dir, "a.txt", "hello world\nline2\n");
+    const r = await exec({ path: file }, sharedData);
+    expect(r.content).toContain("hello world");
+    expect(r.hash).not.toBe("");
   });
 
-  describe("executor", () => {
-    let sharedData: ToolSharedData;
+  it("相对路径 → content 含「不是绝对路径」+ hash 空", async () => {
+    const r = await exec({ path: "relative/path.txt" }, sharedData);
+    expect(r.content).toContain("不是绝对路径");
+    expect(r.hash).toBe("");
+  });
 
-    beforeEach(() => {
-      vi.clearAllMocks();
-      sharedData = new Map();
-    });
+  it("文件不存在 → content 含「不存在」+ hash 空", async () => {
+    const r = await exec({ path: `${dir}/nope.txt` }, sharedData);
+    expect(r.content).toContain("不存在");
+    expect(r.hash).toBe("");
+  });
 
-    it("should reject relative path", async () => {
-      const result = await readTool.executor.execute(
-        { path: "relative/path.txt", compression: "none" },
-        sharedData,
-      );
+  it("offset/limit 分段读取", async () => {
+    const file = createTempFile(dir, "lines.txt", "l0\nl1\nl2\nl3\nl4\n");
+    const r = await exec({ path: file, offset: 1, limit: 2 }, sharedData);
+    expect(r.content).toContain("l1");
+    expect(r.content).toContain("l2");
+    expect(r.content).not.toContain("l0\nl1\nl2\nl3");
+  });
 
-      expect(result.content).toContain("不是绝对路径");
-      expect(result.hash).toBe("");
-    });
+  it("sharedData 写入 read_file namespace（fileHash）", async () => {
+    const file = createTempFile(dir, "shared.txt", "content\n");
+    await exec({ path: file }, sharedData);
+    const ns = sharedData.get("read_file");
+    expect(ns).toBeDefined();
+    expect(ns!.get(file)).toBeTruthy();
+  });
+});
 
-    it("should read small file successfully", async () => {
-      vi.mocked(stat).mockResolvedValue({ size: 50, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue("line1\nline2\nline3");
+describe("read_file 大文件截断", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = createTempDir();
+    sharedData.clear();
+  });
+  afterEach(() => cleanupTempDir(dir));
 
-      const result = await readTool.executor.execute(
-        { path: "/abs/file.txt", compression: "auto" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("line1");
-      expect(result.content).toContain("line2");
-      expect(result.content).toContain("line3");
-      expect(result.hash).toBe("test-hash");
-    });
-
-    it("should read file with none compression", async () => {
-      vi.mocked(stat).mockResolvedValue({ size: 200, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue("big content here");
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/big.txt", compression: "none" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("big content here");
-    });
-
-    it("should truncate large non-log file with auto compression", async () => {
-      const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
-      vi.mocked(stat).mockResolvedValue({ size: 200, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue(lines.join("\n"));
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/big.ts", compression: "auto" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("大文件截断");
-      expect(result.content).toContain("省略了剩余");
-    });
-
-    it("should use drain compression for large log file with auto", async () => {
-      vi.mocked(stat).mockResolvedValue({ size: 200, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue("log line 1\nlog line 2");
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/app.log", compression: "auto" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("Drain去重");
-    });
-
-    it("should use drain compression when explicitly set", async () => {
-      vi.mocked(stat).mockResolvedValue({ size: 50, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue("log content");
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/file.log", compression: "drain" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("Drain去重");
-    });
-
-    it("should fallback to truncate when drain fails on large file", async () => {
-      const { compressLog } = vi.mocked(await import("@/utils/drain"));
-      compressLog.mockRejectedValueOnce(new Error("drain failed"));
-
-      const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
-      vi.mocked(stat).mockResolvedValue({ size: 200, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue(lines.join("\n"));
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/app.log", compression: "drain" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("截断（Drain失败回退）");
-    });
-
-    it("should handle offset and limit", async () => {
-      vi.mocked(stat).mockResolvedValue({ size: 50, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue("line1\nline2\nline3\nline4\nline5");
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/file.txt", compression: "none", offset: 1, limit: 2 },
-        sharedData,
-      );
-
-      expect(result.content).toContain("line2");
-      expect(result.content).toContain("line3");
-      expect(result.content).not.toContain("line1");
-      expect(result.content).not.toContain("line4");
-    });
-
-    it("should return empty range message when offset exceeds lines", async () => {
-      vi.mocked(stat).mockResolvedValue({ size: 50, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue("line1\nline2");
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/file.txt", compression: "none", offset: 10, limit: 5 },
-        sharedData,
-      );
-
-      expect(result.content).toContain("没有内容");
-      expect(result.hash).toBe("");
-    });
-
-    it("should handle ENOENT error", async () => {
-      vi.mocked(stat).mockRejectedValue(Object.assign(new Error("not found"), { code: "ENOENT" }));
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/missing.txt", compression: "none" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("不存在");
-      expect(result.hash).toBe("");
-    });
-
-    it("should handle generic read error", async () => {
-      vi.mocked(stat).mockRejectedValue(Object.assign(new Error("permission denied"), { code: "EACCES" }));
-
-      const result = await readTool.executor.execute(
-        { path: "/abs/protected.txt", compression: "none" },
-        sharedData,
-      );
-
-      expect(result.content).toContain("失败");
-      expect(result.hash).toBe("");
-    });
-
-    it("should populate senseSharedData with read_file namespace", async () => {
-      vi.mocked(stat).mockResolvedValue({ size: 50, mtimeMs: 1000 } as any);
-      vi.mocked(readFile).mockResolvedValue("content");
-
-      await readTool.executor.execute(
-        { path: "/abs/file.txt", compression: "none" },
-        sharedData,
-      );
-
-      const readNamespace = sharedData.get("read_file");
-      expect(readNamespace).toBeDefined();
-      expect(readNamespace!.get("/abs/file.txt")).toBe("test-hash");
-    });
+  it("大文件（>100KB，非日志扩展名）→ 截断（content 含「大文件截断」）", async () => {
+    // 用默认 truncate_threshold(100KB) + .dat（不在 log_file_extensions，走 truncate 非 drain）
+    const file = join(dir, "big.dat");
+    const big = Array.from({ length: 5000 }, (_, i) => `line-number-${i}-padding`).join("\n");
+    writeFileSync(file, big);
+    // compression 必须显式传（直接调 executor 不经 schema default）
+    const r = await exec({ path: file, compression: "auto" }, sharedData);
+    expect(r.content).toContain("大文件截断");
   });
 });

@@ -1,42 +1,29 @@
+/**
+ * OpenAI provider 测试：adapter 配置 + LLM 调用（vi.mock OpenAI SDK）。
+ *
+ * 覆盖：
+ * - registerOpenAIAdapter 注册 message/sense/llm adapter
+ * - message adapter：content / thinking(reasoning_content) / extractStreamDelta/Thinking
+ * - buildMessages：sense→tool / assistant+senseCalls→tool_calls / simple / user / 过滤 revoked / sense replaced→replace.content
+ * - sense adapter：buildSenses(strict:true) / senseCalls(id 缺省 sense-${i}) / extractSenseCallDeltas
+ * - LLM：chat / chatStream / thinking 选项 / model|url 缺失 throw
+ */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { registerOpenAIAdapter } from "@/agent/provider/openai";
-import { getLLMAdapter } from "@/core/llm/adapter";
-import { getMessageAdapter } from "@/core/message/adapter";
-import { getSenseAdapter } from "@/core/sense/adapter";
-import type { LLMResponse } from "@/core/message";
-import type { Sense, SenseFunction, SenseCallData } from "@/core/sense";
+import { registerOpenAIAdapter } from "@/agent/provider/openai.js";
+import { getLLMAdapter } from "@/core/llm/adapter.js";
+import { getMessageAdapter } from "@/core/message/adapter.js";
+import { getSenseAdapter, senseAdapterRegistry } from "@/core/sense/adapter.js";
+import type { LLMResponse } from "@/core/message/adapter.js";
+import type { Sense, SenseFunction } from "@/core/sense/index.js";
 import type { ZodType } from "zod";
 
-// Mock OpenAI SDK
 vi.mock("openai", () => {
-  const mockCreate = vi.fn().mockImplementation(async (options) => {
+  const mockCreate = vi.fn().mockImplementation(async (options: { stream?: boolean }) => {
     if (options.stream) {
       return {
         async *[Symbol.asyncIterator]() {
           yield { choices: [{ delta: { content: "Hello" } }] };
           yield { choices: [{ delta: { content: " from OpenAI" } }] };
-          yield {
-            choices: [
-              {
-                delta: {
-                  tool_calls: [
-                    { index: 0, id: "tc-1", function: { name: "test_tool", arguments: '{"a":' } },
-                  ],
-                },
-              },
-            ],
-          };
-          yield {
-            choices: [
-              {
-                delta: {
-                  tool_calls: [
-                    { index: 0, function: { arguments: '"b"}' } },
-                  ],
-                },
-              },
-            ],
-          };
         },
       };
     }
@@ -47,501 +34,195 @@ vi.mock("openai", () => {
             role: "assistant",
             content: "Hello from OpenAI",
             reasoning_content: "test reasoning",
-            tool_calls: [
-              { id: "tc-1", type: "function", function: { name: "test_tool", arguments: "{}" } },
-            ],
+            tool_calls: [{ id: "tc-1", type: "function", function: { name: "test_tool", arguments: "{}" } }],
           },
         },
       ],
     };
   });
-
   return {
     default: class MockOpenAI {
       constructor() {
-        return {
-          chat: {
-            completions: {
-              create: mockCreate,
-            },
-          },
-        };
+        return { chat: { completions: { create: mockCreate } } };
       }
     },
   };
 });
 
-describe("OpenAI Provider", () => {
+describe("OpenAI provider 注册", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe("registerOpenAIAdapter", () => {
-    it("should register adapters", () => {
-      registerOpenAIAdapter();
+  it("注册 message/sense/llm adapter", () => {
+    registerOpenAIAdapter();
+    expect(getLLMAdapter("openai")).toBeDefined();
+    expect(getMessageAdapter("openai")).toBeDefined();
+    expect(getSenseAdapter("openai")).toBeDefined();
+  });
+});
 
-      const llmAdapter = getLLMAdapter("openai");
-      const messageAdapter = getMessageAdapter("openai");
-      const senseAdapter = getSenseAdapter("openai");
-
-      expect(llmAdapter).toBeDefined();
-      expect(messageAdapter).toBeDefined();
-      expect(senseAdapter).toBeDefined();
-    });
-
-    it("should not register twice", () => {
-      registerOpenAIAdapter();
-      registerOpenAIAdapter();
-
-      // Should only register once
-      expect(true).toBe(true);
-    });
+describe("OpenAI message adapter", () => {
+  beforeEach(() => {
+    senseAdapterRegistry.clear();
+    registerOpenAIAdapter();
   });
 
-  describe("Adapter configs", () => {
-    it("should have valid message adapter config", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      expect(config).toBeDefined();
-      expect(config?.role).toBeDefined();
-      expect(config?.content).toBeDefined();
-      expect(config?.buildMessages).toBeDefined();
-    });
-
-    it("should have valid sense adapter config", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      expect(config).toBeDefined();
-      expect(config?.buildSenses).toBeDefined();
-      expect(config?.senseCalls).toBeDefined();
-      expect(config?.extractSenseCallDeltas).toBeDefined();
-    });
-
-    it("should have valid LLM adapter", () => {
-      registerOpenAIAdapter();
-
-      const adapter = getLLMAdapter("openai");
-      expect(adapter).toBeDefined();
-      expect(adapter?.chat).toBeDefined();
-      expect(adapter?.chatStream).toBeDefined();
-    });
+  it("content 提取 / 空时返回空串", () => {
+    const cfg = getMessageAdapter("openai")!;
+    expect(cfg.content({ choices: [{ message: { content: "x" } }] } as never)).toBe("x");
+    expect(cfg.content({ choices: [{ message: {} }] } as never)).toBe("");
   });
 
-  describe("Message adapter functions", () => {
-    it("should extract content from response", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockResponse = { choices: [{ message: { content: "test content" } }] };
-
-      expect(config?.content(mockResponse)).toBe("test content");
-    });
-
-    it("should return empty string when no content", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockResponse = { choices: [{ message: {} }] };
-
-      expect(config?.content(mockResponse)).toBe("");
-    });
-
-    it("should extract reasoning_content as thinking", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockResponse = { choices: [{ message: { reasoning_content: "test reasoning" } }] };
-
-      expect(config?.thinking?.(mockResponse)).toBe("test reasoning");
-    });
-
-    it("should return undefined when no reasoning_content", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockResponse = { choices: [{ message: {} }] };
-
-      expect(config?.thinking?.(mockResponse)).toBeUndefined();
-    });
-
-    it("should extract stream delta", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockChunk = { choices: [{ delta: { content: "test delta" } }] };
-
-      expect(config?.extractStreamDelta(mockChunk)).toBe("test delta");
-    });
-
-    it("should return empty string when no stream delta", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockChunk = { choices: [{ delta: {} }] };
-
-      expect(config?.extractStreamDelta(mockChunk)).toBe("");
-    });
-
-    it("should extract stream thinking", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockChunk = { choices: [{ delta: { reasoning_content: "stream reasoning" } }] };
-
-      expect(config?.extractStreamThinking?.(mockChunk)).toBe("stream reasoning");
-    });
-
-    it("should return undefined when no stream thinking", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const mockChunk = { choices: [{ delta: {} }] };
-
-      expect(config?.extractStreamThinking?.(mockChunk)).toBeUndefined();
-    });
-
-    it("should build messages for tool role", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const history: LLMResponse[] = [
-        {
-          id: "1",
-          role: "sense",
-          content: "sense result",
-          createdAt: 0,
-          updateAt: 0,
-        },
-      ];
-
-      const messages = config?.buildMessages(history);
-      expect(messages?.length).toBe(1);
-      expect((messages as { role: string; tool_call_id?: string }[])[0]?.role).toBe("tool");
-      expect((messages as { role: string; tool_call_id?: string }[])[0]?.tool_call_id).toBe("1");
-    });
-
-    it("should build messages for assistant with senseCalls", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const history: LLMResponse[] = [
-        {
-          id: "1",
-          role: "assistant",
-          content: "",
-          senseCalls: [{ id: "tc-1", name: "test_tool", arguments: "{}" }],
-          createdAt: 0,
-          updateAt: 0,
-        },
-      ];
-
-      const messages = config?.buildMessages(history);
-      expect(messages?.length).toBe(1);
-      expect((messages as { role: string; tool_calls?: { id: string }[] }[])[0]?.role).toBe("assistant");
-      expect((messages as { role: string; tool_calls?: { id: string }[] }[])[0]?.tool_calls).toBeDefined();
-      expect((messages as { role: string; tool_calls?: { id: string }[] }[])[0]?.tool_calls?.[0]?.id).toBe("tc-1");
-    });
-
-    it("should build messages for assistant with thinking", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const history: LLMResponse[] = [
-        {
-          id: "1",
-          role: "assistant",
-          content: "response",
-          thinking: "reasoning",
-          createdAt: 0,
-          updateAt: 0,
-        },
-      ];
-
-      const messages = config?.buildMessages(history);
-      expect(messages?.length).toBe(1);
-      expect((messages as { role: string; reasoning_content?: string }[])[0]?.role).toBe("assistant");
-      expect((messages as { role: string; reasoning_content?: string }[])[0]?.reasoning_content).toBe("reasoning");
-    });
-
-    it("should build messages for simple assistant", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const history: LLMResponse[] = [
-        {
-          id: "1",
-          role: "assistant",
-          content: "simple response",
-          createdAt: 0,
-          updateAt: 0,
-        },
-      ];
-
-      const messages = config?.buildMessages(history);
-      expect(messages?.length).toBe(1);
-      expect((messages as { role: string; content: string }[])[0]?.role).toBe("assistant");
-      expect((messages as { role: string; content: string }[])[0]?.content).toBe("simple response");
-    });
-
-    it("should build messages for user role", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      const history: LLMResponse[] = [
-        {
-          id: "1",
-          role: "user",
-          content: "user message",
-          createdAt: 0,
-          updateAt: 0,
-        },
-      ];
-
-      const messages = config?.buildMessages(history);
-      expect(messages?.length).toBe(1);
-      expect((messages as { role: string; content: string }[])[0]?.role).toBe("user");
-      expect((messages as { role: string; content: string }[])[0]?.content).toBe("user message");
-    });
-
-    it("should return assistant role", () => {
-      registerOpenAIAdapter();
-
-      const config = getMessageAdapter("openai");
-      expect(config?.role({})).toBe("assistant");
-    });
+  it("thinking 提取 reasoning_content / 无则 undefined", () => {
+    const cfg = getMessageAdapter("openai")!;
+    expect(cfg.thinking?.({ choices: [{ message: { reasoning_content: "r" } }] } as never)).toBe("r");
+    expect(cfg.thinking?.({ choices: [{ message: {} }] } as never)).toBeUndefined();
   });
 
-  describe("Sense adapter functions", () => {
-    it("should build senses from definitions", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      const senses = [
-        {
-          definition: {
-            type: "function" as const,
-            function: {
-              name: "test_tool",
-              description: "Test tool",
-              parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
-              strict: true,
-            },
-          },
-          executor: { schema: {} as ZodType, execute: async () => ({ content: "", hash: "" }) },
-          supervisionLevel: undefined,
-        },
-      ] as Sense<ZodType>[];
-
-      const builtSenses = config?.buildSenses(senses);
-      expect(builtSenses?.[0]?.type).toBe("function");
-      expect(builtSenses?.[0]?.function?.name).toBe("test_tool");
-    });
-
-    it("should build sense call message", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      const senseCalls: SenseCallData[] = [{ id: "tc-1", name: "test_tool", arguments: "{}" }];
-
-      const message = config?.buildSenseCallMessage?.("content", senseCalls) as { role: string; tool_calls?: unknown };
-      expect(message?.role).toBe("assistant");
-      expect(message?.tool_calls).toBeDefined();
-    });
-
-    it("should build sense response message", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-
-      const message = config?.buildSenseResponseMessage?.("tc-1", "result") as { role: string; tool_call_id?: string };
-      expect(message?.role).toBe("tool");
-      expect(message?.tool_call_id).toBe("tc-1");
-    });
-
-    it("should extract sense calls with id", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      const response = {
-        choices: [
-          {
-            message: {
-              tool_calls: [
-                { id: "tc-1", type: "function", function: { name: "test_tool", arguments: "{}" } },
-              ],
-            },
-          },
-        ],
-      };
-
-      const senseCalls = config?.senseCalls(response);
-      expect(senseCalls?.[0]?.id).toBe("tc-1");
-      expect(senseCalls?.[0]?.name).toBe("test_tool");
-    });
-
-    it("should generate sense id when missing", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      const response = {
-        choices: [
-          {
-            message: {
-              tool_calls: [
-                { type: "function", function: { name: "test_tool", arguments: "{}" } },
-              ],
-            },
-          },
-        ],
-      };
-
-      const senseCalls = config?.senseCalls(response);
-      expect(senseCalls?.[0]?.id).toBe("sense-0");
-    });
-
-    it("should handle empty sense calls", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      const response = {
-        choices: [{ message: {} }],
-      };
-
-      const senseCalls = config?.senseCalls(response);
-      expect(senseCalls?.length).toBe(0);
-    });
-
-    it("should extract sense call deltas from stream chunk", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      const chunk = {
-        choices: [
-          {
-            delta: {
-              tool_calls: [
-                { index: 0, id: "tc-1", function: { name: "test_tool", arguments: '{"a":' } },
-              ],
-            },
-          },
-        ],
-      };
-
-      const deltas = config?.extractSenseCallDeltas(chunk);
-      expect(deltas?.length).toBe(1);
-      expect(deltas?.[0]?.name).toBe("test_tool");
-      expect(deltas?.[0]?.id).toBe("tc-1");
-    });
-
-    it("should handle empty sense call deltas", () => {
-      registerOpenAIAdapter();
-
-      const config = getSenseAdapter("openai");
-      const chunk = { choices: [{ delta: {} }] };
-
-      const deltas = config?.extractSenseCallDeltas(chunk);
-      expect(deltas?.length).toBe(0);
-    });
+  it("extractStreamDelta / Thinking", () => {
+    const cfg = getMessageAdapter("openai")!;
+    expect(cfg.extractStreamDelta({ choices: [{ delta: { content: "d" } }] } as never)).toBe("d");
+    expect(cfg.extractStreamDelta({ choices: [{ delta: {} }] } as never)).toBe("");
+    expect(cfg.extractStreamThinking?.({ choices: [{ delta: { reasoning_content: "rt" } }] } as never)).toBe("rt");
+    expect(cfg.extractStreamThinking?.({ choices: [{ delta: {} }] } as never)).toBeUndefined();
   });
 
-  describe("LLM adapter functions", () => {
-    it("should call chat with valid options", async () => {
-      registerOpenAIAdapter();
+  it("role 始终 assistant", () => {
+    expect(getMessageAdapter("openai")!.role({} as never)).toBe("assistant");
+  });
 
-      const adapter = getLLMAdapter("openai");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { model: "gpt-4", url: "https://api.openai.com/v1", key: "test-key" };
+  it("buildMessages: sense → role:tool + tool_call_id", () => {
+    const cfg = getMessageAdapter("openai")!;
+    const history: LLMResponse[] = [
+      { id: "s1", role: "sense", content: "result", createdAt: 0, updateAt: 0 },
+    ];
+    const out = cfg.buildMessages(history) as Array<{ role: string; content: string; tool_call_id: string }>;
+    expect(out[0]!.role).toBe("tool");
+    expect(out[0]!.tool_call_id).toBe("s1");
+    expect(out[0]!.content).toBe("result");
+  });
 
-      const result = await adapter?.chat(messages, senses, options);
-      expect(result).toBeDefined();
-      expect((result as any).choices?.[0]?.message?.content).toBe("Hello from OpenAI");
-    });
+  it("buildMessages: assistant+senseCalls → tool_calls", () => {
+    const cfg = getMessageAdapter("openai")!;
+    const history: LLMResponse[] = [
+      { id: "a1", role: "assistant", content: "c", senseCalls: [{ id: "tc-1", name: "t", arguments: "{}" }], createdAt: 0, updateAt: 0 },
+    ];
+    const out = cfg.buildMessages(history) as Array<{ role: string; tool_calls?: Array<{ id: string; type: string }> }>;
+    expect(out[0]!.role).toBe("assistant");
+    expect(out[0]!.tool_calls?.[0]?.id).toBe("tc-1");
+    expect(out[0]!.tool_calls?.[0]?.type).toBe("function");
+  });
 
-    it("should throw error when model missing", async () => {
-      registerOpenAIAdapter();
+  it("buildMessages: simple assistant/user 透传", () => {
+    const cfg = getMessageAdapter("openai")!;
+    const out = cfg.buildMessages([
+      { id: "a", role: "assistant", content: "hi", createdAt: 0, updateAt: 0 },
+      { id: "u", role: "user", content: "hey", createdAt: 0, updateAt: 0 },
+    ]) as Array<{ role: string; content: string }>;
+    expect(out[0]).toEqual({ role: "assistant", content: "hi" });
+    expect(out[1]).toEqual({ role: "user", content: "hey" });
+  });
 
-      const adapter = getLLMAdapter("openai");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { url: "https://api.openai.com/v1" };
+  it("buildMessages: 过滤 revoked", () => {
+    const cfg = getMessageAdapter("openai")!;
+    const out = cfg.buildMessages([
+      { id: "a", role: "assistant", content: "keep", createdAt: 0, updateAt: 0 },
+      { id: "r", role: "assistant", content: "gone", createdAt: 0, updateAt: 0, revoked: true },
+    ]);
+    expect(out.length).toBe(1);
+  });
 
-      await expect(adapter?.chat(messages, senses, options)).rejects.toThrow(
-        "OpenAI provider requires model and url in options"
-      );
-    });
+  it("buildMessages: sense 被替换 → content 用 replace.content", () => {
+    const cfg = getMessageAdapter("openai")!;
+    const out = cfg.buildMessages([
+      { id: "s", role: "sense", content: "old", replace: { state: true, by: "new", content: "REPLACED" }, createdAt: 0, updateAt: 0 },
+    ]) as Array<{ content: string }>;
+    expect(out[0]!.content).toBe("REPLACED");
+  });
+});
 
-    it("should throw error when url missing", async () => {
-      registerOpenAIAdapter();
+describe("OpenAI sense adapter", () => {
+  beforeEach(() => {
+    senseAdapterRegistry.clear();
+    registerOpenAIAdapter();
+  });
 
-      const adapter = getLLMAdapter("openai");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { model: "gpt-4" };
+  it("buildSenses 含 strict:true", () => {
+    const cfg = getSenseAdapter("openai")!;
+    const senses = [{
+      definition: { type: "function" as const, function: { name: "t", description: "d", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } },
+      executor: { schema: {} as ZodType, execute: async () => ({ content: "", hash: "" }) },
+      supervisionLevel: undefined,
+    }] as Sense<ZodType>[];
+    const built = cfg.buildSenses(senses) as SenseFunction[];
+    expect(built[0]!.function.name).toBe("t");
+    expect((built[0]!.function as unknown as { strict: boolean }).strict).toBe(true);
+  });
 
-      await expect(adapter?.chat(messages, senses, options)).rejects.toThrow(
-        "OpenAI provider requires model and url in options"
-      );
-    });
+  it("senseCalls: 提取 id/name；缺 id → sense-${index}", () => {
+    const cfg = getSenseAdapter("openai")!;
+    const withId = cfg.senseCalls({ choices: [{ message: { tool_calls: [{ id: "x", type: "function", function: { name: "t", arguments: "{}" } }] } }] } as never);
+    expect(withId[0]!.id).toBe("x");
+    const noId = cfg.senseCalls({ choices: [{ message: { tool_calls: [{ type: "function", function: { name: "t", arguments: "{}" } }] } }] } as never);
+    expect(noId[0]!.id).toBe("sense-0");
+  });
 
-    it("should call chatStream with valid options", async () => {
-      registerOpenAIAdapter();
+  it("senseCalls: 空", () => {
+    const cfg = getSenseAdapter("openai")!;
+    expect(cfg.senseCalls({ choices: [{ message: {} }] } as never)).toHaveLength(0);
+  });
 
-      const adapter = getLLMAdapter("openai");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { model: "gpt-4", url: "https://api.openai.com/v1", key: "test-key" };
+  it("extractSenseCallDeltas: stream chunk", () => {
+    const cfg = getSenseAdapter("openai")!;
+    const out = cfg.extractSenseCallDeltas({ choices: [{ delta: { tool_calls: [{ index: 0, id: "tc", function: { name: "t", arguments: '{"a":' } }] } }] } as never);
+    expect(out[0]!.name).toBe("t");
+    expect(out[0]!.id).toBe("tc");
+    expect(cfg.extractSenseCallDeltas({ choices: [{ delta: {} }] } as never)).toHaveLength(0);
+  });
+});
 
-      const stream = await adapter?.chatStream(messages, senses, options);
-      expect(stream).toBeDefined();
+describe("OpenAI LLM adapter", () => {
+  beforeEach(() => {
+    senseAdapterRegistry.clear();
+    registerOpenAIAdapter();
+  });
 
-      const chunks: string[] = [];
-      for await (const chunk of stream as AsyncIterable<any>) {
-        if (chunk.choices?.[0]?.delta?.content) {
-          chunks.push(chunk.choices[0].delta.content);
-        }
-      }
+  it("chat 调用返回响应", async () => {
+    const llm = getLLMAdapter("openai")!;
+    const r = await llm.chat([{ role: "user", content: "hi" }], [], { model: "gpt-4", url: "https://x", key: "k" });
+    expect((r as { choices: Array<{ message: { content: string } }> }).choices[0]!.message.content).toBe("Hello from OpenAI");
+  });
 
-      expect(chunks.length).toBeGreaterThan(0);
-    });
+  it("chat model 缺失 → throw", async () => {
+    const llm = getLLMAdapter("openai")!;
+    await expect(llm.chat([], [], { url: "https://x" })).rejects.toThrow("requires model and url");
+  });
 
-    it("should throw error when model missing in chatStream", async () => {
-      registerOpenAIAdapter();
+  it("chat url 缺失 → throw", async () => {
+    const llm = getLLMAdapter("openai")!;
+    await expect(llm.chat([], [], { model: "gpt-4" })).rejects.toThrow("requires model and url");
+  });
 
-      const adapter = getLLMAdapter("openai");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { url: "https://api.openai.com/v1" };
+  it("chatStream 返回可迭代 + content", async () => {
+    const llm = getLLMAdapter("openai")!;
+    const stream = await llm.chatStream([], [], { model: "gpt-4", url: "https://x" });
+    const parts: string[] = [];
+    for await (const c of stream as AsyncIterable<{ choices: Array<{ delta: { content?: string } }> }>) {
+      if (c.choices[0]?.delta.content) parts.push(c.choices[0].delta.content);
+    }
+    expect(parts.join("")).toBe("Hello from OpenAI");
+  });
 
-      await expect(adapter?.chatStream(messages, senses, options)).rejects.toThrow(
-        "OpenAI provider requires model and url in options"
-      );
-    });
+  it("chatStream model 缺失 → throw", async () => {
+    const llm = getLLMAdapter("openai")!;
+    await expect(llm.chatStream([], [], { url: "https://x" })).rejects.toThrow("requires model and url");
+  });
 
-    it("should include thinking option", async () => {
-      registerOpenAIAdapter();
-
-      const adapter = getLLMAdapter("openai");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses: SenseFunction[] = [];
-      const options = { model: "gpt-4", url: "https://api.openai.com/v1", thinking: true };
-
-      const result = await adapter?.chat(messages, senses, options);
-      expect(result).toBeDefined();
-    });
-
-    it("should include senses in request", async () => {
-      registerOpenAIAdapter();
-
-      const adapter = getLLMAdapter("openai");
-      const messages = [{ role: "user", content: "Hello" }];
-      const senses = [{ type: "function" as const, function: { name: "test_tool", description: "Test", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] as SenseFunction[];
-      const options = { model: "gpt-4", url: "https://api.openai.com/v1" };
-
-      const result = await adapter?.chat(messages, senses, options);
-      expect(result).toBeDefined();
-    });
+  it("thinking 选项 + senses 传入不抛错", async () => {
+    const llm = getLLMAdapter("openai")!;
+    const senses = [{ type: "function", function: { name: "t", description: "d", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] as SenseFunction[];
+    const r = await llm.chat([], senses, { model: "gpt-4", url: "https://x", thinking: true });
+    expect(r).toBeDefined();
   });
 });
