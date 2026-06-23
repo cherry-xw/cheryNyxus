@@ -29,12 +29,28 @@ function postBuildFix(): Plugin {
         copyFileSync(resolve(swcDir, file), resolve(swcTargetDir, file));
       }
 
-      // ===== native addon 复制到 dist/lib/ =====
+      // ===== native addon 复制到 dist/lib/（带 EBUSY 重试，应对 Windows 文件锁定）=====
       const nodeFiles = readdirSync(distDir).filter((f) => f.endsWith(".node"));
       mkdirSync(libDir, { recursive: true });
       for (const f of nodeFiles) {
-        copyFileSync(resolve(distDir, f), resolve(libDir, f));
-        rmSync(resolve(distDir, f));
+        const src = resolve(distDir, f);
+        const dst = resolve(libDir, f);
+        let ok = false;
+        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+          try {
+            copyFileSync(src, dst);
+            rmSync(src);
+            ok = true;
+          } catch (err: any) {
+            if (err?.code === "EBUSY" && attempt < 2) {
+              // Windows 文件锁定，同步等待后重试
+              const end = Date.now() + 500;
+              while (Date.now() < end) { /* busy-wait */ }
+            } else {
+              throw err;
+            }
+          }
+        }
       }
 
       // ===== web 整目录复制（ESM 模块化前端，多文件）=====

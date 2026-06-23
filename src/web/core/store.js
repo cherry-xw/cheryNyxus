@@ -12,7 +12,7 @@ import { uuid } from "./uuid.js";
 // ========== state ==========
 function initialState() {
   return {
-    connection: { status: "disconnected", wsUrl: "ws://localhost:8080", error: null },
+    connection: { status: "disconnected", wsUrl: "", error: null }, // wsUrl 由 fetchDefaultWsUrl 填充
     brains: [],          // [{name, provider, model, thinking?}]
     senseGroups: [],     // [{name, senses:["read_file","execute_command:auto"]}]
     selection: { brain: null, senseGroups: [] },

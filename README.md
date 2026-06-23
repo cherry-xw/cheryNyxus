@@ -20,7 +20,7 @@ cheryClaw 采用拟人化隐喻设计：
 
 | 指令 | 功能 |
 |------|------|
-| `yarn dev` | 开发模式，热重载，监听 `ws://localhost:8080` |
+| `yarn dev` | 开发模式，热重载，监听 `ws://localhost:8182` |
 | `yarn build` | 构建产物到 `dist/` |
 | `yarn start` | 运行构建产物 |
 | `yarn compile:senses` | 编译 `.chery/senses/` 下的外部感官 |
@@ -32,8 +32,8 @@ cheryClaw 采用拟人化隐喻设计：
 
 | 文件 | 说明 |
 |------|------|
-| `.env` | 环境变量：`WS_PORT`、`WEB_PORT`、`OLLAMA_HOST`、`OPENAI_API_KEY`、`CHERY_DIR`、`CHERY_TRANSPORT` |
-| [.chery/config.yaml](.chery/config.yaml) | LLM 客户端配置、Sense 分组、全局配置（thinking/supervision/stream） |
+| `.env` | 环境变量：API Key（`OLLAMA_HOST`、`OPENAI_API_KEY` 等） |
+| [.chery/config.yaml](.chery/config.yaml) | LLM 客户端配置、Sense 分组、全局配置、服务端口（`server.port`/`server.web_port`/`server.transport`） |
 | [.chery/system.md](.chery/system.md) | 系统 prompt 模板 |
 | [.chery/skills/](.chery/skills/) | 技能定义目录，每个技能包含 `SKILL.md` |
 | [.chery/senses/](.chery/senses/) | 外部自定义感官目录，`.ts` 文件自动编译注入 |

@@ -2,7 +2,7 @@
 
 > [← 返回 README](../README.md) ｜ [交互流程示例](interaction.md) ｜ [数据库架构](database.md)
 
-**连接地址：** `ws://localhost:8080`（端口通过 `WS_PORT` 环境变量配置）
+**连接地址：** `ws://localhost:8182`（端口通过 `.chery/config.yaml` 的 `server.port` 配置）
 
 **消息模式：** RPC 模式，四种消息类型：
 
@@ -13,7 +13,7 @@
 | Chunk | S→C | 流式增量 |
 | Notification | S→C | 服务端推送 |
 
-**传输格式**（由 `CHERY_TRANSPORT` 环境变量决定，默认 `binary`）：
+**传输格式**（由 `.chery/config.yaml` 的 `server.transport` 配置，默认 `binary`）：
 
 | 模式 | stream chunk（带 seq） | staged chunk / notification |
 |------|------------------------|------------------------------|
@@ -120,6 +120,32 @@ interface Notification {
 | `chat.send` | 发送聊天消息（仅 chatId + prompt；末尾有 pending 时自动撤回并发 staged.reverse） | 是 |
 | `chat.resume` | 续接（无 prompt，恢复执行 pending sense 或继续 loop） | 是 |
 | `sense.approval` | 感官审批（accept/reject） | 否 |
+
+### HTTP API
+
+Web 静态服务（端口通过 `.chery/config.yaml` 的 `server.web_port` 配置，默认 `8183`）除托管前端文件外，提供以下 HTTP 端点：
+
+#### `GET /api/config`
+
+返回可公开的服务配置，供前端自动构建 WebSocket 连接地址。
+
+**响应示例：**
+
+```json
+{
+  "wsPort": 8182,
+  "webPort": 8183,
+  "transport": "binary"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `wsPort` | number | WebSocket 服务端口 |
+| `webPort` | number | Web 静态服务端口 |
+| `transport` | string | 传输格式：`binary` / `json` |
+
+> 前端通过 `fetch('/api/config')` 获取配置，结合 `window.location.hostname` 自动构建 `ws://` 连接地址，无需硬编码端口。
 
 ### 错误处理
 

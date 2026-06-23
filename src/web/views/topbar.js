@@ -29,7 +29,10 @@ export function mountTopbar(container) {
     h("select", { class: "select", id: "senseSel", on: { change: onSenseChange } })
   );
 
-  el("#wsUrl").value = "ws://localhost:8080";
+  // 自动获取服务端配置，构建默认 WebSocket URL
+  fetchDefaultWsUrl().then(url => {
+    if (url) el("#wsUrl").value = url;
+  });
 
   function onConnect() { actions.connect(el("#wsUrl").value); }
   function onBrainChange(e) { actions.setBrain(e.target.value); }
@@ -117,4 +120,22 @@ function buildSenseCard(g) {
 function parseSense(s) {
   const [name, level] = s.split(":");
   return { name, level: level || null };
+}
+
+/**
+ * 从服务端获取配置，构建默认 WebSocket URL。
+ * 使用浏览器当前访问的 hostname + 服务端配置的 wsPort。
+ * 失败时返回 null，保留输入框空值等待用户填写。
+ */
+async function fetchDefaultWsUrl() {
+  try {
+    const res = await fetch("/api/config");
+    if (!res.ok) return null;
+    const cfg = await res.json();
+    const host = window.location.hostname || "localhost";
+    const port = cfg.wsPort || 8080;
+    return `ws://${host}:${port}`;
+  } catch {
+    return null;
+  }
 }
