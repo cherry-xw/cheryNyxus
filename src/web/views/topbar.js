@@ -22,6 +22,7 @@ export function mountTopbar(container) {
     h("select", { class: "select", id: "chatSel", on: { change: onChatChange } }),
     h("button", { class: "btn", id: "btnNew", on: { click: () => actions.newChat() } }, "NEW"),
     h("button", { class: "btn", id: "btnDelete", on: { click: () => actions.deleteChat() } }, "DELETE"),
+    h("button", { class: "btn", id: "btnProc", on: { click: () => actions.toggleProcessPanel() } }, "PROC"),
     h("span", { class: "label" }, "BRAIN"),
     h("select", { class: "select", id: "brainSel", on: { change: onBrainChange } }),
     h("span", { class: "label" }, "SENSE"),
@@ -62,6 +63,12 @@ export function mountTopbar(container) {
     // NEW 需先选 brain + senseGroups；DELETE 需先选中 chat
     el("#btnNew").disabled = !s.selection.brain || s.selection.senseGroups.length === 0;
     el("#btnDelete").disabled = !s.currentChatId;
+
+    // PROC：显示挂起进程数；需选中 chat；面板打开时 active 高亮
+    const procCount = s.bashProcesses.length;
+    el("#btnProc").textContent = procCount > 0 ? `PROC (${procCount})` : "PROC";
+    el("#btnProc").disabled = !s.currentChatId;
+    el("#btnProc").classList.toggle("active", !!s.ui.processPanelOpen);
   }
 }
 

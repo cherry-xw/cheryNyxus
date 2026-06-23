@@ -7,6 +7,8 @@
  * 不碰 ws/rpc（传输由 actions 编排）。每次变更 emit() 通知 view，view 自行 diff patch。
  */
 
+import { uuid } from "./uuid.js";
+
 // ========== state ==========
 function initialState() {
   return {
@@ -23,8 +25,9 @@ function initialState() {
     activeStreams: new Map(), // rid → { block }
     pendingUserInputs: [],    // 待消费用户输入队列（sendMessage 入队，consumed 按 count 顺序 pop 成 user 块）
     approvals: [],       // 审批 tab
+    bashProcesses: [],   // 挂起的 bash 子进程（bash.list 返回，含 pid/command/description/startedAt/killed）
     log: [],             // 原始帧日志
-    ui: { approvalActiveTab: null },
+    ui: { approvalActiveTab: null, processPanelOpen: false },
   };
 }
 
@@ -41,7 +44,7 @@ function emit() { target.dispatchEvent(new CustomEvent("change")); }
 // ========== block 工厂 ==========
 function _newAssistant(rid) {
   return {
-    id: crypto.randomUUID(), kind: "assistant", rid,
+    id: uuid(), kind: "assistant", rid,
     thinking: { text: "", done: false },
     content: { text: "", done: false },
     senseCalls: [],
@@ -49,7 +52,7 @@ function _newAssistant(rid) {
   };
 }
 function _newBlock(kind, rid, extra = {}) {
-  return { id: crypto.randomUUID(), kind, rid, finished: true, revoked: false, ...extra };
+  return { id: uuid(), kind, rid, finished: true, revoked: false, ...extra };
 }
 
 // ========== live 流 ==========
@@ -307,7 +310,7 @@ function handleReverse(rid, messageIds) {
   for (const b of revoked) b.revoked = true;
   const insertAt = blocks.indexOf(revoked[0]);
   blocks.splice(insertAt, 0, {
-    id: crypto.randomUUID(), kind: "reverse-fold", rid,
+    id: uuid(), kind: "reverse-fold", rid,
     revokedMessageIds: messageIds, count: revoked.length,
     revokedBlocks: revoked.map((b) => b.id), expanded: false,
   });
@@ -355,6 +358,8 @@ export const store = {
     state.currentChatSent = false;
     state.currentChatCanResume = false;
     state.pendingUserInputs = [];
+    state.bashProcesses = [];        // 切 chat：挂起进程属另一 chat，清空待重新打开刷新
+    state.ui.processPanelOpen = false;
     pendingSenseResults.clear();
     replayCycleThink = "";
     emit();
@@ -474,6 +479,10 @@ export const store = {
     const b = state.blocks.find((x) => x.id === blockId);
     if (b && b.kind === "reverse-fold") { b.expanded = !b.expanded; emit(); }
   },
+
+  // —— Bash 进程管理 ——
+  setBashProcesses(list) { state.bashProcesses = Array.isArray(list) ? list : []; emit(); },
+  toggleProcessPanel() { state.ui.processPanelOpen = !state.ui.processPanelOpen; emit(); },
 
   // —— 日志 ——
   appendLog(dir, msg) {

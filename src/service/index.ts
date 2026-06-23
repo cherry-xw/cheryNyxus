@@ -5,6 +5,7 @@ import { registerSenseHandlers } from "./sense/list.js";
 import { registerRuntimeSetHandlers } from "./runtime/set.js";
 import { registerChatHandlers } from "./chat/send.js";
 import { registerChatManageHandlers } from "./chat/handler.js";
+import { registerBashHandlers } from "./bash/handler.js";
 
 export { createWebSocketServer } from "./websocket/index.js";
 export { createRouter } from "./message/router.js";
@@ -22,6 +23,7 @@ export function startService(port: number): ReturnType<typeof createWebSocketSer
   registerRuntimeSetHandlers(router);
   registerChatHandlers(router);
   registerChatManageHandlers(router);
+  registerBashHandlers(router);
 
   // 创建 WebSocket 服务器
   const wss = createWebSocketServer({ port, router });

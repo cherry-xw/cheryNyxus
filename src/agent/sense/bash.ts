@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { spawn } from "child_process";
 import { writeFileSync } from "fs";
-import { sense, type SenseResult } from "@/core/sense";
+import { sense, type SenseResult, type SenseSharedData } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
 import config from "@/utils/config";
 import { logger, type BashLogInfo } from "@/utils/logger/index.js";
+import { getSenseCtxChatId, registerBashProcess, unregisterBashProcess } from "./processRegistry.js";
 
 const DEFAULT_TIMEOUT = config.global.sense_execute_timeout ?? 30000;
 const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24;
@@ -64,7 +65,7 @@ export default sense(
   "execute_command",
   `执行 shell 命令（Unix: bash/sh，Windows: cmd/powershell）。如需切换工作目录，请在命令中使用 "cd <目录> && ..." 格式`,
   BashSchema,
-  async (input): Promise<SenseResult> => {
+  async (input, senseSharedData): Promise<SenseResult> => {
     const { command, description } = input;
 
     const startTime = Date.now();
@@ -72,15 +73,23 @@ export default sense(
 
     logger.tools.cleanOldBashLogs(LOG_RETENTION_HOURS);
 
+    // chatId 由 tool.ts doExecuteSense 注入 sharedData（executor 签名无 chatId）；
+    // 测试场景（空 Map）为 undefined → register 跳过，执行不受影响
+    const chatId = getSenseCtxChatId(senseSharedData);
+
     return new Promise((resolve) => {
       let timedOut = false;
       let outputBuffer = ''; // 实时累积 stdout/stderr
 
       const proc = spawn(command, [], {
         shell: true,
+        detached: true, // 新会话/进程组组长，供 processRegistry 用 process.kill(-pid) 杀整个进程组
       });
 
       const processPid = proc.pid!;
+
+      // 注册到进程表（挂起保留）：运行结束/杀死均由下方 close handler unregister 清除
+      registerBashProcess(chatId, proc, { command, description, startedAt: startTime });
 
       proc.stdout.on('data', (data) => {
         outputBuffer += data.toString();
@@ -123,6 +132,8 @@ export default sense(
 
       proc.on('close', (code) => {
         clearTimeout(timer);
+        // 运行结束清除 / 杀死后清除：kill 亦触发 close，统一在此注销（超时挂起项此时才清除）
+        unregisterBashProcess(chatId, processPid);
         if (!timedOut) {
           const endTime = Date.now();
           const duration = endTime - startTime;
@@ -143,6 +154,7 @@ export default sense(
 
       proc.on('error', (err) => {
         clearTimeout(timer);
+        unregisterBashProcess(chatId, processPid);
         if (!timedOut) {
           const endTime = Date.now();
           const duration = endTime - startTime;

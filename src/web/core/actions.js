@@ -220,6 +220,36 @@ export const actions = {
   dismissResolved() { store.dismissResolved(); },
   selectApprovalTab(approvalId) { store.selectApprovalTab(approvalId); },
 
+  // —— Bash 进程管理 ——
+  // 挂起（超时转后台）的 execute_command 子进程：列出 + 显式杀死整个进程组。
+  // 面板打开时自动刷新；kill 成功后刷新（注册表已清，进程从列表消失）。
+  toggleProcessPanel() {
+    store.toggleProcessPanel();
+    if (store.get().ui.processPanelOpen) this.listBashProcesses();
+  },
+
+  async listBashProcesses() {
+    if (!rpc) return;
+    const { currentChatId } = store.get();
+    if (!currentChatId) { store.setBashProcesses([]); return; }
+    try {
+      const r = await rpc.request("bash.list", { chatId: currentChatId });
+      if (r.success) store.setBashProcesses(r.data?.processes || []);
+      else store.pushError(r.error?.message || "bash.list failed");
+    } catch (e) { store.pushError(e.message); }
+  },
+
+  async killBashProcess(pid) {
+    if (!rpc) return;
+    const { currentChatId } = store.get();
+    if (!currentChatId) return;
+    try {
+      const r = await rpc.request("bash.kill", { chatId: currentChatId, pid });
+      if (r.success) await this.listBashProcesses();
+      else store.pushError(r.error?.message || "bash.kill failed");
+    } catch (e) { store.pushError(e.message); }
+  },
+
   // —— 撤回折叠 ——
   toggleReverse(blockId) { store.toggleReverse(blockId); },
 

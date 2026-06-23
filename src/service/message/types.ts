@@ -69,7 +69,9 @@ export type RequestData =
   | ChatSendRequestData
   | ChatResumeRequestData
   | SenseApprovalRequestData
-  | ChatAbortRequestData;
+  | ChatAbortRequestData
+  | BashKillRequestData
+  | BashListRequestData;
 
 export interface BrainListRequestData {}
 
@@ -116,6 +118,15 @@ export interface ChatAbortRequestData {
   chatId: string;
 }
 
+export interface BashKillRequestData {
+  chatId: string;
+  pid: number;
+}
+
+export interface BashListRequestData {
+  chatId: string;
+}
+
 // ========== Response Data ==========
 
 export type ResponseData =
@@ -129,7 +140,9 @@ export type ResponseData =
   | ChatSendResponseData
   | ChatResumeResponseData
   | SenseApprovalResponseData
-  | ChatAbortResponseData;
+  | ChatAbortResponseData
+  | BashKillResponseData
+  | BashListResponseData;
 
 export interface BrainListResponseData {
   brains: Array<{
@@ -193,6 +206,31 @@ export interface SenseApprovalResponseData {
 
 export interface ChatAbortResponseData {
   chatId: string;
+}
+
+/**
+ * 挂起 bash 进程信息（bash.list 返回）。
+ * 结构对齐 agent/sense/processRegistry.ts BashProcessEntry（service 层不反向依赖 agent，独立定义）。
+ */
+export interface BashProcessInfo {
+  pid: number;
+  command: string;
+  description: string;
+  startedAt: number;
+  /** 是否已被显式 kill（区分自然结束）。 */
+  killed: boolean;
+}
+
+export interface BashKillResponseData {
+  chatId: string;
+  pid: number;
+  /** 是否命中注册表并发送了 kill 信号（false = 该 pid 已不在挂起表中）。 */
+  killed: boolean;
+}
+
+export interface BashListResponseData {
+  chatId: string;
+  processes: BashProcessInfo[];
 }
 
 // ========== Chunk Data ==========
@@ -313,6 +351,10 @@ export const Method = {
   SENSE_APPROVAL: "sense.approval",
   // Chat 中止（切换 chat：清内存 + 退出挂起 generator，不动 DB，pending 保留供下次重新审核）
   CHAT_ABORT: "chat.abort",
+
+  // Bash 进程管理（挂起子进程的查询 / 显式杀死）
+  BASH_LIST: "bash.list",
+  BASH_KILL: "bash.kill",
 } as const;
 
 // ========== 错误码常量 ==========

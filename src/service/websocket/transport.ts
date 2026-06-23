@@ -1,5 +1,6 @@
 import type { Chunk, Notification } from "../message/types.js";
 import { safeJsonParse } from "@/utils/json.js";
+import config from "@/utils/config.js";
 
 /**
  * 二进制帧类型
@@ -12,7 +13,7 @@ const FRAME_TYPE = {
 /**
  * 传输层 - 编码/解码消息
  *
- * 通过 CHERY_TRANSPORT 环境变量控制编码模式：
+ * 通过 config.yaml 的 server.transport 控制编码模式：
  * - "binary"（默认）：Chunk/Notification 编码为二进制帧，低开销
  * - "json"：所有消息编码为 JSON 字符串，便于调试
  */
@@ -21,7 +22,7 @@ export class Transport {
 
   private get binary(): boolean {
     if (this._binary === undefined) {
-      this._binary = (process.env.CHERY_TRANSPORT ?? "binary") === "binary";
+      this._binary = config.server.transport === "binary";
     }
     return this._binary;
   }

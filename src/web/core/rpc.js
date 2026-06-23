@@ -9,6 +9,8 @@
  * 不直接碰 store——通过 onChunk/onNotification/onSend/onRecv 回调注入（actions 绑定）。
  */
 
+import { uuid } from "./uuid.js";
+
 export function createRpc(conn, { onChunk, onNotification, onSend, onRecv } = {}) {
   const pending = new Map(); // requestId → { resolve, reject, method, timer }
 
@@ -38,7 +40,7 @@ export function createRpc(conn, { onChunk, onNotification, onSend, onRecv } = {}
   /** 普通请求：等 Response，带超时 */
   function request(method, params, { timeout = 30000 } = {}) {
     return new Promise((resolve, reject) => {
-      const id = crypto.randomUUID();
+      const id = uuid();
       const entry = { resolve, reject, method, timer: null };
       if (timeout > 0) {
         entry.timer = setTimeout(() => {
@@ -52,7 +54,7 @@ export function createRpc(conn, { onChunk, onNotification, onSend, onRecv } = {}
 
   /** 流式请求（chat.send/resume）：send 后不 await，返回 requestId 供 chunk 路由 */
   function stream(method, params) {
-    const id = crypto.randomUUID();
+    const id = uuid();
     emitSend({ id, kind: "request", method, params });
     return id;
   }

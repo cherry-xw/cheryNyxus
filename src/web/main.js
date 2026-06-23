@@ -11,6 +11,7 @@ import { mountApprovalTabs } from "@web/views/approval-tabs.js";
 import { mountInputBar } from "@web/views/input-bar.js";
 import { mountChunkPanel } from "@web/views/chunk-panel.js";
 import { mountMinimap } from "@web/views/minimap.js";
+import { mountProcessPanel } from "@web/views/process-panel.js";
 
 const app = el("#app");
 
@@ -24,8 +25,9 @@ const inputBar = h("div");
 const chatZone = h("div", { class: "chat-zone" }, chatScrollWrap, approvalZone, inputBar);
 const chunkPanel = h("div");
 const main = h("div", { class: "main" }, chatZone, chunkPanel);
+const processPanel = h("div", { class: "process-panel-wrap" }); // 浮层（fixed），toggle 显隐
 
-app.append(topbar, main);
+app.append(topbar, main, processPanel);
 
 mountTopbar(topbar);
 mountChatPanel(chatMessages);
@@ -33,5 +35,6 @@ mountMinimap(minimap, chatMessages);
 mountApprovalTabs(approvalZone);
 mountInputBar(inputBar);
 mountChunkPanel(chunkPanel);
+mountProcessPanel(processPanel);
 
 // 不自动连接：用户填地址后手动 CONNECT（连接成功后自动拉 brain/sense/chat 列表）

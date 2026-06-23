@@ -11,8 +11,8 @@ import config from "@/utils/config.js";
 // 初始化 Logger
 initLogger(config.global.logger);
 
-const WS_PORT = parseInt(process.env.WS_PORT || "8080", 10);
-const WEB_PORT = parseInt(process.env.WEB_PORT || "8081", 10);
+const WS_PORT = config.server.port;
+const WEB_PORT = config.server.web_port;
 
 async function main(): Promise<void> {
   const subcommand = process.argv[2];

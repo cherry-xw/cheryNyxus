@@ -90,3 +90,9 @@ global:
       - .out
       - .err
     drain_preview_count: 3 # Drain算法每个模板显示的实例数
+
+# 服务配置（端口 + 传输格式，从环境变量迁移至此）
+server:
+  port: 8182 # WebSocket 服务端口（原 WS_PORT）
+  web_port: 8183 # Web 测试页面端口（原 WEB_PORT）
+  transport: binary # 传输格式：binary（二进制帧，低开销）/ json（JSON 字符串，便于调试）

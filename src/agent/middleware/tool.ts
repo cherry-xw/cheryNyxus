@@ -3,6 +3,7 @@ import type { ReplaceInfo } from "@/core/message/adapter";
 import { safeJsonParse } from "@/utils/json.js";
 import { SupervisionLevel } from "@/core/config";
 import { createApproval } from "@/core/sense";
+import { setSenseCtxChatId } from "@/agent/sense/processRegistry.js";
 import { logger } from "@/utils/logger/index.js";
 
 /**
@@ -298,6 +299,9 @@ async function doExecuteSense(
     if (!senseEntry) {
       return { content: `Error: Sense "${name}" not found`, replaced };
     }
+    // 注入 chatId 到 sharedData 保留 namespace，供 bash 等需要按 chatId 归属的 sense 读取
+    // （executor 签名固定 (args, sharedData) 无 chatId；改全局签名成本过高且仅 bash 需要）
+    setSenseCtxChatId(ctx.soul.senseSharedData, ctx.soul.chatId);
     const result = await senseEntry.execute(args, ctx.soul.senseSharedData);
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。

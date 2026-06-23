@@ -263,3 +263,34 @@
 /* LOAD：send 位替代主操作，琥珀描边强调（区别于填充态 SEND） */
 .btn-load { border-color: var(--ph-amber); color: var(--ph-amber); }
 .resume-hint { font-size: 10px; color: var(--ph-cyan); letter-spacing: 1px; }
+
+/* === 进程管理浮层（bash 挂起子进程） === */
+/* 浮层 fixed 定位叠于主区右上，显隐由 process-panel.js 据 processPanelOpen 控制 display */
+.process-panel-wrap {
+  position: fixed; top: 56px; right: 16px; z-index: 50;
+  width: 460px; max-width: calc(100vw - 32px); max-height: 60vh;
+}
+.process-panel {
+  background: var(--ph-bg-panel); border: 1px solid var(--ph-sense-dim);
+  box-shadow: 0 0 12px var(--ph-sense-faint);
+  display: flex; flex-direction: column; max-height: 60vh;
+}
+.pp-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--ph-border); }
+.pp-title { color: var(--ph-sense); letter-spacing: 1px; font-size: 11px; }
+.pp-refresh { margin-left: auto; }
+.pp-list { overflow-y: auto; }
+.pp-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-bottom: 1px solid var(--ph-border); font-size: 11px;
+}
+.pp-row:last-child { border-bottom: none; }
+.pp-pid { color: var(--ph-amber); min-width: 56px; }
+.pp-cmd { flex: 1; color: var(--ph-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-time { color: var(--ph-dim); font-size: 10px; }
+.pp-empty { padding: 20px; text-align: center; color: var(--ph-dim); font-size: 11px; }
+/* KILL 按钮：磷光红 */
+.btn-danger { border-color: var(--ph-error); color: var(--ph-error); }
+.btn-danger:hover { background: var(--ph-error); color: var(--ph-bg); box-shadow: var(--glow-error); }
+.pp-kill { flex-shrink: 0; }
+/* topbar PROC 按钮 active 态（面板打开） */
+#btnProc.active { border-color: var(--ph-sense); color: var(--ph-sense); box-shadow: 0 0 4px var(--ph-sense-faint); }

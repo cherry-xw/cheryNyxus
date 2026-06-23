@@ -104,6 +104,15 @@ interface GlobalConfig {
 }
 
 /**
+ * 服务配置（端口 + 传输格式，从环境变量迁移至此）
+ */
+interface ServerConfig {
+  port: number; // WebSocket 服务端口
+  web_port: number; // Web 测试页面端口
+  transport: "binary" | "json"; // 传输格式：binary（二进制帧）/ json（JSON 字符串）
+}
+
+/**
  * 扩展全局配置（包含自动补全的路径）
  */
 interface ExtendedGlobalConfig extends GlobalConfig {
@@ -117,6 +126,7 @@ interface Config {
   global: ExtendedGlobalConfig;
   llm: LLMConfig;
   sense_groups?: Record<string, string[]>; // sense分组配置
+  server: ServerConfig; // 服务配置（端口 + 传输格式，loadConfig 兜底默认值）
 }
 
 const missingEnvVars: string[] = [];
@@ -181,6 +191,14 @@ function loadConfig(): Config {
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
   config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
   config.global.db_dir = path.join(cheryDir, ".chery", "db");
+
+  // 服务配置默认值兜底（端口 + 传输格式，从环境变量迁移到 config.yaml）
+  const serverRaw = config.server as Partial<ServerConfig> | undefined;
+  config.server = {
+    port: serverRaw?.port ?? 8080,
+    web_port: serverRaw?.web_port ?? 8081,
+    transport: serverRaw?.transport === "json" ? "json" : "binary",
+  };
 
   // 添加环境变量缺失警告
   if (!process.env.CHERY_DIR) {
