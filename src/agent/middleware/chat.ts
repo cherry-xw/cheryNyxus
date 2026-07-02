@@ -34,6 +34,7 @@ export async function* chatMiddleware(
     url: ctx.runtime.brain.url,
     key: ctx.runtime.brain.key,
     ...(ctx.runtime.brain.thinking && { thinking: true }),
+    ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
   };
 
   // ========== AI 输入参数日志 ==========

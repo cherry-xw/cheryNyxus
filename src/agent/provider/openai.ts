@@ -11,6 +11,18 @@ import type {
 } from "openai/resources/chat/completions";
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
+import { getRateLimiter } from "@/utils/rateLimiter.js";
+
+/**
+ * RPM 限流：在发起 LLM 请求前按 (url, key) 滑动窗口节流。
+ * rpm 未配置 / 非正数 / 无 url 时跳过（不限流）。
+ */
+async function acquireRpm(options?: LLMOptions): Promise<void> {
+  const rpm = options?.rpm;
+  const url = options?.url;
+  if (!rpm || rpm <= 0 || !url) return;
+  await getRateLimiter(url, options.key, rpm).acquire();
+}
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -123,6 +135,7 @@ const openaiLLMAdapter: LLMAdapter = {
     if (!model || !url) {
       throw new Error("OpenAI provider requires model and url in options");
     }
+    await acquireRpm(options);
     const client = new OpenAI({
       baseURL: url,
       apiKey: key ?? "",
@@ -147,6 +160,7 @@ const openaiLLMAdapter: LLMAdapter = {
     if (!model || !url) {
       throw new Error("OpenAI provider requires model and url in options");
     }
+    await acquireRpm(options);
     const client = new OpenAI({
       baseURL: url,
       apiKey: key ?? "",

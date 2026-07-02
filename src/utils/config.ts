@@ -60,6 +60,8 @@ interface BrainConfig {
   thinking?: boolean;
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string;
+  /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
+  rpm?: number;
   /** mock provider 专用：脚本化响应 */
   mock?: MockConfig;
 }

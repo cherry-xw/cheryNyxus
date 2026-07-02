@@ -9,6 +9,8 @@ export interface LLMOptions {
   url?: string;
   key?: string;
   thinking?: boolean;
+  /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
+  rpm?: number;
 }
 
 /**

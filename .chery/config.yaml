@@ -34,6 +34,12 @@ llm:
       key: $ALI_API_KEY
       thinking: true
       provider: openai
+    shangtang:
+      url: https://yz.xcherry.top:11411/v1
+      model: cglm-5.2 # csensenova-6.7-flash-lite
+      key: $SHANG_TANG_API_KE
+      rpm: 2
+      provider: openai
     # mock provider：脚本化响应，离线测试 send/resume/revoke/loop 流程（无需真实 LLM）
     # 接线：chat.create {brain:"mock_test", senseGroups:[...]}
     # 脚本内容（repeat + script[]）放独立文件 .chery/<file>，config 只留开关 + 路径

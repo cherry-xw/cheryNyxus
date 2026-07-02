@@ -3,8 +3,9 @@
  * 填充 container（.approval-zone）。approvals 非空时 .active 显示。
  *
  * 面板 = 终端中断警报：抬头指示灯 + 命令栏（计数 + DISMISS RESOLVED 批量清退）
- *        + tab 行（已决 tab hover 显 ✕ 单独清退，pending 锁定待 accept/reject）+ body。
- * 已决结果保留可复查，直至显式清退（✕ / DISMISS RESOLVED / 单条 DISMISS）。
+ *        + tab 行（右侧动作区始终占位：pending=闪烁警报点待决断，已决=常驻 × 清退）+ body。
+ *        有 pending 时整框 CRT 呼吸警报（layout.css ap-alarm）；全已决回静态冷静。
+ * 已决结果保留可复查，直至显式清退（× / DISMISS RESOLVED / 单条 DISMISS）。
  */
 import { h, clear } from "@web/lib/dom.js";
 import { store } from "@web/core/store.js";
@@ -26,6 +27,9 @@ export function mountApprovalTabs(container) {
   function update(s) {
     const approvals = s.approvals;
     container.classList.toggle("active", approvals.length > 0);
+    // 有 pending → 整框 CRT 呼吸警报（layout.css ap-alarm）；全已决 → 静态冷静
+    const pending = approvals.filter((a) => a.status === "pending").length;
+    container.classList.toggle("has-pending", pending > 0);
     if (approvals.length === 0) { clear(headerEl); clear(tabsEl); clear(bodyEl); return; }
 
     // active tab 兜底（ui 值失效时回退首个）
@@ -43,7 +47,6 @@ export function mountApprovalTabs(container) {
     const done = approvals.length - pending;
     clear(host);
     host.append(
-      h("span", { class: `ap-indicator ${pending > 0 ? "blink" : "idle"}` }),
       h("span", { class: "ap-title" }, pending > 0 ? "⚠ APPROVAL REQUIRED" : "▣ APPROVAL QUEUE"),
       h("span", { class: "ap-counts" },
         pending > 0 ? [h("span", { class: "num-pending" }, String(pending)), " PENDING"] : null,
@@ -62,18 +65,24 @@ export function mountApprovalTabs(container) {
     clear(host);
     for (const a of approvals) {
       const resolved = a.status !== "pending";
-      const mark = a.status === "pending" ? "⟳" : a.status === "accepted" ? "■" : "□";
+      // pending 靠右侧警报点（无左标）；已决左标 ✓/⊘ + 颜色
+      const mark = a.status === "accepted" ? "✓" : a.status === "rejected" ? "⊘" : null;
       const tab = h("div", {
-        class: `approval-tab ${a.status} ${a.approvalId === activeId ? "active" : ""} ${resolved ? "resolved" : ""}`,
+        class: `approval-tab ${a.status} ${a.approvalId === activeId ? "active" : ""}`,
+        attrs: { title: resolved ? `${a.senseName} — ${a.status}（点击切换 · × 清退）` : `${a.senseName} — 等待审核` },
         on: { click: () => actions.selectApprovalTab(a.approvalId) },
-      }, `${a.senseName} ${mark}`);
-      // 仅已决 tab 可单独 ✕ 清退；pending 须 accept/reject 解锁服务端
-      if (resolved) {
-        tab.appendChild(h("span", {
-          class: "ap-tab-close", attrs: { title: "dismiss" },
-          on: { click: (e) => { e.stopPropagation(); actions.closeApproval(a.approvalId); } },
-        }, "✕"));
-      }
+      }, [
+        mark ? h("span", { class: "ap-tab-mark" }, mark) : null,
+        h("span", { class: "ap-tab-name" }, a.senseName),
+        // 右侧动作区（始终占位）：pending=闪烁警报点（不可关，须先决断解锁服务端）；已决=常驻 × 清退
+        resolved
+          ? h("button", {
+              class: "ap-tab-close", type: "button",
+              attrs: { "aria-label": `清退 ${a.senseName}`, title: "清退此审批" },
+              on: { click: (e) => { e.stopPropagation(); actions.closeApproval(a.approvalId); } },
+            }, "×")
+          : h("span", { class: "ap-tab-beacon", attrs: { title: "等待审核 — 先 accept/reject" } }),
+      ]);
       host.appendChild(tab);
     }
   }
