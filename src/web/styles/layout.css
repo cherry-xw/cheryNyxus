@@ -42,13 +42,23 @@
   flex-shrink: 0; max-height: 46%;
   display: none; flex-direction: column;
   background:
-    linear-gradient(180deg, rgba(255, 176, 0, 0.06), rgba(255, 176, 0, 0.015)),
+    linear-gradient(180deg, rgba(177, 78, 255, 0.06), rgba(177, 78, 255, 0.015)),
     var(--ph-bg-panel);
-  border-top: 2px solid var(--ph-amber);
-  box-shadow: 0 -8px 22px rgba(255, 176, 0, 0.14), inset 0 1px 0 rgba(255, 176, 0, 0.3);
+  border-top: 2px solid var(--ph-approval);
+  box-shadow: 0 -8px 22px rgba(177, 78, 255, 0.14), inset 0 1px 0 rgba(177, 78, 255, 0.3);
   z-index: 5;
 }
 .approval-zone.active { display: flex; animation: ap-rise 0.18s ease-out; }
+/* 有 pending：整框 CRT 呼吸警报——外发光 + 顶部高光脉动，强提示"阻塞等待审核"。
+   全已决时不命中此规则，保持静态冷静（仅复查队列）。 */
+.approval-zone.active.has-pending { animation: ap-rise 0.18s ease-out, ap-alarm 1.6s ease-in-out 0.2s infinite; }
+@keyframes ap-alarm {
+  0%, 100% { box-shadow: 0 -8px 18px rgba(177, 78, 255, 0.16), inset 0 1px 0 rgba(177, 78, 255, 0.3); }
+  50%      { box-shadow: 0 -12px 38px rgba(177, 78, 255, 0.45), 0 -2px 0 rgba(177, 78, 255, 0.55), inset 0 1px 0 rgba(177, 78, 255, 0.55); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .approval-zone.active.has-pending { animation: ap-rise 0.18s ease-out; }
+}
 @keyframes ap-rise {
   from { transform: translateY(10px); opacity: 0; }
   to   { transform: translateY(0); opacity: 1; }

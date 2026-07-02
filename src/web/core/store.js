@@ -244,8 +244,8 @@ function applyAccept(rid, data) {
     const sc = stream.block.senseCalls.find((s) => s.approvalId === data.approvalId);
     if (sc) { sc.status = "accepted"; sc.result = data.result; }
   }
-  const ap = state.approvals.find((a) => a.approvalId === data.approvalId);
-  if (ap) { ap.status = "accepted"; ap.result = data.result; }
+  // 审批结束直接关闭：从面板移除（消息流 sc 结果保留在 block 中；emit 由 ingestNotification 末尾统一触发）
+  _removeApproval(data.approvalId);
 }
 
 function applyRejected(rid, data) {
@@ -254,8 +254,8 @@ function applyRejected(rid, data) {
     const sc = stream.block.senseCalls.find((s) => s.approvalId === data.approvalId);
     if (sc) { sc.status = "rejected"; sc.reason = data.reason; }
   }
-  const ap = state.approvals.find((a) => a.approvalId === data.approvalId);
-  if (ap) { ap.status = "rejected"; ap.reason = data.reason; }
+  // 审批结束直接关闭：从面板移除（emit 由 ingestNotification 末尾统一触发）
+  _removeApproval(data.approvalId);
 }
 
 /**
@@ -292,6 +292,15 @@ function finishStream(rid) {
   const stream = state.activeStreams.get(rid);
   if (stream) stream.block.finished = true;
   state.activeStreams.delete(rid);
+}
+
+// 从 approvals 移除条目并回退 activeTab（不 emit，由调用方统一触发变更广播）
+function _removeApproval(approvalId) {
+  state.approvals = state.approvals.filter((a) => a.approvalId !== approvalId);
+  if (state.ui.approvalActiveTab === approvalId) {
+    state.ui.approvalActiveTab = state.approvals.find((a) => a.status === "pending")?.approvalId
+      ?? state.approvals[0]?.approvalId ?? null;
+  }
 }
 
 // ========== 撤回折叠（按周期回滚）==========
@@ -441,14 +450,7 @@ export const store = {
 
   // —— 审批 tab ——
   selectApprovalTab(approvalId) { state.ui.approvalActiveTab = approvalId; emit(); },
-  removeApproval(approvalId) {
-    state.approvals = state.approvals.filter((a) => a.approvalId !== approvalId);
-    if (state.ui.approvalActiveTab === approvalId) {
-      state.ui.approvalActiveTab = state.approvals.find((a) => a.status === "pending")?.approvalId
-        ?? state.approvals[0]?.approvalId ?? null;
-    }
-    emit();
-  },
+  removeApproval(approvalId) { _removeApproval(approvalId); emit(); },
   // 批量清退所有已决审批（accepted/rejected），保留 pending（服务端仍待 accept/reject，不可丢）
   dismissResolved() {
     state.approvals = state.approvals.filter((a) => a.status === "pending");

@@ -15,6 +15,11 @@
   --ph-amber-dim: #b27d00;
   --ph-amber-faint: #ffb00033;
 
+  /* —— 审批：电光紫（专用信号，区别于琥珀 / thinking 紫）—— */
+  --ph-approval: #b14eff;
+  --ph-approval-dim: #7c3fb8;
+  --ph-approval-faint: #b14eff33;
+
   /* —— 副色：青（assistant content / 成功态）—— */
   --ph-cyan: #00ffd090;
   --ph-cyan-dim: #00b894;
