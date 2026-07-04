@@ -41,11 +41,16 @@ cheryClaw 采用拟人化隐喻设计：
 
 ## 文档
 
-详细文档见 [docs/](docs/)：
+详细文档见 [docs/](docs/)，分两类：
+
+**横切主题**（跨模块参考）：
 
 | 文档 | 内容 |
 |------|------|
-| [WebSocket 协议规范](docs/websocket.md) | 传输格式、消息结构、字段定义、方法列表、错误处理 |
+| [协议规范](docs/protocol.md) | 传输格式、消息结构、字段定义、方法列表、错误处理 |
 | [交互流程示例](docs/interaction.md) | 各方法完整消息序列、端到端流程、错误路径 |
-| [数据库架构](docs/database.md) | 多文件分库、表结构、Sense 监管等级 |
 | [Mock Provider](docs/mock.md) | 脚本化 LLM 离线测试（send/resume/revoke/loop 流程验证） |
+
+**模块文档**（按源码模块组织的实现细节，AI 知识地图）：
+
+见 [docs/README.md](docs/README.md) 总索引 → core / agent / service / db / utils 各模块的职责、文件清单、核心导出、数据流、依赖关联、扩展点。针对某开发目标时，读对应模块文档的「依赖与关联」即可定位所需最小上下文。

@@ -1,6 +1,6 @@
 # Mock Provider 使用说明
 
-> [← 返回 README](../README.md) ｜ [协议规范](websocket.md) ｜ [交互流程](interaction.md)
+> [← 返回 README](../README.md) ｜ [协议规范](protocol.md) ｜ [交互流程](interaction.md)
 
 离线测试 send/resume/revoke/loop 全流程的脚本化 LLM。无需真实模型/网络，按预定脚本逐轮回放响应，用于验证代码执行流向正确性。
 

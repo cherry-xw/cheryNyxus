@@ -1,8 +1,8 @@
 # 交互流程示例
 
-> [← 返回 README](../README.md) ｜ [协议规范](websocket.md)
+> [← 返回 README](../README.md) ｜ [协议规范](protocol.md)
 
-各方法的完整交互序列（C→S / S→C 实际消息流）。协议规范（传输格式、消息结构、字段定义、错误码）见 [websocket.md](websocket.md)。
+各方法的完整交互序列（C→S / S→C 实际消息流）。协议规范（传输格式、消息结构、字段定义、错误码）见 [protocol.md](protocol.md)。
 
 > 方向标记：`→` C→S，`←` S→C。stream chunk 为二进制帧，其余为 JSON 帧。
 
@@ -302,4 +302,4 @@ C→S chat.resume {chatId}              ← 无 prompt
 ← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"METHOD_NOT_FOUND","message":"Method \"xxx\" not found"}}
 ```
 
-> 错误码全集见 [websocket.md](websocket.md)「错误处理」。
+> 错误码全集见 [protocol.md](protocol.md)「错误处理」。

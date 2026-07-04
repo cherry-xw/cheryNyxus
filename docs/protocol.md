@@ -1,6 +1,6 @@
 # WebSocket 协议规范
 
-> [← 返回 README](../README.md) ｜ [交互流程示例](interaction.md) ｜ [数据库架构](database.md)
+> [← 返回 README](../README.md) ｜ [交互流程示例](interaction.md) ｜ [数据存储](db.md)
 
 **连接地址：** `ws://localhost:8182`（端口通过 `.chery/config.yaml` 的 `server.port` 配置）
 
@@ -95,7 +95,7 @@ interface Notification {
 | `done` | `null` | chat.send/resume loop 结束 |
 | `error` | `{message}` | error chunk 或 handler 异常 |
 
-> `supervisionLevel` 为数字枚举（0/1/2，见 [database.md](database.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。
+> `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。
 
 ### Chunk 类型
 
