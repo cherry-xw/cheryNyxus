@@ -13,24 +13,29 @@ import { getLLMAdapter } from "@/core/llm/adapter";
 import { getMessageAdapter } from "@/core/message/adapter";
 import { getSenseAdapter } from "@/core/sense/adapter";
 import { getSense } from "@/core/sense";
+import { getConnectedServerSenseNames } from "@/core/mcp";
 
 export interface RuntimeSelection {
   brain: string;
   senseGroups: string[];
+  /** 启用的 MCP server 名（与 senseGroups 同层级）。enabled server 的全部 mcp__<server>__* 直接合并进 schema，绕过 sense_groups。 */
+  mcpServers: string[];
 }
 
 /**
- * 解析并校验 runtime selection（brain + senseGroups）。
+ * 解析并校验 runtime selection（brain + senseGroups + mcpServers）。
  * 供 chat.create / runtime.set 共用，methodName 用于错误消息。
+ * mcpServers 缺省 []（旧 chat 向后兼容）；非数组视为非法。
  */
 export function parseRuntimeSelection(
-  params: { brain?: string; senseGroups?: string[] },
+  params: { brain?: string; senseGroups?: string[]; mcpServers?: string[] },
   methodName: string,
 ): RuntimeSelection {
   if (!params.brain || !Array.isArray(params.senseGroups) || params.senseGroups.length === 0) {
     throw new Error(`${methodName} requires brain and at least one senseGroups entry`);
   }
-  return { brain: params.brain, senseGroups: params.senseGroups };
+  const mcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : [];
+  return { brain: params.brain, senseGroups: params.senseGroups, mcpServers };
 }
 
 export class RuntimeResolver {
@@ -45,6 +50,7 @@ export class RuntimeResolver {
     const { builtSenses, senseTable } = this.resolveSense(
       adapters.senseAdapter,
       selection.senseGroups,
+      selection.mcpServers,
     );
 
     return {
@@ -89,13 +95,18 @@ export class RuntimeResolver {
   }
 
   /**
-   * resolve senseGroups -> builtSenses（给 LLM）+ senseTable（监管等级 + 执行器）。
+   * resolve senseGroups + mcpServers -> builtSenses（给 LLM）+ senseTable（监管等级 + 执行器）。
    *
    * 监管优先级：后缀覆盖 > 前组已解析 > 感官内置 > global。
+   *
+   * MCP 挂载：mcpServers 绕过 sense_groups，enabled server 的全部 mcp__<server>__* sense
+   * 直接合并进 resolved Map（去重冲突 MCP 覆盖）；监管用 sense 自带 server 级 supervision
+   * （无 :level 覆盖）。未连 server 由 getConnectedServerSenseNames 抛 NOT_FOUND（fail loud）。
    */
   private resolveSense(
     senseAdapter: SenseAdapter<unknown, unknown>,
     senseGroups: string[],
+    mcpServers: string[],
   ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
     const resolved = new Map<string, Sense<ZodType>>();
 
@@ -119,6 +130,17 @@ export class RuntimeResolver {
         s.supervisionLevel =
           supervisionLevel ?? prev?.supervisionLevel ?? s.supervisionLevel ?? config.global.supervision;
         resolved.set(name, s);
+      }
+    }
+
+    // MCP server 的全部 sense 合并进 schema（绕过 sense_groups，监管用 server 级默认）
+    for (const serverName of mcpServers) {
+      for (const senseName of getConnectedServerSenseNames(serverName)) {
+        const original = getSense(senseName);
+        if (!original) continue; // registry 中已不存在（理论上不应发生，连接时注册）
+        const s: Sense<ZodType> = { ...original };
+        s.supervisionLevel = original.supervisionLevel ?? config.global.supervision;
+        resolved.set(original.definition.function.name, s);
       }
     }
 

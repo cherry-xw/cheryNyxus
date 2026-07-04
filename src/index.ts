@@ -3,6 +3,7 @@ import { getSoulDb, closeAllDbs } from "./db/index.js";
 import { compileSenses } from "./core/sense/compiler/index.js";
 import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense/compileToolsReporter.js";
 import { bootstrapAgentRuntime } from "./agent/bootstrap.js";
+import { closeMcpClients } from "@/core/mcp/index.js";
 import { reloadSenses } from "./agent/sense/index.js";
 import { startWebServer } from "./web/server.js";
 import { initLogger, logger } from "@/utils/logger/index.js";
@@ -34,15 +35,17 @@ async function main(): Promise<void> {
   getSoulDb();
 
   // 优雅关闭
-  process.on("SIGINT", () => {
+  process.on("SIGINT", async () => {
     logger.info("\n正在关闭服务...");
     wss.close();
+    await closeMcpClients();
     closeAllDbs();
     process.exit(0);
   });
 
-  process.on("SIGTERM", () => {
+  process.on("SIGTERM", async () => {
     wss.close();
+    await closeMcpClients();
     closeAllDbs();
     process.exit(0);
   });

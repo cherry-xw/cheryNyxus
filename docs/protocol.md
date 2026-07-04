@@ -110,16 +110,75 @@ interface Notification {
 
 | 方法 | 说明 | 流式 |
 |------|------|------|
-| `brain.list` | 列出所有可用 brain（senseGroups 为全局全量） | 否 |
+| `brain.list` | 列出所有可用 brain（senseGroups 为全局全量）+ 当前已连 MCP server 名（`mcpServers`） | 否 |
 | `sense.list` | 列出所有可用 sense group（senses 含 `:level` 后缀未解析） | 否 |
-| `runtime.set` | 原子设置 chat 的 brain + senseGroups（每轮可换） | 否 |
-| `chat.create` | 创建聊天（必带 brain + senseGroups，chatId 可选） | 否 |
+| `runtime.set` | 原子设置 chat 的 brain + senseGroups + mcpServers（每轮可换） | 否 |
+| `chat.create` | 创建聊天（必带 brain + senseGroups，可选 mcpServers，chatId 可选） | 否 |
 | `chat.list` | 列出所有聊天 | 否 |
 | `chat.get` | 获取聊天详情（流式载入历史，末条未完成周期时返回 canResume） | 是 |
 | `chat.delete` | 删除聊天 | 否 |
 | `chat.send` | 发送聊天消息（仅 chatId + prompt；末尾有 pending 时自动撤回并发 staged.reverse） | 是 |
 | `chat.resume` | 续接（无 prompt，恢复执行 pending sense 或继续 loop） | 是 |
 | `sense.approval` | 感官审批（accept/reject） | 否 |
+| `mcp.list` | 列出所有 config 声明的 MCP server 及运行期状态 | 否 |
+| `mcp.get` | 单个 MCP server 详情（params: `{name}`） | 否 |
+| `mcp.connect` | 连接单个 MCP server（已连幂等；params: `{name}`） | 否 |
+| `mcp.disconnect` | 断开单个 MCP server（未连幂等；params: `{name}`） | 否 |
+| `mcp.reload` | 重载 MCP server（params: `{name?}`，给出→原子重载单个，省略→全量重读 config） | 否 |
+
+### MCP 管理 API
+
+MCP 分**连接层**与**挂载层**，二者解耦：
+
+- **连接层**（global registry）：哪些 MCP server 连着、其 sense 已注册进全局 senseRegistry。经 `mcp.*` RPC 热重载，**不重启服务**。
+- **挂载层**（per-chat schema）：chat 启用哪些**已连** server → 其全部 `mcp__<server>__*` tools 合并进该 chat 的 LLM schema。经 `chat.create` / `runtime.set` 的 `mcpServers` 字段设置，**不走 sense_groups**。
+
+> **关键边界：连接 ≠ 对 chat 可见。** `mcp.connect` 只把 server 接入 registry；chat 必须经 `mcpServers` 显式启用，其 tools 才进 schema。反之 `mcp.disconnect` 后，已启用该 server 的 chat 下次 resolve 时会 fail loud（NOT_FOUND）。
+
+#### 连接层（mcp.\*）
+
+| 方法 | params | 返回 | 语义 |
+|------|--------|------|------|
+| `mcp.list` | `{}` | `{servers: McpServerInfo[]}` | 列出 config 所有 server + 状态（connected/disconnected/failed） |
+| `mcp.get` | `{name}` | `{server: McpServerInfo}` | 单个详情；config 无名 → `NOT_FOUND` |
+| `mcp.connect` | `{name}` | `{server: McpServerInfo}` | 已连幂等；config 无名 → `NOT_FOUND` |
+| `mcp.disconnect` | `{name}` | `{server: McpServerInfo}` | 未连幂等；反注册其 sense + close client |
+| `mcp.reload` | `{name?}` | `{servers, connected, failed, totalSenses}` | 给出 name → 原子重载单个；省略 → 重读 config 全量重载 |
+
+`McpServerInfo`：
+
+```typescript
+{
+  name: string;
+  status: "connected" | "disconnected" | "failed";
+  transport: "stdio" | "streamable-http";
+  supervision?: number;      // server 级默认监管（0/1/2）
+  senseNames: string[];      // 该 server 注册的 sense 名（仅 connected 非空）
+  error?: string;            // status==="failed" 时的原因
+}
+```
+
+**原子 reload**：单个 server 重载按「建新连接 → 同步 register 新 + unregister 旧差集 → close 旧」交换，注册表任意时刻对同名 sense 有效，无缺失窗口；建新失败则旧态保留。全量 reload 逐 server 容忍，单个失败计入 `failed` 不中断其他。
+
+**幂等**：`connect` 对已连 server 为 no-op；`disconnect` 对未连 server 为 no-op（config 有名即成功，无名 `NOT_FOUND`）。reload 期间在途 `callTool` 接受降级（executor try/catch → 错误 content），同 SIGINT。
+
+#### 挂载层（mcpServers）
+
+`chat.create` / `runtime.set` 携带 `mcpServers: string[]`（enabled server 名，与 `senseGroups` 同层级、同原子性）：
+
+```jsonc
+// chat.create
+{ "brain": "main", "senseGroups": ["default"], "mcpServers": ["filesystem"] }
+// runtime.set
+{ "chatId": "...", "brain": "main", "senseGroups": ["default"], "mcpServers": ["filesystem", "remote"] }
+```
+
+- enabled server 的**全部** `mcp__<server>__*` sense 合并进 LLM schema，监管用 sense 自带的 server 级 `supervision`（无 `:level` 覆盖，因绕过 sense_groups）。
+- `mcpServers` 缺省 `[]`（关闭所有 MCP）；响应回显生效值（`brain.list` 的 `mcpServers` 返回当前已连 server 供前端渲染开关）。
+- 持久化于 `metadata.runtime`，服务重启 `ensureChat` 自动恢复；旧 chat（无此字段）视为 `[]`，行为不变。
+- enable 一个未连 server → `chat.create`/`runtime.set` 抛 `MCP server "X" not connected`（fail loud，NOT_FOUND 语义）。
+
+详见 [core/mcp.md](./core/mcp.md)。
 
 ### HTTP API
 

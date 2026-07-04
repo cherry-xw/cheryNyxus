@@ -69,6 +69,21 @@ sense_groups:
   custom_senses:
     - echo_text
 
+# MCP server 配置（可选）
+# 每个 server 的 tools/resources/prompts 启动时映射为 Sense，命名 mcp__<server>__<tool|read_resource|get_prompt>。
+# 监管优先级：sense_groups 的 :level > mcp_servers.<name>.supervision > global.supervision。
+# transport 支持 stdio（本地子进程）/ streamable-http（远程 HTTP）。
+# mcp_servers:
+#   filesystem:
+#     transport: stdio
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+#     supervision: confirm
+#   remote:
+#     transport: streamable-http
+#     url: http://localhost:8081/mcp
+#     supervision: auto
+
 # 全局配置
 global:
   thinking: true # 是否开启思考模式（如果能思考）

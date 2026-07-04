@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { SupervisionLevel } from "@/core/config.js";
+import type { McpServerInfo } from "@/core/mcp/types.js";
 
 // ========== 消息基础类型 ==========
 
@@ -71,7 +72,12 @@ export type RequestData =
   | SenseApprovalRequestData
   | ChatAbortRequestData
   | BashKillRequestData
-  | BashListRequestData;
+  | BashListRequestData
+  | McpListRequestData
+  | McpGetRequestData
+  | McpConnectRequestData
+  | McpDisconnectRequestData
+  | McpReloadRequestData;
 
 export interface BrainListRequestData {}
 
@@ -81,6 +87,8 @@ export interface ChatCreateRequestData {
   chatId?: string;
   brain: string;
   senseGroups: string[];
+  /** 启用的 MCP server 名（绕过 sense_groups，其全部 tools 合并进 schema）。缺省 []。 */
+  mcpServers?: string[];
 }
 
 export interface ChatListRequestData {}
@@ -102,6 +110,8 @@ export interface RuntimeSetRequestData {
   chatId: string;
   brain: string;
   senseGroups: string[];
+  /** 启用的 MCP server 名。缺省 []（关闭所有 MCP）。 */
+  mcpServers?: string[];
 }
 
 export interface ChatResumeRequestData {
@@ -127,6 +137,29 @@ export interface BashListRequestData {
   chatId: string;
 }
 
+// ---------- MCP 管理（连接层）----------
+
+export interface McpListRequestData {}
+
+export interface McpGetRequestData {
+  name: string;
+}
+
+export interface McpConnectRequestData {
+  name: string;
+}
+
+export interface McpDisconnectRequestData {
+  name: string;
+}
+
+/**
+ * mcp.reload：name 给出→原子重载单个 server；name 省略→全量重载（重读 config）。
+ */
+export interface McpReloadRequestData {
+  name?: string;
+}
+
 // ========== Response Data ==========
 
 export type ResponseData =
@@ -142,7 +175,12 @@ export type ResponseData =
   | SenseApprovalResponseData
   | ChatAbortResponseData
   | BashKillResponseData
-  | BashListResponseData;
+  | BashListResponseData
+  | McpListResponseData
+  | McpGetResponseData
+  | McpConnectResponseData
+  | McpDisconnectResponseData
+  | McpReloadResponseData;
 
 export interface BrainListResponseData {
   brains: Array<{
@@ -152,6 +190,8 @@ export interface BrainListResponseData {
     thinking?: boolean;
     senseGroups?: string | string[];
   }>;
+  /** 当前已连接的 MCP server 名（供前端按 server 渲染开关） */
+  mcpServers: string[];
 }
 
 export interface SenseListResponseData {
@@ -164,6 +204,10 @@ export interface SenseListResponseData {
 
 export interface ChatCreateResponseData {
   chatId: string;
+  /** 回显已生效的 runtime selection（含 MCP 开关） */
+  brain: string;
+  senseGroups: string[];
+  mcpServers: string[];
 }
 
 export interface ChatListResponseData {
@@ -193,6 +237,7 @@ export interface RuntimeSetResponseData {
   chatId: string;
   brain: string;
   senseGroups: string[];
+  mcpServers: string[];
 }
 
 export interface ChatResumeResponseData {
@@ -231,6 +276,34 @@ export interface BashKillResponseData {
 export interface BashListResponseData {
   chatId: string;
   processes: BashProcessInfo[];
+}
+
+export interface McpListResponseData {
+  servers: McpServerInfo[];
+}
+
+export interface McpGetResponseData {
+  server: McpServerInfo;
+}
+
+export interface McpConnectResponseData {
+  server: McpServerInfo;
+}
+
+export interface McpDisconnectResponseData {
+  server: McpServerInfo;
+}
+
+/**
+ * mcp.reload 返回：全量 server 列表 + 本次操作汇总。
+ * - 全量重载：connected/failed/totalSenses 覆盖所有 server。
+ * - 单 server 重载：connected∈{0,1}、failed∈{0,1}、totalSenses 为该 server 注册数；servers 为重载后全量列表。
+ */
+export interface McpReloadResponseData {
+  servers: McpServerInfo[];
+  connected: number;
+  failed: number;
+  totalSenses: number;
 }
 
 // ========== Chunk Data ==========
@@ -355,6 +428,13 @@ export const Method = {
   // Bash 进程管理（挂起子进程的查询 / 显式杀死）
   BASH_LIST: "bash.list",
   BASH_KILL: "bash.kill",
+
+  // MCP 管理（连接层热重载：list/get/connect/disconnect/reload）
+  MCP_LIST: "mcp.list",
+  MCP_GET: "mcp.get",
+  MCP_CONNECT: "mcp.connect",
+  MCP_DISCONNECT: "mcp.disconnect",
+  MCP_RELOAD: "mcp.reload",
 } as const;
 
 // ========== 错误码常量 ==========
@@ -363,6 +443,9 @@ export const ErrorCode = {
   METHOD_NOT_FOUND: "METHOD_NOT_FOUND",
   INTERNAL: "INTERNAL",
   TIMEOUT: "TIMEOUT",
+  // MCP 管理：资源不存在 / 参数非法（handler 显式返回，非抛错走 INTERNAL）
+  NOT_FOUND: "NOT_FOUND",
+  INVALID_PARAMS: "INVALID_PARAMS",
 } as const;
 
 // ========== 工厂函数 ==========

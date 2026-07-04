@@ -144,7 +144,7 @@ export function updateChatMetadata(
  */
 export function getChatRuntimeSelection(
   chatId: string,
-): { brain: string; senseGroups: string[] } | undefined {
+): { brain: string; senseGroups: string[]; mcpServers: string[] } | undefined {
   const db = getSoulDb();
   const row = db
     .prepare("SELECT metadata FROM chats WHERE id = ?")
@@ -152,7 +152,7 @@ export function getChatRuntimeSelection(
   if (!row?.metadata) return undefined;
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
   const rt = parsed.runtime as
-    | { brain?: string; senseGroups?: string[] }
+    | { brain?: string; senseGroups?: string[]; mcpServers?: string[] }
     | undefined;
   if (
     !rt?.brain ||
@@ -161,7 +161,9 @@ export function getChatRuntimeSelection(
   ) {
     return undefined;
   }
-  return { brain: rt.brain, senseGroups: rt.senseGroups };
+  // mcpServers 缺省 []：旧 chat metadata 无此字段，视为未启用任何 MCP server（向后兼容）
+  const mcpServers = Array.isArray(rt.mcpServers) ? rt.mcpServers : [];
+  return { brain: rt.brain, senseGroups: rt.senseGroups, mcpServers };
 }
 
 /**

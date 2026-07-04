@@ -28,11 +28,13 @@ export async function handleRuntimeSet(
     chatId: p.chatId,
     brain: selection.brain,
     senseGroups: selection.senseGroups,
+    mcpServers: selection.mcpServers,
   });
   return {
     chatId: p.chatId,
     brain: selection.brain,
     senseGroups: selection.senseGroups,
+    mcpServers: selection.mcpServers,
   };
 }
 

@@ -34,6 +34,17 @@ export function resetSenses(): void {
 }
 
 /**
+ * 按名称批量注销感官（仅删除指定名称，不影响内置/编译感官）。
+ * 用于 MCP server disconnect：删除该 server 注册的 mcp__<server>__* senses，
+ * 与 resetSenses（全清）互补——保留其他感官。
+ */
+export function unregisterSenses(names: string[]): void {
+  for (const name of names) {
+    delete senseRegistry[name];
+  }
+}
+
+/**
  * 按名称获取单个感官实例
  */
 export function getSense(name: string): Sense<ZodType> | undefined {

@@ -4,6 +4,7 @@ export * from "./adapter";
 export {
   registerSenses,
   resetSenses,
+  unregisterSenses,
   getSense,
 } from "./senseRegistry";
 export {

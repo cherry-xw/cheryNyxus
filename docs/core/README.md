@@ -6,7 +6,7 @@
 
 `core/` 是 cheryClaw 的**框架抽象层**：定义 Agent 运行所需的全部接口、类型与组合机制，但**不含任何具体实现**。所有 Provider（OpenAI/Ollama/Mock）、内置感官（bash/read/write/skill）、中间件行为（retry/checkpoint/chat/sense/loop）都在 [`agent/`](../../src/agent/) 中实现并通过 `core/` 暴露的注册表注入。
 
-这一层是「AI 知识地图」的根：要改 Agent 行为（接新模型、加工具、改监管、调执行链），先读 core/ 理解契约，再去 agent/ 找对应实现。core/ 本身保持薄、零 I/O 假设（唯一的例外是 `sense/compiler/`，它读写文件系统编译外部感官）。
+这一层是「AI 知识地图」的根：要改 Agent 行为（接新模型、加工具、改监管、调执行链），先读 core/ 理解契约，再去 agent/ 找对应实现。core/ 本身保持薄、零 I/O 假设（两个例外：`sense/compiler/` 读写文件系统编译外部感官，`mcp/` 连接外部 MCP server）。
 
 ## 文件清单（顶层）
 
@@ -17,7 +17,8 @@
 | [message/](../../src/core/message/) | Message Adapter 接口、`LLMResponse` 统一响应结构、`SenseCallInfo` → [message.md](./message.md) |
 | [middleware/](../../src/core/middleware/) | 洋葱模型组合器 `compose()`、`Middleware` 类（单 chat 绑定）、Context/Chunk 全部类型 → [middleware.md](./middleware.md) |
 | [sense/](../../src/core/sense/) | Sense Adapter 接口、`sense()` 工厂、感官注册表、审批 Promise 注册表 → [sense.md](./sense.md) |
-| [sense/compiler/](../../src/core/sense/compiler/) | 外部感官（`.chery/senses/*.ts`）编译器，唯一带 I/O 的子模块 → [compiler.md](./compiler.md) |
+| [sense/compiler/](../../src/core/sense/compiler/) | 外部感官（`.chery/senses/*.ts`）编译器，core 两个带 I/O 的子模块之一 → [compiler.md](./compiler.md) |
+| [mcp/](../../src/core/mcp/) | MCP server 接入：tools/resources/prompts → Sense，core 两个带 I/O 的子模块之二 → [mcp.md](./mcp.md) |
 
 ## 三大抽象 + 一个运行时常量
 
@@ -73,6 +74,7 @@ export enum SupervisionLevel {
 | 洋葱模型怎么跑、Chunk 流如何流转、Chat 状态机 | [middleware.md](./middleware.md) |
 | 感官定义、监管、审批、感官注册 | [sense.md](./sense.md) |
 | 外部 `.chery/senses/*.ts` 如何编译成可执行感官 | [compiler.md](./compiler.md) |
+| 外部 MCP server 的 tools/resources/prompts 如何接入为 Sense | [mcp.md](./mcp.md) |
 
 ## 依赖与关联
 
@@ -87,4 +89,5 @@ core/ 本身不扩展，扩展发生在 agent/，但**契约写在这里**：
 - 接新 Provider → 实现 [`LLMAdapter`](./llm.md) + [`MessageProviderAdapterConfig`](./message.md) + [`SenseAdapter`](./sense.md)，调三个 `register*`。
 - 加内置感官 → 调 [`sense()`](./sense.md) 工厂，再 `registerSenses([...])`。
 - 加外部感官 → 在 `.chery/senses/<name>.ts` 写源码，由 [compiler.md](./compiler.md) 编译。
+- 接 MCP server → 在 [config.yaml](../../.chery/config.yaml) 配 `mcp_servers`，由 [mcp.md](./mcp.md) 注入为 Sense。
 - 加中间件 → 实现 [`MiddlewareHandler`](./middleware.md)，在 agent 的 `defaultHandlers` 中按序插入。

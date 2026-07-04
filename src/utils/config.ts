@@ -115,6 +115,20 @@ interface ServerConfig {
 }
 
 /**
+ * MCP server 单项配置
+ * transport=stdio 时用 command/args/env 启动子进程；transport=streamable-http 时用 url 连接远程 server。
+ * supervision 为 server 级默认监管等级（覆盖 global.supervision），可被 sense_groups 的 :level 进一步覆盖。
+ */
+interface McpServerConfig {
+  transport: "stdio" | "streamable-http";
+  command?: string; // stdio：可执行文件
+  args?: string[]; // stdio：命令行参数
+  env?: Record<string, string>; // stdio：子进程环境变量（$ENV 占位符由 replaceEnvVars 注入）
+  url?: string; // streamable-http：server URL
+  supervision?: SupervisionLevel; // server 级默认监管等级（loadConfig 把字符串转枚举）
+}
+
+/**
  * 扩展全局配置（包含自动补全的路径）
  */
 interface ExtendedGlobalConfig extends GlobalConfig {
@@ -128,6 +142,7 @@ interface Config {
   global: ExtendedGlobalConfig;
   llm: LLMConfig;
   sense_groups?: Record<string, string[]>; // sense分组配置
+  mcp_servers?: Record<string, McpServerConfig>; // MCP server 配置（name → 连接参数 + server 级监管默认）
   server: ServerConfig; // 服务配置（端口 + 传输格式，loadConfig 兜底默认值）
 }
 
@@ -188,6 +203,16 @@ function loadConfig(): Config {
     ];
   }
 
+  // MCP servers supervision 字符串转枚举（同 global.supervision 模式）
+  if (config.mcp_servers) {
+    for (const serverCfg of Object.values(config.mcp_servers)) {
+      if (typeof serverCfg.supervision === "string") {
+        serverCfg.supervision =
+          SupervisionLevel[serverCfg.supervision as keyof typeof SupervisionLevel];
+      }
+    }
+  }
+
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
@@ -216,5 +241,40 @@ function loadConfig(): Config {
 
 const config = loadConfig();
 
-export type { Config, BrainConfig, GlobalConfig, LoggerConfig };
+/**
+ * 重读 .chery/config.yaml 的 mcp_servers 段，跑 replaceEnvVars + supervision 解析，
+ * 原地替换 config.mcp_servers。供 mcp.reload 在运行期拾取配置变更。
+ *
+ * 作用域：仅 mcp_servers。其他配置段（global/sense_groups/llm）不重读——
+ * 全量配置热更属另一特性。
+ *
+ * 安全性：仅 core/mcp/loader 读取 config.mcp_servers（已确认），替换引用不影响其他模块。
+ */
+export function reloadMcpServersConfig(): Record<string, McpServerConfig> | undefined {
+  const cheryDir = process.env.CHERY_DIR || process.cwd();
+  const configPath = path.join(cheryDir, ".chery", "config.yaml");
+  if (!fs.existsSync(configPath)) return config.mcp_servers;
+
+  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as {
+    mcp_servers?: Record<string, McpServerConfig>;
+  };
+  const rawServers = raw.mcp_servers;
+  if (!rawServers) {
+    config.mcp_servers = undefined;
+    return undefined;
+  }
+
+  const replaced = replaceEnvVars(rawServers) as Record<string, McpServerConfig>;
+  for (const serverCfg of Object.values(replaced)) {
+    if (typeof serverCfg.supervision === "string") {
+      serverCfg.supervision =
+        SupervisionLevel[serverCfg.supervision as keyof typeof SupervisionLevel];
+    }
+  }
+
+  config.mcp_servers = replaced;
+  return replaced;
+}
+
+export type { Config, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig };
 export default config;

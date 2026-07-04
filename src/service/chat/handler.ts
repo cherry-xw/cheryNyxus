@@ -41,10 +41,16 @@ export async function handleChatCreate(
   await ensureChat(chatId, selection);
   logger.event("chat.create", {
     chatId,
-    brain: p.brain,
-    senseGroups: p.senseGroups,
+    brain: selection.brain,
+    senseGroups: selection.senseGroups,
+    mcpServers: selection.mcpServers,
   });
-  return { chatId };
+  return {
+    chatId,
+    brain: selection.brain,
+    senseGroups: selection.senseGroups,
+    mcpServers: selection.mcpServers,
+  };
 }
 
 /**

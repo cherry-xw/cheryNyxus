@@ -20,6 +20,7 @@
 - [middleware.md](./core/middleware.md) — `compose()` 洋葱组合器、`Middleware` 类、Context/Chunk 类型
 - [sense.md](./core/sense.md) — `sense()` 工厂、感官/审批注册表、**监管等级 auto/confirm/manual**
 - [compiler.md](./core/compiler.md) — 外部感官编译器（`.chery/senses/*.ts`）
+- [mcp.md](./core/mcp.md) — MCP server 接入：tools/resources/prompts → Sense
 
 ### [agent/](./agent/README.md) — 具体实现层
 > bootstrap（启动注册）/ builder（装配）/ runtimeResolver（原子解析）+ 中间件链 + 内置感官 + Provider。
