@@ -22,6 +22,7 @@ import type { SenseAdapter, SenseFunction, SenseCallData } from "@/core/sense/ad
 import type { Sense, SenseResult, SenseSharedData } from "@/core/sense/index.js";
 import type { GlobalConfig, BrainConfig } from "@/utils/config.js";
 import type { ZodType } from "zod";
+import { logger } from "@/utils/logger/index.js";
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   thinking: false,
@@ -143,6 +144,7 @@ export function createMockContext(opts: {
     },
     global: { ...DEFAULT_GLOBAL, ...opts.global },
     runtime: opts.runtime ?? createMockRuntime({}),
+    log: logger,
   };
 }
 

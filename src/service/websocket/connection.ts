@@ -2,6 +2,7 @@ import type { WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { approvalManager } from "../approval/manager.js";
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
 
 /**
  * 待处理请求
@@ -63,7 +64,7 @@ export class ConnectionManager {
   ): PendingRequest {
     const state = this.connections.get(ws);
     if (!state) {
-      logger.error(`Connection not found for ws, available connections: ${this.connections.size}`);
+      logger.event("conn.notfound", { available: this.connections.size }, LogLevel.error);
       throw new Error("Connection not found");
     }
 
@@ -106,7 +107,6 @@ export class ConnectionManager {
     const pending = state.pendingRequests.get(requestId);
     if (pending && !pending.approvalTimeoutTimer) {
       pending.approvalTimeoutTimer = setTimeout(() => {
-        logger.info(`审批超时触发: requestId=${requestId}, approvalId=${pending.approvalId}`);
         onTimeout();
       }, pending.approvalTimeoutMs);
     }
@@ -177,7 +177,7 @@ export class ConnectionManager {
     const state = this.connections.get(ws);
     if (!state) return;
 
-    logger.info(`关闭连接: ${state.id}, pendingRequests=${state.pendingRequests.size}`);
+    logger.event("conn.closing", { pendingRequests: state.pendingRequests.size }, LogLevel.debug);
 
 // 终止所有 pending requests 的 generator
     for (const [, pending] of state.pendingRequests) {
@@ -207,7 +207,6 @@ for (const [chatId, connId] of this.activeChatConnections) {
 }
 
 this.connections.delete(ws);
-logger.info(`连接已从 Map 删除: ${state.id}, 剩余连接数: ${this.connections.size}`);
 }
 
   /**

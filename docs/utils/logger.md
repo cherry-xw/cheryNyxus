@@ -1,167 +1,182 @@
-# Logger 统一日志
+# Logger 统一日志（结构化事件 Trace）
 
 > 源码 [src/utils/logger/](../../src/utils/logger/) ｜ 上级 [./README.md](./README.md) ｜ 相关 [./drain.md](./drain.md) ｜ 配置 [./README.md#config](./README.md)
 
 ## 职责
 
-cheryClaw 的**统一日志模块**，全项目唯一的日志出口。提供：
+cheryClaw 全项目唯一日志出口。每条日志 = **一个 JSON 事件（单行）**，携带 `LogScope` 关联键，为「按会话还原用户每一步操作」的解读模块提供 trace 数据。
 
-- **等级化日志**：`debug / info / warn / error / silent`，低于配置等级的调用静默丢弃。
-- **多目标输出**：`console`（stdout/stderr）+ 按天滚动文件（`.chery/logs/YYYY-MM-DD.log`，可同时输出）。
-- **两种格式**：`plain`（带时间戳 + 调用位置 `[file:line] [LEVEL] msg`）/ `json`（结构化字段）。
-- **调用位置追踪**：通过 `Error.stack` 解析调用方 `文件名:行号`，自动跳过 logger 内部栈帧。
-- **bash 子进程日志工具集**（`logger.tools`）：日志目录解析、日志路径生成、头部格式化、按保留时长清理旧日志、大小判定等 —— 供 `execute_command` 感官记录长跑命令输出。
-- **通用文件日志工具集**（`logger.tools`）：tmpdir 下的目录缓存、大小判定、`WriteStream` 创建、按 `birthtime` 清理过期 `.log` 文件。
+- **结构化事件**：主接口 `logger.event(type, data?, level?)`，输出 JSON 行（`format: json` 默认）。
+- **ALS scope 传播**：`AsyncLocalStorage` 承载 `LogScope`，边界 `logger.run(scope, fn)` 注入，沿 async 链自动传播 —— 调用点无需透传 logger。
+- **类型化句柄**：`MiddlewareContext.log` / `HandlerContext.log`（= 全局 logger，读 ALS），便于 IDE 发现。
+- **事件目录**：~35 种 `type`，覆盖用户步骤 / chunk 结构 / 生命周期 / 诊断。
+- **legacy 兜底**：`info/debug/warn/error(...args)` 转 `event("log.<level>", {message})`，未迁移调用点仍可用。
+- **bash 子进程 + 通用文件日志工具集**（`logger.tools`）：与旧版一致，供 `execute_command` 等感官记录长跑命令。
 
-> ⚠ `.claude/CLAUDE.md` 将 logger 描述为 `bashLogger.ts` + `fileLogger.ts` 两文件分立，**与现状不符**。真实结构是单文件 [logger/index.ts](../../src/utils/logger/index.ts)，bash/文件工具都通过 `logger.tools` 命名空间暴露。本文档以源码为准。
+> 设计取舍：牺牲直接人读性（JSON），换取机器可解析 + 完整溯源。解读模块按 `scope.traceId`（= chatId）过滤事件流即可重建单会话流程。
 
 ## 文件清单
 
 | 文件 | 一句话 |
 |------|--------|
-| [types.ts](../../src/utils/logger/types.ts) | `LogLevel` 枚举 + `InternalLoggerConfig` / `Logger` / `LoggerTools` / `BashLogInfo` interface；仅类型，依赖 config 的 `LoggerConfig` 类型 |
-| [index.ts](../../src/utils/logger/index.ts) | `createLogger` 闭包工厂 + 默认 Proxy 实例 `logger`（延迟初始化）+ `initLogger` + 所有 bash/文件工具函数实现 |
+| [types.ts](../../src/utils/logger/types.ts) | `LogLevel` / `LogScope` / `LogEvent` / `InternalLoggerConfig` / `Logger` / `LoggerTools` / `BashLogInfo`；仅类型 |
+| [index.ts](../../src/utils/logger/index.ts) | `createLogger` 闭包工厂 + ALS 引擎（`runScope`/`getScope`）+ `event` JSON 格式化 + 默认 Proxy `logger` + `initLogger` + bash/文件工具 |
 
-## 核心概念 / 导出
+## 核心概念
 
-### 配置来源与解析
+### 配置
 
-日志配置来自 `.chery/config.yaml` 的 `global.logger`（[config.ts `LoggerConfig`](../../src/utils/config.ts#L86-L92)）：
+`.chery/config.yaml` 的 `global.logger`（[config.ts `LoggerConfig`](../../src/utils/config.ts#L86-L93)）：
 
 ```yaml
 global:
   logger:
     level: info              # debug | info | warn | error | silent
-    output: [file]           # (console | file)[]，可同时多处
+    output: [console, file]  # (console | file)[]，可同时多处
     timestamp: true          # plain 格式下是否带时间戳
     location: true           # 是否带 [file:line] 调用位置
-    format: plain            # plain | json
+    format: json             # plain | json（默认 json）
 ```
 
-`loadLoggerConfig()` 把它解析成内部形态（[index.ts](../../src/utils/logger/index.ts#L49-L59)），缺省值：`level=info`、`output=["console"]`、`timestamp=true`、`location=true`、`format="plain"`。`level` 字符串经 `parseLogLevel` 转成 `LogLevel` 枚举（数值，便于比较）。
+缺省：`level=info`、`output=["console"]`、`timestamp=true`、`location=true`、`format="json"`。
 
-### 真实 TS 签名
+### LogScope（会话关联键）
 
 ```ts
-// types.ts
-enum LogLevel { debug = 0, info = 1, warn = 2, error = 3, silent = 4 }
-
-interface InternalLoggerConfig {
-  level: LogLevel;
-  output: ("console" | "file")[];
-  timestamp: boolean;
-  location: boolean;
-  format: "plain" | "json";
-}
-
-interface Logger {
-  debug(...args: unknown[]): void;
-  info(...args: unknown[]): void;
-  write(message: string): void;     // 不带 level/timestamp，原样写 console+file（受 level>info 限制）
-  warn(...args: unknown[]): void;
-  error(...args: unknown[]): void;
-  close(): void;
-  getConfig(): InternalLoggerConfig;
-  setConfig(config: Partial<ConfigLoggerConfig>): void;   // 运行时热更（output 新增 file 会延迟 init stream）
-  tools: LoggerTools;
-}
-
-interface LoggerTools {
-  // Bash 日志
-  getBashLogDir(): string;                              // tmpdir/cheryClaw-bash-logs/
-  createBashLogPath(pid: number, startTime: number): string;  // {startTime}-{pid}.log
-  formatBashLogHeader(info: BashLogInfo): string;       // YAML frontmatter 头部
-  cleanOldBashLogs(retentionHours: number): void;       // 删除超龄 .log
-  // 通用文件日志
-  getLogDirectory(name: string): string;                // tmpdir/{name}（带缓存）
-  createLogFilePath(logDirName: string, filename: string): string;
-  getLogSize(logPath: string): number;                  // stat 失败返回 0
-  shouldShowPartialLog(logPath: string): boolean;       // size > 10KB 阈值
-  getLogSizeThreshold(): number;                        // 10 * 1024
-  formatLogSize(bytes: number): string;                 // B / KB / MB
-  createLogStream(logPath: string): WriteStream;        // flags:"w"
-  cleanOldLogFiles(logDirName: string, retentionHours: number): void;
-}
-
-interface BashLogInfo {
-  pid: number;
-  command: string;
-  startTime: number;       // epoch ms
-  logPath: string;
-  description?: string;
-  status: "running" | "completed" | "killed";
+interface LogScope {
+  traceId?: string;       // = chatId（会话，跨轮稳定）—— 解读模块的主过滤键
+  requestId?: string;     // 单次 RPC 请求
+  connectionId?: string;  // WebSocket 连接
+  runId?: string;         // 预留：单次 chain 执行（当前 chat.send 下 ≈ requestId）
+  spanId?: string;        // 嵌套 span（预留）
+  parentSpanId?: string;
 }
 ```
+
+### 事件 JSON schema（单行一事件）
+
+```json
+{
+  "ts": "2026-07-04T10:00:00.123Z",
+  "level": "info",
+  "type": "sense.result",
+  "scope": { "traceId": "chat-a", "requestId": "r1", "connectionId": "c1" },
+  "location": "streamMapper.ts:75",
+  "data": { "senseCallId": "call_0", "name": "read_file", "resultLen": 1234, "hash": "..." }
+}
+```
+
+无 scope 的全局事件（启动、`conn.open` 等）`scope` 为 `{}`；`data` 缺省时省略。
 
 ### 公开导出
 
 ```ts
 // index.ts
-export type { BashLogInfo } from "./types.js";
-export function initLogger(config?: ConfigLoggerConfig): Logger;   // 显式初始化（由 config.ts 调用）
-export const logger: Logger;   // Proxy 默认实例，延迟初始化，import 即可用
+export type { BashLogInfo, LogScope, LogEvent, Logger } from "./types.js";
+export { LogLevel } from "./types.js";
+export function initLogger(config?: ConfigLoggerConfig): Logger;   // 由 config.ts 调用
+export const logger: Logger;                                        // Proxy 默认实例，延迟初始化
+export function generateLogId(): string;                            // runId/spanId 生成（randomUUID）
 ```
 
-## 关键流程 / 数据流
-
-### 延迟初始化 + Proxy 代理
+### Logger 接口
 
 ```ts
-// index.ts 末尾
-let _logger: Logger | null = null;
-function getLogger(): Logger {
-  if (!_logger) _logger = createLogger();   // 用默认配置（console / info / plain）
-  return _logger;
+interface Logger {
+  event(type: string, data?: Record<string, unknown>, level?: LogLevel): void;  // 主接口
+  run<T>(scope: Partial<LogScope>, fn: () => T): T;     // 边界注入（与父 scope 合并）
+  getScope(): LogScope;                                  // 读当前 ALS scope（无则 {}）
+  // legacy 兜底（转 event type=`log.<level>`, {message}）
+  debug/info/warn/error(...args: unknown[]): void;
+  close(): void;
+  getConfig(): InternalLoggerConfig;
+  setConfig(config: Partial<ConfigLoggerConfig>): void;
+  tools: LoggerTools;
 }
-export const logger: Logger = new Proxy({} as Logger, {
-  get(_target, prop) { return Reflect.get(getLogger(), prop); },
-});
 ```
 
-任何模块 `import { logger }` 即拿到这个 Proxy，**首次访问属性**时才真正 `createLogger()`。`initLogger(config)` 由 [config.ts 加载流程](./README.md#关键流程--数据流) 之外的地方显式调用以注入 yaml 配置（若不调用，logger 仍可用，只是走默认配置）。
+> `logger.write(message)` 已移除（0 调用点，死代码）。
 
-### createLogger 闭包结构
+## 关键流程
 
-`createLogger(config?)` 用闭包持有 `_config` 与 `_fileStream`（[index.ts](../../src/utils/logger/index.ts#L69-L205)），返回 Logger 对象：
+### ALS 传播边界（唯一有效点 = `handleRequest`）
 
-- **`initFileStream()`**：若 `output` 含 `file`，在 `cheryDir/.chery/logs/` 下建 `YYYY-MM-DD.log` 的 append 流（`dayjs().format("YYYY-MM-DD")`）。cheryDir 取 `process.env.CHERY_DIR ?? process.cwd()`。
-- **`getLocation()`**：`new Error().stack` 切行，跳过含 `utils/logger` 的内部栈帧，正则 `/at\s+(?:.*?\s+\()?(.+):(\d+):(\d+)\)?/` 抓首个外部帧，返回 `basename:line`，全部失败返回 `"unknown"`。
-- **`format(levelName, args)`**：
-  - 参数序列化：字符串原样；`Error` 取 `stack ?? message`；其他 `JSON.stringify(arg, null, 2)`，失败回落 `String(arg)`；最后 `join(" ")`。
-  - `json` 格式：`{ level, timestamp, location?, message }` → `JSON.stringify`。
-  - `plain` 格式：可选 `[timestamp]` + `[location]` + `[LEVEL]` + message，`join(" ")`。
-- **`output(level, levelName, args)`**：`if (_config.level > level) return`；格式化后按 `output` 写 console（`level >= error` 走 stderr，否则 stdout）+ file stream。
-- **`write(message)`**：不走 `format`，直接写（受 `level > info` 限制）。
-- **`setConfig(patch)`**：合并配置重新解析；若 `patch.output` 含 `file` 且当前无 stream，延迟 `initFileStream()`。
-
-### 一次日志调用数据流
+ALS 只在 `als.run` 回调的**同步执行期**保持 store；async generator 的 body 在 `.next()` 时运行。故 **scope 必须包「迭代」而非「创建」**。流式链的最外层 `.next()` 在 [websocket/index.ts `handleRequest`](../../src/service/websocket/index.ts)（普通 async 函数，非 generator）—— 这是唯一能生效的 `logger.run` 边界：
 
 ```
-某模块 logger.info("xxx", obj)
-  └─ logger Proxy → getLogger()（首次时 createLogger）
-       └─ Logger.info(...args) → output(LogLevel.info, "INFO", args)
-            ├─ if config.level > info: return（静默）
-            ├─ format("INFO", args)
-            │    ├─ 序列化 args（string/Error/JSON）
-            │    ├─ getLocation()（Error.stack 解析外部调用位置）
-            │    └─ plain: [ts] [file:line] [INFO] msg  /  json: {level,ts,location,message}
-            ├─ if output 含 console: stdout.write(formatted + "\n")
-            └─ if _fileStream: _fileStream.write(formatted + "\n")
+handleRequest:
+  await logger.run({ connectionId, requestId, traceId: extractChatId(params) }, async () => {
+    req.start
+    result = await router.handle(request, ctx)
+    迭代 result.next()  ← 整条 handler → agent → 中间件 → observer/streamMapper 在此 scope 内执行
+    req.end
+  })
 ```
 
-### bash 日志生命周期（被 `execute_command` 感官消费）
+- `traceId` 由 `extractChatId(request.params)` 提取（chat.* / sense.approval 等携带 chatId 的方法）。
+- 中间件深层、sense executor、provider：均在 `result.next()` 驱动下执行，自动携带 scope。
+- **跨审批挂起保持**：senseMiddleware `await approvalPromise` 时，`handleRequest` 停在 `await result.next()`，scope 不丢；用户 `sense.approval` 解除 await，链条在同一 scope 续跑。
+- **conn 层**（open/close/error）：在 `ws.on(...)` 回调，独立于请求 scope，用 `logger.run({connectionId}, () => logger.event(...))` 临时注入。
 
-`agent/sense/bash.ts` 在命令**超时进入后台**时（[bash.ts](../../src/agent/sense/bash.ts)）：
+> 类型化句柄：`MiddlewareContext.log` / `HandlerContext.log` = 全局 `logger`（内部读 ALS）。中间件推荐 `ctx.log.event(...)`，util/sense 用裸 `logger.event(...)`，二者等价。
+
+### 一次事件的数据流
 
 ```
-1. logger.tools.cleanOldBashLogs(LOG_RETENTION_HOURS)     // 启动前清理（config.global.bash_log_retention_hours ?? 24）
-2. const logPath = logger.tools.createBashLogPath(startTime, endTime)  // tmpdir/cheryClaw-bash-logs/{endTime}-{pid}.log
-3. const header  = logger.tools.formatBashLogHeader(logInfo)            // YAML frontmatter（pid/command/startTime/status/description）
-4. writeFileSync(logPath, header + outputBuffer)                        // 落盘已累积的 stdout+stderr
-5. 后续 read_file 感官按 logPath 读取详情
+某模块 logger.event("sense.result", { senseCallId, name, resultLen })
+  └─ logger Proxy → getLogger() → Logger.event(type, data, level)
+       ├─ if config.level > level: return（静默）
+       ├─ scope = ALS.getStore() ?? {}
+       ├─ 构造 LogEvent { ts, level, type, scope, location?, data? }
+       ├─ JSON.stringify（或 renderPlain）
+       ├─ if output 含 console: stdout/stderr.write(line + "\n")
+       └─ if file stream: 写 .chery/logs/YYYY-MM-DD.log
 ```
 
-清理逻辑（[index.ts `cleanOldLogFiles`](../../src/utils/logger/index.ts#L333-L357)）：遍历目录下 `.log` 文件，按 `statSync().birthtimeMs` 早于 `now - retentionMs` 的 `unlinkSync`，单个文件失败静默跳过（防并发删除）。`getLogDirectory(name)` 带 `Map` 缓存，避免重复 `existsSync`/`mkdirSync`。
+## 事件目录
+
+解读模块据此还原流程。`scope` 字段统一携带 `traceId`（chatId）/ `requestId` / `connectionId`。
+
+### A. chokepoint 自动派生（替散落中间件 log）
+
+| 派生点 | 事件 |
+|---|---|
+| [streamMapper.ts](../../src/service/chat/streamMapper.ts) | `staged`、`sense.trigger`、`sense.result`、`sense.rejected`、`input.consumed`、`chat.run.error`、`chat.run.done`、`message.replaced` |
+| [observer.ts](../../src/service/chat/observer.ts) | `message.created`、`message.updated`、`message.replaced.db`、`approval.pending` |
+
+### B. 显式事件
+
+| 类别 | type |
+|---|---|
+| lifecycle | `conn.open` / `conn.close` / `conn.error` / `conn.closing` / `conn.notfound`、`req.start` / `req.end` / `req.error` / `req.handler.error` / `req.stream.error` |
+| chat 管理 | `chat.create` / `chat.list` / `chat.get` / `chat.delete` |
+| 用户动作 | `chat.send.start`（`mode: send\|resume`）、`chat.send.queued`、`chat.send.revoke`、`chat.send.aborted`、`chat.send.error`、`chat.abort`、`chat.bind` / `chat.bind.failed` / `chat.release` |
+| 审批 | `sense.approval`、`approval.pending`、`approval.wait`、`approval.timeout` |
+| runtime | `runtime.set` |
+| chain 内 | `loop.start` / `loop.iter` / `loop.decision` / `loop.max` / `loop.end`、`llm.req` / `llm.resp`、`retry.attempt`、`input.dropped`、`input.consumed` |
+| bash | `bash.list` / `bash.kill`、`bash.proc.register` / `clear` / `kill` |
+| provider | `mock.turn` / `mock.script.missing` / `mock.script.empty` / `mock.exhausted.*`、`ollama.toolcall.unreliable` |
+| 诊断（debug） | `rateLimit.wait`、`conn.closing` |
+
+> 未迁移的 legacy 调用（启动 `src/index.ts`、`web/server.ts`、`agent/sense/index.ts` 加载、`drainBase` tree、`compileToolsReporter` ASCII 表、`loadSkill`）仍以 `log.<level>` 事件出，非用户步骤 trace。
+
+## 解读模块契约（后续实现）
+
+输入：`.chery/logs/YYYY-MM-DD.log`（JSONL，所有会话混合）。
+
+```
+1. 读全部事件行，JSON.parse
+2. 按 scope.traceId 过滤（= chatId）→ 单会话事件集
+3. 按 ts 排序
+4. 还原流程：chat.create → chat.send.start(prompt) → llm.req → staged(thinking_end/content_end)
+   → sense.trigger → approval.pending → (approval.wait) → sense.approval → sense.result
+   → loop.decision(continue) → llm.req → ... → chat.run.done → req.end
+5. 关联键 join：
+   - senseCallId：sense.trigger ↔ sense.result/rejected ↔ message.created(role:sense)
+   - approvalId：approval.pending ↔ sense.approval ↔ approval.timeout
+   - messageId：message.created ↔ DB messages 表
+   - requestId：req.start ↔ req.end（闭合请求回路）
+```
 
 ## 依赖与关联 ⭐
 
@@ -169,56 +184,47 @@ export const logger: Logger = new Proxy({} as Logger, {
 
 | 源 | 目标 | 性质 |
 |----|------|------|
-| [index.ts](../../src/utils/logger/index.ts) | `@/utils/config.js`（`LoggerConfig` 类型） | 仅类型 import（运行时无环：config.ts 不反向 import logger） |
-| [index.ts](../../src/utils/logger/index.ts) | `fs` / `path` / `os` / `dayjs` | runtime：文件流、目录、日期格式化 |
-| [types.ts](../../src/utils/logger/types.ts) | `@/utils/config.js`（`LoggerConfig` 类型） | 仅类型 |
+| [index.ts](../../src/utils/logger/index.ts) | `node:async_hooks` / `node:crypto` / `fs` / `path` / `os` / `dayjs` | runtime |
+| [index.ts](../../src/utils/logger/index.ts) / [types.ts](../../src/utils/logger/types.ts) | `@/utils/config.js`（`LoggerConfig` 类型） | 仅类型（无环） |
 
 ### 被依赖（全项目几乎所有非纯算法模块）
 
-| 层 | 模块 |
+| 层 | 用法 |
 |----|------|
-| **agent** | `middleware/{chat,checkpointState,loop,retry,tool}`、`provider/{mock,ollama}`、`sense/{bash,compileToolsReporter,index,processRegistry}`、`prompt/loadSkill` |
-| **core** | `middleware/index` |
-| **service** | `chat/{send,streamMapper}`、`message/router`、`websocket/{connection,index}` |
-| **utils** | [`drain/drainBase.ts`](./drain.md)（`printTree` 默认走 `logger.info`）、[`rateLimiter.ts`](./README.md#ratelimiter)（限流等待时 `logger.info`） |
-| **入口/Web** | `index.ts`、`web/server` |
+| **core** | `core/middleware`（`MiddlewareContext.log` 字段；`input.dropped` 事件） |
+| **agent** | middleware（chat/loop/tool/retry/checkpointState 事件）、provider（mock/ollama 事件）、sense（processRegistry/bash 事件）、prompt |
+| **service** | chat（send/handler/observer/streamMapper 事件）、message/router（req 事件 + `HandlerContext.log`）、websocket（conn/req 事件 + ALS 边界）、runtime/bash |
+| **utils** | `drain/drainBase`（legacy）、`rateLimiter`（`rateLimit.wait` debug） |
+| **入口** | `index.ts`、`web/server`（legacy 启动日志） |
 
-> logger 是 cheryClaw 事实上的**全局副作用出口**：算法层（drain、rateLimiter）也依赖它打诊断信息。这意味着 logger 自身必须保持零业务依赖（仅类型依赖 config），否则会成环。
+logger 是事实上的全局副作用出口，自身保持零业务依赖（仅类型依赖 config）。
 
-### 横切参考
+### ALS 边界点
 
-- 配置真实样例（含 `global.logger`）：[.chery/config.yaml](../../.chery/config.yaml#L80-L88)
-- `execute_command` 感官如何用 `logger.tools`：[../../src/agent/sense/bash.ts](../../src/agent/sense/bash.ts)
-- `read_file` 感官如何读取 bash 落盘的日志（`shouldShowPartialLog` / `getLogSize` 判定大小后决定截断/drain）：[../../src/agent/sense/read.ts](../../src/agent/sense/read.ts)
-- config.ts 的 `LoggerConfig` 类型与全局配置加载：[./README.md#config](./README.md)
-- drain 模块对 logger 的使用（打印 prefix tree）：[./drain.md](./drain.md)
+- [websocket/index.ts `handleRequest`](../../src/service/websocket/index.ts)：request scope（`connectionId` + `requestId` + `traceId`）—— **唯一传播边界**。
+- [websocket/index.ts](../../src/service/websocket/index.ts) `wss.on("connection"/"close"/"error")`：conn scope（临时注入 `connectionId`）。
 
 ## 扩展点
 
-### 运行时改配置
+### 新增事件类型
 
-`logger.setConfig({ level: "debug", output: ["console", "file"] })` 可热更 —— 例如排障时临时拉到 debug。注意：`output` 新增 `"file"` 会触发延迟 `initFileStream()`（按当天日期建文件）；缩减则旧 stream 不会自动关闭，需手动 `logger.close()`。
-
-### 日志文件滚动
-
-当前按天滚动：文件名 `YYYY-MM-DD.log`，append 模式（`flags: "a"`）。**不会自动删除旧日志文件**（logger 自身不持有清理逻辑）；清理 bash/通用文件日志走 `logger.tools.cleanOld*Logs(retentionHours)`，需调用方主动触发（`execute_command` 在每次执行前清理一次，保留期由 `config.global.bash_log_retention_hours` 控制，默认 24h）。
+直接 `logger.event("<category>.<action>", { ...fields })`。`data` 字段应**截断长内容**（记 `*Len` 而非全量），避免日志膨胀。事件 `type` 命名 `<域>.<动作>`（dot 分层），便于解读模块分类。
 
 ### 新增输出目标（loki/elasticsearch 等）
 
-`output()` 函数（[index.ts](../../src/utils/logger/index.ts#L141-L154)）当前只分支 `console` 与 `_fileStream`。新增需：
+`emit()`（[index.ts](../../src/utils/logger/index.ts)）当前分支 console / file stream。新增：`LoggerConfig.output` 联合类型加值 → `loadLoggerConfig` 解析 → `createLogger` 初始化客户端 → `emit` 加分支 → `close` 释放。
 
-1. `LoggerConfig.output` 联合类型加新值（在 [config.ts](../../src/utils/config.ts#L86-L92)）。
-2. `InternalLoggerConfig.output` 同步（[types.ts](../../src/utils/logger/types.ts)）。
-3. `loadLoggerConfig` 默认值与解析。
-4. `createLogger` 内初始化对应客户端，`output()` 加分支。
-5. `close()` 释放资源。
+### 调试某会话
 
-### 自定义 bash 日志目录
+```bash
+grep '"traceId":"<chatId>"' .chery/logs/YYYY-MM-DD.log | jq .   # 单会话完整事件流
+```
 
-`BASH_LOG_DIR_NAME = "cheryClaw-bash-logs"`（[index.ts](../../src/utils/logger/index.ts#L242)）是常量，落在 `os.tmpdir()` 下。若要换路径（如挂载持久卷），改该常量或新增 `getLogDirectory` 参数；当前通过 `logDirCache` 缓存，同一 `name` 只解析一次。
+或临时 `logger.setConfig({ level: "debug" })` 拉 debug 事件（`rateLimit.wait` 等）。
 
-### 已知局限（待确认）
+## 已知局限
 
-- **位置追踪靠 `Error.stack`**：性能开销大且依赖 V8 栈格式。生产环境若关 `location: false` 可省开销。
-- **`write(message)`** 与 `info` 等级共用 `level > info` 限制：意味着 `level` 设为 `warn`/`error` 时，`write` 也会被静默（**待确认**是否符合设计意图，可能影响直接写流式输出的场景）。
-- **`_fileStream` 单例**：一个 logger 实例只持有一个文件流（当天日期）；跨天运行不会自动切到新文件（进程长跑场景**待确认**是否需定时重开流）。
+- **traceId 仅 chat.\* / sense.approval 等携带 chatId 的方法**：`brain.list` / `sense.list` 等管理 RPC 无 chatId，`traceId` 缺省（这些非会话内步骤）。
+- **诊断日志未结构化**：`drainBase` printTree、`compileToolsReporter` ASCII 表仍走 legacy `log.info`（dev 诊断，非用户 trace）；需要时后续转结构化事件。
+- **`runId` 预留**：当前 chat.send 下 `requestId` ≈ run，未单独发 runId；多 chain-run 场景需补。
+- **location 追踪靠 `Error.stack`**：性能开销，生产可关 `location: false`。

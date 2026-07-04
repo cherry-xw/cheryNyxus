@@ -7,6 +7,7 @@ import {
   type RuntimeSetResponseData,
 } from "../message/types.js";
 import { setRuntime } from "../chat/send.js";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * 原子设置 chat 的 runtime selection（每轮可换）。
@@ -23,6 +24,11 @@ export async function handleRuntimeSet(
 
   const selection = parseRuntimeSelection(p, "runtime.set");
   await setRuntime(p.chatId, selection);
+  logger.event("runtime.set", {
+    chatId: p.chatId,
+    brain: selection.brain,
+    senseGroups: selection.senseGroups,
+  });
   return {
     chatId: p.chatId,
     brain: selection.brain,

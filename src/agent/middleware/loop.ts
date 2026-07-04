@@ -1,6 +1,7 @@
 import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk } from "@/core/middleware/types";
 import type { MiddlewareChunk } from "./index";
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
 
 /**
  * 创建 agent 层循环策略
@@ -16,15 +17,12 @@ export function createLoopHandler(
     let times = 0;
     let stopped = false;  // 区分 break（正常停止）vs while 条件耗尽（避免误报）
 
-    logger.info("\n" + "▶".repeat(60));
-    logger.info("[LOOP] Starting execution loop (max: " + maxLoop + ")");
-    logger.info("▶".repeat(60) + "\n");
+    logger.event("loop.start", { max: maxLoop });
 
     while (times < maxLoop) {
       times++;
 
-      logger.info("\n[LOOP] Iteration #" + times);
-      logger.info("─".repeat(40));
+      logger.event("loop.iter", { n: times });
 
       yield* runChain();
 
@@ -32,10 +30,10 @@ export function createLoopHandler(
       const messages = ctx.soul.messages;
       if (!messages || messages.length === 0) {
         if (ctx.soul.userInputs.length > 0) {
-          logger.info("[LOOP] Continue: residual userInputs after empty messages");
+          logger.event("loop.decision", { decision: "continue", reason: "residual-userInputs-empty-messages" });
           continue;
         }
-        logger.info("[LOOP] Stop: No messages");
+        logger.event("loop.decision", { decision: "stop", reason: "no-messages" });
         stopped = true;
         break;
       }
@@ -47,34 +45,36 @@ export function createLoopHandler(
       // 全部 revoked 或无可判定消息 → 残留输入则继续，否则停止
       if (!lastVisible) {
         if (ctx.soul.userInputs.length > 0) {
-          logger.info("[LOOP] Continue: residual userInputs (no visible message)");
+          logger.event("loop.decision", { decision: "continue", reason: "residual-userInputs-no-visible" });
           continue;
         }
-        logger.info("[LOOP] Stop: No visible message");
+        logger.event("loop.decision", { decision: "stop", reason: "no-visible-message" });
         stopped = true;
         break;
       }
 
       // 1. 最后一条是 sense → 刚执行完感官 → 继续 loop（获取 LLM 新响应）
       if (lastVisible.role === "sense") {
-        logger.info("[LOOP] Continue: Last message is 'sense'");
-        logger.info("[LOOP] Sense content:", lastVisible.content?.slice(0, 100) || "(empty)");
+        logger.event("loop.decision", { decision: "continue", reason: "last-sense" });
         continue;
       }
 
       // 2. 最后一条是 assistant 且有 senseCalls → 感官调用完成 → 继续 loop（执行下一轮感官）
       if (lastVisible.role === "assistant" && lastVisible.senseCalls?.length) {
-        logger.info("[LOOP] Continue: Assistant has senseCalls");
-        logger.info("[LOOP] Sense calls:", lastVisible.senseCalls.map(sc => sc.name).join(", "));
+        logger.event("loop.decision", {
+          decision: "continue",
+          reason: "assistant-senseCalls",
+          senses: lastVisible.senseCalls.map(sc => sc.name),
+        });
         continue;
       }
 
       // 3. 其他情况（assistant 无 senseCall / user / system）→ 检查残留输入后再停止
       if (ctx.soul.userInputs.length > 0) {
-        logger.info("[LOOP] Continue: residual userInputs to consume");
+        logger.event("loop.decision", { decision: "continue", reason: "residual-userInputs" });
         continue;
       }
-      logger.info("[LOOP] Stop: Last message is", lastVisible.role, "(no sense activity)");
+      logger.event("loop.decision", { decision: "stop", reason: `last-${lastVisible.role}`, lastRole: lastVisible.role });
       stopped = true;
       break;
     }
@@ -82,7 +82,7 @@ export function createLoopHandler(
     // 仅当 while 条件耗尽（非 break）才报 max loop 超限。
     // 旧实现 `times >= maxLoop` 在第 maxLoop 轮正常 break 时（times===maxLoop）会误报。
     if (!stopped && times >= maxLoop) {
-      logger.info("\n[LOOP] ⚠ Max loop count reached (" + maxLoop + ")");
+      logger.event("loop.max", { max: maxLoop }, LogLevel.warn);
       const errorChunk: ErrorChunk = {
         type: "error",
         errors: [
@@ -98,8 +98,7 @@ export function createLoopHandler(
       yield errorChunk;
     }
 
-    logger.info("\n[LOOP] Loop ended after " + times + " iterations");
-    logger.info("▼".repeat(60) + "\n");
+    logger.event("loop.end", { iterations: times });
 
     // loop 结束后 yield done（表示整个流程完成）
     const doneChunk: DoneChunk = { type: "done" };

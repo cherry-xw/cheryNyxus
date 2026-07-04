@@ -22,6 +22,7 @@ import {
 import { clearChatRuntime, ensureChat } from "./send.js";
 import { randomUUID } from "crypto";
 import { parseRuntimeSelection } from "@/agent/runtimeResolver.js";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * 创建聊天（chatId 可选由前端指定）
@@ -38,6 +39,11 @@ export async function handleChatCreate(
   createChat(chatId);
   // 原子配置 runtime，并一次性加载历史到 agent。
   await ensureChat(chatId, selection);
+  logger.event("chat.create", {
+    chatId,
+    brain: p.brain,
+    senseGroups: p.senseGroups,
+  });
   return { chatId };
 }
 
@@ -56,6 +62,7 @@ export async function handleChatList(
     messageCount: chat.message_count,
   }));
 
+  logger.event("chat.list", { count: chats.length });
   return { chats };
 }
 
@@ -119,6 +126,7 @@ export async function* handleChatGet(
   const lastVisible = [...messages].reverse().find(m => !m.revoked);
   const canResume = !!lastVisible && (lastVisible.role === "sense" || lastVisible.role === "user");
 
+  logger.event("chat.get", { chatId: p.chatId, messageCount: messages.length, canResume });
   return { chatId: p.chatId, canResume };
 }
 
@@ -142,6 +150,7 @@ export async function handleChatDelete(
   // 删除数据库记录
   deleteChat(p.chatId);
 
+  logger.event("chat.delete", { chatId: p.chatId });
   return { chatId: p.chatId };
 }
 

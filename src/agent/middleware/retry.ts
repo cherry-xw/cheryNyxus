@@ -1,5 +1,6 @@
 import type { MiddlewareContext, ErrorChunk } from "@/core/middleware/types";
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
 
 // ========== 配置常量 ==========
 const MAX_RETRIES = 3;
@@ -93,7 +94,12 @@ export async function* retryMiddleware(
       }
       const errorInfo = createErrorInfo(attempt, error);
       errors.push(errorInfo);
-      logger.error(`[Retry] Attempt ${attempt} failed (${errorInfo.category}):`, error instanceof Error ? error.message : String(error));
+      logger.event("retry.attempt", {
+        attempt,
+        category: errorInfo.category,
+        recoverable: errorInfo.recoverable,
+        message: error instanceof Error ? error.message : String(error),
+      }, LogLevel.warn);
 
       // 回滚本轮 checkpoint 已 append 的半截 message，恢复历史干净后再重试
       messages.length = snapshot;

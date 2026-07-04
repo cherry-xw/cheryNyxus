@@ -2,6 +2,7 @@ import { addMessage, fillApprovalResult, markMessageReplaced } from "@/db/chat.j
 import { approvalManager } from "../approval/manager.js";
 import type { LLMResponse } from "@/core/message/adapter";
 import type { MiddlewareChunk } from "@/core/middleware/types";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
@@ -26,6 +27,14 @@ export async function* observeAgentChunks(
             hash: chunk.message.hash,
           });
           syncedIds.add(chunk.message.id);
+          logger.event("message.created", {
+            messageId: chunk.message.id,
+            role: chunk.message.role,
+            contentLen: chunk.message.content?.length ?? 0,
+            thinkingLen: chunk.message.thinking?.length ?? 0,
+            senseCalls: chunk.message.senseCalls?.length,
+            hash: chunk.message.hash,
+          });
         }
         continue;
       }
@@ -39,6 +48,7 @@ export async function* observeAgentChunks(
             originalContent: chunk.patch.originalContent,
           });
           syncedIds.add(chunk.id);
+          logger.event("message.replaced.db", { messageId: chunk.id, by: chunk.patch.replace.by });
           // 不 continue：yield 出去让 streamAgentChunks 转 "replaced" notification，
           // 通知 web 实时更新对应历史 sense block（而非等下次 chat.get 回放）。
         } else {
@@ -49,6 +59,11 @@ export async function* observeAgentChunks(
             hash: chunk.patch.hash,
           });
           syncedIds.add(chunk.id);
+          logger.event("message.updated", {
+            messageId: chunk.id,
+            contentLen: chunk.patch.content?.length ?? 0,
+            hash: chunk.patch.hash,
+          });
           continue;
         }
       }
@@ -57,6 +72,11 @@ export async function* observeAgentChunks(
         // P1-11：approvalPromise 由 core approvalRegistry 管理，service 仅按 approvalId 注册标记，
         //   confirm/abort 时 ApprovalManager 调 resolveApproval/rejectApproval 触发 core await。
         approvalManager.register(chunk.approvalId);
+        logger.event("approval.pending", {
+          approvalId: chunk.approvalId,
+          senseName: chunk.senseName,
+          supervisionLevel: chunk.supervisionLevel,
+        });
         continue;
       }
 

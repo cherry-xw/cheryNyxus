@@ -24,6 +24,9 @@ interface PendingSenseCall {
  * 1. Phase 1：从 stream chunks 收集 senseDelta，检测完整 sense call，yield sense_end 触发器
  * 2. Phase 2：流结束后，auto sense 先执行；confirm/manual 批量 await Promise.all 等待审批后执行
  * pending sense 不再自动恢复执行，改由 chat.resume 撤回重跑（见 service/chat/send.ts handleChatResume）
+ *
+ * trace 日志：sense 触发/执行/拒绝由 chokepoint（streamMapper 的 sense.trigger/result/rejected）
+ *   统一发射；此处仅发 chokepoint 不覆盖的 approval.wait（批量等待用户审批）。
  */
 export async function* senseMiddleware(
   ctx: MiddlewareContext,
@@ -31,16 +34,12 @@ export async function* senseMiddleware(
 ): AsyncGenerator<MiddlewareChunk> {
   const collectedCalls: PendingSenseCall[] = [];
 
-  logger.info("\n[SENSE] Middleware started");
-
   // resume 续接（chat.resume Case1：末尾有 pending sense）：
   // 首轮 skip chat 层（不调 next / 不调 LLM），从历史 pending 重建 trigger 执行。
   // 同默认审批流一致；工具不在当前 senseTable 静默写「无此工具」结果。
   if (ctx.soul.resumePending) {
     ctx.soul.resumePending = false;
-    logger.info("[SENSE] Resume mode: recover pending, skip chat layer");
     yield* executeResumePending(ctx);
-    logger.info("[SENSE] Middleware ended (resume)\n");
     return;
   }
 
@@ -58,9 +57,6 @@ export async function* senseMiddleware(
           if (lastIndex !== -1 && index !== lastIndex) {
             const prevSc = senseDeltaMap.get(lastIndex);
             if (prevSc && prevSc.name) {
-              logger.info("\n[SENSE] Complete sense call detected (index changed)");
-              logger.info("[SENSE] Name:", prevSc.name);
-              logger.info("[SENSE] Args:", prevSc.argsJson);
               const { trigger, call } = buildSenseTrigger(ctx, prevSc.id ?? "", prevSc.name, prevSc.argsJson);
               collectedCalls.push(call);
               yield trigger;
@@ -90,10 +86,8 @@ export async function* senseMiddleware(
   }
 
   // 流结束后，处理剩余的 sense calls
-  logger.info("\n[SENSE] Stream ended, processing remaining sense calls");
   for (const [, sc] of senseDeltaMap) {
     if (sc.name) {
-      logger.info("[SENSE] Remaining sense:", sc.name);
       const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? "", sc.name, sc.argsJson);
       collectedCalls.push(call);
       yield trigger;
@@ -102,13 +96,8 @@ export async function* senseMiddleware(
 
   // Phase 2: 批量执行
   if (collectedCalls.length > 0) {
-    logger.info(`\n[SENSE] Batch execution: ${collectedCalls.length} sense calls`);
     yield* executeCollectedCalls(ctx, collectedCalls);
-  } else {
-    logger.info("[SENSE] No sense calls to execute\n");
   }
-
-  logger.info("[SENSE] Middleware ended\n");
 }
 
 /**
@@ -121,14 +110,7 @@ async function* executeCollectedCalls(
   // Auto sense 先执行（不等待审批）
   const autoCalls = calls.filter(c => c.supervisionLevel === SupervisionLevel.auto);
   for (const call of autoCalls) {
-    logger.info("\n" + "⚡".repeat(40));
-    logger.info(`[SENSE EXEC] Auto mode, executing directly: ${call.name}`);
-    logger.info("[SENSE EXEC] ID:", call.id);
-    logger.info("[SENSE EXEC] Args:", call.argsJson);
-    logger.info("⚡".repeat(40) + "\n");
-
     const { content, hash, replaced } = await doExecuteSense(ctx, call.name, call.argsJson, call.id);
-    logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
     yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
     // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
     for (const r of replaced) {
@@ -139,18 +121,19 @@ async function* executeCollectedCalls(
   // Confirm/manual senses — 批量等待所有审批后逐一执行
   const needsApproval = calls.filter(c => c.approvalPromise);
   if (needsApproval.length > 0) {
-    logger.info(`[SENSE EXEC] ⏳ Waiting for ${needsApproval.length} approvals...`);
+    logger.event("approval.wait", {
+      count: needsApproval.length,
+      approvals: needsApproval.map(c => ({ approvalId: c.id, name: c.name, supervisionLevel: c.supervisionLevel })),
+    });
 
     try {
       await Promise.all(needsApproval.map(c => c.approvalPromise!));
-      logger.info(`\n[SENSE EXEC] ✅ All ${needsApproval.length} approvals received`);
     } catch {
       // 审批被 abort（连接断开/超时）：throw 终止整个流程。
       // 不 return：return 只结束 senseMiddleware，loop 会视为本轮完成继续第二轮 LLM 调用，
       //   破坏未完成周期语义（应停在 pending sense 待 canResume）。
       // 不 yield sense_reject：客户端已断连通知无意义，且会填 pending sense content 破坏 canResume。
       // throw 传播：assistant 已在 sense_end 时落库，pending sense 保持 NULL，流程终止不再 loop。
-      logger.info(`\n[SENSE EXEC] ❌ Approval aborted (connection closed/timeout), throw to stop flow`);
       throw new Error("approval aborted");
     }
 
@@ -158,22 +141,13 @@ async function* executeCollectedCalls(
       const decision = await call.approvalPromise!;
 
       if (decision.action === "accept") {
-        logger.info("\n" + "⚡".repeat(40));
-        logger.info(`[SENSE EXEC] Executing sense: ${call.name}`);
-        logger.info("[SENSE EXEC] ID:", call.id);
-        logger.info("[SENSE EXEC] Args:", call.argsJson);
-        logger.info("⚡".repeat(40) + "\n");
-
         const { content, hash, replaced } = await doExecuteSense(ctx, call.name, call.argsJson, call.id);
-        logger.info("[SENSE EXEC] Result:", content.slice(0, 200) + (content.length > 200 ? "..." : ""));
         yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
         // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
         for (const r of replaced) {
           yield { type: "message_updated", id: r.id, patch: { replace: r.replace, originalContent: r.originalContent } };
         }
       } else {
-        logger.info(`[SENSE EXEC] ❌ Rejected: ${call.name}`);
-        logger.info("[SENSE EXEC] Reason:", decision.reason || "(none)");
         yield {
           type: "sense_reject",
           id: call.id,
@@ -210,16 +184,13 @@ async function* executeResumePending(
   }
 
   if (pending.length === 0) {
-    logger.info("[SENSE RESUME] No pending sense to recover");
     return;
   }
 
-  logger.info(`[SENSE RESUME] Recover ${pending.length} pending sense(s)`);
   const calls: PendingSenseCall[] = [];
   for (const p of pending) {
     if (!ctx.runtime.senseTable.has(p.name)) {
       // 工具不在当前 senseTable：静默写占位结果
-      logger.info(`[SENSE RESUME] Tool not in senseTable: ${p.name}`);
       yield { type: "sense_accept", id: p.id, name: p.name, result: `无此工具:${p.name}` };
       continue;
     }
@@ -247,14 +218,6 @@ function buildSenseTrigger(
   if (!ctx.runtime) throw new Error("Runtime not configured.");
   const senseEntry = ctx.runtime.senseTable.get(name);
   const supervisionLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.confirm;
-
-  logger.info("\n" + "⚡".repeat(40));
-  logger.info("[SENSE BUILD] Sense trigger built");
-  logger.info("[SENSE BUILD] ID:", id);
-  logger.info("[SENSE BUILD] Name:", name);
-  logger.info("[SENSE BUILD] Args:", argsJson);
-  logger.info("[SENSE BUILD] Supervision:", supervisionLevel);
-  logger.info("⚡".repeat(40) + "\n");
 
   let approvalPromise: Promise<{ action: "accept" | "reject"; reason?: string }> | undefined;
 
@@ -321,10 +284,6 @@ async function doExecuteSense(
           msg.content = staleNote;
           msg.replace = replaceInfo;
           replaced.push({ id: msg.id, content: staleNote, replace: replaceInfo, originalContent: msg.originalContent });
-          logger.info("\n[SENSE EXEC] 🔄 Replaced historical sense message");
-          logger.info("[SENSE EXEC] Old ID:", msg.id);
-          logger.info("[SENSE EXEC] New ID:", id);
-          logger.info("[SENSE EXEC] Hash:", result.hash);
         }
       }
     }

@@ -3,6 +3,7 @@ import type { LLMAdapter } from "../llm/adapter";
 import type { SenseAdapter, SenseCallData, SenseFunction } from "../sense/adapter";
 import type { SenseResult, SenseSharedData } from "../sense/senseCreator";
 import type { GlobalConfig, BrainConfig } from "@/utils/config";
+import type { Logger } from "@/utils/logger/types.js";
 import { SupervisionLevel } from "../config.js";
 
 export type { LLMAdapter } from "../llm/adapter";
@@ -106,6 +107,11 @@ export interface MiddlewareContext {
   global: GlobalConfig;
   /** Runtime 配置（每轮可换：brain/sense 变更时更新；constructor 未配置为 undefined，send 前 configureRuntime 注入 + requireRuntime 校验） */
   runtime?: RuntimeConfig;
+  /**
+   * 当前作用域 Logger 句柄（= 全局 logger，读 ALS 取 scope）。
+   * 中间件内推荐用 ctx.log.event(...) 以利 IDE 发现；util/sense 可用裸 logger。
+   */
+  log: Logger;
 }
 
 /**

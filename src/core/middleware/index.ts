@@ -8,6 +8,7 @@ import type {
 import type { LLMResponse } from "../message/adapter";
 import type { GlobalConfig } from "@/utils/config";
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
 
 /** P1-3：userInputs 队列容量上限，超限丢弃最早（背压，防高频 send 无限堆积拖长 loop 串行消费） */
 const MAX_USER_INPUTS = 16;
@@ -43,6 +44,7 @@ export default class Middleware<T = unknown> {
         messages: [],
       },
       global,
+      log: logger,
       // P2-4：runtime 由 configureRuntime 原子填充，send 前 requireRuntime 校验。
       //       未配置为 undefined（消除原 {} as RuntimeConfig 类型谎言）。
     };
@@ -186,7 +188,7 @@ export default class Middleware<T = unknown> {
       // P1-3：背压。userInputs 容量上限，超限丢弃最早，避免运行中高频 send 无限堆积拖长 loop 串行消费。
       if (this.ctx.soul.userInputs.length >= MAX_USER_INPUTS) {
         this.ctx.soul.userInputs.shift();
-        logger.warn(`[Middleware] userInputs 达上限 ${MAX_USER_INPUTS}，丢弃最早输入`);
+        logger.event("input.dropped", { reason: "max-user-inputs", limit: MAX_USER_INPUTS }, LogLevel.warn);
       }
       this.ctx.soul.userInputs.push({
         content: input.trim(),

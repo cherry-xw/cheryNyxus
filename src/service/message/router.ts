@@ -12,6 +12,8 @@ import {
 } from "./types.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
+import type { Logger } from "@/utils/logger/types.js";
 
 // ========== Handler 类型 ==========
 
@@ -21,6 +23,8 @@ import { logger } from "@/utils/logger/index.js";
 export interface HandlerContext {
   requestId?: string;
   connectionId: string;
+  /** 作用域 Logger 句柄（= 全局 logger，读 ALS 取 scope） */
+  log: Logger;
 }
 
 /**
@@ -90,7 +94,7 @@ export class RpcRouter {
       return createResponse(request.id, true, data);
     } catch (err) {
       const error = toRpcError(err);
-      logger.error(`[Router] handler 执行失败 (${request.method}): ${error.message}`);
+      logger.event("req.handler.error", { method: request.method, message: error.message }, LogLevel.error);
       return createResponse(
         request.id,
         false,
@@ -120,7 +124,7 @@ export class RpcRouter {
       }
     } catch (err) {
       const error = toRpcError(err);
-      logger.error(`[Router] 流式 handler 执行失败 (${requestId}): ${error.message}`);
+      logger.event("req.stream.error", { requestId, message: error.message }, LogLevel.error);
       yield {
         kind: "notification",
         type: "error",

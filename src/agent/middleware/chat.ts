@@ -38,20 +38,15 @@ export async function* chatMiddleware(
   };
 
   // ========== AI 输入参数日志 ==========
-  logger.info("\n" + "=".repeat(60));
-  logger.info("[AI INPUT] LLM Request");
-  logger.info("=".repeat(60));
-  logger.info("[Provider]", ctx.runtime.brain.provider || "unknown");
-  logger.info("[Model]", options.model);
-  logger.info("[Thinking]", options.thinking ? "enabled" : "disabled");
-  logger.info("[Stream]", ctx.global.stream ? "enabled" : "disabled");
-  logger.info("[Senses]", senses.length, "available");
-  if (senses.length > 0) {
-    logger.info("[Sense Names]", senses.map(s => s.function?.name || "unknown").join(", "));
-  }
-  logger.info("\n[Messages]");
-  logger.info(JSON.stringify(messages, null, 2));
-  logger.info("=".repeat(60) + "\n");
+  logger.event("llm.req", {
+    provider: ctx.runtime.brain.provider || "unknown",
+    model: options.model,
+    thinking: !!options.thinking,
+    stream: !!ctx.global.stream,
+    senseCount: senses.length,
+    senseNames: senses.map((s) => s.function?.name || "unknown"),
+    msgCount: messages.length,
+  });
 
   if (ctx.global.stream) {
     // 流式调用
@@ -90,9 +85,6 @@ async function* handleStream(
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
-  logger.info("[AI OUTPUT] Stream Response Started");
-  logger.info("-".repeat(60));
-
   const streamIterator = await llmAdapter.chatStream(messages, senses, options);
 
   let chunkCount = 0;
@@ -111,16 +103,11 @@ async function* handleStream(
     // 提取 sense call 增量
     const senseDelta = senseAdapter.extractSenseCallDeltas(rawChunk);
 
-    // 累积内容（用于最终日志）
+    // 累积内容（用于完成时汇总事件）
     thinkingAccumulated += thinkingDelta;
     contentAccumulated += contentDelta;
     if (senseDelta.length > 0) {
       senseCallsAccumulated.push(...senseDelta);
-    }
-
-    // 每 10 个 chunk 打印一次增量摘要
-    if (chunkCount % 10 === 0) {
-      logger.info(`[Chunk ${chunkCount}] thinking:${thinkingAccumulated.length} chars, content:${contentAccumulated.length} chars, senses:${senseCallsAccumulated.length}`);
     }
 
     // yield stream chunk（包含 senseDelta）
@@ -134,19 +121,14 @@ async function* handleStream(
     }
   }
 
-  // ========== 流式响应完成日志 ==========
-  logger.info("\n" + "-".repeat(60));
-  logger.info("[AI OUTPUT] Stream Response Complete");
-  logger.info("[Total Chunks]", chunkCount);
-  logger.info("\n[Thinking Accumulated]");
-  logger.info(thinkingAccumulated || "(none)");
-  logger.info("\n[Content Accumulated]");
-  logger.info(contentAccumulated || "(none)");
-  if (senseCallsAccumulated.length > 0) {
-    logger.info("\n[Sense Calls Accumulated]");
-    logger.info(JSON.stringify(senseCallsAccumulated, null, 2));
-  }
-  logger.info("-".repeat(60) + "\n");
+  // ========== 流式响应完成 ==========
+  logger.event("llm.resp", {
+    mode: "stream",
+    chunks: chunkCount,
+    thinkingLen: thinkingAccumulated.length,
+    contentLen: contentAccumulated.length,
+    senseCalls: senseCallsAccumulated.length,
+  });
 }
 
 /**
@@ -160,9 +142,6 @@ async function* handleNonStream(
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
-  logger.info("[AI OUTPUT] Non-Stream Response");
-  logger.info("-".repeat(60));
-
   const response = await llmAdapter.chat(messages, senses, options);
 
   // 提取内容和思考
@@ -172,18 +151,13 @@ async function* handleNonStream(
   // 提取 sense calls（非流式为完整数据）
   const senseDelta = senseAdapter.senseCalls(response);
 
-  // ========== 非流式响应日志 ==========
-  logger.info("\n[Thinking]");
-  logger.info(thinking || "(none)");
-  logger.info("\n[Content]");
-  logger.info(content || "(none)");
-  if (senseDelta.length > 0) {
-    logger.info("\n[Sense Calls]");
-    logger.info(JSON.stringify(senseDelta, null, 2));
-  }
-  logger.info("\n[Raw Response]");
-  logger.info(JSON.stringify(response, null, 2));
-  logger.info("-".repeat(60) + "\n");
+  // ========== 非流式响应汇总 ==========
+  logger.event("llm.resp", {
+    mode: "non-stream",
+    thinkingLen: thinking?.length ?? 0,
+    contentLen: content?.length ?? 0,
+    senseCalls: senseDelta.length,
+  });
 
   // yield stream chunk（包含 senseDelta）
   if (content || thinking || senseDelta.length > 0) {

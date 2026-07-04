@@ -9,6 +9,7 @@ import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 import config, { type MockScriptResponse } from "@/utils/config";
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
 
 // ========== mock raw 格式（自定义，不接真实 API）==========
 
@@ -60,7 +61,7 @@ function findMockFile(model: string): string | undefined {
 function loadScriptFile(file: string): MockScriptFile {
   const filePath = path.join(cheryDir, ".chery", file);
   if (!fs.existsSync(filePath)) {
-    logger.warn(`[MOCK] Script file not found: ${filePath}`);
+    logger.event("mock.script.missing", { filePath }, LogLevel.warn);
     return { script: [] };
   }
   const raw = fs.readFileSync(filePath, "utf8");
@@ -100,18 +101,18 @@ function pickScriptItem(model: string, messages: LLMResponse[]): MockScriptRespo
   const index = messages.filter(m => m.role === "assistant").length;
 
   if (script.length === 0) {
-    logger.warn(`[MOCK] Empty script (model=${model} file=${file}), return empty`);
+    logger.event("mock.script.empty", { model, file }, LogLevel.warn);
     return { content: "" };
   }
   if (index < script.length) {
-    logger.info(`[MOCK] model=${model} file=${file} turn=${index} → script[${index}]`);
+    logger.event("mock.turn", { model, file, turn: index });
     return script[index]!;
   }
   if (repeat === "last") {
-    logger.info(`[MOCK] model=${model} turn=${index} → exhausted, repeat last`);
+    logger.event("mock.exhausted.repeat", { model, turn: index });
     return script[script.length - 1]!;
   }
-  logger.info(`[MOCK] model=${model} turn=${index} → exhausted, return empty`);
+  logger.event("mock.exhausted.empty", { model, turn: index });
   return { content: "" };
 }
 

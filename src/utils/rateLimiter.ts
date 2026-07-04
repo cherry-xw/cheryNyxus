@@ -1,4 +1,5 @@
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
 
 /**
  * 滑动窗口时间（毫秒）。RPM = Requests Per Minute，窗口固定 60s。
@@ -57,9 +58,7 @@ class SlidingWindowRateLimiter {
 
     // ===== 让出点：必要时等待 =====
     if (waitMs > 0) {
-      logger.info(
-        `[RateLimiter] RPM=${this.rpm} 限流，等待 ${waitMs}ms 后放行`,
-      );
+      logger.event("rateLimit.wait", { rpm: this.rpm, waitMs }, LogLevel.debug);
       await sleep(waitMs);
     }
   }

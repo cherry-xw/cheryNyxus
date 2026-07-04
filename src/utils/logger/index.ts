@@ -1,8 +1,14 @@
 /**
- * 统一日志模块
- * 支持日志等级、文件输出、位置追踪、时间戳
- * 配置从 .chery/config.yaml 读取
+ * 统一日志模块 —— 结构化事件 trace
+ *
+ * - 全项目唯一日志出口。每条日志 = 一个 JSON 事件（单行），带 LogScope 关联键。
+ * - AsyncLocalStorage 承载 scope，沿 async 链自动传播；边界（router / Middleware / ws）用 run() 注入。
+ * - 解释模块按 traceId（chatId）过滤事件流，还原用户每一步操作。
+ *
+ * 配置来自 .chery/config.yaml 的 global.logger（utils/config.ts LoggerConfig）。
  */
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import {
   createWriteStream,
   mkdirSync,
@@ -19,13 +25,17 @@ import type { LoggerConfig as ConfigLoggerConfig } from "@/utils/config.js";
 import { LogLevel } from "./types.js";
 import type {
   InternalLoggerConfig,
+  LogEvent,
+  LogScope,
   Logger,
   LoggerTools,
   BashLogInfo,
 } from "./types.js";
 
 // Re-export externally used types
-export type { BashLogInfo } from "./types.js";
+export type { BashLogInfo, LogScope, LogEvent, Logger } from "./types.js";
+export { LogLevel } from "./types.js";
+
 // ============================================================================
 // 配置解析
 // ============================================================================
@@ -54,18 +64,43 @@ function loadLoggerConfig(
     output: globalLoggerConfig?.output ?? ["console"],
     timestamp: globalLoggerConfig?.timestamp ?? true,
     location: globalLoggerConfig?.location ?? true,
-    format: globalLoggerConfig?.format ?? "plain",
+    format: globalLoggerConfig?.format ?? "json",
   };
+}
+
+// ============================================================================
+// ALS scope 引擎（全局单例 —— 跨 createLogger 实例共享，保证 run/getScope 一致）
+// ============================================================================
+
+const scopeAls = new AsyncLocalStorage<LogScope>();
+
+/** 去除 undefined 字段，避免 scope 对象噪音 */
+function cleanScope(scope: Partial<LogScope>): LogScope {
+  const out: LogScope = {};
+  for (const [k, v] of Object.entries(scope)) {
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+  }
+  return out;
+}
+
+/**
+ * 注入 scope 并执行 fn。与父 scope 合并（子层覆盖同名键）。
+ * 用于边界（router / Middleware.send / ws connection）建立请求/会话作用域。
+ */
+function runScope<T>(scope: Partial<LogScope>, fn: () => T): T {
+  const parent = scopeAls.getStore();
+  const merged = cleanScope({ ...(parent ?? {}), ...scope });
+  return scopeAls.run(merged, fn);
+}
+
+function getScope(): LogScope {
+  return scopeAls.getStore() ?? {};
 }
 
 // ============================================================================
 // Logger 工厂函数（闭包式，替代 class）
 // ============================================================================
 
-/**
- * 创建 Logger 实例
- * 使用闭包封装状态，返回 Logger 接口对象
- */
 function createLogger(config?: ConfigLoggerConfig): Logger {
   let _config = loadLoggerConfig(config);
   let _fileStream: WriteStream | undefined;
@@ -102,78 +137,122 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
     return "unknown";
   }
 
-  function format(level: string, args: unknown[]): string {
-    const message = args
+  /** 序列化任意参数为字符串（用于 legacy info/warn/error 的 message 字段） */
+  function formatArgs(args: unknown[]): string {
+    return args
       .map((arg) => {
         if (typeof arg === "string") return arg;
         if (arg instanceof Error) return arg.stack ?? arg.message;
         try {
-          return JSON.stringify(arg, null, 2);
+          return JSON.stringify(arg);
         } catch {
           return String(arg);
         }
       })
       .join(" ");
+  }
 
-    if (_config.format === "json") {
-      const entry = {
-        level,
-        timestamp: dayjs().format("YYYY-MM-DD HH:mm:ss"),
-        location: _config.location ? getLocation() : undefined,
-        message,
-      };
-      return JSON.stringify(entry);
-    }
-
-    // plain 格式
+  function renderPlain(e: LogEvent): string {
     const parts: string[] = [];
-    if (_config.timestamp) {
-      parts.push(dayjs().format("YYYY-MM-DD HH:mm:ss"));
+    if (_config.timestamp) parts.push(e.ts);
+    const scopeTag = formatScopeTag(e.scope);
+    if (scopeTag) parts.push(scopeTag);
+    if (e.location) parts.push(`[${e.location}]`);
+    parts.push(`[${e.level}]`);
+    parts.push(e.type);
+    if (e.data && e.data["message"] !== undefined) {
+      parts.push(String(e.data["message"]));
+    } else if (e.data) {
+      parts.push(JSON.stringify(e.data));
     }
-    if (_config.location) {
-      parts.push(`[${getLocation()}]`);
-    }
-    parts.push(`[${level}]`);
-    parts.push(message);
     return parts.join(" ");
   }
 
-  function output(level: LogLevel, levelName: string, args: unknown[]): void {
+  /** plain 格式下 scope → `[traceId=… runId=…]`（仅非空字段，固定顺序） */
+  function formatScopeTag(scope: LogScope): string {
+    const order: (keyof LogScope)[] = [
+      "traceId",
+      "requestId",
+      "runId",
+      "connectionId",
+      "spanId",
+    ];
+    const segs = order
+      .filter((k) => scope[k] !== undefined)
+      .map((k) => `${k}=${scope[k]}`);
+    return segs.length ? `[${segs.join(" ")}]` : "";
+  }
+
+  function emit(
+    type: string,
+    data: Record<string, unknown> | undefined,
+    level: LogLevel,
+    levelName: string,
+  ): void {
     if (_config.level > level) return;
 
-    const formatted = format(levelName, args);
+    const scope = getScope();
+    const event: LogEvent = {
+      ts: new Date().toISOString(),
+      level: levelName,
+      type,
+      scope,
+    };
+    if (_config.location) event.location = getLocation();
+    if (data && Object.keys(data).length > 0) event.data = data;
+
+    const line =
+      _config.format === "json" ? JSON.stringify(event) : renderPlain(event);
 
     if (_config.output.includes("console")) {
-      const stream = level >= LogLevel.error ? process.stderr : process.stdout;
-      stream.write(formatted + "\n");
+      const stream =
+        level >= LogLevel.error ? process.stderr : process.stdout;
+      stream.write(line + "\n");
     }
-
     if (_fileStream) {
-      _fileStream.write(formatted + "\n");
+      _fileStream.write(line + "\n");
+    }
+  }
+
+  function event(
+    type: string,
+    data?: Record<string, unknown>,
+    level: LogLevel = LogLevel.info,
+  ): void {
+    const levelName = levelNameOf(level);
+    emit(type, data, level, levelName);
+  }
+
+  function levelNameOf(level: LogLevel): string {
+    switch (level) {
+      case LogLevel.debug:
+        return "debug";
+      case LogLevel.info:
+        return "info";
+      case LogLevel.warn:
+        return "warn";
+      case LogLevel.error:
+        return "error";
+      default:
+        return "info";
     }
   }
 
   return {
+    event,
+    run: runScope,
+    getScope,
     debug(...args: unknown[]) {
-      output(LogLevel.debug, "DEBUG", args);
+      emit("log.debug", { message: formatArgs(args) }, LogLevel.debug, "debug");
     },
     info(...args: unknown[]) {
-      output(LogLevel.info, "INFO", args);
-    },
-    write(message: string) {
-      if (_config.level > LogLevel.info) return;
-      if (_config.output.includes("console")) {
-        process.stdout.write(message);
-      }
-      if (_fileStream) {
-        _fileStream.write(message);
-      }
+      emit("log.info", { message: formatArgs(args) }, LogLevel.info, "info");
     },
     warn(...args: unknown[]) {
-      output(LogLevel.warn, "WARN", args);
+      emit("log.warn", { message: formatArgs(args) }, LogLevel.warn, "warn");
     },
     error(...args: unknown[]) {
-      output(LogLevel.error, "ERROR", args);
+      emit("log.error", { message: formatArgs(args) }, LogLevel.error, "error");
     },
     close() {
       _fileStream?.end();
@@ -236,6 +315,15 @@ export const logger: Logger = new Proxy({} as Logger, {
 });
 
 // ============================================================================
+// Scope 辅助导出（供边界处生成 runId 等）
+// ============================================================================
+
+/** 生成一个新的 runId / spanId */
+export function generateLogId(): string {
+  return randomUUID();
+}
+
+// ============================================================================
 // Bash 日志工具（内部函数，通过 logger.tools 暴露）
 // ============================================================================
 
@@ -293,10 +381,7 @@ function getLogDirectory(name: string): string {
   return dir;
 }
 
-function createLogFilePath(
-  logDirName: string,
-  filename: string,
-): string {
+function createLogFilePath(logDirName: string, filename: string): string {
   return join(getLogDirectory(logDirName), filename);
 }
 
@@ -330,10 +415,7 @@ function createLogStream(logPath: string): WriteStream {
   return createWriteStream(logPath, { flags: "w" });
 }
 
-function cleanOldLogFiles(
-  logDirName: string,
-  retentionHours: number,
-): void {
+function cleanOldLogFiles(logDirName: string, retentionHours: number): void {
   const dir = getLogDirectory(logDirName);
   if (!existsSync(dir)) return;
 

@@ -91,7 +91,7 @@ export function registerBashProcess(
     killed: false,
   };
   getChatMap(chatId).set(proc.pid, record);
-  logger.info(`[BASH PROC] 注册 chat=${chatId} pid=${proc.pid} cmd=${meta.command}`);
+  logger.event("bash.proc.register", { chatId, pid: proc.pid, cmd: meta.command });
 }
 
 /**
@@ -103,7 +103,7 @@ export function unregisterBashProcess(chatId: string | undefined, pid: number): 
   const m = registry.get(chatId);
   if (!m) return;
   if (m.delete(pid)) {
-    logger.info(`[BASH PROC] 清除 chat=${chatId} pid=${pid}`);
+    logger.event("bash.proc.clear", { chatId, pid });
   }
   if (m.size === 0) {
     registry.delete(chatId);
@@ -133,7 +133,7 @@ export function killBashProcess(chatId: string, pid: number): boolean {
       // 进程已退出，忽略
     }
   }
-  logger.info(`[BASH PROC] 杀死 chat=${chatId} pid=${pid}`);
+  logger.event("bash.proc.kill", { chatId, pid });
   return true;
 }
 

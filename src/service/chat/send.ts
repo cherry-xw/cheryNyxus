@@ -25,6 +25,7 @@ import { ensureChat, clearChatRuntime, abortChatRuntime } from "./runtime.js";
 import { observeAgentChunks } from "./observer.js";
 import { streamAgentChunks } from "./streamMapper.js";
 import { logger } from "@/utils/logger/index.js";
+import { LogLevel } from "@/utils/logger/types.js";
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出，
 // re-export 保持 handler.ts 等调用方（import from "./send.js"）兼容。
@@ -46,7 +47,11 @@ export async function* handleChatSend(
     throw new Error(`Chat "${chatId}" not found`);
   }
 
-  logger.info(`[ChatSend] chatId=${chatId}, prompt="${data.prompt}"`);
+  logger.event("chat.send.start", {
+    mode: "send",
+    promptLen: data.prompt.length,
+    promptPreview: data.prompt.slice(0, 200),
+  });
 
   const agent = await ensureChat(chatId);
   const rid = ctx.requestId ?? chatId;
@@ -58,15 +63,17 @@ export async function* handleChatSend(
     for await (const _ of agent.run(data.prompt)) {
       /* 运行中 send 不产出 chunk，迭代仅为触发 send body 入队 */
     }
+    logger.event("chat.send.queued", { promptLen: data.prompt.length });
     return { chatId };
   }
 
   // 绑定 chatId 到当前连接，拒绝跨连接并发 send（P0-3）
   try {
     connectionManager.bindChatConnection(chatId, ctx.connectionId);
+    logger.event("chat.bind", { chatId, connectionId: ctx.connectionId });
   } catch (e) {
     const msg = (e as Error).message;
-    logger.error(`[ChatSend] 绑定连接失败: ${msg}`);
+    logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
     yield createNotification("error", rid, { message: msg });
     return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
   }
@@ -78,7 +85,7 @@ export async function* handleChatSend(
     const revokedIds = agent.revokeTrailingCycle();
     if (revokedIds.length > 0) {
       markMessagesRevoked(chatId, revokedIds);
-      logger.info(`[ChatSend] Recovery revoke ${revokedIds.length} msgs: ${revokedIds.join(", ")}`);
+      logger.event("chat.send.revoke", { count: revokedIds.length, messageIds: revokedIds });
       yield createChunk("staged", rid, { type: "reverse", messageIds: revokedIds });
     }
   }
@@ -96,14 +103,15 @@ export async function* handleChatSend(
     // approval aborted（chat.abort 触发 abortChat → reject → senseMiddleware throw，
     // 见 tool.ts executeCollectedCalls catch）：chat.abort 是预期清内存操作，静默不报错。
     if (error.message === "approval aborted") {
-      logger.info(`[ChatSend] approval aborted (chat.abort), silent`);
+      logger.event("chat.send.aborted", { reason: "approval aborted" });
     } else {
-      logger.error(`[ChatSend] 执行失败: ${error.message}`, error.stack ?? "");
+      logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);
       yield createNotification("error", rid, { message: error.message });
       failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
     }
   } finally {
     connectionManager.releaseChatConnection(chatId, ctx.connectionId);
+    logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
   }
 
   return failureResponse ?? { chatId };
@@ -129,7 +137,7 @@ export async function* handleChatResume(
     throw new Error(`Chat "${chatId}" not found`);
   }
 
-  logger.info(`[ChatResume] chatId=${chatId} (continue, no prompt)`);
+  logger.event("chat.send.start", { mode: "resume" });
 
   const agent = await ensureChat(chatId);
 
@@ -141,9 +149,10 @@ export async function* handleChatResume(
   // 绑定 chatId 到当前连接，拒绝跨连接并发 resume（P0-3）
   try {
     connectionManager.bindChatConnection(chatId, ctx.connectionId);
+    logger.event("chat.bind", { chatId, connectionId: ctx.connectionId });
   } catch (e) {
     const msg = (e as Error).message;
-    logger.error(`[ChatResume] 绑定连接失败: ${msg}`);
+    logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
     yield createNotification("error", rid, { message: msg });
     return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
   }
@@ -157,14 +166,15 @@ export async function* handleChatResume(
     const error = err as Error;
     // approval aborted（chat.abort 触发，同 handleChatSend）：静默不报错
     if (error.message === "approval aborted") {
-      logger.info(`[ChatResume] approval aborted (chat.abort), silent`);
+      logger.event("chat.send.aborted", { reason: "approval aborted" });
     } else {
-      logger.error(`[ChatResume] 执行失败: ${error.message}`, error.stack ?? "");
+      logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);
       yield createNotification("error", rid, { message: error.message });
       failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
     }
   } finally {
     connectionManager.releaseChatConnection(chatId, ctx.connectionId);
+    logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
   }
 
   return failureResponse ?? { chatId };
@@ -179,6 +189,11 @@ export async function handleSenseApproval(
 ): Promise<SenseApprovalResponseData> {
   // 转调 ApprovalManager.confirm → core approvalRegistry.resolve（P1-11 解耦后）
   approvalManager.confirm(data.approvalId, data.action, data.reason);
+  logger.event("sense.approval", {
+    approvalId: data.approvalId,
+    action: data.action,
+    reason: data.reason,
+  });
 
   return {
     approvalId: data.approvalId,
@@ -202,6 +217,7 @@ export async function handleChatAbort(
   // 强制解绑连接（不校验 owner）：abort 是清内存操作，跨连接重连后旧 owner 须无条件清除避免 busy 死锁（P0-2）
   connectionManager.forceReleaseChatConnection(data.chatId);
   clearChatRuntime(data.chatId);
+  logger.event("chat.abort", { chatId: data.chatId });
   return { chatId: data.chatId };
 }
 

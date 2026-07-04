@@ -8,7 +8,6 @@ import type {
 } from "@/core/middleware/types";
 import type { LLMResponse } from "@/core/message/adapter";
 import type { SenseCallData } from "@/core/sense/adapter";
-import { logger } from "@/utils/logger/index.js";
 
 /**
  * Checkpoint 状态管理
@@ -96,13 +95,6 @@ export class CheckpointState {
     const messages = ctx.soul.messages ?? [];
     const mutations: CheckpointMessageMutation[] = [];
 
-    logger.info("\n[CHECKPOINT] Appending response messages");
-    logger.info("[CHECKPOINT] Thinking length:", this.thinking.length);
-    logger.info("[CHECKPOINT] Content length:", this.content.length);
-    logger.info("[CHECKPOINT] Sense deltas:", this.senseDeltas.length);
-    logger.info("[CHECKPOINT] Merged sense calls:", mergedSenseCalls.length);
-    logger.info("[CHECKPOINT] Sense results:", this.senseResults.length);
-
     // assistant 响应（包含 thinking 和 senseCalls）
     // sense_call 流已在 sense_end 时 flush（assistantFlushed=true），此处跳过避免重复 push；
     // 仅纯 content/thinking 流（未触发 sense_end）在此构建。
@@ -133,8 +125,6 @@ export class CheckpointState {
           senseCalls: assistantMsg.senseCalls,
         },
       });
-      logger.info("[CHECKPOINT] ✅ Appended assistant message");
-      logger.info("[CHECKPOINT] Sense calls in assistant:", assistantMsg.senseCalls?.length || 0);
     }
 
     // sense 结果（独立追加，不受 assistant 消息条件限制）
@@ -151,11 +141,6 @@ export class CheckpointState {
         existing.content = content;
         if (hash) existing.hash = hash;
         existing.updateAt = Date.now();
-
-        logger.info("\n[CHECKPOINT] 🔄 Updated existing sense message (recovery)");
-        logger.info("[CHECKPOINT] Type:", r.type);
-        logger.info("[CHECKPOINT] ID:", r.id);
-        logger.info("[CHECKPOINT] Content preview:", content.slice(0, 100));
 
         mutations.push({
           type: "updated",
@@ -186,19 +171,10 @@ export class CheckpointState {
             hash,
           },
         });
-
-        logger.info("\n[CHECKPOINT] ⚡ Appended sense message");
-        logger.info("[CHECKPOINT] Type:", r.type);
-        logger.info("[CHECKPOINT] ID:", r.id);
-        logger.info("[CHECKPOINT] Hash:", hash || "(none)");
-        logger.info("[CHECKPOINT] Content preview:", content.slice(0, 100));
       }
     }
 
     ctx.soul.messages = messages;
-    logger.info("[CHECKPOINT] Total messages:", messages.length);
-    logger.info("[CHECKPOINT] Last message role:", messages[messages.length - 1]?.role);
-    logger.info();
 
     return mutations;
   }

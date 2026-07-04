@@ -8,6 +8,7 @@ import type {
 } from "../message/types.js";
 import { Method } from "../message/types.js";
 import { killBashProcess, listBashProcesses } from "@/agent/sense/processRegistry.js";
+import { logger } from "@/utils/logger/index.js";
 
 /**
  * Bash 进程管理 RPC handler。
@@ -25,6 +26,7 @@ async function handleBashKill(
   data: BashKillRequestData,
 ): Promise<BashKillResponseData> {
   const killed = killBashProcess(data.chatId, data.pid);
+  logger.event("bash.kill", { chatId: data.chatId, pid: data.pid, killed });
   return { chatId: data.chatId, pid: data.pid, killed };
 }
 
@@ -34,6 +36,7 @@ async function handleBashList(
   data: BashListRequestData,
 ): Promise<BashListResponseData> {
   const processes: BashProcessInfo[] = listBashProcesses(data.chatId);
+  logger.event("bash.list", { chatId: data.chatId, count: processes.length });
   return { chatId: data.chatId, processes };
 }
 
