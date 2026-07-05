@@ -17,7 +17,7 @@
 | Utils | `src/utils/` | [docs/utils/](../docs/utils/) | 工具：config、drain、logger、hash/json/generator |
 | 配置 | `.chery/` + `.chery/db/` | — | 运行时配置 + 数据库（不走打包，运行时读取） |
 
-> `src/web/`（前端）文档暂缺，该模块后续整体重构。
+> 前端 `web/`（pnpm workspace 独立 package，Vue3 + Vite 8 + Electron 43）架构说明见 [docs/web/](../docs/web/)。
 
 ## 常用命令
 

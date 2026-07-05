@@ -2,6 +2,10 @@
   "name": "cheryclaw",
   "version": "1.0.0",
   "description": "sp",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -14,7 +18,16 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "demo": "tsx test/demo.ts"
+    "demo": "tsx test/demo.ts",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "web:dev": "pnpm --filter web dev:web",
+    "electron:dev": "pnpm --filter web dev:electron",
+    "web:build": "pnpm --filter web build",
+    "web:preview": "pnpm --filter web preview",
+    "web:type-check": "pnpm --filter web type-check",
+    "dev:all": "concurrently -n backend,web -c blue,green \"pnpm dev\" \"pnpm --filter web dev:web\"",
+    "build:all": "pnpm build && pnpm --filter web build",
+    "type-check:all": "pnpm type-check && pnpm --filter web type-check"
   },
   "repository": {
     "type": "git",
@@ -42,6 +55,7 @@
     "ts-node": "^10.9.2",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.21.0",
+    "turbo": "^2.5.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
     "vite-plugin-native-modules": "^2.2.1",
@@ -63,5 +77,6 @@
     "ws": "^8.21.0",
     "zod": "^4.4.1",
     "zod-to-json-schema": "^3.25.2"
-  }
+  },
+  "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
 }

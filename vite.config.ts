@@ -1,4 +1,4 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, resolve } from "path";
 import { createRequire } from "module";
 import type { Plugin } from "vite";
@@ -54,12 +54,7 @@ function postBuildFix(): Plugin {
       }
 
       // ===== web 整目录复制（ESM 模块化前端，多文件）=====
-      const webSrcDir = resolve(__dirname, "src/web");
-      const webTargetDir = resolve(distDir, "web");
-      if (existsSync(webSrcDir)) {
-        rmSync(webTargetDir, { recursive: true, force: true });
-        cpSync(webSrcDir, webTargetDir, { recursive: true });
-      }
+      // 已移除：web 模块迁移至独立工作区 web/，不再随 SSR 打包复制。
 
       // ===== index.js 补丁 =====
       if (!existsSync(distFile)) return;

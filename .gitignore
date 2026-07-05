@@ -13,6 +13,9 @@ dist/
 *.d.ts
 !src/**/*.d.ts
 
+# Turborepo local cache
+.turbo/
+
 # IDE
 .vscode/
 .idea/

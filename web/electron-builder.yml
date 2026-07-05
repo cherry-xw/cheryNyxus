@@ -1,0 +1,40 @@
+# electron-builder 配置
+# 详见 docs/web/electron.md 扩展点 + docs/web/deployment.md 模式 2
+
+appId: com.cheryclaw.app
+productName: cheryClaw
+directories:
+  output: release
+  buildResources: build
+
+# 主进程 + 渲染产物（web/ 内）
+files:
+  - dist/**
+  - dist-electron/**
+
+# 后端 bundle + .chery 配置（随应用分发，只读）
+# main 进程 spawn 后端时 CHERY_DIR = resources/，DB_DIR = userData（可写）
+extraResources:
+  - from: ../dist
+    to: dist
+  - from: ../.chery
+    to: .chery
+    filter:
+      - config.yaml
+      - system.md
+      - skills/**
+      - senses/**
+
+# native addon（better-sqlite3）需针对 Electron ABI 重编译
+# 安装后跑 pnpm --filter web rebuild
+npmRebuild: true
+buildDependenciesFromSource: true
+
+win:
+  target: nsis
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+linux:
+  target: AppImage
+  category: Development

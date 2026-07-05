@@ -182,7 +182,7 @@ MCP 分**连接层**与**挂载层**，二者解耦：
 
 ### HTTP API
 
-Web 静态服务（端口通过 `.chery/config.yaml` 的 `server.web_port` 配置，默认 `8183`）除托管前端文件外，提供以下 HTTP 端点：
+Web 静态服务（端口通过 `.chery/config.yaml` 的 `server.web_port` 配置，默认 `8183`；实现见 [service/http.md](./service/http.md)）除托管前端文件外，提供以下 HTTP 端点：
 
 #### `GET /api/config`
 

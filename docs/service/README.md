@@ -1,12 +1,12 @@
 # Service 服务层总览
 
-> 源码 [src/service/](../../src/service/) ｜ 上级 [README](../README.md) ｜ 子模块 [./chat.md](./chat.md) ｜ [./message.md](./message.md) ｜ [./websocket.md](./websocket.md) ｜ 相关 [db.md](../db.md)、[../protocol.md](../protocol.md)、[../interaction.md](../interaction.md)
+> 源码 [src/service/](../../src/service/) ｜ 上级 [README](../README.md) ｜ 子模块 [./chat.md](./chat.md) ｜ [./message.md](./message.md) ｜ [./websocket.md](./websocket.md) ｜ [./http.md](./http.md) ｜ 相关 [db.md](../db.md)、[../protocol.md](../protocol.md)、[../interaction.md](../interaction.md)
 
 ## 职责
 
 service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket 上的 RPC 请求路由到对应 handler，把 agent 的流式 `MiddlewareChunk` 流映射成协议层 Chunk/Notification 推回客户端，并集中处理 DB 持久化与审批副作用。
 
-- **启动装配**（[index.ts](../../src/service/index.ts)）：`startService(port)` 创建 Router → 注册全部 handler → 启动 WebSocketServer。
+- **启动装配**（[index.ts](../../src/service/index.ts)）：`startService({port, webPort, staticDir})` 创建 Router → 注册全部 handler → 启动 WebSocketServer + HTTP 服务器。
 - **RPC 路由**（[message/](../../src/service/message/)）：Request/Response/Chunk/Notification 四象限类型 + `RpcRouter` 分发。详见 [./message.md](./message.md)。
 - **传输实现**（[websocket/](../../src/service/websocket/)）：ws 封装、连接状态、二进制帧编解码。详见 [./websocket.md](./websocket.md)。
 - **chat 枢纽**（[chat/](../../src/service/chat/)）：流式执行、observer 副作用、streamMapper 映射、runtime 缓存、chat 管理。详见 [./chat.md](./chat.md)。
@@ -18,19 +18,19 @@ service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket �
 
 ```
 initLogger(config.global.logger)
-WS_PORT  = config.server.port
-WEB_PORT = config.server.web_port
+WS_PORT    = config.server.port
+WEB_PORT   = config.server.web_port
+STATIC_DIR = process.env.WEB_DIST_DIR ?? ../web/dist
 bootstrapAgentRuntime()          // 注册内置 Provider + 重建 Sense registry
-wss = startService(WS_PORT)      // ← 本模块入口
-startWebServer(WEB_PORT)         // web/server.ts（HTTP /api/config + 静态前端）
+{ wss, httpServer } = startService({ port: WS_PORT, webPort: WEB_PORT, staticDir: STATIC_DIR })  // ← 本模块入口
 getSoulDb()                      // 初始化数据库
-SIGINT/SIGTERM → wss.close() + closeAllDbs() + exit
+SIGINT/SIGTERM → wss.close() + httpServer.close() + closeAllDbs() + exit
 ```
 
 `startService`（[service/index.ts](../../src/service/index.ts)）：
 
 ```ts
-export function startService(port: number) {
+export function startService(options: { port: number; webPort: number; staticDir: string }): ServiceHandle {
   const router = createRouter();
   registerBrainHandlers(router);        // brain.list
   registerSenseHandlers(router);        // sense.list
@@ -38,17 +38,20 @@ export function startService(port: number) {
   registerChatHandlers(router);         // chat.send / chat.resume / sense.approval / chat.abort
   registerChatManageHandlers(router);   // chat.create / chat.list / chat.get / chat.delete
   registerBashHandlers(router);         // bash.list / bash.kill
-  return createWebSocketServer({ port, router });
+  const wss = createWebSocketServer({ port: options.port, router });
+  const httpServer = createHttpServer({ webPort: options.webPort, staticDir: options.staticDir });
+  return { wss, httpServer };
 }
 ```
 
-> service/index.ts 另 `export { createWebSocketServer }`、`export { createRouter }`、`export * from message/types`，供测试与外部组装复用。
+> service/index.ts 另 `export { createWebSocketServer }`、`export { createHttpServer }`、`export { createRouter }`、`export * from message/types`，供测试与外部组装复用。HTTP 服务（`/api/config` + 静态 serve）详见 [./http.md](./http.md)。
 
 ## 文件清单
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/service/index.ts](../../src/service/index.ts) | `startService(port)`：建 Router + 注册全部 handler + 建 WebSocketServer |
+| [src/service/index.ts](../../src/service/index.ts) | `startService({port, webPort, staticDir})`：建 Router + 注册全部 handler + 建 WebSocketServer + HTTP 服务器 |
+| [src/service/http/index.ts](../../src/service/http/index.ts) | `createHttpServer`：HTTP `/api/config` + 静态 serve → [./http.md](./http.md) |
 | [src/service/message/index.ts](../../src/service/message/index.ts) | barrel：types + router |
 | [src/service/message/types.ts](../../src/service/message/types.ts) | RPC 全部类型、`Method`/`ErrorCode` 常量、工厂、类型守卫 |
 | [src/service/message/router.ts](../../src/service/message/router.ts) | `RpcRouter`：注册、分发、流式包装、错误转换 |
@@ -94,7 +97,7 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 
 ## 核心概念 / 导出
 
-- **`startService(port)`**（index.ts）：唯一对外启动入口，返回 `WebSocketServer`。
+- **`startService({port, webPort, staticDir})`**（index.ts）：唯一对外启动入口，返回 `{wss, httpServer}`。HTTP 由 `createHttpServer` 提供（见 [./http.md](./http.md)）。
 - **`RpcRouter`**（message/router.ts）：`register` / `handle`，handler 联合 `HandlerContext`（含 requestId、connectionId）。
 - **`connectionManager`**（websocket/connection.ts 单例）：chat 活跃绑定、审批超时、close abort。
 - **`transport`**（websocket/transport.ts 单例）：帧编解码。
@@ -209,7 +212,7 @@ registerSenseHandlers(router): void;
 
 **被依赖：**
 
-- [src/index.ts](../../src/index.ts)：`startService(port)`、（间接）`getSoulDb`/`closeAllDbs`。
+- [src/index.ts](../../src/index.ts)：`startService({port, webPort, staticDir})`、（间接）`getSoulDb`/`closeAllDbs`。
 
 **依赖（跨模块）：**
 

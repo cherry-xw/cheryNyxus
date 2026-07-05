@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { startService } from "./service/index.js";
 import { getSoulDb, closeAllDbs } from "./db/index.js";
 import { compileSenses } from "./core/sense/compiler/index.js";
@@ -5,15 +7,17 @@ import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense
 import { bootstrapAgentRuntime } from "./agent/bootstrap.js";
 import { closeMcpClients } from "@/core/mcp/index.js";
 import { reloadSenses } from "./agent/sense/index.js";
-import { startWebServer } from "./web/server.js";
 import { initLogger, logger } from "@/utils/logger/index.js";
 import config from "@/utils/config.js";
 
 // 初始化 Logger
 initLogger(config.global.logger);
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WS_PORT = config.server.port;
 const WEB_PORT = config.server.web_port;
+// 前端静态产物目录：优先 WEB_DIST_DIR env（打包后指定），默认相对后端 dist/ 的 ../web/dist
+const STATIC_DIR = process.env.WEB_DIST_DIR ?? path.resolve(__dirname, "..", "web", "dist");
 
 async function main(): Promise<void> {
   const subcommand = process.argv[2];
@@ -25,11 +29,12 @@ async function main(): Promise<void> {
 
   await bootstrapAgentRuntime();
 
-  // 启动 WebSocket 服务
-  const wss = startService(WS_PORT);
-
-  // 启动 Web 测试页面
-  startWebServer(WEB_PORT);
+  // 启动 WebSocket + HTTP 服务
+  const { wss, httpServer } = startService({
+    port: WS_PORT,
+    webPort: WEB_PORT,
+    staticDir: STATIC_DIR,
+  });
 
   // 启动时初始化数据库
   getSoulDb();
@@ -38,6 +43,7 @@ async function main(): Promise<void> {
   process.on("SIGINT", async () => {
     logger.info("\n正在关闭服务...");
     wss.close();
+    httpServer.close();
     await closeMcpClients();
     closeAllDbs();
     process.exit(0);
@@ -45,6 +51,7 @@ async function main(): Promise<void> {
 
   process.on("SIGTERM", async () => {
     wss.close();
+    httpServer.close();
     await closeMcpClients();
     closeAllDbs();
     process.exit(0);

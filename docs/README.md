@@ -38,6 +38,7 @@
 - [chat.md](./service/chat.md) — chat.send/resume 流式、observer、streamMapper、审批 service 侧
 - [message.md](./service/message.md) — RpcRouter 方法路由 + RPC 类型
 - [websocket.md](./service/websocket.md) — 连接管理 + 二进制帧编解码
+- [http.md](./service/http.md) — HTTP `/api/config` + 静态 serve（前端自动构建 WS 地址）
 
 ### [db.md](./db.md) — 持久化
 > 多 sqlite 实例（soul.db.chats + 按月分片 YYYY-MM.db.messages）、CRUD、表结构、状态判定（pending/revoked）。
@@ -49,7 +50,12 @@
 - [drain.md](./utils/drain.md) — Drain 日志模板挖掘算法
 - [logger.md](./utils/logger.md) — 统一日志（文件 / bash）
 
-> `src/web/`（前端）文档暂缺，该模块后续将整体重构。
+### [web/](./web/README.md) — 前端工作区
+> pnpm workspace + Turborepo monorepo 的一个 package（Vue3 + Vite 8 + Electron 43），与后端同仓不同包。当前脚手架阶段，后续接 [protocol.md](./protocol.md) WebSocket。
+
+- [web/README.md](./web/README.md) — 总览：技术栈、双运行模式（浏览器/Electron）、构建产物、monorepo 定位、依赖关联
+- [web/electron.md](./web/electron.md) — Electron 集成详解：主进程路径解析坑、xrdp 运行环境、sandbox SUID
+- [web/deployment.md](./web/deployment.md) — 前后端连接与部署模式：后端独立 / Electron 一体 / Web 浏览器三模式 + 实现路线 + 关键坑
 
 ## 按主题（横切参考）
 
