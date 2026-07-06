@@ -116,6 +116,12 @@ export default defineConfig(({ mode }) => {
 
     ssr: {
       noExternal: true, // 打包所有依赖，包括 native 模块的 JS 部分
+      // fff（@ff-labs/fff-node，ffi-rs 加载的原生 .so）必须外置：其 findBinary() 用
+      // import.meta.url + createRequire 解析平台包 @ff-labs/fff-bin-*，打包后 import.meta.url
+      // 指向 dist/，且 pnpm 未把 @ff-labs/fff-bin-* 提升到项目根 → 打包会找不到 .so。
+      // ssr.external 先于 noExternal 判定（Vite createIsConfiguredAsExternal），运行时从
+      // node_modules 原样加载 fff，绕过打包副作用。仅 search_codebase 感官依赖。
+      external: ["@ff-labs/fff-node", "ffi-rs"],
     },
 
     test: {

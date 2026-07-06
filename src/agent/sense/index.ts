@@ -14,13 +14,14 @@ import bashSense from "./bash";
 import readSense from "./read";
 import writeSense from "./write";
 import skillSense from "./skill";
+import searchSense from "./search";
 import { logger } from "@/utils/logger/index.js";
 
 /**
  * 注册内置感官。
  */
 function registerBuiltinSenses(): void {
-  registerSenses([bashSense, readSense, writeSense, skillSense]);
+  registerSenses([bashSense, readSense, writeSense, skillSense, searchSense]);
 }
 
 /**

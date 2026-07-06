@@ -22,11 +22,11 @@
 ## 常用命令
 
 ```bash
-yarn dev              # 开发（vite build --ssr --watch + nodemon）
-yarn build            # Vite 8 SSR 打包到 dist/
-yarn start            # 运行编译产物
-yarn compile:senses   # 编译 .chery/senses/ 外部感官
-yarn test             # vitest（套件有预存问题，开发期仅关注 TSC 类型检查通过）
+pnpm dev              # 开发（vite build --ssr --watch + nodemon）
+pnpm build            # Vite 8 SSR 打包到 dist/
+node dist/index.js    # 运行编译产物（无 start 脚本，直接运行）
+pnpm compile:senses   # 编译 .chery/senses/ 外部感官
+pnpm test             # vitest（套件有预存问题，开发期仅关注 TSC 类型检查通过）
 ```
 
 ## 核心概念速查

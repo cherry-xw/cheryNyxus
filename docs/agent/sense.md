@@ -4,7 +4,7 @@
 
 ## 职责
 
-定义并注册**内置感官**（execute_command / read_file / write_file / skill），管理 bash 子进程生命周期，重载全局 sense registry（内置 + 编译产物），并为 `compile-senses` 子命令提供自测与报告。
+定义并注册**内置感官**（execute_command / read_file / write_file / skill / search_codebase），管理 bash 子进程生命周期，重载全局 sense registry（内置 + 编译产物），并为 `compile-senses` 子命令提供自测与报告。
 
 > 命名澄清：CLAUDE.md 中的 `execute_skill` 是历史名，**实际 sense 函数名是 `skill`**（[skill.ts](../../src/agent/sense/skill.ts) 第一参数）；bash 感官名是 `execute_command`，不是 `bash`（bash.ts 是文件名）。
 
@@ -17,6 +17,7 @@
 | [read.ts](../../src/agent/sense/read.ts) | `read_file` 感官（auto）：大文件策略（truncate/drain/none）+ hash 含 mtime + 写 sharedData |
 | [write.ts](../../src/agent/sense/write.ts) | `write_file` 感官（manual）：临时文件 + rename，行范围替换，写前修改检测 |
 | [skill.ts](../../src/agent/sense/skill.ts) | `skill` 感官（auto）：实时读取 SKILL.md 完整指令 |
+| [search.ts](../../src/agent/sense/search.ts) | `search_codebase` 感官（auto）：fff FileFinder 单例，content(grep)/filename(fileSearch) 双模式 |
 | [processRegistry.ts](../../src/agent/sense/processRegistry.ts) | bash 子进程注册表（chatId→pid），进程组 kill，chatId 注入机制 |
 | [compileToolsReporter.ts](../../src/agent/sense/compileToolsReporter.ts) | `compile-senses` 子命令的报告输出（编译/测试表格 + 失败详情） |
 
@@ -30,6 +31,7 @@
 | `read_file` | [read.ts](../../src/agent/sense/read.ts) | auto | `path`、`limit?`、`offset?`、`compression?` |
 | `write_file` | [write.ts](../../src/agent/sense/write.ts) | manual | `path`、`content`、`offset?`、`limit?` |
 | `skill` | [skill.ts](../../src/agent/sense/skill.ts) | auto | `name` |
+| `search_codebase` | [search.ts](../../src/agent/sense/search.ts) | auto | `mode?`、`query`、`regex?`、`maxResults?`、`contextLines?` |
 
 > ⚠ sense **函数名**（首参数）才是注册 key，与文件名无关。bash.ts → "execute_command"、skill.ts → "skill"。
 
@@ -156,7 +158,24 @@ input { name }
 
 **hash 基于 size + mtimeMs**：内容变化时 hash 也变化，触发 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 去重逻辑失效（新旧内容 hash 不同 → 各自独立留存，LLM 自行对比）。
 
-### E. bash 进程注册表（[processRegistry.ts](../../src/agent/sense/processRegistry.ts)）
+### E. search_codebase（[search.ts](../../src/agent/sense/search.ts)）
+
+```text
+input { mode, query, regex?, maxResults?, contextLines? }
+  ├─ getFinder() → 模块级 FileFinder 单例（首次：create({basePath:cwd, aiMode}) + waitForScan(10s)）
+  │   └─ 不可用 → 返回「索引未就绪」错误（hash 空）
+  ├─ mode="filename" → finder.fileSearch(query, {pageSize})
+  │   └─ 格式化：每条 relativePath [gitStatus]，头部汇总 totalMatched/totalFiles
+  └─ mode="content"(默认) → finder.grep(query, {mode, pageSize, before/afterContext, timeBudgetMs:8000})
+      ├─ query 约束语法：'*.ts TODO' / 'src/ TODO'
+      ├─ regex=true → mode:"regex"，否则 "plain"
+      ├─ contextLines>0 → 上下文行带行号缩进
+      └─ 格式化：每条 relativePath:lineNumber: lineContent，nextCursor 非空时附「仍有更多」
+```
+
+**finder 单例 + hash 恒空：** fff 内置实时 watcher，扫描后自动跟进变更，单例 Promise 缓存（失败也缓存 null 避免重试）。搜索结果依赖实时索引（非确定性），故 `hash: ""`（同 bash 不参与历史去重）。fff 是 ffi-rs 加载的原生 `.so`，**必须从 vite SSR 构建外置**（`ssr.external`）——打包会破坏 `findBinary()` 的 `import.meta.url` 平台包解析（pnpm 未提升 `@ff-labs/fff-bin-*` 到项目根）。
+
+### F. bash 进程注册表（[processRegistry.ts](../../src/agent/sense/processRegistry.ts)）
 
 ```text
 chatId → (pid → BashProcessRecord)
@@ -202,7 +221,7 @@ chatId → (pid → BashProcessRecord)
 | [utils/hash](../../src/utils/hash.ts) | `hashGenerator`（read/write/skill） |
 | [utils/drain](../../src/utils/drain/) | `compressLog`（read_file 大日志去重） |
 | [utils/logger](../../src/utils/logger/) | `logger`、`logger.tools.*`（bash 日志：createBashLogPath/formatBashLogHeader/cleanOldBashLogs、`BashLogInfo` 类型） |
-| 第三方 | `zod`、`child_process`、`fs`/`fs/promises`、`os`/`path`、`url` |
+| 第三方 | `zod`、`@ff-labs/fff-node`（[search.ts](../../src/agent/sense/search.ts)）、`child_process`、`fs`/`fs/promises`、`os`/`path`、`url` |
 
 ### 被依赖
 

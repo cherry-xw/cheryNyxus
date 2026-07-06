@@ -20,11 +20,11 @@ cheryClaw 采用拟人化隐喻设计：
 
 | 指令 | 功能 |
 |------|------|
-| `yarn dev` | 开发模式，热重载，监听 `ws://localhost:8182` |
-| `yarn build` | 构建产物到 `dist/` |
-| `yarn start` | 运行构建产物 |
-| `yarn compile:senses` | 编译 `.chery/senses/` 下的外部感官 |
-| `yarn test` | 运行测试 |
+| `pnpm dev` | 开发模式，热重载，监听 `ws://localhost:8182` |
+| `pnpm build` | 构建产物到 `dist/` |
+| `node dist/index.js` | 运行构建产物（无 `start` 脚本，直接运行编译产物） |
+| `pnpm compile:senses` | 编译 `.chery/senses/` 下的外部感官 |
+| `pnpm test` | 运行测试 |
 
 > 启动时会先全局注册 Provider 并重建 Sense registry（内置感官 + 编译产物）。`compile-senses` 子命令完成后会在当前进程调用一次 `reloadSenses()`；长运行服务的热重载触发机制后续单独实现。
 

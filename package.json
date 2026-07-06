@@ -62,6 +62,7 @@
     "vitest": "^4.1.7"
   },
   "dependencies": {
+    "@ff-labs/fff-node": "^0.9.6",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@swc/wasm": "^1.15.40",
     "@types/better-sqlite3": "^7.6.13",

@@ -60,9 +60,11 @@ sense_groups:
     - skill
     - write_file
     - execute_command
+    - search_codebase
   safe_senses:
     - read_file
     - skill
+    - search_codebase
   dangerous_senses:
     - execute_command
     - write_file
