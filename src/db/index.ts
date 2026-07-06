@@ -173,7 +173,7 @@ export function closeAllDbs(): void {
     dbCache.soulDb.close();
     dbCache.soulDb = null;
   }
-  for (const [month, db] of dbCache.monthlyDbs) {
+  for (const db of dbCache.monthlyDbs.values()) {
     db.close();
   }
   dbCache.monthlyDbs.clear();

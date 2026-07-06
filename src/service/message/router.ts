@@ -5,11 +5,13 @@ import {
   type Notification,
   type RequestData,
   type ResponseData,
+  type Method,
   createResponse,
   createError,
   ErrorCode,
   isResponse,
 } from "./types.js";
+import { requestSchemaFor } from "./schemas.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
@@ -55,7 +57,7 @@ export class RpcRouter {
    * 注册 handler
    */
   register<TData, TResult>(
-    method: string,
+    method: Method,
     handler: HandlerFn<TData, TResult>,
   ): void {
     this.handlers.set(method, { method, handler: handler as unknown as HandlerFn<RequestData, ResponseData> });
@@ -78,8 +80,34 @@ export class RpcRouter {
       );
     }
 
+    // P1-5：zod 校验 params，非法 → INVALID_PARAMS（替代旧 handler 内 `as` 强转静默穿透）。
+    // schema 存在性与 handler 同步注册（requestSchemas 覆盖全部 Method）。
+    const schema = requestSchemaFor(request.method);
+    if (!schema) {
+      return createResponse(
+        request.id,
+        false,
+        undefined,
+        createError(ErrorCode.INTERNAL, `No schema registered for method ${request.method}`),
+      );
+    }
+    const parsed = schema.safeParse(request.params);
+    if (!parsed.success) {
+      logger.event(
+        "req.invalid_params",
+        { method: request.method, error: parsed.error.message },
+        LogLevel.warn,
+      );
+      return createResponse(
+        request.id,
+        false,
+        undefined,
+        createError(ErrorCode.INVALID_PARAMS, parsed.error.message),
+      );
+    }
+
     try {
-      const result = definition.handler(ctx, request.params);
+      const result = definition.handler(ctx, parsed.data as RequestData);
 
       // 判断是否为 Generator
       if (isAsyncGenerator(result)) {

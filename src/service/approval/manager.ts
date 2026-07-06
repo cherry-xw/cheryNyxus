@@ -1,4 +1,5 @@
 import { resolveApproval, rejectApproval } from "@/core/sense/approvalRegistry.js";
+import { AgentAbortError } from "@/core/middleware/errors.js";
 
 /**
  * 审批管理器（极简版）
@@ -39,7 +40,7 @@ export class ApprovalManager {
    */
   abort(approvalId: string): void {
     if (this.approvals.has(approvalId)) {
-      rejectApproval(approvalId, new Error("approval aborted"));
+      rejectApproval(approvalId, new AgentAbortError());
       this.approvals.delete(approvalId);
     }
   }

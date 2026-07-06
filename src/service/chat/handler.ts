@@ -19,7 +19,7 @@ import {
   getMessages,
   parseMessageRow,
 } from "@/db/chat.js";
-import { clearChatRuntime, ensureChat } from "./send.js";
+import { clearChatRuntime, ensureChat } from "./runtime.js";
 import { randomUUID } from "crypto";
 import { parseRuntimeSelection } from "@/agent/runtimeResolver.js";
 import { logger } from "@/utils/logger/index.js";
@@ -31,14 +31,23 @@ import { logger } from "@/utils/logger/index.js";
  */
 export async function handleChatCreate(
   _ctx: HandlerContext,
-  params: unknown,
+  data: ChatCreateRequestData,
 ): Promise<ChatCreateResponseData> {
-  const p = params as ChatCreateRequestData;
+  const p = data;
   const selection = parseRuntimeSelection(p, "chat.create");
   const chatId = p.chatId || randomUUID();
   createChat(chatId);
-  // 原子配置 runtime，并一次性加载历史到 agent。
-  await ensureChat(chatId, selection);
+  try {
+    // 原子配置 runtime，并一次性加载历史到 agent。
+    await ensureChat(chatId, selection);
+  } catch (err) {
+    // ensureChat 失败（configureRuntime 深校验/init 抛错）：清 runtime map 项 + 删 createChat 刚插入的 DB 行，
+    // 避免孤儿 chat 行 + 半配置 runtime。createChat 严格 INSERT（重复 chatId 提前抛 SQLITE_CONSTRAINT），
+    // 故此 catch 仅在本次新建行后触发，deleteChat 安全（不会销毁既有 chat）。
+    clearChatRuntime(chatId);
+    deleteChat(chatId);
+    throw err;
+  }
   logger.event("chat.create", {
     chatId,
     brain: selection.brain,
@@ -79,9 +88,9 @@ export async function handleChatList(
  */
 export async function* handleChatGet(
   _ctx: HandlerContext,
-  params: unknown,
+  data: ChatGetRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatGetResponseData, unknown> {
-  const p = params as ChatGetRequestData;
+  const p = data;
 
   const chat = getChat(p.chatId);
   if (!chat) {
@@ -141,9 +150,9 @@ export async function* handleChatGet(
  */
 export async function handleChatDelete(
   _ctx: HandlerContext,
-  params: unknown,
+  data: ChatDeleteRequestData,
 ): Promise<unknown> {
-  const p = params as ChatDeleteRequestData;
+  const p = data;
 
   const chat = getChat(p.chatId);
   if (!chat) {

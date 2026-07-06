@@ -2,12 +2,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startService } from "./service/index.js";
 import { getSoulDb, closeAllDbs } from "./db/index.js";
+import { reconcileMessageCounts } from "./db/chat.js";
 import { compileSenses } from "./core/sense/compiler/index.js";
 import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense/compileToolsReporter.js";
 import { bootstrapAgentRuntime } from "./agent/bootstrap.js";
 import { closeMcpClients } from "@/core/mcp/index.js";
 import { reloadSenses } from "./agent/sense/index.js";
-import { initLogger, logger } from "@/utils/logger/index.js";
+import { initLogger, logger, LogLevel } from "@/utils/logger/index.js";
 import config from "@/utils/config.js";
 
 // 初始化 Logger
@@ -27,6 +28,15 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (subcommand === "reconcile-db") {
+    const result = reconcileMessageCounts();
+    logger.info(
+      `reconcile-db: checked ${result.checked} chats, fixed ${result.fixed} drift(s)`,
+    );
+    closeAllDbs();
+    return;
+  }
+
   await bootstrapAgentRuntime();
 
   // 启动 WebSocket + HTTP 服务
@@ -38,6 +48,15 @@ async function main(): Promise<void> {
 
   // 启动时初始化数据库
   getSoulDb();
+  // 对账冗余 message_count：修 addMessage 跨库写崩溃导致的漂移（O(chats)，每 chat 1 次 COUNT）
+  const reconcileResult = reconcileMessageCounts();
+  if (reconcileResult.fixed > 0) {
+    logger.event(
+      "db.reconcile",
+      { checked: reconcileResult.checked, fixed: reconcileResult.fixed },
+      LogLevel.warn,
+    );
+  }
 
   // 优雅关闭
   process.on("SIGINT", async () => {

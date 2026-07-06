@@ -53,6 +53,7 @@ pnpm test             # vitest（套件有预存问题，开发期仅关注 TSC 
 
 ## 约定
 
+- **文档先于实现（Doc-First）**：每次修改代码前，先更新涉及的 `docs/` 模块文档，保证文档先于实现。先改代码后补文档视为违规；纯重构、格式化、修复 typo 可豁免。
 - **TypeScript**：ESM（`"type":"module"`）、严格模式（`noUncheckedIndexedAccess`）、bundler 模块解析（Vite 8）、路径别名 `@/*`→`src/*`、`@test/*`→`test/*`。`interface`/`type` 用 `import type`，`class`/`enum`/函数用 `import`。
 - **扩展**：新增 Provider / Sense（内置 / 外部）/ Middleware / Skill 的步骤，见对应模块文档的「扩展点」章节：
   - Provider → [agent/provider.md](../docs/agent/provider.md)

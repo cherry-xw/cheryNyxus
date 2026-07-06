@@ -13,13 +13,15 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { senseMiddleware } from "@/agent/middleware/tool.js";
-import type { MiddlewareChunk } from "@/core/middleware/types.js";
+import type { MiddlewareChunk, SensePendingChunk } from "@/core/middleware/types.js";
 import {
   bootstrapForTests,
   createAgent,
   runSend,
   runSendWithApproval,
   runResume,
+  approve,
+  abortApproval,
 } from "../helpers/agentHarness.js";
 import {
   collectChunks,
@@ -31,6 +33,7 @@ import {
 import { createMockContext, createMockRuntime, createTestSense, makeNext } from "../helpers/fakeContext.js";
 import { addMockBrain, scriptItem } from "../helpers/mockScripts.js";
 import { createTempDir, cleanupTempDir, createTempFile } from "../../helpers/tempDir.js";
+import { AgentAbortError } from "@/core/middleware/errors.js";
 
 describe("senseMiddleware 集成：auto 执行", () => {
   beforeAll(async () => {
@@ -159,5 +162,85 @@ describe("senseMiddleware 单元：resume 续接", () => {
     });
     const out = await collectChunks(senseMiddleware(ctx, makeNext([]) as () => AsyncGenerator<MiddlewareChunk>));
     expect(senseAccepts(out)).toHaveLength(0);
+  });
+});
+
+describe("senseMiddleware 集成：批量审批 sequential（P1.9）", () => {
+  beforeAll(async () => {
+    await bootstrapForTests();
+  });
+
+  it("2 confirm call 混合 accept/reject → 1 accept + 1 reject，不 throw", async () => {
+    const dir = createTempDir();
+    const brain = addMockBrain("seq-mixed", {
+      repeat: "last",
+      script: [
+        scriptItem({
+          content: "两个写",
+          senseCalls: [
+            { id: "sm-0", name: "write_file", arguments: JSON.stringify({ path: `${dir}/a.txt`, content: "a" }) },
+            { id: "sm-1", name: "write_file", arguments: JSON.stringify({ path: `${dir}/b.txt`, content: "b" }) },
+          ],
+        }),
+        scriptItem({ content: "done" }),
+      ],
+    });
+    try {
+      const agent = createAgent({ brain, senseGroups: ["confirm_senses"] });
+      let n = 0;
+      const chunks = await runSendWithApproval(agent, "写两个", () => {
+        n++;
+        return n === 1 ? "accept" : { action: "reject", reason: "第二个不要" };
+      });
+      expect(senseAccepts(chunks)).toHaveLength(1);
+      expect(senseRejects(chunks)).toHaveLength(1);
+      expect(senseRejects(chunks)[0]?.reason).toContain("第二个不要");
+    } finally {
+      cleanupTempDir(dir);
+    }
+  });
+
+  it("2 confirm call：A accept 执行后 B 断连 abort → throw AgentAbortError + A 的 sense_accept 已 yield", async () => {
+    const dir = createTempDir();
+    const brain = addMockBrain("seq-abort", {
+      repeat: "last",
+      script: [
+        scriptItem({
+          content: "两个写",
+          senseCalls: [
+            { id: "sa-0", name: "write_file", arguments: JSON.stringify({ path: `${dir}/a.txt`, content: "a" }) },
+            { id: "sa-1", name: "write_file", arguments: JSON.stringify({ path: `${dir}/b.txt`, content: "b" }) },
+          ],
+        }),
+        scriptItem({ content: "done" }),
+      ],
+    });
+    try {
+      const agent = createAgent({ brain, senseGroups: ["confirm_senses"] });
+      const out: MiddlewareChunk[] = [];
+      let n = 0;
+      let thrown: unknown;
+      try {
+        for await (const c of agent.run("写两个")) {
+          out.push(c);
+          if (c.type === "sense_pending") {
+            const pending = c as SensePendingChunk;
+            n++;
+            // A：accept；B：断连 abort。executeCollectedCalls 预挂 no-op catch，
+            // 故 B 在 await 前 reject 不触发 unhandled rejection，await 仍 throw。
+            if (n === 1) approve(pending.approvalId, "accept");
+            else abortApproval(pending.approvalId);
+          }
+        }
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(AgentAbortError);
+      // sequential：A 在 B abort 前已执行并 yield sense_accept（旧 Promise.all 屏障下 A 不会执行）
+      expect(senseAccepts(out)).toHaveLength(1);
+      expect(senseAccepts(out)[0]?.id).toBe("sa-0");
+    } finally {
+      cleanupTempDir(dir);
+    }
   });
 });

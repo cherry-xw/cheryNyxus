@@ -31,7 +31,7 @@ export function sense<T extends z.ZodType>(
   name: string,
   description: string,
   schema: T,
-  handler: (input: z.infer<T>, senseSharedData: SenseSharedData) => Promise<SenseResult>,
+  handler: (input: z.infer<T>, senseSharedData: SenseSharedData, ctx?: SenseRuntimeContext) => Promise<SenseResult>,
   supervisionLevel?: SupervisionLevel,   // 感官内置监管等级，未声明时外部 fallback
 ): Sense<T>;
 ```
@@ -68,6 +68,10 @@ export interface SenseFunction {
 
 ```ts
 export interface SenseResult { content: string; hash: string; }
+
+export interface SenseRuntimeContext {
+  chatId: string;
+}
 ```
 
 `hash` 用于**历史去重**（如 `read_file` 的 hash 含文件 mtime：新读取命中相同 hash = 文件未变 → 旧 sense 消息被替换为短说明，详见 [`agent/middleware/tool.ts`](../../src/agent/middleware/tool.ts) `doExecuteSense`）。
@@ -79,7 +83,7 @@ export type SenseSharedData = Map<string, Map<string, unknown>>;
 // 外层 namespace → 内层 identifier → data
 ```
 
-随 `MiddlewareContext.soul.senseSharedData` 在同一 chat 的感官间传递。需要按 chatId 归属的感官（如 bash）通过 [`setSenseCtxChatId`](../../src/agent/sense/processRegistry.ts) 注入当前 chatId 到该 Map。
+随 `MiddlewareContext.soul.senseSharedData` 在同一 chat 的感官间传递。需要按 chatId 归属的感官（如 bash）从 executor 第三参 `SenseRuntimeContext.chatId` 读取；该 ctx 由 [`agent/middleware/tool.ts`](../../src/agent/middleware/tool.ts) 调 `senseEntry.execute(args, sharedData, { chatId })` 时注入。
 
 ### SenseAdapter（provider 格式适配）
 
@@ -182,7 +186,7 @@ chatMiddleware yield StreamChunk（含 senseDelta）
      │   ├─ checkpoint 收集 → yield MessageCreatedChunk(assistant) + SensePendingChunk
      │   └─ service observer 落库 assistant + 注册 ApprovalManager
      └─ executeCollectedCalls:
-        ├─ auto：直接 senseTable.get(name).execute(args, sharedData)
+        ├─ auto：直接 senseTable.get(name).execute(args, sharedData, {chatId})
         └─ confirm/manual：createApproval(id) → await → resolveApproval 触发 → 执行 or 跳过
            → yield SenseAcceptChunk / SenseRejectChunk
               ├─ checkpoint → yield MessageCreatedChunk(sense 结果消息)

@@ -17,7 +17,7 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `sense.approval`）转�
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/service/chat/send.ts](../../src/service/chat/send.ts) | `handleChatSend` / `handleChatResume` / `handleSenseApproval` / `handleChatAbort` + `registerChatHandlers`；re-export runtime.ts |
+| [src/service/chat/send.ts](../../src/service/chat/send.ts) | `handleChatSend` / `handleChatResume` / `handleSenseApproval` / `handleChatAbort` + `registerChatHandlers` |
 | [src/service/chat/handler.ts](../../src/service/chat/handler.ts) | `handleChatCreate` / `handleChatList` / `handleChatGet`（流式历史 + canResume）/ `handleChatDelete` + `registerChatManageHandlers` |
 | [src/service/chat/observer.ts](../../src/service/chat/observer.ts) | `observeAgentChunks`：消费 effect chunk 做 DB 副作用 + 审批注册，finally abort flush |
 | [src/service/chat/streamMapper.ts](../../src/service/chat/streamMapper.ts) | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification 映射 |
@@ -229,7 +229,7 @@ agent 侧（SenseTriggerChunk 生成、await Promise、tool.ts）见 [../agent/m
 
 **依赖（模块内）：**
 
-- runtime.ts ← send.ts / handler.ts（ensureChat / clearChatRuntime / setRuntime）；send.ts re-export runtime.ts 的 `ensureChat`/`clearChatRuntime`/`setRuntime` 保持旧 import 路径兼容。
+- runtime.ts ← send.ts / handler.ts / service/runtime/set.ts（ensureChat / clearChatRuntime / setRuntime）；调用方直接从 `runtime.ts` import，不再经 send.ts 转发。
 - observer.ts ← send.ts（chat.send / chat.resume 包裹 agent generator）。
 - streamMapper.ts ← send.ts（chat.send / chat.resume 映射输出）。
 

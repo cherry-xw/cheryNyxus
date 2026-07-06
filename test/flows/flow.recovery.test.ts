@@ -14,7 +14,7 @@ import { startApp, stopApp, type AppHandle } from "./helpers/harness.js";
 import { FlowRpcClient } from "./helpers/rpcClient.js";
 import { dbMessages, isPendingSense } from "./helpers/dbAssert.js";
 import { summarize } from "./helpers/eventsAssert.js";
-import { clearChatRuntime } from "@/service/chat/send.js";
+import { clearChatRuntime } from "@/service/chat/runtime.js";
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

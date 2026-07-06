@@ -4,7 +4,7 @@
 
 ## 职责
 
-`web/` 是 cheryClaw 的**前端工作区**——pnpm workspace + Turborepo monorepo 中的一个 package，与后端（root）同仓不同包。当前处于 Vue 3 脚手架阶段，后续接入后端 WebSocket（[protocol.md](../protocol.md)）。
+`web/` 是 cheryClaw 的**前端工作区**——pnpm workspace + Turborepo monorepo 中的一个 package，与后端（root）同仓不同包。前端通过 `/api/config` 获取公开服务配置，并用 WebSocket 客户端连接后端 RPC（[protocol.md](../protocol.md)）。
 
 ### 技术栈
 
@@ -37,6 +37,8 @@
 | [web/src/main.ts](../../web/src/main.ts) | 应用入口：挂 Pinia + Router + ElementPlus |
 | [web/src/App.vue](../../web/src/App.vue) | 根组件（`el-container` 布局 + `RouterView`） |
 | [web/src/router/index.ts](../../web/src/router/index.ts) | 路由（`createWebHashHistory`，当前仅 Home） |
+| [web/src/services/transport.ts](../../web/src/services/transport.ts) | WebSocket 帧编解码（binary/json transport） |
+| [web/src/services/ws.ts](../../web/src/services/ws.ts) | RPC WebSocket 客户端：读取 `/api/config` / preload 注入配置并建立连接 |
 | [web/src/stores/index.ts](../../web/src/stores/index.ts) | Pinia store 汇集（脚手架空） |
 | [web/src/views/HomeView.vue](../../web/src/views/HomeView.vue) | 示例视图 |
 | [web/electron/main.ts](../../web/electron/main.ts) | Electron 主进程：`createWindow` + `loadURL`/`loadFile` |
@@ -80,7 +82,7 @@ dev:electron（桌面）: electron-dev.sh 选 xrdp display → exec vite
 dev:all（root）    : concurrently 并行 backend(pnpm dev) + web(pnpm --filter web dev:web)
 ```
 
-WebSocket 代理占位（[vite.config.ts](../../web/vite.config.ts) `server.proxy` 注释）：后续接后端时取消注释，代理 `/ws` → `ws://localhost:<config.server.port>`。
+开发期前端可通过 [vite.config.ts](../../web/vite.config.ts) 代理 `/api` 到后端 HTTP 服务，生产期由后端 HTTP server 直接 serve `web/dist/` 并提供 `/api/config`。
 
 ### 生产构建
 
@@ -95,9 +97,9 @@ electron . → 加载 dist/index.html（join(import.meta.dirname,'..','dist','in
 
 ### 与后端（root）的关系
 
-- `web/` 与 root backend 同仓 monorepo，但**当前无运行时依赖**：web 是纯前端 SPA，后端 WebSocket 连接尚未接入（`vite.config.ts` `server.proxy` 注释占位）。
-- **协议契约**：web 未来通过 WebSocket 消费后端 RPC，规范见 [protocol.md](../protocol.md)，交互序列见 [interaction.md](../interaction.md)。
-- **配置**：`web_port` 保留在 [src/utils/config.ts](../../src/utils/config.ts) + [.chery/config.yaml](../../.chery/config.yaml)（`config.server.web_port`，默认 8081），预留后端将来服务 Vue 构建产物，当前无消费方。
+- `web/` 与 root backend 同仓 monorepo，但运行时通过 HTTP + WebSocket 解耦：HTTP 端提供静态资源与 `/api/config`，WebSocket 端承载 RPC。
+- **协议契约**：web 通过 WebSocket 消费后端 RPC，规范见 [protocol.md](../protocol.md)，交互序列见 [interaction.md](../interaction.md)。
+- **配置**：`web_port` 在 [src/utils/config.ts](../../src/utils/config.ts) + [.chery/config.yaml](../../.chery/config.yaml) 中配置（默认 8183），由后端 HTTP server 消费；前端 `fetch('/api/config')` 获取 `wsPort/webPort/transport`。
 
 ### monorepo 工具链
 
@@ -119,7 +121,7 @@ App.vue → RouterView（router 路由表）
 
 ## 扩展点
 
-- **接 WebSocket**：[vite.config.ts](../../web/vite.config.ts) `server.proxy` 取消注释，代理 `/ws` → `ws://localhost:<port>`（端口取 `config.server.port`）。客户端按 [protocol.md](../protocol.md) 实现帧编解码。
+- **扩展 WebSocket RPC**：在 [web/src/services/ws.ts](../../web/src/services/ws.ts) 增加更高层业务封装；底层帧编解码在 [web/src/services/transport.ts](../../web/src/services/transport.ts)，协议见 [protocol.md](../protocol.md)。
 - **加路由 / 页面**：[web/src/router/index.ts](../../web/src/router/index.ts) 加路由；`web/src/views/` 下加 `.vue`。Electron 下**必须** `createWebHashHistory`（`file://` 不支持 history API）。
 - **加 Pinia store**：`web/src/stores/` 下定义，[stores/index.ts](../../web/src/stores/index.ts) 汇出。
 - **加 Electron IPC**：[electron/main.ts](../../web/electron/main.ts) 启用 preload；新增 `web/electron/preload.ts`（`contextBridge` 暴露安全 API）；[tsconfig.node.json](../../web/tsconfig.node.json) `include` 加 preload。详见 [./electron.md](./electron.md#扩展点)。

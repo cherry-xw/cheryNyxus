@@ -97,10 +97,3 @@ export function getRateLimiter(
   }
   return limiter;
 }
-
-/**
- * 重置限流器注册表（测试 / 热更清残留）。
- */
-export function resetRateLimiters(): void {
-  limiterRegistry.clear();
-}

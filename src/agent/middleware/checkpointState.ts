@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import type {
   AgentMessage,
   AgentMessagePatch,
@@ -6,8 +5,8 @@ import type {
   SenseAcceptChunk,
   SenseRejectChunk,
 } from "@/core/middleware/types";
-import type { LLMResponse } from "@/core/message/adapter";
 import type { SenseCallData } from "@/core/sense/adapter";
+import { SenseCallAssembler } from "./senseCallAssembler.js";
 
 /**
  * Checkpoint 状态管理
@@ -59,30 +58,16 @@ export class CheckpointState {
     const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas);
     if (!this.content && !this.thinking && mergedSenseCalls.length === 0) return null;
 
-    const messages = ctx.soul.messages ?? [];
     const senseCalls = mergedSenseCalls
       .filter((sc) => sc.name)
       .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }));
-    const assistantMsg: LLMResponse = {
-      id: randomUUID(),
-      role: "assistant" as const,
+    const message = ctx.journal.appendAssistant({
       content: this.content,
       thinking: this.thinking,
       senseCalls,
-      createdAt: Date.now(),
-      updateAt: Date.now(),
-    };
-    messages.push(assistantMsg);
-    ctx.soul.messages = messages;
+    });
     this.assistantFlushed = true;
-
-    return {
-      id: assistantMsg.id,
-      role: "assistant",
-      content: this.content || undefined,
-      thinking: this.thinking || undefined,
-      senseCalls,
-    };
+    return message;
   }
 
   /**
@@ -92,89 +77,30 @@ export class CheckpointState {
    */
   appendResponseMessages(ctx: MiddlewareContext): CheckpointMessageMutation[] {
     const mergedSenseCalls = mergeSenseDeltas(this.senseDeltas);
-    const messages = ctx.soul.messages ?? [];
     const mutations: CheckpointMessageMutation[] = [];
 
     // assistant 响应（包含 thinking 和 senseCalls）
     // sense_call 流已在 sense_end 时 flush（assistantFlushed=true），此处跳过避免重复 push；
     // 仅纯 content/thinking 流（未触发 sense_end）在此构建。
     if (!this.assistantFlushed && (this.content || this.thinking || mergedSenseCalls.length > 0)) {
-      const assistantMsg: LLMResponse = {
-        id: randomUUID(),
-        role: "assistant" as const,
+      const senseCalls = mergedSenseCalls
+        .filter(sc => sc.name)
+        .map(sc => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }));
+      const message = ctx.journal.appendAssistant({
         content: this.content,
         thinking: this.thinking,
-        senseCalls: mergedSenseCalls
-          .filter(sc => sc.name)
-          .map(sc => ({
-            id: sc.id,
-            name: sc.name!,
-            arguments: sc.arguments,
-          })),
-        createdAt: Date.now(),
-        updateAt: Date.now(),
-      };
-      messages.push(assistantMsg);
-      mutations.push({
-        type: "created",
-        message: {
-          id: assistantMsg.id,
-          role: "assistant",
-          content: this.content || undefined,
-          thinking: this.thinking || undefined,
-          senseCalls: assistantMsg.senseCalls,
-        },
+        senseCalls,
       });
+      mutations.push({ type: "created", message });
     }
 
     // sense 结果（独立追加，不受 assistant 消息条件限制）
+    // completeSense 内部区分 recovery（原地更新）/ normal（新建），保留 findIndex-by-id + in-place 语义。
     for (const r of this.senseResults) {
       const hash = r.type === "sense_accept" ? r.hash : undefined;
-
       const content = r.type === "sense_accept" ? r.result : `被拒绝: ${r.reason}`;
-
-      // 检测是否为 recovery 场景（消息已存在于 context 中）
-      const existingIdx = messages.findIndex(m => m.id === r.id);
-      if (existingIdx !== -1) {
-        // Recovery: 原地更新已有消息（已在 DB，不 INSERT）
-        const existing = messages[existingIdx]!;
-        existing.content = content;
-        if (hash) existing.hash = hash;
-        existing.updateAt = Date.now();
-
-        mutations.push({
-          type: "updated",
-          id: r.id,
-          patch: {
-            content,
-            hash,
-          },
-        });
-      } else {
-        // Normal: 创建新消息并 INSERT
-        const senseMsg: LLMResponse = {
-          id: r.id,
-          role: "sense",
-          content,
-          hash,
-          createdAt: Date.now(),
-          updateAt: Date.now(),
-        };
-        messages.push(senseMsg);
-
-        mutations.push({
-          type: "created",
-          message: {
-            id: r.id,
-            role: "sense",
-            content: senseMsg.content,
-            hash,
-          },
-        });
-      }
+      mutations.push(ctx.journal.completeSense({ id: r.id, content, hash }));
     }
-
-    ctx.soul.messages = messages;
 
     return mutations;
   }
@@ -210,33 +136,11 @@ export type CheckpointMessageMutation =
  * 合并 senseDelta（按 index 合并 arguments）
  * OpenAI 流式：首个 delta 带 id/name，后续只有 arguments 片段
  * Ollama 流式：每个 delta 可能是完整 sense_call
+ *
+ * 委托 SenseCallAssembler（与 tool.ts 流式累积共用），保证落库 senseCalls 与 sense_end 触发语义一致。
  */
 function mergeSenseDeltas(deltas: SenseCallData[]): SenseCallData[] {
-  // 按 index 累积
-  const mergedMap = new Map<number, SenseCallData>();
-
-  for (const delta of deltas) {
-    const index = delta.index ?? 0;
-    const existing = mergedMap.get(index);
-
-    if (existing) {
-      // 累积 arguments（id/name 只在首个 delta 出现）
-      existing.arguments += delta.arguments;
-      if (delta.id && !existing.id) existing.id = delta.id;
-      if (delta.name && !existing.name) existing.name = delta.name;
-    } else {
-      // 初始化
-      mergedMap.set(index, {
-        index,
-        id: delta.id,
-        name: delta.name,
-        arguments: delta.arguments,
-      });
-    }
-  }
-
-  // 按 index 排序返回
-  return Array.from(mergedMap.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([, sc]) => sc);
+  const asm = new SenseCallAssembler();
+  for (const d of deltas) asm.push(d);
+  return asm.toArray();
 }

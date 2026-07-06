@@ -89,6 +89,14 @@ export async function ensureChat(
   if (existing) {
     if (selection) {
       configureRuntime(existing, chatId, selection);
+    } else {
+      // P1-6：registry 变更（mcp.reload/重编译）后，存量 chat 的 senseTable 快照过期。
+      // send/resume 入口（无 selection）用持久化 selection 重建 senseTable，拾取新增/移除感官。
+      // 重建在 loop 启动前，ctx.runtime 引用替换安全（generator 尚未运行）。
+      const sel = existing.selection;
+      if (sel && existing.builder.isSenseTableStale()) {
+        configureRuntime(existing, chatId, sel);
+      }
     }
     return existing.builder;
   }
@@ -98,17 +106,23 @@ export async function ensureChat(
 
   const runtime: ChatRuntime = { builder };
   chatRuntimes.set(chatId, runtime);
+  try {
+    // 原子配置 runtime selection：
+    //   1. 显式传入（chat.create/runtime.set）
+    //   2. 否则从持久化 metadata.runtime 恢复（服务重启后内存丢失，自动恢复）
+    const resolvedSelection = selection ?? getChatRuntimeSelection(chatId);
+    if (resolvedSelection) {
+      configureRuntime(runtime, chatId, resolvedSelection);
+    }
 
-  // 原子配置 runtime selection：
-  //   1. 显式传入（chat.create/runtime.set）
-  //   2. 否则从持久化 metadata.runtime 恢复（服务重启后内存丢失，自动恢复）
-  const resolvedSelection = selection ?? getChatRuntimeSelection(chatId);
-  if (resolvedSelection) {
-    configureRuntime(runtime, chatId, resolvedSelection);
+    // 一次性加载历史到内存
+    builder.init(chatId, loadHistory(chatId));
+  } catch (err) {
+    // 半初始化清理：configureRuntime 深校验或 init 抛错时，移除刚 set 的 map 项，
+    // 避免留半配置 runtime（无 brain/sense）被后续 send 误用。DB 行由调用方清理。
+    chatRuntimes.delete(chatId);
+    throw err;
   }
-
-  // 一次性加载历史到内存
-  builder.init(chatId, loadHistory(chatId));
 
   return builder;
 }

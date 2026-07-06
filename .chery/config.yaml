@@ -92,6 +92,7 @@ global:
   supervision: manual # 全局默认的监管等级，可选 auto:全部自动、confirm:需确认、manual:全部手动确认。仅当 sense_group 和 sense 自身都未声明时生效
   stream: true # 是否开启流式输出
   sense_execute_timeout: 10000 # 感官执行超时时间（毫秒），默认 30 秒
+  approval_timeout: 30000 # 审批超时时间（毫秒），超时视为拒绝（非 abort），默认 30 秒
   bash_log_retention_hours: 24 # bash 日志文件保留时间（小时），默认 24 小时
 
   # 日志配置

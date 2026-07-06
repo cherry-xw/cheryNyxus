@@ -10,7 +10,7 @@ import type { McpServerInfo } from "@/core/mcp/types.js";
 export interface Request {
   id: string;
   kind: "request";
-  method: string;
+  method: Method;
   params: RequestData;
 }
 
@@ -437,6 +437,12 @@ export const Method = {
   MCP_RELOAD: "mcp.reload",
 } as const;
 
+/**
+ * Method 类型别名：所有合法 method 字符串的联合。
+ * Request.method 用此类型（非裸 string），router.register 据 Method 约束注册键。
+ */
+export type Method = (typeof Method)[keyof typeof Method];
+
 // ========== 错误码常量 ==========
 
 export const ErrorCode = {
@@ -449,15 +455,6 @@ export const ErrorCode = {
 } as const;
 
 // ========== 工厂函数 ==========
-
-export function createRequest(method: string, params: RequestData): Request {
-  return {
-    id: randomUUID(),
-    kind: "request",
-    method,
-    params,
-  };
-}
 
 export function createResponse(
   requestId: string,
@@ -515,12 +512,4 @@ export function isRequest(msg: unknown): msg is Request {
 
 export function isResponse(msg: unknown): msg is Response {
   return typeof msg === "object" && msg !== null && (msg as { kind?: string }).kind === "response";
-}
-
-export function isChunk(msg: unknown): msg is Chunk {
-  return typeof msg === "object" && msg !== null && (msg as { kind?: string }).kind === "chunk";
-}
-
-export function isNotification(msg: unknown): msg is Notification {
-  return typeof msg === "object" && msg !== null && (msg as { kind?: string }).kind === "notification";
 }

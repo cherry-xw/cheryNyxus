@@ -119,7 +119,6 @@ function pickScriptItem(model: string, messages: LLMResponse[]): MockScriptRespo
 // ========== Message Adapter ==========
 
 const mockMessageAdapterConfig = {
-  role: () => "assistant" as const,
   content: (raw: MockResponse) => raw.content ?? "",
   thinking: (raw: MockResponse) => raw.thinking,
   extractStreamDelta: (chunk: MockStreamChunk) => chunk.content ?? "",
@@ -181,6 +180,6 @@ const mockLLMAdapter: LLMAdapter = {
 
 export function registerMockAdapter(): void {
   registerMessageAdapter<MockResponse, MockStreamChunk, LLMResponse>("mock", mockMessageAdapterConfig);
-  registerSenseAdapter<MockResponse, MockResponse>("mock", mockSenseAdapterConfig);
+  registerSenseAdapter<MockResponse>("mock", mockSenseAdapterConfig);
   registerLLMAdapter("mock", mockLLMAdapter);
 }

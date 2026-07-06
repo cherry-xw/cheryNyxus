@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { retryMiddleware } from "@/agent/middleware/retry.js";
+import { AgentAbortError } from "@/core/middleware/errors.js";
 import type { MiddlewareChunk, ErrorChunk, StreamChunk } from "@/core/middleware/types.js";
 import { createMockContext } from "../helpers/fakeContext.js";
 import { collectChunks } from "../helpers/chunkAssert.js";
@@ -115,8 +116,10 @@ describe("retryMiddleware 重试耗尽", () => {
 describe("retryMiddleware abort 传播", () => {
   it("approval aborted → re-throw 不转 ErrorChunk", async () => {
     const ctx = createMockContext({ messages: [] });
-    const next = throwsError("approval aborted");
-    await expect(collectChunks(retryMiddleware(ctx, next))).rejects.toThrow("approval aborted");
+    const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+      throw new AgentAbortError();
+    };
+    await expect(collectChunks(retryMiddleware(ctx, next))).rejects.toThrow(AgentAbortError);
   });
 });
 

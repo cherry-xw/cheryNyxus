@@ -1,26 +1,6 @@
-// 导出核心类
-export { TemplateMiner } from "./templateMiner";
-export { TemplateMinerConfig } from "./templateMinerConfig";
-export { InMemoryPersistenceHandler } from "./inMemoryPersistence";
-export { Drain } from "./drain";
-export { DrainBase } from "./drainBase";
-export { NullProfiler } from "./drainBase";
-export { PersistenceHandler } from "./persistenceHandler";
-
-// 导出类型定义
-export type {
-  DrainResult,
-  LogClusterInterface,
-  TemplateMinerResult,
-  NodeInterface,
-  ChangeType,
-  DrainState,
-  SerializedCluster,
-  SerializedNode,
-} from "./types";
-
-export type { Profiler } from "./drainBase";
-export type { TemplateMinerOptions } from "./templateMinerConfig";
+// drain 日志压缩：仅暴露 compressLog 业务入口。
+// TemplateMiner/Drain 等内部构件不从 barrel 导出，避免应用层绕过 compressLog 直连底层实现。
+export type { DrainResult } from "./types";
 
 // 导入内部依赖（用于compressLog函数）
 import { TemplateMiner } from "./templateMiner";

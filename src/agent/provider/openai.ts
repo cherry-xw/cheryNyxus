@@ -28,7 +28,6 @@ async function acquireRpm(options?: LLMOptions): Promise<void> {
 
 // Message Adapter 配置
 const openaiMessageAdapterConfig = {
-  role: () => "assistant" as const,
   content: (raw: ChatCompletion) => raw.choices[0]?.message?.content ?? "",
   thinking: (raw: ChatCompletion) => {
     const msg = raw.choices[0]?.message;
@@ -183,7 +182,7 @@ export function registerOpenAIAdapter(): void {
     OpenAI.Chat.Completions.ChatCompletionChunk,
     ChatCompletionMessageParam
   >("openai", openaiMessageAdapterConfig);
-  registerSenseAdapter<ChatCompletionMessageParam, ChatCompletion>(
+  registerSenseAdapter<ChatCompletion>(
     "openai",
     openaiSenseAdapterConfig,
   );

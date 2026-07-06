@@ -99,6 +99,7 @@ interface GlobalConfig {
   supervision: SupervisionLevel; // 全局默认的监管等级
   stream: boolean; // 是否开启流式输出
   sense_execute_timeout?: number; // 感官执行超时时间（毫秒）
+  approval_timeout?: number; // 审批超时时间（毫秒），超时视为拒绝（非 abort）
   maxLoopCount?: number; // loop 最大执行次数（默认 30）
   bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig; // 文件压缩配置

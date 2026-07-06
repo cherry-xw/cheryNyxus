@@ -3,8 +3,8 @@ import type { ReplaceInfo } from "@/core/message/adapter";
 import { safeJsonParse } from "@/utils/json.js";
 import { SupervisionLevel } from "@/core/config";
 import { createApproval } from "@/core/sense";
-import { setSenseCtxChatId } from "@/agent/sense/processRegistry.js";
 import { logger } from "@/utils/logger/index.js";
+import { SenseCallAssembler } from "./senseCallAssembler.js";
 
 /**
  * 待批量执行的 sense call
@@ -44,40 +44,22 @@ export async function* senseMiddleware(
   }
 
   // Phase 1: 收集 sense calls + yield sense_end 触发器
-  const senseDeltaMap = new Map<number, { id?: string; name?: string; argsJson: string }>();
-  let lastIndex = -1;
+  // SenseCallAssembler 统一 tool.ts（流式 index 切换触发 sense_end）与 checkpointState.ts（批量合并落库）的 delta 合并语义。
+  const assembler = new SenseCallAssembler();
 
   for await (const chunk of next()) {
     if (chunk.type === "stream") {
       const streamChunk = chunk as StreamChunk;
       if (streamChunk.senseDelta && streamChunk.senseDelta.length > 0) {
         for (const delta of streamChunk.senseDelta) {
-          const index = delta.index ?? 0;
-
-          if (lastIndex !== -1 && index !== lastIndex) {
-            const prevSc = senseDeltaMap.get(lastIndex);
-            if (prevSc && prevSc.name) {
-              const { trigger, call } = buildSenseTrigger(ctx, prevSc.id ?? "", prevSc.name, prevSc.argsJson);
-              collectedCalls.push(call);
-              yield trigger;
-            }
-            senseDeltaMap.delete(lastIndex);
+          // index 切换：上一项 arguments 已完整，触发 sense_end
+          const completed = assembler.flushCompletedOnIndexChange(delta);
+          if (completed) {
+            const { trigger, call } = buildSenseTrigger(ctx, completed.id ?? "", completed.name!, completed.arguments);
+            collectedCalls.push(call);
+            yield trigger;
           }
-
-          const existing = senseDeltaMap.get(index);
-          if (existing) {
-            existing.argsJson += delta.arguments ?? "";
-            if (delta.id) existing.id = delta.id;
-            if (delta.name) existing.name = delta.name;
-          } else {
-            senseDeltaMap.set(index, {
-              id: delta.id,
-              name: delta.name,
-              argsJson: delta.arguments ?? "",
-            });
-          }
-
-          lastIndex = index;
+          assembler.push(delta);
         }
       }
     }
@@ -86,9 +68,9 @@ export async function* senseMiddleware(
   }
 
   // 流结束后，处理剩余的 sense calls
-  for (const [, sc] of senseDeltaMap) {
+  for (const sc of assembler.toArray()) {
     if (sc.name) {
-      const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? "", sc.name, sc.argsJson);
+      const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? "", sc.name!, sc.arguments);
       collectedCalls.push(call);
       yield trigger;
     }
@@ -114,11 +96,12 @@ async function* executeCollectedCalls(
     yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
     // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
     for (const r of replaced) {
-      yield { type: "message_updated", id: r.id, patch: { content: r.content, replace: r.replace, originalContent: r.originalContent } };
+      yield { type: "message_updated", id: r.id, patch: { kind: "replace", content: r.content, replace: r.replace, originalContent: r.originalContent } };
     }
   }
 
-  // Confirm/manual senses — 批量等待所有审批后逐一执行
+  // Confirm/manual senses — 逐个审批执行（sequential：approve A→exec A→approve B→exec B）
+  // 无 Promise.all 屏障：已批准 call 不被未决 call 阻塞（P1.9 互阻修复）。
   const needsApproval = calls.filter(c => c.approvalPromise);
   if (needsApproval.length > 0) {
     logger.event("approval.wait", {
@@ -126,18 +109,22 @@ async function* executeCollectedCalls(
       approvals: needsApproval.map(c => ({ approvalId: c.id, name: c.name, supervisionLevel: c.supervisionLevel })),
     });
 
-    try {
-      await Promise.all(needsApproval.map(c => c.approvalPromise!));
-    } catch {
-      // 审批被 abort（连接断开/超时）：throw 终止整个流程。
-      // 不 return：return 只结束 senseMiddleware，loop 会视为本轮完成继续第二轮 LLM 调用，
-      //   破坏未完成周期语义（应停在 pending sense 待 canResume）。
-      // 不 yield sense_reject：客户端已断连通知无意义，且会填 pending sense content 破坏 canResume。
-      // throw 传播：assistant 已在 sense_end 时落库，pending sense 保持 NULL，流程终止不再 loop。
-      throw new Error("approval aborted");
+    // sequential：逐个 await 执行，但断连 abort 可能在任意时刻 reject 某 call 的 promise
+    // （如 A 执行期间断连 reject B，此时 B 的 await handler 尚未挂载）。预挂 no-op catch 防止
+    // reject 早于 await 挂载 handler 触发 unhandled rejection；await 仍收到 rejection 并 throw
+    // （同一 promise 多 handler 均触发，no-op catch 不影响 await 的 throw 语义）。
+    for (const call of needsApproval) {
+      call.approvalPromise!.catch(() => {});
     }
 
     for (const call of needsApproval) {
+      // approvalPromise 结果：
+      //   - resolve accept/reject（用户决）或 reject reason=审批超时（超时→approvalRegistry resolve as reject）
+      //     → 正常 yield sense_accept/sense_reject，pending sense 填 content，resume Case2 跑 LLM
+      //   - reject AgentAbortError（断连→rejectApproval）→ 抛出传播终止流程，pending NULL，resume Case1 重跑
+      //     不 yield sense_reject：会填 pending content 破坏 canResume Case1（pending 需保持 NULL）。
+      //     不 return：return 结束 senseMiddleware，loop 误判本轮完成继续第二轮 LLM，破坏未完成周期语义。
+      //     已执行 call（序列靠前的）保持 done；未到达 call 保持 pending NULL，resume 续接重跑。
       const decision = await call.approvalPromise!;
 
       if (decision.action === "accept") {
@@ -145,7 +132,7 @@ async function* executeCollectedCalls(
         yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
         // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
         for (const r of replaced) {
-          yield { type: "message_updated", id: r.id, patch: { replace: r.replace, originalContent: r.originalContent } };
+          yield { type: "message_updated", id: r.id, patch: { kind: "replace", content: r.content, replace: r.replace, originalContent: r.originalContent } };
         }
       } else {
         yield {
@@ -224,7 +211,7 @@ function buildSenseTrigger(
   if (supervisionLevel > SupervisionLevel.auto) {
     // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
     //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
-    approvalPromise = createApproval(id);
+    approvalPromise = createApproval(id, ctx.global.approval_timeout);
   }
 
   const trigger: SenseTriggerChunk = {
@@ -262,30 +249,20 @@ async function doExecuteSense(
     if (!senseEntry) {
       return { content: `Error: Sense "${name}" not found`, replaced };
     }
-    // 注入 chatId 到 sharedData 保留 namespace，供 bash 等需要按 chatId 归属的 sense 读取
-    // （executor 签名固定 (args, sharedData) 无 chatId；改全局签名成本过高且仅 bash 需要）
-    setSenseCtxChatId(ctx.soul.senseSharedData, ctx.soul.chatId);
-    const result = await senseEntry.execute(args, ctx.soul.senseSharedData);
+    // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
+    // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
+    const result = await senseEntry.execute(args, ctx.soul.senseSharedData, { chatId: ctx.soul.chatId });
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
     // 旧 sense 内容重复且冗长 → 替换为短说明（告知 AI 已被新读取取代），长内容移至 originalContent 折叠溯源。
     // 文件若被改动 → mtime/size 变 → hash 不同 → 各自独立留存上下文（AI 自行对比，不替换）。
     // 故 hash 保留 mtime：它是"内容是否变动"的关键判据，去掉会让等长改写误判为相同。
     if (result.hash) {
-      const messages = ctx.soul.messages ?? [];
-      for (const msg of messages) {
-        if (msg.role === "sense" && msg.hash === result.hash && !msg.replace?.state) {
-          // staleNote：剔除冗长重复内容，仅告知 AI 该结果已被新读取取代（by 指向新 sense id）。
-          // 同步写回 msg.content（内存）+ 由 message_updated effect 落库 content/replace/originalContent，
-          // 使 LLM 历史、DB、web 三处一致：主显短说明，长内容折叠在 originalContent。
-          const staleNote = `此条旧读取已被新读取结果取代（新记录 id:${id}），长内容已折叠，以新记录为准。`;
-          const replaceInfo: ReplaceInfo = { state: true, by: id, content: staleNote };
-          msg.originalContent = msg.content;
-          msg.content = staleNote;
-          msg.replace = replaceInfo;
-          replaced.push({ id: msg.id, content: staleNote, replace: replaceInfo, originalContent: msg.originalContent });
-        }
-      }
+      // 历史去重：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
+      // 旧 sense 内容改写为短说明（长内容折叠 originalContent），由 message_updated effect 落库。
+      // 单一写者：in-place 改 originalContent/content/replace 经 ctx.journal.replaceSense。
+      const matched = ctx.journal.replaceSense({ matchHash: result.hash, newId: id });
+      replaced.push(...matched);
     }
 
     return { content: result.content, hash: result.hash, replaced };

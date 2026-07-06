@@ -23,6 +23,7 @@ import type { Sense, SenseResult, SenseSharedData } from "@/core/sense/index.js"
 import type { GlobalConfig, BrainConfig } from "@/utils/config.js";
 import type { ZodType } from "zod";
 import { logger } from "@/utils/logger/index.js";
+import { MessageJournal } from "@/core/middleware/messageJournal.js";
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   thinking: false,
@@ -91,8 +92,8 @@ export function mockMessageAdapter(
 
 /** mock sense adapter */
 export function mockSenseAdapter(
-  overrides: Partial<SenseAdapter<unknown, unknown>> = {},
-): SenseAdapter<unknown, unknown> {
+  overrides: Partial<SenseAdapter<unknown>> = {},
+): SenseAdapter<unknown> {
   return {
     buildSenses: overrides.buildSenses ?? ((() => []) as (s: Sense<ZodType>[]) => SenseFunction[]),
     senseCalls: overrides.senseCalls ?? (() => []),
@@ -134,17 +135,19 @@ export function createMockContext(opts: {
   global?: Partial<GlobalConfig>;
   resumePending?: boolean;
 }): MiddlewareContext {
+  const soul: MiddlewareContext["soul"] = {
+    chatId: "test-chat",
+    senseSharedData: new Map(),
+    userInputs: opts.userInputs ?? [],
+    messages: opts.messages ?? [],
+    resumePending: opts.resumePending,
+  };
   return {
-    soul: {
-      chatId: "test-chat",
-      senseSharedData: new Map(),
-      userInputs: opts.userInputs ?? [],
-      messages: opts.messages ?? [],
-      resumePending: opts.resumePending,
-    },
+    soul,
     global: { ...DEFAULT_GLOBAL, ...opts.global },
     runtime: opts.runtime ?? createMockRuntime({}),
     log: logger,
+    journal: new MessageJournal(soul, logger),
   };
 }
 

@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { spawn } from "child_process";
 import { writeFileSync } from "fs";
-import { sense, type SenseResult, type SenseSharedData } from "@/core/sense";
+import { sense, type SenseResult } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
 import config from "@/utils/config";
 import { logger, type BashLogInfo } from "@/utils/logger/index.js";
-import { getSenseCtxChatId, registerBashProcess, unregisterBashProcess } from "./processRegistry.js";
+import { registerBashProcess, unregisterBashProcess } from "./processRegistry.js";
 
 const DEFAULT_TIMEOUT = config.global.sense_execute_timeout ?? 30000;
 const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24;
@@ -65,7 +65,7 @@ export default sense(
   "execute_command",
   `执行 shell 命令（Unix: bash/sh，Windows: cmd/powershell）。如需切换工作目录，请在命令中使用 "cd <目录> && ..." 格式`,
   BashSchema,
-  async (input, senseSharedData): Promise<SenseResult> => {
+  async (input, _senseSharedData, senseCtx): Promise<SenseResult> => {
     const { command, description } = input;
 
     const startTime = Date.now();
@@ -73,9 +73,9 @@ export default sense(
 
     logger.tools.cleanOldBashLogs(LOG_RETENTION_HOURS);
 
-    // chatId 由 tool.ts doExecuteSense 注入 sharedData（executor 签名无 chatId）；
-    // 测试场景（空 Map）为 undefined → register 跳过，执行不受影响
-    const chatId = getSenseCtxChatId(senseSharedData);
+    // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案）；
+    // 测试场景（无 ctx）为 undefined → register 跳过，执行不受影响
+    const chatId = senseCtx?.chatId;
 
     return new Promise((resolve) => {
       let timedOut = false;

@@ -38,6 +38,7 @@ export function startService(options: { port: number; webPort: number; staticDir
   registerChatHandlers(router);         // chat.send / chat.resume / sense.approval / chat.abort
   registerChatManageHandlers(router);   // chat.create / chat.list / chat.get / chat.delete
   registerBashHandlers(router);         // bash.list / bash.kill
+  registerMcpHandlers(router);          // mcp.list / mcp.get / mcp.connect / mcp.disconnect / mcp.reload
   const wss = createWebSocketServer({ port: options.port, router });
   const httpServer = createHttpServer({ webPort: options.webPort, staticDir: options.staticDir });
   return { wss, httpServer };
@@ -79,9 +80,9 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 
 | RPC 方法 | Handler | 文件 | 流式 | 一句话 |
 |----------|---------|------|------|--------|
-| `brain.list` | `handleBrainList` | [brain/list.ts](../../src/service/brain/list.ts) | 否 | 列 config.yaml 的 brain + 全局 senseGroups |
+| `brain.list` | `handleBrainList` | [brain/list.ts](../../src/service/brain/list.ts) | 否 | 列 config.yaml 的 brain + 全局 senseGroups + 已连接 mcpServers |
 | `sense.list` | `handleSenseList` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列 config.yaml 的 sense_groups（原始字符串，含 `:level` 后缀） |
-| `runtime.set` | `handleRuntimeSet` | [runtime/set.ts](../../src/service/runtime/set.ts) | 否 | 原子设置 chat 的 brain + senseGroups |
+| `runtime.set` | `handleRuntimeSet` | [runtime/set.ts](../../src/service/runtime/set.ts) | 否 | 原子设置 chat 的 brain + senseGroups + mcpServers |
 | `chat.create` | `handleChatCreate` | [chat/handler.ts](../../src/service/chat/handler.ts) | 否 | 建 chat + ensureChat 注入 runtime + 加载历史 |
 | `chat.list` | `handleChatList` | 同上 | 否 | 全局列表（读冗余 message_count） |
 | `chat.get` | `handleChatGet` | 同上 | 是 | 流式载入历史 + loaded + canResume |
@@ -92,8 +93,13 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `chat.abort` | `handleChatAbort` | 同上 | 否 | abort generator + 强制解绑 + 清内存 |
 | `bash.list` | `handleBashList` | [bash/handler.ts](../../src/service/bash/handler.ts) | 否 | 列 chat 挂起的 bash 进程 |
 | `bash.kill` | `handleBashKill` | 同上 | 否 | 杀死挂起 bash 进程组 |
+| `mcp.list` | `handleMcpList` | [mcp/handler.ts](../../src/service/mcp/handler.ts) | 否 | 列 config 声明的 MCP server 及状态 |
+| `mcp.get` | `handleMcpGet` | 同上 | 否 | 查看单个 MCP server |
+| `mcp.connect` | `handleMcpConnect` | 同上 | 否 | 连接并注册单个 MCP server 的 senses |
+| `mcp.disconnect` | `handleMcpDisconnect` | 同上 | 否 | 断开并反注册单个 MCP server |
+| `mcp.reload` | `handleMcpReload` | 同上 | 否 | 重载单个或全部 MCP server |
 
-> ⚠ `../protocol.md` 方法表未列 `chat.abort` / `bash.list` / `bash.kill`（文档滞后）。`Method` 常量全集见 [./message.md](./message.md)「Method 常量」。chat.* 流程细节见 [./chat.md](./chat.md)。
+`Method` 常量全集见 [./message.md](./message.md)「Method 常量」。chat.* 流程细节见 [./chat.md](./chat.md)。
 
 ## 核心概念 / 导出
 

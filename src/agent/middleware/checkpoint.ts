@@ -1,6 +1,4 @@
-import { randomUUID } from "crypto";
 import type {
-  AgentMessage,
   MiddlewareContext,
   MiddlewareChunk,
   StreamChunk,
@@ -25,32 +23,9 @@ export async function* checkpointMiddleware(
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // === 先处理 userInputs：转为 messages（在 next() 调用前）===
-  const userInputs = ctx.soul.userInputs;
-  let consumedCount = 0;  // 追踪消费的用户输入数量
+  const { messages: consumedMessages, consumedCount } = ctx.journal.appendUserMessages();
 
-  if (userInputs.length > 0) {
-    const messages = ctx.soul.messages ?? [];
-    const consumedMessages: AgentMessage[] = [];
-    for (const input of userInputs) {
-      const msgId = randomUUID();
-      messages.push({
-        id: msgId,
-        role: "user",
-        content: input.content,
-        createdAt: input.time, // 用户发送时间
-        updateAt: Date.now(), // 注入消息列表时间
-      });
-      consumedCount++;
-      consumedMessages.push({
-        id: msgId,
-        role: "user",
-        content: input.content,
-      });
-    }
-    ctx.soul.messages = messages;
-    // 清空 userInputs（避免重复处理）
-    userInputs.length = 0;
-
+  if (consumedCount > 0) {
     for (const message of consumedMessages) {
       yield {
         type: "message_created",
@@ -158,28 +133,15 @@ export async function* checkpointMiddleware(
         // confirm/manual 模式：创建 pending sense 消息（若不存在），并 yield effect 交给 service 持久化。
         // resume 续接时 pending 已存在（同 trigger.id）→ 跳过创建，仅注册审批避免重复落库。
         if (trigger.supervisionLevel > 0 /* SupervisionLevel.auto */) {
-          const messages = ctx.soul.messages ?? [];
-          const exists = messages.some(m => m.id === trigger.id);
-          if (!exists) {
-            const senseMsg = {
-              id: trigger.id,
-              role: "sense" as const,
-              content: "",
-              senseCalls: [{ id: trigger.id, name: trigger.name, arguments: trigger.arguments }],
-              createdAt: Date.now(),
-              updateAt: Date.now(),
-            };
-            messages.push(senseMsg);
-            ctx.soul.messages = messages;
-
+          const { created, message } = ctx.journal.appendPendingSense({
+            id: trigger.id,
+            name: trigger.name,
+            arguments: trigger.arguments,
+          });
+          if (created) {
             yield {
               type: "message_created",
-              message: {
-                id: senseMsg.id,
-                role: "sense",
-                content: "",
-                senseCalls: senseMsg.senseCalls,
-              },
+              message,
             } as MiddlewareChunk;
           }
 

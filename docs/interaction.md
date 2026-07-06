@@ -15,7 +15,7 @@
 ```json
 → {"id":"r1","kind":"request","method":"brain.list","params":{}}
 ← {"id":"a1","kind":"response","requestId":"r1","success":true,
-   "data":{"brains":[{"name":"longcat","provider":"ollama","model":"gemma3:1b","thinking":true,"senseGroups":["safe","danger"]}]}}
+   "data":{"brains":[{"name":"longcat","provider":"ollama","model":"gemma3:1b","thinking":true,"senseGroups":["safe","danger"]}],"mcpServers":["filesystem"]}}
 ```
 
 > `senseGroups` 返回全局全量分组，每个 brain 相同。
@@ -34,22 +34,23 @@
 
 ```json
 → {"id":"r3","kind":"request","method":"runtime.set",
-   "params":{"chatId":"c1","brain":"longcat","senseGroups":["safe"]}}
+   "params":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
 ← {"id":"a3","kind":"response","requestId":"r3","success":true,
-   "data":{"chatId":"c1","brain":"longcat","senseGroups":["safe"]}}
+   "data":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
 ```
 
-> 前置：chat 必须已存在。每轮可换 brain + senseGroups。
+> 前置：chat 必须已存在。每轮可换 brain + senseGroups + mcpServers。`mcpServers` 缺省为空数组。
 
 ### chat.create
 
 ```json
 → {"id":"r4","kind":"request","method":"chat.create",
-   "params":{"chatId":"c1","brain":"longcat","senseGroups":["safe"]}}
-← {"id":"a4","kind":"response","requestId":"r4","success":true,"data":{"chatId":"c1"}}
+   "params":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
+← {"id":"a4","kind":"response","requestId":"r4","success":true,
+   "data":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
 ```
 
-> `chatId` 可选（不传服务端生成 UUID）。必带 brain + senseGroups。创建时一次性加载历史到内存。
+> `chatId` 可选（不传服务端生成 UUID）。必带 brain + senseGroups，可选 mcpServers。创建时一次性加载历史到内存，并把 runtime selection 持久化到 chat metadata。
 
 ### chat.list
 
@@ -186,7 +187,7 @@ C→S sense.approval {action:"accept"}
 > - **sense 群中有工具不在当前 senseTable**（sense group 已换 / 工具移除）→ 跳过监管，静默处理，写结果「无此工具」（占位回执，LLM 据此感知工具不存在）
 > - Phase 0（send 自动恢复执行 pending sense）已移除，续接必须由显式 `chat.resume` 按钮触发
 >
-> 无 prompt。前置：须 `chat.create` 或 `runtime.set` 注入完整 runtime。
+> 无 prompt。前置：chat 必须已有可恢复的 runtime selection。新建/更新时由 `chat.create` 或 `runtime.set` 写入 `metadata.runtime`；服务重启后 `chat.get` / `chat.send` / `chat.resume` 会从 metadata 自动恢复。
 
 ---
 
@@ -197,7 +198,7 @@ C→S sense.approval {action:"accept"}
 ```text
 C→S brain.list                    → response(brains)
 C→S sense.list                    → response(senseGroups)
-C→S chat.create {brain,sense}     → response(chatId)
+C→S chat.create {brain,senseGroups,mcpServers?} → response(chatId,brain,senseGroups,mcpServers)
 C→S chat.send {prompt}
   ← consumed {count:1}
   ← stream.content ×N
@@ -246,8 +247,8 @@ C→S sense.approval {action:"reject", reason:"..."}
 ### 流程 D：服务重启后恢复
 
 ```text
-C→S chat.create {chatId,brain,sense}  → response   ← 重建内存 runtime（必需，重启后内存丢失）
-C→S chat.get {chatId}            → staged ×N + loaded + response{chatId,canResume:true}
+C→S chat.get {chatId}            → ensureChat 从 metadata.runtime 恢复 runtime
+                                → staged ×N + loaded + response{chatId,canResume:true}
 
 # 两选一：
 # (a) 发新消息（撤回整个当前周期 + 重跑）

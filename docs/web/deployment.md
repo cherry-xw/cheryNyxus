@@ -68,7 +68,7 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
                     └──HTTP:8183──> /api/config + 静态 serve
 
 模式 2（Electron 一体）:
-  electron . ──spawn(ELECTRON_RUN_AS_NODE)──> node dist/index.js ──WS:8182──┐
+  electron . ──spawn(system node)──> node dist/index.js ──WS:8182───────────┐
   electron . ──preload──> window.__BACKEND_CONFIG__ ────────────────────────┤
   electron . ──loadFile──> dist/index.html ─────────────────────────────────┘ 渲染进程
 

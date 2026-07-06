@@ -52,7 +52,7 @@ export { SupervisionLevel } from "@/core/config";   // 从 core 重导出
 | `global` | `ExtendedGlobalConfig` | 全局开关（thinking/supervision/stream/超时/loop 上限）+ logger + file_compression + 自动补全的 4 个 `.chery/` 子路径 |
 | `llm.brain` | `Record<string, BrainConfig>` | Brain 名称 → provider/model/url/key/thinking/rpm/mock 配置 |
 | `sense_groups` | `Record<string, string[]>` | 感官分组（值如 `"read_file"` 或 `"execute_command:auto"` 覆盖监管等级） |
-| `server` | `ServerConfig` | WebSocket `port`（默认 8080）+ `web_port`（默认 8081）+ `transport`（默认 `"binary"`） |
+| `server` | `ServerConfig` | WebSocket `port`（默认 8182）+ `web_port`（默认 8183）+ `transport`（默认 `"binary"`） |
 
 `BrainConfig` 关键字段（[源码](../../src/utils/config.ts#L55-L67)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）。
 
@@ -100,7 +100,7 @@ loadConfig()
   ├─ replaceEnvVars(rawConfig)         → 递归整段 $ENV 替换，缺失收集到 missingEnvVars
   ├─ supervision: string → SupervisionLevel 枚举
   ├─ 补全 global.{skills_dir, senses_dir, system_prompt, db_dir}（cheryDir + .chery/...）
-  ├─ server 默认值兜底（port 8080 / web_port 8081 / transport binary）
+  ├─ server 默认值兜底（port 8182 / web_port 8183 / transport binary）
   └─ warn: CHERY_DIR 未配置 / 缺失环境变量
 module 顶层 `const config = loadConfig()` → 全局单例，import 即触发
 ```

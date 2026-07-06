@@ -1,4 +1,4 @@
-import Middleware, {
+import AgentSession, {
   defaultHandlers,
   createLoopHandler,
   type MiddlewareChunk,
@@ -18,8 +18,8 @@ import { RuntimeResolver, type RuntimeSelection } from "./runtimeResolver.js";
  * - 通过 Middleware.configureRuntime 一次性注入运行时
  */
 export class AgentBuilder {
-  /** 构建的 Middleware 实例（build 后持有，门面方法转发） */
-  private agent?: Middleware<MiddlewareChunk>;
+  /** 构建的 AgentSession 实例（build 后持有，门面方法转发） */
+  private agent?: AgentSession<MiddlewareChunk>;
   private readonly runtimeResolver = new RuntimeResolver();
 
   /**
@@ -27,7 +27,7 @@ export class AgentBuilder {
    * 构造只注入跨轮不变项：global + handlers + loopHandler
    */
   build(): this {
-    this.agent = new Middleware<MiddlewareChunk>(
+    this.agent = new AgentSession<MiddlewareChunk>(
       config.global,
       defaultHandlers,
       createLoopHandler(config.global.maxLoopCount),
@@ -69,7 +69,7 @@ export class AgentBuilder {
   }
 
   /**
-   * 门面：发送消息，返回 chunk generator（透传 Middleware.send）
+   * 门面：发送消息，返回 chunk generator（透传 AgentSession.send）
    */
   run(input: string): AsyncGenerator<MiddlewareChunk, void, unknown> {
     return this.requireAgent().send(input);
@@ -111,16 +111,24 @@ export class AgentBuilder {
 
   /**
    * 门面：中止当前运行的 generator（chat.abort 场景）。
-   * 转发 Middleware.abort → compose.abort 注入错误退出 generator。
+   * 转发 AgentSession.abort → compose.abort 注入错误退出 generator。
    */
   abort(): void {
     this.requireAgent().abort();
   }
 
   /**
+   * 门面：senseTable 是否过期（registry 变更后未重建）。
+   * send/resume 入口据此决定是否 re-configureRuntime（P1-6）。
+   */
+  isSenseTableStale(): boolean {
+    return this.requireAgent().isSenseTableStale();
+  }
+
+  /**
    * 校验 agent 已构建（build 后才可配置/执行）
    */
-  private requireAgent(): Middleware<MiddlewareChunk> {
+  private requireAgent(): AgentSession<MiddlewareChunk> {
     if (!this.agent) {
       throw new Error("Agent 未构建，需先调用 build()");
     }

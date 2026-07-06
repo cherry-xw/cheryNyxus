@@ -33,10 +33,21 @@ export interface SenseFunction {
 /** Sense间共享数据结构 */
 export type SenseSharedData = Map<string, Map<string, unknown>>;
 
+/**
+ * 感官运行时上下文（P2-11：注入边界，取代 sharedData 注入 chatId 的临时方案）。
+ *
+ * executor 第 3 参数（optional，向后兼容 2-param handler）。当前仅 chatId；
+ * workspaceRoot/config/logger/abortSignal 待产品决策后扩展（多 workspace / 热重载场景）。
+ */
+export interface SenseRuntimeContext {
+  /** 当前 chatId（bash 等需按会话归属的 sense 读取） */
+  chatId: string;
+}
+
 export interface SenseExecutor<T extends z.ZodType> {
   schema: T;
-  /** execute支持可选senseSharedData参数，需共享数据的sense可声明第二个参数 */
-  execute: (input: z.infer<T>, senseSharedData: SenseSharedData) => Promise<SenseResult>;
+  /** execute：第 3 参数 ctx 为运行时上下文（optional，2-param handler 向后兼容） */
+  execute: (input: z.infer<T>, senseSharedData: SenseSharedData, ctx?: SenseRuntimeContext) => Promise<SenseResult>;
 }
 
 export interface Sense<T extends z.ZodType> {
@@ -50,7 +61,7 @@ export function sense<T extends z.ZodType>(
   name: string,
   description: string,
   schema: T,
-  handler: (input: z.infer<T>, senseSharedData: SenseSharedData) => Promise<SenseResult>,
+  handler: (input: z.infer<T>, senseSharedData: SenseSharedData, ctx?: SenseRuntimeContext) => Promise<SenseResult>,
   supervisionLevel?: SupervisionLevel,
 ): Sense<T> {
   const jsonSchema = (schema as any).toJSONSchema();

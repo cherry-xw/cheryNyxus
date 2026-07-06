@@ -6,7 +6,7 @@ import {
   type RuntimeSetRequestData,
   type RuntimeSetResponseData,
 } from "../message/types.js";
-import { setRuntime } from "../chat/send.js";
+import { setRuntime } from "../chat/runtime.js";
 import { logger } from "@/utils/logger/index.js";
 
 /**
@@ -14,9 +14,9 @@ import { logger } from "@/utils/logger/index.js";
  */
 export async function handleRuntimeSet(
   _ctx: HandlerContext,
-  params: unknown,
+  data: RuntimeSetRequestData,
 ): Promise<RuntimeSetResponseData> {
-  const p = params as RuntimeSetRequestData;
+  const p = data;
   const chat = getChat(p.chatId);
   if (!chat) {
     throw new Error(`Chat "${p.chatId}" not found`);

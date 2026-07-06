@@ -22,10 +22,9 @@ export interface SenseCallData {
 /**
  * Sense Adapter 接口
  * 处理不同 LLM Sense 的感官调用格式差异
- * @template TMessage - 消息类型（assistant + sense 消息）
  * @template TResponse - 响应类型（完整响应）
  */
-export interface SenseAdapter<TMessage, TResponse> {
+export interface SenseAdapter<TResponse> {
   /**
    * 构建 Sense 特定的感官数组
    * 返回统一的 SenseFunction 格式（各 provider 格式基本一致）
@@ -51,15 +50,15 @@ export interface SenseAdapter<TMessage, TResponse> {
  */
 export const senseAdapterRegistry = new Map<
   string,
-  SenseAdapter<unknown, unknown>
+  SenseAdapter<unknown>
 >();
 
 /**
  * 注册 provider 的 sense adapter
  */
-export function registerSenseAdapter<TMessage, TResponse>(
+export function registerSenseAdapter<TResponse>(
   provider: string,
-  adapter: SenseAdapter<TMessage, TResponse>,
+  adapter: SenseAdapter<TResponse>,
 ): void {
   senseAdapterRegistry.set(provider, adapter);
 }
@@ -69,6 +68,6 @@ export function registerSenseAdapter<TMessage, TResponse>(
  */
 export function getSenseAdapter(
   provider: string,
-): SenseAdapter<unknown, unknown> | undefined {
+): SenseAdapter<unknown> | undefined {
   return senseAdapterRegistry.get(provider);
 }

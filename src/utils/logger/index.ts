@@ -28,7 +28,6 @@ import type {
   LogEvent,
   LogScope,
   Logger,
-  LoggerTools,
   BashLogInfo,
 } from "./types.js";
 

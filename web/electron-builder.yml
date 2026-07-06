@@ -25,8 +25,8 @@ extraResources:
       - skills/**
       - senses/**
 
-# native addon（better-sqlite3）需针对 Electron ABI 重编译
-# 安装后跑 pnpm --filter web rebuild
+# 后端由系统 node / 打包 node 二进制运行，不走 Electron ABI。
+# npmRebuild 仅影响 web 包依赖；root better-sqlite3 需匹配随发行版携带的 node ABI。
 npmRebuild: true
 buildDependenciesFromSource: true
 

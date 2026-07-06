@@ -49,7 +49,6 @@ export interface LLMResponse {
  * MessageProvider 适配器接口
  */
 export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessage = unknown> = {
-  role: (raw: T) => Role;
   content: (raw: T) => string;
   thinking?: (raw: T) => string | undefined;
   extractStreamDelta: (chunk: TStream) => string;
@@ -77,11 +76,4 @@ export function registerMessageAdapter<T, TStream = unknown, TMessage = unknown>
  */
 export function getMessageAdapter(provider: string): MessageProviderAdapterConfig | undefined {
   return messageProviderRegistry.get(provider);
-}
-
-/**
- * 重置 Message Provider 注册表（P2-5：测试/热更清残留）。
- */
-export function resetMessageProviders(): void {
-  messageProviderRegistry.clear();
 }

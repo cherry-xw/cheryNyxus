@@ -26,10 +26,11 @@ import { observeAgentChunks } from "./observer.js";
 import { streamAgentChunks } from "./streamMapper.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import { isAgentAbortError } from "@/core/middleware/errors.js";
 
-// P2-1：runtime 缓存/observer/streamMapper 已按职责拆出，
-// re-export 保持 handler.ts 等调用方（import from "./send.js"）兼容。
-export { ensureChat, clearChatRuntime, setRuntime } from "./runtime.js";
+// P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
+// runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
+// 调用方（handler.ts/runtime set.ts）直接 import runtime.js，不再经 send 转发。
 
 /**
  * 发送聊天消息（流式）
@@ -102,7 +103,7 @@ export async function* handleChatSend(
     const error = err as Error;
     // approval aborted（chat.abort 触发 abortChat → reject → senseMiddleware throw，
     // 见 tool.ts executeCollectedCalls catch）：chat.abort 是预期清内存操作，静默不报错。
-    if (error.message === "approval aborted") {
+    if (isAgentAbortError(error)) {
       logger.event("chat.send.aborted", { reason: "approval aborted" });
     } else {
       logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);
@@ -165,7 +166,7 @@ export async function* handleChatResume(
   } catch (err) {
     const error = err as Error;
     // approval aborted（chat.abort 触发，同 handleChatSend）：静默不报错
-    if (error.message === "approval aborted") {
+    if (isAgentAbortError(error)) {
       logger.event("chat.send.aborted", { reason: "approval aborted" });
     } else {
       logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);

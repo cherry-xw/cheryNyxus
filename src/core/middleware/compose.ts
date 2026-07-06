@@ -1,4 +1,5 @@
 import type { MiddlewareContext, MiddlewareHandler } from "./types";
+import { AgentAbortError, isAgentAbortError } from "./errors.js";
 
 /**
  * 组合后的中间件：run 启动洋葱链，abort 直接退出 generator。
@@ -21,8 +22,8 @@ export interface ComposedMiddleware<T = unknown> {
  *
  * 返回 ComposedMiddleware：run 每次创建新 generator 并记录引用；abort 对当前
  * generator 调 .throw() 注入错误，挂起的 await 抛错被 senseMiddleware catch 捕获，
- * 重新 throw 传播退出整个链（message "approval aborted" 与 tool.ts catch /
- * handleChatSend 静默判断一致）。
+ * 重新 throw 传播退出整个链（AgentAbortError 与 tool.ts catch /
+ * handleChatSend 静默判断一致；compose catch 对其豁免包装，原样上浮）。
  */
 export function compose<T = unknown>(
   handlers: MiddlewareHandler<T>[],
@@ -40,9 +41,9 @@ export function compose<T = unknown>(
       if (!currentGen) return;
       const gen = currentGen;
       currentGen = null;
-      // .throw 注入到挂起的 await → senseMiddleware catch → throw 传播退出。
+      // .throw 注入 AgentAbortError 到挂起的 await → senseMiddleware catch → throw 传播退出。
       // 返回 Promise：generator 已 done / 无挂起点 / throw 最终传播为 reject 时忽略。
-      gen.throw(new Error("approval aborted")).catch(() => {
+      gen.throw(new AgentAbortError()).catch(() => {
         // generator 已终止或无挂起点：忽略
       });
     },
@@ -67,6 +68,9 @@ async function* executeChain<T>(
         try {
           yield* handler(ctx, next);
         } catch (err) {
+          // AgentAbortError 是控制流信号（chat.abort/审批 reject），非可调试故障：
+          // 原样上浮，不包装前缀，保证下游 retry/send 的 isAgentAbortError 判定命中。
+          if (isAgentAbortError(err)) throw err;
           const message = err instanceof Error ? err.message : String(err);
           throw new Error(`[compose] handler at index ${index - 1} threw: ${message}`, { cause: err });
         }

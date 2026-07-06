@@ -18,7 +18,7 @@
 | [write.ts](../../src/agent/sense/write.ts) | `write_file` 感官（manual）：临时文件 + rename，行范围替换，写前修改检测 |
 | [skill.ts](../../src/agent/sense/skill.ts) | `skill` 感官（auto）：实时读取 SKILL.md 完整指令 |
 | [search.ts](../../src/agent/sense/search.ts) | `search_codebase` 感官（auto）：fff FileFinder 单例，content(grep)/filename(fileSearch) 双模式 |
-| [processRegistry.ts](../../src/agent/sense/processRegistry.ts) | bash 子进程注册表（chatId→pid），进程组 kill，chatId 注入机制 |
+| [processRegistry.ts](../../src/agent/sense/processRegistry.ts) | bash 子进程注册表（chatId→pid），进程组 kill；chatId 来自 SenseRuntimeContext |
 | [compileToolsReporter.ts](../../src/agent/sense/compileToolsReporter.ts) | `compile-senses` 子命令的报告输出（编译/测试表格 + 失败详情） |
 
 ## 核心概念 / 导出
@@ -83,7 +83,7 @@ if (result?.definition?.function?.name) {
 ```text
 input { command, description }
   ├─ cleanOldBashLogs（按 LOG_RETENTION_HOURS 清理）
-  ├─ getSenseCtxChatId(sharedData) → chatId（tool.ts doExecuteSense 注入）
+  ├─ senseCtx?.chatId → chatId（tool.ts doExecuteSense 第 3 参注入）
   ├─ spawn(command, [], { shell:true, detached:true })   ← 新进程组
   ├─ registerBashProcess(chatId, proc, meta)             ← 进注册表
   │
@@ -198,12 +198,10 @@ chatId → (pid → BashProcessRecord)
 | `unregisterBashProcess(chatId, pid)` | [bash.ts](../../src/agent/sense/bash.ts) | close/error 后注销 |
 | `killBashProcess(chatId, pid)` | service `bash.kill` RPC | `process.kill(-pid, SIGTERM)` 杀整个进程组 |
 | `listBashProcesses(chatId)` | service `bash.list` RPC | 返回 BashProcessEntry[]（不含 ChildProcess 句柄） |
-| `setSenseCtxChatId(sharedData, chatId)` | [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) | 注入 chatId 到 sharedData 保留 namespace |
-| `getSenseCtxChatId(sharedData)` | [bash.ts](../../src/agent/sense/bash.ts) | 读取注入的 chatId |
 
 **进程组 kill 的必要性：** spawn 时 `detached:true` 使子进程成为进程组组长，`kill(-pid)` 终止整个进程组——避免 `sh -c` 的孙子进程泄漏。`-pid` 失败时（进程组已不存在）兜底 `entry.proc.kill()`。
 
-**chatId 注入机制（[processRegistry.ts 文件注释](../../src/agent/sense/processRegistry.ts)）：** sense executor 签名固定为 `(args, sharedData)` 无 chatId；改全局签名成本过高且仅 bash 需要。改由 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 调 execute 前把 chatId 写入 sharedData 的保留 namespace `__ctx__` → `{ chatId }`，bash executor 读取。测试场景（空 Map）返回 undefined → register 跳过，执行不受影响。
+**chatId 注入机制（[processRegistry.ts 文件注释](../../src/agent/sense/processRegistry.ts)）：** sense executor 支持可选第 3 参 `SenseRuntimeContext`。由 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 调 `execute(args, sharedData, { chatId })` 时注入，bash executor 读取 `senseCtx?.chatId`。测试场景（无 ctx）为 undefined → register 跳过，执行不受影响。
 
 ## 依赖与关联 ⭐
 
@@ -228,7 +226,7 @@ chatId → (pid → BashProcessRecord)
 | 调用方 | 用途 |
 |--------|------|
 | [agent/bootstrap.ts](../../src/agent/bootstrap.ts) | `reloadSenses()`（启动期） |
-| [agent/middleware/tool.ts](../../src/agent/middleware/tool.ts) | `setSenseCtxChatId`（doExecuteSense 注入 chatId） |
+| [agent/middleware/tool.ts](../../src/agent/middleware/tool.ts) | doExecuteSense 调 executor 第 3 参注入 `{ chatId }` |
 | [src/index.ts](../../src/index.ts) | `compile-senses` 子命令用 `reportSenseCompileResult`/`runSenseTestsAndCollect` |
 | service `bash.list` / `bash.kill` RPC | `listBashProcesses`/`killBashProcess` |
 
@@ -255,7 +253,7 @@ chatId → (pid → BashProcessRecord)
      "my_sense",                       // ← sense 函数名（注册 key）
      "一句话描述（注入 LLM 的 function.description）",
      Schema,
-     async (input, sharedData): Promise<SenseResult> => {
+     async (input, sharedData, senseCtx): Promise<SenseResult> => {
        // 执行逻辑；返回 { content, hash }
        return { content: "结果", hash: "" };   // hash 非空才会触发历史去重
      },
@@ -286,6 +284,6 @@ chatId → (pid → BashProcessRecord)
 ### Sense 实现要点
 
 - **hash 字段语义：** 返回 `hash` 非空时，[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 会扫描历史 sense 消息，hash 命中则把旧消息替换为短说明。若不希望参与去重，返回 `hash: ""`。
-- **sharedData 命名空间约定：** 跨感官共享数据按 namespace 存（如 `sharedData.get("read_file")`）。保留 namespace `__ctx__` 用于 chatId，自定义 sense 不要占用。
-- **executor 签名固定：** `(args, sharedData)` 无 chatId。需要 chatId 时读 `getSenseCtxChatId(sharedData)`（[tool.ts](../../src/agent/middleware/tool.ts) 已在 execute 前注入）。
+- **sharedData 命名空间约定：** 跨感官共享数据按 namespace 存（如 `sharedData.get("read_file")`）。chatId 不占用 sharedData namespace，而是通过 executor 第三参 `senseCtx?.chatId` 传入。
+- **executor 签名：** `(args, sharedData, senseCtx?)`。需要 chatId 时读 `senseCtx?.chatId`（[tool.ts](../../src/agent/middleware/tool.ts) 已在 execute 时注入）。
 - **错误处理：** 抛异常会被 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 的 try-catch 转成 `Sense execution failed: ...` content 返回（不传播到 middleware）；建议业务错误也返回 `{ content: "错误说明", hash: "" }` 而非抛。

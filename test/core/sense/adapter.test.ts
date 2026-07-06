@@ -10,7 +10,7 @@ import {
 import type { Sense, SenseResult } from "@/core/sense/senseCreator";
 import { z, type ZodType } from "zod";
 
-const mockAdapter: SenseAdapter<unknown, unknown> = {
+const mockAdapter: SenseAdapter<unknown> = {
   buildSenses: (senses) => senses.map((s) => s.definition),
   senseCalls: () => [],
   extractSenseCallDeltas: () => [],
@@ -36,7 +36,7 @@ describe("Sense Adapter Registry", () => {
 
     it("overwrites existing adapter", () => {
       registerSenseAdapter("provider", mockAdapter);
-      const next: SenseAdapter<unknown, unknown> = {
+      const next: SenseAdapter<unknown> = {
         ...mockAdapter,
         buildSenses: () => [],
       };

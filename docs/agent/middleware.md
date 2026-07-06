@@ -212,7 +212,7 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../src/agent/mid
 | [core/message/adapter](../../src/core/message/adapter.ts) | `ReplaceInfo`（sense 历史替换）、`LLMResponse` |
 | [core/sense/adapter](../../src/core/sense/adapter.ts) | `SenseCallData`、`SenseFunction` |
 | [core/llm/adapter](../../src/core/llm/adapter.ts) | `LLMOptions` |
-| [agent/sense/processRegistry](../../src/agent/sense/processRegistry.ts) | `setSenseCtxChatId`（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 注入 chatId 到 sharedData） |
+| [agent/sense/processRegistry](../../src/agent/sense/processRegistry.ts) | bash 子进程按 chatId 注册/查询/kill；chatId 由 `SenseRuntimeContext` 第 3 参传入 |
 | [agent/prompt/index](../../src/agent/prompt/index.ts) | `buildFirstSystemPrompt`（[builder.ts init](../../src/agent/builder.ts) 首条 system 消息） |
 | [utils/json](../../src/utils/json.ts) | `safeJsonParse`（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 解析 argsJson） |
 | [utils/logger](../../src/utils/logger/) | 全文大量日志 |
@@ -319,7 +319,7 @@ if (needsApproval.length > 0) {
 
 **doExecuteSense 的历史替换（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts)）：** 若 `result.hash` 命中历史某条 sense 消息的 hash（read_file hash 含 mtime，命中 = 文件未变动），把旧消息 content 替换为短说明「已被新读取取代」，长内容移至 `originalContent` 折叠——剔除冗长重复上下文。文件若被改动 → mtime 变 → hash 不同 → 各自独立留存。
 
-**chatId 注入（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) + processRegistry）：** executor 签名固定为 `(args, sharedData)` 无 chatId；改全局签名成本过高且仅 bash 需要。改由 `setSenseCtxChatId(sharedData, chatId)` 把 chatId 写入 sharedData 的保留 namespace `__ctx__`，bash executor 读取——不影响其他 sense。
+**chatId 注入（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) + processRegistry）：** executor 支持可选第 3 参 `SenseRuntimeContext`。`doExecuteSense` 调 `senseEntry.execute(args, ctx.soul.senseSharedData, { chatId: ctx.soul.chatId })`，bash executor 读取 `senseCtx?.chatId` 后注册子进程；不再占用 sharedData 的保留 namespace。
 
 ### 3. retryMiddleware（[retry.ts](../../src/agent/middleware/retry.ts)）
 

@@ -13,6 +13,18 @@ import type { Sense } from "./senseCreator";
 const senseRegistry: Record<string, Sense<ZodType>> = {};
 
 /**
+ * 注册表版本号：每次变更（register/reset/unregister）递增。
+ * AgentSession 在 configureRuntime 时快照此版本，send/resume 入口比对——
+ * 不一致说明 registry 被 mcp.reload/重编译改动，需重建 senseTable（见 runtime.ts ensureChat）。
+ */
+let senseRegistryVersion = 0;
+
+/** 取当前注册表版本号（用于 stale 比对）。 */
+export function getSenseRegistryVersion(): number {
+  return senseRegistryVersion;
+}
+
+/**
  * 批量注册感官到全局注册表
  */
 export function registerSenses(senses: Sense<ZodType>[]): void {
@@ -21,6 +33,7 @@ export function registerSenses(senses: Sense<ZodType>[]): void {
       senseRegistry[s.definition.function.name] = s;
     }
   }
+  senseRegistryVersion++;
 }
 
 /**
@@ -31,6 +44,7 @@ export function resetSenses(): void {
   for (const name of Object.keys(senseRegistry)) {
     delete senseRegistry[name];
   }
+  senseRegistryVersion++;
 }
 
 /**
@@ -42,6 +56,7 @@ export function unregisterSenses(names: string[]): void {
   for (const name of names) {
     delete senseRegistry[name];
   }
+  senseRegistryVersion++;
 }
 
 /**

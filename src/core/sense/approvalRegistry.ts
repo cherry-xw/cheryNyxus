@@ -7,6 +7,10 @@
  * 解耦后：core（senseMiddleware）在此 registry 创建审批 Promise 并 await；
  * chunk 只产 {approvalId, needsApproval} 事实；service ApprovalManager 通过
  * resolveApproval/rejectApproval 触发对应 Promise，结果经独立 channel 回填到 await。
+ *
+ * 审批超时（P1.9）：createApproval 接 timeoutMs，超时 resolve as reject（非 abort）。
+ *   - 超时 → sense_reject → pending sense 填「被拒绝」→ resume Case2 跑 LLM
+ *   - 断连 abort → rejectApproval(AgentAbortError) → throw → pending NULL → resume Case1 重跑
  */
 export type ApprovalDecision = {
   action: "accept" | "reject";
@@ -16,17 +20,29 @@ export type ApprovalDecision = {
 interface PendingApproval {
   resolve: (decision: ApprovalDecision) => void;
   reject: (error: Error) => void;
+  timeoutTimer?: ReturnType<typeof setTimeout>;
 }
 
 const registry = new Map<string, PendingApproval>();
 
 /**
  * 创建审批 Promise 并注册 resolve/reject（core senseMiddleware 调用）。
- * @returns senseMiddleware await 的 Promise；service confirm/abort 触发其 resolve/reject
+ * @param timeoutMs 超时毫秒；超时 resolve as reject（视为用户拒绝，非 abort）。undefined/<=0 不限时。
+ * @returns senseMiddleware await 的 Promise；service confirm/abort/超时 触发其 resolve/reject
  */
-export function createApproval(id: string): Promise<ApprovalDecision> {
+export function createApproval(id: string, timeoutMs?: number): Promise<ApprovalDecision> {
   return new Promise<ApprovalDecision>((resolve, reject) => {
-    registry.set(id, { resolve, reject });
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs && timeoutMs > 0) {
+      timeoutTimer = setTimeout(() => {
+        const entry = registry.get(id);
+        if (entry) {
+          entry.resolve({ action: "reject", reason: "审批超时" });
+          registry.delete(id);
+        }
+      }, timeoutMs);
+    }
+    registry.set(id, { resolve, reject, timeoutTimer });
   });
 }
 
@@ -40,6 +56,7 @@ export function resolveApproval(
 ): void {
   const entry = registry.get(id);
   if (entry) {
+    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer);
     entry.resolve({ action, reason });
     registry.delete(id);
   }
@@ -52,6 +69,7 @@ export function resolveApproval(
 export function rejectApproval(id: string, error: Error): void {
   const entry = registry.get(id);
   if (entry) {
+    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer);
     entry.reject(error);
     registry.delete(id);
   }

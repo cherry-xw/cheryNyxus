@@ -14,7 +14,7 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [src/service/message/types.ts](../../src/service/message/types.ts) | 全部 RPC 类型定义、`Method`/`ErrorCode` 常量、`createRequest/Response/Chunk/Notification/Error` 工厂、`isRequest/Response/Chunk/Notification` 类型守卫 |
+| [src/service/message/types.ts](../../src/service/message/types.ts) | 全部 RPC 类型定义、`Method`/`ErrorCode` 常量、`createResponse/Chunk/Notification/Error` 工厂、`isRequest/isResponse` 类型守卫 |
 | [src/service/message/router.ts](../../src/service/message/router.ts) | `RpcRouter` 类、`HandlerContext`/`HandlerFn` 类型、`createRouter()` 工厂、流式包装与错误转换 |
 | [src/service/message/index.ts](../../src/service/message/index.ts) | barrel：`export * from types + router` |
 
@@ -45,7 +45,7 @@ export type NotificationType =
   | "replaced";    // 感官去重命中：历史 sense 结果被新读取替换（web 实时更新历史 sense block）
 ```
 
-> ⚠ `../protocol.md` 的 Notification 表未列 `replaced`（文档滞后）。`replaced` 由 [chat/streamMapper.ts](../../src/service/chat/streamMapper.ts) 在 `message_updated` 携带 `replace` 时生成。详见 [./chat.md](./chat.md)。
+`replaced` 由 [chat/streamMapper.ts](../../src/service/chat/streamMapper.ts) 在 `message_updated` 携带 `replace` 时生成。详见 [./chat.md](./chat.md)。
 
 ### Method 常量（types.ts 真实全集）
 
@@ -64,10 +64,15 @@ export const Method = {
   CHAT_ABORT:      "chat.abort",   // 中止 chat：清内存 + 退出挂起 generator，不动 DB
   BASH_LIST:       "bash.list",    // 列出挂起 bash 进程
   BASH_KILL:       "bash.kill",    // 显式杀死挂起 bash 进程组
+  MCP_LIST:        "mcp.list",
+  MCP_GET:         "mcp.get",
+  MCP_CONNECT:     "mcp.connect",
+  MCP_DISCONNECT:  "mcp.disconnect",
+  MCP_RELOAD:      "mcp.reload",
 } as const;
 ```
 
-> ⚠ `../protocol.md` 方法表未列 `chat.abort` / `bash.list` / `bash.kill`（文档滞后）。这三者实际在 [src/service/index.ts](../../src/service/index.ts) `startService()` 中由 `registerChatHandlers` / `registerBashHandlers` 注册。每个 Method 的 handler 归属见 [./README.md](./README.md)「Handler 总览」。
+这些方法在 [src/service/index.ts](../../src/service/index.ts) `startService()` 中分别由 brain/sense/runtime/chat/bash/mcp 模块注册。每个 Method 的 handler 归属见 [./README.md](./README.md)「Handler 总览」。
 
 ### ErrorCode 常量
 
@@ -76,10 +81,12 @@ export const ErrorCode = {
   METHOD_NOT_FOUND: "METHOD_NOT_FOUND",
   INTERNAL:         "INTERNAL",
   TIMEOUT:          "TIMEOUT",
+  NOT_FOUND:        "NOT_FOUND",
+  INVALID_PARAMS:   "INVALID_PARAMS",
 } as const;
 ```
 
-> `protocol.md` 另列 `NOT_FOUND` / `INVALID_PARAMS`，但 types.ts 常量未定义这两个；当前 handler 对 chat 不存在/参数缺失统一抛 `Error` → router 转 `INTERNAL`。
+`NOT_FOUND` / `INVALID_PARAMS` 主要由资源查询与 MCP 管理 handler 显式返回；普通 handler 抛出的异常仍由 router 转成 `INTERNAL`。
 
 ### HandlerFn 与 HandlerContext
 
@@ -111,7 +118,6 @@ createRouter(): RpcRouter;
 ### 工厂与类型守卫
 
 ```ts
-createRequest(method, params): Request;
 createResponse(requestId, success, data?, error?): Response;
 createChunk(type: "stream"|"staged", requestId, data, seq?): Chunk;
 createNotification(type, requestId, data): Notification;
@@ -119,8 +125,6 @@ createError(code, message): RpcError;
 
 isRequest(msg): msg is Request;       // 判 kind === "request"
 isResponse(msg): msg is Response;
-isChunk(msg): msg is Chunk;
-isNotification(msg): msg is Notification;
 ```
 
 ## 关键流程 / 数据流

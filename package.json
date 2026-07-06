@@ -20,6 +20,7 @@
     "test:coverage": "vitest run --coverage",
     "demo": "tsx test/demo.ts",
     "type-check": "tsc --noEmit -p tsconfig.json",
+    "type-check:unused": "tsc --noEmit -p tsconfig.json --noUnusedLocals --noUnusedParameters",
     "web:dev": "pnpm --filter web dev:web",
     "electron:dev": "pnpm --filter web dev:electron",
     "web:build": "pnpm --filter web build",

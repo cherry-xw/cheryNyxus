@@ -12,6 +12,7 @@ import { randomUUID } from "crypto";
 import { AgentBuilder } from "@/agent/builder.js";
 import { bootstrapAgentRuntime } from "@/agent/bootstrap.js";
 import { resolveApproval, rejectApproval } from "@/core/sense/index.js";
+import { AgentAbortError } from "@/core/middleware/errors.js";
 import type { MiddlewareChunk, SensePendingChunk } from "@/core/middleware/types.js";
 import type { LLMResponse } from "@/core/message/adapter.js";
 import { collectChunks } from "./chunkAssert.js";
@@ -53,7 +54,7 @@ export interface CreateAgentOptions {
 export function createAgent(opts: CreateAgentOptions): AgentBuilder {
   const agent = new AgentBuilder()
     .build()
-    .configureRuntime({ brain: opts.brain, senseGroups: opts.senseGroups });
+    .configureRuntime({ brain: opts.brain, senseGroups: opts.senseGroups, mcpServers: [] });
   agent.init(opts.chatId ?? randomUUID(), opts.history);
   return agent;
 }
@@ -130,5 +131,5 @@ export function approve(approvalId: string, action: ApprovalAction, reason?: str
 
 /** 手动 reject（abort）某个 pending */
 export function abortApproval(approvalId: string, error?: Error): void {
-  rejectApproval(approvalId, error ?? new Error("approval aborted"));
+  rejectApproval(approvalId, error ?? new AgentAbortError());
 }

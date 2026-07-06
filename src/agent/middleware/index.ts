@@ -1,4 +1,4 @@
-import Middleware from "@/core/middleware";
+import AgentSession from "@/core/middleware";
 import type { MiddlewareHandler, MiddlewareChunk } from "@/core/middleware/types";
 import { checkpointMiddleware } from "./checkpoint";
 import { chatMiddleware } from "./chat";
@@ -6,7 +6,7 @@ import { senseMiddleware } from "./tool";
 import { retryMiddleware } from "./retry";
 import { createLoopHandler } from "./loop";
 
-export default Middleware;
+export default AgentSession;
 export {
   checkpointMiddleware,
   chatMiddleware,

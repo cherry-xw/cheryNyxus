@@ -104,7 +104,7 @@ export class RuntimeResolver {
    * （无 :level 覆盖）。未连 server 由 getConnectedServerSenseNames 抛 NOT_FOUND（fail loud）。
    */
   private resolveSense(
-    senseAdapter: SenseAdapter<unknown, unknown>,
+    senseAdapter: SenseAdapter<unknown>,
     senseGroups: string[],
     mcpServers: string[],
   ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
@@ -188,10 +188,11 @@ export class RuntimeResolver {
       const name = s.definition.function.name;
       senseTable.set(name, {
         supervisionLevel: s.supervisionLevel ?? config.global.supervision,
-        execute: (args, sharedData) =>
+        execute: (args, sharedData, ctx) =>
           s.executor.execute(
             args as Parameters<typeof s.executor.execute>[0],
             sharedData,
+            ctx,
           ),
       });
     }

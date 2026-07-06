@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { compose } from "@/core/middleware/compose";
+import { isAgentAbortError } from "@/core/middleware/errors";
 import type { MiddlewareContext } from "@/core/middleware/types";
 
 /** 最小 ctx：compose 只透传 ctx 给 handler，不读取其字段 */
@@ -184,14 +185,14 @@ describe("compose middleware", () => {
     });
 
     it("injects error into suspended generator via .throw", async () => {
-      const seen: string[] = [];
+      const seen: unknown[] = [];
       const handler = async function* (_c: any, next: any) {
         try {
           yield "first";
           yield "second";
           yield* next();
         } catch (err) {
-          seen.push((err as Error).message);
+          seen.push(err);
           throw err;
         }
       };
@@ -206,7 +207,8 @@ describe("compose middleware", () => {
 
       // abort → gen.throw 异步推进：handler 在 yield 处捕获并 re-throw
       await new Promise((r) => setTimeout(r, 10));
-      expect(seen.some((m) => m.includes("approval aborted"))).toBe(true);
+      // 严格断言：abort 注入的是 AgentAbortError，且 compose 未包装（原样上浮）
+      expect(seen.some(isAgentAbortError)).toBe(true);
     });
   });
 });

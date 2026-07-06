@@ -57,10 +57,3 @@ export function getLLMAdapter(
 ): LLMAdapter | undefined {
   return llmAdapterRegistry.get(provider);
 }
-
-/**
- * 重置 LLM Adapter 注册表（P2-5：测试/热更清残留，与 resetSenses 并列）。
- */
-export function resetLLMAdapters(): void {
-  llmAdapterRegistry.clear();
-}

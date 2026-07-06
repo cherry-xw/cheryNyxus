@@ -40,7 +40,7 @@ export async function* observeAgentChunks(
       }
 
       if (chunk.type === "message_updated") {
-        if (chunk.patch.replace) {
+        if (chunk.patch.kind === "replace") {
           // 感官去重命中：content 改说明文字 + replace 状态 + originalContent 落库
           markMessageReplaced(chatId, chunk.id, {
             content: chunk.patch.content,
@@ -49,23 +49,25 @@ export async function* observeAgentChunks(
           });
           syncedIds.add(chunk.id);
           logger.event("message.replaced.db", { messageId: chunk.id, by: chunk.patch.replace.by });
-          // 不 continue：yield 出去让 streamAgentChunks 转 "replaced" notification，
+          // yield 出去让 streamAgentChunks 转 "replaced" notification，
           // 通知 web 实时更新对应历史 sense block（而非等下次 chat.get 回放）。
-        } else {
-          // recovery update patch = { content, hash }，整体写入
-          // （旧实现仅判 content 丢 hash → confirm pending sense hash 永远 NULL → 重启去重失效）
-          fillApprovalResult(chatId, chunk.id, {
-            content: chunk.patch.content,
-            hash: chunk.patch.hash,
-          });
-          syncedIds.add(chunk.id);
-          logger.event("message.updated", {
-            messageId: chunk.id,
-            contentLen: chunk.patch.content?.length ?? 0,
-            hash: chunk.patch.hash,
-          });
+          yield chunk;
           continue;
         }
+
+        // recovery update patch = { content, hash }，整体写入
+        // （旧实现仅判 content 丢 hash → confirm pending sense hash 永远 NULL → 重启去重失效）
+        fillApprovalResult(chatId, chunk.id, {
+          content: chunk.patch.content,
+          hash: chunk.patch.hash,
+        });
+        syncedIds.add(chunk.id);
+        logger.event("message.updated", {
+          messageId: chunk.id,
+          contentLen: chunk.patch.content?.length ?? 0,
+          hash: chunk.patch.hash,
+        });
+        continue;
       }
 
       if (chunk.type === "sense_pending") {

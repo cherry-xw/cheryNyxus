@@ -1,9 +1,10 @@
 import type { MessageProviderAdapterConfig, LLMResponse, ReplaceInfo } from "../message/adapter";
 import type { LLMAdapter } from "../llm/adapter";
 import type { SenseAdapter, SenseCallData, SenseFunction } from "../sense/adapter";
-import type { SenseResult, SenseSharedData } from "../sense/senseCreator";
+import type { SenseResult, SenseSharedData, SenseRuntimeContext } from "../sense/senseCreator";
 import type { GlobalConfig, BrainConfig } from "@/utils/config";
 import type { Logger } from "@/utils/logger/types.js";
+import type { MessageJournal } from "./messageJournal.js";
 import { SupervisionLevel } from "../config.js";
 
 export type { LLMAdapter } from "../llm/adapter";
@@ -40,8 +41,8 @@ export interface SoulGroup {
 export interface SenseEntry {
   /** 监管等级（优先级链已前置计算：感官定义 > sense_group > global） */
   supervisionLevel: SupervisionLevel;
-  /** 执行器（args 已擦除 zod 类型，由 builder 摊平时注入） */
-  execute: (args: Record<string, unknown>, sharedData: SenseSharedData) => Promise<SenseResult>;
+  /** 执行器（args 已擦除 zod 类型，由 builder 摊平时注入；ctx 为运行时上下文，P2-11） */
+  execute: (args: Record<string, unknown>, sharedData: SenseSharedData, ctx?: SenseRuntimeContext) => Promise<SenseResult>;
 }
 
 /**
@@ -68,7 +69,7 @@ export interface AdaptersGroup {
   /** Message Adapter，处理消息格式转换 */
   messageAdapter: MessageProviderAdapterConfig;
   /** Sense Adapter，处理感官调用格式转换（随 brain.provider 决定） */
-  senseAdapter: SenseAdapter<unknown, unknown>;
+  senseAdapter: SenseAdapter<unknown>;
 }
 
 /**
@@ -86,16 +87,27 @@ export interface AgentMessage {
   revoked?: boolean;
 }
 
-export interface AgentMessagePatch {
-  content?: string;
-  thinking?: string;
-  senseCalls?: Array<{ id: string; name: string; arguments: string }>;
-  hash?: string;
-  /** 感官去重命中：该消息被后续相同 hash 调用替换（observer 据此走 markMessageReplaced） */
-  replace?: ReplaceInfo;
-  /** 被替换时保留的原内容（溯源） */
-  originalContent?: string;
-}
+/**
+ * 消息更新 patch（区分普通内容更新与感官去重替换）。
+ * - content kind：recovery 场景，写回 sense 执行结果 content + hash。
+ * - replace kind：感官去重命中，必须携带 content（短说明）+ replace + originalContent，
+ *   严禁"有 replace 无 content"——否则 DB 保留旧长内容，与内存/前端/重启回放不一致。
+ */
+export type AgentMessagePatch =
+  | {
+      kind?: "content";
+      content?: string;
+      thinking?: string;
+      senseCalls?: Array<{ id: string; name: string; arguments: string }>;
+      hash?: string;
+    }
+  | {
+      kind: "replace";
+      content: string;
+      replace: ReplaceInfo;
+      originalContent: string;
+      hash?: string;
+    };
 
 /**
  * 中间件上下文 - 简化结构
@@ -112,6 +124,12 @@ export interface MiddlewareContext {
    * 中间件内推荐用 ctx.log.event(...) 以利 IDE 发现；util/sense 可用裸 logger。
    */
   log: Logger;
+  /**
+   * 消息周期日志：集中 ctx.soul.messages 的所有写操作（append/complete/replace/revoke）。
+   * 中间件严禁直接 push/in-place 改 ctx.soul.messages，必须经 ctx.journal.* 以保证单一写者不变式。
+   * 由 AgentSession 构造时注入（与 soul 同源引用）。
+   */
+  journal: MessageJournal;
 }
 
 /**

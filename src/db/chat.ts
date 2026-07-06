@@ -55,6 +55,18 @@ function formatYearMonth(timestamp: number): string {
 }
 
 /**
+ * 断言写操作命中 ≥1 行，否则抛错（规则12：失败显性化，禁静默 0 行）。
+ * better-sqlite3 RunResult.changes 反映受影响行数；UPDATE/DELETE 命中 0 行多为
+ * chat/messageId 不匹配等隐性 bug（如 fillApprovalResult 旧实现落错库致 content 永久 NULL）。
+ * 用结构类型 { changes: number } 免 import better-sqlite3 类型。
+ */
+function assertChanged(result: { changes: number }, context: string): void {
+  if (result.changes === 0) {
+    throw new Error(`[db] ${context}: 0 rows affected (expected ≥1)`);
+  }
+}
+
+/**
  * 创建聊天（无需 soulId）
  * messages_month 按创建时间固定，之后该 chat 所有消息都写入此月份分片（跨月不迁移）
  */
@@ -109,8 +121,10 @@ export function listAllChats(): ChatRow[] {
  */
 export function updateChat(chatId: string): void {
   const db = getSoulDb();
-  const stmt = db.prepare("UPDATE chats SET updated_at = ? WHERE id = ?");
-  stmt.run(Date.now(), chatId);
+  const result = db
+    .prepare("UPDATE chats SET updated_at = ? WHERE id = ?")
+    .run(Date.now(), chatId);
+  assertChanged(result, `updateChat(${chatId})`);
 }
 
 /**
@@ -130,11 +144,10 @@ export function updateChatMetadata(
     ? (safeJsonParse(row.metadata, {}) as Record<string, unknown>)
     : {};
   const next = { ...current, ...patch };
-  db.prepare("UPDATE chats SET metadata = ?, updated_at = ? WHERE id = ?").run(
-    JSON.stringify(next),
-    Date.now(),
-    chatId,
-  );
+  const result = db
+    .prepare("UPDATE chats SET metadata = ?, updated_at = ? WHERE id = ?")
+    .run(JSON.stringify(next), Date.now(), chatId);
+  assertChanged(result, `updateChatMetadata(${chatId})`);
 }
 
 /**
@@ -235,9 +248,10 @@ export function addMessage(
   );
 
   // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
-  soulDb
+  const countResult = soulDb
     .prepare("UPDATE chats SET message_count = message_count + 1 WHERE id = ?")
     .run(chatId);
+  assertChanged(countResult, `addMessage count (${chatId})`);
 
   updateChat(chatId);
 
@@ -308,9 +322,10 @@ export function fillApprovalResult(
   }
   if (sets.length === 0) return;
 
-  monthlyDb
+  const result = monthlyDb
     .prepare(`UPDATE messages SET ${sets.join(", ")} WHERE id = ?`)
     .run(...vals, messageId);
+  assertChanged(result, `fillApprovalResult(${chatId}/${messageId})`);
 }
 
 /**
@@ -326,9 +341,10 @@ export function markMessagesRevoked(chatId: string, messageIds: string[]): void 
 
   const monthlyDb = getMonthlyDb(chat.messages_month);
   const placeholders = messageIds.map(() => "?").join(", ");
-  monthlyDb
+  const result = monthlyDb
     .prepare(`UPDATE messages SET revoked = 1 WHERE id IN (${placeholders})`)
     .run(...messageIds);
+  assertChanged(result, `markMessagesRevoked(${chatId}) ids=[${messageIds.join(",")}]`);
 }
 
 /**
@@ -352,8 +368,10 @@ export function markMessageReplaced(
   if (!chat) return;
 
   const monthlyDb = getMonthlyDb(chat.messages_month);
-  // content 仅在传入时更新（感官去重：改写为短说明，剔除冗长重复内容）；
+  // content 可选：传入则更新（感官去重改写为短说明，剔除冗长重复内容）；
   // 未传则保留原 content，避免误清空。
+  // 调用方（observer）经 AgentMessagePatch kind:"replace" 联合类型约束，replace patch 必携带 content，
+  // 故运行时 replace 路径总会传 content（confirm/manual 不再因缺 content 导致 DB 保留旧长内容）。
   const sets = [
     "replace_state = ?",
     "replace_by = ?",
@@ -370,9 +388,10 @@ export function markMessageReplaced(
     sets.push("content = ?");
     vals.push(fields.content);
   }
-  monthlyDb
+  const result = monthlyDb
     .prepare(`UPDATE messages SET ${sets.join(", ")} WHERE id = ?`)
     .run(...vals, messageId);
+  assertChanged(result, `markMessageReplaced(${chatId}/${messageId})`);
 }
 
 /**
@@ -391,4 +410,34 @@ export function parseMessageRow(row: MessageRow): MessageData {
     originalContent: row.original_content ?? undefined,
     revoked: row.revoked === 1,
   };
+}
+
+/**
+ * 对账 message_count：遍历 soul.db chats，按各自 messages_month 路由 COUNT 修正冗余计数列。
+ *
+ * 单 chat 消息只在一个分片（messages_month 创建时钉死，跨月不迁移），故 O(chats)、
+ * 每 chat 1 次 COUNT、无 fan-out。修 addMessage 跨库写（monthly INSERT + soul count UPDATE）
+ * 崩溃导致的漂移。启动期 + CLI 调用。
+ *
+ * @returns { checked, fixed } — checked 总 chat 数，fixed 修正的漂移数
+ */
+export function reconcileMessageCounts(): { checked: number; fixed: number } {
+  const soulDb = getSoulDb();
+  const chats = soulDb
+    .prepare("SELECT id, messages_month, message_count FROM chats")
+    .all() as { id: string; messages_month: string; message_count: number }[];
+  let fixed = 0;
+  for (const c of chats) {
+    const monthlyDb = getMonthlyDb(c.messages_month);
+    const row = monthlyDb
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?")
+      .get(c.id) as { n: number };
+    if (row.n !== c.message_count) {
+      soulDb
+        .prepare("UPDATE chats SET message_count = ? WHERE id = ?")
+        .run(row.n, c.id);
+      fixed++;
+    }
+  }
+  return { checked: chats.length, fixed };
 }

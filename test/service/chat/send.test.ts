@@ -39,6 +39,7 @@ import { observeAgentChunks } from "@/service/chat/observer.js";
 import { streamAgentChunks } from "@/service/chat/streamMapper.js";
 import { approvalManager } from "@/service/approval/manager.js";
 import { connectionManager } from "@/service/websocket/connection.js";
+import { AgentAbortError } from "@/core/middleware/errors.js";
 import { createRouter, type HandlerContext } from "@/service/message/router.js";
 import type { Chunk, Notification, Response } from "@/service/message/types.js";
 
@@ -159,7 +160,7 @@ describe("service/chat/send", () => {
       vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
       vi.mocked(ensureChat).mockResolvedValue(mockAgent({ running: false }) as never);
       async function* throwing(): AsyncGenerator<never, void> {
-        throw new Error("approval aborted");
+        throw new AgentAbortError();
       }
       vi.mocked(streamAgentChunks).mockReturnValue(throwing() as never);
       const { items, result } = await collect(

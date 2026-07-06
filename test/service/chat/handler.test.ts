@@ -31,7 +31,7 @@ import {
   getMessages,
   parseMessageRow,
 } from "@/db/chat.js";
-import { ensureChat, clearChatRuntime } from "@/service/chat/send.js";
+import { ensureChat, clearChatRuntime } from "@/service/chat/runtime.js";
 import { parseRuntimeSelection } from "@/agent/runtimeResolver.js";
 import { createRouter, type HandlerContext } from "@/service/message/router.js";
 

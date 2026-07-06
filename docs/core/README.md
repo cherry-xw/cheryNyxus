@@ -15,7 +15,7 @@
 | [config.ts](../../src/core/config.ts) | `SupervisionLevel` 枚举（auto/confirm/manual），core 唯一的运行时常量定义 |
 | [llm/](../../src/core/llm/) | LLM Adapter 接口与注册表（`chat` / `chatStream` 契约）→ [llm.md](./llm.md) |
 | [message/](../../src/core/message/) | Message Adapter 接口、`LLMResponse` 统一响应结构、`SenseCallInfo` → [message.md](./message.md) |
-| [middleware/](../../src/core/middleware/) | 洋葱模型组合器 `compose()`、`Middleware` 类（单 chat 绑定）、Context/Chunk 全部类型 → [middleware.md](./middleware.md) |
+| [middleware/](../../src/core/middleware/) | 洋葱模型组合器 `compose()`、`AgentSession`、`MiddlewarePipeline`、`MessageJournal`、Context/Chunk 全部类型 → [middleware.md](./middleware.md) |
 | [sense/](../../src/core/sense/) | Sense Adapter 接口、`sense()` 工厂、感官注册表、审批 Promise 注册表 → [sense.md](./sense.md) |
 | [sense/compiler/](../../src/core/sense/compiler/) | 外部感官（`.chery/senses/*.ts`）编译器，core 两个带 I/O 的子模块之一 → [compiler.md](./compiler.md) |
 | [mcp/](../../src/core/mcp/) | MCP server 接入：tools/resources/prompts → Sense，core 两个带 I/O 的子模块之二 → [mcp.md](./mcp.md) |
@@ -31,7 +31,7 @@ core/ 围绕三条解耦轴组织，对应三套 Adapter 注册表；再加 `Sup
 │  MessageAdapter   注册表  响应→LLMResponse / 消息构建   → message.md   │
 │  SenseAdapter     注册表  buildSenses/提取 senseCalls   → sense.md     │
 │                                                                       │
-│  Middleware 类    compose() 洋葱链 + 单 chat 上下文     → middleware.md│
+│  AgentSession     Pipeline + Journal + 单 chat 上下文   → middleware.md│
 │  sense() 工厂     zod schema → Sense 实例              → sense.md     │
 │                                                                       │
 │  SupervisionLevel 枚举  auto=0 / confirm=1 / manual=2  → 本文件       │
@@ -41,7 +41,7 @@ core/ 围绕三条解耦轴组织，对应三套 Adapter 注册表；再加 `Sup
 │  provider/{openai,ollama,mock}.ts  注册三套 Adapter                    │
 │  sense/{bash,read,write,skill}.ts  用 sense() 定义内置感官             │
 │  middleware/{checkpoint,sense,retry,chat,loop}.ts  实现各中间件       │
-│  builder.ts  组装 Middleware 实例 + 原子解析 RuntimeConfig            │
+│  builder.ts  组装 AgentSession + 原子解析 RuntimeConfig               │
 └───────────────────────────────────────────────────────────────────────┘
 ```
 

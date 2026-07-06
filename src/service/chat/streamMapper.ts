@@ -122,15 +122,15 @@ export async function* streamAgentChunks(
       logger.event("chat.run.done");
       yield createNotification("done", rid, null);
     } else if (chunk.type === "message_updated") {
-      // 带 replace 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
-      // 转 "replaced" notification 通知 web 实时更新历史 sense block；非 replace 的不传 web。
+      // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
+      // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。
       const u = chunk as MessageUpdatedChunk;
-      if (u.patch.replace) {
+      if (u.patch.kind === "replace") {
         logger.event("message.replaced", { messageId: u.id, by: u.patch.replace.by });
         yield createNotification("replaced", rid, {
           id: u.id,
-          content: u.patch.content ?? "",
-          originalContent: u.patch.originalContent ?? "",
+          content: u.patch.content,
+          originalContent: u.patch.originalContent,
           by: u.patch.replace.by,
         });
       }

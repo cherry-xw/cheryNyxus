@@ -1,0 +1,11 @@
+repeat: last
+script:
+  - content: 两个写
+    senseCalls:
+      - id: sa-0
+        name: write_file
+        arguments: '{"path":"/tmp/cheryclaw-test-lZcKbu/a.txt","content":"a"}'
+      - id: sa-1
+        name: write_file
+        arguments: '{"path":"/tmp/cheryclaw-test-lZcKbu/b.txt","content":"b"}'
+  - content: done

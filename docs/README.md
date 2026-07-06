@@ -12,12 +12,12 @@
 ## 按模块（镜像 `src/`）
 
 ### [core/](./core/README.md) — 框架抽象层
-> 类型、Adapter 注册表（LLM/Message/Sense）、Middleware 类、Sense 工厂。不含具体实现，被 agent/ 大量依赖。
+> 类型、Adapter 注册表（LLM/Message/Sense）、AgentSession / MiddlewarePipeline、Sense 工厂。不含具体实现，被 agent/ 大量依赖。
 
 - [core/README.md](./core/README.md) — 总览
 - [llm.md](./core/llm.md) — `LLMAdapter`（chat/chatStream）+ 注册表
 - [message.md](./core/message.md) — `MessageAdapter`、统一响应、`SenseCallInfo`
-- [middleware.md](./core/middleware.md) — `compose()` 洋葱组合器、`Middleware` 类、Context/Chunk 类型
+- [middleware.md](./core/middleware.md) — `compose()` 洋葱组合器、`AgentSession` / `MiddlewarePipeline` / `MessageJournal`、Context/Chunk 类型
 - [sense.md](./core/sense.md) — `sense()` 工厂、感官/审批注册表、**监管等级 auto/confirm/manual**
 - [compiler.md](./core/compiler.md) — 外部感官编译器（`.chery/senses/*.ts`）
 - [mcp.md](./core/mcp.md) — MCP server 接入：tools/resources/prompts → Sense
@@ -51,7 +51,7 @@
 - [logger.md](./utils/logger.md) — 统一日志（文件 / bash）
 
 ### [web/](./web/README.md) — 前端工作区
-> pnpm workspace + Turborepo monorepo 的一个 package（Vue3 + Vite 8 + Electron 43），与后端同仓不同包。当前脚手架阶段，后续接 [protocol.md](./protocol.md) WebSocket。
+> pnpm workspace + Turborepo monorepo 的一个 package（Vue3 + Vite 8 + Electron 43），与后端同仓不同包。通过 `/api/config` + WebSocket 消费 [protocol.md](./protocol.md) RPC。
 
 - [web/README.md](./web/README.md) — 总览：技术栈、双运行模式（浏览器/Electron）、构建产物、monorepo 定位、依赖关联
 - [web/electron.md](./web/electron.md) — Electron 集成详解：主进程路径解析坑、xrdp 运行环境、sandbox SUID

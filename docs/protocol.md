@@ -72,14 +72,17 @@ interface StagedChunkData {
   content?: string;
   senseName?: string;
   arguments?: string;
+  id?: string;                     // sense 调用 id，用于关联 sense_end 与 sense 结果
   messageIds?: string[];           // reverse 类型：被撤回的消息 id 列表
+  replace?: { state: boolean; by: string; content: string }; // 感官去重替换元数据
+  originalContent?: string;        // 被替换时的原内容
 }
 
 interface Notification {
   kind: "notification";
-  type: "interrupt" | "accept" | "rejected" | "consumed" | "loaded" | "done" | "error";
+  type: "interrupt" | "accept" | "rejected" | "consumed" | "loaded" | "done" | "error" | "replaced";
   requestId: string;
-  data: InterruptData | AcceptData | RejectedData | ConsumedData | null | { message: string };
+  data: InterruptData | AcceptData | RejectedData | ConsumedData | ReplacedData | null | { message: string };
 }
 ```
 
@@ -94,6 +97,7 @@ interface Notification {
 | `loaded` | `null` | chat.get 历史发完 |
 | `done` | `null` | chat.send/resume loop 结束 |
 | `error` | `{message}` | error chunk 或 handler 异常 |
+| `replaced` | `{id, content, originalContent, by}` | 感官去重命中，历史 sense 结果被新读取替换 |
 
 > `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。
 
@@ -102,9 +106,9 @@ interface Notification {
 | type | data | 说明 |
 |------|------|------|
 | `stream` | `{thinking?, content?, senseCall?}` | 流式增量（带 seq，二进制帧） |
-| `staged` | `{type, role?, thinking?, content?, senseName?, arguments?, messageIds?}` | 阶段完成（JSON 帧） |
+| `staged` | `{type, role?, thinking?, content?, senseName?, arguments?, id?, messageIds?, replace?, originalContent?}` | 阶段完成（JSON 帧） |
 
-`staged.type` 取值：`thinking_end` / `content_end` / `sense_end` / `reverse`。`role`（user/assistant/system/sense）仅 chat.get 返回历史时携带。`reverse`（携 `messageIds`）由 `chat.send` 在自动撤回末尾 pending sense 时发送，标记客户端回滚对应消息。
+`staged.type` 取值：`thinking_end` / `content_end` / `sense_end` / `reverse`。`role`（user/assistant/system/sense）仅 chat.get 返回历史时携带。`id` 用于把 `sense_end` 与 `role:"sense"` 的结果块关联起来。`reverse`（携 `messageIds`）由 `chat.send` 在自动撤回末尾 pending sense 时发送，标记客户端回滚对应消息。`replace/originalContent` 仅 chat.get 历史回放命中感官去重时携带。
 
 ### 方法列表
 
@@ -119,7 +123,10 @@ interface Notification {
 | `chat.delete` | 删除聊天 | 否 |
 | `chat.send` | 发送聊天消息（仅 chatId + prompt；末尾有 pending 时自动撤回并发 staged.reverse） | 是 |
 | `chat.resume` | 续接（无 prompt，恢复执行 pending sense 或继续 loop） | 是 |
+| `chat.abort` | 中止当前 chat 运行流（清内存运行时 + 释放连接，不删除 DB） | 否 |
 | `sense.approval` | 感官审批（accept/reject） | 否 |
+| `bash.list` | 列出当前 chat 挂起的 bash 进程 | 否 |
+| `bash.kill` | 显式杀死当前 chat 的挂起 bash 进程组 | 否 |
 | `mcp.list` | 列出所有 config 声明的 MCP server 及运行期状态 | 否 |
 | `mcp.get` | 单个 MCP server 详情（params: `{name}`） | 否 |
 | `mcp.connect` | 连接单个 MCP server（已连幂等；params: `{name}`） | 否 |
@@ -221,5 +228,5 @@ Web 静态服务（端口通过 `.chery/config.yaml` 的 `server.web_port` 配�
 | `INTERNAL` | handler 异常 / 跨连接并发同 chat（Chat busy） |
 | `TIMEOUT` | 审批超时（15min） |
 | `METHOD_NOT_FOUND` | 方法未注册 |
-| `NOT_FOUND` | chat 不存在 |
-| `INVALID_PARAMS` | 参数缺失 |
+| `NOT_FOUND` | chat / MCP server 等资源不存在 |
+| `INVALID_PARAMS` | 参数缺失或非法 |

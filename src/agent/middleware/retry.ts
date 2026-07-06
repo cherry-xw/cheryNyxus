@@ -1,4 +1,5 @@
 import type { MiddlewareContext, ErrorChunk } from "@/core/middleware/types";
+import { isAgentAbortError } from "@/core/middleware/errors.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 
@@ -87,9 +88,9 @@ export async function* retryMiddleware(
       yield* next();
       return; // 成功，结束
     } catch (error) {
-      // compose abort（chat.abort 注入的 throw）：直接 re-throw 传播退出整个 generator，
+      // compose abort（chat.abort 注入的 AgentAbortError）：直接 re-throw 传播退出整个 generator，
       // 不重试、不转 ErrorChunk（保证 abort 在任意挂起点都"直接退出"，由 handleChatSend catch 静默）。
-      if (error instanceof Error && error.message === "approval aborted") {
+      if (isAgentAbortError(error)) {
         throw error;
       }
       const errorInfo = createErrorInfo(attempt, error);

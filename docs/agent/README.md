@@ -4,7 +4,7 @@
 
 ## 职责
 
-agent 层是 core 抽象层的**具体实现**：装配 Middleware 实例、注册内置 Provider Adapter、定义并加载内置/外部 Sense、构建 system prompt、解析 runtime（brain + senseGroups），以及把 chat.send/resume 等高层调用翻译为 Middleware 洋葱链的执行。
+agent 层是 core 抽象层的**具体实现**：装配 AgentSession 实例、注册内置 Provider Adapter、定义并加载内置/外部 Sense、构建 system prompt、解析 runtime（brain + senseGroups + mcpServers），以及把 chat.send/resume 等高层调用翻译为 Middleware 洋葱链的执行。
 
 agent 层**不**直接处理 WebSocket / DB / 审批副作用——这些由 [service 层](../service/README.md) 的 observer 消费 agent 输出的 effect chunk 完成。agent 仅通过 chunk 类型（`message_created`/`message_updated`/`sense_pending`）声明副作用意图。
 
@@ -33,7 +33,7 @@ chat.send → AgentBuilder.run(input)
 | 文件 | 职责 |
 |------|------|
 | [bootstrap.ts](../../src/agent/bootstrap.ts) | `bootstrapAgentRuntime()`：启动期一次性注册 Provider + 重建 Sense registry |
-| [builder.ts](../../src/agent/builder.ts) | `AgentBuilder`：Middleware 工厂 + RuntimeConfig 装配 + 门面方法转发 |
+| [builder.ts](../../src/agent/builder.ts) | `AgentBuilder`：AgentSession 工厂 + RuntimeConfig 装配 + 门面方法转发 |
 | [runtimeResolver.ts](../../src/agent/runtimeResolver.ts) | `RuntimeResolver`：原子解析 brain（→adapters）+ senseGroups（→builtSenses + senseTable） |
 
 ### 子目录
@@ -50,12 +50,12 @@ chat.send → AgentBuilder.run(input)
 ### 入口三件套的分工
 
 ```text
-bootstrap.ts    ── 启动期一次性：registerBuiltinProviders() + reloadSenses()
+bootstrap.ts    ── 启动期一次性：registerBuiltinProviders() + reloadSenses() + loadMcpSenses()
                                     （进程级 registry，全局共享）
-runtimeResolver ── 每轮可换：brain + senseGroups → RuntimeConfig
+runtimeResolver ── 每轮可换：brain + senseGroups + mcpServers → RuntimeConfig
                                     （原子解析，校验严格）
 builder.ts      ── 每 chat 一个：build() + configureRuntime() + init()
-                                    （门面方法转发 Middleware）
+                                    （门面方法转发 AgentSession）
 ```
 
 **职责解耦的关键：** Provider 与 Sense 都是进程级 registry，**不由 Builder 懒加载或校验**——bootstrap 在服务启动前显式完成注册，Builder 只消费 registry（[bootstrap.ts](../../src/agent/bootstrap.ts) 注释）。
@@ -67,10 +67,11 @@ builder.ts      ── 每 chat 一个：build() + configureRuntime() + init()
 export async function bootstrapAgentRuntime(): Promise<void> {
   registerBuiltinProviders();   // 注册 openai/ollama/mock 三 Provider
   await reloadSenses();         // resetSenses + 内置感官 + 编译产物
+  await loadMcpSenses();         // 连接 config 声明的 MCP server 并注册其 senses
 }
 ```
 
-幂等性由各 registry 自身保证（`registerBuiltinProviders` 有 `builtinProvidersRegistered` 守卫；`reloadSenses` 先 `resetSenses`）。`compile-senses` 子命令结束后会在当前进程再次调用 `reloadSenses()`，供后续热重载入口复用。
+幂等性由各 registry 自身保证（`registerBuiltinProviders` 有 `builtinProvidersRegistered` 守卫；`reloadSenses` 先 `resetSenses`）。MCP senses 在内置/编译感官之后加载，不纳入 `reloadSenses()`，避免 `compile-senses` 子命令连接外部 MCP server。`compile-senses` 子命令结束后会在当前进程再次调用 `reloadSenses()`，供后续热重载入口复用。
 
 ### RuntimeSelection 与 RuntimeResolver
 
@@ -79,6 +80,7 @@ export async function bootstrapAgentRuntime(): Promise<void> {
 export interface RuntimeSelection {
   brain: string;            // brain 名称（→ config.llm.brain[name]）
   senseGroups: string[];    // 感官组名数组（→ config.sense_groups[name]）
+  mcpServers: string[];     // 启用的 MCP server 名数组（已连接 server 的全部 MCP sense 合并进 schema）
 }
 
 export class RuntimeResolver {
@@ -94,6 +96,8 @@ export class RuntimeResolver {
 | `adapters` | `getLLMAdapter/getMessageAdapter/getSenseAdapter(provider)` | LLM/Message/Sense 三件套 |
 | `builtSenses` | `senseAdapter.buildSenses(senses)` | 给 LLM 的 function 列表 |
 | `senseTable` | `Map<name, SenseEntry>` | name → 监管等级 + 执行器 |
+
+`mcpServers` 绕过 `sense_groups`：enabled server 的全部 `mcp__<server>__*` sense 会合并进 `builtSenses/senseTable`，监管等级来自 MCP server 默认值。启用未连接 server 会 fail loud。
 
 **监管等级优先级链**（[runtimeResolver.ts resolveSense](../../src/agent/runtimeResolver.ts)）：
 
@@ -114,8 +118,8 @@ global.supervision
 ```ts
 // builder.ts
 const agent = new AgentBuilder()
-  .build()                                  // ① 创建空 Middleware（注入 global/handlers/loopHandler）
-  .configureRuntime({ brain, senseGroups }) // ② 原子解析 runtime 并注入
+  .build()                                  // ① 创建空 AgentSession（注入 global/handlers/loopHandler）
+  .configureRuntime({ brain, senseGroups, mcpServers }) // ② 原子解析 runtime 并注入
   .init(chatId, history);                   // ③ 绑定 chatId + 注入历史（无则首条 system prompt）
 
 agent.run(input);       // send
@@ -127,9 +131,9 @@ agent.revokeTrailingCycle();  // 撤回末尾整个当前周期 AI 响应
 
 - `build()` 只注入**跨轮不变项**（global config + handlers + loopHandler），不感知具体 brain/sense。
 - `configureRuntime()` **原子**注入 brain + adapters + builtSenses + senseTable——避免 Provider 与工具定义处于半配置状态（[builder.ts configureRuntime 注释](../../src/agent/builder.ts)）。
-- `init()` 仅一次（Middleware 用 `inited` 守卫），绑 chatId 并注入历史/首条 system prompt。runtime 缓存（`chatRuntimes: Map<chatId, {builder, selection}>`）在 [service/chat/send.ts](../../src/service/chat/send.ts)，**不在** Middleware 内。
+- `init()` 仅一次（AgentSession 用 `inited` 守卫），绑 chatId 并注入历史/首条 system prompt。runtime 缓存（`chatRuntimes: Map<chatId, {builder, selection}>`）在 [service/chat/runtime.ts](../../src/service/chat/runtime.ts)，**不在** AgentSession 内。
 
-`run()` 直接透传 `Middleware.send(input)`，`resume()` 在 `hasPendingTrailingSense()` 时置 `resumePending=true` 后 `run("")`（详见 [./middleware.md](./middleware.md) 的 sense 中间件 resume 分支）。
+`run()` 直接透传 `AgentSession.send(input)`，`resume()` 在 `hasPendingTrailingSense()` 时置 `resumePending=true` 后 `run("")`（详见 [./middleware.md](./middleware.md) 的 sense 中间件 resume 分支）。
 
 ## 关键流程
 
@@ -140,7 +144,7 @@ service 收到 chat.create
   → 从 chatRuntimes 取/建 builder
   → builder.build().configureRuntime(selection).init(chatId, history)
 service 收到 chat.send(chatId, prompt)
-  → builder.run(prompt)  ──→ Middleware.send
+  → builder.run(prompt)  ──→ AgentSession.send
                               │
                               ▼
                          loopHandler 循环 runChain
@@ -158,10 +162,11 @@ service 收到 chat.send(chatId, prompt)
 src/index.ts（服务入口）
   → await bootstrapAgentRuntime()
        ├─ registerBuiltinProviders()  （openai/ollama/mock）
-       └─ await reloadSenses()
+       ├─ await reloadSenses()
               ├─ resetSenses()
-              ├─ registerBuiltinSenses() （bash/read/write/skill）
+              ├─ registerBuiltinSenses() （bash/read/write/skill/search_codebase）
               └─ await loadCustomSenses() （编译产物 senses/*.js）
+       └─ await loadMcpSenses() （连接 MCP server 并注册 mcp__<server>__* senses）
 ```
 
 ## 依赖与关联 ⭐
@@ -170,7 +175,7 @@ src/index.ts（服务入口）
 
 | 依赖项 | 路径 | 用途 |
 |--------|------|------|
-| core/middleware | [core/middleware/](../../src/core/middleware/) | `Middleware` 类、`MiddlewareContext`/`RuntimeConfig`/各 Chunk 类型、`compose` |
+| core/middleware | [core/middleware/](../../src/core/middleware/) | `AgentSession` 门面、`MiddlewarePipeline`、`MessageJournal`、`MiddlewareContext`/`RuntimeConfig`/各 Chunk 类型、`compose` |
 | core/sense | [core/sense/](../../src/core/sense/) | `sense()` 工厂、`Sense`/`SenseResult`/`SenseSharedData`、`registerSenses/resetSenses/getSense`、`createApproval`（审批 Promise） |
 | core/llm/adapter | [core/llm/adapter.ts](../../src/core/llm/adapter.ts) | `LLMAdapter` 接口、`getLLMAdapter` 注册表、`LLMOptions` |
 | core/message/adapter | [core/message/adapter.ts](../../src/core/message/adapter.ts) | `MessageProviderAdapterConfig`、`registerMessageAdapter`、`LLMResponse`、`ReplaceInfo` |

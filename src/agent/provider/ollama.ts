@@ -17,8 +17,6 @@ import { LogLevel } from "@/utils/logger/types.js";
 
 // Message Adapter 配置
 const ollamaMessageAdapterConfig = {
-  role: (raw: ChatResponse) =>
-    (raw.message?.role as "assistant") ?? ("assistant" as const),
   content: (raw: ChatResponse) => raw.message?.content ?? "",
   thinking: (raw: ChatResponse) => raw.message?.thinking ?? undefined,
   extractStreamDelta: (chunk: ChatResponse) => chunk.message?.content ?? "",
@@ -126,6 +124,6 @@ export function registerOllamaAdapter(): void {
     "ollama",
     ollamaMessageAdapterConfig,
   );
-  registerSenseAdapter<Message, ChatResponse>("ollama", ollamaSenseAdapterConfig);
+  registerSenseAdapter<ChatResponse>("ollama", ollamaSenseAdapterConfig);
   registerLLMAdapter("ollama", ollamaLLMAdapter);
 }
