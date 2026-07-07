@@ -46,7 +46,13 @@ const {
   </main>
 </template>
 
-<style scoped>
+<style scoped lang="less">
+@ink: #24262d;
+@ink-soft: rgba(36, 38, 45, 0.68);
+@ink-border: rgba(36, 38, 45, 0.14);
+@panel-border: rgba(255, 255, 255, 0.68);
+@panel-bg: rgba(255, 255, 255, 0.68);
+
 .pet-stage {
   position: fixed;
   inset: 0;
@@ -68,16 +74,16 @@ const {
     auto,
     auto;
   color: #25262d;
-}
 
-.pet-stage::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.74), transparent 22%),
-    linear-gradient(0deg, rgba(0, 0, 0, 0.08), transparent 34%);
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.74), transparent 22%),
+      linear-gradient(0deg, rgba(0, 0, 0, 0.08), transparent 34%);
+  }
 }
 
 .toolbar {
@@ -91,50 +97,48 @@ const {
   align-items: center;
   max-width: min(520px, calc(100vw - 32px));
   padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  border: 1px solid @panel-border;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.68);
+  background: @panel-bg;
   box-shadow: 0 12px 30px rgba(47, 37, 28, 0.14);
   backdrop-filter: blur(14px);
-}
 
-.toolbar button {
-  min-width: 54px;
-  height: 32px;
-  padding: 0 11px;
-  border: 1px solid rgba(36, 38, 45, 0.14);
-  border-radius: 7px;
-  color: #24262d;
-  background: rgba(255, 255, 255, 0.8);
-  font: 700 13px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  cursor: pointer;
-}
+  button {
+    min-width: 54px;
+    height: 32px;
+    padding: 0 11px;
+    border: 1px solid @ink-border;
+    border-radius: 7px;
+    color: @ink;
+    background: rgba(255, 255, 255, 0.8);
+    font: 700 13px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    cursor: pointer;
 
-.toolbar button:hover {
-  background: #ffffff;
-  transform: translateY(-1px);
-}
+    &:hover {
+      background: #ffffff;
+      transform: translateY(-1px);
+    }
 
-.toolbar button:active {
-  transform: translateY(0);
-}
-
-.toolbar span {
-  padding: 0 5px;
-  color: rgba(36, 38, 45, 0.68);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-@media (max-width: 520px) {
-  .toolbar {
-    left: 10px;
-    top: 10px;
+    &:active {
+      transform: translateY(0);
+    }
   }
 
-  .toolbar button {
-    min-width: 48px;
-    padding: 0 8px;
+  span {
+    padding: 0 5px;
+    color: @ink-soft;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  @media (max-width: 520px) {
+    left: 10px;
+    top: 10px;
+
+    button {
+      min-width: 48px;
+      padding: 0 8px;
+    }
   }
 }
 </style>

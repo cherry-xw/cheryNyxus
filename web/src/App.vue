@@ -6,7 +6,7 @@ import PetStage from "@/features/pets/PetStage.vue";
   <PetStage />
 </template>
 
-<style>
+<style lang="less">
 * {
   box-sizing: border-box;
 }

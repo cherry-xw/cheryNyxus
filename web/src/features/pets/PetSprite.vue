@@ -308,7 +308,20 @@ function onClick(): void {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="less">
+// ink 基色 = rgb(20,22,26)，各 alpha 由 fade() 派生（取代散落的 rgba(20,22,26,…) 字面量）
+@ink: #14161a;
+@glyph-fonts: ui-rounded, "Hiragino Sans", "PingFang SC", "Noto Sans Symbols 2",
+  "Noto Sans Symbols", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+// tribe 派生色含 CSS 变量（运行期），仅抽字符串消除重复，less 不参与计算
+@tribe-border: hsl(var(--tribe-hue) 60% 82%);
+@tribe-bg: hsl(var(--tribe-hue) 60% 94%);
+@tribe-ink: hsl(var(--tribe-hue) 50% 28%);
+
+.glyph-font() {
+  font-family: @glyph-fonts;
+}
+
 .pet {
   --pet-color: #f6b73c;
   --pet-accent: #3b2b12;
@@ -326,36 +339,37 @@ function onClick(): void {
     filter 180ms ease,
     opacity 180ms ease;
   will-change: transform;
-}
 
-.head-row:focus-visible {
-  outline: 2px solid var(--pet-color);
-  outline-offset: 3px;
-}
+  &.is-dragging {
+    /* z-index 由 inline 覆盖（dragging=20） */
+    filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.24));
 
-.head-row:hover {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='30' viewBox='0 0 26 30'%3E%3Cpath d='M10 3a2 2 0 0 1 2 2v9l3-1a2 2 0 0 1 2 4l-5 2H8l-3-3v-6a2 2 0 0 1 2-2h1V5a2 2 0 0 1 2-2z' fill='%23f6b73c' stroke='%233b2b12' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E") 8 4, pointer;
-}
+    .head-row {
+      cursor: grabbing;
+    }
+  }
 
-.pet.is-dragging {
-  /* z-index 由 inline 覆盖（dragging=20） */
-  filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.24));
-}
+  &.is-master .name {
+    border-color: @tribe-border;
+    background: @tribe-bg;
 
-.pet.is-dragging .head-row {
-  cursor: grabbing;
-}
+    .char {
+      color: hsl(0 85% 55%);
+      animation: rainbow-char 3s linear infinite;
+      /* 字符序 delay 错相：色相波从左往右流动；某时刻各字符色相不同 */
+      animation-delay: calc(var(--char-i, 0) * 0.2s);
+    }
+  }
 
-.pet.is-master .name {
-  border-color: hsl(var(--tribe-hue) 60% 82%);
-  background: hsl(var(--tribe-hue) 60% 94%);
-}
+  &.is-sub .name {
+    border-color: @tribe-border;
+    background: @tribe-bg;
+    color: @tribe-ink;
+  }
 
-.pet.is-master .name .char {
-  color: hsl(0 85% 55%);
-  animation: rainbow-char 3s linear infinite;
-  /* 字符序 delay 错相：色相波从左往右流动；某时刻各字符色相不同 */
-  animation-delay: calc(var(--char-i, 0) * 0.2s);
+  &.is-paused {
+    opacity: 0.78;
+  }
 }
 
 @keyframes rainbow-char {
@@ -366,10 +380,6 @@ function onClick(): void {
   67% { color: hsl(240 85% 55%); }
   83% { color: hsl(300 85% 55%); }
   100% { color: hsl(360 85% 55%); }
-}
-
-.pet.is-paused {
-  opacity: 0.78;
 }
 
 .dir {
@@ -402,6 +412,15 @@ function onClick(): void {
   /* 子 pet 体型缩小（--pet-scale）；工具栏/状态条/名字不缩 */
   transform: scale(var(--pet-scale, 1));
   transform-origin: center;
+
+  &:focus-visible {
+    outline: 2px solid var(--pet-color);
+    outline-offset: 3px;
+  }
+
+  &:hover {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='30' viewBox='0 0 26 30'%3E%3Cpath d='M10 3a2 2 0 0 1 2 2v9l3-1a2 2 0 0 1 2 4l-5 2H8l-3-3v-6a2 2 0 0 1 2-2h1V5a2 2 0 0 1 2-2z' fill='%23f6b73c' stroke='%233b2b12' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E") 8 4, pointer;
+  }
 }
 
 .face,
@@ -415,16 +434,7 @@ function onClick(): void {
   min-width: 26px;
   padding: 0 2px;
   color: var(--pet-accent);
-  font-family:
-    ui-rounded,
-    "Hiragino Sans",
-    "PingFang SC",
-    "Noto Sans Symbols 2",
-    "Noto Sans Symbols",
-    "Apple Color Emoji",
-    "Segoe UI Emoji",
-    "Segoe UI Symbol",
-    sans-serif;
+  .glyph-font();
   font-size: 19px;
   font-weight: 800;
   text-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
@@ -435,28 +445,19 @@ function onClick(): void {
   width: 14px;
   min-height: 20px;
   color: var(--pet-accent);
-  font-family:
-    ui-rounded,
-    "Hiragino Sans",
-    "PingFang SC",
-    "Noto Sans Symbols 2",
-    "Noto Sans Symbols",
-    "Apple Color Emoji",
-    "Segoe UI Emoji",
-    "Segoe UI Symbol",
-    sans-serif;
+  .glyph-font();
   font-size: 16px;
   font-weight: 900;
   transform-origin: top center;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.14);
-}
 
-.hand-left {
-  justify-self: end;
-}
+  &.hand-left {
+    justify-self: end;
+  }
 
-.hand-right {
-  justify-self: start;
+  &.hand-right {
+    justify-self: start;
+  }
 }
 
 .meta-row {
@@ -472,23 +473,40 @@ function onClick(): void {
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.72);
-  color: rgba(20, 22, 26, 0.72);
+  color: fade(@ink, 72%);
   font-size: 8px;
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
 }
 
-.pet.is-sub .name {
-  border-color: hsl(var(--tribe-hue) 60% 82%);
-  background: hsl(var(--tribe-hue) 60% 94%);
-  color: hsl(var(--tribe-hue) 50% 28%);
-}
-
 .tools {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+
+  .tools-extra {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 50%;
+    z-index: 5;
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+    opacity: 0;
+    transform: translateX(-50%) translateY(-2px);
+    pointer-events: none;
+    transition: opacity 160ms ease, transform 160ms ease;
+  }
+
+  &.more-open .tools-extra {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    pointer-events: auto;
+  }
 }
 
 .tool-icon {
@@ -505,56 +523,33 @@ function onClick(): void {
   line-height: 1;
   cursor: pointer;
   overflow: visible;
-}
 
-.tool-icon:hover {
-  background: #ffffff;
-}
+  &:hover {
+    background: #ffffff;
+  }
 
-.tool-icon .tip {
-  position: absolute;
-  bottom: 130%;
-  left: 50%;
-  transform: translateX(-50%) scale(0.9);
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(20, 22, 26, 0.9);
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease, transform 120ms ease;
-}
+  .tip {
+    position: absolute;
+    bottom: 130%;
+    left: 50%;
+    transform: translateX(-50%) scale(0.9);
+    padding: 2px 6px;
+    border-radius: 5px;
+    background: fade(@ink, 90%);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
 
-.tool-icon:hover .tip {
-  opacity: 1;
-  transform: translateX(-50%) scale(1);
-}
-
-.tools-extra {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
-  z-index: 5;
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
-  opacity: 0;
-  transform: translateX(-50%) translateY(-2px);
-  pointer-events: none;
-  transition: opacity 160ms ease, transform 160ms ease;
-}
-
-.tools.more-open .tools-extra {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-  pointer-events: auto;
+  &:hover .tip {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
 }
 
 .status-row {
@@ -569,23 +564,23 @@ function onClick(): void {
   flex: 1;
   height: 2px;
   border-radius: 1px;
-  background: rgba(20, 22, 26, 0.14);
+  background: fade(@ink, 14%);
   overflow: hidden;
-}
 
-.stat .fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 1px;
-  transition: width 200ms ease;
-}
+  .fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 1px;
+    transition: width 200ms ease;
+  }
 
-.stat.emotion .fill {
-  background: var(--pet-color);
-}
+  &.emotion .fill {
+    background: #f6b73c;
+  }
 
-.stat.fatigue .fill {
-  background: #6b7280;
+  &.fatigue .fill {
+    background: #6b7280;
+  }
 }
 
 .zzz {
@@ -593,7 +588,7 @@ function onClick(): void {
   left: 50%;
   bottom: 72px;
   transform: translateX(-50%);
-  color: rgba(20, 22, 26, 0.6);
+  color: fade(@ink, 60%);
   font-size: 11px;
   font-weight: 800;
   pointer-events: none;
@@ -619,7 +614,7 @@ function onClick(): void {
   width: 32px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(20, 22, 26, 0.16);
+  background: fade(@ink, 16%);
   filter: blur(2px);
   /* 随子 pet 体型缩小（与 shadow-breathe 的 scale 属性复合） */
   transform: scale(var(--pet-scale, 1));
@@ -645,19 +640,19 @@ function onClick(): void {
   line-height: 1.2;
   overflow-wrap: anywhere;
   transform-origin: center bottom;
-}
 
-.speech::after {
-  content: "";
-  position: absolute;
-  left: 14px;
-  bottom: -5px;
-  width: 8px;
-  height: 8px;
-  border-right: 1px solid rgba(255, 255, 255, 0.74);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.74);
-  background: rgba(255, 255, 255, 0.92);
-  transform: rotate(45deg);
+  &::after {
+    content: "";
+    position: absolute;
+    left: 14px;
+    bottom: -5px;
+    width: 8px;
+    height: 8px;
+    border-right: 1px solid rgba(255, 255, 255, 0.74);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.74);
+    background: rgba(255, 255, 255, 0.92);
+    transform: rotate(45deg);
+  }
 }
 
 @keyframes shadow-breathe {

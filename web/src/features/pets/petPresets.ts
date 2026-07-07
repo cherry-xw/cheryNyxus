@@ -286,16 +286,27 @@ function buildHands(): Record<PetMood, PetHands> {
   return hands;
 }
 
+/** 从 face 池抽取一套，排除 exclude 中已用 face（按对象引用相等）；池耗尽则回退全池（允许重复）。 */
+function pickFace(
+  pool: readonly Record<PetMood, string>[],
+  exclude?: ReadonlySet<Record<PetMood, string>>,
+): Record<PetMood, string> {
+  const available = exclude ? pool.filter((f) => !exclude.has(f)) : pool;
+  return pick(available.length > 0 ? available : pool);
+}
+
 let genCounter = 0;
 
 /**
  * 程序化生成 pet preset:face+hands+color+talks 随机组合。
  * @param form 'kaomoji'=主池(颜文字 face) / 'emoji'=子池(emoji face) / 'random'=按池容量比例纯随机
+ * @param excludeFaces 已占用 face 集合（按对象引用相等去重）；传同类已用 face 可避免撞脸。两池不相交，传混合集合亦安全。池耗尽回退全池。
  */
-export function generatePet(form: PetForm): PetPreset {
+export function generatePet(form: PetForm, excludeFaces?: ReadonlySet<Record<PetMood, string>>): PetPreset {
   const emojiRatio = EMOJI_FACES.length / (KAOMOJI_FACES.length + EMOJI_FACES.length);
   const useEmoji = form === "emoji" || (form === "random" && Math.random() < emojiRatio);
-  const face = pick(useEmoji ? EMOJI_FACES : KAOMOJI_FACES);
+  const pool = useEmoji ? EMOJI_FACES : KAOMOJI_FACES;
+  const face = pickFace(pool, excludeFaces);
   const { color, accent } = pick(COLOR_PARTS);
   const talks = pick(TALK_PARTS);
   const name = pick(NAME_POOL);

@@ -31,8 +31,8 @@ interface PetPreset {
 }
 ```
 
-- **程序化生成**：pet 不再是固定 preset 数组，由 [petPresets.ts](../../web/src/features/pets/petPresets.ts) 的 `generatePet(form)` 运行时组合部件产出 `PetPreset`：`face`（`KAOMOJI_FACES`/`EMOJI_FACES` 池）+ `hands`（`HAND_PAIRS` 每 mood 抽一对）+ `color`/`accent`（`COLOR_PARTS`）+ `talks`（`TALK_PARTS`）+ `name`（`NAME_POOL`）；`tools`/`behaviors` 沿用默认，`sleep` 不设（默认 `zZ`）。
-- **form 三态**（`PetForm`）：`'kaomoji'`=主池（颜文字 face）/ `'emoji'`=子池（emoji face）/ `'random'`=按池容量比例纯随机。导出 `masterFacePool`/`subFacePool` 两个 face 部件数组（即主/子池）。
+- **程序化生成**：pet 不再是固定 preset 数组，由 [petPresets.ts](../../web/src/features/pets/petPresets.ts) 的 `generatePet(form, excludeFaces?)` 运行时组合部件产出 `PetPreset`：`face`（`KAOMOJI_FACES`/`EMOJI_FACES` 池）+ `hands`（`HAND_PAIRS` 每 mood 抽一对）+ `color`/`accent`（`COLOR_PARTS`）+ `talks`（`TALK_PARTS`）+ `name`（`NAME_POOL`）；`tools`/`behaviors` 沿用默认，`sleep` 不设（默认 `zZ`）。**face 去重**：`excludeFaces` 传入同类已用 face 集合（`Set`，按对象引用相等），`generatePet` 从池中排除已用项；池耗尽则回退全池随机（允许重复），`+pet`/`summon` 始终可用。仅 `face` 去重，`color`/`name`/`talks` 仍随机。
+- **form 三态**（`PetForm`）：`'kaomoji'`=主池（颜文字 face）/ `'emoji'`=子池（emoji face）/ `'random'`=按池容量比例纯随机。导出 `masterFacePool`/`subFacePool` 两个 face 部件数组（即主/子池）。两池对象不相交 → face 去重只在同类内生效（主不与子撞脸）。
 - **手部配对池** `HAND_PAIRS: Record<PetMood, PetHands[]>`：每 mood ~8 配对，含颜文字手臂/装饰（参考 lddgo.net/common/emoticons）+ emoji 动效（跑→happy/panicked、汗→surprised/panicked、放屁→nagging、哭→sad、掀桌→angry）。`buildHands()` 每 mood 独立抽一对 → 跨 mood 混搭、单 mood L/R 协调。
 - **混合渲染**：emoji 角色 `face`=emoji、颜文字角色 `face`=眼睛/嘴部件；`hands` 跨类型混搭（颜文字 + emoji）。渲染拼装：`hands[mood].left` + `face[mood]` + `hands[mood].right`（无独立 body 字符）。
 - **主/子 pet 为运行时状态**（`isMaster`/`tribe`，见下）；**主 pet 由 `generatePet('kaomoji')` 产出，子 pet 由 `generatePet('emoji')` 产出**（见 [主/子产生](#主子-pet-与部落从属关系)）。
@@ -53,10 +53,12 @@ interface PetPreset {
 
 ## 状态系统（养桌宠）
 
+> 数值算法（衰减/恢复速率、阈值、交互增量）抽到 [petStatus.ts](../../web/src/features/pets/petStatus.ts) 的纯函数 + `StatusConfig` 默认值；`usePetWorld` 模块级 `status = resolveStatus()` 统一注入（可传 overrides 覆盖默认）。下方数值均为默认值。
+
 ### emotion（情绪值）
 
-- **初始 70**，clamp(0,100)。
-- **衰减**：每秒缓降（`EMOTION_DECAY`），促使玩家持续照料。
+- **初始 70**（`StatusConfig.emotionInit`），clamp(0,100)。
+- **衰减**：每秒缓降（`StatusConfig.emotionDecay`，默认 0.6），促使玩家持续照料。
 - **交互增量**：
 
   | 交互 | emotion |
@@ -76,9 +78,9 @@ interface PetPreset {
 
 - **初始 0**，clamp(0,100)。
 - **累积**：移动（walk 每秒）、拖拽、聊天均累积；休息时下降。
-- **自动休息**：`fatigue ≥ FATIGUE_SLEEP(80)` → `action="sleep"`。
-- **恢复**：休息时 `fatigue↓` 且 `emotion↑`（睡觉双回血）。
-- **唤醒**：`fatigue ≤ FATIGUE_WAKE(10)` 或被鼠标交互打扰 → 醒（`walk`）。
+- **自动休息**：`fatigue ≥ StatusConfig.fatigueSleep`（默认 80）→ `action="sleep"`（谓词 `shouldSleep`）。
+- **恢复**：休息时 `fatigue↓` 且 `emotion↑`（睡觉双回血），由 `stepVitals(pet, dt, status)` 在 sleep 分支处理。
+- **唤醒**：`fatigue ≤ StatusConfig.fatigueWake`（默认 10，谓词 `shouldWake`）或被鼠标交互打扰 → 醒（`walk`）。
 - **agent 映射预留**：未来 pet 作为 agent 显示层时，`fatigue` 改由真实 token 上下文量驱动（上下文越长越累，清上下文=休息恢复）。当前由活动模拟累积。
 
 ## Mood / Action / 触发
@@ -124,10 +126,10 @@ interface PetPreset {
 
 多主 pet 共存，每主带一群子 pet，形成部落类群（不同部落视觉/移动分离）。
 
-- **主 pet 产生**：工具栏 `+pet`（`addPet`）→ `generatePet('kaomoji')` 产 preset → 新主 pet（`isMaster=true`，`tribe=自身 instanceId`），全尺寸，工具列前置 `summon`。
-- **子 pet 产生**：主 pet 的 `summon` 工具 → `summonSub(master)` → `generatePet('emoji')`，`isMaster=false`，`tribe=master.instanceId`，初始位置在主附近。仅主 pet 持有 `summon`。
+- **主 pet 产生**：工具栏 `+pet`（`addPet`）→ `generatePet('kaomoji', 已用 face 集合)` 产 preset → 新主 pet（`isMaster=true`，`tribe=自身 instanceId`），全尺寸，工具列前置 `summon`。已用集合 = 当前 `pets` 全部 face（两池不相交，混合集合无害）。
+- **子 pet 产生**：主 pet 的 `summon` 工具 → `summonSub(master)` → `generatePet('emoji', 已用 face 集合)`，`isMaster=false`，`tribe=master.instanceId`，初始位置在主附近。仅主 pet 持有 `summon`。
 - **stewart**：原 `core` 管家概念早已移除；stewart 现仅为 `NAME_POOL` 中一个名字，不再是特殊 preset。多主平等。
-- **`resetPets()` / `onMounted` 初始化**：刷 2 主 + 每主 1~2 子；主 `generatePet('kaomoji')`、子 `generatePet('emoji')`。
+- **`resetPets()` / `onMounted` 初始化**：刷 2 主 + 每主 1~2 子；主 `generatePet('kaomoji', used)`、子 `generatePet('emoji', used)`。循环前建局部 `usedFaces` 集合，每只 generate 后 `add(preset.face)` → 同批不撞脸。
 - **`removePet(pet)`**：任意 pet 可驱逐（无 core 保护）。主被驱逐后其子成为孤儿（`tribe` 找不到主 → 无吸引、自由游走），不自动归并、不连带驱逐。
 - **扎堆行为**：
   - 子 pet `retarget` 偏向本主（`master.pos ± TRIBE_CLUSTER_RADIUS`）→ 聚拢；斥力可将其推远，`retarget` 再拉回 → 整体聚类（允许一定程度远离，不必贴堆）。
@@ -184,7 +186,7 @@ div.pet-wrap                                                       // 根容器�
     span.shadow (CSS 呼吸，随 --pet-scale 缩)
     div.dir[CSS scaleX(--pet-direction)]                          // 朝向瞬切
       Motion.sprite[:animate=spriteMotion(action)]                // grid-template-columns:100% 修复展开抖动
-        div.status-row: span.bar.emotion + span.bar.fatigue       // 状态条（头顶，固定尺寸，不触发交互）
+        div.status-row: span.bar.emotion + span.bar.fatigue       // 状态条（头顶，固定尺寸，不触发交互；emotion/fatigue 各固定统一色，跨 pet 一致）
         span.head-row[role=button + 长按拖拽/短按抚摸 + keydown + cursor + touch-action + transform:scale(--pet-scale)]  // 命中区=身体（face+hands）
           Motion.hand.left[:animate=handMotion(action,'left')]   hands[mood].left
           Motion.face[:animate=faceMotion(mood)]                  face[mood]
@@ -221,6 +223,16 @@ div.pet-wrap                                                       // 根容器�
 ```
 气泡为 `.pet-wrap` 内 `.pet` 的**兄弟**（脱离 `.pet` 的 transform stacking context），独立 z-index（整体高于身体）。锚点 = pet 顶部中心，`left`/`top` 由 inline `speechStyle` 提供，motion `x:"-50%" y:"-100%"` 居中 + 上移自身高度。默认渲染字符串；父级可 `#dialog="{pet}"` 注入复杂内容（先留口）。
 
+## 样式（less）
+
+三个 vue 组件的 `<style>` 均改用 `lang="less"`：[App.vue](../../web/src/App.vue)（全局 reset）、[PetStage.vue](../../web/src/features/pets/PetStage.vue)（舞台/toolbar）、[PetSprite.vue](../../web/src/features/pets/PetSprite.vue)（pet 部件，原 ~363 行 CSS 为主简化目标）。less 经 Vite 内置预处理器自动编译——仅装 `less` devDep，无需 vite 插件。
+
+- **变量提取**：深色文字/边框色（`@ink`/`@ink-soft`/`@ink-bg`，取代散落的 `#24262d` 与 `rgba(20,22,26,…)` 字面量）、`@glyph-fonts`（颜文字/emoji 字体栈）、`@tribe-hue` 派生色等抽为 less 变量，消除重复。
+- **mixin**：`.face`/`.hand` 共享的字体栈抽 `.glyph-font()` mixin（原 7 行 `font-family` 重复两次）。
+- **嵌套**：`.pet.is-master .name`、`.tool-icon:hover .tip`、`.tools.more-open .tools-extra` 等父子选择器归并嵌套。
+- **不抽独立文件**：变量/mixin 就地定义在各组件 scoped 块内（pet 样式与组件强内聚，无跨文件复用诉求）。
+- **CSS 变量保持不变**：`--pet-color`/`--pet-scale`/`--pet-direction`/`--char-i`/`--tribe-hue` 等 inline 动态变量保留——less 变量编译期定值，CSS 自定义属性运行期动态（由 `:style` 注入），二者职责分离，不混用。
+
 ## agent 显示层预留
 
 pet 模块当前纯前端，未来作为 agent 显示层时：
@@ -235,20 +247,21 @@ pet 模块当前纯前端，未来作为 agent 显示层时：
 | 路径 | 职责 |
 |------|------|
 | [types.ts](../../web/src/features/pets/types.ts) | PetMood/Action/**Form**/Hands/Tool/Behavior/SleepConfig/Preset/Instance 类型 |
-| [petPresets.ts](../../web/src/features/pets/petPresets.ts) | face 部件池（KAOMOJI/EMOJI_FACES）+ `HAND_PAIRS` 配对池 + COLOR/TALK/NAME 部件 + `generatePet(form)` + `masterFacePool`/`subFacePool` 双池导出 |
+| [petPresets.ts](../../web/src/features/pets/petPresets.ts) | face 部件池（KAOMOJI/EMOJI_FACES）+ `HAND_PAIRS` 配对池 + COLOR/TALK/NAME 部件 + `generatePet(form, excludeFaces?)`（含 face 去重）+ `masterFacePool`/`subFacePool` 双池导出 |
 | [petMotion.ts](../../web/src/features/pets/petMotion.ts) | sprite/hand/face/speech variant helper（含 sleep） |
 | [PetSprite.vue](../../web/src/features/pets/PetSprite.vue) | 单 pet 渲染：motion 分层 + 部件 + 工具栏 + 状态条 + zzz + 光标 + slot |
 | [PetStage.vue](../../web/src/features/pets/PetStage.vue) | 舞台 + toolbar + tool 事件接线 |
-| [usePetWorld.ts](../../web/src/features/pets/usePetWorld.ts) | RAF / retarget 策略 / 交互 / chat / 主子部落 / 工具 / 状态系统 / 休息 / 慢速 |
+| [usePetWorld.ts](../../web/src/features/pets/usePetWorld.ts) | RAF / retarget 策略 / 交互 / chat / 主子部落 / 工具 / 休息 / 慢速（状态数值逻辑抽到 petStatus.ts） |
+| [petStatus.ts](../../web/src/features/pets/petStatus.ts) | 状态数值算法纯函数：`StatusConfig`（速率/阈值/增量默认值）+ `resolveStatus` + adjustEmotion/adjustFatigue/restMood/stepVitals/shouldSleep/shouldWake |
 | [petMovement.ts](../../web/src/features/pets/petMovement.ts) | 运动学纯函数：stepMovement（力积分 seek+部落引力/斥力）/ arrivedAtTarget / findSpawnPosition（排斥采样）/ keepInBounds |
 
 ## 扩展点
 
-- **加角色形态**：在 [petPresets.ts](../../web/src/features/pets/petPresets.ts) 加 face 部件（`Record<PetMood,string>`）到 `KAOMOJI_FACES`（主池）或 `EMOJI_FACES`（子池）即可被 `generatePet` 随机刷出；无需定义完整 preset（color/talks/hands 由各自部件池随机组合）。
+- **加角色形态**：在 [petPresets.ts](../../web/src/features/pets/petPresets.ts) 加 face 部件（`Record<PetMood,string>`）到 `KAOMOJI_FACES`（主池）或 `EMOJI_FACES`（子池）即可被 `generatePet` 随机刷出；无需定义完整 preset（color/talks/hands 由各自部件池随机组合）。池容量 = face 去重上限（主 8 / 子 15），加 face 即放宽不撞脸上限。
 - **加手部配对**：在 `HAND_PAIRS[mood]` 加 `PetHands` 配对（颜文字手臂/装饰或 emoji 动效）。
 - **加台词/颜色/名字**：扩 `TALK_PARTS` / `COLOR_PARTS` / `NAME_POOL`。
 - **加 mood**：扩 `PetMood` → 补全各角色 `face`/`hands` 该 mood → 在 [petMotion.ts](../../web/src/features/pets/petMotion.ts) 加 face variant → 在 `usePetWorld` 加触发条件。
 - **加动作**：扩 `PetAction` → 在 [petMotion.ts](../../web/src/features/pets/petMotion.ts) 加 sprite/hand variant → 在 `usePetWorld` 加行为逻辑。
 - **加工具**：扩 `PetTool` 列表 → 在 `invokeTool` 加 case（含 emotion 增量）。
-- **调状态**：改 `usePetWorld` 顶部状态常量（`EMOTION_DECAY` / `FATIGUE_*` / 各交互增量）。
+- **调状态**：改 [petStatus.ts](../../web/src/features/pets/petStatus.ts) 的 `DEFAULT_STATUS_CONFIG`（速率/阈值/增量默认值），或在 `usePetWorld` 模块级 `resolveStatus(overrides)` 传覆盖。
 - **接入 agent**：`fatigue` 改由 token 上下文驱动（调 `setFatigue`）；`invokeTool` / 对话框 slot 改为消费后端 RPC（[protocol.md](../protocol.md)）。

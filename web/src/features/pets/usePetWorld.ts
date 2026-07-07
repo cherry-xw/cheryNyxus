@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, type Ref } from "vue";
 import { generatePet } from "./petPresets";
 import { PET_WIDTH, PET_HEIGHT, arrivedAtTarget, findSpawnPosition, keepInBounds, stepMovement } from "./petMovement";
+import { adjustEmotion, adjustFatigue, restMood, resolveStatus, shouldSleep, shouldWake, stepVitals } from "./petStatus";
 import type { PetAction, PetInstance, PetMood, PetPreset, PetTool, StageBounds } from "./types";
 
 const CHAT_DISTANCE = 126;
@@ -12,24 +13,8 @@ const RAPID_CLICK_WINDOW = 1200;
 const RAPID_CLICK_THRESHOLD = 3;
 const PANIC_MOVEMENT = 32;
 
-// --- 状态系统（养桌宠） ---
-const EMOTION_INIT = 70;
-const EMOTION_DECAY = 0.6; // 每秒缓降
-const EMOTION_RECOVER = 4; // 休息时每秒上升
-const FATIGUE_WALK_RATE = 1.2; // 移动每秒累积
-const FATIGUE_CHAT = 8; // 每次聊天累积
-const FATIGUE_SLEEP = 80; // 自动休息阈值
-const FATIGUE_WAKE = 10; // 自然醒阈值
-const FATIGUE_RECOVER = 12; // 休息时每秒下降
-// emotion 交互增量
-const EMOTE_CLICK = 6;
-const EMOTE_RAPID = -8;
-const EMOTE_DRAG = -3;
-const EMOTE_HOVER = 1;
-const EMOTE_DISTURB = -5;
-const EMOTE_FEED = 15;
-const EMOTE_PET = 8;
-const EMOTE_PUNCH = -10;
+// 状态数值算法 + 可调配置（速率/阈值/增量）抽到 petStatus.ts；status 为默认配置注入
+const status = resolveStatus();
 
 // 主 pet 独立物理（更慢更稳）：比默认（petMovement）更低速度/加速度/斥力/半径
 const MASTER_ACCELERATION = 50; // 默认 80 → 更缓启停
@@ -84,22 +69,6 @@ function actionTalk(pet: PetInstance, action: PetAction): string {
   return pick(pet.behaviors?.[action]?.talks ?? pet.talks);
 }
 
-// 基础 mood：状态驱动（临时 mood 到期后回落）
-function restMood(pet: PetInstance): PetMood {
-  if (pet.action === "sleep" || pet.fatigue >= FATIGUE_SLEEP) return "sleepy";
-  if (pet.emotion < 25) return "sad";
-  if (pet.emotion < 50) return "calm";
-  return pet.isMaster ? "serious" : "calm";
-}
-
-function adjustEmotion(pet: PetInstance, delta: number): void {
-  pet.emotion = clamp(pet.emotion + delta, 0, 100);
-}
-
-function adjustFatigue(pet: PetInstance, delta: number): void {
-  pet.fatigue = clamp(pet.fatigue + delta, 0, 100);
-}
-
 function createPet(
   preset: PetPreset,
   bounds: StageBounds,
@@ -134,7 +103,7 @@ function createPet(
     moodUntil: 0,
     interactionUntil: 0,
     lastInteractionAt: now,
-    emotion: EMOTION_INIT,
+    emotion: status.emotionInit,
     fatigue: 0,
     dragOffsetX: 0,
     dragOffsetY: 0,
@@ -201,7 +170,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
   function wakeUp(pet: PetInstance): void {
     const now = performance.now();
     pet.action = "walk";
-    pet.mood = restMood(pet);
+    pet.mood = restMood(pet, status);
     pet.moodUntil = 0;
     pet.lastInteractionAt = now;
     retarget(pet);
@@ -215,14 +184,16 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
 
   // 工具栏 +pet：新主 pet（新部落）
   function addPet(): void {
-    const preset = generatePet("kaomoji");
+    const usedFaces = new Set(pets.map((p) => p.face));
+    const preset = generatePet("kaomoji", usedFaces);
     pets.push(createPet(preset, readBounds(), spawnIndex, true));
     spawnIndex += 1;
   }
 
   // 主 pet summon：召子 pet 加入本部落，落点在主附近
   function summonSub(master: PetInstance): void {
-    const preset = generatePet("emoji");
+    const usedFaces = new Set(pets.map((p) => p.face));
+    const preset = generatePet("emoji", usedFaces);
     const sub = createPet(preset, readBounds(), spawnIndex, false, master.instanceId);
     const pos = findSpawnPosition({ x: master.x, y: master.y }, pets, bounds);
     sub.x = pos.x;
@@ -242,9 +213,11 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
   function resetPets(): void {
     pets.splice(0, pets.length);
     const b = readBounds();
+    const usedFaces = new Set<Record<PetMood, string>>();
     // 2 主 + 每主 1~2 子
     for (let m = 0; m < 2; m += 1) {
-      const preset = generatePet("kaomoji");
+      const preset = generatePet("kaomoji", usedFaces);
+      usedFaces.add(preset.face);
       const master = createPet(preset, b, spawnIndex, true);
       const masterPos = findSpawnPosition(randomTarget(b), pets, b);
       master.x = masterPos.x;
@@ -253,7 +226,8 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
       spawnIndex += 1;
       const subCount = 1 + (spawnIndex % 2);
       for (let s = 0; s < subCount; s += 1) {
-        const subPreset = generatePet("emoji");
+        const subPreset = generatePet("emoji", usedFaces);
+        usedFaces.add(subPreset.face);
         const sub = createPet(subPreset, b, spawnIndex, false, master.instanceId);
         const subPos = findSpawnPosition({ x: master.x, y: master.y }, pets, b);
         sub.x = subPos.x;
@@ -301,8 +275,8 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     b.interactionUntil = until;
     a.lastInteractionAt = now;
     b.lastInteractionAt = now;
-    adjustFatigue(a, FATIGUE_CHAT);
-    adjustFatigue(b, FATIGUE_CHAT);
+    adjustFatigue(a, status.fatigueChat);
+    adjustFatigue(b, status.fatigueChat);
     faceEachOther(a, b);
     showSpeech(a, pick(a.talks), until - now);
     showSpeech(b, pick(b.talks), until - now);
@@ -336,11 +310,10 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
       return;
     }
 
-    // 休息中：速度 0，fatigue↓ emotion↑，自然醒
+    // 休息中：速度 0，fatigue↓ emotion↑（stepVitals sleep 分支），自然醒
     if (pet.action === "sleep") {
-      adjustFatigue(pet, -FATIGUE_RECOVER * dt);
-      adjustEmotion(pet, EMOTION_RECOVER * dt);
-      if (pet.fatigue <= FATIGUE_WAKE) {
+      stepVitals(pet, dt, status);
+      if (shouldWake(pet, status)) {
         wakeUp(pet);
       }
       return;
@@ -349,11 +322,11 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     // 悬浮：停止移动，保持当前表情（不切 mood、不衰减、不回退）
     if (pet.action === "hover") return;
 
-    // emotion 缓降
-    adjustEmotion(pet, -EMOTION_DECAY * dt);
+    // emotion 缓降（stepVitals active 分支）
+    stepVitals(pet, dt, status);
 
     // 疲劳达阈值 → 自动休息
-    if (pet.fatigue >= FATIGUE_SLEEP) {
+    if (shouldSleep(pet, status)) {
       fallAsleep(pet);
       return;
     }
@@ -365,7 +338,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     if (pet.action === "chatting") {
       if (pet.interactionUntil < now) {
         pet.action = "walk";
-        pet.mood = restMood(pet);
+        pet.mood = restMood(pet, status);
         retarget(pet);
       }
       return;
@@ -373,14 +346,14 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
 
     if (pet.moodUntil && pet.moodUntil < now) {
       pet.action = "walk";
-      pet.mood = restMood(pet);
+      pet.mood = restMood(pet, status);
       pet.moodUntil = 0;
     }
 
     if (arrivedAtTarget(pet)) {
       retarget(pet);
       pet.action = "idle";
-      pet.mood = restMood(pet);
+      pet.mood = restMood(pet, status);
       pet.moodUntil = now + rand(800, 1800);
       pet.vx = 0;
       pet.vy = 0;
@@ -388,7 +361,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     }
 
     pet.action = "walk";
-    adjustFatigue(pet, FATIGUE_WALK_RATE * dt);
+    adjustFatigue(pet, status.fatigueWalkRate * dt);
     const baseMax = pet.mood === "sleepy" ? 55 : 115;
     const maxSpeed = baseMax * (1 + (pet.id.length % 3) * 0.15);
     if (pet.isMaster) {
@@ -440,9 +413,9 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     pet.moodUntil = 0;
     pet.lastInteractionAt = performance.now();
     if (wasSleeping) {
-      adjustEmotion(pet, EMOTE_DISTURB);
+      adjustEmotion(pet, status.emoteDisturb);
     }
-    adjustEmotion(pet, EMOTE_DRAG);
+    adjustEmotion(pet, status.emoteDrag);
     showSpeech(pet, actionTalk(pet, "dragging"), 900);
   }
 
@@ -485,16 +458,16 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     if (hovering) {
       if (pet.action === "sleep") {
         wakeUp(pet);
-        adjustEmotion(pet, EMOTE_DISTURB);
+        adjustEmotion(pet, status.emoteDisturb);
         return;
       }
       if (pet.action === "chatting") return;
       pet.action = "hover";
       pet.lastInteractionAt = now;
-      adjustEmotion(pet, EMOTE_HOVER);
+      adjustEmotion(pet, status.emoteHover);
     } else if (pet.action === "hover") {
       pet.action = "walk";
-      pet.mood = restMood(pet);
+      pet.mood = restMood(pet, status);
     }
   }
 
@@ -503,7 +476,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     const now = performance.now();
     if (pet.action === "sleep") {
       wakeUp(pet);
-      adjustEmotion(pet, EMOTE_DISTURB);
+      adjustEmotion(pet, status.emoteDisturb);
       return;
     }
     pet.rapidClicks = now - pet.lastClickAt < RAPID_CLICK_WINDOW ? pet.rapidClicks + 1 : 1;
@@ -513,11 +486,11 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
       pet.action = "clicked";
       pet.moodUntil = now + 1400;
       pet.lastInteractionAt = now;
-      adjustEmotion(pet, EMOTE_RAPID);
+      adjustEmotion(pet, status.emoteRapid);
       showSpeech(pet, pick(["够了!", "别戳!", "哼!"]), 1300);
       return;
     }
-    adjustEmotion(pet, EMOTE_CLICK);
+    adjustEmotion(pet, status.emoteClick);
     setTemporaryAction(pet, "clicked", 1300, actionTalk(pet, "clicked"));
   }
 
@@ -526,7 +499,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     switch (toolId) {
       case "pet":
         if (pet.action === "sleep") wakeUp(pet);
-        adjustEmotion(pet, EMOTE_PET);
+        adjustEmotion(pet, status.emotePet);
         setTemporaryAction(pet, "clicked", 1300, actionTalk(pet, "clicked"));
         break;
       case "feed":
@@ -535,7 +508,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
         pet.action = "clicked";
         pet.moodUntil = now + 1400;
         pet.lastInteractionAt = now;
-        adjustEmotion(pet, EMOTE_FEED);
+        adjustEmotion(pet, status.emoteFeed);
         showSpeech(pet, pick(["好吃!", "嗯~", "再来!"]), 1500);
         break;
       case "sleep":
@@ -547,7 +520,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
         pet.action = "clicked";
         pet.moodUntil = now + 1200;
         pet.lastInteractionAt = now;
-        adjustEmotion(pet, EMOTE_PUNCH);
+        adjustEmotion(pet, status.emotePunch);
         showSpeech(pet, pick(["嘿!", "气!", "哼!"]), 1200);
         break;
       case "dismiss":
