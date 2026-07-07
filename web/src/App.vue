@@ -1,16 +1,26 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import PetStage from "@/features/pets/PetStage.vue";
 </script>
 
 <template>
-  <el-container>
-    <el-header>
-      <nav>
-        <RouterLink to="/">Home</RouterLink>
-      </nav>
-    </el-header>
-    <el-main>
-      <RouterView />
-    </el-main>
-  </el-container>
+  <PetStage />
 </template>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+</style>

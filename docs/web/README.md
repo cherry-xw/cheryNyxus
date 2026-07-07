@@ -41,6 +41,7 @@
 | [web/src/services/ws.ts](../../web/src/services/ws.ts) | RPC WebSocket 客户端：读取 `/api/config` / preload 注入配置并建立连接 |
 | [web/src/stores/index.ts](../../web/src/stores/index.ts) | Pinia store 汇集（脚手架空） |
 | [web/src/views/HomeView.vue](../../web/src/views/HomeView.vue) | 示例视图 |
+| [web/src/features/pets/](../../web/src/features/pets/) | Pet 模块：桌面小宠物状态、预设、motion-v 动画与渲染，详见 [./pet.md](./pet.md) |
 | [web/electron/main.ts](../../web/electron/main.ts) | Electron 主进程：`createWindow` + `loadURL`/`loadFile` |
 | [web/scripts/electron-dev.sh](../../web/scripts/electron-dev.sh) | `electron:dev` wrapper：选 xrdp display + `unset ELECTRON_RUN_AS_NODE` |
 
@@ -124,6 +125,7 @@ App.vue → RouterView（router 路由表）
 - **扩展 WebSocket RPC**：在 [web/src/services/ws.ts](../../web/src/services/ws.ts) 增加更高层业务封装；底层帧编解码在 [web/src/services/transport.ts](../../web/src/services/transport.ts)，协议见 [protocol.md](../protocol.md)。
 - **加路由 / 页面**：[web/src/router/index.ts](../../web/src/router/index.ts) 加路由；`web/src/views/` 下加 `.vue`。Electron 下**必须** `createWebHashHistory`（`file://` 不支持 history API）。
 - **加 Pinia store**：`web/src/stores/` 下定义，[stores/index.ts](../../web/src/stores/index.ts) 汇出。
+- **扩展 Pet 角色 / 动画**：角色数据集中在 [petPresets.ts](../../web/src/features/pets/petPresets.ts)，共享 motion-v variant 在 [petMotion.ts](../../web/src/features/pets/petMotion.ts)，设计见 [./pet.md](./pet.md)。
 - **加 Electron IPC**：[electron/main.ts](../../web/electron/main.ts) 启用 preload；新增 `web/electron/preload.ts`（`contextBridge` 暴露安全 API）；[tsconfig.node.json](../../web/tsconfig.node.json) `include` 加 preload。详见 [./electron.md](./electron.md#扩展点)。
 - **Electron 打包**：当前未做 electron-builder；按需加 `electron-builder` 配置 + script。
 - **Element Plus 按需引入**：当前全量注册（`app.use(ElementPlus)`）；换 `unplugin-vue-components` + `unplugin-auto-import` 减包体。
