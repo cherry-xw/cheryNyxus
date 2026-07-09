@@ -41,6 +41,22 @@ interface PendingRequest {
 const RECONNECT_DELAY = 2000;
 
 /**
+ * 生成 requestId（rpc 请求关联用）。
+ * crypto.randomUUID 仅 secure context（localhost/https）可用；跨机器 http 访问等
+ * 非 secure context 下 crypto.randomUUID 缺失 → fallback Math.random 拼 RFC4122 v4。
+ */
+function uuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
  * WebSocket 客户端：
  * - Electron 模式：读 window.__BACKEND_CONFIG__（preload 注入）
  * - 浏览器模式：fetch('/api/config') 获取 wsPort + transport
@@ -99,7 +115,14 @@ export class WsClient {
   private open(): void {
     if (!this.serverConfig) return;
     this.setStatus("connecting");
-    const url = `ws://${window.location.hostname}:${this.serverConfig.wsPort}`;
+    // Electron（preload 注入 __BACKEND_CONFIG__）：直连 wsPort
+    // dev:web（vite）：走同源 /ws（vite proxy 转 wsPort；跨机器访问只需暴露单端口 5173，无需开放 8182）
+    // 生产（后端静态 serve）：直连 wsPort（8182 需对客户端开放）
+    const url = window.__BACKEND_CONFIG__
+      ? `ws://localhost:${this.serverConfig.wsPort}`
+      : import.meta.env.DEV
+        ? `ws://${window.location.host}/ws`
+        : `ws://${window.location.hostname}:${this.serverConfig.wsPort}`;
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
@@ -142,12 +165,29 @@ export class WsClient {
     if (!this.ws || this.status !== "connected") {
       return Promise.reject(new Error("WebSocket 未连接"));
     }
-    const id = crypto.randomUUID();
+    const id = uuid();
     const request = { id, kind: "request" as const, method, params };
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.ws!.send(encodeRequest(request));
     });
+  }
+
+  /**
+   * 与 rpc 相同，但额外暴露 requestId，供调用方关联流式 chunk（chat.send/chat.get）。
+   * chunk 按 requestId 路由 → 调用方需记录 requestId→chatId 映射（见 agents store）。
+   */
+  rpcTrack(method: string, params: unknown = {}): { requestId: string; response: Promise<RpcResponse> } {
+    if (!this.ws || this.status !== "connected") {
+      return { requestId: "", response: Promise.reject(new Error("WebSocket 未连接")) };
+    }
+    const requestId = uuid();
+    const request = { id: requestId, kind: "request" as const, method, params };
+    const response = new Promise<RpcResponse>((resolve, reject) => {
+      this.pending.set(requestId, { resolve, reject });
+      this.ws!.send(encodeRequest(request));
+    });
+    return { requestId, response };
   }
 
   disconnect(): void {

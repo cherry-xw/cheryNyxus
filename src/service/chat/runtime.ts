@@ -19,6 +19,22 @@ interface ChatRuntime {
 const chatRuntimes = new Map<string, ChatRuntime>();
 
 /**
+ * 读 chat 当前 runtime selection（内存 chatRuntimes）。
+ * observer 入库 user 消息时记 messages.runtime 用(消息级 runtime 溯源,见 agent-pet.md §5.7)。
+ */
+export function getChatSelection(chatId: string): RuntimeSelection | undefined {
+  return chatRuntimes.get(chatId)?.selection;
+}
+
+/**
+ * 查 chat 当前是否正在运行(有活跃 generator)。
+ * chat.list 暴露 running 字段用(前端据此判断子 agent 是否还活着、主 chat 是否卡死)。
+ */
+export function isChatRunning(chatId: string): boolean {
+  return chatRuntimes.get(chatId)?.builder.isRunning() ?? false;
+}
+
+/**
  * 取 chat 对应的完整运行时。
  * ensureChat 后必定存在，缺失则视为内部错误。
  */

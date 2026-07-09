@@ -1,17 +1,16 @@
-import { computed, onMounted, onUnmounted, reactive, ref, type Ref } from "vue";
-import { generatePet } from "./petPresets";
-import { PET_WIDTH, PET_HEIGHT, arrivedAtTarget, findSpawnPosition, keepInBounds, stepMovement } from "./petMovement";
+import { onMounted, onUnmounted, reactive, ref, type Ref } from "vue";
+import { PET_WIDTH, PET_HEIGHT, arrivedAtTarget, keepInBounds, stepMovement, pushTrail, pointAtArc } from "./petMovement";
+import type { GhostTrail } from "./petMovement";
 import { adjustEmotion, adjustFatigue, restMood, resolveStatus, shouldSleep, shouldWake, stepVitals } from "./petStatus";
-import type { PetAction, PetInstance, PetMood, PetPreset, PetTool, StageBounds } from "./types";
+import type { PetAction, PetInstance, PetMood, PetPreset, StageBounds } from "./types";
 
-const CHAT_DISTANCE = 126;
 const TRIBE_CLUSTER_RADIUS = 70; // 子 pet retarget 偏向本主的半径
-const CHAT_DURATION_MIN = 1500;
-const CHAT_DURATION_MAX = 3000;
-const CHAT_COOLDOWN = 6500;
 const RAPID_CLICK_WINDOW = 1200;
 const RAPID_CLICK_THRESHOLD = 3;
 const PANIC_MOVEMENT = 32;
+const GHOST_QUEUE_SPACING = 40; // ghost 队列间距（px）：> emoji 命中区 ~26px，留余量避对角重叠遮挡（.pet 命中区已收窄到 emoji，此为双保险）
+const GHOST_SPRING_K = 10; // 跟随者弹簧刚度（加速度/距离）：临界阻尼 k≈λ²/4（damping λ=-ln0.9×60≈6.34）→ 平滑收敛无振荡
+const GHOST_SPRING_MAX = 500; // 弹簧力封顶（远距避免加速度过载，maxSpeed 已限速）
 
 // 状态数值算法 + 可调配置（速率/阈值/增量）抽到 petStatus.ts；status 为默认配置注入
 const status = resolveStatus();
@@ -22,12 +21,6 @@ const MASTER_TRIBE_REPEL = 200; // 默认 300 → 同部落近距更不弹
 const MASTER_OTHER_REPEL = 320; // 默认 450 → 异部落分离更柔
 const MASTER_REPEL_RADIUS = 100; // 默认 120
 const MASTER_ATTRACT_RADIUS = 180; // 默认 200
-
-// 主 pet 工具：preset.tools 前置 summon（去重）。主 pet 才能召子入部落。
-function masterTools(preset: PetPreset): PetTool[] {
-  if (preset.tools.some((t) => t.id === "summon")) return preset.tools;
-  return [{ id: "summon", icon: "➕", label: "召伙伴", core: true }, ...preset.tools];
-}
 
 function rand(min: number, max: number): number {
   return min + Math.random() * (max - min);
@@ -43,10 +36,6 @@ function pick<T>(items: readonly T[]): T {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
-}
-
-function distance(a: PetInstance, b: PetInstance): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function randomTarget(bounds: StageBounds): { x: number; y: number } {
@@ -69,15 +58,20 @@ function actionTalk(pet: PetInstance, action: PetAction): string {
   return pick(pet.behaviors?.[action]?.talks ?? pet.talks);
 }
 
-function createPet(
+/**
+ * 从 preset 构建 PetInstance（含 agent 绑定字段）。
+ * 位置随机；子 pet 落点由调用方用 findSpawnPosition 覆盖（挂主附近）。
+ * 导出供 agents store 的 initFromChats / createMasterPet 复用，避免重复创建逻辑。
+ */
+export function createPetInstance(
   preset: PetPreset,
   bounds: StageBounds,
-  index: number,
   isMaster: boolean,
-  masterId?: string,
+  masterId: string | undefined,
+  agent: { chatId: string; parentChatId?: string; agentType?: string; finished?: boolean },
 ): PetInstance {
   const now = performance.now();
-  const instanceId = `${preset.id}-${now.toString(36)}-${index}`;
+  const instanceId = `${preset.id}-${agent.chatId}`;
   const start = randomTarget(bounds);
   const target = randomTarget(bounds);
 
@@ -86,7 +80,7 @@ function createPet(
     instanceId,
     isMaster,
     tribe: isMaster ? instanceId : (masterId ?? instanceId),
-    tools: isMaster ? masterTools(preset) : preset.tools,
+    tools: preset.tools,
     x: start.x,
     y: start.y,
     vx: 0,
@@ -111,18 +105,30 @@ function createPet(
     pairCooldowns: {},
     rapidClicks: 0,
     lastClickAt: 0,
+    chatId: agent.chatId,
+    parentChatId: agent.parentChatId,
+    agentType: agent.agentType,
+    isWorking: false,
+    contextUsage: 0,
+    isGhost: !!agent.finished,
+    ghostFace: undefined,
+    bubbleRepelExtra: 0,
   };
 }
 
-export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
-  const pets = reactive<PetInstance[]>([]);
+/**
+ * pet 世界 composable：RAF 运动循环 + 拖拽/hover/click 交互。
+ * CP1 起 pets 数据源由调用方注入（agents store 单一数据源）；未注入时回退本地 reactive（独立可用）。
+ * 装饰交互（invokeTool/randomEmotion/addPet/summonSub/maybeTriggerChats/triggerChat/faceEachOther/masterTools）已移除。
+ */
+export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetInstance[]) {
+  const pets = petsSource ?? reactive<PetInstance[]>([]);
   const isPaused = ref(false);
   const bounds = reactive<StageBounds>({ width: 960, height: 640 });
   let raf = 0;
   let lastTime = 0;
-  let spawnIndex = 0;
-
-  const activeCount = computed(() => pets.length);
+  // ghost 队列 trail：key=tribe，value=首领移动轨迹（newest-first）。单 stage 闭包状态。
+  const ghostTrails = new Map<string, GhostTrail>();
 
   function readBounds(): StageBounds {
     const rect = stageRef.value?.getBoundingClientRect();
@@ -182,127 +188,33 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     return pets.find((p) => p.instanceId === pet.tribe && p.isMaster);
   }
 
-  // 工具栏 +pet：新主 pet（新部落）
-  function addPet(): void {
-    const usedFaces = new Set(pets.map((p) => p.face));
-    const preset = generatePet("kaomoji", usedFaces);
-    pets.push(createPet(preset, readBounds(), spawnIndex, true));
-    spawnIndex += 1;
+  /** 同 tribe ghost 按 ghostCreatedAt 排序（首领 idx 0）。 */
+  function sortedTribeGhosts(tribe: string): PetInstance[] {
+    return pets
+      .filter((p) => p.isGhost && p.tribe === tribe)
+      .sort((a, b) => (a.ghostCreatedAt ?? 0) - (b.ghostCreatedAt ?? 0));
   }
 
-  // 主 pet summon：召子 pet 加入本部落，落点在主附近
-  function summonSub(master: PetInstance): void {
-    const usedFaces = new Set(pets.map((p) => p.face));
-    const preset = generatePet("emoji", usedFaces);
-    const sub = createPet(preset, readBounds(), spawnIndex, false, master.instanceId);
-    const pos = findSpawnPosition({ x: master.x, y: master.y }, pets, bounds);
-    sub.x = pos.x;
-    sub.y = pos.y;
-    sub.targetX = pos.x;
-    sub.targetY = pos.y;
-    pets.push(sub);
-    spawnIndex += 1;
+  /** ghost 在本 tribe 队列中的序号（0=首领）；非 ghost 返回 -1。 */
+  function ghostQueueIndex(pet: PetInstance): number {
+    return pet.isGhost ? sortedTribeGhosts(pet.tribe).indexOf(pet) : -1;
   }
 
-  function removePet(pet: PetInstance): void {
-    const idx = pets.findIndex((p) => p.instanceId === pet.instanceId);
-    if (idx >= 0) pets.splice(idx, 1);
-    // 主被驱逐 → 其子成为孤儿（tribe 找不到主 → 无吸引，自由游走），不连带驱逐、不自动归并
-  }
-
-  function resetPets(): void {
-    pets.splice(0, pets.length);
-    const b = readBounds();
-    const usedFaces = new Set<Record<PetMood, string>>();
-    // 2 主 + 每主 1~2 子
-    for (let m = 0; m < 2; m += 1) {
-      const preset = generatePet("kaomoji", usedFaces);
-      usedFaces.add(preset.face);
-      const master = createPet(preset, b, spawnIndex, true);
-      const masterPos = findSpawnPosition(randomTarget(b), pets, b);
-      master.x = masterPos.x;
-      master.y = masterPos.y;
-      pets.push(master);
-      spawnIndex += 1;
-      const subCount = 1 + (spawnIndex % 2);
-      for (let s = 0; s < subCount; s += 1) {
-        const subPreset = generatePet("emoji", usedFaces);
-        usedFaces.add(subPreset.face);
-        const sub = createPet(subPreset, b, spawnIndex, false, master.instanceId);
-        const subPos = findSpawnPosition({ x: master.x, y: master.y }, pets, b);
-        sub.x = subPos.x;
-        sub.y = subPos.y;
-        sub.targetX = subPos.x;
-        sub.targetY = subPos.y;
-        pets.push(sub);
-        spawnIndex += 1;
-      }
-    }
-  }
-
-  function randomEmotion(): void {
-    const moods: PetMood[] = [
-      "happy", "surprised", "sad", "panicked", "angry", "nagging", "curious", "serious", "sleepy",
-    ];
-    for (const pet of pets) {
-      const mood = pick(moods);
-      pet.mood = mood;
-      pet.action = mood === "sleepy" ? "sleep" : "clicked";
-      pet.moodUntil = performance.now() + rand(1100, 2400);
-      showSpeech(pet, pick(pet.talks), 1600);
-    }
-  }
-
-  function togglePause(): void {
-    isPaused.value = !isPaused.value;
-  }
-
-  function faceEachOther(a: PetInstance, b: PetInstance): void {
-    a.direction = a.x <= b.x ? 1 : -1;
-    b.direction = b.x <= a.x ? 1 : -1;
-  }
-
-  function triggerChat(a: PetInstance, b: PetInstance, now: number): void {
-    const until = now + rand(CHAT_DURATION_MIN, CHAT_DURATION_MAX);
-    const cooldownUntil = until + CHAT_COOLDOWN;
-    a.pairCooldowns[b.instanceId] = cooldownUntil;
-    b.pairCooldowns[a.instanceId] = cooldownUntil;
-    a.action = "chatting";
-    b.action = "chatting";
-    a.mood = pick(["happy", "nagging", "curious"] as const);
-    b.mood = pick(["happy", "nagging", "curious"] as const);
-    a.interactionUntil = until;
-    b.interactionUntil = until;
-    a.lastInteractionAt = now;
-    b.lastInteractionAt = now;
-    adjustFatigue(a, status.fatigueChat);
-    adjustFatigue(b, status.fatigueChat);
-    faceEachOther(a, b);
-    showSpeech(a, pick(a.talks), until - now);
-    showSpeech(b, pick(b.talks), until - now);
-  }
-
-  function maybeTriggerChats(now: number): void {
-    const candidates: Array<{ a: PetInstance; b: PetInstance; dist: number }> = [];
-
-    for (let i = 0; i < pets.length; i += 1) {
-      const a = pets[i];
-      if (!a || a.draggingPointerId !== null || a.action === "chatting" || a.action === "sleep" || a.action === "hover") continue;
-      for (let j = i + 1; j < pets.length; j += 1) {
-        const b = pets[j];
-        if (!b || b.draggingPointerId !== null || b.action === "chatting" || b.action === "sleep" || b.action === "hover") continue;
-        const pairCooling = (a.pairCooldowns[b.instanceId] ?? 0) > now || (b.pairCooldowns[a.instanceId] ?? 0) > now;
-        if (pairCooling) continue;
-        const dist = distance(a, b);
-        if (dist < CHAT_DISTANCE) {
-          candidates.push({ a, b, dist });
-        }
-      }
-    }
-
-    candidates.sort((left, right) => left.dist - right.dist);
-    const pair = candidates[0];
-    if (pair) triggerChat(pair.a, pair.b, now);
+  /**
+   * ghost 队列路径拟合：返回跟随者应 seek 的首领 trail 弧长点。
+   * 同 tribe ghost 按 ghostCreatedAt 排序：首领（idx 0）返回 null（保留 retarget 近本主 + 默认 tribe 力）；
+   * 跟随者（idx>0）取首领 trail 上弧长 idx*SPACING 处的点（蛇形跟随路径形状，非固定 x 偏移）。
+   * trail 不足（<2 点）→ 退化为首领当前位（跟随者堆叠收敛，待 trail 增长展开）。
+   */
+  function getGhostQueueTarget(pet: PetInstance): { x: number; y: number } | null {
+    if (!pet.isGhost) return null;
+    const idx = ghostQueueIndex(pet);
+    if (idx <= 0) return null; // 首领 → 走 retarget（近本主）+ 默认 tribe 力
+    const leader = sortedTribeGhosts(pet.tribe)[0];
+    if (!leader) return null;
+    const trail = ghostTrails.get(pet.tribe);
+    if (!trail || trail.pts.length < 2) return { x: leader.x, y: leader.y };
+    return pointAtArc(trail, idx * GHOST_QUEUE_SPACING);
   }
 
   function tickPet(pet: PetInstance, now: number, dt: number): void {
@@ -336,9 +248,11 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     }
 
     if (pet.action === "chatting") {
-      if (pet.interactionUntil < now) {
+      // agent 工作态复用 chatting action（CP2 由 isWorking 触发）；到期回落 walk
+      if (pet.interactionUntil && pet.interactionUntil < now) {
         pet.action = "walk";
         pet.mood = restMood(pet, status);
+        pet.bubbleRepelExtra = 0; // Req 8: 冻结结束，斥力增量清零
         retarget(pet);
       }
       return;
@@ -350,7 +264,29 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
       pet.moodUntil = 0;
     }
 
-    if (arrivedAtTarget(pet)) {
+    // ghost 队列：跟随者持续 seek 首领 trail 点；首领走 retarget 近本主
+    let ghostFollower = false;
+    if (pet.isGhost) {
+      const queueTarget = getGhostQueueTarget(pet);
+      if (queueTarget) {
+        // 跟随者：持续朝首领 trail 弧长点移动
+        ghostFollower = true;
+        pet.targetX = clamp(queueTarget.x, 0, Math.max(0, bounds.width - pet.width));
+        pet.targetY = clamp(queueTarget.y, 42, Math.max(42, bounds.height - pet.height));
+        pet.action = "walk";
+      } else {
+        // 首领（idx 0）：retarget 近本主；下方 stepMovement 零同部落力 + otherRepel 远他主。arrivedAtTarget→idle
+        if (arrivedAtTarget(pet)) {
+          retarget(pet);
+          pet.action = "idle";
+          pet.mood = restMood(pet, status);
+          pet.moodUntil = now + rand(800, 1800);
+          pet.vx = 0;
+          pet.vy = 0;
+          return;
+        }
+      }
+    } else if (arrivedAtTarget(pet)) {
       retarget(pet);
       pet.action = "idle";
       pet.mood = restMood(pet, status);
@@ -374,6 +310,32 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
         repelRadius: MASTER_REPEL_RADIUS,
         attractRadius: MASTER_ATTRACT_RADIUS,
       });
+    } else if (pet.isGhost) {
+      if (ghostFollower) {
+        // 跟随者：弹簧追首领 trail 点（加速度 ∝ 距 trail 点距离），恒定 maxSpeed×1.25 + damping 临界阻尼
+        // -> 平滑收敛，速度连续无突变。零力（无邻居抖动；近本主/远他主由首领路径继承）。
+        // 弹簧 vs arrive/死区：arrive 降 maxSpeed 到 0 或死区清零 = 到点硬停（速度突变），trail 点随首领移
+        // 偏移后高加速又冲 -> “停-冲-停-冲”一抖一抖；弹簧到点加速度->0、速度靠 damping 连续衰减 -> 流畅贴边。
+        const fdx = pet.targetX - pet.x;
+        const fdy = pet.targetY - pet.y;
+        const fd = Math.hypot(fdx, fdy);
+        stepMovement(pet, pets, bounds, dt, {
+          maxSpeed: maxSpeed * 1.25,
+          acceleration: Math.min(GHOST_SPRING_MAX, GHOST_SPRING_K * fd),
+          tribeAttract: 0,
+          tribeRepel: 0,
+          otherAttract: 0,
+          otherRepel: 0,
+        });
+      } else {
+        // 首领：seek 本主（retarget）+ 异部落斥力（otherRepel 远他主）；零同部落力（tribeAttract/tribeRepel=0
+        // → 不斥/引跟随者，跟随者能贴上，不被首领斥力撑开）。otherAttract/otherRepel 走默认。
+        stepMovement(pet, pets, bounds, dt, {
+          maxSpeed,
+          tribeAttract: 0,
+          tribeRepel: 0,
+        });
+      }
     } else {
       stepMovement(pet, pets, bounds, dt, { maxSpeed });
     }
@@ -385,9 +347,27 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     lastTime = now;
 
     if (!isPaused.value && currentBounds.width > 0 && currentBounds.height > 0) {
-      maybeTriggerChats(now);
+      // 装饰 chatting（maybeTriggerChats）已移除；agent 工作态 chatting 由 store 触发（CP2）
       for (const pet of pets) {
         tickPet(pet, now, dt);
+      }
+      // ghost 首领 trail 喂入（每帧；拖拽时 tickPet 早返，故在 loop 记录）。
+      // 首领 = 每 tribe 中 ghostCreatedAt 最小者（与 ghostQueueIndex idx0 语义一致）。
+      const leaderByTribe = new Map<string, PetInstance>();
+      for (const pet of pets) {
+        if (!pet.isGhost) continue;
+        const cur = leaderByTribe.get(pet.tribe);
+        if (!cur || (pet.ghostCreatedAt ?? 0) < (cur.ghostCreatedAt ?? 0)) {
+          leaderByTribe.set(pet.tribe, pet);
+        }
+      }
+      for (const pet of leaderByTribe.values()) {
+        let trail = ghostTrails.get(pet.tribe);
+        if (!trail) {
+          trail = { pts: [] };
+          ghostTrails.set(pet.tribe, trail);
+        }
+        pushTrail(trail, { x: pet.x, y: pet.y });
       }
     }
 
@@ -494,47 +474,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
     setTemporaryAction(pet, "clicked", 1300, actionTalk(pet, "clicked"));
   }
 
-  function invokeTool(pet: PetInstance, toolId: string): void {
-    const now = performance.now();
-    switch (toolId) {
-      case "pet":
-        if (pet.action === "sleep") wakeUp(pet);
-        adjustEmotion(pet, status.emotePet);
-        setTemporaryAction(pet, "clicked", 1300, actionTalk(pet, "clicked"));
-        break;
-      case "feed":
-        if (pet.action === "sleep") wakeUp(pet);
-        pet.mood = "happy";
-        pet.action = "clicked";
-        pet.moodUntil = now + 1400;
-        pet.lastInteractionAt = now;
-        adjustEmotion(pet, status.emoteFeed);
-        showSpeech(pet, pick(["好吃!", "嗯~", "再来!"]), 1500);
-        break;
-      case "sleep":
-        fallAsleep(pet);
-        break;
-      case "punch":
-        if (pet.action === "sleep") wakeUp(pet);
-        pet.mood = "angry";
-        pet.action = "clicked";
-        pet.moodUntil = now + 1200;
-        pet.lastInteractionAt = now;
-        adjustEmotion(pet, status.emotePunch);
-        showSpeech(pet, pick(["嘿!", "气!", "哼!"]), 1200);
-        break;
-      case "dismiss":
-        removePet(pet);
-        break;
-      case "summon":
-        summonSub(pet);
-        break;
-      default:
-        break;
-    }
-  }
-
-  // agent 显示层预留：未来由真实 token 上下文 / agent 状态注入
+  // agent 显示层注入钩子：未来由真实 token 上下文 / agent 状态注入
   function setFatigue(pet: PetInstance, value: number): void {
     pet.fatigue = clamp(value, 0, 100);
   }
@@ -545,9 +485,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
 
   onMounted(() => {
     readBounds();
-    if (pets.length === 0) {
-      resetPets();
-    }
+    // 不再自动 resetPets：pets 由 agents store initFromChats 驱动（调用方注入或外部填充）
     lastTime = performance.now();
     raf = requestAnimationFrame(loop);
     window.addEventListener("resize", readBounds);
@@ -561,13 +499,6 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>) {
   return {
     pets,
     isPaused,
-    activeCount,
-    addPet,
-    removePet,
-    resetPets,
-    randomEmotion,
-    togglePause,
-    invokeTool,
     setFatigue,
     setEmotion,
     startDrag,

@@ -15,13 +15,41 @@ import readSense from "./read";
 import writeSense from "./write";
 import skillSense from "./skill";
 import searchSense from "./search";
+import spawnSense from "./spawn";
+import todoSense from "./todo";
 import { logger } from "@/utils/logger/index.js";
+
+/**
+ * 内置工具元信息（供 sense.tools API 返回，设置面板感官分组下拉用）。
+ * name=原名（作 sense_groups 条目 key，须与各 sense 模块 definition.function.name 一致）；
+ * label=中文名（UI 显示）；description=解释（tooltip）。
+ */
+export interface BuiltinSenseTool {
+  name: string;
+  label: string;
+  description: string;
+}
+
+/**
+ * 代码维护的全部内置工具清单（sense.tools API 的数据源）。
+ * 仅内置 sense；自定义/外部编译感官与 MCP 工具不在此列，前端组合框允许自由输入。
+ * 新增内置 sense 时须同步追加此处（name 与模块一致）。
+ */
+export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
+  { name: "execute_command", label: "执行命令", description: "执行 shell 命令，可跑任意终端指令（危险）" },
+  { name: "read_file", label: "读取文件", description: "读文件内容，自动截断长文件与日志" },
+  { name: "write_file", label: "写入文件", description: "创建或编辑文件（危险）" },
+  { name: "skill", label: "技能", description: "调用已注册的 Skill" },
+  { name: "search_codebase", label: "搜索代码库", description: "按内容或文件名搜索代码" },
+  { name: "spawn_subagent", label: "派遣子agent", description: "派出子 agent 执行子任务" },
+  { name: "update_todo", label: "更新待办", description: "增删改待办事项列表" },
+];
 
 /**
  * 注册内置感官。
  */
 function registerBuiltinSenses(): void {
-  registerSenses([bashSense, readSense, writeSense, skillSense, searchSense]);
+  registerSenses([bashSense, readSense, writeSense, skillSense, searchSense, spawnSense, todoSense]);
 }
 
 /**

@@ -171,6 +171,21 @@ export class ConnectionManager {
   }
 
   /**
+   * 按 chatId 反查所属 ws（spawnBroker 推 subagent_created notification 用）。
+   * 通过 activeChatConnections 找 connectionId，再在 connections 反查 ws。
+   * 主 chat 流活跃期间 chatId 一定有绑定（chat.send/resume 入口 bindChatConnection）。
+   * @returns 所属 ws；未绑定或已断开返回 undefined
+   */
+  findWsByChatId(chatId: string): WebSocket | undefined {
+    const connId = this.activeChatConnections.get(chatId);
+    if (!connId) return undefined;
+    for (const state of this.connections.values()) {
+      if (state.id === connId) return state.ws;
+    }
+    return undefined;
+  }
+
+  /**
    * 关闭连接（持久化 pending approvals）
    */
   async close(ws: WebSocket): Promise<void> {

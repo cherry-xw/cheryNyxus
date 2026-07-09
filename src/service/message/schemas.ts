@@ -15,9 +15,84 @@ const emptySchema = z.object({}).strict();
 /** mcpServers 缺省 []：旧 client 不携带视为关闭所有 MCP（向后兼容） */
 const mcpServersSchema = z.array(z.string()).optional();
 
+// ---------- config.save schema（结构与 ConfigRaw 一一对应，除 server 段）----------
+
+const supervisionNameSchema = z.enum(["auto", "confirm", "manual"]);
+
+const brainSchema = z.object({
+  url: z.string().optional(),
+  model: z.string(),
+  key: z.string().optional(),
+  thinking: z.boolean().optional(),
+  provider: z.string(),
+  rpm: z.number().optional(),
+  mock: z.object({ enabled: z.boolean().optional(), file: z.string() }).optional(),
+  contextLimit: z.number().optional(),
+});
+
+const loggerSchema = z.object({
+  level: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
+  output: z.array(z.enum(["console", "file"])).optional(),
+  timestamp: z.boolean().optional(),
+  location: z.boolean().optional(),
+  format: z.enum(["plain", "json"]).optional(),
+});
+
+const fileCompressionSchema = z.object({
+  truncate_threshold: z.number().optional(),
+  truncate_preview_lines: z.number().optional(),
+  log_file_extensions: z.array(z.string()).optional(),
+  drain_preview_count: z.number().optional(),
+});
+
+const globalSchema = z.object({
+  thinking: z.boolean(),
+  supervision: supervisionNameSchema,
+  stream: z.boolean(),
+  sense_execute_timeout: z.number().optional(),
+  approval_timeout: z.number().optional(),
+  maxLoopCount: z.number().optional(),
+  bash_log_retention_hours: z.number().optional(),
+  file_compression: fileCompressionSchema.optional(),
+  logger: loggerSchema.optional(),
+});
+
+const mcpServerConfigSchema = z.object({
+  transport: z.enum(["stdio", "streamable-http"]),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  url: z.string().optional(),
+  supervision: supervisionNameSchema.optional(),
+});
+
+/** config.save 入参：除 server 外全部字段；顶层 strict 拒 server 等多余键 */
+const configSaveSchema = z
+  .object({
+    global: globalSchema,
+    llm: z.object({ brain: z.record(z.string(), brainSchema) }),
+    sense_groups: z.record(z.string(), z.array(z.string())).optional(),
+    mcp_servers: z.record(z.string(), mcpServerConfigSchema).optional(),
+    default: z
+      .object({
+        brain: z.string(),
+        senseGroups: z.array(z.string()),
+        mcpServers: z.array(z.string()).optional(),
+      })
+      .optional(),
+    subagents: z
+      .record(
+        z.string(),
+        z.object({ brain: z.string(), senseGroups: z.array(z.string()) }),
+      )
+      .optional(),
+  })
+  .strict();
+
 export const requestSchemas = {
   [Method.BRAIN_LIST]: emptySchema,
   [Method.SENSE_LIST]: emptySchema,
+  [Method.SENSE_TOOLS]: emptySchema,
   [Method.RUNTIME_SET]: z.object({
     chatId: z.string(),
     brain: z.string(),
@@ -29,8 +104,12 @@ export const requestSchemas = {
     brain: z.string(),
     senseGroups: z.array(z.string()),
     mcpServers: mcpServersSchema,
+    parentChatId: z.string().optional(),
   }),
-  [Method.CHAT_LIST]: emptySchema,
+  [Method.CHAT_LIST]: z.object({
+    /** CP8：true 增返 preview/turnCount（会话列表用）；省略=lean（初始化重建 pet 树用） */
+    includePreview: z.boolean().optional(),
+  }),
   [Method.CHAT_GET]: chatIdSchema,
   [Method.CHAT_DELETE]: chatIdSchema,
   [Method.CHAT_SEND]: z.object({
@@ -54,6 +133,12 @@ export const requestSchemas = {
   [Method.MCP_CONNECT]: z.object({ name: z.string() }),
   [Method.MCP_DISCONNECT]: z.object({ name: z.string() }),
   [Method.MCP_RELOAD]: z.object({ name: z.string().optional() }),
+  [Method.SUBAGENT_RESULT]: z.object({
+    chatId: z.string(),
+    content: z.string(),
+  }),
+  [Method.CONFIG_GET]: emptySchema,
+  [Method.CONFIG_SAVE]: configSaveSchema,
 } as const satisfies Record<Method, z.ZodTypeAny>;
 
 /**

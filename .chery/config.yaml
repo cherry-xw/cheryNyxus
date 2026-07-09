@@ -1,59 +1,83 @@
+global:
+  thinking: true
+  supervision: manual
+  stream: true
+  sense_execute_timeout: 10000
+  approval_timeout: 30000
+  bash_log_retention_hours: 24
+  file_compression:
+    truncate_threshold: 50000
+    truncate_preview_lines: 100
+    log_file_extensions:
+      - .log
+      - .txt
+      - .out
+      - .err
+    drain_preview_count: 3
+  logger:
+    level: info
+    output:
+      - file
+    timestamp: true
+    location: true
+    format: plain
 llm:
   brain:
-    ollama: # 自定义name
-      url: $OLLAMA_HOST # $xxx 在.env中定义
-      model: gemma3:1b
-      thinking: false # 思考模式（使用 deepseek-r1 等模型时改为 true）
-      provider: ollama # 用于选择哪个llm模式，需要与message中的provider对应
+    zai-glm-5.2:
+      url: https://yz.xcherry.top:11411/v1
+      model: glm-5.2
+      key: $SHANG_TANG_API_KE
+      thinking: true
+      provider: openai
+      contextLimit: 1024000
     openai:
       url: https://api.openai.com/v1
       model: gpt-3.5-turbo
       key: $OPENAI_API_KEY
       provider: openai
+      contextLimit: 16385
     longcat:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
       key: $LONGCAT_API_KEY
-      thinking: true # 思考模式（这是对这个模型有没有think能力的配置）
+      thinking: true
       provider: openai
+      contextLimit: 32768
     deepseek:
       url: https://api.deepseek.com
       model: deepseek-v4-flash
       key: $DEEPSEEK_API_KEY
       thinking: true
       provider: openai
+      contextLimit: 64000
     doubao:
       url: http://yz.xcherry.top:11411/v1
       model: doubao2.0-pro
       key: $DOUBAO_API_KEY
       thinking: true
       provider: openai
+      contextLimit: 128000
     ali_glm5:
       url: https://coding.dashscope.aliyuncs.com/v1
       model: glm-5
       key: $ALI_API_KEY
       thinking: true
       provider: openai
+      contextLimit: 128000
     shangtang:
       url: https://yz.xcherry.top:11411/v1
-      model: cglm-5.2 # csensenova-6.7-flash-lite
+      model: cglm-5.2
       key: $SHANG_TANG_API_KE
-      rpm: 2
       provider: openai
-    # mock provider：脚本化响应，离线测试 send/resume/revoke/loop 流程（无需真实 LLM）
-    # 接线：chat.create {brain:"mock_test", senseGroups:[...]}
-    # 脚本内容（repeat + script[]）放独立文件 .chery/<file>，config 只留开关 + 路径
+      rpm: 2
+      contextLimit: 32768
     mock_test:
       model: mock_test
       provider: mock
       mock:
         enabled: true
         file: mock/read_file.yaml
-
-# Sense分组配置
-# 每个分组直接是 senses 列表，支持两种格式：
-#   - read_file            不覆盖监管等级，使用感官内置/全局默认
-#   - execute_command:auto 覆盖监管等级为 auto（可选 auto/confirm/manual）
+      contextLimit: 8192
 sense_groups:
   all_senses:
     - read_file
@@ -61,6 +85,8 @@ sense_groups:
     - write_file
     - execute_command
     - search_codebase
+    - spawn_subagent
+    - update_todo
   safe_senses:
     - read_file
     - skill
@@ -70,53 +96,24 @@ sense_groups:
     - write_file
   custom_senses:
     - echo_text
-
-# MCP server 配置（可选）
-# 每个 server 的 tools/resources/prompts 启动时映射为 Sense，命名 mcp__<server>__<tool|read_resource|get_prompt>。
-# 监管优先级：sense_groups 的 :level > mcp_servers.<name>.supervision > global.supervision。
-# transport 支持 stdio（本地子进程）/ streamable-http（远程 HTTP）。
-# mcp_servers:
-#   filesystem:
-#     transport: stdio
-#     command: npx
-#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-#     supervision: confirm
-#   remote:
-#     transport: streamable-http
-#     url: http://localhost:8081/mcp
-#     supervision: auto
-
-# 全局配置
-global:
-  thinking: true # 是否开启思考模式（如果能思考）
-  supervision: manual # 全局默认的监管等级，可选 auto:全部自动、confirm:需确认、manual:全部手动确认。仅当 sense_group 和 sense 自身都未声明时生效
-  stream: true # 是否开启流式输出
-  sense_execute_timeout: 10000 # 感官执行超时时间（毫秒），默认 30 秒
-  approval_timeout: 30000 # 审批超时时间（毫秒），超时视为拒绝（非 abort），默认 30 秒
-  bash_log_retention_hours: 24 # bash 日志文件保留时间（小时），默认 24 小时
-
-  # 日志配置
-  logger:
-    level: info # 日志等级：debug/info/warn/error/silent
-    output: [file] # 输出位置：console/file（数组可同时输出多处）
-    # 日志文件自动生成：.chery/logs/{YYYY-MM-DD}.log（output 含 file 时生效）
-    timestamp: true # 是否显示时间戳
-    location: true # 是否显示调用位置（文件名:行号）
-    format: plain # 输出格式：plain/json
-
-  # 文件压缩配置
-  file_compression:
-    truncate_threshold: 50000 # 50KB截断阈值（字节），超过此大小触发截断
-    truncate_preview_lines: 100 # 截断时保留的行数
-    log_file_extensions: # 日志文件扩展名列表（用于自动判断）
-      - .log
-      - .txt
-      - .out
-      - .err
-    drain_preview_count: 3 # Drain算法每个模板显示的实例数
-
-# 服务配置（端口 + 传输格式，从环境变量迁移至此）
+default:
+  brain: ali_glm5
+  senseGroups:
+    - all_senses
+  mcpServers: []
+subagents:
+  read_code:
+    brain: ali_glm5
+    senseGroups:
+      - safe_senses
+  read_image:
+    brain: ali_glm5
+    senseGroups:
+      - safe_senses
+  web_search:
+    brain: ali_glm5
+    senseGroups:
+      - safe_senses
 server:
-  port: 8182 # WebSocket 服务端口（原 WS_PORT）
-  web_port: 8183 # Web 测试页面端口（原 WEB_PORT）
-  transport: binary # 传输格式：binary（二进制帧，低开销）/ json（JSON 字符串，便于调试）
+  port: 8182
+  transport: binary

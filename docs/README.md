@@ -63,6 +63,7 @@
 |------|------|
 | [protocol.md](./protocol.md) | WebSocket 协议规范：传输帧格式、消息结构、方法列表、HTTP API、错误码 |
 | [interaction.md](./interaction.md) | 各 RPC 方法完整交互序列、端到端流程、错误路径 |
+| [agent-pet.md](./agent-pet.md) | 主从 Agent 桌宠系统：pet↔chat 绑定、spawn_subagent 前端驱动架构、CP0-CP7 分阶段 |
 | [mock.md](./mock.md) | Mock Provider 脚本化离线测试（send/resume/revoke/loop） |
 
 ## 项目入口与配置

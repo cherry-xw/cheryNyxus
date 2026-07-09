@@ -16,7 +16,7 @@ initLogger(config.global.logger);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WS_PORT = config.server.port;
-const WEB_PORT = config.server.web_port;
+const WEB_PORT = Number(process.env.WEB_PORT ?? 8183); // HTTP 静态服务端口（原 config.server.web_port 已废弃，改 env，与 electron/main.ts 一致）
 // 前端静态产物目录：优先 WEB_DIST_DIR env（打包后指定），默认相对后端 dist/ 的 ../web/dist
 const STATIC_DIR = process.env.WEB_DIST_DIR ?? path.resolve(__dirname, "..", "web", "dist");
 

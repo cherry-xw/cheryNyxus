@@ -53,6 +53,11 @@ export function spriteMotion(action: PetAction) {
   }
 }
 
+/** 灵魂态 sprite 主体动作：缓慢上下飘动（不走 action 驱动的 walk/idle 摇摆）。 */
+export function ghostSpriteMotion() {
+  return { animate: { y: [0, -3, 0] }, transition: tLoop(3.2) };
+}
+
 // --- 手部摆动（左右镜像，左取负） ---
 const HAND_ROTATE: Record<PetAction, number[]> = {
   walk: [-12, 12, -12],
@@ -95,6 +100,11 @@ export function faceMotion(mood: PetMood) {
         transition: { duration: 2.4, repeat: Infinity, ease: "easeInOut" as const, times: [0, 0.9, 1] },
       };
   }
+}
+
+/** 灵魂态 face 动作：极轻呼吸（不走 mood 驱动的闪烁/滤镜动画）。 */
+export function ghostFaceMotion() {
+  return { animate: { scale: [1, 1.05, 1] }, transition: tLoop(3.6) };
 }
 
 // --- 气泡进退 ---

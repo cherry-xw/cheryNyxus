@@ -77,11 +77,14 @@ function initSoulTables(db: Database.Database): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       metadata TEXT,
-      message_count INTEGER NOT NULL DEFAULT 0
+      message_count INTEGER NOT NULL DEFAULT 0,
+      parent_chat_id TEXT
     );
   `);
   // P1-8：旧库 chats 表无 message_count，CREATE IF NOT EXISTS 跳过建表，按列检查补 ALTER。
   ensureChatColumn(db, "message_count", "INTEGER NOT NULL DEFAULT 0");
+  // CP1 主从 Agent：旧库缺 parent_chat_id 列，按列检查补 ALTER（TEXT 缺省 NULL，无需回填）。
+  ensureChatColumn(db, "parent_chat_id", "TEXT");
 }
 
 /**
@@ -139,6 +142,7 @@ function initMonthlyTables(db: Database.Database): void {
       replace_content TEXT,
       original_content TEXT,
       revoked INTEGER DEFAULT 0,
+      runtime TEXT,
       created_at INTEGER NOT NULL
     );
 
@@ -146,6 +150,7 @@ function initMonthlyTables(db: Database.Database): void {
   `);
 
   ensureMessageColumn(db, "revoked", "INTEGER DEFAULT 0");
+  ensureMessageColumn(db, "runtime", "TEXT");
 }
 
 /**

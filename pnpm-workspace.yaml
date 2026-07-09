@@ -5,3 +5,4 @@ allowBuilds:
   esbuild: true
   vue-demi: true
   electron: true
+  '@parcel/watcher': set this to true or false

@@ -1,7 +1,8 @@
-import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk, HeartbeatChunk } from "@/core/middleware/types";
 import type { MiddlewareChunk } from "./index";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import { hasHeartbeatListener } from "@/agent/spawnBroker.js";
 
 /**
  * 创建 agent 层循环策略
@@ -99,6 +100,28 @@ export function createLoopHandler(
     }
 
     logger.event("loop.end", { iterations: times });
+
+    // 整个 loop 正常结束 → 子 agent 任务完成,发 finished 心跳(per-loop,非 per-iter)。
+    // 之前 finished 挂在 heartbeat middleware(per-iter),每轮 runChain 结束都发 → spawn wait=true
+    // 在子首轮 assistant 就 resolve(2026-07-09 chat 27b1dbda 实测:主 +6s 收到子首条 assistant
+    // 误判完成自己重做,子 +77s 工作全废)。移到此处确保只在子彻底完成时发一次。
+    // result = 最后一条 assistant content(spawn wait=true 主 agent 据此 resolve)。
+    // hasHeartbeatListener 守卫:仅被 wait 的子 chat 发,过滤主 agent(主也跑 loop,无 listener)。
+    // 注:runChain 内 throw 路径下 finished 不执行(throw 跳过此处),error 由 heartbeat middleware catch 发。
+    if (hasHeartbeatListener(ctx.soul.chatId)) {
+      const result =
+        ctx.journal.getMessages().filter(m => m.role === "assistant").pop()?.content || "";
+      const finishedHeartbeat: HeartbeatChunk = {
+        type: "heartbeat",
+        heartbeat: {
+          childChatId: ctx.soul.chatId,
+          status: "finished",
+          result,
+          timestamp: Date.now(),
+        },
+      };
+      yield finishedHeartbeat as unknown as MiddlewareChunk;
+    }
 
     // loop 结束后 yield done（表示整个流程完成）
     const doneChunk: DoneChunk = { type: "done" };

@@ -8,6 +8,8 @@ import { registerChatHandlers } from "./chat/send.js";
 import { registerChatManageHandlers } from "./chat/handler.js";
 import { registerBashHandlers } from "./bash/handler.js";
 import { registerMcpHandlers } from "./mcp/handler.js";
+import { registerSubagent } from "./subagent/index.js";
+import { registerConfigHandlers } from "./config/handler.js";
 
 export { createWebSocketServer } from "./websocket/index.js";
 export { createHttpServer } from "./http/index.js";
@@ -42,6 +44,10 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   registerChatManageHandlers(router);
   registerBashHandlers(router);
   registerMcpHandlers(router);
+  // CP3：subagent.result RPC handler + spawn broadcaster 注入（spawn_subagent sense 用）
+  registerSubagent(router);
+  // Config 设置面板：读写 .chery/config.yaml（除 server 段，重启生效）
+  registerConfigHandlers(router);
 
   // 创建 WebSocket 服务器
   const wss = createWebSocketServer({ port: options.port, router });

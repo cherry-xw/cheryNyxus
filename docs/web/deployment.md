@@ -58,7 +58,10 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 
 - 后端 HTTP serve:[src/service/http/index.ts](../../src/service/http/index.ts)
 - 静态目录:`WEB_DIST_DIR` env,默认 `../web/dist`(相对后端 `dist/`)
-- 开发期:`dev:all`(后端 + `web:dev`),前端 `vite.config.ts` proxy `/api` → `:8183`
+- 开发期:`dev:all`(后端 + `web:dev`),前端 `vite.config.ts`:
+  - `server.host: true` → 监听 0.0.0.0,支持内网跨机器访问(如其他主机 `http://<server-ip>:5173/`)
+  - proxy `/api` → `:8183`(HTTP)、`/ws` → `ws://:8182`(`ws:true`)→ WS 走 vite proxy,跨机器只需暴露单端口 5173,无需开放 8182
+  - 前端 WS url 三模式分支([ws.ts](../../web/src/services/ws.ts)):Electron(`__BACKEND_CONFIG__`)→ 直连 wsPort;dev(`import.meta.env.DEV`)→ `ws://<访问地址>/ws`(走 vite proxy);生产 → 直连 `ws://<host>:<wsPort>`(8182 需对客户端开放)
 
 ## 数据流对比
 

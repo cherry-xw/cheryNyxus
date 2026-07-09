@@ -114,8 +114,8 @@ export function stepMovement(
     const sameTribe = pet.tribe === other.tribe;
     const attract = sameTribe ? tribeAttract : otherAttract;
     const repel = sameTribe ? tribeRepel : otherRepel;
-    // 斥力半径：同部落 repelRadius（近距不重叠），异部落 attractRadius（大范围分离）
-    const repelR = sameTribe ? repelRadius : attractRadius;
+    // 斥力半径：同部落 repelRadius（近距不重叠）+ 双方 bubbleRepelExtra（Req 8: 有气泡时增大间距）
+    const repelR = sameTribe ? (repelRadius + pet.bubbleRepelExtra + other.bubbleRepelExtra) : attractRadius;
     const ux = dx / d; // 远离方向
     const uy = dy / d;
     if (d < repelR) {
@@ -208,4 +208,48 @@ export function findSpawnPosition(
     }
   }
   return best;
+}
+
+// ===== ghost 队列路径拟合 trail（母鸡带小鸡） =====
+// 纯函数：首领移动轨迹采样 + 弧长取点。状态由 usePetWorld 闭包 Map<tribe, GhostTrail> 持有。
+
+export interface GhostTrail {
+  /** newest-first：pts[0] = 首领当前位，末尾 = 最旧。 */
+  pts: { x: number; y: number }[];
+}
+const TRAIL_SAMPLE_GAP = 6; // 距离阈值采样：移动 >6px 才记新点（保持 trail 稀疏，弧长有意义）
+const TRAIL_MAX_PTS = 80; // 点数上限（足够 ~10 跟随者 × 80px 间距 + 余量）
+
+/**
+ * 首领位移喂入 trail（距离阈值采样 + 点数上限截断）。
+ * 移动不足阈值 → 不记点（避免静止时堆积同位点）；超上限 → 丢最旧。
+ */
+export function pushTrail(trail: GhostTrail, p: { x: number; y: number }): void {
+  const head = trail.pts[0];
+  if (head && Math.hypot(p.x - head.x, p.y - head.y) < TRAIL_SAMPLE_GAP) return;
+  trail.pts.unshift({ x: p.x, y: p.y });
+  if (trail.pts.length > TRAIL_MAX_PTS) trail.pts.pop();
+}
+
+/**
+ * trail 上距首领当前位弧长 distance 处的点（线性插值）。
+ * trail 不足（总弧长 < distance）→ 返回最旧点（跟随者堆叠收敛，待 trail 增长展开）。
+ */
+export function pointAtArc(trail: GhostTrail, distance: number): { x: number; y: number } {
+  const pts = trail.pts;
+  if (pts.length === 0) return { x: 0, y: 0 };
+  if (pts.length === 1) return { x: pts[0].x, y: pts[0].y };
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dx = pts[i].x - pts[i - 1].x;
+    const dy = pts[i].y - pts[i - 1].y;
+    const seg = Math.hypot(dx, dy);
+    if (acc + seg >= distance) {
+      const t = seg > 0.001 ? (distance - acc) / seg : 0;
+      return { x: pts[i - 1].x + dx * t, y: pts[i - 1].y + dy * t };
+    }
+    acc += seg;
+  }
+  const last = pts[pts.length - 1];
+  return { x: last.x, y: last.y };
 }

@@ -275,6 +275,26 @@ export interface ErrorChunk {
 }
 
 /**
+ * 心跳 chunk（子 agent 定时通知主 agent 状态,内部传递,不进 DB/前端）
+ * 结构对应 spawnBroker.Heartbeat,此处重复定义避免循环依赖(core → agent)。
+ */
+export interface HeartbeatChunk {
+  type: "heartbeat";
+  heartbeat: {
+    /** 子 chat id */
+    childChatId: string;
+    /** 心跳状态 */
+    status: "running" | "finished" | "error";
+    /** finished 时带子 agent 最终结果 */
+    result?: string;
+    /** error 时带错误信息 */
+    error?: string;
+    /** 时间戳(ms) */
+    timestamp: number;
+  };
+}
+
+/**
  * 中间件 chunk 联合类型
  */
 export type MiddlewareChunk =

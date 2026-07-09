@@ -53,6 +53,7 @@ export type NotificationType =
 export const Method = {
   BRAIN_LIST:      "brain.list",
   SENSE_LIST:      "sense.list",
+  SENSE_TOOLS:     "sense.tools",   // 列出代码维护的全部内置工具（name/label/description）供设置面板下拉
   RUNTIME_SET:     "runtime.set",
   CHAT_CREATE:     "chat.create",
   CHAT_LIST:       "chat.list",
@@ -69,6 +70,9 @@ export const Method = {
   MCP_CONNECT:     "mcp.connect",
   MCP_DISCONNECT:  "mcp.disconnect",
   MCP_RELOAD:      "mcp.reload",
+  SUBAGENT_RESULT: "subagent.result",  // 子 agent 结果回传（spawn wait=true 时前端跑完唤醒主 agent）
+  CONFIG_GET:      "config.get",       // 读取 .chery/config.yaml 原文（除 server 段）供设置面板编辑
+  CONFIG_SAVE:     "config.save",      // 校验 + 写回 config.yaml（除 server 段，重启生效）
 } as const;
 ```
 

@@ -64,10 +64,32 @@ interface BrainConfig {
   rpm?: number;
   /** mock provider 专用：脚本化响应 */
   mock?: MockConfig;
+  /** 上下文长度上限（token），供前端 context bar 显示用量。缺省由前端兜底 */
+  contextLimit?: number;
 }
 
 interface LLMConfig {
   brain: Record<string, BrainConfig>;
+}
+
+/**
+ * 默认 agent 配置（FAB 创建主 pet 用，主从 Agent 桌宠系统 CP2）。
+ * brain/senseGroups/mcpServers 与 chat.create/runtime.set 同字段语义。
+ */
+export interface DefaultAgentConfig {
+  brain: string;
+  senseGroups: string[];
+  /** 缺省 []（关闭所有 MCP） */
+  mcpServers?: string[];
+}
+
+/**
+ * 子 agent 类型配置（spawn_subagent sense 按 type 查这里）。
+ * 名 = 给 AI 的子 agent 名；brain 必须存在于 llm.brain（loadConfig 校验）。
+ */
+export interface SubagentConfig {
+  brain: string;
+  senseGroups: string[];
 }
 
 /**
@@ -111,7 +133,6 @@ interface GlobalConfig {
  */
 interface ServerConfig {
   port: number; // WebSocket 服务端口
-  web_port: number; // Web 前端服务端口（暂未使用，预留给后续 Vue 构建产物服务）
   transport: "binary" | "json"; // 传输格式：binary（二进制帧）/ json（JSON 字符串）
 }
 
@@ -145,6 +166,36 @@ interface Config {
   sense_groups?: Record<string, string[]>; // sense分组配置
   mcp_servers?: Record<string, McpServerConfig>; // MCP server 配置（name → 连接参数 + server 级监管默认）
   server: ServerConfig; // 服务配置（端口 + 传输格式，loadConfig 兜底默认值）
+  /** 默认主 agent 配置（FAB 创建主 pet 用）。缺省时前端走自带兜底 */
+  default?: DefaultAgentConfig;
+  /** 子 agent 类型模块（spawn_subagent sense 按 type 查） */
+  subagents?: Record<string, SubagentConfig>;
+}
+
+/**
+ * 原始（磁盘/YAML）全局配置：supervision 为字符串（未转枚举）、无路径补全。
+ * 供 config.get/config.save RPC 传输与编辑。
+ */
+interface GlobalConfigRaw extends Omit<GlobalConfig, "supervision"> {
+  supervision: "auto" | "confirm" | "manual";
+}
+
+/** 原始 MCP server 配置：supervision 为字符串（未转枚举） */
+interface McpServerConfigRaw extends Omit<McpServerConfig, "supervision"> {
+  supervision?: "auto" | "confirm" | "manual";
+}
+
+/**
+ * 原始配置（config.get 返回 / config.save 入参）：无 server 段、无路径补全、
+ * supervision 为字符串、key 仍为 $ENV 占位符。读写均不碰运行时内存单例（重启生效）。
+ */
+interface ConfigRaw {
+  global: GlobalConfigRaw;
+  llm: LLMConfig;
+  sense_groups?: Record<string, string[]>;
+  mcp_servers?: Record<string, McpServerConfigRaw>;
+  default?: DefaultAgentConfig;
+  subagents?: Record<string, SubagentConfig>;
 }
 
 const missingEnvVars: string[] = [];
@@ -197,7 +248,14 @@ function loadConfig(): Config {
 
   const config = replaceEnvVars(rawConfig) as Config;
 
-  // 将字符串转换为枚举
+  // 业务校验（raw 形态：supervision 仍为字符串）。启动期 fail loud（规则12）。
+  // brain 引用 / supervision 合法值 / sense :level / brain 必填项均在此（原内联块抽出共用）。
+  const rawErrors = validateRawConfig(config as unknown as ConfigRaw);
+  if (rawErrors.length > 0) {
+    throw new Error(`配置校验失败:\n${rawErrors.join("\n")}`);
+  }
+
+  // 将字符串转换为枚举（校验已保证 supervision 为合法值）
   if (typeof config.global.supervision === "string") {
     config.global.supervision = SupervisionLevel[
       config.global.supervision as keyof typeof SupervisionLevel
@@ -220,11 +278,10 @@ function loadConfig(): Config {
   config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
 
-  // 服务配置默认值兜底（端口 + 传输格式，从环境变量迁移到 config.yaml）
+  // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 WEB_PORT 环境变量）
   const serverRaw = config.server as Partial<ServerConfig> | undefined;
   config.server = {
     port: serverRaw?.port ?? 8182,
-    web_port: serverRaw?.web_port ?? 8183,
     transport: serverRaw?.transport === "json" ? "json" : "binary",
   };
 
@@ -277,5 +334,113 @@ export function reloadMcpServersConfig(): Record<string, McpServerConfig> | unde
   return replaced;
 }
 
-export type { Config, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig };
+const VALID_SUPERVISION = ["auto", "confirm", "manual"] as const;
+type SupervisionName = (typeof VALID_SUPERVISION)[number];
+
+function isSupervisionName(v: unknown): v is SupervisionName {
+  return v === "auto" || v === "confirm" || v === "manual";
+}
+
+/**
+ * 业务校验原始配置（raw 形态：supervision 为字符串、未补全路径、key 仍为 $ENV）。
+ * 返回错误字符串数组（空 = 通过）。loadConfig 启动期与 config.save RPC 共用。
+ *
+ * 修复点：原 loadConfig 用 SupervisionLevel[name] 转换，非法字符串静默变 undefined；
+ * 本函数显式校验 supervision 合法值，fail loud（规则12）。
+ */
+export function validateRawConfig(raw: ConfigRaw): string[] {
+  const errors: string[] = [];
+
+  // supervision 合法值（global + mcp_servers）
+  const gsup = raw.global?.supervision;
+  if (!isSupervisionName(gsup)) {
+    errors.push(`global.supervision "${String(gsup)}" 非法（合法：auto/confirm/manual）`);
+  }
+  if (raw.mcp_servers) {
+    for (const [name, cfg] of Object.entries(raw.mcp_servers)) {
+      const sup = cfg?.supervision;
+      if (sup !== undefined && !isSupervisionName(sup)) {
+        errors.push(`mcp_servers.${name}.supervision "${String(sup)}" 非法（合法：auto/confirm/manual）`);
+      }
+    }
+  }
+
+  // sense_groups 的 :level 后缀合法
+  if (raw.sense_groups) {
+    for (const [group, senses] of Object.entries(raw.sense_groups)) {
+      for (const entry of senses ?? []) {
+        const idx = entry.indexOf(":");
+        if (idx >= 0) {
+          const level = entry.slice(idx + 1);
+          if (!isSupervisionName(level)) {
+            errors.push(`sense_groups.${group} 的 "${entry}" :level 后缀非法（合法：auto/confirm/manual）`);
+          }
+        }
+      }
+    }
+  }
+
+  // llm.brain.* model/provider 必填
+  const brainEntries = Object.entries(raw.llm?.brain ?? {});
+  if (brainEntries.length === 0) {
+    errors.push("llm.brain 不能为空（至少配置一颗大脑）");
+  }
+  const brainNames = brainEntries.map(([n]) => n);
+  for (const [name, cfg] of brainEntries) {
+    if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`);
+    if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`);
+  }
+
+  // default.brain / subagents.*.brain 必须存在于 llm.brain
+  if (raw.default) {
+    if (!brainNames.includes(raw.default.brain)) {
+      errors.push(`default.brain "${raw.default.brain}" 不在 llm.brain 列表（可用：${brainNames.join(", ")})`);
+    }
+  }
+  if (raw.subagents) {
+    for (const [name, cfg] of Object.entries(raw.subagents)) {
+      if (!brainNames.includes(cfg.brain)) {
+        errors.push(`subagents.${name}.brain "${cfg.brain}" 不在 llm.brain 列表（可用：${brainNames.join(", ")})`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * 读 .chery/config.yaml 原文（供 config.get）。
+ * 不 replaceEnvVars（key 保持 $ENV 占位符）、不补全路径、不转 supervision 枚举；剥离 server 段。
+ */
+export function readRawConfig(): ConfigRaw {
+  const cheryDir = process.env.CHERY_DIR || process.cwd();
+  const configPath = path.join(cheryDir, ".chery", "config.yaml");
+  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as ConfigRaw & { server?: unknown };
+  // 端口/传输不通过面板编辑，剥离 server
+  const { server: _server, ...rest } = raw;
+  void _server;
+  return rest;
+}
+
+/**
+ * 校验 + 写回 .chery/config.yaml（供 config.save）。
+ * 不碰运行时内存单例（重启生效）。失败 fail loud 返回 errors，不写盘。
+ * 写回保留盘上 server 段不动，js-yaml dump 无注释（注释文档备份在 config.yaml.example）。
+ */
+export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[] } {
+  const errors = validateRawConfig(partial);
+  if (errors.length > 0) return { ok: false, errors };
+
+  const cheryDir = process.env.CHERY_DIR || process.cwd();
+  const configPath = path.join(cheryDir, ".chery", "config.yaml");
+
+  // 读盘取 server 段（保留不动），合并 partial（除 server 外全部字段）
+  const disk = yaml.load(fs.readFileSync(configPath, "utf8")) as { server?: ServerConfig };
+  const merged = { ...partial, server: disk.server ?? { port: 8182, transport: "binary" as const } };
+
+  fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }));
+  return { ok: true };
+}
+
+export type { Config, ConfigRaw, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig };
 export default config;

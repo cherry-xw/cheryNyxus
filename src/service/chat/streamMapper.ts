@@ -15,14 +15,21 @@ import type {
 import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import { computeContextUsage } from "@/utils/token.js";
+import config from "@/utils/config.js";
+import { getChat, updateChatMetadata } from "@/db/chat.js";
 
 /**
  * 将 agent generator 的 MiddlewareChunk 转换为 WebSocket 协议的 Chunk/Notification
  * （P2-1 从 send.ts 拆出）。handleChatSend 和 handleChatResume 共用。
+ *
+ * chatId 用于 done notification 时计算 contextUsage（CP7）：跑完一轮 loop 后实时
+ * 重算 chat 总 token / brain.contextLimit 推送给前端，ContextBar 随每轮更新。
  */
 export async function* streamAgentChunks(
   generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
   rid: string,
+  chatId: string,
 ): AsyncGenerator<Chunk | Notification, void, unknown> {
   let seq = 0;
 
@@ -69,21 +76,30 @@ export async function* streamAgentChunks(
       yield createChunk("staged", rid, stagedData);
     } else if (chunk.type === "sense_end") {
       const sc = chunk as SenseTriggerChunk;
+      const needsApproval = sc.supervisionLevel > SupervisionLevel.auto;
       logger.event("sense.trigger", {
         senseCallId: sc.id,
         name: sc.name,
         supervisionLevel: sc.supervisionLevel,
-        needsApproval: sc.supervisionLevel > SupervisionLevel.auto,
+        needsApproval,
         argsLen: sc.arguments.length,
       });
 
-      yield createNotification("interrupt", rid, {
-        approvalId: sc.id,
-        senseName: sc.name,
-        arguments: sc.arguments,
-        supervisionLevel: sc.supervisionLevel,
-        needsApproval: sc.supervisionLevel > SupervisionLevel.auto,
-      });
+      // auto sense（spawn_subagent/read_file 等）不推 interrupt：
+      // 无审批需求，前端不弹审核卡（与 auto 逻辑一致）。interrupt 仅 confirm/manual 推送，
+      // 携带 waitTime（= global.approval_timeout）+ createdAt 供前端倒计时。
+      // approval_timeout 缺省 → waitTime=0（不超时，前端不显倒计时）。
+      if (needsApproval) {
+        yield createNotification("interrupt", rid, {
+          approvalId: sc.id,
+          senseName: sc.name,
+          arguments: sc.arguments,
+          supervisionLevel: sc.supervisionLevel,
+          needsApproval,
+          waitTime: config.global.approval_timeout ?? 0,
+          createdAt: Date.now(),
+        });
+      }
     } else if (chunk.type === "sense_accept") {
       const sc = chunk as SenseAcceptChunk;
       logger.event("sense.result", {
@@ -119,8 +135,14 @@ export async function* streamAgentChunks(
       logger.event("chat.run.error", { message }, LogLevel.error);
       yield createNotification("error", rid, { message });
     } else if (chunk.type === "done") {
-      logger.event("chat.run.done");
-      yield createNotification("done", rid, null);
+      // CP7：done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
+      const contextUsage = computeContextUsage(chatId);
+      // 子 agent done（parent_chat_id 非空）：标 metadata.finished（ghost 标记，前端转灵魂态；chat 保留供查历史）
+      const chat = getChat(chatId);
+      const finished = !!chat?.parent_chat_id;
+      if (finished) updateChatMetadata(chatId, { finished: true });
+      logger.event("chat.run.done", { contextUsage, finished });
+      yield createNotification("done", rid, finished ? { contextUsage, finished: true } : { contextUsage });
     } else if (chunk.type === "message_updated") {
       // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
       // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。

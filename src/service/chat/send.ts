@@ -98,7 +98,7 @@ export async function* handleChatSend(
     // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
     const generator = observeAgentChunks(agent.run(data.prompt), chatId, () => agent.getMessages());
 
-    yield* streamAgentChunks(generator, rid);
+    yield* streamAgentChunks(generator, rid, chatId);
   } catch (err) {
     const error = err as Error;
     // approval aborted（chat.abort 触发 abortChat → reject → senseMiddleware throw，
@@ -162,7 +162,7 @@ export async function* handleChatResume(
   try {
     // resume 内部据末尾状态决定 Case1/Case2（见 builder.resume）
     const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages());
-    yield* streamAgentChunks(generator, rid);
+    yield* streamAgentChunks(generator, rid, chatId);
   } catch (err) {
     const error = err as Error;
     // approval aborted（chat.abort 触发，同 handleChatSend）：静默不报错

@@ -1,8 +1,10 @@
 import { addMessage, fillApprovalResult, markMessageReplaced } from "@/db/chat.js";
+import { getChatSelection } from "./runtime.js";
 import { approvalManager } from "../approval/manager.js";
 import type { LLMResponse } from "@/core/message/adapter";
 import type { MiddlewareChunk } from "@/core/middleware/types";
 import { logger } from "@/utils/logger/index.js";
+import { notifyHeartbeat } from "@/agent/spawnBroker.js";
 
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
@@ -25,6 +27,8 @@ export async function* observeAgentChunks(
             thinking: chunk.message.thinking,
             senseCall: chunk.message.senseCalls,
             hash: chunk.message.hash,
+            // 仅 user 消息记 runtime（发送时配置）；assistant/sense 不记 NULL
+            runtime: chunk.message.role === "user" ? getChatSelection(chatId) : undefined,
           });
           syncedIds.add(chunk.message.id);
           logger.event("message.created", {
@@ -82,6 +86,31 @@ export async function* observeAgentChunks(
         continue;
       }
 
+      // 心跳 chunk:内部传递(不进 DB/前端),调 spawnBroker.notifyHeartbeat 传递给主 agent
+      if ((chunk as { type: string }).type === "heartbeat") {
+        const heartbeatChunk = chunk as unknown as {
+          type: "heartbeat";
+          heartbeat: {
+            childChatId: string;
+            status: "running" | "finished" | "error";
+            result?: string;
+            error?: string;
+          };
+        };
+        notifyHeartbeat(
+          heartbeatChunk.heartbeat.childChatId,
+          heartbeatChunk.heartbeat.status,
+          heartbeatChunk.heartbeat.result,
+          heartbeatChunk.heartbeat.error,
+        );
+        logger.event("heartbeat.notify", {
+          childChatId: heartbeatChunk.heartbeat.childChatId,
+          status: heartbeatChunk.heartbeat.status,
+          resultLen: heartbeatChunk.heartbeat.result?.length ?? 0,
+        });
+        continue;
+      }
+
       yield chunk;
     }
   } finally {
@@ -100,6 +129,8 @@ export async function* observeAgentChunks(
         thinking: m.thinking,
         senseCall: m.senseCalls,
         hash: m.hash,
+        // 仅 user 消息记 runtime（发送时配置）
+        runtime: m.role === "user" ? getChatSelection(chatId) : undefined,
       });
       syncedIds.add(m.id);
     }

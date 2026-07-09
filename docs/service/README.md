@@ -33,7 +33,7 @@ SIGINT/SIGTERM → wss.close() + httpServer.close() + closeAllDbs() + exit
 export function startService(options: { port: number; webPort: number; staticDir: string }): ServiceHandle {
   const router = createRouter();
   registerBrainHandlers(router);        // brain.list
-  registerSenseHandlers(router);        // sense.list
+  registerSenseHandlers(router);        // sense.list / sense.tools
   registerRuntimeSetHandlers(router);   // runtime.set
   registerChatHandlers(router);         // chat.send / chat.resume / sense.approval / chat.abort
   registerChatManageHandlers(router);   // chat.create / chat.list / chat.get / chat.delete
@@ -82,6 +82,7 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 |----------|---------|------|------|--------|
 | `brain.list` | `handleBrainList` | [brain/list.ts](../../src/service/brain/list.ts) | 否 | 列 config.yaml 的 brain + 全局 senseGroups + 已连接 mcpServers |
 | `sense.list` | `handleSenseList` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列 config.yaml 的 sense_groups（原始字符串，含 `:level` 后缀） |
+| `sense.tools` | `handleSenseTools` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列代码维护的全部内置工具（name/label/description）供设置面板下拉 |
 | `runtime.set` | `handleRuntimeSet` | [runtime/set.ts](../../src/service/runtime/set.ts) | 否 | 原子设置 chat 的 brain + senseGroups + mcpServers |
 | `chat.create` | `handleChatCreate` | [chat/handler.ts](../../src/service/chat/handler.ts) | 否 | 建 chat + ensureChat 注入 runtime + 加载历史 |
 | `chat.list` | `handleChatList` | 同上 | 否 | 全局列表（读冗余 message_count） |
@@ -98,12 +99,15 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `mcp.connect` | `handleMcpConnect` | 同上 | 否 | 连接并注册单个 MCP server 的 senses |
 | `mcp.disconnect` | `handleMcpDisconnect` | 同上 | 否 | 断开并反注册单个 MCP server |
 | `mcp.reload` | `handleMcpReload` | 同上 | 否 | 重载单个或全部 MCP server |
+| `subagent.result` | `handleSubagentResult` | [subagent/index.ts](../../src/service/subagent/index.ts) | 否 | 子 agent 结果回传（唤醒主 agent 挂起的 spawn） |
+| `config.get` | `handleConfigGet` | [config/handler.ts](../../src/service/config/handler.ts) | 否 | 读 .chery/config.yaml 原文（除 server 段） |
+| `config.save` | `handleConfigSave` | 同上 | 否 | 校验 + 写回 config.yaml（除 server，重启生效） |
 
 `Method` 常量全集见 [./message.md](./message.md)「Method 常量」。chat.* 流程细节见 [./chat.md](./chat.md)。
 
 ## 核心概念 / 导出
 
-- **`startService({port, webPort, staticDir})`**（index.ts）：唯一对外启动入口，返回 `{wss, httpServer}`。HTTP 由 `createHttpServer` 提供（见 [./http.md](./http.md)）。
+- **`startService({port, webPort, staticDir})`**（index.ts）：唯一对外启动入口，返回 `{wss, httpServer}`。`webPort` 来自环境变量 `WEB_PORT`（默认 8183，原 `config.server.web_port` 已废弃）；HTTP 由 `createHttpServer` 提供（见 [./http.md](./http.md)）。
 - **`RpcRouter`**（message/router.ts）：`register` / `handle`，handler 联合 `HandlerContext`（含 requestId、connectionId）。
 - **`connectionManager`**（websocket/connection.ts 单例）：chat 活跃绑定、审批超时、close abort。
 - **`transport`**（websocket/transport.ts 单例）：帧编解码。

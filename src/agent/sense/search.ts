@@ -5,33 +5,36 @@ import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 
 /**
- * fff FileFinder 单例（模块级懒加载）。
- *
- * 首次调用触发 FileFinder.create + waitForScan；后续调用复用同一实例。
- * fff 内置实时文件 watcher，扫描后自动跟进变更，无需手动 rescan。
+ * fff FileFinder 实例缓存（按 basePath 索引）。
+ * 每个 basePath 一个 FileFinder 实例，避免重复初始化和扫描。
  * 单例 Promise 缓存：初始化失败也缓存 null，避免每次调用重试（成本高）；需重试重启进程。
  */
-let finderPromise: Promise<FileFinder | null> | null = null;
+const finderCache = new Map<string, Promise<FileFinder | null>>();
 
-function getFinder(): Promise<FileFinder | null> {
-  if (finderPromise) return finderPromise;
-  finderPromise = (async () => {
+function getFinder(basePath: string): Promise<FileFinder | null> {
+  if (finderCache.has(basePath)) {
+    return finderCache.get(basePath)!;
+  }
+
+  const promise = (async () => {
     if (!FileFinder.isAvailable()) {
       logger.warn("⚠ fff 原生库不可用，search_codebase 感官无法工作");
       return null;
     }
-    const created = FileFinder.create({ basePath: process.cwd(), aiMode: true });
+    const created = FileFinder.create({ basePath, aiMode: true });
     if (!created.ok) {
-      logger.warn(`⚠ fff FileFinder.create 失败: ${created.error}`);
+      logger.warn(`⚠ fff FileFinder.create 失败 (basePath=${basePath}): ${created.error}`);
       return null;
     }
     const scan = await created.value.waitForScan(10_000);
     if (!scan.ok || !scan.value) {
-      logger.warn("⚠ fff 初始扫描超时(10s)，搜索结果可能不完整");
+      logger.warn(`⚠ fff 初始扫描超时(10s) (basePath=${basePath})，搜索结果可能不完整`);
     }
     return created.value;
   })();
-  return finderPromise;
+
+  finderCache.set(basePath, promise);
+  return promise;
 }
 
 const SearchSchema = z.object({
@@ -39,9 +42,18 @@ const SearchSchema = z.object({
     .describe("搜索模式：content=按文件内容grep搜索文本（默认）；filename=按文件名模糊搜索")
     .optional()
     .default("content"),
+  path: z.string()
+    .describe(
+      "搜索的根目录（绝对路径，必填）。仅在该目录及其子目录下搜索。" +
+      "例如：'/home/user/project/src' 表示只在 src 目录下搜索。" +
+      "必须提供绝对路径，不能是相对路径。"
+    ),
   query: z.string().describe(
-    "搜索查询。content模式支持约束语法 '*.ts TODO'(仅搜TS文件)、'src/ TODO'(仅搜src目录)；" +
-    "filename模式支持模糊匹配与 'file.ts:42' 行定位",
+    "搜索查询字符串（纯搜索模式，不包含路径）。" +
+    "content模式：支持文件类型约束语法，如 '*.ts TODO' 表示仅搜索 .ts 文件中的 TODO；" +
+    "也可直接搜索内容，如 'TODO'。" +
+    "注意：query 不包含路径，搜索范围由 path 参数决定。" +
+    "filename模式：文件名模糊匹配，支持 'file.ts:42' 定位到具体行号。"
   ),
   regex: z.boolean()
     .describe("content模式：是否正则匹配，默认false纯文本")
@@ -149,13 +161,14 @@ function searchFilename(
 
 export default sense(
   "search_codebase",
-  "在当前代码库中搜索文本或文件名。mode=content(默认)按文件内容grep搜索文本，支持约束语法 '*.ts TODO'(仅搜TS文件)、'src/ TODO'(仅搜src目录)，可正则、可带上下文行；mode=filename按文件名模糊搜索（容错，支持 'file.ts:42' 行定位）。结果为相对路径列表。注意：搜索文件内容或定位文件主要使用本感官，而非 execute_command 调 grep/find。",
+  "在指定目录中搜索文本或文件名。path 参数（必填）指定搜索的根目录（绝对路径）。mode=content(默认)按文件内容grep搜索文本，支持约束语法 '*.ts TODO'(仅搜TS文件)；mode=filename按文件名模糊搜索（容错，支持 'file.ts:42' 行定位）。query 参数是纯搜索模式（不包含路径）。结果为相对路径列表。注意：搜索文件内容或定位文件主要使用本感官，而非 execute_command 调 grep/find。",
   SearchSchema,
   async (input, _senseSharedData: SenseSharedData): Promise<SenseResult> => {
-    const finder = await getFinder();
+    // path 必填，validate 时会检查
+    const finder = await getFinder(input.path);
     if (!finder) {
       return {
-        content: "错误：文件搜索索引未就绪（fff 原生库不可用或初始扫描失败），无法执行搜索",
+        content: `错误：文件搜索索引未就绪（fff 原生库不可用或初始扫描失败）(path=${input.path})，无法执行搜索`,
         hash: "",
       };
     }

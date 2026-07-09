@@ -15,10 +15,10 @@
 ```json
 → {"id":"r1","kind":"request","method":"brain.list","params":{}}
 ← {"id":"a1","kind":"response","requestId":"r1","success":true,
-   "data":{"brains":[{"name":"longcat","provider":"ollama","model":"gemma3:1b","thinking":true,"senseGroups":["safe","danger"]}],"mcpServers":["filesystem"]}}
+   "data":{"brains":[{"name":"longcat","provider":"ollama","model":"gemma3:1b","thinking":true,"default":true,"senseGroups":["safe","danger"]}],"mcpServers":["filesystem"]}}
 ```
 
-> `senseGroups` 返回全局全量分组，每个 brain 相同。
+> `senseGroups` 返回全局全量分组，每个 brain 相同。`default` 标记是否为 `config.default.brain`。
 
 ### sense.list
 
@@ -29,6 +29,19 @@
 ```
 
 > `senses` 为原始字符串数组，含 `:level` 后缀，未解析。
+
+### sense.tools
+
+```json
+-> {"id":"r3","kind":"request","method":"sense.tools","params":{}}
+<- {"id":"a3","kind":"response","requestId":"r3","success":true,
+   "data":{"tools":[
+     {"name":"execute_command","label":"执行命令","description":"执行 shell 命令，可跑任意终端指令（危险）"},
+     {"name":"read_file","label":"读取文件","description":"读文件内容，自动截断长文件与日志"}
+   ]}}
+```
+
+> 列出代码维护的全部内置工具（`BUILTIN_SENSE_TOOLS`）。`name` 作 sense_groups 条目 key，`label` 供 UI 显示，`description` 作解释。自定义/外部/MCP 工具不在内，前端组合框允许自由输入。设置面板「感官分组」tab 打开时调用，填充工具下拉建议。
 
 ### runtime.set
 
@@ -55,10 +68,18 @@
 ### chat.list
 
 ```json
+// lean（初始化重建 pet 树用，不查 messages）
 → {"id":"r5","kind":"request","method":"chat.list","params":{}}
 ← {"id":"a5","kind":"response","requestId":"r5","success":true,
-   "data":{"chats":[{"chatId":"c1","createdAt":1718150400000,"updatedAt":1718151000000,"messageCount":12}]}}
+   "data":{"chats":[{"chatId":"c1","createdAt":1718150400000,"updatedAt":1718151000000,"messageCount":12,"parentChatId":null}]}}
+
+// includePreview（会话列表用，按 messages_month 分组批量查首条 user 消息 + 计数）
+→ {"id":"r5b","kind":"request","method":"chat.list","params":{"includePreview":true}}
+← {"id":"a5b","kind":"response","requestId":"r5b","success":true,
+   "data":{"chats":[{"chatId":"c1","createdAt":1718150400000,"updatedAt":1718151000000,"messageCount":12,"parentChatId":null,"preview":"读一下 a.txt","turnCount":3}]}}
 ```
+
+> `includePreview=true` 时每项增返 `preview`（首条 user 消息截断 ≤40 字符）+ `turnCount`（user 消息数）。"指令"跳过规则待定，默认取首条 user 消息。lean 模式省略该二字段，免 N+1。
 
 ### chat.delete
 
@@ -66,6 +87,8 @@
 → {"id":"r6","kind":"request","method":"chat.delete","params":{"chatId":"c1"}}
 ← {"id":"a6","kind":"response","requestId":"r6","success":true,"data":{"chatId":"c1"}}
 ```
+
+> 目标为主 chat（无 `parent_chat_id`）时级联删其所有子 chat + 各自消息 + 清内存 runtime（`clearChatRuntime`），避免孤儿子 chat。子 chat 自身删除不级联。
 
 ### sense.approval
 
@@ -90,9 +113,9 @@
 ```json
 → {"id":"r8","kind":"request","method":"chat.get","params":{"chatId":"c1"}}
 
-// 每条历史消息拆成 staged chunk（带 role）
+// 每条历史消息拆成 staged chunk（带 role）；content_end 带 runtime（user=发送时配置，assistant=前一条 user runtime，供前端 hover 显该消息用的 brain/工具）
 ← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"thinking_end","role":"assistant","thinking":"..."}}
-← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"content_end","role":"assistant","content":"你好"}}
+← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"content_end","role":"assistant","content":"你好","runtime":{"brain":"longcat","senseGroups":["default"],"mcpServers":[]}}}
 ← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"sense_end","role":"sense","senseName":"read_file","arguments":"{...}"}}
 
 // 历史发完
@@ -129,11 +152,8 @@
 ← {"kind":"chunk","type":"staged","requestId":"r9","data":{"type":"content_end","content":"读取文件"}}
 ← {"kind":"chunk","type":"staged","requestId":"r9","data":{"type":"sense_end","senseName":"read_file","arguments":"{\"path\":\"/a.txt\"}"}}
 
-// 4. 感官触发（auto 则 needsApproval:false，confirm 则 true）
-← {"kind":"notification","type":"interrupt","requestId":"r9",
-   "data":{"approvalId":"call_abc","senseName":"read_file","arguments":"{...}","supervisionLevel":0,"needsApproval":false}}
-
-// —— auto 模式：直接执行 ——
+// 4. 感官触发：auto 不推 interrupt（无审批）；confirm/manual 推 interrupt 携 waitTime/createdAt 待审批
+// —— auto 模式：直接执行（无 interrupt）——
 ← {"kind":"notification","type":"accept","requestId":"r9",
    "data":{"approvalId":"call_abc","senseName":"read_file","result":"1\t文件内容..."}}
 
@@ -163,9 +183,9 @@
 ```json
 → {"id":"r10","kind":"request","method":"chat.resume","params":{"chatId":"c1"}}
 
-// Case 1：末尾有 pending sense → 进 loop 跳过 chat 层（senseMiddleware 不调 next，不调 LLM），重发 sense_end → interrupt（按监管等级）
+// Case 1：末尾有 pending sense → 进 loop 跳过 chat 层（senseMiddleware 不调 next，不调 LLM），重发 sense_end → interrupt（仅 confirm/manual；auto 直接执行不推）
 ← {"kind":"notification","type":"interrupt","requestId":"r10",
-   "data":{"approvalId":"call_abc","senseName":"read_file","arguments":"{...}","supervisionLevel":1,"needsApproval":true}}
+   "data":{"approvalId":"call_abc","senseName":"read_file","arguments":"{...}","supervisionLevel":1,"needsApproval":true,"waitTime":30000,"createdAt":1700000000000}}
 
 // —— 同默认审批流 ——
 C→S sense.approval {action:"accept"}
@@ -182,7 +202,7 @@ C→S sense.approval {action:"accept"}
 
 > **续接规则**（同默认 send 流完全一致，首轮仅跳过 chat 层不调 LLM）：
 >
-> - **末尾有 pending sense** → senseMiddleware 检测到 pending，重发 `sense_end` → `interrupt`，按监管等级处理（auto 直接执行 / confirm 等客户端审批），不调 `next` 进 chat；执行后 loop 正常继续
+> - **末尾有 pending sense** → senseMiddleware 检测到 pending，重发 `sense_end` → auto 直接执行（不推 interrupt）/ confirm 推 `interrupt` 等客户端审批，不调 `next` 进 chat；执行后 loop 正常继续
 > - **末尾全 done（无 pending）** → 直接进 loop，正常调 LLM 处理 sense 结果并回复
 > - **sense 群中有工具不在当前 senseTable**（sense group 已换 / 工具移除）→ 跳过监管，静默处理，写结果「无此工具」（占位回执，LLM 据此感知工具不存在）
 > - Phase 0（send 自动恢复执行 pending sense）已移除，续接必须由显式 `chat.resume` 按钮触发
@@ -214,8 +234,7 @@ C→S chat.send {prompt}
   ← consumed
   ← stream.content / stream.thinking / stream.senseCall(delta)
   ← staged thinking_end / content_end / sense_end
-  ← interrupt {supervisionLevel:0, needsApproval:false}
-  ← accept {result}              ← auto 直接执行，无需客户端审批
+  ← accept {result}              ← auto 直接执行，无 interrupt、无需客户端审批
   ← stream.content（第二轮）
   ← staged content_end
   ← done
@@ -228,8 +247,8 @@ C→S chat.send {prompt}
   ← consumed
   ← stream.content / staged content_end
   ← staged sense_end
-  ← interrupt {supervisionLevel:1, needsApproval:true}
-     [服务端启动 15min 审批超时]
+  ← interrupt {supervisionLevel:1, needsApproval:true, waitTime, createdAt}
+     [服务端启动审批超时 = waitTime（global.approval_timeout，默认 30s）；前端倒计时 = waitTime - (now - createdAt)，用户 accept/reject 后立即关闭]
 
 C→S sense.approval {approvalId, action:"accept"}
   → response(approval)

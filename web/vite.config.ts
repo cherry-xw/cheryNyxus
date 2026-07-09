@@ -25,12 +25,20 @@ export default defineConfig({
     },
   },
   server: {
+    // 监听 0.0.0.0：支持内网跨机器访问（dev:web 从其他主机访问页面 + WS）
+    host: true,
     port: 5173,
     strictPort: true,
-    // /api 代理到后端 HTTP 服务（:8183），供 fetch('/api/config') 拿 wsPort + transport
+    // /api → 后端 HTTP(:8183)；/ws → 后端 WebSocket(:8182)
+    // WS 走 vite proxy：跨机器访问只需暴露单端口 5173，无需开放 8182
     proxy: {
       '/api': {
         target: 'http://localhost:8183',
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: 'ws://localhost:8182',
+        ws: true,
         changeOrigin: true,
       },
     },

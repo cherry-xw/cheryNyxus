@@ -58,7 +58,8 @@ CREATE TABLE chats (
   created_at     INTEGER NOT NULL,          -- Date.now()
   updated_at     INTEGER NOT NULL,          -- 每条消息更新
   metadata       TEXT,                      -- JSON 字符串，含 runtime: { brain, senseGroups }
-  message_count  INTEGER NOT NULL DEFAULT 0 -- 冗余计数（P1-8，chatList 免 N+1）
+  message_count  INTEGER NOT NULL DEFAULT 0,-- 冗余计数（P1-8，chatList 免 N+1）
+  parent_chat_id TEXT                       -- 子 agent 关联主 chat 的 chatId；主 chat 为 NULL（主从 Agent 桌宠系统 CP1）
 );
 
 -- YYYY-MM.db.messages
@@ -75,6 +76,7 @@ CREATE TABLE messages (
   replace_content  TEXT,                    -- 替换说明（短）
   original_content TEXT,                    -- 被替换时的原内容（溯源）
   revoked          INTEGER DEFAULT 0,       -- 1 = 撤回（buildMessages 过滤）
+  runtime          TEXT,                    -- JSON {brain,senseGroups,mcpServers}，仅 user 消息记（发送时配置）；assistant 不记（回放关联前一条 user）
   created_at       INTEGER NOT NULL
 );
 CREATE INDEX idx_messages_chat ON messages(chat_id);
@@ -84,14 +86,14 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 
 | 函数 | 签名要点 | 说明 |
 |------|----------|------|
-| `createChat(chatId, metadata?)` | → `ChatRow` | 按 `Date.now()` 算 `messages_month`（创建月固定），同步预创建月库 |
+| `createChat(chatId, metadata?, parentChatId?)` | → `ChatRow` | 按 `Date.now()` 算 `messages_month`（创建月固定），同步预创建月库；`parentChatId` 可选，子 agent 写主 chat 的 chatId，主 chat 留空 |
 | `getChat(chatId)` | → `ChatRow \| undefined` | |
 | `listAllChats()` | → `ChatRow[]` | 按 `updated_at DESC`，`message_count` 直接读冗余列 |
 | `updateChat(chatId)` | → void | 仅更新 `updated_at` |
 | `updateChatMetadata(chatId, patch)` | → void | JSON 浅合并到现有 metadata（保留其他 key） |
 | `getChatRuntimeSelection(chatId)` | → `{brain, senseGroups} \| undefined` | 读 `metadata.runtime`，重启后恢复用 |
 | `deleteChat(chatId)` | → void | 跨库 try/finally：先删 messages 再删 chat，崩溃仅留孤儿 chat（指向已空月库） |
-| `addMessage(messageId, chatId, data)` | → `MessageRow` | messageId 调用方传入；`message_count++`；更新 `updated_at` |
+| `addMessage(messageId, chatId, data)` | → `MessageRow` | messageId 调用方传入；`message_count++`；更新 `updated_at`；`data.runtime` 仅 user 消息传（发送时配置，记入 messages.runtime） |
 | `getMessages(chatId)` | → `MessageRow[]` | 按 `created_at ASC` |
 | `fillApprovalResult(chatId, messageId, {content?, hash?})` | → void | 按路由定位月库 UPDATE（**不依赖 messageId 月份前缀**） |
 | `markMessagesRevoked(chatId, messageIds[])` | → void | 批量 `SET revoked=1 WHERE id IN (...)` |
@@ -108,6 +110,7 @@ export interface MessageRow {
   replace_state: number | null; replace_by: string | null;
   replace_content: string | null; original_content: string | null;
   revoked: number; created_at: number;
+  runtime: string | null;                // JSON {brain,senseGroups,mcpServers}，仅 user 消息记
 }
 
 export interface MessageData {
@@ -118,6 +121,7 @@ export interface MessageData {
   replace?: { state: boolean; by: string; content: string };
   originalContent?: string;
   revoked?: boolean;
+  runtime?: { brain: string; senseGroups: string[]; mcpServers: string[] }; // 仅 user 消息传（发送时配置）
 }
 ```
 
@@ -188,6 +192,6 @@ getMessages(chatId) / fillApprovalResult / markMessagesRevoked / markMessageRepl
 ## 扩展点
 
 - **新增消息字段**：在 `initMonthlyTables` 的 `CREATE TABLE` 加列 + 对应 `ensureMessageColumn` 兜底旧库；同步更新 `MessageRow` / `MessageData` / `addMessage` / `parseMessageRow`。
-- **新增 chat 字段**：`initSoulTables` 建表加列 + `ensureChatColumn`（若需回填仿 message_count 分支）。
+- **新增 chat 字段**：`initSoulTables` 建表加列 + `ensureChatColumn`（若需回填仿 message_count 分支）。例：`parent_chat_id TEXT` 子 agent 关联主 chat，无需回填（`ADD COLUMN` 缺省 NULL），`ensureChatColumn(db, "parent_chat_id", "TEXT")` 即可。
 - **改分片策略**：当前创建月固定不迁移；若要按消息时间动态分片，需重写 `addMessage`（按 now 算 month 而非查 `messages_month`）并调整 `getMessages`（跨月合并，需 chat 跨多月时路由）。
 - **添加审批持久化表**：当前审批靠 content 空判定；若需审批历史/审计，新增表 + 在 `fillApprovalResult` 同处写入。

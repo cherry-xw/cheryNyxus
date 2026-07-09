@@ -1,3 +1,5 @@
+import type { RuntimeSelection } from "@/services/agentApi";
+
 export type PetMood =
   | "calm"
   | "serious"
@@ -86,11 +88,11 @@ export interface PetInstance extends PetPreset {
   moodUntil: number;
   interactionUntil: number;
   lastInteractionAt: number;
-  /** 情绪值 0-100：交互驱动，随时间缓降。低值 → sad/angry 基础 mood。 */
+  /** 情绪值 0-100：交互驱动，随时间缓降。低值 → sad/angry 基础 mood。CP1 保留为内部 mood 驱动（移除交互增量）。 */
   emotion: number;
   /**
-   * 疲劳值 0-100：认知/上下文负担。当前由移动/拖拽/聊天累积，≥80 自动休息。
-   * 未来 pet 作为 agent 显示层时，由真实 token 上下文量驱动（上下文越长越累）。
+   * 疲劳值 0-100：认知/上下文负担。当前由移动/拖拽累积，≥80 自动休息。
+   * 语义逐步让位给 contextUsage（真实 token 上下文）；CP1 两者并存，contextUsage 默认 0。
    */
   fatigue: number;
   dragOffsetX: number;
@@ -99,6 +101,27 @@ export interface PetInstance extends PetPreset {
   pairCooldowns: Record<string, number>;
   rapidClicks: number;
   lastClickAt: number;
+  // ===== agent 绑定（CP1 新增） =====
+  /** 绑定的 chat id（agent 会话实体）。主 pet = 主 agent chat；子 pet = 子 agent chat。 */
+  chatId: string;
+  /** 子 pet 关联主 pet 的 chatId（主 pet 为 undefined）。 */
+  parentChatId?: string;
+  /** 子 agent 类型（subagents 模块名，主 pet 为 undefined）。 */
+  agentType?: string;
+  /** 工作状态（流式中）。true 时 pet 视觉显工作态（CP2 双气泡）。 */
+  isWorking: boolean;
+  /** 上下文用量 0-1（token / brain.contextLimit）。CP1 默认 0 不计算，CP7 接 tokenizer。 */
+  contextUsage: number;
+  /** 灵魂态（子 agent done 后转 ghost）。true 时 PetSprite 渲染 ghost 形态（缩小+无手+灵魂emoji+微浮+半透明+隐藏status）。刷新据 ChatSummary.finished 重建。 */
+  isGhost: boolean;
+  /** 灵魂 emoji（转 ghost 时按 tribe 内创建序号顺序取 GHOST_FACES[N % 池长]，非随机去重）。undefined 时 faceGlyph 兜底 👻。 */
+  ghostFace?: string;
+  /** ghost 创建时间戳（performance.now()）。用于同 tribe ghost 队列排序（老鹰捉小鸡跟随）。 */
+  ghostCreatedAt?: number;
+  /** agent 运行时配置（brain+senseGroups+mcpServers）。主 pet createMasterPet 设、子 pet subagent_created 设、AgentDialog runtime.set 后同步；hide 移除 pet / 刷新 initFromChats 不恢复 → undefined。 */
+  runtime?: RuntimeSelection;
+  /** Req 8: 气泡斥力增量。isWorking 时 =80，stepMovement 同部落斥力半径 += pet.bubbleRepelExtra + other.bubbleRepelExtra。tickPet chatting 到期清零。 */
+  bubbleRepelExtra: number;
 }
 
 export interface StageBounds {

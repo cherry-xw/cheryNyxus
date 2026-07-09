@@ -66,11 +66,28 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, root: st
   // GET /api/config —— 前端 fetch 自动构建 WS 地址（见 protocol.md）
   if (url === "/api/config" || url.startsWith("/api/config?")) {
     res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    // CP2：default 暴露给 FAB 创建主 pet（brain + senseGroups + mcpServers）；
+    //      senseGroups 暴露全名单 + default 标记（= 是否在 config.default.senseGroups 内，供前端 AgentDialog 渲染多选 + 预选默认项）；
+    //      subagents 不暴露（敏感配置留服务端）。config.default 缺省时不返 default 字段。
+    const defaultCfg = config.default
+      ? {
+          brain: config.default.brain,
+          senseGroups: config.default.senseGroups,
+          mcpServers: config.default.mcpServers ?? [],
+        }
+      : undefined;
+    const defaultGroups = new Set(defaultCfg?.senseGroups ?? []);
+    const senseGroupsList = Object.keys(config.sense_groups ?? {}).map((name) => ({
+      name,
+      default: defaultGroups.has(name),
+    }));
     res.end(
       JSON.stringify({
         wsPort: config.server.port,
-        webPort: config.server.web_port,
+        webPort: Number(process.env.WEB_PORT ?? 8183),
         transport: config.server.transport,
+        senseGroups: senseGroupsList,
+        ...(defaultCfg ? { default: defaultCfg } : {}),
       }),
     );
     return;

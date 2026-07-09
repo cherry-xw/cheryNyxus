@@ -52,11 +52,40 @@ export { SupervisionLevel } from "@/core/config";   // 从 core 重导出
 | `global` | `ExtendedGlobalConfig` | 全局开关（thinking/supervision/stream/超时/loop 上限）+ logger + file_compression + 自动补全的 4 个 `.chery/` 子路径 |
 | `llm.brain` | `Record<string, BrainConfig>` | Brain 名称 → provider/model/url/key/thinking/rpm/mock 配置 |
 | `sense_groups` | `Record<string, string[]>` | 感官分组（值如 `"read_file"` 或 `"execute_command:auto"` 覆盖监管等级） |
-| `server` | `ServerConfig` | WebSocket `port`（默认 8182）+ `web_port`（默认 8183）+ `transport`（默认 `"binary"`） |
+| `server` | `ServerConfig` | WebSocket `port`（默认 8182）+ `transport`（默认 `"binary"`）；HTTP 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定，与 `electron/main.ts` 一致 |
 
 `BrainConfig` 关键字段（[源码](../../src/utils/config.ts#L55-L67)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）。
 
 `$ENV` 替换规则：仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`（如 `url: $OLLAMA_HOST`），从 `.env`/进程环境变量取值；缺失会收集到 `missingEnvVars` 并 warn，原样保留字符串。不会替换值中嵌入的 `$VAR`。
+
+### 配置读写（config.get / config.save RPC）
+
+设置面板（web）经两个 RPC 读写 `.chery/config.yaml`，**运行时内存单例不碰**（重启生效），避开热更复杂度：
+
+```ts
+// 原始形态（磁盘/YAML）：supervision 为字符串、无路径补全、key 仍为 $ENV 占位符
+export interface ConfigRaw {
+  global: GlobalConfigRaw;                 // supervision: "auto"|"confirm"|"manual"
+  llm: LLMConfig;
+  sense_groups?: Record<string, string[]>;
+  mcp_servers?: Record<string, McpServerConfigRaw>;
+  default?: DefaultAgentConfig;
+  subagents?: Record<string, SubagentConfig>;
+}
+
+export function readRawConfig(): ConfigRaw;        // 读原文，剥离 server 段（config.get）
+export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[] };
+//   校验(validateRawConfig) -> 读盘取 server 段 -> merge -> js-yaml dump(无注释) -> writeFileSync
+export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，loadConfig 启动期亦调用
+```
+
+校验规则（`validateRawConfig`，返回错误字符串数组，空=通过）：
+- `default.brain` / `subagents.*.brain` 必须存在于 `llm.brain`（loadConfig 启动期 fail loud 同源）
+- `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|confirm|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
+- `sense_groups.*[]` 的 `:level` 后缀必须合法
+- `llm.brain.*` 的 `model` / `provider` 必填
+
+写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整注释文档备份在 [.chery/config.yaml.example](../../.chery/config.yaml.example)。
 
 ### hash.ts
 
@@ -100,7 +129,7 @@ loadConfig()
   ├─ replaceEnvVars(rawConfig)         → 递归整段 $ENV 替换，缺失收集到 missingEnvVars
   ├─ supervision: string → SupervisionLevel 枚举
   ├─ 补全 global.{skills_dir, senses_dir, system_prompt, db_dir}（cheryDir + .chery/...）
-  ├─ server 默认值兜底（port 8182 / web_port 8183 / transport binary）
+  ├─ server 默认值兜底（port 8182 / transport binary；web_port 已废弃，改 WEB_PORT 环境变量）
   └─ warn: CHERY_DIR 未配置 / 缺失环境变量
 module 顶层 `const config = loadConfig()` → 全局单例，import 即触发
 ```

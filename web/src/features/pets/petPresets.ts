@@ -137,6 +137,15 @@ export const masterFacePool: Record<PetMood, string>[] = KAOMOJI_FACES;
 /** 子 pet 池（emoji face 部件）。 */
 export const subFacePool: Record<PetMood, string>[] = EMOJI_FACES;
 
+/**
+ * 灵魂态 face 池（ghost pet 用，子 agent done 后转灵魂态的 emoji）。
+ * 与 EMOJI_FACES 里的 ghostFace（普通子 pet 表情，calm 态 👻）语义不同——
+ * 此处是「已完成灵魂遗迹」标识，ghost 专属。pickGhostFace 按 tribe 内创建序号顺序取（N % 池长），非随机、不跨实例去重。
+ */
+export const GHOST_FACES: string[] = [
+  "🎏", "🚶", "🏃", "👨‍🦯", "👨‍🦼", "👨‍🦽", "👼", "💀", "☠️", "👻", "🧟", "🧞", "🧛",
+];
+
 // ===== HAND_PAIRS（情绪关联手部字符；配对池，每 mood 抽一对） =====
 // 字符源自 lddgo.net/common/emoticons 颜文字手臂/装饰 + emoji 动效。
 // 动效 mood 映射：跑→happy/panicked（ε=┏┛/🏃）、汗→surprised/panicked（💦/Σ/|||）、
@@ -238,6 +247,7 @@ const NAME_POOL: string[] = [
   "stewart", "momo", "spark", "byte", "boo", "pip", "lenny", "shiba", "pump", "fox",
   "wink", "love", "cool", "party", "zany",
   "mochi", "nori", "toto", "zuzu", "bobo", "lulu", "kiki", "fufu", "mimi", "coco",
+  "pepper", "ginger", "olive", "clover", "hazel", "remy", "scout", "willow", "jasper", "nova",
 ];
 
 // ===== 工具 =====

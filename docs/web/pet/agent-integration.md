@@ -1,0 +1,105 @@
+# agent 接入（CP1-CP8，已落地）
+
+> 上级 [README.md](./README.md) ｜ 跨前后端设计 [../../agent-pet.md](../../agent-pet.md) ｜ 渲染分层 [rendering.md](./rendering.md)
+
+pet 模块已由纯装饰桌宠改造为 **主从 Agent 可视化交互系统**（整体设计见 [../../agent-pet.md](../../agent-pet.md)）。CP1-CP8 全部落地：连接接线、FAB/对话、子 agent 前端驱动、历史抽屉、审批、生命周期、contextUsage 计算、会话列表 + 销毁语义分离。
+
+## 工具栏（CP1 去装饰记录）
+
+> **CP1 移除装饰工具栏**：原 `pet/feed/sleep/dismiss/summon` 装饰工具及 `invokeTool`/`masterTools`/`PetStage toolbar`（+pet/pause/reset/mood）已删（见下 [CP1](#cp1接线骨架--去装饰化)）。CP2 起工具栏由 [PetToolbar](../../../web/src/features/agent/PetToolbar.vue) 组件承担 agent 操作（历史/中止/销毁，非装饰交互）。下文为 CP1 前装饰工具栏的设计记录（CSS `.tools`/`.tool-icon` 已置 `display:none`）。
+
+- 名字后 icon 行：`core` 工具常驻（第一行，name 旁）；非 core 默认隐藏，悬浮 `.tools` 时在**第二行居中**展开（`.tools-extra`，与第一行保持间距，`opacity`/`transform` 过渡）。**隐藏延迟 240ms**（`scheduleCloseTools` 定时器），便于鼠标从第一行移到第二行不被中断。原 ⋯ 切换按钮已移除（不再支持触屏点切）。
+- 每 icon hover 显示 `label`（CSS `.tip` tooltip，无 element-plus 依赖）。
+- 点击 emit `tool` 事件 → `usePetWorld.invokeTool(pet, toolId)`：
+  - `pet`→happy+emotion、`feed`→happy+emotion+台词、`sleep`→触发休息（`punch` 工具随 pump preset 拆解退役，无 pet 持有；`invokeTool` 的 punch case 保留为无害死代码）
+  - `dismiss`→removePet（任意 pet 可驱逐，无特权保护）
+  - `summon`→`summonSub(pet)`（仅主 pet 工具列有 summon，召子入本部落）
+- **工具 ↔ agent 能力**：当前工具为养桌宠交互语义；未来 pet 作为 agent 显示层时，`invokeTool` 改为消费后端 RPC（工具=agent 能力 UI 入口）。
+
+## 落地清单（按 CP）
+
+### CP1（接线骨架 + 去装饰化）
+
+- **PetInstance 扩字段**（[types.ts](../../../web/src/features/pets/types.ts)）：`chatId` / `parentChatId?` / `agentType?` / `isWorking` / `contextUsage` / `runtime?`（`RuntimeSelection`：brain+senseGroups+mcpServers，主 pet 由 `createMasterPet` 设、子 pet 由 `subagent_created` 设、AgentDialog `runtime.set` 后同步；刷新后丢失）。pet = agent 可视化躯壳。
+- **状态层单一数据源**（[stores/agents.ts](../../../web/src/stores/agents.ts)）：`pets: PetInstance[]` 由 chat.list + chunk/notification 驱动；`streams: Record<chatId, StreamState>` 按 requestId→chatId 路由 chunk。runtime 挂 pet（`pet.runtime`），`getRuntime(chatId)` 从 pet 取。
+- **连接接线**（[main.ts](../../../web/src/main.ts) / [App.vue](../../../web/src/App.vue)）：挂 Pinia + onMounted 调 `useConnectionStore().init()` + 订阅 `wsClient.onChunk`/`onNotification` 转发 agents store。
+- **RPC 封装**（[services/agentApi.ts](../../../web/src/services/agentApi.ts)）：基于 wsClient.rpc 封装 chat.create/list/get/send/abort/delete、runtime.set、sense.approval、subagent.result、brain.list + `/api/config` 缓存（`fetchServerConfig` / `fetchDefaultRuntime`）。
+- **去装饰化**（[usePetWorld.ts](../../../web/src/features/pets/usePetWorld.ts) / [PetStage.vue](../../../web/src/features/pets/PetStage.vue)）：删 `invokeTool` 装饰分支 / pet 间 chatting / `randomEmotion` / `addPet`/`summonSub` / PetStage toolbar（+pet/pause/reset/mood）/ `resetPets` 自动刷主子；`pets` 改读 agents store（单一数据源）。
+
+### CP2（FAB + 对话 + 双气泡 + ContextBar + PetToolbar）
+
+- **AgentFab**（[AgentFab.vue](../../../web/src/features/agent/AgentFab.vue)）：右下常驻圆形按钮 + 下方小字连接状态（disconnected 灰 / connecting 黄 / connected 绿）；点击 `fetchDefaultRuntime` → `createMasterPet`；非 connected 禁用。
+- **AgentDialog**（[AgentDialog.vue](../../../web/src/features/agent/AgentDialog.vue)）：overlay + panel 弹窗，含 brain 单选 + senseGroup 单选 + mcpServers 多选下拉（三选项并排一行）+ 多行输入（auto-grow，随内容增高至 60vh 上限，撑开 dialog）+ 发送；**发送按钮位于输入框内部右下角，去背景，线框 SVG icon，hover 时 icon 描边→实心填充**（disabled 灰显）；`Cmd/Ctrl+Enter` 发送、`Esc` 关闭、点遮罩关闭；按 pet 当前 runtime 初始化选项（无 runtime = 重建场景 → 用 `brain.list` `brains[].default` + `/api/config` `senseGroups[].default` 预选默认项 + `default.mcpServers`，关联 `config.default`）；显示选中 brain 的 contextLimit 提示。
+- **ContextBar**（[ContextBar.vue](../../../web/src/features/agent/ContextBar.vue)）：contextUsage 0-1 progressbar，色阶：<50% 绿 / 50-80% 黄 / ≥80% 红。
+- **PetToolbar**（[PetToolbar.vue](../../../web/src/features/agent/PetToolbar.vue)）：主 pet = 历史/中止/隐藏（✕ destroy=hide，CP8）；子 pet = 历史/中止（无隐藏）；contextUsage ≥ 50% 显 compact（预留）。中止按钮 `:disabled="!pet.isWorking"`——非工作态灰显不可点。**隐藏按钮 `:disabled="pet.isWorking || hasWorkingChild"`**（CP8）——运行中或任一子 pet 运行中禁用（避免孤儿流）。
+- **PetSprite 双气泡**（[PetSprite.vue](../../../web/src/features/pets/PetSprite.vue)）：thinking 阶段（content 空）主气泡全空间显 thinking；thinking 结束（content 非空）主气泡显 content + 左侧独立小气泡显 thinking。
+- **工作态 action=chatting**：`setWorking` 切 `pet.action="chatting"`（复用现有 chatting motion，不新增 action）+ `mood="curious"` + `interactionUntil=0`（agent 工作态不超时，由 done/error 解除）。
+- **sendMessage action**（agents store）：runtime diff 决策（与当前 runtime 异 → 先 `agentApi.setRuntime` 再 send，同则直发）；发送后重置 stream 实时累积 + 清 pending approval + pet 进 isWorking；`runtime.set` 后同步 `pet.runtime`。
+
+### CP3（subagent 前端驱动）
+
+- **subagent_created notification 处理**（agents store `routeNotification`）：从 notification `{chatId, parentChatId, type, prompt, wait, brain, senseGroups}` 造子 pet（emoji face，落主附近）+ 登记子 pet `runtime={brain, senseGroups, mcpServers:[]}`（brain/senseGroups 来自 notification）+ 调 `sendMessage(chatId, prompt)` 跑子 agent；后端 spawn_subagent sense 已预创建 chat + runtime（metadata.runtime 路径）→ 前端不调 chat.create（避 PRIMARY KEY 冲突）、不调 runtime.set。
+- **spawnWaits Map**：登记子 chatId → `{parentChatId, type, wait}`，done 时按 wait 决策回传/注入。
+- **agentApi.subagentResult**：wait=true 子 agent done 后回传内容 → 后端 `resolveSpawnResult` 唤醒挂起的 spawn_subagent sense；wait=false 复用 `sendMessage` 注入 `[子agent {type}] {content}` 到主 chat。
+
+### CP4（历史 + 群消息 + sense 调用 box）
+
+- **HistoryDrawer**（[HistoryDrawer.vue](../../../web/src/features/agent/HistoryDrawer.vue)）：右侧抽屉，AnimatePresence + motion.div 滑入滑出；宽度默认 `clamp(320px,40vw,560px)`，**左缘拖拽手柄（col-resize）改宽**——`setPointerCapture` + pointermove 计算 `startW - dx`，边界 `[320, Math.floor(innerWidth*2/3)]`（max = 屏幕 2/3）；拖拽宽持久化 localStorage `cheryclaw:history-drawer:width`（px 数字），加载时 clamp 防小屏溢出，window resize 时重 clamp 保约束；打开时 `agents.getHistory(chatId)` 触发 staged 流，history 累积到 `stream.history`，`loaded` 标 historyLoaded；history 长度变化 / loaded 切 true 后滚到底。
+- **MessageBubble**（[MessageBubble.vue](../../../web/src/features/agent/MessageBubble.vue)）：群消息样式——user 头像右/气泡左（row-reverse）；assistant 头像左/气泡右；subagent 同 assistant。**去除文字角色标签，保留圆形头像**；**hover 头像弹详情面板**从 `item.runtime` 显 brain/senseGroups/mcpServers + agentType(subagent)；**user 不弹面板**。runtime 缺失字段显「—」（旧消息无 runtime 场景）。thinking 折叠区（默认收起），senseCalls 列表挂在 content 下方。消息级 runtime 见 [agent-pet.md §5.7](../../agent-pet.md)。
+  - **双布局**（`layout` prop，[HistoryDrawer](../../../web/src/features/agent/HistoryDrawer.vue) 按 opened chat 是否子 chat 传 `"direct"|"group"`）：
+    - **group**（默认，主 chat 合并视图）：master/subagent 双头像（发言者大 + 对方小徽章），均左排；user 右。
+    - **direct**（ghost 自身抽屉，opened chat 为子 chat）：单头像 1:1 布局——**master 靠右**（row-reverse，主 pet 名首字符头像，hover 面板翻向左侧防溢出）/ **subagent 靠左**（ghost emoji 头像）。master 消息由子 chat 自身 `user→master` 重映射得来（见 getHistory）。
+- **SenseCallBox**（[SenseCallBox.vue](../../../web/src/features/agent/SenseCallBox.vue)）：sense 调用 box（assistant 消息内子项），显 senseName + 状态指示（⋯ running / ✓ done / ✗ error）+ arguments/result 可折叠 pretty-print（后端 arguments 契约为 JSON 字符串）。
+- **getHistory action + StreamState.history/historyLoaded**：staged chunk 经 `routeChunk` → `accumulateStaged` 重组为 `HistoryItem[]`（`thinking_end` 开 assistant item / `content_end` 按 role 分流 user|assistant|sense / `sense_end` 挂当前 assistant item.senseCalls）；subagent 检测：role=user 且 content 匹配 `^\[子agent <type>\]` 归类 subagent（item.petName = agentType）。**子 chat 自身重映射**：opened chat 为子 chat（ghost 自身抽屉）时，对自身 history 跑 `remapChildHistory(items, chatId)`（assistant→subagent / user→master，附 `subPetChatId=chatId`）——使首条（主 agent 发的 spawn prompt，DB 存 role:user）显为 master 而非 user；主 chat 自身历史不重映射（保持 user/assistant）。合并主视图时子 chat 历史同样走 `remapChildHistory`（既有逻辑）。
+
+### CP5（审批）
+
+- **ApprovalCard**（[ApprovalCard.vue](../../../web/src/features/agent/ApprovalCard.vue)）：pet 气泡内审批卡片（最高优先级，覆盖工作气泡），显 senseName + arguments 折叠 + Accept/Reject 两按钮（请求中两按钮都禁用防双击）。
+- **StreamState.approval**：`interrupt` notification 设 `stream.approval={approvalId, senseName, args}`；`accept`/`rejected` notification 清 `stream.approval`（组件 v-if 卸载，无需手动清）。
+- **routeNotification interrupt/accept/rejected**：approvalId/senseName 字段残缺时 console.warn fail loud；Accept/Reject 委托 `agentApi.approval(approvalId, action)`。
+
+### CP6（中止 + 销毁 + destroy_subagent）
+
+- **store.abort(chatId)**：调 `agentApi.abortAgent` + 手动清工作态（后端 chat.abort 可能不推 done，需兜底清 isWorking + stream.isWorking）。
+- **store.hide(chatId)**（CP8 修订，原 `destroy`）：**仅前端隐藏**——移除主 pet + 其子 pet 出 `pets` + 清 `streams`/`spawnWaits`，**不调 chat.delete**。运行中（`isWorking` 或任一子 pet isWorking）禁用（PetToolbar destroy 按钮 disabled）。
+- **PetStage 接线**：`handleAbort`/`handleDestroy`(→`hide`)/`handleHistory`/`handleCompact` 各自委托 store；主 pet 点击 → `activeDialogChatId`（开 AgentDialog），子 pet 点击 → 装饰 clickPet。
+- **subagent_destroyed notification**：清对应 pet + spawnWaits + streams。
+
+### CP7（contextUsage 后端计算）
+
+- **后端 token 估算**（[src/utils/token.ts](../../../src/utils/token.ts)）：`estimateTokens = Math.ceil(text.length / 4)`（英文近似 4 char/token，中文偏保守）；`sumChatTokens` 累加 chat 所有非 revoked 消息 content+thinking；`computeContextUsage(chatId)` = used / brain.contextLimit（clamp [0,1]，brain 未配 contextLimit 兜底 8192）。
+- **返传通道**：`done` notification + `chat.get` response 各携 `contextUsage`；agents store `routeNotification`（done 分支）/ `getHistory`（response.then）写入 `pet.contextUsage` → ContextBar 渲染。
+- **估算失败 fail loud**：兜底 0 + console.warn，不阻塞 chat.send/get 主流程（规则 12）。
+
+### CP8（会话列表 + 销毁语义分离）
+
+- **stage 默认 5 个**（[stores/agents.ts](../../../web/src/stores/agents.ts) `initFromChats`）：`chat.list`（lean）→ 主 chat 按 `sessionRecency = max(master.updatedAt, 其子 updatedAt)` 排序取前 5 → 建主 pet + 其子 pet。不再重建全部 chat。允许临时超过 5（+ 新建 / 历史加载不挤，用户手动 hide 才减）。
+- **销毁语义分离**：
+  - **隐藏**（stage pet 工具栏 ✕，仅主 pet）：`store.hide(chatId)` 仅前端移除 `pets`（含子 pet），不删 DB。运行中禁用（`isWorking` 或任一子 isWorking → destroy 按钮 disabled）。
+  - **删除**（会话列表行 ✕）：`store.deleteSession(chatId)` 调 `chat.delete`（后端级联子 chat）→ 从 `historyList` + `pets` 移除。
+- **会话列表 UI**（[SessionList.vue](../../../web/src/features/agent/SessionList.vue)）：右侧抽屉，`historyListOpen` 驱动。`fetchHistoryList()` 调 `chat.list({includePreview:true})` 缓存 `historyList`。行显 `preview` 截断（hover 显 chatId/创建时间）+ last-run（`updatedAt`）+ 轮次（`turnCount`）；点行 → `loadSession(chatId)` 从缓存建主+子 pet 入 `pets`（允许 >5）。
+- **会话列表入口**（[AgentFab.vue](../../../web/src/features/agent/AgentFab.vue)）：`+` 下方加 ☰ "会话列表"按钮 → `historyListOpen=true` + `fetchHistoryList()`。
+- **命名区分**：`HistoryDrawer`（单 pet 消息史，pet 工具栏 ▤）保留；`SessionList`（会话列表，☰）为 CP8 新组件。
+- **隐藏不持久化**：重连重取 top-5，隐藏但仍 top-5 的 pet 会重现（transient，不增 schema）。
+
+## 渲染分层注记
+
+完整的 ASCII 分层图与命中区/z-index/对话框 slot 机制见 [rendering.md](./rendering.md)。agent 接入引入的关键变化：
+
+- **status-row**：原 `span.bar.emotion + span.bar.fatigue` 改为 `span.stat.emotion .fill` + `<ContextBar :usage="pet.contextUsage" />`（CP2/CP7）。emotion 条保留（统一橙色），fatigue bar 移除。
+- **meta-row**：原 `div.tools`（core 常驻）+ `div.tools-extra`（hover 展开）被 `<PetToolbar>` 组件取代（CP2/CP6）；CSS `.tools`/`.tool-icon` 已置 `display:none`（保留兼容）。
+- **speech**：原单一 Motion.speech + `#dialog` slot 扩为 3 tier 互斥（ApprovalCard / work-bubble / 默认 slot）+ 独立 `AnimatePresence` 侧气泡（thinking 副本）。审批存在时优先显 ApprovalCard（`v-if="stream?.approval"`），同时抑制侧气泡（避免与 interrupt 视觉冲突）。
+
+## fatigue 与 contextUsage 语义解耦
+
+CP7 后两者职责彻底分离：
+
+- **fatigue**：保留为 pet 移动生活感（移动/拖拽累积，≥80 自动休息，休息时 emotion 回血）。与 agent 无关，纯装饰。
+- **contextUsage**：CP7 已接入后端 token 估算（[src/utils/token.ts](../../../src/utils/token.ts)），由 `done` / `chat.get` 返传 → `pet.contextUsage` → ContextBar 渲染（色阶：<50% 绿 / 50-80% 黄 / ≥80% 红）。PetToolbar `contextUsage ≥ 50%` 显 compact 按钮（compact RPC 预留）。
+
+原 PetSprite status-row 的 fatigue bar 已被 ContextBar 组件取代（emotion 条保留，统一橙色）。
+
+## 留待
+
+- **tokenizer 精确计算**：当前 `estimateTokens` = `Math.ceil(text.length / 4)` 字符近似（英文偏准、中文偏保守），后续接 js-tiktoken 等替换 `estimateTokens` 实现，调用点不变。
+- **compact RPC**：PetToolbar `contextUsage ≥ 50%` 已预留 compact 按钮 + PetStage `handleCompact` TODO 占位，后端 compact RPC 未实现。

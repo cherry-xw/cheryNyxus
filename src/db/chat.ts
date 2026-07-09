@@ -8,6 +8,11 @@ export interface ChatRow {
   updated_at: number;
   metadata: string | null;
   message_count: number;
+  /**
+   * 子 agent 关联主 chat 的 chatId；主 chat 为 NULL。
+   * 可选：旧库未补列前查询结果可能缺该字段（CREATE 后 ensureChatColumn 已统一补，运行时恒存在）。
+   */
+  parent_chat_id?: string | null;
 }
 
 export interface MessageRow {
@@ -24,6 +29,8 @@ export interface MessageRow {
   original_content: string | null;
   revoked: number;
   created_at: number;
+  /** JSON {brain,senseGroups,mcpServers}，仅 user 消息记（发送时配置）；assistant/sense 为 null */
+  runtime: string | null;
 }
 
 export interface MessageData {
@@ -43,6 +50,8 @@ export interface MessageData {
   };
   originalContent?: string;
   revoked?: boolean;
+  /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传 */
+  runtime?: { brain: string; senseGroups: string[]; mcpServers: string[] };
 }
 
 /**
@@ -69,21 +78,23 @@ function assertChanged(result: { changes: number }, context: string): void {
 /**
  * 创建聊天（无需 soulId）
  * messages_month 按创建时间固定，之后该 chat 所有消息都写入此月份分片（跨月不迁移）
+ * parentChatId 可选：子 agent 写主 chat 的 chatId，主 chat 留空（NULL）。
  */
 export function createChat(
   chatId: string,
   metadata?: Record<string, unknown>,
+  parentChatId?: string,
 ): ChatRow {
   const db = getSoulDb();
   const now = Date.now();
   const messagesMonth = formatYearMonth(now);
 
   const stmt = db.prepare(`
-    INSERT INTO chats (id, messages_month, created_at, updated_at, metadata)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO chats (id, messages_month, created_at, updated_at, metadata, parent_chat_id)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  stmt.run(chatId, messagesMonth, now, now, metadata ? JSON.stringify(metadata) : null);
+  stmt.run(chatId, messagesMonth, now, now, metadata ? JSON.stringify(metadata) : null, parentChatId ?? null);
 
   // 确保月份文件存在
   getMonthlyDb(messagesMonth);
@@ -95,6 +106,7 @@ export function createChat(
     updated_at: now,
     metadata: metadata ? JSON.stringify(metadata) : null,
     message_count: 0,
+    parent_chat_id: parentChatId ?? null,
   };
 }
 
@@ -205,6 +217,83 @@ export function deleteChat(chatId: string): void {
 }
 
 /**
+ * 查主 chat 的所有子 chat（CP8：chat.delete 级联用）。
+ * 按 parent_chat_id 索引查 soul.db（子 chat 与主 chat 同库，messages 各自按月分片）。
+ */
+export function findChatsByParent(parentChatId: string): ChatRow[] {
+  const soulDb = getSoulDb();
+  const stmt = soulDb.prepare("SELECT * FROM chats WHERE parent_chat_id = ?");
+  return stmt.all(parentChatId) as ChatRow[];
+}
+
+/**
+ * preview 单行规范化（CP8）：折叠空白 + 截断 ≤40 字符。
+ * TODO(CP8 "指令"跳过)：当前默认取首条 user 消息（isDirective=false）。
+ *   定义指令标记后，改为取首条「非指令」user 消息（需查多条 user 消息）。
+ */
+function normalizePreview(content: string | null): string {
+  if (!content) return "";
+  return content.replace(/\s+/g, " ").trim().slice(0, 40);
+}
+
+/**
+ * 批量取 chat 的会话列表 preview + turnCount（CP8）。
+ * 按 messages_month 分组（消息按月分片，跨月分别查），每 group 一条 SQL：
+ *   首条 user 消息 content（相关子查询 MIN created_at）+ user 消息计数。
+ * 返回 Map<chatId, {preview, turnCount}>；无 user 消息的 chat 默认 {preview:"",turnCount:0}。
+ *
+ * 仅 chat.list includePreview=true 调用（会话列表渲染，on-demand）；initFromChats 走 lean 免 N+1。
+ */
+export function getChatPreviews(
+  chats: ChatRow[],
+): Map<string, { preview: string; turnCount: number }> {
+  const result = new Map<string, { preview: string; turnCount: number }>();
+  // 全部 chat 先初始化默认值（无 user 消息的 chat 也有条目）
+  for (const c of chats) {
+    result.set(c.id, { preview: "", turnCount: 0 });
+  }
+  if (chats.length === 0) return result;
+
+  // 按 messages_month 分组
+  const byMonth = new Map<string, string[]>();
+  for (const c of chats) {
+    if (!c.messages_month) continue;
+    const arr = byMonth.get(c.messages_month);
+    if (arr) arr.push(c.id);
+    else byMonth.set(c.messages_month, [c.id]);
+  }
+
+  for (const [month, chatIds] of byMonth) {
+    const monthlyDb = getMonthlyDb(month);
+    const placeholders = chatIds.map(() => "?").join(",");
+    const rows = monthlyDb
+      .prepare(
+        `SELECT m.chat_id AS chatId,
+          (SELECT m2.content FROM messages m2
+            WHERE m2.chat_id = m.chat_id AND m2.role = 'user'
+            ORDER BY m2.created_at ASC LIMIT 1) AS firstContent,
+          COUNT(*) AS turnCount
+         FROM messages m
+         WHERE m.role = 'user' AND m.chat_id IN (${placeholders})
+         GROUP BY m.chat_id`,
+      )
+      .all(...chatIds) as {
+      chatId: string;
+      firstContent: string | null;
+      turnCount: number;
+    }[];
+
+    for (const r of rows) {
+      result.set(r.chatId, {
+        preview: normalizePreview(r.firstContent),
+        turnCount: r.turnCount,
+      });
+    }
+  }
+  return result;
+}
+
+/**
  * 添加消息（路由到月份文件）
  */
 export function addMessage(
@@ -227,8 +316,8 @@ export function addMessage(
   const now = Date.now();
 
   const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, chat_id, role, content, thinking, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -245,6 +334,7 @@ export function addMessage(
     data.originalContent ?? null,
     data.revoked ? 1 : 0,
     now,
+    data.runtime ? JSON.stringify(data.runtime) : null,
   );
 
   // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
@@ -269,6 +359,7 @@ export function addMessage(
     original_content: data.originalContent ?? null,
     revoked: data.revoked ? 1 : 0,
     created_at: now,
+    runtime: data.runtime ? JSON.stringify(data.runtime) : null,
   };
 }
 
@@ -409,6 +500,13 @@ export function parseMessageRow(row: MessageRow): MessageData {
       : undefined,
     originalContent: row.original_content ?? undefined,
     revoked: row.revoked === 1,
+    runtime: row.runtime
+      ? (safeJsonParse(row.runtime, undefined) as {
+          brain: string;
+          senseGroups: string[];
+          mcpServers: string[];
+        })
+      : undefined,
   };
 }
 

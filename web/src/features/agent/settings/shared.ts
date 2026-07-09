@@ -1,0 +1,27 @@
+/**
+ * Settings 面板共享纯函数。依赖 draft/senseTools 的 mutate 操作留在各自 tab 内。
+ */
+import type { SenseToolInfo } from "@/services/agentApi";
+import { DANGEROUS_SENSES } from "./constants";
+
+/** entry = "name" 或 "name:level"，取工具名部分。 */
+export function toolName(entry: string): string {
+  const idx = entry.indexOf(":");
+  return idx >= 0 ? entry.slice(0, idx) : entry;
+}
+
+/** entry = "name" 或 "name:level"，取监管等级部分（空=继承）。 */
+export function toolLevel(entry: string): string {
+  const idx = entry.indexOf(":");
+  return idx >= 0 ? entry.slice(idx + 1) : "";
+}
+
+/** entry 工具名命中内置工具则返回其元信息（行内显示 label + description tooltip）。 */
+export function matchedTool(entry: string, senseTools: SenseToolInfo[]): SenseToolInfo | undefined {
+  return senseTools.find((t) => t.name === toolName(entry));
+}
+
+export function isDangerousSense(entry: string): boolean {
+  const base = entry.split(":")[0] ?? "";
+  return DANGEROUS_SENSES.includes(base);
+}

@@ -1,0 +1,180 @@
+# cheryClaw 配置文件示例（带注释文档备份）
+#
+# 本文件是 .chery/config.yaml 的注释文档备份：每个字段的作用 / 合法值 / 默认 / 破坏性
+# 都写清楚，供人工查阅。运行时实际读的是 .chery/config.yaml（经设置面板保存后无注释）。
+# 两者字段需保持同步：设置面板只写 config.yaml，本文件手维护。
+#
+# 配置目录由环境变量 CHERY_DIR 指定（默认 process.cwd() 即项目根）。
+# $ENV 占位符：值形如 $VAR_NAME 时，从 .env / 进程环境变量注入（仅整段值匹配，不替换内嵌）。
+
+# ──────────────────────────────────────────────────────────────────
+# 默认主 agent 配置（FAB「+」召唤主 pet 时套用）
+# ──────────────────────────────────────────────────────────────────
+default:
+  brain: ali_glm5              # 默认用哪颗大脑（必须在下方 llm.brain 中存在，否则启动 fail loud）
+  senseGroups: [all_senses]    # 默认装配哪些感官组（必须存在于下方 sense_groups）
+  mcpServers: []               # 默认连哪些 MCP server（缺省 []=全关）
+
+# ──────────────────────────────────────────────────────────────────
+# 子 agent 类型（主 pet 遇到读代码/读图/搜索时可派出的助手）
+# spawn_subagent sense 按 type 名查这里；brain 必须存在于 llm.brain
+# ──────────────────────────────────────────────────────────────────
+subagents:
+  read_code:                   # 子 agent 类型名（给 AI 看的名）
+    brain: ali_glm5
+    senseGroups: [safe_senses]
+  read_image:
+    brain: ali_glm5
+    senseGroups: [safe_senses]
+  web_search:
+    brain: ali_glm5
+    senseGroups: [safe_senses]
+
+# ──────────────────────────────────────────────────────────────────
+# AI 大脑（Brain）——每颗 brain 一张「大脑名片」
+# provider 决定说什么方言：openai（OpenAI 兼容）/ ollama / mock
+# ──────────────────────────────────────────────────────────────────
+llm:
+  brain:
+    ollama:                    # brain 名（自定义，被 default/subagents 引用）
+      url: $OLLAMA_HOST        # 服务地址（$VAR 走 .env）
+      model: gemma3:1b         # 模型名
+      thinking: false          # 该模型有无思考能力（deepseek-r1 等推理模型设 true）
+      provider: ollama         # 适配器：需与 provider 实现对应
+      contextLimit: 8192       # 上下文长度上限（token），供前端用量条显示
+    openai:
+      url: https://api.openai.com/v1
+      model: gpt-3.5-turbo
+      key: $OPENAI_API_KEY     # 门禁卡，建议填 $ENV 走 .env，不明文
+      provider: openai
+      contextLimit: 16385
+    longcat:
+      url: https://api.longcat.chat/openai
+      model: LongCat-Flash-Thinking-2601
+      key: $LONGCAT_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 32768
+    deepseek:
+      url: https://api.deepseek.com
+      model: deepseek-v4-flash
+      key: $DEEPSEEK_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 64000
+    doubao:
+      url: http://yz.xcherry.top:11411/v1
+      model: doubao2.0-pro
+      key: $DOUBAO_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 128000
+    ali_glm5:
+      url: https://coding.dashscope.aliyuncs.com/v1
+      model: glm-5
+      key: $ALI_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 128000
+    shangtang:
+      url: https://yz.xcherry.top:11411/v1
+      model: cglm-5.2
+      key: $SHANG_TANG_API_KE
+      rpm: 2                   # 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流；未配则不限流
+      provider: openai
+      contextLimit: 32768
+    # mock brain：脚本化响应，离线测试 send/resume/revoke/loop（无需真实 LLM）
+    # 脚本内容（repeat + script[]）放独立文件，config 只留开关 + 路径
+    mock_test:
+      model: mock_test
+      provider: mock
+      contextLimit: 8192
+      mock:
+        enabled: true          # 是否启用 mock（缺省 true）
+        file: mock/read_file.yaml  # 脚本路径，相对 .chery 目录
+
+# ──────────────────────────────────────────────────────────────────
+# 感官分组（Sense Groups）——给宠物装配的感官套餐
+# 每组是 sense 名列表，支持两种写法：
+#   read_file              不覆盖监管等级，用感官内置 / 全局默认
+#   execute_command:auto    覆盖该 sense 监管为 auto（可选 auto/confirm/manual）
+# ⚠️ execute_command / write_file 类感官危险（能跑命令/写文件），配 :auto 等于放它自己执行不问你
+# ──────────────────────────────────────────────────────────────────
+sense_groups:
+  all_senses:
+    - read_file
+    - skill
+    - write_file
+    - execute_command
+    - search_codebase
+    - spawn_subagent
+    - update_todo
+  safe_senses:
+    - read_file
+    - skill
+    - search_codebase
+  dangerous_senses:
+    - execute_command
+    - write_file
+  custom_senses:
+    - echo_text
+
+# ──────────────────────────────────────────────────────────────────
+# MCP server（外挂工具站，可选）
+# 每个 server 的 tools/resources/prompts 启动时映射为 Sense：mcp__<server>__<tool|read_resource|get_prompt>
+# 监管优先级：sense_groups 的 :level > mcp_servers.<name>.supervision > global.supervision
+# transport：stdio（本地子进程）/ streamable-http（远程 HTTP）
+# ⚠️ env 注入与远程 server 网络可达性需自行确认
+# ──────────────────────────────────────────────────────────────────
+# mcp_servers:
+#   filesystem:
+#     transport: stdio
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+#     supervision: confirm       # server 级默认监管（auto/confirm/manual）
+#   remote:
+#     transport: streamable-http
+#     url: http://localhost:8081/mcp
+#     supervision: auto
+
+# ──────────────────────────────────────────────────────────────────
+# 全局配置——所有宠物共享的脾气
+# ──────────────────────────────────────────────────────────────────
+global:
+  thinking: true               # 是否开启思考模式（模型支持时）
+  supervision: manual          # 全局默认监管等级：auto=全自动 / confirm=关键事问你 / manual=事事问你
+                               # ⚠️ 降级越低越危险（auto 最放权）；仅当 sense_group 和 sense 自身都未声明时生效
+  stream: true                 # 是否流式输出（边想边说 vs 说完一次给）
+  sense_execute_timeout: 10000 # 感官执行超时（毫秒），默认 30s
+  approval_timeout: 30000      # 审批超时（毫秒），超时视为拒绝（非 abort），默认 30s
+  maxLoopCount: 30             # loop 最大执行次数（默认 30）⚠️ 调高烧钱
+  bash_log_retention_hours: 24 # bash 日志文件保留时长（小时），默认 24
+
+  # 日志配置
+  logger:
+    level: info                # debug / info / warn / error / silent
+    output: [file]             # 输出位置数组：console / file（可同时多处）
+                               # 日志文件自动生成：.chery/logs/{YYYY-MM-DD}.log（output 含 file 时生效）
+    timestamp: true            # 是否显示时间戳
+    location: true             # 是否显示调用位置（文件名:行号）
+    format: plain              # plain / json
+
+  # 文件压缩配置（read_file 感官对大文件截断 / 日志去重）
+  file_compression:
+    truncate_threshold: 50000  # 截断阈值（字节），超过触发截断，默认 150KB
+    truncate_preview_lines: 100  # 截断时保留的行数，默认 100
+    log_file_extensions:       # 日志文件扩展名列表（自动判断走 drain 去重）
+      - .log
+      - .txt
+      - .out
+      - .err
+    drain_preview_count: 3     # Drain 算法每个模板显示的实例数，默认 3
+
+# ──────────────────────────────────────────────────────────────────
+# 服务配置（端口 + 传输格式）
+# 注意：web_port 已废弃，HTTP 静态服务端口改由环境变量 WEB_PORT 指定（默认 8183），
+#       与 electron/main.ts 一致，不再走 config.yaml。
+# ──────────────────────────────────────────────────────────────────
+server:
+  port: 8182                   # WebSocket 服务端口
+  transport: binary            # 传输格式：binary（二进制帧，低开销）/ json（JSON 字符串，便于调试）
