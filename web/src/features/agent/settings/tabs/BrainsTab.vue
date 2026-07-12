@@ -1,23 +1,21 @@
 <script setup lang="ts">
 /**
- * BrainsTab：AI 大脑（llm.brain）配置。
- * 每颗 brain 一张名片；provider 决定方言；key 建议 $ENV 走 .env。
- * 改名 = 删旧 key 加新 key（保序重建）+ 迁移 default/subagents 引用；复制生成 _copy 副本并进入命名态。
- * 删除走 ConfirmPopover 二次确认（删大脑会让引用它的默认宠物/子 agent 启动失败）。
+ * BrainsTab：AI 大脑（llm.brain）配置入口。
+ * 每颗 brain 一张 BrainCard；本组件只负责外壳（hint/warning）+ 媒体服务卡 + 新增行。
+ * 改名/复制/删除/能力矩阵等 per-brain 逻辑已下沉到 BrainCard / MediaCapabilityGrid。
  */
 import { ref } from "vue";
-import { Check, Close, CopyDocument, Delete } from "@element-plus/icons-vue";
 import type { ConfigDto } from "@/services/agentApi";
-import { PROVIDERS } from "../constants";
-import ConfirmPopover from "../ConfirmPopover.vue";
+import BrainCard from "./BrainCard.vue";
 
 const props = defineProps<{ draft: ConfigDto }>();
 const emit = defineEmits<{ (e: "error", msg: string): void }>();
 
 const newBrainName = ref("");
-const editingName = ref<string | null>(null);
-const editValue = ref("");
-const vFocus = { mounted: (el: HTMLElement) => el.querySelector("input")?.focus() };
+
+function onError(msg: string): void {
+  emit("error", msg);
+}
 
 function addBrain(): void {
   const name = newBrainName.value.trim();
@@ -26,137 +24,46 @@ function addBrain(): void {
     emit("error", `大脑 "${name}" 已存在`);
     return;
   }
-  props.draft.llm.brain[name] = { model: "", provider: "openai", contextLimit: 8192 };
+  props.draft.llm.brain[name] = { model: "", provider: "openai", contextLimit: 128000 };
   newBrainName.value = "";
 }
-function removeBrain(name: string): void {
-  delete props.draft.llm.brain[name];
-}
-function startRenameBrain(name: string): void {
-  editingName.value = name;
-  editValue.value = name;
-  emit("error", "");
-}
-function cancelRenameBrain(): void {
-  editingName.value = null;
-  editValue.value = "";
-}
-function commitBrainName(oldName: string): void {
-  const newName = editValue.value.trim();
-  if (!newName || newName === oldName) {
-    editingName.value = null;
-    return;
-  }
-  if (props.draft.llm.brain[newName]) {
-    emit("error", `大脑 "${newName}" 已存在`);
-    return; // 保持编辑态
-  }
-  const cfg = props.draft.llm.brain[oldName];
-  // 重建对象保持原顺序（不能 delete+add，否则新 key 跳到末尾）
-  const brains = props.draft.llm.brain;
-  const rebuilt = {} as typeof brains;
-  for (const [k, v] of Object.entries(brains)) {
-    if (k === oldName) rebuilt[newName] = cfg;
-    else rebuilt[k] = v;
-  }
-  props.draft.llm.brain = rebuilt;
-  // 迁移引用，避免 default/subagents 指向已改名 brain 触发校验失败
-  if (props.draft.default?.brain === oldName) props.draft.default.brain = newName;
-  if (props.draft.subagents) {
-    for (const sa of Object.values(props.draft.subagents)) {
-      if (sa.brain === oldName) sa.brain = newName;
-    }
-  }
-  editingName.value = null;
-  emit("error", "");
-}
-function duplicateBrain(name: string): void {
-  const src = props.draft.llm.brain[name];
-  if (!src) return;
-  let newName = `${name}_copy`;
-  let i = 2;
-  while (props.draft.llm.brain[newName]) newName = `${name}_copy_${i++}`;
-  props.draft.llm.brain[newName] = structuredClone(src);
-  // 进入新 card 命名态，用户可立即改名为所需名
-  editingName.value = newName;
-  editValue.value = newName;
-  emit("error", "");
+
+function mediaService(kind: "image" | "video" | "audio") {
+  const media = (props.draft.media ??= {});
+  return (media[kind] ??= { url: "", enabled: false });
 }
 </script>
 
 <template>
   <section class="sect">
     <p class="sect-hint">每颗 brain 一张「大脑名片」。provider 决定方言（openai/ollama/mock）；key 建议填 $ENV 走 .env，不明文。</p>
-    <p class="warn-hint">⚠️ 删除大脑会让引用它的「默认宠物」「子 agent」启动失败。</p>
-    <article v-for="(cfg, name, idx) in draft.llm.brain" :key="name" class="card">
-      <header class="card-head">
-        <span class="card-idx">{{ idx + 1 }}</span>
-        <span class="card-title">
-          <el-input
-            v-if="editingName === name"
-            v-focus
-            v-model="editValue"
-            class="card-name-input"
-            size="small"
-            @keydown.enter="commitBrainName(name as string)"
-            @keydown.esc="cancelRenameBrain()"
-          />
-          <span v-else class="card-name editable" title="点击改名" @click="startRenameBrain(name as string)">{{ name }}</span>
-        </span>
-        <span class="card-actions">
-          <template v-if="editingName === name">
-            <button type="button" class="icon-btn ok" aria-label="确认改名" @click="commitBrainName(name as string)">
-              <Check class="ico" />
-            </button>
-            <button type="button" class="icon-btn" aria-label="取消" @click="cancelRenameBrain()">
-              <Close class="ico" />
-            </button>
-          </template>
-          <template v-else>
-            <button type="button" class="icon-btn" aria-label="复制" @click="duplicateBrain(name as string)">
-              <CopyDocument class="ico" />
-            </button>
-            <ConfirmPopover :title="`确认删除大脑「${name}」？`" @confirm="removeBrain(name as string)">
-              <template #trigger>
-                <button type="button" class="icon-btn danger" aria-label="删除">
-                  <Delete class="ico" />
-                </button>
-              </template>
-            </ConfirmPopover>
-          </template>
-        </span>
+    <p class="warn-hint">⚠️ 删除大脑会让引用它的「默认宠物」「角色」启动失败。</p>
+    <BrainCard
+      v-for="(cfg, name, idx) in draft.llm.brain"
+      :key="name"
+      :name="name as string"
+      :idx="idx"
+      :cfg="cfg"
+      :draft="draft"
+      @error="onError"
+    />
+    <article class="card media-card">
+      <header class="media-card-head">
+        <div><strong>媒体服务</strong><p class="hint">独立网关用于媒体理解、生成与编辑。</p></div>
+        <label class="field upload-limit"><span class="lbl">上传上限（MiB）</span><el-input-number v-model="(draft.media ??= {}).maxUploadMb" :min="1" :controls="false" placeholder="100" /></label>
       </header>
-      <div class="card-grid">
-        <label class="field">
-          <span class="lbl">provider 适配器</span>
-          <el-select v-model="cfg.provider">
-            <el-option v-for="p in PROVIDERS" :key="p" :label="p" :value="p" />
-          </el-select>
-        </label>
-        <label class="field">
-          <span class="lbl">model 型号 *</span>
-          <el-input v-model="cfg.model" placeholder="gpt-3.5-turbo" />
-        </label>
-        <label class="field">
-          <span class="lbl">url 地址</span>
-          <el-input v-model="cfg.url" placeholder="$OLLAMA_HOST 或 https://..." />
-        </label>
-        <label class="field">
-          <span class="lbl">key 门禁卡</span>
-          <el-input v-model="cfg.key" placeholder="$OPENAI_API_KEY" />
-        </label>
-        <label class="field">
-          <span class="lbl">contextLimit 记忆容量</span>
-          <el-input-number v-model="cfg.contextLimit" :controls="false" />
-        </label>
-        <label class="field">
-          <span class="lbl">rpm 每分钟限额</span>
-          <el-input-number v-model="cfg.rpm" :controls="false" placeholder="不限" />
-        </label>
-        <el-checkbox
-          :model-value="cfg.thinking"
-          @change="(v) => (cfg.thinking = v as boolean)"
-        >thinking 会深思（推理模型设 true）</el-checkbox>
+      <div class="media-service-grid">
+        <section v-for="kind in ['image', 'video', 'audio'] as const" :key="kind" class="media-service-card" :class="{ enabled: mediaService(kind).enabled }">
+          <div class="media-service-title">
+            <strong>{{ kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频' }}服务</strong>
+            <el-switch v-model="mediaService(kind).enabled" />
+          </div>
+          <label class="field"><span class="lbl">网关地址</span><el-input v-model="mediaService(kind).url" class="mono-input" placeholder="https://media-gateway/..." /></label>
+          <div class="media-service-fields">
+            <label class="field"><span class="lbl">模型</span><el-input v-model="mediaService(kind).model" placeholder="可选" /></label>
+            <label class="field"><span class="lbl">密钥</span><el-input v-model="mediaService(kind).key" class="mono-input" placeholder="可选" show-password /></label>
+          </div>
+        </section>
       </div>
     </article>
     <div class="add-row">
@@ -168,4 +75,44 @@ function duplicateBrain(name: string): void {
 
 <style scoped lang="less">
 @import "../shared.less";
+
+.media-card { gap: 12px; }
+
+.media-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+
+  strong { color: rgba(20, 22, 26, 0.84); font-size: 13px; }
+  .hint { margin: 3px 0 0; }
+}
+
+.upload-limit { width: 132px; flex: none; }
+
+.media-service-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.media-service-card {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid rgba(36, 38, 45, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+
+  &.enabled { border-color: rgba(190, 132, 28, 0.32); background: rgba(246, 183, 60, 0.07); }
+}
+
+.media-service-title { display: flex; align-items: center; justify-content: space-between; gap: 6px; color: rgba(20, 22, 26, 0.75); font-size: 12px; }
+
+.media-service-fields { display: grid; gap: 6px; }
+
+@media (max-width: 560px) {
+  .media-service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .upload-limit { width: 128px; }
+}
 </style>

@@ -1,8 +1,8 @@
-import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk, HeartbeatChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk, ChildDoneChunk } from "@/core/middleware/types";
 import type { MiddlewareChunk } from "./index";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
-import { hasHeartbeatListener } from "@/agent/spawnBroker.js";
+import { getWaitedParent } from "@/agent/spawnBroker.js";
 
 /**
  * 创建 agent 层循环策略
@@ -17,6 +17,11 @@ export function createLoopHandler(
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
     let times = 0;
     let stopped = false;  // 区分 break（正常停止）vs while 条件耗尽（避免误报）
+    let failed = false;   // runChain 内 yield ErrorChunk（retry 重试耗尽等）→ 跳过末尾 done yield
+
+    // yieldTurn 仅属于上一轮 spawn(wait=true) 的停止决定；同一 AgentSession 被 resume 时必须重置，
+    // 否则已回传的 role 会在首轮 LLM 调用后再次被旧标记直接截断。
+    ctx.soul.yieldTurn = false;
 
     logger.event("loop.start", { max: maxLoop });
 
@@ -25,7 +30,29 @@ export function createLoopHandler(
 
       logger.event("loop.iter", { n: times });
 
-      yield* runChain();
+      // 本轮开始前清空标记；runChain 期间到达的角色结果会重新置位，
+      // 从而在本轮 assistant 输出后继续处理，而非被末尾 assistant 掩盖。
+      ctx.soul.roleReplyPending = false;
+
+      // 检查 runChain 抛出的 ErrorChunk（retry 重试耗尽后 yield），设 failed=true。
+      // 抛出 ErrorChunk 后不再继续 loop（重试已耗尽，无新驱动）。
+      try {
+        for await (const chunk of runChain()) {
+          if (chunk.type === "error") failed = true;
+          yield chunk;
+          if (failed) break;
+        }
+      } catch (err) {
+        // runChain 直接 throw（非 yield ErrorChunk）：同样标记失败，让错误传播。
+        failed = true;
+        throw err;
+      }
+      if (failed) break;
+
+      if (ctx.soul.roleReplyPending) {
+        logger.event("loop.decision", { decision: "continue", reason: "role-reply-during-run" });
+        continue;
+      }
 
       // 检查 loop 停止条件（基于 ctx.soul.messages）
       const messages = ctx.soul.messages;
@@ -54,9 +81,23 @@ export function createLoopHandler(
         break;
       }
 
+      // T9：yieldTurn（spawn_role wait=true 置位）→ 主 loop 立即结束本 turn
+      // （子完成后后端注入角色回复唤起新一轮）。break（非 continue）跳 maxLoop 误报、done 正常发。
+      if (ctx.soul.yieldTurn) {
+        logger.event("loop.decision", { decision: "stop", reason: "yield-turn" });
+        stopped = true;
+        break;
+      }
+
       // 1. 最后一条是 sense → 刚执行完感官 → 继续 loop（获取 LLM 新响应）
       if (lastVisible.role === "sense") {
         logger.event("loop.decision", { decision: "continue", reason: "last-sense" });
+        continue;
+      }
+
+      // T9：最后一条是角色回复（wait=true 子完成注入，role 或旧历史 subagent）→ 继续 loop（LLM 响应注入的回复）
+      if (lastVisible.role === "role" || lastVisible.role === "subagent") {
+        logger.event("loop.decision", { decision: "continue", reason: "last-role" });
         continue;
       }
 
@@ -82,7 +123,7 @@ export function createLoopHandler(
 
     // 仅当 while 条件耗尽（非 break）才报 max loop 超限。
     // 旧实现 `times >= maxLoop` 在第 maxLoop 轮正常 break 时（times===maxLoop）会误报。
-    if (!stopped && times >= maxLoop) {
+    if (!stopped && !failed && times >= maxLoop) {
       logger.event("loop.max", { max: maxLoop }, LogLevel.warn);
       const errorChunk: ErrorChunk = {
         type: "error",
@@ -97,34 +138,38 @@ export function createLoopHandler(
         ],
       };
       yield errorChunk;
+      failed = true;
     }
 
     logger.event("loop.end", { iterations: times });
 
-    // 整个 loop 正常结束 → 子 agent 任务完成,发 finished 心跳(per-loop,非 per-iter)。
-    // 之前 finished 挂在 heartbeat middleware(per-iter),每轮 runChain 结束都发 → spawn wait=true
-    // 在子首轮 assistant 就 resolve(2026-07-09 chat 27b1dbda 实测:主 +6s 收到子首条 assistant
-    // 误判完成自己重做,子 +77s 工作全废)。移到此处确保只在子彻底完成时发一次。
-    // result = 最后一条 assistant content(spawn wait=true 主 agent 据此 resolve)。
-    // hasHeartbeatListener 守卫:仅被 wait 的子 chat 发,过滤主 agent(主也跑 loop,无 listener)。
-    // 注:runChain 内 throw 路径下 finished 不执行(throw 跳过此处),error 由 heartbeat middleware catch 发。
-    if (hasHeartbeatListener(ctx.soul.chatId)) {
-      const result =
-        ctx.journal.getMessages().filter(m => m.role === "assistant").pop()?.content || "";
-      const finishedHeartbeat: HeartbeatChunk = {
-        type: "heartbeat",
-        heartbeat: {
+    // T9：本 chat 是被 wait 的子（waitedChildren 命中）→ loop 正常结束即子任务完成，
+    // yield child_done 携末条 assistant content（注入主 chat 的回复）。service observer 消费 → wakeParent 唤主。
+    // getWaitedParent 守卫：仅被 wait 的子 chat 发，过滤主 agent / wait=false 子（也跑 loop 但无唤醒链）。
+    // 注：runChain 内 throw 路径下不执行此处（throw 跳过），子 error 由 observer catch → wakeParent(error)。
+    // failed 时不 yield child_done：错误路径下由 observer catch 走 wakeParent(error)。
+    if (!failed) {
+      const waited = getWaitedParent(ctx.soul.chatId);
+      if (waited) {
+        const result =
+          ctx.journal.getMessages().filter(m => m.role === "assistant").pop()?.content || "";
+        const childDone: ChildDoneChunk = {
+          type: "child_done",
           childChatId: ctx.soul.chatId,
-          status: "finished",
-          result,
-          timestamp: Date.now(),
-        },
-      };
-      yield finishedHeartbeat as unknown as MiddlewareChunk;
+          content: result,
+        };
+        yield childDone;
+      }
     }
 
-    // loop 结束后 yield done（表示整个流程完成）
-    const doneChunk: DoneChunk = { type: "done" };
-    yield doneChunk;
+    // loop 结束后 yield done（表示整个流程完成）。
+    // 失败路径（retry yield ErrorChunk / max loop 超限）跳过 done：让 streamMapper 不下发 done notification，
+    // send.ts 据 collected failure message 填 failureResponse，最终 Response.success=false。
+    if (!failed) {
+      const doneChunk: DoneChunk = { type: "done" };
+      yield doneChunk;
+    } else {
+      logger.event("loop.end.failed", { iterations: times }, LogLevel.warn);
+    }
   };
 }

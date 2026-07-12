@@ -37,7 +37,7 @@ describe("spike: 核心链路验证", () => {
     const create = await client.call("chat.create", {
       chatId,
       brain: "mock_content",
-      senseGroups: ["auto_senses"],
+      senseGroup: "auto_senses",
     });
     expect(create.success).toBe(true);
     expect((create.data as { chatId: string }).chatId).toBe(chatId);

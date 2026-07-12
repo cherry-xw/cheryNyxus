@@ -1,0 +1,188 @@
+import type { Ref } from "vue";
+import { agentApi, type ChatSendAttachment, type RuntimeSelection } from "@/services/agentApi";
+import { generatePet, GHOST_FACES } from "@/features/pets/petPresets";
+import { findSpawnPosition } from "@/features/pets/petMovement";
+import { createPetInstance } from "@/features/pets/usePetWorld";
+import type { PetInstance, PetMood } from "@/features/pets/types";
+import type { ChatSummary } from "@/services/agentApi";
+import type { StreamState } from "./types";
+import { defaultBounds } from "./streamAccumulator";
+import { collectDescendantChatIds } from "./historyMerge";
+
+/**
+ * 按 tribe（同主）内创建序号顺序取灵魂 emoji：第 N 个 ghost = GHOST_FACES[N % 池长]。
+ * N = 本 tribe 已存在 ghost 数（排除 self，避 done 实时分支自指：pet 已在 pets 且 isGhost=true）。
+ * 非随机、不跨实例去重--「每个主 pet 后面按顺序排列」：同主 ghost 固定序列 0,1,2...，
+ * 不同主可同 emoji（空间分离可辨）。face 序号 = 队列序号（ghostCreatedAt 顺序），face 与队列位一一对应。
+ * done 实时 + buildMasterAndChildren 重建两处共用。
+ */
+export function pickGhostFace(tribe: string, pets: readonly PetInstance[], selfId?: string): string {
+  const count = pets.filter((p) => p.isGhost && p.tribe === tribe && p.instanceId !== selfId).length;
+  return GHOST_FACES[count % GHOST_FACES.length] ?? "👻";
+}
+
+/**
+ * 子 chat 历史角色重映射：assistant→role / user→master，附 subPetChatId + callerSubPetChatId。
+ * 合并主视图子 chat + ghost 自身抽屉（子 chat 自身载入）共用——使主 agent 发的 spawn prompt
+ * （DB 存 role:user）显为 master 而非 user。已为 role/master 的项原样透传。
+ * callerSubPetChatId = 父 chat（主 chat 或上层 sub chat）— 用于 MessageBubble 徽章区分 caller。
+ */
+export function remapChildHistory(
+  items: readonly import("./types").HistoryItem[],
+  childChatId: string,
+  parentChatId: string,
+): import("./types").HistoryItem[] {
+  return items.map((item) => {
+    if (item.role === "assistant") return { ...item, role: "role" as const, subPetChatId: childChatId, callerSubPetChatId: parentChatId };
+    if (item.role === "user") return { ...item, role: "master" as const, subPetChatId: childChatId, callerSubPetChatId: parentChatId };
+    return item;
+  });
+}
+
+export function createPetLifecycle(
+  pets: Ref<PetInstance[]>,
+  streams: Ref<Record<string, StreamState>>,
+  historyList: Ref<ChatSummary[]>,
+  historyListOpen: Ref<boolean>,
+  getRuntime: (chatId: string) => RuntimeSelection | undefined,
+  setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
+  removePetsByIds: (removeIds: string[]) => void,
+) {
+  /**
+   * 从 chat 摘要建主 pet + 全部后代子 pet，push 进 pets（CP8 抽出，initFromChats / loadSession 复用）。
+   * 主 pet = kaomoji face，子 pet = emoji face 落主附近（findSpawnPosition）。
+   * face 去重：usedFaces 跨调用累积，避同批撞脸。
+   */
+  function buildMasterAndChildren(
+    masterSummary: ChatSummary,
+    allChats: ChatSummary[],
+    bounds: { width: number; height: number },
+    usedFaces: Set<Record<PetMood, string>>,
+  ): void {
+    const preset = generatePet("kaomoji", usedFaces);
+    usedFaces.add(preset.face);
+    const master = createPetInstance(preset, bounds, true, undefined, { chatId: masterSummary.chatId });
+    master.preset = masterSummary.preset;
+    master.canResume = masterSummary.canResume;
+    pets.value.push(master);
+
+    const visited = new Set<string>([masterSummary.chatId]);
+    const addChildren = (parentSummary: ChatSummary, parentPet: PetInstance): void => {
+      const children = allChats
+        .filter((c) => c.parentChatId === parentSummary.chatId)
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+      for (const child of children) {
+        if (visited.has(child.chatId)) {
+          console.warn("[agents] 跳过循环 parentChatId", { chatId: child.chatId, parentChatId: child.parentChatId });
+          continue;
+        }
+        visited.add(child.chatId);
+        const sub = generatePet("emoji", usedFaces);
+        usedFaces.add(sub.face);
+        const pet = createPetInstance(sub, bounds, false, master.instanceId, {
+          chatId: child.chatId,
+          parentChatId: parentSummary.chatId,
+          finished: child.finished,
+        });
+        if (child.finished) {
+          pet.ghostFace = pickGhostFace(master.instanceId, pets.value, pet.instanceId);
+          pet.ghostCreatedAt = performance.now();
+        }
+        const pos = findSpawnPosition({ x: parentPet.x, y: parentPet.y }, pets.value, bounds);
+        pet.x = pos.x;
+        pet.y = pos.y;
+        pet.targetX = pos.x;
+        pet.targetY = pos.y;
+        pets.value.push(pet);
+        addChildren(child, pet);
+      }
+    };
+    addChildren(masterSummary, master);
+  }
+
+  /**
+   * 创建主 agent（FAB 点击触发，CP2 接 AgentFab）。
+   * 调 chat.create → 主 pet 入 pets。返回新 chatId。
+   * opts 必填（brain/senseGroups 来自 config.default，CP2 由调用方读取）。
+   */
+  async function createMasterPet(opts: {
+    /** 预设名（T6）：给出则后端从预设解析编制，brain/senseGroup 可省 */
+    preset?: string;
+    brain?: string;
+    senseGroup?: string;
+    mcpServers?: string[];
+    chatId?: string;
+  }): Promise<string> {
+    const result = await agentApi.createAgent(opts);
+    const chatId = result.chatId;
+    const bounds = defaultBounds();
+    const usedFaces = new Set(pets.value.map((p) => p.face));
+    const preset = generatePet("kaomoji", usedFaces);
+    const pet = createPetInstance(preset, bounds, true, undefined, { chatId });
+    // 记录初始 runtime（后端响应回填：预设路径编制由后端解析；显式路径 = 传入值）+ 预设名。
+    // AgentDialog 首次发送对比 = 相同（无需 runtime.set）；preset pet 切 brain-only。
+    pet.preset = opts.preset;
+    pet.runtime = {
+      brain: result.brain,
+      senseGroup: result.senseGroup,
+      mcpServers: [...result.mcpServers],
+    };
+    pets.value.push(pet);
+    return chatId;
+  }
+
+  /**
+   * 隐藏 stage pet（CP8：仅前端移除，**不删 DB**）。主 pet 隐藏 → 自身及全部后代子 pet 移除。
+   * runtime 随 pet 移除丢失（loadSession 重建后退 default 预选）；清 streams/active 焦点。
+   * 调用方须保证非 isWorking（PetToolbar destroy 按钮 disabled 守卫：pet.isWorking || hasWorkingChild）。
+   */
+  function hide(chatId: string): void {
+    const removeIds = [
+      chatId,
+      ...collectDescendantChatIds(pets.value, chatId),
+    ];
+    removePetsByIds(removeIds);
+  }
+
+  /**
+   * 删除会话（CP8：会话列表 ✕ 调用）。后端 chat.delete 级联全部后代 chat，
+   * 前端同步移除 historyList + pets（若在 stage）+ active 焦点。
+   */
+  async function deleteSession(chatId: string): Promise<void> {
+    await agentApi.destroyAgent(chatId);
+    const childIds = collectDescendantChatIds(historyList.value, chatId);
+    const removeIds = [chatId, ...childIds];
+    historyList.value = historyList.value.filter((c) => !removeIds.includes(c.chatId));
+    removePetsByIds(removeIds);
+  }
+
+  /**
+   * 从历史列表加载会话到 stage（CP8）。建主+子 pet 入 pets（允许 >5，不挤）。
+   * 已在 stage 则仅关抽屉；historyList 缺该会话则 warn（fail loud）。
+   */
+  function loadSession(chatId: string): void {
+    if (pets.value.some((p) => p.chatId === chatId)) {
+      historyListOpen.value = false;
+      return;
+    }
+    const masterSummary = historyList.value.find((c) => c.chatId === chatId);
+    if (!masterSummary) {
+      console.warn("[agents] loadSession: 会话不在 historyList", chatId);
+      return;
+    }
+    const bounds = defaultBounds();
+    const usedFaces = new Set(pets.value.map((p) => p.face));
+    buildMasterAndChildren(masterSummary, historyList.value, bounds, usedFaces);
+    historyListOpen.value = false;
+  }
+
+  return {
+    buildMasterAndChildren,
+    createMasterPet,
+    hide,
+    deleteSession,
+    loadSession,
+    pickGhostFace,
+    remapChildHistory,
+  };
+}

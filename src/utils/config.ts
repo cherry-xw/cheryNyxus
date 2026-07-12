@@ -4,19 +4,19 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { SupervisionLevel } from "@/core/config";
+import type { OAuth2Config } from "@/service/auth/index.js";
 
-// ESM 模块中获取 __dirname
+// .env 路径：源码运行时 __dirname = src/utils/（需 ../..），打包产物 __dirname = dist/（需 ..）。
+// dotenv.config() 不覆盖已存在的 process.env 变量，故开发/生产均可安全调用：
+// 生产部署通常无 .env 文件，existsSync 短路；有 .env 时也只填充未设置的变量。
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// 根目录 .env（从 src/utils/ 向上两级）
-// tsx 运行时: __dirname = src/utils/ → rootEnvPath = src/../.env = 项目根
-const rootEnvPath = path.join(__dirname, "..", "..", ".env");
+const isSourceRuntime = path.basename(path.dirname(__dirname)) === "src";
+const rootEnvPath = isSourceRuntime
+  ? path.join(__dirname, "..", "..", ".env")
+  : path.join(__dirname, "..", ".env");
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
-} else {
-  // 回退到 dist/.env（生产环境）
-  dotenv.config({ path: path.join(__dirname, ".env") });
 }
 
 // 从 core 层重新导出 SupervisionLevel
@@ -48,6 +48,35 @@ interface MockConfig {
   file: string;
 }
 
+/** 模型声明的媒体能力。 */
+export interface MediaCapabilities {
+  image?: boolean;
+  video?: boolean;
+  audio?: boolean;
+}
+
+/** 缺省兼容旧配置：toolCall=true，其余能力=false。 */
+export interface BrainCapabilities {
+  toolCall?: boolean;
+  input?: MediaCapabilities;
+  generate?: MediaCapabilities;
+}
+
+/** 外部媒体网关；三个类型分别配置，统一使用项目定义的媒体请求协议。 */
+export interface MediaServiceConfig {
+  url: string;
+  model?: string;
+  key?: string;
+  enabled?: boolean;
+}
+
+export interface MediaConfig {
+  image?: MediaServiceConfig;
+  video?: MediaServiceConfig;
+  audio?: MediaServiceConfig;
+  maxUploadMb?: number;
+}
+
 /**
  * Brain 配置基础类型
  * 各 Provider 可扩展具体配置结构
@@ -64,8 +93,9 @@ interface BrainConfig {
   rpm?: number;
   /** mock provider 专用：脚本化响应 */
   mock?: MockConfig;
-  /** 上下文长度上限（token），供前端 context bar 显示用量。缺省由前端兜底 */
+  /** 记忆容量（KB），供前端 context bar 显示用量（后端按 KB×256 折算 token 预算）。缺省兜底 */
   contextLimit?: number;
+  capabilities?: BrainCapabilities;
 }
 
 interface LLMConfig {
@@ -73,24 +103,34 @@ interface LLMConfig {
 }
 
 /**
- * 默认 agent 配置（FAB 创建主 pet 用，主从 Agent 桌宠系统 CP2）。
- * brain/senseGroups/mcpServers 与 chat.create/runtime.set 同字段语义。
+ * 角色配置（spawn_role sense 按 type 查这里；预设 leader 角色亦由此定义）。
+ * 名 = 给 AI 的角色名；brain 必须存在于 llm.brain（loadConfig 校验）。
+ * systemPrompt = 专属 system prompt 文件路径（相对 .chery 目录，类比 global.system_prompt）；
+ *   缺省 → 角色用全局 system_prompt。per-role system prompt（T7）。
  */
-export interface DefaultAgentConfig {
+export interface RoleConfig {
   brain: string;
-  senseGroups: string[];
-  /** 缺省 []（关闭所有 MCP） */
+  /** 单一感官组（每 agent 恰一个 sense group） */
+  senseGroup: string;
+  /** 启用的 MCP server 名（缺省 []，与主 agent 平权） */
   mcpServers?: string[];
+  systemPrompt?: string;
 }
 
 /**
- * 子 agent 类型配置（spawn_subagent sense 按 type 查这里）。
- * 名 = 给 AI 的子 agent 名；brain 必须存在于 llm.brain（loadConfig 校验）。
+ * 预设：选中的角色 type 列表（引用 config.roles 单一源，不在预设内重定义编制）+ 指定组长。
+ * 主 pet 启动选一套，编制运行后不可改；主 pet 编制取 leader 角色的 RoleConfig。
+ * 旧 config.default 已并入「默认」预设（DEFAULT_PRESET_NAME）。
  */
-export interface SubagentConfig {
-  brain: string;
-  senseGroups: string[];
+export interface PresetConfig {
+  /** 组长角色 type 名（必填，必须 ∈ config.roles 且 ∈ 下属 roles 列表）；主 pet 编制取此角色 */
+  leader: string;
+  /** 选中的角色 type 名（引用 config.roles 已定义的键，不在预设内重定义） */
+  roles?: string[];
 }
+
+/** 默认预设名：旧 config.default 迁移目标。/api/config default 字段 + brain.list default 标记据此派生 */
+export const DEFAULT_PRESET_NAME = "默认";
 
 /**
  * 文件压缩配置
@@ -134,6 +174,10 @@ interface GlobalConfig {
 interface ServerConfig {
   port: number; // WebSocket 服务端口
   transport: "binary" | "json"; // 传输格式：binary（二进制帧）/ json（JSON 字符串）
+  /** Keep localhost by default; set 0.0.0.0 or an intranet address behind TLS/reverse proxy. */
+  host?: string;
+  /** OIDC/OAuth2 authorization-code login for browser control-plane access. */
+  auth?: OAuth2Config;
 }
 
 /**
@@ -157,19 +201,21 @@ interface ExtendedGlobalConfig extends GlobalConfig {
   skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
   senses_dir: string; // 自动补全：chery_dir + "/.chery/senses"
   system_prompt: string; // 自动补全：chery_dir + "/.chery/system.md"
+  prompts_dir: string; // 自动补全：chery_dir + "/.chery/prompts"（per-agent system prompt 目录，listPrompts 遍历）
   db_dir: string; // 自动补全：chery_dir + "/db"
 }
 
 interface Config {
   global: ExtendedGlobalConfig;
   llm: LLMConfig;
+  media?: MediaConfig;
   sense_groups?: Record<string, string[]>; // sense分组配置
   mcp_servers?: Record<string, McpServerConfig>; // MCP server 配置（name → 连接参数 + server 级监管默认）
   server: ServerConfig; // 服务配置（端口 + 传输格式，loadConfig 兜底默认值）
-  /** 默认主 agent 配置（FAB 创建主 pet 用）。缺省时前端走自带兜底 */
-  default?: DefaultAgentConfig;
-  /** 子 agent 类型模块（spawn_subagent sense 按 type 查） */
-  subagents?: Record<string, SubagentConfig>;
+  /** 角色模块（spawn_role sense 按 type 查；单一源，预设按 type 引用） */
+  roles?: Record<string, RoleConfig>;
+  /** 预设：命名编制包（leader 角色 + 选中角色 type 列表），主 pet 启动选一套。旧 config.default 已并入「默认」预设 */
+  presets?: Record<string, PresetConfig>;
 }
 
 /**
@@ -192,10 +238,11 @@ interface McpServerConfigRaw extends Omit<McpServerConfig, "supervision"> {
 interface ConfigRaw {
   global: GlobalConfigRaw;
   llm: LLMConfig;
+  media?: MediaConfig;
   sense_groups?: Record<string, string[]>;
   mcp_servers?: Record<string, McpServerConfigRaw>;
-  default?: DefaultAgentConfig;
-  subagents?: Record<string, SubagentConfig>;
+  roles?: Record<string, RoleConfig>;
+  presets?: Record<string, PresetConfig>;
 }
 
 const missingEnvVars: string[] = [];
@@ -272,10 +319,23 @@ function loadConfig(): Config {
     }
   }
 
+  // roles.*.systemPrompt 相对路径 → 绝对（相对 .chery 目录，类比 global.system_prompt 补全）。
+  // spawn sense 存 metadata.promptPathOverride（绝对），buildFirstSystemPrompt 实时读取；
+  // 预设 leader 编制取 config.roles[leader]，其 systemPrompt 在此统一解析，预设无需再单独补全。
+  if (config.roles) {
+    const roleCheryDir = process.env.CHERY_DIR || process.cwd();
+    for (const cfg of Object.values(config.roles)) {
+      if (cfg.systemPrompt && !path.isAbsolute(cfg.systemPrompt)) {
+        cfg.systemPrompt = path.join(roleCheryDir, ".chery", cfg.systemPrompt);
+      }
+    }
+  }
+
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
   config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
+  config.global.prompts_dir = path.join(cheryDir, ".chery", "prompts");
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
 
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 WEB_PORT 环境变量）
@@ -283,6 +343,8 @@ function loadConfig(): Config {
   config.server = {
     port: serverRaw?.port ?? 8182,
     transport: serverRaw?.transport === "json" ? "json" : "binary",
+    host: serverRaw?.host ?? "127.0.0.1",
+    auth: serverRaw?.auth,
   };
 
   // 添加环境变量缺失警告
@@ -389,18 +451,51 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   for (const [name, cfg] of brainEntries) {
     if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`);
     if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`);
-  }
-
-  // default.brain / subagents.*.brain 必须存在于 llm.brain
-  if (raw.default) {
-    if (!brainNames.includes(raw.default.brain)) {
-      errors.push(`default.brain "${raw.default.brain}" 不在 llm.brain 列表（可用：${brainNames.join(", ")})`);
+    if (cfg?.capabilities?.generate && cfg.capabilities.toolCall === false && Object.values(cfg.capabilities.generate).some(Boolean)) {
+      errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`);
     }
   }
-  if (raw.subagents) {
-    for (const [name, cfg] of Object.entries(raw.subagents)) {
+
+  // roles.*.brain 必须存在于 llm.brain；roles.*.systemPrompt 文件存在性（相对 .chery 目录解析；绝对路径原样）。
+  if (raw.roles) {
+    const cheryDir = process.env.CHERY_DIR || process.cwd();
+    for (const [name, cfg] of Object.entries(raw.roles)) {
       if (!brainNames.includes(cfg.brain)) {
-        errors.push(`subagents.${name}.brain "${cfg.brain}" 不在 llm.brain 列表（可用：${brainNames.join(", ")})`);
+        errors.push(`roles.${name}.brain "${cfg.brain}" 不在 llm.brain 列表（可用：${brainNames.join(", ")})`);
+      }
+      const brain = raw.llm?.brain?.[cfg.brain];
+      if (brain?.capabilities?.toolCall === false && (cfg.senseGroup || cfg.mcpServers?.length)) {
+        errors.push(`roles.${name} 使用不支持 Tool Call 的 brain 时不能配置 senseGroup 或 mcpServers`);
+      }
+      if (cfg.systemPrompt) {
+        const p = path.isAbsolute(cfg.systemPrompt)
+          ? cfg.systemPrompt
+          : path.join(cheryDir, ".chery", cfg.systemPrompt);
+        if (!fs.existsSync(p)) {
+          errors.push(`roles.${name}.systemPrompt 文件不存在: ${cfg.systemPrompt}（解析: ${p}）`);
+        }
+      }
+    }
+  }
+
+  // 预设：leader 必填、必须 ∈ config.roles 且 ∈ 该预设 roles 列表；roles[*] 引用的 type 必存在于 config.roles。
+  // 主 pet 编制取 leader 角色的 RoleConfig（brain/senseGroup/mcp/systemPrompt），故 leader 合法性即 main 编制合法性。
+  if (raw.presets) {
+    const roleNames = Object.keys(raw.roles ?? {});
+    for (const [pname, pcfg] of Object.entries(raw.presets)) {
+      const members = pcfg?.roles ?? [];
+      if (!pcfg?.leader) {
+        errors.push(`presets.${pname}.leader 必填（组长角色）`);
+      } else if (!roleNames.includes(pcfg.leader)) {
+        errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在 config.roles 列表（可用：${roleNames.join(", ") || "（未配置任何角色）"}）`);
+      } else if (!members.includes(pcfg.leader)) {
+        errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在其 roles 成员列表中`);
+      }
+      // roles 成员为 type 名引用（string[]），每个必须存在于 config.roles
+      for (const type of members) {
+        if (!roleNames.includes(type)) {
+          errors.push(`presets.${pname}.roles 引用未知角色类型 "${type}"（可用：${roleNames.join(", ") || "（未配置任何角色）"}）`);
+        }
       }
     }
   }
@@ -442,5 +537,5 @@ export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; e
   return { ok: true };
 }
 
-export type { Config, ConfigRaw, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig };
+export type { Config, ConfigRaw, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig, ServerConfig };
 export default config;

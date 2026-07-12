@@ -25,7 +25,7 @@ const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 async function createPendingChat(app: AppHandle, chatId: string, brain: string): Promise<void> {
   const c = new FlowRpcClient(app.url);
   await c.connect();
-  await c.call("chat.create", { chatId, brain, senseGroups: ["confirm_senses"] });
+  await c.call("chat.create", { chatId, brain, senseGroup: "confirm_senses" });
   const flow = c.beginStream("chat.send", { chatId, prompt: "写文件" });
   await flow.waitFor(
     (e) => e.kind === "notification" && (e as { type: string }).type === "interrupt",
@@ -90,7 +90,7 @@ describe("恢复流程", () => {
     const c = new FlowRpcClient(app.url);
     await c.connect();
     // runtime.set 重建 runtime（ensureChat 新 builder + loadHistory pending），不 createChat 避免冲突
-    await c.call("runtime.set", { chatId, brain: "mock_recover_2", senseGroups: ["confirm_senses"] });
+    await c.call("runtime.set", { chatId, brain: "mock_recover_2", senseGroup: "confirm_senses" });
 
     const flow = c.beginStream("chat.resume", { chatId });
 
@@ -141,7 +141,7 @@ describe("恢复流程", () => {
     clearChatRuntime(chatId);
     const c = new FlowRpcClient(app.url);
     await c.connect();
-    await c.call("runtime.set", { chatId, brain: "mock_recover_3", senseGroups: ["confirm_senses"] });
+    await c.call("runtime.set", { chatId, brain: "mock_recover_3", senseGroup: "confirm_senses" });
     const flow = c.beginStream("chat.send", { chatId, prompt: "重新处理" });
 
     // 撤回 chunk（staged type=reverse, messageIds）

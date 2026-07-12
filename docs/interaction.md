@@ -18,7 +18,7 @@
    "data":{"brains":[{"name":"longcat","provider":"ollama","model":"gemma3:1b","thinking":true,"default":true,"senseGroups":["safe","danger"]}],"mcpServers":["filesystem"]}}
 ```
 
-> `senseGroups` 返回全局全量分组，每个 brain 相同。`default` 标记是否为 `config.default.brain`。
+> `senseGroups` 返回全局全量分组，每个 brain 相同。`default` 标记是否为「默认」预设 leader 角色使用的 brain。
 
 ### sense.list
 
@@ -47,23 +47,23 @@
 
 ```json
 → {"id":"r3","kind":"request","method":"runtime.set",
-   "params":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
+   "params":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"]}}
 ← {"id":"a3","kind":"response","requestId":"r3","success":true,
-   "data":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
+   "data":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"]}}
 ```
 
-> 前置：chat 必须已存在。每轮可换 brain + senseGroups + mcpServers。`mcpServers` 缺省为空数组。
+> 前置：chat 必须已存在。每轮可换 brain + senseGroup + mcpServers。`mcpServers` 缺省为空数组。
 
 ### chat.create
 
 ```json
 → {"id":"r4","kind":"request","method":"chat.create",
-   "params":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
+   "params":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"]}}
 ← {"id":"a4","kind":"response","requestId":"r4","success":true,
-   "data":{"chatId":"c1","brain":"longcat","senseGroups":["safe"],"mcpServers":["filesystem"]}}
+   "data":{"chatId":"c1","brain":"longcat","senseGroup":"safe","mcpServers":["filesystem"]}}
 ```
 
-> `chatId` 可选（不传服务端生成 UUID）。必带 brain + senseGroups，可选 mcpServers。创建时一次性加载历史到内存，并把 runtime selection 持久化到 chat metadata。
+> `chatId` 可选（不传服务端生成 UUID）。必带 brain + senseGroup，可选 mcpServers。创建时一次性加载历史到内存，并把 runtime selection 持久化到 chat metadata。
 
 ### chat.list
 
@@ -104,6 +104,24 @@
 
 > `approvalId` = sense_end 的 id。confirm 后触发 approvalPromise resolve，senseMiddleware 继续。
 
+### utils.models
+
+```json
+// 成功（openai）
+→ {"id":"ru1","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://api.openai.com/v1","key":"sk-..."}}
+← {"id":"au1","kind":"response","requestId":"ru1","success":true,"data":{"models":[{"id":"gpt-4o","name":"gpt-4o","ownedBy":"system"},{"id":"gpt-4o-mini","name":"gpt-4o-mini","ownedBy":"system"}]}}
+
+// 成功（ollama）
+→ {"id":"ru2","kind":"request","method":"utils.models","params":{"provider":"ollama","url":"http://localhost:11434"}}
+← {"id":"au2","kind":"response","requestId":"ru2","success":true,"data":{"models":[{"id":"llama3","name":"llama3"},{"id":"qwen2:7b","name":"qwen2:7b"}]}}
+
+// 失败（url/key 无效、provider 不支持等）— models 空数组 + error 字段，非 RpcError
+→ {"id":"ru3","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://invalid.example.com/v1","key":"bad"}}
+← {"id":"au3","kind":"response","requestId":"ru3","success":true,"data":{"models":[],"error":"connect ECONNREFUSED"}}
+```
+
+> 独立工具方法，不依赖 chat/brain 运行时。后续该模块会扩展其他便捷信息查询工具。
+
 ---
 
 ## 流式方法
@@ -115,7 +133,7 @@
 
 // 每条历史消息拆成 staged chunk（带 role）；content_end 带 runtime（user=发送时配置，assistant=前一条 user runtime，供前端 hover 显该消息用的 brain/工具）
 ← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"thinking_end","role":"assistant","thinking":"..."}}
-← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"content_end","role":"assistant","content":"你好","runtime":{"brain":"longcat","senseGroups":["default"],"mcpServers":[]}}}
+← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"content_end","role":"assistant","content":"你好","runtime":{"brain":"longcat","senseGroup":"default","mcpServers":[]}}}
 ← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"sense_end","role":"sense","senseName":"read_file","arguments":"{...}"}}
 
 // 历史发完
@@ -141,11 +159,11 @@
 // 1. 输入已消费
 ← {"kind":"notification","type":"consumed","requestId":"r9","data":{"count":1}}
 
-// 2. LLM 流式增量（二进制帧，seq 递增）
-← {"kind":"chunk","type":"stream","requestId":"r9","seq":1,"data":{"content":"我来"}}
-← {"kind":"chunk","type":"stream","requestId":"r9","seq":2,"data":{"content":"读取"}}
-← {"kind":"chunk","type":"stream","requestId":"r9","seq":3,"data":{"thinking":"..."}}
-← {"kind":"chunk","type":"stream","requestId":"r9","seq":4,"data":{"senseCall":[{"index":0,"id":"call_abc","name":"read_file","arguments":"{\"path\":\"/a.txt\"}"}]}}
+// 2. LLM 流式增量（二进制帧；传输层不提供 seq、ack 或重放语义）
+← {"kind":"chunk","type":"stream","requestId":"r9","data":{"content":"我来"}}
+← {"kind":"chunk","type":"stream","requestId":"r9","data":{"content":"读取"}}
+← {"kind":"chunk","type":"stream","requestId":"r9","data":{"thinking":"..."}}
+← {"kind":"chunk","type":"stream","requestId":"r9","data":{"senseCall":[{"index":0,"id":"call_abc","name":"read_file","arguments":"{\"path\":\"/a.txt\"}"}]}}
 
 // 3. 阶段完成（JSON 帧）
 ← {"kind":"chunk","type":"staged","requestId":"r9","data":{"type":"thinking_end","thinking":"..."}}
@@ -158,7 +176,7 @@
    "data":{"approvalId":"call_abc","senseName":"read_file","result":"1\t文件内容..."}}
 
 // 5. 第二轮 LLM 基于结果回复（loop 继续）
-← {"kind":"chunk","type":"stream","requestId":"r9","seq":5,"data":{"content":"文件内容是..."}}
+← {"kind":"chunk","type":"stream","requestId":"r9","data":{"content":"文件内容是..."}}
 ← {"kind":"chunk","type":"staged","requestId":"r9","data":{"type":"content_end","content":"文件内容是..."}}
 
 // 6. 结束
@@ -192,7 +210,7 @@ C→S sense.approval {action:"accept"}
 ← {"kind":"notification","type":"accept","requestId":"r10","data":{"approvalId":"call_abc","senseName":"read_file","result":"..."}}
 
 // 后续轮次正常调 LLM 继续
-← {"kind":"chunk","type":"stream","requestId":"r10","seq":1,"data":{"content":"文件内容是..."}}
+← {"kind":"chunk","type":"stream","requestId":"r10","data":{"content":"文件内容是..."}}
 ← {"kind":"chunk","type":"staged","requestId":"r10","data":{"type":"content_end","content":"文件内容是..."}}
 ← {"kind":"notification","type":"done","requestId":"r10","data":null}
 
@@ -218,7 +236,7 @@ C→S sense.approval {action:"accept"}
 ```text
 C→S brain.list                    → response(brains)
 C→S sense.list                    → response(senseGroups)
-C→S chat.create {brain,senseGroups,mcpServers?} → response(chatId,brain,senseGroups,mcpServers)
+C→S chat.create {brain,senseGroup,mcpServers?} → response(chatId,brain,senseGroup,mcpServers)
 C→S chat.send {prompt}
   ← consumed {count:1}
   ← stream.content ×N

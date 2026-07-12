@@ -4,7 +4,7 @@
 
 ## 职责
 
-agent 层是 core 抽象层的**具体实现**：装配 AgentSession 实例、注册内置 Provider Adapter、定义并加载内置/外部 Sense、构建 system prompt、解析 runtime（brain + senseGroups + mcpServers），以及把 chat.send/resume 等高层调用翻译为 Middleware 洋葱链的执行。
+agent 层是 core 抽象层的**具体实现**：装配 AgentSession 实例、注册内置 Provider Adapter、定义并加载内置/外部 Sense、构建 system prompt、解析 runtime（brain + senseGroup + mcpServers），以及把 chat.send/resume 等高层调用翻译为 Middleware 洋葱链的执行。
 
 agent 层**不**直接处理 WebSocket / DB / 审批副作用——这些由 [service 层](../service/README.md) 的 observer 消费 agent 输出的 effect chunk 完成。agent 仅通过 chunk 类型（`message_created`/`message_updated`/`sense_pending`）声明副作用意图。
 
@@ -34,7 +34,7 @@ chat.send → AgentBuilder.run(input)
 |------|------|
 | [bootstrap.ts](../../src/agent/bootstrap.ts) | `bootstrapAgentRuntime()`：启动期一次性注册 Provider + 重建 Sense registry |
 | [builder.ts](../../src/agent/builder.ts) | `AgentBuilder`：AgentSession 工厂 + RuntimeConfig 装配 + 门面方法转发 |
-| [runtimeResolver.ts](../../src/agent/runtimeResolver.ts) | `RuntimeResolver`：原子解析 brain（→adapters）+ senseGroups（→builtSenses + senseTable） |
+| [runtimeResolver.ts](../../src/agent/runtimeResolver.ts) | `RuntimeResolver`：原子解析 brain（→adapters）+ senseGroup（→builtSenses + senseTable） |
 
 ### 子目录
 
@@ -52,7 +52,7 @@ chat.send → AgentBuilder.run(input)
 ```text
 bootstrap.ts    ── 启动期一次性：registerBuiltinProviders() + reloadSenses() + loadMcpSenses()
                                     （进程级 registry，全局共享）
-runtimeResolver ── 每轮可换：brain + senseGroups + mcpServers → RuntimeConfig
+runtimeResolver ── 每轮可换：brain + senseGroup + mcpServers → RuntimeConfig
                                     （原子解析，校验严格）
 builder.ts      ── 每 chat 一个：build() + configureRuntime() + init()
                                     （门面方法转发 AgentSession）
@@ -79,7 +79,7 @@ export async function bootstrapAgentRuntime(): Promise<void> {
 // runtimeResolver.ts
 export interface RuntimeSelection {
   brain: string;            // brain 名称（→ config.llm.brain[name]）
-  senseGroups: string[];    // 感官组名数组（→ config.sense_groups[name]）
+  senseGroup: string;       // 感官组名；无 Tool Call brain 时为空字符串
   mcpServers: string[];     // 启用的 MCP server 名数组（已连接 server 的全部 MCP sense 合并进 schema）
 }
 
@@ -98,6 +98,8 @@ export class RuntimeResolver {
 | `senseTable` | `Map<name, SenseEntry>` | name → 监管等级 + 执行器 |
 
 `mcpServers` 绕过 `sense_groups`：enabled server 的全部 `mcp__<server>__*` sense 会合并进 `builtSenses/senseTable`，监管等级来自 MCP server 默认值。启用未连接 server 会 fail loud。
+
+**能力约束：** `brain.capabilities.toolCall !== false` 时必须选择非空 `senseGroup`；`toolCall:false` 时 `senseGroup` 必须为空且 `mcpServers` 必须为空，resolver 返回空 `builtSenses/senseTable`。`generate_image/video/audio` 仅在 brain 的 `capabilities.generate.<kind>` 为真时进入 schema。完整能力与媒体链见 [../model-capabilities.md](../model-capabilities.md)。
 
 **监管等级优先级链**（[runtimeResolver.ts resolveSense](../../src/agent/runtimeResolver.ts)）：
 
@@ -119,7 +121,7 @@ global.supervision
 // builder.ts
 const agent = new AgentBuilder()
   .build()                                  // ① 创建空 AgentSession（注入 global/handlers/loopHandler）
-  .configureRuntime({ brain, senseGroups, mcpServers }) // ② 原子解析 runtime 并注入
+  .configureRuntime({ brain, senseGroup, mcpServers }) // ② 原子解析 runtime 并注入
   .init(chatId, history);                   // ③ 绑定 chatId + 注入历史（无则首条 system prompt）
 
 agent.run(input);       // send

@@ -2,7 +2,6 @@ import type { HandlerContext } from "../message/router.js";
 import {
   createChunk,
   createError,
-  createNotification,
   createResponse,
   ErrorCode,
   Method,
@@ -18,19 +17,55 @@ import {
   type ChatAbortRequestData,
   type ChatAbortResponseData,
 } from "../message/types.js";
-import { getChat, markMessagesRevoked } from "@/db/chat.js";
+import { getChat, markMessagesRevoked, updateChatMetadata } from "@/db/chat.js";
 import { approvalManager } from "../approval/manager.js";
 import { connectionManager } from "../websocket/connection.js";
-import { ensureChat, clearChatRuntime, abortChatRuntime } from "./runtime.js";
+import { ensureChat, clearChatRuntime, abortChatRuntime, getChatSelection } from "./runtime.js";
+import { clearWaitedChildrenByParent } from "@/agent/spawnBroker.js";
 import { observeAgentChunks } from "./observer.js";
 import { streamAgentChunks } from "./streamMapper.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { isAgentAbortError } from "@/core/middleware/errors.js";
+import { safeJsonParse } from "@/utils/json.js";
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
 // 调用方（handler.ts/runtime set.ts）直接 import runtime.js，不再经 send 转发。
+
+// P4：mimeType → 扩展名映射（与服务端 media/index.ts MIME_KIND 对齐，标 marker 供 enrichMediaInputs 解析）。
+const MIME_EXT: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov",
+  "audio/mpeg": ".mp3",
+  "audio/wav": ".wav",
+  "audio/ogg": ".ogg",
+  "audio/mp4": ".m4a",
+};
+
+/**
+ * P4：将结构化 attachments 转为 [[media:<filename>]] 文本标记，附加到 prompt 末尾。
+ * enrichMediaInputs 仍以文本标记为解析入口；前端不再发 marker，服务端补 marker 保持向后兼容。
+ * 当 mimeType 不在映射中时使用 .bin（MIME_KIND 已先在 saveMediaAsset 校验）。
+ */
+function attachmentsToPromptMarkers(
+  attachments: ChatSendRequestData["attachments"],
+  basePrompt: string,
+): string {
+  if (!attachments || attachments.length === 0) return basePrompt;
+  const markers = attachments
+    .map((a) => {
+      const ext = MIME_EXT[a.mimeType.toLowerCase()] ?? ".bin";
+      return `[[media:${a.assetId}${ext}]]`;
+    })
+    .join("\n");
+  return basePrompt ? `${basePrompt}\n${markers}` : markers;
+}
 
 /**
  * 发送聊天消息（流式）
@@ -50,21 +85,28 @@ export async function* handleChatSend(
 
   logger.event("chat.send.start", {
     mode: "send",
+    chatId,
+    runtime: getChatSelection(chatId),
     promptLen: data.prompt.length,
     promptPreview: data.prompt.slice(0, 200),
+    attachmentCount: data.attachments?.length ?? 0,
   });
 
   const agent = await ensureChat(chatId);
   const rid = ctx.requestId ?? chatId;
 
+  // P4：结构化 attachments → [[media:<filename>]] 文本标记追加到 prompt。
+  // enrichMediaInputs 仍以文本标记解析；P5 provider 多模态直接读 LLMResponse.attachments 时可省此步。
+  const promptWithAttachments = attachmentsToPromptMarkers(data.attachments, data.prompt);
+
   // 运行中 send：仅入队（迭代触发 send body push userInputs），不绑定连接、不走流。
   // 避免空 generator（isRunning 时 send return 空 gen）立即结束而 finally 误释放当前活跃连接绑定（P0-1）。
   // 新输出跟随当前活跃流发出，客户端无需此流响应。
   if (agent.isRunning()) {
-    for await (const _ of agent.run(data.prompt)) {
+    for await (const _ of agent.run(promptWithAttachments)) {
       /* 运行中 send 不产出 chunk，迭代仅为触发 send body 入队 */
     }
-    logger.event("chat.send.queued", { promptLen: data.prompt.length });
+    logger.event("chat.send.queued", { chatId, runtime: getChatSelection(chatId), promptLen: promptWithAttachments.length });
     return { chatId };
   }
 
@@ -75,7 +117,6 @@ export async function* handleChatSend(
   } catch (e) {
     const msg = (e as Error).message;
     logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
-    yield createNotification("error", rid, { message: msg });
     return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
   }
 
@@ -92,13 +133,16 @@ export async function* handleChatSend(
   }
 
   let failureResponse: RpcResponse | undefined;
+  let failureMessage: string | undefined;
 
   try {
     // history 已在 chat.create 时一次性加载到内存。
     // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
-    const generator = observeAgentChunks(agent.run(data.prompt), chatId, () => agent.getMessages());
+    // onError 回调：streamMapper 见到 ErrorChunk 时调用，无 throw 时也能构造 failureResponse。
+    // P4：传 promptWithAttachments（含 [[media:]] 标记）供 enrichMediaInputs 解析。
+    const generator = observeAgentChunks(agent.run(promptWithAttachments), chatId, () => agent.getMessages());
 
-    yield* streamAgentChunks(generator, rid, chatId);
+    yield* streamAgentChunks(generator, rid, chatId, (msg) => { failureMessage = msg; });
   } catch (err) {
     const error = err as Error;
     // approval aborted（chat.abort 触发 abortChat → reject → senseMiddleware throw，
@@ -107,12 +151,17 @@ export async function* handleChatSend(
       logger.event("chat.send.aborted", { reason: "approval aborted" });
     } else {
       logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);
-      yield createNotification("error", rid, { message: error.message });
       failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
     }
   } finally {
     connectionManager.releaseChatConnection(chatId, ctx.connectionId);
     logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
+  }
+
+  // 防御性：retry-yielded ErrorChunk（不 throw）经 streamMapper 收集的 message → 构造 failureResponse，
+  // 避免「error notification + done notification + Response.success:true」三发歧义。
+  if (failureMessage && !failureResponse) {
+    failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, failureMessage));
   }
 
   return failureResponse ?? { chatId };
@@ -140,6 +189,10 @@ export async function* handleChatResume(
 
   logger.event("chat.send.start", { mode: "resume" });
 
+  const resumeWasPending = chat.metadata
+    ? safeJsonParse<{ resumePending?: boolean }>(chat.metadata, {}).resumePending === true
+    : false;
+
   const agent = await ensureChat(chatId);
 
   // 运行中 resume：无意义（无 prompt 入队，活跃流已在跑），直接返回避免重复启动流误释放绑定（P0-1）
@@ -154,15 +207,17 @@ export async function* handleChatResume(
   } catch (e) {
     const msg = (e as Error).message;
     logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
-    yield createNotification("error", rid, { message: msg });
     return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
   }
 
   let failureResponse: RpcResponse | undefined;
+  let failureMessage: string | undefined;
   try {
+    // 仅消费本次已持久化的待恢复标记；运行期间新到的角色结果会由 wakeParent 再次置 true。
+    if (resumeWasPending) updateChatMetadata(chatId, { resumePending: false });
     // resume 内部据末尾状态决定 Case1/Case2（见 builder.resume）
     const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages());
-    yield* streamAgentChunks(generator, rid, chatId);
+    yield* streamAgentChunks(generator, rid, chatId, (msg) => { failureMessage = msg; });
   } catch (err) {
     const error = err as Error;
     // approval aborted（chat.abort 触发，同 handleChatSend）：静默不报错
@@ -170,12 +225,32 @@ export async function* handleChatResume(
       logger.event("chat.send.aborted", { reason: "approval aborted" });
     } else {
       logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);
-      yield createNotification("error", rid, { message: error.message });
       failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
     }
   } finally {
     connectionManager.releaseChatConnection(chatId, ctx.connectionId);
     logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
+  }
+
+  if (failureMessage && !failureResponse) {
+    failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, failureMessage));
+  }
+
+  // resumePending 恢复策略（覆盖 resume 无 assistant 输出场景）：
+  // - 有 failureResponse（异常 / LLM 报错）→ 恢复（原逻辑）
+  // - 无 failureResponse 但末条非 assistant（LLM 空响应 / loop 异常结束）→ 恢复
+  // 判据：agent.getMessages() 末条非 revoked 消息的 role !== "assistant"
+  // 这样重连后 rebuildSpawnWaits 能识别 idle+canResume 主 chat 再次 resume。
+  if (resumeWasPending) {
+    const msgs = agent.getMessages();
+    const lastVisible = [...msgs].reverse().find(m => !m.revoked);
+    const producedAssistant = !!lastVisible && lastVisible.role === "assistant";
+    if (failureResponse || !producedAssistant) {
+      updateChatMetadata(chatId, { resumePending: true });
+      if (!failureResponse) {
+        logger.event("resume.restore-no-assistant", { chatId, lastRole: lastVisible?.role ?? "none" });
+      }
+    }
   }
 
   return failureResponse ?? { chatId };
@@ -215,6 +290,8 @@ export async function handleChatAbort(
   data: ChatAbortRequestData,
 ): Promise<ChatAbortResponseData> {
   abortChatRuntime(data.chatId);
+  // T9：主被 abort → 清其 wait-子唤醒链，防子完成反唤醒已停的主（用户主动停语义）
+  clearWaitedChildrenByParent(data.chatId);
   // 强制解绑连接（不校验 owner）：abort 是清内存操作，跨连接重连后旧 owner 须无条件清除避免 busy 死锁（P0-2）
   connectionManager.forceReleaseChatConnection(data.chatId);
   clearChatRuntime(data.chatId);

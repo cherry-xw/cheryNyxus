@@ -22,14 +22,15 @@ const ollamaMessageAdapterConfig = {
   extractStreamDelta: (chunk: ChatResponse) => chunk.message?.content ?? "",
   extractStreamThinking: (chunk: ChatResponse) =>
     chunk.message?.thinking ?? undefined,
-  buildMessages: (history: LLMResponse[]) =>
+  buildMessages: (history: LLMResponse[]) => // P5b：ollama 当前不解析 attachments（仅 openai 走多模态），签名对齐接口忽略参数
     history.filter((m) => !m.revoked).map((m) => {
       // 如果是 sense 消息且被替换，使用 replace.content
       const content = m.role === "sense" && m.replace?.state
         ? m.replace.content
         : m.content;
-      // ollama tool 结果需 role:"tool"（与 openai 一致），原 role:"sense" API 不识别
-      const role = m.role === "sense" ? "tool" : m.role;
+      // ollama tool 结果需 role:"tool"（与 openai 一致），原 role:"sense" API 不识别；
+      // role（wait=true 子完成注入的角色回复，见 agent-pet.md §5.4）映射为 user：API 不识别 role；兼容旧 subagent
+      const role = m.role === "sense" ? "tool" : m.role === "subagent" || m.role === "role" ? "user" : m.role;
       return {
         role,
         content,

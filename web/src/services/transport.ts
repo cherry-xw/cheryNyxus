@@ -8,7 +8,7 @@
  *   - json 模式：纯 JSON 字符串
  *
  * 二进制帧格式（与后端 transport.encodeStreamFrame 一致）：
- *   [0x01][seq:4 bytes BE][requestId_len:1 byte][requestId:n bytes][payload_json]
+ *   [0x01][requestId_len:1 byte][requestId:n bytes][payload_json]
  *
  * JSON 帧格式：
  *   [0x02][full_json]
@@ -51,16 +51,13 @@ export function decodeMessage(data: ArrayBuffer | string): unknown {
 }
 
 function decodeStreamFrame(buf: ArrayBuffer, view: Uint8Array): unknown {
-  const dv = new DataView(buf);
-  const seq = dv.getUint32(1, false); // BE
-  const reqIdLen = view[5] ?? 0;
-  const reqId = new TextDecoder().decode(view.slice(6, 6 + reqIdLen));
-  const payloadJson = new TextDecoder().decode(view.slice(6 + reqIdLen));
+  const reqIdLen = view[1] ?? 0;
+  const reqId = new TextDecoder().decode(view.slice(2, 2 + reqIdLen));
+  const payloadJson = new TextDecoder().decode(view.slice(2 + reqIdLen));
   return {
     kind: "chunk" as const,
     type: "stream" as const,
     requestId: reqId,
-    seq,
     data: safeParse(payloadJson, {}),
   };
 }

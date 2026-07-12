@@ -2,13 +2,15 @@
 /**
  * AgentFab：页面右下角常驻圆形按钮。
  * - 启动即显，按钮下方小字显连接状态（disconnected 灰 / connecting 黄 / connected 绿）
- * - 点击 → agents.createMasterPet(default)，default 从 /api/config 拿（兜底 brain.list[0] + 空组）
+ * - 点击 → 有预设则弹预设选择器（选预设 → createMasterPet(preset)，含「默认」预设）；无预设兜底
+ *   brain.list[0] + 空组（旧 config.default 已并入「默认」预设，零预设时无编制可用）
  * - 连接非 connected 时禁用（避免在断连下创建无意义 chat）
  * 创建失败显性化（规则 12）：error ref + console.error，不静默吞。
  */
 import { computed, ref } from "vue";
 import { useAgentsStore, useConnectionStore } from "@/stores";
-import { agentApi, fetchDefaultRuntime, type RuntimeSelection } from "@/services/agentApi";
+import { agentApi } from "@/services/agentApi";
+import PresetPicker from "./PresetPicker.vue";
 
 const agents = useAgentsStore();
 const conn = useConnectionStore();
@@ -29,26 +31,26 @@ const statusColor = computed(() => {
 
 const disabled = computed(() => creating.value || conn.status !== "connected");
 
-async function handleClick(): Promise<void> {
-  if (disabled.value) return;
+async function pickPreset(name: string): Promise<void> {
+  await runCreate({ preset: name });
+}
+
+/** 无预设兜底：brain.list[0] + 空感官组（旧 config.default 已并入「默认」预设，零预设时无编制可用） */
+async function createFallback(): Promise<void> {
+  let firstBrain = "longcat";
+  try {
+    const list = await agentApi.listBrains();
+    firstBrain = list.brains[0]?.name ?? "longcat";
+  } catch (e) {
+    console.warn("[AgentFab] brain.list unavailable, fallback brain longcat:", (e as Error).message);
+  }
+  await runCreate({ brain: firstBrain, senseGroup: "", mcpServers: [] });
+}
+
+async function runCreate(opts: { preset?: string; brain?: string; senseGroup?: string; mcpServers?: string[] }): Promise<void> {
   creating.value = true;
   error.value = null;
   try {
-    let def: RuntimeSelection | null = null;
-    try {
-      def = await fetchDefaultRuntime();
-    } catch (e) {
-      // 兜底：/api/config 暂未返 default（后端未合并）→ console.warn + brain.list[0] + 空 senseGroups
-      console.warn("[AgentFab] /api/config default unavailable, fallback to brain.list[0]:", (e as Error).message);
-    }
-    let opts: RuntimeSelection;
-    if (def) {
-      opts = def;
-    } else {
-      const list = await agentApi.listBrains();
-      const firstBrain = list.brains[0]?.name ?? "longcat";
-      opts = { brain: firstBrain, senseGroups: [], mcpServers: [] };
-    }
     await agents.createMasterPet(opts);
   } catch (e) {
     error.value = (e as Error).message;
@@ -67,15 +69,16 @@ function openSessions(): void {
 
 <template>
   <div class="agent-fab-wrap">
-    <button
-      type="button"
-      class="agent-fab"
-      :disabled="disabled"
-      :aria-label="creating ? 'Creating master agent' : 'Create master agent'"
-      @click="handleClick"
-    >
-      <span class="plus">{{ creating ? "…" : "+" }}</span>
-    </button>
+    <PresetPicker :disabled="disabled" @pick="pickPreset" @fallback="createFallback">
+      <button
+        type="button"
+        class="agent-fab"
+        :disabled="disabled"
+        :aria-label="creating ? 'Creating master agent' : 'Create master agent'"
+      >
+        <span class="plus">{{ creating ? "…" : "+" }}</span>
+      </button>
+    </PresetPicker>
     <button
       type="button"
       class="session-fab"

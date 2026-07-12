@@ -1,10 +1,11 @@
-import { addMessage, fillApprovalResult, markMessageReplaced } from "@/db/chat.js";
+import { addMessage, fillApprovalResult, markMessageReplaced, updateAssistantSenseCalls } from "@/db/chat.js";
 import { getChatSelection } from "./runtime.js";
 import { approvalManager } from "../approval/manager.js";
+import { wakeParent } from "./wake.js";
 import type { LLMResponse } from "@/core/message/adapter";
 import type { MiddlewareChunk } from "@/core/middleware/types";
 import { logger } from "@/utils/logger/index.js";
-import { notifyHeartbeat } from "@/agent/spawnBroker.js";
+import { getWaitedParent } from "@/agent/spawnBroker.js";
 
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
@@ -71,6 +72,15 @@ export async function* observeAgentChunks(
           contentLen: chunk.patch.content?.length ?? 0,
           hash: chunk.patch.hash,
         });
+
+        // 流式多 sense_call reconcile：patch 仅含 senseCalls 时调 updateAssistantSenseCalls（独立 UPDATE）
+        if (chunk.patch.senseCalls) {
+          updateAssistantSenseCalls(chatId, chunk.id, chunk.patch.senseCalls);
+          logger.event("message.updated.sense_calls", {
+            messageId: chunk.id,
+            senseCalls: chunk.patch.senseCalls.length,
+          });
+        }
         continue;
       }
 
@@ -86,33 +96,32 @@ export async function* observeAgentChunks(
         continue;
       }
 
-      // 心跳 chunk:内部传递(不进 DB/前端),调 spawnBroker.notifyHeartbeat 传递给主 agent
-      if ((chunk as { type: string }).type === "heartbeat") {
-        const heartbeatChunk = chunk as unknown as {
-          type: "heartbeat";
-          heartbeat: {
-            childChatId: string;
-            status: "running" | "finished" | "error";
-            result?: string;
-            error?: string;
-          };
-        };
-        notifyHeartbeat(
-          heartbeatChunk.heartbeat.childChatId,
-          heartbeatChunk.heartbeat.status,
-          heartbeatChunk.heartbeat.result,
-          heartbeatChunk.heartbeat.error,
-        );
-        logger.event("heartbeat.notify", {
-          childChatId: heartbeatChunk.heartbeat.childChatId,
-          status: heartbeatChunk.heartbeat.status,
-          resultLen: heartbeatChunk.heartbeat.result?.length ?? 0,
-        });
+      // child_done chunk（wait=true 子 loop 正常完成，内部传递不进 DB/前端）→ wakeParent 注入角色回复唤主
+      if (chunk.type === "child_done") {
+        const waited = getWaitedParent(chunk.childChatId);
+        if (waited) {
+          // wakeParent 内部 clearWaitedChild + 注入 role:role 回复（内存+DB）+ 推 role_reply
+          await wakeParent(waited.parentChatId, chunk.childChatId, waited.type, chunk.content);
+          logger.event("child.done.wake", { childChatId: chunk.childChatId, parentChatId: waited.parentChatId, contentLen: chunk.content.length });
+        }
         continue;
       }
 
       yield chunk;
     }
+  } catch (err) {
+    // 角色出错（含 abort）：若被 wait，注入错误回复唤主（不等 5min 看门狗，防主卡死）。
+    // child_done 正常完成路径不触发此处（throw 跳过 loop 末尾 child_done yield）；wakeParent 内部 clearWaitedChild 防并发。
+    const waited = getWaitedParent(chatId);
+    if (waited) {
+      await wakeParent(
+        waited.parentChatId,
+        chatId,
+        waited.type,
+        `[角色 ${waited.type}] 执行出错: ${(err as Error).message}`,
+      );
+    }
+    throw err;
   } finally {
     // abort 兜底：ws.close → connectionManager.close → approvalManager.abort 解除 senseMiddleware
     // await（不调 gen.return，避免与 catch yield 死锁）。sense_call 流的 assistant 已在 sense_end

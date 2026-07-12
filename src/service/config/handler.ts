@@ -47,7 +47,8 @@ async function handleConfigSave(
       createError(ErrorCode.INVALID_PARAMS, result.errors.join("\n")),
     );
   }
-  logger.event("config.save", { brains: Object.keys(data.llm?.brain ?? {}).length });
+  // logger 在统一边界递归脱敏 key/token/secret/env 等字段。
+  logger.event("config.save", { config: data });
   return { needRestart: true };
 }
 

@@ -23,7 +23,7 @@ describe("checkpointMiddleware 集成", () => {
   });
 
   it("content-only：consumed + thinking_end + content_end + message_created(user,assistant)", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "你好");
     expect(firstConsumed(chunks)?.count).toBe(1);
     const staged = stagedTypes(chunks);
@@ -38,7 +38,7 @@ describe("checkpointMiddleware 集成", () => {
   });
 
   it("三 delta 顺序：thinking_end 在 content_end 之前", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "顺序测试");
     const staged = stagedTypes(chunks);
     const tIdx = staged.indexOf("thinking_end");
@@ -48,7 +48,7 @@ describe("checkpointMiddleware 集成", () => {
   });
 
   it("user input 注入 messages（consumed 携带 message）", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "注入测试内容");
     const consumed = firstConsumed(chunks);
     expect(consumed?.count).toBe(1);
@@ -57,7 +57,7 @@ describe("checkpointMiddleware 集成", () => {
   });
 
   it("auto sense：sense_end staged + sense_accept + sense 消息创建", async () => {
-    const agent = createAgent({ brain: "mock_auto", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_auto", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "读文件");
     const staged = stagedTypes(chunks);
     expect(staged).toContain("sense_end");
@@ -69,7 +69,7 @@ describe("checkpointMiddleware 集成", () => {
   });
 
   it("纯 content 无 sense_end", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "纯文本");
     expect(stagedTypes(chunks)).not.toContain("sense_end");
     expect(senseEnds(chunks)).toHaveLength(0);

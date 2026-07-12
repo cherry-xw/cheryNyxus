@@ -12,7 +12,7 @@
 - **按创建月固定分片**：chat 创建时固化 `messages_month`，该 chat 全生命周期所有消息写入同一月份库，跨月不迁移。
 - **chat 生命周期 CRUD**：创建、查询、列出（含冗余 `message_count`）、更新时间戳、metadata JSON merge、删除（跨库）。
 - **message CRUD**：路由到对应月份库的插入、查询、审批结果回填、批量撤回、感官去重 replace 标记。
-- **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroups，服务重启后自动恢复。
+- **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroup + mcpServers，服务重启后自动恢复（单组化：读时兼容旧 `senseGroups[]` 取首项）。
 - **自动 schema 迁移**：旧库缺列时按列检查补 `ALTER TABLE ADD COLUMN`，无需手动迁移。
 
 三大隐喻映射：**Chat**（chatId）是顶层实体存于 soul.db；**消息**（含 Brain 响应与 Sense 调用结果）按月分片存于 `YYYY-MM.db`。审批与撤回不建独立表，靠 `content` 空与 `revoked=1` 判定。
@@ -57,7 +57,7 @@ CREATE TABLE chats (
   messages_month TEXT NOT NULL,             -- "YYYY-MM"，创建月固定，消息路由键
   created_at     INTEGER NOT NULL,          -- Date.now()
   updated_at     INTEGER NOT NULL,          -- 每条消息更新
-  metadata       TEXT,                      -- JSON 字符串，含 runtime: { brain, senseGroups }
+  metadata       TEXT,                      -- JSON 字符串，含 runtime: { brain, senseGroup }
   message_count  INTEGER NOT NULL DEFAULT 0,-- 冗余计数（P1-8，chatList 免 N+1）
   parent_chat_id TEXT                       -- 子 agent 关联主 chat 的 chatId；主 chat 为 NULL（主从 Agent 桌宠系统 CP1）
 );
@@ -76,7 +76,7 @@ CREATE TABLE messages (
   replace_content  TEXT,                    -- 替换说明（短）
   original_content TEXT,                    -- 被替换时的原内容（溯源）
   revoked          INTEGER DEFAULT 0,       -- 1 = 撤回（buildMessages 过滤）
-  runtime          TEXT,                    -- JSON {brain,senseGroups,mcpServers}，仅 user 消息记（发送时配置）；assistant 不记（回放关联前一条 user）
+  runtime          TEXT,                    -- JSON {brain,senseGroup,mcpServers}，仅 user 消息记（发送时配置）；assistant 不记（回放关联前一条 user）
   created_at       INTEGER NOT NULL
 );
 CREATE INDEX idx_messages_chat ON messages(chat_id);
@@ -91,7 +91,7 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 | `listAllChats()` | → `ChatRow[]` | 按 `updated_at DESC`，`message_count` 直接读冗余列 |
 | `updateChat(chatId)` | → void | 仅更新 `updated_at` |
 | `updateChatMetadata(chatId, patch)` | → void | JSON 浅合并到现有 metadata（保留其他 key） |
-| `getChatRuntimeSelection(chatId)` | → `{brain, senseGroups} \| undefined` | 读 `metadata.runtime`，重启后恢复用 |
+| `getChatRuntimeSelection(chatId)` | → `{brain, senseGroup, mcpServers} \| undefined` | 读 `metadata.runtime`，重启后恢复用；兼容旧 `senseGroups[]`，缺失的 `mcpServers` 视为 `[]` |
 | `deleteChat(chatId)` | → void | 跨库 try/finally：先删 messages 再删 chat，崩溃仅留孤儿 chat（指向已空月库） |
 | `addMessage(messageId, chatId, data)` | → `MessageRow` | messageId 调用方传入；`message_count++`；更新 `updated_at`；`data.runtime` 仅 user 消息传（发送时配置，记入 messages.runtime） |
 | `getMessages(chatId)` | → `MessageRow[]` | 按 `created_at ASC` |
@@ -110,7 +110,7 @@ export interface MessageRow {
   replace_state: number | null; replace_by: string | null;
   replace_content: string | null; original_content: string | null;
   revoked: number; created_at: number;
-  runtime: string | null;                // JSON {brain,senseGroups,mcpServers}，仅 user 消息记
+  runtime: string | null;                // JSON {brain,senseGroup,mcpServers}，仅 user 消息记
 }
 
 export interface MessageData {
@@ -121,7 +121,7 @@ export interface MessageData {
   replace?: { state: boolean; by: string; content: string };
   originalContent?: string;
   revoked?: boolean;
-  runtime?: { brain: string; senseGroups: string[]; mcpServers: string[] }; // 仅 user 消息传（发送时配置）
+  runtime?: { brain: string; senseGroup: string; mcpServers: string[] }; // 仅 user 消息传（发送时配置）
 }
 ```
 

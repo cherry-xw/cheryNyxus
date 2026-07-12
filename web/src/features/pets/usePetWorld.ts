@@ -22,6 +22,9 @@ const MASTER_OTHER_REPEL = 320; // 默认 450 → 异部落分离更柔
 const MASTER_REPEL_RADIUS = 100; // 默认 120
 const MASTER_ATTRACT_RADIUS = 180; // 默认 200
 
+/** hover 离开 pet 后 280ms 静止缓冲（闭包 Map，不污染 PetInstance 类型）。 */
+const hoverCooldownUntil = new Map<string, number>();
+
 function rand(min: number, max: number): number {
   return min + Math.random() * (max - min);
 }
@@ -222,6 +225,11 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
       return;
     }
 
+    // hover 离场后 280ms 静止缓冲（避免 .pet-icons 边缘抖动立刻 retarget）
+    const cooldown = hoverCooldownUntil.get(pet.instanceId) ?? 0;
+    if (cooldown > now) return;
+    if (cooldown > 0) hoverCooldownUntil.delete(pet.instanceId);
+
     // 休息中：速度 0，fatigue↓ emotion↑（stepVitals sleep 分支），自然醒
     if (pet.action === "sleep") {
       stepVitals(pet, dt, status);
@@ -301,10 +309,14 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
     const baseMax = pet.mood === "sleepy" ? 55 : 115;
     const maxSpeed = baseMax * (1 + (pet.id.length % 3) * 0.15);
     if (pet.isMaster) {
-      // 主 pet 独立物理：更慢更稳（更低速度/加速度/斥力/半径）
+      // 主 pet 独立物理：更慢更稳（更低速度/加速度/斥力/半径）。
+      // tribeAttract=0：主 pet 不受同部落引力。子 pet 聚拢本主(retarget ±70) + 同部落引力双向拉拢，
+      // 否则主 pet 被钉在子 pet 堆中心，被子 pet 围到屏幕边缘后斥力顶住边界无法离开 → 全部堆积边缘。
+      // 只保留斥力（近距防重叠，不重叠即无力）→ 主 pet 凭 seek 全屏自由游走。
       stepMovement(pet, pets, bounds, dt, {
         maxSpeed: maxSpeed * 0.6,
         acceleration: MASTER_ACCELERATION,
+        tribeAttract: 0,
         tribeRepel: MASTER_TRIBE_REPEL,
         otherRepel: MASTER_OTHER_REPEL,
         repelRadius: MASTER_REPEL_RADIUS,
@@ -443,10 +455,15 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
       }
       if (pet.action === "chatting") return;
       pet.action = "hover";
+      pet.vx = 0;
+      pet.vy = 0;
       pet.lastInteractionAt = now;
       adjustEmotion(pet, status.emoteHover);
     } else if (pet.action === "hover") {
       pet.action = "walk";
+      pet.vx = 0;
+      pet.vy = 0;
+      hoverCooldownUntil.set(pet.instanceId, now + 280);
       pet.mood = restMood(pet, status);
     }
   }

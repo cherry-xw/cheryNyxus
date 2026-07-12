@@ -37,7 +37,7 @@ export class Transport {
       return JSON.stringify(msg);
     }
     // stream chunk 使用二进制帧
-    if (msg.kind === "chunk" && msg.type === "stream" && msg.seq !== undefined) {
+    if (msg.kind === "chunk" && msg.type === "stream") {
       return this.encodeStreamFrame(msg as Chunk);
     }
     return this.encodeJsonFrame(msg);
@@ -45,7 +45,7 @@ export class Transport {
 
   /**
    * 编码流式二进制帧
-   * 格式：[type:1byte][seq:4bytes][requestId_len:1byte][requestId:varies][data:varies]
+   * 格式：[type:1byte][requestId_len:1byte][requestId:varies][data:varies]
    */
   private encodeStreamFrame(chunk: Chunk): Buffer {
     const data = typeof chunk.data === "string"
@@ -54,16 +54,14 @@ export class Transport {
 
     const requestId = chunk.requestId || "";
     const requestIdBuffer = Buffer.from(requestId, "utf-8");
-    const seq = chunk.seq ?? 0;
 
-    // 头部：type(1) + seq(4) + requestId_len(1) + requestId
-    const headerLength = 6 + requestIdBuffer.length;
+    // 头部：type(1) + requestId_len(1) + requestId
+    const headerLength = 2 + requestIdBuffer.length;
     const header = Buffer.alloc(headerLength);
 
     header.writeUInt8(FRAME_TYPE.CHUNK, 0);
-    header.writeUInt32BE(seq, 1);
-    header.writeUInt8(requestIdBuffer.length, 5);
-    requestIdBuffer.copy(header, 6);
+    header.writeUInt8(requestIdBuffer.length, 1);
+    requestIdBuffer.copy(header, 2);
 
     const payload = Buffer.from(data, "utf-8");
     return Buffer.concat([header, payload]);

@@ -6,136 +6,17 @@
 #
 # 配置目录由环境变量 CHERY_DIR 指定（默认 process.cwd() 即项目根）。
 # $ENV 占位符：值形如 $VAR_NAME 时，从 .env / 进程环境变量注入（仅整段值匹配，不替换内嵌）。
-
-# ──────────────────────────────────────────────────────────────────
-# 默认主 agent 配置（FAB「+」召唤主 pet 时套用）
-# ──────────────────────────────────────────────────────────────────
-default:
-  brain: ali_glm5              # 默认用哪颗大脑（必须在下方 llm.brain 中存在，否则启动 fail loud）
-  senseGroups: [all_senses]    # 默认装配哪些感官组（必须存在于下方 sense_groups）
-  mcpServers: []               # 默认连哪些 MCP server（缺省 []=全关）
-
-# ──────────────────────────────────────────────────────────────────
-# 子 agent 类型（主 pet 遇到读代码/读图/搜索时可派出的助手）
-# spawn_subagent sense 按 type 名查这里；brain 必须存在于 llm.brain
-# ──────────────────────────────────────────────────────────────────
-subagents:
-  read_code:                   # 子 agent 类型名（给 AI 看的名）
-    brain: ali_glm5
-    senseGroups: [safe_senses]
-  read_image:
-    brain: ali_glm5
-    senseGroups: [safe_senses]
-  web_search:
-    brain: ali_glm5
-    senseGroups: [safe_senses]
-
-# ──────────────────────────────────────────────────────────────────
-# AI 大脑（Brain）——每颗 brain 一张「大脑名片」
-# provider 决定说什么方言：openai（OpenAI 兼容）/ ollama / mock
-# ──────────────────────────────────────────────────────────────────
-llm:
-  brain:
-    ollama:                    # brain 名（自定义，被 default/subagents 引用）
-      url: $OLLAMA_HOST        # 服务地址（$VAR 走 .env）
-      model: gemma3:1b         # 模型名
-      thinking: false          # 该模型有无思考能力（deepseek-r1 等推理模型设 true）
-      provider: ollama         # 适配器：需与 provider 实现对应
-      contextLimit: 8192       # 上下文长度上限（token），供前端用量条显示
-    openai:
-      url: https://api.openai.com/v1
-      model: gpt-3.5-turbo
-      key: $OPENAI_API_KEY     # 门禁卡，建议填 $ENV 走 .env，不明文
-      provider: openai
-      contextLimit: 16385
-    longcat:
-      url: https://api.longcat.chat/openai
-      model: LongCat-Flash-Thinking-2601
-      key: $LONGCAT_API_KEY
-      thinking: true
-      provider: openai
-      contextLimit: 32768
-    deepseek:
-      url: https://api.deepseek.com
-      model: deepseek-v4-flash
-      key: $DEEPSEEK_API_KEY
-      thinking: true
-      provider: openai
-      contextLimit: 64000
-    doubao:
-      url: http://yz.xcherry.top:11411/v1
-      model: doubao2.0-pro
-      key: $DOUBAO_API_KEY
-      thinking: true
-      provider: openai
-      contextLimit: 128000
-    ali_glm5:
-      url: https://coding.dashscope.aliyuncs.com/v1
-      model: glm-5
-      key: $ALI_API_KEY
-      thinking: true
-      provider: openai
-      contextLimit: 128000
-    shangtang:
-      url: https://yz.xcherry.top:11411/v1
-      model: cglm-5.2
-      key: $SHANG_TANG_API_KE
-      rpm: 2                   # 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流；未配则不限流
-      provider: openai
-      contextLimit: 32768
-    # mock brain：脚本化响应，离线测试 send/resume/revoke/loop（无需真实 LLM）
-    # 脚本内容（repeat + script[]）放独立文件，config 只留开关 + 路径
-    mock_test:
-      model: mock_test
-      provider: mock
-      contextLimit: 8192
-      mock:
-        enabled: true          # 是否启用 mock（缺省 true）
-        file: mock/read_file.yaml  # 脚本路径，相对 .chery 目录
-
-# ──────────────────────────────────────────────────────────────────
-# 感官分组（Sense Groups）——给宠物装配的感官套餐
-# 每组是 sense 名列表，支持两种写法：
-#   read_file              不覆盖监管等级，用感官内置 / 全局默认
-#   execute_command:auto    覆盖该 sense 监管为 auto（可选 auto/confirm/manual）
-# ⚠️ execute_command / write_file 类感官危险（能跑命令/写文件），配 :auto 等于放它自己执行不问你
-# ──────────────────────────────────────────────────────────────────
-sense_groups:
-  all_senses:
-    - read_file
-    - skill
-    - write_file
-    - execute_command
-    - search_codebase
-    - spawn_subagent
-    - update_todo
-  safe_senses:
-    - read_file
-    - skill
-    - search_codebase
-  dangerous_senses:
-    - execute_command
-    - write_file
-  custom_senses:
-    - echo_text
-
-# ──────────────────────────────────────────────────────────────────
-# MCP server（外挂工具站，可选）
-# 每个 server 的 tools/resources/prompts 启动时映射为 Sense：mcp__<server>__<tool|read_resource|get_prompt>
-# 监管优先级：sense_groups 的 :level > mcp_servers.<name>.supervision > global.supervision
-# transport：stdio（本地子进程）/ streamable-http（远程 HTTP）
-# ⚠️ env 注入与远程 server 网络可达性需自行确认
-# ──────────────────────────────────────────────────────────────────
-# mcp_servers:
-#   filesystem:
-#     transport: stdio
-#     command: npx
-#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-#     supervision: confirm       # server 级默认监管（auto/confirm/manual）
-#   remote:
-#     transport: streamable-http
-#     url: http://localhost:8081/mcp
-#     supervision: auto
+#
+# 配置模型（schemas.ts:70-97 严格校验）：
+#   llm.brain.*       —— AI 大脑名片（被 roles 引用）
+#   sense_groups.*    —— 感官分组（被 roles 引用）
+#   roles.*           —— 角色档案：brain + senseGroup + mcpServers + 可选 systemPrompt
+#   presets.*         —— 预设：leader 角色 type + 选中的角色 type 列表（引用 roles 单一源）
+#   mcp_servers.*     —— MCP server（可选；挂载走 chat.create/runtime.set.mcpServers）
+#   global.*          —— 全局开关（thinking / supervision / stream / 超时 / 日志 / 文件压缩）
+#   server.*          —— 端口 + 传输格式（不参与 config.save schema，运行时读）
+#
+# 旧「config.default」段已并入「默认」preset；预设机制是唯一入口。
 
 # ──────────────────────────────────────────────────────────────────
 # 全局配置——所有宠物共享的脾气
@@ -171,6 +52,234 @@ global:
     drain_preview_count: 3     # Drain 算法每个模板显示的实例数，默认 3
 
 # ──────────────────────────────────────────────────────────────────
+# AI 大脑（Brain）——每颗 brain 一张「大脑名片」
+# provider 决定说什么方言：openai（OpenAI 兼容）/ ollama / mock
+# brain 名（z ai-glm-5.2 / ali_glm5 / longcat ...）被 roles 引用
+# ──────────────────────────────────────────────────────────────────
+llm:
+  brain:
+    zai-glm-5.2:               # 默认 leader 角色 brain（contextLimit 1M 适配长上下文）
+      url: https://yz.xcherry.top:11411/v1
+      model: glm-5.2
+      key: $SHANG_TANG_API_KE
+      thinking: true
+      provider: openai
+      contextLimit: 1024000
+      capabilities:
+        input:
+          image: true         # glm-5.2 支持原生视觉输入（直送 OpenAI vision content array，跳过媒体网关转写）
+    ali_glm5:                  # 「默认」预设 leader 角色 brain（FAB 兜底）
+      url: https://coding.dashscope.aliyuncs.com/v1
+      model: glm-5
+      key: $ALI_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 128000
+      capabilities:
+        input:
+          image: true         # glm-5 支持原生视觉输入
+    longcat:
+      url: https://api.longcat.chat/openai
+      model: LongCat-Flash-Thinking-2601
+      key: $LONGCAT_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 32768
+    deepseek:
+      url: https://api.deepseek.com
+      model: deepseek-v4-flash
+      key: $DEEPSEEK_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 64000
+    doubao:
+      url: http://yz.xcherry.top:11411/v1
+      model: doubao2.0-pro
+      key: $DOUBAO_API_KEY
+      thinking: true
+      provider: openai
+      contextLimit: 128000
+    ollama:                    # 本地模型示例
+      url: $OLLAMA_HOST
+      model: gemma3:1b
+      thinking: false
+      provider: ollama
+      contextLimit: 8192
+    openai:
+      url: https://api.openai.com/v1
+      model: gpt-3.5-turbo
+      key: $OPENAI_API_KEY
+      provider: openai
+      contextLimit: 16385
+    shangtang:
+      url: https://yz.xcherry.top:11411/v1
+      model: cglm-5.2
+      key: $SHANG_TANG_API_KE
+      provider: openai
+      rpm: 2                   # 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流；未配则不限流
+      contextLimit: 32768
+    # mock brain：脚本化响应，离线测试 send/resume/revoke/loop（无需真实 LLM）
+    # 脚本内容（repeat + script[]）放独立文件，config 只留开关 + 路径
+    mock_test:
+      model: mock_test
+      provider: mock
+      contextLimit: 8192
+      mock:
+        enabled: true          # 是否启用 mock（缺省 true）
+        file: mock/read_file.yaml  # 脚本路径，相对 .chery 目录
+
+# ──────────────────────────────────────────────────────────────────
+# 媒体网关（Media）——上传资产 / 多模态附件的统一转写服务
+# 每类（image/video/audio）独立配置 url/model/key/enabled：
+#   enabled=false → 该类走 provider 原生多模态（brain.capabilities.input.<kind>=true 时启用）
+#   enabled=true  → 调用指定 url 把附件转写成文本理解结果注入 LLM 上下文
+# 未配置整段 → 上传走 .chery/media/<uuid>.<ext> 落盘但不上网关（理解结果为空）
+# maxUploadMb：单文件大小上限（MB），默认 100
+# ──────────────────────────────────────────────────────────────────
+# media:
+#   image:
+#     url: https://your-media-gateway.example.com/v1/understand
+#     model: vision-v1
+#     key: $MEDIA_GATEWAY_KEY
+#     enabled: false          # 默认关闭；脑无原生视觉时改 true
+#   video:
+#     url: https://your-media-gateway.example.com/v1/understand
+#     model: video-u-v1
+#     enabled: false
+#   audio:
+#     url: https://your-media-gateway.example.com/v1/understand
+#     model: audio-u-v1
+#     enabled: false
+#   maxUploadMb: 100
+
+# ──────────────────────────────────────────────────────────────────
+# 感官分组（Sense Groups）——给宠物装配的感官套餐
+# 每组是 sense 名列表，支持两种写法：
+#   read_file              不覆盖监管等级，用感官内置 / 全局默认
+#   execute_command:auto    覆盖该 sense 监管为 auto（可选 auto/confirm/manual）
+# ⚠️ execute_command / write_file 类感官危险（能跑命令/写文件），配 :auto 等于放它自己执行不问你
+# ──────────────────────────────────────────────────────────────────
+sense_groups:
+  leader:                      # 主 agent 编制（默认 / hole / 项目 / 轻量预设均用此组）
+    - read_file
+    - skill
+    - write_file
+    - execute_command
+    - search_codebase
+    - spawn_role
+  plan:                        # 规划 / 任务管理子 pet（planner 子 agent 用）
+    - spawn_role
+    - update_todo
+    - skill
+    - read_file
+    - write_file
+  coder:                       # 编码实现子 pet（coder 子 agent 用）
+    - execute_command
+    - write_file
+    - read_file
+    - skill
+    - search_codebase
+  reviewer:                    # 只读评审子 pet（不改代码）
+    - read_file
+    - search_codebase
+    - skill
+
+# ──────────────────────────────────────────────────────────────────
+# 角色（roles）——主 pet 可派出的助手；预设 leader 角色亦在此定义
+# spawn_role sense 按 type 名查这里；brain 必须存在于 llm.brain
+# 单一源：预设只引用 type 名，不在预设内重定义 brain/senseGroup 等
+# ──────────────────────────────────────────────────────────────────
+roles:
+  # 组长角色（各预设 leader 编制；项目预设 leader 携专属 systemPrompt）
+  coordinator:                 # 通用组长（zai 大脑）
+    brain: zai-glm-5.2
+    senseGroup: leader
+    mcpServers: []
+  coordinator_ali:             # 「默认」预设组长（ali 大脑）
+    brain: ali_glm5
+    senseGroup: leader
+    mcpServers: []
+  coordinator_proj:            # 「项目」预设组长（带专属 systemPrompt）
+    brain: zai-glm-5.2
+    senseGroup: leader
+    mcpServers: []
+    systemPrompt: prompts/prefebMain/leader.md   # 相对 .chery；缺省走 config.global.system_prompt
+  # 组员角色（预设按 type 名引用）
+  read_code:
+    brain: zai-glm-5.2
+    senseGroup: coder
+    mcpServers: []
+  read_image:
+    brain: ali_glm5
+    senseGroup: plan
+    mcpServers: []
+  plan:                        # planner 子 pet（per-type prompt：所有引用 plan 的预设生效）
+    brain: zai-glm-5.2
+    senseGroup: plan
+    mcpServers: []
+    systemPrompt: prompts/prefebMain/planner.md
+  coder:
+    brain: zai-glm-5.2
+    senseGroup: coder
+    mcpServers: []
+    systemPrompt: prompts/prefebMain/coder.md
+  reviewer:
+    brain: zai-glm-5.2
+    senseGroup: reviewer
+    mcpServers: []
+    systemPrompt: prompts/prefebMain/reviewer.md
+
+# ──────────────────────────────────────────────────────────────────
+# 预设（presets）——主 pet 编制包：leader 角色 type + 选中的角色 type 列表
+# 引用 config.roles 单一源；不在预设内重定义 brain/senseGroup
+# 旧 config.default 已并入「默认」预设
+# ──────────────────────────────────────────────────────────────────
+presets:
+  默认:                        # FAB 兜底（ali 大脑 + 全组员）
+    leader: coordinator_ali
+    roles:
+      - coordinator_ali
+      - read_code
+      - read_image
+      - plan
+      - coder
+  hole:                        # 项目预设（zai 大脑 + plan/coder，无 reviewer）
+    leader: coordinator
+    roles:
+      - coordinator
+      - plan
+      - coder
+  项目:                        # 多角色分工（组长 + plan + coder + reviewer 只读评审）
+    leader: coordinator_proj
+    roles:
+      - coordinator_proj
+      - plan
+      - coder
+      - reviewer
+  轻量:                        # 单 agent 自管 todo（无组员，编制锁定后不可 spawn）
+    leader: coordinator
+    roles:
+      - coordinator
+
+# ──────────────────────────────────────────────────────────────────
+# MCP server（外挂工具站，可选）
+# 每个 server 的 tools/resources/prompts 启动时映射为 Sense：mcp__<server>__<tool|read_resource|get_prompt>
+# 监管优先级：sense_groups 的 :level > mcp_servers.<name>.supervision > global.supervision
+# transport：stdio（本地子进程）/ streamable-http（远程 HTTP）
+# ⚠️ env 注入与远程 server 网络可达性需自行确认
+# ──────────────────────────────────────────────────────────────────
+# mcp_servers:
+#   filesystem:
+#     transport: stdio
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+#     supervision: confirm       # server 级默认监管（auto/confirm/manual）
+#   remote:
+#     transport: streamable-http
+#     url: http://localhost:8081/mcp
+#     supervision: auto
+
+# ──────────────────────────────────────────────────────────────────
 # 服务配置（端口 + 传输格式）
 # 注意：web_port 已废弃，HTTP 静态服务端口改由环境变量 WEB_PORT 指定（默认 8183），
 #       与 electron/main.ts 一致，不再走 config.yaml。
@@ -178,3 +287,22 @@ global:
 server:
   port: 8182                   # WebSocket 服务端口
   transport: binary            # 传输格式：binary（二进制帧，低开销）/ json（JSON 字符串，便于调试）
+  host: 127.0.0.1              # 默认仅本机；内网部署改为 0.0.0.0 或具体内网 IP，并置于 HTTPS 反向代理之后
+
+  # OAuth2/OIDC 管理员登录。启用后：SPA 默认显示登录遮罩；HTTP 控制面和 WebSocket
+  # 都必须带 HttpOnly 会话；不提供公开注册，只有下列管理员账号/角色可进入。
+  # 推荐使用 OIDC 提供商（Keycloak、Entra ID、Auth0 等）的授权码 + PKCE 流程。
+  # auth:
+  #   enabled: true
+  #   authorizationUrl: https://sso.intra.example/realms/chery/protocol/openid-connect/auth
+  #   tokenUrl: https://sso.intra.example/realms/chery/protocol/openid-connect/token
+  #   userInfoUrl: https://sso.intra.example/realms/chery/protocol/openid-connect/userinfo
+  #   clientId: cheryclaw-ui
+  #   clientSecret: $CHERY_OAUTH_CLIENT_SECRET # 机密客户端才需要；不要把真实密钥写入配置文件
+  #   redirectUri: https://chery.intra.example/api/auth/callback
+  #   sessionSecret: $CHERY_AUTH_SESSION_SECRET # 至少 32 字符，生产建议由 secret manager 注入
+  #   adminUsers: [alice@example.com]           # 以 sub / email / preferred_username 匹配
+  #   # 或由 IdP 声明授予管理员：
+  #   # adminClaim: roles
+  #   # adminValues: [admin]
+  #   trustedOrigins: [https://ui.intra.example] # 独立内网 UI 层的精确 Origin 白名单

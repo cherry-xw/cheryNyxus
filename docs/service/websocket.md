@@ -98,7 +98,7 @@ export const transport: Transport;
 
 **二进制帧格式**（与 [../protocol.md](../protocol.md) 一致，编码实现在此）：
 
-- stream chunk（带 seq，`0x01`）：`[0x01][seq:4 bytes BE][requestId_len:1][requestId:n][payload_json]`
+- stream chunk（`0x01`）：`[0x01][requestId_len:1][requestId:n][payload_json]`
 - 其他 Chunk/Notification（`0x02`）：`[0x02][full_json]`
 - json 模式：`encode` 全部返回 JSON 字符串（便于调试）。
 - Request/Response 始终 JSON：`parseMessage`（`safeJsonParse`）/`serializeMessage`（`JSON.stringify`）。

@@ -238,18 +238,23 @@ export function pushTrail(trail: GhostTrail, p: { x: number; y: number }): void 
 export function pointAtArc(trail: GhostTrail, distance: number): { x: number; y: number } {
   const pts = trail.pts;
   if (pts.length === 0) return { x: 0, y: 0 };
-  if (pts.length === 1) return { x: pts[0].x, y: pts[0].y };
+  if (pts.length === 1) {
+    const only = pts[0]!;
+    return { x: only.x, y: only.y };
+  }
   let acc = 0;
   for (let i = 1; i < pts.length; i++) {
-    const dx = pts[i].x - pts[i - 1].x;
-    const dy = pts[i].y - pts[i - 1].y;
+    const point = pts[i]!;
+    const previous = pts[i - 1]!;
+    const dx = point.x - previous.x;
+    const dy = point.y - previous.y;
     const seg = Math.hypot(dx, dy);
     if (acc + seg >= distance) {
       const t = seg > 0.001 ? (distance - acc) / seg : 0;
-      return { x: pts[i - 1].x + dx * t, y: pts[i - 1].y + dy * t };
+      return { x: previous.x + dx * t, y: previous.y + dy * t };
     }
     acc += seg;
   }
-  const last = pts[pts.length - 1];
+  const last = pts[pts.length - 1]!;
   return { x: last.x, y: last.y };
 }

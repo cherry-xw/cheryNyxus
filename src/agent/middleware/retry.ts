@@ -8,14 +8,24 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
 // ========== 错误分类 ==========
-type ErrorCategory = "network" | "provider" | "timeout" | "validation" | "unknown";
+type ErrorCategory = "auth" | "network" | "provider" | "timeout" | "validation" | "unknown";
 
 /**
  * 根据错误信息判断分类
+ *
+ * auth（401/403）优先级最高：避免 "401 invalid access token" 因含 "invalid" 被误判为 validation
+ * （后者归类语义是参数问题，与凭证失效无关）。
  */
 function classifyError(error: unknown): ErrorCategory {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
+    if (
+      msg.includes("401") || msg.includes("403") ||
+      msg.includes("unauthorized") || msg.includes("forbidden") ||
+      msg.includes("invalid access token") || msg.includes("invalid api key")
+    ) {
+      return "auth";
+    }
     if (msg.includes("network") || msg.includes("connection") || msg.includes("econnrefused") || msg.includes("enotfound")) {
       return "network";
     }
@@ -36,9 +46,9 @@ function classifyError(error: unknown): ErrorCategory {
  * 判断错误是否可恢复（可重试）
  */
 function isRecoverable(category: ErrorCategory): boolean {
-  // network 和 timeout 错误通常可重试
-  // validation 错误不可重试（参数问题）
-  // provider 错误可能可重试（如 rate limit）
+  // network / timeout / provider 错误通常可重试
+  // validation 不可重试（参数问题）
+  // auth 不可重试（凭证失效，重试无意义；P1 加固：避免 token 失效重试 3x 浪费 6s）
   return category === "network" || category === "timeout" || category === "provider";
 }
 

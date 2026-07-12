@@ -106,7 +106,7 @@ export interface PetInstance extends PetPreset {
   chatId: string;
   /** 子 pet 关联主 pet 的 chatId（主 pet 为 undefined）。 */
   parentChatId?: string;
-  /** 子 agent 类型（subagents 模块名，主 pet 为 undefined）。 */
+  /** 角色类型（roles 模块名，主 pet 为 undefined）。 */
   agentType?: string;
   /** 工作状态（流式中）。true 时 pet 视觉显工作态（CP2 双气泡）。 */
   isWorking: boolean;
@@ -118,8 +118,12 @@ export interface PetInstance extends PetPreset {
   ghostFace?: string;
   /** ghost 创建时间戳（performance.now()）。用于同 tribe ghost 队列排序（老鹰捉小鸡跟随）。 */
   ghostCreatedAt?: number;
-  /** agent 运行时配置（brain+senseGroups+mcpServers）。主 pet createMasterPet 设、子 pet subagent_created 设、AgentDialog runtime.set 后同步；hide 移除 pet / 刷新 initFromChats 不恢复 → undefined。 */
+  /** agent 运行时配置（brain+senseGroup+mcpServers）。主 pet createMasterPet 设、子 pet role_created 设、AgentDialog runtime.set 后同步；hide 移除 pet / 刷新 initFromChats 不恢复 → undefined。 */
   runtime?: RuntimeSelection;
+  /** 预设名（T6）：主 pet 经预设创建时记。AgentDialog 据此显预设名只读 + 切 brain-only（编制锁定）。非预设 pet 为 undefined。 */
+  preset?: string;
+  /** 末条非 revoked 消息为未完成周期（sense/user/role/subagent）；主 pet idle 时工具栏显"继续"按钮。后端 chat.list canResume 字段。 */
+  canResume?: boolean;
   /** Req 8: 气泡斥力增量。isWorking 时 =80，stepMovement 同部落斥力半径 += pet.bubbleRepelExtra + other.bubbleRepelExtra。tickPet chatting 到期清零。 */
   bubbleRepelExtra: number;
 }

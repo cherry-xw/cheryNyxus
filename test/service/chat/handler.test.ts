@@ -7,11 +7,14 @@ vi.mock("@/db/chat.js", () => ({
   deleteChat: vi.fn(),
   getMessages: vi.fn(),
   parseMessageRow: vi.fn(),
+  findChatsByParent: vi.fn(),
 }));
-vi.mock("@/service/chat/send.js", () => ({
+vi.mock("@/service/chat/runtime.js", () => ({
   ensureChat: vi.fn(),
   clearChatRuntime: vi.fn(),
+  isChatRunning: vi.fn(() => false),
 }));
+vi.mock("@/utils/token.js", () => ({ computeContextUsage: vi.fn(() => 0) }));
 vi.mock("@/agent/runtimeResolver.js", () => ({
   parseRuntimeSelection: vi.fn(),
 }));
@@ -30,6 +33,7 @@ import {
   deleteChat,
   getMessages,
   parseMessageRow,
+  findChatsByParent,
 } from "@/db/chat.js";
 import { ensureChat, clearChatRuntime } from "@/service/chat/runtime.js";
 import { parseRuntimeSelection } from "@/agent/runtimeResolver.js";
@@ -61,6 +65,8 @@ describe("service/chat/handler", () => {
     vi.mocked(deleteChat).mockClear();
     vi.mocked(getMessages).mockClear();
     vi.mocked(parseMessageRow).mockClear();
+    vi.mocked(findChatsByParent).mockReset();
+    vi.mocked(findChatsByParent).mockReturnValue([]);
     vi.mocked(ensureChat).mockClear();
     vi.mocked(clearChatRuntime).mockClear();
     vi.mocked(parseRuntimeSelection).mockClear();
@@ -68,21 +74,21 @@ describe("service/chat/handler", () => {
 
   describe("handleChatCreate", () => {
     it("creates chat with explicit chatId and configures runtime", async () => {
-      vi.mocked(parseRuntimeSelection).mockReturnValue({ brain: "b", senseGroups: ["g"] });
+      vi.mocked(parseRuntimeSelection).mockReturnValue({ brain: "b", senseGroup: "g" });
       vi.mocked(ensureChat).mockResolvedValue({} as never);
-      const res = await handleChatCreate(ctx, { chatId: "c1", brain: "b", senseGroups: ["g"] });
-      expect(res).toEqual({ chatId: "c1" });
-      expect(createChat).toHaveBeenCalledWith("c1");
-      expect(ensureChat).toHaveBeenCalledWith("c1", { brain: "b", senseGroups: ["g"] });
+      const res = await handleChatCreate(ctx, { chatId: "c1", brain: "b", senseGroup: "g" });
+      expect(res).toMatchObject({ chatId: "c1", brain: "b", senseGroup: "g" });
+      expect(createChat).toHaveBeenCalledWith("c1", undefined, undefined);
+      expect(ensureChat).toHaveBeenCalledWith("c1", { brain: "b", senseGroup: "g" });
     });
 
     it("generates chatId when not provided", async () => {
-      vi.mocked(parseRuntimeSelection).mockReturnValue({ brain: "b", senseGroups: ["g"] });
+      vi.mocked(parseRuntimeSelection).mockReturnValue({ brain: "b", senseGroup: "g" });
       vi.mocked(ensureChat).mockResolvedValue({} as never);
-      const res = await handleChatCreate(ctx, { brain: "b", senseGroups: ["g"] } as never);
+      const res = await handleChatCreate(ctx, { brain: "b", senseGroup: "g" } as never);
       expect(typeof res.chatId).toBe("string");
       expect(res.chatId.length).toBeGreaterThan(0);
-      expect(createChat).toHaveBeenCalledWith(res.chatId);
+      expect(createChat).toHaveBeenCalledWith(res.chatId, undefined, undefined);
     });
   });
 
@@ -92,7 +98,7 @@ describe("service/chat/handler", () => {
         { id: "c1", created_at: 1, updated_at: 2, message_count: 5 },
       ] as never);
       const res = (await handleChatList(ctx, {})) as { chats: unknown[] };
-      expect(res.chats).toEqual([{ chatId: "c1", createdAt: 1, updatedAt: 2, messageCount: 5 }]);
+      expect(res.chats).toMatchObject([{ chatId: "c1", createdAt: 1, updatedAt: 2, messageCount: 5 }]);
     });
   });
 
@@ -109,7 +115,7 @@ describe("service/chat/handler", () => {
       const { items, result } = await collect(handleChatGet(ctx, { chatId: "c1" }));
       expect(items.some((i) => (i as { kind: string }).kind === "chunk")).toBe(true);
       expect(items.some((i) => (i as { kind: string; type: string }).type === "loaded")).toBe(true);
-      expect(result).toEqual({ chatId: "c1", canResume: true });
+      expect(result).toMatchObject({ chatId: "c1", canResume: true });
     });
 
     it("returns canResume false when last visible message is assistant", async () => {
@@ -118,6 +124,19 @@ describe("service/chat/handler", () => {
       vi.mocked(parseMessageRow).mockReturnValue({ role: "assistant", content: "x" } as never);
       const { result } = await collect(handleChatGet(ctx, { chatId: "c1" }));
       expect(result.canResume).toBe(false);
+    });
+
+    it("returns canResume true for a trailing role reply without child id transport", async () => {
+      vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
+      vi.mocked(getMessages).mockReturnValue([{ id: "m1", role: "role", revoked: 0 } as never]);
+      vi.mocked(parseMessageRow).mockReturnValue({ role: "role", content: "child result" } as never);
+
+      const { items, result } = await collect(handleChatGet(ctx, { chatId: "c1" }));
+      expect(result.canResume).toBe(true);
+      const roleChunk = items.find((item) => (item as { data?: { role?: string } }).data?.role === "role") as {
+        data: Record<string, unknown>;
+      };
+      expect(roleChunk.data).not.toHaveProperty("childChatId");
     });
 
     it("emits thinking_end and sense_end for messages carrying them", async () => {
@@ -169,6 +188,21 @@ describe("service/chat/handler", () => {
       expect(clearChatRuntime).toHaveBeenCalledWith("c1");
       expect(deleteChat).toHaveBeenCalledWith("c1");
       expect(res).toEqual({ chatId: "c1" });
+    });
+
+    it("deletes descendants from leaves to root", async () => {
+      vi.mocked(getChat).mockReturnValue({ id: "main", parent_chat_id: null } as never);
+      vi.mocked(findChatsByParent).mockImplementation((parentChatId: string) => {
+        if (parentChatId === "main") return [{ id: "child" }] as never;
+        if (parentChatId === "child") return [{ id: "grandchild" }] as never;
+        return [] as never;
+      });
+
+      await handleChatDelete(ctx, { chatId: "main" });
+
+      expect(deleteChat).toHaveBeenNthCalledWith(1, "grandchild");
+      expect(deleteChat).toHaveBeenNthCalledWith(2, "child");
+      expect(deleteChat).toHaveBeenNthCalledWith(3, "main");
     });
   });
 

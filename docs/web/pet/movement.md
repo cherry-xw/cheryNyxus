@@ -6,7 +6,7 @@
 
 多主 pet 共存，每主带一群子 pet，形成部落类群（不同部落视觉/移动分离）。
 
-> **CP1 去装饰化后的产生路径**：`addPet`/`summonSub`/`removePet`/`resetPets` 装饰入口已移除——主 pet 现由 [AgentFab](../../../web/src/features/agent/AgentFab.vue) 触发 agents store `createMasterPet`（`chat.create` + `generatePet('kaomoji')`）；子 pet 由 `subagent_created` notification 触发（CP3，见 [agent-integration.md](./agent-integration.md)）；初始化由 `initFromChats` 从 `chat.list` 重建。下方扎堆行为/部落物理/基础 mood 描述运动学，**仍生效**（RAF/stepMovement 未变）。
+> **CP1 去装饰化后的产生路径**：`addPet`/`summonSub`/`removePet`/`resetPets` 装饰入口已移除——主 pet 现由 [AgentFab](../../../web/src/features/agent/AgentFab.vue) 触发 agents store `createMasterPet`（`chat.create` + `generatePet('kaomoji')`）；子 pet 由 `role_created` notification 触发（CP3，见 [agent-integration.md](./agent-integration.md)）；初始化由 `initFromChats` 从 `chat.list` 重建。下方扎堆行为/部落物理/基础 mood 描述运动学，**仍生效**（RAF/stepMovement 未变）。
 
 - **主 pet 产生**：工具栏 `+pet`（`addPet`）→ `generatePet('kaomoji', 已用 face 集合)` 产 preset → 新主 pet（`isMaster=true`，`tribe=自身 instanceId`），全尺寸，工具列前置 `summon`。已用集合 = 当前 `pets` 全部 face（两池不相交，混合集合无害）。
 - **子 pet 产生**：主 pet 的 `summon` 工具 → `summonSub(master)` → `generatePet('emoji', 已用 face 集合)`，`isMaster=false`，`tribe=master.instanceId`，初始位置在主附近。仅主 pet 持有 `summon`。
@@ -18,7 +18,7 @@
   - 移动算法抽到 [petMovement.ts](../../../web/src/features/pets/petMovement.ts)：**力积分模型**（`stepMovement`）—— 加速度（seek 朝 target）+ 部落间力 → 速度（damping + maxSpeed）→ 位置。`vx/vy` 持久积分（有惯性），非每帧覆盖。靠近时斥力随距离线性渐增，速度渐变方向 → **平滑远离**（非位置硬修正瞬移）。
   - **部落力**（按 `tribe` 同异分施）：同部落 = 引力（`ATTRACT_RADIUS` 环带内拉拢聚拢）+ 小半径斥力（`REPEL_RADIUS` 内近距不重叠）；异部落 = 大半径斥力（`ATTRACT_RADIUS` 内分离，替代旧主-主强斥力）+ 引力（默认 0）。两主异部落 → 大半径强斥 → 不会接近。
   - **直观参数**（`MovementOptions` 覆盖，默认值即下述常量）：`maxSpeed`（移动速度）/ `acceleration`（加速度）/ `tribeAttract`·`tribeRepel`（同部落引/斥）/ `otherAttract`·`otherRepel`（异部落引/斥）/ `repelRadius`·`attractRadius`（斥/引作用半径）。
-  - **主 pet 独立物理**：`stepMovement` 全量参数化，`usePetWorld.tickPet` 按 `isMaster` 传独立参数集——主 pet 取**更慢更稳**配置（更低 `maxSpeed`/`acceleration`、更小斥力与半径），稳重首领感；子 pet 用默认值。
+  - **主 pet 独立物理**：`stepMovement` 全量参数化，`usePetWorld.tickPet` 按 `isMaster` 传独立参数集——主 pet 取**更慢更稳**配置（更低 `maxSpeed`/`acceleration`、更小斥力与半径），稳重首领感；**且 `tribeAttract=0`（只斥力不引力）**——子 pet `retarget` 聚拢本主 + 同部落引力双向拉拢会把主 pet 钉在子 pet 堆中心，被围到屏幕边缘后斥力顶住 `keepInBounds` 边界出不去 → 全部堆积边缘不动；关引力后主 pet 凭 seek（全屏 `randomTarget`）自由游走，近距斥力仅防重叠（不重叠即无力）；子 pet 用默认值（仍受同部落引力聚拢本主）。
   - **初始位排斥采样**（`findSpawnPosition`）：生成时在落点附近尝试多次，选距所有现有 pet 中心 ≥ `MIN_SPAWN_GAP` 的点（找不到退化为最远点）→ 出生即不重叠。子 pet 落点基于主，主 pet 落点基于舞台随机 + 排斥已有主。
 - **基础 mood**：主 pet `serious`（见 [state.md](./state.md)）。
 

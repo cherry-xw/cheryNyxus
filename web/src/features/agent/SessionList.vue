@@ -14,6 +14,7 @@ import { computed, ref, watch } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ElMessageBox } from "element-plus";
 import { useAgentsStore } from "@/stores";
+import { formatTime } from "@/utils/formatTime";
 
 const MotionDiv = motion.div;
 const agents = useAgentsStore();
@@ -39,16 +40,6 @@ watch(open, async (v) => {
     loading.value = false;
   }
 });
-
-function formatTime(ts?: number): string {
-  if (!ts) return "";
-  const d = new Date(ts);
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${mm}-${dd} ${hh}:${mi}`;
-}
 
 function close(): void {
   agents.historyListOpen = false;

@@ -74,8 +74,8 @@ mcp_servers:
 
 MCP tool 名只能经 server API 发现，逼用户手写进 `sense_groups` 认知负担过重。故 MCP **不走 sense_groups**，改为按 **server 粒度**在 runtime 层开关：
 
-- `RuntimeSelection` 增 `mcpServers: string[]`（enabled server 名，与 `senseGroups` 同层级、同原子性）。
-- 经 `chat.create` / `runtime.set` 原子携带（brain + senseGroups + mcpServers），不新增 RPC 方法。前端按 server 渲染开关（`brain.list` 返回 `mcpServers` = 当前已连 server 名）。
+- `RuntimeSelection` 增 `mcpServers: string[]`（enabled server 名，与 `senseGroup` 同层级、同原子性）。
+- 经 `chat.create` / `runtime.set` 原子携带（brain + senseGroup + mcpServers），不新增 RPC 方法。前端按 server 渲染开关（`brain.list` 返回 `mcpServers` = 当前已连 server 名）。
 - [runtimeResolver](../../src/agent/runtimeResolver.ts) `resolveSense`：sense_groups 解析后追加遍历 `selection.mcpServers` → `getConnectedServerSenseNames(name)` → 每个 `getSense` → 合并进 resolved Map（去重冲突 MCP 覆盖）。
 - enabled server 的**全部** `mcp__<server>__*` sense 进 builtSenses + senseTable；持久化随 `metadata.runtime` 自动写入，重启 `ensureChat` 恢复；旧 chat 无此字段视为 `[]`。
 - **唯一挂载路径** = `mcpServers` 开关；不再把 `mcp__` 写进 sense_groups。
@@ -108,7 +108,7 @@ MCP sense 绕过 sense_groups，**无 `:level` 后缀覆盖**。最终监管等�
        (单个失败 warn + lastError 记录,不阻断启动)
 
 ─── 挂载层（chat.create / runtime.set → resolveSense） ─────────
-RuntimeSelection { brain, senseGroups, mcpServers }
+RuntimeSelection { brain, senseGroup, mcpServers }
   └─ resolveSense: sense_groups 解析后追加
        for serverName in mcpServers:
          getConnectedServerSenseNames(name)   ← 未连 throw NOT_FOUND(fail loud)

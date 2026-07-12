@@ -41,7 +41,7 @@ describe("正常完整流程", () => {
     await client.call("chat.create", {
       chatId,
       brain: "mock_content",
-      senseGroups: ["auto_senses"],
+      senseGroup: "auto_senses",
     });
 
     const flow = client.beginStream("chat.send", { chatId, prompt: "你好" });
@@ -68,7 +68,7 @@ describe("正常完整流程", () => {
     await client.call("chat.create", {
       chatId,
       brain: "mock_auto",
-      senseGroups: ["auto_senses"],
+      senseGroup: "auto_senses",
     });
 
     const flow = client.beginStream("chat.send", { chatId, prompt: "读文件" });
@@ -116,7 +116,7 @@ describe("正常完整流程", () => {
     await client.call("chat.create", {
       chatId,
       brain: "mock_confirm",
-      senseGroups: ["confirm_senses"],
+      senseGroup: "confirm_senses",
     });
 
     const flow = client.beginStream("chat.send", { chatId, prompt: "写文件" });
@@ -153,7 +153,7 @@ describe("正常完整流程", () => {
     await client.call("chat.create", {
       chatId,
       brain: "mock_confirm_reject",
-      senseGroups: ["confirm_senses"],
+      senseGroup: "confirm_senses",
     });
 
     const flow = client.beginStream("chat.send", { chatId, prompt: "写文件" });

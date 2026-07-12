@@ -1,4 +1,5 @@
 import { encodeRequest, decodeMessage } from "./transport";
+import { httpUrl } from "./http";
 
 declare global {
   interface Window {
@@ -27,6 +28,8 @@ export interface ServerConfig {
   wsPort: number;
   webPort: number;
   transport: "binary" | "json";
+  /** Ephemeral local capability required by the backend WebSocket control plane. */
+  sessionToken?: string;
 }
 
 type ChunkHandler = (chunk: unknown) => void;
@@ -101,7 +104,7 @@ export class WsClient {
       if (injected) {
         this.serverConfig = injected;
       } else {
-        const res = await fetch("/api/config");
+        const res = await fetch(httpUrl("/api/config"));
         if (!res.ok) {
           throw new Error(`获取 /api/config 失败: ${res.status}`);
         }
@@ -118,11 +121,15 @@ export class WsClient {
     // Electron（preload 注入 __BACKEND_CONFIG__）：直连 wsPort
     // dev:web（vite）：走同源 /ws（vite proxy 转 wsPort；跨机器访问只需暴露单端口 5173，无需开放 8182）
     // 生产（后端静态 serve）：直连 wsPort（8182 需对客户端开放）
-    const url = window.__BACKEND_CONFIG__
+    const socketScheme = window.location.protocol === "https:" ? "wss" : "ws";
+    const baseUrl = window.__BACKEND_CONFIG__
       ? `ws://localhost:${this.serverConfig.wsPort}`
       : import.meta.env.DEV
-        ? `ws://${window.location.host}/ws`
-        : `ws://${window.location.hostname}:${this.serverConfig.wsPort}`;
+        ? `${socketScheme}://${window.location.host}/ws`
+        : `${socketScheme}://${window.location.hostname}:${this.serverConfig.wsPort}`;
+    const url = this.serverConfig.sessionToken
+      ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.serverConfig.sessionToken)}`
+      : baseUrl;
     const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;

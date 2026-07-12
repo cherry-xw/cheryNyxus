@@ -1,6 +1,6 @@
 import type { HandlerContext } from "../message/router.js";
 import { Method, type BrainListResponseData } from "../message/types.js";
-import config from "@/utils/config";
+import config, { DEFAULT_PRESET_NAME } from "@/utils/config";
 import { listConnectedServerNames } from "@/core/mcp";
 
 /**
@@ -11,14 +11,19 @@ export async function handleBrainList(
   _params: unknown,
 ): Promise<BrainListResponseData> {
   // CP2：contextLimit 供前端 context bar 显示用量；缺省 undefined（前端兜底）
-  // default 标记 = 是否为 config.default.brain（前端 AgentDialog 无 runtime 时预选默认 brain）
+  // default 标记 = 是否为「默认」预设 leader 角色的 brain（前端 AgentDialog 无 runtime 时预选默认 brain）
+  const defaultPreset = config.presets?.[DEFAULT_PRESET_NAME];
+  const defaultLeaderBrain = defaultPreset?.leader
+    ? config.roles?.[defaultPreset.leader]?.brain
+    : undefined;
   const brains = Object.entries(config.llm.brain).map(([name, cfg]) => ({
     name,
     provider: cfg.provider,
     model: cfg.model,
     thinking: cfg.thinking,
+    capabilities: cfg.capabilities,
     contextLimit: cfg.contextLimit,
-    default: name === config.default?.brain,
+    default: name === defaultLeaderBrain,
     senseGroups: Object.keys(config.sense_groups ?? {}),
   }));
   return { brains, mcpServers: listConnectedServerNames() };

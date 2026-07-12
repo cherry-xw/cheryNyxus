@@ -125,6 +125,27 @@ describe("compose middleware", () => {
 
       expect(chunks).toEqual(["outer-before", "inner", "outer-after"]);
     });
+
+    it("creates a fresh downstream pipeline for each next() call", async () => {
+      let attempts = 0;
+      const retryLike = async function* (_c: any, next: any) {
+        try {
+          yield* next();
+        } catch {
+          yield* next();
+        }
+      };
+      const flaky = async function* () {
+        attempts++;
+        if (attempts === 1) throw new Error("transient");
+        yield "recovered";
+      };
+
+      const chunks = await drain(compose([retryLike, flaky]).run(createMockContext()));
+
+      expect(chunks).toEqual(["recovered"]);
+      expect(attempts).toBe(2);
+    });
   });
 
   describe("edge cases", () => {

@@ -10,6 +10,7 @@
   "main": "dist/index.js",
   "scripts": {
     "postinstall": "test -f .env || cp .env.example .env",
+    "prebuild": "pnpm type-check",
     "build": "vite build --ssr --mode dev",
     "build:test": "vite build --ssr --mode test",
     "build:prod": "vite build --ssr --mode prod",
@@ -27,7 +28,7 @@
     "web:preview": "pnpm --filter web preview",
     "web:type-check": "pnpm --filter web type-check",
     "dev:all": "concurrently -n backend,web -c blue,green \"pnpm dev\" \"pnpm --filter web dev:web\"",
-    "build:all": "pnpm build && pnpm --filter web build",
+    "build:all": "pnpm type-check:all && pnpm build && pnpm --filter web build",
     "type-check:all": "pnpm type-check && pnpm --filter web type-check"
   },
   "repository": {

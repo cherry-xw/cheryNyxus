@@ -14,11 +14,9 @@ function postBuildFix(): Plugin {
       const libDir = resolve(distDir, "lib");
       const distFile = resolve(distDir, "index.js");
 
-      // ===== .env 复制 =====
-      const envSource = resolve(__dirname, ".env");
-      if (existsSync(envSource)) {
-        copyFileSync(envSource, resolve(distDir, ".env"));
-      }
+      // dist is intentionally retained between builds for native artifacts;
+      // remove a stale legacy copy so old builds cannot keep shipping secrets.
+      rmSync(resolve(distDir, ".env"), { force: true });
 
       // ===== @swc/wasm 复制 =====
       const require = createRequire(import.meta.url);

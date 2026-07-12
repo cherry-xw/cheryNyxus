@@ -123,7 +123,7 @@ describe("完整 Middleware 集成（defaultHandlers 装配）", () => {
   });
 
   it("defaultHandlers 装配后 send content-only 完整流程", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "集成测试");
     expect(hasDone(chunks)).toBe(true);
     expect(messageCreated(chunks).some((m) => m.message.role === "assistant")).toBe(true);

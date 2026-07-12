@@ -143,7 +143,7 @@ dist/senses/<name>.js  ── 读全文，移除首行 hash 注释 ──►  pu
    > import 语句仅用于 IDE 类型检查，编译时会被剥离；运行时只能用 `z` / `sense` / `SupervisionLevel` / `registerSenses` 这四个注入标识符。
 
 2. 运行 `compile-senses` 子命令（或在启动期由 `bootstrapAgentRuntime` 触发）→ 产物写到 `dist/senses/<name>.js`。
-3. `reloadSenses()` 自动加载并 `registerSenses`，无需改 `config.yaml` 的 `sense_groups` 即可被 `senseGroups` 引用。
+3. `reloadSenses()` 自动加载并 `registerSenses`，无需改 `config.yaml` 的 `sense_groups` 即可被 `senseGroup` 引用。
 
 ### 修改编译目标 / 缓存策略
 

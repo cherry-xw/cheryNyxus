@@ -109,6 +109,15 @@ export default class AgentSession<T = unknown> {
   }
 
   /**
+   * 注入角色回复消息（wait=true 子完成唤醒主，见 docs/agent-pet.md §5.4）。
+   * 委托 MessageJournal（守单一写者）。DB 落库由 service wakeParent addMessage。
+   * @returns 新消息 id
+   */
+  appendRoleReply(content: string): string {
+    return this.journal.appendRoleReply(content).id;
+  }
+
+  /**
    * 撤回末尾整个当前周期 AI 响应（chat.send 恢复场景使用）。
    * 委托 MessageJournal（角色推断集中）。
    */

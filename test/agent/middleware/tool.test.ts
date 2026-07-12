@@ -41,7 +41,7 @@ describe("senseMiddleware 集成：auto 执行", () => {
   });
 
   it("auto sense（read_file:auto）直接执行 → sense_accept", async () => {
-    const agent = createAgent({ brain: "mock_auto", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_auto", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "读文件");
     // auto 不产生 sense_pending（无审批），直接 sense_accept
     expect(sensePendings(chunks)).toHaveLength(0);
@@ -50,7 +50,7 @@ describe("senseMiddleware 集成：auto 执行", () => {
   });
 
   it("auto 不等待审批即执行（无 sense_pending）", async () => {
-    const agent = createAgent({ brain: "mock_auto", senseGroups: ["auto_senses"] });
+    const agent = createAgent({ brain: "mock_auto", senseGroup: "auto_senses" });
     const chunks = await runSend(agent, "再读一次");
     const accept = senseAccepts(chunks)[0];
     expect(accept).toBeDefined();
@@ -65,7 +65,7 @@ describe("senseMiddleware 集成：confirm 审批", () => {
   });
 
   it("confirm accept：sense_pending → approve → sense_accept", async () => {
-    const agent = createAgent({ brain: "mock_confirm", senseGroups: ["confirm_senses"] });
+    const agent = createAgent({ brain: "mock_confirm", senseGroup: "confirm_senses" });
     const chunks = await runSendWithApproval(agent, "写文件", () => "accept");
     const pending = sensePendings(chunks);
     expect(pending.length).toBeGreaterThanOrEqual(1);
@@ -76,7 +76,7 @@ describe("senseMiddleware 集成：confirm 审批", () => {
   });
 
   it("confirm reject：sense_pending → reject → sense_reject", async () => {
-    const agent = createAgent({ brain: "mock_confirm_reject", senseGroups: ["confirm_senses"] });
+    const agent = createAgent({ brain: "mock_confirm_reject", senseGroup: "confirm_senses" });
     const chunks = await runSendWithApproval(agent, "写文件", () => ({ action: "reject", reason: "危险操作" }));
     expect(sensePendings(chunks).length).toBeGreaterThanOrEqual(1);
     const rejects = senseRejects(chunks);
@@ -107,7 +107,7 @@ describe("senseMiddleware 集成：hash 去重", () => {
       ],
     });
     try {
-      const agent = createAgent({ brain, senseGroups: ["auto_senses"] });
+      const agent = createAgent({ brain, senseGroup: "auto_senses" });
       const chunks = await runSend(agent, "读两次同文件");
       // 第二次同 hash 命中 → doExecuteSense 替换历史 sense msg → message_updated(replace.state=true)
       const replaced = messageUpdated(chunks).filter((u) => u.patch.replace?.state);
@@ -186,7 +186,7 @@ describe("senseMiddleware 集成：批量审批 sequential（P1.9）", () => {
       ],
     });
     try {
-      const agent = createAgent({ brain, senseGroups: ["confirm_senses"] });
+      const agent = createAgent({ brain, senseGroup: "confirm_senses" });
       let n = 0;
       const chunks = await runSendWithApproval(agent, "写两个", () => {
         n++;
@@ -216,7 +216,7 @@ describe("senseMiddleware 集成：批量审批 sequential（P1.9）", () => {
       ],
     });
     try {
-      const agent = createAgent({ brain, senseGroups: ["confirm_senses"] });
+      const agent = createAgent({ brain, senseGroup: "confirm_senses" });
       const out: MiddlewareChunk[] = [];
       let n = 0;
       let thrown: unknown;

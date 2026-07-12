@@ -5,6 +5,7 @@
  * - 成功透传（不重试）
  * - network 错误重试 MAX_RETRIES 次后 yield ErrorChunk
  * - validation 不可恢复 → 首次失败即 yield ErrorChunk（不重试）
+ * - auth 错误（401/403）不可恢复 → 首次失败即 yield ErrorChunk（P1 加固：避免 token 失效重试 3x 浪费）
  * - 第 2 次成功 → 透传不 yield error
  * - approval aborted → re-throw（不转 ErrorChunk）
  * - chat 流中途失败：snapshot 回滚半截 message
@@ -172,5 +173,59 @@ describe("retryMiddleware 错误分类", () => {
 
   it("unknown: 其他", async () => {
     expect(await classifyOnce("something weird")).toBe("unknown");
+  });
+});
+
+describe("retryMiddleware auth 错误（401/403 不重试）", () => {
+  it("401 invalid access token → 1 次即 yield error，category=auth", async () => {
+    const ctx = createMockContext({ messages: [] });
+    let callCount = 0;
+    const next = sequenceNext([
+      async function* () {
+        callCount++;
+        throw new Error("401 invalid access token");
+      },
+    ]);
+    const out = await collectChunks(retryMiddleware(ctx, next));
+    const err = firstError(out);
+    expect(err).toBeDefined();
+    expect(err!.errors.length).toBe(1);
+    expect(err!.errors[0]!.recoverable).toBe(false);
+    expect(err!.errors[0]!.category).toBe("auth");
+    expect(callCount).toBe(1);
+  });
+
+  it("403 forbidden → 1 次即 yield error，category=auth", async () => {
+    const ctx = createMockContext({ messages: [] });
+    let callCount = 0;
+    const next = sequenceNext([
+      async function* () {
+        callCount++;
+        throw new Error("403 Forbidden");
+      },
+    ]);
+    const out = await collectChunks(retryMiddleware(ctx, next));
+    const err = firstError(out);
+    expect(err).toBeDefined();
+    expect(err!.errors.length).toBe(1);
+    expect(err!.errors[0]!.recoverable).toBe(false);
+    expect(err!.errors[0]!.category).toBe("auth");
+    expect(callCount).toBe(1);
+  });
+
+  it("invalid api key（与参数 validation 同字段 'invalid'） → category=auth 优先", async () => {
+    const ctx = createMockContext({ messages: [] });
+    let callCount = 0;
+    const next = sequenceNext([
+      async function* () {
+        callCount++;
+        throw new Error("invalid api key");
+      },
+    ]);
+    const out = await collectChunks(retryMiddleware(ctx, next));
+    const err = firstError(out);
+    expect(err).toBeDefined();
+    expect(err!.errors[0]!.category).toBe("auth");
+    expect(callCount).toBe(1);
   });
 });

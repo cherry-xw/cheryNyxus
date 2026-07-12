@@ -1,0 +1,33 @@
+// Shared markdown rendering styles.
+// Consumers: @import this mixin inside their <style scoped lang="less"> block,
+// then call .md-content() inside the wrapper class that contains .md v-html output.
+.md-content() {
+  :deep(p) {
+    margin: 0 0 6px;
+    &:last-child { margin: 0; }
+  }
+  :deep(h1), :deep(h2), :deep(h3), :deep(h4), :deep(h5), :deep(h6) {
+    font-size: 14px; font-weight: 800; margin: 8px 0 4px; line-height: 1.3;
+  }
+  :deep(ul), :deep(ol) { margin: 4px 0; padding-left: 20px; }
+  :deep(li) { margin: 2px 0; }
+  :deep(li > ul), :deep(li > ol) { margin: 2px 0; }
+  :deep(blockquote) {
+    margin: 4px 0; padding: 2px 8px;
+    border-left: 3px solid rgba(246, 183, 60, 0.5);
+    color: fade(@ink, 66%);
+  }
+  :deep(a) { color: #b8860b; text-decoration: underline; }
+  :deep(code) {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12px; padding: 1px 4px; border-radius: 3px;
+    background: rgba(20, 22, 26, 0.06);
+  }
+  :deep(pre) { margin: 6px 0; overflow-x: auto; }
+  :deep(pre code) { padding: 0; background: transparent; font-size: 11.5px; }
+  :deep(hr) { border: none; border-top: 1px solid rgba(36, 38, 45, 0.15); margin: 8px 0; }
+  :deep(img) { max-width: 100%; border-radius: 4px; }
+  :deep(table) { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
+  :deep(th), :deep(td) { border: 1px solid rgba(36, 38, 45, 0.15); padding: 3px 6px; }
+  :deep(th) { background: rgba(20, 22, 26, 0.04); font-weight: 700; }
+}

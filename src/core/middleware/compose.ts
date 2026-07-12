@@ -56,27 +56,22 @@ export function compose<T = unknown>(
 async function* executeChain<T>(
   ctx: MiddlewareContext,
   handlers: MiddlewareHandler<T>[],
-  startIndex: number,
+  index: number,
 ): AsyncGenerator<T> {
-  let index = startIndex;
+  const handler = handlers[index];
+  if (!handler) return;
 
-  async function* next(): AsyncGenerator<T> {
-    if (index < handlers.length) {
-      const handler = handlers[index];
-      if (handler) {
-        index++;
-        try {
-          yield* handler(ctx, next);
-        } catch (err) {
-          // AgentAbortError 是控制流信号（chat.abort/审批 reject），非可调试故障：
-          // 原样上浮，不包装前缀，保证下游 retry/send 的 isAgentAbortError 判定命中。
-          if (isAgentAbortError(err)) throw err;
-          const message = err instanceof Error ? err.message : String(err);
-          throw new Error(`[compose] handler at index ${index - 1} threw: ${message}`, { cause: err });
-        }
-      }
-    }
+  try {
+    // `next` is a factory, not a shared cursor.  Retry middleware invokes it
+    // once per attempt; a shared monotonic index used to turn later attempts
+    // into an empty generator.  Each invocation therefore gets a fresh
+    // downstream pipeline beginning at index + 1.
+    yield* handler(ctx, () => executeChain(ctx, handlers, index + 1));
+  } catch (err) {
+    // AgentAbortError 是控制流信号（chat.abort/审批 reject），非可调试故障：
+    // 原样上浮，不包装前缀，保证下游 retry/send 的 isAgentAbortError 判定命中。
+    if (isAgentAbortError(err)) throw err;
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`[compose] handler at index ${index} threw: ${message}`, { cause: err });
   }
-
-  yield* next();
 }

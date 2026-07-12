@@ -123,7 +123,7 @@ const mockMessageAdapterConfig = {
   thinking: (raw: MockResponse) => raw.thinking,
   extractStreamDelta: (chunk: MockStreamChunk) => chunk.content ?? "",
   extractStreamThinking: (chunk: MockStreamChunk) => chunk.thinking,
-  buildMessages: (history: LLMResponse[]) => history.filter(m => !m.revoked),
+  buildMessages: (history: LLMResponse[]) => history.filter(m => !m.revoked), // P5b：mock 不解析 attachments，签名对齐接口忽略参数
 };
 
 // ========== Sense Adapter ==========

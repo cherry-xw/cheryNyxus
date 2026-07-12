@@ -19,30 +19,63 @@ import {
   getChat,
   deleteChat,
   getMessages,
+  getLastMessage,
   parseMessageRow,
   findChatsByParent,
   getChatPreviews,
 } from "@/db/chat.js";
 import { clearChatRuntime, ensureChat, isChatRunning } from "./runtime.js";
 import { randomUUID } from "crypto";
-import { parseRuntimeSelection, type RuntimeSelection } from "@/agent/runtimeResolver.js";
+import { parseRuntimeSelection, resolvePresetSelection, type RuntimeSelection } from "@/agent/runtimeResolver.js";
 import { logger } from "@/utils/logger/index.js";
 import { computeContextUsage } from "@/utils/token.js";
 import { safeJsonParse } from "@/utils/json.js";
 
 /**
+ * 判定 chat 是否可 resume（末条非 revoked 消息为未完成周期）。
+ * 提取共享：chat.get / chat.list 复用，避免逻辑漂移。
+ *   - role=sense：pending 或 done 无后续 assistant
+ *   - role/subagent：子任务结果已注入，需恢复主 loop 消费
+ *   - role=user：用户消息已入库但 assistant 未响应（异常中断）
+ * getLastMessage 已过滤 revoked，此处仅判角色。
+ */
+export function computeCanResume(chatId: string): boolean {
+  const last = getLastMessage(chatId);
+  if (!last) return false;
+  const role = last.role;
+  return role === "sense" || role === "user" || role === "role" || role === "subagent";
+}
+
+/**
  * 创建聊天（chatId 可选由前端指定）
- * 必携带 brain + senseGroups：创建 agent runtime、注册事件任务并加载历史，
- * 返回 chatId。之后 chat.send 无需再带 brain/sense。
+ * 两种编制来源（T6）：
+ *   - preset：从预设 leader 角色解析 brain+senseGroups+mcp+systemPrompt（编制快照入 metadata，
+ *     运行后锁定）。AgentDialog 选预设路径。
+ *   - 显式 brain + senseGroups：原路径（default 兜底 / 子 agent）。
+ * 任一来源均原子配置 runtime + 一次性加载历史，返回 chatId。之后 chat.send 无需再带 brain/sense。
  */
 export async function handleChatCreate(
   _ctx: HandlerContext,
   data: ChatCreateRequestData,
 ): Promise<ChatCreateResponseData> {
   const p = data;
-  const selection = parseRuntimeSelection(p, "chat.create");
   const chatId = p.chatId || randomUUID();
-  createChat(chatId, undefined, p.parentChatId);
+
+  let selection: RuntimeSelection;
+  const metadata: Record<string, unknown> = {};
+  if (p.preset) {
+    // 预设路径：解析编制快照 + 记 preset 名 + spawn roster（选中子 agent type 列表）+ prompt 路径
+    const resolved = resolvePresetSelection(p.preset);
+    selection = resolved.selection;
+    metadata.preset = p.preset;
+    metadata.spawnTypes = resolved.spawnTypes;
+    if (resolved.promptPathOverride) metadata.promptPathOverride = resolved.promptPathOverride;
+  } else {
+    // 显式路径：parseRuntimeSelection 校验 brain + senseGroups 必填
+    selection = parseRuntimeSelection(p, "chat.create");
+  }
+
+  createChat(chatId, Object.keys(metadata).length > 0 ? metadata : undefined, p.parentChatId);
   try {
     // 原子配置 runtime，并一次性加载历史到 agent。
     await ensureChat(chatId, selection);
@@ -56,14 +89,15 @@ export async function handleChatCreate(
   }
   logger.event("chat.create", {
     chatId,
+    preset: p.preset,
     brain: selection.brain,
-    senseGroups: selection.senseGroups,
+    senseGroup: selection.senseGroup,
     mcpServers: selection.mcpServers,
   });
   return {
     chatId,
     brain: selection.brain,
-    senseGroups: selection.senseGroups,
+    senseGroup: selection.senseGroup,
     mcpServers: selection.mcpServers,
   };
 }
@@ -81,10 +115,17 @@ export async function handleChatList(
   const previews = data.includePreview ? getChatPreviews(rows) : undefined;
 
   const chats = rows.map(chat => {
-    const finished = chat.metadata
-      ? (safeJsonParse(chat.metadata, {}) as { finished?: boolean }).finished === true
-      : false;
+    const meta = chat.metadata
+      ? (safeJsonParse(chat.metadata, {}) as { finished?: boolean; wait?: boolean; resumePending?: boolean; preset?: string })
+      : {};
+    const finished = meta.finished === true;
     const running = isChatRunning(chat.id);
+    // T9.10：wait（子 metadata.wait=true）供前端重连识别 wait-子（续跑 interrupted wait-子 + 唤主链重建）
+    const wait = meta.wait === true;
+    const resumePending = meta.resumePending === true;
+    // canResume：idle 主 chat 末条为未完成周期 → 前端重建时可自动 resume（覆盖 resumePending 丢失场景）
+    // 仅非 finished 非 running 时计算（finished 不可恢复，running 不需恢复）
+    const canResume = !finished && !running ? computeCanResume(chat.id) : false;
     const base = {
       chatId: chat.id,
       createdAt: chat.created_at,
@@ -93,6 +134,10 @@ export async function handleChatList(
       parentChatId: chat.parent_chat_id ?? null,
       finished,
       running,
+      wait,
+      resumePending,
+      canResume,
+      preset: typeof meta.preset === "string" ? meta.preset : undefined,
     };
     if (!data.includePreview || !previews) return base;
     const p = previews.get(chat.id);
@@ -134,6 +179,7 @@ export async function* handleChatGet(
         role: parsedMsg.role,
         thinking: parsedMsg.thinking,
         createdAt: msg.created_at,
+        msgId: msg.id,
       });
     }
     if (parsedMsg.content) {
@@ -150,6 +196,7 @@ export async function* handleChatGet(
         role: parsedMsg.role,
         content: parsedMsg.content,
         createdAt: msg.created_at,
+        msgId: msg.id,
         ...(msgRuntime ? { runtime: msgRuntime } : {}),
         // role:sense 的 content 是 sense 执行结果，带 id（= sense call id）供前端关联到 sense block
         ...(parsedMsg.role === "sense" ? { id: msg.id } : {}),
@@ -180,11 +227,8 @@ export async function* handleChatGet(
   // 历史载入后计算一次（前端 chat.get response 同步带值），发消息时由 done notification 实时更新。
   const contextUsage = computeContextUsage(p.chatId);
 
-  // 末条（跳过已撤回 revoked）为未完成周期 → canResume
-  //   - role=sense：pending 或 done 无后续 assistant（pending sense 待恢复执行 / 继续 loop）
-  //   - role=user：用户消息已入库但 assistant 未响应（异常中断，如服务崩溃），resume Case2 复用末条 user 调 LLM
-  const lastVisible = [...messages].reverse().find(m => !m.revoked);
-  const canResume = !!lastVisible && (lastVisible.role === "sense" || lastVisible.role === "user");
+  // 复用共享判定（同 chat.list）
+  const canResume = computeCanResume(p.chatId);
 
   logger.event("chat.get", { chatId: p.chatId, messageCount: messages.length, canResume, contextUsage });
   return { chatId: p.chatId, canResume, contextUsage };
@@ -192,8 +236,8 @@ export async function* handleChatGet(
 
 /**
  * 删除聊天
- * CP8：目标为主 chat（无 parent_chat_id）时级联删其所有子 chat + 各自消息 + 清内存 runtime，
- *   避免孤儿子 chat 残留 DB。子 chat 自身删除不级联。
+ * CP8：目标为主 chat（无 parent_chat_id）时级联删其全部后代 chat + 各自消息 + 清内存 runtime，
+ *   避免多级 spawn 留下孤儿 chat。子 chat 自身删除不级联。
  */
 export async function handleChatDelete(
   _ctx: HandlerContext,
@@ -206,13 +250,23 @@ export async function handleChatDelete(
     throw new Error(`Chat "${p.chatId}" not found`);
   }
 
-  // 主 chat 级联子 chat：先删子（messages + chat 行 + runtime），再删主
+  // 主 chat 级联全部后代：后序删除保证孙级先于父级，容忍异常 parent 环。
   const isMaster = !chat.parent_chat_id;
   let cascaded = 0;
   if (isMaster) {
-    const children = findChatsByParent(p.chatId);
-    cascaded = children.length;
-    for (const child of children) {
+    const descendants: Array<{ id: string }> = [];
+    const seen = new Set<string>([p.chatId]);
+    const visit = (parentChatId: string): void => {
+      for (const child of findChatsByParent(parentChatId)) {
+        if (seen.has(child.id)) continue;
+        seen.add(child.id);
+        visit(child.id);
+        descendants.push(child);
+      }
+    };
+    visit(p.chatId);
+    cascaded = descendants.length;
+    for (const child of descendants) {
       clearChatRuntime(child.id);
       deleteChat(child.id);
     }

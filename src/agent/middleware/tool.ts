@@ -19,6 +19,19 @@ interface PendingSenseCall {
 }
 
 /**
+ * 感官 hash 去重黑名单（不应触发 replaceSense 的 sense）。
+ *
+ * 背景：replaceSense 设计语义是"内容稳定可折叠"（典型如 read_file：文件未变 → 长内容冗余 → 折叠），
+ *   但 hash 字段被泛化使用，导致一些"派发标识"型 sense 也返回 hash，命中误折叠。
+ *   黑名单按 sense 名排除，避免 hash 语义错位的 sense 触发链式折叠（见对话 90ecacf2）。
+ *
+ * 当前黑名单：
+ * - spawn_role：hash = hashGenerator("spawn_role", childChatId, type, mode)，仅是派发标识，
+ *   命中 ≠ 重复派发任务（实际可能是"不同任务复用了同一未完成子 chat"），折叠会破坏原始 prompt 参数。
+ */
+const NON_DEDUPABLE_SENSES = new Set<string>(["spawn_role"]);
+
+/**
  * Sense Middleware（批量模式）
  * 职责：
  * 1. Phase 1：从 stream chunks 收集 senseDelta，检测完整 sense call，yield sense_end 触发器
@@ -251,13 +264,23 @@ async function doExecuteSense(
     }
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
     // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
-    const result = await senseEntry.execute(args, ctx.soul.senseSharedData, { chatId: ctx.soul.chatId });
+    // T9：yieldTurn 闭包让 sense（spawn_role wait=true）请求 loop 本轮后立即结束（置 soul.yieldTurn）。
+    const result = await senseEntry.execute(args, ctx.soul.senseSharedData, {
+      chatId: ctx.soul.chatId,
+      yieldTurn: () => {
+        ctx.soul.yieldTurn = true;
+      },
+      // 透传当前 sense call id（= sense message.id）。spawn_role 等需用此 id 回写 metadata 关联。
+      messageId: id,
+    });
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
     // 旧 sense 内容重复且冗长 → 替换为短说明（告知 AI 已被新读取取代），长内容移至 originalContent 折叠溯源。
     // 文件若被改动 → mtime/size 变 → hash 不同 → 各自独立留存上下文（AI 自行对比，不替换）。
     // 故 hash 保留 mtime：它是"内容是否变动"的关键判据，去掉会让等长改写误判为相同。
-    if (result.hash) {
+    //
+    // 黑名单过滤：spawn_role 等"派发标识"型 hash 不参与去重（详见 NON_DEDUPABLE_SENSES 注释）。
+    if (result.hash && !NON_DEDUPABLE_SENSES.has(name)) {
       // 历史去重：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
       // 旧 sense 内容改写为短说明（长内容折叠 originalContent），由 message_updated effect 落库。
       // 单一写者：in-place 改 originalContent/content/replace 经 ctx.journal.replaceSense。

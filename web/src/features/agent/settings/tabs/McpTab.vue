@@ -6,7 +6,7 @@
 import { ref } from "vue";
 import { Delete } from "@element-plus/icons-vue";
 import type { ConfigDto } from "@/services/agentApi";
-import { SUPERVISIONS } from "../constants";
+import { SUPERVISIONS, SUPERVISION_LABEL } from "../constants";
 import ConfirmPopover from "../ConfirmPopover.vue";
 
 const props = defineProps<{ draft: ConfigDto }>();
@@ -35,7 +35,8 @@ function removeMcp(name: string): void {
   <section class="sect">
     <p class="sect-hint">外挂工具站。stdio=本地起子进程；streamable-http=连远程。</p>
     <p class="warn-hint">⚠️ env 注入与远程 server 网络可达性需自行确认。</p>
-    <article v-for="(cfg, mname) in draft.mcp_servers" :key="mname" class="card">
+    <article v-for="(cfg, mname, idx) in draft.mcp_servers" :key="mname" class="card">
+      <span class="card-idx">{{ idx + 1 }}</span>
       <header class="card-head">
         <span class="card-name">{{ mname }}</span>
         <ConfirmPopover :title="`确认删除 MCP 服务「${mname}」？`" @confirm="removeMcp(mname as string)">
@@ -58,7 +59,7 @@ function removeMcp(name: string): void {
           <span class="lbl">supervision 默认监管</span>
           <el-select v-model="cfg.supervision" placeholder="（用全局）">
             <el-option label="（用全局）" :value="undefined" />
-            <el-option v-for="s in SUPERVISIONS" :key="s" :label="s" :value="s" />
+            <el-option v-for="s in SUPERVISIONS" :key="s" :label="SUPERVISION_LABEL[s]" :value="s" />
           </el-select>
         </label>
         <template v-if="cfg.transport === 'stdio'">
@@ -71,7 +72,7 @@ function removeMcp(name: string): void {
             <el-input
               :value="(cfg.args ?? []).join(', ')"
               placeholder="-y, @modelcontextprotocol/server-filesystem, /tmp"
-              @input="cfg.args = $event.split(',').map((s) => s.trim()).filter(Boolean)"
+              @input="cfg.args = $event.split(',').map((s: string) => s.trim()).filter(Boolean)"
             />
           </label>
         </template>

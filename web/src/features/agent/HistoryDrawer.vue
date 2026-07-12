@@ -13,12 +13,14 @@
  *   （getHistory 内部 ensureStream，理论不达；防御走 graceful）。
  * motion-v：无 TargetAndTransition 导出，inline initial/animate/exit 字面量（同 AgentDialog 风格）。
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { useAgentsStore } from "@/stores";
 import type { HistoryItem } from "@/stores/agents";
-import type { PetInstance } from "@/features/pets/types";
+import { mergeChildReplyHistory } from "@/stores/agents/historyMerge";
 import MessageBubble from "./MessageBubble.vue";
+import { useDrawerWidth } from "./useDrawerWidth";
+import { useSubPetResolution } from "./useSubPetResolution";
 
 const MotionDiv = motion.div;
 
@@ -48,12 +50,7 @@ const stream = computed(() => (chatId.value ? agents.streams[chatId.value] : und
 
 const history = computed<HistoryItem[]>(() => {
   const h = stream.value?.history ?? [];
-  console.log("[HistoryDrawer] history computed 触发", {
-    chatId: chatId.value,
-    historyLength: h.length,
-    subagentCount: h.filter(item => item.role === "subagent").length,
-  });
-  return h;
+  return layout.value === "group" ? mergeChildReplyHistory(h) : h;
 });
 const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false);
 
@@ -84,40 +81,59 @@ watch(loaded, (v) => {
   if (v) scrollToBottom();
 });
 
-/** 子 pet 查询（master/subagent 合并式按 subPetChatId 查 pets；注入式 subagent 无 chatId → undefined） */
-function subPetOf(item: HistoryItem): PetInstance | undefined {
-  if (!item.subPetChatId) return undefined;
-  return agents.pets.find((p) => p.chatId === item.subPetChatId);
-}
-/** 子 pet name（pet.name；注入式 fallback item.petName=type） */
-function subPetName(item: HistoryItem): string {
-  return subPetOf(item)?.name ?? item.petName ?? "";
-}
-/** 子 pet face.calm emoji（缺则空 → MessageBubble 内 🤖 fallback） */
-function subPetFace(item: HistoryItem): string {
-  return subPetOf(item)?.face.calm ?? "";
-}
-/** 子 pet agentType（senseGroups[0]；注入式 fallback item.petName） */
-function subPetType(item: HistoryItem): string {
-  return subPetOf(item)?.runtime?.senseGroups?.[0] ?? item.petName ?? "";
+// 宽度拖拽 + 持久化（localStorage）
+const { panelStyle, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp } = useDrawerWidth();
+
+// 子 pet 解析辅助函数
+const {
+  subPetName,
+  subPetFace,
+  subPetType,
+  callerPetFace,
+  callerPetName,
+  callerIsMaster,
+  isLastSubReply,
+} = useSubPetResolution(history);
+
+// F：smooth scroll 到指定 sense call 框（被唤起 agent 头像点击跳转用）
+function scrollToSenseCall(senseCallId: string): void {
+  void nextTick(() => {
+    const el = scrollRef.value?.querySelector(`#sensecall-${CSS.escape(senseCallId)}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
 }
 
-// 每个子 pet（subPetChatId）最后一条 subagent 回复的 createdAt；
-// 仅这些条目显示主 pet 引用徽章（"回复给主 pet" 标识，中间回复不重复引用）。
-const lastSubReplyAt = computed<Map<string, number>>(() => {
-  const m = new Map<string, number>();
-  for (const item of history.value) {
-    if (item.role !== "subagent" || !item.subPetChatId) continue;
-    const t = item.createdAt ?? 0;
-    if (t > (m.get(item.subPetChatId) ?? -1)) m.set(item.subPetChatId, t);
+// F：MessageBubble @jump-to-spawn handler
+function onJumpToSpawn(payload: { senseCallId: string }): void {
+  const { senseCallId } = payload;
+  if (!senseCallId) return;
+  // 当前 drawer 是主 chat 合并视图 → 直接滚到对应 sense call 框
+  if (layout.value === "group") {
+    scrollToSenseCall(senseCallId);
+    return;
   }
-  return m;
-});
-/** 该 subagent 是否为其子 pet 的最后一条回复（决定是否显示主 pet 引用徽章） */
-function isLastSubReply(item: HistoryItem): boolean {
-  if (item.role !== "subagent" || !item.subPetChatId) return false;
-  return (lastSubReplyAt.value.get(item.subPetChatId) ?? -1) === (item.createdAt ?? 0);
+  // 当前 drawer 是子 chat 自身（direct，ghost 自身抽屉）→ 切到主 chat drawer + 滚动
+  // 跨 chat 跳转：找到该 role 的子 pet，再用其 parentChatId 切到主 drawer
+  // props.item 在 direct 模式下无 callerSubPetChatId 上下文，无法定位主 chat；退化用 sub pet 的 parentChatId
+  const subPet = agents.pets.find((p) => p.chatId === chatId.value);
+  const parentChatId = subPet?.parentChatId;
+  if (parentChatId) {
+    agents.activeHistoryChatId = parentChatId;
+    // 跨 drawer 跳转：等主 drawer 加载完 history 后再滚（pendingScrollSenseCallId 监听器触发）
+    agents.pendingScrollSenseCallId = senseCallId;
+  }
 }
+// F：监听 store 跨 drawer 滚动请求（direct 模式点击 → 切到主 drawer 后执行滚动）
+watch(
+  () => agents.pendingScrollSenseCallId,
+  (sid) => {
+    if (sid && layout.value === "group") {
+      scrollToSenseCall(sid);
+      // 一次性标记，滚动完成即清空，避免后续 history 变化误触发
+      agents.pendingScrollSenseCallId = null;
+    }
+  },
+);
 
 function close(): void {
   agents.activeHistoryChatId = null;
@@ -126,82 +142,6 @@ function close(): void {
 function onOverlayClick(e: MouseEvent): void {
   if (e.target === e.currentTarget) close();
 }
-
-/**
- * 宽度拖拽 + 持久化（localStorage）。
- * - drawerWidth：null → CSS clamp(320,40vw,560) 默认；number → CSS 变量 --drawer-w 覆盖
- * - 边界 [MIN_W=320, maxWidth=innerWidth*2/3]（max=屏幕 2/3）；加载/拖拽/resize 均 clamp
- * - 拖拽：handle pointerdown setPointerCapture（沿用 pet 模块惯例）→ pointermove 改宽 → pointerup 写 localStorage
- * - 失败显性化（规则 12）：读 localStorage 失败回落默认（null）；写失败 console.warn 不阻塞拖拽
- */
-const WIDTH_KEY = "cheryclaw:history-drawer:width";
-const MIN_W = 320;
-const maxWidth = (): number => Math.floor(window.innerWidth * (2 / 3));
-const clampWidth = (w: number): number => Math.max(MIN_W, Math.min(w, maxWidth()));
-
-function loadWidth(): number | null {
-  try {
-    const raw = localStorage.getItem(WIDTH_KEY);
-    if (!raw) return null;
-    const w = Number(raw);
-    return Number.isFinite(w) && w > 0 ? clampWidth(w) : null;
-  } catch {
-    return null;
-  }
-}
-function saveWidth(w: number): void {
-  try {
-    localStorage.setItem(WIDTH_KEY, String(w));
-  } catch (e) {
-    console.warn("[HistoryDrawer] 写宽度 localStorage 失败:", e);
-  }
-}
-
-const drawerWidth = ref<number | null>(loadWidth());
-const panelStyle = computed<Record<string, string>>(() =>
-  drawerWidth.value != null ? { "--drawer-w": `${drawerWidth.value}px` } : {},
-);
-
-// 拖拽态（非响应式：仅拖拽期内部用，宽度变更经 drawerWidth ref 驱动渲染）
-let dragging = false;
-let startX = 0;
-let startW = 0;
-
-function onHandlePointerDown(e: PointerEvent): void {
-  const handle = e.currentTarget as HTMLElement;
-  const panel = handle.parentElement;
-  if (!panel) return;
-  dragging = true;
-  startX = e.clientX;
-  startW = panel.offsetWidth;
-  handle.setPointerCapture(e.pointerId);
-  document.body.style.userSelect = "none";
-  document.body.style.cursor = "col-resize";
-}
-function onHandlePointerMove(e: PointerEvent): void {
-  if (!dragging) return;
-  drawerWidth.value = clampWidth(startW - (e.clientX - startX));
-}
-function onHandlePointerUp(e: PointerEvent): void {
-  if (!dragging) return;
-  dragging = false;
-  (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
-  document.body.style.userSelect = "";
-  document.body.style.cursor = "";
-  if (drawerWidth.value != null) saveWidth(drawerWidth.value);
-}
-
-// 窗口缩小：存储宽超当前 2/3 → clamp 保约束
-function onWindowResize(): void {
-  if (drawerWidth.value != null) drawerWidth.value = clampWidth(drawerWidth.value);
-}
-onMounted(() => window.addEventListener("resize", onWindowResize));
-onUnmounted(() => {
-  window.removeEventListener("resize", onWindowResize);
-  // 防御：拖拽中卸载（理论不达）还原 body 样式，避免残留 col-resize
-  document.body.style.userSelect = "";
-  document.body.style.cursor = "";
-});
 
 const titleText = computed(() => {
   if (!chatId.value) return "";
@@ -265,7 +205,11 @@ const titleText = computed(() => {
               :sub-pet-name="subPetName(item)"
               :sub-pet-face="subPetFace(item)"
               :sub-pet-type="subPetType(item)"
+              :caller-pet-face="callerPetFace(item)"
+              :caller-pet-name="callerPetName(item)"
+              :caller-is-master="callerIsMaster(item)"
               :show-master-badge="isLastSubReply(item)"
+              @jump-to-spawn="onJumpToSpawn"
             />
           </template>
         </div>

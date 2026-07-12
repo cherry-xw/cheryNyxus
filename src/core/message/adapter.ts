@@ -1,7 +1,7 @@
 /**
  * Role 类型
  */
-type Role = "system" | "user" | "assistant" | "sense" | "function";
+type Role = "system" | "user" | "assistant" | "sense" | "function" | "role" | "subagent"; // role=新（子 pet 回复）；subagent 仅旧历史消息兼容
 
 /**
  * Sense Call 数据结构
@@ -46,6 +46,17 @@ export interface LLMResponse {
 }
 
 /**
+ * 多模态附件：buildMessages 临时参数（不进 LLMResponse/DB）。
+ * 由 enrichMediaInputs 在 chat.ts 内据脑 capabilities + [[media:]] marker 现场构造，
+ * provider 调用前同步 readMediaAsset → base64；provider 调用后丢弃。
+ * 当前仅 image 类型走多模态（OpenAI vision 原生支持），其余 kind 走文本转写。
+ */
+export interface LLMAttachment {
+  mimeType: string;
+  data: Buffer;
+}
+
+/**
  * MessageProvider 适配器接口
  */
 export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessage = unknown> = {
@@ -53,7 +64,8 @@ export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessag
   thinking?: (raw: T) => string | undefined;
   extractStreamDelta: (chunk: TStream) => string;
   extractStreamThinking?: (chunk: TStream) => string | undefined;
-  buildMessages: (history: LLMResponse[]) => TMessage[];
+  /** P5b：attachments 为可选多模态附件，provider 据 mimeType/类型决定走原生多模态（image）还是忽略。 */
+  buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) => TMessage[];
 };
 
 /**

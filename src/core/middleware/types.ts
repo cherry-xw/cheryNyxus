@@ -32,6 +32,16 @@ export interface SoulGroup {
   messages?: LLMResponse[];
   /** 续接标志：chat.resume Case1（末尾有 pending sense）首轮 senseMiddleware 检测后 skip chat 层 */
   resumePending?: boolean;
+  /**
+   * 父 chat 正在运行时收到新的子任务结果。loop 在当前 LLM 调用结束后据此继续一轮，
+   * 防止并发 child_done 被随后追加的 assistant 消息掩盖。
+   */
+  roleReplyPending?: boolean;
+  /**
+   * yield turn 标志：spawn_role wait=true 置位，请求 loop 本轮 runChain 后立即结束本 turn
+   * （子完成后后端注入角色回复唤起新一轮，见 docs/agent-pet.md §5.4）。loop stop-decision 读取。
+   */
+  yieldTurn?: boolean;
 }
 
 /**
@@ -77,7 +87,7 @@ export interface AdaptersGroup {
  */
 export interface AgentMessage {
   id: string;
-  role: "user" | "assistant" | "system" | "sense";
+  role: "user" | "assistant" | "system" | "sense" | "role" | "subagent"; // role=新（子 pet 回复）；subagent=旧历史兼容
   content?: string;
   thinking?: string;
   senseCalls?: Array<{ id: string; name: string; arguments: string }>;
@@ -269,29 +279,22 @@ export interface ErrorChunk {
     stack?: string;
     /** 是否可恢复（可重试） */
     recoverable: boolean;
-    /** 错误分类 */
-    category: "network" | "provider" | "timeout" | "validation" | "unknown";
+    /** 错误分类（P6a：增加 auth 表示凭证失效，不可重试） */
+    category: "auth" | "network" | "provider" | "timeout" | "validation" | "unknown";
   }>;
 }
 
 /**
- * 心跳 chunk（子 agent 定时通知主 agent 状态,内部传递,不进 DB/前端）
- * 结构对应 spawnBroker.Heartbeat,此处重复定义避免循环依赖(core → agent)。
+ * 角色完成信号（wait=true 唤醒链，见 docs/agent-pet.md §5.4）。
+ * 子 loop 正常结束时，若 getWaitedParent 命中（本 chat 是被 wait 的子）→ yield 此 chunk；
+ * service observer 消费 → wakeParent 注入角色回复 + 推 role_reply 唤主。
  */
-export interface HeartbeatChunk {
-  type: "heartbeat";
-  heartbeat: {
-    /** 子 chat id */
-    childChatId: string;
-    /** 心跳状态 */
-    status: "running" | "finished" | "error";
-    /** finished 时带子 agent 最终结果 */
-    result?: string;
-    /** error 时带错误信息 */
-    error?: string;
-    /** 时间戳(ms) */
-    timestamp: number;
-  };
+export interface ChildDoneChunk {
+  type: "child_done";
+  /** 子 chat id（= ctx.soul.chatId） */
+  childChatId: string;
+  /** 子 agent 末条 assistant content（注入主 chat 的回复内容） */
+  content: string;
 }
 
 /**
@@ -308,7 +311,8 @@ export type MiddlewareChunk =
   | MessageUpdatedChunk
   | SensePendingChunk
   | DoneChunk
-  | ErrorChunk;
+  | ErrorChunk
+  | ChildDoneChunk;
 
 /**
  * 中间件处理函数（Generator 支持）

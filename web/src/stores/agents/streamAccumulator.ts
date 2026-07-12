@@ -17,12 +17,10 @@ export function defaultBounds(): StageBounds {
   };
 }
 
-/** 同 runtime 判定（brain + senseGroups 集合 + mcpServers 集合相同）。 */
+/** 同 runtime 判定（brain + senseGroup + mcpServers 集合相同）。 */
 export function sameRuntime(a: RuntimeSelection, b: RuntimeSelection): boolean {
   if (a.brain !== b.brain) return false;
-  const asg = [...a.senseGroups].sort();
-  const bsg = [...b.senseGroups].sort();
-  if (asg.length !== bsg.length || asg.some((v, i) => v !== bsg[i])) return false;
+  if (a.senseGroup !== b.senseGroup) return false;
   const am = [...(a.mcpServers ?? [])].sort();
   const bm = [...(b.mcpServers ?? [])].sort();
   return am.length === bm.length && am.every((v, i) => v === bm[i]);
@@ -31,7 +29,7 @@ export function sameRuntime(a: RuntimeSelection, b: RuntimeSelection): boolean {
 /**
  * staged 历史回放累积：按 row 顺序重组为 HistoryItem[]。
  * 边界处理：role=sense content_end 按 id 匹配最近 senseCall 的 result（walk back）。
- * subagent 检测：role=user 且 content 匹配 ^\[子agent <type>\] → 归类 subagent（UI 标子 pet）。
+ * 角色（子 pet）检测：role=user 且 content 匹配 ^\[角色|子agent <type>\] → 归类 role（UI 标子 pet）。双前缀兼容旧 DB 消息。
  */
 export function accumulateStaged(stream: StreamState, d: StagedChunkData | undefined): void {
   if (!d || !d.type) return;
@@ -44,6 +42,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       content: "",
       thinking: d.thinking ?? "",
       createdAt: d.createdAt,
+      msgId: d.msgId,
     });
     return;
   }
@@ -52,11 +51,11 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     const role = d.role;
     if (role === "user") {
       const content = d.content ?? "";
-      const m = /^\[子agent\s+([^\]]+?)\]/.exec(content);
+      const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content);
       if (m) {
-        history.push({ role: "subagent", content, petName: m[1], runtime: d.runtime, createdAt: d.createdAt });
+        history.push({ role: "role", content, petName: m[1], runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
       } else {
-        history.push({ role: "user", content, runtime: d.runtime, createdAt: d.createdAt });
+        history.push({ role: "user", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
       }
       return;
     }
@@ -69,24 +68,33 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
         last.runtime = d.runtime;
         last.createdAt = d.createdAt ?? last.createdAt;
       } else {
-        history.push({ role: "assistant", content: d.content ?? "", runtime: d.runtime, createdAt: d.createdAt });
+        history.push({ role: "assistant", content: d.content ?? "", runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
       }
       return;
     }
     if (role === "sense") {
-      // sense 执行结果（content_end role=sense id=X）→ 匹配最近 senseCall id=X 写 result
+      // sense 执行结果（content_end role=sense id=X）→ 优先按 id 精确匹配；旧 staged 无 id 时退化为最近 result=undefined 项
       if (!d.id) return;
       for (let i = history.length - 1; i >= 0; i--) {
         const item = history[i];
         if (!item?.senseCalls) continue;
-        // 注意：SenseCallRecord 无 id 字段（接口稳定），用闭包侧映射表不可行
-        // → 退化为"最近未填 result 的同名 senseCall"。staged 顺序保证语义。
-        const sc = item.senseCalls.find((s) => s.result === undefined);
+        // 优先按 id 精确匹配；缺 id 项退化为 result=undefined（向后兼容旧 staged）
+        let sc = item.senseCalls.find((s) => s.id === d.id && s.result === undefined);
+        if (!sc) sc = item.senseCalls.find((s) => s.id === undefined && s.result === undefined);
+        if (!sc) sc = item.senseCalls.find((s) => s.result === undefined);
         if (sc) {
           sc.result = d.content;
           return;
         }
       }
+      return;
+    }
+    if (role === "role" || role === "subagent") {
+      // T9：wait=true 子完成注入的回复（后端 role:role/subagent）。该消息保留为主 chat
+      // 原始记录；与子 chat 的相同响应仅在 HistoryDrawer 的展示层安全合并。
+      const content = d.content ?? "";
+      const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content);
+      history.push({ role: "role", content, petName: m?.[1], runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
       return;
     }
     // role=system / role=undefined：暂不展示（CP4 不渲染 system 消息），忽略
@@ -102,6 +110,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     }
     if (!last.senseCalls) last.senseCalls = [];
     last.senseCalls.push({
+      id: d.id,                       // sense message.id（与后端 LLMResponse.id 对齐）
       name: d.senseName ?? "",
       args: d.arguments,
       status: "done",

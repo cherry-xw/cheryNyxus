@@ -72,7 +72,7 @@ export function startService(options: { port: number; webPort: number; staticDir
 
 ## RPC 模式
 
-四种消息：`Request`（C→S）、`Response`（S→C 请求返回）、`Chunk`（S→C 流式增量，stream 带 seq 走二进制帧）、`Notification`（S→C 推送）。完整字段、传输帧格式、错误码见 [../protocol.md](../protocol.md)；类型与路由机制见 [./message.md](./message.md)。
+四种消息：`Request`（C→S）、`Response`（S→C 请求返回）、`Chunk`（S→C 流式增量，stream 走二进制帧）、`Notification`（S→C 推送）。完整字段、传输帧格式、错误码见 [../protocol.md](../protocol.md)；类型与路由机制见 [./message.md](./message.md)。
 
 Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返回 `AsyncGenerator` → `wrapStreamingHandler` 迭代 yield Chunk/Notification、最终 return ResponseData 包装成 Response（详见 [./message.md](./message.md)「关键流程」）。
 
@@ -83,7 +83,7 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `brain.list` | `handleBrainList` | [brain/list.ts](../../src/service/brain/list.ts) | 否 | 列 config.yaml 的 brain + 全局 senseGroups + 已连接 mcpServers |
 | `sense.list` | `handleSenseList` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列 config.yaml 的 sense_groups（原始字符串，含 `:level` 后缀） |
 | `sense.tools` | `handleSenseTools` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列代码维护的全部内置工具（name/label/description）供设置面板下拉 |
-| `runtime.set` | `handleRuntimeSet` | [runtime/set.ts](../../src/service/runtime/set.ts) | 否 | 原子设置 chat 的 brain + senseGroups + mcpServers |
+| `runtime.set` | `handleRuntimeSet` | [runtime/set.ts](../../src/service/runtime/set.ts) | 否 | 原子设置 chat 的 brain + senseGroup + mcpServers |
 | `chat.create` | `handleChatCreate` | [chat/handler.ts](../../src/service/chat/handler.ts) | 否 | 建 chat + ensureChat 注入 runtime + 加载历史 |
 | `chat.list` | `handleChatList` | 同上 | 否 | 全局列表（读冗余 message_count） |
 | `chat.get` | `handleChatGet` | 同上 | 是 | 流式载入历史 + loaded + canResume |
@@ -180,10 +180,10 @@ registerBashHandlers(router): void;  // 注册 Method.BASH_KILL / BASH_LIST
 |----|------|
 | 源码 | [brain/list.ts](../../src/service/brain/list.ts) |
 | 对应 RPC | `brain.list`（`handleBrainList`） |
-| 职责 | 枚举 `config.llm.brain` 全部 brain（name/provider/model/thinking）+ 全局全量 senseGroups |
+| 职责 | 枚举 `config.llm.brain` 全部 brain（name/provider/model/thinking/capabilities）+ 全局全量 senseGroups |
 
 ```ts
-handleBrainList(ctx, params): Promise<{brains: Array<{name, provider, model, thinking?, senseGroups: string[]}>}>;
+handleBrainList(ctx, params): Promise<{brains: Array<{name, provider, model, thinking?, capabilities?, senseGroups: string[]}>}>;
 registerBrainHandlers(router): void;
 ```
 
@@ -195,13 +195,15 @@ registerBrainHandlers(router): void;
 |----|------|
 | 源码 | [runtime/set.ts](../../src/service/runtime/set.ts) |
 | 对应 RPC | `runtime.set`（`handleRuntimeSet`） |
-| 职责 | 原子校验 + 设置 chat 的 brain + senseGroups（每轮可换） |
+| 职责 | 原子校验 + 设置 chat 的 brain + senseGroup（每轮可换） |
 
 ```ts
-handleRuntimeSet(ctx, {chatId, brain, senseGroups}): Promise<{chatId, brain, senseGroups}>;
+handleRuntimeSet(ctx, {chatId, brain, senseGroup}): Promise<{chatId, brain, senseGroup}>;
 ```
 
 流程：`getChat` 存在性校验 → `parseRuntimeSelection(p, "runtime.set")`（[agent/runtimeResolver](../../src/agent/runtimeResolver.ts)）→ `setRuntime(chatId, selection)`（[chat/runtime.ts](../../src/service/chat/runtime.ts)，原子注入 builder + 持久化 metadata.runtime）。前置：chat 必须已存在（`chat.create`）。
+
+`parseRuntimeSelection` 以 brain 的 `capabilities.toolCall` 为准：无 Tool Call brain 只允许空 senseGroup/MCP；支持 Tool Call 的 brain 仍必须有 senseGroup。该规则同样作用于 `chat.create` 与 `session.runtime.set`，防止客户端仅靠 UI 绕过限制。
 
 ### sense/list —— 列出 sense groups
 

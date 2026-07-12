@@ -100,10 +100,11 @@ describe("db/chat", () => {
   describe("getChatRuntimeSelection", () => {
     it("returns persisted runtime selection", () => {
       createChat("c1");
-      updateChatMetadata("c1", { runtime: { brain: "longcat", senseGroups: ["safe"] } });
+      updateChatMetadata("c1", { runtime: { brain: "longcat", senseGroup: "safe" } });
       expect(getChatRuntimeSelection("c1")).toEqual({
         brain: "longcat",
-        senseGroups: ["safe"],
+        senseGroup: "safe",
+        mcpServers: [],
       });
     });
 
@@ -114,7 +115,7 @@ describe("db/chat", () => {
 
     it("returns undefined when runtime selection incomplete (empty senseGroups)", () => {
       createChat("c1");
-      updateChatMetadata("c1", { runtime: { brain: "longcat", senseGroups: [] } });
+      updateChatMetadata("c1", { runtime: { brain: "longcat", senseGroup: "" } });
       expect(getChatRuntimeSelection("c1")).toBeUndefined();
     });
   });

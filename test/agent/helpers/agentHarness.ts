@@ -40,7 +40,7 @@ export interface CreateAgentOptions {
   /** brain 名（flows/fixtures config.yaml 中的 mock brain，如 mock_content/mock_auto） */
   brain: string;
   /** 感官组名（auto_senses/confirm_senses/mixed_confirm） */
-  senseGroups: string[];
+  senseGroup: string;
   /** chatId（缺省随机） */
   chatId?: string;
   /** 初始历史消息（缺省由 builder 注入 system prompt） */
@@ -54,7 +54,7 @@ export interface CreateAgentOptions {
 export function createAgent(opts: CreateAgentOptions): AgentBuilder {
   const agent = new AgentBuilder()
     .build()
-    .configureRuntime({ brain: opts.brain, senseGroups: opts.senseGroups, mcpServers: [] });
+    .configureRuntime({ brain: opts.brain, senseGroup: opts.senseGroup, mcpServers: [] });
   agent.init(opts.chatId ?? randomUUID(), opts.history);
   return agent;
 }

@@ -21,4 +21,6 @@
 
 动作循环用 keyframes + `repeat: Infinity` + `repeatType: "reverse"`。CSS 仅保留阴影呼吸等非核心动画。颜色/滤镜动画走 `filter`（brightness/hue-rotate/opacity），对 emoji 与颜文字均生效。`sleep` variant 为静止微呼吸（y 轻微 + rotate 近静）。
 
+**face 朝向翻转（CSS transition，非 motion-v variant）**：face emoji 方向反转时 rotateY 0↔180° 渐变（420ms ease-out），双面（front 原样 + back `rotateY(180deg) scaleX(-1)`）+ `backface-visibility:hidden` 使翻转过程始终显一面（过 90° 不空白，优于 scaleX 压扁）。back 的 `rotateY(180°)` 仅是背面定位（朝后），**`scaleX(-1)` 预镜像内容**——否则容器 180°+back 180°=360° 抵消显正向（ghost 对称 👻 不显，不对称 emoji 暴露）。**角度反向**：`rotateY((1+dir)*90°)` → dir=1 向右时 180°（镜像）、dir=-1 向左时 0°（正向）；因 Unicode 人物 emoji（🚶🏃🧟等）默认朝左，标准「dir1 正向」会让 emoji 与移动方向相反，故反向使朝向跟随移动；对称 emoji（👻💀👼）镜像无视觉差。三层：`.face-flip`（`scaleX(var(--pet-direction))` 抵消父 `.dir` 的 scaleX，使 face 脱离整树镜像）> `.face-rotate`（`rotateY` transition，`transform-style:preserve-3d`）> `.face-side front/back`（`backface-visibility:hidden`）> `Motion.face`（mood 动画不变）。仅 face；hands/name 仍靠 `.dir`/`.meta-row` 的 scaleX 瞬切镜像。详见 [rendering.md](./rendering.md)。
+
 > motion-v 类型导出坑：不导出 `TargetAndTransition`/`Transition`（仅 `$Transition`）；variant helper 用字面量推断 + `as const`，`motion.span` 别名更稳。详见各组件 `:animate` 用法（[rendering.md](./rendering.md)）。

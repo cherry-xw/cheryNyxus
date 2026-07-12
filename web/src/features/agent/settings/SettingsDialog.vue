@@ -13,10 +13,10 @@ import { Close } from "@element-plus/icons-vue";
 import { useAgentsStore } from "@/stores";
 import { agentApi, type ConfigDto, type SenseToolInfo } from "@/services/agentApi";
 import { TABS, type TabKey } from "./constants";
-import DefaultTab from "./tabs/DefaultTab.vue";
 import BrainsTab from "./tabs/BrainsTab.vue";
 import SensesTab from "./tabs/SensesTab.vue";
-import SubagentsTab from "./tabs/SubagentsTab.vue";
+import RolesTab from "./tabs/RolesTab.vue";
+import PresetsTab from "./tabs/PresetsTab.vue";
 import McpTab from "./tabs/McpTab.vue";
 import GlobalTab from "./tabs/GlobalTab.vue";
 
@@ -24,7 +24,7 @@ const MotionDiv = motion.div;
 const agents = useAgentsStore();
 
 const draft = ref<ConfigDto | null>(null);
-const activeTab = ref<TabKey>("default");
+const activeTab = ref<TabKey>("presets");
 const loading = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
@@ -33,6 +33,9 @@ const savedHint = ref<string | null>(null);
 /** sense.tools 返回的内置工具清单（缓存，SensesTab 下拉建议 + label/description 显示用）。失败置 []。 */
 const senseTools = ref<SenseToolInfo[]>([]);
 
+/** prompts.list 返回的 .chery/prompts/ 下 .md 路径清单（RolesTab/PresetsTab systemPrompt 级联选择器用）。每次打开重新拉。 */
+const prompts = ref<string[]>([]);
+
 watch(
   () => agents.settingsOpen,
   async (open) => {
@@ -40,7 +43,7 @@ watch(
       draft.value = null;
       error.value = null;
       savedHint.value = null;
-      activeTab.value = "default";
+      activeTab.value = "presets";
       return;
     }
     loading.value = true;
@@ -63,6 +66,13 @@ watch(
         console.error("[SettingsDialog] listSenseTools failed:", e);
         senseTools.value = [];
       }
+    }
+    // prompts 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（级联框空选项 + placeholder）
+    try {
+      prompts.value = await agentApi.listPrompts();
+    } catch (e) {
+      console.error("[SettingsDialog] listPrompts failed:", e);
+      prompts.value = [];
     }
   },
 );
@@ -159,7 +169,6 @@ function onOverlayClick(e: MouseEvent): void {
           </nav>
 
           <div class="tab-body">
-            <DefaultTab v-show="activeTab === 'default'" :draft="draft" />
             <BrainsTab v-show="activeTab === 'brains'" :draft="draft" @error="onError" />
             <SensesTab
               v-show="activeTab === 'senses'"
@@ -167,7 +176,8 @@ function onOverlayClick(e: MouseEvent): void {
               :sense-tools="senseTools"
               @error="onError"
             />
-            <SubagentsTab v-show="activeTab === 'subagents'" :draft="draft" @error="onError" />
+            <RolesTab v-show="activeTab === 'roles'" :draft="draft" :prompts="prompts" @error="onError" />
+            <PresetsTab v-show="activeTab === 'presets'" :draft="draft" :sense-tools="senseTools" @error="onError" />
             <McpTab v-show="activeTab === 'mcp'" :draft="draft" @error="onError" />
             <GlobalTab v-show="activeTab === 'global'" :draft="draft" />
           </div>
@@ -204,7 +214,7 @@ function onOverlayClick(e: MouseEvent): void {
 
 .settings-panel {
   width: min(720px, 96vw);
-  max-height: 88vh;
+  height: min(680px, 88vh);
   padding: 14px 16px 12px;
   border-radius: 12px;
   background: #fbf9f4;
@@ -290,6 +300,7 @@ function onOverlayClick(e: MouseEvent): void {
 
 .tab-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
 }

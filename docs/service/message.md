@@ -25,7 +25,7 @@
 ```ts
 interface Request  { id; kind:"request";       method; params }              // C→S
 interface Response { id; kind:"response";      requestId; success; data?; error? }  // S→C（请求返回）
-interface Chunk    { kind:"chunk"; type:"stream"|"staged"; requestId; seq?; data }   // S→C（流式增量）
+interface Chunk    { kind:"chunk"; type:"stream"|"staged"; requestId; data }         // S→C（流式增量）
 interface Notification { kind:"notification"; type: NotificationType; requestId; data } // S→C（推送）
 ```
 
@@ -123,7 +123,7 @@ createRouter(): RpcRouter;
 
 ```ts
 createResponse(requestId, success, data?, error?): Response;
-createChunk(type: "stream"|"staged", requestId, data, seq?): Chunk;
+createChunk(type: "stream"|"staged", requestId, data): Chunk;
 createNotification(type, requestId, data): Notification;
 createError(code, message): RpcError;
 

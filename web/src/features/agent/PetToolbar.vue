@@ -10,6 +10,7 @@
 import { computed } from "vue";
 import type { PetInstance } from "@/features/pets/types";
 import { useAgentsStore } from "@/stores";
+import { collectDescendantChatIds } from "@/stores/agents/historyMerge";
 
 const props = defineProps<{
   pet: PetInstance;
@@ -20,19 +21,23 @@ const emit = defineEmits<{
   abort: [pet: PetInstance];
   destroy: [pet: PetInstance];
   compact: [pet: PetInstance];
+  resume: [pet: PetInstance];
 }>();
 
 const agents = useAgentsStore();
 
 const showCompact = computed(() => props.pet.contextUsage >= 0.5);
+/** 主 pet idle 且末条为未完成周期 → 显"继续"按钮，用户点击触发 chat.resume */
+const showResume = computed(() => props.pet.isMaster && !props.pet.isWorking && !!props.pet.canResume);
 
 /**
- * CP8：destroy(=隐藏) 可用性。运行中（pet.isWorking 或任一子 pet isWorking）禁用——
+ * CP8：destroy(=隐藏) 可用性。运行中（pet.isWorking 或任一后代 pet isWorking）禁用——
  * 避免隐藏运行中 pet 致孤儿流（无视觉但 stream 仍在写）。
  */
 const canHide = computed(() => {
   if (props.pet.isWorking) return false;
-  return !agents.pets.some((p) => p.parentChatId === props.pet.chatId && p.isWorking);
+  const descendants = new Set(collectDescendantChatIds(agents.pets, props.pet.chatId));
+  return !agents.pets.some((p) => descendants.has(p.chatId) && p.isWorking);
 });
 </script>
 
@@ -63,6 +68,15 @@ const canHide = computed(() => {
       @click="emit('abort', pet)"
     >
       ⏹<span class="tip">Abort</span>
+    </button>
+    <button
+      v-if="showResume"
+      type="button"
+      class="tool-btn resume"
+      aria-label="Resume"
+      @click="emit('resume', pet)"
+    >
+      ▶<span class="tip">继续</span>
     </button>
     <button
       v-if="pet.isMaster"
@@ -121,6 +135,11 @@ const canHide = computed(() => {
 
   &.compact {
     background: rgba(255, 196, 87, 0.4);
+  }
+
+  &.resume {
+    background: rgba(74, 222, 128, 0.4);
+    color: #15803d;
   }
 
   &.danger {

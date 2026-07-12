@@ -76,6 +76,8 @@ export interface SenseRuntimeContext {
 
 `hash` 用于**历史去重**（如 `read_file` 的 hash 含文件 mtime：新读取命中相同 hash = 文件未变 → 旧 sense 消息被替换为短说明，详见 [`agent/middleware/tool.ts`](../../src/agent/middleware/tool.ts) `doExecuteSense`）。
 
+**hash 语义约束**：hash 仅用于"内容稳定可折叠"型 sense（如 read_file 类文件读取）。**派发标识型** sense（hash 命中 ≠ 重复派发任务，仅是同一子 chat 复用等）不应返回 hash，否则会被 `doExecuteSense` 错误触发 `replaceSense` 折叠，造成 prompt 参数丢失 + 链式替换。`tool.ts` 维护 `NON_DEDUPABLE_SENSES` 黑名单作为双保险（当前含 `spawn_role`）。
+
 ### SenseSharedData（感官间共享数据）
 
 ```ts
@@ -116,7 +118,7 @@ getSenseAdapter(provider): SenseAdapter<unknown, unknown> | undefined
 
 ### senseRegistry（全局感官实例注册表）
 
-进程级单例 `Record<string, Sense<ZodType>>`，**所有 chat 共享**。chat 间感官隔离不在 registry 层做，而在 builder 解析 `senseGroups` 时按名称取子集 + 摊平监管等级。
+进程级单例 `Record<string, Sense<ZodType>>`，**所有 chat 共享**。chat 间感官隔离不在 registry 层做，而在 builder 解析 `senseGroup` 时按名称取子集 + 摊平监管等级。
 
 ```ts
 registerSenses(senses: Sense<ZodType>[]): void   // 批量注册（按 definition.function.name 索引）
@@ -172,8 +174,8 @@ agent/sense/index.ts reloadSenses()
             注入运行时上下文执行 → registerSenses([...])
 
 ─── 配置期：builder 摊平 senseTable ─────────────────────────────
-AgentBuilder.configureRuntime({brain, senseGroups})
-  └─ RuntimeResolver 按 senseGroups 从 senseRegistry 取子集
+AgentBuilder.configureRuntime({brain, senseGroup})
+  └─ RuntimeResolver 按 senseGroup 从 senseRegistry 取子集
      ├─ 计算每个感官最终 supervisionLevel（优先级链）
      ├─ senseAdapter.buildSenses(subset) → builtSenses: SenseFunction[]
      └─ 摊平 senseTable: Map<name, {supervisionLevel, execute}>

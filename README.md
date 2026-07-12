@@ -12,7 +12,7 @@ cheryClaw 采用拟人化隐喻设计：
 | Sense | 感官 | 感知操作，神经手脚，与世界交互 |
 | Chat | 聊天 | 交互通道，承载消息历史 |
 
-**交互流程：** `chat.create`（携带 brain + senseGroups）→ `chat.send` → 触发感官 → 大脑思考（中途可用 `runtime.set` 原子更换 Brain/Sense）
+**交互流程：** `chat.create`（携带 brain + senseGroup）→ `chat.send` → 触发感官 → 大脑思考（中途可用 `runtime.set` 更换 Brain/Sense）
 
 > Brain 与 Sense Group 在每轮对话开始时可更换，不与 Chat 锁定。Chat 仅承载消息历史。
 

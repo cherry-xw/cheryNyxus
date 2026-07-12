@@ -48,6 +48,16 @@ export function useStreamBubble(props: StreamBubbleProps, petHover: Ref<boolean>
       hasStreamContent.value &&
       (!!props.pet.isWorking || retainActive.value || isHovered.value),
   );
+  // === busy-indicator 状态（与气泡显示解耦；语义对齐"还在做事"） ===
+  // 不含 hover / retainUntil：hover 仅保持气泡显示；retain 期不视为"还在做事"。
+  // C 方案：isWorking || runningTools.length > 0 || approval != null
+  const isBusy = computed(
+    () =>
+      !props.pet.isGhost &&
+      (!!props.pet.isWorking ||
+        (props.stream?.runningTools?.length ?? 0) > 0 ||
+        !!props.stream?.approval),
+  );
   const hasContent = computed(() => !!props.stream?.content);
   const thinkingOnly = computed(() => !!props.stream?.thinking && !props.stream?.content);
   const showWorkMain = computed(() => hasStream.value && (thinkingOnly.value || hasContent.value));
@@ -111,6 +121,7 @@ export function useStreamBubble(props: StreamBubbleProps, petHover: Ref<boolean>
 
   return {
     hasStream,
+    isBusy,
     showWorkMain,
     showWorkSide,
     thinkingOnly,

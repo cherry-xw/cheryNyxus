@@ -19,6 +19,10 @@ export class CheckpointState {
   private senseResults: (SenseAcceptChunk | SenseRejectChunk)[] = [];
   /** 本轮 assistant 是否已在 sense_end 时 flush（避免 finally 重复 push） */
   private assistantFlushed = false;
+  /** 第一次 flush 时记录的 assistant id（流结束后 reconcile senseCalls 用） */
+  private flushedAssistantId: string | null = null;
+  /** 第一次 flush 时记录的 senseCalls（流结束后比对是否需要补充） */
+  private flushedAssistantSenseCalls: Array<{ id: string; name: string; arguments: string }> = [];
 
   /**
    * 摄入 chunk，更新内部状态
@@ -67,7 +71,32 @@ export class CheckpointState {
       senseCalls,
     });
     this.assistantFlushed = true;
+    this.flushedAssistantId = message.id;
+    this.flushedAssistantSenseCalls = senseCalls;
     return message;
+  }
+
+  /**
+   * 流结束后 reconcile last assistant 的 senseCalls 字段。
+   *
+   * 流式多 sense_call 场景：第一次 sense_end flushAssistant 时 senseDeltas 未累积完整
+   * （OpenAI 流式 delta 分散到达，yield trigger 早于 ingest chunk），流结束后需要补充新增 trigger。
+   * 比对「flush 时记录的 senseCalls」与「最终 mergeSenseDeltas」，有新增则返回 updated mutation
+   * （patch.kind="content" + senseCalls），由 observer 落库。
+   *
+   * @returns updated mutation（含 senseCalls 增量）或 null（无需补充）
+   */
+  reconcileAssistantSenseCalls(): CheckpointMessageMutation | null {
+    if (!this.assistantFlushed || !this.flushedAssistantId) return null;
+    const finalSenseCalls = mergeSenseDeltas(this.senseDeltas)
+      .filter((sc) => sc.name)
+      .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }));
+    if (finalSenseCalls.length === this.flushedAssistantSenseCalls.length) return null;
+    return {
+      type: "updated",
+      id: this.flushedAssistantId,
+      patch: { senseCalls: finalSenseCalls },
+    };
   }
 
   /**
@@ -91,6 +120,10 @@ export class CheckpointState {
         thinking: this.thinking,
         senseCalls,
       });
+      // 流式场景（无 sense_end 触发）此路径直接拿到完整 senseCalls，不需要 reconcile
+      this.assistantFlushed = true;
+      this.flushedAssistantId = message.id;
+      this.flushedAssistantSenseCalls = senseCalls;
       mutations.push({ type: "created", message });
     }
 

@@ -25,14 +25,20 @@ import { getChat, updateChatMetadata } from "@/db/chat.js";
  *
  * chatId 用于 done notification 时计算 contextUsage（CP7）：跑完一轮 loop 后实时
  * 重算 chat 总 token / brain.contextLimit 推送给前端，ContextBar 随每轮更新。
+ *
+ * onError（可选）：当 stream 中出现 ErrorChunk（loop 失败 / retry 耗尽 / max loop 超限）
+ * 时调用，send.ts 据此在 stream 正常结束时构造 failureResponse = success:false，
+ * 避免「error notification + done notification + Response.success:true」三发歧义。
  */
 export async function* streamAgentChunks(
   generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
   rid: string,
   chatId: string,
+  onError?: (message: string) => void,
 ): AsyncGenerator<Chunk | Notification, void, unknown> {
-  let seq = 0;
-
+  // 失败守卫：error chunk 已出现时抑制后续 done notification（不让 loop 失败路径下发 done）。
+  // runChain 内 ErrorChunk 是「流失败」信号；done 仅代表 loop 正常完成。
+  let errored = false;
   for await (const chunk of generator) {
     if (chunk.type === "stream") {
       const streamData: Record<string, unknown> = {};
@@ -45,7 +51,7 @@ export async function* streamAgentChunks(
       if (chunk.senseDelta && chunk.senseDelta.length > 0) {
         streamData.senseCall = chunk.senseDelta;
       }
-      yield createChunk("stream", rid, streamData, ++seq);
+      yield createChunk("stream", rid, streamData);
     } else if (chunk.type === "staged") {
       const staged = chunk as StagedChunk;
       const stagedData: Record<string, unknown> = {
@@ -82,12 +88,11 @@ export async function* streamAgentChunks(
         name: sc.name,
         supervisionLevel: sc.supervisionLevel,
         needsApproval,
-        argsLen: sc.arguments.length,
+        arguments: sc.arguments, // 完整参数（JSON字符串）
       });
 
-      // auto sense（spawn_subagent/read_file 等）不推 interrupt：
-      // 无审批需求，前端不弹审核卡（与 auto 逻辑一致）。interrupt 仅 confirm/manual 推送，
-      // 携带 waitTime（= global.approval_timeout）+ createdAt 供前端倒计时。
+      // confirm/manual（needsApproval）→ interrupt（前端弹审核卡 + 倒计时）；
+      // auto → sense_started（前端 pet bar 显「运行中工具」icon，id 与 accept.approvalId 同源，accept 时移除）。
       // approval_timeout 缺省 → waitTime=0（不超时，前端不显倒计时）。
       if (needsApproval) {
         yield createNotification("interrupt", rid, {
@@ -98,6 +103,12 @@ export async function* streamAgentChunks(
           needsApproval,
           waitTime: config.global.approval_timeout ?? 0,
           createdAt: Date.now(),
+        });
+      } else {
+        yield createNotification("sense_started", rid, {
+          id: sc.id,
+          senseName: sc.name,
+          arguments: sc.arguments,
         });
       }
     } else if (chunk.type === "sense_accept") {
@@ -133,8 +144,18 @@ export async function* streamAgentChunks(
       const e = chunk as { errors: Array<{ message: string }> };
       const message = e.errors[0]?.message || "Unknown error";
       logger.event("chat.run.error", { message }, LogLevel.error);
+      errored = true;
+      if (onError) onError(message);
+      // 仍下发 error notification：流中途的失败信号，前端可立即更新 UI。
+      // 但不下发 done notification（见下「done + errored 抑制」）—— 流终止由 final Response 表达。
       yield createNotification("error", rid, { message });
     } else if (chunk.type === "done") {
+      // 失败路径抑制 done notification：error chunk 已现 → loop 失败 → 让 final Response（success:false）
+      // 作为唯一权威终态。前端据 final Response 触发终态；error notification 仍流中发。
+      if (errored) {
+        logger.event("chat.run.done.suppressed", { reason: "errored" }, LogLevel.warn);
+        continue;
+      }
       // CP7：done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
       const contextUsage = computeContextUsage(chatId);
       // 子 agent done（parent_chat_id 非空）：标 metadata.finished（ghost 标记，前端转灵魂态；chat 保留供查历史）

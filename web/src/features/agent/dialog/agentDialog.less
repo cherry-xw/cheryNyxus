@@ -1,0 +1,229 @@
+// AgentDialog 剩余样式（overlay + panel + role-tags + textarea + send + error 等）。
+// 由 AgentDialog.vue 通过 @import 引入 scoped。
+@ink: #14161a;
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 17, 22, 0.42);
+  backdrop-filter: blur(2px);
+}
+
+.dialog-panel {
+  width: min(680px, 96vw);
+  max-height: 88vh;
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  background: #fbf9f4;
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.28),
+    0 4px 8px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+}
+
+.role-configs {
+  display: grid;
+  gap: 7px;
+}
+
+.session-note {
+  color: #727783;
+  font-size: 12px;
+}
+
+.role-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-summary-tag {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 34px;
+  padding: 3px 7px;
+  border: 1px solid rgba(35, 38, 44, 0.13);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+  color: rgba(30, 33, 38, 0.75);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: rgba(190, 132, 28, 0.42);
+    background: #fffdf8;
+    box-shadow: 0 2px 6px rgba(20, 22, 26, 0.08);
+  }
+
+  &.is-primary {
+    border-color: rgba(190, 132, 28, 0.32);
+    background: rgba(246, 183, 60, 0.13);
+    color: #8c6114;
+  }
+}
+
+.role-summary-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.role-summary-name,
+.role-summary-model {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.role-summary-name { flex: 0 1 auto; }
+
+.role-summary-model {
+  padding-left: 5px;
+  border-left: 1px solid rgba(35, 38, 44, 0.12);
+  color: rgba(30, 33, 38, 0.52);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.role-summary-senses {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+}
+
+.role-summary-sense-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: rgba(35, 38, 44, 0.06);
+  font-size: 9px;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  .title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .who {
+    font-size: 14px;
+    font-weight: 800;
+    color: fade(@ink, 86%);
+  }
+
+  .hint {
+    font-size: 10px;
+    color: fade(@ink, 52%);
+  }
+}
+
+.close-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  color: fade(@ink, 70%);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    background: #ffffff;
+    color: fade(@ink, 88%);
+  }
+}
+
+.loading-row {
+  padding: 8px;
+  color: fade(@ink, 60%);
+  font-size: 12px;
+  text-align: center;
+}
+
+.textarea-row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+
+.msg-input {
+  flex: 1;
+
+  :deep(.el-textarea__inner) {
+    padding-right: 44px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+.send-btn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: fade(@ink, 50%);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease;
+
+  &:hover:not(:disabled) {
+    color: #f6b73c;
+  }
+
+  &:hover:not(:disabled) .send-icon {
+    fill: currentColor;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+}
+
+.send-icon {
+  width: 18px;
+  height: 18px;
+  transition: fill 120ms ease;
+}
+
+.error-row {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-word;
+}

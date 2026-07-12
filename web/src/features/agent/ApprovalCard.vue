@@ -1,10 +1,14 @@
 <script setup lang="ts">
 /**
  * ApprovalCard：sense 审批卡片（CP5）。
- * 触发：interrupt notification → store routeNotification 设 stream.approval。
- * 操作：accept / reject → agentApi.approval(approvalId, action) → 成功后 dismissApproval 立即关闭
- *       （不等 accept/rejected notification 回来；store 仍会清，已 undefined 无害）。
- * 倒计时：waitTime（= global.approval_timeout）- (now - createdAt)。归零后按钮禁用，等后端超时 reject
+ * 触发：interrupt notification → store routeNotification 设 stream.approval（或入队 approvalQueue）。
+ * 操作：
+ *   - accept / reject → agentApi.approval(approvalId, action) → 成功后 dismissApproval 立即关闭
+ *     （不等 accept/rejected notification 回来；store 仍会清，已 undefined 无害）。
+ *     清空后自动从 queue pop 下一个（连续处理多审批）。
+ *   - ✕ 关闭 → dismissApprovalToQueue 移到 queue 末尾（不丢失，PetIcons 渲染闪烁 icon）。
+ *     同样自动 pop 下一个进当前 approval（多审批堆叠连续推进）。
+ * 倒计时：waitTime（= global.approval_timeout）- (now - createdAt）。归零后按钮禁用，等后端超时 reject
  *        → rejected notification 清 stream.approval 卸载。waitTime=0 不超时不显倒计时。
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
@@ -12,7 +16,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { agentApi } from "@/services/agentApi";
 import { useAgentsStore } from "@/stores";
 import type { ApprovalState } from "@/stores/agents";
-import { formatArgValue, parseArgs } from "@/utils/parseArgs";
+import ParsedArgs from "./ParsedArgs.vue";
 
 const props = defineProps<{
   approval: ApprovalState;
@@ -24,7 +28,6 @@ const agents = useAgentsStore();
 
 // 待执行动作（请求中两按钮都禁用防双击；null = idle）
 const pending = ref<"accept" | "reject" | null>(null);
-const expanded = ref(false);
 
 // 倒计时：now 每 250ms 刷新驱动 remaining 重算。waitTime=0 不超时不启动定时器。
 const now = ref(Date.now());
@@ -46,29 +49,12 @@ const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000));
 // 倒计时归零：后端超时 reject 已触发，按钮禁用等 rejected notification 卸载
 const expired = computed(() => showCountdown.value && remainingMs.value <= 0);
 
-/**
- * arguments 结构化展示（复用 SenseCallBox 的 parseArgs 逻辑）。
- * description 字段作折叠标题；其余字段作 key:value 行。
- * 解析失败 → fallback JSON pretty-print。
- */
-const argsParsed = computed(() => parseArgs(props.approval.args));
-const argsFallback = computed(() => argsParsed.value.fallback);
-const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? []);
-const argsToggleLabel = computed(
-  () => argsParsed.value.parsed?.description ?? "arguments",
-);
-const hasArgs = computed(() => {
-  const { parsed, fallback } = argsParsed.value;
-  if (parsed) return parsed.description != null || parsed.entries.length > 0;
-  return fallback.length > 0;
-});
-
 async function submit(action: "accept" | "reject"): Promise<void> {
   if (pending.value !== null) return;
   pending.value = action;
   try {
     await agentApi.approval(props.approval.approvalId, action);
-    // 立即关闭：dismissApproval 清 stream.approval → 组件 v-if 卸载
+    // 立即关闭：dismissApproval 清 stream.approval → 组件 v-if 卸载；自动 pop 下一个
     agents.dismissApproval(props.chatId);
   } catch (e) {
     // 规则 12 fail loud：上报并复位允许重试
@@ -78,6 +64,16 @@ async function submit(action: "accept" | "reject"): Promise<void> {
     );
     pending.value = null;
   }
+}
+
+/**
+ * ✕ 关闭：把当前 approval 移到 queue 末尾（保留）；PetIcons 渲染闪烁 icon 提示待处理。
+ * 触发时机：用户主动关闭但不想立即决定。
+ * 不调 RPC（未告知服务端）；服务端超时后会通过 rejected notification 清理。
+ */
+function closeToQueue(): void {
+  if (pending.value !== null) return; // 请求中禁止关闭，避免双触发
+  agents.dismissApprovalToQueue(props.chatId);
 }
 </script>
 
@@ -91,25 +87,16 @@ async function submit(action: "accept" | "reject"): Promise<void> {
       <span class="indicator" aria-hidden="true" />
       <span class="sense-name" :title="approval.senseName">{{ approval.senseName }}</span>
       <span v-if="showCountdown" class="countdown" :class="{ expired }">{{ remainingSec }}s</span>
-    </div>
-    <div v-if="hasArgs" class="args">
       <button
         type="button"
-        class="args-toggle"
-        :aria-expanded="expanded"
-        @click="expanded = !expanded"
-      >{{ expanded ? "▾" : "▸" }} {{ argsToggleLabel }}</button>
-      <div v-if="expanded" class="args-body">
-        <div v-if="argsEntries.length" class="arg-rows">
-          <div v-for="entry in argsEntries" :key="entry.key" class="arg-row">
-            <span class="arg-key">{{ entry.key }}:</span>
-            <span class="arg-val">{{ formatArgValue(entry.value) }}</span>
-          </div>
-        </div>
-        <pre v-else-if="argsFallback" class="args-pre">{{ argsFallback }}</pre>
-        <span v-else class="arg-empty">(无其他参数)</span>
-      </div>
+        class="close-btn"
+        :disabled="pending !== null"
+        aria-label="关闭审批（保留到队列）"
+        title="关闭审批（保留到队列，可从 pet icon 重新唤起）"
+        @click="closeToQueue"
+      >✕</button>
     </div>
+    <ParsedArgs :args="approval.args" />
     <div class="actions">
       <button
         type="button"
@@ -176,93 +163,32 @@ async function submit(action: "accept" | "reject"): Promise<void> {
       color: #b91c1c;
     }
   }
-}
 
-.args {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-}
+  .close-btn {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1px solid rgba(36, 38, 45, 0.16);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.7);
+    color: fade(@ink, 56%);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 100ms ease, color 100ms ease;
 
-.args-toggle {
-  padding: 1px 5px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.6);
-  color: fade(@ink, 70%);
-  font-size: 9px;
-  font-weight: 700;
-  cursor: pointer;
+    &:hover:not(:disabled) {
+      background: #fff;
+      color: fade(@ink, 86%);
+    }
 
-  &:hover {
-    background: #fff;
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.4;
+    }
   }
-}
-
-.args-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-left: 4px;
-  width: 100%;
-}
-
-.arg-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.arg-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  min-width: 0;
-}
-
-.arg-key {
-  flex-shrink: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 9px;
-  font-weight: 700;
-  color: fade(@ink, 60%);
-}
-
-.arg-val {
-  flex: 1;
-  min-width: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 9px;
-  line-height: 1.4;
-  color: fade(@ink, 82%);
-  max-height: 80px;
-  overflow: auto;
-}
-
-.arg-empty {
-  font-size: 9px;
-  font-style: italic;
-  color: fade(@ink, 44%);
-}
-
-.args-pre {
-  margin: 0;
-  padding: 3px 5px;
-  border-radius: 4px;
-  background: fade(@ink, 6%);
-  color: fade(@ink, 82%);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 9px;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 80px;
-  overflow: auto;
-  width: 100%;
 }
 
 .actions {

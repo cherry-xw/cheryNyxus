@@ -35,7 +35,7 @@ describe("user in loop 流程", () => {
     await client.call("chat.create", {
       chatId,
       brain: "mock_userloop",
-      senseGroups: ["confirm_senses"],
+      senseGroup: "confirm_senses",
     });
 
     // 第一条 send：开流但不 await done

@@ -65,7 +65,7 @@ index = messages 中 role==="assistant" 的数量
 无需额外代码。`chat.create` 用 mock brain 即走 mock：
 
 ```json
-→ {"method":"chat.create","params":{"chatId":"c1","brain":"mock_test","senseGroups":["safe_senses"]}}
+→ {"method":"chat.create","params":{"chatId":"c1","brain":"mock_test","senseGroup":["safe_senses"]}}
 ```
 
 `runtimeResolver` 按 `provider:"mock"` 自动取 mock 的 LLM/Message/Sense adapter 三件套。

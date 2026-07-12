@@ -109,6 +109,8 @@ export interface Logger {
   close(): void;
   getConfig(): InternalLoggerConfig;
   setConfig(config: Partial<ConfigLoggerConfig>): void;
+  /** 记录配置基准（日志文件新建时调用，避免循环依赖） */
+  recordConfigBaseline(configData: object): void;
   tools: LoggerTools;
 }
 

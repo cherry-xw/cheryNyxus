@@ -50,11 +50,12 @@ export { SupervisionLevel } from "@/core/config";   // 从 core 重导出
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `global` | `ExtendedGlobalConfig` | 全局开关（thinking/supervision/stream/超时/loop 上限）+ logger + file_compression + 自动补全的 4 个 `.chery/` 子路径 |
-| `llm.brain` | `Record<string, BrainConfig>` | Brain 名称 → provider/model/url/key/thinking/rpm/mock 配置 |
+| `llm.brain` | `Record<string, BrainConfig>` | Brain 名称 → provider/model/url/key/thinking/rpm/mock/capabilities 配置 |
+| `media` | `MediaConfig?` | 图片、视频、音频网关（url/model/key/enabled）及 `maxUploadMb` |
 | `sense_groups` | `Record<string, string[]>` | 感官分组（值如 `"read_file"` 或 `"execute_command:auto"` 覆盖监管等级） |
 | `server` | `ServerConfig` | WebSocket `port`（默认 8182）+ `transport`（默认 `"binary"`）；HTTP 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定，与 `electron/main.ts` 一致 |
 
-`BrainConfig` 关键字段（[源码](../../src/utils/config.ts#L55-L67)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）。
+`BrainConfig` 关键字段（[源码](../../src/utils/config.ts)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）/ `capabilities?`（Tool Call、图片/视频/音频输入及生成能力）。能力缺省兼容旧配置：Tool Call 开启，媒体能力关闭。
 
 `$ENV` 替换规则：仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`（如 `url: $OLLAMA_HOST`），从 `.env`/进程环境变量取值；缺失会收集到 `missingEnvVars` 并 warn，原样保留字符串。不会替换值中嵌入的 `$VAR`。
 
@@ -67,10 +68,11 @@ export { SupervisionLevel } from "@/core/config";   // 从 core 重导出
 export interface ConfigRaw {
   global: GlobalConfigRaw;                 // supervision: "auto"|"confirm"|"manual"
   llm: LLMConfig;
+  media?: MediaConfig;
   sense_groups?: Record<string, string[]>;
   mcp_servers?: Record<string, McpServerConfigRaw>;
-  default?: DefaultAgentConfig;
-  subagents?: Record<string, SubagentConfig>;
+  roles?: Record<string, RoleConfig>;
+  presets?: Record<string, PresetConfig>;
 }
 
 export function readRawConfig(): ConfigRaw;        // 读原文，剥离 server 段（config.get）
@@ -80,10 +82,12 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 ```
 
 校验规则（`validateRawConfig`，返回错误字符串数组，空=通过）：
-- `default.brain` / `subagents.*.brain` 必须存在于 `llm.brain`（loadConfig 启动期 fail loud 同源）
+- `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt`（如配置）必须存在
+- `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`；`presets.*.roles[*]` 必须引用已定义角色
 - `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|confirm|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填
+- `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
 
 写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整注释文档备份在 [.chery/config.yaml.example](../../.chery/config.yaml.example)。
 

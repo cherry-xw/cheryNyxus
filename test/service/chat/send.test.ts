@@ -8,6 +8,9 @@ vi.mock("@/service/chat/runtime.js", () => ({
   ensureChat: vi.fn(),
   clearChatRuntime: vi.fn(),
   abortChatRuntime: vi.fn(),
+  getChatSelection: vi.fn(),
+  setRuntime: vi.fn(),
+  isChatRunning: vi.fn(),
 }));
 vi.mock("@/service/chat/observer.js", () => ({
   observeAgentChunks: vi.fn(),
@@ -100,6 +103,46 @@ describe("service/chat/send", () => {
       ).rejects.toThrow(/not found/);
     });
 
+    it("P4: attachments → [[media:<filename>]] marker appended to prompt for idle send", async () => {
+      vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
+      const agent = mockAgent({ running: false });
+      vi.mocked(ensureChat).mockResolvedValue(agent as never);
+      // observer/streamMapper 默认透传空流
+      vi.mocked(observeAgentChunks).mockImplementation(((gen: AsyncGenerator<unknown>) => gen) as never);
+      vi.mocked(streamAgentChunks).mockImplementation(((gen: AsyncGenerator<unknown>) => gen) as never);
+
+      await collect(
+        handleChatSend(ctx, {
+          chatId: "c1",
+          prompt: "看看图片",
+          attachments: [
+            { assetId: "abc-123", kind: "image", mimeType: "image/png" },
+            { assetId: "def-456", kind: "audio", mimeType: "audio/mpeg" },
+          ],
+        }) as never,
+      );
+
+      // agent.run 收到的 prompt 应包含 [[media:abc-123.png]] 和 [[media:def-456.mp3]]
+      const calledWith = vi.mocked(agent.run).mock.calls[0]?.[0] as string;
+      expect(calledWith).toContain("[[media:abc-123.png]]");
+      expect(calledWith).toContain("[[media:def-456.mp3]]");
+      expect(calledWith.startsWith("看看图片")).toBe(true);
+    });
+
+    it("P4: attachments 空数组 / undefined → prompt 不被 marker 污染", async () => {
+      vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
+      const agent = mockAgent({ running: false });
+      vi.mocked(ensureChat).mockResolvedValue(agent as never);
+      vi.mocked(observeAgentChunks).mockImplementation(((gen: AsyncGenerator<unknown>) => gen) as never);
+      vi.mocked(streamAgentChunks).mockImplementation(((gen: AsyncGenerator<unknown>) => gen) as never);
+
+      await collect(
+        handleChatSend(ctx, { chatId: "c1", prompt: "纯文本" }) as never,
+      );
+      const calledWith = vi.mocked(agent.run).mock.calls[0]?.[0] as string;
+      expect(calledWith).toBe("纯文本");
+    });
+
     it("running send only enqueues (no bind) and returns chatId", async () => {
       vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
       vi.mocked(ensureChat).mockResolvedValue(mockAgent({ running: true }) as never);
@@ -139,7 +182,7 @@ describe("service/chat/send", () => {
       expect(reverse?.data.messageIds).toEqual(["m1", "m2"]);
     });
 
-    it("bind failure yields error notification + failure Response", async () => {
+    it("bind failure yields only failure Response (no error notification)", async () => {
       vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
       vi.mocked(ensureChat).mockResolvedValue(mockAgent({ running: false }) as never);
       vi.mocked(connectionManager.bindChatConnection).mockImplementation(() => {
@@ -150,7 +193,7 @@ describe("service/chat/send", () => {
       );
       expect(
         items.some((i) => i.kind === "notification" && (i as Notification).type === "error"),
-      ).toBe(true);
+      ).toBe(false);
       const res = result as Response;
       expect(res.success).toBe(false);
       expect(res.error?.code).toBe("INTERNAL");
@@ -172,7 +215,7 @@ describe("service/chat/send", () => {
       expect(result).toEqual({ chatId: "c1" });
     });
 
-    it("non-aborted stream error yields error notification + failure Response", async () => {
+    it("non-aborted stream error yields only failure Response (no error notification)", async () => {
       vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
       vi.mocked(ensureChat).mockResolvedValue(mockAgent({ running: false }) as never);
       async function* throwing(): AsyncGenerator<never, void> {
@@ -184,10 +227,39 @@ describe("service/chat/send", () => {
       );
       expect(
         items.some((i) => i.kind === "notification" && (i as Notification).type === "error"),
-      ).toBe(true);
+      ).toBe(false);
       const res = result as Response;
       expect(res.success).toBe(false);
       expect(res.error?.message).toBe("stream broke");
+    });
+
+    it("P2 回归门: streamAgentChunks onError callback → failureResponse success:false，streamMapper 已抑制 done notification", async () => {
+      vi.mocked(getChat).mockReturnValue({ id: "c1" } as never);
+      vi.mocked(ensureChat).mockResolvedValue(mockAgent({ running: false }) as never);
+      // 模拟 streamAgentChunks：见到 ErrorChunk 调用 onError 回调（不 throw），并抑制 done notification。
+      // 验证 send.ts 据 onError 消息构造 failureResponse。
+      vi.mocked(streamAgentChunks).mockImplementation(((async function* (
+        _gen: AsyncGenerator<unknown>,
+        _rid: string,
+        _chatId: string,
+        onError?: (msg: string) => void,
+      ) {
+        if (onError) onError("401 invalid access token");
+        // 不 yield done（模拟 streamMapper errored=true 时 done 抑制行为）
+      }) as never));
+      vi.mocked(observeAgentChunks).mockImplementation(((gen: AsyncGenerator<unknown>) => gen) as never);
+      const { items, result } = await collect(
+        handleChatSend(ctx, { chatId: "c1", prompt: "hi" }) as never,
+      );
+      // 不应下发 done notification（streamMapper 抑制）
+      expect(
+        items.some((i) => i.kind === "notification" && (i as Notification).type === "done"),
+      ).toBe(false);
+      // 最终 Response 应是 failure（无 throw 路径，failureMessage 走防御性构造）
+      const res = result as Response;
+      expect(res.success).toBe(false);
+      expect(res.error?.code).toBe("INTERNAL");
+      expect(res.error?.message).toBe("401 invalid access token");
     });
   });
 

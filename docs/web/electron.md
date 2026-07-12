@@ -69,12 +69,14 @@ spawn(getNodeExecutable(), [getBackendBundle()], {
 const config = ipcRenderer.sendSync('get-backend-config') as BackendConfig | null;
 if (config) {
   contextBridge.exposeInMainWorld('__BACKEND_CONFIG__', config);
+  // P5c：同步注入 HTTP base URL（http://localhost:<webPort>），前端 fetch /api/* 用
+  contextBridge.exposeInMainWorld('__BACKEND_HTTP_URL__', `http://localhost:${config.webPort}`);
 }
 ```
 
 - main `ipcMain.on('get-backend-config')` 返回 `serverConfig`(由 `waitForBackend` 从 `/api/config` 取得,或 fallback 常量)。
-- `sendSync` 同步:preload 加载时同步取配置,渲染进程加载时 `window.__BACKEND_CONFIG__` 已就绪,无竞态。
-- 渲染进程 [ws.ts](../../web/src/services/ws.ts) `connect()` 优先读 `window.__BACKEND_CONFIG__`,无需 `fetch('/api/config')`(`file://` 下无法 fetch 相对地址)。
+- `sendSync` 同步:preload 加载时同步取配置,渲染进程加载时 `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` 已就绪,无竞态。
+- 渲染进程 [ws.ts](../../web/src/services/ws.ts) `connect()` 优先读 `window.__BACKEND_CONFIG__`,无需 `fetch('/api/config')`(`file://` 下无法 fetch 相对地址);[http.ts](../../web/src/services/http.ts) `httpUrl(path)` 读 `__BACKEND_HTTP_URL__` 拼完整 HTTP 端点(`/api/auth/me`、`/api/media/upload` 等)。
 
 ## electron-builder 打包
 

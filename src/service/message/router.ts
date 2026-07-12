@@ -152,7 +152,7 @@ export class RpcRouter {
         // （如 handleChatGet 历史回放用 p.chatId），客户端按 RPC requestId 路由 → 统一覆盖为 request.id，
         // 消除 chat.get（chatId）与 chat.send（rid，streamMapper 注入）语义不一致。
         // streamMapper 注入的 rid / 各 notification requestId 覆盖后同为 rid，无副作用。
-        // 注：spawn 的 subagent_created/destroyed 经 spawnBroker.broadcaster 直发 ws（不经 generator），不受此覆盖影响。
+        // 注：spawn 的 role_created/destroyed 经 spawnBroker.broadcaster 直发 ws（不经 generator），不受此覆盖影响。
         const yielded = iter.value as Chunk | Notification;
         yielded.requestId = requestId;
         yield yielded;
@@ -160,12 +160,6 @@ export class RpcRouter {
     } catch (err) {
       const error = toRpcError(err);
       logger.event("req.stream.error", { requestId, message: error.message }, LogLevel.error);
-      yield {
-        kind: "notification",
-        type: "error",
-        requestId,
-        data: { message: error.message },
-      } as Notification;
       return createResponse(
         requestId,
         false,

@@ -46,22 +46,30 @@ export class AgentBuilder {
 
   /**
    * 门面：初始化 chat（绑定 chatId，注入历史或 system 消息）
+   * @param promptPathOverride 可选，per-subagent / 预设 main 专属 system prompt 路径（透传 buildFirstSystemPrompt）
+   *
+   * persona 修复：observer 不持久化 system 消息 → 重启后 loadHistory 返回 messages 无 system 首条。
+   * 故统一保证内存 messages 首条为 system：历史存在但首条非 system → prepend；首条已是 system → 原样；无历史 → [systemMsg]。
    */
-  init(chatId: string, messages?: LLMResponse[]): this {
-    this.requireAgent().init(
-      chatId,
-      messages && messages.length > 0 ? messages : this.createInitialMessages(),
-    );
+  init(chatId: string, messages?: LLMResponse[], promptPathOverride?: string): this {
+    const systemMsg = this.createInitialMessages(promptPathOverride);
+    let msgs: LLMResponse[];
+    if (messages && messages.length > 0) {
+      msgs = messages[0]?.role === "system" ? messages : [...systemMsg, ...messages];
+    } else {
+      msgs = systemMsg;
+    }
+    this.requireAgent().init(chatId, msgs);
     return this;
   }
 
-  private createInitialMessages(): LLMResponse[] {
+  private createInitialMessages(promptPathOverride?: string): LLMResponse[] {
     const now = Date.now();
     return [
       {
         id: randomUUID(),
         role: "system",
-        content: buildFirstSystemPrompt(),
+        content: buildFirstSystemPrompt(promptPathOverride),
         createdAt: now,
         updateAt: now,
       },
@@ -107,6 +115,15 @@ export class AgentBuilder {
    */
   getMessages(): LLMResponse[] {
     return this.requireAgent().getMessages();
+  }
+
+  /**
+   * 门面：注入角色回复消息（wait=true 子完成唤醒主用，见 docs/agent-pet.md §5.4）。
+   * 守单一写者：经 journal.appendRoleReply 写 soul.messages（内存）；DB 落库由 service wakeParent addMessage。
+   * @returns 新消息 id（供 wakeParent addMessage 落库）
+   */
+  appendRoleReply(content: string): string {
+    return this.requireAgent().appendRoleReply(content);
   }
 
   /**

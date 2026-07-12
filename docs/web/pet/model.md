@@ -42,4 +42,4 @@ interface PetPreset {
 | `mood` / `action` | 当前表情与动作（见 [state.md](./state.md)） |
 | `moodUntil` / `interactionUntil` | 临时 mood / 聊天结束时间戳 |
 | `draggingPointerId` / `dragOffset*` | 拖拽状态 |
-| `runtime?` | agent 运行时配置（`RuntimeSelection`：brain + senseGroups + mcpServers）。主 pet 由 `createMasterPet` 设；子 pet 由 `subagent_created` notification 设（brain/senseGroups 来自 notification）；AgentDialog `runtime.set` 后同步。**刷新后丢失**（initFromChats 不恢复）→ hover 详情面板显「—」。详见 [agent-integration.md](./agent-integration.md)。 |
+| `runtime?` | agent 运行时配置（`RuntimeSelection`：brain + senseGroup + mcpServers）。主 pet 由 `createMasterPet` 设；子 pet 由 `role_created` notification 设（brain/senseGroup 来自 notification）；AgentDialog `runtime.set` 后同步。**刷新后丢失**（initFromChats 不恢复）→ hover 详情面板显「—」。详见 [agent-integration.md](./agent-integration.md)。 |

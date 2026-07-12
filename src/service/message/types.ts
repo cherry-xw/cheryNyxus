@@ -35,7 +35,6 @@ export interface Chunk {
   kind: "chunk";
   type: "stream" | "staged";
   requestId: string;
-  seq?: number;
   data: ChunkData;
 }
 
@@ -50,16 +49,18 @@ export interface Notification {
 }
 
 export type NotificationType =
-  | "interrupt"    // 感官审批请求
-  | "accept"       // 感官执行成功
+  | "interrupt"    // 感官审批请求（sense_end，仅 confirm/manual）
+  | "sense_started" // 感官开始执行（sense_end，仅 auto；前端维护「运行中工具」列表）
+  | "accept"       // 感官执行成功（全工具；approvalId=sense id，前端移除运行中工具同 id 项）
   | "rejected"     // 感官执行被拒绝
   | "consumed"     // 消息已消费
   | "loaded"       // 历史对话已载入
   | "done"         // 执行完成
   | "error"        // 错误
   | "replaced"     // 感官去重命中：历史 sense 结果被新读取替换
-  | "subagent_created"   // 子 agent 派发（spawn_subagent sense 执行时推送给主 chat 所属连接）
-  | "subagent_destroyed"; // 子 agent 销毁（destroy_subagent sense 执行时推送给主 chat 所属连接，CP6）
+  | "role_created"   // 角色（子 pet）派发（spawn_role sense 执行时推送给主 chat 所属连接）
+  | "role_destroyed" // 角色销毁（destroy_role sense 执行时推送给主 chat 所属连接，CP6）
+  | "role_reply";    // wait=true 子完成唤主（后端注入角色回复后推，前端 chat.resume 续跑，T9 B1）
 
 // ========== Request Data ==========
 
@@ -68,6 +69,7 @@ export type RequestData =
   | SenseListRequestData
   | SenseToolsRequestData
   | RuntimeSetRequestData
+  | SessionRuntimeSetRequestData
   | ChatCreateRequestData
   | ChatListRequestData
   | ChatGetRequestData
@@ -83,9 +85,9 @@ export type RequestData =
   | McpConnectRequestData
   | McpDisconnectRequestData
   | McpReloadRequestData
-  | SubagentResultRequestData
   | ConfigGetRequestData
-  | ConfigSaveRequestData;
+  | ConfigSaveRequestData
+  | UtilsModelsRequestData;
 
 export interface BrainListRequestData {}
 
@@ -95,11 +97,14 @@ export interface SenseToolsRequestData {}
 
 export interface ChatCreateRequestData {
   chatId?: string;
-  brain: string;
-  senseGroups: string[];
+  /** 预设名（T6）：给出则从 config.presets[preset].leader 解析编制（取 config.roles[leader] 的 brain/senseGroup/mcp/systemPrompt 锁定快照），忽略下方 brain/senseGroup */
+  preset?: string;
+  /** 非预设路径必填；预设给出时忽略 */
+  brain?: string;
+  senseGroup?: string;
   /** 启用的 MCP server 名（绕过 sense_groups，其全部 tools 合并进 schema）。缺省 []。 */
   mcpServers?: string[];
-  /** 子 agent 关联主 chat 的 chatId；主 chat 不携带（DB 存 NULL）。主从 Agent 桌宠系统 CP1。 */
+  /** 角色（子 pet）关联主 chat 的 chatId；主 chat 不携带（DB 存 NULL）。主从 Agent 桌宠系统 CP1。 */
   parentChatId?: string;
 }
 
@@ -119,17 +124,49 @@ export interface ChatDeleteRequestData {
   chatId: string;
 }
 
+/**
+ * chat.send 入参
+ * - prompt：用户文本（与 attachments 并存；纯文本 prompt 也允许）
+ * - attachments：上传到 `/api/media/upload` 后的资产引用数组（结构化协议，替代旧的 `[[media:filename]]` 文本标记）。
+ *   后端 chatMiddleware enrichMediaInputs 据 assetId 走 readMediaAsset → provider 多模态 buildMessages。
+ *   旧文本 marker 仍兼容（旧 marker = 历史消息遗留；新客户端不再发 marker）。
+ *   资产未通过 brain.capabilities.input[kind] 检查时不下发，附文本提示。
+ */
 export interface ChatSendRequestData {
   chatId: string;
   prompt: string;
+  attachments?: ChatSendAttachment[];
+}
+
+export type ChatAttachmentKind = "image" | "video" | "audio";
+
+export interface ChatSendAttachment {
+  /** 上传后服务端生成的 asset id（与 /api/media/upload 返回 UploadedMediaAsset.id 对应）。 */
+  assetId: string;
+  kind: ChatAttachmentKind;
+  mimeType: string;
 }
 
 export interface RuntimeSetRequestData {
   chatId: string;
   brain: string;
-  senseGroups: string[];
-  /** 启用的 MCP server 名。缺省 []（关闭所有 MCP）。 */
+  /** 非预设 chat 必填；preset chat 下仅 brain 生效（编制锁定，强制取创建快照，显式带不同值 fail loud） */
+  senseGroup?: string;
+  /** 启用的 MCP server 名。缺省 []（关闭所有 MCP）。preset chat 下锁定。 */
   mcpServers?: string[];
+}
+
+/** 当前会话临时编制：仅保存在服务进程内存，不写 chats.metadata。 */
+export interface SessionRuntimeSetRequestData {
+  chatId: string;
+  /** 主角色本轮及后续本次会话发送所用编制。 */
+  primary: RuntimeSelection;
+  /** role type → 临时编制；后续 spawn_role 创建子角色时应用。 */
+  roles: Record<string, RuntimeSelection>;
+}
+
+export interface SessionRuntimeSetResponseData {
+  chatId: string;
 }
 
 export interface ChatResumeRequestData {
@@ -179,15 +216,9 @@ export interface McpReloadRequestData {
 }
 
 /**
- * subagent.result：spawn wait=true 的结果回传通道（前端→后端）。
- * 前端跑完子 agent → 调本方法 → 后端据 chatId 唤醒主 agent 挂起的 spawn Promise。
+ * subagent.result RPC 已于 2026-07-09 废弃（wait=true 改后端注入唤醒，见 docs/agent-pet.md §5.4）。
+ * 原前端→后端结果回传通道移除：SubagentResultRequestData / SubagentResultResponseData / Method.SUBAGENT_RESULT / handler / schema 全删。
  */
-export interface SubagentResultRequestData {
-  /** 子 chat id（spawn_subagent sense 在 subagent_created notification 中推送的 chatId） */
-  chatId: string;
-  /** 子 agent 最终 content（主 agent 唤醒后作 spawn sense 的 result） */
-  content: string;
-}
 
 // ---------- Config 设置（config.get / config.save）----------
 
@@ -196,6 +227,18 @@ export interface ConfigGetRequestData {}
 
 /** config.save 入参：除 server 外全部字段（结构同 ConfigRaw，supervision 为字符串、key 为 $ENV 占位符） */
 export type ConfigSaveRequestData = ConfigRaw;
+
+// ---------- Utils 工具（独立信息查询，不依赖 chat/brain 运行时）----------
+
+/**
+ * utils.models：基于用户提供的 provider/url/key 拉取可用模型列表。
+ * provider 必填（区分调用方式），url 必填，key 可选（ollama 通常无需）。
+ */
+export interface UtilsModelsRequestData {
+  provider: string;
+  url: string;
+  key?: string;
+}
 
 // ========== Response Data ==========
 
@@ -219,9 +262,9 @@ export type ResponseData =
   | McpConnectResponseData
   | McpDisconnectResponseData
   | McpReloadResponseData
-  | SubagentResultResponseData
   | ConfigGetResponseData
-  | ConfigSaveResponseData;
+  | ConfigSaveResponseData
+  | UtilsModelsResponseData;
 
 export interface BrainListResponseData {
   brains: Array<{
@@ -229,9 +272,10 @@ export interface BrainListResponseData {
     provider: string;
     model: string;
     thinking?: boolean;
+    capabilities?: import("@/utils/config.js").BrainCapabilities;
     /** 上下文长度上限（token），供前端 context bar 显示用量。缺省 undefined */
     contextLimit?: number;
-    /** 是否为 config.default.brain（前端 AgentDialog 无 runtime 时预选默认 brain） */
+    /** 是否为「默认」预设 leader 角色的 brain（前端 AgentDialog 无 runtime 时预选默认 brain） */
     default?: boolean;
     senseGroups?: string | string[];
   }>;
@@ -257,17 +301,27 @@ export interface SenseToolMeta {
   name: string;
   label: string;
   description: string;
+  /** glyph/emoji 字符串（pet bar 运行中工具图标用）。非内置工具前端 fallback ⚙。 */
+  icon: string;
 }
 
 export interface SenseToolsResponseData {
   tools: SenseToolMeta[];
 }
 
+/**
+ * prompts.list 响应：.chery/prompts/ 下全部 .md 的相对路径（相对 .chery/，含 prompts/ 前缀）。
+ * 供设置面板 systemPrompt 级联选择器建目录树；叶 value = 全路径 = 存储值。
+ */
+export interface PromptsListResponseData {
+  prompts: string[];
+}
+
 export interface ChatCreateResponseData {
   chatId: string;
   /** 回显已生效的 runtime selection（含 MCP 开关） */
   brain: string;
-  senseGroups: string[];
+  senseGroup: string;
   mcpServers: string[];
 }
 
@@ -278,7 +332,7 @@ export interface ChatListResponseData {
     updatedAt: number;
     messageCount: number;
     /**
-     * 子 agent 关联主 chat 的 chatId；主 chat 为 null。
+     * 角色（子 pet）关联主 chat 的 chatId；主 chat 为 null。
      * 前端据此溯源重建 pet 树（主 chat → 主 pet，子 chat 挂主 pet 附近）。CP1。
      */
     parentChatId: string | null;
@@ -292,10 +346,19 @@ export interface ChatListResponseData {
      */
     turnCount?: number;
     /**
-     * 子 agent 是否已完成（metadata.finished 解析）。前端据 finished===true 重建子 pet 为 ghost（灵魂态）。
+     * 角色是否已完成（metadata.finished 解析）。前端据 finished===true 重建子 pet 为 ghost（灵魂态）。
      * 主 chat 恒 undefined。无论 includePreview 与否都返（initFromChats 重建 pet 树需）。
      */
     finished?: boolean;
+    /**
+     * 子 chat 是否被主 wait（metadata.wait=true，T9.10）。前端重连识别 wait-子：续跑 interrupted 子 +
+     * 后端 rebuildWaitedChildren 已重建唤醒链。主 chat 恒 undefined。
+     */
+    wait?: boolean;
+    /**
+     * 主 chat 有已持久化、尚未由 chat.resume 消费的角色回复。前端重连后据此恢复主循环。
+     */
+    resumePending?: boolean;
   }>;
 }
 
@@ -321,7 +384,7 @@ export interface ChatSendResponseData {
 export interface RuntimeSetResponseData {
   chatId: string;
   brain: string;
-  senseGroups: string[];
+  senseGroup: string;
   mcpServers: string[];
 }
 
@@ -392,15 +455,6 @@ export interface McpReloadResponseData {
 }
 
 /**
- * subagent.result 响应（spawn wait=true 回传）。
- * matched=false 表示 chatId 无挂起的 spawn（误调或 wait=false 场景）。
- */
-export interface SubagentResultResponseData {
-  chatId: string;
-  matched: boolean;
-}
-
-/**
  * config.get 响应：.chery/config.yaml 原文（除 server 段）。
  * supervision 为字符串、key 仍为 $ENV 占位符、无路径补全（供设置面板编辑）。
  */
@@ -412,6 +466,23 @@ export type ConfigGetResponseData = ConfigRaw;
  */
 export interface ConfigSaveResponseData {
   needRestart: true;
+}
+
+/**
+ * utils.models 响应：归一化模型列表。
+ * 请求失败时 models 为空数组，error 携带错误信息（非 RpcError，前端可展示）。
+ */
+export interface UtilsModelsResponseData {
+  models: Array<{
+    /** 模型 ID（API 原始值） */
+    id: string;
+    /** 显示名（缺省取 id） */
+    name?: string;
+    /** 所有者/组织（部分 API 提供） */
+    ownedBy?: string;
+  }>;
+  /** 非空时表示请求失败，前端据此展示错误提示 */
+  error?: string;
 }
 
 // ========== Chunk Data ==========
@@ -434,13 +505,15 @@ export interface SenseCallDelta {
 export interface StagedChunkData {
   type: "thinking_end" | "content_end" | "sense_end" | "reverse";
   /** 消息角色，用于区分消息来源（chat.get历史返回时使用） */
-  role?: "user" | "assistant" | "system" | "sense";
+  role?: "user" | "assistant" | "system" | "sense" | "role" | "subagent"; // role=新（子 pet 回复）；subagent 仅旧历史消息兼容
   thinking?: string;
   content?: string;
   senseName?: string;
   arguments?: string;
   /** sense 调用 id（= trigger.id = sense message.id），用于前端关联 sense_end 与 role:sense 的 result content_end */
   id?: string;
+  /** 消息主键 msgId（= messages.id）。thinking_end / content_end 携带；sense_end / reverse 不携带。前端合流去重用。 */
+  msgId?: string;
   /** reverse 类型：被撤回的消息 id 列表（chat.send 恢复撤回整个当前周期时携带） */
   messageIds?: string[];
   /** 感官去重：该消息已被后续相同 hash 调用替换（chat.get 历史返回时携带，content 仍为原内容） */
@@ -457,13 +530,15 @@ export interface StagedChunkData {
 
 export type NotificationData =
   | InterruptNotificationData
+  | SenseStartedNotificationData
   | AcceptNotificationData
   | RejectedNotificationData
   | ConsumedNotificationData
   | ErrorNotificationData
   | ReplacedNotificationData
-  | SubagentCreatedNotificationData
-  | SubagentDestroyedNotificationData
+  | RoleCreatedNotificationData
+  | RoleDestroyedNotificationData
+  | RoleReplyNotificationData
   | DoneNotificationData
   | null;
 
@@ -477,6 +552,17 @@ export interface InterruptNotificationData {
   waitTime: number;
   /** 审批发起时间戳（ms，Date.now()）。前端倒计时 = waitTime - (now - createdAt)。 */
   createdAt: number;
+}
+
+/**
+ * 感官开始执行（sense_end，仅 auto 工具推送；confirm/manual 走 interrupt）。
+ * 前端据 id 维护「运行中工具」列表（pet bar 右侧显 icon）；accept（approvalId=id）到达时移除。
+ * id = SenseTriggerChunk.id（= sense 调用 id，与 accept.approvalId 同源）。
+ */
+export interface SenseStartedNotificationData {
+  id: string;
+  senseName: string;
+  arguments: string;
 }
 
 export interface AcceptNotificationData {
@@ -528,33 +614,57 @@ export interface ReplacedNotificationData {
 }
 
 /**
- * 子 agent 派发（spawn_subagent sense 执行时推送）。
+ * 角色派发（spawn_role sense 执行时推送）。
  * 前端据 type+prompt 创建子 pet 并驱动子 chat（前端驱动架构，见 docs/agent-pet.md §2/§5.1）。
- * requestId 为主 chat id（spawn_subagent sense 无法取主 agent 当前 WS requestId，前端按 chatId 路由）。
+ * requestId 为主 chat id（spawn_role sense 无法取主 agent 当前 WS requestId，前端按 chatId 路由）。
  */
-export interface SubagentCreatedNotificationData {
+export interface RoleCreatedNotificationData {
   /** 子 chat id（前端据此驱动子 chat.send） */
   chatId: string;
   /** 主 chat id（前端溯源 pet 树） */
   parentChatId: string;
-  /** 子 agent 类型（config.subagents 键名） */
+  /** 角色类型（config.roles 键名） */
   type: string;
-  /** 交付子 agent 的任务 prompt */
+  /** 交付角色的任务 prompt */
   prompt: string;
-  /** 子 agent 用的 brain 名 */
+  /** 角色用的 brain 名 */
   brain: string;
-  /** 子 agent 启用的感官组 */
-  senseGroups: string[];
-  /** 是否等待结果（true: 前端跑完须调 subagent.result 回传；false: 立即派发不等待） */
+  /** 角色启用的感官组（单组） */
+  senseGroup: string;
+  /** 是否等待结果（2026-07-09 后信息性：wait=true 子完成由 role_reply 唤主，前端两态均跑子） */
   wait: boolean;
 }
 
 /**
- * 子 agent 销毁（destroy_subagent sense 执行时推送，CP6）。
- * 前端据 chatId 移除对应子 pet 并关闭子 chat UI。
- * requestId 为主 chat id（与 subagent_created 同路由规则）。
+ * wait=true 子完成唤主（T9 B1 架构，见 docs/agent-pet.md §5.4）。
+ * 子 loop 结束 + waitedChildren 命中时后端推：已把子结果以 role:role 注入主 chat DB，
+ * 前端收此 notification → 自动 chat.resume(parentChatId) 跑唤醒轮。requestId = parentChatId。
  */
-export interface SubagentDestroyedNotificationData {
+export interface RoleReplyNotificationData {
+  /** 主 chat id（前端据此 resume 主） */
+  parentChatId: string;
+  /** 子 chat id */
+  childChatId: string;
+  /** 角色类型（前端展示用） */
+  type: string;
+  /** 角色结果（即时展示；权威内容已注入主 chat DB，role:role） */
+  content: string;
+  /**
+   * 触发本次 spawn 的 sense call id（= 主 chat sense message.id）。
+   * 前端 F 改动：点击 role 子头像 smooth scroll 回主 chat 的 sense 调用框。
+   * 旧 chat 无此字段（写入早于 E 改动）时为 undefined。
+   */
+  spawnSenseCallId?: string;
+  /** 注入主 chat 的 role:role 行 msgId（= addMessage 第一参）。前端合流主+子历史时按 msgId 去重。 */
+  msgId: string;
+}
+
+/**
+ * 角色销毁（destroy_role sense 执行时推送，CP6）。
+ * 前端据 chatId 移除对应子 pet 并关闭子 chat UI。
+ * requestId 为主 chat id（与 role_created 同路由规则）。
+ */
+export interface RoleDestroyedNotificationData {
   /** 被销毁的子 chat id */
   chatId: string;
 }
@@ -574,9 +684,13 @@ export const Method = {
   SENSE_LIST: "sense.list",
   // 列出代码维护的全部内置工具（name/label/description），供设置面板感官分组下拉
   SENSE_TOOLS: "sense.tools",
+  // 递归列出 .chery/prompts/ 下全部 .md（含子文件夹），供设置面板 systemPrompt 级联选择器
+  PROMPTS_LIST: "prompts.list",
 
   // Runtime 设置（每轮可换，必须原子携带 brain + senseGroups）
   RUNTIME_SET: "runtime.set",
+  // 当前会话临时角色编制（不持久化）
+  SESSION_RUNTIME_SET: "session.runtime.set",
 
   // Chat 管理
   CHAT_CREATE: "chat.create",
@@ -602,12 +716,12 @@ export const Method = {
   MCP_DISCONNECT: "mcp.disconnect",
   MCP_RELOAD: "mcp.reload",
 
-  // 子 agent 结果回传（spawn wait=true 时前端跑完子 agent → 调本方法唤醒主 agent）
-  SUBAGENT_RESULT: "subagent.result",
-
   // Config 设置（读写 .chery/config.yaml，除 server 段，重启生效）
   CONFIG_GET: "config.get",
   CONFIG_SAVE: "config.save",
+
+  // Utils 工具（独立信息查询，不依赖 chat/brain 运行时）
+  UTILS_MODELS: "utils.models",
 } as const;
 
 /**
@@ -649,13 +763,11 @@ export function createChunk(
   type: "stream" | "staged",
   requestId: string,
   data: ChunkData,
-  seq?: number,
 ): Chunk {
   return {
     kind: "chunk",
     type,
     requestId,
-    seq,
     data,
   };
 }

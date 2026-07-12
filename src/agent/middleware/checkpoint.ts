@@ -199,6 +199,17 @@ export async function* checkpointMiddleware(
         } as MiddlewareChunk;
       }
     }
+
+    // 流式多 sense_call reconcile：首个 sense_end 时 senseDeltas 未累积完整，流结束后补充 last assistant 的 senseCalls
+    // （见 CheckpointState.reconcileAssistantSenseCalls）。无补充则返回 null。
+    const reconcile = state.reconcileAssistantSenseCalls();
+    if (reconcile && reconcile.type === "updated") {
+      yield {
+        type: "message_updated",
+        id: reconcile.id,
+        patch: reconcile.patch,
+      } as MiddlewareChunk;
+    }
   }
 
   // 不再 yield done（由 loop.ts 负责）

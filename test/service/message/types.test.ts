@@ -39,14 +39,16 @@ describe("service/message/types", () => {
       expect(res.error).toEqual({ code: "INTERNAL", message: "boom" });
     });
 
-    it("createChunk builds stream/staged chunk with optional seq", () => {
-      const c1 = createChunk("stream", "req-1", { content: "a" }, 5);
+    it("createChunk builds stream/staged chunk without seq", () => {
+      const c1 = createChunk("stream", "req-1", { content: "a" });
       expect(c1.kind).toBe("chunk");
       expect(c1.type).toBe("stream");
-      expect(c1.seq).toBe(5);
+      expect(c1.requestId).toBe("req-1");
+      expect((c1 as { seq?: number }).seq).toBeUndefined();
 
       const c2 = createChunk("staged", "req-1", { type: "content_end" });
-      expect(c2.seq).toBeUndefined();
+      expect(c2.requestId).toBe("req-1");
+      expect((c2 as { seq?: number }).seq).toBeUndefined();
     });
 
     it("createNotification builds a notification", () => {

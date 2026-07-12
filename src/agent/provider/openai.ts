@@ -1,9 +1,10 @@
 import OpenAI from "openai";
 import type {
   ChatCompletionMessageParam,
+  ChatCompletionContentPart,
   ChatCompletion,
 } from "openai/resources/chat/completions";
-import { registerMessageAdapter, type LLMResponse } from "@/core/message/adapter";
+import { registerMessageAdapter, type LLMResponse, type LLMAttachment } from "@/core/message/adapter";
 import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
 import type { ZodType } from "zod";
 import type {
@@ -47,7 +48,7 @@ const openaiMessageAdapterConfig = {
     }
     return undefined;
   },
-  buildMessages: (history: LLMResponse[]) =>
+  buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) =>
     history.filter((m) => !m.revoked).map((m) => {
       if (m.role === "sense") {
         // 如果被替换，使用 replace.content
@@ -72,8 +73,24 @@ const openaiMessageAdapterConfig = {
           })),
         } as ChatCompletionMessageParam;
       }
+      // role（wait=true 子完成注入的角色回复，见 agent-pet.md §5.4）映射为 user：OpenAI 拒未知 role
+      // 兼容旧历史消息 role:subagent（与 role 等价）
+      const role = m.role === "subagent" || m.role === "role" ? "user" : m.role;
+      // P5b：user 消息携带 attachments → 构造 OpenAI vision content array（多模态）
+      if (role === "user" && attachments && attachments.length > 0) {
+        const parts: ChatCompletionContentPart[] = [{ type: "text", text: m.content }];
+        for (const att of attachments) {
+          // 仅 image/* 走 image_url；其他 mimeType 跳过（enrichMediaInputs 仅透传 image）
+          if (!att.mimeType.startsWith("image/")) continue;
+          parts.push({
+            type: "image_url",
+            image_url: { url: `data:${att.mimeType};base64,${att.data.toString("base64")}` },
+          });
+        }
+        return { role: "user", content: parts } as ChatCompletionMessageParam;
+      }
       return {
-        role: m.role,
+        role,
         content: m.content,
       } as ChatCompletionMessageParam;
     }),

@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { app, BrowserWindow, ipcMain } from "electron";
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8182);
@@ -33,17 +33,34 @@ function getNodeExecutable(): string {
 }
 
 /**
+ * Application resources are read-only in a packaged app.  Seed the editable
+ * .chery tree once into Electron userData, then keep all config/database
+ * writes there.  Later app upgrades intentionally preserve user config;
+ * schema migrations belong to the backend config loader.
+ */
+function getWritableCheryRoot(): string {
+  if (!app.isPackaged) return process.env.CHERY_DIR ?? join(app.getAppPath(), "..");
+  const runtimeRoot = join(app.getPath("userData"), "runtime");
+  const target = join(runtimeRoot, ".chery");
+  if (!existsSync(target)) {
+    mkdirSync(runtimeRoot, { recursive: true });
+    cpSync(join(app.getAppPath(), "..", ".chery"), target, { recursive: true });
+  }
+  return runtimeRoot;
+}
+
+/**
  * 启动后端子进程：系统 node + 后端 SSR bundle（node + index.js）。
  * - CHERY_DIR：开发期默认 <root>（项目 .chery）；打包后默认 resources/（extraResources 的 .chery）
  * - DB_DIR：打包后落 app.getPath('userData')（可写）；开发期沿用 CHERY_DIR/.chery/db
  */
 function startBackend(): ChildProcess {
-  const cheryDir = process.env.CHERY_DIR ?? join(app.getAppPath(), "..");
+  const cheryDir = getWritableCheryRoot();
   const env: NodeJS.ProcessEnv = { ...process.env, CHERY_DIR: cheryDir };
   // 清理 shell 可能注入的 ELECTRON_RUN_AS_NODE（系统 node 不认，但避免污染）
   delete env.ELECTRON_RUN_AS_NODE;
   if (app.isPackaged) {
-    env.DB_DIR = join(app.getPath("userData"), ".chery", "db");
+    env.DB_DIR = join(cheryDir, ".chery", "db");
   }
 
   const child = spawn(getNodeExecutable(), [getBackendBundle()], {

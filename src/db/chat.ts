@@ -9,7 +9,7 @@ export interface ChatRow {
   metadata: string | null;
   message_count: number;
   /**
-   * 子 agent 关联主 chat 的 chatId；主 chat 为 NULL。
+   * 角色（子 pet）关联主 chat 的 chatId；主 chat 为 NULL。
    * 可选：旧库未补列前查询结果可能缺该字段（CREATE 后 ensureChatColumn 已统一补，运行时恒存在）。
    */
   parent_chat_id?: string | null;
@@ -29,12 +29,12 @@ export interface MessageRow {
   original_content: string | null;
   revoked: number;
   created_at: number;
-  /** JSON {brain,senseGroups,mcpServers}，仅 user 消息记（发送时配置）；assistant/sense 为 null */
+  /** JSON {brain,senseGroup,mcpServers}，仅 user 消息记（发送时配置）；assistant/sense 为 null */
   runtime: string | null;
 }
 
 export interface MessageData {
-  role: "user" | "assistant" | "system" | "sense";
+  role: "user" | "assistant" | "system" | "sense" | "role" | "subagent"; // role=新（子 pet 回复）；subagent 仅旧历史消息兼容读
   content?: string;
   thinking?: string;
   senseCall?: Array<{
@@ -51,7 +51,7 @@ export interface MessageData {
   originalContent?: string;
   revoked?: boolean;
   /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传 */
-  runtime?: { brain: string; senseGroups: string[]; mcpServers: string[] };
+  runtime?: { brain: string; senseGroup: string; mcpServers: string[] };
 }
 
 /**
@@ -78,7 +78,7 @@ function assertChanged(result: { changes: number }, context: string): void {
 /**
  * 创建聊天（无需 soulId）
  * messages_month 按创建时间固定，之后该 chat 所有消息都写入此月份分片（跨月不迁移）
- * parentChatId 可选：子 agent 写主 chat 的 chatId，主 chat 留空（NULL）。
+ * parentChatId 可选：角色（子 pet）写主 chat 的 chatId，主 chat 留空（NULL）。
  */
 export function createChat(
   chatId: string,
@@ -169,7 +169,7 @@ export function updateChatMetadata(
  */
 export function getChatRuntimeSelection(
   chatId: string,
-): { brain: string; senseGroups: string[]; mcpServers: string[] } | undefined {
+): { brain: string; senseGroup: string; mcpServers: string[] } | undefined {
   const db = getSoulDb();
   const row = db
     .prepare("SELECT metadata FROM chats WHERE id = ?")
@@ -177,18 +177,65 @@ export function getChatRuntimeSelection(
   if (!row?.metadata) return undefined;
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
   const rt = parsed.runtime as
-    | { brain?: string; senseGroups?: string[]; mcpServers?: string[] }
+    | { brain?: string; senseGroup?: string; senseGroups?: string[]; mcpServers?: string[] }
     | undefined;
-  if (
-    !rt?.brain ||
-    !Array.isArray(rt.senseGroups) ||
-    rt.senseGroups.length === 0
-  ) {
-    return undefined;
-  }
+  if (!rt?.brain) return undefined;
+  // 单组化：读 senseGroup（新）；兼容旧行 senseGroups[]（取首项）。无迁移脚本，旧 chat 继续可用。
+  const senseGroup = rt.senseGroup ?? (Array.isArray(rt.senseGroups) ? rt.senseGroups[0] : undefined);
+  if (!senseGroup) return undefined;
   // mcpServers 缺省 []：旧 chat metadata 无此字段，视为未启用任何 MCP server（向后兼容）
   const mcpServers = Array.isArray(rt.mcpServers) ? rt.mcpServers : [];
-  return { brain: rt.brain, senseGroups: rt.senseGroups, mcpServers };
+  return { brain: rt.brain, senseGroup, mcpServers };
+}
+
+/**
+ * 读取持久化的 per-agent system prompt 路径（metadata.promptPathOverride）。
+ * 来源：spawn_role sense createChat（角色，来自 config.roles[type].systemPrompt）
+ *   或 chat.create 预设主 agent（取 leader 角色 systemPrompt，来自 config.roles[leader].systemPrompt）。
+ * ensureChat 据此传 builder.init 的 promptPathOverride；缺省（非预设主 agent / 旧 chat）→ undefined → 全局 prompt。
+ * 字段名通用化（T6）：原 subagentPromptPath 仅子 agent 用，预设主 agent 亦需此机制，统一为 promptPathOverride。
+ */
+export function getChatPromptOverride(chatId: string): string | undefined {
+  const db = getSoulDb();
+  const row = db
+    .prepare("SELECT metadata FROM chats WHERE id = ?")
+    .get(chatId) as { metadata: string | null } | undefined;
+  if (!row?.metadata) return undefined;
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
+  const p = parsed.promptPathOverride;
+  return typeof p === "string" && p.length > 0 ? p : undefined;
+}
+
+/**
+ * 读取 chat 关联的预设名（metadata.preset）。chat.create 选预设时写入。
+ * 仅溯源展示 + spawn 解析角色 roster 用；主 agent 运行编制靠 metadata.runtime 快照（不回读预设）。
+ * 缺省（非预设主 agent / 子 agent / 旧 chat）→ undefined。
+ */
+export function getChatPreset(chatId: string): string | undefined {
+  const db = getSoulDb();
+  const row = db
+    .prepare("SELECT metadata FROM chats WHERE id = ?")
+    .get(chatId) as { metadata: string | null } | undefined;
+  if (!row?.metadata) return undefined;
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
+  const p = parsed.preset;
+  return typeof p === "string" && p.length > 0 ? p : undefined;
+}
+
+/**
+ * 读取 chat 选中的角色 type 列表（metadata.spawnTypes，string[]）。
+ * chat.create 选预设时快照写入（编制锁定一致）；spawn_role roster gate 用（preset chat 限制可 spawn 类型）。
+ * 缺省（子 chat 无 preset / 旧主 chat 无此字段）→ undefined → spawn gate 走全集（child）或 live preset 回退（旧主 chat）。
+ */
+export function getChatSpawnTypes(chatId: string): string[] | undefined {
+  const db = getSoulDb();
+  const row = db
+    .prepare("SELECT metadata FROM chats WHERE id = ?")
+    .get(chatId) as { metadata: string | null } | undefined;
+  if (!row?.metadata) return undefined;
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
+  const arr = parsed.spawnTypes;
+  return Array.isArray(arr) ? (arr as string[]) : undefined;
 }
 
 /**
@@ -383,6 +430,24 @@ export function getMessages(chatId: string): MessageRow[] {
 }
 
 /**
+ * 获取 chat 末条非 revoked 消息（用于 canResume 判定，避免全量加载）
+ * 返回 null 表示 chat 不存在或无可见消息
+ */
+export function getLastMessage(chatId: string): MessageRow | null {
+  const soulDb = getSoulDb();
+  const chat = soulDb
+    .prepare("SELECT messages_month FROM chats WHERE id = ?")
+    .get(chatId) as { messages_month: string } | undefined;
+  if (!chat) return null;
+
+  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const stmt = monthlyDb.prepare(
+    "SELECT * FROM messages WHERE chat_id = ? AND revoked = 0 ORDER BY created_at DESC LIMIT 1",
+  );
+  return (stmt.get(chatId) as MessageRow) ?? null;
+}
+
+/**
  * 填充审批结果（更新 content / hash 字段）
  * 按 chatId 路由月份库（与 addMessage/getMessages 同源），消除对 messageId 月份前缀的依赖：
  * confirm pending sense 的 messageId = trigger.id（LLM tool_call.id 或 sense-${index}），无月份前缀，
@@ -417,6 +482,33 @@ export function fillApprovalResult(
     .prepare(`UPDATE messages SET ${sets.join(", ")} WHERE id = ?`)
     .run(...vals, messageId);
   assertChanged(result, `fillApprovalResult(${chatId}/${messageId})`);
+}
+
+/**
+ * 补充 assistant 消息的 sense_calls 字段（流式多 sense_call reconcile）。
+ *
+ * 流式场景首个 sense_end 时 checkpointState.flushAssistant 写入的 senseCalls 可能不全
+ * （OpenAI 流式 delta 分散到达），流结束后由 CheckpointState.reconcileAssistantSenseCalls
+ * 比对补充。observer 收到 patch.kind="content" + senseCalls 时调此函数持久化。
+ *
+ * 按 chatId 路由月份库（与 fillApprovalResult 同源），assembleContent 仅做 JSON.stringify 序列化。
+ */
+export function updateAssistantSenseCalls(
+  chatId: string,
+  messageId: string,
+  senseCalls: Array<{ id: string; name: string; arguments: string }>,
+): void {
+  const soulDb = getSoulDb();
+  const chat = soulDb
+    .prepare("SELECT messages_month FROM chats WHERE id = ?")
+    .get(chatId) as { messages_month: string } | undefined;
+  if (!chat) return;
+
+  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const result = monthlyDb
+    .prepare("UPDATE messages SET sense_calls = ? WHERE id = ?")
+    .run(JSON.stringify(senseCalls), messageId);
+  assertChanged(result, `updateAssistantSenseCalls(${chatId}/${messageId})`);
 }
 
 /**
@@ -501,11 +593,11 @@ export function parseMessageRow(row: MessageRow): MessageData {
     originalContent: row.original_content ?? undefined,
     revoked: row.revoked === 1,
     runtime: row.runtime
-      ? (safeJsonParse(row.runtime, undefined) as {
+      ? safeJsonParse<{
           brain: string;
-          senseGroups: string[];
+          senseGroup: string;
           mcpServers: string[];
-        })
+        } | undefined>(row.runtime, undefined)
       : undefined,
   };
 }

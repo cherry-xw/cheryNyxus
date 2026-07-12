@@ -14,6 +14,11 @@ const emptySchema = z.object({}).strict();
 
 /** mcpServers 缺省 []：旧 client 不携带视为关闭所有 MCP（向后兼容） */
 const mcpServersSchema = z.array(z.string()).optional();
+const runtimeSelectionSchema = z.object({
+  brain: z.string(),
+  senseGroup: z.string().optional(),
+  mcpServers: mcpServersSchema,
+});
 
 // ---------- config.save schema（结构与 ConfigRaw 一一对应，除 server 段）----------
 
@@ -28,7 +33,26 @@ const brainSchema = z.object({
   rpm: z.number().optional(),
   mock: z.object({ enabled: z.boolean().optional(), file: z.string() }).optional(),
   contextLimit: z.number().optional(),
+  capabilities: z.object({
+    toolCall: z.boolean().optional(),
+    input: z.object({ image: z.boolean().optional(), video: z.boolean().optional(), audio: z.boolean().optional() }).optional(),
+    generate: z.object({ image: z.boolean().optional(), video: z.boolean().optional(), audio: z.boolean().optional() }).optional(),
+  }).optional(),
 });
+
+const mediaServiceSchema = z.object({
+  url: z.string(),
+  model: z.string().optional(),
+  key: z.string().optional(),
+  enabled: z.boolean().optional(),
+});
+
+const mediaSchema = z.object({
+  image: mediaServiceSchema.optional(),
+  video: mediaServiceSchema.optional(),
+  audio: mediaServiceSchema.optional(),
+  maxUploadMb: z.number().positive().optional(),
+}).optional();
 
 const loggerSchema = z.object({
   level: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
@@ -71,19 +95,27 @@ const configSaveSchema = z
   .object({
     global: globalSchema,
     llm: z.object({ brain: z.record(z.string(), brainSchema) }),
+    media: mediaSchema,
     sense_groups: z.record(z.string(), z.array(z.string())).optional(),
     mcp_servers: z.record(z.string(), mcpServerConfigSchema).optional(),
-    default: z
-      .object({
-        brain: z.string(),
-        senseGroups: z.array(z.string()),
-        mcpServers: z.array(z.string()).optional(),
-      })
-      .optional(),
-    subagents: z
+    roles: z
       .record(
         z.string(),
-        z.object({ brain: z.string(), senseGroups: z.array(z.string()) }),
+        z.object({
+          brain: z.string(),
+          senseGroup: z.string(),
+          mcpServers: z.array(z.string()).optional(),
+          systemPrompt: z.string().optional(),
+        }),
+      )
+      .optional(),
+    presets: z
+      .record(
+        z.string(),
+        z.object({
+          leader: z.string(),
+          roles: z.array(z.string()).optional(),
+        }),
       )
       .optional(),
   })
@@ -93,16 +125,24 @@ export const requestSchemas = {
   [Method.BRAIN_LIST]: emptySchema,
   [Method.SENSE_LIST]: emptySchema,
   [Method.SENSE_TOOLS]: emptySchema,
+  [Method.PROMPTS_LIST]: emptySchema,
   [Method.RUNTIME_SET]: z.object({
     chatId: z.string(),
     brain: z.string(),
-    senseGroups: z.array(z.string()),
+    senseGroup: z.string().optional(),
     mcpServers: mcpServersSchema,
+  }),
+  [Method.SESSION_RUNTIME_SET]: z.object({
+    chatId: z.string(),
+    primary: runtimeSelectionSchema,
+    roles: z.record(z.string(), runtimeSelectionSchema),
   }),
   [Method.CHAT_CREATE]: z.object({
     chatId: z.string().optional(),
-    brain: z.string(),
-    senseGroups: z.array(z.string()),
+    /** T6 预设：给出则从 config.presets 解析编制，忽略 brain/senseGroup */
+    preset: z.string().optional(),
+    brain: z.string().optional(),
+    senseGroup: z.string().optional(),
     mcpServers: mcpServersSchema,
     parentChatId: z.string().optional(),
   }),
@@ -115,6 +155,16 @@ export const requestSchemas = {
   [Method.CHAT_SEND]: z.object({
     chatId: z.string(),
     prompt: z.string(),
+    /** P4：结构化附件（替代 [[media:filename]] 文本标记）。旧客户端不发该字段 → 走 marker 兼容路径。 */
+    attachments: z
+      .array(
+        z.object({
+          assetId: z.string(),
+          kind: z.enum(["image", "video", "audio"]),
+          mimeType: z.string(),
+        }),
+      )
+      .optional(),
   }),
   [Method.CHAT_RESUME]: chatIdSchema,
   [Method.SENSE_APPROVAL]: z.object({
@@ -133,12 +183,14 @@ export const requestSchemas = {
   [Method.MCP_CONNECT]: z.object({ name: z.string() }),
   [Method.MCP_DISCONNECT]: z.object({ name: z.string() }),
   [Method.MCP_RELOAD]: z.object({ name: z.string().optional() }),
-  [Method.SUBAGENT_RESULT]: z.object({
-    chatId: z.string(),
-    content: z.string(),
-  }),
   [Method.CONFIG_GET]: emptySchema,
   [Method.CONFIG_SAVE]: configSaveSchema,
+  // Utils 工具：provider/url 必填，key 可选（ollama 通常无需）
+  [Method.UTILS_MODELS]: z.object({
+    provider: z.string(),
+    url: z.string(),
+    key: z.string().optional(),
+  }),
 } as const satisfies Record<Method, z.ZodTypeAny>;
 
 /**

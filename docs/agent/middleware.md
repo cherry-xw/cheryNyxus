@@ -319,6 +319,12 @@ if (needsApproval.length > 0) {
 
 **doExecuteSense 的历史替换（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts)）：** 若 `result.hash` 命中历史某条 sense 消息的 hash（read_file hash 含 mtime，命中 = 文件未变动），把旧消息 content 替换为短说明「已被新读取取代」，长内容移至 `originalContent` 折叠——剔除冗长重复上下文。文件若被改动 → mtime 变 → hash 不同 → 各自独立留存。
 
+**hash 黑名单（90ecacf2 案例）：** `tool.ts` 维护 `NON_DEDUPABLE_SENSES` 黑名单（当前含 `spawn_role`），这些 sense 即使返回 hash 也不触发 `replaceSense` 折叠。spawn_role 的 hash 是"派发标识"（`hashGenerator("spawn_role", childChatId, type, mode)`），命中 ≠ 重复派发任务（实际可能是"不同任务复用未完成子 chat"），折叠会破坏原始 prompt 参数 + 链式替换。**双保险**：`spawn_role` 自身不返回 hash + 黑名单兜底。
+
+**流式多 sense_call reconcile（90ecacf2 案例）：** OpenAI 流式 tool_calls delta 分散到达——首个 sense_end 触发 `flushAssistant` 时 `state.senseDeltas` 未累积完整（yield trigger 早于 ingest chunk），assistant 的 `senseCalls` 字段可能只记部分 trigger。LLM 下一轮 buildMessages 重建 OpenAI `tool_calls` 字段会丢失 trigger，对应 tool result 成"孤儿"，上下文错乱。
+
+修复：CheckpointState 暴露 `flushedAssistantId` + `flushedAssistantSenseCalls`；流结束后（[checkpoint.ts finally](../../src/agent/middleware/checkpoint.ts)）调 `state.reconcileAssistantSenseCalls()` 比对「flush 时」与「最终 `mergeSenseDeltas`」，有新增则 yield `message_updated` patch（`kind:"content"` + `senseCalls`），由 [observer.ts](../../src/service/chat/observer.ts) 调 `updateAssistantSenseCalls` 持久化到 DB（独立 UPDATE `sense_calls` 列）。保留"assistant 在 sense 之前入库"语义（[checkpoint.ts:122-124](../../src/agent/middleware/checkpoint.ts#L122-L124)），仅 in-place 补充 senseCalls 字段。
+
 **chatId 注入（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) + processRegistry）：** executor 支持可选第 3 参 `SenseRuntimeContext`。`doExecuteSense` 调 `senseEntry.execute(args, ctx.soul.senseSharedData, { chatId: ctx.soul.chatId })`，bash executor 读取 `senseCtx?.chatId` 后注册子进程；不再占用 sharedData 的保留 namespace。
 
 ### 3. retryMiddleware（[retry.ts](../../src/agent/middleware/retry.ts)）
@@ -330,6 +336,8 @@ if (needsApproval.length > 0) {
 ### 4. chatMiddleware（[chat.ts](../../src/agent/middleware/chat.ts)）
 
 **职责：** 调用 LLM，yield StreamChunk（含 senseDelta）。
+
+**媒体输入预处理：** 用户消息中的 `[[media:<filename>]]` 受控资产引用会在构造 provider 消息前解析。中间件按当前 brain 的 `capabilities.input.image/video/audio` 许可调用媒体网关 `understand`，仅把理解文本注入本轮内存请求；持久化原消息不改写。处理失败或能力未声明时同样注入显式说明，避免静默丢弃附件。见 [../model-capabilities.md](../model-capabilities.md)。
 
 **关键：** `if (!ctx.runtime) throw`——P2-4 重构后 runtime 在 `send` 前由 `configureRuntime` 注入，运行时守卫窄化消除了构造期 `{} as RuntimeConfig` 的类型谎言。
 

@@ -26,16 +26,23 @@ llm:
     zai-glm-5.2:
       url: https://yz.xcherry.top:11411/v1
       model: glm-5.2
-      key: $SHANG_TANG_API_KE
+      key: $SHANG_TANG_API_KEY
       thinking: true
       provider: openai
       contextLimit: 1024000
+      capabilities:
+        input:
+          image: true
+        generate: {}
     openai:
       url: https://api.openai.com/v1
       model: gpt-3.5-turbo
       key: $OPENAI_API_KEY
       provider: openai
       contextLimit: 16385
+      capabilities:
+        input: {}
+        generate: {}
     longcat:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
@@ -43,6 +50,9 @@ llm:
       thinking: true
       provider: openai
       contextLimit: 32768
+      capabilities:
+        input: {}
+        generate: {}
     deepseek:
       url: https://api.deepseek.com
       model: deepseek-v4-flash
@@ -50,6 +60,9 @@ llm:
       thinking: true
       provider: openai
       contextLimit: 64000
+      capabilities:
+        input: {}
+        generate: {}
     doubao:
       url: http://yz.xcherry.top:11411/v1
       model: doubao2.0-pro
@@ -57,20 +70,30 @@ llm:
       thinking: true
       provider: openai
       contextLimit: 128000
+      capabilities:
+        input: {}
+        generate: {}
     ali_glm5:
-      url: https://coding.dashscope.aliyuncs.com/v1
+      url: https://yz.xcherry.top:11411/v1
       model: glm-5
-      key: $ALI_API_KEY
+      key: $SHANG_TANG_API_KEY
       thinking: true
       provider: openai
       contextLimit: 128000
+      capabilities:
+        input:
+          image: true
+        generate: {}
     shangtang:
       url: https://yz.xcherry.top:11411/v1
       model: cglm-5.2
-      key: $SHANG_TANG_API_KE
+      key: $SHANG_TANG_API_KEY
       provider: openai
       rpm: 2
       contextLimit: 32768
+      capabilities:
+        input: {}
+        generate: {}
     mock_test:
       model: mock_test
       provider: mock
@@ -78,42 +101,72 @@ llm:
         enabled: true
         file: mock/read_file.yaml
       contextLimit: 8192
+      capabilities:
+        input: {}
+        generate: {}
+media:
+  image:
+    url: ''
+    enabled: false
+  video:
+    url: ''
+    enabled: false
+  audio:
+    url: ''
+    enabled: false
 sense_groups:
-  all_senses:
+  leader:
     - read_file
     - skill
     - write_file
     - execute_command
     - search_codebase
-    - spawn_subagent
+    - spawn_role
+  plan:
+    - spawn_role
     - update_todo
-  safe_senses:
+    - skill
+    - read_file
+    - write_file
+  coder:
+    - execute_command
+    - write_file
     - read_file
     - skill
     - search_codebase
-  dangerous_senses:
-    - execute_command
-    - write_file
-  custom_senses:
-    - echo_text
-default:
-  brain: ali_glm5
-  senseGroups:
-    - all_senses
-  mcpServers: []
-subagents:
-  read_code:
+  reviewer:
+    - read_file
+    - search_codebase
+    - skill
+roles:
+  coordinator:
     brain: ali_glm5
-    senseGroups:
-      - safe_senses
-  read_image:
+    senseGroup: leader
+    mcpServers: []
+  plan:
     brain: ali_glm5
-    senseGroups:
-      - safe_senses
-  web_search:
+    senseGroup: plan
+    mcpServers: []
+    systemPrompt: prompts/prefebMain/planner.md
+  coder:
     brain: ali_glm5
-    senseGroups:
-      - safe_senses
+    senseGroup: coder
+    mcpServers: []
+    systemPrompt: prompts/prefebMain/coder.md
+  reviewer:
+    brain: ali_glm5
+    senseGroup: reviewer
+    mcpServers: []
+    systemPrompt: prompts/prefebMain/reviewer.md
+presets:
+  默认:
+    leader: coordinator
+    roles:
+      - plan
+      - coder
+      - coordinator
+      - reviewer
 server:
   port: 8182
   transport: binary
+  host: 127.0.0.1

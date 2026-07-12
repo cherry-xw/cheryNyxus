@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * SensesTab：感官分组（sense_groups）配置。
- * 组名可点击改名（迁移 default/subagents 引用）。
+ * 组名可点击改名（迁移 default/roles 引用）。
  * tag 化：每组已配工具显为可关闭 el-tag，监管等级挂 tag 内（点循环：继承→auto→confirm→manual）；
  * 一个 el-select（filterable + allow-create）作「加工具」入口，选项显中文名 + 说明。
  *   - 防重复：同组同名工具只一份；下拉剔除已选工具；allow-create 输入已选名也被拦。
@@ -9,19 +9,22 @@
  * 删组走 ConfirmPopover 二次确认；工具移除=tag 关闭（频繁操作，不二次确认）。
  */
 import { ref } from "vue";
-import { Check, Close, Delete } from "@element-plus/icons-vue";
+import { Delete } from "@element-plus/icons-vue";
 import type { ConfigDto, SenseToolInfo } from "@/services/agentApi";
 import { SUPERVISIONS } from "../constants";
 import { toolName, toolLevel, isDangerousSense, matchedTool } from "../shared";
 import ConfirmPopover from "../ConfirmPopover.vue";
+import EditableTitle from "../components/EditableTitle.vue";
+import SenseIcon from "../components/SenseIcon.vue";
 
 const props = defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[] }>();
 const emit = defineEmits<{ (e: "error", msg: string): void }>();
 
 const newGroupName = ref("");
-const editingGroupName = ref<string | null>(null);
-const editGroupValue = ref("");
-const vFocus = { mounted: (el: HTMLElement) => el.querySelector("input")?.focus() };
+
+function onError(msg: string): void {
+  emit("error", msg);
+}
 
 // 监管等级循环序：继承('') → auto → confirm → manual → 继承
 const LEVELS = ["", ...SUPERVISIONS] as const;
@@ -41,26 +44,9 @@ function removeGroup(name: string): void {
   if (!props.draft.sense_groups) return;
   delete props.draft.sense_groups[name];
 }
-function startRenameGroup(name: string): void {
-  editingGroupName.value = name;
-  editGroupValue.value = name;
-  emit("error", "");
-}
-function cancelRenameGroup(): void {
-  editingGroupName.value = null;
-  editGroupValue.value = "";
-}
-function commitGroupName(oldName: string): void {
+/** 改名：保序重建 sense_groups + 迁移角色引用。 */
+function renameGroup(oldName: string, newName: string): void {
   if (!props.draft.sense_groups) return;
-  const newName = editGroupValue.value.trim();
-  if (!newName || newName === oldName) {
-    editingGroupName.value = null;
-    return;
-  }
-  if (props.draft.sense_groups[newName]) {
-    emit("error", `感官组 "${newName}" 已存在`);
-    return;
-  }
   // 重建对象保持原顺序（不能 delete+add，否则 key 跳到末尾）
   const rebuilt = {} as typeof props.draft.sense_groups;
   for (const [k, v] of Object.entries(props.draft.sense_groups)) {
@@ -68,21 +54,18 @@ function commitGroupName(oldName: string): void {
     else rebuilt[k] = v;
   }
   props.draft.sense_groups = rebuilt;
-  // 迁移引用，避免 default/subagents 指向已改名组
-  if (props.draft.default?.senseGroups) {
-    props.draft.default.senseGroups = props.draft.default.senseGroups.map((g) =>
-      g === oldName ? newName : g,
-    );
-  }
-  if (props.draft.subagents) {
-    for (const sa of Object.values(props.draft.subagents)) {
-      if (sa.senseGroups) {
-        sa.senseGroups = sa.senseGroups.map((g) => (g === oldName ? newName : g));
+  // 迁移角色引用，避免 roles 指向已改名组。
+  if (props.draft.roles) {
+    for (const sa of Object.values(props.draft.roles)) {
+      if (sa.senseGroup === oldName) {
+        sa.senseGroup = newName;
       }
     }
   }
-  editingGroupName.value = null;
   emit("error", "");
+}
+function validateRename(newName: string): string | null {
+  return props.draft.sense_groups?.[newName] ? `感官组 "${newName}" 已存在` : null;
 }
 
 // 工具行 entry 为 "name" 或 "name:level"，直接操作 string[]
@@ -114,7 +97,7 @@ function cycleLevel(group: string, idx: number): void {
   if (!arr) return;
   const cur = toolLevel(arr[idx] ?? "");
   const i = LEVELS.indexOf(cur as (typeof LEVELS)[number]);
-  const next = LEVELS[(i + 1) % LEVELS.length];
+  const next = LEVELS[(i + 1) % LEVELS.length] ?? "";
   setToolLevel(group, idx, next);
 }
 
@@ -153,30 +136,16 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
   <section class="sect">
     <p class="sect-hint">给宠物装配的感官套餐。组名可点击改名；每组工具显为 tag，点 tag 内等级标切换监管，✕ 移除，hover 看说明。</p>
     <p class="warn-hint">⚠️ execute_command / write_file 类感官危险（能跑命令/写文件）；配 :auto 等于放它自己执行不问你。</p>
-    <article v-for="(_, gname) in draft.sense_groups" :key="gname" class="card">
+    <article v-for="(_, gname, idx) in draft.sense_groups" :key="gname" class="card">
+      <span class="card-idx">{{ idx + 1 }}</span>
       <header class="card-head">
-        <span class="card-title">
-          <el-input
-            v-if="editingGroupName === gname"
-            v-focus
-            v-model="editGroupValue"
-            class="card-name-input"
-            size="small"
-            @keydown.enter="commitGroupName(gname as string)"
-            @keydown.esc="cancelRenameGroup()"
-          />
-          <span v-else class="card-name editable" title="点击改名" @click="startRenameGroup(gname as string)">{{ gname }}</span>
-        </span>
-        <span class="card-actions">
-          <template v-if="editingGroupName === gname">
-            <button type="button" class="icon-btn ok" aria-label="确认改名" @click="commitGroupName(gname as string)">
-              <Check class="ico" />
-            </button>
-            <button type="button" class="icon-btn" aria-label="取消" @click="cancelRenameGroup()">
-              <Close class="ico" />
-            </button>
-          </template>
-          <template v-else>
+        <EditableTitle
+          :model-value="gname as string"
+          :validate="validateRename"
+          @rename="(n: string) => renameGroup(gname as string, n)"
+          @error="onError"
+        >
+          <template #actions>
             <ConfirmPopover :title="`确认删除感官组「${gname}」？`" @confirm="removeGroup(gname as string)">
               <template #trigger>
                 <button type="button" class="icon-btn danger" aria-label="删除">
@@ -185,7 +154,7 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
               </template>
             </ConfirmPopover>
           </template>
-        </span>
+        </EditableTitle>
       </header>
       <div class="tags">
         <el-tag
@@ -200,6 +169,7 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
           @close="removeTool(gname as string, idx)"
         >
             <span class="tag-name">
+              <SenseIcon :name="entry" :tools="senseTools" />
               <span v-if="isDangerousSense(entry)" class="danger-mark" title="危险感官">⚠</span>{{ toolLabel(entry) }}
             </span>
             <span
@@ -222,6 +192,7 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
         >
           <el-option v-for="t in availableTools(gname as string)" :key="t.name" :value="t.name" :label="t.label">
             <div class="opt-item">
+              <SenseIcon :name="t.name" :tools="senseTools" />
               <span class="opt-label">{{ t.label }}</span>
               <span class="opt-desc" :title="t.description">{{ t.description }}</span>
             </div>
@@ -272,6 +243,9 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
   max-width: 100%;
 }
 .tag-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;

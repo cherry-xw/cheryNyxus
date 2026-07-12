@@ -131,6 +131,32 @@ export class MessageJournal {
   }
 
   /**
+   * 追加角色消息（wait=true 子完成注入的回复，见 docs/agent-pet.md §5.4）。
+   * 由 service wakeParent 调（守单一写者）：写 soul.messages（内存），DB 落库由 wakeParent 直接 addMessage
+   * （主 observer 未运行，不走 message_created effect 路径）。
+   * @param content 回复内容（caller 已格式化，如 `[角色 type] result`）
+   * @returns AgentMessage（供 wakeParent addMessage 落库用 id）
+   */
+  appendRoleReply(content: string): AgentMessage {
+    const messages = this.soul.messages ?? [];
+    const msg: LLMResponse = {
+      id: randomUUID(),
+      role: "role" as const,
+      content,
+      createdAt: Date.now(),
+      updateAt: Date.now(),
+    };
+    messages.push(msg);
+    this.soul.messages = messages;
+    this.soul.roleReplyPending = true;
+    return {
+      id: msg.id,
+      role: "role",
+      content: content || undefined,
+    };
+  }
+
+  /**
    * 完成 sense 消息（填 content/hash）。
    * - recovery（消息已存在，resume 续接）：原地更新 content/hash/updateAt，返回 updated mutation。
    * - normal（新 sense）：追加新消息，返回 created mutation。

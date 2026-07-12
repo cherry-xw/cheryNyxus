@@ -76,6 +76,15 @@ function handleHistory(pet: PetInstance): void {
 function handleCompact(_pet: PetInstance): void {
   // TODO(CP7): compact RPC（压缩上下文）
 }
+
+async function handleResume(pet: PetInstance): Promise<void> {
+  try {
+    pet.canResume = false; // 立即隐藏按钮（乐观 UI），失败时后端状态不变
+    await agents.resumeAgent(pet.chatId);
+  } catch (e) {
+    console.error("[PetStage] resume failed:", e);
+  }
+}
 </script>
 
 <template>
@@ -96,6 +105,7 @@ function handleCompact(_pet: PetInstance): void {
       @abort="handleAbort"
       @destroy="handleDestroy"
       @compact="handleCompact"
+      @resume="handleResume"
     />
   </main>
 </template>

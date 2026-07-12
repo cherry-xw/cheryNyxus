@@ -1,106 +1,66 @@
 /**
- * Spawn Broker（主从 Agent 桌宠系统 CP3 / CP6）
+ * Spawn Broker（主从 Agent 桌宠系统 CP3 / wait=true 唤醒链）
  *
- * 职责：
- * 1. 维护 wait=true 挂起的 spawn Promise（按 childChatId 索引），等前端 subagent.result 回传唤醒。
- * 2. 暴露 broadcaster 注入接口：service 层启动时注入 ws 推送实现，agent 层 sense handler
- *    通过 emitSubagentCreated / emitSubagentDestroyed 触发 notification 推送，不直接依赖 service/ws（保持分层）。
+ * 职责（2026-07-09 重构：废除阻塞心跳，改 yield turn + 子完成唤醒，见 docs/agent-pet.md §5.4）：
+ * 1. wait=true 唤醒链 `waitedChildren`（childChatId → {parentChatId, type}）：spawn 时注册，
+ *    子完成/出错/超时由 service 层 wakeParent 消费并 clearWaitedChild。递归天然支持（任何 agent 的 spawn 子都在此 Map）。
+ * 2. `asyncWatchdogs`：每 wait-子 5min 看门狗；超时触发 service 注入的 asyncWakeHandler（wakeParent 超时 content + abortChatRuntime）。
+ * 3. broadcaster：service 层注入 ws 推送实现，spawn sense 经 emitRoleCreated 推 role_created notification。
  *
- * 选型理由（不复用 approvalRegistry）：
- *   approvalRegistry 的 resolve 签名是 (id, action:"accept"|"reject", reason?) → ApprovalDecision，
- *   语义为「审批决策」；spawn wait=true 需回传任意 content 字符串（子 agent 最终结果），
- *   塞 reason 字段语义错位、且需改造 approvalRegistry 接口。故新建专用 spawnBroker：
- *   逻辑同 approvalRegistry（集中 Map + resolve/reject + 无超时），接口契合 spawn 场景。
+ * 选型（不复用 approvalRegistry）：approvalRegistry.resolve 签名 (id, action, reason)→ApprovalDecision，
+ * 语义为「审批决策」；spawn 唤醒需回传任意 content + 递归（子也可唤子），语义错位。故专用 broker。
  *
- * notification.requestId：用 parentChatId（spawn_subagent / destroy_subagent sense 在 senseMiddleware
- *   内 await 执行，无法取主 agent 当前 WS 请求的 requestId；前端按 chatId 路由 notification 即可）。
+ * notification.requestId：用 parentChatId（spawn sense 在 senseMiddleware await 执行，无法取 WS requestId；前端按 chatId 路由）。
  *
- * CP6 broadcaster 复用决策（不新建 destroyBroadcaster）：
- *   spawn/destroy 共享同一「向主 chat 所属连接推 notification」机制（findWsByChatId + transport.encode），
- *   仅 notification.type 与 data 不同。新建并行 destroyBroadcaster 会复制 install/warn/readyState 检查
- *   逻辑（规则 2 反例）。统一通道 + kind 显式判别（避结构类型 hack），最小扩展耦合 service 层一处分支。
+ * 分层：本模块（agent 层）只持有唤醒态数据 + 看门狗定时器；DB 读取 + wakeParent 注入 + abortChatRuntime
+ * 均在 service 层（wake.ts）。超时动作经 setAsyncWakeHandler 注入（类 setSpawnBroadcaster），避免 agent→service 反向依赖。
  */
 
-/** subagent_created notification data（推送契约，前端 Agent 2 依赖） */
-export interface SubagentCreatedData {
+// ============ broadcaster（role_created/destroyed notification 推送）============
+
+/** role_created notification data（推送契约，前端依赖） */
+export interface RoleCreatedData {
   /** 子 chat id（前端据此驱动子 chat） */
   chatId: string;
   /** 主 chat id（前端溯源 pet 树） */
   parentChatId: string;
-  /** 子 agent 类型（config.subagents 键名） */
+  /** 角色类型（config.roles / preset.roles 键名） */
   type: string;
-  /** 交付子 agent 的任务 prompt */
+  /** 交付角色的任务 prompt */
   prompt: string;
-  /** 子 agent 用的 brain 名 */
+  /** 角色用的 brain 名 */
   brain: string;
-  /** 子 agent 启用的感官组 */
-  senseGroups: string[];
-  /** 是否等待子 agent 结果（true: 前端跑完须调 subagent.result 回传） */
+  /** 角色启用的感官组（单组） */
+  senseGroup: string;
+  /** wait 标记（2026-07-09 后为信息性：wait=true/false 创建路径一致，前端均跑子；wait=true 子完成由 role_reply 唤主） */
   wait: boolean;
+  /**
+   * 触发本次 spawn 的 sense call id（= 主 chat sense message.id）。
+   * 前端收 role_created/role_reply 时据此前往主 chat 对应 sense 调用框（scroll-to）。
+   * 旧 chat 无此字段时 undefined（前端兜底）。
+   */
+  spawnSenseCallId?: string;
 }
 
-/** subagent_destroyed notification data（推送契约，前端 Agent A 依赖） */
-export interface SubagentDestroyedData {
+/** role_destroyed notification data（推送契约，前端 Agent A 依赖） */
+export interface RoleDestroyedData {
   /** 被销毁的子 chat id（前端据此移除子 pet） */
   chatId: string;
 }
 
-/** subagent 生命周期事件判别（service installer 据此选 notification.type） */
-export type SubagentEventKind = "created" | "destroyed";
+/** 角色生命周期事件判别（service installer 据此选 notification.type） */
+export type RoleEventKind = "created" | "destroyed";
 
 /**
- * Broadcaster：把 subagent 生命周期事件送到主 chat 所属连接的 ws。
+ * Broadcaster：把角色生命周期事件送到主 chat 所属连接的 ws。
  * service 层启动时注入（service/websocket 持 connectionManager + transport，
  * 反查 chatId→connectionId→ws 后 ws.send(transport.encode(notification))）。
- *
- * 第 1 参 parentChatId：主 chat id（也是 notification.requestId）；
- * 第 2 参 kind：事件类型（created/destroyed → subagent_created/subagent_destroyed）；
- * 第 3 参 data：推送内容（SubagentCreatedData | SubagentDestroyedData）。
  */
 export type SpawnBroadcaster = (
   parentChatId: string,
-  kind: SubagentEventKind,
-  data: SubagentCreatedData | SubagentDestroyedData,
+  kind: RoleEventKind,
+  data: RoleCreatedData | RoleDestroyedData,
 ) => void;
-
-interface PendingSpawn {
-  resolve: (content: string) => void;
-  reject: (error: Error) => void;
-}
-
-/** 心跳状态类型 */
-export type HeartbeatStatus = "running" | "finished" | "error";
-
-/** 心跳消息结构(子 agent → 主 agent) */
-export interface Heartbeat {
-  /** 子 chat id */
-  childChatId: string;
-  /** 心跳状态 */
-  status: HeartbeatStatus;
-  /** finished 时带子 agent 最终结果 */
-  result?: string;
-  /** error 时带错误信息 */
-  error?: string;
-  /** 时间戳(ms) */
-  timestamp: number;
-}
-
-/** 心跳监听器(主 agent wait=true 注册) */
-interface HeartbeatListener {
-  resolve: (content: string) => void;
-  reject: (error: Error) => void;
-  /** 30s 超时计时器 */
-  timer: ReturnType<typeof setTimeout>;
-}
-
-/** 挂起的 spawn wait=true Promise（childChatId → resolver） */
-const pendingSpawns = new Map<string, PendingSpawn>();
-
-/** 心跳监听器(childChatId → listener;主 agent wait=true 注册,子 agent 心跳到达时触发) */
-const heartbeatListeners = new Map<string, HeartbeatListener>();
-
-/** 心跳超时阈值(30s,与阶段0确认一致) */
-const HEARTBEAT_TIMEOUT_MS = 30000;
 
 /** broadcaster（service 层启动时注入；未注入时 emit 静默丢弃 + warn 日志） */
 let broadcaster: SpawnBroadcaster | null = null;
@@ -113,188 +73,124 @@ export function setSpawnBroadcaster(fn: SpawnBroadcaster): void {
 }
 
 /**
- * 推送 subagent_created notification 给主 chat 所属连接。
- * spawn_subagent sense 执行时调用。
- *
- * broadcaster 未注入（如测试场景）：打印 warn，不阻塞 spawn 流程
- * （sense 仍返回，前端通过其他途径或下次 chat.get 重建状态）。
+ * 推送 role_created notification 给主 chat 所属连接。
+ * spawn_role sense 执行时调用。broadcaster 未注入：warn + 不阻塞。
  */
-export function emitSubagentCreated(data: SubagentCreatedData): void {
+export function emitRoleCreated(data: RoleCreatedData): void {
   if (broadcaster) {
     broadcaster(data.parentChatId, "created", data);
   } else {
-    // 规则12 fail loud：未注入 broadcaster 是配置错误，但 spawn 流程不应阻塞主 agent，
-    // 此处 warn + 继续（前端通过 chat.list 也能重建子 pet）。
     console.warn(
-      `[spawnBroker] broadcaster 未注入，subagent_created 通知未推送（parentChatId=${data.parentChatId}, childChatId=${data.chatId}）`,
+      `[spawnBroker] broadcaster 未注入，role_created 通知未推送（parentChatId=${data.parentChatId}, childChatId=${data.chatId}）`,
     );
   }
 }
 
 /**
- * 推送 subagent_destroyed notification 给主 chat 所属连接。
- * destroy_subagent sense 执行时调用。
- *
- * data 不携带 parentChatId（线上契约仅 {chatId}），故 parentChatId 单独传入用于路由。
- * broadcaster 未注入：warn + 不阻塞（chat.delete 已生效，前端 chat.list 也能感知子 chat 消失）。
+ * 推送 role_destroyed notification 给主 chat 所属连接。
+ * broadcaster 未注入：warn + 不阻塞。
  */
-export function emitSubagentDestroyed(parentChatId: string, data: SubagentDestroyedData): void {
+export function emitRoleDestroyed(parentChatId: string, data: RoleDestroyedData): void {
   if (broadcaster) {
     broadcaster(parentChatId, "destroyed", data);
   } else {
     console.warn(
-      `[spawnBroker] broadcaster 未注入，subagent_destroyed 通知未推送（parentChatId=${parentChatId}, chatId=${data.chatId}）`,
+      `[spawnBroker] broadcaster 未注入，role_destroyed 通知未推送（parentChatId=${parentChatId}, chatId=${data.chatId}）`,
     );
   }
 }
 
+// ============ wait=true 唤醒链 + 看门狗 ============
+
+/** 被 wait 的子 agent 记录（spawn wait=true 注册，子完成/出错/超时消费） */
+export interface WaitedChild {
+  parentChatId: string;
+  type: string;
+}
+
+/** 看门狗超时回调（service 注入：wakeParent 超时 content + abortChatRuntime(child)） */
+export type AsyncWakeHandler = (child: {
+  childChatId: string;
+  parentChatId: string;
+  type: string;
+}) => void;
+
+/** 看门狗超时阈值（5min；仅覆盖子永不发完成/错误信号的挂死场景，规则12 fail loud 兜底） */
+const WATCHDOG_TIMEOUT_MS = 5 * 60 * 1000;
+
+/** wait=true 唤醒链：childChatId → {parentChatId, type} */
+const waitedChildren = new Map<string, WaitedChild>();
+
+/** 看门狗定时器：childChatId → timer */
+const asyncWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+
+let asyncWakeHandler: AsyncWakeHandler | null = null;
+
+/** service 层启动期注入看门狗超时回调（wakeParent 超时 + abortChatRuntime）。 */
+export function setAsyncWakeHandler(fn: AsyncWakeHandler): void {
+  asyncWakeHandler = fn;
+}
+
 /**
- * 创建 wait=true 挂起的 spawn Promise（无超时，不限时可一直等，与 plan/agent-pet.md 决策一致）。
- *
- * 前端跑完子 agent → 调 subagent.result(childChatId, content) → resolveSpawnResult 唤醒。
+ * 注册 wait=true 唤醒链 + 启动看门狗（spawn_role wait=true 调）。
+ * 子完成 → service wakeParent 消费并 clearWaitedChild；5min 无信号 → 看门狗超时唤主。
  * 同 childChatId 重复注册视为错误（防泄漏，规则12 fail loud）。
  */
-export function createSpawnWait(childChatId: string): Promise<string> {
-  if (pendingSpawns.has(childChatId)) {
+export function registerWaitedChild(
+  childChatId: string,
+  parentChatId: string,
+  type: string,
+): void {
+  if (waitedChildren.has(childChatId)) {
     throw new Error(
-      `spawn wait 已存在（childChatId=${childChatId}），疑似前端重复 spawn 同 chatId`,
+      `waitedChild 已存在（childChatId=${childChatId}），疑似重复 spawn 同 chatId`,
     );
   }
-  return new Promise<string>((resolve, reject) => {
-    pendingSpawns.set(childChatId, { resolve, reject });
-  });
+  waitedChildren.set(childChatId, { parentChatId, type });
+  const timer = setTimeout(() => {
+    const entry = waitedChildren.get(childChatId);
+    if (!entry) return; // 已被正常消费清除（clearWaitedChild）
+    console.warn(
+      `[spawnBroker] 看门狗超时 ${WATCHDOG_TIMEOUT_MS / 1000}s（childChatId=${childChatId}），唤主 + abort 子`,
+    );
+    asyncWakeHandler?.({ childChatId, parentChatId: entry.parentChatId, type: entry.type });
+  }, WATCHDOG_TIMEOUT_MS);
+  asyncWatchdogs.set(childChatId, timer);
 }
 
 /**
- * wait=true 结果回传（subagent.result RPC handler 调用）。
- * @returns 命中 true；未挂起（误调或 wait=false）false（规则12：调用方应上报 NOT_FOUND）
+ * 查 wait-子记录。
+ * 子 loop 结束（决定是否 yield child_done）/ observer catch（出错唤主）/ service rebuild 据此判定。
  */
-export function resolveSpawnResult(childChatId: string, content: string): boolean {
-  const entry = pendingSpawns.get(childChatId);
-  if (!entry) return false;
-  entry.resolve(content);
-  pendingSpawns.delete(childChatId);
-  return true;
+export function getWaitedParent(childChatId: string): WaitedChild | undefined {
+  return waitedChildren.get(childChatId);
 }
 
 /**
- * 中止挂起的 spawn（chat.abort 跨连接重连等场景调，解除 await 使主 agent 流正常结束）。
- * 与 approvalRegistry.rejectApproval 同模式：throw AgentAbortError 由调用方传入。
+ * 清除 wait-子 + 看门狗（wakeParent 成功 / chat.abort 调；幂等）。
  */
-export function rejectSpawn(childChatId: string, error: Error): void {
-  const entry = pendingSpawns.get(childChatId);
-  if (entry) {
-    entry.reject(error);
-    pendingSpawns.delete(childChatId);
+export function clearWaitedChild(childChatId: string): void {
+  waitedChildren.delete(childChatId);
+  const timer = asyncWatchdogs.get(childChatId);
+  if (timer) {
+    clearTimeout(timer);
+    asyncWatchdogs.delete(childChatId);
   }
 }
 
 /**
- * 调试/状态查询：当前挂起的 spawn 数。
+ * 按主 chatId 清除其所有 wait-子 + 看门狗（主 chat.abort 调）。
+ * 主被 abort 时其 wait-子完成不再唤主（用户主动停，防子完成反唤醒已停的主）。子 chat 本身不动（前端继续或转 ghost）。
  */
-export function pendingSpawnCount(): number {
-  return pendingSpawns.size;
-}
-
-/**
- * 注册心跳监听器（主 agent wait=true 调用）。
- *
- * 返回 Promise<string>:
- * - 收到 finished 心跳(resolve,内容为子 agent 结果)
- * - 收到 error 心跳(reject,错误信息)
- * - 30s 未收到任何心跳(reject,超时)
- *
- * 同 childChatId 重复注册视为错误(防泄漏,规则12 fail loud)。
- */
-export function registerHeartbeatListener(childChatId: string): Promise<string> {
-  if (heartbeatListeners.has(childChatId)) {
-    throw new Error(`心跳监听已存在（childChatId=${childChatId}），疑似重复注册`);
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    // 启动 30s 超时计时器
-    const timer = setTimeout(() => {
-      heartbeatListeners.delete(childChatId);
-      reject(new Error(`子 agent 心跳超时 ${HEARTBEAT_TIMEOUT_MS / 1000}s（childChatId=${childChatId}）`));
-    }, HEARTBEAT_TIMEOUT_MS);
-
-    heartbeatListeners.set(childChatId, { resolve, reject, timer });
-  });
-}
-
-/**
- * 查询是否存在心跳监听器。
- *
- * 子 agent heartbeat middleware 据此判断是否发 running 心跳:仅被 wait 的子 chat
- * 才发(有 listener),过滤主 agent 无消费者心跳(主也跑同 middleware 链,但其 chatId 无
- * listener),避免 notifyHeartbeat 每 5s 触发 "no listener" warn 噪音。
- */
-export function hasHeartbeatListener(childChatId: string): boolean {
-  return heartbeatListeners.has(childChatId);
-}
-
-/**
- * 通知心跳到达（子 agent observer 检测到心跳 chunk 时调用）。
- *
- * @param childChatId 子 chat id
- * @param status 心跳状态(running/finished/error)
- * @param result finished 时子 agent 最终结果
- * @param error error 时错误信息
- * @returns 命中 true;未监听 false(可能未注册或已清理)
- */
-export function notifyHeartbeat(
-  childChatId: string,
-  status: HeartbeatStatus,
-  result?: string,
-  error?: string,
-): boolean {
-  const listener = heartbeatListeners.get(childChatId);
-  if (!listener) {
-    console.warn("[spawnBroker] notifyHeartbeat: no listener for", { childChatId, status });
-    return false;
-  }
-
-  console.log("[spawnBroker] notifyHeartbeat:", { childChatId, status, hasResult: !!result, resultLen: result?.length ?? 0 });
-
-  if (status === "running") {
-    // running:重置 30s 超时计时器,继续等
-    clearTimeout(listener.timer);
-    listener.timer = setTimeout(() => {
-      heartbeatListeners.delete(childChatId);
-      listener.reject(new Error(`子 agent 心跳超时 ${HEARTBEAT_TIMEOUT_MS / 1000}s（childChatId=${childChatId}）`));
-    }, HEARTBEAT_TIMEOUT_MS);
-    return true;
-  }
-
-  if (status === "finished") {
-    // finished:resolve 结果,清理
-    clearTimeout(listener.timer);
-    heartbeatListeners.delete(childChatId);
-    console.log("[spawnBroker] notifyHeartbeat: resolve finished", { childChatId, resultLen: result?.length ?? 0 });
-    listener.resolve(result ?? "");
-    return true;
-  }
-
-  if (status === "error") {
-    // error:reject,清理
-    clearTimeout(listener.timer);
-    heartbeatListeners.delete(childChatId);
-    console.log("[spawnBroker] notifyHeartbeat: reject error", { childChatId, error });
-    listener.reject(new Error(error ?? "子 agent 执行出错"));
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * 清理心跳监听器(abort/错误场景调用,释放资源)。
- */
-export function clearHeartbeatListener(childChatId: string, error: Error): void {
-  const listener = heartbeatListeners.get(childChatId);
-  if (listener) {
-    clearTimeout(listener.timer);
-    heartbeatListeners.delete(childChatId);
-    listener.reject(error);
+export function clearWaitedChildrenByParent(parentChatId: string): void {
+  for (const [childChatId, entry] of waitedChildren) {
+    if (entry.parentChatId === parentChatId) {
+      waitedChildren.delete(childChatId);
+      const timer = asyncWatchdogs.get(childChatId);
+      if (timer) {
+        clearTimeout(timer);
+        asyncWatchdogs.delete(childChatId);
+      }
+    }
   }
 }

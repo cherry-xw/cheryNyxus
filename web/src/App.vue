@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
 import PetStage from "@/features/pets/PetStage.vue";
 import AgentFab from "@/features/agent/AgentFab.vue";
 import AgentDialog from "@/features/agent/AgentDialog.vue";
@@ -8,8 +8,31 @@ import SessionList from "@/features/agent/SessionList.vue";
 import SettingsDialog from "@/features/agent/settings/SettingsDialog.vue";
 import { useConnectionStore, useAgentsStore } from "@/stores";
 import { wsClient } from "@/services/ws";
+import { httpUrl } from "@/services/http";
+
+const authChecked = ref(false);
+const authenticated = ref(false);
+
+function startLogin(): void {
+  window.location.assign(httpUrl(`/api/auth/login?returnTo=${encodeURIComponent(window.location.pathname || "/")}`));
+}
 
 onMounted(() => {
+  void bootstrap();
+});
+
+async function bootstrap(): Promise<void> {
+  try {
+    const response = await fetch(httpUrl("/api/auth/me"), { credentials: "same-origin" });
+    const data = await response.json() as { authenticated?: boolean };
+    authenticated.value = response.ok && data.authenticated === true;
+  } catch {
+    authenticated.value = false;
+  } finally {
+    authChecked.value = true;
+  }
+  if (!authenticated.value) return;
+
   const conn = useConnectionStore();
   const agents = useAgentsStore();
 
@@ -40,16 +63,25 @@ onMounted(() => {
   });
 
   conn.init();
-});
+}
 </script>
 
 <template>
-  <PetStage />
-  <AgentFab />
-  <AgentDialog />
-  <HistoryDrawer />
-  <SessionList />
-  <SettingsDialog />
+  <template v-if="authenticated">
+    <PetStage />
+    <AgentFab />
+    <AgentDialog />
+    <HistoryDrawer />
+    <SessionList />
+    <SettingsDialog />
+  </template>
+  <div v-else-if="authChecked" class="login-overlay" role="dialog" aria-modal="true" aria-label="登录">
+    <section class="login-card">
+      <h1>需要管理员登录</h1>
+      <p>设置和控制功能已锁定。只有身份提供商中配置为 admin 的账号可以进入。</p>
+      <button type="button" @click="startLogin">使用 OAuth2 登录</button>
+    </section>
+  </div>
 </template>
 
 <style lang="less">
@@ -68,5 +100,29 @@ body,
 body {
   overflow: hidden;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 17, 22, 0.72);
+  backdrop-filter: blur(5px);
+}
+
+.login-card {
+  width: min(400px, 100%);
+  padding: 30px;
+  border-radius: 16px;
+  color: #f7f5ef;
+  background: #20242d;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+
+  h1 { margin: 0 0 12px; font-size: 22px; }
+  p { margin: 0 0 24px; line-height: 1.6; color: #c6c9d0; }
+  button { width: 100%; border: 0; border-radius: 8px; padding: 11px 16px; color: white; background: #5376d4; font: inherit; font-weight: 700; cursor: pointer; }
 }
 </style>

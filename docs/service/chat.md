@@ -100,12 +100,14 @@ handleChatDelete(ctx, params): Promise<{chatId}>                       // clearC
        yield createChunk("staged", rid, {type:"reverse", messageIds: revokedIds})
 7. try:
      generator = observeAgentChunks(agent.run(prompt), chatId, () => agent.getMessages())
-     yield* streamAgentChunks(generator, rid)
+     yield* streamAgentChunks(generator, rid, chatId, (msg) => { failureMessage = msg; })
    catch err:
      "approval aborted"（chat.abort 触发）→ 静默
-     其他 → yield error notification + failureResponse = 失败 Response
+     其他 → failureResponse = createResponse(rid, false, ..., createError(INTERNAL, err.message))
    finally:
      connectionManager.releaseChatConnection(chatId, ctx.connectionId)
+   // 防御性：retry-yielded ErrorChunk（不 throw）经 streamMapper 收集的 message 也填入 failureResponse
+   if failureMessage && !failureResponse: failureResponse = createResponse(rid, false, ..., createError(INTERNAL, failureMessage))
    return failureResponse ?? { chatId }
 ```
 
@@ -144,7 +146,7 @@ finally:                                                // abort 兜底 flush
 
 | MiddlewareChunk.type | → 协议 | 说明 |
 |---|---|---|
-| `stream` | `createChunk("stream", rid, {thinking?, content?, senseCall?}, ++seq)` | 流式增量，带递增 seq |
+| `stream` | `createChunk("stream", rid, {thinking?, content?, senseCall?})` | 流式增量；协议不提供 seq、ack 或重放语义 |
 | `staged` | `createChunk("staged", rid, {type: stagedType, thinking?, content?, senseName?, arguments?, id?})` | 阶段完成 |
 | `sense_end`（SenseTriggerChunk） | `createNotification("interrupt", rid, {approvalId:id, senseName, arguments, supervisionLevel, needsApproval: level>auto})` | 感官触发 |
 | `sense_accept` | `createNotification("accept", rid, {approvalId:id, senseName, result})` | 执行成功 |

@@ -90,7 +90,7 @@ export interface RuntimeConfig {
 }
 ```
 
-`runtime` 由 builder 解析 brain + senseGroups 后**整体**注入（原子），避免 provider 与工具定义处于半配置状态。`SenseEntry.supervisionLevel` 已在摊平时按[优先级链](./sense.md#sense-监管等级)前置计算完毕，运行期不再回退到 `global.supervision`。
+`runtime` 由 builder 解析 brain + senseGroup 后**整体**注入（原子），避免 provider 与工具定义处于半配置状态。`SenseEntry.supervisionLevel` 已在摊平时按[优先级链](./sense.md#sense-监管等级)前置计算完毕，运行期不再回退到 `global.supervision`。
 
 ### Chunk 类型（中间件 yield 的数据单元）
 

@@ -17,25 +17,59 @@ import { getConnectedServerSenseNames } from "@/core/mcp";
 
 export interface RuntimeSelection {
   brain: string;
-  senseGroups: string[];
-  /** 启用的 MCP server 名（与 senseGroups 同层级）。enabled server 的全部 mcp__<server>__* 直接合并进 schema，绕过 sense_groups。 */
+  /** 单一感官组；无 Tool Call 模型时为空字符串。 */
+  senseGroup: string;
+  /** 启用的 MCP server 名（与 senseGroup 同层级）。enabled server 的全部 mcp__<server>__* 直接合并进 schema，绕过 sense_groups。 */
   mcpServers: string[];
 }
 
 /**
- * 解析并校验 runtime selection（brain + senseGroups + mcpServers）。
+ * 解析并校验 runtime selection（brain + senseGroup + mcpServers）。
  * 供 chat.create / runtime.set 共用，methodName 用于错误消息。
  * mcpServers 缺省 []（旧 chat 向后兼容）；非数组视为非法。
  */
 export function parseRuntimeSelection(
-  params: { brain?: string; senseGroups?: string[]; mcpServers?: string[] },
+  params: { brain?: string; senseGroup?: string; mcpServers?: string[] },
   methodName: string,
 ): RuntimeSelection {
-  if (!params.brain || !Array.isArray(params.senseGroups) || params.senseGroups.length === 0) {
-    throw new Error(`${methodName} requires brain and at least one senseGroups entry`);
-  }
+  if (!params.brain) throw new Error(`${methodName} requires brain`);
   const mcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : [];
-  return { brain: params.brain, senseGroups: params.senseGroups, mcpServers };
+  const brain = config.llm.brain[params.brain];
+  if (!brain) throw new Error(`Brain 配置 "${params.brain}" 不存在`);
+  if (brain.capabilities?.toolCall === false) {
+    if (params.senseGroup || mcpServers.length) throw new Error(`Brain "${params.brain}" 不支持 Tool Call，不能配置 senseGroup 或 MCP`);
+    return { brain: params.brain, senseGroup: "", mcpServers: [] };
+  }
+  if (!params.senseGroup) throw new Error(`${methodName} requires senseGroup for a Tool Call brain`);
+  return { brain: params.brain, senseGroup: params.senseGroup, mcpServers };
+}
+
+/**
+ * 解析预设主 agent 编制：取 leader 角色的 RoleConfig（config.roles[leader]）作 brain+senseGroup+mcpServers
+ * 的 RuntimeSelection 快照，并返回该角色的 systemPrompt 作 promptPathOverride。
+ * 复用 parseRuntimeSelection（校验 brain/senseGroup 非空 + mcpServers 数组化）。
+ * chat.create 选预设时调用；运行编制快照入 metadata.runtime，运行后不可改。
+ */
+export function resolvePresetSelection(presetName: string): {
+  selection: RuntimeSelection;
+  promptPathOverride?: string;
+  /** 该预设选中的角色 type 列表（chat.create 快照入 metadata.spawnTypes，spawn roster gate 用） */
+  spawnTypes: string[];
+} {
+  const preset = config.presets?.[presetName];
+  if (!preset?.leader) {
+    throw new Error(`预设 "${presetName}" 不存在或未指定 leader 角色（可用：${Object.keys(config.presets ?? {}).join(", ") || "（未配置任何预设）"}）`);
+  }
+  // 主 pet 编制取 leader 角色的 RoleConfig（config.roles 单一源）。
+  const leader = config.roles?.[preset.leader];
+  if (!leader) {
+    throw new Error(`预设 "${presetName}" 的 leader 角色 "${preset.leader}" 不在 config.roles（可用：${Object.keys(config.roles ?? {}).join(", ") || "（未配置任何角色）"}）`);
+  }
+  const selection = parseRuntimeSelection(
+    { brain: leader.brain, senseGroup: leader.senseGroup, mcpServers: leader.mcpServers ?? [] },
+    `presets.${presetName}.leader(${preset.leader})`,
+  );
+  return { selection, promptPathOverride: leader.systemPrompt, spawnTypes: preset.roles ?? [] };
 }
 
 export class RuntimeResolver {
@@ -49,8 +83,9 @@ export class RuntimeResolver {
     const { brain, adapters } = this.resolveBrain(selection.brain);
     const { builtSenses, senseTable } = this.resolveSense(
       adapters.senseAdapter,
-      selection.senseGroups,
+      selection.senseGroup,
       selection.mcpServers,
+      brain.capabilities?.generate,
     );
 
     return {
@@ -65,9 +100,8 @@ export class RuntimeResolver {
     if (!selection.brain || selection.brain.trim().length === 0) {
       throw new Error("必须选择 brain");
     }
-    if (!Array.isArray(selection.senseGroups) || selection.senseGroups.length === 0) {
-      throw new Error("必须至少选择一个感官组");
-    }
+    const brain = config.llm.brain[selection.brain];
+    if (brain?.capabilities?.toolCall !== false && !selection.senseGroup) throw new Error("支持 Tool Call 的模型必须选择一个感官组");
   }
 
   /**
@@ -95,9 +129,9 @@ export class RuntimeResolver {
   }
 
   /**
-   * resolve senseGroups + mcpServers -> builtSenses（给 LLM）+ senseTable（监管等级 + 执行器）。
+   * resolve senseGroup + mcpServers -> builtSenses（给 LLM）+ senseTable（监管等级 + 执行器）。
    *
-   * 监管优先级：后缀覆盖 > 前组已解析 > 感官内置 > global。
+   * 监管优先级：后缀覆盖（:level）> 感官内置 > global。（单组化后不再有跨组覆盖合并）
    *
    * MCP 挂载：mcpServers 绕过 sense_groups，enabled server 的全部 mcp__<server>__* sense
    * 直接合并进 resolved Map（去重冲突 MCP 覆盖）；监管用 sense 自带 server 级 supervision
@@ -105,32 +139,33 @@ export class RuntimeResolver {
    */
   private resolveSense(
     senseAdapter: SenseAdapter<unknown>,
-    senseGroups: string[],
+    senseGroup: string,
     mcpServers: string[],
+    generateCapabilities?: { image?: boolean; video?: boolean; audio?: boolean },
   ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
     const resolved = new Map<string, Sense<ZodType>>();
 
-    for (const groupName of senseGroups) {
-      const group = config.sense_groups?.[groupName];
-      if (!group) {
-        throw new Error(`Sense group "${groupName}" 不存在`);
+    if (!senseGroup) return { builtSenses: [], senseTable: new Map() };
+    const group = config.sense_groups?.[senseGroup];
+    if (!group) {
+      throw new Error(`Sense group "${senseGroup}" 不存在`);
+    }
+
+    for (const entry of group) {
+      const { senseName, supervisionLevel } = this.parseSenseGroupEntry(entry);
+      const mediaKind = senseName.match(/^generate_(image|video|audio)$/)?.[1] as "image" | "video" | "audio" | undefined;
+      if (mediaKind && !generateCapabilities?.[mediaKind]) continue;
+      const original = getSense(senseName);
+      if (!original) {
+        throw new Error(`Sense "${senseName}" 不存在`);
       }
 
-      for (const entry of group) {
-        const { senseName, supervisionLevel } = this.parseSenseGroupEntry(entry);
-        const original = getSense(senseName);
-        if (!original) {
-          throw new Error(`Sense "${senseName}" 不存在`);
-        }
-
-        const name = original.definition.function.name;
-        const prev = resolved.get(name);
-        // shallow copy 隔离：supervisionLevel 写入不得污染全局 senseRegistry（多 chat 共享）
-        const s: Sense<ZodType> = { ...original };
-        s.supervisionLevel =
-          supervisionLevel ?? prev?.supervisionLevel ?? s.supervisionLevel ?? config.global.supervision;
-        resolved.set(name, s);
-      }
+      const name = original.definition.function.name;
+      // shallow copy 隔离：supervisionLevel 写入不得污染全局 senseRegistry（多 chat 共享）
+      const s: Sense<ZodType> = { ...original };
+      s.supervisionLevel =
+        supervisionLevel ?? s.supervisionLevel ?? config.global.supervision;
+      resolved.set(name, s);
     }
 
     // MCP server 的全部 sense 合并进 schema（绕过 sense_groups，监管用 server 级默认）
@@ -145,10 +180,6 @@ export class RuntimeResolver {
     }
 
     const senses = [...resolved.values()];
-    if (senses.length === 0) {
-      throw new Error("所选感官组未解析出任何可用 sense");
-    }
-
     return {
       builtSenses: senseAdapter.buildSenses(senses),
       senseTable: this.buildSenseTable(senses),

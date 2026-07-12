@@ -66,6 +66,20 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 ## 数据流对比
 
 ```
+
+## 内网 OAuth2/OIDC 部署
+
+不要仅通过把监听地址改为 `0.0.0.0` 来开放控制面。启用
+`.chery/config.yaml` 的 `server.auth` 后，浏览器会先显示登录遮罩；只有 IdP 中配置为
+管理员的账号（`adminUsers` 或 `adminClaim`/`adminValues`）完成 OAuth2 授权码 + PKCE 流程后，
+才能取得 HTTP 和 WebSocket 控制权限。应用不提供公开注册；账号创建/角色授予由 IdP 和管理员完成。
+
+建议拓扑：`HTTPS reverse proxy → CheryClaw HTTP/WS`。反向代理须保留 `Host`、`Origin`，并传递
+`X-Forwarded-Proto: https`；否则浏览器不会发送 Secure 会话 Cookie。将 `server.host` 改成具体内网地址或
+`0.0.0.0` 前，必须配置 TLS、OAuth2 `redirectUri` 和至少一种管理员匹配规则。若 UI 与服务不在同一 Origin，
+把 UI 的**精确** HTTPS origin 加到 `trustedOrigins`，不要使用通配符。
+
+生产页面为 HTTPS 时，前端会自动使用 `wss://`；WS 端口若由反代统一接入，也应转发 Upgrade 请求。
 模式 1（后端独立）:
   node dist/index.js ──WS:8182──> (无前端, 供调试)
                     └──HTTP:8183──> /api/config + 静态 serve

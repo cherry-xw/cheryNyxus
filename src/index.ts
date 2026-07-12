@@ -14,6 +14,10 @@ import config from "@/utils/config.js";
 // 初始化 Logger
 initLogger(config.global.logger);
 
+// 记录配置基准（日志文件新建时）
+import { readRawConfig } from "@/utils/config.js";
+logger.recordConfigBaseline(readRawConfig());
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WS_PORT = config.server.port;
 const WEB_PORT = Number(process.env.WEB_PORT ?? 8183); // HTTP 静态服务端口（原 config.server.web_port 已废弃，改 env，与 electron/main.ts 一致）
@@ -44,6 +48,8 @@ async function main(): Promise<void> {
     port: WS_PORT,
     webPort: WEB_PORT,
     staticDir: STATIC_DIR,
+    host: config.server.host,
+    auth: config.server.auth,
   });
 
   // 启动时初始化数据库

@@ -96,6 +96,24 @@ function getScope(): LogScope {
   return scopeAls.getStore() ?? {};
 }
 
+/**
+ * Prevent credentials from crossing the logging boundary.  This is applied in
+ * one place so structured events, legacy logger calls, and config baselines
+ * all receive the same protection.
+ */
+const SENSITIVE_FIELD = /(key|token|secret|password|authorization|credential|env)/i;
+
+function redactLogData(value: unknown, fieldName?: string, seen = new WeakSet<object>()): unknown {
+  if (fieldName && SENSITIVE_FIELD.test(fieldName)) return "[REDACTED]";
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return "[CIRCULAR]";
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => redactLogData(item, undefined, seen));
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, redactLogData(item, key, seen)]),
+  );
+}
+
 // ============================================================================
 // Logger 工厂函数（闭包式，替代 class）
 // ============================================================================
@@ -113,7 +131,24 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
     }
 
     const logFile = join(logDir, `${dayjs().format("YYYY-MM-DD")}.log`);
+    const isNewFile = !existsSync(logFile);
     _fileStream = createWriteStream(logFile, { flags: "a" });
+
+    // 新日志文件时标记需要记录基准配置（由外部调用 recordConfigBaseline）
+    if (isNewFile) {
+      _needsConfigBaseline = true;
+    }
+  }
+
+  /** 标记：新日志文件需要记录基准配置 */
+  let _needsConfigBaseline = false;
+
+  /** 记录配置基准（日志文件新建时调用，避免循环依赖） */
+  function recordConfigBaseline(configData: object): void {
+    if (_needsConfigBaseline && _fileStream) {
+      emit("config.baseline", { config: configData as Record<string, unknown> }, LogLevel.info, "info");
+      _needsConfigBaseline = false;
+    }
   }
 
   if (_config.output.includes("file")) {
@@ -192,13 +227,17 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
 
     const scope = getScope();
     const event: LogEvent = {
-      ts: new Date().toISOString(),
+      // 时间戳去掉年月日（日志文件名已按天分割），保留时分秒毫秒时区
+      // 例如：T13:45:30.123Z（从 2026-07-10T13:45:30.123Z 切掉前10位）
+      ts: new Date().toISOString().slice(11),
       level: levelName,
       type,
       scope,
     };
     if (_config.location) event.location = getLocation();
-    if (data && Object.keys(data).length > 0) event.data = data;
+    if (data && Object.keys(data).length > 0) {
+      event.data = redactLogData(data) as Record<string, unknown>;
+    }
 
     const line =
       _config.format === "json" ? JSON.stringify(event) : renderPlain(event);
@@ -265,6 +304,7 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
         initFileStream();
       }
     },
+    recordConfigBaseline,
     tools: {
       getBashLogDir,
       createBashLogPath,

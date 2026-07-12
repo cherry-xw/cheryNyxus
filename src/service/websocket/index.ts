@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
+import { timingSafeEqual } from "node:crypto";
 import {
   RpcRouter,
   createResponse,
@@ -12,6 +13,7 @@ import { transport } from "./transport.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import { OAuth2Auth } from "../auth/index.js";
 
 /**
  * WebSocket 服务器配置
@@ -19,14 +21,45 @@ import { LogLevel } from "@/utils/logger/types.js";
 interface WebSocketServerConfig {
   port: number;
   router: RpcRouter;
+  /** Binding is supplied by the service entrypoint. */
+  host?: string;
+  /** Per-process capability, distributed only through the local HTTP/IPC bootstrap. */
+  authToken?: string;
+  /** Browser origins allowed to use an authenticated control-plane socket. */
+  allowedOrigins?: readonly string[];
+  /** Cookie-session authentication used for intranet OAuth2 deployments. */
+  auth?: OAuth2Auth;
 }
 
 /**
  * 创建 WebSocket 服务器
  */
 export function createWebSocketServer(config: WebSocketServerConfig): WebSocketServer {
-  const { port, router } = config;
-  const wss = new WebSocketServer({ port });
+  const { port, router, host, authToken, allowedOrigins = [], auth } = config;
+  const wss = new WebSocketServer({
+    port,
+    ...(host ? { host } : {}),
+    verifyClient: authToken || auth?.enabled
+      ? (info, done) => {
+          const origin = info.origin;
+          if (!origin || !(auth?.isTrustedOrigin(origin, info.req) || allowedOrigins.includes(origin))) {
+            done(false, 403, "WebSocket origin is not allowed");
+            return;
+          }
+          if (auth?.enabled) {
+            if (!auth.getUser(info.req)) done(false, 401, "WebSocket authentication required");
+            else done(true);
+            return;
+          }
+          const token = new URL(info.req.url ?? "/", "ws://localhost").searchParams.get("token") ?? "";
+          if (!constantTimeTokenEqual(token, authToken!)) {
+            done(false, 401, "WebSocket authentication failed");
+            return;
+          }
+          done(true);
+        }
+      : undefined,
+  });
 
   wss.on("connection", (ws) => {
     const state = connectionManager.create(ws);
@@ -63,8 +96,14 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
     });
   });
 
-  logger.info(`WebSocket 服务启动，端口: ${port}`);
+  logger.info(`WebSocket 服务启动，地址: ${host ?? "default"}:${port}`);
   return wss;
+}
+
+function constantTimeTokenEqual(actual: string, expected: string): boolean {
+  const a = Buffer.from(actual);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /**

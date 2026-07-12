@@ -32,8 +32,13 @@
 | `write_file` | [write.ts](../../src/agent/sense/write.ts) | manual | `path`、`content`、`offset?`、`limit?` |
 | `skill` | [skill.ts](../../src/agent/sense/skill.ts) | auto | `name` |
 | `search_codebase` | [search.ts](../../src/agent/sense/search.ts) | auto | `mode?`、`query`、`regex?`、`maxResults?`、`contextLines?` |
+| `generate_image` | [media.ts](../../src/agent/sense/media.ts) | confirm | `prompt` |
+| `generate_video` | [media.ts](../../src/agent/sense/media.ts) | confirm | `prompt` |
+| `generate_audio` | [media.ts](../../src/agent/sense/media.ts) | confirm | `prompt` |
 
 > ⚠ sense **函数名**（首参数）才是注册 key，与文件名无关。bash.ts → "execute_command"、skill.ts → "skill"。
+
+三个 `generate_*` sense 统一调用 `media.<kind>` 网关，将其返回的 base64 资产保存至 `.chery/media/` 并返回受控读取 URL。它们虽在 registry 中注册，但仅当前 brain 的 `capabilities.generate.<kind>=true` 才会被 RuntimeResolver 注入模型。详见 [../model-capabilities.md](../model-capabilities.md)。
 
 ### 监管等级（[core/config.ts](../../src/core/config.ts)）
 

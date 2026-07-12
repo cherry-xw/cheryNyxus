@@ -4,6 +4,10 @@
 
 ## 怎么用这套文档（给 AI / 开发者）
 
+## 开发准则：文档先行
+
+凡是新增、调整或删除功能模块，**在下达代码修改任务之前**，必须先更新对应模块文档：说明职责、公开配置或接口、关键数据流、依赖关系与用户可见行为。文档与实现不一致时，先修正文档并确认边界，再开始代码修改；仅格式化、纯重命名等不改变功能语义的改动可例外。
+
 1. **定位模块**：按下面「按模块」找到目标模块文档。
 2. **读模块文档**：每篇自包含——职责 / 文件清单 / 核心导出 / 关键流程 / 依赖与关联 / 扩展点。
 3. **按「依赖与关联」扩展**：每篇末尾的「依赖与关联」列出**真实**的依赖与被依赖关系。只顺藤读真正相关的文档，不要全读。
@@ -63,7 +67,8 @@
 |------|------|
 | [protocol.md](./protocol.md) | WebSocket 协议规范：传输帧格式、消息结构、方法列表、HTTP API、错误码 |
 | [interaction.md](./interaction.md) | 各 RPC 方法完整交互序列、端到端流程、错误路径 |
-| [agent-pet.md](./agent-pet.md) | 主从 Agent 桌宠系统：pet↔chat 绑定、spawn_subagent 前端驱动架构、CP0-CP7 分阶段 |
+| [agent-pet.md](./agent-pet.md) | 主从 Agent 桌宠系统：pet↔chat 绑定、spawn_role 前端驱动架构、CP0-CP7 分阶段 |
+| [model-capabilities.md](./model-capabilities.md) | Brain 的 Tool Call/多模态能力、角色与运行时约束、媒体资产和媒体网关 |
 | [mock.md](./mock.md) | Mock Provider 脚本化离线测试（send/resume/revoke/loop） |
 
 ## 项目入口与配置

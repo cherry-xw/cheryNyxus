@@ -8,7 +8,7 @@
  * - 空 messages + 无 userInputs → stop
  * - residual userInputs → continue（到 maxLoop）
  * - revoked 末尾 → 跳过取 lastVisible
- * - maxLoop 超限 → yield ErrorChunk + done
+ * - maxLoop 超限 → yield ErrorChunk（抑制 done，P2 失败路径不双发 done/Response.success:true）
  * - 正常停止 → yield done
  */
 import { describe, it, expect } from "vitest";
@@ -45,6 +45,36 @@ function senseMsg(content: string): MiddlewareContext["soul"]["messages"][number
 }
 
 describe("createLoopHandler 停止条件", () => {
+  it("resume 时清除上轮 yieldTurn，不会再次截断已回传的角色结果", async () => {
+    const ctx = createMockContext({ messages: [] });
+    ctx.soul.yieldTurn = true;
+    let calls = 0;
+    const runChain = async function* (): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      calls++;
+      ctx.soul.messages!.push(assistantMsg("consumed role reply"));
+      yield { type: "stream", thinkingDelta: "", contentDelta: "" } as MiddlewareChunk;
+    };
+
+    const out = await collectChunks(createLoopHandler(10)(ctx, runChain));
+    expect(calls).toBe(1);
+    expect(hasDone(out)).toBe(true);
+  });
+
+  it("运行中收到角色回复时，在当前 assistant 输出后继续一轮", async () => {
+    const ctx = createMockContext({ messages: [] });
+    let calls = 0;
+    const runChain = async function* (): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      calls++;
+      ctx.soul.messages!.push(assistantMsg(`reply-${calls}`));
+      if (calls === 1) ctx.soul.roleReplyPending = true;
+      yield { type: "stream", thinkingDelta: "", contentDelta: "" } as MiddlewareChunk;
+    };
+
+    const out = await collectChunks(createLoopHandler(10)(ctx, runChain));
+    expect(calls).toBe(2);
+    expect(hasDone(out)).toBe(true);
+  });
+
   it("content-only（assistant 无 senseCalls）→ 1 次迭代后 stop + done", async () => {
     const ctx = createMockContext({ messages: [] });
     let calls = 0;
@@ -124,7 +154,7 @@ describe("createLoopHandler revoked 与 userInputs", () => {
     expect(hasDone(out)).toBe(true);
   });
 
-  it("residual userInputs + 持续空 messages → continue 到 maxLoop（yield error）", async () => {
+  it("residual userInputs + 持续空 messages → continue 到 maxLoop（yield error，抑制 done）", async () => {
     const ctx = createMockContext({
       messages: [],
       userInputs: [{ content: "queued", time: 0 }],
@@ -140,12 +170,13 @@ describe("createLoopHandler revoked 与 userInputs", () => {
     const err = firstError(out);
     expect(err).toBeDefined();
     expect(err!.errors[0]!.message).toContain("最大循环次数");
-    expect(hasDone(out)).toBe(true);
+    // P2：失败路径不 yield done（避免 streamMapper 双发 done notification + Response.success:true）
+    expect(hasDone(out)).toBe(false);
   });
 });
 
 describe("createLoopHandler maxLoop", () => {
-  it("持续 sense 不停止 → 到 maxLoop yield ErrorChunk + done", async () => {
+  it("持续 sense 不停止 → 到 maxLoop yield ErrorChunk（抑制 done）", async () => {
     const ctx = createMockContext({ messages: [] });
     let calls = 0;
     const runChain = async function* (): AsyncGenerator<MiddlewareChunk, void, unknown> {
@@ -158,7 +189,8 @@ describe("createLoopHandler maxLoop", () => {
     const err = firstError(out);
     expect(err).toBeDefined();
     expect(err!.errors[0]!.recoverable).toBe(false);
-    expect(hasDone(out)).toBe(true);
+    // P2：失败路径不 yield done
+    expect(hasDone(out)).toBe(false);
   });
 
   it("makeRunChain helper：step 序列按顺序消费", async () => {
@@ -170,5 +202,30 @@ describe("createLoopHandler maxLoop", () => {
     const out = await collectChunks(createLoopHandler(10)(ctx, runChain));
     expect(hasDone(out)).toBe(true);
     expect(ctx.soul.messages!.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("createLoopHandler P2 失败路径", () => {
+  it("runChain yield ErrorChunk（retry 耗尽）→ 不 yield done（抑制双发）", async () => {
+    const ctx = createMockContext({ messages: [] });
+    const runChain = async function* (): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      // 模拟 retry 耗尽：yield ErrorChunk + return
+      yield {
+        type: "error",
+        errors: [{
+          attempt: 3,
+          timestamp: 0,
+          message: "401 invalid access token",
+          recoverable: false,
+          category: "provider",
+        }],
+      } as MiddlewareChunk;
+    };
+    const out = await collectChunks(createLoopHandler(5)(ctx, runChain));
+    const err = firstError(out);
+    expect(err).toBeDefined();
+    expect(err!.errors[0]!.message).toContain("401");
+    // P2 关键回归：失败路径不 yield done（避免 streamMapper 下发 done notification + send.ts 返回 success:true）
+    expect(hasDone(out)).toBe(false);
   });
 });

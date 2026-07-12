@@ -23,6 +23,7 @@
   line-height: 1.4;
 }
 .card {
+  position: relative;
   padding: 10px;
   border: 1px solid rgba(36, 38, 45, 0.14);
   border-radius: 8px;
@@ -31,19 +32,29 @@
   flex-direction: column;
   gap: 8px;
 }
+// 序号以紧凑圆角标识呈现，避免压住卡片边框和标题。
+.card-idx {
+  position: absolute;
+  top: 9px;
+  left: 9px;
+  min-width: 20px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: rgba(246, 183, 60, 0.2);
+  color: #80560a;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+}
 .card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  .card-idx {
-    flex-shrink: 0;
-    min-width: 16px;
-    font-size: 11px;
-    font-weight: 700;
-    color: fade(@ink, 40%);
-    text-align: right;
-  }
+  min-height: 24px;
+  padding-left: 28px;
   .card-title {
     flex: 1;
     min-width: 0;
@@ -52,9 +63,9 @@
     gap: 6px;
   }
   .card-name {
-    font-size: 13px;
+    font-size: 17px;
     font-weight: 800;
-    color: fade(@ink, 84%);
+    color: fade(@ink, 88%);
     &.editable {
       cursor: pointer;
       &:hover {
@@ -71,6 +82,15 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.mono-input {
+  // 等宽输入：型号/地址/key 类字段整齐对齐
+  :deep(.el-input__inner) {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
 }
 .icon-btn {
   width: 24px;
@@ -119,6 +139,13 @@
   padding: 0;
   margin: 0;
   border: none;
+  // 控件填满 field，配合 .card-grid 两列 1fr 实现列内输入等宽
+  :deep(.el-input),
+  :deep(.el-select),
+  :deep(.el-input-number),
+  :deep(.el-cascader) {
+    width: 100%;
+  }
 }
 .field-row {
   display: flex;
@@ -179,8 +206,9 @@
   }
 }
 .sub-title {
-  margin: 6px 0 0;
-  font-size: 12px;
+  margin: 10px 0 0;
+  font-size: 13px;
   font-weight: 800;
-  color: fade(@ink, 70%);
+  color: fade(@ink, 84%);
+  letter-spacing: 0.01em;
 }

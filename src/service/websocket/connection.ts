@@ -31,6 +31,12 @@ export class ConnectionManager {
   private connections = new Map<WebSocket, ConnectionState>();
   /** chatId → connectionId：同 chat 活跃流期间绑定，拒绝跨连接并发（P0-3） */
   private activeChatConnections = new Map<string, string>();
+  /**
+   * chatId → connectionId：持久 owner 映射（T9 role_reply 唤醒通知用）。
+   * bindChatConnection 同步设；releaseChatConnection **不清**（turn 结束仍记 owner，供后端 turn 后推 notification）；
+   * 仅 connection.close / chat delete（forceReleaseChatConnection）清。
+   */
+  private chatOwnerConnections = new Map<string, string>();
   /** 审批超时时间（默认 15 分钟） */
   private defaultApprovalTimeout = 900000;
 
@@ -150,6 +156,8 @@ export class ConnectionManager {
       throw new Error(`Chat "${chatId}" is busy (active on another connection)`);
     }
     this.activeChatConnections.set(chatId, connectionId);
+    // T9：同步记持久 owner（turn 结束 activeChatConnections 释放后，role_reply 仍可反查推送）
+    this.chatOwnerConnections.set(chatId, connectionId);
   }
 
   /**
@@ -168,10 +176,26 @@ export class ConnectionManager {
    */
   forceReleaseChatConnection(chatId: string): void {
     this.activeChatConnections.delete(chatId);
+    this.chatOwnerConnections.delete(chatId);
   }
 
   /**
-   * 按 chatId 反查所属 ws（spawnBroker 推 subagent_created notification 用）。
+   * 持久 owner 反查（T9 role_reply 唤醒通知用）。
+   * 与 findWsByChatId 区别：activeChatConnections turn 结束即释放；chatOwnerConnections 持续到连接关闭/chat 删除。
+   * 主 turn 已结束（activeChatConnections 已释放）时仍可据此推送 role_reply notification。
+   * @returns owner 所属 ws；未绑定或已断开返回 undefined
+   */
+  findOwnerWsByChatId(chatId: string): WebSocket | undefined {
+    const connId = this.chatOwnerConnections.get(chatId);
+    if (!connId) return undefined;
+    for (const state of this.connections.values()) {
+      if (state.id === connId) return state.ws;
+    }
+    return undefined;
+  }
+
+  /**
+   * 按 chatId 反查所属 ws（spawnBroker 推 role_created notification 用）。
    * 通过 activeChatConnections 找 connectionId，再在 connections 反查 ws。
    * 主 chat 流活跃期间 chatId 一定有绑定（chat.send/resume 入口 bindChatConnection）。
    * @returns 所属 ws；未绑定或已断开返回 undefined
@@ -218,6 +242,12 @@ export class ConnectionManager {
 for (const [chatId, connId] of this.activeChatConnections) {
   if (connId === state.id) {
     this.activeChatConnections.delete(chatId);
+  }
+}
+// T9：同步清持久 owner（连接关闭 → 该连接 owner 的 chat 不再可达）
+for (const [chatId, connId] of this.chatOwnerConnections) {
+  if (connId === state.id) {
+    this.chatOwnerConnections.delete(chatId);
   }
 }
 

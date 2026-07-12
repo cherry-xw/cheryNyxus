@@ -7,6 +7,7 @@
  */
 import { wsClient } from "./ws";
 import type { RpcResponse } from "./ws";
+import { httpUrl } from "./http";
 
 /** chat.list 返回的单条 chat 摘要（对齐后端 listAllChats）。brain/senseGroups 在 metadata.runtime 不暴露于 list。 */
 export interface ChatSummary {
@@ -26,12 +27,23 @@ export interface ChatSummary {
   finished?: boolean;
   /** chat 当前是否正在运行（后端 chatRuntimes.get(chatId)?.builder.isRunning()）。前端据此判断子 agent 是否还活着、主 chat 是否卡死。 */
   running?: boolean;
+  /** 子 chat 是否被主 wait（后端 metadata.wait=true，T9.10）。前端重连识别 wait-子：续跑 interrupted 子 + 主含未处理 role-reply 时 resume。主 chat 恒 undefined。 */
+  wait?: boolean;
+  /** 主 chat 有已持久化但尚未恢复处理的角色回复；断线重连时应调用 chat.resume。 */
+  resumePending?: boolean;
+  /** 主 chat 末条非 revoked 消息为未完成周期（sense/user/role/subagent）；idle 时前端可自动 resume。覆盖 resumePending 丢失场景。 */
+  canResume?: boolean;
+  /** 主 chat 创建时所选预设；用于恢复小组角色临时配置面板。 */
+  preset?: string;
 }
 
-/** chat.create 参数。主 agent：brain + senseGroups（+ mcpServers?）；子 agent：额外 parentChatId。 */
+/** chat.create 参数。预设路径（T6）：preset 给出则后端从预设解析编制，brain/senseGroup 可省；
+ * 显式路径：主 agent brain + senseGroup（+ mcpServers?）；子 agent：额外 parentChatId。 */
 export interface CreateAgentOptions {
-  brain: string;
-  senseGroups: string[];
+  /** 预设名（T6）：给出则后端从 config.presets[preset].main 解析编制快照，忽略 brain/senseGroup */
+  preset?: string;
+  brain?: string;
+  senseGroup?: string;
   mcpServers?: string[];
   /** 可选，未给则后端生成 */
   chatId?: string;
@@ -39,25 +51,48 @@ export interface CreateAgentOptions {
   parentChatId?: string;
 }
 
-/** runtime.set 选择（每轮可换 brain + 工具组）。 */
+/** chat.create 响应：chatId + 实际生效的编制（预设路径由后端解析回填，供前端记 pet.runtime）。 */
+export interface CreateAgentResult {
+  chatId: string;
+  brain: string;
+  senseGroup: string;
+  mcpServers: string[];
+}
+
+/** runtime.set 选择（每轮可换 brain + 单一工具组）。 */
 export interface RuntimeSelection {
   brain: string;
-  senseGroups: string[];
+  /** 无 Tool Call 模型使用空字符串。 */
+  senseGroup: string;
   mcpServers?: string[];
+}
+
+/** 当前会话临时角色编制；服务重启后自动失效，不写入会话默认配置。 */
+export interface SessionRuntimeSelection {
+  primary: RuntimeSelection;
+  roles: Record<string, RuntimeSelection>;
 }
 
 export type ApprovalAction = "accept" | "reject";
 
 /**
  * brain.list 单条 brain 信息（对齐后端 Agent 1 契约）。
- * contextLimit 用于 ContextBar 计算（CP7 接 tokenizer）。
+ * contextLimit（KB）用于 ContextBar 计算（后端按 KB×256 折算 token 预算）。
  */
 export interface BrainInfo {
   name: string;
   contextLimit: number;
   /** 是否为 config.default.brain（AgentDialog 无 runtime 时预选） */
   default?: boolean;
+  capabilities?: BrainCapabilitiesDto;
   [k: string]: unknown;
+}
+
+export interface MediaCapabilitiesDto { image?: boolean; video?: boolean; audio?: boolean; }
+export interface BrainCapabilitiesDto {
+  toolCall?: boolean;
+  input?: MediaCapabilitiesDto;
+  generate?: MediaCapabilitiesDto;
 }
 
 /** brain.list 响应形状。 */
@@ -66,11 +101,12 @@ export interface BrainListResponse {
   mcpServers: string[];
 }
 
-/** sense.tools 响应单项：内置工具元信息（name=原名/key，label=中文名/显示，description=解释/tooltip）。 */
+/** sense.tools 响应单项：内置工具元信息（name=原名/key，label=中文名/显示，description=解释/tooltip，icon=glyph/emoji 供 pet bar 运行中工具显示）。 */
 export interface SenseToolInfo {
   name: string;
   label: string;
   description: string;
+  icon: string;
 }
 
 /** /api/config 返回形状（FAB default + AgentDialog senseGroups 全名单 + default 标记，后端 Agent B 暴露）。 */
@@ -80,10 +116,34 @@ export interface SenseGroupOption {
   default: boolean;
 }
 
+/** /api/config 暴露的预设项（T6，FAB 预设选择用）。 */
+export interface PresetOption {
+  name: string;
+  /** 组长角色名（leader） */
+  leader: string;
+  /** leader 角色的 brain（默认 brain，每轮可覆盖） */
+  brain: string;
+  /** 角色类型键（能力体现） */
+  roles: string[];
+}
+
 export interface ConfigDefault {
+  /** 派生自「默认」预设 leader 角色（AgentDialog 无 runtime 时预选用；FAB 不再用） */
   default?: RuntimeSelection;
-  /** 可用 senseGroups 全名单 + default 标记（AgentDialog 单选选项 + 预选默认项；缺省回退 [{name:"default", default:true}]） */
+  /** 可用 senseGroups 全名单 + default 标记（= 是否在「默认」预设 main.senseGroups 内；缺省回退 [{name:"default", default:true}]） */
   senseGroups?: SenseGroupOption[];
+  /** 可用预设名单（T6 FAB 预设选择用；缺省 = 无预设） */
+  presets?: PresetOption[];
+  sessionToken?: string;
+}
+
+export interface UploadedMediaAsset { id: string; kind: "image" | "video" | "audio"; mimeType: string; filename: string; size: number; url: string; }
+
+/** P4：chat.send 结构化附件（与后端 ChatSendAttachment 对齐）。assetId=UploadedMediaAsset.id。 */
+export interface ChatSendAttachment {
+  assetId: string;
+  kind: "image" | "video" | "audio";
+  mimeType: string;
 }
 
 /** config.get 响应 / config.save 入参：.chery/config.yaml 原文（除 server 段）。对齐后端 ConfigRaw。 */
@@ -96,6 +156,7 @@ export interface BrainConfigDto {
   rpm?: number;
   mock?: { enabled?: boolean; file: string };
   contextLimit?: number;
+  capabilities?: BrainCapabilitiesDto;
 }
 
 export interface McpServerConfigDto {
@@ -106,6 +167,9 @@ export interface McpServerConfigDto {
   url?: string;
   supervision?: "auto" | "confirm" | "manual";
 }
+
+export interface MediaServiceConfigDto { url: string; model?: string; key?: string; enabled?: boolean; }
+export interface MediaConfigDto { image?: MediaServiceConfigDto; video?: MediaServiceConfigDto; audio?: MediaServiceConfigDto; maxUploadMb?: number; }
 
 export interface GlobalConfigDto {
   thinking: boolean;
@@ -130,13 +194,22 @@ export interface GlobalConfigDto {
   };
 }
 
+/** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 */
+export interface PresetDto {
+  /** 组长角色 type 名（必填，主 pet 编制取 config.roles[leader]） */
+  leader: string;
+  /** 选中的角色 type 名 */
+  roles?: string[];
+}
+
 export interface ConfigDto {
   global: GlobalConfigDto;
   llm: { brain: Record<string, BrainConfigDto> };
+  media?: MediaConfigDto;
   sense_groups?: Record<string, string[]>;
   mcp_servers?: Record<string, McpServerConfigDto>;
-  default?: { brain: string; senseGroups: string[]; mcpServers?: string[] };
-  subagents?: Record<string, { brain: string; senseGroups: string[] }>;
+  roles?: Record<string, { brain: string; senseGroup: string; mcpServers?: string[]; systemPrompt?: string }>;
+  presets?: Record<string, PresetDto>;
 }
 
 function fail(method: string, res: RpcResponse): Error {
@@ -169,25 +242,44 @@ export const agentApi = {
     return data?.chats ?? [];
   },
 
-  /** chat.create：创建 chat。返回新建 chatId。 */
-  async createAgent(opts: CreateAgentOptions): Promise<string> {
-    const data = await call<{ chatId?: string }>("chat.create", {
-      brain: opts.brain,
-      senseGroups: opts.senseGroups,
+  /** chat.create：创建 chat。返回 chatId + 实际生效编制（预设路径由后端回填，供记 pet.runtime）。 */
+  async createAgent(opts: CreateAgentOptions): Promise<CreateAgentResult> {
+    const data = await call<{ chatId?: string; brain?: string; senseGroup?: string; mcpServers?: string[] }>("chat.create", {
+      ...(opts.preset ? { preset: opts.preset } : {}),
+      ...(opts.brain !== undefined ? { brain: opts.brain } : {}),
+      ...(opts.senseGroup !== undefined ? { senseGroup: opts.senseGroup } : {}),
       mcpServers: opts.mcpServers ?? [],
       chatId: opts.chatId,
       parentChatId: opts.parentChatId,
     });
-    if (!data?.chatId) throw new Error("chat.create: missing chatId in response");
-    return data.chatId;
+    if (!data?.chatId || !data.brain) {
+      throw new Error("chat.create: missing chatId/brain/senseGroup in response");
+    }
+    return { chatId: data.chatId, brain: data.brain, senseGroup: data.senseGroup ?? "", mcpServers: data.mcpServers ?? [] };
   },
 
   /**
    * chat.send：流式发消息。返回 requestId（agents store 记录 requestId→chatId 供 routeChunk）。
    * done 在流式结束 resolve；CP1 可不 await（chunk 路由独立）。
+   * P4：可选 attachments 参数，结构化附件（替代旧 [[media:]] 文本标记）。
+   *   服务端据 assetId + mimeType 合成 [[media:<filename>]] 标记追加到 prompt，
+   *   兼容既有 enrichMediaInputs 流程。前端 AgentDialog 把 MediaAttachment[] 传过来即可。
    */
-  sendMessage(chatId: string, text: string): { requestId: string; done: Promise<RpcResponse> } {
-    return callStream("chat.send", { chatId, prompt: text });
+  sendMessage(chatId: string, text: string, attachments?: ChatSendAttachment[]): { requestId: string; done: Promise<RpcResponse> } {
+    return callStream("chat.send", {
+      chatId,
+      prompt: text,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    });
+  },
+
+  /**
+   * chat.resume：流式续跑（无 prompt，run("") 起流）。T9 wait=true 唤醒轮用：
+   * 后端注入角色回复后推 role_reply → 前端调本方法 resume 主处理注入消息。
+   * 也用于重连续跑 interrupted wait-子。返回 requestId 供 chunk 路由。
+   */
+  resumeChat(chatId: string): { requestId: string; done: Promise<RpcResponse> } {
+    return callStream("chat.resume", { chatId });
   },
 
   /** runtime.set：原子设置 chat 的 brain + 工具组 + mcpServers。 */
@@ -195,9 +287,14 @@ export const agentApi = {
     await call("runtime.set", {
       chatId,
       brain: selection.brain,
-      senseGroups: selection.senseGroups,
+      senseGroup: selection.senseGroup,
       mcpServers: selection.mcpServers ?? [],
     });
+  },
+
+  /** session.runtime.set：临时设置主角色和小组角色编制，不持久化。 */
+  async setSessionRuntime(chatId: string, selection: SessionRuntimeSelection): Promise<void> {
+    await call("session.runtime.set", { chatId, ...selection });
   },
 
   /** chat.abort：中止当前流（清内存运行时 + 释放连接，不删 DB）。 */
@@ -221,14 +318,6 @@ export const agentApi = {
   /** sense.approval：审批（accept/reject）。approvalId 来自 interrupt notification。 */
   async approval(approvalId: string, action: ApprovalAction): Promise<void> {
     await call("sense.approval", { approvalId, action });
-  },
-
-  /**
-   * subagent.result：wait=true 时子 agent done 后回传结果，唤醒主 agent 挂起的 spawn_subagent sense。
-   * 参数 {chatId(子), content}。后端返回 matched（false = 无挂起 spawn，非异常，前端幂等可调）。
-   */
-  async subagentResult(chatId: string, content: string): Promise<void> {
-    await call("subagent.result", { chatId, content });
   },
 
   /**
@@ -257,41 +346,62 @@ export const agentApi = {
   },
 
   /**
-   * sense.tools：列出代码维护的全部内置工具（name/label/description），供设置面板感官分组下拉建议。
+   * sense.tools：列出代码维护的全部内置工具（name/label/description/icon），供设置面板感官分组下拉建议 + pet bar 运行中工具 icon 查询。
    * 仅内置；自定义/外部/MCP 工具不在内，靠组合框自由输入。返回形状容错（缺字段 -> 空数组）。
    */
   async listSenseTools(): Promise<SenseToolInfo[]> {
     const data = await call<Partial<{ tools: SenseToolInfo[] }>>("sense.tools", {});
     return Array.isArray(data?.tools) ? data.tools : [];
   },
+
+  /**
+   * sense.list：列出 config.sense_groups 全部组及其 sense 名（group→senses 解析）。
+   * 供前端「能力判定」——pet 的 senseGroups（组名）经此解析为 sense 名集合，判断是否含某工具（如 update_todo）。
+   * 返回形状容错（缺字段 -> 空数组）。
+   */
+  async listSenseGroups(): Promise<{ name: string; senses: string[] }[]> {
+    const data = await call<Partial<{ senseGroups?: { name: string; senses: string[] }[] }>>("sense.list", {});
+    return Array.isArray(data?.senseGroups) ? data.senseGroups : [];
+  },
+
+  /**
+   * prompts.list：递归列出 .chery/prompts/ 下全部 .md（含子文件夹），每项为相对 .chery/ 的路径
+   * （如 prompts/prefebMain/leader.md）。供设置面板 systemPrompt 级联选择器（el-cascader）建目录树。
+   * 返回形状容错（缺字段 -> 空数组）。
+   */
+  async listPrompts(): Promise<string[]> {
+    const data = await call<Partial<{ prompts?: string[] }>>("prompts.list", {});
+    return Array.isArray(data?.prompts) ? data.prompts : [];
+  },
+  async uploadMedia(file: File): Promise<UploadedMediaAsset> {
+    const server = await fetchServerConfig();
+    const response = await fetch(httpUrl("/api/media/upload"), {
+      method: "POST",
+      headers: { "Content-Type": file.type, "X-Filename": file.name, ...(server.sessionToken ? { "X-Chery-Session-Token": server.sessionToken } : {}) },
+      body: file,
+    });
+    if (!response.ok) throw new Error(`媒体上传失败: ${response.status}`);
+    return await response.json() as UploadedMediaAsset;
+  },
 };
 
 /**
- * /api/config 全量配置缓存（default + senseGroups）。
+ * /api/config 全量配置缓存（default + senseGroups + presets）。
  * 幂等：首次 fetch 后缓存；失败时清缓存置 null（下次仍 fetch 重试），错误显式抛出由调用方处理（规则 12）。
- * fetchDefaultRuntime（FAB default）+ AgentDialog（senseGroups）共享同一缓存，避免重复 fetch。
+ * AgentFab（presets）+ AgentDialog（senseGroups/default）共享同一缓存，避免重复 fetch。
  */
 let serverConfigCache: ConfigDefault | null | undefined;
 
 export async function fetchServerConfig(): Promise<ConfigDefault> {
-  if (serverConfigCache !== undefined) return serverConfigCache;
+  if (serverConfigCache) return serverConfigCache;
   try {
-    const res = await fetch("/api/config");
+    const res = await fetch(httpUrl("/api/config"));
     if (!res.ok) throw new Error(`/api/config ${res.status}`);
     serverConfigCache = (await res.json()) as ConfigDefault;
-    return serverConfigCache;
+    return serverConfigCache as ConfigDefault;
   } catch (e) {
     // 失败置 null（区分"未 fetch"与"fetch 成功但无 default"），下次不再重试
     serverConfigCache = null;
     throw e;
   }
-}
-
-/**
- * /api/config default 缓存（FAB 创建主 pet 用）。委托 fetchServerConfig 复用同一缓存。
- * 后端若尚未合并 default 字段 → 返回 null（AgentFab 兜底）。
- */
-export async function fetchDefaultRuntime(): Promise<RuntimeSelection | null> {
-  const cfg = await fetchServerConfig();
-  return cfg.default ?? null;
 }
