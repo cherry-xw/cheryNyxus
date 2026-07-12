@@ -113,6 +113,8 @@ export function createPetInstance(
     agentType: agent.agentType,
     isWorking: false,
     contextUsage: 0,
+    contextUsed: 0,
+    contextTotal: 0,
     isGhost: !!agent.finished,
     ghostFace: undefined,
     bubbleRepelExtra: 0,

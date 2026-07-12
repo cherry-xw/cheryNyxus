@@ -8,7 +8,7 @@
  *   - 一行 3 个：flex 三等分，tag 名 ellipsis；hover tag 显工具描述（title）。
  * 删组走 ConfirmPopover 二次确认；工具移除=tag 关闭（频繁操作，不二次确认）。
  */
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { Delete } from "@element-plus/icons-vue";
 import type { ConfigDto, SenseToolInfo } from "@/services/agentApi";
 import { SUPERVISIONS } from "../constants";
@@ -16,6 +16,7 @@ import { toolName, toolLevel, isDangerousSense, matchedTool } from "../shared";
 import ConfirmPopover from "../ConfirmPopover.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import SenseIcon from "../components/SenseIcon.vue";
+import TabShell, { type IndexItem } from "../components/TabShell.vue";
 
 const props = defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[] }>();
 const emit = defineEmits<{ (e: "error", msg: string): void }>();
@@ -130,13 +131,38 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
       return "info";
   }
 }
+
+/** 序号按钮列表：每感官组一项。brief 给 mini popper 用（工具数 + 最高监管等级）。 */
+const indexItems = computed<IndexItem[]>(() => {
+  const groups = props.draft.sense_groups ?? {};
+  return Object.entries(groups).map(([gname, entries]) => {
+    const levels = entries.map(toolLevel).filter(Boolean);
+    // 监管松紧排序：manual > confirm > auto
+    const severityRank = (l: string): number => (l === "manual" ? 3 : l === "confirm" ? 2 : l === "auto" ? 1 : 0);
+    const maxLevel = levels.length ? levels.reduce((a, b) => (severityRank(a) >= severityRank(b) ? a : b)) : "";
+    return {
+      label: gname,
+      count: entries.length,
+      maxLevel: maxLevel || "继承",
+    };
+  });
+});
 </script>
 
 <template>
-  <section class="sect">
-    <p class="sect-hint">给宠物装配的感官套餐。组名可点击改名；每组工具显为 tag，点 tag 内等级标切换监管，✕ 移除，hover 看说明。</p>
-    <p class="warn-hint">⚠️ execute_command / write_file 类感官危险（能跑命令/写文件）；配 :auto 等于放它自己执行不问你。</p>
-    <article v-for="(_, gname, idx) in draft.sense_groups" :key="gname" class="card">
+  <TabShell :index-items="indexItems">
+    <template #hints>
+      <p class="sect-hint">给宠物装配的感官套餐。组名可点击改名；每组工具显为 tag，点 tag 内等级标切换监管，✕ 移除，hover 看说明。</p>
+      <p class="warn-hint">⚠️ execute_command / write_file 类感官危险（能跑命令/写文件）；配 :auto 等于放它自己执行不问你。</p>
+    </template>
+    <template #popper="{ item }">
+      <div class="index-card">
+        <div class="index-card-title">{{ item.label as string }}</div>
+        <div class="index-card-line"><b>工具数</b><span>{{ (item.count as number) || '无' }}</span></div>
+        <div class="index-card-line"><b>最高监管</b><span>{{ item.maxLevel as string }}</span></div>
+      </div>
+    </template>
+    <article v-for="(_, gname, idx) in draft.sense_groups" :key="gname" class="card" :data-anchor="idx">
       <span class="card-idx">{{ idx + 1 }}</span>
       <header class="card-head">
         <EditableTitle
@@ -146,6 +172,11 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
           @error="onError"
         >
           <template #actions>
+            <span
+              v-if="(draft.sense_groups?.[gname as string] ?? []).some(isDangerousSense)"
+              class="warn-hint inline-warn"
+              title="含危险感官"
+            >⚠️ 危险</span>
             <ConfirmPopover :title="`确认删除感官组「${gname}」？`" @confirm="removeGroup(gname as string)">
               <template #trigger>
                 <button type="button" class="icon-btn danger" aria-label="删除">
@@ -199,15 +230,12 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
           </el-option>
         </el-select>
       </div>
-      <p v-if="(draft.sense_groups?.[gname as string] ?? []).some(isDangerousSense)" class="warn-hint">
-        ⚠️ 含危险感官
-      </p>
     </article>
     <div class="add-row">
       <el-input v-model="newGroupName" placeholder="新组名" @keydown.enter="addGroup" />
       <button type="button" class="ghost-btn" @click="addGroup">+ 新增组</button>
     </div>
-  </section>
+  </TabShell>
 </template>
 
 <style scoped lang="less">
@@ -271,6 +299,15 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
     font-style: italic;
     opacity: 0.5;
   }
+}
+
+// 行内警告：缩到与 icon-btn 同档（24px 行高内），置于删除按钮左侧。
+// 全局 .warn-hint 在 shared.less 中 padding 5px 8px、行高 1.4，对 24px 标题行偏厚。
+.warn-hint.inline-warn {
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1.4;
+  border-radius: 4px;
 }
 </style>
 

@@ -14,11 +14,15 @@ import { getSessionRoleRuntime, setEphemeralChatRuntime } from "@/service/chat/r
 // - catalog = config.roles 全集（单一源，模块加载期冻结；预设按 type 引用，不在预设内重定义）。
 //   sense 定义不支持 per-chat 动态，故 catalog 为全局全集让 LLM 可见所有类型；
 //   实际可 spawn 类型由执行期 roster gate 强制（preset chat 限选中集，见 resolveSpawnRoster）。
-// - description 运行时拼接 catalog（每类型 brain + senseGroup），senseGroup 显组名不展开
-//   （组名即"能力体现"，见 docs/agent-pet.md §2）
-const roleCatalog = new Map<string, { brain: string; senseGroup: string }>();
+// - description 运行时拼接 catalog（每类型 brain(input: ...) + senseGroup），
+//   input 维度从 brain config 动态读取（image/video/audio），主 agent 据此判断媒体委派目标。
+const roleCatalog = new Map<string, { brain: string; senseGroup: string; inputCapabilities: string[] }>();
 for (const [name, cfg] of Object.entries(config.roles ?? {})) {
-  roleCatalog.set(name, { brain: cfg.brain, senseGroup: cfg.senseGroup });
+  const brainCfg = config.llm.brain[cfg.brain];
+  const inputCaps = Object.entries(brainCfg?.capabilities?.input ?? {})
+    .filter(([, v]) => v === true)
+    .map(([k]) => k);
+  roleCatalog.set(name, { brain: cfg.brain, senseGroup: cfg.senseGroup, inputCapabilities: inputCaps });
 }
 const roleKeys = [...roleCatalog.keys()];
 const typeSchema =
@@ -29,7 +33,10 @@ const catalogText = roleKeys.length
   ? roleKeys
       .map((name) => {
         const c = roleCatalog.get(name);
-        return `- ${name}: brain=${c?.brain}, senseGroup=${c?.senseGroup ?? ""}`;
+        const inputStr = c?.inputCapabilities.length
+          ? `(input: ${c.inputCapabilities.join("+")})`
+          : "(input: none)";
+        return `- ${name}: brain=${c?.brain}${inputStr}, senseGroup=${c?.senseGroup ?? ""}`;
       })
       .join("\n")
   : "（未配置任何角色）";

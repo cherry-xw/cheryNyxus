@@ -19,6 +19,7 @@ import { formatTime } from "@/utils/formatTime";
 import SenseCallBox from "./SenseCallBox.vue";
 import TodoSenseBox from "./TodoSenseBox.vue";
 import MessageAvatar from "./MessageAvatar.vue";
+import MediaInlineRenderer from "./dialog/media/MediaInlineRenderer.vue";
 
 const props = defineProps<{
   item: HistoryItem;
@@ -115,6 +116,11 @@ const emit = defineEmits<{
         <!-- eslint-disable-next-line vue/no-v-html -- markdown-it html:false 已转义，XSS 安全 -->
         <span v-if="isMarkdown" class="md" v-html="renderedContent" />
         <template v-else>{{ props.item.content }}</template>
+        <!-- 内联媒体预览 -->
+        <MediaInlineRenderer
+          v-if="props.item.mediaAssets && props.item.mediaAssets.length > 0"
+          :assets="props.item.mediaAssets"
+        />
       </div>
       <div v-if="hasSenseCalls" class="sense-list">
         <template v-for="(call, idx) in props.item.senseCalls" :key="call.id ?? `${call.name}-${idx}`">

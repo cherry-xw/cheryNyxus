@@ -5,12 +5,13 @@
  * 运行时采用组长的角色配置（不在预设内重定义 brain/sense）。
  * 增删预设走底部输入框 + ConfirmPopover 二次确认；标题可点击改名。合法性由后端 config.save 校验 fail loud。
  */
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { ArrowDown, Check, Delete } from "@element-plus/icons-vue";
 import type { ConfigDto, SenseToolInfo } from "@/services/agentApi";
 import ConfirmPopover from "../ConfirmPopover.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import SenseIcon from "../components/SenseIcon.vue";
+import TabShell, { type IndexItem } from "../components/TabShell.vue";
 
 const props = defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[] }>();
 const emit = defineEmits<{ (e: "error", msg: string): void }>();
@@ -71,13 +72,46 @@ function setLeader(pname: string, role: string): void {
   if (!(p.roles ?? []).includes(role)) p.roles = [...(p.roles ?? []), role];
   p.leader = role;
 }
+
+/** 按类型筛选媒体服务名（供下拉选项）。 */
+function mediaNamesByType(type: "image" | "video" | "audio"): string[] {
+  if (!props.draft.media) return [];
+  return Object.entries(props.draft.media)
+    .filter(([, cfg]) => cfg.type === type)
+    .map(([name]) => name);
+}
+
+/** 序号按钮列表：每预设一项。brief 给 mini popper 用（成员数 + 组长 + 媒体服务）。 */
+const indexItems = computed<IndexItem[]>(() => {
+  const presets = props.draft.presets ?? {};
+  return Object.entries(presets).map(([pname, p]) => ({
+    label: pname,
+    count: (p.roles ?? []).length,
+    leader: p.leader || "未指定",
+    mediaImage: p.mediaImage || "未挂载",
+    mediaVideo: p.mediaVideo || "未挂载",
+    mediaAudio: p.mediaAudio || "未挂载",
+  }));
+});
 </script>
 
 <template>
-  <section class="sect">
-    <p class="sect-hint">预设用于快速组建团队：选择成员，再从成员中指定组长。保存后的修改只会用于之后新建的会话，进行中的会话不受影响。</p>
+  <TabShell :index-items="indexItems">
+    <template #hints>
+      <p class="sect-hint">预设用于快速组建团队：选择成员，再从成员中指定组长。保存后的修改只会用于之后新建的会话，进行中的会话不受影响。</p>
+    </template>
+    <template #popper="{ item }">
+      <div class="index-card">
+        <div class="index-card-title">{{ item.label as string }}</div>
+        <div class="index-card-line"><b>成员数</b><span>{{ (item.count as number) || '无' }}</span></div>
+        <div class="index-card-line"><b>组长</b><span>{{ item.leader as string }}</span></div>
+        <div class="index-card-line"><b>🖼️ 图片</b><span>{{ item.mediaImage as string }}</span></div>
+        <div class="index-card-line"><b>🎬 视频</b><span>{{ item.mediaVideo as string }}</span></div>
+        <div class="index-card-line"><b>🎵 音频</b><span>{{ item.mediaAudio as string }}</span></div>
+      </div>
+    </template>
 
-    <article v-for="(preset, pname, idx) in draft.presets" :key="pname" class="card">
+    <article v-for="(preset, pname, idx) in draft.presets" :key="pname" class="card" :data-anchor="idx">
       <span class="card-idx">{{ idx + 1 }}</span>
       <header class="card-head">
         <EditableTitle
@@ -152,6 +186,54 @@ function setLeader(pname: string, role: string): void {
         <span v-if="preset.roles && preset.roles.length && !preset.leader" class="hint">⚠️ 必须指定组长</span>
         <span v-else-if="!preset.roles || !preset.roles.length" class="hint">先选择团队成员</span>
       </div>
+
+      <div class="field">
+        <span class="lbl">媒体服务</span>
+        <template v-if="draft.media && Object.keys(draft.media).length">
+          <div class="card-grid card-grid-3 media-row">
+            <label class="field">
+              <span class="lbl">🖼️ 图片</span>
+              <el-select
+                :model-value="preset.mediaImage ?? ''"
+                @update:model-value="(v: string) => preset.mediaImage = v || undefined"
+                placeholder="未选择"
+                clearable
+                size="small"
+              >
+                <el-option v-for="n in mediaNamesByType('image')" :key="n" :value="n" :label="n" />
+              </el-select>
+            </label>
+            <label class="field">
+              <span class="lbl">🎬 视频</span>
+              <el-select
+                :model-value="preset.mediaVideo ?? ''"
+                @update:model-value="(v: string) => preset.mediaVideo = v || undefined"
+                placeholder="未选择"
+                clearable
+                size="small"
+              >
+                <el-option v-for="n in mediaNamesByType('video')" :key="n" :value="n" :label="n" />
+              </el-select>
+            </label>
+            <label class="field">
+              <span class="lbl">🎵 音频</span>
+              <el-select
+                :model-value="preset.mediaAudio ?? ''"
+                @update:model-value="(v: string) => preset.mediaAudio = v || undefined"
+                placeholder="未选择"
+                clearable
+                size="small"
+              >
+                <el-option v-for="n in mediaNamesByType('audio')" :key="n" :value="n" :label="n" />
+              </el-select>
+            </label>
+          </div>
+          <span class="hint">按类型选择媒体服务。不选则该类型无媒体能力。</span>
+        </template>
+        <span v-else class="empty">
+          暂无媒体服务。在「🖼️ 媒体服务」tab 中新建。
+        </span>
+      </div>
     </article>
 
     <p v-if="!draft.presets || !Object.keys(draft.presets).length" class="empty">
@@ -162,7 +244,7 @@ function setLeader(pname: string, role: string): void {
       <el-input v-model="newPresetName" placeholder="新预设名（如 light / project）" @keydown.enter="addPreset" />
       <button type="button" class="ghost-btn" @click="addPreset">+ 新增预设</button>
     </div>
-  </section>
+  </TabShell>
 </template>
 
 <style scoped lang="less">
@@ -228,7 +310,6 @@ function setLeader(pname: string, role: string): void {
     color: rgba(20, 22, 26, 0.9);
   }
   &.leader {
-    padding-right: 20px;
     border-color: #d99717;
     background: rgba(246, 183, 60, 0.23);
   }
@@ -299,6 +380,17 @@ function setLeader(pname: string, role: string): void {
   svg {
     width: 6px;
     height: 6px;
+  }
+}
+
+// 媒体三选 row：紧凑横排（gap 缩小到 6px），与 small size el-select 配套不显笨重。
+.media-row {
+  gap: 6px;
+  .field {
+    gap: 2px;
+    .lbl {
+      font-size: 10px;
+    }
   }
 }
 </style>

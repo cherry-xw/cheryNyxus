@@ -4,18 +4,17 @@
  * 简化估算：字符数 / 4（英文近似 4 char/token；中文偏保守但够用）。
  * 后续接 tokenizer（如 js-tiktoken）时替换 estimateTokens 实现即可，调用点不变。
  *
- * 用量 = chat 所有非 revoked 消息 content+thinking 累加 token /（brain.contextLimit KB × 256），
- * clamp [0,1]。估算失败不阻塞（规则 12 fail loud：兜底 0 + console.warn，避免 chat.send/get 因
+ * 用量 = chat 所有非 revoked 消息 content+thinking 累加 token / brain.contextLimit，
+ * clamp [0,1]。contextLimit 单位为 token（与 config.llm.brain[name].contextLimit 一致）。
+ * 估算失败不阻塞（规则 12 fail loud：兜底 0 + console.warn，避免 chat.send/get 因
  * token 计算挂掉）。
  */
 import { getMessages, type MessageRow } from "@/db/chat.js";
 import { getChatRuntimeSelection } from "@/db/chat.js";
 import config from "@/utils/config";
 
-/** contextLimit 兜底值（KB）：brain 未配 contextLimit 时使用（≈原 8192 token） */
-const DEFAULT_CONTEXT_LIMIT_KB = 32;
-/** KB → token 预算换算：1KB≈1024 char ÷ 4 char/token = 256 token/KB */
-const TOKENS_PER_KB = 256;
+/** contextLimit 兜底值（token）：brain 未配 contextLimit 时使用 */
+const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192;
 
 /**
  * 估算文本 token 数（简化：字符数 / 4，向上取整）。
@@ -48,28 +47,43 @@ export function sumChatTokens(chatId: string): number {
 }
 
 /**
- * 计算 chat 上下文用量比例（0-1）。
- *
- * limit 来源：chat 持久化 runtime 的 brain 对应 config.llm.brain[brain].contextLimit（单位 KB）；
- * brain 未配或缺失 → DEFAULT_CONTEXT_LIMIT_KB 兜底。KB × TOKENS_PER_KB 折算为 token 预算作分母。
- * 异常（chat 不存在/DB 读失败）→ 兜底 0 + console.warn（不阻塞调用方）。
+ * chat 上下文用量详情（computeContextUsage 返回值）。
+ * - usage：比例（0-1），clamp
+ * - used：已用 token 数（估算值，字符数/4）
+ * - total：上限 token 数（brain.contextLimit，单位 token）
  */
-export function computeContextUsage(chatId: string): number {
+export interface ContextUsageDetail {
+  usage: number;
+  used: number;
+  total: number;
+}
+
+/**
+ * 计算 chat 上下文用量详情（比例 + 已用 token + 总预算 token）。
+ *
+ * limit 来源：chat 持久化 runtime 的 brain 对应 config.llm.brain[brain].contextLimit（单位 token）；
+ * brain 未配或缺失 → DEFAULT_CONTEXT_LIMIT_TOKENS 兜底。
+ * 异常（chat 不存在/DB 读失败）→ 兜底 {usage:0, used:0, total:DEFAULT} + console.warn（不阻塞调用方）。
+ */
+export function computeContextUsage(chatId: string): ContextUsageDetail {
   try {
     const used = sumChatTokens(chatId);
     const selection = getChatRuntimeSelection(chatId);
     const brainName = selection?.brain;
-    const limitKB =
+    const limitTokens =
       (brainName && config.llm.brain[brainName]?.contextLimit) ||
-      DEFAULT_CONTEXT_LIMIT_KB;
-    const limitTokens = limitKB * TOKENS_PER_KB;
-    if (limitTokens <= 0) return 0;
-    return Math.min(1, used / limitTokens);
+      DEFAULT_CONTEXT_LIMIT_TOKENS;
+    if (limitTokens <= 0) return { usage: 0, used, total: 0 };
+    return {
+      usage: Math.min(1, used / limitTokens),
+      used,
+      total: limitTokens,
+    };
   } catch (err) {
     console.warn(
       `[token] computeContextUsage(${chatId}) failed, fallback 0:`,
       (err as Error).message,
     );
-    return 0;
+    return { usage: 0, used: 0, total: DEFAULT_CONTEXT_LIMIT_TOKENS };
   }
 }

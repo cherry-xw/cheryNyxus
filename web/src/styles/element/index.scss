@@ -18,3 +18,19 @@
 
 // 全量导入：编译完整 element-plus 主题（含上述覆盖后的派生色）
 @use 'element-plus/theme-chalk/src/index.scss' as *;
+
+// el-popconfirm 删除二次确认样式修正：
+// 1. 名字（标题）不换行 → white-space: nowrap
+// 2. 问号图标对齐首行居中（EP 默认 align-items:center 会居中于多行内容之间）
+.el-popconfirm {
+  &__main {
+    align-items: flex-start;
+  }
+  &__icon {
+    // 首行行高约 22px；图标 16px；margin-top 让图标视觉居中于首行
+    margin-top: 2px;
+  }
+  &__title {
+    white-space: nowrap;
+  }
+}

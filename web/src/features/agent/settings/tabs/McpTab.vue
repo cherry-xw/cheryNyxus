@@ -3,11 +3,12 @@
  * McpTab：MCP 服务（config.mcp_servers）配置。
  * stdio=本地子进程；streamable-http=连远程。删除走 ConfirmPopover 二次确认。
  */
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { Delete } from "@element-plus/icons-vue";
 import type { ConfigDto } from "@/services/agentApi";
 import { SUPERVISIONS, SUPERVISION_LABEL } from "../constants";
 import ConfirmPopover from "../ConfirmPopover.vue";
+import TabShell, { type IndexItem } from "../components/TabShell.vue";
 
 const props = defineProps<{ draft: ConfigDto }>();
 const emit = defineEmits<{ (e: "error", msg: string): void }>();
@@ -29,13 +30,35 @@ function removeMcp(name: string): void {
   if (!props.draft.mcp_servers) return;
   delete props.draft.mcp_servers[name];
 }
+
+/** 序号按钮列表：每 MCP 服务一项。brief 给 mini popper 用（transport + url/command）。 */
+const indexItems = computed<IndexItem[]>(() => {
+  const servers = props.draft.mcp_servers ?? {};
+  return Object.entries(servers).map(([mname, cfg]) => ({
+    label: mname,
+    transport: cfg.transport ?? "stdio",
+    target: cfg.transport === "streamable-http" ? (cfg.url ?? "") : (cfg.command ?? ""),
+  }));
+});
 </script>
 
 <template>
-  <section class="sect">
-    <p class="sect-hint">外挂工具站。stdio=本地起子进程；streamable-http=连远程。</p>
-    <p class="warn-hint">⚠️ env 注入与远程 server 网络可达性需自行确认。</p>
-    <article v-for="(cfg, mname, idx) in draft.mcp_servers" :key="mname" class="card">
+  <TabShell :index-items="indexItems">
+    <template #hints>
+      <p class="sect-hint">外挂工具站。stdio=本地起子进程；streamable-http=连远程。</p>
+      <p class="warn-hint">⚠️ env 注入与远程 server 网络可达性需自行确认。</p>
+    </template>
+    <template #popper="{ item }">
+      <div class="index-card">
+        <div class="index-card-title">{{ item.label as string }}</div>
+        <div class="index-card-line"><b>传输</b><span>{{ item.transport as string }}</span></div>
+        <div v-if="item.target" class="index-card-line">
+          <b>{{ item.transport === 'streamable-http' ? 'url' : 'cmd' }}</b>
+          <span>{{ item.target as string }}</span>
+        </div>
+      </div>
+    </template>
+    <article v-for="(cfg, mname, idx) in draft.mcp_servers" :key="mname" class="card" :data-anchor="idx">
       <span class="card-idx">{{ idx + 1 }}</span>
       <header class="card-head">
         <span class="card-name">{{ mname }}</span>
@@ -86,7 +109,7 @@ function removeMcp(name: string): void {
       <el-input v-model="newMcpName" placeholder="新 server 名" @keydown.enter="addMcp" />
       <button type="button" class="ghost-btn" @click="addMcp">+ 新增</button>
     </div>
-  </section>
+  </TabShell>
 </template>
 
 <style scoped lang="less">

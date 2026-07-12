@@ -5,9 +5,12 @@ import {
   Method,
   type UtilsModelsRequestData,
   type UtilsModelsResponseData,
+  type EnvListRequestData,
+  type EnvListResponseData,
 } from "../message/types.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import { replaceEnvVars, listEnvVarNames } from "@/utils/config.js";
 
 /**
  * utils.models：基于用户提供的 provider/url/key 拉取可用模型列表。
@@ -17,7 +20,9 @@ export async function handleUtilsModels(
   _ctx: HandlerContext,
   data: UtilsModelsRequestData,
 ): Promise<UtilsModelsResponseData> {
-  const { provider, url, key } = data;
+  const provider = data.provider;
+  const url = replaceEnvVars(data.url) as string;
+  const key = data.key ? (replaceEnvVars(data.key) as string) : undefined;
 
   try {
     switch (provider) {
@@ -64,6 +69,16 @@ async function fetchOllamaModels(
 }
 
 /**
+ * env.list：返回 .env 文件中的变量名列表（供前端密钥下拉选择）。
+ */
+export async function handleEnvList(
+  _ctx: HandlerContext,
+  _data: EnvListRequestData,
+): Promise<EnvListResponseData> {
+  return { vars: listEnvVarNames() };
+}
+
+/**
  * 注册 Utils handlers
  */
 export function registerUtilsHandlers(
@@ -72,5 +87,9 @@ export function registerUtilsHandlers(
   router.register<UtilsModelsRequestData, UtilsModelsResponseData>(
     Method.UTILS_MODELS,
     handleUtilsModels,
+  );
+  router.register<EnvListRequestData, EnvListResponseData>(
+    Method.ENV_LIST,
+    handleEnvList,
   );
 }

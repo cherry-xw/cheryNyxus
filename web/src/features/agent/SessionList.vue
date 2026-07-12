@@ -10,7 +10,7 @@
  * 命名区分 HistoryDrawer（单 pet 消息史，▤）；本组件 = 会话列表（☰）。
  * motion-v：inline initial/animate/exit 字面量（同 HistoryDrawer 风格，无 TargetAndTransition 导出）。
  */
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ElMessageBox } from "element-plus";
 import { useAgentsStore } from "@/stores";
@@ -47,6 +47,30 @@ function close(): void {
 
 function onOverlayClick(e: MouseEvent): void {
   if (e.target === e.currentTarget) close();
+}
+
+// 全局 ESC 关闭抽屉（仅在 open 时生效；匹配 AgentDialog / HistoryDrawer 模式）。
+function onGlobalKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape" && open.value) {
+    e.preventDefault();
+    close();
+  }
+}
+window.addEventListener("keydown", onGlobalKeydown);
+onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
+
+/** contextUsage 颜色分级（与 ContextBar 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
+function usageClass(u: number): string {
+  if (u >= 0.8) return "usage-high";
+  if (u >= 0.5) return "usage-mid";
+  return "usage-low";
+}
+
+/** 格式化 token 数：< 1000 直显，≥ 1000 缩写为 1.2K/12K 等。 */
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
+  return `${Math.round(n / 1000)}K`;
 }
 
 function load(chatId: string): void {
@@ -123,10 +147,18 @@ async function remove(chatId: string): Promise<void> {
               @click="load(s.chatId)"
             >
               <div class="row-main">
-                <span class="preview">{{ s.preview || "(无消息)" }}</span>
+                <span class="preview-line">
+                  <span class="preview">{{ s.preview || "(无消息)" }}</span>
+                </span>
                 <span class="meta">
                   <span class="time">{{ formatTime(s.updatedAt) }}</span>
                   <span class="turns">{{ s.turnCount ?? 0 }} 轮</span>
+                  <span v-if="typeof s.contextUsage === 'number'" class="usage" :class="usageClass(s.contextUsage)">
+                    <span v-if="typeof s.contextUsed === 'number' && typeof s.contextTotal === 'number' && s.contextTotal > 0" class="usage-detail">
+                      {{ fmtTokens(s.contextUsed) }}/{{ fmtTokens(s.contextTotal) }}
+                    </span>
+                    <span class="usage-pct">{{ Math.round(s.contextUsage * 100) }}%</span>
+                  </span>
                 </span>
               </div>
               <button
@@ -252,6 +284,40 @@ async function remove(chatId: string): Promise<void> {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .preview-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .usage {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    padding: 1px 6px;
+    border-radius: 4px;
+    line-height: 1.3;
+
+    &.usage-low { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
+    &.usage-mid { background: rgba(234, 179, 8, 0.16); color: #a16207; }
+    &.usage-high { background: rgba(239, 68, 68, 0.16); color: #b91c1c; }
+
+    .usage-detail {
+      opacity: 0.78;
+      font-weight: 500;
+    }
+
+    .usage-pct {
+      font-weight: 800;
+    }
   }
 
   .meta {

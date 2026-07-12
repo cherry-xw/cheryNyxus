@@ -2,55 +2,83 @@
 /**
  * GlobalTab：全局配置（config.global），所有宠物共享的脾气。
  * supervision 默认监管 / thinking / stream / 各超时与上限 / logger / file_compression。
+ * 三段内容视为 3 张虚拟卡，由 TabShell 的序号按钮导航（logger / file_compression 可能不存在，动态生成 indexItems）。
  */
+import { computed } from "vue";
 import type { ConfigDto } from "@/services/agentApi";
 import { SUPERVISIONS, SUPERVISION_LABEL } from "../constants";
 import LabelTip from "../components/LabelTip.vue";
+import TabShell, { type IndexItem } from "../components/TabShell.vue";
 
-defineProps<{ draft: ConfigDto }>();
+const props = defineProps<{ draft: ConfigDto }>();
+
+/** 序号按钮列表：默认监管常驻；logger / file_compression 按配置动态生成。 */
+const indexItems = computed<IndexItem[]>(() => {
+  const items: IndexItem[] = [
+    { label: "默认监管", anchor: "default", brief: "监管模式 / 思考 / 流式 / 超时上限" },
+  ];
+  if (props.draft.global.logger) {
+    items.push({ label: "应用日志", anchor: "logger", brief: "等级 / 格式 / 输出位置" });
+  }
+  if (props.draft.global.file_compression) {
+    items.push({ label: "大文件压缩", anchor: "compression", brief: "阈值 / 预览行数 / 日志扩展名" });
+  }
+  return items;
+});
 </script>
 
 <template>
-  <section class="sect">
-    <p class="sect-hint">所有会话共用的运行规则。留空的数值将使用系统默认值，输入后才会覆盖默认设置。</p>
-    <label class="field">
-      <span class="lbl">默认监管</span>
-      <el-select v-model="draft.global.supervision">
-        <el-option v-for="s in SUPERVISIONS" :key="s" :label="SUPERVISION_LABEL[s]" :value="s" />
-      </el-select>
-      <span class="hint">自动=全自动 / 确认=关键事问你 / 手动=事事问你。⚠️ 降级越低越危险。</span>
-    </label>
-    <div class="field-row">
-      <el-checkbox
-        :model-value="draft.global.thinking"
-        @change="(v: unknown) => (draft.global.thinking = v as boolean)"
-      >思考模式</el-checkbox>
-      <el-checkbox
-        :model-value="draft.global.stream"
-        @change="(v: unknown) => (draft.global.stream = v as boolean)"
-      >流式输出（边想边说）</el-checkbox>
-    </div>
-    <div class="card-grid">
+  <TabShell :index-items="indexItems">
+    <template #hints>
+      <p class="sect-hint">所有会话共用的运行规则。留空的数值将使用系统默认值，输入后才会覆盖默认设置。</p>
+    </template>
+    <template #popper="{ item }">
+      <div class="index-card">
+        <div class="index-card-title">{{ item.label as string }}</div>
+        <div class="index-card-line"><b>内容</b><span>{{ item.brief as string }}</span></div>
+      </div>
+    </template>
+
+    <div class="card global-section" data-anchor="default">
       <label class="field">
-        <LabelTip label="工具执行超时（ms）" tip="sense_execute_timeout：单次工具执行的最长等待时间" />
-        <el-input-number v-model="draft.global.sense_execute_timeout" :controls="false" placeholder="默认 30000" />
+        <span class="lbl">默认监管</span>
+        <el-select v-model="draft.global.supervision">
+          <el-option v-for="s in SUPERVISIONS" :key="s" :label="SUPERVISION_LABEL[s]" :value="s" />
+        </el-select>
+        <span class="hint">自动=全自动 / 确认=关键事问你 / 手动=事事问你。⚠️ 降级越低越危险。</span>
       </label>
-      <label class="field">
-        <LabelTip label="审批等待（ms）" tip="approval_timeout：等待人工审批的时间；超时按拒绝处理" />
-        <el-input-number v-model="draft.global.approval_timeout" :controls="false" placeholder="默认不超时" />
-      </label>
-      <label class="field">
-        <LabelTip label="单轮工具调用上限" tip="maxLoopCount：单轮会话可连续调用工具的次数" />
-        <el-input-number v-model="draft.global.maxLoopCount" :controls="false" placeholder="默认 30" />
-        <span class="hint">⚠️ 调高烧钱</span>
-      </label>
-      <label class="field">
-        <LabelTip label="命令日志保留（小时）" tip="bash_log_retention_hours：仅清理 execute_command 产生的命令日志，不影响应用运行日志" />
-        <el-input-number v-model="draft.global.bash_log_retention_hours" :controls="false" placeholder="默认 24" />
-      </label>
+      <div class="field-row">
+        <el-checkbox
+          :model-value="draft.global.thinking"
+          @change="(v: unknown) => (draft.global.thinking = v as boolean)"
+        >思考模式</el-checkbox>
+        <el-checkbox
+          :model-value="draft.global.stream"
+          @change="(v: unknown) => (draft.global.stream = v as boolean)"
+        >流式输出（边想边说）</el-checkbox>
+      </div>
+      <div class="card-grid">
+        <label class="field">
+          <LabelTip label="工具执行超时（ms）" tip="工具执行的最长等待时间，超过此时间将进入后台执行" />
+          <el-input-number v-model="draft.global.sense_execute_timeout" :controls="false" placeholder="默认 30000" />
+        </label>
+        <label class="field">
+          <LabelTip label="审批等待（ms）" tip="approval_timeout：等待人工审批的时间；超时按拒绝处理" />
+          <el-input-number v-model="draft.global.approval_timeout" :controls="false" placeholder="默认不超时" />
+        </label>
+        <label class="field">
+          <LabelTip label="单轮工具调用上限" tip="maxLoopCount：单轮会话可连续调用工具的次数" />
+          <el-input-number v-model="draft.global.maxLoopCount" :controls="false" placeholder="默认 30" />
+          <span class="hint">⚠️ 调高烧钱</span>
+        </label>
+        <label class="field">
+          <LabelTip label="命令日志保留（小时）" tip="bash_log_retention_hours：仅清理 execute_command 产生的命令日志，不影响应用运行日志" />
+          <el-input-number v-model="draft.global.bash_log_retention_hours" :controls="false" placeholder="默认 24" />
+        </label>
+      </div>
     </div>
 
-    <template v-if="draft.global.logger">
+    <div v-if="draft.global.logger" class="card global-section" data-anchor="logger">
       <h3 class="sub-title">应用日志</h3>
       <div class="card-grid">
         <label class="field">
@@ -88,9 +116,9 @@ defineProps<{ draft: ConfigDto }>();
           >调用位置</el-checkbox>
         </div>
       </div>
-    </template>
+    </div>
 
-    <template v-if="draft.global.file_compression">
+    <div v-if="draft.global.file_compression" class="card global-section" data-anchor="compression">
       <h3 class="sub-title">读取大文件时的内容压缩</h3>
       <p class="sect-hint">此设置只影响 <code>read_file</code> 返回给模型的内容，不会修改磁盘文件：超大普通文件会截断，日志文件会按重复模式压缩。</p>
       <div class="card-grid">
@@ -114,10 +142,15 @@ defineProps<{ draft: ConfigDto }>();
           />
         </label>
       </div>
-    </template>
-  </section>
+    </div>
+  </TabShell>
 </template>
 
 <style scoped lang="less">
 @import "../shared.less";
+
+.global-section {
+  // 段与段之间稍微多留一点间距，让导航切换后视觉上有区分。
+  gap: 10px;
+}
 </style>

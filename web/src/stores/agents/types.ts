@@ -7,6 +7,16 @@
 
 import type { RuntimeSelection } from "@/services/agentApi";
 
+/** 消息内嵌媒体引用（从 content/result 解析 `/api/media/` URL）。 */
+export interface MediaAssetRef {
+  /** 媒体文件名（如 `uuid.mp4`），对应 `/api/media/<filename>` */
+  filename: string;
+  /** 媒体类型 */
+  kind: "image" | "video" | "audio";
+  /** MIME 类型（如 `video/mp4`） */
+  mimeType: string;
+}
+
 /** 历史 sense 调用记录（累积到 assistant HistoryItem）。staged 回放一律 done；running/error 留给实时流 CP。 */
 export interface SenseCallRecord {
   /** sense message 主键（与后端 LLMResponse.id 对齐）；旧 staged 缺省。 */
@@ -15,6 +25,8 @@ export interface SenseCallRecord {
   args?: unknown;
   result?: unknown;
   status: "running" | "done" | "error";
+  /** sense 执行结果内嵌的媒体资产（从 result 字符串解析） */
+  mediaAssets?: MediaAssetRef[];
 }
 
 /** 运行中工具（sense_started push；accept 按 id 移除；done/error 清空）。id=sense 调用 id。 */
@@ -37,6 +49,8 @@ export interface HistoryItem {
   content: string;
   thinking?: string;
   senseCalls?: SenseCallRecord[];
+  /** 消息内嵌媒体资产（从 content 中的 `/api/media/<filename>` URL 解析） */
+  mediaAssets?: MediaAssetRef[];
   /** 标注消息归属的 pet name（role(b)注入式=agentType；其余=pet.name 由 UI 查 pets） */
   petName?: string;
   /** master/role(合并式) 关联的子 pet chatId；UI 据此从 pets 查真实 face.calm + name。注入式 role(b) 无此字段。 */

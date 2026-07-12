@@ -12,6 +12,8 @@ import {
   type ChatDeleteRequestData,
   type ChatListRequestData,
   type ChatListResponseData,
+  type ChatContextUsageRequestData,
+  type ChatContextUsageResponseData,
 } from "../message/types.js";
 import {
   createChat,
@@ -141,7 +143,8 @@ export async function handleChatList(
     };
     if (!data.includePreview || !previews) return base;
     const p = previews.get(chat.id);
-    return { ...base, preview: p?.preview ?? "", turnCount: p?.turnCount ?? 0 };
+    const detail = computeContextUsage(chat.id);
+    return { ...base, preview: p?.preview ?? "", turnCount: p?.turnCount ?? 0, contextUsage: detail.usage, contextUsed: detail.used, contextTotal: detail.total };
   });
 
   logger.event("chat.list", { count: chats.length, includePreview: !!data.includePreview });
@@ -225,13 +228,13 @@ export async function* handleChatGet(
 
   // CP7：contextUsage = 当前 chat 总 token / brain.contextLimit，供前端 ContextBar 渲染。
   // 历史载入后计算一次（前端 chat.get response 同步带值），发消息时由 done notification 实时更新。
-  const contextUsage = computeContextUsage(p.chatId);
+  const ctxDetail = computeContextUsage(p.chatId);
 
   // 复用共享判定（同 chat.list）
   const canResume = computeCanResume(p.chatId);
 
-  logger.event("chat.get", { chatId: p.chatId, messageCount: messages.length, canResume, contextUsage });
-  return { chatId: p.chatId, canResume, contextUsage };
+  logger.event("chat.get", { chatId: p.chatId, messageCount: messages.length, canResume, contextUsage: ctxDetail.usage });
+  return { chatId: p.chatId, canResume, contextUsage: ctxDetail.usage, contextUsed: ctxDetail.used, contextTotal: ctxDetail.total };
 }
 
 /**
@@ -281,6 +284,18 @@ export async function handleChatDelete(
 }
 
 /**
+ * chat.contextUsage：轻量取上下文用量详情（不流式回历史）。
+ * 前端 initFromChats 后为每个可见 pet 拉一次，驱动 ContextBar 初始渲染。
+ */
+export async function handleChatContextUsage(
+  _ctx: HandlerContext,
+  data: ChatContextUsageRequestData,
+): Promise<ChatContextUsageResponseData> {
+  const detail = computeContextUsage(data.chatId);
+  return { chatId: data.chatId, contextUsage: detail.usage, contextUsed: detail.used, contextTotal: detail.total };
+}
+
+/**
  * 注册 Chat 管理 handlers
  */
 export function registerChatManageHandlers(router: import("../message/router.js").RpcRouter): void {
@@ -288,4 +303,5 @@ export function registerChatManageHandlers(router: import("../message/router.js"
   router.register(Method.CHAT_LIST, handleChatList);
   router.register(Method.CHAT_GET, handleChatGet);  // 流式返回历史
   router.register(Method.CHAT_DELETE, handleChatDelete);
+  router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage);
 }

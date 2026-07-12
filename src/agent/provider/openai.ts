@@ -80,12 +80,22 @@ const openaiMessageAdapterConfig = {
       if (role === "user" && attachments && attachments.length > 0) {
         const parts: ChatCompletionContentPart[] = [{ type: "text", text: m.content }];
         for (const att of attachments) {
-          // 仅 image/* 走 image_url；其他 mimeType 跳过（enrichMediaInputs 仅透传 image）
-          if (!att.mimeType.startsWith("image/")) continue;
-          parts.push({
-            type: "image_url",
-            image_url: { url: `data:${att.mimeType};base64,${att.data.toString("base64")}` },
-          });
+          if (att.mimeType.startsWith("image/")) {
+            parts.push({
+              type: "image_url",
+              image_url: { url: `data:${att.mimeType};base64,${att.data.toString("base64")}` },
+            });
+          } else if (att.mimeType.startsWith("video/")) {
+            parts.push({
+              type: "video_url",
+              video_url: { url: `data:${att.mimeType};base64,${att.data.toString("base64")}` },
+            } as unknown as ChatCompletionContentPart);
+          } else if (att.mimeType.startsWith("audio/")) {
+            parts.push({
+              type: "input_audio",
+              input_audio: { data: att.data.toString("base64"), format: att.mimeType.split("/")[1] ?? "wav" },
+            } as ChatCompletionContentPart);
+          }
         }
         return { role: "user", content: parts } as ChatCompletionMessageParam;
       }

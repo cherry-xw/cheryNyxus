@@ -20,14 +20,13 @@ vi.mock("node:fs/promises", () => ({
   stat: vi.fn().mockResolvedValue({ isFile: () => true }),
 }));
 
-// mock config（media 服务配置 + maxUploadMb）
+// mock config（媒体服务配置：命名实体集合，每个服务有 type + url + enabled）
 vi.mock("@/utils/config.js", () => ({
   default: {
     media: {
-      image: { url: "http://media/img", enabled: true, model: "vision" },
-      video: { url: "http://media/video", enabled: true, model: "video-u" },
-      audio: { url: "http://media/audio", enabled: true, model: "audio-u" },
-      maxUploadMb: 100,
+      "vision-svc": { type: "image", url: "http://media/img", enabled: true, model: "vision", maxUploadMb: 100 },
+      "video-svc": { type: "video", url: "http://media/video", enabled: true, model: "video-u" },
+      "audio-svc": { type: "audio", url: "http://media/audio", enabled: true, model: "audio-u" },
     },
   },
 }));

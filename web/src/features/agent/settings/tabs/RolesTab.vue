@@ -10,6 +10,7 @@ import type { ConfigDto } from "@/services/agentApi";
 import ConfirmPopover from "../ConfirmPopover.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import { buildPromptTree } from "./promptTree";
+import TabShell, { type IndexItem } from "../components/TabShell.vue";
 
 const props = defineProps<{ draft: ConfigDto; prompts: string[] }>();
 const emit = defineEmits<{ (e: "error", msg: string): void }>();
@@ -78,12 +79,31 @@ function onBrainChange(cfg: { brain: string; senseGroup: string; mcpServers?: st
     cfg.mcpServers = [];
   }
 }
+
+/** 序号按钮列表：每角色一项。brief 给 mini popper 用（brain + senseGroup）。 */
+const indexItems = computed<IndexItem[]>(() => {
+  const roles = props.draft.roles ?? {};
+  return Object.entries(roles).map(([type, cfg]) => ({
+    label: type,
+    brain: cfg.brain || "未选",
+    senseGroup: cfg.senseGroup || "未选",
+  }));
+});
 </script>
 
 <template>
-  <section class="sect">
-    <p class="sect-hint">主宠派出的助手与预设组长，各配大脑与感官。标题可点击改名。</p>
-    <article v-for="(cfg, type, idx) in draft.roles" :key="type" class="card">
+  <TabShell :index-items="indexItems">
+    <template #hints>
+      <p class="sect-hint">主宠派出的助手与预设组长，各配大脑与感官。标题可点击改名。</p>
+    </template>
+    <template #popper="{ item }">
+      <div class="index-card">
+        <div class="index-card-title">{{ item.label as string }}</div>
+        <div class="index-card-line"><b>brain</b><span>{{ item.brain as string }}</span></div>
+        <div class="index-card-line"><b>感官组</b><span>{{ item.senseGroup as string }}</span></div>
+      </div>
+    </template>
+    <article v-for="(cfg, type, idx) in draft.roles" :key="type" class="card" :data-anchor="idx">
       <span class="card-idx">{{ idx + 1 }}</span>
       <header class="card-head">
         <EditableTitle
@@ -112,7 +132,7 @@ function onBrainChange(cfg: { brain: string; senseGroup: string; mcpServers?: st
           </el-select>
         </label>
         <label class="field">
-          <span class="lbl">systemPrompt（.chery/prompts 分级选择）</span>
+          <span class="lbl">系统提示词 prompt</span>
           <el-cascader
             :model-value="cfg.systemPrompt ?? ''"
             :options="promptTree"
@@ -124,18 +144,18 @@ function onBrainChange(cfg: { brain: string; senseGroup: string; mcpServers?: st
             @update:model-value="(v: unknown) => (cfg.systemPrompt = v ? (v as string) : undefined)"
           />
         </label>
-      </div>
-      <div class="field">
-        <span class="lbl">感官组 senseGroup</span>
-        <el-select
-          :model-value="cfg.senseGroup ?? ''"
-          placeholder="选择感官组"
-          :disabled="!supportsTools(cfg.brain)"
-          @update:model-value="(v: unknown) => (cfg.senseGroup = (v as string) ?? '')"
-        >
-          <el-option label="（未选）" value="" />
-          <el-option v-for="(_, gname) in draft.sense_groups" :key="gname" :label="gname as string" :value="gname as string" />
-        </el-select>
+        <label class="field">
+          <span class="lbl">感官组 sense</span>
+          <el-select
+            :model-value="cfg.senseGroup ?? ''"
+            placeholder="选择感官组"
+            :disabled="!supportsTools(cfg.brain)"
+            @update:model-value="(v: unknown) => (cfg.senseGroup = (v as string) ?? '')"
+          >
+            <el-option label="（未选）" value="" />
+            <el-option v-for="(_, gname) in draft.sense_groups" :key="gname" :label="gname as string" :value="gname as string" />
+          </el-select>
+        </label>
       </div>
       <div class="field">
         <span class="lbl">MCP 服务 mcpServers</span>
@@ -157,7 +177,7 @@ function onBrainChange(cfg: { brain: string; senseGroup: string; mcpServers?: st
       <el-input v-model="newRoleType" placeholder="新角色类型名" @keydown.enter="addRole" />
       <button type="button" class="ghost-btn" @click="addRole">+ 新增</button>
     </div>
-  </section>
+  </TabShell>
 </template>
 
 <style scoped lang="less">
@@ -165,5 +185,8 @@ function onBrainChange(cfg: { brain: string; senseGroup: string; mcpServers?: st
 
 .prompt-cascader {
   width: 100%;
+}
+.card-grid {
+  grid-template-columns: 1fr 1fr 1fr;
 }
 </style>

@@ -282,6 +282,26 @@ export const useAgentsStore = defineStore("agents", () => {
 
     // 重连后重建 wait 唤醒态 + 检测主卡死（容错机制，见 docs/agent-pet.md §5.8）
     await rebuildSpawnWaits(chats);
+
+    // 初始载入 contextUsage（ContextBar 渲染用）。
+    // initFromChats 仅用 chat.list（不含 contextUsage），需单独拉；done/chat.get 是后续实时路径。
+    // 拉全部主 chat（非仅 top 5），确保所有可见 pet 的 ContextBar 初始渲染正确。
+    // 失败不阻塞初始化（静默降级：bar 留 0 等下次 done 刷新）。
+    Promise.all(
+      mains.map((m) =>
+        agentApi.contextUsage(m.chatId).then(
+          (res) => {
+            const pet = pets.value.find((p) => p.chatId === m.chatId);
+            if (pet) {
+              if (typeof res.contextUsage === "number") pet.contextUsage = res.contextUsage;
+              if (typeof res.contextUsed === "number") pet.contextUsed = res.contextUsed;
+              if (typeof res.contextTotal === "number") pet.contextTotal = res.contextTotal;
+            }
+          },
+          (e) => console.warn(`[agents] contextUsage(${m.chatId}) 失败:`, e),
+        ),
+      ),
+    ).catch(() => {});
   }
 
   /**
@@ -354,10 +374,12 @@ export const useAgentsStore = defineStore("agents", () => {
     // CP7: chat.get response 携带 contextUsage → 更新 pet.contextUsage（历史载入一次性同步，ContextBar 消费）
     done
       .then((res) => {
-        const cu = (res.data as { contextUsage?: number } | undefined)?.contextUsage;
-        if (typeof cu === "number") {
-          const pet = pets.value.find((p) => p.chatId === chatId);
-          if (pet) pet.contextUsage = cu;
+        const d = res.data as { contextUsage?: number; contextUsed?: number; contextTotal?: number } | undefined;
+        const pet = pets.value.find((p) => p.chatId === chatId);
+        if (pet && d) {
+          if (typeof d.contextUsage === "number") pet.contextUsage = d.contextUsage;
+          if (typeof d.contextUsed === "number") pet.contextUsed = d.contextUsed;
+          if (typeof d.contextTotal === "number") pet.contextTotal = d.contextTotal;
         }
       })
       .catch((e) => console.error("[agents] getHistory response 失败:", e));

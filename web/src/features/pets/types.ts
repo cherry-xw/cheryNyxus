@@ -112,6 +112,10 @@ export interface PetInstance extends PetPreset {
   isWorking: boolean;
   /** 上下文用量 0-1（token / brain.contextLimit）。CP1 默认 0 不计算，CP7 接 tokenizer。 */
   contextUsage: number;
+  /** 已用 token 数（估算值，字符数/4）。配合 contextTotal 显示 "used/total" 详情。 */
+  contextUsed: number;
+  /** 上下文上限 token 数（= brain.contextLimit，单位 token）。 */
+  contextTotal: number;
   /** 灵魂态（子 agent done 后转 ghost）。true 时 PetSprite 渲染 ghost 形态（缩小+无手+灵魂emoji+微浮+半透明+隐藏status）。刷新据 ChatSummary.finished 重建。 */
   isGhost: boolean;
   /** 灵魂 emoji（转 ghost 时按 tribe 内创建序号顺序取 GHOST_FACES[N % 池长]，非随机去重）。undefined 时 faceGlyph 兜底 👻。 */

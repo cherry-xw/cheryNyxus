@@ -1,11 +1,12 @@
 <script setup lang="ts">
 /**
  * AgentDialog orchestrator：发消息弹窗（runtime 切换合一）。
- * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体区下沉 MediaWorkspace。
+ * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
  */
 import { AnimatePresence, motion } from "motion-v";
+import { ElPopover, ElUpload } from "element-plus";
 import RoleConfigPopover from "./dialog/RoleConfigPopover.vue";
-import MediaWorkspace from "./dialog/MediaWorkspace.vue";
+import MediaPreviewBar from "./dialog/media/MediaPreviewBar.vue";
 import { useAgentDialogOptions } from "./dialog/useAgentDialogOptions";
 
 const MotionDiv = motion.div;
@@ -14,10 +15,10 @@ const {
   chatId, pet,
   brains, senseGroups, config, senseTools,
   roleSelections, primaryRole, text,
-  uploading, mediaHint, uploadQueue, mediaAttachments,
+  uploading, mediaHint, mediaAttachments,
   sending, loading, error,
-  primarySelection, orderedRoleSelections,
-  close, handleSend, onTextareaKeydown, onOverlayClick,
+  primarySelection, orderedRoleSelections, mediaServicesByType,
+  close, handleSend, onTextareaKeydown,
   removeMedia, onMediaSelected,
   senseEntries, senseTool, brainConfig, supportsTools,
 } = useAgentDialogOptions();
@@ -33,7 +34,6 @@ const {
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
       :transition="{ duration: 0.16 }"
-      @pointerdown="onOverlayClick"
     >
       <MotionDiv
         key="panel"
@@ -54,11 +54,22 @@ const {
           <button type="button" class="close-btn" aria-label="关闭" @click="close">✕</button>
         </header>
 
-        <div v-if="loading" class="loading-row">加载配置…</div>
-
-        <div v-else class="role-configs">
+        <div class="role-configs">
           <div class="session-note">小组角色编制</div>
-          <div class="role-tags" aria-label="小组角色编制">
+          <div
+            v-if="loading"
+            class="role-tags role-tags-skel"
+            aria-busy="true"
+            aria-label="角色编制加载中"
+          >
+            <span
+              v-for="n in 3"
+              :key="n"
+              class="role-skel-tile"
+              aria-hidden="true"
+            />
+          </div>
+          <div v-else class="role-tags" aria-label="小组角色编制">
             <el-popover
               v-for="[role, selection] in orderedRoleSelections"
               :key="role"
@@ -102,16 +113,12 @@ const {
           </div>
         </div>
 
-        <MediaWorkspace
-          :disabled="uploading"
+        <MediaPreviewBar
           :attachments="mediaAttachments"
-          :hint="mediaHint"
-          v-model:upload-queue="uploadQueue"
-          :uploading="uploading"
-          :has-primary-brain="!!primarySelection?.brain"
-          @media-selected="onMediaSelected"
           @remove="removeMedia"
         />
+
+        <div v-if="mediaHint" class="media-hint-row">{{ mediaHint }}</div>
 
         <div class="textarea-row">
           <el-input
@@ -124,6 +131,57 @@ const {
             resize="none"
             @keydown="onTextareaKeydown"
           />
+          <ElPopover
+            trigger="click"
+            placement="top-end"
+            :width="160"
+            popper-class="add-media-popper"
+            popper-style="padding: 4px;"
+          >
+            <template #reference>
+              <button
+                type="button"
+                class="add-media-btn"
+                :disabled="uploading || !primarySelection?.brain"
+                :title="uploading ? '上传中…' : '添加媒体'"
+                aria-label="添加媒体附件"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+            </template>
+            <div class="add-media-menu" @click.stop>
+              <ElUpload
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="image/*"
+                :disabled="uploading || !primarySelection?.brain"
+                :on-change="(f: any) => onMediaSelected(f)"
+                class="add-media-upload"
+              >
+                <div class="add-media-item"><span>🖼️</span><span>图片</span><span v-if="mediaServicesByType.image" class="media-svc-tag">{{ mediaServicesByType.image }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+              </ElUpload>
+              <ElUpload
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="video/*"
+                :disabled="uploading || !primarySelection?.brain"
+                :on-change="(f: any) => onMediaSelected(f)"
+                class="add-media-upload"
+              >
+                <div class="add-media-item"><span>🎬</span><span>视频</span><span v-if="mediaServicesByType.video" class="media-svc-tag">{{ mediaServicesByType.video }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+              </ElUpload>
+              <ElUpload
+                :auto-upload="false"
+                :show-file-list="false"
+                accept="audio/*"
+                :disabled="uploading || !primarySelection?.brain"
+                :on-change="(f: any) => onMediaSelected(f)"
+                class="add-media-upload"
+              >
+                <div class="add-media-item"><span>🎵</span><span>音频</span><span v-if="mediaServicesByType.audio" class="media-svc-tag">{{ mediaServicesByType.audio }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+              </ElUpload>
+            </div>
+          </ElPopover>
           <button
             type="button"
             class="send-btn"
@@ -167,4 +225,51 @@ const {
 }
 
 .role-runtime-popper .el-popper__arrow { display: none; }
+
+.add-media-popper.el-popover {
+  border-radius: 10px;
+}
+
+.add-media-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.add-media-upload {
+  width: 100%;
+
+  .el-upload { width: 100%; display: block; }
+}
+
+.add-media-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 550;
+  color: #14161a;
+  transition: background-color 100ms ease;
+
+  &:hover { background: rgba(246, 183, 60, 0.12); }
+
+  span:first-child { font-size: 14px; }
+}
+
+.media-svc-tag {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(246, 183, 60, 0.15);
+  color: #9a7422;
+  &.missing {
+    background: rgba(180, 30, 30, 0.08);
+    color: #b04040;
+  }
+}
 </style>

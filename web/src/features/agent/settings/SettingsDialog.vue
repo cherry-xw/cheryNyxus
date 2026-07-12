@@ -6,25 +6,34 @@
  * 保存 -> config.save 校验 + 写回（保留 server 段、无注释），重启生效；失败 error 红框列出。
  *
  * 外壳只管 overlay / tab 切换 / draft 加载保存；各 tab 内容拆到 ./tabs/，删除二次确认见 ConfirmPopover。
+ *
+ * ⚠ 入场动画只用 opacity + y（无 scale）：scale 会让 panel 视觉上 < 720px，
+ *    若 RPC 在 180ms 内 resolve，content 切换会被叠在 scale 动画里导致宽高抖动。
  */
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { Close } from "@element-plus/icons-vue";
 import { useAgentsStore } from "@/stores";
 import { agentApi, type ConfigDto, type SenseToolInfo } from "@/services/agentApi";
-import { TABS, type TabKey } from "./constants";
+import { TABS, HINT_LINES, INDEX_COUNT, type TabKey } from "./constants";
 import BrainsTab from "./tabs/BrainsTab.vue";
+import MediaTab from "./tabs/MediaTab.vue";
 import SensesTab from "./tabs/SensesTab.vue";
 import RolesTab from "./tabs/RolesTab.vue";
 import PresetsTab from "./tabs/PresetsTab.vue";
 import McpTab from "./tabs/McpTab.vue";
 import GlobalTab from "./tabs/GlobalTab.vue";
+import SkeletonTab from "./tabs/SkeletonTab.vue";
 
 const MotionDiv = motion.div;
 const agents = useAgentsStore();
 
 const draft = ref<ConfigDto | null>(null);
 const activeTab = ref<TabKey>("presets");
+/** 当前 tab 的 hints 段落拆分（sect + warn），渲染与真实 hints 像素级一致。 */
+const hintLines = computed(() => HINT_LINES[activeTab.value] ?? { sect: 1, warn: 0 });
+/** 当前 tab 序号按钮典型数（SkeletonTab 用，让 .shell-sticky 高度与真实 tab 一致）。 */
+const indexCount = computed(() => INDEX_COUNT[activeTab.value] ?? 4);
 const loading = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
@@ -35,6 +44,9 @@ const senseTools = ref<SenseToolInfo[]>([]);
 
 /** prompts.list 返回的 .chery/prompts/ 下 .md 路径清单（RolesTab/PresetsTab systemPrompt 级联选择器用）。每次打开重新拉。 */
 const prompts = ref<string[]>([]);
+
+/** env.list 返回的 .env 变量名列表（BrainsTab/MediaTab 密钥下拉选项）。每次打开重新拉。 */
+const envVars = ref<string[]>([]);
 
 watch(
   () => agents.settingsOpen,
@@ -73,6 +85,13 @@ watch(
     } catch (e) {
       console.error("[SettingsDialog] listPrompts failed:", e);
       prompts.value = [];
+    }
+    // env 变量列表：每次打开重新拉（.env 可能变动），失败不阻塞编辑（密钥下拉空选项）
+    try {
+      envVars.value = await agentApi.listEnvVars();
+    } catch (e) {
+      console.error("[SettingsDialog] listEnvVars failed:", e);
+      envVars.value = [];
     }
   },
 );
@@ -116,9 +135,6 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   }
 }
 
-function onOverlayClick(e: MouseEvent): void {
-  if (e.target === e.currentTarget) close();
-}
 </script>
 
 <template>
@@ -131,14 +147,13 @@ function onOverlayClick(e: MouseEvent): void {
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
       :transition="{ duration: 0.16 }"
-      @pointerdown="onOverlayClick"
     >
       <MotionDiv
         key="panel"
         class="settings-panel"
-        :initial="{ opacity: 0, y: 16, scale: 0.96 }"
-        :animate="{ opacity: 1, y: 0, scale: 1 }"
-        :exit="{ opacity: 0, y: 12, scale: 0.97 }"
+        :initial="{ opacity: 0 }"
+        :animate="{ opacity: 1 }"
+        :exit="{ opacity: 0 }"
         :transition="{ duration: 0.18, ease: 'easeOut' }"
         role="dialog"
         aria-modal="true"
@@ -151,25 +166,30 @@ function onOverlayClick(e: MouseEvent): void {
           </button>
         </header>
 
-        <div v-if="loading" class="loading-row">加载配置…</div>
+        <nav class="tab-bar">
+          <button
+            v-for="t in TABS"
+            :key="t.key"
+            type="button"
+            class="tab"
+            :class="{ active: activeTab === t.key }"
+            @click="activeTab = t.key"
+          >
+            <span class="tab-icon">{{ t.icon }}</span>
+            <span class="tab-label">{{ t.label }}</span>
+          </button>
+        </nav>
 
-        <template v-else-if="draft">
-          <nav class="tab-bar">
-            <button
-              v-for="t in TABS"
-              :key="t.key"
-              type="button"
-              class="tab"
-              :class="{ active: activeTab === t.key }"
-              @click="activeTab = t.key"
-            >
-              <span class="tab-icon">{{ t.icon }}</span>
-              <span class="tab-label">{{ t.label }}</span>
-            </button>
-          </nav>
-
-          <div class="tab-body">
-            <BrainsTab v-show="activeTab === 'brains'" :draft="draft" @error="onError" />
+        <div class="tab-body">
+          <SkeletonTab
+            v-if="loading"
+            :sect-hints="hintLines.sect"
+            :warn-hints="hintLines.warn"
+            :index-count="indexCount"
+          />
+          <template v-else-if="draft">
+            <BrainsTab v-show="activeTab === 'brains'" :draft="draft" :env-vars="envVars" @error="onError" />
+            <MediaTab v-show="activeTab === 'media'" :draft="draft" :env-vars="envVars" @error="onError" />
             <SensesTab
               v-show="activeTab === 'senses'"
               :draft="draft"
@@ -180,8 +200,8 @@ function onOverlayClick(e: MouseEvent): void {
             <PresetsTab v-show="activeTab === 'presets'" :draft="draft" :sense-tools="senseTools" @error="onError" />
             <McpTab v-show="activeTab === 'mcp'" :draft="draft" @error="onError" />
             <GlobalTab v-show="activeTab === 'global'" :draft="draft" />
-          </div>
-        </template>
+          </template>
+        </div>
 
         <div v-if="error" class="error-row" role="alert">{{ error }}</div>
         <div v-if="savedHint" class="saved-row" role="status">{{ savedHint }}</div>
@@ -259,13 +279,6 @@ function onOverlayClick(e: MouseEvent): void {
   height: 12px;
 }
 
-.loading-row {
-  padding: 8px;
-  color: fade(@ink, 60%);
-  font-size: 12px;
-  text-align: center;
-}
-
 .tab-bar {
   display: flex;
   flex-wrap: wrap;
@@ -301,8 +314,8 @@ function onOverlayClick(e: MouseEvent): void {
 .tab-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 2px;
+  overflow: hidden;
+  // 滚动交给各 tab 内部的 TabShell.shell-scroll；本层只做容器。
 }
 
 .error-row {

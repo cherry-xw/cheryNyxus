@@ -105,6 +105,26 @@
   gap: 1px;
 }
 
+.role-skel-tile {
+  display: inline-block;
+  width: 140px;
+  height: 39px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(36, 38, 45, 0.05),
+    rgba(36, 38, 45, 0.13),
+    rgba(36, 38, 45, 0.05)
+  );
+  background-size: 200% 100%;
+  animation: role-skel-shimmer 1.4s linear infinite;
+}
+
+@keyframes role-skel-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .role-summary-sense-icon {
   display: inline-flex;
   align-items: center;
@@ -175,9 +195,52 @@
   flex: 1;
 
   :deep(.el-textarea__inner) {
-    padding-right: 44px;
+    padding-right: 80px;
     font-size: 13px;
     line-height: 1.5;
+  }
+}
+
+.media-hint-row {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(246, 183, 60, 0.08);
+  color: #8c6114;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.add-media-btn {
+  position: absolute;
+  right: 46px;
+  bottom: 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: fade(@ink, 42%);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+
+  &:hover:not(:disabled) {
+    color: #f6b73c;
+    background: rgba(246, 183, 60, 0.08);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+
+  svg {
+    width: 16px;
+    height: 16px;
   }
 }
 

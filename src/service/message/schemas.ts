@@ -41,18 +41,16 @@ const brainSchema = z.object({
 });
 
 const mediaServiceSchema = z.object({
+  type: z.enum(["image", "video", "audio"]),
   url: z.string(),
   model: z.string().optional(),
   key: z.string().optional(),
   enabled: z.boolean().optional(),
+  maxUploadMb: z.number().positive().optional(),
 });
 
-const mediaSchema = z.object({
-  image: mediaServiceSchema.optional(),
-  video: mediaServiceSchema.optional(),
-  audio: mediaServiceSchema.optional(),
-  maxUploadMb: z.number().positive().optional(),
-}).optional();
+/** media：命名实体集合（name → 配置），非旧 3-slot 结构。 */
+const mediaSchema = z.record(z.string(), mediaServiceSchema).optional();
 
 const loggerSchema = z.object({
   level: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
@@ -115,6 +113,9 @@ const configSaveSchema = z
         z.object({
           leader: z.string(),
           roles: z.array(z.string()).optional(),
+          mediaImage: z.string().optional(),
+          mediaVideo: z.string().optional(),
+          mediaAudio: z.string().optional(),
         }),
       )
       .optional(),
@@ -152,6 +153,7 @@ export const requestSchemas = {
   }),
   [Method.CHAT_GET]: chatIdSchema,
   [Method.CHAT_DELETE]: chatIdSchema,
+  [Method.CHAT_CONTEXT_USAGE]: chatIdSchema,
   [Method.CHAT_SEND]: z.object({
     chatId: z.string(),
     prompt: z.string(),
@@ -191,6 +193,8 @@ export const requestSchemas = {
     url: z.string(),
     key: z.string().optional(),
   }),
+  // Env 环境变量：空参，返回 .env 变量名列表
+  [Method.ENV_LIST]: emptySchema,
 } as const satisfies Record<Method, z.ZodTypeAny>;
 
 /**

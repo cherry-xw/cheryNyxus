@@ -104,16 +104,7 @@ llm:
       capabilities:
         input: {}
         generate: {}
-media:
-  image:
-    url: ''
-    enabled: false
-  video:
-    url: ''
-    enabled: false
-  audio:
-    url: ''
-    enabled: false
+media: {}
 sense_groups:
   leader:
     - read_file
@@ -143,6 +134,7 @@ roles:
     brain: ali_glm5
     senseGroup: leader
     mcpServers: []
+    systemPrompt: prompts/prefebMain/leader.md
   plan:
     brain: ali_glm5
     senseGroup: plan

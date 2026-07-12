@@ -1,4 +1,4 @@
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { UploadFile } from "element-plus";
 import { useAgentsStore } from "@/stores";
 import {
@@ -134,6 +134,16 @@ export function useAgentDialogOptions() {
     agents.activeDialogChatId = null;
   }
 
+  // 全局 ESC 关闭弹窗（仅在 dialog 打开时生效）。
+  function onGlobalKeydown(e: KeyboardEvent): void {
+    if (e.key === "Escape" && chatId.value) {
+      e.preventDefault();
+      close();
+    }
+  }
+  window.addEventListener("keydown", onGlobalKeydown);
+  onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
+
   async function handleSend(): Promise<void> {
     if (!chatId.value || !text.value.trim() || sending.value) return;
     sending.value = true;
@@ -209,8 +219,15 @@ export function useAgentDialogOptions() {
     uploadQueue.value = [];
     if (!file || !primarySelection.value) return;
     const category = mediaKind(file);
-    if (!category || !brainConfig(primarySelection.value.brain)?.capabilities?.input?.[category]) {
-      mediaHint.value = "当前模型不支持该媒体类型的输入理解";
+    if (!category) return;
+    // 检查媒体服务 OR brain 原生能力，任一满足即可上传
+    const hasMediaService = config.value?.media
+      ? Object.values(config.value.media).some(svc => svc.type === category && svc.enabled && svc.url)
+      : false;
+    const hasBrainCapability = brainConfig(primarySelection.value.brain)?.capabilities?.input?.[category] === true;
+    if (!hasMediaService && !hasBrainCapability) {
+      const typeLabel = category === "image" ? "图片" : category === "video" ? "视频" : "音频";
+      mediaHint.value = `未配置${typeLabel}服务，且小组无支持模型`;
       return;
     }
     uploading.value = true;
@@ -231,10 +248,6 @@ export function useAgentDialogOptions() {
     } finally {
       uploading.value = false;
     }
-  }
-
-  function onOverlayClick(e: MouseEvent): void {
-    if (e.target === e.currentTarget) close();
   }
 
   // === role config helpers ===
@@ -281,14 +294,26 @@ export function useAgentDialogOptions() {
     });
   });
 
+  /** 各媒体类型对应的已启用服务名（AgentDialog 媒体菜单显示用）。 */
+  const mediaServicesByType = computed<Record<MediaKind, string | null>>(() => {
+    const result: Record<string, string | null> = { image: null, video: null, audio: null };
+    if (!config.value?.media) return result as Record<MediaKind, string | null>;
+    for (const [name, svc] of Object.entries(config.value.media)) {
+      if (svc.enabled && svc.url && !result[svc.type]) {
+        result[svc.type] = name;
+      }
+    }
+    return result as Record<MediaKind, string | null>;
+  });
+
   return {
     chatId, pet, presetName,
     brains, senseGroups, config, senseTools,
     roleSelections, primaryRole, text,
     uploading, mediaHint, uploadQueue, mediaAttachments,
     sending, loading, error, loaded,
-    primarySelection, orderedRoleSelections,
-    close, handleSend, onTextareaKeydown, onOverlayClick,
+    primarySelection, orderedRoleSelections, mediaServicesByType,
+    close, handleSend, onTextareaKeydown,
     mediaKind, formatFileSize, resetMedia, removeMedia, onMediaSelected,
     brainInfo, brainConfig, supportsTools, selectBrain,
     senseEntries, senseName, senseTool,

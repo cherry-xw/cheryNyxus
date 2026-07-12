@@ -74,6 +74,7 @@ export type RequestData =
   | ChatListRequestData
   | ChatGetRequestData
   | ChatDeleteRequestData
+  | ChatContextUsageRequestData
   | ChatSendRequestData
   | ChatResumeRequestData
   | SenseApprovalRequestData
@@ -87,7 +88,8 @@ export type RequestData =
   | McpReloadRequestData
   | ConfigGetRequestData
   | ConfigSaveRequestData
-  | UtilsModelsRequestData;
+  | UtilsModelsRequestData
+  | EnvListRequestData;
 
 export interface BrainListRequestData {}
 
@@ -117,6 +119,10 @@ export interface ChatListRequestData {
 }
 
 export interface ChatGetRequestData {
+  chatId: string;
+}
+
+export interface ChatContextUsageRequestData {
   chatId: string;
 }
 
@@ -240,6 +246,11 @@ export interface UtilsModelsRequestData {
   key?: string;
 }
 
+// ---------- Env 环境变量 ----------
+
+/** env.list 请求：空参 */
+export interface EnvListRequestData {}
+
 // ========== Response Data ==========
 
 export type ResponseData =
@@ -251,6 +262,7 @@ export type ResponseData =
   | ChatListResponseData
   | ChatGetResponseData
   | ChatDeleteResponseData
+  | ChatContextUsageResponseData
   | ChatSendResponseData
   | ChatResumeResponseData
   | SenseApprovalResponseData
@@ -264,7 +276,8 @@ export type ResponseData =
   | McpReloadResponseData
   | ConfigGetResponseData
   | ConfigSaveResponseData
-  | UtilsModelsResponseData;
+  | UtilsModelsResponseData
+  | EnvListResponseData;
 
 export interface BrainListResponseData {
   brains: Array<{
@@ -346,6 +359,19 @@ export interface ChatListResponseData {
      */
     turnCount?: number;
     /**
+     * 上下文 token 用量比例（0-1）。仅 includePreview=true 时返（SessionList 渲染用）。
+     * = 当前 chat 总 token / brain.contextLimit（见 computeContextUsage）。
+     */
+    contextUsage?: number;
+    /**
+     * 已用 token 数（估算值，字符数/4）。仅 includePreview=true 时返。配合 contextTotal 显示详情。
+     */
+    contextUsed?: number;
+    /**
+     * 上下文上限 token 数。仅 includePreview=true 时返。
+     */
+    contextTotal?: number;
+    /**
      * 角色是否已完成（metadata.finished 解析）。前端据 finished===true 重建子 pet 为 ghost（灵魂态）。
      * 主 chat 恒 undefined。无论 includePreview 与否都返（initFromChats 重建 pet 树需）。
      */
@@ -371,10 +397,23 @@ export interface ChatGetResponseData {
    * 历史载入时返，前端据此更新 pet.contextUsage（ContextBar 渲染）。CP7。
    */
   contextUsage?: number;
+  /** 已用 token 数（估算值）。配合 contextTotal 显示详情。 */
+  contextUsed?: number;
+  /** 上下文上限 token 数。 */
+  contextTotal?: number;
 }
 
 export interface ChatDeleteResponseData {
   chatId: string;
+}
+
+export interface ChatContextUsageResponseData {
+  chatId: string;
+  contextUsage: number;
+  /** 已用 token 数（估算值）。 */
+  contextUsed: number;
+  /** 上下文上限 token 数。 */
+  contextTotal: number;
 }
 
 export interface ChatSendResponseData {
@@ -485,6 +524,11 @@ export interface UtilsModelsResponseData {
   error?: string;
 }
 
+/** env.list 响应：.env 文件中的变量名列表 */
+export interface EnvListResponseData {
+  vars: string[];
+}
+
 // ========== Chunk Data ==========
 
 export type ChunkData = StreamChunkData | StagedChunkData;
@@ -587,6 +631,10 @@ export interface ConsumedNotificationData {
  */
 export interface DoneNotificationData {
   contextUsage: number;
+  /** 已用 token 数（估算值）。前端据实时更新 pet.contextUsed。 */
+  used?: number;
+  /** 上下文上限 token 数。前端据实时更新 pet.contextTotal。 */
+  total?: number;
   /**
    * 子 agent done 标记（仅子 chat 即 parent_chat_id 非空时携带=true）。
    * 前端据 finished===true 把子 pet 转 ghost（灵魂态）。主 chat 不带。done 时后端写 metadata.finished 持久化。
@@ -697,6 +745,7 @@ export const Method = {
   CHAT_LIST: "chat.list",
   CHAT_GET: "chat.get",
   CHAT_DELETE: "chat.delete",
+  CHAT_CONTEXT_USAGE: "chat.contextUsage",
   CHAT_SEND: "chat.send",
   CHAT_RESUME: "chat.resume",
 
@@ -722,6 +771,9 @@ export const Method = {
 
   // Utils 工具（独立信息查询，不依赖 chat/brain 运行时）
   UTILS_MODELS: "utils.models",
+
+  // Env 环境变量（读 .env 变量名列表，供前端密钥下拉）
+  ENV_LIST: "env.list",
 } as const;
 
 /**

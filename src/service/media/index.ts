@@ -28,11 +28,24 @@ export function mediaKindForMime(mimeType: string): MediaKind | undefined {
   return MIME_KIND[mimeType.toLowerCase()];
 }
 
+/** 按 kind 查找第一个已启用的命名媒体服务。旧 config.media[kind] 直查改为遍历命名服务集合。 */
+function findMediaService(kind: MediaKind): (MediaServiceConfig & { name: string }) | undefined {
+  if (!config.media) return undefined;
+  for (const [name, svc] of Object.entries(config.media)) {
+    if (svc.type === kind && svc.enabled && svc.url) return { ...svc, name };
+  }
+  return undefined;
+}
+
+const DEFAULT_MAX_UPLOAD_MB = 100;
+
 export async function saveMediaAsset(body: Buffer, mimeType: string, originalName = "upload"): Promise<MediaAsset> {
   const kind = mediaKindForMime(mimeType);
   if (!kind) throw new Error(`不支持的媒体类型: ${mimeType}`);
-  const maxBytes = (config.media?.maxUploadMb ?? 100) * 1024 * 1024;
-  if (body.length === 0 || body.length > maxBytes) throw new Error(`媒体文件大小必须在 1B-${config.media?.maxUploadMb ?? 100}MiB 之间`);
+  const svc = findMediaService(kind);
+  const maxMb = svc?.maxUploadMb ?? DEFAULT_MAX_UPLOAD_MB;
+  const maxBytes = maxMb * 1024 * 1024;
+  if (body.length === 0 || body.length > maxBytes) throw new Error(`媒体文件大小必须在 1B-${maxMb}MiB 之间`);
   const id = randomUUID();
   const extension = extname(basename(originalName)).replace(/[^.a-z0-9]/gi, "") || ({ image: ".bin", video: ".bin", audio: ".bin" }[kind]);
   const filename = `${id}${extension}`;
@@ -54,8 +67,8 @@ export async function readMediaAsset(filename: string): Promise<{ data: Buffer; 
 
 /** 媒体网关统一协议：网关接收 JSON，媒体二进制以 base64 编码，返回文本和/或 base64 资产。 */
 export async function callMediaService(kind: MediaKind, operation: "understand" | "generate" | "edit", input: { prompt?: string; assets?: MediaAsset[] }): Promise<{ text?: string; assets?: Array<{ data: string; mimeType: string; filename?: string }> }> {
-  const service: MediaServiceConfig | undefined = config.media?.[kind];
-  if (!service?.enabled || !service.url) throw new Error(`${kind} 媒体服务未配置或未启用`);
+  const service = findMediaService(kind);
+  if (!service) throw new Error(`${kind} 媒体服务未配置或未启用`);
   const assets = await Promise.all((input.assets ?? []).map(async asset => ({
     id: asset.id, mimeType: asset.mimeType, filename: asset.filename, data: (await readFile(asset.path)).toString("base64"),
   })));
@@ -74,8 +87,8 @@ export async function understandMediaReference(filename: string): Promise<{ kind
   if (!asset) throw new Error(`媒体资产不存在: ${filename}`);
   const kind = mediaKindForMime(asset.mimeType);
   if (!kind) throw new Error(`媒体资产类型不受支持: ${asset.mimeType}`);
-  const service = config.media?.[kind];
-  if (!service?.enabled || !service.url) throw new Error(`${kind} 媒体服务未配置或未启用`);
+  const service = findMediaService(kind);
+  if (!service) throw new Error(`${kind} 媒体服务未配置或未启用`);
   const response = await fetch(service.url, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(service.key ? { Authorization: `Bearer ${service.key}` } : {}) },

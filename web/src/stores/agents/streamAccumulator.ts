@@ -9,6 +9,7 @@
 import type { RuntimeSelection } from "@/services/agentApi";
 import type { StageBounds } from "@/features/pets/types";
 import type { StreamState, StagedChunkData } from "./types";
+import { extractMediaUrls } from "@/utils/markdown";
 
 export function defaultBounds(): StageBounds {
   return {
@@ -52,23 +53,27 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     if (role === "user") {
       const content = d.content ?? "";
       const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content);
+      const mediaAssets = extractMediaUrls(content);
       if (m) {
-        history.push({ role: "role", content, petName: m[1], runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
+        history.push({ role: "role", content, petName: m[1], runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(mediaAssets.length > 0 && { mediaAssets }) });
       } else {
-        history.push({ role: "user", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
+        history.push({ role: "user", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(mediaAssets.length > 0 && { mediaAssets }) });
       }
       return;
     }
     if (role === "assistant") {
       // 同行 thinking_end 已 push 过 item → last 是 assistant 且 content 空 → 填入；
       // 否则（行无 thinking，content_end 单独到）→ 新 item
+      const content = d.content ?? "";
+      const mediaAssets = extractMediaUrls(content);
       const last = history[history.length - 1];
       if (last && last.role === "assistant" && !last.content) {
-        last.content = d.content ?? "";
+        last.content = content;
         last.runtime = d.runtime;
         last.createdAt = d.createdAt ?? last.createdAt;
+        if (mediaAssets.length > 0) last.mediaAssets = mediaAssets;
       } else {
-        history.push({ role: "assistant", content: d.content ?? "", runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
+        history.push({ role: "assistant", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(mediaAssets.length > 0 && { mediaAssets }) });
       }
       return;
     }
@@ -84,6 +89,11 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
         if (!sc) sc = item.senseCalls.find((s) => s.result === undefined);
         if (sc) {
           sc.result = d.content;
+          // 从 result 提取媒体资产
+          if (typeof d.content === "string") {
+            const mediaAssets = extractMediaUrls(d.content);
+            if (mediaAssets.length > 0) sc.mediaAssets = mediaAssets;
+          }
           return;
         }
       }

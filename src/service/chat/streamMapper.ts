@@ -157,13 +157,16 @@ export async function* streamAgentChunks(
         continue;
       }
       // CP7：done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
-      const contextUsage = computeContextUsage(chatId);
+      const ctxDetail = computeContextUsage(chatId);
       // 子 agent done（parent_chat_id 非空）：标 metadata.finished（ghost 标记，前端转灵魂态；chat 保留供查历史）
       const chat = getChat(chatId);
       const finished = !!chat?.parent_chat_id;
       if (finished) updateChatMetadata(chatId, { finished: true });
-      logger.event("chat.run.done", { contextUsage, finished });
-      yield createNotification("done", rid, finished ? { contextUsage, finished: true } : { contextUsage });
+      logger.event("chat.run.done", { contextUsage: ctxDetail.usage, finished });
+      const doneData = finished
+        ? { contextUsage: ctxDetail.usage, used: ctxDetail.used, total: ctxDetail.total, finished: true }
+        : { contextUsage: ctxDetail.usage, used: ctxDetail.used, total: ctxDetail.total };
+      yield createNotification("done", rid, doneData);
     } else if (chunk.type === "message_updated") {
       // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
       // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。

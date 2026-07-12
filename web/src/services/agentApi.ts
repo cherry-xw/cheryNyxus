@@ -23,6 +23,12 @@ export interface ChatSummary {
   preview?: string;
   /** 仅 includePreview=true 返：user 消息数 = 会话轮次。CP8 */
   turnCount?: number;
+  /** 仅 includePreview=true 返：上下文 token 用量比例（0-1）。SessionList 渲染用。 */
+  contextUsage?: number;
+  /** 仅 includePreview=true 返：已用 token 数（估算值）。配合 contextTotal 显示详情。 */
+  contextUsed?: number;
+  /** 仅 includePreview=true 返：上下文上限 token 数。 */
+  contextTotal?: number;
   /** 子 agent 是否已完成（后端 metadata.finished）。前端据 finished===true 重建子 pet 为 ghost。主 chat 恒 undefined。 */
   finished?: boolean;
   /** chat 当前是否正在运行（后端 chatRuntimes.get(chatId)?.builder.isRunning()）。前端据此判断子 agent 是否还活着、主 chat 是否卡死。 */
@@ -77,7 +83,7 @@ export type ApprovalAction = "accept" | "reject";
 
 /**
  * brain.list 单条 brain 信息（对齐后端 Agent 1 契约）。
- * contextLimit（KB）用于 ContextBar 计算（后端按 KB×256 折算 token 预算）。
+ * contextLimit（token）用于 ContextBar 显示用量。
  */
 export interface BrainInfo {
   name: string;
@@ -168,8 +174,9 @@ export interface McpServerConfigDto {
   supervision?: "auto" | "confirm" | "manual";
 }
 
-export interface MediaServiceConfigDto { url: string; model?: string; key?: string; enabled?: boolean; }
-export interface MediaConfigDto { image?: MediaServiceConfigDto; video?: MediaServiceConfigDto; audio?: MediaServiceConfigDto; maxUploadMb?: number; }
+export type MediaKindDto = "image" | "video" | "audio";
+export interface MediaServiceConfigDto { type: MediaKindDto; url: string; model?: string; key?: string; enabled?: boolean; maxUploadMb?: number; }
+export interface MediaConfigDto { [name: string]: MediaServiceConfigDto; }
 
 export interface GlobalConfigDto {
   thinking: boolean;
@@ -194,12 +201,16 @@ export interface GlobalConfigDto {
   };
 }
 
-/** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 */
+/** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 + 按类型媒体服务 */
 export interface PresetDto {
   /** 组长角色 type 名（必填，主 pet 编制取 config.roles[leader]） */
   leader: string;
   /** 选中的角色 type 名 */
   roles?: string[];
+  /** 按类型引用媒体服务名（引用 config.media 已定义的服务，类型须匹配） */
+  mediaImage?: string;
+  mediaVideo?: string;
+  mediaAudio?: string;
 }
 
 export interface ConfigDto {
@@ -315,6 +326,11 @@ export const agentApi = {
     return callStream("chat.get", { chatId });
   },
 
+  /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token + 上限）。initFromChats 后驱动 ContextBar 初始渲染。 */
+  async contextUsage(chatId: string): Promise<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number }> {
+    return call<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number }>("chat.contextUsage", { chatId });
+  },
+
   /** sense.approval：审批（accept/reject）。approvalId 来自 interrupt notification。 */
   async approval(approvalId: string, action: ApprovalAction): Promise<void> {
     await call("sense.approval", { approvalId, action });
@@ -382,6 +398,17 @@ export const agentApi = {
     });
     if (!response.ok) throw new Error(`媒体上传失败: ${response.status}`);
     return await response.json() as UploadedMediaAsset;
+  },
+
+  /** utils.models：基于 provider/url/key 拉取可用模型列表。 */
+  async fetchModels(provider: string, url: string, key?: string): Promise<{ models: Array<{ id: string; name?: string }>; error?: string }> {
+    return await call<{ models: Array<{ id: string; name?: string }>; error?: string }>("utils.models", { provider, url, key });
+  },
+
+  /** env.list：读取 .env 文件中的变量名列表（供密钥下拉选择）。 */
+  async listEnvVars(): Promise<string[]> {
+    const data = await call<{ vars: string[] }>("env.list", {});
+    return data?.vars ?? [];
   },
 };
 

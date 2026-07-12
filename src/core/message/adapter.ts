@@ -1,3 +1,5 @@
+import type { MediaKind } from "@/service/media/index.js";
+
 /**
  * Role 类型
  */
@@ -49,11 +51,13 @@ export interface LLMResponse {
  * 多模态附件：buildMessages 临时参数（不进 LLMResponse/DB）。
  * 由 enrichMediaInputs 在 chat.ts 内据脑 capabilities + [[media:]] marker 现场构造，
  * provider 调用前同步 readMediaAsset → base64；provider 调用后丢弃。
- * 当前仅 image 类型走多模态（OpenAI vision 原生支持），其余 kind 走文本转写。
+ * 支持 image/video/audio 类型，provider 据 mimeType/kind 决定 content part 格式。
  */
 export interface LLMAttachment {
   mimeType: string;
   data: Buffer;
+  /** 媒体类型（image/video/audio），供 provider 区分处理 */
+  kind?: MediaKind;
 }
 
 /**

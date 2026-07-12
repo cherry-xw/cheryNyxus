@@ -48,8 +48,8 @@ defineProps<{
     transition: Record<string, unknown>;
   };
   // scroll handler (from useStreamBubble, bound via workTextRef)
-  workTextRef: Ref<HTMLElement | null>;
-  onWorkTextScroll: (e: Event) => void;
+  workTextRef: Ref<HTMLElement | null> | null;
+  onWorkTextScroll: ((e: Event) => void) | null;
 }>();
 
 defineSlots<{

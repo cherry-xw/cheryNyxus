@@ -12,6 +12,8 @@
 import { computed, ref } from "vue";
 import type { SenseCallRecord } from "@/stores/agents";
 import { formatArgValue, formatValue, parseArgs } from "@/utils/parseArgs";
+import { extractMediaUrls } from "@/utils/markdown";
+import MediaInlineRenderer from "./dialog/media/MediaInlineRenderer.vue";
 
 const props = defineProps<{ call: SenseCallRecord }>();
 
@@ -31,6 +33,11 @@ const hasArgs = computed(() => {
 });
 
 const resultText = computed(() => formatValue(props.call.result));
+
+const resultMediaAssets = computed(() => {
+  const text = typeof props.call.result === "string" ? props.call.result : "";
+  return extractMediaUrls(text);
+});
 
 const statusGlyph = computed(() => {
   switch (props.call.status) {
@@ -87,6 +94,11 @@ const statusClass = computed(() => `status-${props.call.status}`);
         result
       </button>
       <pre v-if="showResult" class="sense-pre">{{ resultText }}</pre>
+      <!-- sense 结果内联媒体预览 -->
+      <MediaInlineRenderer
+        v-if="resultMediaAssets.length > 0"
+        :assets="resultMediaAssets"
+      />
     </div>
   </div>
 </template>

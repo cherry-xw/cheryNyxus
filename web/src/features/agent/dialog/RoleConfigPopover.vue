@@ -66,6 +66,12 @@ function senseName(entry: string): string {
 function senseTool(entry: string): SenseToolInfo | undefined {
   return props.senseTools.find((tool) => tool.name === senseName(entry));
 }
+
+function formatContextLimit(limit: number | undefined): string {
+  if (limit === undefined) return "—";
+  if (limit >= 1000) return `${Math.round(limit / 1000)}k`;
+  return String(limit);
+}
 </script>
 
 <template>
@@ -79,18 +85,36 @@ function senseTool(entry: string): SenseToolInfo | undefined {
           <span class="brain-name">◈ {{ selection.brain || "未选择大脑" }}</span>
         </div>
         <div class="brain-facts" aria-label="当前大脑参数">
-          <span><b>模型</b>{{ brainConfig(selection.brain)?.model ?? "—" }}</span>
-          <span><b>思考</b>{{ brainConfig(selection.brain)?.thinking === undefined ? "继承" : brainConfig(selection.brain)?.thinking ? "开启" : "关闭" }}</span>
-          <span><b>上下文</b>{{ brainInfo(selection.brain)?.contextLimit ?? brainConfig(selection.brain)?.contextLimit ?? "—" }}</span>
-          <span><b>工具</b>{{ supportsTools(selection.brain) ? 'Tool Call' : '仅对话' }}</span>
-        </div>
-        <div class="profile-sense-icons" aria-label="模型媒体能力">
-          <span v-if="brainConfig(selection.brain)?.capabilities?.input?.image">🖼️</span>
-          <span v-if="brainConfig(selection.brain)?.capabilities?.input?.video">🎞️</span>
-          <span v-if="brainConfig(selection.brain)?.capabilities?.input?.audio">🔊</span>
-          <span v-if="brainConfig(selection.brain)?.capabilities?.generate?.image">✨🖼️</span>
-          <span v-if="brainConfig(selection.brain)?.capabilities?.generate?.video">✨🎬</span>
-          <span v-if="brainConfig(selection.brain)?.capabilities?.generate?.audio">✨🔊</span>
+          <span class="brain-fact-text"><b>模型</b>{{ brainConfig(selection.brain)?.model ?? "—" }}</span>
+          <span class="brain-fact-text"><b>上下文</b>{{ formatContextLimit(brainInfo(selection.brain)?.contextLimit ?? brainConfig(selection.brain)?.contextLimit) }}</span>
+          <el-tooltip
+            v-if="brainConfig(selection.brain)?.thinking !== false"
+            :content="`思考（${brainConfig(selection.brain)?.thinking === undefined ? '继承' : '开启'}）`"
+            placement="top"
+          >
+            <span class="brain-fact-icon">💭</span>
+          </el-tooltip>
+          <el-tooltip v-if="supportsTools(selection.brain)" content="工具调用" placement="top">
+            <span class="brain-fact-icon">🔧</span>
+          </el-tooltip>
+          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.input?.image" content="模型支持图像输入" placement="top">
+            <span class="brain-fact-icon cap-input">🖼️</span>
+          </el-tooltip>
+          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.input?.video" content="模型支持视频输入" placement="top">
+            <span class="brain-fact-icon cap-input">🎞️</span>
+          </el-tooltip>
+          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.input?.audio" content="模型支持音频输入" placement="top">
+            <span class="brain-fact-icon cap-input">🔊</span>
+          </el-tooltip>
+          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.generate?.image" content="模型支持图像生成" placement="top">
+            <span class="brain-fact-icon cap-generate">🎨</span>
+          </el-tooltip>
+          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.generate?.video" content="模型支持视频生成" placement="top">
+            <span class="brain-fact-icon cap-generate">🎬</span>
+          </el-tooltip>
+          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.generate?.audio" content="模型支持音频生成" placement="top">
+            <span class="brain-fact-icon cap-generate">🎵</span>
+          </el-tooltip>
         </div>
         <div v-if="senseEntries(selection.senseGroup).length" class="profile-sense-icons" aria-label="已启用能力">
           <el-tooltip
@@ -225,14 +249,44 @@ function senseTool(entry: string): SenseToolInfo | undefined {
 .brain-name { color: rgba(42, 34, 23, 0.72); font-weight: 650; }
 
 .brain-facts {
-  display: grid;
-  grid-template-columns: minmax(0, 2.2fr) minmax(0, 0.8fr) minmax(0, 1.3fr);
-  gap: 3px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 5px;
   color: rgba(28, 31, 36, 0.65);
   font-size: 10px;
 
-  span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .brain-fact-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   b { margin-right: 3px; color: rgba(28, 31, 36, 0.42); font-weight: 700; }
+
+  .brain-fact-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid rgba(87, 75, 49, 0.12);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
+    line-height: 1;
+
+    &.cap-input {
+      border-color: rgba(59, 130, 246, 0.28);
+      background: rgba(219, 234, 254, 0.6);
+    }
+
+    &.cap-generate {
+      border-color: rgba(234, 88, 12, 0.3);
+      background: linear-gradient(145deg, rgba(254, 243, 199, 0.85), rgba(253, 230, 138, 0.45));
+    }
+  }
 }
 
 .profile-sense-icons {
@@ -366,6 +420,5 @@ function senseTool(entry: string): SenseToolInfo | undefined {
 
 @media (max-width: 440px) {
   .profile-settings { grid-template-columns: 1fr; }
-  .brain-facts { grid-template-columns: 1fr 1fr; }
 }
 </style>

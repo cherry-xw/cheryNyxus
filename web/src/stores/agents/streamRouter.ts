@@ -132,8 +132,10 @@ export function createStreamRouter(
         // CP7: done notification 携带 contextUsage（token/brain.contextLimit）→ 更新 pet.contextUsage（ContextBar 消费）
         // 子 agent done（finished=true）→ 转 ghost（灵魂态保留），pick 灵魂 emoji 按 tribe 序号取（selfId 排除已置 isGhost 的自身）
         if (type === "done" && pet) {
-          const d = (n.data ?? {}) as { contextUsage?: number; finished?: boolean };
+          const d = (n.data ?? {}) as { contextUsage?: number; used?: number; total?: number; finished?: boolean };
           if (typeof d.contextUsage === "number") pet.contextUsage = d.contextUsage;
+          if (typeof d.used === "number") pet.contextUsed = d.used;
+          if (typeof d.total === "number") pet.contextTotal = d.total;
           // done 表示 loop 正常结束 → 末条为 assistant → canResume 失效
           pet.canResume = false;
           if (d.finished === true && !pet.isMaster) {

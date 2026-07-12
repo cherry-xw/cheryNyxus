@@ -13,7 +13,7 @@
  *   （getHistory 内部 ensureStream，理论不达；防御走 graceful）。
  * motion-v：无 TargetAndTransition 导出，inline initial/animate/exit 字面量（同 AgentDialog 风格）。
  */
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { useAgentsStore } from "@/stores";
 import type { HistoryItem } from "@/stores/agents";
@@ -143,11 +143,44 @@ function onOverlayClick(e: MouseEvent): void {
   if (e.target === e.currentTarget) close();
 }
 
+// 全局 ESC 关闭抽屉（仅在 chatId 非空时生效；匹配 AgentDialog 模式）。
+function onGlobalKeydown(e: KeyboardEvent): void {
+  if (e.key === "Escape" && chatId.value) {
+    e.preventDefault();
+    close();
+  }
+}
+window.addEventListener("keydown", onGlobalKeydown);
+onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
+
 const titleText = computed(() => {
   if (!chatId.value) return "";
   const name = chatPetName.value;
   if (name) return `${name} 的历史`;
   return `历史 · ${chatId.value.slice(0, 8)}…`;
+});
+
+/** 格式化 token 数：< 1000 直显，≥ 1000 缩写为 1.2K/12K 等。 */
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
+  return `${Math.round(n / 1000)}K`;
+}
+
+/** contextUsage 颜色分级（与 ContextBar / SessionList 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
+function usageClass(u: number): string {
+  if (u >= 0.8) return "usage-high";
+  if (u >= 0.5) return "usage-mid";
+  return "usage-low";
+}
+
+/** 上下文用量详情（从 pet 读取，pet 由 initFromChats / done / chat.get 三路同步）。 */
+const usagePct = computed(() => (pet.value ? Math.round(pet.value.contextUsage * 100) : 0));
+const usageDetail = computed(() => {
+  if (!pet.value) return null;
+  const { contextUsed, contextTotal } = pet.value;
+  if (typeof contextUsed !== "number" || typeof contextTotal !== "number" || contextTotal <= 0) return null;
+  return { used: contextUsed, total: contextTotal };
 });
 </script>
 
@@ -191,6 +224,20 @@ const titleText = computed(() => {
           </div>
           <button type="button" class="close-btn" aria-label="Close" @click="close">✕</button>
         </header>
+        <div v-if="usageDetail" class="usage-bar-wrap" :class="usageClass(pet?.contextUsage ?? 0)">
+          <div class="usage-bar-row">
+            <span class="usage-label">上下文</span>
+            <span class="usage-values">
+              <span class="usage-used">{{ fmtTokens(usageDetail.used) }}</span>
+              <span class="usage-sep">/</span>
+              <span class="usage-total">{{ fmtTokens(usageDetail.total) }}</span>
+              <span class="usage-pct">{{ usagePct }}%</span>
+            </span>
+          </div>
+          <div class="usage-track">
+            <div class="usage-fill" :style="{ width: `${Math.min(100, usagePct)}%` }"></div>
+          </div>
+        </div>
 
         <div ref="scrollRef" class="drawer-body">
           <div v-if="!loaded" class="loading-row">载入历史…</div>
@@ -329,5 +376,78 @@ const titleText = computed(() => {
   color: fade(@ink, 48%);
   font-size: 12px;
   font-style: italic;
+}
+
+.usage-bar-wrap {
+  padding: 6px 14px 8px;
+  border-bottom: 1px solid rgba(36, 38, 45, 0.08);
+  background: rgba(255, 255, 255, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  &.usage-low { --usage-color: #22c55e; --usage-bg: rgba(34, 197, 94, 0.18); }
+  &.usage-mid { --usage-color: #eab308; --usage-bg: rgba(234, 179, 8, 0.22); }
+  &.usage-high { --usage-color: #ef4444; --usage-bg: rgba(239, 68, 68, 0.22); }
+
+  .usage-bar-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .usage-label {
+    font-size: 10px;
+    color: fade(@ink, 52%);
+    letter-spacing: 0.02em;
+  }
+
+  .usage-values {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: fade(@ink, 78%);
+
+    .usage-used {
+      color: var(--usage-color);
+      font-weight: 800;
+    }
+
+    .usage-sep {
+      opacity: 0.5;
+    }
+
+    .usage-total {
+      opacity: 0.7;
+    }
+
+    .usage-pct {
+      margin-left: 6px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: var(--usage-bg);
+      color: var(--usage-color);
+      font-weight: 800;
+      font-size: 10px;
+    }
+  }
+
+  .usage-track {
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(36, 38, 45, 0.08);
+    overflow: hidden;
+
+    .usage-fill {
+      height: 100%;
+      background: var(--usage-color);
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+  }
 }
 </style>

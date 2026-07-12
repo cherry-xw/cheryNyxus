@@ -12,6 +12,19 @@
   color: fade(@ink, 60%);
   font-size: 11px;
   line-height: 1.5;
+  // 骨架模式：覆盖为 shimmer 占位条；保持 .sect-hint 同样字号行高 → 计算高度一致。
+  &.skel-shimmer {
+    color: transparent;
+    border-radius: 4px;
+    background: linear-gradient(
+      90deg,
+      rgba(36, 38, 45, 0.05),
+      rgba(36, 38, 45, 0.13),
+      rgba(36, 38, 45, 0.05)
+    );
+    background-size: 200% 100%;
+    animation: skel-shimmer 1.4s linear infinite;
+  }
 }
 .warn-hint {
   margin: 0;
@@ -21,6 +34,20 @@
   color: #92590a;
   font-size: 11px;
   line-height: 1.4;
+  // 骨架模式：复用真实 .warn-hint 字号 + 行高 + padding，只是把背景色换成 shimmer。
+  // 计算高度（line-height 15.4 + padding 10 = 25.4px）与真实段落像素级一致。
+  &.skel-shimmer {
+    color: transparent;
+    border-radius: 4px;
+    background: linear-gradient(
+      90deg,
+      rgba(36, 38, 45, 0.05),
+      rgba(36, 38, 45, 0.13),
+      rgba(36, 38, 45, 0.05)
+    );
+    background-size: 200% 100%;
+    animation: skel-shimmer 1.4s linear infinite;
+  }
 }
 .card {
   position: relative;
@@ -132,6 +159,10 @@
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+// 三列变体：媒体三选（🖼️/🎬/🎵）专用，override 默认 1fr 1fr → 1fr 1fr 1fr。
+.card-grid-3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
 .field {
   display: flex;
   flex-direction: column;
@@ -204,6 +235,131 @@
   &:hover {
     border-color: fade(@ink, 40%);
   }
+}
+
+// TabShell 版式原语：settings/tabs/ 下所有 TabShell + SkeletonTab 共用。
+// 抽出此处避免 SkeletonTab 与 TabShell 两份 DOM 形状出现偏差 → 加载前后首行抖动。
+.shell-sect {
+  height: 100%;
+  box-sizing: border-box;
+}
+.shell-sticky {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(36, 38, 45, 0.08);
+}
+.shell-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.shell-index-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  align-items: center;
+}
+.shell-index-btn {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border: 1px solid rgba(190, 132, 28, 0.35);
+  border-radius: 999px;
+  background: rgba(246, 183, 60, 0.12);
+  color: #80560a;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  &:hover {
+    background: rgba(246, 183, 60, 0.3);
+    border-color: rgba(190, 132, 28, 0.55);
+    transform: translateY(-1px);
+  }
+  &:active {
+    transform: translateY(0);
+  }
+}
+.shell-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+// 骨架屏文本行（与 .sect-hint / .warn-hint 共用 line-height 17px）。
+// 高度偏差会导致 SkeletonTab → 真实 tab 时 .shell-sticky 高度变化 → 首卡 y 抖动。
+.skel-line {
+  display: block;
+  height: 17px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(36, 38, 45, 0.05),
+    rgba(36, 38, 45, 0.13),
+    rgba(36, 38, 45, 0.05)
+  );
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s linear infinite;
+}
+
+.skel-line-title {
+  // 匹配 .card-name 字号（font-size 17px / weight 800）；左 28px 避 .card-idx。
+  margin-left: 28px;
+  width: 50%;
+}
+
+.skel-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.skel-tile {
+  border-radius: 5px;
+  background: rgba(36, 38, 45, 0.08);
+  animation: skel-pulse 1.4s ease-in-out infinite;
+}
+
+.skel-btn-sq {
+  width: 24px;
+  height: 24px;
+}
+
+.skel-tag-tile {
+  // 三等分同 .sense-tag：calc((100% - 12px) / 3)，高度近似 el-tag default 24px。
+  width: calc((100% - 12px) / 3);
+  height: 24px;
+  border-radius: 4px;
+}
+
+.skel-dot {
+  // 匹配 .shell-index-btn（16×16 圆点），加 pulse 而非 shimmer。
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(36, 38, 45, 0.08);
+  animation: skel-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes skel-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes skel-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.95; }
 }
 .sub-title {
   margin: 10px 0 0;

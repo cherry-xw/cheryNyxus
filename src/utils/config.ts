@@ -62,19 +62,24 @@ export interface BrainCapabilities {
   generate?: MediaCapabilities;
 }
 
-/** 外部媒体网关；三个类型分别配置，统一使用项目定义的媒体请求协议。 */
+/** 媒体类型 */
+export type MediaKind = "image" | "video" | "audio";
+
+/** 命名媒体服务配置（独立实体，在 MediaTab 管理）。 */
 export interface MediaServiceConfig {
+  /** 服务类型（图/音/视） */
+  type: MediaKind;
   url: string;
   model?: string;
   key?: string;
   enabled?: boolean;
+  /** 单文件上传上限（MiB），覆盖全局默认 100 */
+  maxUploadMb?: number;
 }
 
+/** 媒体服务集合：name → 配置。预设通过 PresetConfig.mediaImage/mediaVideo/mediaAudio 引用此处的 name。 */
 export interface MediaConfig {
-  image?: MediaServiceConfig;
-  video?: MediaServiceConfig;
-  audio?: MediaServiceConfig;
-  maxUploadMb?: number;
+  [name: string]: MediaServiceConfig;
 }
 
 /**
@@ -127,6 +132,10 @@ export interface PresetConfig {
   leader: string;
   /** 选中的角色 type 名（引用 config.roles 已定义的键，不在预设内重定义） */
   roles?: string[];
+  /** 按类型引用媒体服务名（引用 config.media 已定义的服务，类型须匹配） */
+  mediaImage?: string;
+  mediaVideo?: string;
+  mediaAudio?: string;
 }
 
 /** 默认预设名：旧 config.default 迁移目标。/api/config default 字段 + brain.list default 标记据此派生 */
@@ -247,7 +256,7 @@ interface ConfigRaw {
 
 const missingEnvVars: string[] = [];
 
-function replaceEnvVars(value: unknown): unknown {
+export function replaceEnvVars(value: unknown): unknown {
   if (typeof value === "string") {
     const envVarMatch = value.match(/^\$([A-Z_][A-Z0-9_]*)$/);
     if (envVarMatch && envVarMatch[1]) {
@@ -454,6 +463,28 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     if (cfg?.capabilities?.generate && cfg.capabilities.toolCall === false && Object.values(cfg.capabilities.generate).some(Boolean)) {
       errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`);
     }
+    // 密钥必须使用 $ENV 占位符（格式不符则视为未配置，不阻止启动）
+    if (cfg?.key && !/^\$[A-Z_][A-Z0-9_]*$/.test(cfg.key)) {
+      cfg.key = undefined;
+    }
+  }
+
+  // media.* 命名服务：type 合法 + enabled 时 url 必填
+  const VALID_MEDIA_KIND = ["image", "video", "audio"] as const;
+  const mediaNames = Object.keys(raw.media ?? {});
+  if (raw.media) {
+    for (const [name, cfg] of Object.entries(raw.media)) {
+      if (!cfg?.type || !VALID_MEDIA_KIND.includes(cfg.type)) {
+        errors.push(`media.${name}.type 非法（合法：image/video/audio）`);
+      }
+      if (cfg?.enabled && !cfg.url) {
+        errors.push(`media.${name} 已启用但 url 为空`);
+      }
+      // 密钥必须使用 $ENV 占位符（格式不符则视为未配置，不阻止启动）
+      if (cfg?.key && !/^\$[A-Z_][A-Z0-9_]*$/.test(cfg.key)) {
+        cfg.key = undefined;
+      }
+    }
   }
 
   // roles.*.brain 必须存在于 llm.brain；roles.*.systemPrompt 文件存在性（相对 .chery 目录解析；绝对路径原样）。
@@ -497,6 +528,20 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
           errors.push(`presets.${pname}.roles 引用未知角色类型 "${type}"（可用：${roleNames.join(", ") || "（未配置任何角色）"}）`);
         }
       }
+      // mediaImage/mediaVideo/mediaAudio 引用必须存在于 config.media 且 type 匹配
+      const mediaByKind: Record<string, string | undefined> = {
+        image: pcfg.mediaImage,
+        video: pcfg.mediaVideo,
+        audio: pcfg.mediaAudio,
+      };
+      for (const [kind, ref] of Object.entries(mediaByKind)) {
+        if (!ref) continue;
+        if (!mediaNames.includes(ref)) {
+          errors.push(`presets.${pname}.media${kind} "${ref}" 不在 media 服务列表（可用：${mediaNames.join(", ") || "（未配置任何媒体服务）"}）`);
+        } else if (raw.media?.[ref]?.type !== kind) {
+          errors.push(`presets.${pname}.media${kind} "${ref}" 类型为 ${raw.media?.[ref]?.type ?? "未知"}，非 ${kind}`);
+        }
+      }
     }
   }
 
@@ -535,6 +580,25 @@ export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; e
 
   fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }));
   return { ok: true };
+}
+
+/**
+ * 读取 .env 文件中的变量名列表（供前端密钥下拉选择）。
+ * 解析规则：每行 KEY=VALUE 或 KEY="VALUE"，忽略空行和 # 注释行。
+ */
+export function listEnvVarNames(): string[] {
+  if (!fs.existsSync(rootEnvPath)) return [];
+  const content = fs.readFileSync(rootEnvPath, "utf8");
+  const names = new Set<string>();
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx <= 0) continue;
+    const key = trimmed.slice(0, eqIdx).trim();
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) names.add(key);
+  }
+  return [...names].sort();
 }
 
 export type { Config, ConfigRaw, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig, ServerConfig };
