@@ -70,6 +70,7 @@
 | [agent-pet.md](./agent-pet.md) | 主从 Agent 桌宠系统：pet↔chat 绑定、spawn_role 前端驱动架构、CP0-CP7 分阶段 |
 | [model-capabilities.md](./model-capabilities.md) | Brain 的 Tool Call/多模态能力、角色与运行时约束、媒体资产和媒体网关 |
 | [mock.md](./mock.md) | Mock Provider 脚本化离线测试（send/resume/revoke/loop） |
+| [error-conventions.md](./error-conventions.md) | 错误信息分层规范：用户面（直白中文 + tracingId） vs 日志面（结构化 JSON），所有错误出口的硬约束 |
 
 ## 项目入口与配置
 

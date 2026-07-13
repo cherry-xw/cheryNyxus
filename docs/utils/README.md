@@ -79,7 +79,7 @@ export function resetEnvVarCache(): void;
 
 `BrainConfig` 关键字段（[源码](../../src/utils/config.ts)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）/ `capabilities?`（Tool Call、图片/视频/音频输入及生成能力）。能力缺省兼容旧配置：Tool Call 开启，媒体能力关闭。
 
-`$ENV` 替换规则：仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`（如 `url: $OLLAMA_HOST`），从 `.env`/进程环境变量取值；缺失会收集到 `missingEnvVars` 并 warn，原样保留字符串。不会替换值中嵌入的 `$VAR`。
+`$ENV` 替换规则：仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`（如 `url: $OLLAMA_HOST`），从 `.env`/进程环境变量取值；缺失会收集到 `missingEnvVars` 并 warn（`Set` 去重，同一变量被多 brain 引用只提示一次），原样保留字符串。不会替换值中嵌入的 `$VAR`。
 
 ### 配置读写（config.get / config.save RPC）
 

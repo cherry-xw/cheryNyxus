@@ -118,7 +118,7 @@ roles:
     mcpServers: []
     systemPrompt: prompts/prefebMain/leader.md
   plan:
-    brain: shangtang
+    brain: ali_glm5
     senseGroup: plan
     mcpServers: []
     systemPrompt: prompts/prefebMain/planner.md

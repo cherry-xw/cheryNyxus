@@ -255,7 +255,9 @@ interface ConfigRaw {
   presets?: Record<string, PresetConfig>;
 }
 
-const missingEnvVars: string[] = [];
+// 同一变量可能被多个字段引用（如 4 个 brain 都用 $API_KEY），
+// 用 Set 去重，避免控制台刷出 "API_KEY, API_KEY, API_KEY, API_KEY"。
+const missingEnvVars = new Set<string>();
 
 export function replaceEnvVars(value: unknown): unknown {
   if (typeof value === "string") {
@@ -264,7 +266,7 @@ export function replaceEnvVars(value: unknown): unknown {
       const envVarName = envVarMatch[1];
       const envValue = process.env[envVarName];
       if (!envValue) {
-        missingEnvVars.push(envVarName);
+        missingEnvVars.add(envVarName);
         return value; // 原样返回
       }
       return envValue;
@@ -362,8 +364,8 @@ function loadConfig(): Config {
     console.warn(`⚠️ 环境变量 CHERY_DIR 未配置，使用默认路径: ${cheryDir}`);
   }
 
-  if (missingEnvVars.length > 0) {
-    console.warn(`⚠️ 环境变量未配置: ${missingEnvVars.join(", ")}`);
+  if (missingEnvVars.size > 0) {
+    console.warn(`⚠️ 环境变量未配置: ${Array.from(missingEnvVars).join(", ")}`);
   }
 
   return config;

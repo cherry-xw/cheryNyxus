@@ -162,9 +162,22 @@ const index = messages.filter(m => m.role === "assistant").length;
 ```ts
 {
   async chat(messages, senses, options): Promise<ChatCompletion> {
-    // key 缺失（brain 未配 key / $ENV 占位符未替换）→ 运行期抛错；消息刻意避开 retry 可恢复关键词
-    // （api / invalid / timeout 等），落入 retry unknown 类 → 不重试、直接 yield ErrorChunk 响应前端
-    if (!key) throw new Error(`Brain key 未配置（${model}@${url}），请在 .env 设置对应环境变量`);
+    // key 缺失（brain 未配 key / $ENV 占位符未替换）→ 运行期抛错；
+    // 详细上下文走 logger 落盘，message 短直白 + tracingId 用于问询查询
+    // 占位符 $VAR 必须也视为缺失——env 未配置时 replaceEnvVars 原样返回占位符，
+    // 不拦截会作为 token 发出 → 后端 401，错误信息毫无指引
+    const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/);
+    if (placeholderMatch) {
+      const envName = placeholderMatch[1]!;
+      const tracingId = newTracingId();
+      logger.event("llm.key.missing", { tracingId, model, url, envName, reason: "placeholder_unresolved" }, LogLevel.error);
+      throw new Error(`${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启 [${tracingId}]`);
+    }
+    if (!key) {
+      const tracingId = newTracingId();
+      logger.event("llm.key.missing", { tracingId, model, url, reason: "key_empty" }, LogLevel.error);
+      throw new Error(`${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段 [${tracingId}]`);
+    }
     await acquireRpm(options);
     const client = new OpenAI({ baseURL: url, apiKey: key });
     return client.chat.completions.create({
@@ -177,7 +190,16 @@ const index = messages.filter(m => m.role === "assistant").length;
 }
 ```
 
-**key 缺失策略**：`brain.key` 不参与启动校验（缺失不阻止启动），运行期 `chat`/`chatStream` 调用时若 `key` 为空（falsy）才抛错；错误消息避开 [retry 中间件](./middleware.md) 的可恢复关键词，确保不重试、直接响应前端。
+**key 缺失策略**：`brain.key` 不参与启动校验（缺失不阻止启动），运行期 `chat`/`chatStream` 调用时按以下顺序检查：
+
+1. **占位符检测**：key 形如 `^\$([A-Z_][A-Z0-9_]*)$` → 抛 `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启 [${tracingId}]`。[replaceEnvVars](../../src/utils/config.ts) 在 env 缺失时**原样返回占位符**，必须也视为缺失。
+2. **完全缺失**：`!key`（undefined / 空串）→ 抛 `${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段 [${tracingId}]`。
+
+**错误信息分层原则**：
+- **用户面**（抛出的 message）：`model 缺失 + 修复路径 + 8 位 tracingId`（如 `glm-5.2 缺少 key。请在 .env 或环境变量中设置 API_KEY 后重启 [1c538629]`）—— 直白可读，足够用户自助修复
+- **日志面**（`logger.event("llm.key.missing", {...})`）：结构化 JSON 事件，含 `tracingId` + `model` + `url` + `envName` + `reason`（`placeholder_unresolved` / `key_empty`）—— 用户报问题时给 tracingId，可凭此 id 全文检索日志还原完整上下文
+
+错误消息避开 [retry 中间件](./middleware.md) 的可恢复关键词（`api`/`invalid`/`timeout` 等），落到 retry 的 `unknown` 分类 → 不重试、直接响应前端。
 
 **Message Adapter：**
 

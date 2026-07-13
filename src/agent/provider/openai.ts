@@ -13,6 +13,7 @@ import type {
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 import { getRateLimiter } from "@/utils/rateLimiter.js";
+import { throwUserFacing } from "@/utils/error.js";
 
 /**
  * RPM 限流：在发起 LLM 请求前按 (url, key) 滑动窗口节流。
@@ -163,8 +164,24 @@ const openaiLLMAdapter: LLMAdapter = {
     }
     // key 缺失抛错：错误消息刻意避开 retry 可恢复关键词（api/invalid/timeout 等），落入 unknown 类 →
     // 不重试、直接 yield ErrorChunk 响应前端（见 retry 中间件 classifyError）
+    // 占位符 $VAR（env 未配置时 replaceEnvVars 原样返回）必须也视为缺失——
+    // 不然会作为 token 发出 → 后端 401，错误信息毫无指引
+    // 错误信息分层规范见 [docs/error-conventions.md](../../docs/error-conventions.md)
+    const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/);
+    if (placeholderMatch) {
+      const envName = placeholderMatch[1]!;
+      throwUserFacing(
+        "llm.key.missing",
+        `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启`,
+        { model, url, envName, reason: "placeholder_unresolved" },
+      );
+    }
     if (!key) {
-      throw new Error(`Brain key 未配置（${model}@${url}），请在 .env 设置对应环境变量`);
+      throwUserFacing(
+        "llm.key.missing",
+        `${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段`,
+        { model, url, reason: "key_empty" },
+      );
     }
     await acquireRpm(options);
     const client = new OpenAI({
@@ -192,8 +209,22 @@ const openaiLLMAdapter: LLMAdapter = {
       throw new Error("OpenAI provider requires model and url in options");
     }
     // key 缺失抛错：错误消息刻意避开 retry 可恢复关键词，落入 unknown 类 → 不重试、直接响应前端
+    // 占位符 $VAR 同 chat 路径：env 未配置时 replaceEnvVars 原样返回，必须也视为缺失
+    const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/);
+    if (placeholderMatch) {
+      const envName = placeholderMatch[1]!;
+      throwUserFacing(
+        "llm.key.missing",
+        `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启`,
+        { model, url, envName, reason: "placeholder_unresolved", mode: "stream" },
+      );
+    }
     if (!key) {
-      throw new Error(`Brain key 未配置（${model}@${url}），请在 .env 设置对应环境变量`);
+      throwUserFacing(
+        "llm.key.missing",
+        `${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段`,
+        { model, url, reason: "key_empty", mode: "stream" },
+      );
     }
     await acquireRpm(options);
     const client = new OpenAI({

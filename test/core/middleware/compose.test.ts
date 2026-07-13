@@ -182,14 +182,25 @@ describe("compose middleware", () => {
   });
 
   describe("error propagation", () => {
-    it("wraps thrown handler errors with index prefix", async () => {
+    it("rethrows compliant errors (末尾含 8hex tracingId) verbatim", async () => {
       const handler = async function* () {
-        throw new Error("boom");
+        throw new Error("glm-5 缺少 key。请在 .env 设 API_KEY 后重启 [a1b2c3d4]");
       };
 
       await expect(
         drain(compose([handler]).run(createMockContext())),
-      ).rejects.toThrow("[compose] handler at index 0 threw: boom");
+      ).rejects.toThrow("glm-5 缺少 key。请在 .env 设 API_KEY 后重启 [a1b2c3d4]");
+    });
+
+    it("rewraps non-compliant errors (第三方裸抛) 为内部错误 + 新 tracingId", async () => {
+      const handler = async function* () {
+        throw new Error("boom");
+      };
+
+      // "boom" 末尾无 8hex tracingId → compose 重新包为 "内部错误，请用 [xxxxxxxx] 反馈给开发"
+      await expect(
+        drain(compose([handler]).run(createMockContext())),
+      ).rejects.toThrow(/^内部错误，请用 \[[0-9a-f]{8}\] 反馈给开发$/);
     });
   });
 

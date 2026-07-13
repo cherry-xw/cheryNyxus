@@ -160,6 +160,22 @@ send(input)                      ── agent/builder.ts 门面转发 ──
             service observer 消费 effect chunk → 落库 / 注册审批
 ```
 
+### compose catch 的错误处理（[compose.ts](../../src/core/middleware/compose.ts) `executeChain`）
+
+洋葱链 `executeChain` 的 catch 块对错误分类处理，按 [错误信息分层规范](../error-conventions.md)：
+
+| 错误类型 | 处理 | 用户面 message | 日志 |
+|---------|------|---------------|------|
+| **`AgentAbortError`**（控制流：chat.abort / 审批 reject） | 原样上浮，不包装 | `error.message` 原样 | — |
+| **合规错误**（message 末尾已有 8 hex `tracingId`，如 `throwUserFacing` 输出） | 原样上浮，不加大段前缀 | `error.message` 原样 | — |
+| **未合规错误**（第三方库裸抛：OpenAI SDK 401 / 网络 ECONNREFUSED / 业务未规范化） | 重新包为 `内部错误，请用 [${tracingId}] 反馈给开发`，cause 保留原 err | `内部错误，请用 [${tracingId}] 反馈给开发` | `logger.event("compose.unhandled", {tracingId, handlerIndex, error, stack})` |
+
+**Why**：compose 层无业务上下文（不知 model/senseName），无法给出"是什么 + 改哪里"的人话。错误分流——
+- 业务层已规范化的错误（`throwUserFacing`）原样穿透，避免 `[compose] handler at index 3 threw: ...` 这种机读前缀污染用户面
+- 第三方裸错集中到统一"内部错误 + tracingId"，开发者凭 id 在日志还原（handlerIndex + 原 error + stack）
+
+**合规识别正则**：`/\[[0-9a-f]{8}\]$/` —— `\[` 在字符类 `[` 之前转义字面 `[`，之后才是真正的范围字符类。**不要**写成 `\[0-9a-f]{8}\]$`（`-` 在字符类外不构成范围，等价于 8 次重复字面 `0-9a-f]`，永远 false）。
+
 ### send 状态机
 
 ```text
