@@ -1,6 +1,6 @@
 # Web 工作区总览
 
-> 源码 [web/](../../web/) ｜ 上级 [docs](../) ｜ 相关 [protocol.md](../protocol.md)、[interaction.md](../interaction.md)、[./electron.md](./electron.md)、[./deployment.md](./deployment.md)
+> 源码 [web/](../../web/) ｜ 上级 [docs](../) ｜ 相关 [protocol.md](../protocol.md)、[interaction.md](../interaction.md)、[./electron.md](./electron.md)、[./deployment.md](./deployment.md)、[./pack-guide.md](./pack-guide.md)（打包操作手册）、[./electron-pack-progress.md](./electron-pack-progress.md)（打包进度跟踪）
 
 ## 职责
 
@@ -19,7 +19,7 @@
 
 ### monorepo 定位
 
-- **包管理器**：pnpm 11.9.0（`packageManager` 字段 pinned，经 corepack）。[pnpm-workspace.yaml](../../pnpm-workspace.yaml) 声明 `packages: [web]` + `allowBuilds`（`better-sqlite3`/`esbuild`/`vue-demi`/`electron` 必须 true 才能编译 native addon）。
+- **包管理器**：pnpm 11.9+（全局安装）。[pnpm-workspace.yaml](../../pnpm-workspace.yaml) 声明 `packages: [web]` + `allowBuilds`（`better-sqlite3`/`esbuild`/`vue-demi`/`electron` 必须 true 才能编译 native addon）。
 - **backend 留 root**（未挪到 `apps/`）。root [tsconfig.json](../../tsconfig.json) `exclude` 含 `"web"`，前后端 TS 互不污染。
 - **turbo 不能以 root（backend）为目标**：pnpm 递归 workspace 列表不含 root，turbo 的 package graph 只有 `web`。故统一命令不走 `turbo run`，走 `concurrently` / 链式 `pnpm --filter web`。[turbo.json](../../turbo.json) + turbo 仍保留，供 web 及将来新增 workspace 用。
 
@@ -28,7 +28,7 @@
 | 路径 | 职责 |
 |------|------|
 | [web/package.json](../../web/package.json) | workspace 包定义；`scripts`: dev / dev:web / dev:electron / build / type-check / electron |
-| [web/vite.config.ts](../../web/vite.config.ts) | Vite 配置；`ELECTRON_ENABLED` 开关条件挂 electron 插件；`base:'./'`；`@` 别名 |
+| [web/vite.config.ts](../../web/vite.config.ts) | Vite 配置；`ELECTRON_ENABLED` 开关条件挂 electron 插件；`base:'./'`；`@` 别名；`build.cssMinify:'esbuild'`（绕开 lightningcss 对 Vue `:deep(...)` 的误报警告）；`rollupOptions.manualChunks` 拆 `vendor-{vue,ui,motion,markdown}`；`rollupOptions.onwarn` 静默 `@vueuse/core` 的 `INVALID_ANNOTATION`（上游库已知问题） |
 | [web/tsconfig.json](../../web/tsconfig.json) | `references` 拆分 app + node |
 | [web/tsconfig.app.json](../../web/tsconfig.app.json) | 渲染进程 TS（严格、Bundler 解析、`@/*` 别名、`noUncheckedIndexedAccess`） |
 | [web/tsconfig.node.json](../../web/tsconfig.node.json) | 主进程 / vite 配置 TS（`types:["node"]`、`composite`） |
@@ -69,7 +69,7 @@
 
 | 产物 | 内容 |
 |------|------|
-| [web/dist/](../../web/dist/) | Vite 渲染产物（`index.html` + assets） |
+| [web/dist/index.html](../../web/dist/index.html) + `assets/` | Vite 渲染产物；JS 资产按 [vite.config.ts](../../web/vite.config.ts) `manualChunks` 拆为 `vendor-{vue,ui,motion,markdown}` 与业务 chunk |
 | [web/dist-electron/main.js](../../web/dist-electron/) | rollup 经 `vite-plugin-electron` 产出的主进程 ESM |
 
 `base:'./'` 保证 Electron `loadFile` 相对路径正确。
@@ -129,5 +129,5 @@ App.vue → RouterView（router 路由表）
 - **加 Pinia store**：`web/src/stores/` 下定义，[stores/index.ts](../../web/src/stores/index.ts) 汇出。
 - **扩展 Pet 角色 / 动画**：角色数据集中在 [petPresets.ts](../../web/src/features/pets/petPresets.ts)，共享 motion-v variant 在 [petMotion.ts](../../web/src/features/pets/petMotion.ts)，设计见 [./pet/](./pet/)。
 - **加 Electron IPC**：[electron/main.ts](../../web/electron/main.ts) 启用 preload；新增 `web/electron/preload.ts`（`contextBridge` 暴露安全 API）；[tsconfig.node.json](../../web/tsconfig.node.json) `include` 加 preload。详见 [./electron.md](./electron.md#扩展点)。
-- **Electron 打包**：当前未做 electron-builder；按需加 `electron-builder` 配置 + script。
+- **Electron 打包**：[./electron.md](./electron.md) 集成 + [./pack-guide.md](./pack-guide.md) 操作手册；构建脚本 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)（下载 Node 22 LTS + 拉 better-sqlite3 预编译）+ [web/electron-builder.yml](../../web/electron-builder.yml)。
 - **Element Plus 按需引入**：当前全量注册（`app.use(ElementPlus)`）；换 `unplugin-vue-components` + `unplugin-auto-import` 减包体。

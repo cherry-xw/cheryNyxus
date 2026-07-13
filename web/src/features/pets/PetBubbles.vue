@@ -5,7 +5,7 @@
  * 支持可选 dialog 插槽透传（speech 气泡内）。
  */
 import { AnimatePresence, motion } from "motion-v";
-import type { Ref } from "vue";
+import type { VariantType } from "motion-v";
 import ApprovalCard from "@/features/agent/ApprovalCard.vue";
 import type { StreamState } from "@/stores";
 import type { PetInstance } from "./types";
@@ -36,20 +36,20 @@ defineProps<{
   approvalStyle: Record<string, string>;
   // motion configs
   speech: {
-    initial: Record<string, unknown>;
-    animate: Record<string, unknown>;
-    exit: Record<string, unknown>;
-    transition: Record<string, unknown>;
+    initial: VariantType;
+    animate: VariantType;
+    exit: VariantType;
+    transition: VariantType["transition"];
   };
   workSideMotion: {
-    initial: Record<string, unknown>;
-    animate: Record<string, unknown>;
-    exit: Record<string, unknown>;
-    transition: Record<string, unknown>;
+    initial: VariantType;
+    animate: VariantType;
+    exit: VariantType;
+    transition: VariantType["transition"];
   };
-  // scroll handler (from useStreamBubble, bound via workTextRef)
-  workTextRef: Ref<HTMLElement | null> | null;
-  onWorkTextScroll: ((e: Event) => void) | null;
+  // scroll handler (from useStreamBubble, bound via workTextRef setter)
+  workTextRef: (el: HTMLElement | null) => void;
+  onWorkTextScroll: (e: Event) => void;
 }>();
 
 defineSlots<{
@@ -96,7 +96,7 @@ defineSlots<{
       @pointerenter="$emit('bubbleEnter')"
       @pointerleave="$emit('bubbleLeave')"
     >
-      <div :ref="workTextRef" class="work-text" :class="{ 'is-thinking': thinkingOnly }" @scroll="onWorkTextScroll">
+      <div :ref="(el) => workTextRef(el as HTMLElement | null)" class="work-text" :class="{ 'is-thinking': thinkingOnly }" @scroll="onWorkTextScroll">
         <!-- eslint-disable-next-line vue/no-v-html -- markdown-it html:false 已转义，XSS 安全 -->
         <span v-if="hasContent" class="md" v-html="renderedContent" />
         <template v-else>{{ displayThinking }}</template>

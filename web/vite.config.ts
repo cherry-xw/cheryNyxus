@@ -6,6 +6,34 @@ import electron from 'vite-plugin-electron/simple'
 // ELECTRON_ENABLED=false → 纯浏览器开发（跳过 electron 构建/启动，无 X server 环境可用）
 const electronEnabled = process.env.ELECTRON_ENABLED !== 'false'
 
+/**
+ * 把 node_modules 中的依赖按职能拆到独立的 vendor chunk，便于浏览器并行加载与长期缓存。
+ *
+ * 返回值作为 chunk 文件名后缀；命中规则按顺序匹配，先命中先返回。
+ */
+function manualChunks(id: string): string | undefined {
+  if (!id.includes('node_modules')) return
+  // UI：element-plus 主包与其图标
+  if (id.includes('element-plus') || id.includes('@element-plus')) {
+    return 'vendor-ui'
+  }
+  // 动画与底层 hooks
+  if (id.includes('motion-v') || id.includes('@vueuse')) {
+    return 'vendor-motion'
+  }
+  // Markdown / 代码高亮
+  if (id.includes('highlight.js') || id.includes('markdown-it')) {
+    return 'vendor-markdown'
+  }
+  // Vue 生态核心：vue / vue-router / pinia
+  if (
+    id.match(/[\\/]node_modules[\\/](vue|vue-router|pinia|@vue)[\\/]/) ||
+    id.includes('/node_modules/@vue/')
+  ) {
+    return 'vendor-vue'
+  }
+}
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -47,5 +75,26 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
+    // 关闭 lightningcss、改用 esbuild 做 CSS 压缩：
+    // lightningcss 1.32 把 Vue 3 作用域样式的 `:deep(...)` 选择器误判成无参数 pseudo-class，
+    // 每个 scoped style 都会刷一条警告，污染构建日志。esbuild 对该语法静默，输出体积无可见差异。
+    cssMinify: 'esbuild',
+    rollupOptions: {
+      // 抑制 @vueuse/core 14.3 dist 中 `/* #__PURE__ */` 注释位置错误造成的 Rolldown INVALID_ANNOTATION。
+      // 上游仓库已知问题（注释被编译器重排到不识别的位置），其他来源的同一 code 仍正常上报。
+      onwarn(warning, warn) {
+        if (
+          warning.code === 'INVALID_ANNOTATION' &&
+          typeof warning.id === 'string' &&
+          warning.id.includes('@vueuse/core')
+        ) {
+          return
+        }
+        warn(warning)
+      },
+      output: {
+        manualChunks,
+      },
+    },
   },
 })

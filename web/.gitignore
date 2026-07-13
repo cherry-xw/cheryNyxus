@@ -1,6 +1,8 @@
 node_modules/
 dist/
 dist-electron/
+# electron-builder 产物：NSIS 安装包 + 解包目录（pnpm --filter web dist 生成，重跑可恢复；不入仓）
+release/
 *.local
 *.tsbuildinfo
 .DS_Store

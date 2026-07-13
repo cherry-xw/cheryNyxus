@@ -59,7 +59,7 @@ spawn(getNodeExecutable(), [getBackendBundle()], {
 - **`waitForBackend()`**:轮询 `http://localhost:<WEB_PORT>/api/config`(超时 30s),就绪后 `createWindow()`。
 - **退出**:`before-quit` → `backend.kill('SIGTERM')`;单实例锁 `requestSingleInstanceLock()`。
 
-> ⚠ 发行版待办:终端用户机器可能无 node,需打包 node 二进制到 `extraResources`(见 [native ABI](#native-addon-abi模式-2))。
+> ⚠ 发行版已解决:[scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 下载 Node 22 LTS 二进制到 `extraResources`,并用其 ABI 重生 better-sqlite3 预编译(详见 [native addon ABI](#native-addon-abi模式-2))。
 
 ## preload 注入配置
 
@@ -100,7 +100,11 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 
 **原因**:`ELECTRON_RUN_AS_NODE` 用 Electron 内嵌 node(ABI ≈ Node 20),后端 `better_sqlite3.node` 针对系统 node(Node 24,ABI 137),跨 ABI 崩溃。系统 node spawn 用同 ABI,匹配。
 
-**待办(发行版)**:打包 node 二进制到 `extraResources`(`getNodeExecutable()` 已优先 `../node`);后端 build 时 better-sqlite3 针对打包的 node 版本编译。详见 [deployment.md#native-addon-abi模式-2](./deployment.md#native-addon-abi模式-2)。
+**发行版已解决**:统一打包脚本 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 完成:
+1. 下载 Node 22 LTS(ABI 127)二进制到 [build/node/](../../build/node/);[electron-builder.yml](../../web/electron-builder.yml) `extraResources` 把它打入 `resources/node[.exe]`。`getNodeExecutable()` 优先用它,无则 fallback 系统 node。
+2. 用下载的 Node 22 执行 `npx prebuild-install --target=22.11.0 -r node`,从 better-sqlite3 官方 release 拉 Node 22 ABI 的 `better_sqlite3.node`,覆盖到 `node_modules/better-sqlite3/build/Release/`。下一次后端 build,vite-plugin-native-modules 复制新 ABI 的 `.node` 到 `dist/lib/`。
+
+详见 [deployment.md#native-addon-abi模式-2](./deployment.md#native-addon-abi模式-2)。
 
 ## 构建产物
 
@@ -150,6 +154,6 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 ## 扩展点
 
 - **IPC 扩展**:当前仅 `get-backend-config` 同步取端口。若需渲染进程调后端能力,在 [main.ts](../../web/electron/main.ts) 加 `ipcMain.handle`,[preload.ts](../../web/electron/preload.ts) 经 `contextBridge` 暴露。
-- **native ABI 解决**:见 [上方](#native-addon-abi模式-2-待解决),选一种方向实现。
+- **native ABI 解决**:已通过 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)(Node 22 LTS + prebuild-install)实现,见 [native addon ABI](#native-addon-abi模式-2)。
 - **electron-builder 打包验证**:`pnpm --filter web dist` 产安装包;GUI 运行验证需 xrdp(见 [运行环境坑](#运行环境坑xrdp))。
 - **窗口行为定制**:[main.ts](../../web/electron/main.ts) `createWindow` 的 `BrowserWindow` 选项;macOS `activate` 重建窗口逻辑已就位。

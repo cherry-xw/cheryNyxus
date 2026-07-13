@@ -21,13 +21,17 @@ function getBackendBundle(): string {
 /**
  * node 可执行文件：打包后优先 extraResources 内的 node；否则系统 PATH 的 node。
  *
+ * 路径模式：
+ * - 打包后：resources/node/node[.exe]（electron-builder.yml extraResources 把 build/node/ 整目录打入）
+ * - 开发期：系统 PATH 的 node
+ *
  * 用系统 node 跑后端 bundle（node + index.js），better-sqlite3 用系统 Node ABI，
  * 与后端 build 时一致 —— 避免 ELECTRON_RUN_AS_NODE（Electron 内嵌 node ABI）的跨 ABI 问题。
- * 代价：发行版需打包 node 二进制（extraResources），否则依赖用户机器已装 node。
+ * 发行版通过 scripts/electron-pack.mjs 下载匹配的 Node 22 LTS 二进制到 build/node/。
  */
 function getNodeExecutable(): string {
   const ext = process.platform === "win32" ? ".exe" : "";
-  const bundled = join(app.getAppPath(), "..", "node" + ext);
+  const bundled = join(app.getAppPath(), "..", "node", "node" + ext);
   if (existsSync(bundled)) return bundled;
   return "node";
 }

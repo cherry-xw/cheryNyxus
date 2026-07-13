@@ -68,6 +68,11 @@ const {
   style, speechStyle, sideBubbleStyle, approvalStyle,
   runningTools, todoEnabled, hasTodoData, todoPanelStyle, petIconsStyle, classes,
 } = usePetStyles(() => props.pet, () => props.stream, petHover, () => props.paused);
+
+// workTextRef 在模板中会被自动解包为 HTMLElement | null，因此通过闭包 setter 把 DOM 节点回写给 ref
+function setWorkTextRef(el: HTMLElement | null): void {
+  workTextRef.value = el;
+}
 </script>
 
 <template>
@@ -89,7 +94,7 @@ const {
       :approval-style="approvalStyle"
       :speech="speech"
       :work-side-motion="workSideMotion"
-      :work-text-ref="workTextRef"
+      :work-text-ref="setWorkTextRef"
       :on-work-text-scroll="onWorkTextScroll"
       @bubble-enter="onBubbleEnter"
       @bubble-leave="onBubbleLeave"

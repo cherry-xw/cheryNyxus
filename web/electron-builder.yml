@@ -25,6 +25,11 @@ extraResources:
       - prompts/**
       - skills/**
       - senses/**
+  # Node 22 LTS 二进制（scripts/electron-pack.mjs 下载到 build/node/）
+  # electron/main.ts getNodeExecutable() 优先 resources/node/node[.exe]
+  # 路径相对 yml 文件所在 package 根（web/）；从 web/ 出发 ../build/node 即 <repo>/build/node
+  - from: ../build/node
+    to: node
 
 # 后端由系统 node / 打包 node 二进制运行，不走 Electron ABI。
 # npmRebuild 仅影响 web 包依赖；root better-sqlite3 需匹配随发行版携带的 node ABI。

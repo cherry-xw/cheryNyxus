@@ -13,6 +13,9 @@ dist/
 *.d.ts
 !src/**/*.d.ts
 
+# electron-pack 产物：Node 二进制（scripts/electron-pack.mjs 下载生成，不入仓）
+build/
+
 # Turborepo local cache
 .turbo/
 

@@ -5,6 +5,7 @@
  * 所有 drag/hover/click handler 由父组件传入（usePetDrag）。
  */
 import { motion } from "motion-v";
+import type { VariantType } from "motion-v";
 import ContextBar from "@/features/agent/ContextBar.vue";
 import PetToolbar from "@/features/agent/PetToolbar.vue";
 import RunningTools from "@/features/agent/RunningTools.vue";
@@ -22,10 +23,10 @@ defineProps<{
   leftHand: string;
   rightHand: string;
   nameChars: string[];
-  sprite: { animate: Record<string, unknown>; transition: Record<string, unknown> };
-  face: { animate: Record<string, unknown>; transition: Record<string, unknown> };
-  leftHandMotion: { animate: Record<string, unknown>; transition: Record<string, unknown> };
-  rightHandMotion: { animate: Record<string, unknown>; transition: Record<string, unknown> };
+  sprite: { animate: VariantType; transition: VariantType["transition"] };
+  face: { animate: VariantType; transition: VariantType["transition"] };
+  leftHandMotion: { animate: VariantType; transition: VariantType["transition"] };
+  rightHandMotion: { animate: VariantType; transition: VariantType["transition"] };
   runningTools: RunningTool[];
   isBusy: boolean;
 }>();

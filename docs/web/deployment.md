@@ -23,9 +23,9 @@ node dist/index.js      →  WebSocket server on config.server.port (8182)
 - WS 协议:[protocol.md](../protocol.md)
 - HTTP:/api/config + 静态 serve → [docs/service/http.md](../service/http.md)
 
-### 模式 2:Electron 一体打包(代码就绪,native ABI 待解决)
+### 模式 2:Electron 一体打包(代码就绪,native ABI 已解决)
 
-Electron 应用启动时,主进程 spawn **系统 node** 跑后端 bundle(`node + index.js`,弃用 `ELECTRON_RUN_AS_NODE`),preload 注入端口配置,渲染进程 `loadFile` 加载本地前端产物,连本地 WS。
+Electron 应用启动时,主进程 spawn **系统 node / 打包 node** 跑后端 bundle(`node + index.js`,弃用 `ELECTRON_RUN_AS_NODE`),preload 注入端口配置,渲染进程 `loadFile` 加载本地前端产物,连本地 WS。
 
 ```
 electron 启动
@@ -108,13 +108,14 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 | preload 注入端口配置 | ✅ | [electron/preload.ts](../../web/electron/preload.ts) |
 | DB 路径 → userData | ✅ | `DB_DIR` env([config.ts](../../src/utils/config.ts)),main 打包时注入 `app.getPath('userData')` |
 | electron-builder 打包配置 | ✅ | [electron-builder.yml](../../web/electron-builder.yml);GUI 验证留后续 |
-| native addon ABI(better-sqlite3 跨 ABI) | ✅ 开发期 / ⚠ 发行版 | 改用系统 node spawn(弃用 ELECTRON_RUN_AS_NODE);发行版需打包 node 二进制,见 [关键坑](#native-addon-abi模式-2) |
+| native addon ABI(better-sqlite3 跨 ABI) | ✅ | 改用系统 node spawn(弃用 ELECTRON_RUN_AS_NODE);发行版打包 Node 22 LTS + prebuild-install 拉官方 Node 22 预编译,见 [关键坑](#native-addon-abi模式-2) |
 
 ## 实现路线
 
 - ✅ 阶段 1:前端 WS 客户端 + 后端 HTTP serve + /api/config + `dev:all` 联调
 - ✅ 阶段 2:Electron main spawn + preload + `electron-builder` 配置 + `DB_DIR`
-- ✅ 阶段 2:native ABI 改用系统 node spawn 解决(开发期,弃用 `ELECTRON_RUN_AS_NODE`);发行版打包 node 二进制待办
+- ✅ 阶段 2:native ABI 改用系统 node spawn 解决(开发期,弃用 `ELECTRON_RUN_AS_NODE`)
+- ✅ 阶段 2:发行版打包 Node 22 LTS + prebuild-install 拉官方 Node 22 预编译([scripts/electron-pack.mjs](../../scripts/electron-pack.mjs))
 - ✅ 阶段 3:文档同步
 
 ## 关键坑
@@ -125,11 +126,17 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 
 **原因**:`ELECTRON_RUN_AS_NODE` 用 Electron 内嵌 node(ABI ≈ Node 20),后端 `dist/lib/better_sqlite3.node` 针对系统 node(Node 24,ABI 137),跨 ABI 崩溃。系统 node spawn 用同 ABI,匹配。
 
-**待办(发行版)**:终端用户机器可能无 node。需:
-1. 打包 node 二进制到 [electron-builder.yml](../../web/electron-builder.yml) `extraResources`([main.ts](../../web/electron/main.ts) `getNodeExecutable()` 已优先 `../node`)
-2. 后端 build 时 better-sqlite3 针对打包的 node 版本编译(prebuild 或 node-gyp 匹配 ABI)
+**发行版已解决(打包 Node 22 LTS)**:终端用户机器可能无 node,统一打包脚本 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 完成三件事:
 
-`electron-builder install-app-deps` / `npmRebuild` 只 rebuild `web/` deps,不触及 root better-sqlite3 —— 因改用系统 node,无需 electron-rebuild。
+1. 从 nodejs.org 下载 Node 22 LTS 二进制到 [build/node/](../../build/node/)(各平台 win-x64 / darwin-x64 / darwin-arm64 / linux-x64),electron-builder 经 `extraResources` 打入 [web/electron-builder.yml](../../web/electron-builder.yml) 的 `resources/node[.exe]`。[electron/main.ts](../../web/electron/main.ts) `getNodeExecutable()` 已优先 `../node`,用户机器无需预装 node。
+2. 用下载的 Node 22 执行 `npx prebuild-install --target=22.x.x -r node`,从 better-sqlite3 官方预编译产物仓库(https://github.com/WiseLibs/better-sqlite3/releases)拉 Node 22 ABI 的 `better_sqlite3.node`,覆盖 `node_modules/better-sqlite3/build/Release/`。`vite-plugin-native-modules` 下次 build 时复制新 ABI 的 `.node` 到 `dist/lib/`。
+3. 一条命令完成:`pnpm pack:electron` → 全量 type-check → 后端 SSR build → 前端 build + electron-builder 打包。
+
+版本锁定见 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 顶部常量 `NODE_VERSION = "22.11.0"`(Node 22 当前 LTS,`NODE_MODULE_VERSION=127`),与 [web/electron-builder.yml](../../web/electron-builder.yml) `extraResources` 的 `from: ../build/node` 一致。版本升级时改两处:脚本常量 + electron-builder.yml 中 Node 路径重生成。
+
+> ⚠ 2026-07-13 修正:历史曾写 `from: ../../build/node`,electron-builder 把 `extraResources` 路径相对 yml 文件所在 package 根(`web/`)解析,`../../build/node` 落到 cheryClaw 仓库根的**再上一级**,导致 Node 二进制未进发行包;改为 `../build/node` 后从 `web/` 出发正好是 `<repo>/build/node`。
+
+`electron-builder install-app-deps` / `npmRebuild` 只 rebuild `web/` deps,不触及 root better-sqlite3 —— 因改用系统 node + 预编译,无需 electron-rebuild。
 
 ### 后端资源分发(模式 2,已配置)
 
@@ -139,6 +146,7 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 |------|------|-----|------|
 | 后端 bundle | `../dist` | `dist` | `index.js` + `lib/*.node` + `lib/@swc/wasm/` + `senses/` |
 | 配置 | `../.chery` | `.chery` | `config.yaml` + `system.md` + `skills/` + `senses/`(filter 排除 `db/`) |
+| Node 22 LTS 二进制 | `../build/node` | `node` | `node.exe`(~78 MB),`getNodeExecutable()` 优先用它,fallback 系统 PATH `node` |
 
 main spawn 时 `CHERY_DIR = resources/`(只读 config/skills/senses),`DB_DIR = app.getPath('userData')/.chery/db`(可写)。
 
