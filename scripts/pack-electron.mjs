@@ -5,11 +5,12 @@
  * 整合完整流程：依赖检查 → Node 二进制下载 → SQLite 预编译 → 后端构建 → 前端构建 → electron-builder 打包
  *
  * 用法：
- *   node scripts/pack-electron.mjs              # 一键全量打包（默认）
- *   node scripts/pack-electron.mjs --skip-deps   # 跳过依赖安装（日常增量构建）
- *   node scripts/pack-electron.mjs --skip-check   # 跳过类型检查
- *   node scripts/pack-electron.mjs --only-build   # 跳过 Node/SQLite 下载，仅构建+打包
- *   node scripts/pack-electron.mjs --force        # 强制重新下载所有依赖（Node/SQLite 预编译）
+ *   node scripts/pack-electron.mjs                       # 一键全量打包（默认）
+ *   node scripts/pack-electron.mjs --skip-deps           # 跳过依赖安装（日常增量构建）
+ *   node scripts/pack-electron.mjs --skip-check           # 跳过类型检查
+ *   node scripts/pack-electron.mjs --only-build          # 跳过 Node/SQLite 下载，仅构建+打包（需缓存已就绪）
+ *   node scripts/pack-electron.mjs --skip-deps --skip-check --only-build   # = npm scripts electron:pack:fast
+ *   node scripts/pack-electron.mjs --force               # 强制重新下载所有依赖（Node/SQLite 预编译）
  *   DEBUG=1 node scripts/pack-electron.mjs       # 显示详细调试信息
  *
  * 环境变量（可覆盖 package.json 的 packConfig）：

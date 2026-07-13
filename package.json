@@ -31,7 +31,7 @@
     "build:all": "pnpm type-check:all && pnpm build && pnpm --filter web build",
     "type-check:all": "pnpm type-check && pnpm --filter web type-check",
     "electron:pack": "node scripts/pack-electron.mjs",
-    "electron:pack:fast": "node scripts/pack-electron.mjs --skip-deps --skip-check",
+    "electron:pack:fast": "node scripts/pack-electron.mjs --skip-deps --skip-check --only-build",
     "electron:pack:force": "node scripts/pack-electron.mjs --force"
   },
   "repository": {

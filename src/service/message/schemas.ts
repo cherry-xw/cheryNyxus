@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Method } from "./types.js";
+import { Method, type Method as MethodName, type ParamsOf } from "./types.js";
 
 /**
  * RPC 请求参数 zod schema（每 method 一个）。
@@ -75,6 +75,7 @@ const globalSchema = z.object({
   approval_timeout: z.number().optional(),
   maxLoopCount: z.number().optional(),
   bash_log_retention_hours: z.number().optional(),
+  textEditor: z.string().optional(), // 文本编辑器路径
   file_compression: fileCompressionSchema.optional(),
   logger: loggerSchema.optional(),
 });
@@ -195,11 +196,19 @@ export const requestSchemas = {
   }),
   // Env 环境变量：空参，返回 .env 变量名列表
   [Method.ENV_LIST]: emptySchema,
+  // 打开文件：path 为相对 CHERY_DIR 的文件路径
+  [Method.UTILS_OPEN_FILE]: z.object({
+    path: z.string(),
+  }),
+  // 打开配置目录：固定目标 CHERY_DIR/.chery，不接受客户端路径
+  [Method.UTILS_OPEN_CONFIG_DIR]: emptySchema,
+  // 编辑器列表：空参，返回系统可用的文本编辑器
+  [Method.UTILS_EDITORS]: emptySchema,
 } as const satisfies Record<Method, z.ZodTypeAny>;
 
 /**
  * 按 method 取请求 schema。未知 method 返回 undefined（router 先查 handler 存在性，再校验）。
  */
-export function requestSchemaFor(method: string): z.ZodTypeAny | undefined {
-  return requestSchemas[method as Method];
+export function requestSchemaFor<M extends MethodName>(method: M): z.ZodType<ParamsOf<M>> | undefined {
+  return requestSchemas[method] as z.ZodType<ParamsOf<M>> | undefined;
 }

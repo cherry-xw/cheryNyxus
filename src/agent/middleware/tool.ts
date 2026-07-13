@@ -4,6 +4,7 @@ import { safeJsonParse } from "@/utils/json.js";
 import { SupervisionLevel } from "@/core/config";
 import { createApproval } from "@/core/sense";
 import { logger } from "@/utils/logger/index.js";
+import { redactEnvKeys } from "@/utils/envGuard.js";
 import { SenseCallAssembler } from "./senseCallAssembler.js";
 
 /**
@@ -288,7 +289,10 @@ async function doExecuteSense(
       replaced.push(...matched);
     }
 
-    return { content: result.content, hash: result.hash, replaced };
+    // 环境变量脱敏：在返回前替换所有 .env 中定义的敏感变量名
+    const redactedContent = redactEnvKeys(result.content);
+
+    return { content: redactedContent, hash: result.hash, replaced };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     return { content: `Sense execution failed: ${errorMsg}`, replaced };

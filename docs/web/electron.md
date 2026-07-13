@@ -70,7 +70,7 @@ spawn(getNodeExecutable(), [getBackendBundle()], {
 - **`DB_DIR`**:仅打包时注入 `app.getPath('userData')/.chery/db`(始终可写,跨 Program Files 权限问题);开发期沿用 `CHERY_DIR/.chery/db`。
 - **`waitForBackend()`**:轮询 `http://localhost:<WEB_PORT>/api/config`(超时 30s),就绪后 `createWindow()`。
 - **退出**:`before-quit` → `backend.kill('SIGTERM')`;单实例锁 `requestSingleInstanceLock()`。
-- **UX 入口**:ipcMain 暴露 `open-config-dir`(调 `shell.openPath(cheryDir + '/.chery')`),preload 经 `contextBridge` 暴露 `window.__ELECTRON__.openConfigDir()`,设置面板「打开配置目录」按钮调用。
+- **UX 入口**:设置面板调用后端 `utils.openConfigDir` WebSocket RPC，由后端进程通过系统默认打开器打开 `CHERY_DIR/.chery`；不再维护专用 Electron IPC。
 
 > ⚠ 发行版已解决:[scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 下载 Node 22 LTS 二进制到 `extraResources`,并用其 ABI 重生 better-sqlite3 预编译(详见 [native addon ABI](#native-addon-abi模式-2))。
 
@@ -89,11 +89,10 @@ if (config) {
 
 - main `ipcMain.on('get-backend-config')` 返回 `serverConfig`(由 `waitForBackend` 从 `/api/config` 取得,或 fallback 常量)。
 - `sendSync` 同步:preload 加载时同步取配置,渲染进程加载时 `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` 已就绪,无竞态。
-- 渲染进程**不直接读**三个 `window.__*` 全局——全部经 [web/src/services/platform.ts](../../web/src/services/platform.ts) 抽象层消费:
+- 渲染进程**不直接读**两个 `window.__*` 全局——全部经 [web/src/services/platform.ts](../../web/src/services/platform.ts) 抽象层消费:
   - `__BACKEND_CONFIG__` → `getServerConfig()` / `wsUrl()` / `isElectron`
   - `__BACKEND_HTTP_URL__` → `httpUrl()`
-  - `__ELECTRON__` → `electronApi` 门面（`openConfigDir` 等）
-  详见 [./env.md](./env.md)。原 [ws.ts](../../web/src/services/ws.ts) `connect()` 优先读 `window.__BACKEND_CONFIG__`,无需 `fetch('/api/config')`(`file://` 下无法 fetch 相对地址);[http.ts](../../web/src/services/http.ts) `httpUrl(path)` 读 `__BACKEND_HTTP_URL__` 拼完整 HTTP 端点(`/api/auth/me`、`/api/media/upload` 等)。
+  详见 [./env.md](./env.md)。设置面板的配置目录入口属于后端 RPC，不经过 preload IPC。原 [ws.ts](../../web/src/services/ws.ts) `connect()` 优先读 `window.__BACKEND_CONFIG__`,无需 `fetch('/api/config')`(`file://` 下无法 fetch 相对地址);[http.ts](../../web/src/services/http.ts) `httpUrl(path)` 读 `__BACKEND_HTTP_URL__` 拼完整 HTTP 端点(`/api/auth/me`、`/api/media/upload` 等)。
 
 ## electron-builder 打包
 
@@ -113,7 +112,7 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 - **`.env` 模板分发**:`.env.example` 作为种子打入 `resources/.env.example`,**不带 API Key**。[post-pack.mjs](../../web/scripts/post-pack.mjs) 在打包阶段把它复制为 `cheryClaw.exe` 同级的 `.env`,用户后续自由修改,升级不覆盖(NSIS 默认会覆盖,需手动 NSIS include 跳过)。
 - **`.chery` 用户副本**:`resources/.chery.template/` 是只读模板,afterPack 复制为 `cheryClaw.exe` 同级的 `.chery/`,用户编辑这个副本。`.chery.template/` 与开发用的 `.chery/` 隔离——开发期的 `.chery/` 含运行时生成(`db/`、`media/`、`mock/`),不打包。
 - `appId` / `productName` / win/mac/linux targets 配置。
-- 打包命令:`pnpm electron:pack`(一键全量)/ `pnpm electron:pack:fast`(增量,跳过依赖安装+类型检查)。
+- 打包命令:`pnpm electron:pack`(一键全量)/ `pnpm electron:pack:fast`(增量,跳过依赖安装 + Node 22 LTS + SQLite 预编译 + 类型检查,假定缓存已就绪;Node/better-sqlite3 升版本后需先跑全量重建缓存)。
 - native rebuild:`pnpm --filter web rebuild`(`electron-builder install-app-deps`)—— **仅 rebuild web/ deps,不触及 root better-sqlite3**。
 
 ## native addon ABI(模式 2)
@@ -177,10 +176,8 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 
 ## 扩展点
 
-- **IPC 扩展**:当前 `ipcMain` 注册两条:
-  - `get-backend-config`(同步,preload 取后端端口配置)
-  - `open-config-dir`(异步,`shell.openPath` 打开 `.chery` 用户目录,preload 经 `contextBridge.exposeInMainWorld('__ELECTRON__', { openConfigDir })` 暴露)
-  若需渲染进程调后端能力,继续在 [main.ts](../../web/electron/main.ts) 加 `ipcMain.handle`,[preload.ts](../../web/electron/preload.ts) 经 `contextBridge` 暴露;**新增的 IPC 方法必须同步在 [web/src/services/platform.ts](../../web/src/services/platform.ts) 顶部 `Window.__ELECTRON__` 类型补签名**,业务组件通过 `import { electronApi } from "@/services/platform"` 消费,不再直接读 `window.__ELECTRON__`。详见 [./env.md#扩展点](./env.md#扩展点)。
+- **IPC 扩展**:当前 `ipcMain` 仅注册 `get-backend-config`（同步，preload 取后端端口配置）。业务能力优先通过现有 WebSocket RPC 扩展；只有必须在 Electron main 进程执行、且后端进程无法承担的能力，才新增 `ipcMain.handle` + preload bridge。
+- **后端原生能力扩展**:配置目录打开等能力按 [../service/message.md](../service/message.md) 的 RPC 扩展流程实现，Electron 与浏览器共用；远程浏览器调用作用于后端主机。
 - **`.env` / `.chery` 用户位置扩展**:主进程用 `getWritableCheryRoot()` 返回 `cheryDir`,内部已统一探测 `exeRoot` 可写性 + 降级逻辑。若需新增可维护文件,放在 `cheryDir` 下并复用同一探测函数(避免绕过降级逻辑)。
 - **native ABI 解决**:已通过 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)(Node 22 LTS + prebuild-install)实现,见 [native addon ABI](#native-addon-abi模式-2)。
 - **electron-builder 打包验证**:`pnpm --filter web dist` 产安装包;GUI 运行验证需 xrdp(见 [运行环境坑](#运行环境坑xrdp))。

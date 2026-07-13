@@ -1,7 +1,7 @@
 import { join, dirname } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8182);
 const WEB_PORT = Number(process.env.WEB_PORT ?? 8183);
@@ -46,7 +46,7 @@ function getNodeExecutable(): string {
  *   `.env` 中 `CHERY_DIR` 非空时改用其值（便于跨平台部署）。
  * - 开发期：默认项目根 `<repo>/`（含 `.chery/`），`CHERY_DIR` env 优先。
  *
- * 返回值缓存：启动后固定，IPC `open-config-dir` 复用。
+ * 返回值缓存：启动后固定，后端子进程与启动日志共用。
  */
 function getRuntimeRoot(): string {
   if (runtimeRoot) return runtimeRoot;
@@ -179,12 +179,6 @@ app.whenReady().then(async () => {
     event.returnValue = serverConfig ?? { wsPort: WS_PORT, webPort: WEB_PORT, transport: "binary" };
   });
 
-  // IPC：渲染进程打开用户配置目录（系统文件管理器）
-  ipcMain.handle("open-config-dir", () => {
-    const target = join(getRuntimeRoot(), ".chery");
-    return shell.openPath(target);
-  });
-
   // 启动日志：让用户在 console / 日志文件里能找到 .env 和 .chery 的真实路径
   console.log(`[setup] runtime root: ${getRuntimeRoot()}`);
   console.log(`[setup] .chery path: ${join(getRuntimeRoot(), ".chery")}`);
@@ -208,9 +202,42 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", async (e) => {
+  // 阻止默认退出，等待清理完成
+  e.preventDefault();
+
+  // 1. 清理 IPC 监听器
+  ipcMain.removeAllListeners();
+
+  // 2. 等待 backend 子进程退出（最长 5 秒超时）
   if (backend && !backend.killed) {
+    const BACKEND_EXIT_TIMEOUT_MS = 5000;
+
     backend.kill("SIGTERM");
+
+    // 监听 backend exit 事件
+    const exitPromise = new Promise<void>((resolve) => {
+      backend!.once("exit", () => {
+        console.log("[backend] 已退出");
+        resolve();
+      });
+    });
+
+    // 超时强制 kill
+    const timeoutPromise = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        if (backend && !backend.killed) {
+          console.warn(`[backend] ${BACKEND_EXIT_TIMEOUT_MS}ms 超时，强制 SIGKILL`);
+          backend.kill("SIGKILL");
+        }
+        resolve();
+      }, BACKEND_EXIT_TIMEOUT_MS);
+    });
+
+    await Promise.race([exitPromise, timeoutPromise]);
     backend = null;
   }
+
+  // 3. 允许退出
+  app.exit(0);
 });

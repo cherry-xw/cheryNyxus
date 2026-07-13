@@ -8,6 +8,9 @@ import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense
 import { bootstrapAgentRuntime } from "./agent/bootstrap.js";
 import { closeMcpClients } from "@/core/mcp/index.js";
 import { reloadSenses } from "./agent/sense/index.js";
+import { clearAllApprovals } from "@/core/sense/approvalRegistry.js";
+import { clearAllWaitedChildren } from "@/agent/spawnBroker.js";
+import { closeAllConnections } from "@/service/websocket/index.js";
 import { initLogger, logger, LogLevel } from "@/utils/logger/index.js";
 import config from "@/utils/config.js";
 
@@ -64,22 +67,58 @@ async function main(): Promise<void> {
     );
   }
 
+  /**
+   * 优雅关闭函数：先关闭连接 → 等待清理 → 退出
+   * 最长等待 5 秒，超时后强制退出
+   */
+  async function gracefulShutdown(signal: string): Promise<void> {
+    logger.info(`\n收到 ${signal}，正在关闭服务...`);
+
+    const SHUTDOWN_TIMEOUT_MS = 5000;
+
+    // 1. 先关闭所有 WebSocket 连接（wss.close() 只停止接受新连接）
+    closeAllConnections(wss);
+
+    // 2. 等待 server 关闭完成（Promise 包装）
+    const closeWss = new Promise<void>((resolve) => wss.close(() => resolve()));
+    const closeHttp = new Promise<void>((resolve) => httpServer.close(() => resolve()));
+
+    // 3. 清理所有定时器
+    clearAllApprovals();
+    clearAllWaitedChildren();
+
+    // 4. 等待所有清理完成（带超时）
+    const cleanupPromise = Promise.all([
+      closeWss,
+      closeHttp,
+      closeMcpClients(),
+    ]);
+
+    try {
+      await Promise.race([
+        cleanupPromise,
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("关闭超时")), SHUTDOWN_TIMEOUT_MS)
+        ),
+      ]);
+      logger.info("所有资源已清理完成");
+    } catch (err) {
+      logger.warn(`关闭超时（${SHUTDOWN_TIMEOUT_MS}ms），强制退出`);
+    }
+
+    // 5. 关闭数据库
+    closeAllDbs();
+
+    process.exit(0);
+  }
+
   // 优雅关闭
   process.on("SIGINT", async () => {
-    logger.info("\n正在关闭服务...");
-    wss.close();
-    httpServer.close();
-    await closeMcpClients();
-    closeAllDbs();
-    process.exit(0);
+    await gracefulShutdown("SIGINT");
   });
 
   process.on("SIGTERM", async () => {
-    wss.close();
-    httpServer.close();
-    await closeMcpClients();
-    closeAllDbs();
-    process.exit(0);
+    await gracefulShutdown("SIGTERM");
   });
 }
 

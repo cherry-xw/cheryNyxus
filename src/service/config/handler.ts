@@ -53,12 +53,6 @@ async function handleConfigSave(
 }
 
 export function registerConfigHandlers(router: RpcRouter): void {
-  router.register<ConfigGetRequestData, ConfigGetResponseData>(
-    Method.CONFIG_GET,
-    handleConfigGet,
-  );
-  router.register<ConfigSaveRequestData, ConfigSaveResponseData | Response>(
-    Method.CONFIG_SAVE,
-    handleConfigSave,
-  );
+  router.register(Method.CONFIG_GET, handleConfigGet);
+  router.register(Method.CONFIG_SAVE, handleConfigSave);
 }

@@ -10,6 +10,7 @@ import {
   type ChatGetRequestData,
   type ChatGetResponseData,
   type ChatDeleteRequestData,
+  type ChatDeleteResponseData,
   type ChatListRequestData,
   type ChatListResponseData,
   type ChatContextUsageRequestData,
@@ -245,7 +246,7 @@ export async function* handleChatGet(
 export async function handleChatDelete(
   _ctx: HandlerContext,
   data: ChatDeleteRequestData,
-): Promise<unknown> {
+): Promise<ChatDeleteResponseData> {
   const p = data;
 
   const chat = getChat(p.chatId);

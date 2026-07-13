@@ -4,8 +4,9 @@
  * 从 BrainsTab 拆出，承载连接字段 + 运行能力 + 媒体能力矩阵。
  * 改名/复制/删除需操作 draft.llm.brain 全量（保序重建 + 迁移角色引用），故 prop 传 draft。
  */
-import { CopyDocument, Delete, Refresh } from "@element-plus/icons-vue";
+import { CopyDocument, Delete, Refresh, Document } from "@element-plus/icons-vue";
 import { ref } from "vue";
+import { ElMessageBox } from "element-plus";
 import { agentApi, type BrainConfigDto, type ConfigDto, type MediaCapabilitiesDto } from "@/services/agentApi";
 import { PROVIDERS } from "../constants";
 import ConfirmPopover from "../ConfirmPopover.vue";
@@ -124,6 +125,35 @@ function duplicateBrain(): void {
   props.draft.llm.brain[newName] = structuredClone(src);
   emit("error", "");
 }
+
+/**
+ * 打开 .env 文件（密钥存储位置）。
+ * 使用 utils.openFile RPC，让后端用配置的编辑器或系统默认打开。
+ * 未配置编辑器时弹出提示，告知将使用系统默认编辑器。
+ */
+async function openEnvFile(): Promise<void> {
+  // 检查是否已配置编辑器
+  if (!props.draft.global.textEditor) {
+    try {
+      await ElMessageBox.alert(
+        "未配置文本编辑器，将使用系统默认编辑器打开文件。如需指定编辑器，请在「⚙ 全局」设置中配置。",
+        "提示",
+        {
+          confirmButtonText: "确定",
+          type: "info",
+        },
+      );
+    } catch {
+      // 用户关闭弹窗，继续执行
+    }
+  }
+
+  try {
+    await agentApi.openFile(".env");
+  } catch (err) {
+    onError(err instanceof Error ? err.message : "打开文件失败");
+  }
+}
 </script>
 
 <template>
@@ -189,8 +219,19 @@ function duplicateBrain(): void {
               </button>
             </div>
           </label>
-          <label class="field">
-            <LabelTip label="密钥" tip="key：API 密钥，从 .env 变量中选择（$ENV 占位符）" />
+          <div class="field">
+            <div class="label-with-action">
+              <LabelTip label="密钥" tip="key：API 密钥，从 .env 变量中选择（$ENV 占位符）" />
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="打开 .env 文件"
+                title="打开 .env 文件编辑密钥"
+                @click="openEnvFile"
+              >
+                <Document class="ico" />
+              </button>
+            </div>
             <el-select
               v-model="cfg.key"
               filterable
@@ -202,7 +243,7 @@ function duplicateBrain(): void {
             >
               <el-option v-for="v in envVars" :key="v" :value="`$${v}`" :label="`$${v}`" />
             </el-select>
-          </label>
+          </div>
         </div>
       </section>
 
@@ -293,6 +334,34 @@ function duplicateBrain(): void {
     gap: 2px;
     :deep(.lbl) {
       font-size: 10px;
+    }
+  }
+}
+
+.label-with-action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  .icon-btn {
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: rgba(20, 22, 26, 0.38);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      color: #f6b73c;
+    }
+
+    .ico {
+      width: 12px;
+      height: 12px;
     }
   }
 }

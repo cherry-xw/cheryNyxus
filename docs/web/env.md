@@ -4,17 +4,13 @@
 
 ## 职责
 
-封装"渲染进程跑在哪种平台 / 后端怎么连 / 能调什么原生能力"——业务代码**不再直接读** `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` / `window.__ELECTRON__` 三个 Electron preload 注入的全局。
+封装“渲染进程跑在哪种平台 / 后端怎么连”——业务代码**不再直接读** `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` 两个 Electron preload 注入的全局。需要操作本机资源且后端可承担的业务能力（如打开配置目录）统一走 WebSocket RPC。
 
 ## 导出 API
 
 ```ts
 // web/src/services/platform.ts
 export const isElectron: boolean;                       // 单一事实源（基于 __BACKEND_CONFIG__ 存在性）
-export interface ElectronApi {                          // preload 暴露的 IPC 能力类型
-  openConfigDir(): Promise<string>;
-}
-export const electronApi: ElectronApi | null;           // 业务门面；null 表示非 Electron 模式
 export interface ServerConfig {                         // 后端端口 + transport + 会话 token
   wsPort: number;
   webPort: number;
@@ -30,7 +26,7 @@ export async function getServerConfig(): Promise<ServerConfig>;  // 注入优先
 
 ### 单一 `Window` 类型声明
 
-三个 `window.__*` 全局集中在 `platform.ts` 顶部 `declare global` 一处声明，**别处不再重复**。`platform.ts` 是 `export {}` 模块（强制成为 ESM），`declare global` 才能正常合并到 `Window` 接口。
+两个 `window.__*` 全局集中在 `platform.ts` 顶部 `declare global` 一处声明，**别处不再重复**。`platform.ts` 是 `export {}` 模块（强制成为 ESM），`declare global` 才能正常合并到 `Window` 接口。
 
 ### `isElectron` 判定
 
@@ -56,27 +52,25 @@ export async function getServerConfig(): Promise<ServerConfig>;  // 注入优先
 
 ## 消费方式
 
-### 业务组件
+### 业务组件调用后端原生能力
 
 ```vue
 <script setup lang="ts">
-import { electronApi } from "@/services/platform";
+import { agentApi } from "@/services/agentApi";
 
 async function openConfigDir(): Promise<void> {
-  if (!electronApi) {
-    console.warn("[Xxx] openConfigDir 不可用：当前不是 Electron 模式");
-    return;
-  }
-  await electronApi.openConfigDir();
+  await agentApi.openConfigDir();
 }
 </script>
 
 <template>
-  <button :disabled="!electronApi" :title="electronApi ? '打开 .chery/' : '仅 Electron 模式可用'" @click="openConfigDir">
-    📁 打开配置目录
+  <button title="打开配置文件夹" @click="openConfigDir">
+    📁 打开配置文件夹
   </button>
 </template>
 ```
+
+该调用经 WebSocket RPC 在后端主机执行；远程浏览器不会打开浏览器客户端机器的目录。
 
 ### 业务服务（HTTP / WS）
 
@@ -94,12 +88,12 @@ const ws = new WebSocket(wsUrl(cfg));
 
 ## 扩展点
 
-### 新增 Electron IPC 能力
+### 新增后端原生能力
 
-1. [web/electron/main.ts](../../web/electron/main.ts) 加 `ipcMain.handle("xxx", ...)`。
-2. [web/electron/preload.ts](../../web/electron/preload.ts) 经 `contextBridge.exposeInMainWorld("__ELECTRON__", { ..., xxx })` 暴露。
-3. [web/src/services/platform.ts](../../web/src/services/platform.ts) 顶部 `Window.__ELECTRON__` 类型加新方法签名；`electronApi`（`const electronApi = window.__ELECTRON__ ?? null`）自动获得新方法。
-4. 业务组件直接 `electronApi.xxx()` 调用。
+1. 按 [service/message.md](../service/message.md) 的扩展点新增 Method、`RpcMethodMap`、schema 与 handler。
+2. 在 `web/src/services/agentApi.ts` 增加业务方法，组件只调用该门面。
+3. 若能力会操作文件或进程，协议参数应限制为最小固定集合；例如 `utils.openConfigDir` 不接受客户端路径。
+4. 仅当能力必须运行在 Electron main 进程且后端无法承担时，才新增 `ipcMain.handle` 与 preload bridge。
 
 ### 新增运行时配置字段
 
@@ -107,6 +101,6 @@ const ws = new WebSocket(wsUrl(cfg));
 
 ## 依赖与关联
 
-- **依赖**：[web/electron/preload.ts](../../web/electron/preload.ts) 注入三个 `window.__*` 全局；后端 [/api/config](../../docs/service/http.md) 返回 `ServerConfig`。
-- **被依赖**：[web/src/services/ws.ts](../../web/src/services/ws.ts)（WS 连接 + RPC）、[web/src/services/http.ts](../../web/src/services/http.ts)（转发层）、[web/src/services/agentApi.ts](../../web/src/services/agentApi.ts)（HTTP 端点）、[web/src/App.vue](../../web/src/App.vue)（认证）、[web/src/features/agent/settings/SettingsDialog.vue](../../web/src/features/agent/settings/SettingsDialog.vue)（打开配置目录）。
+- **依赖**：[web/electron/preload.ts](../../web/electron/preload.ts) 注入两个后端连接相关的 `window.__*` 全局；后端 [/api/config](../../docs/service/http.md) 返回 `ServerConfig`。
+- **被依赖**：[web/src/services/ws.ts](../../web/src/services/ws.ts)（WS 连接 + RPC）、[web/src/services/http.ts](../../web/src/services/http.ts)（转发层）、[web/src/services/agentApi.ts](../../web/src/services/agentApi.ts)（HTTP/RPC 端点）、[web/src/App.vue](../../web/src/App.vue)（认证）。
 - **关联文档**：[README.md#双运行模式](./README.md#双运行模式浏览器--electron)、[./electron.md#preload-注入配置](./electron.md#preload-注入配置)、[./electron.md#扩展点](./electron.md#扩展点)。

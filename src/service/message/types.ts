@@ -9,22 +9,24 @@ import type { ConfigRaw } from "@/utils/config.js";
 /**
  * 请求消息（C→S）
  */
-export interface Request {
-  id: string;
-  kind: "request";
-  method: Method;
-  params: RequestData;
-}
+export type Request<M extends Method = Method> = {
+  [K in M]: {
+    id: string;
+    kind: "request";
+    method: K;
+    params: ParamsOf<K>;
+  };
+}[M];
 
 /**
  * 响应消息（S→C，请求返回）
  */
-export interface Response {
+export interface Response<TData extends ResponseData = ResponseData> {
   id: string;
   kind: "response";
   requestId: string;
   success: boolean;
-  data?: ResponseData;
+  data?: TData;
   error?: RpcError;
 }
 
@@ -64,38 +66,16 @@ export type NotificationType =
 
 // ========== Request Data ==========
 
-export type RequestData =
-  | BrainListRequestData
-  | SenseListRequestData
-  | SenseToolsRequestData
-  | RuntimeSetRequestData
-  | SessionRuntimeSetRequestData
-  | ChatCreateRequestData
-  | ChatListRequestData
-  | ChatGetRequestData
-  | ChatDeleteRequestData
-  | ChatContextUsageRequestData
-  | ChatSendRequestData
-  | ChatResumeRequestData
-  | SenseApprovalRequestData
-  | ChatAbortRequestData
-  | BashKillRequestData
-  | BashListRequestData
-  | McpListRequestData
-  | McpGetRequestData
-  | McpConnectRequestData
-  | McpDisconnectRequestData
-  | McpReloadRequestData
-  | ConfigGetRequestData
-  | ConfigSaveRequestData
-  | UtilsModelsRequestData
-  | EnvListRequestData;
+/** 严格空对象：用于无参数请求与无 data 成功响应，避免裸 `{}` 吞并联合成员。 */
+export type EmptyObjectData = Record<string, never>;
 
-export interface BrainListRequestData {}
+export type BrainListRequestData = EmptyObjectData;
 
-export interface SenseListRequestData {}
+export type SenseListRequestData = EmptyObjectData;
 
-export interface SenseToolsRequestData {}
+export type SenseToolsRequestData = EmptyObjectData;
+
+export type PromptsListRequestData = EmptyObjectData;
 
 export interface ChatCreateRequestData {
   chatId?: string;
@@ -200,7 +180,7 @@ export interface BashListRequestData {
 
 // ---------- MCP 管理（连接层）----------
 
-export interface McpListRequestData {}
+export type McpListRequestData = EmptyObjectData;
 
 export interface McpGetRequestData {
   name: string;
@@ -229,7 +209,7 @@ export interface McpReloadRequestData {
 // ---------- Config 设置（config.get / config.save）----------
 
 /** config.get 请求：空参 */
-export interface ConfigGetRequestData {}
+export type ConfigGetRequestData = EmptyObjectData;
 
 /** config.save 入参：除 server 外全部字段（结构同 ConfigRaw，supervision 为字符串、key 为 $ENV 占位符） */
 export type ConfigSaveRequestData = ConfigRaw;
@@ -249,35 +229,28 @@ export interface UtilsModelsRequestData {
 // ---------- Env 环境变量 ----------
 
 /** env.list 请求：空参 */
-export interface EnvListRequestData {}
+export type EnvListRequestData = EmptyObjectData;
+
+// ---------- Utils 打开文件 ----------
+
+/**
+ * utils.openFile：打开指定文件（用配置的文本编辑器或系统默认）。
+ * path：相对 .chery 目录的文件路径（如 config.yaml、.env、prompts/leader.md）。
+ */
+export interface UtilsOpenFileRequestData {
+  path: string;
+}
+
+/**
+ * utils.editors：获取系统可用的文本编辑器列表。
+ * 返回主流编辑器（VSCode、记事本、TextEdit、gedit 等），供前端下拉选择。
+ */
+export type UtilsEditorsRequestData = EmptyObjectData;
+
+/** utils.openConfigDir：固定打开后端主机的 CHERY_DIR/.chery，不接受客户端路径。 */
+export type UtilsOpenConfigDirRequestData = EmptyObjectData;
 
 // ========== Response Data ==========
-
-export type ResponseData =
-  | BrainListResponseData
-  | SenseListResponseData
-  | SenseToolsResponseData
-  | RuntimeSetResponseData
-  | ChatCreateResponseData
-  | ChatListResponseData
-  | ChatGetResponseData
-  | ChatDeleteResponseData
-  | ChatContextUsageResponseData
-  | ChatSendResponseData
-  | ChatResumeResponseData
-  | SenseApprovalResponseData
-  | ChatAbortResponseData
-  | BashKillResponseData
-  | BashListResponseData
-  | McpListResponseData
-  | McpGetResponseData
-  | McpConnectResponseData
-  | McpDisconnectResponseData
-  | McpReloadResponseData
-  | ConfigGetResponseData
-  | ConfigSaveResponseData
-  | UtilsModelsResponseData
-  | EnvListResponseData;
 
 export interface BrainListResponseData {
   brains: Array<{
@@ -529,6 +502,27 @@ export interface EnvListResponseData {
   vars: string[];
 }
 
+/** utils.openFile 响应：空（成功即打开，失败返 RpcError） */
+export type UtilsOpenFileResponseData = EmptyObjectData;
+
+/** utils.openConfigDir 响应：空（成功即打开，失败返 RpcError） */
+export type UtilsOpenConfigDirResponseData = EmptyObjectData;
+
+/**
+ * utils.editors 响应：系统可用的文本编辑器列表。
+ * editors：编辑器信息数组（name=显示名，command=启动命令，available=是否可用）。
+ */
+export interface UtilsEditorsResponseData {
+  editors: Array<{
+    /** 显示名称（如 "Visual Studio Code"） */
+    name: string;
+    /** 启动命令（如 "code"、"notepad"、"gedit"） */
+    command: string;
+    /** 是否在系统 PATH 中可用 */
+    available: boolean;
+  }>;
+}
+
 // ========== Chunk Data ==========
 
 export type ChunkData = StreamChunkData | StagedChunkData;
@@ -774,6 +768,15 @@ export const Method = {
 
   // Env 环境变量（读 .env 变量名列表，供前端密钥下拉）
   ENV_LIST: "env.list",
+
+  // 打开文件（用配置的编辑器或系统默认）
+  UTILS_OPEN_FILE: "utils.openFile",
+
+  // 固定打开后端主机的 .chery 配置目录
+  UTILS_OPEN_CONFIG_DIR: "utils.openConfigDir",
+
+  // 编辑器列表（获取系统可用的文本编辑器）
+  UTILS_EDITORS: "utils.editors",
 } as const;
 
 /**
@@ -781,6 +784,47 @@ export const Method = {
  * Request.method 用此类型（非裸 string），router.register 据 Method 约束注册键。
  */
 export type Method = (typeof Method)[keyof typeof Method];
+
+/**
+ * RPC 方法级契约：Method 与 params/result 保持一一对应。
+ * RequestData/ResponseData 仅是动态传输边界的派生联合；业务 handler 使用 ParamsOf/ResultOf。
+ */
+export interface RpcMethodMap {
+  [Method.BRAIN_LIST]: { params: BrainListRequestData; result: BrainListResponseData };
+  [Method.SENSE_LIST]: { params: SenseListRequestData; result: SenseListResponseData };
+  [Method.SENSE_TOOLS]: { params: SenseToolsRequestData; result: SenseToolsResponseData };
+  [Method.PROMPTS_LIST]: { params: PromptsListRequestData; result: PromptsListResponseData };
+  [Method.RUNTIME_SET]: { params: RuntimeSetRequestData; result: RuntimeSetResponseData };
+  [Method.SESSION_RUNTIME_SET]: { params: SessionRuntimeSetRequestData; result: SessionRuntimeSetResponseData };
+  [Method.CHAT_CREATE]: { params: ChatCreateRequestData; result: ChatCreateResponseData };
+  [Method.CHAT_LIST]: { params: ChatListRequestData; result: ChatListResponseData };
+  [Method.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData };
+  [Method.CHAT_DELETE]: { params: ChatDeleteRequestData; result: ChatDeleteResponseData };
+  [Method.CHAT_CONTEXT_USAGE]: { params: ChatContextUsageRequestData; result: ChatContextUsageResponseData };
+  [Method.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData };
+  [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData };
+  [Method.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData };
+  [Method.CHAT_ABORT]: { params: ChatAbortRequestData; result: ChatAbortResponseData };
+  [Method.BASH_LIST]: { params: BashListRequestData; result: BashListResponseData };
+  [Method.BASH_KILL]: { params: BashKillRequestData; result: BashKillResponseData };
+  [Method.MCP_LIST]: { params: McpListRequestData; result: McpListResponseData };
+  [Method.MCP_GET]: { params: McpGetRequestData; result: McpGetResponseData };
+  [Method.MCP_CONNECT]: { params: McpConnectRequestData; result: McpConnectResponseData };
+  [Method.MCP_DISCONNECT]: { params: McpDisconnectRequestData; result: McpDisconnectResponseData };
+  [Method.MCP_RELOAD]: { params: McpReloadRequestData; result: McpReloadResponseData };
+  [Method.CONFIG_GET]: { params: ConfigGetRequestData; result: ConfigGetResponseData };
+  [Method.CONFIG_SAVE]: { params: ConfigSaveRequestData; result: ConfigSaveResponseData };
+  [Method.UTILS_MODELS]: { params: UtilsModelsRequestData; result: UtilsModelsResponseData };
+  [Method.ENV_LIST]: { params: EnvListRequestData; result: EnvListResponseData };
+  [Method.UTILS_OPEN_FILE]: { params: UtilsOpenFileRequestData; result: UtilsOpenFileResponseData };
+  [Method.UTILS_OPEN_CONFIG_DIR]: { params: UtilsOpenConfigDirRequestData; result: UtilsOpenConfigDirResponseData };
+  [Method.UTILS_EDITORS]: { params: UtilsEditorsRequestData; result: UtilsEditorsResponseData };
+}
+
+export type ParamsOf<M extends Method> = RpcMethodMap[M]["params"];
+export type ResultOf<M extends Method> = RpcMethodMap[M]["result"];
+export type RequestData = ParamsOf<Method>;
+export type ResponseData = ResultOf<Method>;
 
 // ========== 错误码常量 ==========
 
@@ -795,12 +839,12 @@ export const ErrorCode = {
 
 // ========== 工厂函数 ==========
 
-export function createResponse(
+export function createResponse<TData extends ResponseData = ResponseData>(
   requestId: string,
   success: boolean,
-  data?: ResponseData,
+  data?: TData,
   error?: RpcError,
-): Response {
+): Response<TData> {
   return {
     id: randomUUID(),
     kind: "response",

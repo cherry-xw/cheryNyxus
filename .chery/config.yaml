@@ -5,6 +5,7 @@ global:
   sense_execute_timeout: 10000
   approval_timeout: 30000
   bash_log_retention_hours: 24
+  textEditor: notepad
   file_compression:
     truncate_threshold: 50000
     truncate_preview_lines: 100
@@ -26,7 +27,7 @@ llm:
     zai-glm-5.2:
       url: https://yz.xcherry.top:11411/v1
       model: glm-5.2
-      key: $SHANG_TANG_API_KEY
+      key: $API_KEY
       thinking: true
       provider: openai
       contextLimit: 1024000
@@ -34,39 +35,19 @@ llm:
         input:
           image: true
         generate: {}
-    openai:
-      url: https://api.openai.com/v1
-      model: gpt-3.5-turbo
-      key: $OPENAI_API_KEY
-      provider: openai
-      contextLimit: 16385
-      capabilities:
-        input: {}
-        generate: {}
     longcat:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
-      key: $LONGCAT_API_KEY
       thinking: true
       provider: openai
       contextLimit: 32768
       capabilities:
         input: {}
         generate: {}
-    deepseek:
-      url: https://api.deepseek.com
-      model: deepseek-v4-flash
-      key: $DEEPSEEK_API_KEY
-      thinking: true
-      provider: openai
-      contextLimit: 64000
-      capabilities:
-        input: {}
-        generate: {}
     doubao:
       url: http://yz.xcherry.top:11411/v1
       model: doubao2.0-pro
-      key: $DOUBAO_API_KEY
+      key: $API_KEY
       thinking: true
       provider: openai
       contextLimit: 128000
@@ -76,7 +57,7 @@ llm:
     ali_glm5:
       url: https://yz.xcherry.top:11411/v1
       model: glm-5
-      key: $SHANG_TANG_API_KEY
+      key: $API_KEY
       thinking: true
       provider: openai
       contextLimit: 128000
@@ -86,11 +67,11 @@ llm:
         generate: {}
     shangtang:
       url: https://yz.xcherry.top:11411/v1
-      model: cglm-5.2
-      key: $SHANG_TANG_API_KEY
+      model: csensenova-6.7-flash-lite
+      key: $API_KEY
       provider: openai
       rpm: 2
-      contextLimit: 32768
+      contextLimit: 128000
       capabilities:
         input: {}
         generate: {}
@@ -119,6 +100,7 @@ sense_groups:
     - skill
     - read_file
     - write_file
+    - execute_command
   coder:
     - execute_command
     - write_file
@@ -136,7 +118,7 @@ roles:
     mcpServers: []
     systemPrompt: prompts/prefebMain/leader.md
   plan:
-    brain: ali_glm5
+    brain: shangtang
     senseGroup: plan
     mcpServers: []
     systemPrompt: prompts/prefebMain/planner.md

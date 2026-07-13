@@ -2,8 +2,8 @@
  * platform：渲染进程环境抽象层。
  *
  * 封装"我跑在哪种平台 / 后端怎么连 / 能调什么原生能力"。
- * 业务代码不再直接读 `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` /
- * `window.__ELECTRON__` 三个 Electron preload 注入的全局，全部经本文件门面消费。
+ * 业务代码不再直接读 `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__`
+ * 两个 Electron preload 注入的全局，全部经本文件门面消费。
  *
  * 设计要点：
  * - 单一 `Window` 全局类型声明（其他文件禁止再 `declare global` 加这些字段）
@@ -30,15 +30,7 @@ declare global {
     __BACKEND_CONFIG__?: ServerConfig;
     /** Electron preload 注入（http://localhost:<webPort>）；浏览器模式无 */
     __BACKEND_HTTP_URL__?: string;
-    /** Electron 模式由 preload 通过 contextBridge 注入；浏览器模式无 */
-    __ELECTRON__?: ElectronApi;
   }
-}
-
-/** preload 暴露的 IPC 能力类型。新增 IPC 方法时同步在本接口补签名 + preload.ts expose。 */
-export interface ElectronApi {
-  /** 打开用户配置目录（.chery/）到系统文件管理器。降级路径时自动用降级后的位置。 */
-  openConfigDir: () => Promise<string>;
 }
 
 // ---- 单一事实源 -------------------------------------------------------------
@@ -46,10 +38,6 @@ export interface ElectronApi {
 /** 当前是否运行在 Electron 模式（preload 注入了 `__BACKEND_CONFIG__`）。 */
 export const isElectron: boolean =
   typeof window !== "undefined" && !!window.__BACKEND_CONFIG__;
-
-/** preload 暴露的 IPC 能力门面；非 Electron 模式下为 null。 */
-export const electronApi: ElectronApi | null =
-  typeof window !== "undefined" ? window.__ELECTRON__ ?? null : null;
 
 // ---- URL 构造器 -------------------------------------------------------------
 

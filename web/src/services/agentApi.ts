@@ -165,6 +165,16 @@ export interface BrainConfigDto {
   capabilities?: BrainCapabilitiesDto;
 }
 
+/** 编辑器信息（对齐后端 UtilsEditorsResponseData.editors[]） */
+export interface EditorInfo {
+  /** 显示名称（如 "Visual Studio Code"） */
+  name: string;
+  /** 启动命令（如 "code"、"notepad"、"gedit"） */
+  command: string;
+  /** 是否在系统 PATH 中可用 */
+  available: boolean;
+}
+
 export interface McpServerConfigDto {
   transport: "stdio" | "streamable-http";
   command?: string;
@@ -186,6 +196,7 @@ export interface GlobalConfigDto {
   approval_timeout?: number;
   maxLoopCount?: number;
   bash_log_retention_hours?: number;
+  textEditor?: string; // 文本编辑器路径
   file_compression?: {
     truncate_threshold?: number;
     truncate_preview_lines?: number;
@@ -409,6 +420,22 @@ export const agentApi = {
   async listEnvVars(): Promise<string[]> {
     const data = await call<{ vars: string[] }>("env.list", {});
     return data?.vars ?? [];
+  },
+
+  /** utils.openFile：打开指定文件（用配置的编辑器或系统默认）。 */
+  async openFile(path: string): Promise<void> {
+    await call("utils.openFile", { path });
+  },
+
+  /** utils.openConfigDir：打开后端主机的 .chery 配置目录。 */
+  async openConfigDir(): Promise<void> {
+    await call("utils.openConfigDir", {});
+  },
+
+  /** utils.editors：获取系统可用的文本编辑器列表（供前端下拉选择）。 */
+  async listEditors(): Promise<EditorInfo[]> {
+    const data = await call<{ editors: EditorInfo[] }>("utils.editors", {});
+    return data?.editors ?? [];
   },
 };
 

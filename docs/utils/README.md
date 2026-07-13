@@ -22,6 +22,7 @@
 | 文件 | 一句话 |
 |------|--------|
 | [config.ts](../../src/utils/config.ts) | 加载 `.chery/config.yaml`，`$ENV` 替换 + 路径补全 + 默认值兜底；导出 `Config` 单例与 `BrainConfig`/`GlobalConfig`/`LoggerConfig` 类型；重导出 `SupervisionLevel` |
+| [envGuard.ts](../../src/utils/envGuard.ts) | 环境变量敏感信息脱敏：从 `.env` 提取变量名，在文本中替换为占位符，供 sense 中间件统一调用 |
 | [hash.ts](../../src/utils/hash.ts) | `hashGenerator(...parts)` — SHA256 柯里化，`${prefix}::${rest.join(":")}` 作为输入；用于感官 cache key |
 | [json.ts](../../src/utils/json.ts) | `safeJsonParse(raw, fallback)` — 失败返回 fallback 不抛错 |
 | [generator.ts](../../src/utils/generator.ts) | `isAsyncGenerator(value)` — 类型守卫，判断值是否为 `AsyncGenerator` |
@@ -44,6 +45,27 @@ const config: Config;          // default export
 export type { Config, BrainConfig, GlobalConfig, LoggerConfig };
 export { SupervisionLevel } from "@/core/config";   // 从 core 重导出
 ```
+
+### envGuard.ts — 环境变量脱敏
+
+```ts
+// 从 .env 提取环境变量名，在文本中替换为占位符（默认 '[REDACTED]'）
+export function redactEnvKeys(content: string, placeholder?: string): string;
+
+// 获取环境变量名列表（带缓存，供测试使用）
+export function getEnvVarNames(): string[];
+
+// 重置缓存（供测试使用）
+export function resetEnvVarCache(): void;
+```
+
+**使用场景：** sense 中间件在返回工具输出前，统一调用 `redactEnvKeys()` 脱敏环境变量名，防止敏感信息泄露。复用 [config.ts](../../src/utils/config.ts) 的 `listEnvVarNames()` 函数，避免重复读取 `.env` 文件。
+
+**替换规则：**
+
+- 使用正则表达式匹配所有 `.env` 中定义的环境变量名
+- 词边界匹配（`\b`）确保只匹配完整变量名
+- 示例：`API_KEY` 匹配 `"API_KEY=xxx"`，但不匹配 `"MY_API_KEY=xxx"`
 
 `Config` 顶层结构（详见 [config.ts 类型定义](../../src/utils/config.ts#L55-L132)）：
 
@@ -88,6 +110,7 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
+- **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）
 
 写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整注释文档备份在 [.chery/config.yaml.example](../../.chery/config.yaml.example)。
 

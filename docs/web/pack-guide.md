@@ -82,7 +82,10 @@ pnpm electron:pack
 pnpm electron:pack:fast
 ```
 
-跳过步骤 1（依赖安装）和步骤 3（类型检查），直接从步骤 2 开始。
+跳过步骤 1（依赖安装）、步骤 2（Node 22 LTS + SQLite 预编译）、步骤 3（类型检查），直接从步骤 4（后端 SSR 构建）开始。
+
+> 适用前提：`build/node/node[.exe]` 与 `node_modules/better-sqlite3/build/Release/better_sqlite3-*.node` 已存在（即首次完整打包后）。
+> 当 Node 版本升级、better-sqlite3 升级到新 ABI、或缓存被删时，需先跑一次 `pnpm electron:pack` 重建缓存。
 
 ### 强制重新下载（版本升级 / 文件损坏时）
 
@@ -151,7 +154,7 @@ afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)�
 2. **`CHERY_DIR`**：`.env` 留空时默认 `cheryClaw.exe` 同级；用户可显式设置（如部署到 NAS/容器）。
 3. **`DB_DIR`**：始终在 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题），不可改。
 4. **升级**：主进程不主动重写用户已修改的 `.env`；NSIS 默认会覆盖目标文件，**如需升级不覆盖需加 `nsis.include` 自定义 .nsh 脚本**（暂未实现）。
-5. **UX 入口**：设置面板「打开配置目录」按钮直达系统文件管理器。
+5. **UX 入口**：设置面板「打开配置目录」按钮通过后端 `utils.openConfigDir` RPC 打开后端主机的 `<CHERY_DIR>/.chery`。
 
 **`.env` 用法**：填入 `LONGCAT_API_KEY` 等占位符值。`config.yaml` 中用 `$KEY` 引用这些变量，运行时由 [src/utils/config.ts](../../src/utils/config.ts) 替换（[优先级：OS env > `.env`](../utils/README.md)）。
 

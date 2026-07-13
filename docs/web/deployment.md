@@ -108,7 +108,7 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 | preload 注入端口配置 | ✅ | [electron/preload.ts](../../web/electron/preload.ts) |
 | DB 路径 → userData | ✅ | `DB_DIR` env([config.ts](../../src/utils/config.ts)),main 打包时注入 `app.getPath('userData')` |
 | 用户配置位置 → exe 同级(afterPack 钩子打包即就位) | ✅ | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `resources/.env.example` / `resources/.chery.template/` 复制到 `cheryClaw.exe` 同级;主进程 `loadEnvFile()` + `getRuntimeRoot()` 仅读取不修改 |
-| 设置面板「打开配置目录」按钮 | ✅ | IPC `open-config-dir` → `shell.openPath(<runtimeRoot>/.chery)`;preload 暴露 `window.__ELECTRON__.openConfigDir()` |
+| 设置面板「打开配置目录」按钮 | ✅ | `utils.openConfigDir` WebSocket RPC → 后端系统默认打开器 → `<CHERY_DIR>/.chery`；Electron 与浏览器共用，远程浏览器打开后端主机目录 |
 | electron-builder 打包配置 | ✅ | [electron-builder.yml](../../web/electron-builder.yml);GUI 验证留后续 |
 | native addon ABI(better-sqlite3 跨 ABI) | ✅ | 改用系统 node spawn(弃用 ELECTRON_RUN_AS_NODE);发行版打包 Node 22 LTS + prebuild-install 拉官方 Node 22 预编译,见 [关键坑](#native-addon-abi模式-2) |
 
@@ -165,7 +165,7 @@ main spawn 时 `CHERY_DIR = process.env.CHERY_DIR || dirname(process.execPath)`(
   - Linux: AppImage 解包到 `/opt/cheryClaw/`
 - **`CHERY_DIR`**:`.env` 留空时默认 `cheryClaw.exe` 同级;用户可显式设置(如部署到 NAS/容器时指向共享目录)。
 - **升级**:`existsSync` 短路——主进程不主动重写用户已修改的 `.env`;但 **NSIS 安装时默认会覆盖**目标文件,如需升级不覆盖需加 `nsis.include` 自定义 .nsh 脚本(暂未实现)。
-- **UX 入口**:设置面板「打开配置目录」按钮调 `window.__ELECTRON__.openConfigDir()`(`shell.openPath`)直达系统文件管理器。
+- **UX 入口**:设置面板「打开配置目录」按钮调用后端 `utils.openConfigDir` WebSocket RPC，由后端系统默认打开器打开 `<CHERY_DIR>/.chery`。Electron 与浏览器共用该链路；远程浏览器打开的是后端主机目录。
 
 详见 [electron.md#electron-spawn-后端模式-2](./electron.md#electron-spawn-后端模式-2)。
 

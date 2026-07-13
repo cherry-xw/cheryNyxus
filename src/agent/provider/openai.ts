@@ -161,10 +161,15 @@ const openaiLLMAdapter: LLMAdapter = {
     if (!model || !url) {
       throw new Error("OpenAI provider requires model and url in options");
     }
+    // key 缺失抛错：错误消息刻意避开 retry 可恢复关键词（api/invalid/timeout 等），落入 unknown 类 →
+    // 不重试、直接 yield ErrorChunk 响应前端（见 retry 中间件 classifyError）
+    if (!key) {
+      throw new Error(`Brain key 未配置（${model}@${url}），请在 .env 设置对应环境变量`);
+    }
     await acquireRpm(options);
     const client = new OpenAI({
       baseURL: url,
-      apiKey: key ?? "",
+      apiKey: key,
     });
     return client.chat.completions.create({
       model,
@@ -186,10 +191,14 @@ const openaiLLMAdapter: LLMAdapter = {
     if (!model || !url) {
       throw new Error("OpenAI provider requires model and url in options");
     }
+    // key 缺失抛错：错误消息刻意避开 retry 可恢复关键词，落入 unknown 类 → 不重试、直接响应前端
+    if (!key) {
+      throw new Error(`Brain key 未配置（${model}@${url}），请在 .env 设置对应环境变量`);
+    }
     await acquireRpm(options);
     const client = new OpenAI({
       baseURL: url,
-      apiKey: key ?? "",
+      apiKey: key,
     });
     const stream = await client.chat.completions.create({
       model,

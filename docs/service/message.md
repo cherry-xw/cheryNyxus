@@ -6,7 +6,7 @@
 
 ## 职责
 
-- **类型层**（types.ts）：定义全部 RPC 消息类型（Request / Response / Chunk / Notification）、Method 常量、ErrorCode 常量、工厂函数、类型守卫。service 层与 web 共享的唯一类型契约。
+- **类型层**（types.ts）：定义全部 RPC 消息类型（Request / Response / Chunk / Notification）、`RpcMethodMap` 方法级参数/结果映射、Method/ErrorCode 常量、工厂函数、类型守卫。service 内部以此为唯一协议类型契约；web 通过自己的传输 DTO 与 `agentApi` 消费线上结构。
 - **路由层**（router.ts）：`RpcRouter` 注册 handler、分发请求、自动区分普通 Promise 与 AsyncGenerator handler、统一错误转 RpcError、保证流式 handler 最终 return Response。
 - **入口**（index.ts）：re-export types + router。
 
@@ -29,7 +29,7 @@ interface Chunk    { kind:"chunk"; type:"stream"|"staged"; requestId; data }    
 interface Notification { kind:"notification"; type: NotificationType; requestId; data } // S→C（推送）
 ```
 
-详细字段（含 `StreamChunkData`/`StagedChunkData`/各 `NotificationData`）见 [../protocol.md](../protocol.md)「消息结构」「Notification 类型」「Chunk 类型」三节。本模块的真实联合类型在 types.ts 中以 discriminated union 形式定义（`RequestData` / `ResponseData` / `ChunkData` / `NotificationData`），保证 handler 收到的参数类型安全。
+详细字段（含 `StreamChunkData`/`StagedChunkData`/各 `NotificationData`）见 [../protocol.md](../protocol.md)「消息结构」「Notification 类型」「Chunk 类型」三节。RPC 请求/响应不再依赖两个互不关联的宽联合：`RpcMethodMap` 将每个 `Method` 显式绑定到 `{ params, result }`，`ParamsOf<M>` / `ResultOf<M>` 为 handler 提供方法级类型；`RequestData` / `ResponseData` 仅作为动态传输边界的派生联合。
 
 ### NotificationType（types.ts 真实取值）
 
@@ -47,36 +47,25 @@ export type NotificationType =
 
 `replaced` 由 [chat/streamMapper.ts](../../src/service/chat/streamMapper.ts) 在 `message_updated` 携带 `replace` 时生成。详见 [./chat.md](./chat.md)。
 
-### Method 常量（types.ts 真实全集）
+### Method 与 RpcMethodMap
+
+`Method` 常量定义所有合法 RPC 名称，完整运行时列表见 [../protocol.md](../protocol.md)「方法列表」。类型层使用同一组常量键建立方法映射：
 
 ```ts
-export const Method = {
-  BRAIN_LIST:      "brain.list",
-  SENSE_LIST:      "sense.list",
-  SENSE_TOOLS:     "sense.tools",   // 列出代码维护的全部内置工具（name/label/description）供设置面板下拉
-  RUNTIME_SET:     "runtime.set",
-  CHAT_CREATE:     "chat.create",
-  CHAT_LIST:       "chat.list",
-  CHAT_GET:        "chat.get",
-  CHAT_DELETE:     "chat.delete",
-  CHAT_SEND:       "chat.send",
-  CHAT_RESUME:     "chat.resume",
-  SENSE_APPROVAL:  "sense.approval",
-  CHAT_ABORT:      "chat.abort",   // 中止 chat：清内存 + 退出挂起 generator，不动 DB
-  BASH_LIST:       "bash.list",    // 列出挂起 bash 进程
-  BASH_KILL:       "bash.kill",    // 显式杀死挂起 bash 进程组
-  MCP_LIST:        "mcp.list",
-  MCP_GET:         "mcp.get",
-  MCP_CONNECT:     "mcp.connect",
-  MCP_DISCONNECT:  "mcp.disconnect",
-  MCP_RELOAD:      "mcp.reload",
-  SUBAGENT_RESULT: "subagent.result",  // 子 agent 结果回传（spawn wait=true 时前端跑完唤醒主 agent）
-  CONFIG_GET:      "config.get",       // 读取 .chery/config.yaml 原文（除 server 段）供设置面板编辑
-  CONFIG_SAVE:     "config.save",      // 校验 + 写回 config.yaml（除 server 段，重启生效）
-} as const;
+interface RpcMethodMap {
+  [Method.BRAIN_LIST]: { params: BrainListRequestData; result: BrainListResponseData };
+  // ...每个 Method 恰好一项
+  [Method.UTILS_OPEN_CONFIG_DIR]: {
+    params: UtilsOpenConfigDirRequestData;
+    result: UtilsOpenConfigDirResponseData;
+  };
+}
+
+type ParamsOf<M extends Method> = RpcMethodMap[M]["params"];
+type ResultOf<M extends Method> = RpcMethodMap[M]["result"];
 ```
 
-这些方法在 [src/service/index.ts](../../src/service/index.ts) `startService()` 中分别由 brain/sense/runtime/chat/bash/mcp 模块注册。每个 Method 的 handler 归属见 [./README.md](./README.md)「Handler 总览」。
+`RpcRouter.register(Method.X, handler)` 会据 Method 字面量自动校验 handler 的 params/result；`requestSchemas` 继续通过 `satisfies Record<Method, ...>` 保证运行时校验表完整。新增 `utils.openConfigDir` 固定打开后端主机的 `CHERY_DIR/.chery`，不接收客户端路径。
 
 ### ErrorCode 常量
 
@@ -101,17 +90,18 @@ export interface HandlerContext {
 }
 
 // handler 可返回普通 Promise（非流式）或 AsyncGenerator（流式，yield Chunk|Notification，return ResponseData|Response）
-export type HandlerFn<TData, TResult> = (
+export type HandlerFn<M extends Method> = (
   ctx: HandlerContext,
-  data: TData,
-) => Promise<TResult> | AsyncGenerator<Chunk | Notification, TResult, unknown>;
+  data: ParamsOf<M>,
+) => Promise<ResultOf<M> | Response>
+   | AsyncGenerator<Chunk | Notification, ResultOf<M> | Response, unknown>;
 ```
 
 ### RpcRouter 核心方法
 
 ```ts
 class RpcRouter {
-  register<TData, TResult>(method: string, handler: HandlerFn<TData, TResult>): void;
+  register<M extends Method>(method: M, handler: HandlerFn<M>): void;
   handle(request: Request, ctx: HandlerContext): Promise<Response | AsyncGenerator<Chunk|Notification, Response>>;
 }
 createRouter(): RpcRouter;
@@ -195,9 +185,9 @@ async function* wrapStreamingHandler(generator, requestId):
 ## 扩展点
 
 - **添加 RPC 方法**：
-  1. types.ts：在 `RequestData`/`ResponseData` 联合加新 interface，`Method` 常量加键。
-  2. 写 handler（返回 Promise 或 AsyncGenerator），导出 `register*Handlers(router)`。
-  3. service/index.ts `startService()` 调用注册函数。
-  4. 同步更新 `../protocol.md` 方法列表（当前 protocol.md 已滞后，新增时补齐）。
+  1. types.ts：新增 request/result 类型、`Method` 常量，并在 `RpcMethodMap` 添加唯一映射项；无数据成功响应使用严格空对象类型，禁止裸 `{}`。
+  2. schemas.ts：在 `requestSchemas` 添加同名键；`satisfies Record<Method, ...>` 会在缺项时编译失败。
+  3. 写 handler 并在对应 `register*Handlers(router)` 注册；`register` 会按 Method 自动检查 params/result，无需手写泛型参数。
+  4. 同步更新 `../protocol.md` 方法列表与 `./README.md` Handler 总览。
 - **自定义错误码**：types.ts `ErrorCode` 加常量，handler 内 `createError(code, message)` 后 throw 或自建 Response 返回。router 的 `toRpcError` 当前固定转 `INTERNAL`，自定义 code 需 handler 主动 return Response 而非 throw。
 - **消息类型扩展**：新增 NotificationType 时同步改 `NotificationData` 联合 + `streamMapper` 的映射分支。

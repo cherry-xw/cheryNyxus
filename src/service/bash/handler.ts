@@ -41,6 +41,6 @@ async function handleBashList(
 }
 
 export function registerBashHandlers(router: RpcRouter): void {
-  router.register<BashKillRequestData, BashKillResponseData>(Method.BASH_KILL, handleBashKill);
-  router.register<BashListRequestData, BashListResponseData>(Method.BASH_LIST, handleBashList);
+  router.register(Method.BASH_KILL, handleBashKill);
+  router.register(Method.BASH_LIST, handleBashList);
 }

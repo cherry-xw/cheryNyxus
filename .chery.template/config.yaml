@@ -109,7 +109,7 @@ server:
 #   stream                   bool   流式输出（边想边说）；非流式 = 说完一次给
 #   sense_execute_timeout    int    感官执行超时（ms），兜底 30000
 #   approval_timeout         int    审批等待（ms），超时视为拒绝（非 abort），兜底 30000
-#   maxLoopCount             int    单轮工具调用上限，兜底 30（⚠️ 调高烧钱）
+#   maxLoopCount             int    单轮循环次数上限，兜底 30（⚠️ 调高烧钱）
 #   bash_log_retention_hours int    bash 日志保留小时数，兜底 24
 #   logger.*                 block  日志配置（面板按 v-if 存在才显示）
 #   file_compression.*       block  文件压缩配置（面板按 v-if 存在才显示）
@@ -124,7 +124,7 @@ global:
   stream: true                 # 流式输出（false = 非流式）
   sense_execute_timeout: 10000 # 感官执行超时（ms）；bash.ts:10 兜底 30000ms
   approval_timeout: 30000      # 审批超时（ms）；超时视为拒绝但不 abort（兜底 30000ms）
-  maxLoopCount: 30             # 单轮工具调用上限（⚠️ 调高烧钱；兜底 30）
+  maxLoopCount: 30             # 单轮循环次数上限（⚠️ 调高烧钱；兜底 30）
   bash_log_retention_hours: 24 # bash 日志保留时长（小时；兜底 24）
 
   # ─────────────────────────────────────────────────────────────────

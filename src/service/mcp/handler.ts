@@ -147,18 +147,9 @@ async function handleMcpReload(
 }
 
 export function registerMcpHandlers(router: RpcRouter): void {
-  router.register<McpListRequestData, McpListResponseData>(Method.MCP_LIST, handleMcpList);
-  router.register<McpGetRequestData, McpGetResponseData | Response>(Method.MCP_GET, handleMcpGet);
-  router.register<McpConnectRequestData, McpConnectResponseData | Response>(
-    Method.MCP_CONNECT,
-    handleMcpConnect,
-  );
-  router.register<McpDisconnectRequestData, McpDisconnectResponseData | Response>(
-    Method.MCP_DISCONNECT,
-    handleMcpDisconnect,
-  );
-  router.register<McpReloadRequestData, McpReloadResponseData | Response>(
-    Method.MCP_RELOAD,
-    handleMcpReload,
-  );
+  router.register(Method.MCP_LIST, handleMcpList);
+  router.register(Method.MCP_GET, handleMcpGet);
+  router.register(Method.MCP_CONNECT, handleMcpConnect);
+  router.register(Method.MCP_DISCONNECT, handleMcpDisconnect);
+  router.register(Method.MCP_RELOAD, handleMcpReload);
 }

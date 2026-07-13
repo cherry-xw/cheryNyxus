@@ -5,6 +5,8 @@ import {
   type Notification,
   type RequestData,
   type ResponseData,
+  type ParamsOf,
+  type ResultOf,
   type Method,
   createResponse,
   createError,
@@ -32,17 +34,27 @@ export interface HandlerContext {
 /**
  * Handler 函数类型
  */
-export type HandlerFn<TData = RequestData, TResult = ResponseData> = (
+export type HandlerFn<M extends Method> = (
   ctx: HandlerContext,
-  data: TData,
-) => Promise<TResult> | AsyncGenerator<Chunk | Notification, TResult, unknown>;
+  data: ParamsOf<M>,
+) =>
+  | Promise<ResultOf<M> | Response>
+  | AsyncGenerator<Chunk | Notification, ResultOf<M> | Response, unknown>;
 
 /**
  * Handler 定义
  */
+type ErasedHandlerFn = (
+  ctx: HandlerContext,
+  data: RequestData,
+) =>
+  | Promise<ResponseData | Response>
+  | AsyncGenerator<Chunk | Notification, ResponseData | Response, unknown>;
+
+/** 动态 Map 的唯一类型擦除边界；注册入口仍由 Method 保证 params/result 对应。 */
 interface HandlerDefinition {
-  method: string;
-  handler: HandlerFn<RequestData, ResponseData>;
+  method: Method;
+  handler: ErasedHandlerFn;
 }
 
 // ========== Router ==========
@@ -51,16 +63,16 @@ interface HandlerDefinition {
  * RPC 路由器
  */
 export class RpcRouter {
-  private handlers = new Map<string, HandlerDefinition>();
+  private handlers = new Map<Method, HandlerDefinition>();
 
   /**
    * 注册 handler
    */
-  register<TData, TResult>(
-    method: Method,
-    handler: HandlerFn<TData, TResult>,
+  register<M extends Method>(
+    method: M,
+    handler: HandlerFn<M>,
   ): void {
-    this.handlers.set(method, { method, handler: handler as unknown as HandlerFn<RequestData, ResponseData> });
+    this.handlers.set(method, { method, handler: handler as unknown as ErasedHandlerFn });
   }
 
   /**
@@ -107,7 +119,7 @@ export class RpcRouter {
     }
 
     try {
-      const result = definition.handler(ctx, parsed.data as RequestData);
+      const result = definition.handler(ctx, parsed.data);
 
       // 判断是否为 Generator
       if (isAsyncGenerator(result)) {

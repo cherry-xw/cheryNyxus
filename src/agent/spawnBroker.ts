@@ -194,3 +194,15 @@ export function clearWaitedChildrenByParent(parentChatId: string): void {
     }
   }
 }
+
+/**
+ * 清理所有 wait-子 + 看门狗（应用关闭时调用）。
+ * 清除所有看门狗定时器 + 清空唤醒链映射，避免进程挂起。
+ */
+export function clearAllWaitedChildren(): void {
+  for (const [childChatId, timer] of asyncWatchdogs) {
+    clearTimeout(timer);
+    asyncWatchdogs.delete(childChatId);
+  }
+  waitedChildren.clear();
+}

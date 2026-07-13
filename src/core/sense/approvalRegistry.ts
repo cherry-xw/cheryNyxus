@@ -74,3 +74,15 @@ export function rejectApproval(id: string, error: Error): void {
     registry.delete(id);
   }
 }
+
+/**
+ * 清理所有待处理审批（应用关闭时调用）。
+ * 清除所有超时定时器 + 拒绝所有待处理审批（视为 abort）。
+ */
+export function clearAllApprovals(): void {
+  for (const [id, entry] of registry) {
+    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer);
+    entry.reject(new Error("应用关闭，审批被中止"));
+    registry.delete(id);
+  }
+}

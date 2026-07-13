@@ -4,13 +4,33 @@
  * supervision 默认监管 / thinking / stream / 各超时与上限 / logger / file_compression。
  * 三段内容视为 3 张虚拟卡，由 TabShell 的序号按钮导航（logger / file_compression 可能不存在，动态生成 indexItems）。
  */
-import { computed } from "vue";
-import type { ConfigDto } from "@/services/agentApi";
+import { computed, ref, onMounted } from "vue";
+import type { ConfigDto, EditorInfo } from "@/services/agentApi";
+import { agentApi } from "@/services/agentApi";
 import { SUPERVISIONS, SUPERVISION_LABEL } from "../constants";
 import LabelTip from "../components/LabelTip.vue";
 import TabShell, { type IndexItem } from "../components/TabShell.vue";
 
 const props = defineProps<{ draft: ConfigDto }>();
+
+/** 编辑器选项列表（从后端获取） */
+const editorOptions = ref<EditorInfo[]>([]);
+const editorLoading = ref(false);
+
+/** 加载编辑器列表 */
+async function loadEditors(): Promise<void> {
+  editorLoading.value = true;
+  try {
+    editorOptions.value = await agentApi.listEditors();
+  } catch (err) {
+    // 加载失败时静默处理，不影响用户手动输入
+    console.error("加载编辑器列表失败:", err);
+  } finally {
+    editorLoading.value = false;
+  }
+}
+
+onMounted(loadEditors);
 
 /** 序号按钮列表：默认监管常驻；logger / file_compression 按配置动态生成。 */
 const indexItems = computed<IndexItem[]>(() => {
@@ -57,7 +77,26 @@ const indexItems = computed<IndexItem[]>(() => {
           @change="(v: unknown) => (draft.global.stream = v as boolean)"
         >流式输出（边想边说）</el-checkbox>
       </div>
-      <div class="card-grid">
+      <label class="field">
+        <LabelTip label="文本编辑器" tip="用于打开配置文件的编辑器（如 VSCode、记事本），留空使用系统默认" />
+        <el-select
+          v-model="draft.global.textEditor"
+          filterable
+          allow-create
+          clearable
+          placeholder="选择或输入编辑器命令"
+          :loading="editorLoading"
+        >
+          <el-option
+            v-for="editor in editorOptions"
+            :key="editor.command"
+            :label="editor.name"
+            :value="editor.command"
+            :disabled="!editor.available"
+          />
+        </el-select>
+      </label>
+      <div class="one-line-grid">
         <label class="field">
           <LabelTip label="工具执行超时（ms）" tip="工具执行的最长等待时间，超过此时间将进入后台执行" />
           <el-input-number v-model="draft.global.sense_execute_timeout" :controls="false" placeholder="默认 30000" />
@@ -69,7 +108,6 @@ const indexItems = computed<IndexItem[]>(() => {
         <label class="field">
           <LabelTip label="单轮工具调用上限" tip="maxLoopCount：单轮会话可连续调用工具的次数" />
           <el-input-number v-model="draft.global.maxLoopCount" :controls="false" placeholder="默认 30" />
-          <span class="hint">⚠️ 调高烧钱</span>
         </label>
         <label class="field">
           <LabelTip label="命令日志保留（小时）" tip="bash_log_retention_hours：仅清理 execute_command 产生的命令日志，不影响应用运行日志" />
@@ -151,6 +189,12 @@ const indexItems = computed<IndexItem[]>(() => {
 
 .global-section {
   // 段与段之间稍微多留一点间距，让导航切换后视觉上有区分。
+  gap: 10px;
+}
+
+.one-line-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 </style>

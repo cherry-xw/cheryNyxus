@@ -77,7 +77,7 @@ cheryClaw/
 | `loadEnvFile()` | 读 `cheryClaw.exe/.env`，空值不灌进 process.env，不覆盖 OS env；不存在则跳过 |
 | `getRuntimeRoot()` | 打包后 `process.env.CHERY_DIR || dirname(process.execPath)`；开发期项目根 |
 | afterPack 钩子 | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `.env.example` / `.chery.template/` 复制到 `cheryClaw.exe` 同级，打包即就位 |
-| IPC `open-config-dir` | `shell.openPath(<runtimeRoot>/.chery)`，preload 暴露 `window.__ELECTRON__.openConfigDir()`，设置面板「打开配置目录」按钮调用 |
+| 配置目录入口 | 设置面板调用后端 `utils.openConfigDir` WebSocket RPC，由后端系统默认打开器打开 `<CHERY_DIR>/.chery`；不再维护专用 Electron IPC |
 | preload 注入 | `__BACKEND_CONFIG__` + `__BACKEND_HTTP_URL__` |
 
 ### 3.4 electron-builder.yml 配置 ✅
@@ -108,7 +108,7 @@ targets: win=nsis, mac=dmg, linux=AppImage
 | 命令 | 用途 |
 | --- | --- |
 | `pnpm electron:pack` | 一键全量打包 |
-| `pnpm electron:pack:fast` | 增量打包（跳过依赖安装 + 类型检查） |
+| `pnpm electron:pack:fast` | 增量打包（跳过依赖安装 + Node/SQLite 下载 + 类型检查，假定缓存已就绪） |
 
 底层子命令直接调用：`node scripts/electron-pack.mjs [node\|sqlite\|pack]`
 

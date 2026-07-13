@@ -162,8 +162,11 @@ const index = messages.filter(m => m.role === "assistant").length;
 ```ts
 {
   async chat(messages, senses, options): Promise<ChatCompletion> {
+    // key 缺失（brain 未配 key / $ENV 占位符未替换）→ 运行期抛错；消息刻意避开 retry 可恢复关键词
+    // （api / invalid / timeout 等），落入 retry unknown 类 → 不重试、直接 yield ErrorChunk 响应前端
+    if (!key) throw new Error(`Brain key 未配置（${model}@${url}），请在 .env 设置对应环境变量`);
     await acquireRpm(options);
-    const client = new OpenAI({ baseURL: url, apiKey: key ?? "" });
+    const client = new OpenAI({ baseURL: url, apiKey: key });
     return client.chat.completions.create({
       model, messages,
       ...(thinking && { thinking: { type: "enabled" } }),  // 思考模式
@@ -173,6 +176,8 @@ const index = messages.filter(m => m.role === "assistant").length;
   // chatStream 同上 + stream:true，返回 AsyncIterable
 }
 ```
+
+**key 缺失策略**：`brain.key` 不参与启动校验（缺失不阻止启动），运行期 `chat`/`chatStream` 调用时若 `key` 为空（falsy）才抛错；错误消息避开 [retry 中间件](./middleware.md) 的可恢复关键词，确保不重试、直接响应前端。
 
 **Message Adapter：**
 

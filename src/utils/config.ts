@@ -175,6 +175,7 @@ interface GlobalConfig {
   bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig; // 文件压缩配置
   logger?: LoggerConfig; // 日志配置
+  textEditor?: string; // 文本编辑器路径（如 vscode、notepad、记事本等），用于打开配置文件
 }
 
 /**
@@ -463,10 +464,6 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     if (cfg?.capabilities?.generate && cfg.capabilities.toolCall === false && Object.values(cfg.capabilities.generate).some(Boolean)) {
       errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`);
     }
-    // 密钥必须使用 $ENV 占位符（格式不符则视为未配置，不阻止启动）
-    if (cfg?.key && !/^\$[A-Z_][A-Z0-9_]*$/.test(cfg.key)) {
-      cfg.key = undefined;
-    }
   }
 
   // media.* 命名服务：type 合法 + enabled 时 url 必填
@@ -479,10 +476,6 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       }
       if (cfg?.enabled && !cfg.url) {
         errors.push(`media.${name} 已启用但 url 为空`);
-      }
-      // 密钥必须使用 $ENV 占位符（格式不符则视为未配置，不阻止启动）
-      if (cfg?.key && !/^\$[A-Z_][A-Z0-9_]*$/.test(cfg.key)) {
-        cfg.key = undefined;
       }
     }
   }
@@ -599,6 +592,14 @@ export function listEnvVarNames(): string[] {
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) names.add(key);
   }
   return [...names].sort();
+}
+
+/**
+ * 获取 .chery 目录路径（从环境变量 CHERY_DIR 或默认 process.cwd()）。
+ * 供 utils.openFile 等 handler 使用。
+ */
+export function getCheryDir(): string {
+  return process.env.CHERY_DIR || process.cwd();
 }
 
 export type { Config, ConfigRaw, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig, ServerConfig };

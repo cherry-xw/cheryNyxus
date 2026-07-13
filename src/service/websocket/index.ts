@@ -236,3 +236,16 @@ function sendError(ws: WebSocket, message: string, requestId?: string): void {
   );
   ws.send(transport.serializeMessage(response));
 }
+
+/**
+ * 关闭所有 WebSocket 连接（应用关闭时调用）。
+ * WebSocketServer.close() 只停止接受新连接，不关闭现有连接。
+ * 需先调用本函数关闭所有客户端，再调用 wss.close()。
+ */
+export function closeAllConnections(wss: WebSocketServer): void {
+  wss.clients.forEach((ws) => {
+    // 移除所有监听器，避免关闭时触发 close/error 事件处理
+    ws.removeAllListeners();
+    ws.close();
+  });
+}

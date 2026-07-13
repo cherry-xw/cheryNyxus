@@ -150,6 +150,9 @@ interface Notification {
 | `config.get` | 读取 `.chery/config.yaml` 原文（**除 server 段**）：返回 `roles`/`presets`/`llm.brain`/`sense_groups`/`mcp_servers`/`global` 原始结构（`supervision` 为字符串、`key` 仍为 `$ENV` 占位符、无路径补全），供设置面板编辑 | 否 |
 | `config.save` | 保存配置（params: 除 server 外全部字段）：zod 结构校验 + 业务校验（`roles.<name>.brain` 引用必须存在于 `llm.brain`、`presets.*.roles[*]` 引用的 type 必须存在于 `config.roles`、`supervision` 合法值、`sense_groups` 的 `:level` 后缀合法、`llm.brain.*` 的 `model`/`provider` 必填、`systemPrompt` existsSync）-> 通过则保留盘上 `server` 段不动、`js-yaml` dump（无注释）写回 -> 返回 `{needRestart:true}`；失败返 `INVALID_PARAMS` 列出错误、**不写盘**。重启后端后生效 | 否 |
 | `utils.models` | 独立工具：基于用户提供的 `{provider, url, key?}` 拉取可用模型列表。`provider` 支持 `openai`/`ollama`；`url` 必填（API base URL）；`key` 可选（ollama 通常无需）。返回 `{models: [{id, name?, ownedBy?}], error?}`；请求失败时 `models` 为空数组、`error` 携带错误信息（非 RpcError，前端可展示）。后续该模块会扩展其他便捷信息查询工具 | 否 |
+| `utils.openFile` | 打开指定文件（用配置的文本编辑器或系统默认）。`path` 相对 `CHERY_DIR`（如 `.env`、`.chery/config.yaml`）。优先使用 `global.textEditor` 配置的编辑器（支持 `$ENV` 占位符），未配置则由后端进程调用系统默认打开器（Windows: `cmd /c start`，macOS: `open`，Linux: `xdg-open`）。成功返回空对象，失败返 RpcError | 否 |
+| `utils.openConfigDir` | 在**后端所在主机**的系统文件管理器中打开配置目录。params 必须为严格空对象 `{}`；目标固定为 `join(getCheryDir(), ".chery")`，客户端不能传路径。远程浏览器调用时不会打开浏览器客户端机器的目录。成功返回空对象，失败返 RpcError | 否 |
+| `utils.editors` | 检测后端主机可用的文本编辑器，返回 `{editors: [{name, command, available}]}`，供设置页选择 `global.textEditor` | 否 |
 
 #### `chat.list` 响应字段
 
