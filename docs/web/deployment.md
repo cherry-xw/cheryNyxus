@@ -107,6 +107,8 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 | Electron main spawn 后端 | ✅ | [electron/main.ts](../../web/electron/main.ts) |
 | preload 注入端口配置 | ✅ | [electron/preload.ts](../../web/electron/preload.ts) |
 | DB 路径 → userData | ✅ | `DB_DIR` env([config.ts](../../src/utils/config.ts)),main 打包时注入 `app.getPath('userData')` |
+| 用户配置位置 → exe 同级(afterPack 钩子打包即就位) | ✅ | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `resources/.env.example` / `resources/.chery.template/` 复制到 `cheryClaw.exe` 同级;主进程 `loadEnvFile()` + `getRuntimeRoot()` 仅读取不修改 |
+| 设置面板「打开配置目录」按钮 | ✅ | IPC `open-config-dir` → `shell.openPath(<runtimeRoot>/.chery)`;preload 暴露 `window.__ELECTRON__.openConfigDir()` |
 | electron-builder 打包配置 | ✅ | [electron-builder.yml](../../web/electron-builder.yml);GUI 验证留后续 |
 | native addon ABI(better-sqlite3 跨 ABI) | ✅ | 改用系统 node spawn(弃用 ELECTRON_RUN_AS_NODE);发行版打包 Node 22 LTS + prebuild-install 拉官方 Node 22 预编译,见 [关键坑](#native-addon-abi模式-2) |
 
@@ -126,13 +128,13 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 
 **原因**:`ELECTRON_RUN_AS_NODE` 用 Electron 内嵌 node(ABI ≈ Node 20),后端 `dist/lib/better_sqlite3.node` 针对系统 node(Node 24,ABI 137),跨 ABI 崩溃。系统 node spawn 用同 ABI,匹配。
 
-**发行版已解决(打包 Node 22 LTS)**:终端用户机器可能无 node,统一打包脚本 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 完成三件事:
+**发行版已解决(打包 Node 22 LTS)**:统一打包脚本完成三件事:
 
 1. 从 nodejs.org 下载 Node 22 LTS 二进制到 [build/node/](../../build/node/)(各平台 win-x64 / darwin-x64 / darwin-arm64 / linux-x64),electron-builder 经 `extraResources` 打入 [web/electron-builder.yml](../../web/electron-builder.yml) 的 `resources/node[.exe]`。[electron/main.ts](../../web/electron/main.ts) `getNodeExecutable()` 已优先 `../node`,用户机器无需预装 node。
-2. 用下载的 Node 22 执行 `npx prebuild-install --target=22.x.x -r node`,从 better-sqlite3 官方预编译产物仓库(https://github.com/WiseLibs/better-sqlite3/releases)拉 Node 22 ABI 的 `better_sqlite3.node`,覆盖 `node_modules/better-sqlite3/build/Release/`。`vite-plugin-native-modules` 下次 build 时复制新 ABI 的 `.node` 到 `dist/lib/`。
-3. 一条命令完成:`pnpm pack:electron` → 全量 type-check → 后端 SSR build → 前端 build + electron-builder 打包。
+2. 用下载的 Node 22 从 GitHub release 直下 better-sqlite3 Node 22 ABI 预编译,覆盖 `node_modules/better-sqlite3/build/Release/`。`vite-plugin-native-modules` 下次 build 时复制新 ABI 的 `.node` 到 `dist/lib/`。
+3. 一条命令完成:`pnpm electron:pack` → 全流程(安装依赖 → Node/SQLite → type-check → 后端 build → 前端 build → electron-builder 打包)。
 
-版本锁定见 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs) 顶部常量 `NODE_VERSION = "22.11.0"`(Node 22 当前 LTS,`NODE_MODULE_VERSION=127`),与 [web/electron-builder.yml](../../web/electron-builder.yml) `extraResources` 的 `from: ../build/node` 一致。版本升级时改两处:脚本常量 + electron-builder.yml 中 Node 路径重生成。
+Node 版本锁定在 [package.json](../../package.json) `packConfig.nodeVersion`(当前 `22.11.0`,`NODE_MODULE_VERSION=127`),由 [scripts/pack-config.mjs](../../scripts/pack-config.mjs) 读取并导出。升级 Node 版本只需改 `package.json` 一处。
 
 > ⚠ 2026-07-13 修正:历史曾写 `from: ../../build/node`,electron-builder 把 `extraResources` 路径相对 yml 文件所在 package 根(`web/`)解析,`../../build/node` 落到 cheryClaw 仓库根的**再上一级**,导致 Node 二进制未进发行包;改为 `../build/node` 后从 `web/` 出发正好是 `<repo>/build/node`。
 
@@ -140,15 +142,32 @@ node dist/index.js      →  HTTP server on :8183 (serve web/dist/ + /api/config
 
 ### 后端资源分发(模式 2,已配置)
 
-[electron-builder.yml](../../web/electron-builder.yml) `extraResources`:
+[electron-builder.yml](../../web/electron-builder.yml) `extraResources` + `afterPack` 钩子:
 
 | 资源 | from | to | 用途 |
 |------|------|-----|------|
 | 后端 bundle | `../dist` | `dist` | `index.js` + `lib/*.node` + `lib/@swc/wasm/` + `senses/` |
-| 配置 | `../.chery` | `.chery` | `config.yaml` + `system.md` + `skills/` + `senses/`(filter 排除 `db/`) |
+| `.env` 模板 | `../.env.example` | `.env.example` | afterPack 钩子复制为 `cheryClaw.exe/.env`(用户可填 API Key) |
+| `.chery` 模板 | `../.chery.template` | `.chery.template` | afterPack 钩子复制为 `cheryClaw.exe/.chery/`(用户可改 config.yaml / skills / senses) |
 | Node 22 LTS 二进制 | `../build/node` | `node` | `node.exe`(~78 MB),`getNodeExecutable()` 优先用它,fallback 系统 PATH `node` |
 
-main spawn 时 `CHERY_DIR = resources/`(只读 config/skills/senses),`DB_DIR = app.getPath('userData')/.chery/db`(可写)。
+`afterPack: ./scripts/post-pack.mjs`(详见 [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs))在 electron-builder 生成 `win-unpacked/` 后、打 NSIS 前把 `resources/.env.example` → `appOutDir/.env`、`resources/.chery.template/` → `appOutDir/.chery/`,**用户首次安装即看到,无需首次启动**。
+
+main spawn 时 `CHERY_DIR = process.env.CHERY_DIR || dirname(process.execPath)`(`.env` 留空时默认 `exe` 同级),`DB_DIR = app.getPath('userData')/.chery/db`(始终可写)。
+
+### 用户配置位置(模式 2,已解决)
+
+`.env` 与 `.chery/` **打包即就位**在 `cheryClaw.exe` 同级,由 afterPack 钩子在打包阶段复制:
+
+- **位置**:`dirname(process.execPath)/`(即 `cheryClaw.exe` 同级)。
+  - Windows: `D:\cheryClaw\.env` / `D:\cheryClaw\.chery\`
+  - macOS: `/Applications/cheryClaw.app/Contents/Resources/../.env`? 不——NSIS/DMG 解包到 `/Applications/cheryClaw.app/Contents/Resources/app/`,**.env 在 `/Applications/cheryClaw.app/Contents/Resources/.env` 同级**
+  - Linux: AppImage 解包到 `/opt/cheryClaw/`
+- **`CHERY_DIR`**:`.env` 留空时默认 `cheryClaw.exe` 同级;用户可显式设置(如部署到 NAS/容器时指向共享目录)。
+- **升级**:`existsSync` 短路——主进程不主动重写用户已修改的 `.env`;但 **NSIS 安装时默认会覆盖**目标文件,如需升级不覆盖需加 `nsis.include` 自定义 .nsh 脚本(暂未实现)。
+- **UX 入口**:设置面板「打开配置目录」按钮调 `window.__ELECTRON__.openConfigDir()`(`shell.openPath`)直达系统文件管理器。
+
+详见 [electron.md#electron-spawn-后端模式-2](./electron.md#electron-spawn-后端模式-2)。
 
 ### DB 路径(模式 2,已解决)
 

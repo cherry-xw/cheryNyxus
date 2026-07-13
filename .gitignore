@@ -12,6 +12,9 @@ dist/
 *.js.map
 *.d.ts
 !src/**/*.d.ts
+# web 端手写 .d.ts（vite/client 类型、模块声明等）需入库
+!web/src/**/*.d.ts
+!web/env.d.ts
 
 # electron-pack 产物：Node 二进制（scripts/electron-pack.mjs 下载生成，不入仓）
 build/

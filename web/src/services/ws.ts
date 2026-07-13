@@ -1,12 +1,5 @@
 import { encodeRequest, decodeMessage } from "./transport";
-import { httpUrl } from "./http";
-
-declare global {
-  interface Window {
-    /** Electron 模式由 preload 注入；浏览器模式无 */
-    __BACKEND_CONFIG__?: ServerConfig;
-  }
-}
+import { getServerConfig, wsUrl, type ServerConfig } from "./platform";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
@@ -22,14 +15,6 @@ export interface RpcResponse {
   success: boolean;
   data?: unknown;
   error?: RpcError;
-}
-
-export interface ServerConfig {
-  wsPort: number;
-  webPort: number;
-  transport: "binary" | "json";
-  /** Ephemeral local capability required by the backend WebSocket control plane. */
-  sessionToken?: string;
 }
 
 type ChunkHandler = (chunk: unknown) => void;
@@ -61,8 +46,8 @@ function uuid(): string {
 
 /**
  * WebSocket 客户端：
- * - Electron 模式：读 window.__BACKEND_CONFIG__（preload 注入）
- * - 浏览器模式：fetch('/api/config') 获取 wsPort + transport
+ * - `ServerConfig` 类型与 `getServerConfig` / `wsUrl` 由 [./platform.ts](./platform.ts) 提供；
+ *   本文件不再直读 `window.__*`，不重复 `declare global`。
  * - rpc(method, params) → Promise<RpcResponse>，按 Request.id 匹配 Response
  * - onChunk / onNotification / onStatus 回调订阅
  * - 断线自动重连
@@ -99,17 +84,7 @@ export class WsClient {
 
   async connect(): Promise<void> {
     if (!this.serverConfig) {
-      // Electron 模式：preload 注入配置；浏览器模式：fetch /api/config
-      const injected = window.__BACKEND_CONFIG__;
-      if (injected) {
-        this.serverConfig = injected;
-      } else {
-        const res = await fetch(httpUrl("/api/config"));
-        if (!res.ok) {
-          throw new Error(`获取 /api/config 失败: ${res.status}`);
-        }
-        this.serverConfig = (await res.json()) as ServerConfig;
-      }
+      this.serverConfig = await getServerConfig();
     }
     this.shouldReconnect = true;
     this.open();
@@ -118,15 +93,7 @@ export class WsClient {
   private open(): void {
     if (!this.serverConfig) return;
     this.setStatus("connecting");
-    // Electron（preload 注入 __BACKEND_CONFIG__）：直连 wsPort
-    // dev:web（vite）：走同源 /ws（vite proxy 转 wsPort；跨机器访问只需暴露单端口 5173，无需开放 8182）
-    // 生产（后端静态 serve）：直连 wsPort（8182 需对客户端开放）
-    const socketScheme = window.location.protocol === "https:" ? "wss" : "ws";
-    const baseUrl = window.__BACKEND_CONFIG__
-      ? `ws://localhost:${this.serverConfig.wsPort}`
-      : import.meta.env.DEV
-        ? `${socketScheme}://${window.location.host}/ws`
-        : `${socketScheme}://${window.location.hostname}:${this.serverConfig.wsPort}`;
+    const baseUrl = wsUrl(this.serverConfig);
     const url = this.serverConfig.sessionToken
       ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.serverConfig.sessionToken)}`
       : baseUrl;

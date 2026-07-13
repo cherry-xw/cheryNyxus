@@ -15,6 +15,7 @@ import { AnimatePresence, motion } from "motion-v";
 import { Close } from "@element-plus/icons-vue";
 import { useAgentsStore } from "@/stores";
 import { agentApi, type ConfigDto, type SenseToolInfo } from "@/services/agentApi";
+import { electronApi } from "@/services/platform";
 import { TABS, HINT_LINES, INDEX_COUNT, type TabKey } from "./constants";
 import BrainsTab from "./tabs/BrainsTab.vue";
 import MediaTab from "./tabs/MediaTab.vue";
@@ -98,6 +99,25 @@ watch(
 
 function close(): void {
   agents.settingsOpen = false;
+}
+
+/**
+ * 打开用户配置目录（.chery/）到系统文件管理器。
+ * 仅在 Electron 模式下生效（main 进程的 IPC handler）；浏览器模式下按钮置灰。
+ * 走 `electronApi.openConfigDir()`，preload 已通过 contextBridge 暴露。
+ * main 进程返回的是 `shell.openPath` 的结果字符串（空字符串表示成功，非空为错误消息）。
+ */
+async function openConfigDir(): Promise<void> {
+  if (!electronApi) {
+    console.warn("[SettingsDialog] openConfigDir 不可用：当前不是 Electron 模式");
+    return;
+  }
+  try {
+    const err = await electronApi.openConfigDir();
+    if (err) console.error("[SettingsDialog] openConfigDir failed:", err);
+  } catch (e) {
+    console.error("[SettingsDialog] openConfigDir threw:", e);
+  }
 }
 
 function onError(msg: string): void {
@@ -207,10 +227,21 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         <div v-if="savedHint" class="saved-row" role="status">{{ savedHint }}</div>
 
         <footer class="foot">
-          <button type="button" class="ghost-btn" @click="close">关闭</button>
-          <button type="button" class="primary-btn" :disabled="!draft || saving" @click="save">
-            {{ saving ? "保存中…" : "保存" }}
+          <button
+            type="button"
+            class="ghost-btn"
+            :disabled="!electronApi"
+            :title="electronApi ? '打开 .chery/ 用户配置目录' : '仅 Electron 模式可用'"
+            @click="openConfigDir"
+          >
+            📁 打开配置目录
           </button>
+          <div class="foot-right">
+            <button type="button" class="ghost-btn" @click="close">关闭</button>
+            <button type="button" class="primary-btn" :disabled="!draft || saving" @click="save">
+              {{ saving ? "保存中…" : "保存" }}
+            </button>
+          </div>
         </footer>
       </MotionDiv>
     </MotionDiv>
@@ -339,10 +370,34 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 
 .foot {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 8px;
   padding-top: 6px;
   border-top: 1px solid rgba(36, 38, 45, 0.1);
+}
+
+.foot-right {
+  display: flex;
+  gap: 8px;
+}
+
+.ghost-btn {
+  padding: 6px 12px;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  color: fade(@ink, 80%);
+  font-size: 12px;
+  cursor: pointer;
+  &:hover:not(:disabled) {
+    background: #ffffff;
+    color: fade(@ink, 92%);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 }
 
 .primary-btn {

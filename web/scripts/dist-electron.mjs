@@ -38,20 +38,11 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolvePackConfig, applyProxyEnv } from "../../scripts/pack-config.mjs";
 
-const DEFAULT_BUILDER_BINARIES_MIRROR =
-  "https://npmmirror.com/mirrors/electron-builder-binaries/";
-const DEFAULT_ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/";
-
-if (!process.env.ELECTRON_BUILDER_BINARIES_MIRROR) {
-  process.env.ELECTRON_BUILDER_BINARIES_MIRROR = DEFAULT_BUILDER_BINARIES_MIRROR;
-}
-if (!process.env.ELECTRON_MIRROR) {
-  // 兜底：默认值未带末尾斜杠时自动补齐，避免 @electron/get 拼接出 404
-  process.env.ELECTRON_MIRROR = DEFAULT_ELECTRON_MIRROR.endsWith("/")
-    ? DEFAULT_ELECTRON_MIRROR
-    : `${DEFAULT_ELECTRON_MIRROR}/`;
-}
+// ===== 代理 & 镜像配置（来自 package.json packConfig，env 可覆盖） =====
+const config = resolvePackConfig();
+applyProxyEnv(config);
 
 // 定位 electron-builder 的真实 JS 入口：shim 在 Windows 下 stdio 透传不可靠，
 // 直接 exec cli.js 最稳。优先 node_modules/electron-builder/cli.js（pnpm 解的目录），

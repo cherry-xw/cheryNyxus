@@ -33,52 +33,25 @@ import { Readable } from "node:stream";
 import { createGunzip } from "node:zlib";
 import https from "node:https";
 
-// ===== 单一事实源：升级 Node 时改这两处 + electron-builder.yml 中 Node 路径 =====
-// 当前为 Node 22 进入 LTS 的首个版本（2024-10-29，v22.11.0 LTS 'Jod'，ABI=127）
-const NODE_VERSION = "22.11.0";
-const NODE_MAJOR = 22;
-
-/** 当前 host 平台 → nodejs.org 资源文件片段 */
-const PLATFORM_ASSET = {
-  "win32-x64":   { archive: "zip",  url: () => `node-v${NODE_VERSION}-win-x64.zip`,                   binary: "node.exe" },
-  "darwin-x64":  { archive: "tar",  url: () => `node-v${NODE_VERSION}-darwin-x64.tar.gz`,             binary: "bin/node" },
-  "darwin-arm64":{ archive: "tar",  url: () => `node-v${NODE_VERSION}-darwin-arm64.tar.gz`,           binary: "bin/node" },
-  "linux-x64":   { archive: "tar",  url: () => `node-v${NODE_VERSION}-linux-x64.tar.xz`,             binary: "bin/node" },
-};
+import {
+  NODE_VERSION,
+  NODE_MAJOR,
+  PLATFORM_ASSET,
+  resolvePackConfig,
+  applyProxyEnv,
+} from "./pack-config.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const buildNodeDir = join(repoRoot, "build", "node");
 const nodeBinaryPath = join(buildNodeDir, process.platform === "win32" ? "node.exe" : "node");
 
-// 本地 HTTP 代理（绕过 GitHub release-assets 反爬；可经 ELECTRON_PACK_PROXY env 覆盖）
-const HTTP_PROXY = process.env.ELECTRON_PACK_PROXY ?? "http://127.0.0.1:1234";
-// Node 22 fetch / undici 读 HTTPS_PROXY 走代理；curl 也读；PowerShell 不读，需显式 -Proxy
-process.env.HTTPS_PROXY ??= HTTP_PROXY;
-process.env.HTTP_PROXY ??= HTTP_PROXY;
-process.env.https_proxy ??= HTTP_PROXY;
-process.env.http_proxy ??= HTTP_PROXY;
-
-// electron-builder 阶段两类下载都依赖 GitHub，国内 DNS 落到 20.205.243.166 频繁 ETIMEDOUT，
-// 默认全部走 npmmirror。env 同名可覆盖；置空字符串则显式禁用（回退到 GitHub 官方源）。
-// 这两个 env 同步被 web/scripts/dist-electron.mjs 写入，保证
-// `pnpm --filter web dist` 与本脚本行为一致。
-
-// 1) electron-builder 辅助二进制（winCodeSign / Squirrel.Windows / 7z-extract 等）
-const BUILDER_BINARIES_MIRROR = process.env.ELECTRON_BUILDER_BINARIES_MIRROR ?? "https://npmmirror.com/mirrors/electron-builder-binaries/";
-if (BUILDER_BINARIES_MIRROR) {
-  process.env.ELECTRON_BUILDER_BINARIES_MIRROR = BUILDER_BINARIES_MIRROR;
-}
-
-// 2) Electron 本体（如 electron-v43.0.0-win32-x64.zip），被 @electron/get 读 ELECTRON_MIRROR。
-// 路径末尾必须带斜杠——@electron/get 直接字符串拼接，缺斜杠会 404。
-const ELECTRON_MIRROR = process.env.ELECTRON_MIRROR ?? "https://npmmirror.com/mirrors/electron/";
-if (ELECTRON_MIRROR) {
-  process.env.ELECTRON_MIRROR = ELECTRON_MIRROR;
-}
-
 // ESM 下用 createRequire 调 CommonJS resolve（prebuild-install / better-sqlite3 等）
 const require = createRequire(import.meta.url);
+
+// 从 package.json packConfig 读取 + env 覆盖 → 注入 process.env
+let packConfig = resolvePackConfig();
+applyProxyEnv(packConfig);
 
 /** 当前 host 平台键；非目标平台直接退出（与 electron-builder.yml targets 一致） */
 function getPlatformKey() {
@@ -154,7 +127,7 @@ async function downloadAndExtractNode() {
 
   mkdirSync(buildNodeDir, { recursive: true });
 
-  if (existsSync(nodeBinaryPath)) {
+  if (!FORCE_DOWNLOAD && existsSync(nodeBinaryPath)) {
     const stat = statSync(nodeBinaryPath);
     if (stat.size > 1024 * 1024) { // > 1MB 视为有效
       log("node", `已存在 ${nodeBinaryPath} (${(stat.size / 1024 / 1024).toFixed(1)} MB)，跳过下载`);
@@ -216,7 +189,7 @@ async function extractZip(archivePath, outDir) {
     await runAsync("powershell", [
       "-NoProfile",
       "-Command",
-      `$proxy = [System.Net.WebProxy]::new('${HTTP_PROXY.replace(/\/$/, "")}'); ` +
+      `$proxy = [System.Net.WebProxy]::new('${packConfig.httpProxy.replace(/\/$/, "")}'); ` +
       `Expand-Archive -LiteralPath "${archivePath}" -DestinationPath "${outDir}" -Force`,
     ]);
   } else {
@@ -317,17 +290,25 @@ async function rebuildBetterSqlite3() {
   const abi = runSyncCapture(nodeBinaryPath, ["-p", "process.versions.modules"]).trim();
   log("sqlite", `目标 ABI: ${abi}`);
 
+  // 检查预编译是否已存在（文件名含版本+ABI+平台+架构，精确匹配才跳过）
+  const targetDir = join(repoRoot, "node_modules", "better-sqlite3", "build", "Release");
+  const platform = process.platform; // win32 / darwin / linux
+  const arch = process.arch === "x64" ? "x64" : "arm64";
+  const expectedNodeFile = `better_sqlite3-v${version}-node-v${abi}-${platform}-${arch}.node`;
+
+  if (!FORCE_DOWNLOAD && existsSync(join(targetDir, expectedNodeFile))) {
+    log("sqlite", `预编译已存在: ${expectedNodeFile}，跳过下载`);
+    return;
+  }
+
   // 2. GitHub release URL 直下（不依赖 prebuild-install 的 GitHub API 查找）
   //    文件命名: better-sqlite3-v<version>-node-v<abi>-<platform>-<arch>.tar.gz
   //    better-sqlite3 仅发 node-v127 (Node 22 LTS) / node-v137 (Node 24) 等少数 ABI；
   //    ABI 不匹配则 fallback 到 node-gyp 重编。
-  const platform = process.platform; // win32 / darwin / linux
-  const arch = process.arch === "x64" ? "x64" : "arm64";
   const filename = `better-sqlite3-v${version}-node-v${abi}-${platform}-${arch}.tar.gz`;
   const url = `https://github.com/WiseLibs/better-sqlite3/releases/download/v${version}/${filename}`;
   log("sqlite", `下载 ${url}`);
 
-  const targetDir = join(repoRoot, "node_modules", "better-sqlite3", "build", "Release");
   mkdirSync(targetDir, { recursive: true });
 
   let downloaded = false;
@@ -340,7 +321,7 @@ async function rebuildBetterSqlite3() {
     const curlCmd = process.platform === "win32" ? "curl.exe" : "curl";
     const curlResult = spawnSync(curlCmd, [
       "-L", "-sS", "-A", "cheryClaw-electron-pack/1.0",
-      "-x", HTTP_PROXY,
+      "-x", packConfig.httpProxy,
       "-o", tmpTar,
       url,
     ], { stdio: "inherit" });
@@ -429,13 +410,20 @@ async function runElectronBuilder() {
   await runAsync("pnpm", ["--filter", "web", "dist"]);
 }
 
+// ===== 命令行参数 =====
+const cliArgs = process.argv.slice(2);
+const subcommand = cliArgs.find(a => !a.startsWith("--"));
+const FORCE_DOWNLOAD = cliArgs.includes("--force");
+
 // ===== 入口 =====
 async function main() {
-  const arg = process.argv[2];
   log("start", `Node ${process.version} on ${process.platform}-${process.arch}`);
   log("start", `目标 Node 版本: ${NODE_VERSION} (ABI: ${NODE_MAJOR})`);
+  log("start", `代理: ${packConfig.httpProxy || "(无)"}`);
+  log("start", `Electron 镜像: ${packConfig.electronMirror || "(官方源)"}`);
+  if (FORCE_DOWNLOAD) log("start", "强制模式: --force，跳过存在性检查，全部重新下载");
 
-  switch (arg) {
+  switch (subcommand) {
     case "node":
       await downloadAndExtractNode();
       break;
@@ -453,7 +441,7 @@ async function main() {
       await runElectronBuilder();
       break;
     default:
-      console.error(`未知子命令: ${arg}\n用法: electron-pack.mjs [all|node|sqlite|pack]`);
+      console.error(`未知子命令: ${subcommand}\n用法: electron-pack.mjs [all|node|sqlite|pack] [--force]`);
       process.exit(1);
   }
 

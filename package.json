@@ -9,7 +9,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "postinstall": "test -f .env || cp .env.example .env",
+    "postinstall": "node scripts/setup-env.mjs",
     "prebuild": "pnpm type-check",
     "build": "vite build --ssr --mode dev",
     "build:test": "vite build --ssr --mode test",
@@ -30,10 +30,9 @@
     "dev:all": "concurrently -n backend,web -c blue,green \"pnpm dev\" \"pnpm --filter web dev:web\"",
     "build:all": "pnpm type-check:all && pnpm build && pnpm --filter web build",
     "type-check:all": "pnpm type-check && pnpm --filter web type-check",
-    "pack:electron": "node scripts/electron-pack.mjs all",
-    "pack:electron:node": "node scripts/electron-pack.mjs node",
-    "pack:electron:sqlite": "node scripts/electron-pack.mjs sqlite",
-    "pack:electron:only": "node scripts/electron-pack.mjs pack"
+    "electron:pack": "node scripts/pack-electron.mjs",
+    "electron:pack:fast": "node scripts/pack-electron.mjs --skip-deps --skip-check",
+    "electron:pack:force": "node scripts/pack-electron.mjs --force"
   },
   "repository": {
     "type": "git",
@@ -48,6 +47,12 @@
     "url": "https://github.com/cherry-xw/cheryClaw/issues"
   },
   "homepage": "https://github.com/cherry-xw/cheryClaw#readme",
+  "packConfig": {
+    "nodeVersion": "22.11.0",
+    "httpProxy": "http://127.0.0.1:7890",
+    "electronMirror": "https://npmmirror.com/mirrors/electron/",
+    "builderBinariesMirror": "https://npmmirror.com/mirrors/electron-builder-binaries/"
+  },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/lodash-es": "^4.17.12",

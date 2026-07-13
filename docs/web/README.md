@@ -38,7 +38,9 @@
 | [web/src/App.vue](../../web/src/App.vue) | 根组件（`el-container` 布局 + `RouterView`） |
 | [web/src/router/index.ts](../../web/src/router/index.ts) | 路由（`createWebHashHistory`，当前仅 Home） |
 | [web/src/services/transport.ts](../../web/src/services/transport.ts) | WebSocket 帧编解码（binary/json transport） |
+| [web/src/services/platform.ts](../../web/src/services/platform.ts) | **环境抽象层**：`isElectron` / `electronApi` / `httpUrl` / `wsUrl` / `getServerConfig`，封装 Electron preload 注入的 `window.__*` 全局。详见 [./env.md](./env.md) |
 | [web/src/services/ws.ts](../../web/src/services/ws.ts) | RPC WebSocket 客户端：读取 `/api/config` / preload 注入配置并建立连接 |
+| [web/src/services/http.ts](../../web/src/services/http.ts) | `httpUrl` 转发层（实现见 [platform.ts](../../web/src/services/platform.ts)），仅做 import 兼容 |
 | [web/src/stores/index.ts](../../web/src/stores/index.ts) | Pinia store 汇集（脚手架空） |
 | [web/src/views/HomeView.vue](../../web/src/views/HomeView.vue) | 示例视图 |
 | [web/src/features/pets/](../../web/src/features/pets/) | Pet 模块：桌面小宠物状态、预设、motion-v 动画与渲染，详见 [./pet/](./pet/) |

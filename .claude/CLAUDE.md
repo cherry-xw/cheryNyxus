@@ -16,6 +16,7 @@
 | DB | `src/db/` | [docs/db.md](../docs/db.md) | 持久化：多 sqlite 实例、soul.db + 按月分片 YYYY-MM.db |
 | Utils | `src/utils/` | [docs/utils/](../docs/utils/) | 工具：config、drain、logger、hash/json/generator |
 | 配置 | `.chery/` + `.chery/db/` | — | 运行时配置 + 数据库（不走打包，运行时读取） |
+| 打包 | `scripts/` | [docs/web/pack-guide.md](../docs/web/pack-guide.md) | Electron 打包：`pnpm electron:pack` |
 
 > 前端 `web/`（pnpm workspace 独立 package，Vue3 + Vite 8 + Electron 43）架构说明见 [docs/web/](../docs/web/)。
 
@@ -39,6 +40,7 @@ pnpm test             # vitest（套件有预存问题，开发期仅关注 TSC 
 ## 配置入口
 
 - [.chery/config.yaml](../.chery/config.yaml)：`llm.brain.<name>`（provider/model/url/key）+ `sense_groups`（感官分组，`:level` 后缀覆盖监管等级）+ `global`（thinking/supervision/stream 等）+ `server`（port/web_port/transport）。`$ENV` 占位符从环境变量注入。
+- [package.json](../package.json) `packConfig`：打包相关配置（Node 版本、代理、镜像），由 `scripts/pack-config.mjs` 读取，环境变量可覆盖。详见 [docs/web/pack-guide.md](../docs/web/pack-guide.md)。
 - 配置目录由 `CHERY_DIR` 指定（默认 `.chery`）；WebSocket / Web 端口与传输格式以 `config.server` 为准（详见 [utils/README.md](../docs/utils/README.md)）。
 
 ## 文档导航

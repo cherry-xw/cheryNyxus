@@ -12,19 +12,17 @@ files:
   - dist/**
   - dist-electron/**
 
-# 后端 bundle + .chery 配置（随应用分发，只读）
-# main 进程 spawn 后端时 CHERY_DIR = resources/，DB_DIR = userData（可写）
+# 后端 bundle + 用户配置模板（afterPack 钩子把模板复制到 cheryClaw.exe 同级：
+# resources/.env.example → appOutDir/.env
+# resources/.chery.template/ → appOutDir/.chery/
+# 详见 scripts/post-pack.mjs）
 extraResources:
   - from: ../dist
     to: dist
-  - from: ../.chery
-    to: .chery
-    filter:
-      - config.yaml
-      - system.md
-      - prompts/**
-      - skills/**
-      - senses/**
+  - from: ../.env.example
+    to: .env.example
+  - from: ../.chery.template
+    to: .chery.template
   # Node 22 LTS 二进制（scripts/electron-pack.mjs 下载到 build/node/）
   # electron/main.ts getNodeExecutable() 优先 resources/node/node[.exe]
   # 路径相对 yml 文件所在 package 根（web/）；从 web/ 出发 ../build/node 即 <repo>/build/node
@@ -35,6 +33,9 @@ extraResources:
 # npmRebuild 仅影响 web 包依赖；root better-sqlite3 需匹配随发行版携带的 node ABI。
 npmRebuild: true
 buildDependenciesFromSource: true
+
+# afterPack 钩子：把 .env 和 .chery/ 模板复制到 cheryClaw.exe 同级（用户首次安装即可见，无需启动时复制）
+afterPack: ./scripts/post-pack.mjs
 
 win:
   target: nsis

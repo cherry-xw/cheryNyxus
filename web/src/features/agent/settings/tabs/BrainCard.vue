@@ -231,7 +231,7 @@ function duplicateBrain(): void {
             <el-switch v-model="cfg.thinking" />
           </div>
           <div class="compact-toggle">
-            <div><span class="lbl">Tool Call</span><span class="hint">允许调用工具</span></div>
+            <div><span class="lbl">工具调用</span><span class="hint">允许调用工具</span></div>
             <el-switch
               :model-value="toolCallEnabled(cfg)"
               @change="(v: unknown) => setToolCall(cfg, v)"

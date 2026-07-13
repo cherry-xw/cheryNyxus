@@ -1,6 +1,6 @@
 # cheryClaw Electron 桌面应用打包 — 进度总结
 
-> 日期：2026-07-12 | 分支：sp | 状态：**实现中（脚本编写）**
+> 日期：2026-07-13 | 分支：sp | 状态：**已完成**
 
 ---
 
@@ -16,257 +16,167 @@
 cheryClaw/
 ├── src/                    # 后端源码（Node.js + better-sqlite3）
 ├── dist/                   # 后端 SSR 构建产物（vite build --ssr）
-│   ├── index.js            # 后端入口 bundle
+│   ├── index.js
 │   └── lib/
-│       ├── better-sqlite3-better_sqlite3-*.node  # native addon
-│       └── @swc/wasm/      # wasm 运行时
+│       ├── better-sqlite3-*.node
+│       └── @swc/wasm/
 ├── web/
 │   ├── src/                # 前端源码（Vue3 + Element Plus）
 │   ├── electron/
 │   │   ├── main.ts         # Electron 主进程
 │   │   └── preload.ts      # preload 桥接
-│   ├── dist/                # 前端渲染产物（vite build）
-│   ├── dist-electron/       # Electron 主进程/preload 产物
-│   ├── vite.config.ts      # 前端构建配置
-│   └── electron-builder.yml # electron-builder 打包配置
-├── .chery/                 # 运行时配置（config.yaml, prompts, skills, senses）
-├── vite.config.ts          # 后端 SSR 构建配置
-├── package.json            # 后端根包
-└── pnpm-workspace.yaml     # pnpm workspace + allowBuilds
+│   ├── dist/               # 前端渲染产物
+│   ├── dist-electron/      # Electron 主进程/preload 产物
+│   ├── scripts/
+│   │   └── dist-electron.mjs # electron-builder 薄包装（注入镜像 env）
+│   ├── vite.config.ts
+│   └── electron-builder.yml
+├── scripts/
+│   ├── pack-config.mjs     # 打包配置单一事实源（读 package.json packConfig）
+│   ├── pack-electron.mjs   # 一键打包脚本（6 步串联）
+│   └── electron-pack.mjs   # 底层打包脚本（Node/SQLite 下载 + 构建）
+├── .chery/                 # 运行时配置
+├── package.json            # packConfig 字段 = 配置单一事实源
+└── pnpm-workspace.yaml
 ```
 
 ---
 
-## 3. 当前已就绪部分 ✅
+## 3. 完成状态
 
-### 3.1 后端构建
+### 3.1 后端构建 ✅
 
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| SSR build | ✅ | `vite build --ssr` → `dist/index.js` |
-| native addon 处理 | ✅ | `vite-plugin-native-modules` + `postBuildFix` 插件 |
-| .node 文件重定位 | ✅ | `dist/` → `dist/lib/`（带 EBUSY 重试） |
-| require 路径修正 | ✅ | `"./X.node"` → `"./lib/X.node"` |
-| addon 导出结构修正 | ✅ | `__toCommonJS(exports)` → `nativeModule` |
-| @swc/wasm 复制 | ✅ | → `dist/lib/@swc/wasm/` |
-| .env 清理 | ✅ | 防历史构建泄露密钥 |
+| 项目 | 说明 |
+| --- | --- |
+| SSR build | `vite build --ssr` → `dist/index.js` |
+| native addon 处理 | `vite-plugin-native-modules` + `postBuildFix` |
+| .node 文件重定位 | `dist/` → `dist/lib/`（带 EBUSY 重试） |
+| require 路径修正 | `"./X.node"` → `"./lib/X.node"` |
+| @swc/wasm 复制 | → `dist/lib/@swc/wasm/` |
+| .env 清理 | 防历史构建泄露密钥 |
 
 **构建命令**：`pnpm build`（dev）/ `pnpm build:prod`（prod）
 
-### 3.2 前端构建
+### 3.2 前端构建 ✅
 
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| Vue3 构建 | ✅ | `vue-tsc -b && vite build` → `web/dist/` |
-| Electron 主进程编译 | ✅ | `vite-plugin-electron/simple` → `web/dist-electron/main.js` |
-| preload 编译 | ✅ | → `web/dist-electron/preload.mjs` |
-| base: './' | ✅ | 兼容 Electron loadFile |
-| 开发 proxy | ✅ | `/api` → :8183, `/ws` → :8182 |
+| 项目 | 说明 |
+| --- | --- |
+| Vue3 构建 | `vue-tsc -b && vite build` → `web/dist/` |
+| Electron 主进程编译 | `vite-plugin-electron/simple` → `web/dist-electron/main.js` |
+| preload 编译 | → `web/dist-electron/preload.mjs` |
+| base: './' | 兼容 Electron loadFile |
+| 开发 proxy | `/api` → :8183, `/ws` → :8182 |
 
-**构建命令**：`pnpm --filter web build`
+### 3.3 Electron 主进程逻辑 ✅
 
-### 3.3 Electron 主进程逻辑
+| 项目 | 说明 |
+| --- | --- |
+| `getNodeExecutable()` | 优先 `resources/node[.exe]`，fallback 系统 `node` |
+| `getBackendBundle()` | `app.getAppPath()/../dist/index.js` |
+| `startBackend()` | spawn 系统 node，设 CHERY_DIR |
+| `loadEnvFile()` | 读 `cheryClaw.exe/.env`，空值不灌进 process.env，不覆盖 OS env；不存在则跳过 |
+| `getRuntimeRoot()` | 打包后 `process.env.CHERY_DIR || dirname(process.execPath)`；开发期项目根 |
+| afterPack 钩子 | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `.env.example` / `.chery.template/` 复制到 `cheryClaw.exe` 同级，打包即就位 |
+| IPC `open-config-dir` | `shell.openPath(<runtimeRoot>/.chery)`，preload 暴露 `window.__ELECTRON__.openConfigDir()`，设置面板「打开配置目录」按钮调用 |
+| preload 注入 | `__BACKEND_CONFIG__` + `__BACKEND_HTTP_URL__` |
 
-| 项目 | 状态 | 说明 |
-|------|------|------|
-| `getNodeExecutable()` | ✅ | 优先 `resources/node[.exe]`，fallback 系统 `node` |
-| `getBackendBundle()` | ✅ | `app.getAppPath()/../dist/index.js` |
-| `startBackend()` | ✅ | `spawn(node, [bundle])`，设 CHERY_DIR，删 ELECTRON_RUN_AS_NODE |
-| `getWritableCheryRoot()` | ✅ | 打包时 seed `.chery` 到 `userData/runtime/` |
-| `waitForBackend()` | ✅ | 轮询 `/api/config`，30s 超时 |
-| `createWindow()` | ✅ | dev → loadURL，packaged → loadFile |
-| preload 注入 | ✅ | `__BACKEND_CONFIG__` + `__BACKEND_HTTP_URL__` |
-| 单实例锁 | ✅ | `requestSingleInstanceLock()` |
-| 进程清理 | ✅ | `before-quit` → SIGTERM |
-
-### 3.4 electron-builder.yml 配置
+### 3.4 electron-builder.yml 配置 ✅
 
 ```yaml
-files: [dist/**, dist-electron/**]           # asar 内容
+files: [dist/**, dist-electron/**]
 extraResources:
-  - from: ../dist    → dist                  # 后端 bundle
-  - from: ../.chery  → .chery                # 运行时配置（排除 db/）
+  - from: ../dist    → dist                       # 后端 bundle
+  - from: ../.env.example → .env.example         # .env 模板（afterPack 复制为 cheryClaw.exe/.env）
+  - from: ../.chery.template → .chery.template   # .chery 模板（afterPack 复制为 cheryClaw.exe/.chery/）
+  - from: ../build/node → node                   # Node 22 LTS 二进制
+afterPack: ./scripts/post-pack.mjs               # 钩子：模板 → cheryClaw.exe 同级
 targets: win=nsis, mac=dmg, linux=AppImage
 ```
 
-### 3.5 统一构建脚本
+### 3.5 打包配置统一 ✅
 
-| 命令 | 作用 |
-|------|------|
-| `build:all` | type-check 双端 → 后端 build → 前端 build |
-| `dev:all` | concurrently 运行后端 + 前端 dev |
+| 层 | 文件 | 职责 |
+| --- | --- | --- |
+| 默认值 | `package.json` `packConfig` 字段 | 代理、镜像、Node 版本 |
+| 读取/导出 | `scripts/pack-config.mjs` | 读 package.json + env 覆盖，注入 process.env |
+| 底层执行 | `scripts/electron-pack.mjs` | Node 下载 + SQLite 预编译 + 构建 |
+| 一键串联 | `scripts/pack-electron.mjs` | 6 步全流程 |
+| builder 包装 | `web/scripts/dist-electron.mjs` | electron-builder + 注入镜像 env |
 
----
+### 3.6 npm scripts ✅
 
-## 4. 待解决问题 ❌
+| 命令 | 用途 |
+| --- | --- |
+| `pnpm electron:pack` | 一键全量打包 |
+| `pnpm electron:pack:fast` | 增量打包（跳过依赖安装 + 类型检查） |
 
-### 4.1 Node 二进制未打包（核心缺口）
-
-`getNodeExecutable()` 期望 `resources/node[.exe]`，但 `electron-builder.yml` 的 `extraResources` **未包含 Node 二进制**。
-
-**当前行为**：打包后 fallback 到系统 PATH 的 `node`。用户机器无 Node 则无法启动后端。
-
-**需解决**：下载 Node 22 LTS 二进制到构建产物，打入 extraResources。
-
-Node 22 LTS 各平台二进制来源（nodejs.org）：
-- **win32-x64**: `node-v22.x.x-win-x64.zip` → `node.exe`
-- **darwin-x64**: `node-v22.x.x-darwin-x64.tar.gz` → `bin/node`
-- **darwin-arm64**: `node-v22.x.x-darwin-arm64.tar.gz` → `bin/node`
-- **linux-x64**: `node-v22.x.x-linux-x64.tar.xz` → `bin/node`
-
-### 4.2 better-sqlite3 ABI 不匹配
-
-当前 `.node` 针对构建机器的系统 Node ABI 编译。如果打包的 Node 22 与构建机器 Node 版本不同，会导致 `NODE_MODULE_VERSION` mismatch 崩溃。
-
-**编译链分析**：
-```
-pnpm install
-  → allowBuilds.better-sqlite3: true
-  → prebuild-install || node-gyp rebuild --release
-  → node_modules/better-sqlite3/build/Release/better_sqlite3.node
-    → (针对当前系统 Node ABI)
-
-pnpm build
-  → vite-plugin-native-modules 复制 .node 到 dist/
-  → postBuildFix 移到 dist/lib/ + 修正路径 + 修正导出
-
-打包
-  → extraResources 把 dist/ 打入 resources/dist/
-  → 但 .node ABI 可能与打包的 Node 22 不匹配!
-```
-
-**需解决**：打包时用目标 Node 22 二进制重新编译 better-sqlite3。
-
-### 4.3 统一打包脚本缺失
-
-没有一条命令完成：编译后端 → 编译前端 → 编译 better-sqlite3(Node22 ABI) → electron-builder 打包。
-
-### 4.4 pnpm-workspace.yaml 占位符
-
-```yaml
-'@parcel/watcher': set this to true or false  # ← TODO 占位符
-```
-
-### 4.5 开发环境遗留问题
-
-- `@ff-labs/fff-node` / `ffi-rs` 在 `node_modules` 中未安装（仅存在于 lockfile）
-- 当前构建环境可能存在不一致
+底层子命令直接调用：`node scripts/electron-pack.mjs [node\|sqlite\|pack]`
 
 ---
 
-## 5. 关键路径映射（打包后文件系统）
+## 4. 已解决问题
 
-```
-安装目录/
-├── resources/
-│   ├── app.asar                    # [dist/**, dist-electron/**]
-│   ├── dist/                       # 后端 bundle（来自 ../dist）
-│   │   ├── index.js
-│   │   └── lib/
-│   │       ├── better-sqlite3-*.node
-│   │       └── @swc/wasm/
-│   ├── .chery/                     # 运行时配置（只读 seed）
-│   │   ├── config.yaml
-│   │   ├── system.md
-│   │   ├── prompts/
-│   │   ├── skills/
-│   │   └── senses/
-│   └── node[.exe]                  # ❌ 待添加：Node 22 二进制
-└── <userData>/runtime/              # 首次启动创建（可写）
-    └── .chery/
-        ├── config.yaml              # seed 自 resources/.chery/
-        └── db/                     # 数据库文件
-```
+### 4.1 Node 二进制打包 ✅
 
-**路径解析链**：
-- `app.getAppPath()` = `resources/app/`（或 `resources/app.asar`）
-- `getNodeExecutable()` → `resources/node[.exe]`（待添加）
-- `getBackendBundle()` → `resources/dist/index.js` ✅
-- `getWritableCheryRoot()` → `<userData>/runtime/` ✅
+`scripts/electron-pack.mjs` 从 nodejs.org 下载 Node 22 LTS 二进制到 `build/node/`，`electron-builder.yml` `extraResources` 打入 `resources/node[.exe]`。
+
+### 4.2 better-sqlite3 ABI 匹配 ✅
+
+用下载的 Node 22 二进制取 ABI，从 GitHub release 直下对应 `better_sqlite3.node` 预编译，覆盖到 `node_modules/better-sqlite3/build/Release/`。fallback 到 node-gyp 源码编译。
+
+### 4.3 统一打包脚本 ✅
+
+`pnpm electron:pack` 一条命令完成全流程。
+
+### 4.4 国内镜像 ✅
+
+`packConfig` 默认走 npmmirror，env 可覆盖或置空禁用。
+
+### 4.5 Windows tar 路径冲突 ✅
+
+自实现 tar parser（约 30 行），避免 bsdtar 把 `E:` 当 SMB 主机。
 
 ---
 
-## 6. 方案方向（待确认）
-
-### 6.1 Node 二进制打包
-
-**推荐方案**：构建脚本中从 nodejs.org 下载 Node 22 LTS 二进制到 `build/node/`，然后 electron-builder 的 `extraResources` 打包。
-
-优点：
-- 版本可控、可锁定
-- 跨平台统一处理
-- 不增加 npm 依赖
-
-缺点：
-- 首次构建需下载（~30-50MB）
-- 需处理网络异常
-
-### 6.2 better-sqlite3 ABI 匹配
-
-**推荐方案**：在打包脚本中，用下载的 Node 22 二进制执行 better-sqlite3 的 node-gyp rebuild。
-
-```bash
-# 用打包的 node 编译 better-sqlite3
-./build/node/node.exe node_modules/.bin/node-gyp rebuild \
-  --target=v22.x.x \
-  --directory=node_modules/better-sqlite3
-```
-
-或者使用 better-sqlite3 的 prebuild-install 指定目标：
-```bash
-npx prebuild-install --runtime=node --target=22.x.x -r native
-```
-
-### 6.3 统一打包脚本
-
-新增 `scripts/electron-pack.sh`（bash，跨平台）或 Node.js 脚本：
+## 5. 打包后文件系统
 
 ```
-1. 下载 Node 22 LTS 二进制 → build/node/
-2. pnpm build:all          → 后端 dist/ + 前端 web/dist/
-3. 用 Node 22 重新编译 better-sqlite3 → dist/lib/*.node 更新
-4. pnpm --filter web dist   → electron-builder 打包
+安装目录/                                          ← 用户可维护（afterPack 钩子打包即就位）
+├── cheryClaw.exe
+├── .env                                           # API Key 占位符（用户填真实 Key）
+├── .chery/                                        # 配置副本
+│   ├── config.yaml
+│   ├── system.md
+│   ├── prompts/
+│   ├── skills/
+│   └── senses/
+└── resources/
+    ├── app.asar                # [dist/**, dist-electron/**]
+    ├── dist/                   # 后端 bundle
+    │   ├── index.js
+    │   └── lib/
+    │       ├── .pnpm-better-sqlite3-*.node
+    │       └── @swc/wasm/
+    ├── .env.example            # .env 模板
+    ├── .chery.template/        # .chery 模板
+    └── node/node.exe           # Node 22 LTS 二进制
+
+<userData>/.chery/db/                                  # DB_DIR（始终在 userData）
+└── *.sqlite            # SQLite 数据库
 ```
 
----
+**用户配置（`.env` + `.chery/`）位置规则**：
 
-## 7. 需要修改的文件清单
+- 统一在 `cheryClaw.exe` 同级，**afterPack 钩子在打包阶段就位**——用户首次安装即看到。
+- `CHERY_DIR`：`.env` 留空时默认 `dirname(process.execPath)`；用户可显式设置。
+- `DB_DIR`：始终 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题）。
+- 升级：主进程不主动重写；NSIS 默认会覆盖（暂未实现 NSIS include 跳过）。
 
-| 文件 | 修改类型 | 修改内容 |
-|------|---------|---------|
-| `electron-builder.yml` | 修改 | 添加 Node 二进制到 extraResources |
-| `package.json` | 修改 | 新增打包相关 scripts |
-| `web/package.json` | 可能修改 | 打包脚本调整 |
-| `scripts/electron-pack.mjs` | **新增** | 统一打包脚本（下载 Node + 编译 + 打包） |
-| `docs/web/deployment.md` | 修改 | 更新 Electron 模式文档 |
-| `docs/web/electron.md` | 修改 | 更新 native ABI 解决方案 |
-| `pnpm-workspace.yaml` | 修改 | 修复 `@parcel/watcher` 占位符 |
+详见 [electron.md#electron-spawn-后端模式-2](./electron.md#electron-spawn-后端模式-2)。
 
----
+## 6. 实现细节记录
 
-## 8. 下一步
-
-1. ✅ **确认方案方向**（6.1-6.3）
-   - 脚本语言：**Node.js ESM (.mjs)**
-   - Node 版本：**脚本内硬编码常量 Node 22 LTS（22.11.0）**
-   - better-sqlite3 ABI：**GitHub release URL 直下 + 自实现 tar parser（避免 Windows tar 路径冲突）**
-2. ✅ **先更新文档**（Doc-First）— [docs/web/electron.md](./electron.md)、[docs/web/deployment.md](./deployment.md) 已同步
-3. ✅ **实现构建脚本** (`scripts/electron-pack.mjs`)
-4. ✅ **修改 electron-builder.yml**（含 `from: ../build/node` extraResources）+ `web/electron/main.ts` 路径调整
-5. ✅ **修改 package.json scripts**（`pack:electron` / `pack:electron:node` / `pack:electron:sqlite` / `pack:electron:only`）
-6. ⚠ **Windows 验证**：
-   - ✅ `node scripts/electron-pack.mjs node`（v22.11.0 / ABI 127）
-   - ✅ `node scripts/electron-pack.mjs sqlite`（下载 0.99 MB Node 22 ABI 预编译 + 解压到 `node_modules/better-sqlite3/build/Release/`）
-   - ✅ `pnpm build`（后端 SSR：`dist/lib/.pnpm-better_sqlite3-*.node` 1.92 MB，路径正确）
-   - ✅ `vite build`（前端 + `dist-electron/main.js` 2.58 kB + `dist-electron/preload.mjs` 0.23 kB）
-   - ⚠ `electron-builder --win nsis` 失败：electron-builder@25.1.0 引用 `app-builder-lib/out/util/config/load` 但 lockfile 锁了 app-builder-lib@25.0.0（缺少该模块）。**上游 bug**，与本任务脚本无关。修复方式：在 web/package.json 加 `"pnpm": { "overrides": { "app-builder-lib": "25.1.0" } }`（或 downgrad electron-builder 到 25.0.0）。
-
-## 9. 实现细节记录（脚本调优）
-
-- **HTTP 代理**：`scripts/electron-pack.mjs` 默认走 `http://127.0.0.1:1234`（绕过 GitHub release-assets 反爬），可经 `ELECTRON_PACK_PROXY` env 覆盖。Node fetch 通过 `HTTPS_PROXY` env 自动走代理；curl 显式 `-x $HTTP_PROXY`；PowerShell Expand-Archive 用 `[System.Net.WebProxy]::new(...)`。
-- **tar 解压自实现**：better-sqlite3 的 prebuilt tarball 直接用 Node 内置 `zlib.createGunzip` + 自写 tar parser（约 30 行）。**避免** Windows 下 `tar` 命令的 `E:\` 路径解析冲突（bsdtar 把 `E:` 当 SMB 主机）。
-- **prebuild-install 路径**：不直接调 `node_modules/.bin/prebuild-install`（是 bash wrapper，被 Node 当 JS 解析会 syntax error），改用 GitHub release 直下。
-- **国内镜像配置（2026-07-13 补）**：electron-builder 阶段两类下载都走 GitHub，DNS 落到 `20.205.243.166`，ETIMEDOUT。
-  - **辅助工具**（winCodeSign / Squirrel.Windows / 7z-extract）：源 `https://github.com/electron-userland/electron-builder-binaries` → `@electron/get` 读 `ELECTRON_BUILDER_BINARIES_MIRROR` 切到 `https://npmmirror.com/mirrors/electron-builder-binaries/`（npmmirror 完整镜像）。
-  - **Electron 本体**（如 `electron-v43.0.0-win32-x64.zip`）：源 `https://github.com/electron/electron/releases` → `@electron/get` 读 `ELECTRON_MIRROR` 切到 `https://npmmirror.com/mirrors/electron/`（末尾斜杠不能少，否则 404）。
-  - `scripts/electron-pack.mjs` 默认填两个 env；直跑 `pnpm --filter web dist` 时由 `web/scripts/dist-electron.mjs` 注入同样默认值。env 可覆盖，置空字符串禁用回退到 GitHub 源。
+- **打包配置单一事实源**：`package.json` 的 `packConfig` 字段 → `scripts/pack-config.mjs` 读取并导出 `resolvePackConfig()` / `applyProxyEnv()`。三个使用点（`electron-pack.mjs`、`pack-electron.mjs`、`dist-electron.mjs`）全部 import，无硬编码。
+- **Node 22 LTS 版本锁定**：`packConfig.nodeVersion = "22.11.0"`（ABI=127）。升级时改 `package.json` 一处即可。
+- **tar 解压自实现**：Node 内置 `zlib.createGunzip` + 自写 tar parser。避免 Windows `tar` 命令路径冲突。
+- **Windows shell 兼容**：`pack-electron.mjs` 的 `run()` 默认 `shell: true`（Windows pnpm 是 .cmd shim）。
