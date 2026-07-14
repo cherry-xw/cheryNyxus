@@ -18,11 +18,14 @@ import {
   type UtilsOpenConfigDirResponseData,
   type UtilsEditorsRequestData,
   type UtilsEditorsResponseData,
+  type UtilsThinkingLevelsRequestData,
+  type UtilsThinkingLevelsResponseData,
 } from "../message/types.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { replaceEnvVars, listEnvVarNames, getCheryDir } from "@/utils/config.js";
 import config from "@/utils/config.js";
+import { resolveThinkingLevelsBatch } from "@/utils/modelThinking.js";
 import { openWithSystem } from "./openWithSystem.js";
 
 const exec = promisify(execCallback);
@@ -217,6 +220,36 @@ export async function handleUtilsEditors(
 }
 
 /**
+ * utils.thinkingLevels：按模型名批量查询 ThinkingLevel 档位列表。
+ * 来源：[modelThinking.ts](../../utils/modelThinking.ts) 加载的 `.chery/model-thinking.yaml`。
+ * 未命中或配置缺失 → 兜底返回 `["off", "thinking"]`。
+ * 失败不抛错（仍返回部分结果 + 全量兜底），前端总能拿到有效档位。
+ */
+export async function handleUtilsThinkingLevels(
+  _ctx: HandlerContext,
+  data: UtilsThinkingLevelsRequestData,
+): Promise<UtilsThinkingLevelsResponseData> {
+  try {
+    const levels = resolveThinkingLevelsBatch(data.models ?? []);
+    // 展开 readonly → 可变数组（响应 DTO 用 mutable ThinkingLevel[]）
+    const mutable: Record<string, import("@/core/llm/adapter.js").ThinkingLevel[]> = {};
+    for (const [k, v] of Object.entries(levels)) {
+      mutable[k] = [...v];
+    }
+    return { levels: mutable };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.event("utils.thinkingLevels.error", { error: message }, LogLevel.warn);
+    // 兜底：所有 model 给 ["off", "thinking"]
+    const fallback: Record<string, import("@/core/llm/adapter.js").ThinkingLevel[]> = {};
+    for (const m of data.models ?? []) {
+      if (typeof m === "string" && m.length > 0) fallback[m] = ["off", "thinking"];
+    }
+    return { levels: fallback };
+  }
+}
+
+/**
  * 注册 Utils handlers
  */
 export function registerUtilsHandlers(
@@ -227,4 +260,5 @@ export function registerUtilsHandlers(
   router.register(Method.UTILS_OPEN_FILE, handleUtilsOpenFile);
   router.register(Method.UTILS_OPEN_CONFIG_DIR, handleUtilsOpenConfigDir);
   router.register(Method.UTILS_EDITORS, handleUtilsEditors);
+  router.register(Method.UTILS_THINKING_LEVELS, handleUtilsThinkingLevels);
 }

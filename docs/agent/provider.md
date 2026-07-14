@@ -334,9 +334,14 @@ interface MockResponse { thinking?: string; content?: string; toolCalls?: MockTo
 每个 provider 自行把 `LLMOptions.thinking`（`ThinkingLevel`，见 [llm.md](../core/llm.md)）翻译成厂商请求参数。共享映射 `mapThinkingToReasoningEffort(level)`（在 [openaiCompat.ts](../../src/agent/provider/openaiCompat.ts)）：
 
 - `off` → 返回 `undefined`（provider 省略该参数，绝对安全）。
+- `thinking` → 返回 `undefined`（不传参，由模型/服务端决定；语义「开启思考但不给强度」）。
 - `low/medium/high` → 返回 `"low"|"medium"|"high"`，塞入 `reasoning_effort` 字段（OpenAI o1 系 / 智谱 bigmodel / OpenAI 兼容聚合端点均认）。
 
-> ⚠ `reasoning_effort` 仅对**推理模型**有效，非推理模型返回 400；`off` 档省略参数无此风险。ollama provider 忽略 thinking（不传，由服务端/模型决定）。未来 anthropic provider 将映射为 thinking block。
+> ⚠ `reasoning_effort` 仅对**推理模型**有效，非推理模型返回 400；`off`/`thinking` 档省略参数无此风险。ollama provider 全档忽略 thinking（不传，由服务端/模型决定）。未来 anthropic provider 将映射为 thinking block。
+
+### 模型级档位查询
+
+`.chery/model-thinking.yaml` 声明每个模型支持的档位子集（详见 [../utils/README.md#modelThinking.ts — 模型档位映射](../utils/README.md)）。前端 BrainCard 经 `utils.thinkingLevels` RPC 拉取当前 model 的可选档位列表，渲染「深度思考」旋钮。后端在 [src/utils/modelThinking.ts](../../src/utils/modelThinking.ts) 实现，匹配顺序：精确 → 最长前缀 → 通配 `*` → 兜底 `["off","thinking"]`。
 
 ### 共享件（[openaiCompat.ts](../../src/agent/provider/openaiCompat.ts)）
 

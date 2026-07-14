@@ -5,14 +5,14 @@
  * 改名/复制/删除需操作 draft.llm.brain 全量（保序重建 + 迁移角色引用），故 prop 传 draft。
  */
 import { CopyDocument, Delete, Refresh, Document } from "@element-plus/icons-vue";
-import { ref } from "vue";
+import { ref, computed, watch } from "vue";
 import { ElMessageBox } from "element-plus";
-import { agentApi, type BrainConfigDto, type ConfigDto, type MediaCapabilitiesDto } from "@/services/agentApi";
+import { agentApi, type BrainConfigDto, type ConfigDto, type MediaCapabilitiesDto, type ThinkingLevel } from "@/services/agentApi";
 import { PROVIDERS } from "../constants";
 import ConfirmPopover from "../ConfirmPopover.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import LabelTip from "../components/LabelTip.vue";
-import ThinkingLevelStep from "../components/ThinkingLevelStep.vue";
+import ThinkingLevelKnob from "../components/ThinkingLevelKnob.vue";
 import MediaCapabilityGrid from "./MediaCapabilityGrid.vue";
 
 const props = defineProps<{
@@ -32,6 +32,47 @@ const CONTEXT_LIMIT_OPTIONS = [128, 256, 512, 1024] as const;
 // ── model 下拉刷新 ──────────────────────────────────────────────
 const modelOptions = ref<Array<{ id: string; name?: string }>>([]);
 const modelLoading = ref(false);
+
+// ── 深度思考档位（按 model 后端查） ────────────────────────────────
+/** 当前 brain 的 model 支持的 ThinkingLevel 子集；未拉取或失败时 = ["off","thinking"] 兜底。 */
+const thinkingLevels = ref<readonly ThinkingLevel[]>(["off", "thinking"]);
+let thinkingLevelsReqId = 0;
+
+async function refreshThinkingLevels(): Promise<void> {
+  const model = props.cfg.model;
+  if (!model) {
+    thinkingLevels.value = ["off", "thinking"];
+    return;
+  }
+  // 简易 debounce：取消在途请求（每次自增 reqId，回包时校验）
+  const reqId = ++thinkingLevelsReqId;
+  try {
+    const levels = await agentApi.getThinkingLevels([model]);
+    if (reqId !== thinkingLevelsReqId) return; // 被新请求覆盖
+    const got = levels[model];
+    if (got && got.length > 0) {
+      thinkingLevels.value = got;
+      // 若当前 cfg.thinking 不在新档位列表里，重置为第一个（不静默保存，留给用户感知）
+      if (!got.includes(props.cfg.thinking ?? "off")) {
+        props.cfg.thinking = got[0];
+      }
+    } else {
+      thinkingLevels.value = ["off", "thinking"];
+    }
+  } catch {
+    if (reqId !== thinkingLevelsReqId) return;
+    thinkingLevels.value = ["off", "thinking"];
+  }
+}
+
+// 监听 model 变化重新拉档位；首次挂载也拉一次
+watch(
+  () => props.cfg.model,
+  () => {
+    void refreshThinkingLevels();
+  },
+  { immediate: true },
+);
 
 async function refreshModels(): Promise<void> {
   const { provider, url, key } = props.cfg;
@@ -269,8 +310,8 @@ async function openEnvFile(): Promise<void> {
             <el-input-number v-model="cfg.rpm" :controls="false" placeholder="不限" />
           </label>
           <div class="thinking-field">
-            <LabelTip label="深度思考" tip="推理模型的思考强度档位：关闭=不发思考参数；低/中/高=强度递增（token 消耗与推理深度递增）。仅推理模型有效，且需在「⚙ 全局」开启思考总闸。" />
-            <ThinkingLevelStep v-model="cfg.thinking" />
+            <LabelTip label="深度思考" tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。关闭=不发思考参数；思考=由模型决定；低/中/高=强度递增（仅推理模型有效），需在「⚙ 全局」开启思考总闸。" />
+            <ThinkingLevelKnob v-model="cfg.thinking" :levels="thinkingLevels" />
           </div>
           <div class="compact-toggle">
             <div><span class="lbl">工具调用</span><span class="hint">允许调用工具</span></div>
@@ -404,7 +445,7 @@ async function openEnvFile(): Promise<void> {
 
 .runtime-controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
 }
@@ -423,19 +464,18 @@ async function openEnvFile(): Promise<void> {
   > div { display: grid; gap: 2px; }
 }
 
-// 深度思考档位（ThinkingLevelStep）：跨整行，step 线需要横向空间
+// 深度思考旋钮（ThinkingLevelKnob）：与其他 3 列同宽，高度自适应 label-tip 模式
 .thinking-field {
-  grid-column: 1 / -1;
   display: grid;
   gap: 4px;
   align-self: end;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 760px) {
   .runtime-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 380px) {
+@media (max-width: 420px) {
   .runtime-controls { grid-template-columns: 1fr; }
 }
 </style>

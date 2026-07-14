@@ -46,6 +46,7 @@ function brainConfig(name: string) {
 /** 思考档位 → 显示文字（资料卡 💭 tooltip 用）。 */
 const THINKING_LABEL: Record<ThinkingLevel, string> = {
   off: "关闭",
+  thinking: "思考",
   low: "低",
   medium: "中",
   high: "高",

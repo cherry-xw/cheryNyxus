@@ -39,7 +39,9 @@ export async function acquireRpm(options?: {
 
 /**
  * 把 ThinkingLevel 映射成 OpenAI o1 系列的 reasoning_effort 参数值。
- * - off / undefined → undefined（provider 省略该参数）
+ * - off / thinking / undefined → undefined（provider 省略该参数）
+ *   - off = 显式关闭
+ *   - thinking = 由模型/服务端决定，不传参
  * - low/medium/high → 返回对应字符串
  *
  * 智谱 BigModel（open.bigmodel.cn）同样认 reasoning_effort；其他 OpenAI 兼容聚合端点亦然。
@@ -48,7 +50,7 @@ export async function acquireRpm(options?: {
 export function mapThinkingToReasoningEffort(
   level: ThinkingLevel | undefined,
 ): "low" | "medium" | "high" | undefined {
-  if (level === undefined || level === "off") return undefined;
+  if (level === undefined || level === "off" || level === "thinking") return undefined;
   return level;
 }
 

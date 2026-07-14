@@ -193,7 +193,7 @@ const usageDetail = computed(() => {
     </header>
     <div v-if="usageDetail" class="usage-bar-wrap" :class="usageClass(pet?.contextUsage ?? 0)">
       <div class="usage-bar-row">
-        <span class="usage-label">组长上下文消耗</span>
+        <span class="usage-label">上下文</span>
         <span class="usage-values">
           <span class="usage-used">{{ fmtTokens(usageDetail.used) }}</span>
           <span class="usage-sep">/</span>

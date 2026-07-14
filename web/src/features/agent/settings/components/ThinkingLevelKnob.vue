@@ -1,0 +1,535 @@
+<script setup lang="ts">
+/**
+ * ThinkingLevelKnob：思考强度档位选择器（真放大镜效果）。
+ *
+ * 视觉与交互：
+ *  - 上方固定一个长方形放大镜视窗（带边缘扭曲效果），内部隐藏一个与下方
+ *    小轨道共用同一 translateX 的"大轨道"（约 2.2x 缩放），被 overflow:hidden
+ *    裁剪后呈现精准放大：视窗正中显示的内容与小轨道中线的内容始终一致。
+ *  - 下方为可拖动的小轨道（月亮 emoji 极小 10px + 连线）。
+ *  - 拖动小轨道让目标档位的 emoji 滑入视窗正中，该档位即为选中。
+ *  - label 显示在整个 knob 框的右上角（不在放大镜内）。
+ *
+ * 档位顺序由 props.levels 决定（来自后端按 model 查的 ThinkingLevel[]）。
+ *
+ * 键盘：
+ *  - ArrowLeft/Right 切换档位
+ *  - Home/End 跳首尾
+ *  - 数字键 1-N 跳指定档
+ */
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import type { ThinkingLevel } from "@/services/agentApi";
+
+const model = defineModel<ThinkingLevel>({ default: "off" });
+
+const props = defineProps<{
+  /** 当前模型支持的档位子集（顺序敏感：左→右 = 弱→强）。 */
+  levels: readonly ThinkingLevel[];
+}>();
+
+interface LevelMeta {
+  value: ThinkingLevel;
+  label: string;
+  /** 视窗激活时的填充色 */
+  accent: string;
+  /** 视窗文字色 */
+  textOnAccent: string;
+}
+
+const META: Record<ThinkingLevel, LevelMeta> = {
+  off: { value: "off", label: "关闭", accent: "#5b6271", textOnAccent: "#fff" },
+  thinking: { value: "thinking", label: "思考", accent: "#9a7eaf", textOnAccent: "#fff" },
+  low: { value: "low", label: "低", accent: "#e3a548", textOnAccent: "#3a2406" },
+  medium: { value: "medium", label: "中", accent: "#f6b73c", textOnAccent: "#3a2406" },
+  high: { value: "high", label: "高", accent: "#d99717", textOnAccent: "#fff7e6" },
+};
+
+/** 月亮emoji映射（阴晴圆缺系列） */
+const MOON_EMOJI: Record<ThinkingLevel, string> = {
+  off: "🌑",
+  thinking: "🌒",
+  low: "🌓",
+  medium: "🌔",
+  high: "🌕",
+};
+
+/** 有效档位序列（过滤无效 + 保序去重）。 */
+const validLevels = computed<readonly ThinkingLevel[]>(() => {
+  const seen = new Set<ThinkingLevel>();
+  const out: ThinkingLevel[] = [];
+  for (const l of props.levels) {
+    if (l in META && !seen.has(l)) {
+      seen.add(l);
+      out.push(l);
+    }
+  }
+  return out;
+});
+
+/** 当前档位在 validLevels 中的下标；缺省/无效 → 0。 */
+const activeIndex = computed(() => {
+  const idx = validLevels.value.indexOf(model.value);
+  return idx < 0 ? 0 : idx;
+});
+
+/** 当前档位的 meta（视窗用）。 */
+const activeMeta = computed<LevelMeta>(() => META[validLevels.value[activeIndex.value] ?? "off"] ?? META.off);
+
+// ── DOM 引用 ──────────────────────────────────────────────────────
+const trackRef = ref<HTMLElement | null>(null);
+const containerRef = ref<HTMLElement | null>(null);
+const magnifierRef = ref<HTMLElement | null>(null);
+/** 容器内宽（px）。拖动时用容器中心为基准。 */
+const containerWidth = ref(0);
+/** 放大镜视窗宽（px）。大轨道 translateX 计算依赖它。 */
+const magnifierWidth = ref(0);
+
+/** 单个档位点的中心间距（px）。 */
+const STEP_GAP = 72;
+/**
+ * 放大镜缩放比例。
+ *  - 小轨道 emoji 10px → 放大后约 22px（视觉舒适）
+ *  - 96px 宽视窗对应视野约 44px（1 个完整 emoji + 邻居边缘）
+ */
+const MAGNIFIER_SCALE = 2.2;
+
+// ── 拖动状态 ──────────────────────────────────────────────────────
+/** 拖动中的额外像素位移（未吸附）。 */
+const dragDelta = ref(0);
+/** 是否正在拖动（影响是否响应吸附）。 */
+const isDragging = ref(false);
+/** 拖动起始信息。 */
+let dragState: {
+  startX: number;
+  startDelta: number;
+  startActiveIndex: number;
+  pointerId: number;
+  moved: boolean;
+} | null = null;
+
+// ── 位置计算 ──────────────────────────────────────────────────────
+
+/**
+ * 让第 idx 个档位点对齐容器中心所需的 translateX（不含拖动 delta）。
+ * 第 0 个档位在容器中央时，轨道偏移 = 容器宽度 / 2。
+ */
+function baseOffsetFor(idx: number): number {
+  const half = containerWidth.value / 2;
+  // 第 i 个点中心距轨道原点 = i * STEP_GAP
+  const pointCenter = idx * STEP_GAP;
+  return half - pointCenter;
+}
+
+const trackStyle = computed(() => ({
+  transform: `translateX(${baseOffsetFor(activeIndex.value) + dragDelta.value}px)`,
+  transition: isDragging.value ? "none" : "transform 0.22s cubic-bezier(0.4, 0, 0.2, 1)",
+}));
+
+/**
+ * 视窗内"大轨道"的 transform：translateX + scale，使视窗正中显示的内容
+ * 始终与小轨道中线（T = baseOffset(active) + dragDelta）的内容一致。
+ *
+ * 推导：
+ *  - 小轨道 emoji i 在容器坐标 X = T + i*72
+ *  - 视窗中心位于容器坐标 M = containerWidth/2，宽度 W
+ *  - 视窗覆盖容器范围 [M - W/2, M + W/2]
+ *  - 放大后视窗宽 W 对应实际内容宽 W/s，所以容器坐标 p 映射到视窗局部 X：
+ *      X_mag = (p - M) * s + W/2
+ *  - 代入 p = T + i*72：X_mag = (T + i*72 - M) * s + W/2
+ *  - 大轨道含 i 个 emoji 在其局部坐标 (i*72, 0)，经过 scale + translate：
+ *      X_screen = T_m + i*72*s
+ *  - 令 X_screen = X_mag：T_m = (T - M) * s + W/2
+ */
+const magnifiedTrackStyle = computed(() => {
+  const T = baseOffsetFor(activeIndex.value) + dragDelta.value;
+  const M = containerWidth.value / 2;
+  const W = magnifierWidth.value;
+  const s = MAGNIFIER_SCALE;
+  const T_m = (T - M) * s + W / 2;
+  return {
+    transform: `translateX(${T_m}px) scale(${s})`,
+    transition: isDragging.value ? "none" : "transform 0.22s cubic-bezier(0.4, 0, 0.2, 1)",
+  };
+});
+
+// ── 行为 ──────────────────────────────────────────────────────────
+
+function selectAt(idx: number): void {
+  const v = validLevels.value[idx];
+  if (v) model.value = v;
+}
+
+/**
+ * 由当前 track translateX（= baseOffset(active) + dragDelta）反推最近档位。
+ * 拖动中用于实时吸附判定。
+ */
+function nearestIndexFromOffset(offset: number): number {
+  const half = containerWidth.value / 2;
+  // pointCenter = half - offset → 找最接近 half - offset 的 i
+  // pointCenter(i) = i * STEP_GAP
+  // → i = (half - offset) / STEP_GAP
+  const n = validLevels.value.length;
+  if (n === 0) return 0;
+  const raw = (half - offset) / STEP_GAP;
+  const clamped = Math.max(0, Math.min(n - 1, Math.round(raw)));
+  return clamped;
+}
+
+function measure(): void {
+  const el = containerRef.value;
+  containerWidth.value = el ? el.clientWidth : 0;
+  const m = magnifierRef.value;
+  magnifierWidth.value = m ? m.clientWidth : 0;
+}
+
+// ── 拖动事件 ──────────────────────────────────────────────────────
+
+function onPointerDown(e: PointerEvent): void {
+  // 仅主键（左键或 touch）
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  dragState = {
+    startX: e.clientX,
+    startDelta: dragDelta.value,
+    startActiveIndex: activeIndex.value,
+    pointerId: e.pointerId,
+    moved: false,
+  };
+  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+}
+
+function onPointerMove(e: PointerEvent): void {
+  if (!dragState || dragState.pointerId !== e.pointerId) return;
+  const dx = e.clientX - dragState.startX;
+  if (!dragState.moved && Math.abs(dx) < 3) return; // 抑制点击抖动
+  dragState.moved = true;
+  isDragging.value = true;
+  // 基于起始index计算candidate,避免基准点漂移
+  const candidate = baseOffsetFor(dragState.startActiveIndex) + dragState.startDelta + dx;
+  const idx = nearestIndexFromOffset(candidate);
+  if (idx !== activeIndex.value) selectAt(idx);
+  dragDelta.value = dragState.startDelta + dx;
+}
+
+function onPointerUp(e: PointerEvent): void {
+  if (!dragState || dragState.pointerId !== e.pointerId) return;
+  const moved = dragState.moved;
+  dragState = null;
+  isDragging.value = false;
+  // 吸附：吸附到当前 activeIndex（拖动过程中已更新）
+  dragDelta.value = 0;
+  // 若未发生移动，则视为点击（由点击处理器处理）
+  if (!moved) {
+    // 什么都不做；点击事件已单独触发
+    return;
+  }
+}
+
+function onPointerCancel(e: PointerEvent): void {
+  if (!dragState || dragState.pointerId !== e.pointerId) return;
+  dragState = null;
+  isDragging.value = false;
+  dragDelta.value = 0;
+}
+
+function onTileClick(idx: number): void {
+  if (isDragging.value) return; // 拖动结束时不触发点击
+  selectAt(idx);
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  const n = validLevels.value.length;
+  if (n === 0) return;
+  const cur = activeIndex.value;
+  if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+    e.preventDefault();
+    selectAt(Math.min(n - 1, cur + 1));
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+    e.preventDefault();
+    selectAt(Math.max(0, cur - 1));
+  } else if (e.key === "Home") {
+    e.preventDefault();
+    selectAt(0);
+  } else if (e.key === "End") {
+    e.preventDefault();
+    selectAt(n - 1);
+  } else if (/^[1-9]$/.test(e.key)) {
+    const idx = Number(e.key) - 1;
+    if (idx < n) {
+      e.preventDefault();
+      selectAt(idx);
+    }
+  }
+}
+
+// ── 生命周期 ──────────────────────────────────────────────────────
+
+let ro: ResizeObserver | null = null;
+
+watch(
+  containerRef,
+  async (el) => {
+    if (ro) {
+      ro.disconnect();
+      ro = null;
+    }
+    if (!el) return;
+    await nextTick();
+    measure();
+    ro = new ResizeObserver(() => measure());
+    ro.observe(el);
+    // 视窗宽度变化也需要重测（大轨道 translateX 依赖它）
+    const m = magnifierRef.value;
+    if (m) ro.observe(m);
+  },
+  { immediate: true },
+);
+
+onBeforeUnmount(() => {
+  if (ro) {
+    ro.disconnect();
+    ro = null;
+  }
+});
+</script>
+
+<template>
+  <div
+    v-if="validLevels.length > 0"
+    class="thinking-knob"
+    role="radiogroup"
+    aria-label="思考强度"
+    tabindex="0"
+    @keydown="onKeydown"
+  >
+    <div ref="containerRef" class="knob-inner">
+      <!-- label：相对整个 knob 框（右上角），不随放大镜移动 -->
+      <span class="knob-label">{{ activeMeta.label }}</span>
+
+      <!-- 放大镜视窗（长方形，内部真放大，被 overflow:hidden 裁剪） -->
+      <div ref="magnifierRef" class="magnifier-box" aria-hidden="true">
+        <div class="magnified-track" :style="magnifiedTrackStyle">
+          <span
+            v-for="(lvl, i) in validLevels"
+            :key="lvl"
+            class="mag-emoji"
+          >{{ MOON_EMOJI[lvl] ?? "🌑" }}</span>
+        </div>
+        <!-- 边缘扭曲效果层（叠加在视窗内容之上，营造镜头感） -->
+        <div class="magnifier-edge" />
+      </div>
+
+      <!-- 小轨道：可拖动，包含 emoji + 连线 -->
+      <div
+        ref="trackRef"
+        class="track"
+        :class="{ dragging: isDragging }"
+        :style="trackStyle"
+        role="presentation"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerCancel"
+      >
+        <button
+          v-for="(lvl, i) in validLevels"
+          :key="lvl"
+          type="button"
+          class="point-item"
+          :class="{ current: i === activeIndex }"
+          :aria-checked="i === activeIndex"
+          :aria-label="META[lvl]?.label ?? lvl"
+          role="radio"
+          @click.stop="onTileClick(i)"
+        >
+          <!-- 连线（点之间） -->
+          <span v-if="i > 0" class="point-connector" :class="{ active: i <= activeIndex }" />
+          <!-- 月亮emoji（极小） -->
+          <span class="point-moon">{{ MOON_EMOJI[lvl] ?? "🌑" }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div v-else class="thinking-knob-empty">—</div>
+</template>
+
+<style scoped lang="less">
+@import "../shared.less";
+
+.thinking-knob {
+  position: relative;
+  width: 100%;
+  height: 64px; // 放大镜（30px）+ 间距 + 小轨道 + 上下 padding
+  padding: 7px 9px;
+  box-sizing: border-box;
+  border: 1px solid rgba(36, 38, 45, 0.1);
+  border-radius: 6px;
+  background: #fff;
+  outline: none;
+  user-select: none;
+  touch-action: pan-y;
+  overflow: hidden;
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px fade(@accent, 45%);
+    border-radius: 6px;
+  }
+}
+
+.thinking-knob-empty {
+  color: fade(@ink, 36%);
+  font-size: 11px;
+  text-align: center;
+  padding: 6px 0;
+}
+
+// ── 内部容器 ──────────────────────────────────────────────────────
+.knob-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+// ── label：相对整个 knob 框的右上角，不随放大镜移动 ──────────────
+.knob-label {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: fade(@ink, 60%);
+  background: fade(@accent, 10%);
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  z-index: 3;
+  pointer-events: none;
+}
+
+// ── 放大镜视窗（长方形，固定在 knob 上半部，真放大效果） ──────────
+.magnifier-box {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 96px;
+  height: 30px;
+  overflow: hidden;
+  border: 1.5px solid fade(@accent, 65%);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  pointer-events: none;
+  // 镜头深度：顶部高光 + 底部阴影 + 整体内阴影
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.6),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.04),
+    inset 0 0 6px rgba(0, 0, 0, 0.06);
+}
+
+// 边缘扭曲效果层（径向渐变 + 左右边缘暗化，模拟镜头曲面）
+.magnifier-edge {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background:
+    // 中央透明，边缘渐暗（径向）
+    radial-gradient(ellipse 95% 100% at center,
+      transparent 60%,
+      rgba(0, 0, 0, 0.10) 100%),
+    // 左右边缘进一步暗化（线性）
+    linear-gradient(to right,
+      rgba(0, 0, 0, 0.12) 0%,
+      transparent 14%,
+      transparent 86%,
+      rgba(0, 0, 0, 0.12) 100%),
+    // 顶部高光（玻璃感）
+    linear-gradient(to bottom,
+      rgba(255, 255, 255, 0.35) 0%,
+      transparent 22%);
+}
+
+// 视窗内的大轨道（与下方小轨道共用 T，被 scale 放大后裁剪显示）
+.magnified-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  transform-origin: 0 50%;
+  transform: translateY(-50%);
+  will-change: transform;
+  min-width: max-content;
+}
+
+.mag-emoji {
+  width: 72px; // 与小轨道 STEP_GAP 对齐
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px; // 基础大小，会被 scale() 放大到 ~22px
+  line-height: 1;
+}
+
+// ── 小轨道（可拖动，在 knob 下半部） ─────────────────────────────
+.track {
+  position: absolute;
+  z-index: 1;
+  bottom: 14px;
+  left: 0;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  will-change: transform;
+  min-width: max-content;
+
+  &.dragging {
+    cursor: grabbing;
+  }
+}
+
+.point-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  width: 60px; // STEP_GAP
+}
+
+// 连线（点之间）
+.point-connector {
+  position: absolute;
+  top: 50%;
+  left: -36px;
+  width: 72px;
+  height: 2px;
+  background: rgba(36, 38, 45, 0.15);
+  pointer-events: none;
+  z-index: -1;
+
+  &.active {
+    background: @accent;
+  }
+}
+
+// 月亮emoji（极小）
+.point-moon {
+  font-size: 10px; // 轨道上的emoji极小
+  line-height: 1;
+  filter: grayscale(20%);
+  transition: filter 0.18s ease;
+
+  .point-item.current & {
+    filter: grayscale(0%);
+  }
+}
+</style>

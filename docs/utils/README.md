@@ -27,6 +27,7 @@
 | [json.ts](../../src/utils/json.ts) | `safeJsonParse(raw, fallback)` — 失败返回 fallback 不抛错 |
 | [generator.ts](../../src/utils/generator.ts) | `isAsyncGenerator(value)` — 类型守卫，判断值是否为 `AsyncGenerator` |
 | [rateLimiter.ts](../../src/utils/rateLimiter.ts) | `getRateLimiter(url, key, rpm)` — 按 `(url,key)` 共享的滑动窗口 RPM 限流器单例注册表 |
+| [modelThinking.ts](../../src/utils/modelThinking.ts) | 模型 → 思考强度档位映射：加载 `.chery/model-thinking.yaml`，按 model 别名匹配，返回档位枚举子集（详见「modelThinking 配置」章节） |
 
 ### 子模块（目录）
 
@@ -143,6 +144,50 @@ export function resetRateLimiters(): void;  // 测试 / 热更清残留
 ```
 
 详见 [./logger.md 中 rateLimiter 与 logger 的协作](./logger.md)（rateLimiter 内部调 `logger.info` 打印限流等待）。算法细节见下文「关键流程」。
+
+### modelThinking.ts — 模型档位映射
+
+`ThinkingLevel`（[core/llm](../core/llm.md)）定义 5 档：`off` / `thinking`（由模型决定）/ `low` / `medium` / `high`。不同模型支持的档位不同（OpenAI o1 系列支持 reasoning_effort 全 4 档，ollama 不接受 thinking 参数，部分长上下文模型可能只支持开关两档）。
+
+`modelThinking` 解决两件事：
+
+1. **配置加载**：读取 `.chery/model-thinking.yaml`，声明模型别名 → 支持档位列表的映射。
+2. **运行时查询**：给定 model 名（支持精确/前缀/通配 `*` 匹配），返回该模型可用的 `ThinkingLevel[]`，供前端 settings 渲染「深度思考」旋钮。
+
+```ts
+// 加载（启动期一次性，in-memory 缓存；YAML 不存在则返回空配置，全量走兜底）
+export function loadModelThinking(): ModelThinkingConfig;
+
+// 按 model 名查档位（精确 > 前缀 > 通配 `*` > 兜底 ["off","thinking"]）
+export function resolveThinkingLevels(model: string): ThinkingLevel[];
+
+// 批量查询（RPC utils.thinkingLevels 用）
+export function resolveThinkingLevelsBatch(models: string[]): Record<string, ThinkingLevel[]>;
+```
+
+**配置格式（`.chery/model-thinking.yaml`）：**
+
+```yaml
+# 模型 → 思考强度档位映射
+#  - aliases: 完整模型名或前缀（如 "gpt-4o" 同时匹配 "gpt-4o-mini"）
+#  - thinking: 该模型支持的 ThinkingLevel 子集
+# 匹配顺序：精确 > 最长前缀 > 通配 "*"；未命中返回 ["off","thinking"] 兜底
+models:
+  - aliases: [gpt-4o, gpt-4o-mini, gpt-4-turbo]
+    thinking: [off, low, medium, high]
+  - aliases: [LongCat-Flash-Thinking, LongCat-Flash-Thinking-2601]
+    thinking: [off, thinking]
+  - aliases: [glm-5.2, glm-5, glm-4.6]
+    thinking: [off, low, medium, high]
+  - aliases: [doubao2.0-pro]
+    thinking: [off, low, medium, high]
+  - aliases: ["*"]
+    thinking: [off, thinking]
+```
+
+**RPC 暴露：** `utils.thinkingLevels({ models: string[] })` → `{ levels: Record<string, ThinkingLevel[]> }`。前端 BrainCard 在 model 字段变化时调用，渲染「深度思考」选择器。未在 RPC 返回中的 model 后端兜底为 `["off","thinking"]`。
+
+**前端交互：** ThinkingLevelKnob 采用「真放大镜」设计——上方一个固定的长方形视窗（带边缘扭曲效果），下方一条可拖动的小轨道（极小的月亮 emoji + 连线），拖动小轨道让目标档位的 emoji 滑入视窗正中。视窗内隐藏一条与下方面板共用同一 `T = baseOffset(activeIndex) + dragDelta` 的「大轨道」（缩放约 2.2x），被 `overflow:hidden` 裁剪后呈现精准放大效果：视窗正中显示的内容与小轨道中线的内容始终一致。label（「关闭/思考/低/中/高」）固定在 knob 框的右上角，不随放大镜移动。详见 [ThinkingLevelKnob](../../web/src/features/agent/settings/components/ThinkingLevelKnob.vue) 及 [../service/chat.md §5 工具与设置类 RPC](../service/chat.md)。
 
 ## 关键流程 / 数据流
 

@@ -152,8 +152,12 @@ export interface ChatSendAttachment {
   mimeType: string;
 }
 
-/** 思考强度档位（对齐后端 ThinkingLevel）：off=关闭，low/medium/high=强度递增。 */
-export type ThinkingLevel = "off" | "low" | "medium" | "high";
+/** 思考强度档位（对齐后端 ThinkingLevel）：
+ * - off：关闭
+ * - thinking：由模型/服务端决定（不传参）
+ * - low/medium/high：强度递增
+ */
+export type ThinkingLevel = "off" | "thinking" | "low" | "medium" | "high";
 
 /** config.get 响应 / config.save 入参：.chery/config.yaml 原文（除 server 段）。对齐后端 ConfigRaw。 */
 export interface BrainConfigDto {
@@ -439,6 +443,18 @@ export const agentApi = {
   async listEditors(): Promise<EditorInfo[]> {
     const data = await call<{ editors: EditorInfo[] }>("utils.editors", {});
     return data?.editors ?? [];
+  },
+
+  /**
+   * utils.thinkingLevels：按模型名批量查 ThinkingLevel 档位列表。
+   * 后端读 `.chery/model-thinking.yaml` 配置；未命中兜底为 ["off", "thinking"]。
+   * models 去重 + 过滤空串；返回 `Record<model, ThinkingLevel[]>`。
+   */
+  async getThinkingLevels(models: string[]): Promise<Record<string, ThinkingLevel[]>> {
+    const unique = Array.from(new Set(models.filter((m) => typeof m === "string" && m.length > 0)));
+    if (unique.length === 0) return {};
+    const data = await call<{ levels: Record<string, ThinkingLevel[]> }>("utils.thinkingLevels", { models: unique });
+    return data?.levels ?? {};
   },
 };
 

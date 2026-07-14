@@ -226,6 +226,16 @@ export interface UtilsModelsRequestData {
   key?: string;
 }
 
+/**
+ * utils.thinkingLevels：按模型名批量查询 ThinkingLevel 档位列表。
+ * 用于前端 settings 渲染「深度思考」旋钮（不同模型暴露不同档位）。
+ * 后端按 `.chery/model-thinking.yaml` 配置匹配，未命中返回 `["off", "thinking"]` 兜底。
+ * models：1~N 个模型名（数组去重由调用方负责；空数组返回 `{}`）。
+ */
+export interface UtilsThinkingLevelsRequestData {
+  models: string[];
+}
+
 // ---------- Env 环境变量 ----------
 
 /** env.list 请求：空参 */
@@ -500,6 +510,14 @@ export interface UtilsModelsResponseData {
 /** env.list 响应：.env 文件中的变量名列表 */
 export interface EnvListResponseData {
   vars: string[];
+}
+
+/**
+ * utils.thinkingLevels 响应：model → ThinkingLevel 列表。
+ * 每个 model 一定有 entries（未命中兜底为 `["off", "thinking"]`）；空 models 入参返回 `levels: {}`。
+ */
+export interface UtilsThinkingLevelsResponseData {
+  levels: Record<string, import("@/core/llm/adapter.js").ThinkingLevel[]>;
 }
 
 /** utils.openFile 响应：空（成功即打开，失败返 RpcError） */
@@ -777,6 +795,9 @@ export const Method = {
 
   // 编辑器列表（获取系统可用的文本编辑器）
   UTILS_EDITORS: "utils.editors",
+
+  // 模型档位（按 model 名批量查 ThinkingLevel，前端旋钮用）
+  UTILS_THINKING_LEVELS: "utils.thinkingLevels",
 } as const;
 
 /**
@@ -819,6 +840,7 @@ export interface RpcMethodMap {
   [Method.UTILS_OPEN_FILE]: { params: UtilsOpenFileRequestData; result: UtilsOpenFileResponseData };
   [Method.UTILS_OPEN_CONFIG_DIR]: { params: UtilsOpenConfigDirRequestData; result: UtilsOpenConfigDirResponseData };
   [Method.UTILS_EDITORS]: { params: UtilsEditorsRequestData; result: UtilsEditorsResponseData };
+  [Method.UTILS_THINKING_LEVELS]: { params: UtilsThinkingLevelsRequestData; result: UtilsThinkingLevelsResponseData };
 }
 
 export type ParamsOf<M extends Method> = RpcMethodMap[M]["params"];

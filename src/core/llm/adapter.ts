@@ -1,7 +1,11 @@
 import type { SenseFunction } from "../sense/adapter";
 
-/** 思考强度档位。off=关闭（provider 省略思考参数）；low/medium/high=强度递增，各 provider 自行映射为请求参数。 */
-export type ThinkingLevel = "off" | "low" | "medium" | "high";
+/** 思考强度档位。
+ * - off：关闭（provider 省略思考参数）
+ * - thinking：由模型/服务端决定（provider 不传参；语义「开启思考但不给强度」）
+ * - low/medium/high：强度递增，各 provider 自行映射为请求参数（如 OpenAI 兼容端点 reasoning_effort）
+ */
+export type ThinkingLevel = "off" | "thinking" | "low" | "medium" | "high";
 
 /**
  * LLM 调用选项（P1-6：替代 Record<string, unknown>，消除 provider 内强转）。

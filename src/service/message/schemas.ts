@@ -204,6 +204,10 @@ export const requestSchemas = {
   [Method.UTILS_OPEN_CONFIG_DIR]: emptySchema,
   // 编辑器列表：空参，返回系统可用的文本编辑器
   [Method.UTILS_EDITORS]: emptySchema,
+  // 模型档位查询：1~N 个模型名，返回每模型支持的 ThinkingLevel 列表
+  [Method.UTILS_THINKING_LEVELS]: z.object({
+    models: z.array(z.string().min(1)),
+  }),
 } as const satisfies Record<Method, z.ZodTypeAny>;
 
 /**
