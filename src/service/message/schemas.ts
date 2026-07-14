@@ -73,7 +73,7 @@ const globalSchema = z.object({
   supervision: supervisionNameSchema,
   stream: z.boolean(),
   sense_execute_timeout: z.number().optional(),
-  approval_timeout: z.number().optional(),
+  approval_timeout: z.number().min(0).optional(),
   maxLoopCount: z.number().optional(),
   bash_log_retention_hours: z.number().optional(),
   textEditor: z.string().optional(), // 文本编辑器路径

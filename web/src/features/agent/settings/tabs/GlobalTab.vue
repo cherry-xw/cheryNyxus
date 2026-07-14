@@ -114,8 +114,8 @@ const indexItems = computed<IndexItem[]>(() => {
           <el-input-number v-model="draft.global.sense_execute_timeout" :controls="false" placeholder="默认 30000" />
         </label>
         <label class="field">
-          <LabelTip label="审批等待（ms）" tip="approval_timeout：等待人工审批的时间；超时按拒绝处理" />
-          <el-input-number v-model="draft.global.approval_timeout" :controls="false" placeholder="默认不超时" />
+          <LabelTip label="审批等待（ms）" tip="approval_timeout：等待人工审批的时间；超时按拒绝处理。≥ 0，0 = 不限时" />
+          <el-input-number v-model="draft.global.approval_timeout" :controls="false" :min="0" placeholder="0 = 不超时" />
         </label>
         <label class="field">
           <LabelTip label="单轮工具调用上限" tip="maxLoopCount：单轮会话可连续调用工具的次数" />

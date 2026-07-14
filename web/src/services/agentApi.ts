@@ -200,6 +200,7 @@ export interface GlobalConfigDto {
   supervision: "auto" | "confirm" | "manual";
   stream: boolean;
   sense_execute_timeout?: number;
+  /** 审批等待超时（ms）。`>= 0`，0 = 不限时。详见 `InterruptNotificationData.waitTime`。 */
   approval_timeout?: number;
   maxLoopCount?: number;
   bash_log_retention_hours?: number;

@@ -27,7 +27,9 @@ const registry = new Map<string, PendingApproval>();
 
 /**
  * 创建审批 Promise 并注册 resolve/reject（core senseMiddleware 调用）。
- * @param timeoutMs 超时毫秒；超时 resolve as reject（视为用户拒绝，非 abort）。undefined/<=0 不限时。
+ * @param timeoutMs 超时毫秒（来自 `global.approval_timeout`，由 `validateRawConfig` + zod 校验 `>= 0`）。
+ *                  `undefined` 或 `<= 0` 表示不超时（永久等待用户决）。
+ *                  超时 → resolve as reject（视为用户拒绝，非 abort）。
  * @returns senseMiddleware await 的 Promise；service confirm/abort/超时 触发其 resolve/reject
  */
 export function createApproval(id: string, timeoutMs?: number): Promise<ApprovalDecision> {

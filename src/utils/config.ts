@@ -206,7 +206,14 @@ interface GlobalConfig {
   supervision: SupervisionLevel; // 全局默认的监管等级
   stream: boolean; // 是否开启流式输出
   sense_execute_timeout?: number; // 感官执行超时时间（毫秒）
-  approval_timeout?: number; // 审批超时时间（毫秒），超时视为拒绝（非 abort）
+  /**
+   * 审批等待超时（毫秒）。`>= 0`，0 = 不限时（无超时，永远等用户决）。
+   * 超时视为用户拒绝（非 abort），不影响断连/chat.abort 的 AgentAbortError 路径。
+   * 运行时由 core `createApproval(id, timeoutMs)` 消费；前端据 `interrupt.waitTime` 显倒计时。
+   * 校验：`validateRawConfig` 强制 `>= 0` + `Number.isFinite`；`config.save` zod schema `.min(0).optional()`。
+   * （注：当前 `connection.ts` 还有一层与本字段独立的硬编码 15min WS 层超时作兜底，与「0 = 不限时」语义不完全对齐，跟踪中。）
+   */
+  approval_timeout?: number;
   maxLoopCount?: number; // loop 最大执行次数（默认 30）
   bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig; // 文件压缩配置
@@ -624,6 +631,14 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     }
     if (typeof raw.memory.max_chars !== "number" || raw.memory.max_chars < 1) {
       errors.push(`memory.max_chars 必须为正整数（当前：${String(raw.memory.max_chars)}）`);
+    }
+  }
+
+  // approval_timeout：≥ 0，0 = 不限时（与 core createApproval 的 `> 0` guard 对齐）
+  if (raw.global?.approval_timeout !== undefined) {
+    const t = raw.global.approval_timeout;
+    if (typeof t !== "number" || !Number.isFinite(t) || t < 0) {
+      errors.push(`global.approval_timeout 必须为 ≥ 0 的数字（0 = 不超时，当前：${String(t)}）`);
     }
   }
 

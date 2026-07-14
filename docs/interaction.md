@@ -266,7 +266,7 @@ C→S chat.send {prompt}
   ← stream.content / staged content_end
   ← staged sense_end
   ← interrupt {supervisionLevel:1, needsApproval:true, waitTime, createdAt}
-     [服务端启动审批超时 = waitTime（global.approval_timeout，默认 30s）；前端倒计时 = waitTime - (now - createdAt)，用户 accept/reject 后立即关闭]
+     [服务端启动审批超时 = waitTime（来自 `global.approval_timeout`，字段约束 `>= 0`：0 = 不限时）；前端倒计时 = waitTime - (now - createdAt)，用户 accept/reject 后立即关闭]
 
 C→S sense.approval {approvalId, action:"accept"}
   → response(approval)
