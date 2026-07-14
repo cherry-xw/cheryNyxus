@@ -60,7 +60,7 @@ const {
   onWorkTextScroll,
   onBubbleEnter,
   onBubbleLeave,
-} = useStreamBubble(props, petHover);
+} = useStreamBubble(props);
 
 const {
   faceGlyph, leftHand, rightHand, nameChars,

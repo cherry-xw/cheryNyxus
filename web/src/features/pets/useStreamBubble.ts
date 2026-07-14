@@ -1,5 +1,4 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
-import type { Ref } from "vue";
 import type { StreamState } from "@/stores";
 import { renderMarkdown } from "@/utils/markdown";
 import type { PetInstance } from "./types";
@@ -9,10 +8,10 @@ import type { PetInstance } from "./types";
  *
  * thinking 阶段（thinking 非空 && content 空）：主气泡全空间显 thinking。
  * thinking 结束（content 非空）：主气泡显 content（md）；thinking 移至左侧同尺寸浅色气泡（顶部齐平）。
- * done 后 content/thinking 保留 20s（retainUntil）；hover 期间保持。
+ * done 后 content/thinking 保留 20s（retainUntil）；工作气泡自身 hover 期间保持。
  *
- * isHovered = petHover（身体，来自 usePetDrag）|| bubbleHover（工作气泡，本 composable 自管）。
- * 行为与原 PetSprite 内联实现一致，仅下沉抽取。
+ * 气泡显隐门控仅收 bubbleHover（工作气泡自身 hover，本 composable 自管）——
+ * retainUntil 过期后悬浮 pet 身体不复现历史气泡（petHover 不参与门控，仅供 usePetStyles）。
  */
 
 /** composable 所需 props 子集（PetSprite props 的 pet + stream）。 */
@@ -21,10 +20,10 @@ export interface StreamBubbleProps {
   stream?: StreamState;
 }
 
-export function useStreamBubble(props: StreamBubbleProps, petHover: Ref<boolean>) {
-  // hover 保持：pet 身体或工作气泡 hover 期间，即使 retainUntil 过期也保持显示。
+export function useStreamBubble(props: StreamBubbleProps) {
+  // hover 保持：工作气泡自身 hover 期间，即使 retainUntil 过期也保持显示。
+  // pet 身体 hover 不在此门控（不复现历史气泡）。
   const bubbleHover = ref(false);
-  const isHovered = computed(() => petHover.value || bubbleHover.value);
 
   // retainUntil 过期检测：nowTick 每秒刷新驱动 done 后保留期到期重渲染。
   const nowTick = ref(Date.now());
@@ -46,7 +45,7 @@ export function useStreamBubble(props: StreamBubbleProps, petHover: Ref<boolean>
     () =>
       !props.pet.isGhost &&
       hasStreamContent.value &&
-      (!!props.pet.isWorking || retainActive.value || isHovered.value),
+      (!!props.pet.isWorking || retainActive.value || bubbleHover.value),
   );
   // === busy-indicator 状态（与气泡显示解耦；语义对齐"还在做事"） ===
   // 不含 hover / retainUntil：hover 仅保持气泡显示；retain 期不视为"还在做事"。

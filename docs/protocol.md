@@ -96,7 +96,7 @@ interface Notification {
 | `accept` | `{approvalId, senseName, result}` | sense 执行成功（全工具推；`approvalId`=sense 调用 id，前端据此移除「运行中工具」同 id 项） |
 | `rejected` | `{approvalId, senseName, reason}` | sense 被拒 / 审批取消 |
 | `loaded` | `null` | chat.get 历史发完 |
-| `done` | `{contextUsage, finished?}` | chat.send/resume loop 结束。`contextUsage` = 当前 chat 总 token /（brain.contextLimit KB × 256）（0-1），前端据实时更新 pet.contextUsage（ContextBar）。CP7。`finished`（boolean，仅子 chat 即 `parent_chat_id` 非空时携带）= 子 agent 已完成，前端据 `finished===true` 把子 pet 转 ghost（灵魂态保留）。done 时后端写 `metadata.finished` 持久化，刷新后 `chat.list` 暴露同字段重建 ghost |
+| `done` | `{contextUsage, finished?, finalMessage?}` | chat.send/resume loop 结束。`contextUsage` = 当前 chat 总 token /（brain.contextLimit KB × 256）（0-1），前端据实时更新 pet.contextUsage（ContextBar）。CP7。`finished`（boolean，仅子 chat 即 `parent_chat_id` 非空时携带）= 子 agent 已完成，前端据 `finished===true` 把子 pet 转 ghost（灵魂态保留）。done 时后端写 `metadata.finished` 持久化，刷新后 `chat.list` 暴露同字段重建 ghost。`finalMessage`（`{msgId,role:"assistant",content,thinking?,createdAt,agentChatId?}`，仅本轮末条为 assistant 时携带）= 刚完成的权威回复，前端实时追加进 `stream.history`（PetIcons 圆点气泡即时显新内容，不再等 `chat.get` 重载）；`msgId` 供下次 `chat.get` 合流按 msgId 去重；`agentChatId` 标识该消息来源 chatId（默认 = 当前 chatId），供前端反向溯源（filter `agentChatId === X` 取该 agent 完整 history，无需正向溯源） |
 | `error` | `{message}` | 仅由 agent generator 在流中抛出 error chunk 时触发（见 [streamMapper.ts](./service/chat.md)），**handler 异常路径不再发 error notification**——失败仅靠 final Response（含 `error` 字段） |
 | `replaced` | `{id, content, originalContent, by}` | 感官去重命中，历史 sense 结果被新读取替换 |
 | `role_created` | `{chatId, parentChatId, type, prompt, brain, senseGroup, wait}` | spawn_role sense 执行时（主从 Agent 桌宠系统 CP3）。前端收此 notification → 创建子 pet + 调 chat.send 跑子 agent（前端驱动架构）。`requestId` = 主 chatId（前端按 chatId 路由）。`wait` 现为信息性（2026-07-09 重构后 wait=true/false 创建路径一致，均前端跑子；wait=true 子完成由后端 `role_reply` 唤主，前端无需回传） |
@@ -110,9 +110,9 @@ interface Notification {
 | type | data | 说明 |
 |------|------|------|
 | `stream` | `{thinking?, content?, senseCall?}` | 流式增量（二进制帧） |
-| `staged` | `{type, role?, thinking?, content?, senseName?, arguments?, id?, messageIds?, replace?, originalContent?, runtime?}` | 阶段完成（JSON 帧） |
+| `staged` | `{type, role?, thinking?, content?, senseName?, arguments?, id?, messageIds?, replace?, originalContent?, runtime?, agentChatId?}` | 阶段完成（JSON 帧） |
 
-`staged.type` 取值：`thinking_end` / `content_end` / `sense_end` / `reverse`。`role`（user/assistant/system/sense）仅 chat.get 返回历史时携带。`id` 用于把 `sense_end` 与 `role:"sense"` 的结果块关联起来。`reverse`（携 `messageIds`）由 `chat.send` 在自动撤回末尾 pending sense 时发送，标记客户端回滚对应消息。`replace/originalContent` 仅 chat.get 历史回放命中感官去重时携带。`runtime` 仅 `content_end` 携带：user 消息=发送时配置（来自 `messages.runtime`），assistant=前一条 user 的 runtime（后端关联，不入库 assistant runtime），供前端 hover 历史消息显该消息用的 brain/工具。
+`staged.type` 取值：`thinking_end` / `content_end` / `sense_end` / `reverse`。`role`（user/assistant/system/sense）仅 chat.get 返回历史时携带。`id` 用于把 `sense_end` 与 `role:"sense"` 的结果块关联起来。`reverse`（携 `messageIds`）由 `chat.send` 在自动撤回末尾 pending sense 时发送，标记客户端回滚对应消息。`replace/originalContent` 仅 chat.get 历史回放命中感官去重时携带。`runtime` 仅 `content_end` 携带：user 消息=发送时配置（来自 `messages.runtime`），assistant=前一条 user 的 runtime（后端关联，不入库 assistant runtime），供前端 hover 历史消息显该消息用的 brain/工具。`agentChatId` 仅 chat.get 历史回放携带（= 当前回放的 chatId），供前端 HistoryItem 反向溯源（filter `agentChatId === X` 取该 agent 完整 history）。
 
 ### 流协议终态语义
 
@@ -136,7 +136,7 @@ interface Notification {
 | `chat.get` | 获取聊天详情（流式载入历史，末条未完成周期时返回 canResume；response 增返 `contextUsage` 供前端 ContextBar 渲染，CP7） | 是 |
 | `chat.delete` | 删除聊天（目标为主 chat 即无 `parent_chat_id` 时，级联删其所有子 chat + 各自消息 + 清内存 runtime；CP8） | 否 |
 | `chat.send` | 发送聊天消息（`{chatId, prompt, attachments?}`；末尾有 pending 时自动撤回并发 staged.reverse）。`attachments`：结构化附件数组，每项 `{assetId, kind:"image"|"video"|"audio", mimeType}`，上传 `/api/media/upload` 后由前端持有，服务端合成为 [[media:<filename>]] 标记追加到 prompt 供 enrichMediaInputs 解析（P4 协议升级，旧文本 marker 仍兼容） | 是 |
-| `chat.resume` | 续接（无 prompt，恢复执行 pending sense 或继续 loop） | 是 |
+| `chat.resume` | 续接（无 prompt，恢复执行 pending sense 或继续 loop）。Response.data `{chatId}`（无 userMsgId，resume 无新 user 消息） | 是 |
 | `chat.abort` | 中止当前 chat 运行流（清内存运行时 + 释放连接，不删除 DB） | 否 |
 | `sense.approval` | 感官审批（accept/reject） | 否 |
 | `bash.list` | 列出当前 chat 挂起的 bash 进程 | 否 |

@@ -6,8 +6,8 @@
  *   history 列（左）：本 chat 最近 5 条 HistoryItem 小气泡，按 createdAt DESC 排列。
  *     - 视觉：小圆点 + role 颜色（user=灰、assistant=橙、role/master=紫）
  *     - hover → 浮动气泡显消息预览（content 截 80 字）
- *     - 新消息进来即时加入（stream.history 是响应式）
- *     - 数据源：agents.streams[chatId].history
+ *     - 新消息进来即时加入（stream.history 是响应式；done notification finalMessage 追加末条 assistant）
+ *     - 数据源：agents.streams[chatId].history（chat.get 权威重建 + done/role_reply 实时追加，按 msgId 去重）
  *
  *   approval 列（右）：pending 审批工具 icon，stack 形式。
  *     - 顶部：当前 stream.approval（实心高亮，无闪）
@@ -163,6 +163,7 @@ function clickApproval(a: ApprovalState): void {
   z-index: 5;
   .history-col {
     margin-top: 20px;
+    margin-left: 6px;
   }
 }
 
@@ -224,7 +225,7 @@ function clickApproval(a: ApprovalState): void {
 .hover-bubble {
   display: none;
   position: absolute;
-  right: calc(100% + 6px);
+  left: calc(100% + 6px);
   top: -4px;
   z-index: 30;
   width: max-content;

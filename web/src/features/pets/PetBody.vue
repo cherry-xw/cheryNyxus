@@ -60,9 +60,21 @@ const emit = defineEmits<{
         :animate="sprite.animate"
         :transition="sprite.transition"
       >
-        <div v-if="!pet.isGhost" class="status-row" :aria-label="`emotion ${Math.round(pet.emotion)}, context ${Math.round(pet.contextUsage * 100)}%`">
-          <span class="stat emotion"><span class="fill" :style="{ width: `${pet.emotion}%` }" /></span>
-          <ContextBar :usage="pet.contextUsage" />
+        <div v-if="!pet.isGhost" class="status-stack" :aria-label="`emotion ${Math.round(pet.emotion)}, context ${Math.round(pet.contextUsage * 100)}%`">
+          <div class="status-row">
+            <span class="stat emotion"><span class="fill" :style="{ width: `${pet.emotion}%` }" /></span>
+            <ContextBar :usage="pet.contextUsage" />
+          </div>
+          <!-- busy-indicator：思考中三点脉冲；显隐走 isBusy（与气泡显示 hasStream 解耦）。 -->
+          <span
+            v-if="isBusy"
+            class="busy-indicator"
+            aria-label="思考中"
+          >
+            <span class="thinking-dot" />
+            <span class="thinking-dot" />
+            <span class="thinking-dot" />
+          </span>
         </div>
         <span
           class="head-row"
@@ -139,18 +151,6 @@ const emit = defineEmits<{
     </span>
     <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{ pet.sleep?.zzz ?? "zZ" }}</span>
     <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{ pet.sleep?.zzz ?? "zZ" }}</span>
-    <!-- busy-indicator：自定义 SVG 双圆环 loader；显隐走 isBusy（与气泡显示 hasStream 解耦）。 -->
-    <svg
-      v-if="isBusy && !pet.isGhost"
-      class="busy-indicator"
-      viewBox="0 0 24 24"
-      width="16"
-      height="16"
-      aria-label="忙碌中"
-    >
-      <circle class="busy-ring" cx="12" cy="12" r="9" fill="none" stroke-width="2" />
-      <circle class="busy-arc" cx="12" cy="12" r="5" fill="none" stroke-width="2.5" stroke-linecap="round" />
-    </svg>
   </div>
 </template>
 
@@ -357,11 +357,20 @@ const emit = defineEmits<{
   overflow: hidden;
 }
 
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 2px; /* 原 .status-row 的 margin-bottom */
+}
+
 .status-row {
   display: flex;
   gap: 3px;
   width: 44px;
-  margin-bottom: 2px;
+  position: relative;
+  top: -4px; /* 上移避免与 .busy-indicator 绝对定位重叠 */
 }
 
 .stat {
@@ -395,37 +404,35 @@ const emit = defineEmits<{
 }
 
 .busy-indicator {
+  /* 改为 .status-stack 的 flex 子项，与 .status-row 上下堆叠 */
+  display: inline-flex;
   position: absolute;
   right: 0;
-  top: 26px;
-  width: 16px;
-  height: 16px;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border: 1px dashed rgba(124, 58, 237, 0.55); /* 思考紫虚线，呼应 PetBubbles.is-thinking */
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
   pointer-events: none;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
-  animation: busy-spin 1.4s linear infinite;
   transform-origin: center center;
 
-  .busy-ring {
-    stroke: fade(@ink, 28%);
-    stroke-dasharray: 3 3;
-  }
+  .thinking-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #7c3aed; /* 思考紫 */
+    animation: thinking-dot 1.2s ease-in-out infinite;
 
-  .busy-arc {
-    stroke: #f6b73c;
-    stroke-dasharray: 18 18;
-    stroke-dashoffset: 0;
-    animation: busy-arc 1.4s ease-in-out infinite;
+    &:nth-child(2) { animation-delay: 0.18s; }
+    &:nth-child(3) { animation-delay: 0.36s; }
   }
 }
 
-@keyframes busy-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@keyframes busy-arc {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -36; }
+@keyframes thinking-dot {
+  0%, 60%, 100% { opacity: 0.28; transform: translateY(0); }
+  30%           { opacity: 1;    transform: translateY(-2px); }
 }
 
 @keyframes zzz-float {

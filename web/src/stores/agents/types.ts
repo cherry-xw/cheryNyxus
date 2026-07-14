@@ -80,6 +80,12 @@ export interface HistoryItem {
    * 用途：getHistory 合流时防止同一物理消息重复加入。旧历史或缺失 staged 字段时可省略。
    */
   msgId?: string;
+  /**
+   * 消息来源 chatId（= 产生该消息的 chat；user/assistant = 当前 chat，role reply = 子 chat）。
+   * 前端反向溯源：filter agentChatId === X 取该 agent 完整 history，无需正向溯源。
+   * 旧消息（写入早于该字段）时为 undefined；前端按 subPetChatId / callerSubPetChatId / 当前 chatId 兜底。
+   */
+  agentChatId?: string;
 }
 
 /** 当前 chat 的待审批（interrupt 写入；accept/rejected/超时/新轮清空；submit 后 dismissApproval 立即清）。 */
@@ -107,6 +113,13 @@ export interface StreamState {
   /** 历史消息（chat.get staged 累积；实时流不影响此处）。loaded=true 表示 staged 回放完成。 */
   history: HistoryItem[];
   historyLoaded: boolean;
+  /**
+   * 历史 dirty 标记（缓存守卫）。true = 需 reload（chat.send/resume/重连/role_reply 时标位）；
+   * false = 缓存可用（loaded notification 到达时清位）。getHistory 入口检查：
+   * !dirty && historyLoaded → 直接 return，不发 chat.get RPC。
+   * 默认 true（ensureStream 创建时），避免首开 drawer 误命中空缓存。
+   */
+  historyDirty: boolean;
   /** done 后 content/thinking 气泡保留到期时间戳（ms）。过期隐藏；新消息/abort 清除；hover 期间保持。 */
   retainUntil?: number;
   /** 当前 pending 审批（无则 undefined）。被用户 Accept/Reject/✕ 关闭时移到 approvalQueue 或清空。 */
@@ -158,6 +171,12 @@ export interface StagedChunkData {
    * 历史 DB 写入早于后端 E 改动时为 undefined，前端按现有行为兼容。
    */
   msgId?: string;
+  /**
+   * 消息来源 chatId（chat.get 历史回放时携带，= 当前回放的 chatId）。
+   * 前端反向溯源：filter agentChatId === X 取该 agent 完整 history，无需正向溯源。
+   * 旧消息（写入早于本字段）时为 undefined；前端按当前 chatId 兜底。
+   */
+  agentChatId?: string;
 }
 
 export interface ChunkMessage {

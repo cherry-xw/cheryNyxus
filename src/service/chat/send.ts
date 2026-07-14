@@ -134,13 +134,21 @@ export async function* handleChatSend(
 
   let failureResponse: RpcResponse | undefined;
   let failureMessage: string | undefined;
+  // user message 落库后 observer 回调写入 msgId → Response.data 回前端
+  // （前端 sendMessage 即时 push user prompt 到 stream.history 时携带 msgId，下次 reload dedup 用）
+  let userMsgId: string | undefined;
 
   try {
     // history 已在 chat.create 时一次性加载到内存。
     // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
     // onError 回调：streamMapper 见到 ErrorChunk 时调用，无 throw 时也能构造 failureResponse。
     // P4：传 promptWithAttachments（含 [[media:]] 标记）供 enrichMediaInputs 解析。
-    const generator = observeAgentChunks(agent.run(promptWithAttachments), chatId, () => agent.getMessages());
+    const generator = observeAgentChunks(
+      agent.run(promptWithAttachments),
+      chatId,
+      () => agent.getMessages(),
+      (msgId) => { userMsgId = msgId; },
+    );
 
     yield* streamAgentChunks(generator, rid, chatId, (msg) => { failureMessage = msg; });
   } catch (err) {
@@ -164,7 +172,7 @@ export async function* handleChatSend(
     failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, failureMessage));
   }
 
-  return failureResponse ?? { chatId };
+  return failureResponse ?? { chatId, ...(userMsgId ? { userMsgId } : {}) };
 }
 
 /**

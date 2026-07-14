@@ -44,6 +44,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       thinking: d.thinking ?? "",
       createdAt: d.createdAt,
       msgId: d.msgId,
+      ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}),
     });
     return;
   }
@@ -55,9 +56,9 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content);
       const mediaAssets = extractMediaUrls(content);
       if (m) {
-        history.push({ role: "role", content, petName: m[1], runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(mediaAssets.length > 0 && { mediaAssets }) });
+        history.push({ role: "role", content, petName: m[1], runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}), ...(mediaAssets.length > 0 && { mediaAssets }) });
       } else {
-        history.push({ role: "user", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(mediaAssets.length > 0 && { mediaAssets }) });
+        history.push({ role: "user", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}), ...(mediaAssets.length > 0 && { mediaAssets }) });
       }
       return;
     }
@@ -72,8 +73,9 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
         last.runtime = d.runtime;
         last.createdAt = d.createdAt ?? last.createdAt;
         if (mediaAssets.length > 0) last.mediaAssets = mediaAssets;
+        if (d.agentChatId) last.agentChatId = d.agentChatId;
       } else {
-        history.push({ role: "assistant", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(mediaAssets.length > 0 && { mediaAssets }) });
+        history.push({ role: "assistant", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}), ...(mediaAssets.length > 0 && { mediaAssets }) });
       }
       return;
     }
@@ -104,6 +106,8 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       // 原始记录；与子 chat 的相同响应仅在 HistoryDrawer 的展示层安全合并。
       const content = d.content ?? "";
       const m = /^\[(?:子agent|角色)\s+([^\]]+?)\]/.exec(content);
+      // role reply 实际由子 chat 生成：agentChatId = childChatId 才是真正的源头
+      // （当前 StagedChunkData.agentChatId = 当前回放 chatId 即主 chat，故此处覆盖）
       history.push({ role: "role", content, petName: m?.[1], runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId });
       return;
     }

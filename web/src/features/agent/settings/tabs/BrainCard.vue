@@ -469,7 +469,7 @@ async function openEnvFile(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 32px;
+  height: 60px;
   padding: 7px 9px;
   border: 1px solid rgba(36, 38, 45, 0.1);
   border-radius: 6px;

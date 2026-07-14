@@ -17,7 +17,7 @@ import { defaultBounds } from "./streamAccumulator";
 
 /**
  * 确保 chatId 对应的 StreamState 存在。不存在则创建默认结构。
- * 兼容历史 StreamState（已存在但无 approvalQueue 字段）→ 补初始化。
+ * 兼容历史 StreamState（已存在但无 approvalQueue / historyDirty 字段）→ 补初始化。
  */
 export function ensureStream(
   streams: Ref<Record<string, StreamState>>,
@@ -31,13 +31,15 @@ export function ensureStream(
       isWorking: true,
       history: [],
       historyLoaded: false,
+      historyDirty: true, // 默认 dirty；首次 loaded notification 或显式预加载后清
       runningTools: [],
       approvalQueue: [],
     };
     streams.value[chatId] = s;
   }
-  // 兼容历史 StreamState（已存在但无 approvalQueue 字段）
+  // 兼容历史 StreamState（已存在但缺新字段）
   if (!s.approvalQueue) s.approvalQueue = [];
+  if (s.historyDirty === undefined) s.historyDirty = true;
   return s;
 }
 
@@ -125,6 +127,22 @@ export function createStreamRouter(
           stream.runningTools = [];
           // done 后 content/thinking 气泡保留 20s（下一条消息前）；error 不保留（即时隐藏）
           if (type === "done") stream.retainUntil = Date.now() + 20000;
+          // 本轮末条 assistant 权威回复 → 实时追加进 history（按 msgId 去重），
+          // 使 PetIcons 圆点气泡即时显最新内容，不再等 chat.get 重载。
+          if (type === "done") {
+            const fm = (n.data as { finalMessage?: { msgId: string; role: "assistant"; content: string; thinking?: string; createdAt: number; agentChatId?: string } } | undefined)?.finalMessage;
+            if (fm && !stream.history.some((h) => h.msgId && h.msgId === fm.msgId)) {
+              stream.history.push({
+                role: fm.role,
+                content: fm.content,
+                ...(fm.thinking ? { thinking: fm.thinking } : {}),
+                createdAt: fm.createdAt,
+                msgId: fm.msgId,
+                // 反向溯源：该消息由当前 chat 生成（agentChatId = chatId）
+                agentChatId: fm.agentChatId ?? chatId,
+              });
+            }
+          }
         }
         const pet = pets.value.find((p) => p.chatId === chatId);
         // Req 7: done 后保留期内 pet 冻结不移动（freezeUntil=retainUntil）；error 立即恢复
@@ -168,9 +186,13 @@ export function createStreamRouter(
 
     if (type === "loaded") {
       // chat.get staged 全部 emit 完 → 标记历史载入完成（HistoryDrawer 据此显骨架→内容）
+      // dirty 清：缓存可用，下次 drawer 打开零 RPC
       if (chatId) {
         const stream = streams.value[chatId];
-        if (stream) stream.historyLoaded = true;
+        if (stream) {
+          stream.historyLoaded = true;
+          stream.historyDirty = false;
+        }
       }
       if (requestId) requestMap.delete(requestId);
       return;
@@ -315,6 +337,11 @@ export function createStreamRouter(
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
+      // 主动预加载新子 chat 的历史（drawer 打开零 RPC 命中缓存；rebuild spawn 期间用户点子 drawer 也即时显）
+      // 子 chat 默认 dirty=true，预加载完 loaded notification 清 dirty
+      getHistory(d.chatId).catch((e) =>
+        console.warn(`[agents] role_created 预加载子 chat 失败 ${d.chatId}:`, e),
+      );
       // T9：wait 唤醒由后端管（role_reply）；前端两态均 chat.send 跑子
       sendMessage(d.chatId, d.prompt).catch((e) =>
         console.error("[agents] 子 agent chat.send 失败:", e),
@@ -343,19 +370,26 @@ export function createStreamRouter(
       }
       // 即时展示子回复（权威内容已注入主 chat DB，getHistory 也可见；live 气泡先显子回复再显主响应）
       const stream = ensureStream(streams, d.parentChatId);
-      stream.history.push({
-        role: "role",
-        content: d.content ?? "",
-        petName: d.type,
-        createdAt: Date.now(),
-        spawnSenseCallId: d.spawnSenseCallId,
-        // 实时阶段尚未重新拉取子 chat 历史；通知已有的 childChatId 仅用于定位头像，
-        // 直接按"子→父"展示，历史重载后再由纯前端合并规则重建。
-        subPetChatId: d.childChatId,
-        callerSubPetChatId: d.parentChatId,
-        mergedView: "child-to-master",
-        msgId: d.msgId,
-      });
+      // 子 agent 注入主 chat 的 role:role 行 → 主 chat dirty（下次 drawer 打开需 reload 走完整合流）
+      stream.historyDirty = true;
+      // 实时 push 前先按 msgId 去重（避免 role_reply 与重载后的同 msgId 重复）
+      if (!stream.history.some((h) => h.msgId && h.msgId === d.msgId)) {
+        stream.history.push({
+          role: "role",
+          content: d.content ?? "",
+          petName: d.type,
+          createdAt: Date.now(),
+          spawnSenseCallId: d.spawnSenseCallId,
+          // 实时阶段尚未重新拉取子 chat 历史；通知已有的 childChatId 仅用于定位头像，
+          // 直接按"子→父"展示，历史重载后再由纯前端合并规则重建。
+          subPetChatId: d.childChatId,
+          callerSubPetChatId: d.parentChatId,
+          mergedView: "child-to-master",
+          msgId: d.msgId,
+          // 反向溯源：该消息由子 chat 生成（agentChatId = childChatId）
+          agentChatId: d.childChatId,
+        });
+      }
       resumeAgent(d.parentChatId).catch((e) =>
         console.error("[agents] role_reply resume 主失败:", e),
       );

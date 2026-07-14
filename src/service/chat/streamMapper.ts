@@ -16,7 +16,7 @@ import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { computeContextUsage } from "@/utils/token.js";
-import { getChat } from "@/db/chat.js";
+import { getChat, getLastMessage } from "@/db/chat.js";
 import { safeJsonParse } from "@/utils/json.js";
 import config from "@/utils/config.js";
 
@@ -171,11 +171,24 @@ export async function* streamAgentChunks(
         finished = meta.finished === true ? true : undefined;
       }
       logger.event("chat.run.done", { contextUsage: ctxDetail.usage, finished });
+      // 本轮末条若为 assistant → 携带权威回复，前端实时追加进 stream.history（PetIcons 圆点气泡即时更新）。
+      const lastMsg = getLastMessage(chatId);
+      const finalMessage =
+        lastMsg && lastMsg.role === "assistant"
+          ? {
+              msgId: lastMsg.id,
+              role: "assistant" as const,
+              content: lastMsg.content ?? "",
+              ...(lastMsg.thinking ? { thinking: lastMsg.thinking } : {}),
+              createdAt: lastMsg.created_at,
+            }
+          : undefined;
       yield createNotification("done", rid, {
         contextUsage: ctxDetail.usage,
         used: ctxDetail.used,
         total: ctxDetail.total,
         ...(finished === true ? { finished: true } : {}),
+        ...(finalMessage ? { finalMessage } : {}),
       });
     } else if (chunk.type === "message_updated") {
       // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），

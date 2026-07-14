@@ -185,6 +185,7 @@ export async function* handleChatGet(
         thinking: parsedMsg.thinking,
         createdAt: msg.created_at,
         msgId: msg.id,
+        agentChatId: p.chatId,
       });
     }
     if (parsedMsg.content) {
@@ -202,6 +203,7 @@ export async function* handleChatGet(
         content: parsedMsg.content,
         createdAt: msg.created_at,
         msgId: msg.id,
+        agentChatId: p.chatId,
         ...(msgRuntime ? { runtime: msgRuntime } : {}),
         // role:sense 的 content 是 sense 执行结果，带 id（= sense call id）供前端关联到 sense block
         ...(parsedMsg.role === "sense" ? { id: msg.id } : {}),
@@ -220,6 +222,7 @@ export async function* handleChatGet(
           senseName: sc.name,
           arguments: sc.arguments,
           id: sc.id,
+          agentChatId: p.chatId,
         });
       }
     }

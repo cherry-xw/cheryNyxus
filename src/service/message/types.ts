@@ -401,6 +401,13 @@ export interface ChatContextUsageResponseData {
 
 export interface ChatSendResponseData {
   chatId: string;
+  /**
+   * 本次 send 写入的 user message 主键（= messages.id）。
+   * 前端 sendMessage 据此即时 push user prompt 到 stream.history（带 msgId），
+   * 下次 chat.get reload 时按 msgId 去重，避免重复。
+   * 缺省：旧消息写入早于本字段时为 undefined（前端按 role+createdAt 兜底）。
+   */
+  userMsgId?: string;
 }
 
 export interface RuntimeSetResponseData {
@@ -580,6 +587,12 @@ export interface StagedChunkData {
   runtime?: RuntimeSelection;
   /** 消息创建时间戳（ms），用于合并多 chat 历史时按时间排序 */
   createdAt?: number;
+  /**
+   * 消息来源 chatId（chat.get 历史回放时携带，= 当前回放的 chatId）。
+   * 前端反向溯源：filter agentChatId === X 取该 agent 完整 history，无需正向溯源。
+   * 旧消息（写入早于本字段）时为 undefined；前端按当前 chatId 兜底。
+   */
+  agentChatId?: string;
 }
 
 // ========== Notification Data ==========
@@ -652,6 +665,22 @@ export interface DoneNotificationData {
    * 前端据 finished===true 把子 pet 转 ghost（灵魂态）。主 chat 不带。done 时后端写 metadata.finished 持久化。
    */
   finished?: boolean;
+  /**
+   * 本轮末条 assistant 消息（仅 loop 结束末条为 assistant 时携带）。
+   * 前端据此实时追加进 stream.history —— PetIcons 历史圆点气泡即时显最新回复，
+   * 不再等下次 chat.get 重载才补齐（否则圆点长期显旧内容）。
+   * msgId = messages.id，供下次 chat.get 合流按 msgId 去重，避免重复。
+   * agentChatId = 该消息来源 chatId（默认 = 当前 chat 上下文；冗余携带供前端反向溯源 ——
+   * 后续可按 agentChatId filter 取该 agent 完整 history，无需正向溯源）。
+   */
+  finalMessage?: {
+    msgId: string;
+    role: "assistant";
+    content: string;
+    thinking?: string;
+    createdAt: number;
+    agentChatId?: string;
+  };
 }
 
 export interface ErrorNotificationData {

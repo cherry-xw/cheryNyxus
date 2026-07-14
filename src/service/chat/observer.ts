@@ -10,11 +10,16 @@ import { getWaitedParent } from "@/agent/spawnBroker.js";
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
  * middleware 只产出事实流，service observer 在这里集中处理 DB/approval 副作用。
+ *
+ * onUserMessageCreated（可选）：user message 落库后回调（携带 msgId）。
+ * send.ts 据此在 Response.data 回 userMsgId，前端 sendMessage 即时 push user prompt
+ * 到 stream.history 时附带 msgId，下一次 chat.get reload 时按 msgId dedup。
  */
 export async function* observeAgentChunks(
   generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
   chatId: string,
   getMessages: () => LLMResponse[],
+  onUserMessageCreated?: (msgId: string) => void,
 ): AsyncGenerator<MiddlewareChunk, void, unknown> {
   // 历史消息（loadHistory 注入）视为已落库，避免 abort flush 时重复 INSERT 触发 UNIQUE 冲突。
   const syncedIds = new Set<string>(getMessages().map((m) => m.id));
@@ -32,6 +37,10 @@ export async function* observeAgentChunks(
             runtime: chunk.message.role === "user" ? getChatSelection(chatId) : undefined,
           });
           syncedIds.add(chunk.message.id);
+          // user 消息落库后回调（send.ts 据此回 userMsgId 给前端做实时 push + msgId dedup）
+          if (chunk.message.role === "user" && onUserMessageCreated) {
+            onUserMessageCreated(chunk.message.id);
+          }
           logger.event("message.created", {
             messageId: chunk.message.id,
             role: chunk.message.role,

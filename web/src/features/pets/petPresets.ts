@@ -173,13 +173,13 @@ const HAND_PAIRS: Record<PetMood, PetHands[]> = {
     { left: "°", right: "°" }, { left: "O", right: "O" },
   ],
   sad: [
-    { left: "(", right: ")" }, { left: "╥", right: "╥" }, { left: "😭", right: "😭" },
+    { left: "(", right: ")" }, { left: "╥", right: "╥" },
     { left: "o(T", right: "To)" }, { left: ";;", right: ";;" }, { left: "💧", right: "💧" },
     { left: "〒", right: "〒" }, { left: "(ﾉ", right: "、)" },
   ],
   panicked: [
     { left: "ε=ε=ε=┏(", right: ")┛" }, { left: "ε=ε=ε=(", right: ")~" }, { left: "💦", right: "💦" },
-    { left: "😱", right: "😱" }, { left: "Σ(", right: ")" }, { left: "━", right: "━" },
+    { left: "Σ(", right: ")" }, { left: "━", right: "━" },
     { left: "╥", right: "╥" }, { left: "ヽ(", right: ")ﾉ" },
   ],
   angry: [

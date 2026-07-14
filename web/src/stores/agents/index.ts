@@ -148,10 +148,21 @@ export const useAgentsStore = defineStore("agents", () => {
     setWorking(pet, true);
     const stream = _ensureStream(streams, chatId);
     // 新一轮发送：重置实时累积。当前 pending 审批不丢失 → 移到 queue 保留（用户可从 PetIcons 重新唤起）。
-    // history 不动——历史由 getHistory 显式载入；实时消息完成不自动入 history（后端 chat.get 才是历史源）。
+    // history dirty：新轮产生新消息，缓存失效，下次 drawer 打开需 reload
     stream.thinking = "";
     stream.content = "";
     stream.isWorking = true;
+    stream.historyDirty = true;
+    // 即时 push user prompt 到 history（让 drawer 打开期间即时显自己发的消息）
+    // msgId/agentChatId 后端 response.data.userMsgId 到达后再补；若 drawer 在此之前 reload 也不会重复（user prompt 仅一条）
+    const tempMsgId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    stream.history.push({
+      role: "user",
+      content: text,
+      createdAt: Date.now(),
+      msgId: tempMsgId,
+      agentChatId: chatId,
+    });
     if (stream.approval) {
       stream.approvalQueue.push(stream.approval);
       stream.approval = undefined;
@@ -165,6 +176,15 @@ export const useAgentsStore = defineStore("agents", () => {
       if (!res.success) {
         stream.error = res.error?.message ?? "未知错误";
         console.error("[agents] sendMessage response failed:", res.error);
+        return;
+      }
+      // 后端回 userMsgId → 用真 msgId 替换临时占位符，dedup 用
+      const userMsgId = (res.data as { userMsgId?: string } | undefined)?.userMsgId;
+      if (userMsgId) {
+        const idx = stream.history.findIndex((h) => h.msgId === tempMsgId);
+        if (idx >= 0) {
+          stream.history[idx] = { ...stream.history[idx], msgId: userMsgId, agentChatId: chatId };
+        }
       }
     }).catch((e) => {
       stream.error = `连接中断: ${(e as Error).message}`;
@@ -186,6 +206,8 @@ export const useAgentsStore = defineStore("agents", () => {
     stream.thinking = "";
     stream.content = "";
     stream.isWorking = true;
+    // resume 同 sendMessage：标 dirty 让下次 drawer 打开 reload（resume 可能产生新 assistant 回复）
+    stream.historyDirty = true;
     // resume 同 sendMessage：当前审批不丢失 → 移到 queue 保留
     if (stream.approval) {
       stream.approvalQueue.push(stream.approval);
@@ -301,6 +323,22 @@ export const useAgentsStore = defineStore("agents", () => {
         ),
       ),
     ).catch(() => {});
+
+    // 主动预加载历史（drawer 打开零 RPC 命中缓存）：
+    // top-5 master + 全部后代 chat 并行 getHistory。
+    // 不阻塞初始化（fire-and-forget）；失败不报错（drawer 打开会兜底重取）。
+    const preloadTargets = new Set<string>();
+    for (const m of topMasters) {
+      preloadTargets.add(m.chatId);
+      // collectDescendantChatIds 含直接子 + 孙子（递归）
+      for (const childId of collectDescendantChatIds(chats, m.chatId)) {
+        preloadTargets.add(childId);
+      }
+    }
+    console.log("[agents] initFromChats: 预加载历史", { count: preloadTargets.size });
+    Promise.all([...preloadTargets].map((id) =>
+      getHistory(id).catch((e) => console.warn(`[agents] 预加载历史失败 ${id}:`, e)),
+    )).catch(() => {});
   }
 
   /**
@@ -359,11 +397,32 @@ export const useAgentsStore = defineStore("agents", () => {
   }
 
   /**
-   * 载入历史（HistoryDrawer 打开时调）。staged chunks 经 routeChunk 累积到 stream.history；
-   * loaded notification 标 historyLoaded=true。不 setWorking（历史载入非工作态）。
+   * 载入历史（HistoryDrawer 打开时调 / 主动预加载调）。
+   * dirty 守卫 + in-flight 去重：缓存命中或并发请求中均零额外 RPC。
+   *
    * 主 chat 载入全部后代历史并按时间合流；子 chat 自身抽屉只显示本 chat 的 direct 历史。
    */
+  // in-flight 去重：同一 chatId 并发请求 → 共享同一 Promise
+  const inFlightHistory = new Map<string, Promise<void>>();
+
   async function getHistory(chatId: string): Promise<void> {
+    // 1) 缓存命中：!dirty && loaded → 零 RPC 直接 return
+    const cur = streams.value[chatId];
+    if (cur && !cur.historyDirty && cur.historyLoaded) {
+      return;
+    }
+    // 2) 并发去重：已有同 chatId in-flight → await 同一 Promise
+    const inflight = inFlightHistory.get(chatId);
+    if (inflight) return inflight;
+
+    const p = doLoadHistory(chatId);
+    inFlightHistory.set(chatId, p);
+    // 完成后清 in-flight（finally 模式，吞错误也清理）
+    p.catch(() => {}).finally(() => inFlightHistory.delete(chatId));
+    return p;
+  }
+
+  async function doLoadHistory(chatId: string): Promise<void> {
     // 先刷新 allChatsCache（确保包含最新创建的后代 agent，避免子 spawn 孙后主 cache 缺孙的信息）
     try {
       const chats = await agentApi.listChats();
@@ -402,7 +461,7 @@ export const useAgentsStore = defineStore("agents", () => {
         .map((id) => allChatsCache.value.find((c) => c.chatId === id))
         .filter((chat): chat is ChatSummary => !!chat);
 
-      // 并行获取所有子 chat 的历史
+      // 并行获取所有子 chat 的历史（用子 chat 自己的 dirty 守卫，避免重复 RPC）
       const childHistoryPromises = childChatSummaries.map(async (childSummary) => {
         const childChatId = childSummary.chatId;
 
@@ -462,6 +521,7 @@ export const useAgentsStore = defineStore("agents", () => {
       allHistory.push(...deduped);
 
       // 通过 streams.value[chatId] 赋值（而非 stream 变量），确保 Vue 响应式系统检测到变化
+      // 注意：dirty 由 loaded notification 清（routeNotification loaded 分支），此处不重置
       streams.value[chatId] = {
         ...stream,
         history: allHistory,
@@ -501,6 +561,19 @@ export const useAgentsStore = defineStore("agents", () => {
     historyList.value = await agentApi.listChats(true);
   }
 
+  /**
+   * 标记所有已加载 stream dirty（WS 重连兜底）。
+   * disconnect 期间后端可能产生新消息（其他客户端 send、role_created 等），
+   * 重连后无法依赖 sendMessage/role_reply 隐含 dirty 触发（事件可能漏推），
+   * 故强制全标 dirty → 下次 drawer 打开必 reload 走完整合流。
+   */
+  function markAllStreamsDirty(): void {
+    for (const id in streams.value) {
+      const s = streams.value[id];
+      if (s) s.historyDirty = true;
+    }
+  }
+
   return {
     pets,
     ...ui,
@@ -520,6 +593,7 @@ export const useAgentsStore = defineStore("agents", () => {
     abort,
     ...approval,
     fetchHistoryList,
+    markAllStreamsDirty,
     getRuntime,
     setSessionRuntime,
     ...router,
