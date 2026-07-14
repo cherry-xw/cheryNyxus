@@ -30,9 +30,9 @@ build/
 .DS_Store
 Thumbs.db
 
-.chery/db
+# 运行时配置（用户本地），模板见 .chery.template/
+.chery/
 
 log/
-.chery/logs/
 
 /test/flows/**/*.db

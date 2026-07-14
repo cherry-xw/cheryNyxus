@@ -1,843 +1,164 @@
-# cheryClaw 配置文件注释文档（与 .chery/config.yaml 字段一一对应）
-#
-# 本文件是 .chery/config.yaml 的注释备份：
-#   • .chery/config.yaml 是「设置面板」保存后落盘的「纯数据」副本（无注释）。
-#   • .chery/config.yaml.example 是「手维护」的全字段注释文档，每个字段的
-#     类型 / 默认 / 合法值 / 校验 / 跨段约束 / 设置面板里的位置 / 常见示例
-#     都写在这里，供人工查阅与对照维护。
-#   • 两者字段必须保持同步：设置面板只写 .chery/config.yaml，本文件需手动维护。
-#
-# ─────────────────────────────────────────────────────────────────────────
-# 📌 配置目录与加载规则
-# ─────────────────────────────────────────────────────────────────────────
-#   • 配置目录由环境变量 CHERY_DIR 指定，默认 process.cwd()（即项目根）。
-#   • $ENV 占位符：值形如 $VAR_NAME 时，从 .env / 进程环境变量注入。
-#       ⚠️ 仅当「整段值」等于 $VAR_NAME 才注入（如 key: $OPENAI_API_KEY）。
-#       内嵌（如 https://$HOST/v1）不会被替换——这种请用整段拼接或走变量完整化。
-#   • 配置加载校验入口：src/utils/config.ts (loadConfig / validateRawConfig)。
-#   • 设置面板保存后，后端返 { needRestart: true }——必须重启后端才能生效（运行时内存单例不更新）。
-#
-# ─────────────────────────────────────────────────────────────────────────
-# 📌 配置模型（src/service/message/schemas.ts:23-123 严格校验）
-# ─────────────────────────────────────────────────────────────────────────
-#   llm.brain.*        —— AI 大脑名片（被 roles 引用）
-#   sense_groups.*     —— 感官分组（被 roles 引用）
-#   roles.*            —— 角色档案：brain + senseGroup + mcpServers + 可选 systemPrompt
-#   presets.*          —— 预设：leader 角色 type + 选中的角色 type 列表（单一源）
-#   media.*            —— 媒体服务（命名实体，按 type 区分 image/video/audio）
-#   mcp_servers.*      —— MCP server（可选；挂载走 chat.create/runtime.set.mcpServers）
-#   global.*           —— 全局开关（thinking / supervision / stream / 超时 / 日志 / 文件压缩）
-#   server.*           —— 端口 + 传输格式（不参与 config.save schema，运行时读）
-#
-# 旧「config.default」段已并入「默认」预设；预设机制是唯一入口。
-# ─────────────────────────────────────────────────────────────────────────
-#
-# ─────────────────────────────────────────────────────────────────────────
-# 📌 设置面板入口与 UI → 字段对照（参见 web/src/features/agent/settings/）
-# ─────────────────────────────────────────────────────────────────────────
-# 设置面板不是路由，是右下角 ⚙ FAB 按钮（AgentFab）触发 SettingsDialog 模态对话框。
-# 顶部 7 个 Tab（顺序固定，缺省打开「预设」）：
-#
-#   ┌─ Tab ────────────── 对应 yaml 段 ────── 文件 ─────────────────────┐
-#   │ 1. 📦 预设         presets.*         SettingsDialog/PresetsTab.vue │
-#   │ 2. 🧠 AI 大脑      llm.brain.*       BrainsTab.vue + BrainCard.vue │
-#   │ 3. 👂 感官分组     sense_groups.*    SensesTab.vue                  │
-#   │ 4. 🎭 角色         roles.*           RolesTab.vue                   │
-#   │ 5. 🔌 MCP 服务     mcp_servers.*     McpTab.vue                     │
-#   │ 6. 🖼 媒体服务     media.*           MediaTab.vue                   │
-#   │ 7. ⚙ 全局          global.*          GlobalTab.vue                  │
-#   └────────────────────────────────────────────────────────────────────┘
-#
-# ⚠️ 设置面板不编辑的字段（须手编 yaml 或后续版本补 UI）：
-#   • server.*（全部：port / transport / host / auth） — 由 config.save schema .strict() 拒绝
-#   • llm.brain.*.mock.{enabled, file}                 — MockConfig 无 UI
-#   • mcp_servers.*.env                                 — 仅 yaml 手写
-#   • global.logger / global.file_compression 对象本身  — 仅当配置中存在该对象时面板才显示编辑字段
-# ─────────────────────────────────────────────────────────────────────────
+# ============================================================
+# cheryClaw 配置模板
+# 复制本文件到 .chery/config.yaml 后按注释修改
+# $ENV_VAR 语法：运行时从环境变量注入（推荐用于 API Key）
+# ============================================================
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 0. 服务配置（端口 + 传输）— server 段
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ⚠️ 不在设置面板！schema .strict() 拒绝，运行时读：src/utils/config.ts:353-355。
-# 想改端口 / 传输 / 主机，必须直接编辑本文件并重启。
-# ─────────────────────────────────────────────────────────────────────────
-# 字段：
-#   port       (int)    WebSocket 服务端口；默认 8182
-#   transport  (enum)   "binary"（二进制帧，低开销，推荐） | "json"（JSON 字符串，便于调试）
-#   host       (str)    默认 "127.0.0.1"；内网部署改为 "0.0.0.0" 或具体内网 IP，
-#                       并置于 HTTPS 反向代理之后；不建议直接对外暴露
-#   auth       (block)  OAuth2/OIDC 管理员登录（如下方示例；启用后 SPA 强制登录）
-#
-# 场景 A：本地开发（默认）
-#   port: 8182
-#   transport: binary
-#   host: 127.0.0.1
-# ─────────────────────────────────────────────────────────────────────────
-server:
-  port: 8182                   # WebSocket 端口
-  transport: binary            # binary / json
-  host: 127.0.0.1              # 0.0.0.0 暴露公网前必须先套 HTTPS 代理
-
-  # ─────────────────────────────────────────────────────────────────
-  # 场景 B：内网 + OIDC 登录（启用后所有请求须带 HttpOnly 会话）
-  # auth.enabled=true 时，SPA 默认显示登录遮罩，且不允许公开注册。
-  # 推荐 OIDC（Keycloak / Entra ID / Auth0）的「授权码 + PKCE」流程。
-  # ─────────────────────────────────────────────────────────────────
-  # auth:
-  #   enabled: true
-  #   authorizationUrl: https://sso.intra.example/realms/chery/protocol/openid-connect/auth
-  #   tokenUrl:         https://sso.intra.example/realms/chery/protocol/openid-connect/token
-  #   userInfoUrl:      https://sso.intra.example/realms/chery/protocol/openid-connect/userinfo
-  #   clientId:     cheryclaw-ui
-  #   clientSecret: $CHERY_OAUTH_CLIENT_SECRET    # 机密客户端才需要；不要把真实密钥写入 yaml
-  #   redirectUri:  https://chery.intra.example/api/auth/callback
-  #   sessionSecret: $CHERY_AUTH_SESSION_SECRET   # 至少 32 字符；生产建议 secret manager 注入
-  #   adminUsers: [alice@example.com]             # sub / email / preferred_username 任一匹配即管理员
-  #   # adminClaim: roles                          # 可选：从 IdP 声明授予管理员
-  #   # adminValues: [admin]                      # 与 adminClaim 配对（如 IdP 角色字段）
-  #   trustedOrigins: [https://ui.intra.example]  # 独立内网 UI 层的精确 Origin 白名单
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 1. 全局段 — global  ← 设置面板：⚙ 全局 Tab
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# GlobalTab.vue 全字段。所有「宠物」共享的脾气。
-# 必填字段：thinking / supervision / stream（缺一不可，其他可选）。
-# ─────────────────────────────────────────────────────────────────────────
-# 字段速查（详细说明见各小节）：
-#   thinking                 bool   是否开启思考模式（reasoning 模型支持时推荐 true）
-#   supervision              enum   全局默认监管：auto 全自动 / confirm 关键事问你 / manual 事事问你
-#   stream                   bool   流式输出（边想边说）；非流式 = 说完一次给
-#   sense_execute_timeout    int    感官执行超时（ms），兜底 30000
-#   approval_timeout         int    审批等待（ms），超时视为拒绝（非 abort），兜底 30000
-#   maxLoopCount             int    单轮循环次数上限，兜底 30（⚠️ 调高烧钱）
-#   bash_log_retention_hours int    bash 日志保留小时数，兜底 24
-#   logger.*                 block  日志配置（面板按 v-if 存在才显示）
-#   file_compression.*       block  文件压缩配置（面板按 v-if 存在才显示）
-#
-# 监管等级优先级（由高到低）：
-#   sense_groups.<g>[i]:level  >  mcp_servers.<n>.supervision  >  global.supervision
-# 详见 src/core/config.ts:7-11 SupervisionLevel 枚举。
-# ─────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------
+# global：全局运行参数
+# 可选字段已标注 [可选]，未标注为必填
+# ------------------------------------------------------------
 global:
-  thinking: true               # 思考模式开关（reasoning 模型建议 true，否则浪费能力）
-  supervision: manual          # 全局默认监管：auto / confirm / manual
-  stream: true                 # 流式输出（false = 非流式）
-  sense_execute_timeout: 10000 # 感官执行超时（ms）；bash.ts:10 兜底 30000ms
-  approval_timeout: 30000      # 审批超时（ms）；超时视为拒绝但不 abort（兜底 30000ms）
-  maxLoopCount: 30             # 单轮循环次数上限（⚠️ 调高烧钱；兜底 30）
-  bash_log_retention_hours: 24 # bash 日志保留时长（小时；兜底 24）
-
-  # ─────────────────────────────────────────────────────────────────
-  # 1.1 logger 日志配置（设置面板内条件渲染：仅当 global.logger 存在才显示）
-  # GlobalTab.vue:81-119
-  # ⚠️ 首次添加需在 yaml 里手动写 `logger: {}` 空对象，面板才会出现编辑字段。
-  # ─────────────────────────────────────────────────────────────────
-  # 字段：
-  #   level     enum  debug | info | warn | error | silent
-  #   output    arr   console | file（可同时多选）
-  #                   含 file 时自动生成 .chery/logs/{YYYY-MM-DD}.log
-  #   timestamp bool  是否显示时间戳
-  #   location  bool  是否显示调用位置（文件名:行号）
-  #   format    enum  plain | json
-  logger:
-    level: info                # 生产建议 info；debug 极啰嗦
-    output: [file]             # 可多选：output: [console, file]（同时输出到控制台与文件）
-    timestamp: true            # false = 不显示时间戳
-    location: true             # false = 不显示调用位置
-    format: plain              # json 便于日志聚合系统消费
-
-  # ─────────────────────────────────────────────────────────────────
-  # 1.2 file_compression 文件压缩（设置面板内条件渲染：仅当 global.file_compression 存在才显示）
-  # GlobalTab.vue:121-145。仅影响 read_file 感官（截断大文件 / 日志去重）。
-  # ─────────────────────────────────────────────────────────────────
-  # 字段：
-  #   truncate_threshold     int   触发截断的字节阈值（兜底 150000 ≈ 150KB）
-  #   truncate_preview_lines int   截断时保留的行数（兜底 100）
-  #   log_file_extensions    arr   哪些扩展名走 drain 去重（默认 .log .txt .out .err）
-  #   drain_preview_count    int   drain 算法每个模板显示的实例数（兜底 3）
+  thinking: true              # 是否启用 LLM 思考模式（true/false）
+  supervision: manual         # Sense 监管等级：auto | confirm | manual
+  stream: true                # 是否流式返回（true/false）
+  sense_execute_timeout: 10000  # [可选] 单次 Sense 执行超时(ms)，默认 10000
+  approval_timeout: 30000     # [可选] 审批等待超时(ms)，默认 30000
+  bash_log_retention_hours: 24  # [可选] bash 日志保留时长(小时)，默认 24
+  textEditor: notepad         # [可选] 文本编辑器命令，默认 notepad
   file_compression:
-    truncate_threshold: 50000  # 超过此字节数触发截断
-    truncate_preview_lines: 100  # 截断保留前 N 行
-    log_file_extensions:        # 走 drain 去重的日志文件扩展名
+    truncate_threshold: 50000   # [可选] 文件截断阈值(bytes)，默认 50000
+    truncate_preview_lines: 100 # [可选] 截断前预览行数，默认 100
+    log_file_extensions:        # [可选] 视为日志文件的扩展名
       - .log
       - .txt
       - .out
       - .err
-    drain_preview_count: 3      # 每个模板展示的样例数
+    drain_preview_count: 3      # [可选] drain 预览文件数，默认 3
+  logger:
+    level: info               # [可选] 日志等级：debug|info|warn|error，默认 info
+    output:                   # [可选] 日志输出方式，默认 [file]
+      - file
+    timestamp: true           # [可选] 日志是否带时间戳，默认 true
+    location: true            # [可选] 日志是否带文件位置，默认 true
+    format: plain             # [可选] 日志格式：plain|json，默认 plain
 
-# 场景 C：完全离线 + 静默日志（CI / 桌面端打包）
-# global:
-#   thinking: false
-#   supervision: auto
-#   stream: true
-#   maxLoopCount: 5
-#   logger:
-#     level: silent
-#     output: [file]
-#     format: json
-#     timestamp: false
-#     location: false
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 2. AI 大脑（Brain） — llm.brain.*  ← 设置面板：🧠 AI 大脑 Tab
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# BrainsTab.vue + BrainCard.vue。每颗 brain 是「一张大脑名片」：provider 决定说什么方言。
-# 字段（BrainCard.vue 全覆盖）：
-#   url                    str   API 地址（支持 $ENV 占位；mock 时可省）
-#   provider               str   适配器：openai（OpenAI 兼容）| ollama | mock
-#   model                  str   模型名（必填）；面板可点 🔄 调 fetchModels 拉取
-#   key                    str   密钥（必须 $VAR_NAME 格式；如 $OPENAI_API_KEY）
-#   thinking               bool  深度思考（reasoning 模型需开）
-#   rpm                    int   每分钟请求数上限（provider 层滑动窗口限流）
-#   contextLimit           int   上下文容量（面板以 K 为单位显示，存时 ×1000 → KB）
-#   capabilities.toolCall  bool  工具调用支持（默认 true；false 时角色必须无 senseGroup/MCP）
-#   capabilities.input.*   bool  支持原生输入的多模态（image / video / audio）
-#   capabilities.generate.* bool 支持原生生成（image / video / audio；任一 true 需 toolCall≠false）
-#   mock.*                 block 仅 mock provider 用（详见 2.4）—  ⚠️ 无 UI，仅 yaml
-#
-# 校验：src/utils/config.ts:454-470（model/provider 必填；key 必须 $ENV；capabilities 联动）
-# ─────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------
+# llm.brain：LLM 大脑配置
+# 每个 key 为 brain 名称，可配置多个；至少配置一个
+# provider 支持：openai | ollama | mock
+# ------------------------------------------------------------
 llm:
   brain:
-
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.1 OpenAI 兼容大脑（商用云端，几乎所有 provider 都开 OpenAI 兼容端点）│
-    # └──────────────────────────────────────────────────────────────┘
-    zai-glm-5.2:               # brain 名（在 roles.*.brain 引用此键）
-      url: https://yz.xcherry.top:11411/v1   # API 地址
-      model: glm-5.2                        # 模型 id（必填）
-      key: $SHANG_TANG_API_KE               # 密钥（$ENV 占位，由 .env / 进程 env 注入）
-      thinking: true                        # reasoning 模型开关
-      provider: openai                      # OpenAI 兼容端点
-      rpm: 60                               # 每分钟上限（不配 = 不限流）
-      contextLimit: 1024000                 # 上下文容量（KB；1024000 KB ≈ 1M tokens 适配）
-      capabilities:
-        toolCall: true                      # 工具调用（默认 true，可省）
-        input:                              # 支持的多模态输入
-          image: true                       # glm-5.2 原生视觉：直送 OpenAI vision content array
-          video: false
-          audio: false
-
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.2 多模态图像大脑（带 input.image，视觉多模态用例）             │
-    # └──────────────────────────────────────────────────────────────┘
-    ali_glm5:                  # 「默认」预设 leader 角色 brain（FAB 兜底）
-      url: https://coding.dashscope.aliyuncs.com/v1
-      model: glm-5
-      key: $ALI_API_KEY
-      thinking: true
+    # ---- 示例 1：OpenAI 兼容 provider ----
+    my-brain:
+      url: <YOUR_OPENAI_COMPATIBLE_URL>   # 例如 https://api.openai.com/v1
+      model: <YOUR_MODEL_NAME>            # 例如 gpt-4o, glm-5.2
+      key: $API_KEY                       # 通过环境变量注入，或直写字面量
       provider: openai
-      rpm: 60
-      contextLimit: 128000
-      capabilities:
+      thinking: high                      # [可选] 思考强度：off|low|medium|high，仅推理模型支持多档
+      contextLimit: 128000                # 模型上下文窗口(tokens)
+      capabilities:                       # [可选] 模型能力声明
         input:
-          image: true             # 支持上传图片直接给模型看
-
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.3 深度推理大脑（thinking=true，reasoning 模型典型配置）         │
-    # └──────────────────────────────────────────────────────────────┘
-    deepseek:
-      url: https://api.deepseek.com
-      model: deepseek-v4-flash
-      key: $DEEPSEEK_API_KEY
-      thinking: true             # 必须开启，否则浪费推理能力
-      provider: openai
-      contextLimit: 64000
-      # 没声明 capabilities = 默认 toolCall=true，无多模态
-
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.4 本地 Ollama（无 key，url 用 $ENV 注入主机；gemma3 视觉）    │
-    # └──────────────────────────────────────────────────────────────┘
-    ollama:                    # 本地模型示例
-      url: $OLLAMA_HOST        # 如 $OLLAMA_HOST=http://localhost:11434
-      model: gemma3:1b
-      thinking: false           # 本地小模型通常不支持 reasoning
-      provider: ollama
-      contextLimit: 8192
-      capabilities:
-        input:
-          image: true           # gemma3 多模态版本支持视觉
-
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.5 RPM 限流大脑（高 QPS 服务商按配额打）                       │
-    # └──────────────────────────────────────────────────────────────┘
-    shangtang:
-      url: https://yz.xcherry.top:11411/v1
-      model: cglm-5.2
-      key: $SHANG_TANG_API_KE
-      provider: openai
-      rpm: 2                   # ⚠️ 每分钟仅 2 次；不配 = 不限流
-      contextLimit: 32768
-
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.6 长上下文大脑（contextLimit 1M 适配代码仓库全文）            │
-    # └──────────────────────────────────────────────────────────────┘
-    longcat:
-      url: https://api.longcat.chat/openai
-      model: LongCat-Flash-Thinking-2601
-      key: $LONGCAT_API_KEY
-      thinking: true
-      provider: openai
-      contextLimit: 32768
-
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.7 Mock 大脑（脚本化响应 — 离线测试 / 自动化用例）            │
-    # └──────────────────────────────────────────────────────────────┘
-    # ⚠️ BrainCard UI 不渲染 mock 字段，只能 yaml 手编！
-    # 用法：provider=mock + mock.enabled + mock.file；脚本来自 docs/mock.md
+          image: false                    # 是否支持图像输入
+        generate: {}
+    # ---- 示例 2：Mock provider（本地离线测试）----
+    # 无需网络，适合开发调试；mock 脚本见 .chery/mock/
     mock_test:
       model: mock_test
-      provider: mock                       # 必填为 "mock"
-      contextLimit: 8192
+      provider: mock
+      thinking: 'off'
       mock:
-        enabled: true                      # 缺省 true；不写 = 默认启用
-        file: mock/read_file.yaml          # 脚本路径，相对 .chery 目录
+        enabled: true
+        file: mock/read_file.yaml         # mock 响应脚本文件路径（相对于 .chery/）
+      contextLimit: 8192
+      capabilities:
+        input: {}
+        generate: {}
 
-    # ┌──────────────────────────────────────────────────────────────┐
-    # │ 2.8 关闭工具调用的大脑（纯问答 / 总结 / 写作场景）                │
-    # └──────────────────────────────────────────────────────────────┘
-    # 关键约束：capabilities.toolCall=false 的 brain，引用它的 role
-    #   禁止配置 senseGroup 或 mcpServers（validateRawConfig:498-500）。
-    # brain_pure_chat:
-    #   url: https://api.deepseek.com
-    #   model: deepseek-v4-flash
-    #   key: $DEEPSEEK_API_KEY
-    #   provider: openai
-    #   capabilities:
-    #     toolCall: false              # 关闭工具调用
-    #     # generate.* 全 false（自动）
+# ------------------------------------------------------------
+# media：媒体文件配置
+# [可选] 当前为空，按需扩展
+# ------------------------------------------------------------
+media: {}
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 3. 感官分组 — sense_groups.*  ← 设置面板：👂 感官分组 Tab
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SensesTab.vue。每组是「str[]」，元素两种写法：
-#   "工具名"             不覆盖监管，用感官内置 / 全局默认
-#   "工具名:auto|confirm|manual"  覆盖该感官监管等级
-#
-# 监管等级优先级：sense_groups 的 :level  >  感官内置声明  >  global.supervision
-# 危险工具（execute_command / write_file / destroy_role 等）面板显 ⚠ 警告。
-# 校验：src/utils/config.ts:440-452（:level 合法值校验）。
-# ─────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------
+# sense_groups：感官分组
+# 将 Sense 分组，角色通过 senseGroup 引用
+# 内置 Sense：read_file / write_file / execute_command /
+#   search_codebase / spawn_role / update_todo / skill
+# ------------------------------------------------------------
 sense_groups:
-
-  # ─────────────────────────────────────────────────────────────────
-  # 3.1 leader 主感官组（默认 / 项目 / 轻量 预设共用）
-  # 全工具配方：能读、能写、能命令、能查代码、能派子 pet
-  # ─────────────────────────────────────────────────────────────────
   leader:
-    - read_file                 # 读文件（低风险）
-    - skill                     # 调用内置/外部 Skill
-    - write_file                # 写文件（中风险）
-    - execute_command           # 执行 shell 命令（高风险）
-    - search_codebase           # 语义搜代码
-    - spawn_role                # 派子 role（planner / coder 等）
-
-  # ─────────────────────────────────────────────────────────────────
-  # 3.2 规划子 pet 组（planner）
-  # plan 组：能更新 todo + 看文件 + 派子 agent
-  # ─────────────────────────────────────────────────────────────────
+    - read_file
+    - skill
+    - write_file
+    - execute_command
+    - search_codebase
+    - spawn_role
   plan:
     - spawn_role
     - update_todo
     - skill
     - read_file
     - write_file
-
-  # ─────────────────────────────────────────────────────────────────
-  # 3.3 编码子 pet 组（coder）
-  # 标准实现配置：执行命令 + 读写 + 搜索代码
-  # ─────────────────────────────────────────────────────────────────
+    - execute_command
   coder:
     - execute_command
     - write_file
     - read_file
     - skill
     - search_codebase
-
-  # ─────────────────────────────────────────────────────────────────
-  # 3.4 评审子 pet 组（reviewer）
-  # 只读：禁止 write_file / execute_command（reviewer 不应改代码）
-  # ⚠️ 仅在组内不写就等价于「不允许」，但仍建议显式声明意图
-  # ─────────────────────────────────────────────────────────────────
   reviewer:
     - read_file
     - search_codebase
     - skill
 
-  # ─────────────────────────────────────────────────────────────────
-  # 3.5 感官级别覆盖监管（例：reviewer 想对 search_codebase 强制 auto）
-  # 写法：工具名:level，level ∈ auto | confirm | manual
-  # 注意：仅「写该工具时」的监管等级，不是全局开关
-  # ─────────────────────────────────────────────────────────────────
-  # sandboxed_reviewer:
-  #   - read_file
-  #   - search_codebase:auto       # 评审组强制 search_codebase 自动跑
-  #   - skill:manual                # skill 工具强制事事问你
-
-# 场景 D：超轻量组合（无 write_file / execute_command，仅只读）
-#   适合「只回答问题不修改代码」场景：
-# sense_groups:
-#   read_only:
-#     - read_file
-#     - search_codebase
-#     - skill
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 4. 角色 — roles.*  ← 设置面板：🎭 角色 Tab
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# RolesTab.vue。preset 与 role 是「m:n」关系——通过 type 名引用。
-# 字段（RolesTab.vue 完整覆盖）：
-#   brain          str   必填；必须是 llm.brain.* 的键
-#   senseGroup     str   必填；必须是 sense_groups.* 的键
-#   mcpServers     arr   可选；要启用的 mcp_server 名列表（与感官平权）
-#   systemPrompt   str   可选；md 路径（相对 .chery/ 或绝对）；缺省走 global.system_prompt
-#
-# 约束（validateRawConfig:491-510）：
-#   • brain 引用必须存在
-#   • systemPrompt 文件必须存在
-#   • 若 brain.capabilities.toolCall=false，禁止配置 senseGroup / mcpServers
-# ─────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------
+# roles：角色定义
+# 每个角色绑定一个 brain + senseGroup + systemPrompt
+# systemPrompt 路径相对于 .chery/
+# ------------------------------------------------------------
 roles:
-
-  # ─────────────────────────────────────────────────────────────────
-  # 4.1 通用组长（zai 大脑；默认 leader 角色）
-  # ─────────────────────────────────────────────────────────────────
   coordinator:
-    brain: zai-glm-5.2
+    brain: my-brain                     # 引用 llm.brain 中的 key
     senseGroup: leader
-    mcpServers: []                # 不挂 MCP；可挂到 mcp_servers.<n>
-
-  # ─────────────────────────────────────────────────────────────────
-  # 4.2 「默认」预设组长（ali 大脑 — FAB 兜底）
-  # ─────────────────────────────────────────────────────────────────
-  coordinator_ali:
-    brain: ali_glm5
-    senseGroup: leader
-    mcpServers: []
-
-  # ─────────────────────────────────────────────────────────────────
-  # 4.3 「项目」预设组长（带专属 systemPrompt）
-  # ─────────────────────────────────────────────────────────────────
-  coordinator_proj:
-    brain: zai-glm-5.2
-    senseGroup: leader
-    mcpServers: []
-    systemPrompt: prompts/prefebMain/leader.md   # 相对 .chery；缺省 = global.system_prompt
-
-  # ─────────────────────────────────────────────────────────────────
-  # 4.4 子 pet 角色（planner）
-  # 每个子 pet 可挂专属 systemPrompt（per-type prompt 注入）
-  # ─────────────────────────────────────────────────────────────────
-  plan:                          # planner 子 pet
-    brain: zai-glm-5.2
+    mcpServers: []                      # [可选] MCP 服务器列表
+    systemPrompt: prompts/prefebMain/leader.md
+  plan:
+    brain: my-brain
     senseGroup: plan
     mcpServers: []
     systemPrompt: prompts/prefebMain/planner.md
-
-  coder:                         # coder 子 pet
-    brain: zai-glm-5.2
+  coder:
+    brain: my-brain
     senseGroup: coder
     mcpServers: []
     systemPrompt: prompts/prefebMain/coder.md
-
-  reviewer:                      # 只读评审子 pet
-    brain: zai-glm-5.2
+  reviewer:
+    brain: my-brain
     senseGroup: reviewer
     mcpServers: []
     systemPrompt: prompts/prefebMain/reviewer.md
 
-  read_code:
-    brain: zai-glm-5.2
-    senseGroup: coder
-    mcpServers: []
-
-  read_image:
-    brain: ali_glm5
-    senseGroup: plan
-    mcpServers: []
-
-  # ─────────────────────────────────────────────────────────────────
-  # 4.5 纯问答角色（无工具）
-  # 必须用关闭 toolCall 的 brain；senseGroup / mcpServers 必须省略
-  # ─────────────────────────────────────────────────────────────────
-  # chat_only:
-  #   brain: brain_pure_chat      # 即 2.8 关 toolCall 的 brain
-  #   systemPrompt: prompts/chat/assistant.md
-
-  # ─────────────────────────────────────────────────────────────────
-  # 4.6 启用 MCP 服务的角色
-  # ─────────────────────────────────────────────────────────────────
-  # mcp_user:
-  #   brain: zai-glm-5.2
-  #   senseGroup: leader
-  #   mcpServers: [filesystem, remote]   # 引用 mcp_servers.* 键
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 5. 预设 — presets.*  ← 设置面板：📦 预设 Tab
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# PresetsTab.vue。「主 pet 编制包」：leader 角色 + 选中的角色列表 + 媒体挂载。
-# 字段（PresetsTab.vue 完整覆盖）：
-#   leader         str   必填；必须 ∈ roles.* 且 ∈ 下属 roles 列表
-#   roles          arr   可选；每个必须 ∈ roles.* 键
-#   mediaImage     str   可选；引用必须 ∈ media.* 且 type=image
-#   mediaVideo     str   可选；引用必须 ∈ media.* 且 type=video
-#   mediaAudio     str   可选；引用必须 ∈ media.* 且 type=audio
-#
-# 校验：src/utils/config.ts:514-546。
-# 主 pet 编制在运行时不可改，必须重选预设再重启。
-# 默认预设名 DEFAULT_PRESET_NAME="默认"（src/utils/config.ts:142）。
-# ─────────────────────────────────────────────────────────────────────────
+# ------------------------------------------------------------
+# presets：预设配置
+# key 为预设名，"默认" 为启动时自动加载的预设
+# workspace：工作目录路径（必填，按实际环境修改）
+# ------------------------------------------------------------
 presets:
-
-  # ─────────────────────────────────────────────────────────────────
-  # 5.1 「默认」预设（FAB 兜底；ali 大脑 + 全组员）
-  # ─────────────────────────────────────────────────────────────────
-  默认:                          # 中文预设名也合法
-    leader: coordinator_ali
+  默认:
+    leader: coordinator                 # 主角色（leader brain）
     roles:
-      - coordinator_ali         # leader 必须在 roles 内（validateRawConfig:519-524）
-      - read_code
-      - read_image
       - plan
       - coder
-      # mediaImage / mediaVideo / mediaAudio 可挂载，但需先在 media.* 定义
-      # mediaImage: aliyun_ocr  # 引用 media.aliyun_ocr（type=image）
-
-  # ─────────────────────────────────────────────────────────────────
-  # 5.2 hole 预设（zai 大脑 + plan/coder；缺 reviewer）
-  # ─────────────────────────────────────────────────────────────────
-  hole:
-    leader: coordinator
-    roles:
       - coordinator
-      - plan
-      - coder
-
-  # ─────────────────────────────────────────────────────────────────
-  # 5.3 项目预设（zai + reviewer；多角色分工）
-  # ─────────────────────────────────────────────────────────────────
-  项目:
-    leader: coordinator_proj
-    roles:
-      - coordinator_proj
-      - plan
-      - coder
       - reviewer
+    workspace: <YOUR_WORKSPACE_PATH>    # 修改为你的实际工作目录
 
-  # ─────────────────────────────────────────────────────────────────
-  # 5.4 轻量预设（单 agent 自管 todo；无组员）
-  # ⚠️ 轻量预设编制锁定后不可 spawn（roles 仅 1 个 leader）
-  # ─────────────────────────────────────────────────────────────────
-  轻量:
-    leader: coordinator
-    roles:
-      - coordinator
+# ------------------------------------------------------------
+# server：服务监听配置
+# [可选] 以下为默认值，按需修改
+# ------------------------------------------------------------
+server:
+  port: 8182              # WebSocket 端口
+  transport: binary       # 传输格式：binary|json
+  host: 127.0.0.1         # 监听地址
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 6. 媒体服务 — media.*  ← 设置面板：🖼 媒体服务 Tab
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# MediaTab.vue。命名服务集合（key = 任意服务名）；按 type 区分 image/video/audio。
-# 字段（MediaTab.vue 完整覆盖）：
-#   type        enum  必填：image | video | audio
-#   url         str   启用时必填（validateRawConfig:480-482）
-#   model       str   可选
-#   key         str   可选；必须 $VAR_NAME 格式
-#   enabled     bool  true = 走媒体网关；false = 走 brain 原生多模态
-#   maxUploadMb int   单文件上限（zod .positive()；兜底 100）
-#
-# 用法：preset 通过 mediaImage / mediaVideo / mediaAudio 字段按 type 引用。
-# 校验：src/utils/config.ts:472-488；src/service/media/index.ts:40 maxUploadMb 兜底。
-# ─────────────────────────────────────────────────────────────────────────
-
-  # ─────────────────────────────────────────────────────────────────
-  # 6.1 图片理解网关（用户在设置面板「媒体服务」Tab 新增图片网关）
-  # ─────────────────────────────────────────────────────────────────
-  # media:
-  #   aliyun_ocr:
-  #     type: image                    # 必填
-  #     url: https://your-media-gateway.example.com/v1/understand
-  #     model: vision-v1
-  #     key: $MEDIA_GATEWAY_KEY        # $ENV 占位
-  #     enabled: false                 # ⚠️ 默认 false；脑无原生视觉时改 true
-  #     maxUploadMb: 100               # 单文件 MiB 上限
-
-  #   video_gate:
-  #     type: video
-  #     url: https://your-media-gateway.example.com/v1/understand
-  #     model: video-u-v1
-  #     enabled: false
-
-  #   audio_gate:
-  #     type: audio
-  #     url: https://your-media-gateway.example.com/v1/understand
-  #     model: audio-u-v1
-  #     enabled: false
-
-# 未配置 media 整段：上传走 .chery/media/<uuid>.<ext> 落盘但不上网关（理解结果为空）
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 7. MCP server — mcp_servers.*  ← 设置面板：🔌 MCP 服务 Tab
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# McpTab.vue。每个 server 的 tools/resources/prompts 启动时映射为 Sense：
-#   mcp__<server>__<tool|read_resource|get_prompt>
-# 字段（McpTab.vue 完整覆盖）：
-#   transport    enum  必填：stdio（本地子进程） | streamable-http（远程 HTTP）
-#   command      str   stdio 用——启动命令（如 npx、python）
-#   args         arr   stdio 用——参数数组（panel 内逗号分隔输入）
-#   url          str   streamable-http 用——远程 MCP endpoint
-#   supervision  enum  可选 server 级默认监管：auto / confirm / manual（缺省走 global）
-#   env          obj   可选——stdio 用——传给子进程的环境变量（$ENV 占位）
-#                       ⚠️ 此字段在设置面板无 UI，只能 yaml 手编
-#
-# 监管优先级：sense_groups.*[i]:level  >  mcp_servers.<n>.supervision  >  global.supervision
-# ⚠️ 热重载：通过 mcp.reload RPC 单独刷新本段（其他段不热更）。
-# ─────────────────────────────────────────────────────────────────────────
-
-# ─────────────────────────────────────────────────────────────────
-# 7.1 本地文件系统 MCP（stdio）
-# ─────────────────────────────────────────────────────────────────
-# mcp_servers:
-#   filesystem:
-#     transport: stdio
-#     command: npx
-#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-#     supervision: confirm             # server 级默认监管；不配走 global.supervision
-#     # env:                           # ⚠️ 仅 yaml 手编
-#     #   DEBUG: "1"
-#     #   API_KEY: $FILESYSTEM_API_KEY
-
-# ─────────────────────────────────────────────────────────────────
-# 7.2 远程 MCP（streamable-http）
-# ─────────────────────────────────────────────────────────────────
-#   remote:
-#     transport: streamable-http
-#     url: http://localhost:8081/mcp
-#     supervision: auto                # 远程 server 强制 auto 时需谨慎
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 8. 场景示例集（按需取用，复制后调整）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#
-# ┌──────────────────────────────────────────────────────────────┐
-# │ 场景 A：纯本地 + Ollama（断网开发）                            │
-# │ 特点：零外部依赖、本地推理、纯只读感官                         │
-# └──────────────────────────────────────────────────────────────┘
-# global:
-#   thinking: false
-#   supervision: manual
-#   stream: true
-#   maxLoopCount: 10
-#
-# llm:
-#   brain:
-#     ollama_local:
-#       url: http://localhost:11434/v1
-#       model: qwen2.5:7b
-#       provider: ollama
-#       contextLimit: 32000
-#
-# sense_groups:
-#   local_readonly:
-#     - read_file
-#     - search_codebase
-#     - skill
-#
-# roles:
-#   local_assistant:
-#     brain: ollama_local
-#     senseGroup: local_readonly
-#
-# presets:
-#   默认:
-#     leader: local_assistant
-#     roles: [local_assistant]
-#
-# ┌──────────────────────────────────────────────────────────────┐
-# │ 场景 B：多模态视觉（图片→描述）                               │
-# │ 特点：brain 自带 input.image + media 网关兜底                  │
-# └──────────────────────────────────────────────────────────────┘
-# llm:
-#   brain:
-#     vision_brain:
-#       url: https://api.openai.com/v1
-#       model: gpt-4o
-#       key: $OPENAI_API_KEY
-#       provider: openai
-#       contextLimit: 128000
-#       capabilities:
-#         input:
-#           image: true             # 原生视觉
-#         # generate.*: 不开（仅理解，不生成）
-#
-# media:
-#   fallback_ocr:
-#     type: image
-#     url: https://your-media-gateway.example.com/v1/understand
-#     model: vision-v1
-#     key: $MEDIA_GATEWAY_KEY
-#     enabled: true                # 当 brain 无原生视觉时的兜底
-#     maxUploadMb: 50
-#
-# roles:
-#   vision_role:
-#     brain: vision_brain
-#     senseGroup: leader
-#
-# presets:
-#   默认:
-#     leader: vision_role
-#     roles: [vision_role]
-#     mediaImage: fallback_ocr     # preset 按 type 挂载媒体
-#
-# ┌──────────────────────────────────────────────────────────────┐
-# │ 场景 C：多 MCP 角色（filesystem + remote）                    │
-# │ 特点：感官 + MCP 混合；监管覆盖优先级示范                       │
-# └──────────────────────────────────────────────────────────────┘
-# mcp_servers:
-#   filesystem:
-#     transport: stdio
-#     command: npx
-#     args: ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
-#     supervision: confirm         # 文件操作默认 confirm
-#   remote_weather:
-#     transport: streamable-http
-#     url: http://localhost:8081/mcp
-#     supervision: auto            # 远程只读默认 auto
-#
-# roles:
-#   dev_with_mcp:
-#     brain: zai-glm-5.2
-#     senseGroup: leader
-#     mcpServers: [filesystem, remote_weather]
-#
-# sense_groups:
-#   leader:
-#     - read_file
-#     - write_file
-#     - execute_command:manual     # 命令强制事事问你
-#     - search_codebase
-#
-# presets:
-#   默认:
-#     leader: coordinator
-#     roles: [coordinator, dev_with_mcp]
-#
-# ┌──────────────────────────────────────────────────────────────┐
-# │ 场景 D：离线自动化测试（Mock provider）                       │
-# │ 特点：零 LLM 成本、脚本化响应、可回放                          │
-# └──────────────────────────────────────────────────────────────┘
-# llm:
-#   brain:
-#     test_mock:
-#       model: integration_test    # 任意名
-#       provider: mock
-#       contextLimit: 4096
-#       mock:
-#         enabled: true
-#         file: mock/integration.yaml
-#
-# roles:
-#   test_driver:
-#     brain: test_mock
-#     senseGroup: leader
-#
-# presets:
-#   默认:
-#     leader: test_driver
-#     roles: [test_driver]
-#
-# ┌──────────────────────────────────────────────────────────────┐
-# │ 场景 E：内网 + OAuth2 / OIDC 登录                            │
-# │ 详见 server.auth 子段（本文 0 节）；启用后 SPA 强制登录         │
-# └──────────────────────────────────────────────────────────────┘
-# server:
-#   port: 8182
-#   transport: binary
-#   host: 0.0.0.0
-#   auth:
-#     enabled: true
-#     authorizationUrl: https://sso.intra.example/realms/chery/protocol/openid-connect/auth
-#     tokenUrl:         https://sso.intra.example/realms/chery/protocol/openid-connect/token
-#     userInfoUrl:      https://sso.intra.example/realms/chery/protocol/openid-connect/userinfo
-#     clientId:     cheryclaw-ui
-#     clientSecret: $CHERY_OAUTH_CLIENT_SECRET
-#     redirectUri:  https://chery.intra.example/api/auth/callback
-#     sessionSecret: $CHERY_AUTH_SESSION_SECRET
-#     adminUsers: [alice@example.com]
-#     trustedOrigins: [https://ui.intra.example]
-#
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 9. 附录
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#
-# ▍ 9.1 设置面板 → 字段速查（完整对照见 docs/utils/config.md）
-#   ⚙ 全局        GlobalTab.vue          web/src/features/agent/settings/tabs/
-#   🧠 AI 大脑     BrainsTab.vue          （BrainsTab + BrainCard + MediaCapabilityGrid）
-#   👂 感官分组    SensesTab.vue
-#   🎭 角色        RolesTab.vue
-#   📦 预设        PresetsTab.vue
-#   🔌 MCP 服务    McpTab.vue
-#   🖼 媒体服务    MediaTab.vue
-#   ⚙ 服务（server）不在设置面板！手编 yaml + 重启生效
-#
-# ▍ 9.2 字段默认值兜底（运行时硬编码，src/utils/config.ts）
-#   server.port                 = 8182
-#   server.transport            = "binary"（仅当显式 "json" 时才取）
-#   server.host                 = "127.0.0.1"
-#   global.skills_dir           = <chery_dir>/.chery/skills
-#   global.senses_dir           = <chery_dir>/.chery/senses
-#   global.system_prompt        = <chery_dir>/.chery/system.md
-#   global.prompts_dir          = <chery_dir>/.chery/prompts
-#   global.db_dir               = $DB_DIR || <chery_dir>/.chery/db
-#   global.sense_execute_timeout = 30000ms（business.ts:10）
-#   media.*.maxUploadMb         = 100  MB（media/index.ts:40）
-#   brain.contextLimit           = 8192 token（token.ts:17）
-#   capabilities.toolCall        = true（缺省）
-#   roles.*.mcpServers          = []
-#   mock.enabled                = true
-#   file_compression.truncate_threshold     = 150000
-#   file_compression.truncate_preview_lines = 100
-#   file_compression.drain_preview_count    = 3
-#   log_file_extensions 默认         = ["log", "txt", "out", "err"]（按扩展名）
-#
-# ▍ 9.3 字段交叉校验（validateRawConfig @ src/utils/config.ts:422-549）
-#   1. global.supervision ∈ {auto, confirm, manual}
-#   2. mcp_servers.*.supervision ∈ {auto, confirm, manual}（可选）
-#   3. sense_groups.*[i] 后缀 ∈ {auto, confirm, manual}
-#   4. llm.brain.* 非空；每条 model/provider 必填
-#   5. llm.brain.*.capabilities.generate.* 任一为 true ⇒ toolCall ≠ false
-#   6. llm.brain.*.key / media.*.key 必须 ∈ /^\$[A-Z_][A-Z0-9_]*$/
-#   7. media.*.type ∈ {image, video, audio}
-#   8. media.*.enabled=true ⇒ url 必须存在
-#   9. roles.*.brain ∈ llm.brain.* 键集合
-#  10. roles.*.brain.toolCall=false ⇒ 禁止 senseGroup / mcpServers
-#  11. roles.*.systemPrompt 文件必须存在（绝对路径或相对 .chery）
-#  12. presets.*.leader 必填 + ∈ roles.* 键 + ∈ 自己 roles 列表
-#  13. presets.*.roles[*] 全 ∈ roles.* 键
-#  14. presets.*.mediaImage/Video/Audio 引用 ∈ media.* 且 type 匹配
-#
-# ▍ 9.4 UI 不暴露 / 需手编 yaml 的字段清单
-#   ┌─────────────────────────────────┬───────────────────────────────┐
-#   │ 字段                            │ 原因                          │
-#   ├─────────────────────────────────┼───────────────────────────────┤
-#   │ server.port / transport / host  │ schema .strict() 拒收          │
-#   │ server.auth.*                   │ 同上                           │
-#   │ llm.brain.*.mock.{enabled,file} │ BrainCard.vue 不渲染           │
-#   │ mcp_servers.*.env               │ McpTab.vue 不渲染              │
-#   │ global.logger 对象本身          │ GlobalTab.vue v-if 存在性       │
-#   │ global.file_compression 对象本身│ GlobalTab.vue v-if 存在性       │
-#   │ roles.*.systemPrompt 绝对路径    │ cascader 只对 prompts/ 建树    │
-#   └─────────────────────────────────┴───────────────────────────────┘
-#
-# ▍ 9.5 写入流程（端到端）
-#   设置面板编辑 → config.save RPC → handler.handleConfigSave
-#                 → saveRawConfig (src/utils/config.ts:570)
-#                 → validateRawConfig (config.ts:422)【失败 INVALID_PARAMS + 错误明细】
-#                 → 合并 server 段从盘读回保留
-#                 → yaml.dump → 写盘
-#                 → 返 { needRestart: true }
-#   ⚠️ 后端运行时内存单例不更新，必须重启；mcp.reload 单独热更 mcp_servers。
-#
-# ▍ 9.6 主数据流参考
-#   chat.send → RPC router → AgentBuilder.run → Middleware 链（checkpoint→sense→retry→chat）
-#   → LLM 流式 → service observer（DB 持久化 + 审批注册）→ WebSocket 推送
+# ------------------------------------------------------------
+# memory：长期记忆参数
+# [可选]
+# ------------------------------------------------------------
+memory:
+  max_count: 15           # 单次对话最大记忆条数
+  max_chars: 500          # 单条记忆最大字符数
