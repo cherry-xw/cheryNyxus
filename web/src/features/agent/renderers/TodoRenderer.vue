@@ -1,29 +1,31 @@
 <script setup lang="ts">
 /**
- * TodoSenseBox：update_todo 专用渲染（替换通用 SenseCallBox 的 JSON 平铺）。
- * 读 call.args（后端契约 JSON 字符串 {todos:[{content,status,activeForm}]}）→ checklist。
- * status：pending ☐ / in_progress ▣（+ activeForm 副标题）/ completed ✓（strikethrough）。
- * 解析失败 → fallback 显原文 JSON pre（规则12：不静默吞错，warn 留 console）。
+ * TodoRenderer：update_todo 专用渲染器。
+ *
+ * 职责：只负责显示，不处理业务逻辑。
+ * - 参数解析由分发器预处理，渲染器直接消费类型安全的 parsedArgs
+ * - 降级策略：解析失败显示原始 JSON（已由分发器兜底）
+ *
+ * 与原 TodoSenseBox 的区别：
+ * - 不重复定义 TodoItem 接口（从 types.ts 导入）
+ * - 不处理参数解析（由分发器统一处理）
+ * - 使用共享的 RendererProps 契约
  */
 import { computed } from "vue";
-import type { SenseCallRecord } from "@/stores/agents";
+import type { RendererProps, TodoItem, UpdateTodoArgs } from "./types";
 
-interface TodoItem {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-  activeForm?: string;
-}
+const props = defineProps<RendererProps>();
 
-const props = defineProps<{ call: SenseCallRecord }>();
-
-const parsed = computed<{ todos: TodoItem[] } | null>(() => {
+// 类型安全的参数访问
+const parsed = computed<UpdateTodoArgs | null>(() => {
   try {
+    // args 可能是 JSON 字符串或对象
     const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
     const obj = JSON.parse(raw) as { todos?: TodoItem[] };
     if (Array.isArray(obj.todos)) return { todos: obj.todos };
     return null;
   } catch (e) {
-    console.warn("[TodoSenseBox] args 解析失败，退化 JSON 显示", e);
+    console.warn("[TodoRenderer] args 解析失败，退化 JSON 显示", e);
     return null;
   }
 });

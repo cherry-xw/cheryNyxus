@@ -16,8 +16,7 @@ import { computed, ref } from "vue";
 import type { HistoryItem } from "@/stores/agents";
 import { renderMarkdown } from "@/utils/markdown";
 import { formatTime } from "@/utils/formatTime";
-import SenseCallBox from "./SenseCallBox.vue";
-import TodoSenseBox from "./TodoSenseBox.vue";
+import { SenseCallRenderer } from "./renderers/index";
 import MessageAvatar from "./MessageAvatar.vue";
 import MediaInlineRenderer from "./dialog/media/MediaInlineRenderer.vue";
 
@@ -123,10 +122,12 @@ const emit = defineEmits<{
         />
       </div>
       <div v-if="hasSenseCalls" class="sense-list">
-        <template v-for="(call, idx) in props.item.senseCalls" :key="call.id ?? `${call.name}-${idx}`">
-          <TodoSenseBox v-if="call.name === 'update_todo'" :call="call" />
-          <SenseCallBox v-else :call="call" :id="call.id ? `sensecall-${call.id}` : `sensecall-idx-${idx}`" />
-        </template>
+        <SenseCallRenderer
+          v-for="(call, idx) in props.item.senseCalls"
+          :key="call.id ?? `${call.name}-${idx}`"
+          :call="call"
+          :id="call.id ? `sensecall-${call.id}` : `sensecall-idx-${idx}`"
+        />
       </div>
     </div>
   </div>

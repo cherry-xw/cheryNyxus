@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, provide, ref } from "vue";
 import PetStage from "@/features/pets/PetStage.vue";
 import AgentFab from "@/features/agent/AgentFab.vue";
 import AgentDialog from "@/features/agent/AgentDialog.vue";
 import HistoryDrawer from "@/features/agent/HistoryDrawer.vue";
 import SessionList from "@/features/agent/SessionList.vue";
 import SettingsDialog from "@/features/agent/settings/SettingsDialog.vue";
+import { createHistoryDrawerManager, HISTORY_DRAWER_MANAGER_KEY } from "@/features/agent/useHistoryDrawerManager";
 import { useConnectionStore, useAgentsStore } from "@/stores";
 import { wsClient } from "@/services/ws";
 import { httpUrl } from "@/services/http";
 
 const authChecked = ref(false);
 const authenticated = ref(false);
+
+// 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
+provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager());
 
 function startLogin(): void {
   window.location.assign(httpUrl(`/api/auth/login?returnTo=${encodeURIComponent(window.location.pathname || "/")}`));

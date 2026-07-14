@@ -23,7 +23,7 @@ export type { SenseCallRecord, HistoryItem, ApprovalState, StreamState, RunningT
  *
  * - pets: PetInstance[] —— chat.list + chunk/notification 驱动（CP1 由 initFromChats 重建）
  * - streams: Record<chatId, StreamState> —— chunk 按 requestId→chatId 路由累积
- * - activeDialogChatId / activeHistoryChatId —— UI 焦点（CP2+ 弹窗/抽屉用）
+ * - activeDialogChatId / historyDrawerStack —— UI 焦点（CP2+ 弹窗/抽屉用；抽屉栈支持 spawn 多级下钻，逐层返回）
  *
  * routeChunk/routeNotification 由 App.vue 订阅 wsClient 回调注入。
  */
@@ -98,9 +98,8 @@ export const useAgentsStore = defineStore("agents", () => {
     if (ui.activeDialogChatId.value && removeIds.includes(ui.activeDialogChatId.value)) {
       ui.activeDialogChatId.value = null;
     }
-    if (ui.activeHistoryChatId.value && removeIds.includes(ui.activeHistoryChatId.value)) {
-      ui.activeHistoryChatId.value = null;
-    }
+    // 抽屉栈：移除所有被删 chat（深层下钻中被删 chat 的层一并清理）
+    ui.pruneHistoryStack(removeIds);
   }
 
   // ── 模块初始化（按依赖顺序） ──
@@ -365,6 +364,14 @@ export const useAgentsStore = defineStore("agents", () => {
    * 主 chat 载入全部后代历史并按时间合流；子 chat 自身抽屉只显示本 chat 的 direct 历史。
    */
   async function getHistory(chatId: string): Promise<void> {
+    // 先刷新 allChatsCache（确保包含最新创建的后代 agent，避免子 spawn 孙后主 cache 缺孙的信息）
+    try {
+      const chats = await agentApi.listChats();
+      allChatsCache.value = chats;
+    } catch (e) {
+      console.warn("[agents] getHistory: 刷新 allChatsCache 失败，使用缓存", e);
+    }
+
     const { requestId, done } = agentApi.getHistory(chatId);
     router.trackRequest(requestId, chatId);
     // ensureStream 已就绪累积；reset history 防止重复载入累积两份

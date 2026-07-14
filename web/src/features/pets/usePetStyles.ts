@@ -1,4 +1,4 @@
-import { computed } from "vue";
+import { computed, watchEffect } from "vue";
 import type { Ref } from "vue";
 import type { StreamState } from "@/stores";
 import { useAgentsStore } from "@/stores";
@@ -109,7 +109,29 @@ export function usePetStyles(
   );
   const hasTodoData = computed(() => {
     const h = stream()?.history;
-    return !!h && h.some((it) => it.senseCalls?.some((c) => c.name === "update_todo"));
+    const hasInHistory = !!h && h.some((it) => it.senseCalls?.some((c) => c.name === "update_todo"));
+    // 也检查 runningTools（实时运行中的 sense），使 TodoPanel 在子 agent 开始执行时能立即显示
+    const hasInRunning = (stream()?.runningTools ?? []).some((t) => t.name === "update_todo");
+    return hasInHistory || hasInRunning;
+  });
+  // TEMP DEBUG（定位 TodoPanel 不显示后删除）
+  watchEffect(() => {
+    const p = pet();
+    const sg = p.runtime?.senseGroup;
+    if (sg !== "plan" && sg !== "leader") return;
+    const s = stream();
+    const hist = s?.history ?? [];
+    const ut = hist.some((it) => it.senseCalls?.some((c) => c.name === "update_todo"));
+    console.log("[TodoDebug]", p.chatId?.slice(0, 8), {
+      sg, ghost: p.isGhost,
+      todoEnabled: todoEnabled.value,
+      hasTodoData: hasTodoData.value,
+      hasStream: !!s,
+      hLen: hist.length,
+      utInHist: ut,
+      running: s?.runningTools?.map((t) => t.name) ?? [],
+      sgsLoaded: agents.senseGroupsResolved.map((g) => `${g.name}:${g.senses.includes("update_todo")}`),
+    });
   });
   const todoPanelStyle = computed(() => ({
     position: "absolute" as const,

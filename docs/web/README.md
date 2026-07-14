@@ -133,3 +133,4 @@ App.vue → RouterView（router 路由表）
 - **加 Electron IPC**：[electron/main.ts](../../web/electron/main.ts) 启用 preload；新增 `web/electron/preload.ts`（`contextBridge` 暴露安全 API）；[tsconfig.node.json](../../web/tsconfig.node.json) `include` 加 preload。详见 [./electron.md](./electron.md#扩展点)。
 - **Electron 打包**：[./electron.md](./electron.md) 集成 + [./pack-guide.md](./pack-guide.md) 操作手册；构建脚本 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)（下载 Node 22 LTS + 拉 better-sqlite3 预编译）+ [web/electron-builder.yml](../../web/electron-builder.yml)。
 - **Element Plus 按需引入**：当前全量注册（`app.use(ElementPlus)`）；换 `unplugin-vue-components` + `unplugin-auto-import` 减包体。
+- **扩展工具渲染器**：为内置工具添加专用 UI 显示（如 `execute_command`、`read_file`）。在 [web/src/features/agent/renderers/](../../web/src/features/agent/renderers/) 下创建渲染器组件并注册。详见 [./renderer.md](./renderer.md)。

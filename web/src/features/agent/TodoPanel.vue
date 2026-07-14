@@ -4,17 +4,13 @@
  * 显示条件（父 PetSprite 门控）：pet 的 senseGroups（经 sense.list 解析）含 update_todo 且有内容。
  * 数据：streams[pet.chatId].history walk back 最近一次 update_todo senseCall 的 args.todos。
  * 只读 checklist（pending ☐ / in_progress ▣ / completed ✓+strikethrough）。无聚合（每 pet 显自己 todo）。
+ * 支持实时显示：当 runningTools 中有 update_todo 时，显示"执行中"占位符。
  */
 import { computed } from "vue";
 import type { PetInstance } from "@/features/pets/types";
 import { useAgentsStore } from "@/stores";
 import type { SenseCallRecord } from "@/stores/agents";
-
-interface TodoItem {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-  activeForm?: string;
-}
+import type { TodoItem } from "./renderers/types";
 
 const props = defineProps<{ pet: PetInstance }>();
 const agents = useAgentsStore();
@@ -42,6 +38,12 @@ const todos = computed<TodoItem[]>(() => {
   return [];
 });
 
+/** 检查 runningTools 中是否有 update_todo（实时执行中） */
+const isRunning = computed(() => {
+  const stream = agents.streams[props.pet.chatId];
+  return (stream?.runningTools ?? []).some((t) => t.name === "update_todo");
+});
+
 const doneCount = computed(() => todos.value.filter((t) => t.status === "completed").length);
 const statusGlyph = (s: TodoItem["status"]): string =>
   s === "completed" ? "✓" : s === "in_progress" ? "▣" : "☐";
@@ -52,7 +54,7 @@ const statusGlyph = (s: TodoItem["status"]): string =>
     <div class="panel-head">
       <span class="head-icon" aria-hidden="true">📋</span>
       <span class="head-title">待办</span>
-      <span class="head-count">{{ doneCount }}/{{ todos.length }}</span>
+      <span v-if="todos.length" class="head-count">{{ doneCount }}/{{ todos.length }}</span>
     </div>
     <ul v-if="todos.length" class="panel-list">
       <li v-for="(t, i) in todos" :key="i" class="panel-item" :class="`is-${t.status}`">
@@ -63,6 +65,10 @@ const statusGlyph = (s: TodoItem["status"]): string =>
         </span>
       </li>
     </ul>
+    <div v-else-if="isRunning" class="panel-loading">
+      <span class="loading-icon" aria-hidden="true">⏳</span>
+      <span class="loading-text">加载待办…</span>
+    </div>
     <span v-else class="empty">暂无待办</span>
   </div>
 </template>
@@ -168,6 +174,34 @@ const statusGlyph = (s: TodoItem["status"]): string =>
   font-size: 9.5px;
   font-style: italic;
   color: fade(@ink, 44%);
+}
+
+.panel-loading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+
+  .loading-icon {
+    font-family: @glyph-fonts;
+    font-size: 10px;
+    animation: tp-spin 1.5s linear infinite;
+  }
+
+  .loading-text {
+    font-size: 9.5px;
+    font-style: italic;
+    color: fade(@ink, 56%);
+  }
+}
+
+@keyframes tp-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes tp-pulse {

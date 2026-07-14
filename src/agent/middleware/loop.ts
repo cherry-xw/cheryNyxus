@@ -1,4 +1,4 @@
-import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk, ChildDoneChunk } from "@/core/middleware/types";
+import type { MiddlewareContext, LoopHandler, ErrorChunk, DoneChunk, ChildYieldChunk, ChildDoneChunk } from "@/core/middleware/types";
 import type { MiddlewareChunk } from "./index";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
@@ -143,22 +143,41 @@ export function createLoopHandler(
 
     logger.event("loop.end", { iterations: times });
 
-    // T9：本 chat 是被 wait 的子（waitedChildren 命中）→ loop 正常结束即子任务完成，
-    // yield child_done 携末条 assistant content（注入主 chat 的回复）。service observer 消费 → wakeParent 唤主。
+    // T9：本 chat 是被 wait 的子（waitedChildren 命中）→ loop 结束时判断是"本轮暂停"还是"真正完成"。
+    // - yieldTurn=true（spawn 孙 agent wait=true 触发）→ yield child_yield（不唤醒主，不设 finished）
+    // - yieldTurn=false（无 spawn 孙或所有任务完成）→ yield child_done（唤醒主，设 finished）
     // getWaitedParent 守卫：仅被 wait 的子 chat 发，过滤主 agent / wait=false 子（也跑 loop 但无唤醒链）。
     // 注：runChain 内 throw 路径下不执行此处（throw 跳过），子 error 由 observer catch → wakeParent(error)。
-    // failed 时不 yield child_done：错误路径下由 observer catch 走 wakeParent(error)。
+    // failed 时不 yield child_yield/child_done：错误路径下由 observer catch 走 wakeParent(error)。
     if (!failed) {
       const waited = getWaitedParent(ctx.soul.chatId);
       if (waited) {
         const result =
           ctx.journal.getMessages().filter(m => m.role === "assistant").pop()?.content || "";
-        const childDone: ChildDoneChunk = {
-          type: "child_done",
-          childChatId: ctx.soul.chatId,
-          content: result,
-        };
-        yield childDone;
+
+        // 区分 yield turn 和真正完成
+        // 注意：第 24 行在 loop 开始时重置 yieldTurn=false
+        // spawn sense 在 runChain 期间设置 yieldTurn=true（spawn.ts:211）
+        // 所以这里检查的是 runChain 期间是否设置了 yieldTurn
+        if (ctx.soul.yieldTurn) {
+          // yield turn：本轮暂停，不唤醒主，不设 finished
+          const childYield: ChildYieldChunk = {
+            type: "child_yield",
+            childChatId: ctx.soul.chatId,
+            content: result,
+          };
+          yield childYield;
+          logger.event("loop.child_yield", { childChatId: ctx.soul.chatId });
+        } else {
+          // 真正完成：唤醒主，设 finished
+          const childDone: ChildDoneChunk = {
+            type: "child_done",
+            childChatId: ctx.soul.chatId,
+            content: result,
+          };
+          yield childDone;
+          logger.event("loop.child_done", { childChatId: ctx.soul.chatId });
+        }
       }
     }
 

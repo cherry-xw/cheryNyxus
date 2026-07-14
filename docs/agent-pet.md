@@ -184,9 +184,12 @@ sense("spawn_role", spawnDescription,   // = "派发子 agent..." + 每类型 br
 
 ### 5.6 子 agent done 转 ghost（灵魂态）
 
-子 agent done 后不删 chat、不移除 pet，转为 ghost 可视化遗迹保留：
+子 agent **真正完成**后不删 chat、不移除 pet，转为 ghost 可视化遗迹保留：
 
-- **后端**（[streamMapper.ts](../../src/service/chat/streamMapper.ts) done 分支）：子 chat（`parent_chat_id` 非空）done 时 `updateChatMetadata(chatId, { finished: true })`，并在 done notification data 增 `finished:true`（主 chat 不带）。chat 保留供 `chat.get` 查历史。
+- **后端**（[observer.ts](../../src/service/chat/observer.ts) child_done 分支）：子 agent yield `child_done` chunk 时（表示真正完成），`updateChatMetadata(chatId, { finished: true })` 标记完成。
+- **区分 yield turn 和真正完成**：
+  - `child_yield` chunk：子 agent 本轮暂停（spawn 孙 agent wait=true 后 yield turn），**不设 finished**，子 agent 保持活跃状态等待孙 agent 完成。
+  - `child_done` chunk：子 agent 真正完成（所有任务执行完毕），设 `finished=true`，前端据此变 ghost。
 - **chat.list 暴露 finished**（[handler.ts](../../src/service/chat/handler.ts) `handleChatList`）：解析 `metadata.finished` 映射到 `ChatSummary.finished`，刷新后前端据 `finished` 重建 ghost pet。
 - **前端 ghost 化**（[stores/agents](../../web/src/stores/agents/index.ts)）：done notification `finished===true` → 子 pet `isGhost=true` + pick `ghostFace`（灵魂 emoji 池，**按 tribe 内创建序号顺序取** `GHOST_FACES[N % 池长]`，N=本主已存在 ghost 数；非随机、不跨实例去重--同主 ghost 固定序列 0,1,2...，不同主可同 emoji）；`buildMasterAndChildren` 重建 finished 子 pet 同样设 `isGhost`，N 按 children 迭代顺序（= `ghostCreatedAt` 队列顺序，face 与队列位一一对应）。
 - **ghost 视觉**（[PetSprite.vue](../../web/src/features/pets/PetSprite.vue)）：独立形态——尺寸缩 0.42、去左右手、face 换灵魂 emoji、动画极简（微浮，不走 action/mood 闪烁）、半透明 opacity .55、隐藏 status-row；仅保留位置移动（灵魂飘动）。交互极简：仅点击身体 → HistoryDrawer（查历史），禁拖拽/hover/工具栏。
@@ -227,13 +230,28 @@ wait=true 子完成后唤主跑新一轮。**传输架构 B1**（探索确认 st
 
 **唤醒链 `waitedChildren`**（[spawnBroker.ts](../../src/agent/spawnBroker.ts)）：`Map<childChatId, {parentChatId, type}>`。spawn wait=true 时 `registerWaitedChild`；唤醒后 `clearWaitedChild`。递归天然支持（任何 agent 的 spawn 子都在此 Map，子可再 spawn）。
 
-**唤醒流**：
-1. 子 agent loop 结束（[loop.ts](../../src/agent/middleware/loop.ts) ~L111）：`getWaitedParent(ctx.soul.chatId)` 命中 → yield `child_done` chunk `{childChatId, content:末条 assistant content}`（替代原 heartbeat yield）。
-2. 子 [observer.ts](../../src/service/chat/observer.ts) 消费 `child_done` → `getWaitedParent` → 调 `wakeParent(parentChatId, childChatId, type, content)`：
-   - `ensureChat(parent)` → builder journal `appendRoleReply({content, agentType})` 写 soul.messages（内存，守单一写者）+ `addMessage` 直接落库 role:subagent（主 observer 未运行，不走 effect 路径）。
-   - 推 `role_reply` notification（`findOwnerWsByChatId(parent)`，rid=parentChatId）。
-   - `clearWaitedChild` + clearWatchdog + 子 metadata `wait:false`（标记已消费）。
-3. 前端收 `role_reply` → 自动 `chat.resume(parentChatId)` → 主跑新一轮：loop 见末条 role:subagent → continue → LLM 响应 → 正常流式。
+**唤醒流（区分 yield turn 和真正完成）**：
+
+子 agent loop 结束时，[loop.ts](../../src/agent/middleware/loop.ts) 根据 `yieldTurn` 标记判断是"本轮暂停"还是"真正完成"：
+
+1. **yield turn（本轮暂停）**：子 agent spawn 孙 agent（wait=true）后，`yieldTurn=true` → loop 结束 → yield `child_yield` chunk。
+   - [observer.ts](../../src/service/chat/observer.ts) 收到 `child_yield` → **仅记录日志，不唤醒主，不设 finished**。
+   - 子 agent 保持活跃状态，等待孙 agent 完成。
+
+2. **真正完成**：子 agent 所有任务执行完毕，`yieldTurn=false` → loop 结束 → yield `child_done` chunk。
+   - [observer.ts](../../src/service/chat/observer.ts) 收到 `child_done` → `getWaitedParent` → 调 `wakeParent(parentChatId, childChatId, type, content)`：
+     - `ensureChat(parent)` → builder journal `appendRoleReply({content, agentType})` 写 soul.messages（内存，守单一写者）+ `addMessage` 直接落库 role:subagent（主 observer 未运行，不走 effect 路径）。
+     - `updateChatMetadata(childChatId, { finished: true })` 标记子 agent 完成。
+     - 推 `role_reply` notification（`findOwnerWsByChatId(parent)`，rid=parentChatId）。
+     - `clearWaitedChild` + clearWatchdog + 子 metadata `wait:false`（标记已消费）。
+   - 前端收 `role_reply` → 自动 `chat.resume(parentChatId)` → 主跑新一轮：loop 见末条 role:subagent → continue → LLM 响应 → 正常流式。
+
+**多级 spawn（主→子→孙）处理**：
+
+- 子 agent spawn 孙 agent（wait=true）后 yield turn → yield `child_yield` → 子暂停，不唤醒主。
+- 孙 agent 完成后 → yield `child_done` → `wakeParent(子)` → 子 agent resume 继续运行（处理孙结果）。
+- 子 agent 所有任务完成 → yield `child_done` → `wakeParent(主)` → 主 agent resume 继续运行。
+- 每级 agent 的 `finished` 标记在该级 `child_done` 时设置，保证正确的生命周期管理。
 
 **subagent role**：新增后端 role（4 处类型 widening：[adapter.ts](../../src/agent/provider/../message/adapter.ts) Role + [db/chat.ts](../../src/db/chat.ts) MessageData + [core/middleware/types.ts](../../src/core/middleware/types.ts) AgentMessage + [service/message/types.ts](../../src/service/message/types.ts) StagedChunkData；DB role 自由 TEXT 无迁移）。Provider buildMessages 加 `subagent→user` 映射（防 OpenAI 拒未知 role）。前端 `subagent` 本就是显示 role（MessageBubble 零改），accumulateStaged 加 role:subagent 分支承接注入消息。
 
@@ -418,7 +436,22 @@ function mergeChildToMaster(items: HistoryItem[]): HistoryItem[] {
 
 **store 层 msgId dedup 保留为兜底**（[agents/index.ts:493-500](../../web/src/stores/agents/index.ts#L493-L500)）——实际不命中但无害，注释注明 UI 展示层做合并。
 
-**不修改**：后端 wake.ts / observer.ts / messageJournal.ts（契约稳定）；streamAccumulator.ts（direct 路径，不写 mergedChildChatId）；HistoryDrawer.vue:319-335 v-for（`item` 透传 mergedView 字段即可）；MessageBubble 现有 master/role 分支。
+**不修改**：后端 wake.ts / observer.ts / messageJournal.ts（契约稳定）；streamAccumulator.ts（direct 路径，不写 mergedChildChatId）；HistoryDrawer.vue:319-335 v-for（`item` 透传 mergedView 字段即可）；MessageBubble 现有 master/role 分支（master 分支多级 spawn 头像后于本次改动扩展，见 §5.8.9）。
+
+#### 5.8.9 master 分支多级 spawn 头像（2026-07-14）
+
+`role=master` 消息（父 agent 发给子 agent 的 spawn prompt，由子 chat `user→master` 重映射得来）在 group 视图为双头像：**发言者大头像 = caller（派发方）+ 接收方小徽章 = subPet**。此前 master 分支硬编码「主 pet 大头像 + 子 pet 小徽章」，未按 caller 区分多级，导致子 agent 派发任务给孙 agent 时仍显示「主→孙」。
+
+发言者大头像现按 `callerIsMaster` 区分多级 spawn，与 `role` 分支徽章写法对称（[MessageAvatar.vue](../../web/src/features/agent/MessageAvatar.vue)）：
+
+| 场景 | caller | 大头像（发言者） | 小徽章（接收方 subPet） |
+|------|--------|------------------|------------------------|
+| 主→子（单层） | 主 agent | pet-master 米色 + masterText | pet-sub 紫 + subFace |
+| 子→孙（多级） | 上层子 pet | pet-sub 紫 + callerPetFace（caller emoji） | pet-sub 紫 + subFace |
+
+- `callerSubPetChatId` 由 `remapChildHistory(items, childChatId, parentChatId)` 写入（孙 chat 的 `parentChatId` = 上层子 chat，见 [getHistory](../../web/src/stores/agents/index.ts)）；`useSubPetResolution` 据 `callerSubPetChatId` 查 pets 得 caller face。
+- 多级时发言者与接收方均 pet-sub 紫，靠 face emoji + name-initial 区分（与 `role` 分支多级一致）。
+- 边界：caller pet 不在 stage 时 `callerPetFace` 空降级为 masterText，但 `callerIsMaster` 仍可靠返回 false（因 `callerSubPetChatId` 存在）→ 样式正确仅文字降级。
 
 ## 6. 前端架构设计（≤500 行/组件）
 

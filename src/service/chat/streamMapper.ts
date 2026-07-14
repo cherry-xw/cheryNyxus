@@ -16,8 +16,9 @@ import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { computeContextUsage } from "@/utils/token.js";
+import { getChat } from "@/db/chat.js";
+import { safeJsonParse } from "@/utils/json.js";
 import config from "@/utils/config.js";
-import { getChat, updateChatMetadata } from "@/db/chat.js";
 
 /**
  * 将 agent generator 的 MiddlewareChunk 转换为 WebSocket 协议的 Chunk/Notification
@@ -158,15 +159,24 @@ export async function* streamAgentChunks(
       }
       // CP7：done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
       const ctxDetail = computeContextUsage(chatId);
-      // 子 agent done（parent_chat_id 非空）：标 metadata.finished（ghost 标记，前端转灵魂态；chat 保留供查历史）
-      const chat = getChat(chatId);
-      const finished = !!chat?.parent_chat_id;
-      if (finished) updateChatMetadata(chatId, { finished: true });
+      // 子 agent finished 标记由 observer.ts 在 child_done chunk 时设置，不再在 done chunk 时设置
+      // 原因：子 agent yield turn 时会 done，但不应设 finished（需等孙 agent 完成后才设）
+      // child_yield → 不设 finished（子保持活跃）
+      // child_done → 设 finished（子真正完成，变 ghost）
+      // 读取 DB 中 chat metadata.finished，传递给前端用于 ghost 转换
+      const chatRow = getChat(chatId);
+      let finished: boolean | undefined;
+      if (chatRow?.metadata) {
+        const meta = safeJsonParse(chatRow.metadata, {}) as { finished?: unknown };
+        finished = meta.finished === true ? true : undefined;
+      }
       logger.event("chat.run.done", { contextUsage: ctxDetail.usage, finished });
-      const doneData = finished
-        ? { contextUsage: ctxDetail.usage, used: ctxDetail.used, total: ctxDetail.total, finished: true }
-        : { contextUsage: ctxDetail.usage, used: ctxDetail.used, total: ctxDetail.total };
-      yield createNotification("done", rid, doneData);
+      yield createNotification("done", rid, {
+        contextUsage: ctxDetail.usage,
+        used: ctxDetail.used,
+        total: ctxDetail.total,
+        ...(finished === true ? { finished: true } : {}),
+      });
     } else if (chunk.type === "message_updated") {
       // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
       // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。

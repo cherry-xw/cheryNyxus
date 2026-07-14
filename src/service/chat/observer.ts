@@ -1,4 +1,4 @@
-import { addMessage, fillApprovalResult, markMessageReplaced, updateAssistantSenseCalls } from "@/db/chat.js";
+import { addMessage, fillApprovalResult, markMessageReplaced, updateAssistantSenseCalls, updateChatMetadata } from "@/db/chat.js";
 import { getChatSelection } from "./runtime.js";
 import { approvalManager } from "../approval/manager.js";
 import { wakeParent } from "./wake.js";
@@ -96,12 +96,26 @@ export async function* observeAgentChunks(
         continue;
       }
 
-      // child_done chunk（wait=true 子 loop 正常完成，内部传递不进 DB/前端）→ wakeParent 注入角色回复唤主
+      // child_yield chunk（wait=true 子 agent yield turn 本轮暂停）→ 仅记录日志，不唤醒主，不设 finished
+      // 子 agent 保持活跃状态，等待孙 agent 完成后 resume 继续运行
+      if (chunk.type === "child_yield") {
+        logger.event("child.yield", {
+          childChatId: chunk.childChatId,
+          contentLen: chunk.content.length,
+        });
+        continue;
+      }
+
+      // child_done chunk（wait=true 子 loop 真正完成）→ wakeParent 注入角色回复唤主 + 设 finished
       if (chunk.type === "child_done") {
         const waited = getWaitedParent(chunk.childChatId);
         if (waited) {
           // wakeParent 内部 clearWaitedChild + 注入 role:role 回复（内存+DB）+ 推 role_reply
           await wakeParent(waited.parentChatId, chunk.childChatId, waited.type, chunk.content);
+
+          // 设置 finished 标记（子 agent 真正完成，前端据此变 ghost）
+          updateChatMetadata(chunk.childChatId, { finished: true });
+
           logger.event("child.done.wake", { childChatId: chunk.childChatId, parentChatId: waited.parentChatId, contentLen: chunk.content.length });
         }
         continue;

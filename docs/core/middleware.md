@@ -94,7 +94,7 @@ export interface RuntimeConfig {
 
 ### Chunk 类型（中间件 yield 的数据单元）
 
-`MiddlewareChunk` 是以下 11 种的联合（详见 [types.ts](../../src/core/middleware/types.ts)）：
+`MiddlewareChunk` 是以下 13 种的联合（详见 [types.ts](../../src/core/middleware/types.ts)）：
 
 | Chunk | 触发层 | 用途 |
 |------|------|------|
@@ -107,10 +107,14 @@ export interface RuntimeConfig {
 | `MessageCreatedChunk` | checkpoint | **副作用**：创建消息（observer 落库） |
 | `MessageUpdatedChunk` | checkpoint | **副作用**：更新消息（patch：content/hash/replace...） |
 | `SensePendingChunk` | checkpoint | **副作用**：注册待审批 sense（observer 调 approvalManager） |
+| `ChildYieldChunk` | loopHandler | 子 agent 本轮暂停（yield turn），不唤醒主，不设 finished |
+| `ChildDoneChunk` | loopHandler | 子 agent 真正完成，唤醒主，设 finished |
 | `DoneChunk` | loopHandler | 全部 loop 结束 |
 | `ErrorChunk` | retryMiddleware | 重试失败/超限（带 attempt/category/recoverable） |
 
 > **P1-11 解耦设计**：`SenseTriggerChunk` / `SensePendingChunk` **不再携带 `approvalResolve` 函数指针**，审批 Promise 改由 [`core/sense/approvalRegistry`](./sense.md) 管理。chunk 只产 `{approvalId, supervisionLevel, needsApproval}` 事实，service `ApprovalManager` 经 `resolveApproval/rejectApproval` 触发对应 Promise。core↔service 分层由此干净。
+
+> **T9 多级 spawn 设计**：`ChildYieldChunk` 与 `ChildDoneChunk` 区分子 agent 的"本轮暂停"与"真正完成"。子 agent spawn 孙 agent（wait=true）后 yield turn，loop 结束时 yield `ChildYieldChunk`（不唤醒主，不设 finished）；孙 agent 完成后子 agent resume 继续运行，真正完成时 yield `ChildDoneChunk`（唤醒主，设 finished）。详见 [agent-pet.md](../agent-pet.md)。
 
 ### AgentSession 类（门面 + 状态机）
 

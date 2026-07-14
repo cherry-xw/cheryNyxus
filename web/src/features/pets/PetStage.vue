@@ -42,7 +42,7 @@ const leaderIds = computed(() => {
 function handleClick(pet: PetInstance): void {
   // ghost（子 agent 已完成灵魂态）：点击 → 查历史；不响应主/子常规交互
   if (pet.isGhost) {
-    agents.activeHistoryChatId = pet.chatId;
+    agents.openHistoryRoot(pet.chatId);
     return;
   }
   if (pet.isMaster) {
@@ -70,7 +70,7 @@ function handleDestroy(pet: PetInstance): void {
 
 function handleHistory(pet: PetInstance): void {
   // CP4 接 HistoryDrawer；本轮仅设 store 值（数字气泡/抽屉触发点共用）
-  agents.activeHistoryChatId = pet.chatId;
+  agents.openHistoryRoot(pet.chatId);
 }
 
 function handleCompact(_pet: PetInstance): void {

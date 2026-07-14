@@ -285,6 +285,20 @@ export interface ErrorChunk {
 }
 
 /**
+ * 角色本轮暂停信号（spawn wait=true 子 agent yield turn 时发送）。
+ * 子 agent spawn 孙 agent（wait=true）后 yield turn → loop 本轮结束 → yield 此 chunk；
+ * observer 收到 → 仅记录日志，不唤醒主，不设 finished；
+ * 子 agent 保持活跃，等待孙 agent 完成后 resume 继续运行。
+ */
+export interface ChildYieldChunk {
+  type: "child_yield";
+  /** 子 chat id（= ctx.soul.chatId） */
+  childChatId: string;
+  /** 子 agent 本轮末条 assistant content（可选，暂停时的状态） */
+  content: string;
+}
+
+/**
  * 角色完成信号（wait=true 唤醒链，见 docs/agent-pet.md §5.4）。
  * 子 loop 正常结束时，若 getWaitedParent 命中（本 chat 是被 wait 的子）→ yield 此 chunk；
  * service observer 消费 → wakeParent 注入角色回复 + 推 role_reply 唤主。
@@ -312,6 +326,7 @@ export type MiddlewareChunk =
   | SensePendingChunk
   | DoneChunk
   | ErrorChunk
+  | ChildYieldChunk
   | ChildDoneChunk;
 
 /**

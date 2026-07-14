@@ -49,6 +49,8 @@ const subTypeText = computed(() => props.subPetType || props.item.petName || "�
 const callerFace = computed(() => props.callerPetFace || masterText.value);
 /** caller 名字（hover 面板 name：caller name 优先于 sub pet name；用于多级 spawn 显示上级） */
 const resolvedCallerName = computed(() => props.callerPetName || "");
+/** caller name 首字母（master 多级 spawn 发言者大头像右上角小字；空则不渲染） */
+const callerNameInitial = computed(() => props.callerPetName?.charAt(0).toUpperCase() || "");
 
 /** direct 模式（ghost 自身抽屉）：master/role 走单头像 1:1 布局。assistant 恒单头像。 */
 const useSingleAvatar = computed(() => props.layout === "direct" || props.item.role === "assistant");
@@ -125,11 +127,13 @@ function onAvatarClick(): void {
         {{ callerIsMaster === false ? callerFace : masterText }}
       </div>
     </template>
-    <!-- group master：主 pet 大头像（发言者）+ 子 pet 小徽章（对方） -->
+    <!-- group master：发言者大头像 = caller（派发方）+ 接收方小徽章 = subPet。
+         多级 spawn（子→孙）caller 为上层子 pet（callerIsMaster=false → pet-sub + callerFace + name 首字母）；
+         单层（主→子）caller 为主 pet（pet-master + masterText）。小徽章（接收方 subPet）恒 pet-sub。 -->
     <template v-else-if="item.role === 'master'">
       <div
-        class="avatar pet-master is-speaker"
-        :class="{ 'is-clickable': canJumpToSpawn }"
+        class="avatar is-speaker"
+        :class="[callerIsMaster === false ? 'pet-sub' : 'pet-master', { 'is-clickable': canJumpToSpawn }]"
         :tabindex="canJumpToSpawn ? 0 : -1"
         :title="canJumpToSpawn ? '点击跳到 spawn 工具调用' : undefined"
         role="button"
@@ -137,7 +141,7 @@ function onAvatarClick(): void {
         @click="onAvatarClick"
         @keydown.enter.space.prevent="onAvatarClick"
         aria-hidden="true"
-      >{{ masterText }}</div>
+      ><template v-if="callerIsMaster === false">{{ callerFace }}<span v-if="callerNameInitial" class="name-initial" aria-hidden="true">{{ callerNameInitial }}</span></template><template v-else>{{ masterText }}</template></div>
       <div class="avatar pet-sub is-badge" aria-hidden="true">{{ subFace }}</div>
     </template>
     <!-- group subagent（旧）/ role（新）：子 pet 大头像（发言者，emoji+右上角 name 首字母）+ caller 小徽章（对方）
