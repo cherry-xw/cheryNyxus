@@ -47,6 +47,11 @@
 ### [db.md](./db.md) — 持久化
 > 多 sqlite 实例（soul.db.chats + 按月分片 YYYY-MM.db.messages）、CRUD、表结构、状态判定（pending/revoked）。
 
+### [memory/](./memory/README.md) — 项目记忆
+> Markdown 文件存储的跨会话记忆系统：15 条上限淘汰归档、memory_manage sense 硬编码注入主 agent、system prompt `<memory>` 段。
+
+- [memory/README.md](./memory/README.md) — 存储结构、记忆格式、配置、管理器 API、关键流程
+
 ### [utils/](./utils/README.md) — 工具层
 > config 加载 / drain 模板挖掘 / logger / hash / json / generator / rateLimiter。被各层依赖，不反向依赖业务。
 

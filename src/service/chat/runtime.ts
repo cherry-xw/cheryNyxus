@@ -1,6 +1,6 @@
 import { AgentBuilder } from "@/agent/builder.js";
 import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
-import { getMessages, parseMessageRow, getChatRuntimeSelection, getChatPromptOverride, updateChatMetadata, getChat } from "@/db/chat.js";
+import { getMessages, parseMessageRow, getChatRuntimeSelection, getChatPromptOverride, getChatWorkspace, updateChatMetadata, getChat } from "@/db/chat.js";
 import type { LLMResponse } from "@/core/message/adapter";
 
 /**
@@ -53,6 +53,7 @@ async function ensureRuntime(chatId: string): Promise<ChatRuntime> {
 
 /**
  * 原子解析并注入完整 runtime。
+ * 主 agent（parent_chat_id 为空）硬编码注入 memory_manage；子 agent 排除。
  */
 function configureRuntime(
   runtime: ChatRuntime,
@@ -60,12 +61,13 @@ function configureRuntime(
   selection: RuntimeSelection,
 ): void {
   runtime.selection = selection;
-  runtime.builder.configureRuntime(selection);
+  const isMainAgent = !getChat(chatId)?.parent_chat_id;
+  runtime.builder.configureRuntime(selection, isMainAgent);
   // 持久化 selection 到 metadata.runtime，服务重启后 ensureChat 自动恢复
   updateChatMetadata(chatId, { runtime: selection });
 }
 
-/** 设置主会话的临时角色编制，并立即切换主角色运行时，不更新 metadata.runtime。 */
+/** 设置主会话的临时角色编制，并立即切换主角色运行时，不更新 metadata.runtime。（主 agent，注入 memory_manage） */
 export async function setSessionRoleRuntimes(
   chatId: string,
   primary: RuntimeSelection,
@@ -73,7 +75,7 @@ export async function setSessionRoleRuntimes(
 ): Promise<void> {
   const runtime = await ensureRuntime(chatId);
   runtime.selection = primary;
-  runtime.builder.configureRuntime(primary);
+  runtime.builder.configureRuntime(primary, true);
   sessionRoleRuntimes.set(chatId, { primary, roles });
 }
 
@@ -91,14 +93,14 @@ export function getSessionRoleRuntime(chatId: string, role: string): RuntimeSele
   return undefined;
 }
 
-/** 注册刚派发子角色的临时编制；在该 child 首次 ensureChat 时消费。 */
+/** 注册刚派发子角色的临时编制；在该 child 首次 ensureChat 时消费。（子 agent，排除 memory_manage） */
 export function setEphemeralChatRuntime(chatId: string, selection: RuntimeSelection): void {
   ephemeralChatRuntimes.set(chatId, selection);
   const runtime = chatRuntimes.get(chatId);
   // 已初始化但尚未运行的复用子角色也切到临时编制；运行中的请求保持其启动时配置。
   if (runtime && !runtime.builder.isRunning()) {
     runtime.selection = selection;
-    runtime.builder.configureRuntime(selection);
+    runtime.builder.configureRuntime(selection, false);
   }
 }
 
@@ -174,7 +176,7 @@ export async function ensureChat(
 
     // 一次性加载历史到内存 + 注入 system prompt（chat metadata.promptPathOverride 覆盖；
     // 来源：spawn 写子 agent / chat.create 写预设主 agent；缺省 → undefined → 全局）
-    builder.init(chatId, loadHistory(chatId), getChatPromptOverride(chatId));
+    builder.init(chatId, loadHistory(chatId), getChatPromptOverride(chatId), getChatWorkspace(chatId));
   } catch (err) {
     // 半初始化清理：configureRuntime 深校验或 init 抛错时，移除刚 set 的 map 项，
     // 避免留半配置 runtime（无 brain/sense）被后续 send 误用。DB 行由调用方清理。

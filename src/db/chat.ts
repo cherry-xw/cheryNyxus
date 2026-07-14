@@ -239,6 +239,23 @@ export function getChatSpawnTypes(chatId: string): string[] | undefined {
 }
 
 /**
+ * 读取 chat 关联的项目工作目录（metadata.workspace）。
+ * 来源：chat.create 选预设时快照写入（config.presets[preset].workspace）/ spawn_role 子 chat 继承主 chat。
+ * 仅 buildFirstSystemPrompt 注入 system prompt 的 <workspace> 段用（不约束 sense 实际行为）。
+ * 缺省（非预设主 agent / 预设未配 workspace / 旧 chat）→ undefined → 不注入该段。
+ */
+export function getChatWorkspace(chatId: string): string | undefined {
+  const db = getSoulDb();
+  const row = db
+    .prepare("SELECT metadata FROM chats WHERE id = ?")
+    .get(chatId) as { metadata: string | null } | undefined;
+  if (!row?.metadata) return undefined;
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
+  const ws = parsed.workspace;
+  return typeof ws === "string" && ws.length > 0 ? ws : undefined;
+}
+
+/**
  * 删除聊天（手动清理 messages）
  * 跨库无事务：先删 messages 再删 chat，try/finally 保证 chat 行删除，
  * 崩溃风险仅留 chat 行未删的孤儿（指向已空 messages 库），可接受。

@@ -4,7 +4,7 @@ import { sense, type SenseResult, type SenseSharedData } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
 import { hashGenerator } from "@/utils/hash.js"; // 仅复用条件 promptHash 仍用
 import config from "@/utils/config.js";
-import { createChat, findChatsByParent, getChatPreset, getChatSpawnTypes, updateChatMetadata } from "@/db/chat.js";
+import { createChat, findChatsByParent, getChatPreset, getChatSpawnTypes, getChatWorkspace, updateChatMetadata } from "@/db/chat.js";
 import { emitRoleCreated, registerWaitedChild } from "@/agent/spawnBroker.js";
 import { logger } from "@/utils/logger/index.js";
 import { getSessionRoleRuntime, setEphemeralChatRuntime } from "@/service/chat/runtime.js";
@@ -153,12 +153,15 @@ export default sense(
       // systemPrompt（per-role 专属 system prompt，绝对路径，来自 config.roles[type].systemPrompt 单一源；
       //   预设仅按 type 引用，无 per-preset 角色 systemPrompt 覆盖——故同一 type 的 persona 在所有引用它的预设生效；
       //   缺省 → undefined → 子 agent 用全局 system_prompt）。ensureChat 读 metadata.promptPathOverride 注入。
+      // 子 agent 继承主 chat workspace（同项目，system prompt 注入同一工作区说明）
+      const parentWorkspace = getChatWorkspace(parentChatId);
       createChat(
         childChatId,
         {
           // 持久化角色默认值；临时覆盖由下方 ephemeral runtime 接管，绝不写 DB。
           runtime: { brain: defaultBrain, senseGroup: defaultSenseGroup, mcpServers: defaultMcpServers },
           ...(promptOverride ? { promptPathOverride: promptOverride } : {}),
+          ...(parentWorkspace ? { workspace: parentWorkspace } : {}),
           // T9.10 重启容错：wait+type 持久化，rebuildFromDb 扫 metadata.wait===true 重建唤醒链
           wait,
           type,

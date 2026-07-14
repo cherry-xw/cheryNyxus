@@ -166,6 +166,18 @@ export interface PresetConfig {
 export const DEFAULT_PRESET_NAME = "默认";
 
 /**
+ * 项目记忆配置（全局条数 + 单条字数限制）。
+ * 记忆以 Markdown 文件存储在 .chery/workspace/<hash>/（workspace 模式）或 .chery/memory/（非 workspace）。
+ * MEMORY.md 汇总索引 + memories/<name>.md 单条详情 + history/ 淘汰归档。
+ */
+interface MemoryConfig {
+  /** 活跃记忆最大条数（超限触发淘汰），默认 15 */
+  max_count: number;
+  /** 单条记忆正文字数上限，默认 500 */
+  max_chars: number;
+}
+
+/**
  * 文件压缩配置
  */
 interface FileCompressionConfig {
@@ -237,6 +249,7 @@ interface ExtendedGlobalConfig extends GlobalConfig {
   system_prompt: string; // 自动补全：chery_dir + "/.chery/system.md"
   prompts_dir: string; // 自动补全：chery_dir + "/.chery/prompts"（per-agent system prompt 目录，listPrompts 遍历）
   db_dir: string; // 自动补全：chery_dir + "/db"
+  memory_dir: string; // 自动补全：chery_dir + "/.chery/memory"（非 workspace 模式记忆存储根目录）
 }
 
 interface Config {
@@ -250,6 +263,8 @@ interface Config {
   roles?: Record<string, RoleConfig>;
   /** 预设：命名编制包（leader 角色 + 选中角色 type 列表），主 pet 启动选一套。旧 config.default 已并入「默认」预设 */
   presets?: Record<string, PresetConfig>;
+  /** 项目记忆配置（条数/字数限制）；缺省 → max_count=15, max_chars=500 */
+  memory?: MemoryConfig;
 }
 
 /**
@@ -277,6 +292,7 @@ interface ConfigRaw {
   mcp_servers?: Record<string, McpServerConfigRaw>;
   roles?: Record<string, RoleConfig>;
   presets?: Record<string, PresetConfig>;
+  memory?: MemoryConfig;
 }
 
 // 同一变量可能被多个字段引用（如 4 个 brain 都用 $API_KEY），
@@ -381,6 +397,13 @@ function loadConfig(): Config {
   config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
   config.global.prompts_dir = path.join(cheryDir, ".chery", "prompts");
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
+  config.global.memory_dir = path.join(cheryDir, ".chery", "memory");
+
+  // 项目记忆配置默认值（缺省 → max_count=15, max_chars=500）
+  config.memory = {
+    max_count: config.memory?.max_count ?? 15,
+    max_chars: config.memory?.max_chars ?? 500,
+  };
 
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 WEB_PORT 环境变量）
   const serverRaw = config.server as Partial<ServerConfig> | undefined;
@@ -578,6 +601,29 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
           errors.push(`presets.${pname}.media${kind} "${ref}" 类型为 ${raw.media?.[ref]?.type ?? "未知"}，非 ${kind}`);
         }
       }
+      // workspace（如配置）：必须是已存在的目录绝对路径（仅提示词层注入，不约束 sense 行为）
+      const ws = pcfg.workspace;
+      if (ws) {
+        if (!path.isAbsolute(ws)) {
+          errors.push(`presets.${pname}.workspace "${ws}" 必须是绝对路径`);
+        } else {
+          try {
+            fs.accessSync(ws);
+          } catch {
+            errors.push(`presets.${pname}.workspace "${ws}" 目录不存在或不可访问`);
+          }
+        }
+      }
+    }
+  }
+
+  // 项目记忆：max_count > 0, max_chars > 0（正整数）
+  if (raw.memory) {
+    if (typeof raw.memory.max_count !== "number" || raw.memory.max_count < 1) {
+      errors.push(`memory.max_count 必须为正整数（当前：${String(raw.memory.max_count)}）`);
+    }
+    if (typeof raw.memory.max_chars !== "number" || raw.memory.max_chars < 1) {
+      errors.push(`memory.max_chars 必须为正整数（当前：${String(raw.memory.max_chars)}）`);
     }
   }
 

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
  * GlobalTab：全局配置（config.global），所有宠物共享的脾气。
- * supervision 默认监管 / thinking / stream / 各超时与上限 / logger / file_compression。
- * 三段内容视为 3 张虚拟卡，由 TabShell 的序号按钮导航（logger / file_compression 可能不存在，动态生成 indexItems）。
+ * supervision 默认监管 / thinking / stream / 各超时与上限 / logger / file_compression / memory。
+ * 四段内容视为 4 张虚拟卡，由 TabShell 的序号按钮导航（logger / file_compression 可能不存在，memory 常驻但可能需初始化）。
  */
-import { computed, ref, onMounted } from "vue";
+import { computed, ref, onMounted, watch } from "vue";
 import type { ConfigDto, EditorInfo } from "@/services/agentApi";
 import { agentApi } from "@/services/agentApi";
 import { SUPERVISIONS, SUPERVISION_LABEL } from "../constants";
@@ -32,7 +32,18 @@ async function loadEditors(): Promise<void> {
 
 onMounted(loadEditors);
 
-/** 序号按钮列表：默认监管常驻；logger / file_compression 按配置动态生成。 */
+/** memory 段可能未在 config.yaml 中定义（config.get 返回 undefined），初始化空白对象供 v-model 绑定。 */
+watch(
+  () => props.draft.memory,
+  (mem) => {
+    if (!mem) {
+      props.draft.memory = { max_count: undefined, max_chars: undefined };
+    }
+  },
+  { immediate: true },
+);
+
+/** 序号按钮列表：默认监管常驻；logger / file_compression / memory 按配置动态生成。 */
 const indexItems = computed<IndexItem[]>(() => {
   const items: IndexItem[] = [
     { label: "默认监管", anchor: "default", brief: "监管模式 / 思考 / 流式 / 超时上限" },
@@ -43,6 +54,7 @@ const indexItems = computed<IndexItem[]>(() => {
   if (props.draft.global.file_compression) {
     items.push({ label: "大文件压缩", anchor: "compression", brief: "阈值 / 预览行数 / 日志扩展名" });
   }
+  items.push({ label: "项目记忆", anchor: "memory", brief: "活跃条数上限 / 单条字数建议" });
   return items;
 });
 </script>
@@ -157,7 +169,7 @@ const indexItems = computed<IndexItem[]>(() => {
     </div>
 
     <div v-if="draft.global.file_compression" class="card global-section" data-anchor="compression">
-      <h3 class="sub-title">读取大文件时的内容压缩</h3>
+      <h3 class="sub-title">读取大文件内容压缩</h3>
       <p class="sect-hint">此设置只影响 <code>read_file</code> 返回给模型的内容，不会修改磁盘文件：超大普通文件会截断，日志文件会按重复模式压缩。</p>
       <div class="card-grid">
         <label class="field">
@@ -178,6 +190,20 @@ const indexItems = computed<IndexItem[]>(() => {
             :value="(draft.global.file_compression.log_file_extensions ?? []).join(', ')"
             @input="draft.global.file_compression.log_file_extensions = $event.split(',').map((s: string) => s.trim()).filter(Boolean)"
           />
+        </label>
+      </div>
+    </div>
+    <div class="card global-section" data-anchor="memory">
+      <h3 class="sub-title">项目记忆</h3>
+      <p class="sect-hint">记忆以 Markdown 文件存储在 <code>.chery/memory/</code>（或 workspace 模式下的项目目录）。超出条数上限时旧记忆自动归档到 history。</p>
+      <div class="card-grid">
+        <label class="field">
+          <LabelTip label="最大条数" tip="max_count：活跃记忆最大条数，超限触发自动淘汰归档" />
+          <el-input-number v-model="draft.memory!.max_count" :controls="false" :min="1" placeholder="默认 15" />
+        </label>
+        <label class="field">
+          <LabelTip label="单条字数建议" tip="max_chars：单条记忆正文的软性字数建议，AI 写入时会参考此值但非硬性截断" />
+          <el-input-number v-model="draft.memory!.max_chars" :controls="false" :min="1" placeholder="默认 500" />
         </label>
       </div>
     </div>

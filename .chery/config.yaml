@@ -28,7 +28,7 @@ llm:
       url: https://yz.xcherry.top:11411/v1
       model: glm-5.2
       key: $API_KEY
-      thinking: true
+      thinking: high
       provider: openai
       contextLimit: 1024000
       capabilities:
@@ -38,7 +38,7 @@ llm:
     longcat:
       url: https://api.longcat.chat/openai
       model: LongCat-Flash-Thinking-2601
-      thinking: true
+      thinking: 'off'
       provider: openai
       contextLimit: 32768
       capabilities:
@@ -48,7 +48,7 @@ llm:
       url: http://yz.xcherry.top:11411/v1
       model: doubao2.0-pro
       key: $API_KEY
-      thinking: true
+      thinking: high
       provider: openai
       contextLimit: 128000
       capabilities:
@@ -58,7 +58,7 @@ llm:
       url: https://yz.xcherry.top:11411/v1
       model: glm-5
       key: $API_KEY
-      thinking: true
+      thinking: high
       provider: openai
       contextLimit: 128000
       capabilities:
@@ -69,6 +69,7 @@ llm:
       url: https://yz.xcherry.top:11411/v1
       model: csensenova-6.7-flash-lite
       key: $API_KEY
+      thinking: 'off'
       provider: openai
       rpm: 2
       contextLimit: 128000
@@ -77,6 +78,7 @@ llm:
         generate: {}
     mock_test:
       model: mock_test
+      thinking: 'off'
       provider: mock
       mock:
         enabled: true
@@ -140,7 +142,11 @@ presets:
       - coder
       - coordinator
       - reviewer
+    workspace: /home/chery/dev/chery-spider
 server:
   port: 8182
   transport: binary
   host: 127.0.0.1
+memory:
+  max_count: 15
+  max_chars: 500

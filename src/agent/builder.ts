@@ -37,9 +37,10 @@ export class AgentBuilder {
 
   /**
    * 原子配置 brain + senseGroups，避免 provider 与工具定义处于半配置状态。
+   * @param injectMemoryManage 主 agent 硬编码注入 memory_manage（默认 true）；子 agent 传 false
    */
-  configureRuntime(selection: RuntimeSelection): this {
-    const runtime = this.runtimeResolver.resolve(selection);
+  configureRuntime(selection: RuntimeSelection, injectMemoryManage = true): this {
+    const runtime = this.runtimeResolver.resolve(selection, { injectMemoryManage });
     this.requireAgent().configureRuntime(runtime);
     return this;
   }
@@ -51,8 +52,8 @@ export class AgentBuilder {
    * persona 修复：observer 不持久化 system 消息 → 重启后 loadHistory 返回 messages 无 system 首条。
    * 故统一保证内存 messages 首条为 system：历史存在但首条非 system → prepend；首条已是 system → 原样；无历史 → [systemMsg]。
    */
-  init(chatId: string, messages?: LLMResponse[], promptPathOverride?: string): this {
-    const systemMsg = this.createInitialMessages(promptPathOverride);
+  init(chatId: string, messages?: LLMResponse[], promptPathOverride?: string, workspace?: string): this {
+    const systemMsg = this.createInitialMessages(promptPathOverride, workspace);
     let msgs: LLMResponse[];
     if (messages && messages.length > 0) {
       msgs = messages[0]?.role === "system" ? messages : [...systemMsg, ...messages];
@@ -63,13 +64,13 @@ export class AgentBuilder {
     return this;
   }
 
-  private createInitialMessages(promptPathOverride?: string): LLMResponse[] {
+  private createInitialMessages(promptPathOverride?: string, workspace?: string): LLMResponse[] {
     const now = Date.now();
     return [
       {
         id: randomUUID(),
         role: "system",
-        content: buildFirstSystemPrompt(promptPathOverride),
+        content: buildFirstSystemPrompt(promptPathOverride, workspace),
         createdAt: now,
         updateAt: now,
       },

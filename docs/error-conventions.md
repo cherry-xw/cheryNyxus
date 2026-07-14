@@ -117,7 +117,7 @@ if (!key) {
 | Provider 抛错（ollama / mock） | [src/agent/provider/](../src/agent/provider/) | 审视 | ollama 不需要 key，mock 一般不抛 401；如有其他错误路径，按需 |
 | Middleware 通用错误包装 | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts) | ✓ 已实施 | 合规错误原样上浮，未合规（第三方裸抛）重包为 `内部错误 [tracingId]`，详细走 logger |
 | Sense 执行错误 | [src/agent/middleware/](../src/agent/middleware/) | TODO | sense 抛错同样要分层 |
-| WebSocket 错误帧 | [src/service/websocket/](../src/service/websocket/) | TODO | 错误帧 message 字段应符合本规范 |
+| WebSocket 错误帧（router 结构校验失败） | [src/service/message/router.ts](../src/service/message/router.ts) | ✓ 已实施 | `safeParse` 失败（INVALID_PARAMS）：message 一行中文 + `tracingId`，完整 Zod issues（path/code/expected/received）走 `logger.event("req.invalid_params")` 落盘。handler 业务校验错误（如 `saveRawConfig`）仍各自返回中文 join 串，未走本工具 |
 | HTTP 错误响应 | [src/service/http/](../src/service/http/) | TODO | 401/500 等响应 body 同样分层 |
 | 前端 toast / banner | [web/src/](../web/src/) | TODO | **消费**后端 tracingId 展示给用户；前端**不重生成** |
 

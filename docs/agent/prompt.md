@@ -10,7 +10,7 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [index.ts](../../src/agent/prompt/index.ts) | `buildFirstSystemPrompt()`：拼装 `<system-reminder>` + `<environment>` + `<skills>` 三段 |
+| [index.ts](../../src/agent/prompt/index.ts) | `buildFirstSystemPrompt()`：拼装 `<system-reminder>` + `<environment>` + `<workspace>`（条件） + `<skills>` 四段 |
 | [loadSkill.ts](../../src/agent/prompt/loadSkill.ts) | SKILL.md frontmatter 解析 + 实时遍历 skills 目录（无缓存） |
 | [listPrompts.ts](../../src/agent/prompt/listPrompts.ts) | `listPrompts()`：递归遍历 `.chery/prompts/`，返相对路径列表（供 `prompts.list` RPC + 前端级联选择器） |
 
@@ -19,13 +19,14 @@
 ### buildFirstSystemPrompt（[index.ts](../../src/agent/prompt/index.ts)）
 
 ```ts
-export default function buildFirstSystemPrompt(promptPathOverride?: string): string;
+export default function buildFirstSystemPrompt(promptPathOverride?: string, workspace?: string): string;
 ```
 
 - 无参 / `promptPathOverride` 缺省 → 读 `config.global.system_prompt`（模块加载期缓存 `systemPrompt`）。
 - `promptPathOverride` 给出（per-subagent / 预设 main）→ 实时 `readFileSync` 该路径（**不**走模块缓存，支持每子 agent 不同 prompt 文件）；文件缺失则 warn + 退回全局 `systemPrompt`（运行期容错，配置期 `validateRawConfig` 已 existsSync 校验）。
+- `workspace` 给出（预设 `presets.<name>.workspace`）→ 在 `<environment>` 后注入 `<workspace>` 段（提示词层面声明本会话的项目工作目录，**不**改变 sense 实际行为）；缺省 → 不注入该段。
 
-输出结构（三段 XML 标签包裹）：
+输出结构（XML 标签包裹；`<workspace>` 仅 `workspace` 给出时出现）：
 
 ```text
 <system-reminder>
@@ -37,6 +38,11 @@ export default function buildFirstSystemPrompt(promptPathOverride?: string): str
 当前日期: {YYYY-MM-DD}
 当前时间: {ISO}
 </environment>
+
+<workspace>              ← 仅 workspace 给出时注入
+当前工作区: {workspace}
+本会话用于开发该项目，文件操作与命令以此目录为基准。
+</workspace>
 
 <skills>
 <skill name="{name}">
@@ -68,6 +74,17 @@ export default function buildFirstSystemPrompt(promptPathOverride?: string): str
   → buildFirstSystemPrompt(promptPathOverride) 读该文件 → 首条 system
 ```
 无 `promptPathOverride`（metadata 无此字段：非预设主 agent / 旧 chat）→ 用全局 `config.global.system_prompt`。字段名从 `subagentPromptPath` 改为 `promptPathOverride`（T6：主 agent 经预设亦用此机制，名需主/子通用）。
+
+**per-preset workspace（项目工作目录，提示词层注入）**：预设可配 `workspace` 字段声明该预设创建的会话专属某个项目，数据流：
+```text
+来源：config.presets[preset].workspace（项目根绝对路径；缺省 → 不注入）
+  → 写入 chat metadata.workspace
+    （chat.create 写预设主 agent / spawn createChat 继承主 chat workspace 写子 agent）
+  → ensureChat 读 getChatWorkspace(chatId)
+  → builder.init(chatId, history, promptPathOverride, workspace)
+  → buildFirstSystemPrompt(promptPathOverride, workspace) → 注入 <workspace> 段
+```
+**仅提示词层声明**：workspace 只在 system prompt 注入一段说明，**不**改变 bash/read_file/write_file 等感官的实际行为（无 cwd 收束、无路径沙箱）。无 `workspace`（非预设 chat / 预设未配 / 旧 chat）→ 不注入该段，行为同系统全局。
 
 ### prompts 目录与列举（[listPrompts.ts](../../src/agent/prompt/listPrompts.ts)）
 
@@ -120,16 +137,17 @@ frontmatter 用 [js-yaml](https://github.com/nodeca/js-yaml) 解析，正则 `/^
 ### system prompt 注入流程
 
 ```text
-AgentBuilder.init(chatId, messages?, promptPathOverride?)
-  ├─ 构造 systemMsg = createInitialMessages(promptPathOverride)[0]
+AgentBuilder.init(chatId, messages?, promptPathOverride?, workspace?)
+  ├─ 构造 systemMsg = createInitialMessages(promptPathOverride, workspace)[0]
   ├─ messages 空？→ [systemMsg]
   ├─ messages 非空且首条 role!==system（重启后 observer 不持久化 system）→ [systemMsg, ...messages]（persona 修复）
   └─ messages 首条已是 system → messages 原样
-       └─ createInitialMessages → buildFirstSystemPrompt(promptPathOverride)
+       └─ createInitialMessages → buildFirstSystemPrompt(promptPathOverride, workspace)
             ├─ promptPathOverride 给出 → readFileSync(override)（实时，非缓存）
             │  否则 → 模块加载期缓存的 systemPrompt（config.global.system_prompt）
+            ├─ workspace 给出 → 注入 <workspace> 段（否则省略）
             ├─ getSkillMetas()  ← readAllSkills() 实时遍历
-            └─ 拼装三段返回
+            └─ 拼装四段返回
 ```
 
 ### skill 完整指令加载流程（运行时）

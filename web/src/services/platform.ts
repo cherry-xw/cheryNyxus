@@ -30,6 +30,8 @@ declare global {
     __BACKEND_CONFIG__?: ServerConfig;
     /** Electron preload 注入（http://localhost:<webPort>）；浏览器模式无 */
     __BACKEND_HTTP_URL__?: string;
+    /** Electron preload 注入：目录选择对话框（预设 workspace 用）；浏览器模式无 */
+    __PICK_DIRECTORY__?: () => Promise<string | null>;
   }
 }
 
@@ -86,4 +88,14 @@ export async function getServerConfig(): Promise<ServerConfig> {
   const res = await fetch(httpUrl("/api/config"));
   if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`);
   return (await res.json()) as ServerConfig;
+}
+
+/**
+ * 选择目录（Electron 原生目录选择对话框，预设 workspace 字段用）。
+ * - Electron 模式：调 preload 注入的 `window.__PICK_DIRECTORY__()`（main 进程 `dialog.showOpenDialog`）
+ * - 浏览器模式：无原生能力 → 返回 null（调用方降级为纯文本框输入）
+ */
+export async function pickDirectory(): Promise<string | null> {
+  if (!isElectron || !window.__PICK_DIRECTORY__) return null;
+  return window.__PICK_DIRECTORY__();
 }

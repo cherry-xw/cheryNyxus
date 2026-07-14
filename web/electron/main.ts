@@ -1,7 +1,7 @@
 import { join, dirname } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, dialog } from "electron";
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8182);
 const WEB_PORT = Number(process.env.WEB_PORT ?? 8183);
@@ -177,6 +177,12 @@ app.whenReady().then(async () => {
   // IPC：preload 同步取后端端口配置（createWindow 在 waitForBackend 之后，配置已就绪）
   ipcMain.on("get-backend-config", (event) => {
     event.returnValue = serverConfig ?? { wsPort: WS_PORT, webPort: WEB_PORT, transport: "binary" };
+  });
+
+  // IPC：渲染进程请求选择目录（预设 workspace 字段用）。canceled → null。
+  ipcMain.handle("dialog:pickDirectory", async () => {
+    const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
+    return result.canceled || !result.filePaths.length ? null : result.filePaths[0]!;
   });
 
   // 启动日志：让用户在 console / 日志文件里能找到 .env 和 .chery 的真实路径

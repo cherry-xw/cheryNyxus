@@ -14,6 +14,7 @@ import { getMessageAdapter } from "@/core/message/adapter";
 import { getSenseAdapter } from "@/core/sense/adapter";
 import { getSense } from "@/core/sense";
 import { getConnectedServerSenseNames } from "@/core/mcp";
+import { getSense as getBuiltinSense } from "@/core/sense";
 
 export interface RuntimeSelection {
   brain: string;
@@ -55,6 +56,8 @@ export function resolvePresetSelection(presetName: string): {
   promptPathOverride?: string;
   /** 该预设选中的角色 type 列表（chat.create 快照入 metadata.spawnTypes，spawn roster gate 用） */
   spawnTypes: string[];
+  /** 该预设的项目工作目录（chat.create 快照入 metadata.workspace，buildFirstSystemPrompt 注入提示词） */
+  workspace?: string;
 } {
   const preset = config.presets?.[presetName];
   if (!preset?.leader) {
@@ -69,15 +72,18 @@ export function resolvePresetSelection(presetName: string): {
     { brain: leader.brain, senseGroup: leader.senseGroup, mcpServers: leader.mcpServers ?? [] },
     `presets.${presetName}.leader(${preset.leader})`,
   );
-  return { selection, promptPathOverride: leader.systemPrompt, spawnTypes: preset.roles ?? [] };
+  return { selection, promptPathOverride: leader.systemPrompt, spawnTypes: preset.roles ?? [], workspace: preset.workspace };
 }
 
 export class RuntimeResolver {
   /**
    * 原子解析完整 runtime。
    * brain、adapters、builtSenses、senseTable 必须来自同一次 selection。
+   *
+   * @param opts.injectMemoryManage 主 agent 硬编码注入 memory_manage sense（默认 true）；
+   *   子 agent 传 false 排除。
    */
-  resolve(selection: RuntimeSelection): RuntimeConfig {
+  resolve(selection: RuntimeSelection, opts?: { injectMemoryManage?: boolean }): RuntimeConfig {
     this.validateSelection(selection);
 
     const { brain, adapters } = this.resolveBrain(selection.brain);
@@ -86,6 +92,7 @@ export class RuntimeResolver {
       selection.senseGroup,
       selection.mcpServers,
       brain.capabilities?.generate,
+      opts?.injectMemoryManage ?? true,
     );
 
     return {
@@ -142,6 +149,7 @@ export class RuntimeResolver {
     senseGroup: string,
     mcpServers: string[],
     generateCapabilities?: { image?: boolean; video?: boolean; audio?: boolean },
+    injectMemoryManage = true,
   ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
     const resolved = new Map<string, Sense<ZodType>>();
 
@@ -176,6 +184,16 @@ export class RuntimeResolver {
         const s: Sense<ZodType> = { ...original };
         s.supervisionLevel = original.supervisionLevel ?? config.global.supervision;
         resolved.set(original.definition.function.name, s);
+      }
+    }
+
+    // 主 agent 硬编码注入 memory_manage sense（子 agent 排除）
+    if (injectMemoryManage) {
+      const memorySense = getBuiltinSense("memory_manage");
+      if (memorySense) {
+        const s: Sense<ZodType> = { ...memorySense };
+        s.supervisionLevel = s.supervisionLevel ?? config.global.supervision;
+        resolved.set("memory_manage", s);
       }
     }
 

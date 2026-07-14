@@ -8,6 +8,7 @@
 import { ref, computed } from "vue";
 import { ArrowDown, Check, Delete } from "@element-plus/icons-vue";
 import type { ConfigDto, SenseToolInfo } from "@/services/agentApi";
+import { pickDirectory, isElectron } from "@/services/platform";
 import ConfirmPopover from "../ConfirmPopover.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import SenseIcon from "../components/SenseIcon.vue";
@@ -81,6 +82,16 @@ function mediaNamesByType(type: "image" | "video" | "audio"): string[] {
     .map(([name]) => name);
 }
 
+/** Electron 模式有原生目录选择对话框；浏览器模式降级为纯文本框输入。 */
+const canPickDir = isElectron;
+
+/** 调原生目录选择器选工作区；取消（null）不改值。 */
+async function onPickWorkspace(pname: string): Promise<void> {
+  const dir = await pickDirectory();
+  const p = props.draft.presets?.[pname];
+  if (dir && p) p.workspace = dir;
+}
+
 /** 序号按钮列表：每预设一项。brief 给 mini popper 用（成员数 + 组长 + 媒体服务）。 */
 const indexItems = computed<IndexItem[]>(() => {
   const presets = props.draft.presets ?? {};
@@ -91,6 +102,7 @@ const indexItems = computed<IndexItem[]>(() => {
     mediaImage: p.mediaImage || "未挂载",
     mediaVideo: p.mediaVideo || "未挂载",
     mediaAudio: p.mediaAudio || "未挂载",
+    workspace: p.workspace || "未限定",
   }));
 });
 </script>
@@ -108,6 +120,7 @@ const indexItems = computed<IndexItem[]>(() => {
         <div class="index-card-line"><b>🖼️ 图片</b><span>{{ item.mediaImage as string }}</span></div>
         <div class="index-card-line"><b>🎬 视频</b><span>{{ item.mediaVideo as string }}</span></div>
         <div class="index-card-line"><b>🎵 音频</b><span>{{ item.mediaAudio as string }}</span></div>
+        <div class="index-card-line"><b>📁 工作区</b><span>{{ item.workspace as string }}</span></div>
       </div>
     </template>
 
@@ -232,6 +245,25 @@ const indexItems = computed<IndexItem[]>(() => {
         </template>
         <span v-else class="empty">
           暂无媒体服务。在「🖼️ 媒体服务」tab 中新建。
+        </span>
+      </div>
+
+      <div class="field">
+        <span class="lbl">工作区</span>
+        <div class="workspace-row">
+          <el-input
+            :model-value="preset.workspace ?? ''"
+            @update:model-value="(v: string) => (preset.workspace = v || undefined)"
+            placeholder="项目根目录绝对路径（留空则不限定）"
+            size="small"
+          />
+          <button v-if="canPickDir" type="button" class="ghost-btn" @click="onPickWorkspace(pname as string)">
+            选择目录
+          </button>
+        </div>
+        <span class="hint">
+          该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）。
+          {{ canPickDir ? "" : "浏览器模式请手动填写绝对路径。" }}
         </span>
       </div>
     </article>
@@ -392,5 +424,12 @@ const indexItems = computed<IndexItem[]>(() => {
       font-size: 10px;
     }
   }
+}
+
+// 工作区：输入框 + 选择目录按钮横排
+.workspace-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 </style>

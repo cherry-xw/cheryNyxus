@@ -73,6 +73,7 @@ export async function handleChatCreate(
     metadata.preset = p.preset;
     metadata.spawnTypes = resolved.spawnTypes;
     if (resolved.promptPathOverride) metadata.promptPathOverride = resolved.promptPathOverride;
+    if (resolved.workspace) metadata.workspace = resolved.workspace;
   } else {
     // 显式路径：parseRuntimeSelection 校验 brain + senseGroups 必填
     selection = parseRuntimeSelection(p, "chat.create");

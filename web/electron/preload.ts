@@ -23,3 +23,7 @@ if (config) {
   contextBridge.exposeInMainWorld("__BACKEND_CONFIG__", config);
   contextBridge.exposeInMainWorld("__BACKEND_HTTP_URL__", `http://localhost:${config.webPort}`);
 }
+
+// 目录选择对话框（预设 workspace 字段用）。main 进程 dialog.showOpenDialog；canceled → null。
+// 不依赖 backend config，独立注入（仅 Electron 模式有此 preload）。
+contextBridge.exposeInMainWorld("__PICK_DIRECTORY__", () => ipcRenderer.invoke("dialog:pickDirectory"));

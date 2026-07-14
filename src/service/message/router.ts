@@ -15,6 +15,7 @@ import {
 } from "./types.js";
 import { requestSchemaFor } from "./schemas.js";
 import { isAsyncGenerator } from "@/utils/generator.js";
+import { newTracingId } from "@/utils/error.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import type { Logger } from "@/utils/logger/types.js";
@@ -105,16 +106,22 @@ export class RpcRouter {
     }
     const parsed = schema.safeParse(request.params);
     if (!parsed.success) {
+      // 两层错误（docs/error-conventions.md）：用户面一行中文 + tracingId；
+      // 完整 Zod issues（path/code/expected/received 机读细节）走 logger.event 落盘，不进 message。
+      const tracingId = newTracingId();
       logger.event(
         "req.invalid_params",
-        { method: request.method, error: parsed.error.message },
+        { tracingId, method: request.method, issues: parsed.error.issues },
         LogLevel.warn,
       );
       return createResponse(
         request.id,
         false,
         undefined,
-        createError(ErrorCode.INVALID_PARAMS, parsed.error.message),
+        createError(
+          ErrorCode.INVALID_PARAMS,
+          `请求参数格式有误，请检查输入或反馈此编号给开发 [${tracingId}]`,
+        ),
       );
     }
 

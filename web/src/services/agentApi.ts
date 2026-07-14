@@ -229,6 +229,8 @@ export interface PresetDto {
   mediaImage?: string;
   mediaVideo?: string;
   mediaAudio?: string;
+  /** 项目工作目录绝对路径（system prompt 提示词注入 <workspace> 段；不约束 sense 行为）。缺省 → 不注入 */
+  workspace?: string;
 }
 
 export interface ConfigDto {
@@ -239,6 +241,8 @@ export interface ConfigDto {
   mcp_servers?: Record<string, McpServerConfigDto>;
   roles?: Record<string, { brain: string; senseGroup: string; mcpServers?: string[]; systemPrompt?: string }>;
   presets?: Record<string, PresetDto>;
+  /** 项目记忆配置（条数/字数限制）；缺省 → max_count=15, max_chars=500 */
+  memory?: { max_count?: number; max_chars?: number };
 }
 
 function fail(method: string, res: RpcResponse): Error {
