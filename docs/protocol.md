@@ -102,6 +102,8 @@ interface Notification {
 | `role_created` | `{chatId, parentChatId, type, prompt, brain, senseGroup, wait}` | spawn_role sense 执行时（主从 Agent 桌宠系统 CP3）。前端收此 notification → 创建子 pet + 调 chat.send 跑子 agent（前端驱动架构）。`requestId` = 主 chatId（前端按 chatId 路由）。`wait` 现为信息性（2026-07-09 重构后 wait=true/false 创建路径一致，均前端跑子；wait=true 子完成由后端 `role_reply` 唤主，前端无需回传） |
 | `role_destroyed` | `{chatId}` | **已失去发出方**（`destroy_role` sense 移除，子 agent done 改转 ghost，见 [agent-pet.md §5.6](./agent-pet.md)）。协议项保留作防御；前端收到应移除对应子 pet。`requestId` = 主 chatId |
 | `role_reply` | `{parentChatId, childChatId, type, content, spawnSenseCallId?, msgId?}` | wait=true 子完成唤主（[agent-pet.md §5.4](./agent-pet.md) B1 唤醒）。子 loop 结束 + waitedChildren 命中时后端推：已把子结果以 role:role 注入主 chat DB，前端收此 notification → 自动 `chat.resume(parentChatId)` 跑唤醒轮。`content` 仅即时展示，权威内容在主 chat。`requestId` = parentChatId。`spawnSenseCallId` 触发本次 spawn 的 sense call id（点击 role 子头像回滚到主 chat 的 sense 调用框用）；`msgId` = 注入主 chat 的 role:role 行 msgId（前端合流主+子历史时据 msgId 去重，避免子的 assistant→role 重映射项与主 role:role 项重复渲染） |
+| `question_requested` | `{questionId, senseName:"ask_user_question", question, header?, options, multiSelect, waitTime, createdAt}` | ask_user_question 感官向用户提问（chat.send 期间自动挂起主线程 handler）。前端 QuestionCard 据 `options` 渲染选项卡 + 「其他」模态对话框；`waitTime` = `global.approval_timeout`（`>= 0`，`0` = 不限时）驱动倒计时；`createdAt` 同 interrupt 语义。`requestId` = chatId |
+| `question_answered` | `{questionId, answer?}` | 防御性兜底：正常路径 QuestionCard submit 已乐观 dismissQuestion，此处按 questionId 兜底清理（防多 question 串联或网络异常时残留 runningTools）。`requestId` = chatId |
 
 > `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。auto sense（`needsApproval:false`）不推 `interrupt`（无审批需求，前端不弹审核卡）；仅 confirm/manual 推送。`waitTime` = `global.approval_timeout`（ms，字段约束 `>= 0`：`0` = 不限时，不显倒计时；省略 = `0` 同义），`createdAt` = 发起时间戳（ms），前端据此算倒计时：`remaining = waitTime - (now - createdAt)`，归零后端超时 reject → `rejected` notification；用户 accept/reject 后前端立即关闭（不等 `accept`/`rejected` notification 回来）。`approval_timeout` 的范围校验在 [config.ts §validateRawConfig](./utils/config.md) 与 [schemas.ts §globalSchema](./service/message.md) 双层执行。
 
@@ -139,6 +141,7 @@ interface Notification {
 | `chat.resume` | 续接（无 prompt，恢复执行 pending sense 或继续 loop）。Response.data `{chatId}`（无 userMsgId，resume 无新 user 消息） | 是 |
 | `chat.abort` | 中止当前 chat 运行流（清内存运行时 + 释放连接，不删除 DB） | 否 |
 | `sense.approval` | 感官审批（accept/reject） | 否 |
+| `sense.question.answer` | ask_user_question 感官回答。params `{questionId, selectedLabels, freeText?, cancelled?}`：单选=`selectedLabels:[label]`；多选=`selectedLabels:[label1,label2,...]`；「其他」自由文本=`selectedLabels:[], freeText`；✕ 取消=`cancelled:true`。前端 QuestionCard submit 后调。返回 `{questionId, cancelled}` | 否 |
 | `bash.list` | 列出当前 chat 挂起的 bash 进程 | 否 |
 | `bash.kill` | 显式杀死当前 chat 的挂起 bash 进程组 | 否 |
 | `mcp.list` | 列出所有 config 声明的 MCP server 及运行期状态 | 否 |

@@ -56,6 +56,7 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
 | `consumed` | checkpoint | 用户输入已入队 |
 | `message_created` / `message_updated` | checkpoint | 声明副作用（observer 落库） |
 | `sense_pending` | checkpoint | 声明审批待注册（observer 注册 ApprovalManager） |
+| `question_pending` | checkpoint | 声明问答待注册（observer 注册 QuestionManager；仅 `ask_user_question` 感官） |
 | `error` | retry / loop | 重试失败或 maxLoop 超限 |
 | `done` | loop | 整个 loop 结束 |
 
@@ -137,6 +138,37 @@ sense 层 Phase 2：executeCollectedCalls
 
 - `approvalPromise` 不随 chunk 传递——P1-11 重构后改为 `createApproval(id)` 在 core 的 `approvalRegistry` 管理，service 调 `resolveApproval/rejectApproval` 触发。chunk 只带 `approvalId` 字符串。
 - 审批被 abort 时 **throw 而非 return**：return 只结束 `senseMiddleware`，loop 会误以为本轮完成继续第二轮 LLM 调用，破坏「应停在 pending sense 待 canResume」的语义。
+
+### C. 问答流程（ask_user_question，agent 侧）
+
+ask_user_question 是特殊感官：`SupervisionLevel.auto`（不走 approval 流），handler 内部 `await createQuestion(...)` 阻塞直至用户回答。Registry Promise 由 tool.ts buildSenseTrigger 在 trigger yield 前同步注册（避免 handler 到达时用户已答但 entry 未建的竞态），checkpoint.ts yield `question_pending` chunk 推到前端；用户通过 `sense.question.answer` RPC → service QuestionManager.confirm → core questionRegistry.resolveQuestion → handler await 解除。
+
+```
+1. tool.ts buildSenseTrigger(ctx, id, "ask_user_question", argsJson):
+     ├─ createQuestion(id, ctx.global.approval_timeout)  ← 同步注册 entry（幂等）
+     └─ yield SenseTriggerChunk(type:"sense_end", id, name:"ask_user_question", supervisionLevel:0)
+
+2. checkpoint.ts 收 trigger：
+     ├─ name==="ask_user_question" → safeJsonParse(argsJson) → yield QuestionPendingChunk(...)
+
+3. observer.ts 收 question_pending → questionManager.register(id)
+
+4. streamMapper.ts 收 question_pending → yield question_requested notification → 前端
+
+5. ...（时间流逝）...
+
+6. 前端 QuestionCard 用户选 option / 「其他」/ ✕ 取消：
+     → agentApi.answerQuestion(questionId, {selectedLabels, freeText?, cancelled?})
+     → handleSenseQuestionAnswer → questionManager.confirm → resolveQuestion
+
+7. executeCollectedCalls auto branch:
+     await doExecuteSense → senseEntry.execute(args, ctx, {messageId: id})
+       → handler (ask.ts) await createQuestion(id)  ← 复用同一 Promise（已 resolve）
+
+8. handler 返回 content → yield sense_accept notification → sense_end 链路结束
+```
+
+与审批的关键差异：审批在 middleware 层 await，handler 同步执行；问答在 handler 层 await，middleware 不感知。`pending question` 不入库（与审批相同，靠 messages.content 空判断）。
 - `sense_pending` effect **始终 yield**（即便 pending sense 消息已存在，如 resume 续接场景）——resume 时 pending 已落库，仅注册 ApprovalManager 避免重复 INSERT。
 
 ### C. checkpoint 的三 delta 状态机
@@ -208,7 +240,7 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../src/agent/mid
 | [core/middleware](../../src/core/middleware/) | `compose`（洋葱执行器）、`MiddlewareHandler`、`LoopHandler` |
 | [core/middleware/types](../../src/core/middleware/types.ts) | `MiddlewareContext`、`RuntimeConfig`、所有 Chunk 类型 |
 | [core/config](../../src/core/config.ts) | `SupervisionLevel` 枚举 |
-| [core/sense](../../src/core/sense/) | `createApproval`（[tool.ts](../../src/agent/middleware/tool.ts) 构建审批 Promise） |
+| [core/sense](../../src/core/sense/) | `createApproval`（[tool.ts](../../src/agent/middleware/tool.ts) 构建审批 Promise）<br>`createQuestion`（tool.ts buildSenseTrigger 为 `ask_user_question` 同步注册问答 Promise） |
 | [core/message/adapter](../../src/core/message/adapter.ts) | `ReplaceInfo`（sense 历史替换）、`LLMResponse` |
 | [core/sense/adapter](../../src/core/sense/adapter.ts) | `SenseCallData`、`SenseFunction` |
 | [core/llm/adapter](../../src/core/llm/adapter.ts) | `LLMOptions` |

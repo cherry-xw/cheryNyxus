@@ -86,6 +86,7 @@ sense_groups:
     - execute_command
     - search_codebase
     - spawn_role
+    - ask_user_question
   plan:
     - spawn_role
     - update_todo
@@ -93,12 +94,14 @@ sense_groups:
     - read_file
     - write_file
     - execute_command
+    - ask_user_question
   coder:
     - execute_command
     - write_file
     - read_file
     - skill
     - search_codebase
+    - ask_user_question
   reviewer:
     - read_file
     - search_codebase

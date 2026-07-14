@@ -15,8 +15,9 @@
 | [senseCreator.ts](../../src/core/sense/senseCreator.ts) | `sense()` 工厂、`Sense` / `SenseFunction` / `SenseExecutor` / `SenseResult` / `SenseSharedData` 类型 |
 | [adapter.ts](../../src/core/sense/adapter.ts) | `SenseCallData`、`SenseAdapter` 接口、`senseAdapterRegistry` + 注册三件套 |
 | [senseRegistry.ts](../../src/core/sense/senseRegistry.ts) | 全局感官实例注册表（name → `Sense`），`registerSenses` / `resetSenses` / `getSense` |
-| [approvalRegistry.ts](../../src/core/sense/approvalRegistry.ts) | core 层审批 Promise 注册表（`createApproval` / `resolveApproval` / `rejectApproval`） |
-| [index.ts](../../src/core/sense/index.ts) | barrel：聚合导出上述四模块 |
+| [approvalRegistry.ts](../../src/core/sense/approvalRegistry.ts) | core 层审批 Promise 注册表（`createApproval` / `resolveApproval` / `rejectApproval`），confirm/manual 感官 await 用户审批 |
+| [questionRegistry.ts](../../src/core/sense/questionRegistry.ts) | core 层问题 Promise 注册表（`createQuestion` / `resolveQuestion` / `rejectQuestion`），ask_user_question 感官 await 用户答案（auto 路径，不走 approval 流） |
+| [index.ts](../../src/core/sense/index.ts) | barrel：聚合导出上述模块 |
 
 > ⚠ CLAUDE.md 旧描述提到 `senseManager.ts`，**真实代码不存在**；其职责（按 name 取监管等级 + 执行）已被 `RuntimeConfig.senseTable: Map<string, SenseEntry>` 替代，在 builder 摊平时注入。
 
