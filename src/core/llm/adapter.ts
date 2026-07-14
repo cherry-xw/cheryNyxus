@@ -2,7 +2,7 @@ import type { SenseFunction } from "../sense/adapter";
 
 /** 思考强度档位。
  * - off：关闭（provider 省略思考参数）
- * - thinking：由模型/服务端决定（provider 不传参；语义「开启思考但不给强度」）
+ * - thinking：开关模型的「开启」档（不传 reasoning_effort）；有显式强度档位的模型不列此值
  * - low/medium/high：强度递增，各 provider 自行映射为请求参数（如 OpenAI 兼容端点 reasoning_effort）
  */
 export type ThinkingLevel = "off" | "thinking" | "low" | "medium" | "high";

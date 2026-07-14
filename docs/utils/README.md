@@ -187,7 +187,7 @@ models:
 
 **RPC 暴露：** `utils.thinkingLevels({ models: string[] })` → `{ levels: Record<string, ThinkingLevel[]> }`。前端 BrainCard 在 model 字段变化时调用，渲染「深度思考」选择器。未在 RPC 返回中的 model 后端兜底为 `["off","thinking"]`。
 
-**前端交互：** ThinkingLevelKnob 采用「真放大镜」设计——上方一个固定的长方形视窗（带边缘扭曲效果），下方一条可拖动的小轨道（极小的月亮 emoji + 连线），拖动小轨道让目标档位的 emoji 滑入视窗正中。视窗内隐藏一条与下方面板共用同一 `T = baseOffset(activeIndex) + dragDelta` 的「大轨道」（缩放约 2.2x），被 `overflow:hidden` 裁剪后呈现精准放大效果：视窗正中显示的内容与小轨道中线的内容始终一致。label（「关闭/思考/低/中/高」）固定在 knob 框的右上角，不随放大镜移动。详见 [ThinkingLevelKnob](../../web/src/features/agent/settings/components/ThinkingLevelKnob.vue) 及 [../service/chat.md §5 工具与设置类 RPC](../service/chat.md)。
+**前端交互：** ThinkingLevelKnob 采用「真放大镜」设计——上方固定 `84×36px` 的长方形视窗（带边缘扭曲效果），下方是一条优先使用的可拖动小轨道。轨道和视窗共用居中的 `50px` 分段连线与月相图标：以完整序列 `🌑 🌒 🌓 🌔 🌕` 为标尺，按当前模型实际暴露的档位数量等距取样，不依赖档位名称。故 2 档为 `🌑 → 🌕`、3 档为 `🌑 → 🌓 → 🌕`、4 档为 `🌑 → 🌒 → 🌔 → 🌕`、5 档使用完整序列。视窗内隐藏一条与下方轨道共用同一 `T = baseOffset(activeIndex) + dragDelta` 的大轨道（缩放约 2.2x），被 `overflow:hidden` 裁剪后呈现精准放大效果：视窗正中显示的内容与小轨道中线的内容始终一致。当前档位标签直接显示后端值 `off` / `thinking` / `low` / `medium` / `high`，居中置于视窗上方；无边框的细线 chevron 前后档按钮位于控件底部左右边，仅作为拖拽之外的备用入口，到达首尾时禁用。详见 [ThinkingLevelKnob](../../web/src/features/agent/settings/components/ThinkingLevelKnob.vue) 及 [../service/chat.md §5 工具与设置类 RPC](../service/chat.md)。
 
 ## 关键流程 / 数据流
 

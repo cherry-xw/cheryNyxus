@@ -1,22 +1,23 @@
 # 模型 → 思考强度档位映射
 #
-# 不同模型支持的档位不同：
-#  - OpenAI o1 系 / 智谱 glm / doubao 等推理模型支持 reasoning_effort 全 4 档
-#  - 部分长上下文或非推理模型可能只支持开关两档（off + thinking）
-#  - 未配置或未命中：后端兜底返回 ["off", "thinking"]
+# 档位选择规则（最小化）：
+#  - 支持 reasoning_effort 全档的推理模型：只列 [off, low, medium, high]
+#    （不列 thinking——已提供显式强度档位时，"由模型决定"无独立语义）
+#  - 仅支持开关的模型（无强度概念）：列 [off, thinking]
+#  - 未配置 / 未命中：后端兜底返回 ["off", "thinking"]
 #
 # 匹配顺序：精确 > 最长前缀 > 通配 "*"。
 # 每条 aliases 含若干模型名（含通配 "*" 表示兜底命中所有未匹配项）。
 #
 # ThinkingLevel 枚举（src/core/llm/adapter.ts）：
 #   - off：关闭（provider 省略思考参数）
-#   - thinking：由模型/服务端决定（不传 reasoning_effort）
+#   - thinking：仅用于开关模型，对应"由服务端决定"或"未传 reasoning_effort"
 #   - low / medium / high：强度递增（OpenAI 兼容端点 → reasoning_effort）
 
 models:
   # 智谱 GLM 系列（OpenAI 兼容协议，reasoning_effort 全 4 档）
   - aliases: [glm-5.2, glm-5, glm-4.6, glm-4-plus, glm-4]
-    thinking: [off, thinking, low, medium, high]
+    thinking: [off, low, medium, high]
 
   # LongCat-Flash-Thinking 系列（专属思考模型，仅开关两档）
   - aliases: [LongCat-Flash-Thinking, LongCat-Flash-Thinking-2601]
@@ -24,15 +25,15 @@ models:
 
   # 豆包 doubao 系列
   - aliases: [doubao2.0-pro, doubao-pro, doubao-lite]
-    thinking: [off, thinking, low, medium, high]
+    thinking: [off, low, medium, high]
 
   # DeepSeek 系列
   - aliases: [deepseek-r1, deepseek-reasoner, deepseek-v3]
-    thinking: [off, thinking, low, medium, high]
+    thinking: [off, low, medium, high]
 
   # OpenAI o1 系列
   - aliases: [o1, o1-mini, o1-preview, o3, o3-mini, o4-mini]
-    thinking: [off, thinking, low, medium, high]
+    thinking: [off, low, medium, high]
 
   # 通配兜底：未列出的模型默认仅暴露开关两档
   - aliases: ["*"]

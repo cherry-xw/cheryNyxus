@@ -309,16 +309,16 @@ async function openEnvFile(): Promise<void> {
             <LabelTip label="每分钟限额" tip="rpm：每分钟请求上限，空 = 不限" />
             <el-input-number v-model="cfg.rpm" :controls="false" placeholder="不限" />
           </label>
-          <div class="thinking-field">
-            <LabelTip label="深度思考" tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。关闭=不发思考参数；思考=由模型决定；低/中/高=强度递增（仅推理模型有效），需在「⚙ 全局」开启思考总闸。" />
-            <ThinkingLevelKnob v-model="cfg.thinking" :levels="thinkingLevels" />
-          </div>
           <div class="compact-toggle">
             <div><span class="lbl">工具调用</span><span class="hint">允许调用工具</span></div>
             <el-switch
               :model-value="toolCallEnabled(cfg)"
               @change="(v: unknown) => setToolCall(cfg, v)"
             />
+          </div>
+          <div class="thinking-field">
+            <LabelTip label="深度思考" tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。off=不发思考参数；thinking=由模型决定；low/medium/high=强度递增（仅推理模型有效），需在「⚙ 全局」开启思考总闸。" />
+            <ThinkingLevelKnob v-model="cfg.thinking" :levels="thinkingLevels" />
           </div>
         </div>
         <MediaCapabilityGrid
