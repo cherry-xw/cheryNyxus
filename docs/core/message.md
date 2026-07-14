@@ -21,10 +21,10 @@
 ### Role
 
 ```ts
-type Role = "system" | "user" | "assistant" | "sense" | "function";
+type Role = "system" | "user" | "assistant" | "sense" | "function" | "role" | "subagent";
 ```
 
-框架实际持久化的 role 是前四个（`function` 仅为兼容保留）。`sense` 角色专指「感官执行结果」消息，与 assistant 的 tool_calls 配对（OpenAI tool 协议要求 assistant(tool_calls) + tool(result) 成对出现）。
+框架实际持久化的 role 是前四个（`function` 仅为兼容保留）。`sense` 角色专指「感官执行结果」消息，与 assistant 的 tool_calls 配对（OpenAI tool 协议要求 assistant(tool_calls) + tool(result) 成对出现）。`role`=子 pet（被 spawn 的角色）回复；`subagent` 仅旧历史消息兼容（与 `role` 等价），见 [agent-pet.md](../agent-pet.md) §5.4。
 
 ### LLMResponse（统一响应结构）
 
@@ -73,16 +73,29 @@ provider 实现这组函数交给框架，框架据此做归一。泛型 `T`=完
 
 ```ts
 export type MessageProviderAdapterConfig<T, TStream = unknown, TMessage = unknown> = {
-  role: (raw: T) => Role;
-  content: (raw: T) => string;
-  thinking?: (raw: T) => string | undefined;
-  extractStreamDelta: (chunk: TStream) => string;                  // 正文增量
-  extractStreamThinking?: (chunk: TStream) => string | undefined;  // 思考增量
-  buildMessages: (history: LLMResponse[]) => TMessage[];           // 反向构建
+  content: (raw: T) => string;                                       // 完整响应正文
+  thinking?: (raw: T) => string | undefined;                         // 完整响应思考
+  extractStreamDelta: (chunk: TStream) => string;                    // 正文流式增量
+  extractStreamThinking?: (chunk: TStream) => string | undefined;    // 思考流式增量
+  buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) => TMessage[];  // 反向构建（含多模态附件）
 };
 ```
 
-> 注意：**thinking 增量、senseCall 提取不在此处**——thinking 流式增量走 [`SenseAdapter.extractSenseCallDeltas`](./sense.md) 的姐妹约定（实际由 provider 在 `chatMiddleware` 内联处理），senseCalls 完整提取走 `SenseAdapter.senseCalls`。MessageAdapter 只管正文 `content` 的流式 delta 与完整响应字段。
+> 注意：**role 不由此 adapter 提供**——role 来自 `LLMResponse.role`（构建时已知），无需从原生响应反解。**senseCall 提取不在此处**——流式走 [`SenseAdapter.extractSenseCallDeltas`](./sense.md)，完整提取走 `SenseAdapter.senseCalls`。MessageAdapter 只管 `content` / `thinking` 的流式 delta 与完整响应字段，以及反向 `buildMessages`。
+
+### LLMAttachment（多模态附件）
+
+`buildMessages` 第二参 `attachments?` 为多模态附件，**临时参数，不进 `LLMResponse`/DB**：
+
+```ts
+export interface LLMAttachment {
+  mimeType: string;     // 如 "image/png" / "video/mp4" / "audio/wav"
+  data: Buffer;         // base64 前的二进制
+  kind?: MediaKind;     // "image" | "video" | "audio"，供 provider 区分 content part 格式
+}
+```
+
+由 [`chatMiddleware`](../../src/agent/middleware/chat.ts) `enrichMediaInputs` 据脑 `capabilities.input` + 消息正文里的 `[[media:<filename>]]` marker 现场构造（`readMediaAsset` 同步读 base64），provider 调用后丢弃。provider 据 `mimeType`/`kind` 决定 content part 格式（如 OpenAI 兼容端点：image→`image_url`、video→`video_url`、audio→`input_audio`）。多模态是否走原生旁路由 `chatMiddleware` 据 `capabilities.input` gate，见 [model-capabilities.md](../model-capabilities.md)。
 
 ### 注册表
 

@@ -12,6 +12,7 @@ import { PROVIDERS } from "../constants";
 import ConfirmPopover from "../ConfirmPopover.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import LabelTip from "../components/LabelTip.vue";
+import ThinkingLevelStep from "../components/ThinkingLevelStep.vue";
 import MediaCapabilityGrid from "./MediaCapabilityGrid.vue";
 
 const props = defineProps<{
@@ -267,9 +268,9 @@ async function openEnvFile(): Promise<void> {
             <LabelTip label="每分钟限额" tip="rpm：每分钟请求上限，空 = 不限" />
             <el-input-number v-model="cfg.rpm" :controls="false" placeholder="不限" />
           </label>
-          <div class="compact-toggle">
-            <div><span class="lbl">深度思考</span><span class="hint">推理模型建议开启</span></div>
-            <el-switch v-model="cfg.thinking" />
+          <div class="thinking-field">
+            <LabelTip label="深度思考" tip="推理模型的思考强度档位：关闭=不发思考参数；低/中/高=强度递增（token 消耗与推理深度递增）。仅推理模型有效，且需在「⚙ 全局」开启思考总闸。" />
+            <ThinkingLevelStep v-model="cfg.thinking" />
           </div>
           <div class="compact-toggle">
             <div><span class="lbl">工具调用</span><span class="hint">允许调用工具</span></div>
@@ -403,7 +404,7 @@ async function openEnvFile(): Promise<void> {
 
 .runtime-controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
 }
@@ -420,6 +421,14 @@ async function openEnvFile(): Promise<void> {
   background: #fff;
 
   > div { display: grid; gap: 2px; }
+}
+
+// 深度思考档位（ThinkingLevelStep）：跨整行，step 线需要横向空间
+.thinking-field {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  align-self: end;
 }
 
 @media (max-width: 560px) {

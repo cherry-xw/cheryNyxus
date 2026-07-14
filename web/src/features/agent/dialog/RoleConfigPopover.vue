@@ -5,11 +5,13 @@
  */
 import { computed } from "vue";
 import type {
+  BrainConfigDto,
   BrainInfo,
   ConfigDto,
   RuntimeSelection,
   SenseGroupOption,
   SenseToolInfo,
+  ThinkingLevel,
 } from "@/services/agentApi";
 
 const props = defineProps<{
@@ -39,6 +41,20 @@ function brainInfo(name: string): BrainInfo | undefined {
 
 function brainConfig(name: string) {
   return props.config?.llm.brain[name];
+}
+
+/** 思考档位 → 显示文字（资料卡 💭 tooltip 用）。 */
+const THINKING_LABEL: Record<ThinkingLevel, string> = {
+  off: "关闭",
+  low: "低",
+  medium: "中",
+  high: "高",
+};
+
+/** 返回思考档位中文；off / 无配置 → null（不显示 💭）。 */
+function thinkingLabel(cfg: BrainConfigDto | undefined): string | null {
+  const level = cfg?.thinking ?? "off";
+  return level === "off" ? null : (THINKING_LABEL[level] ?? null);
 }
 
 function supportsTools(brainName: string): boolean {
@@ -88,8 +104,8 @@ function formatContextLimit(limit: number | undefined): string {
           <span class="brain-fact-text"><b>模型</b>{{ brainConfig(selection.brain)?.model ?? "—" }}</span>
           <span class="brain-fact-text"><b>上下文</b>{{ formatContextLimit(brainInfo(selection.brain)?.contextLimit ?? brainConfig(selection.brain)?.contextLimit) }}</span>
           <el-tooltip
-            v-if="brainConfig(selection.brain)?.thinking !== false"
-            :content="`思考（${brainConfig(selection.brain)?.thinking === undefined ? '继承' : '开启'}）`"
+            v-if="thinkingLabel(brainConfig(selection.brain))"
+            :content="`思考（${thinkingLabel(brainConfig(selection.brain))}）`"
             placement="top"
           >
             <span class="brain-fact-icon">💭</span>

@@ -1,6 +1,7 @@
 import { registerOpenAIAdapter } from "./openai";
 import { registerOllamaAdapter } from "./ollama";
 import { registerMockAdapter } from "./mock";
+import { registerBigmodelAdapter } from "./bigmodel";
 
 let builtinProvidersRegistered = false;
 
@@ -16,5 +17,6 @@ export function registerBuiltinProviders(): void {
   registerOpenAIAdapter();
   registerOllamaAdapter();
   registerMockAdapter();
+  registerBigmodelAdapter();
   builtinProvidersRegistered = true;
 }

@@ -64,18 +64,17 @@ media:
 
 ### 双轨策略（enrichMediaInputs，P5b）
 
-按 brain `capabilities.input.image` 取值分流，仅 image 类支持原生视觉旁路：
+按 brain `capabilities.input` 任一 kind 为 true 即走多模态旁路（旁路内按 kind 过滤）：
 
 | 脑声明 | 行为 | provider 调用 |
 |---|---|---|
-| `input.image: true` | 多模态旁路：从 `[[media:]]` 标记读 base64 → 移除标记 → 临时 `attachments` 数组 | openai adapter `buildMessages` 产 `[{type:"text",text},{type:"image_url",image_url:{url:"data:image/...;base64,..."}}]` |
-| `input.image: false` 或缺省 | 旧路径：媒体网关 `understand` → 文本理解结果拼到 `last.content` | 文本消息，仅 `[{type:"text",text:"... [image 附件理解结果]..."}]` |
+| `input.*` 任一为 true | 多模态旁路：从 `[[media:]]` 标记读 base64 → 移除标记 → 临时 `attachments` 数组（仅脑支持的 kind） | openai adapter `buildMessages` 产对应 content part：image→`image_url`、video→`video_url`、audio→`input_audio`（均为 data URI base64） |
+| `input.*` 全 false 或缺省 | 旧路径：媒体网关 `understand` → 文本理解结果拼到 `last.content` | 文本消息，仅 `[{type:"text",text:"... [媒体附件理解结果]..."}]` |
 
 约束：
 
 - **不持久化**：`attachments` 仅在 chat middleware 调用 provider 时构造，**不**进 `LLMResponse`、**不**进 DB；provider 调用后丢弃。原始 `[[media:...]]` 标记留在 `LLMResponse.content` 不动，跨模型回放可重 enrich。
-- **video/audio**：脑未声明能力 → 文本转写兜底；脑声明能力 → 当前实现仅 image 走原生视觉（video/audio 多模态待 provider adapter 扩展）。
-- **provider 范围**：仅 `src/agent/provider/openai.ts` 实现多模态；`mock.ts`/`ollama.ts` 签名对齐接口但忽略 `attachments`（provider 内部注释说明）。
+- **provider 范围**：仅 `src/agent/provider/openai.ts`（及兼容实现如 bigmodel）实现多模态；`mock.ts`/`ollama.ts` 签名对齐接口但忽略 `attachments`（provider 内部注释说明）。
 - **入口**：[src/agent/middleware/chat.ts](../src/agent/middleware/chat.ts) `enrichMediaInputs`；adapter 接口见 [src/core/message/adapter.ts](../src/core/message/adapter.ts) `LLMAttachment` / `buildMessages(history, attachments?)`。
 
 ## 媒体网关协议

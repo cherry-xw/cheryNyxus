@@ -1,197 +1,49 @@
+/**
+ * OpenAI（含兼容服务）provider。
+ *
+ * LLMAdapter 用官方 SDK（保留原有依赖）；message/sense adapter 与 thinking 映射、RPM 限流、
+ * 必填项校验复用 [openaiCompat](./openaiCompat.js) 与 [fetchBase](./fetchBase.js)。
+ *
+ * 思考参数：按 ThinkingLevel 映射为 reasoning_effort（off 省略）。
+ * 历史问题：曾硬编码 `thinking: { type: "enabled" }`，被聚合端点忽略导致思考丢失；
+ * 现按 reasoning_effort 映射（OpenAI o1 系 / 智谱 bigmodel / 兼容聚合端点均认）。
+ *
+ * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md)。
+ */
 import OpenAI from "openai";
 import type {
-  ChatCompletionMessageParam,
-  ChatCompletionContentPart,
   ChatCompletion,
-} from "openai/resources/chat/completions";
-import { registerMessageAdapter, type LLMResponse, type LLMAttachment } from "@/core/message/adapter";
-import { registerSenseAdapter, type Sense, type SenseCallData, type SenseFunction } from "@/core/sense";
-import type { ZodType } from "zod";
-import type {
-  ChatCompletionMessageFunctionToolCall,
+  ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
-import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
-import { getRateLimiter } from "@/utils/rateLimiter.js";
-import { throwUserFacing } from "@/utils/error.js";
+import { registerMessageAdapter } from "@/core/message/adapter";
+import { registerSenseAdapter, type SenseFunction } from "@/core/sense";
+import {
+  openaiMessageAdapterConfig,
+  openaiSenseAdapterConfig,
+  acquireRpm,
+  mapThinkingToReasoningEffort,
+} from "./openaiCompat.js";
+import { assertChatOptions } from "./fetchBase.js";
 
-/**
- * RPM 限流：在发起 LLM 请求前按 (url, key) 滑动窗口节流。
- * rpm 未配置 / 非正数 / 无 url 时跳过（不限流）。
- */
-async function acquireRpm(options?: LLMOptions): Promise<void> {
-  const rpm = options?.rpm;
-  const url = options?.url;
-  if (!rpm || rpm <= 0 || !url) return;
-  await getRateLimiter(url, options.key, rpm).acquire();
-}
+// ========== LLM Adapter 定义 ==========
 
-// ========== Adapter 定义（参数分离）==========
-
-// Message Adapter 配置
-const openaiMessageAdapterConfig = {
-  content: (raw: ChatCompletion) => raw.choices[0]?.message?.content ?? "",
-  thinking: (raw: ChatCompletion) => {
-    const msg = raw.choices[0]?.message;
-    if (msg && "reasoning_content" in msg && msg.reasoning_content) {
-      return msg.reasoning_content as string;
-    }
-    return undefined;
-  },
-  extractStreamDelta: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) =>
-    chunk.choices[0]?.delta?.content ?? "",
-  extractStreamThinking: (
-    chunk: OpenAI.Chat.Completions.ChatCompletionChunk,
-  ) => {
-    const delta = chunk.choices[0]?.delta;
-    if (delta && "reasoning_content" in delta && delta.reasoning_content) {
-      return delta.reasoning_content as string;
-    }
-    return undefined;
-  },
-  buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) =>
-    history.filter((m) => !m.revoked).map((m) => {
-      if (m.role === "sense") {
-        // 如果被替换，使用 replace.content
-        const content = m.replace?.state ? m.replace.content : m.content;
-        return {
-          role: "tool",
-          content,
-          tool_call_id: m.id,
-        } as ChatCompletionMessageParam;
-      }
-      if (m.role === "assistant" && m.senseCalls && m.senseCalls.length > 0) {
-        return {
-          role: m.role,
-          content: m.content || null,
-          tool_calls: m.senseCalls.map((sc) => ({
-            id: sc.id,
-            type: "function",
-            function: {
-              name: sc.name,
-              arguments: sc.arguments,
-            },
-          })),
-        } as ChatCompletionMessageParam;
-      }
-      // role（wait=true 子完成注入的角色回复，见 agent-pet.md §5.4）映射为 user：OpenAI 拒未知 role
-      // 兼容旧历史消息 role:subagent（与 role 等价）
-      const role = m.role === "subagent" || m.role === "role" ? "user" : m.role;
-      // P5b：user 消息携带 attachments → 构造 OpenAI vision content array（多模态）
-      if (role === "user" && attachments && attachments.length > 0) {
-        const parts: ChatCompletionContentPart[] = [{ type: "text", text: m.content }];
-        for (const att of attachments) {
-          if (att.mimeType.startsWith("image/")) {
-            parts.push({
-              type: "image_url",
-              image_url: { url: `data:${att.mimeType};base64,${att.data.toString("base64")}` },
-            });
-          } else if (att.mimeType.startsWith("video/")) {
-            parts.push({
-              type: "video_url",
-              video_url: { url: `data:${att.mimeType};base64,${att.data.toString("base64")}` },
-            } as unknown as ChatCompletionContentPart);
-          } else if (att.mimeType.startsWith("audio/")) {
-            parts.push({
-              type: "input_audio",
-              input_audio: { data: att.data.toString("base64"), format: att.mimeType.split("/")[1] ?? "wav" },
-            } as ChatCompletionContentPart);
-          }
-        }
-        return { role: "user", content: parts } as ChatCompletionMessageParam;
-      }
-      return {
-        role,
-        content: m.content,
-      } as ChatCompletionMessageParam;
-    }),
-};
-
-// Sense Adapter 配置
-const openaiSenseAdapterConfig = {
-  buildSenses(senses: Sense<ZodType>[]): SenseFunction[] {
-    return senses.map((s) => ({
-      type: "function",
-      function: {
-        ...buildBaseSenseFunction(s),
-        strict: true,
-      },
-    }));
-  },
-
-  senseCalls(response: ChatCompletion): SenseCallData[] {
-    const senseCalls = (response.choices?.[0]?.message?.tool_calls ??
-      []) as ChatCompletionMessageFunctionToolCall[];
-    return senseCalls.map((sc, index) => ({
-      index,
-      id: sc.id ?? `sense-${index}`,
-      name: sc.function?.name ?? undefined,
-      arguments: sc.function?.arguments ?? "",
-    }));
-  },
-
-  /**
-   * 从流式 chunk 提取 sense call 增量
-   * OpenAI 流式响应结构：choices[0].delta.tool_calls[]
-   * 返回 SenseCallData（index 定位，arguments 为增量片段）
-   */
-  extractSenseCallDeltas(chunk: unknown): SenseCallData[] {
-    const streamChunk = chunk as OpenAI.Chat.Completions.ChatCompletionChunk;
-    const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
-    return deltas.map((delta) => ({
-      index: delta.index ?? 0,
-      id: delta.id ?? `sense-${delta.index ?? 0}`,
-      name: delta.function?.name ?? undefined,
-      arguments: delta.function?.arguments ?? "",
-    }));
-  },
-};
-
-// LLM Adapter 定义
 const openaiLLMAdapter: LLMAdapter = {
   async chat(
     messages: unknown[],
     senses: SenseFunction[],
     options?: LLMOptions,
   ): Promise<unknown> {
+    const { model, url, key } = assertChatOptions(options);
     const msgArray = messages as ChatCompletionMessageParam[];
-    const model = options?.model;
-    const url = options?.url;
-    const key = options?.key;
-    const thinking = options?.thinking === true;
-    if (!model || !url) {
-      throw new Error("OpenAI provider requires model and url in options");
-    }
-    // key 缺失抛错：错误消息刻意避开 retry 可恢复关键词（api/invalid/timeout 等），落入 unknown 类 →
-    // 不重试、直接 yield ErrorChunk 响应前端（见 retry 中间件 classifyError）
-    // 占位符 $VAR（env 未配置时 replaceEnvVars 原样返回）必须也视为缺失——
-    // 不然会作为 token 发出 → 后端 401，错误信息毫无指引
-    // 错误信息分层规范见 [docs/error-conventions.md](../../docs/error-conventions.md)
-    const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/);
-    if (placeholderMatch) {
-      const envName = placeholderMatch[1]!;
-      throwUserFacing(
-        "llm.key.missing",
-        `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启`,
-        { model, url, envName, reason: "placeholder_unresolved" },
-      );
-    }
-    if (!key) {
-      throwUserFacing(
-        "llm.key.missing",
-        `${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段`,
-        { model, url, reason: "key_empty" },
-      );
-    }
+    const effort = mapThinkingToReasoningEffort(options?.thinking);
     await acquireRpm(options);
-    const client = new OpenAI({
-      baseURL: url,
-      apiKey: key,
-    });
+    const client = new OpenAI({ baseURL: url, apiKey: key });
     return client.chat.completions.create({
       model,
       messages: msgArray,
-      ...(thinking ? { thinking: { type: "enabled" } } : {}),
+      // 思考强度：low/medium/high → reasoning_effort；off/undefined 省略（非推理模型也安全）
+      ...(effort ? { reasoning_effort: effort } : {}),
       ...(senses.length > 0 && { tools: senses }),
     });
   },
@@ -200,42 +52,16 @@ const openaiLLMAdapter: LLMAdapter = {
     senses: SenseFunction[],
     options?: LLMOptions,
   ): Promise<AsyncIterable<unknown>> {
+    const { model, url, key } = assertChatOptions(options);
     const msgArray = messages as ChatCompletionMessageParam[];
-    const model = options?.model;
-    const url = options?.url;
-    const key = options?.key;
-    const thinking = options?.thinking === true;
-    if (!model || !url) {
-      throw new Error("OpenAI provider requires model and url in options");
-    }
-    // key 缺失抛错：错误消息刻意避开 retry 可恢复关键词，落入 unknown 类 → 不重试、直接响应前端
-    // 占位符 $VAR 同 chat 路径：env 未配置时 replaceEnvVars 原样返回，必须也视为缺失
-    const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/);
-    if (placeholderMatch) {
-      const envName = placeholderMatch[1]!;
-      throwUserFacing(
-        "llm.key.missing",
-        `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启`,
-        { model, url, envName, reason: "placeholder_unresolved", mode: "stream" },
-      );
-    }
-    if (!key) {
-      throwUserFacing(
-        "llm.key.missing",
-        `${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段`,
-        { model, url, reason: "key_empty", mode: "stream" },
-      );
-    }
+    const effort = mapThinkingToReasoningEffort(options?.thinking);
     await acquireRpm(options);
-    const client = new OpenAI({
-      baseURL: url,
-      apiKey: key,
-    });
+    const client = new OpenAI({ baseURL: url, apiKey: key });
     const stream = await client.chat.completions.create({
       model,
       messages: msgArray,
       stream: true,
-      ...(thinking ? { thinking: { type: "enabled" } } : {}),
+      ...(effort ? { reasoning_effort: effort } : {}),
       ...(senses.length > 0 && { tools: senses }),
     });
     return stream as AsyncIterable<unknown>;
@@ -249,9 +75,6 @@ export function registerOpenAIAdapter(): void {
     OpenAI.Chat.Completions.ChatCompletionChunk,
     ChatCompletionMessageParam
   >("openai", openaiMessageAdapterConfig);
-  registerSenseAdapter<ChatCompletion>(
-    "openai",
-    openaiSenseAdapterConfig,
-  );
+  registerSenseAdapter<ChatCompletion>("openai", openaiSenseAdapterConfig);
   registerLLMAdapter("openai", openaiLLMAdapter);
 }

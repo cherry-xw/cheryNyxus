@@ -18,10 +18,11 @@ registerSenseAdapter<Msg, Raw>(name, cfg)      ← core/sense/adapter
 
 | 文件 | 一句话 |
 |------|--------|
-| [index.ts](../../src/agent/provider/index.ts) | `registerBuiltinProviders()`：幂等注册 openai/ollama/mock |
-| [openai.ts](../../src/agent/provider/openai.ts) | OpenAI（含兼容服务）三件套，含 RPM 限流、`reasoning_content` 提取、`strict:true` |
+| [index.ts](../../src/agent/provider/index.ts) | `registerBuiltinProviders()`：幂等注册 openai/ollama/mock/bigmodel |
+| [openai.ts](../../src/agent/provider/openai.ts) | OpenAI（含兼容服务）三件套，含 RPM 限流、`reasoning_effort` 映射、`reasoning_content` 提取、`strict:true` |
 | [ollama.ts](../../src/agent/provider/ollama.ts) | Ollama 三件套，含 `tool_calls` 处理与流式不可靠警告 |
 | [mock.ts](../../src/agent/provider/mock.ts) | 脚本回放 provider（离线测试），按 LLM 调用序逐条回放 |
+| [bigmodel.ts](../../src/agent/provider/bigmodel.ts) | 智谱 BigModel 三件套（fetch 实现），`reasoning_effort` 映射、`reasoning_content` 提取、image 多模态 |
 
 ## 核心概念 / 导出
 
@@ -45,20 +46,22 @@ export function registerBuiltinProviders(): void {
 | Adapter | 接口 | 文件 |
 |---------|------|------|
 | LLM | `chat()/chatStream()` 调用 LLM | [core/llm/adapter.ts](../../src/core/llm/adapter.ts) |
-| Message | `role/content/thinking/extractStreamDelta/extractStreamThinking/buildMessages` | [core/message/adapter.ts](../../src/core/message/adapter.ts) |
+| Message | `content/thinking/extractStreamDelta/extractStreamThinking/buildMessages` | [core/message/adapter.ts](../../src/core/message/adapter.ts) |
 | Sense | `buildSenses/senseCalls/extractSenseCallDeltas` | [core/sense/adapter.ts](../../src/core/sense/adapter.ts) |
 
 ### Provider 能力差异
 
-| 维度 | openai | ollama | mock |
-|------|--------|--------|------|
-| `buildSenses` 加 `strict:true` | ✓ | ✗ | ✗ |
-| thinking 字段 | `reasoning_content` | `message.thinking` | `thinking` |
-| tool_call.id | 有（`call_xxx`） | 无（randomUUID 占位） | 缺省 randomUUID |
-| 流式 tool_call 稳定 | 稳定 | 不稳定（P1-2） | 稳定（自拆 delta） |
-| RPM 限流 | ✓（`brain.rpm`） | ✗ | ✗ |
-| 真实网络 | 是 | 是 | 否（脚本回放） |
-| buildMessages 把 `sense` 转 `tool` | ✓（带 `tool_call_id`） | ✓（仅 role+content） | ✗（直接透传 LLMResponse） |
+| 维度 | openai | ollama | mock | bigmodel |
+|------|--------|--------|------|----------|
+| thinking 请求参数 | `reasoning_effort:level`（off 省略） | 无（不传） | N/A | `reasoning_effort:level`（同 openai） |
+| thinking 响应字段 | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` |
+| `buildSenses` 加 `strict:true` | ✓ | ✗ | ✗ | ✓ |
+| tool_call.id | 有（`call_xxx`） | 无（randomUUID 占位） | 缺省 randomUUID | 有 |
+| 流式 tool_call 稳定 | 稳定 | 不稳定（P1-2） | 稳定（自拆 delta） | 稳定（OpenAI 协议） |
+| RPM 限流 | ✓（`brain.rpm`） | ✗ | ✗ | ✓（`brain.rpm`） |
+| 真实网络 | 是 | 是 | 否（脚本回放） | 是 |
+| buildMessages 把 `sense` 转 `tool` result | ✓（带 `tool_call_id`） | ✓（仅 role+content） | ✗（直接透传 LLMResponse） | ✓（同 openai） |
+| HTTP 实现 | openai SDK | ollama SDK | 脚本回放 | 原生 fetch（fetchBase） |
 
 ### 三 Provider 共有约定
 
@@ -182,7 +185,7 @@ const index = messages.filter(m => m.role === "assistant").length;
     const client = new OpenAI({ baseURL: url, apiKey: key });
     return client.chat.completions.create({
       model, messages,
-      ...(thinking && { thinking: { type: "enabled" } }),  // 思考模式
+      ...(effort && { reasoning_effort: effort }),  // 思考强度：low/medium/high（off 省略）
       ...(senses.length > 0 && { tools: senses }),
     });
   },
@@ -293,7 +296,7 @@ interface MockResponse { thinking?: string; content?: string; toolCalls?: MockTo
    import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
    import type { ZodType } from "zod";
 
-   const messageAdapterConfig = { role, content, thinking, extractStreamDelta, extractStreamThinking, buildMessages };
+   const messageAdapterConfig = { content, thinking, extractStreamDelta, extractStreamThinking, buildMessages };
    const senseAdapterConfig  = { buildSenses, senseCalls, extractSenseCallDeltas };
    const llmAdapter: LLMAdapter = { async chat(...) {...}, async chatStream(...) {...} };
 
@@ -314,3 +317,31 @@ interface MockResponse { thinking?: string; content?: string; toolCalls?: MockTo
 - **buildMessages 必须过滤 revoked**：否则撤回后旧消息仍进入 LLM 上下文。
 - **buildMessages 必须处理 `replace.state`**：sense 历史 hash 替换时用 `replace.content` 替代原 content（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 的去重逻辑）。
 - **tool_call.id 不可省**：openai 要求 assistant 的 `tool_calls[i].id` 与 tool 结果的 `tool_call_id` 配对；provider 没有真实 id 时用 `randomUUID()`，但要注意流式场景同 call 多 chunk 的 id 一致性（由 `mergeSenseDeltas` 取首 delta id 合并）。
+
+### fetch 基座（[fetchBase.ts](../../src/agent/provider/fetchBase.ts)）
+
+新 provider **优先用原生 fetch 而非引第三方 SDK**（Node ≥20 自带 fetch/ReadableStream/AbortController）。基座提供：
+
+- `streamSSE(url, body, headers): AsyncGenerator<Record<string,unknown>>` —— SSE 流式：内部自建 `AbortController`、`getReader()` + `TextDecoder` 跨 chunk 行缓冲、按 `\n` 切行、跳过空行/`:` 注释心跳、剥离 `data:` 前缀、`[DONE]` 主动结束；**finally 必跑 `controller.abort()` + `reader.cancel()`**（对接现有 abort 机制：`compose.ts` 的 `generator.throw()` → for-await 释放 → finally 切断 HTTP）。
+- `jsonRequest(url, body, headers): Promise<Record<string,unknown>>` —— 非流式。
+- `assertChatOptions(options)` —— model/url/key 校验 + `$ENV` 占位符检测（从 openai.ts 抽出，共用）。
+- 错误封装：`!res.ok` → `throwUserFacing("llm.fetch.http", ...)`，message 避开 retry 关键词；网络错误 `llm.fetch.network`。
+
+> abort 不靠下传 signal，而靠 generator 生命周期：外层 `for await` 被 `.throw()` 打断时 async generator 的 finally 自动跑、HTTP 连接被切断（与现有 openai SDK 路径行为一致）。
+
+### ThinkingLevel → 请求参数映射
+
+每个 provider 自行把 `LLMOptions.thinking`（`ThinkingLevel`，见 [llm.md](../core/llm.md)）翻译成厂商请求参数。共享映射 `mapThinkingToReasoningEffort(level)`（在 [openaiCompat.ts](../../src/agent/provider/openaiCompat.ts)）：
+
+- `off` → 返回 `undefined`（provider 省略该参数，绝对安全）。
+- `low/medium/high` → 返回 `"low"|"medium"|"high"`，塞入 `reasoning_effort` 字段（OpenAI o1 系 / 智谱 bigmodel / OpenAI 兼容聚合端点均认）。
+
+> ⚠ `reasoning_effort` 仅对**推理模型**有效，非推理模型返回 400；`off` 档省略参数无此风险。ollama provider 忽略 thinking（不传，由服务端/模型决定）。未来 anthropic provider 将映射为 thinking block。
+
+### 共享件（[openaiCompat.ts](../../src/agent/provider/openaiCompat.ts)）
+
+OpenAI 兼容协议的 provider（openai / bigmodel）共享 message/sense adapter 配置 + `acquireRpm` + `mapThinkingToReasoningEffort` + `assertChatOptions`，抽到 `openaiCompat.ts`。openai.ts 用 SDK 实现 LLMAdapter、bigmodel.ts 用 fetch 实现 LLMAdapter，二者复用同一套 message/sense adapter（结构同形，鸭子类型解析）。
+
+### bigmodel provider（[bigmodel.ts](../../src/agent/provider/bigmodel.ts)）
+
+智谱 BigModel，OpenAI 兼容协议，base_url 默认 `https://open.bigmodel.cn/api/paas/v4/`（可配，也能指向聚合端点）。LLMAdapter 用 fetch 基座：`chat` 走 `jsonRequest`、`chatStream` 走 `streamSSE`，请求体 `{model, messages, stream, tools?, reasoning_effort?}`；message/sense adapter 复用 openaiCompat（自动获得 `reasoning_content` 解析 + image 多模态 + tool_calls）。注册名 `"bigmodel"`。

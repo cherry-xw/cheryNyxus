@@ -152,12 +152,15 @@ export interface ChatSendAttachment {
   mimeType: string;
 }
 
+/** 思考强度档位（对齐后端 ThinkingLevel）：off=关闭，low/medium/high=强度递增。 */
+export type ThinkingLevel = "off" | "low" | "medium" | "high";
+
 /** config.get 响应 / config.save 入参：.chery/config.yaml 原文（除 server 段）。对齐后端 ConfigRaw。 */
 export interface BrainConfigDto {
   url?: string;
   model: string;
   key?: string;
-  thinking?: boolean;
+  thinking?: ThinkingLevel;
   provider: string;
   rpm?: number;
   mock?: { enabled?: boolean; file: string };

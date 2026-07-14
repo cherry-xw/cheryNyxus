@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { SupervisionLevel } from "@/core/config";
 import type { OAuth2Config } from "@/service/auth/index.js";
+import type { ThinkingLevel } from "@/core/llm/adapter";
 
 // .env 路径：源码运行时 __dirname = src/utils/（需 ../..），打包产物 __dirname = dist/（需 ..）。
 // dotenv.config() 不覆盖已存在的 process.env 变量，故开发/生产均可安全调用：
@@ -90,8 +91,8 @@ interface BrainConfig {
   url?: string;
   model: string;
   key?: string;
-  /** 表示这个模型有没有思考能力 */
-  thinking?: boolean;
+  /** 思考强度档位（ThinkingLevel）：off=关闭，low/medium/high=强度递增。legacy boolean 兼容（loadConfig/readRawConfig 归一）。 */
+  thinking?: ThinkingLevel;
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string;
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
@@ -101,6 +102,23 @@ interface BrainConfig {
   /** 记忆容量（KB），供前端 context bar 显示用量（后端按 KB×256 折算 token 预算）。缺省兜底 */
   contextLimit?: number;
   capabilities?: BrainCapabilities;
+}
+
+/**
+ * 把 brain.thinking 归一化为 ThinkingLevel。
+ * - legacy boolean：true→"high"、false→"off"
+ * - undefined/缺省 → "off"
+ * - 已是合法 level → 原样
+ * - 非法值 → "off"（兜底）
+ *
+ * 在 loadConfig（运行时）和 readRawConfig（RPC 读，前端拿到的就是 level）两处调用，
+ * 保证 ctx.runtime.brain.thinking 与前端 DTO 都规范化。
+ */
+function normalizeBrainThinking(v: unknown): ThinkingLevel {
+  if (v === true) return "high";
+  if (v === false || v === undefined || v === null) return "off";
+  if (v === "off" || v === "low" || v === "medium" || v === "high") return v;
+  return "off";
 }
 
 interface LLMConfig {
@@ -343,6 +361,14 @@ function loadConfig(): Config {
     }
   }
 
+  // brain.thinking 归一化为 ThinkingLevel（legacy boolean → level；非法 → "off"）。
+  // 运行时 ctx.runtime.brain.thinking 必为 level，provider 据 level 映射请求参数。
+  if (config.llm?.brain) {
+    for (const cfg of Object.values(config.llm.brain)) {
+      cfg.thinking = normalizeBrainThinking(cfg.thinking);
+    }
+  }
+
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
@@ -463,6 +489,15 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   for (const [name, cfg] of brainEntries) {
     if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`);
     if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`);
+    // thinking：接受 legacy boolean（true/false）或 ThinkingLevel（off/low/medium/high）；非法 fail loud
+    // cfg.thinking 类型已为 ThinkingLevel，运行时值可能是 legacy boolean/字符串，用 unknown 比较避开类型冲突
+    const t = cfg?.thinking as unknown;
+    if (
+      t !== undefined && t !== true && t !== false &&
+      t !== "off" && t !== "low" && t !== "medium" && t !== "high"
+    ) {
+      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/low/medium/high）`);
+    }
     if (cfg?.capabilities?.generate && cfg.capabilities.toolCall === false && Object.values(cfg.capabilities.generate).some(Boolean)) {
       errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`);
     }
@@ -554,6 +589,12 @@ export function readRawConfig(): ConfigRaw {
   // 端口/传输不通过面板编辑，剥离 server
   const { server: _server, ...rest } = raw;
   void _server;
+  // brain.thinking 归一化为 ThinkingLevel（前端 config.get 拿到的就是 level，无需再处理 legacy boolean）
+  if (rest.llm?.brain) {
+    for (const cfg of Object.values(rest.llm.brain)) {
+      cfg.thinking = normalizeBrainThinking(cfg.thinking);
+    }
+  }
   return rest;
 }
 

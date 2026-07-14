@@ -257,7 +257,7 @@ export interface BrainListResponseData {
     name: string;
     provider: string;
     model: string;
-    thinking?: boolean;
+    thinking?: import("@/core/llm/adapter.js").ThinkingLevel;
     capabilities?: import("@/utils/config.js").BrainCapabilities;
     /** 上下文长度上限（token），供前端 context bar 显示用量。缺省 undefined */
     contextLimit?: number;

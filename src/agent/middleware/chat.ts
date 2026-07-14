@@ -49,7 +49,8 @@ export async function* chatMiddleware(
     model: ctx.runtime.brain.model,
     url: ctx.runtime.brain.url,
     key: ctx.runtime.brain.key,
-    ...(ctx.runtime.brain.thinking && { thinking: true }),
+    // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/low/medium/high）
+    thinking: ctx.global.thinking ? (ctx.runtime.brain.thinking ?? "off") : "off",
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
   };
 
@@ -58,7 +59,7 @@ export async function* chatMiddleware(
     chatId: ctx.soul.chatId,
     provider: ctx.runtime.brain.provider || "unknown",
     model: options.model,
-    thinking: !!options.thinking,
+    thinking: options.thinking ?? "off",
     stream: !!ctx.global.stream,
     senseCount: senses.length,
     senseNames: senses.map((s) => s.function?.name || "unknown"),
@@ -267,8 +268,9 @@ async function enrichMediaInputs(
   const matches = [...last.content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)];
   if (!matches.length) return { history };
 
-  // 脑支持 image 原生视觉 → 多模态旁路
-  if (brain.capabilities?.input?.image === true) {
+  // 脑 input 下任一 kind 支持原生多模态 → 多模态旁路（旁路内 :285 按 kind 过滤）
+  const inputCaps = brain.capabilities?.input;
+  if (inputCaps && (inputCaps.image || inputCaps.video || inputCaps.audio)) {
     const attachments: LLMAttachment[] = [];
     const unsupportedMedia: { filename: string; kind: MediaKind }[] = [];
     let cleanedContent = last.content;

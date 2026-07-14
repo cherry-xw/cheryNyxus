@@ -1,5 +1,8 @@
 import type { SenseFunction } from "../sense/adapter";
 
+/** 思考强度档位。off=关闭（provider 省略思考参数）；low/medium/high=强度递增，各 provider 自行映射为请求参数。 */
+export type ThinkingLevel = "off" | "low" | "medium" | "high";
+
 /**
  * LLM 调用选项（P1-6：替代 Record<string, unknown>，消除 provider 内强转）。
  * 各 provider 按需读取；model 必选，其余可选。
@@ -8,7 +11,8 @@ export interface LLMOptions {
   model: string;
   url?: string;
   key?: string;
-  thinking?: boolean;
+  /** 思考强度档位（见 ThinkingLevel）；off=不发思考参数，其余按 provider 映射 */
+  thinking?: ThinkingLevel;
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
   rpm?: number;
 }
