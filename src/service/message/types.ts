@@ -62,7 +62,9 @@ export type NotificationType =
   | "replaced"     // 感官去重命中：历史 sense 结果被新读取替换
   | "role_created"   // 角色（子 pet）派发（spawn_role sense 执行时推送给主 chat 所属连接）
   | "role_destroyed" // 角色销毁（destroy_role sense 执行时推送给主 chat 所属连接，CP6）
-  | "role_reply";    // wait=true 子完成唤主（后端注入角色回复后推，前端 chat.resume 续跑，T9 B1）
+  | "role_reply"     // wait=true 子完成唤主（后端注入角色回复后推，前端 chat.resume 续跑，T9 B1）
+  | "question_requested" // ask_user_question 感官：弹出选项卡询问用户
+  | "question_answered"; // ask_user_question 已答（含取消/超时），前端清理气泡（防御性兜底，正常路径由 RPC 响应 + optimistic dismiss 处理）
 
 // ========== Request Data ==========
 
@@ -163,6 +165,24 @@ export interface SenseApprovalRequestData {
   approvalId: string;
   action: "accept" | "reject";
   reason?: string;
+}
+
+/**
+ * sense.question.answer 入参（用户回答 ask_user_question）。
+ * selectedLabels：用户点选的 label 数组（单选=1 项；多选=N 项；「其他」自由文本时为空数组）。
+ * freeText：「其他」chip 触发模态对话框时输入的自由文本（普通 chip 选中时为 undefined）。
+ * cancelled：true = 用户点 ✕ 取消；正常答案时省略或 false。
+ */
+export interface SenseQuestionAnswerRequestData {
+  questionId: string;
+  selectedLabels: string[];
+  freeText?: string;
+  cancelled?: boolean;
+}
+
+export interface SenseQuestionAnswerResponseData {
+  questionId: string;
+  cancelled: boolean;
 }
 
 export interface ChatAbortRequestData {
@@ -426,6 +446,11 @@ export interface SenseApprovalResponseData {
   action: string;
 }
 
+export interface SenseQuestionAnswerResponseData {
+  questionId: string;
+  cancelled: boolean;
+}
+
 export interface ChatAbortResponseData {
   chatId: string;
 }
@@ -608,6 +633,7 @@ export type NotificationData =
   | RoleCreatedNotificationData
   | RoleDestroyedNotificationData
   | RoleReplyNotificationData
+  | QuestionRequestedNotificationData
   | DoneNotificationData
   | null;
 
@@ -758,6 +784,25 @@ export interface RoleDestroyedNotificationData {
   chatId: string;
 }
 
+/**
+ * ask_user_question 感官请求（question_pending chunk 转换）。
+ * 前端 QuestionCard 据 questionId/options/multiSelect 渲染选项卡；waitTime>0 显倒计时。
+ * 复用 `global.approval_timeout`（字段约束 >= 0，0 = 不超时）。handler await 该 questionId 在
+ * core questionRegistry 的 Promise，用户通过 `sense.question.answer` RPC 触发 resolve。
+ */
+export interface QuestionRequestedNotificationData {
+  questionId: string;
+  senseName: "ask_user_question";
+  question: string;
+  header?: string;
+  options: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+  /** 等待时长（ms，= global.approval_timeout）。0 = 不超时。 */
+  waitTime: number;
+  /** 发起时间戳（ms，Date.now()）。前端倒计时 = waitTime - (now - createdAt)。 */
+  createdAt: number;
+}
+
 // ========== Error ==========
 
 export interface RpcError {
@@ -792,6 +837,8 @@ export const Method = {
 
   // Sense 审批
   SENSE_APPROVAL: "sense.approval",
+  // Sense 问答（ask_user_question 感官答案回传）
+  SENSE_QUESTION_ANSWER: "sense.question.answer",
   // Chat 中止（切换 chat：清内存 + 退出挂起 generator，不动 DB，pending 保留供下次重新审核）
   CHAT_ABORT: "chat.abort",
 
@@ -854,6 +901,7 @@ export interface RpcMethodMap {
   [Method.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData };
   [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData };
   [Method.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData };
+  [Method.SENSE_QUESTION_ANSWER]: { params: SenseQuestionAnswerRequestData; result: SenseQuestionAnswerResponseData };
   [Method.CHAT_ABORT]: { params: ChatAbortRequestData; result: ChatAbortResponseData };
   [Method.BASH_LIST]: { params: BashListRequestData; result: BashListResponseData };
   [Method.BASH_KILL]: { params: BashKillRequestData; result: BashKillResponseData };

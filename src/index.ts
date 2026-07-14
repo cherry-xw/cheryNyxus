@@ -8,7 +8,7 @@ import { runSenseTestsAndCollect, reportSenseCompileResult } from "./agent/sense
 import { bootstrapAgentRuntime } from "./agent/bootstrap.js";
 import { closeMcpClients } from "@/core/mcp/index.js";
 import { reloadSenses } from "./agent/sense/index.js";
-import { clearAllApprovals } from "@/core/sense/approvalRegistry.js";
+import { clearAllApprovals, clearAllQuestions } from "@/core/sense";
 import { clearAllWaitedChildren } from "@/agent/spawnBroker.js";
 import { closeAllConnections } from "@/service/websocket/index.js";
 import { initLogger, logger, LogLevel } from "@/utils/logger/index.js";
@@ -85,6 +85,7 @@ async function main(): Promise<void> {
 
     // 3. 清理所有定时器
     clearAllApprovals();
+    clearAllQuestions();
     clearAllWaitedChildren();
 
     // 4. 等待所有清理完成（带超时）

@@ -178,6 +178,12 @@ export const requestSchemas = {
     action: z.enum(["accept", "reject"]),
     reason: z.string().optional(),
   }),
+  [Method.SENSE_QUESTION_ANSWER]: z.object({
+    questionId: z.string(),
+    selectedLabels: z.array(z.string()),
+    freeText: z.string().optional(),
+    cancelled: z.boolean().optional(),
+  }),
   [Method.CHAT_ABORT]: chatIdSchema,
   [Method.BASH_LIST]: chatIdSchema,
   [Method.BASH_KILL]: z.object({

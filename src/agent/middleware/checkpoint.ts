@@ -6,6 +6,7 @@ import type {
   SenseTriggerChunk,
 } from "@/core/middleware/types";
 import { CheckpointState } from "./checkpointState.js";
+import { safeJsonParse } from "@/utils/json.js";
 
 /**
  * Checkpoint Middleware
@@ -153,6 +154,30 @@ export async function* checkpointMiddleware(
             senseName: trigger.name,
             arguments: trigger.arguments,
             supervisionLevel: trigger.supervisionLevel,
+          } as MiddlewareChunk;
+        } else if (trigger.name === "ask_user_question") {
+          // ask_user_question 是 auto 监管等级的特殊感官：handler 在 buildSenseTrigger 已同步
+          //   创建 registry entry（避免 handler await 时 entry 未建的竞态）。
+          // 此处 yield question_pending effect chunk：
+          //   - observer 收 → questionManager.register(id)
+          //   - streamMapper 收 → question_requested notification（含 question payload + waitTime）
+          // argsJson 含 question/header/options/multiSelect；safeJsonParse 失败时仍 yield（options=[]，
+          //   前端空状态，handler zod 校验会捕获）。
+          const args = safeJsonParse<Record<string, unknown>>(trigger.arguments, {}) as {
+            question?: string;
+            header?: string;
+            options?: Array<{ label: string; description?: string }>;
+            multiSelect?: boolean;
+          };
+          yield {
+            type: "question_pending",
+            questionId: trigger.id,
+            question: args.question ?? "",
+            ...(args.header ? { header: args.header } : {}),
+            options: args.options ?? [],
+            multiSelect: args.multiSelect ?? false,
+            waitTime: ctx.global.approval_timeout ?? 0,
+            createdAt: Date.now(),
           } as MiddlewareChunk;
         }
       }

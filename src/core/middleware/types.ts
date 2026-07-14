@@ -268,6 +268,21 @@ export interface SensePendingChunk {
 }
 
 /**
+ * 内部副作用：注册待回答 question（ask_user_question 感官）。
+ * observer 收 → questionManager.register；streamMapper 收 → question_requested notification。
+ */
+export interface QuestionPendingChunk {
+  type: "question_pending";
+  questionId: string;
+  question: string;
+  header?: string;
+  options: Array<{ label: string; description?: string }>;
+  multiSelect: boolean;
+  waitTime: number;
+  createdAt: number;
+}
+
+/**
  * 错误 chunk（重试失败或超限时传递）
  */
 export interface ErrorChunk {
@@ -324,6 +339,7 @@ export type MiddlewareChunk =
   | MessageCreatedChunk
   | MessageUpdatedChunk
   | SensePendingChunk
+  | QuestionPendingChunk
   | DoneChunk
   | ErrorChunk
   | ChildYieldChunk

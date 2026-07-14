@@ -14,11 +14,14 @@ import {
   type ChatResumeResponseData,
   type SenseApprovalRequestData,
   type SenseApprovalResponseData,
+  type SenseQuestionAnswerRequestData,
+  type SenseQuestionAnswerResponseData,
   type ChatAbortRequestData,
   type ChatAbortResponseData,
 } from "../message/types.js";
 import { getChat, markMessagesRevoked, updateChatMetadata } from "@/db/chat.js";
 import { approvalManager } from "../approval/manager.js";
+import { questionManager } from "../question/manager.js";
 import { connectionManager } from "../websocket/connection.js";
 import { ensureChat, clearChatRuntime, abortChatRuntime, getChatSelection } from "./runtime.js";
 import { clearWaitedChildrenByParent } from "@/agent/spawnBroker.js";
@@ -286,6 +289,30 @@ export async function handleSenseApproval(
 }
 
 /**
+ * 回答 ask_user_question 感官（RPC → service QuestionManager.confirm → core questionRegistry.resolveQuestion
+ * → sense handler 的 await createQuestion 即时返回）。
+ */
+export async function handleSenseQuestionAnswer(
+  _ctx: HandlerContext,
+  data: SenseQuestionAnswerRequestData,
+): Promise<SenseQuestionAnswerResponseData> {
+  const cancelled = data.cancelled === true;
+  questionManager.confirm(data.questionId, {
+    selectedLabels: data.selectedLabels,
+    ...(data.freeText !== undefined ? { freeText: data.freeText } : {}),
+    cancelled,
+  });
+  logger.event("sense.question.answer", {
+    questionId: data.questionId,
+    selectedLabels: data.selectedLabels,
+    hasFreeText: data.freeText !== undefined,
+    cancelled,
+  });
+
+  return { questionId: data.questionId, cancelled };
+}
+
+/**
  * 中止 chat（切换 chat：清内存 + 退出挂起 generator，不动 DB）。
  * 先 abortChatRuntime（compose.abort .throw 注入错误到挂起的 await → senseMiddleware catch →
  * throw 传播退出整个链，不继续 next），再 clearChatRuntime 释放该 chat 的 Middleware/messages 内存。
@@ -314,5 +341,6 @@ export function registerChatHandlers(router: import("../message/router.js").RpcR
   router.register(Method.CHAT_SEND, handleChatSend);
   router.register(Method.CHAT_RESUME, handleChatResume);
   router.register(Method.SENSE_APPROVAL, handleSenseApproval);
+  router.register(Method.SENSE_QUESTION_ANSWER, handleSenseQuestionAnswer);
   router.register(Method.CHAT_ABORT, handleChatAbort);
 }

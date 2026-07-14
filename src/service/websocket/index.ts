@@ -187,6 +187,11 @@ async function handleRequest(
                 await connectionManager.close(ws);
               });
             }
+            // question_requested 发出后记录 questionId，断连 / abort 时调 questionManager.abort
+            if (item.type === "question_requested" && item.data && "questionId" in item.data) {
+              const questionId = (item.data as { questionId: string }).questionId;
+              connectionManager.setRequestQuestionId(ws, request.id, questionId);
+            }
             ws.send(transport.encode(item));
             continue;
           }

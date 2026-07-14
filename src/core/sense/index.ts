@@ -13,3 +13,9 @@ export {
   rejectApproval,
   type ApprovalDecision,
 } from "./approvalRegistry";
+export {
+  createQuestion,
+  resolveQuestion,
+  rejectQuestion,
+  type QuestionAnswer,
+} from "./questionRegistry";

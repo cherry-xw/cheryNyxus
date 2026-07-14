@@ -203,9 +203,24 @@ export async function* streamAgentChunks(
           by: u.patch.replace.by,
         });
       }
+    } else if (chunk.type === "question_pending") {
+      // ask_user_question 感官：question_pending chunk（observer 已 register）→ question_requested 通知。
+      // 已由 observer 消费 registration，此处仅转发 notification payload 给前端。
+      const q = chunk as { questionId: string; question: string; header?: string; options: Array<{ label: string; description?: string }>; multiSelect: boolean; waitTime: number; createdAt: number };
+      yield createNotification("question_requested", rid, {
+        questionId: q.questionId,
+        senseName: "ask_user_question",
+        question: q.question,
+        ...(q.header ? { header: q.header } : {}),
+        options: q.options,
+        multiSelect: q.multiSelect,
+        waitTime: q.waitTime,
+        createdAt: q.createdAt,
+      });
     } else if (
       chunk.type === "message_created" ||
-      chunk.type === "sense_pending"
+      chunk.type === "sense_pending" ||
+      chunk.type === "question_pending"
     ) {
       // 内部 effect chunk 应由 observeAgentChunks 消费，不进入传输层。
       continue;

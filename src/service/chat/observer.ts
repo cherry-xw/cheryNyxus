@@ -1,6 +1,7 @@
 import { addMessage, fillApprovalResult, markMessageReplaced, updateAssistantSenseCalls, updateChatMetadata } from "@/db/chat.js";
 import { getChatSelection } from "./runtime.js";
 import { approvalManager } from "../approval/manager.js";
+import { questionManager } from "../question/manager.js";
 import { wakeParent } from "./wake.js";
 import type { LLMResponse } from "@/core/message/adapter";
 import type { MiddlewareChunk } from "@/core/middleware/types";
@@ -101,6 +102,19 @@ export async function* observeAgentChunks(
           approvalId: chunk.approvalId,
           senseName: chunk.senseName,
           supervisionLevel: chunk.supervisionLevel,
+        });
+        continue;
+      }
+
+      if (chunk.type === "question_pending") {
+        // ask_user_question 感官：tool.ts buildSenseTrigger 已同步创建 questionRegistry entry；
+        // 此处仅按 questionId 登记 service 侧 id（service confirm/abort 转调 core registry）。
+        questionManager.register(chunk.questionId);
+        logger.event("question.pending", {
+          questionId: chunk.questionId,
+          question: chunk.question,
+          multiSelect: chunk.multiSelect,
+          waitTime: chunk.waitTime,
         });
         continue;
       }

@@ -19,6 +19,7 @@ import spawnSense from "./spawn";
 import todoSense from "./todo";
 import memorySense from "./memory";
 import mediaSenses from "./media";
+import askSense from "./ask";
 import { logger } from "@/utils/logger/index.js";
 
 /**
@@ -50,13 +51,14 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
   { name: "generate_video", label: "生成视频", description: "调用配置的视频媒体服务", icon: "🎬" },
   { name: "generate_audio", label: "生成音频", description: "调用配置的音频媒体服务", icon: "🔊" },
   { name: "memory_manage", label: "记忆管理", description: "管理项目记忆（增删改查 + 淘汰归档）", icon: "🧠" },
+  { name: "ask_user_question", label: "询问用户", description: "向用户提结构化问题（2-4 选项 + 可选「其他」自由文本）", icon: "❓" },
 ];
 
 /**
  * 注册内置感官。
  */
 function registerBuiltinSenses(): void {
-  registerSenses([bashSense, readSense, writeSense, skillSense, searchSense, spawnSense, todoSense, memorySense, ...mediaSenses]);
+  registerSenses([bashSense, readSense, writeSense, skillSense, searchSense, spawnSense, todoSense, memorySense, askSense, ...mediaSenses]);
 }
 
 /**

@@ -1,6 +1,7 @@
 import type { WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { approvalManager } from "../approval/manager.js";
+import { questionManager } from "../question/manager.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 
@@ -9,6 +10,8 @@ import { LogLevel } from "@/utils/logger/types.js";
  */
 interface PendingRequest {
   approvalId?: string;
+  /** ask_user_question 感官问题 id（与 approvalId 并存，独立字段，pending 期间两者可同时存在） */
+  questionId?: string;
   /** 审批超时计时器（interrupt 发出后启动） */
   approvalTimeoutTimer?: NodeJS.Timeout;
   /** 审批超时时间（毫秒） */
@@ -96,6 +99,23 @@ export class ConnectionManager {
     const pending = state.pendingRequests.get(requestId);
     if (pending) {
       pending.approvalId = approvalId;
+    }
+  }
+
+  /**
+   * 设置请求的问题 ID（question_requested 通知发出后调用，记录待回答 question；abort 时调 questionManager.abort）。
+   */
+  setRequestQuestionId(
+    ws: WebSocket,
+    requestId: string,
+    questionId: string,
+  ): void {
+    const state = this.connections.get(ws);
+    if (!state) return;
+
+    const pending = state.pendingRequests.get(requestId);
+    if (pending) {
+      pending.questionId = questionId;
     }
   }
 
@@ -230,6 +250,12 @@ export class ConnectionManager {
       // 使挂起 generator 正常结束可被 GC（P0-1）。pending sense 保持 NULL 待重连 chat.resume。
       if (pending.approvalId) {
         approvalManager.abort(pending.approvalId);
+      }
+
+      // 中止 pending question（ask_user_question 感官）：reject core questionRegistry Promise，
+      // 解除 sense handler 的 await，generator 正常结束可被 GC（与 approval 同 abort 路径）。
+      if (pending.questionId) {
+        questionManager.abort(pending.questionId);
       }
 
       // 清除审批超时

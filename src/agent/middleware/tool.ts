@@ -2,7 +2,7 @@ import type { MiddlewareContext, MiddlewareChunk, SenseTriggerChunk, StreamChunk
 import type { ReplaceInfo } from "@/core/message/adapter";
 import { safeJsonParse } from "@/utils/json.js";
 import { SupervisionLevel } from "@/core/config";
-import { createApproval } from "@/core/sense";
+import { createApproval, createQuestion } from "@/core/sense";
 import { logger } from "@/utils/logger/index.js";
 import { redactEnvKeys } from "@/utils/envGuard.js";
 import { SenseCallAssembler } from "./senseCallAssembler.js";
@@ -226,6 +226,11 @@ function buildSenseTrigger(
     // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
     //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
     approvalPromise = createApproval(id, ctx.global.approval_timeout);
+  } else if (name === "ask_user_question") {
+    // ask_user_question 是 auto 监管等级的特殊感官：handler 内部 await createQuestion 阻塞。
+    // 必须在 trigger yield 前同步注册 entry，避免 handler 到达时用户已答但 entry 未建的竞态。
+    // createQuestion 幂等；handler 后 await 复用同一 Promise。timeoutMs = global.approval_timeout（0 = 不超时）。
+    createQuestion(id, ctx.global.approval_timeout);
   }
 
   const trigger: SenseTriggerChunk = {
