@@ -117,7 +117,7 @@ interface BrainConfig {
 function normalizeBrainThinking(v: unknown): ThinkingLevel {
   if (v === true) return "high";
   if (v === false || v === undefined || v === null) return "off";
-  if (v === "off" || v === "thinking" || v === "low" || v === "medium" || v === "high") return v;
+  if (v === "off" || v === "on" || v === "low" || v === "medium" || v === "high") return v;
   return "off";
 }
 
@@ -154,6 +154,12 @@ export interface PresetConfig {
   mediaImage?: string;
   mediaVideo?: string;
   mediaAudio?: string;
+  /**
+   * 项目工作目录绝对路径（提示词层注入：buildFirstSystemPrompt 注入 <workspace> 段声明本会话专属该项目）。
+   * 仅 system prompt 提示，不约束 sense 实际行为（无 cwd 收束/路径沙箱）。缺省 → 不注入该段。
+   * validateRawConfig 校验非空时目录必须存在（fs.accessSync，fail loud）。
+   */
+  workspace?: string;
 }
 
 /** 默认预设名：旧 config.default 迁移目标。/api/config default 字段 + brain.list default 标记据此派生 */
@@ -494,7 +500,7 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     const t = cfg?.thinking as unknown;
     if (
       t !== undefined && t !== true && t !== false &&
-      t !== "off" && t !== "thinking" && t !== "low" && t !== "medium" && t !== "high"
+      t !== "off" && t !== "on" && t !== "low" && t !== "medium" && t !== "high"
     ) {
       errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/thinking/low/medium/high）`);
     }

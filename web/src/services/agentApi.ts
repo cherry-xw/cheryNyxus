@@ -154,10 +154,10 @@ export interface ChatSendAttachment {
 
 /** 思考强度档位（对齐后端 ThinkingLevel）：
  * - off：关闭
- * - thinking：由模型/服务端决定（不传参）
+ * - on：由模型/服务端决定（不传参）
  * - low/medium/high：强度递增
  */
-export type ThinkingLevel = "off" | "thinking" | "low" | "medium" | "high";
+export type ThinkingLevel = "off" | "on" | "low" | "medium" | "high";
 
 /** config.get 响应 / config.save 入参：.chery/config.yaml 原文（除 server 段）。对齐后端 ConfigRaw。 */
 export interface BrainConfigDto {
@@ -447,7 +447,7 @@ export const agentApi = {
 
   /**
    * utils.thinkingLevels：按模型名批量查 ThinkingLevel 档位列表。
-   * 后端读 `.chery/model-thinking.yaml` 配置；未命中兜底为 ["off", "thinking"]。
+   * 后端读 `.chery/model-thinking.yaml` 配置；未命中兜底为 ["off", "on"]。
    * models 去重 + 过滤空串；返回 `Record<model, ThinkingLevel[]>`。
    */
   async getThinkingLevels(models: string[]): Promise<Record<string, ThinkingLevel[]>> {

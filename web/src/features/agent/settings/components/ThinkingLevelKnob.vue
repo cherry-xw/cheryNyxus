@@ -39,7 +39,7 @@ interface LevelMeta {
 
 const META: Record<ThinkingLevel, LevelMeta> = {
   off: { value: "off", label: "off", accent: "#5b6271", textOnAccent: "#fff" },
-  thinking: { value: "thinking", label: "thinking", accent: "#9a7eaf", textOnAccent: "#fff" },
+  on: { value: "on", label: "on", accent: "#9a7eaf", textOnAccent: "#fff" },
   low: { value: "low", label: "low", accent: "#e3a548", textOnAccent: "#3a2406" },
   medium: { value: "medium", label: "medium", accent: "#f6b73c", textOnAccent: "#3a2406" },
   high: { value: "high", label: "high", accent: "#d99717", textOnAccent: "#fff7e6" },
@@ -86,7 +86,7 @@ const containerWidth = ref(0);
 const magnifierWidth = ref(0);
 
 /** 单个档位点的中心间距（px）。 */
-const STEP_GAP = 72;
+const STEP_GAP = 66;
 /**
  * 放大镜缩放比例。
  *  - 小轨道 emoji 10px → 放大后约 22px（视觉舒适）
@@ -547,7 +547,7 @@ onBeforeUnmount(() => {
 
 .mag-level {
   position: relative;
-  width: 72px; // 与小轨道 STEP_GAP 对齐
+  width: 66px; // 与小轨道 STEP_GAP 对齐
   height: 100%;
   flex-shrink: 0;
   display: flex;
@@ -559,8 +559,8 @@ onBeforeUnmount(() => {
   position: absolute;
   z-index: 0;
   top: 50%;
-  left: -25px;
-  width: 50px;
+  left: -27px;
+  width: 54px;
   height: 1px;
   background: rgba(36, 38, 45, 0.18);
 
@@ -573,7 +573,7 @@ onBeforeUnmount(() => {
 .track {
   position: absolute;
   z-index: 1;
-  bottom: 14px;
+  bottom: 18px;
   left: 0;
   display: flex;
   align-items: center;
@@ -598,7 +598,7 @@ onBeforeUnmount(() => {
   font: inherit;
   cursor: pointer;
   outline: none;
-  width: 72px; // 与 STEP_GAP 保持一致，保证吸附位置与视觉点位重合
+  width: 66px; // 与 STEP_GAP 保持一致，保证吸附位置与视觉点位重合
   height: 14px;
 }
 
@@ -606,8 +606,8 @@ onBeforeUnmount(() => {
 .point-connector {
   position: absolute;
   top: 50%;
-  left: -25px;
-  width: 50px;
+  left: -27px;
+  width: 54px;
   height: 1px;
   background: rgba(36, 38, 45, 0.15);
   pointer-events: none;

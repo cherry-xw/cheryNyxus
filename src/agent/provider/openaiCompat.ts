@@ -50,7 +50,7 @@ export async function acquireRpm(options?: {
 export function mapThinkingToReasoningEffort(
   level: ThinkingLevel | undefined,
 ): "low" | "medium" | "high" | undefined {
-  if (level === undefined || level === "off" || level === "thinking") return undefined;
+  if (level === undefined || level === "off" || level === "on") return undefined;
   return level;
 }
 

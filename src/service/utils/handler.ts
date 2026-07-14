@@ -222,7 +222,7 @@ export async function handleUtilsEditors(
 /**
  * utils.thinkingLevels：按模型名批量查询 ThinkingLevel 档位列表。
  * 来源：[modelThinking.ts](../../utils/modelThinking.ts) 加载的 `.chery/model-thinking.yaml`。
- * 未命中或配置缺失 → 兜底返回 `["off", "thinking"]`。
+ * 未命中或配置缺失 → 兜底返回 `["off", "on"]`。
  * 失败不抛错（仍返回部分结果 + 全量兜底），前端总能拿到有效档位。
  */
 export async function handleUtilsThinkingLevels(
@@ -240,10 +240,10 @@ export async function handleUtilsThinkingLevels(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.event("utils.thinkingLevels.error", { error: message }, LogLevel.warn);
-    // 兜底：所有 model 给 ["off", "thinking"]
+    // 兜底：所有 model 给 ["off", "on"]
     const fallback: Record<string, import("@/core/llm/adapter.js").ThinkingLevel[]> = {};
     for (const m of data.models ?? []) {
-      if (typeof m === "string" && m.length > 0) fallback[m] = ["off", "thinking"];
+      if (typeof m === "string" && m.length > 0) fallback[m] = ["off", "on"];
     }
     return { levels: fallback };
   }

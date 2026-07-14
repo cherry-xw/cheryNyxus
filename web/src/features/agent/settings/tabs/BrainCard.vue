@@ -34,14 +34,14 @@ const modelOptions = ref<Array<{ id: string; name?: string }>>([]);
 const modelLoading = ref(false);
 
 // ── 深度思考档位（按 model 后端查） ────────────────────────────────
-/** 当前 brain 的 model 支持的 ThinkingLevel 子集；未拉取或失败时 = ["off","thinking"] 兜底。 */
-const thinkingLevels = ref<readonly ThinkingLevel[]>(["off", "thinking"]);
+/** 当前 brain 的 model 支持的 ThinkingLevel 子集；未拉取或失败时 = ["off","on"] 兜底。 */
+const thinkingLevels = ref<readonly ThinkingLevel[]>(["off", "on"]);
 let thinkingLevelsReqId = 0;
 
 async function refreshThinkingLevels(): Promise<void> {
   const model = props.cfg.model;
   if (!model) {
-    thinkingLevels.value = ["off", "thinking"];
+    thinkingLevels.value = ["off", "on"];
     return;
   }
   // 简易 debounce：取消在途请求（每次自增 reqId，回包时校验）
@@ -57,11 +57,11 @@ async function refreshThinkingLevels(): Promise<void> {
         props.cfg.thinking = got[0];
       }
     } else {
-      thinkingLevels.value = ["off", "thinking"];
+      thinkingLevels.value = ["off", "on"];
     }
   } catch {
     if (reqId !== thinkingLevelsReqId) return;
-    thinkingLevels.value = ["off", "thinking"];
+    thinkingLevels.value = ["off", "on"];
   }
 }
 
@@ -362,6 +362,20 @@ async function openEnvFile(): Promise<void> {
   small { color: rgba(20, 22, 26, 0.42); font-size: 10px; }
 }
 
+// 「运行与能力」section：标题浮动脱流不占高，runtime-controls 上移与之重叠，降低卡片高度
+.runtime-capability-section {
+  position: relative;
+}
+
+.runtime-capability-section .section-heading {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 25%; // 留右侧深度思考 knob 列位，避免遮挡
+  margin-bottom: 0;
+  z-index: 5;
+}
+
 .brain-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -473,6 +487,12 @@ async function openEnvFile(): Promise<void> {
 
 @media (max-width: 760px) {
   .runtime-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  // 窄屏控件换行，标题浮动会遮挡控件 → 回正常流
+  .runtime-capability-section .section-heading {
+    position: static;
+    right: auto;
+    margin-bottom: 8px;
+  }
 }
 
 @media (max-width: 420px) {

@@ -107,6 +107,7 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 校验规则（`validateRawConfig`，返回错误字符串数组，空=通过）：
 - `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt`（如配置）必须存在
 - `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`；`presets.*.roles[*]` 必须引用已定义角色
+- `presets.*.workspace`（如配置）必须是已存在的目录绝对路径（`fs.accessSync` 校验，fail loud；该字段仅作 system prompt 提示词注入，不约束 sense 行为）
 - `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|confirm|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填
@@ -147,7 +148,7 @@ export function resetRateLimiters(): void;  // 测试 / 热更清残留
 
 ### modelThinking.ts — 模型档位映射
 
-`ThinkingLevel`（[core/llm](../core/llm.md)）定义 5 档：`off` / `thinking`（由模型决定）/ `low` / `medium` / `high`。不同模型支持的档位不同（OpenAI o1 系列支持 reasoning_effort 全 4 档，ollama 不接受 thinking 参数，部分长上下文模型可能只支持开关两档）。
+`ThinkingLevel`（[core/llm](../core/llm.md)）定义 5 档：`off` / `off` / `on`（由模型决定）/ `low` / `medium` / `high`。不同模型支持的档位不同（OpenAI o1 系列支持 reasoning_effort 全 4 档，ollama 不接受 thinking 参数，部分长上下文模型可能只支持开关两档）。
 
 `modelThinking` 解决两件事：
 
@@ -158,7 +159,7 @@ export function resetRateLimiters(): void;  // 测试 / 热更清残留
 // 加载（启动期一次性，in-memory 缓存；YAML 不存在则返回空配置，全量走兜底）
 export function loadModelThinking(): ModelThinkingConfig;
 
-// 按 model 名查档位（精确 > 前缀 > 通配 `*` > 兜底 ["off","thinking"]）
+// 按 model 名查档位（精确 > 前缀 > 通配 `*` > 兜底 ["off","on"]）
 export function resolveThinkingLevels(model: string): ThinkingLevel[];
 
 // 批量查询（RPC utils.thinkingLevels 用）
@@ -171,23 +172,23 @@ export function resolveThinkingLevelsBatch(models: string[]): Record<string, Thi
 # 模型 → 思考强度档位映射
 #  - aliases: 完整模型名或前缀（如 "gpt-4o" 同时匹配 "gpt-4o-mini"）
 #  - thinking: 该模型支持的 ThinkingLevel 子集
-# 匹配顺序：精确 > 最长前缀 > 通配 "*"；未命中返回 ["off","thinking"] 兜底
+# 匹配顺序：精确 > 最长前缀 > 通配 "*"；未命中返回 ["off","on"] 兜底
 models:
   - aliases: [gpt-4o, gpt-4o-mini, gpt-4-turbo]
     thinking: [off, low, medium, high]
   - aliases: [LongCat-Flash-Thinking, LongCat-Flash-Thinking-2601]
-    thinking: [off, thinking]
+    thinking: [off, on]
   - aliases: [glm-5.2, glm-5, glm-4.6]
     thinking: [off, low, medium, high]
   - aliases: [doubao2.0-pro]
     thinking: [off, low, medium, high]
   - aliases: ["*"]
-    thinking: [off, thinking]
+    thinking: [off, on]
 ```
 
-**RPC 暴露：** `utils.thinkingLevels({ models: string[] })` → `{ levels: Record<string, ThinkingLevel[]> }`。前端 BrainCard 在 model 字段变化时调用，渲染「深度思考」选择器。未在 RPC 返回中的 model 后端兜底为 `["off","thinking"]`。
+**RPC 暴露：** `utils.thinkingLevels({ models: string[] })` → `{ levels: Record<string, ThinkingLevel[]> }`。前端 BrainCard 在 model 字段变化时调用，渲染「深度思考」选择器。未在 RPC 返回中的 model 后端兜底为 `["off","on"]`。
 
-**前端交互：** ThinkingLevelKnob 采用「真放大镜」设计——上方固定 `84×36px` 的长方形视窗（带边缘扭曲效果），下方是一条优先使用的可拖动小轨道。轨道和视窗共用居中的 `50px` 分段连线与月相图标：以完整序列 `🌑 🌒 🌓 🌔 🌕` 为标尺，按当前模型实际暴露的档位数量等距取样，不依赖档位名称。故 2 档为 `🌑 → 🌕`、3 档为 `🌑 → 🌓 → 🌕`、4 档为 `🌑 → 🌒 → 🌔 → 🌕`、5 档使用完整序列。视窗内隐藏一条与下方轨道共用同一 `T = baseOffset(activeIndex) + dragDelta` 的大轨道（缩放约 2.2x），被 `overflow:hidden` 裁剪后呈现精准放大效果：视窗正中显示的内容与小轨道中线的内容始终一致。当前档位标签直接显示后端值 `off` / `thinking` / `low` / `medium` / `high`，居中置于视窗上方；无边框的细线 chevron 前后档按钮位于控件底部左右边，仅作为拖拽之外的备用入口，到达首尾时禁用。详见 [ThinkingLevelKnob](../../web/src/features/agent/settings/components/ThinkingLevelKnob.vue) 及 [../service/chat.md §5 工具与设置类 RPC](../service/chat.md)。
+**前端交互：** ThinkingLevelKnob 采用「真放大镜」设计——上方固定 `84×36px` 的长方形视窗（带边缘扭曲效果），下方是一条优先使用的可拖动小轨道。轨道和视窗共用居中的 `50px` 分段连线与月相图标：以完整序列 `🌑 🌒 🌓 🌔 🌕` 为标尺，按当前模型实际暴露的档位数量等距取样，不依赖档位名称。故 2 档为 `🌑 → 🌕`、3 档为 `🌑 → 🌓 → 🌕`、4 档为 `🌑 → 🌒 → 🌔 → 🌕`、5 档使用完整序列。视窗内隐藏一条与下方轨道共用同一 `T = baseOffset(activeIndex) + dragDelta` 的大轨道（缩放约 2.2x），被 `overflow:hidden` 裁剪后呈现精准放大效果：视窗正中显示的内容与小轨道中线的内容始终一致。当前档位标签直接显示后端值 `off` / `on` / `low` / `medium` / `high`，居中置于视窗上方；无边框的细线 chevron 前后档按钮位于控件底部左右边，仅作为拖拽之外的备用入口，到达首尾时禁用。详见 [ThinkingLevelKnob](../../web/src/features/agent/settings/components/ThinkingLevelKnob.vue) 及 [../service/chat.md §5 工具与设置类 RPC](../service/chat.md)。
 
 ## 关键流程 / 数据流
 

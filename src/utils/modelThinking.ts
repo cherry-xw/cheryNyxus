@@ -7,7 +7,7 @@
  *   2. 提供 `resolveThinkingLevels(model)`：按 model 名查档位（精确 > 最长前缀 > 通配 `*` > 兜底）。
  *   3. 提供 `resolveThinkingLevelsBatch(models)`：批量查询（RPC utils.thinkingLevels 用）。
  *
- * 配置文件不存在或解析失败 → 返回空配置，全量走兜底 `["off", "thinking"]`。
+ * 配置文件不存在或解析失败 → 返回空配置，全量走兜底 `["off", "on"]`。
  *
  * 详见 [../../../docs/utils/README.md](../../../docs/utils/README.md) 「modelThinking.ts」。
  */
@@ -19,14 +19,14 @@ import type { ThinkingLevel } from "@/core/llm/adapter";
 /** 合法 ThinkingLevel 集合（与 ThinkingLevel union 一一对应）。 */
 const VALID_LEVELS = new Set<ThinkingLevel>([
   "off",
-  "thinking",
+  "on",
   "low",
   "medium",
   "high",
 ]);
 
 /** 兜底档位：未配置 / 未命中 / 解析失败 时返回。 */
-const FALLBACK_LEVELS: readonly ThinkingLevel[] = ["off", "thinking"];
+const FALLBACK_LEVELS: readonly ThinkingLevel[] = ["off", "on"];
 
 /** 配置条目（YAML 单条）。aliases 含若干模型名（含通配 `"*"`）；thinking 为档位子集。 */
 export interface ModelThinkingEntry {
@@ -80,7 +80,7 @@ export function loadModelThinking(): ModelThinkingConfig {
     cached = { entries };
     return cached;
   } catch {
-    // YAML 解析失败：兜底空配置，全量返回 ["off", "thinking"]
+    // YAML 解析失败：兜底空配置，全量返回 ["off", "on"]
     cached = { entries: [] };
     return cached;
   }
@@ -125,7 +125,7 @@ export function resolveThinkingLevels(model: string): readonly ThinkingLevel[] {
     if (entry.aliases.includes("*")) return entry.thinking;
   }
 
-  // 4. 配置缺失 / 未命中：返回 ["off", "thinking"]
+  // 4. 配置缺失 / 未命中：返回 ["off", "on"]
   return FALLBACK_LEVELS;
 }
 

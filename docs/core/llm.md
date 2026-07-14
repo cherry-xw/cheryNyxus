@@ -31,13 +31,13 @@ export interface LLMOptions {
   rpm?: number;             // 每分钟最大请求数，provider 层滑动窗口限流，未配置则不限流
 }
 
-/** 思考强度档位。off=关闭（provider 省略思考参数）；thinking=由模型决定（provider 不传参）；low/medium/high=强度递增，各 provider 自行映射为请求参数。 */
-export type ThinkingLevel = "off" | "thinking" | "low" | "medium" | "high";
+/** 思考强度档位。off=关闭（provider 省略思考参数）；on=由模型决定（provider 不传参）；low/medium/high=强度递增，各 provider 自行映射为请求参数。 */
+export type ThinkingLevel = "off" | "on" | "low" | "medium" | "high";
 ```
 
 ### ThinkingLevel 全链路与 global 总闸
 
-`thinking` 从纯 boolean 升级为 5 档枚举（含 `thinking`「由模型决定」），全链路：
+`thinking` 从纯 boolean 升级为 5 档枚举（含 `on`「由模型决定」），全链路：
 
 ```text
 config.yaml brain.<name>.thinking (ThinkingLevel)
@@ -47,14 +47,14 @@ config.yaml brain.<name>.thinking (ThinkingLevel)
            → provider 内 mapThinkingToReasoningEffort 等映射 → 请求参数
 ```
 
-**模型级档位（settings 渲染用）**：不同模型支持的档位不同。`.chery/model-thinking.yaml` 声明模型别名 → 档位子集的映射；前端 BrainCard 经 `utils.thinkingLevels` RPC 查询当前 model 的可选档位，渲染「深度思考」旋钮。未配置或未命中 → 兜底 `["off", "thinking"]`。详见 [../utils/README.md#modelThinking.ts — 模型档位映射](../utils/README.md)。
+**模型级档位（settings 渲染用）**：不同模型支持的档位不同。`.chery/model-thinking.yaml` 声明模型别名 → 档位子集的映射；前端 BrainCard 经 `utils.thinkingLevels` RPC 查询当前 model 的可选档位，渲染「深度思考」旋钮。未配置或未命中 → 兜底 `["off", "on"]`。详见 [../utils/README.md#modelThinking.ts — 模型档位映射](../utils/README.md)。
 
 **global.thinking AND 闸**：`config.yaml` 另有 `global.thinking: boolean`（全局总开关）。`chatMiddleware` 构造 `LLMOptions.thinking` 时做 AND：`global.thinking` 为 false 时强制 `"off"`，为 true 时取 `brain.thinking`。即全局开关关闭则一律不思考，开启后强度由各 brain 自定。
 
 **provider 映射约定**：每个 provider 自行把 `ThinkingLevel` 翻译成厂商参数（详见 [provider.md](../agent/provider.md)「ThinkingLevel→参数映射」）：
 
 - `off` → 省略该参数（绝对安全，非推理模型也不会报错）。
-- `thinking` → 不传参，**由模型/服务端自行决定**是否思考（适合 ollama 等不接 `reasoning_effort` 的 provider，或未声明档位的模型）。
+- `on` → 不传参，**由模型/服务端自行决定**是否思考（适合 ollama 等不接 `reasoning_effort` 的 provider，或未声明档位的模型）。
 - `low/medium/high` → 厂商对应字段：OpenAI 兼容端点（含智谱 bigmodel、聚合端点）用 `reasoning_effort: <level>`；ollama 不传（由服务端/模型决定）；未来 anthropic 用 thinking block。
 
 > ⚠ `reasoning_effort` 等思考参数仅对**推理模型**有效，非推理模型（如 gpt-4o）会返回 400；`off` 档省略参数无此风险。brain 配置时按模型类型选择。

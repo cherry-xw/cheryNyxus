@@ -2,16 +2,16 @@
 #
 # 档位选择规则（最小化）：
 #  - 支持 reasoning_effort 全档的推理模型：只列 [off, low, medium, high]
-#    （不列 thinking——已提供显式强度档位时，"由模型决定"无独立语义）
-#  - 仅支持开关的模型（无强度概念）：列 [off, thinking]
-#  - 未配置 / 未命中：后端兜底返回 ["off", "thinking"]
+#    （不列 on——已提供显式强度档位时，"由模型决定"无独立语义）
+#  - 仅支持开关的模型（无强度概念）：列 [off, on]
+#  - 未配置 / 未命中：后端兜底返回 ["off", "on"]
 #
 # 匹配顺序：精确 > 最长前缀 > 通配 "*"。
 # 每条 aliases 含若干模型名（含通配 "*" 表示兜底命中所有未匹配项）。
 #
 # ThinkingLevel 枚举（src/core/llm/adapter.ts）：
 #   - off：关闭（provider 省略思考参数）
-#   - thinking：仅用于开关模型，对应"由服务端决定"或"未传 reasoning_effort"
+#   - on：仅用于开关模型，对应"由服务端决定"或"未传 reasoning_effort"
 #   - low / medium / high：强度递增（OpenAI 兼容端点 → reasoning_effort）
 
 models:
@@ -21,7 +21,7 @@ models:
 
   # LongCat-Flash-Thinking 系列（专属思考模型，仅开关两档）
   - aliases: [LongCat-Flash-Thinking, LongCat-Flash-Thinking-2601]
-    thinking: [off, thinking]
+    thinking: [off, on]
 
   # 豆包 doubao 系列
   - aliases: [doubao2.0-pro, doubao-pro, doubao-lite]
@@ -37,4 +37,4 @@ models:
 
   # 通配兜底：未列出的模型默认仅暴露开关两档
   - aliases: ["*"]
-    thinking: [off, thinking]
+    thinking: [off, on]

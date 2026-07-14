@@ -229,7 +229,7 @@ export interface UtilsModelsRequestData {
 /**
  * utils.thinkingLevels：按模型名批量查询 ThinkingLevel 档位列表。
  * 用于前端 settings 渲染「深度思考」旋钮（不同模型暴露不同档位）。
- * 后端按 `.chery/model-thinking.yaml` 配置匹配，未命中返回 `["off", "thinking"]` 兜底。
+ * 后端按 `.chery/model-thinking.yaml` 配置匹配，未命中返回 `["off", "on"]` 兜底。
  * models：1~N 个模型名（数组去重由调用方负责；空数组返回 `{}`）。
  */
 export interface UtilsThinkingLevelsRequestData {
@@ -514,7 +514,7 @@ export interface EnvListResponseData {
 
 /**
  * utils.thinkingLevels 响应：model → ThinkingLevel 列表。
- * 每个 model 一定有 entries（未命中兜底为 `["off", "thinking"]`）；空 models 入参返回 `levels: {}`。
+ * 每个 model 一定有 entries（未命中兜底为 `["off", "on"]`）；空 models 入参返回 `levels: {}`。
  */
 export interface UtilsThinkingLevelsResponseData {
   levels: Record<string, import("@/core/llm/adapter.js").ThinkingLevel[]>;
