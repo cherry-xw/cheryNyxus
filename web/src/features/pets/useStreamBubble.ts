@@ -49,21 +49,23 @@ export function useStreamBubble(props: StreamBubbleProps) {
   );
   // === busy-indicator 状态（与气泡显示解耦；语义对齐"还在做事"） ===
   // 不含 hover / retainUntil：hover 仅保持气泡显示；retain 期不视为"还在做事"。
-  // C 方案：isWorking || runningTools.length > 0 || approval != null
+  // C 方案：isWorking || runningTools.length > 0 || approval != null || question != null
   const isBusy = computed(
     () =>
       !props.pet.isGhost &&
       (!!props.pet.isWorking ||
         (props.stream?.runningTools?.length ?? 0) > 0 ||
-        !!props.stream?.approval),
+        !!props.stream?.approval ||
+        !!props.stream?.question),
   );
   const hasContent = computed(() => !!props.stream?.content);
   const thinkingOnly = computed(() => !!props.stream?.thinking && !props.stream?.content);
   const showWorkMain = computed(() => hasStream.value && (thinkingOnly.value || hasContent.value));
   const showWorkSide = computed(
     () =>
-      // 审批存在时优先显 ApprovalCard，抑制侧气泡（避免与 interrupt 视觉冲突）
+      // 问题/审批存在时优先显对应卡片，抑制侧气泡（避免视觉冲突）
       !props.stream?.approval &&
+      !props.stream?.question &&
       hasStream.value &&
       hasContent.value &&
       !!props.stream?.thinking,

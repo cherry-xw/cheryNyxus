@@ -99,12 +99,31 @@ export interface ApprovalState {
   createdAt: number;
 }
 
+/** 当前 chat 的待回答问题（question_requested 写入；submit 后 dismissQuestion 立即清）。 */
+export interface QuestionState {
+  questionId: string;
+  senseName: "ask_user_question";
+  /** 问题正文 */
+  question: string;
+  /** 简短标题（≤12 字，可选，UI 顶部展示） */
+  header?: string;
+  /** 选项列表（2-4 项），label 为用户选择的返回值 */
+  options: Array<{ label: string; description?: string }>;
+  /** true = 多选；false = 单选（默认） */
+  multiSelect: boolean;
+  /** 等待时长（ms，来自 question_requested.waitTime = global.approval_timeout）。0=不超时不显倒计时。 */
+  waitTime: number;
+  /** 发起时间戳（ms，来自 question_requested.createdAt）。倒计时 = waitTime - (now - createdAt)。 */
+  createdAt: number;
+}
+
 /**
  * 单条 chat 的流式累积状态。
  * CP1 骨架：thinking/content 累积字符串 + isWorking。
  * CP2 细化双气泡（thinking 阶段全空间显 thinking；thinking 结束主气泡 content + 左侧小气泡 thinking）。
  * CP4 history：chat.get staged 回放累积（与实时 stream 累积分流）。
  * CP5 approval：interrupt/accept/rejected 驱动 ApprovalCard；approvalQueue 保存被用户关闭但未处理的审批供重新唤起。
+ * CP-ask：question_requested/question_answered 驱动 QuestionCard；questionQueue 暂未实现（问答主线程阻塞，无并发）。
  */
 export interface StreamState {
   thinking: string;
@@ -132,6 +151,11 @@ export interface StreamState {
    * - 服务端 accept/rejected notification 到达时按 approvalId 在 `approval` + `approvalQueue` 中查找移除
    */
   approvalQueue: ApprovalState[];
+  /**
+   * 当前 pending 问题（无则 undefined）。question_requested 写入；submit 后 dismissQuestion 立即清。
+   * 问题由 ask_user_question 感官触发；handler await 此问题阻塞 LLM 主线程，无 queue 并发场景。
+   */
+  question?: QuestionState;
   /** 运行中工具（sense_started push；accept 按 id 移除；done/error 清空）。供 pet bar 右侧 RunningTools 显 icon。 */
   runningTools: RunningTool[];
   /**

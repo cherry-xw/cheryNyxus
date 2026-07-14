@@ -11,13 +11,14 @@ import type {
   ChunkMessage,
   NotificationMessage,
   ApprovalState,
+  QuestionState,
 } from "./types";
 import { accumulateStaged } from "./streamAccumulator";
 import { defaultBounds } from "./streamAccumulator";
 
 /**
  * 确保 chatId 对应的 StreamState 存在。不存在则创建默认结构。
- * 兼容历史 StreamState（已存在但无 approvalQueue / historyDirty 字段）→ 补初始化。
+ * 兼容历史 StreamState（已存在但无 approvalQueue / historyDirty / question 字段）→ 补初始化。
  */
 export function ensureStream(
   streams: Ref<Record<string, StreamState>>,
@@ -283,6 +284,59 @@ export function createStreamRouter(
           if (!stream.approval && stream.approvalQueue.length > 0) {
             const next = stream.approvalQueue.shift();
             if (next) stream.approval = next;
+          }
+        }
+      }
+      return;
+    }
+
+    if (type === "question_requested") {
+      // ask_user_question 感官请求（streamMapper question_pending → question_requested）。
+      // 后端 QuestionRequestedNotificationData: {questionId, senseName, question, header?, options, multiSelect, waitTime, createdAt}
+      // 写入 stream.question；QuestionCard 据此渲染选项卡。问题主线程阻塞 LLM，无 queue 并发场景。
+      const d = (n.data ?? {}) as {
+        questionId?: string;
+        senseName?: string;
+        question?: string;
+        header?: string;
+        options?: Array<{ label: string; description?: string }>;
+        multiSelect?: boolean;
+        waitTime?: number;
+        createdAt?: number;
+      };
+      if (!d.questionId || !d.question || !d.options) {
+        console.warn("[agents] question_requested: 字段残缺", d);
+        return;
+      }
+      if (chatId) {
+        const stream = ensureStream(streams, chatId);
+        const newQuestion: QuestionState = {
+          questionId: d.questionId,
+          senseName: "ask_user_question",
+          question: d.question,
+          ...(d.header ? { header: d.header } : {}),
+          options: d.options,
+          multiSelect: d.multiSelect ?? false,
+          waitTime: d.waitTime ?? 0,
+          createdAt: d.createdAt ?? Date.now(),
+        };
+        stream.question = newQuestion;
+      }
+      return;
+    }
+
+    if (type === "question_answered") {
+      // question_answered 防御性兜底：正常路径 QuestionCard submit 已乐观 dismissQuestion；
+      // 此处按 questionId 兜底清理（防止某路径没 dismiss，例如多 question 串联或网络异常）。
+      // 同步移除 runningTools 同 id 项（ask_user_question 也触发 sense_started，前端视为运行中工具）。
+      if (chatId) {
+        const stream = streams.value[chatId];
+        if (stream) {
+          const d = (n.data ?? {}) as { questionId?: string };
+          const id = d.questionId;
+          if (id && stream.question && stream.question.questionId === id) {
+            stream.question = undefined;
+            stream.runningTools = stream.runningTools.filter((t) => t.id !== id);
           }
         }
       }

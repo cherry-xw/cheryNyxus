@@ -1,12 +1,16 @@
 <script setup lang="ts">
 /**
- * PetBubbles：所有气泡 AnimatePresence 块（approval / error / work-main / speech / side-thinking）。
+ * PetBubbles：所有气泡 AnimatePresence 块（question / approval / error / work-main / speech / side-thinking）。
  * 接收 useStreamBubble 的展示状态 + usePetStyles 的样式/motion 计算值。
  * 支持可选 dialog 插槽透传（speech 气泡内）。
+ *
+ * 优先级：question > approval > error > work-main > speech。
+ *  问题阻塞 LLM 主线程，最高优先级；审批可入队延后处理。
  */
 import { AnimatePresence, motion } from "motion-v";
 import type { VariantType } from "motion-v";
 import ApprovalCard from "@/features/agent/ApprovalCard.vue";
+import QuestionCard from "@/features/agent/QuestionCard.vue";
 import type { StreamState } from "@/stores";
 import type { PetInstance } from "./types";
 
@@ -60,7 +64,19 @@ defineSlots<{
 <template>
   <AnimatePresence>
     <MotionDiv
-      v-if="stream?.approval"
+      v-if="stream?.question"
+      key="question"
+      class="speech question-bubble"
+      :style="approvalStyle"
+      :initial="speech.initial"
+      :animate="speech.animate"
+      :exit="speech.exit"
+      :transition="speech.transition"
+    >
+      <QuestionCard :question="stream!.question!" :chat-id="pet.chatId" />
+    </MotionDiv>
+    <MotionDiv
+      v-else-if="stream?.approval"
       key="approval"
       class="speech approval-bubble"
       :style="approvalStyle"
@@ -229,6 +245,13 @@ defineSlots<{
   padding: 5px 8px;
   background: rgba(255, 248, 235, 0.96);
   border-color: rgba(234, 88, 12, 0.42);
+}
+
+.question-bubble {
+  max-width: 260px;
+  padding: 6px 9px;
+  background: rgba(245, 243, 255, 0.96);
+  border-color: rgba(124, 58, 237, 0.42);
 }
 
 .error-bubble {

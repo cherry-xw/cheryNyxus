@@ -12,11 +12,12 @@ import { collectDescendantChatIds } from "./historyMerge";
 // 模块 factories
 import { createUiState } from "./uiState";
 import { createApprovalActions } from "./approvalActions";
+import { createQuestionActions } from "./questionActions";
 import { createPetLifecycle } from "./petLifecycle";
 import { createStreamRouter, ensureStream as _ensureStream, trackRequest as _trackRequest } from "./streamRouter";
 
 // re-export 公共契约类型（保 @/stores/agents 导入路径兼容：4 .vue + stores/index.ts 零改动）
-export type { SenseCallRecord, HistoryItem, ApprovalState, StreamState, RunningTool } from "./types";
+export type { SenseCallRecord, HistoryItem, ApprovalState, QuestionState, StreamState, RunningTool } from "./types";
 
 /**
  * agents store：agent/chat 状态层单一数据源。
@@ -105,6 +106,7 @@ export const useAgentsStore = defineStore("agents", () => {
   // ── 模块初始化（按依赖顺序） ──
 
   const approval = createApprovalActions(streams, pets);
+  const question = createQuestionActions(streams, pets);
 
   const lifecycle = createPetLifecycle(
     pets, streams, historyList, ui.historyListOpen,

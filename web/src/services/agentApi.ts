@@ -360,6 +360,19 @@ export const agentApi = {
   },
 
   /**
+   * sense.question.answer：回答 ask_user_question 感官（questionId 来自 question_requested notification）。
+   * selectedLabels：用户点选的 label 数组（单选=1 项；多选=N 项；「其他」自由文本时为 []）。
+   * freeText：「其他」chip 触发模态对话框时输入的自由文本（普通 chip 选中时省略）。
+   * cancelled：true = 用户点 ✕ 取消；正常答案时省略。
+   */
+  async answerQuestion(
+    questionId: string,
+    answer: { selectedLabels: string[]; freeText?: string; cancelled?: boolean },
+  ): Promise<void> {
+    await call("sense.question.answer", { questionId, ...answer });
+  },
+
+  /**
    * brain.list：列出可用 brain + 当前已连 MCP server（AgentDialog 用）。
    * 后端 Agent 1 契约保证 brains[].contextLimit。返回形状容错（缺字段 → 空数组）。
    */
