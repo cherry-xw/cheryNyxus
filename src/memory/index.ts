@@ -1,11 +1,9 @@
 /**
- * 项目记忆模块统一导出。
+ * 项目记忆模块统一导出（双层 · 平铺布局）。
  *
- * 存储结构：
- *   .chery/workspace/<hash>/MEMORY.md    ← 活跃索引
- *   .chery/workspace/<hash>/memories/    ← 活跃记忆详情
- *   .chery/workspace/<hash>/history/     ← 淘汰归档
- *   非 workspace → .chery/memory/（同上结构）
+ *   .chery/memory/                                ← global 层（所有 chat 共享）
+ *   .chery/workspace/<hash>/memory/               ← workspace 层（workspace chat 用）
+ *   每层：main.md + 平铺 *.md + history/
  */
 
 export type {
@@ -19,11 +17,11 @@ export type {
   HistoryEntry,
 } from "./types.js";
 
+export type { MemoryScope } from "./path.js";
+
 export {
   getMemoryRootDir,
-  getMemoriesDir,
   getHistoryDir,
-  getHistoryMemoriesDir,
   getMemoryIndexPath,
   getHistoryIndexPath,
   hashWorkspacePath,

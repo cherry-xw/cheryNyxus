@@ -32,18 +32,21 @@ async function loadEditors(): Promise<void> {
 
 onMounted(loadEditors);
 
-/** memory 段可能未在 config.yaml 中定义（config.get 返回 undefined），初始化空白对象供 v-model 绑定。 */
+/** memory 段可能未在 config.yaml 中定义（config.get 返回 undefined），初始化双层空白对象供 v-model 绑定。 */
 watch(
   () => props.draft.memory,
   (mem) => {
     if (!mem) {
-      props.draft.memory = { max_count: undefined, max_chars: undefined };
+      props.draft.memory = { global: {}, workspace: {} };
+    } else {
+      if (!mem.global) mem.global = {};
+      if (!mem.workspace) mem.workspace = {};
     }
   },
   { immediate: true },
 );
 
-/** 序号按钮列表：默认监管常驻；logger / file_compression / memory 按配置动态生成。 */
+/** 序号按钮列表：默认监管常驻；logger / file_compression 按配置动态生成；记忆两子卡常驻。 */
 const indexItems = computed<IndexItem[]>(() => {
   const items: IndexItem[] = [
     { label: "默认监管", anchor: "default", brief: "监管模式 / 思考 / 流式 / 超时上限" },
@@ -54,7 +57,8 @@ const indexItems = computed<IndexItem[]>(() => {
   if (props.draft.global.file_compression) {
     items.push({ label: "大文件压缩", anchor: "compression", brief: "阈值 / 预览行数 / 日志扩展名" });
   }
-  items.push({ label: "项目记忆", anchor: "memory", brief: "活跃条数上限 / 单条字数建议" });
+  items.push({ label: "全局记忆", anchor: "memory-global", brief: "跨 chat 共享的活跃条数上限 / 单条字数建议" });
+  items.push({ label: "Workspace 记忆", anchor: "memory-workspace", brief: "per 项目 / 单 chat 的活跃条数上限 / 单条字数建议" });
   return items;
 });
 
@@ -212,17 +216,31 @@ const approvalTimeoutSeconds = computed<number | undefined>({
         </label>
       </div>
     </div>
-    <div class="card global-section" data-anchor="memory">
-      <h3 class="sub-title">项目记忆</h3>
-      <p class="sect-hint">记忆以 Markdown 文件存储在 <code>.chery/memory/</code>（或 workspace 模式下的项目目录）。超出条数上限时旧记忆自动归档到 history。</p>
+    <div class="card global-section" data-anchor="memory-global">
+      <h3 class="sub-title">全局记忆（所有 chat 共享）</h3>
+      <p class="sect-hint">存储位置：<code>.chery/memory/global/</code>。AI 通过 memory_manage 工具的 scope="global" 写入。超出条数上限时旧记忆自动归档到 history。</p>
       <div class="card-grid">
         <label class="field">
-          <LabelTip label="最大条数" tip="max_count：活跃记忆最大条数，超限触发自动淘汰归档" />
-          <el-input-number v-model="draft.memory!.max_count" :controls="false" :min="1" placeholder="默认 15" />
+          <LabelTip label="全局最大条数" tip="memory.global.max_count：跨 chat 共享的活跃记忆最大条数；默认 30" />
+          <el-input-number v-model="draft.memory!.global!.max_count" :controls="false" :min="1" placeholder="默认 30" />
         </label>
         <label class="field">
-          <LabelTip label="单条字数建议" tip="max_chars：单条记忆正文的软性字数建议，AI 写入时会参考此值但非硬性截断" />
-          <el-input-number v-model="draft.memory!.max_chars" :controls="false" :min="1" placeholder="默认 500" />
+          <LabelTip label="全局单条字数" tip="memory.global.max_chars：单条正文软性字数建议；默认 500" />
+          <el-input-number v-model="draft.memory!.global!.max_chars" :controls="false" :min="1" placeholder="默认 500" />
+        </label>
+      </div>
+    </div>
+    <div class="card global-section" data-anchor="memory-workspace">
+      <h3 class="sub-title">Workspace 记忆（per 项目 / 单 chat）</h3>
+      <p class="sect-hint">存储位置：<code>.chery/workspace/&lt;hash&gt;/</code>（workspace 模式）或 <code>.chery/memory/</code>（非 workspace chat）。AI 通过 memory_manage 工具的 scope="workspace" 写入。超出条数上限时旧记忆自动归档到 history。</p>
+      <div class="card-grid">
+        <label class="field">
+          <LabelTip label="Workspace 最大条数" tip="memory.workspace.max_count：当前 chat 的活跃记忆最大条数；默认 15" />
+          <el-input-number v-model="draft.memory!.workspace!.max_count" :controls="false" :min="1" placeholder="默认 15" />
+        </label>
+        <label class="field">
+          <LabelTip label="Workspace 单条字数" tip="memory.workspace.max_chars：单条正文软性字数建议；默认 500" />
+          <el-input-number v-model="draft.memory!.workspace!.max_chars" :controls="false" :min="1" placeholder="默认 500" />
         </label>
       </div>
     </div>

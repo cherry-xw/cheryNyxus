@@ -166,15 +166,30 @@ export interface PresetConfig {
 export const DEFAULT_PRESET_NAME = "默认";
 
 /**
- * 项目记忆配置（全局条数 + 单条字数限制）。
- * 记忆以 Markdown 文件存储在 .chery/workspace/<hash>/（workspace 模式）或 .chery/memory/（非 workspace）。
- * MEMORY.md 汇总索引 + memories/<name>.md 单条详情 + history/ 淘汰归档。
+ * 记忆配置（双层模型：global 跨 chat 共享 · workspace per chat / per 项目）。
+ *
+ * 存储路径：
+ *   global    → .chery/memory/global/
+ *   workspace → .chery/workspace/<sha256(path)[:12]>/（workspace 模式）
+ *            或 .chery/memory/（非 workspace chat；与 global 子目录并列）
+ *
+ * 活跃记忆上限触发淘汰；淘汰记忆移入该层 history/。
+ * 每层独立计数、独立限制，互不影响。
  */
+
+/** 单层记忆的活跃条数 / 单条字数软限制（缺省由 MemoryConfig 默认值兜底） */
+interface MemoryLimits {
+  /** 活跃记忆最大条数（超限触发淘汰） */
+  max_count?: number;
+  /** 单条记忆正文字数上限 */
+  max_chars?: number;
+}
+
 interface MemoryConfig {
-  /** 活跃记忆最大条数（超限触发淘汰），默认 15 */
-  max_count: number;
-  /** 单条记忆正文字数上限，默认 500 */
-  max_chars: number;
+  /** 全局层（跨 chat 共享；管用户习惯/事实/准则） */
+  global?: MemoryLimits;
+  /** workspace 层（per chat / per 项目；管项目行为规范） */
+  workspace?: MemoryLimits;
 }
 
 /**
@@ -406,10 +421,16 @@ function loadConfig(): Config {
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
   config.global.memory_dir = path.join(cheryDir, ".chery", "memory");
 
-  // 项目记忆配置默认值（缺省 → max_count=15, max_chars=500）
+  // 项目记忆配置默认值（缺省 → global{30,500} · workspace{15,500}）
   config.memory = {
-    max_count: config.memory?.max_count ?? 15,
-    max_chars: config.memory?.max_chars ?? 500,
+    global: {
+      max_count: config.memory?.global?.max_count ?? 30,
+      max_chars: config.memory?.global?.max_chars ?? 500,
+    },
+    workspace: {
+      max_count: config.memory?.workspace?.max_count ?? 15,
+      max_chars: config.memory?.workspace?.max_chars ?? 500,
+    },
   };
 
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 WEB_PORT 环境变量）
@@ -624,15 +645,18 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     }
   }
 
-  // 项目记忆：max_count > 0, max_chars > 0（正整数）。
+  // 项目记忆：每层 max_count > 0, max_chars > 0（正整数）。
   // undefined 视为「沿用默认」（设面板 GlobalTab 占位未填的常见情况），不阻断落盘。
   if (raw.memory) {
-    const { max_count, max_chars } = raw.memory;
-    if (max_count !== undefined && (typeof max_count !== "number" || max_count < 1)) {
-      errors.push(`memory.max_count 必须为正整数（当前：${String(max_count)}）`);
-    }
-    if (max_chars !== undefined && (typeof max_chars !== "number" || max_chars < 1)) {
-      errors.push(`memory.max_chars 必须为正整数（当前：${String(max_chars)}）`);
+    for (const layer of ["global", "workspace"] as const) {
+      const limits = raw.memory[layer];
+      if (!limits) continue;
+      if (limits.max_count !== undefined && (typeof limits.max_count !== "number" || limits.max_count < 1)) {
+        errors.push(`memory.${layer}.max_count 必须为正整数（当前：${String(limits.max_count)}）`);
+      }
+      if (limits.max_chars !== undefined && (typeof limits.max_chars !== "number" || limits.max_chars < 1)) {
+        errors.push(`memory.${layer}.max_chars 必须为正整数（当前：${String(limits.max_chars)}）`);
+      }
     }
   }
 

@@ -1,24 +1,19 @@
 /**
- * 记忆 Markdown 文件读写。
+ * 记忆 Markdown 文件读写（双层 · 平铺布局）。
  *
- * 文件格式：
- * ```
- * ---
- * name: kebab-case-slug
- * description: 一句话描述
- * metadata:
- *   node_type: memory
- *   type: feedback
- * ---
+ * 每层目录结构：
+ *   <root>/
+ *   ├── main.md                ← 活跃索引
+ *   ├── <name>.md              ← 活跃条目（与 main.md 同级）
+ *   └── history/
+ *       ├── main.md            ← 历史索引
+ *       └── <name>.md          ← 历史条目
  *
- * 正文内容...
- * ```
- *
- * 索引文件格式（MEMORY.md）：
+ * 索引文件格式（main.md）：
  * ```
  * # Memory Index
  *
- * - [标题](filename.md) — 描述
+ * - [标题](<name>.md) — 描述
  * ```
  */
 
@@ -36,12 +31,11 @@ import type {
 } from "./types.js";
 import {
   getMemoryRootDir,
-  getMemoriesDir,
   getHistoryDir,
-  getHistoryMemoriesDir,
   getMemoryIndexPath,
   getHistoryIndexPath,
 } from "./path.js";
+import type { MemoryScope } from "./path.js";
 
 /** 解析 md 文件的 frontmatter + body（---\nYAML\n---\nBODY） */
 function parseMd(content: string): { frontmatter: Record<string, unknown>; body: string } {
@@ -62,9 +56,19 @@ function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
-// === 活跃记忆索引（MEMORY.md）===
+/** 活跃条目绝对路径：<root>/<name>.md */
+function getMemoryFilePath(name: string, workspace?: string, scope: MemoryScope = "workspace"): string {
+  return path.join(getMemoryRootDir(workspace, scope), `${name}.md`);
+}
 
-/** 解析 MEMORY.md 内容 → 索引条目列表 */
+/** 历史条目绝对路径：<root>/history/<name>.md */
+function getHistoryFilePath(name: string, workspace?: string, scope: MemoryScope = "workspace"): string {
+  return path.join(getHistoryDir(workspace, scope), `${name}.md`);
+}
+
+// === 活跃记忆索引（main.md）===
+
+/** 解析 main.md 内容 → 索引条目列表（链接形如 "<name>.md"） */
 function parseMemoryIndex(content: string): MemoryIndexEntry[] {
   const entries: MemoryIndexEntry[] = [];
   for (const line of content.split("\n")) {
@@ -76,7 +80,7 @@ function parseMemoryIndex(content: string): MemoryIndexEntry[] {
   return entries;
 }
 
-/** 序列化索引条目为 MEMORY.md 内容 */
+/** 序列化索引条目为 main.md 内容（活跃条目平铺，与 main.md 同级） */
 function serializeMemoryIndex(entries: MemoryIndexEntry[]): string {
   if (entries.length === 0) return "# Memory Index\n";
   const lines = entries.map((e) => `- [${e.title}](${e.filename}.md) — ${e.description}`);
@@ -84,23 +88,24 @@ function serializeMemoryIndex(entries: MemoryIndexEntry[]): string {
 }
 
 /** 读取活跃记忆索引 */
-export function readMemoryIndex(workspace?: string): MemoryIndexEntry[] {
-  const indexPath = getMemoryIndexPath(workspace);
+export function readMemoryIndex(workspace?: string, scope: MemoryScope = "workspace"): MemoryIndexEntry[] {
+  const indexPath = getMemoryIndexPath(workspace, scope);
   if (!existsSync(indexPath)) return [];
   return parseMemoryIndex(readFileSync(indexPath, "utf-8"));
 }
 
 /** 写入活跃记忆索引 */
-export function writeMemoryIndex(entries: MemoryIndexEntry[], workspace?: string): void {
-  ensureDir(getMemoryRootDir(workspace));
-  writeFileSync(getMemoryIndexPath(workspace), serializeMemoryIndex(entries), "utf-8");
+export function writeMemoryIndex(entries: MemoryIndexEntry[], workspace?: string, scope: MemoryScope = "workspace"): void {
+  const root = getMemoryRootDir(workspace, scope);
+  ensureDir(root);
+  writeFileSync(getMemoryIndexPath(workspace, scope), serializeMemoryIndex(entries), "utf-8");
 }
 
-// === 单条活跃记忆（memories/<name>.md）===
+// === 单条活跃记忆（<root>/<name>.md）===
 
 /** 读取单条活跃记忆 */
-export function readMemory(name: string, workspace?: string): Memory | null {
-  const filePath = path.join(getMemoriesDir(workspace), `${name}.md`);
+export function readMemory(name: string, workspace?: string, scope: MemoryScope = "workspace"): Memory | null {
+  const filePath = getMemoryFilePath(name, workspace, scope);
   if (!existsSync(filePath)) return null;
   const { frontmatter, body } = parseMd(readFileSync(filePath, "utf-8"));
   const fm = frontmatter as unknown as MemoryFrontmatter;
@@ -115,9 +120,9 @@ export function readMemory(name: string, workspace?: string): Memory | null {
 }
 
 /** 写入单条活跃记忆 */
-export function writeMemory(memory: Memory, workspace?: string): void {
-  const dir = getMemoriesDir(workspace);
-  ensureDir(dir);
+export function writeMemory(memory: Memory, workspace?: string, scope: MemoryScope = "workspace"): void {
+  const root = getMemoryRootDir(workspace, scope);
+  ensureDir(root);
   const fm: MemoryFrontmatter = {
     name: memory.name,
     description: memory.description,
@@ -128,35 +133,36 @@ export function writeMemory(memory: Memory, workspace?: string): void {
     },
   };
   writeFileSync(
-    path.join(dir, `${memory.name}.md`),
+    getMemoryFilePath(memory.name, workspace, scope),
     serializeMd(fm as unknown as Record<string, unknown>, memory.content),
     "utf-8",
   );
 }
 
 /** 删除单条活跃记忆文件 */
-export function deleteMemoryFile(name: string, workspace?: string): void {
-  const filePath = path.join(getMemoriesDir(workspace), `${name}.md`);
+export function deleteMemoryFile(name: string, workspace?: string, scope: MemoryScope = "workspace"): void {
+  const filePath = getMemoryFilePath(name, workspace, scope);
   if (existsSync(filePath)) unlinkSync(filePath);
 }
 
-/** 列出所有活跃记忆文件名（不含扩展名） */
-export function listMemoryNames(workspace?: string): string[] {
-  const dir = getMemoriesDir(workspace);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3));
+/** 列出所有活跃记忆文件名（不含扩展名，且排除 main.md / history/） */
+export function listMemoryNames(workspace?: string, scope: MemoryScope = "workspace"): string[] {
+  const root = getMemoryRootDir(workspace, scope);
+  if (!existsSync(root)) return [];
+  return readdirSync(root)
+    .filter((f) => f.endsWith(".md") && f !== "main.md")
+    .map((f) => f.slice(0, -3));
 }
 
-// === 历史记忆索引（history/MEMORY.md）===
+// === 历史记忆索引（history/main.md）===
 
-/** 解析历史索引 */
+/** 解析历史索引（链接形如 "<name>.md"，与 main.md 同级在 history/ 内） */
 function parseHistoryIndex(content: string): HistoryIndexEntry[] {
   const entries: HistoryIndexEntry[] = [];
   for (const line of content.split("\n")) {
-    const match = line.match(/^- \[(.+?)\]\(memories\/(.+?)\.md\)\s*(?:—|-)\s*(.*)$/);
+    const match = line.match(/^- \[(.+?)\]\((.+?)\.md\)\s*(?:—|-)\s*(.*)$/);
     if (match) {
       const desc = (match[3] ?? "").trim();
-      // 从描述行提取替换元数据（备用；主要来源为文件 frontmatter）
       const replMatch = desc.match(/^被 '(.+?)' 替换于 (.+?)（(.+?)）$/);
       entries.push({
         title: match[1] ?? "",
@@ -175,29 +181,30 @@ function parseHistoryIndex(content: string): HistoryIndexEntry[] {
 function serializeHistoryIndex(entries: HistoryIndexEntry[]): string {
   if (entries.length === 0) return "# History Index\n";
   const lines = entries.map(
-    (e) => `- [${e.title}](memories/${e.filename}.md) — 被 '${e.replacedBy}' 替换于 ${e.replacedAt}（${e.replacedReason}）`,
+    (e) => `- [${e.title}](${e.filename}.md) — 被 '${e.replacedBy}' 替换于 ${e.replacedAt}（${e.replacedReason}）`,
   );
   return `# History Index\n\n${lines.join("\n")}\n`;
 }
 
 /** 读取历史索引 */
-export function readHistoryIndex(workspace?: string): HistoryIndexEntry[] {
-  const indexPath = getHistoryIndexPath(workspace);
+export function readHistoryIndex(workspace?: string, scope: MemoryScope = "workspace"): HistoryIndexEntry[] {
+  const indexPath = getHistoryIndexPath(workspace, scope);
   if (!existsSync(indexPath)) return [];
   return parseHistoryIndex(readFileSync(indexPath, "utf-8"));
 }
 
 /** 写入历史索引 */
-export function writeHistoryIndex(entries: HistoryIndexEntry[], workspace?: string): void {
-  ensureDir(getHistoryDir(workspace));
-  writeFileSync(getHistoryIndexPath(workspace), serializeHistoryIndex(entries), "utf-8");
+export function writeHistoryIndex(entries: HistoryIndexEntry[], workspace?: string, scope: MemoryScope = "workspace"): void {
+  const histDir = getHistoryDir(workspace, scope);
+  ensureDir(histDir);
+  writeFileSync(getHistoryIndexPath(workspace, scope), serializeHistoryIndex(entries), "utf-8");
 }
 
-// === 历史记忆详情（history/memories/<name>.md）===
+// === 历史记忆详情（<root>/history/<name>.md）===
 
 /** 读取历史记忆详情 */
-export function readHistoryEntry(name: string, workspace?: string): HistoryEntry | null {
-  const filePath = path.join(getHistoryMemoriesDir(workspace), `${name}.md`);
+export function readHistoryEntry(name: string, workspace?: string, scope: MemoryScope = "workspace"): HistoryEntry | null {
+  const filePath = getHistoryFilePath(name, workspace, scope);
   if (!existsSync(filePath)) return null;
   const { frontmatter, body } = parseMd(readFileSync(filePath, "utf-8"));
   const fm = frontmatter as unknown as HistoryFrontmatter;
@@ -221,9 +228,9 @@ export function readHistoryEntry(name: string, workspace?: string): HistoryEntry
 }
 
 /** 写入历史记忆 */
-export function writeHistoryEntry(entry: HistoryEntry, workspace?: string): void {
-  const dir = getHistoryMemoriesDir(workspace);
-  ensureDir(dir);
+export function writeHistoryEntry(entry: HistoryEntry, workspace?: string, scope: MemoryScope = "workspace"): void {
+  const histDir = getHistoryDir(workspace, scope);
+  ensureDir(histDir);
   const fm: HistoryFrontmatter = {
     name: entry.name,
     description: entry.description,
@@ -237,24 +244,26 @@ export function writeHistoryEntry(entry: HistoryEntry, workspace?: string): void
     },
   };
   writeFileSync(
-    path.join(dir, `${entry.name}.md`),
+    getHistoryFilePath(entry.name, workspace, scope),
     serializeMd(fm as unknown as Record<string, unknown>, entry.content),
     "utf-8",
   );
 }
 
-/** 列出所有历史记忆文件名 */
-export function listHistoryNames(workspace?: string): string[] {
-  const dir = getHistoryMemoriesDir(workspace);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3));
+/** 列出所有历史记忆文件名（排除 main.md） */
+export function listHistoryNames(workspace?: string, scope: MemoryScope = "workspace"): string[] {
+  const histDir = getHistoryDir(workspace, scope);
+  if (!existsSync(histDir)) return [];
+  return readdirSync(histDir)
+    .filter((f) => f.endsWith(".md") && f !== "main.md")
+    .map((f) => f.slice(0, -3));
 }
 
 // === System Prompt 注入用 ===
 
-/** 读取 MEMORY.md 全文（供 buildFirstSystemPrompt 注入 <memory> 段） */
-export function readMemoryIndexContent(workspace?: string): string {
-  const indexPath = getMemoryIndexPath(workspace);
+/** 读取 main.md 全文（供 buildFirstSystemPrompt 注入 <memory layer="..."> 段） */
+export function readMemoryIndexContent(workspace?: string, scope: MemoryScope = "workspace"): string {
+  const indexPath = getMemoryIndexPath(workspace, scope);
   if (!existsSync(indexPath)) return "";
   return readFileSync(indexPath, "utf-8").trim();
 }

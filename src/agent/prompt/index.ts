@@ -59,11 +59,24 @@ export default function buildFirstSystemPrompt(promptPathOverride?: string, work
     workspaceSection = `\n\n<workspace>\n当前工作区: ${workspace}\n本会话用于开发该项目，文件操作与命令以此目录为基准。${vcsLine}\n</workspace>`;
   }
 
-  // 项目记忆：读取 MEMORY.md 汇总索引注入 <memory> 段（初始化时一次性注入，不动态更新）
-  const memoryContent = readMemoryIndexContent(workspace);
-  const memorySection = memoryContent
-    ? `\n\n<memory>\n以下是项目活跃记忆（最多 ${config.memory?.max_count ?? 15} 条），通过 memory_manage 工具管理。\n${memoryContent}\n</memory>`
-    : "";
+  // 项目记忆：双层注入（仅在初始化时一次性注入；不动态更新）
+  //   <memory layer="global">    所有 chat 共享（用户习惯/事实/准则）
+  //   <memory layer="workspace"> 当前 chat（项目行为规范）
+  // 缺一层内容则省略该块；两层同时有内容则同时注入。
+  const globalContent = readMemoryIndexContent(undefined, "global");
+  const wsContent = readMemoryIndexContent(workspace, "workspace");
+  const memoryParts: string[] = [];
+  if (globalContent) {
+    memoryParts.push(
+      `<memory layer="global">\n以下是全局活跃记忆（所有 chat 共享，最多 ${config.memory?.global?.max_count ?? 30} 条），通过 memory_manage 工具的 scope="global" 管理。\n${globalContent}\n</memory>`,
+    );
+  }
+  if (wsContent) {
+    memoryParts.push(
+      `<memory layer="workspace">\n以下是当前 workspace 活跃记忆（最多 ${config.memory?.workspace?.max_count ?? 15} 条），通过 memory_manage 工具的 scope="workspace" 管理。\n${wsContent}\n</memory>`,
+    );
+  }
+  const memorySection = memoryParts.length ? `\n\n${memoryParts.join("\n\n")}` : "";
 
   return `<system-reminder>
 ${body}

@@ -53,11 +53,18 @@ const mediaServiceSchema = z.object({
 /** media：命名实体集合（name → 配置），非旧 3-slot 结构。 */
 const mediaSchema = z.record(z.string(), mediaServiceSchema).optional();
 
-/** 项目记忆：两字段均 optional（设面板 GlobalTab 占位回填 undefined 时落盘不算错）；对齐 utils/config.ts MemoryConfig */
-const memorySchema = z
+/** 项目记忆双层配置（global 跨 chat 共享 · workspace per chat）；字段均 optional。沿用 utils/config.ts MemoryLimits/MemoryConfig 形状 */
+const memoryLimitsSchema = z
   .object({
     max_count: z.number().min(1).optional(),
     max_chars: z.number().min(1).optional(),
+  })
+  .optional();
+
+const memorySchema = z
+  .object({
+    global: memoryLimitsSchema,
+    workspace: memoryLimitsSchema,
   })
   .optional();
 

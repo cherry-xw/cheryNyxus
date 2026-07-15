@@ -242,8 +242,11 @@ export interface ConfigDto {
   mcp_servers?: Record<string, McpServerConfigDto>;
   roles?: Record<string, { brain: string; senseGroup: string; mcpServers?: string[]; systemPrompt?: string }>;
   presets?: Record<string, PresetDto>;
-  /** 项目记忆配置（条数/字数限制）；缺省 → max_count=15, max_chars=500 */
-  memory?: { max_count?: number; max_chars?: number };
+  /** 项目记忆配置（双层：global 跨 chat 共享 · workspace per chat）；缺省 global {30,500} / workspace {15,500} */
+  memory?: {
+    global?: { max_count?: number; max_chars?: number };
+    workspace?: { max_count?: number; max_chars?: number };
+  };
 }
 
 function fail(method: string, res: RpcResponse): Error {

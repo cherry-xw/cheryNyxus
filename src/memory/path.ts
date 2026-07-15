@@ -1,13 +1,30 @@
 /**
- * 记忆存储路径计算。
+ * 记忆存储路径计算（双层 · 平铺布局）。
  *
- * workspace 模式 → .chery/workspace/<sha256(path)[:12]>/
- * 非 workspace   → .chery/memory/（config.global.memory_dir）
+ * scope=global（与 workspace 无关）
+ *   → .chery/memory/                          主目录（含 active 平铺 *.md + history/ 子目录）
+ *
+ * scope=workspace + workspace
+ *   → .chery/workspace/<sha256(path)[:12]>/memory/
+ *
+ * scope=workspace + 无 workspace
+ *   → throw Error（业务层拒绝非 workspace chat 调用 scope="workspace"）
+ *
+ * 每层目录结构：
+ *   <root>/
+ *   ├── main.md                ← 活跃索引
+ *   ├── <name>.md              ← 活跃条目（与 main.md 同级；平铺，无子目录）
+ *   └── history/
+ *       ├── main.md            ← 历史索引
+ *       └── <name>.md          ← 历史条目（平铺）
  */
 
 import { createHash } from "crypto";
 import path from "path";
 import config from "@/utils/config";
+
+/** 记忆层标识 */
+export type MemoryScope = "global" | "workspace";
 
 /** SHA256(workspace 路径) 取前 12 位十六进制 */
 export function hashWorkspacePath(workspacePath: string): string {
@@ -20,33 +37,34 @@ function getCheryDir(): string {
 }
 
 /**
- * 获取记忆存储根目录。
- * workspace 给出 → .chery/workspace/<hash>/；否则 → config.global.memory_dir
+ * 获取记忆主目录。
+ *   scope="global" → .chery/memory/
+ *   scope="workspace" + workspace → .chery/workspace/<hash>/memory/
+ *   scope="workspace" + 无 workspace → throw
  */
-export function getMemoryRootDir(workspace?: string): string {
-  if (workspace) {
-    const hash = hashWorkspacePath(workspace);
-    return path.join(getCheryDir(), ".chery", "workspace", hash);
+export function getMemoryRootDir(workspace?: string, scope: MemoryScope = "workspace"): string {
+  if (scope === "global") {
+    return config.global.memory_dir;
   }
-  return config.global.memory_dir;
+  // scope === "workspace"
+  if (!workspace) {
+    throw new Error("scope=\"workspace\" 但 chat 未配置 PresetConfig.workspace；请改用 scope=\"global\"");
+  }
+  const hash = hashWorkspacePath(workspace);
+  return path.join(getCheryDir(), ".chery", "workspace", hash, "memory");
 }
 
-export function getMemoriesDir(workspace?: string): string {
-  return path.join(getMemoryRootDir(workspace), "memories");
+/** 历史归档子目录：<root>/history/ */
+export function getHistoryDir(workspace?: string, scope: MemoryScope = "workspace"): string {
+  return path.join(getMemoryRootDir(workspace, scope), "history");
 }
 
-export function getHistoryDir(workspace?: string): string {
-  return path.join(getMemoryRootDir(workspace), "history");
+/** 活跃索引文件：<root>/main.md */
+export function getMemoryIndexPath(workspace?: string, scope: MemoryScope = "workspace"): string {
+  return path.join(getMemoryRootDir(workspace, scope), "main.md");
 }
 
-export function getHistoryMemoriesDir(workspace?: string): string {
-  return path.join(getHistoryDir(workspace), "memories");
-}
-
-export function getMemoryIndexPath(workspace?: string): string {
-  return path.join(getMemoryRootDir(workspace), "MEMORY.md");
-}
-
-export function getHistoryIndexPath(workspace?: string): string {
-  return path.join(getHistoryDir(workspace), "MEMORY.md");
+/** 历史索引文件：<root>/history/main.md */
+export function getHistoryIndexPath(workspace?: string, scope: MemoryScope = "workspace"): string {
+  return path.join(getHistoryDir(workspace, scope), "main.md");
 }

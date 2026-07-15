@@ -3,7 +3,7 @@
  *
  * 记忆格式参考 Claude 全局记忆系统：frontmatter（YAML）+ markdown 正文。
  * 分类：feedback / fact / instruction / decision / reference。
- * 活跃记忆存 memories/<name>.md，淘汰归档到 history/memories/<name>.md（增加替换元数据）。
+ * 活跃记忆存 <root>/<name>.md（与 main.md 同级，平铺），淘汰归档到 <root>/history/<name>.md（增加替换元数据）。
  */
 
 /** 记忆分类 */
@@ -16,14 +16,14 @@ export interface MemoryMetadata {
   originSessionId?: string;
 }
 
-/** 活跃记忆 frontmatter（memories/<name>.md） */
+/** 活跃记忆 frontmatter（<root>/<name>.md） */
 export interface MemoryFrontmatter {
   name: string;
   description: string;
   metadata: MemoryMetadata;
 }
 
-/** 历史记忆 frontmatter（history/memories/<name>.md）— 在活跃基础上增加淘汰元数据 */
+/** 历史记忆 frontmatter（<root>/history/<name>.md）— 在活跃基础上增加淘汰元数据 */
 export interface HistoryFrontmatter extends MemoryFrontmatter {
   metadata: MemoryMetadata & {
     replaced_at: string;
@@ -32,7 +32,7 @@ export interface HistoryFrontmatter extends MemoryFrontmatter {
   };
 }
 
-/** 汇总索引条目（MEMORY.md 一行） */
+/** 汇总索引条目（main.md 一行） */
 export interface MemoryIndexEntry {
   /** 显示标题（≤40字，取自 description） */
   title: string;
@@ -42,7 +42,7 @@ export interface MemoryIndexEntry {
   description: string;
 }
 
-/** 历史汇总索引条目（history/MEMORY.md） */
+/** 历史汇总索引条目（<root>/history/main.md） */
 export interface HistoryIndexEntry extends MemoryIndexEntry {
   replacedAt: string;
   replacedReason: string;
