@@ -89,6 +89,15 @@ function formatContextLimit(limit: number | undefined): string {
   if (limit >= 1000) return `${Math.round(limit / 1000)}k`;
   return String(limit);
 }
+
+/** 当前角色在 config.roles 中的默认 brain / senseGroup（无配置 → 空串，不标 ★）。 */
+const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
+  const cfg = props.config?.roles?.[props.role];
+  return {
+    brain: cfg?.brain ?? "",
+    senseGroup: cfg?.senseGroup ?? "",
+  };
+});
 </script>
 
 <template>
@@ -167,7 +176,7 @@ function formatContextLimit(limit: number | undefined): string {
               @click="selectBrain(localSelection, brain.name)"
             >
               <span class="choice-option-label">{{ brainConfig(brain.name)?.model ?? brain.name }}</span>
-              <span v-if="brain.default" class="choice-default" aria-label="默认">★</span>
+              <span v-if="brain.name === roleDefault.brain" class="choice-default" aria-label="默认">★</span>
             </button>
           </span>
         </div>
@@ -193,7 +202,7 @@ function formatContextLimit(limit: number | undefined): string {
               @click="localSelection.senseGroup = group.name"
             >
               <span class="choice-option-label">{{ group.name }}</span>
-              <span v-if="group.default" class="choice-default" aria-label="默认">★</span>
+              <span v-if="group.name === roleDefault.senseGroup" class="choice-default" aria-label="默认">★</span>
             </button>
           </span>
         </div>

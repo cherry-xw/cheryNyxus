@@ -250,6 +250,31 @@ const NAME_POOL: string[] = [
   "pepper", "ginger", "olive", "clover", "hazel", "remy", "scout", "willow", "jasper", "nova",
 ];
 
+// ===== MASTER_NAME_POOL（主 pet 专属） =====
+// 主 pet name 按 chatId 确定性取：MASTER_NAME_POOL[hashStr(chatId) % len]。
+// 刷新稳定（chatId 不变→name 不变），不同主 pet 大概率异名。与 NAME_POOL（子 pet 随机）独立，重叠无害。
+const MASTER_NAME_POOL: string[] = [
+  // 食物甜点
+  "mochi", "matcha", "boba", "tofu", "waffle", "pancake", "muffin", "cookie", "brownie", "pudding",
+  "caramel", "truffle", "donut", "bagel", "macaron", "eclair", "strudel", "churro", "scone", "fudge",
+  // 香料
+  "pepper", "ginger", "cinnamon", "nutmeg", "clove", "basil", "mint", "pistachio", "sage", "thyme",
+  "saffron", "rosemary", "anise", "wasabi", "cardamom",
+  // 自然草木
+  "willow", "hazel", "ivy", "poppy", "daisy", "fern", "olive", "clover", "maple", "birch",
+  "cedar", "rowan", "aspen", "juniper", "briar",
+  // 星空宇宙
+  "nova", "comet", "nebula", "orbit", "cosmo", "luna", "stella", "aurora", "zenith", "eclipse",
+  // 科技能量
+  "pixel", "byte", "spark", "bolt", "dash", "turbo", "echo", "neo", "vortex", "glimmer",
+  // 角色拟人
+  "atlas", "jasper", "remy", "scout", "oscar", "milo", "finn", "hugo", "theo", "oliver",
+  "winston", "buford", "otis", "leon", "felix",
+  // 可爱拟声
+  "momo", "boo", "pip", "bobo", "lulu", "kiki", "mimi", "toto", "zuzu", "fufu",
+  "nori", "pebble", "nugget", "wobble", "biscuit",
+];
+
 // ===== 工具 =====
 
 const TOOL = {
@@ -285,6 +310,17 @@ function pick<T>(items: readonly T[]): T {
   return item;
 }
 
+/** 字符串 → 稳定 uint32（DJB2 变体）。主 pet name 按 chatId 确定性取池索引用。
+ *  独立于 usePetStyles.hashHue：避 petPresets→usePetStyles→@/stores→petLifecycle→petPresets 循环依赖，
+ *  且 hashHue 的 %360 色相截断对任意池长取模有分布偏差。 */
+function hashStr(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i += 1) {
+    h = (h * 33) ^ s.charCodeAt(i);
+  }
+  return h >>> 0;
+}
+
 const MOODS = Object.keys(HAND_PAIRS) as PetMood[];
 
 /** 每 mood 从 HAND_PAIRS 独立抽一对,拼成完整 hands 映射(跨 mood 混搭,单 mood L/R 协调)。 */
@@ -312,14 +348,22 @@ let genCounter = 0;
  * @param form 'kaomoji'=主池(颜文字 face) / 'emoji'=子池(emoji face) / 'random'=按池容量比例纯随机
  * @param excludeFaces 已占用 face 集合（按对象引用相等去重）；传同类已用 face 可避免撞脸。两池不相交，传混合集合亦安全。池耗尽回退全池。
  */
-export function generatePet(form: PetForm, excludeFaces?: ReadonlySet<Record<PetMood, string>>): PetPreset {
+export function generatePet(form: PetForm, excludeFaces?: ReadonlySet<Record<PetMood, string>>, chatId?: string): PetPreset {
   const emojiRatio = EMOJI_FACES.length / (KAOMOJI_FACES.length + EMOJI_FACES.length);
   const useEmoji = form === "emoji" || (form === "random" && Math.random() < emojiRatio);
   const pool = useEmoji ? EMOJI_FACES : KAOMOJI_FACES;
   const face = pickFace(pool, excludeFaces);
   const { color, accent } = pick(COLOR_PARTS);
   const talks = pick(TALK_PARTS);
-  const name = pick(NAME_POOL);
+  let name: string;
+  if (form === "kaomoji") {
+    // 主 pet：按 chatId 确定性取 MASTER_NAME_POOL，刷新稳定、不同主 pet 大概率异名。
+    if (!chatId) throw new Error("generatePet: 主 pet(kaomoji) 必须传 chatId 以确定性取 name");
+    name = MASTER_NAME_POOL[hashStr(chatId) % MASTER_NAME_POOL.length];
+  } else {
+    // 子 pet：维持 NAME_POOL 随机。
+    name = pick(NAME_POOL);
+  }
   genCounter += 1;
   return {
     id: `${name}-${genCounter}`,

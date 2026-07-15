@@ -59,7 +59,7 @@ export function createPetLifecycle(
     bounds: { width: number; height: number },
     usedFaces: Set<Record<PetMood, string>>,
   ): void {
-    const preset = generatePet("kaomoji", usedFaces);
+    const preset = generatePet("kaomoji", usedFaces, masterSummary.chatId);
     usedFaces.add(preset.face);
     const master = createPetInstance(preset, bounds, true, undefined, { chatId: masterSummary.chatId });
     master.preset = masterSummary.preset;
@@ -117,7 +117,7 @@ export function createPetLifecycle(
     const chatId = result.chatId;
     const bounds = defaultBounds();
     const usedFaces = new Set(pets.value.map((p) => p.face));
-    const preset = generatePet("kaomoji", usedFaces);
+    const preset = generatePet("kaomoji", usedFaces, chatId);
     const pet = createPetInstance(preset, bounds, true, undefined, { chatId });
     // 记录初始 runtime（后端响应回填：预设路径编制由后端解析；显式路径 = 传入值）+ 预设名。
     // AgentDialog 首次发送对比 = 相同（无需 runtime.set）；preset pet 切 brain-only。
