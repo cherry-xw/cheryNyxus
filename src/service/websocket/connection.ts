@@ -126,15 +126,20 @@ export class ConnectionManager {
     ws: WebSocket,
     requestId: string,
     onTimeout: () => void,
+    timeoutMs?: number,
   ): void {
     const state = this.connections.get(ws);
     if (!state) return;
 
     const pending = state.pendingRequests.get(requestId);
-    if (pending && !pending.approvalTimeoutTimer) {
+    // 0 是协议定义的“不限时”；旧调用未提供 waitTime 时沿用默认值以兼容。
+    const effectiveTimeoutMs = timeoutMs ?? pending?.approvalTimeoutMs;
+    if (effectiveTimeoutMs === 0) return;
+
+    if (pending && !pending.approvalTimeoutTimer && effectiveTimeoutMs !== undefined) {
       pending.approvalTimeoutTimer = setTimeout(() => {
         onTimeout();
-      }, pending.approvalTimeoutMs);
+      }, effectiveTimeoutMs);
     }
   }
 

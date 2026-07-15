@@ -525,14 +525,14 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   for (const [name, cfg] of brainEntries) {
     if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`);
     if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`);
-    // thinking：接受 legacy boolean（true/false）或 ThinkingLevel（off/thinking/low/medium/high）；非法 fail loud
+    // thinking：接受 legacy boolean（true/false）或 ThinkingLevel（off/on/low/medium/high）；非法 fail loud
     // cfg.thinking 类型已为 ThinkingLevel，运行时值可能是 legacy boolean/字符串，用 unknown 比较避开类型冲突
     const t = cfg?.thinking as unknown;
     if (
       t !== undefined && t !== true && t !== false &&
       t !== "off" && t !== "on" && t !== "low" && t !== "medium" && t !== "high"
     ) {
-      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/thinking/low/medium/high）`);
+      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/on/low/medium/high）`);
     }
     if (cfg?.capabilities?.generate && cfg.capabilities.toolCall === false && Object.values(cfg.capabilities.generate).some(Boolean)) {
       errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`);

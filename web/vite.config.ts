@@ -57,6 +57,12 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
+    // fs.inotify.max_user_watches 默认 65536，被 web 的大 deps + electron plugin
+    // 同时扫描耗尽，dev 报 EMFILE。改 polling 不占 inotify watcher（CPU 几乎无感）。
+    watch: {
+      usePolling: true,
+      interval: 1000,
+    },
     // /api → 后端 HTTP(:8183)；/ws → 后端 WebSocket(:8182)
     // WS 走 vite proxy：跨机器访问只需暴露单端口 5173，无需开放 8182
     proxy: {

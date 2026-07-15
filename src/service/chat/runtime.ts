@@ -14,6 +14,8 @@ import type { LLMResponse } from "@/core/message/adapter";
 interface ChatRuntime {
   builder: AgentBuilder;
   selection?: RuntimeSelection;
+  /** 当前活跃 chat.send/chat.resume 的协议运行标识。 */
+  activeRunId?: string;
 }
 
 const chatRuntimes = new Map<string, ChatRuntime>();
@@ -36,6 +38,28 @@ export function getChatSelection(chatId: string): RuntimeSelection | undefined {
  */
 export function isChatRunning(chatId: string): boolean {
   return chatRuntimes.get(chatId)?.builder.isRunning() ?? false;
+}
+
+/** 获取当前活跃运行，用于 queued send 回包与带条件的 chat.abort。 */
+export function getActiveChatRunId(chatId: string): string | undefined {
+  return chatRuntimes.get(chatId)?.activeRunId;
+}
+
+/** 在启动 send/resume 前登记运行；同一 chat 同时至多一个活跃运行。 */
+export function activateChatRun(chatId: string, runId: string): void {
+  const runtime = chatRuntimes.get(chatId);
+  if (!runtime) {
+    throw new Error(`Chat runtime not initialized: ${chatId}`);
+  }
+  runtime.activeRunId = runId;
+}
+
+/** 仅清除自己启动的运行，防止旧 generator 的 finally 清掉新运行。 */
+export function releaseChatRun(chatId: string, runId: string): void {
+  const runtime = chatRuntimes.get(chatId);
+  if (runtime?.activeRunId === runId) {
+    runtime.activeRunId = undefined;
+  }
 }
 
 /**

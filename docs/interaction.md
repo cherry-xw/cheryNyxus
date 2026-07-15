@@ -137,7 +137,7 @@
 ← {"kind":"chunk","type":"staged","requestId":"r8","data":{"type":"sense_end","role":"sense","senseName":"read_file","arguments":"{...}"}}
 
 // 历史发完
-← {"kind":"notification","type":"loaded","requestId":"r8","data":null}
+← {"kind":"notification","type":"loaded","requestId":"r8","chatId":"c1","data":null}
 
 // 最终响应（末条为未完成周期时携带 canResume:true）
 ← {"id":"a8","kind":"response","requestId":"r8","success":true,"data":{"chatId":"c1","canResume":true}}
@@ -159,8 +159,8 @@
 // 1. 输入已消费
 ← {"kind":"notification","type":"consumed","requestId":"r9","data":{"count":1}}
 
-// 2. LLM 流式增量（二进制帧；传输层不提供 seq、ack 或重放语义）
-← {"kind":"chunk","type":"stream","requestId":"r9","data":{"content":"我来"}}
+// 2. LLM 流式增量（每个可恢复 chat 事件显式带 chatId/runId/seq；断线后 chat.sync 补发）
+← {"kind":"chunk","type":"stream","requestId":"r9","chatId":"c1","runId":"r9","data":{"content":"我来"}}
 ← {"kind":"chunk","type":"stream","requestId":"r9","data":{"content":"读取"}}
 ← {"kind":"chunk","type":"stream","requestId":"r9","data":{"thinking":"..."}}
 ← {"kind":"chunk","type":"stream","requestId":"r9","data":{"senseCall":[{"index":0,"id":"call_abc","name":"read_file","arguments":"{\"path\":\"/a.txt\"}"}]}}
@@ -180,10 +180,10 @@
 ← {"kind":"chunk","type":"staged","requestId":"r9","data":{"type":"content_end","content":"文件内容是..."}}
 
 // 6. 结束
-← {"kind":"notification","type":"done","requestId":"r9","data":null}
+← {"kind":"notification","type":"done","requestId":"r9","chatId":"c1","runId":"r9","data":{"contextUsage":0.12}}
 
 // 最终响应
-← {"id":"a9","kind":"response","requestId":"r9","success":true,"data":{"chatId":"c1"}}
+← {"id":"a9","kind":"response","requestId":"r9","success":true,"data":{"chatId":"c1","runId":"r9"}}
 ```
 
 > 内部 effect chunk（`message_created`/`message_updated`/`sense_pending`）由 service observer 消费，不发出传输层。
@@ -212,10 +212,10 @@ C→S sense.approval {action:"accept"}
 // 后续轮次正常调 LLM 继续
 ← {"kind":"chunk","type":"stream","requestId":"r10","data":{"content":"文件内容是..."}}
 ← {"kind":"chunk","type":"staged","requestId":"r10","data":{"type":"content_end","content":"文件内容是..."}}
-← {"kind":"notification","type":"done","requestId":"r10","data":null}
+← {"kind":"notification","type":"done","requestId":"r10","chatId":"c1","runId":"r10","data":{"contextUsage":0.12}}
 
 // 最终响应
-← {"id":"a10","kind":"response","requestId":"r10","success":true,"data":{"chatId":"c1"}}
+← {"id":"a10","kind":"response","requestId":"r10","success":true,"data":{"chatId":"c1","runId":"r10"}}
 ```
 
 > **续接规则**（同默认 send 流完全一致，首轮仅跳过 chat 层不调 LLM）：
@@ -307,25 +307,23 @@ C→S chat.resume {chatId}              ← 无 prompt
 
 ```json
 ← {"kind":"notification","type":"error","requestId":"r9","data":{"message":"已达到最大循环次数限制 (30)"}}
-← {"kind":"notification","type":"done","requestId":"r9","data":null}
-← {"id":"a9","kind":"response","requestId":"r9","success":true,"data":{"chatId":"c1"}}
+← {"kind":"notification","type":"done","requestId":"r9","chatId":"c1","runId":"r9","data":{"contextUsage":0.12}}
+← {"id":"a9","kind":"response","requestId":"r9","success":true,"data":{"chatId":"c1","runId":"r9"}}
 ```
 
-**硬失败**（handler 抛异常，如 chat 不存在 / LLM 错误 / Chat busy）：
+**硬失败**（handler 抛异常，如 chat 不存在 / Chat busy）：
 
 ```json
-← {"kind":"notification","type":"error","requestId":"r9","data":{"message":"..."}}
 ← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"INTERNAL","message":"..."}}
 ```
 
 **跨连接并发**（同一 chat 已在另一连接活跃，send/resume 被拒）：
 
 ```json
-← {"kind":"notification","type":"error","requestId":"r9","data":{"message":"Chat \"c1\" is busy (active on another connection)"}}
-← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"INTERNAL","message":"Chat \"c1\" is busy (active on another connection)"}}
+← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"CONFLICT","message":"Chat \"c1\" is busy (active on another connection)"}}
 ```
 
-**审批超时**（15min）或连接断开：
+**审批超时**（`interrupt.data.waitTime`，`0` = 不限时）或连接断开：
 
 ```json
 ← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"TIMEOUT","message":"Approval timeout - chat ended"}}

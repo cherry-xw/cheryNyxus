@@ -45,12 +45,23 @@ export class Transport {
 
   /**
    * 编码流式二进制帧
-   * 格式：[type:1byte][requestId_len:1byte][requestId:varies][data:varies]
+   * 格式：[type:1byte][requestId_len:1byte][requestId:varies][payload:json]
+   * payload 兼容两种形态：旧版直接为 StreamChunkData；带 chat/run 关联的新版为
+   * `{ data: StreamChunkData, chatId?, runId? }`。
    */
   private encodeStreamFrame(chunk: Chunk): Buffer {
     const data = typeof chunk.data === "string"
       ? chunk.data
-      : JSON.stringify(chunk.data);
+      : JSON.stringify(
+        chunk.chatId || chunk.runId || chunk.seq !== undefined
+          ? {
+              data: chunk.data,
+              ...(chunk.chatId ? { chatId: chunk.chatId } : {}),
+              ...(chunk.runId ? { runId: chunk.runId } : {}),
+              ...(chunk.seq !== undefined ? { seq: chunk.seq } : {}),
+            }
+          : chunk.data,
+      );
 
     const requestId = chunk.requestId || "";
     const requestIdBuffer = Buffer.from(requestId, "utf-8");

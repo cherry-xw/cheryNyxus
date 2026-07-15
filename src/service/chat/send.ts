@@ -23,7 +23,15 @@ import { getChat, markMessagesRevoked, updateChatMetadata } from "@/db/chat.js";
 import { approvalManager } from "../approval/manager.js";
 import { questionManager } from "../question/manager.js";
 import { connectionManager } from "../websocket/connection.js";
-import { ensureChat, clearChatRuntime, abortChatRuntime, getChatSelection } from "./runtime.js";
+import {
+  ensureChat,
+  clearChatRuntime,
+  abortChatRuntime,
+  getChatSelection,
+  getActiveChatRunId,
+  activateChatRun,
+  releaseChatRun,
+} from "./runtime.js";
 import { clearWaitedChildrenByParent } from "@/agent/spawnBroker.js";
 import { observeAgentChunks } from "./observer.js";
 import { streamAgentChunks } from "./streamMapper.js";
@@ -31,6 +39,7 @@ import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { isAgentAbortError } from "@/core/middleware/errors.js";
 import { safeJsonParse } from "@/utils/json.js";
+import { randomUUID } from "crypto";
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
@@ -79,6 +88,8 @@ export async function* handleChatSend(
   data: ChatSendRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatSendResponseData | RpcResponse, unknown> {
   const chatId = data.chatId;
+  // runId 与启动该运行的 RPC id 同源；脱离 WS 的单元调用使用 UUID 兜底。
+  const runId = ctx.requestId ?? randomUUID();
 
   // 校验 chat 存在
   const chat = getChat(chatId);
@@ -96,7 +107,7 @@ export async function* handleChatSend(
   });
 
   const agent = await ensureChat(chatId);
-  const rid = ctx.requestId ?? chatId;
+  const rid = ctx.requestId ?? runId;
 
   // P4：结构化 attachments → [[media:<filename>]] 文本标记追加到 prompt。
   // enrichMediaInputs 仍以文本标记解析；P5 provider 多模态直接读 LLMResponse.attachments 时可省此步。
@@ -110,7 +121,7 @@ export async function* handleChatSend(
       /* 运行中 send 不产出 chunk，迭代仅为触发 send body 入队 */
     }
     logger.event("chat.send.queued", { chatId, runtime: getChatSelection(chatId), promptLen: promptWithAttachments.length });
-    return { chatId };
+    return { chatId, runId: getActiveChatRunId(chatId) ?? runId, queued: true };
   }
 
   // 绑定 chatId 到当前连接，拒绝跨连接并发 send（P0-3）
@@ -120,8 +131,10 @@ export async function* handleChatSend(
   } catch (e) {
     const msg = (e as Error).message;
     logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
-    return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
+    return createResponse(rid, false, undefined, createError(ErrorCode.CONFLICT, msg));
   }
+
+  activateChatRun(chatId, runId);
 
   // 恢复场景撤回：仅 idle 时触发（运行中 send 只入队，不撤回）。
   // 撤回末尾整个当前周期 AI 响应（assistant think/content/tool + 整个 sense 群），
@@ -131,7 +144,7 @@ export async function* handleChatSend(
     if (revokedIds.length > 0) {
       markMessagesRevoked(chatId, revokedIds);
       logger.event("chat.send.revoke", { count: revokedIds.length, messageIds: revokedIds });
-      yield createChunk("staged", rid, { type: "reverse", messageIds: revokedIds });
+      yield createChunk("staged", rid, { type: "reverse", messageIds: revokedIds }, { chatId, runId });
     }
   }
 
@@ -153,7 +166,7 @@ export async function* handleChatSend(
       (msgId) => { userMsgId = msgId; },
     );
 
-    yield* streamAgentChunks(generator, rid, chatId, (msg) => { failureMessage = msg; });
+    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => { failureMessage = msg; });
   } catch (err) {
     const error = err as Error;
     // approval aborted（chat.abort 触发 abortChat → reject → senseMiddleware throw，
@@ -165,6 +178,7 @@ export async function* handleChatSend(
       failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
     }
   } finally {
+    releaseChatRun(chatId, runId);
     connectionManager.releaseChatConnection(chatId, ctx.connectionId);
     logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
   }
@@ -175,7 +189,7 @@ export async function* handleChatSend(
     failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, failureMessage));
   }
 
-  return failureResponse ?? { chatId, ...(userMsgId ? { userMsgId } : {}) };
+  return failureResponse ?? { chatId, runId, ...(userMsgId ? { userMsgId } : {}) };
 }
 
 /**
@@ -191,7 +205,8 @@ export async function* handleChatResume(
   data: ChatResumeRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatResumeResponseData | RpcResponse, unknown> {
   const chatId = data.chatId;
-  const rid = ctx.requestId ?? chatId;
+  const runId = ctx.requestId ?? randomUUID();
+  const rid = ctx.requestId ?? runId;
 
   const chat = getChat(chatId);
   if (!chat) {
@@ -208,7 +223,7 @@ export async function* handleChatResume(
 
   // 运行中 resume：无意义（无 prompt 入队，活跃流已在跑），直接返回避免重复启动流误释放绑定（P0-1）
   if (agent.isRunning()) {
-    return { chatId };
+    return { chatId, runId: getActiveChatRunId(chatId) ?? runId, alreadyRunning: true };
   }
 
   // 绑定 chatId 到当前连接，拒绝跨连接并发 resume（P0-3）
@@ -218,8 +233,10 @@ export async function* handleChatResume(
   } catch (e) {
     const msg = (e as Error).message;
     logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
-    return createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, msg));
+    return createResponse(rid, false, undefined, createError(ErrorCode.CONFLICT, msg));
   }
+
+  activateChatRun(chatId, runId);
 
   let failureResponse: RpcResponse | undefined;
   let failureMessage: string | undefined;
@@ -228,7 +245,7 @@ export async function* handleChatResume(
     if (resumeWasPending) updateChatMetadata(chatId, { resumePending: false });
     // resume 内部据末尾状态决定 Case1/Case2（见 builder.resume）
     const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages());
-    yield* streamAgentChunks(generator, rid, chatId, (msg) => { failureMessage = msg; });
+    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => { failureMessage = msg; });
   } catch (err) {
     const error = err as Error;
     // approval aborted（chat.abort 触发，同 handleChatSend）：静默不报错
@@ -239,6 +256,7 @@ export async function* handleChatResume(
       failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
     }
   } finally {
+    releaseChatRun(chatId, runId);
     connectionManager.releaseChatConnection(chatId, ctx.connectionId);
     logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
   }
@@ -264,7 +282,7 @@ export async function* handleChatResume(
     }
   }
 
-  return failureResponse ?? { chatId };
+  return failureResponse ?? { chatId, runId };
 }
 
 /**
@@ -321,17 +339,30 @@ export async function handleSenseQuestionAnswer(
  * pending sense content 保持 NULL，下次 chat.get canResume=true 重新审核。
  */
 export async function handleChatAbort(
-  _ctx: HandlerContext,
+  ctx: HandlerContext,
   data: ChatAbortRequestData,
-): Promise<ChatAbortResponseData> {
+): Promise<ChatAbortResponseData | RpcResponse> {
+  const activeRunId = getActiveChatRunId(data.chatId);
+  if (data.runId && activeRunId && data.runId !== activeRunId) {
+    return createResponse(
+      ctx.requestId ?? "",
+      false,
+      undefined,
+      createError(ErrorCode.CONFLICT, `Chat "${data.chatId}" is running as "${activeRunId}", not "${data.runId}"`),
+    );
+  }
+  if (!activeRunId) {
+    return { chatId: data.chatId, aborted: false };
+  }
+
   abortChatRuntime(data.chatId);
   // T9：主被 abort → 清其 wait-子唤醒链，防子完成反唤醒已停的主（用户主动停语义）
   clearWaitedChildrenByParent(data.chatId);
   // 强制解绑连接（不校验 owner）：abort 是清内存操作，跨连接重连后旧 owner 须无条件清除避免 busy 死锁（P0-2）
   connectionManager.forceReleaseChatConnection(data.chatId);
   clearChatRuntime(data.chatId);
-  logger.event("chat.abort", { chatId: data.chatId });
-  return { chatId: data.chatId };
+  logger.event("chat.abort", { chatId: data.chatId, runId: activeRunId });
+  return { chatId: data.chatId, runId: activeRunId, aborted: true };
 }
 
 /**

@@ -11,6 +11,7 @@ import type { MediaAssetRef } from "@/stores/agents/types";
 import ImagePreview from "./ImagePreview.vue";
 import VideoPlayer from "./VideoPlayer.vue";
 import AudioPlayer from "./AudioPlayer.vue";
+import { httpUrl } from "@/services/http";
 
 const props = defineProps<{
   assets: MediaAssetRef[];
@@ -21,7 +22,7 @@ const previewImage = ref<string | null>(null);
 const previewVideo = ref<string | null>(null);
 const previewAudio = ref<string | null>(null);
 
-const mediaUrl = (filename: string) => `/api/media/${filename}`;
+const mediaUrl = (filename: string) => httpUrl(`/api/media/${filename}`);
 
 const kindLabel = (kind: MediaAssetRef["kind"]) => {
   switch (kind) {

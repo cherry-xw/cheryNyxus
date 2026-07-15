@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import { sameRuntime, defaultBounds } from "./streamAccumulator";
 import { collectDescendantChatIds } from "./historyMerge";
+import { wsClient } from "@/services/ws";
 
 // 模块 factories
 import { createUiState } from "./uiState";
@@ -154,6 +155,8 @@ export const useAgentsStore = defineStore("agents", () => {
     stream.thinking = "";
     stream.content = "";
     stream.isWorking = true;
+    // 若已有活跃 run，当前请求只是入队；否则 requestId 即本轮 runId。
+    if (!stream.activeRunId) stream.activeRunId = requestId;
     stream.historyDirty = true;
     // 即时 push user prompt 到 history（让 drawer 打开期间即时显自己发的消息）
     // msgId/agentChatId 后端 response.data.userMsgId 到达后再补；若 drawer 在此之前 reload 也不会重复（user prompt 仅一条）
@@ -175,6 +178,13 @@ export const useAgentsStore = defineStore("agents", () => {
     // P3：捕获 final Response 终态。success:false（后端 P2 修复产 failureResponse）→ stream.error。
     // done Promise 在流结束时 resolve；catch 仅网络中断（ws 断）才触发。
     done.then((res) => {
+      const data = res.data as { runId?: string; queued?: boolean } | undefined;
+      // 正常路径已先收到 done 并清 activeRunId；仅仍在运行（queued）时更新关联。
+      if (typeof data?.runId === "string" && stream.isWorking) {
+        stream.activeRunId = data.runId;
+      }
+      // queued 请求不拥有独立事件流，收到最终 Response 后即可释放其旧 requestId 映射。
+      if (data?.queued) requestMap.delete(requestId);
       if (!res.success) {
         stream.error = res.error?.message ?? "未知错误";
         console.error("[agents] sendMessage response failed:", res.error);
@@ -208,6 +218,7 @@ export const useAgentsStore = defineStore("agents", () => {
     stream.thinking = "";
     stream.content = "";
     stream.isWorking = true;
+    if (!stream.activeRunId) stream.activeRunId = requestId;
     // resume 同 sendMessage：标 dirty 让下次 drawer 打开 reload（resume 可能产生新 assistant 回复）
     stream.historyDirty = true;
     // resume 同 sendMessage：当前审批不丢失 → 移到 queue 保留
@@ -219,6 +230,9 @@ export const useAgentsStore = defineStore("agents", () => {
     // P3：清旧 error + 捕获 resume 终态（与 sendMessage 同步）
     stream.error = undefined;
     done.then((res) => {
+      const data = res.data as { runId?: string; alreadyRunning?: boolean } | undefined;
+      if (typeof data?.runId === "string" && stream.isWorking) stream.activeRunId = data.runId;
+      if (data?.alreadyRunning) requestMap.delete(requestId);
       if (!res.success) {
         stream.error = res.error?.message ?? "未知错误";
         console.error("[agents] resumeChat response failed:", res.error);
@@ -229,9 +243,37 @@ export const useAgentsStore = defineStore("agents", () => {
     });
   }
 
+  /** Starts a persisted spawn task. Replayed role_created events are safe: the server claims once. */
+  async function startSpawn(taskId: string, chatId: string): Promise<void> {
+    const { requestId, done } = agentApi.startSpawn(taskId);
+    _trackRequest(requestMap, requestId, chatId);
+    const pet = pets.value.find((p) => p.chatId === chatId);
+    setWorking(pet, true);
+    const stream = _ensureStream(streams, chatId);
+    stream.thinking = "";
+    stream.content = "";
+    stream.isWorking = true;
+    if (!stream.activeRunId) stream.activeRunId = requestId;
+    stream.historyDirty = true;
+    stream.error = undefined;
+    done.then((res) => {
+      const data = res.data as { runId?: string; alreadyFinished?: boolean; alreadyRunning?: boolean } | undefined;
+      if (typeof data?.runId === "string" && stream.isWorking) stream.activeRunId = data.runId;
+      if (data?.alreadyFinished) {
+        stream.isWorking = false;
+        stream.activeRunId = undefined;
+        setWorking(pet, false);
+      }
+      if (data?.alreadyFinished || data?.alreadyRunning) requestMap.delete(requestId);
+      if (!res.success) stream.error = res.error?.message ?? "未知错误";
+    }).catch((e) => {
+      stream.error = `连接中断: ${(e as Error).message}`;
+    });
+  }
+
   const router = createStreamRouter(
     streams, pets, requestMap, setWorking, approval.dismissApproval,
-    sendMessage, resumeAgent, lifecycle.pickGhostFace, allChatsCache,
+    startSpawn, resumeAgent, lifecycle.pickGhostFace, allChatsCache,
   );
 
   // ── 剩余编排函数 ──
@@ -305,6 +347,9 @@ export const useAgentsStore = defineStore("agents", () => {
 
     // 重连后重建 wait 唤醒态 + 检测主卡死（容错机制，见 docs/agent-pet.md §5.8）
     await rebuildSpawnWaits(chats);
+    // F5 是新的浏览器进程，尚无 seq cursor；从持久事件/任务快照补回
+    // role_created，避免仅靠 chat.list 发现子 chat 后却没有启动任务。
+    await syncChatEvents();
 
     // 初始载入 contextUsage（ContextBar 渲染用）。
     // initFromChats 仅用 chat.list（不含 contextUsage），需单独拉；done/chat.get 是后续实时路径。
@@ -541,12 +586,13 @@ export const useAgentsStore = defineStore("agents", () => {
    * 可能不推 done → 手动清工作态（pet isWorking + stream.isWorking）。
    */
   async function abort(chatId: string): Promise<void> {
-    await agentApi.abortAgent(chatId);
+    const stream = streams.value[chatId];
+    await agentApi.abortAgent(chatId, stream?.activeRunId);
     const pet = pets.value.find((p) => p.chatId === chatId);
     setWorking(pet, false);
-    const stream = streams.value[chatId];
     if (stream) {
       stream.isWorking = false;
+      stream.activeRunId = undefined;
       stream.retainUntil = undefined;
     }
   }
@@ -576,6 +622,30 @@ export const useAgentsStore = defineStore("agents", () => {
     }
   }
 
+  /**
+   * On reconnect, replay the persisted delta for every known chat. Event
+   * envelopes carry chatId, so the normal router can consume them even though
+   * chat.sync itself has a different request id. Expired cursors fall back to
+   * chat.get snapshots.
+   */
+  async function syncChatEvents(): Promise<void> {
+    const chats = await agentApi.listChats();
+    allChatsCache.value = chats;
+    await Promise.all(chats.map(async (chat) => {
+      const { requestId, done } = agentApi.syncChat(chat.chatId, wsClient.getLastSeq(chat.chatId));
+      _trackRequest(requestMap, requestId, chat.chatId);
+      const response = await done;
+      const data = response.data as { reset?: boolean; latestSeq?: number } | undefined;
+      requestMap.delete(requestId);
+      if (data?.reset) {
+        if (typeof data.latestSeq === "number") wsClient.resetChatSeq(chat.chatId, data.latestSeq);
+        const stream = _ensureStream(streams, chat.chatId);
+        stream.historyDirty = true;
+        await getHistory(chat.chatId);
+      }
+    }));
+  }
+
   return {
     pets,
     ...ui,
@@ -596,6 +666,7 @@ export const useAgentsStore = defineStore("agents", () => {
     ...approval,
     fetchHistoryList,
     markAllStreamsDirty,
+    syncChatEvents,
     getRuntime,
     setSessionRuntime,
     ...router,

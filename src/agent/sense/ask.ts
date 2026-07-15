@@ -36,7 +36,7 @@ export default sense(
   "ask_user_question",
   `向用户提问并等待回答。返回值为用户选择的 label（或「其他」自由文本）。`,
   AskUserQuestionSchema,
-  async (input, _shared, ctx): Promise<SenseResult> => {
+  async (_input, _shared, ctx): Promise<SenseResult> => {
     // id 用 sense call id（= 主 chat sense message.id），供前端 dismissQuestion + resume 续接关联。
     // buildSenseTrigger 已同步调用 createQuestion(id, timeout) 注册 entry（避免 handler await 时 entry 未建的竞态）；
     // 本 handler 幂等返回同一 Promise 并 await。

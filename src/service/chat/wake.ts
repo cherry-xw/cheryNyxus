@@ -6,6 +6,7 @@ import { transport } from "../websocket/transport.js";
 import { createNotification } from "../message/types.js";
 import { clearWaitedChild, registerWaitedChild } from "@/agent/spawnBroker.js";
 import { logger } from "@/utils/logger/index.js";
+import { appendChatEvent } from "@/db/delivery.js";
 
 /**
  * wait=true 唤醒（T9 B1 架构，见 docs/agent-pet.md §5.4）。
@@ -46,32 +47,32 @@ export async function wakeParent(
   // 父正在运行时，loop 会检测并消费新 role，无需再安排一个额外 resume。
   if (!parentWasRunning) updateChatMetadata(parentChatId, { resumePending: true });
 
+  // 读子 chat metadata.spawnSenseCallId（= 触发 spawn 的 sense call id）。
+  let spawnSenseCallId: string | undefined;
+  const childMetaRow = getChat(childChatId);
+  if (childMetaRow?.metadata) {
+    try {
+      const parsed = JSON.parse(childMetaRow.metadata) as { spawnSenseCallId?: unknown };
+      if (typeof parsed.spawnSenseCallId === "string" && parsed.spawnSenseCallId.length > 0) {
+        spawnSenseCallId = parsed.spawnSenseCallId;
+      }
+    } catch {
+      // 元数据非合法 JSON → 旧记录兼容，忽略关联锚点即可。
+    }
+  }
+  const notif = createNotification("role_reply", undefined, {
+    parentChatId,
+    childChatId,
+    type,
+    content,
+    msgId,
+    spawnSenseCallId,
+  }, { chatId: parentChatId });
+  notif.seq = appendChatEvent(parentChatId, notif as unknown as Record<string, unknown>);
+
   // 推 role_reply notification（findOwnerWsByChatId：主 turn 已结束也能反查 owner 推送）
   const ws = connectionManager.findOwnerWsByChatId(parentChatId);
   if (ws && ws.readyState === ws.OPEN) {
-    // 读子 chat metadata.spawnSenseCallId（= 触发 spawn 的 sense call id）。
-    // 前端 F 改动用：点击 role 子头像回滚到主 chat 的 sense 调用框。
-    // metadata 是 TEXT 列存 JSON，无迁移旧库可能为 null / 旧对象缺字段 → 兜底 undefined。
-    let spawnSenseCallId: string | undefined;
-    const childMetaRow = getChat(childChatId);
-    if (childMetaRow?.metadata) {
-      try {
-        const parsed = JSON.parse(childMetaRow.metadata) as { spawnSenseCallId?: unknown };
-        if (typeof parsed.spawnSenseCallId === "string" && parsed.spawnSenseCallId.length > 0) {
-          spawnSenseCallId = parsed.spawnSenseCallId;
-        }
-      } catch {
-        // 元数据非合法 JSON → 静默跳过（旧库损坏，规则12 fail loud 由其它面暴露）
-      }
-    }
-    const notif = createNotification("role_reply", parentChatId, {
-      parentChatId,
-      childChatId,
-      type,
-      content,
-      msgId,
-      spawnSenseCallId,
-    });
     ws.send(transport.encode(notif));
   } else {
     // 前端离线：resumePending 已持久化，重连后 rebuildSpawnWaits 会恢复主循环。

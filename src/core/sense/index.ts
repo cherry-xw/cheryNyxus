@@ -11,11 +11,13 @@ export {
   createApproval,
   resolveApproval,
   rejectApproval,
+  clearAllApprovals,
   type ApprovalDecision,
 } from "./approvalRegistry";
 export {
   createQuestion,
   resolveQuestion,
   rejectQuestion,
+  clearAllQuestions,
   type QuestionAnswer,
 } from "./questionRegistry";

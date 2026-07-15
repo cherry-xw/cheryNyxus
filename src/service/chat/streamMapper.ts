@@ -35,6 +35,7 @@ export async function* streamAgentChunks(
   generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
   rid: string,
   chatId: string,
+  runId: string,
   onError?: (message: string) => void,
 ): AsyncGenerator<Chunk | Notification, void, unknown> {
   // 失败守卫：error chunk 已出现时抑制后续 done notification（不让 loop 失败路径下发 done）。
@@ -52,7 +53,7 @@ export async function* streamAgentChunks(
       if (chunk.senseDelta && chunk.senseDelta.length > 0) {
         streamData.senseCall = chunk.senseDelta;
       }
-      yield createChunk("stream", rid, streamData);
+      yield createChunk("stream", rid, streamData, { chatId, runId });
     } else if (chunk.type === "staged") {
       const staged = chunk as StagedChunk;
       const stagedData: Record<string, unknown> = {
@@ -80,7 +81,7 @@ export async function* streamAgentChunks(
         contentLen: staged.content.length,
         thinkingLen: staged.thinking.length,
       });
-      yield createChunk("staged", rid, stagedData);
+      yield createChunk("staged", rid, stagedData, { chatId, runId });
     } else if (chunk.type === "sense_end") {
       const sc = chunk as SenseTriggerChunk;
       const needsApproval = sc.supervisionLevel > SupervisionLevel.auto;
@@ -104,13 +105,13 @@ export async function* streamAgentChunks(
           needsApproval,
           waitTime: config.global.approval_timeout ?? 0,
           createdAt: Date.now(),
-        });
+        }, { chatId, runId });
       } else {
         yield createNotification("sense_started", rid, {
           id: sc.id,
           senseName: sc.name,
           arguments: sc.arguments,
-        });
+        }, { chatId, runId });
       }
     } else if (chunk.type === "sense_accept") {
       const sc = chunk as SenseAcceptChunk;
@@ -124,7 +125,7 @@ export async function* streamAgentChunks(
         approvalId: sc.id,
         senseName: sc.name,
         result: sc.result,
-      });
+      }, { chatId, runId });
     } else if (chunk.type === "sense_reject") {
       const sc = chunk as SenseRejectChunk;
       logger.event("sense.rejected", {
@@ -136,11 +137,11 @@ export async function* streamAgentChunks(
         approvalId: sc.id,
         senseName: sc.name,
         reason: sc.reason,
-      });
+      }, { chatId, runId });
     } else if (chunk.type === "consumed") {
       const count = (chunk as { count?: number }).count || 0;
       logger.event("input.consumed", { count });
-      yield createNotification("consumed", rid, { count });
+      yield createNotification("consumed", rid, { count }, { chatId, runId });
     } else if (chunk.type === "error") {
       const e = chunk as { errors: Array<{ message: string }> };
       const message = e.errors[0]?.message || "Unknown error";
@@ -149,7 +150,7 @@ export async function* streamAgentChunks(
       if (onError) onError(message);
       // 仍下发 error notification：流中途的失败信号，前端可立即更新 UI。
       // 但不下发 done notification（见下「done + errored 抑制」）—— 流终止由 final Response 表达。
-      yield createNotification("error", rid, { message });
+      yield createNotification("error", rid, { message }, { chatId, runId });
     } else if (chunk.type === "done") {
       // 失败路径抑制 done notification：error chunk 已现 → loop 失败 → 让 final Response（success:false）
       // 作为唯一权威终态。前端据 final Response 触发终态；error notification 仍流中发。
@@ -181,6 +182,7 @@ export async function* streamAgentChunks(
               content: lastMsg.content ?? "",
               ...(lastMsg.thinking ? { thinking: lastMsg.thinking } : {}),
               createdAt: lastMsg.created_at,
+              agentChatId: chatId,
             }
           : undefined;
       yield createNotification("done", rid, {
@@ -189,7 +191,7 @@ export async function* streamAgentChunks(
         total: ctxDetail.total,
         ...(finished === true ? { finished: true } : {}),
         ...(finalMessage ? { finalMessage } : {}),
-      });
+      }, { chatId, runId });
     } else if (chunk.type === "message_updated") {
       // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
       // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。
@@ -201,7 +203,7 @@ export async function* streamAgentChunks(
           content: u.patch.content,
           originalContent: u.patch.originalContent,
           by: u.patch.replace.by,
-        });
+        }, { chatId, runId });
       }
     } else if (chunk.type === "question_pending") {
       // ask_user_question 感官：question_pending chunk（observer 已 register）→ question_requested 通知。
@@ -216,13 +218,13 @@ export async function* streamAgentChunks(
         multiSelect: q.multiSelect,
         waitTime: q.waitTime,
         createdAt: q.createdAt,
-      });
+      }, { chatId, runId });
     } else if (
       chunk.type === "message_created" ||
-      chunk.type === "sense_pending" ||
-      chunk.type === "question_pending"
+      chunk.type === "sense_pending"
     ) {
       // 内部 effect chunk 应由 observeAgentChunks 消费，不进入传输层。
+      // 注：question_pending 已在上面分发为 question_requested 通知，此处不列。
       continue;
     }
   }

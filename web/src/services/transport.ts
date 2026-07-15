@@ -54,11 +54,16 @@ function decodeStreamFrame(buf: ArrayBuffer, view: Uint8Array): unknown {
   const reqIdLen = view[1] ?? 0;
   const reqId = new TextDecoder().decode(view.slice(2, 2 + reqIdLen));
   const payloadJson = new TextDecoder().decode(view.slice(2 + reqIdLen));
+  const payload = safeParse<Record<string, unknown>>(payloadJson, {});
+  const isEnvelope = payload && typeof payload === "object" && "data" in payload;
   return {
     kind: "chunk" as const,
     type: "stream" as const,
     requestId: reqId,
-    data: safeParse(payloadJson, {}),
+    ...(isEnvelope && typeof payload.chatId === "string" ? { chatId: payload.chatId } : {}),
+    ...(isEnvelope && typeof payload.runId === "string" ? { runId: payload.runId } : {}),
+    ...(isEnvelope && typeof payload.seq === "number" ? { seq: payload.seq } : {}),
+    data: isEnvelope ? payload.data : payload,
   };
 }
 

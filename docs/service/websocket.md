@@ -53,7 +53,7 @@ handleRequest:
       item = iter.value
       if item.kind === "notification" && item.type === "interrupt":
         setRequestApprovalId(ws, request.id, approvalId)
-        startApprovalTimeout(ws, request.id, onTimeout)          // 15min，超时发 TIMEOUT Response + close
+        startApprovalTimeout(ws, request.id, onTimeout, waitTime) // waitTime=0 不设超时
       ws.send(transport.encode(item))                            // Chunk/Notification 编码推送
   else:
     ws.send(transport.serializeMessage(result))                  // 非流式 Response
@@ -74,7 +74,7 @@ export const connectionManager: ConnectionManager;
 | 方法 | 作用 |
 |------|------|
 | `create(ws)` | 建 ConnectionState 入 Map |
-| `addPendingRequest(ws, requestId, timeoutMs?)` | 记 pending，默认 `defaultApprovalTimeout=900000`（15min） |
+| `addPendingRequest(ws, requestId, timeoutMs?)` | 记 pending；未携带协议 `waitTime` 的旧调用才回退 `defaultApprovalTimeout=900000` |
 | `setRequestApprovalId(ws, requestId, approvalId)` | interrupt 后记录审批 ID（供 close 时 abort） |
 | `startApprovalTimeout(ws, requestId, onTimeout)` | 启动 setTimeout，到点回调（发 TIMEOUT + close） |
 | `clearApprovalTimeout(ws, requestId)` | handler 完成 / 审批通过时清除 |
@@ -119,12 +119,13 @@ chat.send/resume handler:
 
 `chat.abort` 用 `forceReleaseChatConnection` 无条件解绑（跨连接重连清旧 owner）。
 
-### 审批超时（interrupt → 15min）
+### 审批超时（interrupt → waitTime）
 
 ```
-streamMapper yield interrupt notification
-  → handleRequest: setRequestApprovalId + startApprovalTimeout(15min)
-    ├─ 15min 内 sense.approval 到达 / handler 正常结束 → clearApprovalTimeout
+streamMapper yield interrupt notification（data.waitTime）
+  → handleRequest: setRequestApprovalId + startApprovalTimeout(waitTime)
+    ├─ waitTime 内 sense.approval 到达 / handler 正常结束 → clearApprovalTimeout
+    ├─ waitTime=0 → 不创建 timer（不限时）
     └─ 超时 → onTimeout: ws.send Response(TIMEOUT, "Approval timeout - chat ended") + connectionManager.close(ws)
 ```
 
@@ -171,6 +172,6 @@ close(ws):
 ## 扩展点
 
 - **换底层传输**：当前固定 `ws`。若换 uWebSockets 等，改 `createWebSocketServer` 的 server 构造与 message/close 事件绑定，`Transport`/`ConnectionManager` 可复用。
-- **改超时/策略**：`defaultApprovalTimeout`（15min）可调；`addPendingRequest(ws, requestId, customMs)` 支持单请求覆盖。
+- **改超时/策略**：正常审批以 notification 的 `waitTime` 为准；`defaultApprovalTimeout` 仅保留给旧调用兼容。
 - **新增帧类型**：`FRAME_TYPE` 加键 + Transport 增对应 encode 分支；同步更新 [../protocol.md](../protocol.md) 帧格式章节。
 - **多实例/集群**：当前 `connectionManager`/`transport` 均模块级单例，单进程内有效。多实例需改造 chat 绑定与 pending approval 状态共享（当前依赖进程内 Map）。

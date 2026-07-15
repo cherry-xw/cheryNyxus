@@ -3,7 +3,7 @@ import { generatePet } from "@/features/pets/petPresets";
 import { findSpawnPosition } from "@/features/pets/petMovement";
 import { createPetInstance } from "@/features/pets/usePetWorld";
 import type { PetInstance } from "@/features/pets/types";
-import type { ChatSummary, ChatSendAttachment, RuntimeSelection } from "@/services/agentApi";
+import type { ChatSummary } from "@/services/agentApi";
 import type {
   StreamState,
   StreamChunkData,
@@ -63,7 +63,7 @@ export function createStreamRouter(
   setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
   dismissApproval: (chatId: string) => void,
   // 跨模块依赖（打破循环：sendMessage/resumeAgent 在 index.ts 定义，用 standalone ensureStream/trackRequest）
-  sendMessage: (chatId: string, text: string, attachments?: ChatSendAttachment[], runtime?: RuntimeSelection) => Promise<void>,
+  startSpawn: (taskId: string, chatId: string) => Promise<void>,
   resumeAgent: (chatId: string) => Promise<void>,
   pickGhostFace: (tribe: string, pets: readonly PetInstance[], selfId?: string) => string,
   allChatsCache: Ref<ChatSummary[]>,
@@ -79,13 +79,14 @@ export function createStreamRouter(
   function routeChunk(chunk: unknown): void {
     const c = chunk as ChunkMessage | null;
     if (!c || !c.requestId) return;
-    const chatId = requestMap.get(c.requestId);
+    const chatId = c.chatId ?? requestMap.get(c.requestId);
     if (!chatId) {
       console.log("[agents] routeChunk: requestId 未找到映射", { requestId: c.requestId, type: c.type });
       return;
     }
 
     const stream = ensureStream(streams, chatId);
+    if (c.runId && !stream.activeRunId) stream.activeRunId = c.runId;
 
     if (c.type === "staged") {
       accumulateStaged(stream, c.data as StagedChunkData | undefined);
@@ -114,7 +115,7 @@ export function createStreamRouter(
     const n = notif as NotificationMessage | null;
     if (!n || !n.type) return;
     const requestId = n.requestId;
-    const chatId = requestId ? requestMap.get(requestId) : undefined;
+    const chatId = n.chatId ?? (requestId ? requestMap.get(requestId) : undefined);
     const type = n.type;
 
     if (type === "done" || type === "error") {
@@ -124,6 +125,7 @@ export function createStreamRouter(
         const stream = streams.value[chatId];
         if (stream) {
           stream.isWorking = false;
+          if (!n.runId || n.runId === stream.activeRunId) stream.activeRunId = undefined;
           // loop 结束：清运行中工具（防残留；正常应由 accept 逐个移除，兜底全清）
           stream.runningTools = [];
           // done 后 content/thinking 气泡保留 20s（下一条消息前）；error 不保留（即时隐藏）
@@ -345,6 +347,7 @@ export function createStreamRouter(
 
     if (type === "role_created") {
       const d = (n.data ?? {}) as {
+        taskId?: string;
         chatId?: string;
         parentChatId?: string;
         type?: string;
@@ -353,7 +356,7 @@ export function createStreamRouter(
         brain?: string;
         senseGroup?: string;
       };
-      if (!d.chatId || !d.parentChatId || !d.type || !d.prompt) {
+      if (!d.taskId || !d.chatId || !d.parentChatId || !d.type || !d.prompt) {
         console.warn("[agents] role_created: notification 字段残缺", d);
         return;
       }
@@ -362,43 +365,40 @@ export function createStreamRouter(
         console.warn("[agents] role_created: 主 pet 未找到", d.parentChatId);
         return;
       }
-      // 造子 pet（emoji face，落主附近）。后端已预创建 chat + runtime（brain/senseGroups 来自 config.roles）
-      // → 前端直接 chat.send 跑子 agent，不 chat.create（避 PRIMARY KEY 冲突）、不 runtime.set
-      const bounds = defaultBounds();
-      const usedFaces = new Set(pets.value.map((p) => p.face));
-      const preset = generatePet("emoji", usedFaces);
-      const pet = createPetInstance(preset, bounds, false, master.instanceId, {
-        chatId: d.chatId,
-        parentChatId: d.parentChatId,
-        agentType: d.type,
-      });
-      // 登记 runtime 到子 pet（brain/senseGroup 来自 role_created notification）
-      pet.runtime = {
-        brain: d.brain ?? "",
-        senseGroup: d.senseGroup ?? "",
-        mcpServers: [],
-      };
-      const pos = findSpawnPosition({ x: master.x, y: master.y }, pets.value, bounds);
-      pet.x = pos.x;
-      pet.y = pos.y;
-      pet.targetX = pos.x;
-      pet.targetY = pos.y;
-      pets.value.push(pet);
+      // Event replay is normal after reconnect: create visual state once, then
+      // let the server-side task claim decide whether any child work starts.
+      if (!pets.value.some((p) => p.chatId === d.chatId)) {
+        const bounds = defaultBounds();
+        const usedFaces = new Set(pets.value.map((p) => p.face));
+        const preset = generatePet("emoji", usedFaces);
+        const pet = createPetInstance(preset, bounds, false, master.instanceId, {
+          chatId: d.chatId,
+          parentChatId: d.parentChatId,
+          agentType: d.type,
+        });
+        pet.runtime = {
+          brain: d.brain ?? "",
+          senseGroup: d.senseGroup ?? "",
+          mcpServers: [],
+        };
+        const pos = findSpawnPosition({ x: master.x, y: master.y }, pets.value, bounds);
+        pet.x = pos.x;
+        pet.y = pos.y;
+        pet.targetX = pos.x;
+        pet.targetY = pos.y;
+        pets.value.push(pet);
+      }
       // 同步到 allChatsCache（getHistory 用它找子 chat）
-      allChatsCache.value.push({
-        chatId: d.chatId,
-        parentChatId: d.parentChatId,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-      // 主动预加载新子 chat 的历史（drawer 打开零 RPC 命中缓存；rebuild spawn 期间用户点子 drawer 也即时显）
-      // 子 chat 默认 dirty=true，预加载完 loaded notification 清 dirty
-      getHistory(d.chatId).catch((e) =>
-        console.warn(`[agents] role_created 预加载子 chat 失败 ${d.chatId}:`, e),
-      );
-      // T9：wait 唤醒由后端管（role_reply）；前端两态均 chat.send 跑子
-      sendMessage(d.chatId, d.prompt).catch((e) =>
-        console.error("[agents] 子 agent chat.send 失败:", e),
+      if (!allChatsCache.value.some((chat) => chat.chatId === d.chatId)) {
+        allChatsCache.value.push({
+          chatId: d.chatId,
+          parentChatId: d.parentChatId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      }
+      startSpawn(d.taskId, d.chatId).catch((e) =>
+        console.error("[agents] 子 agent 启动失败:", e),
       );
       return;
     }

@@ -16,7 +16,7 @@
 |----|------|
 | 连接 | 打开即建连；复用 [ws.ts](../../web/src/services/ws.ts)/[transport.ts](../../web/src/services/transport.ts)/[stores/connection.ts](../../web/src/stores/connection.ts)；FAB 下方小字显连接状态 |
 | 数据模型 | [PetInstance](../../web/src/features/pets/types.ts) 加 `chatId`/`parentChatId`/`agentType`/`isWorking`/`contextUsage`/`runtime?`；chat 表加 `parent_chat_id`；多主并存 |
-| **spawn 驱动（关键变更）** | **前端驱动**：spawn_role sense 发 `role_created` notification（含 prompt + 子 chatId）→ 前端创建子 pet + 调 `chat.create`/`chat.send` 跑子 agent → 子 agent done 后结果回传主 pet。**不在后端 sense 内部跑子 agent**（规避 sense 无法 trigger chat.send、跨连接 busy 锁两大风险） |
+| **spawn 驱动（关键变更）** | **前端驱动**：spawn_role sense 发持久 `role_created` notification（含 taskId/prompt/子 chatId）→ 前端创建子 pet + 调 `chat.startSpawn` 原子领取任务 → 子 agent done 后结果回传主 pet。**不在后端 sense 内部跑子 agent**（规避 sense 无法直接驱动 chat、跨连接 busy 锁两大风险） |
 | spawn wait 语义 | `wait=true`：sense 挂起等前端回传子结果（复用 approvalRegistry 式 Promise 挂起/唤醒，**无超时**），唤醒后返回子 agent content；`wait=false`：sense 立即返回，前端跑完子 agent 后将结果作新消息注入主 chat |
 | 角色配置 | 独立 `roles` 模块（名 = 给 AI 的角色名，`{brain, senseGroup}`），不复用 sense_groups 标记 |
 | 子 pet 创建 | 主 agent LLM 自主调 `spawn_role`；后端发 `role_created` notification；前端创建子 pet 并驱动子 chat；用户不直接创建子 pet |

@@ -310,8 +310,10 @@ async function enrichMediaInputs(
     try {
       const understood = await understandMediaReference(filename);
       if (!brain.capabilities?.input?.[understood.kind]) {
-        additions.push(`[${understood.kind} 附件未发送：当前模型未标记该输入能力]`);
-        unsupportedMedia.push({ filename, kind: understood.kind });
+        // 网关转写是原生多模态以外的降级路径：模型不直接接收二进制，
+        // 但必须接收网关已经产出的文本，否则“配置网关即可理解媒体”的
+        // 契约形同虚设。此处不再把成功结果误标为未发送。
+        additions.push(`[${understood.kind} 附件网关理解结果]\n${understood.text}`);
       } else {
         additions.push(`[${understood.kind} 附件理解结果]\n${understood.text}`);
       }

@@ -20,6 +20,8 @@
 
 /** role_created notification data（推送契约，前端依赖） */
 export interface RoleCreatedData {
+  /** 持久任务 id；前端以 chat.startSpawn 原子领取，重放不会重复执行。 */
+  taskId: string;
   /** 子 chat id（前端据此驱动子 chat） */
   chatId: string;
   /** 主 chat id（前端溯源 pet 树） */

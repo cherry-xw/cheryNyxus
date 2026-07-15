@@ -58,7 +58,7 @@ const canHide = computed(() => {
       aria-label="History"
       @click="emit('history', pet)"
     >
-      ▤<span class="tip">History</span>
+      🕐<span class="tip">History</span>
     </button>
     <button
       v-if="pet.isWorking"

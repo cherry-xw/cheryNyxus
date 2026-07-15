@@ -13,6 +13,7 @@
  */
 import { computed, ref } from "vue";
 import type { RendererProps, GenerateMediaArgs, MediaKind } from "./types";
+import { httpUrl } from "@/services/http";
 
 const props = defineProps<RendererProps>();
 
@@ -75,7 +76,7 @@ const mediaUrl = computed<string | null>(() => {
 
   // 匹配 /api/media/xxx 格式的 URL
   const match = text.match(/\/api\/media\/[^\s"'`]+/);
-  return match ? match[0] : null;
+  return match ? httpUrl(match[0]) : null;
 });
 
 // 状态字形和样式

@@ -37,6 +37,12 @@ export interface Chunk {
   kind: "chunk";
   type: "stream" | "staged";
   requestId: string;
+  /** 事件所属 chat。不得再通过 requestId 猜测 chat 路由。 */
+  chatId?: string;
+  /** 一次 chat.send/chat.resume 运行的稳定标识；当前实现中等于启动该运行的 Request.id。 */
+  runId?: string;
+  /** Chat event sequence. Present for recoverable live events and chat.sync replays. */
+  seq?: number;
   data: ChunkData;
 }
 
@@ -46,8 +52,21 @@ export interface Chunk {
 export interface Notification {
   kind: "notification";
   type: NotificationType;
-  requestId: string;
+  /** 触发该事件的 RPC 请求；脱离请求异步推送时省略。 */
+  requestId?: string;
+  /** 事件所属 chat。role_created/role_reply 等异步事件必须使用此字段路由。 */
+  chatId?: string;
+  /** 事件所属运行；非某次运行产生的异步事件可省略。 */
+  runId?: string;
+  /** Chat event sequence. Present for recoverable live events and chat.sync replays. */
+  seq?: number;
   data: NotificationData;
+}
+
+/** Chunk/Notification 共用的显式业务关联字段。 */
+export interface EventContext {
+  chatId?: string;
+  runId?: string;
 }
 
 export type NotificationType =
@@ -161,6 +180,17 @@ export interface ChatResumeRequestData {
   chatId: string;
 }
 
+/** Replays recoverable chat events newer than afterSeq. */
+export interface ChatSyncRequestData {
+  chatId: string;
+  afterSeq: number;
+}
+
+/** Starts a persisted role spawn task exactly once. */
+export interface ChatStartSpawnRequestData {
+  taskId: string;
+}
+
 export interface SenseApprovalRequestData {
   approvalId: string;
   action: "accept" | "reject";
@@ -187,6 +217,8 @@ export interface SenseQuestionAnswerResponseData {
 
 export interface ChatAbortRequestData {
   chatId: string;
+  /** 仅中止该运行；与当前 active run 不一致时返回 CONFLICT，防止旧页面误杀新一轮。 */
+  runId?: string;
 }
 
 export interface BashKillRequestData {
@@ -421,6 +453,10 @@ export interface ChatContextUsageResponseData {
 
 export interface ChatSendResponseData {
   chatId: string;
+  /** 本次消息所属运行；运行中的 send 返当前活跃 run，而不是新建一条空流。 */
+  runId: string;
+  /** true 表示消息已入队，后续事件仍归属 runId。 */
+  queued?: boolean;
   /**
    * 本次 send 写入的 user message 主键（= messages.id）。
    * 前端 sendMessage 据此即时 push user prompt 到 stream.history（带 msgId），
@@ -439,6 +475,23 @@ export interface RuntimeSetResponseData {
 
 export interface ChatResumeResponseData {
   chatId: string;
+  /** 本次恢复所属运行。 */
+  runId: string;
+  /** true 表示已有运行，未启动第二条恢复流。 */
+  alreadyRunning?: boolean;
+}
+
+export interface ChatSyncResponseData {
+  chatId: string;
+  latestSeq: number;
+  minSeq?: number;
+  /** true means history was evicted; client must reload a chat snapshot. */
+  reset: boolean;
+}
+
+export interface ChatStartSpawnResponseData extends ChatSendResponseData {
+  /** Existing task had already completed, so no child run was started. */
+  alreadyFinished?: boolean;
 }
 
 export interface SenseApprovalResponseData {
@@ -453,6 +506,10 @@ export interface SenseQuestionAnswerResponseData {
 
 export interface ChatAbortResponseData {
   chatId: string;
+  /** 实际被中止的运行；chat 不在运行时省略。 */
+  runId?: string;
+  /** 是否存在并中止了活跃运行。 */
+  aborted: boolean;
 }
 
 /**
@@ -731,9 +788,11 @@ export interface ReplacedNotificationData {
 /**
  * 角色派发（spawn_role sense 执行时推送）。
  * 前端据 type+prompt 创建子 pet 并驱动子 chat（前端驱动架构，见 docs/agent-pet.md §2/§5.1）。
- * requestId 为主 chat id（spawn_role sense 无法取主 agent 当前 WS requestId，前端按 chatId 路由）。
+ * 此类异步事件没有 requestId；外层 chatId 为 parentChatId，前端按 chatId 路由。
  */
 export interface RoleCreatedNotificationData {
+  /** Persisted task id. The client must call chat.startSpawn(taskId), not chat.send directly. */
+  taskId: string;
   /** 子 chat id（前端据此驱动子 chat.send） */
   chatId: string;
   /** 主 chat id（前端溯源 pet 树） */
@@ -753,7 +812,7 @@ export interface RoleCreatedNotificationData {
 /**
  * wait=true 子完成唤主（T9 B1 架构，见 docs/agent-pet.md §5.4）。
  * 子 loop 结束 + waitedChildren 命中时后端推：已把子结果以 role:role 注入主 chat DB，
- * 前端收此 notification → 自动 chat.resume(parentChatId) 跑唤醒轮。requestId = parentChatId。
+ * 前端收此 notification → 自动 chat.resume(parentChatId) 跑唤醒轮。外层 chatId = parentChatId。
  */
 export interface RoleReplyNotificationData {
   /** 主 chat id（前端据此 resume 主） */
@@ -834,6 +893,8 @@ export const Method = {
   CHAT_CONTEXT_USAGE: "chat.contextUsage",
   CHAT_SEND: "chat.send",
   CHAT_RESUME: "chat.resume",
+  CHAT_SYNC: "chat.sync",
+  CHAT_START_SPAWN: "chat.startSpawn",
 
   // Sense 审批
   SENSE_APPROVAL: "sense.approval",
@@ -900,6 +961,8 @@ export interface RpcMethodMap {
   [Method.CHAT_CONTEXT_USAGE]: { params: ChatContextUsageRequestData; result: ChatContextUsageResponseData };
   [Method.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData };
   [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData };
+  [Method.CHAT_SYNC]: { params: ChatSyncRequestData; result: ChatSyncResponseData };
+  [Method.CHAT_START_SPAWN]: { params: ChatStartSpawnRequestData; result: ChatStartSpawnResponseData };
   [Method.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData };
   [Method.SENSE_QUESTION_ANSWER]: { params: SenseQuestionAnswerRequestData; result: SenseQuestionAnswerResponseData };
   [Method.CHAT_ABORT]: { params: ChatAbortRequestData; result: ChatAbortResponseData };
@@ -934,6 +997,8 @@ export const ErrorCode = {
   // MCP 管理：资源不存在 / 参数非法（handler 显式返回，非抛错走 INTERNAL）
   NOT_FOUND: "NOT_FOUND",
   INVALID_PARAMS: "INVALID_PARAMS",
+  /** 资源当前状态不允许该操作，例如用旧 runId 中止已替换的新运行。 */
+  CONFLICT: "CONFLICT",
 } as const;
 
 // ========== 工厂函数 ==========
@@ -958,24 +1023,30 @@ export function createChunk(
   type: "stream" | "staged",
   requestId: string,
   data: ChunkData,
+  context: EventContext = {},
 ): Chunk {
   return {
     kind: "chunk",
     type,
     requestId,
+    ...(context.chatId ? { chatId: context.chatId } : {}),
+    ...(context.runId ? { runId: context.runId } : {}),
     data,
   };
 }
 
 export function createNotification(
   type: NotificationType,
-  requestId: string,
+  requestId: string | undefined,
   data: NotificationData,
+  context: EventContext = {},
 ): Notification {
   return {
     kind: "notification",
     type,
-    requestId,
+    ...(requestId ? { requestId } : {}),
+    ...(context.chatId ? { chatId: context.chatId } : {}),
+    ...(context.runId ? { runId: context.runId } : {}),
     data,
   };
 }

@@ -133,7 +133,7 @@ ws.on("message")
            → streamAgentChunks(gen, rid)                    // MiddlewareChunk → Chunk/Notification
      → wrapStreamingHandler 迭代 yield
   → handleRequest 逐帧：
-       notification(interrupt) → setRequestApprovalId + startApprovalTimeout(15min)
+       notification(interrupt) → setRequestApprovalId + startApprovalTimeout(waitTime；0=不限时)
        ws.send(transport.encode(item))                      // Chunk/Notification 编码
      最终 Response → ws.send(transport.serializeMessage)
   → clearApprovalTimeout + removePendingRequest

@@ -22,6 +22,7 @@ type NotificationHandler = (notification: unknown) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
 
 interface PendingRequest {
+  request: { id: string; kind: "request"; method: string; params: unknown };
   resolve: (response: RpcResponse) => void;
   reject: (error: Error) => void;
 }
@@ -62,9 +63,28 @@ export class WsClient {
   private statusHandlers = new Set<StatusHandler>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = false;
+  /** Highest consumed recoverable event sequence per chat for this page lifetime. */
+  private chatSeq = new Map<string, number>();
+  /** Events that arrived ahead of a missing sequence while a sync is in flight. */
+  private pendingChatEvents = new Map<string, Map<number, unknown>>();
 
   getStatus(): ConnectionStatus {
     return this.status;
+  }
+
+  getLastSeq(chatId: string): number {
+    return this.chatSeq.get(chatId) ?? 0;
+  }
+
+  /** A reset snapshot supersedes all retained events at or before latestSeq. */
+  resetChatSeq(chatId: string, latestSeq: number): void {
+    this.chatSeq.set(chatId, latestSeq);
+    const pending = this.pendingChatEvents.get(chatId);
+    if (!pending) return;
+    for (const seq of pending.keys()) {
+      if (seq <= latestSeq) pending.delete(seq);
+    }
+    this.drainChatEvents(chatId);
   }
 
   onChunk(handler: ChunkHandler): () => void {
@@ -101,12 +121,20 @@ export class WsClient {
     ws.binaryType = "arraybuffer";
     this.ws = ws;
 
-    ws.onopen = () => this.setStatus("connected");
+    ws.onopen = () => {
+      this.setStatus("connected");
+      // Reuse the original Request.id after a disconnect. The server either
+      // joins the in-flight execution or returns its stored terminal response.
+      for (const pending of this.pending.values()) {
+        ws.send(encodeRequest(pending.request));
+      }
+    };
     ws.onclose = () => {
       this.setStatus("disconnected");
-      this.rejectAll(new Error("连接关闭"));
       if (this.shouldReconnect) {
         this.reconnectTimer = setTimeout(() => this.open(), RECONNECT_DELAY);
+      } else {
+        this.rejectAll(new Error("连接关闭"));
       }
     };
     ws.onerror = () => {
@@ -121,6 +149,7 @@ export class WsClient {
     if (!msg || typeof msg !== "object") return;
 
     const kind = (msg as { kind?: string }).kind;
+    const envelope = msg as { chatId?: unknown; seq?: unknown };
     if (kind === "response") {
       const response = msg as RpcResponse;
       const pending = this.pending.get(response.requestId);
@@ -128,7 +157,40 @@ export class WsClient {
         this.pending.delete(response.requestId);
         pending.resolve(response);
       }
-    } else if (kind === "chunk") {
+      return;
+    }
+    if (typeof envelope.chatId === "string" && typeof envelope.seq === "number") {
+      const consumed = this.chatSeq.get(envelope.chatId) ?? 0;
+      if (envelope.seq <= consumed) return;
+      let pending = this.pendingChatEvents.get(envelope.chatId);
+      if (!pending) {
+        pending = new Map();
+        this.pendingChatEvents.set(envelope.chatId, pending);
+      }
+      pending.set(envelope.seq, msg);
+      this.drainChatEvents(envelope.chatId);
+      return;
+    }
+    this.dispatchEvent(msg, kind);
+  }
+
+  private drainChatEvents(chatId: string): void {
+    const pending = this.pendingChatEvents.get(chatId);
+    if (!pending) return;
+    let consumed = this.chatSeq.get(chatId) ?? 0;
+    while (true) {
+      const next = pending.get(consumed + 1);
+      if (!next) break;
+      pending.delete(consumed + 1);
+      consumed += 1;
+      this.chatSeq.set(chatId, consumed);
+      this.dispatchEvent(next, (next as { kind?: string }).kind);
+    }
+    if (pending.size === 0) this.pendingChatEvents.delete(chatId);
+  }
+
+  private dispatchEvent(msg: unknown, kind: unknown): void {
+    if (kind === "chunk") {
       this.chunkHandlers.forEach((h) => h(msg));
     } else if (kind === "notification") {
       this.notificationHandlers.forEach((h) => h(msg));
@@ -142,7 +204,7 @@ export class WsClient {
     const id = uuid();
     const request = { id, kind: "request" as const, method, params };
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { request, resolve, reject });
       this.ws!.send(encodeRequest(request));
     });
   }
@@ -158,7 +220,7 @@ export class WsClient {
     const requestId = uuid();
     const request = { id: requestId, kind: "request" as const, method, params };
     const response = new Promise<RpcResponse>((resolve, reject) => {
-      this.pending.set(requestId, { resolve, reject });
+      this.pending.set(requestId, { request, resolve, reject });
       this.ws!.send(encodeRequest(request));
     });
     return { requestId, response };

@@ -52,9 +52,9 @@ async function bootstrap(): Promise<void> {
       // 瞬断重连:initialized=true → 仅 rebuildSpawnWaits(重建子等待 + 检测主卡死)
       if (prevStatus === "disconnected") {
         // 瞬断重连:跳过 initFromChats(已初始化),直接 rebuildSpawnWaits
-        // + 标记所有已加载 stream dirty（disconnect 期间后端可能产生新消息，需 reload 兜底）
+        // 先按 seq 补增量；保留期外才由 store 自动 chat.get 重拉快照。
         agents.markAllStreamsDirty();
-        agents.rebuildSpawnWaits().catch((e) => {
+        agents.syncChatEvents().then(() => agents.rebuildSpawnWaits()).catch((e) => {
           console.error("[agents] rebuildSpawnWaits 失败:", e);
         });
       } else {

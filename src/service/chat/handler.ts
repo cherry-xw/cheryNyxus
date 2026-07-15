@@ -15,6 +15,11 @@ import {
   type ChatListResponseData,
   type ChatContextUsageRequestData,
   type ChatContextUsageResponseData,
+  type ChatSyncRequestData,
+  type ChatSyncResponseData,
+  type ChatStartSpawnRequestData,
+  type ChatStartSpawnResponseData,
+  type Response as RpcResponse,
 } from "../message/types.js";
 import {
   createChat,
@@ -33,6 +38,8 @@ import { parseRuntimeSelection, resolvePresetSelection, type RuntimeSelection } 
 import { logger } from "@/utils/logger/index.js";
 import { computeContextUsage } from "@/utils/token.js";
 import { safeJsonParse } from "@/utils/json.js";
+import { getChatEvents, claimSpawnTask, finishSpawnTask, listOpenSpawnTasks } from "@/db/delivery.js";
+import { handleChatResume, handleChatSend } from "./send.js";
 
 /**
  * 判定 chat 是否可 resume（末条非 revoked 消息为未完成周期）。
@@ -159,10 +166,11 @@ export async function handleChatList(
  * 前端无需重新 runtime.set（除非持久化的 brain/group 已从 config.yaml 删除，恢复时报错）。
  */
 export async function* handleChatGet(
-  _ctx: HandlerContext,
+  ctx: HandlerContext,
   data: ChatGetRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatGetResponseData, unknown> {
   const p = data;
+  const requestId = ctx.requestId ?? p.chatId;
 
   const chat = getChat(p.chatId);
   if (!chat) {
@@ -179,14 +187,14 @@ export async function* handleChatGet(
     const parsedMsg = parseMessageRow(msg);
 
     if (parsedMsg.thinking) {
-      yield createChunk("staged", p.chatId, {
+      yield createChunk("staged", requestId, {
         type: "thinking_end",
         role: parsedMsg.role,
         thinking: parsedMsg.thinking,
         createdAt: msg.created_at,
         msgId: msg.id,
         agentChatId: p.chatId,
-      });
+      }, { chatId: p.chatId });
     }
     if (parsedMsg.content) {
       // runtime 关联：user=自身 runtime（并更新 lastUserRuntime），assistant=前一条 user runtime
@@ -197,7 +205,7 @@ export async function* handleChatGet(
       } else if (parsedMsg.role === "assistant") {
         msgRuntime = lastUserRuntime;
       }
-      yield createChunk("staged", p.chatId, {
+      yield createChunk("staged", requestId, {
         type: "content_end",
         role: parsedMsg.role,
         content: parsedMsg.content,
@@ -211,25 +219,25 @@ export async function* handleChatGet(
         ...(parsedMsg.replace?.state
           ? { replace: parsedMsg.replace, originalContent: parsedMsg.originalContent }
           : {}),
-      });
+      }, { chatId: p.chatId });
     }
     // 仅 assistant 消息携带 senseCalls（sense 消息的 senseCalls 是冗余副本，跳过避免历史回放重复）
     if (parsedMsg.role !== "sense" && parsedMsg.senseCall && parsedMsg.senseCall.length > 0) {
       for (const sc of parsedMsg.senseCall) {
-        yield createChunk("staged", p.chatId, {
+        yield createChunk("staged", requestId, {
           type: "sense_end",
           role: parsedMsg.role,
           senseName: sc.name,
           arguments: sc.arguments,
           id: sc.id,
           agentChatId: p.chatId,
-        });
+        }, { chatId: p.chatId });
       }
     }
   }
 
   // 发送 loaded notification
-  yield createNotification("loaded", p.chatId, null);
+  yield createNotification("loaded", requestId, null, { chatId: p.chatId });
 
   // CP7：contextUsage = 当前 chat 总 token / brain.contextLimit，供前端 ContextBar 渲染。
   // 历史载入后计算一次（前端 chat.get response 同步带值），发消息时由 done notification 实时更新。
@@ -240,6 +248,89 @@ export async function* handleChatGet(
 
   logger.event("chat.get", { chatId: p.chatId, messageCount: messages.length, canResume, contextUsage: ctxDetail.usage });
   return { chatId: p.chatId, canResume, contextUsage: ctxDetail.usage, contextUsed: ctxDetail.used, contextTotal: ctxDetail.total };
+}
+
+/**
+ * Replays the recoverable event stream for a chat. When retention has evicted
+ * the requested cursor, callers receive reset=true and reload chat.get.
+ * Open role tasks are emitted in that fallback so their start intent survives
+ * even when the original role_created event has expired.
+ */
+export async function* handleChatSync(
+  _ctx: HandlerContext,
+  data: ChatSyncRequestData,
+): AsyncGenerator<Chunk | Notification, ChatSyncResponseData, unknown> {
+  if (!getChat(data.chatId)) throw new Error(`Chat "${data.chatId}" not found`);
+  const page = getChatEvents(data.chatId, data.afterSeq);
+  if (page.reset) {
+    for (const task of listOpenSpawnTasks(data.chatId)) {
+      yield createNotification("role_created", undefined, {
+        taskId: task.taskId,
+        chatId: task.childChatId,
+        parentChatId: task.parentChatId,
+        type: task.type,
+        prompt: task.prompt,
+        brain: task.brain,
+        senseGroup: task.senseGroup,
+        wait: task.wait,
+      }, { chatId: data.chatId });
+    }
+  } else {
+    for (const event of page.events) {
+      yield event as unknown as Chunk | Notification;
+    }
+  }
+  return {
+    chatId: data.chatId,
+    latestSeq: page.latestSeq,
+    ...(page.minSeq !== undefined ? { minSeq: page.minSeq } : {}),
+    reset: page.reset,
+  };
+}
+
+/**
+ * Atomically starts the prompt attached to a persisted role task. Replayed
+ * role_created events can call this endpoint repeatedly: only the winning
+ * pending→started transition sends the initial user prompt.
+ */
+export async function* handleChatStartSpawn(
+  ctx: HandlerContext,
+  data: ChatStartSpawnRequestData,
+): AsyncGenerator<Chunk | Notification, ChatStartSpawnResponseData | RpcResponse, unknown> {
+  const claimed = claimSpawnTask(data.taskId);
+  const task = claimed.task;
+  if (!task) throw new Error(`Spawn task "${data.taskId}" not found`);
+  if (task.status === "finished") {
+    return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true };
+  }
+
+  if (claimed.firstStart) {
+    const result = yield* handleChatSend(ctx, { chatId: task.childChatId, prompt: task.prompt });
+    // A yielded child can end this RPC without producing its own assistant
+    // message (for example, while waiting on a descendant). Keep the task
+    // `started` in that case so a reconnect can resume the persisted prompt;
+    // only an actual child terminal message makes the launch irrecoverable.
+    if (!("success" in result) || result.success !== false) {
+      const last = getLastMessage(task.childChatId);
+      if (last?.role === "assistant") finishSpawnTask(task.taskId);
+    }
+    return result;
+  }
+
+  // A previous launcher may still be streaming. handleChatResume returns
+  // alreadyRunning in that case, otherwise it continues an interrupted child
+  // from its persisted user message without inserting that message again.
+  const last = getLastMessage(task.childChatId);
+  if (last?.role === "assistant") {
+    finishSpawnTask(task.taskId);
+    return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true };
+  }
+  const result = yield* handleChatResume(ctx, { chatId: task.childChatId });
+  if (!("success" in result) || result.success !== false) {
+    const finalLast = getLastMessage(task.childChatId);
+    if (finalLast?.role === "assistant") finishSpawnTask(task.taskId);
+  }
+  return result;
 }
 
 /**
@@ -307,6 +398,8 @@ export function registerChatManageHandlers(router: import("../message/router.js"
   router.register(Method.CHAT_CREATE, handleChatCreate);
   router.register(Method.CHAT_LIST, handleChatList);
   router.register(Method.CHAT_GET, handleChatGet);  // 流式返回历史
+  router.register(Method.CHAT_SYNC, handleChatSync);
+  router.register(Method.CHAT_START_SPAWN, handleChatStartSpawn);
   router.register(Method.CHAT_DELETE, handleChatDelete);
   router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage);
 }

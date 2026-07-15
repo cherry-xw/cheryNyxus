@@ -88,7 +88,7 @@ handleChatDelete(ctx, params): Promise<{chatId}>                       // clearC
 ```
 1. getChat(chatId) 存在性校验
 2. agent = await ensureChat(chatId)                     // runtime 已在 chat.create/runtime.set 注入
-3. rid = ctx.requestId ?? chatId
+3. `runId = ctx.requestId`（单元调用无 requestId 时生成 UUID）；全部 chat 事件显式携带 `{chatId,runId}`
 4. if agent.isRunning():                               // 运行中 send
      for await (_ of agent.run(prompt)) {}              // 迭代仅为触发 send body 入队 userInputs
      return { chatId }                                  // 不绑定连接、不走流、不撤回
@@ -147,7 +147,7 @@ finally:                                                // abort 兜底 flush
 
 | MiddlewareChunk.type | → 协议 | 说明 |
 |---|---|---|
-| `stream` | `createChunk("stream", rid, {thinking?, content?, senseCall?})` | 流式增量；协议不提供 seq、ack 或重放语义 |
+| `stream` | `createChunk("stream", rid, data, {chatId,runId})` | 流式增量；经 WS 发送前持久化时附 `seq`，断线由 `chat.sync` 重放（保留窗口外回退 `chat.get`） |
 | `staged` | `createChunk("staged", rid, {type: stagedType, thinking?, content?, senseName?, arguments?, id?})` | 阶段完成 |
 | `sense_end`（SenseTriggerChunk） | `createNotification("interrupt", rid, {approvalId:id, senseName, arguments, supervisionLevel, needsApproval: level>auto})` | 感官触发 |
 | `sense_accept` | `createNotification("accept", rid, {approvalId:id, senseName, result})` | 执行成功 |
@@ -205,7 +205,7 @@ return {chatId, canResume}
 1. chat.send → agent.run → checkpoint 产 sense_pending effect
 2. observer 收 sense_pending → approvalManager.register(approvalId)   // 仅登记
 3. streamMapper 收 sense_end → yield interrupt notification
-4. websocket handleRequest 收 interrupt → setRequestApprovalId + startApprovalTimeout(15min)
+4. websocket handleRequest 收 interrupt → setRequestApprovalId + `startApprovalTimeout(waitTime)`；`waitTime=0` 不限时
 5. 客户端 sense.approval {approvalId, action, reason?}
    → handleSenseApproval → approvalManager.confirm(approvalId, action, reason)
      → core approvalRegistry.resolveApproval(id, action, reason)       // 解除 senseMiddleware await

@@ -129,6 +129,8 @@ export interface StreamState {
   thinking: string;
   content: string;
   isWorking: boolean;
+  /** 当前 send/resume 运行；用于把 abort 定向到仍在执行的那一轮。 */
+  activeRunId?: string;
   /** 历史消息（chat.get staged 累积；实时流不影响此处）。loaded=true 表示 staged 回放完成。 */
   history: HistoryItem[];
   historyLoaded: boolean;
@@ -207,12 +209,20 @@ export interface ChunkMessage {
   kind: "chunk";
   type: "stream" | "staged";
   requestId: string;
+  /** 事件所属 chat；新协议优先于 requestId→chatId 本地映射。 */
+  chatId?: string;
+  /** 事件所属 send/resume 运行。 */
+  runId?: string;
   data?: StreamChunkData | StagedChunkData;
 }
 
 export interface NotificationMessage {
   kind: "notification";
   type: string;
-  requestId: string;
+  requestId?: string;
+  /** 事件所属 chat；role_* 等异步事件不再复用 requestId。 */
+  chatId?: string;
+  /** 事件所属 send/resume 运行。 */
+  runId?: string;
   data?: unknown;
 }

@@ -7,6 +7,7 @@ import {
   ErrorCode,
   isRequest,
   type Request,
+  type Response as RpcResponse,
 } from "../message/index.js";
 import { connectionManager, type ConnectionState } from "./connection.js";
 import { transport } from "./transport.js";
@@ -14,6 +15,21 @@ import { isAsyncGenerator } from "@/utils/generator.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { OAuth2Auth } from "../auth/index.js";
+import { appendChatEvent, claimRequest, completeRequest } from "@/db/delivery.js";
+
+/** Requests still executing in this process. A reconnect joins this promise instead of rerunning a handler. */
+const inFlightRequests = new Map<string, Promise<RpcResponse>>();
+
+function shouldPersistChatEvent(method: string): boolean {
+  return method === "chat.send" || method === "chat.resume" || method === "chat.startSpawn";
+}
+
+function persistChatEvent<T extends { chatId?: string; seq?: number }>(method: string, event: T): T {
+  if (shouldPersistChatEvent(method) && event.chatId) {
+    event.seq = appendChatEvent(event.chatId, event as Record<string, unknown>);
+  }
+  return event;
+}
 
 /**
  * WebSocket 服务器配置
@@ -138,7 +154,47 @@ async function handleRequest(
   request: Request,
   router: RpcRouter,
 ): Promise<void> {
+  const claim = claimRequest(request.id, request.method, request.params);
+  if (claim.state === "mismatch") {
+    const response = createResponse(
+      request.id,
+      false,
+      undefined,
+      createError(ErrorCode.CONFLICT, `Request id "${request.id}" was already used with different parameters`),
+    );
+    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response));
+    return;
+  }
+  if (claim.state === "completed") {
+    if (ws.readyState === ws.OPEN) ws.send(claim.responseJson);
+    return;
+  }
+  if (claim.state === "active") {
+    const running = inFlightRequests.get(request.id);
+    if (running) {
+      const response = await running;
+      if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response));
+      return;
+    }
+    // An active row without a local promise means the process restarted. Do
+    // not risk replaying side effects; make the stored terminal outcome
+    // explicit so this id stays safe and callers can use chat.resume/new id.
+    const interrupted = createResponse(
+      request.id,
+      false,
+      undefined,
+      createError(ErrorCode.CONFLICT, "Request was interrupted by a server restart; recover the chat before sending again"),
+    );
+    completeRequest(request.id, interrupted);
+    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(interrupted));
+    return;
+  }
+
   connectionManager.addPendingRequest(ws, request.id);
+
+  let settle!: (response: RpcResponse) => void;
+  const completion = new Promise<RpcResponse>((resolve) => { settle = resolve; });
+  inFlightRequests.set(request.id, completion);
 
   // 创建 handler context
   const ctx = {
@@ -153,68 +209,85 @@ async function handleRequest(
     traceId: extractChatId(request.params),
   };
 
-  // 执行 handler（在 scope 内迭代流式输出）
-  await logger.run(scope, async () => {
-    logger.event("req.start", { method: request.method });
-    let outcome: { success: boolean; error?: string } | undefined;
-    try {
-      const result = await router.handle(request, ctx);
+  let finalResponse: RpcResponse | undefined;
+  try {
+    // 执行 handler（在 scope 内迭代流式输出）
+    await logger.run(scope, async () => {
+      logger.event("req.start", { method: request.method });
+      let outcome: { success: boolean; error?: string } | undefined;
+      try {
+        const result = await router.handle(request, ctx);
 
-      // 处理结果
-      if (isAsyncGenerator(result)) {
-        while (true) {
-          const iter = await result.next();
-          if (iter.done) {
-            // generator return value — 最终 Response
-            if (iter.value) {
-              ws.send(transport.serializeMessage(iter.value));
+        // 处理结果
+        if (isAsyncGenerator(result)) {
+          while (true) {
+            const iter = await result.next();
+            if (iter.done) {
+              finalResponse = iter.value;
+              break;
             }
-            break;
+            const item = persistChatEvent(request.method, iter.value);
+
+            // Notification 消息
+            if (item.kind === "notification") {
+              // interrupt 发出后启动审批超时
+              if (item.type === "interrupt" && item.data && "approvalId" in item.data) {
+                const interrupt = item.data as { approvalId: string; waitTime?: unknown };
+                const approvalId = interrupt.approvalId;
+                const waitTime = typeof interrupt.waitTime === "number" && interrupt.waitTime >= 0
+                  ? interrupt.waitTime
+                  : undefined;
+                connectionManager.setRequestApprovalId(ws, request.id, approvalId);
+                connectionManager.startApprovalTimeout(ws, request.id, async () => {
+                  logger.event("approval.timeout", { approvalId });
+                  ws.send(transport.serializeMessage(
+                    createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - chat ended")),
+                  ));
+                  await connectionManager.close(ws);
+                }, waitTime);
+              }
+              // question_requested 发出后记录 questionId，断连 / abort 时调 questionManager.abort
+              if (item.type === "question_requested" && item.data && "questionId" in item.data) {
+                const questionId = (item.data as { questionId: string }).questionId;
+                connectionManager.setRequestQuestionId(ws, request.id, questionId);
+              }
+              if (ws.readyState === ws.OPEN) ws.send(transport.encode(item));
+              continue;
+            }
+
+            // Chunk 消息
+            if (ws.readyState === ws.OPEN) ws.send(transport.encode(item));
           }
-          const item = iter.value;
-
-          // Notification 消息
-          if (item.kind === "notification") {
-            // interrupt 发出后启动审批超时
-            if (item.type === "interrupt" && item.data && "approvalId" in item.data) {
-              const approvalId = (item.data as { approvalId: string }).approvalId;
-              connectionManager.setRequestApprovalId(ws, request.id, approvalId);
-              connectionManager.startApprovalTimeout(ws, request.id, async () => {
-                logger.event("approval.timeout", { approvalId });
-                ws.send(transport.serializeMessage(
-                  createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - chat ended")),
-                ));
-                await connectionManager.close(ws);
-              });
-            }
-            // question_requested 发出后记录 questionId，断连 / abort 时调 questionManager.abort
-            if (item.type === "question_requested" && item.data && "questionId" in item.data) {
-              const questionId = (item.data as { questionId: string }).questionId;
-              connectionManager.setRequestQuestionId(ws, request.id, questionId);
-            }
-            ws.send(transport.encode(item));
-            continue;
-          }
-
-          // Chunk 消息
-          ws.send(transport.encode(item));
+          outcome = { success: finalResponse?.success !== false };
+        } else {
+          finalResponse = result;
+          outcome = { success: result.success !== false };
         }
-        outcome = { success: true };
-      } else {
-        ws.send(transport.serializeMessage(result));
-        outcome = { success: (result as { success?: boolean }).success !== false };
+      } catch (e) {
+        outcome = { success: false, error: (e as Error).message };
+        throw e;
+      } finally {
+        logger.event("req.end", outcome);
       }
-    } catch (e) {
-      outcome = { success: false, error: (e as Error).message };
-      throw e;
-    } finally {
-      logger.event("req.end", outcome);
-    }
-  });
-
-  // 清理
-  connectionManager.clearApprovalTimeout(ws, request.id);
-  connectionManager.removePendingRequest(ws, request.id);
+    });
+  } catch (error) {
+    const err = error as Error;
+    logger.event("req.error", { method: request.method, message: err.message }, LogLevel.error);
+    finalResponse = createResponse(request.id, false, undefined, createError(ErrorCode.INTERNAL, err.message));
+  } finally {
+    const response = finalResponse ?? createResponse(
+      request.id,
+      false,
+      undefined,
+      createError(ErrorCode.INTERNAL, "Request ended without a response"),
+    );
+    completeRequest(request.id, response);
+    settle(response);
+    inFlightRequests.delete(request.id);
+    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response));
+    connectionManager.clearApprovalTimeout(ws, request.id);
+    connectionManager.removePendingRequest(ws, request.id);
+  }
 }
 
 /**

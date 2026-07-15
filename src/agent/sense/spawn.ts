@@ -8,6 +8,7 @@ import { createChat, findChatsByParent, getChatPreset, getChatSpawnTypes, getCha
 import { emitRoleCreated, registerWaitedChild } from "@/agent/spawnBroker.js";
 import { logger } from "@/utils/logger/index.js";
 import { getSessionRoleRuntime, setEphemeralChatRuntime } from "@/service/chat/runtime.js";
+import { createSpawnTask, getSpawnTaskByChild } from "@/db/delivery.js";
 
 // tool 暴露面：让主 agent LLM 可见可用角色及能力（非盲串 type）。
 // - type 用 z.enum(roles 键) 硬约束（空配置兜底 z.string()，z.enum([]) 构造抛错）
@@ -69,7 +70,7 @@ function resolveSpawnRoster(chatId: string): string[] {
  *
  * 派发角色执行子任务。前端驱动架构（见 docs/agent-pet.md §2/§5.1/§5.4）：
  *   1. 后端创建子 chat 行（parent_chat_id 关联主 chat）+ 推 role_created notification
- *   2. 前端收 notification → 创建子 pet + 调 chat.send 跑子 agent（同 WS 连接按 chatId 路由 chunk）
+ *   2. 前端收 notification → 创建子 pet + 调 chat.startSpawn 原子领取任务（同 WS 连接按 chatId 路由 chunk）
  *   3. wait=true：registerWaitedChild + yieldTurn（主 loop 立即结束本 turn）；子完成后后端注入角色回复
  *      + 推 role_reply → 前端 chat.resume 唤主跑新一轮（B1 架构，不阻塞 sense）
  *      wait=false：立即返回，主 loop 继续（fire-and-forget，子结果不回传）
@@ -186,6 +187,21 @@ export default sense(
     // 新建与复用子角色都使用当前会话的内存覆盖；不触碰其持久化默认编制。
     if (temporaryRuntime) setEphemeralChatRuntime(childChatId, temporaryRuntime);
 
+    // task 是 role_created 的持久化权威载体：重连/事件重放不再依赖瞬时 notification。
+    // 旧 child（创建于该表引入前）首次复用时补建任务，保持向后兼容。
+    let task = getSpawnTaskByChild(childChatId);
+    if (!task) {
+      task = createSpawnTask({
+        childChatId,
+        parentChatId,
+        type,
+        prompt,
+        brain,
+        senseGroup,
+        wait,
+      });
+    }
+
     // 回写触发本次 spawn 的 sense call id 到子 chat metadata。
     // 新建分支：写入新 metadata 备用 + role_created 通知 + role_reply 唤醒时回读。
     // 复用分支：覆盖旧子 chat metadata（旧子可能存了上一轮 spawn id；用户断连重发触发同一子时新 id 应刷新）。
@@ -197,6 +213,7 @@ export default sense(
 
     // 3. 推 role_created notification(spawnBroker.broadcaster → 主 chat 所属连接 ws)
     emitRoleCreated({
+      taskId: task.taskId,
       chatId: childChatId,
       parentChatId,
       type,

@@ -173,6 +173,11 @@ export const requestSchemas = {
       .optional(),
   }),
   [Method.CHAT_RESUME]: chatIdSchema,
+  [Method.CHAT_SYNC]: z.object({
+    chatId: z.string(),
+    afterSeq: z.number().int().min(0),
+  }),
+  [Method.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
   [Method.SENSE_APPROVAL]: z.object({
     approvalId: z.string(),
     action: z.enum(["accept", "reject"]),
@@ -184,7 +189,10 @@ export const requestSchemas = {
     freeText: z.string().optional(),
     cancelled: z.boolean().optional(),
   }),
-  [Method.CHAT_ABORT]: chatIdSchema,
+  [Method.CHAT_ABORT]: z.object({
+    chatId: z.string(),
+    runId: z.string().optional(),
+  }),
   [Method.BASH_LIST]: chatIdSchema,
   [Method.BASH_KILL]: z.object({
     chatId: z.string(),

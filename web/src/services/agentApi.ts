@@ -316,6 +316,16 @@ export const agentApi = {
     return callStream("chat.resume", { chatId });
   },
 
+  /** Atomically claims and starts a persisted role spawn task. Safe to call after role_created replay. */
+  startSpawn(taskId: string): { requestId: string; done: Promise<RpcResponse> } {
+    return callStream("chat.startSpawn", { taskId });
+  },
+
+  /** Replays recoverable events newer than afterSeq; reset=true requires a chat.get snapshot reload. */
+  syncChat(chatId: string, afterSeq: number): { requestId: string; done: Promise<RpcResponse> } {
+    return callStream("chat.sync", { chatId, afterSeq });
+  },
+
   /** runtime.set：原子设置 chat 的 brain + 工具组 + mcpServers。 */
   async setRuntime(chatId: string, selection: RuntimeSelection): Promise<void> {
     await call("runtime.set", {
@@ -332,8 +342,8 @@ export const agentApi = {
   },
 
   /** chat.abort：中止当前流（清内存运行时 + 释放连接，不删 DB）。 */
-  async abortAgent(chatId: string): Promise<void> {
-    await call("chat.abort", { chatId });
+  async abortAgent(chatId: string, runId?: string): Promise<void> {
+    await call("chat.abort", { chatId, ...(runId ? { runId } : {}) });
   },
 
   /** chat.delete：真删 chat（CP8 仅会话列表 ✕ deleteSession 调用；主 chat 后端级联删子 chat）。stage 隐藏走 store.hide，不调本方法。 */

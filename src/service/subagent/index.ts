@@ -4,6 +4,7 @@ import { transport } from "../websocket/transport.js";
 import { connectionManager } from "../websocket/connection.js";
 import { setSpawnBroadcaster, setAsyncWakeHandler } from "@/agent/spawnBroker.js";
 import { handleAsyncWakeTimeout } from "../chat/wake.js";
+import { appendChatEvent } from "@/db/delivery.js";
 
 /**
  * 安装 spawn broadcaster（service 启动期调用，注入 ws 推送实现）。
@@ -18,15 +19,17 @@ export function installSpawnBroadcaster(): void {
   setSpawnBroadcaster(
     (parentChatId, kind, data) => {
       const ws = connectionManager.findWsByChatId(parentChatId);
+      const type = kind === "created" ? "role_created" : "role_destroyed";
+      // role_* 为脱离 RPC 的异步事件：使用显式 chatId 路由，不再把 parentChatId 伪装为 requestId。
+      const notif: Notification = createNotification(type, undefined, data, { chatId: parentChatId });
+      // 先持久化再尝试推送。即使当前没有连接，chat.sync 也能恢复该生命周期事件。
+      notif.seq = appendChatEvent(parentChatId, notif as unknown as Record<string, unknown>);
       if (!ws) {
         console.warn(
           `[spawnBroadcaster] 主 chat ${parentChatId} 无活跃连接，${kind === "created" ? "role_created" : "role_destroyed"} 通知未推送（chatId=${data.chatId}）`,
         );
         return;
       }
-      // requestId = parentChatId：前端按 chatId 路由 notification 到对应主 agent 流
-      const type = kind === "created" ? "role_created" : "role_destroyed";
-      const notif: Notification = createNotification(type, parentChatId, data);
       sendNotification(ws, notif);
     },
   );

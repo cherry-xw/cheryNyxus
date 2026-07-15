@@ -80,6 +80,34 @@ function initSoulTables(db: Database.Database): void {
       message_count INTEGER NOT NULL DEFAULT 0,
       parent_chat_id TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS request_journal (
+      request_id TEXT PRIMARY KEY,
+      method TEXT NOT NULL,
+      params_hash TEXT NOT NULL,
+      status TEXT NOT NULL,
+      response_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_request_journal_updated ON request_journal(updated_at);
+
+    CREATE TABLE IF NOT EXISTS spawn_tasks (
+      task_id TEXT PRIMARY KEY,
+      child_chat_id TEXT NOT NULL UNIQUE,
+      parent_chat_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      brain TEXT NOT NULL,
+      sense_group TEXT NOT NULL,
+      wait INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_spawn_tasks_parent_status ON spawn_tasks(parent_chat_id, status);
   `);
   // P1-8：旧库 chats 表无 message_count，CREATE IF NOT EXISTS 跳过建表，按列检查补 ALTER。
   ensureChatColumn(db, "message_count", "INTEGER NOT NULL DEFAULT 0");
@@ -147,10 +175,37 @@ function initMonthlyTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
+
+    CREATE TABLE IF NOT EXISTS chat_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      chat_seq INTEGER NOT NULL,
+      event_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(chat_id, chat_seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_events_created ON chat_events(created_at);
   `);
 
   ensureMessageColumn(db, "revoked", "INTEGER DEFAULT 0");
   ensureMessageColumn(db, "runtime", "TEXT");
+  ensureChatEventColumn(db, "chat_seq", "INTEGER");
+  // Development builds created before per-chat sequence migration used the
+  // global row id as `seq`. Backfill deterministic per-chat cursors so those
+  // databases can upgrade without a destructive table rebuild.
+  db.exec(`
+    WITH numbered AS (
+      SELECT rowid AS event_id, ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY rowid) AS n
+      FROM chat_events
+      WHERE chat_seq IS NULL
+    )
+    UPDATE chat_events
+    SET chat_seq = (SELECT n FROM numbered WHERE numbered.event_id = chat_events.rowid)
+    WHERE rowid IN (SELECT event_id FROM numbered)
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_chat_events_chat_seq_v2 ON chat_events(chat_id, chat_seq)");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_events_chat_seq_unique ON chat_events(chat_id, chat_seq)");
 }
 
 /**
@@ -167,6 +222,18 @@ function ensureMessageColumn(
   const exists = cols.some((c) => c.name === column);
   if (!exists) {
     db.exec(`ALTER TABLE messages ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+/** chat_events 独立演进，不能复用 messages 的列检查。 */
+function ensureChatEventColumn(
+  db: Database.Database,
+  column: string,
+  definition: string,
+): void {
+  const cols = db.prepare("PRAGMA table_info(chat_events)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE chat_events ADD COLUMN ${column} ${definition}`);
   }
 }
 
