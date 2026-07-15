@@ -20,6 +20,7 @@ import type { HistoryItem } from "@/stores/agents";
 import VirtualScroll from "@/components/VirtualScroll.vue";
 import { mergeChildReplyHistory } from "@/stores/agents/historyMerge";
 import MessageBubble from "./MessageBubble.vue";
+import HistoryRail from "./HistoryRail.vue";
 import { useDrawerWidth } from "./useDrawerWidth";
 import { useSubPetResolution } from "./useSubPetResolution";
 import { useHistoryDrawerManager } from "./useHistoryDrawerManager";
@@ -70,6 +71,14 @@ const history = computed<HistoryItem[]>(() => {
   return layout.value === "group" ? mergeChildReplyHistory(h) : h;
 });
 const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false);
+
+// 仅人类用户消息（role === "user" 唯一标识；child-to-master 合并项底层是 master/role，不算）
+// 保留原 history 索引以便点击直接复用 VirtualScroll.scrollToIndex，不再二次查找。
+const userMarks = computed<Array<{ item: HistoryItem; idx: number }>>(() =>
+  history.value
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => item.role === "user"),
+);
 
 type VirtualScrollInstance = {
   scrollToEnd: () => void;
@@ -159,6 +168,21 @@ function onJumpToSpawn(payload: { senseCallId: string }): void {
   }
 }
 
+// F：rail 点击把 idx 项对齐到视窗顶部（顶/底按钮不复用此：顶走 idx 0，底走 scrollToEnd）。
+function onRailJump(idx: number): void {
+  scrollToItem(idx, "start");
+}
+
+// F：rail 顶部按钮 → 把 history 第 0 项对齐到顶部（不存在则 no-op，virtualScrollRef 自动忽略）。
+function onRailJumpTop(): void {
+  void nextTick(() => virtualScrollRef.value?.scrollToIndex(0, { align: "start", behavior: "smooth" }));
+}
+
+// F：rail 底部按钮 → 直接滚到历史末尾（VirtualScroll 已暴露 scrollToEnd，复用）。
+function onRailJumpBottom(): void {
+  void nextTick(() => virtualScrollRef.value?.scrollToEnd());
+}
+
 // F：监听 store 跨面板滚动请求（push 主 chat 后，主面板挂载时 pending 已设 → immediate 触发滚动）
 watch(
   () => agents.pendingScrollSenseCallId,
@@ -221,6 +245,14 @@ const usageDetail = computed(() => {
       @pointermove="onHandlePointerMove"
       @pointerup="onHandlePointerUp"
     />
+    <aside class="user-rail-host">
+      <HistoryRail
+        :marks="userMarks"
+        @jump="onRailJump"
+        @jump-top="onRailJumpTop"
+        @jump-bottom="onRailJumpBottom"
+      />
+    </aside>
     <header class="drawer-head">
       <div class="title-block">
         <span class="title">{{ titleText }}</span>
@@ -307,6 +339,26 @@ const usageDetail = computed(() => {
   &:active {
     background: rgba(36, 38, 45, 0.18);
   }
+}
+
+// rail 定位壳：绝对定位在 drawer-panel 左侧外面，落在 overlay 蒙层上。
+// z-index 11 高于 resize-handle 的 10；rail 内部自带深色 pill 容器（HistoryRail.vue），
+// 让用户一眼就能看到列所在位置——短横线 hover 仍然是橙 + glow。
+.user-rail-host {
+  position: absolute;
+  left: -32px;                  // 紧贴 panel 左边外 32px
+  top: 0;
+  bottom: 0;
+  width: 32px;
+  z-index: 11;
+  padding-top: 90px;            // 让出 head + usage-bar 高度
+  padding-bottom: 24px;
+  display: flex;
+  pointer-events: none;         // 容器透传，只有 mark/edge 自己接收点击
+}
+.user-rail-host > :deep(.history-rail) {
+  pointer-events: auto;
+  flex: 1;
 }
 
 .drawer-head {

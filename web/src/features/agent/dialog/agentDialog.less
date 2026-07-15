@@ -90,12 +90,52 @@
 
 .role-summary-name { flex: 0 1 auto; }
 
+// 与 RoleConfigPopover 的 .choice-slot + .choice-option 一致：固定 width/height 给 model 一个具体盒模型，
+// model 自身 position:absolute 填 slot；hover 时 width/max-width→max-content 突破 slot，z-index 提升盖在兄弟之上。
+// 关键：slot 必须显式 width + height；否则其子 absolute 后无任何 in-flow 内容，inline-block 塌缩到 0×0。
+.role-summary-model-slot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 14ch;
+  height: 16px;                    // 10px × 1.2 line-height + 上下 1px 边距；与 .role-usage-chip 等高
+}
+
 .role-summary-model {
-  padding-left: 5px;
-  border-left: 1px solid rgba(35, 38, 44, 0.12);
-  color: rgba(30, 33, 38, 0.52);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: rgba(35, 38, 44, 0.045);
+  color: rgba(30, 33, 38, 0.62);
   font-size: 10px;
   font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: inherit;
+  transition: width 0.18s ease, max-width 0.18s ease,
+              background-color 0.15s ease, border-color 0.15s ease,
+              color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.role-summary-model-slot:hover .role-summary-model,
+.role-summary-model:hover {
+  z-index: 2;                      // 提到兄弟（usage chip / senses）之上，避免 hover 展开被遮挡
+  width: max-content;
+  height: auto;
+  max-width: max-content;
+  overflow: visible;
+  background: #fffdf8;
+  box-shadow: 0 2px 7px rgba(20, 22, 26, 0.14);
+  color: rgba(30, 33, 38, 0.82);
 }
 
 .role-summary-senses {
