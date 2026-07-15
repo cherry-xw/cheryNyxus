@@ -186,19 +186,33 @@
 }
 
 .textarea-row {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
+  position: relative;          // 为绝对定位的按钮提供定位上下文
 }
 
 .msg-input {
-  flex: 1;
+  display: block;
+  width: 100%;
+
+  :deep(.el-textarea) {
+    display: block;
+  }
 
   :deep(.el-textarea__inner) {
-    padding-right: 80px;
+    // 为右下角的两个按钮预留空间：右边留出两按钮宽度，底部留出按钮高度 + 间距
+    padding-bottom: 44px;
     font-size: 13px;
     line-height: 1.5;
+    box-sizing: border-box;
   }
+}
+
+.textarea-actions {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .media-hint-row {
@@ -212,9 +226,6 @@
 }
 
 .add-media-btn {
-  position: absolute;
-  right: 46px;
-  bottom: 8px;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -245,9 +256,6 @@
 }
 
 .send-btn {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
   width: 32px;
   height: 32px;
   padding: 0;

@@ -131,77 +131,79 @@ const {
             resize="none"
             @keydown="onTextareaKeydown"
           />
-          <ElPopover
-            trigger="click"
-            placement="top-end"
-            :width="160"
-            popper-class="add-media-popper"
-            popper-style="padding: 4px;"
-          >
-            <template #reference>
-              <button
-                type="button"
-                class="add-media-btn"
-                :disabled="uploading || !primarySelection?.brain"
-                :title="uploading ? '上传中…' : '添加媒体'"
-                aria-label="添加媒体附件"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 5v14M5 12h14"/></svg>
-              </button>
-            </template>
-            <div class="add-media-menu" @click.stop>
-              <ElUpload
-                :auto-upload="false"
-                :show-file-list="false"
-                accept="image/*"
-                :disabled="uploading || !primarySelection?.brain"
-                :on-change="(f: any) => onMediaSelected(f)"
-                class="add-media-upload"
-              >
-                <div class="add-media-item"><span>🖼️</span><span>图片</span><span v-if="mediaServicesByType.image" class="media-svc-tag">{{ mediaServicesByType.image }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
-              </ElUpload>
-              <ElUpload
-                :auto-upload="false"
-                :show-file-list="false"
-                accept="video/*"
-                :disabled="uploading || !primarySelection?.brain"
-                :on-change="(f: any) => onMediaSelected(f)"
-                class="add-media-upload"
-              >
-                <div class="add-media-item"><span>🎬</span><span>视频</span><span v-if="mediaServicesByType.video" class="media-svc-tag">{{ mediaServicesByType.video }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
-              </ElUpload>
-              <ElUpload
-                :auto-upload="false"
-                :show-file-list="false"
-                accept="audio/*"
-                :disabled="uploading || !primarySelection?.brain"
-                :on-change="(f: any) => onMediaSelected(f)"
-                class="add-media-upload"
-              >
-                <div class="add-media-item"><span>🎵</span><span>音频</span><span v-if="mediaServicesByType.audio" class="media-svc-tag">{{ mediaServicesByType.audio }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
-              </ElUpload>
-            </div>
-          </ElPopover>
-          <button
-            type="button"
-            class="send-btn"
-            :disabled="!text.trim() || sending || loading || !primarySelection?.brain || (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)"
-            aria-label="发送消息"
-            @click="handleSend"
-          >
-            <svg
-              class="send-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
+          <div class="textarea-actions">
+            <ElPopover
+              trigger="click"
+              placement="top-end"
+              :width="160"
+              popper-class="add-media-popper"
+              popper-style="padding: 4px;"
             >
-              <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
-            </svg>
-          </button>
+              <template #reference>
+                <button
+                  type="button"
+                  class="add-media-btn"
+                  :disabled="uploading || !primarySelection?.brain"
+                  :title="uploading ? '上传中…' : '添加媒体'"
+                  aria-label="添加媒体附件"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+              </template>
+              <div class="add-media-menu" @click.stop>
+                <ElUpload
+                  :auto-upload="false"
+                  :show-file-list="false"
+                  accept="image/*"
+                  :disabled="uploading || !primarySelection?.brain"
+                  :on-change="(f: any) => onMediaSelected(f)"
+                  class="add-media-upload"
+                >
+                  <div class="add-media-item"><span>🖼️</span><span>图片</span><span v-if="mediaServicesByType.image" class="media-svc-tag">{{ mediaServicesByType.image }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+                </ElUpload>
+                <ElUpload
+                  :auto-upload="false"
+                  :show-file-list="false"
+                  accept="video/*"
+                  :disabled="uploading || !primarySelection?.brain"
+                  :on-change="(f: any) => onMediaSelected(f)"
+                  class="add-media-upload"
+                >
+                  <div class="add-media-item"><span>🎬</span><span>视频</span><span v-if="mediaServicesByType.video" class="media-svc-tag">{{ mediaServicesByType.video }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+                </ElUpload>
+                <ElUpload
+                  :auto-upload="false"
+                  :show-file-list="false"
+                  accept="audio/*"
+                  :disabled="uploading || !primarySelection?.brain"
+                  :on-change="(f: any) => onMediaSelected(f)"
+                  class="add-media-upload"
+                >
+                  <div class="add-media-item"><span>🎵</span><span>音频</span><span v-if="mediaServicesByType.audio" class="media-svc-tag">{{ mediaServicesByType.audio }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+                </ElUpload>
+              </div>
+            </ElPopover>
+            <button
+              type="button"
+              class="send-btn"
+              :disabled="!text.trim() || sending || loading || !primarySelection?.brain || (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)"
+              aria-label="发送消息"
+              @click="handleSend"
+            >
+              <svg
+                class="send-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div v-if="error" class="error-row" role="alert">{{ error }}</div>
