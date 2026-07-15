@@ -7,6 +7,11 @@ import { createNotification } from "../message/types.js";
 import { clearWaitedChild, registerWaitedChild } from "@/agent/spawnBroker.js";
 import { logger } from "@/utils/logger/index.js";
 import { appendChatEvent } from "@/db/delivery.js";
+import {
+  completeQuestionBatch,
+  type CompletedQuestionBatch,
+  type QuestionBatchAnswerInput,
+} from "@/db/question.js";
 
 /**
  * wait=true 唤醒（T9 B1 架构，见 docs/agent-pet.md §5.4）。
@@ -79,6 +84,41 @@ export async function wakeParent(
     logger.event("wake.offline", { parentChatId, childChatId, type });
   }
   logger.event("wake.parent", { parentChatId, childChatId, type, contentLen: content.length });
+}
+
+/**
+ * 原子完成一个持久化问题批次，并同步当前进程中的 agent journal。
+ * DB 事务先写入全部 sense 答案和批次终态；随后设置 resumePending，并持久化完成事件。
+ */
+export async function resolveQuestionBatch(
+  chatId: string,
+  batchId: string,
+  answers: QuestionBatchAnswerInput[],
+): Promise<CompletedQuestionBatch> {
+  if (!getChat(chatId)) throw new Error(`Chat "${chatId}" not found`);
+
+  const completed = completeQuestionBatch(chatId, batchId, answers);
+  if (completed.alreadyCompleted) return completed;
+
+  const builder = await ensureChat(chatId);
+  for (const answer of completed.answers) {
+    builder.completeSenseResult(answer.questionId, answer.answerText);
+  }
+  updateChatMetadata(chatId, { resumePending: true });
+  const notif = createNotification("question_batch_completed", undefined, { batchId }, { chatId });
+  notif.seq = appendChatEvent(chatId, notif as unknown as Record<string, unknown>);
+  const ws = connectionManager.findOwnerWsByChatId(chatId);
+  if (ws && ws.readyState === ws.OPEN) {
+    ws.send(transport.encode(notif));
+  } else {
+    logger.event("question.batch.completed-offline", { chatId, batchId });
+  }
+  logger.event("question.batch.completed", {
+    chatId,
+    batchId,
+    questionCount: completed.answers.length,
+  });
+  return completed;
 }
 
 /**

@@ -235,7 +235,7 @@ const emit = defineEmits<{
   background: rgba(20, 22, 26, 0.05);
   color: fade(@ink, 66%);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 10.5px;
+  font-size: 9.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   max-height: 220px;
@@ -243,7 +243,7 @@ const emit = defineEmits<{
 }
 
 .content {
-  font-size: 13px;
+  font-size: 11.5px;
   line-height: 1.5;
   color: fade(@ink, 88%);
   .md { .md-content(); }

@@ -13,6 +13,7 @@
  */
 import { computed, onBeforeUnmount, ref } from "vue";
 import type { RendererProps, ExecuteCommandArgs, ExecuteCommandResult } from "./types";
+import { CopyDocument, DocumentChecked } from "@element-plus/icons-vue";
 
 const props = defineProps<RendererProps>();
 
@@ -160,16 +161,22 @@ onBeforeUnmount(() => {
     <div v-if="parsedArgs" class="cmd-section">
       <div class="cmd-row">
         <span class="cmd-label">命令:</span>
-        <code class="cmd-code">{{ parsedArgs.command }}</code>
-        <button
-          type="button"
-          class="copy-btn"
-          :class="{ copied: copied }"
-          :aria-label="copied ? '已复制' : '复制命令'"
-          @click="copyCommand"
-        >
-          {{ copied ? "✓ 已复制" : "📋 复制" }}
-        </button>
+        <div class="cmd-code-wrap">
+          <code class="cmd-code">{{ parsedArgs.command }}</code>
+          <button
+            type="button"
+            class="copy-btn"
+            :class="{ copied: copied }"
+            :aria-label="copied ? '已复制' : '复制命令'"
+            @click="copyCommand"
+          >
+            <el-icon>
+              <DocumentChecked v-if="copied" />
+              <CopyDocument v-else />
+            </el-icon>
+          </button>
+        </div>
+        <div style="flex: 1"></div>
       </div>
       <div v-if="parsedArgs.description" class="cmd-row">
         <span class="cmd-label">说明:</span>
@@ -293,10 +300,14 @@ onBeforeUnmount(() => {
   color: fade(@ink, 56%);
 }
 
-.cmd-code {
-  flex: 1;
+.cmd-code-wrap {
+  position: relative;
   min-width: 0;
-  padding: 2px 6px;
+}
+
+.cmd-code {
+  display: block;
+  padding: 2px 18px 2px 6px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -314,18 +325,25 @@ onBeforeUnmount(() => {
 }
 
 .copy-btn {
-  flex-shrink: 0;
-  align-self: center;
-  padding: 1px 6px;
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
   border: 1px solid rgba(36, 38, 45, 0.16);
-  border-radius: 4px;
+  border-radius: 3px;
   background: rgba(255, 255, 255, 0.7);
   color: fade(@ink, 60%);
-  font-size: 9.5px;
-  font-family: inherit;
-  line-height: 1.4;
   cursor: pointer;
   user-select: none;
+
+  .el-icon {
+    font-size: 10px;
+  }
 
   &:hover {
     background: #ffffff;
@@ -439,6 +457,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding-left: 12px;
   margin-top: 2px;
+  line-height: 1.25em;
 }
 
 .meta-item {

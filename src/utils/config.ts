@@ -624,13 +624,15 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     }
   }
 
-  // 项目记忆：max_count > 0, max_chars > 0（正整数）
+  // 项目记忆：max_count > 0, max_chars > 0（正整数）。
+  // undefined 视为「沿用默认」（设面板 GlobalTab 占位未填的常见情况），不阻断落盘。
   if (raw.memory) {
-    if (typeof raw.memory.max_count !== "number" || raw.memory.max_count < 1) {
-      errors.push(`memory.max_count 必须为正整数（当前：${String(raw.memory.max_count)}）`);
+    const { max_count, max_chars } = raw.memory;
+    if (max_count !== undefined && (typeof max_count !== "number" || max_count < 1)) {
+      errors.push(`memory.max_count 必须为正整数（当前：${String(max_count)}）`);
     }
-    if (typeof raw.memory.max_chars !== "number" || raw.memory.max_chars < 1) {
-      errors.push(`memory.max_chars 必须为正整数（当前：${String(raw.memory.max_chars)}）`);
+    if (max_chars !== undefined && (typeof max_chars !== "number" || max_chars < 1)) {
+      errors.push(`memory.max_chars 必须为正整数（当前：${String(max_chars)}）`);
     }
   }
 

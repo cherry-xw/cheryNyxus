@@ -53,6 +53,14 @@ const mediaServiceSchema = z.object({
 /** media：命名实体集合（name → 配置），非旧 3-slot 结构。 */
 const mediaSchema = z.record(z.string(), mediaServiceSchema).optional();
 
+/** 项目记忆：两字段均 optional（设面板 GlobalTab 占位回填 undefined 时落盘不算错）；对齐 utils/config.ts MemoryConfig */
+const memorySchema = z
+  .object({
+    max_count: z.number().min(1).optional(),
+    max_chars: z.number().min(1).optional(),
+  })
+  .optional();
+
 const loggerSchema = z.object({
   level: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
   output: z.array(z.enum(["console", "file"])).optional(),
@@ -123,6 +131,7 @@ const configSaveSchema = z
         }),
       )
       .optional(),
+    memory: memorySchema,
   })
   .strict();
 
@@ -188,6 +197,16 @@ export const requestSchemas = {
     selectedLabels: z.array(z.string()),
     freeText: z.string().optional(),
     cancelled: z.boolean().optional(),
+  }),
+  [Method.SENSE_QUESTION_BATCH_ANSWER]: z.object({
+    chatId: z.string(),
+    batchId: z.string(),
+    answers: z.array(z.object({
+      questionId: z.string(),
+      selectedLabels: z.array(z.string()),
+      freeText: z.string().optional(),
+      cancelled: z.boolean().optional(),
+    })).min(1),
   }),
   [Method.CHAT_ABORT]: z.object({
     chatId: z.string(),

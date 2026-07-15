@@ -33,6 +33,7 @@ import {
   getChatPreviews,
 } from "@/db/chat.js";
 import { clearChatRuntime, ensureChat, isChatRunning } from "./runtime.js";
+import { getQuestionStateSnapshot, hasPendingQuestionBatches } from "@/db/question.js";
 import { randomUUID } from "crypto";
 import { parseRuntimeSelection, resolvePresetSelection, type RuntimeSelection } from "@/agent/runtimeResolver.js";
 import { logger } from "@/utils/logger/index.js";
@@ -50,6 +51,8 @@ import { handleChatResume, handleChatSend } from "./send.js";
  * getLastMessage 已过滤 revoked，此处仅判角色。
  */
 export function computeCanResume(chatId: string): boolean {
+  // ask_user_question yield-turn：持久化批次 pending 期间禁止 resume（否则在占位 sense 上跑 LLM）。
+  if (hasPendingQuestionBatches(chatId)) return false;
   const last = getLastMessage(chatId);
   if (!last) return false;
   const role = last.role;
@@ -246,8 +249,23 @@ export async function* handleChatGet(
   // 复用共享判定（同 chat.list）
   const canResume = computeCanResume(p.chatId);
 
-  logger.event("chat.get", { chatId: p.chatId, messageCount: messages.length, canResume, contextUsage: ctxDetail.usage });
-  return { chatId: p.chatId, canResume, contextUsage: ctxDetail.usage, contextUsed: ctxDetail.used, contextTotal: ctxDetail.total };
+  const questionSnapshot = getQuestionStateSnapshot(p.chatId);
+  logger.event("chat.get", {
+    chatId: p.chatId,
+    messageCount: messages.length,
+    canResume,
+    contextUsage: ctxDetail.usage,
+    pendingQuestionBatches: questionSnapshot.pendingQuestionBatches.length,
+    snapshotSeq: questionSnapshot.snapshotSeq,
+  });
+  return {
+    chatId: p.chatId,
+    canResume,
+    contextUsage: ctxDetail.usage,
+    contextUsed: ctxDetail.used,
+    contextTotal: ctxDetail.total,
+    ...questionSnapshot,
+  };
 }
 
 /**
@@ -280,11 +298,13 @@ export async function* handleChatSync(
       yield event as unknown as Chunk | Notification;
     }
   }
+  const questionSnapshot = getQuestionStateSnapshot(data.chatId);
   return {
     chatId: data.chatId,
     latestSeq: page.latestSeq,
     ...(page.minSeq !== undefined ? { minSeq: page.minSeq } : {}),
     reset: page.reset,
+    ...questionSnapshot,
   };
 }
 

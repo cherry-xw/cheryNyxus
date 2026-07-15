@@ -118,6 +118,17 @@ export default class AgentSession<T = unknown> {
   }
 
   /**
+   * 原地更新指定 sense 消息的 content（ask_user_question yield-turn：占位→用户答案）。
+   * 委托 MessageJournal.completeSense（已存在则 in-place 更新，否则创建）。
+   * DB 答案由 service question batch 事务先行落库。
+   * @returns true=原地更新命中（预期路径）；false=消息不存在（创建了新条目，异常情况）
+   */
+  completeSenseResult(senseId: string, content: string): boolean {
+    const mutation = this.journal.completeSense({ id: senseId, content });
+    return mutation.type === "updated";
+  }
+
+  /**
    * 撤回末尾整个当前周期 AI 响应（chat.send 恢复场景使用）。
    * 委托 MessageJournal（角色推断集中）。
    */

@@ -128,6 +128,15 @@ export class AgentBuilder {
   }
 
   /**
+   * 门面：原地更新指定 sense 消息 content（ask_user_question yield-turn 占位→用户答案）。
+   * 守单一写者：经 journal.completeSense 写 soul.messages（内存）；DB 答案由 question batch 事务先行落库。
+   * @returns true=原地更新命中
+   */
+  completeSenseResult(senseId: string, content: string): boolean {
+    return this.requireAgent().completeSenseResult(senseId, content);
+  }
+
+  /**
    * 门面：中止当前运行的 generator（chat.abort 场景）。
    * 转发 AgentSession.abort → compose.abort 注入错误退出 generator。
    */

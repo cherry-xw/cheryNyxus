@@ -8,10 +8,13 @@
  *  问题阻塞 LLM 主线程，最高优先级；审批可入队延后处理。
  */
 import { AnimatePresence, motion } from "motion-v";
+import { computed } from "vue";
 import type { VariantType } from "motion-v";
 import ApprovalCard from "@/features/agent/ApprovalCard.vue";
 import QuestionCard from "@/features/agent/QuestionCard.vue";
 import type { StreamState } from "@/stores";
+import type { QuestionItemState } from "@/stores/agents";
+import { findQuestion } from "@/stores/agents/questionBatch";
 import type { PetInstance } from "./types";
 
 const MotionDiv = motion.div;
@@ -21,7 +24,7 @@ defineEmits<{
   bubbleLeave: [];
 }>();
 
-defineProps<{
+const props = defineProps<{
   pet: PetInstance;
   stream?: StreamState;
   // display state (from useStreamBubble)
@@ -59,12 +62,32 @@ defineProps<{
 defineSlots<{
   dialog?: (props: { pet: PetInstance }) => unknown;
 }>();
+
+/**
+ * activeQuestion：根据 stream.activeQuestionId 从 questions[] 查找当前选中问题。
+ * batchInfo：当前 question 所属 batch 的进度信息（控制"下一步"vs"提交"按钮）。
+ */
+const activeEntry = computed(() => findQuestion(props.stream, props.stream?.activeQuestionId));
+const activeQuestion = computed<QuestionItemState | null>(() => activeEntry.value?.question ?? null);
+
+const batchInfo = computed(() => {
+  const entry = activeEntry.value;
+  if (!entry) return null;
+  return {
+    batchId: entry.batch.batchId,
+    total: entry.batch.questions.length,
+    readyCount: entry.batch.questions.filter((question) => question.localStatus === "ready").length,
+    isLast: !entry.batch.questions.some(
+      (question) => question.questionId !== entry.question.questionId && question.localStatus === "pending",
+    ),
+  };
+});
 </script>
 
 <template>
   <AnimatePresence>
     <MotionDiv
-      v-if="stream?.question"
+      v-if="activeQuestion"
       key="question"
       class="speech question-bubble"
       :style="approvalStyle"
@@ -73,7 +96,12 @@ defineSlots<{
       :exit="speech.exit"
       :transition="speech.transition"
     >
-      <QuestionCard :question="stream!.question!" :chat-id="pet.chatId" />
+      <QuestionCard
+        :key="activeQuestion!.questionId"
+        :question="activeQuestion!"
+        :chat-id="pet.chatId"
+        :batch-info="batchInfo"
+      />
     </MotionDiv>
     <MotionDiv
       v-else-if="stream?.approval"
@@ -212,6 +240,7 @@ defineSlots<{
     overflow: auto;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+    font-weight: 400;
     padding-right: 8px;
     scrollbar-width: thin;
     scrollbar-color: rgba(20, 22, 26, 0.25) transparent;
@@ -248,7 +277,7 @@ defineSlots<{
 }
 
 .question-bubble {
-  max-width: 260px;
+  max-width: 230px;
   padding: 6px 9px;
   background: rgba(245, 243, 255, 0.96);
   border-color: rgba(124, 58, 237, 0.42);

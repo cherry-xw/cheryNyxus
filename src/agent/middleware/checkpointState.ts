@@ -152,6 +152,11 @@ export class CheckpointState {
     return this.thinking;
   }
 
+  /** 当前 turn 已落 journal 的 assistant message id；问题批次以此作为稳定 batch id。 */
+  getFlushedAssistantId(): string | undefined {
+    return this.flushedAssistantId ?? undefined;
+  }
+
 }
 
 export type CheckpointMessageMutation =

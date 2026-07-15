@@ -86,7 +86,7 @@ interface StagedChunkData {
 
 interface Notification {
   kind: "notification";
-  type: "interrupt" | "accept" | "rejected" | "consumed" | "loaded" | "done" | "error" | "replaced" | "role_created" | "role_destroyed" | "role_reply" | "sense_started" | "question_requested" | "question_answered";
+  type: "interrupt" | "accept" | "rejected" | "consumed" | "loaded" | "done" | "error" | "replaced" | "role_created" | "role_destroyed" | "role_reply" | "sense_started" | "question_requested" | "question_answered" | "question_batch_requested" | "question_batch_completed";
   requestId?: string;      // 仅与某次 RPC 有直接因果关系时携带
   chatId?: string;         // 异步推送（role_created/role_reply 等）以此路由
   runId?: string;          // 运行中事件的稳定关联 id
@@ -111,8 +111,9 @@ interface Notification {
 | `role_created` | `{taskId, chatId, parentChatId, type, prompt, brain, senseGroup, wait}` | spawn_role sense 执行时。前端收此 notification → 创建子 pet + 调 `chat.startSpawn({taskId})` 原子领取任务；重放不产生第二次初始 prompt。事件外层 `chatId` = `parentChatId`。 |
 | `role_destroyed` | `{chatId}` | **已失去发出方**（`destroy_role` sense 移除，子 agent done 改转 ghost，见 [agent-pet.md §5.6](./agent-pet.md)。协议项保留作防御）；外层 `chatId` 为其主 chat。 |
 | `role_reply` | `{parentChatId, childChatId, type, content, spawnSenseCallId?, msgId?}` | wait=true 子完成唤主。子 loop 结束后已把子结果以 role:role 注入主 chat DB，前端收此 notification → 自动 `chat.resume(parentChatId)`。`content` 仅即时展示，权威内容在主 chat；事件外层 `chatId` = `parentChatId`。 |
-| `question_requested` | `{questionId, senseName:"ask_user_question", question, header?, options, multiSelect, waitTime, createdAt}` | ask_user_question 感官向用户提问；外层 `chatId`/`runId` 指向被挂起的运行。`waitTime` = `global.approval_timeout`（`0` = 不限时）。 |
-| `question_answered` | `{questionId, answer?}` | 防御性兜底；外层 `chatId`/`runId` 用于路由。 |
+| `question_batch_requested` | `{batchId, assistantMessageId, createdAt, questions:[{questionId,position,question,header?,options,multiSelect,createdAt}]}` | 一个 assistant turn 的完整问题批次。`batchId = assistantMessageId`，服务端在所有 placeholder sense 和批次领域状态持久化完成后才发出；事件按 `batchId` 幂等，可安全重放。前端只保存本地草稿，不逐题回传。 |
+| `question_batch_completed` | `{batchId}` | 整批答案已在单个 SQLite 事务中写入 sense 消息并关闭批次。事件进入 chat event log，前端收到或重放时仅清理对应批次；是否启动 `chat.resume` 由 `sense.question.batchAnswer` RPC 的 `shouldResume` 决定，避免重复续跑。 |
+| `question_requested` / `question_answered` | 旧逐题结构 | 仅兼容历史事件和旧客户端；新前端不再据此构造问题状态。 |
 
 > `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。auto sense（`needsApproval:false`）不推 `interrupt`（无审批需求，前端不弹审核卡）；仅 confirm/manual 推送。`waitTime` = `global.approval_timeout`（ms，字段约束 `>= 0`：`0` = 不限时，不显倒计时；省略 = `0` 同义），`createdAt` = 发起时间戳（ms），前端据此算倒计时：`remaining = waitTime - (now - createdAt)`，归零后端超时 reject → `rejected` notification；用户 accept/reject 后前端立即关闭（不等 `accept`/`rejected` notification 回来）。`approval_timeout` 的范围校验在 [config.ts §validateRawConfig](./utils/config.md) 与 [schemas.ts §globalSchema](./service/message.md) 双层执行。
 
@@ -144,15 +145,16 @@ interface Notification {
 | `runtime.set` | 原子设置 chat 的 brain + senseGroup + mcpServers（每轮可换）。`toolCall:false` 的 brain 只接受空工具组/MCP；preset chat 下仅 `brain` 生效（编制锁定，senseGroup/mcp 强制取创建快照；显式带不同值 fail loud） | 否 |
 | `chat.create` | 创建聊天。可选 `preset`：从 `config.presets[preset].leader` 解析 brain+senseGroup+mcp+systemPrompt（编制快照入 metadata，运行后锁定）。主 pet 恒带 `preset`（旧 `config.default` 已并入「默认」预设）；显式 brain+senseGroup 路径仅子 agent 用 | 否 |
 | `chat.list` | 列出所有聊天（`params.includePreview=true` 时每项增返 `preview`/`turnCount`，供会话列表渲染；省略=lean，供初始化重建 pet 树，避免 N+1） | 否 |
-| `chat.get` | 获取聊天详情（流式载入历史，末条未完成周期时返回 canResume；response 增返 `contextUsage` 供前端 ContextBar 渲染，CP7） | 是 |
+| `chat.get` | 获取聊天详情（流式载入历史）。response 包含 `canResume`、上下文用量及 `{snapshotSeq,pendingQuestionBatches}` 问题权威快照；旧会话首次读取时按 assistant message 自动回填批次。 | 是 |
 | `chat.delete` | 删除聊天（目标为主 chat 即无 `parent_chat_id` 时，级联删其所有子 chat + 各自消息 + 清内存 runtime；CP8） | 否 |
 | `chat.send` | 发送聊天消息（`{chatId, prompt, attachments?}`）。Response.data 必含 `{chatId,runId}`；运行中再次发送仅入队并返 `{queued:true,runId:<活跃运行>}`，不会新建空流。 | 是 |
 | `chat.resume` | 续接（无 prompt，恢复执行 pending sense 或继续 loop）。Response.data `{chatId,runId}`；已有运行时返 `alreadyRunning:true`。 | 是 |
-| `chat.sync` | 补发 `afterSeq` 之后的持久 chat 事件。返回 `{chatId,latestSeq,minSeq?,reset}`；`reset:true` 表示保留期已过，客户端必须改拉 `chat.get` 快照。 | 是 |
+| `chat.sync` | 补发 `afterSeq` 之后的持久 chat 事件。返回 `{chatId,latestSeq,minSeq?,reset,snapshotSeq,pendingQuestionBatches}`；前端在事件重放后以问题快照 replace 本地批次，再从 `snapshotSeq` 补放并发到达的新事件。`reset:true` 时另拉 `chat.get` 消息快照。 | 是 |
 | `chat.startSpawn` | 原子启动 `role_created` 携带的 `{taskId}`。同一 task 只会写入一次初始 user prompt；重放时会附着现有运行或恢复中断任务。 | 是 |
 | `chat.abort` | 中止当前 chat 运行流；可选 `{runId}` 做条件中止。若目标与活跃运行不同，返回 `CONFLICT`，避免旧客户端误中止新一轮。 | 否 |
 | `sense.approval` | 感官审批（accept/reject） | 否 |
-| `sense.question.answer` | ask_user_question 感官回答。params `{questionId, selectedLabels, freeText?, cancelled?}`：单选=`selectedLabels:[label]`；多选=`selectedLabels:[label1,label2,...]`；「其他」自由文本=`selectedLabels:[], freeText`；✕ 取消=`cancelled:true`。前端 QuestionCard submit 后调。返回 `{questionId, cancelled}` | 否 |
+| `sense.question.batchAnswer` | 原子回答完整批次。params `{chatId,batchId,answers:[{questionId,selectedLabels,freeText?,cancelled?}]}`，必须恰好覆盖批次中所有 pending 项；服务端校验单/多选和合法 label，在同一事务中写入全部 sense 答案并关闭批次。返回 `{chatId,batchId,completed,shouldResume}`。 | 否 |
+| `sense.question.answer` | 旧单题兼容接口；仅允许单题批次，多题批次会拒绝并要求使用 `sense.question.batchAnswer`。 | 否 |
 | `bash.list` | 列出当前 chat 挂起的 bash 进程 | 否 |
 | `bash.kill` | 显式杀死当前 chat 的挂起 bash 进程组 | 否 |
 | `mcp.list` | 列出所有 config 声明的 MCP server 及运行期状态 | 否 |

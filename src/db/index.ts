@@ -186,6 +186,43 @@ function initMonthlyTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_chat_events_created ON chat_events(created_at);
+
+    CREATE TABLE IF NOT EXISTS question_batches (
+      batch_id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      assistant_message_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      UNIQUE(chat_id, assistant_message_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_question_batches_chat_status
+      ON question_batches(chat_id, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS question_items (
+      question_id TEXT PRIMARY KEY,
+      batch_id TEXT NOT NULL,
+      position INTEGER NOT NULL,
+      question TEXT NOT NULL,
+      header TEXT,
+      options_json TEXT NOT NULL,
+      multi_select INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      answer_json TEXT,
+      answer_text TEXT,
+      created_at INTEGER NOT NULL,
+      answered_at INTEGER,
+      UNIQUE(batch_id, position)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_question_items_batch_position
+      ON question_items(batch_id, position);
+
+    CREATE TABLE IF NOT EXISTS question_projection_meta (
+      chat_id TEXT PRIMARY KEY,
+      legacy_backfill_version INTEGER NOT NULL
+    );
   `);
 
   ensureMessageColumn(db, "revoked", "INTEGER DEFAULT 0");

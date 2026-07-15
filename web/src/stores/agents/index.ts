@@ -7,6 +7,10 @@ import type {
   HistoryItem,
 } from "./types";
 import { sameRuntime, defaultBounds } from "./streamAccumulator";
+import {
+  replaceQuestionBatches,
+  type QuestionBatchPayload,
+} from "./questionBatch";
 import { collectDescendantChatIds } from "./historyMerge";
 import { wsClient } from "@/services/ws";
 
@@ -18,7 +22,16 @@ import { createPetLifecycle } from "./petLifecycle";
 import { createStreamRouter, ensureStream as _ensureStream, trackRequest as _trackRequest } from "./streamRouter";
 
 // re-export 公共契约类型（保 @/stores/agents 导入路径兼容：4 .vue + stores/index.ts 零改动）
-export type { SenseCallRecord, HistoryItem, ApprovalState, QuestionState, StreamState, RunningTool } from "./types";
+export type {
+  SenseCallRecord,
+  HistoryItem,
+  ApprovalState,
+  QuestionBatchState,
+  QuestionItemState,
+  QuestionDraftAnswer,
+  StreamState,
+  RunningTool,
+} from "./types";
 
 /**
  * agents store：agent/chat 状态层单一数据源。
@@ -107,7 +120,29 @@ export const useAgentsStore = defineStore("agents", () => {
   // ── 模块初始化（按依赖顺序） ──
 
   const approval = createApprovalActions(streams, pets);
-  const question = createQuestionActions(streams, pets);
+  const question = createQuestionActions(streams, pets, resumeAgent);
+
+  /** 后端问题快照是权威 replace；返回 true 表示快照期间已消费更新事件，需从 snapshotSeq 补放。 */
+  function applyQuestionSnapshot(chatId: string, data: unknown, advanceEventCursor = false): boolean {
+    const snapshot = data as {
+      snapshotSeq?: number;
+      pendingQuestionBatches?: QuestionBatchPayload[];
+    } | undefined;
+    if (
+      typeof snapshot?.snapshotSeq !== "number" ||
+      !Array.isArray(snapshot.pendingQuestionBatches)
+    ) {
+      return false;
+    }
+    const observedSeq = wsClient.getLastSeq(chatId);
+    // chat.get 只包含消息+问题投影，不是完整 chat 事件快照；若已有更新事件，不用较旧快照覆盖。
+    if (!advanceEventCursor && observedSeq > snapshot.snapshotSeq) return false;
+    const stream = _ensureStream(streams, chatId);
+    replaceQuestionBatches(stream, snapshot.pendingQuestionBatches);
+    if (!advanceEventCursor) return false;
+    wsClient.resetChatSeq(chatId, snapshot.snapshotSeq);
+    return observedSeq > snapshot.snapshotSeq;
+  }
 
   const lifecycle = createPetLifecycle(
     pets, streams, historyList, ui.historyListOpen,
@@ -155,6 +190,9 @@ export const useAgentsStore = defineStore("agents", () => {
     stream.thinking = "";
     stream.content = "";
     stream.isWorking = true;
+    // 清上一轮残留提问态（避免残留 activeQuestionId 抑制本轮新卡片；yield-turn 下 done 不清，故此显式重置）
+    stream.questionBatches = [];
+    stream.activeQuestionId = undefined;
     // 若已有活跃 run，当前请求只是入队；否则 requestId 即本轮 runId。
     if (!stream.activeRunId) stream.activeRunId = requestId;
     stream.historyDirty = true;
@@ -218,6 +256,9 @@ export const useAgentsStore = defineStore("agents", () => {
     stream.thinking = "";
     stream.content = "";
     stream.isWorking = true;
+    // resume 是新一轮（问答答完后续跑 / spawn 唤醒）：清残留提问态，同 sendMessage。
+    stream.questionBatches = [];
+    stream.activeQuestionId = undefined;
     if (!stream.activeRunId) stream.activeRunId = requestId;
     // resume 同 sendMessage：标 dirty 让下次 drawer 打开 reload（resume 可能产生新 assistant 回复）
     stream.historyDirty = true;
@@ -484,6 +525,14 @@ export const useAgentsStore = defineStore("agents", () => {
     const stream = router.ensureStream(chatId);
     stream.history = [];
     stream.historyLoaded = false;
+    // 重置实时流状态（历史回放不触发气泡）
+    stream.thinking = "";
+    stream.content = "";
+    stream.retainUntil = undefined;
+    stream.isWorking = false;
+    // 重置 pet 工作状态
+    const pet = pets.value.find((p) => p.chatId === chatId);
+    setWorking(pet, false);
     // CP7: chat.get response 携带 contextUsage → 更新 pet.contextUsage（历史载入一次性同步，ContextBar 消费）
     done
       .then((res) => {
@@ -520,7 +569,8 @@ export const useAgentsStore = defineStore("agents", () => {
         childStream.history = [];
 
         // 等待子 chat 历史加载完成
-        await childDone;
+        const childResponse = await childDone;
+        if (childResponse.success) applyQuestionSnapshot(childChatId, childResponse.data);
 
         // 子 chat 历史角色重映射 + 关联子 pet chatId（remapChildHistory：
         //   assistant → role（子 pet 回复）；user → master（主 pet 发给子 pet 的 prompt 注入））
@@ -533,7 +583,8 @@ export const useAgentsStore = defineStore("agents", () => {
       });
 
       // 等待主 chat 和所有子 chat 历史加载完成
-      await done;
+      const historyResponse = await done;
+      if (historyResponse.success) applyQuestionSnapshot(chatId, historyResponse.data);
       const childHistories = await Promise.all(childHistoryPromises);
 
       // 重置 historyLoaded（loaded notification 可能已设 true，但子 chat 还没合并）
@@ -627,21 +678,63 @@ export const useAgentsStore = defineStore("agents", () => {
    * envelopes carry chatId, so the normal router can consume them even though
    * chat.sync itself has a different request id. Expired cursors fall back to
    * chat.get snapshots.
+   *
+   * 修复：sync 回放的 stream chunks 会被 routeChunk 当作实时流处理，累积到 thinking/content，
+   * done notification 设置 retainUntil=now+20s，导致已完成 chat 的气泡显示 20 秒。
+   * 修复方案：sync 开始前为 chat.running=false 的 chat 设置 isSyncing 标记，routeChunk/routeNotification
+   * 检查此标记跳过实时状态更新（thinking/content/isWorking/retainUntil），防止历史事件触发气泡显示。
+   * sync 完成后清除标记并重置 stream 实时状态。
    */
   async function syncChatEvents(): Promise<void> {
     const chats = await agentApi.listChats();
     allChatsCache.value = chats;
-    await Promise.all(chats.map(async (chat) => {
-      const { requestId, done } = agentApi.syncChat(chat.chatId, wsClient.getLastSeq(chat.chatId));
-      _trackRequest(requestMap, requestId, chat.chatId);
-      const response = await done;
-      const data = response.data as { reset?: boolean; latestSeq?: number } | undefined;
-      requestMap.delete(requestId);
-      if (data?.reset) {
-        if (typeof data.latestSeq === "number") wsClient.resetChatSeq(chat.chatId, data.latestSeq);
+    // 修复：sync 开始前为非运行中的 chat 设置 isSyncing 标记
+    for (const chat of chats) {
+      if (!chat.running) {
         const stream = _ensureStream(streams, chat.chatId);
-        stream.historyDirty = true;
-        await getHistory(chat.chatId);
+        stream.isSyncing = true;
+      }
+    }
+    await Promise.all(chats.map(async (chat) => {
+      let afterSeq = wsClient.getLastSeq(chat.chatId);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { requestId, done } = agentApi.syncChat(chat.chatId, afterSeq);
+        _trackRequest(requestMap, requestId, chat.chatId);
+        const response = await done;
+        const data = response.data as {
+          reset?: boolean;
+          latestSeq?: number;
+          snapshotSeq?: number;
+          pendingQuestionBatches?: QuestionBatchPayload[];
+        } | undefined;
+        requestMap.delete(requestId);
+        if (!response.success) break;
+
+        const needsQuestionReplay = applyQuestionSnapshot(chat.chatId, data, true);
+        if (data?.reset) {
+          const stream = _ensureStream(streams, chat.chatId);
+          stream.historyDirty = true;
+          await getHistory(chat.chatId);
+          break;
+        }
+        if (!needsQuestionReplay || typeof data?.snapshotSeq !== "number") break;
+        afterSeq = data.snapshotSeq;
+      }
+      // 修复：sync 完成后清除 isSyncing 标记并重置 stream 实时状态
+      if (!chat.running) {
+        const stream = streams.value[chat.chatId];
+        if (stream) {
+          stream.isSyncing = false;
+          stream.thinking = "";
+          stream.content = "";
+          stream.isWorking = false;
+          stream.retainUntil = undefined;
+          stream.activeRunId = undefined;
+          stream.runningTools = [];
+          stream.error = undefined;
+        }
+        const pet = pets.value.find((p) => p.chatId === chat.chatId);
+        if (pet) setWorking(pet, false);
       }
     }));
   }
@@ -664,6 +757,7 @@ export const useAgentsStore = defineStore("agents", () => {
     getHistory,
     abort,
     ...approval,
+    ...question,
     fetchHistoryList,
     markAllStreamsDirty,
     syncChatEvents,

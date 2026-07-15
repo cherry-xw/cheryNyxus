@@ -11,14 +11,18 @@ import type {
   ChunkMessage,
   NotificationMessage,
   ApprovalState,
-  QuestionState,
 } from "./types";
 import { accumulateStaged } from "./streamAccumulator";
 import { defaultBounds } from "./streamAccumulator";
+import {
+  removeQuestionBatch,
+  upsertQuestionBatch,
+  type QuestionBatchPayload,
+} from "./questionBatch";
 
 /**
  * 确保 chatId 对应的 StreamState 存在。不存在则创建默认结构。
- * 兼容历史 StreamState（已存在但无 approvalQueue / historyDirty / question 字段）→ 补初始化。
+ * 兼容历史 StreamState（已存在但无 approvalQueue / historyDirty / questionBatches 字段）→ 补初始化。
  */
 export function ensureStream(
   streams: Ref<Record<string, StreamState>>,
@@ -35,12 +39,14 @@ export function ensureStream(
       historyDirty: true, // 默认 dirty；首次 loaded notification 或显式预加载后清
       runningTools: [],
       approvalQueue: [],
+      questionBatches: [],
     };
     streams.value[chatId] = s;
   }
   // 兼容历史 StreamState（已存在但缺新字段）
   if (!s.approvalQueue) s.approvalQueue = [];
   if (s.historyDirty === undefined) s.historyDirty = true;
+  if (!s.questionBatches) s.questionBatches = [];
   return s;
 }
 
@@ -95,6 +101,10 @@ export function createStreamRouter(
     }
 
     // stream chunk：实时增量累积
+    // 修复：sync 回放期间跳过实时状态更新，防止历史 chunks 触发气泡显示
+    if (stream.isSyncing) {
+      return;
+    }
     const data = (c.data as StreamChunkData | undefined) ?? {};
     if (data.thinking) stream.thinking += data.thinking;
     if (data.content) stream.content += data.content;
@@ -126,24 +136,37 @@ export function createStreamRouter(
         if (stream) {
           stream.isWorking = false;
           if (!n.runId || n.runId === stream.activeRunId) stream.activeRunId = undefined;
-          // loop 结束：清运行中工具（防残留；正常应由 accept 逐个移除，兜底全清）
+          // 问题指示器直接由 questionBatches 派生；runningTools 只保存实时 auto sense。
           stream.runningTools = [];
-          // done 后 content/thinking 气泡保留 20s（下一条消息前）；error 不保留（即时隐藏）
-          if (type === "done") stream.retainUntil = Date.now() + 20000;
+          // 修复：sync 回放期间跳过 retainUntil，防止历史 done 触发气泡保留
+          if (!stream.isSyncing && type === "done") stream.retainUntil = Date.now() + 20000;
           // 本轮末条 assistant 权威回复 → 实时追加进 history（按 msgId 去重），
           // 使 PetIcons 圆点气泡即时显最新内容，不再等 chat.get 重载。
           if (type === "done") {
             const fm = (n.data as { finalMessage?: { msgId: string; role: "assistant"; content: string; thinking?: string; createdAt: number; agentChatId?: string } } | undefined)?.finalMessage;
-            if (fm && !stream.history.some((h) => h.msgId && h.msgId === fm.msgId)) {
-              stream.history.push({
-                role: fm.role,
-                content: fm.content,
-                ...(fm.thinking ? { thinking: fm.thinking } : {}),
-                createdAt: fm.createdAt,
-                msgId: fm.msgId,
-                // 反向溯源：该消息由当前 chat 生成（agentChatId = chatId）
-                agentChatId: fm.agentChatId ?? chatId,
-              });
+            if (fm) {
+              const last = stream.history[stream.history.length - 1];
+              // 去重逻辑：同 msgId 或（无 msgId 且角色匹配+内容匹配）
+              const isDuplicate = stream.history.some((h) => h.msgId && h.msgId === fm.msgId)
+                || (last
+                    && last.role === fm.role
+                    && last.msgId === undefined
+                    && last.content === fm.content
+                    && (fm.thinking === undefined || last.thinking === fm.thinking));
+              if (!isDuplicate) {
+                stream.history.push({
+                  role: fm.role,
+                  content: fm.content,
+                  ...(fm.thinking ? { thinking: fm.thinking } : {}),
+                  createdAt: fm.createdAt,
+                  msgId: fm.msgId,
+                  // 反向溯源：该消息由当前 chat 生成（agentChatId = chatId）
+                  agentChatId: fm.agentChatId ?? chatId,
+                });
+              } else if (last && last.msgId === undefined && last.role === fm.role && last.content === fm.content) {
+                // 合并：为无 msgId 的 assistant 补充 msgId（权威来源）
+                last.msgId = fm.msgId;
+              }
             }
           }
         }
@@ -292,55 +315,32 @@ export function createStreamRouter(
       return;
     }
 
-    if (type === "question_requested") {
-      // ask_user_question 感官请求（streamMapper question_pending → question_requested）。
-      // 后端 QuestionRequestedNotificationData: {questionId, senseName, question, header?, options, multiSelect, waitTime, createdAt}
-      // 写入 stream.question；QuestionCard 据此渲染选项卡。问题主线程阻塞 LLM，无 queue 并发场景。
-      const d = (n.data ?? {}) as {
-        questionId?: string;
-        senseName?: string;
-        question?: string;
-        header?: string;
-        options?: Array<{ label: string; description?: string }>;
-        multiSelect?: boolean;
-        waitTime?: number;
-        createdAt?: number;
-      };
-      if (!d.questionId || !d.question || !d.options) {
-        console.warn("[agents] question_requested: 字段残缺", d);
-        return;
-      }
-      if (chatId) {
-        const stream = ensureStream(streams, chatId);
-        const newQuestion: QuestionState = {
-          questionId: d.questionId,
-          senseName: "ask_user_question",
-          question: d.question,
-          ...(d.header ? { header: d.header } : {}),
-          options: d.options,
-          multiSelect: d.multiSelect ?? false,
-          waitTime: d.waitTime ?? 0,
-          createdAt: d.createdAt ?? Date.now(),
-        };
-        stream.question = newQuestion;
-      }
+    if (type === "question_requested" || type === "question_answered") {
+      // 旧逐题事件只用于协议兼容。chat.get/chat.sync 的权威批次快照会替换历史投影。
       return;
     }
 
-    if (type === "question_answered") {
-      // question_answered 防御性兜底：正常路径 QuestionCard submit 已乐观 dismissQuestion；
-      // 此处按 questionId 兜底清理（防止某路径没 dismiss，例如多 question 串联或网络异常）。
-      // 同步移除 runningTools 同 id 项（ask_user_question 也触发 sense_started，前端视为运行中工具）。
-      if (chatId) {
+    if (type === "question_batch_requested") {
+      const data = (n.data ?? {}) as Partial<QuestionBatchPayload>;
+      if (
+        !chatId ||
+        typeof data.batchId !== "string" ||
+        typeof data.assistantMessageId !== "string" ||
+        typeof data.createdAt !== "number" ||
+        !Array.isArray(data.questions)
+      ) {
+        console.warn("[agents] question_batch_requested: 字段残缺", data);
+        return;
+      }
+      upsertQuestionBatch(ensureStream(streams, chatId), data as QuestionBatchPayload);
+      return;
+    }
+
+    if (type === "question_batch_completed") {
+      const data = (n.data ?? {}) as { batchId?: string };
+      if (chatId && data.batchId) {
         const stream = streams.value[chatId];
-        if (stream) {
-          const d = (n.data ?? {}) as { questionId?: string };
-          const id = d.questionId;
-          if (id && stream.question && stream.question.questionId === id) {
-            stream.question = undefined;
-            stream.runningTools = stream.runningTools.filter((t) => t.id !== id);
-          }
-        }
+        if (stream) removeQuestionBatch(stream, data.batchId);
       }
       return;
     }

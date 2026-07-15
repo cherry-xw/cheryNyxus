@@ -1,12 +1,13 @@
 import { addMessage, fillApprovalResult, markMessageReplaced, updateAssistantSenseCalls, updateChatMetadata } from "@/db/chat.js";
 import { getChatSelection } from "./runtime.js";
 import { approvalManager } from "../approval/manager.js";
-import { questionManager } from "../question/manager.js";
+
 import { wakeParent } from "./wake.js";
 import type { LLMResponse } from "@/core/message/adapter";
 import type { MiddlewareChunk } from "@/core/middleware/types";
 import { logger } from "@/utils/logger/index.js";
 import { getWaitedParent } from "@/agent/spawnBroker.js";
+import { createQuestionBatch } from "@/db/question.js";
 
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
@@ -106,16 +107,17 @@ export async function* observeAgentChunks(
         continue;
       }
 
-      if (chunk.type === "question_pending") {
-        // ask_user_question 感官：tool.ts buildSenseTrigger 已同步创建 questionRegistry entry；
-        // 此处仅按 questionId 登记 service 侧 id（service confirm/abort 转调 core registry）。
-        questionManager.register(chunk.questionId);
-        logger.event("question.pending", {
-          questionId: chunk.questionId,
-          question: chunk.question,
-          multiSelect: chunk.multiSelect,
-          waitTime: chunk.waitTime,
+      if (chunk.type === "question_batch_pending") {
+        // placeholder sense 已由前序 message_created effect 全部落库；先持久化批次，再允许协议事件出站。
+        // 这样任何收到事件的客户端都能立即安全调用原子 batchAnswer。
+        const batch = createQuestionBatch(chatId, chunk.assistantMessageId, chunk.questions);
+        if (!batch) continue;
+        logger.event("question.batch.pending", {
+          batchId: chunk.batchId,
+          assistantMessageId: chunk.assistantMessageId,
+          questionCount: chunk.questions.length,
         });
+        yield chunk;
         continue;
       }
 

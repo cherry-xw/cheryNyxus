@@ -106,7 +106,7 @@ export async function* streamAgentChunks(
           waitTime: config.global.approval_timeout ?? 0,
           createdAt: Date.now(),
         }, { chatId, runId });
-      } else {
+      } else if (sc.name !== "ask_user_question") {
         yield createNotification("sense_started", rid, {
           id: sc.id,
           senseName: sc.name,
@@ -205,26 +205,20 @@ export async function* streamAgentChunks(
           by: u.patch.replace.by,
         }, { chatId, runId });
       }
-    } else if (chunk.type === "question_pending") {
-      // ask_user_question 感官：question_pending chunk（observer 已 register）→ question_requested 通知。
-      // 已由 observer 消费 registration，此处仅转发 notification payload 给前端。
-      const q = chunk as { questionId: string; question: string; header?: string; options: Array<{ label: string; description?: string }>; multiSelect: boolean; waitTime: number; createdAt: number };
-      yield createNotification("question_requested", rid, {
-        questionId: q.questionId,
-        senseName: "ask_user_question",
-        question: q.question,
-        ...(q.header ? { header: q.header } : {}),
-        options: q.options,
-        multiSelect: q.multiSelect,
-        waitTime: q.waitTime,
-        createdAt: q.createdAt,
+    } else if (chunk.type === "question_batch_pending") {
+      // observer 已先持久化批次；这里只映射一个完整、可重放的批次事件。
+      yield createNotification("question_batch_requested", rid, {
+        batchId: chunk.batchId,
+        assistantMessageId: chunk.assistantMessageId,
+        createdAt: chunk.createdAt,
+        questions: chunk.questions,
       }, { chatId, runId });
     } else if (
       chunk.type === "message_created" ||
       chunk.type === "sense_pending"
     ) {
       // 内部 effect chunk 应由 observeAgentChunks 消费，不进入传输层。
-      // 注：question_pending 已在上面分发为 question_requested 通知，此处不列。
+      // 注：question_batch_pending 已在上面分发为 question_batch_requested 通知，此处不列。
       continue;
     }
   }

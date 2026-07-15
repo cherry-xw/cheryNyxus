@@ -272,8 +272,16 @@ export function deleteChat(chatId: string): void {
   // 2. 先删 messages（跨库），finally 删 chat 行避免中途崩溃留孤儿 chat 指向空库
   try {
     const monthlyDb = getMonthlyDb(chat.messages_month);
-    const msgStmt = monthlyDb.prepare("DELETE FROM messages WHERE chat_id = ?");
-    msgStmt.run(chatId);
+    const clear = monthlyDb.transaction(() => {
+      monthlyDb.prepare(
+        "DELETE FROM question_items WHERE batch_id IN (SELECT batch_id FROM question_batches WHERE chat_id = ?)",
+      ).run(chatId);
+      monthlyDb.prepare("DELETE FROM question_batches WHERE chat_id = ?").run(chatId);
+      monthlyDb.prepare("DELETE FROM question_projection_meta WHERE chat_id = ?").run(chatId);
+      monthlyDb.prepare("DELETE FROM chat_events WHERE chat_id = ?").run(chatId);
+      monthlyDb.prepare("DELETE FROM messages WHERE chat_id = ?").run(chatId);
+    });
+    clear();
   } finally {
     const stmt = soulDb.prepare("DELETE FROM chats WHERE id = ?");
     stmt.run(chatId);
@@ -541,10 +549,30 @@ export function markMessagesRevoked(chatId: string, messageIds: string[]): void 
 
   const monthlyDb = getMonthlyDb(chat.messages_month);
   const placeholders = messageIds.map(() => "?").join(", ");
-  const result = monthlyDb
-    .prepare(`UPDATE messages SET revoked = 1 WHERE id IN (${placeholders})`)
-    .run(...messageIds);
-  assertChanged(result, `markMessagesRevoked(${chatId}) ids=[${messageIds.join(",")}]`);
+  const revoke = monthlyDb.transaction(() => {
+    const result = monthlyDb
+      .prepare(`UPDATE messages SET revoked = 1 WHERE id IN (${placeholders})`)
+      .run(...messageIds);
+    assertChanged(result, `markMessagesRevoked(${chatId}) ids=[${messageIds.join(",")}]`);
+
+    // 新 prompt 撤回整个 trailing assistant/sense 周期时，同步关闭其问题批次。
+    // 否则被撤回的旧问题会继续阻塞 canResume，并在刷新快照中重新出现。
+    const now = Date.now();
+    monthlyDb.prepare(
+      `UPDATE question_items
+       SET status = 'cancelled', answer_json = '{"cancelled":true}',
+           answer_text = '(问题批次已被新消息取代)', answered_at = ?
+       WHERE batch_id IN (
+         SELECT batch_id FROM question_batches
+         WHERE chat_id = ? AND assistant_message_id IN (${placeholders}) AND status = 'pending'
+       ) AND status = 'pending'`,
+    ).run(now, chatId, ...messageIds);
+    monthlyDb.prepare(
+      `UPDATE question_batches SET status = 'completed', completed_at = ?
+       WHERE chat_id = ? AND assistant_message_id IN (${placeholders}) AND status = 'pending'`,
+    ).run(now, chatId, ...messageIds);
+  });
+  revoke();
 }
 
 /**

@@ -37,6 +37,17 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
   const history = stream.history;
 
   if (d.type === "thinking_end") {
+    // 去重：done.finalMessage 已按 msgId push 过（streamRouter.ts:139-164）→ 合并到既有 item，不 push 新 item。
+    // 否则 chat.get staged 回放会产出两条同 msgId assistant item（thinking 重复显示）。
+    if (d.msgId) {
+      const existing = history.find((h) => h.msgId === d.msgId);
+      if (existing) {
+        if (!existing.thinking) existing.thinking = d.thinking ?? "";
+        if (d.createdAt) existing.createdAt = d.createdAt;
+        if (d.agentChatId) existing.agentChatId = d.agentChatId;
+        return;
+      }
+    }
     // 新 assistant 行：thinking 总是行首 emit（若存在），开新 item
     history.push({
       role: "assistant",
@@ -63,10 +74,26 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       return;
     }
     if (role === "assistant") {
-      // 同行 thinking_end 已 push 过 item → last 是 assistant 且 content 空 → 填入；
-      // 否则（行无 thinking，content_end 单独到）→ 新 item
       const content = d.content ?? "";
       const mediaAssets = extractMediaUrls(content);
+      // 去重：done.finalMessage 已按 msgId push 过（streamRouter.ts:139-164）→ 合并到既有 item，不 push 新 item。
+      // 典型场景：assistant 消息只有 content 没有 thinking（thinking_end 未 emit），done 推了 finalMessage，
+      // chat.get 回放 content_end 到 → 此处 find 命中，合并而非 push。
+      if (d.msgId) {
+        const existing = history.find((h) => h.msgId === d.msgId);
+        if (existing) {
+          if (!existing.content) {
+            existing.content = content;
+            existing.runtime = d.runtime;
+            existing.createdAt = d.createdAt ?? existing.createdAt;
+            if (mediaAssets.length > 0) existing.mediaAssets = mediaAssets;
+            if (d.agentChatId) existing.agentChatId = d.agentChatId;
+          }
+          return;
+        }
+      }
+      // 同行 thinking_end 已 push 过 item → last 是 assistant 且 content 空 → 填入；
+      // 否则（行无 thinking，content_end 单独到）→ 新 item
       const last = history[history.length - 1];
       if (last && last.role === "assistant" && !last.content) {
         last.content = content;

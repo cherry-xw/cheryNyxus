@@ -302,6 +302,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     background: rgba(255, 255, 255, 0.55);
     font-size: 11px;
     line-height: 1;
+    cursor: pointer;
 
     &.cap-input {
       border-color: rgba(59, 130, 246, 0.28);
@@ -331,6 +332,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.55);
   font-size: 11px;
+  cursor: pointer;
 }
 
 .profile-settings {

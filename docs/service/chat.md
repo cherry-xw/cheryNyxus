@@ -7,12 +7,12 @@
 service 层的核心枢纽。把 RPC 请求（`chat.*` / `sense.approval`）转成 agent 流式执行，并把内部 `MiddlewareChunk` 流转成协议层 Chunk/Notification，同时集中处理 DB 持久化与审批注册副作用。
 
 - **流式执行**（send.ts）：`chat.send` / `chat.resume` 驱动 `AgentBuilder.run/resume`，处理末尾未完成撤回（`staged.reverse`）、跨连接并发绑定、运行中 send 仅入队。
-- **副作用编排**（observer.ts）：统一消费 agent 内部 effect chunk（`message_created` / `message_updated` / `sense_pending` / `question_pending`），触发 DB 写（`addMessage` / `fillApprovalResult` / `markMessageReplaced`）与审批/问答注册（`approvalManager.register` / `questionManager.register`），abort 时 flush 兜底保证 DB 一致。
-- **协议映射**（streamMapper.ts）：`MiddlewareChunk` → 协议 `Chunk` / `Notification`（`sense_end`→`interrupt`、`sense_accept/reject`→`accept/rejected`、`question_pending`→`question_requested`、`message_updated` 带 replace → `replaced` 等）。
+- **副作用编排**（observer.ts）：统一消费 agent 内部 effect chunk并落库。`question_batch_pending` 到达时先持久化完整 QuestionBatch，再转发给协议层，确保事件出站前答案目标已可写。
+- **协议映射**（streamMapper.ts）：`MiddlewareChunk` → 协议 `Chunk` / `Notification`（`sense_end`→`interrupt`、`sense_accept/reject`→`accept/rejected`、`question_batch_pending`→`question_batch_requested`、`message_updated` 带 replace → `replaced` 等）。ask_user_question 不再产生 `sense_started`，问题指示器直接由批次投影派生。
 - **运行时缓存**（runtime.ts）：`chatRuntimes: Map<chatId, {builder, selection}>`，单 chat 绑定 AgentBuilder（跨轮不重建），`ensureChat` 创建/恢复 + 持久化 runtime + 一次性加载历史。
 - **chat 管理**（handler.ts）：`chat.create` / `list` / `get`（流式载入历史 + `canResume`）/ `delete`。
 - **审批 service 侧**（send.ts `handleSenseApproval`）：转调 `approvalManager.confirm` → core `approvalRegistry.resolveApproval` 触发 senseMiddleware await。
-- **问答 service 侧**（send.ts `handleSenseQuestionAnswer`）：转调 `questionManager.confirm` → core `questionRegistry.resolveQuestion` 触发 ask_user_question sense handler await（auto 路径，handler 内部 await，不走 approval 流）。
+- **问答 service 侧**（send.ts `handleSenseQuestionBatchAnswer` + wake.ts `resolveQuestionBatch`）：按 `chatId+batchId` 原子校验整批答案，在同一月库事务中更新全部 sense content、question_items 和 question_batches；随后同步内存 journal、set `resumePending`、持久化 `question_batch_completed`。旧单题 RPC 仅兼容单题批次。
 
 ## 文件清单
 
@@ -152,7 +152,7 @@ finally:                                                // abort 兜底 flush
 | `sense_end`（SenseTriggerChunk） | `createNotification("interrupt", rid, {approvalId:id, senseName, arguments, supervisionLevel, needsApproval: level>auto})` | 感官触发 |
 | `sense_accept` | `createNotification("accept", rid, {approvalId:id, senseName, result})` | 执行成功 |
 | `sense_reject` | `createNotification("rejected", rid, {approvalId:id, senseName, reason})` | 被拒 |
-| `question_pending` | `createNotification("question_requested", rid, {questionId, senseName:"ask_user_question", question, header?, options, multiSelect, waitTime, createdAt})` | ask_user_question 感官触发（auto 路径，但走独立 chunk 推送 notification 而非 sense_started） |
+| `question_batch_pending` | `createNotification("question_batch_requested", rid, {batchId,assistantMessageId,createdAt,questions})` | 同一 assistant turn 的完整 ask_user_question 批次；observer 已先持久化领域状态 |
 | `consumed` | `createNotification("consumed", rid, {count})` | 输入入队 |
 | `error` | `createNotification("error", rid, {message: errors[0].message})` | 软失败 |
 | `done` | `createNotification("done", rid, null)` | loop 结束 |

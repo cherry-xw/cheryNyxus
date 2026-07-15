@@ -382,6 +382,15 @@ export const agentApi = {
     await call("sense.question.answer", { questionId, ...answer });
   },
 
+  /** 原子提交一个完整问题批次；服务端成功落库后由 shouldResume 指示是否续跑 agent。 */
+  async answerQuestionBatch(
+    chatId: string,
+    batchId: string,
+    answers: Array<{ questionId: string; selectedLabels: string[]; freeText?: string; cancelled?: boolean }>,
+  ): Promise<{ chatId: string; batchId: string; completed: boolean; shouldResume: boolean }> {
+    return await call("sense.question.batchAnswer", { chatId, batchId, answers });
+  },
+
   /**
    * brain.list：列出可用 brain + 当前已连 MCP server（AgentDialog 用）。
    * 后端 Agent 1 契约保证 brains[].contextLimit。返回形状容错（缺字段 → 空数组）。

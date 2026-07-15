@@ -268,18 +268,24 @@ export interface SensePendingChunk {
 }
 
 /**
- * 内部副作用：注册待回答 question（ask_user_question 感官）。
- * observer 收 → questionManager.register；streamMapper 收 → question_requested notification。
+ * 内部副作用：一个 assistant turn 产生的完整 ask_user_question 批次。
+ * checkpoint 在所有 placeholder sense 已写入 journal 后才发出，observer 先持久化领域状态，
+ * streamMapper 再映射为单个 question_batch_requested 协议事件。
  */
-export interface QuestionPendingChunk {
-  type: "question_pending";
-  questionId: string;
-  question: string;
-  header?: string;
-  options: Array<{ label: string; description?: string }>;
-  multiSelect: boolean;
-  waitTime: number;
+export interface QuestionBatchPendingChunk {
+  type: "question_batch_pending";
+  batchId: string;
+  assistantMessageId: string;
   createdAt: number;
+  questions: Array<{
+    questionId: string;
+    position: number;
+    question: string;
+    header?: string;
+    options: Array<{ label: string; description?: string }>;
+    multiSelect: boolean;
+    createdAt: number;
+  }>;
 }
 
 /**
@@ -339,7 +345,7 @@ export type MiddlewareChunk =
   | MessageCreatedChunk
   | MessageUpdatedChunk
   | SensePendingChunk
-  | QuestionPendingChunk
+  | QuestionBatchPendingChunk
   | DoneChunk
   | ErrorChunk
   | ChildYieldChunk

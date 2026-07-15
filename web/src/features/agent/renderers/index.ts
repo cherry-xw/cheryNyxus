@@ -24,6 +24,7 @@ registerRenderer("generate_audio", () => import("./MediaRenderer.vue"));
 registerRenderer("search_codebase", () => import("./SearchRenderer.vue"));
 registerRenderer("spawn_role", () => import("./SpawnRenderer.vue"));
 registerRenderer("skill", () => import("./SkillRenderer.vue"));
+registerRenderer("ask_user_question", () => import("./QuestionRenderer.vue"));
 
 // ============== 动态分发组件 ==============
 import SenseCallBox from "../SenseCallBox.vue";

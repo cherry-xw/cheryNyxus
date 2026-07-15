@@ -57,6 +57,25 @@ const indexItems = computed<IndexItem[]>(() => {
   items.push({ label: "项目记忆", anchor: "memory", brief: "活跃条数上限 / 单条字数建议" });
   return items;
 });
+
+/**
+ * 审批等待时长（global.approval_timeout）：后端存 ms，前端 UI 按秒录入。
+ * - 读取：ms ÷ 1000 → 秒（undefined 时保持 undefined，placeholder 显示「0 = 不超时」）
+ * - 写入：秒 × 1000 → ms；清空时回退到 undefined（不强制写 0，保留 yaml 原状）
+ */
+const approvalTimeoutSeconds = computed<number | undefined>({
+  get: () => {
+    const ms = props.draft.global.approval_timeout;
+    return ms === undefined ? undefined : Math.round(ms / 1000);
+  },
+  set: (sec) => {
+    if (sec === undefined || sec === null || Number.isNaN(sec)) {
+      delete props.draft.global.approval_timeout;
+    } else {
+      props.draft.global.approval_timeout = sec * 1000;
+    }
+  },
+});
 </script>
 
 <template>
@@ -114,8 +133,8 @@ const indexItems = computed<IndexItem[]>(() => {
           <el-input-number v-model="draft.global.sense_execute_timeout" :controls="false" placeholder="默认 30000" />
         </label>
         <label class="field">
-          <LabelTip label="审批等待（ms）" tip="approval_timeout：等待人工审批的时间；超时按拒绝处理。≥ 0，0 = 不限时" />
-          <el-input-number v-model="draft.global.approval_timeout" :controls="false" :min="0" placeholder="0 = 不超时" />
+          <LabelTip label="审批等待（秒）" tip="approval_timeout：等待人工审批的时间；超时按拒绝处理。0 = 不限时" />
+          <el-input-number v-model="approvalTimeoutSeconds" :controls="false" :min="0" placeholder="0 = 不超时" />
         </label>
         <label class="field">
           <LabelTip label="单轮工具调用上限" tip="maxLoopCount：单轮会话可连续调用工具的次数" />

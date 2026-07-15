@@ -12,6 +12,7 @@
 - **按创建月固定分片**：chat 创建时固化 `messages_month`，该 chat 全生命周期所有消息写入同一月份库，跨月不迁移。
 - **chat 生命周期 CRUD**：创建、查询、列出（含冗余 `message_count`）、更新时间戳、metadata JSON merge、删除（跨库）。
 - **message CRUD**：路由到对应月份库的插入、查询、审批结果回填、批量撤回、感官去重 replace 标记。
+- **问题批次投影**：`question_batches` + `question_items` 持久化 ask_user_question 批次；支持旧消息回填、事件游标快照和整批原子回答。
 - **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroup + mcpServers，服务重启后自动恢复（单组化：读时兼容旧 `senseGroups[]` 取首项）。
 - **自动 schema 迁移**：旧库缺列时按列检查补 `ALTER TABLE ADD COLUMN`，无需手动迁移。
 
@@ -23,6 +24,7 @@
 |------|--------|
 | [src/db/index.ts](../src/db/index.ts) | 多 SQLite 实例管理：`getSoulDb`/`getMonthlyDb` 单例缓存、chats/messages 建表、列迁移、`closeAllDbs` |
 | [src/db/chat.ts](../src/db/chat.ts) | chats 表 CRUD + messages 表按月路由 CRUD、`MessageRow`/`MessageData` 类型、`parseMessageRow` |
+| [src/db/question.ts](../src/db/question.ts) | QuestionBatch/QuestionItem 持久化、旧占位消息回填、权威快照与原子批量回答 |
 
 ## 核心概念 / 导出
 
@@ -80,6 +82,10 @@ CREATE TABLE messages (
   created_at       INTEGER NOT NULL
 );
 CREATE INDEX idx_messages_chat ON messages(chat_id);
+
+-- YYYY-MM.db.question_batches / question_items
+-- batch_id = assistant_message_id；status=pending/completed。
+-- item 保存结构化问题、单/多选标记、pending/answered/cancelled 和答案审计字段。
 ```
 
 ### CRUD 函数（chat.ts）

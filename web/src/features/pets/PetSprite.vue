@@ -126,6 +126,7 @@ function setWorkTextRef(el: HTMLElement | null): void {
       :right-hand-motion="rightHandMotion"
       :running-tools="runningTools"
       :is-busy="isBusy"
+      :stream="stream"
       @history="emit('history', pet)"
       @abort="emit('abort', pet)"
       @destroy="emit('destroy', pet)"

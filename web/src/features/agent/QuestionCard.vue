@@ -2,139 +2,133 @@
 /**
  * QuestionCard：ask_user_question 感官选项卡。
  *
- * 触发：question_requested notification → store routeNotification 设 stream.question。
+ * 触发：question_batch_requested / 权威快照 → store 选中批次中的当前问题。
  * 渲染：
- *   - 单选：选项 chip 行（点击即提交 selectedLabels=[label]，无 Submit 按钮）
- *   - 多选：选项 chip 行 + 底部 Submit 按钮（提交 selectedLabels=[label1,label2,...]）
- *   - 「其他」chip（永远在最后）：点击打开 el-dialog 文本框，Submit 提交 {selectedLabels:[], freeText, cancelled:false}
- *   - ✕ 关闭：提交 {cancelled:true}（handler 收到取消）
- * 倒计时：waitTime（= global.approval_timeout）- (now - createdAt），waitTime=0 不超时不显倒计时。
+ * 单题只编辑本地草稿；“下一步”把题目标为 ready，最后一题通过 batchAnswer 原子提交。
+ * ✕ 表示该题以 cancelled 答案进入同一批次提交。
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
-import { computed, onBeforeUnmount, ref } from "vue";
-import { ElDialog } from "element-plus";
-import { agentApi } from "@/services/agentApi";
+import { computed, ref, watch } from "vue";
 import { useAgentsStore } from "@/stores";
-import type { QuestionState } from "@/stores/agents";
+import type { QuestionItemState } from "@/stores/agents";
+
+/** batch 进度信息（多问题批次时传入，控制"下一步"vs"提交"按钮） */
+interface BatchInfo {
+  batchId: string;
+  total: number;
+  readyCount: number;
+  isLast: boolean;
+}
 
 const props = defineProps<{
-  question: QuestionState;
-  /** 问题所属 chatId（submit 后 dismissQuestion 用） */
+  question: QuestionItemState;
+  /** 问题所属 chatId */
   chatId: string;
+  /** batch 进度信息（可选，单问题时为 null） */
+  batchInfo?: BatchInfo | null;
 }>();
 
 const agents = useAgentsStore();
 
-// 待提交（单选 chip / 「其他」submit / 多选 submit 任一动作进行中；null = idle）
-const pending = ref<"option" | "other" | "submit" | "cancel" | null>(null);
+// 待提交（「其他」submit / 选项 submit 任一动作进行中；null = idle）
+const pending = ref<"other" | "submit" | "cancel" | null>(null);
 
-// 多选：用户已选的 label 集合（点击 chip 切换）
-const selectedLabels = ref<Set<string>>(new Set());
+// 用户已选的 label 集合（单选互斥 / 多选累加）
+const selectedLabels = ref<Set<string>>(new Set(props.question.draftAnswer?.selectedLabels ?? []));
 
-// 「其他」对话框显隐
-const otherDialogVisible = ref(false);
-const otherText = ref("");
+// 「其他」inline textarea 输入内容
+const otherText = ref(props.question.draftAnswer?.freeText ?? "");
 
-// 倒计时：now 每 250ms 刷新驱动 remaining 重算。waitTime=0 不超时不启动定时器。
-const now = ref(Date.now());
-let timer: ReturnType<typeof setInterval> | undefined;
-if (props.question.waitTime > 0) {
-  timer = setInterval(() => {
-    now.value = Date.now();
-  }, 250);
+/** 「其他」chip 是否 inline 展开（刷新卡片时保留已有自由文本） */
+const otherExpanded = ref(Boolean(otherText.value));
+
+/** 勾选即同步草稿，让 pet 的问号可显示「已勾选、待下一步」中间态。 */
+function syncDraft(): void {
+  const freeText = otherExpanded.value ? otherText.value.trim() : "";
+  const selected = Array.from(selectedLabels.value);
+  if (!selected.length && !freeText) {
+    agents.updateQuestionDraft(props.chatId, props.question.questionId);
+    return;
+  }
+  agents.updateQuestionDraft(props.chatId, props.question.questionId, {
+    selectedLabels: selected,
+    ...(freeText ? { freeText } : {}),
+  });
 }
-onBeforeUnmount(() => {
-  if (timer !== undefined) clearInterval(timer);
+
+watch([selectedLabels, otherText, otherExpanded], syncDraft);
+
+/** 统一 submit 条件：「其他」展开且有文本→允许纯 freeText；否则单选=恰好1，多选=≥1 */
+const canSubmit = computed(() => {
+  if (pending.value !== null) return false;
+  if (otherExpanded.value && otherText.value.trim()) return true;
+  if (props.question.multiSelect) return selectedLabels.value.size > 0;
+  return selectedLabels.value.size === 1;
 });
 
-const showCountdown = computed(() => props.question.waitTime > 0);
-const remainingMs = computed(() =>
-  Math.max(0, props.question.waitTime - (now.value - props.question.createdAt)),
-);
-const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000));
-// 倒计时归零：后端超时 cancel 已触发，按所有 chip/submit 禁用等 question_answered notification 兜底
-const expired = computed(() => showCountdown.value && remainingMs.value <= 0);
+/** footer 按钮文案：仅批次最后一题提交，其余一律进入下一步。 */
+const submitLabel = computed(() => props.batchInfo?.isLast ? "提交" : "下一步");
 
-const canSubmitMulti = computed(
-  () => props.question.multiSelect && selectedLabels.value.size > 0 && !expired.value,
-);
-const canSubmitOther = computed(() => !expired.value);
-
-/** 单选 chip 点击：立即提交 selectedLabels=[label] */
-async function submitSingle(label: string): Promise<void> {
+/** 单选 chip 点击：互斥切换（选中则清空，未选中则替换） */
+function toggleSingle(label: string): void {
   if (pending.value !== null) return;
-  pending.value = "option";
-  try {
-    await agentApi.answerQuestion(props.question.questionId, {
-      selectedLabels: [label],
-    });
-    agents.dismissQuestion(props.chatId);
-  } catch (e) {
-    console.error(`[QuestionCard] answer failed (id=${props.question.questionId}):`, e);
-    pending.value = null;
+  const next = new Set<string>();
+  if (!selectedLabels.value.has(label)) next.add(label);
+  selectedLabels.value = next;
+  // 单选选了具体选项 → 收起「其他」（互斥）
+  if (otherExpanded.value) {
+    otherExpanded.value = false;
+    otherText.value = "";
   }
 }
 
 /** 多选 chip 点击：切换选中状态 */
 function toggleMulti(label: string): void {
-  if (pending.value !== null || expired.value) return;
+  if (pending.value !== null) return;
   const next = new Set(selectedLabels.value);
   if (next.has(label)) next.delete(label);
   else next.add(label);
   selectedLabels.value = next;
 }
 
-/** 多选 Submit：提交 selectedLabels=[label1,label2,...] */
-async function submitMulti(): Promise<void> {
-  if (!canSubmitMulti.value || pending.value !== null) return;
+/** 统一 Submit："下一步"模式保存 draft 后决定提交或切下一个 */
+async function advanceOrSubmit(): Promise<void> {
+  if (!canSubmit.value || pending.value !== null) return;
   pending.value = "submit";
   try {
-    await agentApi.answerQuestion(props.question.questionId, {
+    const draft: { selectedLabels: string[]; freeText?: string } = {
       selectedLabels: Array.from(selectedLabels.value),
-    });
-    agents.dismissQuestion(props.chatId);
+    };
+    if (otherExpanded.value && otherText.value.trim()) {
+      draft.freeText = otherText.value.trim();
+    }
+
+    await agents.advanceQuestion(props.chatId, props.question.questionId, draft);
   } catch (e) {
-    console.error(`[QuestionCard] multi submit failed (id=${props.question.questionId}):`, e);
+    console.error(`[QuestionCard] submit failed (id=${props.question.questionId}):`, e);
+  } finally {
+    // 成功/失败均复位 pending；成功路径不复位会致所有 chip 永久 disabled（bug2）
     pending.value = null;
   }
 }
 
-/** 「其他」chip 点击：打开模态对话框 */
-function openOtherDialog(): void {
-  if (pending.value !== null || expired.value) return;
-  otherText.value = "";
-  otherDialogVisible.value = true;
-}
-
-/** 「其他」对话框 Submit：提交 {selectedLabels:[], freeText} */
-async function submitOther(): Promise<void> {
-  if (pending.value !== null || !canSubmitOther.value) return;
-  const text = otherText.value.trim();
-  if (!text) return; // 空文本不允许提交
-  pending.value = "other";
-  otherDialogVisible.value = false;
-  try {
-    await agentApi.answerQuestion(props.question.questionId, {
-      selectedLabels: [],
-      freeText: text,
-    });
-    agents.dismissQuestion(props.chatId);
-  } catch (e) {
-    console.error(`[QuestionCard] other submit failed (id=${props.question.questionId}):`, e);
-    pending.value = null;
+function toggleOther(): void {
+  if (pending.value !== null) return;
+  otherExpanded.value = !otherExpanded.value;
+  if (!otherExpanded.value) {
+    otherText.value = "";
+  } else if (!props.question.multiSelect) {
+    // 单选：「其他」与具体选项互斥，展开即清空已选
+    selectedLabels.value = new Set();
   }
 }
 
-/** ✕ 关闭：提交 cancelled:true（handler 收到取消） */
+/** ✕ 关闭：将当前题记为取消答案；整批仍在最后一步原子提交。 */
 async function cancel(): Promise<void> {
   if (pending.value !== null) return;
   pending.value = "cancel";
   try {
-    await agentApi.answerQuestion(props.question.questionId, {
-      selectedLabels: [],
-      cancelled: true,
-    });
-    agents.dismissQuestion(props.chatId);
+    await agents.cancelQuestion(props.chatId, props.question.questionId);
   } catch (e) {
     console.error(`[QuestionCard] cancel failed (id=${props.question.questionId}):`, e);
     pending.value = null;
@@ -151,7 +145,7 @@ async function cancel(): Promise<void> {
     <div class="header">
       <span class="indicator" aria-hidden="true" />
       <span v-if="question.header" class="header-text">{{ question.header }}</span>
-      <span v-if="showCountdown" class="countdown" :class="{ expired }">{{ remainingSec }}s</span>
+      <span class="type-tag" :class="{ 'is-multi': question.multiSelect }">{{ question.multiSelect ? "多选" : "单选" }}</span>
       <button
         type="button"
         class="close-btn"
@@ -169,61 +163,50 @@ async function cancel(): Promise<void> {
         type="button"
         class="chip"
         :class="{
-          selected: question.multiSelect && selectedLabels.has(opt.label),
-          disabled: pending !== null || expired,
+          selected: selectedLabels.has(opt.label),
+          disabled: pending !== null,
+          'is-multi': question.multiSelect,
+          'is-single': !question.multiSelect,
         }"
         :title="opt.description ?? opt.label"
-        :disabled="pending !== null || expired"
-        @click="question.multiSelect ? toggleMulti(opt.label) : submitSingle(opt.label)"
-      >
-        <span v-if="question.multiSelect && selectedLabels.has(opt.label)" class="check" aria-hidden="true">✓</span>
-        {{ opt.label }}
-      </button>
+        :disabled="pending !== null"
+        @click="question.multiSelect ? toggleMulti(opt.label) : toggleSingle(opt.label)"
+      >{{ opt.label }}</button>
       <button
         type="button"
         class="chip other"
-        :disabled="pending !== null || expired"
+        :class="{
+          selected: otherExpanded,
+          disabled: pending !== null,
+          'is-multi': question.multiSelect,
+          'is-single': !question.multiSelect,
+        }"
+        :disabled="pending !== null"
         title="「其他」+ 自由文本输入"
-        @click="openOtherDialog"
+        @click="toggleOther"
       >其他</button>
     </div>
-    <div v-if="question.multiSelect" class="footer">
+    <div v-if="otherExpanded" class="other-input">
+      <el-input
+        v-model="otherText"
+        type="textarea"
+        :autosize="{ minRows: 2, maxRows: 5 }"
+        placeholder="其他（Ctrl+Enter 提交）"
+        :disabled="pending !== null"
+        maxlength="500"
+        @keydown.enter.ctrl="advanceOrSubmit"
+        @keydown.enter.meta="advanceOrSubmit"
+      />
+    </div>
+    <div class="footer">
       <button
         type="button"
         class="btn submit"
-        :disabled="!canSubmitMulti || pending !== null"
-        @click="submitMulti"
-      >提交 ({{ selectedLabels.size }})</button>
+        :disabled="!canSubmit || pending !== null"
+        @click="advanceOrSubmit"
+      >{{ submitLabel }}{{ otherExpanded ? "" : ` (${selectedLabels.size})` }}</button>
     </div>
   </div>
-
-  <ElDialog
-    v-model="otherDialogVisible"
-    title="其他输入"
-    width="380px"
-    :close-on-click-modal="false"
-    :close-on-press-escape="!pending"
-  >
-    <el-input
-      v-model="otherText"
-      type="textarea"
-      :rows="3"
-      placeholder="请输入你的回答..."
-      :disabled="pending !== null"
-      maxlength="500"
-      show-word-limit
-      @keydown.enter.ctrl="submitOther"
-      @keydown.enter.meta="submitOther"
-    />
-    <template #footer>
-      <el-button :disabled="pending !== null" @click="otherDialogVisible = false">取消</el-button>
-      <el-button
-        type="primary"
-        :disabled="!otherText.trim() || pending !== null"
-        @click="submitOther"
-      >提交</el-button>
-    </template>
-  </ElDialog>
 </template>
 
 <style scoped lang="less">
@@ -257,6 +240,22 @@ async function cancel(): Promise<void> {
     font-weight: 800;
     line-height: 1.2;
     overflow-wrap: anywhere;
+  }
+
+  .type-tag {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(124, 58, 237, 0.12);
+    color: #6d28d9;
+    font-size: 9px;
+    font-weight: 800;
+    flex-shrink: 0;
+
+    &.is-multi {
+      border-radius: 4px;
+      background: rgba(37, 99, 235, 0.12);
+      color: #2563eb;
+    }
   }
 
   .countdown {
@@ -353,15 +352,45 @@ async function cancel(): Promise<void> {
     border-style: dashed;
   }
 
+  // 「其他」选中（otherExpanded）：.other 在 .selected 之后定义会覆盖其背景，此处显式补回高亮
+  &.other.selected {
+    background: rgba(124, 58, 237, 0.14);
+    border-color: rgba(124, 58, 237, 0.55);
+    color: #5b21b6;
+    border-style: dashed;
+  }
+
+  &.is-multi {
+    border-radius: 5px;
+
+    &:hover:not(:disabled) {
+      background: rgba(37, 99, 235, 0.06);
+      border-color: rgba(37, 99, 235, 0.4);
+    }
+
+    &.selected,
+    &.other.selected {
+      background: rgba(37, 99, 235, 0.14);
+      border-color: rgba(37, 99, 235, 0.55);
+      color: #1d4ed8;
+    }
+  }
+
   &.disabled,
   &:disabled {
     cursor: not-allowed;
     opacity: 0.55;
   }
+}
 
-  .check {
-    font-weight: 800;
-    color: #6d28d9;
+.other-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  width: 100%;
+  :deep(.el-textarea__inner) {
+    font-size: 11px;
   }
 }
 

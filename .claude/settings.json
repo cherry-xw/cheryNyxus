@@ -10,7 +10,9 @@
       "Read(//home/chc/.claude/**)",
       "Bash(CHERY_TRANSPORT=json yarn dev)",
       "Bash(npx tsx *)",
-      "Bash(tsc --noEmit)"
+      "Bash(tsc --noEmit)",
+      "Read(//home/user/src/agent/middleware/**)",
+      "Read(//home/user/src/agent/sense/**)"
     ],
     "additionalDirectories": [
       "/home/chc/.claude"

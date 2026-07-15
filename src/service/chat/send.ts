@@ -16,12 +16,15 @@ import {
   type SenseApprovalResponseData,
   type SenseQuestionAnswerRequestData,
   type SenseQuestionAnswerResponseData,
+  type SenseQuestionBatchAnswerRequestData,
+  type SenseQuestionBatchAnswerResponseData,
   type ChatAbortRequestData,
   type ChatAbortResponseData,
 } from "../message/types.js";
 import { getChat, markMessagesRevoked, updateChatMetadata } from "@/db/chat.js";
 import { approvalManager } from "../approval/manager.js";
-import { questionManager } from "../question/manager.js";
+import { findPendingQuestionBatchByQuestionId } from "@/db/question.js";
+import { resolveQuestionBatch } from "./wake.js";
 import { connectionManager } from "../websocket/connection.js";
 import {
   ensureChat,
@@ -306,28 +309,56 @@ export async function handleSenseApproval(
   };
 }
 
-/**
- * 回答 ask_user_question 感官（RPC → service QuestionManager.confirm → core questionRegistry.resolveQuestion
- * → sense handler 的 await createQuestion 即时返回）。
- */
+/** 旧版单题接口：仅兼容单题批次；多题必须使用原子 batchAnswer。 */
 export async function handleSenseQuestionAnswer(
   _ctx: HandlerContext,
   data: SenseQuestionAnswerRequestData,
 ): Promise<SenseQuestionAnswerResponseData> {
   const cancelled = data.cancelled === true;
-  questionManager.confirm(data.questionId, {
-    selectedLabels: data.selectedLabels,
-    ...(data.freeText !== undefined ? { freeText: data.freeText } : {}),
-    cancelled,
-  });
+  const pending = findPendingQuestionBatchByQuestionId(data.questionId);
   logger.event("sense.question.answer", {
     questionId: data.questionId,
+    chatId: pending?.chatId,
     selectedLabels: data.selectedLabels,
     hasFreeText: data.freeText !== undefined,
     cancelled,
+    legacy: true,
   });
+  if (!pending) {
+    logger.event("sense.question.answer.unknown", { questionId: data.questionId });
+    return { questionId: data.questionId, cancelled };
+  }
+  if (pending.pendingCount !== 1) {
+    throw new Error(`Question "${data.questionId}" belongs to a multi-question batch; use sense.question.batchAnswer`);
+  }
+  await resolveQuestionBatch(pending.chatId, pending.batchId, [{
+    questionId: data.questionId,
+    selectedLabels: data.selectedLabels,
+    ...(data.freeText !== undefined ? { freeText: data.freeText } : {}),
+    ...(cancelled ? { cancelled: true } : {}),
+  }]);
 
   return { questionId: data.questionId, cancelled };
+}
+
+/** 原子回答整批 ask_user_question；成功响应由调用方负责启动 chat.resume。 */
+export async function handleSenseQuestionBatchAnswer(
+  _ctx: HandlerContext,
+  data: SenseQuestionBatchAnswerRequestData,
+): Promise<SenseQuestionBatchAnswerResponseData> {
+  logger.event("sense.question.batchAnswer", {
+    chatId: data.chatId,
+    batchId: data.batchId,
+    questionCount: data.answers.length,
+    cancelledCount: data.answers.filter((answer) => answer.cancelled === true).length,
+  });
+  const completed = await resolveQuestionBatch(data.chatId, data.batchId, data.answers);
+  return {
+    chatId: data.chatId,
+    batchId: data.batchId,
+    completed: true,
+    shouldResume: !completed.alreadyCompleted,
+  };
 }
 
 /**
@@ -373,5 +404,6 @@ export function registerChatHandlers(router: import("../message/router.js").RpcR
   router.register(Method.CHAT_RESUME, handleChatResume);
   router.register(Method.SENSE_APPROVAL, handleSenseApproval);
   router.register(Method.SENSE_QUESTION_ANSWER, handleSenseQuestionAnswer);
+  router.register(Method.SENSE_QUESTION_BATCH_ANSWER, handleSenseQuestionBatchAnswer);
   router.register(Method.CHAT_ABORT, handleChatAbort);
 }

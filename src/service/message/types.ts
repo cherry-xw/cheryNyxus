@@ -82,8 +82,10 @@ export type NotificationType =
   | "role_created"   // 角色（子 pet）派发（spawn_role sense 执行时推送给主 chat 所属连接）
   | "role_destroyed" // 角色销毁（destroy_role sense 执行时推送给主 chat 所属连接，CP6）
   | "role_reply"     // wait=true 子完成唤主（后端注入角色回复后推，前端 chat.resume 续跑，T9 B1）
-  | "question_requested" // ask_user_question 感官：弹出选项卡询问用户
-  | "question_answered"; // ask_user_question 已答（含取消/超时），前端清理气泡（防御性兜底，正常路径由 RPC 响应 + optimistic dismiss 处理）
+  | "question_requested" // ask_user_question 旧版逐题事件（兼容历史事件重放）
+  | "question_answered" // ask_user_question 旧版逐题完成事件（兼容）
+  | "question_batch_requested" // 一个 assistant turn 的完整问题批次
+  | "question_batch_completed"; // 批次已原子完成，前端清理本地投影
 
 // ========== Request Data ==========
 
@@ -213,6 +215,26 @@ export interface SenseQuestionAnswerRequestData {
 export interface SenseQuestionAnswerResponseData {
   questionId: string;
   cancelled: boolean;
+}
+
+/** 原子提交一个持久化问题批次。answers 必须恰好覆盖批次内所有仍 pending 的问题。 */
+export interface SenseQuestionBatchAnswerRequestData {
+  chatId: string;
+  batchId: string;
+  answers: Array<{
+    questionId: string;
+    selectedLabels: string[];
+    freeText?: string;
+    cancelled?: boolean;
+  }>;
+}
+
+export interface SenseQuestionBatchAnswerResponseData {
+  chatId: string;
+  batchId: string;
+  completed: boolean;
+  /** true 时调用方应启动 chat.resume；重复提交已完成批次时为 false。 */
+  shouldResume: boolean;
 }
 
 export interface ChatAbortRequestData {
@@ -423,7 +445,28 @@ export interface ChatListResponseData {
   }>;
 }
 
-export interface ChatGetResponseData {
+export interface PendingQuestionBatchData {
+  batchId: string;
+  assistantMessageId: string;
+  createdAt: number;
+  questions: Array<{
+    questionId: string;
+    position: number;
+    question: string;
+    header?: string;
+    options: Array<{ label: string; description?: string }>;
+    multiSelect: boolean;
+    createdAt: number;
+  }>;
+}
+
+export interface QuestionStateSnapshotData {
+  /** 与 pendingQuestionBatches 同一 SQLite 读快照中的 chat event 游标。 */
+  snapshotSeq: number;
+  pendingQuestionBatches: PendingQuestionBatchData[];
+}
+
+export interface ChatGetResponseData extends QuestionStateSnapshotData {
   chatId: string;
   /** 末条为 pending sense 时 true，前端据此发起 chat.resume 撤回重跑 */
   canResume?: boolean;
@@ -481,7 +524,7 @@ export interface ChatResumeResponseData {
   alreadyRunning?: boolean;
 }
 
-export interface ChatSyncResponseData {
+export interface ChatSyncResponseData extends QuestionStateSnapshotData {
   chatId: string;
   latestSeq: number;
   minSeq?: number;
@@ -691,6 +734,9 @@ export type NotificationData =
   | RoleDestroyedNotificationData
   | RoleReplyNotificationData
   | QuestionRequestedNotificationData
+  | QuestionAnsweredNotificationData
+  | QuestionBatchRequestedNotificationData
+  | QuestionBatchCompletedNotificationData
   | DoneNotificationData
   | null;
 
@@ -843,12 +889,7 @@ export interface RoleDestroyedNotificationData {
   chatId: string;
 }
 
-/**
- * ask_user_question 感官请求（question_pending chunk 转换）。
- * 前端 QuestionCard 据 questionId/options/multiSelect 渲染选项卡；waitTime>0 显倒计时。
- * 复用 `global.approval_timeout`（字段约束 >= 0，0 = 不超时）。handler await 该 questionId 在
- * core questionRegistry 的 Promise，用户通过 `sense.question.answer` RPC 触发 resolve。
- */
+/** 旧版逐题提问事件，仅保留历史协议兼容。 */
 export interface QuestionRequestedNotificationData {
   questionId: string;
   senseName: "ask_user_question";
@@ -860,6 +901,21 @@ export interface QuestionRequestedNotificationData {
   waitTime: number;
   /** 发起时间戳（ms，Date.now()）。前端倒计时 = waitTime - (now - createdAt)。 */
   createdAt: number;
+}
+
+/** 旧版逐题完成事件，仅保留历史协议兼容。 */
+export interface QuestionAnsweredNotificationData {
+  questionId: string;
+  /** 可选答案文本（权威内容已写入 sense content；此字段仅作即时展示/日志） */
+  answer?: string;
+}
+
+/** 后端持久化完成后发出的完整问题批次；事件可安全重放且按 batchId 幂等。 */
+export interface QuestionBatchRequestedNotificationData extends PendingQuestionBatchData {}
+
+/** 批次原子提交完成。仅用于清理客户端投影；是否 resume 由 batchAnswer RPC 响应决定。 */
+export interface QuestionBatchCompletedNotificationData {
+  batchId: string;
 }
 
 // ========== Error ==========
@@ -900,6 +956,7 @@ export const Method = {
   SENSE_APPROVAL: "sense.approval",
   // Sense 问答（ask_user_question 感官答案回传）
   SENSE_QUESTION_ANSWER: "sense.question.answer",
+  SENSE_QUESTION_BATCH_ANSWER: "sense.question.batchAnswer",
   // Chat 中止（切换 chat：清内存 + 退出挂起 generator，不动 DB，pending 保留供下次重新审核）
   CHAT_ABORT: "chat.abort",
 
@@ -965,6 +1022,7 @@ export interface RpcMethodMap {
   [Method.CHAT_START_SPAWN]: { params: ChatStartSpawnRequestData; result: ChatStartSpawnResponseData };
   [Method.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData };
   [Method.SENSE_QUESTION_ANSWER]: { params: SenseQuestionAnswerRequestData; result: SenseQuestionAnswerResponseData };
+  [Method.SENSE_QUESTION_BATCH_ANSWER]: { params: SenseQuestionBatchAnswerRequestData; result: SenseQuestionBatchAnswerResponseData };
   [Method.CHAT_ABORT]: { params: ChatAbortRequestData; result: ChatAbortResponseData };
   [Method.BASH_LIST]: { params: BashListRequestData; result: BashListResponseData };
   [Method.BASH_KILL]: { params: BashKillRequestData; result: BashKillResponseData };

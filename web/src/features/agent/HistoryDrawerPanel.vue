@@ -7,12 +7,17 @@
  * - 群消息渲染（MessageBubble）+ 上下文用量条 + 宽度拖拽
  * - jumpToSpawn：group 模式本面板内滚动定位；direct 模式（子 chat 自身）push 主 chat 到栈顶
  * - 仅栈顶面板（isTop）显示 ✕；下层同宽 + DOM 顺序在后，被完全遮盖不可交互
+ *
+ * 虚拟列表：使用通用 VirtualScroll。
+ * - 按稳定消息 key 缓存离屏项的实测高度；动态高度变化会补偿视口锚点，避免快速滚动抖动。
+ * - 长消息、思考折叠和媒体加载均由 ResizeObserver 重新量测。
  * 错误显性化（规则 12）：stream 不存在时显 loading 而非崩（getHistory ensureStream，理论不达）。
  */
 import { computed, nextTick, ref, watch } from "vue";
 import { motion } from "motion-v";
 import { useAgentsStore } from "@/stores";
 import type { HistoryItem } from "@/stores/agents";
+import VirtualScroll from "@/components/VirtualScroll.vue";
 import { mergeChildReplyHistory } from "@/stores/agents/historyMerge";
 import MessageBubble from "./MessageBubble.vue";
 import { useDrawerWidth } from "./useDrawerWidth";
@@ -20,6 +25,19 @@ import { useSubPetResolution } from "./useSubPetResolution";
 import { useHistoryDrawerManager } from "./useHistoryDrawerManager";
 
 const MotionDiv = motion.div;
+
+/** 按消息内容估算未量测项的高度，量测完成后由 VirtualScroll 替换。 */
+function estimateHeight(item: HistoryItem | undefined): number {
+  if (!item) return 120;
+  const role = item.role;
+  if (role === "user" || role === "master") return 90;
+  const hasThinking = !!item.thinking && item.thinking.trim().length > 0;
+  const senseCount = item.senseCalls?.length ?? 0;
+  if (hasThinking && senseCount > 0) return 320;
+  if (hasThinking) return 220;
+  if (senseCount > 0) return 180;
+  return 130;
+}
 
 const props = defineProps<{
   /** 本面板要展示的 chat。 */
@@ -53,7 +71,19 @@ const history = computed<HistoryItem[]>(() => {
 });
 const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false);
 
-const scrollRef = ref<HTMLElement | null>(null);
+type VirtualScrollInstance = {
+  scrollToEnd: () => void;
+  scrollToIndex: (
+    index: number,
+    options?: { align?: "start" | "center" | "end"; behavior?: ScrollBehavior },
+  ) => void;
+};
+
+const virtualScrollRef = ref<VirtualScrollInstance | null>(null);
+
+function getHistoryItemKey(item: HistoryItem, index: number): string {
+  return item.msgId ?? `idx-${index}`;
+}
 
 // 面板挂载 / chatId 变 → 载入历史（经 manager.loadHistory，预留缓存层）
 watch(
@@ -65,11 +95,17 @@ watch(
 );
 
 function scrollToBottom(): void {
-  void nextTick(() => {
-    const el = scrollRef.value;
-    if (el) el.scrollTop = el.scrollHeight;
-  });
+  void nextTick(() => virtualScrollRef.value?.scrollToEnd());
 }
+
+/** 把 idx 项对齐到视口（start 顶部 / center 中部 / end 底部）。
+ *  - jump-to-sensecall 用中心对齐 + smooth：柔和落位，避免硬切
+ *  - scrollToBottom 仍走 scrollTop 直接赋值（聊天累积即时跟随更顺手）
+ *  - 滚动边界由 VirtualScroll 统一处理。 */
+function scrollToItem(idx: number, align: "start" | "center" | "end"): void {
+  void nextTick(() => virtualScrollRef.value?.scrollToIndex(idx, { align, behavior: "smooth" }));
+}
+
 // 历史长度变化（流式累积）→ 滚到底
 watch(() => history.value.length, scrollToBottom);
 // loaded 切 true（首批 staged 回放完成）→ 滚到底
@@ -98,10 +134,11 @@ const {
 
 // F：smooth scroll 到指定 sense call 框（被唤起 agent 头像点击跳转用）
 function scrollToSenseCall(senseCallId: string): void {
-  void nextTick(() => {
-    const el = scrollRef.value?.querySelector(`#sensecall-${CSS.escape(senseCallId)}`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
+  const idx = history.value.findIndex((item) =>
+    item.senseCalls?.some((sc) => sc.id === senseCallId),
+  );
+  if (idx < 0) return;
+  scrollToItem(idx, "center");
 }
 
 // F：MessageBubble @jump-to-spawn handler
@@ -206,26 +243,34 @@ const usageDetail = computed(() => {
       </div>
     </div>
 
-    <div ref="scrollRef" class="drawer-body">
+    <div class="drawer-body">
       <div v-if="!loaded" class="loading-row">载入历史…</div>
-      <template v-else>
-        <div v-if="history.length === 0" class="empty-row">暂无历史</div>
-        <MessageBubble
-          v-for="(item, idx) in history"
-          :key="idx"
-          :item="item"
-          :layout="layout"
-          :master-pet-name="masterPetName"
-          :sub-pet-name="subPetName(item)"
-          :sub-pet-face="subPetFace(item)"
-          :sub-pet-type="subPetType(item)"
-          :caller-pet-face="callerPetFace(item)"
-          :caller-pet-name="callerPetName(item)"
-          :caller-is-master="callerIsMaster(item)"
-          :show-master-badge="isLastSubReply(item)"
-          @jump-to-spawn="onJumpToSpawn"
-        />
-      </template>
+      <div v-else-if="history.length === 0" class="empty-row">暂无历史</div>
+      <VirtualScroll
+        v-else
+        ref="virtualScrollRef"
+        class="history-list"
+        :items="history"
+        :item-key="getHistoryItemKey"
+        :estimate-size="estimateHeight"
+        :default-render-count="12"
+      >
+        <template #default="{ index }">
+          <MessageBubble
+            :item="history[index]!"
+            :layout="layout"
+            :master-pet-name="masterPetName"
+            :sub-pet-name="subPetName(history[index]!)"
+            :sub-pet-face="subPetFace(history[index]!)"
+            :sub-pet-type="subPetType(history[index]!)"
+            :caller-pet-face="callerPetFace(history[index]!)"
+            :caller-pet-name="callerPetName(history[index]!)"
+            :caller-is-master="callerIsMaster(history[index]!)"
+            :show-master-badge="isLastSubReply(history[index]!)"
+            @jump-to-spawn="onJumpToSpawn"
+          />
+        </template>
+      </VirtualScroll>
     </div>
   </MotionDiv>
 </template>
@@ -320,11 +365,10 @@ const usageDetail = computed(() => {
 
 .drawer-body {
   flex: 1;
-  overflow-y: auto;
-  padding: 12px 14px 18px;
+  padding: 12px 0 18px 14px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
 }
 
 .loading-row,
@@ -334,6 +378,13 @@ const usageDetail = computed(() => {
   color: fade(@ink, 48%);
   font-size: 12px;
   font-style: italic;
+}
+
+.history-list {
+  flex: 1;
+  min-height: 0;
+  padding-right: 8px;
+  --virtual-scroll-gap: 10px;
 }
 
 .usage-bar-wrap {

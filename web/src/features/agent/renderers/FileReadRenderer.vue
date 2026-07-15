@@ -10,8 +10,9 @@
  *   - 压缩信息（如有）：末尾显示 `[compressed: truncate]`
  * - 元信息：offset + limit（如有）
  */
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import type { RendererProps, ReadFileArgs } from "./types";
+import { CopyDocument, DocumentChecked } from "@element-plus/icons-vue";
 
 const props = defineProps<RendererProps>();
 
@@ -66,6 +67,40 @@ const lineCount = computed(() => {
   return content.value.split("\n").length;
 });
 
+// 复制路径到剪贴板
+const copied = ref(false);
+let copyTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function copyPath(): Promise<void> {
+  const path = parsedArgs.value?.path ?? "";
+  if (!path) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(path);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = path;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    copied.value = true;
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => {
+      copied.value = false;
+    }, 1200);
+  } catch (e) {
+    console.warn("[FileReadRenderer] 复制失败", e);
+  }
+}
+
+onBeforeUnmount(() => {
+  if (copyTimer) clearTimeout(copyTimer);
+});
+
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
@@ -103,7 +138,22 @@ const fallback = computed(() => {
     <div v-if="parsedArgs" class="file-section">
       <div class="file-row">
         <span class="file-label">路径:</span>
-        <code class="file-path">{{ parsedArgs.path }}</code>
+        <div class="file-path-wrap">
+          <code class="file-path">{{ parsedArgs.path }}</code>
+          <button
+            type="button"
+            class="copy-btn"
+            :class="{ copied: copied }"
+            :aria-label="copied ? '已复制' : '复制路径'"
+            @click="copyPath"
+          >
+            <el-icon>
+              <DocumentChecked v-if="copied" />
+              <CopyDocument v-else />
+            </el-icon>
+          </button>
+        </div>
+        <div style="flex: 1"></div>
       </div>
       <div v-if="parsedArgs.offset !== undefined || parsedArgs.limit !== undefined" class="file-row">
         <span class="file-label">范围:</span>
@@ -204,10 +254,14 @@ const fallback = computed(() => {
   color: fade(@ink, 56%);
 }
 
-.file-path {
-  flex: 1;
+.file-path-wrap {
+  position: relative;
   min-width: 0;
-  padding: 2px 6px;
+}
+
+.file-path {
+  display: block;
+  padding: 2px 18px 2px 6px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -223,6 +277,39 @@ const fallback = computed(() => {
   font-size: 10.5px;
   color: fade(@ink, 70%);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.copy-btn {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.7);
+  color: fade(@ink, 60%);
+  cursor: pointer;
+  user-select: none;
+
+  .el-icon {
+    font-size: 10px;
+  }
+
+  &:hover {
+    background: #ffffff;
+    color: fade(@ink, 84%);
+  }
+
+  &.copied {
+    border-color: rgba(22, 163, 74, 0.4);
+    background: rgba(22, 163, 74, 0.12);
+    color: #16a34a;
+  }
 }
 
 .file-fallback {

@@ -9,12 +9,14 @@ import type { VariantType } from "motion-v";
 import ContextBar from "@/features/agent/ContextBar.vue";
 import PetToolbar from "@/features/agent/PetToolbar.vue";
 import RunningTools from "@/features/agent/RunningTools.vue";
+import type { StreamState } from "@/stores";
 import type { PetInstance } from "./types";
 import type { RunningTool } from "@/stores/agents";
+import { flattenQuestionItems } from "@/stores/agents/questionBatch";
 
 const MotionSpan = motion.span;
 
-defineProps<{
+const props = defineProps<{
   pet: PetInstance;
   paused: boolean;
   classes: unknown[];
@@ -29,7 +31,10 @@ defineProps<{
   rightHandMotion: { animate: VariantType; transition: VariantType["transition"] };
   runningTools: RunningTool[];
   isBusy: boolean;
+  stream?: StreamState;
 }>();
+
+const questionItems = () => flattenQuestionItems(props.stream);
 
 const emit = defineEmits<{
   history: [pet: PetInstance];
@@ -127,7 +132,7 @@ const emit = defineEmits<{
             :transition="rightHandMotion.transition"
           >{{ rightHand }}</MotionSpan>
         </span>
-        <div class="meta-row" :class="{ 'has-running': runningTools.length }">
+        <div class="meta-row">
           <span class="name">
             <span
               v-for="(ch, i) in nameChars"
@@ -145,7 +150,14 @@ const emit = defineEmits<{
             @compact="emit('compact', pet)"
             @resume="emit('resume', pet)"
           />
-          <RunningTools v-if="!pet.isGhost" :tools="runningTools" />
+        </div>
+        <!-- RunningTools 独占第二行（absolute 不占高度）：提问 ❓ hover 显问题 + click 开卡片，非提问纯展示 -->
+        <div v-if="!pet.isGhost && (runningTools.length > 0 || questionItems().length > 0)" class="running-row">
+          <RunningTools
+            :tools="runningTools"
+            :questions="questionItems()"
+            :chat-id="pet.chatId"
+          />
         </div>
       </MotionSpan>
     </span>
@@ -340,6 +352,18 @@ const emit = defineEmits<{
   transform: scaleX(var(--pet-direction));
 }
 
+/* RunningTools 行：absolute 脱离流（零布局高度），避免加行把 pet 脸顶上去与气泡错位。
+   锚定 .dir（positioned 祖先）底部正下方（top:100% = meta-row 下方），水平居中。
+   pet 位置/脸位/气泡对齐不再随 0/1/N 个工具变动。 */
+.running-row {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  display: flex;
+  justify-content: center;
+  transform: translateX(-50%) scaleX(var(--pet-direction));
+}
+
 .name {
   padding: 1px 5px;
   border: 1px solid rgba(255, 255, 255, 0.78);
@@ -350,11 +374,6 @@ const emit = defineEmits<{
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
-}
-
-.meta-row.has-running .name {
-  max-width: 56px;
-  overflow: hidden;
 }
 
 .status-stack {

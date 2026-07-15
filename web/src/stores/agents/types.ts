@@ -99,10 +99,16 @@ export interface ApprovalState {
   createdAt: number;
 }
 
-/** 当前 chat 的待回答问题（question_requested 写入；submit 后 dismissQuestion 立即清）。 */
-export interface QuestionState {
+export interface QuestionDraftAnswer {
+  selectedLabels: string[];
+  freeText?: string;
+  cancelled?: boolean;
+}
+
+/** 问题项仅保存客户端草稿/推进状态；服务端 pending/completed 以所属批次为权威。 */
+export interface QuestionItemState {
   questionId: string;
-  senseName: "ask_user_question";
+  position: number;
   /** 问题正文 */
   question: string;
   /** 简短标题（≤12 字，可选，UI 顶部展示） */
@@ -111,10 +117,19 @@ export interface QuestionState {
   options: Array<{ label: string; description?: string }>;
   /** true = 多选；false = 单选（默认） */
   multiSelect: boolean;
-  /** 等待时长（ms，来自 question_requested.waitTime = global.approval_timeout）。0=不超时不显倒计时。 */
-  waitTime: number;
-  /** 发起时间戳（ms，来自 question_requested.createdAt）。倒计时 = waitTime - (now - createdAt)。 */
   createdAt: number;
+  /** pending=仍在编辑；ready=已点下一步/取消，等待整批原子提交。 */
+  localStatus: "pending" | "ready";
+  draftAnswer?: QuestionDraftAnswer;
+}
+
+/** 后端持久化问题批次在前端的唯一投影。 */
+export interface QuestionBatchState {
+  batchId: string;
+  assistantMessageId: string;
+  createdAt: number;
+  status: "pending" | "submitting";
+  questions: QuestionItemState[];
 }
 
 /**
@@ -123,7 +138,7 @@ export interface QuestionState {
  * CP2 细化双气泡（thinking 阶段全空间显 thinking；thinking 结束主气泡 content + 左侧小气泡 thinking）。
  * CP4 history：chat.get staged 回放累积（与实时 stream 累积分流）。
  * CP5 approval：interrupt/accept/rejected 驱动 ApprovalCard；approvalQueue 保存被用户关闭但未处理的审批供重新唤起。
- * CP-ask：question_requested/question_answered 驱动 QuestionCard；questionQueue 暂未实现（问答主线程阻塞，无并发）。
+ * CP-ask：question_batch_requested/completed + 权威快照驱动 QuestionCard。
  */
 export interface StreamState {
   thinking: string;
@@ -153,11 +168,14 @@ export interface StreamState {
    * - 服务端 accept/rejected notification 到达时按 approvalId 在 `approval` + `approvalQueue` 中查找移除
    */
   approvalQueue: ApprovalState[];
+  /** 后端权威 pending 问题批次；快照以 replace 方式写入，事件按 batchId 幂等增删。 */
+  questionBatches: QuestionBatchState[];
   /**
-   * 当前 pending 问题（无则 undefined）。question_requested 写入；submit 后 dismissQuestion 立即清。
-   * 问题由 ask_user_question 感官触发；handler await 此问题阻塞 LLM 主线程，无 queue 并发场景。
+   * 当前用户正在查看/编辑的 questionId（PetBubbles 据此渲染对应 QuestionCard）。
+   * null/undefined = 无选中（不显示 QuestionCard）。
+   * 点击 PetToolbar 问号 chip 时设置。
    */
-  question?: QuestionState;
+  activeQuestionId?: string;
   /** 运行中工具（sense_started push；accept 按 id 移除；done/error 清空）。供 pet bar 右侧 RunningTools 显 icon。 */
   runningTools: RunningTool[];
   /**
@@ -168,6 +186,12 @@ export interface StreamState {
    * PetSprite 据 v-if 显 error-bubble（红边浅红底）。sendMessage 入口清空（确保新轮不残留）。
    */
   error?: string;
+  /**
+   * sync 回放标记（syncChatEvents 设置）。true 表示当前正在处理 chat.sync 回放的历史事件。
+   * routeChunk/routeNotification 检查此标记，跳过实时状态更新（thinking/content/isWorking/retainUntil），
+   * 防止历史 chunks 触发气泡显示。sync 完成后清除。
+   */
+  isSyncing?: boolean;
 }
 
 /** stream chunk 携带的 data（实时增量）。 */

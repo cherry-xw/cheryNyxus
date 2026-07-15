@@ -1,25 +1,27 @@
 import { z } from "zod";
 import { sense, type SenseResult } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
-import { createQuestion } from "@/core/sense/questionRegistry.js";
 
 /**
  * ask_user_question 感官：LLM 用此向用户提结构化问题（2-4 选项 + 可选「其他」自由文本）。
  *
- * SupervisionLevel.auto：handler 内部 await createQuestion 阻塞直至用户回答；
- *   不走 approval 二元 accept/reject 流。
+ * SupervisionLevel.auto + **yield-turn 模型**（镜像 spawn_role wait=true，不阻塞 await）：
+ *   handler 立即 `ctx.yieldTurn()` 请求 loop 本轮后结束（主 agent yield done 释放 WS；
+ *   wait=true 子 agent yield child_yield 不唤主、不结束任务），并返回**非空占位** content。
  *
- * 生命周期：tool.ts buildSenseTrigger 同步创建 registry entry → checkpoint.ts yield
- *   question_pending chunk → 前端收到 question_requested → 用户回答 → RPC → resolveQuestion
- *   → 本 handler await 解除 → 返回 content。createQuestion 幂等复用同一 Promise。
+ *   占位 content 非空是关键：使 `hasPendingTrailingSense()`=false → resume 走 Case2 →
+ *   `executeResumePending` 永不重跑本感官（避免重复提问/死循环）。
  *
- * 答案格式：`{ selectedLabels: string[], freeText?: string, cancelled: boolean }`。
- *   - 单选：selectedLabels.length === 1
- *   - 多选：selectedLabels.length >= 1
- *   - 「其他」+ 自由文本：selectedLabels 留空（前端在 chip「其他」触发模态对话框时设定）
- *   - 用户取消 / 超时：cancelled: true
+ * 生命周期：
+ *   1. checkpoint 收集同一 assistant turn 的全部 ask_user_question；
+ *   2. placeholder sense 全部落库后 yield question_batch_pending → 后端持久化批次并推送批次事件；
+ *   3. 本 handler `yieldTurn()` + 返回占位 → sense_accept（占位）→ loop 末 yieldTurn break；
+ *   4. 用户回答 → sense.question.batchAnswer 原子更新整批 sense content（占位→答案）
+ *      + set resumePending → 前端 chat.resume → LLM 见全部答案。
+ *
+ * 答案由 service 层 `resolveQuestionBatch` 直接写入 sense content（非 handler 返回），故本 handler
+ *   不读答案、不 await，仅 yield + 占位。
  */
-
 const Option = z.object({
   label: z.string().min(1),
   description: z.string().optional(),
@@ -37,15 +39,10 @@ export default sense(
   `向用户提问并等待回答。返回值为用户选择的 label（或「其他」自由文本）。`,
   AskUserQuestionSchema,
   async (_input, _shared, ctx): Promise<SenseResult> => {
-    // id 用 sense call id（= 主 chat sense message.id），供前端 dismissQuestion + resume 续接关联。
-    // buildSenseTrigger 已同步调用 createQuestion(id, timeout) 注册 entry（避免 handler await 时 entry 未建的竞态）；
-    // 本 handler 幂等返回同一 Promise 并 await。
-    const id = ctx?.messageId ?? crypto.randomUUID();
-    const ans = await createQuestion(id);
-    if (ans.cancelled) return { content: "(用户取消了此问题)" };
-    const labels = ans.selectedLabels;
-    const text = ans.freeText ? `其他: ${ans.freeText}` : labels.join(", ");
-    return { content: `用户回答: ${text}` };
+    // yield-turn：请求 loop 本轮后结束，释放 turn 等待用户回答。
+    // 答案由 service resolveQuestionBatch 原地写入本 sense（id = messageId）的 content，resume 后 LLM 见。
+    ctx?.yieldTurn?.();
+    return { content: "(等待用户回答…)" };
   },
   SupervisionLevel.auto,
 );

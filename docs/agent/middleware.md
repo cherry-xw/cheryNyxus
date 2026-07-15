@@ -56,7 +56,7 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
 | `consumed` | checkpoint | 用户输入已入队 |
 | `message_created` / `message_updated` | checkpoint | 声明副作用（observer 落库） |
 | `sense_pending` | checkpoint | 声明审批待注册（observer 注册 ApprovalManager） |
-| `question_pending` | checkpoint | 声明问答待注册（observer 注册 QuestionManager；仅 `ask_user_question` 感官） |
+| `question_batch_pending` | checkpoint | 同一 assistant turn 的完整待回答批次；仅在所有 placeholder sense 已写入 journal 后产生 |
 | `error` | retry / loop | 重试失败或 maxLoop 超限 |
 | `done` | loop | 整个 loop 结束 |
 
@@ -141,34 +141,40 @@ sense 层 Phase 2：executeCollectedCalls
 
 ### C. 问答流程（ask_user_question，agent 侧）
 
-ask_user_question 是特殊感官：`SupervisionLevel.auto`（不走 approval 流），handler 内部 `await createQuestion(...)` 阻塞直至用户回答。Registry Promise 由 tool.ts buildSenseTrigger 在 trigger yield 前同步注册（避免 handler 到达时用户已答但 entry 未建的竞态），checkpoint.ts yield `question_pending` chunk 推到前端；用户通过 `sense.question.answer` RPC → service QuestionManager.confirm → core questionRegistry.resolveQuestion → handler await 解除。
+ask_user_question 是特殊感官：`SupervisionLevel.auto`（不走 approval 流），采用 **yield-turn 模型**（镜像 `spawn_role wait=true`，不阻塞 await）。handler 立即 `ctx.yieldTurn()` + 返回**非空占位** content `"(等待用户回答…)"`；loop 末 `yieldTurn=true` → break。checkpoint 收集本 turn 的全部提问，等 placeholder sense 全部进入 journal 后才产生一个 `question_batch_pending`，批次 ID 使用稳定的 assistant message ID。
+
+**答案到达后原子更新 + resume**：用户 `sense.question.batchAnswer` → service 在一个 SQLite 事务中校验并更新批次全部 sense content + 关闭 batch → 同步内存 journal → set `resumePending` + 持久化 `question_batch_completed`。RPC 返回 `shouldResume:true` 后前端启动 `chat.resume`，新一轮 LLM 一次看到整批答案。
+
+**不重跑关键**：占位 content 非空 → `hasPendingTrailingSense()`=false → resume 走 Case2（`run("")`），`executeResumePending` 永不为 ask 触发，无重复提问/死循环。
 
 ```
 1. tool.ts buildSenseTrigger(ctx, id, "ask_user_question", argsJson):
-     ├─ createQuestion(id, ctx.global.approval_timeout)  ← 同步注册 entry（幂等）
      └─ yield SenseTriggerChunk(type:"sense_end", id, name:"ask_user_question", supervisionLevel:0)
 
 2. checkpoint.ts 收 trigger：
-     ├─ name==="ask_user_question" → safeJsonParse(argsJson) → yield QuestionPendingChunk(...)
+     └─ name==="ask_user_question" → safeJsonParse(argsJson) → 收集为本 turn 的 question candidate
 
-3. observer.ts 收 question_pending → questionManager.register(id)
+3. executeCollectedCalls auto branch:
+     await doExecuteSense → handler (ask.ts):
+       ctx?.yieldTurn?.() + return { content: "(等待用户回答…)" }  ← 立即返回，不 await
+     → sense_accept（占位 content）→ loop 末 yieldTurn → break → done/child_yield
 
-4. streamMapper.ts 收 question_pending → yield question_requested notification → 前端
+4. checkpoint finally 将全部 placeholder sense 变更先 yield 给 observer 落库，再产生 question_batch_pending
 
-5. ...（时间流逝）...
+5. observer 持久化 question_batches/question_items → streamMapper 推 question_batch_requested（chat.send 流内进入事件日志）
 
-6. 前端 QuestionCard 用户选 option / 「其他」/ ✕ 取消：
-     → agentApi.answerQuestion(questionId, {selectedLabels, freeText?, cancelled?})
-     → handleSenseQuestionAnswer → questionManager.confirm → resolveQuestion
+6. ...（时间流逝；agent idle 等待，WS 已释放）...
 
-7. executeCollectedCalls auto branch:
-     await doExecuteSense → senseEntry.execute(args, ctx, {messageId: id})
-       → handler (ask.ts) await createQuestion(id)  ← 复用同一 Promise（已 resolve）
+7. 前端 QuestionCard 用户逐题编辑草稿，最后一步提交整批：
+     → agentApi.answerQuestionBatch(chatId, batchId, answers[])
+     → handleSenseQuestionBatchAnswer → resolveQuestionBatch
+       → 单事务写完全部答案 + 关闭批次
+       → completeSenseResult 同步内存 + set resumePending + 推 question_batch_completed
 
-8. handler 返回 content → yield sense_accept notification → sense_end 链路结束
+8. batchAnswer response.shouldResume → resumeAgent → chat.resume → 新 loop（末条 sense → continue）→ LLM 见全部答案
 ```
 
-与审批的关键差异：审批在 middleware 层 await，handler 同步执行；问答在 handler 层 await，middleware 不感知。`pending question` 不入库（与审批相同，靠 messages.content 空判断）。
+与审批的关键差异：审批在 middleware 层 await（handler 同步），靠 pending sense（content 空）+ canResume 续接；问答用 yield-turn（不 await、释放 turn），靠持久化 QuestionBatch + placeholder sense + 原子 batchAnswer 触发 resume。问答不限时。
 - `sense_pending` effect **始终 yield**（即便 pending sense 消息已存在，如 resume 续接场景）——resume 时 pending 已落库，仅注册 ApprovalManager 避免重复 INSERT。
 
 ### C. checkpoint 的三 delta 状态机
@@ -240,7 +246,7 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../src/agent/mid
 | [core/middleware](../../src/core/middleware/) | `compose`（洋葱执行器）、`MiddlewareHandler`、`LoopHandler` |
 | [core/middleware/types](../../src/core/middleware/types.ts) | `MiddlewareContext`、`RuntimeConfig`、所有 Chunk 类型 |
 | [core/config](../../src/core/config.ts) | `SupervisionLevel` 枚举 |
-| [core/sense](../../src/core/sense/) | `createApproval`（[tool.ts](../../src/agent/middleware/tool.ts) 构建审批 Promise）<br>`createQuestion`（tool.ts buildSenseTrigger 为 `ask_user_question` 同步注册问答 Promise） |
+| [core/sense](../../src/core/sense/) | `createApproval`（[tool.ts](../../src/agent/middleware/tool.ts) 构建审批 Promise） |
 | [core/message/adapter](../../src/core/message/adapter.ts) | `ReplaceInfo`（sense 历史替换）、`LLMResponse` |
 | [core/sense/adapter](../../src/core/sense/adapter.ts) | `SenseCallData`、`SenseFunction` |
 | [core/llm/adapter](../../src/core/llm/adapter.ts) | `LLMOptions` |

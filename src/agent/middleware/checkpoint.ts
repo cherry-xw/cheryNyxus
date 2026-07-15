@@ -43,6 +43,14 @@ export async function* checkpointMiddleware(
   }
 
   const state = new CheckpointState();
+  const questionCandidates: Array<{
+    questionId: string;
+    question: string;
+    header?: string;
+    options: Array<{ label: string; description?: string }>;
+    multiSelect: boolean;
+    createdAt: number;
+  }> = [];
   // 三 delta 状态机标记
   let thinkingActive = false;  // thinkingDelta 是否活跃
   let contentActive = false;   // contentDelta 是否活跃
@@ -156,29 +164,22 @@ export async function* checkpointMiddleware(
             supervisionLevel: trigger.supervisionLevel,
           } as MiddlewareChunk;
         } else if (trigger.name === "ask_user_question") {
-          // ask_user_question 是 auto 监管等级的特殊感官：handler 在 buildSenseTrigger 已同步
-          //   创建 registry entry（避免 handler await 时 entry 未建的竞态）。
-          // 此处 yield question_pending effect chunk：
-          //   - observer 收 → questionManager.register(id)
-          //   - streamMapper 收 → question_requested notification（含 question payload + waitTime）
-          // argsJson 含 question/header/options/multiSelect；safeJsonParse 失败时仍 yield（options=[]，
-          //   前端空状态，handler zod 校验会捕获）。
+          // 这里只收集候选题，不立即通知前端。必须等 finally 将 ask handler 返回的 placeholder
+          // sense 全部写入 journal/DB 后，再发一个完整批次，消除“事件先到、sense 尚不可写”的竞态。
           const args = safeJsonParse<Record<string, unknown>>(trigger.arguments, {}) as {
             question?: string;
             header?: string;
             options?: Array<{ label: string; description?: string }>;
             multiSelect?: boolean;
           };
-          yield {
-            type: "question_pending",
+          questionCandidates.push({
             questionId: trigger.id,
             question: args.question ?? "",
             ...(args.header ? { header: args.header } : {}),
             options: args.options ?? [],
             multiSelect: args.multiSelect ?? false,
-            waitTime: ctx.global.approval_timeout ?? 0,
             createdAt: Date.now(),
-          } as MiddlewareChunk;
+          });
         }
       }
 
@@ -234,6 +235,30 @@ export async function* checkpointMiddleware(
         id: reconcile.id,
         patch: reconcile.patch,
       } as MiddlewareChunk;
+    }
+
+    // ask_user_question 批次必须最后发：前面的 message_created/message_updated 已由 observer
+    // 顺序落库，此时 answer RPC 可安全地在单事务中更新所有 sense placeholder。
+    const assistantMessageId = state.getFlushedAssistantId();
+    if (assistantMessageId && questionCandidates.length > 0) {
+      const messages = ctx.journal.getMessages();
+      const pendingQuestions = questionCandidates.filter((question) =>
+        messages.some(
+          (message) =>
+            message.id === question.questionId &&
+            message.role === "sense" &&
+            message.content === "(等待用户回答…)",
+        ),
+      );
+      if (pendingQuestions.length > 0) {
+        yield {
+          type: "question_batch_pending",
+          batchId: assistantMessageId,
+          assistantMessageId,
+          createdAt: Math.min(...pendingQuestions.map((question) => question.createdAt)),
+          questions: pendingQuestions.map((question, position) => ({ ...question, position })),
+        } as MiddlewareChunk;
+      }
     }
   }
 

@@ -39,8 +39,9 @@ export function speechZIndex(pet: PetInstance): number {
 /** 审批气泡专属 z-index：固定 400。 */
 export const APPROVAL_Z_INDEX = 400;
 
-/** 气泡锚点：气泡底部贴 status-row 上方 16px。offset=28（44-16）。 */
-const BUBBLE_OFFSET_Y = 28;
+/** 气泡锚点基准值：气泡底部贴 status-row 上方 16px。offset=28（44-16）。
+ *  running-row 已改 absolute（零布局高度），脸位不再随工具数变动，无需 running 补偿。 */
+const BUBBLE_OFFSET_Y_BASE = 28;
 
 export function usePetStyles(
   pet: () => PetInstance,
@@ -49,6 +50,9 @@ export function usePetStyles(
   paused: () => boolean,
 ) {
   const agents = useAgentsStore();
+
+  // === 气泡 offset：恒为 base（running-row absolute 不再顶动脸位） ===
+  const bubbleOffsetY = computed(() => BUBBLE_OFFSET_Y_BASE);
 
   // === 表情 / 手部 / 名字 ===
   const faceGlyph = computed(() => (pet().isGhost ? pet().ghostFace ?? "👻" : pet().face[pet().mood]));
@@ -84,19 +88,19 @@ export function usePetStyles(
 
   const speechStyle = computed(() => ({
     left: `${pet().x + pet().width / 2}px`,
-    top: `${pet().y + BUBBLE_OFFSET_Y}px`,
+    top: `${pet().y + bubbleOffsetY.value}px`,
     zIndex: String(speechZIndex(pet())),
   }));
 
   const sideBubbleStyle = computed(() => ({
     left: `${pet().x - 60}px`,
-    top: `${pet().y + BUBBLE_OFFSET_Y}px`,
+    top: `${pet().y + bubbleOffsetY.value}px`,
     zIndex: String(speechZIndex(pet())),
   }));
 
   const approvalStyle = computed(() => ({
     left: `${pet().x + pet().width / 2}px`,
-    top: `${pet().y + BUBBLE_OFFSET_Y}px`,
+    top: `${pet().y + bubbleOffsetY.value}px`,
     zIndex: String(APPROVAL_Z_INDEX),
   }));
 
@@ -136,7 +140,7 @@ export function usePetStyles(
   const todoPanelStyle = computed(() => ({
     position: "absolute" as const,
     left: `${pet().x + pet().width + 8}px`,
-    top: `${pet().y + BUBBLE_OFFSET_Y}px`,
+    top: `${pet().y + bubbleOffsetY.value}px`,
     zIndex: String(speechZIndex(pet())),
   }));
 
