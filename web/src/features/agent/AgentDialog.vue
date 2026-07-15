@@ -3,6 +3,7 @@
  * AgentDialog orchestrator：发消息弹窗（runtime 切换合一）。
  * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
  */
+import { computed } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { ElPopover, ElUpload } from "element-plus";
 import RoleConfigPopover from "./dialog/RoleConfigPopover.vue";
@@ -22,6 +23,34 @@ const {
   removeMedia, onMediaSelected,
   senseEntries, senseTool, brainConfig, supportsTools,
 } = useAgentDialogOptions();
+
+/** 颜色分级（与 SessionList / HistoryDrawerPanel / ContextBar 对齐：<50% 绿 / 50-80% 黄 / >=80% 红）。 */
+function usageClass(u: number): "usage-low" | "usage-mid" | "usage-high" {
+  if (u >= 0.8) return "usage-high";
+  if (u >= 0.5) return "usage-mid";
+  return "usage-low";
+}
+
+/** token 数格式化：<1000 直显，>=1000 缩为 1.2K / 12K（与 SessionList / HistoryDrawerPanel 完全一致）。 */
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
+  return `${Math.round(n / 1000)}K`;
+}
+
+/** 每角色上下文占用（按当前 brain 的 contextLimit 折算）。brain / config / pet 任一未就绪 → null（chip 隐藏）。 */
+const roleUsages = computed<Record<string, { used: number; total: number; usage: number } | null>>(() => {
+  const p = pet.value;
+  const out: Record<string, { used: number; total: number; usage: number } | null> = {};
+  for (const [role, sel] of Object.entries(roleSelections.value)) {
+    const limit = brainConfig(sel.brain)?.contextLimit;
+    if (!limit || !p) { out[role] = null; continue; }
+    const used = p.contextUsed ?? 0;
+    const usage = Math.min(1, Math.max(0, used / limit));
+    out[role] = { used, total: limit, usage };
+  }
+  return out;
+});
 </script>
 
 <template>
@@ -88,7 +117,18 @@ const {
                   <span class="role-summary-main">
                     <span aria-hidden="true">{{ role === primaryRole ? "♛" : "✦" }}</span>
                     <span class="role-summary-name">{{ role }}</span>
-                    <span class="role-summary-model">◈ {{ (brainConfig(selection.brain)?.model ?? selection.brain) || "—" }}</span>
+                  </span>
+                  <span class="role-summary-meta-row">
+                    <span class="role-summary-model-slot">
+                      <span class="role-summary-model">◈ {{ (brainConfig(selection.brain)?.model ?? selection.brain) || "—" }}</span>
+                    </span>
+                    <span
+                      v-if="roleUsages[role]"
+                      class="role-usage-chip"
+                      :class="usageClass(roleUsages[role]!.usage)"
+                      :title="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}%`"
+                      :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
+                    >{{ fmtTokens(roleUsages[role]!.used) }}/{{ fmtTokens(roleUsages[role]!.total) }}</span>
                   </span>
                   <span v-if="senseEntries(selection.senseGroup).length" class="role-summary-senses" aria-label="当前能力">
                     <span v-for="entry in senseEntries(selection.senseGroup)" :key="entry" class="role-summary-sense-icon">
@@ -214,6 +254,27 @@ const {
 
 <style scoped lang="less">
 @import "./dialog/agentDialog.less";
+
+.role-usage-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.role-summary-meta-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+.role-usage-chip.usage-low  { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
+.role-usage-chip.usage-mid  { background: rgba(234, 179, 8, 0.16); color: #a16207; }
+.role-usage-chip.usage-high { background: rgba(239, 68, 68, 0.16); color: #b91c1c; }
 </style>
 
 <!-- Popover 挂载到 Teleport 根节点，需用非 scoped 样式去除 Element Plus 的外层壳。 -->
