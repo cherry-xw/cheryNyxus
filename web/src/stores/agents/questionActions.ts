@@ -81,10 +81,30 @@ export function createQuestionActions(
     });
   }
 
+  /**
+   * 撤回当前题：current localStatus: ready → pending（draft 保留可再编辑）；
+   * 然后激活同批的上一题（按 position）。批首题无上一步 → noop。
+   * 整批已 ready 状态可逐次回退，无需重新走 advanceQuestion。
+   */
+  function backQuestion(chatId: string, questionId: string): void {
+    const stream = streams.value[chatId];
+    const found = findQuestion(stream, questionId);
+    if (!stream || !found || found.batch.status === "submitting") return;
+    const { batch, question } = found;
+    const sorted = [...batch.questions].sort((a, b) => a.position - b.position);
+    const currentIdx = sorted.findIndex((q) => q.questionId === questionId);
+    if (currentIdx <= 0) return;
+    const prev = sorted[currentIdx - 1];
+    // 当前若是 ready 状态则撤回（pending 状态下只是切换焦点）
+    if (question.localStatus === "ready") question.localStatus = "pending";
+    stream.activeQuestionId = prev.questionId;
+  }
+
   return {
     selectQuestion: select,
     updateQuestionDraft: updateDraft,
     advanceQuestion,
+    backQuestion,
     cancelQuestion,
     submitBatch,
   };

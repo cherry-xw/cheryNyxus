@@ -37,7 +37,7 @@ function isDrafted(question: QuestionItemState): boolean {
         }"
         :aria-label="question.header ?? question.question"
         @click="agents.selectQuestion(chatId, question.questionId)"
-      >{{ question.localStatus === "ready" ? "✅" : "❓" }}</button>
+      >{{ question.localStatus === "ready" ? "👌" : "✍️" }}</button>
     </el-tooltip>
     <span
       v-for="tool in tools"
@@ -69,9 +69,8 @@ function isDrafted(question: QuestionItemState): boolean {
   border-radius: 5px;
   background: rgba(255, 196, 87, 0.4);
   font-family: @glyph-fonts;
-  font-size: 10px;
-  font-weight: 700;
   line-height: 1;
+  font-size: 11px;
   animation: run-pulse 1.1s ease-in-out infinite;
 
   &.is-clickable { cursor: pointer; }

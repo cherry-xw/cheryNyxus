@@ -5,7 +5,7 @@
  * 触发：question_batch_requested / 权威快照 → store 选中批次中的当前问题。
  * 渲染：
  * 单题只编辑本地草稿；“下一步”把题目标为 ready，最后一题通过 batchAnswer 原子提交。
- * ✕ 表示该题以 cancelled 答案进入同一批次提交。
+ * 「跳过」按钮把该题以 cancelled 答案进入同一批次提交。
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
 import { computed, ref, watch } from "vue";
@@ -66,8 +66,18 @@ const canSubmit = computed(() => {
   return selectedLabels.value.size === 1;
 });
 
-/** footer 按钮文案：仅批次最后一题提交，其余一律进入下一步。 */
+/** header 按钮文案：仅批次最后一题提交，其余一律进入下一步。 */
 const submitLabel = computed(() => props.batchInfo?.isLast ? "提交" : "下一步");
+
+/** 最后一题（含无 batchInfo 的单题）走文本按钮；其余显示右箭头 ‹ 图标。 */
+const isLastStep = computed(() => props.batchInfo?.isLast ?? true);
+
+/** 「上一步」可用：批首题无上一步；提交中禁用（防 race）。 */
+const canBack = computed(() => {
+  if (pending.value !== null) return false;
+  if (!props.batchInfo || props.batchInfo.total <= 1) return false;
+  return props.batchInfo.readyCount >= 0; // readyCount > 0 已说明当前题不是批首
+});
 
 /** 单选 chip 点击：互斥切换（选中则清空，未选中则替换） */
 function toggleSingle(label: string): void {
@@ -123,7 +133,7 @@ function toggleOther(): void {
   }
 }
 
-/** ✕ 关闭：将当前题记为取消答案；整批仍在最后一步原子提交。 */
+/** 「跳过」：将当前题记为取消答案；整批仍在最后一步原子提交。 */
 async function cancel(): Promise<void> {
   if (pending.value !== null) return;
   pending.value = "cancel";
@@ -133,6 +143,12 @@ async function cancel(): Promise<void> {
     console.error(`[QuestionCard] cancel failed (id=${props.question.questionId}):`, e);
     pending.value = null;
   }
+}
+
+/** 「上一步」：撤回当前题 ready → pending，并切到同批上一题。无 store await，纯本地焦点切换。 */
+function back(): void {
+  if (!canBack.value) return;
+  agents.backQuestion(props.chatId, props.question.questionId);
 }
 </script>
 
@@ -146,14 +162,32 @@ async function cancel(): Promise<void> {
       <span class="indicator" aria-hidden="true" />
       <span v-if="question.header" class="header-text">{{ question.header }}</span>
       <span class="type-tag" :class="{ 'is-multi': question.multiSelect }">{{ question.multiSelect ? "多选" : "单选" }}</span>
-      <button
-        type="button"
-        class="close-btn"
-        :disabled="pending !== null"
-        aria-label="取消问题"
-        title="取消（向 AI 反馈用户跳过此问题）"
-        @click="cancel"
-      >✕</button>
+      <span class="header-actions">
+        <button
+          v-if="batchInfo && batchInfo.total > 1"
+          type="button"
+          class="nav-btn back"
+          :disabled="!canBack"
+          aria-label="上一步"
+          title="回到上一题"
+          @click="back"
+        >‹</button>
+        <button
+          type="button"
+          class="nav-btn submit"
+          :disabled="!canSubmit || pending !== null"
+          :title="submitLabel"
+          @click="advanceOrSubmit"
+        >{{ submitLabel }}</button>
+        <button
+          type="button"
+          class="nav-btn skip"
+          :disabled="pending !== null"
+          aria-label="跳过此问题"
+          :title="'跳过此问题' + (question.question.length > 1 ? '' : '（只针对这一个问题，不包含本批次其他问题）')"
+          @click="cancel"
+        >跳过</button>
+      </span>
     </div>
     <div class="question-text">{{ question.question }}</div>
     <div class="options">
@@ -197,14 +231,6 @@ async function cancel(): Promise<void> {
         @keydown.enter.ctrl="advanceOrSubmit"
         @keydown.enter.meta="advanceOrSubmit"
       />
-    </div>
-    <div class="footer">
-      <button
-        type="button"
-        class="btn submit"
-        :disabled="!canSubmit || pending !== null"
-        @click="advanceOrSubmit"
-      >{{ submitLabel }}{{ otherExpanded ? "" : ` (${selectedLabels.size})` }}</button>
     </div>
   </div>
 </template>
@@ -275,29 +301,64 @@ async function cancel(): Promise<void> {
     }
   }
 
-  .close-btn {
+  .header-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
     flex-shrink: 0;
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    border: 1px solid rgba(36, 38, 45, 0.16);
+  }
+
+  .nav-btn {
+    flex-shrink: 0;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.7);
-    color: fade(@ink, 56%);
+    border: 1px solid;
     font-size: 9px;
-    font-weight: 700;
+    font-weight: 800;
     line-height: 1;
     cursor: pointer;
-    transition: background 100ms ease, color 100ms ease;
-
-    &:hover:not(:disabled) {
-      background: #fff;
-      color: fade(@ink, 86%);
-    }
+    transition: background 120ms ease, opacity 120ms ease;
 
     &:disabled {
       cursor: not-allowed;
       opacity: 0.4;
+    }
+
+    &.back {
+      border-color: rgba(36, 38, 45, 0.18);
+      background: rgba(255, 255, 255, 0.7);
+      color: fade(@ink, 70%);
+      font-size: 11px;
+      padding: 0 2px;
+
+      &:hover:not(:disabled) {
+        background: #fff;
+        color: @ink;
+      }
+    }
+
+    &.submit {
+      border-color: #7c3aed;
+      background: #ede9fe;
+      color: #5b21b6;
+
+      &:hover:not(:disabled) {
+        background: #ddd6fe;
+      }
+    }
+
+    &.skip {
+      border-color: rgba(36, 38, 45, 0.18);
+      background: rgba(255, 255, 255, 0.7);
+      color: fade(@ink, 70%);
+
+      &:hover:not(:disabled) {
+        background: #fff;
+        color: @ink;
+      }
     }
   }
 }
@@ -391,38 +452,6 @@ async function cancel(): Promise<void> {
   width: 100%;
   :deep(.el-textarea__inner) {
     font-size: 11px;
-  }
-}
-
-.footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.btn {
-  padding: 3px 10px;
-  border: 1px solid;
-  border-radius: 5px;
-  font-size: 10px;
-  font-weight: 800;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    opacity 120ms ease;
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-
-  &.submit {
-    border-color: #7c3aed;
-    background: #ede9fe;
-    color: #5b21b6;
-
-    &:hover:not(:disabled) {
-      background: #ddd6fe;
-    }
   }
 }
 </style>

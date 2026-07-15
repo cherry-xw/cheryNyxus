@@ -12,6 +12,13 @@ import type { PetInstance } from "@/features/pets/types";
 import { useAgentsStore } from "@/stores";
 import { collectDescendantChatIds } from "@/stores/agents/historyMerge";
 
+const CLOCK_EMOJIS = [
+  "🕐", "🕑", "🕒", "🕓", "🕔", "🕕",
+  "🕖", "🕗", "🕘", "🕙", "🕚", "🕛",
+  "🕜", "🕝", "🕞", "🕟", "🕠", "🕡",
+  "🕢", "🕣", "🕤", "🕥", "🕦", "🕧",
+] as const;
+
 const props = defineProps<{
   pet: PetInstance;
 }>();
@@ -58,7 +65,17 @@ const canHide = computed(() => {
       aria-label="History"
       @click="emit('history', pet)"
     >
-      🕐<span class="tip">History</span>
+      <span v-if="pet.isWorking" class="clock-strip" aria-hidden="true">
+        <span class="clock-track">
+          <span
+            v-for="(c, i) in CLOCK_EMOJIS"
+            :key="i"
+            class="clock-frame"
+          >{{ c }}</span>
+        </span>
+      </span>
+      <span v-else aria-hidden="true">🕐</span>
+      <span class="tip">History</span>
     </button>
     <button
       v-if="pet.isWorking"
@@ -175,5 +192,35 @@ const canHide = computed(() => {
     opacity: 1;
     transform: translateX(-50%) scale(1);
   }
+}
+
+.clock-strip {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.clock-track {
+  display: inline-flex;
+  width: 384px;
+  height: 16px;
+  animation: clock-slide 2.4s steps(24) infinite;
+}
+
+.clock-frame {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@keyframes clock-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(-384px); }
 }
 </style>
