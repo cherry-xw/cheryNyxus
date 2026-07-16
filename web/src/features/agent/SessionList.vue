@@ -15,6 +15,8 @@ import { AnimatePresence, motion } from "motion-v";
 import { ElMessageBox } from "element-plus";
 import { useAgentsStore } from "@/stores";
 import { formatTime } from "@/utils/formatTime";
+import { fmtTokens } from "./contextBreakdown";
+import ContextBreakdownTip from "./ContextBreakdownTip.vue";
 
 const MotionDiv = motion.div;
 const agents = useAgentsStore();
@@ -64,13 +66,6 @@ function usageClass(u: number): string {
   if (u >= 0.8) return "usage-high";
   if (u >= 0.5) return "usage-mid";
   return "usage-low";
-}
-
-/** 格式化 token 数：< 1000 直显，≥ 1000 缩写为 1.2K/12K 等。 */
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(Math.round(n));
-  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
-  return `${Math.round(n / 1000)}K`;
 }
 
 function load(chatId: string): void {
@@ -153,12 +148,18 @@ async function remove(chatId: string): Promise<void> {
                 <span class="meta">
                   <span class="time">{{ formatTime(s.updatedAt) }}</span>
                   <span class="turns">{{ s.turnCount ?? 0 }} 轮</span>
-                  <span v-if="typeof s.contextUsage === 'number'" class="usage" :class="usageClass(s.contextUsage)">
-                    <span v-if="typeof s.contextUsed === 'number' && typeof s.contextTotal === 'number' && s.contextTotal > 0" class="usage-detail">
-                      {{ fmtTokens(s.contextUsed) }}/{{ fmtTokens(s.contextTotal) }}
+                  <el-tooltip v-if="typeof s.contextUsage === 'number'" placement="top" :show-after="200" :hide-after="0">
+                    <template #content>
+                      <ContextBreakdownTip v-if="s.contextBreakdown" :breakdown="s.contextBreakdown" />
+                      <span v-else>上下文 {{ Math.round(s.contextUsage * 100) }}%</span>
+                    </template>
+                    <span class="usage" :class="usageClass(s.contextUsage)">
+                      <span v-if="typeof s.contextUsed === 'number' && typeof s.contextTotal === 'number' && s.contextTotal > 0" class="usage-detail">
+                        {{ fmtTokens(s.contextUsed) }}/{{ fmtTokens(s.contextTotal) }}
+                      </span>
+                      <span class="usage-pct">{{ Math.round(s.contextUsage * 100) }}%</span>
                     </span>
-                    <span class="usage-pct">{{ Math.round(s.contextUsage * 100) }}%</span>
-                  </span>
+                  </el-tooltip>
                 </span>
               </div>
               <button

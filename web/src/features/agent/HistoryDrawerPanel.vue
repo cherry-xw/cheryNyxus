@@ -24,6 +24,8 @@ import HistoryRail from "./HistoryRail.vue";
 import { useDrawerWidth } from "./useDrawerWidth";
 import { useSubPetResolution } from "./useSubPetResolution";
 import { useHistoryDrawerManager } from "./useHistoryDrawerManager";
+import { breakdownSegments, fmtTokens } from "./contextBreakdown";
+import type { BreakdownKey } from "./contextBreakdown";
 
 const MotionDiv = motion.div;
 
@@ -202,13 +204,6 @@ const titleText = computed(() => {
   return `历史 · ${props.chatId.slice(0, 8)}…`;
 });
 
-/** 格式化 token 数：< 1000 直显，≥ 1000 缩写为 1.2K/12K 等。 */
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(Math.round(n));
-  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
-  return `${Math.round(n / 1000)}K`;
-}
-
 /** contextUsage 颜色分级（与 ContextBar / SessionList 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
 function usageClass(u: number): string {
   if (u >= 0.8) return "usage-high";
@@ -223,6 +218,40 @@ const usageDetail = computed(() => {
   if (typeof contextUsed !== "number" || typeof contextTotal !== "number" || contextTotal <= 0) return null;
   return { used: contextUsed, total: contextTotal };
 });
+/** 分段（breakdown 给出时用于分段彩色条 + 行内图例；缺省 → []，退化为单段 usage-fill）。
+ *  - allSegs：全量，供图例（0 段灰色展示完整类目）。
+ *  - usageSegs：过滤 token=0，供色块条（避免空类 min-width 显色噪声）。 */
+const allSegs = computed(() => breakdownSegments(pet.value?.contextBreakdown));
+const usageSegs = computed(() => allSegs.value.filter((s) => s.tokens > 0));
+
+/** 行内图例短标签（区别于 ContextBreakdownTip 的全称标签，适配单行紧凑布局）。 */
+const SHORT_LABELS: Record<BreakdownKey, string> = {
+  system: "系统",
+  userSystem: "用户",
+  memory: "记忆",
+  skills: "技能",
+  tools: "工具",
+  conversation: "对话",
+};
+function shortLabel(key: BreakdownKey): string {
+  return SHORT_LABELS[key] ?? key;
+}
+
+/** 图例标签文字色（加深版，区别于色块条鲜艳色：amber/green 原色在米白底对比不足）。 */
+const LABEL_COLORS: Record<BreakdownKey, string> = {
+  system: "#4338ca",
+  userSystem: "#7e22ce",
+  memory: "#be185d",
+  skills: "#b45309",
+  tools: "#047857",
+  conversation: "#1d4ed8",
+};
+function labelColor(key: BreakdownKey): string {
+  return LABEL_COLORS[key] ?? "#4338ca";
+}
+
+/** 图例中 0 token 段的灰色（标签 + tokens 统一降明度，区别于有量的彩色标签）。 */
+const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
 </script>
 
 <template>
@@ -263,6 +292,19 @@ const usageDetail = computed(() => {
     <div v-if="usageDetail" class="usage-bar-wrap" :class="usageClass(pet?.contextUsage ?? 0)">
       <div class="usage-bar-row">
         <span class="usage-label">上下文</span>
+        <div v-if="allSegs.length" class="usage-legend">
+          <span
+            v-for="seg in allSegs"
+            :key="seg.key"
+            class="legend-item"
+            :class="{ 'is-zero': seg.tokens === 0 }"
+          >
+            <span class="legend-label" :style="{ color: seg.tokens > 0 ? labelColor(seg.key) : ZERO_COLOR }">{{
+              shortLabel(seg.key)
+            }}</span>
+            <span class="legend-tokens">{{ fmtTokens(seg.tokens) }}</span>
+          </span>
+        </div>
         <span class="usage-values">
           <span class="usage-used">{{ fmtTokens(usageDetail.used) }}</span>
           <span class="usage-sep">/</span>
@@ -271,7 +313,15 @@ const usageDetail = computed(() => {
         </span>
       </div>
       <div class="usage-track">
-        <div class="usage-fill" :style="{ width: `${Math.min(100, usagePct)}%` }"></div>
+        <template v-if="usageSegs.length">
+          <div
+            v-for="seg in usageSegs"
+            :key="seg.key"
+            class="usage-seg"
+            :style="{ width: `${seg.pct}%`, background: seg.color }"
+          ></div>
+        </template>
+        <div v-else class="usage-fill" :style="{ width: `${Math.min(100, usagePct)}%` }"></div>
       </div>
     </div>
 
@@ -458,6 +508,40 @@ const usageDetail = computed(() => {
     gap: 8px;
   }
 
+  .usage-legend {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 2px;
+    column-gap: 6px;
+    overflow: hidden;
+
+    .legend-item {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 2px;
+      font-size: 9px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .legend-item.is-zero .legend-tokens {
+      opacity: 0.5;
+    }
+
+    .legend-label {
+      font-weight: 600;
+    }
+
+    .legend-tokens {
+      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+      color: fade(@ink, 60%);
+    }
+  }
+
   .usage-label {
     font-size: 10px;
     color: fade(@ink, 52%);
@@ -502,6 +586,15 @@ const usageDetail = computed(() => {
     border-radius: 2px;
     background: rgba(36, 38, 45, 0.08);
     overflow: hidden;
+    display: flex;
+    gap: 2px;
+
+    .usage-seg {
+      height: 100%;
+      flex-shrink: 0;
+      min-width: 8px;
+      transition: width 0.3s ease;
+    }
 
     .usage-fill {
       height: 100%;

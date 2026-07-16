@@ -125,7 +125,8 @@ afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)�
 ├── .env                                 # API Key 等环境变量（从 .env.example 模板复制，可编辑）
 ├── .chery\                              # 运行时配置（从 .chery.template/ 复制，可编辑）
 │   ├── config.yaml
-│   ├── system.md
+│   ├── prompt\
+│   │   └── system.md
 │   ├── prompts\
 │   ├── skills\
 │   └── senses\
@@ -139,7 +140,8 @@ afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)�
 │   ├── .env.example                     # .env 模板（afterPack 用作种子）
 │   ├── .chery.template\                 # .chery 模板（afterPack 用作种子）
 │   │   ├── config.yaml
-│   │   ├── system.md
+│   │   ├── prompt\
+│   │   │   └── system.md
 │   │   ├── prompts\
 │   │   ├── skills\
 │   │   └── senses\

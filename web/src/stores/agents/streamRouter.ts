@@ -3,7 +3,7 @@ import { generatePet } from "@/features/pets/petPresets";
 import { findSpawnPosition } from "@/features/pets/petMovement";
 import { createPetInstance } from "@/features/pets/usePetWorld";
 import type { PetInstance } from "@/features/pets/types";
-import type { ChatSummary } from "@/services/agentApi";
+import type { ChatSummary, ContextBreakdown } from "@/services/agentApi";
 import type {
   StreamState,
   StreamChunkData,
@@ -176,10 +176,11 @@ export function createStreamRouter(
         // CP7: done notification 携带 contextUsage（token/brain.contextLimit）→ 更新 pet.contextUsage（ContextBar 消费）
         // 子 agent done（finished=true）→ 转 ghost（灵魂态保留），pick 灵魂 emoji 按 tribe 序号取（selfId 排除已置 isGhost 的自身）
         if (type === "done" && pet) {
-          const d = (n.data ?? {}) as { contextUsage?: number; used?: number; total?: number; finished?: boolean };
+          const d = (n.data ?? {}) as { contextUsage?: number; used?: number; total?: number; contextBreakdown?: ContextBreakdown; finished?: boolean };
           if (typeof d.contextUsage === "number") pet.contextUsage = d.contextUsage;
           if (typeof d.used === "number") pet.contextUsed = d.used;
           if (typeof d.total === "number") pet.contextTotal = d.total;
+          if (d.contextBreakdown) pet.contextBreakdown = d.contextBreakdown;
           // done 表示 loop 正常结束 → 末条为 assistant → canResume 失效
           pet.canResume = false;
           if (d.finished === true && !pet.isMaster) {

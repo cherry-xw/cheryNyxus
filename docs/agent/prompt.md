@@ -10,7 +10,7 @@
 
 | 文件 | 一句话 |
 |------|--------|
-| [index.ts](../../src/agent/prompt/index.ts) | `buildFirstSystemPrompt()`：拼装 `<system-reminder>` + `<environment>` + `<workspace>`（条件） + `<skills>` 四段 |
+| [index.ts](../../src/agent/prompt/index.ts) | `buildFirstSystemPrompt()`（拼装 `<system-reminder>`+`<environment>`+`<workspace>`+`<skills>`，**全局 base + override 合并**）+ `buildSystemPromptSegments()`（分段计量） |
 | [loadSkill.ts](../../src/agent/prompt/loadSkill.ts) | SKILL.md frontmatter 解析 + 实时遍历 skills 目录（无缓存） |
 | [listPrompts.ts](../../src/agent/prompt/listPrompts.ts) | `listPrompts()`：递归遍历 `.chery/prompts/`，返相对路径列表（供 `prompts.list` RPC + 前端级联选择器） |
 
@@ -22,15 +22,15 @@
 export default function buildFirstSystemPrompt(promptPathOverride?: string, workspace?: string): string;
 ```
 
-- 无参 / `promptPathOverride` 缺省 → 读 `config.global.system_prompt`（模块加载期缓存 `systemPrompt`）。
-- `promptPathOverride` 给出（per-subagent / 预设 main）→ 实时 `readFileSync` 该路径（**不**走模块缓存，支持每子 agent 不同 prompt 文件）；文件缺失则 warn + 退回全局 `systemPrompt`（运行期容错，配置期 `validateRawConfig` 已 existsSync 校验）。
+- 全局 base：模块加载期读取固定路径 `.chery/prompt/system.md`（`CHERY_DIR/.chery/prompt/system.md`，不再走 `config.global.system_prompt` 配置字段）。
+- `promptPathOverride` 给出（per-subagent / 预设 main）→ 实时 `readFileSync` 该路径作为**补充**拼接到全局 base 之后（**合并**而非替换；**不**走模块缓存，支持每子 agent 不同 prompt 文件）；文件缺失则 warn 并仅用全局 base（运行期容错，配置期 `validateRawConfig` 已 existsSync 校验）。
 - `workspace` 给出（预设 `presets.<name>.workspace`）→ 在 `<environment>` 后注入 `<workspace>` 段（提示词层面声明本会话的项目工作目录，**不**改变 sense 实际行为）；缺省 → 不注入该段。
 
 输出结构（XML 标签包裹；`<workspace>` 仅 `workspace` 给出时出现）：
 
 ```text
 <system-reminder>
-{config.global.system_prompt 指向的文件内容}
+{全局 base（.chery/prompt/system.md）+ override 补充（promptPathOverride 给出时，合并拼接于 base 之后）}
 </system-reminder>
 
 <environment>
@@ -53,7 +53,7 @@ export default function buildFirstSystemPrompt(promptPathOverride?: string, work
 </skills>
 ```
 
-**`system_prompt` 路径：** 来自 `config.global.system_prompt`（[utils/config.ts](../../src/utils/config.ts)）。模块加载时一次性读取并 `.trim()`；文件不存在则空串。
+**全局 system prompt 路径：** 固定为 `CHERY_DIR/.chery/prompt/system.md`（不再经 `config.global.system_prompt` 配置字段，见 [utils/config.ts](../../src/utils/config.ts) `getCheryDir`）。模块加载时一次性读取并 `.trim()`；文件不存在则空串。
 
 **skills 段：** 调用 [getSkillMetas()](../../src/agent/prompt/loadSkill.ts)，每个 skill 仅含 `name`/`description`/`trigger`（**不含 content**）——完整指令按需由 [skill 感官](../../src/agent/sense/skill.ts) 加载，避免 system prompt 膨胀。trigger 缺省则省略「触发条件」行。
 
@@ -66,14 +66,14 @@ export default function buildFirstSystemPrompt(promptPathOverride?: string, work
 **per-agent system prompt（T7，主/子通用，T6 扩展至预设）**：主/子 agent 均可配专属 system prompt，数据流：
 ```text
 来源：config.roles[type].systemPrompt（角色）或 config.presets[preset].leader.systemPrompt（预设主 agent）
-  （文件路径，相对 .chery；缺省 → 用全局 config.global.system_prompt）
+  （文件路径，相对 .chery；作为补充合并到全局 base 之后）
   → 写入 chat metadata.promptPathOverride
     （spawn createChat 写子 agent / chat.create 写预设主 agent）
   → ensureChat 读 getChatPromptOverride(chatId)
   → builder.init(chatId, history, promptPathOverride)
-  → buildFirstSystemPrompt(promptPathOverride) 读该文件 → 首条 system
+  → buildFirstSystemPrompt(promptPathOverride) 合并「全局 base + override 补充」→ 首条 system
 ```
-无 `promptPathOverride`（metadata 无此字段：非预设主 agent / 旧 chat）→ 用全局 `config.global.system_prompt`。字段名从 `subagentPromptPath` 改为 `promptPathOverride`（T6：主 agent 经预设亦用此机制，名需主/子通用）。
+无 `promptPathOverride`（metadata 无此字段：非预设主 agent / 旧 chat）→ 仅全局 base（`.chery/prompt/system.md`）。字段名从 `subagentPromptPath` 改为 `promptPathOverride`（T6：主 agent 经预设亦用此机制，名需主/子通用）。
 
 **per-preset workspace（项目工作目录，提示词层注入）**：预设可配 `workspace` 字段声明该预设创建的会话专属某个项目，数据流：
 ```text
@@ -143,6 +143,33 @@ trigger: "用户请求XXX时触发"   # 可选
 
 frontmatter 用 [js-yaml](https://github.com/nodeca/js-yaml) 解析，正则 `/^---\r?\n([\s\S]*?)\r?\n---/` 匹配首块。解析失败时**静默回退**：name 用目录名、description/content 各自为整文件 trim / 空。
 
+## 上下文分段计量（buildSystemPromptSegments）
+
+为支持「上下文用量分段显示」，`buildFirstSystemPrompt` 的各组成部分可独立计量。新增导出（单一数据源，`buildFirstSystemPrompt` 复用其组装最终串）：
+
+```ts
+export interface PromptSegmentText { text: string; count?: number }
+export function buildSystemPromptSegments(promptPathOverride?: string, workspace?: string): {
+  system: string;      // 全局 base + <environment> + <workspace>
+  userSystem: string;  // override 补充（promptPathOverride 给出时；合并语义，可与 system 并存）
+  memory: PromptSegmentText;   // <memory global>+<workspace>，count = 记忆条数
+  skills: PromptSegmentText;   // <skills> 元数据，count = skill 数
+};
+```
+
+完整 **6 段上下文计量**（[utils/token.ts](../../src/utils/token.ts) `computeContextBreakdown`）：
+
+| 段 | 来源 | count |
+|----|------|-------|
+| 系统提示词 | 全局 base + `<environment>` + `<workspace>` | — |
+| 用户系统提示词 | override 补充（合并语义，可与系统提示词并存） | — |
+| 记忆 | `<memory global>` + `<memory workspace>` | 记忆条数 |
+| 技能 | `<skills>` 元数据 | skill 数 |
+| 工具定义 | runtime senseTable 各 sense `definition` schema | tool 数 |
+| 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | 消息条数 |
+
+**计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `promptPathOverride`+`workspace`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable 后逐段 `estimateTokens`（字符数/4）。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../src/utils/token.ts)。
+
 ## 关键流程
 
 ### system prompt 注入流程
@@ -154,8 +181,8 @@ AgentBuilder.init(chatId, messages?, promptPathOverride?, workspace?)
   ├─ messages 非空且首条 role!==system（重启后 observer 不持久化 system）→ [systemMsg, ...messages]（persona 修复）
   └─ messages 首条已是 system → messages 原样
        └─ createInitialMessages → buildFirstSystemPrompt(promptPathOverride, workspace)
-            ├─ promptPathOverride 给出 → readFileSync(override)（实时，非缓存）
-            │  否则 → 模块加载期缓存的 systemPrompt（config.global.system_prompt）
+            ├─ 全局 base = 模块加载期缓存的 .chery/prompt/system.md
+            ├─ promptPathOverride 给出 → readFileSync(override)（实时，非缓存）作补充拼接到 base 之后
             ├─ workspace 给出 → 注入 <workspace> 段（否则省略）
             ├─ getSkillMetas()  ← readAllSkills() 实时遍历
             └─ 拼装四段返回
@@ -195,7 +222,7 @@ const skillsDir = config.global.skills_dir;
 
 | 依赖 | 用途 |
 |------|------|
-| [utils/config](../../src/utils/config.ts) | `config.global.system_prompt`（system prompt 文件路径）、`config.global.skills_dir`（skills 目录）、`config.global.prompts_dir`（per-agent prompt 目录） |
+| [utils/config](../../src/utils/config.ts) | `config.global.skills_dir`（skills 目录）、`config.global.prompts_dir`（per-agent prompt 目录）、`getCheryDir()`（全局 system prompt 固定路径 `.chery/prompt/system.md`） |
 | 第三方 `js-yaml` | frontmatter YAML 解析 |
 | 第三方 `dayjs` | 当前日期/时间格式化 |
 | Node `fs`/`os` | 文件读取、操作系统信息 |
@@ -210,7 +237,7 @@ const skillsDir = config.global.skills_dir;
 ### 横切参考
 
 - [./sense.md](./sense.md) — `skill` 感官如何消费 `getSkillRealtime` 返回的 size/mtimeMs 生成 hash
-- 配置项 `skills_dir` / `system_prompt` 见项目 README 的 config.yaml 章节
+- 配置项 `skills_dir` 见项目 README 的 config.yaml 章节；全局 system prompt 固定 `.chery/prompt/system.md`（不再配置）
 
 ## 扩展点
 
@@ -235,6 +262,6 @@ const skillsDir = config.global.skills_dir;
 
 ### 修改 system prompt 模板
 
-system prompt 主体内容由 `config.global.system_prompt` 指向的文件决定（运行时读取，不缓存）。**结构**（XML 标签包裹顺序）由 [index.ts](../../src/agent/prompt/index.ts) 硬编码——若要改三段顺序、增删段，改 [index.ts](../../src/agent/prompt/index.ts) 的模板字符串。
+system prompt 主体内容由固定路径 `.chery/prompt/system.md` 决定（模块加载期读取并缓存）。**结构**（XML 标签包裹顺序）由 [index.ts](../../src/agent/prompt/index.ts) 硬编码——若要改三段顺序、增删段，改 [index.ts](../../src/agent/prompt/index.ts) 的模板字符串。
 
 > 注意：`buildFirstSystemPrompt` 在 chat 创建（`ensureChat`→`init`）时调一次；改 system prompt 文件后**存量 chat 内存首条 system 已固化**。但服务**重启**后 `init` 会因「历史无 system」重新 prepend（persona 修复），故重启后存量 chat 反映新 prompt；运行期改文件需重启生效。

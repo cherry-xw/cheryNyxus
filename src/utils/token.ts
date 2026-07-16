@@ -46,6 +46,26 @@ export function sumChatTokens(chatId: string): number {
   return total;
 }
 
+/** 用户对话段计入的 role（sense 调用结果按设计计入用户对话，见 docs/agent/prompt.md 分段表）。 */
+const CONVERSATION_ROLES = new Set(["user", "assistant", "role", "subagent", "sense"]);
+
+/**
+ * 累加 chat「用户对话」段 token（content+thinking）：role ∈ user/assistant/role/subagent/sense 的非 revoked 行。
+ * system 行不计（observer 不持久化 system 消息，理论不存在）。返 { tokens, count(消息条数) }。
+ */
+export function sumChatConversationTokens(chatId: string): { tokens: number; count: number } {
+  const messages = getMessages(chatId);
+  let tokens = 0;
+  let count = 0;
+  for (const m of messages) {
+    if (m.revoked === 1) continue;
+    if (!CONVERSATION_ROLES.has(m.role)) continue;
+    tokens += estimateTokens(m.content) + estimateTokens(m.thinking);
+    count += 1;
+  }
+  return { tokens, count };
+}
+
 /**
  * chat 上下文用量详情（computeContextUsage 返回值）。
  * - usage：比例（0-1），clamp
@@ -56,6 +76,44 @@ export interface ContextUsageDetail {
   usage: number;
   used: number;
   total: number;
+}
+
+/**
+ * 上下文用量分段（计量用）。
+ * - tokens：该段 token 估算（字符数/4）
+ * - count：条目数（记忆条数 / skill 数 / tool 数 / 消息条数；系统/用户系统提示词段无）
+ */
+export interface Segment {
+  tokens: number;
+  count?: number;
+}
+
+/**
+ * 上下文用量 6 段分解（computeContextBreakdown 返回值）。
+ * 段：系统提示词 / 用户系统提示词 / 记忆 / 技能 / 工具定义 / 用户对话（含 sense 调用结果）。
+ * used = 各段 tokens 之和；usage = clamp(used / total, 0, 1)；total = brain.contextLimit。
+ */
+export interface ContextBreakdown {
+  system: Segment;
+  userSystem: Segment;
+  memory: Segment;
+  skills: Segment;
+  tools: Segment;
+  conversation: Segment;
+  total: number;
+  usage: number;
+}
+
+/** 各段 tokens 之和（= 已用 token 总数，与 breakdown.usage * breakdown.total 一致）。 */
+export function breakdownUsed(bd: ContextBreakdown): number {
+  return (
+    bd.system.tokens +
+    bd.userSystem.tokens +
+    bd.memory.tokens +
+    bd.skills.tokens +
+    bd.tools.tokens +
+    bd.conversation.tokens
+  );
 }
 
 /**

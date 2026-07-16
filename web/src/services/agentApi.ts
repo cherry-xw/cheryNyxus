@@ -9,6 +9,24 @@ import { wsClient } from "./ws";
 import type { RpcResponse } from "./ws";
 import { httpUrl } from "./http";
 
+/** 上下文用量单段（镜像后端 utils/token.ts Segment）：tokens = 段 token 估算；count = 条目数（记忆/技能/工具/消息）。 */
+export interface ContextSegment {
+  tokens: number;
+  count?: number;
+}
+
+/** 上下文用量 6 段分解（镜像后端 utils/token.ts ContextBreakdown）。 */
+export interface ContextBreakdown {
+  system: ContextSegment;
+  userSystem: ContextSegment;
+  memory: ContextSegment;
+  skills: ContextSegment;
+  tools: ContextSegment;
+  conversation: ContextSegment;
+  total: number;
+  usage: number;
+}
+
 /** chat.list 返回的单条 chat 摘要（对齐后端 listAllChats）。brain/senseGroups 在 metadata.runtime 不暴露于 list。 */
 export interface ChatSummary {
   chatId: string;
@@ -29,6 +47,8 @@ export interface ChatSummary {
   contextUsed?: number;
   /** 仅 includePreview=true 返：上下文上限 token 数。 */
   contextTotal?: number;
+  /** 仅 includePreview=true 返：上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。 */
+  contextBreakdown?: ContextBreakdown;
   /** 子 agent 是否已完成（后端 metadata.finished）。前端据 finished===true 重建子 pet 为 ghost。主 chat 恒 undefined。 */
   finished?: boolean;
   /** chat 当前是否正在运行（后端 chatRuntimes.get(chatId)?.builder.isRunning()）。前端据此判断子 agent 是否还活着、主 chat 是否卡死。 */
@@ -375,9 +395,9 @@ export const agentApi = {
     return callStream("chat.get", { chatId });
   },
 
-  /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token + 上限）。initFromChats 后驱动 ContextBar 初始渲染。 */
-  async contextUsage(chatId: string): Promise<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number }> {
-    return call<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number }>("chat.contextUsage", { chatId });
+  /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token + 上限 + 6 段分解）。initFromChats 后驱动 ContextBar 初始渲染。 */
+  async contextUsage(chatId: string): Promise<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number; contextBreakdown: ContextBreakdown }> {
+    return call<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number; contextBreakdown: ContextBreakdown }>("chat.contextUsage", { chatId });
   },
 
   /** sense.approval：审批（accept/reject）。approvalId 来自 interrupt notification。 */

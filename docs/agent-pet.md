@@ -39,7 +39,7 @@ roles:
     brain: longcat           # 需在 llm.brain 列表中
     senseGroup: default   # 工具组 = 能力体现
     mcpServers: []           # MCP server 名（缺省 []，与主 agent 平权）
-    # systemPrompt: prompts/reader.md   # 缺省 → 全局 config.global.system_prompt
+    # systemPrompt: prompts/reader.md   # 给出则作补充合并到全局 base 之后；缺省 → 仅全局 base（.chery/prompt/system.md）
   read_image:
     brain: longcat
     senseGroup: default

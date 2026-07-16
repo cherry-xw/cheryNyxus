@@ -36,7 +36,7 @@ cheryClaw 采用拟人化隐喻设计：
 |------|------|
 | `.env` | 环境变量：API Key（`OLLAMA_HOST`、`OPENAI_API_KEY` 等） |
 | [.chery/config.yaml](.chery/config.yaml) | LLM 客户端配置、Sense 分组、全局配置、服务端口（`server.port`/`server.web_port`/`server.transport`） |
-| [.chery/system.md](.chery/system.md) | 系统 prompt 模板 |
+| [.chery/prompt/system.md](.chery/prompt/system.md) | 系统 prompt 模板（全局 base） |
 | [.chery/skills/](.chery/skills/) | 技能定义目录，每个技能包含 `SKILL.md` |
 | [.chery/senses/](.chery/senses/) | 外部自定义感官目录，`.ts` 文件自动编译注入 |
 | [.chery/db/](.chery/db/) | 数据库存储目录（自动创建） |

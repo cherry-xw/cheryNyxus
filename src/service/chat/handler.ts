@@ -37,7 +37,8 @@ import { getQuestionStateSnapshot, hasPendingQuestionBatches } from "@/db/questi
 import { randomUUID } from "crypto";
 import { parseRuntimeSelection, resolvePresetSelection, type RuntimeSelection } from "@/agent/runtimeResolver.js";
 import { logger } from "@/utils/logger/index.js";
-import { computeContextUsage } from "@/utils/token.js";
+import { breakdownUsed } from "@/utils/token.js";
+import { computeContextBreakdown } from "./contextUsage.js";
 import { safeJsonParse } from "@/utils/json.js";
 import { getChatEvents, claimSpawnTask, finishSpawnTask, listOpenSpawnTasks } from "@/db/delivery.js";
 import { handleChatResume, handleChatSend } from "./send.js";
@@ -155,8 +156,8 @@ export async function handleChatList(
     };
     if (!data.includePreview || !previews) return base;
     const p = previews.get(chat.id);
-    const detail = computeContextUsage(chat.id);
-    return { ...base, preview: p?.preview ?? "", turnCount: p?.turnCount ?? 0, contextUsage: detail.usage, contextUsed: detail.used, contextTotal: detail.total };
+    const bd = computeContextBreakdown(chat.id);
+    return { ...base, preview: p?.preview ?? "", turnCount: p?.turnCount ?? 0, contextUsage: bd.usage, contextUsed: breakdownUsed(bd), contextTotal: bd.total, contextBreakdown: bd };
   });
 
   logger.event("chat.list", { count: chats.length, includePreview: !!data.includePreview });
@@ -244,7 +245,7 @@ export async function* handleChatGet(
 
   // CP7：contextUsage = 当前 chat 总 token / brain.contextLimit，供前端 ContextBar 渲染。
   // 历史载入后计算一次（前端 chat.get response 同步带值），发消息时由 done notification 实时更新。
-  const ctxDetail = computeContextUsage(p.chatId);
+  const ctxBd = computeContextBreakdown(p.chatId);
 
   // 复用共享判定（同 chat.list）
   const canResume = computeCanResume(p.chatId);
@@ -254,16 +255,17 @@ export async function* handleChatGet(
     chatId: p.chatId,
     messageCount: messages.length,
     canResume,
-    contextUsage: ctxDetail.usage,
+    contextUsage: ctxBd.usage,
     pendingQuestionBatches: questionSnapshot.pendingQuestionBatches.length,
     snapshotSeq: questionSnapshot.snapshotSeq,
   });
   return {
     chatId: p.chatId,
     canResume,
-    contextUsage: ctxDetail.usage,
-    contextUsed: ctxDetail.used,
-    contextTotal: ctxDetail.total,
+    contextUsage: ctxBd.usage,
+    contextUsed: breakdownUsed(ctxBd),
+    contextTotal: ctxBd.total,
+    contextBreakdown: ctxBd,
     ...questionSnapshot,
   };
 }
@@ -407,8 +409,8 @@ export async function handleChatContextUsage(
   _ctx: HandlerContext,
   data: ChatContextUsageRequestData,
 ): Promise<ChatContextUsageResponseData> {
-  const detail = computeContextUsage(data.chatId);
-  return { chatId: data.chatId, contextUsage: detail.usage, contextUsed: detail.used, contextTotal: detail.total };
+  const bd = computeContextBreakdown(data.chatId);
+  return { chatId: data.chatId, contextUsage: bd.usage, contextUsed: breakdownUsed(bd), contextTotal: bd.total, contextBreakdown: bd };
 }
 
 /**

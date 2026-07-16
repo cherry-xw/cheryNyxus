@@ -105,7 +105,7 @@ interface Notification {
 | `accept` | `{approvalId, senseName, result}` | sense 执行成功（全工具推；`approvalId`=sense 调用 id，前端据此移除「运行中工具」同 id 项） |
 | `rejected` | `{approvalId, senseName, reason}` | sense 被拒 / 审批取消 |
 | `loaded` | `null` | chat.get 历史发完 |
-| `done` | `{contextUsage, finished?, finalMessage?}` | chat.send/resume loop 结束。`contextUsage` = 当前 chat 总 token /（brain.contextLimit KB × 256）（0-1），前端据实时更新 pet.contextUsage（ContextBar）。CP7。`finished`（boolean，仅子 chat 即 `parent_chat_id` 非空时携带）= 子 agent 已完成，前端据 `finished===true` 把子 pet 转 ghost（灵魂态保留）。done 时后端写 `metadata.finished` 持久化，刷新后 `chat.list` 暴露同字段重建 ghost。`finalMessage`（`{msgId,role:"assistant",content,thinking?,createdAt,agentChatId?}`，仅本轮末条为 assistant 时携带）= 刚完成的权威回复，前端实时追加进 `stream.history`（PetIcons 圆点气泡即时显新内容，不再等 `chat.get` 重载）；`msgId` 供下次 `chat.get` 合流按 msgId 去重；`agentChatId` 标识该消息来源 chatId（默认 = 当前 chatId），供前端反向溯源（filter `agentChatId === X` 取该 agent 完整 history，无需正向溯源） |
+| `done` | `{contextUsage, contextBreakdown, used?, total?, finished?, finalMessage?}` | chat.send/resume loop 结束。`contextUsage` = 当前 chat 总 token /（brain.contextLimit KB × 256）（0-1），前端据实时更新 pet.contextUsage（ContextBar）。CP7。`contextBreakdown` = 6 段分解 `{system,userSystem,memory,skills,tools,conversation:Segment, total, usage}`（各段 `{tokens,count?}`：系统/用户系统提示词·记忆（条数）·技能（skill 数）·工具定义（tool 数）·用户对话（消息条数，含 sense 调用结果）），前端据更新 pet.contextBreakdown 渲染分段进度条。`used`/`total` = 已用/上限 token。`finished`（boolean，仅子 chat 即 `parent_chat_id` 非空时携带）= 子 agent 已完成，前端据 `finished===true` 把子 pet 转 ghost（灵魂态保留）。done 时后端写 `metadata.finished` 持久化，刷新后 `chat.list` 暴露同字段重建 ghost。`finalMessage`（`{msgId,role:"assistant",content,thinking?,createdAt,agentChatId?}`，仅本轮末条为 assistant 时携带）= 刚完成的权威回复，前端实时追加进 `stream.history`（PetIcons 圆点气泡即时显新内容，不再等 `chat.get` 重载）；`msgId` 供下次 `chat.get` 合流按 msgId 去重；`agentChatId` 标识该消息来源 chatId（默认 = 当前 chatId），供前端反向溯源（filter `agentChatId === X` 取该 agent 完整 history，无需正向溯源） |
 | `error` | `{message}` | 仅由 agent generator 在流中抛出 error chunk 时触发（见 [streamMapper.ts](./service/chat.md)），**handler 异常路径不再发 error notification**——失败仅靠 final Response（含 `error` 字段） |
 | `replaced` | `{id, content, originalContent, by}` | 感官去重命中，历史 sense 结果被新读取替换 |
 | `role_created` | `{taskId, chatId, parentChatId, type, prompt, brain, senseGroup, wait}` | spawn_role sense 执行时。前端收此 notification → 创建子 pet + 调 `chat.startSpawn({taskId})` 原子领取任务；重放不产生第二次初始 prompt。事件外层 `chatId` = `parentChatId`。 |
@@ -183,6 +183,7 @@ interface Notification {
 | `parentChatId` | string \| null | 子 chat 关联主 chat；主 chat 为 null |
 | `preview` | string \| undefined | 仅 `includePreview=true` 返。首条 user 消息截断（≤40 字符），供会话列表辨识。"指令"跳过规则待定（默认 `isDirective=false`，取首条 user 消息） |
 | `turnCount` | number \| undefined | 仅 `includePreview=true` 返。user 角色消息数 = 会话轮次 |
+| `contextUsage` / `contextUsed` / `contextTotal` / `contextBreakdown` | number / [ContextBreakdown](../src/utils/token.ts) \| undefined | 仅 `includePreview=true` 返。上下文用量比例（0-1）/ 已用 token / 上限 token / 6 段分解（系统·用户系统提示词·记忆·技能·工具定义·用户对话，各段 `{tokens,count?}`） |
 | `finished` | boolean \| undefined | 子 chat done 后置 true（`metadata.finished` 解析）。前端据 `finished===true` 把子 pet 重建为 ghost（灵魂态）。主 chat 恒无此字段 |
 
 > `includePreview` 按 `messages_month` 分组批量查每 chat 首条 user 消息 + 计数，避免逐 chat N+1。lean 模式（省略）不查 messages，仅供 `initFromChats` 重建 pet 树。

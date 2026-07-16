@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { agentApi, type ChatSummary, type ChatSendAttachment, type RuntimeSelection, type SenseToolInfo, type SessionRuntimeSelection } from "@/services/agentApi";
+import { agentApi, type ChatSummary, type ChatSendAttachment, type RuntimeSelection, type SenseToolInfo, type SessionRuntimeSelection, type ContextBreakdown } from "@/services/agentApi";
 import type { PetInstance, PetMood } from "@/features/pets/types";
 import type {
   StreamState,
@@ -405,6 +405,7 @@ export const useAgentsStore = defineStore("agents", () => {
               if (typeof res.contextUsage === "number") pet.contextUsage = res.contextUsage;
               if (typeof res.contextUsed === "number") pet.contextUsed = res.contextUsed;
               if (typeof res.contextTotal === "number") pet.contextTotal = res.contextTotal;
+              if (res.contextBreakdown) pet.contextBreakdown = res.contextBreakdown;
             }
           },
           (e) => console.warn(`[agents] contextUsage(${m.chatId}) 失败:`, e),
@@ -536,12 +537,13 @@ export const useAgentsStore = defineStore("agents", () => {
     // CP7: chat.get response 携带 contextUsage → 更新 pet.contextUsage（历史载入一次性同步，ContextBar 消费）
     done
       .then((res) => {
-        const d = res.data as { contextUsage?: number; contextUsed?: number; contextTotal?: number } | undefined;
+        const d = res.data as { contextUsage?: number; contextUsed?: number; contextTotal?: number; contextBreakdown?: ContextBreakdown } | undefined;
         const pet = pets.value.find((p) => p.chatId === chatId);
         if (pet && d) {
           if (typeof d.contextUsage === "number") pet.contextUsage = d.contextUsage;
           if (typeof d.contextUsed === "number") pet.contextUsed = d.contextUsed;
           if (typeof d.contextTotal === "number") pet.contextTotal = d.contextTotal;
+          if (d.contextBreakdown) pet.contextBreakdown = d.contextBreakdown;
         }
       })
       .catch((e) => console.error("[agents] getHistory response 失败:", e));

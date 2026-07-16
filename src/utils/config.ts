@@ -128,7 +128,7 @@ interface LLMConfig {
 /**
  * 角色配置（spawn_role sense 按 type 查这里；预设 leader 角色亦由此定义）。
  * 名 = 给 AI 的角色名；brain 必须存在于 llm.brain（loadConfig 校验）。
- * systemPrompt = 专属 system prompt 文件路径（相对 .chery 目录，类比 global.system_prompt）；
+ * systemPrompt = 专属 system prompt 文件路径（相对 .chery 目录）；
  *   缺省 → 角色用全局 system_prompt。per-role system prompt（T7）。
  */
 export interface RoleConfig {
@@ -268,7 +268,6 @@ interface McpServerConfig {
 interface ExtendedGlobalConfig extends GlobalConfig {
   skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
   senses_dir: string; // 自动补全：chery_dir + "/.chery/senses"
-  system_prompt: string; // 自动补全：chery_dir + "/.chery/system.md"
   prompts_dir: string; // 自动补全：chery_dir + "/.chery/prompts"（per-agent system prompt 目录，listPrompts 遍历）
   db_dir: string; // 自动补全：chery_dir + "/db"
   memory_dir: string; // 自动补全：chery_dir + "/.chery/memory"（非 workspace 模式记忆存储根目录）
@@ -393,7 +392,7 @@ function loadConfig(): Config {
     }
   }
 
-  // roles.*.systemPrompt 相对路径 → 绝对（相对 .chery 目录，类比 global.system_prompt 补全）。
+  // roles.*.systemPrompt 相对路径 → 绝对（相对 .chery 目录）。
   // spawn sense 存 metadata.promptPathOverride（绝对），buildFirstSystemPrompt 实时读取；
   // 预设 leader 编制取 config.roles[leader]，其 systemPrompt 在此统一解析，预设无需再单独补全。
   if (config.roles) {
@@ -416,7 +415,6 @@ function loadConfig(): Config {
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
-  config.global.system_prompt = path.join(cheryDir, ".chery", "system.md");
   config.global.prompts_dir = path.join(cheryDir, ".chery", "prompts");
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
   config.global.memory_dir = path.join(cheryDir, ".chery", "memory");

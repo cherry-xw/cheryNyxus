@@ -15,7 +15,8 @@ import type {
 import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
-import { computeContextUsage } from "@/utils/token.js";
+import { breakdownUsed } from "@/utils/token.js";
+import { computeContextBreakdown } from "./contextUsage.js";
 import { getChat, getLastMessage } from "@/db/chat.js";
 import { safeJsonParse } from "@/utils/json.js";
 import config from "@/utils/config.js";
@@ -159,7 +160,7 @@ export async function* streamAgentChunks(
         continue;
       }
       // CP7：done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
-      const ctxDetail = computeContextUsage(chatId);
+      const ctxBd = computeContextBreakdown(chatId);
       // 子 agent finished 标记由 observer.ts 在 child_done chunk 时设置，不再在 done chunk 时设置
       // 原因：子 agent yield turn 时会 done，但不应设 finished（需等孙 agent 完成后才设）
       // child_yield → 不设 finished（子保持活跃）
@@ -171,7 +172,7 @@ export async function* streamAgentChunks(
         const meta = safeJsonParse(chatRow.metadata, {}) as { finished?: unknown };
         finished = meta.finished === true ? true : undefined;
       }
-      logger.event("chat.run.done", { contextUsage: ctxDetail.usage, finished });
+      logger.event("chat.run.done", { contextUsage: ctxBd.usage, finished });
       // 本轮末条若为 assistant → 携带权威回复，前端实时追加进 stream.history（PetIcons 圆点气泡即时更新）。
       const lastMsg = getLastMessage(chatId);
       const finalMessage =
@@ -186,9 +187,10 @@ export async function* streamAgentChunks(
             }
           : undefined;
       yield createNotification("done", rid, {
-        contextUsage: ctxDetail.usage,
-        used: ctxDetail.used,
-        total: ctxDetail.total,
+        contextUsage: ctxBd.usage,
+        used: breakdownUsed(ctxBd),
+        total: ctxBd.total,
+        contextBreakdown: ctxBd,
         ...(finished === true ? { finished: true } : {}),
         ...(finalMessage ? { finalMessage } : {}),
       }, { chatId, runId });

@@ -3,6 +3,7 @@ import { SupervisionLevel } from "@/core/config.js";
 import type { McpServerInfo } from "@/core/mcp/types.js";
 import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
 import type { ConfigRaw } from "@/utils/config.js";
+import type { ContextBreakdown } from "@/utils/token.js";
 
 // ========== 消息基础类型 ==========
 
@@ -441,6 +442,10 @@ export interface ChatListResponseData {
      */
     contextTotal?: number;
     /**
+     * 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。仅 includePreview=true 时返。
+     */
+    contextBreakdown?: ContextBreakdown;
+    /**
      * 角色是否已完成（metadata.finished 解析）。前端据 finished===true 重建子 pet 为 ghost（灵魂态）。
      * 主 chat 恒 undefined。无论 includePreview 与否都返（initFromChats 重建 pet 树需）。
      */
@@ -491,6 +496,8 @@ export interface ChatGetResponseData extends QuestionStateSnapshotData {
   contextUsed?: number;
   /** 上下文上限 token 数。 */
   contextTotal?: number;
+  /** 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。 */
+  contextBreakdown?: ContextBreakdown;
 }
 
 export interface ChatDeleteResponseData {
@@ -504,6 +511,8 @@ export interface ChatContextUsageResponseData {
   contextUsed: number;
   /** 上下文上限 token 数。 */
   contextTotal: number;
+  /** 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。 */
+  contextBreakdown: ContextBreakdown;
 }
 
 export interface ChatSendResponseData {
@@ -803,6 +812,8 @@ export interface DoneNotificationData {
   used?: number;
   /** 上下文上限 token 数。前端据实时更新 pet.contextTotal。 */
   total?: number;
+  /** 上下文用量 6 段分解。前端据实时更新 pet.contextBreakdown（分段进度条渲染）。 */
+  contextBreakdown: ContextBreakdown;
   /**
    * 子 agent done 标记（仅子 chat 即 parent_chat_id 非空时携带=true）。
    * 前端据 finished===true 把子 pet 转 ghost（灵魂态）。主 chat 不带。done 时后端写 metadata.finished 持久化。

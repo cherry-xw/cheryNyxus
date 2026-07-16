@@ -5,9 +5,11 @@
  */
 import { computed } from "vue";
 import { AnimatePresence, motion } from "motion-v";
-import { ElPopover, ElUpload } from "element-plus";
+import { ElPopover, ElTooltip, ElUpload } from "element-plus";
 import RoleConfigPopover from "./dialog/RoleConfigPopover.vue";
 import MediaPreviewBar from "./dialog/media/MediaPreviewBar.vue";
+import ContextBreakdownTip from "./ContextBreakdownTip.vue";
+import { fmtTokens } from "./contextBreakdown";
 import { useAgentDialogOptions } from "./dialog/useAgentDialogOptions";
 
 const MotionDiv = motion.div;
@@ -30,13 +32,6 @@ function usageClass(u: number): "usage-low" | "usage-mid" | "usage-high" {
   if (u >= 0.8) return "usage-high";
   if (u >= 0.5) return "usage-mid";
   return "usage-low";
-}
-
-/** token 数格式化：<1000 直显，>=1000 缩为 1.2K / 12K（与 SessionList / HistoryDrawerPanel 完全一致）。 */
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(Math.round(n));
-  if (n < 10000) return `${(n / 1000).toFixed(1)}K`;
-  return `${Math.round(n / 1000)}K`;
 }
 
 /** 每角色上下文占用（按当前 brain 的 contextLimit 折算）。brain / config / pet 任一未就绪 → null（chip 隐藏）。 */
@@ -123,13 +118,22 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
                     <span class="role-summary-model-slot">
                       <span class="role-summary-model">◈ {{ (brainConfig(selection.brain)?.model ?? selection.brain) || "—" }}</span>
                     </span>
-                    <span
+                    <el-tooltip
                       v-if="roleUsages[role]"
-                      class="role-usage-chip"
-                      :class="usageClass(roleUsages[role]!.usage)"
-                      :title="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}%`"
-                      :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
-                    >{{ fmtTokens(roleUsages[role]!.used) }}/{{ fmtTokens(roleUsages[role]!.total) }}</span>
+                      placement="top"
+                      :show-after="200"
+                      :hide-after="0"
+                    >
+                      <template #content>
+                        <ContextBreakdownTip v-if="pet?.contextBreakdown" :breakdown="pet.contextBreakdown" />
+                        <span v-else>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
+                      </template>
+                      <span
+                        class="role-usage-chip"
+                        :class="usageClass(roleUsages[role]!.usage)"
+                        :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
+                      >{{ fmtTokens(roleUsages[role]!.used) }}/{{ fmtTokens(roleUsages[role]!.total) }}</span>
+                    </el-tooltip>
                   </span>
                   <span v-if="senseEntries(selection.senseGroup).length" class="role-summary-senses" aria-label="当前能力">
                     <span v-for="entry in senseEntries(selection.senseGroup)" :key="entry" class="role-summary-sense-icon">

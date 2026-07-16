@@ -68,7 +68,7 @@ const emit = defineEmits<{
         <div v-if="!pet.isGhost" class="status-stack" :aria-label="`emotion ${Math.round(pet.emotion)}, context ${Math.round(pet.contextUsage * 100)}%`">
           <div class="status-row">
             <span class="stat emotion"><span class="fill" :style="{ width: `${pet.emotion}%` }" /></span>
-            <ContextBar :usage="pet.contextUsage" />
+            <ContextBar :usage="pet.contextUsage" :breakdown="pet.contextBreakdown" />
           </div>
           <!-- busy-indicator：思考中三点脉冲；显隐走 isBusy（与气泡显示 hasStream 解耦）。 -->
           <span
