@@ -98,6 +98,9 @@ export type SenseListRequestData = EmptyObjectData;
 
 export type SenseToolsRequestData = EmptyObjectData;
 
+/** skills.list：列出用户配置目录中当前可用的 Skill 元数据。 */
+export type SkillsListRequestData = EmptyObjectData;
+
 export type PromptsListRequestData = EmptyObjectData;
 
 export interface ChatCreateRequestData {
@@ -379,6 +382,15 @@ export interface SenseToolsResponseData {
   tools: SenseToolMeta[];
 }
 
+/** skills.list 响应：仅用户 `.chery/skills/` 中的技能；不含前端内置命令。 */
+export interface SkillsListResponseData {
+  skills: Array<{
+    name: string;
+    description: string;
+    trigger?: string;
+  }>;
+}
+
 /**
  * prompts.list 响应：.chery/prompts/ 下全部 .md 的相对路径（相对 .chery/，含 prompts/ 前缀）。
  * 供设置面板 systemPrompt 级联选择器建目录树；叶 value = 全路径 = 存储值。
@@ -620,6 +632,8 @@ export type ConfigGetResponseData = ConfigRaw;
  */
 export interface ConfigSaveResponseData {
   needRestart: true;
+  /** immediate=当前空闲、即将替换 worker；scheduled=等待 chat 空闲；manual=当前 worker 未受守护。 */
+  restart: "immediate" | "scheduled" | "manual";
 }
 
 /**
@@ -933,6 +947,8 @@ export const Method = {
   SENSE_LIST: "sense.list",
   // 列出代码维护的全部内置工具（name/label/description），供设置面板感官分组下拉
   SENSE_TOOLS: "sense.tools",
+  // 实时列出用户配置目录中的 Skill 元数据，供发送窗口 / 命令菜单使用
+  SKILLS_LIST: "skills.list",
   // 递归列出 .chery/prompts/ 下全部 .md（含子文件夹），供设置面板 systemPrompt 级联选择器
   PROMPTS_LIST: "prompts.list",
 
@@ -1008,6 +1024,7 @@ export interface RpcMethodMap {
   [Method.BRAIN_LIST]: { params: BrainListRequestData; result: BrainListResponseData };
   [Method.SENSE_LIST]: { params: SenseListRequestData; result: SenseListResponseData };
   [Method.SENSE_TOOLS]: { params: SenseToolsRequestData; result: SenseToolsResponseData };
+  [Method.SKILLS_LIST]: { params: SkillsListRequestData; result: SkillsListResponseData };
   [Method.PROMPTS_LIST]: { params: PromptsListRequestData; result: PromptsListResponseData };
   [Method.RUNTIME_SET]: { params: RuntimeSetRequestData; result: RuntimeSetResponseData };
   [Method.SESSION_RUNTIME_SET]: { params: SessionRuntimeSetRequestData; result: SessionRuntimeSetResponseData };

@@ -3,6 +3,7 @@ import { createWebSocketServer } from "./websocket/index.js";
 import { createHttpServer } from "./http/index.js";
 import { registerBrainHandlers } from "./brain/list.js";
 import { registerSenseHandlers } from "./sense/list.js";
+import { registerSkillHandlers } from "./skill/list.js";
 import { registerPromptHandlers } from "./prompt/list.js";
 import { registerRuntimeSetHandlers } from "./runtime/set.js";
 import { registerSessionRuntimeHandlers } from "./runtime/session.js";
@@ -50,6 +51,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   // 注册 handlers
   registerBrainHandlers(router);
   registerSenseHandlers(router);
+  registerSkillHandlers(router);
   registerPromptHandlers(router);
   registerRuntimeSetHandlers(router);
   registerSessionRuntimeHandlers(router);

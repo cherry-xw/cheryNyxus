@@ -2,6 +2,7 @@ import { AgentBuilder } from "@/agent/builder.js";
 import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
 import { getMessages, parseMessageRow, getChatRuntimeSelection, getChatPromptOverride, getChatWorkspace, updateChatMetadata, getChat } from "@/db/chat.js";
 import type { LLMResponse } from "@/core/message/adapter";
+import { notifyRestartActivityChanged } from "@/service/restartCoordinator.js";
 
 /**
  * Chat 运行时缓存：chatId → builder + runtime 选择（单 chat 绑定，跨轮不重建）
@@ -40,6 +41,11 @@ export function isChatRunning(chatId: string): boolean {
   return chatRuntimes.get(chatId)?.builder.isRunning() ?? false;
 }
 
+/** 守护进程待重启时，用于判定所有 chat 是否已安全空闲。 */
+export function hasRunningChats(): boolean {
+  return [...chatRuntimes.values()].some((runtime) => runtime.builder.isRunning());
+}
+
 /** 获取当前活跃运行，用于 queued send 回包与带条件的 chat.abort。 */
 export function getActiveChatRunId(chatId: string): string | undefined {
   return chatRuntimes.get(chatId)?.activeRunId;
@@ -60,6 +66,7 @@ export function releaseChatRun(chatId: string, runId: string): void {
   if (runtime?.activeRunId === runId) {
     runtime.activeRunId = undefined;
   }
+  notifyRestartActivityChanged();
 }
 
 /**

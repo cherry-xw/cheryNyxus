@@ -229,6 +229,86 @@
   position: relative;          // 为绝对定位的按钮提供定位上下文
 }
 
+.command-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0 0 6px;
+}
+
+.command-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px 3px 7px;
+  border: 1px solid rgba(190, 132, 28, 0.3);
+  border-radius: 999px;
+  background: rgba(246, 183, 60, 0.13);
+  color: #76500e;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.command-chip-remove {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+
+  &:hover { background: rgba(118, 80, 14, 0.12); }
+}
+
+.command-menu {
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  bottom: calc(100% + 5px);
+  width: min(100%, 390px);
+  padding: 4px;
+  border: 1px solid rgba(35, 38, 44, 0.13);
+  border-radius: 9px;
+  background: #fffdf8;
+  box-shadow: 0 8px 20px rgba(20, 22, 26, 0.18);
+}
+
+.command-option {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  gap: 7px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: @ink;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover, &.is-active { background: rgba(246, 183, 60, 0.12); }
+}
+
+.command-option-name {
+  color: #8c6114;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.command-option-desc {
+  overflow: hidden;
+  color: fade(@ink, 62%);
+  font-size: 11px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .msg-input {
   display: block;
   width: 100%;

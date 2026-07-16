@@ -108,7 +108,8 @@ async function handleRequest(
 
   // GET /api/config —— 前端 fetch 自动构建 WS 地址（见 protocol.md）
   if (url === "/api/config" || url.startsWith("/api/config?")) {
-    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+    // sessionToken 随 worker 重启轮换；客户端重连必须拿到最新值，禁止 HTTP 缓存旧响应。
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
     // default 派生自「默认」预设 leader 角色（AgentDialog 无 runtime 时预选用）；
     // senseGroups 暴露全名单 + default 标记（= 是否等于「默认」预设 leader 角色的 senseGroup，供前端 AgentDialog 渲染单选 + 预选默认项）；
     // presets 暴露预设名单（name + leader + leader 角色 brain + 选中角色 type 列表），供 FAB 预设选择；

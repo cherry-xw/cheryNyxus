@@ -63,6 +63,8 @@ export class WsClient {
   private statusHandlers = new Set<StatusHandler>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = false;
+  private connectionGeneration = 0;
+  private reconnectWaiters: Array<{ generation: number; resolve: () => void }> = [];
   /** Highest consumed recoverable event sequence per chat for this page lifetime. */
   private chatSeq = new Map<string, number>();
   /** Events that arrived ahead of a missing sequence while a sync is in flight. */
@@ -110,6 +112,27 @@ export class WsClient {
     this.open();
   }
 
+  /** 注册一次性重连观察；非即时重启的调用方可 cancel，避免无用等待者累积。 */
+  watchNextReconnect(): { promise: Promise<void>; cancel: () => void } {
+    const generation = this.connectionGeneration + 1;
+    let waiter: { generation: number; resolve: () => void };
+    const promise = new Promise<void>((resolve) => {
+      waiter = { generation, resolve };
+      this.reconnectWaiters.push(waiter);
+    });
+    return {
+      promise,
+      cancel: () => {
+        this.reconnectWaiters = this.reconnectWaiters.filter((item) => item !== waiter);
+      },
+    };
+  }
+
+  /** 在当前连接下一次完成“断线 → 成功连接”后 resolve，供一般调用方等待。 */
+  waitForNextReconnect(): Promise<void> {
+    return this.watchNextReconnect().promise;
+  }
+
   private open(): void {
     if (!this.serverConfig) return;
     this.setStatus("connecting");
@@ -130,9 +153,12 @@ export class WsClient {
       }
     };
     ws.onclose = () => {
+      // 旧 socket 的迟到 close 不能覆盖新连接或重复安排重连。
+      if (this.ws !== ws) return;
+      this.ws = null;
       this.setStatus("disconnected");
       if (this.shouldReconnect) {
-        this.reconnectTimer = setTimeout(() => this.open(), RECONNECT_DELAY);
+        this.scheduleReconnect();
       } else {
         this.rejectAll(new Error("连接关闭"));
       }
@@ -237,8 +263,34 @@ export class WsClient {
   }
 
   private setStatus(status: ConnectionStatus): void {
+    const previous = this.status;
     this.status = status;
+    if (status === "connected" && previous !== "connected") {
+      this.connectionGeneration += 1;
+      const ready = this.reconnectWaiters.filter((waiter) => waiter.generation <= this.connectionGeneration);
+      this.reconnectWaiters = this.reconnectWaiters.filter((waiter) => waiter.generation > this.connectionGeneration);
+      ready.forEach((waiter) => waiter.resolve());
+    }
     this.statusHandlers.forEach((h) => h(status));
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer || !this.shouldReconnect) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.reconnect();
+    }, RECONNECT_DELAY);
+  }
+
+  private async reconnect(): Promise<void> {
+    try {
+      // 每次重连刷新 token/端口/transport；worker 重启后旧 token 必然失效。
+      this.serverConfig = await getServerConfig({ refresh: true });
+      if (this.shouldReconnect) this.open();
+    } catch {
+      this.setStatus("disconnected");
+      this.scheduleReconnect();
+    }
   }
 
   private rejectAll(error: Error): void {

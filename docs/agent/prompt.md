@@ -118,6 +118,17 @@ export function getSkillRealtime(name: string):
 export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string }>;
 ```
 
+### 前端指令列表与强制加载
+
+`skills.list` RPC 复用 `getSkillMetas()`，实时返回用户配置目录中的
+`{ name, description, trigger? }`。前端在发送窗口输入 `/` 时据此展示可选命令；选中某个
+`/<name>` 后，发送端会附加一段明确指令，要求模型先调用 `skill` 感官并传入该名称，再处理
+用户的普通文本。该指令只是一条用户消息的编排方式，不会把完整 Skill 正文传到前端。
+
+`/compact` 是前端内置命令：它要求模型整理当前会话的关键事实、决策、进度和待办，生成可供
+后续轮次使用的摘要。它不对应 `SKILL.md`，因此不由 `getSkillMetas()` 或 `skills.list` 返回，
+也不会出现在 `.chery/skills/`、设置页或任何可删除的用户技能列表中。
+
 **SKILL.md frontmatter 格式：**
 
 ```markdown

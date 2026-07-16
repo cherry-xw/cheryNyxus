@@ -115,6 +115,13 @@ export interface SenseToolInfo {
   icon: string;
 }
 
+/** skills.list 单项：用户 `.chery/skills/` 中可强制加载的技能元数据。 */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  trigger?: string;
+}
+
 /** /api/config 返回形状（FAB default + AgentDialog senseGroups 全名单 + default 标记，后端 Agent B 暴露）。 */
 export interface SenseGroupOption {
   name: string;
@@ -273,6 +280,12 @@ function callStream(
 }
 
 export const agentApi = {
+  /** skills.list：实时列出用户可加载的技能；内置命令不在此结果中。 */
+  async listSkills(): Promise<SkillInfo[]> {
+    const data = await call<{ skills?: SkillInfo[] }>("skills.list", {});
+    return data?.skills ?? [];
+  },
+
   /** chat.list：列出所有 chat（主 chat → 主 pet；子 chat 按 parentChatId 挂主附近）。CP8：includePreview=true 增返 preview/turnCount（会话列表用）。 */
   async listChats(includePreview = false): Promise<ChatSummary[]> {
     const data = await call<{ chats?: ChatSummary[] }>("chat.list", { includePreview });
@@ -415,8 +428,8 @@ export const agentApi = {
    * config.save：校验（brain 引用/supervision 合法/`:level` 合法/必填）+ 写回（保留 server 段、无注释）。
    * 不碰内存单例，重启生效。校验失败 throw（error.message 含全部错误，设置面板红框展示）。
    */
-  async saveConfig(payload: ConfigDto): Promise<{ needRestart: true }> {
-    return call<{ needRestart: true }>("config.save", payload);
+  async saveConfig(payload: ConfigDto): Promise<{ needRestart: true; restart: "immediate" | "scheduled" | "manual" }> {
+    return call<{ needRestart: true; restart: "immediate" | "scheduled" | "manual" }>("config.save", payload);
   },
 
   /**

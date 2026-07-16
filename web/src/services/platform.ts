@@ -83,9 +83,11 @@ export function wsUrl(cfg: ServerConfig): string {
  * - Electron 模式：读 `window.__BACKEND_CONFIG__`（preload 注入，无需 fetch）
  * - 浏览器模式：`fetch('/api/config')` 获取 `wsPort + transport`
  */
-export async function getServerConfig(): Promise<ServerConfig> {
-  if (window.__BACKEND_CONFIG__) return window.__BACKEND_CONFIG__;
-  const res = await fetch(httpUrl("/api/config"));
+export async function getServerConfig(options: { refresh?: boolean } = {}): Promise<ServerConfig> {
+  // Electron preload 的配置只在应用启动时注入。worker 重启会轮换本地 sessionToken，
+  // 自动重连必须改从仍由守护进程恢复的 HTTP /api/config 读取新值。
+  if (window.__BACKEND_CONFIG__ && !options.refresh) return window.__BACKEND_CONFIG__;
+  const res = await fetch(httpUrl("/api/config"), { cache: "no-store" });
   if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`);
   return (await res.json()) as ServerConfig;
 }

@@ -12,6 +12,7 @@ import {
 } from "../message/types.js";
 import { readRawConfig, saveRawConfig } from "@/utils/config.js";
 import { logger } from "@/utils/logger/index.js";
+import { requestRestartWhenIdle } from "@/service/restartCoordinator.js";
 
 /**
  * Config 设置 RPC handler。
@@ -19,7 +20,7 @@ import { logger } from "@/utils/logger/index.js";
  * config.get：读 .chery/config.yaml 原文（除 server 段），供设置面板编辑。
  *   返回 supervision 字符串、key 仍为 $ENV 占位符、无路径补全的原始结构。
  * config.save：校验 + 写回 .chery/config.yaml（保留 server 段、无注释）。
- *   不碰内存单例（重启生效）。校验失败返 INVALID_PARAMS + errors 列表，不写盘（规则12 fail loud）。
+ *   worker 通过 IPC 请求守护进程在所有 chat 空闲时替换自己；直启 worker 则明确要求手动重启。
  */
 
 /** config.get：读原文（剥离 server 段） */
@@ -32,8 +33,8 @@ async function handleConfigGet(
   return raw;
 }
 
-/** config.save：校验 + 写回，失败返 INVALID_PARAMS Response，成功返 needRestart */
-async function handleConfigSave(
+/** config.save：校验 + 写回；成功后安排空闲重启。 */
+export async function handleConfigSave(
   ctx: HandlerContext,
   data: ConfigSaveRequestData,
 ): Promise<ConfigSaveResponseData | Response> {
@@ -49,7 +50,7 @@ async function handleConfigSave(
   }
   // logger 在统一边界递归脱敏 key/token/secret/env 等字段。
   logger.event("config.save", { config: data });
-  return { needRestart: true };
+  return { needRestart: true, restart: requestRestartWhenIdle() };
 }
 
 export function registerConfigHandlers(router: RpcRouter): void {

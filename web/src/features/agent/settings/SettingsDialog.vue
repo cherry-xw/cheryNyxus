@@ -15,6 +15,7 @@ import { AnimatePresence, motion } from "motion-v";
 import { Close, FolderOpened } from "@element-plus/icons-vue";
 import { useAgentsStore, useConnectionStore } from "@/stores";
 import { agentApi, type ConfigDto, type SenseToolInfo } from "@/services/agentApi";
+import { wsClient } from "@/services/ws";
 import { TABS, HINT_LINES, INDEX_COUNT, type TabKey } from "./constants";
 import BrainsTab from "./tabs/BrainsTab.vue";
 import MediaTab from "./tabs/MediaTab.vue";
@@ -128,8 +129,21 @@ async function save(): Promise<void> {
   savedHint.value = null;
   try {
     sanitizeSenseGroups(draft.value);
-    await agentApi.saveConfig(draft.value);
-    savedHint.value = "✓ 已保存，需重启后端生效";
+    // 在 worker 关闭前登记等待者，避免它已开始重启时漏掉这一次重连。
+    const reconnectWatcher = wsClient.watchNextReconnect();
+    const result = await agentApi.saveConfig(draft.value);
+    if (result.restart === "immediate") {
+      savedHint.value = "服务正在更新…";
+      void reconnectWatcher.promise.then(() => {
+        savedHint.value = "✓ 已保存，服务已更新";
+      });
+    } else if (result.restart === "scheduled") {
+      reconnectWatcher.cancel();
+      savedHint.value = "✓ 已保存，将在当前任务完成后自动重启";
+    } else {
+      reconnectWatcher.cancel();
+      savedHint.value = "✓ 已保存，需重启后端生效";
+    }
   } catch (e) {
     error.value = (e as Error).message;
     console.error("[SettingsDialog] saveConfig failed:", e);

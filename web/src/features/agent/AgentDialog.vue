@@ -15,11 +15,12 @@ const MotionDiv = motion.div;
 const {
   chatId, pet,
   brains, senseGroups, config, senseTools,
-  roleSelections, primaryRole, text,
+  roleSelections, primaryRole, text, selectedCommands, commandOptions, showCommandMenu,
+  activeCommandIndex, commandMenuRef,
   uploading, mediaHint, mediaAttachments,
   sending, loading, error,
   primarySelection, orderedRoleSelections, mediaServicesByType,
-  close, handleSend, onTextareaKeydown,
+  close, handleSend, onTextareaKeydown, selectCommand, removeCommand,
   removeMedia, onMediaSelected,
   senseEntries, senseTool, brainConfig, supportsTools,
 } = useAgentDialogOptions();
@@ -161,6 +162,17 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
         <div v-if="mediaHint" class="media-hint-row">{{ mediaHint }}</div>
 
         <div class="textarea-row">
+          <div v-if="selectedCommands.length" class="command-chips" aria-label="已选指令">
+            <span v-for="command in selectedCommands" :key="command.id" class="command-chip">
+              <span class="command-chip-name">{{ command.name }}</span>
+              <button
+                type="button"
+                class="command-chip-remove"
+                :aria-label="`移除指令 ${command.name}`"
+                @click="removeCommand(command)"
+              >×</button>
+            </span>
+          </div>
           <el-input
             v-model="text"
             type="textarea"
@@ -171,6 +183,23 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
             resize="none"
             @keydown="onTextareaKeydown"
           />
+          <div ref="commandMenuRef" v-if="showCommandMenu" class="command-menu" role="listbox" aria-label="可用指令">
+            <button
+              v-for="(command, index) in commandOptions"
+              :key="command.id"
+              type="button"
+              class="command-option"
+              :class="{ 'is-active': index === activeCommandIndex }"
+              role="option"
+              :aria-selected="index === activeCommandIndex"
+              @mousedown.prevent
+              @mousemove="activeCommandIndex = index"
+              @click="selectCommand(command)"
+            >
+              <span class="command-option-name">{{ command.name }}</span>
+              <span class="command-option-desc">{{ command.description }}</span>
+            </button>
+          </div>
           <div class="textarea-actions">
             <ElPopover
               trigger="click"
@@ -226,7 +255,7 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
             <button
               type="button"
               class="send-btn"
-              :disabled="!text.trim() || sending || loading || !primarySelection?.brain || (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)"
+              :disabled="(!text.trim() && selectedCommands.length === 0) || sending || loading || !primarySelection?.brain || (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)"
               aria-label="发送消息"
               @click="handleSend"
             >

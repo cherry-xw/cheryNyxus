@@ -54,6 +54,7 @@ export type NotificationType =
 ```ts
 interface RpcMethodMap {
   [Method.BRAIN_LIST]: { params: BrainListRequestData; result: BrainListResponseData };
+  [Method.SKILLS_LIST]: { params: SkillsListRequestData; result: SkillsListResponseData };
   // ...每个 Method 恰好一项
   [Method.UTILS_OPEN_CONFIG_DIR]: {
     params: UtilsOpenConfigDirRequestData;
@@ -64,6 +65,10 @@ interface RpcMethodMap {
 type ParamsOf<M extends Method> = RpcMethodMap[M]["params"];
 type ResultOf<M extends Method> = RpcMethodMap[M]["result"];
 ```
+
+`skills.list` 是无参 RPC，返回当前 `.chery/skills/` 中用户技能的元数据
+`{skills:[{name,description,trigger?}]}`。它仅用于发送窗口的 `/` 命令菜单；内置 `/compact`
+不属于该返回值，避免将内置行为伪装成可编辑、可删除的配置文件。
 
 `RpcRouter.register(Method.X, handler)` 会据 Method 字面量自动校验 handler 的 params/result；`requestSchemas` 继续通过 `satisfies Record<Method, ...>` 保证运行时校验表完整。新增 `utils.openConfigDir` 固定打开后端主机的 `CHERY_DIR/.chery`，不接收客户端路径。
 

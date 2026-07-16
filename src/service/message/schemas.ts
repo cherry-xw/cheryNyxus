@@ -146,6 +146,7 @@ export const requestSchemas = {
   [Method.BRAIN_LIST]: emptySchema,
   [Method.SENSE_LIST]: emptySchema,
   [Method.SENSE_TOOLS]: emptySchema,
+  [Method.SKILLS_LIST]: emptySchema,
   [Method.PROMPTS_LIST]: emptySchema,
   [Method.RUNTIME_SET]: z.object({
     chatId: z.string(),

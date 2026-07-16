@@ -22,7 +22,7 @@ cheryClaw 采用拟人化隐喻设计：
 |------|------|
 | `pnpm dev` | 开发模式，热重载，监听 `ws://localhost:8182` |
 | `pnpm build` | 构建产物到 `dist/` |
-| `node dist/index.js` | 运行构建产物（无 `start` 脚本，直接运行编译产物） |
+| `node dist/index.js` | 运行守护进程；它管理实际后端 worker，并在配置保存后空闲重启 worker。 |
 | `pnpm compile:senses` | 编译 `.chery/senses/` 下的外部感官 |
 | `pnpm test` | 运行测试 |
 

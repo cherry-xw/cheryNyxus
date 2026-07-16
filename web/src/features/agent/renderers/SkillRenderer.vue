@@ -59,21 +59,6 @@ const lineCount = computed(() => {
   return content.split("\n").length;
 });
 
-// 内容截断（20 行）
-const PREVIEW_MAX_LINES = 20;
-const contentPreview = computed(() => {
-  const content = skillInfo.value?.content ?? "";
-  const lines = content.split("\n");
-  if (lines.length <= PREVIEW_MAX_LINES) {
-    return { text: content, truncated: false, totalLines: lines.length };
-  }
-  return {
-    text: lines.slice(0, PREVIEW_MAX_LINES).join("\n"),
-    truncated: true,
-    totalLines: lines.length,
-  };
-});
-
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
@@ -123,10 +108,7 @@ const fallback = computed(() => {
         </span>
       </button>
       <div v-if="showContent" class="content-body">
-        <pre class="content-pre">{{ contentPreview.text }}</pre>
-        <div v-if="contentPreview.truncated" class="content-truncated">
-          显示前 {{ PREVIEW_MAX_LINES }} 行 / 共 {{ contentPreview.totalLines }} 行
-        </div>
+        <pre class="content-pre">{{ skillInfo?.content }}</pre>
       </div>
     </div>
 
@@ -258,12 +240,6 @@ const fallback = computed(() => {
   word-break: break-word;
   max-height: 240px;
   overflow: auto;
-}
-
-.content-truncated {
-  font-size: 9px;
-  font-style: italic;
-  color: fade(@ink, 50%);
 }
 
 .skill-fallback {

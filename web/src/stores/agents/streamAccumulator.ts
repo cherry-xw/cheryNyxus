@@ -76,9 +76,9 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
     if (role === "assistant") {
       const content = d.content ?? "";
       const mediaAssets = extractMediaUrls(content);
-      // 去重：done.finalMessage 已按 msgId push 过（streamRouter.ts:139-164）→ 合并到既有 item，不 push 新 item。
-      // 典型场景：assistant 消息只有 content 没有 thinking（thinking_end 未 emit），done 推了 finalMessage，
-      // chat.get 回放 content_end 到 → 此处 find 命中，合并而非 push。
+      // 同一消息（同 msgId）：thinking_end 已 push 过 item（或 done.finalMessage 已 push）→ 合并 content 进既有 item。
+      // 不做跨行合并：多 loop turn 每个 loop 是独立消息（loop1=技能调用/thinking+senseCalls，loop2=正文），
+      // 各自一条气泡，保持「先加载技能 → 下一 loop 回复」时序，避免 skill-box 被并进正文气泡（旧跨行合并所致）。
       if (d.msgId) {
         const existing = history.find((h) => h.msgId === d.msgId);
         if (existing) {
@@ -92,18 +92,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
           return;
         }
       }
-      // 同行 thinking_end 已 push 过 item → last 是 assistant 且 content 空 → 填入；
-      // 否则（行无 thinking，content_end 单独到）→ 新 item
-      const last = history[history.length - 1];
-      if (last && last.role === "assistant" && !last.content) {
-        last.content = content;
-        last.runtime = d.runtime;
-        last.createdAt = d.createdAt ?? last.createdAt;
-        if (mediaAssets.length > 0) last.mediaAssets = mediaAssets;
-        if (d.agentChatId) last.agentChatId = d.agentChatId;
-      } else {
-        history.push({ role: "assistant", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}), ...(mediaAssets.length > 0 && { mediaAssets }) });
-      }
+      history.push({ role: "assistant", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}), ...(mediaAssets.length > 0 && { mediaAssets }) });
       return;
     }
     if (role === "sense") {
@@ -143,6 +132,10 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
   }
 
   if (d.type === "sense_end") {
+    // 幂等：同 id 已存在于任意 assistant item 的 senseCalls → 跳过。
+    // 防回放重入 / WS 重投递致同一 sense call 被处理两次（skill-box 翻倍）。user content_end 无去重也未翻倍
+    // 说明非均匀整流重放，故按 id 精确去重（而非按 msgId 重放级去重）。
+    if (d.id && history.some((h) => h.senseCalls?.some((s) => s.id === d.id))) return;
     // 挂当前 assistant item；若无（仅 sense 无 assistant 行——异常序），fail loud warn
     const last = history[history.length - 1];
     if (!last || last.role !== "assistant") {
@@ -150,6 +143,8 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       return;
     }
     if (!last.senseCalls) last.senseCalls = [];
+    // 缺 id（旧 staged）退化为 last 内 name+args 指纹去重
+    if (!d.id && last.senseCalls.some((s) => s.name === (d.senseName ?? "") && s.args === d.arguments)) return;
     last.senseCalls.push({
       id: d.id,                       // sense message.id（与后端 LLMResponse.id 对齐）
       name: d.senseName ?? "",

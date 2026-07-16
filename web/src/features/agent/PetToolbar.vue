@@ -3,7 +3,7 @@
  * PetToolbar：pet 工具栏按钮组，取代原 PetSprite 的装饰工具按钮（pet.tools）。
  * - 主 pet：历史 / 中止 / 销毁
  * - 子 pet：历史 / 中止
- * - ≥50% contextUsage 显 compact（预留，CP7 接 compact RPC）
+ * - >40% contextUsage 显 compact，点击直接发送内置 /compact 指令
  * - 中止按钮仅 isWorking 时渲染（避免常驻 disabled）
  * 中止/销毁/历史的具体调用由父（PetStage）处理，本组件仅 emit。
  */
@@ -33,7 +33,7 @@ const emit = defineEmits<{
 
 const agents = useAgentsStore();
 
-const showCompact = computed(() => props.pet.contextUsage >= 0.5);
+const showCompact = computed(() => props.pet.contextUsage > 0.4);
 /** 主 pet idle 且末条为未完成周期 → 显"继续"按钮，用户点击触发 chat.resume */
 const showResume = computed(() => props.pet.isMaster && !props.pet.isWorking && !!props.pet.canResume);
 

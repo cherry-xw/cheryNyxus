@@ -4,6 +4,7 @@ import PetSprite from "./PetSprite.vue";
 import { usePetWorld } from "./usePetWorld";
 import { useAgentsStore } from "@/stores";
 import type { PetInstance } from "./types";
+import { COMPACT_COMMAND, composeCommandPrompt } from "@/features/agent/commands";
 
 const stageRef = ref<HTMLElement | null>(null);
 // pets 单一数据源 = agents store；usePetWorld 注入数组，RAF/交互直接作用于 store state
@@ -73,8 +74,12 @@ function handleHistory(pet: PetInstance): void {
   agents.openHistoryRoot(pet.chatId);
 }
 
-function handleCompact(_pet: PetInstance): void {
-  // TODO(CP7): compact RPC（压缩上下文）
+async function handleCompact(pet: PetInstance): Promise<void> {
+  try {
+    await agents.sendMessage(pet.chatId, composeCommandPrompt("", [COMPACT_COMMAND]));
+  } catch (e) {
+    console.error("[PetStage] compact failed:", e);
+  }
 }
 
 async function handleResume(pet: PetInstance): Promise<void> {
