@@ -10,6 +10,10 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
+  background: transparent;       // 默认透明（非栈顶，不叠加 blur）
+  backdrop-filter: none;
+}
+.dialog-overlay.is-top-mask {    // 栈顶 overlay：带 blur 遮罩盖住下层
   background: rgba(15, 17, 22, 0.42);
   backdrop-filter: blur(2px);
 }

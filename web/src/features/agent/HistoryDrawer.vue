@@ -11,14 +11,19 @@
 import { computed, onBeforeUnmount } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { useHistoryDrawerManager } from "./useHistoryDrawerManager";
+import { useAgentsStore } from "@/stores";
 import HistoryDrawerPanel from "./HistoryDrawerPanel.vue";
 
 const MotionDiv = motion.div;
 
 const manager = useHistoryDrawerManager();
+const agents = useAgentsStore();
 
 // 栈底=根抽屉，栈顶=当前可见层
 const stack = computed(() => manager.stack.value);
+
+// 共用单蒙层：仅当 HistoryDrawer 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
+const isTopMask = computed(() => agents.topOverlay === "historyDrawer");
 
 function closeTop(): void {
   manager.closeTop();
@@ -32,9 +37,9 @@ function onOverlayClick(e: MouseEvent): void {
 // 基础 z-index（与原 HistoryDrawer 一致，低于审批 400 / AgentDialog 300）
 const BASE_Z = 280;
 
-// 全局 ESC 关栈顶（栈非空时生效；匹配 AgentDialog 模式）
+// 全局 ESC 关栈顶（栈非空时生效；topOverlay 守卫避免与 AgentDialog 等同开时双重关闭）
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape" && stack.value.length > 0) {
+  if (e.key === "Escape" && stack.value.length > 0 && agents.topOverlay === "historyDrawer") {
     e.preventDefault();
     closeTop();
   }
@@ -49,6 +54,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
       v-if="stack.length > 0"
       key="history-overlay"
       class="drawer-overlay"
+      :class="{ 'is-top-mask': isTopMask }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
@@ -67,11 +73,16 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
 </template>
 
 <style scoped lang="less">
-// 遮罩容器：fixed 全屏，半透明 + 模糊；面板绝对定位其内右侧（见 HistoryDrawerPanel）
+// 遮罩容器：fixed 全屏。默认透明（非栈顶），仅 .is-top-mask 带 blur 遮罩盖住下层（共用单蒙层）。
+// 面板绝对定位其内右侧（见 HistoryDrawerPanel）
 .drawer-overlay {
   position: fixed;
   inset: 0;
   z-index: 280;
+  background: transparent;
+  backdrop-filter: none;
+}
+.drawer-overlay.is-top-mask {
   background: rgba(15, 17, 22, 0.36);
   backdrop-filter: blur(2px);
 }

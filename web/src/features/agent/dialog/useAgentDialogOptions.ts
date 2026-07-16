@@ -191,9 +191,9 @@ export function useAgentDialogOptions() {
     agents.activeDialogChatId = null;
   }
 
-  // 全局 ESC 关闭弹窗（仅在 dialog 打开时生效）。
+  // 全局 ESC 关闭弹窗（仅在 dialog 打开且为栈顶 overlay 时生效；topOverlay 守卫避免与 HistoryDrawer 等同开时双重关闭）。
   function onGlobalKeydown(e: KeyboardEvent): void {
-    if (e.key === "Escape" && chatId.value) {
+    if (e.key === "Escape" && chatId.value && agents.topOverlay === "agentDialog") {
       e.preventDefault();
       close();
     }

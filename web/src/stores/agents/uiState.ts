@@ -3,6 +3,9 @@ import { computed, ref, type ComputedRef } from "vue";
 /** 历史抽屉栈最大深度（防多级 spawn 递归下钻失控）。 */
 const HISTORY_STACK_MAX = 5;
 
+/** 全屏 overlay 类型（"共用单蒙层"用，按 z 优先级排序）。 */
+export type OverlayKind = "settings" | "agentDialog" | "historyDrawer" | "sessionList";
+
 /** UI 焦点 / 面板开关 / 滚动触发——独立于数据层的纯 UI 状态。 */
 export function createUiState() {
   const activeDialogChatId = ref<string | null>(null);
@@ -17,6 +20,17 @@ export function createUiState() {
   const topHistoryChatId: ComputedRef<string | null> = computed(() => {
     const stack = historyDrawerStack.value;
     return stack.length > 0 ? (stack[stack.length - 1] ?? null) : null;
+  });
+
+  /** 当前栈顶 overlay 类型（按 z 优先级）。用于“共用单蒙层”：同屏仅栈顶 overlay 蒙层带 blur，
+   *  非栈顶蒙层透明，避免多层 blur 叠加导致底层完全不可见。
+   *  优先级：settings > agentDialog > historyDrawer > sessionList。 */
+  const topOverlay: ComputedRef<OverlayKind | null> = computed(() => {
+    if (settingsOpen.value) return "settings";
+    if (activeDialogChatId.value) return "agentDialog";
+    if (historyDrawerStack.value.length > 0) return "historyDrawer";
+    if (historyListOpen.value) return "sessionList";
+    return null;
   });
 
   /** 打开根抽屉（PetStage 从 pet 列表打开）：重置栈为单元素（新浏览会话，不叠加旧栈）。 */
@@ -57,6 +71,7 @@ export function createUiState() {
     activeDialogChatId,
     historyDrawerStack,
     topHistoryChatId,
+    topOverlay,
     openHistoryRoot,
     drillHistoryChild,
     closeHistoryTop,

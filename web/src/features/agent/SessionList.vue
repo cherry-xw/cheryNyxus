@@ -22,6 +22,8 @@ const MotionDiv = motion.div;
 const agents = useAgentsStore();
 
 const open = computed(() => agents.historyListOpen);
+// 共用单蒙层：仅当 SessionList 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
+const isTopMask = computed(() => agents.topOverlay === "sessionList");
 const loading = ref(false);
 const error = ref<string | null>(null);
 const pendingDelete = ref<string | null>(null);
@@ -51,9 +53,9 @@ function onOverlayClick(e: MouseEvent): void {
   if (e.target === e.currentTarget) close();
 }
 
-// 全局 ESC 关闭抽屉（仅在 open 时生效；匹配 AgentDialog / HistoryDrawer 模式）。
+// 全局 ESC 关闭抽屉（仅在 open 且为栈顶 overlay 时生效；topOverlay 守卫避免双重关闭）。
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape" && open.value) {
+  if (e.key === "Escape" && open.value && agents.topOverlay === "sessionList") {
     e.preventDefault();
     close();
   }
@@ -107,6 +109,7 @@ async function remove(chatId: string): Promise<void> {
       v-if="open"
       key="session-overlay"
       class="session-overlay"
+      :class="{ 'is-top-mask': isTopMask }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
@@ -188,6 +191,10 @@ async function remove(chatId: string): Promise<void> {
   z-index: 270;
   display: flex;
   justify-content: flex-end;
+  background: transparent;       // 默认透明（非栈顶，不叠加 blur）
+  backdrop-filter: none;
+}
+.session-overlay.is-top-mask {   // 栈顶 overlay：带 blur 遮罩盖住下层
   background: rgba(15, 17, 22, 0.36);
   backdrop-filter: blur(2px);
 }

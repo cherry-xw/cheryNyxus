@@ -11,6 +11,11 @@ import MediaPreviewBar from "./dialog/media/MediaPreviewBar.vue";
 import ContextBreakdownTip from "./ContextBreakdownTip.vue";
 import { fmtTokens } from "./contextBreakdown";
 import { useAgentDialogOptions } from "./dialog/useAgentDialogOptions";
+import { useAgentsStore } from "@/stores";
+
+const agents = useAgentsStore();
+// 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
+const isTopMask = computed(() => agents.topOverlay === "agentDialog");
 
 const MotionDiv = motion.div;
 
@@ -55,6 +60,7 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
       v-if="chatId"
       key="overlay"
       class="dialog-overlay"
+      :class="{ 'is-top-mask': isTopMask }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"

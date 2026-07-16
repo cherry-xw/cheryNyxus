@@ -20,7 +20,6 @@ import type { HistoryItem } from "@/stores/agents";
 import VirtualScroll from "@/components/VirtualScroll.vue";
 import { mergeChildReplyHistory } from "@/stores/agents/historyMerge";
 import MessageBubble from "./MessageBubble.vue";
-import HistoryRail from "./HistoryRail.vue";
 import { useDrawerWidth } from "./useDrawerWidth";
 import { useSubPetResolution } from "./useSubPetResolution";
 import { useHistoryDrawerManager } from "./useHistoryDrawerManager";
@@ -40,6 +39,13 @@ function estimateHeight(item: HistoryItem | undefined): number {
   if (hasThinking) return 220;
   if (senseCount > 0) return 180;
   return 130;
+}
+
+/** 取前 N 字预览：折叠空白 + 去首尾 + 超长 ellipsis。空内容显占位串。供滚动条标记 title 用。 */
+function previewOf(content: string | undefined): string {
+  if (!content) return "(空)";
+  const compact = content.replace(/\s+/g, " ").trim();
+  return compact.length > 10 ? compact.slice(0, 10) + "…" : compact;
 }
 
 const props = defineProps<{
@@ -87,7 +93,7 @@ type VirtualScrollInstance = {
   scrollToIndex: (
     index: number,
     options?: { align?: "start" | "center" | "end"; behavior?: ScrollBehavior },
-  ) => void;
+  ) => Promise<void>;
 };
 
 const virtualScrollRef = ref<VirtualScrollInstance | null>(null);
@@ -114,7 +120,7 @@ function scrollToBottom(): void {
  *  - scrollToBottom 仍走 scrollTop 直接赋值（聊天累积即时跟随更顺手）
  *  - 滚动边界由 VirtualScroll 统一处理。 */
 function scrollToItem(idx: number, align: "start" | "center" | "end"): void {
-  void nextTick(() => virtualScrollRef.value?.scrollToIndex(idx, { align, behavior: "smooth" }));
+  void virtualScrollRef.value?.scrollToIndex(idx, { align, behavior: "smooth" });
 }
 
 // 历史长度变化（流式累积）→ 滚到底
@@ -173,16 +179,6 @@ function onJumpToSpawn(payload: { senseCallId: string }): void {
 // F：rail 点击把 idx 项对齐到视窗顶部（顶/底按钮不复用此：顶走 idx 0，底走 scrollToEnd）。
 function onRailJump(idx: number): void {
   scrollToItem(idx, "start");
-}
-
-// F：rail 顶部按钮 → 把 history 第 0 项对齐到顶部（不存在则 no-op，virtualScrollRef 自动忽略）。
-function onRailJumpTop(): void {
-  void nextTick(() => virtualScrollRef.value?.scrollToIndex(0, { align: "start", behavior: "smooth" }));
-}
-
-// F：rail 底部按钮 → 直接滚到历史末尾（VirtualScroll 已暴露 scrollToEnd，复用）。
-function onRailJumpBottom(): void {
-  void nextTick(() => virtualScrollRef.value?.scrollToEnd());
 }
 
 // F：监听 store 跨面板滚动请求（push 主 chat 后，主面板挂载时 pending 已设 → immediate 触发滚动）
@@ -274,14 +270,6 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
       @pointermove="onHandlePointerMove"
       @pointerup="onHandlePointerUp"
     />
-    <aside class="user-rail-host">
-      <HistoryRail
-        :marks="userMarks"
-        @jump="onRailJump"
-        @jump-top="onRailJumpTop"
-        @jump-bottom="onRailJumpBottom"
-      />
-    </aside>
     <header class="drawer-head">
       <div class="title-block">
         <span class="title">{{ titleText }}</span>
@@ -352,6 +340,26 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
             @jump-to-spawn="onJumpToSpawn"
           />
         </template>
+
+        <!-- 滚动条轨道上的 user 消息 minimap 标记：hover 预览 + 点击跳转（VirtualScroll 暴露 ratioOf/trackHeight） -->
+        <template #scrollbar-mark="{ ratioOf, trackHeight }">
+          <el-tooltip
+            v-for="m in userMarks"
+            :key="m.item.msgId ?? `idx-${m.idx}`"
+            :content="previewOf(m.item.content)"
+            placement="left"
+            :show-after="120"
+          >
+            <button
+              type="button"
+              class="scrollbar-mark"
+              :style="{ top: `${ratioOf(m.idx) * trackHeight}px` }"
+              :aria-label="`跳转到用户消息: ${previewOf(m.item.content)}`"
+              @pointerdown.stop
+              @click.stop="onRailJump(m.idx)"
+            />
+          </el-tooltip>
+        </template>
       </VirtualScroll>
     </div>
   </MotionDiv>
@@ -391,24 +399,40 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
   }
 }
 
-// rail 定位壳：绝对定位在 drawer-panel 左侧外面，落在 overlay 蒙层上。
-// z-index 11 高于 resize-handle 的 10；rail 内部自带深色 pill 容器（HistoryRail.vue），
-// 让用户一眼就能看到列所在位置——短横线 hover 仍然是橙 + glow。
-.user-rail-host {
+// 滚动条轨道上的 user 消息标记（minimap）：浅黄细线 + 大热区。
+// button 本体透明 14px 高作 hover/click 热区（2px 线难点不准）；视觉线由 ::before 画。
+// top 由父 inline-style 按 ratioOf(idx)*trackHeight 给定；margin-top 负值让热区垂直居中于 ratio 锚点。
+.scrollbar-mark {
   position: absolute;
-  left: -32px;                  // 紧贴 panel 左边外 32px
-  top: 0;
-  bottom: 0;
-  width: 32px;
-  z-index: 11;
-  padding-top: 90px;            // 让出 head + usage-bar 高度
-  padding-bottom: 24px;
-  display: flex;
-  pointer-events: none;         // 容器透传，只有 mark/edge 自己接收点击
+  left: 0;
+  right: 0;
+  height: 14px;               // 热区高度（远大于视觉线，易 hover/click）
+  margin-top: -7px;           // 居中于 ratio 锚点
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
-.user-rail-host > :deep(.history-rail) {
-  pointer-events: auto;
-  flex: 1;
+.scrollbar-mark::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: #fbbf24;        // 浅黄（amber-400）默认
+  border-radius: 1px;
+  transition: background 0.12s ease, box-shadow 0.12s ease, height 0.12s ease;
+}
+.scrollbar-mark:hover::before,
+.scrollbar-mark:focus-visible::before {
+  background: #ca8a04;        // 深黄（yellow-600）hover
+  height: 3px;                // hover 加粗增强反馈
+  box-shadow: 0 0 4px rgba(202, 138, 4, 0.55);
+}
+.scrollbar-mark:focus-visible {
+  outline: none;
 }
 
 .drawer-head {
@@ -485,7 +509,6 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
 .history-list {
   flex: 1;
   min-height: 0;
-  padding-right: 8px;
   --virtual-scroll-gap: 10px;
 }
 
