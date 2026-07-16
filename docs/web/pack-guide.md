@@ -117,6 +117,8 @@ node scripts/electron-pack.mjs pack    # 仅构建 + 打包（依赖前置步骤
 
 afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)）在打包阶段就把 `.env` 与 `.chery/` 复制到 `cheryClaw.exe` 同级——**用户首次安装即看到，无需首次启动**。
 
+> 开发环境的 `.env` / `.chery/` 由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 走 `pnpm install` 的 `postinstall` 钩子从仓库根 `.env.example` / `.chery.template/` 拷出,逻辑与 afterPack 等价(目标存在即跳过,保护编辑)。
+
 ```
 安装目录（cheryClaw.exe 同级）          ← 用户可维护位置
 ├── cheryClaw.exe

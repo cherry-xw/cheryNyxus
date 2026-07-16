@@ -110,7 +110,7 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 ```
 
 - **`.env` 模板分发**:`.env.example` 作为种子打入 `resources/.env.example`,**不带 API Key**。[post-pack.mjs](../../web/scripts/post-pack.mjs) 在打包阶段把它复制为 `cheryClaw.exe` 同级的 `.env`,用户后续自由修改,升级不覆盖(NSIS 默认会覆盖,需手动 NSIS include 跳过)。
-- **`.chery` 用户副本**:`resources/.chery.template/` 是只读模板,afterPack 复制为 `cheryClaw.exe` 同级的 `.chery/`,用户编辑这个副本。`.chery.template/` 与开发用的 `.chery/` 隔离——开发期的 `.chery/` 含运行时生成(`db/`、`media/`、`mock/`),不打包。
+- **`.chery` 用户副本**:`resources/.chery.template/` 是只读模板,afterPack 复制为 `cheryClaw.exe` 同级的 `.chery/`,用户编辑这个副本。`.chery.template/` 与开发用的 `.chery/` 隔离——开发期的 `.chery/` 含运行时生成(`db/`、`media/`、`mock/`),不打包。开发环境由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 走 `postinstall` 钩子从仓库根 `.chery.template/` 拷出,行为对齐(目标存在即跳过,保护用户编辑)。
 - `appId` / `productName` / win/mac/linux targets 配置。
 - 打包命令:`pnpm electron:pack`(一键全量)/ `pnpm electron:pack:fast`(增量,跳过依赖安装 + Node 22 LTS + SQLite 预编译 + 类型检查,假定缓存已就绪;Node/better-sqlite3 升版本后需先跑全量重建缓存)。
 - native rebuild:`pnpm --filter web rebuild`(`electron-builder install-app-deps`)—— **仅 rebuild web/ deps,不触及 root better-sqlite3**。

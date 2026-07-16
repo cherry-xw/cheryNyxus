@@ -30,6 +30,8 @@ cheryClaw 采用拟人化隐喻设计：
 
 ## 配置文件
 
+`.env` 与 `.chery/` 由 `pnpm install` 的 `postinstall` 钩子（[scripts/setup-env.mjs](scripts/setup-env.mjs)）自动从仓库内的 `.env.example` / `.chery.template/` 拷贝初始化；目标已存在则跳过，不覆盖用户编辑。手动初始化：`node scripts/setup-env.mjs`。
+
 | 文件 | 说明 |
 |------|------|
 | `.env` | 环境变量：API Key（`OLLAMA_HOST`、`OPENAI_API_KEY` 等） |
