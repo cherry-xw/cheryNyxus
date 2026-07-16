@@ -10,7 +10,7 @@
  * ⚠ 入场动画只用 opacity + y（无 scale）：scale 会让 panel 视觉上 < 720px，
  *    若 RPC 在 180ms 内 resolve，content 切换会被叠在 scale 动画里导致宽高抖动。
  */
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { AnimatePresence, motion } from "motion-v";
 import { Close, FolderOpened } from "@element-plus/icons-vue";
 import { useAgentsStore, useConnectionStore } from "@/stores";
@@ -42,6 +42,42 @@ const openingConfigDir = ref(false);
 const error = ref<string | null>(null);
 const savedHint = ref<string | null>(null);
 
+/** immediate 重启时等待重连的上限（ms）；到点仍连不上 → 隐藏 savedHint。 */
+const RECONNECT_TIMEOUT_MS = 60000;
+/** 重连成功后"已保存，服务已更新"的展示时长（ms）；到点隐藏。 */
+const SUCCESS_HINT_TIMEOUT_MS = 5000;
+/** 重连等待计时器显示：已等待秒数（immediate 时每秒 +1，重连成功停止）。 */
+const waitElapsed = ref(0);
+const isWaitingReconnect = ref(false);
+let reconnectWatcher: { promise: Promise<void>; cancel: () => void } | null = null;
+let waitInterval: ReturnType<typeof setInterval> | null = null;
+let waitTimeout: ReturnType<typeof setTimeout> | null = null;
+let closeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+/** 停止等待计时器显示（不动超时句柄）。 */
+function clearWaitInterval(): void {
+  if (waitInterval) {
+    clearInterval(waitInterval);
+    waitInterval = null;
+  }
+}
+
+/** 清理全部重启等待资源（计时器 + 重连上限 + 成功展示 + reconnectWatcher）。关闭/出错/超时统一调用。 */
+function clearRestartWait(): void {
+  clearWaitInterval();
+  if (waitTimeout) {
+    clearTimeout(waitTimeout);
+    waitTimeout = null;
+  }
+  if (closeTimeout) {
+    clearTimeout(closeTimeout);
+    closeTimeout = null;
+  }
+  reconnectWatcher?.cancel();
+  reconnectWatcher = null;
+  isWaitingReconnect.value = false;
+}
+
 /** sense.tools 返回的内置工具清单（缓存，SensesTab 下拉建议 + label/description 显示用）。失败置 []。 */
 const senseTools = ref<SenseToolInfo[]>([]);
 
@@ -55,6 +91,7 @@ watch(
   () => agents.settingsOpen,
   async (open) => {
     if (!open) {
+      clearRestartWait();
       draft.value = null;
       error.value = null;
       savedHint.value = null;
@@ -127,30 +164,64 @@ async function save(): Promise<void> {
   saving.value = true;
   error.value = null;
   savedHint.value = null;
+  clearRestartWait();
   try {
     sanitizeSenseGroups(draft.value);
     // 在 worker 关闭前登记等待者，避免它已开始重启时漏掉这一次重连。
-    const reconnectWatcher = wsClient.watchNextReconnect();
+    reconnectWatcher = wsClient.watchNextReconnect();
     const result = await agentApi.saveConfig(draft.value);
     if (result.restart === "immediate") {
       savedHint.value = "服务正在更新…";
-      void reconnectWatcher.promise.then(() => {
-        savedHint.value = "✓ 已保存，服务已更新";
-      });
+      isWaitingReconnect.value = true;
+      waitElapsed.value = 0;
+      waitInterval = setInterval(() => {
+        waitElapsed.value += 1;
+      }, 1000);
+      // 超时从保存后立即起算：到点仍重连未成功 → 隐藏提示条。
+      waitTimeout = setTimeout(() => {
+        clearRestartWait();
+        savedHint.value = null;
+      }, RECONNECT_TIMEOUT_MS);
+      const watcher = reconnectWatcher;
+      if (watcher) {
+        // 重连成功：切文案、停计时器；清掉重连等待上限，起 5s 成功展示计时后隐藏。
+        void watcher.promise.then(() => {
+          clearWaitInterval();
+          isWaitingReconnect.value = false;
+          savedHint.value = "✓ 已保存，服务已更新";
+          if (waitTimeout) {
+            clearTimeout(waitTimeout);
+            waitTimeout = null;
+          }
+          closeTimeout = setTimeout(() => {
+            closeTimeout = null;
+            reconnectWatcher?.cancel();
+            reconnectWatcher = null;
+            savedHint.value = null;
+          }, SUCCESS_HINT_TIMEOUT_MS);
+        });
+      }
     } else if (result.restart === "scheduled") {
-      reconnectWatcher.cancel();
+      reconnectWatcher?.cancel();
+      reconnectWatcher = null;
       savedHint.value = "✓ 已保存，将在当前任务完成后自动重启";
     } else {
-      reconnectWatcher.cancel();
+      reconnectWatcher?.cancel();
+      reconnectWatcher = null;
       savedHint.value = "✓ 已保存，需重启后端生效";
     }
   } catch (e) {
     error.value = (e as Error).message;
+    clearRestartWait();
     console.error("[SettingsDialog] saveConfig failed:", e);
   } finally {
     saving.value = false;
   }
 }
+
+onUnmounted(() => {
+  clearRestartWait();
+});
 
 /** 保存前清理：丢弃组内空工具名条目（与旧 textarea filter(Boolean) 行为一致）。 */
 function sanitizeSenseGroups(cfg: ConfigDto): void {
@@ -250,7 +321,10 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         </div>
 
         <div v-if="error" class="error-row" role="alert">{{ error }}</div>
-        <div v-if="savedHint" class="saved-row" role="status">{{ savedHint }}</div>
+        <div v-if="savedHint" class="saved-row" :class="{ waiting: isWaitingReconnect }" role="status">
+          <span class="saved-text">{{ savedHint }}</span>
+          <span v-if="isWaitingReconnect" class="wait-elapsed">已等待 {{ waitElapsed }}s</span>
+        </div>
 
         <footer class="foot">
           <div class="foot-right">
@@ -411,11 +485,23 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 }
 
 .saved-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 8px;
   border-radius: 6px;
   background: #dcfce7;
   color: #166534;
   font-size: 11px;
+  &.waiting {
+    background: #fdf6ec;
+    color: #e6a23c;
+  }
+}
+
+.wait-elapsed {
+  color: #c9933e;
+  font-variant-numeric: tabular-nums;
 }
 
 .foot {
