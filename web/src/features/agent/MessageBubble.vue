@@ -16,6 +16,7 @@ import { computed, ref } from "vue";
 import type { HistoryItem } from "@/stores/agents";
 import { renderMarkdown } from "@/utils/markdown";
 import { formatTime } from "@/utils/formatTime";
+import { splitCommandPrompt } from "./commands";
 import { SenseCallRenderer } from "./renderers/index";
 import MessageAvatar from "./MessageAvatar.vue";
 import MediaInlineRenderer from "./dialog/media/MediaInlineRenderer.vue";
@@ -66,6 +67,7 @@ const isMarkdown = computed(
     props.item.role === "master",
 );
 const renderedContent = computed(() => renderMarkdown(props.item.content ?? ""));
+const userContentSegments = computed(() => splitCommandPrompt(props.item.content ?? ""));
 
 // 气泡底部时间戳常显：同天 HH:MM / 跨天 MM-DD HH:MM / 跨年 YYYY-MM-DD HH:MM；缺失不渲染
 const timeText = computed(() => formatTime(props.item.createdAt));
@@ -114,7 +116,12 @@ const emit = defineEmits<{
       <div v-if="props.item.content" class="content">
         <!-- eslint-disable-next-line vue/no-v-html -- markdown-it html:false 已转义，XSS 安全 -->
         <span v-if="isMarkdown" class="md" v-html="renderedContent" />
-        <template v-else>{{ props.item.content }}</template>
+        <template v-else>
+          <template v-for="(segment, index) in userContentSegments" :key="`${segment.type}-${index}`">
+            <span v-if="segment.type === 'command'" class="instruction-message-token">{{ segment.value }}</span>
+            <template v-else>{{ segment.value }}</template>
+          </template>
+        </template>
         <!-- 内联媒体预览 -->
         <MediaInlineRenderer
           v-if="props.item.mediaAssets && props.item.mediaAssets.length > 0"
@@ -253,6 +260,21 @@ const emit = defineEmits<{
 // （{{ }} 插值已 HTML 转义，字面 #/* 不被误解释为富文本）
 .msg-row.role-user .content {
   white-space: pre-wrap;
+}
+
+.instruction-message-token {
+  display: inline-block;
+  margin: 1px 3px 1px 0;
+  padding: 1px 6px;
+  border: 1px solid rgba(190, 132, 28, 0.28);
+  border-radius: 5px;
+  background: linear-gradient(135deg, rgba(255, 242, 195, 0.94), rgba(246, 183, 60, 0.14));
+  color: #76500e;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  vertical-align: baseline;
 }
 
 .sense-list {

@@ -4,7 +4,7 @@ import PetSprite from "./PetSprite.vue";
 import { usePetWorld } from "./usePetWorld";
 import { useAgentsStore } from "@/stores";
 import type { PetInstance } from "./types";
-import { COMPACT_COMMAND, composeCommandPrompt } from "@/features/agent/commands";
+import { COMPACT_COMMAND, serializeCommandToken } from "@/features/agent/commands";
 
 const stageRef = ref<HTMLElement | null>(null);
 // pets 单一数据源 = agents store；usePetWorld 注入数组，RAF/交互直接作用于 store state
@@ -76,7 +76,7 @@ function handleHistory(pet: PetInstance): void {
 
 async function handleCompact(pet: PetInstance): Promise<void> {
   try {
-    await agents.sendMessage(pet.chatId, composeCommandPrompt("", [COMPACT_COMMAND]));
+    await agents.sendMessage(pet.chatId, serializeCommandToken(COMPACT_COMMAND));
   } catch (e) {
     console.error("[PetStage] compact failed:", e);
   }

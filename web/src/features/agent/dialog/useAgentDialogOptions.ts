@@ -14,6 +14,7 @@ import type { PetInstance } from "@/features/pets/types";
 import {
   COMPACT_COMMAND,
   composeCommandPrompt,
+  estimateCommandTokens,
   toSkillCommands,
   type MessageCommand,
 } from "@/features/agent/commands";
@@ -54,7 +55,7 @@ export function useAgentDialogOptions() {
   const primaryRole = ref("主角色");
   const text = ref("");
   const skillCommands = ref<MessageCommand[]>([]);
-  const selectedCommands = ref<MessageCommand[]>([]);
+  const editorRef = ref<HTMLElement | null>(null);
   const uploading = ref(false);
   const mediaHint = ref("");
   const uploadQueue = ref<import("element-plus").UploadUserFile[]>([]);
@@ -131,8 +132,7 @@ export function useAgentDialogOptions() {
     chatId,
     (v) => {
       if (v) {
-        text.value = "";
-        selectedCommands.value = [];
+        resetEditor();
         resetMedia();
         error.value = null;
         loaded.value = false;
@@ -152,9 +152,11 @@ export function useAgentDialogOptions() {
   });
   const commandOptions = computed(() => {
     if (slashQuery.value === null) return [];
-    const selected = new Set(selectedCommands.value.map((command) => command.id));
+    const selected = new Set(
+      [...text.value.matchAll(/\[\[command:(\/[^\]\s]+)\]\]/g)].map((match) => match[1]!),
+    );
     return allCommands.value.filter((command) =>
-      !selected.has(command.id) && command.name.slice(1).toLowerCase().includes(slashQuery.value!),
+      !selected.has(command.name) && command.name.slice(1).toLowerCase().includes(slashQuery.value!),
     );
   });
   const showCommandMenu = computed(() => slashQuery.value !== null && commandOptions.value.length > 0);
@@ -162,6 +164,7 @@ export function useAgentDialogOptions() {
   /** 当前高亮的命令项下标；菜单呼出/过滤变化时默认指向第一项。 */
   const activeCommandIndex = ref(0);
   const commandMenuRef = ref<HTMLElement | null>(null);
+  let instructionPopover: HTMLElement | null = null;
 
   // 过滤结果变化（含菜单首次呼出）→ 回到第一项，符合命令面板直觉。
   watch(commandOptions, () => {
@@ -175,15 +178,11 @@ export function useAgentDialogOptions() {
   }, { flush: "post" });
 
   function selectCommand(command: MessageCommand): void {
-    if (!selectedCommands.value.some((selected) => selected.id === command.id)) {
-      selectedCommands.value.push(command);
-    }
-    // 只移除用户刚输入的末尾 /token，保留同一条消息的其它正文。
-    text.value = text.value.replace(/(^|\s)\/[^\s]*$/, "$1").trimEnd();
-  }
-
-  function removeCommand(command: MessageCommand): void {
-    selectedCommands.value = selectedCommands.value.filter((selected) => selected.id !== command.id);
+    const editor = editorRef.value;
+    if (!editor) return;
+    removeTrailingSlashQuery(editor);
+    insertInstructionToken(editor, command);
+    syncEditorText();
   }
 
   function close(): void {
@@ -199,10 +198,15 @@ export function useAgentDialogOptions() {
     }
   }
   window.addEventListener("keydown", onGlobalKeydown);
-  onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
+  window.addEventListener("scroll", hideInstructionPopover, true);
+  onBeforeUnmount(() => {
+    window.removeEventListener("keydown", onGlobalKeydown);
+    window.removeEventListener("scroll", hideInstructionPopover, true);
+    hideInstructionPopover();
+  });
 
   async function handleSend(): Promise<void> {
-    if (!chatId.value || (!text.value.trim() && selectedCommands.value.length === 0) || sending.value) return;
+    if (!chatId.value || !text.value.trim() || sending.value) return;
     sending.value = true;
     error.value = null;
     try {
@@ -226,11 +230,10 @@ export function useAgentDialogOptions() {
       }));
       await agents.sendMessage(
         chatId.value,
-        composeCommandPrompt(text.value, selectedCommands.value),
+        composeCommandPrompt(text.value),
         attachments,
       );
-      text.value = "";
-      selectedCommands.value = [];
+      resetEditor();
       close();
     } catch (e) {
       error.value = (e as Error).message;
@@ -240,7 +243,7 @@ export function useAgentDialogOptions() {
     }
   }
 
-  function onTextareaKeydown(e: KeyboardEvent): void {
+  function onEditorKeydown(e: KeyboardEvent): void {
     if (showCommandMenu.value) {
       const opts = commandOptions.value;
       if (e.key === "ArrowDown") {
@@ -268,6 +271,139 @@ export function useAgentDialogOptions() {
       e.preventDefault();
       close();
     }
+  }
+
+  function onEditorInput(): void {
+    syncEditorText();
+  }
+
+  function onEditorPaste(e: ClipboardEvent): void {
+    e.preventDefault();
+    const pasted = e.clipboardData?.getData("text/plain");
+    if (pasted) {
+      document.execCommand("insertText", false, pasted);
+      syncEditorText();
+    }
+  }
+
+  function resetEditor(): void {
+    text.value = "";
+    if (editorRef.value) editorRef.value.replaceChildren();
+  }
+
+  function syncEditorText(): void {
+    text.value = editorRef.value ? serializeEditor(editorRef.value) : "";
+  }
+
+  function serializeEditor(editor: HTMLElement): string {
+    const serializeNode = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+      if (node.nodeType !== Node.ELEMENT_NODE) return "";
+      const element = node as HTMLElement;
+      if (element.dataset.commandName) return `[[command:${element.dataset.commandName}]]`;
+      if (element.tagName === "BR") return "\n";
+      const content = [...element.childNodes].map(serializeNode).join("");
+      return element.tagName === "DIV" || element.tagName === "P" ? `${content}\n` : content;
+    };
+    return [...editor.childNodes].map(serializeNode).join("").replace(/\n{3,}/g, "\n\n");
+  }
+
+  function removeTrailingSlashQuery(editor: HTMLElement): void {
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return (node.parentElement?.closest("[data-command-name]") ?? null)
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let lastTextNode: Text | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) lastTextNode = node as Text;
+    if (!lastTextNode) return;
+    const slashStart = lastTextNode.data.search(/(^|\s)\/[^\s]*$/);
+    if (slashStart < 0) return;
+    const match = lastTextNode.data.slice(slashStart);
+    const start = slashStart + match.lastIndexOf("/");
+    const range = document.createRange();
+    range.setStart(lastTextNode, start);
+    range.setEnd(lastTextNode, lastTextNode.data.length);
+    range.deleteContents();
+  }
+
+  function insertInstructionToken(editor: HTMLElement, command: MessageCommand): void {
+    const token = document.createElement("span");
+    token.className = "instruction-token";
+    token.dataset.commandName = command.name;
+    token.contentEditable = "false";
+    token.setAttribute("role", "note");
+    token.setAttribute("aria-label", `指令 ${command.name}：${command.description}`);
+
+    const name = document.createElement("span");
+    name.className = "instruction-token-name";
+    name.textContent = command.label;
+    token.append(name);
+    token.addEventListener("pointerenter", () => showInstructionPopover(token, command));
+    token.addEventListener("pointerleave", hideInstructionPopover);
+
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : document.createRange();
+    if (!editor.contains(range.commonAncestorContainer)) {
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    }
+    range.collapse(true);
+    range.insertNode(token);
+    const spacer = document.createTextNode(" ");
+    range.setStartAfter(token);
+    range.insertNode(spacer);
+    range.setStartAfter(spacer);
+    range.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    editor.focus();
+  }
+
+  function showInstructionPopover(anchor: HTMLElement, command: MessageCommand): void {
+    hideInstructionPopover();
+    const popover = document.createElement("div");
+    popover.className = "instruction-token-floating-popover";
+    popover.setAttribute("role", "tooltip");
+
+    const title = document.createElement("div");
+    title.className = "instruction-token-floating-title";
+    title.textContent = command.label;
+    const description = document.createElement("div");
+    description.className = "instruction-token-floating-description";
+    description.textContent = command.description;
+    const meta = document.createElement("div");
+    meta.className = "instruction-token-floating-meta";
+    const metaLabel = document.createElement("span");
+    metaLabel.textContent = "Token 消耗量";
+    const metaValue = document.createElement("strong");
+    metaValue.textContent = `≈ ${estimateCommandTokens(command)} tokens`;
+    meta.append(metaLabel, metaValue);
+    popover.append(title, description, meta);
+    popover.style.visibility = "hidden";
+    document.body.append(popover);
+
+    const anchorRect = anchor.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    const horizontalPadding = 8;
+    const top = anchorRect.top - popoverRect.height - 8 >= horizontalPadding
+      ? anchorRect.top - popoverRect.height - 8
+      : Math.min(window.innerHeight - popoverRect.height - horizontalPadding, anchorRect.bottom + 8);
+    const left = Math.min(
+      Math.max(horizontalPadding, anchorRect.left),
+      window.innerWidth - popoverRect.width - horizontalPadding,
+    );
+    popover.style.top = `${top}px`;
+    popover.style.left = `${left}px`;
+    popover.style.visibility = "visible";
+    instructionPopover = popover;
+  }
+
+  function hideInstructionPopover(): void {
+    instructionPopover?.remove();
+    instructionPopover = null;
   }
 
   // === media functions ===
@@ -391,12 +527,12 @@ export function useAgentDialogOptions() {
   return {
     chatId, pet, presetName,
     brains, senseGroups, config, senseTools,
-    roleSelections, primaryRole, text, selectedCommands, commandOptions, showCommandMenu,
+    roleSelections, primaryRole, text, editorRef, commandOptions, showCommandMenu,
     activeCommandIndex, commandMenuRef,
     uploading, mediaHint, uploadQueue, mediaAttachments,
     sending, loading, error, loaded,
     primarySelection, orderedRoleSelections, mediaServicesByType,
-    close, handleSend, onTextareaKeydown, selectCommand, removeCommand,
+    close, handleSend, onEditorKeydown, onEditorInput, onEditorPaste, selectCommand,
     mediaKind, formatFileSize, resetMedia, removeMedia, onMediaSelected,
     brainInfo, brainConfig, supportsTools, selectBrain,
     senseEntries, senseName, senseTool,

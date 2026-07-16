@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sense, type SenseResult } from "@/core/sense";
 import { SupervisionLevel } from "@/core/config";
-import { getSkillRealtime } from "@/agent/prompt/loadSkill";
+import { formatSkillActivationContent, getSkillRealtime } from "@/agent/prompt/loadSkill";
 import { hashGenerator } from "@/utils/hash.js";
 
 /**
@@ -33,7 +33,7 @@ export default sense(
     
     // 使用文件状态生成 hash，确保内容变化时 hash 也变化
     const hash = hashGenerator("skill", name, size.toString(), mtimeMs.toString());
-    const content = `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`;
+    const content = formatSkillActivationContent(skill);
 
     return { content, hash };
   },

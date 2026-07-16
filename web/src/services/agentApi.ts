@@ -140,6 +140,8 @@ export interface SkillInfo {
   name: string;
   description: string;
   trigger?: string;
+  /** 激活完整技能指令后预计新增的上下文 token。 */
+  contextTokens: number;
 }
 
 /** /api/config 返回形状（FAB default + AgentDialog senseGroups 全名单 + default 标记，后端 Agent B 暴露）。 */

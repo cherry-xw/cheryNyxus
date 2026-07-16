@@ -389,6 +389,8 @@ export interface SkillsListResponseData {
     name: string;
     description: string;
     trigger?: string;
+    /** 激活该技能后写入模型上下文的近似 token 增量。 */
+    contextTokens: number;
   }>;
 }
 

@@ -22,12 +22,12 @@ const MotionDiv = motion.div;
 const {
   chatId, pet,
   brains, senseGroups, config, senseTools,
-  roleSelections, primaryRole, text, selectedCommands, commandOptions, showCommandMenu,
+  roleSelections, primaryRole, text, editorRef, commandOptions, showCommandMenu,
   activeCommandIndex, commandMenuRef,
   uploading, mediaHint, mediaAttachments,
   sending, loading, error,
   primarySelection, orderedRoleSelections, mediaServicesByType,
-  close, handleSend, onTextareaKeydown, selectCommand, removeCommand,
+  close, handleSend, onEditorKeydown, onEditorInput, onEditorPaste, selectCommand,
   removeMedia, onMediaSelected,
   senseEntries, senseTool, brainConfig, supportsTools,
 } = useAgentDialogOptions();
@@ -172,26 +172,18 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
         <div v-if="mediaHint" class="media-hint-row">{{ mediaHint }}</div>
 
         <div class="textarea-row">
-          <div v-if="selectedCommands.length" class="command-chips" aria-label="已选指令">
-            <span v-for="command in selectedCommands" :key="command.id" class="command-chip">
-              <span class="command-chip-name">{{ command.name }}</span>
-              <button
-                type="button"
-                class="command-chip-remove"
-                :aria-label="`移除指令 ${command.name}`"
-                @click="removeCommand(command)"
-              >×</button>
-            </span>
-          </div>
-          <el-input
-            v-model="text"
-            type="textarea"
-            class="msg-input"
-            :autosize="{ minRows: 6, maxRows: 24 }"
-            placeholder="输入消息…"
-            :disabled="sending"
-            resize="none"
-            @keydown="onTextareaKeydown"
+          <div
+            ref="editorRef"
+            class="msg-input rich-message-input"
+            :class="{ 'is-disabled': sending, 'is-empty': !text }"
+            :contenteditable="!sending"
+            role="textbox"
+            aria-multiline="true"
+            aria-label="输入消息"
+            data-placeholder="输入消息…（输入 / 选择指令）"
+            @input="onEditorInput"
+            @keydown="onEditorKeydown"
+            @paste="onEditorPaste"
           />
           <div ref="commandMenuRef" v-if="showCommandMenu" class="command-menu" role="listbox" aria-label="可用指令">
             <button
@@ -265,7 +257,7 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
             <button
               type="button"
               class="send-btn"
-              :disabled="(!text.trim() && selectedCommands.length === 0) || sending || loading || !primarySelection?.brain || (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)"
+              :disabled="!text.trim() || sending || loading || !primarySelection?.brain || (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)"
               aria-label="发送消息"
               @click="handleSend"
             >
@@ -373,5 +365,45 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
     background: rgba(180, 30, 30, 0.08);
     color: #b04040;
   }
+}
+
+// 指令卡片由富文本编辑器在 hover 时挂到 body，避免被输入框和弹窗滚动容器裁剪。
+.instruction-token-floating-popover {
+  position: fixed;
+  z-index: 320;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 248px;
+  padding: 8px 9px;
+  border: 1px solid rgba(35, 38, 44, 0.14);
+  border-radius: 7px;
+  background: #fffdf8;
+  box-shadow: 0 7px 18px rgba(20, 22, 26, 0.18);
+  color: #14161a;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  pointer-events: none;
+}
+
+.instruction-token-floating-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.instruction-token-floating-description { color: rgba(20, 22, 26, 0.76); }
+
+.instruction-token-floating-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 5px;
+  border-top: 1px solid rgba(35, 38, 44, 0.1);
+  color: #8c6114;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
 }
 </style>

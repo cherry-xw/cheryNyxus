@@ -3,6 +3,7 @@ import { join } from "path";
 import yaml from "js-yaml";
 import config from "@/utils/config.js";
 import { logger } from "@/utils/logger/index.js";
+import { estimateTokens } from "@/utils/token.js";
 
 export interface SkillData {
   name: string;
@@ -10,6 +11,11 @@ export interface SkillData {
   content: string;
   /** P1-5：自动触发条件描述（软提示，拼入 system prompt 供 LLM 判断何时触发） */
   trigger?: string;
+}
+
+/** skill 感官成功加载时写入模型上下文的完整文本（与 sense/skill 保持单一来源）。 */
+export function formatSkillActivationContent(skill: Pick<SkillData, "name" | "content">): string {
+  return `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`;
 }
 
 interface SkillMeta {
@@ -141,12 +147,13 @@ export function getSkillRealtime(name: string):
 }
 
 /**
- * 获取所有 skill 的元数据（不含 content）。
+ * 获取所有 skill 的元数据（不含 content）。contextTokens 为成功加载后的近似上下文增量。
  */
-export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string }> {
+export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string; contextTokens: number }> {
   return readAllSkills().map((s) => ({
     name: s.name,
     description: s.description,
     trigger: s.trigger,
+    contextTokens: estimateTokens(formatSkillActivationContent(s)),
   }));
 }

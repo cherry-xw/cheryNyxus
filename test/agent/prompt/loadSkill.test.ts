@@ -39,13 +39,14 @@ describe("loadSkill", () => {
       expect(getSkillMetas()).toEqual([]);
     });
 
-    it("读取 skill 元数据（name + description + trigger，不含 content）", () => {
+    it("读取 skill 元数据（含完整技能指令的上下文 token 估算，不含 content）", () => {
       writeSkill("alpha", "name: alpha\ndescription: alpha desc\ntrigger: 用户请求A", "alpha body content");
       const metas = getSkillMetas();
       expect(metas.length).toBe(1);
       expect(metas[0]!.name).toBe("alpha");
       expect(metas[0]!.description).toBe("alpha desc");
       expect(metas[0]!.trigger).toBe("用户请求A");
+      expect(metas[0]!.contextTokens).toBeGreaterThan(0);
       expect((metas[0] as { content?: string }).content).toBeUndefined();
     });
 

@@ -114,20 +114,36 @@ export function getSkillRealtime(name: string):
   | { skill: SkillData; size: number; mtimeMs: number }
   | undefined;
 
-// 所有 skill 的元数据（不含 content，system prompt 注入用）
-export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string }>;
+// 所有 skill 的元数据（不含 content，system prompt 注入和发送窗口用）
+// contextTokens = 激活后完整技能指令写入上下文的近似 token 增量（ceil(字符数 / 4)）
+export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string; contextTokens: number }>;
 ```
 
 ### 前端指令列表与强制加载
 
 `skills.list` RPC 复用 `getSkillMetas()`，实时返回用户配置目录中的
-`{ name, description, trigger? }`。前端在发送窗口输入 `/` 时据此展示可选命令；选中某个
-`/<name>` 后，发送端会附加一段明确指令，要求模型先调用 `skill` 感官并传入该名称，再处理
-用户的普通文本。该指令只是一条用户消息的编排方式，不会把完整 Skill 正文传到前端。
+`{ name, description, trigger?, contextTokens }`。`contextTokens` 是加载该技能时返回给模型的完整
+技能指令（含固定激活前缀）按 `ceil(字符数 / 4)` 得出的近似 token 增量。前端在发送窗口输入 `/`
+时据此展示可选命令；选中某个 `/<name>` 后，会在富文本编辑器的用户正文中插入一个带专用底色的
+不可编辑 tag。tag 仅显示不带 `/` 的指令词（例如选择 `/compact` 后显示 `compact`）；hover 的
+popover 卡片分为标题、可换行描述和底部 token 元信息。token 总量包含本条消息的指令标记本身，
+技能还会叠加 `contextTokens`；因此内置 compact 也能显示非零的标记消耗。用户可用编辑器的
+Backspace 或 Delete 一次移除整个 tag。传输和持久化时 token 序列化为
+`[[command:/<name>]]`，不会发送 HTML，也不会把完整 Skill 正文传到前端。
 
-`/compact` 是前端内置命令：它要求模型整理当前会话的关键事实、决策、进度和待办，生成可供
-后续轮次使用的摘要。它不对应 `SKILL.md`，因此不由 `getSkillMetas()` 或 `skills.list` 返回，
-也不会出现在 `.chery/skills/`、设置页或任何可删除的用户技能列表中。
+指令 token 的语义由全局 system prompt 统一约定，而非由发送端为每条消息拼接具体提示词：
+
+- `[[command:/<skill-name>]]`：模型先调用 `skill` 感官加载同名技能，再处理同一条消息其余正文；
+- `[[command:/compact]]`：模型压缩当前会话的关键事实、决策、进度和待办；
+- 多个 token 按它们在用户正文中的顺序处理。
+
+历史消息仍保存纯文本。前端会安全识别上述固定格式并将其渲染为指令样式，其他用户文本继续按
+纯文本转义显示。
+
+`/compact` 是前端内置命令：它序列化为 `[[command:/compact]]`，要求模型整理当前会话的关键
+事实、决策、进度和待办，生成可供后续轮次使用的摘要。它不对应 `SKILL.md`，因此不由
+`getSkillMetas()` 或 `skills.list` 返回，也不会出现在 `.chery/skills/`、设置页或任何可删除的
+用户技能列表中。
 
 **SKILL.md frontmatter 格式：**
 
