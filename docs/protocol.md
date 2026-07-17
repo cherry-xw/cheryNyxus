@@ -142,7 +142,7 @@ interface Notification {
 | `sense.list` | 列出所有可用 sense group（senses 含 `:level` 后缀未解析） | 否 |
 | `sense.tools` | 列出全部内置工具（代码维护的 `BUILTIN_SENSE_TOOLS`），每项 `{name, label, description, icon}`：`name`=原名（作 sense_groups 条目 key）、`label`=中文名（UI 显示）、`description`=解释（tooltip）、`icon`=glyph/emoji 字符串（pet bar 运行中工具图标用，非内置工具前端 fallback ⚙）。自定义/外部/MCP 工具不在此列，靠前端组合框自由输入 | 否 |
 | `skills.list` | 实时列出 `.chery/skills/` 中的用户技能元数据，返回 `{skills:[{name,description,trigger?,contextTokens}]}`；`contextTokens` 是加载完整技能指令的近似 token 增量（`ceil(字符数/4)`），供发送窗口 `/` 菜单的 hover 卡片展示。内置 `/compact` 不在此列表、不对应配置目录文件。 | 否 |
-| `prompts.list` | 递归列出 `.chery/prompts/` 下全部 `.md`（含子文件夹），每项为相对 `.chery/` 的路径（如 `prompts/prefebMain/leader.md`）。供设置面板 `systemPrompt` 级联选择器（`el-cascader`）建目录树；叶 `value`=全路径=存储值。目录为空返 `[]` | 否 |
+| `prompts.list` | 递归列出 `.chery/prompt/` 下全部 `.md`（含子文件夹，**排除全局 base `system.md`**），每项为相对 `.chery/` 的路径（如 `prompt/prefebMain/leader.md`）。供设置面板 `systemPrompt` 级联选择器（`el-cascader`）建目录树；叶 `value`=全路径=存储值。目录为空返 `[]` | 否 |
 | `runtime.set` | 原子设置 chat 的 brain + senseGroup + mcpServers（每轮可换）。`toolCall:false` 的 brain 只接受空工具组/MCP；preset chat 下仅 `brain` 生效（编制锁定，senseGroup/mcp 强制取创建快照；显式带不同值 fail loud） | 否 |
 | `chat.create` | 创建聊天。可选 `preset`：从 `config.presets[preset].leader` 解析 brain+senseGroup+mcp+systemPrompt（编制快照入 metadata，运行后锁定）。主 pet 恒带 `preset`（旧 `config.default` 已并入「默认」预设）；显式 brain+senseGroup 路径仅子 agent 用 | 否 |
 | `chat.list` | 列出所有聊天（`params.includePreview=true` 时每项增返 `preview`/`turnCount`，供会话列表渲染；省略=lean，供初始化重建 pet 树，避免 N+1） | 否 |

@@ -359,7 +359,7 @@ export function generatePet(form: PetForm, excludeFaces?: ReadonlySet<Record<Pet
   if (form === "kaomoji") {
     // 主 pet：按 chatId 确定性取 MASTER_NAME_POOL，刷新稳定、不同主 pet 大概率异名。
     if (!chatId) throw new Error("generatePet: 主 pet(kaomoji) 必须传 chatId 以确定性取 name");
-    name = MASTER_NAME_POOL[hashStr(chatId) % MASTER_NAME_POOL.length];
+    name = MASTER_NAME_POOL[hashStr(chatId) % MASTER_NAME_POOL.length]!;
   } else {
     // 子 pet：维持 NAME_POOL 随机。
     name = pick(NAME_POOL);

@@ -201,7 +201,7 @@ loadConfig()
   ├─ yaml.load → rawConfig
   ├─ replaceEnvVars(rawConfig)         → 递归整段 $ENV 替换，缺失收集到 missingEnvVars
   ├─ supervision: string → SupervisionLevel 枚举
-  ├─ 补全 global.{skills_dir, senses_dir, db_dir}（cheryDir + .chery/...；全局 system prompt 固定 .chery/prompt/system.md 不走配置）
+  ├─ 补全 global.{skills_dir, senses_dir, prompts_dir, db_dir}（cheryDir + .chery/...；prompts_dir 为唯一 prompt 目录，system.md 在其根下）
   ├─ server 默认值兜底（port 8182 / transport binary；web_port 已废弃，改 WEB_PORT 环境变量）
   └─ warn: CHERY_DIR 未配置 / 缺失环境变量
 module 顶层 `const config = loadConfig()` → 全局单例，import 即触发

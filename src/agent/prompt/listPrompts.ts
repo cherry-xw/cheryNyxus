@@ -3,8 +3,9 @@ import { join, relative, dirname, sep } from "path";
 import config from "@/utils/config.js";
 
 /**
- * 递归遍历 .chery/prompts/，收集所有 .md 文件的相对路径（相对 .chery/，含 prompts/ 前缀）。
- * 支持任意层级子文件夹——一组相关角色 prompt 放一个子文件夹（如 prompts/prefebMain/*.md）。
+ * 递归遍历 .chery/prompt/，收集所有 .md 文件的相对路径（相对 .chery/，含 prompt/ 前缀）。
+ * 支持任意层级子文件夹——一组相关角色 prompt 放一个子文件夹（如 prompt/prefebMain/*.md）。
+ * **排除全局 base system.md**——它是全局人设而非角色 override，不进前端级联选择器。
  * 实时遍历不缓存（类比 loadSkill readAllSkills），新增/改动/新建子文件夹下次调用即反映。
  *
  * 目录不存在或为空 → 返 []（合法状态，非错误，不 fail loud）。
@@ -23,6 +24,8 @@ export function listPrompts(): string[] {
       if (ent.isDirectory()) {
         walk(full);
       } else if (ent.isFile() && ent.name.toLowerCase().endsWith(".md")) {
+        // 跳过全局 base system.md（角色 override 不应引用自身）
+        if (ent.name.toLowerCase() === "system.md") continue;
         result.push(relative(cheryDir, full).split(sep).join("/"));
       }
     }

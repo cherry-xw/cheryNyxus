@@ -395,7 +395,7 @@ export interface SkillsListResponseData {
 }
 
 /**
- * prompts.list 响应：.chery/prompts/ 下全部 .md 的相对路径（相对 .chery/，含 prompts/ 前缀）。
+ * prompts.list 响应：.chery/prompt/ 下全部 .md 的相对路径（相对 .chery/，含 prompt/ 前缀，排除全局 base system.md）。
  * 供设置面板 systemPrompt 级联选择器建目录树；叶 value = 全路径 = 存储值。
  */
 export interface PromptsListResponseData {
@@ -962,7 +962,7 @@ export const Method = {
   SENSE_TOOLS: "sense.tools",
   // 实时列出用户配置目录中的 Skill 元数据，供发送窗口 / 命令菜单使用
   SKILLS_LIST: "skills.list",
-  // 递归列出 .chery/prompts/ 下全部 .md（含子文件夹），供设置面板 systemPrompt 级联选择器
+  // 递归列出 .chery/prompt/ 下全部 .md（含子文件夹，排除 system.md），供设置面板 systemPrompt 级联选择器
   PROMPTS_LIST: "prompts.list",
 
   // Runtime 设置（每轮可换，必须原子携带 brain + senseGroups）

@@ -12,7 +12,7 @@
 |------|--------|
 | [index.ts](../../src/agent/prompt/index.ts) | `buildFirstSystemPrompt()`（拼装 `<system-reminder>`+`<environment>`+`<workspace>`+`<skills>`，**全局 base + override 合并**）+ `buildSystemPromptSegments()`（分段计量） |
 | [loadSkill.ts](../../src/agent/prompt/loadSkill.ts) | SKILL.md frontmatter 解析 + 实时遍历 skills 目录（无缓存） |
-| [listPrompts.ts](../../src/agent/prompt/listPrompts.ts) | `listPrompts()`：递归遍历 `.chery/prompts/`，返相对路径列表（供 `prompts.list` RPC + 前端级联选择器） |
+| [listPrompts.ts](../../src/agent/prompt/listPrompts.ts) | `listPrompts()`：递归遍历 `.chery/prompt/`，返相对路径列表（供 `prompts.list` RPC + 前端级联选择器）；**排除全局 base `system.md`** |
 
 ## 核心概念 / 导出
 
@@ -22,7 +22,7 @@
 export default function buildFirstSystemPrompt(promptPathOverride?: string, workspace?: string): string;
 ```
 
-- 全局 base：模块加载期读取固定路径 `.chery/prompt/system.md`（`CHERY_DIR/.chery/prompt/system.md`，不再走 `config.global.system_prompt` 配置字段）。
+- 全局 base：模块加载期读取固定路径 `config.global.prompts_dir + "/system.md"`（即 `CHERY_DIR/.chery/prompt/system.md`，统一目录源；不再走 `config.global.system_prompt` 配置字段）。
 - `promptPathOverride` 给出（per-subagent / 预设 main）→ 实时 `readFileSync` 该路径作为**补充**拼接到全局 base 之后（**合并**而非替换；**不**走模块缓存，支持每子 agent 不同 prompt 文件）；文件缺失则 warn 并仅用全局 base（运行期容错，配置期 `validateRawConfig` 已 existsSync 校验）。
 - `workspace` 给出（预设 `presets.<name>.workspace`）→ 在 `<environment>` 后注入 `<workspace>` 段（提示词层面声明本会话的项目工作目录，**不**改变 sense 实际行为）；缺省 → 不注入该段。
 
@@ -53,7 +53,7 @@ export default function buildFirstSystemPrompt(promptPathOverride?: string, work
 </skills>
 ```
 
-**全局 system prompt 路径：** 固定为 `CHERY_DIR/.chery/prompt/system.md`（不再经 `config.global.system_prompt` 配置字段，见 [utils/config.ts](../../src/utils/config.ts) `getCheryDir`）。模块加载时一次性读取并 `.trim()`；文件不存在则空串。
+**全局 system prompt 路径：** 固定为 `config.global.prompts_dir + "/system.md"`（即 `CHERY_DIR/.chery/prompt/system.md`，单一目录源；不再经 `config.global.system_prompt` 配置字段，见 [utils/config.ts](../../src/utils/config.ts)）。模块加载时一次性读取并 `.trim()`；文件不存在则空串。
 
 **skills 段：** 调用 [getSkillMetas()](../../src/agent/prompt/loadSkill.ts)，每个 skill 仅含 `name`/`description`/`trigger`（**不含 content**）——完整指令按需由 [skill 感官](../../src/agent/sense/skill.ts) 加载，避免 system prompt 膨胀。trigger 缺省则省略「触发条件」行。
 
@@ -88,10 +88,10 @@ export default function buildFirstSystemPrompt(promptPathOverride?: string, work
 
 ### prompts 目录与列举（[listPrompts.ts](../../src/agent/prompt/listPrompts.ts)）
 
-**`.chery/prompts/`** 是 per-agent system prompt 文件（persona）的存放目录，**支持任意层级子文件夹**——一个子文件夹即「一组」相关角色 prompt（如 `prompts/prefebMain/{leader,planner,coder,reviewer}.md`）。`systemPrompt` 配置值相对 `.chery/`，可含子目录（如 `prompts/prefebMain/leader.md`），路径解析与 `existsSync` 校验对子目录透明（[utils/config.ts](../../src/utils/config.ts) 的 `resolvePrompt`）。
+**`.chery/prompt/`** 是唯一 prompt 目录——含全局 base `system.md`（模块加载期缓存，详见 [index.ts](../../src/agent/prompt/index.ts)）+ per-agent override 子文件夹（如 `prompt/prefebMain/{leader,planner,coder,reviewer}.md`）。**支持任意层级子文件夹**——一个子文件夹即「一组」相关角色 prompt。`systemPrompt` 配置值相对 `.chery/`，可含子目录（如 `prompt/prefebMain/leader.md`），路径解析与 `existsSync` 校验对子目录透明。
 
 ```ts
-// 递归遍历 config.global.prompts_dir，仅收 .md，返相对 .chery/ 路径（含 prompts/ 前缀）
+// 递归遍历 config.global.prompts_dir，仅收 .md（排除 system.md），返相对 .chery/ 路径（含 prompt/ 前缀）
 export function listPrompts(): string[];
 ```
 
@@ -238,7 +238,7 @@ const skillsDir = config.global.skills_dir;
 
 | 依赖 | 用途 |
 |------|------|
-| [utils/config](../../src/utils/config.ts) | `config.global.skills_dir`（skills 目录）、`config.global.prompts_dir`（per-agent prompt 目录）、`getCheryDir()`（全局 system prompt 固定路径 `.chery/prompt/system.md`） |
+| [utils/config](../../src/utils/config.ts) | `config.global.skills_dir`（skills 目录）、`config.global.prompts_dir`（唯一 prompt 目录：含全局 base `system.md` + per-agent override 子文件夹） |
 | 第三方 `js-yaml` | frontmatter YAML 解析 |
 | 第三方 `dayjs` | 当前日期/时间格式化 |
 | Node `fs`/`os` | 文件读取、操作系统信息 |

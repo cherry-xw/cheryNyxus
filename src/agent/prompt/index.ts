@@ -2,16 +2,16 @@ import { readFileSync, existsSync } from "fs";
 import os from "os";
 import path from "path";
 import dayjs from "dayjs";
-import config, { getCheryDir } from "@/utils/config.js";
+import config from "@/utils/config.js";
 import { getSkillMetas } from "./loadSkill.js";
 import { detectVcs, formatVcsBlock } from "@/utils/vcs.js";
 import { readMemoryIndexContent, readMemoryIndex } from "@/memory/index.js";
 
 /**
- * 全局 system prompt 固定路径：CHERY_DIR/.chery/prompt/system.md（不再走 config.global.system_prompt）。
+ * 全局 system prompt 固定路径：config.global.prompts_dir + "/system.md"（统一目录源）。
  * 模块加载期读取一次并缓存（override 走实时读取，支持每子 agent 不同文件）。
  */
-const globalSystemPromptPath = path.join(getCheryDir(), ".chery", "prompt", "system.md");
+const globalSystemPromptPath = path.join(config.global.prompts_dir, "system.md");
 const systemPrompt = existsSync(globalSystemPromptPath)
   ? readFileSync(globalSystemPromptPath, "utf-8").trim()
   : "";

@@ -268,7 +268,7 @@ interface McpServerConfig {
 interface ExtendedGlobalConfig extends GlobalConfig {
   skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
   senses_dir: string; // 自动补全：chery_dir + "/.chery/senses"
-  prompts_dir: string; // 自动补全：chery_dir + "/.chery/prompts"（per-agent system prompt 目录，listPrompts 遍历）
+  prompts_dir: string; // 自动补全：chery_dir + "/.chery/prompt"（唯一 prompt 目录：含全局 base system.md + per-agent override 子文件夹）
   db_dir: string; // 自动补全：chery_dir + "/db"
   memory_dir: string; // 自动补全：chery_dir + "/.chery/memory"（非 workspace 模式记忆存储根目录）
 }
@@ -415,7 +415,7 @@ function loadConfig(): Config {
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
-  config.global.prompts_dir = path.join(cheryDir, ".chery", "prompts");
+  config.global.prompts_dir = path.join(cheryDir, ".chery", "prompt");
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
   config.global.memory_dir = path.join(cheryDir, ".chery", "memory");
 

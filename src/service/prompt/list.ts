@@ -3,7 +3,7 @@ import { Method, type PromptsListResponseData } from "../message/types.js";
 import { listPrompts } from "@/agent/prompt/listPrompts.js";
 
 /**
- * prompts.list：递归列出 .chery/prompts/ 下全部 .md（含子文件夹），供设置面板
+ * prompts.list：递归列出 .chery/prompt/ 下全部 .md（含子文件夹，排除全局 base system.md），供设置面板
  * systemPrompt 级联选择器（el-cascader）建目录树。目录为空返 { prompts: [] }。
  */
 export async function handlePromptsList(
