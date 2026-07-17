@@ -1,83 +1,95 @@
-# ============================================================
-# cheryClaw 配置模板
-# 复制本文件到 .chery/config.yaml 后按注释修改
-# $ENV_VAR 语法：运行时从环境变量注入（推荐用于 API Key）
-# ============================================================
-
-# ------------------------------------------------------------
-# global：全局运行参数
-# 可选字段已标注 [可选]，未标注为必填
-# ------------------------------------------------------------
 global:
-  thinking: true              # 是否启用 LLM 思考模式（true/false）
-  supervision: manual         # Sense 监管等级：auto | confirm | manual
-  stream: true                # 是否流式返回（true/false）
-  sense_execute_timeout: 10000  # [可选] 单次 Sense 执行超时(ms)，默认 10000
-  approval_timeout: 30000     # [可选] 审批等待超时(ms)，默认 30000
-  bash_log_retention_hours: 24  # [可选] bash 日志保留时长(小时)，默认 24
-  textEditor: notepad         # [可选] 文本编辑器命令，默认 notepad
+  thinking: true
+  supervision: manual
+  stream: true
+  sense_execute_timeout: 10000
+  approval_timeout: 30000
+  bash_log_retention_hours: 24
+  textEditor: notepad
   file_compression:
-    truncate_threshold: 50000   # [可选] 文件截断阈值(bytes)，默认 50000
-    truncate_preview_lines: 100 # [可选] 截断前预览行数，默认 100
-    log_file_extensions:        # [可选] 视为日志文件的扩展名
+    truncate_threshold: 50000
+    truncate_preview_lines: 100
+    log_file_extensions:
       - .log
       - .txt
       - .out
       - .err
-    drain_preview_count: 3      # [可选] drain 预览文件数，默认 3
+    drain_preview_count: 3
   logger:
-    level: info               # [可选] 日志等级：debug|info|warn|error，默认 info
-    output:                   # [可选] 日志输出方式，默认 [file]
+    level: info
+    output:
       - file
-    timestamp: true           # [可选] 日志是否带时间戳，默认 true
-    location: true            # [可选] 日志是否带文件位置，默认 true
-    format: plain             # [可选] 日志格式：plain|json，默认 plain
-
-# ------------------------------------------------------------
-# llm.brain：LLM 大脑配置
-# 每个 key 为 brain 名称，可配置多个；至少配置一个
-# provider 支持：openai | ollama | mock
-# ------------------------------------------------------------
+    timestamp: true
+    location: true
+    format: plain
 llm:
   brain:
-    # ---- 示例 1：OpenAI 兼容 provider ----
-    my-brain:
-      url: <YOUR_OPENAI_COMPATIBLE_URL>   # 例如 https://api.openai.com/v1
-      model: <YOUR_MODEL_NAME>            # 例如 gpt-4o, glm-5.2
-      key: $API_KEY                       # 通过环境变量注入，或直写字面量
+    glm4.5air:
+      url: https://yz.xcherry.top:11411/v1
+      model: glm-4.5-air
+      key: $API_KEY
+      thinking: high
       provider: openai
-      thinking: high                      # [可选] 思考强度：off|low|medium|high，仅推理模型支持多档
-      contextLimit: 128000                # 模型上下文窗口(tokens)
-      capabilities:                       # [可选] 模型能力声明
+      contextLimit: 1024000
+      capabilities:
+        toolCall: true
         input:
-          image: false                    # 是否支持图像输入
+          image: false
         generate: {}
-    # ---- 示例 2：Mock provider（本地离线测试）----
-    # 无需网络，适合开发调试；mock 脚本见 .chery/mock/
+    longcat:
+      url: https://api.longcat.chat/openai
+      model: LongCat-Flash-Thinking-2601
+      thinking: 'off'
+      provider: openai
+      contextLimit: 32768
+      capabilities:
+        input: {}
+        generate: {}
+    doubao:
+      url: http://yz.xcherry.top:11411/v1
+      model: doubao2.0-pro
+      key: $API_KEY
+      thinking: high
+      provider: openai
+      contextLimit: 128000
+      capabilities:
+        toolCall: false
+        input: {}
+        generate: {}
+    ali_glm5:
+      url: https://yz.xcherry.top:11411/v1
+      model: glm-5
+      key: $API_KEY
+      thinking: high
+      provider: openai
+      contextLimit: 128000
+      capabilities:
+        input:
+          image: true
+        generate: {}
+    shangtang:
+      url: https://yz.xcherry.top:11411/v1
+      model: csensenova-6.7-flash-lite
+      key: $API_KEY
+      thinking: 'off'
+      provider: openai
+      rpm: 2
+      contextLimit: 128000
+      capabilities:
+        input: {}
+        generate: {}
     mock_test:
       model: mock_test
-      provider: mock
       thinking: 'off'
+      provider: mock
       mock:
         enabled: true
-        file: mock/read_file.yaml         # mock 响应脚本文件路径（相对于 .chery/）
+        file: mock/read_file.yaml
       contextLimit: 8192
       capabilities:
         input: {}
         generate: {}
-
-# ------------------------------------------------------------
-# media：媒体文件配置
-# [可选] 当前为空，按需扩展
-# ------------------------------------------------------------
 media: {}
-
-# ------------------------------------------------------------
-# sense_groups：感官分组
-# 将 Sense 分组，角色通过 senseGroup 引用
-# 内置 Sense：read_file / write_file / execute_command /
-#   search_codebase / spawn_role / update_todo / skill
-# ------------------------------------------------------------
 sense_groups:
   leader:
     - read_file
@@ -106,62 +118,40 @@ sense_groups:
     - read_file
     - search_codebase
     - skill
-
-# ------------------------------------------------------------
-# roles：角色定义
-# 每个角色绑定一个 brain + senseGroup + systemPrompt
-# systemPrompt 路径相对于 .chery/
-# ------------------------------------------------------------
 roles:
   coordinator:
-    brain: my-brain                     # 引用 llm.brain 中的 key
+    brain: ali_glm5
     senseGroup: leader
-    mcpServers: []                      # [可选] MCP 服务器列表
-    systemPrompt: prompts/prefebMain/leader.md
+    mcpServers: []
+    systemPrompt: prompt/prefebMain/leader.md
   plan:
-    brain: my-brain
+    brain: ali_glm5
     senseGroup: plan
     mcpServers: []
-    systemPrompt: prompts/prefebMain/planner.md
+    systemPrompt: prompt/prefebMain/planner.md
   coder:
-    brain: my-brain
+    brain: ali_glm5
     senseGroup: coder
     mcpServers: []
-    systemPrompt: prompts/prefebMain/coder.md
+    systemPrompt: prompt/prefebMain/coder.md
   reviewer:
-    brain: my-brain
+    brain: ali_glm5
     senseGroup: reviewer
     mcpServers: []
-    systemPrompt: prompts/prefebMain/reviewer.md
-
-# ------------------------------------------------------------
-# presets：预设配置
-# key 为预设名，"默认" 为启动时自动加载的预设
-# workspace：工作目录路径（必填，按实际环境修改）
-# ------------------------------------------------------------
+    systemPrompt: prompt/prefebMain/reviewer.md
 presets:
   默认:
-    leader: coordinator                 # 主角色（leader brain）
+    leader: coordinator
     roles:
       - plan
       - coder
       - coordinator
       - reviewer
-    workspace: <YOUR_WORKSPACE_PATH>    # 修改为你的实际工作目录
-
-# ------------------------------------------------------------
-# server：服务监听配置
-# [可选] 以下为默认值，按需修改
-# ------------------------------------------------------------
-server:
-  port: 8182              # WebSocket 端口
-  transport: binary       # 传输格式：binary|json
-  host: 127.0.0.1         # 监听地址
-
-# ------------------------------------------------------------
-# memory：长期记忆参数
-# [可选]
-# ------------------------------------------------------------
+    workspace: /home/chery/dev/chery-spider
 memory:
-  max_count: 15           # 单次对话最大记忆条数
-  max_chars: 500          # 单条记忆最大字符数
+  global: {}
+  workspace: {}
+server:
+  port: 8182
+  transport: binary
+  host: 127.0.0.1
