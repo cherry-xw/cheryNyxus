@@ -11,6 +11,8 @@ export interface SkillData {
   content: string;
   /** P1-5：自动触发条件描述（软提示，拼入 system prompt 供 LLM 判断何时触发） */
   trigger?: string;
+  /** SKILL.md frontmatter 中其他用户自定义字段（保留全部，用于 JSON 序列化 token 估算）。 */
+  extra?: Record<string, unknown>;
 }
 
 /** skill 感官成功加载时写入模型上下文的完整文本（与 sense/skill 保持单一来源）。 */
@@ -23,10 +25,13 @@ interface SkillMeta {
   description: string;
   content: string;
   trigger?: string;
+  extra?: Record<string, unknown>;
 }
 
 /**
- * 解析 SKILL.md 文件的 frontmatter 和 content
+ * 解析 SKILL.md 文件的 frontmatter 和 content。
+ * 保留全部 frontmatter 字段到 extra（不只取 name/description/trigger）——供 promptTokens
+ * JSON 序列化时「全部纳入」使用。
  */
 function parseSkillFrontmatter(
   content: string,
@@ -40,18 +45,23 @@ function parseSkillFrontmatter(
       description: "",
       content: content.trim(),
       trigger: undefined,
+      extra: undefined,
     };
   }
 
   try {
-    const frontmatter = yaml.load(match[1]!) as Record<string, unknown>;
+    const frontmatter = (yaml.load(match[1]!) || {}) as Record<string, unknown>;
     const bodyContent = content.slice(match[0]!.length).trim();
+
+    // 拆出已知字段到对应位置，其余保留为 extra（用户自定义字段）
+    const { name: _n, description: _d, trigger: _t, ...rest } = frontmatter;
 
     return {
       name: (frontmatter.name as string) || defaultName,
       description: (frontmatter.description as string) || "",
       trigger: (frontmatter.trigger as string) || undefined,
       content: bodyContent,
+      extra: Object.keys(rest).length > 0 ? rest : undefined,
     };
   } catch {
     return {
@@ -59,6 +69,7 @@ function parseSkillFrontmatter(
       description: "",
       content: content.trim(),
       trigger: undefined,
+      extra: undefined,
     };
   }
 }
@@ -98,6 +109,7 @@ function readAllSkills(): SkillData[] {
       description: meta.description,
       content: meta.content,
       trigger: meta.trigger,
+      extra: meta.extra,
     });
   }
 
@@ -136,6 +148,7 @@ export function getSkillRealtime(name: string):
           description: meta.description,
           content: meta.content,
           trigger: meta.trigger,
+          extra: meta.extra,
         },
         size: fileStat.size,
         mtimeMs: fileStat.mtimeMs,
@@ -147,13 +160,69 @@ export function getSkillRealtime(name: string):
 }
 
 /**
- * 获取所有 skill 的元数据（不含 content）。contextTokens 为成功加载后的近似上下文增量。
+ * 集中计算 skill 的所有 token 字段（单一来源）。
+ *
+ * 字段语义：
+ *   - nameDescTokens: 仅 name + description 的 token（不含 trigger、正文、其他附加内容）。
+ *   - triggerTokens: 仅 trigger 行的 token（无 trigger 则 0）。
+ *   - contentTokens: 仅正文 content 的 token。
+ *   - promptTokens: JSON 序列化全字段（含 extra 用户自定义字段）的 token——按设计用作
+ *     正文段的 token 计算（与 skill 感官调用结果注入上下文的体量一致）。
+ *   - contextTokens: 激活该 skill 后预计新增的上下文 token（即 promptTokens），供前端
+ *     发送窗口 `/` 命令菜单 hover 卡片展示「加载该 skill 的 token 消耗」；与正文段 token
+ *     计算口径一致。
+ *
+ * **仅计算 SKILL.md 的部分 token 消耗，不包含其他附加拆分的技能内容**——
+ *   不含 formatSkillActivationContent 激活包装前缀（注入到 skill 感官调用结果，归用户对话段）、
+ *   不含 system prompt `<skills>` 段的 XML 标签外壳（标签本身算入 system 段）。
  */
-export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string; contextTokens: number }> {
-  return readAllSkills().map((s) => ({
+export interface SkillTokenBreakdown {
+  nameDescTokens: number;
+  triggerTokens: number;
+  contentTokens: number;
+  promptTokens: number;
+  contextTokens: number;
+}
+
+export function computeSkillTokens(s: SkillData): SkillTokenBreakdown {
+  const nameDescTokens = estimateTokens(`${s.name}\n${s.description}`);
+  const triggerTokens = s.trigger
+    ? estimateTokens(`触发条件: ${s.trigger}`)
+    : 0;
+  const contentTokens = estimateTokens(s.content);
+  // promptTokens = JSON 序列化全字段（含 extra 用户自定义字段），按设计用作正文 token 计算。
+  // 序列化按稳定顺序：name/description/trigger/content/extra 全部纳入。
+  const promptJson = JSON.stringify({
     name: s.name,
     description: s.description,
-    trigger: s.trigger,
-    contextTokens: estimateTokens(formatSkillActivationContent(s)),
+    ...(s.trigger ? { trigger: s.trigger } : {}),
+    content: s.content,
+    ...(s.extra || {}),
+  });
+  const promptTokens = estimateTokens(promptJson);
+  return {
+    nameDescTokens,
+    triggerTokens,
+    contentTokens,
+    promptTokens,
+    contextTokens: promptTokens,
+  };
+}
+
+/**
+ * 获取所有 skill 的元数据（含预计算 token 字段）。
+ *
+ * 所有 token 字段集中在 computeSkillTokens 计算（单一来源），调用方直接复用，
+ * 不再各自 estimateTokens。设计语义详见 computeSkillTokens 注释。
+ *
+ * 用途：skills.list RPC 返回给前端（contextTokens）+ system prompt `<skills>` 拼装 +
+ * computeContextBreakdown.skills 段（triggerTokens）+ 正文段（promptTokens）等。
+ */
+export function getSkillMetas(): Array<
+  SkillData & SkillTokenBreakdown
+> {
+  return readAllSkills().map((s) => ({
+    ...s,
+    ...computeSkillTokens(s),
   }));
 }

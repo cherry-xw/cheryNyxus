@@ -28,6 +28,14 @@ export interface PromptSegmentText {
   count?: number;
 }
 
+/** skills 段预聚合 token（getSkillMetas 一次性算好，buildSystemPromptSegments 直接累加）。 */
+export interface SkillsSegmentTokens {
+  nameDescTokens: number;
+  triggerTokens: number;
+  contentTokens: number;
+  promptTokens: number;
+}
+
 /** buildSystemPromptSegments 返回值：系统提示词各分段（上下文分段计量用，单一数据源）。 */
 export interface SystemPromptSegments {
   /** 系统提示词：全局 base + <environment> + <workspace>（**不含** override）。 */
@@ -36,8 +44,8 @@ export interface SystemPromptSegments {
   userSystem: string;
   /** 记忆：<memory global> + <memory workspace>，count = 记忆条数。 */
   memory: PromptSegmentText;
-  /** 技能：<skills> 元数据，count = skill 数。 */
-  skills: PromptSegmentText;
+  /** 技能：<skills> 元数据，count = skill 数；token 字段由 computeSkillTokens 预计算后累加。 */
+  skills: PromptSegmentText & SkillsSegmentTokens;
 }
 
 interface PromptPieces {
@@ -49,6 +57,8 @@ interface PromptPieces {
   memoryCount: number;
   skillsInner: string;
   skillsCount: number;
+  /** skill 段预聚合 token（从 getSkillMetas 复用，不在本模块重算）。 */
+  skillsTokens: SkillsSegmentTokens;
 }
 
 /**
@@ -113,6 +123,16 @@ function buildPromptPieces(promptPathOverride?: string, workspace?: string): Pro
       return `<skill name="${s.name}">\n${s.description}${trigger}\n</skill>`;
     })
     .join("\n");
+  // 累加 skill 段预计算 token（loadSkill 集中算好，不在本模块重算）
+  const skillsTokens = skillMetas.reduce<SkillsSegmentTokens>(
+    (acc, s) => ({
+      nameDescTokens: acc.nameDescTokens + s.nameDescTokens,
+      triggerTokens: acc.triggerTokens + s.triggerTokens,
+      contentTokens: acc.contentTokens + s.contentTokens,
+      promptTokens: acc.promptTokens + s.promptTokens,
+    }),
+    { nameDescTokens: 0, triggerTokens: 0, contentTokens: 0, promptTokens: 0 },
+  );
 
   return {
     globalBase: systemPrompt,
@@ -123,6 +143,7 @@ function buildPromptPieces(promptPathOverride?: string, workspace?: string): Pro
     memoryCount,
     skillsInner,
     skillsCount: skillMetas.length,
+    skillsTokens,
   };
 }
 
@@ -137,7 +158,11 @@ export function buildSystemPromptSegments(promptPathOverride?: string, workspace
     system: `<system-reminder>\n${p.globalBase}\n</system-reminder>\n\n${p.envBlock}${p.workspaceSection}`,
     userSystem: p.userSystem,
     memory: { text: p.memorySection, count: p.memoryCount },
-    skills: { text: `<skills>\n${p.skillsInner}\n</skills>`, count: p.skillsCount },
+    skills: {
+      text: `<skills>\n${p.skillsInner}\n</skills>`,
+      count: p.skillsCount,
+      ...p.skillsTokens,
+    },
   };
 }
 

@@ -107,23 +107,45 @@ export interface SkillData {
   description: string;
   content: string;            // frontmatter 之后的正文
   trigger?: string;           // P1-5：自动触发条件描述
+  extra?: Record<string, unknown>;  // frontmatter 其余用户自定义字段（保留全部）
 }
+
+// 一次性计算 skill 所有 token 字段（单一来源，调用方直接复用，不重算）
+//   - nameDescTokens: name + description
+//   - triggerTokens: trigger 行（无则 0）
+//   - contentTokens: 正文 content
+//   - promptTokens: JSON 序列化全字段（含 extra），用作正文段 token 计算
+//   - contextTokens: promptTokens 别名，前端展示「激活该 skill 后预计新增 token」用
+// **仅计算 SKILL.md 的部分 token 消耗，不包含其他附加拆分的技能内容**——
+//   不含激活包装前缀、不含 <skill> XML 标签外壳。
+export interface SkillTokenBreakdown {
+  nameDescTokens: number;
+  triggerTokens: number;
+  contentTokens: number;
+  promptTokens: number;
+  contextTokens: number;
+}
+export function computeSkillTokens(s: SkillData): SkillTokenBreakdown;
 
 // 实时读取单个 skill（skill 感官调用，含 size/mtimeMs 供 hash）
 export function getSkillRealtime(name: string):
   | { skill: SkillData; size: number; mtimeMs: number }
   | undefined;
 
-// 所有 skill 的元数据（不含 content，system prompt 注入和发送窗口用）
-// contextTokens = 激活后完整技能指令写入上下文的近似 token 增量（ceil(字符数 / 4)）
-export function getSkillMetas(): Array<{ name: string; description: string; trigger?: string; contextTokens: number }>;
+// 所有 skill 的元数据（含预计算 token，system prompt 注入 / 发送窗口 / 分段计量复用）
+export function getSkillMetas(): Array<SkillData & SkillTokenBreakdown>;
 ```
 
 ### 前端指令列表与强制加载
 
 `skills.list` RPC 复用 `getSkillMetas()`，实时返回用户配置目录中的
-`{ name, description, trigger?, contextTokens }`。`contextTokens` 是加载该技能时返回给模型的完整
-技能指令（含固定激活前缀）按 `ceil(字符数 / 4)` 得出的近似 token 增量。前端在发送窗口输入 `/`
+`{ name, description, trigger?, extra?, nameDescTokens, triggerTokens, contentTokens, promptTokens, contextTokens }`。
+
+- **`contextTokens`**：激活该 skill 后预计新增的上下文 token（即 `promptTokens`，JSON 序列化全字段）——前端发送窗口 `/` 命令菜单 hover 卡片展示「Token 消耗量」。
+- **`nameDescTokens` / `triggerTokens` / `contentTokens` / `promptTokens`**：分别对应 SKILL.md 各部分 token，由 `computeSkillTokens` 一次性算好供后端 `computeContextBreakdown` 与正文段直接复用，不重复 estimateTokens。
+- **`promptTokens`**：JSON 序列化全字段（含 extra 用户自定义字段）的 token——按设计用作正文段的 token 计算（与 skill 感官调用结果注入上下文的体量一致）。
+
+前端在发送窗口输入 `/`
 时据此展示可选命令；选中某个 `/<name>` 后，会在富文本编辑器的用户正文中插入一个带专用底色的
 不可编辑 tag。tag 仅显示不带 `/` 的指令词（例如选择 `/compact` 后显示 `compact`）；hover 的
 popover 卡片分为标题、可换行描述和底部 token 元信息。token 总量包含本条消息的指令标记本身，
@@ -165,26 +187,34 @@ frontmatter 用 [js-yaml](https://github.com/nodeca/js-yaml) 解析，正则 `/^
 
 ```ts
 export interface PromptSegmentText { text: string; count?: number }
+export interface SkillsSegmentTokens {
+  nameDescTokens: number;
+  triggerTokens: number;
+  contentTokens: number;
+  promptTokens: number;
+}
 export function buildSystemPromptSegments(promptPathOverride?: string, workspace?: string): {
   system: string;      // 全局 base + <environment> + <workspace>
   userSystem: string;  // override 补充（promptPathOverride 给出时；合并语义，可与 system 并存）
   memory: PromptSegmentText;   // <memory global>+<workspace>，count = 记忆条数
-  skills: PromptSegmentText;   // <skills> 元数据，count = skill 数
+  skills: PromptSegmentText & SkillsSegmentTokens;   // <skills> 元数据 + 预聚合 token（computeSkillTokens 累加）
 };
 ```
 
 完整 **6 段上下文计量**（[utils/token.ts](../../src/utils/token.ts) `computeContextBreakdown`）：
 
-| 段 | 来源 | count |
-|----|------|-------|
-| 系统提示词 | 全局 base + `<environment>` + `<workspace>` | — |
-| 用户系统提示词 | override 补充（合并语义，可与系统提示词并存） | — |
-| 记忆 | `<memory global>` + `<memory workspace>` | 记忆条数 |
-| 技能 | `<skills>` 元数据 | skill 数 |
-| 工具定义 | runtime senseTable 各 sense `definition` schema | tool 数 |
-| 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | 消息条数 |
+| 段 | 来源 | token 计算 | count |
+|----|------|------------|-------|
+| 系统提示词 | 全局 base + `<environment>` + `<workspace>` | estimateTokens(text) | — |
+| 用户系统提示词 | override 补充（合并语义，可与系统提示词并存） | estimateTokens(text) | — |
+| 记忆 | `<memory global>` + `<memory workspace>` | estimateTokens(text) | 记忆条数 |
+| 技能 | `<skills>` 元数据 | `Σ triggerTokens`（loadSkill 预计算，单一来源） | skill 数 |
+| 工具定义 | runtime senseTable 各 sense `definition` schema | Σ estimateTokens(JSON.stringify(sense)) | tool 数 |
+| 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | Σ estimateTokens(content+thinking) | 消息条数 |
 
-**计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `promptPathOverride`+`workspace`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable 后逐段 `estimateTokens`（字符数/4）。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../src/utils/token.ts)。
+**skills 段 token 来源（单一来源原则）：** `computeSkillTokens` 在 [loadSkill.ts](../../src/agent/prompt/loadSkill.ts) 一次性算好 `nameDescTokens`/`triggerTokens`/`contentTokens`/`promptTokens`/`contextTokens`，`buildPromptPieces` 累加成 `skillsTokens`，`buildSystemPromptSegments.skills` 直接返回，`computeContextBreakdown.skills` 复用 `triggerTokens`——**不在 contextUsage 重新 estimateTokens**，避免重复计算和口径不一致。
+
+**计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `promptPathOverride`+`workspace`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable。skills 段 token 直接复用预计算字段；其他段按需 estimateTokens。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../src/utils/token.ts)。
 
 ## 关键流程
 

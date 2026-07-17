@@ -103,13 +103,15 @@
   flex: none;
   width: 50px;
   height: 16px;                    // 10px × 1.2 line-height + 上下 1px 边距；与 .role-usage-chip 等高
+  interpolate-size: allow-keywords; // 允许 width: <length> → max-content/min-content/fit-content 平滑插值（与 .choice-list 同款）
 }
 
 .role-summary-model {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
+  width: 50px;                     // 显式像素，与 slot 同宽；避免 width: 100%→max-content 跨类型插值不稳
+  max-width: 50px;
   height: 100%;
   display: inline-flex;
   align-items: center;
@@ -125,19 +127,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: inherit;
-  transition: width 0.18s ease, max-width 0.18s ease,
-              background-color 0.15s ease, border-color 0.15s ease,
-              color 0.15s ease, box-shadow 0.15s ease;
+  // 拉长 width 过渡到 0.32s + ease-out：默认 0.18s 太短，文字逐字符展开过程肉眼几乎看不到
+  transition: width 0.32s cubic-bezier(0.22, 0.94, 0.4, 1),
+              max-width 0.32s cubic-bezier(0.22, 0.94, 0.4, 1),
+              background-color 0.18s ease, border-color 0.18s ease,
+              color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .role-summary-model-slot:hover .role-summary-model,
 .role-summary-model:hover {
   z-index: 2;                      // 提到兄弟（usage chip / senses）之上，避免 hover 展开被遮挡
   width: max-content;
-  height: auto;
   max-width: max-content;
-  overflow: visible;
-  background: #fffdf8;
+  // 保持 height: 100% + overflow: hidden：width 涨到 max-content 后 text-overflow:ellipsis 自然让位
+  // 不切 height: auto → 避免文字从居中跳到顶部
+  background: #f9f4e3;
   box-shadow: 0 2px 7px rgba(20, 22, 26, 0.14);
   color: rgba(30, 33, 38, 0.82);
 }
@@ -235,24 +239,24 @@
 
 :deep(.instruction-token) {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  margin: 1px 3px 1px 0;
-  padding: 2px 7px;
-  border: 1px solid rgba(190, 132, 28, 0.3);
-  border-radius: 6px;
-  background: linear-gradient(135deg, rgba(255, 242, 195, 0.92), rgba(246, 183, 60, 0.14));
-  color: #76500e;
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.45;
+  display: inline;            // 行内高亮字符串，非 chip/胶囊
+  margin: 0;
+  padding: 0 4px;
+  border: 0;                  // 去边框，避免跳脱
+  border-radius: 0;           // 去圆角，与正文字符贴合
+  background: rgba(246, 183, 60, 0.16);  // 平涂淡金底，无渐变
+  color: inherit;             // 颜色随正文，不再独立金棕
+  font-size: inherit;         // 字号随正文
+  font-weight: inherit;       // 字重随正文
+  line-height: inherit;
   vertical-align: baseline;
   user-select: none;
 }
 
 :deep(.instruction-token-name) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-weight: 750;
+  // 名字与正文同字体，不再 monospace 加粗强调
+  font-family: inherit;
+  font-weight: inherit;
 }
 
 .command-menu {
