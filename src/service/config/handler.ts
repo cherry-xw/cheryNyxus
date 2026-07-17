@@ -41,11 +41,14 @@ export async function handleConfigSave(
   const rid = ctx.requestId ?? "";
   const result = saveRawConfig(data);
   if (!result.ok) {
+    // errors（硬错误）+ warnings（软错误，如 workspace 路径无效）合并展示给 UI；
+    // 仅 warnings 时也阻止写盘（提示用户修正）。
+    const combined = [...result.errors, ...result.warnings];
     return createResponse(
       rid,
       false,
       undefined,
-      createError(ErrorCode.INVALID_PARAMS, result.errors.join("\n")),
+      createError(ErrorCode.INVALID_PARAMS, combined.join("\n")),
     );
   }
   // logger 在统一边界递归脱敏 key/token/secret/env 等字段。

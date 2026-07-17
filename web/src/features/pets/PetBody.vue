@@ -295,7 +295,7 @@ const emit = defineEmits<{
   color: var(--pet-accent);
   .glyph-font();
   font-size: 19px;
-  font-weight: 800;
+  font-weight: 400;
   text-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
   transform-origin: center;
 }
@@ -336,7 +336,7 @@ const emit = defineEmits<{
   color: var(--pet-accent);
   .glyph-font();
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 400;
   transform-origin: top center;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.14);
 
@@ -371,7 +371,7 @@ const emit = defineEmits<{
   background: rgba(255, 255, 255, 0.72);
   color: fade(@ink, 72%);
   font-size: 8px;
-  font-weight: 700;
+  font-weight: 400;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -417,7 +417,7 @@ const emit = defineEmits<{
   transform: translateX(-50%);
   color: fade(@ink, 60%);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   pointer-events: none;
   animation: zzz-float 2.2s ease-in-out infinite;
 }
