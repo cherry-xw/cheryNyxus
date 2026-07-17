@@ -143,7 +143,7 @@ export function createStreamRouter(
           // 本轮末条 assistant 权威回复 → 实时追加进 history（按 msgId 去重），
           // 使 PetIcons 圆点气泡即时显最新内容，不再等 chat.get 重载。
           if (type === "done") {
-            const fm = (n.data as { finalMessage?: { msgId: string; role: "assistant"; content: string; thinking?: string; createdAt: number; agentChatId?: string } } | undefined)?.finalMessage;
+            const fm = (n.data as { finalMessage?: { msgId: string; role: "assistant"; content: string; thinking?: string; createdAt: number; agentChatId?: string; contextCompaction?: boolean; contextCompactionTokens?: number } } | undefined)?.finalMessage;
             if (fm) {
               const last = stream.history[stream.history.length - 1];
               // 去重逻辑：同 msgId 或（无 msgId 且角色匹配+内容匹配）
@@ -162,6 +162,8 @@ export function createStreamRouter(
                   msgId: fm.msgId,
                   // 反向溯源：该消息由当前 chat 生成（agentChatId = chatId）
                   agentChatId: fm.agentChatId ?? chatId,
+                  ...(fm.contextCompaction ? { contextCompaction: true } : {}),
+                  ...(fm.contextCompactionTokens !== undefined ? { contextCompactionTokens: fm.contextCompactionTokens } : {}),
                 });
               } else if (last && last.msgId === undefined && last.role === fm.role && last.content === fm.content) {
                 // 合并：为无 msgId 的 assistant 补充 msgId（权威来源）
@@ -221,6 +223,26 @@ export function createStreamRouter(
           stream.historyDirty = false;
         }
       }
+      if (requestId) requestMap.delete(requestId);
+      return;
+    }
+
+    if (type === "auto_compacted") {
+      // 自动压缩事件：reason=`usage`(80% 强制)/`overflow`(估算溢出)。
+      // 本轮已结束，未做 prompt 改造；仅亮前端 toast 让用户感知；
+      // 下次 send 自动触发。PetToolbar 也可亮 compact 按钮供手动再触一次。
+      const d = (n.data ?? {}) as { reason?: string; usedBefore?: number; total?: number };
+      const reason = d.reason === "overflow" ? "上下文溢出" : "用量阈值";
+      const used = typeof d.usedBefore === "number" ? d.usedBefore : 0;
+      const total = typeof d.total === "number" && d.total > 0 ? d.total : 0;
+      const msg = total > 0
+        ? `已自动压缩（约 ${used}/${total} tokens，触发：${reason}）`
+        : `已自动压缩（触发：${reason}）`;
+      // 轻量提示：使用 element-plus ElMessage（不阻塞流）；toast 由项目的根 component 全局导入，
+      // 这里走 dynamic import 避免 hot-module 副作用 → 失败时退化为 console.log。
+      void import("element-plus").then((mod) => {
+        mod.ElMessage.info({ message: msg, duration: 2400, offset: 24 });
+      }).catch(() => console.log(`[autoCompact] ${msg}`));
       if (requestId) requestMap.delete(requestId);
       return;
     }

@@ -88,11 +88,13 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
             existing.createdAt = d.createdAt ?? existing.createdAt;
             if (mediaAssets.length > 0) existing.mediaAssets = mediaAssets;
             if (d.agentChatId) existing.agentChatId = d.agentChatId;
+            if (d.contextCompaction) existing.contextCompaction = true;
+            if (d.contextCompactionTokens !== undefined) existing.contextCompactionTokens = d.contextCompactionTokens;
           }
           return;
         }
       }
-      history.push({ role: "assistant", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}), ...(mediaAssets.length > 0 && { mediaAssets }) });
+      history.push({ role: "assistant", content, runtime: d.runtime, createdAt: d.createdAt, msgId: d.msgId, ...(d.agentChatId ? { agentChatId: d.agentChatId } : {}), ...(d.contextCompaction ? { contextCompaction: true } : {}), ...(d.contextCompactionTokens !== undefined ? { contextCompactionTokens: d.contextCompactionTokens } : {}), ...(mediaAssets.length > 0 && { mediaAssets }) });
       return;
     }
     if (role === "sense") {

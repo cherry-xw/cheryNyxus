@@ -162,10 +162,14 @@ Backspace 或 Delete 一次移除整个 tag。传输和持久化时 token 序列
 历史消息仍保存纯文本。前端会安全识别上述固定格式并将其渲染为指令样式，其他用户文本继续按
 纯文本转义显示。
 
-`/compact` 是前端内置命令：它序列化为 `[[command:/compact]]`，要求模型整理当前会话的关键
-事实、决策、进度和待办，生成可供后续轮次使用的摘要。它不对应 `SKILL.md`，因此不由
-`getSkillMetas()` 或 `skills.list` 返回，也不会出现在 `.chery/skills/`、设置页或任何可删除的
-用户技能列表中。
+`/compact` 是固定入口的系统命令：它序列化为 `[[command:/compact]]`，但完整指令位于
+`.chery/command/compact.md`（模板为 `.chery.template/command/compact.md`），可直接编辑并在下次
+构建系统提示词时读取。它不属于 `SKILL.md`，不会由 `getSkillMetas()` 或 `skills.list` 返回，也不进入
+用户技能的删除范围。
+
+当 compact 的 assistant 摘要完成后，消息本身会持久化 `context_compaction` 边界。当前运行立即将模型
+上下文收缩为“基础系统提示词 + 系统角色摘要”；服务重启后同样从最后一条边界恢复。边界同时持久化按
+`estimateTokens` 估算的释放量，历史分割线显示“释放约 N tokens”。旧消息只供历史 UI 回放，不再送入模型。
 
 **SKILL.md frontmatter 格式：**
 
@@ -181,9 +185,20 @@ trigger: "用户请求XXX时触发"   # 可选
 
 frontmatter 用 [js-yaml](https://github.com/nodeca/js-yaml) 解析，正则 `/^---\r?\n([\s\S]*?)\r?\n---/` 匹配首块。解析失败时**静默回退**：name 用目录名、description/content 各自为整文件 trim / 空。
 
-## 上下文分段计量（buildSystemPromptSegments）
+## 命令（基于 `[[command:/name]]` 的指令系统）
 
-为支持「上下文用量分段显示」，`buildFirstSystemPrompt` 的各组成部分可独立计量。新增导出（单一数据源，`buildFirstSystemPrompt` 复用其组装最终串）：
+`commands` 不再预注入 system prompt。`/compact` 等内置命令位于 `.chery/command/<name>.md`，
+**不在默认 system 提示词中**——只在被触发时（用户 `[[command:/compact]]` / 自动压缩命中），
+由 send 路径实时读取并以 `<system-reminder type="compact-instruction">…</system-reminder>`
+作为**一次性**附注拼到该轮 user prompt 末尾（不入系统提示词缓存）。
+
+完整协议、阈值与「指令」tab 详见 [./command.md](./command.md)。
+
+前端「指令」tab（settings 第八项）按需增删改 `.chery/command/*.md`——后端只暴露
+`command.list / read / save / delete` 四个 RPC；不属于 `SKILL.md` 体系，
+不会进 `getSkillMetas()` 与用户技能的删除范围。
+
+## 上下文分段计量（buildSystemPromptSegments）
 
 ```ts
 export interface PromptSegmentText { text: string; count?: number }

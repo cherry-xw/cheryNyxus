@@ -135,6 +135,17 @@ export interface SenseToolInfo {
   icon: string;
 }
 
+/**
+ * 命令元信息（command.list / command.read 通用）。
+ * 后端读 .chery/command/<name>.md frontmatter + 正文；
+ * 缺少 frontmatter 时 description === ""，但 name 仍可填（取 basename）。
+ */
+export interface CommandInfo {
+  name: string;
+  description: string;
+  content: string;
+}
+
 /** skills.list 单项：用户 `.chery/skills/` 中可强制加载的技能元数据。 */
 export interface SkillInfo {
   name: string;
@@ -224,6 +235,27 @@ export type MediaKindDto = "image" | "video" | "audio";
 export interface MediaServiceConfigDto { type: MediaKindDto; url: string; model?: string; key?: string; enabled?: boolean; maxUploadMb?: number; }
 export interface MediaConfigDto { [name: string]: MediaServiceConfigDto; }
 
+/** 阈值线型（对齐后端 utils/config.ts Threshold）：tokens 绝对值 / percent 0..1 占比。 */
+export interface ThresholdDto {
+  unit: "tokens" | "percent";
+  value: number;
+}
+
+/** command 配置（对齐后端 CommandConfig / config.save globalSchema）。字段均 optional。 */
+export interface CommandConfigDto {
+  warn?: ThresholdDto;
+  auto?: ThresholdDto;
+  min_context_limit?: number;
+  safety_margin?: number;
+}
+
+/** chat.get / chat.contextUsage 携带的 command 系统配置投影（对齐后端 CommandConfigData）。 */
+export interface CommandConfigDataDto {
+  warn: ThresholdDto;
+  auto: ThresholdDto;
+  minContextLimit: number;
+}
+
 export interface GlobalConfigDto {
   thinking: boolean;
   supervision: "auto" | "confirm" | "manual";
@@ -247,6 +279,8 @@ export interface GlobalConfigDto {
     location?: boolean;
     format?: "plain" | "json";
   };
+  /** 内置命令（compact 等）阈值与可见性配置。 */
+  command?: CommandConfigDto;
 }
 
 /** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 + 按类型媒体服务 */
@@ -397,9 +431,9 @@ export const agentApi = {
     return callStream("chat.get", { chatId });
   },
 
-  /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token + 上限 + 6 段分解）。initFromChats 后驱动 ContextBar 初始渲染。 */
-  async contextUsage(chatId: string): Promise<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number; contextBreakdown: ContextBreakdown }> {
-    return call<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number; contextBreakdown: ContextBreakdown }>("chat.contextUsage", { chatId });
+  /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token + 上限 + 6 段分解 + commandConfig）。initFromChats 后驱动 ContextBar 初始渲染。 */
+  async contextUsage(chatId: string): Promise<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number; contextBreakdown: ContextBreakdown; commandConfig?: CommandConfigDataDto }> {
+    return call<{ chatId: string; contextUsage: number; contextUsed: number; contextTotal: number; contextBreakdown: ContextBreakdown; commandConfig?: CommandConfigDataDto }>("chat.contextUsage", { chatId });
   },
 
   /** sense.approval：审批（accept/reject）。approvalId 来自 interrupt notification。 */
@@ -474,8 +508,8 @@ export const agentApi = {
   },
 
   /**
-   * prompts.list：递归列出 .chery/prompts/ 下全部 .md（含子文件夹），每项为相对 .chery/ 的路径
-   * （如 prompts/prefebMain/leader.md）。供设置面板 systemPrompt 级联选择器（el-cascader）建目录树。
+   * prompts.list：递归列出 .chery/prompt/ 下全部 .md（含子文件夹），每项为相对 .chery/ 的路径
+   * （如 prompt/prefebMain/leader.md）。供设置面板 systemPrompt 级联选择器（el-cascader）建目录树。
    * 返回形状容错（缺字段 -> 空数组）。
    */
   async listPrompts(): Promise<string[]> {
@@ -530,6 +564,14 @@ export const agentApi = {
     if (unique.length === 0) return {};
     const data = await call<{ levels: Record<string, ThinkingLevel[]> }>("utils.thinkingLevels", { models: unique });
     return data?.levels ?? {};
+  },
+
+  // ========== 内置命令管理（settings 「指令」tab） ==========
+
+  /** command.list：列出全部 .chery/command/*.md 文件（只读枚举）。返回 [] 时前端展示空态。 */
+  async listCommands(): Promise<CommandInfo[]> {
+    const data = await call<Partial<{ commands?: CommandInfo[] }>>("command.list", {});
+    return Array.isArray(data?.commands) ? data.commands : [];
   },
 };
 

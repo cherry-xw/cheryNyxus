@@ -86,6 +86,10 @@ export interface HistoryItem {
    * 旧消息（写入早于该字段）时为 undefined；前端按 subPetChatId / callerSubPetChatId / 当前 chatId 兜底。
    */
   agentChatId?: string;
+  /** 此 assistant 消息是 /compact 生成的上下文摘要。 */
+  contextCompaction?: boolean;
+  /** 该次压缩释放的估算 token 数，用于历史分割线提示。 */
+  contextCompactionTokens?: number;
 }
 
 /** 当前 chat 的待审批（interrupt 写入；accept/rejected/超时/新轮清空；submit 后 dismissApproval 立即清）。 */
@@ -215,6 +219,8 @@ export interface StagedChunkData {
   runtime?: RuntimeSelection;
   /** 消息创建时间戳（ms），用于合并多 chat 历史时按时间排序 */
   createdAt?: number;
+  contextCompaction?: boolean;
+  contextCompactionTokens?: number;
   /**
    * 消息主键 msgId（= 后端 messages.id 主键）。
    * 用途：合流主+子 chat 历史时按 msgId 去重（如 main chat 的 role:role 行 vs child chat 的 assistant→role 改写行 msgId 重复）。

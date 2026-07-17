@@ -90,13 +90,31 @@ export default class AgentSession<T = unknown> {
   /**
    * 发送消息并返回 generator。
    * 空闲时入队并启动一次完整 loop；运行中调用只入队，由当前 loop 的下一轮自动消费。
+   *
+   * @param input 主 user prompt（落库前的最后一条 user message）
+   * @param options.extraUserMessages 可选，命令正文（来自 .chery/command/<name>.md 正文）
+   *   作为独立 user message 入队，顺序为 extra[0] → extra[1] → ... → 主 input；
+   *   LLM 看到「先命令正文、再用户实际消息」按序消费。compact token 自动触发时 compact 正文会
+   *   被调用方 unshift 到此数组顶部。详见 docs/agent/command.md。
    */
-  async *send(input: string): AsyncGenerator<T, void, unknown> {
+  async *send(
+    input: string,
+    options?: { extraUserMessages?: string[] },
+  ): AsyncGenerator<T, void, unknown> {
     this.requireInitialized();
     this.requireRuntime();
 
+    const compactRequested = /\[\[command:\/compact\]\]/.test(input);
+    // 命令正文入队顺序：extra[0] 先入队 → 主 input 最后入队 → LLM 按 FIFO 消费
+    const extras = options?.extraUserMessages;
+    if (extras && extras.length > 0) {
+      for (const extra of extras) {
+        this.journal.appendUserInput(extra);
+      }
+    }
     this.journal.appendUserInput(input);
     yield* this.pipeline.run();
+    if (compactRequested) this.journal.compactToLatestSummary();
   }
 
   /**

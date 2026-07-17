@@ -70,8 +70,9 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
     const system = seg(estimateTokens(promptSegs.system));
     const userSystem = seg(estimateTokens(promptSegs.userSystem));
     const memory = seg(estimateTokens(promptSegs.memory.text), promptSegs.memory.count);
-    // skills 段 token = Σ triggerTokens（loadSkill 已预计算，单一来源，不在此重算 estimateTokens）
-    const skills = seg(promptSegs.skills.triggerTokens, promptSegs.skills.count);
+    // skills 段 token = estimateTokens(整段 <skills>...</skills> 文本)：含 XML 标签 + 每 skill 的 name+desc+trigger。
+    // 旧实现用 triggerTokens 仅算触发条件（无 trigger 的 skill 显示 0，严重低估），改为直接估算 text。
+    const skills = seg(estimateTokens(promptSegs.skills.text), promptSegs.skills.count);
 
     // 段 5：工具定义（重建 runtime senseTable；主 agent 注入 memory_manage，子 agent 不注入——同 init）
     let tools = seg(0, 0);

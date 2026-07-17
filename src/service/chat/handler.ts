@@ -38,6 +38,7 @@ import { randomUUID } from "crypto";
 import { parseRuntimeSelection, resolvePresetSelection, type RuntimeSelection } from "@/agent/runtimeResolver.js";
 import { logger } from "@/utils/logger/index.js";
 import { breakdownUsed } from "@/utils/token.js";
+import config, { DEFAULT_COMMAND_CONFIG } from "@/utils/config";
 import { computeContextBreakdown } from "./contextUsage.js";
 import { safeJsonParse } from "@/utils/json.js";
 import { getChatEvents, claimSpawnTask, finishSpawnTask, listOpenSpawnTasks } from "@/db/delivery.js";
@@ -118,7 +119,20 @@ export async function handleChatCreate(
 }
 
 /**
- * 列出所有聊天（全局）
+ * 取当前 .chery/config.yaml 的 global.command 配置投影（compact 阈值）。
+ * 所有 chat.* RPC 的 commandConfig 字段均从此取值；前端据此判断 compact 按钮可见性与 warn 提示。
+ * compact 无开关；warn/auto 为 Threshold{unit,value}；safety_margin 为内部默认不外露。
+ */
+function getCommandConfig(): import("../message/types.js").CommandConfigData {
+  const cmd = config.global.command ?? {};
+  return {
+    warn: cmd.warn ?? DEFAULT_COMMAND_CONFIG.warn,
+    auto: cmd.auto ?? DEFAULT_COMMAND_CONFIG.auto,
+    minContextLimit: cmd.min_context_limit ?? 0,
+  };
+}
+
+/**
  * CP8：includePreview=true 时每项增返 preview（首条 user 消息截断）+ turnCount（user 消息数），
  *   按 messages_month 分组批量查，供会话列表渲染；省略=lean，供初始化重建 pet 树（免 N+1）。
  */
@@ -223,6 +237,8 @@ export async function* handleChatGet(
         ...(parsedMsg.replace?.state
           ? { replace: parsedMsg.replace, originalContent: parsedMsg.originalContent }
           : {}),
+        ...(parsedMsg.contextCompaction ? { contextCompaction: true } : {}),
+        ...(parsedMsg.contextCompactionTokens !== undefined ? { contextCompactionTokens: parsedMsg.contextCompactionTokens } : {}),
       }, { chatId: p.chatId });
     }
     // 仅 assistant 消息携带 senseCalls（sense 消息的 senseCalls 是冗余副本，跳过避免历史回放重复）
@@ -266,6 +282,7 @@ export async function* handleChatGet(
     contextUsed: breakdownUsed(ctxBd),
     contextTotal: ctxBd.total,
     contextBreakdown: ctxBd,
+    commandConfig: getCommandConfig(),
     ...questionSnapshot,
   };
 }
@@ -410,7 +427,14 @@ export async function handleChatContextUsage(
   data: ChatContextUsageRequestData,
 ): Promise<ChatContextUsageResponseData> {
   const bd = computeContextBreakdown(data.chatId);
-  return { chatId: data.chatId, contextUsage: bd.usage, contextUsed: breakdownUsed(bd), contextTotal: bd.total, contextBreakdown: bd };
+  return {
+    chatId: data.chatId,
+    contextUsage: bd.usage,
+    contextUsed: breakdownUsed(bd),
+    contextTotal: bd.total,
+    contextBreakdown: bd,
+    commandConfig: getCommandConfig(),
+  };
 }
 
 /**

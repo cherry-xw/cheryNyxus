@@ -31,6 +31,8 @@ export interface MessageRow {
   created_at: number;
   /** JSON {brain,senseGroup,mcpServers}，仅 user 消息记（发送时配置）；assistant/sense 为 null */
   runtime: string | null;
+  context_compaction?: number | null;
+  context_compaction_tokens?: number | null;
 }
 
 export interface MessageData {
@@ -52,6 +54,8 @@ export interface MessageData {
   revoked?: boolean;
   /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传 */
   runtime?: { brain: string; senseGroup: string; mcpServers: string[] };
+  contextCompaction?: boolean;
+  contextCompactionTokens?: number;
 }
 
 /**
@@ -203,7 +207,10 @@ export function getChatPromptOverride(chatId: string): string | undefined {
   if (!row?.metadata) return undefined;
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
   const p = parsed.promptPathOverride;
-  return typeof p === "string" && p.length > 0 ? p : undefined;
+  if (typeof p !== "string" || p.length === 0) return undefined;
+  // 历史兼容：旧 chat metadata 曾存 `.chery/prompts/...`（有 s），但实际目录是 `.chery/prompt/`（无 s）。
+  // 规范化为当前目录名，避免 existsSync 失败导致 userSystem 段显示 0。
+  return p.replace(/\/\.chery\/prompts\//, "/.chery/prompt/");
 }
 
 /**
@@ -388,8 +395,8 @@ export function addMessage(
   const now = Date.now();
 
   const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, chat_id, role, content, thinking, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime, context_compaction, context_compaction_tokens)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -407,6 +414,8 @@ export function addMessage(
     data.revoked ? 1 : 0,
     now,
     data.runtime ? JSON.stringify(data.runtime) : null,
+    data.contextCompaction ? 1 : 0,
+    data.contextCompactionTokens ?? null,
   );
 
   // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
@@ -432,6 +441,8 @@ export function addMessage(
     revoked: data.revoked ? 1 : 0,
     created_at: now,
     runtime: data.runtime ? JSON.stringify(data.runtime) : null,
+    context_compaction: data.contextCompaction ? 1 : 0,
+    context_compaction_tokens: data.contextCompactionTokens ?? null,
   };
 }
 
@@ -644,6 +655,8 @@ export function parseMessageRow(row: MessageRow): MessageData {
           mcpServers: string[];
         } | undefined>(row.runtime, undefined)
       : undefined,
+    contextCompaction: row.context_compaction === 1,
+    contextCompactionTokens: row.context_compaction_tokens ?? undefined,
   };
 }
 

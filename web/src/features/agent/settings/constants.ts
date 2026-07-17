@@ -1,7 +1,7 @@
 /**
  * Settings 面板共享常量。各 tab 组件按需 import。
  */
-export type TabKey = "brains" | "media" | "senses" | "roles" | "presets" | "mcp" | "global";
+export type TabKey = "brains" | "media" | "senses" | "roles" | "presets" | "mcp" | "global" | "commands";
 
 export const TABS: { key: TabKey; icon: string; label: string }[] = [
   { key: "presets", icon: "📦", label: "预设" },
@@ -11,6 +11,7 @@ export const TABS: { key: TabKey; icon: string; label: string }[] = [
   { key: "mcp", icon: "🔌", label: "MCP 服务" },
   { key: "media", icon: "🖼️", label: "媒体服务" },
   { key: "global", icon: "⚙️", label: "全局" },
+  { key: "commands", icon: "📝", label: "指令" },
 ];
 
 export const PROVIDERS = ["openai", "ollama", "mock"] as const;
@@ -37,6 +38,7 @@ export const HINT_LINES: Record<TabKey, { sect: number; warn: number }> = {
   roles: { sect: 1, warn: 0 },
   mcp: { sect: 1, warn: 1 },
   global: { sect: 1, warn: 0 },
+  commands: { sect: 1, warn: 0 },
 };
 
 /**
@@ -53,4 +55,6 @@ export const INDEX_COUNT: Record<TabKey, number> = {
   roles: 3,    // 典型 2-5 个角色
   mcp: 1,      // 典型 0-2 个 MCP
   global: 3,   // 默认监管 + logger + file_compression，常见三者齐
+  commands: 2, // 默认仅 compact 一条；可扩展内置指令
 };
+

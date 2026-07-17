@@ -45,6 +45,10 @@ export interface LLMResponse {
   originalContent?: string;
   /** 已撤回（chat.resume 撤回 pending sense + 对应 assistant，buildMessages 过滤） */
   revoked?: boolean;
+  /** 此 assistant 内容是一次 /compact 生成的摘要，并作为后续上下文的边界。 */
+  contextCompaction?: boolean;
+  /** 本次压缩释放的对话上下文 token（estimateTokens 估算）。 */
+  contextCompactionTokens?: number;
 }
 
 /**

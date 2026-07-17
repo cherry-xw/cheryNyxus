@@ -71,6 +71,10 @@ const userContentSegments = computed(() => splitCommandPrompt(props.item.content
 
 // 气泡底部时间戳常显：同天 HH:MM / 跨天 MM-DD HH:MM / 跨年 YYYY-MM-DD HH:MM；缺失不渲染
 const timeText = computed(() => formatTime(props.item.createdAt));
+const isCompactTrigger = computed(
+  () => props.item.role === "user" && /\[\[command:\/compact\]\]/.test(props.item.content ?? ""),
+);
+const isCompactSummary = computed(() => props.item.contextCompaction === true);
 
 // jumpToSpawn 转发：MessageAvatar 点击头像 → 透传给 HistoryDrawer
 const emit = defineEmits<{
@@ -79,7 +83,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="msg-row" :class="[roleClass, `layout-${layout ?? 'group'}`, { 'is-child-to-master': item.mergedView === 'child-to-master' }]">
+  <div class="compact-entry" :class="{ 'is-compact-summary': isCompactSummary }">
+    <div v-if="isCompactSummary" class="context-divider" role="separator">
+      <span>上下文已压缩并替换 · 释放约 {{ item.contextCompactionTokens ?? 0 }} tokens</span>
+    </div>
+    <div class="msg-row" :class="[roleClass, `layout-${layout ?? 'group'}`, { 'is-child-to-master': item.mergedView === 'child-to-master', 'is-compact-trigger': isCompactTrigger, 'is-compact-summary': isCompactSummary }]">
     <MessageAvatar
       v-if="item.role !== 'user'"
       :item="item"
@@ -98,7 +106,9 @@ const emit = defineEmits<{
       @jump-to-spawn="(p) => emit('jumpToSpawn', p)"
     />
     <div v-else class="avatar" :class="roleClass" aria-hidden="true">🧑</div>
-    <div class="bubble" :class="roleClass">
+    <div class="bubble" :class="[roleClass, { 'is-compact-trigger': isCompactTrigger, 'is-compact-summary': isCompactSummary }]">
+      <div v-if="isCompactTrigger" class="compact-label">上下文压缩</div>
+      <div v-if="isCompactSummary" class="compact-label">压缩后的上下文摘要</div>
       <div v-if="hasThinking || timeText" class="bubble-head">
         <button
           v-if="hasThinking"
@@ -137,6 +147,7 @@ const emit = defineEmits<{
         />
       </div>
     </div>
+    </div>
   </div>
 </template>
 
@@ -158,6 +169,24 @@ const emit = defineEmits<{
   &.layout-direct.role-master {
     flex-direction: row-reverse;
   }
+}
+
+.context-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+  color: fade(@ink, 46%);
+  font-size: 10px;
+  letter-spacing: .04em;
+
+  &::before, &::after {
+    content: "";
+    height: 1px;
+    flex: 1;
+    background: linear-gradient(90deg, transparent, rgba(112, 86, 33, .28));
+  }
+  &::after { transform: scaleX(-1); }
 }
 
 // .avatar 基础圆样式：MessageBubble 内仅用于 role=user 行内头像（line 98）
@@ -199,6 +228,24 @@ const emit = defineEmits<{
     background: linear-gradient(135deg, #fff7e0, #ffe9b8);
     border-color: rgba(246, 183, 60, 0.32);
   }
+  &.is-compact-trigger {
+    background: linear-gradient(135deg, #fff6dc, #f8e9bb);
+    border-color: rgba(181, 126, 27, .42);
+  }
+  &.is-compact-summary {
+    background: linear-gradient(135deg, #f2f8f3, #e3f0e7);
+    border-color: rgba(42, 117, 72, .28);
+  }
+}
+
+.compact-label {
+  align-self: flex-start;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(75, 108, 69, .12);
+  color: #456342;
+  font-size: 9.5px;
+  font-weight: 700;
 }
 
 // 气泡头部：thinking 开关（左）+ 时间戳（右）同行

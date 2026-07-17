@@ -2,6 +2,7 @@ import { AgentBuilder } from "@/agent/builder.js";
 import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
 import { getMessages, parseMessageRow, getChatRuntimeSelection, getChatPromptOverride, getChatWorkspace, updateChatMetadata, getChat } from "@/db/chat.js";
 import type { LLMResponse } from "@/core/message/adapter";
+import { extractSummaryBlock } from "@/core/middleware/messageJournal.js";
 import { notifyRestartActivityChanged } from "@/service/restartCoordinator.js";
 
 /**
@@ -144,7 +145,7 @@ function loadHistory(chatId: string): LLMResponse[] | undefined {
   if (rows.length === 0) {
     return undefined;
   }
-  return rows.map((row) => {
+  const parsedRows = rows.map((row) => {
     const parsed = parseMessageRow(row);
     return {
       id: row.id,
@@ -156,10 +157,32 @@ function loadHistory(chatId: string): LLMResponse[] | undefined {
       replace: parsed.replace,
       originalContent: parsed.originalContent,
       revoked: parsed.revoked,
+      contextCompaction: parsed.contextCompaction,
+      contextCompactionTokens: parsed.contextCompactionTokens,
       createdAt: row.created_at,
       updateAt: row.created_at,
     };
   });
+  // 取最后一条 compact 摘要作为重建起点；其后的全部后续对话一并加载。
+  // 与 compactToLatestSummary 内存裁剪语义对齐——冷重建不得丢失压缩点之后已持久化的消息
+  // （否则重启/切 chat 回来，summary 之后的几轮对话"DB 在、模型看不见"）。
+  let summaryIdx = -1;
+  for (let i = parsedRows.length - 1; i >= 0; i--) {
+    if (parsedRows[i]!.contextCompaction) {
+      summaryIdx = i;
+      break;
+    }
+  }
+  if (summaryIdx === -1) return parsedRows;
+  const latestSummary = parsedRows[summaryIdx]!;
+  return [
+    {
+      ...latestSummary,
+      role: "system",
+      content: `以下是此前对话压缩后的上下文摘要。将其视为后续工作的唯一历史上下文：\n\n${extractSummaryBlock(latestSummary.content)}`,
+    },
+    ...parsedRows.slice(summaryIdx + 1),
+  ];
 }
 
 /**
@@ -237,6 +260,15 @@ export function clearChatRuntime(chatId: string): void {
   chatRuntimes.delete(chatId);
   sessionRoleRuntimes.delete(chatId);
   ephemeralChatRuntimes.delete(chatId);
+}
+
+/**
+ * 解析 chat 当前生效的 runtime selection（含 ephemeral 子角色覆盖），解析顺序与 ensureRuntime 对齐：
+ * ephemeral 临时编制（子 agent role 覆盖）优先于数据库默认值。
+ * 供 autoCompact 等热路径使用——使 compact 可用性按当次发送的实际 brain 判定。
+ */
+export function resolveChatRuntimeSelection(chatId: string): RuntimeSelection | undefined {
+  return ephemeralChatRuntimes.get(chatId) ?? getChatRuntimeSelection(chatId);
 }
 
 /**

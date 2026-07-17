@@ -33,7 +33,46 @@ const emit = defineEmits<{
 
 const agents = useAgentsStore();
 
-const showCompact = computed(() => props.pet.contextUsage > 0.4);
+/**
+ * 阈值命中（与后端 thresholdReached 同语义）：
+ * percent → used/total ≥ value；tokens → used ≥ value。total ≤ 0 → false。
+ */
+function thresholdReached(
+  t: { unit: "tokens" | "percent"; value: number } | undefined,
+  used: number,
+  total: number,
+): boolean {
+  if (!t || total <= 0) return false;
+  return t.unit === "percent" ? used / total >= t.value : used >= t.value;
+}
+
+/** compact 可用门槛：brain 容量 ≥ minContextLimit（无开关；默认展示只关联默认 brain 上下文）。 */
+const compactAvailable = computed(() => {
+  const cc = props.pet.commandConfig;
+  const total = props.pet.contextTotal;
+  if (!total || total <= 0) return false;
+  const minLimit = cc?.minContextLimit ?? 0;
+  return !(minLimit > 0 && total < minLimit);
+});
+
+/**
+ * 显示条件（全部满足才显）：
+ * - compact 可用（brain「够大」）
+ * - contextUsage ≥ warn（到达提示阈值才显按钮；warn 缺省按 0.6 兜底，对齐后端默认）
+ */
+const showCompact = computed(() => {
+  if (!compactAvailable.value) return false;
+  const cc = props.pet.commandConfig;
+  const warn = cc?.warn ?? { unit: "percent" as const, value: 0.6 };
+  return thresholdReached(warn, props.pet.contextUsed, props.pet.contextTotal);
+});
+
+/** usage ≥ auto → 强提示（按钮高亮脉冲）；后端此时会自动压缩。 */
+const compactUrgent = computed(() => {
+  const cc = props.pet.commandConfig;
+  if (!cc) return false;
+  return thresholdReached(cc.auto, props.pet.contextUsed, props.pet.contextTotal);
+});
 /** 主 pet idle 且末条为未完成周期 → 显"继续"按钮，用户点击触发 chat.resume */
 const showResume = computed(() => props.pet.isMaster && !props.pet.isWorking && !!props.pet.canResume);
 
@@ -54,6 +93,7 @@ const canHide = computed(() => {
       v-if="showCompact"
       type="button"
       class="tool-btn compact"
+      :class="{ urgent: compactUrgent }"
       aria-label="Compact context"
       @click="emit('compact', pet)"
     >
@@ -154,6 +194,12 @@ const canHide = computed(() => {
     background: rgba(255, 196, 87, 0.4);
   }
 
+  &.compact.urgent {
+    background: rgba(248, 113, 113, 0.55);
+    color: #7f1d1d;
+    animation: compact-pulse 1.1s ease-in-out infinite;
+  }
+
   &.resume {
     background: rgba(74, 222, 128, 0.4);
     color: #15803d;
@@ -222,5 +268,10 @@ const canHide = computed(() => {
 @keyframes clock-slide {
   from { transform: translateX(0); }
   to { transform: translateX(-384px); }
+}
+
+@keyframes compact-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
 }
 </style>

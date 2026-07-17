@@ -171,6 +171,8 @@ function initMonthlyTables(db: Database.Database): void {
       original_content TEXT,
       revoked INTEGER DEFAULT 0,
       runtime TEXT,
+      context_compaction INTEGER DEFAULT 0,
+      context_compaction_tokens INTEGER,
       created_at INTEGER NOT NULL
     );
 
@@ -227,6 +229,8 @@ function initMonthlyTables(db: Database.Database): void {
 
   ensureMessageColumn(db, "revoked", "INTEGER DEFAULT 0");
   ensureMessageColumn(db, "runtime", "TEXT");
+  ensureMessageColumn(db, "context_compaction", "INTEGER DEFAULT 0");
+  ensureMessageColumn(db, "context_compaction_tokens", "INTEGER");
   ensureChatEventColumn(db, "chat_seq", "INTEGER");
   // Development builds created before per-chat sequence migration used the
   // global row id as `seq`. Backfill deterministic per-chat cursors so those

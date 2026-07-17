@@ -15,6 +15,7 @@ import { registerMcpHandlers } from "./mcp/handler.js";
 import { registerRole } from "./subagent/index.js";
 import { registerConfigHandlers } from "./config/handler.js";
 import { registerUtilsHandlers } from "./utils/handler.js";
+import { registerCommandHandlers } from "./command/handler.js";
 import { randomBytes } from "node:crypto";
 import { OAuth2Auth, type OAuth2Config } from "./auth/index.js";
 
@@ -69,6 +70,8 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   registerConfigHandlers(router);
   // Utils 工具：独立信息查询（utils.models 等，不依赖 chat/brain 运行时）
   registerUtilsHandlers(router);
+  // 内置命令系统：settings 「指令」tab 后端（读写 .chery/command/*.md）
+  registerCommandHandlers(router);
 
   // 创建 WebSocket 服务器
   const auth = new OAuth2Auth(options.auth);

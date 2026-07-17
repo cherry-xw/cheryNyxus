@@ -214,6 +214,43 @@ interface LoggerConfig {
 }
 
 /**
+ * 阈值：支持 tokens（绝对）或 percent（0..1 占 context 窗口比）两种单位。
+ * 前端填写**必须以 `%` 或 `k` 结尾**（如 `50%` / `64k`，不接受裸数字）；后端只处理结构体（确定性，规则 5）。
+ */
+export interface Threshold {
+  unit: "tokens" | "percent";
+  value: number;
+}
+
+/**
+ * 命令系统配置（控制 /compact 等内置命令的触发与可见性）。
+ *
+ * 触发语义：
+ * - `warn` → 前端视觉提示阈值（到达 → 提示用户可压缩）；**不参与后端触发**，仅投影给前端比对 contextUsage。
+ * - `auto` → 自动触发阈值（`thresholdReached(auto, used, total)` 命中即压缩）；支持 tokens/percent。
+ * - `min_context_limit` → 启用 compact 功能所需的 brain.contextLimit 下限（「不可用」门槛，仅 tokens）；
+ *   低于此值的 brain 上无 compact 价值（mock_test 8K 等）。
+ * - `safety_margin` → `used + safety_margin > total` 时强制触发（小 context 溢出防御，弥补百分比不达标的角落场景；内部默认，不入 UI）。
+ *
+ * compact 无开关：可用性只由 `brain.contextLimit >= min_context_limit`（+ compact.md 存在）决定，
+ * 临时换模型按当次发送的 brain 判定。
+ */
+export interface CommandConfig {
+  warn?: Threshold;
+  auto?: Threshold;
+  min_context_limit?: number;
+  safety_margin?: number;
+}
+
+export const DEFAULT_COMMAND_CONFIG = {
+  warn: { unit: "percent", value: 0.6 } as const,
+  auto: { unit: "percent", value: 0.8 } as const,
+  min_context_limit: 32000,
+  safety_margin: 1024,
+} as const satisfies Required<Omit<CommandConfig, "warn" | "auto">> &
+  Record<"warn" | "auto", Threshold>;
+
+/**
  * 全局配置
  */
 interface GlobalConfig {
@@ -234,6 +271,7 @@ interface GlobalConfig {
   file_compression?: FileCompressionConfig; // 文件压缩配置
   logger?: LoggerConfig; // 日志配置
   textEditor?: string; // 文本编辑器路径（如 vscode、notepad、记事本等），用于打开配置文件
+  command?: CommandConfig; // 内置命令（compact 等）触发与可见性配置
 }
 
 /**
@@ -429,6 +467,14 @@ function loadConfig(): Config {
       max_count: config.memory?.workspace?.max_count ?? 15,
       max_chars: config.memory?.workspace?.max_chars ?? 500,
     },
+  };
+
+  // 命令系统配置默认值（缺省 → warn=60%, auto=80%, min=32000, safety=1024）
+  config.global.command = {
+    warn: config.global.command?.warn ?? DEFAULT_COMMAND_CONFIG.warn,
+    auto: config.global.command?.auto ?? DEFAULT_COMMAND_CONFIG.auto,
+    min_context_limit: config.global.command?.min_context_limit ?? DEFAULT_COMMAND_CONFIG.min_context_limit,
+    safety_margin: config.global.command?.safety_margin ?? DEFAULT_COMMAND_CONFIG.safety_margin,
   };
 
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 WEB_PORT 环境变量）
@@ -663,6 +709,38 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     const t = raw.global.approval_timeout;
     if (typeof t !== "number" || !Number.isFinite(t) || t < 0) {
       errors.push(`global.approval_timeout 必须为 ≥ 0 的数字（0 = 不超时，当前：${String(t)}）`);
+    }
+  }
+
+  // command 配置：warn/auto 为 Threshold{unit,value}；min_context_limit / safety_margin ≥ 0
+  if (raw.global?.command) {
+    const cmd = raw.global.command;
+    const thresholdError = (label: string, t: unknown): string | null => {
+      if (t === undefined) return null;
+      if (typeof t !== "object" || t === null) {
+        return `${label} 必须为 { unit: "tokens"|"percent"; value: number }（当前：${String(t)}）`;
+      }
+      const tt = t as { unit?: unknown; value?: unknown };
+      if (tt.unit !== "tokens" && tt.unit !== "percent") {
+        return `${label}.unit 必须为 "tokens"|"percent"（当前：${String(tt.unit)}）`;
+      }
+      if (typeof tt.value !== "number" || !Number.isFinite(tt.value) || tt.value < 0) {
+        return `${label}.value 必须为 ≥ 0 的数字（当前：${String(tt.value)}）`;
+      }
+      if (tt.unit === "percent" && tt.value > 1) {
+        return `${label}.value 百分比单位必须在 [0,1]（当前：${String(tt.value)}）`;
+      }
+      return null;
+    };
+    const warnErr = thresholdError("global.command.warn", cmd.warn);
+    if (warnErr) errors.push(warnErr);
+    const autoErr = thresholdError("global.command.auto", cmd.auto);
+    if (autoErr) errors.push(autoErr);
+    if (cmd.min_context_limit !== undefined && (typeof cmd.min_context_limit !== "number" || !Number.isFinite(cmd.min_context_limit) || cmd.min_context_limit < 0)) {
+      errors.push(`global.command.min_context_limit 必须为 ≥ 0 的数字（当前：${String(cmd.min_context_limit)}）`);
+    }
+    if (cmd.safety_margin !== undefined && (typeof cmd.safety_margin !== "number" || !Number.isFinite(cmd.safety_margin) || cmd.safety_margin < 0)) {
+      errors.push(`global.command.safety_margin 必须为 ≥ 0 的数字（当前：${String(cmd.safety_margin)}）`);
     }
   }
 

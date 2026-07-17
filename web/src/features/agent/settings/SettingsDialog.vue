@@ -24,6 +24,7 @@ import RolesTab from "./tabs/RolesTab.vue";
 import PresetsTab from "./tabs/PresetsTab.vue";
 import McpTab from "./tabs/McpTab.vue";
 import GlobalTab from "./tabs/GlobalTab.vue";
+import CommandsTab from "./tabs/CommandsTab.vue";
 import SkeletonTab from "./tabs/SkeletonTab.vue";
 
 const MotionDiv = motion.div;
@@ -81,7 +82,7 @@ function clearRestartWait(): void {
 /** sense.tools 返回的内置工具清单（缓存，SensesTab 下拉建议 + label/description 显示用）。失败置 []。 */
 const senseTools = ref<SenseToolInfo[]>([]);
 
-/** prompts.list 返回的 .chery/prompts/ 下 .md 路径清单（RolesTab/PresetsTab systemPrompt 级联选择器用）。每次打开重新拉。 */
+/** prompts.list 返回的 .chery/prompt/ 下 .md 路径清单（RolesTab/PresetsTab systemPrompt 级联选择器用）。每次打开重新拉。 */
 const prompts = ref<string[]>([]);
 
 /** env.list 返回的 .env 变量名列表（BrainsTab/MediaTab 密钥下拉选项）。每次打开重新拉。 */
@@ -317,6 +318,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
             <PresetsTab v-show="activeTab === 'presets'" :draft="draft" :sense-tools="senseTools" @error="onError" />
             <McpTab v-show="activeTab === 'mcp'" :draft="draft" @error="onError" />
             <GlobalTab v-show="activeTab === 'global'" :draft="draft" />
+            <CommandsTab v-show="activeTab === 'commands'" :draft="draft" @error="onError" />
           </template>
         </div>
 

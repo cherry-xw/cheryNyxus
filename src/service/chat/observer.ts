@@ -35,6 +35,8 @@ export async function* observeAgentChunks(
             thinking: chunk.message.thinking,
             senseCall: chunk.message.senseCalls,
             hash: chunk.message.hash,
+            contextCompaction: chunk.message.contextCompaction,
+            contextCompactionTokens: chunk.message.contextCompactionTokens,
             // 仅 user 消息记 runtime（发送时配置）；assistant/sense 不记 NULL
             runtime: chunk.message.role === "user" ? getChatSelection(chatId) : undefined,
           });
@@ -177,6 +179,8 @@ export async function* observeAgentChunks(
         thinking: m.thinking,
         senseCall: m.senseCalls,
         hash: m.hash,
+        contextCompaction: m.contextCompaction,
+        contextCompactionTokens: m.contextCompactionTokens,
         // 仅 user 消息记 runtime（发送时配置）
         runtime: m.role === "user" ? getChatSelection(chatId) : undefined,
       });

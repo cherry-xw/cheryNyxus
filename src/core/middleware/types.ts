@@ -95,6 +95,8 @@ export interface AgentMessage {
   hash?: string;
   /** 已撤回 */
   revoked?: boolean;
+  contextCompaction?: boolean;
+  contextCompactionTokens?: number;
 }
 
 /**

@@ -73,7 +73,71 @@ export function splitCommandPrompt(content: string): CommandPromptSegment[] {
   return segments;
 }
 
-/** 历史快捷入口与发送窗口共用：消息正文已经包含指令 token，无需按发送重复注入提示词。 */
+/**
+ * 历史快捷入口与发送窗口共用：消息正文已经包含指令 token，无需按发送重复注入提示词。
+ *
+ * **token 形态语义**（由后端 `injectCommands` 处理，详见 docs/agent/command.md）：
+ * - `[[command:/<skillName>]]`：AI 通过 system prompt `<skills>` 段自行加载；
+ * - `[[command:/<builtinName>]]`：后端从 `.chery/command/<builtinName>.md` 加载正文作为**独立
+ *   user message** 追加到主 prompt 之前；不在此处做任何后处理。
+ */
 export function composeCommandPrompt(text: string): string {
   return text.trim();
+}
+
+// ========== compact 阈值配置：文本 ↔ Threshold ==========
+
+/** 阈值（与后端 utils/config.ts Threshold / agentApi ThresholdDto 对齐）。 */
+export interface Threshold {
+  unit: "tokens" | "percent";
+  value: number;
+}
+
+/**
+ * 解析阈值文本 → Threshold。**强制后缀**（数字 + `%` 或 `k`）：
+ * - `50%`   → { percent, 0.5 }
+ * - `64k`/`64K` → { tokens, 64000 }
+ * 裸数字（如 `64000`）或无后缀 → null（调用方据此标红/禁保存）。
+ */
+export function parseThreshold(text: string): Threshold | null {
+  const t = text.trim().toLowerCase();
+  if (!t) return null;
+  if (t.endsWith("%")) {
+    const num = Number.parseFloat(t.slice(0, -1));
+    if (!Number.isFinite(num)) return null;
+    return { unit: "percent", value: num / 100 };
+  }
+  if (t.endsWith("k")) {
+    const num = Number.parseFloat(t.slice(0, -1));
+    if (!Number.isFinite(num)) return null;
+    return { unit: "tokens", value: num * 1000 };
+  }
+  return null;
+}
+
+/** 阈值 → 展示文本：percent → `60%`；tokens → `64k`（强制带后缀，回填即合法）。 */
+export function formatThreshold(t: Threshold): string {
+  if (t.unit === "percent") {
+    const pct = t.value * 100;
+    return `${Number.isInteger(pct) ? pct : Math.round(pct)}%`;
+  }
+  return `${t.value / 1000}k`;
+}
+
+/**
+ * 解析纯 token 数（min_context_limit 用）：**强制 `k` 后缀**（如 `32k`）。
+ * 裸数字（如 `32000`）或无后缀 → null；≤ 0 → null。
+ */
+export function parseTokenCount(text: string): number | null {
+  const t = text.trim().toLowerCase();
+  if (!t || !t.endsWith("k")) return null;
+  const num = Number.parseFloat(t.slice(0, -1));
+  const value = num * 1000;
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return value;
+}
+
+/** token 数 → 展示文本（按 K 计，如 `32k`；强制带后缀，回填即合法）。 */
+export function formatTokenCount(n: number): string {
+  return `${n / 1000}k`;
 }

@@ -173,8 +173,8 @@ export function getSkillRealtime(name: string):
  *     计算口径一致。
  *
  * **仅计算 SKILL.md 的部分 token 消耗，不包含其他附加拆分的技能内容**——
- *   不含 formatSkillActivationContent 激活包装前缀（注入到 skill 感官调用结果，归用户对话段）、
- *   不含 system prompt `<skills>` 段的 XML 标签外壳（标签本身算入 system 段）。
+ *   不含 formatSkillActivationContent 激活包装前缀（注入到 skill 感官调用结果，归用户对话段）。
+ *   system prompt `<skills>` 段的 XML 标签外壳由 computeContextBreakdown 用 estimateTokens(skills.text) 统一估算。
  */
 export interface SkillTokenBreakdown {
   nameDescTokens: number;
@@ -216,7 +216,7 @@ export function computeSkillTokens(s: SkillData): SkillTokenBreakdown {
  * 不再各自 estimateTokens。设计语义详见 computeSkillTokens 注释。
  *
  * 用途：skills.list RPC 返回给前端（contextTokens）+ system prompt `<skills>` 拼装 +
- * computeContextBreakdown.skills 段（triggerTokens）+ 正文段（promptTokens）等。
+ * computeContextBreakdown.skills 段（estimateTokens(skills.text)）+ 正文段（promptTokens）等。
  */
 export function getSkillMetas(): Array<
   SkillData & SkillTokenBreakdown

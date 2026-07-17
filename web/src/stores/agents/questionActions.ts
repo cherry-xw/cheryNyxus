@@ -95,6 +95,7 @@ export function createQuestionActions(
     const currentIdx = sorted.findIndex((q) => q.questionId === questionId);
     if (currentIdx <= 0) return;
     const prev = sorted[currentIdx - 1];
+    if (!prev) return;
     // 当前若是 ready 状态则撤回（pending 状态下只是切换焦点）
     if (question.localStatus === "ready") question.localStatus = "pending";
     stream.activeQuestionId = prev.questionId;

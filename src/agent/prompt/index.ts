@@ -59,6 +59,8 @@ interface PromptPieces {
   skillsCount: number;
   /** skill 段预聚合 token（从 getSkillMetas 复用，不在本模块重算）。 */
   skillsTokens: SkillsSegmentTokens;
+  // 注意：内置命令（/.chery/command/*.md）不再预注入 system prompt；trigger 时由 send 路径临时附注。
+  // 详见 docs/agent/command.md。
 }
 
 /**
@@ -133,6 +135,8 @@ function buildPromptPieces(promptPathOverride?: string, workspace?: string): Pro
     }),
     { nameDescTokens: 0, triggerTokens: 0, contentTokens: 0, promptTokens: 0 },
   );
+  // 内置命令（/.chery/command/*.md）不在默认 system prompt 注入；trigger 时由 autoCompact / manual
+  // 路径临时附注到 user prompt 末尾。详见 docs/agent/command.md。
 
   return {
     globalBase: systemPrompt,

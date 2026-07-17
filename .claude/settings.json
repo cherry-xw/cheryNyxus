@@ -12,10 +12,23 @@
       "Bash(npx tsx *)",
       "Bash(tsc --noEmit)",
       "Read(//home/user/src/agent/middleware/**)",
-      "Read(//home/user/src/agent/sense/**)"
+      "Read(//home/user/src/agent/sense/**)",
+      "mcp__codegraph__*"
     ],
     "additionalDirectories": [
       "/home/chc/.claude"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "codegraph prompt-hook"
+          }
+        ]
+      }
     ]
   }
 }

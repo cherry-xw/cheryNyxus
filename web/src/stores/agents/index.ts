@@ -233,7 +233,8 @@ export const useAgentsStore = defineStore("agents", () => {
       if (userMsgId) {
         const idx = stream.history.findIndex((h) => h.msgId === tempMsgId);
         if (idx >= 0) {
-          stream.history[idx] = { ...stream.history[idx], msgId: userMsgId, agentChatId: chatId };
+          const item = stream.history[idx];
+          if (item) stream.history[idx] = { ...item, msgId: userMsgId, agentChatId: chatId };
         }
       }
     }).catch((e) => {
@@ -406,6 +407,7 @@ export const useAgentsStore = defineStore("agents", () => {
               if (typeof res.contextUsed === "number") pet.contextUsed = res.contextUsed;
               if (typeof res.contextTotal === "number") pet.contextTotal = res.contextTotal;
               if (res.contextBreakdown) pet.contextBreakdown = res.contextBreakdown;
+              if (res.commandConfig) pet.commandConfig = res.commandConfig;
             }
           },
           (e) => console.warn(`[agents] contextUsage(${m.chatId}) 失败:`, e),
@@ -537,13 +539,14 @@ export const useAgentsStore = defineStore("agents", () => {
     // CP7: chat.get response 携带 contextUsage → 更新 pet.contextUsage（历史载入一次性同步，ContextBar 消费）
     done
       .then((res) => {
-        const d = res.data as { contextUsage?: number; contextUsed?: number; contextTotal?: number; contextBreakdown?: ContextBreakdown } | undefined;
+        const d = res.data as { contextUsage?: number; contextUsed?: number; contextTotal?: number; contextBreakdown?: ContextBreakdown; commandConfig?: PetInstance["commandConfig"] } | undefined;
         const pet = pets.value.find((p) => p.chatId === chatId);
         if (pet && d) {
           if (typeof d.contextUsage === "number") pet.contextUsage = d.contextUsage;
           if (typeof d.contextUsed === "number") pet.contextUsed = d.contextUsed;
           if (typeof d.contextTotal === "number") pet.contextTotal = d.contextTotal;
           if (d.contextBreakdown) pet.contextBreakdown = d.contextBreakdown;
+          if (d.commandConfig) pet.commandConfig = d.commandConfig;
         }
       })
       .catch((e) => console.error("[agents] getHistory response 失败:", e));

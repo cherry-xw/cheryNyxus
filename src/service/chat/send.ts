@@ -2,6 +2,7 @@ import type { HandlerContext } from "../message/router.js";
 import {
   createChunk,
   createError,
+  createNotification,
   createResponse,
   ErrorCode,
   Method,
@@ -38,6 +39,8 @@ import {
 import { clearWaitedChildrenByParent } from "@/agent/spawnBroker.js";
 import { observeAgentChunks } from "./observer.js";
 import { streamAgentChunks } from "./streamMapper.js";
+import { injectCommands } from "./autoCompact.js";
+import { computeContextUsage } from "@/utils/token.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { isAgentAbortError } from "@/core/middleware/errors.js";
@@ -139,6 +142,29 @@ export async function* handleChatSend(
 
   activateChatRun(chatId, runId);
 
+  // P5 命令注入 + 自动压缩：send 预检。
+  // 1) 扫描 userPrompt 中的 [[command:/<name>]] tokens：skill 类跳过，builtin 类加载对应 .md 正文作为
+  //    独立 user message 入队（顺序：extra → 主 prompt，LLM 按 FIFO 消费）。
+  // 2) shouldAutoCompact 命中 → 主 prompt 头部注入 [[command:/compact]] token，
+  //    compact 正文 unshift 到 extra 顶部（优先级最高）。
+  // 3) 流首推 auto_compacted notification（前端 toast）。
+  const usageBefore = computeContextUsage(chatId);
+  const cmdInjection = injectCommands(chatId, promptWithAttachments);
+  if (cmdInjection.triggered) {
+    logger.event("chat.send.autoCompact", {
+      chatId,
+      reason: cmdInjection.reason,
+      usedBefore: usageBefore.used,
+      total: usageBefore.total,
+      extraCount: cmdInjection.extraUserMessages.length,
+    });
+  } else if (cmdInjection.extraUserMessages.length > 0) {
+    logger.event("chat.send.commandInjection", {
+      chatId,
+      extraCount: cmdInjection.extraUserMessages.length,
+    });
+  }
+
   // 恢复场景撤回：仅 idle 时触发（运行中 send 只入队，不撤回）。
   // 撤回末尾整个当前周期 AI 响应（assistant think/content/tool + 整个 sense 群），
   // 发 staged.reverse chunk 通知客户端回滚，再 run 用新 prompt 重跑。
@@ -162,12 +188,33 @@ export async function* handleChatSend(
     // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
     // onError 回调：streamMapper 见到 ErrorChunk 时调用，无 throw 时也能构造 failureResponse。
     // P4：传 promptWithAttachments（含 [[media:]] 标记）供 enrichMediaInputs 解析。
+    // P5：injectCommands 改造后的 prompt + extraUserMessages（命令正文）经 AgentSession.send
+    //     顺序入队，LLM 看到「先命令正文、再主 prompt」。命令正文不污染 system prompt cache。
     const generator = observeAgentChunks(
-      agent.run(promptWithAttachments),
+      agent.run(cmdInjection.userPrompt, {
+        extraUserMessages: cmdInjection.extraUserMessages.length > 0
+          ? cmdInjection.extraUserMessages
+          : undefined,
+      }),
       chatId,
       () => agent.getMessages(),
       (msgId) => { userMsgId = msgId; },
     );
+
+    // autoCompact 命中 → 流首推 auto_compacted notification（前端 toast + context bar 预期下行）。
+    // 此 notification 在 streamMapper 任何 chunk 之前发出，前端可靠顺序消费。
+    if (cmdInjection.triggered && cmdInjection.reason) {
+      yield createNotification(
+        "auto_compacted",
+        rid,
+        {
+          reason: cmdInjection.reason,
+          usedBefore: usageBefore.used,
+          total: usageBefore.total,
+        },
+        { chatId, runId },
+      );
+    }
 
     yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => { failureMessage = msg; });
   } catch (err) {

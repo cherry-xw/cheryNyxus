@@ -56,7 +56,8 @@ export class AgentBuilder {
     const systemMsg = this.createInitialMessages(promptPathOverride, workspace);
     let msgs: LLMResponse[];
     if (messages && messages.length > 0) {
-      msgs = messages[0]?.role === "system" ? messages : [...systemMsg, ...messages];
+      // DB 不持久化基础系统提示词；压缩恢复会带一条系统摘要，因此始终先注入当前基础系统提示词。
+      msgs = [...systemMsg, ...messages];
     } else {
       msgs = systemMsg;
     }
@@ -79,9 +80,13 @@ export class AgentBuilder {
 
   /**
    * 门面：发送消息，返回 chunk generator（透传 AgentSession.send）
+   * @param options.extraUserMessages 命令正文作为独立 user message 入队（详见 AgentSession.send）
    */
-  run(input: string): AsyncGenerator<MiddlewareChunk, void, unknown> {
-    return this.requireAgent().send(input);
+  run(
+    input: string,
+    options?: { extraUserMessages?: string[] },
+  ): AsyncGenerator<MiddlewareChunk, void, unknown> {
+    return this.requireAgent().send(input, options);
   }
 
   /**

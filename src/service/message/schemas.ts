@@ -83,6 +83,20 @@ const fileCompressionSchema = z.object({
   drain_preview_count: z.number().optional(),
 });
 
+/** Threshold{unit,value}：percent value ∈ [0,1]、tokens value ≥ 0（对齐 utils/config.ts Threshold） */
+const thresholdSchema = z.object({
+  unit: z.enum(["tokens", "percent"]),
+  value: z.number(),
+});
+
+/** command 配置（compact 阈值等）；对齐 utils/config.ts CommandConfig */
+const commandConfigSchema = z.object({
+  warn: thresholdSchema.optional(),
+  auto: thresholdSchema.optional(),
+  min_context_limit: z.number().optional(),
+  safety_margin: z.number().optional(),
+});
+
 const globalSchema = z.object({
   thinking: z.boolean(),
   supervision: supervisionNameSchema,
@@ -94,6 +108,7 @@ const globalSchema = z.object({
   textEditor: z.string().optional(), // 文本编辑器路径
   file_compression: fileCompressionSchema.optional(),
   logger: loggerSchema.optional(),
+  command: commandConfigSchema.optional(),
 });
 
 const mcpServerConfigSchema = z.object({
@@ -252,6 +267,8 @@ export const requestSchemas = {
   [Method.UTILS_THINKING_LEVELS]: z.object({
     models: z.array(z.string().min(1)),
   }),
+  // 内置命令管理（settings 「指令」tab 后端；只读枚举）
+  [Method.COMMAND_LIST]: emptySchema,
 } as const satisfies Record<Method, z.ZodTypeAny>;
 
 /**

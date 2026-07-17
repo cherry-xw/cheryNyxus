@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import type { LLMResponse, ReplaceInfo } from "../message/adapter";
 import type { Logger } from "@/utils/logger/types";
 import { LogLevel } from "@/utils/logger/types";
+import { estimateTokens } from "@/utils/token.js";
 import type { AgentMessage, AgentMessagePatch, SoulGroup } from "./types";
 
 /**
@@ -14,6 +15,16 @@ export type MessageMutation =
 
 /** P1-3：userInputs 队列容量上限，超限丢弃最早（背压，防高频 send 无限堆积拖长 loop 串行消费） */
 const MAX_USER_INPUTS = 16;
+
+/**
+ * 从压缩回复中提取 <summary> 块正文（compact.md 约定回复为 <analysis> + <summary> 两块）。
+ * 注入 LLM 上下文时仅取 summary 块、丢弃 analysis 中间过程；提取不到（模型未按格式输出）
+ * 返回原文 trim（容错）。DB 仍存完整 content，此处仅影响"摘要作为后续上下文"的注入。
+ */
+export function extractSummaryBlock(content: string): string {
+  const match = content.match(/<summary>([\s\S]*?)<\/summary>/i);
+  return (match?.[1] ?? content).trim();
+}
 
 /**
  * 消息周期日志：集中单 chat 的 message 生命周期规则（单一写者）。
@@ -110,6 +121,17 @@ export class MessageJournal {
     senseCalls: Array<{ id: string; name: string; arguments: string }>;
   }): AgentMessage {
     const messages = this.soul.messages ?? [];
+    const previousUser = [...messages].reverse().find((message) => message.role === "user");
+    const contextCompaction = /\[\[command:\/compact\]\]/.test(previousUser?.content ?? "");
+    const contextCompactionTokens = contextCompaction
+      ? Math.max(
+          0,
+          messages
+            .filter((message) => message.role !== "system" && !message.revoked)
+            .reduce((total, message) => total + estimateTokens(message.content) + estimateTokens(message.thinking), 0)
+            - estimateTokens(extractSummaryBlock(payload.content)),
+        )
+      : undefined;
     const assistantMsg: LLMResponse = {
       id: randomUUID(),
       role: "assistant" as const,
@@ -118,6 +140,8 @@ export class MessageJournal {
       senseCalls: payload.senseCalls,
       createdAt: Date.now(),
       updateAt: Date.now(),
+      ...(contextCompaction ? { contextCompaction: true } : {}),
+      ...(contextCompactionTokens !== undefined ? { contextCompactionTokens } : {}),
     };
     messages.push(assistantMsg);
     this.soul.messages = messages;
@@ -127,7 +151,28 @@ export class MessageJournal {
       content: payload.content || undefined,
       thinking: payload.thinking || undefined,
       senseCalls: payload.senseCalls,
+      ...(contextCompaction ? { contextCompaction: true } : {}),
+      ...(contextCompactionTokens !== undefined ? { contextCompactionTokens } : {}),
     };
+  }
+
+  /**
+   * 保留系统提示词与最后一条 compact 摘要，丢弃本次运行之后模型不应再见到的旧上下文。
+   * 完整记录已由 observer 根据 message_created effect 持久化，因此这里只影响后续模型调用。
+   */
+  compactToLatestSummary(): void {
+    const messages = this.soul.messages ?? [];
+    const summary = [...messages].reverse().find((message) => message.contextCompaction);
+    const system = messages.find((message) => message.role === "system");
+    if (!summary || !system) return;
+    this.soul.messages = [
+      system,
+      {
+        ...summary,
+        role: "system",
+        content: `以下是此前对话压缩后的上下文摘要。将其视为后续工作的唯一历史上下文：\n\n${extractSummaryBlock(summary.content ?? "")}`,
+      },
+    ];
   }
 
   /**

@@ -1,4 +1,4 @@
-import type { RuntimeSelection, ContextBreakdown } from "@/services/agentApi";
+import type { RuntimeSelection, ContextBreakdown, CommandConfigDataDto } from "@/services/agentApi";
 
 export type PetMood =
   | "calm"
@@ -118,6 +118,14 @@ export interface PetInstance extends PetPreset {
   contextTotal: number;
   /** 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。undefined = 未就绪/未拉取。 */
   contextBreakdown?: ContextBreakdown;
+  /**
+   * command 系统配置投影（CommandConfigDataDto）。
+   * - enabled / minContextLimit：「不可用」门槛——contextTotal < minContextLimit 或 enabled=false → compact 不可用。
+   * - warn：前端视觉提示阈值（contextUsage ≥ warn → 提示态）；不参与后端触发。
+   * - auto：自动触发阈值（contextUsage ≥ auto → 强提示，后端会自动压缩）。
+   * undefined = 配置未拉取（前容错，按「不限」对待）。
+   */
+  commandConfig?: CommandConfigDataDto;
   /** 灵魂态（子 agent done 后转 ghost）。true 时 PetSprite 渲染 ghost 形态（缩小+无手+灵魂emoji+微浮+半透明+隐藏status）。刷新据 ChatSummary.finished 重建。 */
   isGhost: boolean;
   /** 灵魂 emoji（转 ghost 时按 tribe 内创建序号顺序取 GHOST_FACES[N % 池长]，非随机去重）。undefined 时 faceGlyph 兜底 👻。 */

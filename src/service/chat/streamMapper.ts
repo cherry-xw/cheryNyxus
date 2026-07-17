@@ -17,6 +17,8 @@ import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
 import { breakdownUsed } from "@/utils/token.js";
 import { computeContextBreakdown } from "./contextUsage.js";
+import { maybeAutoCompactAfterDone } from "./autoCompact.js";
+import { computeContextUsage } from "@/utils/token.js";
 import { getChat, getLastMessage } from "@/db/chat.js";
 import { safeJsonParse } from "@/utils/json.js";
 import config from "@/utils/config.js";
@@ -161,6 +163,19 @@ export async function* streamAgentChunks(
       }
       // CP7：done 时重算 contextUsage 推送前端，ContextBar 每轮 loop 后实时更新
       const ctxBd = computeContextBreakdown(chatId);
+      // P5：loop done 后复检——若本轮又让上下文逼近阈值，下一次 send 出发自动压缩；
+      // 推送 auto_compacted 让前端可亮 compact 按钮或做 toast 提示（本轮已结束，不改 prompt）。
+      const postReason = maybeAutoCompactAfterDone(chatId);
+      if (postReason) {
+        const post = computeContextUsage(chatId);
+        logger.event("chat.run.autoCompact.next", { chatId, reason: postReason });
+        yield createNotification(
+          "auto_compacted",
+          rid,
+          { reason: postReason, usedBefore: post.used, total: post.total },
+          { chatId, runId },
+        );
+      }
       // 子 agent finished 标记由 observer.ts 在 child_done chunk 时设置，不再在 done chunk 时设置
       // 原因：子 agent yield turn 时会 done，但不应设 finished（需等孙 agent 完成后才设）
       // child_yield → 不设 finished（子保持活跃）
@@ -184,6 +199,10 @@ export async function* streamAgentChunks(
               ...(lastMsg.thinking ? { thinking: lastMsg.thinking } : {}),
               createdAt: lastMsg.created_at,
               agentChatId: chatId,
+              ...(lastMsg.context_compaction === 1 ? { contextCompaction: true } : {}),
+              ...(lastMsg.context_compaction_tokens !== null && lastMsg.context_compaction_tokens !== undefined
+                ? { contextCompactionTokens: lastMsg.context_compaction_tokens }
+                : {}),
             }
           : undefined;
       yield createNotification("done", rid, {

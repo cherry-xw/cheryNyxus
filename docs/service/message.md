@@ -72,8 +72,9 @@ type ResultOf<M extends Method> = RpcMethodMap[M]["result"];
 - **`contextTokens`**：激活该 skill 后预计新增的上下文 token（即 `promptTokens`，JSON 序列化全字段，`ceil(字符数/4)`），供发送窗口指令 tag hover 卡片展示「Token 消耗量」。
 - **`nameDescTokens` / `triggerTokens` / `contentTokens` / `promptTokens`**：分别对应 SKILL.md 各部分 token，由 `computeSkillTokens` 一次性算好，供后端 `computeContextBreakdown.skills` 等模块直接复用，不重复 estimateTokens。
 
-仅用于发送窗口
-的 `/` 命令菜单；内置 `/compact` 不属于该返回值，避免将内置行为伪装成可编辑、可删除的配置文件。
+仅用于发送窗口的 `/` 命令菜单；`/compact` 仍是固定系统入口，但其正文从
+`.chery/command/compact.md` 读取，不通过该 RPC 伪装成可删除的用户技能。compact assistant 摘要在消息行
+的 `context_compaction` 标记为真时建立新的模型上下文边界；`chat.get` 仍返回完整历史并在 staged 内容中携带该标记供 UI 渲染。
 
 `RpcRouter.register(Method.X, handler)` 会据 Method 字面量自动校验 handler 的 params/result；`requestSchemas` 继续通过 `satisfies Record<Method, ...>` 保证运行时校验表完整。新增 `utils.openConfigDir` 固定打开后端主机的 `CHERY_DIR/.chery`，不接收客户端路径。
 

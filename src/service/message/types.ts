@@ -86,7 +86,8 @@ export type NotificationType =
   | "question_requested" // ask_user_question 旧版逐题事件（兼容历史事件重放）
   | "question_answered" // ask_user_question 旧版逐题完成事件（兼容）
   | "question_batch_requested" // 一个 assistant turn 的完整问题批次
-  | "question_batch_completed"; // 批次已原子完成，前端清理本地投影
+  | "question_batch_completed" // 批次已原子完成，前端清理本地投影
+  | "auto_compacted"; // 自动压缩：chat 上下文超阈值自动注入 [[command:/compact]]，推前端显「已自动压缩」toast
 
 // ========== Request Data ==========
 
@@ -338,6 +339,40 @@ export type UtilsEditorsRequestData = EmptyObjectData;
 /** utils.openConfigDir：固定打开后端主机的 CHERY_DIR/.chery，不接受客户端路径。 */
 export type UtilsOpenConfigDirRequestData = EmptyObjectData;
 
+// ---------- 内置命令系统（命令管理 Tab 后端）----------
+
+/** 单条 .chery/command/<name>.md 元信息 */
+export interface CommandInfo {
+  /** 命令名（= 文件名 basename，无 .md 后缀） */
+  name: string;
+  /** 文件 frontmatter.description；缺失时为 "" */
+  description: string;
+  /** frontmatter 与正文之间的纯指令正文（trim 后） */
+  content: string;
+}
+
+/** command.list 响应：所有内置命令文件元信息 */
+export interface CommandListResponseData {
+  commands: CommandInfo[];
+}
+
+/**
+ * chat 上下文暴露的 command 系统配置（前端 PetToolbar / 设置面板用）。compact 无开关。
+ * - warn → 前端视觉提示阈值（contextUsage ≥ warn 时提示）；不参与后端触发。
+ * - auto → 自动触发阈值（thresholdReached 命中即压缩）。
+ * - min_context_limit → 只有 brain.contextLimit ≥ 此值才启用 compact（「不可用」门槛）。
+ */
+export interface ThresholdData {
+  unit: "tokens" | "percent";
+  value: number;
+}
+
+export interface CommandConfigData {
+  warn: ThresholdData;
+  auto: ThresholdData;
+  minContextLimit: number;
+}
+
 // ========== Response Data ==========
 
 export interface BrainListResponseData {
@@ -500,6 +535,11 @@ export interface ChatGetResponseData extends QuestionStateSnapshotData {
   contextTotal?: number;
   /** 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。 */
   contextBreakdown?: ContextBreakdown;
+  /**
+   * 当前用户全局命令系统配置。前端据此判断 compact 按钮可见性（contextTotal ≥ minContextLimit）。
+   * 历史调用亦返（重启后用户首次进 chat.get 即拿到）。
+   */
+  commandConfig?: CommandConfigData;
 }
 
 export interface ChatDeleteResponseData {
@@ -515,6 +555,8 @@ export interface ChatContextUsageResponseData {
   contextTotal: number;
   /** 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。 */
   contextBreakdown: ContextBreakdown;
+  /** 当前用户全局命令系统配置。前端据此判断 compact 按钮可见性。 */
+  commandConfig?: CommandConfigData;
 }
 
 export interface ChatSendResponseData {
@@ -743,6 +785,9 @@ export interface StagedChunkData {
    * 旧消息（写入早于本字段）时为 undefined；前端按当前 chatId 兜底。
    */
   agentChatId?: string;
+  /** true 表示该 assistant 消息是 compact 摘要；历史 UI 据此显示上下文切换边界。 */
+  contextCompaction?: boolean;
+  contextCompactionTokens?: number;
 }
 
 // ========== Notification Data ==========
@@ -763,6 +808,7 @@ export type NotificationData =
   | QuestionBatchRequestedNotificationData
   | QuestionBatchCompletedNotificationData
   | DoneNotificationData
+  | AutoCompactedNotificationData
   | null;
 
 export interface InterruptNotificationData {
@@ -836,11 +882,26 @@ export interface DoneNotificationData {
     thinking?: string;
     createdAt: number;
     agentChatId?: string;
+    contextCompaction?: boolean;
+    contextCompactionTokens?: number;
   };
 }
 
 export interface ErrorNotificationData {
   message: string;
+}
+
+/**
+ * 自动压缩事件（auto_compacted）。
+ * - reason=`usage` → auto 阈值命中（thresholdReached）；`overflow` → used + safety_margin > total。
+ * - usedBefore/usedAfter 为本轮开始前后的对话段 token；前端可用 before-after 计算展示「释放 N tokens」。
+ * - 此事件**不**单独发「完成」——紧邻的 `done` notification 含最新 contextUsage 作权威值。
+ *   收到 auto_compacted 后前端可短暂显 toast（如「已自动压缩」），随后 done 推送刷新 context bar。
+ */
+export interface AutoCompactedNotificationData {
+  reason: "usage" | "overflow";
+  usedBefore: number;
+  total: number;
 }
 
 /**
@@ -1021,6 +1082,9 @@ export const Method = {
 
   // 模型档位（按 model 名批量查 ThinkingLevel，前端旋钮用）
   UTILS_THINKING_LEVELS: "utils.thinkingLevels",
+
+  // 内置命令管理（settings 「指令」tab 后端；只读枚举 .chery/command/*.md，不可增删改）
+  COMMAND_LIST: "command.list",
 } as const;
 
 /**
@@ -1069,6 +1133,7 @@ export interface RpcMethodMap {
   [Method.UTILS_OPEN_CONFIG_DIR]: { params: UtilsOpenConfigDirRequestData; result: UtilsOpenConfigDirResponseData };
   [Method.UTILS_EDITORS]: { params: UtilsEditorsRequestData; result: UtilsEditorsResponseData };
   [Method.UTILS_THINKING_LEVELS]: { params: UtilsThinkingLevelsRequestData; result: UtilsThinkingLevelsResponseData };
+  [Method.COMMAND_LIST]: { params: EmptyObjectData; result: CommandListResponseData };
 }
 
 export type ParamsOf<M extends Method> = RpcMethodMap[M]["params"];

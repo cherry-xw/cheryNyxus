@@ -55,9 +55,14 @@ const CONVERSATION_ROLES = new Set(["user", "assistant", "role", "subagent", "se
  */
 export function sumChatConversationTokens(chatId: string): { tokens: number; count: number } {
   const messages = getMessages(chatId);
+  const latestCompaction = messages.reduce(
+    (last, message, index) => message.context_compaction === 1 ? index : last,
+    -1,
+  );
+  const visibleMessages = latestCompaction >= 0 ? messages.slice(latestCompaction) : messages;
   let tokens = 0;
   let count = 0;
-  for (const m of messages) {
+  for (const m of visibleMessages) {
     if (m.revoked === 1) continue;
     if (!CONVERSATION_ROLES.has(m.role)) continue;
     tokens += estimateTokens(m.content) + estimateTokens(m.thinking);
