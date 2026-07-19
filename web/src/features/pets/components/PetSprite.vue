@@ -5,9 +5,9 @@
  * 所有视觉计算/样式/motion 配置下沉 usePetStyles；
  * 拖拽交互下沉 usePetDrag；气泡显隐下沉 useStreamBubble。
  */
-import PetBody from '@/features/pets/PetBody.vue'
-import PetBubbles from '@/features/pets/PetBubbles.vue'
-import PetIcons from '@/features/pets/PetIcons.vue'
+import PetBody from './PetBody.vue'
+import PetBubbles from './PetBubbles.vue'
+import PetIcons from './PetIcons.vue'
 import TodoPanel from '@/features/agent/cards/TodoPanel.vue'
 import type { StreamState } from '@/stores'
 import { usePetDrag } from '../composables/usePetDrag'

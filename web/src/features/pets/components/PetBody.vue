@@ -14,7 +14,7 @@ import RunningTools from '@/features/agent/cards/RunningTools.vue'
 import type { StreamState } from '@/stores'
 import type { PetInstance } from '../types/types'
 import type { RunningTool } from '@/stores/agents'
-import { flattenQuestionItems } from '@/stores/agents/questionBatch'
+import { flattenQuestionItems } from '@/stores/agents/actions/questionBatch'
 
 const MotionSpan = motion.span
 

@@ -18,7 +18,7 @@ import {
   shouldWake,
   stepVitals,
 } from '../motion/petStatus'
-import type { PetAction, PetInstance, PetMood, PetPreset, StageBounds } from './types'
+import type { PetAction, PetInstance, PetMood, PetPreset, StageBounds } from '../types/types'
 
 const TRIBE_CLUSTER_RADIUS = 70 // 子 pet retarget 偏向本主的半径
 const RAPID_CLICK_WINDOW = 1200

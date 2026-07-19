@@ -10,7 +10,7 @@
 import { computed } from 'vue'
 import type { PetInstance } from '@/features/pets/types/types'
 import { useAgentsStore } from '@/stores'
-import { collectDescendantChatIds } from '@/stores/agents/historyMerge'
+import { collectDescendantChatIds } from '@/stores/agents/data/historyMerge'
 
 const CLOCK_EMOJIS = [
   '🕐',

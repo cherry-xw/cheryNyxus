@@ -10,7 +10,7 @@
  */
 import { computed } from 'vue'
 import type { RendererProps, SpawnRoleArgs } from '../types'
-import { useHistoryDrawerManager } from '../drawer/useHistoryDrawerManager'
+import { useHistoryDrawerManager } from '../../drawer/useHistoryDrawerManager'
 
 const props = defineProps<RendererProps>()
 const manager = useHistoryDrawerManager()

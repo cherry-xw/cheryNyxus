@@ -16,7 +16,7 @@ import { SUPERVISIONS, SUPERVISION_LABEL } from '../../config/constants'
 import LabelTip from './LabelTip.vue'
 import TabShell from '@/components/layout/TabShell.vue'
 import NeonNumberControl from '../../controls/NeonNumberControl.vue'
-import { useCardScatter, type GlobalCardAnchor } from './useCardScatter'
+import { useCardScatter, type GlobalCardAnchor } from '../useCardScatter'
 
 const props = defineProps<{ draft: ConfigDto }>()
 

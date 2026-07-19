@@ -91,5 +91,5 @@ function onAdd(vals: string[]) {
 </script>
 
 <style scoped lang="less">
-@import '../shared.less';
+@import '@/features/agent/settings/config/shared.less';
 </style>

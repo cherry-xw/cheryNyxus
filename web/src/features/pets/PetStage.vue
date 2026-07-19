@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import PetSprite from './PetSprite.vue'
+import PetSprite from './components/PetSprite.vue'
 import { usePetWorld } from './composables/usePetWorld'
 import { useAgentsStore } from '@/stores'
 import type { PetInstance } from './types/types'

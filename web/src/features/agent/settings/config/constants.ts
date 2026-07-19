@@ -22,14 +22,14 @@ export const SETTINGS_ACTIVE_TAB_KEY = Symbol('settings-active-tab') as Injectio
 
 export const TABS: { key: TabKey; icon: string; label: string; color: string }[] = [
   { key: 'presets', icon: '📦', label: '预设', color: '#f6b73c' },
-  { key: 'brains', icon: '🧠', label: 'AI 大脑', color: '#5ee7ff' },
-  { key: 'senses', icon: '👂', label: '器官', color: '#34d399' },
   { key: 'roles', icon: '🎭', label: '角色', color: '#d946ef' },
-  { key: 'commands', icon: '📝', label: '指令', color: '#84cc16' },
+  { key: 'brains', icon: '🧠', label: '大脑', color: '#5ee7ff' },
+  { key: 'senses', icon: '👂', label: '器官', color: '#34d399' },
   { key: 'skills', icon: '✨', label: '技能', color: '#6366f1' },
-  { key: 'plugins', icon: '🧩', label: '插件', color: '#3b82f6' },
-  { key: 'mcp', icon: '🔌', label: 'MCP 服务', color: '#ec4899' },
-  { key: 'media', icon: '🖼️', label: '媒体服务', color: '#f97316' },
+  { key: 'plugins', icon: '🧩', label: '组合技', color: '#3b82f6' },
+  { key: 'commands', icon: '📝', label: '指令', color: '#84cc16' },
+  { key: 'mcp', icon: '🔌', label: 'MCP', color: '#ec4899' },
+  { key: 'media', icon: '🖼️', label: '多媒体', color: '#f97316' },
   { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },
 ]
 

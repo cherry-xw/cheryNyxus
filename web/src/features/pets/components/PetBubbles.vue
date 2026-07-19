@@ -14,7 +14,7 @@ import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import type { StreamState } from '@/stores'
 import type { QuestionItemState } from '@/stores/agents'
-import { findQuestion } from '@/stores/agents/questionBatch'
+import { findQuestion } from '@/stores/agents/actions/questionBatch'
 import type { PetInstance } from '../types/types'
 
 const MotionDiv = motion.div

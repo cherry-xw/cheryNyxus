@@ -217,7 +217,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="less">
-@import '../shared.less';
+@import '@/features/agent/settings/config/shared.less';
 
 .shell-index-row {
   display: flex;

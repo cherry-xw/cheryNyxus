@@ -384,7 +384,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 </template>
 
 <style scoped lang="less">
-@import './dialog/agentDialog.less';
+@import '../dialog/agentDialog.less';
 
 .role-usage-chip {
   flex-shrink: 0;

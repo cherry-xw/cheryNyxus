@@ -108,7 +108,7 @@ function buildPromptPieces(
   //   <memory layer="global">    所有 chat 共享（用户习惯/事实/准则）
   //   <memory layer="workspace"> 当前 chat（项目行为规范）
   const globalContent = readMemoryIndexContent(undefined, 'global')
-  const wsContent = readMemoryIndexContent(workspace, 'workspace')
+  const wsContent = workspace ? readMemoryIndexContent(workspace, 'workspace') : ''
   const memoryParts: string[] = []
   if (globalContent) {
     memoryParts.push(
@@ -122,7 +122,8 @@ function buildPromptPieces(
   }
   const memorySection = memoryParts.length ? `\n\n${memoryParts.join('\n\n')}` : ''
   const memoryCount =
-    readMemoryIndex(undefined, 'global').length + readMemoryIndex(workspace, 'workspace').length
+    readMemoryIndex(undefined, 'global').length +
+    (workspace ? readMemoryIndex(workspace, 'workspace').length : 0)
 
   // P1-5：trigger 作为软提示注入 skill 描述，供 LLM 判断何时自动触发该 skill
   // per-role 过滤：skillFilter 限定独立 skill（skills 白名单）/ 插件 skill（plugins 白名单）；undefined = 全部

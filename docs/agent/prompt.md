@@ -1,6 +1,6 @@
 # Agent Prompt（系统提示与技能加载）
 
-> 源码 [src/agent/prompt/](../../src/agent/prompt/) ｜ 上级 [agent](./README.md) ｜ 相关 [./sense.md](./sense.md)（skill 感官）
+> 源码 [src/agent/prompt/](../../src/agent/prompt/) ｜ 上级 [agent](./README.md) ｜ 总览 [System Prompt 生成总览](../system-prompt.md) ｜ 相关 [./sense.md](./sense.md)（skill 感官）
 
 ## 职责
 

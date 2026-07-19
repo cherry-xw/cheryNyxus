@@ -70,6 +70,7 @@
 
 | 文档 | 内容 |
 |------|------|
+| [system-prompt.md](./system-prompt.md) | **提示词来源汇总入口**：主 system message 组装、额外 system/user 消息、Tools 边界、缓存与生效时机 |
 | [protocol.md](./protocol.md) | WebSocket 协议规范：传输帧格式、消息结构、方法列表、HTTP API、错误码 |
 | [interaction.md](./interaction.md) | 各 RPC 方法完整交互序列、端到端流程、错误路径 |
 | [agent-pet.md](./agent-pet.md) | 主从 Agent 桌宠系统：pet↔chat 绑定、spawn_role 前端驱动架构、CP0-CP7 分阶段 |

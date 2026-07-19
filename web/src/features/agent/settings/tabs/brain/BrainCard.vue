@@ -19,7 +19,7 @@ import ConfirmDialog from '@/components/confirm/ConfirmDialog.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
 import LabelTip from '../config/LabelTip.vue'
 import ThinkingLevelKnob from '../../controls/ThinkingLevelKnob.vue'
-import MediaCapabilityGrid from './MediaCapabilityGrid.vue'
+import MediaCapabilityGrid from '../config/MediaCapabilityGrid.vue'
 
 // Chevron icon (element-plus doesn't export a small one, use inline SVG)
 const ChevronIcon = {
