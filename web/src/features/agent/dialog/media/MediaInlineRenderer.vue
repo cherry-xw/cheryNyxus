@@ -8,9 +8,9 @@
  */
 import { ref, computed } from 'vue'
 import type { MediaAssetRef } from '@/stores/agents/types'
-import ImagePreview from './ImagePreview.vue'
-import VideoPlayer from './VideoPlayer.vue'
-import AudioPlayer from './AudioPlayer.vue'
+import ImagePreview from '@/components/media/ImagePreview.vue'
+import VideoPlayer from '@/components/media/VideoPlayer.vue'
+import AudioPlayer from '@/components/media/AudioPlayer.vue'
 import { httpUrl } from '@/services/http'
 
 const props = defineProps<{

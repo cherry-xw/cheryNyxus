@@ -6,9 +6,9 @@
 import { ref } from 'vue'
 import { CircleClose } from '@element-plus/icons-vue'
 import type { MediaAttachment } from '../useAgentDialogOptions'
-import ImagePreview from './ImagePreview.vue'
-import AudioPlayer from './AudioPlayer.vue'
-import VideoPlayer from './VideoPlayer.vue'
+import ImagePreview from '@/components/media/ImagePreview.vue'
+import AudioPlayer from '@/components/media/AudioPlayer.vue'
+import VideoPlayer from '@/components/media/VideoPlayer.vue'
 
 defineProps<{ attachments: MediaAttachment[] }>()
 const emit = defineEmits<{ (e: 'remove', a: MediaAttachment): void }>()

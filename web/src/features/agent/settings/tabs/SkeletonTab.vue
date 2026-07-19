@@ -77,5 +77,5 @@ withDefaults(
 </template>
 
 <style lang="less">
-@import '../shared.less';
+@import '../config/shared.less';
 </style>

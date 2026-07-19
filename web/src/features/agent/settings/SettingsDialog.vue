@@ -22,18 +22,18 @@ import {
   type PluginInfo,
 } from '@/services/agentApi'
 import { wsClient } from '@/services/ws'
-import { TABS, HINT_LINES, INDEX_COUNT, SETTINGS_ACTIVE_TAB_KEY, type TabKey } from './constants'
-import BrainsTab from './tabs/BrainsTab.vue'
-import MediaTab from './tabs/MediaTab.vue'
-import SensesTab from './tabs/SensesTab.vue'
-import RolesTab from './tabs/RolesTab.vue'
-import PresetsTab from './tabs/PresetsTab.vue'
-import McpTab from './tabs/McpTab.vue'
-import GlobalTab from './tabs/GlobalTab.vue'
-import CommandsTab from './tabs/CommandsTab.vue'
-import SkillsTab from './tabs/SkillsTab.vue'
+import { TABS, HINT_LINES, INDEX_COUNT, SETTINGS_ACTIVE_TAB_KEY, type TabKey } from './config/constants'
+import BrainsTab from './tabs/brain/BrainsTab.vue'
+import MediaTab from './tabs/config/MediaTab.vue'
+import SensesTab from './tabs/tools/SensesTab.vue'
+import RolesTab from './tabs/agent/RolesTab.vue'
+import PresetsTab from './tabs/agent/PresetsTab.vue'
+import McpTab from './tabs/tools/McpTab.vue'
+import GlobalTab from './tabs/config/GlobalTab.vue'
+import CommandsTab from './tabs/config/CommandsTab.vue'
+import SkillsTab from './tabs/tools/SkillsTab.vue'
 import type { SkillSource } from '@/services/agentApi'
-import PluginsTab from './tabs/PluginsTab.vue'
+import PluginsTab from './tabs/tools/PluginsTab.vue'
 import SkeletonTab from './tabs/SkeletonTab.vue'
 
 const MotionDiv = motion.div
@@ -623,7 +623,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 </template>
 
 <style scoped lang="less">
-@import './shared.less';
+@import './config/shared.less';
 
 .settings-overlay {
   position: fixed;

@@ -14,20 +14,20 @@ import { registerRenderer, getRenderer, hasRenderer } from './registry'
 // ============== 注册内置工具渲染器 ==============
 // 每个内置工具一行声明，易于维护
 
-registerRenderer('update_todo', () => import('./TodoRenderer.vue'))
-registerRenderer('execute_command', () => import('./CommandRenderer.vue'))
-registerRenderer('read_file', () => import('./FileReadRenderer.vue'))
-registerRenderer('write_file', () => import('./FileWriteRenderer.vue'))
-registerRenderer('generate_image', () => import('./MediaRenderer.vue'))
-registerRenderer('generate_video', () => import('./MediaRenderer.vue'))
-registerRenderer('generate_audio', () => import('./MediaRenderer.vue'))
-registerRenderer('search_codebase', () => import('./SearchRenderer.vue'))
-registerRenderer('spawn_role', () => import('./SpawnRenderer.vue'))
-registerRenderer('skill', () => import('./SkillRenderer.vue'))
-registerRenderer('ask_user_question', () => import('./QuestionRenderer.vue'))
+registerRenderer('update_todo', () => import('./io/TodoRenderer.vue'))
+registerRenderer('execute_command', () => import('./core/CommandRenderer.vue'))
+registerRenderer('read_file', () => import('./io/FileReadRenderer.vue'))
+registerRenderer('write_file', () => import('./io/FileWriteRenderer.vue'))
+registerRenderer('generate_image', () => import('./io/MediaRenderer.vue'))
+registerRenderer('generate_video', () => import('./io/MediaRenderer.vue'))
+registerRenderer('generate_audio', () => import('./io/MediaRenderer.vue'))
+registerRenderer('search_codebase', () => import('./core/SearchRenderer.vue'))
+registerRenderer('spawn_role', () => import('./io/SpawnRenderer.vue'))
+registerRenderer('skill', () => import('./core/SkillRenderer.vue'))
+registerRenderer('ask_user_question', () => import('./core/QuestionRenderer.vue'))
 
 // ============== 动态分发组件 ==============
-import SenseCallBox from '../SenseCallBox.vue'
+import SenseCallBox from '../chat/SenseCallBox.vue'
 
 /**
  * SenseCallRenderer：工具调用统一分发入口。

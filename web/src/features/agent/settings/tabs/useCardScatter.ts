@@ -10,7 +10,7 @@ import {
   type ComputedRef,
   type Ref,
 } from 'vue'
-import { SETTINGS_ACTIVE_TAB_KEY } from '../constants'
+import { SETTINGS_ACTIVE_TAB_KEY } from '../config/constants'
 
 /**
  * useCardScatter：GlobalTab 散落浮动玻璃卡片的布局 + 拖拽 + 置顶 + 入场动画。

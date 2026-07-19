@@ -10,14 +10,14 @@ import {
   type SenseToolInfo,
   type SenseGroupOption,
 } from '@/services/agentApi'
-import type { PetInstance } from '@/features/pets/types'
+import type { PetInstance } from '@/features/pets/types/types'
 import {
   COMPACT_COMMAND,
   composeCommandPrompt,
   estimateCommandTokens,
   toSkillCommands,
   type MessageCommand,
-} from '@/features/agent/commands'
+} from '@/features/agent/composables/commands'
 
 /**
  * AgentDialog 状态 + 逻辑 composable。

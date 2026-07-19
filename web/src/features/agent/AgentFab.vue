@@ -10,7 +10,7 @@
 import { computed, ref } from 'vue'
 import { useAgentsStore, useConnectionStore } from '@/stores'
 import { agentApi } from '@/services/agentApi'
-import PresetPicker from './PresetPicker.vue'
+import PresetPicker from './toolbar/PresetPicker.vue'
 
 const agents = useAgentsStore()
 const conn = useConnectionStore()

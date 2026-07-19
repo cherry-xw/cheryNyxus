@@ -9,23 +9,23 @@ import {
   type SessionRuntimeSelection,
   type ContextBreakdown,
 } from '@/services/agentApi'
-import type { PetInstance, PetMood } from '@/features/pets/types'
+import type { PetInstance, PetMood } from '@/features/pets/types/types'
 import type { StreamState, HistoryItem } from './types'
-import { sameRuntime, defaultBounds } from './streamAccumulator'
-import { replaceQuestionBatches, type QuestionBatchPayload } from './questionBatch'
-import { collectDescendantChatIds } from './historyMerge'
+import { sameRuntime, defaultBounds } from './data/streamAccumulator'
+import { replaceQuestionBatches, type QuestionBatchPayload } from './actions/questionBatch'
+import { collectDescendantChatIds } from './data/historyMerge'
 import { wsClient } from '@/services/ws'
 
 // 模块 factories
-import { createUiState } from './uiState'
-import { createApprovalActions } from './approvalActions'
-import { createQuestionActions } from './questionActions'
-import { createPetLifecycle } from './petLifecycle'
+import { createUiState } from './ui/uiState'
+import { createApprovalActions } from './actions/approvalActions'
+import { createQuestionActions } from './actions/questionActions'
+import { createPetLifecycle } from './data/petLifecycle'
 import {
   createStreamRouter,
   ensureStream as _ensureStream,
   trackRequest as _trackRequest,
-} from './streamRouter'
+} from './ui/streamRouter'
 
 // re-export 公共契约类型（保 @/stores/agents 导入路径兼容：4 .vue + stores/index.ts 零改动）
 export type {

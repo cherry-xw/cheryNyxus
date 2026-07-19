@@ -2,14 +2,14 @@
 import { onMounted, provide, ref } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import AgentFab from '@/features/agent/AgentFab.vue'
-import AgentDialog from '@/features/agent/AgentDialog.vue'
-import HistoryDrawer from '@/features/agent/HistoryDrawer.vue'
-import SessionList from '@/features/agent/SessionList.vue'
+import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
+import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
+import SessionList from '@/features/agent/drawer/SessionList.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
 import {
   createHistoryDrawerManager,
   HISTORY_DRAWER_MANAGER_KEY,
-} from '@/features/agent/useHistoryDrawerManager'
+} from '@/features/agent/drawer/useHistoryDrawerManager'
 import { useConnectionStore, useAgentsStore } from '@/stores'
 import { wsClient } from '@/services/ws'
 import { httpUrl } from '@/services/http'

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import PetSprite from './PetSprite.vue'
-import { usePetWorld } from './usePetWorld'
+import { usePetWorld } from './composables/usePetWorld'
 import { useAgentsStore } from '@/stores'
-import type { PetInstance } from './types'
-import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/commands'
+import type { PetInstance } from './types/types'
+import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
 
 const stageRef = ref<HTMLElement | null>(null)
 // pets 单一数据源 = agents store；usePetWorld 注入数组，RAF/交互直接作用于 store state
