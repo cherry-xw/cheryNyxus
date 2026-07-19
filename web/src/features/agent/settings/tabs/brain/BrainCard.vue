@@ -59,10 +59,9 @@ const removeImpact = computed(() => {
 // ── 折叠/展开 ────────────────────────────────────────────────────
 const expanded = ref(props.detailMode ?? false)
 
-/** 折叠态单行摘要：provider / model / $KEY */
+/** 折叠态单行摘要：model / $KEY（provider 已由 avatar 上的 vendor logo 承载）。 */
 const brainSummary = computed(() => {
   const parts: string[] = []
-  if (props.cfg.provider) parts.push(props.cfg.provider)
   if (props.cfg.model) parts.push(props.cfg.model)
   if (props.cfg.key) parts.push(props.cfg.key)
   return parts.length ? parts.join(' / ') : '未配置'

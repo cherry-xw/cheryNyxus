@@ -6,6 +6,10 @@ export interface ResourceRailItem {
   key: string
   label: string
   avatar?: string
+  /** vendor logo 图片 src（优先级高于 avatar 文本）。 */
+  avatarIcon?: string
+  /** 名字右侧紧贴显示（如 "128K"），与 label 同行的 <b> 之后。 */
+  capacity?: string
   meta?: string
   badge?: string
   danger?: boolean
@@ -61,12 +65,17 @@ watch(
           :aria-selected="item.key === modelValue"
           @click="emit('update:modelValue', item.key)"
         >
-          <span class="resource-avatar" aria-hidden="true">{{
-            item.avatar || item.label.slice(0, 1)
-          }}</span>
+          <span class="resource-avatar" aria-hidden="true">
+            <img v-if="item.avatarIcon" :src="item.avatarIcon" :alt="item.label" class="avatar-img" />
+            <template v-else>{{ item.avatar || item.label.slice(0, 1) }}</template>
+          </span>
           <span class="resource-copy">
             <b>{{ item.label }}</b>
-            <small v-if="item.meta">{{ item.meta }}</small>
+            <small v-if="item.meta || item.capacity" class="resource-meta">
+              <span v-if="item.capacity" class="resource-capacity">{{ item.capacity }}</span>
+              <span v-if="item.capacity && item.meta" class="resource-meta-sep">·</span>
+              <span v-if="item.meta">{{ item.meta }}</span>
+            </small>
           </span>
           <span v-if="item.badge" class="resource-badge">{{ item.badge }}</span>
         </button>
@@ -199,8 +208,10 @@ watch(
   animation: rail-neon-trace 0.45s ease-out;
 }
 .resource-avatar {
+  box-sizing: border-box;
   width: 32px;
   height: 32px;
+  padding: 5px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(36, 38, 45, 0.07);
@@ -209,6 +220,36 @@ watch(
   box-shadow: 0 2px 7px rgba(36, 38, 45, 0.12);
   font-size: 18px;
   transition: 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  overflow: hidden;
+}
+.resource-avatar .avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+}
+.resource-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 10px;
+  color: fade(@ink, 48%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resource-capacity {
+  font-weight: 700;
+  color: fade(@ink, 60%);
+  flex-shrink: 0;
+}
+.resource-meta-sep {
+  color: fade(@ink, 30%);
+  flex-shrink: 0;
 }
 .resource-copy {
   min-width: 0;
