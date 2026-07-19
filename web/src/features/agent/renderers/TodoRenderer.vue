@@ -11,31 +11,34 @@
  * - 不处理参数解析（由分发器统一处理）
  * - 使用共享的 RendererProps 契约
  */
-import { computed } from "vue";
-import type { RendererProps, TodoItem, UpdateTodoArgs } from "./types";
+import { computed } from 'vue'
+import type { RendererProps, TodoItem, UpdateTodoArgs } from './types'
 
-const props = defineProps<RendererProps>();
+const props = defineProps<RendererProps>()
 
 // 类型安全的参数访问
 const parsed = computed<UpdateTodoArgs | null>(() => {
   try {
     // args 可能是 JSON 字符串或对象
-    const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
-    const obj = JSON.parse(raw) as { todos?: TodoItem[] };
-    if (Array.isArray(obj.todos)) return { todos: obj.todos };
-    return null;
+    const raw =
+      typeof props.call.args === 'string' ? props.call.args : JSON.stringify(props.call.args ?? {})
+    const obj = JSON.parse(raw) as { todos?: TodoItem[] }
+    if (Array.isArray(obj.todos)) return { todos: obj.todos }
+    return null
   } catch (e) {
-    console.warn("[TodoRenderer] args 解析失败，退化 JSON 显示", e);
-    return null;
+    console.warn('[TodoRenderer] args 解析失败，退化 JSON 显示', e)
+    return null
   }
-});
+})
 
-const todos = computed(() => parsed.value?.todos ?? []);
-const fallback = computed(() => (parsed.value ? "" : JSON.stringify(props.call.args ?? {}, null, 2)));
-const doneCount = computed(() => todos.value.filter((t) => t.status === "completed").length);
+const todos = computed(() => parsed.value?.todos ?? [])
+const fallback = computed(() =>
+  parsed.value ? '' : JSON.stringify(props.call.args ?? {}, null, 2),
+)
+const doneCount = computed(() => todos.value.filter((t) => t.status === 'completed').length)
 
-const statusGlyph = (s: TodoItem["status"]): string =>
-  s === "completed" ? "✓" : s === "in_progress" ? "▣" : "☐";
+const statusGlyph = (s: TodoItem['status']): string =>
+  s === 'completed' ? '✓' : s === 'in_progress' ? '▣' : '☐'
 </script>
 
 <template>
@@ -50,7 +53,9 @@ const statusGlyph = (s: TodoItem["status"]): string =>
         <span class="glyph" aria-hidden="true">{{ statusGlyph(t.status) }}</span>
         <span class="content">
           <span class="text" :class="{ done: t.status === 'completed' }">{{ t.content }}</span>
-          <span v-if="t.status === 'in_progress' && t.activeForm" class="active-form">{{ t.activeForm }}</span>
+          <span v-if="t.status === 'in_progress' && t.activeForm" class="active-form">{{
+            t.activeForm
+          }}</span>
         </span>
       </li>
     </ul>
@@ -92,7 +97,7 @@ const statusGlyph = (s: TodoItem["status"]): string =>
     font-size: 10px;
     font-weight: 700;
     color: fade(@ink, 56%);
-    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   }
 }
 
@@ -155,7 +160,7 @@ const statusGlyph = (s: TodoItem["status"]): string =>
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;

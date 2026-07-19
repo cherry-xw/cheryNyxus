@@ -6,52 +6,52 @@
  * - video：视频卡片（封面帧 + 播放图标），点击打开 VideoPlayer
  * - audio：音频卡片（波形图标 + 文件名），点击打开 AudioPlayer
  */
-import { ref, computed } from "vue";
-import type { MediaAssetRef } from "@/stores/agents/types";
-import ImagePreview from "./ImagePreview.vue";
-import VideoPlayer from "./VideoPlayer.vue";
-import AudioPlayer from "./AudioPlayer.vue";
-import { httpUrl } from "@/services/http";
+import { ref, computed } from 'vue'
+import type { MediaAssetRef } from '@/stores/agents/types'
+import ImagePreview from './ImagePreview.vue'
+import VideoPlayer from './VideoPlayer.vue'
+import AudioPlayer from './AudioPlayer.vue'
+import { httpUrl } from '@/services/http'
 
 const props = defineProps<{
-  assets: MediaAssetRef[];
-}>();
+  assets: MediaAssetRef[]
+}>()
 
 // 预览状态（同一时间只打开一个）
-const previewImage = ref<string | null>(null);
-const previewVideo = ref<string | null>(null);
-const previewAudio = ref<string | null>(null);
+const previewImage = ref<string | null>(null)
+const previewVideo = ref<string | null>(null)
+const previewAudio = ref<string | null>(null)
 
-const mediaUrl = (filename: string) => httpUrl(`/api/media/${filename}`);
+const mediaUrl = (filename: string) => httpUrl(`/api/media/${filename}`)
 
-const kindLabel = (kind: MediaAssetRef["kind"]) => {
+const kindLabel = (kind: MediaAssetRef['kind']) => {
   switch (kind) {
-    case "image":
-      return "图片";
-    case "video":
-      return "视频";
-    case "audio":
-      return "音频";
+    case 'image':
+      return '图片'
+    case 'video':
+      return '视频'
+    case 'audio':
+      return '音频'
     default:
-      return "媒体";
+      return '媒体'
   }
-};
+}
 
 function openPreview(asset: MediaAssetRef) {
-  const url = mediaUrl(asset.filename);
-  if (asset.kind === "image") {
-    previewImage.value = url;
-  } else if (asset.kind === "video") {
-    previewVideo.value = url;
-  } else if (asset.kind === "audio") {
-    previewAudio.value = url;
+  const url = mediaUrl(asset.filename)
+  if (asset.kind === 'image') {
+    previewImage.value = url
+  } else if (asset.kind === 'video') {
+    previewVideo.value = url
+  } else if (asset.kind === 'audio') {
+    previewAudio.value = url
   }
 }
 
 function closePreview() {
-  previewImage.value = null;
-  previewVideo.value = null;
-  previewAudio.value = null;
+  previewImage.value = null
+  previewVideo.value = null
+  previewAudio.value = null
 }
 </script>
 
@@ -107,7 +107,9 @@ function closePreview() {
   border-radius: 6px;
   overflow: hidden;
   border: 1px solid rgba(36, 38, 45, 0.12);
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
 
   &:hover {
     transform: translateY(-1px);

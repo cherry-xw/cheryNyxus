@@ -1,23 +1,23 @@
 export interface TemplateMinerOptions {
-  drainSimTh?: number;
-  drainDepth?: number;
-  drainMaxChildren?: number;
-  drainMaxClusters?: number | null;
-  drainExtraDelimiters?: string[];
-  parametrizeNumericTokens?: boolean;
-  snapshotIntervalMinutes?: number;
-  snapshotCompressState?: boolean;
+  drainSimTh?: number
+  drainDepth?: number
+  drainMaxChildren?: number
+  drainMaxClusters?: number | null
+  drainExtraDelimiters?: string[]
+  parametrizeNumericTokens?: boolean
+  snapshotIntervalMinutes?: number
+  snapshotCompressState?: boolean
 }
 
 export class TemplateMinerConfig {
-  drainSimTh: number;
-  drainDepth: number;
-  drainMaxChildren: number;
-  drainMaxClusters: number | null;
-  drainExtraDelimiters: string[];
-  parametrizeNumericTokens: boolean;
-  snapshotIntervalMinutes: number;
-  snapshotCompressState: boolean;
+  drainSimTh: number
+  drainDepth: number
+  drainMaxChildren: number
+  drainMaxClusters: number | null
+  drainExtraDelimiters: string[]
+  parametrizeNumericTokens: boolean
+  snapshotIntervalMinutes: number
+  snapshotCompressState: boolean
 
   /**
    * Creates a template miner configuration with sane defaults.
@@ -25,14 +25,14 @@ export class TemplateMinerConfig {
    * @param options Optional configuration overrides.
    */
   constructor(options: TemplateMinerOptions = {}) {
-    this.drainSimTh = options.drainSimTh ?? 0.4;
-    this.drainDepth = options.drainDepth ?? 4;
-    this.drainMaxChildren = options.drainMaxChildren ?? 100;
-    this.drainMaxClusters = options.drainMaxClusters ?? null;
-    this.drainExtraDelimiters = options.drainExtraDelimiters ?? [];
-    this.parametrizeNumericTokens = options.parametrizeNumericTokens ?? true;
-    this.snapshotIntervalMinutes = options.snapshotIntervalMinutes ?? 1;
-    this.snapshotCompressState = options.snapshotCompressState ?? true;
+    this.drainSimTh = options.drainSimTh ?? 0.4
+    this.drainDepth = options.drainDepth ?? 4
+    this.drainMaxChildren = options.drainMaxChildren ?? 100
+    this.drainMaxClusters = options.drainMaxClusters ?? null
+    this.drainExtraDelimiters = options.drainExtraDelimiters ?? []
+    this.parametrizeNumericTokens = options.parametrizeNumericTokens ?? true
+    this.snapshotIntervalMinutes = options.snapshotIntervalMinutes ?? 1
+    this.snapshotCompressState = options.snapshotCompressState ?? true
   }
 
   /**
@@ -45,35 +45,32 @@ export class TemplateMinerConfig {
    */
   static fromObject(obj: Record<string, unknown>): TemplateMinerConfig {
     const asNumber = (value: unknown): number | undefined => {
-      if (typeof value === "number" && Number.isFinite(value)) {
-        return value;
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value
       }
-      return undefined;
-    };
+      return undefined
+    }
 
     const asBoolean = (value: unknown): boolean | undefined =>
-      typeof value === "boolean" ? value : undefined;
+      typeof value === 'boolean' ? value : undefined
 
     const asStringArray = (value: unknown): string[] | undefined => {
       if (!Array.isArray(value)) {
-        return undefined;
+        return undefined
       }
 
-      return value.every((item) => typeof item === "string")
-        ? (value as string[])
-        : undefined;
-    };
+      return value.every((item) => typeof item === 'string') ? (value as string[]) : undefined
+    }
 
     return new TemplateMinerConfig({
       drainSimTh: asNumber(obj.drainSimTh),
       drainDepth: asNumber(obj.drainDepth),
       drainMaxChildren: asNumber(obj.drainMaxChildren),
-      drainMaxClusters:
-        obj.drainMaxClusters === null ? null : asNumber(obj.drainMaxClusters),
+      drainMaxClusters: obj.drainMaxClusters === null ? null : asNumber(obj.drainMaxClusters),
       drainExtraDelimiters: asStringArray(obj.drainExtraDelimiters),
       parametrizeNumericTokens: asBoolean(obj.parametrizeNumericTokens),
       snapshotIntervalMinutes: asNumber(obj.snapshotIntervalMinutes),
       snapshotCompressState: asBoolean(obj.snapshotCompressState),
-    });
+    })
   }
 }

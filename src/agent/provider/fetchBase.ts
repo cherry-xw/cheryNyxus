@@ -1,10 +1,10 @@
-import type { LLMOptions } from "@/core/llm/adapter";
+import type { LLMOptions } from '@/core/llm/adapter'
 import {
   throwUserFacing,
   ClassifiedError,
   classifyError,
   type ErrorCategory,
-} from "@/utils/error.js";
+} from '@/utils/error.js'
 
 /**
  * fetch 基座：供新 provider（bigmodel 及未来 anthropic/minimax/aliyun）用原生 fetch 替代第三方 SDK。
@@ -26,38 +26,38 @@ import {
 
 /** 上游返回非 2xx → 按 status 定 category + 直观文案。返回 ClassifiedError 供调用方 throw。 */
 export function brainHttpError(status: number, logMessage: string): ClassifiedError {
-  let category: ErrorCategory;
-  let userMessage: string;
+  let category: ErrorCategory
+  let userMessage: string
   if (status === 401 || status === 403) {
-    category = "auth";
-    userMessage = "大脑的钥匙不对，请在设置里检查 key";
+    category = 'auth'
+    userMessage = '大脑的钥匙不对，请在设置里检查 key'
   } else if (status === 429) {
-    category = "provider";
-    userMessage = "脑子忙不过来了，稍后再试";
+    category = 'provider'
+    userMessage = '脑子忙不过来了，稍后再试'
   } else if (status >= 500) {
-    category = "provider";
-    userMessage = "脑子出了点状况，稍后再试";
+    category = 'provider'
+    userMessage = '脑子出了点状况，稍后再试'
   } else {
-    category = "unknown";
-    userMessage = "脑子回话不太对";
+    category = 'unknown'
+    userMessage = '脑子回话不太对'
   }
   return new ClassifiedError({
     message: `upstream ${status}: ${logMessage}`,
     userMessage,
     category,
-    source: "brain",
-  });
+    source: 'brain',
+  })
 }
 
 /** 网络/DNS/连接失败 → 可重试，友好"连不上我的脑子了"。 */
 export function brainNetworkError(logMessage: string, cause: unknown): ClassifiedError {
   return new ClassifiedError({
     message: `fetch failed: ${logMessage}`,
-    userMessage: "连不上我的脑子了",
-    category: "network",
-    source: "brain",
+    userMessage: '连不上我的脑子了',
+    category: 'network',
+    source: 'brain',
     cause,
-  });
+  })
 }
 
 /**
@@ -67,19 +67,19 @@ export function brainNetworkError(logMessage: string, cause: unknown): Classifie
  * openai.ts / ollama.ts 捕 SDK 错误后调用，避免裸抛漏到 compose 兜底。
  */
 export function classifyBrainError(err: unknown): ClassifiedError {
-  const status = (err as { status?: number })?.status;
-  if (typeof status === "number") {
-    const msg = err instanceof Error ? err.message : String(err);
-    return brainHttpError(status, msg);
+  const status = (err as { status?: number })?.status
+  if (typeof status === 'number') {
+    const msg = err instanceof Error ? err.message : String(err)
+    return brainHttpError(status, msg)
   }
-  const category = classifyError(err);
+  const category = classifyError(err)
   return new ClassifiedError({
     message: err instanceof Error ? err.message : String(err),
     userMessage: brainFriendly(category),
     category,
-    source: "brain",
+    source: 'brain',
     cause: err,
-  });
+  })
 }
 
 /**
@@ -88,28 +88,28 @@ export function classifyBrainError(err: unknown): ClassifiedError {
  */
 export async function* wrapBrainStream(stream: AsyncIterable<unknown>): AsyncGenerator<unknown> {
   try {
-    for await (const chunk of stream) yield chunk;
+    for await (const chunk of stream) yield chunk
   } catch (err) {
-    throw classifyBrainError(err);
+    throw classifyBrainError(err)
   }
 }
 
 /** 大脑侧 friendlyMessage（与 utils/error 的 brain 列一致，单独列出便于就近维护）。 */
 function brainFriendly(category: ErrorCategory): string {
   switch (category) {
-    case "network":
-      return "连不上我的脑子了";
-    case "auth":
-      return "大脑的钥匙不对，请在设置里检查 key";
-    case "timeout":
-      return "脑子反应太慢了";
-    case "provider":
-      return "脑子忙不过来了，稍后再试";
-    case "validation":
-      return "脑子没听懂这个请求";
-    case "unknown":
+    case 'network':
+      return '连不上我的脑子了'
+    case 'auth':
+      return '大脑的钥匙不对，请在设置里检查 key'
+    case 'timeout':
+      return '脑子反应太慢了'
+    case 'provider':
+      return '脑子忙不过来了，稍后再试'
+    case 'validation':
+      return '脑子没听懂这个请求'
+    case 'unknown':
     default:
-      return "脑子出了点小问题";
+      return '脑子出了点小问题'
   }
 }
 
@@ -121,53 +121,52 @@ function brainFriendly(category: ErrorCategory): string {
  * 不然会作为 token 发出 → 后端 401，错误信息毫无指引。
  */
 export function assertChatOptions(options?: LLMOptions): {
-  model: string;
-  url: string;
-  key: string;
+  model: string
+  url: string
+  key: string
 } {
-  const model = options?.model;
-  const url = options?.url;
-  const key = options?.key;
+  const model = options?.model
+  const url = options?.url
+  const key = options?.key
   if (!model || !url) {
-    throwUserFacing("llm.options.missing", "大脑没配好（缺 model 或地址），请在设置里检查", {
-      reason: "missing_model_or_url",
-    });
+    throwUserFacing('llm.options.missing', '大脑没配好（缺 model 或地址），请在设置里检查', {
+      reason: 'missing_model_or_url',
+    })
   }
-  const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/);
+  const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/)
   if (placeholderMatch) {
-    const envName = placeholderMatch[1]!;
-    throwUserFacing(
-      "llm.key.missing",
-      `大脑的钥匙没配好（${model}），请在设置里检查`,
-      { model, envName, reason: "placeholder_unresolved" },
-    );
+    const envName = placeholderMatch[1]!
+    throwUserFacing('llm.key.missing', `大脑的钥匙没配好（${model}），请在设置里检查`, {
+      model,
+      envName,
+      reason: 'placeholder_unresolved',
+    })
   }
   if (!key) {
-    throwUserFacing(
-      "llm.key.missing",
-      `大脑的钥匙没配好（${model}），请在设置里检查`,
-      { model, reason: "key_empty" },
-    );
+    throwUserFacing('llm.key.missing', `大脑的钥匙没配好（${model}），请在设置里检查`, {
+      model,
+      reason: 'key_empty',
+    })
   }
-  return { model, url, key: key as string };
+  return { model, url, key: key as string }
 }
 
 // ========== fetch 工具 ==========
 
 /** url 末尾斜杠归一后拼接 path（如 base + "/chat/completions"）。 */
 function joinUrl(base: string, p: string): string {
-  return `${base.replace(/\/+$/, "")}${p}`;
+  return `${base.replace(/\/+$/, '')}${p}`
 }
 
 /** 构造 OpenAI 兼容的 Authorization header（Bearer key）。 */
 function authHeaders(key: string): Record<string, string> {
-  return { Authorization: `Bearer ${key}` };
+  return { Authorization: `Bearer ${key}` }
 }
 
 /** 从 !res.ok 响应体提取短摘要（≤200 字符），供日志面 message。 */
 async function readErrorSnippet(res: Response): Promise<string> {
-  const text = await res.text().catch(() => "");
-  return text.slice(0, 200) || res.statusText;
+  const text = await res.text().catch(() => '')
+  return text.slice(0, 200) || res.statusText
 }
 
 /**
@@ -179,21 +178,21 @@ export async function jsonRequest(
   body: unknown,
   key: string,
 ): Promise<Record<string, unknown>> {
-  let res: Response;
+  let res: Response
   try {
-    res = await fetch(joinUrl(url, "/chat/completions"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders(key) },
+    res = await fetch(joinUrl(url, '/chat/completions'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(key) },
       body: JSON.stringify(body),
-    });
+    })
   } catch (err) {
-    throw brainNetworkError((err as Error).message, err);
+    throw brainNetworkError((err as Error).message, err)
   }
   if (!res.ok) {
-    const snippet = await readErrorSnippet(res);
-    throw brainHttpError(res.status, snippet);
+    const snippet = await readErrorSnippet(res)
+    throw brainHttpError(res.status, snippet)
   }
-  return (await res.json()) as Record<string, unknown>;
+  return (await res.json()) as Record<string, unknown>
 }
 
 /**
@@ -213,51 +212,51 @@ export async function* streamSSE(
   body: unknown,
   key: string,
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
-  const controller = new AbortController();
-  let res: Response;
+  const controller = new AbortController()
+  let res: Response
   try {
-    res = await fetch(joinUrl(url, "/chat/completions"), {
-      method: "POST",
+    res = await fetch(joinUrl(url, '/chat/completions'), {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
         ...authHeaders(key),
       },
       body: JSON.stringify(body),
       signal: controller.signal,
-    });
+    })
   } catch (err) {
-    controller.abort();
-    throw brainNetworkError((err as Error).message, err);
+    controller.abort()
+    throw brainNetworkError((err as Error).message, err)
   }
   if (!res.ok || !res.body) {
-    const snippet = await readErrorSnippet(res);
-    controller.abort();
-    throw brainHttpError(res.status, snippet);
+    const snippet = await readErrorSnippet(res)
+    controller.abort()
+    throw brainHttpError(res.status, snippet)
   }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let nl: number;
-      while ((nl = buffer.indexOf("\n")) >= 0) {
-        const rawLine = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        const line = rawLine.replace(/\r$/, "").trim();
-        if (line === "") continue; // SSE 事件分隔空行
-        if (line.startsWith(":")) continue; // SSE 注释 / keep-alive 心跳
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (payload === "[DONE]") {
-          controller.abort();
-          return;
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let nl: number
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const rawLine = buffer.slice(0, nl)
+        buffer = buffer.slice(nl + 1)
+        const line = rawLine.replace(/\r$/, '').trim()
+        if (line === '') continue // SSE 事件分隔空行
+        if (line.startsWith(':')) continue // SSE 注释 / keep-alive 心跳
+        if (!line.startsWith('data:')) continue
+        const payload = line.slice(5).trim()
+        if (payload === '[DONE]') {
+          controller.abort()
+          return
         }
         try {
-          yield JSON.parse(payload) as Record<string, unknown>;
+          yield JSON.parse(payload) as Record<string, unknown>
         } catch {
           // 单行 JSON 解析失败不致命，跳过该事件
         }
@@ -265,7 +264,7 @@ export async function* streamSSE(
     }
   } finally {
     // 正常结束或 generator.throw() 注入的 abort，都切断 HTTP 连接
-    controller.abort();
-    await reader.cancel().catch(() => {});
+    controller.abort()
+    await reader.cancel().catch(() => {})
   }
 }

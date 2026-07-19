@@ -1,5 +1,5 @@
-import type { ChildProcess } from "child_process";
-import { logger } from "@/utils/logger/index.js";
+import type { ChildProcess } from 'child_process'
+import { logger } from '@/utils/logger/index.js'
 
 /**
  * Bash 子进程注册表（execute_command sense 生命周期管理）。
@@ -22,29 +22,29 @@ import { logger } from "@/utils/logger/index.js";
 
 /** 对外暴露的进程条目（不含 ChildProcess 句柄，供 bash.list RPC 返回）。 */
 export interface BashProcessEntry {
-  pid: number;
-  command: string;
-  description: string;
-  startedAt: number;
+  pid: number
+  command: string
+  description: string
+  startedAt: number
   /** 是否已被显式 kill（区分自然结束，前端展示用）。 */
-  killed: boolean;
+  killed: boolean
 }
 
 /** 内部记录（持有 ChildProcess 句柄供 kill）。 */
 interface BashProcessRecord extends BashProcessEntry {
-  proc: ChildProcess;
+  proc: ChildProcess
 }
 
 /** chatId → (pid → record)。 */
-const registry = new Map<string, Map<number, BashProcessRecord>>();
+const registry = new Map<string, Map<number, BashProcessRecord>>()
 
 function getChatMap(chatId: string): Map<number, BashProcessRecord> {
-  let m = registry.get(chatId);
+  let m = registry.get(chatId)
   if (!m) {
-    m = new Map();
-    registry.set(chatId, m);
+    m = new Map()
+    registry.set(chatId, m)
   }
-  return m;
+  return m
 }
 
 /**
@@ -56,7 +56,7 @@ export function registerBashProcess(
   proc: ChildProcess,
   meta: { command: string; description: string; startedAt: number },
 ): void {
-  if (!chatId || proc.pid === undefined) return;
+  if (!chatId || proc.pid === undefined) return
   const record: BashProcessRecord = {
     pid: proc.pid,
     proc,
@@ -64,9 +64,9 @@ export function registerBashProcess(
     description: meta.description,
     startedAt: meta.startedAt,
     killed: false,
-  };
-  getChatMap(chatId).set(proc.pid, record);
-  logger.event("bash.proc.register", { chatId, pid: proc.pid, cmd: meta.command });
+  }
+  getChatMap(chatId).set(proc.pid, record)
+  logger.event('bash.proc.register', { chatId, pid: proc.pid, cmd: meta.command })
 }
 
 /**
@@ -74,14 +74,14 @@ export function registerBashProcess(
  * kill → 进程退出 → bash.ts close handler 调本函数，统一注销。
  */
 export function unregisterBashProcess(chatId: string | undefined, pid: number): void {
-  if (!chatId) return;
-  const m = registry.get(chatId);
-  if (!m) return;
+  if (!chatId) return
+  const m = registry.get(chatId)
+  if (!m) return
   if (m.delete(pid)) {
-    logger.event("bash.proc.clear", { chatId, pid });
+    logger.event('bash.proc.clear', { chatId, pid })
   }
   if (m.size === 0) {
-    registry.delete(chatId);
+    registry.delete(chatId)
   }
 }
 
@@ -92,24 +92,24 @@ export function unregisterBashProcess(chatId: string | undefined, pid: number): 
  *    SIGTERM 通常足够；顽固进程可后续 escalate SIGKILL（当前实现未加，保持简单）。
  */
 export function killBashProcess(chatId: string, pid: number): boolean {
-  const m = registry.get(chatId);
-  const entry = m?.get(pid);
-  if (!entry) return false;
+  const m = registry.get(chatId)
+  const entry = m?.get(pid)
+  if (!entry) return false
 
-  entry.killed = true;
+  entry.killed = true
   try {
     // -pid 杀整个进程组（spawn detached:true 使子进程为组长）
-    process.kill(-pid, "SIGTERM");
+    process.kill(-pid, 'SIGTERM')
   } catch {
     // 进程组已不存在（进程退出/非组长）：兜底直接 kill 单进程
     try {
-      entry.proc.kill("SIGTERM");
+      entry.proc.kill('SIGTERM')
     } catch {
       // 进程已退出，忽略
     }
   }
-  logger.event("bash.proc.kill", { chatId, pid });
-  return true;
+  logger.event('bash.proc.kill', { chatId, pid })
+  return true
 }
 
 /**
@@ -117,7 +117,7 @@ export function killBashProcess(chatId: string, pid: number): boolean {
  * 返回条目不含 ChildProcess 句柄。
  */
 export function listBashProcesses(chatId: string): BashProcessEntry[] {
-  const m = registry.get(chatId);
-  if (!m) return [];
-  return Array.from(m.values()).map(({ proc: _proc, ...rest }) => rest);
+  const m = registry.get(chatId)
+  if (!m) return []
+  return Array.from(m.values()).map(({ proc: _proc, ...rest }) => rest)
 }

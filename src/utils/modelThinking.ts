@@ -11,39 +11,33 @@
  *
  * 详见 [../../../docs/utils/README.md](../../../docs/utils/README.md) 「modelThinking.ts」。
  */
-import fs from "fs";
-import path from "path";
-import yaml from "js-yaml";
-import type { ThinkingLevel } from "@/core/llm/adapter";
+import fs from 'fs'
+import path from 'path'
+import yaml from 'js-yaml'
+import type { ThinkingLevel } from '@/core/llm/adapter'
 
 /** 合法 ThinkingLevel 集合（与 ThinkingLevel union 一一对应）。 */
-const VALID_LEVELS = new Set<ThinkingLevel>([
-  "off",
-  "on",
-  "low",
-  "medium",
-  "high",
-]);
+const VALID_LEVELS = new Set<ThinkingLevel>(['off', 'on', 'low', 'medium', 'high'])
 
 /** 兜底档位：未配置 / 未命中 / 解析失败 时返回。 */
-const FALLBACK_LEVELS: readonly ThinkingLevel[] = ["off", "on"];
+const FALLBACK_LEVELS: readonly ThinkingLevel[] = ['off', 'on']
 
 /** 配置条目（YAML 单条）。aliases 含若干模型名（含通配 `"*"`）；thinking 为档位子集。 */
 export interface ModelThinkingEntry {
-  aliases: string[];
-  thinking: ThinkingLevel[];
+  aliases: string[]
+  thinking: ThinkingLevel[]
 }
 
 /** 加载后的内存模型（已校验/兜底）。 */
 export interface ModelThinkingConfig {
-  entries: ModelThinkingEntry[];
+  entries: ModelThinkingEntry[]
 }
 
-let cached: ModelThinkingConfig | undefined;
+let cached: ModelThinkingConfig | undefined
 
 /** 获取 .chery 目录（与 config.ts 一致：CHERY_DIR ?? cwd）。 */
 function resolveCheryDir(): string {
-  return process.env.CHERY_DIR || process.cwd();
+  return process.env.CHERY_DIR || process.cwd()
 }
 
 /**
@@ -52,43 +46,43 @@ function resolveCheryDir(): string {
  * 不抛错（启动期已有 config.yaml 兜底；本文件是软依赖）。
  */
 export function loadModelThinking(): ModelThinkingConfig {
-  if (cached) return cached;
-  const configPath = path.join(resolveCheryDir(), ".chery", "model-thinking.yaml");
+  if (cached) return cached
+  const configPath = path.join(resolveCheryDir(), '.chery', 'model-thinking.yaml')
   if (!fs.existsSync(configPath)) {
-    cached = { entries: [] };
-    return cached;
+    cached = { entries: [] }
+    return cached
   }
   try {
-    const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as {
-      models?: Array<{ aliases?: unknown; thinking?: unknown }>;
-    } | null;
-    const entries: ModelThinkingEntry[] = [];
+    const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as {
+      models?: Array<{ aliases?: unknown; thinking?: unknown }>
+    } | null
+    const entries: ModelThinkingEntry[] = []
     for (const item of raw?.models ?? []) {
       const aliases = Array.isArray(item.aliases)
-        ? item.aliases.filter((a): a is string => typeof a === "string")
-        : [];
+        ? item.aliases.filter((a): a is string => typeof a === 'string')
+        : []
       const thinking = Array.isArray(item.thinking)
         ? (item.thinking.filter(
             (l): l is ThinkingLevel =>
-              typeof l === "string" && VALID_LEVELS.has(l as ThinkingLevel),
+              typeof l === 'string' && VALID_LEVELS.has(l as ThinkingLevel),
           ) as ThinkingLevel[])
-        : [];
+        : []
       if (aliases.length > 0 && thinking.length > 0) {
-        entries.push({ aliases, thinking });
+        entries.push({ aliases, thinking })
       }
     }
-    cached = { entries };
-    return cached;
+    cached = { entries }
+    return cached
   } catch {
     // YAML 解析失败：兜底空配置，全量返回 ["off", "on"]
-    cached = { entries: [] };
-    return cached;
+    cached = { entries: [] }
+    return cached
   }
 }
 
 /** 重置缓存（供测试 / 热更场景）。 */
 export function resetModelThinkingCache(): void {
-  cached = undefined;
+  cached = undefined
 }
 
 /**
@@ -98,35 +92,35 @@ export function resetModelThinkingCache(): void {
  * 例：model="gpt-4o-mini"；aliases 有 "gpt-4o"、"gpt-4-turbo" → 命中 "gpt-4o"（前缀）。
  */
 export function resolveThinkingLevels(model: string): readonly ThinkingLevel[] {
-  const cfg = loadModelThinking();
-  if (!model) return FALLBACK_LEVELS;
+  const cfg = loadModelThinking()
+  if (!model) return FALLBACK_LEVELS
 
   // 1. 精确匹配
   for (const entry of cfg.entries) {
-    if (entry.aliases.includes(model)) return entry.thinking;
+    if (entry.aliases.includes(model)) return entry.thinking
   }
 
   // 2. 最长前缀匹配
-  let bestPrefix: ModelThinkingEntry | undefined;
-  let bestLen = -1;
+  let bestPrefix: ModelThinkingEntry | undefined
+  let bestLen = -1
   for (const entry of cfg.entries) {
-    if (entry.aliases.includes("*")) continue;
+    if (entry.aliases.includes('*')) continue
     for (const alias of entry.aliases) {
       if (model.startsWith(alias) && alias.length > bestLen) {
-        bestPrefix = entry;
-        bestLen = alias.length;
+        bestPrefix = entry
+        bestLen = alias.length
       }
     }
   }
-  if (bestPrefix) return bestPrefix.thinking;
+  if (bestPrefix) return bestPrefix.thinking
 
   // 3. 通配 `*` 兜底
   for (const entry of cfg.entries) {
-    if (entry.aliases.includes("*")) return entry.thinking;
+    if (entry.aliases.includes('*')) return entry.thinking
   }
 
   // 4. 配置缺失 / 未命中：返回 ["off", "on"]
-  return FALLBACK_LEVELS;
+  return FALLBACK_LEVELS
 }
 
 /**
@@ -136,10 +130,10 @@ export function resolveThinkingLevels(model: string): readonly ThinkingLevel[] {
 export function resolveThinkingLevelsBatch(
   models: string[],
 ): Record<string, readonly ThinkingLevel[]> {
-  const out: Record<string, readonly ThinkingLevel[]> = {};
+  const out: Record<string, readonly ThinkingLevel[]> = {}
   for (const m of models) {
-    if (typeof m !== "string" || m.length === 0) continue;
-    out[m] = resolveThinkingLevels(m);
+    if (typeof m !== 'string' || m.length === 0) continue
+    out[m] = resolveThinkingLevels(m)
   }
-  return out;
+  return out
 }

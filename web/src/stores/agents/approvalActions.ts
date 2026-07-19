@@ -1,6 +1,6 @@
-import type { Ref } from "vue";
-import type { PetInstance } from "@/features/pets/types";
-import type { StreamState } from "./types";
+import type { Ref } from 'vue'
+import type { PetInstance } from '@/features/pets/types'
+import type { StreamState } from './types'
 
 /**
  * 立即清 pending 审批（ApprovalCard submit 后调用，不等 accept/rejected notification 回来）。
@@ -9,14 +9,14 @@ import type { StreamState } from "./types";
  */
 function dismissApproval(streams: Ref<Record<string, StreamState>>) {
   return (chatId: string): void => {
-    const stream = streams.value[chatId];
-    if (!stream) return;
-    stream.approval = undefined;
+    const stream = streams.value[chatId]
+    if (!stream) return
+    stream.approval = undefined
     if (stream.approvalQueue.length > 0) {
-      const next = stream.approvalQueue.shift();
-      if (next) stream.approval = next;
+      const next = stream.approvalQueue.shift()
+      if (next) stream.approval = next
     }
-  };
+  }
 }
 
 /**
@@ -26,17 +26,17 @@ function dismissApproval(streams: Ref<Record<string, StreamState>>) {
  */
 function dismissApprovalToQueue(streams: Ref<Record<string, StreamState>>) {
   return (chatId: string): void => {
-    const stream = streams.value[chatId];
-    if (!stream) return;
+    const stream = streams.value[chatId]
+    if (!stream) return
     if (stream.approval) {
-      stream.approvalQueue.push(stream.approval);
-      stream.approval = undefined;
+      stream.approvalQueue.push(stream.approval)
+      stream.approval = undefined
     }
     if (stream.approvalQueue.length > 0) {
-      const next = stream.approvalQueue.shift();
-      if (next) stream.approval = next;
+      const next = stream.approvalQueue.shift()
+      if (next) stream.approval = next
     }
-  };
+  }
 }
 
 /**
@@ -45,21 +45,21 @@ function dismissApprovalToQueue(streams: Ref<Record<string, StreamState>>) {
  */
 function resummonApproval(streams: Ref<Record<string, StreamState>>) {
   return (chatId: string, approvalId: string): void => {
-    const stream = streams.value[chatId];
-    if (!stream) return;
-    const idx = stream.approvalQueue.findIndex((a) => a.approvalId === approvalId);
+    const stream = streams.value[chatId]
+    if (!stream) return
+    const idx = stream.approvalQueue.findIndex((a) => a.approvalId === approvalId)
     if (idx < 0) {
-      console.warn("[agents] resummonApproval: queue 中未找到", { chatId, approvalId });
-      return;
+      console.warn('[agents] resummonApproval: queue 中未找到', { chatId, approvalId })
+      return
     }
-    const target = stream.approvalQueue[idx];
-    if (!target) return;
+    const target = stream.approvalQueue[idx]
+    if (!target) return
     // 若当前已有 approval → 把现有的移到 queue 末尾（保留连续处理能力）
-    if (stream.approval) stream.approvalQueue.push(stream.approval);
+    if (stream.approval) stream.approvalQueue.push(stream.approval)
     // 从 queue 移除并置为当前
-    stream.approvalQueue.splice(idx, 1);
-    stream.approval = target;
-  };
+    stream.approvalQueue.splice(idx, 1)
+    stream.approval = target
+  }
 }
 
 export function createApprovalActions(
@@ -70,5 +70,5 @@ export function createApprovalActions(
     dismissApproval: dismissApproval(streams),
     dismissApprovalToQueue: dismissApprovalToQueue(streams),
     resummonApproval: resummonApproval(streams),
-  };
+  }
 }

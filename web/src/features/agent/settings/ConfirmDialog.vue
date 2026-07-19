@@ -5,42 +5,42 @@
  * 自定义 Teleport overlay（不包 el-dialog），承载霓虹描边 + 进场动画。
  * 轻删（感官组/单技能/MCP/媒体）继续用 ConfirmPopover 浮层。
  */
-import { onBeforeUnmount, onMounted } from "vue";
+import { onBeforeUnmount, onMounted } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    modelValue: boolean;
-    icon?: string;
-    title: string;
+    modelValue: boolean
+    icon?: string
+    title: string
     /** 影响范围正文：单行字符串或多行数组（每项一段）。 */
-    impact?: string | string[];
-    confirmText?: string;
-    danger?: boolean;
+    impact?: string | string[]
+    confirmText?: string
+    danger?: boolean
     /** 霓虹描边主色，默认品红；可传入当前 tab 主题色。 */
-    tabColor?: string;
+    tabColor?: string
   }>(),
-  { icon: "⚠️", confirmText: "确认删除", danger: true, tabColor: "#d946ef" },
-);
+  { icon: '⚠️', confirmText: '确认删除', danger: true, tabColor: '#d946ef' },
+)
 
 const emit = defineEmits<{
-  "update:modelValue": [value: boolean];
-  confirm: [];
-  cancel: [];
-}>();
+  'update:modelValue': [value: boolean]
+  confirm: []
+  cancel: []
+}>()
 
 function close(): void {
-  emit("update:modelValue", false);
-  emit("cancel");
+  emit('update:modelValue', false)
+  emit('cancel')
 }
 function onConfirm(): void {
-  emit("confirm");
-  emit("update:modelValue", false);
+  emit('confirm')
+  emit('update:modelValue', false)
 }
 function onEsc(e: KeyboardEvent): void {
-  if (e.key === "Escape" && props.modelValue) close();
+  if (e.key === 'Escape' && props.modelValue) close()
 }
-onMounted(() => window.addEventListener("keydown", onEsc));
-onBeforeUnmount(() => window.removeEventListener("keydown", onEsc));
+onMounted(() => window.addEventListener('keydown', onEsc))
+onBeforeUnmount(() => window.removeEventListener('keydown', onEsc))
 </script>
 
 <template>
@@ -57,12 +57,16 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onEsc));
           <div class="confirm-body">
             <h3 class="confirm-title">{{ title }}</h3>
             <div v-if="impact" class="confirm-impact">
-              <p v-for="(line, i) in (Array.isArray(impact) ? impact : [impact])" :key="i">{{ line }}</p>
+              <p v-for="(line, i) in Array.isArray(impact) ? impact : [impact]" :key="i">
+                {{ line }}
+              </p>
             </div>
           </div>
           <div class="confirm-actions">
             <button type="button" class="confirm-btn cancel" @click="close">取消</button>
-            <button type="button" class="confirm-btn ok" @click="onConfirm">{{ confirmText }}</button>
+            <button type="button" class="confirm-btn ok" @click="onConfirm">
+              {{ confirmText }}
+            </button>
           </div>
         </div>
       </div>
@@ -71,7 +75,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onEsc));
 </template>
 
 <style scoped lang="less">
-@import "./shared.less";
+@import './shared.less';
 
 .confirm-overlay {
   position: fixed;
@@ -94,11 +98,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onEsc));
   .neon-glass();
   // .neon-border() 内用 fade() 编译期求值，无法吃 CSS 变量；用 color-mix 内联以适配运行时 --tab-color
   border: 1px solid color-mix(in srgb, var(--tab-color, #d946ef) 38%, transparent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--tab-color, #d946ef) 18%, transparent), inset 0 0 6px color-mix(in srgb, var(--tab-color, #d946ef) 8%, transparent);
+  box-shadow:
+    0 0 8px color-mix(in srgb, var(--tab-color, #d946ef) 18%, transparent),
+    inset 0 0 6px color-mix(in srgb, var(--tab-color, #d946ef) 8%, transparent);
   animation: dialog-neon-in 0.22s ease-out;
   &.danger {
     border-color: fade(#ef4444, 45%);
-    box-shadow: 0 0 14px fade(#ef4444, 22%), inset 0 0 8px fade(#ef4444, 8%);
+    box-shadow:
+      0 0 14px fade(#ef4444, 22%),
+      inset 0 0 8px fade(#ef4444, 8%);
   }
 }
 .confirm-icon {
@@ -141,7 +149,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onEsc));
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  transition: filter 0.15s ease, background-color 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    background-color 0.15s ease;
   &.cancel {
     border: 1px solid rgba(36, 38, 45, 0.18);
     background: rgba(255, 255, 255, 0.7);

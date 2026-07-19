@@ -7,74 +7,75 @@
  * 优先级：question > approval > error > work-main > speech。
  *  问题阻塞 LLM 主线程，最高优先级；审批可入队延后处理。
  */
-import { AnimatePresence, motion } from "motion-v";
-import { computed } from "vue";
-import type { VariantType } from "motion-v";
-import ApprovalCard from "@/features/agent/ApprovalCard.vue";
-import QuestionCard from "@/features/agent/QuestionCard.vue";
-import type { StreamState } from "@/stores";
-import type { QuestionItemState } from "@/stores/agents";
-import { findQuestion } from "@/stores/agents/questionBatch";
-import type { PetInstance } from "./types";
+import { AnimatePresence, motion } from 'motion-v'
+import { computed } from 'vue'
+import type { VariantType } from 'motion-v'
+import ApprovalCard from '@/features/agent/ApprovalCard.vue'
+import QuestionCard from '@/features/agent/QuestionCard.vue'
+import type { StreamState } from '@/stores'
+import type { QuestionItemState } from '@/stores/agents'
+import { findQuestion } from '@/stores/agents/questionBatch'
+import type { PetInstance } from './types'
 
-const MotionDiv = motion.div;
+const MotionDiv = motion.div
 
 defineEmits<{
-  bubbleEnter: [];
-  bubbleLeave: [];
-}>();
+  bubbleEnter: []
+  bubbleLeave: []
+}>()
 
 const props = defineProps<{
-  pet: PetInstance;
-  stream?: StreamState;
+  pet: PetInstance
+  stream?: StreamState
   // display state (from useStreamBubble)
-  hasStream: boolean;
-  isBusy: boolean;
-  showWorkMain: boolean;
-  showThinkingButton: boolean;
-  thinkingOnly: boolean;
-  hasContent: boolean;
-  displayThinking: string;
-  displayContent: string;
-  renderedContent: string;
+  hasStream: boolean
+  isBusy: boolean
+  showWorkMain: boolean
+  showThinkingButton: boolean
+  thinkingOnly: boolean
+  hasContent: boolean
+  displayThinking: string
+  displayContent: string
+  renderedContent: string
   // style computeds
-  speechStyle: Record<string, string>;
-  approvalStyle: Record<string, string>;
+  speechStyle: Record<string, string>
+  approvalStyle: Record<string, string>
   // motion configs
   speech: {
-    initial: VariantType;
-    animate: VariantType;
-    exit: VariantType;
-    transition: VariantType["transition"];
-  };
+    initial: VariantType
+    animate: VariantType
+    exit: VariantType
+    transition: VariantType['transition']
+  }
   // scroll handler (from useStreamBubble, bound via workTextRef setter)
-  workTextRef: (el: HTMLElement | null) => void;
-  onWorkTextScroll: (e: Event) => void;
-}>();
+  workTextRef: (el: HTMLElement | null) => void
+  onWorkTextScroll: (e: Event) => void
+}>()
 
 defineSlots<{
-  dialog?: (props: { pet: PetInstance }) => unknown;
-}>();
+  dialog?: (props: { pet: PetInstance }) => unknown
+}>()
 
 /**
  * activeQuestion：根据 stream.activeQuestionId 从 questions[] 查找当前选中问题。
  * batchInfo：当前 question 所属 batch 的进度信息（控制"下一步"vs"提交"按钮）。
  */
-const activeEntry = computed(() => findQuestion(props.stream, props.stream?.activeQuestionId));
-const activeQuestion = computed<QuestionItemState | null>(() => activeEntry.value?.question ?? null);
+const activeEntry = computed(() => findQuestion(props.stream, props.stream?.activeQuestionId))
+const activeQuestion = computed<QuestionItemState | null>(() => activeEntry.value?.question ?? null)
 
 const batchInfo = computed(() => {
-  const entry = activeEntry.value;
-  if (!entry) return null;
+  const entry = activeEntry.value
+  if (!entry) return null
   return {
     batchId: entry.batch.batchId,
     total: entry.batch.questions.length,
-    readyCount: entry.batch.questions.filter((question) => question.localStatus === "ready").length,
+    readyCount: entry.batch.questions.filter((question) => question.localStatus === 'ready').length,
     isLast: !entry.batch.questions.some(
-      (question) => question.questionId !== entry.question.questionId && question.localStatus === "pending",
+      (question) =>
+        question.questionId !== entry.question.questionId && question.localStatus === 'pending',
     ),
-  };
-});
+  }
+})
 </script>
 
 <template>
@@ -133,7 +134,12 @@ const batchInfo = computed(() => {
       @pointerenter="$emit('bubbleEnter')"
       @pointerleave="$emit('bubbleLeave')"
     >
-      <div :ref="(el) => workTextRef(el as HTMLElement | null)" class="work-text" :class="{ 'is-thinking': thinkingOnly }" @scroll="onWorkTextScroll">
+      <div
+        :ref="(el) => workTextRef(el as HTMLElement | null)"
+        class="work-text"
+        :class="{ 'is-thinking': thinkingOnly }"
+        @scroll="onWorkTextScroll"
+      >
         <!-- eslint-disable-next-line vue/no-v-html -- markdown-it html:false 已转义，XSS 安全 -->
         <span v-if="hasContent" class="md" v-html="renderedContent" />
         <template v-else>{{ displayThinking }}</template>
@@ -160,7 +166,7 @@ const batchInfo = computed(() => {
 </template>
 
 <style scoped lang="less">
-@import "@/styles/markdown.less";
+@import '@/styles/markdown.less';
 @ink: #14161a;
 
 .speech {
@@ -180,7 +186,7 @@ const batchInfo = computed(() => {
   transform-origin: center bottom;
 
   &::after {
-    content: "";
+    content: '';
     position: absolute;
     left: 14px;
     bottom: -5px;
@@ -230,12 +236,18 @@ const batchInfo = computed(() => {
     scrollbar-width: thin;
     scrollbar-color: rgba(20, 22, 26, 0.25) transparent;
 
-    &::-webkit-scrollbar { width: 4px; }
-    &::-webkit-scrollbar-track { background: transparent; }
+    &::-webkit-scrollbar {
+      width: 4px;
+    }
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
     &::-webkit-scrollbar-thumb {
       background: rgba(20, 22, 26, 0.25);
       border-radius: 2px;
-      &:hover { background: rgba(20, 22, 26, 0.4); }
+      &:hover {
+        background: rgba(20, 22, 26, 0.4);
+      }
     }
 
     &.is-thinking {
@@ -247,9 +259,18 @@ const batchInfo = computed(() => {
       white-space: normal;
       .md-content();
       // bubble-specific overrides (smaller font for compact pet bubble)
-      :deep(p) { font-size: 10px; }
-      :deep(h1), :deep(h2), :deep(h3), :deep(h4) { font-size: 11px; }
-      :deep(code) { font-size: 9px; }
+      :deep(p) {
+        font-size: 10px;
+      }
+      :deep(h1),
+      :deep(h2),
+      :deep(h3),
+      :deep(h4) {
+        font-size: 11px;
+      }
+      :deep(code) {
+        font-size: 9px;
+      }
     }
   }
 
@@ -310,7 +331,9 @@ const batchInfo = computed(() => {
     transform-origin: bottom right;
     opacity: 0;
     pointer-events: none;
-    transition: transform 180ms ease, opacity 140ms ease;
+    transition:
+      transform 180ms ease,
+      opacity 140ms ease;
   }
 }
 

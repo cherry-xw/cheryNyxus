@@ -1,22 +1,22 @@
-import { MiddlewarePipeline } from "./middlewarePipeline";
-import { MessageJournal } from "./messageJournal";
+import { MiddlewarePipeline } from './middlewarePipeline'
+import { MessageJournal } from './messageJournal'
 import type {
   MiddlewareContext,
   RuntimeConfig,
   MiddlewareHandler,
   LoopHandler,
   SoulGroup,
-} from "./types";
-import type { LLMResponse } from "../message/adapter";
-import type { GlobalConfig } from "@/utils/config";
-import { logger } from "@/utils/logger/index.js";
-import { getSenseRegistryVersion } from "../sense/senseRegistry.js";
+} from './types'
+import type { LLMResponse } from '../message/adapter'
+import type { GlobalConfig } from '@/utils/config'
+import { logger } from '@/utils/logger/index.js'
+import { getSenseRegistryVersion } from '../sense/senseRegistry.js'
 
-export * from "./types";
-export type { MiddlewareHandler, LoopHandler };
+export * from './types'
+export type { MiddlewareHandler, LoopHandler }
 // 重新导出 MessageJournal / MiddlewarePipeline 供扩展与测试直接使用
-export { MessageJournal } from "./messageJournal";
-export { MiddlewarePipeline } from "./middlewarePipeline";
+export { MessageJournal } from './messageJournal'
+export { MiddlewarePipeline } from './middlewarePipeline'
 
 /**
  * AgentSession - 单 chat 的 agent 会话。
@@ -30,13 +30,13 @@ export { MiddlewarePipeline } from "./middlewarePipeline";
  * 拆分后 service 层通过 AgentSession 门面调用，角色推断集中到 MessageJournal。
  */
 export default class AgentSession<T = unknown> {
-  private readonly ctx: MiddlewareContext;
-  private readonly journal: MessageJournal;
-  private readonly pipeline: MiddlewarePipeline<T>;
-  private inited = false;
-  private runtime?: RuntimeConfig;
+  private readonly ctx: MiddlewareContext
+  private readonly journal: MessageJournal
+  private readonly pipeline: MiddlewarePipeline<T>
+  private inited = false
+  private runtime?: RuntimeConfig
   /** configureRuntime 时快照的 senseRegistry 版本（send/resume 入口比对，P1-6） */
-  private senseTableVersion = 0;
+  private senseTableVersion = 0
 
   constructor(
     global: GlobalConfig,
@@ -44,29 +44,29 @@ export default class AgentSession<T = unknown> {
     loopHandler?: LoopHandler<T>,
   ) {
     const soul: SoulGroup = {
-      chatId: "",
+      chatId: '',
       senseSharedData: new Map(),
       userInputs: [],
       messages: [],
-    };
-    this.journal = new MessageJournal(soul, logger);
-    this.ctx = { soul, global, log: logger, journal: this.journal };
+    }
+    this.journal = new MessageJournal(soul, logger)
+    this.ctx = { soul, global, log: logger, journal: this.journal }
     // P2-4：runtime 由 configureRuntime 原子填充，send 前 requireRuntime 校验。
     //       未配置为 undefined（消除原 {} as RuntimeConfig 类型谎言）。
-    this.pipeline = new MiddlewarePipeline(handlers, loopHandler, this.ctx);
+    this.pipeline = new MiddlewarePipeline(handlers, loopHandler, this.ctx)
   }
 
   /**
    * 初始化中间件（绑定 chatId，接收上层构建好的初始消息）。
    */
   init(chatId: string, messages: LLMResponse[]) {
-    if (this.inited) return;
-    this.inited = true;
+    if (this.inited) return
+    this.inited = true
 
-    this.ctx.soul.chatId = chatId;
-    this.ctx.soul.messages!.push(...messages);
+    this.ctx.soul.chatId = chatId
+    this.ctx.soul.messages!.push(...messages)
 
-    return chatId;
+    return chatId
   }
 
   /**
@@ -74,9 +74,9 @@ export default class AgentSession<T = unknown> {
    * brain/adapters/builtSenses/senseTable 必须来自同一次上层解析，避免 provider 与工具定义混用。
    */
   configureRuntime(runtime: RuntimeConfig): void {
-    this.runtime = runtime;
-    this.ctx.runtime = runtime;
-    this.senseTableVersion = getSenseRegistryVersion();
+    this.runtime = runtime
+    this.ctx.runtime = runtime
+    this.senseTableVersion = getSenseRegistryVersion()
   }
 
   /**
@@ -84,7 +84,7 @@ export default class AgentSession<T = unknown> {
    * send/resume 入口比对，stale 则重建 senseTable（见 runtime.ts ensureChat）。
    */
   isSenseTableStale(): boolean {
-    return this.senseTableVersion !== getSenseRegistryVersion();
+    return this.senseTableVersion !== getSenseRegistryVersion()
   }
 
   /**
@@ -101,20 +101,20 @@ export default class AgentSession<T = unknown> {
     input: string,
     options?: { extraUserMessages?: string[] },
   ): AsyncGenerator<T, void, unknown> {
-    this.requireInitialized();
-    this.requireRuntime();
+    this.requireInitialized()
+    this.requireRuntime()
 
-    const compactRequested = /\[\[command:\/compact\]\]/.test(input);
+    const compactRequested = /\[\[command:\/compact\]\]/.test(input)
     // 命令正文入队顺序：extra[0] 先入队 → 主 input 最后入队 → LLM 按 FIFO 消费
-    const extras = options?.extraUserMessages;
+    const extras = options?.extraUserMessages
     if (extras && extras.length > 0) {
       for (const extra of extras) {
-        this.journal.appendUserInput(extra);
+        this.journal.appendUserInput(extra)
       }
     }
-    this.journal.appendUserInput(input);
-    yield* this.pipeline.run();
-    if (compactRequested) this.journal.compactToLatestSummary();
+    this.journal.appendUserInput(input)
+    yield* this.pipeline.run()
+    if (compactRequested) this.journal.compactToLatestSummary()
   }
 
   /**
@@ -123,7 +123,7 @@ export default class AgentSession<T = unknown> {
    * 需 observer finally 兜底同步到 DB（见 observeAgentChunks）。
    */
   getMessages(): LLMResponse[] {
-    return this.journal.getMessages();
+    return this.journal.getMessages()
   }
 
   /**
@@ -132,7 +132,7 @@ export default class AgentSession<T = unknown> {
    * @returns 新消息 id
    */
   appendRoleReply(content: string): string {
-    return this.journal.appendRoleReply(content).id;
+    return this.journal.appendRoleReply(content).id
   }
 
   /**
@@ -142,8 +142,8 @@ export default class AgentSession<T = unknown> {
    * @returns true=原地更新命中（预期路径）；false=消息不存在（创建了新条目，异常情况）
    */
   completeSenseResult(senseId: string, content: string): boolean {
-    const mutation = this.journal.completeSense({ id: senseId, content });
-    return mutation.type === "updated";
+    const mutation = this.journal.completeSense({ id: senseId, content })
+    return mutation.type === 'updated'
   }
 
   /**
@@ -151,7 +151,7 @@ export default class AgentSession<T = unknown> {
    * 委托 MessageJournal（角色推断集中）。
    */
   revokeTrailingCycle(): string[] {
-    return this.journal.revokeTrailingCycle();
+    return this.journal.revokeTrailingCycle()
   }
 
   /**
@@ -159,17 +159,17 @@ export default class AgentSession<T = unknown> {
    * chat.resume 据此判断 Case1（有 pending → 续接执行）vs Case2（全 done → 进 loop）。
    */
   hasPendingTrailingSense(): boolean {
-    return this.journal.hasPendingTrailingSense();
+    return this.journal.hasPendingTrailingSense()
   }
 
   /** 设置续接标志（chat.resume Case1：首轮 senseMiddleware skip chat 层）。 */
   setResumePending(value: boolean): void {
-    this.journal.setResumePending(value);
+    this.journal.setResumePending(value)
   }
 
   /** 是否有活跃会话迭代器（service 层判断 send 恢复撤回仅在 idle 时触发）。 */
   isRunning(): boolean {
-    return this.pipeline.isRunning();
+    return this.pipeline.isRunning()
   }
 
   /**
@@ -179,7 +179,7 @@ export default class AgentSession<T = unknown> {
    * 下次 chat.get canResume=true 重新审核。
    */
   abort(): void {
-    this.pipeline.abort();
+    this.pipeline.abort()
   }
 
   /**
@@ -187,16 +187,14 @@ export default class AgentSession<T = unknown> {
    */
   private requireInitialized(): void {
     if (!this.inited || !this.ctx.soul.chatId) {
-      throw new Error("Chat not initialized. Call init() before send().");
+      throw new Error('Chat not initialized. Call init() before send().')
     }
   }
 
   private requireRuntime(): void {
-    const r = this.runtime;
+    const r = this.runtime
     if (!r || !r.brain || !r.adapters || !r.builtSenses || !r.senseTable) {
-      throw new Error(
-        "Runtime not fully configured. Call configureRuntime() before send().",
-      );
+      throw new Error('Runtime not fully configured. Call configureRuntime() before send().')
     }
   }
 }

@@ -5,4 +5,4 @@
  * [App.vue] / [agentApi.ts] 等 5 处历史 import 路径不变。新代码请直接 import
  * 自 `./platform`。
  */
-export { httpUrl } from "./platform";
+export { httpUrl } from './platform'

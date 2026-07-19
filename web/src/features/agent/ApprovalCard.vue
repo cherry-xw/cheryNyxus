@@ -12,57 +12,54 @@
  *        → rejected notification 清 stream.approval 卸载。waitTime=0 不超时不显倒计时。
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
-import { computed, onBeforeUnmount, ref } from "vue";
-import { agentApi } from "@/services/agentApi";
-import { useAgentsStore } from "@/stores";
-import type { ApprovalState } from "@/stores/agents";
-import ParsedArgs from "./ParsedArgs.vue";
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { agentApi } from '@/services/agentApi'
+import { useAgentsStore } from '@/stores'
+import type { ApprovalState } from '@/stores/agents'
+import ParsedArgs from './ParsedArgs.vue'
 
 const props = defineProps<{
-  approval: ApprovalState;
+  approval: ApprovalState
   /** 审批所属 chatId（submit 后 dismissApproval 用） */
-  chatId: string;
-}>();
+  chatId: string
+}>()
 
-const agents = useAgentsStore();
+const agents = useAgentsStore()
 
 // 待执行动作（请求中两按钮都禁用防双击；null = idle）
-const pending = ref<"accept" | "reject" | null>(null);
+const pending = ref<'accept' | 'reject' | null>(null)
 
 // 倒计时：now 每 250ms 刷新驱动 remaining 重算。waitTime=0 不超时不启动定时器。
-const now = ref(Date.now());
-let timer: ReturnType<typeof setInterval> | undefined;
+const now = ref(Date.now())
+let timer: ReturnType<typeof setInterval> | undefined
 if (props.approval.waitTime > 0) {
   timer = setInterval(() => {
-    now.value = Date.now();
-  }, 250);
+    now.value = Date.now()
+  }, 250)
 }
 onBeforeUnmount(() => {
-  if (timer !== undefined) clearInterval(timer);
-});
+  if (timer !== undefined) clearInterval(timer)
+})
 
-const showCountdown = computed(() => props.approval.waitTime > 0);
+const showCountdown = computed(() => props.approval.waitTime > 0)
 const remainingMs = computed(() =>
   Math.max(0, props.approval.waitTime - (now.value - props.approval.createdAt)),
-);
-const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000));
+)
+const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000))
 // 倒计时归零：后端超时 reject 已触发，按钮禁用等 rejected notification 卸载
-const expired = computed(() => showCountdown.value && remainingMs.value <= 0);
+const expired = computed(() => showCountdown.value && remainingMs.value <= 0)
 
-async function submit(action: "accept" | "reject"): Promise<void> {
-  if (pending.value !== null) return;
-  pending.value = action;
+async function submit(action: 'accept' | 'reject'): Promise<void> {
+  if (pending.value !== null) return
+  pending.value = action
   try {
-    await agentApi.approval(props.approval.approvalId, action);
+    await agentApi.approval(props.approval.approvalId, action)
     // 立即关闭：dismissApproval 清 stream.approval → 组件 v-if 卸载；自动 pop 下一个
-    agents.dismissApproval(props.chatId);
+    agents.dismissApproval(props.chatId)
   } catch (e) {
     // 规则 12 fail loud：上报并复位允许重试
-    console.error(
-      `[ApprovalCard] approval ${action} failed (id=${props.approval.approvalId}):`,
-      e,
-    );
-    pending.value = null;
+    console.error(`[ApprovalCard] approval ${action} failed (id=${props.approval.approvalId}):`, e)
+    pending.value = null
   }
 }
 
@@ -72,8 +69,8 @@ async function submit(action: "accept" | "reject"): Promise<void> {
  * 不调 RPC（未告知服务端）；服务端超时后会通过 rejected notification 清理。
  */
 function closeToQueue(): void {
-  if (pending.value !== null) return; // 请求中禁止关闭，避免双触发
-  agents.dismissApprovalToQueue(props.chatId);
+  if (pending.value !== null) return // 请求中禁止关闭，避免双触发
+  agents.dismissApprovalToQueue(props.chatId)
 }
 </script>
 
@@ -94,7 +91,9 @@ function closeToQueue(): void {
         aria-label="关闭审批（保留到队列）"
         title="关闭审批（保留到队列，可从 pet icon 重新唤起）"
         @click="closeToQueue"
-      >✕</button>
+      >
+        ✕
+      </button>
     </div>
     <ParsedArgs :args="approval.args" />
     <div class="actions">
@@ -103,13 +102,17 @@ function closeToQueue(): void {
         class="btn accept"
         :disabled="pending !== null || expired"
         @click="submit('accept')"
-      >Accept</button>
+      >
+        Accept
+      </button>
       <button
         type="button"
         class="btn reject"
         :disabled="pending !== null || expired"
         @click="submit('reject')"
-      >Reject</button>
+      >
+        Reject
+      </button>
     </div>
   </div>
 </template>
@@ -177,7 +180,9 @@ function closeToQueue(): void {
     font-weight: 700;
     line-height: 1;
     cursor: pointer;
-    transition: background 100ms ease, color 100ms ease;
+    transition:
+      background 100ms ease,
+      color 100ms ease;
 
     &:hover:not(:disabled) {
       background: #fff;

@@ -1,4 +1,4 @@
-import { createHash } from "crypto";
+import { createHash } from 'crypto'
 
 /**
  * 生成 SHA256 hash（柯里化函数）
@@ -11,6 +11,8 @@ import { createHash } from "crypto";
  * hashGenerator('skill', name) // -> "skill::name"
  */
 export function hashGenerator(...parts: string[]): string {
-  const [prefix, ...rest] = parts;
-  return createHash("sha256").update(`${prefix}::${rest.join(":")}`).digest("hex");
+  const [prefix, ...rest] = parts
+  return createHash('sha256')
+    .update(`${prefix}::${rest.join(':')}`)
+    .digest('hex')
 }

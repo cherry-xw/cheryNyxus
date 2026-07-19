@@ -13,85 +13,93 @@
  *
  * 不处理交互（历史只读），不修改 store 状态（符合 RendererProps 契约）。
  */
-import { computed } from "vue";
-import type { RendererProps } from "./types";
-import type { SenseCallRecord } from "@/stores/agents";
+import { computed } from 'vue'
+import type { RendererProps } from './types'
+import type { SenseCallRecord } from '@/stores/agents'
 
 interface Option {
-  label: string;
-  description?: string;
+  label: string
+  description?: string
 }
 
 interface Args {
-  question: string;
-  header?: string;
-  options: Option[];
-  multiSelect?: boolean;
+  question: string
+  header?: string
+  options: Option[]
+  multiSelect?: boolean
 }
 
 /** call.args 解析（后端契约：JSON 字符串；防御性兼容对象）。 */
 function parseArgs(call: SenseCallRecord): Args | null {
   try {
-    const raw = typeof call.args === "string" ? call.args : JSON.stringify(call.args ?? {});
-    const obj = JSON.parse(raw) as Partial<Args>;
-    if (typeof obj.question !== "string" || !Array.isArray(obj.options)) return null;
+    const raw = typeof call.args === 'string' ? call.args : JSON.stringify(call.args ?? {})
+    const obj = JSON.parse(raw) as Partial<Args>
+    if (typeof obj.question !== 'string' || !Array.isArray(obj.options)) return null
     return {
       question: obj.question,
-      header: typeof obj.header === "string" ? obj.header : undefined,
-      options: obj.options.filter((o): o is Option => typeof o?.label === "string"),
+      header: typeof obj.header === 'string' ? obj.header : undefined,
+      options: obj.options.filter((o): o is Option => typeof o?.label === 'string'),
       multiSelect: obj.multiSelect === true,
-    };
+    }
   } catch (e) {
-    console.warn("[QuestionRenderer] args 解析失败", e);
-    return null;
+    console.warn('[QuestionRenderer] args 解析失败', e)
+    return null
   }
 }
 
-const props = defineProps<RendererProps>();
+const props = defineProps<RendererProps>()
 
-const args = computed(() => parseArgs(props.call));
+const args = computed(() => parseArgs(props.call))
 
 type AnswerState =
-  | { kind: "running" }
-  | { kind: "cancelled" }
-  | { kind: "missing" }
-  | { kind: "other"; text: string }
-  | { kind: "labels"; labels: string[] };
+  | { kind: 'running' }
+  | { kind: 'cancelled' }
+  | { kind: 'missing' }
+  | { kind: 'other'; text: string }
+  | { kind: 'labels'; labels: string[] }
 
 /** 从 result 字符串反推答案状态（匹配 ask.ts:45-48 的三种返回格式）。 */
 const answerState = computed<AnswerState>(() => {
-  if (props.call.status === "running") return { kind: "running" };
-  const r = props.call.result;
-  if (typeof r !== "string") return { kind: "missing" };
-  if (r === "(用户取消了此问题)") return { kind: "cancelled" };
-  const prefix = "用户回答: ";
-  if (!r.startsWith(prefix)) return { kind: "missing" };
-  const body = r.slice(prefix.length);
-  if (body.startsWith("其他: ")) return { kind: "other", text: body.slice(4) };
+  if (props.call.status === 'running') return { kind: 'running' }
+  const r = props.call.result
+  if (typeof r !== 'string') return { kind: 'missing' }
+  if (r === '(用户取消了此问题)') return { kind: 'cancelled' }
+  const prefix = '用户回答: '
+  if (!r.startsWith(prefix)) return { kind: 'missing' }
+  const body = r.slice(prefix.length)
+  if (body.startsWith('其他: ')) return { kind: 'other', text: body.slice(4) }
   // 单选/多选用 ", " 拆分；注意：label 内若含逗号会误拆，ask.ts 后端未转义，此处保持与后端一致的解析
-  const labels = body.split(", ").map((s) => s.trim()).filter(Boolean);
-  return { kind: "labels", labels };
-});
+  const labels = body
+    .split(', ')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return { kind: 'labels', labels }
+})
 
 /** 当前 chip 是否高亮为"用户选中"。 */
 function isSelected(label: string): boolean {
-  const s = answerState.value;
-  if (s.kind === "labels") return s.labels.includes(label);
-  if (s.kind === "other") return label === "其他";
-  return false;
+  const s = answerState.value
+  if (s.kind === 'labels') return s.labels.includes(label)
+  if (s.kind === 'other') return label === '其他'
+  return false
 }
 
 /** header 右侧 AnswerBadge 文案 + 样式类。 */
 const answerBadge = computed<{ text: string; cls: string }>(() => {
-  const s = answerState.value;
+  const s = answerState.value
   switch (s.kind) {
-    case "running":   return { text: "等待中…", cls: "badge-running" };
-    case "cancelled": return { text: "已取消", cls: "badge-cancelled" };
-    case "missing":   return { text: "无回答", cls: "badge-missing" };
-    case "other":     return { text: `已回答 · 其他: ${s.text}`, cls: "badge-answered" };
-    case "labels":    return { text: `已回答 · ${s.labels.join(", ")}`, cls: "badge-answered" };
+    case 'running':
+      return { text: '等待中…', cls: 'badge-running' }
+    case 'cancelled':
+      return { text: '已取消', cls: 'badge-cancelled' }
+    case 'missing':
+      return { text: '无回答', cls: 'badge-missing' }
+    case 'other':
+      return { text: `已回答 · 其他: ${s.text}`, cls: 'badge-answered' }
+    case 'labels':
+      return { text: `已回答 · ${s.labels.join(', ')}`, cls: 'badge-answered' }
   }
-});
+})
 </script>
 
 <template>
@@ -115,7 +123,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
       </span>
     </div>
     <!-- 解析失败降级：显示原始 result -->
-    <pre v-if="!args" class="q-fallback">{{ call.result ?? "(无数据)" }}</pre>
+    <pre v-if="!args" class="q-fallback">{{ call.result ?? '(无数据)' }}</pre>
   </div>
 </template>
 
@@ -238,7 +246,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -246,7 +254,12 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 }
 
 @keyframes q-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 </style>

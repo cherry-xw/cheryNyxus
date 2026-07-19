@@ -1,5 +1,5 @@
-import { z } from "zod";
-import { Method, type Method as MethodName, type ParamsOf } from "./types.js";
+import { z } from 'zod'
+import { Method, type Method as MethodName, type ParamsOf } from './types.js'
 
 /**
  * RPC 请求参数 zod schema（每 method 一个）。
@@ -9,49 +9,63 @@ import { Method, type Method as MethodName, type ParamsOf } from "./types.js";
  * schema 与 types.ts 的 *RequestData interface 一一对应（字段/可选性同步）。
  */
 
-const chatIdSchema = z.object({ chatId: z.string() });
-const emptySchema = z.object({}).strict();
+const chatIdSchema = z.object({ chatId: z.string() })
+const emptySchema = z.object({}).strict()
 
 /** mcpServers 缺省 []：旧 client 不携带视为关闭所有 MCP（向后兼容） */
-const mcpServersSchema = z.array(z.string()).optional();
+const mcpServersSchema = z.array(z.string()).optional()
 const runtimeSelectionSchema = z.object({
   brain: z.string(),
   senseGroup: z.string().optional(),
   mcpServers: mcpServersSchema,
-});
+})
 
 // ---------- config.save schema（结构与 ConfigRaw 一一对应，除 server 段）----------
 
-const supervisionNameSchema = z.enum(["auto", "confirm", "manual"]);
+const supervisionNameSchema = z.enum(['auto', 'confirm', 'manual'])
 
 const brainSchema = z.object({
   url: z.string().optional(),
   model: z.string(),
   key: z.string().optional(),
   /** ThinkingLevel（off/on/low/medium/high）；兼容 legacy boolean（true/false），由 normalizeBrainThinking 归一。对齐 BrainConfig.thinking */
-  thinking: z.union([z.enum(["off", "on", "low", "medium", "high"]), z.boolean()]).optional(),
+  thinking: z.union([z.enum(['off', 'on', 'low', 'medium', 'high']), z.boolean()]).optional(),
   provider: z.string(),
   rpm: z.number().optional(),
   mock: z.object({ enabled: z.boolean().optional(), file: z.string() }).optional(),
   contextLimit: z.number().optional(),
-  capabilities: z.object({
-    toolCall: z.boolean().optional(),
-    input: z.object({ image: z.boolean().optional(), video: z.boolean().optional(), audio: z.boolean().optional() }).optional(),
-    generate: z.object({ image: z.boolean().optional(), video: z.boolean().optional(), audio: z.boolean().optional() }).optional(),
-  }).optional(),
-});
+  capabilities: z
+    .object({
+      toolCall: z.boolean().optional(),
+      input: z
+        .object({
+          image: z.boolean().optional(),
+          video: z.boolean().optional(),
+          audio: z.boolean().optional(),
+        })
+        .optional(),
+      generate: z
+        .object({
+          image: z.boolean().optional(),
+          video: z.boolean().optional(),
+          audio: z.boolean().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+})
 
 const mediaServiceSchema = z.object({
-  type: z.enum(["image", "video", "audio"]),
+  type: z.enum(['image', 'video', 'audio']),
   url: z.string(),
   model: z.string().optional(),
   key: z.string().optional(),
   enabled: z.boolean().optional(),
   maxUploadMb: z.number().positive().optional(),
-});
+})
 
 /** media：命名实体集合（name → 配置），非旧 3-slot 结构。 */
-const mediaSchema = z.record(z.string(), mediaServiceSchema).optional();
+const mediaSchema = z.record(z.string(), mediaServiceSchema).optional()
 
 /** 项目记忆双层配置（global 跨 chat 共享 · workspace per chat）；字段均 optional。沿用 utils/config.ts MemoryLimits/MemoryConfig 形状 */
 const memoryLimitsSchema = z
@@ -59,35 +73,35 @@ const memoryLimitsSchema = z
     max_count: z.number().min(1).optional(),
     max_chars: z.number().min(1).optional(),
   })
-  .optional();
+  .optional()
 
 const memorySchema = z
   .object({
     global: memoryLimitsSchema,
     workspace: memoryLimitsSchema,
   })
-  .optional();
+  .optional()
 
 const loggerSchema = z.object({
-  level: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
-  output: z.array(z.enum(["console", "file"])).optional(),
+  level: z.enum(['debug', 'info', 'warn', 'error', 'silent']).optional(),
+  output: z.array(z.enum(['console', 'file'])).optional(),
   timestamp: z.boolean().optional(),
   location: z.boolean().optional(),
-  format: z.enum(["plain", "json"]).optional(),
-});
+  format: z.enum(['plain', 'json']).optional(),
+})
 
 const fileCompressionSchema = z.object({
   truncate_threshold: z.number().optional(),
   truncate_preview_lines: z.number().optional(),
   log_file_extensions: z.array(z.string()).optional(),
   drain_preview_count: z.number().optional(),
-});
+})
 
 /** Threshold{unit,value}：percent value ∈ [0,1]、tokens value ≥ 0（对齐 utils/config.ts Threshold） */
 const thresholdSchema = z.object({
-  unit: z.enum(["tokens", "percent"]),
+  unit: z.enum(['tokens', 'percent']),
   value: z.number(),
-});
+})
 
 /** command 配置（compact 阈值等）；对齐 utils/config.ts CommandConfig */
 const commandConfigSchema = z.object({
@@ -95,7 +109,7 @@ const commandConfigSchema = z.object({
   auto: thresholdSchema.optional(),
   min_context_limit: z.number().optional(),
   safety_margin: z.number().optional(),
-});
+})
 
 const globalSchema = z.object({
   thinking: z.boolean(),
@@ -109,16 +123,16 @@ const globalSchema = z.object({
   file_compression: fileCompressionSchema.optional(),
   logger: loggerSchema.optional(),
   command: commandConfigSchema.optional(),
-});
+})
 
 const mcpServerConfigSchema = z.object({
-  transport: z.enum(["stdio", "streamable-http"]),
+  transport: z.enum(['stdio', 'streamable-http']),
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
   url: z.string().optional(),
   supervision: supervisionNameSchema.optional(),
-});
+})
 
 /** config.save 入参：除 server 外全部字段；顶层 strict 拒 server 等多余键 */
 const configSaveSchema = z
@@ -159,7 +173,7 @@ const configSaveSchema = z
       .optional(),
     memory: memorySchema,
   })
-  .strict();
+  .strict()
 
 export const requestSchemas = {
   [Method.BRAIN_LIST]: emptySchema,
@@ -208,7 +222,7 @@ export const requestSchemas = {
       .array(
         z.object({
           assetId: z.string(),
-          kind: z.enum(["image", "video", "audio"]),
+          kind: z.enum(['image', 'video', 'audio']),
           mimeType: z.string(),
         }),
       )
@@ -222,7 +236,7 @@ export const requestSchemas = {
   [Method.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
   [Method.SENSE_APPROVAL]: z.object({
     approvalId: z.string(),
-    action: z.enum(["accept", "reject"]),
+    action: z.enum(['accept', 'reject']),
     reason: z.string().optional(),
   }),
   [Method.SENSE_QUESTION_ANSWER]: z.object({
@@ -234,12 +248,16 @@ export const requestSchemas = {
   [Method.SENSE_QUESTION_BATCH_ANSWER]: z.object({
     chatId: z.string(),
     batchId: z.string(),
-    answers: z.array(z.object({
-      questionId: z.string(),
-      selectedLabels: z.array(z.string()),
-      freeText: z.string().optional(),
-      cancelled: z.boolean().optional(),
-    })).min(1),
+    answers: z
+      .array(
+        z.object({
+          questionId: z.string(),
+          selectedLabels: z.array(z.string()),
+          freeText: z.string().optional(),
+          cancelled: z.boolean().optional(),
+        }),
+      )
+      .min(1),
   }),
   [Method.CHAT_ABORT]: z.object({
     chatId: z.string(),
@@ -297,7 +315,9 @@ export const requestSchemas = {
       label: z.string().optional(),
       proxy: z.string().optional(),
     })
-    .refine((d) => !(d.credentialId && d.password), { message: "credentialId 与 inline password 互斥" }),
+    .refine((d) => !(d.credentialId && d.password), {
+      message: 'credentialId 与 inline password 互斥',
+    }),
   [Method.SKILLS_COMMIT]: z.object({
     stagingId: z.string().min(1),
     selections: z.array(z.object({ name: z.string().min(1), import: z.boolean() })),
@@ -329,7 +349,9 @@ export const requestSchemas = {
       pluginName: z.string().min(1).optional(),
       proxy: z.string().optional(),
     })
-    .refine((d) => !(d.credentialId && d.password), { message: "credentialId 与 inline password 互斥" }),
+    .refine((d) => !(d.credentialId && d.password), {
+      message: 'credentialId 与 inline password 互斥',
+    }),
   [Method.PLUGINS_COMMIT]: z.object({ stagingId: z.string().min(1), overwrite: z.boolean() }),
   [Method.PLUGINS_CHECK_UPDATE]: z.object({ name: z.string().min(1) }),
   [Method.PLUGINS_CHECK_ALL_UPDATES]: emptySchema,
@@ -343,11 +365,13 @@ export const requestSchemas = {
     password: z.string().min(1),
   }),
   [Method.CREDENTIALS_DELETE]: z.object({ id: z.string().min(1) }),
-} as const satisfies Record<Method, z.ZodTypeAny>;
+} as const satisfies Record<Method, z.ZodTypeAny>
 
 /**
  * 按 method 取请求 schema。未知 method 返回 undefined（router 先查 handler 存在性，再校验）。
  */
-export function requestSchemaFor<M extends MethodName>(method: M): z.ZodType<ParamsOf<M>> | undefined {
-  return requestSchemas[method] as z.ZodType<ParamsOf<M>> | undefined;
+export function requestSchemaFor<M extends MethodName>(
+  method: M,
+): z.ZodType<ParamsOf<M>> | undefined {
+  return requestSchemas[method] as z.ZodType<ParamsOf<M>> | undefined
 }

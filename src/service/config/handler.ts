@@ -1,4 +1,4 @@
-import type { RpcRouter, HandlerContext } from "../message/router.js";
+import type { RpcRouter, HandlerContext } from '../message/router.js'
 import {
   Method,
   ErrorCode,
@@ -11,10 +11,10 @@ import {
   type ConfigWorkspaceValidateResponseData,
   type ConfigSaveRequestData,
   type ConfigSaveResponseData,
-} from "../message/types.js";
-import { readRawConfig, saveRawConfig, validateWorkspacePath } from "@/utils/config.js";
-import { logger } from "@/utils/logger/index.js";
-import { requestRestartWhenIdle } from "@/service/restartCoordinator.js";
+} from '../message/types.js'
+import { readRawConfig, saveRawConfig, validateWorkspacePath } from '@/utils/config.js'
+import { logger } from '@/utils/logger/index.js'
+import { requestRestartWhenIdle } from '@/service/restartCoordinator.js'
 
 /**
  * Config 设置 RPC handler。
@@ -30,9 +30,9 @@ async function handleConfigGet(
   _ctx: HandlerContext,
   _data: ConfigGetRequestData,
 ): Promise<ConfigGetResponseData> {
-  const raw = readRawConfig();
-  logger.event("config.get", { brains: Object.keys(raw.llm?.brain ?? {}).length });
-  return raw;
+  const raw = readRawConfig()
+  logger.event('config.get', { brains: Object.keys(raw.llm?.brain ?? {}).length })
+  return raw
 }
 
 /** config.workspace.validate：为设置页提供后端主机上的只读目录校验。 */
@@ -40,7 +40,7 @@ async function handleConfigWorkspaceValidate(
   _ctx: HandlerContext,
   data: ConfigWorkspaceValidateRequestData,
 ): Promise<ConfigWorkspaceValidateResponseData> {
-  return validateWorkspacePath(data.workspace);
+  return validateWorkspacePath(data.workspace)
 }
 
 /** config.save：校验 + 写回；成功后安排空闲重启。 */
@@ -48,28 +48,28 @@ export async function handleConfigSave(
   ctx: HandlerContext,
   data: ConfigSaveRequestData,
 ): Promise<ConfigSaveResponseData | Response> {
-  const rid = ctx.requestId ?? "";
-  const result = saveRawConfig(data);
+  const rid = ctx.requestId ?? ''
+  const result = saveRawConfig(data)
   if (!result.ok) {
     // errors（硬错误）+ warnings（软错误，如 workspace 路径无效）合并展示给 UI；
     // 仅 warnings 时也阻止写盘（提示用户修正）。
-    const combined = [...result.errors, ...(result.warnings ?? [])];
+    const combined = [...result.errors, ...(result.warnings ?? [])]
     return createResponse(
       rid,
       false,
       undefined,
-      createError(ErrorCode.INVALID_PARAMS, combined.join("\n")),
-    );
+      createError(ErrorCode.INVALID_PARAMS, combined.join('\n')),
+    )
   }
   // logger 在统一边界递归脱敏 key/token/secret/env 等字段。
-  logger.event("config.save", { config: data });
-  return { needRestart: true, restart: requestRestartWhenIdle() };
+  logger.event('config.save', { config: data })
+  return { needRestart: true, restart: requestRestartWhenIdle() }
 }
 
 export function registerConfigHandlers(router: RpcRouter): void {
-  router.register(Method.CONFIG_GET, handleConfigGet);
-  router.register(Method.CONFIG_WORKSPACE_VALIDATE, handleConfigWorkspaceValidate);
-  router.register(Method.CONFIG_SAVE, handleConfigSave);
+  router.register(Method.CONFIG_GET, handleConfigGet)
+  router.register(Method.CONFIG_WORKSPACE_VALIDATE, handleConfigWorkspaceValidate)
+  router.register(Method.CONFIG_SAVE, handleConfigSave)
 }
 
-export { handleConfigWorkspaceValidate };
+export { handleConfigWorkspaceValidate }

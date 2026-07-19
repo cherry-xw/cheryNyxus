@@ -21,39 +21,39 @@
 /** role_created notification data（推送契约，前端依赖） */
 export interface RoleCreatedData {
   /** 持久任务 id；前端以 chat.startSpawn 原子领取，重放不会重复执行。 */
-  taskId: string;
+  taskId: string
   /** 子 chat id（前端据此驱动子 chat） */
-  chatId: string;
+  chatId: string
   /** 主 chat id（前端溯源 pet 树） */
-  parentChatId: string;
+  parentChatId: string
   /** 角色类型（config.roles / preset.roles 键名） */
-  type: string;
+  type: string
   /** 角色头像（显式配置或按 type 稳定生成）。 */
-  avatar: string;
+  avatar: string
   /** 交付角色的任务 prompt */
-  prompt: string;
+  prompt: string
   /** 角色用的 brain 名 */
-  brain: string;
+  brain: string
   /** 角色启用的感官组（单组） */
-  senseGroup: string;
+  senseGroup: string
   /** wait 标记（2026-07-09 后为信息性：wait=true/false 创建路径一致，前端均跑子；wait=true 子完成由 role_reply 唤主） */
-  wait: boolean;
+  wait: boolean
   /**
    * 触发本次 spawn 的 sense call id（= 主 chat sense message.id）。
    * 前端收 role_created/role_reply 时据此前往主 chat 对应 sense 调用框（scroll-to）。
    * 旧 chat 无此字段时 undefined（前端兜底）。
    */
-  spawnSenseCallId?: string;
+  spawnSenseCallId?: string
 }
 
 /** role_destroyed notification data（推送契约，前端 Agent A 依赖） */
 export interface RoleDestroyedData {
   /** 被销毁的子 chat id（前端据此移除子 pet） */
-  chatId: string;
+  chatId: string
 }
 
 /** 角色生命周期事件判别（service installer 据此选 notification.type） */
-export type RoleEventKind = "created" | "destroyed";
+export type RoleEventKind = 'created' | 'destroyed'
 
 /**
  * Broadcaster：把角色生命周期事件送到主 chat 所属连接的 ws。
@@ -64,16 +64,16 @@ export type SpawnBroadcaster = (
   parentChatId: string,
   kind: RoleEventKind,
   data: RoleCreatedData | RoleDestroyedData,
-) => void;
+) => void
 
 /** broadcaster（service 层启动时注入；未注入时 emit 静默丢弃 + warn 日志） */
-let broadcaster: SpawnBroadcaster | null = null;
+let broadcaster: SpawnBroadcaster | null = null
 
 /**
  * 注入 ws 推送实现（service/index.ts 启动期调用）。
  */
 export function setSpawnBroadcaster(fn: SpawnBroadcaster): void {
-  broadcaster = fn;
+  broadcaster = fn
 }
 
 /**
@@ -82,11 +82,11 @@ export function setSpawnBroadcaster(fn: SpawnBroadcaster): void {
  */
 export function emitRoleCreated(data: RoleCreatedData): void {
   if (broadcaster) {
-    broadcaster(data.parentChatId, "created", data);
+    broadcaster(data.parentChatId, 'created', data)
   } else {
     console.warn(
       `[spawnBroker] broadcaster 未注入，role_created 通知未推送（parentChatId=${data.parentChatId}, childChatId=${data.chatId}）`,
-    );
+    )
   }
 }
 
@@ -96,11 +96,11 @@ export function emitRoleCreated(data: RoleCreatedData): void {
  */
 export function emitRoleDestroyed(parentChatId: string, data: RoleDestroyedData): void {
   if (broadcaster) {
-    broadcaster(parentChatId, "destroyed", data);
+    broadcaster(parentChatId, 'destroyed', data)
   } else {
     console.warn(
       `[spawnBroker] broadcaster 未注入，role_destroyed 通知未推送（parentChatId=${parentChatId}, chatId=${data.chatId}）`,
-    );
+    )
   }
 }
 
@@ -108,31 +108,31 @@ export function emitRoleDestroyed(parentChatId: string, data: RoleDestroyedData)
 
 /** 被 wait 的子 agent 记录（spawn wait=true 注册，子完成/出错/超时消费） */
 export interface WaitedChild {
-  parentChatId: string;
-  type: string;
+  parentChatId: string
+  type: string
 }
 
 /** 看门狗超时回调（service 注入：wakeParent 超时 content + abortChatRuntime(child)） */
 export type AsyncWakeHandler = (child: {
-  childChatId: string;
-  parentChatId: string;
-  type: string;
-}) => void;
+  childChatId: string
+  parentChatId: string
+  type: string
+}) => void
 
 /** 看门狗超时阈值（5min；仅覆盖子永不发完成/错误信号的挂死场景，规则12 fail loud 兜底） */
-const WATCHDOG_TIMEOUT_MS = 5 * 60 * 1000;
+const WATCHDOG_TIMEOUT_MS = 5 * 60 * 1000
 
 /** wait=true 唤醒链：childChatId → {parentChatId, type} */
-const waitedChildren = new Map<string, WaitedChild>();
+const waitedChildren = new Map<string, WaitedChild>()
 
 /** 看门狗定时器：childChatId → timer */
-const asyncWatchdogs = new Map<string, ReturnType<typeof setTimeout>>();
+const asyncWatchdogs = new Map<string, ReturnType<typeof setTimeout>>()
 
-let asyncWakeHandler: AsyncWakeHandler | null = null;
+let asyncWakeHandler: AsyncWakeHandler | null = null
 
 /** service 层启动期注入看门狗超时回调（wakeParent 超时 + abortChatRuntime）。 */
 export function setAsyncWakeHandler(fn: AsyncWakeHandler): void {
-  asyncWakeHandler = fn;
+  asyncWakeHandler = fn
 }
 
 /**
@@ -140,26 +140,20 @@ export function setAsyncWakeHandler(fn: AsyncWakeHandler): void {
  * 子完成 → service wakeParent 消费并 clearWaitedChild；5min 无信号 → 看门狗超时唤主。
  * 同 childChatId 重复注册视为错误（防泄漏，规则12 fail loud）。
  */
-export function registerWaitedChild(
-  childChatId: string,
-  parentChatId: string,
-  type: string,
-): void {
+export function registerWaitedChild(childChatId: string, parentChatId: string, type: string): void {
   if (waitedChildren.has(childChatId)) {
-    throw new Error(
-      `waitedChild 已存在（childChatId=${childChatId}），疑似重复 spawn 同 chatId`,
-    );
+    throw new Error(`waitedChild 已存在（childChatId=${childChatId}），疑似重复 spawn 同 chatId`)
   }
-  waitedChildren.set(childChatId, { parentChatId, type });
+  waitedChildren.set(childChatId, { parentChatId, type })
   const timer = setTimeout(() => {
-    const entry = waitedChildren.get(childChatId);
-    if (!entry) return; // 已被正常消费清除（clearWaitedChild）
+    const entry = waitedChildren.get(childChatId)
+    if (!entry) return // 已被正常消费清除（clearWaitedChild）
     console.warn(
       `[spawnBroker] 看门狗超时 ${WATCHDOG_TIMEOUT_MS / 1000}s（childChatId=${childChatId}），唤主 + abort 子`,
-    );
-    asyncWakeHandler?.({ childChatId, parentChatId: entry.parentChatId, type: entry.type });
-  }, WATCHDOG_TIMEOUT_MS);
-  asyncWatchdogs.set(childChatId, timer);
+    )
+    asyncWakeHandler?.({ childChatId, parentChatId: entry.parentChatId, type: entry.type })
+  }, WATCHDOG_TIMEOUT_MS)
+  asyncWatchdogs.set(childChatId, timer)
 }
 
 /**
@@ -167,18 +161,18 @@ export function registerWaitedChild(
  * 子 loop 结束（决定是否 yield child_done）/ observer catch（出错唤主）/ service rebuild 据此判定。
  */
 export function getWaitedParent(childChatId: string): WaitedChild | undefined {
-  return waitedChildren.get(childChatId);
+  return waitedChildren.get(childChatId)
 }
 
 /**
  * 清除 wait-子 + 看门狗（wakeParent 成功 / chat.abort 调；幂等）。
  */
 export function clearWaitedChild(childChatId: string): void {
-  waitedChildren.delete(childChatId);
-  const timer = asyncWatchdogs.get(childChatId);
+  waitedChildren.delete(childChatId)
+  const timer = asyncWatchdogs.get(childChatId)
   if (timer) {
-    clearTimeout(timer);
-    asyncWatchdogs.delete(childChatId);
+    clearTimeout(timer)
+    asyncWatchdogs.delete(childChatId)
   }
 }
 
@@ -189,11 +183,11 @@ export function clearWaitedChild(childChatId: string): void {
 export function clearWaitedChildrenByParent(parentChatId: string): void {
   for (const [childChatId, entry] of waitedChildren) {
     if (entry.parentChatId === parentChatId) {
-      waitedChildren.delete(childChatId);
-      const timer = asyncWatchdogs.get(childChatId);
+      waitedChildren.delete(childChatId)
+      const timer = asyncWatchdogs.get(childChatId)
       if (timer) {
-        clearTimeout(timer);
-        asyncWatchdogs.delete(childChatId);
+        clearTimeout(timer)
+        asyncWatchdogs.delete(childChatId)
       }
     }
   }
@@ -205,8 +199,8 @@ export function clearWaitedChildrenByParent(parentChatId: string): void {
  */
 export function clearAllWaitedChildren(): void {
   for (const [childChatId, timer] of asyncWatchdogs) {
-    clearTimeout(timer);
-    asyncWatchdogs.delete(childChatId);
+    clearTimeout(timer)
+    asyncWatchdogs.delete(childChatId)
   }
-  waitedChildren.clear();
+  waitedChildren.clear()
 }

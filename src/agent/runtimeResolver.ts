@@ -1,28 +1,24 @@
-import type {
-  AdaptersGroup,
-  RuntimeConfig,
-  SenseEntry,
-} from "@/core/middleware/types";
-import type { Sense, SenseFunction } from "@/core/sense";
-import type { SenseAdapter } from "@/core/sense/adapter";
-import type { BrainConfig } from "@/utils/config";
-import type { ZodType } from "zod";
-import config from "@/utils/config";
-import { SupervisionLevel } from "@/core/config";
-import { getLLMAdapter } from "@/core/llm/adapter";
-import { getMessageAdapter } from "@/core/message/adapter";
-import { getSenseAdapter } from "@/core/sense/adapter";
-import { getSense } from "@/core/sense";
-import { getConnectedServerSenseNames } from "@/core/mcp";
-import { getSense as getBuiltinSense } from "@/core/sense";
-import type { SkillFilter } from "@/agent/prompt/loadSkill";
+import type { AdaptersGroup, RuntimeConfig, SenseEntry } from '@/core/middleware/types'
+import type { Sense, SenseFunction } from '@/core/sense'
+import type { SenseAdapter } from '@/core/sense/adapter'
+import type { BrainConfig } from '@/utils/config'
+import type { ZodType } from 'zod'
+import config from '@/utils/config'
+import { SupervisionLevel } from '@/core/config'
+import { getLLMAdapter } from '@/core/llm/adapter'
+import { getMessageAdapter } from '@/core/message/adapter'
+import { getSenseAdapter } from '@/core/sense/adapter'
+import { getSense } from '@/core/sense'
+import { getConnectedServerSenseNames } from '@/core/mcp'
+import { getSense as getBuiltinSense } from '@/core/sense'
+import type { SkillFilter } from '@/agent/prompt/loadSkill'
 
 export interface RuntimeSelection {
-  brain: string;
+  brain: string
   /** 单一感官组；无 Tool Call 模型时为空字符串。 */
-  senseGroup: string;
+  senseGroup: string
   /** 启用的 MCP server 名（与 senseGroup 同层级）。enabled server 的全部 mcp__<server>__* 直接合并进 schema，绕过 sense_groups。 */
-  mcpServers: string[];
+  mcpServers: string[]
 }
 
 /**
@@ -34,16 +30,17 @@ export function parseRuntimeSelection(
   params: { brain?: string; senseGroup?: string; mcpServers?: string[] },
   _methodName: string,
 ): RuntimeSelection {
-  if (!params.brain) throw new Error("必须选择一颗大脑");
-  const mcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : [];
-  const brain = config.llm.brain[params.brain];
-  if (!brain) throw new Error(`大脑 "${params.brain}" 不存在，请在设置里检查`);
+  if (!params.brain) throw new Error('必须选择一颗大脑')
+  const mcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : []
+  const brain = config.llm.brain[params.brain]
+  if (!brain) throw new Error(`大脑 "${params.brain}" 不存在，请在设置里检查`)
   if (brain.capabilities?.toolCall === false) {
-    if (params.senseGroup || mcpServers.length) throw new Error(`大脑 "${params.brain}" 不支持工具调用，不能配感官组`);
-    return { brain: params.brain, senseGroup: "", mcpServers: [] };
+    if (params.senseGroup || mcpServers.length)
+      throw new Error(`大脑 "${params.brain}" 不支持工具调用，不能配感官组`)
+    return { brain: params.brain, senseGroup: '', mcpServers: [] }
   }
-  if (!params.senseGroup) throw new Error("这颗大脑需要配一个感官组");
-  return { brain: params.brain, senseGroup: params.senseGroup, mcpServers };
+  if (!params.senseGroup) throw new Error('这颗大脑需要配一个感官组')
+  return { brain: params.brain, senseGroup: params.senseGroup, mcpServers }
 }
 
 /**
@@ -53,34 +50,44 @@ export function parseRuntimeSelection(
  * chat.create 选预设时调用；运行编制快照入 metadata.runtime，运行后不可改。
  */
 export function resolvePresetSelection(presetName: string): {
-  selection: RuntimeSelection;
-  promptPathOverride?: string;
+  selection: RuntimeSelection
+  promptPathOverride?: string
   /** 该预设选中的角色 type 列表（chat.create 快照入 metadata.spawnTypes，spawn roster gate 用） */
-  spawnTypes: string[];
+  spawnTypes: string[]
   /** 该预设的项目工作目录（chat.create 快照入 metadata.workspace，buildFirstSystemPrompt 注入提示词） */
-  workspace?: string;
+  workspace?: string
   /** leader 角色的技能组/插件组过滤（chat.create 快照入 metadata.skillFilter，<skills> 块按角色裁剪） */
-  skillFilter?: SkillFilter;
+  skillFilter?: SkillFilter
 } {
-  const preset = config.presets?.[presetName];
+  const preset = config.presets?.[presetName]
   if (!preset?.leader) {
-    throw new Error(`预设 "${presetName}" 不存在或没指定组长角色（可用：${Object.keys(config.presets ?? {}).join(", ") || "（未配置任何预设）"}）`);
+    throw new Error(
+      `预设 "${presetName}" 不存在或没指定组长角色（可用：${Object.keys(config.presets ?? {}).join(', ') || '（未配置任何预设）'}）`,
+    )
   }
   // 主 pet 编制取 leader 角色的 RoleConfig（config.roles 单一源）。
-  const leader = config.roles?.[preset.leader];
+  const leader = config.roles?.[preset.leader]
   if (!leader) {
-    throw new Error(`预设 "${presetName}" 的组长角色 "${preset.leader}" 不存在（可用：${Object.keys(config.roles ?? {}).join(", ") || "（未配置任何角色）"}）`);
+    throw new Error(
+      `预设 "${presetName}" 的组长角色 "${preset.leader}" 不存在（可用：${Object.keys(config.roles ?? {}).join(', ') || '（未配置任何角色）'}）`,
+    )
   }
   const selection = parseRuntimeSelection(
     { brain: leader.brain, senseGroup: leader.senseGroup, mcpServers: leader.mcpServers ?? [] },
     `presets.${presetName}.leader(${preset.leader})`,
-  );
+  )
   // per-role 技能组/插件组：任一维度显式设置（含 []）→ 构造 filter；二者皆 undefined → undefined（全部 skill）
   const skillFilter: SkillFilter | undefined =
     leader.skills !== undefined || leader.plugins !== undefined
       ? { skills: leader.skills, plugins: leader.plugins }
-      : undefined;
-  return { selection, promptPathOverride: leader.systemPrompt, spawnTypes: preset.roles ?? [], workspace: preset.workspace, skillFilter };
+      : undefined
+  return {
+    selection,
+    promptPathOverride: leader.systemPrompt,
+    spawnTypes: preset.roles ?? [],
+    workspace: preset.workspace,
+    skillFilter,
+  }
 }
 
 export class RuntimeResolver {
@@ -92,55 +99,56 @@ export class RuntimeResolver {
    *   子 agent 传 false 排除。
    */
   resolve(selection: RuntimeSelection, opts?: { injectMemoryManage?: boolean }): RuntimeConfig {
-    this.validateSelection(selection);
+    this.validateSelection(selection)
 
-    const { brain, adapters } = this.resolveBrain(selection.brain);
+    const { brain, adapters } = this.resolveBrain(selection.brain)
     const { builtSenses, senseTable } = this.resolveSense(
       adapters.senseAdapter,
       selection.senseGroup,
       selection.mcpServers,
       brain.capabilities?.generate,
       opts?.injectMemoryManage ?? true,
-    );
+    )
 
     return {
       brain,
       adapters,
       builtSenses,
       senseTable,
-    };
+    }
   }
 
   private validateSelection(selection: RuntimeSelection): void {
     if (!selection.brain || selection.brain.trim().length === 0) {
-      throw new Error("必须选择一颗大脑");
+      throw new Error('必须选择一颗大脑')
     }
-    const brain = config.llm.brain[selection.brain];
-    if (brain?.capabilities?.toolCall !== false && !selection.senseGroup) throw new Error("这颗大脑需要配一个感官组");
+    const brain = config.llm.brain[selection.brain]
+    if (brain?.capabilities?.toolCall !== false && !selection.senseGroup)
+      throw new Error('这颗大脑需要配一个感官组')
   }
 
   /**
    * resolve brain 名称 -> brain 配置 + provider adapters。
    */
   private resolveBrain(name: string): { brain: BrainConfig; adapters: AdaptersGroup } {
-    const brain = config.llm.brain[name];
+    const brain = config.llm.brain[name]
     if (!brain) {
-      throw new Error(`大脑 "${name}" 不存在，请在设置里检查`);
+      throw new Error(`大脑 "${name}" 不存在，请在设置里检查`)
     }
 
-    const provider = brain.provider;
-    const llmAdapter = getLLMAdapter(provider);
-    const messageAdapter = getMessageAdapter(provider);
-    const senseAdapter = getSenseAdapter(provider);
+    const provider = brain.provider
+    const llmAdapter = getLLMAdapter(provider)
+    const messageAdapter = getMessageAdapter(provider)
+    const senseAdapter = getSenseAdapter(provider)
 
     if (!llmAdapter || !messageAdapter || !senseAdapter) {
-      throw new Error(`不支持 "${provider}" 这类大脑`);
+      throw new Error(`不支持 "${provider}" 这类大脑`)
     }
 
     return {
       brain,
       adapters: { llmAdapter, messageAdapter, senseAdapter },
-    };
+    }
   }
 
   /**
@@ -159,100 +167,98 @@ export class RuntimeResolver {
     generateCapabilities?: { image?: boolean; video?: boolean; audio?: boolean },
     injectMemoryManage = true,
   ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
-    const resolved = new Map<string, Sense<ZodType>>();
+    const resolved = new Map<string, Sense<ZodType>>()
 
-    if (!senseGroup) return { builtSenses: [], senseTable: new Map() };
-    const group = config.sense_groups?.[senseGroup];
+    if (!senseGroup) return { builtSenses: [], senseTable: new Map() }
+    const group = config.sense_groups?.[senseGroup]
     if (!group) {
-      throw new Error(`感官组 "${senseGroup}" 不存在，请在设置里检查`);
+      throw new Error(`感官组 "${senseGroup}" 不存在，请在设置里检查`)
     }
 
     for (const entry of group) {
-      const { senseName, supervisionLevel } = this.parseSenseGroupEntry(entry);
-      const mediaKind = senseName.match(/^generate_(image|video|audio)$/)?.[1] as "image" | "video" | "audio" | undefined;
-      if (mediaKind && !generateCapabilities?.[mediaKind]) continue;
-      const original = getSense(senseName);
+      const { senseName, supervisionLevel } = this.parseSenseGroupEntry(entry)
+      const mediaKind = senseName.match(/^generate_(image|video|audio)$/)?.[1] as
+        'image' | 'video' | 'audio' | undefined
+      if (mediaKind && !generateCapabilities?.[mediaKind]) continue
+      const original = getSense(senseName)
       if (!original) {
-        throw new Error(`感官 "${senseName}" 不存在，请在设置里检查`);
+        throw new Error(`感官 "${senseName}" 不存在，请在设置里检查`)
       }
 
-      const name = original.definition.function.name;
+      const name = original.definition.function.name
       // shallow copy 隔离：supervisionLevel 写入不得污染全局 senseRegistry（多 chat 共享）
-      const s: Sense<ZodType> = { ...original };
-      s.supervisionLevel =
-        supervisionLevel ?? s.supervisionLevel ?? config.global.supervision;
-      resolved.set(name, s);
+      const s: Sense<ZodType> = { ...original }
+      s.supervisionLevel = supervisionLevel ?? s.supervisionLevel ?? config.global.supervision
+      resolved.set(name, s)
     }
 
     // MCP server 的全部 sense 合并进 schema（绕过 sense_groups，监管用 server 级默认）
     for (const serverName of mcpServers) {
       for (const senseName of getConnectedServerSenseNames(serverName)) {
-        const original = getSense(senseName);
-        if (!original) continue; // registry 中已不存在（理论上不应发生，连接时注册）
-        const s: Sense<ZodType> = { ...original };
-        s.supervisionLevel = original.supervisionLevel ?? config.global.supervision;
-        resolved.set(original.definition.function.name, s);
+        const original = getSense(senseName)
+        if (!original) continue // registry 中已不存在（理论上不应发生，连接时注册）
+        const s: Sense<ZodType> = { ...original }
+        s.supervisionLevel = original.supervisionLevel ?? config.global.supervision
+        resolved.set(original.definition.function.name, s)
       }
     }
 
     // 主 agent 硬编码注入 memory_manage sense（子 agent 排除）
     if (injectMemoryManage) {
-      const memorySense = getBuiltinSense("memory_manage");
+      const memorySense = getBuiltinSense('memory_manage')
       if (memorySense) {
-        const s: Sense<ZodType> = { ...memorySense };
-        s.supervisionLevel = s.supervisionLevel ?? config.global.supervision;
-        resolved.set("memory_manage", s);
+        const s: Sense<ZodType> = { ...memorySense }
+        s.supervisionLevel = s.supervisionLevel ?? config.global.supervision
+        resolved.set('memory_manage', s)
       }
     }
 
-    const senses = [...resolved.values()];
+    const senses = [...resolved.values()]
     return {
       builtSenses: senseAdapter.buildSenses(senses),
       senseTable: this.buildSenseTable(senses),
-    };
+    }
   }
 
   private parseSenseGroupEntry(entry: string): {
-    senseName: string;
-    supervisionLevel?: SupervisionLevel;
+    senseName: string
+    supervisionLevel?: SupervisionLevel
   } {
-    const [rawName, rawLevel] = entry.split(":");
-    const senseName = rawName?.trim();
+    const [rawName, rawLevel] = entry.split(':')
+    const senseName = rawName?.trim()
     if (!senseName) {
-      throw new Error(`感官组配置 "${entry}" 无效`);
+      throw new Error(`感官组配置 "${entry}" 无效`)
     }
     if (!rawLevel) {
-      return { senseName };
+      return { senseName }
     }
 
-    const levelName = rawLevel.trim();
+    const levelName = rawLevel.trim()
     const supervisionByName: Record<string, SupervisionLevel> = {
       auto: SupervisionLevel.auto,
       confirm: SupervisionLevel.confirm,
       manual: SupervisionLevel.manual,
-    };
-    const supervisionLevel = supervisionByName[levelName];
+    }
+    const supervisionLevel = supervisionByName[levelName]
     if (supervisionLevel === undefined) {
-      throw new Error(`感官 "${senseName}" 的监管等级 "${rawLevel}" 无效（合法：auto/confirm/manual）`);
+      throw new Error(
+        `感官 "${senseName}" 的监管等级 "${rawLevel}" 无效（合法：auto/confirm/manual）`,
+      )
     }
 
-    return { senseName, supervisionLevel };
+    return { senseName, supervisionLevel }
   }
 
   private buildSenseTable(senses: Sense<ZodType>[]): Map<string, SenseEntry> {
-    const senseTable = new Map<string, SenseEntry>();
+    const senseTable = new Map<string, SenseEntry>()
     for (const s of senses) {
-      const name = s.definition.function.name;
+      const name = s.definition.function.name
       senseTable.set(name, {
         supervisionLevel: s.supervisionLevel ?? config.global.supervision,
         execute: (args, sharedData, ctx) =>
-          s.executor.execute(
-            args as Parameters<typeof s.executor.execute>[0],
-            sharedData,
-            ctx,
-          ),
-      });
+          s.executor.execute(args as Parameters<typeof s.executor.execute>[0], sharedData, ctx),
+      })
     }
-    return senseTable;
+    return senseTable
   }
 }

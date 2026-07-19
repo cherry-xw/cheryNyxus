@@ -8,84 +8,85 @@
  * - 状态：wait=true 显示"等待结果"，false 显示"已派发"
  * - chatId：显示子 chat ID（可点击跳转）
  */
-import { computed } from "vue";
-import type { RendererProps, SpawnRoleArgs } from "./types";
-import { useHistoryDrawerManager } from "../useHistoryDrawerManager";
+import { computed } from 'vue'
+import type { RendererProps, SpawnRoleArgs } from './types'
+import { useHistoryDrawerManager } from '../useHistoryDrawerManager'
 
-const props = defineProps<RendererProps>();
-const manager = useHistoryDrawerManager();
+const props = defineProps<RendererProps>()
+const manager = useHistoryDrawerManager()
 
 // 解析参数
 const parsedArgs = computed<SpawnRoleArgs | null>(() => {
   try {
-    const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
-    const obj = JSON.parse(raw) as SpawnRoleArgs;
-    if (obj.type && obj.prompt) return obj;
-    return null;
+    const raw =
+      typeof props.call.args === 'string' ? props.call.args : JSON.stringify(props.call.args ?? {})
+    const obj = JSON.parse(raw) as SpawnRoleArgs
+    if (obj.type && obj.prompt) return obj
+    return null
   } catch (e) {
-    console.warn("[SpawnRenderer] args 解析失败", e);
-    return null;
+    console.warn('[SpawnRenderer] args 解析失败', e)
+    return null
   }
-});
+})
 
 // prompt 截断（100 字符）
 const promptPreview = computed(() => {
-  const prompt = parsedArgs.value?.prompt ?? "";
-  if (prompt.length <= 100) return prompt;
-  return prompt.slice(0, 100) + "...";
-});
+  const prompt = parsedArgs.value?.prompt ?? ''
+  if (prompt.length <= 100) return prompt
+  return prompt.slice(0, 100) + '...'
+})
 
 // 从结果提取 chatId
 const chatId = computed<string | null>(() => {
-  if (!props.call.result || typeof props.call.result !== "string") return null;
-  const text = props.call.result as string;
+  if (!props.call.result || typeof props.call.result !== 'string') return null
+  const text = props.call.result as string
 
   // 匹配 chatId=xxx 格式
-  const match = text.match(/chatId=([a-f0-9-]+)/);
-  return match?.[1] ?? null;
-});
+  const match = text.match(/chatId=([a-f0-9-]+)/)
+  return match?.[1] ?? null
+})
 
 // 状态标签
 const statusLabel = computed(() => {
-  if (props.call.status === "running") {
-    return parsedArgs.value?.wait ? "等待结果" : "派发中";
+  if (props.call.status === 'running') {
+    return parsedArgs.value?.wait ? '等待结果' : '派发中'
   }
-  if (props.call.status === "done") {
-    return parsedArgs.value?.wait ? "已完成" : "已派发";
+  if (props.call.status === 'done') {
+    return parsedArgs.value?.wait ? '已完成' : '已派发'
   }
-  if (props.call.status === "error") {
-    return "错误";
+  if (props.call.status === 'error') {
+    return '错误'
   }
-  return "";
-});
+  return ''
+})
 
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
-    case "running":
-      return "⋯";
-    case "done":
-      return "✓";
-    case "error":
-      return "✗";
+    case 'running':
+      return '⋯'
+    case 'done':
+      return '✓'
+    case 'error':
+      return '✗'
     default:
-      return "?";
+      return '?'
   }
-});
+})
 
-const statusClass = computed(() => `status-${props.call.status}`);
+const statusClass = computed(() => `status-${props.call.status}`)
 
 // 降级显示
 const fallback = computed(() => {
   if (!parsedArgs.value) {
-    return JSON.stringify(props.call.args ?? {}, null, 2);
+    return JSON.stringify(props.call.args ?? {}, null, 2)
   }
-  return "";
-});
+  return ''
+})
 
 // 点击「详情」→ 下钻子 chat 抽屉（manager 跨层下发，盖在当前抽屉之上）
 function onDrillDetail(): void {
-  if (chatId.value) manager.drillChild(chatId.value);
+  if (chatId.value) manager.drillChild(chatId.value)
 }
 </script>
 
@@ -94,7 +95,7 @@ function onDrillDetail(): void {
     <div class="spawn-head">
       <span class="spawn-icon" aria-hidden="true">🤖</span>
       <span class="spawn-name">派遣角色</span>
-      <span class="spawn-type">{{ parsedArgs?.type ?? "unknown" }}</span>
+      <span class="spawn-type">{{ parsedArgs?.type ?? 'unknown' }}</span>
       <span class="spawn-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
 
@@ -110,7 +111,7 @@ function onDrillDetail(): void {
       </div>
       <div v-if="parsedArgs.wait !== undefined" class="spawn-row">
         <span class="spawn-label">等待:</span>
-        <span class="spawn-badge">{{ parsedArgs.wait ? "是" : "否" }}</span>
+        <span class="spawn-badge">{{ parsedArgs.wait ? '是' : '否' }}</span>
       </div>
     </div>
 
@@ -205,7 +206,7 @@ function onDrillDetail(): void {
 }
 
 .spawn-value {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   color: fade(@ink, 88%);
 }
@@ -234,7 +235,7 @@ function onDrillDetail(): void {
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;

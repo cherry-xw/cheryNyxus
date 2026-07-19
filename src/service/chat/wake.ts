@@ -1,17 +1,24 @@
-import { addMessage, updateChatMetadata, getChat, listAllChats, getMessages, parseMessageRow } from "@/db/chat.js";
-import { safeJsonParse } from "@/utils/json.js";
-import { ensureChat, abortChatRuntime } from "./runtime.js";
-import { connectionManager } from "../websocket/connection.js";
-import { transport } from "../websocket/transport.js";
-import { createNotification } from "../message/types.js";
-import { clearWaitedChild, registerWaitedChild } from "@/agent/spawnBroker.js";
-import { logger } from "@/utils/logger/index.js";
-import { appendChatEvent } from "@/db/delivery.js";
+import {
+  addMessage,
+  updateChatMetadata,
+  getChat,
+  listAllChats,
+  getMessages,
+  parseMessageRow,
+} from '@/db/chat.js'
+import { safeJsonParse } from '@/utils/json.js'
+import { ensureChat, abortChatRuntime } from './runtime.js'
+import { connectionManager } from '../websocket/connection.js'
+import { transport } from '../websocket/transport.js'
+import { createNotification } from '../message/types.js'
+import { clearWaitedChild, registerWaitedChild } from '@/agent/spawnBroker.js'
+import { logger } from '@/utils/logger/index.js'
+import { appendChatEvent } from '@/db/delivery.js'
 import {
   completeQuestionBatch,
   type CompletedQuestionBatch,
   type QuestionBatchAnswerInput,
-} from "@/db/question.js";
+} from '@/db/question.js'
 
 /**
  * wait=true 唤醒（T9 B1 架构，见 docs/agent-pet.md §5.4）。
@@ -33,57 +40,62 @@ export async function wakeParent(
 ): Promise<void> {
   // 主 chat 已删除（用户删会话）→ 无处唤醒，仅清理（子结果丢弃）
   if (!getChat(parentChatId)) {
-    clearWaitedChild(childChatId);
-    updateChatMetadata(childChatId, { wait: false });
-    logger.event("wake.parent-gone", { parentChatId, childChatId });
-    return;
+    clearWaitedChild(childChatId)
+    updateChatMetadata(childChatId, { wait: false })
+    logger.event('wake.parent-gone', { parentChatId, childChatId })
+    return
   }
 
   // 注入角色回复到主 chat：内存（journal，守单一写者）+ DB（addMessage，主 observer 未运行不经 effect）
-  const builder = await ensureChat(parentChatId);
-  const parentWasRunning = builder.isRunning();
-  const msgId = builder.appendRoleReply(content);
-  addMessage(msgId, parentChatId, { role: "role", content });
+  const builder = await ensureChat(parentChatId)
+  const parentWasRunning = builder.isRunning()
+  const msgId = builder.appendRoleReply(content)
+  addMessage(msgId, parentChatId, { role: 'role', content })
 
   // 子结果持久化完成后再消费 wait 链，避免落库失败时丢失重试机会。
-  clearWaitedChild(childChatId);
-  updateChatMetadata(childChatId, { wait: false });
+  clearWaitedChild(childChatId)
+  updateChatMetadata(childChatId, { wait: false })
   // 父不在运行时，只有前端新建的 resume 流能把该 role 输入交给 LLM；持久化标记覆盖离线/重连。
   // 父正在运行时，loop 会检测并消费新 role，无需再安排一个额外 resume。
-  if (!parentWasRunning) updateChatMetadata(parentChatId, { resumePending: true });
+  if (!parentWasRunning) updateChatMetadata(parentChatId, { resumePending: true })
 
   // 读子 chat metadata.spawnSenseCallId（= 触发 spawn 的 sense call id）。
-  let spawnSenseCallId: string | undefined;
-  const childMetaRow = getChat(childChatId);
+  let spawnSenseCallId: string | undefined
+  const childMetaRow = getChat(childChatId)
   if (childMetaRow?.metadata) {
     try {
-      const parsed = JSON.parse(childMetaRow.metadata) as { spawnSenseCallId?: unknown };
-      if (typeof parsed.spawnSenseCallId === "string" && parsed.spawnSenseCallId.length > 0) {
-        spawnSenseCallId = parsed.spawnSenseCallId;
+      const parsed = JSON.parse(childMetaRow.metadata) as { spawnSenseCallId?: unknown }
+      if (typeof parsed.spawnSenseCallId === 'string' && parsed.spawnSenseCallId.length > 0) {
+        spawnSenseCallId = parsed.spawnSenseCallId
       }
     } catch {
       // 元数据非合法 JSON → 旧记录兼容，忽略关联锚点即可。
     }
   }
-  const notif = createNotification("role_reply", undefined, {
-    parentChatId,
-    childChatId,
-    type,
-    content,
-    msgId,
-    spawnSenseCallId,
-  }, { chatId: parentChatId });
-  notif.seq = appendChatEvent(parentChatId, notif as unknown as Record<string, unknown>);
+  const notif = createNotification(
+    'role_reply',
+    undefined,
+    {
+      parentChatId,
+      childChatId,
+      type,
+      content,
+      msgId,
+      spawnSenseCallId,
+    },
+    { chatId: parentChatId },
+  )
+  notif.seq = appendChatEvent(parentChatId, notif as unknown as Record<string, unknown>)
 
   // 推 role_reply notification（findOwnerWsByChatId：主 turn 已结束也能反查 owner 推送）
-  const ws = connectionManager.findOwnerWsByChatId(parentChatId);
+  const ws = connectionManager.findOwnerWsByChatId(parentChatId)
   if (ws && ws.readyState === ws.OPEN) {
-    ws.send(transport.encode(notif));
+    ws.send(transport.encode(notif))
   } else {
     // 前端离线：resumePending 已持久化，重连后 rebuildSpawnWaits 会恢复主循环。
-    logger.event("wake.offline", { parentChatId, childChatId, type });
+    logger.event('wake.offline', { parentChatId, childChatId, type })
   }
-  logger.event("wake.parent", { parentChatId, childChatId, type, contentLen: content.length });
+  logger.event('wake.parent', { parentChatId, childChatId, type, contentLen: content.length })
 }
 
 /**
@@ -95,30 +107,30 @@ export async function resolveQuestionBatch(
   batchId: string,
   answers: QuestionBatchAnswerInput[],
 ): Promise<CompletedQuestionBatch> {
-  if (!getChat(chatId)) throw new Error("这个会话不见了");
+  if (!getChat(chatId)) throw new Error('这个会话不见了')
 
-  const completed = completeQuestionBatch(chatId, batchId, answers);
-  if (completed.alreadyCompleted) return completed;
+  const completed = completeQuestionBatch(chatId, batchId, answers)
+  if (completed.alreadyCompleted) return completed
 
-  const builder = await ensureChat(chatId);
+  const builder = await ensureChat(chatId)
   for (const answer of completed.answers) {
-    builder.completeSenseResult(answer.questionId, answer.answerText);
+    builder.completeSenseResult(answer.questionId, answer.answerText)
   }
-  updateChatMetadata(chatId, { resumePending: true });
-  const notif = createNotification("question_batch_completed", undefined, { batchId }, { chatId });
-  notif.seq = appendChatEvent(chatId, notif as unknown as Record<string, unknown>);
-  const ws = connectionManager.findOwnerWsByChatId(chatId);
+  updateChatMetadata(chatId, { resumePending: true })
+  const notif = createNotification('question_batch_completed', undefined, { batchId }, { chatId })
+  notif.seq = appendChatEvent(chatId, notif as unknown as Record<string, unknown>)
+  const ws = connectionManager.findOwnerWsByChatId(chatId)
   if (ws && ws.readyState === ws.OPEN) {
-    ws.send(transport.encode(notif));
+    ws.send(transport.encode(notif))
   } else {
-    logger.event("question.batch.completed-offline", { chatId, batchId });
+    logger.event('question.batch.completed-offline', { chatId, batchId })
   }
-  logger.event("question.batch.completed", {
+  logger.event('question.batch.completed', {
     chatId,
     batchId,
     questionCount: completed.answers.length,
-  });
-  return completed;
+  })
+  return completed
 }
 
 /**
@@ -126,18 +138,13 @@ export async function resolveQuestionBatch(
  * 子 5min 无完成/错误信号 → 注入超时回复唤主 + abort 子（规则12 fail loud，释放挂死资源）。
  */
 export function handleAsyncWakeTimeout(child: {
-  childChatId: string;
-  parentChatId: string;
-  type: string;
+  childChatId: string
+  parentChatId: string
+  type: string
 }): void {
   // wakeParent 内部 clearWaitedChild（含看门狗清理）；abort 子释放挂死的 generator
-  void wakeParent(
-    child.parentChatId,
-    child.childChatId,
-    child.type,
-    `[${child.type}] 执行超时了`,
-  );
-  abortChatRuntime(child.childChatId);
+  void wakeParent(child.parentChatId, child.childChatId, child.type, `[${child.type}] 执行超时了`)
+  abortChatRuntime(child.childChatId)
 }
 
 /**
@@ -150,35 +157,35 @@ export function handleAsyncWakeTimeout(child: {
  * 内存态 waitedChildren 重启即丢，本函数从持久化 metadata 重建，使 wait=true 跨后端重启可恢复。
  */
 export async function rebuildWaitedChildren(): Promise<void> {
-  const rows = listAllChats();
+  const rows = listAllChats()
   for (const row of rows) {
-    if (!row.parent_chat_id) continue; // 仅子 chat
+    if (!row.parent_chat_id) continue // 仅子 chat
     const meta = row.metadata
       ? (safeJsonParse(row.metadata, {}) as { wait?: boolean; finished?: boolean; type?: string })
-      : {};
-    if (meta.wait !== true) continue; // 仅 wait=true 子
+      : {}
+    if (meta.wait !== true) continue // 仅 wait=true 子
 
-    const childChatId = row.id;
-    const parentChatId = row.parent_chat_id;
-    const type = meta.type ?? "unknown";
+    const childChatId = row.id
+    const parentChatId = row.parent_chat_id
+    const type = meta.type ?? 'unknown'
 
     if (meta.finished === true) {
       // 子已完成、崩溃前未唤主 → 从 DB 末条 assistant content 补唤
-      const msgs = getMessages(childChatId);
-      let content = "";
+      const msgs = getMessages(childChatId)
+      let content = ''
       for (let i = msgs.length - 1; i >= 0; i--) {
-        const parsed = parseMessageRow(msgs[i]!);
-        if (parsed.role === "assistant") {
-          content = parsed.content ?? "";
-          break;
+        const parsed = parseMessageRow(msgs[i]!)
+        if (parsed.role === 'assistant') {
+          content = parsed.content ?? ''
+          break
         }
       }
-      await wakeParent(parentChatId, childChatId, type, content || `[角色 ${type}]（无结果内容）`);
-      logger.event("rebuild.wake-finished", { childChatId, parentChatId, type });
+      await wakeParent(parentChatId, childChatId, type, content || `[角色 ${type}]（无结果内容）`)
+      logger.event('rebuild.wake-finished', { childChatId, parentChatId, type })
     } else {
       // interrupted → 重建唤醒链 + 看门狗（前端重连 chat.resume 续跑子，完成唤主）
-      registerWaitedChild(childChatId, parentChatId, type);
-      logger.event("rebuild.wait-interrupted", { childChatId, parentChatId, type });
+      registerWaitedChild(childChatId, parentChatId, type)
+      logger.event('rebuild.wait-interrupted', { childChatId, parentChatId, type })
     }
   }
 }

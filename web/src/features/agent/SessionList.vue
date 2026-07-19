@@ -10,111 +10,135 @@
  * 命名区分 HistoryDrawer（单 pet 消息史，▤）；本组件 = 会话列表（☰）。
  * motion-v：inline initial/animate/exit 字面量（同 HistoryDrawer 风格，无 TargetAndTransition 导出）。
  */
-import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { AnimatePresence, motion } from "motion-v";
-import { ElMessageBox } from "element-plus";
-import { useAgentsStore } from "@/stores";
-import { formatTime } from "@/utils/formatTime";
-import { fmtTokens } from "./contextBreakdown";
-import ContextBreakdownTip from "./ContextBreakdownTip.vue";
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { AnimatePresence, motion } from 'motion-v'
+import { ElMessageBox } from 'element-plus'
+import { useAgentsStore } from '@/stores'
+import { formatTime } from '@/utils/formatTime'
+import { fmtTokens } from './contextBreakdown'
+import ContextBreakdownTip from './ContextBreakdownTip.vue'
 
-const MotionDiv = motion.div;
-const agents = useAgentsStore();
+const MotionDiv = motion.div
+const agents = useAgentsStore()
 
-const open = computed(() => agents.historyListOpen);
+const open = computed(() => agents.historyListOpen)
 // 共用单蒙层：仅当 SessionList 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
-const isTopMask = computed(() => agents.topOverlay === "sessionList");
-const loading = ref(false);
-const error = ref<string | null>(null);
-const pendingDelete = ref<string | null>(null);
+const isTopMask = computed(() => agents.topOverlay === 'sessionList')
+const loading = ref(false)
+const error = ref<string | null>(null)
+const pendingDelete = ref<string | null>(null)
 
 // 仅主 chat = 会话（子 chat 随主加载/删除，不单列）
-const sessions = computed(() => agents.historyList.filter((c) => !c.parentChatId));
+const sessions = computed(() => agents.historyList.filter((c) => !c.parentChatId))
 
 watch(open, async (v) => {
-  if (!v) return;
-  loading.value = true;
-  error.value = null;
+  if (!v) return
+  loading.value = true
+  error.value = null
   try {
-    await agents.fetchHistoryList();
+    await agents.fetchHistoryList()
   } catch (e) {
-    error.value = (e as Error).message;
-    console.error("[SessionList] fetchHistoryList 失败:", e);
+    error.value = (e as Error).message
+    console.error('[SessionList] fetchHistoryList 失败:', e)
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-});
+})
 
 function close(): void {
-  agents.historyListOpen = false;
+  agents.historyListOpen = false
 }
 
 function onOverlayClick(e: MouseEvent): void {
-  if (e.target === e.currentTarget) close();
+  if (e.target === e.currentTarget) close()
 }
 
 // 全局 ESC 关闭抽屉（仅在 open 且为栈顶 overlay 时生效；topOverlay 守卫避免双重关闭）。
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape" && open.value && agents.topOverlay === "sessionList") {
-    e.preventDefault();
-    close();
+  if (e.key === 'Escape' && open.value && agents.topOverlay === 'sessionList') {
+    e.preventDefault()
+    close()
   }
 }
-window.addEventListener("keydown", onGlobalKeydown);
-onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
+window.addEventListener('keydown', onGlobalKeydown)
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
 
 /** contextUsage 颜色分级（与 ContextBar 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
 function usageClass(u: number): string {
-  if (u >= 0.8) return "usage-high";
-  if (u >= 0.5) return "usage-mid";
-  return "usage-low";
+  if (u >= 0.8) return 'usage-high'
+  if (u >= 0.5) return 'usage-mid'
+  return 'usage-low'
 }
 
 function load(chatId: string): void {
-  agents.loadSession(chatId);
+  agents.loadSession(chatId)
 }
 
 /** 删除确认文案池：8 种风格随机抽一，icon=应景 emoji（替代 element-plus 状态图标）。删除本身恒为危险操作，按钮保持 danger。 */
 type DeletePromptStyle = {
-  icon: string;
-  title: string;
-  body: string;
-};
+  icon: string
+  title: string
+  body: string
+}
 const DELETE_PROMPTS: readonly DeletePromptStyle[] = [
-  { icon: "⚛️", title: "量子遗忘？", body: "本次操作将坍缩所有平行时间轴上的对话痕迹，确认启动记忆清除程序？" },
-  { icon: "🤖", title: "数据清洗？", body: "所有比特记忆将永久格式化，缓存区彻底归零，是否继续执行？" },
-  { icon: "🌫️", title: "如烟？", body: "让这场对话如晨雾般悄然散去，再不寻来路，你当真舍得？" },
-  { icon: "🥀", title: "告别？", body: "那些字句曾温暖过寂寥的时光，如今要亲手将它们埋葬，只余空白与回响。" },
-  { icon: "🕯️", title: "忘却？", body: "记忆是存在的影子，删除便是让影子消逝于光中，你确定要踏入无痕之境？" },
-  { icon: "🐟", title: "失忆？", body: "一键开启金鱼模式，所有聊天记录统统蒸发，确定要这么绝情吗？" },
-  { icon: "🌊", title: "相忘？", body: "此间言语，尽付东流，从此江湖不见，君意若何？" },
-  { icon: "🕊️", title: "放下？", body: "让这段对话随风飘远，像从未发生过一样，你准备好轻装前行了吗？" },
-];
+  {
+    icon: '⚛️',
+    title: '量子遗忘？',
+    body: '本次操作将坍缩所有平行时间轴上的对话痕迹，确认启动记忆清除程序？',
+  },
+  {
+    icon: '🤖',
+    title: '数据清洗？',
+    body: '所有比特记忆将永久格式化，缓存区彻底归零，是否继续执行？',
+  },
+  { icon: '🌫️', title: '如烟？', body: '让这场对话如晨雾般悄然散去，再不寻来路，你当真舍得？' },
+  {
+    icon: '🥀',
+    title: '告别？',
+    body: '那些字句曾温暖过寂寥的时光，如今要亲手将它们埋葬，只余空白与回响。',
+  },
+  {
+    icon: '🕯️',
+    title: '忘却？',
+    body: '记忆是存在的影子，删除便是让影子消逝于光中，你确定要踏入无痕之境？',
+  },
+  {
+    icon: '🐟',
+    title: '失忆？',
+    body: '一键开启金鱼模式，所有聊天记录统统蒸发，确定要这么绝情吗？',
+  },
+  { icon: '🌊', title: '相忘？', body: '此间言语，尽付东流，从此江湖不见，君意若何？' },
+  {
+    icon: '🕊️',
+    title: '放下？',
+    body: '让这段对话随风飘远，像从未发生过一样，你准备好轻装前行了吗？',
+  },
+]
 function pickDeletePrompt(): DeletePromptStyle {
-  return DELETE_PROMPTS[Math.floor(Math.random() * DELETE_PROMPTS.length)]!;
+  return DELETE_PROMPTS[Math.floor(Math.random() * DELETE_PROMPTS.length)]!
 }
 
 async function remove(chatId: string): Promise<void> {
   // 二次确认：ElMessageBox（会话级删除后果重，用居中 modal）；pendingDelete 防 ✕ 重复点
-  if (pendingDelete.value) return;
+  if (pendingDelete.value) return
   try {
-    const prompt = pickDeletePrompt();
+    const prompt = pickDeletePrompt()
     await ElMessageBox.confirm(prompt.body, `${prompt.icon} ${prompt.title}`, {
-      confirmButtonText: "删除",
-      cancelButtonText: "取消",
-      confirmButtonClass: "el-button--danger",
-    });
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      confirmButtonClass: 'el-button--danger',
+    })
   } catch {
-    return; // 用户取消
+    return // 用户取消
   }
-  pendingDelete.value = chatId;
+  pendingDelete.value = chatId
   try {
-    await agents.deleteSession(chatId);
+    await agents.deleteSession(chatId)
   } catch (e) {
-    error.value = (e as Error).message;
-    console.error("[SessionList] deleteSession 失败:", e);
+    error.value = (e as Error).message
+    console.error('[SessionList] deleteSession 失败:', e)
   } finally {
-    pendingDelete.value = null;
+    pendingDelete.value = null
   }
 }
 </script>
@@ -162,18 +186,33 @@ async function remove(chatId: string): Promise<void> {
             >
               <div class="row-main">
                 <span class="preview-line">
-                  <span class="preview">{{ s.preview || "(无消息)" }}</span>
+                  <span class="preview">{{ s.preview || '(无消息)' }}</span>
                 </span>
                 <span class="meta">
                   <span class="time">{{ formatTime(s.updatedAt) }}</span>
                   <span class="turns">{{ s.turnCount ?? 0 }} 轮</span>
-                  <el-tooltip v-if="typeof s.contextUsage === 'number'" placement="top" :show-after="200" :hide-after="0">
+                  <el-tooltip
+                    v-if="typeof s.contextUsage === 'number'"
+                    placement="top"
+                    :show-after="200"
+                    :hide-after="0"
+                  >
                     <template #content>
-                      <ContextBreakdownTip v-if="s.contextBreakdown" :breakdown="s.contextBreakdown" />
+                      <ContextBreakdownTip
+                        v-if="s.contextBreakdown"
+                        :breakdown="s.contextBreakdown"
+                      />
                       <span v-else>上下文 {{ Math.round(s.contextUsage * 100) }}%</span>
                     </template>
                     <span class="usage" :class="usageClass(s.contextUsage)">
-                      <span v-if="typeof s.contextUsed === 'number' && typeof s.contextTotal === 'number' && s.contextTotal > 0" class="usage-detail">
+                      <span
+                        v-if="
+                          typeof s.contextUsed === 'number' &&
+                          typeof s.contextTotal === 'number' &&
+                          s.contextTotal > 0
+                        "
+                        class="usage-detail"
+                      >
                         {{ fmtTokens(s.contextUsed) }}/{{ fmtTokens(s.contextTotal) }}
                       </span>
                       <span class="usage-pct">{{ Math.round(s.contextUsage * 100) }}%</span>
@@ -207,10 +246,11 @@ async function remove(chatId: string): Promise<void> {
   z-index: 270;
   display: flex;
   justify-content: flex-end;
-  background: transparent;       // 默认透明（非栈顶，不叠加 blur）
+  background: transparent; // 默认透明（非栈顶，不叠加 blur）
   backdrop-filter: none;
 }
-.session-overlay.is-top-mask {   // 栈顶 overlay：带 blur 遮罩盖住下层
+.session-overlay.is-top-mask {
+  // 栈顶 overlay：带 blur 遮罩盖住下层
   background: rgba(15, 17, 22, 0.36);
   backdrop-filter: blur(2px);
 }
@@ -325,14 +365,23 @@ async function remove(chatId: string): Promise<void> {
     gap: 4px;
     font-size: 10px;
     font-weight: 700;
-    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
     padding: 1px 6px;
     border-radius: 4px;
     line-height: 1.3;
 
-    &.usage-low { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
-    &.usage-mid { background: rgba(234, 179, 8, 0.16); color: #a16207; }
-    &.usage-high { background: rgba(239, 68, 68, 0.16); color: #b91c1c; }
+    &.usage-low {
+      background: rgba(34, 197, 94, 0.14);
+      color: #16a34a;
+    }
+    &.usage-mid {
+      background: rgba(234, 179, 8, 0.16);
+      color: #a16207;
+    }
+    &.usage-high {
+      background: rgba(239, 68, 68, 0.16);
+      color: #b91c1c;
+    }
 
     .usage-detail {
       opacity: 0.78;
@@ -351,7 +400,7 @@ async function remove(chatId: string): Promise<void> {
     color: fade(@ink, 48%);
 
     .turns {
-      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
     }
   }
 

@@ -6,47 +6,47 @@
  * 只读 checklist（pending ☐ / in_progress ▣ / completed ✓+strikethrough）。无聚合（每 pet 显自己 todo）。
  * 支持实时显示：当 runningTools 中有 update_todo 时，显示"执行中"占位符。
  */
-import { computed } from "vue";
-import type { PetInstance } from "@/features/pets/types";
-import { useAgentsStore } from "@/stores";
-import type { SenseCallRecord } from "@/stores/agents";
-import type { TodoItem } from "./renderers/types";
+import { computed } from 'vue'
+import type { PetInstance } from '@/features/pets/types'
+import { useAgentsStore } from '@/stores'
+import type { SenseCallRecord } from '@/stores/agents'
+import type { TodoItem } from './renderers/types'
 
-const props = defineProps<{ pet: PetInstance }>();
-const agents = useAgentsStore();
+const props = defineProps<{ pet: PetInstance }>()
+const agents = useAgentsStore()
 
 /** walk back history 找最近一次 update_todo 调用的 todos（取最新 item 内最新一次）。 */
 const todos = computed<TodoItem[]>(() => {
-  const stream = agents.streams[props.pet.chatId];
-  if (!stream) return [];
+  const stream = agents.streams[props.pet.chatId]
+  if (!stream) return []
   for (let i = stream.history.length - 1; i >= 0; i -= 1) {
-    const calls = stream.history[i]?.senseCalls;
-    if (!calls || calls.length === 0) continue;
+    const calls = stream.history[i]?.senseCalls
+    if (!calls || calls.length === 0) continue
     for (let j = calls.length - 1; j >= 0; j -= 1) {
-      const c: SenseCallRecord | undefined = calls[j];
-      if (!c) continue;
-      if (c.name !== "update_todo") continue;
+      const c: SenseCallRecord | undefined = calls[j]
+      if (!c) continue
+      if (c.name !== 'update_todo') continue
       try {
-        const raw = typeof c.args === "string" ? c.args : JSON.stringify(c.args ?? {});
-        const obj = JSON.parse(raw) as { todos?: TodoItem[] };
-        if (Array.isArray(obj.todos)) return obj.todos;
+        const raw = typeof c.args === 'string' ? c.args : JSON.stringify(c.args ?? {})
+        const obj = JSON.parse(raw) as { todos?: TodoItem[] }
+        if (Array.isArray(obj.todos)) return obj.todos
       } catch {
         /* 继续向前找 */
       }
     }
   }
-  return [];
-});
+  return []
+})
 
 /** 检查 runningTools 中是否有 update_todo（实时执行中） */
 const isRunning = computed(() => {
-  const stream = agents.streams[props.pet.chatId];
-  return (stream?.runningTools ?? []).some((t) => t.name === "update_todo");
-});
+  const stream = agents.streams[props.pet.chatId]
+  return (stream?.runningTools ?? []).some((t) => t.name === 'update_todo')
+})
 
-const doneCount = computed(() => todos.value.filter((t) => t.status === "completed").length);
-const statusGlyph = (s: TodoItem["status"]): string =>
-  s === "completed" ? "✓" : s === "in_progress" ? "▣" : "☐";
+const doneCount = computed(() => todos.value.filter((t) => t.status === 'completed').length)
+const statusGlyph = (s: TodoItem['status']): string =>
+  s === 'completed' ? '✓' : s === 'in_progress' ? '▣' : '☐'
 </script>
 
 <template>
@@ -61,7 +61,9 @@ const statusGlyph = (s: TodoItem["status"]): string =>
         <span class="glyph" aria-hidden="true">{{ statusGlyph(t.status) }}</span>
         <span class="content">
           <span class="text" :class="{ done: t.status === 'completed' }">{{ t.content }}</span>
-          <span v-if="t.status === 'in_progress' && t.activeForm" class="active-form">{{ t.activeForm }}</span>
+          <span v-if="t.status === 'in_progress' && t.activeForm" class="active-form">{{
+            t.activeForm
+          }}</span>
         </span>
       </li>
     </ul>
@@ -75,8 +77,8 @@ const statusGlyph = (s: TodoItem["status"]): string =>
 
 <style scoped lang="less">
 @ink: #14161a;
-@glyph-fonts: ui-rounded, "Hiragino Sans", "PingFang SC", "Noto Sans Symbols 2",
-  "Noto Sans Symbols", "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+@glyph-fonts: ui-rounded, 'Hiragino Sans', 'PingFang SC', 'Noto Sans Symbols 2',
+  'Noto Sans Symbols', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
 
 .todo-panel {
   min-width: 96px;
@@ -112,7 +114,7 @@ const statusGlyph = (s: TodoItem["status"]): string =>
     font-size: 9px;
     font-weight: 700;
     color: fade(@ink, 56%);
-    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   }
 }
 

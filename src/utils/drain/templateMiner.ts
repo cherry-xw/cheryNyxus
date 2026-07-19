@@ -1,10 +1,10 @@
-import { performance } from "node:perf_hooks";
-import { promisify } from "node:util";
-import { gunzip, gzip } from "node:zlib";
-import { Drain } from "./drain";
-import { DrainUpdateType } from "./drainBase";
-import { LogCluster, Node } from "./node";
-import { PersistenceHandler } from "./persistenceHandler";
+import { performance } from 'node:perf_hooks'
+import { promisify } from 'node:util'
+import { gunzip, gzip } from 'node:zlib'
+import { Drain } from './drain'
+import { DrainUpdateType } from './drainBase'
+import { LogCluster, Node } from './node'
+import { PersistenceHandler } from './persistenceHandler'
 import type {
   ChangeType,
   DrainState,
@@ -13,18 +13,18 @@ import type {
   SerializedCluster,
   SerializedNode,
   TemplateMinerResult,
-} from "./types";
-import { TemplateMinerConfig } from "./templateMinerConfig";
+} from './types'
+import { TemplateMinerConfig } from './templateMinerConfig'
 
-const gzipAsync = promisify(gzip);
-const gunzipAsync = promisify(gunzip);
+const gzipAsync = promisify(gzip)
+const gunzipAsync = promisify(gunzip)
 
 export class TemplateMiner {
-  private drain: Drain;
-  private readonly config: TemplateMinerConfig;
-  private readonly persistence: PersistenceHandler | null;
-  private lastSaveTime: number;
-  private initialized: boolean;
+  private drain: Drain
+  private readonly config: TemplateMinerConfig
+  private readonly persistence: PersistenceHandler | null
+  private lastSaveTime: number
+  private initialized: boolean
 
   /**
    * Creates a template miner instance.
@@ -33,8 +33,8 @@ export class TemplateMiner {
    * @param persistence Optional persistence backend for snapshots.
    */
   constructor(config?: TemplateMinerConfig, persistence?: PersistenceHandler) {
-    this.config = config ?? new TemplateMinerConfig();
-    this.persistence = persistence ?? null;
+    this.config = config ?? new TemplateMinerConfig()
+    this.persistence = persistence ?? null
     this.drain = new Drain(
       this.config.drainDepth,
       this.config.drainSimTh,
@@ -42,11 +42,11 @@ export class TemplateMiner {
       this.config.drainMaxClusters,
       this.config.drainExtraDelimiters,
       undefined,
-      "<*>",
+      '<*>',
       this.config.parametrizeNumericTokens,
-    );
-    this.lastSaveTime = Date.now();
-    this.initialized = false;
+    )
+    this.lastSaveTime = Date.now()
+    this.initialized = false
   }
 
   /**
@@ -54,10 +54,10 @@ export class TemplateMiner {
    */
   async initialize(): Promise<void> {
     if (this.persistence) {
-      await this.loadState();
+      await this.loadState()
     }
 
-    this.initialized = true;
+    this.initialized = true
   }
 
   /**
@@ -67,19 +67,19 @@ export class TemplateMiner {
    * @returns Result metadata describing the updated or created cluster.
    */
   async addLogMessage(logMessage: string): Promise<TemplateMinerResult> {
-    this.ensureInitialized();
-    const startTime = performance.now();
-    const preprocessed = this.preprocessMessage(logMessage);
-    const [cluster, updateType] = this.drain.addLogMessage(preprocessed);
+    this.ensureInitialized()
+    const startTime = performance.now()
+    const preprocessed = this.preprocessMessage(logMessage)
+    const [cluster, updateType] = this.drain.addLogMessage(preprocessed)
 
-    await this.snapshotIfNeeded();
+    await this.snapshotIfNeeded()
 
     return {
       logCluster: cluster,
       isNewTemplate: updateType === DrainUpdateType.CLUSTER_CREATED,
       changeType: this.toChangeType(updateType),
       processingTime: performance.now() - startTime,
-    };
+    }
   }
 
   /**
@@ -89,14 +89,14 @@ export class TemplateMiner {
    * @returns Matching template string or `null` if no match was found.
    */
   getTemplate(logMessage: string): string | null {
-    this.ensureInitialized();
-    const preprocessed = this.preprocessMessage(logMessage);
-    const cluster = this.drain.match(preprocessed);
+    this.ensureInitialized()
+    const preprocessed = this.preprocessMessage(logMessage)
+    const cluster = this.drain.match(preprocessed)
     if (!cluster) {
-      return null;
+      return null
     }
 
-    return cluster.template.join(" ");
+    return cluster.template.join(' ')
   }
 
   /**
@@ -105,8 +105,8 @@ export class TemplateMiner {
    * @returns Current cluster collection.
    */
   getClusters(): LogClusterInterface[] {
-    this.ensureInitialized();
-    return this.drain.clusters;
+    this.ensureInitialized()
+    return this.drain.clusters
   }
 
   /**
@@ -116,8 +116,8 @@ export class TemplateMiner {
    * @returns Cluster instance when found, otherwise `null`.
    */
   getClusterById(id: number): LogClusterInterface | null {
-    this.ensureInitialized();
-    return this.drain.idToCluster.get(id) ?? null;
+    this.ensureInitialized()
+    return this.drain.idToCluster.get(id) ?? null
   }
 
   /**
@@ -126,21 +126,21 @@ export class TemplateMiner {
    * @returns Current cluster count.
    */
   clusterCount(): number {
-    this.ensureInitialized();
-    return this.drain.clusters.length;
+    this.ensureInitialized()
+    return this.drain.clusters.length
   }
 
   /**
    * Saves an immediate snapshot regardless of interval settings.
    */
   async saveSnapshot(): Promise<void> {
-    this.ensureInitialized();
+    this.ensureInitialized()
     if (!this.persistence) {
-      return;
+      return
     }
 
-    await this.saveState();
-    this.lastSaveTime = Date.now();
+    await this.saveState()
+    this.lastSaveTime = Date.now()
   }
 
   /**
@@ -148,15 +148,15 @@ export class TemplateMiner {
    */
   async close(): Promise<void> {
     if (!this.initialized) {
-      return;
+      return
     }
 
-    await this.saveSnapshot();
+    await this.saveSnapshot()
     if (!this.persistence) {
-      return;
+      return
     }
 
-    await this.persistence.close();
+    await this.persistence.close()
   }
 
   /**
@@ -166,19 +166,17 @@ export class TemplateMiner {
    * @returns Preprocessed message safe for Drain ingestion/matching.
    */
   private preprocessMessage(message: string): string {
-    let normalized = message.trim();
+    let normalized = message.trim()
     for (const delimiter of this.config.drainExtraDelimiters) {
-      normalized = normalized.split(delimiter).join(" ");
+      normalized = normalized.split(delimiter).join(' ')
     }
 
-    const tokens = normalized.split(/\s+/).filter(Boolean);
+    const tokens = normalized.split(/\s+/).filter(Boolean)
     if (!this.config.parametrizeNumericTokens) {
-      return tokens.join(" ");
+      return tokens.join(' ')
     }
 
-    return tokens
-      .map((token) => (/^\d+$/.test(token) ? "<*>" : token))
-      .join(" ");
+    return tokens.map((token) => (/^\d+$/.test(token) ? '<*>' : token)).join(' ')
   }
 
   /**
@@ -189,14 +187,14 @@ export class TemplateMiner {
    */
   private toChangeType(updateType: DrainUpdateType): ChangeType {
     if (updateType === DrainUpdateType.CLUSTER_CREATED) {
-      return "created";
+      return 'created'
     }
 
     if (updateType === DrainUpdateType.CLUSTER_TEMPLATE_CHANGED) {
-      return "updated";
+      return 'updated'
     }
 
-    return "none";
+    return 'none'
   }
 
   /**
@@ -204,12 +202,12 @@ export class TemplateMiner {
    */
   private ensureInitialized(): void {
     if (this.initialized) {
-      return;
+      return
     }
 
     throw new Error(
-      "TemplateMiner is not initialized. Call and await initialize() before using it.",
-    );
+      'TemplateMiner is not initialized. Call and await initialize() before using it.',
+    )
   }
 
   /**
@@ -217,16 +215,16 @@ export class TemplateMiner {
    */
   private async snapshotIfNeeded(): Promise<void> {
     if (!this.persistence) {
-      return;
+      return
     }
 
-    const intervalMs = this.config.snapshotIntervalMinutes * 60 * 1000;
+    const intervalMs = this.config.snapshotIntervalMinutes * 60 * 1000
     if (Date.now() - this.lastSaveTime < intervalMs) {
-      return;
+      return
     }
 
-    await this.saveState();
-    this.lastSaveTime = Date.now();
+    await this.saveState()
+    this.lastSaveTime = Date.now()
   }
 
   /**
@@ -235,17 +233,15 @@ export class TemplateMiner {
    * @returns Serialized Drain state.
    */
   private getDrainState(): DrainState {
-    const clusters: SerializedCluster[] = this.drain.clusters.map(
-      (cluster) => ({
-        id: cluster.id,
-        template: [...cluster.template],
-        size: cluster.size,
-      }),
-    );
+    const clusters: SerializedCluster[] = this.drain.clusters.map((cluster) => ({
+      id: cluster.id,
+      template: [...cluster.template],
+      size: cluster.size,
+    }))
 
-    const idToCluster: Record<number, SerializedCluster> = {};
+    const idToCluster: Record<number, SerializedCluster> = {}
     for (const cluster of clusters) {
-      idToCluster[cluster.id] = cluster;
+      idToCluster[cluster.id] = cluster
     }
 
     return {
@@ -253,7 +249,7 @@ export class TemplateMiner {
       idToCluster,
       rootNode: this.serializeNode(this.drain.rootNode),
       clusterId: this.drain.clustersCounter,
-    };
+    }
   }
 
   /**
@@ -269,23 +265,21 @@ export class TemplateMiner {
       this.config.drainMaxClusters,
       this.config.drainExtraDelimiters,
       undefined,
-      "<*>",
+      '<*>',
       this.config.parametrizeNumericTokens,
-    );
+    )
 
     const serializedClusters =
-      state.clusters.length > 0
-        ? state.clusters
-        : Object.values(state.idToCluster ?? {});
+      state.clusters.length > 0 ? state.clusters : Object.values(state.idToCluster ?? {})
 
     for (const sc of serializedClusters) {
-      const cluster = new LogCluster([...sc.template], sc.id);
-      cluster.size = sc.size;
-      this.drain.idToCluster.set(cluster.id, cluster);
+      const cluster = new LogCluster([...sc.template], sc.id)
+      cluster.size = sc.size
+      this.drain.idToCluster.set(cluster.id, cluster)
     }
 
-    this.drain.rootNode = this.deserializeNode(state.rootNode);
-    this.drain.clustersCounter = state.clusterId;
+    this.drain.rootNode = this.deserializeNode(state.rootNode)
+    this.drain.clustersCounter = state.clusterId
   }
 
   /**
@@ -295,15 +289,15 @@ export class TemplateMiner {
    * @returns Serialized node shape.
    */
   private serializeNode(node: NodeInterface): SerializedNode {
-    const keyToChildNode: Record<string, SerializedNode> = {};
+    const keyToChildNode: Record<string, SerializedNode> = {}
     for (const [key, child] of node.children.entries()) {
-      keyToChildNode[key] = this.serializeNode(child);
+      keyToChildNode[key] = this.serializeNode(child)
     }
 
     return {
       keyToChildNode,
       clusterIds: [...node.clusterIds],
-    };
+    }
   }
 
   /**
@@ -313,14 +307,14 @@ export class TemplateMiner {
    * @returns Materialized tree node.
    */
   private deserializeNode(node: SerializedNode): NodeInterface {
-    const deserializedNode = new Node();
-    deserializedNode.clusterIds = [...node.clusterIds];
+    const deserializedNode = new Node()
+    deserializedNode.clusterIds = [...node.clusterIds]
 
     for (const [key, childNode] of Object.entries(node.keyToChildNode)) {
-      deserializedNode.children.set(key, this.deserializeNode(childNode));
+      deserializedNode.children.set(key, this.deserializeNode(childNode))
     }
 
-    return deserializedNode;
+    return deserializedNode
   }
 
   /**
@@ -328,16 +322,16 @@ export class TemplateMiner {
    */
   private async saveState(): Promise<void> {
     if (!this.persistence) {
-      return;
+      return
     }
 
-    const state = this.getDrainState();
-    let data = JSON.stringify(state);
+    const state = this.getDrainState()
+    let data = JSON.stringify(state)
     if (this.config.snapshotCompressState) {
-      data = (await gzipAsync(Buffer.from(data))).toString("base64");
+      data = (await gzipAsync(Buffer.from(data))).toString('base64')
     }
 
-    await this.persistence.save(data);
+    await this.persistence.save(data)
   }
 
   /**
@@ -345,19 +339,19 @@ export class TemplateMiner {
    */
   private async loadState(): Promise<void> {
     if (!this.persistence) {
-      return;
+      return
     }
 
-    let raw = await this.persistence.load();
+    let raw = await this.persistence.load()
     if (!raw) {
-      return;
+      return
     }
 
     if (this.config.snapshotCompressState) {
-      raw = (await gunzipAsync(Buffer.from(raw, "base64"))).toString("utf-8");
+      raw = (await gunzipAsync(Buffer.from(raw, 'base64'))).toString('utf-8')
     }
 
-    this.restoreDrainFromState(JSON.parse(raw) as DrainState);
+    this.restoreDrainFromState(JSON.parse(raw) as DrainState)
   }
 
   /**
@@ -365,9 +359,9 @@ export class TemplateMiner {
    */
   public async deleteState(): Promise<void> {
     if (!this.persistence) {
-      return;
+      return
     }
 
-    await this.persistence.delete();
+    await this.persistence.delete()
   }
 }

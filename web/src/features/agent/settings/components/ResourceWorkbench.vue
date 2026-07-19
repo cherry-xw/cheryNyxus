@@ -1,35 +1,44 @@
 <script setup lang="ts">
-import { computed, watch } from "vue";
-import { Search } from "@element-plus/icons-vue";
+import { computed, watch } from 'vue'
+import { Search } from '@element-plus/icons-vue'
 
 export interface ResourceRailItem {
-  key: string;
-  label: string;
-  avatar?: string;
-  meta?: string;
-  badge?: string;
-  danger?: boolean;
+  key: string
+  label: string
+  avatar?: string
+  meta?: string
+  badge?: string
+  danger?: boolean
 }
 
-const props = withDefaults(defineProps<{
-  items: ResourceRailItem[];
-  modelValue?: string;
-  searchPlaceholder?: string;
-  glowRail?: boolean;
-}>(), { modelValue: "", searchPlaceholder: "搜索资源", glowRail: false });
-const emit = defineEmits<{ (e: "update:modelValue", value: string): void }>();
-const search = defineModel<string>("search", { default: "" });
+const props = withDefaults(
+  defineProps<{
+    items: ResourceRailItem[]
+    modelValue?: string
+    searchPlaceholder?: string
+    glowRail?: boolean
+  }>(),
+  { modelValue: '', searchPlaceholder: '搜索资源', glowRail: false },
+)
+const emit = defineEmits<{ (e: 'update:modelValue', value: string): void }>()
+const search = defineModel<string>('search', { default: '' })
 
 const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  return q ? props.items.filter((item) => `${item.label} ${item.meta ?? ""}`.toLowerCase().includes(q)) : props.items;
-});
+  const q = search.value.trim().toLowerCase()
+  return q
+    ? props.items.filter((item) => `${item.label} ${item.meta ?? ''}`.toLowerCase().includes(q))
+    : props.items
+})
 
-watch(() => props.items.map((item) => item.key).join("\0"), () => {
-  if (!props.modelValue || !props.items.some((item) => item.key === props.modelValue)) {
-    emit("update:modelValue", props.items[0]?.key ?? "");
-  }
-}, { immediate: true });
+watch(
+  () => props.items.map((item) => item.key).join('\0'),
+  () => {
+    if (!props.modelValue || !props.items.some((item) => item.key === props.modelValue)) {
+      emit('update:modelValue', props.items[0]?.key ?? '')
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -52,7 +61,9 @@ watch(() => props.items.map((item) => item.key).join("\0"), () => {
           :aria-selected="item.key === modelValue"
           @click="emit('update:modelValue', item.key)"
         >
-          <span class="resource-avatar" aria-hidden="true">{{ item.avatar || item.label.slice(0, 1) }}</span>
+          <span class="resource-avatar" aria-hidden="true">{{
+            item.avatar || item.label.slice(0, 1)
+          }}</span>
           <span class="resource-copy">
             <b>{{ item.label }}</b>
             <small v-if="item.meta">{{ item.meta }}</small>
@@ -69,36 +80,250 @@ watch(() => props.items.map((item) => item.key).join("\0"), () => {
 </template>
 
 <style scoped lang="less">
-@import "../shared.less";
-.resource-workbench { min-height: 0; height: 100%; display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 10px; }
-.resource-rail { min-height:0;display:flex;flex-direction:column;border:1px solid rgba(129,140,248,.16);border-radius:12px;background:linear-gradient(155deg,rgba(255,255,255,.58),rgba(238,242,255,.38));backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 rgba(255,255,255,.66),0 8px 24px rgba(76,29,149,.055);overflow:hidden; }
-.resource-rail-tools { display: flex; gap: 5px; padding: 7px; border-bottom: 1px solid rgba(36,38,45,.08); }
-.resource-rail-list { min-height: 0; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-.resource-rail-card { position:relative;width:100%;min-height:48px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:7px;padding:5px 7px;border:1px solid transparent;border-radius:10px;background:transparent;color:fade(@ink,76%);text-align:left;cursor:pointer;transition:transform .16s ease,background-color .16s ease,color .16s ease; }
-.resource-rail-card::before { content:"";position:absolute;left:-6px;top:50%;width:4px;height:16px;border-radius:0 6px 6px 0;background:linear-gradient(180deg,#5ee7ff 0%,#6366f1 48%,#d946ef 100%);opacity:0;transform:translate(-4px,-50%) scaleY(.45);transition:.18s ease;box-shadow:0 0 5px #38bdf8,0 0 14px rgba(168,85,247,.65); }
-.resource-rail-card:hover { background:rgba(255,255,255,.46);transform:translateX(3px) rotate(-.25deg); }
-.resource-rail-card:nth-child(even):hover { transform:translateX(3px) rotate(.25deg); }
-.resource-rail-card.active { background:linear-gradient(90deg,rgba(59,130,246,.055),rgba(168,85,247,.035) 54%,transparent 84%);color:#4338ca; }
-.resource-rail-card.active::before { opacity:1;transform:translate(0,-50%) scaleY(1);animation:rail-neon-ignite .5s ease-out; }
-.resource-rail-card.active .resource-avatar { transform:translateY(-2px) rotate(-3deg);border-color:rgba(96,165,250,.86);box-shadow:0 5px 12px rgba(49,46,129,.13),0 0 0 1px rgba(94,234,255,.45),0 0 8px rgba(56,189,248,.56),0 0 18px rgba(168,85,247,.32); }
-.resource-rail-card.active .resource-copy b { position:relative;color:#4338ca;text-shadow:0 0 9px rgba(99,102,241,.3); }
-.resource-rail-card.active .resource-copy b::after { content:"";position:absolute;left:0;bottom:-3px;width:min(42px,70%);height:1px;border-radius:2px;background:linear-gradient(90deg,#38bdf8,#818cf8,#d946ef,transparent);box-shadow:0 0 6px rgba(99,102,241,.72);animation:rail-neon-trace .45s ease-out; }
-.resource-avatar { width:32px;height:32px;display:grid;place-items:center;border:1px solid rgba(36,38,45,.07);border-radius:11px 9px 12px 8px;background:linear-gradient(145deg,#fff,#eee8dc);box-shadow:0 2px 7px rgba(36,38,45,.12);font-size:18px;transition:.18s cubic-bezier(.2,.8,.2,1); }
-.resource-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.resource-copy b,.resource-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.resource-copy b { font-size: 12px; }.resource-copy small { font-size: 10px; color: fade(@ink,48%); }
-.resource-badge { padding: 1px 5px; border-radius: 999px; background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent); color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink); font-size: 9px; font-weight: 800; }
-.resource-detail { min-width: 0; min-height: 0; overflow-y: auto; padding-right: 2px; }
+@import '../shared.less';
+.resource-workbench {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 10px;
+}
+.resource-rail {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(129, 140, 248, 0.16);
+  border-radius: 12px;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.58), rgba(238, 242, 255, 0.38));
+  backdrop-filter: blur(14px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.66),
+    0 8px 24px rgba(76, 29, 149, 0.055);
+  overflow: hidden;
+}
+.resource-rail-tools {
+  display: flex;
+  gap: 5px;
+  padding: 7px;
+  border-bottom: 1px solid rgba(36, 38, 45, 0.08);
+}
+.resource-rail-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.resource-rail-card {
+  position: relative;
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: fade(@ink, 76%);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+.resource-rail-card::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 4px;
+  height: 16px;
+  border-radius: 0 6px 6px 0;
+  background: linear-gradient(180deg, #5ee7ff 0%, #6366f1 48%, #d946ef 100%);
+  opacity: 0;
+  transform: translate(-4px, -50%) scaleY(0.45);
+  transition: 0.18s ease;
+  box-shadow:
+    0 0 5px #38bdf8,
+    0 0 14px rgba(168, 85, 247, 0.65);
+}
+.resource-rail-card:hover {
+  background: rgba(255, 255, 255, 0.46);
+  transform: translateX(3px) rotate(-0.25deg);
+}
+.resource-rail-card:nth-child(even):hover {
+  transform: translateX(3px) rotate(0.25deg);
+}
+.resource-rail-card.active {
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.055),
+    rgba(168, 85, 247, 0.035) 54%,
+    transparent 84%
+  );
+  color: #4338ca;
+}
+.resource-rail-card.active::before {
+  opacity: 1;
+  transform: translate(0, -50%) scaleY(1);
+  animation: rail-neon-ignite 0.5s ease-out;
+}
+.resource-rail-card.active .resource-avatar {
+  transform: translateY(-2px) rotate(-3deg);
+  border-color: rgba(96, 165, 250, 0.86);
+  box-shadow:
+    0 5px 12px rgba(49, 46, 129, 0.13),
+    0 0 0 1px rgba(94, 234, 255, 0.45),
+    0 0 8px rgba(56, 189, 248, 0.56),
+    0 0 18px rgba(168, 85, 247, 0.32);
+}
+.resource-rail-card.active .resource-copy b {
+  position: relative;
+  color: #4338ca;
+  text-shadow: 0 0 9px rgba(99, 102, 241, 0.3);
+}
+.resource-rail-card.active .resource-copy b::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -3px;
+  width: min(42px, 70%);
+  height: 1px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #38bdf8, #818cf8, #d946ef, transparent);
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.72);
+  animation: rail-neon-trace 0.45s ease-out;
+}
+.resource-avatar {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(36, 38, 45, 0.07);
+  border-radius: 11px 9px 12px 8px;
+  background: linear-gradient(145deg, #fff, #eee8dc);
+  box-shadow: 0 2px 7px rgba(36, 38, 45, 0.12);
+  font-size: 18px;
+  transition: 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.resource-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.resource-copy b,
+.resource-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resource-copy b {
+  font-size: 12px;
+}
+.resource-copy small {
+  font-size: 10px;
+  color: fade(@ink, 48%);
+}
+.resource-badge {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+  font-size: 9px;
+  font-weight: 800;
+}
+.resource-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
 // glowRail（大脑/角色）：所有卡灯条常亮 + neon-hue 持续变色 + 三层 glow 扩散照亮右侧；active 卡强化。
 // 每条灯条按 --rail-i 错开 animation-delay（负值），颜色不同步，节奏更有机。
-.glow-rail-enabled .resource-rail-card::before { opacity:.5; transform:translate(0,-50%) scaleY(1); animation:neon-hue 6s linear infinite; animation-delay:calc(var(--rail-i, 0) * -0.9s); box-shadow:0 0 6px @neon-cyan,0 0 14px @neon-indigo,0 0 24px fade(@neon-magenta,28%); }
-.glow-rail-enabled .resource-rail-card.active::before { opacity:1; box-shadow:0 0 9px @neon-cyan,0 0 22px @neon-indigo,0 0 38px fade(@neon-magenta,38%); }
+.glow-rail-enabled .resource-rail-card::before {
+  opacity: 0.5;
+  transform: translate(0, -50%) scaleY(1);
+  animation: neon-hue 6s linear infinite;
+  animation-delay: calc(var(--rail-i, 0) * -0.9s);
+  box-shadow:
+    0 0 6px @neon-cyan,
+    0 0 14px @neon-indigo,
+    0 0 24px fade(@neon-magenta, 28%);
+}
+.glow-rail-enabled .resource-rail-card.active::before {
+  opacity: 1;
+  box-shadow:
+    0 0 9px @neon-cyan,
+    0 0 22px @neon-indigo,
+    0 0 38px fade(@neon-magenta, 38%);
+}
 // 灯条漏光投射到右侧详情卡左缘
-.glow-rail-enabled .resource-detail { box-shadow:inset 8px 0 24px -8px fade(@neon-indigo,22%); }
-.resource-rail-empty { padding: 24px 8px; text-align:center; font-size:11px; color:fade(@ink,45%); }
-.rail-search-icon { width: 12px; }
-@media (max-width: 820px) { .resource-workbench { grid-template-columns: 72px minmax(0,1fr); } .resource-copy,.resource-badge { display:none; } .resource-rail-tools :deep(.el-input__inner) { width:0; } .resource-rail-card { grid-template-columns: 1fr; justify-items:center; } }
-@media (prefers-reduced-motion: reduce) { .resource-rail-card,.resource-avatar,.resource-rail-card::before { transition:none!important;transform:none!important; } }
-@keyframes rail-neon-ignite { 0%{opacity:.15;filter:brightness(.7)}35%{opacity:1;filter:brightness(1.8)}55%{opacity:.55}100%{opacity:1;filter:none} }
-@keyframes rail-neon-trace { from{width:0;opacity:.2}to{width:min(42px,70%);opacity:1} }
+.glow-rail-enabled .resource-detail {
+  box-shadow: inset 8px 0 24px -8px fade(@neon-indigo, 22%);
+}
+.resource-rail-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 11px;
+  color: fade(@ink, 45%);
+}
+.rail-search-icon {
+  width: 12px;
+}
+@media (max-width: 820px) {
+  .resource-workbench {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+  .resource-copy,
+  .resource-badge {
+    display: none;
+  }
+  .resource-rail-tools :deep(.el-input__inner) {
+    width: 0;
+  }
+  .resource-rail-card {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .resource-rail-card,
+  .resource-avatar,
+  .resource-rail-card::before {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+@keyframes rail-neon-ignite {
+  0% {
+    opacity: 0.15;
+    filter: brightness(0.7);
+  }
+  35% {
+    opacity: 1;
+    filter: brightness(1.8);
+  }
+  55% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 1;
+    filter: none;
+  }
+}
+@keyframes rail-neon-trace {
+  from {
+    width: 0;
+    opacity: 0.2;
+  }
+  to {
+    width: min(42px, 70%);
+    opacity: 1;
+  }
+}
 </style>

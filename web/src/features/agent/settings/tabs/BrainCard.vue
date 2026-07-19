@@ -4,93 +4,103 @@
  * 从 BrainsTab 拆出，承载连接字段 + 运行能力 + 媒体能力矩阵。
  * 改名/复制/删除需操作 draft.llm.brain 全量（保序重建 + 迁移角色引用），故 prop 传 draft。
  */
-import { CopyDocument, Delete, Refresh, Document } from "@element-plus/icons-vue";
-import { ref, computed, watch } from "vue";
-import { ElMessageBox } from "element-plus";
-import { agentApi, type BrainConfigDto, type ConfigDto, type MediaCapabilitiesDto, type ThinkingLevel } from "@/services/agentApi";
-import { PROVIDERS } from "../constants";
-import ConfirmDialog from "../ConfirmDialog.vue";
-import EditableTitle from "../components/EditableTitle.vue";
-import LabelTip from "../components/LabelTip.vue";
-import ThinkingLevelKnob from "../components/ThinkingLevelKnob.vue";
-import MediaCapabilityGrid from "./MediaCapabilityGrid.vue";
+import { CopyDocument, Delete, Refresh, Document } from '@element-plus/icons-vue'
+import { ref, computed, watch } from 'vue'
+import { ElMessageBox } from 'element-plus'
+import {
+  agentApi,
+  type BrainConfigDto,
+  type ConfigDto,
+  type MediaCapabilitiesDto,
+  type ThinkingLevel,
+} from '@/services/agentApi'
+import { PROVIDERS } from '../constants'
+import ConfirmDialog from '../ConfirmDialog.vue'
+import EditableTitle from '../components/EditableTitle.vue'
+import LabelTip from '../components/LabelTip.vue'
+import ThinkingLevelKnob from '../components/ThinkingLevelKnob.vue'
+import MediaCapabilityGrid from './MediaCapabilityGrid.vue'
 
 // Chevron icon (element-plus doesn't export a small one, use inline SVG)
-const ChevronIcon = { template: `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2l4 4-4 4"/></svg>` };
+const ChevronIcon = {
+  template: `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2l4 4-4 4"/></svg>`,
+}
 
 const props = defineProps<{
-  name: string;
-  idx: number;
-  cfg: BrainConfigDto;
-  draft: ConfigDto;
-  envVars: string[];
-  detailMode?: boolean;
-}>();
+  name: string
+  idx: number
+  cfg: BrainConfigDto
+  draft: ConfigDto
+  envVars: string[]
+  detailMode?: boolean
+}>()
 
 const emit = defineEmits<{
-  (e: "error", msg: string): void;
-  (e: "renamed", name: string): void;
-  (e: "duplicated", name: string): void;
-}>();
+  (e: 'error', msg: string): void
+  (e: 'renamed', name: string): void
+  (e: 'duplicated', name: string): void
+}>()
 
-const CONTEXT_LIMIT_OPTIONS = [128, 256, 512, 1024] as const;
+const CONTEXT_LIMIT_OPTIONS = [128, 256, 512, 1024] as const
 
 // 删大脑二次确认（重删 → ConfirmDialog 居中 modal）
-const removeDialog = ref(false);
+const removeDialog = ref(false)
 const removeImpact = computed(() => {
   const referringRoles = Object.entries(props.draft.roles ?? {})
     .filter(([, cfg]) => cfg.brain === props.name)
-    .map(([name]) => name);
+    .map(([name]) => name)
   return referringRoles.length
-    ? [`引用此大脑的 ${referringRoles.length} 个角色（${referringRoles.join("、")}）将失去大脑绑定，需重新分配。`]
-    : ["没有角色引用此大脑。"];
-});
+    ? [
+        `引用此大脑的 ${referringRoles.length} 个角色（${referringRoles.join('、')}）将失去大脑绑定，需重新分配。`,
+      ]
+    : ['没有角色引用此大脑。']
+})
 
 // ── 折叠/展开 ────────────────────────────────────────────────────
-const expanded = ref(props.detailMode ?? false);
+const expanded = ref(props.detailMode ?? false)
 
 /** 折叠态单行摘要：provider / model / $KEY */
 const brainSummary = computed(() => {
-  const parts: string[] = [];
-  if (props.cfg.provider) parts.push(props.cfg.provider);
-  if (props.cfg.model) parts.push(props.cfg.model);
-  if (props.cfg.key) parts.push(props.cfg.key);
-  return parts.length ? parts.join(" / ") : "未配置";
-});
+  const parts: string[] = []
+  if (props.cfg.provider) parts.push(props.cfg.provider)
+  if (props.cfg.model) parts.push(props.cfg.model)
+  if (props.cfg.key) parts.push(props.cfg.key)
+  return parts.length ? parts.join(' / ') : '未配置'
+})
 
 // ── model 下拉刷新 ──────────────────────────────────────────────
-const modelOptions = ref<Array<{ id: string; name?: string }>>([]);
-const modelLoading = ref(false);
+const modelOptions = ref<Array<{ id: string; name?: string }>>([])
+const modelLoading = ref(false)
 
 // ── 深度思考档位（按 model 后端查） ────────────────────────────────
 /** 当前 brain 的 model 支持的 ThinkingLevel 子集；未拉取或失败时 = ["off","on"] 兜底。 */
-const thinkingLevels = ref<readonly ThinkingLevel[]>(["off", "on"]);
-let thinkingLevelsReqId = 0;
+const thinkingLevels = ref<readonly ThinkingLevel[]>(['off', 'on'])
+let thinkingLevelsReqId = 0
 
 async function refreshThinkingLevels(): Promise<void> {
-  const model = props.cfg.model;
+  const model = props.cfg.model
   if (!model) {
-    thinkingLevels.value = ["off", "on"];
-    return;
+    thinkingLevels.value = ['off', 'on']
+    return
   }
   // 简易 debounce：取消在途请求（每次自增 reqId，回包时校验）
-  const reqId = ++thinkingLevelsReqId;
+  const reqId = ++thinkingLevelsReqId
   try {
-    const levels = await agentApi.getThinkingLevels([model]);
-    if (reqId !== thinkingLevelsReqId) return; // 被新请求覆盖
-    const got = levels[model];
+    const levels = await agentApi.getThinkingLevels([model])
+    if (reqId !== thinkingLevelsReqId) return // 被新请求覆盖
+    const got = levels[model]
     if (got && got.length > 0) {
-      thinkingLevels.value = got;
+      thinkingLevels.value = got
       // 若当前 cfg.thinking 不在新档位列表里，重置为第一个（不静默保存，留给用户感知）
-      if (!got.includes(props.cfg.thinking ?? "off")) {
-        props.cfg.thinking = got[0];
+      if (!got.includes(props.cfg.thinking ?? 'off')) {
+        props.cfg.thinking = got[0]
       }
     } else {
-      thinkingLevels.value = ["off", "on"];
+      thinkingLevels.value = ['off', 'on']
     }
   } catch {
-    if (reqId !== thinkingLevelsReqId) return;
-    thinkingLevels.value = ["off", "on"];
+    if (reqId !== thinkingLevelsReqId) return
+    thinkingLevels.value = ['off', 'on']
   }
 }
 
@@ -98,105 +108,108 @@ async function refreshThinkingLevels(): Promise<void> {
 watch(
   () => props.cfg.model,
   () => {
-    void refreshThinkingLevels();
+    void refreshThinkingLevels()
   },
   { immediate: true },
-);
+)
 
 async function refreshModels(): Promise<void> {
-  const { provider, url, key } = props.cfg;
+  const { provider, url, key } = props.cfg
   if (!provider || !url) {
-    onError("请先填写适配器和地址");
-    return;
+    onError('请先填写适配器和地址')
+    return
   }
-  modelLoading.value = true;
+  modelLoading.value = true
   try {
-    const res = await agentApi.fetchModels(provider, url, key || undefined);
-    if (res.error) { onError(res.error); return; }
-    modelOptions.value = res.models;
+    const res = await agentApi.fetchModels(provider, url, key || undefined)
+    if (res.error) {
+      onError(res.error)
+      return
+    }
+    modelOptions.value = res.models
   } catch (err) {
-    onError(err instanceof Error ? err.message : String(err));
+    onError(err instanceof Error ? err.message : String(err))
   } finally {
-    modelLoading.value = false;
+    modelLoading.value = false
   }
 }
 
 // ── helpers ───────────────────────────────────────────────────────
 
 function onError(msg: string): void {
-  emit("error", msg);
+  emit('error', msg)
 }
 
 /** 设置页默认以 K 为单位编辑，配置仍保存完整数值。 */
 function displayContextLimit(value: number | undefined): number | undefined {
-  return value === undefined ? undefined : value / 1000;
+  return value === undefined ? undefined : value / 1000
 }
 function updateContextLimit(cfg: { contextLimit?: number }, value: unknown): void {
-  const limit = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(limit) || limit <= 0) return;
-  cfg.contextLimit = limit * 1000;
+  const limit = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(limit) || limit <= 0) return
+  cfg.contextLimit = limit * 1000
 }
 function capabilities(cfg: BrainConfigDto) {
-  return (cfg.capabilities ??= {});
+  return (cfg.capabilities ??= {})
 }
-function mediaCapabilities(cfg: BrainConfigDto, key: "input" | "generate") {
-  const caps = capabilities(cfg);
-  return (caps[key] ??= {});
+function mediaCapabilities(cfg: BrainConfigDto, key: 'input' | 'generate') {
+  const caps = capabilities(cfg)
+  return (caps[key] ??= {})
 }
 function toggleMediaCapability(
   cfg: BrainConfigDto,
-  group: "input" | "generate",
+  group: 'input' | 'generate',
   kind: keyof MediaCapabilitiesDto,
 ): void {
-  const media = mediaCapabilities(cfg, group);
-  media[kind] = media[kind] !== true;
+  const media = mediaCapabilities(cfg, group)
+  media[kind] = media[kind] !== true
 }
 function toolCallEnabled(cfg: BrainConfigDto): boolean {
-  return cfg.capabilities?.toolCall !== false;
+  return cfg.capabilities?.toolCall !== false
 }
 function setToolCall(cfg: BrainConfigDto, value: unknown): void {
-  capabilities(cfg).toolCall = value as boolean;
-  if (value === false) capabilities(cfg).generate = {};
+  capabilities(cfg).toolCall = value as boolean
+  if (value === false) capabilities(cfg).generate = {}
 }
 
 // ── brain mutations ───────────────────────────────────────────────
 
 function removeBrain(): void {
-  delete props.draft.llm.brain[props.name];
+  delete props.draft.llm.brain[props.name]
 }
 /** 改名：保序重建 brain + 迁移 default/roles 引用。 */
 function renameBrain(newName: string): void {
-  const cfg = props.draft.llm.brain[props.name];
-  if (!cfg) return;
+  const cfg = props.draft.llm.brain[props.name]
+  if (!cfg) return
   // 重建对象保持原顺序（不能 delete+add，否则新 key 跳到末尾）
-  const brains = props.draft.llm.brain;
-  const rebuilt = {} as typeof brains;
+  const brains = props.draft.llm.brain
+  const rebuilt = {} as typeof brains
   for (const [k, v] of Object.entries(brains)) {
-    if (k === props.name) rebuilt[newName] = cfg;
-    else rebuilt[k] = v;
+    if (k === props.name) rebuilt[newName] = cfg
+    else rebuilt[k] = v
   }
-  props.draft.llm.brain = rebuilt;
+  props.draft.llm.brain = rebuilt
   // 迁移角色引用，避免 roles 指向已改名 brain 触发校验失败。
   if (props.draft.roles) {
     for (const sa of Object.values(props.draft.roles)) {
-      if (sa.brain === props.name) sa.brain = newName;
+      if (sa.brain === props.name) sa.brain = newName
     }
   }
-  emit("error", "");
-  emit("renamed", newName);
+  emit('error', '')
+  emit('renamed', newName)
 }
 function validateRename(newName: string): string | null {
-  return props.draft.llm.brain[newName] ? `大脑 "${newName}" 已存在` : null;
+  return props.draft.llm.brain[newName] ? `大脑 "${newName}" 已存在` : null
 }
 function duplicateBrain(): void {
-  const src = props.draft.llm.brain[props.name];
-  if (!src) return;
-  let newName = `${props.name}_copy`;
-  let i = 2;
-  while (props.draft.llm.brain[newName]) newName = `${props.name}_copy_${i++}`;
-  props.draft.llm.brain[newName] = structuredClone(src);
-  emit("error", "");
-  emit("duplicated", newName);
+  const src = props.draft.llm.brain[props.name]
+  if (!src) return
+  let newName = `${props.name}_copy`
+  let i = 2
+  while (props.draft.llm.brain[newName]) newName = `${props.name}_copy_${i++}`
+  props.draft.llm.brain[newName] = structuredClone(src)
+  emit('error', '')
+  emit('duplicated', newName)
 }
 
 /**
@@ -209,22 +222,22 @@ async function openEnvFile(): Promise<void> {
   if (!props.draft.global.textEditor) {
     try {
       await ElMessageBox.alert(
-        "未配置文本编辑器，将使用系统默认编辑器打开文件。如需指定编辑器，请在「⚙ 全局」设置中配置。",
-        "提示",
+        '未配置文本编辑器，将使用系统默认编辑器打开文件。如需指定编辑器，请在「⚙ 全局」设置中配置。',
+        '提示',
         {
-          confirmButtonText: "确定",
-          type: "info",
+          confirmButtonText: '确定',
+          type: 'info',
         },
-      );
+      )
     } catch {
       // 用户关闭弹窗，继续执行
     }
   }
 
   try {
-    await agentApi.openFile(".env");
+    await agentApi.openFile('.env')
   } catch (err) {
-    onError(err instanceof Error ? err.message : "打开文件失败");
+    onError(err instanceof Error ? err.message : '打开文件失败')
   }
 }
 </script>
@@ -245,7 +258,12 @@ async function openEnvFile(): Promise<void> {
           <button type="button" class="icon-btn" aria-label="复制" @click.stop="duplicateBrain">
             <CopyDocument class="ico" />
           </button>
-          <button type="button" class="icon-btn danger" aria-label="删除" @click.stop="removeDialog = true">
+          <button
+            type="button"
+            class="icon-btn danger"
+            aria-label="删除"
+            @click.stop="removeDialog = true"
+          >
             <Delete class="ico" />
           </button>
         </template>
@@ -262,7 +280,11 @@ async function openEnvFile(): Promise<void> {
         <div class="brain-fields connection-fields">
           <label class="field field-wide">
             <LabelTip label="地址" tip="url：服务地址，可用 $ENV 占位从环境变量注入" />
-            <el-input v-model="cfg.url" class="mono-input" placeholder="$OLLAMA_HOST 或 https://..." />
+            <el-input
+              v-model="cfg.url"
+              class="mono-input"
+              placeholder="$OLLAMA_HOST 或 https://..."
+            />
           </label>
           <label class="field">
             <LabelTip label="适配器" tip="provider：openai / ollama / mock，决定 API 方言" />
@@ -282,7 +304,12 @@ async function openEnvFile(): Promise<void> {
                 placeholder="gpt-3.5-turbo"
                 size="small"
               >
-                <el-option v-for="m in modelOptions" :key="m.id" :label="m.name ?? m.id" :value="m.id" />
+                <el-option
+                  v-for="m in modelOptions"
+                  :key="m.id"
+                  :label="m.name ?? m.id"
+                  :value="m.id"
+                />
               </el-select>
               <button
                 type="button"
@@ -324,7 +351,9 @@ async function openEnvFile(): Promise<void> {
       </section>
 
       <section class="brain-section runtime-capability-section">
-        <div class="section-heading"><span>运行与能力</span><small>上下文、推理、工具与媒体</small></div>
+        <div class="section-heading">
+          <span>运行与能力</span><small>上下文、推理、工具与媒体</small>
+        </div>
         <div class="runtime-controls">
           <label class="field">
             <LabelTip label="记忆容量" tip="默认单位为 K；下拉可选常用容量，也可直接输入数值。" />
@@ -336,7 +365,12 @@ async function openEnvFile(): Promise<void> {
               placeholder="128"
               @update:model-value="(value: unknown) => updateContextLimit(cfg, value)"
             >
-              <el-option v-for="limit in CONTEXT_LIMIT_OPTIONS" :key="limit" :label="`${limit}K`" :value="limit" />
+              <el-option
+                v-for="limit in CONTEXT_LIMIT_OPTIONS"
+                :key="limit"
+                :label="`${limit}K`"
+                :value="limit"
+              />
             </el-select>
           </label>
           <label class="field">
@@ -351,7 +385,10 @@ async function openEnvFile(): Promise<void> {
             />
           </div>
           <div class="thinking-field">
-            <LabelTip label="深度思考" tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。off=不发思考参数；thinking=由模型决定；low/medium/high=强度递增（仅推理模型有效），需在「⚙ 全局」开启思考总闸。" />
+            <LabelTip
+              label="深度思考"
+              tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。off=不发思考参数；thinking=由模型决定；low/medium/high=强度递增（仅推理模型有效），需在「⚙ 全局」开启思考总闸。"
+            />
             <ThinkingLevelKnob v-model="cfg.thinking" :levels="thinkingLevels" />
           </div>
         </div>
@@ -375,12 +412,14 @@ async function openEnvFile(): Promise<void> {
 </template>
 
 <style scoped lang="less">
-@import "../shared.less";
+@import '../shared.less';
 
 .brain-head {
   cursor: pointer;
 }
-.brain-detail-mode .brain-head { cursor: default; }
+.brain-detail-mode .brain-head {
+  cursor: default;
+}
 
 .brain-layout {
   display: grid;
@@ -406,7 +445,10 @@ async function openEnvFile(): Promise<void> {
     font-weight: 800;
   }
 
-  small { color: rgba(20, 22, 26, 0.42); font-size: 10px; }
+  small {
+    color: rgba(20, 22, 26, 0.42);
+    font-size: 10px;
+  }
 }
 
 // 「运行与能力」section：标题浮动脱流不占高，runtime-controls 上移与之重叠，降低卡片高度
@@ -469,14 +511,19 @@ async function openEnvFile(): Promise<void> {
   }
 }
 
-.field-wide { grid-column: 1 / -1; }
+.field-wide {
+  grid-column: 1 / -1;
+}
 
 .model-input-row {
   display: flex;
   gap: 4px;
   align-items: center;
 
-  .model-select { flex: 1; min-width: 0; }
+  .model-select {
+    flex: 1;
+    min-width: 0;
+  }
 }
 
 .refresh-btn {
@@ -492,16 +539,30 @@ async function openEnvFile(): Promise<void> {
   cursor: pointer;
   transition: background 0.15s;
 
-  &:hover { background: rgba(36, 38, 45, 0.04); }
-  &:disabled { opacity: 0.5; cursor: not-allowed; }
+  &:hover {
+    background: rgba(36, 38, 45, 0.04);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 
-  .ico { width: 12px; height: 12px; }
-  .spinning { animation: spin 1s linear infinite; }
+  .ico {
+    width: 12px;
+    height: 12px;
+  }
+  .spinning {
+    animation: spin 1s linear infinite;
+  }
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .runtime-controls {
@@ -522,7 +583,10 @@ async function openEnvFile(): Promise<void> {
   border-radius: 6px;
   background: #fff;
 
-  > div { display: grid; gap: 2px; }
+  > div {
+    display: grid;
+    gap: 2px;
+  }
 }
 
 // 深度思考旋钮（ThinkingLevelKnob）：与其他 3 列同宽，高度自适应 label-tip 模式
@@ -533,7 +597,9 @@ async function openEnvFile(): Promise<void> {
 }
 
 @media (max-width: 760px) {
-  .runtime-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .runtime-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   // 窄屏控件换行，标题浮动会遮挡控件 → 回正常流
   .runtime-capability-section .section-heading {
     position: static;
@@ -543,6 +609,8 @@ async function openEnvFile(): Promise<void> {
 }
 
 @media (max-width: 420px) {
-  .runtime-controls { grid-template-columns: 1fr; }
+  .runtime-controls {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -1,14 +1,14 @@
-import "@/utils/config"; // 确保 dotenv 先加载
-import Database from "better-sqlite3";
-import { join } from "path";
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import config from "@/utils/config.js";
+import '@/utils/config' // 确保 dotenv 先加载
+import Database from 'better-sqlite3'
+import { join } from 'path'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import config from '@/utils/config.js'
 
 // 缓存管理
 const dbCache = {
   soulDb: null as Database.Database | null,
   monthlyDbs: new Map<string, Database.Database>(),
-};
+}
 
 /**
  * 获取 soul.db 实例（单例）
@@ -16,25 +16,25 @@ const dbCache = {
  */
 export function getSoulDb(): Database.Database {
   if (!dbCache.soulDb) {
-    const dbDir = config.global.db_dir;
-    const dbPath = join(dbDir, "soul.db");
+    const dbDir = config.global.db_dir
+    const dbPath = join(dbDir, 'soul.db')
 
     // 确保目录存在
     if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
+      mkdirSync(dbDir, { recursive: true })
     }
 
     // 确保文件存在
     if (!existsSync(dbPath)) {
-      writeFileSync(dbPath, "");
+      writeFileSync(dbPath, '')
     }
 
-    dbCache.soulDb = new Database(dbPath);
-    dbCache.soulDb.pragma("foreign_keys = ON");
-    dbCache.soulDb.pragma("journal_mode = WAL");
-    initSoulTables(dbCache.soulDb);
+    dbCache.soulDb = new Database(dbPath)
+    dbCache.soulDb.pragma('foreign_keys = ON')
+    dbCache.soulDb.pragma('journal_mode = WAL')
+    initSoulTables(dbCache.soulDb)
   }
-  return dbCache.soulDb;
+  return dbCache.soulDb
 }
 
 /**
@@ -44,25 +44,25 @@ export function getSoulDb(): Database.Database {
  */
 export function getMonthlyDb(yearMonth: string): Database.Database {
   if (!dbCache.monthlyDbs.has(yearMonth)) {
-    const dbDir = config.global.db_dir;
-    const dbPath = join(dbDir, `${yearMonth}.db`);
+    const dbDir = config.global.db_dir
+    const dbPath = join(dbDir, `${yearMonth}.db`)
 
     // 确保目录存在
     if (!existsSync(dbDir)) {
-      mkdirSync(dbDir, { recursive: true });
+      mkdirSync(dbDir, { recursive: true })
     }
 
     // 确保文件存在
     if (!existsSync(dbPath)) {
-      writeFileSync(dbPath, "");
+      writeFileSync(dbPath, '')
     }
 
-    const db = new Database(dbPath);
-    db.pragma("journal_mode = WAL");
-    initMonthlyTables(db);
-    dbCache.monthlyDbs.set(yearMonth, db);
+    const db = new Database(dbPath)
+    db.pragma('journal_mode = WAL')
+    initMonthlyTables(db)
+    dbCache.monthlyDbs.set(yearMonth, db)
   }
-  return dbCache.monthlyDbs.get(yearMonth)!;
+  return dbCache.monthlyDbs.get(yearMonth)!
 }
 
 /**
@@ -108,42 +108,34 @@ function initSoulTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_spawn_tasks_parent_status ON spawn_tasks(parent_chat_id, status);
-  `);
+  `)
   // P1-8：旧库 chats 表无 message_count，CREATE IF NOT EXISTS 跳过建表，按列检查补 ALTER。
-  ensureChatColumn(db, "message_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureChatColumn(db, 'message_count', 'INTEGER NOT NULL DEFAULT 0')
   // CP1 主从 Agent：旧库缺 parent_chat_id 列，按列检查补 ALTER（TEXT 缺省 NULL，无需回填）。
-  ensureChatColumn(db, "parent_chat_id", "TEXT");
+  ensureChatColumn(db, 'parent_chat_id', 'TEXT')
 }
 
 /**
  * chats 列存在性检查 + 缺失补列（P1-8 冗余计数列迁移）。
  * message_count 加列时一次性回填已有 chat 的消息数（按各自 messages_month 路由 COUNT）。
  */
-function ensureChatColumn(
-  db: Database.Database,
-  column: string,
-  definition: string,
-): void {
-  const cols = db.prepare(`PRAGMA table_info(chats)`).all() as
-    { name: string }[];
-  if (cols.some((c) => c.name === column)) return;
+function ensureChatColumn(db: Database.Database, column: string, definition: string): void {
+  const cols = db.prepare(`PRAGMA table_info(chats)`).all() as { name: string }[]
+  if (cols.some((c) => c.name === column)) return
 
-  db.exec(`ALTER TABLE chats ADD COLUMN ${column} ${definition}`);
+  db.exec(`ALTER TABLE chats ADD COLUMN ${column} ${definition}`)
 
-  if (column === "message_count") {
-    const chats = db.prepare("SELECT id, messages_month FROM chats").all() as {
-      id: string;
-      messages_month: string;
-    }[];
+  if (column === 'message_count') {
+    const chats = db.prepare('SELECT id, messages_month FROM chats').all() as {
+      id: string
+      messages_month: string
+    }[]
     for (const c of chats) {
-      const monthlyDb = getMonthlyDb(c.messages_month);
+      const monthlyDb = getMonthlyDb(c.messages_month)
       const row = monthlyDb
-        .prepare("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?")
-        .get(c.id) as { n: number };
-      db.prepare("UPDATE chats SET message_count = ? WHERE id = ?").run(
-        row.n,
-        c.id,
-      );
+        .prepare('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?')
+        .get(c.id) as { n: number }
+      db.prepare('UPDATE chats SET message_count = ? WHERE id = ?').run(row.n, c.id)
     }
   }
 }
@@ -225,13 +217,13 @@ function initMonthlyTables(db: Database.Database): void {
       chat_id TEXT PRIMARY KEY,
       legacy_backfill_version INTEGER NOT NULL
     );
-  `);
+  `)
 
-  ensureMessageColumn(db, "revoked", "INTEGER DEFAULT 0");
-  ensureMessageColumn(db, "runtime", "TEXT");
-  ensureMessageColumn(db, "context_compaction", "INTEGER DEFAULT 0");
-  ensureMessageColumn(db, "context_compaction_tokens", "INTEGER");
-  ensureChatEventColumn(db, "chat_seq", "INTEGER");
+  ensureMessageColumn(db, 'revoked', 'INTEGER DEFAULT 0')
+  ensureMessageColumn(db, 'runtime', 'TEXT')
+  ensureMessageColumn(db, 'context_compaction', 'INTEGER DEFAULT 0')
+  ensureMessageColumn(db, 'context_compaction_tokens', 'INTEGER')
+  ensureChatEventColumn(db, 'chat_seq', 'INTEGER')
   // Development builds created before per-chat sequence migration used the
   // global row id as `seq`. Backfill deterministic per-chat cursors so those
   // databases can upgrade without a destructive table rebuild.
@@ -244,37 +236,32 @@ function initMonthlyTables(db: Database.Database): void {
     UPDATE chat_events
     SET chat_seq = (SELECT n FROM numbered WHERE numbered.event_id = chat_events.rowid)
     WHERE rowid IN (SELECT event_id FROM numbered)
-  `);
-  db.exec("CREATE INDEX IF NOT EXISTS idx_chat_events_chat_seq_v2 ON chat_events(chat_id, chat_seq)");
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_events_chat_seq_unique ON chat_events(chat_id, chat_seq)");
+  `)
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS idx_chat_events_chat_seq_v2 ON chat_events(chat_id, chat_seq)',
+  )
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_events_chat_seq_unique ON chat_events(chat_id, chat_seq)',
+  )
 }
 
 /**
  * 列存在性检查 + 缺失补列。
  * PRAGMA table_info 返回行无该列名时 ALTER TABLE ADD COLUMN。
  */
-function ensureMessageColumn(
-  db: Database.Database,
-  column: string,
-  definition: string,
-): void {
-  const cols = db.prepare(`PRAGMA table_info(messages)`).all() as
-    { name: string }[];
-  const exists = cols.some((c) => c.name === column);
+function ensureMessageColumn(db: Database.Database, column: string, definition: string): void {
+  const cols = db.prepare(`PRAGMA table_info(messages)`).all() as { name: string }[]
+  const exists = cols.some((c) => c.name === column)
   if (!exists) {
-    db.exec(`ALTER TABLE messages ADD COLUMN ${column} ${definition}`);
+    db.exec(`ALTER TABLE messages ADD COLUMN ${column} ${definition}`)
   }
 }
 
 /** chat_events 独立演进，不能复用 messages 的列检查。 */
-function ensureChatEventColumn(
-  db: Database.Database,
-  column: string,
-  definition: string,
-): void {
-  const cols = db.prepare("PRAGMA table_info(chat_events)").all() as { name: string }[];
+function ensureChatEventColumn(db: Database.Database, column: string, definition: string): void {
+  const cols = db.prepare('PRAGMA table_info(chat_events)').all() as { name: string }[]
   if (!cols.some((c) => c.name === column)) {
-    db.exec(`ALTER TABLE chat_events ADD COLUMN ${column} ${definition}`);
+    db.exec(`ALTER TABLE chat_events ADD COLUMN ${column} ${definition}`)
   }
 }
 
@@ -283,11 +270,11 @@ function ensureChatEventColumn(
  */
 export function closeAllDbs(): void {
   if (dbCache.soulDb) {
-    dbCache.soulDb.close();
-    dbCache.soulDb = null;
+    dbCache.soulDb.close()
+    dbCache.soulDb = null
   }
   for (const db of dbCache.monthlyDbs.values()) {
-    db.close();
+    db.close()
   }
-  dbCache.monthlyDbs.clear();
+  dbCache.monthlyDbs.clear()
 }

@@ -13,17 +13,17 @@
  *   - 断连 abort → rejectApproval(AgentAbortError) → throw → pending NULL → resume Case1 重跑
  */
 export type ApprovalDecision = {
-  action: "accept" | "reject";
-  reason?: string;
-};
-
-interface PendingApproval {
-  resolve: (decision: ApprovalDecision) => void;
-  reject: (error: Error) => void;
-  timeoutTimer?: ReturnType<typeof setTimeout>;
+  action: 'accept' | 'reject'
+  reason?: string
 }
 
-const registry = new Map<string, PendingApproval>();
+interface PendingApproval {
+  resolve: (decision: ApprovalDecision) => void
+  reject: (error: Error) => void
+  timeoutTimer?: ReturnType<typeof setTimeout>
+}
+
+const registry = new Map<string, PendingApproval>()
 
 /**
  * 创建审批 Promise 并注册 resolve/reject（core senseMiddleware 调用）。
@@ -34,33 +34,29 @@ const registry = new Map<string, PendingApproval>();
  */
 export function createApproval(id: string, timeoutMs?: number): Promise<ApprovalDecision> {
   return new Promise<ApprovalDecision>((resolve, reject) => {
-    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined
     if (timeoutMs && timeoutMs > 0) {
       timeoutTimer = setTimeout(() => {
-        const entry = registry.get(id);
+        const entry = registry.get(id)
         if (entry) {
-          entry.resolve({ action: "reject", reason: "审批超时" });
-          registry.delete(id);
+          entry.resolve({ action: 'reject', reason: '审批超时' })
+          registry.delete(id)
         }
-      }, timeoutMs);
+      }, timeoutMs)
     }
-    registry.set(id, { resolve, reject, timeoutTimer });
-  });
+    registry.set(id, { resolve, reject, timeoutTimer })
+  })
 }
 
 /**
  * 确认审批（service ApprovalManager.confirm 调用）：resolve senseMiddleware 的 await Promise。
  */
-export function resolveApproval(
-  id: string,
-  action: "accept" | "reject",
-  reason?: string,
-): void {
-  const entry = registry.get(id);
+export function resolveApproval(id: string, action: 'accept' | 'reject', reason?: string): void {
+  const entry = registry.get(id)
   if (entry) {
-    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer);
-    entry.resolve({ action, reason });
-    registry.delete(id);
+    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer)
+    entry.resolve({ action, reason })
+    registry.delete(id)
   }
 }
 
@@ -69,11 +65,11 @@ export function resolveApproval(
  * 解除 await 使挂起 generator 正常结束可被 GC。
  */
 export function rejectApproval(id: string, error: Error): void {
-  const entry = registry.get(id);
+  const entry = registry.get(id)
   if (entry) {
-    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer);
-    entry.reject(error);
-    registry.delete(id);
+    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer)
+    entry.reject(error)
+    registry.delete(id)
   }
 }
 
@@ -83,8 +79,8 @@ export function rejectApproval(id: string, error: Error): void {
  */
 export function clearAllApprovals(): void {
   for (const [id, entry] of registry) {
-    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer);
-    entry.reject(new Error("应用关闭，审批被中止"));
-    registry.delete(id);
+    if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer)
+    entry.reject(new Error('应用关闭，审批被中止'))
+    registry.delete(id)
   }
 }

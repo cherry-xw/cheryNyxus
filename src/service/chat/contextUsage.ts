@@ -10,34 +10,34 @@
  *
  * 放 service 层（非 utils/token）：需依赖 agent/prompt + agent/runtimeResolver，避免 utils→agent 反向依赖。
  */
-import { RuntimeResolver } from "@/agent/runtimeResolver.js";
-import { buildSystemPromptSegments } from "@/agent/prompt/index.js";
+import { RuntimeResolver } from '@/agent/runtimeResolver.js'
+import { buildSystemPromptSegments } from '@/agent/prompt/index.js'
 import {
   getChat,
   getChatRuntimeSelection,
   getChatPromptOverride,
   getChatWorkspace,
   getChatSkillFilter,
-} from "@/db/chat.js";
+} from '@/db/chat.js'
 import {
   estimateTokens,
   sumChatConversationTokens,
   type Segment,
   type ContextBreakdown,
-} from "@/utils/token.js";
-import config from "@/utils/config";
+} from '@/utils/token.js'
+import config from '@/utils/config'
 
 /** contextLimit 兜底值（token）：brain 未配 contextLimit 时使用（与 utils/token 一致）。 */
-const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192;
+const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192
 
 /** 单段快捷构造：count 缺省则仅 tokens。 */
 function seg(tokens: number, count?: number): Segment {
-  return count === undefined ? { tokens } : { tokens, count };
+  return count === undefined ? { tokens } : { tokens, count }
 }
 
 /** 全 0 兜底 breakdown（异常降级，规则 12 fail loud：warn 已在调用处输出）。 */
 function zeroBreakdown(): ContextBreakdown {
-  const z = seg(0);
+  const z = seg(0)
   return {
     system: z,
     userSystem: z,
@@ -47,7 +47,7 @@ function zeroBreakdown(): ContextBreakdown {
     conversation: z,
     total: DEFAULT_CONTEXT_LIMIT_TOKENS,
     usage: 0,
-  };
+  }
 }
 
 /**
@@ -63,44 +63,44 @@ function zeroBreakdown(): ContextBreakdown {
  */
 export function computeContextBreakdown(chatId: string): ContextBreakdown {
   try {
-    const promptPathOverride = getChatPromptOverride(chatId);
-    const workspace = getChatWorkspace(chatId);
-    const skillFilter = getChatSkillFilter(chatId);
+    const promptPathOverride = getChatPromptOverride(chatId)
+    const workspace = getChatWorkspace(chatId)
+    const skillFilter = getChatSkillFilter(chatId)
 
     // 段 1-4：提示词分段（系统消息不入库，需重建）
-    const promptSegs = buildSystemPromptSegments(promptPathOverride, workspace, skillFilter);
-    const system = seg(estimateTokens(promptSegs.system));
-    const userSystem = seg(estimateTokens(promptSegs.userSystem));
-    const memory = seg(estimateTokens(promptSegs.memory.text), promptSegs.memory.count);
+    const promptSegs = buildSystemPromptSegments(promptPathOverride, workspace, skillFilter)
+    const system = seg(estimateTokens(promptSegs.system))
+    const userSystem = seg(estimateTokens(promptSegs.userSystem))
+    const memory = seg(estimateTokens(promptSegs.memory.text), promptSegs.memory.count)
     // skills 段 token = estimateTokens(整段 <skills>...</skills> 文本)：含 XML 标签 + 每 skill 的 name+desc+trigger。
     // 旧实现用 triggerTokens 仅算触发条件（无 trigger 的 skill 显示 0，严重低估），改为直接估算 text。
-    const skills = seg(estimateTokens(promptSegs.skills.text), promptSegs.skills.count);
+    const skills = seg(estimateTokens(promptSegs.skills.text), promptSegs.skills.count)
 
     // 段 5：工具定义（重建 runtime senseTable；主 agent 注入 memory_manage，子 agent 不注入——同 init）
-    let tools = seg(0, 0);
-    const selection = getChatRuntimeSelection(chatId);
+    let tools = seg(0, 0)
+    const selection = getChatRuntimeSelection(chatId)
     if (selection) {
       try {
-        const isSubagent = !!getChat(chatId)?.parent_chat_id;
+        const isSubagent = !!getChat(chatId)?.parent_chat_id
         const runtime = new RuntimeResolver().resolve(selection, {
           injectMemoryManage: !isSubagent,
-        });
-        let toolTokens = 0;
+        })
+        let toolTokens = 0
         for (const fn of runtime.builtSenses) {
-          toolTokens += estimateTokens(JSON.stringify(fn));
+          toolTokens += estimateTokens(JSON.stringify(fn))
         }
-        tools = seg(toolTokens, runtime.senseTable.size);
+        tools = seg(toolTokens, runtime.senseTable.size)
       } catch (err) {
         console.warn(
           `[contextBreakdown] resolve runtime 失败，工具定义段 0:`,
           (err as Error).message,
-        );
+        )
       }
     }
 
     // 段 6：用户对话（含 sense 调用结果）
-    const conv = sumChatConversationTokens(chatId);
-    const conversation = seg(conv.tokens, conv.count);
+    const conv = sumChatConversationTokens(chatId)
+    const conversation = seg(conv.tokens, conv.count)
 
     // total / usage
     const used =
@@ -109,16 +109,16 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
       memory.tokens +
       skills.tokens +
       tools.tokens +
-      conversation.tokens;
-    const brainName = selection?.brain;
+      conversation.tokens
+    const brainName = selection?.brain
     const limitTokens =
-      (brainName && config.llm.brain[brainName]?.contextLimit) || DEFAULT_CONTEXT_LIMIT_TOKENS;
-    const total = limitTokens > 0 ? limitTokens : 0;
-    const usage = total > 0 ? Math.min(1, used / total) : 0;
+      (brainName && config.llm.brain[brainName]?.contextLimit) || DEFAULT_CONTEXT_LIMIT_TOKENS
+    const total = limitTokens > 0 ? limitTokens : 0
+    const usage = total > 0 ? Math.min(1, used / total) : 0
 
-    return { system, userSystem, memory, skills, tools, conversation, total, usage };
+    return { system, userSystem, memory, skills, tools, conversation, total, usage }
   } catch (err) {
-    console.warn(`[contextBreakdown](${chatId}) failed, fallback 0:`, (err as Error).message);
-    return zeroBreakdown();
+    console.warn(`[contextBreakdown](${chatId}) failed, fallback 0:`, (err as Error).message)
+    return zeroBreakdown()
   }
 }

@@ -3,7 +3,7 @@
  * RoleConfigPopover：单角色编制配置卡（el-popover 内部内容）。
  * 从 AgentDialog 拆出，负责 brain/senseGroup 选择 + 资料卡展示。
  */
-import { computed } from "vue";
+import { computed } from 'vue'
 import type {
   BrainConfigDto,
   BrainInfo,
@@ -12,92 +12,93 @@ import type {
   SenseGroupOption,
   SenseToolInfo,
   ThinkingLevel,
-} from "@/services/agentApi";
+} from '@/services/agentApi'
 
 const props = defineProps<{
-  role: string;
-  selection: RuntimeSelection;
-  brains: BrainInfo[];
-  senseGroups: readonly SenseGroupOption[];
-  config: ConfigDto | null;
-  senseTools: SenseToolInfo[];
-  isPrimary: boolean;
-  primaryRole: string;
-}>();
+  role: string
+  selection: RuntimeSelection
+  brains: BrainInfo[]
+  senseGroups: readonly SenseGroupOption[]
+  config: ConfigDto | null
+  senseTools: SenseToolInfo[]
+  isPrimary: boolean
+  primaryRole: string
+}>()
 
 const emit = defineEmits<{
-  (e: "update:selection", val: RuntimeSelection): void;
-}>();
+  (e: 'update:selection', val: RuntimeSelection): void
+}>()
 
 // local computed for v-model:selection — two-way binding via getter/setter
 const localSelection = computed({
   get: () => props.selection,
-  set: (val) => emit("update:selection", val),
-});
+  set: (val) => emit('update:selection', val),
+})
 
 function brainInfo(name: string): BrainInfo | undefined {
-  return props.brains.find((brain) => brain.name === name);
+  return props.brains.find((brain) => brain.name === name)
 }
 
 function brainConfig(name: string) {
-  return props.config?.llm.brain[name];
+  return props.config?.llm.brain[name]
 }
 
 /** 思考档位 → 显示文字（资料卡 💭 tooltip 用）。 */
 const THINKING_LABEL: Record<ThinkingLevel, string> = {
-  off: "关闭",
-  on: "思考",
-  low: "低",
-  medium: "中",
-  high: "高",
-};
+  off: '关闭',
+  on: '思考',
+  low: '低',
+  medium: '中',
+  high: '高',
+}
 
 /** 返回思考档位中文；off / 无配置 → null（不显示 💭）。 */
 function thinkingLabel(cfg: BrainConfigDto | undefined): string | null {
-  const level = cfg?.thinking ?? "off";
-  return level === "off" ? null : (THINKING_LABEL[level] ?? null);
+  const level = cfg?.thinking ?? 'off'
+  return level === 'off' ? null : (THINKING_LABEL[level] ?? null)
 }
 
 function supportsTools(brainName: string): boolean {
-  return brainConfig(brainName)?.capabilities?.toolCall !== false;
+  return brainConfig(brainName)?.capabilities?.toolCall !== false
 }
 
 function selectBrain(selection: RuntimeSelection, brain: string): void {
-  selection.brain = brain;
+  selection.brain = brain
   if (!supportsTools(brain)) {
-    selection.senseGroup = "";
-    selection.mcpServers = [];
+    selection.senseGroup = ''
+    selection.mcpServers = []
   } else if (!selection.senseGroup) {
-    selection.senseGroup = props.senseGroups.find((g) => g.default)?.name ?? props.senseGroups[0]?.name ?? "";
+    selection.senseGroup =
+      props.senseGroups.find((g) => g.default)?.name ?? props.senseGroups[0]?.name ?? ''
   }
 }
 
 function senseEntries(group: string): string[] {
-  return props.config?.sense_groups?.[group] ?? [];
+  return props.config?.sense_groups?.[group] ?? []
 }
 
 function senseName(entry: string): string {
-  return entry.split(":")[0] ?? entry;
+  return entry.split(':')[0] ?? entry
 }
 
 function senseTool(entry: string): SenseToolInfo | undefined {
-  return props.senseTools.find((tool) => tool.name === senseName(entry));
+  return props.senseTools.find((tool) => tool.name === senseName(entry))
 }
 
 function formatContextLimit(limit: number | undefined): string {
-  if (limit === undefined) return "—";
-  if (limit >= 1000) return `${Math.round(limit / 1000)}k`;
-  return String(limit);
+  if (limit === undefined) return '—'
+  if (limit >= 1000) return `${Math.round(limit / 1000)}k`
+  return String(limit)
 }
 
 /** 当前角色在 config.roles 中的默认 brain / senseGroup（无配置 → 空串，不标 ★）。 */
 const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
-  const cfg = props.config?.roles?.[props.role];
+  const cfg = props.config?.roles?.[props.role]
   return {
-    brain: cfg?.brain ?? "",
-    senseGroup: cfg?.senseGroup ?? "",
-  };
-});
+    brain: cfg?.brain ?? '',
+    senseGroup: cfg?.senseGroup ?? '',
+  }
+})
 </script>
 
 <template>
@@ -107,12 +108,22 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
       <div class="profile-identity">
         <strong>{{ role }}</strong>
         <div class="profile-summary">
-          <span class="identity-kind">{{ isPrimary ? "♛ 小组组长" : "✦ 小组成员" }}</span>
-          <span class="brain-name">◈ {{ selection.brain || "未选择大脑" }}</span>
+          <span class="identity-kind">{{ isPrimary ? '♛ 小组组长' : '✦ 小组成员' }}</span>
+          <span class="brain-name">◈ {{ selection.brain || '未选择大脑' }}</span>
         </div>
         <div class="brain-facts" aria-label="当前大脑参数">
-          <span class="brain-fact-text"><b>模型</b>{{ brainConfig(selection.brain)?.model ?? "—" }}</span>
-          <span class="brain-fact-text"><b>上下文</b>{{ formatContextLimit(brainInfo(selection.brain)?.contextLimit ?? brainConfig(selection.brain)?.contextLimit) }}</span>
+          <span class="brain-fact-text"
+            ><b>模型</b>{{ brainConfig(selection.brain)?.model ?? '—' }}</span
+          >
+          <span class="brain-fact-text"
+            ><b>上下文</b
+            >{{
+              formatContextLimit(
+                brainInfo(selection.brain)?.contextLimit ??
+                  brainConfig(selection.brain)?.contextLimit,
+              )
+            }}</span
+          >
           <el-tooltip
             v-if="thinkingLabel(brainConfig(selection.brain))"
             :content="`思考（${thinkingLabel(brainConfig(selection.brain))}）`"
@@ -123,33 +134,61 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
           <el-tooltip v-if="supportsTools(selection.brain)" content="工具调用" placement="top">
             <span class="brain-fact-icon">🔧</span>
           </el-tooltip>
-          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.input?.image" content="模型支持图像输入" placement="top">
+          <el-tooltip
+            v-if="brainConfig(selection.brain)?.capabilities?.input?.image"
+            content="模型支持图像输入"
+            placement="top"
+          >
             <span class="brain-fact-icon cap-input">🖼️</span>
           </el-tooltip>
-          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.input?.video" content="模型支持视频输入" placement="top">
+          <el-tooltip
+            v-if="brainConfig(selection.brain)?.capabilities?.input?.video"
+            content="模型支持视频输入"
+            placement="top"
+          >
             <span class="brain-fact-icon cap-input">🎞️</span>
           </el-tooltip>
-          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.input?.audio" content="模型支持音频输入" placement="top">
+          <el-tooltip
+            v-if="brainConfig(selection.brain)?.capabilities?.input?.audio"
+            content="模型支持音频输入"
+            placement="top"
+          >
             <span class="brain-fact-icon cap-input">🔊</span>
           </el-tooltip>
-          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.generate?.image" content="模型支持图像生成" placement="top">
+          <el-tooltip
+            v-if="brainConfig(selection.brain)?.capabilities?.generate?.image"
+            content="模型支持图像生成"
+            placement="top"
+          >
             <span class="brain-fact-icon cap-generate">🎨</span>
           </el-tooltip>
-          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.generate?.video" content="模型支持视频生成" placement="top">
+          <el-tooltip
+            v-if="brainConfig(selection.brain)?.capabilities?.generate?.video"
+            content="模型支持视频生成"
+            placement="top"
+          >
             <span class="brain-fact-icon cap-generate">🎬</span>
           </el-tooltip>
-          <el-tooltip v-if="brainConfig(selection.brain)?.capabilities?.generate?.audio" content="模型支持音频生成" placement="top">
+          <el-tooltip
+            v-if="brainConfig(selection.brain)?.capabilities?.generate?.audio"
+            content="模型支持音频生成"
+            placement="top"
+          >
             <span class="brain-fact-icon cap-generate">🎵</span>
           </el-tooltip>
         </div>
-        <div v-if="senseEntries(selection.senseGroup).length" class="profile-sense-icons" aria-label="已启用能力">
+        <div
+          v-if="senseEntries(selection.senseGroup).length"
+          class="profile-sense-icons"
+          aria-label="已启用能力"
+        >
           <el-tooltip
             v-for="entry in senseEntries(selection.senseGroup)"
             :key="entry"
             :content="`${senseTool(entry)?.label ?? senseName(entry)} · ${senseTool(entry)?.description ?? '未提供能力说明'}`"
             placement="top"
           >
-            <span class="profile-sense-icon">{{ senseTool(entry)?.icon ?? "⚙" }}</span>
+            <span class="profile-sense-icon">{{ senseTool(entry)?.icon ?? '⚙' }}</span>
           </el-tooltip>
         </div>
       </div>
@@ -162,11 +201,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
           <span>大脑</span>
         </div>
         <div class="choice-list" role="radiogroup" aria-label="选择模型">
-          <span
-            v-for="brain in brains"
-            :key="brain.name"
-            class="choice-slot"
-          >
+          <span v-for="brain in brains" :key="brain.name" class="choice-slot">
             <button
               type="button"
               class="choice-option"
@@ -175,8 +210,12 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
               role="radio"
               @click="selectBrain(localSelection, brain.name)"
             >
-              <span class="choice-option-label">{{ brainConfig(brain.name)?.model ?? brain.name }}</span>
-              <span v-if="brain.name === roleDefault.brain" class="choice-default" aria-label="默认">★</span>
+              <span class="choice-option-label">{{
+                brainConfig(brain.name)?.model ?? brain.name
+              }}</span>
+              <span v-if="brain.name === roleDefault.brain" class="choice-default" aria-label="默认"
+                >★</span
+              >
             </button>
           </span>
         </div>
@@ -188,11 +227,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
           <span>器官组</span>
         </div>
         <div class="choice-list" role="radiogroup" aria-label="选择器官组">
-          <span
-            v-for="group in senseGroups"
-            :key="group.name"
-            class="choice-slot"
-          >
+          <span v-for="group in senseGroups" :key="group.name" class="choice-slot">
             <button
               type="button"
               class="choice-option"
@@ -202,7 +237,12 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
               @click="localSelection.senseGroup = group.name"
             >
               <span class="choice-option-label">{{ group.name }}</span>
-              <span v-if="group.name === roleDefault.senseGroup" class="choice-default" aria-label="默认">★</span>
+              <span
+                v-if="group.name === roleDefault.senseGroup"
+                class="choice-default"
+                aria-label="默认"
+                >★</span
+              >
             </button>
           </span>
         </div>
@@ -221,7 +261,11 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   border-radius: 12px;
   background: #fffdf9;
 
-  :deep(.el-card__body) { display: grid; gap: 8px; padding: 0 12px 10px; }
+  :deep(.el-card__body) {
+    display: grid;
+    gap: 8px;
+    padding: 0 12px 10px;
+  }
 }
 
 .profile-hero {
@@ -230,9 +274,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background:
-    linear-gradient(115deg, rgba(246, 183, 60, 0.28), rgba(255, 255, 255, 0.42)),
-    #f8f0df;
+  background: linear-gradient(115deg, rgba(246, 183, 60, 0.28), rgba(255, 255, 255, 0.42)), #f8f0df;
   border-bottom: 1px solid rgba(155, 111, 27, 0.14);
 }
 
@@ -271,8 +313,14 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   font-size: 11px;
 }
 
-.identity-kind { color: #a06f18; font-weight: 750; }
-.brain-name { color: rgba(42, 34, 23, 0.72); font-weight: 650; }
+.identity-kind {
+  color: #a06f18;
+  font-weight: 750;
+}
+.brain-name {
+  color: rgba(42, 34, 23, 0.72);
+  font-weight: 650;
+}
 
 .brain-facts {
   display: flex;
@@ -289,7 +337,11 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     white-space: nowrap;
   }
 
-  b { margin-right: 3px; color: rgba(28, 31, 36, 0.42); font-weight: 700; }
+  b {
+    margin-right: 3px;
+    color: rgba(28, 31, 36, 0.42);
+    font-weight: 700;
+  }
 
   .brain-fact-icon {
     display: inline-flex;
@@ -349,7 +401,9 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   background: #fff;
 }
 
-.sense-setting { background: #fcfaf5; }
+.sense-setting {
+  background: #fcfaf5;
+}
 
 .setting-heading {
   display: flex;
@@ -362,7 +416,11 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   letter-spacing: 0.03em;
 }
 
-.setting-icon { color: #d99717; font-size: 13px; line-height: 1; }
+.setting-icon {
+  color: #d99717;
+  font-size: 13px;
+  line-height: 1;
+}
 
 .choice-list {
   display: flex;
@@ -402,7 +460,12 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
-  transition: width 0.18s ease, max-width 0.18s ease, background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    width 0.18s ease,
+    max-width 0.18s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 
   &:hover {
     z-index: 2;
@@ -420,7 +483,9 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     color: #815811;
     font-weight: 750;
 
-    &:hover { background: #fff4d7; }
+    &:hover {
+      background: #fff4d7;
+    }
   }
 }
 
@@ -447,6 +512,8 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 }
 
 @media (max-width: 440px) {
-  .profile-settings { grid-template-columns: 1fr; }
+  .profile-settings {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -1,49 +1,58 @@
-import { readFileSync, readdirSync, existsSync, statSync, openSync, readSync, closeSync, type Dirent } from "fs";
-import { join, basename } from "path";
-import yaml from "js-yaml";
-import config from "@/utils/config.js";
-import { logger } from "@/utils/logger/index.js";
-import { estimateTokens } from "@/utils/token.js";
+import {
+  readFileSync,
+  readdirSync,
+  existsSync,
+  statSync,
+  openSync,
+  readSync,
+  closeSync,
+  type Dirent,
+} from 'fs'
+import { join, basename } from 'path'
+import yaml from 'js-yaml'
+import config from '@/utils/config.js'
+import { logger } from '@/utils/logger/index.js'
+import { estimateTokens } from '@/utils/token.js'
 
 export interface SkillData {
-  name: string;
-  description: string;
-  content: string;
+  name: string
+  description: string
+  content: string
   /** P1-5：自动触发条件描述（软提示，拼入 system prompt 供 LLM 判断何时触发） */
-  trigger?: string;
+  trigger?: string
   /** SKILL.md frontmatter 中其他用户自定义字段（保留全部，用于 JSON 序列化 token 估算）。 */
-  extra?: Record<string, unknown>;
+  extra?: Record<string, unknown>
   /**
    * 来源插件名（undefined = `.chery/skills/` 下的独立 skill）。
    * 插件 skill 的 `name` 为命名空间形式 `<plugin>__<skill>`，避免与独立 skill / 其他插件冲突。
    */
-  plugin?: string;
+  plugin?: string
 }
 
 /** 规范化后的 skill 文件名（导入时统一改名至此）。 */
-export const SKILL_FILE_NAME = "SKILL.md";
+export const SKILL_FILE_NAME = 'SKILL.md'
 
 /** 大小写不敏感判断是否为 skill 定义文件（skill.md / SKILL.md / Skill.md 均匹配）。 */
 export function isSkillFile(fileName: string): boolean {
-  return fileName.toLowerCase() === "skill.md";
+  return fileName.toLowerCase() === 'skill.md'
 }
 
 /** 计算技能对外暴露的有效名：插件 skill 加 `<plugin>__` 前缀做命名空间隔离。 */
 function effectiveSkillName(rawName: string, plugin?: string): string {
-  return plugin ? `${plugin}__${rawName}` : rawName;
+  return plugin ? `${plugin}__${rawName}` : rawName
 }
 
 /** skill 感官成功加载时写入模型上下文的完整文本（与 sense/skill 保持单一来源）。 */
-export function formatSkillActivationContent(skill: Pick<SkillData, "name" | "content">): string {
-  return `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`;
+export function formatSkillActivationContent(skill: Pick<SkillData, 'name' | 'content'>): string {
+  return `"${skill.name}"技能已激活。以下是完整指令，请严格遵守：\n\n${skill.content}`
 }
 
 interface SkillMeta {
-  name: string;
-  description: string;
-  content: string;
-  trigger?: string;
-  extra?: Record<string, unknown>;
+  name: string
+  description: string
+  content: string
+  trigger?: string
+  extra?: Record<string, unknown>
 }
 
 /**
@@ -51,97 +60,94 @@ interface SkillMeta {
  * 保留全部 frontmatter 字段到 extra（不只取 name/description/trigger）——供 promptTokens
  * JSON 序列化时「全部纳入」使用。
  */
-function parseSkillFrontmatter(
-  content: string,
-  defaultName: string,
-): SkillMeta {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+function parseSkillFrontmatter(content: string, defaultName: string): SkillMeta {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
 
   if (!match) {
     return {
       name: defaultName,
-      description: "",
+      description: '',
       content: content.trim(),
       trigger: undefined,
       extra: undefined,
-    };
+    }
   }
 
   try {
-    const frontmatter = (yaml.load(match[1]!) || {}) as Record<string, unknown>;
-    const bodyContent = content.slice(match[0]!.length).trim();
+    const frontmatter = (yaml.load(match[1]!) || {}) as Record<string, unknown>
+    const bodyContent = content.slice(match[0]!.length).trim()
 
     // 拆出已知字段到对应位置，其余保留为 extra（用户自定义字段）
-    const { name: _n, description: _d, trigger: _t, ...rest } = frontmatter;
+    const { name: _n, description: _d, trigger: _t, ...rest } = frontmatter
 
     return {
       name: (frontmatter.name as string) || defaultName,
-      description: (frontmatter.description as string) || "",
+      description: (frontmatter.description as string) || '',
       trigger: (frontmatter.trigger as string) || undefined,
       content: bodyContent,
       extra: Object.keys(rest).length > 0 ? rest : undefined,
-    };
+    }
   } catch {
     return {
       name: defaultName,
-      description: "",
+      description: '',
       content: content.trim(),
       trigger: undefined,
       extra: undefined,
-    };
+    }
   }
 }
 
 interface SkillLocation {
   /** skill 定义文件所在目录（含 SKILL.md）。 */
-  skillDir: string;
+  skillDir: string
   /** 目录名（frontmatter 无 name 时的兜底名）。 */
-  defaultName: string;
+  defaultName: string
   /** 来源插件名（undefined = 独立 skill）。 */
-  plugin?: string;
+  plugin?: string
 }
 
 interface SkillCatalogEntry {
-  filePath: string;
-  defaultName: string;
-  name: string;
-  description: string;
-  trigger?: string;
-  extra?: Record<string, unknown>;
-  plugin?: string;
-  size: number;
-  mtimeMs: number;
+  filePath: string
+  defaultName: string
+  name: string
+  description: string
+  trigger?: string
+  extra?: Record<string, unknown>
+  plugin?: string
+  size: number
+  mtimeMs: number
 }
 
-const SKILL_HEADER_BYTES = 64 * 1024;
-const catalogCache = new Map<string, SkillCatalogEntry>();
+const SKILL_HEADER_BYTES = 64 * 1024
+const catalogCache = new Map<string, SkillCatalogEntry>()
 
 function readSkillHeader(filePath: string, size: number): string {
-  const fd = openSync(filePath, "r");
+  const fd = openSync(filePath, 'r')
   try {
-    const length = Math.min(size, SKILL_HEADER_BYTES);
-    const buffer = Buffer.alloc(length);
-    const bytes = readSync(fd, buffer, 0, length, 0);
-    return buffer.subarray(0, bytes).toString("utf-8");
+    const length = Math.min(size, SKILL_HEADER_BYTES)
+    const buffer = Buffer.alloc(length)
+    const bytes = readSync(fd, buffer, 0, length, 0)
+    return buffer.subarray(0, bytes).toString('utf-8')
   } finally {
-    closeSync(fd);
+    closeSync(fd)
   }
 }
 
-function parseSkillHeader(content: string, defaultName: string): Omit<SkillMeta, "content"> {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (!match) return { name: defaultName, description: "" };
+function parseSkillHeader(content: string, defaultName: string): Omit<SkillMeta, 'content'> {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!match) return { name: defaultName, description: '' }
   try {
-    const frontmatter = (yaml.load(match[1]!) || {}) as Record<string, unknown>;
-    const { name: _n, description: _d, trigger: _t, ...rest } = frontmatter;
+    const frontmatter = (yaml.load(match[1]!) || {}) as Record<string, unknown>
+    const { name: _n, description: _d, trigger: _t, ...rest } = frontmatter
     return {
       name: (frontmatter.name as string) || defaultName,
-      description: (frontmatter.description as string) || "",
+      description: (frontmatter.description as string) || '',
       trigger: (frontmatter.trigger as string) || undefined,
       extra: Object.keys(rest).length > 0 ? rest : undefined,
-    };
+    }
   } catch {
-    return { name: defaultName, description: "" };
+    return { name: defaultName, description: '' }
   }
 }
 
@@ -151,31 +157,31 @@ function parseSkillHeader(content: string, defaultName: string): Omit<SkillMeta,
  * 导出供 plugin/list.ts 复用，保证「列表展示」与「loader 加载」发现逻辑一致。
  */
 export function discoverSkillRoots(pluginDir: string): SkillLocation[] {
-  const roots: SkillLocation[] = [];
-  const candidates: Array<{ dir: string }> = [];
-  const skillsSub = join(pluginDir, "skills");
-  const scanBase = existsSync(skillsSub) ? skillsSub : pluginDir;
-  if (!existsSync(scanBase)) return roots;
-  let entries: Dirent[];
+  const roots: SkillLocation[] = []
+  const candidates: Array<{ dir: string }> = []
+  const skillsSub = join(pluginDir, 'skills')
+  const scanBase = existsSync(skillsSub) ? skillsSub : pluginDir
+  if (!existsSync(scanBase)) return roots
+  let entries: Dirent[]
   try {
-    entries = readdirSync(scanBase, { withFileTypes: true });
+    entries = readdirSync(scanBase, { withFileTypes: true })
   } catch {
-    return roots;
+    return roots
   }
   for (const e of entries) {
-    if (e.isDirectory()) candidates.push({ dir: join(scanBase, e.name) });
+    if (e.isDirectory()) candidates.push({ dir: join(scanBase, e.name) })
   }
   for (const { dir } of candidates) {
     try {
-      const files = readdirSync(dir);
+      const files = readdirSync(dir)
       if (files.some(isSkillFile)) {
-        roots.push({ skillDir: dir, defaultName: basename(dir) });
+        roots.push({ skillDir: dir, defaultName: basename(dir) })
       }
     } catch {
       // 单个目录读取失败跳过，不影响其他
     }
   }
-  return roots;
+  return roots
 }
 
 /**
@@ -183,49 +189,62 @@ export function discoverSkillRoots(pluginDir: string): SkillLocation[] {
  * 返回的 defaultName 尚未做命名空间处理；调用方按 plugin 决定是否前缀化。
  */
 function scanSkillLocations(): SkillLocation[] {
-  const locations: SkillLocation[] = [];
-  const skillsDir = config.global.skills_dir;
+  const locations: SkillLocation[] = []
+  const skillsDir = config.global.skills_dir
   if (existsSync(skillsDir)) {
     for (const e of readdirSync(skillsDir, { withFileTypes: true })) {
       if (e.isDirectory()) {
-        locations.push({ skillDir: join(skillsDir, e.name), defaultName: e.name });
+        locations.push({ skillDir: join(skillsDir, e.name), defaultName: e.name })
       }
     }
   }
-  const pluginsDir = config.global.plugins_dir;
+  const pluginsDir = config.global.plugins_dir
   if (existsSync(pluginsDir)) {
     for (const p of readdirSync(pluginsDir, { withFileTypes: true })) {
-      if (!p.isDirectory()) continue;
-      const pluginName = p.name;
-      const pluginDir = join(pluginsDir, pluginName);
+      if (!p.isDirectory()) continue
+      const pluginName = p.name
+      const pluginDir = join(pluginsDir, pluginName)
       for (const root of discoverSkillRoots(pluginDir)) {
-        locations.push({ ...root, plugin: pluginName });
+        locations.push({ ...root, plugin: pluginName })
       }
     }
   }
-  return locations;
+  return locations
 }
 
 /** 扫描轻量目录；未变化文件复用 frontmatter 缓存，不读取正文。 */
 function scanSkillCatalog(): SkillCatalogEntry[] {
-  const entries: SkillCatalogEntry[] = [];
-  const alive = new Set<string>();
+  const entries: SkillCatalogEntry[] = []
+  const alive = new Set<string>()
   for (const loc of scanSkillLocations()) {
-    let files: string[];
-    try { files = readdirSync(loc.skillDir); } catch { continue; }
-    const skillFile = files.find(isSkillFile);
-    if (!skillFile) continue;
-    const filePath = join(loc.skillDir, skillFile);
-    let stat: ReturnType<typeof statSync>;
-    try { stat = statSync(filePath); } catch { continue; }
-    alive.add(filePath);
-    const cached = catalogCache.get(filePath);
-    if (cached && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs && cached.plugin === loc.plugin) {
-      entries.push(cached);
-      continue;
+    let files: string[]
+    try {
+      files = readdirSync(loc.skillDir)
+    } catch {
+      continue
+    }
+    const skillFile = files.find(isSkillFile)
+    if (!skillFile) continue
+    const filePath = join(loc.skillDir, skillFile)
+    let stat: ReturnType<typeof statSync>
+    try {
+      stat = statSync(filePath)
+    } catch {
+      continue
+    }
+    alive.add(filePath)
+    const cached = catalogCache.get(filePath)
+    if (
+      cached &&
+      cached.size === stat.size &&
+      cached.mtimeMs === stat.mtimeMs &&
+      cached.plugin === loc.plugin
+    ) {
+      entries.push(cached)
+      continue
     }
     try {
-      const header = parseSkillHeader(readSkillHeader(filePath, stat.size), loc.defaultName);
+      const header = parseSkillHeader(readSkillHeader(filePath, stat.size), loc.defaultName)
       const entry: SkillCatalogEntry = {
         filePath,
         defaultName: loc.defaultName,
@@ -236,20 +255,20 @@ function scanSkillCatalog(): SkillCatalogEntry[] {
         plugin: loc.plugin,
         size: stat.size,
         mtimeMs: stat.mtimeMs,
-      };
-      catalogCache.set(filePath, entry);
-      entries.push(entry);
+      }
+      catalogCache.set(filePath, entry)
+      entries.push(entry)
     } catch {
       // 单个损坏/不可读文件不影响目录中的其他技能。
     }
   }
-  for (const key of catalogCache.keys()) if (!alive.has(key)) catalogCache.delete(key);
-  return entries;
+  for (const key of catalogCache.keys()) if (!alive.has(key)) catalogCache.delete(key)
+  return entries
 }
 
 function loadCatalogEntry(entry: SkillCatalogEntry): SkillData | undefined {
   try {
-    const meta = parseSkillFrontmatter(readFileSync(entry.filePath, "utf-8"), entry.defaultName);
+    const meta = parseSkillFrontmatter(readFileSync(entry.filePath, 'utf-8'), entry.defaultName)
     return {
       name: effectiveSkillName(meta.name, entry.plugin),
       description: meta.description,
@@ -257,9 +276,9 @@ function loadCatalogEntry(entry: SkillCatalogEntry): SkillData | undefined {
       trigger: meta.trigger,
       extra: meta.extra,
       plugin: entry.plugin,
-    };
+    }
   } catch {
-    return undefined;
+    return undefined
   }
 }
 
@@ -269,37 +288,35 @@ function loadCatalogEntry(entry: SkillCatalogEntry): SkillData | undefined {
  * P1-4：原模块级缓存导致新增/改动不反映；改为实时遍历，保证热更可见（类比 sense reloadSenses）。
  */
 function readAllSkills(): SkillData[] {
-  const result: SkillData[] = [];
+  const result: SkillData[] = []
   for (const entry of scanSkillCatalog()) {
-    const skill = loadCatalogEntry(entry);
-    if (!skill) continue;
-    const name = skill.name;
+    const skill = loadCatalogEntry(entry)
+    if (!skill) continue
+    const name = skill.name
 
     if (result.some((s) => s.name === name)) {
-      logger.warn(
-        `[loadSkill] Warning: skill name "${name}" conflict, overwriting with latest`,
-      );
+      logger.warn(`[loadSkill] Warning: skill name "${name}" conflict, overwriting with latest`)
     }
-    result.push(skill);
+    result.push(skill)
   }
 
-  return result;
+  return result
 }
 
 /**
  * 实时读取单个 skill 数据（按对外有效名查找，含插件 skill 的命名空间名 `<plugin>__<skill>`）。
  * 遍历全部 location（独立 + 插件），命中即返回。未命中返回 undefined。
  */
-export function getSkillRealtime(name: string):
-  | { skill: SkillData; size: number; mtimeMs: number }
-  | undefined {
-  const entry = scanSkillCatalog().find((item) => item.name === name);
+export function getSkillRealtime(
+  name: string,
+): { skill: SkillData; size: number; mtimeMs: number } | undefined {
+  const entry = scanSkillCatalog().find((item) => item.name === name)
   if (entry) {
-    const skill = loadCatalogEntry(entry);
-    if (skill) return { skill, size: entry.size, mtimeMs: entry.mtimeMs };
+    const skill = loadCatalogEntry(entry)
+    if (skill) return { skill, size: entry.size, mtimeMs: entry.mtimeMs }
   }
 
-  return undefined;
+  return undefined
 }
 
 /**
@@ -320,11 +337,11 @@ export function getSkillRealtime(name: string):
  *   system prompt `<skills>` 段的 XML 标签外壳由 computeContextBreakdown 用 estimateTokens(skills.text) 统一估算。
  */
 export interface SkillTokenBreakdown {
-  nameDescTokens: number;
-  triggerTokens: number;
-  contentTokens: number;
-  promptTokens: number;
-  contextTokens: number;
+  nameDescTokens: number
+  triggerTokens: number
+  contentTokens: number
+  promptTokens: number
+  contextTokens: number
 }
 
 /**
@@ -338,12 +355,12 @@ export function loadSkillFromFolder(
   opts?: { plugin?: string; defaultName?: string },
 ): SkillData | undefined {
   try {
-    const files = readdirSync(folder);
-    const skillFile = files.find(isSkillFile);
-    if (!skillFile) return undefined;
-    const defaultName = opts?.defaultName ?? basename(folder);
-    const raw = readFileSync(join(folder, skillFile), "utf-8");
-    const meta = parseSkillFrontmatter(raw, defaultName);
+    const files = readdirSync(folder)
+    const skillFile = files.find(isSkillFile)
+    if (!skillFile) return undefined
+    const defaultName = opts?.defaultName ?? basename(folder)
+    const raw = readFileSync(join(folder, skillFile), 'utf-8')
+    const meta = parseSkillFrontmatter(raw, defaultName)
     return {
       name: effectiveSkillName(meta.name, opts?.plugin),
       description: meta.description,
@@ -351,18 +368,16 @@ export function loadSkillFromFolder(
       trigger: meta.trigger,
       extra: meta.extra,
       plugin: opts?.plugin,
-    };
+    }
   } catch {
-    return undefined;
+    return undefined
   }
 }
 
 export function computeSkillTokens(s: SkillData): SkillTokenBreakdown {
-  const nameDescTokens = estimateTokens(`${s.name}\n${s.description}`);
-  const triggerTokens = s.trigger
-    ? estimateTokens(`触发条件: ${s.trigger}`)
-    : 0;
-  const contentTokens = estimateTokens(s.content);
+  const nameDescTokens = estimateTokens(`${s.name}\n${s.description}`)
+  const triggerTokens = s.trigger ? estimateTokens(`触发条件: ${s.trigger}`) : 0
+  const contentTokens = estimateTokens(s.content)
   // promptTokens = JSON 序列化全字段（含 extra 用户自定义字段），按设计用作正文 token 计算。
   // 序列化按稳定顺序：name/description/trigger/content/extra 全部纳入。
   const promptJson = JSON.stringify({
@@ -371,15 +386,15 @@ export function computeSkillTokens(s: SkillData): SkillTokenBreakdown {
     ...(s.trigger ? { trigger: s.trigger } : {}),
     content: s.content,
     ...(s.extra || {}),
-  });
-  const promptTokens = estimateTokens(promptJson);
+  })
+  const promptTokens = estimateTokens(promptJson)
   return {
     nameDescTokens,
     triggerTokens,
     contentTokens,
     promptTokens,
     contextTokens: promptTokens,
-  };
+  }
 }
 
 /**
@@ -397,116 +412,125 @@ export function computeSkillTokens(s: SkillData): SkillTokenBreakdown {
  *   - plugins：插件名白名单（仅作用于带 plugin 字段的 skill）
  */
 export interface SkillFilter {
-  skills?: string[];
-  plugins?: string[];
+  skills?: string[]
+  plugins?: string[]
 }
 
 /** 判断单个 skill 是否通过 role 过滤（无 filter = 全部通过，向后兼容）。 */
 export function matchSkillFilter(
-  s: Pick<SkillData, "name" | "plugin">,
+  s: Pick<SkillData, 'name' | 'plugin'>,
   filter?: SkillFilter,
 ): boolean {
-  if (!filter) return true;
+  if (!filter) return true
   if (s.plugin) {
-    return filter.plugins === undefined || filter.plugins.includes(s.plugin);
+    return filter.plugins === undefined || filter.plugins.includes(s.plugin)
   }
-  return filter.skills === undefined || filter.skills.includes(s.name);
+  return filter.skills === undefined || filter.skills.includes(s.name)
 }
 
-export function getSkillMetas(filter?: SkillFilter): Array<
-  SkillData & SkillTokenBreakdown
-> {
+export function getSkillMetas(filter?: SkillFilter): Array<SkillData & SkillTokenBreakdown> {
   return readAllSkills()
     .filter((s) => matchSkillFilter(s, filter))
     .map((s) => ({
       ...s,
       ...computeSkillTokens(s),
-    }));
+    }))
 }
 
 /** skills.list 分页参数（与 SkillsListRequestData 对齐）。 */
 export interface SkillPaginationParams {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  plugin?: string;
+  page?: number
+  pageSize?: number
+  search?: string
+  plugin?: string
 }
 
 /**
  * 分页版 getSkillMetas：先过滤再切片，仅对切片项计算 token（关键优化）。
  * 无分页参数时退化为全量返回（向后兼容 prompt builder 等内部调用）。
  */
-export function getSkillMetasPaginated(
-  params?: SkillPaginationParams & SkillFilter,
-): { skills: Array<SkillData & SkillTokenBreakdown>; total: number; page: number; pageSize: number } {
-  let all = scanSkillCatalog();
+export function getSkillMetasPaginated(params?: SkillPaginationParams & SkillFilter): {
+  skills: Array<SkillData & SkillTokenBreakdown>
+  total: number
+  page: number
+  pageSize: number
+} {
+  let all = scanSkillCatalog()
 
   // SkillFilter（per-role 白名单）
-  all = all.filter((s) => matchSkillFilter(s, params));
+  all = all.filter((s) => matchSkillFilter(s, params))
 
   // search 过滤
   if (params?.search) {
-    const q = params.search.toLowerCase();
-    all = all.filter((s) =>
-      s.name.toLowerCase().includes(q)
-      || s.description.toLowerCase().includes(q)
-      || (s.trigger?.toLowerCase().includes(q) ?? false),
-    );
+    const q = params.search.toLowerCase()
+    all = all.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q) ||
+        (s.trigger?.toLowerCase().includes(q) ?? false),
+    )
   }
 
   // plugin 过滤
-  if (params?.plugin !== undefined && params.plugin !== "*") {
-    all = all.filter((s) => s.plugin === params.plugin);
+  if (params?.plugin !== undefined && params.plugin !== '*') {
+    all = all.filter((s) => s.plugin === params.plugin)
   } else if (params?.plugin === undefined) {
     // undefined = 仅独立 skill（与 SkillsListRequestData 语义一致）
-    all = all.filter((s) => !s.plugin);
+    all = all.filter((s) => !s.plugin)
   }
   // plugin === "*" = 全部，不过滤
 
-  const total = all.length;
+  const total = all.length
 
   // 无分页参数 → 返回全量（向后兼容）
   if (params?.page === undefined && params?.pageSize === undefined) {
     const skills = all.flatMap((entry) => {
-      const skill = loadCatalogEntry(entry);
-      return skill ? [{ ...skill, ...computeSkillTokens(skill) }] : [];
-    });
-    return { skills, total, page: 1, pageSize: total };
+      const skill = loadCatalogEntry(entry)
+      return skill ? [{ ...skill, ...computeSkillTokens(skill) }] : []
+    })
+    return { skills, total, page: 1, pageSize: total }
   }
 
-  const pageSize = Math.min(params?.pageSize ?? 50, 200);
-  const maxPage = Math.max(1, Math.ceil(total / pageSize));
-  const page = Math.min(Math.max(params?.page ?? 1, 1), maxPage);
-  const start = (page - 1) * pageSize;
-  const sliced = all.slice(start, start + pageSize);
+  const pageSize = Math.min(params?.pageSize ?? 50, 200)
+  const maxPage = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(Math.max(params?.page ?? 1, 1), maxPage)
+  const start = (page - 1) * pageSize
+  const sliced = all.slice(start, start + pageSize)
 
   // 仅对切片项计算 token
   const skills = sliced.flatMap((entry) => {
-    const skill = loadCatalogEntry(entry);
-    return skill ? [{ ...skill, ...computeSkillTokens(skill) }] : [];
-  });
-  return { skills, total, page, pageSize };
+    const skill = loadCatalogEntry(entry)
+    return skill ? [{ ...skill, ...computeSkillTokens(skill) }] : []
+  })
+  return { skills, total, page, pageSize }
 }
 
 /**
  * 轻量名称列表：只读 name + plugin，不调 computeSkillTokens。
  * 供角色卡 TagSelect 下拉使用（不需要 token 数据）。
  */
-export function getSkillNameList(): { skills: string[]; plugins: string[]; skillTokens: Record<string, number>; pluginTokens: Record<string, number> } {
-  const all = scanSkillCatalog();
-  const skills: string[] = [];
-  const pluginSet = new Set<string>();
-  const skillTokens: Record<string, number> = {};
-  const pluginTokens: Record<string, number> = {};
+export function getSkillNameList(): {
+  skills: string[]
+  plugins: string[]
+  skillTokens: Record<string, number>
+  pluginTokens: Record<string, number>
+} {
+  const all = scanSkillCatalog()
+  const skills: string[] = []
+  const pluginSet = new Set<string>()
+  const skillTokens: Record<string, number> = {}
+  const pluginTokens: Record<string, number> = {}
   for (const s of all) {
-    const systemTokens = estimateTokens(`${s.name}\n${s.description}`) + (s.trigger ? estimateTokens(`触发条件: ${s.trigger}`) : 0);
+    const systemTokens =
+      estimateTokens(`${s.name}\n${s.description}`) +
+      (s.trigger ? estimateTokens(`触发条件: ${s.trigger}`) : 0)
     if (s.plugin) {
-      pluginSet.add(s.plugin);
-      pluginTokens[s.plugin] = (pluginTokens[s.plugin] ?? 0) + systemTokens;
+      pluginSet.add(s.plugin)
+      pluginTokens[s.plugin] = (pluginTokens[s.plugin] ?? 0) + systemTokens
     } else {
-      skills.push(s.name);
-      skillTokens[s.name] = systemTokens;
+      skills.push(s.name)
+      skillTokens[s.name] = systemTokens
     }
   }
-  return { skills, plugins: [...pluginSet], skillTokens, pluginTokens };
+  return { skills, plugins: [...pluginSet], skillTokens, pluginTokens }
 }

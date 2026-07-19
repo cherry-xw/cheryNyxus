@@ -5,70 +5,66 @@
  * 主pet 禁翻转：--pet-direction 锁 1（身体不镜像）+ 脸绕过 3D card 渲染单一静态 .face（无背面重叠）；子pet 保留翻转。
  * 所有 drag/hover/click handler 由父组件传入（usePetDrag）。
  */
-import { computed } from "vue";
-import { motion } from "motion-v";
-import type { VariantType } from "motion-v";
-import ContextBar from "@/features/agent/ContextBar.vue";
-import PetToolbar from "@/features/agent/PetToolbar.vue";
-import RunningTools from "@/features/agent/RunningTools.vue";
-import type { StreamState } from "@/stores";
-import type { PetInstance } from "./types";
-import type { RunningTool } from "@/stores/agents";
-import { flattenQuestionItems } from "@/stores/agents/questionBatch";
+import { computed } from 'vue'
+import { motion } from 'motion-v'
+import type { VariantType } from 'motion-v'
+import ContextBar from '@/features/agent/ContextBar.vue'
+import PetToolbar from '@/features/agent/PetToolbar.vue'
+import RunningTools from '@/features/agent/RunningTools.vue'
+import type { StreamState } from '@/stores'
+import type { PetInstance } from './types'
+import type { RunningTool } from '@/stores/agents'
+import { flattenQuestionItems } from '@/stores/agents/questionBatch'
 
-const MotionSpan = motion.span;
+const MotionSpan = motion.span
 
 const props = defineProps<{
-  pet: PetInstance;
-  paused: boolean;
-  classes: unknown[];
-  style: Record<string, string>;
-  faceGlyph: string;
-  leftHand: string;
-  rightHand: string;
-  nameChars: string[];
-  sprite: { animate: VariantType; transition: VariantType["transition"] };
-  face: { animate: VariantType; transition: VariantType["transition"] };
-  leftHandMotion: { animate: VariantType; transition: VariantType["transition"] };
-  rightHandMotion: { animate: VariantType; transition: VariantType["transition"] };
-  runningTools: RunningTool[];
-  isBusy: boolean;
-  stream?: StreamState;
-}>();
+  pet: PetInstance
+  paused: boolean
+  classes: unknown[]
+  style: Record<string, string>
+  faceGlyph: string
+  leftHand: string
+  rightHand: string
+  nameChars: string[]
+  sprite: { animate: VariantType; transition: VariantType['transition'] }
+  face: { animate: VariantType; transition: VariantType['transition'] }
+  leftHandMotion: { animate: VariantType; transition: VariantType['transition'] }
+  rightHandMotion: { animate: VariantType; transition: VariantType['transition'] }
+  runningTools: RunningTool[]
+  isBusy: boolean
+  stream?: StreamState
+}>()
 
-const questionItems = () => flattenQuestionItems(props.stream);
+const questionItems = () => flattenQuestionItems(props.stream)
 
 /** workspace 最后一层文件夹名（basename，兼容 / 与 \ 及末尾分隔符）。 */
 const workspaceFolder = computed(() => {
-  const ws = props.pet.workspace ?? "";
-  const trimmed = ws.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed || ws;
-});
+  const ws = props.pet.workspace ?? ''
+  const trimmed = ws.replace(/[\\/]+$/, '')
+  const idx = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed || ws
+})
 /** 工作区 icon：有效 🖥️ / 失效（workspaceValid===false）💢。 */
-const workspaceIcon = computed(() => (props.pet.workspaceValid === false ? "💢" : "🖥️"));
+const workspaceIcon = computed(() => (props.pet.workspaceValid === false ? '💢' : '🖥️'))
 
 const emit = defineEmits<{
-  history: [pet: PetInstance];
-  abort: [pet: PetInstance];
-  destroy: [pet: PetInstance];
-  compact: [pet: PetInstance];
-  resume: [pet: PetInstance];
-  pointerDown: [event: PointerEvent];
-  pointerMove: [event: PointerEvent];
-  endPointer: [event: PointerEvent];
-  headRowEnter: [];
-  headRowLeave: [event: PointerEvent];
-  clickPet: [pet: PetInstance];
-}>();
+  history: [pet: PetInstance]
+  abort: [pet: PetInstance]
+  destroy: [pet: PetInstance]
+  compact: [pet: PetInstance]
+  resume: [pet: PetInstance]
+  pointerDown: [event: PointerEvent]
+  pointerMove: [event: PointerEvent]
+  endPointer: [event: PointerEvent]
+  headRowEnter: []
+  headRowLeave: [event: PointerEvent]
+  clickPet: [pet: PetInstance]
+}>()
 </script>
 
 <template>
-  <div
-    class="pet"
-    :class="classes"
-    :style="style"
-  >
+  <div class="pet" :class="classes" :style="style">
     <span class="shadow" />
     <span class="dir">
       <MotionSpan
@@ -77,17 +73,19 @@ const emit = defineEmits<{
         :animate="sprite.animate"
         :transition="sprite.transition"
       >
-        <div v-if="!pet.isGhost" class="status-stack" :aria-label="`emotion ${Math.round(pet.emotion)}, context ${Math.round(pet.contextUsage * 100)}%`">
+        <div
+          v-if="!pet.isGhost"
+          class="status-stack"
+          :aria-label="`emotion ${Math.round(pet.emotion)}, context ${Math.round(pet.contextUsage * 100)}%`"
+        >
           <div class="status-row">
-            <span class="stat emotion"><span class="fill" :style="{ width: `${pet.emotion}%` }" /></span>
+            <span class="stat emotion"
+              ><span class="fill" :style="{ width: `${pet.emotion}%` }"
+            /></span>
             <ContextBar :usage="pet.contextUsage" :breakdown="pet.contextBreakdown" />
           </div>
           <!-- busy-indicator：思考中三点脉冲；显隐走 isBusy（与气泡显示 hasStream 解耦）。 -->
-          <span
-            v-if="isBusy"
-            class="busy-indicator"
-            aria-label="思考中"
-          >
+          <span v-if="isBusy" class="busy-indicator" aria-label="思考中">
             <span class="thinking-dot" />
             <span class="thinking-dot" />
             <span class="thinking-dot" />
@@ -114,14 +112,16 @@ const emit = defineEmits<{
             :initial="false"
             :animate="leftHandMotion.animate"
             :transition="leftHandMotion.transition"
-          >{{ leftHand }}</MotionSpan>
+            >{{ leftHand }}</MotionSpan
+          >
           <MotionSpan
             v-if="pet.isMaster"
             class="face"
             :initial="false"
             :animate="face.animate"
             :transition="face.transition"
-          >{{ faceGlyph }}</MotionSpan>
+            >{{ faceGlyph }}</MotionSpan
+          >
           <span v-else class="face-flip">
             <span class="face-rotate">
               <span class="face-side front">
@@ -130,7 +130,8 @@ const emit = defineEmits<{
                   :initial="false"
                   :animate="face.animate"
                   :transition="face.transition"
-                >{{ faceGlyph }}</MotionSpan>
+                  >{{ faceGlyph }}</MotionSpan
+                >
               </span>
               <span class="face-side back">
                 <MotionSpan
@@ -138,7 +139,8 @@ const emit = defineEmits<{
                   :initial="false"
                   :animate="face.animate"
                   :transition="face.transition"
-                >{{ faceGlyph }}</MotionSpan>
+                  >{{ faceGlyph }}</MotionSpan
+                >
               </span>
             </span>
           </span>
@@ -149,7 +151,8 @@ const emit = defineEmits<{
             :initial="false"
             :animate="rightHandMotion.animate"
             :transition="rightHandMotion.transition"
-          >{{ rightHand }}</MotionSpan>
+            >{{ rightHand }}</MotionSpan
+          >
         </span>
         <div class="meta-row">
           <span class="name">
@@ -162,12 +165,9 @@ const emit = defineEmits<{
               {{ workspaceIcon }}
               <span class="ws-bubble">{{ workspaceFolder }}</span>
             </span>
-            <span
-              v-for="(ch, i) in nameChars"
-              :key="i"
-              class="char"
-              :style="{ '--char-i': i }"
-            >{{ ch }}</span>
+            <span v-for="(ch, i) in nameChars" :key="i" class="char" :style="{ '--char-i': i }">{{
+              ch
+            }}</span>
           </span>
           <PetToolbar
             v-if="!pet.isGhost"
@@ -180,24 +180,27 @@ const emit = defineEmits<{
           />
         </div>
         <!-- RunningTools 独占第二行（absolute 不占高度）：提问 ❓ hover 显问题 + click 开卡片，非提问纯展示 -->
-        <div v-if="!pet.isGhost && (runningTools.length > 0 || questionItems().length > 0)" class="running-row">
-          <RunningTools
-            :tools="runningTools"
-            :questions="questionItems()"
-            :chat-id="pet.chatId"
-          />
+        <div
+          v-if="!pet.isGhost && (runningTools.length > 0 || questionItems().length > 0)"
+          class="running-row"
+        >
+          <RunningTools :tools="runningTools" :questions="questionItems()" :chat-id="pet.chatId" />
         </div>
       </MotionSpan>
     </span>
-    <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{ pet.sleep?.zzz ?? "zZ" }}</span>
-    <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{ pet.sleep?.zzz ?? "zZ" }}</span>
+    <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{
+      pet.sleep?.zzz ?? 'zZ'
+    }}</span>
+    <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{
+      pet.sleep?.zzz ?? 'zZ'
+    }}</span>
   </div>
 </template>
 
 <style scoped lang="less">
 @ink: #14161a;
-@glyph-fonts: ui-rounded, "Hiragino Sans", "PingFang SC", "Noto Sans Symbols 2",
-  "Noto Sans Symbols", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+@glyph-fonts: ui-rounded, 'Hiragino Sans', 'PingFang SC', 'Noto Sans Symbols 2',
+  'Noto Sans Symbols', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
 @tribe-border: hsl(var(--tribe-hue) 60% 82%);
 @tribe-bg: hsl(var(--tribe-hue) 60% 94%);
 @tribe-ink: hsl(var(--tribe-hue) 50% 28%);
@@ -226,7 +229,9 @@ const emit = defineEmits<{
 
   &.is-dragging {
     filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.24));
-    .head-row { cursor: grabbing; }
+    .head-row {
+      cursor: grabbing;
+    }
   }
 
   &.is-master .name {
@@ -245,7 +250,9 @@ const emit = defineEmits<{
     color: @tribe-ink;
   }
 
-  &.is-paused { opacity: 0.78; }
+  &.is-paused {
+    opacity: 0.78;
+  }
 
   &.is-ghost {
     opacity: 0.75;
@@ -261,13 +268,27 @@ const emit = defineEmits<{
 }
 
 @keyframes rainbow-char {
-  0% { color: hsl(0 85% 55%); }
-  17% { color: hsl(60 85% 55%); }
-  33% { color: hsl(120 85% 55%); }
-  50% { color: hsl(180 85% 55%); }
-  67% { color: hsl(240 85% 55%); }
-  83% { color: hsl(300 85% 55%); }
-  100% { color: hsl(360 85% 55%); }
+  0% {
+    color: hsl(0 85% 55%);
+  }
+  17% {
+    color: hsl(60 85% 55%);
+  }
+  33% {
+    color: hsl(120 85% 55%);
+  }
+  50% {
+    color: hsl(180 85% 55%);
+  }
+  67% {
+    color: hsl(240 85% 55%);
+  }
+  83% {
+    color: hsl(300 85% 55%);
+  }
+  100% {
+    color: hsl(360 85% 55%);
+  }
 }
 
 .dir {
@@ -306,7 +327,10 @@ const emit = defineEmits<{
   }
 
   &:hover {
-    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='23' viewBox='0 0 26 30'%3E%3Cpath d='M10 3a2 2 0 0 1 2 2v9l3-1a2 2 0 0 1 2 4l-5 2H8l-3-3v-6a2 2 0 0 1 2-2h1V5a2 2 0 0 1 2-2z' fill='%23f6b73c' stroke='%233b2b12' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E") 6 3, pointer;
+    cursor:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='23' viewBox='0 0 26 30'%3E%3Cpath d='M10 3a2 2 0 0 1 2 2v9l3-1a2 2 0 0 1 2 4l-5 2H8l-3-3v-6a2 2 0 0 1 2-2h1V5a2 2 0 0 1 2-2z' fill='%23f6b73c' stroke='%233b2b12' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E")
+        6 3,
+      pointer;
   }
 }
 
@@ -349,7 +373,9 @@ const emit = defineEmits<{
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 
-  &.front { position: relative; }
+  &.front {
+    position: relative;
+  }
 
   &.back {
     position: absolute;
@@ -368,8 +394,12 @@ const emit = defineEmits<{
   transform-origin: top center;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.14);
 
-  &.hand-left { justify-self: end; }
-  &.hand-right { justify-self: start; }
+  &.hand-left {
+    justify-self: end;
+  }
+  &.hand-right {
+    justify-self: start;
+  }
 }
 
 .meta-row {
@@ -417,7 +447,9 @@ const emit = defineEmits<{
   cursor: default;
   user-select: none;
 
-  &:hover .ws-bubble { display: block; }
+  &:hover .ws-bubble {
+    display: block;
+  }
 }
 
 .ws-bubble {
@@ -477,7 +509,9 @@ const emit = defineEmits<{
     transition: width 200ms ease;
   }
 
-  &.emotion .fill { background: #f6b73c; }
+  &.emotion .fill {
+    background: #f6b73c;
+  }
 }
 
 .zzz {
@@ -514,14 +548,26 @@ const emit = defineEmits<{
     background: #7c3aed; /* 思考紫 */
     animation: thinking-dot 1.2s ease-in-out infinite;
 
-    &:nth-child(2) { animation-delay: 0.18s; }
-    &:nth-child(3) { animation-delay: 0.36s; }
+    &:nth-child(2) {
+      animation-delay: 0.18s;
+    }
+    &:nth-child(3) {
+      animation-delay: 0.36s;
+    }
   }
 }
 
 @keyframes thinking-dot {
-  0%, 60%, 100% { opacity: 0.28; transform: translateY(0); }
-  30%           { opacity: 1;    transform: translateY(-2px); }
+  0%,
+  60%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 @keyframes zzz-float {

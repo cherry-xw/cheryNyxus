@@ -1,5 +1,5 @@
-import { WebSocketServer, WebSocket } from "ws";
-import { timingSafeEqual } from "node:crypto";
+import { WebSocketServer, WebSocket } from 'ws'
+import { timingSafeEqual } from 'node:crypto'
 import {
   RpcRouter,
   createResponse,
@@ -8,118 +8,126 @@ import {
   isRequest,
   type Request,
   type Response as RpcResponse,
-} from "../message/index.js";
-import { connectionManager, type ConnectionState } from "./connection.js";
-import { transport } from "./transport.js";
-import { isAsyncGenerator } from "@/utils/generator.js";
-import { logger } from "@/utils/logger/index.js";
-import { LogLevel } from "@/utils/logger/types.js";
-import { OAuth2Auth } from "../auth/index.js";
-import { appendChatEvent, claimRequest, completeRequest } from "@/db/delivery.js";
+} from '../message/index.js'
+import { connectionManager, type ConnectionState } from './connection.js'
+import { transport } from './transport.js'
+import { isAsyncGenerator } from '@/utils/generator.js'
+import { logger } from '@/utils/logger/index.js'
+import { LogLevel } from '@/utils/logger/types.js'
+import { OAuth2Auth } from '../auth/index.js'
+import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
 
 /** Requests still executing in this process. A reconnect joins this promise instead of rerunning a handler. */
-const inFlightRequests = new Map<string, Promise<RpcResponse>>();
+const inFlightRequests = new Map<string, Promise<RpcResponse>>()
 
 function shouldPersistChatEvent(method: string): boolean {
-  return method === "chat.send" || method === "chat.resume" || method === "chat.startSpawn";
+  return method === 'chat.send' || method === 'chat.resume' || method === 'chat.startSpawn'
 }
 
-function persistChatEvent<T extends { chatId?: string; seq?: number }>(method: string, event: T): T {
+function persistChatEvent<T extends { chatId?: string; seq?: number }>(
+  method: string,
+  event: T,
+): T {
   if (shouldPersistChatEvent(method) && event.chatId) {
-    event.seq = appendChatEvent(event.chatId, event as Record<string, unknown>);
+    event.seq = appendChatEvent(event.chatId, event as Record<string, unknown>)
   }
-  return event;
+  return event
 }
 
 /**
  * WebSocket 服务器配置
  */
 interface WebSocketServerConfig {
-  port: number;
-  router: RpcRouter;
+  port: number
+  router: RpcRouter
   /** Binding is supplied by the service entrypoint. */
-  host?: string;
+  host?: string
   /** Per-process capability, distributed only through the local HTTP/IPC bootstrap. */
-  authToken?: string;
+  authToken?: string
   /** Browser origins allowed to use an authenticated control-plane socket. */
-  allowedOrigins?: readonly string[];
+  allowedOrigins?: readonly string[]
   /** Cookie-session authentication used for intranet OAuth2 deployments. */
-  auth?: OAuth2Auth;
+  auth?: OAuth2Auth
 }
 
 /**
  * 创建 WebSocket 服务器
  */
 export function createWebSocketServer(config: WebSocketServerConfig): WebSocketServer {
-  const { port, router, host, authToken, allowedOrigins = [], auth } = config;
+  const { port, router, host, authToken, allowedOrigins = [], auth } = config
   const wss = new WebSocketServer({
     port,
     ...(host ? { host } : {}),
-    verifyClient: authToken || auth?.enabled
-      ? (info, done) => {
-          const origin = info.origin;
-          if (!origin || !(auth?.isTrustedOrigin(origin, info.req) || allowedOrigins.includes(origin))) {
-            done(false, 403, "WebSocket origin is not allowed");
-            return;
+    verifyClient:
+      authToken || auth?.enabled
+        ? (info, done) => {
+            const origin = info.origin
+            if (
+              !origin ||
+              !(auth?.isTrustedOrigin(origin, info.req) || allowedOrigins.includes(origin))
+            ) {
+              done(false, 403, 'WebSocket origin is not allowed')
+              return
+            }
+            if (auth?.enabled) {
+              if (!auth.getUser(info.req)) done(false, 401, 'WebSocket authentication required')
+              else done(true)
+              return
+            }
+            const token =
+              new URL(info.req.url ?? '/', 'ws://localhost').searchParams.get('token') ?? ''
+            if (!constantTimeTokenEqual(token, authToken!)) {
+              done(false, 401, 'WebSocket authentication failed')
+              return
+            }
+            done(true)
           }
-          if (auth?.enabled) {
-            if (!auth.getUser(info.req)) done(false, 401, "WebSocket authentication required");
-            else done(true);
-            return;
-          }
-          const token = new URL(info.req.url ?? "/", "ws://localhost").searchParams.get("token") ?? "";
-          if (!constantTimeTokenEqual(token, authToken!)) {
-            done(false, 401, "WebSocket authentication failed");
-            return;
-          }
-          done(true);
-        }
-      : undefined,
-  });
+        : undefined,
+  })
 
-  wss.on("connection", (ws) => {
-    const state = connectionManager.create(ws);
-    logger.run({ connectionId: state.id }, () => logger.event("conn.open"));
+  wss.on('connection', (ws) => {
+    const state = connectionManager.create(ws)
+    logger.run({ connectionId: state.id }, () => logger.event('conn.open'))
 
-    ws.on("message", async (data) => {
-      const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+    ws.on('message', async (data) => {
+      const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
       try {
-        await handleMessage(ws, state, buffer, router);
+        await handleMessage(ws, state, buffer, router)
       } catch (err) {
-        const error = err as Error;
+        const error = err as Error
         logger.run({ connectionId: state.id }, () =>
-          logger.event("req.error", { message: error.message }, LogLevel.error),
-        );
+          logger.event('req.error', { message: error.message }, LogLevel.error),
+        )
         try {
-          const raw = transport.parseMessage(buffer) as { id?: string };
-          const requestId = raw.id || "";
-          sendError(ws, error.message, requestId);
+          const raw = transport.parseMessage(buffer) as { id?: string }
+          const requestId = raw.id || ''
+          sendError(ws, error.message, requestId)
         } catch {
-          sendError(ws, error.message);
+          sendError(ws, error.message)
         }
       }
-    });
+    })
 
-    ws.on("close", async () => {
-      logger.run({ connectionId: state.id }, () => logger.event("conn.close"));
-      await connectionManager.close(ws);
-    });
+    ws.on('close', async () => {
+      logger.run({ connectionId: state.id }, () => logger.event('conn.close'))
+      await connectionManager.close(ws)
+    })
 
-    ws.on("error", (err) => {
+    ws.on('error', (err) => {
       logger.run({ connectionId: state.id }, () =>
-        logger.event("conn.error", { message: err.message }, LogLevel.error),
-      );
-    });
-  });
+        logger.event('conn.error', { message: err.message }, LogLevel.error),
+      )
+    })
+  })
 
-  logger.info(`WebSocket 服务启动，地址: ${host ?? "default"}:${port}`);
-  return wss;
+  logger.info(`WebSocket 服务启动，地址: ${host ?? 'default'}:${port}`)
+  return wss
 }
 
 function constantTimeTokenEqual(actual: string, expected: string): boolean {
-  const a = Buffer.from(actual);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
+  const a = Buffer.from(actual)
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
 }
 
 /**
@@ -131,12 +139,12 @@ async function handleMessage(
   data: Buffer | string,
   router: RpcRouter,
 ): Promise<void> {
-  const raw = transport.parseMessage(data);
+  const raw = transport.parseMessage(data)
 
   if (isRequest(raw)) {
-    await handleRequest(ws, state, raw, router);
+    await handleRequest(ws, state, raw, router)
   } else {
-    sendError(ws, "收到了看不懂的消息");
+    sendError(ws, '收到了看不懂的消息')
   }
 }
 
@@ -154,27 +162,27 @@ async function handleRequest(
   request: Request,
   router: RpcRouter,
 ): Promise<void> {
-  const claim = claimRequest(request.id, request.method, request.params);
-  if (claim.state === "mismatch") {
+  const claim = claimRequest(request.id, request.method, request.params)
+  if (claim.state === 'mismatch') {
     const response = createResponse(
       request.id,
       false,
       undefined,
-      createError(ErrorCode.CONFLICT, "请求重复了，请重试"),
-    );
-    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response));
-    return;
+      createError(ErrorCode.CONFLICT, '请求重复了，请重试'),
+    )
+    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
+    return
   }
-  if (claim.state === "completed") {
-    if (ws.readyState === ws.OPEN) ws.send(claim.responseJson);
-    return;
+  if (claim.state === 'completed') {
+    if (ws.readyState === ws.OPEN) ws.send(claim.responseJson)
+    return
   }
-  if (claim.state === "active") {
-    const running = inFlightRequests.get(request.id);
+  if (claim.state === 'active') {
+    const running = inFlightRequests.get(request.id)
     if (running) {
-      const response = await running;
-      if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response));
-      return;
+      const response = await running
+      if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
+      return
     }
     // An active row without a local promise means the process restarted. Do
     // not risk replaying side effects; make the stored terminal outcome
@@ -183,105 +191,127 @@ async function handleRequest(
       request.id,
       false,
       undefined,
-      createError(ErrorCode.CONFLICT, "我刚重启了一下，重新打开会话试试"),
-    );
-    completeRequest(request.id, interrupted);
-    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(interrupted));
-    return;
+      createError(ErrorCode.CONFLICT, '我刚重启了一下，重新打开会话试试'),
+    )
+    completeRequest(request.id, interrupted)
+    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(interrupted))
+    return
   }
 
-  connectionManager.addPendingRequest(ws, request.id);
+  connectionManager.addPendingRequest(ws, request.id)
 
-  let settle!: (response: RpcResponse) => void;
-  const completion = new Promise<RpcResponse>((resolve) => { settle = resolve; });
-  inFlightRequests.set(request.id, completion);
+  let settle!: (response: RpcResponse) => void
+  const completion = new Promise<RpcResponse>((resolve) => {
+    settle = resolve
+  })
+  inFlightRequests.set(request.id, completion)
 
   // 创建 handler context
   const ctx = {
     requestId: request.id,
     connectionId: state.id,
     log: logger,
-  };
+  }
 
   const scope = {
     connectionId: state.id,
     requestId: request.id,
     traceId: extractChatId(request.params),
-  };
+  }
 
-  let finalResponse: RpcResponse | undefined;
+  let finalResponse: RpcResponse | undefined
   try {
     // 执行 handler（在 scope 内迭代流式输出）
     await logger.run(scope, async () => {
-      logger.event("req.start", { method: request.method });
-      let outcome: { success: boolean; error?: string } | undefined;
+      logger.event('req.start', { method: request.method })
+      let outcome: { success: boolean; error?: string } | undefined
       try {
-        const result = await router.handle(request, ctx);
+        const result = await router.handle(request, ctx)
 
         // 处理结果
         if (isAsyncGenerator(result)) {
           while (true) {
-            const iter = await result.next();
+            const iter = await result.next()
             if (iter.done) {
-              finalResponse = iter.value;
-              break;
+              finalResponse = iter.value
+              break
             }
-            const item = persistChatEvent(request.method, iter.value);
+            const item = persistChatEvent(request.method, iter.value)
 
             // Notification 消息
-            if (item.kind === "notification") {
+            if (item.kind === 'notification') {
               // interrupt 发出后启动审批超时
-              if (item.type === "interrupt" && item.data && "approvalId" in item.data) {
-                const interrupt = item.data as { approvalId: string; waitTime?: unknown };
-                const approvalId = interrupt.approvalId;
-                const waitTime = typeof interrupt.waitTime === "number" && interrupt.waitTime >= 0
-                  ? interrupt.waitTime
-                  : undefined;
-                connectionManager.setRequestApprovalId(ws, request.id, approvalId);
-                connectionManager.startApprovalTimeout(ws, request.id, async () => {
-                  logger.event("approval.timeout", { approvalId });
-                  ws.send(transport.serializeMessage(
-                    createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "审批等太久了，已结束")),
-                  ));
-                  await connectionManager.close(ws);
-                }, waitTime);
+              if (item.type === 'interrupt' && item.data && 'approvalId' in item.data) {
+                const interrupt = item.data as { approvalId: string; waitTime?: unknown }
+                const approvalId = interrupt.approvalId
+                const waitTime =
+                  typeof interrupt.waitTime === 'number' && interrupt.waitTime >= 0
+                    ? interrupt.waitTime
+                    : undefined
+                connectionManager.setRequestApprovalId(ws, request.id, approvalId)
+                connectionManager.startApprovalTimeout(
+                  ws,
+                  request.id,
+                  async () => {
+                    logger.event('approval.timeout', { approvalId })
+                    ws.send(
+                      transport.serializeMessage(
+                        createResponse(
+                          request.id,
+                          false,
+                          undefined,
+                          createError(ErrorCode.TIMEOUT, '审批等太久了，已结束'),
+                        ),
+                      ),
+                    )
+                    await connectionManager.close(ws)
+                  },
+                  waitTime,
+                )
               }
-              if (ws.readyState === ws.OPEN) ws.send(transport.encode(item));
-              continue;
+              if (ws.readyState === ws.OPEN) ws.send(transport.encode(item))
+              continue
             }
 
             // Chunk 消息
-            if (ws.readyState === ws.OPEN) ws.send(transport.encode(item));
+            if (ws.readyState === ws.OPEN) ws.send(transport.encode(item))
           }
-          outcome = { success: finalResponse?.success !== false };
+          outcome = { success: finalResponse?.success !== false }
         } else {
-          finalResponse = result;
-          outcome = { success: result.success !== false };
+          finalResponse = result
+          outcome = { success: result.success !== false }
         }
       } catch (e) {
-        outcome = { success: false, error: (e as Error).message };
-        throw e;
+        outcome = { success: false, error: (e as Error).message }
+        throw e
       } finally {
-        logger.event("req.end", outcome);
+        logger.event('req.end', outcome)
       }
-    });
+    })
   } catch (error) {
-    const err = error as Error;
-    logger.event("req.error", { method: request.method, message: err.message }, LogLevel.error);
-    finalResponse = createResponse(request.id, false, undefined, createError(ErrorCode.INTERNAL, err.message));
-  } finally {
-    const response = finalResponse ?? createResponse(
+    const err = error as Error
+    logger.event('req.error', { method: request.method, message: err.message }, LogLevel.error)
+    finalResponse = createResponse(
       request.id,
       false,
       undefined,
-      createError(ErrorCode.INTERNAL, "系统出了点小问题"),
-    );
-    completeRequest(request.id, response);
-    settle(response);
-    inFlightRequests.delete(request.id);
-    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response));
-    connectionManager.clearApprovalTimeout(ws, request.id);
-    connectionManager.removePendingRequest(ws, request.id);
+      createError(ErrorCode.INTERNAL, err.message),
+    )
+  } finally {
+    const response =
+      finalResponse ??
+      createResponse(
+        request.id,
+        false,
+        undefined,
+        createError(ErrorCode.INTERNAL, '系统出了点小问题'),
+      )
+    completeRequest(request.id, response)
+    settle(response)
+    inFlightRequests.delete(request.id)
+    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
+    connectionManager.clearApprovalTimeout(ws, request.id)
+    connectionManager.removePendingRequest(ws, request.id)
   }
 }
 
@@ -290,11 +320,11 @@ async function handleRequest(
  * 仅 chat.* / sense.approval 等携带 chatId 的方法会产生 traceId；其余方法 traceId 缺省。
  */
 function extractChatId(params: unknown): string | undefined {
-  if (params && typeof params === "object" && "chatId" in params) {
-    const v = (params as Record<string, unknown>).chatId;
-    if (typeof v === "string") return v;
+  if (params && typeof params === 'object' && 'chatId' in params) {
+    const v = (params as Record<string, unknown>).chatId
+    if (typeof v === 'string') return v
   }
-  return undefined;
+  return undefined
 }
 
 /**
@@ -302,12 +332,12 @@ function extractChatId(params: unknown): string | undefined {
  */
 function sendError(ws: WebSocket, message: string, requestId?: string): void {
   const response = createResponse(
-    requestId || "",
+    requestId || '',
     false,
     undefined,
     createError(ErrorCode.INTERNAL, message),
-  );
-  ws.send(transport.serializeMessage(response));
+  )
+  ws.send(transport.serializeMessage(response))
 }
 
 /**
@@ -318,7 +348,7 @@ function sendError(ws: WebSocket, message: string, requestId?: string): void {
 export function closeAllConnections(wss: WebSocketServer): void {
   wss.clients.forEach((ws) => {
     // 移除所有监听器，避免关闭时触发 close/error 事件处理
-    ws.removeAllListeners();
-    ws.close();
-  });
+    ws.removeAllListeners()
+    ws.close()
+  })
 }

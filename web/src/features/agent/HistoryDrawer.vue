@@ -8,44 +8,44 @@
  * - 关闭：✕（panel 内，仅栈顶）/ 点遮罩 / ESC → manager.closeTop（逐层返回）
  * motion-v：AnimatePresence + MotionDiv overlay 控制进出（inline 字面量，同 AgentDialog 风格）。
  */
-import { computed, onBeforeUnmount } from "vue";
-import { AnimatePresence, motion } from "motion-v";
-import { useHistoryDrawerManager } from "./useHistoryDrawerManager";
-import { useAgentsStore } from "@/stores";
-import HistoryDrawerPanel from "./HistoryDrawerPanel.vue";
+import { computed, onBeforeUnmount } from 'vue'
+import { AnimatePresence, motion } from 'motion-v'
+import { useHistoryDrawerManager } from './useHistoryDrawerManager'
+import { useAgentsStore } from '@/stores'
+import HistoryDrawerPanel from './HistoryDrawerPanel.vue'
 
-const MotionDiv = motion.div;
+const MotionDiv = motion.div
 
-const manager = useHistoryDrawerManager();
-const agents = useAgentsStore();
+const manager = useHistoryDrawerManager()
+const agents = useAgentsStore()
 
 // 栈底=根抽屉，栈顶=当前可见层
-const stack = computed(() => manager.stack.value);
+const stack = computed(() => manager.stack.value)
 
 // 共用单蒙层：仅当 HistoryDrawer 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
-const isTopMask = computed(() => agents.topOverlay === "historyDrawer");
+const isTopMask = computed(() => agents.topOverlay === 'historyDrawer')
 
 function closeTop(): void {
-  manager.closeTop();
+  manager.closeTop()
 }
 
 function onOverlayClick(e: MouseEvent): void {
   // 点遮罩本身（非冒泡自面板内元素）→ 关栈顶
-  if (e.target === e.currentTarget) closeTop();
+  if (e.target === e.currentTarget) closeTop()
 }
 
 // 基础 z-index（与原 HistoryDrawer 一致，低于审批 400 / AgentDialog 300）
-const BASE_Z = 280;
+const BASE_Z = 280
 
 // 全局 ESC 关栈顶（栈非空时生效；topOverlay 守卫避免与 AgentDialog 等同开时双重关闭）
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape" && stack.value.length > 0 && agents.topOverlay === "historyDrawer") {
-    e.preventDefault();
-    closeTop();
+  if (e.key === 'Escape' && stack.value.length > 0 && agents.topOverlay === 'historyDrawer') {
+    e.preventDefault()
+    closeTop()
   }
 }
-window.addEventListener("keydown", onGlobalKeydown);
-onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown));
+window.addEventListener('keydown', onGlobalKeydown)
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
 </script>
 
 <template>

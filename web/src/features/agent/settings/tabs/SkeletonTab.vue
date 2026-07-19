@@ -14,14 +14,14 @@
 withDefaults(
   defineProps<{
     /** .sect-hint 段落数（每段 17px 行高，无 padding） */
-    sectHints?: number;
+    sectHints?: number
     /** .warn-hint 段落数（每段 25.4px 含 5px×2 padding） */
-    warnHints?: number;
+    warnHints?: number
     /** footer 左侧序号导航占位数（默认 1） */
-    indexCount?: number;
+    indexCount?: number
   }>(),
   { sectHints: 1, warnHints: 0, indexCount: 1 },
-);
+)
 </script>
 
 <template>
@@ -77,5 +77,5 @@ withDefaults(
 </template>
 
 <style lang="less">
-@import "../shared.less";
+@import '../shared.less';
 </style>

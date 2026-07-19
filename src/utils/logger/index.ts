@@ -7,79 +7,64 @@
  *
  * 配置来自 .chery/config.yaml 的 global.logger（utils/config.ts LoggerConfig）。
  */
-import { AsyncLocalStorage } from "node:async_hooks";
-import { randomUUID } from "node:crypto";
-import {
-  createWriteStream,
-  mkdirSync,
-  existsSync,
-  statSync,
-  readdirSync,
-  unlinkSync,
-} from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
-import dayjs from "dayjs";
-import type { WriteStream } from "fs";
-import type { LoggerConfig as ConfigLoggerConfig } from "@/utils/config.js";
-import { LogLevel } from "./types.js";
-import type {
-  InternalLoggerConfig,
-  LogEvent,
-  LogScope,
-  Logger,
-  BashLogInfo,
-} from "./types.js";
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomUUID } from 'node:crypto'
+import { createWriteStream, mkdirSync, existsSync, statSync, readdirSync, unlinkSync } from 'fs'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import dayjs from 'dayjs'
+import type { WriteStream } from 'fs'
+import type { LoggerConfig as ConfigLoggerConfig } from '@/utils/config.js'
+import { LogLevel } from './types.js'
+import type { InternalLoggerConfig, LogEvent, LogScope, Logger, BashLogInfo } from './types.js'
 
 // Re-export externally used types
-export type { BashLogInfo, LogScope, LogEvent, Logger } from "./types.js";
-export { LogLevel } from "./types.js";
+export type { BashLogInfo, LogScope, LogEvent, Logger } from './types.js'
+export { LogLevel } from './types.js'
 
 // ============================================================================
 // 配置解析
 // ============================================================================
 
 function parseLogLevel(level?: string): LogLevel {
-  if (!level) return LogLevel.info;
+  if (!level) return LogLevel.info
   const levels: Record<string, LogLevel> = {
     debug: LogLevel.debug,
     info: LogLevel.info,
     warn: LogLevel.warn,
     error: LogLevel.error,
     silent: LogLevel.silent,
-  };
-  return levels[level.toLowerCase()] ?? LogLevel.info;
+  }
+  return levels[level.toLowerCase()] ?? LogLevel.info
 }
 
 /**
  * 从全局配置加载 Logger 配置
  * 注意：此函数在 config.ts 加载后被调用
  */
-function loadLoggerConfig(
-  globalLoggerConfig?: ConfigLoggerConfig,
-): InternalLoggerConfig {
+function loadLoggerConfig(globalLoggerConfig?: ConfigLoggerConfig): InternalLoggerConfig {
   return {
     level: parseLogLevel(globalLoggerConfig?.level),
-    output: globalLoggerConfig?.output ?? ["console"],
+    output: globalLoggerConfig?.output ?? ['console'],
     timestamp: globalLoggerConfig?.timestamp ?? true,
     location: globalLoggerConfig?.location ?? true,
-    format: globalLoggerConfig?.format ?? "json",
-  };
+    format: globalLoggerConfig?.format ?? 'json',
+  }
 }
 
 // ============================================================================
 // ALS scope 引擎（全局单例 —— 跨 createLogger 实例共享，保证 run/getScope 一致）
 // ============================================================================
 
-const scopeAls = new AsyncLocalStorage<LogScope>();
+const scopeAls = new AsyncLocalStorage<LogScope>()
 
 /** 去除 undefined 字段，避免 scope 对象噪音 */
 function cleanScope(scope: Partial<LogScope>): LogScope {
-  const out: LogScope = {};
+  const out: LogScope = {}
   for (const [k, v] of Object.entries(scope)) {
-    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
+    if (v !== undefined) (out as Record<string, unknown>)[k] = v
   }
-  return out;
+  return out
 }
 
 /**
@@ -87,13 +72,13 @@ function cleanScope(scope: Partial<LogScope>): LogScope {
  * 用于边界（router / Middleware.send / ws connection）建立请求/会话作用域。
  */
 function runScope<T>(scope: Partial<LogScope>, fn: () => T): T {
-  const parent = scopeAls.getStore();
-  const merged = cleanScope({ ...(parent ?? {}), ...scope });
-  return scopeAls.run(merged, fn);
+  const parent = scopeAls.getStore()
+  const merged = cleanScope({ ...(parent ?? {}), ...scope })
+  return scopeAls.run(merged, fn)
 }
 
 function getScope(): LogScope {
-  return scopeAls.getStore() ?? {};
+  return scopeAls.getStore() ?? {}
 }
 
 /**
@@ -101,17 +86,20 @@ function getScope(): LogScope {
  * one place so structured events, legacy logger calls, and config baselines
  * all receive the same protection.
  */
-const SENSITIVE_FIELD = /(key|token|secret|password|authorization|credential|env)/i;
+const SENSITIVE_FIELD = /(key|token|secret|password|authorization|credential|env)/i
 
 function redactLogData(value: unknown, fieldName?: string, seen = new WeakSet<object>()): unknown {
-  if (fieldName && SENSITIVE_FIELD.test(fieldName)) return "[REDACTED]";
-  if (value === null || typeof value !== "object") return value;
-  if (seen.has(value)) return "[CIRCULAR]";
-  seen.add(value);
-  if (Array.isArray(value)) return value.map((item) => redactLogData(item, undefined, seen));
+  if (fieldName && SENSITIVE_FIELD.test(fieldName)) return '[REDACTED]'
+  if (value === null || typeof value !== 'object') return value
+  if (seen.has(value)) return '[CIRCULAR]'
+  seen.add(value)
+  if (Array.isArray(value)) return value.map((item) => redactLogData(item, undefined, seen))
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, redactLogData(item, key, seen)]),
-  );
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      redactLogData(item, key, seen),
+    ]),
+  )
 }
 
 // ============================================================================
@@ -119,102 +107,97 @@ function redactLogData(value: unknown, fieldName?: string, seen = new WeakSet<ob
 // ============================================================================
 
 function createLogger(config?: ConfigLoggerConfig): Logger {
-  let _config = loadLoggerConfig(config);
-  let _fileStream: WriteStream | undefined;
+  let _config = loadLoggerConfig(config)
+  let _fileStream: WriteStream | undefined
 
   function initFileStream(): void {
-    const cheryDir = process.env.CHERY_DIR || process.cwd();
-    const logDir = join(cheryDir, ".chery", "logs");
+    const cheryDir = process.env.CHERY_DIR || process.cwd()
+    const logDir = join(cheryDir, '.chery', 'logs')
 
     if (!existsSync(logDir)) {
-      mkdirSync(logDir, { recursive: true });
+      mkdirSync(logDir, { recursive: true })
     }
 
-    const logFile = join(logDir, `${dayjs().format("YYYY-MM-DD")}.log`);
-    const isNewFile = !existsSync(logFile);
-    _fileStream = createWriteStream(logFile, { flags: "a" });
+    const logFile = join(logDir, `${dayjs().format('YYYY-MM-DD')}.log`)
+    const isNewFile = !existsSync(logFile)
+    _fileStream = createWriteStream(logFile, { flags: 'a' })
 
     // 新日志文件时标记需要记录基准配置（由外部调用 recordConfigBaseline）
     if (isNewFile) {
-      _needsConfigBaseline = true;
+      _needsConfigBaseline = true
     }
   }
 
   /** 标记：新日志文件需要记录基准配置 */
-  let _needsConfigBaseline = false;
+  let _needsConfigBaseline = false
 
   /** 记录配置基准（日志文件新建时调用，避免循环依赖） */
   function recordConfigBaseline(configData: object): void {
     if (_needsConfigBaseline && _fileStream) {
-      emit("config.baseline", { config: configData as Record<string, unknown> }, LogLevel.info, "info");
-      _needsConfigBaseline = false;
+      emit(
+        'config.baseline',
+        { config: configData as Record<string, unknown> },
+        LogLevel.info,
+        'info',
+      )
+      _needsConfigBaseline = false
     }
   }
 
-  if (_config.output.includes("file")) {
-    initFileStream();
+  if (_config.output.includes('file')) {
+    initFileStream()
   }
 
   function getLocation(): string {
-    const stack = new Error().stack?.split("\n") || [];
+    const stack = new Error().stack?.split('\n') || []
     for (const line of stack) {
       // 跳过 logger 模块内部栈帧
-      if (line.includes("utils/logger")) continue;
-      const match = line.match(
-        /at\s+(?:.*?\s+\()?(.+):(\d+):(\d+)\)?/,
-      );
+      if (line.includes('utils/logger')) continue
+      const match = line.match(/at\s+(?:.*?\s+\()?(.+):(\d+):(\d+)\)?/)
       if (match && match[1]) {
-        const file = match[1].split("/").pop() ?? match[1];
-        return `${file}:${match[2]}`;
+        const file = match[1].split('/').pop() ?? match[1]
+        return `${file}:${match[2]}`
       }
     }
-    return "unknown";
+    return 'unknown'
   }
 
   /** 序列化任意参数为字符串（用于 legacy info/warn/error 的 message 字段） */
   function formatArgs(args: unknown[]): string {
     return args
       .map((arg) => {
-        if (typeof arg === "string") return arg;
-        if (arg instanceof Error) return arg.stack ?? arg.message;
+        if (typeof arg === 'string') return arg
+        if (arg instanceof Error) return arg.stack ?? arg.message
         try {
-          return JSON.stringify(arg);
+          return JSON.stringify(arg)
         } catch {
-          return String(arg);
+          return String(arg)
         }
       })
-      .join(" ");
+      .join(' ')
   }
 
   function renderPlain(e: LogEvent): string {
-    const parts: string[] = [];
-    if (_config.timestamp) parts.push(e.ts);
-    const scopeTag = formatScopeTag(e.scope);
-    if (scopeTag) parts.push(scopeTag);
-    if (e.location) parts.push(`[${e.location}]`);
-    parts.push(`[${e.level}]`);
-    parts.push(e.type);
-    if (e.data && e.data["message"] !== undefined) {
-      parts.push(String(e.data["message"]));
+    const parts: string[] = []
+    if (_config.timestamp) parts.push(e.ts)
+    const scopeTag = formatScopeTag(e.scope)
+    if (scopeTag) parts.push(scopeTag)
+    if (e.location) parts.push(`[${e.location}]`)
+    parts.push(`[${e.level}]`)
+    parts.push(e.type)
+    if (e.data && e.data['message'] !== undefined) {
+      parts.push(String(e.data['message']))
     } else if (e.data) {
-      parts.push(JSON.stringify(e.data));
+      parts.push(JSON.stringify(e.data))
     }
-    return parts.join(" ");
+    return parts.join(' ')
   }
 
   /** plain 格式下 scope → `[traceId=… runId=…]`（仅非空字段，固定顺序） */
   function formatScopeTag(scope: LogScope): string {
-    const order: (keyof LogScope)[] = [
-      "traceId",
-      "requestId",
-      "runId",
-      "connectionId",
-      "spanId",
-    ];
-    const segs = order
-      .filter((k) => scope[k] !== undefined)
-      .map((k) => `${k}=${scope[k]}`);
-    return segs.length ? `[${segs.join(" ")}]` : "";
+    const order: (keyof LogScope)[] = ['traceId', 'requestId', 'runId', 'connectionId', 'spanId']
+    const segs = order.filter((k) => scope[k] !== undefined).map((k) => `${k}=${scope[k]}`)
+    return segs.length ? `[${segs.join(' ')}]` : ''
   }
 
   function emit(
@@ -223,9 +206,9 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
     level: LogLevel,
     levelName: string,
   ): void {
-    if (_config.level > level) return;
+    if (_config.level > level) return
 
-    const scope = getScope();
+    const scope = getScope()
     const event: LogEvent = {
       // 时间戳去掉年月日（日志文件名已按天分割），保留时分秒毫秒时区
       // 例如：T13:45:30.123Z（从 2026-07-10T13:45:30.123Z 切掉前10位）
@@ -233,22 +216,20 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
       level: levelName,
       type,
       scope,
-    };
-    if (_config.location) event.location = getLocation();
+    }
+    if (_config.location) event.location = getLocation()
     if (data && Object.keys(data).length > 0) {
-      event.data = redactLogData(data) as Record<string, unknown>;
+      event.data = redactLogData(data) as Record<string, unknown>
     }
 
-    const line =
-      _config.format === "json" ? JSON.stringify(event) : renderPlain(event);
+    const line = _config.format === 'json' ? JSON.stringify(event) : renderPlain(event)
 
-    if (_config.output.includes("console")) {
-      const stream =
-        level >= LogLevel.error ? process.stderr : process.stdout;
-      stream.write(line + "\n");
+    if (_config.output.includes('console')) {
+      const stream = level >= LogLevel.error ? process.stderr : process.stdout
+      stream.write(line + '\n')
     }
     if (_fileStream) {
-      _fileStream.write(line + "\n");
+      _fileStream.write(line + '\n')
     }
   }
 
@@ -257,22 +238,22 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
     data?: Record<string, unknown>,
     level: LogLevel = LogLevel.info,
   ): void {
-    const levelName = levelNameOf(level);
-    emit(type, data, level, levelName);
+    const levelName = levelNameOf(level)
+    emit(type, data, level, levelName)
   }
 
   function levelNameOf(level: LogLevel): string {
     switch (level) {
       case LogLevel.debug:
-        return "debug";
+        return 'debug'
       case LogLevel.info:
-        return "info";
+        return 'info'
       case LogLevel.warn:
-        return "warn";
+        return 'warn'
       case LogLevel.error:
-        return "error";
+        return 'error'
       default:
-        return "info";
+        return 'info'
     }
   }
 
@@ -281,27 +262,27 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
     run: runScope,
     getScope,
     debug(...args: unknown[]) {
-      emit("log.debug", { message: formatArgs(args) }, LogLevel.debug, "debug");
+      emit('log.debug', { message: formatArgs(args) }, LogLevel.debug, 'debug')
     },
     info(...args: unknown[]) {
-      emit("log.info", { message: formatArgs(args) }, LogLevel.info, "info");
+      emit('log.info', { message: formatArgs(args) }, LogLevel.info, 'info')
     },
     warn(...args: unknown[]) {
-      emit("log.warn", { message: formatArgs(args) }, LogLevel.warn, "warn");
+      emit('log.warn', { message: formatArgs(args) }, LogLevel.warn, 'warn')
     },
     error(...args: unknown[]) {
-      emit("log.error", { message: formatArgs(args) }, LogLevel.error, "error");
+      emit('log.error', { message: formatArgs(args) }, LogLevel.error, 'error')
     },
     close() {
-      _fileStream?.end();
+      _fileStream?.end()
     },
     getConfig() {
-      return _config;
+      return _config
     },
     setConfig(config: Partial<ConfigLoggerConfig>) {
-      _config = { ..._config, ...loadLoggerConfig(config) };
-      if (config.output && !_fileStream && config.output.includes("file")) {
-        initFileStream();
+      _config = { ..._config, ...loadLoggerConfig(config) }
+      if (config.output && !_fileStream && config.output.includes('file')) {
+        initFileStream()
       }
     },
     recordConfigBaseline,
@@ -319,21 +300,21 @@ function createLogger(config?: ConfigLoggerConfig): Logger {
       createLogStream,
       cleanOldLogFiles,
     },
-  };
+  }
 }
 
 // ============================================================================
 // 默认实例（延迟初始化）
 // ============================================================================
 
-let _logger: Logger | null = null;
+let _logger: Logger | null = null
 
 /**
  * 初始化默认 Logger（由 config.ts 调用）
  */
 export function initLogger(config?: ConfigLoggerConfig): Logger {
-  _logger = createLogger(config);
-  return _logger;
+  _logger = createLogger(config)
+  return _logger
 }
 
 /**
@@ -341,17 +322,17 @@ export function initLogger(config?: ConfigLoggerConfig): Logger {
  */
 function getLogger(): Logger {
   if (!_logger) {
-    _logger = createLogger();
+    _logger = createLogger()
   }
-  return _logger;
+  return _logger
 }
 
 /** 默认 Logger 代理（延迟初始化，自动转发所有属性访问） */
 export const logger: Logger = new Proxy({} as Logger, {
   get(_target, prop: string | symbol) {
-    return Reflect.get(getLogger(), prop);
+    return Reflect.get(getLogger(), prop)
   },
-});
+})
 
 // ============================================================================
 // Scope 辅助导出（供边界处生成 runId 等）
@@ -359,117 +340,117 @@ export const logger: Logger = new Proxy({} as Logger, {
 
 /** 生成一个新的 runId / spanId */
 export function generateLogId(): string {
-  return randomUUID();
+  return randomUUID()
 }
 
 // ============================================================================
 // Bash 日志工具（内部函数，通过 logger.tools 暴露）
 // ============================================================================
 
-const BASH_LOG_DIR_NAME = "cheryClaw-bash-logs";
+const BASH_LOG_DIR_NAME = 'cheryClaw-bash-logs'
 
 function getBashLogDir(): string {
-  return getLogDirectory(BASH_LOG_DIR_NAME);
+  return getLogDirectory(BASH_LOG_DIR_NAME)
 }
 
 function createBashLogPath(pid: number, startTime: number): string {
-  return createLogFilePath(BASH_LOG_DIR_NAME, `${startTime}-${pid}.log`);
+  return createLogFilePath(BASH_LOG_DIR_NAME, `${startTime}-${pid}.log`)
 }
 
 function formatBashLogHeader(info: BashLogInfo): string {
-  const startTimeStr = new Date(info.startTime).toLocaleString("zh-CN", {
+  const startTimeStr = new Date(info.startTime).toLocaleString('zh-CN', {
     hour12: false,
-  });
+  })
 
   let header = `---
 PID: ${info.pid}
 Command: ${info.command}
 StartTime: ${startTimeStr}
 Status: ${info.status}
-`;
+`
 
   if (info.description) {
-    header += `Description: ${info.description}\n`;
+    header += `Description: ${info.description}\n`
   }
 
-  header += `---\n`;
-  return header;
+  header += `---\n`
+  return header
 }
 
 function cleanOldBashLogs(retentionHours: number): void {
-  cleanOldLogFiles(BASH_LOG_DIR_NAME, retentionHours);
+  cleanOldLogFiles(BASH_LOG_DIR_NAME, retentionHours)
 }
 
 // ============================================================================
 // 文件日志工具（内部函数，通过 logger.tools 暴露）
 // ============================================================================
 
-const LOG_SIZE_THRESHOLD = 10 * 1024;
+const LOG_SIZE_THRESHOLD = 10 * 1024
 
-const logDirCache = new Map<string, string>();
+const logDirCache = new Map<string, string>()
 
 function getLogDirectory(name: string): string {
-  const cached = logDirCache.get(name);
-  if (cached) return cached;
+  const cached = logDirCache.get(name)
+  if (cached) return cached
 
-  const dir = join(tmpdir(), name);
+  const dir = join(tmpdir(), name)
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true })
   }
-  logDirCache.set(name, dir);
-  return dir;
+  logDirCache.set(name, dir)
+  return dir
 }
 
 function createLogFilePath(logDirName: string, filename: string): string {
-  return join(getLogDirectory(logDirName), filename);
+  return join(getLogDirectory(logDirName), filename)
 }
 
 function getLogSize(logPath: string): number {
   try {
-    return statSync(logPath).size;
+    return statSync(logPath).size
   } catch {
-    return 0;
+    return 0
   }
 }
 
 function shouldShowPartialLog(logPath: string): boolean {
-  return getLogSize(logPath) > LOG_SIZE_THRESHOLD;
+  return getLogSize(logPath) > LOG_SIZE_THRESHOLD
 }
 
 function getLogSizeThreshold(): number {
-  return LOG_SIZE_THRESHOLD;
+  return LOG_SIZE_THRESHOLD
 }
 
 function formatLogSize(bytes: number): string {
   if (bytes < 1024) {
-    return `${bytes}B`;
+    return `${bytes}B`
   }
   if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(2)}KB`;
+    return `${(bytes / 1024).toFixed(2)}KB`
   }
-  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`
 }
 
 function createLogStream(logPath: string): WriteStream {
-  return createWriteStream(logPath, { flags: "w" });
+  return createWriteStream(logPath, { flags: 'w' })
 }
 
 function cleanOldLogFiles(logDirName: string, retentionHours: number): void {
-  const dir = getLogDirectory(logDirName);
-  if (!existsSync(dir)) return;
+  const dir = getLogDirectory(logDirName)
+  if (!existsSync(dir)) return
 
-  const now = Date.now();
-  const retentionMs = retentionHours * 60 * 60 * 1000;
+  const now = Date.now()
+  const retentionMs = retentionHours * 60 * 60 * 1000
 
-  const files = readdirSync(dir);
+  const files = readdirSync(dir)
   for (const file of files) {
-    if (!file.endsWith(".log")) continue;
+    if (!file.endsWith('.log')) continue
 
-    const filePath = join(dir, file);
+    const filePath = join(dir, file)
     try {
-      const stats = statSync(filePath);
+      const stats = statSync(filePath)
       if (now - stats.birthtimeMs > retentionMs) {
-        unlinkSync(filePath);
+        unlinkSync(filePath)
       }
     } catch {
       // ignore files removed by another process

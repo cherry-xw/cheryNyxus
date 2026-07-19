@@ -1,5 +1,5 @@
-import { resolveApproval, rejectApproval } from "@/core/sense/approvalRegistry.js";
-import { AgentAbortError } from "@/core/middleware/errors.js";
+import { resolveApproval, rejectApproval } from '@/core/sense/approvalRegistry.js'
+import { AgentAbortError } from '@/core/middleware/errors.js'
 
 /**
  * 审批管理器（极简版）
@@ -9,26 +9,22 @@ import { AgentAbortError } from "@/core/middleware/errors.js";
  * 无数据库持久化（pending sense 靠 messages.content 空判断，见 interaction.md）。
  */
 export class ApprovalManager {
-  private approvals = new Set<string>();
+  private approvals = new Set<string>()
 
   /**
    * 注册待审批 id（service observer 收 sense_pending 时调用）
    */
   register(approvalId: string): void {
-    this.approvals.add(approvalId);
+    this.approvals.add(approvalId)
   }
 
   /**
    * 确认审批：转调 core registry resolve，触发 senseMiddleware await 解除。
    */
-  confirm(
-    approvalId: string,
-    action: "accept" | "reject",
-    reason?: string,
-  ): void {
+  confirm(approvalId: string, action: 'accept' | 'reject', reason?: string): void {
     if (this.approvals.has(approvalId)) {
-      resolveApproval(approvalId, action, reason);
-      this.approvals.delete(approvalId);
+      resolveApproval(approvalId, action, reason)
+      this.approvals.delete(approvalId)
     }
   }
 
@@ -40,10 +36,10 @@ export class ApprovalManager {
    */
   abort(approvalId: string): void {
     if (this.approvals.has(approvalId)) {
-      rejectApproval(approvalId, new AgentAbortError());
-      this.approvals.delete(approvalId);
+      rejectApproval(approvalId, new AgentAbortError())
+      this.approvals.delete(approvalId)
     }
   }
 }
 
-export const approvalManager = new ApprovalManager();
+export const approvalManager = new ApprovalManager()

@@ -10,11 +10,11 @@
  * 豁免：install_skill（管家专用感官，合法写 .chery/skills/）。install_skill 只在管家
  *   senseGroup → 其他角色 senseTable 无此感官 → 双重隔离（调不到 + 写 .chery 被拦）。
  */
-import { resolve, isAbsolute } from "path";
+import { resolve, isAbsolute } from 'path'
 
 /** chery 根目录（与 config.ts 自动补全 *_dir 同一基准）。 */
 function cheryRoot(): string {
-  return resolve(process.env.CHERY_DIR || process.cwd(), ".chery");
+  return resolve(process.env.CHERY_DIR || process.cwd(), '.chery')
 }
 
 /**
@@ -23,25 +23,25 @@ function cheryRoot(): string {
  * /abs/.chery、x/.chery；不误伤 my.chery.txt。绝对路径额外 resolve 判定落 cheryRoot 下。
  */
 export function isCheryPath(target: string): boolean {
-  if (!target) return false;
-  const t = target.trim();
+  if (!target) return false
+  const t = target.trim()
   // 相对/绝对路径含 .chery 路径段
-  if (/(^|[\/\\])\.chery([\/\\]|$)/.test(t)) return true;
+  if (/(^|[\/\\])\.chery([\/\\]|$)/.test(t)) return true
   // 绝对路径 resolve 判定
   if (isAbsolute(t)) {
     try {
-      const p = resolve(t);
-      const root = cheryRoot();
-      if (p === root || p.startsWith(root + "/") || p.startsWith(root + "\\")) return true;
+      const p = resolve(t)
+      const root = cheryRoot()
+      if (p === root || p.startsWith(root + '/') || p.startsWith(root + '\\')) return true
     } catch {
       // resolve 失败 → 不拦
     }
   }
-  return false;
+  return false
 }
 
 /** 豁免名单：仅这些感官可写 .chery/（合法操作）。 */
-export const GUARD_EXEMPT = new Set<string>(["install_skill"]);
+export const GUARD_EXEMPT = new Set<string>(['install_skill'])
 
 /**
  * 从感官 args 提取路径参数（可能命中 .chery 的字段）。
@@ -49,31 +49,31 @@ export const GUARD_EXEMPT = new Set<string>(["install_skill"]);
  */
 export function extractSensePaths(name: string, args: Record<string, unknown>): string[] {
   switch (name) {
-    case "write_file":
-    case "read_file":
-    case "search_codebase":
-      return [typeof args.path === "string" ? args.path : ""];
-    case "execute_command":
-      return [typeof args.command === "string" ? args.command : ""];
+    case 'write_file':
+    case 'read_file':
+    case 'search_codebase':
+      return [typeof args.path === 'string' ? args.path : '']
+    case 'execute_command':
+      return [typeof args.command === 'string' ? args.command : '']
     default:
-      return [];
+      return []
   }
 }
 
 /** 拦截文案（注入给 LLM，引导走管家角色）。 */
 export const CHERY_GUARD_MESSAGE =
-  ".chery/ 是系统配置目录（技能/插件/提示词/命令/数据库），不能直接读写。" +
-  "安装或修改技能请用 spawn_role 派出「管家」角色（type: housekeeper），通过 install_skill 感官完成。";
+  '.chery/ 是系统配置目录（技能/插件/提示词/命令/数据库），不能直接读写。' +
+  '安装或修改技能请用 spawn_role 派出「管家」角色（type: housekeeper），通过 install_skill 感官完成。'
 
 /**
  * 守卫主入口。返回拦截文案（命中）或 null（放行）。
  * 豁免感官直接放行；否则提取路径参数，任一命中 isCheryPath 即拦。
  */
 export function checkCheryGuard(name: string, args: Record<string, unknown>): string | null {
-  if (GUARD_EXEMPT.has(name)) return null;
-  const paths = extractSensePaths(name, args);
+  if (GUARD_EXEMPT.has(name)) return null
+  const paths = extractSensePaths(name, args)
   for (const p of paths) {
-    if (isCheryPath(p)) return CHERY_GUARD_MESSAGE;
+    if (isCheryPath(p)) return CHERY_GUARD_MESSAGE
   }
-  return null;
+  return null
 }

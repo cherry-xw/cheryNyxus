@@ -11,95 +11,96 @@
  *   - 文件路径 + 行号（可点击跳转）
  *   - 匹配内容高亮
  */
-import { computed, ref } from "vue";
-import type { RendererProps, SearchCodebaseArgs } from "./types";
+import { computed, ref } from 'vue'
+import type { RendererProps, SearchCodebaseArgs } from './types'
 
-const props = defineProps<RendererProps>();
+const props = defineProps<RendererProps>()
 
-const showResults = ref(true);
+const showResults = ref(true)
 
 // 解析参数
 const parsedArgs = computed<SearchCodebaseArgs | null>(() => {
   try {
-    const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
-    const obj = JSON.parse(raw) as SearchCodebaseArgs;
-    if (obj.path && obj.query) return obj;
-    return null;
+    const raw =
+      typeof props.call.args === 'string' ? props.call.args : JSON.stringify(props.call.args ?? {})
+    const obj = JSON.parse(raw) as SearchCodebaseArgs
+    if (obj.path && obj.query) return obj
+    return null
   } catch (e) {
-    console.warn("[SearchRenderer] args 解析失败", e);
-    return null;
+    console.warn('[SearchRenderer] args 解析失败', e)
+    return null
   }
-});
+})
 
 // 模式标签
 const modeLabel = computed(() => {
-  return parsedArgs.value?.mode === "filename" ? "文件名" : "内容";
-});
+  return parsedArgs.value?.mode === 'filename' ? '文件名' : '内容'
+})
 
 // 解析结果（按换行分割，提取文件路径 + 行号）
 interface SearchResult {
-  filePath: string;
-  line?: number;
-  content?: string;
+  filePath: string
+  line?: number
+  content?: string
 }
 
 const searchResults = computed<SearchResult[]>(() => {
-  if (!props.call.result || typeof props.call.result !== "string") return [];
-  const text = props.call.result as string;
+  if (!props.call.result || typeof props.call.result !== 'string') return []
+  const text = props.call.result as string
 
   // 按换行分割
-  const lines = text.split("\n").filter((line) => line.trim());
+  const lines = text.split('\n').filter((line) => line.trim())
 
   // 匹配文件路径:行号 格式
-  const results: SearchResult[] = [];
+  const results: SearchResult[] = []
   for (const line of lines) {
-    const match = line.match(/^([^\s:]+):(\d+):(.*)$/);
+    const match = line.match(/^([^\s:]+):(\d+):(.*)$/)
     if (match && match[1] && match[2]) {
       results.push({
         filePath: match[1],
         line: parseInt(match[2], 10),
-        content: match[3]?.trim() ?? "",
-      });
+        content: match[3]?.trim() ?? '',
+      })
     } else {
       // 文件名模式（无行号）
-      const fileNameMatch = line.match(/^([^\s:]+)$/);
+      const fileNameMatch = line.match(/^([^\s:]+)$/)
       if (fileNameMatch && fileNameMatch[1]) {
         results.push({
           filePath: fileNameMatch[1],
-        });
+        })
       }
     }
   }
 
-  return results;
-});
+  return results
+})
 
 // 结果数量
-const resultCount = computed(() => searchResults.value.length);
+const resultCount = computed(() => searchResults.value.length)
 
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
-    case "running":
-      return "⋯";
-    case "done":
-      return "✓";
-    case "error":
-      return "✗";
+    case 'running':
+      return '⋯'
+    case 'done':
+      return '✓'
+    case 'error':
+      return '✗'
     default:
-      return "?";
+      return '?'
   }
-});
+})
 
-const statusClass = computed(() => `status-${props.call.status}`);
+const statusClass = computed(() => `status-${props.call.status}`)
 
 // 降级显示
 const fallback = computed(() => {
   if (!parsedArgs.value) {
-    return JSON.stringify(props.call.args ?? {}, null, 2);
+    return JSON.stringify(props.call.args ?? {}, null, 2)
   }
-  return "";
-});
+  return ''
+})
 </script>
 
 <template>
@@ -233,7 +234,7 @@ const fallback = computed(() => {
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -255,7 +256,7 @@ const fallback = computed(() => {
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -300,7 +301,7 @@ const fallback = computed(() => {
 .result-count {
   font-size: 9px;
   color: fade(@ink, 50%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
 .results-body {
@@ -321,7 +322,7 @@ const fallback = computed(() => {
 }
 
 .result-file {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10px;
   color: #2563eb;
   font-weight: 600;
@@ -329,7 +330,7 @@ const fallback = computed(() => {
 }
 
 .result-line {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10px;
   color: fade(@ink, 56%);
   flex-shrink: 0;

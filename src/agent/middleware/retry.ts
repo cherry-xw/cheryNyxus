@@ -1,12 +1,12 @@
-import type { MiddlewareContext, ErrorChunk } from "@/core/middleware/types";
-import { isAgentAbortError } from "@/core/middleware/errors.js";
-import { logger } from "@/utils/logger/index.js";
-import { LogLevel } from "@/utils/logger/types.js";
-import { classifyError, ClassifiedError, type ErrorCategory } from "@/utils/error.js";
+import type { MiddlewareContext, ErrorChunk } from '@/core/middleware/types'
+import { isAgentAbortError } from '@/core/middleware/errors.js'
+import { logger } from '@/utils/logger/index.js'
+import { LogLevel } from '@/utils/logger/types.js'
+import { classifyError, ClassifiedError, type ErrorCategory } from '@/utils/error.js'
 
 // ========== 配置常量 ==========
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 1000;
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 1000
 
 /**
  * 判断错误是否可恢复（可重试）
@@ -15,12 +15,12 @@ function isRecoverable(category: ErrorCategory): boolean {
   // network / timeout / provider 错误通常可重试
   // validation 不可重试（参数问题）
   // auth 不可重试（凭证失效，重试无意义；P1 加固：避免 token 失效重试 3x 浪费 6s）
-  return category === "network" || category === "timeout" || category === "provider";
+  return category === 'network' || category === 'timeout' || category === 'provider'
 }
 
 // ========== 辅助函数 ==========
-function createErrorInfo(attempt: number, error: unknown): ErrorChunk["errors"][number] {
-  const category = classifyError(error);
+function createErrorInfo(attempt: number, error: unknown): ErrorChunk['errors'][number] {
+  const category = classifyError(error)
   return {
     attempt,
     timestamp: Date.now(),
@@ -32,11 +32,11 @@ function createErrorInfo(attempt: number, error: unknown): ErrorChunk["errors"][
     stack: error instanceof Error ? error.stack : undefined,
     recoverable: isRecoverable(category),
     category,
-  };
+  }
 }
 
 async function delay(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+  await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 // ========== Middleware 实现 ==========
@@ -50,7 +50,7 @@ export async function* retryMiddleware(
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<unknown>,
 ): AsyncGenerator<ErrorChunk | unknown> {
-  const errors: ErrorChunk["errors"] = [];
+  const errors: ErrorChunk['errors'] = []
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     // 快照本轮 chain 起始的 messages 长度：chat 流中途失败时，外层 checkpoint 已 append 半截 assistant message，
@@ -60,40 +60,44 @@ export async function* retryMiddleware(
     //   截断仅回滚半截 assistant，本轮 user 保留。resume 路径首轮 senseMiddleware skip chat 层，
     //   retry.next() 返回空不追加 → snapshot 截断无实质触发，安全。
     //   messages 类型可选但运行时由 init 赋 []，显式守卫消除 undefined（替代原 ?. 掩盖）。
-    const messages = ctx.soul.messages;
-    if (!messages) throw new Error("soul.messages not initialized before retry");
-    const snapshot = messages.length;
+    const messages = ctx.soul.messages
+    if (!messages) throw new Error('soul.messages not initialized before retry')
+    const snapshot = messages.length
     try {
       // 透传所有 chunks（chat 只 yield StreamChunk/StagedChunk）
-      yield* next();
-      return; // 成功，结束
+      yield* next()
+      return // 成功，结束
     } catch (error) {
       // compose abort（chat.abort 注入的 AgentAbortError）：直接 re-throw 传播退出整个 generator，
       // 不重试、不转 ErrorChunk（保证 abort 在任意挂起点都"直接退出"，由 handleChatSend catch 静默）。
       if (isAgentAbortError(error)) {
-        throw error;
+        throw error
       }
-      const errorInfo = createErrorInfo(attempt, error);
-      errors.push(errorInfo);
-      logger.event("retry.attempt", {
-        attempt,
-        category: errorInfo.category,
-        recoverable: errorInfo.recoverable,
-        message: error instanceof Error ? error.message : String(error),
-      }, LogLevel.warn);
+      const errorInfo = createErrorInfo(attempt, error)
+      errors.push(errorInfo)
+      logger.event(
+        'retry.attempt',
+        {
+          attempt,
+          category: errorInfo.category,
+          recoverable: errorInfo.recoverable,
+          message: error instanceof Error ? error.message : String(error),
+        },
+        LogLevel.warn,
+      )
 
       // 回滚本轮 checkpoint 已 append 的半截 message，恢复历史干净后再重试
-      messages.length = snapshot;
+      messages.length = snapshot
 
       // 非最后一次且可恢复：等待后继续
       if (attempt < MAX_RETRIES && errorInfo.recoverable) {
-        await delay(RETRY_DELAY_MS);
-        continue;
+        await delay(RETRY_DELAY_MS)
+        continue
       }
 
       // 最后一次失败或不可恢复：yield ErrorChunk
-      yield { type: "error", errors };
-      return;
+      yield { type: 'error', errors }
+      return
     }
   }
 }

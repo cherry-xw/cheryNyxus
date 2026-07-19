@@ -3,39 +3,39 @@
  * MediaPreviewBar：输入框上方已选媒体缩略图条。
  * 点击缩略图触发对应预览组件，hover 显示移除按钮。
  */
-import { ref } from "vue";
-import { CircleClose } from "@element-plus/icons-vue";
-import type { MediaAttachment } from "../useAgentDialogOptions";
-import ImagePreview from "./ImagePreview.vue";
-import AudioPlayer from "./AudioPlayer.vue";
-import VideoPlayer from "./VideoPlayer.vue";
+import { ref } from 'vue'
+import { CircleClose } from '@element-plus/icons-vue'
+import type { MediaAttachment } from '../useAgentDialogOptions'
+import ImagePreview from './ImagePreview.vue'
+import AudioPlayer from './AudioPlayer.vue'
+import VideoPlayer from './VideoPlayer.vue'
 
-defineProps<{ attachments: MediaAttachment[] }>();
-const emit = defineEmits<{ (e: "remove", a: MediaAttachment): void }>();
+defineProps<{ attachments: MediaAttachment[] }>()
+const emit = defineEmits<{ (e: 'remove', a: MediaAttachment): void }>()
 
-const previewImage = ref<MediaAttachment | null>(null);
-const previewAudio = ref<MediaAttachment | null>(null);
-const previewVideo = ref<MediaAttachment | null>(null);
+const previewImage = ref<MediaAttachment | null>(null)
+const previewAudio = ref<MediaAttachment | null>(null)
+const previewVideo = ref<MediaAttachment | null>(null)
 
 function openPreview(a: MediaAttachment): void {
-  if (a.kind === "image") previewImage.value = a;
-  else if (a.kind === "video") previewVideo.value = a;
-  else previewAudio.value = a;
+  if (a.kind === 'image') previewImage.value = a
+  else if (a.kind === 'video') previewVideo.value = a
+  else previewAudio.value = a
 }
 
 function closePreview(): void {
-  previewImage.value = null;
-  previewAudio.value = null;
-  previewVideo.value = null;
+  previewImage.value = null
+  previewAudio.value = null
+  previewVideo.value = null
 }
 
 function kindLabel(kind: string): string {
-  return kind === "image" ? "图片" : kind === "video" ? "视频" : "音频";
+  return kind === 'image' ? '图片' : kind === 'video' ? '视频' : '音频'
 }
 
 function formatSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 </script>
 
@@ -91,8 +91,13 @@ function formatSize(bytes: number): string {
   scrollbar-width: thin;
   scrollbar-color: rgba(20, 22, 26, 0.18) transparent;
 
-  &::-webkit-scrollbar { height: 4px; }
-  &::-webkit-scrollbar-thumb { background: rgba(20, 22, 26, 0.18); border-radius: 2px; }
+  &::-webkit-scrollbar {
+    height: 4px;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: rgba(20, 22, 26, 0.18);
+    border-radius: 2px;
+  }
 }
 
 .media-preview-thumb {
@@ -106,13 +111,17 @@ function formatSize(bytes: number): string {
   background: #fff;
   cursor: pointer;
   overflow: hidden;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 
   &:hover {
     border-color: rgba(190, 132, 28, 0.4);
     box-shadow: 0 2px 8px rgba(20, 22, 26, 0.08);
 
-    .thumb-remove { opacity: 1; }
+    .thumb-remove {
+      opacity: 1;
+    }
   }
 }
 
@@ -126,7 +135,8 @@ function formatSize(bytes: number): string {
   justify-content: center;
   overflow: hidden;
 
-  img, video {
+  img,
+  video {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -192,8 +202,12 @@ function formatSize(bytes: number): string {
   color: #fff;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease;
 
-  &:hover { background: rgba(220, 38, 38, 0.85); }
+  &:hover {
+    background: rgba(220, 38, 38, 0.85);
+  }
 }
 </style>

@@ -3,13 +3,18 @@ import type {
   MiddlewareChunk,
   StreamChunk,
   RuntimeConfig,
-} from "@/core/middleware/types";
-import type { SenseFunction, SenseCallData } from "@/core/sense/adapter";
-import type { LLMOptions } from "@/core/llm/adapter";
-import { logger } from "@/utils/logger/index.js";
-import type { LLMResponse, LLMAttachment } from "@/core/message/adapter";
-import { readMediaAsset, understandMediaReference, mediaKindForMime, type MediaKind } from "@/service/media/index.js";
-import config from "@/utils/config.js";
+} from '@/core/middleware/types'
+import type { SenseFunction, SenseCallData } from '@/core/sense/adapter'
+import type { LLMOptions } from '@/core/llm/adapter'
+import { logger } from '@/utils/logger/index.js'
+import type { LLMResponse, LLMAttachment } from '@/core/message/adapter'
+import {
+  readMediaAsset,
+  understandMediaReference,
+  mediaKindForMime,
+  type MediaKind,
+} from '@/service/media/index.js'
+import config from '@/utils/config.js'
 
 /**
  * Chat Middleware
@@ -22,27 +27,33 @@ export async function* chatMiddleware(
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
   // P2-4：runtime 在 send 前 configureRuntime 注入；运行时守卫窄化，消除构造期 {} as 谎言
-  if (!ctx.runtime) throw new Error("Runtime not configured. Call configureRuntime() before send().");
-  const { llmAdapter, messageAdapter, senseAdapter } = ctx.runtime.adapters;
+  if (!ctx.runtime)
+    throw new Error('Runtime not configured. Call configureRuntime() before send().')
+  const { llmAdapter, messageAdapter, senseAdapter } = ctx.runtime.adapters
 
   // 从 ctx.soul.messages 构建 provider 格式消息
   // P5b：enrichMediaInputs 改为双轨——脑 input.image=true 时走多模态（marker 移除 + 临时 attachments），
   // 否则保留现有文本转写路径（marker 文本拼接）。attachments 不进 LLMResponse/DB，provider 调用后丢弃。
   // capabilitiesHint：有 [[media:]] marker 时生成 <self-capabilities> system message（运行时注入，不持久化）。
-  const enriched = await enrichMediaInputs(ctx, ctx.soul.messages || []);
+  const enriched = await enrichMediaInputs(ctx, ctx.soul.messages || [])
   // 运行时注入 <self-capabilities> system message（仅当有 [[media:]] marker 时生成）。
   // 浅拷贝 history 避免污染 soul（checkpoint 中间件不持久化此段）。
-  let historyForBuild = enriched.history;
+  let historyForBuild = enriched.history
   if (enriched.capabilitiesHint) {
     historyForBuild = [
-      { role: "system", content: enriched.capabilitiesHint, createdAt: Date.now(), updateAt: Date.now() } as LLMResponse,
+      {
+        role: 'system',
+        content: enriched.capabilitiesHint,
+        createdAt: Date.now(),
+        updateAt: Date.now(),
+      } as LLMResponse,
       ...enriched.history,
-    ];
+    ]
   }
-  const messages = messageAdapter.buildMessages(historyForBuild, enriched.attachments);
+  const messages = messageAdapter.buildMessages(historyForBuild, enriched.attachments)
 
   // 使用预构建的 senses（runtime.builtSenses）
-  const senses = ctx.runtime.builtSenses;
+  const senses = ctx.runtime.builtSenses
 
   // 构建请求选项（P1-6：LLMOptions 显式类型，替代 Record<string, unknown>）
   const options: LLMOptions = {
@@ -50,46 +61,32 @@ export async function* chatMiddleware(
     url: ctx.runtime.brain.url,
     key: ctx.runtime.brain.key,
     // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/low/medium/high）
-    thinking: ctx.global.thinking ? (ctx.runtime.brain.thinking ?? "off") : "off",
+    thinking: ctx.global.thinking ? (ctx.runtime.brain.thinking ?? 'off') : 'off',
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
-  };
+  }
 
   // ========== AI 输入参数日志 ==========
-  logger.event("llm.req", {
+  logger.event('llm.req', {
     chatId: ctx.soul.chatId,
-    provider: ctx.runtime.brain.provider || "unknown",
+    provider: ctx.runtime.brain.provider || 'unknown',
     model: options.model,
-    thinking: options.thinking ?? "off",
+    thinking: options.thinking ?? 'off',
     stream: !!ctx.global.stream,
     senseCount: senses.length,
-    senseNames: senses.map((s) => s.function?.name || "unknown"),
+    senseNames: senses.map((s) => s.function?.name || 'unknown'),
     msgCount: messages.length,
-  });
+  })
 
   if (ctx.global.stream) {
     // 流式调用
-    yield* handleStream(
-      options,
-      llmAdapter,
-      messageAdapter,
-      senseAdapter,
-      messages,
-      senses,
-    );
+    yield* handleStream(options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
   } else {
     // 非流式调用
-    yield* handleNonStream(
-      options,
-      llmAdapter,
-      messageAdapter,
-      senseAdapter,
-      messages,
-      senses,
-    );
+    yield* handleNonStream(options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
   }
 
   // 执行下游
-  yield* next();
+  yield* next()
 }
 
 /**
@@ -97,56 +94,55 @@ export async function* chatMiddleware(
  */
 async function* handleStream(
   options: LLMOptions,
-  llmAdapter: RuntimeConfig["adapters"]["llmAdapter"],
-  messageAdapter: RuntimeConfig["adapters"]["messageAdapter"],
-  senseAdapter: RuntimeConfig["adapters"]["senseAdapter"],
+  llmAdapter: RuntimeConfig['adapters']['llmAdapter'],
+  messageAdapter: RuntimeConfig['adapters']['messageAdapter'],
+  senseAdapter: RuntimeConfig['adapters']['senseAdapter'],
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
-  const streamIterator = await llmAdapter.chatStream(messages, senses, options);
+  const streamIterator = await llmAdapter.chatStream(messages, senses, options)
 
-  let chunkCount = 0;
-  let thinkingAccumulated = "";
-  let contentAccumulated = "";
-  let senseCallsAccumulated: SenseCallData[] = [];
+  let chunkCount = 0
+  let thinkingAccumulated = ''
+  let contentAccumulated = ''
+  const senseCallsAccumulated: SenseCallData[] = []
 
   for await (const rawChunk of streamIterator) {
-    chunkCount++;
+    chunkCount++
 
     // 提取增量
-    const thinkingDelta =
-      messageAdapter.extractStreamThinking?.(rawChunk) || "";
-    const contentDelta = messageAdapter.extractStreamDelta?.(rawChunk) || "";
+    const thinkingDelta = messageAdapter.extractStreamThinking?.(rawChunk) || ''
+    const contentDelta = messageAdapter.extractStreamDelta?.(rawChunk) || ''
 
     // 提取 sense call 增量
-    const senseDelta = senseAdapter.extractSenseCallDeltas(rawChunk);
+    const senseDelta = senseAdapter.extractSenseCallDeltas(rawChunk)
 
     // 累积内容（用于完成时汇总事件）
-    thinkingAccumulated += thinkingDelta;
-    contentAccumulated += contentDelta;
+    thinkingAccumulated += thinkingDelta
+    contentAccumulated += contentDelta
     if (senseDelta.length > 0) {
-      senseCallsAccumulated.push(...senseDelta);
+      senseCallsAccumulated.push(...senseDelta)
     }
 
     // yield stream chunk（包含 senseDelta）
     if (thinkingDelta || contentDelta || senseDelta.length > 0) {
       yield {
-        type: "stream",
+        type: 'stream',
         thinkingDelta,
         contentDelta,
         senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
-      };
+      }
     }
   }
 
   // ========== 流式响应完成 ==========
-  logger.event("llm.resp", {
-    mode: "stream",
+  logger.event('llm.resp', {
+    mode: 'stream',
     chunks: chunkCount,
     thinkingLen: thinkingAccumulated.length,
     contentLen: contentAccumulated.length,
     senseCalls: senseCallsAccumulated.length,
-  });
+  })
 }
 
 /**
@@ -154,41 +150,41 @@ async function* handleStream(
  */
 async function* handleNonStream(
   options: LLMOptions,
-  llmAdapter: RuntimeConfig["adapters"]["llmAdapter"],
-  messageAdapter: RuntimeConfig["adapters"]["messageAdapter"],
-  senseAdapter: RuntimeConfig["adapters"]["senseAdapter"],
+  llmAdapter: RuntimeConfig['adapters']['llmAdapter'],
+  messageAdapter: RuntimeConfig['adapters']['messageAdapter'],
+  senseAdapter: RuntimeConfig['adapters']['senseAdapter'],
   messages: unknown[],
   senses: SenseFunction[],
 ): AsyncGenerator<StreamChunk> {
-  const response = await llmAdapter.chat(messages, senses, options);
+  const response = await llmAdapter.chat(messages, senses, options)
 
   // 提取内容和思考
-  const content = messageAdapter.content(response);
-  const thinking = messageAdapter.thinking?.(response);
+  const content = messageAdapter.content(response)
+  const thinking = messageAdapter.thinking?.(response)
 
   // 提取 sense calls（非流式为完整数据）
-  const senseDelta = senseAdapter.senseCalls(response);
+  const senseDelta = senseAdapter.senseCalls(response)
 
   // ========== 非流式响应汇总 ==========
-  logger.event("llm.resp", {
-    mode: "non-stream",
+  logger.event('llm.resp', {
+    mode: 'non-stream',
     thinkingLen: thinking?.length ?? 0,
     contentLen: content?.length ?? 0,
     senseCalls: senseDelta.length,
-  });
+  })
 
   // yield stream chunk（包含 senseDelta）
   if (content || thinking || senseDelta.length > 0) {
     yield {
-      type: "stream",
-      thinkingDelta: thinking || "",
-      contentDelta: content || "",
+      type: 'stream',
+      thinkingDelta: thinking || '',
+      contentDelta: content || '',
       senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
-    };
+    }
   }
 }
 
-export default chatMiddleware;
+export default chatMiddleware
 
 /**
  * 查找具备指定 input kind 能力的角色列表。
@@ -196,13 +192,13 @@ export default chatMiddleware;
  * 用于 capabilitiesHint 生成（告知主 agent 可委派的目標角色）。
  */
 function findCapableRoles(kind: MediaKind): string[] {
-  const result: string[] = [];
+  const result: string[] = []
   for (const [roleName, roleCfg] of Object.entries(config.roles ?? {})) {
     if (config.llm.brain[roleCfg.brain]?.capabilities?.input?.[kind]) {
-      result.push(roleName);
+      result.push(roleName)
     }
   }
-  return result;
+  return result
 }
 
 /**
@@ -211,41 +207,45 @@ function findCapableRoles(kind: MediaKind): string[] {
  * 内容：声明自身输入能力 + 不可处理附件的委派建议。
  */
 function buildCapabilitiesHint(
-  brain: { model: string; capabilities?: { input?: { image?: boolean; video?: boolean; audio?: boolean } } },
+  brain: {
+    model: string
+    capabilities?: { input?: { image?: boolean; video?: boolean; audio?: boolean } }
+  },
   unsupportedMedia: { filename: string; kind: MediaKind }[],
 ): string | undefined {
-  const caps = brain.capabilities?.input ?? {};
-  const kinds: MediaKind[] = ["image", "video", "audio"];
-  const capsLine = kinds.map((k) => `${k} ${caps[k] ? "✓" : "✗"}`).join(", ");
+  const caps = brain.capabilities?.input ?? {}
+  const kinds: MediaKind[] = ['image', 'video', 'audio']
+  const capsLine = kinds.map((k) => `${k} ${caps[k] ? '✓' : '✗'}`).join(', ')
 
   let hint = `<self-capabilities>
 当前大脑：${brain.model}
-输入能力：${capsLine}`;
+输入能力：${capsLine}`
 
   if (unsupportedMedia.length > 0) {
-    hint += "\n不支持的媒体类型需通过 spawn_role 委派给具备对应输入能力的角色处理。";
-    hint += "\n当前不可处理的附件：";
+    hint += '\n不支持的媒体类型需通过 spawn_role 委派给具备对应输入能力的角色处理。'
+    hint += '\n当前不可处理的附件：'
 
     // 按 kind 分组，找 capable roles
-    const byKind = new Map<MediaKind, string[]>();
+    const byKind = new Map<MediaKind, string[]>()
     for (const { filename, kind } of unsupportedMedia) {
-      if (!byKind.has(kind)) byKind.set(kind, []);
-      byKind.get(kind)!.push(filename);
+      if (!byKind.has(kind)) byKind.set(kind, [])
+      byKind.get(kind)!.push(filename)
     }
 
     for (const [kind, filenames] of byKind) {
-      const roles = findCapableRoles(kind);
-      const rolesStr = roles.length > 0 ? roles.join(", ") : "（无可用角色）";
+      const roles = findCapableRoles(kind)
+      const rolesStr = roles.length > 0 ? roles.join(', ') : '（无可用角色）'
       for (const filename of filenames) {
-        hint += `\n- ${kind} [[media:${filename}]]：可委派角色 ${rolesStr}`;
+        hint += `\n- ${kind} [[media:${filename}]]：可委派角色 ${rolesStr}`
       }
     }
 
-    hint += "\n建议：使用 spawn_role(wait=true) 将媒体附件的处理任务委派给对应角色，prompt 中包含 [[media:filename]] 标记以便角色通过媒体网关理解内容。";
+    hint +=
+      '\n建议：使用 spawn_role(wait=true) 将媒体附件的处理任务委派给对应角色，prompt 中包含 [[media:filename]] 标记以便角色通过媒体网关理解内容。'
   }
 
-  hint += "\n</self-capabilities>";
-  return hint;
+  hint += '\n</self-capabilities>'
+  return hint
 }
 
 /**
@@ -261,69 +261,72 @@ async function enrichMediaInputs(
   ctx: MiddlewareContext,
   history: LLMResponse[],
 ): Promise<{ history: LLMResponse[]; attachments?: LLMAttachment[]; capabilitiesHint?: string }> {
-  const brain = ctx.runtime?.brain;
-  if (!brain) return { history };
-  const last = history[history.length - 1];
-  if (!last || last.role !== "user") return { history };
-  const matches = [...last.content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)];
-  if (!matches.length) return { history };
+  const brain = ctx.runtime?.brain
+  if (!brain) return { history }
+  const last = history[history.length - 1]
+  if (!last || last.role !== 'user') return { history }
+  const matches = [...last.content.matchAll(/\[\[media:([a-f0-9-]+\.[a-z0-9]+)\]\]/gi)]
+  if (!matches.length) return { history }
 
   // 脑 input 下任一 kind 支持原生多模态 → 多模态旁路（旁路内 :285 按 kind 过滤）
-  const inputCaps = brain.capabilities?.input;
+  const inputCaps = brain.capabilities?.input
   if (inputCaps && (inputCaps.image || inputCaps.video || inputCaps.audio)) {
-    const attachments: LLMAttachment[] = [];
-    const unsupportedMedia: { filename: string; kind: MediaKind }[] = [];
-    let cleanedContent = last.content;
+    const attachments: LLMAttachment[] = []
+    const unsupportedMedia: { filename: string; kind: MediaKind }[] = []
+    let cleanedContent = last.content
     for (const match of matches) {
-      const filename = match[1]!;
+      const filename = match[1]!
       // 先从文本移除 marker（无论是否支持，避免 LLM 看到无意义 [[media:xxx]] 标记）
-      cleanedContent = cleanedContent.replace(match[0], "").trim();
+      cleanedContent = cleanedContent.replace(match[0], '').trim()
 
-      const asset = await readMediaAsset(filename);
-      if (!asset) continue;
-      const kind = mediaKindForMime(asset.mimeType);
-      if (!kind) continue;
+      const asset = await readMediaAsset(filename)
+      if (!asset) continue
+      const kind = mediaKindForMime(asset.mimeType)
+      if (!kind) continue
 
       if (brain.capabilities?.input?.[kind]) {
         // 支持 → 多模态附件
-        attachments.push({ mimeType: asset.mimeType, data: asset.data, kind });
+        attachments.push({ mimeType: asset.mimeType, data: asset.data, kind })
       } else {
         // 不支持 → 收集到 unsupportedMedia（给 capabilitiesHint 用）
-        unsupportedMedia.push({ filename, kind });
+        unsupportedMedia.push({ filename, kind })
       }
     }
     // 即使 attachments 为空也返回（可能有 unsupportedMedia 需要生成 hint）
-    if (attachments.length === 0 && unsupportedMedia.length === 0) return { history };
-    const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia);
+    if (attachments.length === 0 && unsupportedMedia.length === 0) return { history }
+    const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia)
     return {
       history: [...history.slice(0, -1), { ...last, content: cleanedContent }],
       ...(attachments.length > 0 && { attachments }),
       ...(capabilitiesHint && { capabilitiesHint }),
-    };
+    }
   }
 
   // 旧路径：marker 文本转写
-  const additions: string[] = [];
-  const unsupportedMedia: { filename: string; kind: MediaKind }[] = [];
+  const additions: string[] = []
+  const unsupportedMedia: { filename: string; kind: MediaKind }[] = []
   for (const match of matches) {
-    const filename = match[1]!;
+    const filename = match[1]!
     try {
-      const understood = await understandMediaReference(filename);
+      const understood = await understandMediaReference(filename)
       if (!brain.capabilities?.input?.[understood.kind]) {
         // 网关转写是原生多模态以外的降级路径：模型不直接接收二进制，
         // 但必须接收网关已经产出的文本，否则“配置网关即可理解媒体”的
         // 契约形同虚设。此处不再把成功结果误标为未发送。
-        additions.push(`[${understood.kind} 附件网关理解结果]\n${understood.text}`);
+        additions.push(`[${understood.kind} 附件网关理解结果]\n${understood.text}`)
       } else {
-        additions.push(`[${understood.kind} 附件理解结果]\n${understood.text}`);
+        additions.push(`[${understood.kind} 附件理解结果]\n${understood.text}`)
       }
     } catch (error) {
-      additions.push(`[媒体附件处理失败，已跳过]`);
+      additions.push(`[媒体附件处理失败，已跳过]`)
     }
   }
-  const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia);
+  const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia)
   return {
-    history: [...history.slice(0, -1), { ...last, content: `${last.content}\n\n${additions.join("\n\n")}` }],
+    history: [
+      ...history.slice(0, -1),
+      { ...last, content: `${last.content}\n\n${additions.join('\n\n')}` },
+    ],
     ...(capabilitiesHint && { capabilitiesHint }),
-  };
+  }
 }

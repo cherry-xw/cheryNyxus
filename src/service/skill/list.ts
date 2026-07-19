@@ -1,6 +1,16 @@
-import type { HandlerContext } from "../message/router.js";
-import { Method, type SkillsListResponseData, type SkillsListNamesResponseData, type SkillsListRequestData } from "../message/types.js";
-import { getSkillMetas, getSkillMetasPaginated, getSkillNameList, type SkillPaginationParams } from "@/agent/prompt/loadSkill.js";
+import type { HandlerContext } from '../message/router.js'
+import {
+  Method,
+  type SkillsListResponseData,
+  type SkillsListNamesResponseData,
+  type SkillsListRequestData,
+} from '../message/types.js'
+import {
+  getSkillMetas,
+  getSkillMetasPaginated,
+  getSkillNameList,
+  type SkillPaginationParams,
+} from '@/agent/prompt/loadSkill.js'
 
 /**
  * skills.list：实时列出用户 skills_dir 中的可加载 Skill。
@@ -13,12 +23,12 @@ export async function handleSkillsList(
 ): Promise<SkillsListResponseData> {
   // 无任何参数 → 全量返回（向后兼容）
   if (!params || Object.keys(params).length === 0) {
-    const skills = getSkillMetas();
-    return { skills, total: skills.length, page: 1, pageSize: skills.length };
+    const skills = getSkillMetas()
+    return { skills, total: skills.length, page: 1, pageSize: skills.length }
   }
 
-  const result = getSkillMetasPaginated(params as SkillPaginationParams);
-  return result;
+  const result = getSkillMetasPaginated(params as SkillPaginationParams)
+  return result
 }
 
 /**
@@ -29,11 +39,11 @@ export async function handleSkillsListNames(
   _ctx: HandlerContext,
   _params: unknown,
 ): Promise<SkillsListNamesResponseData> {
-  return getSkillNameList();
+  return getSkillNameList()
 }
 
 /** 注册 Skill 目录相关的 RPC handlers。 */
-export function registerSkillHandlers(router: import("../message/router.js").RpcRouter): void {
-  router.register(Method.SKILLS_LIST, handleSkillsList);
-  router.register(Method.SKILLS_LIST_NAMES, handleSkillsListNames);
+export function registerSkillHandlers(router: import('../message/router.js').RpcRouter): void {
+  router.register(Method.SKILLS_LIST, handleSkillsList)
+  router.register(Method.SKILLS_LIST_NAMES, handleSkillsListNames)
 }

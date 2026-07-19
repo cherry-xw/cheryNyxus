@@ -4,26 +4,24 @@
  * 从 ApprovalCard 拆出，复用 SenseCallBox 的 parseArgs 逻辑。
  * description 字段作折叠标题；其余字段作 key:value 行。解析失败 → fallback JSON pretty-print。
  */
-import { computed, ref } from "vue";
-import { formatArgValue, parseArgs } from "@/utils/parseArgs";
+import { computed, ref } from 'vue'
+import { formatArgValue, parseArgs } from '@/utils/parseArgs'
 
 const props = defineProps<{
-  args: unknown;
-}>();
+  args: unknown
+}>()
 
-const expanded = ref(false);
+const expanded = ref(false)
 
-const argsParsed = computed(() => parseArgs(props.args));
-const argsFallback = computed(() => argsParsed.value.fallback);
-const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? []);
-const argsToggleLabel = computed(
-  () => argsParsed.value.parsed?.description ?? "arguments",
-);
+const argsParsed = computed(() => parseArgs(props.args))
+const argsFallback = computed(() => argsParsed.value.fallback)
+const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? [])
+const argsToggleLabel = computed(() => argsParsed.value.parsed?.description ?? 'arguments')
 const hasArgs = computed(() => {
-  const { parsed, fallback } = argsParsed.value;
-  if (parsed) return parsed.description != null || parsed.entries.length > 0;
-  return fallback.length > 0;
-});
+  const { parsed, fallback } = argsParsed.value
+  if (parsed) return parsed.description != null || parsed.entries.length > 0
+  return fallback.length > 0
+})
 </script>
 
 <template>
@@ -33,7 +31,9 @@ const hasArgs = computed(() => {
       class="args-toggle"
       :aria-expanded="expanded"
       @click="expanded = !expanded"
-    >{{ expanded ? "▾" : "▸" }} {{ argsToggleLabel }}</button>
+    >
+      {{ expanded ? '▾' : '▸' }} {{ argsToggleLabel }}
+    </button>
     <div v-if="expanded" class="args-body">
       <div v-if="argsEntries.length" class="arg-rows">
         <div v-for="entry in argsEntries" :key="entry.key" class="arg-row">
@@ -95,7 +95,7 @@ const hasArgs = computed(() => {
 
 .arg-key {
   flex-shrink: 0;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 9px;
   font-weight: 700;
   color: fade(@ink, 60%);
@@ -106,7 +106,7 @@ const hasArgs = computed(() => {
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 9px;
   line-height: 1.4;
   color: fade(@ink, 82%);
@@ -126,7 +126,7 @@ const hasArgs = computed(() => {
   border-radius: 4px;
   background: fade(@ink, 6%);
   color: fade(@ink, 82%);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 9px;
   font-weight: 500;
   line-height: 1.4;

@@ -12,222 +12,248 @@
  * 列表数据：SkillsTab 自行管理分页数据（直接调 agentApi.listSkills），
  * SettingsDialog 的 `initialSkills` 仅用于首次加载和来源索引关联。
  */
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, type ComponentPublicInstance } from "vue";
-import { Delete, Refresh, Search } from "@element-plus/icons-vue";
 import {
-  agentApi,
-  type SkillInfo,
-  type SkillSource,
-} from "@/services/agentApi";
-import TabShell, { type IndexItem } from "../components/TabShell.vue";
-import ConfirmPopover from "../ConfirmPopover.vue";
-import ConfirmDialog from "../ConfirmDialog.vue";
-import SkillImportDialog from "./components/SkillImportDialog.vue";
+  ref,
+  computed,
+  onMounted,
+  onBeforeUnmount,
+  nextTick,
+  watch,
+  type ComponentPublicInstance,
+} from 'vue'
+import { Delete, Refresh, Search } from '@element-plus/icons-vue'
+import { agentApi, type SkillInfo, type SkillSource } from '@/services/agentApi'
+import TabShell, { type IndexItem } from '../components/TabShell.vue'
+import ConfirmPopover from '../ConfirmPopover.vue'
+import ConfirmDialog from '../ConfirmDialog.vue'
+import SkillImportDialog from './components/SkillImportDialog.vue'
 
-const props = defineProps<{ initialSkills: SkillInfo[]; sources: SkillSource[] }>();
-const emit = defineEmits<{ (e: "error", msg: string): void; (e: "refresh-skills"): void }>();
+const props = defineProps<{ initialSkills: SkillInfo[]; sources: SkillSource[] }>()
+const emit = defineEmits<{ (e: 'error', msg: string): void; (e: 'refresh-skills'): void }>()
 
 // ── 分页状态 ──────────────────────────────────────────────────────
-const searchQuery = ref("");
-const currentPage = ref(1);
-const pageSize = 50;
-const totalSkills = ref(0);
-const skills = ref<SkillInfo[]>(props.initialSkills);
-const loading = ref(false);
+const searchQuery = ref('')
+const currentPage = ref(1)
+const pageSize = 50
+const totalSkills = ref(0)
+const skills = ref<SkillInfo[]>(props.initialSkills)
+const loading = ref(false)
 
-let searchDebounce: ReturnType<typeof setTimeout> | null = null;
-let fetchSeq = 0;
+let searchDebounce: ReturnType<typeof setTimeout> | null = null
+let fetchSeq = 0
 
 async function fetchSkills(): Promise<void> {
-  const seq = ++fetchSeq;
-  loading.value = true;
+  const seq = ++fetchSeq
+  loading.value = true
   try {
     const result = await agentApi.listSkills({
       page: currentPage.value,
       pageSize,
       search: searchQuery.value || undefined,
       plugin: undefined, // 仅独立 skill
-    });
-    if (seq !== fetchSeq) return;
-    skills.value = result.skills;
-    totalSkills.value = result.total;
+    })
+    if (seq !== fetchSeq) return
+    skills.value = result.skills
+    totalSkills.value = result.total
   } catch (e) {
-    console.error("[SkillsTab] listSkills failed:", e);
+    console.error('[SkillsTab] listSkills failed:', e)
   } finally {
-    if (seq === fetchSeq) loading.value = false;
+    if (seq === fetchSeq) loading.value = false
   }
 }
 
 function onSearchInput(value: string): void {
-  searchQuery.value = value;
-  if (searchDebounce) clearTimeout(searchDebounce);
+  searchQuery.value = value
+  if (searchDebounce) clearTimeout(searchDebounce)
   searchDebounce = setTimeout(() => {
-    currentPage.value = 1;
-    void fetchSkills();
-  }, 300);
+    currentPage.value = 1
+    void fetchSkills()
+  }, 300)
 }
 function onSearchClear(): void {
-  if (searchDebounce) clearTimeout(searchDebounce);
-  searchDebounce = null;
-  searchQuery.value = "";
-  currentPage.value = 1;
-  void fetchSkills();
+  if (searchDebounce) clearTimeout(searchDebounce)
+  searchDebounce = null
+  searchQuery.value = ''
+  currentPage.value = 1
+  void fetchSkills()
 }
 
 function onPageChange(page: number): void {
-  currentPage.value = page;
-  void fetchSkills();
+  currentPage.value = page
+  void fetchSkills()
 }
 
 // ── 导入弹窗 ──────────────────────────────────────────────────────
-const importDialogOpen = ref(false);
-const syncSourceId = ref<string | undefined>(undefined);
+const importDialogOpen = ref(false)
+const syncSourceId = ref<string | undefined>(undefined)
 
 // ── 删除独立 skill ─────────────────────────────────────────────────
-const busy = ref(false);
+const busy = ref(false)
 
 // 删来源二次确认（重删 → ConfirmDialog 居中 modal；删单条技能仍走 ConfirmPopover）
-const removeDialog = ref(false);
-const removeSrc = ref<SkillSource | undefined>(undefined);
+const removeDialog = ref(false)
+const removeSrc = ref<SkillSource | undefined>(undefined)
 const removeImpact = computed(() => {
-  const src = removeSrc.value;
-  if (!src) return [] as string[];
-  return [`将删除来源「${src.cloneUrl}」下的全部 ${src.skillCount} 个技能。`];
-});
+  const src = removeSrc.value
+  if (!src) return [] as string[]
+  return [`将删除来源「${src.cloneUrl}」下的全部 ${src.skillCount} 个技能。`]
+})
 function startRemoveSource(src: SkillSource): void {
-  removeSrc.value = src;
-  removeDialog.value = true;
+  removeSrc.value = src
+  removeDialog.value = true
 }
 
 function onError(msg: string): void {
-  emit("error", msg);
+  emit('error', msg)
 }
 function emitError(err: unknown): void {
-  const e = err as { message?: string };
-  onError(e?.message ?? String(err));
+  const e = err as { message?: string }
+  onError(e?.message ?? String(err))
 }
 function refresh(): void {
-  emit("refresh-skills");
-  void fetchSkills();
+  emit('refresh-skills')
+  void fetchSkills()
 }
 
 // ── 批量刷新状态 ───────────────────────────────────────────────
-const refreshingAll = ref(false);
-const checkingIds = ref<Set<string>>(new Set());
+const refreshingAll = ref(false)
+const checkingIds = ref<Set<string>>(new Set())
 
 // ── 独立 skill 列表 ──────────────────────────────────────────────────
 /** 技能列表与仓库展示解耦：所有独立 skill 在同一分页列表中展示。 */
-const standalone = computed(() => skills.value);
+const standalone = computed(() => skills.value)
 
 const indexItems = computed<IndexItem[]>(() =>
-  standalone.value.map((s) => ({ label: s.name, anchor: s.name, description: s.description || "无描述" })),
-);
+  standalone.value.map((s) => ({
+    label: s.name,
+    anchor: s.name,
+    description: s.description || '无描述',
+  })),
+)
 
 async function onDelete(name: string): Promise<void> {
-  busy.value = true;
+  busy.value = true
   try {
-    await agentApi.deleteSkill(name);
-    refresh();
+    await agentApi.deleteSkill(name)
+    refresh()
   } catch (err) {
-    emitError(err);
+    emitError(err)
   } finally {
-    busy.value = false;
+    busy.value = false
   }
 }
 
 /** re-sync 来源。 */
 async function onResyncSource(src: SkillSource): Promise<void> {
-  if (refreshingAll.value) return;
-  syncSourceId.value = src.id;
-  importDialogOpen.value = true;
+  if (refreshingAll.value) return
+  syncSourceId.value = src.id
+  importDialogOpen.value = true
 }
 async function onCheckSource(src: SkillSource): Promise<void> {
-  if (checkingIds.value.has(src.id)) return;
-  checkingIds.value.add(src.id);
-  try { await agentApi.checkSkillSource(src.id); refresh(); }
-  catch (err) { emitError(err); }
-  finally { checkingIds.value.delete(src.id); }
+  if (checkingIds.value.has(src.id)) return
+  checkingIds.value.add(src.id)
+  try {
+    await agentApi.checkSkillSource(src.id)
+    refresh()
+  } catch (err) {
+    emitError(err)
+  } finally {
+    checkingIds.value.delete(src.id)
+  }
 }
 /** 批量刷新全部来源。 */
 async function onResyncAllSources(): Promise<void> {
-  if (refreshingAll.value || props.sources.length === 0) return;
-  refreshingAll.value = true;
+  if (refreshingAll.value || props.sources.length === 0) return
+  refreshingAll.value = true
   try {
-    const res = await agentApi.checkAllSkillSources();
+    const res = await agentApi.checkAllSkillSources()
     if (res.failed.length > 0) {
-      onError(res.failed.map((r) => `${r.sourceId}: ${r.reason}`).join("\n"));
+      onError(res.failed.map((r) => `${r.sourceId}: ${r.reason}`).join('\n'))
     }
-    refresh();
+    refresh()
   } catch (err) {
-    emitError(err);
+    emitError(err)
   } finally {
-    refreshingAll.value = false;
+    refreshingAll.value = false
   }
 }
 async function onDeleteSource(src: SkillSource): Promise<void> {
-  if (busy.value || refreshingAll.value) return;
-  busy.value = true;
+  if (busy.value || refreshingAll.value) return
+  busy.value = true
   try {
-    await agentApi.deleteSkillSource(src.id);
-    refresh();
+    await agentApi.deleteSkillSource(src.id)
+    refresh()
   } catch (err) {
-    emitError(err);
+    emitError(err)
   } finally {
-    busy.value = false;
+    busy.value = false
   }
 }
 
 // ── 技能名过长省略 ──────────────────────────────────────────────────
-const nameEls: Record<string, HTMLElement> = {};
-const overflow = ref<ReadonlySet<string>>(new Set());
+const nameEls: Record<string, HTMLElement> = {}
+const overflow = ref<ReadonlySet<string>>(new Set())
 function nameRefOf(name: string): (el: Element | ComponentPublicInstance | null) => void {
   return (el) => {
-    if (el instanceof HTMLElement) nameEls[name] = el;
-    else delete nameEls[name];
-  };
+    if (el instanceof HTMLElement) nameEls[name] = el
+    else delete nameEls[name]
+  }
 }
 function recomputeOverflow(): void {
-  const next = new Set<string>();
+  const next = new Set<string>()
   for (const [n, el] of Object.entries(nameEls)) {
-    if (el.scrollWidth > el.clientWidth) next.add(n);
+    if (el.scrollWidth > el.clientWidth) next.add(n)
   }
-  overflow.value = next;
+  overflow.value = next
 }
 onMounted(() => {
-  nextTick(recomputeOverflow);
-  window.addEventListener("resize", recomputeOverflow);
-  void fetchSkills();
-});
+  nextTick(recomputeOverflow)
+  window.addEventListener('resize', recomputeOverflow)
+  void fetchSkills()
+})
 onBeforeUnmount(() => {
-  window.removeEventListener("resize", recomputeOverflow);
-  if (searchDebounce) clearTimeout(searchDebounce);
-});
-watch(() => props.initialSkills, () => nextTick(recomputeOverflow));
+  window.removeEventListener('resize', recomputeOverflow)
+  if (searchDebounce) clearTimeout(searchDebounce)
+})
+watch(
+  () => props.initialSkills,
+  () => nextTick(recomputeOverflow),
+)
 
 // ── helpers ──────────────────────────────────────────────────────────
 function shortSha(sha: string | undefined): string {
-  return sha && sha.length >= 7 ? sha.slice(0, 7) : (sha || "—");
+  return sha && sha.length >= 7 ? sha.slice(0, 7) : sha || '—'
 }
 function formatDate(iso: string | undefined): string {
-  return iso ? iso.slice(0, 10) : "—";
+  return iso ? iso.slice(0, 10) : '—'
 }
 function formatDateTime(iso: string | undefined): string {
-  if (!iso) return "—";
-  return iso.length >= 16 ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : iso;
+  if (!iso) return '—'
+  return iso.length >= 16 ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : iso
 }
 </script>
 
 <template>
-  <TabShell tab-key="skills" :index-items="indexItems" :page="currentPage" :page-size="pageSize" :total="totalSkills" @page-change="onPageChange">
+  <TabShell
+    tab-key="skills"
+    :index-items="indexItems"
+    :page="currentPage"
+    :page-size="pageSize"
+    :total="totalSkills"
+    @page-change="onPageChange"
+  >
     <template #hints>
       <p class="sect-hint">
-        技能存于 <code>.chery/skills</code>。ZIP/URL 导入后实时生效，无需重启。Git 来源支持 re-sync。
+        技能存于 <code>.chery/skills</code>。ZIP/URL 导入后实时生效，无需重启。Git 来源支持
+        re-sync。
       </p>
     </template>
     <template #popper="{ item }">
       <div class="index-card">
         <div class="index-card-title">{{ item.label as string }}</div>
-        <div class="index-card-line"><b>说明</b><span>{{ item.description as string }}</span></div>
+        <div class="index-card-line">
+          <b>说明</b><span>{{ item.description as string }}</span>
+        </div>
       </div>
     </template>
 
@@ -243,7 +269,7 @@ function formatDateTime(iso: string | undefined): string {
         >
           <template #prefix><Search class="ico" /></template>
         </el-input>
-        <span class="search-status">{{ loading ? "扫描中…" : `${totalSkills} 个技能` }}</span>
+        <span class="search-status">{{ loading ? '扫描中…' : `${totalSkills} 个技能` }}</span>
       </div>
     </template>
 
@@ -258,60 +284,65 @@ function formatDateTime(iso: string | undefined): string {
           @click="onResyncAllSources"
         >
           <Refresh class="ico" :class="{ spinning: refreshingAll }" />
-          {{ refreshingAll ? "检查中…" : "检查全部更新" }}
+          {{ refreshingAll ? '检查中…' : '检查全部更新' }}
         </button>
       </header>
       <div class="source-grid">
-      <article
-        v-for="src in sources"
-        :key="src.id"
-        class="card source-card"
-      >
-        <header class="card-head">
-          <span class="card-title">{{ src.cloneUrl }}</span>
-          <span class="spacer"></span>
-          <el-tooltip
-            v-if="src.lastCheckError || src.lastSyncError"
-            :content="src.lastCheckError || src.lastSyncError"
-            placement="top"
-            :show-after="200"
-          >
-            <span class="badge fail">检查失败</span>
-          </el-tooltip>
-          <span v-if="src.updateAvailable" class="badge warn">有更新</span>
-          <span v-else-if="src.lastCheckedAt" class="badge ok">最新</span>
-          <el-tooltip content="只检查远端 HEAD，不修改本地技能" placement="top" :show-after="200">
+        <article v-for="src in sources" :key="src.id" class="card source-card">
+          <header class="card-head">
+            <span class="card-title">{{ src.cloneUrl }}</span>
+            <span class="spacer" />
+            <el-tooltip
+              v-if="src.lastCheckError || src.lastSyncError"
+              :content="src.lastCheckError || src.lastSyncError"
+              placement="top"
+              :show-after="200"
+            >
+              <span class="badge fail">检查失败</span>
+            </el-tooltip>
+            <span v-if="src.updateAvailable" class="badge warn">有更新</span>
+            <span v-else-if="src.lastCheckedAt" class="badge ok">最新</span>
+            <el-tooltip content="只检查远端 HEAD，不修改本地技能" placement="top" :show-after="200">
+              <button
+                type="button"
+                class="icon-btn"
+                :disabled="checkingIds.has(src.id) || refreshingAll"
+                @click.stop="onCheckSource(src)"
+              >
+                <Refresh class="ico" :class="{ spinning: checkingIds.has(src.id) }" />
+              </button>
+            </el-tooltip>
             <button
               type="button"
-              class="icon-btn"
-              :disabled="checkingIds.has(src.id) || refreshingAll"
-              @click.stop="onCheckSource(src)"
+              class="icon-btn danger"
+              aria-label="删除来源"
+              :disabled="refreshingAll"
+              @click.stop="startRemoveSource(src)"
             >
-              <Refresh class="ico" :class="{ spinning: checkingIds.has(src.id) }" />
+              <Delete class="ico" />
             </button>
-          </el-tooltip>
-          <button
-            type="button"
-            class="icon-btn danger"
-            aria-label="删除来源"
-            :disabled="refreshingAll"
-            @click.stop="startRemoveSource(src)"
-          >
-            <Delete class="ico" />
-          </button>
-        </header>
-        <div class="src-meta">
-          <span class="badge branch">{{ src.branch }}</span>
-          <span class="meta-item">HEAD <code>{{ shortSha(src.commitSha) }}</code></span>
-          <span class="meta-item">{{ formatDate(src.commitDate) }}</span>
-          <span class="meta-item">上次同步 {{ formatDateTime(src.lastSyncedAt) }}</span>
-          <span class="meta-item">上次检查 {{ formatDateTime(src.lastCheckedAt) }}</span>
-        </div>
-        <div class="source-foot">
-          <span>{{ src.skillCount }} 个技能</span>
-          <button v-if="src.updateAvailable" type="button" class="sync-btn" @click="onResyncSource(src)">同步并选择候选</button>
-        </div>
-      </article>
+          </header>
+          <div class="src-meta">
+            <span class="badge branch">{{ src.branch }}</span>
+            <span class="meta-item"
+              >HEAD <code>{{ shortSha(src.commitSha) }}</code></span
+            >
+            <span class="meta-item">{{ formatDate(src.commitDate) }}</span>
+            <span class="meta-item">上次同步 {{ formatDateTime(src.lastSyncedAt) }}</span>
+            <span class="meta-item">上次检查 {{ formatDateTime(src.lastCheckedAt) }}</span>
+          </div>
+          <div class="source-foot">
+            <span>{{ src.skillCount }} 个技能</span>
+            <button
+              v-if="src.updateAvailable"
+              type="button"
+              class="sync-btn"
+              @click="onResyncSource(src)"
+            >
+              同步并选择候选
+            </button>
+          </div>
+        </article>
       </div>
     </section>
 
@@ -319,43 +350,56 @@ function formatDateTime(iso: string | undefined): string {
     <section class="section">
       <div class="sect-head">
         <h3 class="sect-title">技能列表</h3>
-        <button type="button" class="ghost-btn" @click="syncSourceId = undefined; importDialogOpen = true">+ 导入技能</button>
+        <button
+          type="button"
+          class="ghost-btn"
+          @click=";(syncSourceId = undefined), (importDialogOpen = true)"
+        >
+          + 导入技能
+        </button>
       </div>
       <div class="standalone-grid">
-      <article v-for="(s, i) in standalone" :key="s.name" class="card" :data-anchor="s.name">
-        <span class="card-idx">{{ (currentPage - 1) * pageSize + i + 1 }}</span>
-        <header class="card-head">
-          <el-tooltip :content="s.name" :disabled="!overflow.has(s.name)" placement="top" :show-after="300">
-            <span :ref="nameRefOf(s.name)" class="card-title">{{ s.name }}</span>
-          </el-tooltip>
-          <el-tooltip placement="top" :show-after="300">
-            <template #content>
-              <div style="max-width: 220px">
-                系统提示词 ≈ {{ s.nameDescTokens + (s.triggerTokens ?? 0) }} tok<br />
-                内容提示词 ≈ {{ s.contentTokens }} tok
-              </div>
-            </template>
-            <span class="badge system">系统 ≈{{ s.nameDescTokens + (s.triggerTokens ?? 0) }}</span>
-          </el-tooltip>
-          <span class="badge content">内容 ≈{{ s.contentTokens }}</span>
-          <ConfirmPopover :title="`确认删除技能「${s.name}」？`" @confirm="onDelete(s.name)">
-            <template #trigger>
-              <button type="button" class="icon-btn danger" aria-label="删除" :disabled="busy">
-                <Delete class="ico" />
-              </button>
-            </template>
-          </ConfirmPopover>
-        </header>
-        <div v-if="s.description || s.trigger" class="skill-body">
-          <span v-if="s.description"><span class="k">说明：</span>{{ s.description }}</span>
-          <span v-if="s.trigger"> <span class="k">触发：</span>{{ s.trigger }}</span>
-        </div>
-      </article>
-      <article v-if="!standalone.length && !loading" class="card empty-card">
-        <span class="card-idx">·</span>
-        <header class="card-head"><span class="empty-title">没有独立技能</span></header>
-        <p class="empty-hint">通过 ZIP 或 GitHub URL 导入技能。</p>
-      </article>
+        <article v-for="(s, i) in standalone" :key="s.name" class="card" :data-anchor="s.name">
+          <span class="card-idx">{{ (currentPage - 1) * pageSize + i + 1 }}</span>
+          <header class="card-head">
+            <el-tooltip
+              :content="s.name"
+              :disabled="!overflow.has(s.name)"
+              placement="top"
+              :show-after="300"
+            >
+              <span :ref="nameRefOf(s.name)" class="card-title">{{ s.name }}</span>
+            </el-tooltip>
+            <el-tooltip placement="top" :show-after="300">
+              <template #content>
+                <div style="max-width: 220px">
+                  系统提示词 ≈ {{ s.nameDescTokens + (s.triggerTokens ?? 0) }} tok<br />
+                  内容提示词 ≈ {{ s.contentTokens }} tok
+                </div>
+              </template>
+              <span class="badge system"
+                >系统 ≈{{ s.nameDescTokens + (s.triggerTokens ?? 0) }}</span
+              >
+            </el-tooltip>
+            <span class="badge content">内容 ≈{{ s.contentTokens }}</span>
+            <ConfirmPopover :title="`确认删除技能「${s.name}」？`" @confirm="onDelete(s.name)">
+              <template #trigger>
+                <button type="button" class="icon-btn danger" aria-label="删除" :disabled="busy">
+                  <Delete class="ico" />
+                </button>
+              </template>
+            </ConfirmPopover>
+          </header>
+          <div v-if="s.description || s.trigger" class="skill-body">
+            <span v-if="s.description"><span class="k">说明：</span>{{ s.description }}</span>
+            <span v-if="s.trigger"> <span class="k">触发：</span>{{ s.trigger }}</span>
+          </div>
+        </article>
+        <article v-if="!standalone.length && !loading" class="card empty-card">
+          <span class="card-idx">·</span>
+          <header class="card-head"><span class="empty-title">没有独立技能</span></header>
+          <p class="empty-hint">通过 ZIP 或 GitHub URL 导入技能。</p>
+        </article>
       </div>
     </section>
 
@@ -365,7 +409,12 @@ function formatDateTime(iso: string | undefined): string {
       :resync-source-id="syncSourceId"
       @imported="refresh"
       @error="onError"
-      @update:visible="(v: boolean) => { importDialogOpen = v; if (!v) syncSourceId = undefined; }"
+      @update:visible="
+        (v: boolean) => {
+          importDialogOpen = v
+          if (!v) syncSourceId = undefined
+        }
+      "
     />
 
     <!-- 删来源二次确认（重删 modal） -->
@@ -381,7 +430,7 @@ function formatDateTime(iso: string | undefined): string {
 </template>
 
 <style scoped lang="less">
-@import "../shared.less";
+@import '../shared.less';
 
 // 技能列表网格：卡结构一致，grid 比 columns 整齐；套霓虹玻璃底 + hover 渐变描边。
 .standalone-grid {
@@ -392,7 +441,9 @@ function formatDateTime(iso: string | undefined): string {
 .standalone-grid > .card {
   .neon-glass();
   border-color: fade(@neon-indigo, 20%);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   &:hover {
     .neon-border(@neon-indigo);
   }
@@ -412,7 +463,12 @@ code {
   display: flex;
   align-items: center;
   gap: 8px;
-  .search-status { flex:0 0 auto;font-size:10px;color:fade(@ink,48%);font-variant-numeric:tabular-nums; }
+  .search-status {
+    flex: 0 0 auto;
+    font-size: 10px;
+    color: fade(@ink, 48%);
+    font-variant-numeric: tabular-nums;
+  }
 }
 .sect-hint {
   margin: 0 0 8px;
@@ -422,10 +478,33 @@ code {
 .section {
   margin-bottom: 12px;
 }
-.source-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:7px; }
-.source-card { min-width:0; }
-.source-foot { display:flex;align-items:center;justify-content:space-between;gap:7px;margin-top:7px;font-size:10px;color:fade(@ink,50%); }
-.sync-btn { border:1px solid color-mix(in srgb,var(--tab-color,@accent) 42%,transparent);border-radius:999px;background:color-mix(in srgb,var(--tab-color,@accent) 14%,transparent);color:color-mix(in srgb,var(--tab-color,@accent) 75%,@ink);font-size:10px;font-weight:800;padding:3px 9px;cursor:pointer; }
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 7px;
+}
+.source-card {
+  min-width: 0;
+}
+.source-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: 10px;
+  color: fade(@ink, 50%);
+}
+.sync-btn {
+  border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 42%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 9px;
+  cursor: pointer;
+}
 .sect-title {
   margin: 0 0 6px;
   font-size: 12px;
@@ -492,7 +571,10 @@ code {
     color: #80560a;
     border: 1px solid rgba(190, 132, 28, 0.4);
   }
-  &.ok { background:rgba(22,101,52,.14);color:#166534; }
+  &.ok {
+    background: rgba(22, 101, 52, 0.14);
+    color: #166534;
+  }
 }
 .skill-body {
   margin: 4px 0 0;

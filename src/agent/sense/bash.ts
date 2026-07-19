@@ -1,111 +1,107 @@
-import { z } from "zod";
-import { spawn } from "child_process";
-import { writeFileSync } from "fs";
-import { sense, type SenseResult } from "@/core/sense";
-import { SupervisionLevel } from "@/core/config";
-import config from "@/utils/config";
-import { logger, type BashLogInfo } from "@/utils/logger/index.js";
-import { registerBashProcess, unregisterBashProcess } from "./processRegistry.js";
+import { z } from 'zod'
+import { spawn } from 'child_process'
+import { writeFileSync } from 'fs'
+import { sense, type SenseResult } from '@/core/sense'
+import { SupervisionLevel } from '@/core/config'
+import config from '@/utils/config'
+import { logger, type BashLogInfo } from '@/utils/logger/index.js'
+import { registerBashProcess, unregisterBashProcess } from './processRegistry.js'
 
-const DEFAULT_TIMEOUT = config.global.sense_execute_timeout ?? 30000;
-const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24;
+const DEFAULT_TIMEOUT = config.global.sense_execute_timeout ?? 30000
+const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24
 
 /** Bash 工具执行结果结构 */
 interface BashResult {
-  status: 'success' | 'timeout' | 'error';
-  pid: number;
-  exitCode?: number;
-  duration: number;
-  command: string;
-  description: string;
-  output: string;
-  logPath?: string;
-  message?: string;
+  status: 'success' | 'timeout' | 'error'
+  pid: number
+  exitCode?: number
+  duration: number
+  command: string
+  description: string
+  output: string
+  logPath?: string
+  message?: string
 }
 
 /** 格式化 BashResult 为字符串 */
 function formatBashResult(result: BashResult): string {
-  let content = `状态: ${result.status}\n`;
-  content += `进程ID: ${result.pid}\n`;
+  let content = `状态: ${result.status}\n`
+  content += `进程ID: ${result.pid}\n`
   if (result.exitCode !== undefined) {
-    content += `退出码: ${result.exitCode}\n`;
+    content += `退出码: ${result.exitCode}\n`
   }
-  content += `执行时长: ${result.duration}ms\n`;
+  content += `执行时长: ${result.duration}ms\n`
   if (result.logPath) {
-    content += `日志路径: ${result.logPath}（详细信息使用 read_file 读取）\n`;
+    content += `日志路径: ${result.logPath}（详细信息使用 read_file 读取）\n`
   }
   if (result.message) {
-    content += `说明: ${result.message}\n`;
+    content += `说明: ${result.message}\n`
   }
 
   // output 截取策略：超过30行显示前15+后15，中间省略
-  const outputLines = result.output.split('\n');
+  const outputLines = result.output.split('\n')
   if (outputLines.length > 30) {
-    const first15 = outputLines.slice(0, 15).join('\n');
-    const last15 = outputLines.slice(-15).join('\n');
-    const middleCount = outputLines.length - 30;
-    content += `\n[输出]\n${first15}\n... 省略 ${middleCount} 行 ...\n${last15}`;
+    const first15 = outputLines.slice(0, 15).join('\n')
+    const last15 = outputLines.slice(-15).join('\n')
+    const middleCount = outputLines.length - 30
+    content += `\n[输出]\n${first15}\n... 省略 ${middleCount} 行 ...\n${last15}`
   } else {
-    content += `\n[输出]\n${result.output}`;
+    content += `\n[输出]\n${result.output}`
   }
 
-  return content;
+  return content
 }
 
 const BashSchema = z.object({
-  command: z
-    .string()
-    .describe("要执行的 bash 命令"),
-  description: z
-    .string()
-    .describe("命令说明描述命令用途"),
-});
+  command: z.string().describe('要执行的 bash 命令'),
+  description: z.string().describe('命令说明描述命令用途'),
+})
 
 export default sense(
-  "execute_command",
+  'execute_command',
   `执行 shell 命令（Unix: bash/sh，Windows: cmd/powershell）。如需切换工作目录，请在命令中使用 "cd <目录> && ..." 格式`,
   BashSchema,
   async (input, _senseSharedData, senseCtx): Promise<SenseResult> => {
-    const { command, description } = input;
+    const { command, description } = input
 
-    const startTime = Date.now();
-    const hash = "";
+    const startTime = Date.now()
+    const hash = ''
 
-    logger.tools.cleanOldBashLogs(LOG_RETENTION_HOURS);
+    logger.tools.cleanOldBashLogs(LOG_RETENTION_HOURS)
 
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案）；
     // 测试场景（无 ctx）为 undefined → register 跳过，执行不受影响
-    const chatId = senseCtx?.chatId;
+    const chatId = senseCtx?.chatId
 
     return new Promise((resolve) => {
-      let timedOut = false;
-      let outputBuffer = ''; // 实时累积 stdout/stderr
+      let timedOut = false
+      let outputBuffer = '' // 实时累积 stdout/stderr
 
       const proc = spawn(command, [], {
         shell: true,
         detached: true, // 新会话/进程组组长，供 processRegistry 用 process.kill(-pid) 杀整个进程组
-      });
+      })
 
-      const processPid = proc.pid!;
+      const processPid = proc.pid!
 
       // 注册到进程表（挂起保留）：运行结束/杀死均由下方 close handler unregister 清除
-      registerBashProcess(chatId, proc, { command, description, startedAt: startTime });
+      registerBashProcess(chatId, proc, { command, description, startedAt: startTime })
 
       proc.stdout.on('data', (data) => {
-        outputBuffer += data.toString();
-      });
+        outputBuffer += data.toString()
+      })
 
       proc.stderr.on('data', (data) => {
-        outputBuffer += data.toString();
-      });
+        outputBuffer += data.toString()
+      })
 
       const timer = setTimeout(() => {
-        timedOut = true;
-        const endTime = Date.now();
-        const duration = endTime - startTime;
+        timedOut = true
+        const endTime = Date.now()
+        const duration = endTime - startTime
 
         // 超时场景：创建日志文件，进程进入后台运行
-        const logPath = logger.tools.createBashLogPath(startTime, endTime);
+        const logPath = logger.tools.createBashLogPath(startTime, endTime)
         const logInfo: BashLogInfo = {
           pid: processPid,
           command,
@@ -113,8 +109,8 @@ export default sense(
           logPath,
           description,
           status: 'running',
-        };
-        writeFileSync(logPath, logger.tools.formatBashLogHeader(logInfo) + outputBuffer);
+        }
+        writeFileSync(logPath, logger.tools.formatBashLogHeader(logInfo) + outputBuffer)
 
         const result: BashResult = {
           status: 'timeout',
@@ -125,18 +121,18 @@ export default sense(
           output: outputBuffer,
           logPath,
           message: '进程进入后台运行',
-        };
+        }
 
-        resolve({ content: formatBashResult(result), hash });
-      }, DEFAULT_TIMEOUT);
+        resolve({ content: formatBashResult(result), hash })
+      }, DEFAULT_TIMEOUT)
 
       proc.on('close', (code) => {
-        clearTimeout(timer);
+        clearTimeout(timer)
         // 运行结束清除 / 杀死后清除：kill 亦触发 close，统一在此注销（超时挂起项此时才清除）
-        unregisterBashProcess(chatId, processPid);
+        unregisterBashProcess(chatId, processPid)
         if (!timedOut) {
-          const endTime = Date.now();
-          const duration = endTime - startTime;
+          const endTime = Date.now()
+          const duration = endTime - startTime
 
           const result: BashResult = {
             status: code === 0 ? 'success' : 'error',
@@ -146,18 +142,18 @@ export default sense(
             command,
             description,
             output: outputBuffer,
-          };
+          }
 
-          resolve({ content: formatBashResult(result), hash });
+          resolve({ content: formatBashResult(result), hash })
         }
-      });
+      })
 
       proc.on('error', (err) => {
-        clearTimeout(timer);
-        unregisterBashProcess(chatId, processPid);
+        clearTimeout(timer)
+        unregisterBashProcess(chatId, processPid)
         if (!timedOut) {
-          const endTime = Date.now();
-          const duration = endTime - startTime;
+          const endTime = Date.now()
+          const duration = endTime - startTime
 
           const result: BashResult = {
             status: 'error',
@@ -167,12 +163,12 @@ export default sense(
             description,
             output: outputBuffer,
             message: err.message,
-          };
+          }
 
-          resolve({ content: formatBashResult(result), hash });
+          resolve({ content: formatBashResult(result), hash })
         }
-      });
-    });
+      })
+    })
   },
   SupervisionLevel.manual,
-);
+)

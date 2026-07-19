@@ -1,0 +1,6 @@
+dist/
+node_modules/
+web/
+.chery/
+*.min.js
+pnpm-lock.yaml

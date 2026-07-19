@@ -1,6 +1,6 @@
-import { registerBuiltinProviders } from "./provider/index.js";
-import { reloadSenses } from "./sense/index.js";
-import { loadMcpSenses } from "@/core/mcp/index.js";
+import { registerBuiltinProviders } from './provider/index.js'
+import { reloadSenses } from './sense/index.js'
+import { loadMcpSenses } from '@/core/mcp/index.js'
 
 /**
  * 启动期初始化 agent 运行时全局注册表。
@@ -12,7 +12,7 @@ import { loadMcpSenses } from "@/core/mcp/index.js";
  * 转为 Sense 注册。不纳入 reloadSenses，避免 compile-senses 子命令触发外部 server 连接。
  */
 export async function bootstrapAgentRuntime(): Promise<void> {
-  registerBuiltinProviders();
-  await reloadSenses();
-  await loadMcpSenses();
+  registerBuiltinProviders()
+  await reloadSenses()
+  await loadMcpSenses()
 }

@@ -1,4 +1,4 @@
-import type { PetInstance, PetMood } from "./types";
+import type { PetInstance, PetMood } from './types'
 
 /**
  * pet 状态数值算法（纯函数，不依赖 reactive）。
@@ -13,30 +13,30 @@ import type { PetInstance, PetMood } from "./types";
 
 export interface StatusConfig {
   /** emotion 初始值。 */
-  emotionInit?: number;
+  emotionInit?: number
   /** emotion 每秒缓降（active 态）。 */
-  emotionDecay?: number;
+  emotionDecay?: number
   /** emotion 每秒恢复（sleep 态）。 */
-  emotionRecover?: number;
+  emotionRecover?: number
   /** fatigue 移动每秒累积（walk 态，由 usePetWorld 走位分支调用 adjustFatigue）。 */
-  fatigueWalkRate?: number;
+  fatigueWalkRate?: number
   /** fatigue 每次聊天累积（离散增量）。 */
-  fatigueChat?: number;
+  fatigueChat?: number
   /** fatigue 自动休息阈值（≥ → sleep）。 */
-  fatigueSleep?: number;
+  fatigueSleep?: number
   /** fatigue 自然醒阈值（≤ → wake）。 */
-  fatigueWake?: number;
+  fatigueWake?: number
   /** fatigue 每秒恢复（sleep 态）。 */
-  fatigueRecover?: number;
+  fatigueRecover?: number
   // --- emotion 交互增量 ---
-  emoteClick?: number;
-  emoteRapid?: number;
-  emoteDrag?: number;
-  emoteHover?: number;
-  emoteDisturb?: number;
-  emoteFeed?: number;
-  emotePet?: number;
-  emotePunch?: number;
+  emoteClick?: number
+  emoteRapid?: number
+  emoteDrag?: number
+  emoteHover?: number
+  emoteDisturb?: number
+  emoteFeed?: number
+  emotePet?: number
+  emotePunch?: number
 }
 
 export const DEFAULT_STATUS_CONFIG: Required<StatusConfig> = {
@@ -56,25 +56,25 @@ export const DEFAULT_STATUS_CONFIG: Required<StatusConfig> = {
   emoteFeed: 15,
   emotePet: 8,
   emotePunch: -10,
-};
+}
 
 /** 合并覆盖：overrides 覆盖默认值，返回完整 config。 */
 export function resolveStatus(overrides?: StatusConfig): Required<StatusConfig> {
-  return { ...DEFAULT_STATUS_CONFIG, ...(overrides ?? {}) };
+  return { ...DEFAULT_STATUS_CONFIG, ...(overrides ?? {}) }
 }
 
 function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
+  return Math.min(Math.max(value, min), max)
 }
 
 /** emotion += delta，clamp(0,100)。 */
 export function adjustEmotion(pet: PetInstance, delta: number): void {
-  pet.emotion = clamp(pet.emotion + delta, 0, 100);
+  pet.emotion = clamp(pet.emotion + delta, 0, 100)
 }
 
 /** fatigue += delta，clamp(0,100)。 */
 export function adjustFatigue(pet: PetInstance, delta: number): void {
-  pet.fatigue = clamp(pet.fatigue + delta, 0, 100);
+  pet.fatigue = clamp(pet.fatigue + delta, 0, 100)
 }
 
 /**
@@ -82,11 +82,11 @@ export function adjustFatigue(pet: PetInstance, delta: number): void {
  * sleep/疲劳≥阈值 → sleepy；emotion<25 → sad；emotion<50 → calm；isMaster → serious；默认 calm。
  */
 export function restMood(pet: PetInstance, config?: StatusConfig): PetMood {
-  const cfg = resolveStatus(config);
-  if (pet.action === "sleep" || pet.fatigue >= cfg.fatigueSleep) return "sleepy";
-  if (pet.emotion < 25) return "sad";
-  if (pet.emotion < 50) return "calm";
-  return pet.isMaster ? "serious" : "calm";
+  const cfg = resolveStatus(config)
+  if (pet.action === 'sleep' || pet.fatigue >= cfg.fatigueSleep) return 'sleepy'
+  if (pet.emotion < 25) return 'sad'
+  if (pet.emotion < 50) return 'calm'
+  return pet.isMaster ? 'serious' : 'calm'
 }
 
 /**
@@ -97,21 +97,21 @@ export function restMood(pet: PetInstance, config?: StatusConfig): PetMood {
  * adjustFatigue(pet, cfg.fatigueWalkRate * dt)。
  */
 export function stepVitals(pet: PetInstance, dt: number, config?: StatusConfig): void {
-  const cfg = resolveStatus(config);
-  if (pet.action === "sleep") {
-    adjustFatigue(pet, -cfg.fatigueRecover * dt);
-    adjustEmotion(pet, cfg.emotionRecover * dt);
-    return;
+  const cfg = resolveStatus(config)
+  if (pet.action === 'sleep') {
+    adjustFatigue(pet, -cfg.fatigueRecover * dt)
+    adjustEmotion(pet, cfg.emotionRecover * dt)
+    return
   }
-  adjustEmotion(pet, -cfg.emotionDecay * dt);
+  adjustEmotion(pet, -cfg.emotionDecay * dt)
 }
 
 /** 自动休息判定：fatigue ≥ 阈值。 */
 export function shouldSleep(pet: PetInstance, config?: StatusConfig): boolean {
-  return pet.fatigue >= resolveStatus(config).fatigueSleep;
+  return pet.fatigue >= resolveStatus(config).fatigueSleep
 }
 
 /** 自然醒判定：fatigue ≤ 阈值。 */
 export function shouldWake(pet: PetInstance, config?: StatusConfig): boolean {
-  return pet.fatigue <= resolveStatus(config).fatigueWake;
+  return pet.fatigue <= resolveStatus(config).fatigueWake
 }

@@ -11,142 +11,143 @@
  *   - 超时：显示 timeout 提示 + logPath
  * - 元信息：duration（毫秒）+ pid + exitCode
  */
-import { computed, onBeforeUnmount, ref } from "vue";
-import type { RendererProps, ExecuteCommandArgs, ExecuteCommandResult } from "./types";
-import { CopyDocument, DocumentChecked } from "@element-plus/icons-vue";
+import { computed, onBeforeUnmount, ref } from 'vue'
+import type { RendererProps, ExecuteCommandArgs, ExecuteCommandResult } from './types'
+import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
 
-const props = defineProps<RendererProps>();
+const props = defineProps<RendererProps>()
 
-const showOutput = ref(false);
+const showOutput = ref(false)
 
 // 解析参数
 const parsedArgs = computed<ExecuteCommandArgs | null>(() => {
   try {
-    const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
-    const obj = JSON.parse(raw) as ExecuteCommandArgs;
-    if (obj.command) return obj;
-    return null;
+    const raw =
+      typeof props.call.args === 'string' ? props.call.args : JSON.stringify(props.call.args ?? {})
+    const obj = JSON.parse(raw) as ExecuteCommandArgs
+    if (obj.command) return obj
+    return null
   } catch (e) {
-    console.warn("[CommandRenderer] args 解析失败", e);
-    return null;
+    console.warn('[CommandRenderer] args 解析失败', e)
+    return null
   }
-});
+})
 
 // 解析结果（后端返回字符串格式）
 const parsedResult = computed<ExecuteCommandResult | null>(() => {
-  if (!props.call.result || typeof props.call.result !== "string") return null;
+  if (!props.call.result || typeof props.call.result !== 'string') return null
   try {
-    const text = props.call.result as string;
+    const text = props.call.result as string
 
     // 正则提取字段（key 与后端 bash.ts formatBashResult 中文文案严格一致，见 docs/web/renderer.md）
-    const statusMatch = text.match(/状态:\s*(\w+)/);
-    const pidMatch = text.match(/进程ID:\s*(\d+)/);
-    const exitCodeMatch = text.match(/退出码:\s*(\d+)/);
-    const durationMatch = text.match(/执行时长:\s*(\d+)ms/);
-    const outputMatch = text.match(/\[输出\]\r?\n([\s\S]*)/);
-    const logPathMatch = text.match(/日志路径:\s*([^\n]+)/);
-    const messageMatch = text.match(/说明:\s*([^\n]+)/);
+    const statusMatch = text.match(/状态:\s*(\w+)/)
+    const pidMatch = text.match(/进程ID:\s*(\d+)/)
+    const exitCodeMatch = text.match(/退出码:\s*(\d+)/)
+    const durationMatch = text.match(/执行时长:\s*(\d+)ms/)
+    const outputMatch = text.match(/\[输出\]\r?\n([\s\S]*)/)
+    const logPathMatch = text.match(/日志路径:\s*([^\n]+)/)
+    const messageMatch = text.match(/说明:\s*([^\n]+)/)
 
     return {
-      status: (statusMatch?.[1] ?? "error") as ExecuteCommandResult["status"],
+      status: (statusMatch?.[1] ?? 'error') as ExecuteCommandResult['status'],
       pid: pidMatch?.[1] ? parseInt(pidMatch[1], 10) : 0,
       exitCode: exitCodeMatch?.[1] ? parseInt(exitCodeMatch[1], 10) : undefined,
       duration: durationMatch?.[1] ? parseInt(durationMatch[1], 10) : 0,
       // 后端 result 不输出 command/description，从 args 取（fallback 降级 JSON）
-      command: parsedArgs.value?.command ?? "",
-      description: parsedArgs.value?.description ?? "",
-      output: outputMatch?.[1] ?? "",
+      command: parsedArgs.value?.command ?? '',
+      description: parsedArgs.value?.description ?? '',
+      output: outputMatch?.[1] ?? '',
       // 日志路径行尾带「（详细信息使用 read_file 读取）」说明，剔除之
-      logPath: logPathMatch?.[1]?.split("（")[0]?.trim(),
+      logPath: logPathMatch?.[1]?.split('（')[0]?.trim(),
       message: messageMatch?.[1]?.trim(),
-    };
+    }
   } catch (e) {
-    console.warn("[CommandRenderer] result 解析失败", e);
-    return null;
+    console.warn('[CommandRenderer] result 解析失败', e)
+    return null
   }
-});
+})
 
 // 输出截断（最多 500 行）
-const OUTPUT_MAX_LINES = 500;
+const OUTPUT_MAX_LINES = 500
 const truncatedOutput = computed(() => {
-  const output = parsedResult.value?.output ?? "";
-  const lines = output.split("\n");
+  const output = parsedResult.value?.output ?? ''
+  const lines = output.split('\n')
   if (lines.length <= OUTPUT_MAX_LINES) {
-    return { text: output, truncated: false, totalLines: lines.length };
+    return { text: output, truncated: false, totalLines: lines.length }
   }
   return {
-    text: lines.slice(0, OUTPUT_MAX_LINES).join("\n"),
+    text: lines.slice(0, OUTPUT_MAX_LINES).join('\n'),
     truncated: true,
     totalLines: lines.length,
-  };
-});
+  }
+})
 
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
-    case "running":
-      return "⋯";
-    case "done":
-      return parsedResult.value?.status === "error" ? "✗" : "✓";
-    case "error":
-      return "✗";
+    case 'running':
+      return '⋯'
+    case 'done':
+      return parsedResult.value?.status === 'error' ? '✗' : '✓'
+    case 'error':
+      return '✗'
     default:
-      return "?";
+      return '?'
   }
-});
+})
 
 const statusClass = computed(() => {
-  if (props.call.status === "error" || parsedResult.value?.status === "error") {
-    return "status-error";
+  if (props.call.status === 'error' || parsedResult.value?.status === 'error') {
+    return 'status-error'
   }
-  if (props.call.status === "running") {
-    return "status-running";
+  if (props.call.status === 'running') {
+    return 'status-running'
   }
-  return "status-done";
-});
+  return 'status-done'
+})
 
 // 降级显示
 const fallback = computed(() => {
   if (!parsedArgs.value) {
-    return JSON.stringify(props.call.args ?? {}, null, 2);
+    return JSON.stringify(props.call.args ?? {}, null, 2)
   }
-  return "";
-});
+  return ''
+})
 
 // 复制命令到剪贴板（仅 command 文本）；成功后瞬时反馈 1.2s
-const copied = ref(false);
-let copyTimer: ReturnType<typeof setTimeout> | undefined;
+const copied = ref(false)
+let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 async function copyCommand(): Promise<void> {
-  const cmd = parsedArgs.value?.command ?? "";
-  if (!cmd) return;
+  const cmd = parsedArgs.value?.command ?? ''
+  if (!cmd) return
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(cmd);
+      await navigator.clipboard.writeText(cmd)
     } else {
       // 降级：execCommand（兼容非 HTTPS / 旧 Electron webview）
-      const ta = document.createElement("textarea");
-      ta.value = cmd;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
+      const ta = document.createElement('textarea')
+      ta.value = cmd
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
     }
-    copied.value = true;
-    if (copyTimer) clearTimeout(copyTimer);
+    copied.value = true
+    if (copyTimer) clearTimeout(copyTimer)
     copyTimer = setTimeout(() => {
-      copied.value = false;
-    }, 1200);
+      copied.value = false
+    }, 1200)
   } catch (e) {
-    console.warn("[CommandRenderer] 复制失败", e);
+    console.warn('[CommandRenderer] 复制失败', e)
   }
 }
 
 onBeforeUnmount(() => {
-  if (copyTimer) clearTimeout(copyTimer);
-});
+  if (copyTimer) clearTimeout(copyTimer)
+})
 </script>
 
 <template>
@@ -176,7 +177,7 @@ onBeforeUnmount(() => {
             </el-icon>
           </button>
         </div>
-        <div style="flex: 1"></div>
+        <div style="flex: 1" />
       </div>
       <div v-if="parsedArgs.description" class="cmd-row">
         <span class="cmd-label">说明:</span>
@@ -214,9 +215,7 @@ onBeforeUnmount(() => {
         <span v-if="parsedResult.duration" class="meta-item">
           耗时: {{ parsedResult.duration }}ms
         </span>
-        <span v-if="parsedResult.pid" class="meta-item">
-          PID: {{ parsedResult.pid }}
-        </span>
+        <span v-if="parsedResult.pid" class="meta-item"> PID: {{ parsedResult.pid }} </span>
         <span v-if="parsedResult.exitCode !== undefined" class="meta-item">
           退出码: {{ parsedResult.exitCode }}
         </span>
@@ -310,7 +309,7 @@ onBeforeUnmount(() => {
   padding: 2px 18px 2px 6px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -362,7 +361,7 @@ onBeforeUnmount(() => {
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -436,7 +435,7 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   color: fade(@ink, 86%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -463,7 +462,7 @@ onBeforeUnmount(() => {
 .meta-item {
   font-size: 9.5px;
   color: fade(@ink, 56%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
 @keyframes cmd-pulse {

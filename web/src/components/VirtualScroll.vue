@@ -8,71 +8,73 @@ import {
   ref,
   watch,
   type ComponentPublicInstance,
-} from "vue";
+} from 'vue'
 
-type ItemKey = string | number;
-type ScrollAlign = "start" | "center" | "end";
+type ItemKey = string | number
+type ScrollAlign = 'start' | 'center' | 'end'
 
-const DEFAULT_ESTIMATED_SIZE = 120;
-const OVERSCAN_PX = 600;
+const DEFAULT_ESTIMATED_SIZE = 120
+const OVERSCAN_PX = 600
 
 const props = withDefaults(
   defineProps<{
     /** 要虚拟化渲染的数据。 */
-    items: readonly T[];
+    items: readonly T[]
     /** 项的稳定唯一标识。高度缓存以此为索引，离屏后仍会保留。 */
-    itemKey: (item: T, index: number) => ItemKey;
+    itemKey: (item: T, index: number) => ItemKey
     /** 尚未量测时的单项高度估算。 */
-    estimateSize?: (item: T, index: number) => number;
+    estimateSize?: (item: T, index: number) => number
     /** 可视范围不足时最少渲染的条数。 */
-    defaultRenderCount?: number;
+    defaultRenderCount?: number
   }>(),
   {
     estimateSize: () => DEFAULT_ESTIMATED_SIZE,
     defaultRenderCount: 12,
   },
-);
+)
 
-const containerRef = ref<HTMLElement | null>(null);
-const viewportHeight = ref(0);
-const scrollTop = ref(0);
-const measuredSizes = reactive(new Map<ItemKey, number>());
-const itemObservers = new Map<ItemKey, { element: HTMLElement; observer?: ResizeObserver }>();
-const pendingMeasurements = new Map<ItemKey, HTMLElement>();
-let scrollRafId = 0;
-let measureRafId = 0;
-let containerResizeObserver: ResizeObserver | undefined;
+const containerRef = ref<HTMLElement | null>(null)
+const viewportHeight = ref(0)
+const scrollTop = ref(0)
+const measuredSizes = reactive(new Map<ItemKey, number>())
+const itemObservers = new Map<ItemKey, { element: HTMLElement; observer?: ResizeObserver }>()
+const pendingMeasurements = new Map<ItemKey, HTMLElement>()
+let scrollRafId = 0
+let measureRafId = 0
+let containerResizeObserver: ResizeObserver | undefined
 
 // thumb 拖拽状态（Pointer Events + setPointerCapture，拖出 thumb 区域仍收事件）
-const isDraggingThumb = ref(false);
-let dragStartClientY = 0;
-let dragStartScrollTop = 0;
-let dragPointerId = -1;
+const isDraggingThumb = ref(false)
+let dragStartClientY = 0
+let dragStartScrollTop = 0
+let dragPointerId = -1
 
-const itemKeys = computed<ItemKey[]>(() => props.items.map((item, index) => props.itemKey(item, index)));
-const indexByKey = computed(() => new Map(itemKeys.value.map((key, index) => [key, index])));
+const itemKeys = computed<ItemKey[]>(() =>
+  props.items.map((item, index) => props.itemKey(item, index)),
+)
+const indexByKey = computed(() => new Map(itemKeys.value.map((key, index) => [key, index])))
 
 function getItemSize(index: number): number {
-  const key = itemKeys.value[index]!;
-  const measuredSize = measuredSizes.get(key);
-  return measuredSize ?? props.estimateSize(props.items[index]!, index);
+  const key = itemKeys.value[index]!
+  const measuredSize = measuredSizes.get(key)
+  return measuredSize ?? props.estimateSize(props.items[index]!, index)
 }
 
 const offsets = computed<number[]>(() => {
-  const values = new Array<number>(props.items.length + 1);
-  values[0] = 0;
+  const values = new Array<number>(props.items.length + 1)
+  values[0] = 0
   for (let index = 0; index < props.items.length; index += 1) {
-    values[index + 1] = values[index]! + getItemSize(index);
+    values[index + 1] = values[index]! + getItemSize(index)
   }
-  return values;
-});
+  return values
+})
 
-const totalSize = computed(() => offsets.value[props.items.length] ?? 0);
+const totalSize = computed(() => offsets.value[props.items.length] ?? 0)
 
 /** 某 index 项的累计 offset（px）。未量测项为估算，随 ResizeObserver 量测渐近准确。 */
 function offsetOf(index: number): number {
-  if (index < 0 || index >= props.items.length) return 0;
-  return offsets.value[index] ?? 0;
+  if (index < 0 || index >= props.items.length) return 0
+  return offsets.value[index] ?? 0
 }
 
 /** 某 index 项在列表中的垂直比例（0-1），按条目序号而非高度累加。
@@ -81,149 +83,150 @@ function offsetOf(index: number): number {
  *  与 thumb（按 scrollTop/maxScrollTop 高度比例）有轻微错位，属 minimap 锚点惯例。
  *  点击跳转精度不受影响（onRailJump→scrollToIndex 迭代校正按高度精确落位）。 */
 function ratioOf(index: number): number {
-  const count = props.items.length;
-  if (count <= 0) return 0;
-  return Math.min(1, Math.max(0, index / count));
+  const count = props.items.length
+  if (count <= 0) return 0
+  return Math.min(1, Math.max(0, index / count))
 }
 
 // 自定义滚动条 thumb 几何（依赖 viewportHeight / scrollTop / totalSize）
-const trackHeight = computed(() => viewportHeight.value);
+const trackHeight = computed(() => viewportHeight.value)
 const thumbHeight = computed(() => {
-  const total = Math.max(1, totalSize.value);
-  const ratio = viewportHeight.value / total;
-  return Math.max(24, Math.floor(ratio * viewportHeight.value));
-});
+  const total = Math.max(1, totalSize.value)
+  const ratio = viewportHeight.value / total
+  return Math.max(24, Math.floor(ratio * viewportHeight.value))
+})
 const thumbTop = computed(() => {
-  const maxScrollTop = totalSize.value - viewportHeight.value;
-  if (maxScrollTop <= 0) return 0;
-  const ratio = Math.min(1, Math.max(0, scrollTop.value / maxScrollTop));
-  return Math.floor(ratio * (viewportHeight.value - thumbHeight.value));
-});
+  const maxScrollTop = totalSize.value - viewportHeight.value
+  if (maxScrollTop <= 0) return 0
+  const ratio = Math.min(1, Math.max(0, scrollTop.value / maxScrollTop))
+  return Math.floor(ratio * (viewportHeight.value - thumbHeight.value))
+})
 
 function findFirstVisibleIndex(offset: number): number {
-  let low = 0;
-  let high = props.items.length;
-  const values = offsets.value;
+  let low = 0
+  let high = props.items.length
+  const values = offsets.value
   while (low < high) {
-    const middle = (low + high) >> 1;
-    if (values[middle + 1]! <= offset) low = middle + 1;
-    else high = middle;
+    const middle = (low + high) >> 1
+    if (values[middle + 1]! <= offset) low = middle + 1
+    else high = middle
   }
-  return low;
+  return low
 }
 
 function findEndExclusive(offset: number): number {
-  let low = 0;
-  let high = props.items.length;
-  const values = offsets.value;
+  let low = 0
+  let high = props.items.length
+  const values = offsets.value
   while (low < high) {
-    const middle = (low + high) >> 1;
-    if (values[middle]! < offset) low = middle + 1;
-    else high = middle;
+    const middle = (low + high) >> 1
+    if (values[middle]! < offset) low = middle + 1
+    else high = middle
   }
-  return low;
+  return low
 }
 
 const renderedIndices = computed<number[]>(() => {
-  const itemCount = props.items.length;
-  if (itemCount === 0) return [];
+  const itemCount = props.items.length
+  if (itemCount === 0) return []
 
-  const start = findFirstVisibleIndex(Math.max(0, scrollTop.value - OVERSCAN_PX));
-  const visibleEnd = findEndExclusive(scrollTop.value + viewportHeight.value + OVERSCAN_PX);
-  const minEnd = start + Math.max(1, Math.floor(props.defaultRenderCount));
-  const endExclusive = Math.min(itemCount, Math.max(visibleEnd, minEnd));
+  const start = findFirstVisibleIndex(Math.max(0, scrollTop.value - OVERSCAN_PX))
+  const visibleEnd = findEndExclusive(scrollTop.value + viewportHeight.value + OVERSCAN_PX)
+  const minEnd = start + Math.max(1, Math.floor(props.defaultRenderCount))
+  const endExclusive = Math.min(itemCount, Math.max(visibleEnd, minEnd))
 
-  return Array.from({ length: endExclusive - start }, (_, offset) => start + offset);
-});
+  return Array.from({ length: endExclusive - start }, (_, offset) => start + offset)
+})
 
 function syncScrollTop(): void {
-  const element = containerRef.value;
-  if (element && scrollTop.value !== element.scrollTop) scrollTop.value = element.scrollTop;
+  const element = containerRef.value
+  if (element && scrollTop.value !== element.scrollTop) scrollTop.value = element.scrollTop
 }
 
 function onScroll(): void {
-  if (scrollRafId !== 0) return;
+  if (scrollRafId !== 0) return
   scrollRafId = requestAnimationFrame(() => {
-    scrollRafId = 0;
-    syncScrollTop();
-  });
+    scrollRafId = 0
+    syncScrollTop()
+  })
 }
 
 function flushMeasurements(): void {
-  measureRafId = 0;
-  const element = containerRef.value;
-  const previousOffsets = offsets.value;
-  const currentScrollTop = element?.scrollTop ?? scrollTop.value;
-  let anchorAdjustment = 0;
+  measureRafId = 0
+  const element = containerRef.value
+  const previousOffsets = offsets.value
+  const currentScrollTop = element?.scrollTop ?? scrollTop.value
+  let anchorAdjustment = 0
 
   pendingMeasurements.forEach((itemElement, key) => {
-    if (!itemElement.isConnected) return;
-    const index = indexByKey.value.get(key);
-    if (index === undefined) return;
+    if (!itemElement.isConnected) return
+    const index = indexByKey.value.get(key)
+    if (index === undefined) return
 
-    const nextSize = itemElement.getBoundingClientRect().height;
-    const previousSize = getItemSize(index);
-    if (Math.abs(nextSize - previousSize) <= 0.5) return;
+    const nextSize = itemElement.getBoundingClientRect().height
+    const previousSize = getItemSize(index)
+    if (Math.abs(nextSize - previousSize) <= 0.5) return
 
     // 仅补偿完整位于视口上方的项；视口中的内容尺寸变化应自然呈现。
     if (previousOffsets[index + 1]! <= currentScrollTop + 0.5) {
-      anchorAdjustment += nextSize - previousSize;
+      anchorAdjustment += nextSize - previousSize
     }
-    measuredSizes.set(key, nextSize);
-  });
-  pendingMeasurements.clear();
+    measuredSizes.set(key, nextSize)
+  })
+  pendingMeasurements.clear()
 
   if (element && anchorAdjustment !== 0) {
-    element.scrollTop = Math.max(0, currentScrollTop + anchorAdjustment);
-    syncScrollTop();
+    element.scrollTop = Math.max(0, currentScrollTop + anchorAdjustment)
+    syncScrollTop()
   }
 }
 
 function scheduleMeasurement(key: ItemKey, element: HTMLElement): void {
-  pendingMeasurements.set(key, element);
-  if (measureRafId !== 0) return;
-  measureRafId = requestAnimationFrame(flushMeasurements);
+  pendingMeasurements.set(key, element)
+  if (measureRafId !== 0) return
+  measureRafId = requestAnimationFrame(flushMeasurements)
 }
 
 function registerItem(key: ItemKey, element: Element | ComponentPublicInstance | null): void {
-  const previous = itemObservers.get(key);
+  const previous = itemObservers.get(key)
   if (!element) {
-    previous?.observer?.disconnect();
-    itemObservers.delete(key);
-    pendingMeasurements.delete(key);
-    return;
+    previous?.observer?.disconnect()
+    itemObservers.delete(key)
+    pendingMeasurements.delete(key)
+    return
   }
 
-  if (!(element instanceof HTMLElement)) return;
-  const htmlElement = element;
-  if (previous?.element === htmlElement) return;
+  if (!(element instanceof HTMLElement)) return
+  const htmlElement = element
+  if (previous?.element === htmlElement) return
 
-  previous?.observer?.disconnect();
-  const observer = typeof ResizeObserver === "undefined"
-    ? undefined
-    : new ResizeObserver(() => scheduleMeasurement(key, htmlElement));
-  observer?.observe(htmlElement);
-  itemObservers.set(key, { element: htmlElement, observer });
-  scheduleMeasurement(key, htmlElement);
+  previous?.observer?.disconnect()
+  const observer =
+    typeof ResizeObserver === 'undefined'
+      ? undefined
+      : new ResizeObserver(() => scheduleMeasurement(key, htmlElement))
+  observer?.observe(htmlElement)
+  itemObservers.set(key, { element: htmlElement, observer })
+  scheduleMeasurement(key, htmlElement)
 }
 
-const SCROLL_CORRECT_THRESHOLD_PX = 4; // 收敛阈值
-const SCROLL_CORRECT_MAX_ITER = 4; // 硬上限（规则 6 预算），防估算偏差大时死循环
+const SCROLL_CORRECT_THRESHOLD_PX = 4 // 收敛阈值
+const SCROLL_CORRECT_MAX_ITER = 4 // 硬上限（规则 6 预算），防估算偏差大时死循环
 
 /** 等下一帧 rAF。 */
 function nextFrame(): Promise<void> {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
 }
 
 /** 按 align 计算 index 项的目标 scrollTop（基于当前 offsets，未量测项为估算）。 */
 function computeTargetScrollTop(index: number, align: ScrollAlign, element: HTMLElement): number {
-  const itemTop = offsets.value[index]!;
-  const itemSize = offsets.value[index + 1]! - itemTop;
-  let target = itemTop;
-  if (align === "center") target = itemTop - element.clientHeight / 2 + itemSize / 2;
-  if (align === "end") target = itemTop - element.clientHeight + itemSize;
-  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-  return Math.min(Math.max(0, target), maxScrollTop);
+  const itemTop = offsets.value[index]!
+  const itemSize = offsets.value[index + 1]! - itemTop
+  let target = itemTop
+  if (align === 'center') target = itemTop - element.clientHeight / 2 + itemSize / 2
+  if (align === 'end') target = itemTop - element.clientHeight + itemSize
+  const maxScrollTop = Math.max(0, element.scrollHeight - element.clientHeight)
+  return Math.min(Math.max(0, target), maxScrollTop)
 }
 
 // scrollToIndex 迭代校正：动态高度虚拟列表首次跳转目标项可能未量测 → offsets 估算偏差。
@@ -234,149 +237,149 @@ async function scrollToIndex(
   index: number,
   options: { align?: ScrollAlign; behavior?: ScrollBehavior } = {},
 ): Promise<void> {
-  await nextTick();
-  const element = containerRef.value;
-  if (!element || index < 0 || index >= props.items.length) return;
+  await nextTick()
+  const element = containerRef.value
+  if (!element || index < 0 || index >= props.items.length) return
 
-  const align = options.align ?? "start";
-  const requestedBehavior: ScrollBehavior = options.behavior ?? "auto";
+  const align = options.align ?? 'start'
+  const requestedBehavior: ScrollBehavior = options.behavior ?? 'auto'
 
-  let lastTarget = Number.NaN;
-  let converged = false;
+  let lastTarget = Number.NaN
+  let converged = false
   for (let iter = 0; iter < SCROLL_CORRECT_MAX_ITER; iter += 1) {
-    const target = computeTargetScrollTop(index, align, element);
+    const target = computeTargetScrollTop(index, align, element)
     // 第二次起比对收敛
     if (!Number.isNaN(lastTarget) && Math.abs(target - lastTarget) < SCROLL_CORRECT_THRESHOLD_PX) {
-      converged = true;
-      if (requestedBehavior === "smooth") {
-        element.scrollTo({ top: target, behavior: "smooth" });
+      converged = true
+      if (requestedBehavior === 'smooth') {
+        element.scrollTo({ top: target, behavior: 'smooth' })
       }
-      break;
+      break
     }
-    element.scrollTo({ top: target, behavior: "auto" });
-    lastTarget = target;
+    element.scrollTo({ top: target, behavior: 'auto' })
+    lastTarget = target
     // 第 1 帧：scrollTo → renderedIndices 重算 → 新 DOM 挂载 → ResizeObserver 入队
     // 第 2 帧：flushMeasurements 跑完 → measuredSizes 更新 → offsets 重算
-    await nextFrame();
-    await nextFrame();
+    await nextFrame()
+    await nextFrame()
   }
   // 达上限未收敛：停在最准位置，按请求 smooth 收尾
-  if (!converged && requestedBehavior === "smooth") {
-    const target = computeTargetScrollTop(index, align, element);
-    element.scrollTo({ top: target, behavior: "smooth" });
+  if (!converged && requestedBehavior === 'smooth') {
+    const target = computeTargetScrollTop(index, align, element)
+    element.scrollTo({ top: target, behavior: 'smooth' })
   }
 }
 
 function scrollToEnd(): void {
   void nextTick(() => {
-    const element = containerRef.value;
-    if (!element) return;
-    element.scrollTop = element.scrollHeight;
-    syncScrollTop();
-  });
+    const element = containerRef.value
+    if (!element) return
+    element.scrollTop = element.scrollHeight
+    syncScrollTop()
+  })
 }
 
 // thumb 拖拽：按下捕获指针，move 按比例同步 scrollTop，up 释放
 function onThumbPointerDown(e: PointerEvent): void {
-  if (e.button !== 0) return;
-  e.stopPropagation(); // 阻止冒泡到 track 跳比例
-  isDraggingThumb.value = true;
-  dragStartClientY = e.clientY;
-  dragStartScrollTop = scrollTop.value;
-  dragPointerId = e.pointerId;
-  (e.currentTarget as HTMLElement).setPointerCapture(dragPointerId);
-  window.addEventListener("pointermove", onThumbPointerMove);
-  window.addEventListener("pointerup", onThumbPointerUp);
+  if (e.button !== 0) return
+  e.stopPropagation() // 阻止冒泡到 track 跳比例
+  isDraggingThumb.value = true
+  dragStartClientY = e.clientY
+  dragStartScrollTop = scrollTop.value
+  dragPointerId = e.pointerId
+  ;(e.currentTarget as HTMLElement).setPointerCapture(dragPointerId)
+  window.addEventListener('pointermove', onThumbPointerMove)
+  window.addEventListener('pointerup', onThumbPointerUp)
 }
 
 function onThumbPointerMove(e: PointerEvent): void {
-  if (!isDraggingThumb.value) return;
-  const element = containerRef.value;
-  if (!element) return;
-  const maxScrollTop = element.scrollHeight - element.clientHeight;
-  if (maxScrollTop <= 0) return;
-  const draggable = Math.max(1, viewportHeight.value - thumbHeight.value);
-  const delta = e.clientY - dragStartClientY;
-  const next = dragStartScrollTop + (delta / draggable) * maxScrollTop;
-  element.scrollTop = Math.min(Math.max(0, next), maxScrollTop);
-  syncScrollTop();
+  if (!isDraggingThumb.value) return
+  const element = containerRef.value
+  if (!element) return
+  const maxScrollTop = element.scrollHeight - element.clientHeight
+  if (maxScrollTop <= 0) return
+  const draggable = Math.max(1, viewportHeight.value - thumbHeight.value)
+  const delta = e.clientY - dragStartClientY
+  const next = dragStartScrollTop + (delta / draggable) * maxScrollTop
+  element.scrollTop = Math.min(Math.max(0, next), maxScrollTop)
+  syncScrollTop()
 }
 
 function onThumbPointerUp(): void {
-  isDraggingThumb.value = false;
-  const element = containerRef.value;
+  isDraggingThumb.value = false
+  const element = containerRef.value
   if (element && dragPointerId >= 0) {
     try {
-      element.releasePointerCapture(dragPointerId);
+      element.releasePointerCapture(dragPointerId)
     } catch {
       // 指针已释放，忽略
     }
   }
-  dragPointerId = -1;
-  window.removeEventListener("pointermove", onThumbPointerMove);
-  window.removeEventListener("pointerup", onThumbPointerUp);
+  dragPointerId = -1
+  window.removeEventListener('pointermove', onThumbPointerMove)
+  window.removeEventListener('pointerup', onThumbPointerUp)
 }
 
 // 轨道空白点击：按点击位置比例滚，让点击点对齐 thumb 中央
 function onTrackPointerDown(e: PointerEvent): void {
-  if (e.target !== e.currentTarget) return; // 仅轨道本体，非 thumb/标记
-  if (e.button !== 0) return;
-  const element = containerRef.value;
-  if (!element) return;
-  const trackRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  const ratio = (e.clientY - trackRect.top) / trackRect.height;
-  const maxScrollTop = element.scrollHeight - element.clientHeight;
-  const target = ratio * element.scrollHeight - element.clientHeight / 2;
-  element.scrollTo({ top: Math.min(Math.max(0, target), maxScrollTop), behavior: "smooth" });
+  if (e.target !== e.currentTarget) return // 仅轨道本体，非 thumb/标记
+  if (e.button !== 0) return
+  const element = containerRef.value
+  if (!element) return
+  const trackRect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const ratio = (e.clientY - trackRect.top) / trackRect.height
+  const maxScrollTop = element.scrollHeight - element.clientHeight
+  const target = ratio * element.scrollHeight - element.clientHeight / 2
+  element.scrollTo({ top: Math.min(Math.max(0, target), maxScrollTop), behavior: 'smooth' })
 }
 
 watch(itemKeys, (keys) => {
-  const validKeys = new Set(keys);
+  const validKeys = new Set(keys)
   measuredSizes.forEach((_, key) => {
-    if (!validKeys.has(key)) measuredSizes.delete(key);
-  });
-});
+    if (!validKeys.has(key)) measuredSizes.delete(key)
+  })
+})
 
 onMounted(() => {
-  const element = containerRef.value;
-  if (!element) return;
-  viewportHeight.value = element.clientHeight;
-  if (typeof ResizeObserver === "undefined") return;
+  const element = containerRef.value
+  if (!element) return
+  viewportHeight.value = element.clientHeight
+  if (typeof ResizeObserver === 'undefined') return
   containerResizeObserver = new ResizeObserver(([entry]) => {
-    const height = entry?.contentRect.height ?? 0;
+    const height = entry?.contentRect.height ?? 0
     if (height > 0 && viewportHeight.value !== Math.floor(height)) {
-      viewportHeight.value = Math.floor(height);
+      viewportHeight.value = Math.floor(height)
     }
-  });
-  containerResizeObserver.observe(element);
-});
+  })
+  containerResizeObserver.observe(element)
+})
 
 onBeforeUnmount(() => {
-  if (scrollRafId) cancelAnimationFrame(scrollRafId);
-  if (measureRafId) cancelAnimationFrame(measureRafId);
-  containerResizeObserver?.disconnect();
-  itemObservers.forEach(({ observer }) => observer?.disconnect());
-  itemObservers.clear();
-  pendingMeasurements.clear();
+  if (scrollRafId) cancelAnimationFrame(scrollRafId)
+  if (measureRafId) cancelAnimationFrame(measureRafId)
+  containerResizeObserver?.disconnect()
+  itemObservers.forEach(({ observer }) => observer?.disconnect())
+  itemObservers.clear()
+  pendingMeasurements.clear()
   // 拖拽中卸载兜底：移除 window 监听，防残留
   if (isDraggingThumb.value) {
-    window.removeEventListener("pointermove", onThumbPointerMove);
-    window.removeEventListener("pointerup", onThumbPointerUp);
+    window.removeEventListener('pointermove', onThumbPointerMove)
+    window.removeEventListener('pointerup', onThumbPointerUp)
   }
-});
+})
 
-function scrollToOffset(offset: number, behavior: ScrollBehavior = "auto"): void {
-  const element = containerRef.value;
-  if (!element) return;
-  const max = element.scrollHeight - element.clientHeight;
-  element.scrollTo({ top: Math.min(Math.max(0, offset), max), behavior });
+function scrollToOffset(offset: number, behavior: ScrollBehavior = 'auto'): void {
+  const element = containerRef.value
+  if (!element) return
+  const max = element.scrollHeight - element.clientHeight
+  element.scrollTo({ top: Math.min(Math.max(0, offset), max), behavior })
 }
 
-function scrollToRatio(ratio: number, behavior: ScrollBehavior = "auto"): void {
-  const element = containerRef.value;
-  if (!element) return;
-  const max = element.scrollHeight - element.clientHeight;
-  element.scrollTo({ top: Math.min(Math.max(0, ratio), 1) * max, behavior });
+function scrollToRatio(ratio: number, behavior: ScrollBehavior = 'auto'): void {
+  const element = containerRef.value
+  if (!element) return
+  const max = element.scrollHeight - element.clientHeight
+  element.scrollTo({ top: Math.min(Math.max(0, ratio), 1) * max, behavior })
 }
 
 defineExpose({
@@ -386,7 +389,7 @@ defineExpose({
   ratioOf,
   scrollToOffset,
   scrollToRatio,
-});
+})
 </script>
 
 <template>

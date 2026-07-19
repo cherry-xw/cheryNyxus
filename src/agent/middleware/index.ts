@@ -1,20 +1,14 @@
-import AgentSession from "@/core/middleware";
-import type { MiddlewareHandler, MiddlewareChunk } from "@/core/middleware/types";
-import { checkpointMiddleware } from "./checkpoint";
-import { chatMiddleware } from "./chat";
-import { senseMiddleware } from "./tool";
-import { retryMiddleware } from "./retry";
-import { createLoopHandler } from "./loop";
+import AgentSession from '@/core/middleware'
+import type { MiddlewareHandler, MiddlewareChunk } from '@/core/middleware/types'
+import { checkpointMiddleware } from './checkpoint'
+import { chatMiddleware } from './chat'
+import { senseMiddleware } from './tool'
+import { retryMiddleware } from './retry'
+import { createLoopHandler } from './loop'
 
-export default AgentSession;
-export {
-  checkpointMiddleware,
-  chatMiddleware,
-  senseMiddleware,
-  retryMiddleware,
-  createLoopHandler,
-};
-export type { MiddlewareChunk };
+export default AgentSession
+export { checkpointMiddleware, chatMiddleware, senseMiddleware, retryMiddleware, createLoopHandler }
+export type { MiddlewareChunk }
 
 /**
  * 默认 handlers 队列
@@ -32,4 +26,4 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
   senseMiddleware as MiddlewareHandler<MiddlewareChunk>,
   retryMiddleware as MiddlewareHandler<MiddlewareChunk>,
   chatMiddleware as MiddlewareHandler<MiddlewareChunk>,
-];
+]

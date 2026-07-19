@@ -7,13 +7,13 @@
  *
  * `code` 常量双保险：防跨 realm / 原型链丢失导致 instanceof 失效；消费者优先 instanceof，code 兜底。
  */
-export const AGENT_ABORT_CODE = "AGENT_ABORT";
+export const AGENT_ABORT_CODE = 'AGENT_ABORT'
 
 export class AgentAbortError extends Error {
-  readonly code = AGENT_ABORT_CODE;
-  constructor(message = "approval aborted") {
-    super(message);
-    this.name = "AgentAbortError";
+  readonly code = AGENT_ABORT_CODE
+  constructor(message = 'approval aborted') {
+    super(message)
+    this.name = 'AgentAbortError'
   }
 }
 
@@ -23,7 +23,6 @@ export class AgentAbortError extends Error {
 export function isAgentAbortError(error: unknown): boolean {
   return (
     error instanceof AgentAbortError ||
-    (error instanceof Error &&
-      (error as { code?: string }).code === AGENT_ABORT_CODE)
-  );
+    (error instanceof Error && (error as { code?: string }).code === AGENT_ABORT_CODE)
+  )
 }

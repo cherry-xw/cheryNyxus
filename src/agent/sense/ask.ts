@@ -1,6 +1,6 @@
-import { z } from "zod";
-import { sense, type SenseResult } from "@/core/sense";
-import { SupervisionLevel } from "@/core/config";
+import { z } from 'zod'
+import { sense, type SenseResult } from '@/core/sense'
+import { SupervisionLevel } from '@/core/config'
 
 /**
  * ask_user_question 感官：LLM 用此向用户提结构化问题（2-4 选项 + 可选「其他」自由文本）。
@@ -25,24 +25,24 @@ import { SupervisionLevel } from "@/core/config";
 const Option = z.object({
   label: z.string().min(1),
   description: z.string().optional(),
-});
+})
 
 const AskUserQuestionSchema = z.object({
-  question: z.string().min(1).describe("要问用户的问题"),
-  header: z.string().max(12).optional().describe("简短标题（≤12 字），UI 顶部展示"),
-  options: z.array(Option).min(2).max(4).describe("2-4 个选项"),
-  multiSelect: z.boolean().default(false).describe("是否多选；默认 false（单选）"),
-});
+  question: z.string().min(1).describe('要问用户的问题'),
+  header: z.string().max(12).optional().describe('简短标题（≤12 字），UI 顶部展示'),
+  options: z.array(Option).min(2).max(4).describe('2-4 个选项'),
+  multiSelect: z.boolean().default(false).describe('是否多选；默认 false（单选）'),
+})
 
 export default sense(
-  "ask_user_question",
+  'ask_user_question',
   `向用户提问并等待回答。返回值为用户选择的 label（或「其他」自由文本）。`,
   AskUserQuestionSchema,
   async (_input, _shared, ctx): Promise<SenseResult> => {
     // yield-turn：请求 loop 本轮后结束，释放 turn 等待用户回答。
     // 答案由 service resolveQuestionBatch 原地写入本 sense（id = messageId）的 content，resume 后 LLM 见。
-    ctx?.yieldTurn?.();
-    return { content: "(等待用户回答…)" };
+    ctx?.yieldTurn?.()
+    return { content: '(等待用户回答…)' }
   },
   SupervisionLevel.auto,
-);
+)

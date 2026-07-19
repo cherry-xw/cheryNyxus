@@ -4,44 +4,44 @@
  * 从 AgentFab 拆出，含内部 button + popover + backdrop + transition。
  * 点击加载预设列表；空 → emit fallback；非空 → toggle picker。
  */
-import { ref } from "vue";
-import { fetchServerConfig, type PresetOption } from "@/services/agentApi";
+import { ref } from 'vue'
+import { fetchServerConfig, type PresetOption } from '@/services/agentApi'
 
 defineProps<{
-  disabled: boolean;
-}>();
+  disabled: boolean
+}>()
 
 const emit = defineEmits<{
-  (e: "pick", presetName: string): void;
-  (e: "fallback"): void;
-}>();
+  (e: 'pick', presetName: string): void
+  (e: 'fallback'): void
+}>()
 
-const pickerOpen = ref(false);
-const presets = ref<PresetOption[]>([]);
+const pickerOpen = ref(false)
+const presets = ref<PresetOption[]>([])
 
 async function loadPresets(): Promise<void> {
-  if (presets.value.length > 0) return;
+  if (presets.value.length > 0) return
   try {
-    const cfg = await fetchServerConfig();
-    presets.value = cfg.presets ?? [];
+    const cfg = await fetchServerConfig()
+    presets.value = cfg.presets ?? []
   } catch {
-    presets.value = [];
+    presets.value = []
   }
 }
 
 async function handleClick(): Promise<void> {
-  await loadPresets();
+  await loadPresets()
   // 无预设 → emit fallback；有预设 → toggle picker
   if (presets.value.length === 0) {
-    emit("fallback");
+    emit('fallback')
   } else {
-    pickerOpen.value = !pickerOpen.value;
+    pickerOpen.value = !pickerOpen.value
   }
 }
 
 function pickPreset(name: string): void {
-  pickerOpen.value = false;
-  emit("pick", name);
+  pickerOpen.value = false
+  emit('pick', name)
 }
 </script>
 
@@ -63,12 +63,7 @@ function pickPreset(name: string): void {
       </div>
     </transition>
     <div v-if="pickerOpen" class="picker-backdrop" @click="pickerOpen = false" />
-    <button
-      type="button"
-      class="picker-trigger"
-      :disabled="disabled"
-      @click="handleClick"
-    >
+    <button type="button" class="picker-trigger" :disabled="disabled" @click="handleClick">
       <slot />
     </button>
   </div>

@@ -7,53 +7,73 @@
  * - 中止按钮仅 isWorking 时渲染（避免常驻 disabled）
  * 中止/销毁/历史的具体调用由父（PetStage）处理，本组件仅 emit。
  */
-import { computed } from "vue";
-import type { PetInstance } from "@/features/pets/types";
-import { useAgentsStore } from "@/stores";
-import { collectDescendantChatIds } from "@/stores/agents/historyMerge";
+import { computed } from 'vue'
+import type { PetInstance } from '@/features/pets/types'
+import { useAgentsStore } from '@/stores'
+import { collectDescendantChatIds } from '@/stores/agents/historyMerge'
 
 const CLOCK_EMOJIS = [
-  "🕐", "🕑", "🕒", "🕓", "🕔", "🕕",
-  "🕖", "🕗", "🕘", "🕙", "🕚", "🕛",
-  "🕜", "🕝", "🕞", "🕟", "🕠", "🕡",
-  "🕢", "🕣", "🕤", "🕥", "🕦", "🕧",
-] as const;
+  '🕐',
+  '🕑',
+  '🕒',
+  '🕓',
+  '🕔',
+  '🕕',
+  '🕖',
+  '🕗',
+  '🕘',
+  '🕙',
+  '🕚',
+  '🕛',
+  '🕜',
+  '🕝',
+  '🕞',
+  '🕟',
+  '🕠',
+  '🕡',
+  '🕢',
+  '🕣',
+  '🕤',
+  '🕥',
+  '🕦',
+  '🕧',
+] as const
 
 const props = defineProps<{
-  pet: PetInstance;
-}>();
+  pet: PetInstance
+}>()
 
 const emit = defineEmits<{
-  history: [pet: PetInstance];
-  abort: [pet: PetInstance];
-  destroy: [pet: PetInstance];
-  compact: [pet: PetInstance];
-  resume: [pet: PetInstance];
-}>();
+  history: [pet: PetInstance]
+  abort: [pet: PetInstance]
+  destroy: [pet: PetInstance]
+  compact: [pet: PetInstance]
+  resume: [pet: PetInstance]
+}>()
 
-const agents = useAgentsStore();
+const agents = useAgentsStore()
 
 /**
  * 阈值命中（与后端 thresholdReached 同语义）：
  * percent → used/total ≥ value；tokens → used ≥ value。total ≤ 0 → false。
  */
 function thresholdReached(
-  t: { unit: "tokens" | "percent"; value: number } | undefined,
+  t: { unit: 'tokens' | 'percent'; value: number } | undefined,
   used: number,
   total: number,
 ): boolean {
-  if (!t || total <= 0) return false;
-  return t.unit === "percent" ? used / total >= t.value : used >= t.value;
+  if (!t || total <= 0) return false
+  return t.unit === 'percent' ? used / total >= t.value : used >= t.value
 }
 
 /** compact 可用门槛：brain 容量 ≥ minContextLimit（无开关；默认展示只关联默认 brain 上下文）。 */
 const compactAvailable = computed(() => {
-  const cc = props.pet.commandConfig;
-  const total = props.pet.contextTotal;
-  if (!total || total <= 0) return false;
-  const minLimit = cc?.minContextLimit ?? 0;
-  return !(minLimit > 0 && total < minLimit);
-});
+  const cc = props.pet.commandConfig
+  const total = props.pet.contextTotal
+  if (!total || total <= 0) return false
+  const minLimit = cc?.minContextLimit ?? 0
+  return !(minLimit > 0 && total < minLimit)
+})
 
 /**
  * 显示条件（全部满足才显）：
@@ -61,30 +81,32 @@ const compactAvailable = computed(() => {
  * - contextUsage ≥ warn（到达提示阈值才显按钮；warn 缺省按 0.6 兜底，对齐后端默认）
  */
 const showCompact = computed(() => {
-  if (!compactAvailable.value) return false;
-  const cc = props.pet.commandConfig;
-  const warn = cc?.warn ?? { unit: "percent" as const, value: 0.6 };
-  return thresholdReached(warn, props.pet.contextUsed, props.pet.contextTotal);
-});
+  if (!compactAvailable.value) return false
+  const cc = props.pet.commandConfig
+  const warn = cc?.warn ?? { unit: 'percent' as const, value: 0.6 }
+  return thresholdReached(warn, props.pet.contextUsed, props.pet.contextTotal)
+})
 
 /** usage ≥ auto → 强提示（按钮高亮脉冲）；后端此时会自动压缩。 */
 const compactUrgent = computed(() => {
-  const cc = props.pet.commandConfig;
-  if (!cc) return false;
-  return thresholdReached(cc.auto, props.pet.contextUsed, props.pet.contextTotal);
-});
+  const cc = props.pet.commandConfig
+  if (!cc) return false
+  return thresholdReached(cc.auto, props.pet.contextUsed, props.pet.contextTotal)
+})
 /** 主 pet idle 且末条为未完成周期 → 显"继续"按钮，用户点击触发 chat.resume */
-const showResume = computed(() => props.pet.isMaster && !props.pet.isWorking && !!props.pet.canResume);
+const showResume = computed(
+  () => props.pet.isMaster && !props.pet.isWorking && !!props.pet.canResume,
+)
 
 /**
  * CP8：destroy(=隐藏) 可用性。运行中（pet.isWorking 或任一后代 pet isWorking）禁用——
  * 避免隐藏运行中 pet 致孤儿流（无视觉但 stream 仍在写）。
  */
 const canHide = computed(() => {
-  if (props.pet.isWorking) return false;
-  const descendants = new Set(collectDescendantChatIds(agents.pets, props.pet.chatId));
-  return !agents.pets.some((p) => descendants.has(p.chatId) && p.isWorking);
-});
+  if (props.pet.isWorking) return false
+  const descendants = new Set(collectDescendantChatIds(agents.pets, props.pet.chatId))
+  return !agents.pets.some((p) => descendants.has(p.chatId) && p.isWorking)
+})
 </script>
 
 <template>
@@ -99,19 +121,10 @@ const canHide = computed(() => {
     >
       ⊛<span class="tip">Compact</span>
     </button>
-    <button
-      type="button"
-      class="tool-btn"
-      aria-label="History"
-      @click="emit('history', pet)"
-    >
+    <button type="button" class="tool-btn" aria-label="History" @click="emit('history', pet)">
       <span v-if="pet.isWorking" class="clock-strip" aria-hidden="true">
         <span class="clock-track">
-          <span
-            v-for="(c, i) in CLOCK_EMOJIS"
-            :key="i"
-            class="clock-frame"
-          >{{ c }}</span>
+          <span v-for="(c, i) in CLOCK_EMOJIS" :key="i" class="clock-frame">{{ c }}</span>
         </span>
       </span>
       <span v-else aria-hidden="true">🕐</span>
@@ -266,12 +279,21 @@ const canHide = computed(() => {
 }
 
 @keyframes clock-slide {
-  from { transform: translateX(0); }
-  to { transform: translateX(-384px); }
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-384px);
+  }
 }
 
 @keyframes compact-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.18); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.18);
+  }
 }
 </style>

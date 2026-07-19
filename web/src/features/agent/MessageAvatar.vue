@@ -12,89 +12,89 @@
  * 头像来源：主 pet = masterPetName 首字符；子 pet = subPetFace（face.calm emoji）。
  * 被唤起 agent 头像可点击 → emit jumpToSpawn，由父组件转发到 HistoryDrawer smooth scroll。
  */
-import { computed } from "vue";
-import type { HistoryItem } from "@/stores/agents";
+import { computed } from 'vue'
+import type { HistoryItem } from '@/stores/agents'
 
 const props = defineProps<{
-  item: HistoryItem;
-  role: string;
-  layout: "group" | "direct";
-  masterPetName?: string;
-  subPetName?: string;
-  subPetFace?: string;
-  subPetType?: string;
-  showMasterBadge?: boolean;
-  callerPetFace?: string;
-  callerPetName?: string;
-  callerIsMaster?: boolean;
-  canJumpToSpawn?: boolean;
-  mergedChildToMaster?: boolean;
-}>();
+  item: HistoryItem
+  role: string
+  layout: 'group' | 'direct'
+  masterPetName?: string
+  subPetName?: string
+  subPetFace?: string
+  subPetType?: string
+  showMasterBadge?: boolean
+  callerPetFace?: string
+  callerPetName?: string
+  callerIsMaster?: boolean
+  canJumpToSpawn?: boolean
+  mergedChildToMaster?: boolean
+}>()
 
 const emit = defineEmits<{
-  (e: "jumpToSpawn", payload: { senseCallId: string }): void;
-}>();
+  (e: 'jumpToSpawn', payload: { senseCallId: string }): void
+}>()
 
 // ── avatar computeds ──────────────────────────────────────────────
 
 /** 主 pet 头像文字（name 首字符，fallback ⊙） */
-const masterText = computed(() => props.masterPetName?.charAt(0).toUpperCase() || "⊙");
+const masterText = computed(() => props.masterPetName?.charAt(0).toUpperCase() || '⊙')
 /** 子 pet emoji face（fallback 🤖） */
-const subFace = computed(() => props.subPetFace || "🤖");
+const subFace = computed(() => props.subPetFace || '🤖')
 /** 子 pet name 首字母（role 大头像右上角小字；空则不渲染） */
-const subNameInitial = computed(() => props.subPetName?.charAt(0).toUpperCase() || "");
+const subNameInitial = computed(() => props.subPetName?.charAt(0).toUpperCase() || '')
 /** hover 面板 type 字段：合并式 subPetType，注入式 item.petName，缺则 — */
-const subTypeText = computed(() => props.subPetType || props.item.petName || "—");
+const subTypeText = computed(() => props.subPetType || props.item.petName || '—')
 /** caller 头像文字（role 分支徽章用：caller pet face emoji 或 masterText fallback） */
-const callerFace = computed(() => props.callerPetFace || masterText.value);
+const callerFace = computed(() => props.callerPetFace || masterText.value)
 /** caller 名字（hover 面板 name：caller name 优先于 sub pet name；用于多级 spawn 显示上级） */
-const resolvedCallerName = computed(() => props.callerPetName || "");
+const resolvedCallerName = computed(() => props.callerPetName || '')
 /** caller name 首字母（master 多级 spawn 发言者大头像右上角小字；空则不渲染） */
-const callerNameInitial = computed(() => props.callerPetName?.charAt(0).toUpperCase() || "");
+const callerNameInitial = computed(() => props.callerPetName?.charAt(0).toUpperCase() || '')
 
 /** direct 模式（ghost 自身抽屉）：master/role 走单头像 1:1 布局。assistant 恒单头像。 */
-const useSingleAvatar = computed(() => props.layout === "direct" || props.item.role === "assistant");
+const useSingleAvatar = computed(() => props.layout === 'direct' || props.item.role === 'assistant')
 const singleAvatarClass = computed(() => {
-  if (props.item.role === "master") return "pet-master";
-  if (props.item.role === "subagent" || props.item.role === "role") return "pet-sub";
-  return "role-assistant";
-});
+  if (props.item.role === 'master') return 'pet-master'
+  if (props.item.role === 'subagent' || props.item.role === 'role') return 'pet-sub'
+  return 'role-assistant'
+})
 const singleAvatarText = computed(() => {
-  if (props.item.role === "subagent" || props.item.role === "role") return subFace.value;
-  return masterText.value; // master / assistant
-});
+  if (props.item.role === 'subagent' || props.item.role === 'role') return subFace.value
+  return masterText.value // master / assistant
+})
 
 /** hover 面板 name 表示发言者：master/assistant=主 pet；role=子 pet。 */
 const resolvedName = computed(() => {
   switch (props.item.role) {
-    case "master":
-    case "assistant":
-      return props.masterPetName || "";
-    case "subagent":
-    case "role":
-      return props.subPetName || props.item.petName || resolvedCallerName.value || "";
+    case 'master':
+    case 'assistant':
+      return props.masterPetName || ''
+    case 'subagent':
+    case 'role':
+      return props.subPetName || props.item.petName || resolvedCallerName.value || ''
     default:
-      return "";
+      return ''
   }
-});
+})
 
 // hover 详情面板 runtime：user=发送时配置，assistant=前一条 user runtime 后端关联
 // 旧消息无 runtime（迁移前）→ 字段显「—」（规则12）
 const senseGroupsText = computed(() => {
-  const sg = props.item.runtime?.senseGroup;
-  return sg && sg.length > 0 ? sg : "-";
-});
+  const sg = props.item.runtime?.senseGroup
+  return sg && sg.length > 0 ? sg : '-'
+})
 const mcpServersText = computed(() => {
-  const m = props.item.runtime?.mcpServers;
-  return m && m.length > 0 ? m.join(", ") : "—";
-});
+  const m = props.item.runtime?.mcpServers
+  return m && m.length > 0 ? m.join(', ') : '—'
+})
 
 // ── click → jumpToSpawn ───────────────────────────────────────────
 
 function onAvatarClick(): void {
-  const sid = props.item.spawnSenseCallId;
-  if (!sid) return;
-  emit("jumpToSpawn", { senseCallId: sid });
+  const sid = props.item.spawnSenseCallId
+  if (!sid) return
+  emit('jumpToSpawn', { senseCallId: sid })
 }
 </script>
 
@@ -115,15 +115,21 @@ function onAvatarClick(): void {
         :title="canJumpToSpawn ? '点击跳到 spawn 工具调用' : undefined"
         role="button"
         :aria-label="canJumpToSpawn ? '跳到 spawn 工具调用' : undefined"
+        aria-hidden="true"
         @click="onAvatarClick"
         @keydown.enter.space.prevent="onAvatarClick"
-        aria-hidden="true"
       >
         {{ subFace }}
-        <span v-if="subNameInitial" class="name-initial" aria-hidden="true">{{ subNameInitial }}</span>
+        <span v-if="subNameInitial" class="name-initial" aria-hidden="true">{{
+          subNameInitial
+        }}</span>
         <span class="send-direction" aria-hidden="true">→</span>
       </div>
-      <div class="avatar is-badge" :class="callerIsMaster === false ? 'pet-sub' : 'pet-master'" aria-hidden="true">
+      <div
+        class="avatar is-badge"
+        :class="callerIsMaster === false ? 'pet-sub' : 'pet-master'"
+        aria-hidden="true"
+      >
         {{ callerIsMaster === false ? callerFace : masterText }}
       </div>
     </template>
@@ -133,15 +139,25 @@ function onAvatarClick(): void {
     <template v-else-if="item.role === 'master'">
       <div
         class="avatar is-speaker"
-        :class="[callerIsMaster === false ? 'pet-sub' : 'pet-master', { 'is-clickable': canJumpToSpawn }]"
+        :class="[
+          callerIsMaster === false ? 'pet-sub' : 'pet-master',
+          { 'is-clickable': canJumpToSpawn },
+        ]"
         :tabindex="canJumpToSpawn ? 0 : -1"
         :title="canJumpToSpawn ? '点击跳到 spawn 工具调用' : undefined"
         role="button"
         :aria-label="canJumpToSpawn ? '跳到 spawn 工具调用' : undefined"
+        aria-hidden="true"
         @click="onAvatarClick"
         @keydown.enter.space.prevent="onAvatarClick"
-        aria-hidden="true"
-      ><template v-if="callerIsMaster === false">{{ callerFace }}<span v-if="callerNameInitial" class="name-initial" aria-hidden="true">{{ callerNameInitial }}</span></template><template v-else>{{ masterText }}</template></div>
+      >
+        <template v-if="callerIsMaster === false"
+          >{{ callerFace
+          }}<span v-if="callerNameInitial" class="name-initial" aria-hidden="true">{{
+            callerNameInitial
+          }}</span></template
+        ><template v-else>{{ masterText }}</template>
+      </div>
       <div class="avatar pet-sub is-badge" aria-hidden="true">{{ subFace }}</div>
     </template>
     <!-- group subagent（旧）/ role（新）：子 pet 大头像（发言者，emoji+右上角 name 首字母）+ caller 小徽章（对方）
@@ -154,24 +170,46 @@ function onAvatarClick(): void {
         :title="canJumpToSpawn ? '点击跳到 spawn 工具调用' : undefined"
         role="button"
         :aria-label="canJumpToSpawn ? '跳到 spawn 工具调用' : undefined"
+        aria-hidden="true"
         @click="onAvatarClick"
         @keydown.enter.space.prevent="onAvatarClick"
-        aria-hidden="true"
       >
         {{ subFace }}
-        <span v-if="subNameInitial" class="name-initial" aria-hidden="true">{{ subNameInitial }}</span>
+        <span v-if="subNameInitial" class="name-initial" aria-hidden="true">{{
+          subNameInitial
+        }}</span>
       </div>
-      <div v-if="showMasterBadge" class="avatar is-badge" :class="callerIsMaster === false ? 'pet-sub' : 'pet-master'" aria-hidden="true">
+      <div
+        v-if="showMasterBadge"
+        class="avatar is-badge"
+        :class="callerIsMaster === false ? 'pet-sub' : 'pet-master'"
+        aria-hidden="true"
+      >
         {{ callerIsMaster === false ? callerFace : masterText }}
       </div>
     </template>
     <div class="info-panel" role="tooltip">
-      <div class="panel-name">{{ resolvedName || "agent" }}</div>
+      <div class="panel-name">{{ resolvedName || 'agent' }}</div>
       <dl class="panel-fields">
-        <div class="field"><dt>brain</dt><dd>{{ item.runtime?.brain ?? "—" }}</dd></div>
-        <div class="field"><dt>senseGroup</dt><dd>{{ senseGroupsText }}</dd></div>
-        <div class="field"><dt>mcpServers</dt><dd>{{ mcpServersText }}</dd></div>
-        <div v-if="mergedChildToMaster || item.role === 'subagent' || item.role === 'role'" class="field"><dt>type</dt><dd>{{ subTypeText }}</dd></div>
+        <div class="field">
+          <dt>brain</dt>
+          <dd>{{ item.runtime?.brain ?? '—' }}</dd>
+        </div>
+        <div class="field">
+          <dt>senseGroup</dt>
+          <dd>{{ senseGroupsText }}</dd>
+        </div>
+        <div class="field">
+          <dt>mcpServers</dt>
+          <dd>{{ mcpServersText }}</dd>
+        </div>
+        <div
+          v-if="mergedChildToMaster || item.role === 'subagent' || item.role === 'role'"
+          class="field"
+        >
+          <dt>type</dt>
+          <dd>{{ subTypeText }}</dd>
+        </div>
       </dl>
     </div>
   </div>
@@ -354,7 +392,7 @@ function onAvatarClick(): void {
 
 // F-展示合并：info-panel name 加「↗」前缀，标识"发给主 pet"方向
 .msg-row.is-child-to-master .panel-name::before {
-  content: "↗ ";
+  content: '↗ ';
   color: fade(@ink, 50%);
   font-weight: 600;
 }

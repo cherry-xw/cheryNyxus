@@ -9,20 +9,20 @@
  * 估算失败不阻塞（规则 12 fail loud：兜底 0 + console.warn，避免 chat.send/get 因
  * token 计算挂掉）。
  */
-import { getMessages, type MessageRow } from "@/db/chat.js";
-import { getChatRuntimeSelection } from "@/db/chat.js";
-import config from "@/utils/config";
+import { getMessages, type MessageRow } from '@/db/chat.js'
+import { getChatRuntimeSelection } from '@/db/chat.js'
+import config from '@/utils/config'
 
 /** contextLimit 兜底值（token）：brain 未配 contextLimit 时使用 */
-const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192;
+const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192
 
 /**
  * 估算文本 token 数（简化：字符数 / 4，向上取整）。
  * 空字符串/undefined → 0。
  */
 export function estimateTokens(text: string | undefined | null): number {
-  if (!text) return 0;
-  return Math.ceil(text.length / 4);
+  if (!text) return 0
+  return Math.ceil(text.length / 4)
 }
 
 /**
@@ -30,45 +30,45 @@ export function estimateTokens(text: string | undefined | null): number {
  * revoked 消息已从 LLM 上下文中剔除（revokeTrailingCycle 撤回），不计。
  */
 function sumRowTokens(row: MessageRow): number {
-  if (row.revoked === 1) return 0;
-  return estimateTokens(row.content) + estimateTokens(row.thinking);
+  if (row.revoked === 1) return 0
+  return estimateTokens(row.content) + estimateTokens(row.thinking)
 }
 
 /**
  * 累加 chat 所有消息 token（读 DB）。
  */
 export function sumChatTokens(chatId: string): number {
-  const messages = getMessages(chatId);
-  let total = 0;
+  const messages = getMessages(chatId)
+  let total = 0
   for (const m of messages) {
-    total += sumRowTokens(m);
+    total += sumRowTokens(m)
   }
-  return total;
+  return total
 }
 
 /** 用户对话段计入的 role（sense 调用结果按设计计入用户对话，见 docs/agent/prompt.md 分段表）。 */
-const CONVERSATION_ROLES = new Set(["user", "assistant", "role", "subagent", "sense"]);
+const CONVERSATION_ROLES = new Set(['user', 'assistant', 'role', 'subagent', 'sense'])
 
 /**
  * 累加 chat「用户对话」段 token（content+thinking）：role ∈ user/assistant/role/subagent/sense 的非 revoked 行。
  * system 行不计（observer 不持久化 system 消息，理论不存在）。返 { tokens, count(消息条数) }。
  */
 export function sumChatConversationTokens(chatId: string): { tokens: number; count: number } {
-  const messages = getMessages(chatId);
+  const messages = getMessages(chatId)
   const latestCompaction = messages.reduce(
-    (last, message, index) => message.context_compaction === 1 ? index : last,
+    (last, message, index) => (message.context_compaction === 1 ? index : last),
     -1,
-  );
-  const visibleMessages = latestCompaction >= 0 ? messages.slice(latestCompaction) : messages;
-  let tokens = 0;
-  let count = 0;
+  )
+  const visibleMessages = latestCompaction >= 0 ? messages.slice(latestCompaction) : messages
+  let tokens = 0
+  let count = 0
   for (const m of visibleMessages) {
-    if (m.revoked === 1) continue;
-    if (!CONVERSATION_ROLES.has(m.role)) continue;
-    tokens += estimateTokens(m.content) + estimateTokens(m.thinking);
-    count += 1;
+    if (m.revoked === 1) continue
+    if (!CONVERSATION_ROLES.has(m.role)) continue
+    tokens += estimateTokens(m.content) + estimateTokens(m.thinking)
+    count += 1
   }
-  return { tokens, count };
+  return { tokens, count }
 }
 
 /**
@@ -78,9 +78,9 @@ export function sumChatConversationTokens(chatId: string): { tokens: number; cou
  * - total：上限 token 数（brain.contextLimit，单位 token）
  */
 export interface ContextUsageDetail {
-  usage: number;
-  used: number;
-  total: number;
+  usage: number
+  used: number
+  total: number
 }
 
 /**
@@ -89,8 +89,8 @@ export interface ContextUsageDetail {
  * - count：条目数（记忆条数 / skill 数 / tool 数 / 消息条数；系统/用户系统提示词段无）
  */
 export interface Segment {
-  tokens: number;
-  count?: number;
+  tokens: number
+  count?: number
 }
 
 /**
@@ -99,14 +99,14 @@ export interface Segment {
  * used = 各段 tokens 之和；usage = clamp(used / total, 0, 1)；total = brain.contextLimit。
  */
 export interface ContextBreakdown {
-  system: Segment;
-  userSystem: Segment;
-  memory: Segment;
-  skills: Segment;
-  tools: Segment;
-  conversation: Segment;
-  total: number;
-  usage: number;
+  system: Segment
+  userSystem: Segment
+  memory: Segment
+  skills: Segment
+  tools: Segment
+  conversation: Segment
+  total: number
+  usage: number
 }
 
 /** 各段 tokens 之和（= 已用 token 总数，与 breakdown.usage * breakdown.total 一致）。 */
@@ -118,7 +118,7 @@ export function breakdownUsed(bd: ContextBreakdown): number {
     bd.skills.tokens +
     bd.tools.tokens +
     bd.conversation.tokens
-  );
+  )
 }
 
 /**
@@ -130,23 +130,22 @@ export function breakdownUsed(bd: ContextBreakdown): number {
  */
 export function computeContextUsage(chatId: string): ContextUsageDetail {
   try {
-    const used = sumChatTokens(chatId);
-    const selection = getChatRuntimeSelection(chatId);
-    const brainName = selection?.brain;
+    const used = sumChatTokens(chatId)
+    const selection = getChatRuntimeSelection(chatId)
+    const brainName = selection?.brain
     const limitTokens =
-      (brainName && config.llm.brain[brainName]?.contextLimit) ||
-      DEFAULT_CONTEXT_LIMIT_TOKENS;
-    if (limitTokens <= 0) return { usage: 0, used, total: 0 };
+      (brainName && config.llm.brain[brainName]?.contextLimit) || DEFAULT_CONTEXT_LIMIT_TOKENS
+    if (limitTokens <= 0) return { usage: 0, used, total: 0 }
     return {
       usage: Math.min(1, used / limitTokens),
       used,
       total: limitTokens,
-    };
+    }
   } catch (err) {
     console.warn(
       `[token] computeContextUsage(${chatId}) failed, fallback 0:`,
       (err as Error).message,
-    );
-    return { usage: 0, used: 0, total: DEFAULT_CONTEXT_LIMIT_TOKENS };
+    )
+    return { usage: 0, used: 0, total: DEFAULT_CONTEXT_LIMIT_TOKENS }
   }
 }

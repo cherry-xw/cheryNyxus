@@ -10,47 +10,47 @@
  *
  * 文件 IO 复用 agent/prompt/loadCommand.ts 的 frontmatter 解析逻辑（list 单独实现遍历）。
  */
-import { existsSync, readdirSync, readFileSync } from "fs";
-import { join, basename } from "path";
-import yaml from "js-yaml";
-import type { HandlerContext } from "../message/router.js";
-import { Method, type CommandInfo, type CommandListResponseData } from "../message/types.js";
+import { existsSync, readdirSync, readFileSync } from 'fs'
+import { join, basename } from 'path'
+import yaml from 'js-yaml'
+import type { HandlerContext } from '../message/router.js'
+import { Method, type CommandInfo, type CommandListResponseData } from '../message/types.js'
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/;
-const NAME_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---/
+const NAME_PATTERN = /^[a-zA-Z0-9_-]+$/
 
 function commandDir(): string {
-  return join(process.env.CHERY_DIR || process.cwd(), ".chery", "command");
+  return join(process.env.CHERY_DIR || process.cwd(), '.chery', 'command')
 }
 
 function commandPath(name: string): string {
   if (!NAME_PATTERN.test(name)) {
-    throw new Error(`命令名 "${name}" 非法（仅允许 [a-zA-Z0-9_-]）`);
+    throw new Error(`命令名 "${name}" 非法（仅允许 [a-zA-Z0-9_-]）`)
   }
-  return join(commandDir(), `${name}.md`);
+  return join(commandDir(), `${name}.md`)
 }
 
 function parseCommandFile(name: string, raw: string): CommandInfo {
-  const text = raw.trim();
-  const match = text.match(FRONTMATTER);
-  if (!match) return { name, description: "", content: text };
+  const text = raw.trim()
+  const match = text.match(FRONTMATTER)
+  if (!match) return { name, description: '', content: text }
   try {
-    const meta = (yaml.load(match[1]!) || {}) as Record<string, unknown>;
+    const meta = (yaml.load(match[1]!) || {}) as Record<string, unknown>
     return {
-      name: typeof meta.name === "string" && meta.name ? meta.name : name,
-      description: typeof meta.description === "string" ? meta.description : "",
+      name: typeof meta.name === 'string' && meta.name ? meta.name : name,
+      description: typeof meta.description === 'string' ? meta.description : '',
       content: text.slice(match[0].length).trim(),
-    };
+    }
   } catch {
-    return { name, description: "", content: text };
+    return { name, description: '', content: text }
   }
 }
 
 function readCommand(name: string): CommandInfo | undefined {
-  const filePath = commandPath(name);
-  if (!existsSync(filePath)) return undefined;
-  const raw = readFileSync(filePath, "utf-8");
-  return parseCommandFile(name, raw);
+  const filePath = commandPath(name)
+  if (!existsSync(filePath)) return undefined
+  const raw = readFileSync(filePath, 'utf-8')
+  return parseCommandFile(name, raw)
 }
 
 /**
@@ -61,30 +61,30 @@ export async function handleCommandList(
   _ctx: HandlerContext,
   _params: unknown,
 ): Promise<CommandListResponseData> {
-  const dir = commandDir();
-  if (!existsSync(dir)) return { commands: [] };
-  const files = readdirSync(dir);
-  const commands: CommandInfo[] = [];
+  const dir = commandDir()
+  if (!existsSync(dir)) return { commands: [] }
+  const files = readdirSync(dir)
+  const commands: CommandInfo[] = []
   for (const f of files) {
-    if (!f.toLowerCase().endsWith(".md")) continue;
-    const name = basename(f, ".md");
-    if (!NAME_PATTERN.test(name)) continue;
+    if (!f.toLowerCase().endsWith('.md')) continue
+    const name = basename(f, '.md')
+    if (!NAME_PATTERN.test(name)) continue
     try {
-      const info = readCommand(name);
-      if (info) commands.push(info);
+      const info = readCommand(name)
+      if (info) commands.push(info)
     } catch (err) {
-      console.warn(`[command.list] 跳过 ${name}:`, (err as Error).message);
+      console.warn(`[command.list] 跳过 ${name}:`, (err as Error).message)
     }
   }
   // 按 name 稳定排序（前端列表顺序）
-  commands.sort((a, b) => a.name.localeCompare(b.name));
-  return { commands };
+  commands.sort((a, b) => a.name.localeCompare(b.name))
+  return { commands }
 }
 
 /** 注册内置命令系统 RPC handlers（仅 list）。 */
-export function registerCommandHandlers(router: import("../message/router.js").RpcRouter): void {
-  router.register(Method.COMMAND_LIST, handleCommandList);
+export function registerCommandHandlers(router: import('../message/router.js').RpcRouter): void {
+  router.register(Method.COMMAND_LIST, handleCommandList)
 }
 
 // 显式类型导出，避免 TS 误删 imports
-export type { CommandInfo } from "../message/types.js";
+export type { CommandInfo } from '../message/types.js'

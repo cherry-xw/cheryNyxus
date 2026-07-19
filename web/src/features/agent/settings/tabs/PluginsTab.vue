@@ -4,188 +4,220 @@
  * 插件 = 来自 Git 仓库的扩展包（整仓），存于 .chery/plugins/<name>/。
  * 版本检查 + 拉取最新。导入操作移入 PluginImportDialog 弹窗。
  */
-import { ref, computed, onMounted, watch } from "vue";
-import { Delete, Refresh, Search } from "@element-plus/icons-vue";
-import {
-  agentApi,
-  type PluginInfo,
-} from "@/services/agentApi";
-import TabShell, { type IndexItem } from "../components/TabShell.vue";
-import ConfirmDialog from "../ConfirmDialog.vue";
-import PluginImportDialog from "./components/PluginImportDialog.vue";
+import { ref, computed, onMounted, watch } from 'vue'
+import { Delete, Refresh, Search } from '@element-plus/icons-vue'
+import { agentApi, type PluginInfo } from '@/services/agentApi'
+import TabShell, { type IndexItem } from '../components/TabShell.vue'
+import ConfirmDialog from '../ConfirmDialog.vue'
+import PluginImportDialog from './components/PluginImportDialog.vue'
 
-const props = defineProps<{ plugins: PluginInfo[] }>();
-const emit = defineEmits<{ (e: "error", msg: string): void; (e: "refresh-plugins"): void }>();
+const props = defineProps<{ plugins: PluginInfo[] }>()
+const emit = defineEmits<{ (e: 'error', msg: string): void; (e: 'refresh-plugins'): void }>()
 
 // 卸载插件二次确认（重删 → ConfirmDialog 居中 modal）。
 // 注：PluginsTab 只持有 plugins 列表，无 draft.roles 数据，故 impact 不含"引用角色"段。
-const removeDialog = ref(false);
-const removePluginInfo = ref<PluginInfo | undefined>(undefined);
+const removeDialog = ref(false)
+const removePluginInfo = ref<PluginInfo | undefined>(undefined)
 const removeImpact = computed(() => {
-  const p = removePluginInfo.value;
-  if (!p) return [] as string[];
-  return [
-    `插件「${p.name}」及其 ${p.skills.length} 个技能将被移除。`,
-  ];
-});
+  const p = removePluginInfo.value
+  if (!p) return [] as string[]
+  return [`插件「${p.name}」及其 ${p.skills.length} 个技能将被移除。`]
+})
 function startUninstall(p: PluginInfo): void {
-  removePluginInfo.value = p;
-  removeDialog.value = true;
+  removePluginInfo.value = p
+  removeDialog.value = true
 }
 
 // ── 导入弹窗 ──────────────────────────────────────────────────────
-const importDialogOpen = ref(false);
-const search = ref("");
-const page = ref(1);
-const pageSize = 24;
+const importDialogOpen = ref(false)
+const search = ref('')
+const page = ref(1)
+const pageSize = 24
 const filteredPlugins = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  return props.plugins.filter((plugin) => !q || `${plugin.name} ${plugin.sourceUrl} ${plugin.branch}`.toLowerCase().includes(q));
-});
-const pagedPlugins = computed(() => filteredPlugins.value.slice((page.value - 1) * pageSize, page.value * pageSize));
+  const q = search.value.trim().toLowerCase()
+  return props.plugins.filter(
+    (plugin) =>
+      !q || `${plugin.name} ${plugin.sourceUrl} ${plugin.branch}`.toLowerCase().includes(q),
+  )
+})
+const pagedPlugins = computed(() =>
+  filteredPlugins.value.slice((page.value - 1) * pageSize, page.value * pageSize),
+)
 watch(filteredPlugins, (list) => {
-  const maxPage = Math.max(1, Math.ceil(list.length / pageSize));
-  if (page.value > maxPage) page.value = maxPage;
-});
+  const maxPage = Math.max(1, Math.ceil(list.length / pageSize))
+  if (page.value > maxPage) page.value = maxPage
+})
 
 // ── 预览 / 检查更新 ─────────────────────────────────────────────
-const checkingAll = ref(false);
-const checkSummary = ref<string>("");
-const checkErrors = ref<Record<string, string>>({});
-const pullLog = ref<Record<string, string>>({});
-const updatingName = ref<string>("");
+const checkingAll = ref(false)
+const checkSummary = ref<string>('')
+const checkErrors = ref<Record<string, string>>({})
+const pullLog = ref<Record<string, string>>({})
+const updatingName = ref<string>('')
 
 function onError(msg: string): void {
-  emit("error", msg);
+  emit('error', msg)
 }
 function emitError(err: unknown): void {
-  const e = err as { message?: string };
-  onError(e?.message ?? String(err));
+  const e = err as { message?: string }
+  onError(e?.message ?? String(err))
 }
 function refresh(): void {
-  emit("refresh-plugins");
+  emit('refresh-plugins')
 }
 
 const indexItems = computed<IndexItem[]>(() =>
-  pagedPlugins.value.map((p) => ({ label: p.name, anchor: p.name, description: p.branch ? `分支 ${p.branch}` : "无分支记录" })),
-);
+  pagedPlugins.value.map((p) => ({
+    label: p.name,
+    anchor: p.name,
+    description: p.branch ? `分支 ${p.branch}` : '无分支记录',
+  })),
+)
 
 const lastCheckTime = computed<string | undefined>(() => {
-  let max = "";
+  let max = ''
   for (const p of props.plugins) {
-    if (p.lastCheckedAt && p.lastCheckedAt > max) max = p.lastCheckedAt;
+    if (p.lastCheckedAt && p.lastCheckedAt > max) max = p.lastCheckedAt
   }
-  return max || undefined;
-});
+  return max || undefined
+})
 
 async function onCheckAll(): Promise<void> {
-  if (checkingAll.value) return;
-  checkingAll.value = true;
+  if (checkingAll.value) return
+  checkingAll.value = true
   try {
-    const res = await agentApi.checkAllPluginsUpdate();
+    const res = await agentApi.checkAllPluginsUpdate()
     if (res.checked === 0) {
-      checkSummary.value = "无已安装插件";
+      checkSummary.value = '无已安装插件'
     } else {
-      const parts: string[] = [`已检查 ${res.checked}`];
-      if (res.updatesAvailable) parts.push(`${res.updatesAvailable} 个有更新`);
-      if (res.failed.length) parts.push(`${res.failed.length} 个失败`);
-      checkSummary.value = parts.join("，");
+      const parts: string[] = [`已检查 ${res.checked}`]
+      if (res.updatesAvailable) parts.push(`${res.updatesAvailable} 个有更新`)
+      if (res.failed.length) parts.push(`${res.failed.length} 个失败`)
+      checkSummary.value = parts.join('，')
     }
-    const errs: Record<string, string> = {};
-    for (const f of res.failed) errs[f.name] = f.reason;
-    checkErrors.value = errs;
-    refresh();
+    const errs: Record<string, string> = {}
+    for (const f of res.failed) errs[f.name] = f.reason
+    checkErrors.value = errs
+    refresh()
   } catch (err) {
-    emitError(err);
+    emitError(err)
   } finally {
-    checkingAll.value = false;
+    checkingAll.value = false
   }
 }
 
 async function onUpdate(name: string): Promise<void> {
-  if (updatingName.value) return;
-  updatingName.value = name;
+  if (updatingName.value) return
+  updatingName.value = name
   try {
-    const res = await agentApi.updatePlugin(name);
-    pullLog.value = { ...pullLog.value, [name]: `✓ 更新成功 → ${shortSha(res.plugin.commitSha)}` };
-    refresh();
+    const res = await agentApi.updatePlugin(name)
+    pullLog.value = { ...pullLog.value, [name]: `✓ 更新成功 → ${shortSha(res.plugin.commitSha)}` }
+    refresh()
   } catch (err) {
-    const e = err as { message?: string };
-    pullLog.value = { ...pullLog.value, [name]: `✗ 更新失败：${e?.message ?? String(err)}` };
+    const e = err as { message?: string }
+    pullLog.value = { ...pullLog.value, [name]: `✗ 更新失败：${e?.message ?? String(err)}` }
   } finally {
-    updatingName.value = "";
+    updatingName.value = ''
   }
 }
 function onCardClick(p: PluginInfo): void {
-  if (!p.updateAvailable) return;
-  if (updatingName.value) return;
-  if (checkingAll.value) return;
-  void onUpdate(p.name);
+  if (!p.updateAvailable) return
+  if (updatingName.value) return
+  if (checkingAll.value) return
+  void onUpdate(p.name)
 }
 async function onUninstall(name: string): Promise<void> {
   try {
-    await agentApi.uninstallPlugin(name);
-    const next = { ...pullLog.value };
-    delete next[name];
-    pullLog.value = next;
-    refresh();
+    await agentApi.uninstallPlugin(name)
+    const next = { ...pullLog.value }
+    delete next[name]
+    pullLog.value = next
+    refresh()
   } catch (err) {
-    emitError(err);
+    emitError(err)
   }
 }
 
 function shortSha(sha: string | undefined): string {
-  return sha && sha.length >= 7 ? sha.slice(0, 7) : (sha || "—");
+  return sha && sha.length >= 7 ? sha.slice(0, 7) : sha || '—'
 }
 function formatDateTime(iso: string | undefined): string {
-  if (!iso) return "—";
-  return iso.slice(0, 16).replace("T", " ");
+  if (!iso) return '—'
+  return iso.slice(0, 16).replace('T', ' ')
 }
 function skillLabel(name: string, plugin: string): string {
-  const prefix = `${plugin}__`;
-  return name.startsWith(prefix) ? name.slice(prefix.length) : name;
+  const prefix = `${plugin}__`
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name
 }
 
 const TAG_PALETTE: Array<{ background: string; color: string }> = [
-  { background: "rgba(99,102,241,0.14)", color: "#4338ca" },
-  { background: "rgba(2,132,199,0.14)", color: "#075985" },
-  { background: "rgba(22,163,74,0.14)", color: "#166534" },
-  { background: "rgba(225,29,72,0.14)", color: "#9f1239" },
-  { background: "rgba(124,58,237,0.14)", color: "#5b21b6" },
-  { background: "rgba(217,119,6,0.14)", color: "#b45309" },
-];
+  { background: 'rgba(99,102,241,0.14)', color: '#4338ca' },
+  { background: 'rgba(2,132,199,0.14)', color: '#075985' },
+  { background: 'rgba(22,163,74,0.14)', color: '#166534' },
+  { background: 'rgba(225,29,72,0.14)', color: '#9f1239' },
+  { background: 'rgba(124,58,237,0.14)', color: '#5b21b6' },
+  { background: 'rgba(217,119,6,0.14)', color: '#b45309' },
+]
 function skillTagStyle(i: number): { background: string; color: string } {
-  return TAG_PALETTE[i % TAG_PALETTE.length]!;
+  return TAG_PALETTE[i % TAG_PALETTE.length]!
 }
 </script>
 
 <template>
-  <TabShell tab-key="plugins" :index-items="indexItems" :page="page" :page-size="pageSize" :total="filteredPlugins.length" @page-change="page = $event">
+  <TabShell
+    tab-key="plugins"
+    :index-items="indexItems"
+    :page="page"
+    :page-size="pageSize"
+    :total="filteredPlugins.length"
+    @page-change="page = $event"
+  >
     <template #hints>
       <p class="sect-hint">
-        插件是来自 Git 仓库的扩展包。填入 GitHub URL → 拉取分支 → 选择后导入；版本与更新信息自动跟踪。
+        插件是来自 Git 仓库的扩展包。填入 GitHub URL → 拉取分支 →
+        选择后导入；版本与更新信息自动跟踪。
       </p>
     </template>
     <template #popper="{ item }">
       <div class="index-card">
         <div class="index-card-title">{{ item.label as string }}</div>
-        <div class="index-card-line"><b>分支</b><span>{{ item.description as string }}</span></div>
+        <div class="index-card-line">
+          <b>分支</b><span>{{ item.description as string }}</span>
+        </div>
       </div>
     </template>
 
     <template #toolbar>
       <div class="plugin-toolbar">
-        <el-input v-model="search" clearable size="small" placeholder="搜索插件、仓库或分支" @input="page = 1"><template #prefix><Search class="ico" /></template></el-input>
-        <el-tooltip :content="checkSummary || '对比全部插件远端 HEAD，结果写入各插件 manifest'" placement="top" :show-after="200">
+        <el-input
+          v-model="search"
+          clearable
+          size="small"
+          placeholder="搜索插件、仓库或分支"
+          @input="page = 1"
+          ><template #prefix><Search class="ico" /></template
+        ></el-input>
+        <el-tooltip
+          :content="checkSummary || '对比全部插件远端 HEAD，结果写入各插件 manifest'"
+          placement="top"
+          :show-after="200"
+        >
           <span class="toolbar-trigger">
-            <button type="button" class="ghost-btn check-btn" :disabled="checkingAll || !plugins.length" @click="onCheckAll">
+            <button
+              type="button"
+              class="ghost-btn check-btn"
+              :disabled="checkingAll || !plugins.length"
+              @click="onCheckAll"
+            >
               <Refresh class="ico" :class="{ spinning: checkingAll }" />
-              {{ checkingAll ? "检查中…" : "检查更新" }}
+              {{ checkingAll ? '检查中…' : '检查更新' }}
             </button>
           </span>
         </el-tooltip>
-        <span class="last-check">{{ filteredPlugins.length }} 个 · {{ formatDateTime(lastCheckTime) }}</span>
-        <span class="spacer"></span>
+        <span class="last-check"
+          >{{ filteredPlugins.length }} 个 · {{ formatDateTime(lastCheckTime) }}</span
+        >
+        <span class="spacer" />
         <button type="button" class="ghost-btn" @click="importDialogOpen = true">+ 导入插件</button>
       </div>
     </template>
@@ -201,7 +233,7 @@ function skillTagStyle(i: number): { background: string; color: string } {
       <span class="card-idx">{{ i + 1 }}</span>
       <header class="card-head">
         <span class="card-title">{{ p.name }}</span>
-        <span class="spacer"></span>
+        <span class="spacer" />
         <el-tooltip
           v-if="p.updateAvailable || updatingName === p.name"
           :content="pullLog[p.name] || '有新版本，点击拉取最新覆盖本地'"
@@ -233,7 +265,9 @@ function skillTagStyle(i: number): { background: string; color: string } {
 
       <div class="plugin-meta">
         <span v-if="p.branch" class="badge branch">{{ p.branch }}</span>
-        <span v-if="p.commitSha" class="meta-item">HEAD <code class="sha">{{ shortSha(p.commitSha) }}</code></span>
+        <span v-if="p.commitSha" class="meta-item"
+          >HEAD <code class="sha">{{ shortSha(p.commitSha) }}</code></span
+        >
         <span v-if="p.commitDate" class="meta-item">{{ p.commitDate.slice(0, 10) }}</span>
         <span v-if="p.updateAvailable" class="badge warn">有更新</span>
         <span v-else-if="p.lastCheckedAt" class="badge ok">最新</span>
@@ -245,7 +279,9 @@ function skillTagStyle(i: number): { background: string; color: string } {
         >
           <span class="badge fail">刷新失败</span>
         </el-tooltip>
-        <span v-if="p.lastCheckedAt" class="meta-item">检查于 {{ formatDateTime(p.lastCheckedAt) }}</span>
+        <span v-if="p.lastCheckedAt" class="meta-item"
+          >检查于 {{ formatDateTime(p.lastCheckedAt) }}</span
+        >
       </div>
 
       <div class="plugin-tokens">
@@ -255,7 +291,13 @@ function skillTagStyle(i: number): { background: string; color: string } {
         </el-tooltip>
         <el-tooltip placement="top" :show-after="200">
           <template #content>所含技能的正文 token 区间（激活后单技能正文消耗）</template>
-          <span class="badge tok-content">内容 <template v-if="p.minContentTokens === p.maxContentTokens">{{ p.minContentTokens }}</template><template v-else>{{ p.minContentTokens }}–{{ p.maxContentTokens }}</template></span>
+          <span class="badge tok-content"
+            >内容
+            <template v-if="p.minContentTokens === p.maxContentTokens">{{
+              p.minContentTokens
+            }}</template
+            ><template v-else>{{ p.minContentTokens }}–{{ p.maxContentTokens }}</template></span
+          >
         </el-tooltip>
       </div>
 
@@ -264,17 +306,16 @@ function skillTagStyle(i: number): { background: string; color: string } {
       </p>
 
       <div v-if="p.skills.length" class="skill-tags">
-        <el-tooltip
-          v-for="(s, si) in p.skills"
-          :key="s.name"
-          placement="top"
-          :show-after="200"
-        >
+        <el-tooltip v-for="(s, si) in p.skills" :key="s.name" placement="top" :show-after="200">
           <template #content>
             <div style="max-width: 220px">
-              <b>{{ skillLabel(s.name, p.name) }}</b><br />
+              <b>{{ skillLabel(s.name, p.name) }}</b
+              ><br />
               {{ s.description || '无描述' }}<br />
-              <span style="opacity:.8">系统 ≈ {{ s.nameDescTokens + (s.triggerTokens ?? 0) }} tok · 内容 ≈ {{ s.contentTokens }} tok</span>
+              <span style="opacity: 0.8"
+                >系统 ≈ {{ s.nameDescTokens + (s.triggerTokens ?? 0) }} tok · 内容 ≈
+                {{ s.contentTokens }} tok</span
+              >
             </div>
           </template>
           <span class="skill-tag" :style="skillTagStyle(si)">{{ skillLabel(s.name, p.name) }}</span>
@@ -289,11 +330,7 @@ function skillTagStyle(i: number): { background: string; color: string } {
     </article>
 
     <!-- 导入弹窗 -->
-    <PluginImportDialog
-      v-model:visible="importDialogOpen"
-      @imported="refresh"
-      @error="onError"
-    />
+    <PluginImportDialog v-model:visible="importDialogOpen" @imported="refresh" @error="onError" />
 
     <!-- 卸载插件二次确认（重删 modal） -->
     <ConfirmDialog
@@ -308,7 +345,7 @@ function skillTagStyle(i: number): { background: string; color: string } {
 </template>
 
 <style scoped lang="less">
-@import "../shared.less";
+@import '../shared.less';
 
 code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
@@ -332,7 +369,9 @@ code {
   align-items: center;
   gap: 12px;
   padding: 0;
-  :deep(.el-input) { width:220px; }
+  :deep(.el-input) {
+    width: 220px;
+  }
   .check-btn {
     display: inline-flex;
     align-items: center;
@@ -427,7 +466,10 @@ code {
   border-radius: 10px;
   cursor: default;
 }
-.skill-tag.more { background:rgba(36,38,45,.08)!important;color:fade(@ink,55%)!important; }
+.skill-tag.more {
+  background: rgba(36, 38, 45, 0.08) !important;
+  color: fade(@ink, 55%) !important;
+}
 .empty-card {
   text-align: center;
   .empty-title {
@@ -467,7 +509,11 @@ code {
   animation: spin 1s linear infinite;
 }
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

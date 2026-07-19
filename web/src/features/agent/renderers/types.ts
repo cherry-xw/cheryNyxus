@@ -13,22 +13,22 @@
 // ============== update_todo 参数类型 ==============
 
 /** 待办状态（与后端 zod enum 同步） */
-export type TodoStatus = "pending" | "in_progress" | "completed";
+export type TodoStatus = 'pending' | 'in_progress' | 'completed'
 
 /** 待办项（与后端 TodoItemSchema 同步） */
 export interface TodoItem {
   /** 待办内容 */
-  content: string;
+  content: string
   /** 状态：pending（待处理）/ in_progress（进行中）/ completed（已完成） */
-  status: TodoStatus;
+  status: TodoStatus
   /** 进行中的活动形式（可选，用于 in_progress 状态时显示副标题） */
-  activeForm?: string;
+  activeForm?: string
 }
 
 /** update_todo 工具参数 */
 export interface UpdateTodoArgs {
   /** 待办列表 */
-  todos: TodoItem[];
+  todos: TodoItem[]
 }
 
 // ============== execute_command 参数类型 ==============
@@ -36,48 +36,48 @@ export interface UpdateTodoArgs {
 /** execute_command 工具参数 */
 export interface ExecuteCommandArgs {
   /** 要执行的命令 */
-  command: string;
+  command: string
   /** 命令说明 */
-  description: string;
+  description: string
 }
 
 /** execute_command 工具结果 */
 export interface ExecuteCommandResult {
   /** 执行状态 */
-  status: "success" | "timeout" | "error";
+  status: 'success' | 'timeout' | 'error'
   /** 进程 ID */
-  pid: number;
+  pid: number
   /** 退出码（可选） */
-  exitCode?: number;
+  exitCode?: number
   /** 执行时长（毫秒） */
-  duration: number;
+  duration: number
   /** 执行的命令 */
-  command: string;
+  command: string
   /** 命令说明 */
-  description: string;
+  description: string
   /** 输出内容 */
-  output: string;
+  output: string
   /** 日志文件路径（可选） */
-  logPath?: string;
+  logPath?: string
   /** 错误信息（可选） */
-  message?: string;
+  message?: string
 }
 
 // ============== read_file 参数类型 ==============
 
 /** 压缩策略 */
-export type CompressionStrategy = "auto" | "truncate" | "drain" | "none";
+export type CompressionStrategy = 'auto' | 'truncate' | 'drain' | 'none'
 
 /** read_file 工具参数 */
 export interface ReadFileArgs {
   /** 文件绝对路径 */
-  path: string;
+  path: string
   /** 读取行数限制（可选） */
-  limit?: number;
+  limit?: number
   /** 起始行偏移（可选，从 0 开始） */
-  offset?: number;
+  offset?: number
   /** 压缩策略（可选） */
-  compression?: CompressionStrategy;
+  compression?: CompressionStrategy
 }
 
 // ============== write_file 参数类型 ==============
@@ -85,45 +85,45 @@ export interface ReadFileArgs {
 /** write_file 工具参数 */
 export interface WriteFileArgs {
   /** 文件绝对路径 */
-  path: string;
+  path: string
   /** 写入内容 */
-  content: string;
+  content: string
   /** 起始行号（可选，0-based，必须与 limit 同时指定） */
-  offset?: number;
+  offset?: number
   /** 要替换的行数（可选，必须与 offset 同时指定） */
-  limit?: number;
+  limit?: number
 }
 
 // ============== generate_* 参数类型（共享） ==============
 
 /** 媒体类型 */
-export type MediaKind = "image" | "video" | "audio";
+export type MediaKind = 'image' | 'video' | 'audio'
 
 /** generate_image/video/audio 工具参数（共享） */
 export interface GenerateMediaArgs {
   /** 生成提示词 */
-  prompt: string;
+  prompt: string
 }
 
 // ============== search_codebase 参数类型 ==============
 
 /** 搜索模式 */
-export type SearchMode = "content" | "filename";
+export type SearchMode = 'content' | 'filename'
 
 /** search_codebase 工具参数 */
 export interface SearchCodebaseArgs {
   /** 搜索模式（可选，默认 content） */
-  mode?: SearchMode;
+  mode?: SearchMode
   /** 搜索根目录 */
-  path: string;
+  path: string
   /** 搜索查询字符串 */
-  query: string;
+  query: string
   /** 是否正则匹配（可选，content 模式） */
-  regex?: boolean;
+  regex?: boolean
   /** 返回结果上限（可选，默认 50） */
-  maxResults?: number;
+  maxResults?: number
   /** 上下文行数（可选，content 模式） */
-  contextLines?: number;
+  contextLines?: number
 }
 
 // ============== spawn_role 参数类型 ==============
@@ -131,11 +131,11 @@ export interface SearchCodebaseArgs {
 /** spawn_role 工具参数 */
 export interface SpawnRoleArgs {
   /** 角色类型名 */
-  type: string;
+  type: string
   /** 交付角色执行的任务描述 */
-  prompt: string;
+  prompt: string
   /** 是否等待角色结果（可选，默认 false） */
-  wait?: boolean;
+  wait?: boolean
 }
 
 // ============== skill 参数类型 ==============
@@ -143,12 +143,12 @@ export interface SpawnRoleArgs {
 /** skill 工具参数 */
 export interface SkillArgs {
   /** 技能名称 */
-  name: string;
+  name: string
 }
 
 // ============== 渲染器 Props 契约 ==============
 
-import type { SenseCallRecord } from "@/stores/agents";
+import type { SenseCallRecord } from '@/stores/agents'
 
 /**
  * 所有专用渲染器的 Props 契约。
@@ -163,16 +163,16 @@ import type { SenseCallRecord } from "@/stores/agents";
  */
 export interface RendererProps {
   /** 原始调用记录（含 name/args/result/status） */
-  call: SenseCallRecord;
+  call: SenseCallRecord
   /** 解析后的参数（类型安全，由分发器预处理） */
-  parsedArgs?: unknown;
+  parsedArgs?: unknown
   /** DOM ID（用于可访问性） */
-  id?: string;
+  id?: string
 }
 
 /**
  * 渲染器组件定义（Vue 组件类型）。
  * 使用宽松类型以兼容 Vue 组件的实际类型。
  */
-import type { Component } from "vue";
-export type RendererComponent = Component<RendererProps>;
+import type { Component } from 'vue'
+export type RendererComponent = Component<RendererProps>

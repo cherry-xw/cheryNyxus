@@ -6,57 +6,57 @@
  * - validate 返回非空错误串 → emit('error') 并保持编辑态（如重名提示）；返回 null → emit('rename') 退出编辑
  * - #actions 具名插槽：非编辑态的额外按钮（复制/删除等）；编辑态自动隐藏（显 Check/Close）
  */
-import { ref } from "vue";
-import { Check, Close } from "@element-plus/icons-vue";
+import { ref } from 'vue'
+import { Check, Close } from '@element-plus/icons-vue'
 
 const props = defineProps<{
-  modelValue: string;
+  modelValue: string
   /** 提交前校验：返回错误提示串（保持编辑态 + emit error）或 null（通过） */
-  validate?: (newName: string) => string | null;
-}>();
+  validate?: (newName: string) => string | null
+}>()
 const emit = defineEmits<{
-  (e: "rename", newName: string): void;
-  (e: "error", msg: string): void;
-}>();
+  (e: 'rename', newName: string): void
+  (e: 'error', msg: string): void
+}>()
 
-const editing = ref(false);
-const editValue = ref("");
-const vFocus = { mounted: (el: HTMLElement) => el.querySelector("input")?.focus() };
+const editing = ref(false)
+const editValue = ref('')
+const vFocus = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
 
 function start(): void {
-  editing.value = true;
-  editValue.value = props.modelValue;
-  emit("error", "");
+  editing.value = true
+  editValue.value = props.modelValue
+  emit('error', '')
 }
 function cancel(): void {
-  editing.value = false;
-  editValue.value = "";
+  editing.value = false
+  editValue.value = ''
 }
 function commit(): void {
-  const newName = editValue.value.trim();
+  const newName = editValue.value.trim()
   if (!newName || newName === props.modelValue) {
-    editing.value = false;
-    return;
+    editing.value = false
+    return
   }
-  const err = props.validate?.(newName) ?? null;
+  const err = props.validate?.(newName) ?? null
   if (err) {
-    emit("error", err);
-    return; // 保持编辑态，等用户改
+    emit('error', err)
+    return // 保持编辑态，等用户改
   }
-  emit("rename", newName);
-  editing.value = false;
+  emit('rename', newName)
+  editing.value = false
 }
 
 // 暴露 start 给父组件（RolesTab 复制后自动进入改名态），替代脆弱的 querySelector(.click())。
-defineExpose({ start });
+defineExpose({ start })
 </script>
 
 <template>
   <span class="card-title">
     <el-input
       v-if="editing"
-      v-focus
       v-model="editValue"
+      v-focus
       class="card-name-input"
       size="small"
       @keydown.enter="commit"
@@ -78,5 +78,5 @@ defineExpose({ start });
 </template>
 
 <style scoped lang="less">
-@import "../shared.less";
+@import '../shared.less';
 </style>

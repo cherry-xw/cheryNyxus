@@ -3,10 +3,10 @@
  * ContextBreakdownTip：上下文用量 6 段明细（el-tooltip content 用）。
  * 每段：色块·标签·(条数)·tokens·占比。scoped 样式随组件实例生效（popper 内仍生效）。
  */
-import type { ContextBreakdown } from "@/services/agentApi";
-import { breakdownSegments, fmtTokens, segmentCountText } from "./contextBreakdown";
+import type { ContextBreakdown } from '@/services/agentApi'
+import { breakdownSegments, fmtTokens, segmentCountText } from './contextBreakdown'
 
-defineProps<{ breakdown?: ContextBreakdown }>();
+defineProps<{ breakdown?: ContextBreakdown }>()
 </script>
 
 <template>

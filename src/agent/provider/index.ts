@@ -1,9 +1,9 @@
-import { registerOpenAIAdapter } from "./openai";
-import { registerOllamaAdapter } from "./ollama";
-import { registerMockAdapter } from "./mock";
-import { registerBigmodelAdapter } from "./bigmodel";
+import { registerOpenAIAdapter } from './openai'
+import { registerOllamaAdapter } from './ollama'
+import { registerMockAdapter } from './mock'
+import { registerBigmodelAdapter } from './bigmodel'
 
-let builtinProvidersRegistered = false;
+let builtinProvidersRegistered = false
 
 /**
  * 注册内置 provider adapter。
@@ -11,12 +11,12 @@ let builtinProvidersRegistered = false;
  */
 export function registerBuiltinProviders(): void {
   if (builtinProvidersRegistered) {
-    return;
+    return
   }
 
-  registerOpenAIAdapter();
-  registerOllamaAdapter();
-  registerMockAdapter();
-  registerBigmodelAdapter();
-  builtinProvidersRegistered = true;
+  registerOpenAIAdapter()
+  registerOllamaAdapter()
+  registerMockAdapter()
+  registerBigmodelAdapter()
+  builtinProvidersRegistered = true
 }

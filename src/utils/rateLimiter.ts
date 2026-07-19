@@ -1,10 +1,10 @@
-import { logger } from "@/utils/logger/index.js";
-import { LogLevel } from "@/utils/logger/types.js";
+import { logger } from '@/utils/logger/index.js'
+import { LogLevel } from '@/utils/logger/types.js'
 
 /**
  * 滑动窗口时间（毫秒）。RPM = Requests Per Minute，窗口固定 60s。
  */
-const WINDOW_MS = 60_000;
+const WINDOW_MS = 60_000
 
 /**
  * 滑动窗口限流器（严格 RPM）。
@@ -23,10 +23,10 @@ const WINDOW_MS = 60_000;
  */
 class SlidingWindowRateLimiter {
   /** 放行时刻数组（单调递增，含已预约的未来时刻） */
-  private slots: number[] = [];
+  private slots: number[] = []
 
   constructor(private readonly rpm: number) {
-    if (rpm <= 0) throw new Error(`rpm must be positive, got: ${rpm}`);
+    if (rpm <= 0) throw new Error(`rpm must be positive, got: ${rpm}`)
   }
 
   /**
@@ -35,37 +35,37 @@ class SlidingWindowRateLimiter {
    */
   async acquire(): Promise<void> {
     // ===== 同步段：清理 + 预约（首个 await 前，原子不交错） =====
-    const now = Date.now();
+    const now = Date.now()
 
     // 清理已离开窗口的放行时刻（<= now - WINDOW_MS）；?? Infinity 处理 noUncheckedIndexedAccess
     while (this.slots.length > 0 && (this.slots[0] ?? Infinity) <= now - WINDOW_MS) {
-      this.slots.shift();
+      this.slots.shift()
     }
 
-    let slot: number;
+    let slot: number
     if (this.slots.length < this.rpm) {
       // 窗口内未满，立即放行
-      slot = now;
+      slot = now
     } else {
       // 排在当前请求前第 rpm 个的放行时刻 + 60s
       // pivotIndex >= 0（因 length >= rpm）；?? now 仅防御 noUncheckedIndexedAccess
-      const pivot = this.slots[this.slots.length - this.rpm] ?? now;
-      slot = pivot + WINDOW_MS;
+      const pivot = this.slots[this.slots.length - this.rpm] ?? now
+      slot = pivot + WINDOW_MS
     }
-    this.slots.push(slot);
+    this.slots.push(slot)
 
-    const waitMs = slot - now;
+    const waitMs = slot - now
 
     // ===== 让出点：必要时等待 =====
     if (waitMs > 0) {
-      logger.event("rateLimit.wait", { rpm: this.rpm, waitMs }, LogLevel.debug);
-      await sleep(waitMs);
+      logger.event('rateLimit.wait', { rpm: this.rpm, waitMs }, LogLevel.debug)
+      await sleep(waitMs)
     }
   }
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 /**
@@ -73,10 +73,10 @@ function sleep(ms: number): Promise<void> {
  * 同一账号（url+key）下的所有 chat 复用同一个限流器，
  * 即使 provider 每次请求 new 一个 client，配额仍正确共享。
  */
-const limiterRegistry = new Map<string, SlidingWindowRateLimiter>();
+const limiterRegistry = new Map<string, SlidingWindowRateLimiter>()
 
 function limiterKey(url: string, key?: string): string {
-  return `${url}::${key ?? ""}`;
+  return `${url}::${key ?? ''}`
 }
 
 /**
@@ -89,11 +89,11 @@ export function getRateLimiter(
   key: string | undefined,
   rpm: number,
 ): SlidingWindowRateLimiter {
-  const k = limiterKey(url, key);
-  let limiter = limiterRegistry.get(k);
+  const k = limiterKey(url, key)
+  let limiter = limiterRegistry.get(k)
   if (!limiter) {
-    limiter = new SlidingWindowRateLimiter(rpm);
-    limiterRegistry.set(k, limiter);
+    limiter = new SlidingWindowRateLimiter(rpm)
+    limiterRegistry.set(k, limiter)
   }
-  return limiter;
+  return limiter
 }

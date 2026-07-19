@@ -1,7 +1,7 @@
-import { PersistenceHandler } from "./persistenceHandler";
+import { PersistenceHandler } from './persistenceHandler'
 
 export class InMemoryPersistenceHandler extends PersistenceHandler {
-  private state: string | null = null;
+  private state: string | null = null
 
   /**
    * Stores a deep-copied state snapshot in process memory.
@@ -9,7 +9,7 @@ export class InMemoryPersistenceHandler extends PersistenceHandler {
    * @param state Serialized state payload.
    */
   async save(state: string): Promise<void> {
-    this.state = structuredClone(state);
+    this.state = structuredClone(state)
   }
 
   /**
@@ -18,7 +18,7 @@ export class InMemoryPersistenceHandler extends PersistenceHandler {
    * @returns A copy of the current snapshot payload or `null`.
    */
   async load(): Promise<string | null> {
-    return this.state ? structuredClone(this.state) : null;
+    return this.state ? structuredClone(this.state) : null
   }
 
   /**
@@ -27,6 +27,6 @@ export class InMemoryPersistenceHandler extends PersistenceHandler {
   async close(): Promise<void> {}
 
   async delete(): Promise<void> {
-    this.state = null;
+    this.state = null
   }
 }

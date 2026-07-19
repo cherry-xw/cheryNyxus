@@ -10,89 +10,90 @@
  * - 内容预览（可折叠，默认收起）：
  *   - 显示写入内容（截断到 20 行）
  */
-import { computed, ref } from "vue";
-import type { RendererProps, WriteFileArgs } from "./types";
+import { computed, ref } from 'vue'
+import type { RendererProps, WriteFileArgs } from './types'
 
-const props = defineProps<RendererProps>();
+const props = defineProps<RendererProps>()
 
-const showContent = ref(false);
+const showContent = ref(false)
 
 // 解析参数
 const parsedArgs = computed<WriteFileArgs | null>(() => {
   try {
-    const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
-    const obj = JSON.parse(raw) as WriteFileArgs;
-    if (obj.path) return obj;
-    return null;
+    const raw =
+      typeof props.call.args === 'string' ? props.call.args : JSON.stringify(props.call.args ?? {})
+    const obj = JSON.parse(raw) as WriteFileArgs
+    if (obj.path) return obj
+    return null
   } catch (e) {
-    console.warn("[FileWriteRenderer] args 解析失败", e);
-    return null;
+    console.warn('[FileWriteRenderer] args 解析失败', e)
+    return null
   }
-});
+})
 
 // 提取文件名（从路径）
 const fileName = computed(() => {
-  const path = parsedArgs.value?.path ?? "";
-  const segments = path.split("/");
-  return segments[segments.length - 1] || path;
-});
+  const path = parsedArgs.value?.path ?? ''
+  const segments = path.split('/')
+  return segments[segments.length - 1] || path
+})
 
 // 判断写入模式
-const writeMode = computed<"full" | "partial">(() => {
-  const { offset, limit } = parsedArgs.value ?? {};
+const writeMode = computed<'full' | 'partial'>(() => {
+  const { offset, limit } = parsedArgs.value ?? {}
   if (offset !== undefined && limit !== undefined) {
-    return "partial";
+    return 'partial'
   }
-  return "full";
-});
+  return 'full'
+})
 
 // 写入模式描述
 const modeDescription = computed(() => {
-  if (writeMode.value === "partial") {
-    const { offset, limit } = parsedArgs.value ?? {};
-    return `修改第 ${offset} - ${(offset ?? 0) + (limit ?? 0)} 行`;
+  if (writeMode.value === 'partial') {
+    const { offset, limit } = parsedArgs.value ?? {}
+    return `修改第 ${offset} - ${(offset ?? 0) + (limit ?? 0)} 行`
   }
-  return "创建/覆盖文件";
-});
+  return '创建/覆盖文件'
+})
 
 // 内容预览（截断到 20 行）
-const PREVIEW_MAX_LINES = 20;
+const PREVIEW_MAX_LINES = 20
 const contentPreview = computed(() => {
-  const content = parsedArgs.value?.content ?? "";
-  const lines = content.split("\n");
+  const content = parsedArgs.value?.content ?? ''
+  const lines = content.split('\n')
   if (lines.length <= PREVIEW_MAX_LINES) {
-    return { text: content, truncated: false, totalLines: lines.length };
+    return { text: content, truncated: false, totalLines: lines.length }
   }
   return {
-    text: lines.slice(0, PREVIEW_MAX_LINES).join("\n"),
+    text: lines.slice(0, PREVIEW_MAX_LINES).join('\n'),
     truncated: true,
     totalLines: lines.length,
-  };
-});
+  }
+})
 
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
-    case "running":
-      return "⋯";
-    case "done":
-      return "✓";
-    case "error":
-      return "✗";
+    case 'running':
+      return '⋯'
+    case 'done':
+      return '✓'
+    case 'error':
+      return '✗'
     default:
-      return "?";
+      return '?'
   }
-});
+})
 
-const statusClass = computed(() => `status-${props.call.status}`);
+const statusClass = computed(() => `status-${props.call.status}`)
 
 // 降级显示
 const fallback = computed(() => {
   if (!parsedArgs.value) {
-    return JSON.stringify(props.call.args ?? {}, null, 2);
+    return JSON.stringify(props.call.args ?? {}, null, 2)
   }
-  return "";
-});
+  return ''
+})
 </script>
 
 <template>
@@ -215,7 +216,7 @@ const fallback = computed(() => {
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -234,7 +235,7 @@ const fallback = computed(() => {
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -279,7 +280,7 @@ const fallback = computed(() => {
 .line-count {
   font-size: 9px;
   color: fade(@ink, 50%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
 .content-body {
@@ -295,7 +296,7 @@ const fallback = computed(() => {
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   color: fade(@ink, 86%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
   white-space: pre-wrap;

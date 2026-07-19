@@ -8,26 +8,26 @@
  * toLocaleString 分隔符差异；now 可注入（测试用），默认 Date.now()。
  */
 export function formatTime(ts?: number, now: number = Date.now()): string {
-  if (ts === undefined || ts === null || !Number.isFinite(ts)) return "";
-  const t = new Date(ts);
-  const n = new Date(now);
-  const pad = (v: number): string => String(v).padStart(2, "0");
-  const hh = pad(t.getHours());
-  const mm = pad(t.getMinutes());
+  if (ts === undefined || ts === null || !Number.isFinite(ts)) return ''
+  const t = new Date(ts)
+  const n = new Date(now)
+  const pad = (v: number): string => String(v).padStart(2, '0')
+  const hh = pad(t.getHours())
+  const mm = pad(t.getMinutes())
   // 同天：仅显 HH:MM
   if (
     t.getFullYear() === n.getFullYear() &&
     t.getMonth() === n.getMonth() &&
     t.getDate() === n.getDate()
   ) {
-    return `${hh}:${mm}`;
+    return `${hh}:${mm}`
   }
-  const month = pad(t.getMonth() + 1);
-  const day = pad(t.getDate());
+  const month = pad(t.getMonth() + 1)
+  const day = pad(t.getDate())
   // 跨年（同年不同日已在上面排掉，此分支仅处理不同年）
   if (t.getFullYear() !== n.getFullYear()) {
-    return `${t.getFullYear()}-${month}-${day} ${hh}:${mm}`;
+    return `${t.getFullYear()}-${month}-${day} ${hh}:${mm}`
   }
   // 跨天（同年内）
-  return `${month}-${day} ${hh}:${mm}`;
+  return `${month}-${day} ${hh}:${mm}`
 }

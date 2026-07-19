@@ -8,38 +8,39 @@
  *   - 显示完整技能指令
  *   - 行数统计："N 行指令"
  */
-import { computed, ref } from "vue";
-import type { RendererProps, SkillArgs } from "./types";
+import { computed, ref } from 'vue'
+import type { RendererProps, SkillArgs } from './types'
 
-const props = defineProps<RendererProps>();
+const props = defineProps<RendererProps>()
 
-const showContent = ref(false);
+const showContent = ref(false)
 
 // 解析参数
 const parsedArgs = computed<SkillArgs | null>(() => {
   try {
-    const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
-    const obj = JSON.parse(raw) as SkillArgs;
-    if (obj.name) return obj;
-    return null;
+    const raw =
+      typeof props.call.args === 'string' ? props.call.args : JSON.stringify(props.call.args ?? {})
+    const obj = JSON.parse(raw) as SkillArgs
+    if (obj.name) return obj
+    return null
   } catch (e) {
-    console.warn("[SkillRenderer] args 解析失败", e);
-    return null;
+    console.warn('[SkillRenderer] args 解析失败', e)
+    return null
   }
-});
+})
 
 // 从 result 提取技能名和内容
 const skillInfo = computed<{ name: string; content: string } | null>(() => {
-  if (!props.call.result || typeof props.call.result !== "string") return null;
-  const text = props.call.result as string;
+  if (!props.call.result || typeof props.call.result !== 'string') return null
+  const text = props.call.result as string
 
   // 匹配 "技能名" 技能已激活。以下是完整指令...\n\n内容
-  const match = text.match(/"([^"]+)" 技能已激活[^\n]*\n\n([\s\S]*)$/);
+  const match = text.match(/"([^"]+)" 技能已激活[^\n]*\n\n([\s\S]*)$/)
   if (match && match[1] && match[2]) {
     return {
       name: match[1],
       content: match[2].trim(),
-    };
+    }
   }
 
   // 降级：使用参数中的 name
@@ -47,41 +48,41 @@ const skillInfo = computed<{ name: string; content: string } | null>(() => {
     return {
       name: parsedArgs.value.name,
       content: text,
-    };
+    }
   }
 
-  return null;
-});
+  return null
+})
 
 // 行数统计
 const lineCount = computed(() => {
-  const content = skillInfo.value?.content ?? "";
-  return content.split("\n").length;
-});
+  const content = skillInfo.value?.content ?? ''
+  return content.split('\n').length
+})
 
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
-    case "running":
-      return "⋯";
-    case "done":
-      return "✓";
-    case "error":
-      return "✗";
+    case 'running':
+      return '⋯'
+    case 'done':
+      return '✓'
+    case 'error':
+      return '✗'
     default:
-      return "?";
+      return '?'
   }
-});
+})
 
-const statusClass = computed(() => `status-${props.call.status}`);
+const statusClass = computed(() => `status-${props.call.status}`)
 
 // 降级显示
 const fallback = computed(() => {
   if (!parsedArgs.value) {
-    return JSON.stringify(props.call.args ?? {}, null, 2);
+    return JSON.stringify(props.call.args ?? {}, null, 2)
   }
-  return "";
-});
+  return ''
+})
 </script>
 
 <template>
@@ -89,7 +90,7 @@ const fallback = computed(() => {
     <div class="skill-head">
       <span class="skill-icon" aria-hidden="true">⚡</span>
       <span class="skill-name">激活技能</span>
-      <span class="skill-type">{{ skillInfo?.name ?? parsedArgs?.name ?? "unknown" }}</span>
+      <span class="skill-type">{{ skillInfo?.name ?? parsedArgs?.name ?? 'unknown' }}</span>
       <span class="skill-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
 
@@ -217,7 +218,7 @@ const fallback = computed(() => {
 .line-count {
   font-size: 9px;
   color: fade(@ink, 50%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
 .content-body {
@@ -233,7 +234,7 @@ const fallback = computed(() => {
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   color: fade(@ink, 86%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -247,7 +248,7 @@ const fallback = computed(() => {
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;

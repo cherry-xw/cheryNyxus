@@ -4,27 +4,32 @@
  * 两个标题组（理解 / 生成），每组 3 个 icon。
  * 每项默认 element-plus icon，active 切 emoji（3D flip 卡翻转动画）。
  */
-import { Microphone, Picture, VideoCamera } from "@element-plus/icons-vue";
-import type { Component } from "vue";
-import type { MediaCapabilitiesDto } from "@/services/agentApi";
+import { Microphone, Picture, VideoCamera } from '@element-plus/icons-vue'
+import type { Component } from 'vue'
+import type { MediaCapabilitiesDto } from '@/services/agentApi'
 
-type Kind = keyof MediaCapabilitiesDto;
+type Kind = keyof MediaCapabilitiesDto
 
-const MEDIA_CAPS: readonly { key: Kind; inputEmoji: string; generateEmoji: string; icon: Component }[] = [
-  { key: "image", inputEmoji: "🖼️", generateEmoji: "🎨", icon: Picture },
-  { key: "video", inputEmoji: "🎞️", generateEmoji: "🎬", icon: VideoCamera },
-  { key: "audio", inputEmoji: "🔊", generateEmoji: "🎵", icon: Microphone },
-];
+const MEDIA_CAPS: readonly {
+  key: Kind
+  inputEmoji: string
+  generateEmoji: string
+  icon: Component
+}[] = [
+  { key: 'image', inputEmoji: '🖼️', generateEmoji: '🎨', icon: Picture },
+  { key: 'video', inputEmoji: '🎞️', generateEmoji: '🎬', icon: VideoCamera },
+  { key: 'audio', inputEmoji: '🔊', generateEmoji: '🎵', icon: Microphone },
+]
 
 defineProps<{
-  input: MediaCapabilitiesDto;
-  generate: MediaCapabilitiesDto;
-  disabled?: boolean;
-}>();
+  input: MediaCapabilitiesDto
+  generate: MediaCapabilitiesDto
+  disabled?: boolean
+}>()
 
 const emit = defineEmits<{
-  (e: "toggle", group: "input" | "generate", kind: Kind): void;
-}>();
+  (e: 'toggle', group: 'input' | 'generate', kind: Kind): void
+}>()
 </script>
 
 <template>
@@ -99,8 +104,16 @@ const emit = defineEmits<{
   gap: 1px;
   padding-right: 2px;
 
-  strong { color: rgba(20, 22, 26, 0.72); font-size: 11px; line-height: 1.1; }
-  small { color: rgba(20, 22, 26, 0.4); font-size: 9px; line-height: 1.1; }
+  strong {
+    color: rgba(20, 22, 26, 0.72);
+    font-size: 11px;
+    line-height: 1.1;
+  }
+  small {
+    color: rgba(20, 22, 26, 0.4);
+    font-size: 9px;
+    line-height: 1.1;
+  }
 }
 
 .cap-item {
@@ -113,18 +126,29 @@ const emit = defineEmits<{
   cursor: pointer;
   perspective: 220px;
   transform-style: preserve-3d;
-  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 
   &:hover:not(:disabled) {
     border-color: rgba(190, 132, 28, 0.3);
     background: rgba(246, 183, 60, 0.08);
   }
 
-  &:active:not(:disabled) { transform: scale(0.96); }
+  &:active:not(:disabled) {
+    transform: scale(0.96);
+  }
 
-  &:focus-visible { outline: 2px solid rgba(246, 183, 60, 0.65); outline-offset: 1px; }
+  &:focus-visible {
+    outline: 2px solid rgba(246, 183, 60, 0.65);
+    outline-offset: 1px;
+  }
 
-  &:disabled { opacity: 0.38; cursor: not-allowed; }
+  &:disabled {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
 
   &.active {
     border-color: rgba(190, 132, 28, 0.34);
@@ -157,8 +181,12 @@ const emit = defineEmits<{
   line-height: 1;
 }
 
-.cap-item.active .cap-front { transform: rotateY(180deg); }
-.cap-item.active .cap-back { transform: rotateY(0deg); }
+.cap-item.active .cap-front {
+  transform: rotateY(180deg);
+}
+.cap-item.active .cap-back {
+  transform: rotateY(0deg);
+}
 
 .cap-icon {
   width: 13px;
@@ -167,12 +195,22 @@ const emit = defineEmits<{
 
 @media (prefers-reduced-motion: reduce) {
   .cap-face,
-  .cap-item { transition: none; }
-  .cap-item:active:not(:disabled) { transform: none; }
+  .cap-item {
+    transition: none;
+  }
+  .cap-item:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 @media (max-width: 560px) {
-  .cap-row { flex-wrap: wrap; gap: 8px; }
-  .cap-item { width: 22px; height: 22px; }
+  .cap-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .cap-item {
+    width: 22px;
+    height: 22px;
+  }
 }
 </style>

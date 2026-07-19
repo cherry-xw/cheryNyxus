@@ -7,63 +7,68 @@
  * - 连接非 connected 时禁用（避免在断连下创建无意义 chat）
  * 创建失败显性化（规则 12）：error ref + console.error，不静默吞。
  */
-import { computed, ref } from "vue";
-import { useAgentsStore, useConnectionStore } from "@/stores";
-import { agentApi } from "@/services/agentApi";
-import PresetPicker from "./PresetPicker.vue";
+import { computed, ref } from 'vue'
+import { useAgentsStore, useConnectionStore } from '@/stores'
+import { agentApi } from '@/services/agentApi'
+import PresetPicker from './PresetPicker.vue'
 
-const agents = useAgentsStore();
-const conn = useConnectionStore();
+const agents = useAgentsStore()
+const conn = useConnectionStore()
 
-const creating = ref(false);
-const error = ref<string | null>(null);
+const creating = ref(false)
+const error = ref<string | null>(null)
 
 const statusColor = computed(() => {
   switch (conn.status) {
-    case "connected":
-      return "#22c55e";
-    case "connecting":
-      return "#eab308";
+    case 'connected':
+      return '#22c55e'
+    case 'connecting':
+      return '#eab308'
     default:
-      return "#9ca3af";
+      return '#9ca3af'
   }
-});
+})
 
-const disabled = computed(() => creating.value || conn.status !== "connected");
+const disabled = computed(() => creating.value || conn.status !== 'connected')
 
 async function pickPreset(name: string): Promise<void> {
-  await runCreate({ preset: name });
+  await runCreate({ preset: name })
 }
 
 /** 无预设兜底：brain.list[0] + 空感官组（旧 config.default 已并入「默认」预设，零预设时无编制可用） */
 async function createFallback(): Promise<void> {
-  let firstBrain = "longcat";
+  let firstBrain = 'longcat'
   try {
-    const list = await agentApi.listBrains();
-    firstBrain = list.brains[0]?.name ?? "longcat";
+    const list = await agentApi.listBrains()
+    firstBrain = list.brains[0]?.name ?? 'longcat'
   } catch (e) {
-    console.warn("[AgentFab] brain.list unavailable, fallback brain longcat:", (e as Error).message);
+    console.warn('[AgentFab] brain.list unavailable, fallback brain longcat:', (e as Error).message)
   }
-  await runCreate({ brain: firstBrain, senseGroup: "", mcpServers: [] });
+  await runCreate({ brain: firstBrain, senseGroup: '', mcpServers: [] })
 }
 
-async function runCreate(opts: { preset?: string; brain?: string; senseGroup?: string; mcpServers?: string[] }): Promise<void> {
-  creating.value = true;
-  error.value = null;
+async function runCreate(opts: {
+  preset?: string
+  brain?: string
+  senseGroup?: string
+  mcpServers?: string[]
+}): Promise<void> {
+  creating.value = true
+  error.value = null
   try {
-    await agents.createMasterPet(opts);
+    await agents.createMasterPet(opts)
   } catch (e) {
-    error.value = (e as Error).message;
-    console.error("[AgentFab] createMasterPet failed:", e);
+    error.value = (e as Error).message
+    console.error('[AgentFab] createMasterPet failed:', e)
   } finally {
-    creating.value = false;
+    creating.value = false
   }
 }
 
 /** CP8：打开历史会话列表（SessionList 抽屉 watch historyListOpen→true 时 fetchHistoryList）。 */
 function openSessions(): void {
-  if (conn.status !== "connected") return;
-  agents.historyListOpen = true;
+  if (conn.status !== 'connected') return
+  agents.historyListOpen = true
 }
 </script>
 
@@ -76,7 +81,7 @@ function openSessions(): void {
         :disabled="disabled"
         :aria-label="creating ? 'Creating master agent' : 'Create master agent'"
       >
-        <span class="plus">{{ creating ? "…" : "+" }}</span>
+        <span class="plus">{{ creating ? '…' : '+' }}</span>
       </button>
     </PresetPicker>
     <button

@@ -1,13 +1,13 @@
-import type { Ref } from "vue";
-import { agentApi, type ChatSendAttachment, type RuntimeSelection } from "@/services/agentApi";
-import { applyRoleAvatar, generatePet, GHOST_FACES } from "@/features/pets/petPresets";
-import { findSpawnPosition } from "@/features/pets/petMovement";
-import { createPetInstance } from "@/features/pets/usePetWorld";
-import type { PetInstance, PetMood } from "@/features/pets/types";
-import type { ChatSummary } from "@/services/agentApi";
-import type { StreamState } from "./types";
-import { defaultBounds } from "./streamAccumulator";
-import { collectDescendantChatIds } from "./historyMerge";
+import type { Ref } from 'vue'
+import { agentApi, type ChatSendAttachment, type RuntimeSelection } from '@/services/agentApi'
+import { applyRoleAvatar, generatePet, GHOST_FACES } from '@/features/pets/petPresets'
+import { findSpawnPosition } from '@/features/pets/petMovement'
+import { createPetInstance } from '@/features/pets/usePetWorld'
+import type { PetInstance, PetMood } from '@/features/pets/types'
+import type { ChatSummary } from '@/services/agentApi'
+import type { StreamState } from './types'
+import { defaultBounds } from './streamAccumulator'
+import { collectDescendantChatIds } from './historyMerge'
 
 /**
  * 按 tribe（同主）内创建序号顺序取灵魂 emoji：第 N 个 ghost = GHOST_FACES[N % 池长]。
@@ -16,9 +16,13 @@ import { collectDescendantChatIds } from "./historyMerge";
  * 不同主可同 emoji（空间分离可辨）。face 序号 = 队列序号（ghostCreatedAt 顺序），face 与队列位一一对应。
  * done 实时 + buildMasterAndChildren 重建两处共用。
  */
-export function pickGhostFace(tribe: string, pets: readonly PetInstance[], selfId?: string): string {
-  const count = pets.filter((p) => p.isGhost && p.tribe === tribe && p.instanceId !== selfId).length;
-  return GHOST_FACES[count % GHOST_FACES.length] ?? "👻";
+export function pickGhostFace(
+  tribe: string,
+  pets: readonly PetInstance[],
+  selfId?: string,
+): string {
+  const count = pets.filter((p) => p.isGhost && p.tribe === tribe && p.instanceId !== selfId).length
+  return GHOST_FACES[count % GHOST_FACES.length] ?? '👻'
 }
 
 /**
@@ -28,15 +32,27 @@ export function pickGhostFace(tribe: string, pets: readonly PetInstance[], selfI
  * callerSubPetChatId = 父 chat（主 chat 或上层 sub chat）— 用于 MessageBubble 徽章区分 caller。
  */
 export function remapChildHistory(
-  items: readonly import("./types").HistoryItem[],
+  items: readonly import('./types').HistoryItem[],
   childChatId: string,
   parentChatId: string,
-): import("./types").HistoryItem[] {
+): import('./types').HistoryItem[] {
   return items.map((item) => {
-    if (item.role === "assistant") return { ...item, role: "role" as const, subPetChatId: childChatId, callerSubPetChatId: parentChatId };
-    if (item.role === "user") return { ...item, role: "master" as const, subPetChatId: childChatId, callerSubPetChatId: parentChatId };
-    return item;
-  });
+    if (item.role === 'assistant')
+      return {
+        ...item,
+        role: 'role' as const,
+        subPetChatId: childChatId,
+        callerSubPetChatId: parentChatId,
+      }
+    if (item.role === 'user')
+      return {
+        ...item,
+        role: 'master' as const,
+        subPetChatId: childChatId,
+        callerSubPetChatId: parentChatId,
+      }
+    return item
+  })
 }
 
 export function createPetLifecycle(
@@ -59,54 +75,59 @@ export function createPetLifecycle(
     bounds: { width: number; height: number },
     usedFaces: Set<Record<PetMood, string>>,
   ): void {
-    const preset = generatePet("kaomoji", usedFaces, masterSummary.chatId);
-    usedFaces.add(preset.face);
-    const master = createPetInstance(preset, bounds, true, undefined, { chatId: masterSummary.chatId });
-    master.preset = masterSummary.preset;
-    master.canResume = masterSummary.canResume;
+    const preset = generatePet('kaomoji', usedFaces, masterSummary.chatId)
+    usedFaces.add(preset.face)
+    const master = createPetInstance(preset, bounds, true, undefined, {
+      chatId: masterSummary.chatId,
+    })
+    master.preset = masterSummary.preset
+    master.canResume = masterSummary.canResume
     if (masterSummary.workspace) {
-      master.workspace = masterSummary.workspace;
-      master.workspaceValid = masterSummary.workspaceValid;
+      master.workspace = masterSummary.workspace
+      master.workspaceValid = masterSummary.workspaceValid
     }
-    pets.value.push(master);
+    pets.value.push(master)
 
-    const visited = new Set<string>([masterSummary.chatId]);
+    const visited = new Set<string>([masterSummary.chatId])
     const addChildren = (parentSummary: ChatSummary, parentPet: PetInstance): void => {
       const children = allChats
         .filter((c) => c.parentChatId === parentSummary.chatId)
-        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
       for (const child of children) {
         if (visited.has(child.chatId)) {
-          console.warn("[agents] 跳过循环 parentChatId", { chatId: child.chatId, parentChatId: child.parentChatId });
-          continue;
+          console.warn('[agents] 跳过循环 parentChatId', {
+            chatId: child.chatId,
+            parentChatId: child.parentChatId,
+          })
+          continue
         }
-        visited.add(child.chatId);
-        const sub = applyRoleAvatar(generatePet("emoji", usedFaces), child.avatar);
-        usedFaces.add(sub.face);
+        visited.add(child.chatId)
+        const sub = applyRoleAvatar(generatePet('emoji', usedFaces), child.avatar)
+        usedFaces.add(sub.face)
         const pet = createPetInstance(sub, bounds, false, master.instanceId, {
           chatId: child.chatId,
           parentChatId: parentSummary.chatId,
           agentType: child.agentType,
           finished: child.finished,
-        });
+        })
         if (child.workspace) {
-          pet.workspace = child.workspace;
-          pet.workspaceValid = child.workspaceValid;
+          pet.workspace = child.workspace
+          pet.workspaceValid = child.workspaceValid
         }
         if (child.finished) {
-          pet.ghostFace = pickGhostFace(master.instanceId, pets.value, pet.instanceId);
-          pet.ghostCreatedAt = performance.now();
+          pet.ghostFace = pickGhostFace(master.instanceId, pets.value, pet.instanceId)
+          pet.ghostCreatedAt = performance.now()
         }
-        const pos = findSpawnPosition({ x: parentPet.x, y: parentPet.y }, pets.value, bounds);
-        pet.x = pos.x;
-        pet.y = pos.y;
-        pet.targetX = pos.x;
-        pet.targetY = pos.y;
-        pets.value.push(pet);
-        addChildren(child, pet);
+        const pos = findSpawnPosition({ x: parentPet.x, y: parentPet.y }, pets.value, bounds)
+        pet.x = pos.x
+        pet.y = pos.y
+        pet.targetX = pos.x
+        pet.targetY = pos.y
+        pets.value.push(pet)
+        addChildren(child, pet)
       }
-    };
-    addChildren(masterSummary, master);
+    }
+    addChildren(masterSummary, master)
   }
 
   /**
@@ -116,32 +137,32 @@ export function createPetLifecycle(
    */
   async function createMasterPet(opts: {
     /** 预设名（T6）：给出则后端从预设解析编制，brain/senseGroup 可省 */
-    preset?: string;
-    brain?: string;
-    senseGroup?: string;
-    mcpServers?: string[];
-    chatId?: string;
+    preset?: string
+    brain?: string
+    senseGroup?: string
+    mcpServers?: string[]
+    chatId?: string
   }): Promise<string> {
-    const result = await agentApi.createAgent(opts);
-    const chatId = result.chatId;
-    const bounds = defaultBounds();
-    const usedFaces = new Set(pets.value.map((p) => p.face));
-    const preset = generatePet("kaomoji", usedFaces, chatId);
-    const pet = createPetInstance(preset, bounds, true, undefined, { chatId });
+    const result = await agentApi.createAgent(opts)
+    const chatId = result.chatId
+    const bounds = defaultBounds()
+    const usedFaces = new Set(pets.value.map((p) => p.face))
+    const preset = generatePet('kaomoji', usedFaces, chatId)
+    const pet = createPetInstance(preset, bounds, true, undefined, { chatId })
     // 记录初始 runtime（后端响应回填：预设路径编制由后端解析；显式路径 = 传入值）+ 预设名。
     // AgentDialog 首次发送对比 = 相同（无需 runtime.set）；preset pet 切 brain-only。
-    pet.preset = opts.preset;
+    pet.preset = opts.preset
     pet.runtime = {
       brain: result.brain,
       senseGroup: result.senseGroup,
       mcpServers: [...result.mcpServers],
-    };
-    if (result.workspace) {
-      pet.workspace = result.workspace;
-      pet.workspaceValid = result.workspaceValid;
     }
-    pets.value.push(pet);
-    return chatId;
+    if (result.workspace) {
+      pet.workspace = result.workspace
+      pet.workspaceValid = result.workspaceValid
+    }
+    pets.value.push(pet)
+    return chatId
   }
 
   /**
@@ -150,11 +171,8 @@ export function createPetLifecycle(
    * 调用方须保证非 isWorking（PetToolbar destroy 按钮 disabled 守卫：pet.isWorking || hasWorkingChild）。
    */
   function hide(chatId: string): void {
-    const removeIds = [
-      chatId,
-      ...collectDescendantChatIds(pets.value, chatId),
-    ];
-    removePetsByIds(removeIds);
+    const removeIds = [chatId, ...collectDescendantChatIds(pets.value, chatId)]
+    removePetsByIds(removeIds)
   }
 
   /**
@@ -162,11 +180,11 @@ export function createPetLifecycle(
    * 前端同步移除 historyList + pets（若在 stage）+ active 焦点。
    */
   async function deleteSession(chatId: string): Promise<void> {
-    await agentApi.destroyAgent(chatId);
-    const childIds = collectDescendantChatIds(historyList.value, chatId);
-    const removeIds = [chatId, ...childIds];
-    historyList.value = historyList.value.filter((c) => !removeIds.includes(c.chatId));
-    removePetsByIds(removeIds);
+    await agentApi.destroyAgent(chatId)
+    const childIds = collectDescendantChatIds(historyList.value, chatId)
+    const removeIds = [chatId, ...childIds]
+    historyList.value = historyList.value.filter((c) => !removeIds.includes(c.chatId))
+    removePetsByIds(removeIds)
   }
 
   /**
@@ -175,18 +193,18 @@ export function createPetLifecycle(
    */
   function loadSession(chatId: string): void {
     if (pets.value.some((p) => p.chatId === chatId)) {
-      historyListOpen.value = false;
-      return;
+      historyListOpen.value = false
+      return
     }
-    const masterSummary = historyList.value.find((c) => c.chatId === chatId);
+    const masterSummary = historyList.value.find((c) => c.chatId === chatId)
     if (!masterSummary) {
-      console.warn("[agents] loadSession: 会话不在 historyList", chatId);
-      return;
+      console.warn('[agents] loadSession: 会话不在 historyList', chatId)
+      return
     }
-    const bounds = defaultBounds();
-    const usedFaces = new Set(pets.value.map((p) => p.face));
-    buildMasterAndChildren(masterSummary, historyList.value, bounds, usedFaces);
-    historyListOpen.value = false;
+    const bounds = defaultBounds()
+    const usedFaces = new Set(pets.value.map((p) => p.face))
+    buildMasterAndChildren(masterSummary, historyList.value, bounds, usedFaces)
+    historyListOpen.value = false
   }
 
   return {
@@ -197,5 +215,5 @@ export function createPetLifecycle(
     loadSession,
     pickGhostFace,
     remapChildHistory,
-  };
+  }
 }

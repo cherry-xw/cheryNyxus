@@ -1,6 +1,6 @@
-import { readdirSync, existsSync } from "fs";
-import { join, relative, dirname, sep } from "path";
-import config from "@/utils/config.js";
+import { readdirSync, existsSync } from 'fs'
+import { join, relative, dirname, sep } from 'path'
+import config from '@/utils/config.js'
 
 /**
  * 递归遍历 .chery/prompt/，收集所有 .md 文件的相对路径（相对 .chery/，含 prompt/ 前缀）。
@@ -12,25 +12,25 @@ import config from "@/utils/config.js";
  * 返回值即 systemPrompt 的存储值（相对 .chery/ 路径），供 prompts.list RPC + 前端级联选择器。
  */
 export function listPrompts(): string[] {
-  const promptsDir = config.global.prompts_dir;
-  if (!existsSync(promptsDir)) return [];
+  const promptsDir = config.global.prompts_dir
+  if (!existsSync(promptsDir)) return []
 
-  const cheryDir = dirname(promptsDir); // .chery/ = prompts 的父目录
-  const result: string[] = [];
+  const cheryDir = dirname(promptsDir) // .chery/ = prompts 的父目录
+  const result: string[] = []
 
   const walk = (dir: string): void => {
     for (const ent of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, ent.name);
+      const full = join(dir, ent.name)
       if (ent.isDirectory()) {
-        walk(full);
-      } else if (ent.isFile() && ent.name.toLowerCase().endsWith(".md")) {
+        walk(full)
+      } else if (ent.isFile() && ent.name.toLowerCase().endsWith('.md')) {
         // 跳过全局 base system.md（角色 override 不应引用自身）
-        if (ent.name.toLowerCase() === "system.md") continue;
-        result.push(relative(cheryDir, full).split(sep).join("/"));
+        if (ent.name.toLowerCase() === 'system.md') continue
+        result.push(relative(cheryDir, full).split(sep).join('/'))
       }
     }
-  };
+  }
 
-  walk(promptsDir);
-  return result.sort();
+  walk(promptsDir)
+  return result.sort()
 }

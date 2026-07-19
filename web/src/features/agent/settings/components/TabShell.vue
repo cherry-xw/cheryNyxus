@@ -11,31 +11,37 @@
  *  - popper slot 接收 { item, index }，由各 tab 定制 mini 卡面内容。
  *  - 超过 20 项时自动启用 IndexPaginator 翻页器。
  */
-import { computed, inject, ref } from "vue";
-import IndexPaginator from "./IndexPaginator.vue";
-import { SETTINGS_ACTIVE_TAB_KEY, type TabKey } from "../constants";
+import { computed, inject, ref } from 'vue'
+import IndexPaginator from './IndexPaginator.vue'
+import { SETTINGS_ACTIVE_TAB_KEY, type TabKey } from '../constants'
 
 export interface IndexItem {
   /** 卡面标题（必填，popper 内主标题；按钮 aria-label 也用这个） */
-  label: string;
+  label: string
   /** 滚动锚点（与卡片 data-anchor 匹配），不填默认用 index */
-  anchor?: string;
+  anchor?: string
   /** tab 自填字段，供 popper slot 渲染 mini 卡面时使用 */
-  [key: string]: unknown;
+  [key: string]: unknown
 }
 
-const props = defineProps<{ tabKey: TabKey; indexItems?: IndexItem[]; page?: number; pageSize?: number; total?: number }>();
-const emit = defineEmits<{ (e: "page-change", page: number): void }>();
+const props = defineProps<{
+  tabKey: TabKey
+  indexItems?: IndexItem[]
+  page?: number
+  pageSize?: number
+  total?: number
+}>()
+const emit = defineEmits<{ (e: 'page-change', page: number): void }>()
 
-const scrollRef = ref<HTMLElement | null>(null);
-const activeTab = inject(SETTINGS_ACTIVE_TAB_KEY);
-const isActive = computed(() => activeTab?.value === props.tabKey);
+const scrollRef = ref<HTMLElement | null>(null)
+const activeTab = inject(SETTINGS_ACTIVE_TAB_KEY)
+const isActive = computed(() => activeTab?.value === props.tabKey)
 
 function scrollTo(item: IndexItem, i: number): void {
-  const anchor = item.anchor ?? String(i);
-  const el = scrollRef.value?.querySelector<HTMLElement>(`[data-anchor="${anchor}"]`);
-  if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  const anchor = item.anchor ?? String(i)
+  const el = scrollRef.value?.querySelector<HTMLElement>(`[data-anchor="${anchor}"]`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 </script>
 
@@ -74,7 +80,10 @@ function scrollTo(item: IndexItem, i: number): void {
 
 <style scoped lang="less">
 // .shell-* 版式原语已上提 shared.less；本组件只留无 DOM 可挂的 popper 副作用样式。
-.tab-shell-root { height:100%;min-height:0; }
+.tab-shell-root {
+  height: 100%;
+  min-height: 0;
+}
 </style>
 
 <!--
@@ -82,7 +91,7 @@ function scrollTo(item: IndexItem, i: number): void {
   这里用非 scoped 样式定义 mini 卡面基础外观；各 tab 的 popper slot 内复用 .index-card 类即可。
 -->
 <style lang="less">
-@import "../shared.less";
+@import '../shared.less';
 
 .index-card-popper-wrap {
   // 覆盖 el-popover 默认内边距，让 mini 卡面贴边。

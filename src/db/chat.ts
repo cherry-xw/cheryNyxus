@@ -1,61 +1,61 @@
-import { getSoulDb, getMonthlyDb } from "./index.js";
-import { safeJsonParse } from "@/utils/json.js";
+import { getSoulDb, getMonthlyDb } from './index.js'
+import { safeJsonParse } from '@/utils/json.js'
 
 export interface ChatRow {
-  id: string;
-  messages_month: string;
-  created_at: number;
-  updated_at: number;
-  metadata: string | null;
-  message_count: number;
+  id: string
+  messages_month: string
+  created_at: number
+  updated_at: number
+  metadata: string | null
+  message_count: number
   /**
    * 角色（子 pet）关联主 chat 的 chatId；主 chat 为 NULL。
    * 可选：旧库未补列前查询结果可能缺该字段（CREATE 后 ensureChatColumn 已统一补，运行时恒存在）。
    */
-  parent_chat_id?: string | null;
+  parent_chat_id?: string | null
 }
 
 export interface MessageRow {
-  id: string;
-  chat_id: string;
-  role: string;
-  content: string | null;
-  thinking: string | null;
-  sense_calls: string | null;
-  hash: string | null;
-  replace_state: number | null;
-  replace_by: string | null;
-  replace_content: string | null;
-  original_content: string | null;
-  revoked: number;
-  created_at: number;
+  id: string
+  chat_id: string
+  role: string
+  content: string | null
+  thinking: string | null
+  sense_calls: string | null
+  hash: string | null
+  replace_state: number | null
+  replace_by: string | null
+  replace_content: string | null
+  original_content: string | null
+  revoked: number
+  created_at: number
   /** JSON {brain,senseGroup,mcpServers}，仅 user 消息记（发送时配置）；assistant/sense 为 null */
-  runtime: string | null;
-  context_compaction?: number | null;
-  context_compaction_tokens?: number | null;
+  runtime: string | null
+  context_compaction?: number | null
+  context_compaction_tokens?: number | null
 }
 
 export interface MessageData {
-  role: "user" | "assistant" | "system" | "sense" | "role" | "subagent"; // role=新（子 pet 回复）；subagent 仅旧历史消息兼容读
-  content?: string;
-  thinking?: string;
+  role: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent 仅旧历史消息兼容读
+  content?: string
+  thinking?: string
   senseCall?: Array<{
-    id: string;
-    name: string;
-    arguments: string;
-  }>;
-  hash?: string;
+    id: string
+    name: string
+    arguments: string
+  }>
+  hash?: string
   replace?: {
-    state: boolean;
-    by: string;
-    content: string;
-  };
-  originalContent?: string;
-  revoked?: boolean;
+    state: boolean
+    by: string
+    content: string
+  }
+  originalContent?: string
+  revoked?: boolean
   /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传 */
-  runtime?: { brain: string; senseGroup: string; mcpServers: string[] };
-  contextCompaction?: boolean;
-  contextCompactionTokens?: number;
+  runtime?: { brain: string; senseGroup: string; mcpServers: string[] }
+  contextCompaction?: boolean
+  contextCompactionTokens?: number
 }
 
 /**
@@ -63,8 +63,8 @@ export interface MessageData {
  * 用于 createChat 时确定该 chat 的 messages 分片月份（创建月固定，跨月不迁移）
  */
 function formatYearMonth(timestamp: number): string {
-  const date = new Date(timestamp);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 }
 
 /**
@@ -75,7 +75,7 @@ function formatYearMonth(timestamp: number): string {
  */
 function assertChanged(result: { changes: number }, context: string): void {
   if (result.changes === 0) {
-    throw new Error(`[db] ${context}: 0 rows affected (expected ≥1)`);
+    throw new Error(`[db] ${context}: 0 rows affected (expected ≥1)`)
   }
 }
 
@@ -89,19 +89,26 @@ export function createChat(
   metadata?: Record<string, unknown>,
   parentChatId?: string,
 ): ChatRow {
-  const db = getSoulDb();
-  const now = Date.now();
-  const messagesMonth = formatYearMonth(now);
+  const db = getSoulDb()
+  const now = Date.now()
+  const messagesMonth = formatYearMonth(now)
 
   const stmt = db.prepare(`
     INSERT INTO chats (id, messages_month, created_at, updated_at, metadata, parent_chat_id)
     VALUES (?, ?, ?, ?, ?, ?)
-  `);
+  `)
 
-  stmt.run(chatId, messagesMonth, now, now, metadata ? JSON.stringify(metadata) : null, parentChatId ?? null);
+  stmt.run(
+    chatId,
+    messagesMonth,
+    now,
+    now,
+    metadata ? JSON.stringify(metadata) : null,
+    parentChatId ?? null,
+  )
 
   // 确保月份文件存在
-  getMonthlyDb(messagesMonth);
+  getMonthlyDb(messagesMonth)
 
   return {
     id: chatId,
@@ -111,59 +118,51 @@ export function createChat(
     metadata: metadata ? JSON.stringify(metadata) : null,
     message_count: 0,
     parent_chat_id: parentChatId ?? null,
-  };
+  }
 }
 
 /**
  * 获取聊天
  */
 export function getChat(chatId: string): ChatRow | undefined {
-  const db = getSoulDb();
-  const stmt = db.prepare("SELECT * FROM chats WHERE id = ?");
-  return stmt.get(chatId) as ChatRow | undefined;
+  const db = getSoulDb()
+  const stmt = db.prepare('SELECT * FROM chats WHERE id = ?')
+  return stmt.get(chatId) as ChatRow | undefined
 }
 
 /**
  * 列出所有聊天（全局，不再按 soulId 过滤）
  */
 export function listAllChats(): ChatRow[] {
-  const db = getSoulDb();
-  const stmt = db.prepare("SELECT * FROM chats ORDER BY updated_at DESC");
-  return stmt.all() as ChatRow[];
+  const db = getSoulDb()
+  const stmt = db.prepare('SELECT * FROM chats ORDER BY updated_at DESC')
+  return stmt.all() as ChatRow[]
 }
 
 /**
  * 更新聊天时间戳
  */
 export function updateChat(chatId: string): void {
-  const db = getSoulDb();
-  const result = db
-    .prepare("UPDATE chats SET updated_at = ? WHERE id = ?")
-    .run(Date.now(), chatId);
-  assertChanged(result, `updateChat(${chatId})`);
+  const db = getSoulDb()
+  const result = db.prepare('UPDATE chats SET updated_at = ? WHERE id = ?').run(Date.now(), chatId)
+  assertChanged(result, `updateChat(${chatId})`)
 }
 
 /**
  * 更新 chat metadata（JSON merge）。
  * patch 浅合并到现有 metadata，避免覆盖其他 key（未来扩展用途不冲突）。
  */
-export function updateChatMetadata(
-  chatId: string,
-  patch: Record<string, unknown>,
-): void {
-  const db = getSoulDb();
-  const row = db
-    .prepare("SELECT metadata FROM chats WHERE id = ?")
-    .get(chatId) as { metadata: string | null } | undefined;
-  if (!row) return;
-  const current = row.metadata
-    ? (safeJsonParse(row.metadata, {}) as Record<string, unknown>)
-    : {};
-  const next = { ...current, ...patch };
+export function updateChatMetadata(chatId: string, patch: Record<string, unknown>): void {
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row) return
+  const current = row.metadata ? (safeJsonParse(row.metadata, {}) as Record<string, unknown>) : {}
+  const next = { ...current, ...patch }
   const result = db
-    .prepare("UPDATE chats SET metadata = ?, updated_at = ? WHERE id = ?")
-    .run(JSON.stringify(next), Date.now(), chatId);
-  assertChanged(result, `updateChatMetadata(${chatId})`);
+    .prepare('UPDATE chats SET metadata = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(next), Date.now(), chatId)
+  assertChanged(result, `updateChatMetadata(${chatId})`)
 }
 
 /**
@@ -174,22 +173,22 @@ export function updateChatMetadata(
 export function getChatRuntimeSelection(
   chatId: string,
 ): { brain: string; senseGroup: string; mcpServers: string[] } | undefined {
-  const db = getSoulDb();
-  const row = db
-    .prepare("SELECT metadata FROM chats WHERE id = ?")
-    .get(chatId) as { metadata: string | null } | undefined;
-  if (!row?.metadata) return undefined;
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
   const rt = parsed.runtime as
     | { brain?: string; senseGroup?: string; senseGroups?: string[]; mcpServers?: string[] }
-    | undefined;
-  if (!rt?.brain) return undefined;
+    | undefined
+  if (!rt?.brain) return undefined
   // 单组化：读 senseGroup（新）；兼容旧行 senseGroups[]（取首项）。无迁移脚本，旧 chat 继续可用。
-  const senseGroup = rt.senseGroup ?? (Array.isArray(rt.senseGroups) ? rt.senseGroups[0] : undefined);
-  if (!senseGroup) return undefined;
+  const senseGroup =
+    rt.senseGroup ?? (Array.isArray(rt.senseGroups) ? rt.senseGroups[0] : undefined)
+  if (!senseGroup) return undefined
   // mcpServers 缺省 []：旧 chat metadata 无此字段，视为未启用任何 MCP server（向后兼容）
-  const mcpServers = Array.isArray(rt.mcpServers) ? rt.mcpServers : [];
-  return { brain: rt.brain, senseGroup, mcpServers };
+  const mcpServers = Array.isArray(rt.mcpServers) ? rt.mcpServers : []
+  return { brain: rt.brain, senseGroup, mcpServers }
 }
 
 /**
@@ -200,17 +199,16 @@ export function getChatRuntimeSelection(
  * 字段名通用化（T6）：原 subagentPromptPath 仅子 agent 用，预设主 agent 亦需此机制，统一为 promptPathOverride。
  */
 export function getChatPromptOverride(chatId: string): string | undefined {
-  const db = getSoulDb();
-  const row = db
-    .prepare("SELECT metadata FROM chats WHERE id = ?")
-    .get(chatId) as { metadata: string | null } | undefined;
-  if (!row?.metadata) return undefined;
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
-  const p = parsed.promptPathOverride;
-  if (typeof p !== "string" || p.length === 0) return undefined;
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const p = parsed.promptPathOverride
+  if (typeof p !== 'string' || p.length === 0) return undefined
   // 历史兼容：旧 chat metadata 曾存 `.chery/prompts/...`（有 s），但实际目录是 `.chery/prompt/`（无 s）。
   // 规范化为当前目录名，避免 existsSync 失败导致 userSystem 段显示 0。
-  return p.replace(/\/\.chery\/prompts\//, "/.chery/prompt/");
+  return p.replace(/\/\.chery\/prompts\//, '/.chery/prompt/')
 }
 
 /**
@@ -220,25 +218,26 @@ export function getChatPromptOverride(chatId: string): string | undefined {
  * 任一维度缺省（undefined）= 该维度全部通过；二者皆缺省 → 返回 undefined（全部 skill，向后兼容）。
  * 快照于 chat 创建时（"编制运行后不可改"，同 promptPathOverride）。
  */
-export function getChatSkillFilter(chatId: string): { skills?: string[]; plugins?: string[] } | undefined {
-  const db = getSoulDb();
-  const row = db
-    .prepare("SELECT metadata FROM chats WHERE id = ?")
-    .get(chatId) as { metadata: string | null } | undefined;
-  if (!row?.metadata) return undefined;
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
-  const f = parsed.skillFilter;
-  if (!f || typeof f !== "object") return undefined;
-  const obj = f as Record<string, unknown>;
+export function getChatSkillFilter(
+  chatId: string,
+): { skills?: string[]; plugins?: string[] } | undefined {
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const f = parsed.skillFilter
+  if (!f || typeof f !== 'object') return undefined
+  const obj = f as Record<string, unknown>
   const asStrArr = (v: unknown): string[] | undefined =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
-  const skills = asStrArr(obj.skills);
-  const plugins = asStrArr(obj.plugins);
-  if (skills === undefined && plugins === undefined) return undefined;
-  const filter: { skills?: string[]; plugins?: string[] } = {};
-  if (skills !== undefined) filter.skills = skills;
-  if (plugins !== undefined) filter.plugins = plugins;
-  return filter;
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
+  const skills = asStrArr(obj.skills)
+  const plugins = asStrArr(obj.plugins)
+  if (skills === undefined && plugins === undefined) return undefined
+  const filter: { skills?: string[]; plugins?: string[] } = {}
+  if (skills !== undefined) filter.skills = skills
+  if (plugins !== undefined) filter.plugins = plugins
+  return filter
 }
 
 /**
@@ -247,14 +246,13 @@ export function getChatSkillFilter(chatId: string): { skills?: string[]; plugins
  * 缺省（非预设主 agent / 子 agent / 旧 chat）→ undefined。
  */
 export function getChatPreset(chatId: string): string | undefined {
-  const db = getSoulDb();
-  const row = db
-    .prepare("SELECT metadata FROM chats WHERE id = ?")
-    .get(chatId) as { metadata: string | null } | undefined;
-  if (!row?.metadata) return undefined;
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
-  const p = parsed.preset;
-  return typeof p === "string" && p.length > 0 ? p : undefined;
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const p = parsed.preset
+  return typeof p === 'string' && p.length > 0 ? p : undefined
 }
 
 /**
@@ -263,14 +261,13 @@ export function getChatPreset(chatId: string): string | undefined {
  * 缺省（子 chat 无 preset / 旧主 chat 无此字段）→ undefined → spawn gate 走全集（child）或 live preset 回退（旧主 chat）。
  */
 export function getChatSpawnTypes(chatId: string): string[] | undefined {
-  const db = getSoulDb();
-  const row = db
-    .prepare("SELECT metadata FROM chats WHERE id = ?")
-    .get(chatId) as { metadata: string | null } | undefined;
-  if (!row?.metadata) return undefined;
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
-  const arr = parsed.spawnTypes;
-  return Array.isArray(arr) ? (arr as string[]) : undefined;
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const arr = parsed.spawnTypes
+  return Array.isArray(arr) ? (arr as string[]) : undefined
 }
 
 /**
@@ -280,14 +277,13 @@ export function getChatSpawnTypes(chatId: string): string[] | undefined {
  * 缺省（非预设主 agent / 预设未配 workspace / 旧 chat）→ undefined → 不注入该段。
  */
 export function getChatWorkspace(chatId: string): string | undefined {
-  const db = getSoulDb();
-  const row = db
-    .prepare("SELECT metadata FROM chats WHERE id = ?")
-    .get(chatId) as { metadata: string | null } | undefined;
-  if (!row?.metadata) return undefined;
-  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
-  const ws = parsed.workspace;
-  return typeof ws === "string" && ws.length > 0 ? ws : undefined;
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const ws = parsed.workspace
+  return typeof ws === 'string' && ws.length > 0 ? ws : undefined
 }
 
 /**
@@ -296,30 +292,32 @@ export function getChatWorkspace(chatId: string): string | undefined {
  * 崩溃风险仅留 chat 行未删的孤儿（指向已空 messages 库），可接受。
  */
 export function deleteChat(chatId: string): void {
-  const soulDb = getSoulDb();
+  const soulDb = getSoulDb()
 
   // 1. 查询 messages_month
-  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
-  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
+  const chatStmt = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?')
+  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined
 
-  if (!chat) return;
+  if (!chat) return
 
   // 2. 先删 messages（跨库），finally 删 chat 行避免中途崩溃留孤儿 chat 指向空库
   try {
-    const monthlyDb = getMonthlyDb(chat.messages_month);
+    const monthlyDb = getMonthlyDb(chat.messages_month)
     const clear = monthlyDb.transaction(() => {
-      monthlyDb.prepare(
-        "DELETE FROM question_items WHERE batch_id IN (SELECT batch_id FROM question_batches WHERE chat_id = ?)",
-      ).run(chatId);
-      monthlyDb.prepare("DELETE FROM question_batches WHERE chat_id = ?").run(chatId);
-      monthlyDb.prepare("DELETE FROM question_projection_meta WHERE chat_id = ?").run(chatId);
-      monthlyDb.prepare("DELETE FROM chat_events WHERE chat_id = ?").run(chatId);
-      monthlyDb.prepare("DELETE FROM messages WHERE chat_id = ?").run(chatId);
-    });
-    clear();
+      monthlyDb
+        .prepare(
+          'DELETE FROM question_items WHERE batch_id IN (SELECT batch_id FROM question_batches WHERE chat_id = ?)',
+        )
+        .run(chatId)
+      monthlyDb.prepare('DELETE FROM question_batches WHERE chat_id = ?').run(chatId)
+      monthlyDb.prepare('DELETE FROM question_projection_meta WHERE chat_id = ?').run(chatId)
+      monthlyDb.prepare('DELETE FROM chat_events WHERE chat_id = ?').run(chatId)
+      monthlyDb.prepare('DELETE FROM messages WHERE chat_id = ?').run(chatId)
+    })
+    clear()
   } finally {
-    const stmt = soulDb.prepare("DELETE FROM chats WHERE id = ?");
-    stmt.run(chatId);
+    const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
+    stmt.run(chatId)
   }
 }
 
@@ -328,9 +326,9 @@ export function deleteChat(chatId: string): void {
  * 按 parent_chat_id 索引查 soul.db（子 chat 与主 chat 同库，messages 各自按月分片）。
  */
 export function findChatsByParent(parentChatId: string): ChatRow[] {
-  const soulDb = getSoulDb();
-  const stmt = soulDb.prepare("SELECT * FROM chats WHERE parent_chat_id = ?");
-  return stmt.all(parentChatId) as ChatRow[];
+  const soulDb = getSoulDb()
+  const stmt = soulDb.prepare('SELECT * FROM chats WHERE parent_chat_id = ?')
+  return stmt.all(parentChatId) as ChatRow[]
 }
 
 /**
@@ -339,8 +337,8 @@ export function findChatsByParent(parentChatId: string): ChatRow[] {
  *   定义指令标记后，改为取首条「非指令」user 消息（需查多条 user 消息）。
  */
 function normalizePreview(content: string | null): string {
-  if (!content) return "";
-  return content.replace(/\s+/g, " ").trim().slice(0, 40);
+  if (!content) return ''
+  return content.replace(/\s+/g, ' ').trim().slice(0, 40)
 }
 
 /**
@@ -354,25 +352,25 @@ function normalizePreview(content: string | null): string {
 export function getChatPreviews(
   chats: ChatRow[],
 ): Map<string, { preview: string; turnCount: number }> {
-  const result = new Map<string, { preview: string; turnCount: number }>();
+  const result = new Map<string, { preview: string; turnCount: number }>()
   // 全部 chat 先初始化默认值（无 user 消息的 chat 也有条目）
   for (const c of chats) {
-    result.set(c.id, { preview: "", turnCount: 0 });
+    result.set(c.id, { preview: '', turnCount: 0 })
   }
-  if (chats.length === 0) return result;
+  if (chats.length === 0) return result
 
   // 按 messages_month 分组
-  const byMonth = new Map<string, string[]>();
+  const byMonth = new Map<string, string[]>()
   for (const c of chats) {
-    if (!c.messages_month) continue;
-    const arr = byMonth.get(c.messages_month);
-    if (arr) arr.push(c.id);
-    else byMonth.set(c.messages_month, [c.id]);
+    if (!c.messages_month) continue
+    const arr = byMonth.get(c.messages_month)
+    if (arr) arr.push(c.id)
+    else byMonth.set(c.messages_month, [c.id])
   }
 
   for (const [month, chatIds] of byMonth) {
-    const monthlyDb = getMonthlyDb(month);
-    const placeholders = chatIds.map(() => "?").join(",");
+    const monthlyDb = getMonthlyDb(month)
+    const placeholders = chatIds.map(() => '?').join(',')
     const rows = monthlyDb
       .prepare(
         `SELECT m.chat_id AS chatId,
@@ -385,47 +383,43 @@ export function getChatPreviews(
          GROUP BY m.chat_id`,
       )
       .all(...chatIds) as {
-      chatId: string;
-      firstContent: string | null;
-      turnCount: number;
-    }[];
+      chatId: string
+      firstContent: string | null
+      turnCount: number
+    }[]
 
     for (const r of rows) {
       result.set(r.chatId, {
         preview: normalizePreview(r.firstContent),
         turnCount: r.turnCount,
-      });
+      })
     }
   }
-  return result;
+  return result
 }
 
 /**
  * 添加消息（路由到月份文件）
  */
-export function addMessage(
-  messageId: string,
-  chatId: string,
-  data: MessageData,
-): MessageRow {
+export function addMessage(messageId: string, chatId: string, data: MessageData): MessageRow {
   // 1. 获取 chat 的 messages_month
-  const soulDb = getSoulDb();
-  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
-  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
+  const soulDb = getSoulDb()
+  const chatStmt = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?')
+  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined
 
-  if (!chat) throw new Error(`Chat ${chatId} not found`);
+  if (!chat) throw new Error(`Chat ${chatId} not found`)
 
   // 2. messageId 由调用方传入（checkpoint/loadHistory 生成），直接使用
-  const finalMessageId = messageId;
+  const finalMessageId = messageId
 
   // 3. 路由到月份文件并插入 message
-  const monthlyDb = getMonthlyDb(chat.messages_month);
-  const now = Date.now();
+  const monthlyDb = getMonthlyDb(chat.messages_month)
+  const now = Date.now()
 
   const stmt = monthlyDb.prepare(`
     INSERT INTO messages (id, chat_id, role, content, thinking, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime, context_compaction, context_compaction_tokens)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  `)
 
   stmt.run(
     finalMessageId,
@@ -444,15 +438,15 @@ export function addMessage(
     data.runtime ? JSON.stringify(data.runtime) : null,
     data.contextCompaction ? 1 : 0,
     data.contextCompactionTokens ?? null,
-  );
+  )
 
   // P1-8：维护冗余 message_count，chatList 无需 N+1 查 messages
   const countResult = soulDb
-    .prepare("UPDATE chats SET message_count = message_count + 1 WHERE id = ?")
-    .run(chatId);
-  assertChanged(countResult, `addMessage count (${chatId})`);
+    .prepare('UPDATE chats SET message_count = message_count + 1 WHERE id = ?')
+    .run(chatId)
+  assertChanged(countResult, `addMessage count (${chatId})`)
 
-  updateChat(chatId);
+  updateChat(chatId)
 
   return {
     id: finalMessageId,
@@ -471,7 +465,7 @@ export function addMessage(
     runtime: data.runtime ? JSON.stringify(data.runtime) : null,
     context_compaction: data.contextCompaction ? 1 : 0,
     context_compaction_tokens: data.contextCompactionTokens ?? null,
-  };
+  }
 }
 
 /**
@@ -479,18 +473,18 @@ export function addMessage(
  */
 export function getMessages(chatId: string): MessageRow[] {
   // 1. 获取 chat 的 messages_month
-  const soulDb = getSoulDb();
-  const chatStmt = soulDb.prepare("SELECT messages_month FROM chats WHERE id = ?");
-  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined;
+  const soulDb = getSoulDb()
+  const chatStmt = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?')
+  const chat = chatStmt.get(chatId) as { messages_month: string } | undefined
 
-  if (!chat) return [];
+  if (!chat) return []
 
   // 2. 路由到月份文件
-  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const monthlyDb = getMonthlyDb(chat.messages_month)
 
   // 3. 查询 messages
-  const stmt = monthlyDb.prepare("SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC");
-  return stmt.all(chatId) as MessageRow[];
+  const stmt = monthlyDb.prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC')
+  return stmt.all(chatId) as MessageRow[]
 }
 
 /**
@@ -498,17 +492,16 @@ export function getMessages(chatId: string): MessageRow[] {
  * 返回 null 表示 chat 不存在或无可见消息
  */
 export function getLastMessage(chatId: string): MessageRow | null {
-  const soulDb = getSoulDb();
-  const chat = soulDb
-    .prepare("SELECT messages_month FROM chats WHERE id = ?")
-    .get(chatId) as { messages_month: string } | undefined;
-  if (!chat) return null;
+  const soulDb = getSoulDb()
+  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
+    { messages_month: string } | undefined
+  if (!chat) return null
 
-  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const monthlyDb = getMonthlyDb(chat.messages_month)
   const stmt = monthlyDb.prepare(
-    "SELECT * FROM messages WHERE chat_id = ? AND revoked = 0 ORDER BY created_at DESC LIMIT 1",
-  );
-  return (stmt.get(chatId) as MessageRow) ?? null;
+    'SELECT * FROM messages WHERE chat_id = ? AND revoked = 0 ORDER BY created_at DESC LIMIT 1',
+  )
+  return (stmt.get(chatId) as MessageRow) ?? null
 }
 
 /**
@@ -522,30 +515,29 @@ export function fillApprovalResult(
   messageId: string,
   fields: { content?: string; hash?: string },
 ): void {
-  const soulDb = getSoulDb();
-  const chat = soulDb
-    .prepare("SELECT messages_month FROM chats WHERE id = ?")
-    .get(chatId) as { messages_month: string } | undefined;
-  if (!chat) return;
+  const soulDb = getSoulDb()
+  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
+    { messages_month: string } | undefined
+  if (!chat) return
 
-  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const monthlyDb = getMonthlyDb(chat.messages_month)
 
-  const sets: string[] = [];
-  const vals: unknown[] = [];
+  const sets: string[] = []
+  const vals: unknown[] = []
   if (fields.content !== undefined) {
-    sets.push("content = ?");
-    vals.push(fields.content);
+    sets.push('content = ?')
+    vals.push(fields.content)
   }
   if (fields.hash !== undefined) {
-    sets.push("hash = ?");
-    vals.push(fields.hash);
+    sets.push('hash = ?')
+    vals.push(fields.hash)
   }
-  if (sets.length === 0) return;
+  if (sets.length === 0) return
 
   const result = monthlyDb
-    .prepare(`UPDATE messages SET ${sets.join(", ")} WHERE id = ?`)
-    .run(...vals, messageId);
-  assertChanged(result, `fillApprovalResult(${chatId}/${messageId})`);
+    .prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`)
+    .run(...vals, messageId)
+  assertChanged(result, `fillApprovalResult(${chatId}/${messageId})`)
 }
 
 /**
@@ -562,56 +554,58 @@ export function updateAssistantSenseCalls(
   messageId: string,
   senseCalls: Array<{ id: string; name: string; arguments: string }>,
 ): void {
-  const soulDb = getSoulDb();
-  const chat = soulDb
-    .prepare("SELECT messages_month FROM chats WHERE id = ?")
-    .get(chatId) as { messages_month: string } | undefined;
-  if (!chat) return;
+  const soulDb = getSoulDb()
+  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
+    { messages_month: string } | undefined
+  if (!chat) return
 
-  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const monthlyDb = getMonthlyDb(chat.messages_month)
   const result = monthlyDb
-    .prepare("UPDATE messages SET sense_calls = ? WHERE id = ?")
-    .run(JSON.stringify(senseCalls), messageId);
-  assertChanged(result, `updateAssistantSenseCalls(${chatId}/${messageId})`);
+    .prepare('UPDATE messages SET sense_calls = ? WHERE id = ?')
+    .run(JSON.stringify(senseCalls), messageId)
+  assertChanged(result, `updateAssistantSenseCalls(${chatId}/${messageId})`)
 }
 
 /**
  * 批量标记消息 revoked（chat.resume 撤回时持久化）
  */
 export function markMessagesRevoked(chatId: string, messageIds: string[]): void {
-  if (messageIds.length === 0) return;
-  const soulDb = getSoulDb();
-  const chat = soulDb
-    .prepare("SELECT messages_month FROM chats WHERE id = ?")
-    .get(chatId) as { messages_month: string } | undefined;
-  if (!chat) return;
+  if (messageIds.length === 0) return
+  const soulDb = getSoulDb()
+  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
+    { messages_month: string } | undefined
+  if (!chat) return
 
-  const monthlyDb = getMonthlyDb(chat.messages_month);
-  const placeholders = messageIds.map(() => "?").join(", ");
+  const monthlyDb = getMonthlyDb(chat.messages_month)
+  const placeholders = messageIds.map(() => '?').join(', ')
   const revoke = monthlyDb.transaction(() => {
     const result = monthlyDb
       .prepare(`UPDATE messages SET revoked = 1 WHERE id IN (${placeholders})`)
-      .run(...messageIds);
-    assertChanged(result, `markMessagesRevoked(${chatId}) ids=[${messageIds.join(",")}]`);
+      .run(...messageIds)
+    assertChanged(result, `markMessagesRevoked(${chatId}) ids=[${messageIds.join(',')}]`)
 
     // 新 prompt 撤回整个 trailing assistant/sense 周期时，同步关闭其问题批次。
     // 否则被撤回的旧问题会继续阻塞 canResume，并在刷新快照中重新出现。
-    const now = Date.now();
-    monthlyDb.prepare(
-      `UPDATE question_items
+    const now = Date.now()
+    monthlyDb
+      .prepare(
+        `UPDATE question_items
        SET status = 'cancelled', answer_json = '{"cancelled":true}',
            answer_text = '(问题批次已被新消息取代)', answered_at = ?
        WHERE batch_id IN (
          SELECT batch_id FROM question_batches
          WHERE chat_id = ? AND assistant_message_id IN (${placeholders}) AND status = 'pending'
        ) AND status = 'pending'`,
-    ).run(now, chatId, ...messageIds);
-    monthlyDb.prepare(
-      `UPDATE question_batches SET status = 'completed', completed_at = ?
+      )
+      .run(now, chatId, ...messageIds)
+    monthlyDb
+      .prepare(
+        `UPDATE question_batches SET status = 'completed', completed_at = ?
        WHERE chat_id = ? AND assistant_message_id IN (${placeholders}) AND status = 'pending'`,
-    ).run(now, chatId, ...messageIds);
-  });
-  revoke();
+      )
+      .run(now, chatId, ...messageIds)
+  })
+  revoke()
 }
 
 /**
@@ -623,42 +617,41 @@ export function markMessageReplaced(
   chatId: string,
   messageId: string,
   fields: {
-    content?: string;
-    replace: { state: boolean; by: string; content: string };
-    originalContent?: string;
+    content?: string
+    replace: { state: boolean; by: string; content: string }
+    originalContent?: string
   },
 ): void {
-  const soulDb = getSoulDb();
-  const chat = soulDb
-    .prepare("SELECT messages_month FROM chats WHERE id = ?")
-    .get(chatId) as { messages_month: string } | undefined;
-  if (!chat) return;
+  const soulDb = getSoulDb()
+  const chat = soulDb.prepare('SELECT messages_month FROM chats WHERE id = ?').get(chatId) as
+    { messages_month: string } | undefined
+  if (!chat) return
 
-  const monthlyDb = getMonthlyDb(chat.messages_month);
+  const monthlyDb = getMonthlyDb(chat.messages_month)
   // content 可选：传入则更新（感官去重改写为短说明，剔除冗长重复内容）；
   // 未传则保留原 content，避免误清空。
   // 调用方（observer）经 AgentMessagePatch kind:"replace" 联合类型约束，replace patch 必携带 content，
   // 故运行时 replace 路径总会传 content（confirm/manual 不再因缺 content 导致 DB 保留旧长内容）。
   const sets = [
-    "replace_state = ?",
-    "replace_by = ?",
-    "replace_content = ?",
-    "original_content = ?",
-  ];
+    'replace_state = ?',
+    'replace_by = ?',
+    'replace_content = ?',
+    'original_content = ?',
+  ]
   const vals: unknown[] = [
     fields.replace.state ? 1 : 0,
     fields.replace.by,
     fields.replace.content,
     fields.originalContent ?? null,
-  ];
+  ]
   if (fields.content !== undefined) {
-    sets.push("content = ?");
-    vals.push(fields.content);
+    sets.push('content = ?')
+    vals.push(fields.content)
   }
   const result = monthlyDb
-    .prepare(`UPDATE messages SET ${sets.join(", ")} WHERE id = ?`)
-    .run(...vals, messageId);
-  assertChanged(result, `markMessageReplaced(${chatId}/${messageId})`);
+    .prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`)
+    .run(...vals, messageId)
+  assertChanged(result, `markMessageReplaced(${chatId}/${messageId})`)
 }
 
 /**
@@ -666,26 +659,29 @@ export function markMessageReplaced(
  */
 export function parseMessageRow(row: MessageRow): MessageData {
   return {
-    role: row.role as MessageData["role"],
+    role: row.role as MessageData['role'],
     content: row.content ?? undefined,
     thinking: row.thinking ?? undefined,
     senseCall: row.sense_calls ? safeJsonParse(row.sense_calls, undefined) : undefined,
     hash: row.hash ?? undefined,
     replace: row.replace_state
-      ? { state: true, by: row.replace_by ?? "", content: row.replace_content ?? "" }
+      ? { state: true, by: row.replace_by ?? '', content: row.replace_content ?? '' }
       : undefined,
     originalContent: row.original_content ?? undefined,
     revoked: row.revoked === 1,
     runtime: row.runtime
-      ? safeJsonParse<{
-          brain: string;
-          senseGroup: string;
-          mcpServers: string[];
-        } | undefined>(row.runtime, undefined)
+      ? safeJsonParse<
+          | {
+              brain: string
+              senseGroup: string
+              mcpServers: string[]
+            }
+          | undefined
+        >(row.runtime, undefined)
       : undefined,
     contextCompaction: row.context_compaction === 1,
     contextCompactionTokens: row.context_compaction_tokens ?? undefined,
-  };
+  }
 }
 
 /**
@@ -698,22 +694,22 @@ export function parseMessageRow(row: MessageRow): MessageData {
  * @returns { checked, fixed } — checked 总 chat 数，fixed 修正的漂移数
  */
 export function reconcileMessageCounts(): { checked: number; fixed: number } {
-  const soulDb = getSoulDb();
-  const chats = soulDb
-    .prepare("SELECT id, messages_month, message_count FROM chats")
-    .all() as { id: string; messages_month: string; message_count: number }[];
-  let fixed = 0;
+  const soulDb = getSoulDb()
+  const chats = soulDb.prepare('SELECT id, messages_month, message_count FROM chats').all() as {
+    id: string
+    messages_month: string
+    message_count: number
+  }[]
+  let fixed = 0
   for (const c of chats) {
-    const monthlyDb = getMonthlyDb(c.messages_month);
+    const monthlyDb = getMonthlyDb(c.messages_month)
     const row = monthlyDb
-      .prepare("SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?")
-      .get(c.id) as { n: number };
+      .prepare('SELECT COUNT(*) AS n FROM messages WHERE chat_id = ?')
+      .get(c.id) as { n: number }
     if (row.n !== c.message_count) {
-      soulDb
-        .prepare("UPDATE chats SET message_count = ? WHERE id = ?")
-        .run(row.n, c.id);
-      fixed++;
+      soulDb.prepare('UPDATE chats SET message_count = ? WHERE id = ?').run(row.n, c.id)
+      fixed++
     }
   }
-  return { checked: chats.length, fixed };
+  return { checked: chats.length, fixed }
 }

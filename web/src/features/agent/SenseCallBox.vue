@@ -9,66 +9,59 @@
  *   展开显其余字段 key:value 行。解析失败 → fallback JSON pre。空值不渲染该 section。
  * result 渲染：unknown → string。后端 staged arguments 契约 = JSON 字符串（store 注释），pretty-print；object 走 JSON.stringify。
  */
-import { computed, ref } from "vue";
-import type { SenseCallRecord } from "@/stores/agents";
-import { formatArgValue, formatValue, parseArgs } from "@/utils/parseArgs";
-import { extractMediaUrls } from "@/utils/markdown";
-import MediaInlineRenderer from "./dialog/media/MediaInlineRenderer.vue";
+import { computed, ref } from 'vue'
+import type { SenseCallRecord } from '@/stores/agents'
+import { formatArgValue, formatValue, parseArgs } from '@/utils/parseArgs'
+import { extractMediaUrls } from '@/utils/markdown'
+import MediaInlineRenderer from './dialog/media/MediaInlineRenderer.vue'
 
-const props = defineProps<{ call: SenseCallRecord }>();
+const props = defineProps<{ call: SenseCallRecord }>()
 
-const showArgs = ref(false);
-const showResult = ref(false);
+const showArgs = ref(false)
+const showResult = ref(false)
 
-const argsParsed = computed(() => parseArgs(props.call.args));
-const argsFallback = computed(() => argsParsed.value.fallback);
-const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? []);
-const argsToggleLabel = computed(
-  () => argsParsed.value.parsed?.description ?? "arguments",
-);
+const argsParsed = computed(() => parseArgs(props.call.args))
+const argsFallback = computed(() => argsParsed.value.fallback)
+const argsEntries = computed(() => argsParsed.value.parsed?.entries ?? [])
+const argsToggleLabel = computed(() => argsParsed.value.parsed?.description ?? 'arguments')
 const hasArgs = computed(() => {
-  const { parsed, fallback } = argsParsed.value;
-  if (parsed) return parsed.description != null || parsed.entries.length > 0;
-  return fallback.length > 0;
-});
+  const { parsed, fallback } = argsParsed.value
+  if (parsed) return parsed.description != null || parsed.entries.length > 0
+  return fallback.length > 0
+})
 
-const resultText = computed(() => formatValue(props.call.result));
+const resultText = computed(() => formatValue(props.call.result))
 
 const resultMediaAssets = computed(() => {
-  const text = typeof props.call.result === "string" ? props.call.result : "";
-  return extractMediaUrls(text);
-});
+  const text = typeof props.call.result === 'string' ? props.call.result : ''
+  return extractMediaUrls(text)
+})
 
 const statusGlyph = computed(() => {
   switch (props.call.status) {
-    case "running":
-      return "⋯";
-    case "done":
-      return "✓";
-    case "error":
-      return "✗";
+    case 'running':
+      return '⋯'
+    case 'done':
+      return '✓'
+    case 'error':
+      return '✗'
     default:
-      return "?";
+      return '?'
   }
-});
+})
 
-const statusClass = computed(() => `status-${props.call.status}`);
+const statusClass = computed(() => `status-${props.call.status}`)
 </script>
 
 <template>
   <div class="sense-box">
     <div class="sense-head">
       <span class="sense-icon" aria-hidden="true">⚙</span>
-      <span class="sense-name">{{ props.call.name || "(unknown sense)" }}</span>
+      <span class="sense-name">{{ props.call.name || '(unknown sense)' }}</span>
       <span class="sense-status" :class="statusClass" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
     <div v-if="hasArgs" class="sense-section">
-      <button
-        type="button"
-        class="toggle"
-        :aria-expanded="showArgs"
-        @click="showArgs = !showArgs"
-      >
+      <button type="button" class="toggle" :aria-expanded="showArgs" @click="showArgs = !showArgs">
         <span class="caret" :class="{ open: showArgs }">▸</span>
         <span class="toggle-label">{{ argsToggleLabel }}</span>
       </button>
@@ -95,10 +88,7 @@ const statusClass = computed(() => `status-${props.call.status}`);
       </button>
       <pre v-if="showResult" class="sense-pre">{{ resultText }}</pre>
       <!-- sense 结果内联媒体预览 -->
-      <MediaInlineRenderer
-        v-if="resultMediaAssets.length > 0"
-        :assets="resultMediaAssets"
-      />
+      <MediaInlineRenderer v-if="resultMediaAssets.length > 0" :assets="resultMediaAssets" />
     </div>
   </div>
 </template>
@@ -213,7 +203,7 @@ const statusClass = computed(() => `status-${props.call.status}`);
 
 .arg-key {
   flex-shrink: 0;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   font-weight: 700;
   color: fade(@ink, 64%);
@@ -224,7 +214,7 @@ const statusClass = computed(() => `status-${props.call.status}`);
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
   color: fade(@ink, 86%);
@@ -244,7 +234,7 @@ const statusClass = computed(() => `status-${props.call.status}`);
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   color: fade(@ink, 86%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
   white-space: pre-wrap;

@@ -5,100 +5,110 @@
  * 预设通过 PresetConfig.mediaImage/mediaVideo/mediaAudio 引用此处服务名。
  * 增删改走 EditableTitle + ConfirmPopover；合法性由后端 config.save 校验 fail loud。
  */
-import { ref, computed } from "vue";
-import { Delete } from "@element-plus/icons-vue";
-import type { ConfigDto, MediaKindDto } from "@/services/agentApi";
-import ConfirmPopover from "../ConfirmPopover.vue";
-import EditableTitle from "../components/EditableTitle.vue";
-import TabShell, { type IndexItem } from "../components/TabShell.vue";
+import { ref, computed } from 'vue'
+import { Delete } from '@element-plus/icons-vue'
+import type { ConfigDto, MediaKindDto } from '@/services/agentApi'
+import ConfirmPopover from '../ConfirmPopover.vue'
+import EditableTitle from '../components/EditableTitle.vue'
+import TabShell, { type IndexItem } from '../components/TabShell.vue'
 
-const props = defineProps<{ draft: ConfigDto; envVars: string[] }>();
-const emit = defineEmits<{ (e: "error", msg: string): void }>();
+const props = defineProps<{ draft: ConfigDto; envVars: string[] }>()
+const emit = defineEmits<{ (e: 'error', msg: string): void }>()
 
-const newServiceName = ref("");
+const newServiceName = ref('')
 
 const MEDIA_TYPES: { value: MediaKindDto; label: string; icon: string }[] = [
-  { value: "image", label: "图片", icon: "🖼️" },
-  { value: "video", label: "视频", icon: "🎬" },
-  { value: "audio", label: "音频", icon: "🎵" },
-];
+  { value: 'image', label: '图片', icon: '🖼️' },
+  { value: 'video', label: '视频', icon: '🎬' },
+  { value: 'audio', label: '音频', icon: '🎵' },
+]
 
 function typeLabel(type: MediaKindDto): string {
-  return MEDIA_TYPES.find(t => t.value === type)?.label ?? type;
+  return MEDIA_TYPES.find((t) => t.value === type)?.label ?? type
 }
 function typeIcon(type: MediaKindDto): string {
-  return MEDIA_TYPES.find(t => t.value === type)?.icon ?? "📦";
+  return MEDIA_TYPES.find((t) => t.value === type)?.icon ?? '📦'
 }
 
 function addService(): void {
-  const name = newServiceName.value.trim();
-  if (!name) return;
-  if (!props.draft.media) props.draft.media = {};
+  const name = newServiceName.value.trim()
+  if (!name) return
+  if (!props.draft.media) props.draft.media = {}
   if (props.draft.media[name]) {
-    emit("error", `媒体服务 "${name}" 已存在`);
-    return;
+    emit('error', `媒体服务 "${name}" 已存在`)
+    return
   }
-  props.draft.media[name] = { type: "image", url: "", enabled: false };
-  newServiceName.value = "";
+  props.draft.media[name] = { type: 'image', url: '', enabled: false }
+  newServiceName.value = ''
 }
 
 function removeService(name: string): void {
-  if (!props.draft.media) return;
-  delete props.draft.media[name];
+  if (!props.draft.media) return
+  delete props.draft.media[name]
   // 清理预设引用：如果预设指向被删服务，清空对应字段
   if (props.draft.presets) {
     for (const preset of Object.values(props.draft.presets)) {
-      if (preset.mediaImage === name) preset.mediaImage = undefined;
-      if (preset.mediaVideo === name) preset.mediaVideo = undefined;
-      if (preset.mediaAudio === name) preset.mediaAudio = undefined;
+      if (preset.mediaImage === name) preset.mediaImage = undefined
+      if (preset.mediaVideo === name) preset.mediaVideo = undefined
+      if (preset.mediaAudio === name) preset.mediaAudio = undefined
     }
   }
 }
 
 function renameService(oldName: string, newName: string): void {
-  if (!props.draft.media) return;
-  const cfg = props.draft.media[oldName];
-  const rebuilt = {} as typeof props.draft.media;
+  if (!props.draft.media) return
+  const cfg = props.draft.media[oldName]
+  const rebuilt = {} as typeof props.draft.media
   for (const [k, v] of Object.entries(props.draft.media)) {
-    if (k === oldName) rebuilt[newName] = cfg!;
-    else rebuilt[k] = v;
+    if (k === oldName) rebuilt[newName] = cfg!
+    else rebuilt[k] = v
   }
-  props.draft.media = rebuilt;
+  props.draft.media = rebuilt
   // 迁移预设引用
   if (props.draft.presets) {
     for (const preset of Object.values(props.draft.presets)) {
-      if (preset.mediaImage === oldName) preset.mediaImage = newName;
-      if (preset.mediaVideo === oldName) preset.mediaVideo = newName;
-      if (preset.mediaAudio === oldName) preset.mediaAudio = newName;
+      if (preset.mediaImage === oldName) preset.mediaImage = newName
+      if (preset.mediaVideo === oldName) preset.mediaVideo = newName
+      if (preset.mediaAudio === oldName) preset.mediaAudio = newName
     }
   }
-  emit("error", "");
+  emit('error', '')
 }
 function validateRename(newName: string): string | null {
-  if (!props.draft.media) return null;
-  return props.draft.media[newName] ? `媒体服务 "${newName}" 已存在` : null;
+  if (!props.draft.media) return null
+  return props.draft.media[newName] ? `媒体服务 "${newName}" 已存在` : null
 }
 
 const indexItems = computed<IndexItem[]>(() => {
-  const services = props.draft.media ?? {};
+  const services = props.draft.media ?? {}
   return Object.entries(services).map(([name, cfg]) => ({
     label: name,
     type: cfg.type,
     enabled: cfg.enabled === true,
-  }));
-});
+  }))
+})
 </script>
 
 <template>
   <TabShell tab-key="media" :index-items="indexItems">
     <template #hints>
-      <p class="sect-hint">每个媒体服务是独立实体：选择类型（图/音/视），配置网关地址，在「预设」中挂载给团队使用。</p>
+      <p class="sect-hint">
+        每个媒体服务是独立实体：选择类型（图/音/视），配置网关地址，在「预设」中挂载给团队使用。
+      </p>
     </template>
     <template #popper="{ item }">
       <div class="index-card">
         <div class="index-card-title">{{ item.label as string }}</div>
-        <div class="index-card-line"><b>类型</b><span>{{ typeIcon(item.type as MediaKindDto) }} {{ typeLabel(item.type as MediaKindDto) }}</span></div>
-        <div class="index-card-line"><b>状态</b><span>{{ item.enabled ? '已启用' : '未启用' }}</span></div>
+        <div class="index-card-line">
+          <b>类型</b
+          ><span
+            >{{ typeIcon(item.type as MediaKindDto) }}
+            {{ typeLabel(item.type as MediaKindDto) }}</span
+          >
+        </div>
+        <div class="index-card-line">
+          <b>状态</b><span>{{ item.enabled ? '已启用' : '未启用' }}</span>
+        </div>
       </div>
     </template>
 
@@ -112,7 +122,10 @@ const indexItems = computed<IndexItem[]>(() => {
           @error="(msg: string) => emit('error', msg)"
         >
           <template #actions>
-            <ConfirmPopover :title="`确认删除媒体服务「${sname}」？`" @confirm="removeService(sname as string)">
+            <ConfirmPopover
+              :title="`确认删除媒体服务「${sname}」？`"
+              @confirm="removeService(sname as string)"
+            >
               <template #trigger>
                 <button type="button" class="icon-btn danger" aria-label="删除媒体服务">
                   <Delete class="ico" />
@@ -127,7 +140,12 @@ const indexItems = computed<IndexItem[]>(() => {
         <label class="field">
           <span class="lbl">类型</span>
           <el-select v-model="cfg.type" placeholder="选择类型">
-            <el-option v-for="t in MEDIA_TYPES" :key="t.value" :value="t.value" :label="`${t.icon} ${t.label}`" />
+            <el-option
+              v-for="t in MEDIA_TYPES"
+              :key="t.value"
+              :value="t.value"
+              :label="`${t.icon} ${t.label}`"
+            />
           </el-select>
         </label>
         <label class="field">
@@ -171,14 +189,18 @@ const indexItems = computed<IndexItem[]>(() => {
     </p>
 
     <div class="add-row">
-      <el-input v-model="newServiceName" placeholder="新服务名（如 qwen-vision / whisper）" @keydown.enter="addService" />
+      <el-input
+        v-model="newServiceName"
+        placeholder="新服务名（如 qwen-vision / whisper）"
+        @keydown.enter="addService"
+      />
       <button type="button" class="ghost-btn" @click="addService">+ 新增服务</button>
     </div>
   </TabShell>
 </template>
 
 <style scoped lang="less">
-@import "../shared.less";
+@import '../shared.less';
 
 .card-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));

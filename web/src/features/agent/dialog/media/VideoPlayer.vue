@@ -3,68 +3,77 @@
  * VideoPlayer：简单视频播放器（播放/暂停 + 进度条 + 时间）。
  * 暗色 lightbox 风格，点击遮罩关闭。
  */
-import { ref, onMounted, onBeforeUnmount, computed } from "vue";
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 
-const props = defineProps<{ src: string }>();
-const emit = defineEmits<{ (e: "close"): void }>();
+const props = defineProps<{ src: string }>()
+const emit = defineEmits<{ (e: 'close'): void }>()
 
-const videoRef = ref<HTMLVideoElement | null>(null);
-const playing = ref(false);
-const currentTime = ref(0);
-const duration = ref(0);
+const videoRef = ref<HTMLVideoElement | null>(null)
+const playing = ref(false)
+const currentTime = ref(0)
+const duration = ref(0)
 
 const progress = computed(() =>
   duration.value > 0 ? (currentTime.value / duration.value) * 100 : 0,
-);
+)
 
 function fmtTime(s: number): string {
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${sec.toString().padStart(2, "0")}`;
+  const m = Math.floor(s / 60)
+  const sec = Math.floor(s % 60)
+  return `${m}:${sec.toString().padStart(2, '0')}`
 }
 
 function togglePlay(): void {
-  const v = videoRef.value;
-  if (!v) return;
-  if (v.paused) void v.play();
-  else v.pause();
+  const v = videoRef.value
+  if (!v) return
+  if (v.paused) void v.play()
+  else v.pause()
 }
 
-function onPlay(): void { playing.value = true; }
-function onPause(): void { playing.value = false; }
+function onPlay(): void {
+  playing.value = true
+}
+function onPause(): void {
+  playing.value = false
+}
 function onTimeUpdate(): void {
-  if (videoRef.value) currentTime.value = videoRef.value.currentTime;
+  if (videoRef.value) currentTime.value = videoRef.value.currentTime
 }
 function onLoadedMetadata(): void {
-  if (videoRef.value) duration.value = videoRef.value.duration;
+  if (videoRef.value) duration.value = videoRef.value.duration
 }
-function onEnded(): void { playing.value = false; }
+function onEnded(): void {
+  playing.value = false
+}
 
 function seek(e: MouseEvent): void {
-  const target = e.currentTarget as HTMLElement;
-  if (!target || !videoRef.value || !duration.value) return;
-  const rect = target.getBoundingClientRect();
-  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  videoRef.value.currentTime = ratio * duration.value;
+  const target = e.currentTarget as HTMLElement
+  if (!target || !videoRef.value || !duration.value) return
+  const rect = target.getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  videoRef.value.currentTime = ratio * duration.value
 }
 
 function onOverlayClick(e: MouseEvent): void {
-  if ((e.target as HTMLElement).closest(".video-player-card")) return;
-  emit("close");
+  if ((e.target as HTMLElement).closest('.video-player-card')) return
+  emit('close')
 }
 
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === "Escape") emit("close");
-  else if (e.key === " ") { e.preventDefault(); togglePlay(); }
+  if (e.key === 'Escape') emit('close')
+  else if (e.key === ' ') {
+    e.preventDefault()
+    togglePlay()
+  }
 }
 
 onMounted(() => {
-  document.addEventListener("keydown", onKeydown);
-  void videoRef.value?.play();
-});
+  document.addEventListener('keydown', onKeydown)
+  void videoRef.value?.play()
+})
 onBeforeUnmount(() => {
-  document.removeEventListener("keydown", onKeydown);
-});
+  document.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <template>
@@ -85,9 +94,18 @@ onBeforeUnmount(() => {
           @click="togglePlay"
         />
         <div class="video-player-controls">
-          <button type="button" class="vp-btn vp-play" :aria-label="playing ? '暂停' : '播放'" @click="togglePlay">
-            <svg v-if="!playing" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>
-            <svg v-else viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>
+          <button
+            type="button"
+            class="vp-btn vp-play"
+            :aria-label="playing ? '暂停' : '播放'"
+            @click="togglePlay"
+          >
+            <svg v-if="!playing" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+              <path d="M6 4h4v16H6zm8 0h4v16h-4z" />
+            </svg>
           </button>
           <span class="vp-time">{{ fmtTime(currentTime) }}</span>
           <div class="vp-progress" @click="seek">
@@ -96,7 +114,9 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <span class="vp-time">{{ fmtTime(duration) }}</span>
-          <button type="button" class="vp-btn vp-close" aria-label="关闭" @click="emit('close')">✕</button>
+          <button type="button" class="vp-btn vp-close" aria-label="关闭" @click="emit('close')">
+            ✕
+          </button>
         </div>
       </div>
     </div>
@@ -154,12 +174,20 @@ onBeforeUnmount(() => {
   background: transparent;
   color: rgba(255, 255, 255, 0.82);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
 
-  &:hover { background: rgba(255, 255, 255, 0.12); color: #f6b73c; }
+  &:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #f6b73c;
+  }
 }
 
-.vp-play svg { width: 16px; height: 16px; }
+.vp-play svg {
+  width: 16px;
+  height: 16px;
+}
 
 .vp-time {
   flex: none;
@@ -193,5 +221,7 @@ onBeforeUnmount(() => {
   transition: width 80ms linear;
 }
 
-.vp-close { font-size: 13px; }
+.vp-close {
+  font-size: 13px;
+}
 </style>

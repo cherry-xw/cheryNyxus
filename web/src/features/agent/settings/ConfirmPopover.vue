@@ -6,19 +6,19 @@
  * 保留 title prop + confirm/cancel emits + trigger slot，9 处调用点零改动。
  * 用于后果轻的删除（感官组/单技能/MCP/媒体）；重删用 ConfirmDialog 居中 modal。
  */
-import { ref } from "vue";
+import { ref } from 'vue'
 
-defineProps<{ title: string }>();
-const emit = defineEmits<{ confirm: []; cancel: [] }>();
+defineProps<{ title: string }>()
+const emit = defineEmits<{ confirm: []; cancel: [] }>()
 
-const visible = ref(false);
+const visible = ref(false)
 function onConfirm(): void {
-  emit("confirm");
-  visible.value = false;
+  emit('confirm')
+  visible.value = false
 }
 function onCancel(): void {
-  emit("cancel");
-  visible.value = false;
+  emit('cancel')
+  visible.value = false
 }
 </script>
 
@@ -53,7 +53,9 @@ function onCancel(): void {
   background: linear-gradient(155deg, rgba(255, 255, 255, 0.72), rgba(238, 242, 255, 0.5));
   backdrop-filter: blur(14px);
   border: 1px solid rgba(239, 68, 68, 0.4);
-  box-shadow: 0 4px 20px rgba(185, 28, 28, 0.18), 0 0 10px rgba(239, 68, 68, 0.16);
+  box-shadow:
+    0 4px 20px rgba(185, 28, 28, 0.18),
+    0 0 10px rgba(239, 68, 68, 0.16);
 }
 .confirm-pop {
   display: flex;
@@ -80,7 +82,9 @@ function onCancel(): void {
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
-  transition: filter 0.15s ease, background-color 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    background-color 0.15s ease;
   &.cancel {
     border: 1px solid rgba(36, 38, 45, 0.18);
     background: rgba(255, 255, 255, 0.7);

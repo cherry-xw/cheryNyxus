@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { logger } from "./logger/index.js";
-import { LogLevel } from "./logger/types.js";
+import { randomUUID } from 'node:crypto'
+import { logger } from './logger/index.js'
+import { LogLevel } from './logger/types.js'
 
 /**
  * 错误信息分层工具（见 [docs/error-conventions.md](../../docs/error-conventions.md)）。
@@ -18,22 +18,10 @@ import { LogLevel } from "./logger/types.js";
 
 // ========== 分类与来源 ==========
 
-export type ErrorCategory =
-  | "auth"
-  | "network"
-  | "provider"
-  | "timeout"
-  | "validation"
-  | "unknown";
+export type ErrorCategory = 'auth' | 'network' | 'provider' | 'timeout' | 'validation' | 'unknown'
 
 /** 错误来源（决定友好文案的主语，见 friendlyMessage） */
-export type ErrorSource =
-  | "brain"
-  | "sense"
-  | "media"
-  | "mcp"
-  | "chat"
-  | "system";
+export type ErrorSource = 'brain' | 'sense' | 'media' | 'mcp' | 'chat' | 'system'
 
 // ========== tracingId ==========
 
@@ -46,14 +34,14 @@ export type ErrorSource =
  *   grep -r '"tracingId":"1c538629"' .chery/
  */
 export function newTracingId(): string {
-  return randomUUID().slice(0, 8);
+  return randomUUID().slice(0, 8)
 }
 
 /**
  * 识别"已合规"错误：message **开头**已有 `[8hex] ` 前缀（throwUserFacing / ClassifiedError 出口产出）。
  * 合规错误在 compose catch / streamMapper 中原样上浮，不再二次包装或追加 tracingId。
  */
-export const COMPLIANT_TRACE_PATTERN = /^\[[0-9a-f]{8}\] /;
+export const COMPLIANT_TRACE_PATTERN = /^\[[0-9a-f]{8}\] /
 
 // ========== ClassifiedError ==========
 
@@ -68,21 +56,21 @@ export const COMPLIANT_TRACE_PATTERN = /^\[[0-9a-f]{8}\] /;
  * 终态错误（缺 key/model，不重试）仍用 `throwUserFacing`。
  */
 export class ClassifiedError extends Error {
-  readonly category: ErrorCategory;
-  readonly source: ErrorSource;
-  readonly userMessage: string;
+  readonly category: ErrorCategory
+  readonly source: ErrorSource
+  readonly userMessage: string
   constructor(opts: {
-    message: string;
-    userMessage: string;
-    category: ErrorCategory;
-    source: ErrorSource;
-    cause?: unknown;
+    message: string
+    userMessage: string
+    category: ErrorCategory
+    source: ErrorSource
+    cause?: unknown
   }) {
-    super(opts.message, opts.cause !== undefined ? { cause: opts.cause } : undefined);
-    this.name = "ClassifiedError";
-    this.category = opts.category;
-    this.source = opts.source;
-    this.userMessage = opts.userMessage;
+    super(opts.message, opts.cause !== undefined ? { cause: opts.cause } : undefined)
+    this.name = 'ClassifiedError'
+    this.category = opts.category
+    this.source = opts.source
+    this.userMessage = opts.userMessage
   }
 }
 
@@ -95,85 +83,81 @@ export class ClassifiedError extends Error {
  * 优先用 `ClassifiedError.category`（抛错点已知），本函数仅在无 ClassifiedError 时兜底。
  */
 export function classifyError(error: unknown): ErrorCategory {
-  if (error instanceof ClassifiedError) return error.category;
+  if (error instanceof ClassifiedError) return error.category
   if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
+    const msg = error.message.toLowerCase()
     if (
-      msg.includes("401") ||
-      msg.includes("403") ||
-      msg.includes("unauthorized") ||
-      msg.includes("forbidden") ||
-      msg.includes("invalid access token") ||
-      msg.includes("invalid api key")
+      msg.includes('401') ||
+      msg.includes('403') ||
+      msg.includes('unauthorized') ||
+      msg.includes('forbidden') ||
+      msg.includes('invalid access token') ||
+      msg.includes('invalid api key')
     ) {
-      return "auth";
+      return 'auth'
     }
     if (
-      msg.includes("network") ||
-      msg.includes("connection") ||
-      msg.includes("econnrefused") ||
-      msg.includes("enotfound") ||
-      msg.includes("fetch failed")
+      msg.includes('network') ||
+      msg.includes('connection') ||
+      msg.includes('econnrefused') ||
+      msg.includes('enotfound') ||
+      msg.includes('fetch failed')
     ) {
-      return "network";
+      return 'network'
     }
-    if (msg.includes("timeout") || msg.includes("timed out")) {
-      return "timeout";
+    if (msg.includes('timeout') || msg.includes('timed out')) {
+      return 'timeout'
     }
-    if (msg.includes("validation") || msg.includes("invalid") || msg.includes("schema")) {
-      return "validation";
+    if (msg.includes('validation') || msg.includes('invalid') || msg.includes('schema')) {
+      return 'validation'
     }
-    if (msg.includes("api") || msg.includes("rate limit") || msg.includes("provider")) {
-      return "provider";
+    if (msg.includes('api') || msg.includes('rate limit') || msg.includes('provider')) {
+      return 'provider'
     }
   }
-  return "unknown";
+  return 'unknown'
 }
 
 // ========== friendlyMessage ==========
 
 /** 来源 → 中文主语 */
 const SOURCE_LABEL: Record<ErrorSource, string> = {
-  brain: "脑子",
-  sense: "感官",
-  media: "媒体",
-  mcp: "扩展工具",
-  chat: "会话",
-  system: "系统",
-};
+  brain: '脑子',
+  sense: '感官',
+  media: '媒体',
+  mcp: '扩展工具',
+  chat: '会话',
+  system: '系统',
+}
 
 /**
  * 按 category + source 查带来源的直观文案（不含 tracingId，由出口前置）。
  * 通用兜底保证带来源主语（"X 出了点小问题"），不裸"出了点小问题"。
  */
 export function friendlyMessage(category: ErrorCategory, source: ErrorSource): string {
-  const s = SOURCE_LABEL[source];
+  const s = SOURCE_LABEL[source]
   switch (category) {
-    case "network":
-      return `${s}连不上了`;
-    case "auth":
-      return source === "brain"
-        ? "大脑的钥匙不对，请在设置里检查 key"
-        : `${s}的钥匙不对`;
-    case "timeout":
-      return source === "brain"
-        ? "脑子反应太慢了"
-        : source === "system"
-          ? "系统等太久了"
-          : `${s}反应太慢了`;
-    case "provider":
-      return source === "brain"
-        ? "脑子忙不过来了，稍后再试"
-        : source === "system"
-          ? "系统出了点状况"
-          : `${s}出了点状况`;
-    case "validation":
-      return source === "system"
-        ? "系统没听懂这个请求"
-        : `${s}没听懂这个请求`;
-    case "unknown":
+    case 'network':
+      return `${s}连不上了`
+    case 'auth':
+      return source === 'brain' ? '大脑的钥匙不对，请在设置里检查 key' : `${s}的钥匙不对`
+    case 'timeout':
+      return source === 'brain'
+        ? '脑子反应太慢了'
+        : source === 'system'
+          ? '系统等太久了'
+          : `${s}反应太慢了`
+    case 'provider':
+      return source === 'brain'
+        ? '脑子忙不过来了，稍后再试'
+        : source === 'system'
+          ? '系统出了点状况'
+          : `${s}出了点状况`
+    case 'validation':
+      return source === 'system' ? '系统没听懂这个请求' : `${s}没听懂这个请求`
+    case 'unknown':
     default:
-      return `${s}出了点小问题`;
+      return `${s}出了点小问题`
   }
 }
 
@@ -195,7 +179,7 @@ export function throwUserFacing(
   userMessage: string,
   context: Record<string, unknown> = {},
 ): never {
-  const tracingId = newTracingId();
-  logger.event(scope, { tracingId, ...context }, LogLevel.error);
-  throw new Error(`[${tracingId}] ${userMessage}`);
+  const tracingId = newTracingId()
+  logger.event(scope, { tracingId, ...context }, LogLevel.error)
+  throw new Error(`[${tracingId}] ${userMessage}`)
 }

@@ -4,9 +4,9 @@
  * 用于去英文后仍晦涩的字段：中文标签自明的直接用 <span class="lbl">，
  * 需补充说明（原英文键/取值范围/单位）的用本组件挂 tip。
  */
-import { InfoFilled } from "@element-plus/icons-vue";
+import { InfoFilled } from '@element-plus/icons-vue'
 
-defineProps<{ label: string; tip: string }>();
+defineProps<{ label: string; tip: string }>()
 </script>
 
 <template>

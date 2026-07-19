@@ -1,4 +1,4 @@
-import type { HandlerContext } from "../message/router.js";
+import type { HandlerContext } from '../message/router.js'
 import {
   createChunk,
   createError,
@@ -21,12 +21,12 @@ import {
   type SenseQuestionBatchAnswerResponseData,
   type ChatAbortRequestData,
   type ChatAbortResponseData,
-} from "../message/types.js";
-import { getChat, markMessagesRevoked, updateChatMetadata } from "@/db/chat.js";
-import { approvalManager } from "../approval/manager.js";
-import { findPendingQuestionBatchByQuestionId } from "@/db/question.js";
-import { resolveQuestionBatch } from "./wake.js";
-import { connectionManager } from "../websocket/connection.js";
+} from '../message/types.js'
+import { getChat, markMessagesRevoked, updateChatMetadata } from '@/db/chat.js'
+import { approvalManager } from '../approval/manager.js'
+import { findPendingQuestionBatchByQuestionId } from '@/db/question.js'
+import { resolveQuestionBatch } from './wake.js'
+import { connectionManager } from '../websocket/connection.js'
 import {
   ensureChat,
   clearChatRuntime,
@@ -35,17 +35,17 @@ import {
   getActiveChatRunId,
   activateChatRun,
   releaseChatRun,
-} from "./runtime.js";
-import { clearWaitedChildrenByParent } from "@/agent/spawnBroker.js";
-import { observeAgentChunks } from "./observer.js";
-import { streamAgentChunks } from "./streamMapper.js";
-import { injectCommands } from "./autoCompact.js";
-import { computeContextUsage } from "@/utils/token.js";
-import { logger } from "@/utils/logger/index.js";
-import { LogLevel } from "@/utils/logger/types.js";
-import { isAgentAbortError } from "@/core/middleware/errors.js";
-import { safeJsonParse } from "@/utils/json.js";
-import { randomUUID } from "crypto";
+} from './runtime.js'
+import { clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
+import { observeAgentChunks } from './observer.js'
+import { streamAgentChunks } from './streamMapper.js'
+import { injectCommands } from './autoCompact.js'
+import { computeContextUsage } from '@/utils/token.js'
+import { logger } from '@/utils/logger/index.js'
+import { LogLevel } from '@/utils/logger/types.js'
+import { isAgentAbortError } from '@/core/middleware/errors.js'
+import { safeJsonParse } from '@/utils/json.js'
+import { randomUUID } from 'crypto'
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
@@ -53,18 +53,18 @@ import { randomUUID } from "crypto";
 
 // P4：mimeType → 扩展名映射（与服务端 media/index.ts MIME_KIND 对齐，标 marker 供 enrichMediaInputs 解析）。
 const MIME_EXT: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/webp": ".webp",
-  "image/gif": ".gif",
-  "video/mp4": ".mp4",
-  "video/webm": ".webm",
-  "video/quicktime": ".mov",
-  "audio/mpeg": ".mp3",
-  "audio/wav": ".wav",
-  "audio/ogg": ".ogg",
-  "audio/mp4": ".m4a",
-};
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'video/mp4': '.mp4',
+  'video/webm': '.webm',
+  'video/quicktime': '.mov',
+  'audio/mpeg': '.mp3',
+  'audio/wav': '.wav',
+  'audio/ogg': '.ogg',
+  'audio/mp4': '.m4a',
+}
 
 /**
  * P4：将结构化 attachments 转为 [[media:<filename>]] 文本标记，附加到 prompt 末尾。
@@ -72,17 +72,17 @@ const MIME_EXT: Record<string, string> = {
  * 当 mimeType 不在映射中时使用 .bin（MIME_KIND 已先在 saveMediaAsset 校验）。
  */
 function attachmentsToPromptMarkers(
-  attachments: ChatSendRequestData["attachments"],
+  attachments: ChatSendRequestData['attachments'],
   basePrompt: string,
 ): string {
-  if (!attachments || attachments.length === 0) return basePrompt;
+  if (!attachments || attachments.length === 0) return basePrompt
   const markers = attachments
     .map((a) => {
-      const ext = MIME_EXT[a.mimeType.toLowerCase()] ?? ".bin";
-      return `[[media:${a.assetId}${ext}]]`;
+      const ext = MIME_EXT[a.mimeType.toLowerCase()] ?? '.bin'
+      return `[[media:${a.assetId}${ext}]]`
     })
-    .join("\n");
-  return basePrompt ? `${basePrompt}\n${markers}` : markers;
+    .join('\n')
+  return basePrompt ? `${basePrompt}\n${markers}` : markers
 }
 
 /**
@@ -93,31 +93,31 @@ export async function* handleChatSend(
   ctx: HandlerContext,
   data: ChatSendRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatSendResponseData | RpcResponse, unknown> {
-  const chatId = data.chatId;
+  const chatId = data.chatId
   // runId 与启动该运行的 RPC id 同源；脱离 WS 的单元调用使用 UUID 兜底。
-  const runId = ctx.requestId ?? randomUUID();
+  const runId = ctx.requestId ?? randomUUID()
 
   // 校验 chat 存在
-  const chat = getChat(chatId);
+  const chat = getChat(chatId)
   if (!chat) {
-    throw new Error("这个会话不见了");
+    throw new Error('这个会话不见了')
   }
 
-  logger.event("chat.send.start", {
-    mode: "send",
+  logger.event('chat.send.start', {
+    mode: 'send',
     chatId,
     runtime: getChatSelection(chatId),
     promptLen: data.prompt.length,
     promptPreview: data.prompt.slice(0, 200),
     attachmentCount: data.attachments?.length ?? 0,
-  });
+  })
 
-  const agent = await ensureChat(chatId);
-  const rid = ctx.requestId ?? runId;
+  const agent = await ensureChat(chatId)
+  const rid = ctx.requestId ?? runId
 
   // P4：结构化 attachments → [[media:<filename>]] 文本标记追加到 prompt。
   // enrichMediaInputs 仍以文本标记解析；P5 provider 多模态直接读 LLMResponse.attachments 时可省此步。
-  const promptWithAttachments = attachmentsToPromptMarkers(data.attachments, data.prompt);
+  const promptWithAttachments = attachmentsToPromptMarkers(data.attachments, data.prompt)
 
   // 运行中 send：仅入队（迭代触发 send body push userInputs），不绑定连接、不走流。
   // 避免空 generator（isRunning 时 send return 空 gen）立即结束而 finally 误释放当前活跃连接绑定（P0-1）。
@@ -126,21 +126,25 @@ export async function* handleChatSend(
     for await (const _ of agent.run(promptWithAttachments)) {
       /* 运行中 send 不产出 chunk，迭代仅为触发 send body 入队 */
     }
-    logger.event("chat.send.queued", { chatId, runtime: getChatSelection(chatId), promptLen: promptWithAttachments.length });
-    return { chatId, runId: getActiveChatRunId(chatId) ?? runId, queued: true };
+    logger.event('chat.send.queued', {
+      chatId,
+      runtime: getChatSelection(chatId),
+      promptLen: promptWithAttachments.length,
+    })
+    return { chatId, runId: getActiveChatRunId(chatId) ?? runId, queued: true }
   }
 
   // 绑定 chatId 到当前连接，拒绝跨连接并发 send（P0-3）
   try {
-    connectionManager.bindChatConnection(chatId, ctx.connectionId);
-    logger.event("chat.bind", { chatId, connectionId: ctx.connectionId });
+    connectionManager.bindChatConnection(chatId, ctx.connectionId)
+    logger.event('chat.bind', { chatId, connectionId: ctx.connectionId })
   } catch (e) {
-    const msg = (e as Error).message;
-    logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
-    return createResponse(rid, false, undefined, createError(ErrorCode.CONFLICT, msg));
+    const msg = (e as Error).message
+    logger.event('chat.bind.failed', { chatId, message: msg }, LogLevel.error)
+    return createResponse(rid, false, undefined, createError(ErrorCode.CONFLICT, msg))
   }
 
-  activateChatRun(chatId, runId);
+  activateChatRun(chatId, runId)
 
   // P5 命令注入 + 自动压缩：send 预检。
   // 1) 扫描 userPrompt 中的 [[command:/<name>]] tokens：skill 类跳过，builtin 类加载对应 .md 正文作为
@@ -148,40 +152,45 @@ export async function* handleChatSend(
   // 2) shouldAutoCompact 命中 → 主 prompt 头部注入 [[command:/compact]] token，
   //    compact 正文 unshift 到 extra 顶部（优先级最高）。
   // 3) 流首推 auto_compacted notification（前端 toast）。
-  const usageBefore = computeContextUsage(chatId);
-  const cmdInjection = injectCommands(chatId, promptWithAttachments);
+  const usageBefore = computeContextUsage(chatId)
+  const cmdInjection = injectCommands(chatId, promptWithAttachments)
   if (cmdInjection.triggered) {
-    logger.event("chat.send.autoCompact", {
+    logger.event('chat.send.autoCompact', {
       chatId,
       reason: cmdInjection.reason,
       usedBefore: usageBefore.used,
       total: usageBefore.total,
       extraCount: cmdInjection.extraUserMessages.length,
-    });
+    })
   } else if (cmdInjection.extraUserMessages.length > 0) {
-    logger.event("chat.send.commandInjection", {
+    logger.event('chat.send.commandInjection', {
       chatId,
       extraCount: cmdInjection.extraUserMessages.length,
-    });
+    })
   }
 
   // 恢复场景撤回：仅 idle 时触发（运行中 send 只入队，不撤回）。
   // 撤回末尾整个当前周期 AI 响应（assistant think/content/tool + 整个 sense 群），
   // 发 staged.reverse chunk 通知客户端回滚，再 run 用新 prompt 重跑。
   if (!agent.isRunning()) {
-    const revokedIds = agent.revokeTrailingCycle();
+    const revokedIds = agent.revokeTrailingCycle()
     if (revokedIds.length > 0) {
-      markMessagesRevoked(chatId, revokedIds);
-      logger.event("chat.send.revoke", { count: revokedIds.length, messageIds: revokedIds });
-      yield createChunk("staged", rid, { type: "reverse", messageIds: revokedIds }, { chatId, runId });
+      markMessagesRevoked(chatId, revokedIds)
+      logger.event('chat.send.revoke', { count: revokedIds.length, messageIds: revokedIds })
+      yield createChunk(
+        'staged',
+        rid,
+        { type: 'reverse', messageIds: revokedIds },
+        { chatId, runId },
+      )
     }
   }
 
-  let failureResponse: RpcResponse | undefined;
-  let failureMessage: string | undefined;
+  let failureResponse: RpcResponse | undefined
+  let failureMessage: string | undefined
   // user message 落库后 observer 回调写入 msgId → Response.data 回前端
   // （前端 sendMessage 即时 push user prompt 到 stream.history 时携带 msgId，下次 reload dedup 用）
-  let userMsgId: string | undefined;
+  let userMsgId: string | undefined
 
   try {
     // history 已在 chat.create 时一次性加载到内存。
@@ -192,20 +201,21 @@ export async function* handleChatSend(
     //     顺序入队，LLM 看到「先命令正文、再主 prompt」。命令正文不污染 system prompt cache。
     const generator = observeAgentChunks(
       agent.run(cmdInjection.userPrompt, {
-        extraUserMessages: cmdInjection.extraUserMessages.length > 0
-          ? cmdInjection.extraUserMessages
-          : undefined,
+        extraUserMessages:
+          cmdInjection.extraUserMessages.length > 0 ? cmdInjection.extraUserMessages : undefined,
       }),
       chatId,
       () => agent.getMessages(),
-      (msgId) => { userMsgId = msgId; },
-    );
+      (msgId) => {
+        userMsgId = msgId
+      },
+    )
 
     // autoCompact 命中 → 流首推 auto_compacted notification（前端 toast + context bar 预期下行）。
     // 此 notification 在 streamMapper 任何 chunk 之前发出，前端可靠顺序消费。
     if (cmdInjection.triggered && cmdInjection.reason) {
       yield createNotification(
-        "auto_compacted",
+        'auto_compacted',
         rid,
         {
           reason: cmdInjection.reason,
@@ -213,33 +223,49 @@ export async function* handleChatSend(
           total: usageBefore.total,
         },
         { chatId, runId },
-      );
+      )
     }
 
-    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => { failureMessage = msg; });
+    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => {
+      failureMessage = msg
+    })
   } catch (err) {
-    const error = err as Error;
+    const error = err as Error
     // approval aborted（chat.abort 触发 abortChat → reject → senseMiddleware throw，
     // 见 tool.ts executeCollectedCalls catch）：chat.abort 是预期清内存操作，静默不报错。
     if (isAgentAbortError(error)) {
-      logger.event("chat.send.aborted", { reason: "approval aborted" });
+      logger.event('chat.send.aborted', { reason: 'approval aborted' })
     } else {
-      logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);
-      failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
+      logger.event(
+        'chat.send.error',
+        { message: error.message, stack: error.stack },
+        LogLevel.error,
+      )
+      failureResponse = createResponse(
+        rid,
+        false,
+        undefined,
+        createError(ErrorCode.INTERNAL, error.message),
+      )
     }
   } finally {
-    releaseChatRun(chatId, runId);
-    connectionManager.releaseChatConnection(chatId, ctx.connectionId);
-    logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
+    releaseChatRun(chatId, runId)
+    connectionManager.releaseChatConnection(chatId, ctx.connectionId)
+    logger.event('chat.release', { chatId, connectionId: ctx.connectionId })
   }
 
   // 防御性：retry-yielded ErrorChunk（不 throw）经 streamMapper 收集的 message → 构造 failureResponse，
   // 避免「error notification + done notification + Response.success:true」三发歧义。
   if (failureMessage && !failureResponse) {
-    failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, failureMessage));
+    failureResponse = createResponse(
+      rid,
+      false,
+      undefined,
+      createError(ErrorCode.INTERNAL, failureMessage),
+    )
   }
 
-  return failureResponse ?? { chatId, runId, ...(userMsgId ? { userMsgId } : {}) };
+  return failureResponse ?? { chatId, runId, ...(userMsgId ? { userMsgId } : {}) }
 }
 
 /**
@@ -254,65 +280,81 @@ export async function* handleChatResume(
   ctx: HandlerContext,
   data: ChatResumeRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatResumeResponseData | RpcResponse, unknown> {
-  const chatId = data.chatId;
-  const runId = ctx.requestId ?? randomUUID();
-  const rid = ctx.requestId ?? runId;
+  const chatId = data.chatId
+  const runId = ctx.requestId ?? randomUUID()
+  const rid = ctx.requestId ?? runId
 
-  const chat = getChat(chatId);
+  const chat = getChat(chatId)
   if (!chat) {
-    throw new Error("这个会话不见了");
+    throw new Error('这个会话不见了')
   }
 
-  logger.event("chat.send.start", { mode: "resume" });
+  logger.event('chat.send.start', { mode: 'resume' })
 
   const resumeWasPending = chat.metadata
     ? safeJsonParse<{ resumePending?: boolean }>(chat.metadata, {}).resumePending === true
-    : false;
+    : false
 
-  const agent = await ensureChat(chatId);
+  const agent = await ensureChat(chatId)
 
   // 运行中 resume：无意义（无 prompt 入队，活跃流已在跑），直接返回避免重复启动流误释放绑定（P0-1）
   if (agent.isRunning()) {
-    return { chatId, runId: getActiveChatRunId(chatId) ?? runId, alreadyRunning: true };
+    return { chatId, runId: getActiveChatRunId(chatId) ?? runId, alreadyRunning: true }
   }
 
   // 绑定 chatId 到当前连接，拒绝跨连接并发 resume（P0-3）
   try {
-    connectionManager.bindChatConnection(chatId, ctx.connectionId);
-    logger.event("chat.bind", { chatId, connectionId: ctx.connectionId });
+    connectionManager.bindChatConnection(chatId, ctx.connectionId)
+    logger.event('chat.bind', { chatId, connectionId: ctx.connectionId })
   } catch (e) {
-    const msg = (e as Error).message;
-    logger.event("chat.bind.failed", { chatId, message: msg }, LogLevel.error);
-    return createResponse(rid, false, undefined, createError(ErrorCode.CONFLICT, msg));
+    const msg = (e as Error).message
+    logger.event('chat.bind.failed', { chatId, message: msg }, LogLevel.error)
+    return createResponse(rid, false, undefined, createError(ErrorCode.CONFLICT, msg))
   }
 
-  activateChatRun(chatId, runId);
+  activateChatRun(chatId, runId)
 
-  let failureResponse: RpcResponse | undefined;
-  let failureMessage: string | undefined;
+  let failureResponse: RpcResponse | undefined
+  let failureMessage: string | undefined
   try {
     // 仅消费本次已持久化的待恢复标记；运行期间新到的角色结果会由 wakeParent 再次置 true。
-    if (resumeWasPending) updateChatMetadata(chatId, { resumePending: false });
+    if (resumeWasPending) updateChatMetadata(chatId, { resumePending: false })
     // resume 内部据末尾状态决定 Case1/Case2（见 builder.resume）
-    const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages());
-    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => { failureMessage = msg; });
+    const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages())
+    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => {
+      failureMessage = msg
+    })
   } catch (err) {
-    const error = err as Error;
+    const error = err as Error
     // approval aborted（chat.abort 触发，同 handleChatSend）：静默不报错
     if (isAgentAbortError(error)) {
-      logger.event("chat.send.aborted", { reason: "approval aborted" });
+      logger.event('chat.send.aborted', { reason: 'approval aborted' })
     } else {
-      logger.event("chat.send.error", { message: error.message, stack: error.stack }, LogLevel.error);
-      failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, error.message));
+      logger.event(
+        'chat.send.error',
+        { message: error.message, stack: error.stack },
+        LogLevel.error,
+      )
+      failureResponse = createResponse(
+        rid,
+        false,
+        undefined,
+        createError(ErrorCode.INTERNAL, error.message),
+      )
     }
   } finally {
-    releaseChatRun(chatId, runId);
-    connectionManager.releaseChatConnection(chatId, ctx.connectionId);
-    logger.event("chat.release", { chatId, connectionId: ctx.connectionId });
+    releaseChatRun(chatId, runId)
+    connectionManager.releaseChatConnection(chatId, ctx.connectionId)
+    logger.event('chat.release', { chatId, connectionId: ctx.connectionId })
   }
 
   if (failureMessage && !failureResponse) {
-    failureResponse = createResponse(rid, false, undefined, createError(ErrorCode.INTERNAL, failureMessage));
+    failureResponse = createResponse(
+      rid,
+      false,
+      undefined,
+      createError(ErrorCode.INTERNAL, failureMessage),
+    )
   }
 
   // resumePending 恢复策略（覆盖 resume 无 assistant 输出场景）：
@@ -321,18 +363,21 @@ export async function* handleChatResume(
   // 判据：agent.getMessages() 末条非 revoked 消息的 role !== "assistant"
   // 这样重连后 rebuildSpawnWaits 能识别 idle+canResume 主 chat 再次 resume。
   if (resumeWasPending) {
-    const msgs = agent.getMessages();
-    const lastVisible = [...msgs].reverse().find(m => !m.revoked);
-    const producedAssistant = !!lastVisible && lastVisible.role === "assistant";
+    const msgs = agent.getMessages()
+    const lastVisible = [...msgs].reverse().find((m) => !m.revoked)
+    const producedAssistant = !!lastVisible && lastVisible.role === 'assistant'
     if (failureResponse || !producedAssistant) {
-      updateChatMetadata(chatId, { resumePending: true });
+      updateChatMetadata(chatId, { resumePending: true })
       if (!failureResponse) {
-        logger.event("resume.restore-no-assistant", { chatId, lastRole: lastVisible?.role ?? "none" });
+        logger.event('resume.restore-no-assistant', {
+          chatId,
+          lastRole: lastVisible?.role ?? 'none',
+        })
       }
     }
   }
 
-  return failureResponse ?? { chatId, runId };
+  return failureResponse ?? { chatId, runId }
 }
 
 /**
@@ -343,17 +388,17 @@ export async function handleSenseApproval(
   data: SenseApprovalRequestData,
 ): Promise<SenseApprovalResponseData> {
   // 转调 ApprovalManager.confirm → core approvalRegistry.resolve（P1-11 解耦后）
-  approvalManager.confirm(data.approvalId, data.action, data.reason);
-  logger.event("sense.approval", {
+  approvalManager.confirm(data.approvalId, data.action, data.reason)
+  logger.event('sense.approval', {
     approvalId: data.approvalId,
     action: data.action,
     reason: data.reason,
-  });
+  })
 
   return {
     approvalId: data.approvalId,
     action: data.action,
-  };
+  }
 }
 
 /** 旧版单题接口：仅兼容单题批次；多题必须使用原子 batchAnswer。 */
@@ -361,31 +406,35 @@ export async function handleSenseQuestionAnswer(
   _ctx: HandlerContext,
   data: SenseQuestionAnswerRequestData,
 ): Promise<SenseQuestionAnswerResponseData> {
-  const cancelled = data.cancelled === true;
-  const pending = findPendingQuestionBatchByQuestionId(data.questionId);
-  logger.event("sense.question.answer", {
+  const cancelled = data.cancelled === true
+  const pending = findPendingQuestionBatchByQuestionId(data.questionId)
+  logger.event('sense.question.answer', {
     questionId: data.questionId,
     chatId: pending?.chatId,
     selectedLabels: data.selectedLabels,
     hasFreeText: data.freeText !== undefined,
     cancelled,
     legacy: true,
-  });
+  })
   if (!pending) {
-    logger.event("sense.question.answer.unknown", { questionId: data.questionId });
-    return { questionId: data.questionId, cancelled };
+    logger.event('sense.question.answer.unknown', { questionId: data.questionId })
+    return { questionId: data.questionId, cancelled }
   }
   if (pending.pendingCount !== 1) {
-    throw new Error(`Question "${data.questionId}" belongs to a multi-question batch; use sense.question.batchAnswer`);
+    throw new Error(
+      `Question "${data.questionId}" belongs to a multi-question batch; use sense.question.batchAnswer`,
+    )
   }
-  await resolveQuestionBatch(pending.chatId, pending.batchId, [{
-    questionId: data.questionId,
-    selectedLabels: data.selectedLabels,
-    ...(data.freeText !== undefined ? { freeText: data.freeText } : {}),
-    ...(cancelled ? { cancelled: true } : {}),
-  }]);
+  await resolveQuestionBatch(pending.chatId, pending.batchId, [
+    {
+      questionId: data.questionId,
+      selectedLabels: data.selectedLabels,
+      ...(data.freeText !== undefined ? { freeText: data.freeText } : {}),
+      ...(cancelled ? { cancelled: true } : {}),
+    },
+  ])
 
-  return { questionId: data.questionId, cancelled };
+  return { questionId: data.questionId, cancelled }
 }
 
 /** 原子回答整批 ask_user_question；成功响应由调用方负责启动 chat.resume。 */
@@ -393,19 +442,19 @@ export async function handleSenseQuestionBatchAnswer(
   _ctx: HandlerContext,
   data: SenseQuestionBatchAnswerRequestData,
 ): Promise<SenseQuestionBatchAnswerResponseData> {
-  logger.event("sense.question.batchAnswer", {
+  logger.event('sense.question.batchAnswer', {
     chatId: data.chatId,
     batchId: data.batchId,
     questionCount: data.answers.length,
     cancelledCount: data.answers.filter((answer) => answer.cancelled === true).length,
-  });
-  const completed = await resolveQuestionBatch(data.chatId, data.batchId, data.answers);
+  })
+  const completed = await resolveQuestionBatch(data.chatId, data.batchId, data.answers)
   return {
     chatId: data.chatId,
     batchId: data.batchId,
     completed: true,
     shouldResume: !completed.alreadyCompleted,
-  };
+  }
 }
 
 /**
@@ -420,37 +469,37 @@ export async function handleChatAbort(
   ctx: HandlerContext,
   data: ChatAbortRequestData,
 ): Promise<ChatAbortResponseData | RpcResponse> {
-  const activeRunId = getActiveChatRunId(data.chatId);
+  const activeRunId = getActiveChatRunId(data.chatId)
   if (data.runId && activeRunId && data.runId !== activeRunId) {
     return createResponse(
-      ctx.requestId ?? "",
+      ctx.requestId ?? '',
       false,
       undefined,
-      createError(ErrorCode.CONFLICT, "操作的目标已改变"),
-    );
+      createError(ErrorCode.CONFLICT, '操作的目标已改变'),
+    )
   }
   if (!activeRunId) {
-    return { chatId: data.chatId, aborted: false };
+    return { chatId: data.chatId, aborted: false }
   }
 
-  abortChatRuntime(data.chatId);
+  abortChatRuntime(data.chatId)
   // T9：主被 abort → 清其 wait-子唤醒链，防子完成反唤醒已停的主（用户主动停语义）
-  clearWaitedChildrenByParent(data.chatId);
+  clearWaitedChildrenByParent(data.chatId)
   // 强制解绑连接（不校验 owner）：abort 是清内存操作，跨连接重连后旧 owner 须无条件清除避免 busy 死锁（P0-2）
-  connectionManager.forceReleaseChatConnection(data.chatId);
-  clearChatRuntime(data.chatId);
-  logger.event("chat.abort", { chatId: data.chatId, runId: activeRunId });
-  return { chatId: data.chatId, runId: activeRunId, aborted: true };
+  connectionManager.forceReleaseChatConnection(data.chatId)
+  clearChatRuntime(data.chatId)
+  logger.event('chat.abort', { chatId: data.chatId, runId: activeRunId })
+  return { chatId: data.chatId, runId: activeRunId, aborted: true }
 }
 
 /**
  * 注册 Chat handlers
  */
-export function registerChatHandlers(router: import("../message/router.js").RpcRouter): void {
-  router.register(Method.CHAT_SEND, handleChatSend);
-  router.register(Method.CHAT_RESUME, handleChatResume);
-  router.register(Method.SENSE_APPROVAL, handleSenseApproval);
-  router.register(Method.SENSE_QUESTION_ANSWER, handleSenseQuestionAnswer);
-  router.register(Method.SENSE_QUESTION_BATCH_ANSWER, handleSenseQuestionBatchAnswer);
-  router.register(Method.CHAT_ABORT, handleChatAbort);
+export function registerChatHandlers(router: import('../message/router.js').RpcRouter): void {
+  router.register(Method.CHAT_SEND, handleChatSend)
+  router.register(Method.CHAT_RESUME, handleChatResume)
+  router.register(Method.SENSE_APPROVAL, handleSenseApproval)
+  router.register(Method.SENSE_QUESTION_ANSWER, handleSenseQuestionAnswer)
+  router.register(Method.SENSE_QUESTION_BATCH_ANSWER, handleSenseQuestionBatchAnswer)
+  router.register(Method.CHAT_ABORT, handleChatAbort)
 }

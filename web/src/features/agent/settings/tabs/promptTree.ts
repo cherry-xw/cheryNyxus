@@ -10,39 +10,39 @@
  * - 中间目录节点 value = 目录相对路径；cascader 默认仅叶可选，目录不可选（= 不能把目录赋给角色）。
  */
 export interface PromptCascaderNode {
-  value: string;
-  label: string;
-  children?: PromptCascaderNode[];
+  value: string
+  label: string
+  children?: PromptCascaderNode[]
 }
 
 export function buildPromptTree(paths: string[]): PromptCascaderNode[] {
-  const root: PromptCascaderNode = { value: "", label: "", children: [] };
+  const root: PromptCascaderNode = { value: '', label: '', children: [] }
 
   for (const p of paths) {
-    const segs = p.split("/");
+    const segs = p.split('/')
     // 路径必以 prompt/ 开头（后端 config.global.prompts_dir = .chery/prompt）；剥掉后从组文件夹层级建树
     // （防御：非 prompt 开头则保留全部段，避免历史 prompts/ 旧数据丢层级）
-    const stripped = segs[0] === "prompt" ? segs.slice(1) : segs;
-    if (!stripped.length) continue;
-    const prefix = segs[0] === "prompt" ? "prompt/" : "";
+    const stripped = segs[0] === 'prompt' ? segs.slice(1) : segs
+    if (!stripped.length) continue
+    const prefix = segs[0] === 'prompt' ? 'prompt/' : ''
 
-    let cur = root;
-    let acc = "";
+    let cur = root
+    let acc = ''
     stripped.forEach((seg, i) => {
-      acc = i === 0 ? `${prefix}${seg}` : `${acc}/${seg}`;
-      const isLeaf = i === stripped.length - 1;
-      if (!cur.children) cur.children = [];
-      let node = cur.children.find((c) => c.label === seg);
+      acc = i === 0 ? `${prefix}${seg}` : `${acc}/${seg}`
+      const isLeaf = i === stripped.length - 1
+      if (!cur.children) cur.children = []
+      let node = cur.children.find((c) => c.label === seg)
       if (!node) {
-        node = { value: acc, label: seg };
-        cur.children.push(node);
+        node = { value: acc, label: seg }
+        cur.children.push(node)
       }
       if (!isLeaf) {
-        if (!node.children) node.children = [];
-        cur = node;
+        if (!node.children) node.children = []
+        cur = node
       }
-    });
+    })
   }
 
-  return root.children ?? [];
+  return root.children ?? []
 }

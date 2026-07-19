@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import type { QuestionItemState, RunningTool } from "@/stores/agents";
-import { useAgentsStore } from "@/stores";
+import type { QuestionItemState, RunningTool } from '@/stores/agents'
+import { useAgentsStore } from '@/stores'
 
 const props = defineProps<{
-  tools: RunningTool[];
-  questions: QuestionItemState[];
-  chatId: string;
-}>();
-const agents = useAgentsStore();
+  tools: RunningTool[]
+  questions: QuestionItemState[]
+  chatId: string
+}>()
+const agents = useAgentsStore()
 
 function isDrafted(question: QuestionItemState): boolean {
-  return question.localStatus === "pending" && Boolean(
-    question.draftAnswer?.selectedLabels.length ||
-    question.draftAnswer?.freeText?.trim() ||
-    question.draftAnswer?.cancelled,
-  );
+  return (
+    question.localStatus === 'pending' &&
+    Boolean(
+      question.draftAnswer?.selectedLabels.length ||
+      question.draftAnswer?.freeText?.trim() ||
+      question.draftAnswer?.cancelled,
+    )
+  )
 }
 </script>
 
@@ -37,20 +40,19 @@ function isDrafted(question: QuestionItemState): boolean {
         }"
         :aria-label="question.header ?? question.question"
         @click="agents.selectQuestion(chatId, question.questionId)"
-      >{{ question.localStatus === "ready" ? "👌" : "✍️" }}</button>
+      >
+        {{ question.localStatus === 'ready' ? '👌' : '✍️' }}
+      </button>
     </el-tooltip>
-    <span
-      v-for="tool in tools"
-      :key="tool.id"
-      class="run-icon"
-      :title="tool.name"
-    >{{ agents.iconForTool(tool.name) }}</span>
+    <span v-for="tool in tools" :key="tool.id" class="run-icon" :title="tool.name">{{
+      agents.iconForTool(tool.name)
+    }}</span>
   </div>
 </template>
 
 <style scoped lang="less">
-@glyph-fonts: ui-rounded, "Hiragino Sans", "PingFang SC", "Noto Sans Symbols 2",
-  "Noto Sans Symbols", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+@glyph-fonts: ui-rounded, 'Hiragino Sans', 'PingFang SC', 'Noto Sans Symbols 2',
+  'Noto Sans Symbols', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
 
 .running-tools {
   display: inline-flex;
@@ -73,7 +75,9 @@ function isDrafted(question: QuestionItemState): boolean {
   font-size: 11px;
   animation: run-pulse 1.1s ease-in-out infinite;
 
-  &.is-clickable { cursor: pointer; }
+  &.is-clickable {
+    cursor: pointer;
+  }
   &.is-question {
     background: rgba(124, 58, 237, 0.2);
     border-color: rgba(124, 58, 237, 0.4);
@@ -91,7 +95,12 @@ function isDrafted(question: QuestionItemState): boolean {
 }
 
 @keyframes run-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 </style>

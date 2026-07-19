@@ -5,18 +5,18 @@
  *
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md) 「共享件」。
  */
-import OpenAI from "openai";
+import OpenAI from 'openai'
 import type {
   ChatCompletion,
   ChatCompletionContentPart,
   ChatCompletionMessageParam,
-} from "openai/resources/chat/completions";
-import type { ZodType } from "zod";
-import type { ThinkingLevel } from "@/core/llm/adapter";
-import type { LLMResponse, LLMAttachment } from "@/core/message/adapter";
-import type { Sense, SenseCallData, SenseFunction } from "@/core/sense";
-import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
-import { getRateLimiter } from "@/utils/rateLimiter.js";
+} from 'openai/resources/chat/completions'
+import type { ZodType } from 'zod'
+import type { ThinkingLevel } from '@/core/llm/adapter'
+import type { LLMResponse, LLMAttachment } from '@/core/message/adapter'
+import type { Sense, SenseCallData, SenseFunction } from '@/core/sense'
+import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
+import { getRateLimiter } from '@/utils/rateLimiter.js'
 
 // ========== RPM 限流 ==========
 
@@ -25,14 +25,14 @@ import { getRateLimiter } from "@/utils/rateLimiter.js";
  * rpm 未配置 / 非正数 / 无 url 时跳过（不限流）。
  */
 export async function acquireRpm(options?: {
-  rpm?: number;
-  url?: string;
-  key?: string;
+  rpm?: number
+  url?: string
+  key?: string
 }): Promise<void> {
-  const rpm = options?.rpm;
-  const url = options?.url;
-  if (!rpm || rpm <= 0 || !url) return;
-  await getRateLimiter(url, options.key, rpm).acquire();
+  const rpm = options?.rpm
+  const url = options?.url
+  if (!rpm || rpm <= 0 || !url) return
+  await getRateLimiter(url, options.key, rpm).acquire()
 }
 
 // ========== ThinkingLevel 映射 ==========
@@ -49,9 +49,9 @@ export async function acquireRpm(options?: {
  */
 export function mapThinkingToReasoningEffort(
   level: ThinkingLevel | undefined,
-): "low" | "medium" | "high" | undefined {
-  if (level === undefined || level === "off" || level === "on") return undefined;
-  return level;
+): 'low' | 'medium' | 'high' | undefined {
+  if (level === undefined || level === 'off' || level === 'on') return undefined
+  return level
 }
 
 // ========== Message Adapter ==========
@@ -66,98 +66,95 @@ export function mapThinkingToReasoningEffort(
  * video_url / input_audio 是 SDK 类型里不存在的字段，用 `as unknown as` 强转。
  */
 export const openaiMessageAdapterConfig = {
-  content: (raw: ChatCompletion) => raw.choices[0]?.message?.content ?? "",
+  content: (raw: ChatCompletion) => raw.choices[0]?.message?.content ?? '',
 
   thinking: (raw: ChatCompletion) => {
-    const msg = raw.choices[0]?.message;
-    if (msg && "reasoning_content" in msg && msg.reasoning_content) {
-      return msg.reasoning_content as string;
+    const msg = raw.choices[0]?.message
+    if (msg && 'reasoning_content' in msg && msg.reasoning_content) {
+      return msg.reasoning_content as string
     }
-    return undefined;
+    return undefined
   },
 
   extractStreamDelta: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) =>
-    chunk.choices[0]?.delta?.content ?? "",
+    chunk.choices[0]?.delta?.content ?? '',
 
   extractStreamThinking: (chunk: OpenAI.Chat.Completions.ChatCompletionChunk) => {
-    const delta = chunk.choices[0]?.delta;
-    if (delta && "reasoning_content" in delta && delta.reasoning_content) {
-      return delta.reasoning_content as string;
+    const delta = chunk.choices[0]?.delta
+    if (delta && 'reasoning_content' in delta && delta.reasoning_content) {
+      return delta.reasoning_content as string
     }
-    return undefined;
+    return undefined
   },
 
   buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) =>
     history
       .filter((m) => !m.revoked)
       .map((m) => {
-        if (m.role === "sense") {
+        if (m.role === 'sense') {
           // 如果被替换，使用 replace.content
-          const content = m.replace?.state ? m.replace.content : m.content;
+          const content = m.replace?.state ? m.replace.content : m.content
           return {
-            role: "tool",
+            role: 'tool',
             content,
             tool_call_id: m.id,
-          } as ChatCompletionMessageParam;
+          } as ChatCompletionMessageParam
         }
-        if (m.role === "assistant" && m.senseCalls && m.senseCalls.length > 0) {
+        if (m.role === 'assistant' && m.senseCalls && m.senseCalls.length > 0) {
           return {
             role: m.role,
             content: m.content || null,
             tool_calls: m.senseCalls.map((sc) => ({
               id: sc.id,
-              type: "function" as const,
+              type: 'function' as const,
               function: {
                 name: sc.name,
                 arguments: sc.arguments,
               },
             })),
-          } as ChatCompletionMessageParam;
+          } as ChatCompletionMessageParam
         }
         // role（wait=true 子完成注入的角色回复）映射为 user：OpenAI 拒未知 role
         // 兼容旧历史消息 role:subagent（与 role 等价）
-        const role =
-          m.role === "subagent" || m.role === "role" ? "user" : m.role;
+        const role = m.role === 'subagent' || m.role === 'role' ? 'user' : m.role
         // user 消息携带 attachments → 构造 OpenAI vision content array（多模态）
-        if (role === "user" && attachments && attachments.length > 0) {
-          const parts: ChatCompletionContentPart[] = [
-            { type: "text", text: m.content },
-          ];
+        if (role === 'user' && attachments && attachments.length > 0) {
+          const parts: ChatCompletionContentPart[] = [{ type: 'text', text: m.content }]
           for (const att of attachments) {
-            if (att.mimeType.startsWith("image/")) {
+            if (att.mimeType.startsWith('image/')) {
               parts.push({
-                type: "image_url",
+                type: 'image_url',
                 image_url: {
-                  url: `data:${att.mimeType};base64,${att.data.toString("base64")}`,
+                  url: `data:${att.mimeType};base64,${att.data.toString('base64')}`,
                 },
-              });
-            } else if (att.mimeType.startsWith("video/")) {
+              })
+            } else if (att.mimeType.startsWith('video/')) {
               // video_url 不是 SDK 标准类型，用强转
               parts.push({
-                type: "video_url",
+                type: 'video_url',
                 video_url: {
-                  url: `data:${att.mimeType};base64,${att.data.toString("base64")}`,
+                  url: `data:${att.mimeType};base64,${att.data.toString('base64')}`,
                 },
-              } as unknown as ChatCompletionContentPart);
-            } else if (att.mimeType.startsWith("audio/")) {
+              } as unknown as ChatCompletionContentPart)
+            } else if (att.mimeType.startsWith('audio/')) {
               // input_audio 是 OpenAI 语音输入格式
               parts.push({
-                type: "input_audio",
+                type: 'input_audio',
                 input_audio: {
-                  data: att.data.toString("base64"),
-                  format: att.mimeType.split("/")[1] ?? "wav",
+                  data: att.data.toString('base64'),
+                  format: att.mimeType.split('/')[1] ?? 'wav',
                 },
-              } as unknown as ChatCompletionContentPart);
+              } as unknown as ChatCompletionContentPart)
             }
           }
-          return { role: "user", content: parts } as ChatCompletionMessageParam;
+          return { role: 'user', content: parts } as ChatCompletionMessageParam
         }
         return {
           role,
           content: m.content,
-        } as ChatCompletionMessageParam;
+        } as ChatCompletionMessageParam
       }),
-};
+}
 
 // ========== Sense Adapter ==========
 
@@ -170,23 +167,23 @@ export const openaiMessageAdapterConfig = {
 export const openaiSenseAdapterConfig = {
   buildSenses(senses: Sense<ZodType>[]): SenseFunction[] {
     return senses.map((s) => ({
-      type: "function",
+      type: 'function',
       function: {
         ...buildBaseSenseFunction(s),
         strict: true,
       },
-    }));
+    }))
   },
 
   senseCalls(response: ChatCompletion): SenseCallData[] {
     const senseCalls = (response.choices?.[0]?.message?.tool_calls ??
-      []) as OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall[];
+      []) as OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall[]
     return senseCalls.map((sc, index) => ({
       index,
       id: sc.id ?? `sense-${index}`,
       name: sc.function?.name ?? undefined,
-      arguments: sc.function?.arguments ?? "",
-    }));
+      arguments: sc.function?.arguments ?? '',
+    }))
   },
 
   /**
@@ -195,13 +192,13 @@ export const openaiSenseAdapterConfig = {
    * 返回 SenseCallData（index 定位，arguments 为增量片段）
    */
   extractSenseCallDeltas(chunk: unknown): SenseCallData[] {
-    const streamChunk = chunk as OpenAI.Chat.Completions.ChatCompletionChunk;
-    const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? [];
+    const streamChunk = chunk as OpenAI.Chat.Completions.ChatCompletionChunk
+    const deltas = streamChunk.choices?.[0]?.delta?.tool_calls ?? []
     return deltas.map((delta) => ({
       index: delta.index ?? 0,
       id: delta.id ?? `sense-${delta.index ?? 0}`,
       name: delta.function?.name ?? undefined,
-      arguments: delta.function?.arguments ?? "",
-    }));
+      arguments: delta.function?.arguments ?? '',
+    }))
   },
-};
+}

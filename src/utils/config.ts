@@ -1,28 +1,28 @@
-import dotenv from "dotenv";
-import yaml from "js-yaml";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import { SupervisionLevel } from "@/core/config";
-import type { OAuth2Config } from "@/service/auth/index.js";
-import type { ThinkingLevel } from "@/core/llm/adapter";
-import { validateRoleAvatar } from "@/utils/roleAvatar.js";
+import dotenv from 'dotenv'
+import yaml from 'js-yaml'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { SupervisionLevel } from '@/core/config'
+import type { OAuth2Config } from '@/service/auth/index.js'
+import type { ThinkingLevel } from '@/core/llm/adapter'
+import { validateRoleAvatar } from '@/utils/roleAvatar.js'
 
 // .env 路径：源码运行时 __dirname = src/utils/（需 ../..），打包产物 __dirname = dist/（需 ..）。
 // dotenv.config() 不覆盖已存在的 process.env 变量，故开发/生产均可安全调用：
 // 生产部署通常无 .env 文件，existsSync 短路；有 .env 时也只填充未设置的变量。
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const isSourceRuntime = path.basename(path.dirname(__dirname)) === "src";
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const isSourceRuntime = path.basename(path.dirname(__dirname)) === 'src'
 const rootEnvPath = isSourceRuntime
-  ? path.join(__dirname, "..", "..", ".env")
-  : path.join(__dirname, "..", ".env");
+  ? path.join(__dirname, '..', '..', '.env')
+  : path.join(__dirname, '..', '.env')
 if (fs.existsSync(rootEnvPath)) {
-  dotenv.config({ path: rootEnvPath });
+  dotenv.config({ path: rootEnvPath })
 }
 
 // 从 core 层重新导出 SupervisionLevel
-export { SupervisionLevel } from "@/core/config";
+export { SupervisionLevel } from '@/core/config'
 
 /**
  * mock provider 脚本项（单次 LLM 调用的预定响应）
@@ -30,13 +30,13 @@ export { SupervisionLevel } from "@/core/config";
  */
 export interface MockScriptResponse {
   /** 思考增量 */
-  thinking?: string;
+  thinking?: string
   /** 正文增量 */
-  content?: string;
+  content?: string
   /** 工具调用（监管等级由 sense_groups 的 :level 决定，非脚本） */
-  senseCalls?: { id?: string; name: string; arguments: string }[];
+  senseCalls?: { id?: string; name: string; arguments: string }[]
   /** 抛错（测 retry 中间件） */
-  error?: string;
+  error?: string
 }
 
 /**
@@ -45,43 +45,43 @@ export interface MockScriptResponse {
  */
 interface MockConfig {
   /** 开关：是否启用 mock（缺省 true） */
-  enabled?: boolean;
+  enabled?: boolean
   /** 脚本文件路径，相对 .chery 目录（如 mock/read_file.yaml） */
-  file: string;
+  file: string
 }
 
 /** 模型声明的媒体能力。 */
 export interface MediaCapabilities {
-  image?: boolean;
-  video?: boolean;
-  audio?: boolean;
+  image?: boolean
+  video?: boolean
+  audio?: boolean
 }
 
 /** 缺省兼容旧配置：toolCall=true，其余能力=false。 */
 export interface BrainCapabilities {
-  toolCall?: boolean;
-  input?: MediaCapabilities;
-  generate?: MediaCapabilities;
+  toolCall?: boolean
+  input?: MediaCapabilities
+  generate?: MediaCapabilities
 }
 
 /** 媒体类型 */
-export type MediaKind = "image" | "video" | "audio";
+export type MediaKind = 'image' | 'video' | 'audio'
 
 /** 命名媒体服务配置（独立实体，在 MediaTab 管理）。 */
 export interface MediaServiceConfig {
   /** 服务类型（图/音/视） */
-  type: MediaKind;
-  url: string;
-  model?: string;
-  key?: string;
-  enabled?: boolean;
+  type: MediaKind
+  url: string
+  model?: string
+  key?: string
+  enabled?: boolean
   /** 单文件上传上限（MiB），覆盖全局默认 100 */
-  maxUploadMb?: number;
+  maxUploadMb?: number
 }
 
 /** 媒体服务集合：name → 配置。预设通过 PresetConfig.mediaImage/mediaVideo/mediaAudio 引用此处的 name。 */
 export interface MediaConfig {
-  [name: string]: MediaServiceConfig;
+  [name: string]: MediaServiceConfig
 }
 
 /**
@@ -89,20 +89,20 @@ export interface MediaConfig {
  * 各 Provider 可扩展具体配置结构
  */
 interface BrainConfig {
-  url?: string;
-  model: string;
-  key?: string;
+  url?: string
+  model: string
+  key?: string
   /** 思考强度档位（ThinkingLevel）：off=关闭，low/medium/high=强度递增。legacy boolean 兼容（loadConfig/readRawConfig 归一）。 */
-  thinking?: ThinkingLevel;
+  thinking?: ThinkingLevel
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
-  provider: string;
+  provider: string
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
-  rpm?: number;
+  rpm?: number
   /** mock provider 专用：脚本化响应 */
-  mock?: MockConfig;
+  mock?: MockConfig
   /** 记忆容量（KB），供前端 context bar 显示用量（后端按 KB×256 折算 token 预算）。缺省兜底 */
-  contextLimit?: number;
-  capabilities?: BrainCapabilities;
+  contextLimit?: number
+  capabilities?: BrainCapabilities
 }
 
 /**
@@ -116,14 +116,14 @@ interface BrainConfig {
  * 保证 ctx.runtime.brain.thinking 与前端 DTO 都规范化。
  */
 function normalizeBrainThinking(v: unknown): ThinkingLevel {
-  if (v === true) return "high";
-  if (v === false || v === undefined || v === null) return "off";
-  if (v === "off" || v === "on" || v === "low" || v === "medium" || v === "high") return v;
-  return "off";
+  if (v === true) return 'high'
+  if (v === false || v === undefined || v === null) return 'off'
+  if (v === 'off' || v === 'on' || v === 'low' || v === 'medium' || v === 'high') return v
+  return 'off'
 }
 
 interface LLMConfig {
-  brain: Record<string, BrainConfig>;
+  brain: Record<string, BrainConfig>
 }
 
 /**
@@ -133,27 +133,27 @@ interface LLMConfig {
  *   缺省 → 角色用全局 system_prompt。per-role system prompt（T7）。
  */
 export interface RoleConfig {
-  brain: string;
+  brain: string
   /** 角色头像字形；缺省时按角色 type 稳定映射内置头像。 */
-  avatar?: string;
+  avatar?: string
   /** 单一感官组（每 agent 恰一个 sense group） */
-  senseGroup: string;
+  senseGroup: string
   /** 启用的 MCP server 名（缺省 []，与主 agent 平权） */
-  mcpServers?: string[];
-  systemPrompt?: string;
+  mcpServers?: string[]
+  systemPrompt?: string
   /**
    * 技能组：独立 skill 名子集（undefined = 全部独立 skill；[] = 无）。
    * role 激活时仅这些独立 skill 进入 system prompt `<skills>` 块。
    * 仅作用于 prompt 注入层（快照于 chat 创建时，"编制运行后不可改"）。
    */
-  skills?: string[];
+  skills?: string[]
   /**
    * 插件组：plugin 名子集（undefined = 全部插件；[] = 无）。
    * role 激活时仅这些插件下的 skill 进入 `<skills>` 块。
    */
-  plugins?: string[];
+  plugins?: string[]
   /** 锁定：true = 禁止删除（前端 UI 隐藏删除、显示 lock 图标）。保护管家等关键角色不被误删。 */
-  lock?: boolean;
+  lock?: boolean
 }
 
 /**
@@ -163,13 +163,13 @@ export interface RoleConfig {
  */
 export interface PresetConfig {
   /** 组长角色 type 名（必填，必须 ∈ config.roles 且 ∈ 下属 roles 列表）；主 pet 编制取此角色 */
-  leader: string;
+  leader: string
   /** 选中的角色 type 名（引用 config.roles 已定义的键，不在预设内重定义） */
-  roles?: string[];
+  roles?: string[]
   /** 按类型引用媒体服务名（引用 config.media 已定义的服务，类型须匹配） */
-  mediaImage?: string;
-  mediaVideo?: string;
-  mediaAudio?: string;
+  mediaImage?: string
+  mediaVideo?: string
+  mediaAudio?: string
   /**
    * 项目工作目录绝对路径（提示词层注入：buildFirstSystemPrompt 注入 <workspace> 段声明本会话专属该项目）。
    * 仅 system prompt 提示，不约束 sense 实际行为（无 cwd 收束/路径沙箱）。缺省 → 不注入该段。
@@ -177,11 +177,11 @@ export interface PresetConfig {
    *   - 启动期（loadConfig）：非绝对路径 → 硬错误阻塞；绝对路径但目录不存在/不可访问 → 软警告 + 置 undefined（降级为空，下游 if(workspace) 自动跳过）
    *   - 保存期（saveRawConfig）：任一问题均返回错误给 UI，阻止写盘
    */
-  workspace?: string;
+  workspace?: string
 }
 
 /** 默认预设名：旧 config.default 迁移目标。/api/config default 字段 + brain.list default 标记据此派生 */
-export const DEFAULT_PRESET_NAME = "默认";
+export const DEFAULT_PRESET_NAME = '默认'
 
 /**
  * 记忆配置（双层模型：global 跨 chat 共享 · workspace per chat / per 项目）。
@@ -198,37 +198,37 @@ export const DEFAULT_PRESET_NAME = "默认";
 /** 单层记忆的活跃条数 / 单条字数软限制（缺省由 MemoryConfig 默认值兜底） */
 interface MemoryLimits {
   /** 活跃记忆最大条数（超限触发淘汰） */
-  max_count?: number;
+  max_count?: number
   /** 单条记忆正文字数上限 */
-  max_chars?: number;
+  max_chars?: number
 }
 
 interface MemoryConfig {
   /** 全局层（跨 chat 共享；管用户习惯/事实/准则） */
-  global?: MemoryLimits;
+  global?: MemoryLimits
   /** workspace 层（per chat / per 项目；管项目行为规范） */
-  workspace?: MemoryLimits;
+  workspace?: MemoryLimits
 }
 
 /**
  * 文件压缩配置
  */
 interface FileCompressionConfig {
-  truncate_threshold?: number; // 截断阈值（字节），默认150KB
-  truncate_preview_lines?: number; // 截断保留行数，默认100行
-  log_file_extensions?: string[]; // 日志文件扩展名列表
-  drain_preview_count?: number; // Drain模板实例数，默认3
+  truncate_threshold?: number // 截断阈值（字节），默认150KB
+  truncate_preview_lines?: number // 截断保留行数，默认100行
+  log_file_extensions?: string[] // 日志文件扩展名列表
+  drain_preview_count?: number // Drain模板实例数，默认3
 }
 
 /**
  * 日志配置
  */
 interface LoggerConfig {
-  level?: "debug" | "info" | "warn" | "error" | "silent"; // 日志等级
-  output?: ("console" | "file")[]; // 输出位置数组
-  timestamp?: boolean; // 是否显示时间戳
-  location?: boolean; // 是否显示调用位置
-  format?: "plain" | "json"; // 输出格式
+  level?: 'debug' | 'info' | 'warn' | 'error' | 'silent' // 日志等级
+  output?: ('console' | 'file')[] // 输出位置数组
+  timestamp?: boolean // 是否显示时间戳
+  location?: boolean // 是否显示调用位置
+  format?: 'plain' | 'json' // 输出格式
 }
 
 /**
@@ -236,8 +236,8 @@ interface LoggerConfig {
  * 前端填写**必须以 `%` 或 `k` 结尾**（如 `50%` / `64k`，不接受裸数字）；后端只处理结构体（确定性，规则 5）。
  */
 export interface Threshold {
-  unit: "tokens" | "percent";
-  value: number;
+  unit: 'tokens' | 'percent'
+  value: number
 }
 
 /**
@@ -254,28 +254,28 @@ export interface Threshold {
  * 临时换模型按当次发送的 brain 判定。
  */
 export interface CommandConfig {
-  warn?: Threshold;
-  auto?: Threshold;
-  min_context_limit?: number;
-  safety_margin?: number;
+  warn?: Threshold
+  auto?: Threshold
+  min_context_limit?: number
+  safety_margin?: number
 }
 
 export const DEFAULT_COMMAND_CONFIG = {
-  warn: { unit: "percent", value: 0.6 } as const,
-  auto: { unit: "percent", value: 0.8 } as const,
+  warn: { unit: 'percent', value: 0.6 } as const,
+  auto: { unit: 'percent', value: 0.8 } as const,
   min_context_limit: 32000,
   safety_margin: 1024,
-} as const satisfies Required<Omit<CommandConfig, "warn" | "auto">> &
-  Record<"warn" | "auto", Threshold>;
+} as const satisfies Required<Omit<CommandConfig, 'warn' | 'auto'>> &
+  Record<'warn' | 'auto', Threshold>
 
 /**
  * 全局配置
  */
 interface GlobalConfig {
-  thinking: boolean; // 是否开启思考模式（如果能思考）
-  supervision: SupervisionLevel; // 全局默认的监管等级
-  stream: boolean; // 是否开启流式输出
-  sense_execute_timeout?: number; // 感官执行超时时间（毫秒）
+  thinking: boolean // 是否开启思考模式（如果能思考）
+  supervision: SupervisionLevel // 全局默认的监管等级
+  stream: boolean // 是否开启流式输出
+  sense_execute_timeout?: number // 感官执行超时时间（毫秒）
   /**
    * 审批等待超时（毫秒）。`>= 0`，0 = 不限时（无超时，永远等用户决）。
    * 超时视为用户拒绝（非 abort），不影响断连/chat.abort 的 AgentAbortError 路径。
@@ -283,25 +283,25 @@ interface GlobalConfig {
    * 校验：`validateRawConfig` 强制 `>= 0` + `Number.isFinite`；`config.save` zod schema `.min(0).optional()`。
    * （注：当前 `connection.ts` 还有一层与本字段独立的硬编码 15min WS 层超时作兜底，与「0 = 不限时」语义不完全对齐，跟踪中。）
    */
-  approval_timeout?: number;
-  maxLoopCount?: number; // loop 最大执行次数（默认 30）
-  bash_log_retention_hours?: number; // bash 日志文件保留时间（小时）
-  file_compression?: FileCompressionConfig; // 文件压缩配置
-  logger?: LoggerConfig; // 日志配置
-  textEditor?: string; // 文本编辑器路径（如 vscode、notepad、记事本等），用于打开配置文件
-  command?: CommandConfig; // 内置命令（compact 等）触发与可见性配置
+  approval_timeout?: number
+  maxLoopCount?: number // loop 最大执行次数（默认 30）
+  bash_log_retention_hours?: number // bash 日志文件保留时间（小时）
+  file_compression?: FileCompressionConfig // 文件压缩配置
+  logger?: LoggerConfig // 日志配置
+  textEditor?: string // 文本编辑器路径（如 vscode、notepad、记事本等），用于打开配置文件
+  command?: CommandConfig // 内置命令（compact 等）触发与可见性配置
 }
 
 /**
  * 服务配置（端口 + 传输格式，从环境变量迁移至此）
  */
 interface ServerConfig {
-  port: number; // WebSocket 服务端口
-  transport: "binary" | "json"; // 传输格式：binary（二进制帧）/ json（JSON 字符串）
+  port: number // WebSocket 服务端口
+  transport: 'binary' | 'json' // 传输格式：binary（二进制帧）/ json（JSON 字符串）
   /** Keep localhost by default; set 0.0.0.0 or an intranet address behind TLS/reverse proxy. */
-  host?: string;
+  host?: string
   /** OIDC/OAuth2 authorization-code login for browser control-plane access. */
-  auth?: OAuth2Config;
+  auth?: OAuth2Config
 }
 
 /**
@@ -310,52 +310,52 @@ interface ServerConfig {
  * supervision 为 server 级默认监管等级（覆盖 global.supervision），可被 sense_groups 的 :level 进一步覆盖。
  */
 interface McpServerConfig {
-  transport: "stdio" | "streamable-http";
-  command?: string; // stdio：可执行文件
-  args?: string[]; // stdio：命令行参数
-  env?: Record<string, string>; // stdio：子进程环境变量（$ENV 占位符由 replaceEnvVars 注入）
-  url?: string; // streamable-http：server URL
-  supervision?: SupervisionLevel; // server 级默认监管等级（loadConfig 把字符串转枚举）
+  transport: 'stdio' | 'streamable-http'
+  command?: string // stdio：可执行文件
+  args?: string[] // stdio：命令行参数
+  env?: Record<string, string> // stdio：子进程环境变量（$ENV 占位符由 replaceEnvVars 注入）
+  url?: string // streamable-http：server URL
+  supervision?: SupervisionLevel // server 级默认监管等级（loadConfig 把字符串转枚举）
 }
 
 /**
  * 扩展全局配置（包含自动补全的路径）
  */
 interface ExtendedGlobalConfig extends GlobalConfig {
-  skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
-  plugins_dir: string; // 自动补全：chery_dir + "/.chery/plugins"（插件整仓，loader 增量扫描并入可用 skills）
-  senses_dir: string; // 自动补全：chery_dir + "/.chery/senses"
-  prompts_dir: string; // 自动补全：chery_dir + "/.chery/prompt"（唯一 prompt 目录：含全局 base system.md + per-agent override 子文件夹）
-  db_dir: string; // 自动补全：chery_dir + "/db"
-  memory_dir: string; // 自动补全：chery_dir + "/.chery/memory"（非 workspace 模式记忆存储根目录）
+  skills_dir: string // 自动补全：chery_dir + "/.chery/skills"
+  plugins_dir: string // 自动补全：chery_dir + "/.chery/plugins"（插件整仓，loader 增量扫描并入可用 skills）
+  senses_dir: string // 自动补全：chery_dir + "/.chery/senses"
+  prompts_dir: string // 自动补全：chery_dir + "/.chery/prompt"（唯一 prompt 目录：含全局 base system.md + per-agent override 子文件夹）
+  db_dir: string // 自动补全：chery_dir + "/db"
+  memory_dir: string // 自动补全：chery_dir + "/.chery/memory"（非 workspace 模式记忆存储根目录）
 }
 
 interface Config {
-  global: ExtendedGlobalConfig;
-  llm: LLMConfig;
-  media?: MediaConfig;
-  sense_groups?: Record<string, string[]>; // sense分组配置
-  mcp_servers?: Record<string, McpServerConfig>; // MCP server 配置（name → 连接参数 + server 级监管默认）
-  server: ServerConfig; // 服务配置（端口 + 传输格式，loadConfig 兜底默认值）
+  global: ExtendedGlobalConfig
+  llm: LLMConfig
+  media?: MediaConfig
+  sense_groups?: Record<string, string[]> // sense分组配置
+  mcp_servers?: Record<string, McpServerConfig> // MCP server 配置（name → 连接参数 + server 级监管默认）
+  server: ServerConfig // 服务配置（端口 + 传输格式，loadConfig 兜底默认值）
   /** 角色模块（spawn_role sense 按 type 查；单一源，预设按 type 引用） */
-  roles?: Record<string, RoleConfig>;
+  roles?: Record<string, RoleConfig>
   /** 预设：命名编制包（leader 角色 + 选中角色 type 列表），主 pet 启动选一套。旧 config.default 已并入「默认」预设 */
-  presets?: Record<string, PresetConfig>;
+  presets?: Record<string, PresetConfig>
   /** 项目记忆配置（条数/字数限制）；缺省 → max_count=15, max_chars=500 */
-  memory?: MemoryConfig;
+  memory?: MemoryConfig
 }
 
 /**
  * 原始（磁盘/YAML）全局配置：supervision 为字符串（未转枚举）、无路径补全。
  * 供 config.get/config.save RPC 传输与编辑。
  */
-interface GlobalConfigRaw extends Omit<GlobalConfig, "supervision"> {
-  supervision: "auto" | "confirm" | "manual";
+interface GlobalConfigRaw extends Omit<GlobalConfig, 'supervision'> {
+  supervision: 'auto' | 'confirm' | 'manual'
 }
 
 /** 原始 MCP server 配置：supervision 为字符串（未转枚举） */
-interface McpServerConfigRaw extends Omit<McpServerConfig, "supervision"> {
-  supervision?: "auto" | "confirm" | "manual";
+interface McpServerConfigRaw extends Omit<McpServerConfig, 'supervision'> {
+  supervision?: 'auto' | 'confirm' | 'manual'
 }
 
 /**
@@ -363,89 +363,88 @@ interface McpServerConfigRaw extends Omit<McpServerConfig, "supervision"> {
  * supervision 为字符串、key 仍为 $ENV 占位符。读写均不碰运行时内存单例（重启生效）。
  */
 interface ConfigRaw {
-  global: GlobalConfigRaw;
-  llm: LLMConfig;
-  media?: MediaConfig;
-  sense_groups?: Record<string, string[]>;
-  mcp_servers?: Record<string, McpServerConfigRaw>;
-  roles?: Record<string, RoleConfig>;
-  presets?: Record<string, PresetConfig>;
-  memory?: MemoryConfig;
+  global: GlobalConfigRaw
+  llm: LLMConfig
+  media?: MediaConfig
+  sense_groups?: Record<string, string[]>
+  mcp_servers?: Record<string, McpServerConfigRaw>
+  roles?: Record<string, RoleConfig>
+  presets?: Record<string, PresetConfig>
+  memory?: MemoryConfig
 }
 
 // 同一变量可能被多个字段引用（如 4 个 brain 都用 $API_KEY），
 // 用 Set 去重，避免控制台刷出 "API_KEY, API_KEY, API_KEY, API_KEY"。
-const missingEnvVars = new Set<string>();
+const missingEnvVars = new Set<string>()
 
 export function replaceEnvVars(value: unknown): unknown {
-  if (typeof value === "string") {
-    const envVarMatch = value.match(/^\$([A-Z_][A-Z0-9_]*)$/);
+  if (typeof value === 'string') {
+    const envVarMatch = value.match(/^\$([A-Z_][A-Z0-9_]*)$/)
     if (envVarMatch && envVarMatch[1]) {
-      const envVarName = envVarMatch[1];
-      const envValue = process.env[envVarName];
+      const envVarName = envVarMatch[1]
+      const envValue = process.env[envVarName]
       if (!envValue) {
-        missingEnvVars.add(envVarName);
-        return value; // 原样返回
+        missingEnvVars.add(envVarName)
+        return value // 原样返回
       }
-      return envValue;
+      return envValue
     }
-    return value;
+    return value
   }
 
   if (Array.isArray(value)) {
-    return value.map(replaceEnvVars);
+    return value.map(replaceEnvVars)
   }
 
-  if (typeof value === "object" && value !== null) {
-    const result: Record<string, unknown> = {};
+  if (typeof value === 'object' && value !== null) {
+    const result: Record<string, unknown> = {}
     for (const [key, val] of Object.entries(value)) {
-      result[key] = replaceEnvVars(val);
+      result[key] = replaceEnvVars(val)
     }
-    return result;
+    return result
   }
 
-  return value;
+  return value
 }
 
 function loadConfig(): Config {
   // .chery 目录路径（从环境变量读取，默认 process.cwd()）
-  const cheryDir = process.env.CHERY_DIR || process.cwd();
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
 
   // 从 .chery/config.yaml 读取配置（运行时配置，不走打包）
-  const configPath = path.join(cheryDir, ".chery", "config.yaml");
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
 
   if (!fs.existsSync(configPath)) {
-    console.error(`✗ 配置文件不存在: ${configPath}`);
-    console.error(`  请确认 CHERY_DIR 环境变量指向正确的项目根目录（当前: ${cheryDir}）`);
-    process.exit(1);
+    console.error(`✗ 配置文件不存在: ${configPath}`)
+    console.error(`  请确认 CHERY_DIR 环境变量指向正确的项目根目录（当前: ${cheryDir}）`)
+    process.exit(1)
   }
 
-  const configFile = fs.readFileSync(configPath, "utf8");
-  const rawConfig = yaml.load(configFile) as Config;
+  const configFile = fs.readFileSync(configPath, 'utf8')
+  const rawConfig = yaml.load(configFile) as Config
 
-  const config = replaceEnvVars(rawConfig) as Config;
+  const config = replaceEnvVars(rawConfig) as Config
 
   // 业务校验（raw 形态：supervision 仍为字符串）。启动期 fail loud（规则12）。
   // brain 引用 / supervision 合法值 / sense :level / brain 必填项均在此（原内联块抽出共用）。
   // workspace 不在此校验：启动期不关心（workspace 是环境配置非服务必需）。
-  const rawErrors = validateRawConfig(config as unknown as ConfigRaw);
+  const rawErrors = validateRawConfig(config as unknown as ConfigRaw)
   if (rawErrors.length > 0) {
-    throw new Error(`配置校验失败:\n${rawErrors.join("\n")}`);
+    throw new Error(`配置校验失败:\n${rawErrors.join('\n')}`)
   }
 
   // 将字符串转换为枚举（校验已保证 supervision 为合法值）
-  if (typeof config.global.supervision === "string") {
-    config.global.supervision = SupervisionLevel[
-      config.global.supervision as keyof typeof SupervisionLevel
-    ];
+  if (typeof config.global.supervision === 'string') {
+    config.global.supervision =
+      SupervisionLevel[config.global.supervision as keyof typeof SupervisionLevel]
   }
 
   // MCP servers supervision 字符串转枚举（同 global.supervision 模式）
   if (config.mcp_servers) {
     for (const serverCfg of Object.values(config.mcp_servers)) {
-      if (typeof serverCfg.supervision === "string") {
+      if (typeof serverCfg.supervision === 'string') {
         serverCfg.supervision =
-          SupervisionLevel[serverCfg.supervision as keyof typeof SupervisionLevel];
+          SupervisionLevel[serverCfg.supervision as keyof typeof SupervisionLevel]
       }
     }
   }
@@ -454,10 +453,10 @@ function loadConfig(): Config {
   // spawn sense 存 metadata.promptPathOverride（绝对），buildFirstSystemPrompt 实时读取；
   // 预设 leader 编制取 config.roles[leader]，其 systemPrompt 在此统一解析，预设无需再单独补全。
   if (config.roles) {
-    const roleCheryDir = process.env.CHERY_DIR || process.cwd();
+    const roleCheryDir = process.env.CHERY_DIR || process.cwd()
     for (const cfg of Object.values(config.roles)) {
       if (cfg.systemPrompt && !path.isAbsolute(cfg.systemPrompt)) {
-        cfg.systemPrompt = path.join(roleCheryDir, ".chery", cfg.systemPrompt);
+        cfg.systemPrompt = path.join(roleCheryDir, '.chery', cfg.systemPrompt)
       }
     }
   }
@@ -466,17 +465,17 @@ function loadConfig(): Config {
   // 运行时 ctx.runtime.brain.thinking 必为 level，provider 据 level 映射请求参数。
   if (config.llm?.brain) {
     for (const cfg of Object.values(config.llm.brain)) {
-      cfg.thinking = normalizeBrainThinking(cfg.thinking);
+      cfg.thinking = normalizeBrainThinking(cfg.thinking)
     }
   }
 
   // 自动补全 .chery 目录路径
-  config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
-  config.global.plugins_dir = path.join(cheryDir, ".chery", "plugins");
-  config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
-  config.global.prompts_dir = path.join(cheryDir, ".chery", "prompt");
-  config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
-  config.global.memory_dir = path.join(cheryDir, ".chery", "memory");
+  config.global.skills_dir = path.join(cheryDir, '.chery', 'skills')
+  config.global.plugins_dir = path.join(cheryDir, '.chery', 'plugins')
+  config.global.senses_dir = path.join(cheryDir, '.chery', 'senses')
+  config.global.prompts_dir = path.join(cheryDir, '.chery', 'prompt')
+  config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, '.chery', 'db')
+  config.global.memory_dir = path.join(cheryDir, '.chery', 'memory')
 
   // 项目记忆配置默认值（缺省 → global{30,500} · workspace{15,500}）
   config.memory = {
@@ -488,38 +487,39 @@ function loadConfig(): Config {
       max_count: config.memory?.workspace?.max_count ?? 15,
       max_chars: config.memory?.workspace?.max_chars ?? 500,
     },
-  };
+  }
 
   // 命令系统配置默认值（缺省 → warn=60%, auto=80%, min=32000, safety=1024）
   config.global.command = {
     warn: config.global.command?.warn ?? DEFAULT_COMMAND_CONFIG.warn,
     auto: config.global.command?.auto ?? DEFAULT_COMMAND_CONFIG.auto,
-    min_context_limit: config.global.command?.min_context_limit ?? DEFAULT_COMMAND_CONFIG.min_context_limit,
+    min_context_limit:
+      config.global.command?.min_context_limit ?? DEFAULT_COMMAND_CONFIG.min_context_limit,
     safety_margin: config.global.command?.safety_margin ?? DEFAULT_COMMAND_CONFIG.safety_margin,
-  };
+  }
 
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 WEB_PORT 环境变量）
-  const serverRaw = config.server as Partial<ServerConfig> | undefined;
+  const serverRaw = config.server as Partial<ServerConfig> | undefined
   config.server = {
     port: serverRaw?.port ?? 8182,
-    transport: serverRaw?.transport === "json" ? "json" : "binary",
-    host: serverRaw?.host ?? "127.0.0.1",
+    transport: serverRaw?.transport === 'json' ? 'json' : 'binary',
+    host: serverRaw?.host ?? '127.0.0.1',
     auth: serverRaw?.auth,
-  };
+  }
 
   // 添加环境变量缺失警告
   if (!process.env.CHERY_DIR) {
-    console.warn(`⚠️ 环境变量 CHERY_DIR 未配置，使用默认路径: ${cheryDir}`);
+    console.warn(`⚠️ 环境变量 CHERY_DIR 未配置，使用默认路径: ${cheryDir}`)
   }
 
   if (missingEnvVars.size > 0) {
-    console.warn(`⚠️ 环境变量未配置: ${Array.from(missingEnvVars).join(", ")}`);
+    console.warn(`⚠️ 环境变量未配置: ${Array.from(missingEnvVars).join(', ')}`)
   }
 
-  return config;
+  return config
 }
 
-const config = loadConfig();
+const config = loadConfig()
 
 /**
  * 重读 .chery/config.yaml 的 mcp_servers 段，跑 replaceEnvVars + supervision 解析，
@@ -531,36 +531,36 @@ const config = loadConfig();
  * 安全性：仅 core/mcp/loader 读取 config.mcp_servers（已确认），替换引用不影响其他模块。
  */
 export function reloadMcpServersConfig(): Record<string, McpServerConfig> | undefined {
-  const cheryDir = process.env.CHERY_DIR || process.cwd();
-  const configPath = path.join(cheryDir, ".chery", "config.yaml");
-  if (!fs.existsSync(configPath)) return config.mcp_servers;
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
+  if (!fs.existsSync(configPath)) return config.mcp_servers
 
-  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as {
-    mcp_servers?: Record<string, McpServerConfig>;
-  };
-  const rawServers = raw.mcp_servers;
+  const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as {
+    mcp_servers?: Record<string, McpServerConfig>
+  }
+  const rawServers = raw.mcp_servers
   if (!rawServers) {
-    config.mcp_servers = undefined;
-    return undefined;
+    config.mcp_servers = undefined
+    return undefined
   }
 
-  const replaced = replaceEnvVars(rawServers) as Record<string, McpServerConfig>;
+  const replaced = replaceEnvVars(rawServers) as Record<string, McpServerConfig>
   for (const serverCfg of Object.values(replaced)) {
-    if (typeof serverCfg.supervision === "string") {
+    if (typeof serverCfg.supervision === 'string') {
       serverCfg.supervision =
-        SupervisionLevel[serverCfg.supervision as keyof typeof SupervisionLevel];
+        SupervisionLevel[serverCfg.supervision as keyof typeof SupervisionLevel]
     }
   }
 
-  config.mcp_servers = replaced;
-  return replaced;
+  config.mcp_servers = replaced
+  return replaced
 }
 
-const VALID_SUPERVISION = ["auto", "confirm", "manual"] as const;
-type SupervisionName = (typeof VALID_SUPERVISION)[number];
+const VALID_SUPERVISION = ['auto', 'confirm', 'manual'] as const
+type SupervisionName = (typeof VALID_SUPERVISION)[number]
 
 function isSupervisionName(v: unknown): v is SupervisionName {
-  return v === "auto" || v === "confirm" || v === "manual";
+  return v === 'auto' || v === 'confirm' || v === 'manual'
 }
 
 /**
@@ -574,18 +574,20 @@ function isSupervisionName(v: unknown): v is SupervisionName {
  * 本函数显式校验 supervision 合法值，fail loud（规则12）。
  */
 export function validateRawConfig(raw: ConfigRaw): string[] {
-  const errors: string[] = [];
+  const errors: string[] = []
 
   // supervision 合法值（global + mcp_servers）
-  const gsup = raw.global?.supervision;
+  const gsup = raw.global?.supervision
   if (!isSupervisionName(gsup)) {
-    errors.push(`global.supervision "${String(gsup)}" 非法（合法：auto/confirm/manual）`);
+    errors.push(`global.supervision "${String(gsup)}" 非法（合法：auto/confirm/manual）`)
   }
   if (raw.mcp_servers) {
     for (const [name, cfg] of Object.entries(raw.mcp_servers)) {
-      const sup = cfg?.supervision;
+      const sup = cfg?.supervision
       if (sup !== undefined && !isSupervisionName(sup)) {
-        errors.push(`mcp_servers.${name}.supervision "${String(sup)}" 非法（合法：auto/confirm/manual）`);
+        errors.push(
+          `mcp_servers.${name}.supervision "${String(sup)}" 非法（合法：auto/confirm/manual）`,
+        )
       }
     }
   }
@@ -594,11 +596,13 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   if (raw.sense_groups) {
     for (const [group, senses] of Object.entries(raw.sense_groups)) {
       for (const entry of senses ?? []) {
-        const idx = entry.indexOf(":");
+        const idx = entry.indexOf(':')
         if (idx >= 0) {
-          const level = entry.slice(idx + 1);
+          const level = entry.slice(idx + 1)
           if (!isSupervisionName(level)) {
-            errors.push(`sense_groups.${group} 的 "${entry}" :level 后缀非法（合法：auto/confirm/manual）`);
+            errors.push(
+              `sense_groups.${group} 的 "${entry}" :level 后缀非法（合法：auto/confirm/manual）`,
+            )
           }
         }
       }
@@ -606,64 +610,78 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   }
 
   // llm.brain.* model/provider 必填
-  const brainEntries = Object.entries(raw.llm?.brain ?? {});
+  const brainEntries = Object.entries(raw.llm?.brain ?? {})
   if (brainEntries.length === 0) {
-    errors.push("llm.brain 不能为空（至少配置一颗大脑）");
+    errors.push('llm.brain 不能为空（至少配置一颗大脑）')
   }
-  const brainNames = brainEntries.map(([n]) => n);
+  const brainNames = brainEntries.map(([n]) => n)
   for (const [name, cfg] of brainEntries) {
-    if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`);
-    if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`);
+    if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`)
+    if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`)
     // thinking：接受 legacy boolean（true/false）或 ThinkingLevel（off/on/low/medium/high）；非法 fail loud
     // cfg.thinking 类型已为 ThinkingLevel，运行时值可能是 legacy boolean/字符串，用 unknown 比较避开类型冲突
-    const t = cfg?.thinking as unknown;
+    const t = cfg?.thinking as unknown
     if (
-      t !== undefined && t !== true && t !== false &&
-      t !== "off" && t !== "on" && t !== "low" && t !== "medium" && t !== "high"
+      t !== undefined &&
+      t !== true &&
+      t !== false &&
+      t !== 'off' &&
+      t !== 'on' &&
+      t !== 'low' &&
+      t !== 'medium' &&
+      t !== 'high'
     ) {
-      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/on/low/medium/high）`);
+      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/on/low/medium/high）`)
     }
-    if (cfg?.capabilities?.generate && cfg.capabilities.toolCall === false && Object.values(cfg.capabilities.generate).some(Boolean)) {
-      errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`);
+    if (
+      cfg?.capabilities?.generate &&
+      cfg.capabilities.toolCall === false &&
+      Object.values(cfg.capabilities.generate).some(Boolean)
+    ) {
+      errors.push(`llm.brain.${name}.capabilities.generate 需要 Tool Call 能力`)
     }
   }
 
   // media.* 命名服务：type 合法 + enabled 时 url 必填
-  const VALID_MEDIA_KIND = ["image", "video", "audio"] as const;
-  const mediaNames = Object.keys(raw.media ?? {});
+  const VALID_MEDIA_KIND = ['image', 'video', 'audio'] as const
+  const mediaNames = Object.keys(raw.media ?? {})
   if (raw.media) {
     for (const [name, cfg] of Object.entries(raw.media)) {
       if (!cfg?.type || !VALID_MEDIA_KIND.includes(cfg.type)) {
-        errors.push(`media.${name}.type 非法（合法：image/video/audio）`);
+        errors.push(`media.${name}.type 非法（合法：image/video/audio）`)
       }
       if (cfg?.enabled && !cfg.url) {
-        errors.push(`media.${name} 已启用但 url 为空`);
+        errors.push(`media.${name} 已启用但 url 为空`)
       }
     }
   }
 
   // roles.*.brain 必须存在于 llm.brain；roles.*.systemPrompt 文件存在性（相对 .chery 目录解析；绝对路径原样）。
   if (raw.roles) {
-    const cheryDir = process.env.CHERY_DIR || process.cwd();
+    const cheryDir = process.env.CHERY_DIR || process.cwd()
     for (const [name, cfg] of Object.entries(raw.roles)) {
       if (!brainNames.includes(cfg.brain)) {
-        errors.push(`roles.${name}.brain "${cfg.brain}" 不在 llm.brain 列表（可用：${brainNames.join(", ")})`);
+        errors.push(
+          `roles.${name}.brain "${cfg.brain}" 不在 llm.brain 列表（可用：${brainNames.join(', ')})`,
+        )
       }
-      const brain = raw.llm?.brain?.[cfg.brain];
+      const brain = raw.llm?.brain?.[cfg.brain]
       if (brain?.capabilities?.toolCall === false && (cfg.senseGroup || cfg.mcpServers?.length)) {
-        errors.push(`roles.${name} 使用不支持 Tool Call 的 brain 时不能配置 senseGroup 或 mcpServers`);
+        errors.push(
+          `roles.${name} 使用不支持 Tool Call 的 brain 时不能配置 senseGroup 或 mcpServers`,
+        )
       }
       if (cfg.systemPrompt) {
         const p = path.isAbsolute(cfg.systemPrompt)
           ? cfg.systemPrompt
-          : path.join(cheryDir, ".chery", cfg.systemPrompt);
+          : path.join(cheryDir, '.chery', cfg.systemPrompt)
         if (!fs.existsSync(p)) {
-          errors.push(`roles.${name}.systemPrompt 文件不存在: ${cfg.systemPrompt}（解析: ${p}）`);
+          errors.push(`roles.${name}.systemPrompt 文件不存在: ${cfg.systemPrompt}（解析: ${p}）`)
         }
       }
       if (cfg.avatar) {
-        const avatarError = validateRoleAvatar(cfg.avatar);
-        if (avatarError) errors.push(`roles.${name}.avatar ${avatarError}`);
+        const avatarError = validateRoleAvatar(cfg.avatar)
+        if (avatarError) errors.push(`roles.${name}.avatar ${avatarError}`)
       }
     }
   }
@@ -671,20 +689,24 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   // 预设：leader 必填、必须 ∈ config.roles 且 ∈ 该预设 roles 列表；roles[*] 引用的 type 必存在于 config.roles。
   // 主 pet 编制取 leader 角色的 RoleConfig（brain/senseGroup/mcp/systemPrompt），故 leader 合法性即 main 编制合法性。
   if (raw.presets) {
-    const roleNames = Object.keys(raw.roles ?? {});
+    const roleNames = Object.keys(raw.roles ?? {})
     for (const [pname, pcfg] of Object.entries(raw.presets)) {
-      const members = pcfg?.roles ?? [];
+      const members = pcfg?.roles ?? []
       if (!pcfg?.leader) {
-        errors.push(`presets.${pname}.leader 必填（组长角色）`);
+        errors.push(`presets.${pname}.leader 必填（组长角色）`)
       } else if (!roleNames.includes(pcfg.leader)) {
-        errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在 config.roles 列表（可用：${roleNames.join(", ") || "（未配置任何角色）"}）`);
+        errors.push(
+          `presets.${pname}.leader "${pcfg.leader}" 不在 config.roles 列表（可用：${roleNames.join(', ') || '（未配置任何角色）'}）`,
+        )
       } else if (!members.includes(pcfg.leader)) {
-        errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在其 roles 成员列表中`);
+        errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在其 roles 成员列表中`)
       }
       // roles 成员为 type 名引用（string[]），每个必须存在于 config.roles
       for (const type of members) {
         if (!roleNames.includes(type)) {
-          errors.push(`presets.${pname}.roles 引用未知角色类型 "${type}"（可用：${roleNames.join(", ") || "（未配置任何角色）"}）`);
+          errors.push(
+            `presets.${pname}.roles 引用未知角色类型 "${type}"（可用：${roleNames.join(', ') || '（未配置任何角色）'}）`,
+          )
         }
       }
       // mediaImage/mediaVideo/mediaAudio 引用必须存在于 config.media 且 type 匹配
@@ -692,13 +714,17 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         image: pcfg.mediaImage,
         video: pcfg.mediaVideo,
         audio: pcfg.mediaAudio,
-      };
+      }
       for (const [kind, ref] of Object.entries(mediaByKind)) {
-        if (!ref) continue;
+        if (!ref) continue
         if (!mediaNames.includes(ref)) {
-          errors.push(`presets.${pname}.media${kind} "${ref}" 不在 media 服务列表（可用：${mediaNames.join(", ") || "（未配置任何媒体服务）"}）`);
+          errors.push(
+            `presets.${pname}.media${kind} "${ref}" 不在 media 服务列表（可用：${mediaNames.join(', ') || '（未配置任何媒体服务）'}）`,
+          )
         } else if (raw.media?.[ref]?.type !== kind) {
-          errors.push(`presets.${pname}.media${kind} "${ref}" 类型为 ${raw.media?.[ref]?.type ?? "未知"}，非 ${kind}`);
+          errors.push(
+            `presets.${pname}.media${kind} "${ref}" 类型为 ${raw.media?.[ref]?.type ?? '未知'}，非 ${kind}`,
+          )
         }
       }
       // workspace 不在此校验：启动期不关心（workspace 是环境配置非服务必需）；
@@ -709,75 +735,98 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   // 项目记忆：每层 max_count > 0, max_chars > 0（正整数）。
   // undefined 视为「沿用默认」（设面板 GlobalTab 占位未填的常见情况），不阻断落盘。
   if (raw.memory) {
-    for (const layer of ["global", "workspace"] as const) {
-      const limits = raw.memory[layer];
-      if (!limits) continue;
-      if (limits.max_count !== undefined && (typeof limits.max_count !== "number" || limits.max_count < 1)) {
-        errors.push(`memory.${layer}.max_count 必须为正整数（当前：${String(limits.max_count)}）`);
+    for (const layer of ['global', 'workspace'] as const) {
+      const limits = raw.memory[layer]
+      if (!limits) continue
+      if (
+        limits.max_count !== undefined &&
+        (typeof limits.max_count !== 'number' || limits.max_count < 1)
+      ) {
+        errors.push(`memory.${layer}.max_count 必须为正整数（当前：${String(limits.max_count)}）`)
       }
-      if (limits.max_chars !== undefined && (typeof limits.max_chars !== "number" || limits.max_chars < 1)) {
-        errors.push(`memory.${layer}.max_chars 必须为正整数（当前：${String(limits.max_chars)}）`);
+      if (
+        limits.max_chars !== undefined &&
+        (typeof limits.max_chars !== 'number' || limits.max_chars < 1)
+      ) {
+        errors.push(`memory.${layer}.max_chars 必须为正整数（当前：${String(limits.max_chars)}）`)
       }
     }
   }
 
   // approval_timeout：≥ 0，0 = 不限时（与 core createApproval 的 `> 0` guard 对齐）
   if (raw.global?.approval_timeout !== undefined) {
-    const t = raw.global.approval_timeout;
-    if (typeof t !== "number" || !Number.isFinite(t) || t < 0) {
-      errors.push(`global.approval_timeout 必须为 ≥ 0 的数字（0 = 不超时，当前：${String(t)}）`);
+    const t = raw.global.approval_timeout
+    if (typeof t !== 'number' || !Number.isFinite(t) || t < 0) {
+      errors.push(`global.approval_timeout 必须为 ≥ 0 的数字（0 = 不超时，当前：${String(t)}）`)
     }
   }
 
   // command 配置：warn/auto 为 Threshold{unit,value}；min_context_limit / safety_margin ≥ 0
   if (raw.global?.command) {
-    const cmd = raw.global.command;
+    const cmd = raw.global.command
     const thresholdError = (label: string, t: unknown): string | null => {
-      if (t === undefined) return null;
-      if (typeof t !== "object" || t === null) {
-        return `${label} 必须为 { unit: "tokens"|"percent"; value: number }（当前：${String(t)}）`;
+      if (t === undefined) return null
+      if (typeof t !== 'object' || t === null) {
+        return `${label} 必须为 { unit: "tokens"|"percent"; value: number }（当前：${String(t)}）`
       }
-      const tt = t as { unit?: unknown; value?: unknown };
-      if (tt.unit !== "tokens" && tt.unit !== "percent") {
-        return `${label}.unit 必须为 "tokens"|"percent"（当前：${String(tt.unit)}）`;
+      const tt = t as { unit?: unknown; value?: unknown }
+      if (tt.unit !== 'tokens' && tt.unit !== 'percent') {
+        return `${label}.unit 必须为 "tokens"|"percent"（当前：${String(tt.unit)}）`
       }
-      if (typeof tt.value !== "number" || !Number.isFinite(tt.value) || tt.value < 0) {
-        return `${label}.value 必须为 ≥ 0 的数字（当前：${String(tt.value)}）`;
+      if (typeof tt.value !== 'number' || !Number.isFinite(tt.value) || tt.value < 0) {
+        return `${label}.value 必须为 ≥ 0 的数字（当前：${String(tt.value)}）`
       }
-      if (tt.unit === "percent" && tt.value > 1) {
-        return `${label}.value 百分比单位必须在 [0,1]（当前：${String(tt.value)}）`;
+      if (tt.unit === 'percent' && tt.value > 1) {
+        return `${label}.value 百分比单位必须在 [0,1]（当前：${String(tt.value)}）`
       }
-      return null;
-    };
-    const warnErr = thresholdError("global.command.warn", cmd.warn);
-    if (warnErr) errors.push(warnErr);
-    const autoErr = thresholdError("global.command.auto", cmd.auto);
-    if (autoErr) errors.push(autoErr);
-    if (cmd.min_context_limit !== undefined && (typeof cmd.min_context_limit !== "number" || !Number.isFinite(cmd.min_context_limit) || cmd.min_context_limit < 0)) {
-      errors.push(`global.command.min_context_limit 必须为 ≥ 0 的数字（当前：${String(cmd.min_context_limit)}）`);
+      return null
     }
-    if (cmd.safety_margin !== undefined && (typeof cmd.safety_margin !== "number" || !Number.isFinite(cmd.safety_margin) || cmd.safety_margin < 0)) {
-      errors.push(`global.command.safety_margin 必须为 ≥ 0 的数字（当前：${String(cmd.safety_margin)}）`);
+    const warnErr = thresholdError('global.command.warn', cmd.warn)
+    if (warnErr) errors.push(warnErr)
+    const autoErr = thresholdError('global.command.auto', cmd.auto)
+    if (autoErr) errors.push(autoErr)
+    if (
+      cmd.min_context_limit !== undefined &&
+      (typeof cmd.min_context_limit !== 'number' ||
+        !Number.isFinite(cmd.min_context_limit) ||
+        cmd.min_context_limit < 0)
+    ) {
+      errors.push(
+        `global.command.min_context_limit 必须为 ≥ 0 的数字（当前：${String(cmd.min_context_limit)}）`,
+      )
+    }
+    if (
+      cmd.safety_margin !== undefined &&
+      (typeof cmd.safety_margin !== 'number' ||
+        !Number.isFinite(cmd.safety_margin) ||
+        cmd.safety_margin < 0)
+    ) {
+      errors.push(
+        `global.command.safety_margin 必须为 ≥ 0 的数字（当前：${String(cmd.safety_margin)}）`,
+      )
     }
   }
 
-  return errors;
+  return errors
 }
 
 /**
  * 在后端主机上校验预设 workspace。空值代表「未限定」，视为有效。
  * 仅做文件系统检查，不读取或写入 config.yaml；设置页的即时校验与 saveRawConfig 复用此规则。
  */
-export function validateWorkspacePath(workspace: string | undefined): { valid: boolean; error?: string } {
-  if (!workspace) return { valid: true };
-  if (!path.isAbsolute(workspace)) return { valid: false, error: "必须是绝对路径" };
+export function validateWorkspacePath(workspace: string | undefined): {
+  valid: boolean
+  error?: string
+} {
+  if (!workspace) return { valid: true }
+  if (!path.isAbsolute(workspace)) return { valid: false, error: '必须是绝对路径' }
   try {
-    const stat = fs.statSync(workspace);
-    if (!stat.isDirectory()) return { valid: false, error: "必须是目录" };
-    fs.accessSync(workspace);
-    return { valid: true };
+    const stat = fs.statSync(workspace)
+    if (!stat.isDirectory()) return { valid: false, error: '必须是目录' }
+    fs.accessSync(workspace)
+    return { valid: true }
   } catch {
-    return { valid: false, error: "目录不存在或不可访问" };
+    return { valid: false, error: '目录不存在或不可访问' }
   }
 }
 
@@ -786,19 +835,19 @@ export function validateWorkspacePath(workspace: string | undefined): { valid: b
  * 不 replaceEnvVars（key 保持 $ENV 占位符）、不补全路径、不转 supervision 枚举；剥离 server 段。
  */
 export function readRawConfig(): ConfigRaw {
-  const cheryDir = process.env.CHERY_DIR || process.cwd();
-  const configPath = path.join(cheryDir, ".chery", "config.yaml");
-  const raw = yaml.load(fs.readFileSync(configPath, "utf8")) as ConfigRaw & { server?: unknown };
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
+  const raw = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & { server?: unknown }
   // 端口/传输不通过面板编辑，剥离 server
-  const { server: _server, ...rest } = raw;
-  void _server;
+  const { server: _server, ...rest } = raw
+  void _server
   // brain.thinking 归一化为 ThinkingLevel（前端 config.get 拿到的就是 level，无需再处理 legacy boolean）
   if (rest.llm?.brain) {
     for (const cfg of Object.values(rest.llm.brain)) {
-      cfg.thinking = normalizeBrainThinking(cfg.thinking);
+      cfg.thinking = normalizeBrainThinking(cfg.thinking)
     }
   }
-  return rest;
+  return rest
 }
 
 /**
@@ -808,35 +857,38 @@ export function readRawConfig(): ConfigRaw {
  * workspace 路径校验仅在保存期做（启动期不关心 workspace 数据正确性）。
  * 写回保留盘上 server 段不动，js-yaml dump 无注释（注释文档备份在 config.yaml.example）。
  */
-export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
-  const errors = validateRawConfig(partial);
+export function saveRawConfig(
+  partial: ConfigRaw,
+): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
+  const errors = validateRawConfig(partial)
   // workspace 单独校验（启动期不参与；保存期非绝对路径 → 硬错误；其他无效目录 → 软警告）
-  const warnings: string[] = [];
+  const warnings: string[] = []
   if (partial.presets) {
     for (const [pname, pcfg] of Object.entries(partial.presets)) {
-      const ws = pcfg?.workspace;
-      if (!ws) continue;
+      const ws = pcfg?.workspace
+      if (!ws) continue
       if (!path.isAbsolute(ws)) {
-        errors.push(`presets.${pname}.workspace "${ws}" 必须是绝对路径`);
+        errors.push(`presets.${pname}.workspace "${ws}" 必须是绝对路径`)
       } else {
-        const validation = validateWorkspacePath(ws);
-        if (!validation.valid) warnings.push(`presets.${pname}.workspace "${ws}" ${validation.error}`);
+        const validation = validateWorkspacePath(ws)
+        if (!validation.valid)
+          warnings.push(`presets.${pname}.workspace "${ws}" ${validation.error}`)
       }
     }
   }
   if (errors.length > 0 || warnings.length > 0) {
-    return { ok: false, errors, warnings };
+    return { ok: false, errors, warnings }
   }
 
-  const cheryDir = process.env.CHERY_DIR || process.cwd();
-  const configPath = path.join(cheryDir, ".chery", "config.yaml");
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
 
   // 读盘取 server 段（保留不动），合并 partial（除 server 外全部字段）
-  const disk = yaml.load(fs.readFileSync(configPath, "utf8")) as { server?: ServerConfig };
-  const merged = { ...partial, server: disk.server ?? { port: 8182, transport: "binary" as const } };
+  const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as { server?: ServerConfig }
+  const merged = { ...partial, server: disk.server ?? { port: 8182, transport: 'binary' as const } }
 
-  fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }));
-  return { ok: true };
+  fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))
+  return { ok: true }
 }
 
 /**
@@ -844,18 +896,18 @@ export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; e
  * 解析规则：每行 KEY=VALUE 或 KEY="VALUE"，忽略空行和 # 注释行。
  */
 export function listEnvVarNames(): string[] {
-  if (!fs.existsSync(rootEnvPath)) return [];
-  const content = fs.readFileSync(rootEnvPath, "utf8");
-  const names = new Set<string>();
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) names.add(key);
+  if (!fs.existsSync(rootEnvPath)) return []
+  const content = fs.readFileSync(rootEnvPath, 'utf8')
+  const names = new Set<string>()
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx <= 0) continue
+    const key = trimmed.slice(0, eqIdx).trim()
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) names.add(key)
   }
-  return [...names].sort();
+  return [...names].sort()
 }
 
 /**
@@ -863,8 +915,16 @@ export function listEnvVarNames(): string[] {
  * 供 utils.openFile 等 handler 使用。
  */
 export function getCheryDir(): string {
-  return process.env.CHERY_DIR || process.cwd();
+  return process.env.CHERY_DIR || process.cwd()
 }
 
-export type { Config, ConfigRaw, BrainConfig, GlobalConfig, LoggerConfig, McpServerConfig, ServerConfig };
-export default config;
+export type {
+  Config,
+  ConfigRaw,
+  BrainConfig,
+  GlobalConfig,
+  LoggerConfig,
+  McpServerConfig,
+  ServerConfig,
+}
+export default config

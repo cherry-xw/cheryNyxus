@@ -1,25 +1,25 @@
-import type { LogClusterInterface, NodeInterface } from "./types";
+import type { LogClusterInterface, NodeInterface } from './types'
 
 class LogCluster implements LogClusterInterface {
-  id: number;
-  size: number;
-  template: string[];
+  id: number
+  size: number
+  template: string[]
 
   constructor(templateTokens: string[], id: number) {
-    this.id = id;
-    this.template = templateTokens;
-    this.size = 1;
+    this.id = id
+    this.template = templateTokens
+    this.size = 1
   }
 }
 
 class Node implements NodeInterface {
-  children: Map<string, NodeInterface>;
-  clusterIds: number[];
+  children: Map<string, NodeInterface>
+  clusterIds: number[]
 
   constructor() {
-    this.children = new Map<string, NodeInterface>();
-    this.clusterIds = [];
+    this.children = new Map<string, NodeInterface>()
+    this.clusterIds = []
   }
 }
 
-export { LogCluster, Node };
+export { LogCluster, Node }

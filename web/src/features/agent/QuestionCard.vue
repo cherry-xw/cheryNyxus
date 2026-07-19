@@ -8,160 +8,158 @@
  * 「跳过」按钮把该题以 cancelled 答案进入同一批次提交。
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
-import { computed, ref, watch } from "vue";
-import { useAgentsStore } from "@/stores";
-import type { QuestionItemState } from "@/stores/agents";
+import { computed, ref, watch } from 'vue'
+import { useAgentsStore } from '@/stores'
+import type { QuestionItemState } from '@/stores/agents'
 
 /** batch 进度信息（多问题批次时传入，控制"下一步"vs"提交"按钮） */
 interface BatchInfo {
-  batchId: string;
-  total: number;
-  readyCount: number;
-  isLast: boolean;
+  batchId: string
+  total: number
+  readyCount: number
+  isLast: boolean
 }
 
 const props = defineProps<{
-  question: QuestionItemState;
+  question: QuestionItemState
   /** 问题所属 chatId */
-  chatId: string;
+  chatId: string
   /** batch 进度信息（可选，单问题时为 null） */
-  batchInfo?: BatchInfo | null;
-}>();
+  batchInfo?: BatchInfo | null
+}>()
 
-const agents = useAgentsStore();
+const agents = useAgentsStore()
 
 // 待提交（「其他」submit / 选项 submit 任一动作进行中；null = idle）
-const pending = ref<"other" | "submit" | "cancel" | null>(null);
+const pending = ref<'other' | 'submit' | 'cancel' | null>(null)
 
 // 用户已选的 label 集合（单选互斥 / 多选累加）
-const selectedLabels = ref<Set<string>>(new Set(props.question.draftAnswer?.selectedLabels ?? []));
+const selectedLabels = ref<Set<string>>(new Set(props.question.draftAnswer?.selectedLabels ?? []))
 
 // 「其他」inline textarea 输入内容
-const otherText = ref(props.question.draftAnswer?.freeText ?? "");
+const otherText = ref(props.question.draftAnswer?.freeText ?? '')
 
 /** 「其他」chip 是否 inline 展开（刷新卡片时保留已有自由文本） */
-const otherExpanded = ref(Boolean(otherText.value));
+const otherExpanded = ref(Boolean(otherText.value))
 
 /** 勾选即同步草稿，让 pet 的问号可显示「已勾选、待下一步」中间态。 */
 function syncDraft(): void {
-  const freeText = otherExpanded.value ? otherText.value.trim() : "";
-  const selected = Array.from(selectedLabels.value);
+  const freeText = otherExpanded.value ? otherText.value.trim() : ''
+  const selected = Array.from(selectedLabels.value)
   if (!selected.length && !freeText) {
-    agents.updateQuestionDraft(props.chatId, props.question.questionId);
-    return;
+    agents.updateQuestionDraft(props.chatId, props.question.questionId)
+    return
   }
   agents.updateQuestionDraft(props.chatId, props.question.questionId, {
     selectedLabels: selected,
     ...(freeText ? { freeText } : {}),
-  });
+  })
 }
 
-watch([selectedLabels, otherText, otherExpanded], syncDraft);
+watch([selectedLabels, otherText, otherExpanded], syncDraft)
 
 /** 统一 submit 条件：「其他」展开且有文本→允许纯 freeText；否则单选=恰好1，多选=≥1 */
 const canSubmit = computed(() => {
-  if (pending.value !== null) return false;
-  if (otherExpanded.value && otherText.value.trim()) return true;
-  if (props.question.multiSelect) return selectedLabels.value.size > 0;
-  return selectedLabels.value.size === 1;
-});
+  if (pending.value !== null) return false
+  if (otherExpanded.value && otherText.value.trim()) return true
+  if (props.question.multiSelect) return selectedLabels.value.size > 0
+  return selectedLabels.value.size === 1
+})
 
 /** header 按钮文案：仅批次最后一题提交，其余一律进入下一步。 */
-const submitLabel = computed(() => props.batchInfo?.isLast ? "提交" : "下一步");
+const submitLabel = computed(() => (props.batchInfo?.isLast ? '提交' : '下一步'))
 
 /** 最后一题（含无 batchInfo 的单题）走文本按钮；其余显示右箭头 ‹ 图标。 */
-const isLastStep = computed(() => props.batchInfo?.isLast ?? true);
+const isLastStep = computed(() => props.batchInfo?.isLast ?? true)
 
 /** 「上一步」可用：批首题无上一步；提交中禁用（防 race）。 */
 const canBack = computed(() => {
-  if (pending.value !== null) return false;
-  if (!props.batchInfo || props.batchInfo.total <= 1) return false;
-  return props.batchInfo.readyCount >= 0; // readyCount > 0 已说明当前题不是批首
-});
+  if (pending.value !== null) return false
+  if (!props.batchInfo || props.batchInfo.total <= 1) return false
+  return props.batchInfo.readyCount >= 0 // readyCount > 0 已说明当前题不是批首
+})
 
 /** 单选 chip 点击：互斥切换（选中则清空，未选中则替换） */
 function toggleSingle(label: string): void {
-  if (pending.value !== null) return;
-  const next = new Set<string>();
-  if (!selectedLabels.value.has(label)) next.add(label);
-  selectedLabels.value = next;
+  if (pending.value !== null) return
+  const next = new Set<string>()
+  if (!selectedLabels.value.has(label)) next.add(label)
+  selectedLabels.value = next
   // 单选选了具体选项 → 收起「其他」（互斥）
   if (otherExpanded.value) {
-    otherExpanded.value = false;
-    otherText.value = "";
+    otherExpanded.value = false
+    otherText.value = ''
   }
 }
 
 /** 多选 chip 点击：切换选中状态 */
 function toggleMulti(label: string): void {
-  if (pending.value !== null) return;
-  const next = new Set(selectedLabels.value);
-  if (next.has(label)) next.delete(label);
-  else next.add(label);
-  selectedLabels.value = next;
+  if (pending.value !== null) return
+  const next = new Set(selectedLabels.value)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  selectedLabels.value = next
 }
 
 /** 统一 Submit："下一步"模式保存 draft 后决定提交或切下一个 */
 async function advanceOrSubmit(): Promise<void> {
-  if (!canSubmit.value || pending.value !== null) return;
-  pending.value = "submit";
+  if (!canSubmit.value || pending.value !== null) return
+  pending.value = 'submit'
   try {
     const draft: { selectedLabels: string[]; freeText?: string } = {
       selectedLabels: Array.from(selectedLabels.value),
-    };
+    }
     if (otherExpanded.value && otherText.value.trim()) {
-      draft.freeText = otherText.value.trim();
+      draft.freeText = otherText.value.trim()
     }
 
-    await agents.advanceQuestion(props.chatId, props.question.questionId, draft);
+    await agents.advanceQuestion(props.chatId, props.question.questionId, draft)
   } catch (e) {
-    console.error(`[QuestionCard] submit failed (id=${props.question.questionId}):`, e);
+    console.error(`[QuestionCard] submit failed (id=${props.question.questionId}):`, e)
   } finally {
     // 成功/失败均复位 pending；成功路径不复位会致所有 chip 永久 disabled（bug2）
-    pending.value = null;
+    pending.value = null
   }
 }
 
 function toggleOther(): void {
-  if (pending.value !== null) return;
-  otherExpanded.value = !otherExpanded.value;
+  if (pending.value !== null) return
+  otherExpanded.value = !otherExpanded.value
   if (!otherExpanded.value) {
-    otherText.value = "";
+    otherText.value = ''
   } else if (!props.question.multiSelect) {
     // 单选：「其他」与具体选项互斥，展开即清空已选
-    selectedLabels.value = new Set();
+    selectedLabels.value = new Set()
   }
 }
 
 /** 「跳过」：将当前题记为取消答案；整批仍在最后一步原子提交。 */
 async function cancel(): Promise<void> {
-  if (pending.value !== null) return;
-  pending.value = "cancel";
+  if (pending.value !== null) return
+  pending.value = 'cancel'
   try {
-    await agents.cancelQuestion(props.chatId, props.question.questionId);
+    await agents.cancelQuestion(props.chatId, props.question.questionId)
   } catch (e) {
-    console.error(`[QuestionCard] cancel failed (id=${props.question.questionId}):`, e);
-    pending.value = null;
+    console.error(`[QuestionCard] cancel failed (id=${props.question.questionId}):`, e)
+    pending.value = null
   }
 }
 
 /** 「上一步」：撤回当前题 ready → pending，并切到同批上一题。无 store await，纯本地焦点切换。 */
 function back(): void {
-  if (!canBack.value) return;
-  agents.backQuestion(props.chatId, props.question.questionId);
+  if (!canBack.value) return
+  agents.backQuestion(props.chatId, props.question.questionId)
 }
 </script>
 
 <template>
-  <div
-    class="question-card"
-    role="group"
-    :aria-label="`Question: ${question.question}`"
-  >
+  <div class="question-card" role="group" :aria-label="`Question: ${question.question}`">
     <div class="header">
       <span class="indicator" aria-hidden="true" />
       <span v-if="question.header" class="header-text">{{ question.header }}</span>
-      <span class="type-tag" :class="{ 'is-multi': question.multiSelect }">{{ question.multiSelect ? "多选" : "单选" }}</span>
+      <span class="type-tag" :class="{ 'is-multi': question.multiSelect }">{{
+        question.multiSelect ? '多选' : '单选'
+      }}</span>
       <span class="header-actions">
         <button
           v-if="batchInfo && batchInfo.total > 1"
@@ -171,22 +169,31 @@ function back(): void {
           aria-label="上一步"
           title="回到上一题"
           @click="back"
-        >‹</button>
+        >
+          ‹
+        </button>
         <button
           type="button"
           class="nav-btn submit"
           :disabled="!canSubmit || pending !== null"
           :title="submitLabel"
           @click="advanceOrSubmit"
-        >{{ submitLabel }}</button>
+        >
+          {{ submitLabel }}
+        </button>
         <button
           type="button"
           class="nav-btn skip"
           :disabled="pending !== null"
           aria-label="跳过此问题"
-          :title="'跳过此问题' + (question.question.length > 1 ? '' : '（只针对这一个问题，不包含本批次其他问题）')"
+          :title="
+            '跳过此问题' +
+            (question.question.length > 1 ? '' : '（只针对这一个问题，不包含本批次其他问题）')
+          "
           @click="cancel"
-        >跳过</button>
+        >
+          跳过
+        </button>
       </span>
     </div>
     <div class="question-text">{{ question.question }}</div>
@@ -205,7 +212,9 @@ function back(): void {
         :title="opt.description ?? opt.label"
         :disabled="pending !== null"
         @click="question.multiSelect ? toggleMulti(opt.label) : toggleSingle(opt.label)"
-      >{{ opt.label }}</button>
+      >
+        {{ opt.label }}
+      </button>
       <button
         type="button"
         class="chip other"
@@ -218,7 +227,9 @@ function back(): void {
         :disabled="pending !== null"
         title="「其他」+ 自由文本输入"
         @click="toggleOther"
-      >其他</button>
+      >
+        其他
+      </button>
     </div>
     <div v-if="otherExpanded" class="other-input">
       <el-input
@@ -320,7 +331,9 @@ function back(): void {
     font-weight: 800;
     line-height: 1;
     cursor: pointer;
-    transition: background 120ms ease, opacity 120ms ease;
+    transition:
+      background 120ms ease,
+      opacity 120ms ease;
 
     &:disabled {
       cursor: not-allowed;

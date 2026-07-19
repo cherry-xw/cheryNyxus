@@ -1,13 +1,13 @@
-import { Writable } from "node:stream";
-import type { LogClusterInterface, NodeInterface } from "./types";
-import { LogCluster, Node } from "./node";
-import { logger } from "@/utils/logger/index.js";
+import { Writable } from 'node:stream'
+import type { LogClusterInterface, NodeInterface } from './types'
+import { LogCluster, Node } from './node'
+import { logger } from '@/utils/logger/index.js'
 
 export interface Profiler {
   /** Starts timing/profiling for a named section. */
-  startSection(sectionName: string): void;
+  startSection(sectionName: string): void
   /** Ends the currently active profiling section. */
-  endSection(): void;
+  endSection(): void
 }
 
 export class NullProfiler implements Profiler {
@@ -16,59 +16,59 @@ export class NullProfiler implements Profiler {
 }
 
 class LogClusterCache extends Map<number, LogClusterInterface> {
-  private readonly maxsize: number;
+  private readonly maxsize: number
 
   constructor(maxsize: number) {
-    super();
-    this.maxsize = maxsize;
+    super()
+    this.maxsize = maxsize
   }
 
   override get(key: number): LogClusterInterface | undefined {
-    const value = super.get(key);
+    const value = super.get(key)
     if (value !== undefined) {
-      super.delete(key);
-      super.set(key, value);
+      super.delete(key)
+      super.set(key, value)
     }
-    return value;
+    return value
   }
 
   override set(key: number, value: LogClusterInterface): this {
     if (super.has(key)) {
-      super.delete(key);
+      super.delete(key)
     }
 
-    super.set(key, value);
+    super.set(key, value)
 
     while (this.size > this.maxsize) {
-      const oldestKey = this.keys().next().value;
+      const oldestKey = this.keys().next().value
       if (oldestKey === undefined) {
-        break;
+        break
       }
-      super.delete(oldestKey);
+      super.delete(oldestKey)
     }
 
-    return this;
+    return this
   }
 }
 
 export enum DrainUpdateType {
-  CLUSTER_CREATED = "cluster_created",
-  CLUSTER_TEMPLATE_CHANGED = "cluster_template_changed",
-  NONE = "none",
+  CLUSTER_CREATED = 'cluster_created',
+  CLUSTER_TEMPLATE_CHANGED = 'cluster_template_changed',
+  NONE = 'none',
 }
 export abstract class DrainBase {
-  logClusterDepth: number;
-  maxNodeDepth: number;
-  simTh: number;
-  maxChildren: number;
-  rootNode: NodeInterface;
-  profiler: Profiler;
-  extraDelimiters: string[];
-  maxClusters: number | null;
-  paramStr: string;
-  parametrizeNumericTokens: boolean;
-  idToCluster: Map<number, LogClusterInterface>;
-  clustersCounter: number;
+  logClusterDepth: number
+  maxNodeDepth: number
+  simTh: number
+  maxChildren: number
+  rootNode: NodeInterface
+  profiler: Profiler
+  extraDelimiters: string[]
+  maxClusters: number | null
+  paramStr: string
+  parametrizeNumericTokens: boolean
+  idToCluster: Map<number, LogClusterInterface>
+  clustersCounter: number
 
   /**
    * Creates a new Drain base instance.
@@ -94,33 +94,32 @@ export abstract class DrainBase {
     maxClusters: number | null = null,
     extraDelimiters: string[] = [],
     profiler: Profiler = new NullProfiler(),
-    paramStr = "<*>",
+    paramStr = '<*>',
     parametrizeNumericTokens = true,
   ) {
     if (depth < 3) {
-      throw new Error("depth argument must be at least 3");
+      throw new Error('depth argument must be at least 3')
     }
 
-    this.rootNode = new Node();
-    this.logClusterDepth = depth;
-    this.maxNodeDepth = depth - 2;
-    this.simTh = simTh;
-    this.maxChildren = maxChildren;
-    this.profiler = profiler;
-    this.extraDelimiters = extraDelimiters;
-    this.maxClusters = maxClusters;
-    this.paramStr = paramStr;
-    this.parametrizeNumericTokens = parametrizeNumericTokens;
-    this.idToCluster =
-      maxClusters === null ? new Map() : new LogClusterCache(maxClusters);
-    this.clustersCounter = 0;
+    this.rootNode = new Node()
+    this.logClusterDepth = depth
+    this.maxNodeDepth = depth - 2
+    this.simTh = simTh
+    this.maxChildren = maxChildren
+    this.profiler = profiler
+    this.extraDelimiters = extraDelimiters
+    this.maxClusters = maxClusters
+    this.paramStr = paramStr
+    this.parametrizeNumericTokens = parametrizeNumericTokens
+    this.idToCluster = maxClusters === null ? new Map() : new LogClusterCache(maxClusters)
+    this.clustersCounter = 0
   }
 
   /** Returns all currently tracked clusters. */
   get clusters(): LogClusterInterface[] {
     return Array.from(this.idToCluster.values()).filter(
       (cluster): cluster is LogClusterInterface => cluster !== undefined,
-    );
+    )
   }
 
   /**
@@ -131,10 +130,10 @@ export abstract class DrainBase {
   static hasNumbers(value: Iterable<string>): boolean {
     for (const char of value) {
       if (/\d/.test(char)) {
-        return true;
+        return true
       }
     }
-    return false;
+    return false
   }
 
   /**
@@ -152,36 +151,29 @@ export abstract class DrainBase {
     simTh: number,
     includeParams: boolean,
   ): LogClusterInterface | null {
-    let maxSim = -1;
-    let maxParamCount = -1;
-    let maxCluster: LogClusterInterface | null = null;
+    let maxSim = -1
+    let maxParamCount = -1
+    let maxCluster: LogClusterInterface | null = null
 
     for (const clusterId of clusterIds) {
-      const cluster = this.idToCluster.get(clusterId);
+      const cluster = this.idToCluster.get(clusterId)
       if (!cluster) {
-        continue;
+        continue
       }
 
-      const [currentSim, paramCount] = this.getSeqDistance(
-        cluster.template,
-        tokens,
-        includeParams,
-      );
-      if (
-        currentSim > maxSim ||
-        (currentSim === maxSim && paramCount > maxParamCount)
-      ) {
-        maxSim = currentSim;
-        maxParamCount = paramCount;
-        maxCluster = cluster;
+      const [currentSim, paramCount] = this.getSeqDistance(cluster.template, tokens, includeParams)
+      if (currentSim > maxSim || (currentSim === maxSim && paramCount > maxParamCount)) {
+        maxSim = currentSim
+        maxParamCount = paramCount
+        maxCluster = cluster
       }
     }
 
     if (maxSim >= simTh) {
-      return maxCluster;
+      return maxCluster
     }
 
-    return null;
+    return null
   }
 
   /**
@@ -191,7 +183,7 @@ export abstract class DrainBase {
    * @param maxClusters Maximum clusters to print per leaf node.
    */
   printTree(file?: Writable, maxClusters = 5): void {
-    this.printNode("root", this.rootNode, 0, file, maxClusters);
+    this.printNode('root', this.rootNode, 0, file, maxClusters)
   }
 
   /**
@@ -210,34 +202,34 @@ export abstract class DrainBase {
     file?: Writable,
     maxClusters = 5,
   ): void {
-    let out = "\t".repeat(depth);
+    let out = '\t'.repeat(depth)
 
     if (depth === 0) {
-      out += `<${token}>`;
+      out += `<${token}>`
     } else if (depth === 1) {
-      out += /^\d+$/.test(token) ? `<L=${token}>` : `<${token}>`;
+      out += /^\d+$/.test(token) ? `<L=${token}>` : `<${token}>`
     } else {
-      out += `"${token}"`;
+      out += `"${token}"`
     }
 
     if (node.clusterIds.length > 0) {
-      out += ` (cluster_count=${node.clusterIds.length})`;
+      out += ` (cluster_count=${node.clusterIds.length})`
     }
 
-    this.writeLine(out, file);
+    this.writeLine(out, file)
 
     for (const [childToken, childNode] of node.children.entries()) {
-      this.printNode(childToken, childNode, depth + 1, file, maxClusters);
+      this.printNode(childToken, childNode, depth + 1, file, maxClusters)
     }
 
     for (const clusterId of node.clusterIds.slice(0, maxClusters)) {
-      const cluster = this.idToCluster.get(clusterId);
+      const cluster = this.idToCluster.get(clusterId)
       if (!cluster) {
-        continue;
+        continue
       }
 
-      const clusterOut = `${"\t".repeat(depth + 1)}${JSON.stringify(cluster)}`;
-      this.writeLine(clusterOut, file);
+      const clusterOut = `${'\t'.repeat(depth + 1)}${JSON.stringify(cluster)}`
+      this.writeLine(clusterOut, file)
     }
   }
 
@@ -248,12 +240,12 @@ export abstract class DrainBase {
    * @returns Token array after delimiter and whitespace splitting.
    */
   getContentAsTokens(content: string): string[] {
-    let normalized = content.trim();
+    let normalized = content.trim()
     for (const delimiter of this.extraDelimiters) {
-      normalized = normalized.split(delimiter).join(" ");
+      normalized = normalized.split(delimiter).join(' ')
     }
 
-    return normalized.split(/\s+/).filter((token) => token.length > 0);
+    return normalized.split(/\s+/).filter((token) => token.length > 0)
   }
 
   /**
@@ -263,69 +255,59 @@ export abstract class DrainBase {
    * @returns A tuple containing the matched/created cluster and update type.
    */
   addLogMessage(content: string): [LogClusterInterface, DrainUpdateType] {
-    const contentTokens = this.getContentAsTokens(content);
+    const contentTokens = this.getContentAsTokens(content)
 
-    this.profiler.startSection("tree_search");
-    let matchCluster = this.treeSearch(
-      this.rootNode,
-      contentTokens,
-      this.simTh,
-      false,
-    );
-    this.profiler.endSection();
+    this.profiler.startSection('tree_search')
+    let matchCluster = this.treeSearch(this.rootNode, contentTokens, this.simTh, false)
+    this.profiler.endSection()
 
-    let updateType: DrainUpdateType;
+    let updateType: DrainUpdateType
 
     if (!matchCluster) {
-      this.profiler.startSection("create_cluster");
-      this.clustersCounter += 1;
-      const clusterId = this.clustersCounter;
-      matchCluster = new LogCluster(contentTokens, clusterId);
-      this.idToCluster.set(clusterId, matchCluster);
-      this.addSeqToPrefixTree(this.rootNode, matchCluster);
-      updateType = DrainUpdateType.CLUSTER_CREATED;
+      this.profiler.startSection('create_cluster')
+      this.clustersCounter += 1
+      const clusterId = this.clustersCounter
+      matchCluster = new LogCluster(contentTokens, clusterId)
+      this.idToCluster.set(clusterId, matchCluster)
+      this.addSeqToPrefixTree(this.rootNode, matchCluster)
+      updateType = DrainUpdateType.CLUSTER_CREATED
     } else {
-      this.profiler.startSection("cluster_exist");
-      const newTemplateTokens = this.createTemplate(
-        contentTokens,
-        matchCluster.template,
-      );
+      this.profiler.startSection('cluster_exist')
+      const newTemplateTokens = this.createTemplate(contentTokens, matchCluster.template)
       const sameTemplate =
         newTemplateTokens.length === matchCluster.template.length &&
-        newTemplateTokens.every(
-          (token, index) => token === matchCluster?.template[index],
-        );
+        newTemplateTokens.every((token, index) => token === matchCluster?.template[index])
 
       if (sameTemplate) {
-        updateType = DrainUpdateType.NONE;
+        updateType = DrainUpdateType.NONE
       } else {
-        matchCluster.template = [...newTemplateTokens];
-        updateType = DrainUpdateType.CLUSTER_TEMPLATE_CHANGED;
+        matchCluster.template = [...newTemplateTokens]
+        updateType = DrainUpdateType.CLUSTER_TEMPLATE_CHANGED
       }
 
-      matchCluster.size += 1;
+      matchCluster.size += 1
 
       // LRU touch：依赖 LogClusterCache.get() 的 delete+set 副作用更新访问顺序，
       // 防止 matchCluster 被逐出。返回值故意丢弃。
       if (this.maxClusters !== null) {
-        void this.idToCluster.get(matchCluster.id);
+        void this.idToCluster.get(matchCluster.id)
       }
     }
 
-    this.profiler.endSection();
-    return [matchCluster, updateType];
+    this.profiler.endSection()
+    return [matchCluster, updateType]
   }
 
   /** Returns the sum of sizes across all tracked clusters. */
   getTotalClusterSize(): number {
-    let size = 0;
+    let size = 0
     for (const cluster of this.idToCluster.values()) {
       if (!cluster) {
-        continue;
+        continue
       }
-      size += cluster.size;
+      size += cluster.size
     }
-    return size;
+    return size
   }
 
   /**
@@ -334,24 +316,21 @@ export abstract class DrainBase {
    * @param seqFirst Token-count key (typically the first-level tree key).
    */
   getClustersIdsForSeqLen(seqFirst: number | string): number[] {
-    const appendClustersRecursive = (
-      node: NodeInterface,
-      target: number[],
-    ): void => {
-      target.push(...node.clusterIds);
+    const appendClustersRecursive = (node: NodeInterface, target: number[]): void => {
+      target.push(...node.clusterIds)
       for (const childNode of node.children.values()) {
-        appendClustersRecursive(childNode, target);
+        appendClustersRecursive(childNode, target)
       }
-    };
-
-    const currentNode = this.rootNode.children.get(String(seqFirst));
-    if (!currentNode) {
-      return [];
     }
 
-    const target: number[] = [];
-    appendClustersRecursive(currentNode, target);
-    return target;
+    const currentNode = this.rootNode.children.get(String(seqFirst))
+    if (!currentNode) {
+      return []
+    }
+
+    const target: number[] = []
+    appendClustersRecursive(currentNode, target)
+    return target
   }
 
   /**
@@ -362,11 +341,11 @@ export abstract class DrainBase {
    */
   protected writeLine(text: string, file?: Writable): void {
     if (!file) {
-      logger.info(text);
-      return;
+      logger.info(text)
+      return
     }
 
-    file.write(`${text}\n`);
+    file.write(`${text}\n`)
   }
 
   /**
@@ -382,7 +361,7 @@ export abstract class DrainBase {
     tokens: string[],
     simTh: number,
     includeParams: boolean,
-  ): LogClusterInterface | null;
+  ): LogClusterInterface | null
 
   /**
    * Adds a cluster template path to the prefix tree.
@@ -390,10 +369,7 @@ export abstract class DrainBase {
    * @param rootNode Tree root node.
    * @param cluster Cluster to insert.
    */
-  abstract addSeqToPrefixTree(
-    rootNode: NodeInterface,
-    cluster: LogClusterInterface,
-  ): void;
+  abstract addSeqToPrefixTree(rootNode: NodeInterface, cluster: LogClusterInterface): void
 
   /**
    * Computes distance/similarity between two token sequences.
@@ -403,11 +379,7 @@ export abstract class DrainBase {
    * @param includeParams Whether wildcard parameters contribute to similarity.
    * @returns Tuple of `[similarity, parameterCount]`.
    */
-  abstract getSeqDistance(
-    seq1: string[],
-    seq2: string[],
-    includeParams: boolean,
-  ): [number, number];
+  abstract getSeqDistance(seq1: string[], seq2: string[], includeParams: boolean): [number, number]
 
   /**
    * Creates a merged template from two token sequences.
@@ -415,7 +387,7 @@ export abstract class DrainBase {
    * @param seq1 First sequence.
    * @param seq2 Second sequence.
    */
-  abstract createTemplate(seq1: string[], seq2: string[]): string[];
+  abstract createTemplate(seq1: string[], seq2: string[]): string[]
 
   /**
    * Matches raw content to a known cluster.
@@ -425,6 +397,6 @@ export abstract class DrainBase {
    */
   abstract match(
     content: string,
-    fullSearchStrategy?: "never" | "always",
-  ): LogClusterInterface | null;
+    fullSearchStrategy?: 'never' | 'always',
+  ): LogClusterInterface | null
 }

@@ -1,23 +1,28 @@
-import type { MiddlewareContext, MiddlewareChunk, SenseTriggerChunk, StreamChunk } from "@/core/middleware/types";
-import type { ReplaceInfo } from "@/core/message/adapter";
-import { safeJsonParse } from "@/utils/json.js";
-import { SupervisionLevel } from "@/core/config";
-import { createApproval } from "@/core/sense";
-import { logger } from "@/utils/logger/index.js";
-import { redactEnvKeys } from "@/utils/envGuard.js";
-import { checkCheryGuard } from "@/utils/pathGuard.js";
-import { SenseCallAssembler } from "./senseCallAssembler.js";
+import type {
+  MiddlewareContext,
+  MiddlewareChunk,
+  SenseTriggerChunk,
+  StreamChunk,
+} from '@/core/middleware/types'
+import type { ReplaceInfo } from '@/core/message/adapter'
+import { safeJsonParse } from '@/utils/json.js'
+import { SupervisionLevel } from '@/core/config'
+import { createApproval } from '@/core/sense'
+import { logger } from '@/utils/logger/index.js'
+import { redactEnvKeys } from '@/utils/envGuard.js'
+import { checkCheryGuard } from '@/utils/pathGuard.js'
+import { SenseCallAssembler } from './senseCallAssembler.js'
 
 /**
  * 待批量执行的 sense call
  */
 interface PendingSenseCall {
-  id: string;
-  name: string;
-  argsJson: string;
-  supervisionLevel: SupervisionLevel;
+  id: string
+  name: string
+  argsJson: string
+  supervisionLevel: SupervisionLevel
   /** confirm/manual 时存在，用于 Promise.all 批量等待审批 */
-  approvalPromise?: Promise<{ action: "accept" | "reject"; reason?: string }>;
+  approvalPromise?: Promise<{ action: 'accept' | 'reject'; reason?: string }>
 }
 
 /**
@@ -31,7 +36,7 @@ interface PendingSenseCall {
  * - spawn_role：hash = hashGenerator("spawn_role", childChatId, type, mode)，仅是派发标识，
  *   命中 ≠ 重复派发任务（实际可能是"不同任务复用了同一未完成子 chat"），折叠会破坏原始 prompt 参数。
  */
-const NON_DEDUPABLE_SENSES = new Set<string>(["spawn_role"]);
+const NON_DEDUPABLE_SENSES = new Set<string>(['spawn_role'])
 
 /**
  * Sense Middleware（批量模式）
@@ -47,53 +52,58 @@ export async function* senseMiddleware(
   ctx: MiddlewareContext,
   next: () => AsyncGenerator<MiddlewareChunk>,
 ): AsyncGenerator<MiddlewareChunk> {
-  const collectedCalls: PendingSenseCall[] = [];
+  const collectedCalls: PendingSenseCall[] = []
 
   // resume 续接（chat.resume Case1：末尾有 pending sense）：
   // 首轮 skip chat 层（不调 next / 不调 LLM），从历史 pending 重建 trigger 执行。
   // 同默认审批流一致；工具不在当前 senseTable 静默写「无此工具」结果。
   if (ctx.soul.resumePending) {
-    ctx.soul.resumePending = false;
-    yield* executeResumePending(ctx);
-    return;
+    ctx.soul.resumePending = false
+    yield* executeResumePending(ctx)
+    return
   }
 
   // Phase 1: 收集 sense calls + yield sense_end 触发器
   // SenseCallAssembler 统一 tool.ts（流式 index 切换触发 sense_end）与 checkpointState.ts（批量合并落库）的 delta 合并语义。
-  const assembler = new SenseCallAssembler();
+  const assembler = new SenseCallAssembler()
 
   for await (const chunk of next()) {
-    if (chunk.type === "stream") {
-      const streamChunk = chunk as StreamChunk;
+    if (chunk.type === 'stream') {
+      const streamChunk = chunk as StreamChunk
       if (streamChunk.senseDelta && streamChunk.senseDelta.length > 0) {
         for (const delta of streamChunk.senseDelta) {
           // index 切换：上一项 arguments 已完整，触发 sense_end
-          const completed = assembler.flushCompletedOnIndexChange(delta);
+          const completed = assembler.flushCompletedOnIndexChange(delta)
           if (completed) {
-            const { trigger, call } = buildSenseTrigger(ctx, completed.id ?? "", completed.name!, completed.arguments);
-            collectedCalls.push(call);
-            yield trigger;
+            const { trigger, call } = buildSenseTrigger(
+              ctx,
+              completed.id ?? '',
+              completed.name!,
+              completed.arguments,
+            )
+            collectedCalls.push(call)
+            yield trigger
           }
-          assembler.push(delta);
+          assembler.push(delta)
         }
       }
     }
 
-    yield chunk;
+    yield chunk
   }
 
   // 流结束后，处理剩余的 sense calls
   for (const sc of assembler.toArray()) {
     if (sc.name) {
-      const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? "", sc.name!, sc.arguments);
-      collectedCalls.push(call);
-      yield trigger;
+      const { trigger, call } = buildSenseTrigger(ctx, sc.id ?? '', sc.name!, sc.arguments)
+      collectedCalls.push(call)
+      yield trigger
     }
   }
 
   // Phase 2: 批量执行
   if (collectedCalls.length > 0) {
-    yield* executeCollectedCalls(ctx, collectedCalls);
+    yield* executeCollectedCalls(ctx, collectedCalls)
   }
 }
 
@@ -105,31 +115,44 @@ async function* executeCollectedCalls(
   calls: PendingSenseCall[],
 ): AsyncGenerator<MiddlewareChunk> {
   // Auto sense 先执行（不等待审批）
-  const autoCalls = calls.filter(c => c.supervisionLevel === SupervisionLevel.auto);
+  const autoCalls = calls.filter((c) => c.supervisionLevel === SupervisionLevel.auto)
   for (const call of autoCalls) {
-    const { content, hash, replaced } = await doExecuteSense(ctx, call.name, call.argsJson, call.id);
-    yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
+    const { content, hash, replaced } = await doExecuteSense(ctx, call.name, call.argsJson, call.id)
+    yield { type: 'sense_accept', id: call.id, name: call.name, result: content, hash }
     // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
     for (const r of replaced) {
-      yield { type: "message_updated", id: r.id, patch: { kind: "replace", content: r.content, replace: r.replace, originalContent: r.originalContent } };
+      yield {
+        type: 'message_updated',
+        id: r.id,
+        patch: {
+          kind: 'replace',
+          content: r.content,
+          replace: r.replace,
+          originalContent: r.originalContent,
+        },
+      }
     }
   }
 
   // Confirm/manual senses — 逐个审批执行（sequential：approve A→exec A→approve B→exec B）
   // 无 Promise.all 屏障：已批准 call 不被未决 call 阻塞（P1.9 互阻修复）。
-  const needsApproval = calls.filter(c => c.approvalPromise);
+  const needsApproval = calls.filter((c) => c.approvalPromise)
   if (needsApproval.length > 0) {
-    logger.event("approval.wait", {
+    logger.event('approval.wait', {
       count: needsApproval.length,
-      approvals: needsApproval.map(c => ({ approvalId: c.id, name: c.name, supervisionLevel: c.supervisionLevel })),
-    });
+      approvals: needsApproval.map((c) => ({
+        approvalId: c.id,
+        name: c.name,
+        supervisionLevel: c.supervisionLevel,
+      })),
+    })
 
     // sequential：逐个 await 执行，但断连 abort 可能在任意时刻 reject 某 call 的 promise
     // （如 A 执行期间断连 reject B，此时 B 的 await handler 尚未挂载）。预挂 no-op catch 防止
     // reject 早于 await 挂载 handler 触发 unhandled rejection；await 仍收到 rejection 并 throw
     // （同一 promise 多 handler 均触发，no-op catch 不影响 await 的 throw 语义）。
     for (const call of needsApproval) {
-      call.approvalPromise!.catch(() => {});
+      call.approvalPromise!.catch(() => {})
     }
 
     for (const call of needsApproval) {
@@ -140,22 +163,36 @@ async function* executeCollectedCalls(
       //     不 yield sense_reject：会填 pending content 破坏 canResume Case1（pending 需保持 NULL）。
       //     不 return：return 结束 senseMiddleware，loop 误判本轮完成继续第二轮 LLM，破坏未完成周期语义。
       //     已执行 call（序列靠前的）保持 done；未到达 call 保持 pending NULL，resume 续接重跑。
-      const decision = await call.approvalPromise!;
+      const decision = await call.approvalPromise!
 
-      if (decision.action === "accept") {
-        const { content, hash, replaced } = await doExecuteSense(ctx, call.name, call.argsJson, call.id);
-        yield { type: "sense_accept", id: call.id, name: call.name, result: content, hash };
+      if (decision.action === 'accept') {
+        const { content, hash, replaced } = await doExecuteSense(
+          ctx,
+          call.name,
+          call.argsJson,
+          call.id,
+        )
+        yield { type: 'sense_accept', id: call.id, name: call.name, result: content, hash }
         // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
         for (const r of replaced) {
-          yield { type: "message_updated", id: r.id, patch: { kind: "replace", content: r.content, replace: r.replace, originalContent: r.originalContent } };
+          yield {
+            type: 'message_updated',
+            id: r.id,
+            patch: {
+              kind: 'replace',
+              content: r.content,
+              replace: r.replace,
+              originalContent: r.originalContent,
+            },
+          }
         }
       } else {
         yield {
-          type: "sense_reject",
+          type: 'sense_reject',
           id: call.id,
           name: call.name,
-          reason: "用户拒绝执行" + (decision.reason ? `理由:${decision.reason}` : ''),
-        };
+          reason: '用户拒绝执行' + (decision.reason ? `理由:${decision.reason}` : ''),
+        }
       }
     }
   }
@@ -167,42 +204,40 @@ async function* executeCollectedCalls(
  * 工具不在当前 senseTable → 跳过监管静默写「无此工具:{name}」结果（作 accept，
  *   checkpointState recovery 路径原地更新 pending → done，LLM 据此感知工具不存在）。
  */
-async function* executeResumePending(
-  ctx: MiddlewareContext,
-): AsyncGenerator<MiddlewareChunk> {
-  if (!ctx.runtime) throw new Error("Runtime not configured.");
-  const messages = ctx.soul.messages ?? [];
-  const pending: { id: string; name: string; argsJson: string }[] = [];
+async function* executeResumePending(ctx: MiddlewareContext): AsyncGenerator<MiddlewareChunk> {
+  if (!ctx.runtime) throw new Error('Runtime not configured.')
+  const messages = ctx.soul.messages ?? []
+  const pending: { id: string; name: string; argsJson: string }[] = []
 
   // 末尾连续空 content 的 sense（pending）；遇 done（有 content）即停
   for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i]!;
-    if (m.role !== "sense") break;
-    if (m.content) break;
-    const sc = m.senseCalls?.[0];
+    const m = messages[i]!
+    if (m.role !== 'sense') break
+    if (m.content) break
+    const sc = m.senseCalls?.[0]
     if (sc) {
-      pending.unshift({ id: sc.id, name: sc.name, argsJson: sc.arguments });
+      pending.unshift({ id: sc.id, name: sc.name, argsJson: sc.arguments })
     }
   }
 
   if (pending.length === 0) {
-    return;
+    return
   }
 
-  const calls: PendingSenseCall[] = [];
+  const calls: PendingSenseCall[] = []
   for (const p of pending) {
     if (!ctx.runtime.senseTable.has(p.name)) {
       // 工具不在当前 senseTable：静默写占位结果
-      yield { type: "sense_accept", id: p.id, name: p.name, result: `工具已失效：${p.name}` };
-      continue;
+      yield { type: 'sense_accept', id: p.id, name: p.name, result: `工具已失效：${p.name}` }
+      continue
     }
-    const { trigger, call } = buildSenseTrigger(ctx, p.id, p.name, p.argsJson);
-    calls.push(call);
-    yield trigger;
+    const { trigger, call } = buildSenseTrigger(ctx, p.id, p.name, p.argsJson)
+    calls.push(call)
+    yield trigger
   }
 
   if (calls.length > 0) {
-    yield* executeCollectedCalls(ctx, calls);
+    yield* executeCollectedCalls(ctx, calls)
   }
 }
 
@@ -217,30 +252,30 @@ function buildSenseTrigger(
   name: string,
   argsJson: string,
 ): { trigger: SenseTriggerChunk; call: PendingSenseCall } {
-  if (!ctx.runtime) throw new Error("Runtime not configured.");
-  const senseEntry = ctx.runtime.senseTable.get(name);
-  const supervisionLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.confirm;
+  if (!ctx.runtime) throw new Error('Runtime not configured.')
+  const senseEntry = ctx.runtime.senseTable.get(name)
+  const supervisionLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.confirm
 
-  let approvalPromise: Promise<{ action: "accept" | "reject"; reason?: string }> | undefined;
+  let approvalPromise: Promise<{ action: 'accept' | 'reject'; reason?: string }> | undefined
 
   if (supervisionLevel > SupervisionLevel.auto) {
     // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
     //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
-    approvalPromise = createApproval(id, ctx.global.approval_timeout);
+    approvalPromise = createApproval(id, ctx.global.approval_timeout)
   }
 
   const trigger: SenseTriggerChunk = {
-    type: "sense_end",
+    type: 'sense_end',
     id,
     name,
     arguments: argsJson,
     supervisionLevel,
-  };
+  }
 
   return {
     trigger,
     call: { id, name, argsJson, supervisionLevel, approvalPromise },
-  };
+  }
 }
 
 /**
@@ -252,22 +287,27 @@ async function doExecuteSense(
   argsJson: string,
   id: string,
 ): Promise<{
-  content: string;
-  hash?: string;
-  replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>;
+  content: string
+  hash?: string
+  replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>
 }> {
-  const replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }> = [];
+  const replaced: Array<{
+    id: string
+    content: string
+    replace: ReplaceInfo
+    originalContent: string
+  }> = []
   try {
-    if (!ctx.runtime) throw new Error("Runtime not configured.");
-    const args = argsJson ? safeJsonParse(argsJson, {}) : {};
-    const senseEntry = ctx.runtime.senseTable.get(name);
+    if (!ctx.runtime) throw new Error('Runtime not configured.')
+    const args = argsJson ? safeJsonParse(argsJson, {}) : {}
+    const senseEntry = ctx.runtime.senseTable.get(name)
     if (!senseEntry) {
-      return { content: `没有 "${name}" 这个感官`, replaced };
+      return { content: `没有 "${name}" 这个感官`, replaced }
     }
     // 路径守卫：拦 .chery/ 直接读写（仅 install_skill 豁免），引导走管家角色
-    const guardHit = checkCheryGuard(name, args);
+    const guardHit = checkCheryGuard(name, args)
     if (guardHit) {
-      return { content: guardHit, replaced };
+      return { content: guardHit, replaced }
     }
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
     // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
@@ -275,11 +315,11 @@ async function doExecuteSense(
     const result = await senseEntry.execute(args, ctx.soul.senseSharedData, {
       chatId: ctx.soul.chatId,
       yieldTurn: () => {
-        ctx.soul.yieldTurn = true;
+        ctx.soul.yieldTurn = true
       },
       // 透传当前 sense call id（= sense message.id）。spawn_role 等需用此 id 回写 metadata 关联。
       messageId: id,
-    });
+    })
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
     // 旧 sense 内容重复且冗长 → 替换为短说明（告知 AI 已被新读取取代），长内容移至 originalContent 折叠溯源。
@@ -291,18 +331,18 @@ async function doExecuteSense(
       // 历史去重：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。
       // 旧 sense 内容改写为短说明（长内容折叠 originalContent），由 message_updated effect 落库。
       // 单一写者：in-place 改 originalContent/content/replace 经 ctx.journal.replaceSense。
-      const matched = ctx.journal.replaceSense({ matchHash: result.hash, newId: id });
-      replaced.push(...matched);
+      const matched = ctx.journal.replaceSense({ matchHash: result.hash, newId: id })
+      replaced.push(...matched)
     }
 
     // 环境变量脱敏：在返回前替换所有 .env 中定义的敏感变量名
-    const redactedContent = redactEnvKeys(result.content);
+    const redactedContent = redactEnvKeys(result.content)
 
-    return { content: redactedContent, hash: result.hash, replaced };
+    return { content: redactedContent, hash: result.hash, replaced }
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    return { content: `感官执行失败：${errorMsg}`, replaced };
+    const errorMsg = error instanceof Error ? error.message : String(error)
+    return { content: `感官执行失败：${errorMsg}`, replaced }
   }
 }
 
-export default senseMiddleware;
+export default senseMiddleware

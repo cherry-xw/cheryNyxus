@@ -7,44 +7,44 @@
  *
  * 交互：点击选档；键盘 ArrowLeft/Right/Up/Down + 数字键 0-3 快捷；radiogroup 语义。
  */
-import { computed } from "vue";
-import type { ThinkingLevel } from "@/services/agentApi";
+import { computed } from 'vue'
+import type { ThinkingLevel } from '@/services/agentApi'
 
-const model = defineModel<ThinkingLevel>({ default: "off" });
+const model = defineModel<ThinkingLevel>({ default: 'off' })
 
 interface LevelOption {
-  value: ThinkingLevel;
-  label: string;
+  value: ThinkingLevel
+  label: string
   /** 前景色（文字/激活态） */
-  color: string;
+  color: string
   /** 背景色（激活态填充） */
-  bg: string;
+  bg: string
 }
 
 const LEVELS: LevelOption[] = [
-  { value: "off", label: "关闭", color: "rgba(36, 38, 45, 0.62)", bg: "rgba(36, 38, 45, 0.1)" },
-  { value: "low", label: "低", color: "#9a6b14", bg: "#ffd27a" },
-  { value: "medium", label: "中", color: "#7a4d0e", bg: "#f6b73c" },
-  { value: "high", label: "高", color: "#fff7e6", bg: "#d99717" },
-];
+  { value: 'off', label: '关闭', color: 'rgba(36, 38, 45, 0.62)', bg: 'rgba(36, 38, 45, 0.1)' },
+  { value: 'low', label: '低', color: '#9a6b14', bg: '#ffd27a' },
+  { value: 'medium', label: '中', color: '#7a4d0e', bg: '#f6b73c' },
+  { value: 'high', label: '高', color: '#fff7e6', bg: '#d99717' },
+]
 
-const activeIndex = computed(() => LEVELS.findIndex((l) => l.value === model.value));
+const activeIndex = computed(() => LEVELS.findIndex((l) => l.value === model.value))
 
 function select(level: ThinkingLevel): void {
-  model.value = level;
+  model.value = level
 }
 
 function onKeydown(e: KeyboardEvent): void {
-  const cur = activeIndex.value < 0 ? 0 : activeIndex.value;
-  if (e.key === "ArrowRight" || e.key === "ArrowUp") {
-    e.preventDefault();
-    select(LEVELS[Math.min(LEVELS.length - 1, cur + 1)]!.value);
-  } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
-    e.preventDefault();
-    select(LEVELS[Math.max(0, cur - 1)]!.value);
+  const cur = activeIndex.value < 0 ? 0 : activeIndex.value
+  if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    select(LEVELS[Math.min(LEVELS.length - 1, cur + 1)]!.value)
+  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+    e.preventDefault()
+    select(LEVELS[Math.max(0, cur - 1)]!.value)
   } else if (/^[0-3]$/.test(e.key)) {
-    e.preventDefault();
-    select(LEVELS[Number(e.key)]!.value);
+    e.preventDefault()
+    select(LEVELS[Number(e.key)]!.value)
   }
 }
 </script>
@@ -76,7 +76,7 @@ function onKeydown(e: KeyboardEvent): void {
 </template>
 
 <style scoped lang="less">
-@import "../shared.less";
+@import '../shared.less';
 
 .thinking-step {
   display: flex;
@@ -105,7 +105,11 @@ function onKeydown(e: KeyboardEvent): void {
   font-family: inherit;
   font-size: 11px;
   color: fade(@ink, 46%);
-  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.1s ease;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.1s ease;
 
   .pill-dot {
     width: 6px;

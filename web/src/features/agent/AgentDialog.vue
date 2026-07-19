@@ -3,58 +3,88 @@
  * AgentDialog orchestrator：发消息弹窗（runtime 切换合一）。
  * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
  */
-import { computed } from "vue";
-import { AnimatePresence, motion } from "motion-v";
-import { ElPopover, ElTooltip, ElUpload } from "element-plus";
-import RoleConfigPopover from "./dialog/RoleConfigPopover.vue";
-import MediaPreviewBar from "./dialog/media/MediaPreviewBar.vue";
-import ContextBreakdownTip from "./ContextBreakdownTip.vue";
-import { fmtTokens } from "./contextBreakdown";
-import { useAgentDialogOptions } from "./dialog/useAgentDialogOptions";
-import { useAgentsStore } from "@/stores";
+import { computed } from 'vue'
+import { AnimatePresence, motion } from 'motion-v'
+import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
+import RoleConfigPopover from './dialog/RoleConfigPopover.vue'
+import MediaPreviewBar from './dialog/media/MediaPreviewBar.vue'
+import ContextBreakdownTip from './ContextBreakdownTip.vue'
+import { fmtTokens } from './contextBreakdown'
+import { useAgentDialogOptions } from './dialog/useAgentDialogOptions'
+import { useAgentsStore } from '@/stores'
 
-const agents = useAgentsStore();
+const agents = useAgentsStore()
 // 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
-const isTopMask = computed(() => agents.topOverlay === "agentDialog");
+const isTopMask = computed(() => agents.topOverlay === 'agentDialog')
 
-const MotionDiv = motion.div;
+const MotionDiv = motion.div
 
 const {
-  chatId, pet,
-  brains, senseGroups, config, senseTools,
-  roleSelections, primaryRole, text, editorRef, commandOptions, showCommandMenu,
-  activeCommandIndex, commandMenuRef,
-  uploading, mediaHint, mediaAttachments,
-  sending, loading, error,
-  primarySelection, orderedRoleSelections, mediaServicesByType,
-  close, handleSend, onEditorKeydown, onEditorInput, onEditorPaste, selectCommand,
-  removeMedia, onMediaSelected,
-  senseEntries, senseTool, brainConfig, supportsTools,
-} = useAgentDialogOptions();
+  chatId,
+  pet,
+  brains,
+  senseGroups,
+  config,
+  senseTools,
+  roleSelections,
+  primaryRole,
+  text,
+  editorRef,
+  commandOptions,
+  showCommandMenu,
+  activeCommandIndex,
+  commandMenuRef,
+  uploading,
+  mediaHint,
+  mediaAttachments,
+  sending,
+  loading,
+  error,
+  primarySelection,
+  orderedRoleSelections,
+  mediaServicesByType,
+  close,
+  handleSend,
+  onEditorKeydown,
+  onEditorInput,
+  onEditorPaste,
+  selectCommand,
+  removeMedia,
+  onMediaSelected,
+  senseEntries,
+  senseTool,
+  brainConfig,
+  supportsTools,
+} = useAgentDialogOptions()
 
 /** 颜色分级（与 SessionList / HistoryDrawerPanel / ContextBar 对齐：<50% 绿 / 50-80% 黄 / >=80% 红）。 */
-function usageClass(u: number): "usage-low" | "usage-mid" | "usage-high" {
-  if (u >= 0.8) return "usage-high";
-  if (u >= 0.5) return "usage-mid";
-  return "usage-low";
+function usageClass(u: number): 'usage-low' | 'usage-mid' | 'usage-high' {
+  if (u >= 0.8) return 'usage-high'
+  if (u >= 0.5) return 'usage-mid'
+  return 'usage-low'
 }
 
 /** 每角色上下文占用（按当前 brain 的 contextLimit 折算）。brain / config / pet 任一未就绪 → null（chip 隐藏）。 */
-const roleUsages = computed<Record<string, { used: number; total: number; usage: number } | null>>(() => {
-  const p = pet.value;
-  const out: Record<string, { used: number; total: number; usage: number } | null> = {};
-  for (const [role, sel] of Object.entries(roleSelections.value)) {
-    const limit = brainConfig(sel.brain)?.contextLimit;
-    if (!limit || !p) { out[role] = null; continue; }
-    const used = p.contextUsed ?? 0;
-    const usage = Math.min(1, Math.max(0, used / limit));
-    out[role] = { used, total: limit, usage };
-  }
-  return out;
-});
+const roleUsages = computed<Record<string, { used: number; total: number; usage: number } | null>>(
+  () => {
+    const p = pet.value
+    const out: Record<string, { used: number; total: number; usage: number } | null> = {}
+    for (const [role, sel] of Object.entries(roleSelections.value)) {
+      const limit = brainConfig(sel.brain)?.contextLimit
+      if (!limit || !p) {
+        out[role] = null
+        continue
+      }
+      const used = p.contextUsed ?? 0
+      const usage = Math.min(1, Math.max(0, used / limit))
+      out[role] = { used, total: limit, usage }
+    }
+    return out
+  },
+)
 
 /** dialog-head 工作区模式：workspace 有值时 pet name 前 📁（路径失效改 ⚠ 红色），hover 显全路径。无 workspace 纯文本。 */
-const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
+const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 </script>
 
 <template>
@@ -91,13 +121,14 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
               >
                 <template #content>
                   <span>工作区：{{ pet.workspace }}</span>
-                  <span v-if="workspaceInvalid" style="color: #fca5a5;"> · 路径失效</span>
+                  <span v-if="workspaceInvalid" style="color: #fca5a5"> · 路径失效</span>
                 </template>
                 <span class="who" :class="{ 'is-ws-invalid': workspaceInvalid }">
-                  <span class="who-icon">{{ workspaceInvalid ? "⚠" : "📁" }}</span>{{ pet?.name ?? "agent" }}
+                  <span class="who-icon">{{ workspaceInvalid ? '⚠' : '📁' }}</span
+                  >{{ pet?.name ?? 'agent' }}
                 </span>
               </el-tooltip>
-              <span v-else class="who">{{ pet?.name ?? "agent" }}</span>
+              <span v-else class="who">{{ pet?.name ?? 'agent' }}</span>
             </span>
             <span class="hint">Cmd/Ctrl+Enter 发送 · Esc 关闭</span>
           </span>
@@ -112,12 +143,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
             aria-busy="true"
             aria-label="角色编制加载中"
           >
-            <span
-              v-for="n in 3"
-              :key="n"
-              class="role-skel-tile"
-              aria-hidden="true"
-            />
+            <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
           </div>
           <div v-else class="role-tags" aria-label="小组角色编制">
             <el-popover
@@ -136,12 +162,15 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
                   :aria-label="`配置角色 ${role}，模型 ${(brainConfig(selection.brain)?.model ?? selection.brain) || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
                 >
                   <span class="role-summary-main">
-                    <span aria-hidden="true">{{ role === primaryRole ? "♛" : "✦" }}</span>
+                    <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
                     <span class="role-summary-name">{{ role }}</span>
                   </span>
                   <span class="role-summary-meta-row">
                     <span class="role-summary-model-slot">
-                      <span class="role-summary-model">◈ {{ (brainConfig(selection.brain)?.model ?? selection.brain) || "—" }}</span>
+                      <span class="role-summary-model"
+                        >◈
+                        {{ (brainConfig(selection.brain)?.model ?? selection.brain) || '—' }}</span
+                      >
                     </span>
                     <el-tooltip
                       v-if="roleUsages[role]"
@@ -150,19 +179,33 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
                       :hide-after="0"
                     >
                       <template #content>
-                        <ContextBreakdownTip v-if="pet?.contextBreakdown" :breakdown="pet.contextBreakdown" />
+                        <ContextBreakdownTip
+                          v-if="pet?.contextBreakdown"
+                          :breakdown="pet.contextBreakdown"
+                        />
                         <span v-else>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
                       </template>
                       <span
                         class="role-usage-chip"
                         :class="usageClass(roleUsages[role]!.usage)"
                         :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
-                      >{{ fmtTokens(roleUsages[role]!.used) }}/{{ fmtTokens(roleUsages[role]!.total) }}</span>
+                        >{{ fmtTokens(roleUsages[role]!.used) }}/{{
+                          fmtTokens(roleUsages[role]!.total)
+                        }}</span
+                      >
                     </el-tooltip>
                   </span>
-                  <span v-if="senseEntries(selection.senseGroup).length" class="role-summary-senses" aria-label="当前能力">
-                    <span v-for="entry in senseEntries(selection.senseGroup)" :key="entry" class="role-summary-sense-icon">
-                      {{ senseTool(entry)?.icon ?? "⚙" }}
+                  <span
+                    v-if="senseEntries(selection.senseGroup).length"
+                    class="role-summary-senses"
+                    aria-label="当前能力"
+                  >
+                    <span
+                      v-for="entry in senseEntries(selection.senseGroup)"
+                      :key="entry"
+                      class="role-summary-sense-icon"
+                    >
+                      {{ senseTool(entry)?.icon ?? '⚙' }}
                     </span>
                   </span>
                 </button>
@@ -183,10 +226,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
           </div>
         </div>
 
-        <MediaPreviewBar
-          :attachments="mediaAttachments"
-          @remove="removeMedia"
-        />
+        <MediaPreviewBar :attachments="mediaAttachments" @remove="removeMedia" />
 
         <div v-if="mediaHint" class="media-hint-row">{{ mediaHint }}</div>
 
@@ -204,7 +244,13 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
             @keydown="onEditorKeydown"
             @paste="onEditorPaste"
           />
-          <div ref="commandMenuRef" v-if="showCommandMenu" class="command-menu" role="listbox" aria-label="可用指令">
+          <div
+            v-if="showCommandMenu"
+            ref="commandMenuRef"
+            class="command-menu"
+            role="listbox"
+            aria-label="可用指令"
+          >
             <button
               v-for="(command, index) in commandOptions"
               :key="command.id"
@@ -237,7 +283,18 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
                   :title="uploading ? '上传中…' : '添加媒体'"
                   aria-label="添加媒体附件"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M12 5v14M5 12h14"/></svg>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    width="16"
+                    height="16"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
                 </button>
               </template>
               <div class="add-media-menu" @click.stop>
@@ -249,7 +306,13 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
                   :on-change="(f: any) => onMediaSelected(f)"
                   class="add-media-upload"
                 >
-                  <div class="add-media-item"><span>🖼️</span><span>图片</span><span v-if="mediaServicesByType.image" class="media-svc-tag">{{ mediaServicesByType.image }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+                  <div class="add-media-item">
+                    <span>🖼️</span><span>图片</span
+                    ><span v-if="mediaServicesByType.image" class="media-svc-tag">{{
+                      mediaServicesByType.image
+                    }}</span
+                    ><span v-else class="media-svc-tag missing">未配置</span>
+                  </div>
                 </ElUpload>
                 <ElUpload
                   :auto-upload="false"
@@ -259,7 +322,13 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
                   :on-change="(f: any) => onMediaSelected(f)"
                   class="add-media-upload"
                 >
-                  <div class="add-media-item"><span>🎬</span><span>视频</span><span v-if="mediaServicesByType.video" class="media-svc-tag">{{ mediaServicesByType.video }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+                  <div class="add-media-item">
+                    <span>🎬</span><span>视频</span
+                    ><span v-if="mediaServicesByType.video" class="media-svc-tag">{{
+                      mediaServicesByType.video
+                    }}</span
+                    ><span v-else class="media-svc-tag missing">未配置</span>
+                  </div>
                 </ElUpload>
                 <ElUpload
                   :auto-upload="false"
@@ -269,14 +338,26 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
                   :on-change="(f: any) => onMediaSelected(f)"
                   class="add-media-upload"
                 >
-                  <div class="add-media-item"><span>🎵</span><span>音频</span><span v-if="mediaServicesByType.audio" class="media-svc-tag">{{ mediaServicesByType.audio }}</span><span v-else class="media-svc-tag missing">未配置</span></div>
+                  <div class="add-media-item">
+                    <span>🎵</span><span>音频</span
+                    ><span v-if="mediaServicesByType.audio" class="media-svc-tag">{{
+                      mediaServicesByType.audio
+                    }}</span
+                    ><span v-else class="media-svc-tag missing">未配置</span>
+                  </div>
                 </ElUpload>
               </div>
             </ElPopover>
             <button
               type="button"
               class="send-btn"
-              :disabled="!text.trim() || sending || loading || !primarySelection?.brain || (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)"
+              :disabled="
+                !text.trim() ||
+                sending ||
+                loading ||
+                !primarySelection?.brain ||
+                (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)
+              "
               aria-label="发送消息"
               @click="handleSend"
             >
@@ -303,7 +384,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
 </template>
 
 <style scoped lang="less">
-@import "./dialog/agentDialog.less";
+@import './dialog/agentDialog.less';
 
 .role-usage-chip {
   flex-shrink: 0;
@@ -322,9 +403,18 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
   min-width: 0;
   max-width: 100%;
 }
-.role-usage-chip.usage-low  { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
-.role-usage-chip.usage-mid  { background: rgba(234, 179, 8, 0.16); color: #a16207; }
-.role-usage-chip.usage-high { background: rgba(239, 68, 68, 0.16); color: #b91c1c; }
+.role-usage-chip.usage-low {
+  background: rgba(34, 197, 94, 0.14);
+  color: #16a34a;
+}
+.role-usage-chip.usage-mid {
+  background: rgba(234, 179, 8, 0.16);
+  color: #a16207;
+}
+.role-usage-chip.usage-high {
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
+}
 </style>
 
 <!-- Popover 挂载到 Teleport 根节点，需用非 scoped 样式去除 Element Plus 的外层壳。 -->
@@ -337,7 +427,9 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
   box-shadow: none;
 }
 
-.role-runtime-popper .el-popper__arrow { display: none; }
+.role-runtime-popper .el-popper__arrow {
+  display: none;
+}
 
 .add-media-popper.el-popover {
   border-radius: 10px;
@@ -352,7 +444,10 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
 .add-media-upload {
   width: 100%;
 
-  .el-upload { width: 100%; display: block; }
+  .el-upload {
+    width: 100%;
+    display: block;
+  }
 }
 
 .add-media-item {
@@ -367,9 +462,13 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
   color: #14161a;
   transition: background-color 100ms ease;
 
-  &:hover { background: rgba(246, 183, 60, 0.12); }
+  &:hover {
+    background: rgba(246, 183, 60, 0.12);
+  }
 
-  span:first-child { font-size: 14px; }
+  span:first-child {
+    font-size: 14px;
+  }
 }
 
 .media-svc-tag {
@@ -412,7 +511,9 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
   font-weight: 750;
 }
 
-.instruction-token-floating-description { color: rgba(20, 22, 26, 0.76); }
+.instruction-token-floating-description {
+  color: rgba(20, 22, 26, 0.76);
+}
 
 .instruction-token-floating-meta {
   display: flex;

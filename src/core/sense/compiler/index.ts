@@ -3,5 +3,5 @@ export type {
   TestCase,
   SenseCompileFailure,
   SenseCompileSummary,
-} from "./types.js";
-export { compileSenses, parseTestCases } from "./core.js";
+} from './types.js'
+export { compileSenses, parseTestCases } from './core.js'

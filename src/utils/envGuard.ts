@@ -4,13 +4,13 @@
  * 从 .env 文件提取环境变量名，在文本中替换为占位符，防止敏感信息泄露
  */
 
-import { listEnvVarNames } from "./config.js";
+import { listEnvVarNames } from './config.js'
 
 /**
  * 缓存的环境变量名列表
  * 启动时加载一次，避免重复读取文件
  */
-let cachedEnvVarNames: string[] | null = null;
+let cachedEnvVarNames: string[] | null = null
 
 /**
  * 获取环境变量名列表（带缓存）
@@ -19,16 +19,16 @@ let cachedEnvVarNames: string[] | null = null;
  */
 export function getEnvVarNames(): string[] {
   if (cachedEnvVarNames === null) {
-    cachedEnvVarNames = listEnvVarNames();
+    cachedEnvVarNames = listEnvVarNames()
   }
-  return cachedEnvVarNames;
+  return cachedEnvVarNames
 }
 
 /**
  * 重置缓存（供测试使用）
  */
 export function resetEnvVarCache(): void {
-  cachedEnvVarNames = null;
+  cachedEnvVarNames = null
 }
 
 /**
@@ -47,22 +47,19 @@ export function resetEnvVarCache(): void {
  * // 输出: "[REDACTED]=sk-12345\n[REDACTED]=abc123"
  * ```
  */
-export function redactEnvKeys(content: string, placeholder = "[REDACTED]"): string {
-  const envVarNames = getEnvVarNames();
+export function redactEnvKeys(content: string, placeholder = '[REDACTED]'): string {
+  const envVarNames = getEnvVarNames()
 
   if (envVarNames.length === 0) {
-    return content;
+    return content
   }
 
   // 构建正则表达式：匹配所有环境变量名
   // 使用词边界 \b 确保只匹配完整的变量名（避免部分匹配）
   // 示例：API_KEY 匹配 "API_KEY=value"，但不匹配 "MY_API_KEY=value"
-  const pattern = new RegExp(
-    `\\b(${envVarNames.map(escapeRegex).join("|")})\\b`,
-    "g"
-  );
+  const pattern = new RegExp(`\\b(${envVarNames.map(escapeRegex).join('|')})\\b`, 'g')
 
-  return content.replace(pattern, placeholder);
+  return content.replace(pattern, placeholder)
 }
 
 /**
@@ -72,5 +69,5 @@ export function redactEnvKeys(content: string, placeholder = "[REDACTED]"): stri
  * @returns 转义后的字符串
  */
 function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

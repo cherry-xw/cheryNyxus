@@ -13,131 +13,131 @@
  * - 长消息、思考折叠和媒体加载均由 ResizeObserver 重新量测。
  * 错误显性化（规则 12）：stream 不存在时显 loading 而非崩（getHistory ensureStream，理论不达）。
  */
-import { computed, nextTick, ref, watch } from "vue";
-import { motion } from "motion-v";
-import { useAgentsStore } from "@/stores";
-import type { HistoryItem } from "@/stores/agents";
-import VirtualScroll from "@/components/VirtualScroll.vue";
-import { mergeChildReplyHistory } from "@/stores/agents/historyMerge";
-import MessageBubble from "./MessageBubble.vue";
-import { useDrawerWidth } from "./useDrawerWidth";
-import { useSubPetResolution } from "./useSubPetResolution";
-import { useHistoryDrawerManager } from "./useHistoryDrawerManager";
-import { breakdownSegments, fmtTokens } from "./contextBreakdown";
-import type { BreakdownKey } from "./contextBreakdown";
+import { computed, nextTick, ref, watch } from 'vue'
+import { motion } from 'motion-v'
+import { useAgentsStore } from '@/stores'
+import type { HistoryItem } from '@/stores/agents'
+import VirtualScroll from '@/components/VirtualScroll.vue'
+import { mergeChildReplyHistory } from '@/stores/agents/historyMerge'
+import MessageBubble from './MessageBubble.vue'
+import { useDrawerWidth } from './useDrawerWidth'
+import { useSubPetResolution } from './useSubPetResolution'
+import { useHistoryDrawerManager } from './useHistoryDrawerManager'
+import { breakdownSegments, fmtTokens } from './contextBreakdown'
+import type { BreakdownKey } from './contextBreakdown'
 
-const MotionDiv = motion.div;
+const MotionDiv = motion.div
 
 /** 按消息内容估算未量测项的高度，量测完成后由 VirtualScroll 替换。 */
 function estimateHeight(item: HistoryItem | undefined): number {
-  if (!item) return 120;
-  const role = item.role;
-  if (role === "user" || role === "master") return 90;
-  const hasThinking = !!item.thinking && item.thinking.trim().length > 0;
-  const senseCount = item.senseCalls?.length ?? 0;
-  if (hasThinking && senseCount > 0) return 320;
-  if (hasThinking) return 220;
-  if (senseCount > 0) return 180;
-  return 130;
+  if (!item) return 120
+  const role = item.role
+  if (role === 'user' || role === 'master') return 90
+  const hasThinking = !!item.thinking && item.thinking.trim().length > 0
+  const senseCount = item.senseCalls?.length ?? 0
+  if (hasThinking && senseCount > 0) return 320
+  if (hasThinking) return 220
+  if (senseCount > 0) return 180
+  return 130
 }
 
 /** 取前 N 字预览：折叠空白 + 去首尾 + 超长 ellipsis。空内容显占位串。供滚动条标记 title 用。 */
 function previewOf(content: string | undefined): string {
-  if (!content) return "(空)";
-  const compact = content.replace(/\s+/g, " ").trim();
-  return compact.length > 10 ? compact.slice(0, 10) + "…" : compact;
+  if (!content) return '(空)'
+  const compact = content.replace(/\s+/g, ' ').trim()
+  return compact.length > 10 ? compact.slice(0, 10) + '…' : compact
 }
 
 const props = defineProps<{
   /** 本面板要展示的 chat。 */
-  chatId: string;
+  chatId: string
   /** 是否栈顶（唯一可交互层；仅栈顶显 ✕）。 */
-  isTop: boolean;
+  isTop: boolean
   /** 层叠 z-index（280 + N×10 + 1，确保栈顶在上）。 */
-  zIndex: number;
-}>();
+  zIndex: number
+}>()
 
-const agents = useAgentsStore();
-const manager = useHistoryDrawerManager();
+const agents = useAgentsStore()
+const manager = useHistoryDrawerManager()
 
-const pet = computed(() => agents.pets.find((p) => p.chatId === props.chatId));
-const chatPetName = computed(() => pet.value?.name ?? "");
+const pet = computed(() => agents.pets.find((p) => p.chatId === props.chatId))
+const chatPetName = computed(() => pet.value?.name ?? '')
 
 // 布局：子 chat（ghost 自身面板，有 parentChatId）→ direct（master 右/ghost 左 1:1）；
 //        主 chat → group（群聊双头像样式）。
-const layout = computed<"group" | "direct">(() => (pet.value?.parentChatId ? "direct" : "group"));
+const layout = computed<'group' | 'direct'>(() => (pet.value?.parentChatId ? 'direct' : 'group'))
 const parentPet = computed(() =>
-  pet.value?.parentChatId ? agents.pets.find((p) => p.chatId === pet.value!.parentChatId) : undefined,
-);
+  pet.value?.parentChatId
+    ? agents.pets.find((p) => p.chatId === pet.value!.parentChatId)
+    : undefined,
+)
 const masterPetName = computed(() =>
-  layout.value === "direct" ? parentPet.value?.name ?? "" : chatPetName.value,
-);
+  layout.value === 'direct' ? (parentPet.value?.name ?? '') : chatPetName.value,
+)
 
-const stream = computed(() => agents.streams[props.chatId]);
+const stream = computed(() => agents.streams[props.chatId])
 const history = computed<HistoryItem[]>(() => {
-  const h = stream.value?.history ?? [];
-  return layout.value === "group" ? mergeChildReplyHistory(h) : h;
-});
-const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false);
+  const h = stream.value?.history ?? []
+  return layout.value === 'group' ? mergeChildReplyHistory(h) : h
+})
+const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false)
 
 // 仅人类用户消息（role === "user" 唯一标识；child-to-master 合并项底层是 master/role，不算）
 // 保留原 history 索引以便点击直接复用 VirtualScroll.scrollToIndex，不再二次查找。
 const userMarks = computed<Array<{ item: HistoryItem; idx: number }>>(() =>
-  history.value
-    .map((item, idx) => ({ item, idx }))
-    .filter(({ item }) => item.role === "user"),
-);
+  history.value.map((item, idx) => ({ item, idx })).filter(({ item }) => item.role === 'user'),
+)
 
 type VirtualScrollInstance = {
-  scrollToEnd: () => void;
+  scrollToEnd: () => void
   scrollToIndex: (
     index: number,
-    options?: { align?: "start" | "center" | "end"; behavior?: ScrollBehavior },
-  ) => Promise<void>;
-};
+    options?: { align?: 'start' | 'center' | 'end'; behavior?: ScrollBehavior },
+  ) => Promise<void>
+}
 
-const virtualScrollRef = ref<VirtualScrollInstance | null>(null);
+const virtualScrollRef = ref<VirtualScrollInstance | null>(null)
 
 function getHistoryItemKey(item: HistoryItem, index: number): string {
-  return item.msgId ?? `idx-${index}`;
+  return item.msgId ?? `idx-${index}`
 }
 
 // 面板挂载 / chatId 变 → 载入历史（经 manager.loadHistory，预留缓存层）
 watch(
   () => props.chatId,
   (v) => {
-    if (v) void manager.loadHistory(v);
+    if (v) void manager.loadHistory(v)
   },
   { immediate: true },
-);
+)
 
 function scrollToBottom(): void {
-  void nextTick(() => virtualScrollRef.value?.scrollToEnd());
+  void nextTick(() => virtualScrollRef.value?.scrollToEnd())
 }
 
 /** 把 idx 项对齐到视口（start 顶部 / center 中部 / end 底部）。
  *  - jump-to-sensecall 用中心对齐 + smooth：柔和落位，避免硬切
  *  - scrollToBottom 仍走 scrollTop 直接赋值（聊天累积即时跟随更顺手）
  *  - 滚动边界由 VirtualScroll 统一处理。 */
-function scrollToItem(idx: number, align: "start" | "center" | "end"): void {
-  void virtualScrollRef.value?.scrollToIndex(idx, { align, behavior: "smooth" });
+function scrollToItem(idx: number, align: 'start' | 'center' | 'end'): void {
+  void virtualScrollRef.value?.scrollToIndex(idx, { align, behavior: 'smooth' })
 }
 
 // 历史长度变化（流式累积）→ 滚到底
-watch(() => history.value.length, scrollToBottom);
+watch(() => history.value.length, scrollToBottom)
 // loaded 切 true（首批 staged 回放完成）→ 滚到底
 watch(loaded, (v) => {
-  if (v) scrollToBottom();
-});
+  if (v) scrollToBottom()
+})
 
 // 宽度拖拽 + 持久化（localStorage，所有面板共享同一 key → 同宽）
-const { panelStyle, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp } = useDrawerWidth();
+const { panelStyle, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp } = useDrawerWidth()
 
 // 合并宽度变量 + 层叠 z-index
 const panelFullStyle = computed<Record<string, string>>(() => ({
   ...panelStyle.value,
   zIndex: String(props.zIndex),
-}));
+}))
 
 const {
   subPetName,
@@ -147,107 +147,108 @@ const {
   callerPetName,
   callerIsMaster,
   isLastSubReply,
-} = useSubPetResolution(history);
+} = useSubPetResolution(history)
 
 // F：smooth scroll 到指定 sense call 框（被唤起 agent 头像点击跳转用）
 function scrollToSenseCall(senseCallId: string): void {
   const idx = history.value.findIndex((item) =>
     item.senseCalls?.some((sc) => sc.id === senseCallId),
-  );
-  if (idx < 0) return;
-  scrollToItem(idx, "center");
+  )
+  if (idx < 0) return
+  scrollToItem(idx, 'center')
 }
 
 // F：MessageBubble @jump-to-spawn handler
 function onJumpToSpawn(payload: { senseCallId: string }): void {
-  const { senseCallId } = payload;
-  if (!senseCallId) return;
+  const { senseCallId } = payload
+  if (!senseCallId) return
   // 当前面板是主 chat 合并视图 → 直接滚到对应 sense call 框
-  if (layout.value === "group") {
-    scrollToSenseCall(senseCallId);
-    return;
+  if (layout.value === 'group') {
+    scrollToSenseCall(senseCallId)
+    return
   }
   // 当前面板是子 chat 自身（direct）→ push 主 chat 到栈顶（覆盖本面板）+ 待滚
-  const subPet = agents.pets.find((p) => p.chatId === props.chatId);
-  const parentChatId = subPet?.parentChatId;
+  const subPet = agents.pets.find((p) => p.chatId === props.chatId)
+  const parentChatId = subPet?.parentChatId
   if (parentChatId) {
-    manager.drillChild(parentChatId);
-    agents.pendingScrollSenseCallId = senseCallId;
+    manager.drillChild(parentChatId)
+    agents.pendingScrollSenseCallId = senseCallId
   }
 }
 
 // F：rail 点击把 idx 项对齐到视窗顶部（顶/底按钮不复用此：顶走 idx 0，底走 scrollToEnd）。
 function onRailJump(idx: number): void {
-  scrollToItem(idx, "start");
+  scrollToItem(idx, 'start')
 }
 
 // F：监听 store 跨面板滚动请求（push 主 chat 后，主面板挂载时 pending 已设 → immediate 触发滚动）
 watch(
   () => agents.pendingScrollSenseCallId,
   (sid) => {
-    if (sid && layout.value === "group") {
-      scrollToSenseCall(sid);
+    if (sid && layout.value === 'group') {
+      scrollToSenseCall(sid)
       // 一次性标记，滚动完成即清空，避免后续 history 变化误触发
-      agents.pendingScrollSenseCallId = null;
+      agents.pendingScrollSenseCallId = null
     }
   },
   { immediate: true },
-);
+)
 
 const titleText = computed(() => {
-  const name = chatPetName.value;
-  if (name) return `${name} 的历史`;
-  return `历史 · ${props.chatId.slice(0, 8)}…`;
-});
+  const name = chatPetName.value
+  if (name) return `${name} 的历史`
+  return `历史 · ${props.chatId.slice(0, 8)}…`
+})
 
 /** contextUsage 颜色分级（与 ContextBar / SessionList 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
 function usageClass(u: number): string {
-  if (u >= 0.8) return "usage-high";
-  if (u >= 0.5) return "usage-mid";
-  return "usage-low";
+  if (u >= 0.8) return 'usage-high'
+  if (u >= 0.5) return 'usage-mid'
+  return 'usage-low'
 }
 
-const usagePct = computed(() => (pet.value ? Math.round(pet.value.contextUsage * 100) : 0));
+const usagePct = computed(() => (pet.value ? Math.round(pet.value.contextUsage * 100) : 0))
 const usageDetail = computed(() => {
-  if (!pet.value) return null;
-  const { contextUsed, contextTotal } = pet.value;
-  if (typeof contextUsed !== "number" || typeof contextTotal !== "number" || contextTotal <= 0) return null;
-  return { used: contextUsed, total: contextTotal };
-});
+  if (!pet.value) return null
+  const { contextUsed, contextTotal } = pet.value
+  if (typeof contextUsed !== 'number' || typeof contextTotal !== 'number' || contextTotal <= 0)
+    return null
+  return { used: contextUsed, total: contextTotal }
+})
 /** 分段（breakdown 给出时用于分段彩色条 + 行内图例；缺省 → []，退化为单段 usage-fill）。
  *  - allSegs：全量，供图例（0 段灰色展示完整类目）。
  *  - usageSegs：过滤 token=0，供色块条（避免空类 min-width 显色噪声）。 */
-const allSegs = computed(() => breakdownSegments(pet.value?.contextBreakdown));
-const usageSegs = computed(() => allSegs.value.filter((s) => s.tokens > 0));
+const allSegs = computed(() => breakdownSegments(pet.value?.contextBreakdown))
+const usageSegs = computed(() => allSegs.value.filter((s) => s.tokens > 0))
 
 /** 行内图例短标签（区别于 ContextBreakdownTip 的全称标签，适配单行紧凑布局）。 */
 const SHORT_LABELS: Record<BreakdownKey, string> = {
-  system: "系统",
-  userSystem: "用户",
-  memory: "记忆",
-  skills: "技能",
-  tools: "工具",
-  conversation: "对话",
-};
+  system: '系统',
+  userSystem: '用户',
+  memory: '记忆',
+  skills: '技能',
+  tools: '工具',
+  conversation: '对话',
+}
 function shortLabel(key: BreakdownKey): string {
-  return SHORT_LABELS[key] ?? key;
+  return SHORT_LABELS[key] ?? key
 }
 
 /** 图例标签文字色（加深版，区别于色块条鲜艳色：amber/green 原色在米白底对比不足）。 */
 const LABEL_COLORS: Record<BreakdownKey, string> = {
-  system: "#4338ca",
-  userSystem: "#7e22ce",
-  memory: "#be185d",
-  skills: "#b45309",
-  tools: "#047857",
-  conversation: "#1d4ed8",
-};
+  system: '#4338ca',
+  userSystem: '#7e22ce',
+  memory: '#be185d',
+  skills: '#b45309',
+  tools: '#047857',
+  conversation: '#1d4ed8',
+}
 function labelColor(key: BreakdownKey): string {
-  return LABEL_COLORS[key] ?? "#4338ca";
+  return LABEL_COLORS[key] ?? '#4338ca'
 }
 
 /** 图例中 0 token 段的灰色（标签 + tokens 统一降明度，区别于有量的彩色标签）。 */
-const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
+const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
 </script>
 
 <template>
@@ -275,7 +276,15 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
         <span class="title">{{ titleText }}</span>
         <span class="chat-id">{{ chatId }}</span>
       </div>
-      <button v-if="isTop" type="button" class="close-btn" aria-label="Close" @click="manager.closeTop()">✕</button>
+      <button
+        v-if="isTop"
+        type="button"
+        class="close-btn"
+        aria-label="Close"
+        @click="manager.closeTop()"
+      >
+        ✕
+      </button>
     </header>
     <div v-if="usageDetail" class="usage-bar-wrap" :class="usageClass(pet?.contextUsage ?? 0)">
       <div class="usage-bar-row">
@@ -287,9 +296,11 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
             class="legend-item"
             :class="{ 'is-zero': seg.tokens === 0 }"
           >
-            <span class="legend-label" :style="{ color: seg.tokens > 0 ? labelColor(seg.key) : ZERO_COLOR }">{{
-              shortLabel(seg.key)
-            }}</span>
+            <span
+              class="legend-label"
+              :style="{ color: seg.tokens > 0 ? labelColor(seg.key) : ZERO_COLOR }"
+              >{{ shortLabel(seg.key) }}</span
+            >
             <span class="legend-tokens">{{ fmtTokens(seg.tokens) }}</span>
           </span>
         </div>
@@ -307,9 +318,9 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
             :key="seg.key"
             class="usage-seg"
             :style="{ width: `${seg.pct}%`, background: seg.color }"
-          ></div>
+          />
         </template>
-        <div v-else class="usage-fill" :style="{ width: `${Math.min(100, usagePct)}%` }"></div>
+        <div v-else class="usage-fill" :style="{ width: `${Math.min(100, usagePct)}%` }" />
       </div>
     </div>
 
@@ -406,29 +417,32 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
   position: absolute;
   left: 0;
   right: 0;
-  height: 14px;               // 热区高度（远大于视觉线，易 hover/click）
-  margin-top: -7px;           // 居中于 ratio 锚点
+  height: 14px; // 热区高度（远大于视觉线，易 hover/click）
+  margin-top: -7px; // 居中于 ratio 锚点
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
 }
 .scrollbar-mark::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 1px;
   right: 1px;
   top: 50%;
   height: 2px;
   transform: translateY(-50%);
-  background: #fbbf24;        // 浅黄（amber-400）默认
+  background: #fbbf24; // 浅黄（amber-400）默认
   border-radius: 1px;
-  transition: background 0.12s ease, box-shadow 0.12s ease, height 0.12s ease;
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease,
+    height 0.12s ease;
 }
 .scrollbar-mark:hover::before,
 .scrollbar-mark:focus-visible::before {
-  background: #ca8a04;        // 深黄（yellow-600）hover
-  height: 3px;                // hover 加粗增强反馈
+  background: #ca8a04; // 深黄（yellow-600）hover
+  height: 3px; // hover 加粗增强反馈
   box-shadow: 0 0 4px rgba(202, 138, 4, 0.55);
 }
 .scrollbar-mark:focus-visible {
@@ -463,7 +477,7 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
   .chat-id {
     font-size: 10px;
     color: fade(@ink, 44%);
-    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -520,9 +534,18 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
   flex-direction: column;
   gap: 4px;
 
-  &.usage-low { --usage-color: #22c55e; --usage-bg: rgba(34, 197, 94, 0.18); }
-  &.usage-mid { --usage-color: #eab308; --usage-bg: rgba(234, 179, 8, 0.22); }
-  &.usage-high { --usage-color: #ef4444; --usage-bg: rgba(239, 68, 68, 0.22); }
+  &.usage-low {
+    --usage-color: #22c55e;
+    --usage-bg: rgba(34, 197, 94, 0.18);
+  }
+  &.usage-mid {
+    --usage-color: #eab308;
+    --usage-bg: rgba(234, 179, 8, 0.22);
+  }
+  &.usage-high {
+    --usage-color: #ef4444;
+    --usage-bg: rgba(239, 68, 68, 0.22);
+  }
 
   .usage-bar-row {
     display: flex;
@@ -559,7 +582,7 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
     }
 
     .legend-tokens {
-      font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
       font-variant-numeric: tabular-nums;
       color: fade(@ink, 60%);
     }
@@ -575,7 +598,7 @@ const ZERO_COLOR = "rgba(20, 22, 26, 0.38)";
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
     font-size: 11px;
     font-weight: 600;
     color: fade(@ink, 78%);

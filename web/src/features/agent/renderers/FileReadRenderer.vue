@@ -10,120 +10,121 @@
  *   - 压缩信息（如有）：末尾显示 `[compressed: truncate]`
  * - 元信息：offset + limit（如有）
  */
-import { computed, onBeforeUnmount, ref } from "vue";
-import type { RendererProps, ReadFileArgs } from "./types";
-import { CopyDocument, DocumentChecked } from "@element-plus/icons-vue";
+import { computed, onBeforeUnmount, ref } from 'vue'
+import type { RendererProps, ReadFileArgs } from './types'
+import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
 
-const props = defineProps<RendererProps>();
+const props = defineProps<RendererProps>()
 
-const showContent = ref(true);
+const showContent = ref(true)
 
 // 解析参数
 const parsedArgs = computed<ReadFileArgs | null>(() => {
   try {
-    const raw = typeof props.call.args === "string" ? props.call.args : JSON.stringify(props.call.args ?? {});
-    const obj = JSON.parse(raw) as ReadFileArgs;
-    if (obj.path) return obj;
-    return null;
+    const raw =
+      typeof props.call.args === 'string' ? props.call.args : JSON.stringify(props.call.args ?? {})
+    const obj = JSON.parse(raw) as ReadFileArgs
+    if (obj.path) return obj
+    return null
   } catch (e) {
-    console.warn("[FileReadRenderer] args 解析失败", e);
-    return null;
+    console.warn('[FileReadRenderer] args 解析失败', e)
+    return null
   }
-});
+})
 
 // 提取文件名（从路径）
 const fileName = computed(() => {
-  const path = parsedArgs.value?.path ?? "";
-  const segments = path.split("/");
-  return segments[segments.length - 1] || path;
-});
+  const path = parsedArgs.value?.path ?? ''
+  const segments = path.split('/')
+  return segments[segments.length - 1] || path
+})
 
 // 解析结果（提取压缩信息）
 const compressionInfo = computed<{ strategy: string; truncated: boolean } | null>(() => {
-  if (!props.call.result || typeof props.call.result !== "string") return null;
-  const text = props.call.result as string;
+  if (!props.call.result || typeof props.call.result !== 'string') return null
+  const text = props.call.result as string
 
   // 匹配末尾的 [compressed: truncate] 或 [truncated: drain] 等
-  const match = text.match(/\[(compressed|truncated):\s*(\w+)\]$/);
+  const match = text.match(/\[(compressed|truncated):\s*(\w+)\]$/)
   if (match && match[2]) {
-    return { strategy: match[2], truncated: true };
+    return { strategy: match[2], truncated: true }
   }
-  return null;
-});
+  return null
+})
 
 // 内容（去掉压缩标记）
 const content = computed(() => {
-  if (!props.call.result || typeof props.call.result !== "string") return "";
-  let text = props.call.result as string;
+  if (!props.call.result || typeof props.call.result !== 'string') return ''
+  let text = props.call.result as string
 
   // 移除末尾的压缩标记
-  text = text.replace(/\[(compressed|truncated):\s*\w+\]$/, "").trim();
+  text = text.replace(/\[(compressed|truncated):\s*\w+\]$/, '').trim()
 
-  return text;
-});
+  return text
+})
 
 // 行数统计
 const lineCount = computed(() => {
-  return content.value.split("\n").length;
-});
+  return content.value.split('\n').length
+})
 
 // 复制路径到剪贴板
-const copied = ref(false);
-let copyTimer: ReturnType<typeof setTimeout> | undefined;
+const copied = ref(false)
+let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 async function copyPath(): Promise<void> {
-  const path = parsedArgs.value?.path ?? "";
-  if (!path) return;
+  const path = parsedArgs.value?.path ?? ''
+  if (!path) return
   try {
     if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(path);
+      await navigator.clipboard.writeText(path)
     } else {
-      const ta = document.createElement("textarea");
-      ta.value = path;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
+      const ta = document.createElement('textarea')
+      ta.value = path
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
     }
-    copied.value = true;
-    if (copyTimer) clearTimeout(copyTimer);
+    copied.value = true
+    if (copyTimer) clearTimeout(copyTimer)
     copyTimer = setTimeout(() => {
-      copied.value = false;
-    }, 1200);
+      copied.value = false
+    }, 1200)
   } catch (e) {
-    console.warn("[FileReadRenderer] 复制失败", e);
+    console.warn('[FileReadRenderer] 复制失败', e)
   }
 }
 
 onBeforeUnmount(() => {
-  if (copyTimer) clearTimeout(copyTimer);
-});
+  if (copyTimer) clearTimeout(copyTimer)
+})
 
 // 状态字形和样式
 const statusGlyph = computed(() => {
   switch (props.call.status) {
-    case "running":
-      return "⋯";
-    case "done":
-      return "✓";
-    case "error":
-      return "✗";
+    case 'running':
+      return '⋯'
+    case 'done':
+      return '✓'
+    case 'error':
+      return '✗'
     default:
-      return "?";
+      return '?'
   }
-});
+})
 
-const statusClass = computed(() => `status-${props.call.status}`);
+const statusClass = computed(() => `status-${props.call.status}`)
 
 // 降级显示
 const fallback = computed(() => {
   if (!parsedArgs.value) {
-    return JSON.stringify(props.call.args ?? {}, null, 2);
+    return JSON.stringify(props.call.args ?? {}, null, 2)
   }
-  return "";
-});
+  return ''
+})
 </script>
 
 <template>
@@ -153,13 +154,16 @@ const fallback = computed(() => {
             </el-icon>
           </button>
         </div>
-        <div style="flex: 1"></div>
+        <div style="flex: 1" />
       </div>
-      <div v-if="parsedArgs.offset !== undefined || parsedArgs.limit !== undefined" class="file-row">
+      <div
+        v-if="parsedArgs.offset !== undefined || parsedArgs.limit !== undefined"
+        class="file-row"
+      >
         <span class="file-label">范围:</span>
         <span class="file-range">
-          {{ parsedArgs.offset !== undefined ? `第 ${parsedArgs.offset} 行` : "开头" }}
-          {{ parsedArgs.limit !== undefined ? ` +${parsedArgs.limit} 行` : "至末尾" }}
+          {{ parsedArgs.offset !== undefined ? `第 ${parsedArgs.offset} 行` : '开头' }}
+          {{ parsedArgs.limit !== undefined ? ` +${parsedArgs.limit} 行` : '至末尾' }}
         </span>
       </div>
     </div>
@@ -179,7 +183,9 @@ const fallback = computed(() => {
         <span class="toggle-label">
           内容
           <span class="line-count">{{ lineCount }} 行</span>
-          <span v-if="compressionInfo" class="compression-badge">{{ compressionInfo.strategy }}</span>
+          <span v-if="compressionInfo" class="compression-badge">{{
+            compressionInfo.strategy
+          }}</span>
         </span>
       </button>
       <pre v-if="showContent" class="content-pre">{{ content }}</pre>
@@ -264,7 +270,7 @@ const fallback = computed(() => {
   padding: 2px 18px 2px 6px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -276,7 +282,7 @@ const fallback = computed(() => {
   min-width: 0;
   font-size: 10.5px;
   color: fade(@ink, 70%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
 .copy-btn {
@@ -317,7 +323,7 @@ const fallback = computed(() => {
   padding: 6px 8px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -362,7 +368,7 @@ const fallback = computed(() => {
 .line-count {
   font-size: 9px;
   color: fade(@ink, 50%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
 .compression-badge {
@@ -381,7 +387,7 @@ const fallback = computed(() => {
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   color: fade(@ink, 86%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
   white-space: pre-wrap;

@@ -5,7 +5,7 @@
  * - ALS（AsyncLocalStorage）承载 LogScope，沿 async 链自动传播；
  * - 输出为单行 JSON 事件流（机器可解析），解释模块按 traceId 还原会话流程。
  */
-import type { LoggerConfig as ConfigLoggerConfig } from "@/utils/config.js";
+import type { LoggerConfig as ConfigLoggerConfig } from '@/utils/config.js'
 
 // ============================================================================
 // 日志等级
@@ -29,16 +29,16 @@ export enum LogLevel {
  */
 export interface LogScope {
   /** 会话 traceId（= chatId，跨轮稳定） */
-  traceId?: string;
+  traceId?: string
   /** 单次 RPC 请求 */
-  requestId?: string;
+  requestId?: string
   /** WebSocket 连接 */
-  connectionId?: string;
+  connectionId?: string
   /** 单次 chain 执行（per send/resume） */
-  runId?: string;
+  runId?: string
   /** 嵌套 span（senseCall / llm call） */
-  spanId?: string;
-  parentSpanId?: string;
+  spanId?: string
+  parentSpanId?: string
 }
 
 // ============================================================================
@@ -46,23 +46,23 @@ export interface LogScope {
 // ============================================================================
 
 export interface InternalLoggerConfig {
-  level: LogLevel;
-  output: ("console" | "file")[];
-  timestamp: boolean;
-  location: boolean;
-  format: "plain" | "json";
+  level: LogLevel
+  output: ('console' | 'file')[]
+  timestamp: boolean
+  location: boolean
+  format: 'plain' | 'json'
 }
 
 /**
  * 结构化事件（JSON 行）
  */
 export interface LogEvent {
-  ts: string;
-  level: string;
-  type: string;
-  scope: LogScope;
-  location?: string;
-  data?: Record<string, unknown>;
+  ts: string
+  level: string
+  type: string
+  scope: LogScope
+  location?: string
+  data?: Record<string, unknown>
 }
 
 /**
@@ -70,20 +70,20 @@ export interface LogEvent {
  */
 export interface LoggerTools {
   // Bash 日志
-  getBashLogDir(): string;
-  createBashLogPath(pid: number, startTime: number): string;
-  formatBashLogHeader(info: BashLogInfo): string;
-  cleanOldBashLogs(retentionHours: number): void;
+  getBashLogDir(): string
+  createBashLogPath(pid: number, startTime: number): string
+  formatBashLogHeader(info: BashLogInfo): string
+  cleanOldBashLogs(retentionHours: number): void
 
   // 通用文件日志
-  getLogDirectory(name: string): string;
-  createLogFilePath(logDirName: string, filename: string): string;
-  getLogSize(logPath: string): number;
-  shouldShowPartialLog(logPath: string): boolean;
-  getLogSizeThreshold(): number;
-  formatLogSize(bytes: number): string;
-  createLogStream(logPath: string): import("fs").WriteStream;
-  cleanOldLogFiles(logDirName: string, retentionHours: number): void;
+  getLogDirectory(name: string): string
+  createLogFilePath(logDirName: string, filename: string): string
+  getLogSize(logPath: string): number
+  shouldShowPartialLog(logPath: string): boolean
+  getLogSizeThreshold(): number
+  formatLogSize(bytes: number): string
+  createLogStream(logPath: string): import('fs').WriteStream
+  cleanOldLogFiles(logDirName: string, retentionHours: number): void
 }
 
 /**
@@ -91,27 +91,27 @@ export interface LoggerTools {
  */
 export interface Logger {
   /** 结构化事件发射（主接口） */
-  event(type: string, data?: Record<string, unknown>, level?: LogLevel): void;
+  event(type: string, data?: Record<string, unknown>, level?: LogLevel): void
   /** 边界注入 scope（与父 scope 合并），执行 fn */
-  run<T>(scope: Partial<LogScope>, fn: () => T): T;
+  run<T>(scope: Partial<LogScope>, fn: () => T): T
   /** 读取当前 ALS scope（无则空对象） */
-  getScope(): LogScope;
+  getScope(): LogScope
 
   /**
    * 兜底方法（未迁移调用点 / 简易诊断用）：转 event(type=`log.<level>`, {message})。
    * 新代码应直接用 event()。
    */
-  debug(...args: unknown[]): void;
-  info(...args: unknown[]): void;
-  warn(...args: unknown[]): void;
-  error(...args: unknown[]): void;
+  debug(...args: unknown[]): void
+  info(...args: unknown[]): void
+  warn(...args: unknown[]): void
+  error(...args: unknown[]): void
 
-  close(): void;
-  getConfig(): InternalLoggerConfig;
-  setConfig(config: Partial<ConfigLoggerConfig>): void;
+  close(): void
+  getConfig(): InternalLoggerConfig
+  setConfig(config: Partial<ConfigLoggerConfig>): void
   /** 记录配置基准（日志文件新建时调用，避免循环依赖） */
-  recordConfigBaseline(configData: object): void;
-  tools: LoggerTools;
+  recordConfigBaseline(configData: object): void
+  tools: LoggerTools
 }
 
 // ============================================================================
@@ -119,10 +119,10 @@ export interface Logger {
 // ============================================================================
 
 export interface BashLogInfo {
-  pid: number;
-  command: string;
-  startTime: number;
-  logPath: string;
-  description?: string;
-  status: "running" | "completed" | "killed";
+  pid: number
+  command: string
+  startTime: number
+  logPath: string
+  description?: string
+  status: 'running' | 'completed' | 'killed'
 }

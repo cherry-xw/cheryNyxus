@@ -10,35 +10,28 @@
  *
  * 详见 [docs/agent/provider.md](../../../docs/agent/provider.md)。
  */
-import OpenAI from "openai";
-import type {
-  ChatCompletion,
-  ChatCompletionMessageParam,
-} from "openai/resources/chat/completions";
-import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm/adapter";
-import { registerMessageAdapter } from "@/core/message/adapter";
-import { registerSenseAdapter, type SenseFunction } from "@/core/sense";
+import OpenAI from 'openai'
+import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
+import { registerMessageAdapter } from '@/core/message/adapter'
+import { registerSenseAdapter, type SenseFunction } from '@/core/sense'
 import {
   openaiMessageAdapterConfig,
   openaiSenseAdapterConfig,
   acquireRpm,
   mapThinkingToReasoningEffort,
-} from "./openaiCompat.js";
-import { assertChatOptions, classifyBrainError, wrapBrainStream } from "./fetchBase.js";
+} from './openaiCompat.js'
+import { assertChatOptions, classifyBrainError, wrapBrainStream } from './fetchBase.js'
 
 // ========== LLM Adapter 定义 ==========
 
 const openaiLLMAdapter: LLMAdapter = {
-  async chat(
-    messages: unknown[],
-    senses: SenseFunction[],
-    options?: LLMOptions,
-  ): Promise<unknown> {
-    const { model, url, key } = assertChatOptions(options);
-    const msgArray = messages as ChatCompletionMessageParam[];
-    const effort = mapThinkingToReasoningEffort(options?.thinking);
-    await acquireRpm(options);
-    const client = new OpenAI({ baseURL: url, apiKey: key });
+  async chat(messages: unknown[], senses: SenseFunction[], options?: LLMOptions): Promise<unknown> {
+    const { model, url, key } = assertChatOptions(options)
+    const msgArray = messages as ChatCompletionMessageParam[]
+    const effort = mapThinkingToReasoningEffort(options?.thinking)
+    await acquireRpm(options)
+    const client = new OpenAI({ baseURL: url, apiKey: key })
     try {
       return await client.chat.completions.create({
         model,
@@ -46,9 +39,9 @@ const openaiLLMAdapter: LLMAdapter = {
         // 思考强度：low/medium/high → reasoning_effort；off/undefined 省略（非推理模型也安全）
         ...(effort ? { reasoning_effort: effort } : {}),
         ...(senses.length > 0 && { tools: senses }),
-      });
+      })
     } catch (err) {
-      throw classifyBrainError(err);
+      throw classifyBrainError(err)
     }
   },
   async chatStream(
@@ -56,11 +49,11 @@ const openaiLLMAdapter: LLMAdapter = {
     senses: SenseFunction[],
     options?: LLMOptions,
   ): Promise<AsyncIterable<unknown>> {
-    const { model, url, key } = assertChatOptions(options);
-    const msgArray = messages as ChatCompletionMessageParam[];
-    const effort = mapThinkingToReasoningEffort(options?.thinking);
-    await acquireRpm(options);
-    const client = new OpenAI({ baseURL: url, apiKey: key });
+    const { model, url, key } = assertChatOptions(options)
+    const msgArray = messages as ChatCompletionMessageParam[]
+    const effort = mapThinkingToReasoningEffort(options?.thinking)
+    await acquireRpm(options)
+    const client = new OpenAI({ baseURL: url, apiKey: key })
     try {
       const stream = await client.chat.completions.create({
         model,
@@ -68,14 +61,14 @@ const openaiLLMAdapter: LLMAdapter = {
         stream: true,
         ...(effort ? { reasoning_effort: effort } : {}),
         ...(senses.length > 0 && { tools: senses }),
-      });
+      })
       // 包裹迭代：流中途抛错（连接中断/限流/鉴权）映射为大脑 ClassifiedError，避免裸抛漏到 compose 兜底。
-      return wrapBrainStream(stream as AsyncIterable<unknown>);
+      return wrapBrainStream(stream as AsyncIterable<unknown>)
     } catch (err) {
-      throw classifyBrainError(err);
+      throw classifyBrainError(err)
     }
   },
-};
+}
 
 // ========== 注册函数 ==========
 export function registerOpenAIAdapter(): void {
@@ -83,7 +76,7 @@ export function registerOpenAIAdapter(): void {
     ChatCompletion,
     OpenAI.Chat.Completions.ChatCompletionChunk,
     ChatCompletionMessageParam
-  >("openai", openaiMessageAdapterConfig);
-  registerSenseAdapter<ChatCompletion>("openai", openaiSenseAdapterConfig);
-  registerLLMAdapter("openai", openaiLLMAdapter);
+  >('openai', openaiMessageAdapterConfig)
+  registerSenseAdapter<ChatCompletion>('openai', openaiSenseAdapterConfig)
+  registerLLMAdapter('openai', openaiLLMAdapter)
 }

@@ -19,67 +19,65 @@
  * 容器 .pet-icons pointer-events:none，内部 icon 显式 auto 收点击。
  * 位置：pet 头部右侧（继承 .pet-wrap 坐标系，与 pet 同步移动）。
  */
-import { computed, ref } from "vue";
-import { useAgentsStore } from "@/stores";
-import type { ApprovalState, HistoryItem, SenseCallRecord } from "@/stores/agents";
-import { hasRenderer } from "@/features/agent/renderers/registry";
+import { computed, ref } from 'vue'
+import { useAgentsStore } from '@/stores'
+import type { ApprovalState, HistoryItem, SenseCallRecord } from '@/stores/agents'
+import { hasRenderer } from '@/features/agent/renderers/registry'
 
 const props = defineProps<{
   /** chatId（数据源路由：streams[chatId].history / approval / approvalQueue） */
-  chatId: string;
-}>();
+  chatId: string
+}>()
 
-const agents = useAgentsStore();
+const agents = useAgentsStore()
 
 // 闪烁驱动：now 每 250ms 刷新一次（与 ApprovalCard 倒计时节奏一致）。
-const now = ref(Date.now());
+const now = ref(Date.now())
 setInterval(() => {
-  now.value = Date.now();
-}, 250);
+  now.value = Date.now()
+}, 250)
 
-const stream = computed(() => agents.streams[props.chatId]);
-const history = computed<HistoryItem[]>(() => stream.value?.history ?? []);
-const currentApproval = computed<ApprovalState | undefined>(() => stream.value?.approval);
-const queueApprovals = computed<ApprovalState[]>(() => stream.value?.approvalQueue ?? []);
+const stream = computed(() => agents.streams[props.chatId])
+const history = computed<HistoryItem[]>(() => stream.value?.history ?? [])
+const currentApproval = computed<ApprovalState | undefined>(() => stream.value?.approval)
+const queueApprovals = computed<ApprovalState[]>(() => stream.value?.approvalQueue ?? [])
 
 // history 列：最近 5 条（DESC），按 createdAt DESC 取前 5
 const recentHistory = computed<HistoryItem[]>(() => {
-  const all = history.value;
-  return [...all]
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-    .slice(0, 5);
-});
+  const all = history.value
+  return [...all].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 5)
+})
 
 /**
  * 剩余秒数（用于闪烁周期）。
  * waitTime=0（不超时）→ Infinity → 周期封顶 5s。
  */
 function remainingSecOf(a: ApprovalState): number {
-  if (a.waitTime <= 0) return Infinity;
-  return Math.max(0, (a.waitTime - (now.value - a.createdAt)) / 1000);
+  if (a.waitTime <= 0) return Infinity
+  return Math.max(0, (a.waitTime - (now.value - a.createdAt)) / 1000)
 }
 
 /** icon 闪烁周期（秒）：剩余越少越快，封顶 [0.2, 5]s。 */
 function flashPeriodOf(a: ApprovalState): number {
-  const s = remainingSecOf(a);
-  if (!isFinite(s)) return 5;
-  return Math.max(0.2, Math.min(5, s * 0.1));
+  const s = remainingSecOf(a)
+  if (!isFinite(s)) return 5
+  return Math.max(0.2, Math.min(5, s * 0.1))
 }
 
 /** icon 是否已超时（remaining <= 0）：CSS 控制淡出 */
 function isExpired(a: ApprovalState): boolean {
-  return a.waitTime > 0 && remainingSecOf(a) <= 0;
+  return a.waitTime > 0 && remainingSecOf(a) <= 0
 }
 
 /** approval icon 闪烁动画周期 → CSS 变量 */
 function flashStyle(a: ApprovalState, isQueued: boolean): Record<string, string> {
-  if (!isQueued) return {};
-  return { "--flash-period": `${flashPeriodOf(a)}s` };
+  if (!isQueued) return {}
+  return { '--flash-period': `${flashPeriodOf(a)}s` }
 }
 
 /** role → CSS class（与 MessageBubble avatar 配色对齐） */
 function roleClass(item: HistoryItem): string {
-  return `role-${item.role}`;
+  return `role-${item.role}`
 }
 
 /**
@@ -92,25 +90,25 @@ function roleClass(item: HistoryItem): string {
  * - 都没有 → "(空消息)"
  */
 function previewOf(item: HistoryItem): string {
-  const text = (item.content ?? "").trim();
-  if (text) return truncate(text, 80);
-  const calls = item.senseCalls ?? [];
-  if (calls.length === 0) return "(空消息)";
-  return calls.map(toolSummaryOf).join("\n");
+  const text = (item.content ?? '').trim()
+  if (text) return truncate(text, 80)
+  const calls = item.senseCalls ?? []
+  if (calls.length === 0) return '(空消息)'
+  return calls.map(toolSummaryOf).join('\n')
 }
 
 /** 截断到 n 字符，末尾省略号（hover-bubble 单行宽度有限）。 */
 function truncate(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n)}…` : s;
+  return s.length > n ? `${s.slice(0, n)}…` : s
 }
 
 /** 单条 sense 调用的单行摘要。 */
 function toolSummaryOf(call: SenseCallRecord): string {
-  const name = call.name || "(unknown)";
-  const icon = agents.iconForTool(name);
-  if (!hasRenderer(name)) return `工具 ${name}`;
-  const detail = parseToolDetail(call);
-  return detail ? `${icon} ${truncate(detail, 80)}` : `${icon} ${name}`;
+  const name = call.name || '(unknown)'
+  const icon = agents.iconForTool(name)
+  if (!hasRenderer(name)) return `工具 ${name}`
+  const detail = parseToolDetail(call)
+  return detail ? `${icon} ${truncate(detail, 80)}` : `${icon} ${name}`
 }
 
 /**
@@ -118,70 +116,70 @@ function toolSummaryOf(call: SenseCallRecord): string {
  * 后端契约：args 可能是 JSON 字符串或对象（与 parseArgs.ts 一致）。
  */
 function parseToolDetail(call: SenseCallRecord): string | null {
-  const obj = parseJsonObject(call.args);
-  if (!obj) return null;
+  const obj = parseJsonObject(call.args)
+  if (!obj) return null
   const s = (k: string): string | null => {
-    const v = obj[k];
-    return typeof v === "string" && v.length > 0 ? v : null;
-  };
+    const v = obj[k]
+    return typeof v === 'string' && v.length > 0 ? v : null
+  }
   switch (call.name) {
-    case "ask_user_question":
-      return s("question");
-    case "execute_command":
-      return s("command");
-    case "read_file":
-    case "write_file":
-      return s("path");
-    case "search_codebase":
-      return s("query");
-    case "spawn_role":
-      return s("type");
-    case "skill":
-      return s("name");
-    case "generate_image":
-    case "generate_video":
-    case "generate_audio":
-      return s("prompt");
-    case "update_todo": {
-      const todos = obj.todos;
-      if (!Array.isArray(todos) || todos.length === 0) return null;
-      const first = todos[0] as { content?: unknown } | undefined;
-      const content = typeof first?.content === "string" ? first.content : "";
-      return todos.length > 1 ? `${content} (+${todos.length - 1})` : content;
+    case 'ask_user_question':
+      return s('question')
+    case 'execute_command':
+      return s('command')
+    case 'read_file':
+    case 'write_file':
+      return s('path')
+    case 'search_codebase':
+      return s('query')
+    case 'spawn_role':
+      return s('type')
+    case 'skill':
+      return s('name')
+    case 'generate_image':
+    case 'generate_video':
+    case 'generate_audio':
+      return s('prompt')
+    case 'update_todo': {
+      const todos = obj.todos
+      if (!Array.isArray(todos) || todos.length === 0) return null
+      const first = todos[0] as { content?: unknown } | undefined
+      const content = typeof first?.content === 'string' ? first.content : ''
+      return todos.length > 1 ? `${content} (+${todos.length - 1})` : content
     }
     default:
-      return null;
+      return null
   }
 }
 
 /** args → 对象；失败返回 null。复用 parseArgs 的契约。 */
 function parseJsonObject(raw: unknown): Record<string, unknown> | null {
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-    return raw as Record<string, unknown>;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>
   }
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (!trimmed) return null;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (!trimmed) return null
     try {
-      const v = JSON.parse(trimmed);
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        return v as Record<string, unknown>;
+      const v = JSON.parse(trimmed)
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        return v as Record<string, unknown>
       }
     } catch {
       /* 非 JSON → null */
     }
   }
-  return null;
+  return null
 }
 
 function toolIconOf(a: ApprovalState): string {
-  return agents.iconForTool(a.senseName);
+  return agents.iconForTool(a.senseName)
 }
 
 /** approval 列 icon 点击：从 queue 中把该项移到 approval（重新唤起气泡）。 */
 function clickApproval(a: ApprovalState): void {
-  if (currentApproval.value?.approvalId === a.approvalId) return;
-  agents.resummonApproval(props.chatId, a.approvalId);
+  if (currentApproval.value?.approvalId === a.approvalId) return
+  agents.resummonApproval(props.chatId, a.approvalId)
 }
 </script>
 
@@ -289,14 +287,24 @@ function clickApproval(a: ApprovalState): void {
     background: fade(@ink, 50%);
   }
 
-  &.role-user .dot { background: #8a8f98; }
-  &.role-assistant .dot { background: #f6b73c; }
-  &.role-subagent .dot { background: #7c3aed; }
-  &.role-role .dot { background: #7c3aed; }
-  &.role-master .dot { background: #f6b73c; }
+  &.role-user .dot {
+    background: #8a8f98;
+  }
+  &.role-assistant .dot {
+    background: #f6b73c;
+  }
+  &.role-subagent .dot {
+    background: #7c3aed;
+  }
+  &.role-role .dot {
+    background: #7c3aed;
+  }
+  &.role-master .dot {
+    background: #f6b73c;
+  }
 
   &.has-thinking::after {
-    content: "";
+    content: '';
     position: absolute;
     inset: -1.5px;
     border: 1px dashed rgba(124, 58, 237, 0.55);
@@ -347,10 +355,21 @@ function clickApproval(a: ApprovalState): void {
   letter-spacing: 0.02em;
   color: #fff;
 
-  &.role-user { background: #6b7280; }
-  &.role-assistant { background: #f6b73c; color: #3b2b12; }
-  &.role-subagent, &.role-role { background: #7c3aed; }
-  &.role-master { background: #f6b73c; color: #3b2b12; }
+  &.role-user {
+    background: #6b7280;
+  }
+  &.role-assistant {
+    background: #f6b73c;
+    color: #3b2b12;
+  }
+  &.role-subagent,
+  &.role-role {
+    background: #7c3aed;
+  }
+  &.role-master {
+    background: #f6b73c;
+    color: #3b2b12;
+  }
 }
 
 .thinking-tag {
@@ -405,7 +424,13 @@ function clickApproval(a: ApprovalState): void {
 }
 
 @keyframes approval-flash {
-  from { opacity: 0.35; transform: scale(0.9); }
-  to { opacity: 1; transform: scale(1.05); }
+  from {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1.05);
+  }
 }
 </style>

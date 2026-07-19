@@ -1,25 +1,31 @@
-import { defineStore } from "pinia";
-import { ref } from "vue";
-import { agentApi, type ChatSummary, type ChatSendAttachment, type RuntimeSelection, type SenseToolInfo, type SessionRuntimeSelection, type ContextBreakdown } from "@/services/agentApi";
-import type { PetInstance, PetMood } from "@/features/pets/types";
-import type {
-  StreamState,
-  HistoryItem,
-} from "./types";
-import { sameRuntime, defaultBounds } from "./streamAccumulator";
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
 import {
-  replaceQuestionBatches,
-  type QuestionBatchPayload,
-} from "./questionBatch";
-import { collectDescendantChatIds } from "./historyMerge";
-import { wsClient } from "@/services/ws";
+  agentApi,
+  type ChatSummary,
+  type ChatSendAttachment,
+  type RuntimeSelection,
+  type SenseToolInfo,
+  type SessionRuntimeSelection,
+  type ContextBreakdown,
+} from '@/services/agentApi'
+import type { PetInstance, PetMood } from '@/features/pets/types'
+import type { StreamState, HistoryItem } from './types'
+import { sameRuntime, defaultBounds } from './streamAccumulator'
+import { replaceQuestionBatches, type QuestionBatchPayload } from './questionBatch'
+import { collectDescendantChatIds } from './historyMerge'
+import { wsClient } from '@/services/ws'
 
 // 模块 factories
-import { createUiState } from "./uiState";
-import { createApprovalActions } from "./approvalActions";
-import { createQuestionActions } from "./questionActions";
-import { createPetLifecycle } from "./petLifecycle";
-import { createStreamRouter, ensureStream as _ensureStream, trackRequest as _trackRequest } from "./streamRouter";
+import { createUiState } from './uiState'
+import { createApprovalActions } from './approvalActions'
+import { createQuestionActions } from './questionActions'
+import { createPetLifecycle } from './petLifecycle'
+import {
+  createStreamRouter,
+  ensureStream as _ensureStream,
+  trackRequest as _trackRequest,
+} from './streamRouter'
 
 // re-export 公共契约类型（保 @/stores/agents 导入路径兼容：4 .vue + stores/index.ts 零改动）
 export type {
@@ -31,7 +37,7 @@ export type {
   QuestionDraftAnswer,
   StreamState,
   RunningTool,
-} from "./types";
+} from './types'
 
 /**
  * agents store：agent/chat 状态层单一数据源。
@@ -42,32 +48,32 @@ export type {
  *
  * routeChunk/routeNotification 由 App.vue 订阅 wsClient 回调注入。
  */
-export const useAgentsStore = defineStore("agents", () => {
+export const useAgentsStore = defineStore('agents', () => {
   // ── 核心数据状态 ──
-  const pets = ref<PetInstance[]>([]);
-  const streams = ref<Record<string, StreamState>>({});
+  const pets = ref<PetInstance[]>([])
+  const streams = ref<Record<string, StreamState>>({})
   // 完整 chat 列表缓存（initFromChats 时拉取，getHistory 用它找子 chat，避免仅依赖 pets 的 top-5 限制）
-  const allChatsCache = ref<ChatSummary[]>([]);
+  const allChatsCache = ref<ChatSummary[]>([])
   // CP8 会话列表：historyList 缓存 chat.list(includePreview) 全量会话
-  const historyList = ref<ChatSummary[]>([]);
+  const historyList = ref<ChatSummary[]>([])
   // 内置工具元信息（sense.tools，name→icon/label）+ sense 组解析（sense.list，group→senses）。
   // initFromChats 载入；供 RunningTools icon 查询 + 能力判定（pet senseGroups 含某工具，如 update_todo）。
-  const senseTools = ref<SenseToolInfo[]>([]);
-  const senseGroupsResolved = ref<{ name: string; senses: string[] }[]>([]);
+  const senseTools = ref<SenseToolInfo[]>([])
+  const senseGroupsResolved = ref<{ name: string; senses: string[] }[]>([])
 
   // requestId → chatId 映射（流式 RPC 调用前由 trackRequest 注册，chunk/notification 路由用）
-  const requestMap = new Map<string, string>();
-  let initialized = false;
+  const requestMap = new Map<string, string>()
+  let initialized = false
 
   // ── UI 状态（独立模块） ──
-  const ui = createUiState();
+  const ui = createUiState()
 
   // ── 基础函数 ──
 
   /** 读 chat 当前 runtime（首次 = createMasterPet 时的 default）。AgentDialog 初始化复选框用。
    * runtime 挂 pet（pet.runtime）；hide 移除 pet / 刷新 initFromChats 不恢复 → undefined，AgentDialog 退 default 预选。 */
   function getRuntime(chatId: string): RuntimeSelection | undefined {
-    return pets.value.find((p) => p.chatId === chatId)?.runtime;
+    return pets.value.find((p) => p.chatId === chatId)?.runtime
   }
 
   /**
@@ -80,23 +86,23 @@ export const useAgentsStore = defineStore("agents", () => {
    * - working=false 无 freezeUntil: action=walk, bubbleRepelExtra=0（立即恢复移动）
    */
   function setWorking(pet: PetInstance | undefined, working: boolean, freezeUntil?: number): void {
-    if (!pet) return;
-    pet.isWorking = working;
+    if (!pet) return
+    pet.isWorking = working
     if (working) {
-      pet.action = "chatting";
-      pet.mood = "curious";
-      pet.interactionUntil = 0;
-      pet.moodUntil = 0;
-      pet.bubbleRepelExtra = 80;
+      pet.action = 'chatting'
+      pet.mood = 'curious'
+      pet.interactionUntil = 0
+      pet.moodUntil = 0
+      pet.bubbleRepelExtra = 80
     } else if (freezeUntil && freezeUntil > Date.now()) {
       // 保留期冻结：action 保持 chatting，tickPet 在 interactionUntil 到期时切 walk
-      pet.interactionUntil = freezeUntil;
+      pet.interactionUntil = freezeUntil
       // bubbleRepelExtra 保持，tickPet 到期清零
     } else {
       // 解除：回到 walk，mood 让 tickPet 在 moodUntil 处恢复（清零立即走 restMood）
-      pet.action = "walk";
-      pet.moodUntil = 0;
-      pet.bubbleRepelExtra = 0;
+      pet.action = 'walk'
+      pet.moodUntil = 0
+      pet.bubbleRepelExtra = 0
     }
   }
 
@@ -106,48 +112,59 @@ export const useAgentsStore = defineStore("agents", () => {
    */
   function removePetsByIds(removeIds: string[]): void {
     for (const id of removeIds) {
-      const idx = pets.value.findIndex((p) => p.chatId === id);
-      if (idx >= 0) pets.value.splice(idx, 1);
-      delete streams.value[id];
+      const idx = pets.value.findIndex((p) => p.chatId === id)
+      if (idx >= 0) pets.value.splice(idx, 1)
+      delete streams.value[id]
     }
     if (ui.activeDialogChatId.value && removeIds.includes(ui.activeDialogChatId.value)) {
-      ui.activeDialogChatId.value = null;
+      ui.activeDialogChatId.value = null
     }
     // 抽屉栈：移除所有被删 chat（深层下钻中被删 chat 的层一并清理）
-    ui.pruneHistoryStack(removeIds);
+    ui.pruneHistoryStack(removeIds)
   }
 
   // ── 模块初始化（按依赖顺序） ──
 
-  const approval = createApprovalActions(streams, pets);
-  const question = createQuestionActions(streams, pets, resumeAgent);
+  const approval = createApprovalActions(streams, pets)
+  const question = createQuestionActions(streams, pets, resumeAgent)
 
   /** 后端问题快照是权威 replace；返回 true 表示快照期间已消费更新事件，需从 snapshotSeq 补放。 */
-  function applyQuestionSnapshot(chatId: string, data: unknown, advanceEventCursor = false): boolean {
-    const snapshot = data as {
-      snapshotSeq?: number;
-      pendingQuestionBatches?: QuestionBatchPayload[];
-    } | undefined;
+  function applyQuestionSnapshot(
+    chatId: string,
+    data: unknown,
+    advanceEventCursor = false,
+  ): boolean {
+    const snapshot = data as
+      | {
+          snapshotSeq?: number
+          pendingQuestionBatches?: QuestionBatchPayload[]
+        }
+      | undefined
     if (
-      typeof snapshot?.snapshotSeq !== "number" ||
+      typeof snapshot?.snapshotSeq !== 'number' ||
       !Array.isArray(snapshot.pendingQuestionBatches)
     ) {
-      return false;
+      return false
     }
-    const observedSeq = wsClient.getLastSeq(chatId);
+    const observedSeq = wsClient.getLastSeq(chatId)
     // chat.get 只包含消息+问题投影，不是完整 chat 事件快照；若已有更新事件，不用较旧快照覆盖。
-    if (!advanceEventCursor && observedSeq > snapshot.snapshotSeq) return false;
-    const stream = _ensureStream(streams, chatId);
-    replaceQuestionBatches(stream, snapshot.pendingQuestionBatches);
-    if (!advanceEventCursor) return false;
-    wsClient.resetChatSeq(chatId, snapshot.snapshotSeq);
-    return observedSeq > snapshot.snapshotSeq;
+    if (!advanceEventCursor && observedSeq > snapshot.snapshotSeq) return false
+    const stream = _ensureStream(streams, chatId)
+    replaceQuestionBatches(stream, snapshot.pendingQuestionBatches)
+    if (!advanceEventCursor) return false
+    wsClient.resetChatSeq(chatId, snapshot.snapshotSeq)
+    return observedSeq > snapshot.snapshotSeq
   }
 
   const lifecycle = createPetLifecycle(
-    pets, streams, historyList, ui.historyListOpen,
-    getRuntime, setWorking, removePetsByIds,
-  );
+    pets,
+    streams,
+    historyList,
+    ui.historyListOpen,
+    getRuntime,
+    setWorking,
+    removePetsByIds,
+  )
 
   // ── 流式 RPC 编排（sendMessage/resumeAgent 用 standalone ensureStream/trackRequest） ──
 
@@ -167,80 +184,82 @@ export const useAgentsStore = defineStore("agents", () => {
     runtime?: RuntimeSelection,
   ): Promise<void> {
     if (runtime) {
-      const pet = pets.value.find((p) => p.chatId === chatId);
-      const cur = pet?.runtime;
+      const pet = pets.value.find((p) => p.chatId === chatId)
+      const cur = pet?.runtime
       if (!cur || !sameRuntime(cur, runtime)) {
-        await agentApi.setRuntime(chatId, runtime);
+        await agentApi.setRuntime(chatId, runtime)
         if (pet) {
           pet.runtime = {
             brain: runtime.brain,
             senseGroup: runtime.senseGroup,
             mcpServers: [...(runtime.mcpServers ?? [])],
-          };
+          }
         }
       }
     }
-    const { requestId, done } = agentApi.sendMessage(chatId, text, attachments);
-    _trackRequest(requestMap, requestId, chatId);
-    const pet = pets.value.find((p) => p.chatId === chatId);
-    setWorking(pet, true);
-    const stream = _ensureStream(streams, chatId);
+    const { requestId, done } = agentApi.sendMessage(chatId, text, attachments)
+    _trackRequest(requestMap, requestId, chatId)
+    const pet = pets.value.find((p) => p.chatId === chatId)
+    setWorking(pet, true)
+    const stream = _ensureStream(streams, chatId)
     // 新一轮发送：重置实时累积。当前 pending 审批不丢失 → 移到 queue 保留（用户可从 PetIcons 重新唤起）。
     // history dirty：新轮产生新消息，缓存失效，下次 drawer 打开需 reload
-    stream.thinking = "";
-    stream.content = "";
-    stream.isWorking = true;
+    stream.thinking = ''
+    stream.content = ''
+    stream.isWorking = true
     // 清上一轮残留提问态（避免残留 activeQuestionId 抑制本轮新卡片；yield-turn 下 done 不清，故此显式重置）
-    stream.questionBatches = [];
-    stream.activeQuestionId = undefined;
+    stream.questionBatches = []
+    stream.activeQuestionId = undefined
     // 若已有活跃 run，当前请求只是入队；否则 requestId 即本轮 runId。
-    if (!stream.activeRunId) stream.activeRunId = requestId;
-    stream.historyDirty = true;
+    if (!stream.activeRunId) stream.activeRunId = requestId
+    stream.historyDirty = true
     // 即时 push user prompt 到 history（让 drawer 打开期间即时显自己发的消息）
     // msgId/agentChatId 后端 response.data.userMsgId 到达后再补；若 drawer 在此之前 reload 也不会重复（user prompt 仅一条）
-    const tempMsgId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempMsgId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     stream.history.push({
-      role: "user",
+      role: 'user',
       content: text,
       createdAt: Date.now(),
       msgId: tempMsgId,
       agentChatId: chatId,
-    });
+    })
     if (stream.approval) {
-      stream.approvalQueue.push(stream.approval);
-      stream.approval = undefined;
+      stream.approvalQueue.push(stream.approval)
+      stream.approval = undefined
     }
-    stream.retainUntil = undefined;
+    stream.retainUntil = undefined
     // P3：清旧 error（新轮起，错误状态不残留）
-    stream.error = undefined;
+    stream.error = undefined
     // P3：捕获 final Response 终态。success:false（后端 P2 修复产 failureResponse）→ stream.error。
     // done Promise 在流结束时 resolve；catch 仅网络中断（ws 断）才触发。
-    done.then((res) => {
-      const data = res.data as { runId?: string; queued?: boolean } | undefined;
-      // 正常路径已先收到 done 并清 activeRunId；仅仍在运行（queued）时更新关联。
-      if (typeof data?.runId === "string" && stream.isWorking) {
-        stream.activeRunId = data.runId;
-      }
-      // queued 请求不拥有独立事件流，收到最终 Response 后即可释放其旧 requestId 映射。
-      if (data?.queued) requestMap.delete(requestId);
-      if (!res.success) {
-        stream.error = res.error?.message ?? "系统出了点小问题";
-        console.error("[agents] sendMessage response failed:", res.error);
-        return;
-      }
-      // 后端回 userMsgId → 用真 msgId 替换临时占位符，dedup 用
-      const userMsgId = (res.data as { userMsgId?: string } | undefined)?.userMsgId;
-      if (userMsgId) {
-        const idx = stream.history.findIndex((h) => h.msgId === tempMsgId);
-        if (idx >= 0) {
-          const item = stream.history[idx];
-          if (item) stream.history[idx] = { ...item, msgId: userMsgId, agentChatId: chatId };
+    done
+      .then((res) => {
+        const data = res.data as { runId?: string; queued?: boolean } | undefined
+        // 正常路径已先收到 done 并清 activeRunId；仅仍在运行（queued）时更新关联。
+        if (typeof data?.runId === 'string' && stream.isWorking) {
+          stream.activeRunId = data.runId
         }
-      }
-    }).catch((e) => {
-      stream.error = "连接断了，请重试";
-      console.error("[agents] sendMessage done rejected:", e);
-    });
+        // queued 请求不拥有独立事件流，收到最终 Response 后即可释放其旧 requestId 映射。
+        if (data?.queued) requestMap.delete(requestId)
+        if (!res.success) {
+          stream.error = res.error?.message ?? '系统出了点小问题'
+          console.error('[agents] sendMessage response failed:', res.error)
+          return
+        }
+        // 后端回 userMsgId → 用真 msgId 替换临时占位符，dedup 用
+        const userMsgId = (res.data as { userMsgId?: string } | undefined)?.userMsgId
+        if (userMsgId) {
+          const idx = stream.history.findIndex((h) => h.msgId === tempMsgId)
+          if (idx >= 0) {
+            const item = stream.history[idx]
+            if (item) stream.history[idx] = { ...item, msgId: userMsgId, agentChatId: chatId }
+          }
+        }
+      })
+      .catch((e) => {
+        stream.error = '连接断了，请重试'
+        console.error('[agents] sendMessage done rejected:', e)
+      })
   }
 
   /**
@@ -249,74 +268,86 @@ export const useAgentsStore = defineStore("agents", () => {
    * 复用 sendMessage 的 trackRequest/setWorking/ensureStream 机制（run("") 起流）。
    */
   async function resumeAgent(chatId: string): Promise<void> {
-    const { requestId, done } = agentApi.resumeChat(chatId);
-    _trackRequest(requestMap, requestId, chatId);
-    const pet = pets.value.find((p) => p.chatId === chatId);
-    setWorking(pet, true);
-    const stream = _ensureStream(streams, chatId);
-    stream.thinking = "";
-    stream.content = "";
-    stream.isWorking = true;
+    const { requestId, done } = agentApi.resumeChat(chatId)
+    _trackRequest(requestMap, requestId, chatId)
+    const pet = pets.value.find((p) => p.chatId === chatId)
+    setWorking(pet, true)
+    const stream = _ensureStream(streams, chatId)
+    stream.thinking = ''
+    stream.content = ''
+    stream.isWorking = true
     // resume 是新一轮（问答答完后续跑 / spawn 唤醒）：清残留提问态，同 sendMessage。
-    stream.questionBatches = [];
-    stream.activeQuestionId = undefined;
-    if (!stream.activeRunId) stream.activeRunId = requestId;
+    stream.questionBatches = []
+    stream.activeQuestionId = undefined
+    if (!stream.activeRunId) stream.activeRunId = requestId
     // resume 同 sendMessage：标 dirty 让下次 drawer 打开 reload（resume 可能产生新 assistant 回复）
-    stream.historyDirty = true;
+    stream.historyDirty = true
     // resume 同 sendMessage：当前审批不丢失 → 移到 queue 保留
     if (stream.approval) {
-      stream.approvalQueue.push(stream.approval);
-      stream.approval = undefined;
+      stream.approvalQueue.push(stream.approval)
+      stream.approval = undefined
     }
-    stream.retainUntil = undefined;
+    stream.retainUntil = undefined
     // P3：清旧 error + 捕获 resume 终态（与 sendMessage 同步）
-    stream.error = undefined;
-    done.then((res) => {
-      const data = res.data as { runId?: string; alreadyRunning?: boolean } | undefined;
-      if (typeof data?.runId === "string" && stream.isWorking) stream.activeRunId = data.runId;
-      if (data?.alreadyRunning) requestMap.delete(requestId);
-      if (!res.success) {
-        stream.error = res.error?.message ?? "系统出了点小问题";
-        console.error("[agents] resumeChat response failed:", res.error);
-      }
-    }).catch((e) => {
-      stream.error = "连接断了，请重试";
-      console.error("[agents] resumeChat done rejected:", e);
-    });
+    stream.error = undefined
+    done
+      .then((res) => {
+        const data = res.data as { runId?: string; alreadyRunning?: boolean } | undefined
+        if (typeof data?.runId === 'string' && stream.isWorking) stream.activeRunId = data.runId
+        if (data?.alreadyRunning) requestMap.delete(requestId)
+        if (!res.success) {
+          stream.error = res.error?.message ?? '系统出了点小问题'
+          console.error('[agents] resumeChat response failed:', res.error)
+        }
+      })
+      .catch((e) => {
+        stream.error = '连接断了，请重试'
+        console.error('[agents] resumeChat done rejected:', e)
+      })
   }
 
   /** Starts a persisted spawn task. Replayed role_created events are safe: the server claims once. */
   async function startSpawn(taskId: string, chatId: string): Promise<void> {
-    const { requestId, done } = agentApi.startSpawn(taskId);
-    _trackRequest(requestMap, requestId, chatId);
-    const pet = pets.value.find((p) => p.chatId === chatId);
-    setWorking(pet, true);
-    const stream = _ensureStream(streams, chatId);
-    stream.thinking = "";
-    stream.content = "";
-    stream.isWorking = true;
-    if (!stream.activeRunId) stream.activeRunId = requestId;
-    stream.historyDirty = true;
-    stream.error = undefined;
-    done.then((res) => {
-      const data = res.data as { runId?: string; alreadyFinished?: boolean; alreadyRunning?: boolean } | undefined;
-      if (typeof data?.runId === "string" && stream.isWorking) stream.activeRunId = data.runId;
-      if (data?.alreadyFinished) {
-        stream.isWorking = false;
-        stream.activeRunId = undefined;
-        setWorking(pet, false);
-      }
-      if (data?.alreadyFinished || data?.alreadyRunning) requestMap.delete(requestId);
-      if (!res.success) stream.error = res.error?.message ?? "未知错误";
-    }).catch((e) => {
-      stream.error = "连接断了，请重试";
-    });
+    const { requestId, done } = agentApi.startSpawn(taskId)
+    _trackRequest(requestMap, requestId, chatId)
+    const pet = pets.value.find((p) => p.chatId === chatId)
+    setWorking(pet, true)
+    const stream = _ensureStream(streams, chatId)
+    stream.thinking = ''
+    stream.content = ''
+    stream.isWorking = true
+    if (!stream.activeRunId) stream.activeRunId = requestId
+    stream.historyDirty = true
+    stream.error = undefined
+    done
+      .then((res) => {
+        const data = res.data as
+          { runId?: string; alreadyFinished?: boolean; alreadyRunning?: boolean } | undefined
+        if (typeof data?.runId === 'string' && stream.isWorking) stream.activeRunId = data.runId
+        if (data?.alreadyFinished) {
+          stream.isWorking = false
+          stream.activeRunId = undefined
+          setWorking(pet, false)
+        }
+        if (data?.alreadyFinished || data?.alreadyRunning) requestMap.delete(requestId)
+        if (!res.success) stream.error = res.error?.message ?? '未知错误'
+      })
+      .catch((e) => {
+        stream.error = '连接断了，请重试'
+      })
   }
 
   const router = createStreamRouter(
-    streams, pets, requestMap, setWorking, approval.dismissApproval,
-    startSpawn, resumeAgent, lifecycle.pickGhostFace, allChatsCache,
-  );
+    streams,
+    pets,
+    requestMap,
+    setWorking,
+    approval.dismissApproval,
+    startSpawn,
+    resumeAgent,
+    lifecycle.pickGhostFace,
+    allChatsCache,
+  )
 
   // ── 剩余编排函数 ──
 
@@ -329,14 +360,14 @@ export const useAgentsStore = defineStore("agents", () => {
     const [tools, groups] = await Promise.all([
       agentApi.listSenseTools(),
       agentApi.listSenseGroups(),
-    ]);
-    senseTools.value = tools;
-    senseGroupsResolved.value = groups;
+    ])
+    senseTools.value = tools
+    senseGroupsResolved.value = groups
   }
 
   /** 工具名→icon（senseTools 缓存）；未命中 fallback ⚙。RunningTools 渲染用。 */
   function iconForTool(name: string): string {
-    return senseTools.value.find((t) => t.name === name)?.icon ?? "⚙";
+    return senseTools.value.find((t) => t.name === name)?.icon ?? '⚙'
   }
 
   /**
@@ -344,54 +375,54 @@ export const useAgentsStore = defineStore("agents", () => {
    * 组未解析到（loadSenseMeta 未完成/失败）→ false（降级，不显侧栏）。
    */
   function senseGroupsHasSense(senseGroup: string | undefined, senseName: string): boolean {
-    if (!senseGroup) return false;
-    const senses = senseGroupsResolved.value.find((r) => r.name === senseGroup)?.senses;
-    return !!senses?.includes(senseName);
+    if (!senseGroup) return false
+    const senses = senseGroupsResolved.value.find((r) => r.name === senseGroup)?.senses
+    return !!senses?.includes(senseName)
   }
 
   /** 连接成功后拉 chat.list → 重建 pet 树。幂等（initialized 守卫），失败可重试。 */
   async function initFromChats(): Promise<void> {
-    if (initialized) return;
+    if (initialized) return
     // listChats 失败 → initialized 不置位，下次 status=connected 时可重试
-    const chats = await agentApi.listChats();
-    initialized = true;
+    const chats = await agentApi.listChats()
+    initialized = true
 
     // 载入工具元信息 + 组解析（icon 查询 + 能力判定用）；失败不阻塞（容错降级）
-    loadSenseMeta().catch((e) => console.warn("[agents] loadSenseMeta 失败:", e));
+    loadSenseMeta().catch((e) => console.warn('[agents] loadSenseMeta 失败:', e))
 
     // 缓存完整 chat 列表（getHistory 用它找子 chat，避免仅依赖 pets 的 top-5 限制）
-    allChatsCache.value = chats;
-    console.log("[agents] initFromChats: allChatsCache 已初始化", {
+    allChatsCache.value = chats
+    console.log('[agents] initFromChats: allChatsCache 已初始化', {
       totalChats: chats.length,
-      mainChats: chats.filter(c => !c.parentChatId).length,
-      childChats: chats.filter(c => c.parentChatId).length,
-    });
+      mainChats: chats.filter((c) => !c.parentChatId).length,
+      childChats: chats.filter((c) => c.parentChatId).length,
+    })
 
-    const bounds = defaultBounds();
-    const usedFaces = new Set<Record<PetMood, string>>();
-    const mains = chats.filter((c) => !c.parentChatId);
+    const bounds = defaultBounds()
+    const usedFaces = new Set<Record<PetMood, string>>()
+    const mains = chats.filter((c) => !c.parentChatId)
 
     // CP8：stage 默认显最近 5 个会话。sessionRecency = max(master.updatedAt, 其子 updatedAt)
     //   （子 agent done 会回传/注入主 chat → 主 updatedAt 被刷新，但子运行中窗口期取 max 更准）
     const topMasters = mains
       .map((m) => {
-        const children = chats.filter((c) => c.parentChatId === m.chatId);
-        const recency = Math.max(m.updatedAt ?? 0, ...children.map((c) => c.updatedAt ?? 0));
-        return { m, recency };
+        const children = chats.filter((c) => c.parentChatId === m.chatId)
+        const recency = Math.max(m.updatedAt ?? 0, ...children.map((c) => c.updatedAt ?? 0))
+        return { m, recency }
       })
       .sort((a, b) => b.recency - a.recency)
       .slice(0, 5)
-      .map((x) => x.m);
+      .map((x) => x.m)
 
     for (const m of topMasters) {
-      lifecycle.buildMasterAndChildren(m, chats, bounds, usedFaces);
+      lifecycle.buildMasterAndChildren(m, chats, bounds, usedFaces)
     }
 
     // 重连后重建 wait 唤醒态 + 检测主卡死（容错机制，见 docs/agent-pet.md §5.8）
-    await rebuildSpawnWaits(chats);
+    await rebuildSpawnWaits(chats)
     // F5 是新的浏览器进程，尚无 seq cursor；从持久事件/任务快照补回
     // role_created，避免仅靠 chat.list 发现子 chat 后却没有启动任务。
-    await syncChatEvents();
+    await syncChatEvents()
 
     // 初始载入 contextUsage（ContextBar 渲染用）。
     // initFromChats 仅用 chat.list（不含 contextUsage），需单独拉；done/chat.get 是后续实时路径。
@@ -401,35 +432,37 @@ export const useAgentsStore = defineStore("agents", () => {
       mains.map((m) =>
         agentApi.contextUsage(m.chatId).then(
           (res) => {
-            const pet = pets.value.find((p) => p.chatId === m.chatId);
+            const pet = pets.value.find((p) => p.chatId === m.chatId)
             if (pet) {
-              if (typeof res.contextUsage === "number") pet.contextUsage = res.contextUsage;
-              if (typeof res.contextUsed === "number") pet.contextUsed = res.contextUsed;
-              if (typeof res.contextTotal === "number") pet.contextTotal = res.contextTotal;
-              if (res.contextBreakdown) pet.contextBreakdown = res.contextBreakdown;
-              if (res.commandConfig) pet.commandConfig = res.commandConfig;
+              if (typeof res.contextUsage === 'number') pet.contextUsage = res.contextUsage
+              if (typeof res.contextUsed === 'number') pet.contextUsed = res.contextUsed
+              if (typeof res.contextTotal === 'number') pet.contextTotal = res.contextTotal
+              if (res.contextBreakdown) pet.contextBreakdown = res.contextBreakdown
+              if (res.commandConfig) pet.commandConfig = res.commandConfig
             }
           },
           (e) => console.warn(`[agents] contextUsage(${m.chatId}) 失败:`, e),
         ),
       ),
-    ).catch(() => {});
+    ).catch(() => {})
 
     // 主动预加载历史（drawer 打开零 RPC 命中缓存）：
     // top-5 master + 全部后代 chat 并行 getHistory。
     // 不阻塞初始化（fire-and-forget）；失败不报错（drawer 打开会兜底重取）。
-    const preloadTargets = new Set<string>();
+    const preloadTargets = new Set<string>()
     for (const m of topMasters) {
-      preloadTargets.add(m.chatId);
+      preloadTargets.add(m.chatId)
       // collectDescendantChatIds 含直接子 + 孙子（递归）
       for (const childId of collectDescendantChatIds(chats, m.chatId)) {
-        preloadTargets.add(childId);
+        preloadTargets.add(childId)
       }
     }
-    console.log("[agents] initFromChats: 预加载历史", { count: preloadTargets.size });
-    Promise.all([...preloadTargets].map((id) =>
-      getHistory(id).catch((e) => console.warn(`[agents] 预加载历史失败 ${id}:`, e)),
-    )).catch(() => {});
+    console.log('[agents] initFromChats: 预加载历史', { count: preloadTargets.size })
+    Promise.all(
+      [...preloadTargets].map((id) =>
+        getHistory(id).catch((e) => console.warn(`[agents] 预加载历史失败 ${id}:`, e)),
+      ),
+    ).catch(() => {})
   }
 
   /**
@@ -446,8 +479,8 @@ export const useAgentsStore = defineStore("agents", () => {
    * 由 initFromChats（F5）或 App.vue onStatus（瞬断重连）调用。
    */
   async function rebuildSpawnWaits(chats?: ChatSummary[]): Promise<void> {
-    const allChats = chats ?? (await agentApi.listChats());
-    const resumedParents = new Set<string>();
+    const allChats = chats ?? (await agentApi.listChats())
+    const resumedParents = new Set<string>()
 
     // 主 chat resumePending / canResume：由 buildMasterAndChildren 同步到 pet.canResume，
     // PetToolbar "继续"按钮让用户确认，本处不自动 resume（避免未确认即执行）。
@@ -459,26 +492,30 @@ export const useAgentsStore = defineStore("agents", () => {
           // interrupted：续跑子（完成唤主由后端链 + role_reply 驱动）
           resumeAgent(chat.chatId).catch((e) =>
             console.warn(`[agents] rebuildSpawnWaits: 续跑 wait-子失败 ${chat.chatId}`, e),
-          );
-          console.log(`[agents] rebuildSpawnWaits: 续跑 interrupted wait-子 ${chat.chatId}`);
+          )
+          console.log(`[agents] rebuildSpawnWaits: 续跑 interrupted wait-子 ${chat.chatId}`)
         } else if (!resumedParents.has(chat.parentChatId)) {
           // finished：主含未处理 role-reply → resume 主跑唤醒轮（子完成但主离线时注入的回复待消费）
           // 注：此为 wait-子完成链式唤主，非用户决策场景（用户未主动中断主）
           resumeAgent(chat.parentChatId).catch((e) =>
             console.warn(`[agents] rebuildSpawnWaits: resume 主失败 ${chat.parentChatId}`, e),
-          );
-          console.log(`[agents] rebuildSpawnWaits: resume 主 ${chat.parentChatId}（子 ${chat.chatId} 已完成）`);
+          )
+          console.log(
+            `[agents] rebuildSpawnWaits: resume 主 ${chat.parentChatId}（子 ${chat.chatId} 已完成）`,
+          )
         }
-        continue;
+        continue
       }
 
       // 主 chat 卡死检测（running=true && !finished 但前端无跟踪流）
       if (!chat.parentChatId && chat.running && !chat.finished) {
         if (ui.activeDialogChatId.value !== chat.chatId) {
-          console.warn(`[agents] rebuildSpawnWaits: 主 chat 可能卡死 ${chat.chatId}, abort`);
-          agentApi.abortAgent(chat.chatId).catch((err) =>
-            console.warn(`[agents] rebuildSpawnWaits: abort 失败 ${chat.chatId}`, err),
-          );
+          console.warn(`[agents] rebuildSpawnWaits: 主 chat 可能卡死 ${chat.chatId}, abort`)
+          agentApi
+            .abortAgent(chat.chatId)
+            .catch((err) =>
+              console.warn(`[agents] rebuildSpawnWaits: abort 失败 ${chat.chatId}`, err),
+            )
         }
       }
 
@@ -494,100 +531,102 @@ export const useAgentsStore = defineStore("agents", () => {
    * 主 chat 载入全部后代历史并按时间合流；子 chat 自身抽屉只显示本 chat 的 direct 历史。
    */
   // in-flight 去重：同一 chatId 并发请求 → 共享同一 Promise
-  const inFlightHistory = new Map<string, Promise<void>>();
+  const inFlightHistory = new Map<string, Promise<void>>()
 
   async function getHistory(chatId: string): Promise<void> {
     // 1) 缓存命中：!dirty && loaded → 零 RPC 直接 return
-    const cur = streams.value[chatId];
+    const cur = streams.value[chatId]
     if (cur && !cur.historyDirty && cur.historyLoaded) {
-      return;
+      return
     }
     // 2) 并发去重：已有同 chatId in-flight → await 同一 Promise
-    const inflight = inFlightHistory.get(chatId);
-    if (inflight) return inflight;
+    const inflight = inFlightHistory.get(chatId)
+    if (inflight) return inflight
 
-    const p = doLoadHistory(chatId);
-    inFlightHistory.set(chatId, p);
+    const p = doLoadHistory(chatId)
+    inFlightHistory.set(chatId, p)
     // 完成后清 in-flight（finally 模式，吞错误也清理）
-    p.catch(() => {}).finally(() => inFlightHistory.delete(chatId));
-    return p;
+    p.catch(() => {}).finally(() => inFlightHistory.delete(chatId))
+    return p
   }
 
   async function doLoadHistory(chatId: string): Promise<void> {
     // 先刷新 allChatsCache（确保包含最新创建的后代 agent，避免子 spawn 孙后主 cache 缺孙的信息）
     try {
-      const chats = await agentApi.listChats();
-      allChatsCache.value = chats;
+      const chats = await agentApi.listChats()
+      allChatsCache.value = chats
     } catch (e) {
-      console.warn("[agents] getHistory: 刷新 allChatsCache 失败，使用缓存", e);
+      console.warn('[agents] getHistory: 刷新 allChatsCache 失败，使用缓存', e)
     }
 
-    const { requestId, done } = agentApi.getHistory(chatId);
-    router.trackRequest(requestId, chatId);
+    const { requestId, done } = agentApi.getHistory(chatId)
+    router.trackRequest(requestId, chatId)
     // ensureStream 已就绪累积；reset history 防止重复载入累积两份
-    const stream = router.ensureStream(chatId);
-    stream.history = [];
-    stream.historyLoaded = false;
+    const stream = router.ensureStream(chatId)
+    stream.history = []
+    stream.historyLoaded = false
     // 重置实时流状态（历史回放不触发气泡）
-    stream.thinking = "";
-    stream.content = "";
-    stream.retainUntil = undefined;
-    stream.isWorking = false;
+    stream.thinking = ''
+    stream.content = ''
+    stream.retainUntil = undefined
+    stream.isWorking = false
     // 重置 pet 工作状态
-    const pet = pets.value.find((p) => p.chatId === chatId);
-    setWorking(pet, false);
+    const pet = pets.value.find((p) => p.chatId === chatId)
+    setWorking(pet, false)
     // CP7: chat.get response 携带 contextUsage；同时回填 workspace 的实时有效性，供消息弹窗标签显示。
     done
       .then((res) => {
-        const d = res.data as {
-          contextUsage?: number;
-          contextUsed?: number;
-          contextTotal?: number;
-          contextBreakdown?: ContextBreakdown;
-          commandConfig?: PetInstance["commandConfig"];
-          workspace?: string;
-          workspaceValid?: boolean;
-        } | undefined;
-        const pet = pets.value.find((p) => p.chatId === chatId);
+        const d = res.data as
+          | {
+              contextUsage?: number
+              contextUsed?: number
+              contextTotal?: number
+              contextBreakdown?: ContextBreakdown
+              commandConfig?: PetInstance['commandConfig']
+              workspace?: string
+              workspaceValid?: boolean
+            }
+          | undefined
+        const pet = pets.value.find((p) => p.chatId === chatId)
         if (pet && d) {
-          if (typeof d.contextUsage === "number") pet.contextUsage = d.contextUsage;
-          if (typeof d.contextUsed === "number") pet.contextUsed = d.contextUsed;
-          if (typeof d.contextTotal === "number") pet.contextTotal = d.contextTotal;
-          if (d.contextBreakdown) pet.contextBreakdown = d.contextBreakdown;
-          if (d.commandConfig) pet.commandConfig = d.commandConfig;
+          if (typeof d.contextUsage === 'number') pet.contextUsage = d.contextUsage
+          if (typeof d.contextUsed === 'number') pet.contextUsed = d.contextUsed
+          if (typeof d.contextTotal === 'number') pet.contextTotal = d.contextTotal
+          if (d.contextBreakdown) pet.contextBreakdown = d.contextBreakdown
+          if (d.commandConfig) pet.commandConfig = d.commandConfig
           if (d.workspace) {
-            pet.workspace = d.workspace;
-            pet.workspaceValid = d.workspaceValid;
+            pet.workspace = d.workspace
+            pet.workspaceValid = d.workspaceValid
           }
         }
       })
-      .catch((e) => console.error("[agents] getHistory response 失败:", e));
+      .catch((e) => console.error('[agents] getHistory response 失败:', e))
 
     // 主 chat 同时获取全部后代历史并合并（群聊样式）。子 chat direct 视图不混入后代。
     try {
-      const openedSummary = allChatsCache.value.find((c) => c.chatId === chatId);
-      const openedIsSubChat = !!openedSummary?.parentChatId;
+      const openedSummary = allChatsCache.value.find((c) => c.chatId === chatId)
+      const openedIsSubChat = !!openedSummary?.parentChatId
       const descendantIds = openedIsSubChat
         ? []
-        : collectDescendantChatIds(allChatsCache.value, chatId);
+        : collectDescendantChatIds(allChatsCache.value, chatId)
       const childChatSummaries = descendantIds
         .map((id) => allChatsCache.value.find((c) => c.chatId === id))
-        .filter((chat): chat is ChatSummary => !!chat);
+        .filter((chat): chat is ChatSummary => !!chat)
 
       // 并行获取所有子 chat 的历史（用子 chat 自己的 dirty 守卫，避免重复 RPC）
       const childHistoryPromises = childChatSummaries.map(async (childSummary) => {
-        const childChatId = childSummary.chatId;
+        const childChatId = childSummary.chatId
 
-        console.log("[agents] getHistory: 加载子 chat 历史", { childChatId });
+        console.log('[agents] getHistory: 加载子 chat 历史', { childChatId })
 
-        const { requestId: childRequestId, done: childDone } = agentApi.getHistory(childChatId);
-        router.trackRequest(childRequestId, childChatId);  // 注册 requestId 供 routeChunk 路由
-        const childStream = router.ensureStream(childChatId);
-        childStream.history = [];
+        const { requestId: childRequestId, done: childDone } = agentApi.getHistory(childChatId)
+        router.trackRequest(childRequestId, childChatId) // 注册 requestId 供 routeChunk 路由
+        const childStream = router.ensureStream(childChatId)
+        childStream.history = []
 
         // 等待子 chat 历史加载完成
-        const childResponse = await childDone;
-        if (childResponse.success) applyQuestionSnapshot(childChatId, childResponse.data);
+        const childResponse = await childDone
+        if (childResponse.success) applyQuestionSnapshot(childChatId, childResponse.data)
 
         // 子 chat 历史角色重映射 + 关联子 pet chatId（remapChildHistory：
         //   assistant → role（子 pet 回复）；user → master（主 pet 发给子 pet 的 prompt 注入））
@@ -596,44 +635,43 @@ export const useAgentsStore = defineStore("agents", () => {
           childStream.history,
           childChatId,
           childSummary.parentChatId ?? chatId,
-        );
-      });
+        )
+      })
 
       // 等待主 chat 和所有子 chat 历史加载完成
-      const historyResponse = await done;
-      if (historyResponse.success) applyQuestionSnapshot(chatId, historyResponse.data);
-      const childHistories = await Promise.all(childHistoryPromises);
+      const historyResponse = await done
+      if (historyResponse.success) applyQuestionSnapshot(chatId, historyResponse.data)
+      const childHistories = await Promise.all(childHistoryPromises)
 
       // 重置 historyLoaded（loaded notification 可能已设 true，但子 chat 还没合并）
-      stream.historyLoaded = false;
+      stream.historyLoaded = false
 
       // opened chat 自身为子 chat（ghost 自身抽屉）→ 自身历史也走 remapChildHistory
       // （使首条 spawn prompt 显为 master 而非 user；主 chat 自身历史保持 user/assistant）
       // multi-level：opened 是某个上层 sub 的子 → parentChatId 来自 allChatsCache，否则 fallback 当前 chatId。
-      const openedParentChatId = openedSummary?.parentChatId ?? chatId;
-      const ownHistory = openedIsSubChat ? lifecycle.remapChildHistory(stream.history, chatId, openedParentChatId) : stream.history;
+      const openedParentChatId = openedSummary?.parentChatId ?? chatId
+      const ownHistory = openedIsSubChat
+        ? lifecycle.remapChildHistory(stream.history, chatId, openedParentChatId)
+        : stream.history
 
       // 合并所有历史（主 chat + 子 chat）
-      const allHistory = [
-        ...ownHistory,
-        ...childHistories.flat(),
-      ];
+      const allHistory = [...ownHistory, ...childHistories.flat()]
 
       // 按 msgId 去重；旧历史无 msgId 时不能将所有 undefined 当成同一消息。
-      const seenMsgIds = new Set<string>();
-      const deduped: HistoryItem[] = [];
+      const seenMsgIds = new Set<string>()
+      const deduped: HistoryItem[] = []
       for (const item of allHistory) {
         if (item.msgId) {
-          if (seenMsgIds.has(item.msgId)) continue;
-          seenMsgIds.add(item.msgId);
+          if (seenMsgIds.has(item.msgId)) continue
+          seenMsgIds.add(item.msgId)
         }
-        deduped.push(item);
+        deduped.push(item)
       }
 
       // 按 createdAt 排序（实现群聊样式的时间线）
-      deduped.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
-      allHistory.length = 0;
-      allHistory.push(...deduped);
+      deduped.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+      allHistory.length = 0
+      allHistory.push(...deduped)
 
       // 通过 streams.value[chatId] 赋值（而非 stream 变量），确保 Vue 响应式系统检测到变化
       // 注意：dirty 由 loaded notification 清（routeNotification loaded 分支），此处不重置
@@ -641,11 +679,11 @@ export const useAgentsStore = defineStore("agents", () => {
         ...stream,
         history: allHistory,
         historyLoaded: true,
-      };
+      }
     } catch (e) {
-      console.error("[agents] 合并子 chat 历史失败:", e);
+      console.error('[agents] 合并子 chat 历史失败:', e)
       // 降级：只显示主 chat 历史
-      stream.historyLoaded = true;
+      stream.historyLoaded = true
     }
   }
 
@@ -654,27 +692,31 @@ export const useAgentsStore = defineStore("agents", () => {
    * 可能不推 done → 手动清工作态（pet isWorking + stream.isWorking）。
    */
   async function abort(chatId: string): Promise<void> {
-    const stream = streams.value[chatId];
-    await agentApi.abortAgent(chatId, stream?.activeRunId);
-    const pet = pets.value.find((p) => p.chatId === chatId);
-    setWorking(pet, false);
+    const stream = streams.value[chatId]
+    await agentApi.abortAgent(chatId, stream?.activeRunId)
+    const pet = pets.value.find((p) => p.chatId === chatId)
+    setWorking(pet, false)
     if (stream) {
-      stream.isWorking = false;
-      stream.activeRunId = undefined;
-      stream.retainUntil = undefined;
+      stream.isWorking = false
+      stream.activeRunId = undefined
+      stream.retainUntil = undefined
     }
   }
 
   /** 应用当前会话临时角色编制。只更新内存/服务端运行时，绝不调用持久化 runtime.set。 */
-  async function setSessionRuntime(chatId: string, selection: SessionRuntimeSelection): Promise<void> {
-    await agentApi.setSessionRuntime(chatId, selection);
-    const pet = pets.value.find((p) => p.chatId === chatId);
-    if (pet) pet.runtime = { ...selection.primary, mcpServers: [...(selection.primary.mcpServers ?? [])] };
+  async function setSessionRuntime(
+    chatId: string,
+    selection: SessionRuntimeSelection,
+  ): Promise<void> {
+    await agentApi.setSessionRuntime(chatId, selection)
+    const pet = pets.value.find((p) => p.chatId === chatId)
+    if (pet)
+      pet.runtime = { ...selection.primary, mcpServers: [...(selection.primary.mcpServers ?? [])] }
   }
 
   /** 拉取全量会话列表（includePreview=true）缓存到 historyList。CP8：会话列表打开时调。 */
   async function fetchHistoryList(): Promise<void> {
-    historyList.value = await agentApi.listChats(true);
+    historyList.value = await agentApi.listChats(true)
   }
 
   /**
@@ -685,8 +727,8 @@ export const useAgentsStore = defineStore("agents", () => {
    */
   function markAllStreamsDirty(): void {
     for (const id in streams.value) {
-      const s = streams.value[id];
-      if (s) s.historyDirty = true;
+      const s = streams.value[id]
+      if (s) s.historyDirty = true
     }
   }
 
@@ -703,57 +745,61 @@ export const useAgentsStore = defineStore("agents", () => {
    * sync 完成后清除标记并重置 stream 实时状态。
    */
   async function syncChatEvents(): Promise<void> {
-    const chats = await agentApi.listChats();
-    allChatsCache.value = chats;
+    const chats = await agentApi.listChats()
+    allChatsCache.value = chats
     // 修复：sync 开始前为非运行中的 chat 设置 isSyncing 标记
     for (const chat of chats) {
       if (!chat.running) {
-        const stream = _ensureStream(streams, chat.chatId);
-        stream.isSyncing = true;
+        const stream = _ensureStream(streams, chat.chatId)
+        stream.isSyncing = true
       }
     }
-    await Promise.all(chats.map(async (chat) => {
-      let afterSeq = wsClient.getLastSeq(chat.chatId);
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const { requestId, done } = agentApi.syncChat(chat.chatId, afterSeq);
-        _trackRequest(requestMap, requestId, chat.chatId);
-        const response = await done;
-        const data = response.data as {
-          reset?: boolean;
-          latestSeq?: number;
-          snapshotSeq?: number;
-          pendingQuestionBatches?: QuestionBatchPayload[];
-        } | undefined;
-        requestMap.delete(requestId);
-        if (!response.success) break;
+    await Promise.all(
+      chats.map(async (chat) => {
+        let afterSeq = wsClient.getLastSeq(chat.chatId)
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const { requestId, done } = agentApi.syncChat(chat.chatId, afterSeq)
+          _trackRequest(requestMap, requestId, chat.chatId)
+          const response = await done
+          const data = response.data as
+            | {
+                reset?: boolean
+                latestSeq?: number
+                snapshotSeq?: number
+                pendingQuestionBatches?: QuestionBatchPayload[]
+              }
+            | undefined
+          requestMap.delete(requestId)
+          if (!response.success) break
 
-        const needsQuestionReplay = applyQuestionSnapshot(chat.chatId, data, true);
-        if (data?.reset) {
-          const stream = _ensureStream(streams, chat.chatId);
-          stream.historyDirty = true;
-          await getHistory(chat.chatId);
-          break;
+          const needsQuestionReplay = applyQuestionSnapshot(chat.chatId, data, true)
+          if (data?.reset) {
+            const stream = _ensureStream(streams, chat.chatId)
+            stream.historyDirty = true
+            await getHistory(chat.chatId)
+            break
+          }
+          if (!needsQuestionReplay || typeof data?.snapshotSeq !== 'number') break
+          afterSeq = data.snapshotSeq
         }
-        if (!needsQuestionReplay || typeof data?.snapshotSeq !== "number") break;
-        afterSeq = data.snapshotSeq;
-      }
-      // 修复：sync 完成后清除 isSyncing 标记并重置 stream 实时状态
-      if (!chat.running) {
-        const stream = streams.value[chat.chatId];
-        if (stream) {
-          stream.isSyncing = false;
-          stream.thinking = "";
-          stream.content = "";
-          stream.isWorking = false;
-          stream.retainUntil = undefined;
-          stream.activeRunId = undefined;
-          stream.runningTools = [];
-          stream.error = undefined;
+        // 修复：sync 完成后清除 isSyncing 标记并重置 stream 实时状态
+        if (!chat.running) {
+          const stream = streams.value[chat.chatId]
+          if (stream) {
+            stream.isSyncing = false
+            stream.thinking = ''
+            stream.content = ''
+            stream.isWorking = false
+            stream.retainUntil = undefined
+            stream.activeRunId = undefined
+            stream.runningTools = []
+            stream.error = undefined
+          }
+          const pet = pets.value.find((p) => p.chatId === chat.chatId)
+          if (pet) setWorking(pet, false)
         }
-        const pet = pets.value.find((p) => p.chatId === chat.chatId);
-        if (pet) setWorking(pet, false);
-      }
-    }));
+      }),
+    )
   }
 
   return {
@@ -781,5 +827,5 @@ export const useAgentsStore = defineStore("agents", () => {
     getRuntime,
     setSessionRuntime,
     ...router,
-  };
-});
+  }
+})

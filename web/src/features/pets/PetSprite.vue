@@ -5,35 +5,35 @@
  * 所有视觉计算/样式/motion 配置下沉 usePetStyles；
  * 拖拽交互下沉 usePetDrag；气泡显隐下沉 useStreamBubble。
  */
-import PetBody from "@/features/pets/PetBody.vue";
-import PetBubbles from "@/features/pets/PetBubbles.vue";
-import PetIcons from "@/features/pets/PetIcons.vue";
-import TodoPanel from "@/features/agent/TodoPanel.vue";
-import type { StreamState } from "@/stores";
-import { usePetDrag } from "./usePetDrag";
-import { usePetStyles } from "./usePetStyles";
-import { useStreamBubble } from "./useStreamBubble";
-import type { PetInstance } from "./types";
+import PetBody from '@/features/pets/PetBody.vue'
+import PetBubbles from '@/features/pets/PetBubbles.vue'
+import PetIcons from '@/features/pets/PetIcons.vue'
+import TodoPanel from '@/features/agent/TodoPanel.vue'
+import type { StreamState } from '@/stores'
+import { usePetDrag } from './usePetDrag'
+import { usePetStyles } from './usePetStyles'
+import { useStreamBubble } from './useStreamBubble'
+import type { PetInstance } from './types'
 
 const props = defineProps<{
-  pet: PetInstance;
-  paused: boolean;
-  stream?: StreamState;
-  ghostDraggable?: boolean;
-}>();
+  pet: PetInstance
+  paused: boolean
+  stream?: StreamState
+  ghostDraggable?: boolean
+}>()
 
 const emit = defineEmits<{
-  startDrag: [pet: PetInstance, event: PointerEvent];
-  drag: [pet: PetInstance, event: PointerEvent];
-  endDrag: [pet: PetInstance, event: PointerEvent];
-  hover: [pet: PetInstance, hovering: boolean];
-  clickPet: [pet: PetInstance];
-  history: [pet: PetInstance];
-  abort: [pet: PetInstance];
-  destroy: [pet: PetInstance];
-  compact: [pet: PetInstance];
-  resume: [pet: PetInstance];
-}>();
+  startDrag: [pet: PetInstance, event: PointerEvent]
+  drag: [pet: PetInstance, event: PointerEvent]
+  endDrag: [pet: PetInstance, event: PointerEvent]
+  hover: [pet: PetInstance, hovering: boolean]
+  clickPet: [pet: PetInstance]
+  history: [pet: PetInstance]
+  abort: [pet: PetInstance]
+  destroy: [pet: PetInstance]
+  compact: [pet: PetInstance]
+  resume: [pet: PetInstance]
+}>()
 
 const {
   petHover,
@@ -45,7 +45,7 @@ const {
   onHeadRowEnter,
   onHeadRowLeave,
   onClick,
-} = usePetDrag(props, emit);
+} = usePetDrag(props, emit)
 
 const {
   isBusy,
@@ -60,18 +60,37 @@ const {
   onWorkTextScroll,
   onBubbleEnter,
   onBubbleLeave,
-} = useStreamBubble(props);
+} = useStreamBubble(props)
 
 const {
-  faceGlyph, leftHand, rightHand, nameChars,
-  sprite, face, leftHandMotion, rightHandMotion, speech,
-  style, speechStyle, approvalStyle,
-  runningTools, todoEnabled, hasTodoData, todoPanelStyle, petIconsStyle, classes,
-} = usePetStyles(() => props.pet, () => props.stream, petHover, () => props.paused);
+  faceGlyph,
+  leftHand,
+  rightHand,
+  nameChars,
+  sprite,
+  face,
+  leftHandMotion,
+  rightHandMotion,
+  speech,
+  style,
+  speechStyle,
+  approvalStyle,
+  runningTools,
+  todoEnabled,
+  hasTodoData,
+  todoPanelStyle,
+  petIconsStyle,
+  classes,
+} = usePetStyles(
+  () => props.pet,
+  () => props.stream,
+  petHover,
+  () => props.paused,
+)
 
 // workTextRef 在模板中会被自动解包为 HTMLElement | null，因此通过闭包 setter 把 DOM 节点回写给 ref
 function setWorkTextRef(el: HTMLElement | null): void {
-  workTextRef.value = el;
+  workTextRef.value = el
 }
 </script>
 
@@ -104,11 +123,7 @@ function setWorkTextRef(el: HTMLElement | null): void {
     <div v-if="todoEnabled && hasTodoData" class="todo-anchor" :style="todoPanelStyle">
       <TodoPanel :pet="pet" />
     </div>
-    <PetIcons
-      v-if="!pet.isGhost"
-      :chat-id="pet.chatId"
-      :style="petIconsStyle"
-    />
+    <PetIcons v-if="!pet.isGhost" :chat-id="pet.chatId" :style="petIconsStyle" />
     <PetBody
       :pet="pet"
       :paused="paused"

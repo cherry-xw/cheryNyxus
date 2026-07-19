@@ -1,28 +1,28 @@
-import { z } from "zod";
-import { sense, type SenseResult } from "@/core/sense";
-import { SupervisionLevel } from "@/core/config";
-import { hashGenerator } from "@/utils/hash.js";
+import { z } from 'zod'
+import { sense, type SenseResult } from '@/core/sense'
+import { SupervisionLevel } from '@/core/config'
+import { hashGenerator } from '@/utils/hash.js'
 
 /** Todo 状态枚举 */
-const TodoStatus = z.enum(["pending", "in_progress", "completed"]);
+const TodoStatus = z.enum(['pending', 'in_progress', 'completed'])
 
 /** 单个 Todo 项结构 */
 const TodoItem = z.object({
-  content: z.string().min(1, "content 不能为空"),
+  content: z.string().min(1, 'content 不能为空'),
   status: TodoStatus,
   activeForm: z.string().min(1).optional(),
-});
+})
 
 const TodoWriteSchema = z.object({
-  todos: z.array(TodoItem).describe("完整的任务列表，替换之前的列表"),
-});
+  todos: z.array(TodoItem).describe('完整的任务列表，替换之前的列表'),
+})
 
 /** 状态图标映射 */
 const STATUS_ICON = {
-  pending: " ",
-  in_progress: "→",
-  completed: "✓",
-} as const;
+  pending: ' ',
+  in_progress: '→',
+  completed: '✓',
+} as const
 
 /**
  * 格式化 todos 为可读字符串
@@ -30,18 +30,18 @@ const STATUS_ICON = {
  *        - [→] in_progress (activeForm)
  *        - [✓] completed
  */
-function formatTodos(todos: z.infer<typeof TodoWriteSchema>["todos"]): string {
+function formatTodos(todos: z.infer<typeof TodoWriteSchema>['todos']): string {
   return todos
     .map((t) => {
-      const icon = STATUS_ICON[t.status];
-      const suffix = t.activeForm ? ` (${t.activeForm})` : "";
-      return `- [${icon}] ${t.content}${suffix}`;
+      const icon = STATUS_ICON[t.status]
+      const suffix = t.activeForm ? ` (${t.activeForm})` : ''
+      return `- [${icon}] ${t.content}${suffix}`
     })
-    .join("\n");
+    .join('\n')
 }
 
 export default sense(
-  "update_todo",
+  'update_todo',
   `创建和更新任务列表，用于跟踪当前工作进度
 
 使用场景：
@@ -62,16 +62,16 @@ export default sense(
   async ({ todos }): Promise<SenseResult> => {
     if (todos.length === 0) {
       return {
-        content: "任务列表已清空",
-        hash: hashGenerator("todo", "empty"),
-      };
+        content: '任务列表已清空',
+        hash: hashGenerator('todo', 'empty'),
+      }
     }
 
-    const formatted = formatTodos(todos);
-    const hash = hashGenerator("todo", JSON.stringify(todos));
-    const content = `任务列表已更新 (${todos.length} 项):\n${formatted}`;
+    const formatted = formatTodos(todos)
+    const hash = hashGenerator('todo', JSON.stringify(todos))
+    const content = `任务列表已更新 (${todos.length} 项):\n${formatted}`
 
-    return { content, hash };
+    return { content, hash }
   },
   SupervisionLevel.auto,
-);
+)

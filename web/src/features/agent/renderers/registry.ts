@@ -19,10 +19,10 @@
  * ```
  */
 
-import type { RendererComponent } from "./types";
+import type { RendererComponent } from './types'
 
 /** 渲染器加载函数（返回 Promise<组件>） */
-type RendererLoader = () => Promise<{ default: RendererComponent }>;
+type RendererLoader = () => Promise<{ default: RendererComponent }>
 
 /**
  * 渲染器注册表：工具名 → 加载函数
@@ -30,7 +30,7 @@ type RendererLoader = () => Promise<{ default: RendererComponent }>;
  * 内置工具在模块加载时自动注册。
  * MCP/自定义工具不注册，使用通用渲染器。
  */
-const rendererRegistry = new Map<string, RendererLoader>();
+const rendererRegistry = new Map<string, RendererLoader>()
 
 /**
  * 注册内置工具的专用渲染器。
@@ -43,9 +43,9 @@ const rendererRegistry = new Map<string, RendererLoader>();
  */
 export function registerRenderer(toolName: string, loader: RendererLoader): void {
   if (rendererRegistry.has(toolName)) {
-    console.warn(`[RendererRegistry] 工具 "${toolName}" 已注册渲染器，将被覆盖`);
+    console.warn(`[RendererRegistry] 工具 "${toolName}" 已注册渲染器，将被覆盖`)
   }
-  rendererRegistry.set(toolName, loader);
+  rendererRegistry.set(toolName, loader)
 }
 
 /**
@@ -63,15 +63,15 @@ export function registerRenderer(toolName: string, loader: RendererLoader): void
  * }
  */
 export async function getRenderer(toolName: string): Promise<RendererComponent | null> {
-  const loader = rendererRegistry.get(toolName);
-  if (!loader) return null;
+  const loader = rendererRegistry.get(toolName)
+  if (!loader) return null
 
   try {
-    const mod = await loader();
-    return mod.default;
+    const mod = await loader()
+    return mod.default
   } catch (e) {
-    console.error(`[RendererRegistry] 渲染器加载失败 (${toolName})，将降级到通用渲染`, e);
-    return null; // 降级：返回 null，由分发器使用通用渲染器
+    console.error(`[RendererRegistry] 渲染器加载失败 (${toolName})，将降级到通用渲染`, e)
+    return null // 降级：返回 null，由分发器使用通用渲染器
   }
 }
 
@@ -91,7 +91,7 @@ export async function getRenderer(toolName: string): Promise<RendererComponent |
  * }
  */
 export function hasRenderer(toolName: string): boolean {
-  return rendererRegistry.has(toolName);
+  return rendererRegistry.has(toolName)
 }
 
 /**
@@ -100,5 +100,5 @@ export function hasRenderer(toolName: string): boolean {
  * @returns 已注册工具名数组
  */
 export function getRegisteredTools(): string[] {
-  return Array.from(rendererRegistry.keys());
+  return Array.from(rendererRegistry.keys())
 }

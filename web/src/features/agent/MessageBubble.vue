@@ -12,74 +12,74 @@
  * 头像来源：主 pet = masterPetName 首字符；子 pet = subPetFace（face.calm emoji）。
  *   子 pet name/face/agentType 由 HistoryDrawer 按 item.subPetChatId 从 pets 查得（缺则 fallback）。
  */
-import { computed, ref } from "vue";
-import type { HistoryItem } from "@/stores/agents";
-import { renderMarkdown } from "@/utils/markdown";
-import { formatTime } from "@/utils/formatTime";
-import { splitCommandPrompt } from "./commands";
-import { SenseCallRenderer } from "./renderers/index";
-import MessageAvatar from "./MessageAvatar.vue";
-import MediaInlineRenderer from "./dialog/media/MediaInlineRenderer.vue";
+import { computed, ref } from 'vue'
+import type { HistoryItem } from '@/stores/agents'
+import { renderMarkdown } from '@/utils/markdown'
+import { formatTime } from '@/utils/formatTime'
+import { splitCommandPrompt } from './commands'
+import { SenseCallRenderer } from './renderers/index'
+import MessageAvatar from './MessageAvatar.vue'
+import MediaInlineRenderer from './dialog/media/MediaInlineRenderer.vue'
 
 const props = defineProps<{
-  item: HistoryItem;
+  item: HistoryItem
   /** 主 pet name（= chat 绑定 pet.name；master 发言者 / assistant 单头像 / role 对方徽章 用） */
-  masterPetName?: string;
+  masterPetName?: string
   /** 子 pet name（合并式 master/role：HistoryDrawer 按 subPetChatId 查 pets 得；注入式 role 走 item.petName fallback） */
-  subPetName?: string;
+  subPetName?: string
   /** 子 pet face.calm emoji（合并式；缺则 🤖 fallback；ghost 用灵魂 emoji 兜底） */
-  subPetFace?: string;
+  subPetFace?: string
   /** 子 pet agentType（senseGroups[0]；hover 面板 type 字段用；注入式走 item.petName fallback） */
-  subPetType?: string;
+  subPetType?: string
   /** 仅 role 最后一条回复=true：显示主 pet 引用小徽章（标识"回复给主 pet"，中间回复不重复引用） */
-  showMasterBadge?: boolean;
+  showMasterBadge?: boolean
   /** 布局：group（默认，主 chat 合并视图双头像群聊）/ direct（ghost 自身抽屉 1:1：master 右·role 左 单头像）。 */
-  layout?: "group" | "direct";
+  layout?: 'group' | 'direct'
   /** caller pet face emoji（role 分支右侧徽章用，callerIsMaster=false 时显示）。ghost 用灵魂 emoji 兜底。 */
-  callerPetFace?: string;
+  callerPetFace?: string
   /** caller pet name（hover 详情面板 name 字段用：role=上层 sub pet name 优先于 sub pet name） */
-  callerPetName?: string;
+  callerPetName?: string
   /** caller 是不是 master pet（无 caller 时也默认 true，徽章走 pet-master 样式 + masterText fallback）。 */
-  callerIsMaster?: boolean;
-}>();
+  callerIsMaster?: boolean
+}>()
 
-const showThinking = ref(false);
-const roleClass = computed(() => `role-${props.item.role}`);
+const showThinking = ref(false)
+const roleClass = computed(() => `role-${props.item.role}`)
 
-const hasThinking = computed(
-  () => !!props.item.thinking && props.item.thinking.trim().length > 0,
-);
+const hasThinking = computed(() => !!props.item.thinking && props.item.thinking.trim().length > 0)
 // assistant + role（子 pet 回复也可能调 sense）渲染 senseCalls；master/user 无
 const hasSenseCalls = computed(
   () =>
-    (props.item.role === "assistant" || props.item.role === "subagent" || props.item.role === "role") &&
+    (props.item.role === 'assistant' ||
+      props.item.role === 'subagent' ||
+      props.item.role === 'role') &&
     !!props.item.senseCalls &&
     props.item.senseCalls.length > 0,
-);
+)
 
 // assistant/role/master 走 markdown（LLM 输出 / 主 pet prompt 注入）；user 纯文本
 // （user 走 {{ }} 插值已 HTML 转义，字面 #/* 不被误解释为富文本）
 const isMarkdown = computed(
   () =>
-    props.item.role === "assistant" ||
-    props.item.role === "subagent" ||
-    props.item.role === "role" ||
-    props.item.role === "master",
-);
-const renderedContent = computed(() => renderMarkdown(props.item.content ?? ""));
-const userContentSegments = computed(() => splitCommandPrompt(props.item.content ?? ""));
+    props.item.role === 'assistant' ||
+    props.item.role === 'subagent' ||
+    props.item.role === 'role' ||
+    props.item.role === 'master',
+)
+const renderedContent = computed(() => renderMarkdown(props.item.content ?? ''))
+const userContentSegments = computed(() => splitCommandPrompt(props.item.content ?? ''))
 
 // 气泡底部时间戳常显：同天 HH:MM / 跨天 MM-DD HH:MM / 跨年 YYYY-MM-DD HH:MM；缺失不渲染
-const timeText = computed(() => formatTime(props.item.createdAt));
+const timeText = computed(() => formatTime(props.item.createdAt))
 const isCompactTrigger = computed(
-  () => props.item.role === "user" && /\[\[command:\/compact\]\]/.test(props.item.content ?? ""),
-);
-const isCompactSummary = computed(() => props.item.contextCompaction === true);
+  () => props.item.role === 'user' && /\[\[command:\/compact\]\]/.test(props.item.content ?? ''),
+)
+const isCompactSummary = computed(() => props.item.contextCompaction === true)
 
 // jumpToSpawn 转发：MessageAvatar 点击头像 → 透传给 HistoryDrawer
 const emit = defineEmits<{
-  (e: "jumpToSpawn", payload: { senseCallId: string }): void;
-}>();
+  (e: 'jumpToSpawn', payload: { senseCallId: string }): void
+}>()
 </script>
 
 <template>
@@ -87,72 +87,94 @@ const emit = defineEmits<{
     <div v-if="isCompactSummary" class="context-divider" role="separator">
       <span>上下文已压缩并替换 · 释放约 {{ item.contextCompactionTokens ?? 0 }} tokens</span>
     </div>
-    <div class="msg-row" :class="[roleClass, `layout-${layout ?? 'group'}`, { 'is-child-to-master': item.mergedView === 'child-to-master', 'is-compact-trigger': isCompactTrigger, 'is-compact-summary': isCompactSummary }]">
-    <MessageAvatar
-      v-if="item.role !== 'user'"
-      :item="item"
-      :role="item.role"
-      :layout="layout ?? 'group'"
-      :master-pet-name="masterPetName"
-      :sub-pet-name="subPetName"
-      :sub-pet-face="subPetFace"
-      :sub-pet-type="subPetType"
-      :show-master-badge="showMasterBadge"
-      :caller-pet-face="callerPetFace"
-      :caller-pet-name="callerPetName"
-      :caller-is-master="callerIsMaster"
-      :can-jump-to-spawn="!!item.spawnSenseCallId"
-      :merged-child-to-master="item.mergedView === 'child-to-master'"
-      @jump-to-spawn="(p) => emit('jumpToSpawn', p)"
-    />
-    <div v-else class="avatar" :class="roleClass" aria-hidden="true">🧑</div>
-    <div class="bubble" :class="[roleClass, { 'is-compact-trigger': isCompactTrigger, 'is-compact-summary': isCompactSummary }]">
-      <div v-if="isCompactTrigger" class="compact-label">上下文压缩</div>
-      <div v-if="isCompactSummary" class="compact-label">压缩后的上下文摘要</div>
-      <div v-if="hasThinking || timeText" class="bubble-head">
-        <button
-          v-if="hasThinking"
-          type="button"
-          class="thinking-toggle"
-          :aria-expanded="showThinking"
-          @click="showThinking = !showThinking"
-        >
-          <span class="caret" :class="{ open: showThinking }">▸</span>
-          thinking
-        </button>
-        <span v-if="timeText" class="time">{{ timeText }}</span>
-      </div>
-      <pre v-if="hasThinking && showThinking" class="thinking-pre">{{ props.item.thinking }}</pre>
-      <div v-if="props.item.content" class="content">
-        <!-- eslint-disable-next-line vue/no-v-html -- markdown-it html:false 已转义，XSS 安全 -->
-        <span v-if="isMarkdown" class="md" v-html="renderedContent" />
-        <template v-else>
-          <template v-for="(segment, index) in userContentSegments" :key="`${segment.type}-${index}`">
-            <span v-if="segment.type === 'command'" class="instruction-message-token">{{ segment.value }}</span>
-            <template v-else>{{ segment.value }}</template>
+    <div
+      class="msg-row"
+      :class="[
+        roleClass,
+        `layout-${layout ?? 'group'}`,
+        {
+          'is-child-to-master': item.mergedView === 'child-to-master',
+          'is-compact-trigger': isCompactTrigger,
+          'is-compact-summary': isCompactSummary,
+        },
+      ]"
+    >
+      <MessageAvatar
+        v-if="item.role !== 'user'"
+        :item="item"
+        :role="item.role"
+        :layout="layout ?? 'group'"
+        :master-pet-name="masterPetName"
+        :sub-pet-name="subPetName"
+        :sub-pet-face="subPetFace"
+        :sub-pet-type="subPetType"
+        :show-master-badge="showMasterBadge"
+        :caller-pet-face="callerPetFace"
+        :caller-pet-name="callerPetName"
+        :caller-is-master="callerIsMaster"
+        :can-jump-to-spawn="!!item.spawnSenseCallId"
+        :merged-child-to-master="item.mergedView === 'child-to-master'"
+        @jump-to-spawn="(p) => emit('jumpToSpawn', p)"
+      />
+      <div v-else class="avatar" :class="roleClass" aria-hidden="true">🧑</div>
+      <div
+        class="bubble"
+        :class="[
+          roleClass,
+          { 'is-compact-trigger': isCompactTrigger, 'is-compact-summary': isCompactSummary },
+        ]"
+      >
+        <div v-if="isCompactTrigger" class="compact-label">上下文压缩</div>
+        <div v-if="isCompactSummary" class="compact-label">压缩后的上下文摘要</div>
+        <div v-if="hasThinking || timeText" class="bubble-head">
+          <button
+            v-if="hasThinking"
+            type="button"
+            class="thinking-toggle"
+            :aria-expanded="showThinking"
+            @click="showThinking = !showThinking"
+          >
+            <span class="caret" :class="{ open: showThinking }">▸</span>
+            thinking
+          </button>
+          <span v-if="timeText" class="time">{{ timeText }}</span>
+        </div>
+        <pre v-if="hasThinking && showThinking" class="thinking-pre">{{ props.item.thinking }}</pre>
+        <div v-if="props.item.content" class="content">
+          <!-- eslint-disable-next-line vue/no-v-html -- markdown-it html:false 已转义，XSS 安全 -->
+          <span v-if="isMarkdown" class="md" v-html="renderedContent" />
+          <template v-else>
+            <template
+              v-for="(segment, index) in userContentSegments"
+              :key="`${segment.type}-${index}`"
+            >
+              <span v-if="segment.type === 'command'" class="instruction-message-token">{{
+                segment.value
+              }}</span>
+              <template v-else>{{ segment.value }}</template>
+            </template>
           </template>
-        </template>
-        <!-- 内联媒体预览 -->
-        <MediaInlineRenderer
-          v-if="props.item.mediaAssets && props.item.mediaAssets.length > 0"
-          :assets="props.item.mediaAssets"
-        />
+          <!-- 内联媒体预览 -->
+          <MediaInlineRenderer
+            v-if="props.item.mediaAssets && props.item.mediaAssets.length > 0"
+            :assets="props.item.mediaAssets"
+          />
+        </div>
+        <div v-if="hasSenseCalls" class="sense-list">
+          <SenseCallRenderer
+            v-for="(call, idx) in props.item.senseCalls"
+            :id="call.id ? `sensecall-${call.id}` : `sensecall-idx-${idx}`"
+            :key="call.id ?? `${call.name}-${idx}`"
+            :call="call"
+          />
+        </div>
       </div>
-      <div v-if="hasSenseCalls" class="sense-list">
-        <SenseCallRenderer
-          v-for="(call, idx) in props.item.senseCalls"
-          :key="call.id ?? `${call.name}-${idx}`"
-          :call="call"
-          :id="call.id ? `sensecall-${call.id}` : `sensecall-idx-${idx}`"
-        />
-      </div>
-    </div>
     </div>
   </div>
 </template>
 
 <style scoped lang="less">
-@import "@/styles/markdown.less";
+@import '@/styles/markdown.less';
 
 @ink: #14161a;
 
@@ -178,15 +200,18 @@ const emit = defineEmits<{
   margin: 12px 0 8px;
   color: fade(@ink, 46%);
   font-size: 10px;
-  letter-spacing: .04em;
+  letter-spacing: 0.04em;
 
-  &::before, &::after {
-    content: "";
+  &::before,
+  &::after {
+    content: '';
     height: 1px;
     flex: 1;
-    background: linear-gradient(90deg, transparent, rgba(112, 86, 33, .28));
+    background: linear-gradient(90deg, transparent, rgba(112, 86, 33, 0.28));
   }
-  &::after { transform: scaleX(-1); }
+  &::after {
+    transform: scaleX(-1);
+  }
 }
 
 // .avatar 基础圆样式：MessageBubble 内仅用于 role=user 行内头像（line 98）
@@ -230,11 +255,11 @@ const emit = defineEmits<{
   }
   &.is-compact-trigger {
     background: linear-gradient(135deg, #fff6dc, #f8e9bb);
-    border-color: rgba(181, 126, 27, .42);
+    border-color: rgba(181, 126, 27, 0.42);
   }
   &.is-compact-summary {
     background: linear-gradient(135deg, #f2f8f3, #e3f0e7);
-    border-color: rgba(42, 117, 72, .28);
+    border-color: rgba(42, 117, 72, 0.28);
   }
 }
 
@@ -242,7 +267,7 @@ const emit = defineEmits<{
   align-self: flex-start;
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(75, 108, 69, .12);
+  background: rgba(75, 108, 69, 0.12);
   color: #456342;
   font-size: 9.5px;
   font-weight: 700;
@@ -288,7 +313,7 @@ const emit = defineEmits<{
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.05);
   color: fade(@ink, 66%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 9.5px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -300,7 +325,9 @@ const emit = defineEmits<{
   font-size: 11.5px;
   line-height: 1.5;
   color: fade(@ink, 88%);
-  .md { .md-content(); }
+  .md {
+    .md-content();
+  }
 }
 
 // user 纯文本：保留换行/连续空格/制表符（pre-wrap）；不走 markdown 渲染
@@ -317,7 +344,7 @@ const emit = defineEmits<{
   border-radius: 5px;
   background: linear-gradient(135deg, rgba(255, 242, 195, 0.94), rgba(246, 183, 60, 0.14));
   color: #76500e;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   font-weight: 700;
   line-height: 1.45;
@@ -337,7 +364,7 @@ const emit = defineEmits<{
   font-size: 10px;
   line-height: 1;
   color: fade(@ink, 40%);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   white-space: nowrap;
 }
 </style>

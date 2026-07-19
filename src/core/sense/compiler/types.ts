@@ -1,23 +1,22 @@
 export interface TestCase {
-  input: Record<string, unknown>;
-  output: { content: string; hash: string };
+  input: Record<string, unknown>
+  output: { content: string; hash: string }
 }
 
 export interface CompiledSenseInfo {
-  compiledPath: string;
-  sourcePath: string;
-  testCases: TestCase[];
+  compiledPath: string
+  sourcePath: string
+  testCases: TestCase[]
 }
 
 export interface SenseCompileFailure {
-  sourcePath: string;
-  fileName: string;
-  type: "syntax";
-  message: string;
+  sourcePath: string
+  fileName: string
+  type: 'syntax'
+  message: string
 }
 
 export interface SenseCompileSummary {
-  succeeded: CompiledSenseInfo[];
-  failed: SenseCompileFailure[];
+  succeeded: CompiledSenseInfo[]
+  failed: SenseCompileFailure[]
 }
-

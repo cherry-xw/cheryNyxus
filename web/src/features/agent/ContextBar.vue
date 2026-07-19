@@ -4,36 +4,36 @@
  * 分段（breakdown 给出）：每段 width = 该段 tokens / total，类别色；剩余为空 track。hover title 显各段明细。
  * 无 breakdown：退化为单段填充（<50% 绿 / 50-80% 黄 / >80% 红）。
  */
-import { computed } from "vue";
-import type { ContextBreakdown } from "@/services/agentApi";
-import { breakdownSegments, fmtTokens } from "./contextBreakdown";
+import { computed } from 'vue'
+import type { ContextBreakdown } from '@/services/agentApi'
+import { breakdownSegments, fmtTokens } from './contextBreakdown'
 
 const props = defineProps<{
-  usage: number; // 0-1（无 breakdown 时填充 + aria 用）
-  breakdown?: ContextBreakdown;
-}>();
+  usage: number // 0-1（无 breakdown 时填充 + aria 用）
+  breakdown?: ContextBreakdown
+}>()
 
 const COLORS = {
-  low: "#22c55e", // <50% 绿
-  mid: "#eab308", // 50-80% 黄
-  high: "#ef4444", // >80% 红
-} as const;
+  low: '#22c55e', // <50% 绿
+  mid: '#eab308', // 50-80% 黄
+  high: '#ef4444', // >80% 红
+} as const
 
-const clamped = computed(() => Math.min(1, Math.max(0, props.usage)));
+const clamped = computed(() => Math.min(1, Math.max(0, props.usage)))
 const legacyColor = computed(() => {
-  if (clamped.value >= 0.8) return COLORS.high;
-  if (clamped.value >= 0.5) return COLORS.mid;
-  return COLORS.low;
-});
-const segs = computed(() => breakdownSegments(props.breakdown));
+  if (clamped.value >= 0.8) return COLORS.high
+  if (clamped.value >= 0.5) return COLORS.mid
+  return COLORS.low
+})
+const segs = computed(() => breakdownSegments(props.breakdown))
 const title = computed(() => {
-  const pct = Math.round((props.breakdown?.usage ?? clamped.value) * 100);
-  if (!props.breakdown) return `context ${pct}%`;
+  const pct = Math.round((props.breakdown?.usage ?? clamped.value) * 100)
+  if (!props.breakdown) return `context ${pct}%`
   const lines = segs.value
     .filter((s) => s.tokens > 0)
-    .map((s) => `${s.label} ${fmtTokens(s.tokens)} · ${s.pct}%`);
-  return [`context ${pct}%`, ...lines].join("\n");
-});
+    .map((s) => `${s.label} ${fmtTokens(s.tokens)} · ${s.pct}%`)
+  return [`context ${pct}%`, ...lines].join('\n')
+})
 </script>
 
 <template>
