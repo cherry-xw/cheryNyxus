@@ -1,0 +1,209 @@
+# config.yaml — 主配置参考表
+
+> 模板文件：`.chery.template/config.yaml` ｜ 运行位置：`.chery/config.yaml`（gitignored）
+> 加载入口：[src/utils/config.ts](../../src/utils/config.ts) ｜ 类型：[src/utils/config.ts](../../src/utils/config.ts#L55-L132)
+> 相关文档：[../../docs/utils/config.md](../../docs/utils/config.md)（加载/校验流程）
+
+## 用途
+
+唯一对外配置入口。定义 LLM 大脑、感官监管等级、角色/预设、WebSocket 服务端口、日志、文件压缩等所有运行时参数。框架启动期由 `loadConfig()` 一次性加载为内存单例；运行期修改通过 `config.get` / `config.save` RPC（设置面板）落盘，**重启生效**。
+
+## 顶层结构
+
+| 段 | 类型 | 必填 | 说明 |
+|----|------|------|------|
+| `global` | object | ✅ | 全局运行参数（thinking / supervision / stream / 超时 / 日志 / 文件压缩） |
+| `llm` | object | ✅ | LLM 配置根（`llm.brain.<name>` 为脑实例 map，至少一个） |
+| `media` | object | ❌ | 媒体网关（图片/视频/音频生成），当前未启用，留作扩展 |
+| `sense_groups` | object | ✅（如启用感官） | 感官分组（角色通过 `senseGroup` 引用） |
+| `roles` | object | ✅（如启用角色） | 角色定义（brain + senseGroup + systemPrompt 三元组） |
+| `presets` | object | ✅ | 预设配置（启动时按 `默认` 加载；`workspace` 为绝对路径） |
+| `server` | object | ❌ | WebSocket 服务监听配置（默认 port 8182 / transport binary / host 127.0.0.1） |
+| `memory` | object | ❌ | 长期记忆参数（`max_count` / `max_chars`） |
+
+## global 字段
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| `thinking` | bool | ✅ | — | 是否启用 LLM 思考模式（全局开关；brain 级 `thinking` 覆盖） |
+| `supervision` | enum | ✅ | — | Sense 监管等级：`auto`（0，静默）/ `confirm`（1，审批）/ `manual`（2，手动）；可被感官配置或感官内置声明覆盖 |
+| `stream` | bool | ✅ | — | 是否流式返回（false 则整段返回） |
+| `sense_execute_timeout` | number (ms) | ❌ | 10000 | 单次 Sense 执行超时 |
+| `approval_timeout` | number (ms) | ❌ | 30000 | 审批等待超时（`global.approval_timeout` 也可由 RPC/感官级覆盖） |
+| `bash_log_retention_hours` | number (hours) | ❌ | 24 | bash 子进程日志保留时长 |
+| `textEditor` | string | ❌ | `notepad` | 文本编辑器命令（设置页「打开配置」按钮调用） |
+| `file_compression` | object | ❌ | 见下 | 大日志文件读取时的截断/压缩配置 |
+
+### global.file_compression 子字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `truncate_threshold` | number (bytes) | 50000 | 超过此大小的文件读取引发截断/drain 压缩 |
+| `truncate_preview_lines` | number | 100 | 截断时保留的前/后预览行数 |
+| `log_file_extensions` | string[] | `[".log", ".txt", ".out", ".err"]` | 视为日志文件的扩展名，命中走 drain 模板挖掘 |
+| `drain_preview_count` | number | 3 | drain 模式下预览文件数 |
+
+### global.logger 子字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `level` | enum | `info` | 日志等级：`debug` / `info` / `warn` / `error` |
+| `output` | string[] | `["file"]` | 输出目标：`file`（按天文件）/ `console`（stdout） |
+| `timestamp` | bool | `true` | 是否带时间戳 |
+| `location` | bool | `true` | 是否带文件:行号 |
+| `format` | enum | `plain` | 格式：`plain`（人类可读）/ `json`（结构化） |
+
+## llm.brain.<name> 字段
+
+`name` 为脑实例 key（角色通过 `roles.<role>.brain` 引用）。至少配置一个。
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| `provider` | enum | ✅ | — | Adapter 名：`openai` / `ollama` / `mock` / `bigmodel` / `anthropic`；详见 [docs/agent/provider.md](../../docs/agent/provider.md) |
+| `model` | string | ✅ | — | 模型 id（如 `gpt-4o` / `claude-sonnet-4-5` / `glm-5.2` / `mock_test`） |
+| `url` | string | ❌ | provider 默认 | base URL（**不含** path 段）；mock provider 不需要 |
+| `key` | string / `$ENV` | ❌ | — | API Key；推荐 `$ENV_VAR` 形式从环境变量注入；缺失运行期 provider 调用时抛错响应前端 |
+| `thinking` | enum | ❌ | provider 默认 | 思考强度：`off` / `on` / `low` / `medium` / `high`；可选档位受 [model-thinking.yaml](model-thinking.md) 约束 |
+| `rpm` | number | ❌ | 不限流 | 每分钟最大请求数（仅 OpenAI 兼容 provider 生效，60s 滑动窗口） |
+| `contextLimit` | number (tokens) | ❌ | provider 默认 | 模型上下文窗口；前端「剩余上下文」显示依据 |
+| `capabilities` | object | ❌ | Tool Call 开 / 媒体关 | 模型能力声明 |
+| `mock` | object | ❌ | — | mock provider 专用（`provider: mock` 时必填） |
+| `hooks` | string | ❌ | — | brain 级 hooks.json 路径（相对 `.chery/`，如 `hooks/anthropic-main.json`）；与全局 `.chery/hooks/hooks.json` 合并（全局在前，brain 级在后；brain 级覆盖全局） |
+
+### llm.brain.<name>.capabilities 子字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `input.image` | bool | 是否支持图像输入（多模态） |
+| `generate` | object | 生成能力声明（tool call 能力由 `BrainConfig` 顶层默认开；`generate` 用于未来扩展，当前为空 `{}`） |
+
+### llm.brain.<name>.mock 子字段（仅 mock provider）
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `enabled` | bool | ✅ | 是否启用 mock（false 则跳过此脑） |
+| `file` | string | ✅ | mock 响应脚本路径（相对 `.chery/`，如 `mock/read_file.yaml`） |
+
+## media 字段
+
+当前为扩展预留，类型 `MediaConfig`。完整定义尚未启用，按需扩展：
+- 图片/视频/音频网关（url / model / key / enabled）
+- `maxUploadMb`：上传上限
+
+## sense_groups.<group> 字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `sense_groups` | `Record<groupName, senseName[]>` | ✅ | `groupName` 为分组 key（角色通过 `roles.<role>.senseGroup` 引用）；`senseName[]` 为感官名列表，支持 `:level` 后缀覆盖监管等级 |
+
+**senseName 格式：** `<sense>:<level>`，`<level>` 取 `auto` / `confirm` / `manual`。优先级：感官配置覆盖 > 感官内置声明 > `global.supervision`。
+
+**内置 Sense：** `read_file` / `write_file` / `execute_command` / `search_codebase` / `spawn_role` / `update_todo` / `skill` / `install_skill` / `ask_user_question`。
+
+**示例：**
+
+```yaml
+sense_groups:
+  leader:
+    - read_file
+    - skill
+    - write_file
+    - execute_command
+    - search_codebase
+    - spawn_role
+    - ask_user_question
+  reviewer:                              # 只读组
+    - read_file
+    - search_codebase
+    - skill
+  housekeeper:                           # 管家：install_skill 独占，.chery/ 路径守卫豁免
+    - install_skill
+    - read_file
+    - search_codebase
+    - ask_user_question
+```
+
+## roles.<role> 字段
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| `brain` | string | ✅ | — | 引用 `llm.brain` 的 key；启动校验必须存在 |
+| `avatar` | string | ❌ | 角色名稳定生成 | 角色头像 Emoji；前端可在设置页切换 |
+| `senseGroup` | string | ❌ | — | 引用 `sense_groups` 的 key；无 Tool Call 能力的 brain 不得配置 |
+| `mcpServers` | string[] | ❌ | `[]` | MCP 服务器列表（占位，当前为空） |
+| `systemPrompt` | string | ✅ | — | system prompt 文件路径（相对 `.chery/`，如 `prompt/prefebMain/leader.md`）；启动校验文件必须存在 |
+| `lock` | bool | ❌ | `false` | 锁定禁止删除（保护关键角色如 `housekeeper`） |
+
+**校验（启动期）：** `brain` / `systemPrompt` 必须存在；无 Tool Call 能力的 brain 不得配置 `senseGroup` / `mcpServers`。
+
+## presets.<name> 字段
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `leader` | string | ✅ | 主角色名（必须在同预设的 `roles` 内，且存在于 `roles` 顶层） |
+| `roles` | string[] | ✅ | 该预设启用的角色列表（含 `leader`）；每个角色必须存在于 `roles` 顶层 |
+| `workspace` | string | ✅ | 工作目录绝对路径（启动校验 `fs.accessSync`，仅作 system prompt 注入，不约束 sense 行为） |
+
+**特殊预设：** `默认` 为启动时自动加载的预设（key 名硬编码）。
+
+## server 字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `port` | number | 8182 | WebSocket 监听端口 |
+| `transport` | enum | `binary` | 传输格式：`binary` / `json`（详见 [docs/protocol.md](../../docs/protocol.md)） |
+| `host` | string | `127.0.0.1` | 监听地址 |
+
+> ⚠ Web 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定。
+
+## memory 字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `max_count` | number | 15 | 单次对话注入的最大记忆条数 |
+| `max_chars` | number | 500 | 单条记忆最大字符数 |
+
+## 特殊语法
+
+### `$ENV` 占位符
+
+```yaml
+key: $API_KEY                # 整段值替换为环境变量；缺失 warn 但不阻断启动
+```
+
+- 仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`
+- 从 `.env` / 进程环境变量取值
+- 缺失会收集到 `missingEnvVars`（`Set` 去重，同一变量被多 brain 引用只 warn 一次），原样保留字符串
+- 不会替换值中嵌入的 `$VAR`
+
+**示例：**
+
+```yaml
+llm:
+  brain:
+    my-brain:
+      key: $OPENAI_API_KEY
+      url: $OPENAI_BASE_URL          # 也支持 URL 注入
+```
+
+## 校验规则摘要（`validateRawConfig`）
+
+返回错误字符串数组（空=通过）。启动期与 `saveRawConfig` 均调用：
+
+1. `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt` 文件必须存在
+2. `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`
+3. `presets.*.workspace` 必须是已存在的目录绝对路径
+4. `global.supervision` 必须是 `auto|confirm|manual`
+5. `sense_groups.*[]` 的 `:level` 后缀必须合法
+6. `llm.brain.*` 的 `model` / `provider` 必填
+7. `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合
+8. **key 不参与启动校验**：缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错
+
+## 关联
+
+- 模板加载：[src/utils/config.ts](../../src/utils/config.ts) `loadConfig()`
+- 类型定义：[src/utils/config.ts](../../src/utils/config.ts#L55-L132)
+- 校验逻辑：[src/utils/config.ts](../../src/utils/config.ts) `validateRawConfig()`
+- RPC：`config.get` / `config.save` / `config.workspace.validate`（设置面板读写）
+- 同步规则：`.chery/config.yaml` 改动必须先在 [`.chery.template/config.yaml`](../config.yaml) 同步（运行时目录 gitignored）
+- AI 修改入口：见 [`./README.md`](./README.md)「AI 自动修改配置」章节
