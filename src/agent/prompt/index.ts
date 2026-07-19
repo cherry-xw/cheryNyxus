@@ -40,7 +40,7 @@ export interface SkillsSegmentTokens {
 export interface SystemPromptSegments {
   /** 系统提示词：全局 base + <environment> + <workspace>（**不含** override）。 */
   system: string
-  /** 用户系统提示词：override 补充（合并语义，给出时非空，可与 system 并存）。 */
+  /** 用户系统提示词：per-agent systemPromptFile 补充（合并语义，给出时非空，可与 system 并存）。 */
   userSystem: string
   /** 记忆：<memory global> + <memory workspace>，count = 记忆条数。 */
   memory: PromptSegmentText
@@ -65,23 +65,22 @@ interface PromptPieces {
 
 /**
  * 组装系统提示词各组成片段（buildFirstSystemPrompt 与分段计量共用，单一数据源）。
- * override 合并语义：给出则作补充拼接到全局 base 之后（**非**替换）；文件缺失 warn + 留空（仅全局 base）。
+ * 合并语义：给出则作补充拼接到全局 base 之后（**非**替换）；文件缺失 warn + 留空（仅全局 base）。
+ * @param systemPromptFile per-agent system prompt 文件绝对路径（可选；缺省 → 仅全局 base）
  * @param skillFilter per-role 技能组/插件组过滤（undefined = 全部 skill，向后兼容）；仅作用于 <skills> 块注入。
  */
 function buildPromptPieces(
-  promptPathOverride?: string,
+  systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
 ): PromptPieces {
-  // override 路径实时读（每子 agent 可不同文件）；缺失容错仅用全局 base（配置期 validateRawConfig 已校验存在）
+  // systemPromptFile 路径实时读（每子 agent 可不同文件）；缺失容错仅用全局 base（配置期 validateRawConfig 已校验存在）
   let userSystem = ''
-  if (promptPathOverride) {
-    if (existsSync(promptPathOverride)) {
-      userSystem = readFileSync(promptPathOverride, 'utf-8').trim()
+  if (systemPromptFile) {
+    if (existsSync(systemPromptFile)) {
+      userSystem = readFileSync(systemPromptFile, 'utf-8').trim()
     } else {
-      console.warn(
-        `[prompt] systemPrompt override 文件不存在，仅用全局 base: ${promptPathOverride}`,
-      )
+      console.warn(`[prompt] systemPrompt 文件不存在，仅用全局 base: ${systemPromptFile}`)
     }
   }
 
@@ -166,11 +165,11 @@ function buildPromptPieces(
  * userSystem 段为 override 补充；二者 token 之和 = 实际 <system-reminder> 内 body（合并）。
  */
 export function buildSystemPromptSegments(
-  promptPathOverride?: string,
+  systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
 ): SystemPromptSegments {
-  const p = buildPromptPieces(promptPathOverride, workspace, skillFilter)
+  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter)
   return {
     system: `<system-reminder>\n${p.globalBase}\n</system-reminder>\n\n${p.envBlock}${p.workspaceSection}`,
     userSystem: p.userSystem,
@@ -184,19 +183,20 @@ export function buildSystemPromptSegments(
 }
 
 /**
- * 构建首条 system prompt（全局 base + override **合并**）。
- * @param promptPathOverride 可选，per-subagent / 预设 main 的专属 system prompt 文件绝对路径；
- *   给出则作**补充**合并到全局 base 之后（合并非替换，支持每子 agent 不同 prompt 文件）；
+ * 构建首条 system prompt（全局 base + per-agent systemPromptFile **合并**）。
+ * @param systemPromptFile 可选，每 chat agent 专属 system prompt 文件绝对路径
+ *   （主 agent 来自 preset.leader.systemPrompt，子 agent 来自 config.roles[type].systemPrompt）；
+ *   给出则作**补充**合并到全局 base 之后（合并非替换，支持每 agent 不同 prompt 文件）；
  *   文件缺失 warn + 仅用全局 base（配置期 validateRawConfig 已 existsSync 校验）。缺省 → 仅全局 base。
  * @param workspace 可选，预设级项目工作目录（注入 <workspace> 段）。
  * @param skillFilter 可选，per-role 技能组/插件组过滤（仅 <skills> 块；undefined = 全部）。
  */
 export default function buildFirstSystemPrompt(
-  promptPathOverride?: string,
+  systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
 ): string {
-  const p = buildPromptPieces(promptPathOverride, workspace, skillFilter)
+  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter)
   // 合并：全局 base 在前为基础，override 在后为补充
   const body = p.userSystem ? `${p.globalBase}\n\n${p.userSystem}` : p.globalBase
   return `<system-reminder>

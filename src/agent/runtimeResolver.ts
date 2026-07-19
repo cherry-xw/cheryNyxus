@@ -45,13 +45,13 @@ export function parseRuntimeSelection(
 
 /**
  * 解析预设主 agent 编制：取 leader 角色的 RoleConfig（config.roles[leader]）作 brain+senseGroup+mcpServers
- * 的 RuntimeSelection 快照，并返回该角色的 systemPrompt 作 promptPathOverride。
+ * 的 RuntimeSelection 快照，并返回该角色的 systemPrompt 作 systemPromptFile。
  * 复用 parseRuntimeSelection（校验 brain/senseGroup 非空 + mcpServers 数组化）。
  * chat.create 选预设时调用；运行编制快照入 metadata.runtime，运行后不可改。
  */
 export function resolvePresetSelection(presetName: string): {
   selection: RuntimeSelection
-  promptPathOverride?: string
+  systemPromptFile?: string
   /** 该预设选中的角色 type 列表（chat.create 快照入 metadata.spawnTypes，spawn roster gate 用） */
   spawnTypes: string[]
   /** 该预设的项目工作目录（chat.create 快照入 metadata.workspace，buildFirstSystemPrompt 注入提示词） */
@@ -83,7 +83,7 @@ export function resolvePresetSelection(presetName: string): {
       : undefined
   return {
     selection,
-    promptPathOverride: leader.systemPrompt,
+    systemPromptFile: leader.systemPrompt,
     spawnTypes: preset.roles ?? [],
     workspace: preset.workspace,
     skillFilter,

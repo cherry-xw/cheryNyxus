@@ -100,13 +100,13 @@ system-reminder body = globalBase + "\n\n" + userSystem
 config.roles.<type>.systemPrompt
   → 主 agent：resolvePresetSelection() 读取 preset.leader 对应角色
   → 子 agent：spawn 时读取目标 role
-  → chat metadata.promptPathOverride 快照
+  → chat metadata.systemPromptFile 快照
   → ensureChat() 读取 metadata
-  → AgentBuilder.init(..., promptPathOverride)
-  → buildFirstSystemPrompt() 实时读取 override 文件
+  → AgentBuilder.init(..., systemPromptFile)
+  → buildFirstSystemPrompt() 实时读取 systemPromptFile 内容并与全局 base 合并
 ```
 
-`systemPrompt` 配置值相对 `.chery/`，可放在任意子目录，例如 `prompt/<group>/leader.md`。主 agent 与不同类型子 agent 可以使用不同 override。
+`systemPrompt` 配置值相对 `.chery/`，可放在任意子目录，例如 `prompt/<group>/leader.md`。主 agent 与不同类型子 agent 可以使用不同 systemPromptFile。
 
 ### 3. Environment
 
@@ -250,7 +250,7 @@ Skill token 与 Command token 的处理不同：
 chat.create / spawn_role
   → 解析 preset 或 role
        ├─ runtime selection：brain + senseGroup + mcpServers
-       ├─ promptPathOverride
+       ├─ systemPromptFile
        ├─ workspace
        └─ skillFilter
   → 上述值快照到 chat metadata
@@ -264,9 +264,9 @@ ensureChat(chatId)
   ├─ loadHistory()
   │    └─ 必要时恢复压缩摘要 system message
   └─ AgentBuilder.init()
-       └─ buildFirstSystemPrompt(promptPathOverride, workspace, skillFilter)
+       └─ buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter)
             ├─ global base
-            ├─ override
+            ├─ 角色 systemPromptFile 补充
             ├─ environment
             ├─ workspace + VCS
             ├─ global/workspace memory
@@ -324,9 +324,9 @@ chat.send
 
 按以下顺序检查，避免只看 `.chery/prompt/system.md`：
 
-1. 查 chat metadata 中的 `promptPathOverride`、`workspace`、`skillFilter` 和 `runtime`。
+1. 查 chat metadata 中的 `systemPromptFile`、`workspace`、`skillFilter` 和 `runtime`。
 2. 查全局 `.chery/prompt/system.md`。
-3. 查 override 对应文件。
+3. 查 systemPromptFile 对应文件。
 4. 查 global/workspace memory 的 `main.md` 是否存在且有内容。
 5. 用相同 `skillFilter` 查看当前可发现 Skill。
 6. 查 runtime 的 sense group、MCP servers 和是否为主 agent，确认 `tools`。

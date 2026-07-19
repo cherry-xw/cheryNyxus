@@ -1,7 +1,7 @@
 /**
  * 上下文用量 6 段分解（computeContextBreakdown）。
  *
- * recompute-at-compute：compute 时刻从 chat metadata（promptPathOverride/workspace）+
+ * recompute-at-compute：compute 时刻从 chat metadata（systemPromptFile/workspace）+
  * runtime selection 重建各段文本与 senseTable 后逐段 estimateTokens（字符数/4）。
  * 不持久化 breakdown——系统消息不入库，memory 按设计仅 init 一次性注入，recompute 偏差可忽略。
  *
@@ -15,7 +15,7 @@ import { buildSystemPromptSegments } from '@/agent/prompt/index.js'
 import {
   getChat,
   getChatRuntimeSelection,
-  getChatPromptOverride,
+  getChatSystemPromptFile,
   getChatWorkspace,
   getChatSkillFilter,
 } from '@/db/chat.js'
@@ -53,7 +53,7 @@ function zeroBreakdown(): ContextBreakdown {
 /**
  * 计算 chat 上下文用量的 6 段分解（比例 usage + total + 各段 tokens/count）。
  *
- * - 段 1-4（系统/用户系统/记忆/技能）：buildSystemPromptSegments(promptPathOverride, workspace) 重建后逐段估算。
+ * - 段 1-4（系统/用户系统/记忆/技能）：buildSystemPromptSegments(systemPromptFile, workspace) 重建后逐段估算。
  * - 段 5（工具定义）：RuntimeResolver.resolve(selection) 重建 senseTable，Σ estimateTokens(JSON.stringify(sense))；
  *   injectMemoryManage 据是否子 agent（parent_chat_id）决定，与 init 期一致。
  * - 段 6（用户对话）：DB 行 role∈user/assistant/role/subagent/sense（含感官调用结果）。
@@ -63,12 +63,12 @@ function zeroBreakdown(): ContextBreakdown {
  */
 export function computeContextBreakdown(chatId: string): ContextBreakdown {
   try {
-    const promptPathOverride = getChatPromptOverride(chatId)
+    const systemPromptFile = getChatSystemPromptFile(chatId)
     const workspace = getChatWorkspace(chatId)
     const skillFilter = getChatSkillFilter(chatId)
 
     // 段 1-4：提示词分段（系统消息不入库，需重建）
-    const promptSegs = buildSystemPromptSegments(promptPathOverride, workspace, skillFilter)
+    const promptSegs = buildSystemPromptSegments(systemPromptFile, workspace, skillFilter)
     const system = seg(estimateTokens(promptSegs.system))
     const userSystem = seg(estimateTokens(promptSegs.userSystem))
     const memory = seg(estimateTokens(promptSegs.memory.text), promptSegs.memory.count)

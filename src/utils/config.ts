@@ -450,7 +450,7 @@ function loadConfig(): Config {
   }
 
   // roles.*.systemPrompt 相对路径 → 绝对（相对 .chery 目录）。
-  // spawn sense 存 metadata.promptPathOverride（绝对），buildFirstSystemPrompt 实时读取；
+  // spawn sense 存 metadata.systemPromptFile（绝对），buildFirstSystemPrompt 实时读取；
   // 预设 leader 编制取 config.roles[leader]，其 systemPrompt 在此统一解析，预设无需再单独补全。
   if (config.roles) {
     const roleCheryDir = process.env.CHERY_DIR || process.cwd()

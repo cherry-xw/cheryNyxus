@@ -20,21 +20,21 @@
 
 ```ts
 export default function buildFirstSystemPrompt(
-  promptPathOverride?: string,
+  systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
 ): string;
 ```
 
 - 全局 base：模块加载期读取固定路径 `config.global.prompts_dir + "/system.md"`（即 `CHERY_DIR/.chery/prompt/system.md`，统一目录源；不再走 `config.global.system_prompt` 配置字段）。
-- `promptPathOverride` 给出（per-subagent / 预设 main）→ 实时 `readFileSync` 该路径作为**补充**拼接到全局 base 之后（**合并**而非替换；**不**走模块缓存，支持每子 agent 不同 prompt 文件）；文件缺失则 warn 并仅用全局 base（运行期容错，配置期 `validateRawConfig` 已 existsSync 校验）。
+- `systemPromptFile` 给出（每 chat agent 专属；主 agent 来自 `config.roles[preset.leader].systemPrompt`，子 agent 来自 `config.roles[type].systemPrompt`）→ 实时 `readFileSync` 该路径作为**补充**拼接到全局 base 之后（**合并**而非替换；**不**走模块缓存，支持每 agent 不同 prompt 文件）；文件缺失则 warn 并仅用全局 base（运行期容错，配置期 `validateRawConfig` 已 existsSync 校验）。
 - `workspace` 给出（预设 `presets.<name>.workspace`）→ 在 `<environment>` 后注入 `<workspace>` 段（提示词层面声明本会话的项目工作目录，**不**改变 sense 实际行为）；缺省 → 不注入该段。
 
 输出结构（XML 标签包裹；`<workspace>` 仅 `workspace` 给出时出现）：
 
 ```text
 <system-reminder>
-{全局 base（.chery/prompt/system.md）+ override 补充（promptPathOverride 给出时，合并拼接于 base 之后）}
+{全局 base（.chery/prompt/system.md）+ 角色 systemPromptFile 补充（给出时，合并拼接于 base 之后）}
 </system-reminder>
 
 <environment>
@@ -61,23 +61,23 @@ export default function buildFirstSystemPrompt(
 
 **skills 段：** 调用 [getSkillMetas(skillFilter)](../../src/agent/prompt/loadSkill.ts)，扫描 `.chery/skills/`（独立）+ `.chery/plugins/*/`（插件）下所有 SKILL.md，每个 skill 仅含 `name`/`description`/`trigger`（**不含 content**）——完整指令按需由 [skill 感官](../../src/agent/sense/skill.ts) 加载，避免 system prompt 膨胀。trigger 缺省则省略「触发条件」行。插件 skill 的 `name` 为 `<plugin>__<skill>`。`skillFilter` 给出时仅保留通过 `matchSkillFilter` 的子集（per-role 裁剪，详见下文「Plugins」段）。
 
-- 调用时机：[AgentBuilder.init()](../../src/agent/builder.ts) `init(chatId, messages?, promptPathOverride?, workspace?, skillFilter?)`——构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill（向后兼容）。
+- 调用时机：[AgentBuilder.init()](../../src/agent/builder.ts) `init(chatId, messages?, systemPromptFile?, workspace?, skillFilter?)`——构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill（向后兼容）。
 
 ### 重启 persona 修复 + per-subagent system prompt
 
-**persona 丢失 bug（已修复）**：`observer` 不持久化 system 消息（[service/chat/observer.md](../service/chat.md)），重启后 `loadHistory` 返回的 messages 不含 system → 原 `init`「有历史就不加 system」逻辑致主/子 agent 丢 persona。修复：`init` 统一保证内存 messages 首条为 system——历史存在但首条非 system（重启场景）则 `prepend createInitialMessages(promptPathOverride)`，首条已是 system 则原样用，无历史则 `[systemMsg]`。
+**persona 丢失 bug（已修复）**：`observer` 不持久化 system 消息（[service/chat/observer.md](../service/chat.md)），重启后 `loadHistory` 返回的 messages 不含 system → 原 `init`「有历史就不加 system」逻辑致主/子 agent 丢 persona。修复：`init` 统一保证内存 messages 首条为 system——历史存在但首条非 system（重启场景）则 `prepend createInitialMessages(systemPromptFile)`，首条已是 system 则原样用，无历史则 `[systemMsg]`。
 
 **per-agent system prompt（T7，主/子通用，T6 扩展至预设）**：主/子 agent 均可配专属 system prompt，数据流：
 ```text
 来源：config.roles[type].systemPrompt（角色）或 config.presets[preset].leader.systemPrompt（预设主 agent）
   （文件路径，相对 .chery；作为补充合并到全局 base 之后）
-  → 写入 chat metadata.promptPathOverride
+  → 写入 chat metadata.systemPromptFile
     （spawn createChat 写子 agent / chat.create 写预设主 agent）
-  → ensureChat 读 getChatPromptOverride(chatId)
-  → builder.init(chatId, history, promptPathOverride)
-  → buildFirstSystemPrompt(promptPathOverride) 合并「全局 base + override 补充」→ 首条 system
+  → ensureChat 读 getChatSystemPromptFile(chatId)
+  → builder.init(chatId, history, systemPromptFile)
+  → buildFirstSystemPrompt(systemPromptFile) 合并「全局 base + 角色补充」→ 首条 system
 ```
-无 `promptPathOverride`（metadata 无此字段：非预设主 agent / 旧 chat）→ 仅全局 base（`.chery/prompt/system.md`）。字段名从 `subagentPromptPath` 改为 `promptPathOverride`（T6：主 agent 经预设亦用此机制，名需主/子通用）。
+无 `systemPromptFile`（metadata 无此字段：非预设主 agent / 旧 chat）→ 仅全局 base（`.chery/prompt/system.md`）。字段名演进：subagentPromptPath（T6 之前）→ promptPathOverride（T6 通用化）→ systemPromptFile（语义修正：合并补充而非替换）。
 
 **per-preset workspace（项目工作目录，提示词层注入）**：预设可配 `workspace` 字段声明该预设创建的会话专属某个项目，数据流：
 ```text
@@ -85,8 +85,8 @@ export default function buildFirstSystemPrompt(
   → 写入 chat metadata.workspace
     （chat.create 写预设主 agent / spawn createChat 继承主 chat workspace 写子 agent）
   → ensureChat 读 getChatWorkspace(chatId)
-  → builder.init(chatId, history, promptPathOverride, workspace)
-  → buildFirstSystemPrompt(promptPathOverride, workspace) → 注入 <workspace> 段
+  → builder.init(chatId, history, systemPromptFile, workspace)
+  → buildFirstSystemPrompt(systemPromptFile, workspace) → 注入 <workspace> 段
 ```
 **仅提示词层声明**：workspace 只在 system prompt 注入一段说明，**不**改变 bash/read_file/write_file 等感官的实际行为（无 cwd 收束、无路径沙箱）。无 `workspace`（非预设 chat / 预设未配 / 旧 chat）→ 不注入该段，行为同系统全局。
 
@@ -230,12 +230,12 @@ export interface SkillsSegmentTokens {
   promptTokens: number;
 }
 export function buildSystemPromptSegments(
-  promptPathOverride?: string,
+  systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
 ): {
   system: string;      // 全局 base + <environment> + <workspace>
-  userSystem: string;  // override 补充（promptPathOverride 给出时；合并语义，可与 system 并存）
+  userSystem: string;  // systemPromptFile 补充（合并语义，可与 system 并存）
   memory: PromptSegmentText;   // <memory global>+<workspace>，count = 记忆条数
   skills: PromptSegmentText & SkillsSegmentTokens;   // <skills> 元数据 + 预聚合 token（computeSkillTokens 累加；skillFilter 给出时仅含通过过滤的子集）
 };
@@ -246,7 +246,7 @@ export function buildSystemPromptSegments(
 | 段 | 来源 | token 计算 | count |
 |----|------|------------|-------|
 | 系统提示词 | 全局 base + `<environment>` + `<workspace>` | estimateTokens(text) | — |
-| 用户系统提示词 | override 补充（合并语义，可与系统提示词并存） | estimateTokens(text) | — |
+| 用户系统提示词 | systemPromptFile 补充（合并语义，可与系统提示词并存） | estimateTokens(text) | — |
 | 记忆 | `<memory global>` + `<memory workspace>` | estimateTokens(text) | 记忆条数 |
 | 技能 | `<skills>` 元数据 | `Σ triggerTokens`（loadSkill 预计算，单一来源） | skill 数 |
 | 工具定义 | runtime senseTable 各 sense `definition` schema | Σ estimateTokens(JSON.stringify(sense)) | tool 数 |
@@ -254,21 +254,21 @@ export function buildSystemPromptSegments(
 
 **skills 段 token 来源（单一来源原则）：** `computeSkillTokens` 在 [loadSkill.ts](../../src/agent/prompt/loadSkill.ts) 一次性算好 `nameDescTokens`/`triggerTokens`/`contentTokens`/`promptTokens`/`contextTokens`，`buildPromptPieces` 累加成 `skillsTokens`，`buildSystemPromptSegments.skills` 直接返回，`computeContextBreakdown.skills` 复用 `triggerTokens`——**不在 contextUsage 重新 estimateTokens**，避免重复计算和口径不一致。
 
-**计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `promptPathOverride`+`workspace`+`skillFilter`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable。skills 段 token 直接复用预计算字段；其他段按需 estimateTokens。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../src/utils/token.ts)。
+**计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `systemPromptFile`+`workspace`+`skillFilter`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable。skills 段 token 直接复用预计算字段；其他段按需 estimateTokens。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../src/utils/token.ts)。
 
 ## 关键流程
 
 ### system prompt 注入流程
 
 ```text
-AgentBuilder.init(chatId, messages?, promptPathOverride?, workspace?, skillFilter?)
-  ├─ 构造 systemMsg = createInitialMessages(promptPathOverride, workspace, skillFilter)[0]
+AgentBuilder.init(chatId, messages?, systemPromptFile?, workspace?, skillFilter?)
+  ├─ 构造 systemMsg = createInitialMessages(systemPromptFile, workspace, skillFilter)[0]
   ├─ messages 空？→ [systemMsg]
   ├─ messages 非空且首条 role!==system（重启后 observer 不持久化 system）→ [systemMsg, ...messages]（persona 修复）
   └─ messages 首条已是 system → messages 原样
-       └─ createInitialMessages → buildFirstSystemPrompt(promptPathOverride, workspace, skillFilter)
+       └─ createInitialMessages → buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter)
             ├─ 全局 base = 模块加载期缓存的 .chery/prompt/system.md
-            ├─ promptPathOverride 给出 → readFileSync(override)（实时，非缓存）作补充拼接到 base 之后
+            ├─ systemPromptFile 给出 → readFileSync（实时，非缓存）作补充拼接到 base 之后
             ├─ workspace 给出 → 注入 <workspace> 段（否则省略）
             ├─ getSkillMetas(skillFilter)  ← readAllSkills() 实时遍历（独立 + 插件）+ matchSkillFilter 过滤
             └─ 拼装四段返回
@@ -317,15 +317,15 @@ const pluginsDir = config.global.plugins_dir;     // .chery/plugins（插件整�
 
 #### per-role 技能组/插件组过滤（SkillFilter）
 
-`RoleConfig.skills?: string[]` + `RoleConfig.plugins?: string[]` 限定该角色激活时哪些 skill 进入 system prompt `<skills>` 块（仅作用于 prompt 注入层，不改变运行时激活语义）。数据流（镜像 `promptPathOverride` 先例，**快照于 chat 创建时**，"编制运行后不可改"）：
+`RoleConfig.skills?: string[]` + `RoleConfig.plugins?: string[]` 限定该角色激活时哪些 skill 进入 system prompt `<skills>` 块（仅作用于 prompt 注入层，不改变运行时激活语义）。数据流（镜像 `systemPromptFile` 先例，**快照于 chat 创建时**，"编制运行后不可改"）：
 
 ```text
 来源：config.roles[type].skills（独立 skill 名白名单）/ config.roles[type].plugins（插件名白名单）
   → spawn_role sense（子 agent）/ chat.create 解析预设 leader 角色（主 agent）
   → 写入 chat metadata.skillFilter = { skills?, plugins? }
   → ensureChat 读 getChatSkillFilter(chatId)
-  → builder.init(chatId, history, promptPathOverride, workspace, skillFilter)
-  → buildFirstSystemPrompt(promptPathOverride, workspace, skillFilter)
+  → builder.init(chatId, history, systemPromptFile, workspace, skillFilter)
+  → buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter)
        → getSkillMetas(skillFilter) 仅返回通过 matchSkillFilter 的子集 → <skills> 块裁剪
 ```
 

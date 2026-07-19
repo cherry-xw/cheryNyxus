@@ -87,7 +87,7 @@ presets:
 - `systemPrompt` 路径相对 `.chery`（loadConfig 解析为绝对）；缺省 → 全局。per-agent prompt 数据流见 [agent/prompt.md](./agent/prompt.md)。
 
 **T6 选择与解析（已落地）**：
-- **主 pet 创建**（`chat.create`）携带 `preset` 名 → 后端用 `config.presets[preset].leader` 查找对应的 `config.roles[leader]`，从中解析 `{brain, senseGroup, mcpServers}` 作 RuntimeSelection 快照写入 `metadata.runtime`；该角色的 `systemPrompt`（绝对路径）写入 `metadata.promptPathOverride`；`metadata.preset` 记预设名；`metadata.spawnTypes` 快照写入该预设选中的角色 type 列表（编制锁定一致）。主 pet 恒走预设（无独立 default；旧 default 迁为「默认」预设）。
+- **主 pet 创建**（`chat.create`）携带 `preset` 名 → 后端用 `config.presets[preset].leader` 查找对应的 `config.roles[leader]`，从中解析 `{brain, senseGroup, mcpServers}` 作 RuntimeSelection 快照写入 `metadata.runtime`；该角色的 `systemPrompt`（绝对路径）写入 `metadata.systemPromptFile`；`metadata.preset` 记预设名；`metadata.spawnTypes` 快照写入该预设选中的角色 type 列表（编制锁定一致）。主 pet 恒走预设（无独立 default；旧 default 迁为「默认」预设）。
 - **编制锁定**：创建即快照入 `metadata.runtime` + `metadata.spawnTypes`，运行后不可改（即便设置面板编辑预设，只影响**未来**新建 pet，已运行 chat 用自身快照）。
 - **runtime.set（preset chat）**：仅 `brain` 可覆盖，`senseGroup`/`mcpServers` 强制取现有快照；显式带了不同 senseGroup/mcp → fail loud（防前端绕过锁定）。
 - **spawn roster gate**：角色定义恒从 `config.roles[type]` 单一源解析；可 spawn 的类型集 = 该 chat 预设选中的 `spawnTypes` 快照（preset chat），未选中类型 spawn → fail loud。子 chat（无 preset）→ 全集 `config.roles` 可用（递归：子也可 spawn 子）。catalog 描述（LLM 可见）= `config.roles` 全集（模块加载期冻结，sense 定义不支持 per-chat 动态），实际 roster 由执行期 gate 强制。
@@ -156,9 +156,9 @@ sense("spawn_role", spawnDescription,   // = "派发子 agent..." + 每类型 br
   async (args, _sharedData, ctx) => {
     // 1. 子 agent 定义恒从 config.roles[type] 单一源解析（无则 throw）
     //    roster gate：preset chat → metadata.spawnTypes 快照（未选中 type → fail loud）；子 chat（无 preset）→ 全集可用
-    // 2. createChat(childChatId, { runtime: { brain, senseGroup, mcpServers: roleCfg.mcpServers ?? [] }, promptPathOverride }, parentChatId=ctx.chatId)
+    // 2. createChat(childChatId, { runtime: { brain, senseGroup, mcpServers: roleCfg.mcpServers ?? [] }, systemPromptFile }, parentChatId=ctx.chatId)
     //    预创建并一次配齐 runtime（metadata.runtime 路径）：前端 notification 后直接 chat.send，
-    //    ensureChat 自动恢复 runtime（getChatRuntimeSelection）+ prompt（getChatPromptOverride），无需 chat.create/runtime.set
+    //    ensureChat 自动恢复 runtime（getChatRuntimeSelection）+ prompt（getChatSystemPromptFile），无需 chat.create/runtime.set
     // 3. emitRoleCreated：经 spawnBroker.broadcaster 推 role_created notification
     //    {childChatId, parentChatId, type, prompt, brain, senseGroup, wait}
     // 4. wait=true：registerWaitedChild(childChatId,{parentChatId,type}) + 启动 watchdog + ctx.soul.yieldTurn=true

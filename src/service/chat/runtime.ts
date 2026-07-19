@@ -4,7 +4,7 @@ import {
   getMessages,
   parseMessageRow,
   getChatRuntimeSelection,
-  getChatPromptOverride,
+  getChatSystemPromptFile,
   getChatWorkspace,
   getChatSkillFilter,
   updateChatMetadata,
@@ -237,13 +237,13 @@ export async function ensureChat(
       configureRuntime(runtime, chatId, resolvedSelection)
     }
 
-    // 一次性加载历史到内存 + 注入 system prompt（chat metadata.promptPathOverride 覆盖；
+    // 一次性加载历史到内存 + 注入 system prompt（chat metadata.systemPromptFile 合并补充；
     // 来源：spawn 写子 agent / chat.create 写预设主 agent；缺省 → undefined → 全局）
     // skillFilter：per-role 技能组/插件组过滤（metadata.skillFilter），仅 <skills> 块按角色裁剪。
     builder.init(
       chatId,
       loadHistory(chatId),
-      getChatPromptOverride(chatId),
+      getChatSystemPromptFile(chatId),
       getChatWorkspace(chatId),
       getChatSkillFilter(chatId),
     )

@@ -48,7 +48,9 @@ export class AgentBuilder {
 
   /**
    * 门面：初始化 chat（绑定 chatId，注入历史或 system 消息）
-   * @param promptPathOverride 可选，per-subagent / 预设 main 专属 system prompt 路径（透传 buildFirstSystemPrompt）
+   * @param systemPromptFile 可选，每 chat agent 专属 system prompt 文件绝对路径
+   *   （主 agent 来自 preset.leader.systemPrompt，子 agent 来自 config.roles[type].systemPrompt；
+   *   与全局 base **合并**而非替换）。透传 buildFirstSystemPrompt。
    *
    * persona 修复：observer 不持久化 system 消息 → 重启后 loadHistory 返回 messages 无 system 首条。
    * 故统一保证内存 messages 首条为 system：历史存在但首条非 system → prepend；首条已是 system → 原样；无历史 → [systemMsg]。
@@ -56,11 +58,11 @@ export class AgentBuilder {
   init(
     chatId: string,
     messages?: LLMResponse[],
-    promptPathOverride?: string,
+    systemPromptFile?: string,
     workspace?: string,
     skillFilter?: SkillFilter,
   ): this {
-    const systemMsg = this.createInitialMessages(promptPathOverride, workspace, skillFilter)
+    const systemMsg = this.createInitialMessages(systemPromptFile, workspace, skillFilter)
     let msgs: LLMResponse[]
     if (messages && messages.length > 0) {
       // DB 不持久化基础系统提示词；压缩恢复会带一条系统摘要，因此始终先注入当前基础系统提示词。
@@ -73,7 +75,7 @@ export class AgentBuilder {
   }
 
   private createInitialMessages(
-    promptPathOverride?: string,
+    systemPromptFile?: string,
     workspace?: string,
     skillFilter?: SkillFilter,
   ): LLMResponse[] {
@@ -82,7 +84,7 @@ export class AgentBuilder {
       {
         id: randomUUID(),
         role: 'system',
-        content: buildFirstSystemPrompt(promptPathOverride, workspace, skillFilter),
+        content: buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter),
         createdAt: now,
         updateAt: now,
       },

@@ -132,7 +132,7 @@ export default sense(
       brain: defaultBrain,
       senseGroup: defaultSenseGroup,
       mcpServers: defaultMcpServers = [],
-      systemPrompt: promptOverride,
+      systemPrompt: systemPromptFile,
       skills: roleSkills,
       plugins: rolePlugins,
     } = roleCfg
@@ -178,9 +178,9 @@ export default sense(
       // 也无需 runtime.set。后端已有 roles[type].brain+senseGroups,预创建时一次配齐契约最简。
       // mcpServers 缺省 [](子 agent 默认不开 MCP,与主 agent 解耦)。
       childChatId = randomUUID()
-      // systemPrompt（per-role 专属 system prompt，绝对路径，来自 config.roles[type].systemPrompt 单一源；
+      // systemPromptFile（per-role 专属 system prompt，绝对路径，来自 config.roles[type].systemPrompt 单一源；
       //   预设仅按 type 引用，无 per-preset 角色 systemPrompt 覆盖——故同一 type 的 persona 在所有引用它的预设生效；
-      //   缺省 → undefined → 子 agent 用全局 system_prompt）。ensureChat 读 metadata.promptPathOverride 注入。
+      //   缺省 → undefined → 子 agent 用全局 system_prompt）。ensureChat 读 metadata.systemPromptFile 注入。
       // 子 agent 继承主 chat workspace（同项目，system prompt 注入同一工作区说明）
       const parentWorkspace = getChatWorkspace(parentChatId)
       createChat(
@@ -192,7 +192,7 @@ export default sense(
             senseGroup: defaultSenseGroup,
             mcpServers: defaultMcpServers,
           },
-          ...(promptOverride ? { promptPathOverride: promptOverride } : {}),
+          ...(systemPromptFile ? { systemPromptFile: systemPromptFile } : {}),
           ...(skillFilter ? { skillFilter } : {}),
           ...(parentWorkspace ? { workspace: parentWorkspace } : {}),
           // T9.10 重启容错：wait+type 持久化，rebuildFromDb 扫 metadata.wait===true 重建唤醒链

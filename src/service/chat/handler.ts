@@ -95,7 +95,7 @@ export async function handleChatCreate(
     selection = resolved.selection
     metadata.preset = p.preset
     metadata.spawnTypes = resolved.spawnTypes
-    if (resolved.promptPathOverride) metadata.promptPathOverride = resolved.promptPathOverride
+    if (resolved.systemPromptFile) metadata.systemPromptFile = resolved.systemPromptFile
     if (resolved.skillFilter) metadata.skillFilter = resolved.skillFilter
     if (resolved.workspace) metadata.workspace = resolved.workspace
   } else {

@@ -192,19 +192,19 @@ export function getChatRuntimeSelection(
 }
 
 /**
- * 读取持久化的 per-agent system prompt 路径（metadata.promptPathOverride）。
+ * 读取持久化的 per-agent system prompt 路径（metadata.systemPromptFile）。
  * 来源：spawn_role sense createChat（角色，来自 config.roles[type].systemPrompt）
  *   或 chat.create 预设主 agent（取 leader 角色 systemPrompt，来自 config.roles[leader].systemPrompt）。
- * ensureChat 据此传 builder.init 的 promptPathOverride；缺省（非预设主 agent / 旧 chat）→ undefined → 全局 prompt。
- * 字段名通用化（T6）：原 subagentPromptPath 仅子 agent 用，预设主 agent 亦需此机制，统一为 promptPathOverride。
+ * ensureChat 据此传 builder.init 的 systemPromptFile；缺省（非预设主 agent / 旧 chat）→ undefined → 全局 prompt。
+ * 字段名演进：subagentPromptPath（T6 之前，仅子 agent）→ promptPathOverride（T6 通用化）→ systemPromptFile（语义修正：合并补充而非替换）。
  */
-export function getChatPromptOverride(chatId: string): string | undefined {
+export function getChatSystemPromptFile(chatId: string): string | undefined {
   const db = getSoulDb()
   const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
     { metadata: string | null } | undefined
   if (!row?.metadata) return undefined
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
-  const p = parsed.promptPathOverride
+  const p = parsed.systemPromptFile
   if (typeof p !== 'string' || p.length === 0) return undefined
   // 历史兼容：旧 chat metadata 曾存 `.chery/prompts/...`（有 s），但实际目录是 `.chery/prompt/`（无 s）。
   // 规范化为当前目录名，避免 existsSync 失败导致 userSystem 段显示 0。
@@ -216,7 +216,7 @@ export function getChatPromptOverride(chatId: string): string | undefined {
  * 来源：spawn_role sense（config.roles[type].skills/plugins）或 chat.create 预设主 agent（leader 角色）。
  * ensureChat 据此传 builder.init 的 skillFilter → buildFirstSystemPrompt 仅注入选中的 skill。
  * 任一维度缺省（undefined）= 该维度全部通过；二者皆缺省 → 返回 undefined（全部 skill，向后兼容）。
- * 快照于 chat 创建时（"编制运行后不可改"，同 promptPathOverride）。
+ * 快照于 chat 创建时（"编制运行后不可改"，同 systemPromptFile）。
  */
 export function getChatSkillFilter(
   chatId: string,
