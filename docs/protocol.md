@@ -141,7 +141,28 @@ interface Notification {
 | `brain.list` | 列出所有可用 brain（含 `capabilities`：Tool Call、三类媒体输入/生成；每项 `default` 标记 = 是否为「默认」预设 `leader` 角色用的 brain；`senseGroups` 支持 `string \| string[]`——前者单组，后者为历史多组兼容）+ 当前已连 MCP server 名（`mcpServers`） | 否 |
 | `sense.list` | 列出所有可用 sense group（senses 含 `:level` 后缀未解析） | 否 |
 | `sense.tools` | 列出全部内置工具（代码维护的 `BUILTIN_SENSE_TOOLS`），每项 `{name, label, description, icon}`：`name`=原名（作 sense_groups 条目 key）、`label`=中文名（UI 显示）、`description`=解释（tooltip）、`icon`=glyph/emoji 字符串（pet bar 运行中工具图标用，非内置工具前端 fallback ⚙）。自定义/外部/MCP 工具不在此列，靠前端组合框自由输入 | 否 |
-| `skills.list` | 实时列出 `.chery/skills/` 中的用户技能元数据，返回 `{skills:[{name,description,trigger?,contextTokens}]}`；`contextTokens` 是加载完整技能指令的近似 token 增量（`ceil(字符数/4)`），供发送窗口 `/` 菜单的 hover 卡片展示。内置 `/compact` 不在此列表、不对应配置目录文件。 | 否 |
+| `skills.list` | 分页列出独立或插件技能。params `{page?,pageSize?,search?,plugin?}`，`pageSize` 最大 200，返回 `{skills,total,page,pageSize}`；目录扫描只解析 frontmatter，当前页才读取正文并计算 token。`plugin` 省略=独立技能、`*`=全部、具体值=该插件。 | 否 |
+| `skills.listNames` | 角色装备使用的轻量目录，返回独立技能名、插件名以及各自系统提示词 token 汇总；不读取技能正文。 | 否 |
+| `skills.preImportUrl` | **前置**：拉取远端分支列表 + 探测鉴权需求。params `{url, credentialId?}` → `{gitNotInstalled, needsAuth, branches, defaultBranch?}` 或 `{gitNotInstalled: true}`。与 `plugins.preImportUrl` 区别：不返 `suggestedName/nameConflict`（技能多候选，冲突在 stage 时逐候选检测）。git CLI 硬性前提，缺失不降级 | 否 |
+| `skills.importUrl` | 拉取 GitHub 仓库（独立技能集合）到 staging 分析候选（对标插件：分支选择 + 鉴权）。params `{url, branch, credentialId?}` 或 `{url, branch, username, password, remember?, label?}`（两组互斥）→ `{stagingId, candidates:[{name,description,trigger?,conflict}], branch?, commitSha?, commitDate?, savedCredentialId?}`（两阶段：前端确认后调 `skills.commit` 落盘）；`conflict=true` 表示 `skills_dir/<name>` 已存在，需前端逐项确认覆盖/跳过。鉴权失败抛友好错；`savedCredentialId` 仅 `remember=true` 时返。亦支持 `POST /api/skills/import` 上传 zip 字节走同一 stage 路径（zip 无 source 字段） | 否 |
+| `skills.commit` | 落盘 stage 候选为独立 skill。params `{stagingId, selections:[{name, import}]}`（`import:false` 跳过；`true` 导入，冲突则覆盖）→ `{imported:[...], skipped:[...]}`。若 staging manifest 携 git 来源 meta（URL 导入才有），按 {cloneUrl,branch} 写/更新中央来源索引 `.chery/.skill-sources.json`（`sourceId` 有→更新 commitSha/Date/skills；无→新建）。zip 导入无来源 meta，不写索引 | 否 |
+| `skills.delete` | 删除独立 skill 目录（`skills_dir/<name>`）。params `{name}` → `{ok:true}`；若该 skill 属某来源索引条目，同步从其 skills 列表移除。`plugins_dir` 下的插件 skill 不在此列（走 `plugins.uninstall`） | 否 |
+| `skills.listSources` | 返回仓库摘要 `{id,cloneUrl,branch,commitSha,commitDate,lastSyncedAt,skillCount,lastCheckedAt?,latestSha?,latestDate?,updateAvailable?,lastCheckError?}`，不展开关联技能。 | 否 |
+| `skills.checkSource` / `skills.checkAllSources` | 仅用远端 HEAD 检查单个或全部技能仓库是否有更新，持久化检查时间、版本和错误，不修改本地技能目录。 | 否 |
+| `skills.resyncSource` | 重新拉取某来源并返回候选及 `selected` 原跟踪技能；前端分页/搜索确认后才调用 `skills.commit` 覆盖。 | 否 |
+| `skills.resyncAllSources` | 批量重新拉取全部来源（非交互：自动 commit 仅匹配原 `entry.skills` 命名的 candidate，新增/删除静默丢弃）。params `{}` → `{results:[{sourceId, ok, error?, commitSha?, commitDate?}], successes, failures}`；失败条目同步写 `SkillSourceEntry.lastSyncError`（成功的清空），前端 refresh 后读持久化字段逐项标记「刷新失败」红 pill | 否 |
+| `skills.deleteSource` | 删除一个来源索引条目 + 其跟踪的全部 skill 文件夹。params `{sourceId}` → `{ok:true}`（镜像 `plugins.uninstall` 语义）。已脱离来源的独立 skill（re-sync 时取消勾选的）不受影响 | 否 |
+| `plugins.list` | 列出已安装插件（`.chery/plugins/<name>/`）。返回 `{plugins:[{name, sourceUrl, cloneUrl, branch, commitSha, commitDate, installedAt, updatedAt, lastCheckedAt?, latestSha?, latestDate?, updateAvailable?, skills:[{name,description,trigger?}]}]}`，每项来自 `.chery-plugin.json` manifest + 扫描其 skills（`cloneUrl/branch/commitSha/commitDate` 旧 manifest 上为空串；检查字段从未检查时为 undefined） | 否 |
+| `plugins.preImportUrl` | **前置**：拉取远端分支列表 + 探测鉴权需求 + 文件夹冲突。params `{url, credentialId?}` → `{branches: string[], defaultBranch, needsAuth, suggestedName, nameConflict}` 或 `{gitNotInstalled: true}`；`suggestedName = sanitizeName(repo)`，`nameConflict = pluginDirExists(suggestedName)`（冲突时前端展示「文件夹名」改名输入框）。git CLI 为硬性前提，缺失不降级 | 否 |
+| `plugins.importUrl` | 拉取 GitHub 整仓（superpowers 风格关联包）到 staging。params `{url, branch, credentialId?}` 或 `{url, branch, username, password, remember?, label?, pluginName?}`（两组互斥）→ `{stagingId, pluginName, existing, sourceUrl, branch, commitSha, commitDate, savedCredentialId?, skills:[...]}`；`pluginName` 在 `nameConflict=true` 时由前端提供以改名；`existing=true` 同名已装，`needsAuth=true` 鉴权失败不抛错；`savedCredentialId` 仅 `remember=true` 时返。详见 [./agent/plugin.md](./agent/plugin.md) | 否 |
+| `plugins.commit` | 落盘 staged 插件到 `plugins_dir/<name>/` + 写 `.chery-plugin.json` manifest（含 cloneUrl/branch/commitSha/commitDate + `updateAvailable=false`/`latestSha`/`lastCheckedAt=now`，刚装视为已检查最新）。params `{stagingId, overwrite}`（`overwrite=true` 覆盖同名）→ `{plugin: PluginInfo}` | 否 |
+| `plugins.checkUpdate` | 检查单个插件版本更新，结果写回该插件 manifest。params `{name}` → `{currentSha, currentDate, latestSha, latestDate, lastUpgrade, updateAvailable}`；版本号 = commit 短 SHA（7 位）；私有仓 401 则 `latestDate` 空 | 否 |
+| `plugins.checkAllUpdates` | 批量检查全部已安装插件，结果写入各自 manifest（`lastCheckedAt`/`latestSha`/`latestDate`/`updateAvailable`），前端 refresh 后读持久化字段。params `{}` → `{checked, updatesAvailable, failed:[{name, reason}]}`；单个失败（私有仓 needsAuth/网络错误）不中断整体 | 否 |
+| `plugins.update` | 按 `manifest.cloneUrl` + `branch` 重新 `git clone` 覆盖。params `{name}` → `{plugin: PluginInfo}`（更新 commitSha/commitDate/updatedAt + 置 `updateAvailable=false`） | 否 |
+| `plugins.uninstall` | 删除整个插件目录。params `{name}` → `{ok:true}` | 否 |
+| `credentials.list` | 列出凭据池（密令**永不**回前端）。params `{}` → `{credentials: [{id, label, username}]}`（仅 id/label/username，无 ciphertext/iv/tag），供插件 / 未来 skills 复用 | 否 |
+| `credentials.save` | 保存凭据到加密池（AES-256-GCM，存 `.chery/.secrets/git-credentials.json` 0600）。params `{username, password, label?}` → `{id}`；字段名 `password` 复用 logger 自动脱敏。详见 [./utils/secretStore.md](./utils/secretStore.md) | 否 |
+| `credentials.delete` | 按 id 删除凭据。params `{id}` → `{ok: true}`；id 不存在幂等返 `ok: false` | 否 |
 | `prompts.list` | 递归列出 `.chery/prompt/` 下全部 `.md`（含子文件夹，**排除全局 base `system.md`**），每项为相对 `.chery/` 的路径（如 `prompt/prefebMain/leader.md`）。供设置面板 `systemPrompt` 级联选择器（`el-cascader`）建目录树；叶 `value`=全路径=存储值。目录为空返 `[]` | 否 |
 | `runtime.set` | 原子设置 chat 的 brain + senseGroup + mcpServers（每轮可换）。`toolCall:false` 的 brain 只接受空工具组/MCP；preset chat 下仅 `brain` 生效（编制锁定，senseGroup/mcp 强制取创建快照；显式带不同值 fail loud） | 否 |
 | `chat.create` | 创建聊天。可选 `preset`：从 `config.presets[preset].leader` 解析 brain+senseGroup+mcp+systemPrompt（编制快照入 metadata，运行后锁定）。主 pet 恒带 `preset`（旧 `config.default` 已并入「默认」预设）；显式 brain+senseGroup 路径仅子 agent 用 | 否 |
@@ -164,7 +185,8 @@ interface Notification {
 | `mcp.disconnect` | 断开单个 MCP server（未连幂等；params: `{name}`） | 否 |
 | `mcp.reload` | 重载 MCP server（params: `{name?}`，给出→原子重载单个，省略→全量重读 config） | 否 |
 | ~~`subagent.result`~~ | **2026-07-09 废弃**：wait=true 重构为 yield turn + 后端注入唤醒（[agent-pet.md §5.4](./agent-pet.md) B1），结果不再由前端 RPC 回传。handler + schema 删 | — |
-| `config.get` | 读取 `.chery/config.yaml` 原文（**除 server 段**）：返回 `roles`/`presets`/`llm.brain`/`sense_groups`/`mcp_servers`/`global` 原始结构（`supervision` 为字符串、`key` 仍为 `$ENV` 占位符、无路径补全），供设置面板编辑 | 否 |
+| `config.get` | 读取 `.chery/config.yaml` 原文（**除 server 段**），供设置面板编辑。`roles.<type>.avatar` 可选；缺省时按角色名稳定生成内置头像。 | 否 |
+| `config.workspace.validate` | 在**后端所在主机**校验 `{workspace}`：空值有效（表示未限定）；非空必须为绝对、可访问的目录。返回 `{valid, error?}`，只读，不写配置也不触发重启；设置页用于预设工作区输入的即时红色警告。 | 否 |
 | `config.save` | 保存配置（params: 除 server 外全部字段）：zod 结构校验 + 业务校验（`roles.<name>.brain` 引用必须存在于 `llm.brain`、`presets.*.roles[*]` 引用的 type 必须存在于 `config.roles`、`supervision` 合法值、`sense_groups` 的 `:level` 后缀合法、`llm.brain.*` 的 `model`/`provider` 必填、`systemPrompt` existsSync）-> 通过则保留盘上 `server` 段不动、`js-yaml` dump（无注释）写回 -> 返回 `{needRestart:true}`；失败返 `INVALID_PARAMS`、**不写盘**（结构校验失败：message 一行中文 + `tracingId`，完整 Zod issues 走 logger；业务校验失败：列出中文错误）。重启后端后生效 | 否 |
 | `utils.models` | 独立工具：基于用户提供的 `{provider, url, key?}` 拉取可用模型列表。`provider` 支持 `openai`/`ollama`；`url` 必填（API base URL）；`key` 可选（ollama 通常无需）。返回 `{models: [{id, name?, ownedBy?}], error?}`；请求失败时 `models` 为空数组、`error` 携带错误信息（非 RpcError，前端可展示）。后续该模块会扩展其他便捷信息查询工具 | 否 |
 | `utils.openFile` | 打开指定文件（用配置的文本编辑器或系统默认）。`path` 相对 `CHERY_DIR`（如 `.env`、`.chery/config.yaml`）。优先使用 `global.textEditor` 配置的编辑器（支持 `$ENV` 占位符），未配置则由后端进程调用系统默认打开器（Windows: `cmd /c start`，macOS: `open`，Linux: `xdg-open`）。成功返回空对象，失败返 RpcError | 否 |
@@ -278,6 +300,15 @@ Web 静态服务（端口由环境变量 `WEB_PORT` 指定，默认 `8183`；原
 | `default` | object \| undefined | 派生自「默认」预设 `leader` 角色（brain+senseGroup+mcpServers）；AgentDialog 无 runtime 时预选用。无「默认」预设时不返此字段 |
 
 > 前端通过 `fetch('/api/config')` 获取配置，结合 `window.location.hostname` 自动构建 `ws://` 连接地址，无需硬编码端口。
+
+#### `POST /api/skills/import`
+
+上传 ZIP 包导入独立技能（两阶段 stage→commit 的 **stage 入口**；raw bytes + `X-Chery-Session-Token` 鉴权，与 `/api/media/upload` 同模式）。
+
+- **请求**：body 为原始 zip 字节，服务端解压到 `.chery/.staging/<uuid>/` 分析候选；鉴权同媒体端点（OAuth2 HttpOnly 会话或本地 session token）。
+- **响应**：`200 {stagingId, candidates:[{name,description,trigger?,conflict}]}`（同 `skills.importUrl`）；`conflict=true` 表示 `skills_dir/<name>` 已存在。
+- **失败**：`400 {error}`（解压或解析异常）。
+- **下一步**：前端据 `candidates` 逐项确认后调 `skills.commit` 落盘。
 
 ### 错误处理
 

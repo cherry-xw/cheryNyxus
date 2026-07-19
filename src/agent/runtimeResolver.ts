@@ -15,6 +15,7 @@ import { getSenseAdapter } from "@/core/sense/adapter";
 import { getSense } from "@/core/sense";
 import { getConnectedServerSenseNames } from "@/core/mcp";
 import { getSense as getBuiltinSense } from "@/core/sense";
+import type { SkillFilter } from "@/agent/prompt/loadSkill";
 
 export interface RuntimeSelection {
   brain: string;
@@ -31,17 +32,17 @@ export interface RuntimeSelection {
  */
 export function parseRuntimeSelection(
   params: { brain?: string; senseGroup?: string; mcpServers?: string[] },
-  methodName: string,
+  _methodName: string,
 ): RuntimeSelection {
-  if (!params.brain) throw new Error(`${methodName} requires brain`);
+  if (!params.brain) throw new Error("必须选择一颗大脑");
   const mcpServers = Array.isArray(params.mcpServers) ? params.mcpServers : [];
   const brain = config.llm.brain[params.brain];
-  if (!brain) throw new Error(`Brain 配置 "${params.brain}" 不存在`);
+  if (!brain) throw new Error(`大脑 "${params.brain}" 不存在，请在设置里检查`);
   if (brain.capabilities?.toolCall === false) {
-    if (params.senseGroup || mcpServers.length) throw new Error(`Brain "${params.brain}" 不支持 Tool Call，不能配置 senseGroup 或 MCP`);
+    if (params.senseGroup || mcpServers.length) throw new Error(`大脑 "${params.brain}" 不支持工具调用，不能配感官组`);
     return { brain: params.brain, senseGroup: "", mcpServers: [] };
   }
-  if (!params.senseGroup) throw new Error(`${methodName} requires senseGroup for a Tool Call brain`);
+  if (!params.senseGroup) throw new Error("这颗大脑需要配一个感官组");
   return { brain: params.brain, senseGroup: params.senseGroup, mcpServers };
 }
 
@@ -58,21 +59,28 @@ export function resolvePresetSelection(presetName: string): {
   spawnTypes: string[];
   /** 该预设的项目工作目录（chat.create 快照入 metadata.workspace，buildFirstSystemPrompt 注入提示词） */
   workspace?: string;
+  /** leader 角色的技能组/插件组过滤（chat.create 快照入 metadata.skillFilter，<skills> 块按角色裁剪） */
+  skillFilter?: SkillFilter;
 } {
   const preset = config.presets?.[presetName];
   if (!preset?.leader) {
-    throw new Error(`预设 "${presetName}" 不存在或未指定 leader 角色（可用：${Object.keys(config.presets ?? {}).join(", ") || "（未配置任何预设）"}）`);
+    throw new Error(`预设 "${presetName}" 不存在或没指定组长角色（可用：${Object.keys(config.presets ?? {}).join(", ") || "（未配置任何预设）"}）`);
   }
   // 主 pet 编制取 leader 角色的 RoleConfig（config.roles 单一源）。
   const leader = config.roles?.[preset.leader];
   if (!leader) {
-    throw new Error(`预设 "${presetName}" 的 leader 角色 "${preset.leader}" 不在 config.roles（可用：${Object.keys(config.roles ?? {}).join(", ") || "（未配置任何角色）"}）`);
+    throw new Error(`预设 "${presetName}" 的组长角色 "${preset.leader}" 不存在（可用：${Object.keys(config.roles ?? {}).join(", ") || "（未配置任何角色）"}）`);
   }
   const selection = parseRuntimeSelection(
     { brain: leader.brain, senseGroup: leader.senseGroup, mcpServers: leader.mcpServers ?? [] },
     `presets.${presetName}.leader(${preset.leader})`,
   );
-  return { selection, promptPathOverride: leader.systemPrompt, spawnTypes: preset.roles ?? [], workspace: preset.workspace };
+  // per-role 技能组/插件组：任一维度显式设置（含 []）→ 构造 filter；二者皆 undefined → undefined（全部 skill）
+  const skillFilter: SkillFilter | undefined =
+    leader.skills !== undefined || leader.plugins !== undefined
+      ? { skills: leader.skills, plugins: leader.plugins }
+      : undefined;
+  return { selection, promptPathOverride: leader.systemPrompt, spawnTypes: preset.roles ?? [], workspace: preset.workspace, skillFilter };
 }
 
 export class RuntimeResolver {
@@ -105,10 +113,10 @@ export class RuntimeResolver {
 
   private validateSelection(selection: RuntimeSelection): void {
     if (!selection.brain || selection.brain.trim().length === 0) {
-      throw new Error("必须选择 brain");
+      throw new Error("必须选择一颗大脑");
     }
     const brain = config.llm.brain[selection.brain];
-    if (brain?.capabilities?.toolCall !== false && !selection.senseGroup) throw new Error("支持 Tool Call 的模型必须选择一个感官组");
+    if (brain?.capabilities?.toolCall !== false && !selection.senseGroup) throw new Error("这颗大脑需要配一个感官组");
   }
 
   /**
@@ -117,7 +125,7 @@ export class RuntimeResolver {
   private resolveBrain(name: string): { brain: BrainConfig; adapters: AdaptersGroup } {
     const brain = config.llm.brain[name];
     if (!brain) {
-      throw new Error(`Brain 配置 "${name}" 不存在`);
+      throw new Error(`大脑 "${name}" 不存在，请在设置里检查`);
     }
 
     const provider = brain.provider;
@@ -126,7 +134,7 @@ export class RuntimeResolver {
     const senseAdapter = getSenseAdapter(provider);
 
     if (!llmAdapter || !messageAdapter || !senseAdapter) {
-      throw new Error(`Provider "${provider}" adapters not registered`);
+      throw new Error(`不支持 "${provider}" 这类大脑`);
     }
 
     return {
@@ -156,7 +164,7 @@ export class RuntimeResolver {
     if (!senseGroup) return { builtSenses: [], senseTable: new Map() };
     const group = config.sense_groups?.[senseGroup];
     if (!group) {
-      throw new Error(`Sense group "${senseGroup}" 不存在`);
+      throw new Error(`感官组 "${senseGroup}" 不存在，请在设置里检查`);
     }
 
     for (const entry of group) {
@@ -165,7 +173,7 @@ export class RuntimeResolver {
       if (mediaKind && !generateCapabilities?.[mediaKind]) continue;
       const original = getSense(senseName);
       if (!original) {
-        throw new Error(`Sense "${senseName}" 不存在`);
+        throw new Error(`感官 "${senseName}" 不存在，请在设置里检查`);
       }
 
       const name = original.definition.function.name;
@@ -211,7 +219,7 @@ export class RuntimeResolver {
     const [rawName, rawLevel] = entry.split(":");
     const senseName = rawName?.trim();
     if (!senseName) {
-      throw new Error(`Sense group entry "${entry}" 无效`);
+      throw new Error(`感官组配置 "${entry}" 无效`);
     }
     if (!rawLevel) {
       return { senseName };
@@ -225,7 +233,7 @@ export class RuntimeResolver {
     };
     const supervisionLevel = supervisionByName[levelName];
     if (supervisionLevel === undefined) {
-      throw new Error(`Sense "${senseName}" 的监管等级 "${rawLevel}" 无效`);
+      throw new Error(`感官 "${senseName}" 的监管等级 "${rawLevel}" 无效（合法：auto/confirm/manual）`);
     }
 
     return { senseName, supervisionLevel };

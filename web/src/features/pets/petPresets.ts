@@ -378,3 +378,12 @@ export function generatePet(form: PetForm, excludeFaces?: ReadonlySet<Record<Pet
     behaviors: withBehaviors(),
   };
 }
+
+/** 将角色配置头像应用到子 pet；所有 mood 使用同一字形，保留手势、配色和行为。 */
+export function applyRoleAvatar(preset: PetPreset, avatar?: string): PetPreset {
+  const glyph = avatar?.trim();
+  if (!glyph) return preset;
+  const face = {} as Record<PetMood, string>;
+  for (const mood of MOODS) face[mood] = glyph;
+  return { ...preset, faceType: "emoji", face };
+}

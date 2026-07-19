@@ -31,6 +31,7 @@ import {
   parseMessageRow,
   findChatsByParent,
   getChatPreviews,
+  getChatWorkspace,
 } from "@/db/chat.js";
 import { clearChatRuntime, ensureChat, isChatRunning } from "./runtime.js";
 import { getQuestionStateSnapshot, hasPendingQuestionBatches } from "@/db/question.js";
@@ -38,10 +39,11 @@ import { randomUUID } from "crypto";
 import { parseRuntimeSelection, resolvePresetSelection, type RuntimeSelection } from "@/agent/runtimeResolver.js";
 import { logger } from "@/utils/logger/index.js";
 import { breakdownUsed } from "@/utils/token.js";
-import config, { DEFAULT_COMMAND_CONFIG } from "@/utils/config";
+import config, { DEFAULT_COMMAND_CONFIG, validateWorkspacePath } from "@/utils/config";
 import { computeContextBreakdown } from "./contextUsage.js";
 import { safeJsonParse } from "@/utils/json.js";
 import { getChatEvents, claimSpawnTask, finishSpawnTask, listOpenSpawnTasks } from "@/db/delivery.js";
+import { resolveRoleAvatar } from "@/utils/roleAvatar.js";
 import { handleChatResume, handleChatSend } from "./send.js";
 
 /**
@@ -85,6 +87,7 @@ export async function handleChatCreate(
     metadata.preset = p.preset;
     metadata.spawnTypes = resolved.spawnTypes;
     if (resolved.promptPathOverride) metadata.promptPathOverride = resolved.promptPathOverride;
+    if (resolved.skillFilter) metadata.skillFilter = resolved.skillFilter;
     if (resolved.workspace) metadata.workspace = resolved.workspace;
   } else {
     // 显式路径：parseRuntimeSelection 校验 brain + senseGroups 必填
@@ -110,11 +113,14 @@ export async function handleChatCreate(
     senseGroup: selection.senseGroup,
     mcpServers: selection.mcpServers,
   });
+  const workspace = getChatWorkspace(chatId);
+  const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined;
   return {
     chatId,
     brain: selection.brain,
     senseGroup: selection.senseGroup,
     mcpServers: selection.mcpServers,
+    ...(workspace ? { workspace, workspaceValid } : {}),
   };
 }
 
@@ -145,7 +151,7 @@ export async function handleChatList(
 
   const chats = rows.map(chat => {
     const meta = chat.metadata
-      ? (safeJsonParse(chat.metadata, {}) as { finished?: boolean; wait?: boolean; resumePending?: boolean; preset?: string })
+      ? (safeJsonParse(chat.metadata, {}) as { finished?: boolean; wait?: boolean; resumePending?: boolean; preset?: string; type?: string })
       : {};
     const finished = meta.finished === true;
     const running = isChatRunning(chat.id);
@@ -155,6 +161,8 @@ export async function handleChatList(
     // canResume：idle 主 chat 末条为未完成周期 → 前端重建时可自动 resume（覆盖 resumePending 丢失场景）
     // 仅非 finished 非 running 时计算（finished 不可恢复，running 不需恢复）
     const canResume = !finished && !running ? computeCanResume(chat.id) : false;
+    const workspace = getChatWorkspace(chat.id);
+    const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined;
     const base = {
       chatId: chat.id,
       createdAt: chat.created_at,
@@ -167,6 +175,9 @@ export async function handleChatList(
       resumePending,
       canResume,
       preset: typeof meta.preset === "string" ? meta.preset : undefined,
+      agentType: typeof meta.type === "string" ? meta.type : undefined,
+      avatar: typeof meta.type === "string" ? resolveRoleAvatar(meta.type, config.roles?.[meta.type]?.avatar) : undefined,
+      ...(workspace ? { workspace, workspaceValid } : {}),
     };
     if (!data.includePreview || !previews) return base;
     const p = previews.get(chat.id);
@@ -192,7 +203,7 @@ export async function* handleChatGet(
 
   const chat = getChat(p.chatId);
   if (!chat) {
-    throw new Error(`Chat "${p.chatId}" not found`);
+    throw new Error("这个会话不见了");
   }
 
   const messages = getMessages(p.chatId);
@@ -275,6 +286,8 @@ export async function* handleChatGet(
     pendingQuestionBatches: questionSnapshot.pendingQuestionBatches.length,
     snapshotSeq: questionSnapshot.snapshotSeq,
   });
+  const workspace = getChatWorkspace(p.chatId);
+  const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined;
   return {
     chatId: p.chatId,
     canResume,
@@ -283,6 +296,7 @@ export async function* handleChatGet(
     contextTotal: ctxBd.total,
     contextBreakdown: ctxBd,
     commandConfig: getCommandConfig(),
+    ...(workspace ? { workspace, workspaceValid } : {}),
     ...questionSnapshot,
   };
 }
@@ -297,7 +311,7 @@ export async function* handleChatSync(
   _ctx: HandlerContext,
   data: ChatSyncRequestData,
 ): AsyncGenerator<Chunk | Notification, ChatSyncResponseData, unknown> {
-  if (!getChat(data.chatId)) throw new Error(`Chat "${data.chatId}" not found`);
+  if (!getChat(data.chatId)) throw new Error("这个会话不见了");
   const page = getChatEvents(data.chatId, data.afterSeq);
   if (page.reset) {
     for (const task of listOpenSpawnTasks(data.chatId)) {
@@ -306,6 +320,7 @@ export async function* handleChatSync(
         chatId: task.childChatId,
         parentChatId: task.parentChatId,
         type: task.type,
+        avatar: resolveRoleAvatar(task.type, config.roles?.[task.type]?.avatar),
         prompt: task.prompt,
         brain: task.brain,
         senseGroup: task.senseGroup,
@@ -338,7 +353,7 @@ export async function* handleChatStartSpawn(
 ): AsyncGenerator<Chunk | Notification, ChatStartSpawnResponseData | RpcResponse, unknown> {
   const claimed = claimSpawnTask(data.taskId);
   const task = claimed.task;
-  if (!task) throw new Error(`Spawn task "${data.taskId}" not found`);
+  if (!task) throw new Error("找不到这个 spawn 任务");
   if (task.status === "finished") {
     return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true };
   }
@@ -385,7 +400,7 @@ export async function handleChatDelete(
 
   const chat = getChat(p.chatId);
   if (!chat) {
-    throw new Error(`Chat "${p.chatId}" not found`);
+    throw new Error("这个会话不见了");
   }
 
   // 主 chat 级联全部后代：后序删除保证孙级先于父级，容忍异常 parent 环。

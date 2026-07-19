@@ -2,6 +2,7 @@
 // 各组件 <style scoped> 内 @import 此文件，class 会带上该组件 data-v（ scoped 隔离），源码集中维护避免重复。
 @ink: #14161a;
 @accent: #f6b73c; // 暖橙强调色：金色系主色，box-shadow / border / hover 描边共用
+@import "./neon.less"; // 霓虹赛博视觉系统：色板/mixin/keyframes（灯条/转圈边框/modal）
 
 .sect {
   display: flex;
@@ -31,8 +32,9 @@
   margin: 0;
   padding: 5px 8px;
   border-radius: 6px;
-  background: #fff4d6;
-  color: #92590a;
+  background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+  border-left: 3px solid var(--tab-color, @accent);
   font-size: 11px;
   line-height: 1.4;
   // 骨架模式：复用真实 .warn-hint 字号 + 行高 + padding，只是把背景色换成 shimmer。
@@ -69,8 +71,8 @@
   padding: 0 5px;
   box-sizing: border-box;
   border-radius: 999px;
-  background: rgba(246, 183, 60, 0.2);
-  color: #80560a;
+  background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
   font-size: 11px;
   font-weight: 800;
   line-height: 20px;
@@ -97,7 +99,7 @@
     &.editable {
       cursor: pointer;
       &:hover {
-        color: #f6b73c;
+        color: var(--tab-color, @accent);
       }
     }
   }
@@ -154,6 +156,33 @@
 .ico {
   width: 14px;
   height: 14px;
+}
+// 通用旋转：刷新按钮内 icon 加载态
+.ico.spinning {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+// 失败 pill：刷新/检查失败标记（红）
+.badge.fail {
+  background: rgba(185, 28, 28, 0.14);
+  color: #b91c1c;
+  border: 1px solid rgba(185, 28, 28, 0.3);
+}
+// 整卡可点击（Git 来源 / 插件 updateAvailable 卡）；卡片内按钮用 @click.stop 隔离。
+.card.clickable {
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  &:hover {
+    background: rgba(255, 255, 255, 0.92);
+    border-color: rgba(36, 38, 45, 0.22);
+    box-shadow: 0 1px 2px rgba(36, 38, 45, 0.04);
+  }
+  &:active {
+    background: rgba(255, 255, 255, 0.8);
+  }
 }
 .card-grid {
   display: grid;
@@ -221,8 +250,8 @@
   font-size: 11px;
   cursor: pointer;
   &:hover {
-    color: #f6b73c;
-    border-color: #f6b73c;
+    color: var(--tab-color, @accent);
+    border-color: var(--tab-color, @accent);
   }
 }
 .ghost-btn {
@@ -257,6 +286,12 @@
   flex-direction: column;
   gap: 4px;
 }
+.shell-toolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .shell-index-row {
   display: flex;
   flex-wrap: wrap;
@@ -264,23 +299,23 @@
   align-items: center;
 }
 .shell-index-btn {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   box-sizing: border-box;
-  border: 1px solid rgba(190, 132, 28, 0.35);
-  border-radius: 999px;
-  background: rgba(246, 183, 60, 0.12);
-  color: #80560a;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.6);
+  color: fade(@ink, 62%);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
   transition: all 0.12s ease;
   &:hover {
-    background: rgba(246, 183, 60, 0.3);
-    border-color: rgba(190, 132, 28, 0.55);
-    transform: translateY(-1px);
+    color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 50%, transparent);
+    background: color-mix(in srgb, var(--tab-color, @accent) 10%, transparent);
   }
   &:active {
     transform: translateY(0);
@@ -368,4 +403,188 @@
   font-weight: 800;
   color: fade(@ink, 84%);
   letter-spacing: 0.01em;
+}
+
+// ── IndexPaginator 翻页器 ──────────────────────────────────────────
+.shell-index-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.6);
+  color: fade(@ink, 62%);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  &:hover {
+    color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 50%, transparent);
+    background: color-mix(in srgb, var(--tab-color, @accent) 10%, transparent);
+  }
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+}
+.shell-index-page-info {
+  font-size: 10px;
+  color: fade(@ink, 45%);
+  margin: 0 2px;
+  white-space: nowrap;
+}
+
+// ── TagSelect 标签式多选 ───────────────────────────────────────────
+.tag-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tag-select-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 24px;
+}
+.tag-select-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.08);
+  color: #4338ca;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  &:hover {
+    background: rgba(99, 102, 241, 0.18);
+  }
+}
+.tag-select-input {
+  :deep(.el-select) {
+    width: 100%;
+  }
+}
+
+// ── Token badge ────────────────────────────────────────────────────
+.token-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  &.warn {
+    background: rgba(246, 183, 60, 0.2);
+    color: #80560a;
+  }
+  &.danger {
+    background: rgba(185, 28, 28, 0.14);
+    color: #b91c1c;
+    animation: token-pulse 1.4s ease-in-out infinite;
+  }
+}
+@keyframes token-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+// ── PillSelector 药丸按钮单选 ──────────────────────────────────────
+.pill-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  height: 24px;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: fade(@ink, 70%);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  &:hover {
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
+    color: fade(@ink, 88%);
+  }
+  &.active {
+    background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+    color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+    font-weight: 800;
+  }
+}
+
+// ── BrainCard 折叠 ─────────────────────────────────────────────────
+.brain-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 28px;
+  font-size: 11px;
+  color: fade(@ink, 55%);
+  .brain-summary-sep {
+    color: fade(@ink, 25%);
+  }
+}
+.brain-detail {
+  overflow: hidden;
+  transition: max-height 0.2s ease, opacity 0.15s ease;
+}
+.brain-chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
+  &.expanded {
+    transform: rotate(90deg);
+  }
+}
+
+// ── 搜索栏 ─────────────────────────────────────────────────────────
+.search-bar {
+  padding: 4px 0 8px;
+  :deep(.el-input) {
+    width: 100%;
+  }
+}
+
+// ── 分页栏 ─────────────────────────────────────────────────────────
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+// ── Confetti 动画（角色复制） ──────────────────────────────────────
+.confetti-container {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  pointer-events: none;
+}
+.confetti-dot {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  animation: confetti-fall 0.6s ease-out forwards;
+  &:nth-child(1) { background: @accent; left: -8px; animation-delay: 0s; }
+  &:nth-child(2) { background: #4338ca; left: 0; animation-delay: 0.05s; }
+  &:nth-child(3) { background: #166534; left: 8px; animation-delay: 0.1s; }
+  &:nth-child(4) { background: #b91c1c; left: 16px; animation-delay: 0.15s; }
+}
+@keyframes confetti-fall {
+  0% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-20px) scale(0.3); opacity: 0; }
 }

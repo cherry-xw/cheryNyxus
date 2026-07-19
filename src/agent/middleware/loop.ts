@@ -132,6 +132,7 @@ export function createLoopHandler(
             attempt: times,
             timestamp: Date.now(),
             message: `已达到最大循环次数限制 (${maxLoop})`,
+            userMessage: "我绕进去了，先停下来",
             recoverable: false,
             category: "validation",
           },

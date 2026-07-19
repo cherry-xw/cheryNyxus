@@ -100,7 +100,7 @@ export async function* handleChatSend(
   // 校验 chat 存在
   const chat = getChat(chatId);
   if (!chat) {
-    throw new Error(`Chat "${chatId}" not found`);
+    throw new Error("这个会话不见了");
   }
 
   logger.event("chat.send.start", {
@@ -260,7 +260,7 @@ export async function* handleChatResume(
 
   const chat = getChat(chatId);
   if (!chat) {
-    throw new Error(`Chat "${chatId}" not found`);
+    throw new Error("这个会话不见了");
   }
 
   logger.event("chat.send.start", { mode: "resume" });
@@ -426,7 +426,7 @@ export async function handleChatAbort(
       ctx.requestId ?? "",
       false,
       undefined,
-      createError(ErrorCode.CONFLICT, `Chat "${data.chatId}" is running as "${activeRunId}", not "${data.runId}"`),
+      createError(ErrorCode.CONFLICT, "操作的目标已改变"),
     );
   }
   if (!activeRunId) {

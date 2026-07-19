@@ -25,6 +25,7 @@ chat.send → AgentBuilder.run(input)
 | [./prompt.md](./prompt.md) | [prompt/](../../src/agent/prompt/) | system prompt 构建 + SKILL.md frontmatter 解析 |
 | [./provider.md](./provider.md) | [provider/](../../src/agent/provider/) | openai/ollama/mock 三 Provider 的 LLM/Message/Sense Adapter 注册 |
 | [./sense.md](./sense.md) | [sense/](../../src/agent/sense/) | 内置感官（execute_command/read_file/write_file/skill）+ bash 进程注册表 + reloadSenses + 编译产物加载 |
+| [./plugin.md](./plugin.md) | [service/plugin/](../../src/service/plugin/) + [prompt/loadSkill.ts](../../src/agent/prompt/loadSkill.ts) | 插件整仓 git 导入（分支选择 + 凭据池 + 版本检查）+ `<plugin>__<skill>` 命名空间发现（跨 service/agent） |
 
 ## 文件清单
 

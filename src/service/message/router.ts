@@ -89,7 +89,10 @@ export class RpcRouter {
         request.id,
         false,
         undefined,
-        createError(ErrorCode.METHOD_NOT_FOUND, `Method "${request.method}" not found`),
+        createError(
+          ErrorCode.METHOD_NOT_FOUND,
+          `[${newTracingId()}] 当前版本不支持此操作，请更新后重试`,
+        ),
       );
     }
 
@@ -97,16 +100,18 @@ export class RpcRouter {
     // schema 存在性与 handler 同步注册（requestSchemas 覆盖全部 Method）。
     const schema = requestSchemaFor(request.method);
     if (!schema) {
+      const tracingId = newTracingId();
+      logger.event("req.no_schema", { tracingId, method: request.method }, LogLevel.error);
       return createResponse(
         request.id,
         false,
         undefined,
-        createError(ErrorCode.INTERNAL, `No schema registered for method ${request.method}`),
+        createError(ErrorCode.INTERNAL, `[${tracingId}] 系统出了点小问题`),
       );
     }
     const parsed = schema.safeParse(request.params);
     if (!parsed.success) {
-      // 两层错误（docs/error-conventions.md）：用户面一行中文 + tracingId；
+      // 两层错误（docs/error-conventions.md）：用户面一行中文 + 前置 tracingId；
       // 完整 Zod issues（path/code/expected/received 机读细节）走 logger.event 落盘，不进 message。
       const tracingId = newTracingId();
       logger.event(
@@ -120,7 +125,7 @@ export class RpcRouter {
         undefined,
         createError(
           ErrorCode.INVALID_PARAMS,
-          `请求参数格式有误，请检查输入或反馈此编号给开发 [${tracingId}]`,
+          `[${tracingId}] 方言不通，没听懂这个请求`,
         ),
       );
     }

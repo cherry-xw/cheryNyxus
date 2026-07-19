@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import dayjs from "dayjs";
 import config from "@/utils/config.js";
-import { getSkillMetas } from "./loadSkill.js";
+import { getSkillMetas, type SkillFilter } from "./loadSkill.js";
 import { detectVcs, formatVcsBlock } from "@/utils/vcs.js";
 import { readMemoryIndexContent, readMemoryIndex } from "@/memory/index.js";
 
@@ -66,8 +66,9 @@ interface PromptPieces {
 /**
  * 组装系统提示词各组成片段（buildFirstSystemPrompt 与分段计量共用，单一数据源）。
  * override 合并语义：给出则作补充拼接到全局 base 之后（**非**替换）；文件缺失 warn + 留空（仅全局 base）。
+ * @param skillFilter per-role 技能组/插件组过滤（undefined = 全部 skill，向后兼容）；仅作用于 <skills> 块注入。
  */
-function buildPromptPieces(promptPathOverride?: string, workspace?: string): PromptPieces {
+function buildPromptPieces(promptPathOverride?: string, workspace?: string, skillFilter?: SkillFilter): PromptPieces {
   // override 路径实时读（每子 agent 可不同文件）；缺失容错仅用全局 base（配置期 validateRawConfig 已校验存在）
   let userSystem = "";
   if (promptPathOverride) {
@@ -118,7 +119,8 @@ function buildPromptPieces(promptPathOverride?: string, workspace?: string): Pro
     readMemoryIndex(undefined, "global").length + readMemoryIndex(workspace, "workspace").length;
 
   // P1-5：trigger 作为软提示注入 skill 描述，供 LLM 判断何时自动触发该 skill
-  const skillMetas = getSkillMetas();
+  // per-role 过滤：skillFilter 限定独立 skill（skills 白名单）/ 插件 skill（plugins 白名单）；undefined = 全部
+  const skillMetas = getSkillMetas(skillFilter);
   const skillsInner = skillMetas
     .map((s) => {
       const trigger = s.trigger ? `\n触发条件: ${s.trigger}` : "";
@@ -156,8 +158,8 @@ function buildPromptPieces(promptPathOverride?: string, workspace?: string): Pro
  * system 段含全局 base + <environment> + <workspace>（**不含** override），
  * userSystem 段为 override 补充；二者 token 之和 = 实际 <system-reminder> 内 body（合并）。
  */
-export function buildSystemPromptSegments(promptPathOverride?: string, workspace?: string): SystemPromptSegments {
-  const p = buildPromptPieces(promptPathOverride, workspace);
+export function buildSystemPromptSegments(promptPathOverride?: string, workspace?: string, skillFilter?: SkillFilter): SystemPromptSegments {
+  const p = buildPromptPieces(promptPathOverride, workspace, skillFilter);
   return {
     system: `<system-reminder>\n${p.globalBase}\n</system-reminder>\n\n${p.envBlock}${p.workspaceSection}`,
     userSystem: p.userSystem,
@@ -176,9 +178,10 @@ export function buildSystemPromptSegments(promptPathOverride?: string, workspace
  *   给出则作**补充**合并到全局 base 之后（合并非替换，支持每子 agent 不同 prompt 文件）；
  *   文件缺失 warn + 仅用全局 base（配置期 validateRawConfig 已 existsSync 校验）。缺省 → 仅全局 base。
  * @param workspace 可选，预设级项目工作目录（注入 <workspace> 段）。
+ * @param skillFilter 可选，per-role 技能组/插件组过滤（仅 <skills> 块；undefined = 全部）。
  */
-export default function buildFirstSystemPrompt(promptPathOverride?: string, workspace?: string): string {
-  const p = buildPromptPieces(promptPathOverride, workspace);
+export default function buildFirstSystemPrompt(promptPathOverride?: string, workspace?: string, skillFilter?: SkillFilter): string {
+  const p = buildPromptPieces(promptPathOverride, workspace, skillFilter);
   // 合并：全局 base 在前为基础，override 在后为补充
   const body = p.userSystem ? `${p.globalBase}\n\n${p.userSystem}` : p.globalBase;
   return `<system-reminder>

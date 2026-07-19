@@ -6,6 +6,7 @@ import AgentSession, {
 import type { LLMResponse } from "@/core/message/adapter";
 import config from "@/utils/config";
 import buildFirstSystemPrompt from "@/agent/prompt/index";
+import type { SkillFilter } from "@/agent/prompt/loadSkill";
 import { randomUUID } from "crypto";
 import { RuntimeResolver, type RuntimeSelection } from "./runtimeResolver.js";
 
@@ -52,8 +53,8 @@ export class AgentBuilder {
    * persona 修复：observer 不持久化 system 消息 → 重启后 loadHistory 返回 messages 无 system 首条。
    * 故统一保证内存 messages 首条为 system：历史存在但首条非 system → prepend；首条已是 system → 原样；无历史 → [systemMsg]。
    */
-  init(chatId: string, messages?: LLMResponse[], promptPathOverride?: string, workspace?: string): this {
-    const systemMsg = this.createInitialMessages(promptPathOverride, workspace);
+  init(chatId: string, messages?: LLMResponse[], promptPathOverride?: string, workspace?: string, skillFilter?: SkillFilter): this {
+    const systemMsg = this.createInitialMessages(promptPathOverride, workspace, skillFilter);
     let msgs: LLMResponse[];
     if (messages && messages.length > 0) {
       // DB 不持久化基础系统提示词；压缩恢复会带一条系统摘要，因此始终先注入当前基础系统提示词。
@@ -65,13 +66,13 @@ export class AgentBuilder {
     return this;
   }
 
-  private createInitialMessages(promptPathOverride?: string, workspace?: string): LLMResponse[] {
+  private createInitialMessages(promptPathOverride?: string, workspace?: string, skillFilter?: SkillFilter): LLMResponse[] {
     const now = Date.now();
     return [
       {
         id: randomUUID(),
         role: "system",
-        content: buildFirstSystemPrompt(promptPathOverride, workspace),
+        content: buildFirstSystemPrompt(promptPathOverride, workspace, skillFilter),
         createdAt: now,
         updateAt: now,
       },

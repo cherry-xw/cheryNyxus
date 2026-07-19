@@ -106,6 +106,11 @@ sense_groups:
     - read_file
     - search_codebase
     - skill
+  housekeeper:                    # 管家角色：安装/维护 .chery/ 配置（install_skill 独占）
+    - install_skill
+    - read_file
+    - search_codebase
+    - ask_user_question
 
 # ------------------------------------------------------------
 # roles：角色定义
@@ -115,24 +120,31 @@ sense_groups:
 roles:
   coordinator:
     brain: my-brain                     # 引用 llm.brain 中的 key
+    avatar: "🧭"                        # [可选] 角色头像；缺省按角色名稳定生成，也可在设置页切换 Emoji
     senseGroup: leader
     mcpServers: []                      # [可选] MCP 服务器列表
-    systemPrompt: prompts/prefebMain/leader.md
+    systemPrompt: prompt/prefebMain/leader.md
   plan:
     brain: my-brain
     senseGroup: plan
     mcpServers: []
-    systemPrompt: prompts/prefebMain/planner.md
+    systemPrompt: prompt/prefebMain/planner.md
   coder:
     brain: my-brain
     senseGroup: coder
     mcpServers: []
-    systemPrompt: prompts/prefebMain/coder.md
+    systemPrompt: prompt/prefebMain/coder.md
   reviewer:
     brain: my-brain
     senseGroup: reviewer
     mcpServers: []
-    systemPrompt: prompts/prefebMain/reviewer.md
+    systemPrompt: prompt/prefebMain/reviewer.md
+  housekeeper:                    # 管家：安装技能（install_skill 感官独占，.chery/ 路径守卫豁免）
+    brain: my-brain
+    senseGroup: housekeeper
+    mcpServers: []
+    systemPrompt: prompt/housekeeper/housekeeper.md
+    lock: true                       # 锁定禁止删除（保护 install 能力）
 
 # ------------------------------------------------------------
 # presets：预设配置
@@ -147,6 +159,7 @@ presets:
       - coder
       - coordinator
       - reviewer
+      - housekeeper                     # 管家（安装技能专用，主 agent 可 spawn）
     workspace: <YOUR_WORKSPACE_PATH>    # 修改为你的实际工作目录
 
 # ------------------------------------------------------------

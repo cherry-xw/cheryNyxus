@@ -13,14 +13,14 @@ const CLIENT_INFO = { name: "cheryclaw", version: "1.0.0" };
  */
 function buildTransport(cfg: McpServerConfig) {
   if (cfg.transport === "stdio") {
-    if (!cfg.command) throw new Error("stdio MCP server 缺少 command");
+    if (!cfg.command) throw new Error("扩展工具配置不全（缺 command）");
     return new StdioClientTransport({ command: cfg.command, args: cfg.args, env: cfg.env });
   }
   if (cfg.transport === "streamable-http") {
-    if (!cfg.url) throw new Error("streamable-http MCP server 缺少 url");
+    if (!cfg.url) throw new Error("扩展工具配置不全（缺 url）");
     return new StreamableHTTPClientTransport(new URL(cfg.url));
   }
-  throw new Error(`不支持的 MCP transport: ${cfg.transport}`);
+  throw new Error(`扩展工具用了不支持的连接方式（${cfg.transport}）`);
 }
 
 /**

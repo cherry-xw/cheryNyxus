@@ -84,7 +84,7 @@ export function resetEnvVarCache(): void;
 
 ### 配置读写（config.get / config.save RPC）
 
-设置面板（web）经两个 RPC 读写 `.chery/config.yaml`，**运行时内存单例不碰**（重启生效），避开热更复杂度：
+设置面板（web）经 `config.get` / `config.save` 和一个只读校验 RPC 操作 `.chery/config.yaml`，**运行时内存单例不碰**（重启生效），避开热更复杂度：
 
 ```ts
 // 原始形态（磁盘/YAML）：supervision 为字符串、无路径补全、key 仍为 $ENV 占位符
@@ -103,6 +103,8 @@ export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; e
 //   校验(validateRawConfig) -> 读盘取 server 段 -> merge -> js-yaml dump(无注释) -> writeFileSync
 export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，loadConfig 启动期亦调用
 ```
+
+`config.workspace.validate` 接收 `{ workspace }`，只在后端主机上检查非空路径是否为绝对、可访问的目录，返回 `{ valid, error? }`；它不读取或写入配置，也不触发重启。设置页在预设工作区输入变化后调用它，因此浏览器客户端同样能得到后端文件系统的即时结果。保存时 `saveRawConfig` 仍执行同一类校验，避免绕过 UI 写入无效配置。
 
 校验规则（`validateRawConfig`，返回错误字符串数组，空=通过）：
 - `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt`（如配置）必须存在

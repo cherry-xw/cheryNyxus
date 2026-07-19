@@ -133,9 +133,13 @@ const configSaveSchema = z
         z.string(),
         z.object({
           brain: z.string(),
+          avatar: z.string().max(24).optional(),
           senseGroup: z.string(),
           mcpServers: z.array(z.string()).optional(),
           systemPrompt: z.string().optional(),
+          skills: z.array(z.string()).optional(),
+          plugins: z.array(z.string()).optional(),
+          lock: z.boolean().optional(),
         }),
       )
       .optional(),
@@ -161,7 +165,13 @@ export const requestSchemas = {
   [Method.BRAIN_LIST]: emptySchema,
   [Method.SENSE_LIST]: emptySchema,
   [Method.SENSE_TOOLS]: emptySchema,
-  [Method.SKILLS_LIST]: emptySchema,
+  [Method.SKILLS_LIST]: z.object({
+    page: z.number().optional(),
+    pageSize: z.number().optional(),
+    search: z.string().optional(),
+    plugin: z.string().optional(),
+  }),
+  [Method.SKILLS_LIST_NAMES]: emptySchema,
   [Method.PROMPTS_LIST]: emptySchema,
   [Method.RUNTIME_SET]: z.object({
     chatId: z.string(),
@@ -246,6 +256,7 @@ export const requestSchemas = {
   [Method.MCP_DISCONNECT]: z.object({ name: z.string() }),
   [Method.MCP_RELOAD]: z.object({ name: z.string().optional() }),
   [Method.CONFIG_GET]: emptySchema,
+  [Method.CONFIG_WORKSPACE_VALIDATE]: z.object({ workspace: z.string().optional() }).strict(),
   [Method.CONFIG_SAVE]: configSaveSchema,
   // Utils 工具：provider/url 必填，key 可选（ollama 通常无需）
   [Method.UTILS_MODELS]: z.object({
@@ -269,6 +280,69 @@ export const requestSchemas = {
   }),
   // 内置命令管理（settings 「指令」tab 后端；只读枚举）
   [Method.COMMAND_LIST]: emptySchema,
+  // Skill 导入：GitHub URL（独立技能集合）→ staging；commit 落盘；delete 删独立 skill
+  [Method.SKILLS_PRE_IMPORT_URL]: z.object({
+    url: z.string().min(1),
+    credentialId: z.string().optional(),
+    proxy: z.string().optional(),
+  }),
+  [Method.SKILLS_IMPORT_URL]: z
+    .object({
+      url: z.string().min(1),
+      branch: z.string().min(1),
+      credentialId: z.string().optional(),
+      username: z.string().optional(),
+      password: z.string().optional(), // 字段名命中 logger 自动脱敏
+      remember: z.boolean().optional(),
+      label: z.string().optional(),
+      proxy: z.string().optional(),
+    })
+    .refine((d) => !(d.credentialId && d.password), { message: "credentialId 与 inline password 互斥" }),
+  [Method.SKILLS_COMMIT]: z.object({
+    stagingId: z.string().min(1),
+    selections: z.array(z.object({ name: z.string().min(1), import: z.boolean() })),
+  }),
+  [Method.SKILLS_DELETE]: z.object({ name: z.string().min(1) }),
+  // Skill git 来源中央索引（.chery/.skill-sources.json）：list/resync/deleteSource + 批量 resyncAll
+  [Method.SKILLS_LIST_SOURCES]: emptySchema,
+  [Method.SKILLS_CHECK_SOURCE]: z.object({ sourceId: z.string().min(1) }),
+  [Method.SKILLS_CHECK_ALL_SOURCES]: emptySchema,
+  [Method.SKILLS_RESYNC_SOURCE]: z.object({ sourceId: z.string().min(1) }),
+  [Method.SKILLS_DELETE_SOURCE]: z.object({ sourceId: z.string().min(1) }),
+  [Method.SKILLS_RESYNC_ALL_SOURCES]: emptySchema,
+  // 插件管理（settings 「插件」tab）：git clone 整仓 + 分支选择 + 凭据池 + 版本检查
+  [Method.PLUGINS_LIST]: emptySchema,
+  [Method.PLUGINS_PRE_IMPORT_URL]: z.object({
+    url: z.string().min(1),
+    credentialId: z.string().optional(),
+    proxy: z.string().optional(),
+  }),
+  [Method.PLUGINS_IMPORT_URL]: z
+    .object({
+      url: z.string().min(1),
+      branch: z.string().min(1),
+      credentialId: z.string().optional(),
+      username: z.string().optional(),
+      password: z.string().optional(), // 字段名命中 logger 自动脱敏
+      remember: z.boolean().optional(),
+      label: z.string().optional(),
+      pluginName: z.string().min(1).optional(),
+      proxy: z.string().optional(),
+    })
+    .refine((d) => !(d.credentialId && d.password), { message: "credentialId 与 inline password 互斥" }),
+  [Method.PLUGINS_COMMIT]: z.object({ stagingId: z.string().min(1), overwrite: z.boolean() }),
+  [Method.PLUGINS_CHECK_UPDATE]: z.object({ name: z.string().min(1) }),
+  [Method.PLUGINS_CHECK_ALL_UPDATES]: emptySchema,
+  [Method.PLUGINS_UPDATE]: z.object({ name: z.string().min(1) }),
+  [Method.PLUGINS_UNINSTALL]: z.object({ name: z.string().min(1) }),
+  // 凭据池（通用：plugins / skills / 未来 commands 共享）
+  [Method.CREDENTIALS_LIST]: emptySchema,
+  [Method.CREDENTIALS_SAVE]: z.object({
+    label: z.string().min(1),
+    username: z.string().min(1),
+    password: z.string().min(1),
+  }),
+  [Method.CREDENTIALS_DELETE]: z.object({ id: z.string().min(1) }),
 } as const satisfies Record<Method, z.ZodTypeAny>;
 
 /**

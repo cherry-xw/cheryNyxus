@@ -30,7 +30,7 @@ export async function handleRuntimeSet(
   const p = data;
   const chat = getChat(p.chatId);
   if (!chat) {
-    throw new Error(`Chat "${p.chatId}" not found`);
+    throw new Error("这个会话不见了");
   }
 
   let brain: string;
@@ -41,13 +41,13 @@ export async function handleRuntimeSet(
     // 编制锁定：取创建快照的 senseGroup/mcp，brain 用传入值
     const snapshot = getChatRuntimeSelection(p.chatId);
     if (!snapshot) {
-      throw new Error(`preset chat "${p.chatId}" 缺 runtime 快照（数据异常：metadata.preset 存在但 runtime 缺失）`);
+      throw new Error("预设会话的运行配置丢了（数据异常）");
     }
     if (p.senseGroup !== undefined && p.senseGroup !== snapshot.senseGroup) {
-      throw new Error(`preset chat 编制锁定：senseGroup 不可改（preset=${presetName}，快照=${snapshot.senseGroup}）`);
+      throw new Error("预设会话的编制已锁定，感官组不能改");
     }
     if (p.mcpServers && !sameArray(p.mcpServers, snapshot.mcpServers)) {
-      throw new Error(`preset chat 编制锁定：mcpServers 不可改（preset=${presetName}）`);
+      throw new Error("预设会话的编制已锁定，扩展工具不能改");
     }
     brain = p.brain;
     senseGroup = snapshot.senseGroup;

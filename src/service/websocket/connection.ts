@@ -71,7 +71,7 @@ export class ConnectionManager {
     const state = this.connections.get(ws);
     if (!state) {
       logger.event("conn.notfound", { available: this.connections.size }, LogLevel.error);
-      throw new Error("Connection not found");
+      throw new Error("连接丢了，请重连");
     }
 
     const pending: PendingRequest = {
@@ -158,7 +158,7 @@ export class ConnectionManager {
   bindChatConnection(chatId: string, connectionId: string): void {
     const owner = this.activeChatConnections.get(chatId);
     if (owner && owner !== connectionId) {
-      throw new Error(`Chat "${chatId}" is busy (active on another connection)`);
+      throw new Error("这个会话正在别处使用");
     }
     this.activeChatConnections.set(chatId, connectionId);
     // T9：同步记持久 owner（turn 结束 activeChatConnections 释放后，role_reply 仍可反查推送）

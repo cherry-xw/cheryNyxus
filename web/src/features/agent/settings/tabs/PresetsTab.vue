@@ -3,21 +3,44 @@
  * PresetsTab：预设管理（config.presets）。
  * 每预设 = 团队成员多选（引用 config.roles 单一源）+ 指定组长（leader）。
  * 运行时采用组长的角色配置（不在预设内重定义 brain/sense）。
- * 增删预设走底部输入框 + ConfirmPopover 二次确认；标题可点击改名。合法性由后端 config.save 校验 fail loud。
+ * 增删预设走底部输入框 + ConfirmDialog 居中 modal 二次确认；标题可点击改名。合法性由后端 config.save 校验 fail loud。
  */
 import { ref, computed } from "vue";
-import { ArrowDown, Check, Delete } from "@element-plus/icons-vue";
+import { ArrowDown, Check, Delete, WarningFilled } from "@element-plus/icons-vue";
 import type { ConfigDto, SenseToolInfo } from "@/services/agentApi";
 import { pickDirectory, isElectron } from "@/services/platform";
-import ConfirmPopover from "../ConfirmPopover.vue";
+import ConfirmDialog from "../ConfirmDialog.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import SenseIcon from "../components/SenseIcon.vue";
 import TabShell, { type IndexItem } from "../components/TabShell.vue";
+import { resolveRoleAvatar } from "../roleAvatar";
 
-const props = defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[] }>();
-const emit = defineEmits<{ (e: "error", msg: string): void }>();
+const props = defineProps<{
+  draft: ConfigDto;
+  senseTools: SenseToolInfo[];
+  /** 后端 config.save 返回的 workspace 校验告警，按 presetName 索引，显示在对应 workspace 输入框下方。 */
+  workspaceWarnings?: Record<string, string>;
+}>();
+const emit = defineEmits<{
+  (e: "error", msg: string): void;
+  (e: "workspaceChange", presetName: string, workspace: string | undefined): void;
+}>();
 
 const newPresetName = ref("");
+
+// 删预设二次确认（重删 → ConfirmDialog 居中 modal）
+const removeDialog = ref(false);
+const removePname = ref<string | undefined>(undefined);
+const removeImpact = computed(() => {
+  const pname = removePname.value;
+  if (pname === undefined) return [] as string[];
+  const preset = props.draft.presets?.[pname];
+  const roleCount = preset?.roles?.length ?? 0;
+  return [
+    `预设「${pname}」将被删除。`,
+    roleCount ? `${roleCount} 个角色成员配置将一并移除。` : "（无成员）",
+  ];
+});
 
 function onError(msg: string): void {
   emit("error", msg);
@@ -89,7 +112,15 @@ const canPickDir = isElectron;
 async function onPickWorkspace(pname: string): Promise<void> {
   const dir = await pickDirectory();
   const p = props.draft.presets?.[pname];
-  if (dir && p) p.workspace = dir;
+  if (dir && p) updateWorkspace(pname, dir);
+}
+
+/** 输入与目录选择共用：写 draft 后立刻通知外壳按该预设单独校验。 */
+function updateWorkspace(pname: string, value: string): void {
+  const p = props.draft.presets?.[pname];
+  if (!p) return;
+  p.workspace = value || undefined;
+  emit("workspaceChange", pname, p.workspace);
 }
 
 /** 序号按钮列表：每预设一项。brief 给 mini popper 用（成员数 + 组长 + 媒体服务）。 */
@@ -108,7 +139,7 @@ const indexItems = computed<IndexItem[]>(() => {
 </script>
 
 <template>
-  <TabShell :index-items="indexItems">
+  <TabShell tab-key="presets" :index-items="indexItems">
     <template #hints>
       <p class="sect-hint">预设用于快速组建团队：选择成员，再从成员中指定组长。保存后的修改只会用于之后新建的会话，进行中的会话不受影响。</p>
     </template>
@@ -146,19 +177,15 @@ const indexItems = computed<IndexItem[]>(() => {
                     @update:model-value="(roles: string[]) => updateMembers(pname as string, roles)"
                   >
                     <el-checkbox v-for="(_, rname) in draft.roles" :key="rname" :value="rname as string">
-                      {{ rname }}
+                      <span class="picker-role-option"><span>{{ resolveRoleAvatar(rname as string, draft.roles?.[rname as string]?.avatar) }}</span>{{ rname }}</span>
                     </el-checkbox>
                   </el-checkbox-group>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <ConfirmPopover :title="`确认删除预设「${pname}」？`" @confirm="removePreset(pname as string)">
-              <template #trigger>
-                <button type="button" class="icon-btn danger" aria-label="删除预设">
-                  <Delete class="ico" />
-                </button>
-              </template>
-            </ConfirmPopover>
+            <button type="button" class="icon-btn danger" aria-label="删除预设" @click="removePname = (pname as string); removeDialog = true">
+              <Delete class="ico" />
+            </button>
           </template>
         </EditableTitle>
       </header>
@@ -176,10 +203,10 @@ const indexItems = computed<IndexItem[]>(() => {
               :title="preset.leader === rname ? `${rname}（当前组长）` : `点击设 ${rname} 为组长`"
               @click="setLeader(pname as string, rname)"
             >
-              <span class="member-role-name">{{ rname }}</span>
+              <span class="member-role-name"><span class="member-avatar">{{ resolveRoleAvatar(rname, draft.roles?.[rname]?.avatar) }}</span>{{ rname }}</span>
               <span v-if="draft.roles[rname]" class="member-role-card">
                 <span class="member-card-line"><b>大脑</b>{{ draft.roles[rname].brain || '未选' }}</span>
-                <span class="member-card-line"><b>感官组</b>{{ draft.roles[rname].senseGroup || '未选' }}</span>
+                <span class="member-card-line"><b>器官组</b>{{ draft.roles[rname].senseGroup || '未选' }}</span>
                 <span v-if="draft.roles[rname].senseGroup" class="member-card-senses">
                   <template v-for="entry in (draft.sense_groups?.[draft.roles[rname].senseGroup] ?? [])" :key="entry">
                     <SenseIcon :name="entry" :tools="senseTools" />
@@ -252,15 +279,21 @@ const indexItems = computed<IndexItem[]>(() => {
         <span class="lbl">工作区</span>
         <div class="workspace-row">
           <el-input
+            class="workspace-input"
+            :class="{ 'is-invalid': !!props.workspaceWarnings?.[pname as string] }"
             :model-value="preset.workspace ?? ''"
-            @update:model-value="(v: string) => (preset.workspace = v || undefined)"
+            @update:model-value="(v: string) => updateWorkspace(pname as string, v)"
             placeholder="项目根目录绝对路径（留空则不限定）"
             size="small"
+            :suffix-icon="props.workspaceWarnings?.[pname as string] ? WarningFilled : undefined"
           />
           <button v-if="canPickDir" type="button" class="ghost-btn" @click="onPickWorkspace(pname as string)">
             选择目录
           </button>
         </div>
+        <span v-if="props.workspaceWarnings?.[pname as string]" class="ws-warning">
+          {{ props.workspaceWarnings[pname as string] }}
+        </span>
         <span class="hint">
           该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）。
           {{ canPickDir ? "" : "浏览器模式请手动填写绝对路径。" }}
@@ -276,6 +309,15 @@ const indexItems = computed<IndexItem[]>(() => {
       <el-input v-model="newPresetName" placeholder="新预设名（如 light / project）" @keydown.enter="addPreset" />
       <button type="button" class="ghost-btn" @click="addPreset">+ 新增预设</button>
     </div>
+
+    <ConfirmDialog
+      v-model="removeDialog"
+      icon="🗑️"
+      :title="`删除预设「${removePname ?? ''}」？`"
+      :impact="removeImpact"
+      tab-color="#f6b73c"
+      @confirm="removePreset(removePname ?? '')"
+    />
   </TabShell>
 </template>
 
@@ -299,6 +341,8 @@ const indexItems = computed<IndexItem[]>(() => {
     color: rgba(20, 22, 26, 0.9);
   }
 }
+.picker-role-option { display:inline-flex;align-items:center;gap:6px; }.picker-role-option>span { font-size:16px; }
+.member-avatar { width:26px;height:26px;display:inline-grid;place-items:center;border-radius:9px;box-shadow:0 0 8px rgba(99,102,241,.12);font-size:16px; }
 .picker-arrow {
   width: 11px;
   height: 11px;
@@ -431,5 +475,22 @@ const indexItems = computed<IndexItem[]>(() => {
   display: flex;
   gap: 6px;
   align-items: center;
+}
+
+// 工作区校验告警（后端 config.save 返 warnings 时显示在输入框下方）
+.ws-warning {
+  display: block;
+  margin-top: 4px;
+  color: #b91c1c;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.workspace-input.is-invalid {
+  :deep(.el-input__wrapper) {
+    box-shadow: 0 0 0 1px #dc2626 inset;
+  }
+  :deep(.el-input__suffix-inner) {
+    color: #dc2626;
+  }
 }
 </style>

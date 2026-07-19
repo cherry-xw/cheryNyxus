@@ -299,6 +299,10 @@ export interface ErrorChunk {
     attempt: number;
     timestamp: number;
     message: string;
+    /** 友好文案（ClassifiedError 携带）；表层出口优先用此作用户面，tracingId 由出口前置 */
+    userMessage?: string;
+    /** 错误来源（ClassifiedError 携带）；friendlyMessage 主语依据 */
+    source?: import("@/utils/error.js").ErrorSource;
     stack?: string;
     /** 是否可恢复（可重试） */
     recoverable: boolean;

@@ -25,3 +25,16 @@ export function isDangerousSense(entry: string): boolean {
   const base = entry.split(":")[0] ?? "";
   return DANGEROUS_SENSES.includes(base);
 }
+
+/**
+ * 计算装备 token 总和：values 为空（继承全部模式）则按 options 全量累加。
+ * RolesTab.roleTokens / EquipmentPicker.tokens 共用，消除重复估算逻辑。
+ * MCP 等无后端 token 数据的资源，调用方在 tokenMap 里填占位值（如 200）。
+ */
+export function computeSelectionTokens(
+  values: string[] | undefined,
+  options: string[],
+  tokenMap: Record<string, number>,
+): number {
+  return (values ?? options).reduce((sum, name) => sum + (tokenMap[name] ?? 0), 0);
+}

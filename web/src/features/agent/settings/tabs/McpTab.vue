@@ -43,7 +43,7 @@ const indexItems = computed<IndexItem[]>(() => {
 </script>
 
 <template>
-  <TabShell :index-items="indexItems">
+  <TabShell tab-key="mcp" :index-items="indexItems">
     <template #hints>
       <p class="sect-hint">外挂工具站。stdio=本地起子进程；streamable-http=连远程。</p>
       <p class="warn-hint">⚠️ env 注入与远程 server 网络可达性需自行确认。</p>

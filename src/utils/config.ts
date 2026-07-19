@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { SupervisionLevel } from "@/core/config";
 import type { OAuth2Config } from "@/service/auth/index.js";
 import type { ThinkingLevel } from "@/core/llm/adapter";
+import { validateRoleAvatar } from "@/utils/roleAvatar.js";
 
 // .env 路径：源码运行时 __dirname = src/utils/（需 ../..），打包产物 __dirname = dist/（需 ..）。
 // dotenv.config() 不覆盖已存在的 process.env 变量，故开发/生产均可安全调用：
@@ -133,11 +134,26 @@ interface LLMConfig {
  */
 export interface RoleConfig {
   brain: string;
+  /** 角色头像字形；缺省时按角色 type 稳定映射内置头像。 */
+  avatar?: string;
   /** 单一感官组（每 agent 恰一个 sense group） */
   senseGroup: string;
   /** 启用的 MCP server 名（缺省 []，与主 agent 平权） */
   mcpServers?: string[];
   systemPrompt?: string;
+  /**
+   * 技能组：独立 skill 名子集（undefined = 全部独立 skill；[] = 无）。
+   * role 激活时仅这些独立 skill 进入 system prompt `<skills>` 块。
+   * 仅作用于 prompt 注入层（快照于 chat 创建时，"编制运行后不可改"）。
+   */
+  skills?: string[];
+  /**
+   * 插件组：plugin 名子集（undefined = 全部插件；[] = 无）。
+   * role 激活时仅这些插件下的 skill 进入 `<skills>` 块。
+   */
+  plugins?: string[];
+  /** 锁定：true = 禁止删除（前端 UI 隐藏删除、显示 lock 图标）。保护管家等关键角色不被误删。 */
+  lock?: boolean;
 }
 
 /**
@@ -157,7 +173,9 @@ export interface PresetConfig {
   /**
    * 项目工作目录绝对路径（提示词层注入：buildFirstSystemPrompt 注入 <workspace> 段声明本会话专属该项目）。
    * 仅 system prompt 提示，不约束 sense 实际行为（无 cwd 收束/路径沙箱）。缺省 → 不注入该段。
-   * validateRawConfig 校验非空时目录必须存在（fs.accessSync，fail loud）。
+   * 校验策略：
+   *   - 启动期（loadConfig）：非绝对路径 → 硬错误阻塞；绝对路径但目录不存在/不可访问 → 软警告 + 置 undefined（降级为空，下游 if(workspace) 自动跳过）
+   *   - 保存期（saveRawConfig）：任一问题均返回错误给 UI，阻止写盘
    */
   workspace?: string;
 }
@@ -305,6 +323,7 @@ interface McpServerConfig {
  */
 interface ExtendedGlobalConfig extends GlobalConfig {
   skills_dir: string; // 自动补全：chery_dir + "/.chery/skills"
+  plugins_dir: string; // 自动补全：chery_dir + "/.chery/plugins"（插件整仓，loader 增量扫描并入可用 skills）
   senses_dir: string; // 自动补全：chery_dir + "/.chery/senses"
   prompts_dir: string; // 自动补全：chery_dir + "/.chery/prompt"（唯一 prompt 目录：含全局 base system.md + per-agent override 子文件夹）
   db_dir: string; // 自动补全：chery_dir + "/db"
@@ -408,6 +427,7 @@ function loadConfig(): Config {
 
   // 业务校验（raw 形态：supervision 仍为字符串）。启动期 fail loud（规则12）。
   // brain 引用 / supervision 合法值 / sense :level / brain 必填项均在此（原内联块抽出共用）。
+  // workspace 不在此校验：启动期不关心（workspace 是环境配置非服务必需）。
   const rawErrors = validateRawConfig(config as unknown as ConfigRaw);
   if (rawErrors.length > 0) {
     throw new Error(`配置校验失败:\n${rawErrors.join("\n")}`);
@@ -452,6 +472,7 @@ function loadConfig(): Config {
 
   // 自动补全 .chery 目录路径
   config.global.skills_dir = path.join(cheryDir, ".chery", "skills");
+  config.global.plugins_dir = path.join(cheryDir, ".chery", "plugins");
   config.global.senses_dir = path.join(cheryDir, ".chery", "senses");
   config.global.prompts_dir = path.join(cheryDir, ".chery", "prompt");
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, ".chery", "db");
@@ -546,6 +567,9 @@ function isSupervisionName(v: unknown): v is SupervisionName {
  * 业务校验原始配置（raw 形态：supervision 为字符串、未补全路径、key 仍为 $ENV）。
  * 返回错误字符串数组（空 = 通过）。loadConfig 启动期与 config.save RPC 共用。
  *
+ * workspace 路径不在此校验：启动期不关心（workspace 是环境配置非服务必需），
+ * 保存期由 saveRawConfig 单独校验（errors/warnings 分离）。
+ *
  * 修复点：原 loadConfig 用 SupervisionLevel[name] 转换，非法字符串静默变 undefined；
  * 本函数显式校验 supervision 合法值，fail loud（规则12）。
  */
@@ -637,6 +661,10 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
           errors.push(`roles.${name}.systemPrompt 文件不存在: ${cfg.systemPrompt}（解析: ${p}）`);
         }
       }
+      if (cfg.avatar) {
+        const avatarError = validateRoleAvatar(cfg.avatar);
+        if (avatarError) errors.push(`roles.${name}.avatar ${avatarError}`);
+      }
     }
   }
 
@@ -673,19 +701,8 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
           errors.push(`presets.${pname}.media${kind} "${ref}" 类型为 ${raw.media?.[ref]?.type ?? "未知"}，非 ${kind}`);
         }
       }
-      // workspace（如配置）：必须是已存在的目录绝对路径（仅提示词层注入，不约束 sense 行为）
-      const ws = pcfg.workspace;
-      if (ws) {
-        if (!path.isAbsolute(ws)) {
-          errors.push(`presets.${pname}.workspace "${ws}" 必须是绝对路径`);
-        } else {
-          try {
-            fs.accessSync(ws);
-          } catch {
-            errors.push(`presets.${pname}.workspace "${ws}" 目录不存在或不可访问`);
-          }
-        }
-      }
+      // workspace 不在此校验：启动期不关心（workspace 是环境配置非服务必需）；
+      // 保存期由 saveRawConfig 单独校验（errors/warnings 分离）。
     }
   }
 
@@ -748,6 +765,23 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
 }
 
 /**
+ * 在后端主机上校验预设 workspace。空值代表「未限定」，视为有效。
+ * 仅做文件系统检查，不读取或写入 config.yaml；设置页的即时校验与 saveRawConfig 复用此规则。
+ */
+export function validateWorkspacePath(workspace: string | undefined): { valid: boolean; error?: string } {
+  if (!workspace) return { valid: true };
+  if (!path.isAbsolute(workspace)) return { valid: false, error: "必须是绝对路径" };
+  try {
+    const stat = fs.statSync(workspace);
+    if (!stat.isDirectory()) return { valid: false, error: "必须是目录" };
+    fs.accessSync(workspace);
+    return { valid: true };
+  } catch {
+    return { valid: false, error: "目录不存在或不可访问" };
+  }
+}
+
+/**
  * 读 .chery/config.yaml 原文（供 config.get）。
  * 不 replaceEnvVars（key 保持 $ENV 占位符）、不补全路径、不转 supervision 枚举；剥离 server 段。
  */
@@ -770,11 +804,29 @@ export function readRawConfig(): ConfigRaw {
 /**
  * 校验 + 写回 .chery/config.yaml（供 config.save）。
  * 不碰运行时内存单例（重启生效）。失败 fail loud 返回 errors，不写盘。
+ * 返回分离 errors（硬错误）+ warnings（软错误：workspace 路径无效），供 UI 分层展示。
+ * workspace 路径校验仅在保存期做（启动期不关心 workspace 数据正确性）。
  * 写回保留盘上 server 段不动，js-yaml dump 无注释（注释文档备份在 config.yaml.example）。
  */
-export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[] } {
+export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
   const errors = validateRawConfig(partial);
-  if (errors.length > 0) return { ok: false, errors };
+  // workspace 单独校验（启动期不参与；保存期非绝对路径 → 硬错误；其他无效目录 → 软警告）
+  const warnings: string[] = [];
+  if (partial.presets) {
+    for (const [pname, pcfg] of Object.entries(partial.presets)) {
+      const ws = pcfg?.workspace;
+      if (!ws) continue;
+      if (!path.isAbsolute(ws)) {
+        errors.push(`presets.${pname}.workspace "${ws}" 必须是绝对路径`);
+      } else {
+        const validation = validateWorkspacePath(ws);
+        if (!validation.valid) warnings.push(`presets.${pname}.workspace "${ws}" ${validation.error}`);
+      }
+    }
+  }
+  if (errors.length > 0 || warnings.length > 0) {
+    return { ok: false, errors, warnings };
+  }
 
   const cheryDir = process.env.CHERY_DIR || process.cwd();
   const configPath = path.join(cheryDir, ".chery", "config.yaml");

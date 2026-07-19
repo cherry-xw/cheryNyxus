@@ -7,10 +7,12 @@ import {
   type Response,
   type ConfigGetRequestData,
   type ConfigGetResponseData,
+  type ConfigWorkspaceValidateRequestData,
+  type ConfigWorkspaceValidateResponseData,
   type ConfigSaveRequestData,
   type ConfigSaveResponseData,
 } from "../message/types.js";
-import { readRawConfig, saveRawConfig } from "@/utils/config.js";
+import { readRawConfig, saveRawConfig, validateWorkspacePath } from "@/utils/config.js";
 import { logger } from "@/utils/logger/index.js";
 import { requestRestartWhenIdle } from "@/service/restartCoordinator.js";
 
@@ -33,6 +35,14 @@ async function handleConfigGet(
   return raw;
 }
 
+/** config.workspace.validate：为设置页提供后端主机上的只读目录校验。 */
+async function handleConfigWorkspaceValidate(
+  _ctx: HandlerContext,
+  data: ConfigWorkspaceValidateRequestData,
+): Promise<ConfigWorkspaceValidateResponseData> {
+  return validateWorkspacePath(data.workspace);
+}
+
 /** config.save：校验 + 写回；成功后安排空闲重启。 */
 export async function handleConfigSave(
   ctx: HandlerContext,
@@ -43,7 +53,7 @@ export async function handleConfigSave(
   if (!result.ok) {
     // errors（硬错误）+ warnings（软错误，如 workspace 路径无效）合并展示给 UI；
     // 仅 warnings 时也阻止写盘（提示用户修正）。
-    const combined = [...result.errors, ...result.warnings];
+    const combined = [...result.errors, ...(result.warnings ?? [])];
     return createResponse(
       rid,
       false,
@@ -58,5 +68,8 @@ export async function handleConfigSave(
 
 export function registerConfigHandlers(router: RpcRouter): void {
   router.register(Method.CONFIG_GET, handleConfigGet);
+  router.register(Method.CONFIG_WORKSPACE_VALIDATE, handleConfigWorkspaceValidate);
   router.register(Method.CONFIG_SAVE, handleConfigSave);
 }
+
+export { handleConfigWorkspaceValidate };

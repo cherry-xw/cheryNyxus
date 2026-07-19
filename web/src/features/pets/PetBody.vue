@@ -2,8 +2,10 @@
 /**
  * PetBody：宠物身体视觉组件（纯展示 + 交互事件上传）。
  * 包含 shadow / dir / sprite / status-row / head-row（hands + face-flip 3D card + meta-row）/ zzz / busy-indicator。
+ * 主pet 禁翻转：--pet-direction 锁 1（身体不镜像）+ 脸绕过 3D card 渲染单一静态 .face（无背面重叠）；子pet 保留翻转。
  * 所有 drag/hover/click handler 由父组件传入（usePetDrag）。
  */
+import { computed } from "vue";
 import { motion } from "motion-v";
 import type { VariantType } from "motion-v";
 import ContextBar from "@/features/agent/ContextBar.vue";
@@ -35,6 +37,16 @@ const props = defineProps<{
 }>();
 
 const questionItems = () => flattenQuestionItems(props.stream);
+
+/** workspace 最后一层文件夹名（basename，兼容 / 与 \ 及末尾分隔符）。 */
+const workspaceFolder = computed(() => {
+  const ws = props.pet.workspace ?? "";
+  const trimmed = ws.replace(/[\\/]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed || ws;
+});
+/** 工作区 icon：有效 🖥️ / 失效（workspaceValid===false）💢。 */
+const workspaceIcon = computed(() => (props.pet.workspaceValid === false ? "💢" : "🖥️"));
 
 const emit = defineEmits<{
   history: [pet: PetInstance];
@@ -103,7 +115,14 @@ const emit = defineEmits<{
             :animate="leftHandMotion.animate"
             :transition="leftHandMotion.transition"
           >{{ leftHand }}</MotionSpan>
-          <span class="face-flip">
+          <MotionSpan
+            v-if="pet.isMaster"
+            class="face"
+            :initial="false"
+            :animate="face.animate"
+            :transition="face.transition"
+          >{{ faceGlyph }}</MotionSpan>
+          <span v-else class="face-flip">
             <span class="face-rotate">
               <span class="face-side front">
                 <MotionSpan
@@ -134,6 +153,15 @@ const emit = defineEmits<{
         </span>
         <div class="meta-row">
           <span class="name">
+            <span
+              v-if="pet.isMaster && pet.workspace"
+              class="workspace-icon"
+              :class="{ 'is-invalid': pet.workspaceValid === false }"
+              :aria-label="`工作区 ${workspaceFolder}`"
+            >
+              {{ workspaceIcon }}
+              <span class="ws-bubble">{{ workspaceFolder }}</span>
+            </span>
             <span
               v-for="(ch, i) in nameChars"
               :key="i"
@@ -374,6 +402,48 @@ const emit = defineEmits<{
   font-weight: 400;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+/* 工作区 icon：meta-row name 前，pet 带 workspace 时显。hover 弹 basename（最后一层文件夹名）。
+   呼应 AgentDialog 工作区提示（📁/⚠），icon 改 🖥️/💢 以区分桌面端工作区语义。 */
+.workspace-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 2px;
+  font-size: 10px;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: default;
+  user-select: none;
+
+  &:hover .ws-bubble { display: block; }
+}
+
+.ws-bubble {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  z-index: 20;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 160px;
+  margin-bottom: 4px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: #fff;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+  color: fade(@ink, 84%);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  text-align: center;
+  /* meta-row 有 scaleX(direction)；bubble 反向 scaleX 抵消，避免 pet 朝左时文字镜像 */
+  transform: translateX(-50%) scaleX(var(--pet-direction));
 }
 
 .status-stack {

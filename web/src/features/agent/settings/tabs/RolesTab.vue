@@ -1,192 +1,202 @@
 <script setup lang="ts">
-/**
- * RolesTab：角色（config.roles）配置。
- * 主宠派出的助手与预设组长，各配大脑与感官。标题可点击改名（保序重建 + 迁移 presets.*.roles/leader 引用）；
- * 删除走 ConfirmPopover 二次确认。
- */
-import { ref, computed } from "vue";
-import { Delete } from "@element-plus/icons-vue";
+import { computed, nextTick, ref } from "vue";
+import { CopyDocument, Delete, Lock, Plus, Search } from "@element-plus/icons-vue";
 import type { ConfigDto } from "@/services/agentApi";
-import ConfirmPopover from "../ConfirmPopover.vue";
+import ConfirmDialog from "../ConfirmDialog.vue";
 import EditableTitle from "../components/EditableTitle.vue";
-import { buildPromptTree } from "./promptTree";
-import TabShell, { type IndexItem } from "../components/TabShell.vue";
+import ResourceWorkbench, { type ResourceRailItem } from "../components/ResourceWorkbench.vue";
+import AvatarPicker from "../components/AvatarPicker.vue";
+import EquipmentPicker from "../components/EquipmentPicker.vue";
+import { resolveRoleAvatar } from "../roleAvatar";
+import { computeSelectionTokens } from "../shared";
 
-const props = defineProps<{ draft: ConfigDto; prompts: string[] }>();
+type RoleDraft = NonNullable<ConfigDto["roles"]>[string];
+type SkillCatalog = { skills: string[]; plugins: string[]; skillTokens: Record<string, number>; pluginTokens: Record<string, number> };
+
+const props = defineProps<{ draft: ConfigDto; prompts: string[]; skillCatalog: SkillCatalog }>();
 const emit = defineEmits<{ (e: "error", msg: string): void }>();
-
-/** systemPrompt 级联选择器目录树（prompts 路径 → 组文件夹 → .md）。 */
-const promptTree = computed(() => buildPromptTree(props.prompts));
-
+const selectedRole = ref("");
 const newRoleType = ref("");
+const promptSearch = ref("");
+const copiedRole = ref("");
+const titleRef = ref<InstanceType<typeof EditableTitle> | null>(null);
+const removeDialog = ref(false);
+const removeImpact = computed(() => {
+  const presetRefs = Object.values(props.draft.presets ?? {}).filter((p) => p.roles?.includes(selectedRole.value)).length;
+  const lines: string[] = ["该角色的全部配置（大脑 / 器官 / 装备）将被移除。"];
+  if (presetRefs) lines.push(`${presetRefs} 个预设引用了本角色，将自动清理。`);
+  return lines;
+});
 
-function onError(msg: string): void {
-  emit("error", msg);
+const roles = computed(() => props.draft.roles ?? {});
+const current = computed(() => roles.value[selectedRole.value]);
+const brainNames = computed(() => Object.keys(props.draft.llm.brain));
+const senseNames = computed(() => Object.keys(props.draft.sense_groups ?? {}));
+const mcpNames = computed(() => Object.keys(props.draft.mcp_servers ?? {}));
+const mcpTokens = computed(() => Object.fromEntries(mcpNames.value.map((name) => [name, 200])));
+const filteredPrompts = computed(() => {
+  const q = promptSearch.value.trim().toLowerCase();
+  return props.prompts.filter((path) => !q || path.toLowerCase().includes(q));
+});
+
+function roleTokens(cfg: RoleDraft): number {
+  return computeSelectionTokens(cfg.skills, props.skillCatalog.skills, props.skillCatalog.skillTokens)
+    + computeSelectionTokens(cfg.plugins, props.skillCatalog.plugins, props.skillCatalog.pluginTokens)
+    + computeSelectionTokens(cfg.mcpServers, mcpNames.value, mcpTokens.value);
 }
+const railItems = computed<ResourceRailItem[]>(() => Object.entries(roles.value).map(([type, cfg]) => ({
+  key: type,
+  label: type,
+  avatar: resolveRoleAvatar(type, cfg.avatar),
+  meta: `${cfg.brain || "未选大脑"} · ${cfg.senseGroup || "无器官"}`,
+  badge: cfg.lock ? "锁定" : roleTokens(cfg) > 5000 ? "高负重" : undefined,
+  danger: !props.draft.llm.brain[cfg.brain],
+})));
 
 function addRole(): void {
   const type = newRoleType.value.trim();
   if (!type) return;
   if (!props.draft.roles) props.draft.roles = {};
-  if (props.draft.roles[type]) {
-    emit("error", `角色 "${type}" 已存在`);
-    return;
-  }
-  props.draft.roles[type] = { brain: "", senseGroup: "" };
+  if (props.draft.roles[type]) { emit("error", `角色 "${type}" 已存在`); return; }
+  props.draft.roles[type] = { brain: brainNames.value[0] ?? "", senseGroup: senseNames.value[0] ?? "" };
   newRoleType.value = "";
+  selectedRole.value = type;
 }
 function removeRole(type: string): void {
-  if (!props.draft.roles) return;
+  if (!props.draft.roles || props.draft.roles[type]?.lock) return;
   delete props.draft.roles[type];
-  // 清理预设引用（与 renameRole 同模式：被删 type 从 presets.*.roles 移除，若 leader 为该 type 则清空）
-  // 否则后端 validateRawConfig 会因 leader/roles 引用未知 type 拒写盘（规则12 fail loud）
-  if (props.draft.presets) {
-    for (const p of Object.values(props.draft.presets)) {
-      if (p.roles) p.roles = p.roles.filter((r) => r !== type);
-      if (p.leader === type) p.leader = "";
-    }
+  for (const preset of Object.values(props.draft.presets ?? {})) {
+    preset.roles = preset.roles?.filter((name) => name !== type);
+    if (preset.leader === type) preset.leader = "";
   }
 }
-/** 改名：保序重建 roles + 迁移 presets.*.roles 成员与 leader 引用。 */
-function renameRole(oldType: string, newType: string): void {
-  if (!props.draft.roles) return;
-  const cfg = props.draft.roles[oldType];
-  const rebuilt = {} as typeof props.draft.roles;
-  for (const [k, v] of Object.entries(props.draft.roles)) {
-    if (k === oldType) rebuilt[newType] = cfg!;
-    else rebuilt[k] = v;
+function duplicateRole(type: string): void {
+  if (!props.draft.roles?.[type]) return;
+  let name = `${type}_copy`; let suffix = 2;
+  while (props.draft.roles[name]) name = `${type}_copy_${suffix++}`;
+  const rebuilt: NonNullable<ConfigDto["roles"]> = {};
+  for (const [key, value] of Object.entries(props.draft.roles)) {
+    rebuilt[key] = value;
+    if (key === type) rebuilt[name] = structuredClone(value);
   }
   props.draft.roles = rebuilt;
-  if (props.draft.presets) {
-    for (const p of Object.values(props.draft.presets)) {
-      if (p.roles) p.roles = p.roles.map((r) => (r === oldType ? newType : r));
-      if (p.leader === oldType) p.leader = newType;
-    }
+  selectedRole.value = name;
+  copiedRole.value = name;
+  window.setTimeout(() => { copiedRole.value = ""; }, 700);
+  nextTick(() => titleRef.value?.start());
+}
+function renameRole(oldType: string, newType: string): void {
+  if (!props.draft.roles?.[oldType]) return;
+  const rebuilt: NonNullable<ConfigDto["roles"]> = {};
+  for (const [key, value] of Object.entries(props.draft.roles)) rebuilt[key === oldType ? newType : key] = value;
+  props.draft.roles = rebuilt;
+  for (const preset of Object.values(props.draft.presets ?? {})) {
+    preset.roles = preset.roles?.map((name) => name === oldType ? newType : name);
+    if (preset.leader === oldType) preset.leader = newType;
   }
-  emit("error", "");
+  selectedRole.value = newType;
 }
-function validateRename(newType: string): string | null {
-  if (!props.draft.roles) return null;
-  return props.draft.roles[newType] ? `角色 "${newType}" 已存在` : null;
+function validateRename(name: string): string | null {
+  return name !== selectedRole.value && props.draft.roles?.[name] ? `角色 "${name}" 已存在` : null;
 }
-function supportsTools(brainName: string): boolean {
-  return props.draft.llm.brain[brainName]?.capabilities?.toolCall !== false;
-}
-function onBrainChange(cfg: { brain: string; senseGroup: string; mcpServers?: string[] }, brain: string): void {
+function supportsTools(brain: string): boolean { return props.draft.llm.brain[brain]?.capabilities?.toolCall !== false; }
+function setBrain(cfg: RoleDraft, brain: string): void {
   cfg.brain = brain;
-  if (!supportsTools(brain)) {
-    cfg.senseGroup = "";
-    cfg.mcpServers = [];
-  }
+  if (!supportsTools(brain)) { cfg.senseGroup = ""; cfg.mcpServers = []; }
 }
-
-/** 序号按钮列表：每角色一项。brief 给 mini popper 用（brain + senseGroup）。 */
-const indexItems = computed<IndexItem[]>(() => {
-  const roles = props.draft.roles ?? {};
-  return Object.entries(roles).map(([type, cfg]) => ({
-    label: type,
-    brain: cfg.brain || "未选",
-    senseGroup: cfg.senseGroup || "未选",
-  }));
-});
 </script>
 
 <template>
-  <TabShell :index-items="indexItems">
-    <template #hints>
-      <p class="sect-hint">主宠派出的助手与预设组长，各配大脑与感官。标题可点击改名。</p>
-    </template>
-    <template #popper="{ item }">
-      <div class="index-card">
-        <div class="index-card-title">{{ item.label as string }}</div>
-        <div class="index-card-line"><b>brain</b><span>{{ item.brain as string }}</span></div>
-        <div class="index-card-line"><b>感官组</b><span>{{ item.senseGroup as string }}</span></div>
-      </div>
-    </template>
-    <article v-for="(cfg, type, idx) in draft.roles" :key="type" class="card" :data-anchor="idx">
-      <span class="card-idx">{{ idx + 1 }}</span>
-      <header class="card-head">
-        <EditableTitle
-          :model-value="type as string"
-          :validate="validateRename"
-          @rename="(n: string) => renameRole(type as string, n)"
-          @error="onError"
-        >
-          <template #actions>
-            <ConfirmPopover :title="`确认删除角色「${type}」？`" @confirm="removeRole(type as string)">
-              <template #trigger>
-                <button type="button" class="icon-btn danger" aria-label="删除">
-                  <Delete class="ico" />
-                </button>
+  <section class="roles-workspace">
+    <p class="sect-hint">像管理小队装备一样配置角色。点击左侧头像进入详情；技能、插件和 MCP 支持继承、自选与全部关闭。</p>
+    <ResourceWorkbench v-model="selectedRole" :items="railItems" search-placeholder="搜索角色" :glow-rail="true">
+      <template #rail-actions>
+        <el-popover trigger="click" placement="bottom-start" :width="230">
+          <template #reference><button type="button" class="rail-add" aria-label="新增角色"><Plus /></button></template>
+          <div class="new-role-pop"><el-input v-model="newRoleType" placeholder="新角色类型名" @keydown.enter="addRole" /><button type="button" class="primary-btn" @click="addRole">创建</button></div>
+        </el-popover>
+      </template>
+
+      <article v-if="current" class="role-detail-card" :class="{ copied: copiedRole === selectedRole }">
+        <header class="role-identity">
+          <AvatarPicker v-model="current.avatar" :role-type="selectedRole" @error="emit('error', $event)" />
+          <div class="role-title-zone">
+            <EditableTitle ref="titleRef" class="role-name-edit" :model-value="selectedRole" :validate="validateRename" @rename="(name: string) => renameRole(selectedRole, name)" @error="emit('error', $event)">
+              <template #actions>
+                <button type="button" class="icon-btn" aria-label="复制角色" @click="duplicateRole(selectedRole)"><CopyDocument class="ico" /></button>
+                <button v-if="current.lock" type="button" class="icon-btn" disabled title="角色已锁定"><Lock class="ico" /></button>
+                <button v-else type="button" class="icon-btn danger" aria-label="删除角色" @click="removeDialog = true"><Delete class="ico" /></button>
               </template>
-            </ConfirmPopover>
-          </template>
-        </EditableTitle>
-      </header>
-      <div class="card-grid">
-        <label class="field">
-          <span class="lbl">大脑 brain</span>
-          <el-select :model-value="cfg.brain" @update:model-value="(v: unknown) => onBrainChange(cfg, v as string)">
-            <el-option label="（未选）" value="" />
-            <el-option v-for="(_, bname) in draft.llm.brain" :key="bname" :label="String(bname)" :value="bname" />
-          </el-select>
-        </label>
-        <label class="field">
-          <span class="lbl">系统提示词 prompt</span>
-          <el-cascader
-            :model-value="cfg.systemPrompt ?? ''"
-            :options="promptTree"
-            :props="{ expandTrigger: 'hover', emitPath: false }"
-            filterable
-            clearable
-            placeholder="缺省 = 全局 system_prompt"
-            class="prompt-cascader"
-            @update:model-value="(v: unknown) => (cfg.systemPrompt = v ? (v as string) : undefined)"
-          />
-        </label>
-        <label class="field">
-          <span class="lbl">感官组 sense</span>
-          <el-select
-            :model-value="cfg.senseGroup ?? ''"
-            placeholder="选择感官组"
-            :disabled="!supportsTools(cfg.brain)"
-            @update:model-value="(v: unknown) => (cfg.senseGroup = (v as string) ?? '')"
-          >
-            <el-option label="（未选）" value="" />
-            <el-option v-for="(_, gname) in draft.sense_groups" :key="gname" :label="gname as string" :value="gname as string" />
-          </el-select>
-        </label>
-      </div>
-      <div class="field">
-        <span class="lbl">MCP 服务 mcpServers</span>
-        <template v-if="supportsTools(cfg.brain) && draft.mcp_servers && Object.keys(draft.mcp_servers).length">
-          <el-checkbox-group
-            :model-value="cfg.mcpServers ?? []"
-            class="chk-list"
-            @change="(v: unknown) => (cfg.mcpServers = v as string[])"
-          >
-            <el-checkbox v-for="(_, mname) in draft.mcp_servers" :key="mname" :value="mname as string">
-              {{ mname }}
-            </el-checkbox>
-          </el-checkbox-group>
-        </template>
-        <span v-else class="empty">{{ supportsTools(cfg.brain) ? '未配置 MCP 服务（空 = 关闭所有 MCP）' : '当前模型仅支持问答，不能配置工具或 MCP' }}</span>
-      </div>
-    </article>
-    <div class="add-row">
-      <el-input v-model="newRoleType" placeholder="新角色类型名" @keydown.enter="addRole" />
-      <button type="button" class="ghost-btn" @click="addRole">+ 新增</button>
-    </div>
-  </TabShell>
+            </EditableTitle>
+            <div class="role-status-line">
+              <span class="status-chip">系统负重 ≈ {{ roleTokens(current) }} token</span>
+            </div>
+          </div>
+        </header>
+
+        <section class="detail-section">
+          <h3>运行核心</h3>
+          <div class="core-field"><span>AI 大脑</span><div class="choice-board"><button v-for="name in brainNames" :key="name" type="button" :class="{ active: current.brain === name }" @click="setBrain(current, name)"><b>◈ {{ name }}</b><small>{{ draft.llm.brain[name]?.model || '未配置型号' }}</small></button></div></div>
+          <div class="core-field"><span>器官套装</span><div class="choice-board compact"><button type="button" :class="{ active: !current.senseGroup }" @click="current.senseGroup = ''">无</button><button v-for="name in senseNames" :key="name" type="button" :disabled="!supportsTools(current.brain)" :class="{ active: current.senseGroup === name }" @click="current.senseGroup = name">{{ name }}</button></div></div>
+          <div class="core-field">
+            <span>专属背景说明</span>
+            <el-popover trigger="click" placement="bottom-start" :width="420">
+              <template #reference><button type="button" class="prompt-trigger">{{ current.systemPrompt || '使用全局 system_prompt' }}</button></template>
+              <div class="prompt-picker"><el-input v-model="promptSearch" clearable placeholder="搜索提示词"><template #prefix><Search class="prompt-search-icon" /></template></el-input><button type="button" :class="{ active: !current.systemPrompt }" @click="current.systemPrompt = undefined">使用全局</button><button v-for="path in filteredPrompts" :key="path" type="button" :class="{ active: current.systemPrompt === path }" @click="current.systemPrompt = path">{{ path }}</button></div>
+            </el-popover>
+          </div>
+        </section>
+
+        <section class="detail-section">
+          <h3>装备栏</h3>
+          <div class="equipment-grid">
+            <EquipmentPicker v-model="current.skills" label="技能" :options="skillCatalog.skills" :token-map="skillCatalog.skillTokens" hide-inline-roster />
+            <EquipmentPicker v-model="current.plugins" label="插件" :options="skillCatalog.plugins" :token-map="skillCatalog.pluginTokens" hide-inline-roster />
+            <EquipmentPicker v-model="current.mcpServers" label="MCP 服务" :options="mcpNames" :token-map="mcpTokens" hide-inline-roster />
+          </div>
+          <div class="equipment-roster">
+            <div class="roster-row">
+              <span class="roster-k">技能</span>
+              <span v-if="!current.skills" class="roster-empty">继承全部</span>
+              <span v-else-if="!current.skills.length" class="roster-empty">已关闭</span>
+              <span v-for="name in current.skills" :key="`sk-${name}`" class="roster-tag">{{ name }}<small v-if="skillCatalog.skillTokens[name]"> ≈{{ skillCatalog.skillTokens[name] }}</small></span>
+            </div>
+            <div class="roster-row">
+              <span class="roster-k">插件</span>
+              <span v-if="!current.plugins" class="roster-empty">继承全部</span>
+              <span v-else-if="!current.plugins.length" class="roster-empty">已关闭</span>
+              <span v-for="name in current.plugins" :key="`pl-${name}`" class="roster-tag">{{ name }}<small v-if="skillCatalog.pluginTokens[name]"> ≈{{ skillCatalog.pluginTokens[name] }}</small></span>
+            </div>
+            <div class="roster-row">
+              <span class="roster-k">MCP</span>
+              <span v-if="!current.mcpServers" class="roster-empty">继承全部</span>
+              <span v-else-if="!current.mcpServers.length" class="roster-empty">已关闭</span>
+              <span v-for="name in current.mcpServers" :key="`mc-${name}`" class="roster-tag">{{ name }}<small v-if="mcpTokens[name]"> ≈{{ mcpTokens[name] }}</small></span>
+            </div>
+          </div>
+        </section>
+      </article>
+    </ResourceWorkbench>
+    <ConfirmDialog v-model="removeDialog" icon="🗑️" :title="`删除角色「${selectedRole}」？`" :impact="removeImpact" tab-color="#d946ef" @confirm="removeRole(selectedRole)" />
+  </section>
 </template>
 
 <style scoped lang="less">
 @import "../shared.less";
-
-.prompt-cascader {
-  width: 100%;
-}
-.card-grid {
-  grid-template-columns: 1fr 1fr 1fr;
-}
+.roles-workspace { height:100%;min-height:0;display:flex;flex-direction:column;gap:7px; }.roles-workspace :deep(.resource-workbench){ flex:1; }
+.rail-add { width:27px;height:27px;border:1px solid color-mix(in srgb,var(--tab-color,@accent) 38%,transparent);border-radius:7px;background:color-mix(in srgb,var(--tab-color,@accent) 14%,transparent);color:color-mix(in srgb,var(--tab-color,@accent) 75%,@ink);cursor:pointer; }.rail-add svg{width:13px}.new-role-pop{display:flex;gap:5px}.primary-btn{border:0;border-radius:6px;background:var(--tab-color,@accent);font-weight:800;cursor:pointer;padding:0 11px}
+.role-detail-card { min-height:100%;display:flex;flex-direction:column;gap:10px; }.role-detail-card.copied { animation:role-spawn .65s ease-out; }
+.role-identity { display:flex;gap:12px;align-items:center;padding:11px;border:1px solid rgba(36,38,45,.12);border-radius:12px;background:rgba(255,255,255,.58); }.role-title-zone{min-width:0;flex:1}.role-status-line{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.status-chip{padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--tab-color,@accent) 14%,transparent);color:color-mix(in srgb,var(--tab-color,@accent) 75%,@ink);font-size:10px;font-weight:700}
+.detail-section { padding:10px;border:1px solid rgba(36,38,45,.11);border-radius:10px;background:rgba(255,255,255,.42);display:flex;flex-direction:column;gap:9px; }.detail-section h3{margin:0;font-size:12px;color:fade(@ink,68%)}.core-field{display:grid;grid-template-columns:86px minmax(0,1fr);align-items:start;gap:7px}.core-field>span{padding-top:6px;font-size:10px;font-weight:800;color:fade(@ink,54%)}
+.choice-board { display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:5px; }.choice-board.compact{display:flex;flex-wrap:wrap}.choice-board button{min-height:38px;display:flex;flex-direction:column;justify-content:center;gap:2px;border:1px solid rgba(36,38,45,.12);border-radius:8px;background:#fff;color:fade(@ink,70%);cursor:pointer}.choice-board.compact button{min-height:26px;padding:3px 10px}.choice-board button.active{border-color:color-mix(in srgb,var(--tab-color,@accent) 55%,transparent);background:color-mix(in srgb,var(--tab-color,@accent) 16%,transparent);color:color-mix(in srgb,var(--tab-color,@accent) 75%,@ink)}.choice-board small{font-size:9px;color:fade(@ink,45%)}
+.prompt-trigger{width:100%;height:29px;border:1px dashed rgba(36,38,45,.2);border-radius:7px;background:#fff;text-align:left;padding:0 9px;color:fade(@ink,68%);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.prompt-picker{max-height:330px;overflow:auto;display:flex;flex-direction:column;gap:3px}.prompt-picker>button{min-height:29px;border:0;border-radius:6px;background:transparent;text-align:left;padding:4px 7px;cursor:pointer}.prompt-picker>button:hover,.prompt-picker>button.active{background:color-mix(in srgb,var(--tab-color,@accent) 15%,transparent);color:color-mix(in srgb,var(--tab-color,@accent) 75%,@ink)}.prompt-search-icon{width:12px}.equipment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.equipment-roster{display:flex;flex-direction:column;gap:5px;margin-top:8px;padding:8px;border:1px dashed rgba(36,38,45,.1);border-radius:8px;background:rgba(255,255,255,.32)}
+.roster-row{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-height:20px}
+.roster-k{flex:none;width:32px;font-size:10px;font-weight:800;color:fade(@ink,50%)}
+.roster-tag{padding:1px 7px;border-radius:999px;background:rgba(99,102,241,.1);font-size:10px;color:#4338ca}
+.roster-tag small{font-size:9px;opacity:.7}
+.roster-empty{font-size:10px;color:fade(@ink,40%);font-style:italic}
+@keyframes role-spawn{0%{transform:translateY(10px);opacity:.2}55%{transform:translateY(-2px)}100%{transform:none;opacity:1}}
+@media(max-width:950px){.equipment-grid{grid-template-columns:1fr}.core-field{grid-template-columns:1fr}.core-field>span{padding:0}}
+@media(prefers-reduced-motion:reduce){.role-detail-card.copied{animation:none}}
 </style>

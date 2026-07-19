@@ -1,6 +1,6 @@
 import type { Ref } from "vue";
 import { agentApi, type ChatSendAttachment, type RuntimeSelection } from "@/services/agentApi";
-import { generatePet, GHOST_FACES } from "@/features/pets/petPresets";
+import { applyRoleAvatar, generatePet, GHOST_FACES } from "@/features/pets/petPresets";
 import { findSpawnPosition } from "@/features/pets/petMovement";
 import { createPetInstance } from "@/features/pets/usePetWorld";
 import type { PetInstance, PetMood } from "@/features/pets/types";
@@ -64,6 +64,10 @@ export function createPetLifecycle(
     const master = createPetInstance(preset, bounds, true, undefined, { chatId: masterSummary.chatId });
     master.preset = masterSummary.preset;
     master.canResume = masterSummary.canResume;
+    if (masterSummary.workspace) {
+      master.workspace = masterSummary.workspace;
+      master.workspaceValid = masterSummary.workspaceValid;
+    }
     pets.value.push(master);
 
     const visited = new Set<string>([masterSummary.chatId]);
@@ -77,13 +81,18 @@ export function createPetLifecycle(
           continue;
         }
         visited.add(child.chatId);
-        const sub = generatePet("emoji", usedFaces);
+        const sub = applyRoleAvatar(generatePet("emoji", usedFaces), child.avatar);
         usedFaces.add(sub.face);
         const pet = createPetInstance(sub, bounds, false, master.instanceId, {
           chatId: child.chatId,
           parentChatId: parentSummary.chatId,
+          agentType: child.agentType,
           finished: child.finished,
         });
+        if (child.workspace) {
+          pet.workspace = child.workspace;
+          pet.workspaceValid = child.workspaceValid;
+        }
         if (child.finished) {
           pet.ghostFace = pickGhostFace(master.instanceId, pets.value, pet.instanceId);
           pet.ghostCreatedAt = performance.now();
@@ -127,6 +136,10 @@ export function createPetLifecycle(
       senseGroup: result.senseGroup,
       mcpServers: [...result.mcpServers],
     };
+    if (result.workspace) {
+      pet.workspace = result.workspace;
+      pet.workspaceValid = result.workspaceValid;
+    }
     pets.value.push(pet);
     return chatId;
   }

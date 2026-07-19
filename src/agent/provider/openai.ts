@@ -24,7 +24,7 @@ import {
   acquireRpm,
   mapThinkingToReasoningEffort,
 } from "./openaiCompat.js";
-import { assertChatOptions } from "./fetchBase.js";
+import { assertChatOptions, classifyBrainError, wrapBrainStream } from "./fetchBase.js";
 
 // ========== LLM Adapter 定义 ==========
 
@@ -39,13 +39,17 @@ const openaiLLMAdapter: LLMAdapter = {
     const effort = mapThinkingToReasoningEffort(options?.thinking);
     await acquireRpm(options);
     const client = new OpenAI({ baseURL: url, apiKey: key });
-    return client.chat.completions.create({
-      model,
-      messages: msgArray,
-      // 思考强度：low/medium/high → reasoning_effort；off/undefined 省略（非推理模型也安全）
-      ...(effort ? { reasoning_effort: effort } : {}),
-      ...(senses.length > 0 && { tools: senses }),
-    });
+    try {
+      return await client.chat.completions.create({
+        model,
+        messages: msgArray,
+        // 思考强度：low/medium/high → reasoning_effort；off/undefined 省略（非推理模型也安全）
+        ...(effort ? { reasoning_effort: effort } : {}),
+        ...(senses.length > 0 && { tools: senses }),
+      });
+    } catch (err) {
+      throw classifyBrainError(err);
+    }
   },
   async chatStream(
     messages: unknown[],
@@ -57,14 +61,19 @@ const openaiLLMAdapter: LLMAdapter = {
     const effort = mapThinkingToReasoningEffort(options?.thinking);
     await acquireRpm(options);
     const client = new OpenAI({ baseURL: url, apiKey: key });
-    const stream = await client.chat.completions.create({
-      model,
-      messages: msgArray,
-      stream: true,
-      ...(effort ? { reasoning_effort: effort } : {}),
-      ...(senses.length > 0 && { tools: senses }),
-    });
-    return stream as AsyncIterable<unknown>;
+    try {
+      const stream = await client.chat.completions.create({
+        model,
+        messages: msgArray,
+        stream: true,
+        ...(effort ? { reasoning_effort: effort } : {}),
+        ...(senses.length > 0 && { tools: senses }),
+      });
+      // 包裹迭代：流中途抛错（连接中断/限流/鉴权）映射为大脑 ClassifiedError，避免裸抛漏到 compose 兜底。
+      return wrapBrainStream(stream as AsyncIterable<unknown>);
+    } catch (err) {
+      throw classifyBrainError(err);
+    }
   },
 };
 

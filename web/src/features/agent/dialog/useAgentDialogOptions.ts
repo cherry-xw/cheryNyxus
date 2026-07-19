@@ -93,7 +93,8 @@ export function useAgentDialogOptions() {
         console.warn("[AgentDialog] sense.tools 拉取失败，能力详情仅显示原始名称:", e);
       }
       try {
-        skillCommands.value = toSkillCommands(await agentApi.listSkills());
+        const skillPage = await agentApi.listSkills({ page: 1, pageSize: 200, plugin: "*" });
+        skillCommands.value = toSkillCommands(skillPage.skills);
       } catch (e) {
         skillCommands.value = [];
         console.warn("[AgentDialog] skills.list 拉取失败，命令菜单仅保留内置命令:", e);

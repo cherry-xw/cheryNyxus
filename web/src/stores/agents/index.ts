@@ -224,7 +224,7 @@ export const useAgentsStore = defineStore("agents", () => {
       // queued 请求不拥有独立事件流，收到最终 Response 后即可释放其旧 requestId 映射。
       if (data?.queued) requestMap.delete(requestId);
       if (!res.success) {
-        stream.error = res.error?.message ?? "未知错误";
+        stream.error = res.error?.message ?? "系统出了点小问题";
         console.error("[agents] sendMessage response failed:", res.error);
         return;
       }
@@ -238,7 +238,7 @@ export const useAgentsStore = defineStore("agents", () => {
         }
       }
     }).catch((e) => {
-      stream.error = `连接中断: ${(e as Error).message}`;
+      stream.error = "连接断了，请重试";
       console.error("[agents] sendMessage done rejected:", e);
     });
   }
@@ -276,11 +276,11 @@ export const useAgentsStore = defineStore("agents", () => {
       if (typeof data?.runId === "string" && stream.isWorking) stream.activeRunId = data.runId;
       if (data?.alreadyRunning) requestMap.delete(requestId);
       if (!res.success) {
-        stream.error = res.error?.message ?? "未知错误";
+        stream.error = res.error?.message ?? "系统出了点小问题";
         console.error("[agents] resumeChat response failed:", res.error);
       }
     }).catch((e) => {
-      stream.error = `连接中断: ${(e as Error).message}`;
+      stream.error = "连接断了，请重试";
       console.error("[agents] resumeChat done rejected:", e);
     });
   }
@@ -309,7 +309,7 @@ export const useAgentsStore = defineStore("agents", () => {
       if (data?.alreadyFinished || data?.alreadyRunning) requestMap.delete(requestId);
       if (!res.success) stream.error = res.error?.message ?? "未知错误";
     }).catch((e) => {
-      stream.error = `连接中断: ${(e as Error).message}`;
+      stream.error = "连接断了，请重试";
     });
   }
 
@@ -536,10 +536,18 @@ export const useAgentsStore = defineStore("agents", () => {
     // 重置 pet 工作状态
     const pet = pets.value.find((p) => p.chatId === chatId);
     setWorking(pet, false);
-    // CP7: chat.get response 携带 contextUsage → 更新 pet.contextUsage（历史载入一次性同步，ContextBar 消费）
+    // CP7: chat.get response 携带 contextUsage；同时回填 workspace 的实时有效性，供消息弹窗标签显示。
     done
       .then((res) => {
-        const d = res.data as { contextUsage?: number; contextUsed?: number; contextTotal?: number; contextBreakdown?: ContextBreakdown; commandConfig?: PetInstance["commandConfig"] } | undefined;
+        const d = res.data as {
+          contextUsage?: number;
+          contextUsed?: number;
+          contextTotal?: number;
+          contextBreakdown?: ContextBreakdown;
+          commandConfig?: PetInstance["commandConfig"];
+          workspace?: string;
+          workspaceValid?: boolean;
+        } | undefined;
         const pet = pets.value.find((p) => p.chatId === chatId);
         if (pet && d) {
           if (typeof d.contextUsage === "number") pet.contextUsage = d.contextUsage;
@@ -547,6 +555,10 @@ export const useAgentsStore = defineStore("agents", () => {
           if (typeof d.contextTotal === "number") pet.contextTotal = d.contextTotal;
           if (d.contextBreakdown) pet.contextBreakdown = d.contextBreakdown;
           if (d.commandConfig) pet.commandConfig = d.commandConfig;
+          if (d.workspace) {
+            pet.workspace = d.workspace;
+            pet.workspaceValid = d.workspaceValid;
+          }
         }
       })
       .catch((e) => console.error("[agents] getHistory response 失败:", e));

@@ -31,7 +31,7 @@ const props = defineProps<{
   hasStream: boolean;
   isBusy: boolean;
   showWorkMain: boolean;
-  showWorkSide: boolean;
+  showThinkingButton: boolean;
   thinkingOnly: boolean;
   hasContent: boolean;
   displayThinking: string;
@@ -39,16 +39,9 @@ const props = defineProps<{
   renderedContent: string;
   // style computeds
   speechStyle: Record<string, string>;
-  sideBubbleStyle: Record<string, string>;
   approvalStyle: Record<string, string>;
   // motion configs
   speech: {
-    initial: VariantType;
-    animate: VariantType;
-    exit: VariantType;
-    transition: VariantType["transition"];
-  };
-  workSideMotion: {
     initial: VariantType;
     animate: VariantType;
     exit: VariantType;
@@ -131,7 +124,7 @@ const batchInfo = computed(() => {
       v-else-if="showWorkMain"
       key="work-main"
       class="speech work-bubble"
-      :class="{ 'is-thinking': thinkingOnly }"
+      :class="{ 'is-thinking': thinkingOnly, 'is-sub': !pet.isMaster }"
       :style="speechStyle"
       :initial="speech.initial"
       :animate="speech.animate"
@@ -145,6 +138,11 @@ const batchInfo = computed(() => {
         <span v-if="hasContent" class="md" v-html="renderedContent" />
         <template v-else>{{ displayThinking }}</template>
       </div>
+      <!-- thinking 按钮：思考结束后出现，锚 content 气泡左外侧（emoji 🤔）；hover 向左上拉伸显思考框（盖住按钮），移开缩回恢复 icon -->
+      <div v-if="showThinkingButton" class="thinking-trigger" aria-label="查看 thinking">
+        <span class="thinking-icon" aria-hidden="true">🤔</span>
+        <div class="thinking-flyout" role="tooltip">{{ displayThinking }}</div>
+      </div>
     </MotionDiv>
     <MotionDiv
       v-else-if="pet.speech || $slots.dialog"
@@ -157,22 +155,6 @@ const batchInfo = computed(() => {
       :transition="speech.transition"
     >
       <slot name="dialog" :pet="pet">{{ pet.speech }}</slot>
-    </MotionDiv>
-  </AnimatePresence>
-  <AnimatePresence>
-    <MotionDiv
-      v-if="showWorkSide"
-      key="work-side"
-      class="speech work-bubble side is-thinking"
-      :style="sideBubbleStyle"
-      :initial="workSideMotion.initial"
-      :animate="workSideMotion.animate"
-      :exit="workSideMotion.exit"
-      :transition="workSideMotion.transition"
-      @pointerenter="$emit('bubbleEnter')"
-      @pointerleave="$emit('bubbleLeave')"
-    >
-      <div class="work-text is-thinking">{{ displayThinking }}</div>
     </MotionDiv>
   </AnimatePresence>
 </template>
@@ -218,7 +200,7 @@ const batchInfo = computed(() => {
   font-size: 10px;
   font-weight: 600;
   line-height: 1.35;
-  overflow: hidden;
+  overflow: visible; /* 放行 thinking-flyout 溢出；work-text 自身 overflow 裁内容不依赖此处 */
   display: flex;
   flex-direction: column;
 
@@ -228,11 +210,14 @@ const batchInfo = computed(() => {
     border-style: dashed;
   }
 
-  &.side {
-    max-width: 180px;
-    max-height: 140px;
-    padding: 5px 0 5px 8px;
-    font-size: 10px;
+  /* 子 pet：流式过程（思考 / 正文打字机）默认单行不可滚，hover 展开可滚 */
+  &.is-sub .work-text {
+    max-height: 14px;
+    overflow: hidden;
+  }
+  &.is-sub:hover .work-text {
+    max-height: 120px;
+    overflow: auto;
   }
 
   .work-text {
@@ -266,6 +251,66 @@ const batchInfo = computed(() => {
       :deep(h1), :deep(h2), :deep(h3), :deep(h4) { font-size: 11px; }
       :deep(code) { font-size: 9px; }
     }
+  }
+
+  /* thinking 按钮：思考结束后锚 content 气泡左外侧（emoji icon）；hover 向左上拉伸显思考框（盖住按钮），
+     鼠标移开 scale(0) 缩回恢复 icon。emoji 黄脸（🤔）作按钮。 */
+  .thinking-trigger {
+    position: absolute;
+    right: 100%; /* content 气泡左外侧 */
+    bottom: -1px; /* 贴气泡左下角外侧 */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    line-height: 1;
+    cursor: default;
+    user-select: none;
+
+    .thinking-icon {
+      font-size: 13px;
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
+      transition: transform 140ms ease;
+    }
+
+    &:hover .thinking-icon {
+      transform: scale(1.15);
+    }
+
+    &:hover .thinking-flyout {
+      transform: scale(1);
+      opacity: 1;
+      pointer-events: auto;
+    }
+  }
+
+  .thinking-flyout {
+    position: absolute;
+    right: 0; /* 右沿对齐按钮（= 气泡左沿），向左拉伸 */
+    bottom: 0; /* 底对齐按钮，向上拉伸 */
+    z-index: 30;
+    box-sizing: border-box;
+    width: 200px;
+    max-height: 150px;
+    padding: 5px 7px;
+    border-radius: 7px;
+    border: 1px dashed rgba(140, 130, 170, 0.4);
+    background: rgba(240, 238, 245, 0.97);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.14);
+    color: fade(@ink, 64%);
+    font-size: 9.5px;
+    font-weight: 400;
+    font-style: italic;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow: auto;
+    text-align: left;
+    transform: scale(0); /* 收起：缩成右下角点；hover scale(1) 向左上拉伸展开盖住按钮 */
+    transform-origin: bottom right;
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 180ms ease, opacity 140ms ease;
   }
 }
 

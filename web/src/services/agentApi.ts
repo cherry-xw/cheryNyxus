@@ -37,6 +37,9 @@ export interface ChatSummary {
   messageCount?: number;
   /** 子 chat 关联主 chat；主 chat 为 null。后端 parent_chat_id 列。 */
   parentChatId?: string | null;
+  /** 子 chat 的角色 type 与头像；主 chat 缺省。 */
+  agentType?: string;
+  avatar?: string;
   /** 仅 includePreview=true 返：首条 user 消息截断（≤40），会话列表辨识用。CP8 */
   preview?: string;
   /** 仅 includePreview=true 返：user 消息数 = 会话轮次。CP8 */
@@ -61,6 +64,10 @@ export interface ChatSummary {
   canResume?: boolean;
   /** 主 chat 创建时所选预设；用于恢复小组角色临时配置面板。 */
   preset?: string;
+  /** 当前 chat 关联的项目工作目录绝对路径（metadata.workspace 快照）。缺省 → 未配置。 */
+  workspace?: string;
+  /** workspace 路径当前是否为可访问目录。workspace 缺省时 undefined。 */
+  workspaceValid?: boolean;
 }
 
 /** chat.create 参数。预设路径（T6）：preset 给出则后端从预设解析编制，brain/senseGroup 可省；
@@ -83,6 +90,10 @@ export interface CreateAgentResult {
   brain: string;
   senseGroup: string;
   mcpServers: string[];
+  /** 预设创建时的工作区快照；缺省表示未限定。 */
+  workspace?: string;
+  /** workspace 当前是否有效；workspace 缺省时不返回。 */
+  workspaceValid?: boolean;
 }
 
 /** runtime.set 选择（每轮可换 brain + 单一工具组）。 */
@@ -146,13 +157,208 @@ export interface CommandInfo {
   content: string;
 }
 
-/** skills.list 单项：用户 `.chery/skills/` 中可强制加载的技能元数据。 */
+/** skills.list 单项：用户 `.chery/skills/` 独立技能 + `.chery/plugins/` 插件技能元数据。 */
 export interface SkillInfo {
   name: string;
   description: string;
   trigger?: string;
-  /** 激活完整技能指令后预计新增的上下文 token。 */
+  /** 激活完整技能指令后预计新增的上下文 token（= 系统提示词 + 内容提示词之和）。 */
   contextTokens: number;
+  /** 系统提示词占用：注入 system prompt `<skills>` XML 的 name+description token。 */
+  nameDescTokens: number;
+  /** 系统提示词占用：trigger 行 token（无 trigger 则缺省）。 */
+  triggerTokens?: number;
+  /** 内容提示词占用：激活后加载的技能正文 token。 */
+  contentTokens: number;
+  /** 来源插件名（undefined = 独立 skill；否则插件技能，name 形如 `<plugin>__<skill>`）。 */
+  plugin?: string;
+}
+
+/** skill 导入候选（两阶段 stage 产物；conflict=true 需前端逐项确认覆盖/跳过）。 */
+export interface SkillCandidate {
+  name: string;
+  description: string;
+  trigger?: string;
+  conflict: boolean;
+}
+
+/** skill 导入 stage 结果（ZIP HTTP 与 skills.importUrl 共用）。 */
+export interface SkillStageResult {
+  stagingId: string;
+  candidates: SkillCandidate[];
+}
+
+/** skills.commit 单项选择：import=false 跳过；true 导入（冲突则覆盖）。 */
+export interface SkillCommitSelection {
+  name: string;
+  import: boolean;
+}
+
+/** skills.preImportUrl 响应（拉分支 + needsAuth/gitNotInstalled 探测；无 suggestedName/nameConflict）。 */
+export interface SkillPreImportResult {
+  gitNotInstalled: boolean;
+  needsAuth: boolean;
+  branches: string[];
+  defaultBranch?: string;
+}
+/** skills.importUrl 入参（分支 required；credentialId 与 inline username/password 互斥）。 */
+export interface SkillImportRequest {
+  url: string;
+  branch: string;
+  credentialId?: string;
+  username?: string;
+  password?: string;
+  remember?: boolean;
+  label?: string;
+  /** 网络代理（http(s)://host:port）；缺省直连，填则注入 git http(s).proxy。 */
+  proxy?: string;
+}
+/** skills.importUrl 响应（stage 候选 + 分支/SHA/日期/savedCredentialId；zip 上传无后四项）。 */
+export interface SkillImportResponse extends SkillStageResult {
+  branch?: string;
+  commitSha?: string;
+  commitDate?: string;
+  savedCredentialId?: string;
+}
+/** skills git 来源索引项（.chery/.skill-sources.json 单条；skills 实时读 skills_dir 元数据）。 */
+export interface SkillSource {
+  id: string;
+  cloneUrl: string;
+  branch: string;
+  credentialId?: string;
+  commitSha: string;
+  commitDate: string;
+  lastSyncedAt: string;
+  /** 最近一次 resyncAllSources 失败信息（成功时清除）。来源索引持久化，跨 Settings 重开仍可见。 */
+  lastSyncError?: string;
+  lastCheckedAt?: string;
+  latestSha?: string;
+  latestDate?: string;
+  updateAvailable?: boolean;
+  lastCheckError?: string;
+  skillCount: number;
+}
+/** skills.resyncSource 响应（重 clone + 重弹候选；前端预勾选原已导入）。 */
+export interface SkillResyncResult extends SkillStageResult {
+  branch: string;
+  commitSha: string;
+  commitDate: string;
+  sourceId: string;
+  selected: string[];
+}
+
+/** 插件内技能元信息（plugins.list 展示；name 为对外名 `<plugin>__<skill>`）。 */
+export interface PluginSkillInfo {
+  name: string;
+  description: string;
+  trigger?: string;
+  /** 系统提示词占用：name+description（≈ 常驻）。 */
+  nameDescTokens: number;
+  /** 系统提示词占用：trigger 行（命中内置工具才会计）。 */
+  triggerTokens?: number;
+  /** 内容提示词占用：激活后正文 token（正文最大/最小由此聚合）。 */
+  contentTokens: number;
+}
+
+/** 插件信息（.chery/plugins/<name>/.chery-plugin.json manifest + 内含 skills）。 */
+export interface PluginInfo {
+  name: string;
+  sourceUrl: string;
+  /** clone 用的 https gitUrl（manifest.cloneUrl；旧 manifest 缺省为空串）。 */
+  cloneUrl: string;
+  /** 所选分支名（旧 manifest 缺省为空串，update/checkUpdate 时回退 main）。 */
+  branch: string;
+  /** 落盘时 HEAD SHA（旧 manifest 缺省为空串，checkUpdate 视为「有更新」）。 */
+  commitSha: string;
+  /** 落盘时 HEAD 提交时间 ISO（旧 manifest 缺省为空串）。 */
+  commitDate: string;
+  installedAt: string;
+  updatedAt: string;
+  /** 最近一次检查更新时间（manifest 持久化）；从未检查为 undefined。 */
+  lastCheckedAt?: string;
+  /** 远端最新 HEAD 短 SHA（最近一次检查写入）；未检查为 undefined。 */
+  latestSha?: string;
+  /** 远端最新提交时间（最近一次检查写入）；私有仓 401 或未检查为 undefined。 */
+  latestDate?: string;
+  /** 有可用更新（最近一次检查写入）；未检查为 undefined。前端据此显隐 refresh 按钮。 */
+  updateAvailable?: boolean;
+  /** 最近一次 checkUpdate 失败信息（成功时清除）；manifest 持久化，跨 Settings 重开仍可见。 */
+  lastCheckError?: string;
+  /** 全部技能的系统提示词消耗合计（Σ nameDescTokens + triggerTokens）。 */
+  totalSystemTokens: number;
+  /** 全部技能的正文 token 最小值（min contentTokens）。 */
+  minContentTokens: number;
+  /** 全部技能的正文 token 最大值（max contentTokens）。 */
+  maxContentTokens: number;
+  skills: PluginSkillInfo[];
+}
+
+/** 凭据池条目（密令永不回前端；镜像后端 CredentialListItemDTO）。 */
+export interface CredentialListItemDTO {
+  id: string;
+  label: string;
+  username: string;
+  createdAt: string;
+}
+
+/** plugins.preImportUrl 响应（解析 URL + 拉 branches + needsAuth/gitNotInstalled 探测）。 */
+export interface PluginPreImportResult {
+  gitNotInstalled: boolean;
+  needsAuth: boolean;
+  branches: string[];
+  defaultBranch?: string;
+  owner: string;
+  repo: string;
+  /** 建议的插件文件夹名（= sanitizeName(repo)）；前端预填「文件夹名」输入框。 */
+  suggestedName: string;
+  /** 该文件夹名已存在 → 前端展示「文件夹名」输入框供改名。 */
+  nameConflict: boolean;
+}
+
+/** plugins.importUrl 入参（分支 required；credentialId 与 inline username/password 互斥）。 */
+export interface PluginImportRequest {
+  url: string;
+  branch: string;
+  /** 选用凭据池 id（与 username/password 互斥）。 */
+  credentialId?: string;
+  /** inline 鉴权（与 credentialId 互斥）。 */
+  username?: string;
+  password?: string;
+  /** inline 鉴权时是否加密入池（响应返 savedCredentialId）。 */
+  remember?: boolean;
+  /** inline + remember 时新凭据的 label（缺省后端用 owner/repo 派生）。 */
+  label?: string;
+  /** 插件文件夹名覆盖（preImport nameConflict=true 时由前端提供）。 */
+  pluginName?: string;
+  /** 网络代理（http(s)://host:port）；缺省直连，填则注入 git http(s).proxy。 */
+  proxy?: string;
+}
+
+/** plugins.importUrl 响应（staging 预览：分支 + SHA + 日期 + 冲突标记）。 */
+export interface PluginImportPreview {
+  stagingId: string;
+  pluginName: string;
+  existing: boolean;
+  sourceUrl: string;
+  branch: string;
+  commitSha: string;
+  commitDate: string;
+  /** inline + remember 成功入池时回填的新凭据 id。 */
+  savedCredentialId?: string;
+  skills: PluginSkillInfo[];
+}
+
+/** plugins.checkUpdate 响应（manifest HEAD vs 远端分支 HEAD 对比）。 */
+export interface PluginCheckUpdateResult {
+  gitNotInstalled: boolean;
+  needsAuth: boolean;
+  currentSha: string;
+  currentDate: string;
+  latestSha: string;
+  /** 私有仓或 GitHub API 不可达时缺省。 */
+  latestDate?: string;
+  lastUpgrade: string;
+  updateAvailable: boolean;
 }
 
 /** /api/config 返回形状（FAB default + AgentDialog senseGroups 全名单 + default 标记，后端 Agent B 暴露）。 */
@@ -303,7 +509,7 @@ export interface ConfigDto {
   media?: MediaConfigDto;
   sense_groups?: Record<string, string[]>;
   mcp_servers?: Record<string, McpServerConfigDto>;
-  roles?: Record<string, { brain: string; senseGroup: string; mcpServers?: string[]; systemPrompt?: string }>;
+  roles?: Record<string, { brain: string; avatar?: string; senseGroup: string; mcpServers?: string[]; systemPrompt?: string; skills?: string[]; plugins?: string[]; lock?: boolean }>;
   presets?: Record<string, PresetDto>;
   /** 项目记忆配置（双层：global 跨 chat 共享 · workspace per chat）；缺省 global {30,500} / workspace {15,500} */
   memory?: {
@@ -336,10 +542,130 @@ function callStream(
 }
 
 export const agentApi = {
-  /** skills.list：实时列出用户可加载的技能；内置命令不在此结果中。 */
-  async listSkills(): Promise<SkillInfo[]> {
-    const data = await call<{ skills?: SkillInfo[] }>("skills.list", {});
-    return data?.skills ?? [];
+  /** skills.list：实时列出用户可加载的技能（独立 + 插件）；内置命令不在此结果中。支持可选分页与搜索。 */
+  async listSkills(params?: { page?: number; pageSize?: number; search?: string; plugin?: string }): Promise<{ skills: SkillInfo[]; total: number; page: number; pageSize: number }> {
+    const data = await call<{ skills?: SkillInfo[]; total?: number; page?: number; pageSize?: number }>("skills.list", params ?? {});
+    const skills = data?.skills ?? [];
+    return { skills, total: data?.total ?? skills.length, page: data?.page ?? 1, pageSize: data?.pageSize ?? skills.length };
+  },
+
+  /** skills.listNames：轻量接口，仅返回 skill/plugin 名称列表（不算 token），供角色卡下拉使用。 */
+  async listSkillNames(): Promise<{ skills: string[]; plugins: string[]; skillTokens: Record<string, number>; pluginTokens: Record<string, number> }> {
+    return await call("skills.listNames", {});
+  },
+
+  /** skills 导入 ZIP：HTTP 上传 raw bytes → stage 候选 + 冲突（两阶段，后 commitSkillImport 落盘）。 */
+  async importSkillZip(file: File): Promise<SkillStageResult> {
+    const server = await fetchServerConfig();
+    const response = await fetch(httpUrl("/api/skills/import"), {
+      method: "POST",
+      headers: { "Content-Type": "application/zip", "X-Filename": file.name, ...(server.sessionToken ? { "X-Chery-Session-Token": server.sessionToken } : {}) },
+      body: file,
+    });
+    if (!response.ok) {
+      const msg = await response.text().catch(() => "");
+      throw new Error(`skill 上传失败: ${response.status}${msg ? ` ${msg}` : ""}`);
+    }
+    return await response.json() as SkillStageResult;
+  },
+  /** skills.importUrl：按选定分支 git clone 独立技能集合 → stage 候选 + 冲突（鉴权同插件）。 */
+  async importSkillUrl(req: SkillImportRequest): Promise<SkillImportResponse> {
+    return await call<SkillImportResponse>("skills.importUrl", req);
+  },
+  /** skills.commit：按选择落盘 + 规范化 SKILL.md + 清 staging。 */
+  async commitSkillImport(stagingId: string, selections: SkillCommitSelection[]): Promise<{ imported: string[]; skipped: string[] }> {
+    return await call<{ imported: string[]; skipped: string[] }>("skills.commit", { stagingId, selections });
+  },
+  /** skills.delete：删除独立 skill 目录（插件技能不在此列）。 */
+  async deleteSkill(name: string): Promise<void> {
+    await call<{ ok: true }>("skills.delete", { name });
+  },
+  /** skills.preImportUrl：拉分支列表 + needsAuth/gitNotInstalled 探测（不 clone）。 */
+  async preImportSkillUrl(url: string, credentialId?: string, proxy?: string): Promise<SkillPreImportResult> {
+    return await call<SkillPreImportResult>("skills.preImportUrl", { url, ...(credentialId ? { credentialId } : {}), ...(proxy ? { proxy } : {}) });
+  },
+  /** skills.listSources：列出 git 来源中央索引（每来源 skills 实时读 skills_dir）。 */
+  async listSkillSources(): Promise<SkillSource[]> {
+    const data = await call<{ sources?: SkillSource[] }>("skills.listSources", {});
+    return data?.sources ?? [];
+  },
+  async checkSkillSource(sourceId: string): Promise<{ sourceId: string; latestSha: string; latestDate?: string; updateAvailable: boolean }> {
+    return await call("skills.checkSource", { sourceId });
+  },
+  async checkAllSkillSources(): Promise<{ checked: number; updatesAvailable: number; failed: Array<{ sourceId: string; reason: string }> }> {
+    return await call("skills.checkAllSources", {});
+  },
+  /** skills.resyncSource：重 clone 某来源 + 重弹候选（前端预勾选原已导入）。 */
+  async resyncSkillSource(sourceId: string): Promise<SkillResyncResult> {
+    return await call<SkillResyncResult>("skills.resyncSource", { sourceId });
+  },
+  /** skills.resyncAllSources：批量重拉全部来源（serial 非交互；失败条目写 lastSyncError 持久化）。 */
+  async resyncAllSkillSources(): Promise<{
+    results: Array<{ sourceId: string; ok: boolean; error?: string; commitSha?: string; commitDate?: string }>;
+    successes: number;
+    failures: number;
+  }> {
+    return await call("skills.resyncAllSources", {});
+  },
+  /** skills.deleteSource：删来源条目 + 其跟踪的 skill 文件夹。 */
+  async deleteSkillSource(sourceId: string): Promise<void> {
+    await call<{ ok: true }>("skills.deleteSource", { sourceId });
+  },
+
+  /** plugins.list：列出已安装插件（.chery/plugins/*）。 */
+  async listPlugins(): Promise<PluginInfo[]> {
+    const data = await call<{ plugins?: PluginInfo[] }>("plugins.list", {});
+    return data?.plugins ?? [];
+  },
+  /** plugins.preImportUrl：解析 URL + 拉 branches + needsAuth/gitNotInstalled 探测（不 clone）。 */
+  async preImportPluginUrl(url: string, credentialId?: string, proxy?: string): Promise<PluginPreImportResult> {
+    return await call<PluginPreImportResult>("plugins.preImportUrl", { url, ...(credentialId ? { credentialId } : {}), ...(proxy ? { proxy } : {}) });
+  },
+  /** plugins.importUrl：按选定分支 git clone 整仓 → staging 预览（含 existing 冲突 + SHA/日期）。 */
+  async importPluginUrl(req: PluginImportRequest): Promise<PluginImportPreview> {
+    return await call<PluginImportPreview>("plugins.importUrl", req);
+  },
+  /** plugins.commit：确认落盘（overwrite=true 覆盖同名插件）。 */
+  async commitPlugin(stagingId: string, overwrite: boolean): Promise<{ plugin: PluginInfo }> {
+    return await call<{ plugin: PluginInfo }>("plugins.commit", { stagingId, overwrite });
+  },
+  /** plugins.checkUpdate：对比 manifest 当前 HEAD 与远端分支 HEAD（含最新发布日期，私有仓降级）。 */
+  async checkPluginUpdate(name: string): Promise<PluginCheckUpdateResult> {
+    return await call<PluginCheckUpdateResult>("plugins.checkUpdate", { name });
+  },
+  /**
+   * plugins.checkAllUpdates：批量检查全部已安装插件，结果写入各自 manifest。
+   * 返回 checked / updatesAvailable / failed（单个失败不中断）。调用后需 refresh() 重拉 list 读持久化字段。
+   */
+  async checkAllPluginsUpdate(): Promise<{
+    checked: number;
+    updatesAvailable: number;
+    failed: Array<{ name: string; reason: string }>;
+  }> {
+    return await call("plugins.checkAllUpdates", {});
+  },
+  /** plugins.update：按 manifest.cloneUrl+branch 重新拉取覆盖。 */
+  async updatePlugin(name: string): Promise<{ plugin: PluginInfo }> {
+    return await call<{ plugin: PluginInfo }>("plugins.update", { name });
+  },
+  /** plugins.uninstall：删除整个插件目录。 */
+  async uninstallPlugin(name: string): Promise<void> {
+    await call<{ ok: true }>("plugins.uninstall", { name });
+  },
+
+  /** credentials.list：列出全部已存凭据（仅 id/label/username，密令永不回前端）。 */
+  async listCredentials(): Promise<CredentialListItemDTO[]> {
+    const data = await call<{ credentials?: CredentialListItemDTO[] }>("credentials.list", {});
+    return data?.credentials ?? [];
+  },
+  /** credentials.save：加密入池（AES-256-GCM，密令后端解密）。 */
+  async saveCredential(label: string, username: string, password: string): Promise<CredentialListItemDTO> {
+    const data = await call<{ credential: CredentialListItemDTO }>("credentials.save", { label, username, password });
+    return data.credential;
+  },
+  /** credentials.delete：从凭据池删除。 */
+  async deleteCredential(id: string): Promise<void> {
+    await call<{ ok: true }>("credentials.delete", { id });
   },
 
   /** chat.list：列出所有 chat（主 chat → 主 pet；子 chat 按 parentChatId 挂主附近）。CP8：includePreview=true 增返 preview/turnCount（会话列表用）。 */
@@ -350,7 +676,7 @@ export const agentApi = {
 
   /** chat.create：创建 chat。返回 chatId + 实际生效编制（预设路径由后端回填，供记 pet.runtime）。 */
   async createAgent(opts: CreateAgentOptions): Promise<CreateAgentResult> {
-    const data = await call<{ chatId?: string; brain?: string; senseGroup?: string; mcpServers?: string[] }>("chat.create", {
+    const data = await call<{ chatId?: string; brain?: string; senseGroup?: string; mcpServers?: string[]; workspace?: string; workspaceValid?: boolean }>("chat.create", {
       ...(opts.preset ? { preset: opts.preset } : {}),
       ...(opts.brain !== undefined ? { brain: opts.brain } : {}),
       ...(opts.senseGroup !== undefined ? { senseGroup: opts.senseGroup } : {}),
@@ -361,7 +687,14 @@ export const agentApi = {
     if (!data?.chatId || !data.brain) {
       throw new Error("chat.create: missing chatId/brain/senseGroup in response");
     }
-    return { chatId: data.chatId, brain: data.brain, senseGroup: data.senseGroup ?? "", mcpServers: data.mcpServers ?? [] };
+    return {
+      chatId: data.chatId,
+      brain: data.brain,
+      senseGroup: data.senseGroup ?? "",
+      mcpServers: data.mcpServers ?? [],
+      workspace: data.workspace,
+      workspaceValid: data.workspaceValid,
+    };
   },
 
   /**
@@ -480,6 +813,11 @@ export const agentApi = {
     return call<ConfigDto>("config.get", {});
   },
 
+  /** config.workspace.validate：只读检查后端主机上的工作区目录，不保存配置。 */
+  async validateWorkspace(workspace?: string): Promise<{ valid: boolean; error?: string }> {
+    return call<{ valid: boolean; error?: string }>("config.workspace.validate", workspace ? { workspace } : {});
+  },
+
   /**
    * config.save：校验（brain 引用/supervision 合法/`:level` 合法/必填）+ 写回（保留 server 段、无注释）。
    * 不碰内存单例，重启生效。校验失败 throw（error.message 含全部错误，设置面板红框展示）。
@@ -523,7 +861,7 @@ export const agentApi = {
       headers: { "Content-Type": file.type, "X-Filename": file.name, ...(server.sessionToken ? { "X-Chery-Session-Token": server.sessionToken } : {}) },
       body: file,
     });
-    if (!response.ok) throw new Error(`媒体上传失败: ${response.status}`);
+    if (!response.ok) throw new Error("媒体上传失败");
     return await response.json() as UploadedMediaAsset;
   },
 

@@ -12,6 +12,8 @@ import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from "@/core/llm
 import { buildBaseSenseFunction } from "@/core/sense/compiler/utils.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import { throwUserFacing } from "@/utils/error.js";
+import { classifyBrainError, wrapBrainStream } from "./fetchBase.js";
 
 // ========== Adapter 定义（参数分离）==========
 
@@ -87,13 +89,20 @@ const ollamaLLMAdapter: LLMAdapter = {
     const msgArray = messages as Message[];
     const model = options?.model;
     if (!model) {
-      throw new Error("Ollama provider requires model in options");
+      throwUserFacing("llm.options.missing", "大脑没配好（缺 model），请在设置里检查", {
+        provider: "ollama",
+        reason: "missing_model",
+      });
     }
-    return ollama.chat({
-      model,
-      messages: msgArray,
-      ...(senses.length > 0 && { tools: senses }),
-    });
+    try {
+      return await ollama.chat({
+        model,
+        messages: msgArray,
+        ...(senses.length > 0 && { tools: senses }),
+      });
+    } catch (err) {
+      throw classifyBrainError(err);
+    }
   },
   async chatStream(
     messages: unknown[],
@@ -103,19 +112,26 @@ const ollamaLLMAdapter: LLMAdapter = {
     const msgArray = messages as Message[];
     const model = options?.model;
     if (!model) {
-      throw new Error("Ollama provider requires model in options");
+      throwUserFacing("llm.options.missing", "大脑没配好（缺 model），请在设置里检查", {
+        provider: "ollama",
+        reason: "missing_model",
+      });
     }
     // P1-2：Ollama 流式不稳定返回 tool_calls，感官调用可能不触发；建议非流式 chat() 路径。
     if (senses.length > 0) {
       logger.event("ollama.toolcall.unreliable", { suggestion: "use non-stream chat()" }, LogLevel.warn);
     }
-    const stream = await ollama.chat({
-      model,
-      messages: msgArray,
-      stream: true,
-      ...(senses.length > 0 && { tools: senses }),
-    });
-    return stream as AsyncIterable<unknown>;
+    try {
+      const stream = await ollama.chat({
+        model,
+        messages: msgArray,
+        stream: true,
+        ...(senses.length > 0 && { tools: senses }),
+      });
+      return wrapBrainStream(stream as AsyncIterable<unknown>);
+    } catch (err) {
+      throw classifyBrainError(err);
+    }
   },
 };
 

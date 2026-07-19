@@ -1,6 +1,6 @@
 import { AgentBuilder } from "@/agent/builder.js";
 import type { RuntimeSelection } from "@/agent/runtimeResolver.js";
-import { getMessages, parseMessageRow, getChatRuntimeSelection, getChatPromptOverride, getChatWorkspace, updateChatMetadata, getChat } from "@/db/chat.js";
+import { getMessages, parseMessageRow, getChatRuntimeSelection, getChatPromptOverride, getChatWorkspace, getChatSkillFilter, updateChatMetadata, getChat } from "@/db/chat.js";
 import type { LLMResponse } from "@/core/message/adapter";
 import { extractSummaryBlock } from "@/core/middleware/messageJournal.js";
 import { notifyRestartActivityChanged } from "@/service/restartCoordinator.js";
@@ -230,7 +230,8 @@ export async function ensureChat(
 
     // 一次性加载历史到内存 + 注入 system prompt（chat metadata.promptPathOverride 覆盖；
     // 来源：spawn 写子 agent / chat.create 写预设主 agent；缺省 → undefined → 全局）
-    builder.init(chatId, loadHistory(chatId), getChatPromptOverride(chatId), getChatWorkspace(chatId));
+    // skillFilter：per-role 技能组/插件组过滤（metadata.skillFilter），仅 <skills> 块按角色裁剪。
+    builder.init(chatId, loadHistory(chatId), getChatPromptOverride(chatId), getChatWorkspace(chatId), getChatSkillFilter(chatId));
   } catch (err) {
     // 半初始化清理：configureRuntime 深校验或 init 抛错时，移除刚 set 的 map 项，
     // 避免留半配置 runtime（无 brain/sense）被后续 send 误用。DB 行由调用方清理。

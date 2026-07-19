@@ -10,7 +10,7 @@ export async function handleSessionRuntimeSet(
   _ctx: HandlerContext,
   data: SessionRuntimeSetRequestData,
 ): Promise<SessionRuntimeSetResponseData> {
-  if (!getChat(data.chatId)) throw new Error(`Chat "${data.chatId}" not found`);
+  if (!getChat(data.chatId)) throw new Error("这个会话不见了");
   const primary = parseRuntimeSelection(data.primary, "session.runtime.set.primary");
   const roles = Object.fromEntries(
     Object.entries(data.roles).map(([role, selection]) => [

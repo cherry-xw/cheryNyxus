@@ -2,9 +2,9 @@
 
 > 横切规范：所有面向用户的错误提示（前端 toast/banner、WS 错误帧、HTTP 错误响应、provider/middleware 抛错、控制台 warn）都应遵循此约定。
 >
-> **Why**：用户看到的应是"是什么 + 改哪里"的人话，不是机读 ID 或技术栈；开发者排查则需要完整上下文。两者各居其位，**互不污染**。
+> **Why**：用户看到的应是"直观表达问题 + 来源"的人话，不是机读 ID 或技术栈；开发者排查则需要完整上下文。两者各居其位，**互不污染**。
 >
-> **How to apply**：抛错前调 `throwUserFacing(scope, userMessage, context)`，message 自动追加 `tracingId`，详细上下文走 `logger.event` 落盘。
+> **How to apply**：抛错前调 `throwUserFacing(scope, userMessage, context)`，message 自动**前置** `tracingId`，详细上下文走 `logger.event` 落盘。
 
 ## 核心原则：用户面 vs 日志面分离
 
@@ -12,16 +12,16 @@
 
 | 层级 | 形态 | 用途 |
 |------|------|------|
-| **用户面**（throw / 推送给前端） | 直白可读中文，1 行，末尾含 8 位 `tracingId` | 用户自助修复 / 报问题时提供 id |
+| **用户面**（throw / 推送给前端） | `[tracingId] 带来源的直观中文`，1 行，**码前置** | 用户直观理解问题 + 开发者凭码查日志 |
 | **日志面**（`logger.event`） | 结构化 JSON 事件，含完整上下文 | 开发者凭 `tracingId` 全文检索日志还原 |
 
 ## 用户面规则
 
 1. **中文**（项目 [规范](../.claude/CLAUDE.md)）
 2. **一行**（不堆栈、不 trace、不内嵌多行）
-3. **指出"是什么 + 改哪里"**——不展开技术细节、不暴露机读 ID
-4. **末尾追加 `[tracingId]`** —— 8 位 hex（UUID 前 8 位），便于口头/工单抄录
-5. **避开 retry 可恢复关键词**（`api` / `invalid` / `timeout` / `network` / `connection` / `schema`），落到 [retry 中间件](./agent/middleware.md) 的 `unknown` 分类 → **不重试**、直接响应前端
+3. **抽象直观表达问题**——用 Brain（大脑/AI服务）/Sense（感官/工具）/Chat 隐喻；**通用兜底必须带来源名词**（`脑子`/`感官`/`媒体`/`扩展工具`/`会话`/`系统`），禁止裸"出了点小问题"。不写"反馈给开发"话术——使用端不考虑开发问题，所有错误导向"去改设置"。
+4. **`tracingId` 前置** `[xxxxxxxx]`——8 位 hex（UUID 前 8 位）放消息**开头**（非末尾），便于日志肉眼追踪定位来源
+5. 抛错点若已知分类与来源，用 `ClassifiedError`（见下）携带——[retry 中间件](./agent/middleware.md) 据此判重试；否则表层出口按 `classifyError` 关键词兜底分类
 6. **不暴露后端机读字段**（如 OpenAI 返回的 `request id`、HTTP `status`、栈帧）—— 这些只进日志，不进 message
 
 ## 日志面规则
@@ -38,11 +38,13 @@
 
 | 形态 | 例子 | 评价 |
 |------|------|------|
-| ❌ 反例 | `[compose] handler at index 3 threw: 401 Invalid token (request id: 202607131304151821714278268d9d6Ik7M6LwN)` | 技术层细节、不可读、机读 ID 暴露、无修复指引 |
+| ❌ 反例 | `内部错误，请用 [ecb4595a] 反馈给开发` | 兜底临床文案 + "反馈给开发"话术错位，使用端不应见开发问题 |
+| ❌ 反例 | `[compose] handler at index 3 threw: 401 Invalid token (request id: ...)` | 技术层细节、不可读、机读 ID 暴露、无修复指引 |
 | ❌ 反例 | `Error: connect ECONNREFUSED 127.0.0.1:11411` | 英文栈、用户不可操作 |
-| ❌ 反例 | `Brain key 未配置（glm-5.2@https://yz.xcherry.top:11411/v1），请在 .env 设置对应环境变量` | URL 噪音、`(model@url)` 长尾巴 |
-| ✓ 正例 | `glm-5.2 缺少 key。请在 .env 或环境变量中设置 API_KEY 后重启 [1c538629]` | 哪个脑 / 缺什么 / 改哪里 / 追踪 id 全有 |
-| ✓ 正例 | `mock_test 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段 [7d0ff4a1]` | 同上，但修复路径指向 config |
+| ❌ 反例 | `请求失败: fetch failed` / `上游返回 401: ...` | 临床、暴露技术细节，不直观 |
+| ✓ 正例 | `[ecb4595a] 连不上我的脑子了` | 隐喻直观（Brain=AI服务）+ 来源（脑子）+ 码前置 |
+| ✓ 正例 | `[7d0ff4a1] 大脑的钥匙不对，请在设置里检查 key` | 来源 + 问题 + 指向设置 |
+| ✓ 正例 | `[3a9f10c2] 感官出了点小问题` | 通用兜底带来源（感官），非裸"出了点小问题" |
 
 ## 实施工具
 
@@ -53,61 +55,75 @@ import { randomUUID } from "node:crypto";
 
 /**
  * 8 位 hex tracingId：UUID v4 前 8 位，理论 16^8 ≈ 42 亿组合，足够全局唯一。
- * 实际唯一性由 ALS scope + model/url/envName 锚定共同保证；此处仅作"可抄录标识"。
  */
 export function newTracingId(): string {
   return randomUUID().slice(0, 8);
 }
 ```
 
+### 合规识别：COMPLIANT_TRACE_PATTERN
+
+```ts
+/** 用户面 message 是否已含前置 tracingId（throwUserFacing / ClassifiedError 出口产出）。 */
+export const COMPLIANT_TRACE_PATTERN = /^\[[0-9a-f]{8}\] /;
+```
+
+### classifyError() / friendlyMessage()
+
+`classifyError(error)` 按关键词分类（`auth`/`network`/`provider`/`timeout`/`validation`/`unknown`），retry 与 compose 兜底共用。`friendlyMessage(category, source)` 查表返回带来源的直观文案（不含 tracingId，由出口前置）：
+
+| category \ source | brain（脑子） | sense（感官） | system（系统） |
+|-------------------|---------------|---------------|----------------|
+| network | 连不上我的脑子了 | 感官连不上了 | 系统连不上了 |
+| auth | 大脑的钥匙不对，请在设置里检查 key | — | — |
+| timeout | 脑子反应太慢了 | 感官反应太慢了 | 系统等太久了 |
+| provider | 脑子忙不过来了，稍后再试 | 感官出了点状况 | 系统出了点状况 |
+| validation | 脑子没听懂这个请求 | 感官没听懂 | 系统没听懂这个请求 |
+| unknown | 脑子出了点小问题 | 感官出了点小问题 | 系统出了点小问题 |
+
+### ClassifiedError
+
+抛错点已知分类与来源时携带，供 retry 判重试、表层出口取友好文案：
+
+```ts
+export class ClassifiedError extends Error {
+  readonly category: ErrorCategory;   // auth/network/provider/timeout/validation/unknown
+  readonly source: ErrorSource;       // brain/sense/media/mcp/chat/system
+  readonly userMessage: string;       // 友好文案（不含 tracingId，出口前置）
+  constructor(opts: { message: string; userMessage: string; category: ErrorCategory; source: ErrorSource; cause?: unknown }) { ... }
+}
+```
+
+retry 读 `ClassifiedError.category`（不再靠 message 关键词）；表层出口（compose / streamMapper）优先用 `userMessage`，否则 `friendlyMessage(category, source)`。
+
 ### throwUserFacing()
 
 ```ts
-import { logger } from "@/utils/logger/index.js";
-import { LogLevel } from "@/utils/logger/types.js";
-
 /**
- * 抛用户面错误：message 短直白，日志面含完整上下文。
- *
- * @param scope     logger event type（模块前缀，如 "llm.key.missing"）
- * @param userMessage 用户面 message（不含 tracingId，函数自动追加 `[tracingId]`）
- * @param context   日志面额外字段（model/url/envName/reason 等）
- * @throws Error（never return）
+ * 抛用户面错误：message 短直观，tracingId **前置**，日志面含完整上下文。
+ * 仅用于终态配置错误（缺 key/model 等，本就不重试）；可重试错误用 ClassifiedError。
  */
-export function throwUserFacing(
-  scope: string,
-  userMessage: string,
-  context: Record<string, unknown> = {},
-): never {
+export function throwUserFacing(scope, userMessage, context = {}): never {
   const tracingId = newTracingId();
   logger.event(scope, { tracingId, ...context }, LogLevel.error);
-  throw new Error(`${userMessage} [${tracingId}]`);
+  throw new Error(`[${tracingId}] ${userMessage}`);   // 码前置
 }
 ```
 
 ### 用法示例
 
 ```ts
-// src/agent/provider/openai.ts
-const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/);
-if (placeholderMatch) {
-  const envName = placeholderMatch[1]!;
-  throwUserFacing(
-    "llm.key.missing",
-    `${model} 缺少 key。请在 .env 或环境变量中设置 ${envName} 后重启`,
-    { model, url, envName, reason: "placeholder_unresolved" },
-  );
-}
-if (!key) {
-  throwUserFacing(
-    "llm.key.missing",
-    `${model} 缺少 key。请在 .chery/config.yaml 的 llm.brain 段检查 key 字段`,
-    { model, url, reason: "key_empty" },
-  );
-}
-```
+// 终态配置错误（不重试）—— throwUserFacing
+throwUserFacing("llm.key.missing", `${model} 缺少 key，请在设置里检查`, { model, reason: "key_empty" });
 
-> **注**：当 `throwUserFacing` 收敛到统一工具后，[openai.ts 的两处重复实现](../src/agent/provider/openai.ts) 应替换为该工具调用，避免散落。
+// 可重试错误 —— ClassifiedError（provider 捕 SDK/fetch 错误）
+throw new ClassifiedError({
+  message: `fetch failed: ${err.message}`,        // 日志用
+  userMessage: "连不上我的脑子了",                   // 用户面
+  category: "network", source: "brain",
+  cause: err,
+});
+```
 
 ## 适用范围
 
@@ -115,7 +131,7 @@ if (!key) {
 |------|---------|------|------|
 | Provider 抛错（openai 无 key / 占位符） | [src/agent/provider/openai.ts](../src/agent/provider/openai.ts) | ✓ 已实施 | 详见 [agent/provider.md](./agent/provider.md) |
 | Provider 抛错（ollama / mock） | [src/agent/provider/](../src/agent/provider/) | 审视 | ollama 不需要 key，mock 一般不抛 401；如有其他错误路径，按需 |
-| Middleware 通用错误包装 | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts) | ✓ 已实施 | 合规错误原样上浮，未合规（第三方裸抛）重包为 `内部错误 [tracingId]`，详细走 logger |
+| Middleware 通用错误包装 | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts) | ✓ 已实施 | 合规错误（前置 tracingId）原样上浮；`ClassifiedError` 取其 `userMessage`；其余按 `classifyError`+`friendlyMessage(category,"系统")` 重包。详细走 logger |
 | Sense 执行错误 | [src/agent/middleware/](../src/agent/middleware/) | TODO | sense 抛错同样要分层 |
 | WebSocket 错误帧（router 结构校验失败） | [src/service/message/router.ts](../src/service/message/router.ts) | ✓ 已实施 | `safeParse` 失败（INVALID_PARAMS）：message 一行中文 + `tracingId`，完整 Zod issues（path/code/expected/received）走 `logger.event("req.invalid_params")` 落盘。handler 业务校验错误（如 `saveRawConfig`）仍各自返回中文 join 串，未走本工具 |
 | HTTP 错误响应 | [src/service/http/](../src/service/http/) | TODO | 401/500 等响应 body 同样分层 |

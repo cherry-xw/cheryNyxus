@@ -2,45 +2,11 @@ import type { MiddlewareContext, ErrorChunk } from "@/core/middleware/types";
 import { isAgentAbortError } from "@/core/middleware/errors.js";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import { classifyError, ClassifiedError, type ErrorCategory } from "@/utils/error.js";
 
 // ========== 配置常量 ==========
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
-
-// ========== 错误分类 ==========
-type ErrorCategory = "auth" | "network" | "provider" | "timeout" | "validation" | "unknown";
-
-/**
- * 根据错误信息判断分类
- *
- * auth（401/403）优先级最高：避免 "401 invalid access token" 因含 "invalid" 被误判为 validation
- * （后者归类语义是参数问题，与凭证失效无关）。
- */
-function classifyError(error: unknown): ErrorCategory {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    if (
-      msg.includes("401") || msg.includes("403") ||
-      msg.includes("unauthorized") || msg.includes("forbidden") ||
-      msg.includes("invalid access token") || msg.includes("invalid api key")
-    ) {
-      return "auth";
-    }
-    if (msg.includes("network") || msg.includes("connection") || msg.includes("econnrefused") || msg.includes("enotfound")) {
-      return "network";
-    }
-    if (msg.includes("timeout") || msg.includes("timed out")) {
-      return "timeout";
-    }
-    if (msg.includes("validation") || msg.includes("invalid") || msg.includes("schema")) {
-      return "validation";
-    }
-    if (msg.includes("api") || msg.includes("rate limit") || msg.includes("provider")) {
-      return "provider";
-    }
-  }
-  return "unknown";
-}
 
 /**
  * 判断错误是否可恢复（可重试）
@@ -59,6 +25,10 @@ function createErrorInfo(attempt: number, error: unknown): ErrorChunk["errors"][
     attempt,
     timestamp: Date.now(),
     message: error instanceof Error ? error.message : String(error),
+    // ClassifiedError 携带友好文案与来源：表层出口（streamMapper）据此出用户面，tracingId 由出口前置。
+    ...(error instanceof ClassifiedError
+      ? { userMessage: error.userMessage, source: error.source }
+      : {}),
     stack: error instanceof Error ? error.stack : undefined,
     recoverable: isRecoverable(category),
     category,

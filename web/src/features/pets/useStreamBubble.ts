@@ -6,8 +6,8 @@ import type { PetInstance } from "./types";
 /**
  * PetSprite 工作气泡 composable：双气泡显隐 + retainUntil 保留 + 流式 auto-scroll。
  *
- * thinking 阶段（thinking 非空 && content 空）：主气泡全空间显 thinking。
- * thinking 结束（content 非空）：主气泡显 content（md）；thinking 移至左侧同尺寸浅色气泡（顶部齐平）。
+ * thinking 阶段（thinking 非空 && content 空）：主气泡全空间显 thinking（主 pet 多行流式；子 pet 单行 hover 展开）。
+ * thinking 结束（content 非空）：主气泡显 content（md）；thinking 收成 content 气泡左下角按钮，hover 弹气泡显完整内容。
  * done 后 content/thinking 保留 20s（retainUntil）；工作气泡自身 hover 期间保持。
  *
  * 气泡显隐门控仅收 bubbleHover（工作气泡自身 hover，本 composable 自管）——
@@ -31,9 +31,9 @@ export function useStreamBubble(props: StreamBubbleProps) {
     nowTick.value = Date.now();
   }, 1000);
 
-  // === 工作气泡（双气泡）状态 ===
-  // thinking 阶段（thinking 非空 && content 空）：主气泡全空间显 thinking
-  // thinking 结束（content 非空）：主气泡显 content（md）；thinking 移至左侧同尺寸浅色气泡（顶部齐平）
+  // === 工作气泡状态 ===
+  // thinking 阶段（thinking 非空 && content 空）：主气泡全空间显 thinking（主 pet 多行；子 pet 单行 hover 展开）
+  // thinking 结束（content 非空）：主气泡显 content（md）；thinking 收成 content 气泡左下角按钮，hover 弹气泡显完整内容
   // done 后 content/thinking 保留 20s（retainUntil）；hover 期间保持。
   const hasStreamContent = computed(
     () => !!props.stream && (!!props.stream.thinking || !!props.stream.content),
@@ -62,14 +62,10 @@ export function useStreamBubble(props: StreamBubbleProps) {
   const hasContent = computed(() => !!props.stream?.content);
   const thinkingOnly = computed(() => !!props.stream?.thinking && !props.stream?.content);
   const showWorkMain = computed(() => hasStream.value && (thinkingOnly.value || hasContent.value));
-  const showWorkSide = computed(
-    () =>
-      // 问题/审批存在时优先显对应卡片，抑制侧气泡（避免视觉冲突）
-      !props.stream?.approval &&
-      !hasPendingQuestion.value &&
-      hasStream.value &&
-      hasContent.value &&
-      !!props.stream?.thinking,
+  // thinking 按钮：思考结束（有 content）且有 thinking 时，content 气泡左下角显按钮，hover 弹气泡。
+  // approval/question 走独立气泡（v-else-if 链，work-main 不与之同显），此处无需抑制条件。
+  const showThinkingButton = computed(
+    () => hasStream.value && hasContent.value && !!props.stream?.thinking,
   );
   // 显示单次响应全部内容（不截取）
   const displayThinking = computed(() => props.stream?.thinking ?? "");
@@ -125,7 +121,7 @@ export function useStreamBubble(props: StreamBubbleProps) {
     hasStream,
     isBusy,
     showWorkMain,
-    showWorkSide,
+    showThinkingButton,
     thinkingOnly,
     hasContent,
     displayThinking,

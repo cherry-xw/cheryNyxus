@@ -33,7 +33,7 @@ defineProps<{ label: string; tip: string }>();
   color: rgba(20, 22, 26, 0.38);
   cursor: help;
   &:hover {
-    color: #f6b73c;
+    color: var(--tab-color, #f6b73c);
   }
 }
 </style>

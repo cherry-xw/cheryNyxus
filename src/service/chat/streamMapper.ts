@@ -11,10 +11,16 @@ import type {
   SenseRejectChunk,
   StagedChunk,
   MessageUpdatedChunk,
+  ErrorChunk,
 } from "@/core/middleware/types";
 import { SupervisionLevel } from "@/core/config";
 import { logger } from "@/utils/logger/index.js";
 import { LogLevel } from "@/utils/logger/types.js";
+import {
+  COMPLIANT_TRACE_PATTERN,
+  friendlyMessage,
+  newTracingId,
+} from "@/utils/error.js";
 import { breakdownUsed } from "@/utils/token.js";
 import { computeContextBreakdown } from "./contextUsage.js";
 import { maybeAutoCompactAfterDone } from "./autoCompact.js";
@@ -146,9 +152,15 @@ export async function* streamAgentChunks(
       logger.event("input.consumed", { count });
       yield createNotification("consumed", rid, { count }, { chatId, runId });
     } else if (chunk.type === "error") {
-      const e = chunk as { errors: Array<{ message: string }> };
-      const message = e.errors[0]?.message || "Unknown error";
-      logger.event("chat.run.error", { message }, LogLevel.error);
+      const e = chunk as ErrorChunk;
+      const info = e.errors[0];
+      // 原始 message 进日志；用户面按友好文案出（见 [docs/error-conventions.md](../../../docs/error-conventions.md)）。
+      const raw = info?.message;
+      logger.event("chat.run.error", { message: raw, category: info?.category, source: info?.source }, LogLevel.error);
+      // 合规（已前置 tracingId，如终态 throwUserFacing 错误）→ 原样；否则按 userMessage / friendlyMessage 出，前置 tracingId。
+      const message = raw && COMPLIANT_TRACE_PATTERN.test(raw)
+        ? raw
+        : `[${newTracingId()}] ${info?.userMessage ?? friendlyMessage(info?.category ?? "unknown", info?.source ?? "system")}`;
       errored = true;
       if (onError) onError(message);
       // 仍下发 error notification：流中途的失败信号，前端可立即更新 UI。

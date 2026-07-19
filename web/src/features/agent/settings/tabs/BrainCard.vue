@@ -9,11 +9,14 @@ import { ref, computed, watch } from "vue";
 import { ElMessageBox } from "element-plus";
 import { agentApi, type BrainConfigDto, type ConfigDto, type MediaCapabilitiesDto, type ThinkingLevel } from "@/services/agentApi";
 import { PROVIDERS } from "../constants";
-import ConfirmPopover from "../ConfirmPopover.vue";
+import ConfirmDialog from "../ConfirmDialog.vue";
 import EditableTitle from "../components/EditableTitle.vue";
 import LabelTip from "../components/LabelTip.vue";
 import ThinkingLevelKnob from "../components/ThinkingLevelKnob.vue";
 import MediaCapabilityGrid from "./MediaCapabilityGrid.vue";
+
+// Chevron icon (element-plus doesn't export a small one, use inline SVG)
+const ChevronIcon = { template: `<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 2l4 4-4 4"/></svg>` };
 
 const props = defineProps<{
   name: string;
@@ -21,13 +24,39 @@ const props = defineProps<{
   cfg: BrainConfigDto;
   draft: ConfigDto;
   envVars: string[];
+  detailMode?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "error", msg: string): void;
+  (e: "renamed", name: string): void;
+  (e: "duplicated", name: string): void;
 }>();
 
 const CONTEXT_LIMIT_OPTIONS = [128, 256, 512, 1024] as const;
+
+// 删大脑二次确认（重删 → ConfirmDialog 居中 modal）
+const removeDialog = ref(false);
+const removeImpact = computed(() => {
+  const referringRoles = Object.entries(props.draft.roles ?? {})
+    .filter(([, cfg]) => cfg.brain === props.name)
+    .map(([name]) => name);
+  return referringRoles.length
+    ? [`引用此大脑的 ${referringRoles.length} 个角色（${referringRoles.join("、")}）将失去大脑绑定，需重新分配。`]
+    : ["没有角色引用此大脑。"];
+});
+
+// ── 折叠/展开 ────────────────────────────────────────────────────
+const expanded = ref(props.detailMode ?? false);
+
+/** 折叠态单行摘要：provider / model / $KEY */
+const brainSummary = computed(() => {
+  const parts: string[] = [];
+  if (props.cfg.provider) parts.push(props.cfg.provider);
+  if (props.cfg.model) parts.push(props.cfg.model);
+  if (props.cfg.key) parts.push(props.cfg.key);
+  return parts.length ? parts.join(" / ") : "未配置";
+});
 
 // ── model 下拉刷新 ──────────────────────────────────────────────
 const modelOptions = ref<Array<{ id: string; name?: string }>>([]);
@@ -154,6 +183,7 @@ function renameBrain(newName: string): void {
     }
   }
   emit("error", "");
+  emit("renamed", newName);
 }
 function validateRename(newName: string): string | null {
   return props.draft.llm.brain[newName] ? `大脑 "${newName}" 已存在` : null;
@@ -166,6 +196,7 @@ function duplicateBrain(): void {
   while (props.draft.llm.brain[newName]) newName = `${props.name}_copy_${i++}`;
   props.draft.llm.brain[newName] = structuredClone(src);
   emit("error", "");
+  emit("duplicated", newName);
 }
 
 /**
@@ -199,30 +230,33 @@ async function openEnvFile(): Promise<void> {
 </script>
 
 <template>
-  <article class="card">
+  <article class="card" :class="{ 'brain-expanded': expanded, 'brain-detail-mode': detailMode }">
     <span class="card-idx">{{ idx + 1 }}</span>
-    <header class="card-head">
+    <header class="card-head brain-head" @click="!detailMode && (expanded = !expanded)">
+      <ChevronIcon v-if="!detailMode" class="brain-chevron ico" :class="{ expanded }" />
       <EditableTitle
         :model-value="name"
         :validate="validateRename"
         @rename="renameBrain"
         @error="onError"
+        @click.stop
       >
         <template #actions>
-          <button type="button" class="icon-btn" aria-label="复制" @click="duplicateBrain">
+          <button type="button" class="icon-btn" aria-label="复制" @click.stop="duplicateBrain">
             <CopyDocument class="ico" />
           </button>
-          <ConfirmPopover :title="`确认删除大脑「${name}」？`" @confirm="removeBrain">
-            <template #trigger>
-              <button type="button" class="icon-btn danger" aria-label="删除">
-                <Delete class="ico" />
-              </button>
-            </template>
-          </ConfirmPopover>
+          <button type="button" class="icon-btn danger" aria-label="删除" @click.stop="removeDialog = true">
+            <Delete class="ico" />
+          </button>
         </template>
       </EditableTitle>
     </header>
-    <div class="brain-layout">
+    <!-- 折叠态摘要 -->
+    <div v-if="!expanded && !detailMode" class="brain-summary" @click="expanded = true">
+      <span>{{ brainSummary }}</span>
+    </div>
+    <!-- 展开态详情 -->
+    <div v-else class="brain-detail">
       <section class="brain-section">
         <div class="section-heading"><span>连接</span><small>模型与服务</small></div>
         <div class="brain-fields connection-fields">
@@ -329,11 +363,24 @@ async function openEnvFile(): Promise<void> {
         />
       </section>
     </div>
+    <ConfirmDialog
+      v-model="removeDialog"
+      icon="🗑️"
+      :title="`删除大脑「${name}」？`"
+      :impact="removeImpact"
+      tab-color="#5ee7ff"
+      @confirm="removeBrain"
+    />
   </article>
 </template>
 
 <style scoped lang="less">
 @import "../shared.less";
+
+.brain-head {
+  cursor: pointer;
+}
+.brain-detail-mode .brain-head { cursor: default; }
 
 .brain-layout {
   display: grid;
@@ -412,7 +459,7 @@ async function openEnvFile(): Promise<void> {
     justify-content: center;
 
     &:hover {
-      color: #f6b73c;
+      color: var(--tab-color, @accent);
     }
 
     .ico {

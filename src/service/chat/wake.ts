@@ -95,7 +95,7 @@ export async function resolveQuestionBatch(
   batchId: string,
   answers: QuestionBatchAnswerInput[],
 ): Promise<CompletedQuestionBatch> {
-  if (!getChat(chatId)) throw new Error(`Chat "${chatId}" not found`);
+  if (!getChat(chatId)) throw new Error("这个会话不见了");
 
   const completed = completeQuestionBatch(chatId, batchId, answers);
   if (completed.alreadyCompleted) return completed;
@@ -135,7 +135,7 @@ export function handleAsyncWakeTimeout(child: {
     child.parentChatId,
     child.childChatId,
     child.type,
-    `[角色 ${child.type}] 执行超时（看门狗 5min）`,
+    `[${child.type}] 执行超时了`,
   );
   abortChatRuntime(child.childChatId);
 }

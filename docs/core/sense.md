@@ -231,7 +231,12 @@ export default sense(
 );
 ```
 
-然后在 [`agent/sense/index.ts`](../../src/agent/sense/index.ts) `registerBuiltinSenses()` 加入注册列表。
+然后在 [`agent/sense/index.ts`](../../src/agent/sense/index.ts)：
+
+1. `registerBuiltinSenses()` 数组加入；
+2. `BUILTIN_SENSE_TOOLS` 追加元信息（`name` 与模块 `definition.function.name` 一致，前端感官下拉用）。
+
+**管家专用感官**（如 `install_skill`）：只在管家角色的 senseGroup 列出，其他角色 senseTable 不含 → 不可调用（senseGroup 隔离，无需 per-role 白名单字段）。详见 [agent/skill-install.md](../agent/skill-install.md)。
 
 ### 加外部感官
 

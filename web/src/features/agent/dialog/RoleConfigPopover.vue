@@ -185,9 +185,9 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
       <section v-if="supportsTools(localSelection.brain)" class="profile-setting sense-setting">
         <div class="setting-heading">
           <span class="setting-icon">✦</span>
-          <span>感官组</span>
+          <span>器官组</span>
         </div>
-        <div class="choice-list" role="radiogroup" aria-label="选择感官组">
+        <div class="choice-list" role="radiogroup" aria-label="选择器官组">
           <span
             v-for="group in senseGroups"
             :key="group.name"

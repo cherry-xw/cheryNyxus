@@ -214,6 +214,34 @@ export function getChatPromptOverride(chatId: string): string | undefined {
 }
 
 /**
+ * 读取持久化的 per-role 技能组/插件组过滤（metadata.skillFilter = {skills?, plugins?}）。
+ * 来源：spawn_role sense（config.roles[type].skills/plugins）或 chat.create 预设主 agent（leader 角色）。
+ * ensureChat 据此传 builder.init 的 skillFilter → buildFirstSystemPrompt 仅注入选中的 skill。
+ * 任一维度缺省（undefined）= 该维度全部通过；二者皆缺省 → 返回 undefined（全部 skill，向后兼容）。
+ * 快照于 chat 创建时（"编制运行后不可改"，同 promptPathOverride）。
+ */
+export function getChatSkillFilter(chatId: string): { skills?: string[]; plugins?: string[] } | undefined {
+  const db = getSoulDb();
+  const row = db
+    .prepare("SELECT metadata FROM chats WHERE id = ?")
+    .get(chatId) as { metadata: string | null } | undefined;
+  if (!row?.metadata) return undefined;
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>;
+  const f = parsed.skillFilter;
+  if (!f || typeof f !== "object") return undefined;
+  const obj = f as Record<string, unknown>;
+  const asStrArr = (v: unknown): string[] | undefined =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
+  const skills = asStrArr(obj.skills);
+  const plugins = asStrArr(obj.plugins);
+  if (skills === undefined && plugins === undefined) return undefined;
+  const filter: { skills?: string[]; plugins?: string[] } = {};
+  if (skills !== undefined) filter.skills = skills;
+  if (plugins !== undefined) filter.plugins = plugins;
+  return filter;
+}
+
+/**
  * 读取 chat 关联的预设名（metadata.preset）。chat.create 选预设时写入。
  * 仅溯源展示 + spawn 解析角色 roster 用；主 agent 运行编制靠 metadata.runtime 快照（不回读预设）。
  * 缺省（非预设主 agent / 子 agent / 旧 chat）→ undefined。

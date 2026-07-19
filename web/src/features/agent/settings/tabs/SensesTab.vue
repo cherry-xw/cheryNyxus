@@ -1,12 +1,14 @@
 <script setup lang="ts">
 /**
- * SensesTab：感官分组（sense_groups）配置。
+ * SensesTab：器官（sense_groups）配置。
+ * 瀑布流：组卡按工具数自然分列（CSS columns），列高随工具数；无需 footer 圆点导航。
  * 组名可点击改名（迁移 default/roles 引用）。
  * tag 化：每组已配工具显为可关闭 el-tag，监管等级挂 tag 内（点循环：继承→auto→confirm→manual）；
  * 一个 el-select（filterable + allow-create）作「加工具」入口，选项显中文名 + 说明。
  *   - 防重复：同组同名工具只一份；下拉剔除已选工具；allow-create 输入已选名也被拦。
- *   - 一行 3 个：flex 三等分，tag 名 ellipsis；hover tag 显工具描述（title）。
+ *   - 一列一个：flex-direction column，tag 名 ellipsis；hover tag 显工具描述（title）。
  * 删组走 ConfirmPopover 二次确认；工具移除=tag 关闭（频繁操作，不二次确认）。
+ * 字段名 sense_groups / senseGroup 保留（后端协议），仅 UI 文案改"器官"。
  */
 import { ref, computed } from "vue";
 import { Delete } from "@element-plus/icons-vue";
@@ -35,7 +37,7 @@ function addGroup(): void {
   if (!name) return;
   if (!props.draft.sense_groups) props.draft.sense_groups = {};
   if (props.draft.sense_groups[name]) {
-    emit("error", `感官组 "${name}" 已存在`);
+    emit("error", `器官组 "${name}" 已存在`);
     return;
   }
   props.draft.sense_groups[name] = [];
@@ -66,7 +68,7 @@ function renameGroup(oldName: string, newName: string): void {
   emit("error", "");
 }
 function validateRename(newName: string): string | null {
-  return props.draft.sense_groups?.[newName] ? `感官组 "${newName}" 已存在` : null;
+  return props.draft.sense_groups?.[newName] ? `器官组 "${newName}" 已存在` : null;
 }
 
 // 工具行 entry 为 "name" 或 "name:level"，直接操作 string[]
@@ -132,28 +134,15 @@ function levelTagType(level: string): "info" | "warning" | "danger" {
   }
 }
 
-/** 序号按钮列表：每感官组一项。brief 给 mini popper 用（工具数 + 最高监管等级）。 */
-const indexItems = computed<IndexItem[]>(() => {
-  const groups = props.draft.sense_groups ?? {};
-  return Object.entries(groups).map(([gname, entries]) => {
-    const levels = entries.map(toolLevel).filter(Boolean);
-    // 监管松紧排序：manual > confirm > auto
-    const severityRank = (l: string): number => (l === "manual" ? 3 : l === "confirm" ? 2 : l === "auto" ? 1 : 0);
-    const maxLevel = levels.length ? levels.reduce((a, b) => (severityRank(a) >= severityRank(b) ? a : b)) : "";
-    return {
-      label: gname,
-      count: entries.length,
-      maxLevel: maxLevel || "继承",
-    };
-  });
-});
+/** 瀑布流后所有组卡平铺，无需 footer 圆点导航；返回空数组隐藏 IndexPaginator。 */
+const indexItems = computed<IndexItem[]>(() => []);
 </script>
 
 <template>
-  <TabShell :index-items="indexItems">
+  <TabShell tab-key="senses" :index-items="indexItems">
     <template #hints>
-      <p class="sect-hint">给宠物装配的感官套餐。组名可点击改名；每组工具显为 tag，点 tag 内等级标切换监管，✕ 移除，hover 看说明。</p>
-      <p class="warn-hint">⚠️ execute_command / write_file 类感官危险（能跑命令/写文件）；配 :auto 等于放它自己执行不问你。</p>
+      <p class="sect-hint">给宠物装配的器官套餐。组名可点击改名；每组工具显为 tag，点 tag 内等级标切换监管，✕ 移除，hover 看说明。</p>
+      <p class="warn-hint">⚠️ execute_command / write_file 类器官危险（能跑命令/写文件）；配 :auto 等于放它自己执行不问你。</p>
     </template>
     <template #popper="{ item }">
       <div class="index-card">
@@ -162,46 +151,53 @@ const indexItems = computed<IndexItem[]>(() => {
         <div class="index-card-line"><b>最高监管</b><span>{{ item.maxLevel as string }}</span></div>
       </div>
     </template>
-    <article v-for="(_, gname, idx) in draft.sense_groups" :key="gname" class="card" :data-anchor="idx">
-      <span class="card-idx">{{ idx + 1 }}</span>
-      <header class="card-head">
-        <EditableTitle
-          :model-value="gname as string"
-          :validate="validateRename"
-          @rename="(n: string) => renameGroup(gname as string, n)"
-          @error="onError"
-        >
-          <template #actions>
-            <span
-              v-if="(draft.sense_groups?.[gname as string] ?? []).some(isDangerousSense)"
-              class="warn-hint inline-warn"
-              title="含危险感官"
-            >⚠️ 危险</span>
-            <ConfirmPopover :title="`确认删除感官组「${gname}」？`" @confirm="removeGroup(gname as string)">
-              <template #trigger>
-                <button type="button" class="icon-btn danger" aria-label="删除">
-                  <Delete class="ico" />
-                </button>
-              </template>
-            </ConfirmPopover>
-          </template>
-        </EditableTitle>
-      </header>
-      <div class="tags">
-        <el-tag
-          v-for="(entry, idx) in (draft.sense_groups?.[gname as string] ?? [])"
-          :key="idx"
-          :type="levelTagType(toolLevel(entry))"
-          :effect="toolLevel(entry) ? 'light' : 'plain'"
-          :title="toolDesc(entry)"
-          closable
-          size="default"
-          class="sense-tag"
-          @close="removeTool(gname as string, idx)"
-        >
+    <template #toolbar>
+      <div class="senses-toolbar">
+        <el-input v-model="newGroupName" placeholder="新器官组名" size="small" @keydown.enter="addGroup" />
+        <button type="button" class="ghost-btn" @click="addGroup">+ 新增组</button>
+      </div>
+    </template>
+    <div class="senses-grid">
+      <article v-for="(_, gname, idx) in draft.sense_groups" :key="gname" class="card" :data-anchor="idx">
+        <span class="card-idx">{{ idx + 1 }}</span>
+        <header class="card-head">
+          <EditableTitle
+            :model-value="gname as string"
+            :validate="validateRename"
+            @rename="(n: string) => renameGroup(gname as string, n)"
+            @error="onError"
+          >
+            <template #actions>
+              <span
+                v-if="(draft.sense_groups?.[gname as string] ?? []).some(isDangerousSense)"
+                class="warn-hint inline-warn"
+                title="含危险器官"
+              >⚠️ 危险</span>
+              <ConfirmPopover :title="`确认删除器官组「${gname}」？`" @confirm="removeGroup(gname as string)">
+                <template #trigger>
+                  <button type="button" class="icon-btn danger" aria-label="删除">
+                    <Delete class="ico" />
+                  </button>
+                </template>
+              </ConfirmPopover>
+            </template>
+          </EditableTitle>
+        </header>
+        <div class="tags">
+          <el-tag
+            v-for="(entry, idx) in (draft.sense_groups?.[gname as string] ?? [])"
+            :key="idx"
+            :type="levelTagType(toolLevel(entry))"
+            :effect="toolLevel(entry) ? 'light' : 'plain'"
+            :title="toolDesc(entry)"
+            closable
+            size="default"
+            class="sense-tag"
+            @close="removeTool(gname as string, idx)"
+          >
             <span class="tag-name">
               <SenseIcon :name="entry" :tools="senseTools" />
-              <span v-if="isDangerousSense(entry)" class="danger-mark" title="危险感官">⚠</span>{{ toolLabel(entry) }}
+              <span v-if="isDangerousSense(entry)" class="danger-mark" title="危险器官">⚠</span>{{ toolLabel(entry) }}
             </span>
             <span
               class="tag-level-btn"
@@ -209,31 +205,28 @@ const indexItems = computed<IndexItem[]>(() => {
               :title="`监管等级（点切换）：${levelLabel(toolLevel(entry))}`"
               @click.stop="cycleLevel(gname as string, idx)"
             >{{ levelLabel(toolLevel(entry)) }}</span>
-        </el-tag>
-        <span v-if="!(draft.sense_groups?.[gname as string]?.length)" class="empty">无工具，点右侧添加 →</span>
-        <el-select
-          :model-value="''"
-          filterable
-          allow-create
-          default-first-option
-          placeholder="+ 加工具"
-          class="add-tool-select"
-          popper-class="sense-tool-popper"
-          @update:model-value="onAddTool(gname as string, $event)"
-        >
-          <el-option v-for="t in availableTools(gname as string)" :key="t.name" :value="t.name" :label="t.label">
-            <div class="opt-item">
-              <SenseIcon :name="t.name" :tools="senseTools" />
-              <span class="opt-label">{{ t.label }}</span>
-              <span class="opt-desc" :title="t.description">{{ t.description }}</span>
-            </div>
-          </el-option>
-        </el-select>
-      </div>
-    </article>
-    <div class="add-row">
-      <el-input v-model="newGroupName" placeholder="新组名" @keydown.enter="addGroup" />
-      <button type="button" class="ghost-btn" @click="addGroup">+ 新增组</button>
+          </el-tag>
+          <span v-if="!(draft.sense_groups?.[gname as string]?.length)" class="empty">无工具，点下方添加 →</span>
+          <el-select
+            :model-value="''"
+            filterable
+            allow-create
+            default-first-option
+            placeholder="+ 加工具"
+            class="add-tool-select"
+            popper-class="sense-tool-popper"
+            @update:model-value="onAddTool(gname as string, $event)"
+          >
+            <el-option v-for="t in availableTools(gname as string)" :key="t.name" :value="t.name" :label="t.label">
+              <div class="opt-item">
+                <SenseIcon :name="t.name" :tools="senseTools" />
+                <span class="opt-label">{{ t.label }}</span>
+                <span class="opt-desc" :title="t.description">{{ t.description }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </div>
+      </article>
     </div>
   </TabShell>
 </template>
@@ -241,15 +234,32 @@ const indexItems = computed<IndexItem[]>(() => {
 <style scoped lang="less">
 @import "../shared.less";
 
+// 瀑布流：列宽 200px，列数随容器宽度自适应（空间够自动增多列）；卡片按工具数自然分列、各列高等于内容。
+.senses-grid {
+  column-width: 200px;
+  column-gap: 8px;
+}
+.senses-grid > .card {
+  break-inside: avoid;
+  width: 100%;
+  margin: 0 0 8px;
+  box-sizing: border-box;
+}
+.senses-toolbar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  :deep(.el-input) { width: 160px; }
+}
 .tags {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column; // 每行一个工具，垂直堆叠
   gap: 6px;
-  align-items: center;
+  align-items: stretch;
 }
-// 一行 3 个：三等分（2 个 gap × 6px）
 .sense-tag {
-  width: calc((100% - 12px) / 3);
+  width: 100%;
   max-width: 100%;
   box-sizing: border-box;
   font-size: 12px;
@@ -267,7 +277,7 @@ const indexItems = computed<IndexItem[]>(() => {
   }
 }
 .add-tool-select {
-  width: calc((100% - 12px) / 3);
+  width: 100%;
   max-width: 100%;
 }
 .tag-name {

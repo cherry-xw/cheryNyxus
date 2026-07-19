@@ -34,6 +34,10 @@ export function startService(options: { port: number; webPort: number; staticDir
   const router = createRouter();
   registerBrainHandlers(router);        // brain.list
   registerSenseHandlers(router);        // sense.list / sense.tools
+  registerSkillHandlers(router);        // skills.list
+  registerSkillImportHandlers(router);  // skills.importUrl / skills.commit / skills.delete
+  registerPluginHandlers(router);       // plugins.list / plugins.preImportUrl / plugins.importUrl / plugins.commit / plugins.checkUpdate / plugins.update / plugins.uninstall
+  registerCredentialsHandlers(router);  // credentials.list / credentials.save / credentials.delete
   registerRuntimeSetHandlers(router);   // runtime.set
   registerChatHandlers(router);         // chat.send / chat.resume / sense.approval / chat.abort
   registerChatManageHandlers(router);   // chat.create / chat.list / chat.get / chat.delete
@@ -69,6 +73,12 @@ export function startService(options: { port: number; webPort: number; staticDir
 | [src/service/brain/list.ts](../../src/service/brain/list.ts) | `brain.list` handler |
 | [src/service/runtime/set.ts](../../src/service/runtime/set.ts) | `runtime.set` handler |
 | [src/service/sense/list.ts](../../src/service/sense/list.ts) | `sense.list` handler |
+| [src/service/skill/list.ts](../../src/service/skill/list.ts) | `skills.list` handler（独立 + 插件 skill 元数据） |
+| [src/service/skill/import.ts](../../src/service/skill/import.ts) | `skills.importUrl` / `skills.commit` / `skills.delete` handler（两阶段 stage→commit） |
+| [src/service/plugin/list.ts](../../src/service/plugin/list.ts) | `plugins.list` handler + `buildPluginInfo`/`listPluginSkills`（manifest + skills 扫描，loader 共用） |
+| [src/service/plugin/import.ts](../../src/service/plugin/import.ts) | `plugins.preImportUrl` / `plugins.importUrl` / `plugins.commit` / `plugins.checkUpdate` / `plugins.update` / `plugins.uninstall` handler |
+| [src/service/plugin/index.ts](../../src/service/plugin/index.ts) | barrel：`registerPluginHandlers`（7 方法，见 [启动流程](#启动流程)） |
+| [src/service/credentials/handler.ts](../../src/service/credentials/handler.ts) | `credentials.list` / `credentials.save` / `credentials.delete` handler + `registerCredentialsHandlers`（包 [secretStore](../../src/utils/secretStore.ts)） |
 
 ## RPC 模式
 
@@ -83,6 +93,20 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `brain.list` | `handleBrainList` | [brain/list.ts](../../src/service/brain/list.ts) | 否 | 列 config.yaml 的 brain + 全局 senseGroups + 已连接 mcpServers |
 | `sense.list` | `handleSenseList` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列 config.yaml 的 sense_groups（原始字符串，含 `:level` 后缀） |
 | `sense.tools` | `handleSenseTools` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列代码维护的全部内置工具（name/label/description）供设置面板下拉 |
+| `skills.list` | `handleSkillsList` | [skill/list.ts](../../src/service/skill/list.ts) | 否 | 实时列 `.chery/skills/`（独立）+ `.chery/plugins/*/`（插件）skill 元数据（含 contextTokens） |
+| `skills.importUrl` | `handleSkillsImportUrl` | [skill/import.ts](../../src/service/skill/import.ts) | 否 | 拉 GitHub 独立技能集合到 staging，返 `{stagingId, candidates}`（两阶段） |
+| `skills.commit` | `handleSkillsCommit` | 同上 | 否 | 按 `{stagingId, selections}` 落盘 stage 候选为独立 skill |
+| `skills.delete` | `handleSkillsDelete` | 同上 | 否 | 删除独立 skill 目录（`skills_dir/<name>`） |
+| `plugins.list` | `handlePluginsList` | [plugin/list.ts](../../src/service/plugin/list.ts) | 否 | 列已安装插件（manifest + skills 扫描，透出 cloneUrl/branch/commitSha/commitDate） |
+| `plugins.preImportUrl` | `handlePluginsPreImportUrl` | [plugin/import.ts](../../src/service/plugin/import.ts) | 否 | 拉远端分支列表 + 探测 needsAuth（git CLI 硬性前提预检） |
+| `plugins.importUrl` | `handlePluginsImportUrl` | 同上 | 否 | git clone 整仓到 staging（支持 branch 选择 + 鉴权注入） |
+| `plugins.commit` | `handlePluginsCommit` | 同上 | 否 | 落盘 staged 插件 + 写 `.chery-plugin.json` manifest（cloneUrl/branch/commitSha/commitDate） |
+| `plugins.checkUpdate` | `handlePluginsCheckUpdate` | 同上 | 否 | 比对 currentSha/latestSha + 取 latestDate（GitHub REST，私有仓降级） |
+| `plugins.update` | `handlePluginsUpdate` | 同上 | 否 | 按 `manifest.cloneUrl+branch` 重新 git clone 覆盖 |
+| `plugins.uninstall` | `handlePluginsUninstall` | 同上 | 否 | 删除整个插件目录 |
+| `credentials.list` | `handleCredentialsList` | [credentials/handler.ts](../../src/service/credentials/handler.ts) | 否 | 列凭据池（仅 id/label/username，密令不外露） |
+| `credentials.save` | `handleCredentialsSave` | 同上 | 否 | AES-256-GCM 加密保存（password/token 字段自动脱敏） |
+| `credentials.delete` | `handleCredentialsDelete` | 同上 | 否 | 按 id 删凭据（幂等） |
 | `runtime.set` | `handleRuntimeSet` | [runtime/set.ts](../../src/service/runtime/set.ts) | 否 | 原子设置 chat 的 brain + senseGroup + mcpServers |
 | `chat.create` | `handleChatCreate` | [chat/handler.ts](../../src/service/chat/handler.ts) | 否 | 建 chat + ensureChat 注入 runtime + 加载历史 |
 | `chat.list` | `handleChatList` | 同上 | 否 | 全局列表（读冗余 message_count） |

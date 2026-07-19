@@ -1,5 +1,5 @@
 import type { Ref } from "vue";
-import { generatePet } from "@/features/pets/petPresets";
+import { applyRoleAvatar, generatePet } from "@/features/pets/petPresets";
 import { findSpawnPosition } from "@/features/pets/petMovement";
 import { createPetInstance } from "@/features/pets/usePetWorld";
 import type { PetInstance } from "@/features/pets/types";
@@ -202,7 +202,7 @@ export function createStreamRouter(
       // CP2 → P3：错误时填 stream.error（UI 显 error-bubble），保留 console.error 供调试
       if (type === "error" && chatId) {
         const stream = streams.value[chatId];
-        const errMsg = (n.data as { message?: string } | undefined)?.message ?? `流式错误 (requestId=${requestId})`;
+        const errMsg = (n.data as { message?: string } | undefined)?.message ?? "系统出了点小问题";
         if (stream) {
           stream.error = errMsg;
           // error 不保留气泡（即时隐藏 content/thinking）；30s 后清 stream.error（error-bubble 自动消失）
@@ -378,6 +378,7 @@ export function createStreamRouter(
         wait?: boolean;
         brain?: string;
         senseGroup?: string;
+        avatar?: string;
       };
       if (!d.taskId || !d.chatId || !d.parentChatId || !d.type || !d.prompt) {
         console.warn("[agents] role_created: notification 字段残缺", d);
@@ -393,7 +394,7 @@ export function createStreamRouter(
       if (!pets.value.some((p) => p.chatId === d.chatId)) {
         const bounds = defaultBounds();
         const usedFaces = new Set(pets.value.map((p) => p.face));
-        const preset = generatePet("emoji", usedFaces);
+        const preset = applyRoleAvatar(generatePet("emoji", usedFaces), d.avatar);
         const pet = createPetInstance(preset, bounds, false, master.instanceId, {
           chatId: d.chatId,
           parentChatId: d.parentChatId,

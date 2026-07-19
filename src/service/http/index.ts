@@ -6,6 +6,7 @@ import config, { DEFAULT_PRESET_NAME } from "@/utils/config.js";
 import { logger } from "@/utils/logger/index.js";
 import { OAuth2Auth } from "../auth/index.js";
 import { readMediaAsset, saveMediaAsset } from "../media/index.js";
+import { stageSkillZipBuffer } from "../skill/import.js";
 
 /**
  * MIME 类型映射（自写 minimal static serve，无新依赖）
@@ -104,6 +105,24 @@ async function handleRequest(
       res.end(asset.data);
       return;
     }
+  }
+
+  // POST /api/skills/import —— ZIP 上传导入（raw bytes，鉴权同 media）→ stage 候选 + 冲突
+  // 协议规范见 docs/protocol.md；两阶段：前端拿到 stagingId+candidates 后用 skills.commit 落盘。
+  if (url === "/api/skills/import" && req.method === "POST") {
+    const authorized = auth?.enabled ? !!auth.getUser(req) : !!sessionToken && req.headers["x-chery-session-token"] === sessionToken;
+    if (!authorized) { res.writeHead(401); res.end("Unauthorized"); return; }
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      const result = stageSkillZipBuffer(Buffer.concat(chunks));
+      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(result));
+    } catch (err) {
+      res.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+    return;
   }
 
   // GET /api/config —— 前端 fetch 自动构建 WS 地址（见 protocol.md）

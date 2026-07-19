@@ -74,20 +74,36 @@ function load(chatId: string): void {
   agents.loadSession(chatId);
 }
 
+/** 删除确认文案池：8 种风格随机抽一，icon=应景 emoji（替代 element-plus 状态图标）。删除本身恒为危险操作，按钮保持 danger。 */
+type DeletePromptStyle = {
+  icon: string;
+  title: string;
+  body: string;
+};
+const DELETE_PROMPTS: readonly DeletePromptStyle[] = [
+  { icon: "⚛️", title: "量子遗忘？", body: "本次操作将坍缩所有平行时间轴上的对话痕迹，确认启动记忆清除程序？" },
+  { icon: "🤖", title: "数据清洗？", body: "所有比特记忆将永久格式化，缓存区彻底归零，是否继续执行？" },
+  { icon: "🌫️", title: "如烟？", body: "让这场对话如晨雾般悄然散去，再不寻来路，你当真舍得？" },
+  { icon: "🥀", title: "告别？", body: "那些字句曾温暖过寂寥的时光，如今要亲手将它们埋葬，只余空白与回响。" },
+  { icon: "🕯️", title: "忘却？", body: "记忆是存在的影子，删除便是让影子消逝于光中，你确定要踏入无痕之境？" },
+  { icon: "🐟", title: "失忆？", body: "一键开启金鱼模式，所有聊天记录统统蒸发，确定要这么绝情吗？" },
+  { icon: "🌊", title: "相忘？", body: "此间言语，尽付东流，从此江湖不见，君意若何？" },
+  { icon: "🕊️", title: "放下？", body: "让这段对话随风飘远，像从未发生过一样，你准备好轻装前行了吗？" },
+];
+function pickDeletePrompt(): DeletePromptStyle {
+  return DELETE_PROMPTS[Math.floor(Math.random() * DELETE_PROMPTS.length)]!;
+}
+
 async function remove(chatId: string): Promise<void> {
   // 二次确认：ElMessageBox（会话级删除后果重，用居中 modal）；pendingDelete 防 ✕ 重复点
   if (pendingDelete.value) return;
   try {
-    await ElMessageBox.confirm(
-      "删除该会话？主 chat 及其所有子 chat 将永久删除，不可恢复。",
-      "确认删除",
-      {
-        type: "warning",
-        confirmButtonText: "删除",
-        cancelButtonText: "取消",
-        confirmButtonClass: "el-button--danger",
-      },
-    );
+    const prompt = pickDeletePrompt();
+    await ElMessageBox.confirm(prompt.body, `${prompt.icon} ${prompt.title}`, {
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+      confirmButtonClass: "el-button--danger",
+    });
   } catch {
     return; // 用户取消
   }

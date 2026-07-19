@@ -138,6 +138,10 @@ export interface PetInstance extends PetPreset {
   preset?: string;
   /** 末条非 revoked 消息为未完成周期（sense/user/role/subagent）；主 pet idle 时工具栏显"继续"按钮。后端 chat.list canResume 字段。 */
   canResume?: boolean;
+  /** 当前 chat 关联的项目工作目录绝对路径（metadata.workspace 快照）。AgentFab 据此显示工作区标识。 */
+  workspace?: string;
+  /** workspace 路径当前是否为可访问目录。workspace 缺省时 undefined；false 时消息弹窗标记失效。 */
+  workspaceValid?: boolean;
   /** Req 8: 气泡斥力增量。isWorking 时 =80，stepMovement 同部落斥力半径 += pet.bubbleRepelExtra + other.bubbleRepelExtra。tickPet chatting 到期清零。 */
   bubbleRepelExtra: number;
 }

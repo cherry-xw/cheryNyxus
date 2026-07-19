@@ -100,8 +100,20 @@ export type SenseListRequestData = EmptyObjectData;
 
 export type SenseToolsRequestData = EmptyObjectData;
 
-/** skills.list：列出用户配置目录中当前可用的 Skill 元数据。 */
-export type SkillsListRequestData = EmptyObjectData;
+/** skills.list：列出用户配置目录中当前可用的 Skill 元数据。支持可选分页与搜索。 */
+export interface SkillsListRequestData {
+  /** 1-based 页码；省略或 1 = 第一页；未给 pageSize 时忽略（返回全量）。 */
+  page?: number;
+  /** 每页条数；默认 50，最大 200；未给 page 时忽略（返回全量）。 */
+  pageSize?: number;
+  /** 按名称/描述/触发词模糊搜索（大小写不敏感）。 */
+  search?: string;
+  /**
+   * 插件过滤：undefined 或省略 = 仅独立 skill；"*" = 全部；具体字符串 = 该插件下的 skill。
+   * 与 SkillFilter 互补：SkillFilter 用于 per-role 白名单，此参数用于 UI 列表展示过滤。
+   */
+  plugin?: string;
+}
 
 export type PromptsListRequestData = EmptyObjectData;
 
@@ -293,6 +305,11 @@ export type ConfigGetRequestData = EmptyObjectData;
 /** config.save 入参：除 server 外全部字段（结构同 ConfigRaw，supervision 为字符串、key 为 $ENV 占位符） */
 export type ConfigSaveRequestData = ConfigRaw;
 
+/** config.workspace.validate：只读校验后端主机上的预设工作区目录。空值表示未限定，为有效值。 */
+export interface ConfigWorkspaceValidateRequestData {
+  workspace?: string;
+}
+
 // ---------- Utils 工具（独立信息查询，不依赖 chat/brain 运行时）----------
 
 /**
@@ -418,15 +435,431 @@ export interface SenseToolsResponseData {
   tools: SenseToolMeta[];
 }
 
-/** skills.list 响应：仅用户 `.chery/skills/` 中的技能；不含前端内置命令。 */
+/** skills.list 响应：用户 `.chery/skills/` 独立 skill + `.chery/plugins/` 插件 skill；不含前端内置命令。 */
 export interface SkillsListResponseData {
   skills: Array<{
     name: string;
     description: string;
     trigger?: string;
-    /** 激活该技能后写入模型上下文的近似 token 增量。 */
+    /** 激活该技能后写入模型上下文的近似 token 增量（= 系统提示词 + 内容提示词之和）。 */
     contextTokens: number;
+    /** 系统提示词占用：注入 system prompt `<skills>` XML 的 name+description token。 */
+    nameDescTokens: number;
+    /** 系统提示词占用：trigger 行 token（可选，无 trigger 则省略）。 */
+    triggerTokens?: number;
+    /** 内容提示词占用：激活后加载的技能正文 token。 */
+    contentTokens: number;
+    /** 来源插件名（undefined = 独立 skill；否则为插件 skill，name 形如 `<plugin>__<skill>`）。 */
+    plugin?: string;
   }>;
+  /** 匹配条件总条数（分页时前端需要知道总数）。无分页时等于 skills.length。 */
+  total: number;
+  /** 当前页码（1-based）；无分页时为 1。 */
+  page: number;
+  /** 每页条数；无分页时为 skills.length。 */
+  pageSize: number;
+}
+
+/** skills.listNames：轻量接口，仅返回全部 skill 名称（不算 token），供角色卡下拉使用。 */
+export type SkillsListNamesRequestData = EmptyObjectData;
+export interface SkillsListNamesResponseData {
+  /** 全部独立 skill 名。 */
+  skills: string[];
+  /** 全部插件名。 */
+  plugins: string[];
+  /** 角色装备摘要用的系统提示词 token，不读取技能正文。 */
+  skillTokens: Record<string, number>;
+  pluginTokens: Record<string, number>;
+}
+
+/** 导入候选 skill（两阶段导入的 stage 产物）。 */
+export interface SkillCandidate {
+  /** sanitize 后的 skill 目录名（= 未来 skills_dir/<name>）。 */
+  name: string;
+  description: string;
+  trigger?: string;
+  /** skills_dir/<name> 已存在 → 冲突，需前端逐项确认覆盖/跳过。 */
+  conflict: boolean;
+}
+
+/** skills 导入 stage 结果（HTTP /api/skills/import 与 skills.importUrl 共用）。 */
+export interface SkillStageResult {
+  stagingId: string;
+  candidates: SkillCandidate[];
+}
+
+/** skills.preImportUrl：解析 URL + git ls-remote 取分支列表 + 鉴权/git 探测（不 clone）。 */
+export interface SkillsPreImportUrlRequestData {
+  url: string;
+  /** 选中凭据池 id（私有仓二次尝试时带）；首次省略。 */
+  credentialId?: string;
+  /** 可选 HTTP/HTTPS 代理 URL（如 http://127.0.0.1:7890）；省略 = 直连。 */
+  proxy?: string;
+}
+export interface SkillsPreImportUrlResponseData {
+  /** 系统 git 缺失（功能不可用，前端据此禁用）。 */
+  gitNotInstalled: boolean;
+  /** 需要鉴权（私有仓）。 */
+  needsAuth: boolean;
+  branches: string[];
+  defaultBranch?: string;
+}
+
+/**
+ * skills.importUrl：按选定分支 git clone 独立技能集合到 staging 分析候选（对标插件：分支选择 + 鉴权）。
+ * 鉴权：credentialId（凭据池）优先；否则 inline {username,password}（remember=true 时入池）。互斥。
+ */
+export interface SkillsImportUrlRequestData {
+  url: string;
+  branch: string;
+  credentialId?: string;
+  /** inline 入口（与 credentialId 互斥）。 */
+  username?: string;
+  password?: string;
+  /** 为 true 时把 inline {username,password,label} 加密入池并回填 savedCredentialId。 */
+  remember?: boolean;
+  label?: string;
+  /** 可选 HTTP/HTTPS 代理 URL（如 http://127.0.0.1:7890）；省略 = 直连。 */
+  proxy?: string;
+}
+export interface SkillsImportUrlResponseData extends SkillStageResult {
+  /** 选中分支（URL 导入才有；zip 上传无）。 */
+  branch?: string;
+  /** HEAD 短 SHA（URL 导入才有）。 */
+  commitSha?: string;
+  /** HEAD 提交时间 ISO（URL 导入才有）。 */
+  commitDate?: string;
+  /** inline + remember 成功入池时回填的新凭据 id。 */
+  savedCredentialId?: string;
+}
+
+/** skills.commit 单项选择：import=false → 跳过；true → 导入（冲突则覆盖）。 */
+export interface SkillCommitSelection {
+  name: string;
+  import: boolean;
+}
+export interface SkillsCommitRequestData {
+  stagingId: string;
+  selections: SkillCommitSelection[];
+}
+export interface SkillsCommitResponseData {
+  imported: string[];
+  skipped: string[];
+}
+
+/** skills.delete：删除独立 skill 目录（plugins_dir 下的插件 skill 不在此列）。 */
+export interface SkillsDeleteRequestData {
+  name: string;
+}
+export interface SkillsDeleteResponseData {
+  ok: true;
+}
+
+/** git 来源索引项（.chery/.skill-sources.json 单条；按 {cloneUrl,branch} 分组）。 */
+export interface SkillSourceEntry {
+  /** 稳定 id = sha1(cloneUrl+branch) 前 12 位。 */
+  id: string;
+  /** 规范化 https clone URL。 */
+  cloneUrl: string;
+  branch: string;
+  /** 关联凭据池 id（re-sync 时复用；未存则 undefined）。 */
+  credentialId?: string;
+  /** 上次同步时的 HEAD 短 SHA。 */
+  commitSha: string;
+  /** 上次同步时的 HEAD 提交时间 ISO。 */
+  commitDate: string;
+  /** 上次同步时间 ISO。 */
+  lastSyncedAt: string;
+  /** 最近一次 resyncAllSources 错误信息（成功时清除；从未批量刷新或非失败结果为 undefined）。 */
+  lastSyncError?: string;
+  lastCheckedAt?: string;
+  latestSha?: string;
+  latestDate?: string;
+  updateAvailable?: boolean;
+  lastCheckError?: string;
+  /** 跟踪的 skill 文件夹名（skills_dir 下的目录名）。 */
+  skills: string[];
+}
+/** skills.listSources 返回项：仓库摘要，不展开关联技能。 */
+export interface SkillSourceDTO extends Omit<SkillSourceEntry, "skills"> {
+  skillCount: number;
+}
+/** skills.listSources：列出 git 来源中央索引。 */
+export type SkillsListSourcesRequestData = EmptyObjectData;
+export interface SkillsListSourcesResponseData {
+  sources: SkillSourceDTO[];
+}
+export interface SkillsCheckSourceRequestData { sourceId: string; }
+export interface SkillsCheckSourceResponseData {
+  sourceId: string;
+  latestSha: string;
+  latestDate?: string;
+  updateAvailable: boolean;
+}
+export type SkillsCheckAllSourcesRequestData = EmptyObjectData;
+export interface SkillsCheckAllSourcesResponseData {
+  checked: number;
+  updatesAvailable: number;
+  failed: Array<{ sourceId: string; reason: string }>;
+}
+/** skills.resyncSource：重 clone 某来源 + 重分析候选（前端重弹候选列表预勾选）。 */
+export interface SkillsResyncSourceRequestData {
+  sourceId: string;
+}
+export interface SkillsResyncSourceResponseData extends SkillStageResult {
+  branch: string;
+  commitSha: string;
+  commitDate: string;
+  sourceId: string;
+  /** 该来源原先跟踪的技能，前端默认继续勾选。 */
+  selected: string[];
+}
+/** skills.deleteSource：删来源索引条目 + 其跟踪的 skill 文件夹。 */
+export interface SkillsDeleteSourceRequestData {
+  sourceId: string;
+}
+export interface SkillsDeleteSourceResponseData {
+  ok: true;
+}
+/**
+ * skills.resyncAllSources：批量重拉全部来源（非交互）。
+ * 自动 commit 仅匹配原 entry.skills 命名的 candidate；新增/删除静默丢弃（避免与手动 resyncSource 行为交叉）。
+ * 失败条目同步写入 SkillSourceEntry.lastSyncError 便于下次刷新前展示「刷新失败」红 pill。
+ */
+export type SkillsResyncAllSourcesRequestData = EmptyObjectData;
+export interface SkillsResyncAllSourcesEntry {
+  sourceId: string;
+  ok: boolean;
+  /** 失败时附带错误信息（鉴权/网络/git 缺失等）。 */
+  error?: string;
+  /** 成功时新 HEAD SHA。 */
+  commitSha?: string;
+  /** 成功时新 HEAD commit 时间 ISO。 */
+  commitDate?: string;
+}
+export interface SkillsResyncAllSourcesResponseData {
+  results: SkillsResyncAllSourcesEntry[];
+  successes: number;
+  failures: number;
+}
+
+// ========== 插件管理 ==========
+
+/** 插件内 skill 元信息（plugins.list 展示用）。name 为对外名 `<plugin>__<skill>`。
+ *  token 字段（nameDescTokens/triggerTokens/contentTokens）与 skill 端 `computeSkillTokens` 同源，
+ *  供前端插件卡展示「系统 ≈N」「内容 min–max」+ tag tip。 */
+export interface PluginSkillInfo {
+  name: string;
+  description: string;
+  trigger?: string;
+  /** name + description 的 token 数（不含 trigger / 正文）。 */
+  nameDescTokens: number;
+  /** trigger 行的 token 数（无 trigger 时为 0）。 */
+  triggerTokens?: number;
+  /** 正文 content 的 token 数。 */
+  contentTokens: number;
+}
+
+/** 插件信息（来源 .chery/plugins/<name>/.chery-plugin.json manifest + 扫描其 skills）。 */
+export interface PluginInfo {
+  name: string;
+  sourceUrl: string;
+  /** 规范化 clone URL（https .git）；旧 manifest 缺失为空串。 */
+  cloneUrl: string;
+  /** 跟踪的分支；旧 manifest 缺失为空串。 */
+  branch: string;
+  /** 安装时的 HEAD 短 SHA；旧 manifest 缺失为空串。 */
+  commitSha: string;
+  /** 安装时的 commit ISO 时间；旧 manifest 缺失为空串。 */
+  commitDate: string;
+  installedAt: string;
+  updatedAt: string;
+  /** 最近一次检查更新时间（manifest 持久化）；从未检查为 undefined。 */
+  lastCheckedAt?: string;
+  /** 远端最新 HEAD 短 SHA（最近一次检查写入）；未检查为 undefined。 */
+  latestSha?: string;
+  /** 远端最新 commit ISO（最近一次检查写入）；私有仓 401 或未检查为 undefined。 */
+  latestDate?: string;
+  /** 当前 commitSha 与 latestSha 不一致（最近一次检查写入）；未检查为 undefined。 */
+  updateAvailable?: boolean;
+  /** 最近一次 checkUpdate 错误信息（成功时清除；从未检查或检查成功的为 undefined）。 */
+  lastCheckError?: string;
+  /** 该插件全部 skill 的系统 token 总量（Σ nameDescTokens + triggerTokens）。 */
+  totalSystemTokens: number;
+  /** 该插件 skill 中正文 token 的最小值（无 skill 时为 0）。 */
+  minContentTokens: number;
+  /** 该插件 skill 中正文 token 的最大值（无 skill 时为 0）。 */
+  maxContentTokens: number;
+  skills: PluginSkillInfo[];
+}
+
+/** plugins.list：列出已安装插件（.chery/plugins 下各子目录）。 */
+export type PluginsListRequestData = EmptyObjectData;
+export interface PluginsListResponseData {
+  plugins: PluginInfo[];
+}
+
+/**
+ * plugins.preImportUrl：解析 URL + git ls-remote 取分支列表。
+ * - needsAuth=true → 私有仓需凭据（前端弹用户名/密码或选凭据池后重试）。
+ * - gitNotInstalled=true → 系统 git 缺失（硬性前提），前端禁用导入入口。
+ */
+export interface PluginsPreImportUrlRequestData {
+  url: string;
+  /** 选中的凭据池 id（私有仓二次尝试时带）；首次省略。 */
+  credentialId?: string;
+  /** 可选 HTTP/HTTPS 代理 URL（如 http://127.0.0.1:7890）；省略 = 直连。 */
+  proxy?: string;
+}
+export interface PluginsPreImportUrlResponseData {
+  /** 系统 git 缺失（功能不可用，前端据此禁用）。 */
+  gitNotInstalled: boolean;
+  /** 需要鉴权（私有仓）。 */
+  needsAuth: boolean;
+  branches: string[];
+  defaultBranch?: string;
+  owner: string;
+  repo: string;
+  /** 建议的插件文件夹名（= sanitizeName(repo)）；前端预填「文件夹名」输入框。 */
+  suggestedName: string;
+  /** 该文件夹名已存在（pluginDirExists）→ 前端展示「文件夹名」输入框供改名。 */
+  nameConflict: boolean;
+}
+
+/**
+ * plugins.importUrl：按选定分支 git clone 整仓到 staging 预览（含 existing 冲突）。
+ * 鉴权：credentialId（凭据池）优先；否则 inline {username,password}（remember=true 时入池）。
+ * credentialId 与 inline password 互斥（schema refine）。
+ */
+export interface PluginsImportUrlRequestData {
+  url: string;
+  branch: string;
+  credentialId?: string;
+  /** inline 入口（与 credentialId 互斥）。 */
+  username?: string;
+  password?: string;
+  /** 为 true 时把 inline {username,password,label} 加密入池并回填 savedCredentialId。 */
+  remember?: boolean;
+  label?: string;
+  /**
+   * 插件文件夹名覆盖（preImport 返回 nameConflict=true 时由前端提供）。
+   * 省略 → 用 sanitizeName(repo)。提供 → 再次 sanitize；与既有文件夹冲突时 existing=true，走 commit overwrite。
+   */
+  pluginName?: string;
+  /** 可选 HTTP/HTTPS 代理 URL（如 http://127.0.0.1:7890）；省略 = 直连。 */
+  proxy?: string;
+}
+export interface PluginsImportUrlResponseData {
+  stagingId: string;
+  pluginName: string;
+  existing: boolean;
+  sourceUrl: string;
+  branch: string;
+  commitSha: string;
+  commitDate: string;
+  /** remember=true 且新建凭据时回填，供前端刷新凭据池下拉。 */
+  savedCredentialId?: string;
+  skills: PluginSkillInfo[];
+}
+
+/** plugins.commit：确认落盘（overwrite=true 则覆盖同名插件）。 */
+export interface PluginsCommitRequestData {
+  stagingId: string;
+  overwrite: boolean;
+}
+export interface PluginsCommitResponseData {
+  plugin: PluginInfo;
+}
+
+/**
+ * plugins.checkUpdate：对比 manifest 当前 HEAD 与远端分支 HEAD。
+ * - updateAvailable = currentSha !== latestSha（currentSha 缺失视为有更新）。
+ * - latestDate 私有仓 REST 401 时为 undefined（前端隐藏日期 pill）。
+ * - needsAuth=true → 远端需鉴权才能检查（前端提示）。
+ */
+export interface PluginsCheckUpdateRequestData {
+  name: string;
+}
+export interface PluginsCheckUpdateResponseData {
+  gitNotInstalled: boolean;
+  needsAuth: boolean;
+  currentSha: string;
+  currentDate: string;
+  latestSha: string;
+  latestDate?: string;
+  /** manifest.updatedAt。 */
+  lastUpgrade: string;
+  updateAvailable: boolean;
+}
+
+/**
+ * plugins.checkAllUpdates：批量检查全部已安装插件的远端 HEAD，结果写入各插件 manifest
+ * （lastCheckedAt / latestSha / latestDate / updateAvailable）。前端随后 refresh() 重拉 list 读取。
+ * 单个插件检查失败（如私有仓 needsAuth / 网络错误）计入 failed 数组，不中断整体。
+ */
+export type PluginsCheckAllUpdatesRequestData = EmptyObjectData;
+export interface PluginsCheckAllUpdatesFailure {
+  name: string;
+  /** 失败原因（needsAuth / 网络错误等），前端可选展示。 */
+  reason: string;
+}
+export interface PluginsCheckAllUpdatesResponseData {
+  /** 本次实际检查的插件数（含失败）。 */
+  checked: number;
+  /** 检测到有更新的插件数。 */
+  updatesAvailable: number;
+  /** 检查失败的插件（不中断整体）。 */
+  failed: PluginsCheckAllUpdatesFailure[];
+}
+
+/** plugins.update：按 manifest.cloneUrl+branch 重新 clone 覆盖（保留 pluginName + installedAt）。 */
+export interface PluginsUpdateRequestData {
+  name: string;
+}
+export interface PluginsUpdateResponseData {
+  plugin: PluginInfo;
+}
+
+/** plugins.uninstall：删除整个插件目录。 */
+export interface PluginsUninstallRequestData {
+  name: string;
+}
+export interface PluginsUninstallResponseData {
+  ok: true;
+}
+
+// ========== 凭据池（通用） ==========
+
+/** 凭据池条目（密令永不回前端）。 */
+export interface CredentialListItemDTO {
+  id: string;
+  label: string;
+  username: string;
+  createdAt: string;
+}
+
+/** credentials.list：列出全部已存凭据（仅 id/label/username）。 */
+export type CredentialsListRequestData = EmptyObjectData;
+export interface CredentialsListResponseData {
+  credentials: CredentialListItemDTO[];
+}
+
+/** credentials.save：加密入池（密令后端 AES-256-GCM 加密，不入日志——schema 字段名 password 自动脱敏）。 */
+export interface CredentialsSaveRequestData {
+  label: string;
+  username: string;
+  password: string;
+}
+export interface CredentialsSaveResponseData {
+  credential: CredentialListItemDTO;
+}
+
+/** credentials.delete：从池中删除。 */
+export interface CredentialsDeleteRequestData {
+  id: string;
+}
+export interface CredentialsDeleteResponseData {
+  ok: true;
 }
 
 /**
@@ -443,6 +876,10 @@ export interface ChatCreateResponseData {
   brain: string;
   senseGroup: string;
   mcpServers: string[];
+  /** 预设工作区快照；缺省表示该会话未限定工作区。 */
+  workspace?: string;
+  /** workspace 当前是否有效；workspace 缺省时不返回。 */
+  workspaceValid?: boolean;
 }
 
 export interface ChatListResponseData {
@@ -456,6 +893,19 @@ export interface ChatListResponseData {
      * 前端据此溯源重建 pet 树（主 chat → 主 pet，子 chat 挂主 pet 附近）。CP1。
      */
     parentChatId: string | null;
+    /** 子 chat 的角色 type 与解析后的头像；主 chat 缺省。 */
+    agentType?: string;
+    avatar?: string;
+    /**
+     * 当前 chat 关联的项目工作目录绝对路径（metadata.workspace 快照）。
+     * 缺省（非预设 / 预设未配 workspace / 旧 chat）→ undefined → 前端不显示 workspace 标识。
+     */
+    workspace?: string;
+    /**
+     * workspace 路径当前是否为可访问目录。workspace 缺省时 undefined。
+     * 前端据此在 FAB 旁标记失效状态（如警告图标 / 红色）。
+     */
+    workspaceValid?: boolean;
     /**
      * 首条 user 消息截断（≤40 字符），供会话列表辨识。"指令"跳过规则待定（默认取首条 user 消息）。
      * 仅 includePreview=true 时返。CP8。
@@ -524,6 +974,13 @@ export interface ChatGetResponseData extends QuestionStateSnapshotData {
   chatId: string;
   /** 末条为 pending sense 时 true，前端据此发起 chat.resume 撤回重跑 */
   canResume?: boolean;
+  /**
+   * 当前 chat 关联的项目工作目录绝对路径（metadata.workspace 快照）。
+   * 缺省 → undefined → 前端不显示 workspace 标识。
+   */
+  workspace?: string;
+  /** workspace 路径当前是否为可访问目录。workspace 缺省时 undefined。 */
+  workspaceValid?: boolean;
   /**
    * 当前 chat 上下文 token 用量比例（0-1，相对 brain.contextLimit）。
    * 历史载入时返，前端据此更新 pet.contextUsage（ContextBar 渲染）。CP7。
@@ -687,6 +1144,12 @@ export interface ConfigSaveResponseData {
   needRestart: true;
   /** immediate=当前空闲、即将替换 worker；scheduled=等待 chat 空闲；manual=当前 worker 未受守护。 */
   restart: "immediate" | "scheduled" | "manual";
+}
+
+/** config.workspace.validate 响应：无副作用的后端目录校验结果。 */
+export interface ConfigWorkspaceValidateResponseData {
+  valid: boolean;
+  error?: string;
 }
 
 /**
@@ -933,6 +1396,8 @@ export interface RoleCreatedNotificationData {
   parentChatId: string;
   /** 角色类型（config.roles 键名） */
   type: string;
+  /** 角色头像（显式配置或按 type 稳定生成）。 */
+  avatar: string;
   /** 交付角色的任务 prompt */
   prompt: string;
   /** 角色用的 brain 名 */
@@ -1023,6 +1488,20 @@ export const Method = {
   SENSE_TOOLS: "sense.tools",
   // 实时列出用户配置目录中的 Skill 元数据，供发送窗口 / 命令菜单使用
   SKILLS_LIST: "skills.list",
+  // 轻量接口：仅返回 skill/plugin 名称列表（不算 token），供角色卡下拉
+  SKILLS_LIST_NAMES: "skills.listNames",
+  // Skill 导入：preImport 拉分支 + 探测鉴权/git；importUrl 选分支 clone 到 staging 分析候选；commit 落盘（写来源索引）；delete 删独立 skill（清索引）；listSources/resyncSource/deleteSource 管 git 来源中央索引
+  SKILLS_PRE_IMPORT_URL: "skills.preImportUrl",
+  SKILLS_IMPORT_URL: "skills.importUrl",
+  SKILLS_COMMIT: "skills.commit",
+  SKILLS_DELETE: "skills.delete",
+  SKILLS_LIST_SOURCES: "skills.listSources",
+  SKILLS_CHECK_SOURCE: "skills.checkSource",
+  SKILLS_CHECK_ALL_SOURCES: "skills.checkAllSources",
+  SKILLS_RESYNC_SOURCE: "skills.resyncSource",
+  SKILLS_DELETE_SOURCE: "skills.deleteSource",
+  // 批量重拉全部 Skill 来源（非交互：serial 串行；写 lastSyncError 持久化失败 marker）
+  SKILLS_RESYNC_ALL_SOURCES: "skills.resyncAllSources",
   // 递归列出 .chery/prompt/ 下全部 .md（含子文件夹，排除 system.md），供设置面板 systemPrompt 级联选择器
   PROMPTS_LIST: "prompts.list",
 
@@ -1063,6 +1542,7 @@ export const Method = {
 
   // Config 设置（读写 .chery/config.yaml，除 server 段，重启生效）
   CONFIG_GET: "config.get",
+  CONFIG_WORKSPACE_VALIDATE: "config.workspace.validate",
   CONFIG_SAVE: "config.save",
 
   // Utils 工具（独立信息查询，不依赖 chat/brain 运行时）
@@ -1085,6 +1565,21 @@ export const Method = {
 
   // 内置命令管理（settings 「指令」tab 后端；只读枚举 .chery/command/*.md，不可增删改）
   COMMAND_LIST: "command.list",
+
+  // 插件管理（settings 「插件」tab 后端）：GitHub URL git clone（分支选择 + 凭据池 + 版本检查）
+  PLUGINS_LIST: "plugins.list",
+  PLUGINS_PRE_IMPORT_URL: "plugins.preImportUrl",
+  PLUGINS_IMPORT_URL: "plugins.importUrl",
+  PLUGINS_COMMIT: "plugins.commit",
+  PLUGINS_CHECK_UPDATE: "plugins.checkUpdate",
+  PLUGINS_CHECK_ALL_UPDATES: "plugins.checkAllUpdates",
+  PLUGINS_UPDATE: "plugins.update",
+  PLUGINS_UNINSTALL: "plugins.uninstall",
+
+  // 凭据池（通用：plugins / skills / 未来 commands 共享；密令后端加密存储，list 不回密令）
+  CREDENTIALS_LIST: "credentials.list",
+  CREDENTIALS_SAVE: "credentials.save",
+  CREDENTIALS_DELETE: "credentials.delete",
 } as const;
 
 /**
@@ -1102,6 +1597,17 @@ export interface RpcMethodMap {
   [Method.SENSE_LIST]: { params: SenseListRequestData; result: SenseListResponseData };
   [Method.SENSE_TOOLS]: { params: SenseToolsRequestData; result: SenseToolsResponseData };
   [Method.SKILLS_LIST]: { params: SkillsListRequestData; result: SkillsListResponseData };
+  [Method.SKILLS_LIST_NAMES]: { params: SkillsListNamesRequestData; result: SkillsListNamesResponseData };
+  [Method.SKILLS_PRE_IMPORT_URL]: { params: SkillsPreImportUrlRequestData; result: SkillsPreImportUrlResponseData };
+  [Method.SKILLS_IMPORT_URL]: { params: SkillsImportUrlRequestData; result: SkillsImportUrlResponseData };
+  [Method.SKILLS_COMMIT]: { params: SkillsCommitRequestData; result: SkillsCommitResponseData };
+  [Method.SKILLS_DELETE]: { params: SkillsDeleteRequestData; result: SkillsDeleteResponseData };
+  [Method.SKILLS_LIST_SOURCES]: { params: SkillsListSourcesRequestData; result: SkillsListSourcesResponseData };
+  [Method.SKILLS_CHECK_SOURCE]: { params: SkillsCheckSourceRequestData; result: SkillsCheckSourceResponseData };
+  [Method.SKILLS_CHECK_ALL_SOURCES]: { params: SkillsCheckAllSourcesRequestData; result: SkillsCheckAllSourcesResponseData };
+  [Method.SKILLS_RESYNC_SOURCE]: { params: SkillsResyncSourceRequestData; result: SkillsResyncSourceResponseData };
+  [Method.SKILLS_DELETE_SOURCE]: { params: SkillsDeleteSourceRequestData; result: SkillsDeleteSourceResponseData };
+  [Method.SKILLS_RESYNC_ALL_SOURCES]: { params: SkillsResyncAllSourcesRequestData; result: SkillsResyncAllSourcesResponseData };
   [Method.PROMPTS_LIST]: { params: PromptsListRequestData; result: PromptsListResponseData };
   [Method.RUNTIME_SET]: { params: RuntimeSetRequestData; result: RuntimeSetResponseData };
   [Method.SESSION_RUNTIME_SET]: { params: SessionRuntimeSetRequestData; result: SessionRuntimeSetResponseData };
@@ -1126,6 +1632,7 @@ export interface RpcMethodMap {
   [Method.MCP_DISCONNECT]: { params: McpDisconnectRequestData; result: McpDisconnectResponseData };
   [Method.MCP_RELOAD]: { params: McpReloadRequestData; result: McpReloadResponseData };
   [Method.CONFIG_GET]: { params: ConfigGetRequestData; result: ConfigGetResponseData };
+  [Method.CONFIG_WORKSPACE_VALIDATE]: { params: ConfigWorkspaceValidateRequestData; result: ConfigWorkspaceValidateResponseData };
   [Method.CONFIG_SAVE]: { params: ConfigSaveRequestData; result: ConfigSaveResponseData };
   [Method.UTILS_MODELS]: { params: UtilsModelsRequestData; result: UtilsModelsResponseData };
   [Method.ENV_LIST]: { params: EnvListRequestData; result: EnvListResponseData };
@@ -1134,6 +1641,17 @@ export interface RpcMethodMap {
   [Method.UTILS_EDITORS]: { params: UtilsEditorsRequestData; result: UtilsEditorsResponseData };
   [Method.UTILS_THINKING_LEVELS]: { params: UtilsThinkingLevelsRequestData; result: UtilsThinkingLevelsResponseData };
   [Method.COMMAND_LIST]: { params: EmptyObjectData; result: CommandListResponseData };
+  [Method.PLUGINS_LIST]: { params: PluginsListRequestData; result: PluginsListResponseData };
+  [Method.PLUGINS_PRE_IMPORT_URL]: { params: PluginsPreImportUrlRequestData; result: PluginsPreImportUrlResponseData };
+  [Method.PLUGINS_IMPORT_URL]: { params: PluginsImportUrlRequestData; result: PluginsImportUrlResponseData };
+  [Method.PLUGINS_COMMIT]: { params: PluginsCommitRequestData; result: PluginsCommitResponseData };
+  [Method.PLUGINS_CHECK_UPDATE]: { params: PluginsCheckUpdateRequestData; result: PluginsCheckUpdateResponseData };
+  [Method.PLUGINS_CHECK_ALL_UPDATES]: { params: PluginsCheckAllUpdatesRequestData; result: PluginsCheckAllUpdatesResponseData };
+  [Method.PLUGINS_UPDATE]: { params: PluginsUpdateRequestData; result: PluginsUpdateResponseData };
+  [Method.PLUGINS_UNINSTALL]: { params: PluginsUninstallRequestData; result: PluginsUninstallResponseData };
+  [Method.CREDENTIALS_LIST]: { params: CredentialsListRequestData; result: CredentialsListResponseData };
+  [Method.CREDENTIALS_SAVE]: { params: CredentialsSaveRequestData; result: CredentialsSaveResponseData };
+  [Method.CREDENTIALS_DELETE]: { params: CredentialsDeleteRequestData; result: CredentialsDeleteResponseData };
 }
 
 export type ParamsOf<M extends Method> = RpcMethodMap[M]["params"];

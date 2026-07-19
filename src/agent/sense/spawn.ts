@@ -9,6 +9,7 @@ import { emitRoleCreated, registerWaitedChild } from "@/agent/spawnBroker.js";
 import { logger } from "@/utils/logger/index.js";
 import { getSessionRoleRuntime, setEphemeralChatRuntime } from "@/service/chat/runtime.js";
 import { createSpawnTask, getSpawnTaskByChild } from "@/db/delivery.js";
+import { resolveRoleAvatar } from "@/utils/roleAvatar.js";
 
 // tool 暴露面：让主 agent LLM 可见可用角色及能力（非盲串 type）。
 // - type 用 z.enum(roles 键) 硬约束（空配置兜底 z.string()，z.enum([]) 构造抛错）
@@ -106,17 +107,22 @@ export default sense(
     const roleCfg = config.roles?.[type];
     if (!roleCfg) {
       throw new Error(
-        `角色类型 "${type}" 不在 config.roles（可用：${roleKeys.join(", ") || "（未配置任何角色）"}）`,
+        `没有 "${type}" 这个角色（可用：${roleKeys.join(", ") || "（未配置任何角色）"}）`,
       );
     }
     const roster = resolveSpawnRoster(parentChatId);
     if (!roster.includes(type)) {
       const presetName = getChatPreset(parentChatId);
       throw new Error(
-        `角色类型 "${type}" 不在${presetName ? `预设 "${presetName}" 选中的角色集` : "可用角色集"}（选中：[${roster.join(", ")}]）`,
+        `"${type}" 不在${presetName ? `预设 "${presetName}" 的编制` : "可用角色集"}（可选：[${roster.join(", ")}]）`,
       );
     }
-    const { brain: defaultBrain, senseGroup: defaultSenseGroup, mcpServers: defaultMcpServers = [], systemPrompt: promptOverride } = roleCfg;
+    const { brain: defaultBrain, senseGroup: defaultSenseGroup, mcpServers: defaultMcpServers = [], systemPrompt: promptOverride, skills: roleSkills, plugins: rolePlugins } = roleCfg;
+    const avatar = resolveRoleAvatar(type, roleCfg.avatar);
+    // per-role 技能组/插件组过滤（快照入子 chat metadata.skillFilter，<skills> 块按角色裁剪）
+    const skillFilter = roleSkills !== undefined || rolePlugins !== undefined
+      ? { skills: roleSkills, plugins: rolePlugins }
+      : undefined;
     const temporaryRuntime = getSessionRoleRuntime(parentChatId, type);
     const { brain, senseGroup } = temporaryRuntime ?? {
       brain: defaultBrain,
@@ -162,6 +168,7 @@ export default sense(
           // 持久化角色默认值；临时覆盖由下方 ephemeral runtime 接管，绝不写 DB。
           runtime: { brain: defaultBrain, senseGroup: defaultSenseGroup, mcpServers: defaultMcpServers },
           ...(promptOverride ? { promptPathOverride: promptOverride } : {}),
+          ...(skillFilter ? { skillFilter } : {}),
           ...(parentWorkspace ? { workspace: parentWorkspace } : {}),
           // T9.10 重启容错：wait+type 持久化，rebuildFromDb 扫 metadata.wait===true 重建唤醒链
           wait,
@@ -217,6 +224,7 @@ export default sense(
       chatId: childChatId,
       parentChatId,
       type,
+      avatar,
       prompt,
       brain,
       senseGroup,

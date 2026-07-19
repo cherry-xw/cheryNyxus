@@ -13,7 +13,7 @@
 - **chat 生命周期 CRUD**：创建、查询、列出（含冗余 `message_count`）、更新时间戳、metadata JSON merge、删除（跨库）。
 - **message CRUD**：路由到对应月份库的插入、查询、审批结果回填、批量撤回、感官去重 replace 标记。
 - **问题批次投影**：`question_batches` + `question_items` 持久化 ask_user_question 批次；支持旧消息回填、事件游标快照和整批原子回答。
-- **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroup + mcpServers，服务重启后自动恢复（单组化：读时兼容旧 `senseGroups[]` 取首项）。
+- **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroup + mcpServers，服务重启后自动恢复（单组化：读时兼容旧 `senseGroups[]` 取首项）；预设创建的会话还快照 `metadata.workspace`（项目工作目录）、`metadata.promptPathOverride`（角色 systemPrompt 合并到全局 base 之后）、`metadata.skillFilter`（per-role 技能组/插件组白名单，`{skills?, plugins?}`，仅裁剪 system prompt `<skills>` 块），使后续更改 `config.yaml` 不影响历史会话。
 - **自动 schema 迁移**：旧库缺列时按列检查补 `ALTER TABLE ADD COLUMN`，无需手动迁移。
 
 三大隐喻映射：**Chat**（chatId）是顶层实体存于 soul.db；**消息**（含 Brain 响应与 Sense 调用结果）按月分片存于 `YYYY-MM.db`。审批与撤回不建独立表，靠 `content` 空与 `revoked=1` 判定。
@@ -98,6 +98,7 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 | `updateChat(chatId)` | → void | 仅更新 `updated_at` |
 | `updateChatMetadata(chatId, patch)` | → void | JSON 浅合并到现有 metadata（保留其他 key） |
 | `getChatRuntimeSelection(chatId)` | → `{brain, senseGroup, mcpServers} \| undefined` | 读 `metadata.runtime`，重启后恢复用；兼容旧 `senseGroups[]`，缺失的 `mcpServers` 视为 `[]` |
+| `getChatSkillFilter(chatId)` | → `{skills?, plugins?} \| undefined` | 读 `metadata.skillFilter`（per-role 技能组/插件组白名单快照，`getChatPromptOverride`/`getChatWorkspace` 同类）。任一维度缺省 = 该维度全部通过；二者皆缺省 → 返 `undefined`（全部 skill，向后兼容） |
 | `deleteChat(chatId)` | → void | 跨库 try/finally：先删 messages 再删 chat，崩溃仅留孤儿 chat（指向已空月库） |
 | `addMessage(messageId, chatId, data)` | → `MessageRow` | messageId 调用方传入；`message_count++`；更新 `updated_at`；`data.runtime` 仅 user 消息传（发送时配置，记入 messages.runtime） |
 | `getMessages(chatId)` | → `MessageRow[]` | 按 `created_at ASC` |

@@ -90,7 +90,7 @@ const indexItems = computed<IndexItem[]>(() => {
 </script>
 
 <template>
-  <TabShell :index-items="indexItems">
+  <TabShell tab-key="media" :index-items="indexItems">
     <template #hints>
       <p class="sect-hint">每个媒体服务是独立实体：选择类型（图/音/视），配置网关地址，在「预设」中挂载给团队使用。</p>
     </template>

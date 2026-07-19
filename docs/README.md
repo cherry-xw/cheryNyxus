@@ -31,7 +31,7 @@
 
 - [agent/README.md](./agent/README.md) — 总览
 - [middleware.md](./agent/middleware.md) — checkpoint / sense / retry / chat / loop 五中间件 + 审批（**核心文档**）
-- [prompt.md](./agent/prompt.md) — system prompt 构建 + skill 加载
+- [prompt.md](./agent/prompt.md) — system prompt 构建 + skill / plugin 加载
 - [provider.md](./agent/provider.md) — openai / ollama / mock 三 Adapter
 - [sense.md](./agent/sense.md) — 内置感官 bash / read / write / skill
 

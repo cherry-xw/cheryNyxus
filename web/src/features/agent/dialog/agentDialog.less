@@ -196,10 +196,30 @@
     gap: 2px;
   }
 
+  .title-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   .who {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     font-size: 14px;
     font-weight: 800;
     color: fade(@ink, 86%);
+
+    .who-icon {
+      font-size: 13px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    &.is-ws-invalid {
+      color: #b91c1c;
+    }
   }
 
   .hint {

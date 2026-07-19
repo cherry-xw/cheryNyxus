@@ -318,7 +318,7 @@ async function enrichMediaInputs(
         additions.push(`[${understood.kind} 附件理解结果]\n${understood.text}`);
       }
     } catch (error) {
-      additions.push(`[媒体附件处理失败: ${(error as Error).message}]`);
+      additions.push(`[媒体附件处理失败，已跳过]`);
     }
   }
   const capabilitiesHint = buildCapabilitiesHint(brain, unsupportedMedia);

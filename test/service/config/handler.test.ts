@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/utils/config.js", () => ({
   readRawConfig: vi.fn(),
   saveRawConfig: vi.fn(),
+  validateWorkspacePath: vi.fn(),
 }));
 vi.mock("@/service/restartCoordinator.js", () => ({ requestRestartWhenIdle: vi.fn() }));
 vi.mock("@/utils/logger/index.js", () => ({ logger: { event: vi.fn() } }));
 
-import { handleConfigSave } from "@/service/config/handler.js";
-import { saveRawConfig } from "@/utils/config.js";
+import { handleConfigSave, handleConfigWorkspaceValidate } from "@/service/config/handler.js";
+import { saveRawConfig, validateWorkspacePath } from "@/utils/config.js";
 import { requestRestartWhenIdle } from "@/service/restartCoordinator.js";
 
 describe("config.save restart scheduling", () => {
@@ -26,5 +27,20 @@ describe("config.save restart scheduling", () => {
     const result = await handleConfigSave({ requestId: "r", connectionId: "c", log: {} as never }, {} as never);
     expect(requestRestartWhenIdle).not.toHaveBeenCalled();
     expect((result as { success: boolean }).success).toBe(false);
+  });
+});
+
+describe("config.workspace.validate", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns the backend-only validation result without scheduling a restart", async () => {
+    vi.mocked(validateWorkspacePath).mockReturnValue({ valid: false, error: "目录不存在或不可访问" });
+    const result = await handleConfigWorkspaceValidate(
+      { requestId: "r", connectionId: "c", log: {} as never },
+      { workspace: "/missing" },
+    );
+    expect(result).toEqual({ valid: false, error: "目录不存在或不可访问" });
+    expect(validateWorkspacePath).toHaveBeenCalledWith("/missing");
+    expect(requestRestartWhenIdle).not.toHaveBeenCalled();
   });
 });

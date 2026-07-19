@@ -17,6 +17,7 @@ import {
   getChatRuntimeSelection,
   getChatPromptOverride,
   getChatWorkspace,
+  getChatSkillFilter,
 } from "@/db/chat.js";
 import {
   estimateTokens,
@@ -64,9 +65,10 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
   try {
     const promptPathOverride = getChatPromptOverride(chatId);
     const workspace = getChatWorkspace(chatId);
+    const skillFilter = getChatSkillFilter(chatId);
 
     // 段 1-4：提示词分段（系统消息不入库，需重建）
-    const promptSegs = buildSystemPromptSegments(promptPathOverride, workspace);
+    const promptSegs = buildSystemPromptSegments(promptPathOverride, workspace, skillFilter);
     const system = seg(estimateTokens(promptSegs.system));
     const userSystem = seg(estimateTokens(promptSegs.userSystem));
     const memory = seg(estimateTokens(promptSegs.memory.text), promptSegs.memory.count);

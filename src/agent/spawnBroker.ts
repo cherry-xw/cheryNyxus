@@ -28,6 +28,8 @@ export interface RoleCreatedData {
   parentChatId: string;
   /** 角色类型（config.roles / preset.roles 键名） */
   type: string;
+  /** 角色头像（显式配置或按 type 稳定生成）。 */
+  avatar: string;
   /** 交付角色的任务 prompt */
   prompt: string;
   /** 角色用的 brain 名 */

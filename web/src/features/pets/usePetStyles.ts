@@ -67,33 +67,19 @@ export function usePetStyles(
   const rightHandMotion = computed(() => handMotion(pet().action, "right"));
   const speech = speechMotion();
 
-  // thinking 侧气泡 motion：与 speechMotion 同构（opacity+scale 进退），顶部齐平主气泡
-  const workSideMotion = {
-    initial: { opacity: 0, scale: 0.86, x: "-100%", y: "-100%" },
-    animate: { opacity: 1, scale: 1, x: "-100%", y: "-100%" },
-    exit: { opacity: 0, scale: 0.86, x: "-100%", y: "-100%" },
-    transition: { duration: 0.18, ease: "easeOut" as const },
-  };
-
   // === style computeds ===
   const style = computed(() => ({
     transform: `translate3d(${pet().x}px, ${pet().y}px, 0)`,
     zIndex: String(petBodyZIndex(pet(), petHover.value)),
     "--pet-color": pet().color,
     "--pet-accent": pet().accent,
-    "--pet-direction": String(pet().direction),
+    "--pet-direction": pet().isMaster ? "1" : String(pet().direction),
     "--pet-scale": pet().isGhost ? "0.7" : pet().isMaster ? "1" : "0.75",
     "--tribe-hue": `${hashHue(pet().tribe)}deg`,
   }));
 
   const speechStyle = computed(() => ({
     left: `${pet().x + pet().width / 2}px`,
-    top: `${pet().y + bubbleOffsetY.value}px`,
-    zIndex: String(speechZIndex(pet())),
-  }));
-
-  const sideBubbleStyle = computed(() => ({
-    left: `${pet().x - 60}px`,
     top: `${pet().y + bubbleOffsetY.value}px`,
     zIndex: String(speechZIndex(pet())),
   }));
@@ -172,10 +158,8 @@ export function usePetStyles(
     leftHandMotion,
     rightHandMotion,
     speech,
-    workSideMotion,
     style,
     speechStyle,
-    sideBubbleStyle,
     approvalStyle,
     runningTools,
     todoEnabled,

@@ -46,6 +46,9 @@ function commit(): void {
   emit("rename", newName);
   editing.value = false;
 }
+
+// 暴露 start 给父组件（RolesTab 复制后自动进入改名态），替代脆弱的 querySelector(.click())。
+defineExpose({ start });
 </script>
 
 <template>

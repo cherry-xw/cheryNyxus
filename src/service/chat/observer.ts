@@ -159,7 +159,7 @@ export async function* observeAgentChunks(
         waited.parentChatId,
         chatId,
         waited.type,
-        `[角色 ${waited.type}] 执行出错: ${(err as Error).message}`,
+        `[${waited.type}] 执行出错了: ${(err as Error).message}`,
       );
     }
     throw err;

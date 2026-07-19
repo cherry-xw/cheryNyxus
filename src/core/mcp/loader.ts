@@ -116,7 +116,7 @@ export function listMcpServers(): McpServerInfo[] {
 export function getMcpServer(name: string): McpServerInfo {
   const cfg = config.mcp_servers?.[name];
   if (!cfg) {
-    throw new McpServerError(`MCP server "${name}" not in config`, "NOT_FOUND");
+    throw new McpServerError(`扩展工具 "${name}" 没配置`, "NOT_FOUND");
   }
   return buildServerInfo(name, cfg);
 }
@@ -128,7 +128,7 @@ export function getMcpServer(name: string): McpServerInfo {
 export async function connectMcpServerByName(name: string): Promise<McpServerInfo> {
   const cfg = config.mcp_servers?.[name];
   if (!cfg) {
-    throw new McpServerError(`MCP server "${name}" not in config`, "NOT_FOUND");
+    throw new McpServerError(`扩展工具 "${name}" 没配置`, "NOT_FOUND");
   }
   if (connectedServers.has(name)) {
     return buildServerInfo(name, cfg); // 幂等
@@ -155,7 +155,7 @@ export async function connectMcpServerByName(name: string): Promise<McpServerInf
 export async function disconnectMcpServer(name: string): Promise<McpServerInfo> {
   const cfg = config.mcp_servers?.[name];
   if (!cfg) {
-    throw new McpServerError(`MCP server "${name}" not in config`, "NOT_FOUND");
+    throw new McpServerError(`扩展工具 "${name}" 没配置`, "NOT_FOUND");
   }
   const entry = connectedServers.get(name);
   if (!entry) {
@@ -176,7 +176,7 @@ export async function disconnectMcpServer(name: string): Promise<McpServerInfo> 
 export async function reloadOneServer(name: string): Promise<McpServerInfo> {
   const cfg = config.mcp_servers?.[name];
   if (!cfg) {
-    throw new McpServerError(`MCP server "${name}" not in config`, "NOT_FOUND");
+    throw new McpServerError(`扩展工具 "${name}" 没配置`, "NOT_FOUND");
   }
   const oldEntry = connectedServers.get(name);
 
@@ -259,10 +259,10 @@ export function getConnectedServerSenseNames(name: string): string[] {
   if (!entry) {
     const cfg = config.mcp_servers?.[name];
     if (!cfg) {
-      throw new McpServerError(`MCP server "${name}" not in config`, "NOT_FOUND");
+      throw new McpServerError(`扩展工具 "${name}" 没配置`, "NOT_FOUND");
     }
     throw new McpServerError(
-      `MCP server "${name}" not connected, cannot enable (status: ${buildServerInfo(name, cfg).status})`,
+      `扩展工具 "${name}" 没连上`,
       "NOT_FOUND",
     );
   }

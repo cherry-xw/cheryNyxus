@@ -50,7 +50,7 @@ const {
 const {
   isBusy,
   showWorkMain,
-  showWorkSide,
+  showThinkingButton,
   thinkingOnly,
   hasContent,
   displayThinking,
@@ -64,8 +64,8 @@ const {
 
 const {
   faceGlyph, leftHand, rightHand, nameChars,
-  sprite, face, leftHandMotion, rightHandMotion, speech, workSideMotion,
-  style, speechStyle, sideBubbleStyle, approvalStyle,
+  sprite, face, leftHandMotion, rightHandMotion, speech,
+  style, speechStyle, approvalStyle,
   runningTools, todoEnabled, hasTodoData, todoPanelStyle, petIconsStyle, classes,
 } = usePetStyles(() => props.pet, () => props.stream, petHover, () => props.paused);
 
@@ -83,17 +83,15 @@ function setWorkTextRef(el: HTMLElement | null): void {
       :has-stream="true"
       :is-busy="isBusy"
       :show-work-main="showWorkMain"
-      :show-work-side="showWorkSide"
+      :show-thinking-button="showThinkingButton"
       :thinking-only="thinkingOnly"
       :has-content="hasContent"
       :display-thinking="displayThinking"
       :display-content="displayContent"
       :rendered-content="renderedContent"
       :speech-style="speechStyle"
-      :side-bubble-style="sideBubbleStyle"
       :approval-style="approvalStyle"
       :speech="speech"
-      :work-side-motion="workSideMotion"
       :work-text-ref="setWorkTextRef"
       :on-work-text-scroll="onWorkTextScroll"
       @bubble-enter="onBubbleEnter"

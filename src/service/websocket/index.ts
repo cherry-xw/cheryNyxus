@@ -136,7 +136,7 @@ async function handleMessage(
   if (isRequest(raw)) {
     await handleRequest(ws, state, raw, router);
   } else {
-    sendError(ws, "未知消息类型");
+    sendError(ws, "收到了看不懂的消息");
   }
 }
 
@@ -160,7 +160,7 @@ async function handleRequest(
       request.id,
       false,
       undefined,
-      createError(ErrorCode.CONFLICT, `Request id "${request.id}" was already used with different parameters`),
+      createError(ErrorCode.CONFLICT, "请求重复了，请重试"),
     );
     if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response));
     return;
@@ -183,7 +183,7 @@ async function handleRequest(
       request.id,
       false,
       undefined,
-      createError(ErrorCode.CONFLICT, "Request was interrupted by a server restart; recover the chat before sending again"),
+      createError(ErrorCode.CONFLICT, "我刚重启了一下，重新打开会话试试"),
     );
     completeRequest(request.id, interrupted);
     if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(interrupted));
@@ -241,7 +241,7 @@ async function handleRequest(
                 connectionManager.startApprovalTimeout(ws, request.id, async () => {
                   logger.event("approval.timeout", { approvalId });
                   ws.send(transport.serializeMessage(
-                    createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "Approval timeout - chat ended")),
+                    createResponse(request.id, false, undefined, createError(ErrorCode.TIMEOUT, "审批等太久了，已结束")),
                   ));
                   await connectionManager.close(ws);
                 }, waitTime);
@@ -274,7 +274,7 @@ async function handleRequest(
       request.id,
       false,
       undefined,
-      createError(ErrorCode.INTERNAL, "Request ended without a response"),
+      createError(ErrorCode.INTERNAL, "系统出了点小问题"),
     );
     completeRequest(request.id, response);
     settle(response);

@@ -52,6 +52,9 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
   }
   return out;
 });
+
+/** dialog-head 工作区模式：workspace 有值时 pet name 前 📁（路径失效改 ⚠ 红色），hover 显全路径。无 workspace 纯文本。 */
+const workspaceInvalid = computed(() => pet.value?.workspaceValid === false);
 </script>
 
 <template>
@@ -79,7 +82,23 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
       >
         <header class="dialog-head">
           <span class="title">
-            <span class="who">{{ pet?.name ?? "agent" }}</span>
+            <span class="title-row">
+              <el-tooltip
+                v-if="pet?.workspace"
+                placement="bottom"
+                :show-after="200"
+                :hide-after="0"
+              >
+                <template #content>
+                  <span>工作区：{{ pet.workspace }}</span>
+                  <span v-if="workspaceInvalid" style="color: #fca5a5;"> · 路径失效</span>
+                </template>
+                <span class="who" :class="{ 'is-ws-invalid': workspaceInvalid }">
+                  <span class="who-icon">{{ workspaceInvalid ? "⚠" : "📁" }}</span>{{ pet?.name ?? "agent" }}
+                </span>
+              </el-tooltip>
+              <span v-else class="who">{{ pet?.name ?? "agent" }}</span>
+            </span>
             <span class="hint">Cmd/Ctrl+Enter 发送 · Esc 关闭</span>
           </span>
           <button type="button" class="close-btn" aria-label="关闭" @click="close">✕</button>

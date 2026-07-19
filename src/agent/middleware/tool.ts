@@ -5,6 +5,7 @@ import { SupervisionLevel } from "@/core/config";
 import { createApproval } from "@/core/sense";
 import { logger } from "@/utils/logger/index.js";
 import { redactEnvKeys } from "@/utils/envGuard.js";
+import { checkCheryGuard } from "@/utils/pathGuard.js";
 import { SenseCallAssembler } from "./senseCallAssembler.js";
 
 /**
@@ -192,7 +193,7 @@ async function* executeResumePending(
   for (const p of pending) {
     if (!ctx.runtime.senseTable.has(p.name)) {
       // 工具不在当前 senseTable：静默写占位结果
-      yield { type: "sense_accept", id: p.id, name: p.name, result: `无此工具:${p.name}` };
+      yield { type: "sense_accept", id: p.id, name: p.name, result: `工具已失效：${p.name}` };
       continue;
     }
     const { trigger, call } = buildSenseTrigger(ctx, p.id, p.name, p.argsJson);
@@ -261,7 +262,12 @@ async function doExecuteSense(
     const args = argsJson ? safeJsonParse(argsJson, {}) : {};
     const senseEntry = ctx.runtime.senseTable.get(name);
     if (!senseEntry) {
-      return { content: `Error: Sense "${name}" not found`, replaced };
+      return { content: `没有 "${name}" 这个感官`, replaced };
+    }
+    // 路径守卫：拦 .chery/ 直接读写（仅 install_skill 豁免），引导走管家角色
+    const guardHit = checkCheryGuard(name, args);
+    if (guardHit) {
+      return { content: guardHit, replaced };
     }
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
     // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
@@ -295,7 +301,7 @@ async function doExecuteSense(
     return { content: redactedContent, hash: result.hash, replaced };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    return { content: `Sense execution failed: ${errorMsg}`, replaced };
+    return { content: `感官执行失败：${errorMsg}`, replaced };
   }
 }
 

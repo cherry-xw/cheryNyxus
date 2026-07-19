@@ -154,7 +154,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <TabShell :index-items="indexItems">
+  <TabShell tab-key="commands" :index-items="indexItems">
     <template #hints>
       <p class="sect-hint">
         指令由 <code>.chery/command/*.md</code> 维护，此处只读枚举；每个指令的说明见其悬浮卡。

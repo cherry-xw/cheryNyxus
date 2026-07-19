@@ -7,7 +7,7 @@
  * 这样：
  *  - 行高、padding、font-size 全部继承真实 hint 样式，
  *  - 计算高度与真实 tab 像素级一致，
- *  - 加载前后 .shell-sticky 整体高度无差，首张可视卡 y 不动。
+ *  - 加载前后 .shell-sticky 整体高度无差，首张可视卡 y 不动；导航占位 Teleport 到 footer。
  *
  * sect / warn 行数由调用方按当前 tab 真值传入（参考 constants.HINT_LINES）。
  */
@@ -17,7 +17,7 @@ withDefaults(
     sectHints?: number;
     /** .warn-hint 段落数（每段 25.4px 含 5px×2 padding） */
     warnHints?: number;
-    /** .shell-index-row 序号按钮数（默认 1，SettingsDialog 传入更精确值避免与真实 tab 高度差） */
+    /** footer 左侧序号导航占位数（默认 1） */
     indexCount?: number;
   }>(),
   { sectHints: 1, warnHints: 0, indexCount: 1 },
@@ -40,9 +40,6 @@ withDefaults(
           class="warn-hint skel-shimmer"
           aria-hidden="true"
         />
-      </div>
-      <div class="shell-index-row">
-        <span v-for="n in indexCount" :key="n" class="skel-dot" />
       </div>
     </div>
     <div class="shell-scroll">
@@ -72,6 +69,11 @@ withDefaults(
       </article>
     </div>
   </section>
+  <Teleport defer to="#settings-footer-nav">
+    <div class="shell-index-row" aria-hidden="true">
+      <span v-for="n in indexCount" :key="n" class="skel-dot" />
+    </div>
+  </Teleport>
 </template>
 
 <style lang="less">

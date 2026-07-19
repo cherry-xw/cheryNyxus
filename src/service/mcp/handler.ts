@@ -41,12 +41,12 @@ import { logger } from "@/utils/logger/index.js";
  */
 
 /** 缺 name 的统一错误 Response */
-function missingName(rid: string, method: string): Response {
+function missingName(rid: string, _method: string): Response {
   return createResponse(
     rid,
     false,
     undefined,
-    createError(ErrorCode.INVALID_PARAMS, `${method} requires "name"`),
+    createError(ErrorCode.INVALID_PARAMS, "请指定扩展工具名称"),
   );
 }
 

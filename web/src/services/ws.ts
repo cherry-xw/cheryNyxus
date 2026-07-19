@@ -225,7 +225,7 @@ export class WsClient {
 
   rpc(method: string, params: unknown = {}): Promise<RpcResponse> {
     if (!this.ws || this.status !== "connected") {
-      return Promise.reject(new Error("WebSocket 未连接"));
+      return Promise.reject(new Error("还没连上服务器"));
     }
     const id = uuid();
     const request = { id, kind: "request" as const, method, params };
@@ -241,7 +241,7 @@ export class WsClient {
    */
   rpcTrack(method: string, params: unknown = {}): { requestId: string; response: Promise<RpcResponse> } {
     if (!this.ws || this.status !== "connected") {
-      return { requestId: "", response: Promise.reject(new Error("WebSocket 未连接")) };
+      return { requestId: "", response: Promise.reject(new Error("还没连上服务器")) };
     }
     const requestId = uuid();
     const request = { id: requestId, kind: "request" as const, method, params };

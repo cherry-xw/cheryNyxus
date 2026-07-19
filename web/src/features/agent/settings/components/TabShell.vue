@@ -9,8 +9,11 @@
  *  - indexItems[i].anchor 对应 scroll-area 内 data-anchor="<anchor>" 的卡片。
  *  - indexItems 为空时序号行自动隐藏。
  *  - popper slot 接收 { item, index }，由各 tab 定制 mini 卡面内容。
+ *  - 超过 20 项时自动启用 IndexPaginator 翻页器。
  */
-import { ref } from "vue";
+import { computed, inject, ref } from "vue";
+import IndexPaginator from "./IndexPaginator.vue";
+import { SETTINGS_ACTIVE_TAB_KEY, type TabKey } from "../constants";
 
 export interface IndexItem {
   /** 卡面标题（必填，popper 内主标题；按钮 aria-label 也用这个） */
@@ -21,9 +24,12 @@ export interface IndexItem {
   [key: string]: unknown;
 }
 
-const props = defineProps<{ indexItems?: IndexItem[] }>();
+const props = defineProps<{ tabKey: TabKey; indexItems?: IndexItem[]; page?: number; pageSize?: number; total?: number }>();
+const emit = defineEmits<{ (e: "page-change", page: number): void }>();
 
 const scrollRef = ref<HTMLElement | null>(null);
+const activeTab = inject(SETTINGS_ACTIVE_TAB_KEY);
+const isActive = computed(() => activeTab?.value === props.tabKey);
 
 function scrollTo(item: IndexItem, i: number): void {
   const anchor = item.anchor ?? String(i);
@@ -34,43 +40,41 @@ function scrollTo(item: IndexItem, i: number): void {
 </script>
 
 <template>
-  <section class="sect shell-sect">
-    <div class="shell-sticky">
-      <div v-if="$slots.hints" class="shell-hints">
-        <slot name="hints" />
+  <div class="tab-shell-root">
+    <section class="sect shell-sect">
+      <div class="shell-sticky">
+        <div v-if="$slots.hints" class="shell-hints">
+          <slot name="hints" />
+        </div>
+        <div v-if="$slots.toolbar" class="shell-toolbar">
+          <slot name="toolbar" />
+        </div>
       </div>
-      <div v-if="props.indexItems?.length" class="shell-index-row">
-        <el-popover
-          v-for="(item, i) in props.indexItems"
-          :key="item.anchor ?? i"
-          trigger="hover"
-          placement="bottom"
-          :width="228"
-          popper-class="index-card-popper-wrap"
-          :offset="4"
-        >
-          <template #default>
-            <slot name="popper" :item="item" :index="i" />
-          </template>
-          <template #reference>
-            <button
-              type="button"
-              class="shell-index-btn"
-              :aria-label="`跳到第 ${i + 1} 项：${item.label}`"
-              @click="scrollTo(item, i)"
-            >{{ i + 1 }}</button>
-          </template>
-        </el-popover>
+      <div ref="scrollRef" class="shell-scroll">
+        <slot />
       </div>
-    </div>
-    <div ref="scrollRef" class="shell-scroll">
-      <slot />
-    </div>
-  </section>
+    </section>
+    <Teleport defer to="#settings-footer-nav">
+      <IndexPaginator
+        v-if="isActive && props.indexItems?.length"
+        :items="props.indexItems"
+        :page="props.page"
+        :page-size="props.pageSize"
+        :total="props.total"
+        @scroll-to="scrollTo"
+        @page-change="emit('page-change', $event)"
+      >
+        <template #popper="scope">
+          <slot name="popper" v-bind="scope" />
+        </template>
+      </IndexPaginator>
+    </Teleport>
+  </div>
 </template>
 
 <style scoped lang="less">
 // .shell-* 版式原语已上提 shared.less；本组件只留无 DOM 可挂的 popper 副作用样式。
+.tab-shell-root { height:100%;min-height:0; }
 </style>
 
 <!--

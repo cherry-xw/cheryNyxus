@@ -1,20 +1,12 @@
 import type { MiddlewareContext, MiddlewareHandler } from "./types";
 import { AgentAbortError, isAgentAbortError } from "./errors.js";
-import { newTracingId } from "@/utils/error.js";
-import { logger } from "@/utils/logger/index.js";
-import { LogLevel } from "@/utils/logger/types.js";
-
-/**
- * 识别"已合规"错误：message 末尾已有 8 hex tracingId
- * （见 [docs/error-conventions.md](../../docs/error-conventions.md) — throwUserFacing 输出）。
- * 合规错误在 compose catch 中原样上浮，不加大段前缀污染用户面。
- *
- * 注意正则字面量写法：`\[[0-9a-f]{8}\]$` —— 第一个 `\[` 在字符类 `[` 开始**之前**，
- * 用来转义字面 `[`；之后的 `[0-9a-f]` 才是真正的字符类（范围 0-9 / a-f）。
- * 写成 `\[0-9a-f]{8}\]$` 会把 `0-9a-f]` 当作字面 6 字符序列（`-` 在字符类外不构成范围），
- * 等价于匹配 8 次重复 `0-9a-f]`，永远 false。
- */
-const COMPLIANT_TRACE_PATTERN = /\[[0-9a-f]{8}\]$/;
+import {
+  COMPLIANT_TRACE_PATTERN,
+  ClassifiedError,
+  classifyError,
+  friendlyMessage,
+  throwUserFacing,
+} from "@/utils/error.js";
 
 /**
  * 组合后的中间件：run 启动洋葱链，abort 直接退出 generator。
@@ -89,26 +81,31 @@ async function* executeChain<T>(
 
     const message = err instanceof Error ? err.message : String(err);
 
-    // 合规错误：message 末尾已有 8hex tracingId（throwUserFacing 输出）
-    // → 原样上浮，不加大段前缀污染用户面（[docs/error-conventions.md](../../docs/error-conventions.md)）
+    // 合规错误：message 开头已有 `[8hex] `（throwUserFacing / 上游 ClassifiedError 出口产出）
+    // → 原样上浮，不二次包装（[docs/error-conventions.md](../../docs/error-conventions.md)）
     if (COMPLIANT_TRACE_PATTERN.test(message)) {
       throw err;
     }
 
-    // 未合规错误：第三方库裸抛（OpenAI SDK 401 / 网络 ECONNREFUSED / 业务未规范化），
-    // compose 层无业务上下文（不知 model/senseName）→ 用户面只能给"内部错误 + tracingId"，
-    // 详细（含 handlerIndex + 原 error + stack）落 logger 供开发者还原
-    const tracingId = newTracingId();
-    logger.event(
-      "compose.unhandled",
-      {
-        tracingId,
+    // ClassifiedError（provider/sense 等已知分类来源的可重试错误）：取其友好文案作用户面。
+    if (err instanceof ClassifiedError) {
+      throwUserFacing("compose.unhandled", err.userMessage, {
+        source: err.source,
+        category: err.category,
         handlerIndex: index,
-        error: message,
-        stack: err instanceof Error ? err.stack : undefined,
-      },
-      LogLevel.error,
-    );
-    throw new Error(`内部错误，请用 [${tracingId}] 反馈给开发`, { cause: err });
+        originalError: message,
+        stack: err.stack,
+      });
+    }
+
+    // 未合规裸抛（第三方库裸抛 / 业务未规范化）：compose 层无业务上下文 →
+    // 按 classifyError 兜底分类 + friendlyMessage(category, "系统") 出用户面，详细落 logger。
+    const category = classifyError(err);
+    throwUserFacing("compose.unhandled", friendlyMessage(category, "system"), {
+      category,
+      handlerIndex: index,
+      originalError: message,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
   }
 }
