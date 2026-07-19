@@ -88,10 +88,6 @@ describe("OpenAI message adapter", () => {
     expect(cfg.extractStreamThinking?.({ choices: [{ delta: {} }] } as never)).toBeUndefined();
   });
 
-  it("role 始终 assistant", () => {
-    expect(getMessageAdapter("openai")!.role({} as never)).toBe("assistant");
-  });
-
   it("buildMessages: sense → role:tool + tool_call_id", () => {
     const cfg = getMessageAdapter("openai")!;
     const history: LLMResponse[] = [
@@ -196,17 +192,17 @@ describe("OpenAI LLM adapter", () => {
 
   it("chat model 缺失 → throw", async () => {
     const llm = getLLMAdapter("openai")!;
-    await expect(llm.chat([], [], { url: "https://x" })).rejects.toThrow("requires model and url");
+    await expect(llm.chat([], [], { url: "https://x" })).rejects.toThrow("大脑没配好");
   });
 
   it("chat url 缺失 → throw", async () => {
     const llm = getLLMAdapter("openai")!;
-    await expect(llm.chat([], [], { model: "gpt-4" })).rejects.toThrow("requires model and url");
+    await expect(llm.chat([], [], { model: "gpt-4" })).rejects.toThrow("大脑没配好");
   });
 
   it("chatStream 返回可迭代 + content", async () => {
     const llm = getLLMAdapter("openai")!;
-    const stream = await llm.chatStream([], [], { model: "gpt-4", url: "https://x" });
+    const stream = await llm.chatStream([], [], { model: "gpt-4", url: "https://x", key: "k" });
     const parts: string[] = [];
     for await (const c of stream as AsyncIterable<{ choices: Array<{ delta: { content?: string } }> }>) {
       if (c.choices[0]?.delta.content) parts.push(c.choices[0].delta.content);
@@ -216,13 +212,13 @@ describe("OpenAI LLM adapter", () => {
 
   it("chatStream model 缺失 → throw", async () => {
     const llm = getLLMAdapter("openai")!;
-    await expect(llm.chatStream([], [], { url: "https://x" })).rejects.toThrow("requires model and url");
+    await expect(llm.chatStream([], [], { url: "https://x" })).rejects.toThrow("大脑没配好");
   });
 
   it("thinking 选项 + senses 传入不抛错", async () => {
     const llm = getLLMAdapter("openai")!;
     const senses = [{ type: "function", function: { name: "t", description: "d", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] as SenseFunction[];
-    const r = await llm.chat([], senses, { model: "gpt-4", url: "https://x", thinking: true });
+    const r = await llm.chat([], senses, { model: "gpt-4", url: "https://x", key: "k", thinking: true });
     expect(r).toBeDefined();
   });
 });

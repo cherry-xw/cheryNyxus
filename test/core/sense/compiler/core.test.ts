@@ -14,8 +14,13 @@ const distDir = join(process.cwd(), "dist", "senses");
 const tempDir = join(process.cwd(), "dist", ".sense-temp");
 
 // mock config：仅 senses_dir 由 beforeAll 注入，避免 hoisting TDZ
+// 同时提供 prompts_dir / roles / llm.brain 防止 agent/sense → spawn → builder → prompt/index 链崩溃
 vi.mock("@/utils/config", () => ({
-  default: { global: { senses_dir: "" } },
+  default: {
+    global: { senses_dir: "", prompts_dir: "/tmp/test-prompts" },
+    roles: {},
+    llm: { brain: {} },
+  },
 }));
 
 describe("toolCompiler", () => {

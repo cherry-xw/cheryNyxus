@@ -4,10 +4,8 @@ script:
     senseCalls:
       - id: sa-0
         name: write_file
-        arguments: >-
-          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryclaw-test-0eYkmM/a.txt","content":"a"}
+        arguments: '{"path":"/tmp/cheryclaw-test-OKBPTz/a.txt","content":"a"}'
       - id: sa-1
         name: write_file
-        arguments: >-
-          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryclaw-test-0eYkmM/b.txt","content":"b"}
+        arguments: '{"path":"/tmp/cheryclaw-test-OKBPTz/b.txt","content":"b"}'
   - content: done

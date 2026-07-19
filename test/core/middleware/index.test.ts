@@ -357,6 +357,96 @@ describe("Middleware", () => {
     });
   });
 
+  describe("isSenseTableStale", () => {
+    it("returns false when registry version unchanged", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
+      expect(mw.isSenseTableStale()).toBe(false);
+    });
+  });
+
+  describe("appendRoleReply", () => {
+    it("appends role reply and returns message id", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", []);
+      const id = mw.appendRoleReply("role response");
+      expect(typeof id).toBe("string");
+      expect(id.length).toBeGreaterThan(0);
+      const msgs = mw.getMessages();
+      const last = msgs[msgs.length - 1];
+      expect(last).toBeDefined();
+      expect(last!.content).toBe("role response");
+    });
+  });
+
+  describe("completeSenseResult", () => {
+    it("returns false when sense message does not exist", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", []);
+      const result = mw.completeSenseResult("nonexistent", "updated content");
+      expect(result).toBe(false);
+    });
+
+    it("returns true when sense message exists and is updated in-place", () => {
+      const mw = new Middleware(createMockGlobal(), []);
+      mw.init("c1", [
+        msg({ id: "s1", role: "sense", content: "" }),
+      ]);
+      const result = mw.completeSenseResult("s1", "filled result");
+      expect(result).toBe(true);
+      const msgs = mw.getMessages();
+      const sense = msgs.find((m) => m.id === "s1");
+      expect(sense!.content).toBe("filled result");
+    });
+  });
+
+  describe("send with extraUserMessages", () => {
+    it("enqueues extra messages before main input", async () => {
+      const captured: string[] = [];
+      const handler: MiddlewareHandler = async function* (ctx) {
+        for (const ui of ctx.soul.userInputs) {
+          captured.push(ui.content);
+        }
+        yield { type: "done" } as any;
+      };
+      const mw = new Middleware(createMockGlobal(), [handler]);
+      mw.init("c1", []);
+      mw.configureRuntime(createMockRuntime());
+
+      for await (const _ of mw.send("main input", { extraUserMessages: ["extra1", "extra2"] })) {
+        // drain
+      }
+
+      expect(captured).toEqual(["extra1", "extra2", "main input"]);
+    });
+  });
+
+  describe("send with compact command", () => {
+    it("triggers compactToLatestSummary after loop", async () => {
+      const handler: MiddlewareHandler = async function* (ctx) {
+        ctx.soul.messages!.push(
+          msg({ id: "a1", role: "assistant", content: "summary text" }),
+        );
+        yield { type: "done" } as any;
+      };
+      const mw = new Middleware(createMockGlobal(), [handler]);
+      mw.init("c1", [
+        msg({ id: "sys", role: "system", content: "system prompt" }),
+      ]);
+      mw.configureRuntime(createMockRuntime());
+
+      for await (const _ of mw.send("[[command:/compact]]")) {
+        // drain
+      }
+
+      // After compact, messages should be reduced
+      const msgs = mw.getMessages();
+      // compactToLatestSummary replaces history with system + compact summary
+      expect(msgs.length).toBeLessThanOrEqual(2);
+    });
+  });
+
   describe("loopHandler integration", () => {
     it("loops until assistant has no senseCalls, bounded by loopHandler", async () => {
       let iterations = 0;

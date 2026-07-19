@@ -13,8 +13,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { rmSync } from "fs";
 import { resolve } from "path";
 import { registerMockAdapter } from "@/agent/provider/mock.js";
-import { getLLMAdapter, resetLLMAdapters } from "@/core/llm/adapter.js";
-import { getMessageAdapter, resetMessageProviders } from "@/core/message/adapter.js";
+import { getLLMAdapter } from "@/core/llm/adapter.js";
+import { getMessageAdapter } from "@/core/message/adapter.js";
 import { getSenseAdapter, senseAdapterRegistry } from "@/core/sense/adapter.js";
 import type { LLMResponse } from "@/core/message/adapter.js";
 import type { Sense, SenseFunction } from "@/core/sense/index.js";
@@ -25,8 +25,6 @@ const mockDir = resolve(process.env.CHERY_DIR ?? "", ".chery", "mock");
 
 describe("mock provider 注册", () => {
   beforeEach(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
   });
 
@@ -40,8 +38,6 @@ describe("mock provider 注册", () => {
 
 describe("mock message adapter", () => {
   beforeEach(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
     registerMockAdapter();
   });
@@ -73,8 +69,6 @@ describe("mock message adapter", () => {
 
 describe("mock sense adapter", () => {
   beforeEach(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
     registerMockAdapter();
   });
@@ -102,8 +96,6 @@ describe("mock sense adapter", () => {
 
 describe("mock LLM adapter 脚本回放", () => {
   beforeAll(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
     registerMockAdapter();
   });

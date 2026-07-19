@@ -17,22 +17,23 @@ import { bootstrapForTests } from "./helpers/agentHarness.js";
 
 describe("parseRuntimeSelection", () => {
   it("合法 → 返回 selection", () => {
-    expect(parseRuntimeSelection({ brain: "b", senseGroup: "g" }, "test")).toEqual({
-      brain: "b",
-      senseGroup: "g",
+    expect(parseRuntimeSelection({ brain: "mock_content", senseGroup: "auto_senses" }, "test")).toEqual({
+      brain: "mock_content",
+      senseGroup: "auto_senses",
+      mcpServers: [],
     });
   });
 
   it("缺 brain → throw", () => {
-    expect(() => parseRuntimeSelection({ senseGroup: "g" }, "test")).toThrow();
+    expect(() => parseRuntimeSelection({ senseGroup: "g" }, "test")).toThrow("必须选择一颗大脑");
   });
 
   it("缺 senseGroups → throw", () => {
-    expect(() => parseRuntimeSelection({ brain: "b" }, "test")).toThrow();
+    expect(() => parseRuntimeSelection({ brain: "mock_content" }, "test")).toThrow("需要配一个感官组");
   });
 
   it("空 senseGroups → throw", () => {
-    expect(() => parseRuntimeSelection({ brain: "b", senseGroup: "" }, "test")).toThrow();
+    expect(() => parseRuntimeSelection({ brain: "mock_content", senseGroup: "" }, "test")).toThrow("需要配一个感官组");
   });
 });
 
@@ -42,7 +43,7 @@ describe("RuntimeResolver.resolve", () => {
   });
 
   it("合法 → RuntimeConfig 含 brain/adapters/builtSenses/senseTable", () => {
-    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "auto_senses" });
+    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "auto_senses", mcpServers: [] });
     expect(r.brain.model).toBe("mock_content");
     expect(r.adapters.llmAdapter).toBeDefined();
     expect(r.adapters.messageAdapter).toBeDefined();
@@ -52,17 +53,17 @@ describe("RuntimeResolver.resolve", () => {
   });
 
   it("brain 不存在 → throw", () => {
-    expect(() => new RuntimeResolver().resolve({ brain: "nope", senseGroup: "auto_senses" })).toThrow("Brain");
+    expect(() => new RuntimeResolver().resolve({ brain: "nope", senseGroup: "auto_senses", mcpServers: [] })).toThrow("大脑");
   });
 
   it("sense group 不存在 → throw", () => {
-    expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "nope" })).toThrow("Sense group");
+    expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "nope", mcpServers: [] })).toThrow("感官组");
   });
 
   it("group 含不存在 sense → throw", () => {
     config.sense_groups!["__test_missing"] = ["nonexistent_sense"];
     try {
-      expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "__test_missing" })).toThrow("Sense");
+      expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "__test_missing", mcpServers: [] })).toThrow("感官");
     } finally {
       delete config.sense_groups!["__test_missing"];
     }
@@ -71,30 +72,30 @@ describe("RuntimeResolver.resolve", () => {
   it("无效 level 后缀 → throw", () => {
     config.sense_groups!["__test_badlevel"] = ["read_file:invalid"];
     try {
-      expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "__test_badlevel" })).toThrow("无效");
+      expect(() => new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "__test_badlevel", mcpServers: [] })).toThrow("无效");
     } finally {
       delete config.sense_groups!["__test_badlevel"];
     }
   });
 
   it("监管优先级：auto_senses（read_file:auto）→ auto", () => {
-    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "auto_senses" });
+    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "auto_senses", mcpServers: [] });
     expect(r.senseTable.get("read_file")?.supervisionLevel).toBe(SupervisionLevel.auto);
   });
 
   it("监管优先级：confirm_senses（write_file:confirm）→ confirm", () => {
-    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "confirm_senses" });
+    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "confirm_senses", mcpServers: [] });
     expect(r.senseTable.get("write_file")?.supervisionLevel).toBe(SupervisionLevel.confirm);
   });
 
   it("监管优先级：mixed_confirm（多 sense :confirm）", () => {
-    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "mixed_confirm" });
+    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "mixed_confirm", mcpServers: [] });
     expect(r.senseTable.get("read_file")?.supervisionLevel).toBe(SupervisionLevel.confirm);
     expect(r.senseTable.get("write_file")?.supervisionLevel).toBe(SupervisionLevel.confirm);
   });
 
   it("builtSenses 数量 = senseTable 大小", () => {
-    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "mixed_confirm" });
+    const r = new RuntimeResolver().resolve({ brain: "mock_content", senseGroup: "mixed_confirm", mcpServers: [] });
     expect(r.builtSenses.length).toBe(r.senseTable.size);
   });
 });

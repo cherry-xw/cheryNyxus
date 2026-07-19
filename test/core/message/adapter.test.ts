@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   registerMessageAdapter,
   getMessageAdapter,
-  resetMessageProviders,
   type MessageProviderAdapterConfig,
   type LLMResponse,
 } from "@/core/message/adapter";
@@ -17,9 +16,6 @@ function createConfig(): MessageProviderAdapterConfig {
 }
 
 describe("Message Adapter", () => {
-  beforeEach(() => {
-    resetMessageProviders();
-  });
 
   describe("registerMessageAdapter / getMessageAdapter", () => {
     it("registers and retrieves adapter", () => {
@@ -49,14 +45,6 @@ describe("Message Adapter", () => {
 
     it("returns undefined for unregistered provider", () => {
       expect(getMessageAdapter("nope")).toBeUndefined();
-    });
-  });
-
-  describe("resetMessageProviders", () => {
-    it("clears the registry", () => {
-      registerMessageAdapter("p1", createConfig());
-      resetMessageProviders();
-      expect(getMessageAdapter("p1")).toBeUndefined();
     });
   });
 

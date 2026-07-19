@@ -182,25 +182,26 @@ describe("compose middleware", () => {
   });
 
   describe("error propagation", () => {
-    it("rethrows compliant errors (末尾含 8hex tracingId) verbatim", async () => {
+    it("rethrows compliant errors (开头含 [8hex] tracingId) verbatim", async () => {
       const handler = async function* () {
-        throw new Error("glm-5 缺少 key。请在 .env 设 API_KEY 后重启 [a1b2c3d4]");
+        throw new Error("[a1b2c3d4] glm-5 缺少 key。请在 .env 设 API_KEY 后重启");
       };
 
       await expect(
         drain(compose([handler]).run(createMockContext())),
-      ).rejects.toThrow("glm-5 缺少 key。请在 .env 设 API_KEY 后重启 [a1b2c3d4]");
+      ).rejects.toThrow("[a1b2c3d4] glm-5 缺少 key。请在 .env 设 API_KEY 后重启");
     });
 
-    it("rewraps non-compliant errors (第三方裸抛) 为内部错误 + 新 tracingId", async () => {
+    it("rewraps non-compliant errors (第三方裸抛) 为友好文案 + 新 tracingId", async () => {
       const handler = async function* () {
         throw new Error("boom");
       };
 
-      // "boom" 末尾无 8hex tracingId → compose 重新包为 "内部错误，请用 [xxxxxxxx] 反馈给开发"
+      // "boom" 开头无 [8hex] tracingId → compose 兜底 classifyError('unknown') + friendlyMessage('unknown','system') = "系统出了点小问题"
+      // throwUserFacing 前置 [tracingId]
       await expect(
         drain(compose([handler]).run(createMockContext())),
-      ).rejects.toThrow(/^内部错误，请用 \[[0-9a-f]{8}\] 反馈给开发$/);
+      ).rejects.toThrow(/^\[[0-9a-f]{8}\] 系统出了点小问题$/);
     });
   });
 

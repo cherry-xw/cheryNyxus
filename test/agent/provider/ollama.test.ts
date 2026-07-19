@@ -9,8 +9,8 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { registerOllamaAdapter } from "@/agent/provider/ollama.js";
-import { getLLMAdapter, resetLLMAdapters } from "@/core/llm/adapter.js";
-import { getMessageAdapter, resetMessageProviders } from "@/core/message/adapter.js";
+import { getLLMAdapter } from "@/core/llm/adapter.js";
+import { getMessageAdapter } from "@/core/message/adapter.js";
 import { getSenseAdapter, senseAdapterRegistry } from "@/core/sense/adapter.js";
 import type { LLMResponse } from "@/core/message/adapter.js";
 import type { Sense, SenseFunction } from "@/core/sense/index.js";
@@ -34,8 +34,6 @@ vi.mock("ollama", () => ({
 
 describe("Ollama provider 注册", () => {
   beforeEach(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
   });
 
@@ -49,8 +47,6 @@ describe("Ollama provider 注册", () => {
 
 describe("Ollama message adapter", () => {
   beforeEach(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
     registerOllamaAdapter();
   });
@@ -65,10 +61,6 @@ describe("Ollama message adapter", () => {
     const cfg = getMessageAdapter("ollama")!;
     expect(cfg.extractStreamDelta({ message: { content: "d" } } as never)).toBe("d");
     expect(cfg.extractStreamThinking?.({ message: { thinking: "st" } } as never)).toBe("st");
-  });
-
-  it("role 返回 assistant", () => {
-    expect(getMessageAdapter("ollama")!.role({} as never)).toBe("assistant");
   });
 
   it("buildMessages: sense → role:tool", () => {
@@ -100,8 +92,6 @@ describe("Ollama message adapter", () => {
 
 describe("Ollama sense adapter", () => {
   beforeEach(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
     registerOllamaAdapter();
   });
@@ -141,8 +131,6 @@ describe("Ollama sense adapter", () => {
 
 describe("Ollama LLM adapter", () => {
   beforeEach(() => {
-    resetMessageProviders();
-    resetLLMAdapters();
     senseAdapterRegistry.clear();
     registerOllamaAdapter();
   });
@@ -155,7 +143,7 @@ describe("Ollama LLM adapter", () => {
 
   it("chat model 缺失 → throw", async () => {
     const llm = getLLMAdapter("ollama")!;
-    await expect(llm.chat([], [], {})).rejects.toThrow("requires model");
+    await expect(llm.chat([], [], {})).rejects.toThrow("大脑没配好");
   });
 
   it("chatStream 返回可迭代", async () => {
@@ -170,7 +158,7 @@ describe("Ollama LLM adapter", () => {
 
   it("chatStream model 缺失 → throw", async () => {
     const llm = getLLMAdapter("ollama")!;
-    await expect(llm.chatStream([], [], {})).rejects.toThrow("requires model");
+    await expect(llm.chatStream([], [], {})).rejects.toThrow("大脑没配好");
   });
 
   it("senses 传入不抛错（warn 流式 tool_call 不可靠）", async () => {

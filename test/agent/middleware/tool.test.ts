@@ -148,7 +148,7 @@ describe("senseMiddleware 单元：resume 续接", () => {
     const out = await collectChunks(senseMiddleware(ctx, makeNext([])));
     const accept = senseAccepts(out)[0];
     expect(accept).toBeDefined();
-    expect(accept!.result).toContain("无此工具");
+    expect(accept!.result).toContain("工具已失效");
     expect(accept!.name).toBe("missing_tool");
   });
 
