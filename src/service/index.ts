@@ -18,6 +18,7 @@ import { registerBashHandlers } from './bash/handler.js'
 import { registerMcpHandlers } from './mcp/handler.js'
 import { registerRole } from './subagent/index.js'
 import { registerConfigHandlers } from './config/handler.js'
+import { registerHooksHandlers } from './hooks/handler.js'
 import { registerUtilsHandlers } from './utils/handler.js'
 import { registerCommandHandlers } from './command/handler.js'
 import { randomBytes } from 'node:crypto'
@@ -76,6 +77,8 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   void rebuildWaitedChildren()
   // Config 设置面板：读写 .chery/config.yaml（除 server 段，重启生效）
   registerConfigHandlers(router)
+  // Hooks 管理：读写 .chery/hooks/hooks.json（独立于 config.yaml）
+  registerHooksHandlers(router)
   // Utils 工具：独立信息查询（utils.models 等，不依赖 chat/brain 运行时）
   registerUtilsHandlers(router)
   // 内置命令系统：settings 「指令」tab 后端（读写 .chery/command/*.md）

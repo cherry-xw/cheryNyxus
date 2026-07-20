@@ -78,9 +78,71 @@ const masterPetName = computed(() =>
 const stream = computed(() => agents.streams[props.chatId])
 const history = computed<HistoryItem[]>(() => {
   const h = stream.value?.history ?? []
-  return layout.value === 'group' ? mergeChildReplyHistory(h) : h
+  // UI 层防御性去重：按 msgId 合并同条消息的多条 HistoryItem。
+  // 修复历史 bug「打开抽屉显示 3 个 thinking：下面 1 条带正文、上面 2 条不带」——
+  // 多源叠加（实时流 / staged 回放 / done.finalMessage）偶尔产生同 msgId 多 item，
+  // 这里按顺序保留首条，把后续同 msgId 的 thinking/content/senseCalls 合并入首条。
+  const merged = dedupHistoryByMsgId(h)
+  return layout.value === 'group' ? mergeChildReplyHistory(merged) : merged
 })
 const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false)
+
+/**
+ * 按 msgId 顺序合并同条消息的多个 HistoryItem。
+ * - assistant / role / subagent / master 同 msgId → 合并 thinking/content/senseCalls 字段
+ * - 非空字段优先；createdAt 取最早
+ * - msgId 缺失的条目（实时流临时项）保留原位不动
+ */
+function dedupHistoryByMsgId(items: HistoryItem[]): HistoryItem[] {
+  const seen = new Map<string, HistoryItem>()
+  const result: HistoryItem[] = []
+  for (const item of items) {
+    const id = item.msgId
+    if (!id) {
+      result.push(item)
+      continue
+    }
+    const existing = seen.get(id)
+    if (!existing) {
+      seen.set(id, item)
+      result.push(item)
+      continue
+    }
+    // 合并：补齐之前缺失的字段；createdAt 取最早
+    if (!existing.thinking && item.thinking) existing.thinking = item.thinking
+    else if (
+      item.thinking &&
+      existing.thinking &&
+      item.thinking.length > existing.thinking.length
+    ) {
+      // 后到的更完整 → 覆盖（极少见，仍防御）
+      existing.thinking = item.thinking
+    }
+    if (!existing.content && item.content) {
+      existing.content = item.content
+    } else if (item.content && existing.content && item.content.length > existing.content.length) {
+      existing.content = item.content
+    }
+    if (item.senseCalls?.length) {
+      const seenScIds = new Set((existing.senseCalls ?? []).map((sc) => sc.id))
+      const mergedSc = [...(existing.senseCalls ?? [])]
+      for (const sc of item.senseCalls) {
+        if (!seenScIds.has(sc.id)) {
+          seenScIds.add(sc.id)
+          mergedSc.push(sc)
+        }
+      }
+      if (mergedSc.length > 0) existing.senseCalls = mergedSc
+    }
+    if (item.runtime && !existing.runtime) existing.runtime = item.runtime
+    if (item.createdAt !== undefined) {
+      if (existing.createdAt === undefined || item.createdAt < existing.createdAt) {
+        existing.createdAt = item.createdAt
+      }
+    }
+  }
+  return result
+}
 
 // 仅人类用户消息（role === "user" 唯一标识；child-to-master 合并项底层是 master/role，不算）
 // 保留原 history 索引以便点击直接复用 VirtualScroll.scrollToIndex，不再二次查找。

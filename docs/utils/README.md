@@ -114,7 +114,7 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
-- **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）
+- **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉按后缀白名单过滤（`API_KEY` / `APIKEY` / `TOKEN` / `SECRET(_KEY)` / `PASSWORD` / `PASSWD` / `ACCESS_KEY(_ID)`），运行时配置（`CHERY_DIR` / `*_HOST` / `*_URL` 等）不进入下拉。
 
 写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整注释文档备份在 [.chery/config.yaml.example](../../.chery/config.yaml.example)。
 

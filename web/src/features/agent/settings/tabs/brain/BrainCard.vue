@@ -5,7 +5,7 @@
  * 改名/复制/删除需操作 draft.llm.brain 全量（保序重建 + 迁移角色引用），故 prop 传 draft。
  */
 import { CopyDocument, Delete, Refresh, Document } from '@element-plus/icons-vue'
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, toRaw } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import {
   agentApi,
@@ -71,6 +71,21 @@ const brainSummary = computed(() => {
 const modelOptions = ref<Array<{ id: string; name?: string }>>([])
 const modelLoading = ref(false)
 
+type ConnectionTestState = 'idle' | 'pending' | 'success' | 'error'
+const connectionTestState = ref<ConnectionTestState>('idle')
+const connectionTestMessage = ref('')
+const isMockProvider = computed(() => props.cfg.provider === 'mock')
+let connectionTestReqId = 0
+
+watch(
+  () => [props.cfg.provider, props.cfg.url, props.cfg.key, props.cfg.model] as const,
+  () => {
+    connectionTestReqId += 1
+    connectionTestState.value = 'idle'
+    connectionTestMessage.value = ''
+  },
+)
+
 // ── 深度思考档位（按 model 后端查） ────────────────────────────────
 /** 当前 brain 的 model 支持的 ThinkingLevel 子集；未拉取或失败时 = ["off","on"] 兜底。 */
 const thinkingLevels = ref<readonly ThinkingLevel[]>(['off', 'on'])
@@ -130,6 +145,35 @@ async function refreshModels(): Promise<void> {
     onError(err instanceof Error ? err.message : String(err))
   } finally {
     modelLoading.value = false
+  }
+}
+
+async function testConnection(): Promise<void> {
+  const { provider, url, key, model } = props.cfg
+  if (provider === 'mock') return
+  if (!provider || !url || !model) {
+    connectionTestState.value = 'error'
+    connectionTestMessage.value = '请先填写适配器、地址和型号'
+    return
+  }
+
+  const reqId = ++connectionTestReqId
+  connectionTestState.value = 'pending'
+  connectionTestMessage.value = ''
+  try {
+    const result = await agentApi.testConnection(provider, url, key || undefined, model)
+    if (reqId !== connectionTestReqId) return
+    if (result.ok) {
+      connectionTestState.value = 'success'
+      connectionTestMessage.value = '连接成功'
+    } else {
+      connectionTestState.value = 'error'
+      connectionTestMessage.value = result.error
+    }
+  } catch (err) {
+    if (reqId !== connectionTestReqId) return
+    connectionTestState.value = 'error'
+    connectionTestMessage.value = err instanceof Error ? err.message : String(err)
   }
 }
 
@@ -206,7 +250,7 @@ function duplicateBrain(): void {
   let newName = `${props.name}_copy`
   let i = 2
   while (props.draft.llm.brain[newName]) newName = `${props.name}_copy_${i++}`
-  props.draft.llm.brain[newName] = structuredClone(src)
+  props.draft.llm.brain[newName] = structuredClone(toRaw(src))
   emit('error', '')
   emit('duplicated', newName)
 }
@@ -275,7 +319,34 @@ async function openEnvFile(): Promise<void> {
     <!-- 展开态详情 -->
     <div v-else class="brain-detail">
       <section class="brain-section">
-        <div class="section-heading"><span>连接</span><small>模型与服务</small></div>
+        <div class="section-heading connection-heading">
+          <span class="heading-text">连接<small>模型与服务</small></span>
+          <button
+            type="button"
+            class="connection-test-btn"
+            :class="{ pending: connectionTestState === 'pending' }"
+            :disabled="connectionTestState === 'pending' || isMockProvider"
+            :title="isMockProvider ? '离线模拟无需测试' : '测试地址与密钥是否连通'"
+            @click="testConnection"
+          >
+            <span v-if="connectionTestState === 'pending'" class="dot spinning" />
+            <span
+              v-else
+              class="dot"
+              :class="{
+                success: connectionTestState === 'success',
+                error: connectionTestState === 'error',
+                idle: connectionTestState === 'idle',
+              }"
+            />
+            {{ connectionTestState === 'pending' ? '测试中' : '测试连接' }}
+          </button>
+        </div>
+        <div class="connection-test-message"
+             :class="connectionTestState === 'idle' ? 'muted' : connectionTestState"
+             v-if="isMockProvider || connectionTestState === 'success' || connectionTestState === 'error'">
+          {{ isMockProvider ? '离线模拟无需测试' : connectionTestMessage }}
+        </div>
         <div class="brain-fields connection-fields">
           <label class="field field-wide">
             <LabelTip label="地址" tip="url：服务地址，可用 $ENV 占位从环境变量注入" />
@@ -310,20 +381,30 @@ async function openEnvFile(): Promise<void> {
                   :value="m.id"
                 />
               </el-select>
-              <button
-                type="button"
-                class="icon-btn refresh-btn"
-                aria-label="刷新模型列表"
-                :disabled="modelLoading"
-                @click="refreshModels"
+              <el-tooltip
+                :content="modelLoading ? '正在获取模型列表…' : '获取最新模型列表；亦可测试连通'"
+                placement="top"
+                :show-after="120"
+                :disabled="false"
               >
-                <Refresh class="ico" :class="{ spinning: modelLoading }" />
-              </button>
+                <button
+                  type="button"
+                  class="icon-btn refresh-btn"
+                  aria-label="刷新模型列表"
+                  :disabled="modelLoading"
+                  @click="refreshModels"
+                >
+                  <Refresh class="ico" :class="{ spinning: modelLoading }" />
+                </button>
+              </el-tooltip>
             </div>
           </label>
           <div class="field">
             <div class="label-with-action">
-              <LabelTip label="密钥" tip="key：API 密钥，从 .env 变量中选择（$ENV 占位符）" />
+              <LabelTip
+              label="密钥"
+              tip="key：API 密钥，从 .env 变量中选择（$ENV 占位符）。本地 LM Studio / vLLM / Ollama OpenAI 模式等服务不校验 key，可直接输入任意字符串（如 lm-studio）；留空会触发运行期鉴权失败"
+            />
               <button
                 type="button"
                 class="icon-btn"
@@ -480,6 +561,75 @@ async function openEnvFile(): Promise<void> {
       font-size: 10px;
     }
   }
+}
+
+// 连接 section 标题：左侧标题、右侧测试连接按钮（与大脑模块同色调）
+.connection-heading {
+  align-items: center;
+
+  .heading-text {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+}
+
+.connection-test-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--tab-color, @accent) 78%, @ink);
+  background: color-mix(in srgb, var(--tab-color, @accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 35%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--tab-color, @accent) 18%, transparent);
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(20, 22, 26, 0.25);
+
+    &.success { background: var(--el-color-success); }
+    &.error   { background: var(--el-color-danger); }
+    &.idle    { background: rgba(20, 22, 26, 0.25); }
+
+    &.spinning {
+      background: transparent;
+      border: 1.5px solid color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
+      border-top-color: color-mix(in srgb, var(--tab-color, @accent) 90%, transparent);
+      animation: spin 0.8s linear infinite;
+    }
+  }
+}
+
+.connection-test-message {
+  font-size: 11px;
+  margin: 6px 0 2px;
+  padding-left: 2px;
+
+  &.success { color: var(--el-color-success); }
+  &.error   { color: var(--el-color-danger); }
+  &.muted   { color: rgba(20, 22, 26, 0.42); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .label-with-action {

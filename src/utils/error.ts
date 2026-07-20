@@ -21,7 +21,7 @@ import { LogLevel } from './logger/types.js'
 export type ErrorCategory = 'auth' | 'network' | 'provider' | 'timeout' | 'validation' | 'unknown'
 
 /** 错误来源（决定友好文案的主语，见 friendlyMessage） */
-export type ErrorSource = 'brain' | 'sense' | 'media' | 'mcp' | 'chat' | 'system'
+export type ErrorSource = 'brain' | 'sense' | 'media' | 'mcp' | 'chat' | 'system' | 'hook'
 
 // ========== tracingId ==========
 
@@ -128,6 +128,7 @@ const SOURCE_LABEL: Record<ErrorSource, string> = {
   mcp: '扩展工具',
   chat: '会话',
   system: '系统',
+  hook: '钩子',
 }
 
 /**

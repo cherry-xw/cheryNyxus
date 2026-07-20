@@ -5,6 +5,7 @@
  * 改 el-popover + 自定义内容 slot：min/max-width + word-break 控宽换行。
  * 保留 title prop + confirm/cancel emits + trigger slot，9 处调用点零改动。
  * 用于后果轻的删除（感官组/单技能/MCP/媒体）；重删用 ConfirmDialog 居中 modal。
+ * 样式：新拟物化（Neumorphism）--同色系背景 + 内外阴影，hover 切凹陷态。
  */
 import { ref } from 'vue'
 
@@ -43,19 +44,20 @@ function onCancel(): void {
 </template>
 
 <!-- 非 scoped：el-popover popper 渲染到 body（element 内部 DOM，无 data-v），需全局 class。
-     不 @import shared.less 避免其全部 class 全局污染；色值硬编码（仅 danger 红玻璃底）。 -->
+     不 @import shared.less 避免其全部 class 全局污染。
+     新拟物化（Neumorphism）：同色系背景 + 内外阴影 = 凸出/凹陷效果。 -->
 <style lang="less">
 .confirm-popover-popper.el-popover.el-popper {
   padding: 12px 14px;
-  border-radius: 10px;
+  border: none;
+  border-radius: 12px;
   min-width: 240px;
   max-width: 340px;
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.72), rgba(238, 242, 255, 0.5));
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: #e8e6e1;
+  // 外阴影（右下暗）+ 反向外阴影（左上亮）= popper 从背景凸出
   box-shadow:
-    0 4px 20px rgba(185, 28, 28, 0.18),
-    0 0 10px rgba(239, 68, 68, 0.16);
+    8px 8px 16px rgba(0, 0, 0, 0.15),
+    -8px -8px 16px rgba(255, 255, 255, 0.7);
 }
 .confirm-pop {
   display: flex;
@@ -77,28 +79,34 @@ function onCancel(): void {
   gap: 8px;
 }
 .cp-btn {
-  padding: 4px 12px;
-  border-radius: 6px;
+  padding: 5px 14px;
+  border: none;
+  border-radius: 8px;
+  background: #e8e6e1;
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
+  // 凸出态：外阴影（右下暗 + 左上亮）
+  box-shadow:
+    3px 3px 6px rgba(0, 0, 0, 0.12),
+    -3px -3px 6px rgba(255, 255, 255, 0.6);
   transition:
-    filter 0.15s ease,
-    background-color 0.15s ease;
+    box-shadow 0.15s ease,
+    color 0.15s ease;
+  &:hover {
+    // 凹陷态：内阴影（按下效果）
+    box-shadow:
+      inset 2px 2px 4px rgba(0, 0, 0, 0.1),
+      inset -2px -2px 4px rgba(255, 255, 255, 0.5);
+  }
   &.cancel {
-    border: 1px solid rgba(36, 38, 45, 0.18);
-    background: rgba(255, 255, 255, 0.7);
     color: rgba(20, 22, 26, 0.7);
-    &:hover {
-      background: #fff;
-    }
   }
   &.ok {
-    border: none;
-    background: linear-gradient(135deg, #ef4444, #b91c1c);
-    color: #fff;
+    // danger 保留红色文字标识，按钮本体仍 neumorphism 凸出
+    color: #b91c1c;
     &:hover {
-      filter: brightness(1.08);
+      color: #dc2626;
     }
   }
 }

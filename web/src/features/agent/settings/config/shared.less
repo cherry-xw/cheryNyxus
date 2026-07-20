@@ -32,9 +32,9 @@
   margin: 0;
   padding: 5px 8px;
   border-radius: 6px;
+  // 警示语义用 emoji 前缀表达（不再用左边色条）；背景淡化 + 文字色加重保持 tab-color 联动
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-  border-left: 3px solid var(--tab-color, @accent);
   font-size: 11px;
   line-height: 1.4;
   // 骨架模式：复用真实 .warn-hint 字号 + 行高 + padding，只是把背景色换成 shimmer。
@@ -330,6 +330,24 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+
+  // 滚动条跟随当前 tab 色（--tab-color 由 SettingsDialog 注入到激活 tab 根节点）
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
+    border-radius: 3px;
+    transition: background 0.15s ease;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--tab-color, @accent) 70%, transparent);
+  }
 }
 
 // 骨架屏文本行（与 .sect-hint / .warn-hint 共用 line-height 17px）。

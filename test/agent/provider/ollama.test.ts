@@ -16,19 +16,28 @@ import type { LLMResponse } from "@/core/message/adapter.js";
 import type { Sense, SenseFunction } from "@/core/sense/index.js";
 import type { ZodType } from "zod";
 
+const { mockChat, constructorHosts } = vi.hoisted(() => ({
+  constructorHosts: [] as Array<string | undefined>,
+  mockChat: vi.fn(async (opts: { stream?: boolean }) => {
+    if (opts.stream) {
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { message: { content: "Hello" } };
+          yield { message: { content: " from Ollama" } };
+        },
+      };
+    }
+    return { message: { role: "assistant", content: "Hello from Ollama", thinking: "th" } };
+  }),
+}));
+
 vi.mock("ollama", () => ({
-  default: {
-    chat: vi.fn(async (opts: { stream?: boolean }) => {
-      if (opts.stream) {
-        return {
-          async *[Symbol.asyncIterator]() {
-            yield { message: { content: "Hello" } };
-            yield { message: { content: " from Ollama" } };
-          },
-        };
-      }
-      return { message: { role: "assistant", content: "Hello from Ollama", thinking: "th" } };
-    }),
+  Ollama: class MockOllama {
+    chat = mockChat;
+
+    constructor(options?: { host?: string }) {
+      constructorHosts.push(options?.host);
+    }
   },
 }));
 
@@ -131,13 +140,16 @@ describe("Ollama sense adapter", () => {
 
 describe("Ollama LLM adapter", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    constructorHosts.length = 0;
     senseAdapterRegistry.clear();
     registerOllamaAdapter();
   });
 
-  it("chat 调用返回响应", async () => {
+  it("chat 使用配置 URL 并返回响应", async () => {
     const llm = getLLMAdapter("ollama")!;
-    const r = await llm.chat([], [], { model: "llama" });
+    const r = await llm.chat([], [], { model: "llama", url: "http://remote:11434" });
+    expect(constructorHosts).toEqual(["http://remote:11434"]);
     expect((r as { message: { content: string } }).message.content).toBe("Hello from Ollama");
   });
 
@@ -146,9 +158,13 @@ describe("Ollama LLM adapter", () => {
     await expect(llm.chat([], [], {})).rejects.toThrow("大脑没配好");
   });
 
-  it("chatStream 返回可迭代", async () => {
+  it("chatStream 使用配置 URL 并返回可迭代", async () => {
     const llm = getLLMAdapter("ollama")!;
-    const stream = await llm.chatStream([], [], { model: "llama" });
+    const stream = await llm.chatStream([], [], {
+      model: "llama",
+      url: "http://remote:11434",
+    });
+    expect(constructorHosts).toEqual(["http://remote:11434"]);
     const parts: string[] = [];
     for await (const c of stream as AsyncIterable<{ message?: { content?: string } }>) {
       if (c.message?.content) parts.push(c.message.content);

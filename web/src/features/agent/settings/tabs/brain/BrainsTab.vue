@@ -4,6 +4,8 @@ import { Plus } from '@element-plus/icons-vue'
 import type { ConfigDto } from '@/services/agentApi'
 import openaiIcon from '@/assets/ai-icons/openai.png'
 import ollamaIcon from '@/assets/ai-icons/ollama.png'
+import anthropicIcon from '@/assets/ai-icons/anthropic.png'
+import zhipuIcon from '@/assets/ai-icons/zhipu.png'
 import BrainCard from './BrainCard.vue'
 import ResourceWorkbench, { type ResourceRailItem } from '../agent/ResourceWorkbench.vue'
 
@@ -18,6 +20,8 @@ const PROVIDER_ICON: Record<string, string> = {
   openai: openaiIcon,
   ollama: ollamaIcon,
   mock: '🎭',
+  bigmodel: zhipuIcon,
+  anthropic: anthropicIcon,
 }
 
 /** 容量按 1024 进位显示（K → M → G）；旧 config 无 contextLimit 时按 add() 默认 128K 兜底。 */

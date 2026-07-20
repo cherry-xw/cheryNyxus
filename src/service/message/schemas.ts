@@ -276,11 +276,34 @@ export const requestSchemas = {
   [Method.CONFIG_GET]: emptySchema,
   [Method.CONFIG_WORKSPACE_VALIDATE]: z.object({ workspace: z.string().optional() }).strict(),
   [Method.CONFIG_SAVE]: configSaveSchema,
+  // Hooks 管理（读写 .chery/hooks/hooks.json，独立于 config.yaml）
+  [Method.HOOKS_GET]: emptySchema,
+  [Method.HOOKS_SAVE]: z.object({
+    handlers: z.record(
+      z.string(),
+      z.array(
+        z.object({
+          matcher: z.string().optional(),
+          if: z.string().optional(),
+          command: z.string().min(1),
+          timeout: z.number().positive().optional(),
+        }),
+      ),
+    ),
+  }),
+  [Method.HOOKS_EVENTS]: emptySchema,
   // Utils 工具：provider/url 必填，key 可选（ollama 通常无需）
   [Method.UTILS_MODELS]: z.object({
     provider: z.string(),
     url: z.string(),
     key: z.string().optional(),
+  }),
+  // 真实最小 Provider 请求：使用未保存的 provider/url/key/model，不持久化
+  [Method.UTILS_TEST_CONNECTION]: z.object({
+    provider: z.string().min(1),
+    url: z.string().min(1),
+    key: z.string().optional(),
+    model: z.string().min(1),
   }),
   // Env 环境变量：空参，返回 .env 变量名列表
   [Method.ENV_LIST]: emptySchema,

@@ -19,6 +19,10 @@ export interface LLMOptions {
   thinking?: ThinkingLevel
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
   rpm?: number
+  /** brain name（如 'anthropic-main'），供 hooks dispatcher 注入 ctx.brain（handler stdin 可见） */
+  brain?: string
+  /** 内部 Provider 探测跳过 Hook；正式 chat 缺省 false。 */
+  skipHooks?: boolean
 }
 
 /**

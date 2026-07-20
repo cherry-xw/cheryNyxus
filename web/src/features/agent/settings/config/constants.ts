@@ -12,6 +12,7 @@ export type TabKey =
   | 'mcp'
   | 'global'
   | 'commands'
+  | 'hooks'
   | 'skills'
   | 'plugins'
 
@@ -22,18 +23,19 @@ export const SETTINGS_ACTIVE_TAB_KEY = Symbol('settings-active-tab') as Injectio
 
 export const TABS: { key: TabKey; icon: string; label: string; color: string }[] = [
   { key: 'presets', icon: '📦', label: '预设', color: '#f6b73c' },
-  { key: 'roles', icon: '🎭', label: '角色', color: '#d946ef' },
+  { key: 'roles', icon: '🎭', label: '角色', color: '#fb7185' },
   { key: 'brains', icon: '🧠', label: '大脑', color: '#5ee7ff' },
   { key: 'senses', icon: '👂', label: '器官', color: '#34d399' },
   { key: 'skills', icon: '✨', label: '技能', color: '#6366f1' },
   { key: 'plugins', icon: '🧩', label: '组合技', color: '#3b82f6' },
   { key: 'commands', icon: '📝', label: '指令', color: '#84cc16' },
-  { key: 'mcp', icon: '🔌', label: 'MCP', color: '#ec4899' },
+  { key: 'hooks', icon: '🪝', label: '钩子', color: '#f472b6' },
+  { key: 'mcp', icon: '🔌', label: 'MCP', color: '#8b5cf6' },
   { key: 'media', icon: '🖼️', label: '多媒体', color: '#f97316' },
   { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },
 ]
 
-export const PROVIDERS = ['openai', 'ollama', 'mock'] as const
+export const PROVIDERS = ['openai', 'ollama', 'mock', 'bigmodel', 'anthropic'] as const
 export const SUPERVISIONS = ['auto', 'confirm', 'manual'] as const
 /** 监管等级中文展示名（下拉 label 用；value 仍存英文枚举，对应后端 SupervisionLevel）。 */
 export const SUPERVISION_LABEL: Record<(typeof SUPERVISIONS)[number], string> = {
@@ -58,6 +60,7 @@ export const HINT_LINES: Record<TabKey, { sect: number; warn: number }> = {
   mcp: { sect: 1, warn: 1 },
   global: { sect: 1, warn: 0 },
   commands: { sect: 1, warn: 0 },
+  hooks: { sect: 1, warn: 1 },
   skills: { sect: 1, warn: 0 },
   plugins: { sect: 1, warn: 0 },
 }
@@ -75,6 +78,7 @@ export const INDEX_COUNT: Record<TabKey, number> = {
   mcp: 1, // 典型 0-2 个 MCP
   global: 3, // 默认监管 + logger + file_compression，常见三者齐
   commands: 2, // 默认仅 compact 一条；可扩展内置指令
+  hooks: 3, // 10 事件，典型 2-4 个有 handler
   skills: 4, // 典型 1-8 个独立 skill
   plugins: 1, // 典型 0-3 个插件
 }

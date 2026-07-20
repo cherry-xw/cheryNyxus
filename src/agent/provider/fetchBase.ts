@@ -164,7 +164,7 @@ function authHeaders(key: string): Record<string, string> {
 }
 
 /** 从 !res.ok 响应体提取短摘要（≤200 字符），供日志面 message。 */
-async function readErrorSnippet(res: Response): Promise<string> {
+export async function readErrorSnippet(res: Response): Promise<string> {
   const text = await res.text().catch(() => '')
   return text.slice(0, 200) || res.statusText
 }

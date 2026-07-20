@@ -34,3 +34,11 @@
     white-space: nowrap;
   }
 }
+
+// LabelTip info-ico hover popper：长 tip 限宽自动换行（密钥 tip 含长说明）
+.label-tip-popper {
+  max-width: 260px;
+  white-space: normal;
+  line-height: 1.5;
+  word-break: break-word;
+}

@@ -1,6 +1,7 @@
 import { registerBuiltinProviders } from './provider/index.js'
 import { reloadSenses } from './sense/index.js'
 import { loadMcpSenses } from '@/core/mcp/index.js'
+import { loadHookRegistry } from './hooks/index.js'
 
 /**
  * 启动期初始化 agent 运行时全局注册表。
@@ -10,9 +11,13 @@ import { loadMcpSenses } from '@/core/mcp/index.js'
  *
  * MCP senses 在内置/编译感官之后加载：连接外部 MCP server，把 tools/resources/prompts
  * 转为 Sense 注册。不纳入 reloadSenses，避免 compile-senses 子命令触发外部 server 连接。
+ *
+ * Hooks registry：解析 `.chery/hooks/hooks.json`（全局）+ 各 brain 级 hooks 到内存表。
+ * handler 进程不预热（仿 mock 哲学：dev 改 hooks.json 免重启），dispatch 时按需 spawn。
  */
 export async function bootstrapAgentRuntime(): Promise<void> {
   registerBuiltinProviders()
+  loadHookRegistry()
   await reloadSenses()
   await loadMcpSenses()
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue'
 import { CopyDocument, Delete, Lock, Plus, Search } from '@element-plus/icons-vue'
 import type { ConfigDto } from '@/services/agentApi'
 import ConfirmDialog from '@/components/confirm/ConfirmDialog.vue'
@@ -26,6 +26,24 @@ const promptSearch = ref('')
 const copiedRole = ref('')
 const titleRef = ref<InstanceType<typeof EditableTitle> | null>(null)
 const removeDialog = ref(false)
+// AI 大脑按钮里超长 name / model 的溢出状态：key=`<field>-<brainName>`，true 时该行才允许 tooltip
+const isOverflowing = ref<Record<string, boolean>>({})
+const overflowEls = new Map<string, HTMLElement>()
+function setOverflowRef(el: Element | null, key: string): void {
+  if (el instanceof HTMLElement) overflowEls.set(key, el)
+  else overflowEls.delete(key)
+}
+function checkOverflow(key: string, ev: MouseEvent): void {
+  const el = overflowEls.get(key)
+  if (!el) return
+  // mouseenter 时强制下一帧重排后检测，避免首次 hover 立刻拿旧值
+  const target = ev.currentTarget as HTMLElement | null
+  void target?.offsetWidth // 强制 reflow
+  isOverflowing.value = {
+    ...isOverflowing.value,
+    [key]: el.scrollWidth > el.clientWidth + 1,
+  }
+}
 const removeImpact = computed(() => {
   const presetRefs = Object.values(props.draft.presets ?? {}).filter((p) =>
     p.roles?.includes(selectedRole.value),
@@ -44,6 +62,26 @@ const mcpTokens = computed(() => Object.fromEntries(mcpNames.value.map((name) =>
 const filteredPrompts = computed(() => {
   const q = promptSearch.value.trim().toLowerCase()
   return props.prompts.filter((path) => !q || path.toLowerCase().includes(q))
+})
+
+// 角色标题超长截断（EditableTitle 内部 .card-name）：在 mounted/updated 时把 fullName 写到
+// title 上做 hover 兜底——EditableTitle 自己固定 title="点击改名"，这里覆盖而非冲突。
+// 用 MutationObserver 监听 selectedRole 变化后 EditableTitle 重新渲染的 .card-name 节点。
+function syncRoleNameTitle(): void {
+  const root = document.querySelector<HTMLElement>('.role-name-edit .card-name')
+  if (root) root.title = selectedRole.value
+}
+let roleNameObserver: MutationObserver | null = null
+onMounted(() => {
+  syncRoleNameTitle()
+  roleNameObserver = new MutationObserver(() => syncRoleNameTitle())
+  roleNameObserver.observe(document.body, { childList: true, subtree: true })
+})
+onUpdated(() => {
+  syncRoleNameTitle()
+})
+onBeforeUnmount(() => {
+  roleNameObserver?.disconnect()
 })
 
 function roleTokens(cfg: RoleDraft): number {
@@ -226,11 +264,36 @@ function setBrain(cfg: RoleDraft, brain: string): void {
                 v-for="name in brainNames"
                 :key="name"
                 type="button"
+                class="brain-choice"
                 :class="{ active: current.brain === name }"
+                :data-overflow-name="isOverflowing[`brain-name-${name}`] ? 'true' : undefined"
+                :data-overflow-model="isOverflowing[`brain-model-${name}`] ? 'true' : undefined"
                 @click="setBrain(current, name)"
               >
-                <b>◈ {{ name }}</b
-                ><small>{{ draft.llm.brain[name]?.model || '未配置型号' }}</small>
+                <el-tooltip
+                  :content="name"
+                  placement="top"
+                  :show-after="300"
+                  :disabled="!isOverflowing[`brain-name-${name}`]"
+                >
+                  <b
+                    class="brain-choice-name"
+                    :ref="el => setOverflowRef(el, `brain-name-${name}`)"
+                    @mouseenter="checkOverflow(`brain-name-${name}`, $event)"
+                  >◈ {{ name }}</b>
+                </el-tooltip>
+                <el-tooltip
+                  :content="draft.llm.brain[name]?.model || '未配置型号'"
+                  placement="bottom"
+                  :show-after="300"
+                  :disabled="!isOverflowing[`brain-model-${name}`]"
+                >
+                  <small
+                    class="brain-choice-model"
+                    :ref="el => setOverflowRef(el, `brain-model-${name}`)"
+                    @mouseenter="checkOverflow(`brain-model-${name}`, $event)"
+                  >{{ draft.llm.brain[name]?.model || '未配置型号' }}</small>
+                </el-tooltip>
               </button>
             </div>
           </div>
@@ -414,6 +477,31 @@ function setBrain(cfg: RoleDraft, brain: string): void {
 .role-title-zone {
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+// 角色名超长：单行省略 + 原生 title 兜底显示完整名
+.role-name-edit {
+  max-width: 100%;
+  min-width: 0;
+  .card-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    &.editable {
+      display: block;
+    }
+  }
+}
+.role-name-edit-tooltip {
+  max-width: 240px;
+  white-space: normal;
+  line-height: 1.45;
+  word-break: break-word;
 }
 .role-status-line {
   display: flex;
@@ -475,6 +563,30 @@ function setBrain(cfg: RoleDraft, brain: string): void {
   background: #fff;
   color: fade(@ink, 70%);
   cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.brain-choice-name,
+.brain-choice-model {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brain-choice-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+}
+
+.brain-choice-model {
+  font-size: 10px;
+  color: fade(@ink, 50%);
+  font-weight: 500;
 }
 .choice-board.compact button {
   min-height: 26px;

@@ -34,6 +34,7 @@ import CommandsTab from './tabs/config/CommandsTab.vue'
 import SkillsTab from './tabs/tools/SkillsTab.vue'
 import type { SkillSource } from '@/services/agentApi'
 import PluginsTab from './tabs/tools/PluginsTab.vue'
+import HooksTab from './tabs/hooks/HooksTab.vue'
 import SkeletonTab from './tabs/SkeletonTab.vue'
 
 const MotionDiv = motion.div
@@ -121,6 +122,9 @@ const skillNames = ref<{
   skillTokens: Record<string, number>
   pluginTokens: Record<string, number>
 }>({ skills: [], plugins: [], skillTokens: {}, pluginTokens: {} })
+
+/** HooksTab 组件引用（用于读取 hooks draft 保存）*/
+const hooksTabRef = ref<InstanceType<typeof HooksTab> | null>(null)
 
 watch(
   () => agents.settingsOpen,
@@ -277,9 +281,26 @@ async function save(): Promise<void> {
   clearRestartWait()
   try {
     sanitizeSenseGroups(draft.value)
+    // 并行保存 config.yaml + hooks.json
+    const hooksDraft = hooksTabRef.value?.draft
+    const savePromises: Promise<unknown>[] = [
+      agentApi.saveConfig(draft.value),
+    ]
+    if (hooksDraft && Object.keys(hooksDraft).length > 0) {
+      // 过滤掉 command 为空的 handler（前端可能留空行）
+      const cleaned: Record<string, typeof hooksDraft[string]> = {}
+      for (const [event, list] of Object.entries(hooksDraft)) {
+        const valid = list.filter(h => h.command?.trim())
+        if (valid.length > 0) cleaned[event] = valid
+      }
+      if (Object.keys(cleaned).length > 0) {
+        savePromises.push(agentApi.saveHooks(cleaned))
+      }
+    }
     // 在 worker 关闭前登记等待者，避免它已开始重启时漏掉这一次重连。
     reconnectWatcher = wsClient.watchNextReconnect()
-    const result = await agentApi.saveConfig(draft.value)
+    const results = await Promise.all(savePromises)
+    const result = results[0] as { needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }
     if (result.restart === 'immediate') {
       savedHint.value = '服务正在更新…'
       isWaitingReconnect.value = true
@@ -554,6 +575,11 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
             <McpTab v-show="activeTab === 'mcp'" :draft="draft" @error="onError" />
             <GlobalTab v-show="activeTab === 'global'" :draft="draft" />
             <CommandsTab v-show="activeTab === 'commands'" :draft="draft" @error="onError" />
+            <HooksTab
+              ref="hooksTabRef"
+              v-show="activeTab === 'hooks'"
+              @error="onError"
+            />
             <SkillsTab
               v-show="activeTab === 'skills'"
               :initial-skills="skills"

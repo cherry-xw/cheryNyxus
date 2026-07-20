@@ -12,6 +12,8 @@ import { logger } from '@/utils/logger/index.js'
 import { redactEnvKeys } from '@/utils/envGuard.js'
 import { checkCheryGuard } from '@/utils/pathGuard.js'
 import { SenseCallAssembler } from './senseCallAssembler.js'
+import { dispatch } from '@/agent/hooks/index.js'
+import { ClassifiedError } from '@/utils/error.js'
 
 /**
  * 待批量执行的 sense call
@@ -299,7 +301,7 @@ async function doExecuteSense(
   }> = []
   try {
     if (!ctx.runtime) throw new Error('Runtime not configured.')
-    const args = argsJson ? safeJsonParse(argsJson, {}) : {}
+    let args = argsJson ? safeJsonParse(argsJson, {}) : {}
     const senseEntry = ctx.runtime.senseTable.get(name)
     if (!senseEntry) {
       return { content: `没有 "${name}" 这个感官`, replaced }
@@ -309,6 +311,24 @@ async function doExecuteSense(
     if (guardHit) {
       return { content: guardHit, replaced }
     }
+
+    // PreToolUse hook：执行前拦截/修改 args；handler 抛 ClassifiedError 阻断
+    try {
+      const preDecision = await dispatch(
+        'PreToolUse',
+        { name, args, chatId: ctx.soul.chatId },
+        { brain: '' },
+      )
+      if (preDecision?.updatedInput) {
+        args = { ...args, ...preDecision.updatedInput }
+      }
+    } catch (err) {
+      if (err instanceof ClassifiedError) {
+        return { content: err.userMessage, replaced }
+      }
+      throw err
+    }
+
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
     // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
     // T9：yieldTurn 闭包让 sense（spawn_role wait=true）请求 loop 本轮后立即结束（置 soul.yieldTurn）。
@@ -337,6 +357,26 @@ async function doExecuteSense(
 
     // 环境变量脱敏：在返回前替换所有 .env 中定义的敏感变量名
     const redactedContent = redactEnvKeys(result.content)
+
+    // PostToolUse hook：执行后审计；handler 抛 ClassifiedError → content 改写为 reason
+    try {
+      await dispatch(
+        'PostToolUse',
+        {
+          name,
+          args,
+          result: { content: redactedContent, hash: result.hash, replaced: replaced.length > 0 },
+          hash: result.hash,
+          chatId: ctx.soul.chatId,
+        },
+        { brain: '' },
+      )
+    } catch (err) {
+      if (err instanceof ClassifiedError) {
+        return { content: err.userMessage, replaced }
+      }
+      throw err
+    }
 
     return { content: redactedContent, hash: result.hash, replaced }
   } catch (error) {

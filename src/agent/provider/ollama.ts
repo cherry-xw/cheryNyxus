@@ -1,4 +1,4 @@
-import ollama from 'ollama'
+import { Ollama } from 'ollama'
 import { randomUUID } from 'crypto'
 import type { ChatResponse, ToolCall, Message } from 'ollama'
 import { registerMessageAdapter, type LLMResponse } from '@/core/message/adapter'
@@ -81,6 +81,10 @@ const ollamaSenseAdapterConfig = {
   },
 }
 
+function createOllamaClient(options?: LLMOptions): Ollama {
+  return options?.url ? new Ollama({ host: options.url }) : new Ollama()
+}
+
 // LLM Adapter 定义
 const ollamaLLMAdapter: LLMAdapter = {
   async chat(messages: unknown[], senses: SenseFunction[], options?: LLMOptions): Promise<unknown> {
@@ -93,7 +97,8 @@ const ollamaLLMAdapter: LLMAdapter = {
       })
     }
     try {
-      return await ollama.chat({
+      const client = createOllamaClient(options)
+      return await client.chat({
         model,
         messages: msgArray,
         ...(senses.length > 0 && { tools: senses }),
@@ -124,7 +129,8 @@ const ollamaLLMAdapter: LLMAdapter = {
       )
     }
     try {
-      const stream = await ollama.chat({
+      const client = createOllamaClient(options)
+      const stream = await client.chat({
         model,
         messages: msgArray,
         stream: true,

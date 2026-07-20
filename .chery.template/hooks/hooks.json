@@ -1,0 +1,22 @@
+{
+  "_comment": "事件驱动 hooks 配置。dispatcher 在关键生命周期点触发；handler 是 shell 脚本（stdin JSON / stdout JSON）。详见 docs/agent/hooks.md。",
+  "_events": {
+    "SessionStart": "chat 第一轮前，input={chatId,brain}，output={additionalContext?}",
+    "PreLLMRequest": "provider 构造 body 后、fetch 前，input={provider,model,url,thinking,stream,body}，output={body?,decision?,reason?}",
+    "PreToolUse": "tool middleware doExecuteSense 前，input={name,args,chatId}，output={decision?,updatedInput?,reason?}",
+    "Stop": "LLM end_turn 后，input={chatId,message,stopReason}，output={decision?,reason?,additionalContext?}"
+  },
+  "PreLLMRequest": [
+    {
+      "_comment": "anthropic 官方端点：thinking 字段不动（框架默认已正确），仅日志审计",
+      "matcher": "anthropic",
+      "if": "payload.url == 'https://api.anthropic.com'",
+      "command": "${CHERY_DIR}/.chery/hooks/anthropic-thinking.sh",
+      "timeout": 10
+    },
+    {
+      "_comment": "通用兜底：打印 body 摘要到 logger（审计场景，可选）",
+      "command": "echo '{}'"
+    }
+  ]
+}

@@ -11,6 +11,7 @@
 | 主配置 | [./config.md](./config.md) | [../config.yaml](../config.yaml) | LLM brain / sense_groups / roles / presets / server 全字段 |
 | 模型思考档位 | [./model-thinking.md](./model-thinking.md) | [../model-thinking.yaml](../model-thinking.yaml) | 模型 → 支持的 ThinkingLevel 子集映射 |
 | 事件钩子 | [./hooks.md](./hooks.md) | [../hooks/](../hooks/) | 事件驱动 handler 配置（hooks.json + .sh） |
+| 错误排查 | [./error-troubleshooting.md](./error-troubleshooting.md) | — | AI 给用户报错时的「错误消息 → 设置项」对照表 |
 | Mock Provider 脚本 | [./mock.md](./mock.md) | [../mock/](../mock/) | 离线 LLM 响应脚本（content + senseCalls） |
 | 自定义感官 | [./senses.md](./senses.md) | [../senses/](../senses/) | 外部 .ts 感官开发规范（schema + handler + 测试） |
 | 技能包 | [./skills.md](./skills.md) | [../skills/](../skills/) | 可加载提示词片段（SKILL.md frontmatter） |
@@ -50,6 +51,7 @@ housekeeper 角色：
 | 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 加 model 档位映射 | [./model-thinking.md](./model-thinking.md) | — |
 | 加 / 改钩子 | [./hooks.md](./hooks.md) | [../../docs/agent/hooks.md](../../docs/agent/hooks.md) |
+| 排查错误 / 用户报错 | [./error-troubleshooting.md](./error-troubleshooting.md) | [../../docs/error-conventions.md](../../docs/error-conventions.md) |
 | 加 mock 脚本 | [./mock.md](./mock.md) | [../../docs/mock.md](../../docs/mock.md) |
 | 加自定义感官 | [./senses.md](./senses.md) | [../../docs/core/sense.md](../../docs/core/sense.md) + [../../docs/core/compiler.md](../../docs/core/compiler.md) |
 | 加 / 改技能 | [./skills.md](./skills.md) | [../../docs/agent/prompt.md](../../docs/agent/prompt.md) |

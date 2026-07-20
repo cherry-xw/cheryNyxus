@@ -36,7 +36,7 @@ global:
 # ------------------------------------------------------------
 # llm.brain：LLM 大脑配置
 # 每个 key 为 brain 名称，可配置多个；至少配置一个
-# provider 支持：openai | ollama | mock
+# provider 支持：openai | ollama | mock | bigmodel | anthropic
 # ------------------------------------------------------------
 llm:
   brain:
@@ -62,6 +62,38 @@ llm:
         enabled: true
         file: mock/read_file.yaml         # mock 响应脚本文件路径（相对于 .chery/）
       contextLimit: 8192
+      capabilities:
+        input: {}
+        generate: {}
+    # ---- 示例 3：Anthropic provider ----
+    # 原生 fetch → POST {url}/v1/messages，header x-api-key + anthropic-version
+    # thinking 参数（thinking:{type:'adaptive'} + output_config.effort）可通过 .chery/hooks/hooks.json 的
+    # PreLLMRequest 钩子按端点适配改写（详见 docs/agent/hooks.md）
+    anthropic_main:
+      url: https://api.anthropic.com       # base url（不含 /v1/messages）
+      model: claude-sonnet-4-5             # 官方模型 id（无 anthropic. 前缀）
+      key: $ANTHROPIC_API_KEY
+      provider: anthropic
+      thinking: high                       # off|on|low|medium|high
+      rpm: 60                              # [可选] RPM 限流
+      contextLimit: 200000
+      capabilities:
+        input:
+          image: true                      # 支持 image 多模态
+        generate: {}
+      # hooks: hooks/anthropic-main.json   # [可选] brain 级 hooks.json 路径（相对 .chery/）
+      #                                     # 与全局 .chery/hooks/hooks.json 合并（brain 级在全局后追加）
+    # ---- 示例 4：OpenAI 兼容本地服务（LM Studio / Ollama OpenAI 模式 / vLLM / LocalAI 等）----
+    # 端口：LM Studio 1234；Ollama 启用 OpenAI 兼容层 11434；vLLM / LocalAI 按各自配置
+    # key 必填非空（任意字符串即可），cheryClaw assertChatOptions 会拦截空 key；
+    # thinking 多数本地模型不识别 reasoning_effort，建议 'off'
+    lmstudio_remote:
+      url: http://192.168.68.169:1234/v1   # 远端 LM Studio，确保防火墙放行 + LM Studio 启 CORS
+      model: qwen2.5-7b-instruct           # 远端 LM Studio 实际加载的模型 id
+      key: lm-studio                       # 任意非空串；LM Studio 不校验
+      provider: openai
+      thinking: 'off'
+      contextLimit: 32000
       capabilities:
         input: {}
         generate: {}

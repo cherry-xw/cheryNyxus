@@ -2,6 +2,7 @@ import { registerOpenAIAdapter } from './openai'
 import { registerOllamaAdapter } from './ollama'
 import { registerMockAdapter } from './mock'
 import { registerBigmodelAdapter } from './bigmodel'
+import { registerAnthropicAdapter } from './anthropic'
 
 let builtinProvidersRegistered = false
 
@@ -18,5 +19,6 @@ export function registerBuiltinProviders(): void {
   registerOllamaAdapter()
   registerMockAdapter()
   registerBigmodelAdapter()
+  registerAnthropicAdapter()
   builtinProvidersRegistered = true
 }

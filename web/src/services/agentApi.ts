@@ -9,6 +9,16 @@ import { wsClient } from './ws'
 import type { RpcResponse } from './ws'
 import { httpUrl } from './http'
 
+/**
+ * 凭据类 .env 变量名后缀白名单：仅 API_KEY / APIKEY / TOKEN / SECRET(_KEY) /
+ * PASSWORD / PASSWD / ACCESS_KEY(_ID) 视为可作密钥占位（`$VAR`）的凭据。
+ * 运行时配置（CHERY_DIR / *_HOST / *_URL / PORT / NODE_ENV 等）不进密钥下拉。
+ */
+const SECRET_SUFFIX = /(?:^|_)(?:API_?KEY|TOKEN|SECRET(?:_KEY)?|PASSWORD|PASSWD|ACCESS_?KEY(?:_ID)?)$/
+function isSecretEnvVarName(name: string): boolean {
+  return SECRET_SUFFIX.test(name)
+}
+
 /** 上下文用量单段（镜像后端 utils/token.ts Segment）：tokens = 段 token 估算；count = 条目数（记忆/技能/工具/消息）。 */
 export interface ContextSegment {
   tokens: number
@@ -550,6 +560,31 @@ export interface ConfigDto {
   }
 }
 
+/** hooks handler 传输对象（对齐后端 HooksHandlerDTO）*/
+export interface HookHandlerDTO {
+  matcher?: string
+  if?: string
+  command: string
+  timeout?: number
+}
+
+/** hooks.get 响应：全局 hooks + brain 级只读 hooks */
+export interface HooksGetResult {
+  handlers: Record<string, HookHandlerDTO[]>
+  brainHooks: Record<string, Record<string, HookHandlerDTO[]>>
+}
+
+/** hooks.events 响应：事件元数据 */
+export interface HookEventMeta {
+  name: string
+  label?: string
+  description: string
+  /** 该事件 handler 能做的能力（前端 chip 展示）*/
+  capabilities: string[]
+  /** matcher 比对的 payload 字段名（提示用户 matcher 匹配什么）*/
+  matcherField?: string
+}
+
 function fail(method: string, res: RpcResponse): Error {
   return new Error(res.error?.message ?? `${method} failed`)
 }
@@ -965,6 +1000,22 @@ export const agentApi = {
     )
   },
 
+  /** hooks.get：读全局 hooks.json + brain 级 hooks（只读展示）*/
+  async getHooks(): Promise<HooksGetResult> {
+    return call<HooksGetResult>('hooks.get', {})
+  },
+
+  /** hooks.save：校验 + 写回 hooks.json */
+  async saveHooks(handlers: Record<string, HookHandlerDTO[]>): Promise<{ ok: true }> {
+    return call<{ ok: true }>('hooks.save', { handlers })
+  },
+
+  /** hooks.events：返回 10 事件静态元数据 */
+  async getHookEvents(): Promise<HookEventMeta[]> {
+    const data = await call<{ events: HookEventMeta[] }>('hooks.events', {})
+    return data?.events ?? []
+  },
+
   /**
    * sense.tools：列出代码维护的全部内置工具（name/label/description/icon），供设置面板感官分组下拉建议 + pet bar 运行中工具 icon 查询。
    * 仅内置；自定义/外部/MCP 工具不在内，靠组合框自由输入。返回形状容错（缺字段 -> 空数组）。
@@ -1023,10 +1074,28 @@ export const agentApi = {
     )
   },
 
-  /** env.list：读取 .env 文件中的变量名列表（供密钥下拉选择）。 */
+  /** utils.testConnection：用未保存的连接字段执行真实最小 Provider 请求。 */
+  async testConnection(
+    provider: string,
+    url: string,
+    key: string | undefined,
+    model: string,
+  ): Promise<{ ok: true; error?: never } | { ok: false; error: string }> {
+    return await call<{ ok: true; error?: never } | { ok: false; error: string }>(
+      'utils.testConnection',
+      { provider, url, key, model },
+    )
+  },
+
+  /**
+   * env.list：读取 .env 文件中的变量名列表（供密钥下拉选择）。
+   * 前端再按密钥后缀白名单过滤，只把凭据类变量名透出给下拉（CHERY_DIR / HOST / URL 等
+   * 运行时配置不进下拉，避免误选）。后端 redactEnvKeys 仍按全量脱敏，不受影响。
+   */
   async listEnvVars(): Promise<string[]> {
     const data = await call<{ vars: string[] }>('env.list', {})
-    return data?.vars ?? []
+    const all = data?.vars ?? []
+    return all.filter(isSecretEnvVarName)
   },
 
   /** utils.openFile：打开指定文件（用配置的编辑器或系统默认）。 */

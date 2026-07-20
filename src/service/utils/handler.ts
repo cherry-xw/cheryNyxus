@@ -10,6 +10,8 @@ import {
   Method,
   type UtilsModelsRequestData,
   type UtilsModelsResponseData,
+  type UtilsTestConnectionRequestData,
+  type UtilsTestConnectionResponseData,
   type EnvListRequestData,
   type EnvListResponseData,
   type UtilsOpenFileRequestData,
@@ -26,6 +28,14 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { replaceEnvVars, listEnvVarNames, getCheryDir } from '@/utils/config.js'
 import config from '@/utils/config.js'
 import { resolveThinkingLevelsBatch } from '@/utils/modelThinking.js'
+import {
+  ClassifiedError,
+  COMPLIANT_TRACE_PATTERN,
+  classifyError,
+  friendlyMessage,
+} from '@/utils/error.js'
+import { getLLMAdapter } from '@/core/llm/adapter.js'
+import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { openWithSystem } from './openWithSystem.js'
 
 const exec = promisify(execCallback)
@@ -52,14 +62,92 @@ export async function handleUtilsModels(
         return { models: [], error: `不支持的 provider: ${provider}（当前支持 openai / ollama）` }
     }
   } catch (err) {
+    // 复用 chat 路径的分类 + 中文友好文案（不要把 OpenAI SDK 抛的英文 'Connection error.'
+    // 透传给前端）。日志面保留原始 message 供 tracingId 检索。
     const message = err instanceof Error ? err.message : String(err)
-    logger.event('utils.models.error', { provider, url, error: message }, LogLevel.warn)
-    return { models: [], error: message }
+    const category = classifyError(err)
+    const userMessage = friendlyMessage(category, 'brain')
+    logger.event('utils.models.error', { provider, url, error: message, category }, LogLevel.warn)
+    return { models: [], error: userMessage }
   }
 }
 
+/**
+ * utils.testConnection：使用未保存的连接字段执行真实最小 Provider 请求。
+ * 不创建 chat、不经过 middleware/retry/sense、不持久化任何数据。
+ */
+export async function handleUtilsTestConnection(
+  _ctx: HandlerContext,
+  data: UtilsTestConnectionRequestData,
+): Promise<UtilsTestConnectionResponseData> {
+  const { provider, model } = data
+  if (provider === 'mock') {
+    return { ok: false, error: 'mock 是离线模拟，无需测试连接' }
+  }
+
+  const llmAdapter = getLLMAdapter(provider)
+  const messageAdapter = getMessageAdapter(provider)
+  if (!llmAdapter || !messageAdapter) {
+    return { ok: false, error: `不支持的 provider: ${provider}` }
+  }
+
+  const url = replaceEnvVars(data.url) as string
+  const key = data.key ? (replaceEnvVars(data.key) as string) : undefined
+  const now = Date.now()
+  const probeMessage: LLMResponse = {
+    id: 'connection-test',
+    role: 'user',
+    content: '只回复 OK',
+    createdAt: now,
+    updateAt: now,
+  }
+
+  try {
+    const messages = messageAdapter.buildMessages([probeMessage])
+    await llmAdapter.chat(messages, [], {
+      model,
+      url,
+      key,
+      thinking: 'off',
+      skipHooks: true,
+    })
+    return { ok: true }
+  } catch (err) {
+    const technicalMessage = err instanceof Error ? err.message : String(err)
+    const error = connectionErrorMessage(err)
+    logger.event(
+      'utils.testConnection.error',
+      { provider, model, error: technicalMessage, category: classifyError(err) },
+      LogLevel.warn,
+    )
+    return { ok: false, error }
+  }
+}
+
+function connectionErrorMessage(err: unknown): string {
+  if (err instanceof ClassifiedError) return err.userMessage
+  if (err instanceof Error && COMPLIANT_TRACE_PATTERN.test(err.message)) return err.message
+  return friendlyMessage(classifyError(err), 'brain')
+}
+
 async function fetchOpenAIModels(url: string, key?: string): Promise<UtilsModelsResponseData> {
-  const client = new OpenAI({ baseURL: url, apiKey: key ?? '' })
+  // 前端可传空 key（Ollama/Mock 不需要、用户在脑设置里留空保存）。
+  // 直接 `apiKey: ''` 会被 OpenAI SDK 抛英文 `Missing credentials...`，这里短路成中文友好提示。
+  const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/)
+  if (placeholderMatch) {
+    return {
+      models: [],
+      error: `密钥占位符 $${placeholderMatch[1]} 未替换，请先在 .env 或环境变量里配置`,
+    }
+  }
+  if (!key) {
+    return {
+      models: [],
+      error:
+        '未配置密钥（OpenAI 兼容服务一般需要 Authorization Bearer 头；本地 LM Studio / vLLM / Ollama OpenAI 模式等服务不校验，填任意非空字符串即可，如 `lm-studio`）',
+    }
+  }
+  const client = new OpenAI({ baseURL: url, apiKey: key })
   const response = await client.models.list()
   return {
     models: response.data.map((m) => ({
@@ -251,6 +339,7 @@ export async function handleUtilsThinkingLevels(
  */
 export function registerUtilsHandlers(router: import('../message/router.js').RpcRouter): void {
   router.register(Method.UTILS_MODELS, handleUtilsModels)
+  router.register(Method.UTILS_TEST_CONNECTION, handleUtilsTestConnection)
   router.register(Method.ENV_LIST, handleEnvList)
   router.register(Method.UTILS_OPEN_FILE, handleUtilsOpenFile)
   router.register(Method.UTILS_OPEN_CONFIG_DIR, handleUtilsOpenConfigDir)

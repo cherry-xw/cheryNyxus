@@ -160,7 +160,7 @@ presets:
     roles: [..., housekeeper]        # 加入默认编制，主 agent 可 spawn
 ```
 
-persona [`.chery.template/prompt/housekeeper/housekeeper.md`](../../.chery.template/prompt/housekeeper/housekeeper.md)：职责 = 收安装请求 → install_skill stage → ask_user 逐项确认 → commit → 回报主 agent。
+persona [`.chery.template/prompt/housekeeper/housekeeper.md`](../../.chery.template/prompt/housekeeper/housekeeper.md)：双职责——**安装技能**（收安装请求 → install_skill stage → ask_user 逐项确认 → commit → 回报主 agent）+ **管理配置**（读字段参考表 → 跨字段分析 → 用户确认 → write_file 落盘 → 提示重启）。所有 `.chery/` 写操作集中在管家角色，路径守卫豁免白名单收敛。
 
 **编制锁定**：管家加入预设 `roles` 后，主 agent（leader）可 `spawn_role({type:"housekeeper", wait:true})` 派出（roster gate 自动生效，详见 [agent-pet.md](./agent-pet.md)）。
 

@@ -3,7 +3,7 @@
  * AgentDialog orchestrator：发消息弹窗（runtime 切换合一）。
  * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
  */
-import { computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
 import RoleConfigPopover from '../dialog/RoleConfigPopover.vue'
@@ -56,6 +56,53 @@ const {
   brainConfig,
   supportsTools,
 } = useAgentDialogOptions()
+
+// ── 斜杠指令菜单定位（Teleport 到 body 后用 fixed 定位；锚定 .msg-input 顶部，向上展开） ──
+const commandMenuStyle = reactive({ top: '0px', left: '0px', width: '390px' })
+function positionCommandMenu(): void {
+  const editor = editorRef.value
+  const menu = commandMenuRef.value
+  if (!editor || !menu) return
+  const editorRect = editor.getBoundingClientRect()
+  const menuRect = menu.getBoundingClientRect()
+  const margin = 8
+  const spaceAbove = editorRect.top - margin
+  const spaceBelow = window.innerHeight - editorRect.bottom - margin
+  // 优先向上展开；上面空间不足时向下展开；都不够就放能放下更多的那一侧
+  const openUp = spaceAbove >= menuRect.height || spaceAbove >= spaceBelow
+  const top = openUp
+    ? Math.max(margin, editorRect.top - menuRect.height - 6)
+    : editorRect.bottom + 6
+  const minWidth = 280
+  const maxWidth = Math.min(420, window.innerWidth - margin * 2)
+  const width = Math.max(minWidth, Math.min(maxWidth, editorRect.width))
+  const left = Math.max(margin, Math.min(editorRect.left, window.innerWidth - width - margin))
+  commandMenuStyle.top = `${top}px`
+  commandMenuStyle.left = `${left}px`
+  commandMenuStyle.width = `${width}px`
+}
+watch(showCommandMenu, async (open) => {
+  if (open) {
+    await nextTick()
+    positionCommandMenu()
+  }
+})
+watch(activeCommandIndex, () => {
+  // 高亮项滚动进视口后再校准菜单位置（菜单高度变化时）
+  if (showCommandMenu.value) {
+    nextTick(() => positionCommandMenu())
+  }
+})
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', positionCommandMenu)
+  window.addEventListener('scroll', positionCommandMenu, true)
+}
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', positionCommandMenu)
+    window.removeEventListener('scroll', positionCommandMenu, true)
+  }
+})
 
 /** 颜色分级（与 SessionList / HistoryDrawerPanel / ContextBar 对齐：<50% 绿 / 50-80% 黄 / >=80% 红）。 */
 function usageClass(u: number): 'usage-low' | 'usage-mid' | 'usage-high' {
@@ -244,29 +291,35 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             @keydown="onEditorKeydown"
             @paste="onEditorPaste"
           />
-          <div
-            v-if="showCommandMenu"
-            ref="commandMenuRef"
-            class="command-menu"
-            role="listbox"
-            aria-label="可用指令"
-          >
-            <button
-              v-for="(command, index) in commandOptions"
-              :key="command.id"
-              type="button"
-              class="command-option"
-              :class="{ 'is-active': index === activeCommandIndex }"
-              role="option"
-              :aria-selected="index === activeCommandIndex"
-              @mousedown.prevent
-              @mousemove="activeCommandIndex = index"
-              @click="selectCommand(command)"
+          <Teleport v-if="showCommandMenu" to="body">
+            <div
+              ref="commandMenuRef"
+              class="command-menu"
+              role="listbox"
+              aria-label="可用指令"
+              :style="commandMenuStyle"
             >
-              <span class="command-option-name">{{ command.name }}</span>
-              <span class="command-option-desc">{{ command.description }}</span>
-            </button>
-          </div>
+              <button
+                v-for="(command, index) in commandOptions"
+                :key="command.id"
+                type="button"
+                class="command-option"
+                :class="{ 'is-active': index === activeCommandIndex }"
+                role="option"
+                :aria-selected="index === activeCommandIndex"
+                @mousedown.prevent
+                @mousemove="activeCommandIndex = index"
+                @click="selectCommand(command)"
+              >
+                <span class="command-option-name">
+                  <span v-if="command.plugin" class="command-option-plugin"
+                    >{{ command.plugin }}:</span
+                  >{{ command.label }}
+                </span>
+                <span class="command-option-desc">{{ command.description }}</span>
+              </button>
+            </div>
+          </Teleport>
           <div class="textarea-actions">
             <ElPopover
               trigger="click"

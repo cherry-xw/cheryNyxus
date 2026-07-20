@@ -310,6 +310,40 @@ export interface ConfigWorkspaceValidateRequestData {
   workspace?: string
 }
 
+// ---------- Hooks 管理（hooks.get / hooks.save / hooks.events）----------
+
+/** hooks.get 请求：空参 */
+export type HooksGetRequestData = EmptyObjectData
+
+/** hooks.save 入参：全局 hooks.json 完整内容（事件 → handler 列表）*/
+export interface HooksSaveRequestData {
+  handlers: Record<string, HooksHandlerDTO[]>
+}
+
+/** hooks.events 请求：空参 */
+export type HooksEventsRequestData = EmptyObjectData
+
+/** hooks handler 传输对象（对齐 HookHandlerConfig）*/
+export interface HooksHandlerDTO {
+  matcher?: string
+  if?: string
+  command: string
+  timeout?: number
+}
+
+/** hooks.events 响应：静态事件元数据 */
+export interface HooksEventsResponseData {
+  events: Array<{
+    name: string
+    label?: string
+    description: string
+    /** 该事件 handler 能做的能力（前端 chip 展示）*/
+    capabilities: string[]
+    /** matcher 比对的 payload 字段名（提示用户 matcher 匹配什么）*/
+    matcherField?: string
+  }>
+}
+
 // ---------- Utils 工具（独立信息查询，不依赖 chat/brain 运行时）----------
 
 /**
@@ -320,6 +354,17 @@ export interface UtilsModelsRequestData {
   provider: string
   url: string
   key?: string
+}
+
+/**
+ * utils.testConnection：用未保存的 brain 连接字段执行真实最小 Provider 请求。
+ * key 可选：Ollama 通常无需密钥。
+ */
+export interface UtilsTestConnectionRequestData {
+  provider: string
+  url: string
+  key?: string
+  model: string
 }
 
 /**
@@ -1154,6 +1199,17 @@ export interface ConfigWorkspaceValidateResponseData {
   error?: string
 }
 
+/** hooks.get 响应：全局 hooks + 各 brain 级 hooks（只读展示）*/
+export interface HooksGetResponseData {
+  handlers: Record<string, HooksHandlerDTO[]>
+  brainHooks: Record<string, Record<string, HooksHandlerDTO[]>>
+}
+
+/** hooks.save 响应：写入成功 */
+export interface HooksSaveResponseData {
+  ok: true
+}
+
 /**
  * utils.models 响应：归一化模型列表。
  * 请求失败时 models 为空数组，error 携带错误信息（非 RpcError，前端可展示）。
@@ -1170,6 +1226,10 @@ export interface UtilsModelsResponseData {
   /** 非空时表示请求失败，前端据此展示错误提示 */
   error?: string
 }
+
+/** utils.testConnection 响应：判别联合避免 ok 与 error 组合出无效状态。 */
+export type UtilsTestConnectionResponseData =
+  { ok: true; error?: never } | { ok: false; error: string }
 
 /** env.list 响应：.env 文件中的变量名列表 */
 export interface EnvListResponseData {
@@ -1547,8 +1607,14 @@ export const Method = {
   CONFIG_WORKSPACE_VALIDATE: 'config.workspace.validate',
   CONFIG_SAVE: 'config.save',
 
+  // Hooks 管理（读写 .chery/hooks/hooks.json，独立于 config.yaml）
+  HOOKS_GET: 'hooks.get',
+  HOOKS_SAVE: 'hooks.save',
+  HOOKS_EVENTS: 'hooks.events',
+
   // Utils 工具（独立信息查询，不依赖 chat/brain 运行时）
   UTILS_MODELS: 'utils.models',
+  UTILS_TEST_CONNECTION: 'utils.testConnection',
 
   // Env 环境变量（读 .env 变量名列表，供前端密钥下拉）
   ENV_LIST: 'env.list',
@@ -1681,7 +1747,14 @@ export interface RpcMethodMap {
     result: ConfigWorkspaceValidateResponseData
   }
   [Method.CONFIG_SAVE]: { params: ConfigSaveRequestData; result: ConfigSaveResponseData }
+  [Method.HOOKS_GET]: { params: HooksGetRequestData; result: HooksGetResponseData }
+  [Method.HOOKS_SAVE]: { params: HooksSaveRequestData; result: HooksSaveResponseData }
+  [Method.HOOKS_EVENTS]: { params: HooksEventsRequestData; result: HooksEventsResponseData }
   [Method.UTILS_MODELS]: { params: UtilsModelsRequestData; result: UtilsModelsResponseData }
+  [Method.UTILS_TEST_CONNECTION]: {
+    params: UtilsTestConnectionRequestData
+    result: UtilsTestConnectionResponseData
+  }
   [Method.ENV_LIST]: { params: EnvListRequestData; result: EnvListResponseData }
   [Method.UTILS_OPEN_FILE]: { params: UtilsOpenFileRequestData; result: UtilsOpenFileResponseData }
   [Method.UTILS_OPEN_CONFIG_DIR]: {

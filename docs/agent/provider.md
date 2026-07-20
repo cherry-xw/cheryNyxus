@@ -18,11 +18,12 @@ registerSenseAdapter<Msg, Raw>(name, cfg)      ← core/sense/adapter
 
 | 文件 | 一句话 |
 |------|--------|
-| [index.ts](../../src/agent/provider/index.ts) | `registerBuiltinProviders()`：幂等注册 openai/ollama/mock/bigmodel |
+| [index.ts](../../src/agent/provider/index.ts) | `registerBuiltinProviders()`：幂等注册 openai/ollama/mock/bigmodel/anthropic |
 | [openai.ts](../../src/agent/provider/openai.ts) | OpenAI（含兼容服务）三件套，含 RPM 限流、`reasoning_effort` 映射、`reasoning_content` 提取、`strict:true` |
 | [ollama.ts](../../src/agent/provider/ollama.ts) | Ollama 三件套，含 `tool_calls` 处理与流式不可靠警告 |
 | [mock.ts](../../src/agent/provider/mock.ts) | 脚本回放 provider（离线测试），按 LLM 调用序逐条回放 |
 | [bigmodel.ts](../../src/agent/provider/bigmodel.ts) | 智谱 BigModel 三件套（fetch 实现），`reasoning_effort` 映射、`reasoning_content` 提取、image 多模态 |
+| [anthropic.ts](../../src/agent/provider/anthropic.ts) | Anthropic Messages API 三件套（fetch 实现），native fetch + x-api-key + typed SSE + PreLLMRequest hook |
 
 ## 核心概念 / 导出
 
@@ -49,19 +50,27 @@ export function registerBuiltinProviders(): void {
 | Message | `content/thinking/extractStreamDelta/extractStreamThinking/buildMessages` | [core/message/adapter.ts](../../src/core/message/adapter.ts) |
 | Sense | `buildSenses/senseCalls/extractSenseCallDeltas` | [core/sense/adapter.ts](../../src/core/sense/adapter.ts) |
 
+### 设置页连接测试
+
+`utils.testConnection` 使用用户尚未保存的 `provider/url/key/model`，先通过 Message Adapter 将单条“只回复 OK”消息转换为 provider 原生形状，再调用 LLM Adapter 的非流式 `chat()`。该路径只验证 Provider 连通、鉴权和模型可用性：不创建 chat、不挂载 sense、不进入 middleware/retry，也不持久化配置或消息。
+
+内部 `LLMOptions.skipHooks=true` 仅供此探测路径使用。Anthropic Adapter 据此跳过 `PreLLMRequest`；正式 chat 不传该字段，Hook 行为不变。Mock 是本地脚本回放，没有网络连通语义，设置页禁用测试按钮。
+
 ### Provider 能力差异
 
-| 维度 | openai | ollama | mock | bigmodel |
-|------|--------|--------|------|----------|
-| thinking 请求参数 | `reasoning_effort:level`（off 省略） | 无（不传） | N/A | `reasoning_effort:level`（同 openai） |
-| thinking 响应字段 | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` |
-| `buildSenses` 加 `strict:true` | ✓ | ✗ | ✗ | ✓ |
-| tool_call.id | 有（`call_xxx`） | 无（randomUUID 占位） | 缺省 randomUUID | 有 |
-| 流式 tool_call 稳定 | 稳定 | 不稳定（P1-2） | 稳定（自拆 delta） | 稳定（OpenAI 协议） |
-| RPM 限流 | ✓（`brain.rpm`） | ✗ | ✗ | ✓（`brain.rpm`） |
-| 真实网络 | 是 | 是 | 否（脚本回放） | 是 |
-| buildMessages 把 `sense` 转 `tool` result | ✓（带 `tool_call_id`） | ✓（仅 role+content） | ✗（直接透传 LLMResponse） | ✓（同 openai） |
-| HTTP 实现 | openai SDK | ollama SDK | 脚本回放 | 原生 fetch（fetchBase） |
+| 维度 | openai | ollama | mock | bigmodel | anthropic |
+|------|--------|--------|------|----------|-----------|
+| thinking 请求参数 | `reasoning_effort:level`（off 省略） | 无（不传） | N/A | `reasoning_effort:level`（同 openai） | `thinking:{type:'adaptive'}` + `output_config.effort`（off 省略） |
+| thinking 响应字段 | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` | `content[].thinking` block |
+| `buildSenses` 加 `strict:true` | ✓ | ✗ | ✗ | ✓ | ✗（Anthropic 不支持） |
+| tool_call.id | 有（`call_xxx`） | 无（randomUUID 占位） | 缺省 randomUUID | 有 | 有（`toolu_xxx`） |
+| 流式 tool_call 稳定 | 稳定 | 不稳定（P1-2） | 稳定（自拆 delta） | 稳定（OpenAI 协议） | 稳定（typed SSE） |
+| RPM 限流 | ✓（`brain.rpm`） | ✗ | ✗ | ✓（`brain.rpm`） | ✓（`brain.rpm`） |
+| 真实网络 | 是 | 是 | 否（脚本回放） | 是 | 是 |
+| buildMessages 把 `sense` 转 `tool` result | ✓（带 `tool_call_id`） | ✓（仅 role+content） | ✗（直接透传 LLMResponse） | ✓（同 openai） | ✓（嵌 user 消息 tool_result block） |
+| system prompt 字段 | messages 首条 | messages 首条 | messages 首条 | messages 首条 | **顶层 `system` 字段**（buildMessages 抽取） |
+| HTTP 实现 | openai SDK | ollama SDK | 脚本回放 | 原生 fetch（fetchBase） | 原生 fetch（私有 anthropicFetch/SSE） |
+| PreLLMRequest hook | ✗ | ✗ | ✗ | ✗ | ✓（anthropic provider 自动 dispatch） |
 
 ### 三 Provider 共有约定
 
@@ -238,6 +247,7 @@ extractSenseCallDeltas(chunk) { /* 从 chunk.choices[0].delta.tool_calls 提取�
 - `buildSenses` **不加** `strict:true`（ollama 不支持）。
 - `tool_calls` 无 `id` 字段——非流式路径每次 `chat()` 都重新调 LLM 拿新 response，id 随新响应新生，故 `randomUUID()` 占位可接受；**流式不可靠**（见下方 P1-2）。
 - `buildMessages` 把 `role:"sense"` 转 `role:"tool"`（仅 role+content，无 `tool_call_id`，ollama API 不识别原 sense role）。
+- `chat` / `chatStream` 每次按 `LLMOptions.url` 创建 `Ollama({ host })` 客户端，保证配置地址、设置页连接测试与正式请求一致；缺地址时按现有 SDK 默认地址处理。
 - **无 RPM 限流**（未调 `acquireRpm`）。
 
 **P1-2 流式感官不可靠警告（[ollama.ts extractSenseCallDeltas 注释](../../src/agent/provider/ollama.ts)）：** Ollama 流式响应**不稳定**返回 `tool_calls`（多数场景流式不产生 tool_call），且无 `tool_call.id`。`randomUUID` 仅占位，同 call 多 chunk 由 `checkpointState.mergeSenseDeltas` 取首 delta id 合并。**建议需要感官调用时走非流式（`senseCalls`）路径**——`chatStream` 检测到 `senses.length > 0` 时会 `logger.warn`。
@@ -350,3 +360,85 @@ OpenAI 兼容协议的 provider（openai / bigmodel）共享 message/sense adapt
 ### bigmodel provider（[bigmodel.ts](../../src/agent/provider/bigmodel.ts)）
 
 智谱 BigModel，OpenAI 兼容协议，base_url 默认 `https://open.bigmodel.cn/api/paas/v4/`（可配，也能指向聚合端点）。LLMAdapter 用 fetch 基座：`chat` 走 `jsonRequest`、`chatStream` 走 `streamSSE`，请求体 `{model, messages, stream, tools?, reasoning_effort?}`；message/sense adapter 复用 openaiCompat（自动获得 `reasoning_content` 解析 + image 多模态 + tool_calls）。注册名 `"bigmodel"`。
+
+### anthropic provider（[anthropic.ts](../../src/agent/provider/anthropic.ts)）
+
+Anthropic Messages API（`/v1/messages`），原生 fetch 实现（遵项目扩展点约定，不引 `@anthropic-ai/sdk`）。message/sense adapter 不可复用 openaiCompat（Anthropic 用 content-block + 顶层 `system` + tool_use/input 对象），需自写。LLMAdapter 也**不复用** fetchBase 的 `jsonRequest/streamSSE`（硬编码 `/chat/completions`+Bearer+`[DONE]`），需写私有 `anthropicFetch`/`anthropicStreamSSE`。
+
+**请求侧（[anthropic.ts buildThinkingParam](../../src/agent/provider/anthropic.ts)）：**
+
+```ts
+buildThinkingParam(level: ThinkingLevel | undefined): Record<string, unknown> {
+  switch (level) {
+    case undefined: case 'off': return {}
+    case 'on': return { thinking: { type: 'adaptive' } }
+    case 'low': case 'medium': case 'high':
+      return { thinking: { type: 'adaptive' }, output_config: { effort: level } }
+  }
+}
+```
+
+`max_tokens` 硬常量 `16384`（Anthropic 强制必填，钩子可覆盖）。**`PreLLMRequest` hook 是覆盖逃生口**——适配怪异端点的 thinking 字段（详见 [hooks.md](./hooks.md)）。
+
+**请求体组装（[anthropic.ts chat](../../src/agent/provider/anthropic.ts)）：**
+
+```ts
+let body: AnthropicBody = {
+  model, max_tokens: 16384,
+  ...(messages.system && { system: messages.system }),  // buildMessages 抽出的 system
+  messages: messages.messages,                            // 只剩 user/assistant
+  ...(sensesAsAnthropic.length && { tools: sensesAsAnthropic }),
+  ...buildThinkingParam(options?.thinking),
+}
+body = await applyPreLLMRequest(body, options)  // ← hook 改 body 或抛 ClassifiedError
+```
+
+**响应解析（Message Adapter）：**
+
+```ts
+content(raw) = raw.content.filter(b => b.type === 'text').map(b => b.text).join('')
+thinking(raw) = raw.content.filter(b => b.type === 'thinking').map(b => b.thinking).join('') // 空 → undefined
+extractStreamDelta(chunk) = chunk.delta.type === 'text_delta' ? chunk.delta.text : ''
+extractStreamThinking(chunk) = chunk.delta.type === 'thinking_delta' ? chunk.delta.thinking : undefined
+```
+
+**buildMessages 返回元组（Anthropic 特例）：**
+
+```ts
+buildMessages(history, attachments?): { system: string | null, messages: AnthropicMsg[] }
+// 而非 TMessage[]（与 OpenAI 兼容协议差异）
+```
+
+抽取 `role:'system'` → 顶层 `system`（多条 `\n\n` 拼接）；`ensureAlternatingUserFirst` 处理 role 归一 + 强制首条 user + 合并连续同 role；case 分发：
+
+| LLMResponse | Anthropic 消息 |
+|-------------|---------------|
+| `sense` | `{role:'user', content:[{type:'tool_result', tool_use_id, content: replace.state?replace.content:m.content}]}` |
+| `assistant`+senseCalls | `[{thinking?}, {text?}, {tool_use,id,name,input:JSON.parse(arguments)}]`（thinking 必须在 text/tool_use 之前） |
+| `assistant` 无 senseCalls | `[{thinking?}, {text?}]`（全空时 `[{text:''}]` 兜底） |
+| `user`+image attachments | `[{text}, {image, source:{base64,media_type,data}}]`（仅 image/；video/audio 由 chat.ts enrichMediaInputs 旧路径文本转写） |
+| 普通 user | `[{text}]` |
+
+**Sense Adapter 流式 delta 对接（与 SenseCallAssembler 天然兼容）：**
+
+```ts
+extractSenseCallDeltas(chunk):
+  content_block_start(tool_use) → [{ index, id, name, arguments: '' }]   // 播种
+  content_block_delta(input_json_delta) → [{ index, id: 'sense-${i}', arguments: partial_json }]  // 累加
+```
+
+`SenseCallAssembler.push` 按 `index` 累积、`id`/`name` 取首非空不覆盖 → 与 OpenAI 路径等价。
+
+**SSE 解析（anthropicStreamSSE）：** 仿 `fetchBase.ts:210-270` 行缓冲骨架，改：
+- endpoint `/v1/messages`
+- headers `x-api-key` + `anthropic-version: 2023-06-01` + `Accept: text/event-stream`
+- 终止条件 `message_stop`（而非 `[DONE]`）
+- `finally` 必跑 `controller.abort() + reader.cancel()`（对接 `generator.throw()` abort）
+
+**复用：** `assertChatOptions` / `brainHttpError` / `brainNetworkError` / `readErrorSnippet`（fetchBase provider 无关部分）+ `acquireRpm`（openaiCompat）+ `buildBaseSenseFunction`（compiler/utils）。
+
+**注册名 `"anthropic"`。**
+
+### Anthropic 的 PreLLMRequest hook（[hooks.md](./hooks.md)）
+
+anthropic provider 在 body 构造完成后、fetch 调用前自动 `dispatch('PreLLMRequest', ...)`。handler stdin 喂 `{event, payload: {provider, model, url, thinking, stream, body}, ctx}`，stdout 返回 `{body?: <new>, decision?: 'block', reason?}` 改写 body 或阻断。这是 anthropic provider 适配怪异「anthropic 兼容」端点的标准机制——详见 [hooks.md](./hooks.md)。

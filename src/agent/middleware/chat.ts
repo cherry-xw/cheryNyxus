@@ -6,7 +6,7 @@ import type {
 } from '@/core/middleware/types'
 import type { SenseFunction, SenseCallData } from '@/core/sense/adapter'
 import type { LLMOptions } from '@/core/llm/adapter'
-import { logger } from '@/utils/logger/index.js'
+import { logger, LogLevel } from '@/utils/logger/index.js'
 import type { LLMResponse, LLMAttachment } from '@/core/message/adapter'
 import {
   readMediaAsset,
@@ -15,6 +15,8 @@ import {
   type MediaKind,
 } from '@/service/media/index.js'
 import config from '@/utils/config.js'
+import { dispatch } from '@/agent/hooks/index.js'
+import { ClassifiedError } from '@/utils/error.js'
 
 /**
  * Chat Middleware
@@ -36,6 +38,28 @@ export async function* chatMiddleware(
   // 否则保留现有文本转写路径（marker 文本拼接）。attachments 不进 LLMResponse/DB，provider 调用后丢弃。
   // capabilitiesHint：有 [[media:]] marker 时生成 <self-capabilities> system message（运行时注入，不持久化）。
   const enriched = await enrichMediaInputs(ctx, ctx.soul.messages || [])
+
+  // UserPromptSubmit hook：LLM 调用前验证/增强 prompt；decision:'block' 抛 ClassifiedError 终止本 chat
+  try {
+    const lastUser = [...enriched.history].reverse().find((m) => m.role === 'user')
+    await dispatch(
+      'UserPromptSubmit',
+      {
+        chatId: ctx.soul.chatId,
+        prompt: lastUser?.content ?? '',
+        role: (lastUser?.role ?? 'user') as 'user' | 'role' | 'subagent',
+      },
+      { brain: '' },
+    )
+  } catch (err) {
+    if (err instanceof ClassifiedError) throw err
+    // 非 ClassifiedError（hook 异常）：log + 不阻断（fail-open）
+    logger.event('hook.dispatch.failed', {
+      event: 'UserPromptSubmit',
+      error: (err as Error).message,
+    })
+  }
+
   // 运行时注入 <self-capabilities> system message（仅当有 [[media:]] marker 时生成）。
   // 浅拷贝 history 避免污染 soul（checkpoint 中间件不持久化此段）。
   let historyForBuild = enriched.history
@@ -79,10 +103,10 @@ export async function* chatMiddleware(
 
   if (ctx.global.stream) {
     // 流式调用
-    yield* handleStream(options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
+    yield* handleStream(ctx, options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
   } else {
     // 非流式调用
-    yield* handleNonStream(options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
+    yield* handleNonStream(ctx, options, llmAdapter, messageAdapter, senseAdapter, messages, senses)
   }
 
   // 执行下游
@@ -93,6 +117,7 @@ export async function* chatMiddleware(
  * 处理流式调用
  */
 async function* handleStream(
+  ctx: MiddlewareContext,
   options: LLMOptions,
   llmAdapter: RuntimeConfig['adapters']['llmAdapter'],
   messageAdapter: RuntimeConfig['adapters']['messageAdapter'],
@@ -143,12 +168,30 @@ async function* handleStream(
     contentLen: contentAccumulated.length,
     senseCalls: senseCallsAccumulated.length,
   })
+
+  // PostLLMResponse + Stop hook（流式末尾）
+  await dispatchPostLLMResponse(ctx, {
+    provider: ctx.runtime?.brain.provider ?? '',
+    content: contentAccumulated,
+    thinking: thinkingAccumulated || undefined,
+    senseCalls: senseCallsAccumulated.map((sc) => ({
+      id: sc.id,
+      name: sc.name ?? '',
+      arguments: sc.arguments,
+    })),
+  })
+  await dispatchStop({
+    chatId: ctx.soul.chatId,
+    message: contentAccumulated,
+    stopReason: 'end_turn',
+  })
 }
 
 /**
  * 处理非流式调用
  */
 async function* handleNonStream(
+  ctx: MiddlewareContext,
   options: LLMOptions,
   llmAdapter: RuntimeConfig['adapters']['llmAdapter'],
   messageAdapter: RuntimeConfig['adapters']['messageAdapter'],
@@ -182,6 +225,23 @@ async function* handleNonStream(
       senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
     }
   }
+
+  // PostLLMResponse + Stop hook（非流式末尾）
+  await dispatchPostLLMResponse(ctx, {
+    provider: ctx.runtime?.brain.provider ?? '',
+    content,
+    thinking,
+    senseCalls: senseDelta.map((sc) => ({
+      id: sc.id,
+      name: sc.name ?? '',
+      arguments: sc.arguments,
+    })),
+  })
+  await dispatchStop({
+    chatId: ctx.soul.chatId,
+    message: content,
+    stopReason: 'end_turn',
+  })
 }
 
 export default chatMiddleware
@@ -328,5 +388,63 @@ async function enrichMediaInputs(
       { ...last, content: `${last.content}\n\n${additions.join('\n\n')}` },
     ],
     ...(capabilitiesHint && { capabilitiesHint }),
+  }
+}
+
+// ========== Hooks dispatch helpers ==========
+
+/** PostLLMResponse dispatch：响应侧审计；decision:'block' 抛 ClassifiedError；异常 fail-open */
+async function dispatchPostLLMResponse(
+  ctx: MiddlewareContext,
+  payload: {
+    provider: string
+    content: string
+    thinking?: string
+    senseCalls?: { id: string; name: string; arguments: string }[]
+  },
+): Promise<void> {
+  try {
+    await dispatch(
+      'PostLLMResponse',
+      {
+        ...payload,
+        model: ctx.runtime?.brain.model ?? '',
+      },
+      { brain: '' },
+    )
+  } catch (err) {
+    if (err instanceof ClassifiedError) {
+      logger.event(
+        'hook.blocked',
+        { event: 'PostLLMResponse', reason: err.userMessage },
+        LogLevel.error,
+      )
+    } else {
+      logger.event('hook.dispatch.failed', {
+        event: 'PostLLMResponse',
+        error: (err as Error).message,
+      })
+    }
+  }
+}
+
+/** Stop dispatch：LLM 响应结束后审计；decision:'block' 仅 log warn（本轮不阻断） */
+async function dispatchStop(payload: {
+  chatId: string
+  message: string
+  stopReason: string
+}): Promise<void> {
+  try {
+    const decision = await dispatch('Stop', payload, { brain: '' })
+    if (decision?.decision === 'block') {
+      // 本轮仅审计 log：真正的"强制继续"需 loop.ts 配合（后续扩展）
+      logger.event('hook.stop.block', {
+        chatId: payload.chatId,
+        reason: decision.reason,
+        note: '本轮仅审计，未阻断',
+      })
+    }
+  } catch (err) {
+    logger.event('hook.dispatch.failed', { event: 'Stop', error: (err as Error).message })
   }
 }

@@ -2,15 +2,18 @@
 export interface MessageCommand {
   /** 稳定 UI key；用户技能为 `skill:<name>`，内置命令为 `builtin:<name>`。 */
   id: string
-  /** 输入框中显示的 slash 命令。 */
+  /** 输入框中显示的 slash 命令（搜索 key 也用此）。 */
   name: string
+  /** 弹窗与 token 内显示的纯技能名（不含 plugin 前缀）。 */
   label: string
   description: string
   kind: 'skill' | 'builtin'
-  /** kind=skill 时为 skill 感官所需的实际名称。 */
+  /** kind=skill 时为 skill 感官所需的实际名称（与 `label` 同义；公开别名用于语义清晰）。 */
   skillName?: string
   /** 激活完整技能指令后预计新增的上下文 token；内置指令不适用。 */
   contextTokens?: number
+  /** 来源插件名（独立 skill 时缺省）；显示成 `<plugin>:<skillName>` 用于与独立技能区分。 */
+  plugin?: string
 }
 
 export interface SkillCommandMeta {
@@ -18,6 +21,8 @@ export interface SkillCommandMeta {
   description: string
   trigger?: string
   contextTokens: number
+  /** 来源插件名（独立技能时缺省）；see SkillInfo.plugin。 */
+  plugin?: string
 }
 
 export const COMPACT_COMMAND: MessageCommand = {
@@ -44,7 +49,14 @@ export function toSkillCommands(skills: SkillCommandMeta[]): MessageCommand[] {
     kind: 'skill',
     skillName: skill.name,
     contextTokens: skill.contextTokens,
+    // 透传来源插件：独立 skill 时缺省；有插件时弹窗显示 `<plugin>:<skillName>`。
+    plugin: skill.plugin,
   }))
+}
+
+/** 弹窗与日志显示用的合成名（plugin 前缀拼接；独立技能时退回 label）。 */
+export function getCommandDisplayName(command: MessageCommand): string {
+  return command.plugin ? `${command.plugin}:${command.label}` : command.label
 }
 
 /** 将指令 token 序列化到用户正文；行为语义由系统提示词统一定义。 */

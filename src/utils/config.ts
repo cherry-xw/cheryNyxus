@@ -103,6 +103,8 @@ interface BrainConfig {
   /** 记忆容量（KB），供前端 context bar 显示用量（后端按 KB×256 折算 token 预算）。缺省兜底 */
   contextLimit?: number
   capabilities?: BrainCapabilities
+  /** brain 级 hooks.json 路径（相对 .chery/），与全局 .chery/hooks/hooks.json 合并（brain 级在全局后追加） */
+  hooks?: string
 }
 
 /**

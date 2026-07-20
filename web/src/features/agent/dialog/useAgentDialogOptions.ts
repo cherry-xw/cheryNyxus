@@ -163,11 +163,18 @@ export function useAgentDialogOptions() {
     const selected = new Set(
       [...text.value.matchAll(/\[\[command:(\/[^\]\s]+)\]\]/g)].map((match) => match[1]!),
     )
-    return allCommands.value.filter(
-      (command) =>
-        !selected.has(command.name) &&
-        command.name.slice(1).toLowerCase().includes(slashQuery.value!),
-    )
+    // 搜索 key = 命令完整名（含 plugin 前缀拼接），子串匹配，命中：
+    //   - /<skillName>：独立技能
+    //   - /<plugin:skill>：插件技能（中间字符也算，含 plugin 名 / skill 名 / 中间片段）
+    const q = slashQuery.value
+    return allCommands.value.filter((command) => {
+      if (selected.has(command.name)) return false
+      // 搜索 key = 命令完整名（含 plugin 前缀拼接）
+      const searchable = command.plugin
+        ? `${command.plugin}:${command.label}`.toLowerCase()
+        : command.label.toLowerCase()
+      return searchable.includes(q) || command.name.slice(1).toLowerCase().includes(q)
+    })
   })
   const showCommandMenu = computed(
     () => slashQuery.value !== null && commandOptions.value.length > 0,

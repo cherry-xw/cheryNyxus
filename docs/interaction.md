@@ -118,6 +118,10 @@
 // 失败（url/key 无效、provider 不支持等）— models 空数组 + error 字段，非 RpcError
 → {"id":"ru3","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://invalid.example.com/v1","key":"bad"}}
 ← {"id":"au3","kind":"response","requestId":"ru3","success":true,"data":{"models":[],"error":"connect ECONNREFUSED"}}
+
+// 失败（openai 缺 key 或占位符未替换）— 中文友好提示，前端 BrainCard 刷新按钮展示
+→ {"id":"ru4","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://api.openai.com/v1","key":"$OPENAI_API_KEY"}}
+← {"id":"au4","kind":"response","requestId":"ru4","success":true,"data":{"models":[],"error":"密钥占位符 $OPENAI_API_KEY 未替换，请先在 .env 或环境变量里配置"}}
 ```
 
 > 独立工具方法，不依赖 chat/brain 运行时。后续该模块会扩展其他便捷信息查询工具。

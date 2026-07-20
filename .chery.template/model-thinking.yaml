@@ -35,6 +35,24 @@ models:
   - aliases: [o1, o1-mini, o1-preview, o3, o3-mini, o4-mini]
     thinking: [off, low, medium, high]
 
+  # Anthropic Claude 系列（adaptive thinking + output_config.effort 四档）
+  # 详见 docs/agent/provider.md「anthropic provider」
+  - aliases:
+      - claude-fable-5
+      - claude-mythos-5
+      - claude-opus-4-8
+      - claude-opus-4-7
+      - claude-opus-4-6
+      - claude-opus-4-5
+      - claude-opus-4-1
+      - claude-opus-4-0
+      - claude-sonnet-5
+      - claude-sonnet-4-6
+      - claude-sonnet-4-5
+      - claude-sonnet-4-0
+      - claude-haiku-4-5
+    thinking: [off, on, low, medium, high]  # 'on' 走 adaptive 自适应，low/medium/high 走 effort
+
   # 通配兜底：未列出的模型默认仅暴露开关两档
   - aliases: ["*"]
     thinking: [off, on]
