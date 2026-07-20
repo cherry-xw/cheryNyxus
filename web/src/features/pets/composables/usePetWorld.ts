@@ -7,6 +7,7 @@ import {
   stepMovement,
   pushTrail,
   pointAtArc,
+  ghostTrailDistance,
 } from '../motion/petMovement'
 import type { GhostTrail } from '../motion/petMovement'
 import {
@@ -24,7 +25,6 @@ const TRIBE_CLUSTER_RADIUS = 70 // 子 pet retarget 偏向本主的半径
 const RAPID_CLICK_WINDOW = 1200
 const RAPID_CLICK_THRESHOLD = 3
 const PANIC_MOVEMENT = 32
-const GHOST_QUEUE_SPACING = 40 // ghost 队列间距（px）：> emoji 命中区 ~26px，留余量避对角重叠遮挡（.pet 命中区已收窄到 emoji，此为双保险）
 const GHOST_SPRING_K = 10 // 跟随者弹簧刚度（加速度/距离）：临界阻尼 k≈λ²/4（damping λ=-ln0.9×60≈6.34）→ 平滑收敛无振荡
 const GHOST_SPRING_MAX = 500 // 弹簧力封顶（远距避免加速度过载，maxSpeed 已限速）
 
@@ -148,7 +148,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
   const bounds = reactive<StageBounds>({ width: 960, height: 640 })
   let raf = 0
   let lastTime = 0
-  // ghost 队列 trail：key=tribe，value=首领移动轨迹（newest-first）。单 stage 闭包状态。
+  // ghost 队列 trail：key=tribe，value=主 Agent 移动轨迹（newest-first）。
   const ghostTrails = new Map<string, GhostTrail>()
 
   function readBounds(): StageBounds {
@@ -229,31 +229,37 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
       .sort((a, b) => (a.ghostCreatedAt ?? 0) - (b.ghostCreatedAt ?? 0))
   }
 
-  /** ghost 在本 tribe 队列中的序号（0=首领）；非 ghost 返回 -1。 */
+  /** ghost 在本 tribe 队列中的序号（0=主 Agent 后第一颗点）；非 ghost 返回 -1。 */
   function ghostQueueIndex(pet: PetInstance): number {
     return pet.isGhost ? sortedTribeGhosts(pet.tribe).indexOf(pet) : -1
   }
 
   /**
-   * ghost 队列路径拟合：返回跟随者应 seek 的首领 trail 弧长点。
-   * 同 tribe ghost 按 ghostCreatedAt 排序：首领（idx 0）返回 null（保留 retarget 近本主 + 默认 tribe 力）；
-   * 跟随者（idx>0）取首领 trail 上弧长 idx*SPACING 处的点（蛇形跟随路径形状，非固定 x 偏移）。
-   * trail 不足（<2 点）→ 退化为首领当前位（跟随者堆叠收敛，待 trail 增长展开）。
+   * ghost 队列路径拟合：主 Agent 是队首，全部 ghost 都是跟随者。
+   * 第 idx 个 ghost 取主 Agent trail 上弧长 (idx+1)*SPACING 处的点。
    */
   function getGhostQueueTarget(pet: PetInstance): { x: number; y: number } | null {
     if (!pet.isGhost) return null
     const idx = ghostQueueIndex(pet)
-    if (idx <= 0) return null // 首领 → 走 retarget（近本主）+ 默认 tribe 力
-    const leader = sortedTribeGhosts(pet.tribe)[0]
+    if (idx < 0) return null
+    const leader = findMaster(pet)
     if (!leader) return null
     const trail = ghostTrails.get(pet.tribe)
     if (!trail || trail.pts.length < 2) return { x: leader.x, y: leader.y }
-    return pointAtArc(trail, idx * GHOST_QUEUE_SPACING)
+    return pointAtArc(trail, ghostTrailDistance(idx))
   }
 
   function tickPet(pet: PetInstance, now: number, dt: number): void {
     if (pet.draggingPointerId !== null) {
       return
+    }
+
+    // Ghost 是纯运动点，不进入睡眠、悬浮、工作气泡或疲劳状态机。
+    if (pet.isGhost) {
+      pet.action = 'walk'
+      pet.fatigue = 0
+      pet.speech = ''
+      pet.speechUntil = 0
     }
 
     // hover 离场后 280ms 静止缓冲（避免 .pet-icons 边缘抖动立刻 retarget）
@@ -303,7 +309,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
       pet.moodUntil = 0
     }
 
-    // ghost 队列：跟随者持续 seek 首领 trail 点；首领走 retarget 近本主
+    // ghost 队列：全部 ghost 持续 seek 主 Agent trail 点
     let ghostFollower = false
     if (pet.isGhost) {
       const queueTarget = getGhostQueueTarget(pet)
@@ -314,7 +320,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
         pet.targetY = clamp(queueTarget.y, 42, Math.max(42, bounds.height - pet.height))
         pet.action = 'walk'
       } else {
-        // 首领（idx 0）：retarget 近本主；下方 stepMovement 零同部落力 + otherRepel 远他主。arrivedAtTarget→idle
+        // 孤儿 ghost（主 Agent 暂不可见）退化为近原 tribe 自由移动。
         if (arrivedAtTarget(pet)) {
           retarget(pet)
           pet.action = 'idle'
@@ -371,8 +377,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
           otherRepel: 0,
         })
       } else {
-        // 首领：seek 本主（retarget）+ 异部落斥力（otherRepel 远他主）；零同部落力（tribeAttract/tribeRepel=0
-        // → 不斥/引跟随者，跟随者能贴上，不被首领斥力撑开）。otherAttract/otherRepel 走默认。
+        // 孤儿 ghost 退化路径。
         stepMovement(pet, pets, bounds, dt, {
           maxSpeed,
           tribeAttract: 0,
@@ -394,15 +399,10 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
       for (const pet of pets) {
         tickPet(pet, now, dt)
       }
-      // ghost 首领 trail 喂入（每帧；拖拽时 tickPet 早返，故在 loop 记录）。
-      // 首领 = 每 tribe 中 ghostCreatedAt 最小者（与 ghostQueueIndex idx0 语义一致）。
+      // 每个 tribe 以主 Agent 为队首并采样轨迹；主 Agent 拖拽时也持续记录。
       const leaderByTribe = new Map<string, PetInstance>()
       for (const pet of pets) {
-        if (!pet.isGhost) continue
-        const cur = leaderByTribe.get(pet.tribe)
-        if (!cur || (pet.ghostCreatedAt ?? 0) < (cur.ghostCreatedAt ?? 0)) {
-          leaderByTribe.set(pet.tribe, pet)
-        }
+        if (pet.isMaster) leaderByTribe.set(pet.tribe, pet)
       }
       for (const pet of leaderByTribe.values()) {
         let trail = ghostTrails.get(pet.tribe)

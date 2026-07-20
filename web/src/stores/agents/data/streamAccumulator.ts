@@ -18,6 +18,11 @@ export function defaultBounds(): StageBounds {
   }
 }
 
+/** chat.get 回放 staged 不带 runId；实时 checkpoint staged 带 runId，只作阶段边界。 */
+export function shouldAccumulateStagedHistory(runId: string | undefined): boolean {
+  return !runId
+}
+
 /** 同 runtime 判定（brain + senseGroup + mcpServers 集合相同）。 */
 export function sameRuntime(a: RuntimeSelection, b: RuntimeSelection): boolean {
   if (a.brain !== b.brain) return false

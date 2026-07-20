@@ -12,20 +12,11 @@
  * 列表数据：SkillsTab 自行管理分页数据（直接调 agentApi.listSkills），
  * SettingsDialog 的 `initialSkills` 仅用于首次加载和来源索引关联。
  */
-import {
-  ref,
-  computed,
-  onMounted,
-  onBeforeUnmount,
-  nextTick,
-  watch,
-  type ComponentPublicInstance,
-} from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Delete, Refresh, Search } from '@element-plus/icons-vue'
 import { agentApi, type SkillInfo, type SkillSource } from '@/services/agentApi'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
-import ConfirmDialog from '@/components/confirm/ConfirmDialog.vue'
 import SkillImportDialog from './components/SkillImportDialog.vue'
 
 const props = defineProps<{ initialSkills: SkillInfo[]; sources: SkillSource[] }>()
@@ -87,20 +78,16 @@ function onPageChange(page: number): void {
 const importDialogOpen = ref(false)
 const syncSourceId = ref<string | undefined>(undefined)
 
+function openNewImport(): void {
+  syncSourceId.value = undefined
+  importDialogOpen.value = true
+}
+
 // ── 删除独立 skill ─────────────────────────────────────────────────
 const busy = ref(false)
 
-// 删来源二次确认（重删 → ConfirmDialog 居中 modal；删单条技能仍走 ConfirmPopover）
-const removeDialog = ref(false)
-const removeSrc = ref<SkillSource | undefined>(undefined)
-const removeImpact = computed(() => {
-  const src = removeSrc.value
-  if (!src) return [] as string[]
+function removeSourceImpact(src: SkillSource): string[] {
   return [`将删除来源「${src.cloneUrl}」下的全部 ${src.skillCount} 个技能。`]
-})
-function startRemoveSource(src: SkillSource): void {
-  removeSrc.value = src
-  removeDialog.value = true
 }
 
 function onError(msg: string): void {
@@ -190,35 +177,12 @@ async function onDeleteSource(src: SkillSource): Promise<void> {
   }
 }
 
-// ── 技能名过长省略 ──────────────────────────────────────────────────
-const nameEls: Record<string, HTMLElement> = {}
-const overflow = ref<ReadonlySet<string>>(new Set())
-function nameRefOf(name: string): (el: Element | ComponentPublicInstance | null) => void {
-  return (el) => {
-    if (el instanceof HTMLElement) nameEls[name] = el
-    else delete nameEls[name]
-  }
-}
-function recomputeOverflow(): void {
-  const next = new Set<string>()
-  for (const [n, el] of Object.entries(nameEls)) {
-    if (el.scrollWidth > el.clientWidth) next.add(n)
-  }
-  overflow.value = next
-}
 onMounted(() => {
-  nextTick(recomputeOverflow)
-  window.addEventListener('resize', recomputeOverflow)
   void fetchSkills()
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', recomputeOverflow)
   if (searchDebounce) clearTimeout(searchDebounce)
 })
-watch(
-  () => props.initialSkills,
-  () => nextTick(recomputeOverflow),
-)
 
 // ── helpers ──────────────────────────────────────────────────────────
 function shortSha(sha: string | undefined): string {
@@ -274,20 +238,23 @@ function formatDateTime(iso: string | undefined): string {
     </template>
 
     <!-- Git 来源区 -->
-    <section v-if="sources.length" class="section">
+    <section class="section">
       <header class="sect-head">
         <h3 class="sect-title">已挂载仓库</h3>
-        <button
-          type="button"
-          class="ghost-btn refresh-all-btn"
-          :disabled="refreshingAll"
-          @click="onResyncAllSources"
-        >
-          <Refresh class="ico" :class="{ spinning: refreshingAll }" />
-          {{ refreshingAll ? '检查中…' : '检查全部更新' }}
-        </button>
+        <div class="source-actions">
+          <button type="button" class="ghost-btn" @click="openNewImport">+ 导入新仓库</button>
+          <button
+            type="button"
+            class="ghost-btn refresh-all-btn"
+            :disabled="refreshingAll || !sources.length"
+            @click="onResyncAllSources"
+          >
+            <Refresh class="ico" :class="{ spinning: refreshingAll }" />
+            {{ refreshingAll ? '检查中…' : '检查全部更新' }}
+          </button>
+        </div>
       </header>
-      <div class="source-grid">
+      <div v-if="sources.length" class="source-grid">
         <article v-for="src in sources" :key="src.id" class="card source-card">
           <header class="card-head">
             <span class="card-title">{{ src.cloneUrl }}</span>
@@ -312,15 +279,23 @@ function formatDateTime(iso: string | undefined): string {
                 <Refresh class="ico" :class="{ spinning: checkingIds.has(src.id) }" />
               </button>
             </el-tooltip>
-            <button
-              type="button"
-              class="icon-btn danger"
-              aria-label="删除来源"
-              :disabled="refreshingAll"
-              @click.stop="startRemoveSource(src)"
+            <ConfirmPopover
+              :title="`删除来源「${src.cloneUrl}」？`"
+              :impact="removeSourceImpact(src)"
+              @confirm="onDeleteSource(src)"
             >
-              <Delete class="ico" />
-            </button>
+              <template #trigger>
+                <button
+                  type="button"
+                  class="icon-btn danger"
+                  aria-label="删除来源"
+                  :disabled="refreshingAll"
+                  @click.stop
+                >
+                  <Delete class="ico" />
+                </button>
+              </template>
+            </ConfirmPopover>
           </header>
           <div class="src-meta">
             <span class="badge branch">{{ src.branch }}</span>
@@ -344,32 +319,20 @@ function formatDateTime(iso: string | undefined): string {
           </div>
         </article>
       </div>
+      <div v-else class="source-empty">尚未挂载技能仓库，可从 Git URL 导入。</div>
     </section>
 
     <!-- 独立技能区 -->
     <section class="section">
       <div class="sect-head">
         <h3 class="sect-title">技能列表</h3>
-        <button
-          type="button"
-          class="ghost-btn"
-          @click=";(syncSourceId = undefined), (importDialogOpen = true)"
-        >
-          + 导入技能
-        </button>
+        <button type="button" class="ghost-btn" @click="openNewImport">+ 导入技能</button>
       </div>
       <div class="standalone-grid">
         <article v-for="(s, i) in standalone" :key="s.name" class="card" :data-anchor="s.name">
           <span class="card-idx">{{ (currentPage - 1) * pageSize + i + 1 }}</span>
           <header class="card-head">
-            <el-tooltip
-              :content="s.name"
-              :disabled="!overflow.has(s.name)"
-              placement="top"
-              :show-after="300"
-            >
-              <span :ref="nameRefOf(s.name)" class="card-title">{{ s.name }}</span>
-            </el-tooltip>
+            <span class="card-title">{{ s.name }}</span>
             <el-tooltip placement="top" :show-after="300">
               <template #content>
                 <div style="max-width: 220px">
@@ -415,16 +378,6 @@ function formatDateTime(iso: string | undefined): string {
           if (!v) syncSourceId = undefined
         }
       "
-    />
-
-    <!-- 删来源二次确认（重删 modal） -->
-    <ConfirmDialog
-      v-model="removeDialog"
-      icon="🗑️"
-      :title="`删除来源「${removeSrc?.cloneUrl ?? ''}」？`"
-      :impact="removeImpact"
-      tab-color="#6366f1"
-      @confirm="onDeleteSource(removeSrc!)"
     />
   </TabShell>
 </template>
@@ -483,6 +436,20 @@ code {
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
   gap: 7px;
 }
+.source-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.source-empty {
+  padding: 14px 10px;
+  border: 1px dashed rgba(36, 38, 45, 0.12);
+  border-radius: 8px;
+  color: fade(@ink, 46%);
+  font-size: 10px;
+  text-align: center;
+}
 .source-card {
   min-width: 0;
 }
@@ -526,26 +493,26 @@ code {
   }
   .refresh-all-btn {
     flex-shrink: 0;
-    height: 22px;
-    padding: 0 10px;
-    font-size: 11px;
   }
 }
 .card-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .spacer {
   flex: 1;
 }
 .card-title {
+  flex: 1 1 180px;
+  min-width: 0;
   font-size: 14px;
   font-weight: 800;
   color: fade(@ink, 88%);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 .badge {
   font-size: 10px;
@@ -581,12 +548,10 @@ code {
   font-size: 12px;
   line-height: 1.5;
   color: fade(@ink, 70%);
-  word-break: break-all;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  word-break: break-word;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   .k {
     font-weight: 600;
     color: fade(@ink, 50%);
@@ -636,14 +601,19 @@ code {
   }
 }
 .ghost-btn {
-  padding: 5px 10px;
+  height: 24px;
+  padding: 0 10px;
   border: 1px solid rgba(36, 38, 45, 0.16);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.7);
   color: fade(@ink, 80%);
   font-size: 11px;
   cursor: pointer;
-  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1;
   &:hover:not(:disabled) {
     background: #ffffff;
     color: fade(@ink, 92%);

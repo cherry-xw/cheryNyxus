@@ -14,7 +14,8 @@ import { httpUrl } from './http'
  * PASSWORD / PASSWD / ACCESS_KEY(_ID) 视为可作密钥占位（`$VAR`）的凭据。
  * 运行时配置（CHERY_DIR / *_HOST / *_URL / PORT / NODE_ENV 等）不进密钥下拉。
  */
-const SECRET_SUFFIX = /(?:^|_)(?:API_?KEY|TOKEN|SECRET(?:_KEY)?|PASSWORD|PASSWD|ACCESS_?KEY(?:_ID)?)$/
+const SECRET_SUFFIX =
+  /(?:^|_)(?:API_?KEY|TOKEN|SECRET(?:_KEY)?|PASSWORD|PASSWD|ACCESS_?KEY(?:_ID)?)$/
 function isSecretEnvVarName(name: string): boolean {
   return SECRET_SUFFIX.test(name)
 }
@@ -66,11 +67,11 @@ export interface ChatSummary {
   finished?: boolean
   /** chat 当前是否正在运行（后端 chatRuntimes.get(chatId)?.builder.isRunning()）。前端据此判断子 agent 是否还活着、主 chat 是否卡死。 */
   running?: boolean
-  /** 子 chat 是否被主 wait（后端 metadata.wait=true，T9.10）。前端重连识别 wait-子：续跑 interrupted 子 + 主含未处理 role-reply 时 resume。主 chat 恒 undefined。 */
+  /** 子 chat 是否被主 wait（后端 metadata.wait=true，T9.10）。前端重连时仅用于恢复状态，不自动续跑。主 chat 恒 undefined。 */
   wait?: boolean
-  /** 主 chat 有已持久化但尚未恢复处理的角色回复；断线重连时应调用 chat.resume。 */
+  /** 主 chat 有已持久化但尚未处理的角色回复；前端据此提供显式“继续”入口。 */
   resumePending?: boolean
-  /** 主 chat 末条非 revoked 消息为未完成周期（sense/user/role/subagent）；idle 时前端可自动 resume。覆盖 resumePending 丢失场景。 */
+  /** idle chat 末条非 revoked 消息为未完成周期；前端据此提供显式“继续”入口，不在刷新时自动 resume。 */
   canResume?: boolean
   /** 主 chat 创建时所选预设；用于恢复小组角色临时配置面板。 */
   preset?: string

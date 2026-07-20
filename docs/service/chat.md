@@ -103,7 +103,7 @@ handleChatDelete(ctx, params): Promise<{chatId}>                       // clearC
      generator = observeAgentChunks(agent.run(prompt), chatId, () => agent.getMessages())
      yield* streamAgentChunks(generator, rid, chatId, (msg) => { failureMessage = msg; })
    catch err:
-     "approval aborted"（chat.abort 触发）→ 静默
+     AgentAbortError / AgentParkError（chat.abort 或 WS 断连触发）→ 静默
      其他 → failureResponse = createResponse(rid, false, ..., createError(INTERNAL, err.message))
    finally:
      connectionManager.releaseChatConnection(chatId, ctx.connectionId)
@@ -135,6 +135,12 @@ for await chunk of generator:
     approvalManager.register(chunk.approvalId)          // 仅登记（P1-11）
     continue
   else: yield chunk                                     // 透传 stream/staged/sense_*/consumed/done/error
+catch err:                                              // 角色出错（含 abort/park）
+  waited = getWaitedParent(chatId)                      // 本 chat 是否被 wait 的子
+  if waited && !isAgentParkError(err):                  // park 静默不唤主（子 chat 待重连恢复）
+    updateChatMetadata(chatId, {finished:true})
+    wakeParent(waited.parentChatId, chatId, waited.type, "[type] 执行出错了: err.message")
+  throw err                                             // 传播 send 层（abort/park 同样静默）
 finally:                                                // abort 兜底 flush
   for m of getMessages():                               // 极端未 sync 的 user/assistant/sense
     if m.revoked: continue
@@ -171,7 +177,7 @@ finally:                                                // abort 兜底 flush
 5. try:
      generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages())
      yield* streamAgentChunks(generator, rid)
-   catch / finally: 同 send（approval aborted 静默）
+   catch / finally: 同 send（approval aborted / park 静默）
 ```
 
 `agent.resume()`（builder.ts）：末尾有 pending sense → 置 `resumePending=true`，首轮 senseMiddleware skip chat 层、重发 `sense_end`→`interrupt`（按监管等级）；全 done → `run("")` 正常 loop。续接规则与交互序列见 [../interaction.md](../interaction.md) chat.resume，agent 侧实现见 [../agent/middleware.md](../agent/middleware.md)。
@@ -205,7 +211,7 @@ return {chatId, canResume}
 1. chat.send → agent.run → checkpoint 产 sense_pending effect
 2. observer 收 sense_pending → approvalManager.register(approvalId)   // 仅登记
 3. streamMapper 收 sense_end → yield interrupt notification
-4. websocket handleRequest 收 interrupt → setRequestApprovalId + `startApprovalTimeout(waitTime)`；`waitTime=0` 不限时
+4. websocket handleRequest 收 interrupt → setRequestApprovalId（记 approvalId→requestId 供 close 时 park）。限时超时由 core approvalRegistry 独占（createApproval(id, global.approval_timeout)，见 tool.ts）；`approval_timeout=0` 不限时
 5. 客户端 sense.approval {approvalId, action, reason?}
    → handleSenseApproval → approvalManager.confirm(approvalId, action, reason)
      → core approvalRegistry.resolveApproval(id, action, reason)       // 解除 senseMiddleware await
@@ -254,7 +260,7 @@ agent 侧（SenseTriggerChunk 生成、await Promise、tool.ts）见 [../agent/m
 - [../interaction.md](../interaction.md)：chat.send / chat.resume / 审批 / 恢复的端到端交互序列与流程图。
 - [../agent/middleware.md](../agent/middleware.md)：senseMiddleware 如何产 SenseTriggerChunk / await approval Promise / accept/reject。
 - [./message.md](./message.md)：Chunk/Notification 类型与工厂。
-- [./websocket.md](./websocket.md)：chat 连接绑定、审批超时、close abort。
+- [./websocket.md](./websocket.md)：chat 连接绑定、审批超时（approvalRegistry）、close park。
 
 ## 扩展点
 

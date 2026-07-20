@@ -11,7 +11,7 @@ const props = defineProps<{
   args: unknown
 }>()
 
-const expanded = ref(false)
+const expanded = ref(true)
 
 const argsParsed = computed(() => parseArgs(props.args))
 const argsFallback = computed(() => argsParsed.value.fallback)

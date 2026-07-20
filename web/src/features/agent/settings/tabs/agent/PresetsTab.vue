@@ -3,13 +3,13 @@
  * PresetsTab：预设管理（config.presets）。
  * 每预设 = 团队成员多选（引用 config.roles 单一源）+ 指定组长（leader）。
  * 运行时采用组长的角色配置（不在预设内重定义 brain/sense）。
- * 增删预设走底部输入框 + ConfirmDialog 居中 modal 二次确认；标题可点击改名。合法性由后端 config.save 校验 fail loud。
+ * 增删预设走底部输入框 + ConfirmPopover 二次确认；标题可点击改名。合法性由后端 config.save 校验 fail loud。
  */
 import { ref, computed } from 'vue'
 import { ArrowDown, Check, Delete, WarningFilled } from '@element-plus/icons-vue'
 import type { ConfigDto, SenseToolInfo } from '@/services/agentApi'
 import { pickDirectory, isElectron } from '@/services/platform'
-import ConfirmDialog from '@/components/confirm/ConfirmDialog.vue'
+import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
 import SenseIcon from '../tools/SenseIcon.vue'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
@@ -28,19 +28,14 @@ const emit = defineEmits<{
 
 const newPresetName = ref('')
 
-// 删预设二次确认（重删 → ConfirmDialog 居中 modal）
-const removeDialog = ref(false)
-const removePname = ref<string | undefined>(undefined)
-const removeImpact = computed(() => {
-  const pname = removePname.value
-  if (pname === undefined) return [] as string[]
+function removeImpact(pname: string): string[] {
   const preset = props.draft.presets?.[pname]
   const roleCount = preset?.roles?.length ?? 0
   return [
     `预设「${pname}」将被删除。`,
     roleCount ? `${roleCount} 个角色成员配置将一并移除。` : '（无成员）',
   ]
-})
+}
 
 function onError(msg: string): void {
   emit('error', msg)
@@ -211,14 +206,17 @@ const indexItems = computed<IndexItem[]>(() => {
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <button
-              type="button"
-              class="icon-btn danger"
-              aria-label="删除预设"
-              @click=";(removePname = String(pname)), (removeDialog = true)"
+            <ConfirmPopover
+              :title="`删除预设「${String(pname)}」？`"
+              :impact="removeImpact(String(pname))"
+              @confirm="removePreset(String(pname))"
             >
-              <Delete class="ico" />
-            </button>
+              <template #trigger>
+                <button type="button" class="icon-btn danger" aria-label="删除预设">
+                  <Delete class="ico" />
+                </button>
+              </template>
+            </ConfirmPopover>
           </template>
         </EditableTitle>
       </header>
@@ -369,15 +367,6 @@ const indexItems = computed<IndexItem[]>(() => {
       />
       <button type="button" class="ghost-btn" @click="addPreset">+ 新增预设</button>
     </div>
-
-    <ConfirmDialog
-      v-model="removeDialog"
-      icon="🗑️"
-      :title="`删除预设「${removePname ?? ''}」？`"
-      :impact="removeImpact"
-      tab-color="#f6b73c"
-      @confirm="removePreset(removePname ?? '')"
-    />
   </TabShell>
 </template>
 

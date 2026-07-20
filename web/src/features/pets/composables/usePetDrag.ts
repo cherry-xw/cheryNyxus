@@ -8,16 +8,15 @@ import type { PetInstance } from '../types/types'
  * 短按（<300ms 且未超阈值）松开 -> 不拖拽，让 click 触发 clickPet 抚摸。
  * 拖拽结束 pointerup 紧随触发 click -> suppressClick 抑制（避免拖拽完又抚摸）。
  *
- * ghost 首领可拖（ghostDraggable）；非首领 ghost onPointerDown 早返（仅 click -> history）。
+ * Ghost 使用独立纯展示组件，不进入本 composable。
  * petHover 由 .pet / .head-row pointerenter/leave 驱动，供 z-index 提层 + useStreamBubble retain。
  *
  * 行为/常量与原 PetSprite 内联实现一致，仅下沉抽取。
  */
 
-/** composable 所需 props 子集（PetSprite props 的 pet + ghostDraggable）。 */
+/** composable 所需 props 子集。 */
 export interface PetDragProps {
   pet: PetInstance
-  ghostDraggable?: boolean
 }
 
 /** composable 所需 emit 子集（startDrag/drag/endDrag/hover/clickPet）。 */
@@ -52,13 +51,7 @@ export function usePetDrag(props: PetDragProps, emit: PetDragEmit) {
   }
 
   function onPointerDown(event: PointerEvent): void {
-    // ghost 首领可拖（ghostDraggable）；非首领 ghost 不响应拖拽/长按（仅 click -> history），早返让 onClick 直接触发
-    console.log('[drag] onPointerDown', {
-      isGhost: props.pet.isGhost,
-      ghostDraggable: props.ghostDraggable,
-      id: props.pet.instanceId,
-    })
-    if (props.pet.isGhost && !props.ghostDraggable) return
+    if (props.pet.isGhost) return
     downX = event.clientX
     downY = event.clientY
     draggingStarted = false
@@ -112,7 +105,7 @@ export function usePetDrag(props: PetDragProps, emit: PetDragEmit) {
     emit('hover', props.pet, true)
   }
 
-  function onPointerLeave(event: PointerEvent): void {
+  function onPointerLeave(_event: PointerEvent): void {
     // 长按等待中离开 .pet：取消定时器，避免离开后异步 startDrag 无人响应
     if (longPressTimer !== undefined) {
       clearTimeout(longPressTimer)

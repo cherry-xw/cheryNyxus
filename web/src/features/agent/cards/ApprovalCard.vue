@@ -12,7 +12,7 @@
  *        → rejected notification 清 stream.approval 卸载。waitTime=0 不超时不显倒计时。
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { agentApi } from '@/services/agentApi'
 import { useAgentsStore } from '@/stores'
 import type { ApprovalState } from '@/stores/agents'
@@ -28,6 +28,7 @@ const agents = useAgentsStore()
 
 // 待执行动作（请求中两按钮都禁用防双击；null = idle）
 const pending = ref<'accept' | 'reject' | null>(null)
+const submitError = ref('')
 
 // 倒计时：now 每 250ms 刷新驱动 remaining 重算。waitTime=0 不超时不启动定时器。
 const now = ref(Date.now())
@@ -49,9 +50,14 @@ const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000))
 // 倒计时归零：后端超时 reject 已触发，按钮禁用等 rejected notification 卸载
 const expired = computed(() => showCountdown.value && remainingMs.value <= 0)
 
+watch(expired, (value) => {
+  if (value) agents.expireApproval(props.chatId, props.approval.approvalId)
+})
+
 async function submit(action: 'accept' | 'reject'): Promise<void> {
-  if (pending.value !== null) return
+  if (pending.value !== null || expired.value) return
   pending.value = action
+  submitError.value = ''
   try {
     await agentApi.approval(props.approval.approvalId, action)
     // 立即关闭：dismissApproval 清 stream.approval → 组件 v-if 卸载；自动 pop 下一个
@@ -59,6 +65,7 @@ async function submit(action: 'accept' | 'reject'): Promise<void> {
   } catch (e) {
     // 规则 12 fail loud：上报并复位允许重试
     console.error(`[ApprovalCard] approval ${action} failed (id=${props.approval.approvalId}):`, e)
+    submitError.value = (e as Error)?.message || '审批提交失败，请重试'
     pending.value = null
   }
 }
@@ -96,6 +103,7 @@ function closeToQueue(): void {
       </button>
     </div>
     <ParsedArgs :args="approval.args" />
+    <p v-if="submitError" class="submit-error" role="alert">{{ submitError }}</p>
     <div class="actions">
       <button
         type="button"
@@ -200,6 +208,14 @@ function closeToQueue(): void {
   display: flex;
   gap: 4px;
   margin-top: 2px;
+}
+
+.submit-error {
+  margin: 1px 0 0;
+  color: #b91c1c;
+  font-size: 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .btn {

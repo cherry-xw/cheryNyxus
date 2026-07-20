@@ -128,8 +128,10 @@ sense 层 Phase 2：executeCollectedCalls
   └─ needsApproval（confirm/manual）：
        ├─ await Promise.all(approvalPromise)           ← 阻塞，等 service.confirm
        │     （service: sense.approval → resolveApproval(id) 解除本 await）
-       ├─ 客户端断连/超时 → approvalRegistry reject → catch 抛 "approval aborted"
-       │     ⚠ throw 传播（不 return、不 yield sense_reject），pending sense 保持 NULL
+       ├─ WS 断连 → reject(AgentParkError) → catch 抛 park 信号（pending NULL，observer 静默不唤主，子 chat 待重连 chat.resume Case1 重建）
+       ├─ 用户 chat.abort → reject(AgentAbortError) → catch 抛 "approval aborted"（observer 唤主报错）
+       ├─ 超时 → resolve as reject（非 throw）→ yield sense_reject（填 content）
+       │     ⚠ abort/park 均 throw 传播（不 return、不 yield sense_reject），pending sense 保持 NULL
        └─ 每个 decision：accept → doExecuteSense → yield sense_accept
                           reject → yield sense_reject(id, name, reason)
 ```
@@ -137,7 +139,8 @@ sense 层 Phase 2：executeCollectedCalls
 **几个非显然设计（[tool.ts](../../src/agent/middleware/tool.ts) 注释）：**
 
 - `approvalPromise` 不随 chunk 传递——P1-11 重构后改为 `createApproval(id)` 在 core 的 `approvalRegistry` 管理，service 调 `resolveApproval/rejectApproval` 触发。chunk 只带 `approvalId` 字符串。
-- 审批被 abort 时 **throw 而非 return**：return 只结束 `senseMiddleware`，loop 会误以为本轮完成继续第二轮 LLM 调用，破坏「应停在 pending sense 待 canResume」的语义。
+- 审批被 abort/park 时 **throw 而非 return**：return 只结束 `senseMiddleware`，loop 会误以为本轮完成继续第二轮 LLM 调用，破坏「应停在 pending sense 待 canResume」的语义。
+- **park vs abort**（错误类型区分控制流）：WS 断连 → `AgentParkError`（被动，[observer](../../src/service/chat/observer.ts) 静默不 `wakeParent`，子 chat 保持可恢复待重连）；用户 `chat.abort` → `AgentAbortError`（主动，observer 唤主报错）。两者都 throw 保 pending NULL，区别仅在 observer 是否注入错误 role 唤主。close(ws) 经 `approvalManager.park` 触发前者；`abortChatRuntime` 经 `approvalManager.abort` 触发后者。
 
 ### C. 问答流程（ask_user_question，agent 侧）
 

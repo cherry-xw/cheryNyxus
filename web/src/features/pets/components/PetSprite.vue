@@ -8,6 +8,7 @@
 import PetBody from './PetBody.vue'
 import PetBubbles from './PetBubbles.vue'
 import PetIcons from './PetIcons.vue'
+import GhostDot from './GhostDot.vue'
 import TodoPanel from '@/features/agent/cards/TodoPanel.vue'
 import type { StreamState } from '@/stores'
 import { usePetDrag } from '../composables/usePetDrag'
@@ -19,7 +20,6 @@ const props = defineProps<{
   pet: PetInstance
   paused: boolean
   stream?: StreamState
-  ghostDraggable?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -95,7 +95,8 @@ function setWorkTextRef(el: HTMLElement | null): void {
 </script>
 
 <template>
-  <div class="pet-wrap" @pointerenter="onPetEnter" @pointerleave="onPointerLeave">
+  <GhostDot v-if="pet.isGhost" :pet="pet" :style="style" />
+  <div v-else class="pet-wrap" @pointerenter="onPetEnter" @pointerleave="onPointerLeave">
     <PetBubbles
       :pet="pet"
       :stream="stream"
@@ -123,7 +124,7 @@ function setWorkTextRef(el: HTMLElement | null): void {
     <div v-if="todoEnabled && hasTodoData" class="todo-anchor" :style="todoPanelStyle">
       <TodoPanel :pet="pet" />
     </div>
-    <PetIcons v-if="!pet.isGhost" :chat-id="pet.chatId" :style="petIconsStyle" />
+    <PetIcons :chat-id="pet.chatId" :style="petIconsStyle" />
     <PetBody
       :pet="pet"
       :paused="paused"

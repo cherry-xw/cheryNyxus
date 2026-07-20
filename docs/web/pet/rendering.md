@@ -32,7 +32,7 @@ div.pet-wrap                                                            // 根�
 
 位置、朝向、主体动作、手部动作、表情滤镜各在独立层，transform 不冲突。`.sprite` 用 `grid-template-columns:100%` 使各 row 独立居中，工具栏展开不再偏移 face（修复抖动）。`--pet-scale`（主 1 / 子 0.75）仅作用于 `.head-row` + `.shadow`——子 pet 体型缩小但 name/PetToolbar/status-row 尺寸不变。`.status-row` 移至 head-row 之上（头顶），固定尺寸不随 scale 缩。
 
-**命中区**：`.head-row`（身体=face+hands）触发拖拽/点击/keydown（长按拖拽 + 短按抚摸）；**hover 检测扩到整个 `.pet`**（`pointerenter/leave` 绑 `.pet`，`pointerenter/leave` 不冒泡、进子元素不触发父 leave → 覆盖 head/toolbar/name/status-row 任意位置）→ 悬浮即冻结移动，toolbar 可点中。`.pet` 的 pointer 事件仅用于 hover；拖拽/点击/keydown、抚摸/抓取光标、`touch-action:none`、键盘焦点（role=button+tabindex）均在 head-row。**ghost 特例**：`.pet` `pointer-events:none`（72×96 框不捕获，消队列内 `.pet` 重叠遮挡；原重叠致 hover/click 命中错误 ghost、leader 拖不动），head-row `min-width/height:0` 收缩到 `.face` emoji ~26px 且 `pointer-events:auto` 承接 hover/click/drag；`@pointerenter/leave` 绑 head-row guard `isGhost`（非 ghost 仍由 `.pet` 大区 hover）。
+**命中区**：`.head-row`（身体=face+hands）触发拖拽/点击/keydown（长按拖拽 + 短按抚摸）；**hover 检测扩到整个 `.pet`**（`pointerenter/leave` 绑 `.pet`）→ 悬浮即冻结移动，toolbar 可点中。Ghost 不进入此结构，`GhostDot` 整体为纯展示且 `pointer-events:none`。
 
 **交互（长按拖拽 + 短按抚摸）**：`pointerdown` 启 300ms 定时器（`LONG_PRESS_MS`）+ 记录落点；**长按超时或移动超阈值（`DRAG_THRESHOLD_PX=5`）**任一触发 → `startDrag`（`setPointerCapture` + 进入 `dragging`）；**短按（<300ms 且未超阈值）松开** → 取消定时器，不拖拽，让 `click` 触发 `clickPet` 抚摸。拖拽结束的 `pointerup` 紧随触发 `click` → `suppressClick` 标志抑制，避免拖拽完又抚摸。长按等待中离开 `.pet`（`pointerleave`）取消定时器。`onPointerMove` 在等待中检阈值，进入拖拽后透传 `drag`。（实现下沉 [usePetDrag.ts](../../../web/src/features/pets/usePetDrag.ts)：常量 `LONG_PRESS_MS`/`DRAG_THRESHOLD_PX` + 私有态 + handler + `petHover` + `onBeforeUnmount` 清 `longPressTimer` 集中；行为不变。）
 
@@ -51,7 +51,7 @@ div.pet-wrap                                                            // 根�
 
 ```vue
 <AnimatePresence>
-  <MotionDiv v-if="stream?.approval" key="approval" class="speech approval-bubble" :style="approvalStyle" ...>
+  <MotionDiv v-if="stream?.approval" :key="`approval-${stream.approval.approvalId}`" class="speech approval-bubble" :style="approvalStyle" ...>
     <ApprovalCard :approval="stream!.approval!" :chat-id="pet.chatId" />
   </MotionDiv>
   <MotionDiv v-else-if="stream?.error" key="work-error" class="speech work-bubble error-bubble" ...>
@@ -70,6 +70,8 @@ div.pet-wrap                                                            // 根�
 ```
 
 主气泡 4 tier 由 `AnimatePresence` 互斥切换（key=`approval`|`work-error`|`work-main`|`speech`）：① `stream.approval` 存在时显 ApprovalCard（CP5；z-index 400 单独提升防遮挡；✕ 关闭移队列 + auto-pop 下一个）；② `stream.error` 显 error-bubble；③ `showWorkMain` 工作中显工作主气泡（thinking-only 或 content）；④ 默认装饰气泡/`#dialog` slot（agent 接入后基本不达，预留扩展口）。气泡为 `.pet-wrap` 内 `.pet` 的**兄弟**（脱离 `.pet` 的 transform stacking context），独立 z-index（整体高于身体）。审批气泡锚点 = pet 顶部中心下移 `BUBBLE_OFFSET_Y`（贴 status-row 上方 16px），`left`/`top` 由 inline `approvalStyle` 提供（与 `speechStyle` 同位置但 z-index=400）；其他气泡走 `speechStyle`（z-index=100+）。motion `x:"-50%" y:"-100%"` 居中 + 上移自身高度。done 后 content/thinking 保留 20s（`stream.retainUntil`，新消息/abort 清除）；仅工作气泡自身 hover 期间保持显示（`bubbleHover`，即使 retainUntil 过期）。**pet 身体 hover 不显示历史气泡**：retainUntil 过期后悬浮宠物身体不再复现最后一次响应的 thinking/content 气泡（`petHover` 不参与气泡显隐门控，仅供 usePetStyles 提层级/冻结移动）。（显隐/保留/滚动逻辑下沉 [useStreamBubble.ts](../../../web/src/features/pets/useStreamBubble.ts)：`nowTick` retain 定时器 + auto-scroll watcher + `onBeforeUnmount` 清 `retainTimer` 集中；模板分层不变。）
+
+ApprovalCard 的参数内容默认展开。每条审批使用 approvalId 作为渲染 key，切换审批时重新初始化倒计时和请求状态。有限时审批到零即按 approvalId 从当前项或队列移除并推进下一项，避免保留不可操作的过期气泡；后端仍以审批超时自动拒绝为权威语义。审批气泡尾角继承主体暖色背景和边框，且不参与 pointer hit-test。
 
 ## PetIcons：pet 头部右侧 icon slot（CP5 扩展）
 
@@ -91,6 +93,10 @@ div.pet-wrap                                                            // 根�
 **与气泡的协调**：审批在 `approval` 时气泡展示（z-index 400 不被遮挡）；用户点 ✕ 移入队列后气泡卸载，icon 出现并闪烁；点击闪烁 icon → `resummonApproval` 把该项移到 `approval` 重新唤起气泡。Accept/Reject → `dismissApproval` 清空 + 自动从 queue head pop 下一个进 `approval`（多审批连续推进）。
 
 侧气泡（`.speech.side`）独立 `AnimatePresence`，仅在 `showWorkSide`（hasContent && thinking 非空 && 无 approval）时显，motion `x:"-100%" y:"-100%"`（顶部齐平主气泡），同尺寸（max 180×140）+ 复用 is-thinking 浅灰虚线 + 斜体灰字（与主气泡 content 白底实线区分），定位 `sideBubbleStyle`（`top` 同主气泡，`left=pet.x-60` 向左展开）。
+
+历史抽屉不把实时 staged phase chunk 直接写成历史消息：带 runId 的 staged 仅表示实时阶段边界，`chat.get` 回放（无 runId）的 staged 才参与 HistoryItem 重建。运行期历史使用每 Agent 独立 loading；同一聚合范围内全部 Agent 结束并稳定 300ms 后重新加载完整主/后代历史，再一次性替换 loading。
+
+Ghost 不再复用 PetBody。已完成子 Agent 使用独立的发光点渲染：约 10px 个体色圆点、外发光、轻呼吸闪烁和常显短名；不渲染手、表情、状态、气泡、图标或工具栏，也不接受点击、悬浮、拖拽。
 
 ## Busy indicator
 

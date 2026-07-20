@@ -12,13 +12,15 @@ import type {
   NotificationMessage,
   ApprovalState,
 } from '../types'
-import { accumulateStaged } from '../data/streamAccumulator'
+import { accumulateStaged, shouldAccumulateStagedHistory } from '../data/streamAccumulator'
 import { defaultBounds } from '../data/streamAccumulator'
 import {
   removeQuestionBatch,
   upsertQuestionBatch,
   type QuestionBatchPayload,
 } from '../actions/questionBatch'
+import { removeApprovalById } from '../actions/approvalActions'
+import { turnChildIntoGhost } from '../data/petLifecycle'
 
 /**
  * 确保 chatId 对应的 StreamState 存在。不存在则创建默认结构。
@@ -98,6 +100,10 @@ export function createStreamRouter(
     if (c.runId && !stream.activeRunId) stream.activeRunId = c.runId
 
     if (c.type === 'staged') {
+      // checkpoint 的实时 staged 带 runId，仅表示 thinking/content/sense 阶段边界。
+      // 它没有持久化 msgId，若写入 history 会与 done.finalMessage 组成重复 thinking/content 行。
+      // chat.get 回放不带 runId，只有该路径才重建历史。
+      if (!shouldAccumulateStagedHistory(c.runId)) return
       accumulateStaged(stream, c.data as StagedChunkData | undefined)
       // 历史载入非工作态：不动 isWorking / pet action
       return
@@ -133,6 +139,7 @@ export function createStreamRouter(
 
     if (type === 'done' || type === 'error') {
       if (chatId) {
+        markHistoryAncestorsDirty(chatId)
         // T9：wait=true 唤醒由后端注入（role_reply）+ 前端 chat.resume 续跑；wait=false 纯 fire-and-forget。
         // 子 done 不再触发前端回传/注入（spawnWaits 已废）。仅清工作态（下方）。
         const stream = streams.value[chatId]
@@ -218,15 +225,8 @@ export function createStreamRouter(
           // done 表示 loop 正常结束 → 末条为 assistant → canResume 失效
           pet.canResume = false
           if (d.finished === true && !pet.isMaster) {
-            pet.isGhost = true
-            pet.ghostFace = pickGhostFace(pet.tribe, pets.value, pet.instanceId)
-            pet.ghostCreatedAt = performance.now() // ghost 创建时间戳（队列排序用）
-            // 解除 done 保留期冻结（retainUntil 为 content 气泡保留，ghost 无气泡）：灵魂态立即入队跟随。
-            // 否则 action=chatting + interactionUntil=retainUntil 冻结 20s 不移动 -> "新生成 ghost 不跟随，刷新才对"
-            pet.action = 'walk'
-            pet.interactionUntil = 0
-            pet.moodUntil = 0
-            pet.bubbleRepelExtra = 0
+            // 解除 done 保留期冻结（ghost 无气泡），立即入队跟随。
+            turnChildIntoGhost(pet, pets.value, pickGhostFace)
           }
         }
       }
@@ -347,26 +347,15 @@ export function createStreamRouter(
         if (stream) {
           const approvalId = (n.data ?? {}) as { approvalId?: string }
           const id = approvalId.approvalId
-          // 1) 从当前 approval 移除（若匹配）
-          if (stream.approval && id && stream.approval.approvalId === id) {
-            stream.approval = undefined
-            // 同步移除 runningTools 同 id 项
+          if (id) {
+            removeApprovalById(stream, id)
             stream.runningTools = stream.runningTools.filter((t) => t.id !== id)
-          } else if (stream.approval && !id) {
+          } else if (stream.approval) {
             // 没有 id 字段（旧协议兼容）→ 仍按当前 approval 处理
             stream.approval = undefined
-          } else if (id) {
-            // 当前 approval 不匹配 → 仅清理 runningTools（避免 accept 残留）
-            stream.runningTools = stream.runningTools.filter((t) => t.id !== id)
-          }
-          // 2) 从 queue 中移除匹配项（任意匹配都清，防止残留）
-          if (id) {
-            stream.approvalQueue = stream.approvalQueue.filter((a) => a.approvalId !== id)
-          }
-          // 3) 若当前 approval 清空且 queue 非空 → 自动 pop 下一个进 approval
-          if (!stream.approval && stream.approvalQueue.length > 0) {
-            const next = stream.approvalQueue.shift()
-            if (next) stream.approval = next
+            if (stream.approvalQueue.length > 0) {
+              stream.approval = stream.approvalQueue.shift()
+            }
           }
         }
       }
@@ -456,6 +445,8 @@ export function createStreamRouter(
           updatedAt: Date.now(),
         })
       }
+      // chat.sync 回放只恢复 pet/cache；旧 role_created 不能再次启动或续跑任务。
+      if (ensureStream(streams, d.parentChatId).isSyncing) return
       startSpawn(d.taskId, d.chatId).catch((e) => console.error('[agents] 子 agent 启动失败:', e))
       return
     }
@@ -508,6 +499,16 @@ export function createStreamRouter(
           agentChatId: d.childChatId,
         })
       }
+      // role_reply 表示子 agent 已向父会话交付终态（成功或错误），实时转 ghost；
+      // 对旧事件回放也可修复缺失 finished 的历史 pet 状态。
+      turnChildIntoGhost(
+        pets.value.find((pet) => pet.chatId === d.childChatId),
+        pets.value,
+        pickGhostFace,
+      )
+      // chat.sync 回放不得重放实时副作用。真正未消费的 role 回复由 chat.list.canResume
+      // 显示“继续”入口，交给用户显式触发。
+      if (stream.isSyncing) return
       resumeAgent(d.parentChatId).catch((e) =>
         console.error('[agents] role_reply resume 主失败:', e),
       )
@@ -515,6 +516,18 @@ export function createStreamRouter(
     }
 
     // consumed / replaced / 其他：CP1 不处理
+  }
+
+  function markHistoryAncestorsDirty(startChatId: string): void {
+    const visited = new Set<string>()
+    let chatId: string | undefined = startChatId
+    while (chatId && !visited.has(chatId)) {
+      visited.add(chatId)
+      const stream = streams.value[chatId]
+      if (stream) stream.historyDirty = true
+      const parentChatId = pets.value.find((pet) => pet.chatId === chatId)?.parentChatId
+      chatId = parentChatId
+    }
   }
 
   return {

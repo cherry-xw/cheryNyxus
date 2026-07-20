@@ -12,23 +12,23 @@
 
 ## 2. 决策矩阵
 
-| 域 | 决策 |
-|----|------|
-| 连接 | 打开即建连；复用 [ws.ts](../../web/src/services/ws.ts)/[transport.ts](../../web/src/services/transport.ts)/[stores/connection.ts](../../web/src/stores/connection.ts)；FAB 下方小字显连接状态 |
-| 数据模型 | [PetInstance](../../web/src/features/pets/types.ts) 加 `chatId`/`parentChatId`/`agentType`/`isWorking`/`contextUsage`/`runtime?`；chat 表加 `parent_chat_id`；多主并存 |
-| **spawn 驱动（关键变更）** | **前端驱动**：spawn_role sense 发持久 `role_created` notification（含 taskId/prompt/子 chatId）→ 前端创建子 pet + 调 `chat.startSpawn` 原子领取任务 → 子 agent done 后结果回传主 pet。**不在后端 sense 内部跑子 agent**（规避 sense 无法直接驱动 chat、跨连接 busy 锁两大风险） |
-| spawn wait 语义 | `wait=true`：sense 挂起等前端回传子结果（复用 approvalRegistry 式 Promise 挂起/唤醒，**无超时**），唤醒后返回子 agent content；`wait=false`：sense 立即返回，前端跑完子 agent 后将结果作新消息注入主 chat |
-| 角色配置 | 独立 `roles` 模块（名 = 给 AI 的角色名，`{brain, senseGroup}`），不复用 sense_groups 标记 |
-| 子 pet 创建 | 主 agent LLM 自主调 `spawn_role`；后端发 `role_created` notification；前端创建子 pet 并驱动子 chat；用户不直接创建子 pet |
-| 工具栏 | 主 pet：历史/中止/销毁；子 pet：历史/中止（runtime 切换融入发消息弹窗） |
-| 销毁 | 子 agent done 后转 ghost（灵魂态保留显示，`metadata.finished` 标记，不删 DB）；主 agent 由用户工具栏 `chat.delete`（级联子 chat）。`destroy_role` sense 已移除——子 agent 用完即 ghost，不可复用，主 agent 发起新子任务走新 chatId |
-| FAB | 页面常驻圆形按钮，启动即显，下方小字连接状态；点击弹预设选择器选预设创建主 pet（无独立 `default`，旧 default 已并入「默认」预设，见 §3.1） |
-| 发消息 | 点主 pet → 弹窗（模型+工具+输入+发送合一）；发送按钮在输入框右下角，去背景线框 icon，hover 描边→实心；配置变更 → `runtime.set` 再 `chat.send` |
-| 历史流 | 右侧抽屉；群消息样式（用户头像右/内容左，pet 头像左/内容右）；sense 调用独立 box（指令名 + args 折叠：args 为 object，有 `description` 字段则其值作折叠标题、否则标题 'arguments'，展开显其余字段 key:value；result 折叠保持现状；气泡 max-width 92%）；去除文字角色标签，hover 头像弹详情面板（brain/senseGroup/mcpServers/agentType/contextUsage），user 不弹；pet 浮层显示前 20 字 |
-| 审批 | pet 气泡内审批卡片（复用 interrupt/accept/rejected notification） |
-| 工作气泡 | thinking 阶段全空间显 thinking；thinking 结束主气泡 content 滚动 + 左侧小气泡 thinking |
-| context bar | pet 头上 bar = contextUsage / brain.contextLimit；颜色随用量变红。CP7 已实现简化估算（字符数近似，后续接 tokenizer） |
-| 组件限制 | 单组件 ≤ 500 行 |
+| 域                         | 决策                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 连接                       | 打开即建连；复用 [ws.ts](../../web/src/services/ws.ts)/[transport.ts](../../web/src/services/transport.ts)/[stores/connection.ts](../../web/src/stores/connection.ts)；FAB 下方小字显连接状态                                                                                                                                                                                         |
+| 数据模型                   | [PetInstance](../../web/src/features/pets/types.ts) 加 `chatId`/`parentChatId`/`agentType`/`isWorking`/`contextUsage`/`runtime?`；chat 表加 `parent_chat_id`；多主并存                                                                                                                                                                                                                |
+| **spawn 驱动（关键变更）** | **前端驱动**：spawn_role sense 发持久 `role_created` notification（含 taskId/prompt/子 chatId）→ 前端创建子 pet + 调 `chat.startSpawn` 原子领取任务 → 子 agent done 后结果回传主 pet。**不在后端 sense 内部跑子 agent**（规避 sense 无法直接驱动 chat、跨连接 busy 锁两大风险）                                                                                                       |
+| spawn wait 语义            | `wait=true`：sense 挂起等前端回传子结果（复用 approvalRegistry 式 Promise 挂起/唤醒，**无超时**），唤醒后返回子 agent content；`wait=false`：sense 立即返回，前端跑完子 agent 后将结果作新消息注入主 chat                                                                                                                                                                             |
+| 角色配置                   | 独立 `roles` 模块（名 = 给 AI 的角色名，`{brain, senseGroup}`），不复用 sense_groups 标记                                                                                                                                                                                                                                                                                             |
+| 子 pet 创建                | 主 agent LLM 自主调 `spawn_role`；后端发 `role_created` notification；前端创建子 pet 并驱动子 chat；用户不直接创建子 pet                                                                                                                                                                                                                                                              |
+| 工具栏                     | 主 pet：历史/中止/销毁；子 pet：历史/中止（runtime 切换融入发消息弹窗）                                                                                                                                                                                                                                                                                                               |
+| 销毁                       | 子 agent done 后转 ghost（灵魂态保留显示，`metadata.finished` 标记，不删 DB）；主 agent 由用户工具栏 `chat.delete`（级联子 chat）。`destroy_role` sense 已移除——子 agent 用完即 ghost，不可复用，主 agent 发起新子任务走新 chatId                                                                                                                                                     |
+| FAB                        | 页面常驻圆形按钮，启动即显，下方小字连接状态；点击弹预设选择器选预设创建主 pet（无独立 `default`，旧 default 已并入「默认」预设，见 §3.1）                                                                                                                                                                                                                                            |
+| 发消息                     | 点主 pet → 弹窗（模型+工具+输入+发送合一）；发送按钮在输入框右下角，去背景线框 icon，hover 描边→实心；配置变更 → `runtime.set` 再 `chat.send`                                                                                                                                                                                                                                         |
+| 历史流                     | 右侧抽屉；群消息样式（用户头像右/内容左，pet 头像左/内容右）；sense 调用独立 box（指令名 + args 折叠：args 为 object，有 `description` 字段则其值作折叠标题、否则标题 'arguments'，展开显其余字段 key:value；result 折叠保持现状；气泡 max-width 92%）；去除文字角色标签，hover 头像弹详情面板（brain/senseGroup/mcpServers/agentType/contextUsage），user 不弹；pet 浮层显示前 20 字 |
+| 审批                       | pet 气泡内审批卡片（复用 interrupt/accept/rejected notification）                                                                                                                                                                                                                                                                                                                     |
+| 工作气泡                   | thinking 阶段全空间显 thinking；thinking 结束主气泡 content 滚动 + 左侧小气泡 thinking                                                                                                                                                                                                                                                                                                |
+| context bar                | pet 头上 bar = contextUsage / brain.contextLimit；颜色随用量变红。CP7 已实现简化估算（字符数近似，后续接 tokenizer）                                                                                                                                                                                                                                                                  |
+| 组件限制                   | 单组件 ≤ 500 行                                                                                                                                                                                                                                                                                                                                                                       |
 
 ## 3. 配置扩展（[.chery/config.yaml](../../.chery/config.yaml)）
 
@@ -36,9 +36,9 @@
 # 子 agent 类型模块（名 = 给 AI 的子 agent 名；单一源定义，预设按 type 引用，见 §3.1）
 roles:
   read_code:
-    brain: longcat           # 需在 llm.brain 列表中
-    senseGroup: default   # 工具组 = 能力体现
-    mcpServers: []           # MCP server 名（缺省 []，与主 agent 平权）
+    brain: longcat # 需在 llm.brain 列表中
+    senseGroup: default # 工具组 = 能力体现
+    mcpServers: [] # MCP server 名（缺省 []，与主 agent 平权）
     # systemPrompt: prompt/reader.md   # 给出则作补充合并到全局 base 之后；缺省 → 仅全局 base（.chery/prompt/system.md）
   read_image:
     brain: longcat
@@ -55,7 +55,7 @@ llm:
     longcat:
       provider: ollama
       model: gemma3:1b
-      contextLimit: 128000   # 记忆容量；设置页默认以 K 为单位输入/显示（128 = 128K）
+      contextLimit: 128000 # 记忆容量；设置页默认以 K 为单位输入/显示（128 = 128K）
 ```
 
 设置页为记忆容量提供 `128`、`256`、`512`、`1024` 四个预设，默认单位为 K，因此下拉选项和手动输入均不显示单位；配置中仍保存完整数值（如 `128` 保存为 `128000`）。
@@ -68,25 +68,27 @@ llm:
 
 ```yaml
 presets:
-  默认:                          # 旧 config.default 迁移而来：FAB 兜底预设
-    leader: coordinator_ali       # config.roles 的角色 type；主 pet 编制从该角色取得
+  默认: # 旧 config.default 迁移而来：FAB 兜底预设
+    leader: coordinator_ali # config.roles 的角色 type；主 pet 编制从该角色取得
     roles: [coordinator_ali, read_code, read_image, plan, coder]
-  项目:                          # 项目预设（T10 样例）：多角色分工——主协调（无 update_todo），planner 规划+管 todo / coder 实现 / reviewer 只读评审
+  项目: # 项目预设（T10 样例）：多角色分工——主协调（无 update_todo），planner 规划+管 todo / coder 实现 / reviewer 只读评审
     leader: coordinator_proj
     roles: [coordinator_proj, plan, coder, reviewer]
-  轻量:                          # 轻量预设（T10 样例）：单 agent 自管 todo（leader 全工具 + plan 的 update_todo），无角色
+  轻量: # 轻量预设（T10 样例）：单 agent 自管 todo（leader 全工具 + plan 的 update_todo），无角色
     leader: coordinator
-    roles: [coordinator]       # leader 必须包含在 roles；无其他角色即 solo
+    roles: [coordinator] # leader 必须包含在 roles；无其他角色即 solo
 ```
 
 **多角色样例（项目预设，T10）**：主 agent（`leader` 组，无 `update_todo`）经 `spawn_role(wait=true)` 分派角色子 agent → 主 yield turn → 各子完成依次注入角色回复唤主 → 主汇总。todo 仅显于 planner 子 pet（`plan` 组含 `update_todo`，能力驱动，无 task-scale 判断逻辑）；reviewer 子 pet 用只读 `reviewer` 组（不改代码）。子 agent persona 由 `config.roles.<type>.systemPrompt` 单一源定义（per-type，非 per-preset）——故 planner persona 在所有引用 `plan` 的预设生效。
 
 **字段语义**：
+
 - `presets.<name>.leader`：组长角色 type 名，必须引用 `config.roles` 且包含于该预设的 `roles`。主 agent 的 brain/senseGroup/mcpServers/systemPrompt 均从该角色取得；brain 每轮可覆盖（runtime.set brain-only），sense/mcp/systemPrompt 锁定。
 - `presets.<name>.roles`：`string[]`，引用 `config.roles` 中已定义的子 agent type 名（**不在预设内重定义** brain/sense 等）。子 agent 的 brain/senseGroup/mcpServers/systemPrompt 统一在 `config.roles.<type>` 单一源维护。
 - `systemPrompt` 路径相对 `.chery`（loadConfig 解析为绝对）；缺省 → 全局。per-agent prompt 数据流见 [agent/prompt.md](./agent/prompt.md)。
 
 **T6 选择与解析（已落地）**：
+
 - **主 pet 创建**（`chat.create`）携带 `preset` 名 → 后端用 `config.presets[preset].leader` 查找对应的 `config.roles[leader]`，从中解析 `{brain, senseGroup, mcpServers}` 作 RuntimeSelection 快照写入 `metadata.runtime`；该角色的 `systemPrompt`（绝对路径）写入 `metadata.systemPromptFile`；`metadata.preset` 记预设名；`metadata.spawnTypes` 快照写入该预设选中的角色 type 列表（编制锁定一致）。主 pet 恒走预设（无独立 default；旧 default 迁为「默认」预设）。
 - **编制锁定**：创建即快照入 `metadata.runtime` + `metadata.spawnTypes`，运行后不可改（即便设置面板编辑预设，只影响**未来**新建 pet，已运行 chat 用自身快照）。
 - **runtime.set（preset chat）**：仅 `brain` 可覆盖，`senseGroup`/`mcpServers` 强制取现有快照；显式带了不同 senseGroup/mcp → fail loud（防前端绕过锁定）。
@@ -116,12 +118,12 @@ ALTER TABLE chats ADD COLUMN parent_chat_id TEXT;  -- 子 agent 关联主 chat�
 ```ts
 export interface PetInstance extends PetPreset {
   // ...原有视觉字段
-  chatId: string;              // 绑定的 chat
-  parentChatId?: string;       // 子 pet 关联主 pet 的 chatId
-  agentType?: string;          // 角色类型（roles 模块名）
-  isWorking: boolean;          // 工作状态（流式中）
-  contextUsage: number;        // 上下文用量(0-1)。本轮默认 0，计算后续
-  runtime?: RuntimeSelection;  // agent 运行时（brain+senseGroup+mcpServers）。主 pet createMasterPet 设、子 pet role_created 设、AgentDialog runtime.set 后同步；刷新后丢失
+  chatId: string // 绑定的 chat
+  parentChatId?: string // 子 pet 关联主 pet 的 chatId
+  agentType?: string // 角色类型（roles 模块名）
+  isWorking: boolean // 工作状态（流式中）
+  contextUsage: number // 上下文用量(0-1)。本轮默认 0，计算后续
+  runtime?: RuntimeSelection // agent 运行时（brain+senseGroup+mcpServers）。主 pet createMasterPet 设、子 pet role_created 设、AgentDialog runtime.set 后同步；刷新后丢失
 }
 ```
 
@@ -147,11 +149,13 @@ UI 反馈：[web/src/features/pets/PetSprite.vue](../../web/src/features/pets/Pe
 // description 运行时拼接 catalog（= config.roles 单一源，让 LLM 可见可用类型及能力）
 // type 用 z.enum(roles 键) 硬约束（空配置兜底 z.string()），避免 LLM 幻觉类型名
 // 注：catalog 为全局全集（sense 定义模块加载期冻结，不支持 per-chat 动态）；实际可 spawn 类型由执行期 roster gate 强制
-sense("spawn_role", spawnDescription,   // = "派发子 agent..." + 每类型 brain/senseGroup 清单
+sense(
+  'spawn_role',
+  spawnDescription, // = "派发子 agent..." + 每类型 brain/senseGroup 清单
   z.object({
-    type: typeSchema,          // z.enum(roles 键)（空配置兜底 z.string()）
-    prompt: z.string(),        // 交付子 agent 的任务
-    wait: z.boolean().default(false)
+    type: typeSchema, // z.enum(roles 键)（空配置兜底 z.string()）
+    prompt: z.string(), // 交付子 agent 的任务
+    wait: z.boolean().default(false),
   }),
   async (args, _sharedData, ctx) => {
     // 1. 子 agent 定义恒从 config.roles[type] 单一源解析（无则 throw）
@@ -166,10 +170,13 @@ sense("spawn_role", spawnDescription,   // = "派发子 agent..." + 每类型 br
     //    主 loop 见 yieldTurn 立即结束本 turn（done 正常发）；子完成后后端注入角色回复唤起新一轮（见 §5.4）
     //    wait=false：立即返回（纯 fire-and-forget，主 loop 继续，不收子结果）
     // 注：sense 不内部跑子 agent；子 chat 由前端 chat.send 驱动，同 WS 连接按 chatId 路由 chunk
-  }, SupervisionLevel.auto)
+  },
+  SupervisionLevel.auto,
+)
 ```
 
 **wait 两态语义（2026-07-09 重构，废除原阻塞心跳）**：
+
 - `wait=false`：spawn 立即返回，主 loop **继续**（纯 fire-and-forget，子结果不回传主）。
 - `wait=true`：spawn 立即返回 + 主 loop **立即结束本 turn**（`ctx.soul.yieldTurn`）+ 子完成后**后端注入角色回复**唤起主跑新一轮（区别于 user 消息，见 §5.4）。递归：任何有 spawn 能力的 agent（含子）都可被其 spawn 的子唤醒。
 - **废除**：原 `subagent.result` RPC、`spawnBroker.pendingSpawns`/`resolveSpawnResult`（legacy 未用）、阻塞心跳（`heartbeatListeners`/`registerHeartbeatListener`/`notifyHeartbeat`/`hasHeartbeatListener`/`clearHeartbeatListener`）。唤醒链改 `waitedChildren` Map（见 §5.4/§5.8）。
@@ -192,7 +199,7 @@ sense("spawn_role", spawnDescription,   // = "派发子 agent..." + 每类型 br
   - `child_done` chunk：子 agent 真正完成（所有任务执行完毕），设 `finished=true`，前端据此变 ghost。
 - **chat.list 暴露 finished**（[handler.ts](../../src/service/chat/handler.ts) `handleChatList`）：解析 `metadata.finished` 映射到 `ChatSummary.finished`，刷新后前端据 `finished` 重建 ghost pet。
 - **前端 ghost 化**（[stores/agents](../../web/src/stores/agents/index.ts)）：done notification `finished===true` → 子 pet `isGhost=true` + pick `ghostFace`（灵魂 emoji 池，**按 tribe 内创建序号顺序取** `GHOST_FACES[N % 池长]`，N=本主已存在 ghost 数；非随机、不跨实例去重--同主 ghost 固定序列 0,1,2...，不同主可同 emoji）；`buildMasterAndChildren` 重建 finished 子 pet 同样设 `isGhost`，N 按 children 迭代顺序（= `ghostCreatedAt` 队列顺序，face 与队列位一一对应）。
-- **ghost 视觉**（[PetSprite.vue](../../web/src/features/pets/PetSprite.vue)）：独立形态——尺寸缩 0.42、去左右手、face 换灵魂 emoji、动画极简（微浮，不走 action/mood 闪烁）、半透明 opacity .55、隐藏 status-row；仅保留位置移动（灵魂飘动）。交互极简：仅点击身体 → HistoryDrawer（查历史），禁拖拽/hover/工具栏。
+- **ghost 视觉**（[GhostDot.vue](../../web/src/features/pets/components/GhostDot.vue)）：约 10px 的个体颜色发光点 + 常显短名，仅保留移动和呼吸闪烁；不再复用 PetBody，不渲染表情、手、状态、气泡、历史图标或工具栏，也不接受点击、hover、键盘和拖拽。
 - **名字**：ghost 保留原 pet 名字（身份延续），不重新随机。
 
 ### 5.3 协议扩展（[protocol.md](./protocol.md)）
@@ -292,6 +299,7 @@ runtime 每轮可换（AgentDialog 发消息时改 brain/senseGroup），chat �
 #### 5.8.2 后端启动重建（spawnBroker.rebuildFromDb）
 
 [service/index.ts](../../src/service/index.ts) init 调：扫子 chat metadata.wait=true：
+
 - `finished=true`（子完成、崩溃前未唤）→ `wakeParent` 从 DB 末条 assistant content 补唤主（notification 无连接则丢，回复已落 DB）。
 - `finished=false`（interrupted）→ 重建 `waitedChildren` + 重启看门狗（待前端重连续跑子）。
 
@@ -329,9 +337,9 @@ runtime 每轮可换（AgentDialog 发消息时改 brain/senseGroup），chat �
 
 **答：仅停止接收输出，后端 loop 继续运行。** 设计上 generator 与 WebSocket 解耦（`chatRuntimes` Map 持 generator，`ws.send` 失败静默）。后端 loop 仅在以下情形自动停止：
 
-- `await approvalPromise` 收到 `AgentAbortError`（连接关闭 / `chat.abort` / 审批超时）
+- `await approvalPromise` 收到 `AgentParkError`（WS 连接关闭，close(ws)→park）或 `AgentAbortError`（用户 `chat.abort`）——均 throw 退出 loop（pending sense content 保 NULL 待重连 resume）
 - `WATCHDOG_TIMEOUT_MS = 5min`（[spawnBroker.ts:119](../../src/agent/spawnBroker.ts#L119)）触发的 wait=true 子超时
-- `defaultApprovalTimeout = 15min`（[connection.ts:41](../../src/service/websocket/connection.ts#L41)）触发的审批超时
+- 限时审批超时（`global.approval_timeout`，由 core approvalRegistry 管）→ resolve as reject（**非 throw**，loop 继续运行，= 用户点 Reject）
 - 用户从新连接发起 `chat.abort`（[send.ts:264-276](../../src/service/chat/send.ts#L264-L276)）
 - 后端进程退出
 
@@ -403,13 +411,13 @@ function mergeChildToMaster(items: HistoryItem[]): HistoryItem[] {
 
 **合并字段来源**：
 
-| 字段 | 来源 | 原因 |
-|------|------|------|
-| `content` | A | 保留 `[角色 X]` 前缀身份标识 |
-| `createdAt` / `runtime` / `senseCalls` | B | 子 chat 实际完成时间 + 触发 sense 记录 |
-| `spawnSenseCallId` | A | 指向主 chat 的 spawn sense call，点击头像跳转 |
-| `subPetChatId` / `callerSubPetChatId` | B | MessageBubble caller 查询用 |
-| `petName` | A | =type，info-panel tooltip 兜底 |
+| 字段                                   | 来源 | 原因                                          |
+| -------------------------------------- | ---- | --------------------------------------------- |
+| `content`                              | A    | 保留 `[角色 X]` 前缀身份标识                  |
+| `createdAt` / `runtime` / `senseCalls` | B    | 子 chat 实际完成时间 + 触发 sense 记录        |
+| `spawnSenseCallId`                     | A    | 指向主 chat 的 spawn sense call，点击头像跳转 |
+| `subPetChatId` / `callerSubPetChatId`  | B    | MessageBubble caller 查询用                   |
+| `petName`                              | A    | =type，info-panel tooltip 兜底                |
 
 **新样式「子发送消息给主」**（[MessageBubble.vue](../../web/src/features/agent/MessageBubble.vue)）：
 
@@ -421,18 +429,18 @@ function mergeChildToMaster(items: HistoryItem[]): HistoryItem[] {
 
 **Edge cases 验证**：
 
-| # | 场景 | 期望 |
-|---|------|------|
-| 1 | 标准 wait=true spawn | group 视图合并项**只 1 条** |
-| 2 | direct 视图 | 完整子 chat 历史，无 mergedView 项 |
-| 3 | 子 chat 多轮（内部 user↔assistant 多轮 + 末条） | direct 全 N 条；group 前 N-1 中间 role 行无 A 配对保留 + 1 合并项 = N |
-| 4 | A 行缺失（role_reply 失败） | B 行按 role-role 样式正常渲染 |
-| 5 | B 行缺失（子 chat 未完成） | A 行按 role-role 样式渲染（徽章走 masterText fallback） |
-| 6 | 多级 spawn（A→B→C） | A drawer：A→B 合并；B drawer：B→C 合并（各 drawer 独立链路） |
-| 7 | stream.history reset + reload | mergedHistory computed 响应式依赖 items，重载后合并正确 |
-| 8 | store msgId dedup 与合并共存 | dedup 丢一边 → groups 一边空 → 跳过合并 → 降级渲染（安全） |
-| 9 | content 来源 | 用 A 的 `[角色 coder] xxx` 前缀形式 |
-| 10 | senseCalls 来源 | 用 B 的（子 pet 触发的 sense 记录） |
+| #   | 场景                                            | 期望                                                                  |
+| --- | ----------------------------------------------- | --------------------------------------------------------------------- |
+| 1   | 标准 wait=true spawn                            | group 视图合并项**只 1 条**                                           |
+| 2   | direct 视图                                     | 完整子 chat 历史，无 mergedView 项                                    |
+| 3   | 子 chat 多轮（内部 user↔assistant 多轮 + 末条） | direct 全 N 条；group 前 N-1 中间 role 行无 A 配对保留 + 1 合并项 = N |
+| 4   | A 行缺失（role_reply 失败）                     | B 行按 role-role 样式正常渲染                                         |
+| 5   | B 行缺失（子 chat 未完成）                      | A 行按 role-role 样式渲染（徽章走 masterText fallback）               |
+| 6   | 多级 spawn（A→B→C）                             | A drawer：A→B 合并；B drawer：B→C 合并（各 drawer 独立链路）          |
+| 7   | stream.history reset + reload                   | mergedHistory computed 响应式依赖 items，重载后合并正确               |
+| 8   | store msgId dedup 与合并共存                    | dedup 丢一边 → groups 一边空 → 跳过合并 → 降级渲染（安全）            |
+| 9   | content 来源                                    | 用 A 的 `[角色 coder] xxx` 前缀形式                                   |
+| 10  | senseCalls 来源                                 | 用 B 的（子 pet 触发的 sense 记录）                                   |
 
 **store 层 msgId dedup 保留为兜底**（[agents/index.ts:493-500](../../web/src/stores/agents/index.ts#L493-L500)）——实际不命中但无害，注释注明 UI 展示层做合并。
 
@@ -444,10 +452,10 @@ function mergeChildToMaster(items: HistoryItem[]): HistoryItem[] {
 
 发言者大头像现按 `callerIsMaster` 区分多级 spawn，与 `role` 分支徽章写法对称（[MessageAvatar.vue](../../web/src/features/agent/MessageAvatar.vue)）：
 
-| 场景 | caller | 大头像（发言者） | 小徽章（接收方 subPet） |
-|------|--------|------------------|------------------------|
-| 主→子（单层） | 主 agent | pet-master 米色 + masterText | pet-sub 紫 + subFace |
-| 子→孙（多级） | 上层子 pet | pet-sub 紫 + callerPetFace（caller emoji） | pet-sub 紫 + subFace |
+| 场景          | caller     | 大头像（发言者）                           | 小徽章（接收方 subPet） |
+| ------------- | ---------- | ------------------------------------------ | ----------------------- |
+| 主→子（单层） | 主 agent   | pet-master 米色 + masterText               | pet-sub 紫 + subFace    |
+| 子→孙（多级） | 上层子 pet | pet-sub 紫 + callerPetFace（caller emoji） | pet-sub 紫 + subFace    |
 
 - `callerSubPetChatId` 由 `remapChildHistory(items, childChatId, parentChatId)` 写入（孙 chat 的 `parentChatId` = 上层子 chat，见 [getHistory](../../web/src/stores/agents/index.ts)）；`useSubPetResolution` 据 `callerSubPetChatId` 查 pets 得 caller face。
 - 多级时发言者与接收方均 pet-sub 紫，靠 face emoji + name-initial 区分（与 `role` 分支多级一致）。
@@ -506,6 +514,7 @@ wsClient.onChunk/onNotification → agents.ts 路由 → 更新 pet 气泡/conte
 ### 6.3 pet 模块改造清单（[web/pet/](./web/pet/) 同步）
 
 **删除**：
+
 - [invokeTool](../../web/src/features/pets/usePetWorld.ts) 装饰分支（pet/feed/sleep/punch/dismiss/summon）
 - pet 间 chatting（maybeTriggerChats/triggerChat/CHAT_* 常量）
 - randomEmotion/mood 按钮
@@ -513,6 +522,7 @@ wsClient.onChunk/onNotification → agents.ts 路由 → 更新 pet 气泡/conte
 - emotion 交互增量（保留字段，移除交互驱动）
 
 **保留**：
+
 - 运动（RAF/retarget/stepMovement/部落物理）
 - motion 动画（sprite/hand/face/speech variant）
 - 拖拽/悬浮（fatigue 语义改 contextUsage，本轮不驱动）
@@ -521,6 +531,7 @@ wsClient.onChunk/onNotification → agents.ts 路由 → 更新 pet 气泡/conte
 - setFatigue/setEmotion（agent 注入钩子）
 
 **新增**：
+
 - PetInstance: chatId/parentChatId/agentType/isWorking/contextUsage
 - 气泡：thinking/content 双气泡 + 工作流式（CP2）；审批气泡 z-index 单独提到 400 避开浮层覆盖（CP5 扩展）
 - 工具栏：PetToolbar 组件（CP2）
@@ -547,8 +558,7 @@ FAB 点击 → 选择 preset → agentApi.createAgent({preset})（chat.create）
   → 子 agent done：
       wait=true → 前端 subagent.result 回传 → 后端唤醒主 sense → 主 agent 继续
       wait=false → 前端 chat.send(主chatId, "[子agent type] content") 注入主 agent
-      子 chat 标 metadata.finished → 子 pet 转灵魂态（ghost，缩小+半透明+灵魂emoji，留 stage）
-      点 ghost 身体 → HistoryDrawer 查子 chat 历史
+      子 chat 标 metadata.finished → 子 pet 转 ghost 发光点，排在本 tribe 主 Agent 轨迹后
 
 主 agent 工具栏隐藏 → store.hide（主 pet + 其子/ghost pet 移出 stage，不删 DB）
 会话列表 ✕ → chat.delete（级联删子 chat，含 ghost 的）
@@ -556,29 +566,29 @@ FAB 点击 → 选择 preset → agentApi.createAgent({preset})（chat.create）
 
 ## 分阶段实施 (CP0-CP7)
 
-| 阶段 | 功能点 | 状态 | 验证 |
-|------|--------|------|------|
-| **CP0** | 本文档 + 更新 [README.md](./README.md)/[web/pet/](./web/pet/) 索引 | ✅ | 文档评审 |
-| **CP1** | 连接接线（main Pinia+init）+ chat.list 初始化 + pet↔chat 映射 + 数据模型（parent_chat_id）| ✅ | 建连成功，历史 chat 重建为 pet |
-| **CP2** | AgentFab + AgentDialog + 主 pet 双气泡 + 工作状态 + 流式 chunk 消费 + ContextBar（占位，待 CP7 接通后端估算） | ✅ | FAB 创建主 pet，发消息，气泡实时显示 |
-| **CP3** | spawn_role sense（前端驱动）+ role_created notification + 子 pet 创建/显示 + roles 配置 + subagent.result 回传 | ✅ | 主 agent 派发子任务，子 pet 出现并工作 |
-| **CP4** | HistoryDrawer + MessageBubble + SenseCallBox + 群消息样式 | ✅ | 点数字气泡看完整历史 |
-| **CP5** | ApprovalCard（interrupt→accept/reject）+ ✕关闭入队 + approvalQueue + PetIcons 闪烁列 + 审批 z-index 提到 400 避开浮层覆盖 | ✅ | bash confirm 审批闭环 + 关闭可重唤起 |
-| **CP6** | 中止（chat.abort）+ 隐藏（hide）+ ~~destroy_role sense~~（已移除，子 agent done 改转 ghost，§5.6）+ role_destroyed notification（失去发出方，保留协议项）+ 异步结果注入 | ✅ | 全生命周期闭环 |
-| **CP7** | contextUsage 计算（字符数估算，未接 tokenizer）+ 文档更新 + 验收 | ✅ | 全流程通（tokenizer 精确计算 + compact RPC 仍留待） |
+| 阶段    | 功能点                                                                                                                                                                  | 状态 | 验证                                                |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | --------------------------------------------------- |
+| **CP0** | 本文档 + 更新 [README.md](./README.md)/[web/pet/](./web/pet/) 索引                                                                                                      | ✅   | 文档评审                                            |
+| **CP1** | 连接接线（main Pinia+init）+ chat.list 初始化 + pet↔chat 映射 + 数据模型（parent_chat_id）                                                                              | ✅   | 建连成功，历史 chat 重建为 pet                      |
+| **CP2** | AgentFab + AgentDialog + 主 pet 双气泡 + 工作状态 + 流式 chunk 消费 + ContextBar（占位，待 CP7 接通后端估算）                                                           | ✅   | FAB 创建主 pet，发消息，气泡实时显示                |
+| **CP3** | spawn_role sense（前端驱动）+ role_created notification + 子 pet 创建/显示 + roles 配置 + subagent.result 回传                                                          | ✅   | 主 agent 派发子任务，子 pet 出现并工作              |
+| **CP4** | HistoryDrawer + MessageBubble + SenseCallBox + 群消息样式                                                                                                               | ✅   | 点数字气泡看完整历史                                |
+| **CP5** | ApprovalCard（interrupt→accept/reject）+ ✕关闭入队 + approvalQueue + PetIcons 闪烁列 + 审批 z-index 提到 400 避开浮层覆盖                                               | ✅   | bash confirm 审批闭环 + 关闭可重唤起                |
+| **CP6** | 中止（chat.abort）+ 隐藏（hide）+ ~~destroy_role sense~~（已移除，子 agent done 改转 ghost，§5.6）+ role_destroyed notification（失去发出方，保留协议项）+ 异步结果注入 | ✅   | 全生命周期闭环                                      |
+| **CP7** | contextUsage 计算（字符数估算，未接 tokenizer）+ 文档更新 + 验收                                                                                                        | ✅   | 全流程通（tokenizer 精确计算 + compact RPC 仍留待） |
 
 > CP0-CP7 已全部落地。CP7 的 token 估算为字符数近似（`Math.ceil(text.length/4)`，[src/utils/token.ts](../src/utils/token.ts)），后续接 tokenizer 替换 `estimateTokens` 实现即可；compact RPC 仅 UI 预留（PetToolbar 按钮 + PetStage TODO），后端未实现。前端组件层细节见 [web/pet/agent-integration.md](./web/pet/agent-integration.md)。
 
 ## 待确认项状态
 
-| 项 | 决策 | 状态 |
-|----|------|------|
-| spawn 驱动机制 | **前端驱动**（sense 发 notification，前端创建子 pet + 驱动子 chat，结果回传） | ✅ 已定（变更自后端驱动） |
-| contextUsage 计算 | CP7 已实现简化估算（字符数 / 4 近似，累加非 revoked 消息 content+thinking）；后续接 tokenizer 替换 `estimateTokens` 即可 | ✅ 已实现（CP7） |
-| async 注入角色 | role=user + 前缀 `[子agent {type}]`，UI 标子 pet name | ✅ 已定 |
-| 异步注入触发方 | **前端**触发（chat.send 注入主 chat），非后端 | ✅ 已定 |
-| wait=true 回传通道 | 新 RPC `subagent.result`（params `{chatId, content}`，返回 `{chatId, matched}`）+ 新建 `spawnBroker`（集中 Map + resolve/reject，**不复用 approvalRegistry** 因 resolve 签名语义错位） | ✅ 已定（CP3 实现） |
-| compact 指令语义 | 后端 compact RPC（压缩上下文），具体预留 | ⏳ 预留 |
-| 子 pet 点击行为 | 打开 HistoryDrawer（子 pet 无发消息权限） | 推荐 |
-| 工作状态 action | 复用 `chatting`（不新增 action） | 推荐 |
-| emotion 字段去留 | 保留为内部 mood 驱动，移除交互增量 | 推荐 |
+| 项                 | 决策                                                                                                                                                                                   | 状态                      |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| spawn 驱动机制     | **前端驱动**（sense 发 notification，前端创建子 pet + 驱动子 chat，结果回传）                                                                                                          | ✅ 已定（变更自后端驱动） |
+| contextUsage 计算  | CP7 已实现简化估算（字符数 / 4 近似，累加非 revoked 消息 content+thinking）；后续接 tokenizer 替换 `estimateTokens` 即可                                                               | ✅ 已实现（CP7）          |
+| async 注入角色     | role=user + 前缀 `[子agent {type}]`，UI 标子 pet name                                                                                                                                  | ✅ 已定                   |
+| 异步注入触发方     | **前端**触发（chat.send 注入主 chat），非后端                                                                                                                                          | ✅ 已定                   |
+| wait=true 回传通道 | 新 RPC `subagent.result`（params `{chatId, content}`，返回 `{chatId, matched}`）+ 新建 `spawnBroker`（集中 Map + resolve/reject，**不复用 approvalRegistry** 因 resolve 签名语义错位） | ✅ 已定（CP3 实现）       |
+| compact 指令语义   | 后端 compact RPC（压缩上下文），具体预留                                                                                                                                               | ⏳ 预留                   |
+| 子 pet 点击行为    | 打开 HistoryDrawer（子 pet 无发消息权限）                                                                                                                                              | 推荐                      |
+| 工作状态 action    | 复用 `chatting`（不新增 action）                                                                                                                                                       | 推荐                      |
+| emotion 字段去留   | 保留为内部 mood 驱动，移除交互增量                                                                                                                                                     | 推荐                      |

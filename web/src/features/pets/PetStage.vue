@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import PetSprite from './components/PetSprite.vue'
 import { usePetWorld } from './composables/usePetWorld'
 import { useAgentsStore } from '@/stores'
@@ -15,32 +15,11 @@ const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = useP
 )
 
 /**
- * ghost 首领集合：每 tribe（同主）中 ghostCreatedAt 最小者 = 首领（可拖）。
- * 与 usePetWorld.ghostQueueIndex idx0 语义一致。PetStage 传给 PetSprite 放行首领拖拽。
- */
-const leaderIds = computed(() => {
-  const byTribe = new Map<string, PetInstance>()
-  for (const p of agents.pets) {
-    if (!p.isGhost) continue
-    const cur = byTribe.get(p.tribe)
-    if (!cur || (p.ghostCreatedAt ?? 0) < (cur.ghostCreatedAt ?? 0)) byTribe.set(p.tribe, p)
-  }
-  const ids = new Set<string>()
-  for (const pet of byTribe.values()) ids.add(pet.instanceId)
-  return ids
-})
-
-/**
  * 主 pet 点击 → 打开 AgentDialog（设 activeDialogChatId）。
  * 子 pet 点击 → 沿用装饰 clickPet（CP3+ 改路由 HistoryDrawer）。
  * 工作中主 pet 仍可点击（用户可排队下一条）。
  */
 function handleClick(pet: PetInstance): void {
-  // ghost（子 agent 已完成灵魂态）：点击 → 查历史；不响应主/子常规交互
-  if (pet.isGhost) {
-    agents.openHistoryRoot(pet.chatId)
-    return
-  }
   if (pet.isMaster) {
     agents.activeDialogChatId = pet.chatId
     return
@@ -95,7 +74,6 @@ async function handleResume(pet: PetInstance): Promise<void> {
       :pet="pet"
       :paused="isPaused"
       :stream="agents.streams[pet.chatId]"
-      :ghost-draggable="leaderIds.has(pet.instanceId)"
       @start-drag="startDrag"
       @drag="dragPet"
       @end-drag="endDrag"
@@ -112,7 +90,9 @@ async function handleResume(pet: PetInstance): Promise<void> {
 
 <style scoped lang="less">
 .pet-stage {
-  position: fixed;
+  // absolute + z-index:auto avoids trapping approval bubbles in a root stacking context.
+  // Their z-index:400 must stay above HistoryDrawer's full-screen z-index:280 overlay.
+  position: absolute;
   inset: 0;
   overflow: hidden;
   min-width: 320px;

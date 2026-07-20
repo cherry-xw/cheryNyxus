@@ -240,34 +240,15 @@ async function handleRequest(
 
             // Notification 消息
             if (item.kind === 'notification') {
-              // interrupt 发出后启动审批超时
+              // interrupt：记 approvalId→requestId 映射（供 close(ws) park；限时超时由 core approvalRegistry 管）
               if (item.type === 'interrupt' && item.data && 'approvalId' in item.data) {
-                const interrupt = item.data as { approvalId: string; waitTime?: unknown }
-                const approvalId = interrupt.approvalId
-                const waitTime =
-                  typeof interrupt.waitTime === 'number' && interrupt.waitTime >= 0
-                    ? interrupt.waitTime
-                    : undefined
-                connectionManager.setRequestApprovalId(ws, request.id, approvalId)
-                connectionManager.startApprovalTimeout(
-                  ws,
-                  request.id,
-                  async () => {
-                    logger.event('approval.timeout', { approvalId })
-                    ws.send(
-                      transport.serializeMessage(
-                        createResponse(
-                          request.id,
-                          false,
-                          undefined,
-                          createError(ErrorCode.TIMEOUT, '审批等太久了，已结束'),
-                        ),
-                      ),
-                    )
-                    await connectionManager.close(ws)
-                  },
-                  waitTime,
-                )
+                // 仅记 approvalId→requestId 映射，供 close(ws) 时 park 该审批（WS 断连路径）。
+                // 限时超时由 core approvalRegistry 独占管理（createApproval(id, global.approval_timeout)，
+                // 见 tool.ts:266）：超时 resolve as reject→sense_reject→rejected notification→子 loop 继续
+                // （= 用户点 Reject）。service 层不再起重复 timer——旧 startApprovalTimeout 超时
+                // ws.send(TIMEOUT)+close(ws) 拆连接是 bug 源（覆盖 registry 的正确 reject），已废。
+                const interrupt = item.data as { approvalId: string }
+                connectionManager.setRequestApprovalId(ws, request.id, interrupt.approvalId)
               }
               if (ws.readyState === ws.OPEN) ws.send(transport.encode(item))
               continue
@@ -310,7 +291,6 @@ async function handleRequest(
     settle(response)
     inFlightRequests.delete(request.id)
     if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
-    connectionManager.clearApprovalTimeout(ws, request.id)
     connectionManager.removePendingRequest(ws, request.id)
   }
 }

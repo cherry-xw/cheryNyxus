@@ -13,12 +13,16 @@
  * - 长消息、思考折叠和媒体加载均由 ResizeObserver 重新量测。
  * 错误显性化（规则 12）：stream 不存在时显 loading 而非崩（getHistory ensureStream，理论不达）。
  */
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { motion } from 'motion-v'
 import { useAgentsStore } from '@/stores'
 import type { HistoryItem } from '@/stores/agents'
 import VirtualScroll from '@/components/VirtualScroll.vue'
-import { mergeChildReplyHistory } from '@/stores/agents/data/historyMerge'
+import { dedupHistoryByMsgId, mergeChildReplyHistory } from '@/stores/agents/data/historyMerge'
+import {
+  reconcileAgentLoadingEntries,
+  type AgentLoadingEntry,
+} from '@/stores/agents/data/historyLoading'
 import MessageBubble from '../chat/MessageBubble.vue'
 import { useDrawerWidth } from './useDrawerWidth'
 import { useSubPetResolution } from '../composables/useSubPetResolution'
@@ -87,63 +91,6 @@ const history = computed<HistoryItem[]>(() => {
 })
 const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false)
 
-/**
- * 按 msgId 顺序合并同条消息的多个 HistoryItem。
- * - assistant / role / subagent / master 同 msgId → 合并 thinking/content/senseCalls 字段
- * - 非空字段优先；createdAt 取最早
- * - msgId 缺失的条目（实时流临时项）保留原位不动
- */
-function dedupHistoryByMsgId(items: HistoryItem[]): HistoryItem[] {
-  const seen = new Map<string, HistoryItem>()
-  const result: HistoryItem[] = []
-  for (const item of items) {
-    const id = item.msgId
-    if (!id) {
-      result.push(item)
-      continue
-    }
-    const existing = seen.get(id)
-    if (!existing) {
-      seen.set(id, item)
-      result.push(item)
-      continue
-    }
-    // 合并：补齐之前缺失的字段；createdAt 取最早
-    if (!existing.thinking && item.thinking) existing.thinking = item.thinking
-    else if (
-      item.thinking &&
-      existing.thinking &&
-      item.thinking.length > existing.thinking.length
-    ) {
-      // 后到的更完整 → 覆盖（极少见，仍防御）
-      existing.thinking = item.thinking
-    }
-    if (!existing.content && item.content) {
-      existing.content = item.content
-    } else if (item.content && existing.content && item.content.length > existing.content.length) {
-      existing.content = item.content
-    }
-    if (item.senseCalls?.length) {
-      const seenScIds = new Set((existing.senseCalls ?? []).map((sc) => sc.id))
-      const mergedSc = [...(existing.senseCalls ?? [])]
-      for (const sc of item.senseCalls) {
-        if (!seenScIds.has(sc.id)) {
-          seenScIds.add(sc.id)
-          mergedSc.push(sc)
-        }
-      }
-      if (mergedSc.length > 0) existing.senseCalls = mergedSc
-    }
-    if (item.runtime && !existing.runtime) existing.runtime = item.runtime
-    if (item.createdAt !== undefined) {
-      if (existing.createdAt === undefined || item.createdAt < existing.createdAt) {
-        existing.createdAt = item.createdAt
-      }
-    }
-  }
-  return result
-}
-
 // 仅人类用户消息（role === "user" 唯一标识；child-to-master 合并项底层是 master/role，不算）
 // 保留原 history 索引以便点击直接复用 VirtualScroll.scrollToIndex，不再二次查找。
 const userMarks = computed<Array<{ item: HistoryItem; idx: number }>>(() =>
@@ -164,14 +111,94 @@ function getHistoryItemKey(item: HistoryItem, index: number): string {
   return item.msgId ?? `idx-${index}`
 }
 
-// 面板挂载 / chatId 变 → 载入历史（经 manager.loadHistory，预留缓存层）
+const loadingAgents = ref<AgentLoadingEntry[]>([])
+const batchReloading = ref(false)
+const showAgentLoading = computed(() => loadingAgents.value.length > 0 || batchReloading.value)
+let batchChatId = ''
+let settleTimer: ReturnType<typeof setTimeout> | null = null
+
+const scopePets = computed(() => {
+  const root = props.chatId
+  if (layout.value === 'direct') return pet.value ? [pet.value] : []
+  return agents.pets.filter((candidate) => {
+    if (candidate.chatId === root) return true
+    const seen = new Set<string>()
+    let parent = candidate.parentChatId
+    while (parent && !seen.has(parent)) {
+      if (parent === root) return true
+      seen.add(parent)
+      parent = agents.pets.find((item) => item.chatId === parent)?.parentChatId
+    }
+    return false
+  })
+})
+
+const workingScopePets = computed(() =>
+  scopePets.value.filter(
+    (candidate) => candidate.isWorking || agents.streams[candidate.chatId]?.isWorking,
+  ),
+)
+
+function clearSettleTimer(): void {
+  if (!settleTimer) return
+  clearTimeout(settleTimer)
+  settleTimer = null
+}
+
+function mergeLoadingAgents(): void {
+  loadingAgents.value = reconcileAgentLoadingEntries(
+    loadingAgents.value,
+    workingScopePets.value.map((candidate) => ({
+      chatId: candidate.chatId,
+      name: candidate.name || candidate.agentType || candidate.chatId.slice(0, 8),
+      face: candidate.isGhost ? '•' : candidate.face[candidate.mood],
+    })),
+  )
+}
+
+function scheduleBatchReload(): void {
+  if (settleTimer || loadingAgents.value.length === 0) return
+  settleTimer = setTimeout(() => {
+    settleTimer = null
+    if (workingScopePets.value.length > 0 || props.chatId !== batchChatId) return
+    batchReloading.value = true
+    void manager
+      .loadHistory(props.chatId)
+      .catch((error) => console.error('[HistoryDrawer] batch history reload failed:', error))
+      .finally(() => {
+        if (workingScopePets.value.length === 0 && props.chatId === batchChatId) {
+          loadingAgents.value = []
+        }
+        batchReloading.value = false
+      })
+  }, 300)
+}
+
 watch(
-  () => props.chatId,
-  (v) => {
-    if (v) void manager.loadHistory(v)
+  [() => props.chatId, workingScopePets],
+  ([chatId, working], [previousChatId] = ['', []]) => {
+    if (!chatId) return
+    if (chatId !== previousChatId || chatId !== batchChatId) {
+      clearSettleTimer()
+      loadingAgents.value = []
+      batchReloading.value = false
+      batchChatId = chatId
+      if (working.length === 0) void manager.loadHistory(chatId)
+    }
+    if (working.length > 0) {
+      clearSettleTimer()
+      mergeLoadingAgents()
+      return
+    }
+    if (loadingAgents.value.length > 0) {
+      mergeLoadingAgents()
+      scheduleBatchReload()
+    }
   },
   { immediate: true },
 )
+
+onBeforeUnmount(clearSettleTimer)
 
 function scrollToBottom(): void {
   void nextTick(() => virtualScrollRef.value?.scrollToEnd())
@@ -387,10 +414,12 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
     </div>
 
     <div class="drawer-body">
-      <div v-if="!loaded" class="loading-row">载入历史…</div>
-      <div v-else-if="history.length === 0" class="empty-row">暂无历史</div>
+      <div v-if="!loaded && !showAgentLoading" class="loading-row">载入历史…</div>
+      <div v-else-if="loaded && history.length === 0 && !showAgentLoading" class="empty-row">
+        暂无历史
+      </div>
       <VirtualScroll
-        v-else
+        v-else-if="loaded && history.length > 0"
         ref="virtualScrollRef"
         class="history-list"
         :items="history"
@@ -434,6 +463,18 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
           </el-tooltip>
         </template>
       </VirtualScroll>
+      <div v-if="showAgentLoading" class="agent-loading-list" aria-live="polite">
+        <div v-for="entry in loadingAgents" :key="entry.chatId" class="agent-loading-row">
+          <span class="agent-loading-face">{{ entry.face }}</span>
+          <span class="agent-loading-copy">
+            <b>{{ entry.name }}</b>
+            <small>{{ entry.running ? '正在输入…' : '已完成，等待其他 Agent…' }}</small>
+          </span>
+          <span v-if="entry.running" class="typing-dots" aria-hidden="true"> <i /><i /><i /> </span>
+          <span v-else class="agent-done" aria-hidden="true">✓</span>
+        </div>
+        <div v-if="batchReloading" class="batch-loading">正在整理全部 Agent 的完整内容…</div>
+      </div>
     </div>
   </MotionDiv>
 </template>
@@ -586,6 +627,90 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
   flex: 1;
   min-height: 0;
   --virtual-scroll-gap: 10px;
+}
+.agent-loading-list {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 14px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(36, 38, 45, 0.13);
+}
+.agent-loading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(99, 102, 241, 0.16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.agent-loading-face {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.1);
+  font-size: 13px;
+}
+.agent-loading-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.agent-loading-copy b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: fade(@ink, 80%);
+  font-size: 11px;
+}
+.agent-loading-copy small,
+.batch-loading {
+  color: fade(@ink, 48%);
+  font-size: 9.5px;
+}
+.typing-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.typing-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #6366f1;
+  animation: history-typing 1.1s ease-in-out infinite;
+}
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.agent-done {
+  color: #16a34a;
+  font-size: 12px;
+  font-weight: 900;
+}
+.batch-loading {
+  padding: 3px 4px;
+  text-align: center;
+}
+@keyframes history-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 .usage-bar-wrap {

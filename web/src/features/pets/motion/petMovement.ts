@@ -14,6 +14,11 @@ import type { PetInstance, StageBounds } from '../types/types'
 
 export const PET_WIDTH = 72
 export const PET_HEIGHT = 96
+export const GHOST_QUEUE_SPACING = 32
+
+export function ghostTrailDistance(index: number): number {
+  return (Math.max(0, index) + 1) * GHOST_QUEUE_SPACING
+}
 
 // 移动
 const MAX_SPEED = 10 // 移动速度上限 px/s
@@ -212,11 +217,11 @@ export function findSpawnPosition(
   return best
 }
 
-// ===== ghost 队列路径拟合 trail（母鸡带小鸡） =====
-// 纯函数：首领移动轨迹采样 + 弧长取点。状态由 usePetWorld 闭包 Map<tribe, GhostTrail> 持有。
+// ===== ghost 队列路径拟合 trail（主 Agent 带队） =====
+// 纯函数：主 Agent 移动轨迹采样 + 弧长取点。状态由 usePetWorld 闭包 Map<tribe, GhostTrail> 持有。
 
 export interface GhostTrail {
-  /** newest-first：pts[0] = 首领当前位，末尾 = 最旧。 */
+  /** newest-first：pts[0] = 主 Agent 当前位，末尾 = 最旧。 */
   pts: { x: number; y: number }[]
 }
 const TRAIL_SAMPLE_GAP = 6 // 距离阈值采样：移动 >6px 才记新点（保持 trail 稀疏，弧长有意义）

@@ -4,28 +4,19 @@
  * 插件 = 来自 Git 仓库的扩展包（整仓），存于 .chery/plugins/<name>/。
  * 版本检查 + 拉取最新。导入操作移入 PluginImportDialog 弹窗。
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Delete, Refresh, Search } from '@element-plus/icons-vue'
 import { agentApi, type PluginInfo } from '@/services/agentApi'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
-import ConfirmDialog from '@/components/confirm/ConfirmDialog.vue'
+import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import PluginImportDialog from './components/PluginImportDialog.vue'
 
 const props = defineProps<{ plugins: PluginInfo[] }>()
 const emit = defineEmits<{ (e: 'error', msg: string): void; (e: 'refresh-plugins'): void }>()
 
-// 卸载插件二次确认（重删 → ConfirmDialog 居中 modal）。
-// 注：PluginsTab 只持有 plugins 列表，无 draft.roles 数据，故 impact 不含"引用角色"段。
-const removeDialog = ref(false)
-const removePluginInfo = ref<PluginInfo | undefined>(undefined)
-const removeImpact = computed(() => {
-  const p = removePluginInfo.value
-  if (!p) return [] as string[]
+// PluginsTab 只持有 plugins 列表，无 draft.roles 数据，故 impact 不含“引用角色”段。
+function removeImpact(p: PluginInfo): string[] {
   return [`插件「${p.name}」及其 ${p.skills.length} 个技能将被移除。`]
-})
-function startUninstall(p: PluginInfo): void {
-  removePluginInfo.value = p
-  removeDialog.value = true
 }
 
 // ── 导入弹窗 ──────────────────────────────────────────────────────
@@ -252,15 +243,24 @@ function skillTagStyle(i: number): { background: string; color: string } {
             </button>
           </span>
         </el-tooltip>
-        <button
-          type="button"
-          class="icon-btn danger"
-          aria-label="卸载"
-          :disabled="!!updatingName"
-          @click.stop="startUninstall(p)"
+        <ConfirmPopover
+          :title="`卸载插件「${p.name}」？`"
+          :impact="removeImpact(p)"
+          confirm-text="卸载"
+          @confirm="onUninstall(p.name)"
         >
-          <Delete class="ico" />
-        </button>
+          <template #trigger>
+            <button
+              type="button"
+              class="icon-btn danger"
+              aria-label="卸载"
+              :disabled="!!updatingName"
+              @click.stop
+            >
+              <Delete class="ico" />
+            </button>
+          </template>
+        </ConfirmPopover>
       </header>
 
       <div class="plugin-meta">
@@ -331,16 +331,6 @@ function skillTagStyle(i: number): { background: string; color: string } {
 
     <!-- 导入弹窗 -->
     <PluginImportDialog v-model:visible="importDialogOpen" @imported="refresh" @error="onError" />
-
-    <!-- 卸载插件二次确认（重删 modal） -->
-    <ConfirmDialog
-      v-model="removeDialog"
-      icon="🗑️"
-      :title="`卸载插件「${removePluginInfo?.name ?? ''}」？`"
-      :impact="removeImpact"
-      tab-color="#a855f7"
-      @confirm="onUninstall(removePluginInfo!.name)"
-    />
   </TabShell>
 </template>
 
@@ -484,14 +474,19 @@ code {
   }
 }
 .ghost-btn {
-  padding: 5px 10px;
+  height: 24px;
+  padding: 0 10px;
   border: 1px solid rgba(36, 38, 45, 0.16);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.7);
   color: fade(@ink, 80%);
   font-size: 11px;
   cursor: pointer;
-  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1;
   &:hover:not(:disabled) {
     background: #ffffff;
     color: fade(@ink, 92%);

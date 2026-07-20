@@ -327,14 +327,17 @@ C→S chat.resume {chatId}              ← 无 prompt
 ← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"CONFLICT","message":"Chat \"c1\" is busy (active on another connection)"}}
 ```
 
-**审批超时**（`interrupt.data.waitTime`，`0` = 不限时）或连接断开：
+**限时审批超时**（`interrupt.data.waitTime > 0`，到点未决）= 自动拒绝：
 
 ```json
-← {"id":"a9","kind":"response","requestId":"r9","success":false,"error":{"code":"TIMEOUT","message":"Approval timeout - chat ended"}}
-[连接关闭]
+← {"id":"a9","kind":"notification","type":"rejected","data":{"approvalId":"<senseId>","senseName":"...","reason":"用户超时已自动拒绝"}}
 ```
 
-> 超时/断开后 pending sense 不执行（abort 触发 reject 解除挂起的 generator），content 保持空，重连后 `chat.get` 仍返回 `canResume:true` 可继续 `chat.resume`。
+> 限时超时由 core approvalRegistry 独占管理（`createApproval(id, global.approval_timeout)`，见 tool.ts）：registry 内部 timer fire → resolve as reject → senseMiddleware await 解除 → 子 loop **继续运行**（= 用户点 Reject 的正常路径，发 `rejected` notification）。service websocket 层不起 timer、不发 TIMEOUT response、不断 WS。
+
+**连接断开**（WS close）：
+
+> close(ws) → `approvalManager.park(approvalId)`（reject `AgentParkError` 解除挂起 generator，observer 静默不唤主）。pending sense content 保持空，子 chat 保持 `canResume:true`，重连后 `chat.get` 返回 `canResume:true`，`chat.resume` Case1 重建 pending sense 续跑。
 
 **方法未注册**：
 

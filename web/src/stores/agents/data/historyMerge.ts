@@ -1,6 +1,76 @@
 import type { HistoryItem } from '../types'
 
 /**
+ * 按 msgId 合并多来源投影，且不修改调用方传入的 HistoryItem。
+ * thinking/content 取更完整文本，senseCalls 按 id（旧数据按 name+args）去重。
+ */
+export function dedupHistoryByMsgId(items: readonly HistoryItem[]): HistoryItem[] {
+  const seen = new Map<string, HistoryItem>()
+  const result: HistoryItem[] = []
+  for (const source of items) {
+    const item: HistoryItem = {
+      ...source,
+      ...(source.senseCalls ? { senseCalls: source.senseCalls.map((call) => ({ ...call })) } : {}),
+      ...(source.mediaAssets
+        ? { mediaAssets: source.mediaAssets.map((asset) => ({ ...asset })) }
+        : {}),
+    }
+    if (!item.msgId) {
+      result.push(item)
+      continue
+    }
+    const existing = seen.get(item.msgId)
+    if (!existing) {
+      seen.set(item.msgId, item)
+      result.push(item)
+      continue
+    }
+    if ((item.thinking?.length ?? 0) > (existing.thinking?.length ?? 0)) {
+      existing.thinking = item.thinking
+    }
+    if (item.content.length > existing.content.length) existing.content = item.content
+    if (!existing.runtime && item.runtime) existing.runtime = item.runtime
+    if (!existing.agentChatId && item.agentChatId) existing.agentChatId = item.agentChatId
+    if (!existing.mediaAssets?.length && item.mediaAssets?.length) {
+      existing.mediaAssets = item.mediaAssets
+    }
+    if (item.contextCompaction) existing.contextCompaction = true
+    if (item.contextCompactionTokens !== undefined) {
+      existing.contextCompactionTokens = item.contextCompactionTokens
+    }
+    if (item.createdAt !== undefined) {
+      existing.createdAt =
+        existing.createdAt === undefined
+          ? item.createdAt
+          : Math.min(existing.createdAt, item.createdAt)
+    }
+    if (item.senseCalls?.length) {
+      const calls = [...(existing.senseCalls ?? [])]
+      const fingerprints = new Set(calls.map(senseFingerprint))
+      for (const call of item.senseCalls) {
+        const fingerprint = senseFingerprint(call)
+        if (fingerprints.has(fingerprint)) continue
+        fingerprints.add(fingerprint)
+        calls.push(call)
+      }
+      existing.senseCalls = calls
+    }
+  }
+  return result
+}
+
+function senseFingerprint(call: NonNullable<HistoryItem['senseCalls']>[number]): string {
+  if (call.id) return `id:${call.id}`
+  let args = ''
+  try {
+    args = typeof call.args === 'string' ? call.args : JSON.stringify(call.args)
+  } catch {
+    args = String(call.args)
+  }
+  return `legacy:${call.name}:${args}`
+}
+
+/**
  * 取得以 rootChatId 为根的所有后代 chat id（广度优先、去重，容忍异常环）。
  * 主历史聚合用它收集全部层级；子 pet 的 direct 历史不调用此函数。
  */

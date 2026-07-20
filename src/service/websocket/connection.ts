@@ -9,10 +9,6 @@ import { LogLevel } from '@/utils/logger/types.js'
  */
 interface PendingRequest {
   approvalId?: string
-  /** 审批超时计时器（interrupt 发出后启动） */
-  approvalTimeoutTimer?: NodeJS.Timeout
-  /** 审批超时时间（毫秒） */
-  approvalTimeoutMs: number
 }
 
 /**
@@ -37,8 +33,6 @@ export class ConnectionManager {
    * 仅 connection.close / chat delete（forceReleaseChatConnection）清。
    */
   private chatOwnerConnections = new Map<string, string>()
-  /** 审批超时时间（默认 15 分钟） */
-  private defaultApprovalTimeout = 900000
 
   /**
    * 创建连接状态
@@ -63,23 +57,21 @@ export class ConnectionManager {
   /**
    * 添加待处理请求
    */
-  addPendingRequest(ws: WebSocket, requestId: string, approvalTimeoutMs?: number): PendingRequest {
+  addPendingRequest(ws: WebSocket, requestId: string): PendingRequest {
     const state = this.connections.get(ws)
     if (!state) {
       logger.event('conn.notfound', { available: this.connections.size }, LogLevel.error)
       throw new Error('连接丢了，请重连')
     }
 
-    const pending: PendingRequest = {
-      approvalTimeoutMs: approvalTimeoutMs || this.defaultApprovalTimeout,
-    }
+    const pending: PendingRequest = {}
 
     state.pendingRequests.set(requestId, pending)
     return pending
   }
 
   /**
-   * 设置请求的审批 ID（同时启动审批超时）
+   * 设置请求的审批 ID（供 close(ws) 时 park 该审批）
    */
   setRequestApprovalId(ws: WebSocket, requestId: string, approvalId: string): void {
     const state = this.connections.get(ws)
@@ -92,55 +84,13 @@ export class ConnectionManager {
   }
 
   /**
-   * 启动审批超时计时器（interrupt 发出后调用）
-   */
-  startApprovalTimeout(
-    ws: WebSocket,
-    requestId: string,
-    onTimeout: () => void,
-    timeoutMs?: number,
-  ): void {
-    const state = this.connections.get(ws)
-    if (!state) return
-
-    const pending = state.pendingRequests.get(requestId)
-    // 0 是协议定义的“不限时”；旧调用未提供 waitTime 时沿用默认值以兼容。
-    const effectiveTimeoutMs = timeoutMs ?? pending?.approvalTimeoutMs
-    if (effectiveTimeoutMs === 0) return
-
-    if (pending && !pending.approvalTimeoutTimer && effectiveTimeoutMs !== undefined) {
-      pending.approvalTimeoutTimer = setTimeout(() => {
-        onTimeout()
-      }, effectiveTimeoutMs)
-    }
-  }
-
-  /**
-   * 清除审批超时计时器（审批通过后调用）
-   */
-  clearApprovalTimeout(ws: WebSocket, requestId: string): void {
-    const state = this.connections.get(ws)
-    if (!state) return
-
-    const pending = state.pendingRequests.get(requestId)
-    if (pending?.approvalTimeoutTimer) {
-      clearTimeout(pending.approvalTimeoutTimer)
-      pending.approvalTimeoutTimer = undefined
-    }
-  }
-
-  /**
    * 移除待处理请求
    */
   removePendingRequest(ws: WebSocket, requestId: string): void {
     const state = this.connections.get(ws)
     if (!state) return
 
-    const pending = state.pendingRequests.get(requestId)
-    if (pending) {
-      this.clearApprovalTimeout(ws, requestId)
-      state.pendingRequests.delete(requestId)
-    }
+    state.pendingRequests.delete(requestId)
   }
 
   /**
@@ -220,18 +170,17 @@ export class ConnectionManager {
       // 不调 gen.return()：await 态（审批/LLM stream）无法立即终止；
       // 且 return 传播与 senseMiddleware catch 的 yield 交互会导致链条死锁——
       // generator suspended 在 return completion 下的 yield，外层 checkpoint/observer finally
-      // 永不执行，assistant 无法落库（恢复回滚失效）。改靠下方 abort reject 让 senseMiddleware
+      // 永不执行，assistant 无法落库（恢复回滚失效）。改靠下方 park reject 让 senseMiddleware
       // 正常 catch 结束，链条自然 done，finally 正常执行。
 
-      // 中止 pending approval：调用 reject 解除 senseMiddleware 的 await Promise.all，
+      // 挂起 pending approval（WS 断连触发，区别于用户主动 chat.abort 的 abort）：
+      // 调用 reject(AgentParkError) 解除 senseMiddleware 的 await Promise.all，
       // 使挂起 generator 正常结束可被 GC（P0-1）。pending sense 保持 NULL 待重连 chat.resume。
+      // observer 见 AgentParkError 静默不 wakeParent——子 chat 保持可恢复态，重连 chat.resume
+      // Case1 重建 pending sense；主 chat 不被注入错误 role（approval aborted）。
+      // 注：限时审批超时由 core approvalRegistry 独占管理（不在此处），断连才走 park。
       if (pending.approvalId) {
-        approvalManager.abort(pending.approvalId)
-      }
-
-      // 清除审批超时
-      if (pending.approvalTimeoutTimer) {
-        clearTimeout(pending.approvalTimeoutTimer)
+        approvalManager.park(pending.approvalId)
       }
     }
 

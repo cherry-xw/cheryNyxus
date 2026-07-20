@@ -25,6 +25,23 @@ export function pickGhostFace(
   return GHOST_FACES[count % GHOST_FACES.length] ?? '👻'
 }
 
+/** 把已交付终态的子 pet 收尾为 ghost；实时 done/role_reply/startSpawn response 共用。 */
+export function turnChildIntoGhost(
+  pet: PetInstance | undefined,
+  pets: readonly PetInstance[],
+  facePicker: typeof pickGhostFace = pickGhostFace,
+): void {
+  if (!pet || pet.isMaster || pet.isGhost) return
+  pet.isGhost = true
+  pet.canResume = false
+  pet.ghostFace = facePicker(pet.tribe, pets, pet.instanceId)
+  pet.ghostCreatedAt = performance.now()
+  pet.action = 'walk'
+  pet.interactionUntil = 0
+  pet.moodUntil = 0
+  pet.bubbleRepelExtra = 0
+}
+
 /**
  * 子 chat 历史角色重映射：assistant→role / user→master，附 subPetChatId + callerSubPetChatId。
  * 合并主视图子 chat + ghost 自身抽屉（子 chat 自身载入）共用——使主 agent 发的 spawn prompt
@@ -110,6 +127,7 @@ export function createPetLifecycle(
           agentType: child.agentType,
           finished: child.finished,
         })
+        pet.canResume = child.canResume
         if (child.workspace) {
           pet.workspace = child.workspace
           pet.workspaceValid = child.workspaceValid

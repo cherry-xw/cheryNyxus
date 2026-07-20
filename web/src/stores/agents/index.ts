@@ -14,13 +14,14 @@ import type { StreamState, HistoryItem } from './types'
 import { sameRuntime, defaultBounds } from './data/streamAccumulator'
 import { replaceQuestionBatches, type QuestionBatchPayload } from './actions/questionBatch'
 import { collectDescendantChatIds } from './data/historyMerge'
+import { hasActiveChatRun } from './data/historyLoadState'
 import { wsClient } from '@/services/ws'
 
 // 模块 factories
 import { createUiState } from './ui/uiState'
 import { createApprovalActions } from './actions/approvalActions'
 import { createQuestionActions } from './actions/questionActions'
-import { createPetLifecycle } from './data/petLifecycle'
+import { createPetLifecycle, turnChildIntoGhost } from './data/petLifecycle'
 import {
   createStreamRouter,
   ensureStream as _ensureStream,
@@ -322,12 +323,19 @@ export const useAgentsStore = defineStore('agents', () => {
     done
       .then((res) => {
         const data = res.data as
-          { runId?: string; alreadyFinished?: boolean; alreadyRunning?: boolean } | undefined
+          | {
+              runId?: string
+              finished?: boolean
+              alreadyFinished?: boolean
+              alreadyRunning?: boolean
+            }
+          | undefined
         if (typeof data?.runId === 'string' && stream.isWorking) stream.activeRunId = data.runId
-        if (data?.alreadyFinished) {
+        if (data?.finished || data?.alreadyFinished) {
           stream.isWorking = false
           stream.activeRunId = undefined
           setWorking(pet, false)
+          turnChildIntoGhost(pet, pets.value)
         }
         if (data?.alreadyFinished || data?.alreadyRunning) requestMap.delete(requestId)
         if (!res.success) stream.error = res.error?.message ?? '未知错误'
@@ -466,46 +474,19 @@ export const useAgentsStore = defineStore('agents', () => {
   }
 
   /**
-   * 重连后重建 wait=true 唤醒态 + 检测主卡死（T9.10 重构）。
+   * 重连后检测主卡死（T9.10 重构）。
    *
-   * 扫描 chat.list（需 wait 字段）：
-   * - wait-子（parentChatId 非空 + wait=true）：
-   *   - !finished（interrupted，turn 被 restart 中断）→ resumeAgent(child) 续跑；完成 → 后端 child_done → wakeParent → role_reply → resumeAgent(parent)
-   *   - finished（子已完成，后端 rebuildWaitedChildren 已注入回复；前端离线则 role_reply 丢）→ resumeAgent(parent) 处理注入回复
-   * - 主 chat running=true 且 finished=false 但前端无跟踪流 → 判卡死，abort 清死锁
+   * 扫描 chat.list：主 chat running=true 且 finished=false 但前端无跟踪流 → 判卡死，abort 清死锁。
    *
-   * 后端 rebuildWaitedChildren（service 启动期）已重建 waitedChildren 内存链 + 补唤 finished 子；
-   * 本函数负责前端侧续跑 interrupted 子 + resume 含未处理 role-reply 的主。
-   * 由 initFromChats（F5）或 App.vue onStatus（瞬断重连）调用。
+   * 刷新/重连只恢复状态，不自动调用 chat.resume。未完成会话由 chat.list.canResume
+   * 映射到 pet 工具栏“继续”按钮，用户点击后才恢复。
    */
   async function rebuildSpawnWaits(chats?: ChatSummary[]): Promise<void> {
     const allChats = chats ?? (await agentApi.listChats())
-    const resumedParents = new Set<string>()
-
-    // 主 chat resumePending / canResume：由 buildMasterAndChildren 同步到 pet.canResume，
-    // PetToolbar "继续"按钮让用户确认，本处不自动 resume（避免未确认即执行）。
 
     for (const chat of allChats) {
-      // wait-子恢复（T9.10）— 基础设施级：子被中断需续跑以完成唤主链，非用户决策
-      if (chat.parentChatId && chat.wait) {
-        if (!chat.finished) {
-          // interrupted：续跑子（完成唤主由后端链 + role_reply 驱动）
-          resumeAgent(chat.chatId).catch((e) =>
-            console.warn(`[agents] rebuildSpawnWaits: 续跑 wait-子失败 ${chat.chatId}`, e),
-          )
-          console.log(`[agents] rebuildSpawnWaits: 续跑 interrupted wait-子 ${chat.chatId}`)
-        } else if (!resumedParents.has(chat.parentChatId)) {
-          // finished：主含未处理 role-reply → resume 主跑唤醒轮（子完成但主离线时注入的回复待消费）
-          // 注：此为 wait-子完成链式唤主，非用户决策场景（用户未主动中断主）
-          resumeAgent(chat.parentChatId).catch((e) =>
-            console.warn(`[agents] rebuildSpawnWaits: resume 主失败 ${chat.parentChatId}`, e),
-          )
-          console.log(
-            `[agents] rebuildSpawnWaits: resume 主 ${chat.parentChatId}（子 ${chat.chatId} 已完成）`,
-          )
-        }
-        continue
-      }
+      // 子会话（含 wait-子）只映射 finished/canResume 到 pet，不在刷新阶段自动续跑。
+      if (chat.parentChatId) continue
 
       // 主 chat 卡死检测（running=true && !finished 但前端无跟踪流）
       if (!chat.parentChatId && chat.running && !chat.finished) {
@@ -518,9 +499,6 @@ export const useAgentsStore = defineStore('agents', () => {
             )
         }
       }
-
-      // 主 chat idle 但可恢复（末条 role/user/sense/subagent）：canResume 已由 buildMasterAndChildren 同步到 pet，
-      // 由 PetToolbar "继续"按钮让用户确认。本处不自动 resume（避免未确认即执行）。
     }
   }
 
@@ -565,14 +543,15 @@ export const useAgentsStore = defineStore('agents', () => {
     const stream = router.ensureStream(chatId)
     stream.history = []
     stream.historyLoaded = false
-    // 重置实时流状态（历史回放不触发气泡）
-    stream.thinking = ''
-    stream.content = ''
-    stream.retainUntil = undefined
-    stream.isWorking = false
-    // 重置 pet 工作状态
     const pet = pets.value.find((p) => p.chatId === chatId)
-    setWorking(pet, false)
+    // chat.get 的 staged chunk 本身不会触发实时气泡；仅在 chat 确实空闲时清理上一轮保留态。
+    // 等待审批仍属于活跃 run，必须保留 stream/pet 工作态，否则打开 history 会破坏审批交互。
+    if (!hasActiveChatRun(stream, pet)) {
+      stream.thinking = ''
+      stream.content = ''
+      stream.retainUntil = undefined
+      setWorking(pet, false)
+    }
     // CP7: chat.get response 携带 contextUsage；同时回填 workspace 的实时有效性，供消息弹窗标签显示。
     done
       .then((res) => {

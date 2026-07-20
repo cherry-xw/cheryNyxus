@@ -483,7 +483,9 @@ export function getMessages(chatId: string): MessageRow[] {
   const monthlyDb = getMonthlyDb(chat.messages_month)
 
   // 3. 查询 messages
-  const stmt = monthlyDb.prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC')
+  const stmt = monthlyDb.prepare(
+    'SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC',
+  )
   return stmt.all(chatId) as MessageRow[]
 }
 
@@ -499,7 +501,7 @@ export function getLastMessage(chatId: string): MessageRow | null {
 
   const monthlyDb = getMonthlyDb(chat.messages_month)
   const stmt = monthlyDb.prepare(
-    'SELECT * FROM messages WHERE chat_id = ? AND revoked = 0 ORDER BY created_at DESC LIMIT 1',
+    'SELECT * FROM messages WHERE chat_id = ? AND revoked = 0 ORDER BY created_at DESC, rowid DESC LIMIT 1',
   )
   return (stmt.get(chatId) as MessageRow) ?? null
 }

@@ -19,7 +19,7 @@
  * 容器 .pet-icons pointer-events:none，内部 icon 显式 auto 收点击。
  * 位置：pet 头部右侧（继承 .pet-wrap 坐标系，与 pet 同步移动）。
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useAgentsStore } from '@/stores'
 import type { ApprovalState, HistoryItem, SenseCallRecord } from '@/stores/agents'
 import { hasRenderer } from '@/features/agent/renderers/registry'
@@ -33,9 +33,10 @@ const agents = useAgentsStore()
 
 // 闪烁驱动：now 每 250ms 刷新一次（与 ApprovalCard 倒计时节奏一致）。
 const now = ref(Date.now())
-setInterval(() => {
+const timer = setInterval(() => {
   now.value = Date.now()
 }, 250)
+onBeforeUnmount(() => clearInterval(timer))
 
 const stream = computed(() => agents.streams[props.chatId])
 const history = computed<HistoryItem[]>(() => stream.value?.history ?? [])
@@ -68,6 +69,15 @@ function flashPeriodOf(a: ApprovalState): number {
 function isExpired(a: ApprovalState): boolean {
   return a.waitTime > 0 && remainingSecOf(a) <= 0
 }
+
+watch(now, () => {
+  const approvals = [currentApproval.value, ...queueApprovals.value].filter(
+    (item): item is ApprovalState => !!item,
+  )
+  for (const approval of approvals) {
+    if (isExpired(approval)) agents.expireApproval(props.chatId, approval.approvalId)
+  }
+})
 
 /** approval icon 闪烁动画周期 → CSS 变量 */
 function flashStyle(a: ApprovalState, isQueued: boolean): Record<string, string> {

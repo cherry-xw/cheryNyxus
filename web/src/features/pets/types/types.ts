@@ -119,11 +119,11 @@ export interface PetInstance extends PetPreset {
    * undefined = 配置未拉取（前容错，按「不限」对待）。
    */
   commandConfig?: CommandConfigDataDto
-  /** 灵魂态（子 agent done 后转 ghost）。true 时 PetSprite 渲染 ghost 形态（缩小+无手+灵魂emoji+微浮+半透明+隐藏status）。刷新据 ChatSummary.finished 重建。 */
+  /** 完成态（子 agent done 后转 ghost）。true 时渲染为跟随主 Agent 的发光点和短名。 */
   isGhost: boolean
   /** 灵魂 emoji（转 ghost 时按 tribe 内创建序号顺序取 GHOST_FACES[N % 池长]，非随机去重）。undefined 时 faceGlyph 兜底 👻。 */
   ghostFace?: string
-  /** ghost 创建时间戳（performance.now()）。用于同 tribe ghost 队列排序（老鹰捉小鸡跟随）。 */
+  /** ghost 创建时间戳（performance.now()）。用于同 tribe 内按创建顺序跟随主 Agent。 */
   ghostCreatedAt?: number
   /** agent 运行时配置（brain+senseGroup+mcpServers）。主 pet createMasterPet 设、子 pet role_created 设、AgentDialog runtime.set 后同步；hide 移除 pet / 刷新 initFromChats 不恢复 → undefined。 */
   runtime?: RuntimeSelection

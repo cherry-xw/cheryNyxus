@@ -61,7 +61,7 @@ export function startService(options: { port: number; webPort: number; staticDir
 | [src/service/message/types.ts](../../src/service/message/types.ts) | RPC 全部类型、`Method`/`ErrorCode` 常量、工厂、类型守卫 |
 | [src/service/message/router.ts](../../src/service/message/router.ts) | `RpcRouter`：注册、分发、流式包装、错误转换 |
 | [src/service/websocket/index.ts](../../src/service/websocket/index.ts) | `createWebSocketServer`：ws 服务、消息分发、流式推送、审批超时 |
-| [src/service/websocket/connection.ts](../../src/service/websocket/connection.ts) | `ConnectionManager` 单例：连接状态、chat 绑定、审批超时、close abort |
+| [src/service/websocket/connection.ts](../../src/service/websocket/connection.ts) | `ConnectionManager` 单例：连接状态、chat 绑定、pendingRequest approvalId 映射、close park |
 | [src/service/websocket/transport.ts](../../src/service/websocket/transport.ts) | `Transport` 单例：二进制/JSON 帧编解码 |
 | [src/service/chat/send.ts](../../src/service/chat/send.ts) | `handleChatSend`/`handleChatResume`/`handleSenseApproval`/`handleChatAbort` |
 | [src/service/chat/handler.ts](../../src/service/chat/handler.ts) | `handleChatCreate`/`handleChatList`/`handleChatGet`/`handleChatDelete` |
@@ -139,7 +139,7 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 
 - **`startService({port, webPort, staticDir})`**（index.ts）：唯一对外启动入口，返回 `{wss, httpServer}`。`webPort` 来自环境变量 `WEB_PORT`（默认 8183，原 `config.server.web_port` 已废弃）；HTTP 由 `createHttpServer` 提供（见 [./http.md](./http.md)）。
 - **`RpcRouter`**（message/router.ts）：`register` / `handle`，handler 联合 `HandlerContext`（含 requestId、connectionId）。
-- **`connectionManager`**（websocket/connection.ts 单例）：chat 活跃绑定、审批超时、close abort。
+- **`connectionManager`**（websocket/connection.ts 单例）：chat 活跃绑定、pendingRequest approvalId 映射、close park。
 - **`transport`**（websocket/transport.ts 单例）：帧编解码。
 - **`approvalManager`**（approval/manager.ts 单例）：极简审批。
 - **`chatRuntimes`**（chat/runtime.ts 模块级私有 Map）+ `ensureChat`/`setRuntime` 等导出。
@@ -158,10 +158,10 @@ ws.on("message")
            → streamAgentChunks(gen, rid)                    // MiddlewareChunk → Chunk/Notification
      → wrapStreamingHandler 迭代 yield
   → handleRequest 逐帧：
-       notification(interrupt) → setRequestApprovalId + startApprovalTimeout(waitTime；0=不限时)
+       notification(interrupt) → setRequestApprovalId（记 approvalId→requestId 供 close park；限时超时由 core approvalRegistry 管，0=不限时）
        ws.send(transport.encode(item))                      // Chunk/Notification 编码
      最终 Response → ws.send(transport.serializeMessage)
-  → clearApprovalTimeout + removePendingRequest
+  → removePendingRequest
 ```
 
 各子环节展开见对应子文档：[./message.md](./message.md)（路由）、[./websocket.md](./websocket.md)（传输/连接）、[./chat.md](./chat.md)（chat 流式/observer/审批）。

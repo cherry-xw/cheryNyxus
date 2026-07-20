@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue'
 import { CopyDocument, Delete, Lock, Plus, Search } from '@element-plus/icons-vue'
 import type { ConfigDto } from '@/services/agentApi'
-import ConfirmDialog from '@/components/confirm/ConfirmDialog.vue'
+import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
 import ResourceWorkbench, { type ResourceRailItem } from './ResourceWorkbench.vue'
 import AvatarPicker from './AvatarPicker.vue'
 import EquipmentPicker from '../../controls/EquipmentPicker.vue'
+import EquipmentEditor from '../../controls/EquipmentEditor.vue'
 import { resolveRoleAvatar } from '../../config/roleAvatar'
 import { computeSelectionTokens } from '../../config/shared'
 
@@ -25,11 +26,12 @@ const newRoleType = ref('')
 const promptSearch = ref('')
 const copiedRole = ref('')
 const titleRef = ref<InstanceType<typeof EditableTitle> | null>(null)
-const removeDialog = ref(false)
+type EquipmentKind = 'skills' | 'plugins' | 'mcpServers'
+const activeEquipment = ref<EquipmentKind | null>(null)
 // AI 大脑按钮里超长 name / model 的溢出状态：key=`<field>-<brainName>`，true 时该行才允许 tooltip
 const isOverflowing = ref<Record<string, boolean>>({})
 const overflowEls = new Map<string, HTMLElement>()
-function setOverflowRef(el: Element | null, key: string): void {
+function setOverflowRef(el: unknown, key: string): void {
   if (el instanceof HTMLElement) overflowEls.set(key, el)
   else overflowEls.delete(key)
 }
@@ -59,6 +61,34 @@ const brainNames = computed(() => Object.keys(props.draft.llm.brain))
 const senseNames = computed(() => Object.keys(props.draft.sense_groups ?? {}))
 const mcpNames = computed(() => Object.keys(props.draft.mcp_servers ?? {}))
 const mcpTokens = computed(() => Object.fromEntries(mcpNames.value.map((name) => [name, 200])))
+const equipmentEditor = computed(() => {
+  if (!current.value || !activeEquipment.value) return null
+  if (activeEquipment.value === 'skills') {
+    return {
+      key: 'skills' as const,
+      label: '技能',
+      value: current.value.skills,
+      options: props.skillCatalog.skills,
+      tokenMap: props.skillCatalog.skillTokens,
+    }
+  }
+  if (activeEquipment.value === 'plugins') {
+    return {
+      key: 'plugins' as const,
+      label: '插件',
+      value: current.value.plugins,
+      options: props.skillCatalog.plugins,
+      tokenMap: props.skillCatalog.pluginTokens,
+    }
+  }
+  return {
+    key: 'mcpServers' as const,
+    label: 'MCP 服务',
+    value: current.value.mcpServers,
+    options: mcpNames.value,
+    tokenMap: mcpTokens.value,
+  }
+})
 const filteredPrompts = computed(() => {
   const q = promptSearch.value.trim().toLowerCase()
   return props.prompts.filter((path) => !q || path.toLowerCase().includes(q))
@@ -172,6 +202,23 @@ function setBrain(cfg: RoleDraft, brain: string): void {
     cfg.mcpServers = []
   }
 }
+
+function openEquipment(kind: EquipmentKind): void {
+  activeEquipment.value = kind
+}
+
+function closeEquipment(): void {
+  activeEquipment.value = null
+}
+
+function updateEquipment(value: string[]): void {
+  const cfg = current.value
+  const kind = activeEquipment.value
+  if (!cfg || !kind) return
+  cfg[kind] = value
+}
+
+watch(selectedRole, closeEquipment)
 </script>
 
 <template>
@@ -238,15 +285,18 @@ function setBrain(cfg: RoleDraft, brain: string): void {
                 >
                   <Lock class="ico" />
                 </button>
-                <button
+                <ConfirmPopover
                   v-else
-                  type="button"
-                  class="icon-btn danger"
-                  aria-label="删除角色"
-                  @click="removeDialog = true"
+                  :title="`删除角色「${selectedRole}」？`"
+                  :impact="removeImpact"
+                  @confirm="removeRole(selectedRole)"
                 >
-                  <Delete class="ico" />
-                </button>
+                  <template #trigger>
+                    <button type="button" class="icon-btn danger" aria-label="删除角色">
+                      <Delete class="ico" />
+                    </button>
+                  </template>
+                </ConfirmPopover>
               </template>
             </EditableTitle>
             <div class="role-status-line">
@@ -277,10 +327,11 @@ function setBrain(cfg: RoleDraft, brain: string): void {
                   :disabled="!isOverflowing[`brain-name-${name}`]"
                 >
                   <b
+                    :ref="(el) => setOverflowRef(el, `brain-name-${name}`)"
                     class="brain-choice-name"
-                    :ref="el => setOverflowRef(el, `brain-name-${name}`)"
                     @mouseenter="checkOverflow(`brain-name-${name}`, $event)"
-                  >◈ {{ name }}</b>
+                    >◈ {{ name }}</b
+                  >
                 </el-tooltip>
                 <el-tooltip
                   :content="draft.llm.brain[name]?.model || '未配置型号'"
@@ -289,10 +340,11 @@ function setBrain(cfg: RoleDraft, brain: string): void {
                   :disabled="!isOverflowing[`brain-model-${name}`]"
                 >
                   <small
+                    :ref="(el) => setOverflowRef(el, `brain-model-${name}`)"
                     class="brain-choice-model"
-                    :ref="el => setOverflowRef(el, `brain-model-${name}`)"
                     @mouseenter="checkOverflow(`brain-model-${name}`, $event)"
-                  >{{ draft.llm.brain[name]?.model || '未配置型号' }}</small>
+                    >{{ draft.llm.brain[name]?.model || '未配置型号' }}</small
+                  >
                 </el-tooltip>
               </button>
             </div>
@@ -357,23 +409,39 @@ function setBrain(cfg: RoleDraft, brain: string): void {
               label="技能"
               :options="skillCatalog.skills"
               :token-map="skillCatalog.skillTokens"
-              hide-inline-roster
+              :editing="activeEquipment === 'skills'"
+              @edit="openEquipment('skills')"
+              @mode-change="closeEquipment"
             />
             <EquipmentPicker
               v-model="current.plugins"
               label="插件"
               :options="skillCatalog.plugins"
               :token-map="skillCatalog.pluginTokens"
-              hide-inline-roster
+              :editing="activeEquipment === 'plugins'"
+              @edit="openEquipment('plugins')"
+              @mode-change="closeEquipment"
             />
             <EquipmentPicker
               v-model="current.mcpServers"
               label="MCP 服务"
               :options="mcpNames"
               :token-map="mcpTokens"
-              hide-inline-roster
+              :editing="activeEquipment === 'mcpServers'"
+              @edit="openEquipment('mcpServers')"
+              @mode-change="closeEquipment"
             />
           </div>
+          <EquipmentEditor
+            v-if="equipmentEditor"
+            :editor-key="`${selectedRole}:${equipmentEditor.key}`"
+            :label="equipmentEditor.label"
+            :model-value="equipmentEditor.value"
+            :options="equipmentEditor.options"
+            :token-map="equipmentEditor.tokenMap"
+            @update:model-value="updateEquipment"
+            @close="closeEquipment"
+          />
           <div class="equipment-roster">
             <div class="roster-row">
               <span class="roster-k">技能</span>
@@ -409,14 +477,6 @@ function setBrain(cfg: RoleDraft, brain: string): void {
         </section>
       </article>
     </ResourceWorkbench>
-    <ConfirmDialog
-      v-model="removeDialog"
-      icon="🗑️"
-      :title="`删除角色「${selectedRole}」？`"
-      :impact="removeImpact"
-      tab-color="#d946ef"
-      @confirm="removeRole(selectedRole)"
-    />
   </section>
 </template>
 
@@ -671,9 +731,9 @@ function setBrain(cfg: RoleDraft, brain: string): void {
 .roster-tag {
   padding: 1px 7px;
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.1);
+  background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
   font-size: 10px;
-  color: #4338ca;
+  color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
 }
 .roster-tag small {
   font-size: 9px;

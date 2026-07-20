@@ -25,9 +25,18 @@ interface PendingRequest {
   request: { id: string; kind: 'request'; method: string; params: unknown }
   resolve: (response: RpcResponse) => void
   reject: (error: Error) => void
+  /** 非流式 rpc 超时计时器；response 到达 / 断连 / 重连重置时清除。防 WS 半开时永久挂起。 */
+  timer?: ReturnType<typeof setTimeout>
 }
 
 const RECONNECT_DELAY = 2000
+/**
+ * 非流式 rpc 超时（ms）。WS 半开时 response 永不到达，rpc Promise 既不 resolve 也不 reject
+ * → ApprovalCard pending 永不复位 → 后续点击静默无效、卡片不关（"点审批无反应+卡住"根因之一）。
+ * 超时 reject 让 UI fail-loud（显「请求超时」+复位 pending 允许重试）。仅 rpc() 非流式用；
+ * rpcTrack() 流式（chat.send/resume/get/startSpawn/sync）靠 done/stream 自然结束，不加超时。
+ */
+const RPC_TIMEOUT_MS = 15000
 
 /**
  * 生成 requestId（rpc 请求关联用）。
@@ -148,7 +157,9 @@ export class WsClient {
       this.setStatus('connected')
       // Reuse the original Request.id after a disconnect. The server either
       // joins the in-flight execution or returns its stored terminal response.
+      // 非流式 rpc 重连重发：重置超时窗口（断连期已耗去部分时间，给重发请求新窗口）。
       for (const pending of this.pending.values()) {
+        this.armRpcTimeout(pending)
         ws.send(encodeRequest(pending.request))
       }
     }
@@ -180,6 +191,7 @@ export class WsClient {
       const response = msg as RpcResponse
       const pending = this.pending.get(response.requestId)
       if (pending) {
+        if (pending.timer) clearTimeout(pending.timer)
         this.pending.delete(response.requestId)
         pending.resolve(response)
       }
@@ -230,9 +242,24 @@ export class WsClient {
     const id = uuid()
     const request = { id, kind: 'request' as const, method, params }
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { request, resolve, reject })
+      const pending: PendingRequest = { request, resolve, reject }
+      this.pending.set(id, pending)
+      this.armRpcTimeout(pending)
       this.ws!.send(encodeRequest(request))
     })
+  }
+
+  /**
+   * 非流式 rpc 超时武装：RPC_TIMEOUT_MS 内无 response → reject + 清 pending。
+   * 幂等：重连重置时先清旧 timer 再武装新窗口。
+   */
+  private armRpcTimeout(pending: PendingRequest): void {
+    if (pending.timer) clearTimeout(pending.timer)
+    pending.timer = setTimeout(() => {
+      if (this.pending.delete(pending.request.id)) {
+        pending.reject(new Error('请求超时，连接可能已断开，请重试'))
+      }
+    }, RPC_TIMEOUT_MS)
   }
 
   /**
@@ -302,6 +329,7 @@ export class WsClient {
 
   private rejectAll(error: Error): void {
     for (const pending of this.pending.values()) {
+      if (pending.timer) clearTimeout(pending.timer)
       pending.reject(error)
     }
     this.pending.clear()

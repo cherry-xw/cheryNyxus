@@ -99,7 +99,7 @@ const batchInfo = computed(() => {
     </MotionDiv>
     <MotionDiv
       v-else-if="stream?.approval"
-      key="approval"
+      :key="`approval-${stream.approval.approvalId}`"
       class="speech approval-bubble"
       :style="approvalStyle"
       :initial="speech.initial"
@@ -196,6 +196,7 @@ const batchInfo = computed(() => {
     border-bottom: 1px solid rgba(255, 255, 255, 0.74);
     background: rgba(255, 255, 255, 0.92);
     transform: rotate(45deg);
+    pointer-events: none;
   }
 }
 
@@ -342,6 +343,12 @@ const batchInfo = computed(() => {
   padding: 5px 8px;
   background: rgba(255, 248, 235, 0.96);
   border-color: rgba(234, 88, 12, 0.42);
+
+  &::after {
+    border-right-color: rgba(234, 88, 12, 0.42);
+    border-bottom-color: rgba(234, 88, 12, 0.42);
+    background: rgba(255, 248, 235, 0.96);
+  }
 }
 
 .question-bubble {

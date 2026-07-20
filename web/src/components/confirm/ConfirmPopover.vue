@@ -1,15 +1,21 @@
 <script setup lang="ts">
 /**
- * ConfirmPopover：轻删二次确认浮层。
+ * ConfirmPopover：设置中心统一删除二次确认浮层。
  * 弃 el-popconfirm（其 title 单行不换行、宽度受限 → 长 cloneUrl 等文案溢出）；
  * 改 el-popover + 自定义内容 slot：min/max-width + word-break 控宽换行。
- * 保留 title prop + confirm/cancel emits + trigger slot，9 处调用点零改动。
- * 用于后果轻的删除（感官组/单技能/MCP/媒体）；重删用 ConfirmDialog 居中 modal。
+ * 支持影响范围正文和自定义确认文案，轻删/重删共用。
  * 样式：新拟物化（Neumorphism）--同色系背景 + 内外阴影，hover 切凹陷态。
  */
 import { ref } from 'vue'
 
-defineProps<{ title: string }>()
+withDefaults(
+  defineProps<{
+    title: string
+    impact?: string | string[]
+    confirmText?: string
+  }>(),
+  { confirmText: '删除' },
+)
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
 
 const visible = ref(false)
@@ -35,9 +41,14 @@ function onCancel(): void {
     </template>
     <div class="confirm-pop">
       <p class="confirm-pop-title">{{ title }}</p>
+      <div v-if="impact" class="confirm-pop-impact">
+        <p v-for="(line, index) in Array.isArray(impact) ? impact : [impact]" :key="index">
+          {{ line }}
+        </p>
+      </div>
       <div class="confirm-pop-actions">
         <button type="button" class="cp-btn cancel" @click="onCancel">取消</button>
-        <button type="button" class="cp-btn ok" @click="onConfirm">删除</button>
+        <button type="button" class="cp-btn ok" @click="onConfirm">{{ confirmText }}</button>
       </div>
     </div>
   </el-popover>
@@ -48,16 +59,22 @@ function onCancel(): void {
      新拟物化（Neumorphism）：同色系背景 + 内外阴影 = 凸出/凹陷效果。 -->
 <style lang="less">
 .confirm-popover-popper.el-popover.el-popper {
+  --confirm-pop-bg: #e8e6e1;
+  --confirm-pop-border: rgba(80, 76, 69, 0.18);
   padding: 12px 14px;
   border: none;
   border-radius: 12px;
   min-width: 240px;
   max-width: 340px;
-  background: #e8e6e1;
+  background: var(--confirm-pop-bg);
   // 外阴影（右下暗）+ 反向外阴影（左上亮）= popper 从背景凸出
   box-shadow:
     8px 8px 16px rgba(0, 0, 0, 0.15),
     -8px -8px 16px rgba(255, 255, 255, 0.7);
+}
+.confirm-popover-popper.el-popper .el-popper__arrow::before {
+  border-color: var(--confirm-pop-border);
+  background: var(--confirm-pop-bg);
 }
 .confirm-pop {
   display: flex;
@@ -73,6 +90,20 @@ function onCancel(): void {
   white-space: normal;
   word-break: break-all;
 }
+.confirm-pop-impact {
+  padding: 7px 8px;
+  border: 1px solid var(--confirm-pop-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.28);
+  color: rgba(20, 22, 26, 0.64);
+  font-size: 11px;
+  line-height: 1.5;
+  p {
+    margin: 0;
+    white-space: normal;
+    word-break: break-word;
+  }
+}
 .confirm-pop-actions {
   display: flex;
   justify-content: flex-end;
@@ -82,7 +113,7 @@ function onCancel(): void {
   padding: 5px 14px;
   border: none;
   border-radius: 8px;
-  background: #e8e6e1;
+  background: var(--confirm-pop-bg);
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;

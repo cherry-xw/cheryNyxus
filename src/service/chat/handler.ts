@@ -28,6 +28,7 @@ import {
   deleteChat,
   getMessages,
   getLastMessage,
+  updateChatMetadata,
   parseMessageRow,
   findChatsByParent,
   getChatPreviews,
@@ -50,6 +51,7 @@ import {
   getChatEvents,
   claimSpawnTask,
   finishSpawnTask,
+  getSpawnTaskByChild,
   listOpenSpawnTasks,
 } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
@@ -168,12 +170,15 @@ export async function handleChatList(
           type?: string
         })
       : {}
-    const finished = meta.finished === true
+    // 兼容旧数据：历史终态异常可能已经完成 spawn task 并回传父会话，
+    // 但尚未写入 metadata.finished。任务终态同样是子 agent 已结束的权威事实。
+    const spawnTask = chat.parent_chat_id ? getSpawnTaskByChild(chat.id) : undefined
+    const finished = meta.finished === true || spawnTask?.status === 'finished'
     const running = isChatRunning(chat.id)
-    // T9.10：wait（子 metadata.wait=true）供前端重连识别 wait-子（续跑 interrupted wait-子 + 唤主链重建）
+    // T9.10：wait（子 metadata.wait=true）供前端重连恢复等待状态；刷新阶段不自动续跑。
     const wait = meta.wait === true
     const resumePending = meta.resumePending === true
-    // canResume：idle 主 chat 末条为未完成周期 → 前端重建时可自动 resume（覆盖 resumePending 丢失场景）
+    // canResume：idle chat 末条为未完成周期 → 前端重建时显示显式“继续”入口。
     // 仅非 finished 非 running 时计算（finished 不可恢复，running 不需恢复）
     const canResume = !finished && !running ? computeCanResume(chat.id) : false
     const workspace = getChatWorkspace(chat.id)
@@ -403,6 +408,7 @@ export async function* handleChatStartSpawn(
   const task = claimed.task
   if (!task) throw new Error('找不到这个 spawn 任务')
   if (task.status === 'finished') {
+    updateChatMetadata(task.childChatId, { finished: true })
     return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true }
   }
 
@@ -414,7 +420,11 @@ export async function* handleChatStartSpawn(
     // only an actual child terminal message makes the launch irrecoverable.
     if (!('success' in result) || result.success !== false) {
       const last = getLastMessage(task.childChatId)
-      if (last?.role === 'assistant') finishSpawnTask(task.taskId)
+      if (last?.role === 'assistant') {
+        finishSpawnTask(task.taskId)
+        updateChatMetadata(task.childChatId, { finished: true })
+        return { ...result, finished: true }
+      }
     }
     return result
   }
@@ -425,12 +435,17 @@ export async function* handleChatStartSpawn(
   const last = getLastMessage(task.childChatId)
   if (last?.role === 'assistant') {
     finishSpawnTask(task.taskId)
+    updateChatMetadata(task.childChatId, { finished: true })
     return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true }
   }
   const result = yield* handleChatResume(ctx, { chatId: task.childChatId })
   if (!('success' in result) || result.success !== false) {
     const finalLast = getLastMessage(task.childChatId)
-    if (finalLast?.role === 'assistant') finishSpawnTask(task.taskId)
+    if (finalLast?.role === 'assistant') {
+      finishSpawnTask(task.taskId)
+      updateChatMetadata(task.childChatId, { finished: true })
+      return { ...result, finished: true }
+    }
   }
   return result
 }

@@ -2,6 +2,22 @@ import type { Ref } from 'vue'
 import type { PetInstance } from '@/features/pets/types/types'
 import type { StreamState } from '../types'
 
+/** 按 approvalId 精确移除当前项或队列项；当前槽空时自动推进队首。 */
+export function removeApprovalById(stream: StreamState, approvalId: string): boolean {
+  let removed = false
+  if (stream.approval?.approvalId === approvalId) {
+    stream.approval = undefined
+    removed = true
+  }
+  const queueLength = stream.approvalQueue.length
+  stream.approvalQueue = stream.approvalQueue.filter((item) => item.approvalId !== approvalId)
+  if (stream.approvalQueue.length !== queueLength) removed = true
+  if (!stream.approval && stream.approvalQueue.length > 0) {
+    stream.approval = stream.approvalQueue.shift()
+  }
+  return removed
+}
+
 /**
  * 立即清 pending 审批（ApprovalCard submit 后调用，不等 accept/rejected notification 回来）。
  * 自动从 queue head pop 下一个进 approval（多审批堆叠连续处理）。
@@ -62,6 +78,14 @@ function resummonApproval(streams: Ref<Record<string, StreamState>>) {
   }
 }
 
+function expireApproval(streams: Ref<Record<string, StreamState>>) {
+  return (chatId: string, approvalId: string): void => {
+    const stream = streams.value[chatId]
+    if (!stream) return
+    removeApprovalById(stream, approvalId)
+  }
+}
+
 export function createApprovalActions(
   streams: Ref<Record<string, StreamState>>,
   _pets: Ref<PetInstance[]>,
@@ -70,5 +94,6 @@ export function createApprovalActions(
     dismissApproval: dismissApproval(streams),
     dismissApprovalToQueue: dismissApprovalToQueue(streams),
     resummonApproval: resummonApproval(streams),
+    expireApproval: expireApproval(streams),
   }
 }

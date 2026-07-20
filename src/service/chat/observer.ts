@@ -13,6 +13,7 @@ import type { LLMResponse } from '@/core/message/adapter'
 import type { MiddlewareChunk } from '@/core/middleware/types'
 import { logger } from '@/utils/logger/index.js'
 import { getWaitedParent } from '@/agent/spawnBroker.js'
+import { isAgentParkError } from '@/core/middleware/errors.js'
 import { createQuestionBatch } from '@/db/question.js'
 
 /**
@@ -143,11 +144,12 @@ export async function* observeAgentChunks(
       if (chunk.type === 'child_done') {
         const waited = getWaitedParent(chunk.childChatId)
         if (waited) {
+          // child_done 已是子 agent 的权威终态。先持久化，再唤醒父会话，避免
+          // role_reply 已送达但刷新恰好读不到 finished 的短暂状态窗口。
+          updateChatMetadata(chunk.childChatId, { finished: true })
+
           // wakeParent 内部 clearWaitedChild + 注入 role:role 回复（内存+DB）+ 推 role_reply
           await wakeParent(waited.parentChatId, chunk.childChatId, waited.type, chunk.content)
-
-          // 设置 finished 标记（子 agent 真正完成，前端据此变 ghost）
-          updateChatMetadata(chunk.childChatId, { finished: true })
 
           logger.event('child.done.wake', {
             childChatId: chunk.childChatId,
@@ -161,16 +163,23 @@ export async function* observeAgentChunks(
       yield chunk
     }
   } catch (err) {
-    // 角色出错（含 abort）：若被 wait，注入错误回复唤主（不等 5min 看门狗，防主卡死）。
+    // park（WS 断连）：子 agent 审批被挂起，不向父唤主报错——子 chat 保持 canResume Case1，
+    // 待重连 chat.resume/chat.startSpawn 重建 pending sense，完成后正常唤主（注入子结果，非错误）。
+    // 仅其他错误（含用户主动 chat.abort 的 AgentAbortError）才唤主报错（不等 5min 看门狗，防主卡死）；
     // child_done 正常完成路径不触发此处（throw 跳过 loop 末尾 child_done yield）；wakeParent 内部 clearWaitedChild 防并发。
-    const waited = getWaitedParent(chatId)
-    if (waited) {
-      await wakeParent(
-        waited.parentChatId,
-        chatId,
-        waited.type,
-        `[${waited.type}] 执行出错了: ${(err as Error).message}`,
-      )
+    if (!isAgentParkError(err)) {
+      const waited = getWaitedParent(chatId)
+      if (waited) {
+        // 已向父会话回传终态错误的子 agent 不再可续跑；与正常 child_done 一样
+        // 持久化 finished，保证实时和刷新重建都能转为 ghost。
+        updateChatMetadata(chatId, { finished: true })
+        await wakeParent(
+          waited.parentChatId,
+          chatId,
+          waited.type,
+          `[${waited.type}] 执行出错了: ${(err as Error).message}`,
+        )
+      }
     }
     throw err
   } finally {

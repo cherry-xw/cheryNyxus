@@ -1104,6 +1104,8 @@ export interface ChatSyncResponseData extends QuestionStateSnapshotData {
 export interface ChatStartSpawnResponseData extends ChatSendResponseData {
   /** Existing task had already completed, so no child run was started. */
   alreadyFinished?: boolean
+  /** This request completed the child task; the frontend should finalize its pet as a ghost. */
+  finished?: boolean
 }
 
 export interface SenseApprovalResponseData {

@@ -15,7 +15,7 @@ import {
   type ThinkingLevel,
 } from '@/services/agentApi'
 import { PROVIDERS } from '../../config/constants'
-import ConfirmDialog from '@/components/confirm/ConfirmDialog.vue'
+import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
 import LabelTip from '../config/LabelTip.vue'
 import ThinkingLevelKnob from '../../controls/ThinkingLevelKnob.vue'
@@ -43,8 +43,6 @@ const emit = defineEmits<{
 
 const CONTEXT_LIMIT_OPTIONS = [128, 256, 512, 1024] as const
 
-// 删大脑二次确认（重删 → ConfirmDialog 居中 modal）
-const removeDialog = ref(false)
 const removeImpact = computed(() => {
   const referringRoles = Object.entries(props.draft.roles ?? {})
     .filter(([, cfg]) => cfg.brain === props.name)
@@ -301,14 +299,17 @@ async function openEnvFile(): Promise<void> {
           <button type="button" class="icon-btn" aria-label="复制" @click.stop="duplicateBrain">
             <CopyDocument class="ico" />
           </button>
-          <button
-            type="button"
-            class="icon-btn danger"
-            aria-label="删除"
-            @click.stop="removeDialog = true"
+          <ConfirmPopover
+            :title="`删除大脑「${name}」？`"
+            :impact="removeImpact"
+            @confirm="removeBrain"
           >
-            <Delete class="ico" />
-          </button>
+            <template #trigger>
+              <button type="button" class="icon-btn danger" aria-label="删除" @click.stop>
+                <Delete class="ico" />
+              </button>
+            </template>
+          </ConfirmPopover>
         </template>
       </EditableTitle>
     </header>
@@ -342,9 +343,13 @@ async function openEnvFile(): Promise<void> {
             {{ connectionTestState === 'pending' ? '测试中' : '测试连接' }}
           </button>
         </div>
-        <div class="connection-test-message"
-             :class="connectionTestState === 'idle' ? 'muted' : connectionTestState"
-             v-if="isMockProvider || connectionTestState === 'success' || connectionTestState === 'error'">
+        <div
+          class="connection-test-message"
+          :class="connectionTestState === 'idle' ? 'muted' : connectionTestState"
+          v-if="
+            isMockProvider || connectionTestState === 'success' || connectionTestState === 'error'
+          "
+        >
           {{ isMockProvider ? '离线模拟无需测试' : connectionTestMessage }}
         </div>
         <div class="brain-fields connection-fields">
@@ -402,9 +407,9 @@ async function openEnvFile(): Promise<void> {
           <div class="field">
             <div class="label-with-action">
               <LabelTip
-              label="密钥"
-              tip="key：API 密钥，从 .env 变量中选择（$ENV 占位符）。本地 LM Studio / vLLM / Ollama OpenAI 模式等服务不校验 key，可直接输入任意字符串（如 lm-studio）；留空会触发运行期鉴权失败"
-            />
+                label="密钥"
+                tip="key：API 密钥，从 .env 变量中选择（$ENV 占位符）。本地 LM Studio / vLLM / Ollama OpenAI 模式等服务不校验 key，可直接输入任意字符串（如 lm-studio）；留空会触发运行期鉴权失败"
+              />
               <button
                 type="button"
                 class="icon-btn"
@@ -480,14 +485,6 @@ async function openEnvFile(): Promise<void> {
         />
       </section>
     </div>
-    <ConfirmDialog
-      v-model="removeDialog"
-      icon="🗑️"
-      :title="`删除大脑「${name}」？`"
-      :impact="removeImpact"
-      tab-color="#5ee7ff"
-      @confirm="removeBrain"
-    />
   </article>
 </template>
 
@@ -587,7 +584,10 @@ async function openEnvFile(): Promise<void> {
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 35%, transparent);
   border-radius: 999px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s;
 
   &:hover:not(:disabled) {
     background: color-mix(in srgb, var(--tab-color, @accent) 18%, transparent);
@@ -605,9 +605,15 @@ async function openEnvFile(): Promise<void> {
     border-radius: 50%;
     background: rgba(20, 22, 26, 0.25);
 
-    &.success { background: var(--el-color-success); }
-    &.error   { background: var(--el-color-danger); }
-    &.idle    { background: rgba(20, 22, 26, 0.25); }
+    &.success {
+      background: var(--el-color-success);
+    }
+    &.error {
+      background: var(--el-color-danger);
+    }
+    &.idle {
+      background: rgba(20, 22, 26, 0.25);
+    }
 
     &.spinning {
       background: transparent;
@@ -623,13 +629,21 @@ async function openEnvFile(): Promise<void> {
   margin: 6px 0 2px;
   padding-left: 2px;
 
-  &.success { color: var(--el-color-success); }
-  &.error   { color: var(--el-color-danger); }
-  &.muted   { color: rgba(20, 22, 26, 0.42); }
+  &.success {
+    color: var(--el-color-success);
+  }
+  &.error {
+    color: var(--el-color-danger);
+  }
+  &.muted {
+    color: rgba(20, 22, 26, 0.42);
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .label-with-action {
