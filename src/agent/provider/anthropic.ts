@@ -157,6 +157,12 @@ function buildThinkingParam(level: ThinkingLevel | undefined): Record<string, un
         thinking: { type: 'adaptive' },
         output_config: { effort: 'high' },
       }
+    default:
+      // YAML 自定义档位（如 DeepSeek 的 `max`）：Anthropic 协议无对应值，降级 high。
+      return {
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'high' },
+      }
   }
 }
 

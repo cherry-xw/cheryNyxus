@@ -8,6 +8,7 @@
  */
 
 import type { ThinkingBlock } from '@/core/message/adapter.js'
+import type { ThinkingLevel } from '@/core/llm/adapter.js'
 
 /** 所有 hooks 事件名（dispatcher 入口穷举）*/
 export type HookEvent =
@@ -55,7 +56,8 @@ export interface PreLLMRequestPayload {
   provider: string
   model: string
   url: string
-  thinking: 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | undefined
+  /** 思考档位：含 YAML 自定义值（如 DeepSeek 的 `max`），对齐 ThinkingLevel */
+  thinking: ThinkingLevel | undefined
   stream: boolean
   /** provider 构造的完整请求体（Anthropic/OpenAI/... 不同） */
   body: Record<string, unknown>

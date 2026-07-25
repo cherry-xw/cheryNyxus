@@ -4,8 +4,10 @@ import type { SenseFunction } from '../sense/adapter'
  * - off：关闭（provider 省略思考参数）
  * - on：开关模型的「开启」档（不传 reasoning_effort）；有显式强度档位的模型不列此值
  * - low/medium/high/xhigh：强度递增，各 provider 自行映射为请求参数
+ * - 任意字符串：来自 `.chery/model-thinking.yaml` 的原样档位（如 DeepSeek 的 `max`）。
+ *   `(string & {})` 保留对已知值的自动补全，又允许任何 string 通过编译。
  */
-export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh'
+export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | (string & {})
 
 /**
  * LLM 调用选项（P1-6：替代 Record<string, unknown>，消除 provider 内强转）。

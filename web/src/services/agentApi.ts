@@ -458,8 +458,10 @@ export interface ChatSendAttachment {
  * - off：关闭
  * - on：由模型/服务端决定（不传参）
  * - low/medium/high/xhigh：强度递增
+ * - 任意字符串：来自 `.chery/model-thinking.yaml` 的原样档位（如 DeepSeek 的 `max`）。
+ *   `(string & {})` 保留自动补全又允许任何 string 通过编译。
  */
-export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh'
+export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | (string & {})
 
 /** config.get 响应 / config.save 入参：.chery/config.yaml 原文（除 server 段）。对齐后端 ConfigRaw。 */
 export interface BrainConfigDto {
@@ -1212,7 +1214,8 @@ export const agentApi = {
 
   /**
    * utils.thinkingLevels：按模型名批量查 ThinkingLevel 档位列表。
-   * 后端读 `.chery/model-thinking.yaml` 配置；未命中兜底为 ["off", "on"]。
+   * 后端读 `.chery/model-thinking.yaml` 配置，**原样返回文件中 thinking 数组**（按 YAML 顺序），
+   * elements 含任意字符串（如 DeepSeek 的 `max`）。未命中兜底为 ["off", "on"]。
    * models 去重 + 过滤空串；返回 `Record<model, ThinkingLevel[]>`。
    */
   async getThinkingLevels(models: string[]): Promise<Record<string, ThinkingLevel[]>> {

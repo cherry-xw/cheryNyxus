@@ -50,9 +50,20 @@ export async function acquireRpm(options?: {
 export function mapThinkingToReasoningEffort(
   level: ThinkingLevel | undefined,
 ): 'low' | 'medium' | 'high' | undefined {
-  if (level === undefined || level === 'off' || level === 'on') return undefined
-  if (level === 'xhigh') return 'high'
-  return level
+  switch (level) {
+    case 'low':
+      return 'low'
+    case 'medium':
+      return 'medium'
+    case 'high':
+      return 'high'
+    case 'xhigh':
+      return 'high'
+    default:
+      // off / on / undefined / 自定义档位（如 DeepSeek 的 `max`）-> 不发 reasoning_effort
+      // （OpenAI / BigModel 协议不认 `max`；DeepSeek 自有 buildThinkingParams 处理）
+      return undefined
+  }
 }
 
 // ========== Message Adapter ==========

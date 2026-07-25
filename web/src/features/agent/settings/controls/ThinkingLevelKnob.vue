@@ -29,7 +29,7 @@ const props = defineProps<{
 }>()
 
 interface LevelMeta {
-  value: ThinkingLevel
+  value: string
   label: string
   /** 视窗激活时的填充色 */
   accent: string
@@ -37,13 +37,28 @@ interface LevelMeta {
   textOnAccent: string
 }
 
-const META: Record<ThinkingLevel, LevelMeta> = {
+/** 已知档位的样式表（off/on/low/medium/high/xhigh）。其它 YAML 自定义档位（如 DeepSeek 的 `max`）
+ *  在 `metaFor()` 里以「label=原字符串 + 中性灰配色」兜底，原样显示。 */
+const META: Record<string, LevelMeta> = {
   off: { value: 'off', label: 'off', accent: '#5b6271', textOnAccent: '#fff' },
   on: { value: 'on', label: 'on', accent: '#9a7eaf', textOnAccent: '#fff' },
   low: { value: 'low', label: 'low', accent: '#e3a548', textOnAccent: '#3a2406' },
   medium: { value: 'medium', label: 'medium', accent: '#f6b73c', textOnAccent: '#3a2406' },
   high: { value: 'high', label: 'high', accent: '#d99717', textOnAccent: '#fff7e6' },
   xhigh: { value: 'xhigh', label: 'xhigh', accent: '#c66b12', textOnAccent: '#fff7e6' },
+}
+
+/** 兜底样式：未知档位走中性灰 + 原字符串 label。 */
+const FALLBACK_META: LevelMeta = {
+  value: '',
+  label: '',
+  accent: '#6b7280',
+  textOnAccent: '#fff',
+}
+
+/** 取档位 meta：META 命中返回预设；否则用 FALLBACK_META 但保留原字符串作 label。 */
+function metaFor(level: string): LevelMeta {
+  return META[level] ?? { ...FALLBACK_META, value: level, label: level }
 }
 
 /** 完整月相标尺；实际档位数较少时从中等距取样。 */
@@ -55,12 +70,12 @@ function moonFor(index: number, levelCount: number): string {
   return MOON_PHASES[phaseIndex] ?? MOON_PHASES[0]
 }
 
-/** 有效档位序列（过滤无效 + 保序去重）。 */
-const validLevels = computed<readonly ThinkingLevel[]>(() => {
-  const seen = new Set<ThinkingLevel>()
-  const out: ThinkingLevel[] = []
+/** 有效档位序列（保序去重；不剔除未知档位——YAML 原样显示）。 */
+const validLevels = computed<readonly string[]>(() => {
+  const seen = new Set<string>()
+  const out: string[] = []
   for (const l of props.levels) {
-    if (l in META && !seen.has(l)) {
+    if (typeof l === 'string' && !seen.has(l)) {
       seen.add(l)
       out.push(l)
     }
@@ -74,10 +89,11 @@ const activeIndex = computed(() => {
   return idx < 0 ? 0 : idx
 })
 
-/** 当前档位的 meta（视窗用）。 */
-const activeMeta = computed<LevelMeta>(
-  () => META[validLevels.value[activeIndex.value] ?? 'off'] ?? META.off,
-)
+/** 当前档位的 meta（视窗用）。未知档位走 metaFor 兜底。 */
+const activeMeta = computed<LevelMeta>(() => {
+  const cur = validLevels.value[activeIndex.value]
+  return cur ? metaFor(cur) : FALLBACK_META
+})
 
 // ── DOM 引用 ──────────────────────────────────────────────────────
 const trackRef = ref<HTMLElement | null>(null)
@@ -370,7 +386,7 @@ onBeforeUnmount(() => {
           class="point-item"
           :class="{ current: i === activeIndex }"
           :aria-checked="i === activeIndex"
-          :aria-label="META[lvl]?.label ?? lvl"
+          :aria-label="metaFor(lvl).label"
           role="radio"
           @click.stop="onTileClick(i)"
         >

@@ -24,9 +24,11 @@ import { assertChatOptions, jsonRequest, streamSSE } from './fetchBase.js'
 
 function buildThinkingParams(level: ThinkingLevel | undefined): Record<string, unknown> {
   if (level === 'off') return { thinking: { type: 'disabled' } }
+  // `xhigh` 与 YAML 自定义档位 `max` 都映射到 DeepSeek API 的 `reasoning_effort: 'max'`。
+  const reasoningEffort = level === 'xhigh' || level === 'max' ? 'max' : 'high'
   return {
     thinking: { type: 'enabled' },
-    reasoning_effort: level === 'xhigh' ? 'max' : 'high',
+    reasoning_effort: reasoningEffort,
   }
 }
 

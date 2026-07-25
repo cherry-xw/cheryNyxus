@@ -151,12 +151,12 @@ export function resetRateLimiters(): void;  // 测试 / 热更清残留
 
 ### modelThinking.ts — 模型档位映射
 
-`ThinkingLevel`（[core/llm](../core/llm.md)）定义 5 档：`off` / `off` / `on`（由模型决定）/ `low` / `medium` / `high`。不同模型支持的档位不同（OpenAI o1 系列支持 reasoning_effort 全 4 档，ollama 不接受 thinking 参数，部分长上下文模型可能只支持开关两档）。
+`ThinkingLevel`（[core/llm](../core/llm.md)）定义 6 档：`off` / `on` / `low` / `medium` / `high` / `xhigh`，并通过 `(string & {})` 允许任意字符串作为额外档位（来自 `.chery/model-thinking.yaml`）。不同模型支持的档位不同（OpenAI o1 系列支持 reasoning_effort 全 4 档，ollama 不接受 thinking 参数，部分长上下文模型可能只支持开关两档）。
 
 `modelThinking` 解决两件事：
 
-1. **配置加载**：读取 `.chery/model-thinking.yaml`，声明模型别名 → 支持档位列表的映射。
-2. **运行时查询**：给定 model 名（支持精确/前缀/通配 `*` 匹配），返回该模型可用的 `ThinkingLevel[]`，供前端 settings 渲染「深度思考」旋钮。
+1. **配置加载**：读取 `.chery/model-thinking.yaml`，声明模型别名 → thinking 档位数组（**原样保留文件中的字符串，按 YAML 顺序**；不校验、不剔除、不映射）。
+2. **运行时查询**：给定 model 名（支持精确/前缀/通配 `*` 匹配），按文件原顺序返回该模型可用的档位列表，供前端 settings 渲染「深度思考」旋钮。
 
 ```ts
 // 加载（启动期一次性，in-memory 缓存；YAML 不存在则返回空配置，全量走兜底）
@@ -172,19 +172,20 @@ export function resolveThinkingLevelsBatch(models: string[]): Record<string, Thi
 **配置格式（`.chery/model-thinking.yaml`）：**
 
 ```yaml
-# 模型 → 思考强度档位映射
-#  - aliases: 完整模型名或前缀（如 "gpt-4o" 同时匹配 "gpt-4o-mini"）
-#  - thinking: 该模型支持的 ThinkingLevel 子集
+# thinking 数组原样返回文件中的字符串（按 YAML 顺序）。`on`/`off` 是仅有的「开关档关键词」，
+# 但任何字符串都可作档位名（如 DeepSeek 的 `max`）。provider 端按各自协议映射为 API 参数。
 # 匹配顺序：精确 > 最长前缀 > 通配 "*"；未命中返回 ["off","on"] 兜底
 models:
   - aliases: [gpt-4o, gpt-4o-mini, gpt-4-turbo]
-    thinking: [off, low, medium, high]
+    thinking: [off, low, medium, high]             # → [off, low, medium, high]
   - aliases: [LongCat-Flash-Thinking, LongCat-Flash-Thinking-2601]
-    thinking: [off, on]
+    thinking: [off, on]                            # → [off, on]（仅开关）
   - aliases: [glm-5.2, glm-5, glm-4.6]
-    thinking: [off, low, medium, high]
+    thinking: [off, low, medium, high]             # → [off, low, medium, high]
   - aliases: [doubao2.0-pro]
     thinking: [off, low, medium, high]
+  - aliases: [deepseek-v4-pro, deepseek-v4-flash]
+    thinking: [off, on, high, max]                 # → [off, on, high, max]（`max` 原样；DeepSeek provider 内部映射为 'max'）
   - aliases: ["*"]
     thinking: [off, on]
 ```

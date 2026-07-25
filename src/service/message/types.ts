@@ -1326,6 +1326,7 @@ export interface EnvListResponseData {
 /**
  * utils.thinkingLevels 响应：model → ThinkingLevel 列表。
  * 每个 model 一定有 entries（未命中兜底为 `["off", "on"]`）；空 models 入参返回 `levels: {}`。
+ * ThinkingLevel 含 `(string & {})`，故 elements 可为任意字符串（如 `.chery/model-thinking.yaml` 里的 `max`）。
  */
 export interface UtilsThinkingLevelsResponseData {
   levels: Record<string, import('@/core/llm/adapter.js').ThinkingLevel[]>

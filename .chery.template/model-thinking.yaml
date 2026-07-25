@@ -1,18 +1,15 @@
 # 模型 → 思考强度档位映射
 #
-# 档位选择规则（最小化）：
-#  - 支持 reasoning_effort 全档的推理模型：只列 [off, low, medium, high]
-#    （不列 on——已提供显式强度档位时，"由模型决定"无独立语义）
-#  - 仅支持开关的模型（无强度概念）：列 [off, on]
-#  - 未配置 / 未命中：后端兜底返回 ["off", "on"]
+# thinking 字段：数组——**原样返回文件中的单词**，按 YAML 顺序，不校验、不剔除、不映射。
+# `on`/`off` 是仅有的「开关档关键词」，但任何字符串都可作档位名（如 DeepSeek 的 `max`）。
+# 例：
+#   [off, on]                    → [off, on]
+#   [off, low, medium, high]     → [off, low, medium, high]
+#   [off, on, high, max]         → [off, on, high, max]（`max` 原样显示；DeepSeek provider 内部映射为 'max'）
 #
 # 匹配顺序：精确 > 最长前缀 > 通配 "*"。
-# 每条 aliases 含若干模型名（含通配 "*" 表示兜底命中所有未匹配项）。
-#
-# ThinkingLevel 枚举（src/core/llm/adapter.ts）：
-#   - off：关闭（provider 省略思考参数）
-#   - on：仅用于开关模型，对应"由服务端决定"或"未传 reasoning_effort"
-#   - low / medium / high / xhigh：强度递增（provider 自行映射）
+# aliases 含若干模型名（含通配 "*" 表示兜底命中所有未匹配项）。
+# 未配置 / 未命中：兜底 ["off", "on"]。
 
 models:
   # 智谱 GLM 系列（OpenAI 兼容协议，reasoning_effort 全 4 档）
