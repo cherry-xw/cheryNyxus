@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, toRaw, watch } from 'vue'
 import { CopyDocument, Delete, Lock, Plus } from '@element-plus/icons-vue'
 import type { ConfigDto } from '@/services/agentApi'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
@@ -97,6 +97,26 @@ const systemPromptModel = computed<string>({
     if (current.value) current.value.systemPrompt = v || undefined
   },
 })
+// 角色说明：header 内注释样式 inline 编辑（锁定角色只读）；空串归一为 undefined
+const descEditing = ref(false)
+const descEditValue = ref('')
+const vFocus = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
+function startDescEdit(): void {
+  if (current.value?.lock) return
+  descEditing.value = true
+  descEditValue.value = current.value?.description ?? ''
+}
+function commitDescEdit(): void {
+  if (!descEditing.value) return
+  const v = descEditValue.value.trim()
+  if (current.value) current.value.description = v || undefined
+  descEditing.value = false
+  descEditValue.value = ''
+}
+function cancelDescEdit(): void {
+  descEditing.value = false
+  descEditValue.value = ''
+}
 
 // 角色标题超长截断（EditableTitle 内部 .card-name）：在 mounted/updated 时把 fullName 写到
 // title 上做 hover 兜底——EditableTitle 自己固定 title="点击改名"，这里覆盖而非冲突。
@@ -171,7 +191,7 @@ function duplicateRole(type: string): void {
   const rebuilt: NonNullable<ConfigDto['roles']> = {}
   for (const [key, value] of Object.entries(props.draft.roles)) {
     rebuilt[key] = value
-    if (key === type) rebuilt[name] = structuredClone(value)
+    if (key === type) rebuilt[name] = structuredClone(toRaw(value))
   }
   props.draft.roles = rebuilt
   selectedRole.value = name
@@ -222,7 +242,10 @@ function updateEquipment(value: string[]): void {
   cfg[kind] = value
 }
 
-watch(selectedRole, closeEquipment)
+watch(selectedRole, () => {
+  closeEquipment()
+  titleRef.value?.cancel()
+})
 </script>
 
 <template>
@@ -268,11 +291,13 @@ watch(selectedRole, closeEquipment)
               class="role-name-edit"
               :model-value="selectedRole"
               :validate="validateRename"
+              :disabled="!!current.lock"
               @rename="(name: string) => renameRole(selectedRole, name)"
               @error="emit('error', $event)"
             >
               <template #actions>
                 <button
+                  v-if="!current.lock"
                   type="button"
                   class="icon-btn"
                   aria-label="复制角色"
@@ -285,7 +310,7 @@ watch(selectedRole, closeEquipment)
                   type="button"
                   class="icon-btn"
                   disabled
-                  title="角色已锁定"
+                  title="角色已锁定：禁止改名/复制/改专属背景说明/改角色说明"
                 >
                   <Lock class="ico" />
                 </button>
@@ -303,6 +328,27 @@ watch(selectedRole, closeEquipment)
                 </ConfirmPopover>
               </template>
             </EditableTitle>
+            <!-- 角色说明：header 内注释样式，点击 inline 编辑（锁定角色只读） -->
+            <div class="role-desc-line">
+              <span
+                v-if="!descEditing"
+                class="role-desc-text"
+                :class="{ editable: !current.lock }"
+                :title="current.lock ? undefined : '点击编辑说明'"
+                @click="startDescEdit"
+                >{{ current.description || (current.lock ? '—' : '点击添加角色说明') }}</span
+              >
+              <el-input
+                v-else
+                v-model="descEditValue"
+                v-focus
+                size="small"
+                placeholder="角色说明（仅 UI 展示，不进 prompt）"
+                @keydown.enter="commitDescEdit"
+                @keydown.esc="cancelDescEdit"
+                @blur="commitDescEdit"
+              />
+            </div>
             <div class="role-status-line">
               <span class="status-chip">系统负重 ≈ {{ roleTokens(current) }} token</span>
             </div>
@@ -383,6 +429,7 @@ watch(selectedRole, closeEquipment)
               placeholder="无专属背景(仅全局)"
               filterable
               clearable
+              :disabled="!!current.lock"
               popper-class="role-prompt-cascader"
               class="prompt-cascader"
             />
@@ -556,6 +603,27 @@ watch(selectedRole, closeEquipment)
   gap: 5px;
   flex-wrap: wrap;
   margin-top: 6px;
+}
+.role-desc-line {
+  margin-top: 3px;
+  min-height: 16px;
+  max-width: 100%;
+}
+.role-desc-text {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  color: fade(@ink, 48%);
+  word-break: break-word;
+  &.editable {
+    cursor: text;
+    border-radius: 4px;
+    &:hover {
+      color: fade(@ink, 68%);
+      background: color-mix(in srgb, var(--tab-color, @accent) 8%, transparent);
+    }
+  }
 }
 .status-chip {
   padding: 2px 7px;

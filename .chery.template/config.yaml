@@ -76,11 +76,12 @@ llm:
         input: {}
         generate: {}
     # ---- 示例 3：Anthropic provider ----
-    # 原生 fetch → POST {url}/v1/messages，header x-api-key + anthropic-version
+    # 原生 fetch → POST {url}/messages（version 前缀 /v1 由 url 自己负责），
+    # header x-api-key + anthropic-version: 2023-06-01
     # thinking 参数（thinking:{type:'adaptive'} + output_config.effort）可通过 .chery/hooks/hooks.json 的
     # PreLLMRequest 钩子按端点适配改写（详见 docs/agent/hooks.md）
     anthropic_main:
-      url: https://api.anthropic.com       # base url（不含 /v1/messages）
+      url: https://api.anthropic.com/v1    # 完整 base URL（必须含版本前缀 /v1）
       model: claude-sonnet-4-5             # 官方模型 id（无 anthropic. 前缀）
       key: $ANTHROPIC_API_KEY
       provider: anthropic
@@ -171,32 +172,38 @@ roles:
     senseGroup: leader
     mcpServers: []                      # [可选] MCP 服务器列表
     systemPrompt: prompt/prefebMain/leader.md
+    description: 协调者：组长角色，负责任务分发、子角色调度与结果汇总
   plan:
     brain: my-brain
     senseGroup: plan
     mcpServers: []
     systemPrompt: prompt/prefebMain/planner.md
+    description: 规划者：拆解任务、管理 todo 清单、规划实现路径
   coder:
     brain: my-brain
     senseGroup: coder
     mcpServers: []
     systemPrompt: prompt/prefebMain/coder.md
+    description: 编码者：执行代码编写与文件修改
   reviewer:
     brain: my-brain
     senseGroup: reviewer
     mcpServers: []
     systemPrompt: prompt/prefebMain/reviewer.md
+    description: 审查者：只读评审代码与实现，不修改文件
   housekeeper:                    # 管家：安装技能（install_skill 感官独占，.chery/ 路径守卫豁免）
     brain: my-brain
     senseGroup: housekeeper
     mcpServers: []
     systemPrompt: prompt/housekeeper/housekeeper.md
+    description: 管家：安装与维护 .chery/ 技能、配置（install_skill 独占，.chery 路径守卫豁免）
     lock: true                       # 锁定禁止删除（保护 install 能力）
   curator:                       # 记忆维护：Extract（每轮提取）/ Dream（定时整理）
     brain: my-brain
     senseGroup: curator
     mcpServers: []
     systemPrompt: prompt/curator/curator.md
+    description: 记忆维护：每轮提取记忆、定期整理（Extract/Dream）
     lock: true                       # 锁定禁止删除（保护记忆维护能力）
 
 # ------------------------------------------------------------

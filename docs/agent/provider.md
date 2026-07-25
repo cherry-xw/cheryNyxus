@@ -363,7 +363,7 @@ OpenAI 兼容协议的 provider（openai / bigmodel）共享 message/sense adapt
 
 ### anthropic provider（[anthropic.ts](../../src/agent/provider/anthropic.ts)）
 
-Anthropic Messages API（`/v1/messages`），原生 fetch 实现（遵项目扩展点约定，不引 `@anthropic-ai/sdk`）。message/sense adapter 不可复用 openaiCompat（Anthropic 用 content-block + 顶层 `system` + tool_use/input 对象），需自写。LLMAdapter 也**不复用** fetchBase 的 `jsonRequest/streamSSE`（硬编码 `/chat/completions`+Bearer+`[DONE]`），需写私有 `anthropicFetch`/`anthropicStreamSSE`。
+Anthropic Messages API（endpoint `/messages`，版本前缀如 `/v1`、`/v4` 由用户在 `cfg.url` 自己负责，与 openai 模式对齐），原生 fetch 实现（遵项目扩展点约定，不引 `@anthropic-ai/sdk`）。message/sense adapter 不可复用 openaiCompat（Anthropic 用 content-block + 顶层 `system` + tool_use/input 对象），需自写。LLMAdapter 也**不复用** fetchBase 的 `jsonRequest/streamSSE`（硬编码 `/chat/completions`+Bearer+`[DONE]`），需写私有 `anthropicFetch`/`anthropicStreamSSE`。
 
 **请求侧（[anthropic.ts buildThinkingParam](../../src/agent/provider/anthropic.ts)）：**
 
@@ -430,7 +430,7 @@ extractSenseCallDeltas(chunk):
 `SenseCallAssembler.push` 按 `index` 累积、`id`/`name` 取首非空不覆盖 → 与 OpenAI 路径等价。
 
 **SSE 解析（anthropicStreamSSE）：** 仿 `fetchBase.ts:210-270` 行缓冲骨架，改：
-- endpoint `/v1/messages`
+- endpoint `/messages`（版本前缀由用户在 `cfg.url` 提供）
 - headers `x-api-key` + `anthropic-version: 2023-06-01` + `Accept: text/event-stream`
 - 终止条件 `message_stop`（而非 `[DONE]`）
 - `finally` 必跑 `controller.abort() + reader.cancel()`（对接 `generator.throw()` abort）

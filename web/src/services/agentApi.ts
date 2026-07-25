@@ -585,6 +585,7 @@ export interface ConfigDto {
     {
       brain: string
       avatar?: string
+      description?: string
       senseGroup: string
       mcpServers?: string[]
       systemPrompt?: string

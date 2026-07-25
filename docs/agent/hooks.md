@@ -121,7 +121,8 @@ sequenceDiagram
     participant Anthropic as anthropic.ts
     participant Dispatch as hooks dispatch
     participant Shell as .chery/hooks/anthropic-thinking.sh
-    participant API as /v1/messages
+    participant API as {base}/messages
+    Note over API: base URL = brain.url（用户配置，含 /v1 等版本前缀）
 
     Chat->>Anthropic: chat(messages, senses, options)
     Anthropic->>Anthropic: 构造 body (内置 thinking 默认)
@@ -130,7 +131,7 @@ sequenceDiagram
     Shell->>Shell: 修改 body.thinking 或 max_tokens
     Shell-->>Dispatch: stdout = {body: <new>}  (exit 0)
     Dispatch-->>Anthropic: payload.body (已替换)
-    Anthropic->>API: fetch POST /v1/messages
+    Anthropic->>API: fetch POST {base}/messages
 ```
 
 ### matcher + if 谓词
@@ -155,7 +156,7 @@ function evalIf(expr: string, ctx: Record<string, unknown>): boolean
   payload: {
     provider: string         // 'anthropic' | 'openai' | ...
     model: string
-    url: string              // base URL（不含 /v1/messages）
+    url: string              // base URL（含版本前缀如 /v1）
     thinking: 'off'|'on'|'low'|'medium'|'high'|undefined
     stream: boolean
     body: Record<string, unknown>  // provider 构造的完整请求体

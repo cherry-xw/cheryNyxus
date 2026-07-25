@@ -44,10 +44,12 @@ const currentApproval = computed<ApprovalState | undefined>(() => stream.value?.
 const queueApprovals = computed<ApprovalState[]>(() => stream.value?.approvalQueue ?? [])
 
 // history 列：最近 5 条（DESC），按 createdAt DESC 取前 5
-const recentHistory = computed<HistoryItem[]>(() => {
-  const all = history.value
-  return [...all].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)).slice(0, 5)
-})
+const recentHistory = computed<HistoryItem[]>(() =>
+  [...history.value]
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .filter((item) => item.role === 'user')
+    .slice(0, 3)
+)
 
 /**
  * 剩余秒数（用于闪烁周期）。
@@ -249,7 +251,7 @@ function clickApproval(a: ApprovalState): void {
 
 .pet-icons {
   position: absolute;
-  right: -10px;
+  right: -15px;
   top: 0;
   display: inline-flex;
   align-items: flex-start;

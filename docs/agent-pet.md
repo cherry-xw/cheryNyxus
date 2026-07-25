@@ -40,6 +40,8 @@ roles:
     senseGroup: default # 工具组 = 能力体现
     mcpServers: [] # MCP server 名（缺省 []，与主 agent 平权）
     # systemPrompt: prompt/reader.md   # 给出则作补充合并到全局 base 之后；缺省 → 仅全局 base（.chery/prompt/system.md）
+    # description: 代码阅读者   # 角色说明（仅 UI 展示，不进 prompt）；缺省则详情卡无说明行
+    # lock: true                # 锁定角色：前端禁止改名/复制/改专属背景说明/改角色说明（大脑/器官/装备仍可改）；保护系统默认角色
   read_image:
     brain: longcat
     senseGroup: default
@@ -86,6 +88,8 @@ presets:
 - `presets.<name>.leader`：组长角色 type 名，必须引用 `config.roles` 且包含于该预设的 `roles`。主 agent 的 brain/senseGroup/mcpServers/systemPrompt 均从该角色取得；brain 每轮可覆盖（runtime.set brain-only），sense/mcp/systemPrompt 锁定。
 - `presets.<name>.roles`：`string[]`，引用 `config.roles` 中已定义的子 agent type 名（**不在预设内重定义** brain/sense 等）。子 agent 的 brain/senseGroup/mcpServers/systemPrompt 统一在 `config.roles.<type>` 单一源维护。
 - `systemPrompt` 路径相对 `.chery`（loadConfig 解析为绝对）；缺省 → 全局。per-agent prompt 数据流见 [agent/prompt.md](./agent/prompt.md)。
+- `roles.<type>.description`：角色说明文本，**仅 UI 展示**（角色名下方注释样式，点击 inline 编辑；不注入 prompt，与 `systemPrompt` 职责不重叠）；`lock:true` 角色只读不可编辑；缺省则显示占位。
+- `roles.<type>.lock`：`true` 时前端锁定该角色--禁止改名/复制/改专属背景说明/改角色说明（`description`）；大脑/器官套装/装备栏仍可改。保护 `housekeeper`/`curator` 等系统默认角色不被误改。
 
 **T6 选择与解析（已落地）**：
 

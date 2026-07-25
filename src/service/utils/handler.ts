@@ -37,6 +37,8 @@ import {
 import { getLLMAdapter } from '@/core/llm/adapter.js'
 import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { openWithSystem } from './openWithSystem.js'
+import { readErrorSnippet } from '@/agent/provider/fetchBase.js'
+import { ANTHROPIC_VERSION } from '@/agent/provider/anthropic.js'
 
 const exec = promisify(execCallback)
 
@@ -58,8 +60,13 @@ export async function handleUtilsModels(
         return await fetchOpenAIModels(url, key)
       case 'ollama':
         return await fetchOllamaModels(url)
+      case 'anthropic':
+        return await fetchAnthropicModels(url, key)
       default:
-        return { models: [], error: `不支持的 provider: ${provider}（当前支持 openai / ollama）` }
+        return {
+          models: [],
+          error: `不支持的 provider: ${provider}（当前支持 openai / ollama / anthropic）`,
+        }
     }
   } catch (err) {
     // 复用 chat 路径的分类 + 中文友好文案（不要把 OpenAI SDK 抛的英文 'Connection error.'
@@ -165,6 +172,108 @@ async function fetchOllamaModels(url: string): Promise<UtilsModelsResponseData> 
     models: (response.models ?? []).map((m) => ({
       id: m.name ?? m.model ?? '',
       name: m.name ?? m.model,
+    })),
+  }
+}
+
+/**
+ * Anthropic 模型列表：原生 fetch GET {url}/models?limit=1000
+ * header x-api-key + anthropic-version（同 anthropic.ts 的 chat 路径鉴权方式）。
+ * 版本前缀（如 /v1）由用户在 url 自己提供，与 joinAnthropicUrl 约定一致。
+ * 非流式、无第三方 SDK（Anthropic 无官方 SDK 依赖）。
+ *
+ * 错误策略：诊断接口需 Fail Loud，**不走外层 friendlyMessage 泛化**（会吞 status/snippet）。
+ * 网络/HTTP/JSON 解析三类失败就地返回 {models:[], error} 携带真实 status+片段，
+ * 仅占位符/空 key 同 fetchOpenAIModels 早返模式。
+ */
+async function fetchAnthropicModels(url: string, key?: string): Promise<UtilsModelsResponseData> {
+  // 镜像 fetchOpenAIModels 的占位符/空 key 短路：Anthropic 公共 API 必须带 x-api-key。
+  const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/)
+  if (placeholderMatch) {
+    return {
+      models: [],
+      error: `密钥占位符 $${placeholderMatch[1]} 未替换，请先在 .env 或环境变量里配置`,
+    }
+  }
+  if (!key) {
+    return {
+      models: [],
+      error:
+        '未配置密钥（Anthropic API 需要 x-api-key；如使用自建代理且不校验密钥，填任意非空字符串即可）',
+    }
+  }
+
+  const modelsUrl = `${url.replace(/\/+$/, '')}/models?limit=1000`
+  let res: Response
+  try {
+    res = await fetch(modelsUrl, {
+      method: 'GET',
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': ANTHROPIC_VERSION,
+      },
+    })
+  } catch (err) {
+    // 网络/DNS/连接失败：透传原始 message 供诊断（url 不可达、代理错等）
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.event(
+      'utils.models.error',
+      { provider: 'anthropic', url, error: msg, category: 'network' },
+      LogLevel.warn,
+    )
+    return {
+      models: [],
+      error: `连接 Anthropic 失败：${msg}（请检查 url 是否可达：${url}）`,
+    }
+  }
+  if (!res.ok) {
+    // 上游非 2xx：透传 status + 响应片段（401/403/400/404 等，诊断接口不吞细节）
+    const snippet = await readErrorSnippet(res)
+    const status = res.status
+    const category =
+      status === 401 || status === 403 ? 'auth' : status >= 500 ? 'provider' : 'unknown'
+    logger.event(
+      'utils.models.error',
+      { provider: 'anthropic', url, error: `upstream ${status}: ${snippet}`, category },
+      LogLevel.warn,
+    )
+    return {
+      models: [],
+      error: `Anthropic 接口返回 ${status}：${snippet}`,
+    }
+  }
+
+  let json: { data?: Array<{ id: string; display_name?: string }>; has_more?: boolean }
+  try {
+    json = (await res.json()) as {
+      data?: Array<{ id: string; display_name?: string }>
+      has_more?: boolean
+    }
+  } catch (err) {
+    // 200 但非 JSON（如错误页 HTML）：透传提示
+    const msg = err instanceof Error ? err.message : String(err)
+    logger.event(
+      'utils.models.error',
+      { provider: 'anthropic', url, error: `json parse: ${msg}`, category: 'unknown' },
+      LogLevel.warn,
+    )
+    return {
+      models: [],
+      error: `Anthropic 返回了非 JSON 内容（检查 url 是否指向正确的 API：${url}）`,
+    }
+  }
+  // has_more=true 表示超过 limit 被截断（Anthropic 模型目录远小于 1000，仅兜底可见性，不静默丢弃）
+  if (json.has_more) {
+    logger.event(
+      'utils.models.truncated',
+      { provider: 'anthropic', url, limit: 1000 },
+      LogLevel.warn,
+    )
+  }
+  return {
+    models: (json.data ?? []).map((m) => ({
+      id: m.id,
+      name: m.display_name ?? m.id,
     })),
   }
 }

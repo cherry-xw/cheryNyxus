@@ -2,7 +2,7 @@
  * Anthropic Provider（适配 Anthropic Messages API，原生 fetch）。
  *
  * 三层 adapter：
- * - LLM：POST {url}/v1/messages，header x-api-key + anthropic-version + content-type
+ * - LLM：POST {url}/messages（版本前缀如 /v1 由用户在 cfg.url 自己提供），header x-api-key + anthropic-version + content-type
  * - Message：buildMessages 返回 {system, messages} 元组（system 顶层分离）；content/thinking 来自 content blocks
  * - Sense：tool_use → {id, name, arguments:JSON.stringify(input)}；流式 delta 经 SenseCallAssembler 累积
  *
@@ -48,7 +48,7 @@ import { dispatch, type HookPayloadMap } from '@/agent/hooks/index.js'
 
 // ========== 常量 ==========
 
-const ANTHROPIC_VERSION = '2023-06-01'
+export const ANTHROPIC_VERSION = '2023-06-01'
 const ANTHROPIC_DEFAULT_MAX_TOKENS = 16384
 
 // ========== Anthropic 类型（局部定义，不引第三方 SDK）============
@@ -479,9 +479,11 @@ async function applyPreLLMRequest(
 
 // ========== fetch + SSE ==========
 
-/** 拼接 base URL + /v1/messages */
+/** 拼接 base URL + /messages。
+ * 版本前缀（如 `/v1`）由用户在 `cfg.url` 自己写，代码不接管——与 openai 模式一致。
+ */
 function joinAnthropicUrl(base: string): string {
-  return `${base.replace(/\/+$/, '')}/v1/messages`
+  return `${base.replace(/\/+$/, '')}/messages`
 }
 
 /** Anthropic headers：x-api-key + anthropic-version + content-type */
@@ -494,7 +496,7 @@ function anthropicHeaders(key: string, stream: boolean): Record<string, string> 
   }
 }
 
-/** 非流式 fetch：POST /v1/messages → AnthropicResponse */
+/** 非流式 fetch：POST {base}/messages → AnthropicResponse */
 async function anthropicFetch(
   url: string,
   body: AnthropicBody,
@@ -518,10 +520,10 @@ async function anthropicFetch(
 }
 
 /**
- * 流式 SSE：POST /v1/messages（stream:true）→ yield 每条 data: JSON
+ * 流式 SSE：POST {base}/messages（stream:true）→ yield 每条 data: JSON
  *
  * 仿 fetchBase.ts:210-270 行缓冲骨架，但改：
- * - endpoint /v1/messages
+ * - endpoint /messages（版本前缀由用户在 base URL 提供）
  * - 终止 message_stop（非 [DONE]）
  * - finally 必跑 controller.abort() + reader.cancel()
  */

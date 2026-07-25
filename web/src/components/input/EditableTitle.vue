@@ -13,6 +13,8 @@ const props = defineProps<{
   modelValue: string
   /** 提交前校验：返回错误提示串（保持编辑态 + emit error）或 null（通过） */
   validate?: (newName: string) => string | null
+  /** 禁用改名：true 时点击不进入编辑态（锁定角色用，向后兼容缺省 false） */
+  disabled?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'rename', newName: string): void
@@ -24,6 +26,7 @@ const editValue = ref('')
 const vFocus = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
 
 function start(): void {
+  if (props.disabled) return
   editing.value = true
   editValue.value = props.modelValue
   emit('error', '')
@@ -48,7 +51,7 @@ function commit(): void {
 }
 
 // 暴露 start 给父组件（RolesTab 复制后自动进入改名态），替代脆弱的 querySelector(.click())。
-defineExpose({ start })
+defineExpose({ start, cancel })
 </script>
 
 <template>
@@ -62,7 +65,15 @@ defineExpose({ start })
       @keydown.enter="commit"
       @keydown.esc="cancel"
     />
-    <span v-else class="card-name editable" title="点击改名" @click="start">{{ modelValue }}</span>
+    <span
+      v-else
+      class="card-name"
+      :class="{ editable: !disabled }"
+      :title="disabled ? undefined : '点击改名'"
+      @click="start"
+      >{{ modelValue }}</span
+    >
+    <div class="flex-1"></div>
     <span class="card-actions">
       <template v-if="editing">
         <button type="button" class="icon-btn ok" aria-label="确认改名" @click="commit">
@@ -79,4 +90,9 @@ defineExpose({ start })
 
 <style scoped lang="less">
 @import '@/features/agent/settings/config/shared.less';
+.card-title {
+  display: flex;
+  align-items: center;
+
+}
 </style>

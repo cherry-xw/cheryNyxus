@@ -146,6 +146,11 @@ export interface RoleConfig {
   brain: string
   /** 角色头像字形；缺省时按角色 type 稳定映射内置头像。 */
   avatar?: string
+  /**
+   * 角色说明：仅 UI 详情卡展示（不注入 system prompt，与 systemPrompt 职责不重叠）。
+   * 缺省 -> 详情卡无说明行。
+   */
+  description?: string
   /** 单一感官组（每 agent 恰一个 sense group） */
   senseGroup: string
   /** 启用的 MCP server 名（缺省 []，与主 agent 平权） */

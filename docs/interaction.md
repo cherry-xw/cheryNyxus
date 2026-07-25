@@ -122,6 +122,10 @@
 // 失败（openai 缺 key 或占位符未替换）— 中文友好提示，前端 BrainCard 刷新按钮展示
 → {"id":"ru4","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://api.openai.com/v1","key":"$OPENAI_API_KEY"}}
 ← {"id":"au4","kind":"response","requestId":"ru4","success":true,"data":{"models":[],"error":"密钥占位符 $OPENAI_API_KEY 未替换，请先在 .env 或环境变量里配置"}}
+
+// 成功（anthropic）- 原生 fetch GET {base}/models，header x-api-key + anthropic-version
+-> {"id":"ru5","kind":"request","method":"utils.models","params":{"provider":"anthropic","url":"https://api.anthropic.com/v1","key":"sk-ant-..."}}
+← {"id":"au5","kind":"response","requestId":"ru5","success":true,"data":{"models":[{"id":"claude-sonnet-4-5","name":"Claude Sonnet 4.5"},{"id":"claude-opus-4-5","name":"Claude Opus 4.5"}]}}
 ```
 
 > 独立工具方法，不依赖 chat/brain 运行时。后续该模块会扩展其他便捷信息查询工具。

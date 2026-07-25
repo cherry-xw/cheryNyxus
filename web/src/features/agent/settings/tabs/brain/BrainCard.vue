@@ -6,7 +6,7 @@
  */
 import { CopyDocument, Delete, Refresh, Document } from '@element-plus/icons-vue'
 import { ref, computed, watch, toRaw } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   agentApi,
   type BrainConfigDto,
@@ -128,19 +128,25 @@ watch(
 async function refreshModels(): Promise<void> {
   const { provider, url, key } = props.cfg
   if (!provider || !url) {
-    onError('请先填写适配器和地址')
+    connectionTestState.value = 'error'
+    connectionTestMessage.value = '请先填写适配器和地址'
     return
   }
   modelLoading.value = true
   try {
     const res = await agentApi.fetchModels(provider, url, key || undefined)
     if (res.error) {
-      onError(res.error)
+      connectionTestState.value = 'error'
+      connectionTestMessage.value = res.error
       return
     }
     modelOptions.value = res.models
+    // 刷新成功：清掉之前的错误提示（与测试连接共用同一消息区）
+    connectionTestState.value = 'idle'
+    connectionTestMessage.value = ''
   } catch (err) {
-    onError(err instanceof Error ? err.message : String(err))
+    connectionTestState.value = 'error'
+    connectionTestMessage.value = err instanceof Error ? err.message : String(err)
   } finally {
     modelLoading.value = false
   }
@@ -179,6 +185,27 @@ async function testConnection(): Promise<void> {
 
 function onError(msg: string): void {
   emit('error', msg)
+}
+
+/** 复制文本到剪贴板（非 HTTPS / 旧 Electron 走 execCommand 降级）。 */
+async function copyMessage(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    ElMessage.success('已复制')
+  } catch {
+    ElMessage.error('复制失败')
+  }
 }
 
 /** 设置页默认以 K 为单位编辑，配置仍保存完整数值。 */
@@ -342,23 +369,44 @@ async function openEnvFile(): Promise<void> {
             />
             {{ connectionTestState === 'pending' ? '测试中' : '测试连接' }}
           </button>
-        </div>
-        <div
-          class="connection-test-message"
-          :class="connectionTestState === 'idle' ? 'muted' : connectionTestState"
-          v-if="
-            isMockProvider || connectionTestState === 'success' || connectionTestState === 'error'
-          "
-        >
-          {{ isMockProvider ? '离线模拟无需测试' : connectionTestMessage }}
+          <el-tooltip
+            v-if="
+              isMockProvider || connectionTestState === 'success' || connectionTestState === 'error'
+            "
+            :content="isMockProvider ? '离线模拟无需测试' : connectionTestMessage"
+            placement="top"
+            :show-after="120"
+          >
+            <div
+              class="connection-test-message"
+              :class="connectionTestState === 'idle' ? 'muted' : connectionTestState"
+            >
+              <span class="message-text">{{
+                isMockProvider ? '离线模拟无需测试' : connectionTestMessage
+              }}</span>
+              <button
+                v-if="!isMockProvider"
+                type="button"
+                class="copy-btn"
+                aria-label="复制消息"
+                title="复制完整消息"
+                @click.stop="copyMessage(connectionTestMessage)"
+              >
+                <CopyDocument class="ico" />
+              </button>
+            </div>
+          </el-tooltip>
         </div>
         <div class="brain-fields connection-fields">
           <label class="field field-wide">
-            <LabelTip label="地址" tip="url：服务地址，可用 $ENV 占位从环境变量注入" />
+            <LabelTip
+              label="地址"
+              tip="url：完整 baseURL（含版本前缀）。openai/ollama 末位自动拼 /chat/completions，anthropic 末位拼 /messages，所以版本段（如 /v1、/v4）由你写。例：https://api.openai.com/v1 或 https://api.anthropic.com/v1 或 https://open.bigmodel.cn/api/paas/v4。支持 $ENV 占位从环境变量注入"
+            />
             <el-input
               v-model="cfg.url"
               class="mono-input"
-              placeholder="$OLLAMA_HOST 或 https://..."
+              placeholder="https://api.openai.com/v1"
             />
           </label>
           <label class="field">
@@ -572,7 +620,6 @@ async function openEnvFile(): Promise<void> {
 }
 
 .connection-test-btn {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -625,9 +672,12 @@ async function openEnvFile(): Promise<void> {
 }
 
 .connection-test-message {
-  font-size: 11px;
-  margin: 6px 0 2px;
-  padding-left: 2px;
+  margin-left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 280px;
 
   &.success {
     color: var(--el-color-success);
@@ -637,6 +687,43 @@ async function openEnvFile(): Promise<void> {
   }
   &.muted {
     color: rgba(20, 22, 26, 0.42);
+  }
+}
+
+.message-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.copy-btn {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(20, 22, 26, 0.32);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition:
+    background 0.12s,
+    color 0.12s;
+
+  &:hover {
+    color: var(--tab-color, @accent);
+    background: rgba(20, 22, 26, 0.04);
+  }
+
+  .ico {
+    width: 11px;
+    height: 11px;
   }
 }
 
