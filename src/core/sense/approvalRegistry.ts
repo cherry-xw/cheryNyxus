@@ -1,3 +1,5 @@
+import { AgentParkError } from '@/core/middleware/errors.js'
+
 /**
  * Approval Registry（P1-11：core 层审批 Promise 管理，解耦 core↔service）。
  *
@@ -9,8 +11,12 @@
  * resolveApproval/rejectApproval 触发对应 Promise，结果经独立 channel 回填到 await。
  *
  * 审批超时（P1.9）：createApproval 接 timeoutMs，超时 resolve as reject（非 abort）。
- *   - 超时 → sense_reject → pending sense 填「被拒绝」→ resume Case2 跑 LLM
+ *   - 用户超时（approval_timeout>0）→ sense_reject → pending sense 填「被拒绝」→ resume Case2 跑 LLM
  *   - 断连 abort → rejectApproval(AgentAbortError) → throw → pending NULL → resume Case1 重跑
+ *
+ * 不限时审批资源上限（G2 改造D）：approval_timeout=0 时由 hardTimeoutMs（global.approval_hard_timeout，
+ *   默认 30min）兜底，到点 rejectApproval(AgentParkError) 归 paused 可续（非用户拒绝）——
+ *   释放 generator/内存，避免无限挂起。
  */
 export type ApprovalDecision = {
   action: 'accept' | 'reject'
@@ -21,21 +27,32 @@ interface PendingApproval {
   resolve: (decision: ApprovalDecision) => void
   reject: (error: Error) => void
   timeoutTimer?: ReturnType<typeof setTimeout>
+  /** 不限时审批的 hard-timeout timer（approval_timeout=0 时由 global.approval_hard_timeout 起此 timer） */
+  hardTimer?: ReturnType<typeof setTimeout>
 }
 
 const registry = new Map<string, PendingApproval>()
 
 /**
  * 创建审批 Promise 并注册 resolve/reject（core senseMiddleware 调用）。
- * @param timeoutMs 超时毫秒（来自 `global.approval_timeout`，由 `validateRawConfig` + zod 校验 `>= 0`）。
- *                  `undefined` 或 `<= 0` 表示不超时（永久等待用户决）。
- *                  超时 → resolve as reject（视为用户拒绝，非 abort）。
- * @returns senseMiddleware await 的 Promise；service confirm/abort/超时 触发其 resolve/reject
+ * @param timeoutMs 用户超时毫秒（来自 `global.approval_timeout`，校验 `>= 0`）。
+ *                  `> 0` → 到点 resolve as reject（视为用户拒绝，loop 继续）。
+ *                  `undefined` 或 `<= 0` = 不限时（无用户超时）。
+ * @param hardTimeoutMs 不限时审批的资源上限毫秒（来自 `global.approval_hard_timeout`，默认 30min）。
+ *                      **仅当 timeoutMs<=0（不限时）生效**：到点 reject(AgentParkError) 归 paused 可续。
+ *                      timeoutMs>0 时用户超时已界顶，hard-timeout 不叠加。
+ * @returns senseMiddleware await 的 Promise；service confirm/abort/超时/hard-timeout 触发其 resolve/reject
  */
-export function createApproval(id: string, timeoutMs?: number): Promise<ApprovalDecision> {
+export function createApproval(
+  id: string,
+  timeoutMs?: number,
+  hardTimeoutMs?: number,
+): Promise<ApprovalDecision> {
   return new Promise<ApprovalDecision>((resolve, reject) => {
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined
+    let hardTimer: ReturnType<typeof setTimeout> | undefined
     if (timeoutMs && timeoutMs > 0) {
+      // 用户超时：resolve as reject（loop 继续，= 用户拒绝）
       timeoutTimer = setTimeout(() => {
         const entry = registry.get(id)
         if (entry) {
@@ -43,8 +60,17 @@ export function createApproval(id: string, timeoutMs?: number): Promise<Approval
           registry.delete(id)
         }
       }, timeoutMs)
+    } else if (hardTimeoutMs && hardTimeoutMs > 0) {
+      // 不限时审批资源上限：reject(AgentParkError) 归 paused 可续（非用户拒绝），释放 generator/内存
+      hardTimer = setTimeout(() => {
+        const entry = registry.get(id)
+        if (entry) {
+          entry.reject(new AgentParkError())
+          registry.delete(id)
+        }
+      }, hardTimeoutMs)
     }
-    registry.set(id, { resolve, reject, timeoutTimer })
+    registry.set(id, { resolve, reject, timeoutTimer, hardTimer })
   })
 }
 
@@ -55,6 +81,7 @@ export function resolveApproval(id: string, action: 'accept' | 'reject', reason?
   const entry = registry.get(id)
   if (entry) {
     if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer)
+    if (entry.hardTimer) clearTimeout(entry.hardTimer)
     entry.resolve({ action, reason })
     registry.delete(id)
   }
@@ -68,6 +95,7 @@ export function rejectApproval(id: string, error: Error): void {
   const entry = registry.get(id)
   if (entry) {
     if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer)
+    if (entry.hardTimer) clearTimeout(entry.hardTimer)
     entry.reject(error)
     registry.delete(id)
   }
@@ -80,6 +108,7 @@ export function rejectApproval(id: string, error: Error): void {
 export function clearAllApprovals(): void {
   for (const [id, entry] of registry) {
     if (entry.timeoutTimer) clearTimeout(entry.timeoutTimer)
+    if (entry.hardTimer) clearTimeout(entry.hardTimer)
     entry.reject(new Error('应用关闭，审批被中止'))
     registry.delete(id)
   }

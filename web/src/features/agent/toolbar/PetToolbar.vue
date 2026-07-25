@@ -93,10 +93,15 @@ const compactUrgent = computed(() => {
   if (!cc) return false
   return thresholdReached(cc.auto, props.pet.contextUsed, props.pet.contextTotal)
 })
-/** 主 pet idle 且末条为未完成周期 → 显"继续"按钮，用户点击触发 chat.resume */
-const showResume = computed(
-  () => props.pet.isMaster && !props.pet.isWorking && !!props.pet.canResume,
-)
+/** idle 且末条为未完成周期 → 显"继续"按钮，用户点击触发 chat.resume（主/子 pet 均可）。
+ *  wake 三值都表示主本轮 yieldTurn 停等子；存在未完成直接子 → 不显"继续"（由 role_reply 自动唤主）。 */
+const showResume = computed(() => {
+  if (props.pet.isWorking || !props.pet.canResume) return false
+  const hasWaitedChild = agents.allChatsCache.some(
+    (c) => c.parentChatId === props.pet.chatId && c.finished !== true,
+  )
+  return !hasWaitedChild
+})
 
 /**
  * CP8：destroy(=隐藏) 可用性。运行中（pet.isWorking 或任一后代 pet isWorking）禁用——

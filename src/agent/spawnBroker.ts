@@ -2,7 +2,7 @@
  * Spawn Broker（主从 Agent 桌宠系统 CP3 / wait=true 唤醒链）
  *
  * 职责（2026-07-09 重构：废除阻塞心跳，改 yield turn + 子完成唤醒，见 docs/agent-pet.md §5.4）：
- * 1. wait=true 唤醒链 `waitedChildren`（childChatId → {parentChatId, type}）：spawn 时注册，
+ * 1. 唤醒链 `waitedChildren`（childChatId → {parentChatId, type}）：spawn 时注册（覆盖 wait=true/false），
  *    子完成/出错/超时由 service 层 wakeParent 消费并 clearWaitedChild。递归天然支持（任何 agent 的 spawn 子都在此 Map）。
  * 2. `asyncWatchdogs`：每 wait-子 5min 看门狗；超时触发 service 注入的 asyncWakeHandler（wakeParent 超时 content + abortChatRuntime）。
  * 3. broadcaster：service 层注入 ws 推送实现，spawn sense 经 emitRoleCreated 推 role_created notification。
@@ -15,6 +15,16 @@
  * 分层：本模块（agent 层）只持有唤醒态数据 + 看门狗定时器；DB 读取 + wakeParent 注入 + abortChatRuntime
  * 均在 service 层（wake.ts）。超时动作经 setAsyncWakeHandler 注入（类 setSpawnBroadcaster），避免 agent→service 反向依赖。
  */
+
+import config from '@/utils/config.js'
+
+/**
+ * 唤醒策略（取代旧 wait:boolean，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+ * - immediate：子完成立即唤主（聚合所有已完成子结果）
+ * - deferred：子完成静默暂存（落主 DB 不唤主）；全 deferred 集最后一个完成隐式唤主（兜底）
+ * - barrier：声明栅栏，主 chat 进入 all 模式 → 所有未完成子完成才唤主（期间 immediate 子也暂存）
+ */
+export type WakePolicy = 'immediate' | 'deferred' | 'barrier'
 
 // ============ broadcaster（role_created/destroyed notification 推送）============
 
@@ -36,8 +46,8 @@ export interface RoleCreatedData {
   brain: string
   /** 角色启用的感官组（单组） */
   senseGroup: string
-  /** wait 标记（2026-07-09 后为信息性：wait=true/false 创建路径一致，前端均跑子；wait=true 子完成由 role_reply 唤主） */
-  wait: boolean
+  /** 唤醒策略（immediate/deferred/barrier，信息性：前端均驱动子跑，唤主时机由后端 wakeScheduler 决定） */
+  wake: WakePolicy
   /**
    * 触发本次 spawn 的 sense call id（= 主 chat sense message.id）。
    * 前端收 role_created/role_reply 时据此前往主 chat 对应 sense 调用框（scroll-to）。
@@ -104,25 +114,72 @@ export function emitRoleDestroyed(parentChatId: string, data: RoleDestroyedData)
   }
 }
 
-// ============ wait=true 唤醒链 + 看门狗 ============
+// ============ eager 子 agent 启动（spawn_role sense 内部触发，不依赖前端 RPC）============
 
-/** 被 wait 的子 agent 记录（spawn wait=true 注册，子完成/出错/超时消费） */
+/**
+ * eager 子 agent 启动器：service 层注入。spawn_role sense 完成时 fire-and-forget 调用，
+ *   在后台跑出子 chat 的实际 LLM stream（路径与 chat.send / chat.startSpawn 完全相同：
+ *   handleChatSend → bindChatConnection → streamAgentChunks → WS）。
+ *   前端只通过 ws 订阅观察，不用调 chat.startSpawn RPC（chat.startSpawn 退化为 recovery）。
+ *
+ * 设计动机：原 chat.startSpawn 「前端驱动」模型违背用户「子 agent 走同一条 API」原意——一旦
+ *   前端 startSpawn 调用失败（requestMap 时序 / chatId 错配 / 网络抖动 / 页面关闭），子 agent
+ *   就不会跑出 stream。把启动收敛到 sense 内部后端，彻底消除该失败路径。
+ *
+ * 参数：
+ * - taskId: spawn_tasks.taskId（createSpawnTask 返回）
+ * - parentChatId: 主 chatId，用于反查主 chat 所属 ws（child stream chunks 推到该 ws）
+ */
+export type EagerSpawnStarter = (taskId: string, parentChatId: string) => void
+
+/** 注入实现（service 层启动期调，未注入则 startChildEager 仅 warn + 不阻塞） */
+let eagerSpawnStarter: EagerSpawnStarter | null = null
+
+/** service 层启动期注入 eager 启动实现。 */
+export function setEagerSpawnStarter(fn: EagerSpawnStarter): void {
+  eagerSpawnStarter = fn
+}
+
+/**
+ * spawn_role sense 内 fire-and-forget 触发子 chat 后台启动。
+ * 端到端：spawn_role 完成 → 此调用 setImmediate 触发 runChildTaskInBackground →
+ *   handleChatStartSpawn claimSpawnTask firstStart 跑子 chat send → handleChatSend 绑子 chatId
+ *   → streamAgentChunks 推 chunk/notification 到 parent ws。
+ * 未注入实现 → 仅 warn，主流程不阻塞（保留 chat.startSpawn recovery RPC 兜底）。
+ */
+export function startChildEager(taskId: string, parentChatId: string): void {
+  if (eagerSpawnStarter) {
+    eagerSpawnStarter(taskId, parentChatId)
+  } else {
+    console.warn(
+      `[spawnBroker] eagerSpawnStarter 未注入，task ${taskId} 未由 spawn_role sense 后台启动（fallback to chat.startSpawn RPC）`,
+    )
+  }
+}
+
+// ============ 唤醒链 + feed-dog 看门狗 ============
+
+/** 被注册唤醒的子 agent 记录（spawn 时注册；子完成/出错/超时消费） */
 export interface WaitedChild {
   parentChatId: string
   type: string
+  /** 唤醒策略（spawn 时声明，wakeScheduler.onChildDone 据此决定 silent 暂存 / resume 唤主） */
+  wakePolicy: WakePolicy
 }
 
-/** 看门狗超时回调（service 注入：wakeParent 超时 content + abortChatRuntime(child)） */
+/** 看门狗超时回调（service 注入：按 config.wake_on_timeout 决定唤主或仅 abort 子） */
 export type AsyncWakeHandler = (child: {
   childChatId: string
   parentChatId: string
   type: string
 }) => void
 
-/** 看门狗超时阈值（5min；仅覆盖子永不发完成/错误信号的挂死场景，规则12 fail loud 兜底） */
-const WATCHDOG_TIMEOUT_MS = 5 * 60 * 1000
+/** 看门狗超时阈值：读 config.global.watchdog.timeout_ms（默认 5min；feed-dog 每条 chunk 重置） */
+function getWatchdogTimeoutMs(): number {
+  return config.global.watchdog?.timeout_ms ?? 5 * 60 * 1000
+}
 
-/** wait=true 唤醒链：childChatId → {parentChatId, type} */
+/** 唤醒链：childChatId → {parentChatId, type, wakePolicy} */
 const waitedChildren = new Map<string, WaitedChild>()
 
 /** 看门狗定时器：childChatId → timer */
@@ -130,30 +187,56 @@ const asyncWatchdogs = new Map<string, ReturnType<typeof setTimeout>>()
 
 let asyncWakeHandler: AsyncWakeHandler | null = null
 
-/** service 层启动期注入看门狗超时回调（wakeParent 超时 + abortChatRuntime）。 */
+/** service 层启动期注入看门狗超时回调。 */
 export function setAsyncWakeHandler(fn: AsyncWakeHandler): void {
   asyncWakeHandler = fn
 }
 
 /**
- * 注册 wait=true 唤醒链 + 启动看门狗（spawn_role wait=true 调）。
- * 子完成 → service wakeParent 消费并 clearWaitedChild；5min 无信号 → 看门狗超时唤主。
- * 同 childChatId 重复注册视为错误（防泄漏，规则12 fail loud）。
+ * 启动/重启看门狗（registerWaitedChild 与 feedWatchdog 共用）。
+ * timeout_ms 内无 feed（chunk）/完成/清除 → 触发 asyncWakeHandler。
  */
-export function registerWaitedChild(childChatId: string, parentChatId: string, type: string): void {
-  if (waitedChildren.has(childChatId)) {
-    throw new Error(`waitedChild 已存在（childChatId=${childChatId}），疑似重复 spawn 同 chatId`)
-  }
-  waitedChildren.set(childChatId, { parentChatId, type })
+function startWatchdog(childChatId: string): void {
+  const timeoutMs = getWatchdogTimeoutMs()
   const timer = setTimeout(() => {
     const entry = waitedChildren.get(childChatId)
     if (!entry) return // 已被正常消费清除（clearWaitedChild）
     console.warn(
-      `[spawnBroker] 看门狗超时 ${WATCHDOG_TIMEOUT_MS / 1000}s（childChatId=${childChatId}），唤主 + abort 子`,
+      `[spawnBroker] 看门狗超时 ${timeoutMs / 1000}s（childChatId=${childChatId}），触发 asyncWakeHandler`,
     )
     asyncWakeHandler?.({ childChatId, parentChatId: entry.parentChatId, type: entry.type })
-  }, WATCHDOG_TIMEOUT_MS)
+  }, timeoutMs)
   asyncWatchdogs.set(childChatId, timer)
+}
+
+/**
+ * 注册唤醒链 + 启动看门狗（spawn_role 调）。
+ * 子完成 → service wakeScheduler 消费并 clearWaitedChild；timeout_ms 无 feed → 看门狗超时。
+ * 同 childChatId 重复注册视为错误（防泄漏，规则12 fail loud）。
+ */
+export function registerWaitedChild(
+  childChatId: string,
+  parentChatId: string,
+  type: string,
+  wakePolicy: WakePolicy,
+): void {
+  if (waitedChildren.has(childChatId)) {
+    throw new Error(`waitedChild 已存在（childChatId=${childChatId}），疑似重复 spawn 同 chatId`)
+  }
+  waitedChildren.set(childChatId, { parentChatId, type, wakePolicy })
+  startWatchdog(childChatId)
+}
+
+/**
+ * feed-dog：子 agent observer for-await 每条 chunk 调，重置看门狗计时。
+ * 子仍在产出 chunk = generator 活着 = 未卡死；每次 feed 重新计时（取代旧的固定 5min 一次性超时）。
+ * 非子 chat / 已清除 → 忽略（幂等）。
+ */
+export function feedWatchdog(childChatId: string): void {
+  if (!waitedChildren.has(childChatId)) return
+  const existing = asyncWatchdogs.get(childChatId)
+  if (existing) clearTimeout(existing)
+  startWatchdog(childChatId)
 }
 
 /**

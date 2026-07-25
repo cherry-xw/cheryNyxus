@@ -82,7 +82,8 @@ export type NotificationType =
   | 'replaced' // 感官去重命中：历史 sense 结果被新读取替换
   | 'role_created' // 角色（子 pet）派发（spawn_role sense 执行时推送给主 chat 所属连接）
   | 'role_destroyed' // 角色销毁（destroy_role sense 执行时推送给主 chat 所属连接，CP6）
-  | 'role_reply' // wait=true 子完成唤主（后端注入角色回复后推，前端 chat.resume 续跑，T9 B1）
+  | 'role_reply' // wake=immediate 子完成/策略满足唤主时推（前端 chat.resume 续跑）；deferred/barrier silent 路径不推
+  | 'child_abandoned' // 看门狗超时(wake_on_timeout=true)子 agent 被掐断：前端据 childChatId 即时转 ghost（与 role_reply 并列，不唤主不注入历史）
   | 'question_requested' // ask_user_question 旧版逐题事件（兼容历史事件重放）
   | 'question_answered' // ask_user_question 旧版逐题完成事件（兼容）
   | 'question_batch_requested' // 一个 assistant turn 的完整问题批次
@@ -191,8 +192,15 @@ export interface SessionRuntimeSetRequestData {
   roles: Record<string, RuntimeSelection>
 }
 
+/**
+ * session.runtime.set 响应：
+ * - applied：已立即切换并持久化到子 chat metadata.runtime 的子 chatId 列表（idle/未加载子）。
+ * - deferredRunning：正在运行的子 chatId 列表，需用户先 abort→resume 后才生效（fail-loud）。
+ */
 export interface SessionRuntimeSetResponseData {
   chatId: string
+  applied: string[]
+  deferredRunning: string[]
 }
 
 export interface ChatResumeRequestData {
@@ -258,6 +266,10 @@ export interface ChatAbortRequestData {
   chatId: string
   /** 仅中止该运行；与当前 active run 不一致时返回 CONFLICT，防止旧页面误杀新一轮。 */
   runId?: string
+}
+
+export interface ChatAttachRequestData {
+  chatId: string
 }
 
 export interface BashKillRequestData {
@@ -985,10 +997,10 @@ export interface ChatListResponseData {
      */
     finished?: boolean
     /**
-     * 子 chat 是否被主 wait（metadata.wait=true，T9.10）。前端重连识别 wait-子：续跑 interrupted 子 +
-     * 后端 rebuildWaitedChildren 已重建唤醒链。主 chat 恒 undefined。
+     * 子 chat 唤醒策略（metadata.wake，immediate/deferred/barrier）。前端重连识别等待态子 +
+     * 后端 rebuildWaitedChildren 已按策略重建唤醒链。主 chat 恒 undefined。
      */
-    wait?: boolean
+    wake?: 'immediate' | 'deferred' | 'barrier'
     /**
      * 主 chat 有已持久化、尚未由 chat.resume 消费的角色回复。前端重连后据此恢复主循环。
      */
@@ -1017,33 +1029,57 @@ export interface QuestionStateSnapshotData {
   pendingQuestionBatches: PendingQuestionBatchData[]
 }
 
-export interface ChatGetResponseData extends QuestionStateSnapshotData {
-  chatId: string
-  /** 末条为 pending sense 时 true，前端据此发起 chat.resume 撤回重跑 */
+/**
+ * 刷新当前态快照（G8）。chat.get / chat.attach / chat.sync response 携带。
+ * 给前端权威当前态，避免从事件流推导「审批是否仍存活」「运行中工具」「当前 todo」。
+ * 事件流（chat.sync）仍是缓存数组累积水源；本快照仅补事件无法可靠判定的事实。
+ */
+export interface CurrentStateData {
+  /**
+   * 仍存活的挂起审批（approvalManager 内存命中，未被 confirm/park/超时清出）。
+   * run 已 paused 时省略（前端显继续按钮）。前端据 waitTime+createdAt 算倒计时。
+   */
+  pendingApproval?: {
+    approvalId: string
+    senseName: string
+    arguments: string
+    supervisionLevel: number
+    waitTime: number
+    createdAt: number
+  }
+  /** 已发 sense_end/sense_started 但无 accept/rejected 的工具（含待审批）。run 未运行时为空。 */
+  runningTools: { id: string; senseName: string }[]
+  /** 最近一条 update_todo 的结构化 todos；无则省略。 */
+  currentTodo?: unknown[]
+}
+
+export interface ChatSessionSnapshotData {
+  /** 当前持久化 runtime selection。 */
+  runtime?: RuntimeSelection
+  /** 主 chat 创建时所选预设。 */
+  preset?: string
+  /** 当前会话是否可显式继续。 */
   canResume?: boolean
-  /**
-   * 当前 chat 关联的项目工作目录绝对路径（metadata.workspace 快照）。
-   * 缺省 → undefined → 前端不显示 workspace 标识。
-   */
+  /** 刷新当前态快照（pending approval / 运行中工具 / 当前 todo）。 */
+  currentState?: CurrentStateData
+  /** 当前 chat 关联的项目工作目录绝对路径。 */
   workspace?: string
-  /** workspace 路径当前是否为可访问目录。workspace 缺省时 undefined。 */
+  /** workspace 路径当前是否为可访问目录。 */
   workspaceValid?: boolean
-  /**
-   * 当前 chat 上下文 token 用量比例（0-1，相对 brain.contextLimit）。
-   * 历史载入时返，前端据此更新 pet.contextUsage（ContextBar 渲染）。CP7。
-   */
+  /** 当前 chat 上下文 token 用量比例（0-1）。 */
   contextUsage?: number
-  /** 已用 token 数（估算值）。配合 contextTotal 显示详情。 */
+  /** 已用 token 数（估算值）。 */
   contextUsed?: number
   /** 上下文上限 token 数。 */
   contextTotal?: number
-  /** 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。 */
+  /** 上下文用量 6 段分解。 */
   contextBreakdown?: ContextBreakdown
-  /**
-   * 当前用户全局命令系统配置。前端据此判断 compact 按钮可见性（contextTotal ≥ minContextLimit）。
-   * 历史调用亦返（重启后用户首次进 chat.get 即拿到）。
-   */
+  /** 当前命令系统配置投影。 */
   commandConfig?: CommandConfigData
+}
+
+export interface ChatGetResponseData extends QuestionStateSnapshotData, ChatSessionSnapshotData {
+  chatId: string
 }
 
 export interface ChatDeleteResponseData {
@@ -1061,6 +1097,34 @@ export interface ChatContextUsageResponseData {
   contextBreakdown: ContextBreakdown
   /** 当前用户全局命令系统配置。前端据此判断 compact 按钮可见性。 */
   commandConfig?: CommandConfigData
+}
+
+/** 单个工具定义快照（chat.promptSnapshot 返回；剥离 provider 差异，统一 OpenAI 形状）。 */
+export interface PromptSnapshotTool {
+  name: string
+  description: string
+  /**
+   * 参数 JSON schema（object 形状）。前端弱化展示：折叠区 + 字段名/类型/required，
+   * 不渲染 schema 全文。缺失（无 parameters 的异常 sense）→ undefined。
+   */
+  parameters?: {
+    type: 'object'
+    properties: Record<string, unknown>
+    required: string[]
+    additionalProperties: boolean
+  }
+}
+
+export interface ChatPromptSnapshotRequestData {
+  chatId: string
+}
+
+export interface ChatPromptSnapshotResponseData {
+  chatId: string
+  /** system 消息全文：buildFirstSystemPrompt 重建（<system-reminder>+<environment>+<workspace>+<memory>+<skills>）。 */
+  systemPrompt: string
+  /** 当前 runtime 启用的全部工具定义（name + description + parameters；含 mcp/memory_manage）。空 runtime → []。 */
+  tools: PromptSnapshotTool[]
 }
 
 export interface ChatSendResponseData {
@@ -1093,12 +1157,14 @@ export interface ChatResumeResponseData {
   alreadyRunning?: boolean
 }
 
-export interface ChatSyncResponseData extends QuestionStateSnapshotData {
+export interface ChatSyncResponseData extends QuestionStateSnapshotData, ChatSessionSnapshotData {
   chatId: string
   latestSeq: number
   minSeq?: number
-  /** true means history was evicted; client must reload a chat snapshot. */
+  /** 协议固定 false；超窗由消息合成事件直接回填。 */
   reset: boolean
+  /** true 表示本次已用消息合成事件回填超窗淘汰的旧历史。 */
+  backfilled?: boolean
 }
 
 export interface ChatStartSpawnResponseData extends ChatSendResponseData {
@@ -1124,6 +1190,24 @@ export interface ChatAbortResponseData {
   runId?: string
   /** 是否存在并中止了活跃运行。 */
   aborted: boolean
+  /** 统一暂停语义：级联暂停的后代 chat 数（主 abort 时递归暂停所有后代）。 */
+  cascaded?: number
+}
+
+/**
+ * chat.attach 响应。继承 QuestionStateSnapshotData 让前端拿到的 snapshotSeq + pendingQuestionBatches
+ * 与 chat.get / chat.sync 同源 — attach 不仅是「重定向成功」，也是 cursor 锚点：
+ * 前端 applyCurrentState(…, true) 借此 resetChatSeq，把 chatSeq 推到此刻持久化的最新事件位。
+ * 重连窗口（disconnect → reconnect）期间到达的事件由 attach 后的 chat.sync 补回。
+ */
+export interface ChatAttachResponseData extends QuestionStateSnapshotData {
+  chatId: string
+  /** run 是否仍在运行；false → 前端回落历史，不重连实时流。 */
+  running: boolean
+  /** running 时是否已完成输出重定向到本连接。 */
+  attached?: boolean
+  /** 刷新当前态快照（running 时含存活的 pending approval / 运行中工具 / 当前 todo）。 */
+  currentState?: CurrentStateData
 }
 
 /**
@@ -1272,6 +1356,10 @@ export interface UtilsEditorsResponseData {
 export type ChunkData = StreamChunkData | StagedChunkData
 
 export interface StreamChunkData {
+  /** 当前 LLM 响应消息 id（checkpoint 预分配，= 最终 messages.id）。 */
+  msgId: string
+  /** 当前 LLM 响应开始时间。 */
+  createdAt: number
   thinking?: string
   content?: string
   senseCall?: SenseCallDelta[]
@@ -1294,7 +1382,7 @@ export interface StagedChunkData {
   arguments?: string
   /** sense 调用 id（= trigger.id = sense message.id），用于前端关联 sense_end 与 role:sense 的 result content_end */
   id?: string
-  /** 消息主键 msgId（= messages.id）。thinking_end / content_end 携带；sense_end / reverse 不携带。前端合流去重用。 */
+  /** 消息主键 msgId（= messages.id）。全部 assistant staged 携带；reverse 不携带。 */
   msgId?: string
   /** reverse 类型：被撤回的消息 id 列表（chat.send 恢复撤回整个当前周期时携带） */
   messageIds?: string[]
@@ -1330,6 +1418,7 @@ export type NotificationData =
   | RoleCreatedNotificationData
   | RoleDestroyedNotificationData
   | RoleReplyNotificationData
+  | ChildAbandonedNotificationData
   | QuestionRequestedNotificationData
   | QuestionAnsweredNotificationData
   | QuestionBatchRequestedNotificationData
@@ -1373,8 +1462,17 @@ export interface RejectedNotificationData {
   reason: string
 }
 
+export interface ConsumedMessageData {
+  id: string
+  role: 'user'
+  content: string
+  createdAt: number
+  updateAt: number
+}
+
 export interface ConsumedNotificationData {
   count: number
+  messages: ConsumedMessageData[]
 }
 
 /**
@@ -1394,6 +1492,12 @@ export interface DoneNotificationData {
    * 前端据 finished===true 把子 pet 转 ghost（灵魂态）。主 chat 不带。done 时后端写 metadata.finished 持久化。
    */
   finished?: boolean
+  /**
+   * 权威 canResume（computeCanResume 派生）：统一暂停语义下，前端据此区分
+   * paused（末条非 ended，显继续按钮）/ ended（末条 assistant 无 senseCalls，无按钮），
+   * 取代旧 done→canResume=false 硬编码。
+   */
+  canResume?: boolean
   /**
    * 本轮末条 assistant 消息（仅 loop 结束末条为 assistant 时携带）。
    * 前端据此实时追加进 stream.history —— PetIcons 历史圆点气泡即时显最新回复，
@@ -1416,6 +1520,10 @@ export interface DoneNotificationData {
 
 export interface ErrorNotificationData {
   message: string
+  /**
+   * 权威 canResume：AI 报错归 paused（可 resume 重试），前端据此显继续按钮。
+   */
+  canResume?: boolean
 }
 
 /**
@@ -1468,14 +1576,15 @@ export interface RoleCreatedNotificationData {
   brain: string
   /** 角色启用的感官组（单组） */
   senseGroup: string
-  /** 是否等待结果（2026-07-09 后信息性：wait=true 子完成由 role_reply 唤主，前端两态均跑子） */
-  wait: boolean
+  /** 唤醒策略（immediate/deferred/barrier，信息性：前端均驱动子跑，唤主时机由后端 wakeScheduler 决定） */
+  wake: 'immediate' | 'deferred' | 'barrier'
 }
 
 /**
- * wait=true 子完成唤主（T9 B1 架构，见 docs/agent-pet.md §5.4）。
- * 子 loop 结束 + waitedChildren 命中时后端推：已把子结果以 role:role 注入主 chat DB，
- * 前端收此 notification → 自动 chat.resume(parentChatId) 跑唤醒轮。外层 chatId = parentChatId。
+ * 唤醒策略唤主（见 docs/agent-pet.md §5.4 唤醒策略调度器）。
+ * wake=immediate 子完成 / 策略满足（wakeScheduler shouldWake=true）时后端推：已把子结果以 role:role 注入主 chat DB，
+ * 前端收此 notification → 自动 chat.resume(parentChatId) 跑唤醒轮。deferred/barrier silent 路径不推（静默暂存）。
+ * 外层 chatId = parentChatId。
  */
 export interface RoleReplyNotificationData {
   /** 主 chat id（前端据此 resume 主） */
@@ -1504,6 +1613,23 @@ export interface RoleReplyNotificationData {
 export interface RoleDestroyedNotificationData {
   /** 被销毁的子 chat id */
   chatId: string
+}
+
+/**
+ * 看门狗超时掐断（handleAsyncWakeTimeout，wake_on_timeout=true）。
+ * 与 role_reply 并列推送：role_reply 负责主唤醒 + 历史注入（[角色 type] 任务已结束...），
+ * child_abandoned 仅负责前端子 pet 即时转 ghost 视觉（不等 role_reply 的 WS 投递兜底）。
+ * 外层 chatId = parentChatId（与 role_created/role_reply 同路由规则）。
+ */
+export interface ChildAbandonedNotificationData {
+  /** 主 chat id（前端溯源 pet 树） */
+  parentChatId: string
+  /** 被掐断的子 chat id（前端据 chatId 找子 pet 转 ghost） */
+  childChatId: string
+  /** 角色类型（前端展示用） */
+  type: string
+  /** 掐断原因（如「子任务执行超时（30s 无输出）」；信息性，不进主 chat 历史） */
+  reason: string
 }
 
 /** 旧版逐题提问事件，仅保留历史协议兼容。 */
@@ -1580,6 +1706,8 @@ export const Method = {
   CHAT_GET: 'chat.get',
   CHAT_DELETE: 'chat.delete',
   CHAT_CONTEXT_USAGE: 'chat.contextUsage',
+  /** 重建 chat 当前 runtime 的 system prompt 全文 + 工具定义，供前端历史抽屉「上下文」hover 面板展示。 */
+  CHAT_PROMPT_SNAPSHOT: 'chat.promptSnapshot',
   CHAT_SEND: 'chat.send',
   CHAT_RESUME: 'chat.resume',
   CHAT_SYNC: 'chat.sync',
@@ -1592,6 +1720,8 @@ export const Method = {
   SENSE_QUESTION_BATCH_ANSWER: 'sense.question.batchAnswer',
   // Chat 中止（切换 chat：清内存 + 退出挂起 generator，不动 DB，pending 保留供下次重新审核）
   CHAT_ABORT: 'chat.abort',
+  // Chat 重连（F5 后重连运行中 run，重定向后续实时输出到本连接）
+  CHAT_ATTACH: 'chat.attach',
 
   // Bash 进程管理（挂起子进程的查询 / 显式杀死）
   BASH_LIST: 'bash.list',
@@ -1719,6 +1849,10 @@ export interface RpcMethodMap {
     params: ChatContextUsageRequestData
     result: ChatContextUsageResponseData
   }
+  [Method.CHAT_PROMPT_SNAPSHOT]: {
+    params: ChatPromptSnapshotRequestData
+    result: ChatPromptSnapshotResponseData
+  }
   [Method.CHAT_SEND]: { params: ChatSendRequestData; result: ChatSendResponseData }
   [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData }
   [Method.CHAT_SYNC]: { params: ChatSyncRequestData; result: ChatSyncResponseData }
@@ -1736,6 +1870,7 @@ export interface RpcMethodMap {
     result: SenseQuestionBatchAnswerResponseData
   }
   [Method.CHAT_ABORT]: { params: ChatAbortRequestData; result: ChatAbortResponseData }
+  [Method.CHAT_ATTACH]: { params: ChatAttachRequestData; result: ChatAttachResponseData }
   [Method.BASH_LIST]: { params: BashListRequestData; result: BashListResponseData }
   [Method.BASH_KILL]: { params: BashKillRequestData; result: BashKillResponseData }
   [Method.MCP_LIST]: { params: McpListRequestData; result: McpListResponseData }

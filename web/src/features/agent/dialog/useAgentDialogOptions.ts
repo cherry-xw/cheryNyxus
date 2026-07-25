@@ -213,6 +213,41 @@ export function useAgentDialogOptions() {
     agents.activeDialogChatId = null
   }
 
+  // brain 选择即时生效：监听 roleSelections（主+子角色）变化，debounce 后立即调 setSessionRuntime，
+  // 不等 handleSend 提交。这样点击 plan 角色名片的 brain radio → 后端立即回灌已派发的同 type 子
+  // （含 running 子，下一轮 loop 自动取新 brain）。initialized 前不触发（避免误推空编制）。
+  let propagateTimer: ReturnType<typeof setTimeout> | undefined
+  watch(
+    () => ({
+      primary: primarySelection.value,
+      roles: roleSelections.value,
+      ready: loaded.value && !!chatId.value,
+    }),
+    ({ primary, roles, ready }) => {
+      if (!ready || !primary?.brain) return
+      const safeRoles: Record<string, RuntimeSelection> = {}
+      for (const [k, v] of Object.entries(roles)) {
+        if (v.brain) safeRoles[k] = v
+      }
+      if (propagateTimer) clearTimeout(propagateTimer)
+      propagateTimer = setTimeout(() => {
+        if (!chatId.value) return
+        agents
+          .setSessionRuntime(chatId.value, { primary, roles: safeRoles })
+          .then(({ applied, deferredRunning }) => {
+            if (deferredRunning.length > 0)
+              console.info(
+                `[AgentDialog] brain 切换即时生效：${applied.length} 子已更新，${deferredRunning.length} 运行中子将在下一轮 loop 自动取新 brain`,
+              )
+            else if (applied.length > 0)
+              console.info(`[AgentDialog] brain 切换即时生效：${applied.length} 个已派发的子已更新`)
+          })
+          .catch((e) => console.warn('[AgentDialog] 即时 brain 同步失败：', e))
+      }, 150)
+    },
+    { deep: true, flush: 'post' },
+  )
+
   // 全局 ESC 关闭弹窗（仅在 dialog 打开且为栈顶 overlay 时生效；topOverlay 守卫避免与 HistoryDrawer 等同开时双重关闭）。
   function onGlobalKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape' && chatId.value && agents.topOverlay === 'agentDialog') {
@@ -247,10 +282,20 @@ export function useAgentDialogOptions() {
           `主角色 brain 为空（${primaryRole.value}），roleSelections=${JSON.stringify(roleSelections.value)}`,
         )
       }
-      await agents.setSessionRuntime(chatId.value, {
+      // session.runtime.set 返回 applied/deferredRunning：回灌已存在子 chat 的反馈。
+      // - applied：所有子（含 running）已即时切换 ctx.runtime + 持久化 metadata.runtime。
+      // - deferredRunning：applied 中本次正在运行的子，下一轮 LLM loop 自动取新 brain；流未打断。
+      const { applied, deferredRunning } = await agents.setSessionRuntime(chatId.value, {
         primary: primarySelection.value,
         roles: safeRoles,
       })
+      const propagationHint =
+        deferredRunning.length > 0
+          ? `（${deferredRunning.length} 个运行中子将在下一轮 loop 自动切到新 brain）`
+          : applied.length > 0
+            ? `（已应用到 ${applied.length} 个已派发的子）`
+            : ''
+      if (propagationHint) console.info('[AgentDialog] session.runtime.set 回灌:', propagationHint)
       const attachments = mediaAttachments.value.map((m) => ({
         assetId: m.assetId,
         kind: m.kind,

@@ -117,6 +117,16 @@ const globalSchema = z.object({
   stream: z.boolean(),
   sense_execute_timeout: z.number().optional(),
   approval_timeout: z.number().min(0).optional(),
+  // 不限时审批（approval_timeout=0）的资源上限（ms，>= 0）；缺省 1800000 由 utils/config 兜底
+  approval_hard_timeout: z.number().min(0).optional(),
+  // 断连宽限期（毫秒，>= 0；0 = 不等待）；缺省 15000 由 utils/config 兜底
+  disconnect_grace_ms: z.number().min(0).optional(),
+  watchdog: z
+    .object({
+      timeout_ms: z.number().min(0).optional(),
+      wake_on_timeout: z.boolean().optional(),
+    })
+    .optional(),
   maxLoopCount: z.number().optional(),
   bash_log_retention_hours: z.number().optional(),
   textEditor: z.string().optional(), // 文本编辑器路径
@@ -214,6 +224,7 @@ export const requestSchemas = {
   [Method.CHAT_GET]: chatIdSchema,
   [Method.CHAT_DELETE]: chatIdSchema,
   [Method.CHAT_CONTEXT_USAGE]: chatIdSchema,
+  [Method.CHAT_PROMPT_SNAPSHOT]: chatIdSchema,
   [Method.CHAT_SEND]: z.object({
     chatId: z.string(),
     prompt: z.string(),
@@ -263,6 +274,7 @@ export const requestSchemas = {
     chatId: z.string(),
     runId: z.string().optional(),
   }),
+  [Method.CHAT_ATTACH]: chatIdSchema,
   [Method.BASH_LIST]: chatIdSchema,
   [Method.BASH_KILL]: z.object({
     chatId: z.string(),

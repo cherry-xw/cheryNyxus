@@ -34,6 +34,7 @@
 - [prompt.md](./agent/prompt.md) — system prompt 构建 + skill / plugin 加载
 - [provider.md](./agent/provider.md) — openai / ollama / mock 三 Adapter
 - [sense.md](./agent/sense.md) — 内置感官 bash / read / write / skill
+- [curator.md](./agent/curator.md) — curator 角色（记忆维护者：Extract / Dream）
 
 ### [service/](./service/README.md) — 服务层
 > WebSocket 服务 + RPC 路由 + chat 流式 + observer 副作用 + 各 RPC handler。
@@ -48,9 +49,9 @@
 > 多 sqlite 实例（soul.db.chats + 按月分片 YYYY-MM.db.messages）、CRUD、表结构、状态判定（pending/revoked）。
 
 ### [memory/](./memory/README.md) — 项目记忆
-> Markdown 文件存储的跨会话记忆系统：15 条上限淘汰归档、memory_manage sense 硬编码注入主 agent、system prompt `<memory>` 段。
+> Markdown 文件存储的跨会话记忆系统：双层（global/workspace）+ 四类闭合分类（user/feedback/project/reference）+ 淘汰归档 + 漂移防护；curator 角色 Extract（每轮）/ Dream（定时）。
 
-- [memory/README.md](./memory/README.md) — 存储结构、记忆格式、配置、管理器 API、关键流程
+- [memory/README.md](./memory/README.md) — 存储结构、记忆格式、配置、管理器 API、漂移防护、curator、定时触发器
 
 ### [utils/](./utils/README.md) — 工具层
 > config 加载 / drain 模板挖掘 / logger / hash / json / generator / rateLimiter。被各层依赖，不反向依赖业务。
@@ -63,6 +64,8 @@
 > pnpm workspace + Turborepo monorepo 的一个 package（Vue3 + Vite 8 + Electron 43），与后端同仓不同包。通过 `/api/config` + WebSocket 消费 [protocol.md](./protocol.md) RPC。
 
 - [web/README.md](./web/README.md) — 总览：技术栈、双运行模式（浏览器/Electron）、构建产物、monorepo 定位、依赖关联
+- [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) — **前端协议消费手册**：RPC/Notification/Chunk 字段映射到 store / StreamState / 视图组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口
+- [web/frontend-refactor-handoff.md](./web/frontend-refactor-handoff.md) — F1-F5 前端重构执行手册（缓存数组收敛 + currentState 消费，transient）
 - [web/electron.md](./web/electron.md) — Electron 集成详解：主进程路径解析坑、xrdp 运行环境、sandbox SUID
 - [web/deployment.md](./web/deployment.md) — 前后端连接与部署模式：后端独立 / Electron 一体 / Web 浏览器三模式 + 实现路线 + 关键坑
 
@@ -73,9 +76,11 @@
 | [system-prompt.md](./system-prompt.md) | **提示词来源汇总入口**：主 system message 组装、额外 system/user 消息、Tools 边界、缓存与生效时机 |
 | [protocol.md](./protocol.md) | WebSocket 协议规范：传输帧格式、消息结构、方法列表、HTTP API、错误码 |
 | [interaction.md](./interaction.md) | 各 RPC 方法完整交互序列、端到端流程、错误路径 |
+| [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) | 前端协议消费手册：逐 RPC/Chunk/Notification 字段映射 + 端到端数据通路 + StreamState 契约；协议契约的「消费侧索引」 |
 | [agent-pet.md](./agent-pet.md) | 主从 Agent 桌宠系统：pet↔chat 绑定、spawn_role 前端驱动架构、CP0-CP7 分阶段 |
 | [model-capabilities.md](./model-capabilities.md) | Brain 的 Tool Call/多模态能力、角色与运行时约束、媒体资产和媒体网关 |
 | [mock.md](./mock.md) | Mock Provider 脚本化离线测试（send/resume/revoke/loop） |
+| [flow-test.md](./flow-test.md) | 流程测试规约：S1–S16 场景矩阵（步骤/检查/功能点）+ 原始需求 24 条分支覆盖清单；刷新重连改造 G1/G3/G8 验收点 |
 | [error-conventions.md](./error-conventions.md) | 错误信息分层规范：用户面（直白中文 + tracingId） vs 日志面（结构化 JSON），所有错误出口的硬约束 |
 
 ## 项目入口与配置

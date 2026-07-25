@@ -9,6 +9,7 @@ import {
   getChatSkillFilter,
   updateChatMetadata,
   getChat,
+  findChildChatsWithType,
 } from '@/db/chat.js'
 import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
@@ -107,16 +108,69 @@ function configureRuntime(runtime: ChatRuntime, chatId: string, selection: Runti
   updateChatMetadata(chatId, { runtime: selection })
 }
 
-/** 设置主会话的临时角色编制，并立即切换主角色运行时，不更新 metadata.runtime。（主 agent，注入 memory_manage） */
+/**
+ * session.runtime.set 回灌结果：
+ * - applied：已立即切换并持久化到子 chat `metadata.runtime` 的子 chatId（含 running 子，下一轮 loop 自动取新 brain）。
+ * - deferredRunning：applied 的子集中那些本次正在运行的子 chatId——流未打断，需前端可选提示「下一轮生效」。
+ */
+export interface SessionRoleRuntimeResult {
+  applied: string[]
+  deferredRunning: string[]
+}
+
+/**
+ * 设置主会话的临时角色编制，并立即切换主角色运行时；同时回灌已存在的同 type 子 chat。
+ *
+ * 分层语义（修主发送界面改子角色 brain 不作用于已派发子的缺口）：
+ * - **主角色**：运行时切换（`configureRuntime(primary,true)`）+ 内存 `sessionRoleRuntimes` 缓存为后续 spawn 模板；
+ *   不写主 chat 的 `metadata.runtime`（保持「会话级临时」语义，重启即失效）。
+ * - **子角色**：内存 `sessionRoleRuntimes` 继续为未来 spawn 模板；
+ *   **同时遍历父会话下所有存活子 chat，按 type 匹配新 roles**：无论 idle / 未加载 / **running**，
+ *   均立即 `configureRuntime`（替换 ctx.runtime 引用，不打断当前 stream——流是已发出 chunk 与 ctx.runtime 解耦）
+ *   + 写子 chat 自己的 `metadata.runtime` 持久化；running 子同时计入 `deferredRunning`（前端可选提示
+ *   「下一轮生效」），不静默但也不阻断流。
+ *
+ * 返回 { applied, deferredRunning } 供前端展示反馈（fail-loud，规则12）。
+ */
 export async function setSessionRoleRuntimes(
   chatId: string,
   primary: RuntimeSelection,
   roles: Record<string, RuntimeSelection>,
-): Promise<void> {
+): Promise<SessionRoleRuntimeResult> {
   const runtime = await ensureRuntime(chatId)
   runtime.selection = primary
   runtime.builder.configureRuntime(primary, true)
   sessionRoleRuntimes.set(chatId, { primary, roles })
+
+  // 回灌已存在的同 type 子 chat（修主发送界面改子角色 brain 不作用于已派发子的缺口）。
+  const applied: string[] = []
+  const deferredRunning: string[] = []
+  const children = findChildChatsWithType(chatId)
+  for (const { childChatId, type } of children) {
+    const sel = roles[type]
+    if (!sel) continue
+    const childRt = chatRuntimes.get(childChatId)
+    if (childRt?.builder.isRunning()) {
+      // running 子：仍立即 configureRuntime 替换 ctx.runtime 引用（不打断当前 stream——流是已发出
+      // chunk，与 ctx.runtime 解耦），同时持久化 metadata.runtime。下一轮 LLM 请求自然取新 brain。
+      // 仅在日志层标记 deferredRunning（前端可选提示「下一轮生效」）；不静默。
+      childRt.selection = sel
+      childRt.builder.configureRuntime(sel, false)
+      updateChatMetadata(childChatId, { runtime: sel })
+      applied.push(childChatId)
+      deferredRunning.push(childChatId)
+      continue
+    }
+    // idle / 未加载：直接 configureRuntime + 持久化到子 chat 自己的 metadata.runtime。
+    // 下次 ensureChat 从 metadata 恢复（重启/切回皆生效）。
+    if (childRt) {
+      childRt.selection = sel
+      childRt.builder.configureRuntime(sel, false)
+    }
+    updateChatMetadata(childChatId, { runtime: sel })
+    applied.push(childChatId)
+  }
+  return { applied, deferredRunning }
 }
 
 /** 返回祖先主会话的某角色临时编制，供 spawn_role 使用。 */
@@ -290,4 +344,19 @@ export function resolveChatRuntimeSelection(chatId: string): RuntimeSelection | 
  */
 export function abortChatRuntime(chatId: string): void {
   chatRuntimes.get(chatId)?.builder.abort()
+}
+
+/**
+ * 标记 chat 当前 run 在“下一轮 loop 决策前”抛 AgentParkError（安全边界暂停）。
+ * 由断连宽限调度器在 `disconnect_grace_ms` 到期时调用。
+ * 当前 runChain 不会被立刻打断；只对处于 active 运行期的 chat 起作用。
+ */
+export function requestParkAfterTurn(chatId: string, runId: string): void {
+  const runtime = chatRuntimes.get(chatId)
+  if (!runtime) return
+  if (runtime.activeRunId !== runId) {
+    // 不同 runId（重连后已用新 requestId 启动的流）→ 旧的 request 已结束，不应再标记。
+    return
+  }
+  runtime.builder.requestParkAfterTurn()
 }

@@ -54,6 +54,8 @@ export default class AgentSession<T = unknown> {
     // P2-4：runtime 由 configureRuntime 原子填充，send 前 requireRuntime 校验。
     //       未配置为 undefined（消除原 {} as RuntimeConfig 类型谎言）。
     this.pipeline = new MiddlewarePipeline(handlers, loopHandler, this.ctx)
+    // 暴露 pipeline 引用给 loop 读取安全边界标记（断连宽限期到期时抛 AgentParkError）。
+    this.ctx.pipeline = this.pipeline
   }
 
   /**
@@ -127,12 +129,13 @@ export default class AgentSession<T = unknown> {
   }
 
   /**
-   * 注入角色回复消息（wait=true 子完成唤醒主，见 docs/agent-pet.md §5.4）。
+   * 注入角色回复消息（子完成唤醒主，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
    * 委托 MessageJournal（守单一写者）。DB 落库由 service wakeParent addMessage。
+   * @param options.silent deferred/barrier 暂存注入不置 roleReplyPending
    * @returns 新消息 id
    */
-  appendRoleReply(content: string): string {
-    return this.journal.appendRoleReply(content).id
+  appendRoleReply(content: string, options?: { silent?: boolean }): string {
+    return this.journal.appendRoleReply(content, options).id
   }
 
   /**
@@ -180,6 +183,18 @@ export default class AgentSession<T = unknown> {
    */
   abort(): void {
     this.pipeline.abort()
+  }
+
+  /**
+   * 标记当前运行的 generator 在“下一轮决策前”抛 `AgentParkError`。
+   * 用于断连宽限期到期的安全边界（见 docs/service/websocket.md「断连宽限」）：
+   * 不立即中断 provider stream，等当前 `runChain()` 输出结束后由 loop 在
+   * 下一轮决策前抛 park；observer 归 paused、不写 finished、不唤父。
+   * 若 loop 已在自然停止分支（`stopped=true`）则不必再 park，下次 `send/resume`
+   * 即可被新 grace 覆盖；同 chat 多次安全边界请求由后到的请求覆盖。
+   */
+  requestParkAfterTurn(): void {
+    this.pipeline.requestParkAfterTurn()
   }
 
   /**

@@ -22,11 +22,17 @@ import {
   type ChatAbortRequestData,
   type ChatAbortResponseData,
 } from '../message/types.js'
-import { getChat, markMessagesRevoked, updateChatMetadata } from '@/db/chat.js'
+import {
+  getChat,
+  markMessagesRevoked,
+  updateChatMetadata,
+  collectDescendantsChatIds,
+} from '@/db/chat.js'
 import { approvalManager } from '../approval/manager.js'
 import { findPendingQuestionBatchByQuestionId } from '@/db/question.js'
 import { resolveQuestionBatch } from './wake.js'
 import { connectionManager } from '../websocket/connection.js'
+import { disconnectGrace } from '../websocket/disconnectGrace.js'
 import {
   ensureChat,
   clearChatRuntime,
@@ -38,6 +44,7 @@ import {
 } from './runtime.js'
 import { clearWaitedChildrenByParent } from '@/agent/spawnBroker.js'
 import { observeAgentChunks } from './observer.js'
+import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
 import { streamAgentChunks } from './streamMapper.js'
 import { injectCommands } from './autoCompact.js'
 import { computeContextUsage } from '@/utils/token.js'
@@ -186,8 +193,6 @@ export async function* handleChatSend(
     }
   }
 
-  let failureResponse: RpcResponse | undefined
-  let failureMessage: string | undefined
   // user message 落库后 observer 回调写入 msgId → Response.data 回前端
   // （前端 sendMessage 即时 push user prompt 到 stream.history 时携带 msgId，下次 reload dedup 用）
   let userMsgId: string | undefined
@@ -195,7 +200,6 @@ export async function* handleChatSend(
   try {
     // history 已在 chat.create 时一次性加载到内存。
     // 若当前 chat 正在运行，send 只入队输入；新输出会跟随已有运行流发出。
-    // onError 回调：streamMapper 见到 ErrorChunk 时调用，无 throw 时也能构造 failureResponse。
     // P4：传 promptWithAttachments（含 [[media:]] 标记）供 enrichMediaInputs 解析。
     // P5：injectCommands 改造后的 prompt + extraUserMessages（命令正文）经 AgentSession.send
     //     顺序入队，LLM 看到「先命令正文、再主 prompt」。命令正文不污染 system prompt cache。
@@ -226,13 +230,12 @@ export async function* handleChatSend(
       )
     }
 
-    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => {
-      failureMessage = msg
-    })
+    yield* streamAgentChunks(generator, rid, chatId, runId)
   } catch (err) {
     const error = err as Error
-    // approval aborted（chat.abort 触发 abortChat → reject → senseMiddleware throw，
-    // 见 tool.ts executeCollectedCalls catch）：chat.abort 是预期清内存操作，静默不报错。
+    // 统一暂停语义：abort/park（isAgentAbortError 覆盖 park）静默——暂停控制流，非故障；
+    // 其余真实故障记 error 日志，但不再构造 failureResponse（loop 已停，末条保持可恢复态，
+    // 前端据 error/done notification 的 canResume 显继续按钮）。final Response 恒 success:true。
     if (isAgentAbortError(error)) {
       logger.event('chat.send.aborted', { reason: 'approval aborted' })
     } else {
@@ -241,31 +244,17 @@ export async function* handleChatSend(
         { message: error.message, stack: error.stack },
         LogLevel.error,
       )
-      failureResponse = createResponse(
-        rid,
-        false,
-        undefined,
-        createError(ErrorCode.INTERNAL, error.message),
-      )
     }
   } finally {
     releaseChatRun(chatId, runId)
     connectionManager.releaseChatConnection(chatId, ctx.connectionId)
+    connectionManager.clearLiveOutput(chatId)
     logger.event('chat.release', { chatId, connectionId: ctx.connectionId })
   }
 
-  // 防御性：retry-yielded ErrorChunk（不 throw）经 streamMapper 收集的 message → 构造 failureResponse，
-  // 避免「error notification + done notification + Response.success:true」三发歧义。
-  if (failureMessage && !failureResponse) {
-    failureResponse = createResponse(
-      rid,
-      false,
-      undefined,
-      createError(ErrorCode.INTERNAL, failureMessage),
-    )
-  }
-
-  return failureResponse ?? { chatId, runId, ...(userMsgId ? { userMsgId } : {}) }
+  // 统一暂停语义：不再构造 failureResponse。AI 报错（retry 耗尽 ErrorChunk）等异常归 paused，
+  // streamMapper 已下发 error notification（含 canResume）；final Response 恒 success:true。
+  return { chatId, runId, ...(userMsgId ? { userMsgId } : {}) }
 }
 
 /**
@@ -275,6 +264,11 @@ export async function* handleChatSend(
  *   从历史 pending 重建 SenseTriggerChunk 执行（按监管等级；工具不在 senseTable 写「无此工具」）；
  * Case2（末尾全 done）→ run("") 正常 loop，LLM 基于 done sense 结果回复。
  * 整体同默认 send 流一致，仅首轮跳过 chat。前置：须 chat.create / runtime.set 注入完整 runtime。
+ *
+ * TODO(统一暂停语义-级联resume)：主 resume 时应级联 resume 所有因级联 abort 而暂停的后代
+ *   （用户需求"主启动级联子"）。未实现——低频触发（主 spawn wait=true 后处于等待 idle 无 resume 按钮；
+ *   主被 abort 时通常无 wait=true 子在等），且实现需 spawn 状态机加固（区分"暂停的子"vs"等孙的子"，
+ *   避免重复 spawn 孙）。当代价路径：①子完成后 role_reply 自动唤主；②用户手动点子 pet 继续（Phase 3 放开 isMaster 守卫）。
  */
 export async function* handleChatResume(
   ctx: HandlerContext,
@@ -287,6 +281,15 @@ export async function* handleChatResume(
   const chat = getChat(chatId)
   if (!chat) {
     throw new Error('这个会话不见了')
+  }
+
+  // abandoned 守卫：watchdog wake_on_timeout=true 标记的子为 ghost，用户无法操作。
+  // 前端 canResume=false 应已隐藏按钮；此处防御性兜底（前端状态错位时仍拒绝）。
+  const isAbandoned = chat.metadata
+    ? safeJsonParse<{ abandoned?: boolean }>(chat.metadata, {}).abandoned === true
+    : false
+  if (isAbandoned) {
+    throw new Error('子会话已废弃，无法继续')
   }
 
   logger.event('chat.send.start', { mode: 'resume' })
@@ -314,19 +317,15 @@ export async function* handleChatResume(
 
   activateChatRun(chatId, runId)
 
-  let failureResponse: RpcResponse | undefined
-  let failureMessage: string | undefined
   try {
     // 仅消费本次已持久化的待恢复标记；运行期间新到的角色结果会由 wakeParent 再次置 true。
     if (resumeWasPending) updateChatMetadata(chatId, { resumePending: false })
     // resume 内部据末尾状态决定 Case1/Case2（见 builder.resume）
     const generator = observeAgentChunks(agent.resume(), chatId, () => agent.getMessages())
-    yield* streamAgentChunks(generator, rid, chatId, runId, (msg) => {
-      failureMessage = msg
-    })
+    yield* streamAgentChunks(generator, rid, chatId, runId)
   } catch (err) {
     const error = err as Error
-    // approval aborted（chat.abort 触发，同 handleChatSend）：静默不报错
+    // 统一暂停语义：abort/park 静默；真实故障记日志，不构造 failureResponse（同 handleChatSend）。
     if (isAgentAbortError(error)) {
       logger.event('chat.send.aborted', { reason: 'approval aborted' })
     } else {
@@ -335,49 +334,36 @@ export async function* handleChatResume(
         { message: error.message, stack: error.stack },
         LogLevel.error,
       )
-      failureResponse = createResponse(
-        rid,
-        false,
-        undefined,
-        createError(ErrorCode.INTERNAL, error.message),
-      )
     }
   } finally {
     releaseChatRun(chatId, runId)
     connectionManager.releaseChatConnection(chatId, ctx.connectionId)
+    connectionManager.clearLiveOutput(chatId)
     logger.event('chat.release', { chatId, connectionId: ctx.connectionId })
   }
 
-  if (failureMessage && !failureResponse) {
-    failureResponse = createResponse(
-      rid,
-      false,
-      undefined,
-      createError(ErrorCode.INTERNAL, failureMessage),
-    )
-  }
-
-  // resumePending 恢复策略（覆盖 resume 无 assistant 输出场景）：
-  // - 有 failureResponse（异常 / LLM 报错）→ 恢复（原逻辑）
-  // - 无 failureResponse 但末条非 assistant（LLM 空响应 / loop 异常结束）→ 恢复
-  // 判据：agent.getMessages() 末条非 revoked 消息的 role !== "assistant"
-  // 这样重连后 rebuildSpawnWaits 能识别 idle+canResume 主 chat 再次 resume。
+  // resumePending 恢复策略：统一暂停语义下无 failureResponse，判据简化为「末条非 assistant」
+  // （LLM 空响应 / loop 异常结束 / AI 报错 retry 回滚 → 末条保持 user 或 assistant+senseCalls）。
+  // 重连后 rebuildSpawnWaits 据此识别 idle+canResume 主 chat 再次 resume。
   if (resumeWasPending) {
     const msgs = agent.getMessages()
     const lastVisible = [...msgs].reverse().find((m) => !m.revoked)
     const producedAssistant = !!lastVisible && lastVisible.role === 'assistant'
-    if (failureResponse || !producedAssistant) {
+    if (!producedAssistant) {
       updateChatMetadata(chatId, { resumePending: true })
-      if (!failureResponse) {
-        logger.event('resume.restore-no-assistant', {
-          chatId,
-          lastRole: lastVisible?.role ?? 'none',
-        })
-      }
+      logger.event('resume.restore-no-assistant', {
+        chatId,
+        lastRole: lastVisible?.role ?? 'none',
+      })
     }
   }
 
-  return failureResponse ?? { chatId, runId }
+  // 防御性 finalize：子 chat（parent_chat_id 非空）经独立 resume 跑完时兜底标 finished
+  // （主路径 wait=true/false 子 loop 结束均经 child_done 设 finished，见 docs/agent-pet.md §5.4；
+  //   此处兜底 child_done 未走边界，与 handleChatStartSpawn 对齐，幂等，不唤主）。
+  if (chat.parent_chat_id) finalizeSpawnChildIfDone(chatId)
+
+  return { chatId, runId }
 }
 
 /**
@@ -470,6 +456,18 @@ export async function handleSenseQuestionBatchAnswer(
  * （generator 链持有），不依赖 Map。相关数据已落 DB，此处不做任何保存；
  * pending sense content 保持 NULL，下次 chat.get canResume=true 重新审核。
  */
+/**
+ * reject 该 run 的挂起审批（若存在）：approvalManager.abort → rejectApproval(AgentAbortError)，
+ * 使 senseMiddleware 的 `await Promise.all(approvals)` 抛错退出 generator。
+ * 单独的 compose.abort()→gen.throw 注入到「await 外部 pending promise」挂起点在此 yield* 链不可靠，
+ * 故 abort-during-approval 必须走 promise reject 路径（与 park/用户超时一致）。
+ */
+function abortPendingApproval(runId: string | undefined): void {
+  if (!runId) return
+  const approvalId = disconnectGrace.getPendingApprovalId(runId)
+  if (approvalId) approvalManager.abort(approvalId)
+}
+
 export async function handleChatAbort(
   ctx: HandlerContext,
   data: ChatAbortRequestData,
@@ -483,18 +481,44 @@ export async function handleChatAbort(
       createError(ErrorCode.CONFLICT, '操作的目标已改变'),
     )
   }
-  if (!activeRunId) {
-    return { chatId: data.chatId, aborted: false }
+
+  // 统一暂停语义：主 abort 时递归暂停所有后代（主停→子停→孙停）。
+  // 主可能 idle（spawn wait=true 等子回复，无 activeRunId）但后代在跑——仍需级联停后代。
+  const descendants = collectDescendantsChatIds(data.chatId)
+  for (const childId of descendants) {
+    clearWaitedChildrenByParent(childId)
+    const childRunId = getActiveChatRunId(childId)
+    if (childRunId) {
+      // 先 reject 挂起审批（可靠中断 approval.wait），再 gen.throw（中断流式 yield 挂起）。
+      abortPendingApproval(childRunId)
+      abortChatRuntime(childId)
+    }
+    // 强制解绑连接（不校验 owner）：跨连接重连后旧 owner 须无条件清除避免 busy 死锁（P0-2）
+    connectionManager.forceReleaseChatConnection(childId)
+    clearChatRuntime(childId)
   }
 
-  abortChatRuntime(data.chatId)
-  // T9：主被 abort → 清其 wait-子唤醒链，防子完成反唤醒已停的主（用户主动停语义）
+  // 主 chat 自身
+  if (activeRunId) {
+    abortPendingApproval(activeRunId)
+    abortChatRuntime(data.chatId)
+  }
+  // 清主→子唤醒链，防子完成反唤醒已停的主
   clearWaitedChildrenByParent(data.chatId)
-  // 强制解绑连接（不校验 owner）：abort 是清内存操作，跨连接重连后旧 owner 须无条件清除避免 busy 死锁（P0-2）
   connectionManager.forceReleaseChatConnection(data.chatId)
   clearChatRuntime(data.chatId)
-  logger.event('chat.abort', { chatId: data.chatId, runId: activeRunId })
-  return { chatId: data.chatId, runId: activeRunId, aborted: true }
+
+  logger.event('chat.abort', {
+    chatId: data.chatId,
+    runId: activeRunId,
+    cascaded: descendants.length,
+  })
+  return {
+    chatId: data.chatId,
+    ...(activeRunId ? { runId: activeRunId } : {}),
+    aborted: !!activeRunId,
+    cascaded: descendants.length,
+  }
 }
 
 /**

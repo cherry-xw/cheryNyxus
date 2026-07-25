@@ -10,7 +10,7 @@ import {
   createHistoryDrawerManager,
   HISTORY_DRAWER_MANAGER_KEY,
 } from '@/features/agent/drawer/useHistoryDrawerManager'
-import { useConnectionStore, useAgentsStore } from '@/stores'
+import { useConnectionStore, useAgentsStore, useChatSessionsStore } from '@/stores'
 import { wsClient } from '@/services/ws'
 import { httpUrl } from '@/services/http'
 
@@ -44,6 +44,9 @@ async function bootstrap(): Promise<void> {
 
   const conn = useConnectionStore()
   const agents = useAgentsStore()
+  // ChatSession 单一数据层（#7-#11 迁移期与旧 store 并行：双订阅无害，旧 store 仍供消费端，新 store 待 #10 切换）
+  const chatSessions = useChatSessionsStore()
+  chatSessions.bindWsClient()
 
   // 订阅 chunk/notification → agents store 路由
   wsClient.onChunk((chunk) => agents.routeChunk(chunk))
@@ -65,12 +68,16 @@ async function bootstrap(): Promise<void> {
           .catch((e) => {
             console.error('[agents] rebuildSpawnWaits 失败:', e)
           })
+        // ChatSession 层：仅重连已 hydrated 且 running 的 session（attach->sync(lastSeq)）
+        chatSessions.reconnect().catch((e) => console.warn('[chatSessions] reconnect 失败:', e))
       } else {
         // 首次建连或 F5 后重连:initFromChats(内部会调 rebuildSpawnWaits)
         agents.initFromChats().catch((e) => {
           // 规则12 fail loud：initFromChats 失败显性化（静默吞错会导致空白难定位）
           console.error('[agents] initFromChats 失败:', e)
         })
+        // ChatSession 层：catalog + top-5 root 后代完整 hydration（attach->sync 内核）
+        chatSessions.startup().catch((e) => console.warn('[chatSessions] startup 失败:', e))
       }
     }
     prevStatus = s

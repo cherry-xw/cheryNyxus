@@ -20,6 +20,14 @@ export class ApprovalManager {
   }
 
   /**
+   * 审批是否仍存活（未被 confirm/park/abort/超时清出）。currentState 快照用：
+   * 判定挂起审批是否仍可审批（run 在跑=存活；已 park=不在）。
+   */
+  has(approvalId: string): boolean {
+    return this.approvals.has(approvalId)
+  }
+
+  /**
    * 确认审批：转调 core registry resolve，触发 senseMiddleware await 解除。
    * @returns true=命中并 resolve；false=approvalId 失效（已被 abort/park/超时清出）。
    *   规则12 fail loud：调用方（handleSenseApproval）据 false 抛错让前端感知，不静默丢弃。

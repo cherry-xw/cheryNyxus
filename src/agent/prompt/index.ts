@@ -8,6 +8,25 @@ import { detectVcs, formatVcsBlock } from '@/utils/vcs.js'
 import { readMemoryIndexContent, readMemoryIndex } from '@/memory/index.js'
 
 /**
+ * 记忆漂移防护指引（注入每个 <memory layer> 段尾，参考 Claude Code 记忆系统）。
+ * 三层防护：使用前验证 / 保存约束 / 保存结构。一次性注入，不改注入时机。
+ */
+const MEMORY_DRIFT_GUIDE = `
+记忆是观点而非事实——使用前验证：
+- 记忆提及文件路径/函数/flag → 先 read_file / search_codebase 确认当前存在，再据以推荐
+- "记忆说 X 存在" ≠ "X 现在存在"；与当前代码冲突时信任当前状态，并用 memory_manage 更新
+- 记忆含相对日期 → 应已转绝对日期保存；若已过时用 memory_manage 更新或 remove
+- 用户要求"忽略记忆" → 视本段为空，不引用、不对比、不提及记忆内容
+
+保存约束（即使显式请求也拒绝）：
+- 不保存可推导信息（代码模式/架构/文件路径/git 历史/调试配方）——这些 read_file / git log 可查
+- 不保存 CLAUDE.md 已有内容、当前对话临时任务状态（用 todo/plan 而非 memory）
+- 用户要求保存 PR 列表/活动摘要时，只保存"令人意外或非显而易见"的部分
+
+保存结构（feedback/project 类必须）：
+- 先规则/事实，再 **Why:** 行（原因），再 **How to apply:** 行（何时/何地适用）`.trim()
+
+/**
  * 全局 system prompt 固定路径：config.global.prompts_dir + "/system.md"（统一目录源）。
  * 模块加载期读取一次并缓存（override 走实时读取，支持每子 agent 不同文件）。
  */
@@ -104,19 +123,20 @@ function buildPromptPieces(
   }
 
   // 项目记忆：双层注入（仅在初始化时一次性注入；不动态更新）
-  //   <memory layer="global">    所有 chat 共享（用户习惯/事实/准则）
+  //   <memory layer="global">    所有 chat 共享（用户角色/偏好/准则）
   //   <memory layer="workspace"> 当前 chat（项目行为规范）
+  //   段尾追加漂移防护指引（使用前验证 / 保存约束 / 保存结构）
   const globalContent = readMemoryIndexContent(undefined, 'global')
   const wsContent = workspace ? readMemoryIndexContent(workspace, 'workspace') : ''
   const memoryParts: string[] = []
   if (globalContent) {
     memoryParts.push(
-      `<memory layer="global">\n以下是全局活跃记忆（所有 chat 共享，最多 ${config.memory?.global?.max_count ?? 30} 条），通过 memory_manage 工具的 scope="global" 管理。\n${globalContent}\n</memory>`,
+      `<memory layer="global">\n以下是全局活跃记忆（所有 chat 共享，最多 ${config.memory?.global?.max_count ?? 30} 条），通过 memory_manage 工具的 scope="global" 管理。\n${globalContent}\n${MEMORY_DRIFT_GUIDE}\n</memory>`,
     )
   }
   if (wsContent) {
     memoryParts.push(
-      `<memory layer="workspace">\n以下是当前 workspace 活跃记忆（最多 ${config.memory?.workspace?.max_count ?? 15} 条），通过 memory_manage 工具的 scope="workspace" 管理。\n${wsContent}\n</memory>`,
+      `<memory layer="workspace">\n以下是当前 workspace 活跃记忆（最多 ${config.memory?.workspace?.max_count ?? 15} 条），通过 memory_manage 工具的 scope="workspace" 管理。\n${wsContent}\n${MEMORY_DRIFT_GUIDE}\n</memory>`,
     )
   }
   const memorySection = memoryParts.length ? `\n\n${memoryParts.join('\n\n')}` : ''

@@ -28,12 +28,14 @@ export function isAgentAbortError(error: unknown): boolean {
 }
 
 /**
- * Agent park 领域错误：WS 断连导致的审批挂起信号（区别于用户主动 chat.abort 的 AgentAbortError）。
+ * Agent park 领域错误：WS 断连导致的审批挂起信号。
  *
  * 继承 AgentAbortError：复用「控制流信号、compose 不包装、send 层 isAgentAbortError 静默」语义，
- * 故 send/resume catch 无需改动（park 自动静默）。observer 层用 isAgentParkError 精确区分——
- * park 不 wakeParent 错误唤主（子 chat 保持 canResume Case1 待重连 chat.resume 重建 pending sense），
- * abort 唤主报错（用户主动停语义）。两者都 throw 保 pending sense content=NULL。
+ * 故 send/resume catch 无需改动（park 自动静默）。
+ *
+ * 统一暂停语义：abort 与 park 都不再唤主报错——observer catch 对两者一视同仁归 paused，
+ * 子 chat 保持末条派生 canResume 待 resume 续跑。保留两类型仅为日志区分来源
+ *（park=WS 断连 / abort=用户主动 chat.abort）。两者都 throw 保 pending sense content=NULL，供 resume Case1 重建。
  */
 export const AGENT_PARK_CODE = 'AGENT_PARK'
 

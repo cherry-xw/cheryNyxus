@@ -9,7 +9,7 @@ import {
 } from '../message/types.js'
 import { setSessionRoleRuntimes } from '../chat/runtime.js'
 
-/** 会话临时角色编制：验证后只写内存，生命周期止于服务重启/会话删除。 */
+/** 会话临时角色编制：验证后写内存 + 回灌已存在子 chat（idle 持久化到子 metadata；running 延迟）。 */
 export async function handleSessionRuntimeSet(
   _ctx: HandlerContext,
   data: SessionRuntimeSetRequestData,
@@ -22,14 +22,16 @@ export async function handleSessionRuntimeSet(
       parseRuntimeSelection(selection, `session.runtime.set.roles.${role}`),
     ]),
   )
-  await setSessionRoleRuntimes(data.chatId, primary, roles)
+  const { applied, deferredRunning } = await setSessionRoleRuntimes(data.chatId, primary, roles)
   logger.event('session.runtime.set', {
     chatId: data.chatId,
     primary,
     roles,
     persistence: 'memory',
+    applied: applied.length,
+    deferredRunning: deferredRunning.length,
   })
-  return { chatId: data.chatId }
+  return { chatId: data.chatId, applied, deferredRunning }
 }
 
 export function registerSessionRuntimeHandlers(

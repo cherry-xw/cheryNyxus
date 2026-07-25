@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, watch } from 'vue'
-import { CopyDocument, Delete, Lock, Plus, Search } from '@element-plus/icons-vue'
+import { CopyDocument, Delete, Lock, Plus } from '@element-plus/icons-vue'
 import type { ConfigDto } from '@/services/agentApi'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
@@ -10,6 +10,7 @@ import EquipmentPicker from '../../controls/EquipmentPicker.vue'
 import EquipmentEditor from '../../controls/EquipmentEditor.vue'
 import { resolveRoleAvatar } from '../../config/roleAvatar'
 import { computeSelectionTokens } from '../../config/shared'
+import { buildPromptTree } from '../promptTree'
 
 type RoleDraft = NonNullable<ConfigDto['roles']>[string]
 type SkillCatalog = {
@@ -23,7 +24,6 @@ const props = defineProps<{ draft: ConfigDto; prompts: string[]; skillCatalog: S
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()
 const selectedRole = ref('')
 const newRoleType = ref('')
-const promptSearch = ref('')
 const copiedRole = ref('')
 const titleRef = ref<InstanceType<typeof EditableTitle> | null>(null)
 type EquipmentKind = 'skills' | 'plugins' | 'mcpServers'
@@ -89,9 +89,13 @@ const equipmentEditor = computed(() => {
     tokenMap: mcpTokens.value,
   }
 })
-const filteredPrompts = computed(() => {
-  const q = promptSearch.value.trim().toLowerCase()
-  return props.prompts.filter((path) => !q || path.toLowerCase().includes(q))
+const promptOptions = computed(() => buildPromptTree(props.prompts))
+// clearable 清空时 cascader emit 空串，归一为 undefined（= 无专属背景，仅用全局）
+const systemPromptModel = computed<string>({
+  get: () => current.value?.systemPrompt ?? '',
+  set: (v: string) => {
+    if (current.value) current.value.systemPrompt = v || undefined
+  },
 })
 
 // 角色标题超长截断（EditableTitle 内部 .card-name）：在 mounted/updated 时把 fullName 写到
@@ -372,32 +376,16 @@ watch(selectedRole, closeEquipment)
           </div>
           <div class="core-field">
             <span>专属背景说明</span>
-            <el-popover trigger="click" placement="bottom-start" :width="420">
-              <template #reference
-                ><button type="button" class="prompt-trigger">
-                  {{ current.systemPrompt || '使用全局 system_prompt' }}
-                </button></template
-              >
-              <div class="prompt-picker">
-                <el-input v-model="promptSearch" clearable placeholder="搜索提示词"
-                  ><template #prefix><Search class="prompt-search-icon" /></template></el-input
-                ><button
-                  type="button"
-                  :class="{ active: !current.systemPrompt }"
-                  @click="current.systemPrompt = undefined"
-                >
-                  使用全局</button
-                ><button
-                  v-for="path in filteredPrompts"
-                  :key="path"
-                  type="button"
-                  :class="{ active: current.systemPrompt === path }"
-                  @click="current.systemPrompt = path"
-                >
-                  {{ path }}
-                </button>
-              </div>
-            </el-popover>
+            <el-cascader
+              v-model="systemPromptModel"
+              :options="promptOptions"
+              :props="{ emitPath: false }"
+              placeholder="无专属背景(仅全局)"
+              filterable
+              clearable
+              popper-class="role-prompt-cascader"
+              class="prompt-cascader"
+            />
           </div>
         </section>
 
@@ -661,43 +649,10 @@ watch(selectedRole, closeEquipment)
   font-size: 9px;
   color: fade(@ink, 45%);
 }
-.prompt-trigger {
+.prompt-cascader {
   width: 100%;
-  height: 29px;
-  border: 1px dashed rgba(36, 38, 45, 0.2);
-  border-radius: 7px;
-  background: #fff;
-  text-align: left;
-  padding: 0 9px;
-  color: fade(@ink, 68%);
-  cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.prompt-picker {
-  max-height: 330px;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.prompt-picker > button {
-  min-height: 29px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  text-align: left;
-  padding: 4px 7px;
-  cursor: pointer;
-}
-.prompt-picker > button:hover,
-.prompt-picker > button.active {
-  background: color-mix(in srgb, var(--tab-color, @accent) 15%, transparent);
-  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
-}
-.prompt-search-icon {
-  width: 12px;
+  // 覆盖 element 默认主题色 #f6b73c（黄）为角色 tab 粉；trigger 区（输入框 focus/hover 边框、清除图标）
+  --el-color-primary: #fb7185;
 }
 .equipment-grid {
   display: grid;
@@ -772,5 +727,12 @@ watch(selectedRole, closeEquipment)
   .role-detail-card.copied {
     animation: none;
   }
+}
+</style>
+
+<style lang="less">
+// cascader 下拉面板 teleport 到 body，scoped 够不着；用 popper-class 注入粉色覆盖默认主题黄
+.role-prompt-cascader {
+  --el-color-primary: #fb7185;
 }
 </style>

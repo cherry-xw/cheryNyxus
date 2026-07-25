@@ -38,6 +38,40 @@ export interface ContextBreakdown {
   usage: number
 }
 
+/** 单个工具定义快照（镜像后端 PromptSnapshotTool；统一 OpenAI 形状，剥离 provider 差异）。 */
+export interface PromptSnapshotTool {
+  name: string
+  description: string
+  /** 参数 JSON schema；前端弱化展示（折叠 + 字段名/类型/required）。 */
+  parameters?: {
+    type: 'object'
+    properties: Record<string, unknown>
+    required: string[]
+    additionalProperties: boolean
+  }
+}
+
+/**
+ * 当前态快照（镜像后端 src/service/message/types.ts CurrentStateData）。
+ * chat.get / chat.sync / chat.attach response 携带；前端 applyCurrentState 权威 replace StreamState 字段。
+ * - pendingApproval：仍存活的挂起审批（approvalManager 内存命中）。run 已 paused 时省略 → 前端显继续按钮。
+ *   含 waitTime/createdAt 用于前端算倒计时。
+ * - runningTools：已发 sense_end/sense_started 但无 accept/rejected 的工具（含 confirm/manual 待审批）。
+ * - currentTodo：最近一条 update_todo 的结构化 todos；无则省略。
+ */
+export interface CurrentStateData {
+  pendingApproval?: {
+    approvalId: string
+    senseName: string
+    arguments: string
+    supervisionLevel: number
+    waitTime: number
+    createdAt: number
+  }
+  runningTools: { id: string; senseName: string }[]
+  currentTodo?: unknown[]
+}
+
 /** chat.list 返回的单条 chat 摘要（对齐后端 listAllChats）。brain/senseGroups 在 metadata.runtime 不暴露于 list。 */
 export interface ChatSummary {
   chatId: string
@@ -67,8 +101,8 @@ export interface ChatSummary {
   finished?: boolean
   /** chat 当前是否正在运行（后端 chatRuntimes.get(chatId)?.builder.isRunning()）。前端据此判断子 agent 是否还活着、主 chat 是否卡死。 */
   running?: boolean
-  /** 子 chat 是否被主 wait（后端 metadata.wait=true，T9.10）。前端重连时仅用于恢复状态，不自动续跑。主 chat 恒 undefined。 */
-  wait?: boolean
+  /** 子 chat 唤醒策略（后端 metadata.wake）。immediate/deferred/barrier 三值都表示主本轮 yieldTurn 停等子；前端重连识别等待态子。主 chat 恒 undefined。 */
+  wake?: 'immediate' | 'deferred' | 'barrier'
   /** 主 chat 有已持久化但尚未处理的角色回复；前端据此提供显式“继续”入口。 */
   resumePending?: boolean
   /** idle chat 末条非 revoked 消息为未完成周期；前端据此提供显式“继续”入口，不在刷新时自动 resume。 */
@@ -518,6 +552,12 @@ export interface GlobalConfigDto {
   }
   /** 内置命令（compact 等）阈值与可见性配置。 */
   command?: CommandConfigDto
+  /**
+   * 看门狗配置（子 agent feed-dog 监控，对应后端 global.watchdog）。
+   * - timeout_ms：子无产出超此值判定卡死，默认 300000（5min）。
+   * - wake_on_timeout：超时是否唤主。true=通知主；false=仅暂停子，默认 false。
+   */
+  watchdog?: { timeout_ms?: number; wake_on_timeout?: boolean }
 }
 
 /** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 + 按类型媒体服务 */
@@ -874,7 +914,7 @@ export const agentApi = {
     return callStream('chat.startSpawn', { taskId })
   },
 
-  /** Replays recoverable events newer than afterSeq; reset=true requires a chat.get snapshot reload. */
+  /** chat.sync：单一水源回放（chat.sync(0) = 全量）；后端不再发 reset:true，超窗淘汰由消息合成事件回填。response 含 currentState 快照（见 CurrentStateData）。 */
   syncChat(chatId: string, afterSeq: number): { requestId: string; done: Promise<RpcResponse> } {
     return callStream('chat.sync', { chatId, afterSeq })
   },
@@ -889,14 +929,45 @@ export const agentApi = {
     })
   },
 
-  /** session.runtime.set：临时设置主角色和小组角色编制，不持久化。 */
-  async setSessionRuntime(chatId: string, selection: SessionRuntimeSelection): Promise<void> {
-    await call('session.runtime.set', { chatId, ...selection })
+  /**
+   * session.runtime.set：临时设置主角色和小组角色编制，不持久化；
+   * **同时回灌已派发的同 type 子 chat**——idle/未加载子即时切换并持久化到子 metadata.runtime；
+   * running 子仅记 deferredRunning，需用户先 abort→resume 才生效。
+   * @returns applied=已即时切换的子 chatId 列表；deferredRunning=运行中待生效的子 chatId 列表
+   */
+  async setSessionRuntime(
+    chatId: string,
+    selection: SessionRuntimeSelection,
+  ): Promise<{ applied: string[]; deferredRunning: string[] }> {
+    return call<{ applied: string[]; deferredRunning: string[] }>('session.runtime.set', {
+      chatId,
+      ...selection,
+    })
   },
 
   /** chat.abort：中止当前流（清内存运行时 + 释放连接，不删 DB）。 */
   async abortAgent(chatId: string, runId?: string): Promise<void> {
     await call('chat.abort', { chatId, ...(runId ? { runId } : {}) })
+  },
+
+  /**
+   * chat.attach：F5 后重连运行中 run，请求后端把后续实时输出重定向到本连接。
+   * 返回 running=false → 前端回落历史；running=true → 已重定向，后续 chunk 经 WS envelope(chatId) 路由。
+   * 非流式；须在 syncChatEvents（回放补齐）之前调用（先开启重定向再回放，seq 无缝衔接）。
+   * response.currentState：running 时含存活的 pending approval / 运行中工具 / 当前 todo（见 CurrentStateData）。
+   */
+  async attachChat(chatId: string): Promise<{
+    chatId: string
+    running: boolean
+    attached?: boolean
+    currentState?: CurrentStateData
+  }> {
+    return call<{
+      chatId: string
+      running: boolean
+      attached?: boolean
+      currentState?: CurrentStateData
+    }>('chat.attach', { chatId })
   },
 
   /** chat.delete：真删 chat（CP8 仅会话列表 ✕ deleteSession 调用；主 chat 后端级联删子 chat）。stage 隐藏走 store.hide，不调本方法。 */
@@ -912,7 +983,7 @@ export const agentApi = {
     return callStream('chat.get', { chatId })
   },
 
-  /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token + 上限 + 6 段分解 + commandConfig）。initFromChats 后驱动 ContextBar 初始渲染。 */
+  /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token / 上限 + 6 段分解 + commandConfig）。initFromChats 后驱动 ContextBar 初始渲染。 */
   async contextUsage(chatId: string): Promise<{
     chatId: string
     contextUsage: number
@@ -929,6 +1000,23 @@ export const agentApi = {
       contextBreakdown: ContextBreakdown
       commandConfig?: CommandConfigDataDto
     }>('chat.contextUsage', { chatId })
+  },
+
+  /**
+   * chat.promptSnapshot：重建 chat 当前 runtime 的 system prompt 全文 + 工具定义。
+   * 供历史抽屉顶部「上下文」hover 面板展示完整系统提示词（system 段 + tools 段）。
+   * 按 chat 当前快照重建（systemPromptFile/workspace/skillFilter + runtime selection）。
+   */
+  async promptSnapshot(chatId: string): Promise<{
+    chatId: string
+    systemPrompt: string
+    tools: PromptSnapshotTool[]
+  }> {
+    return call<{
+      chatId: string
+      systemPrompt: string
+      tools: PromptSnapshotTool[]
+    }>('chat.promptSnapshot', { chatId })
   },
 
   /** sense.approval：审批（accept/reject）。approvalId 来自 interrupt notification。 */

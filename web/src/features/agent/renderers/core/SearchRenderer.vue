@@ -7,7 +7,7 @@
  * - 搜索参数：
  *   - content 模式：query + regex? + contextLines?
  *   - filename 模式：query（文件名匹配）
- * - 结果列表（可折叠，默认展开）：
+ * - 结果列表（可折叠，默认收起）：
  *   - 文件路径 + 行号（可点击跳转）
  *   - 匹配内容高亮
  */
@@ -16,7 +16,7 @@ import type { RendererProps, SearchCodebaseArgs } from '../types'
 
 const props = defineProps<RendererProps>()
 
-const showResults = ref(true)
+const showResults = ref(false)
 
 // 解析参数
 const parsedArgs = computed<SearchCodebaseArgs | null>(() => {

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createApproval, resolveApproval, rejectApproval, clearAllApprovals } from "@/core/sense/index.js";
-import { AgentAbortError } from "@/core/middleware/errors.js";
+import { AgentAbortError, AgentParkError } from "@/core/middleware/errors.js";
 
 describe("approvalRegistry 超时（P1.9）", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -82,6 +82,49 @@ describe("approvalRegistry 超时（P1.9）", () => {
     resolveApproval("t-post-timeout", "accept");
     // Promise 已 settled，不会改变
     expect(await p).toEqual(decision);
+  });
+});
+
+describe("approvalRegistry hard-timeout（G2：不限时审批资源上限）", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("timeoutMs<=0 + hardTimeoutMs → 到点 reject(AgentParkError) 归 paused（非用户拒绝）", async () => {
+    const p = createApproval("h-park", 0, 1000);
+    vi.advanceTimersByTime(1000);
+    await expect(p).rejects.toBeInstanceOf(AgentParkError);
+  });
+
+  it("hardTimeoutMs 仅当 timeoutMs<=0 生效（用户超时优先，不叠加）", async () => {
+    // timeoutMs>0 + hardTimeoutMs：用户超时到点 resolve as reject（非 hard park）
+    const p = createApproval("h-user", 500, 100000);
+    vi.advanceTimersByTime(500);
+    const decision = await p;
+    expect(decision.action).toBe("reject");
+    expect(decision.reason).toContain("超时");
+  });
+
+  it("hard-timeout 前用户 accept → resolve accept，hard timer 清除", async () => {
+    const p = createApproval("h-accept", 0, 1000);
+    resolveApproval("h-accept", "accept");
+    const decision = await p;
+    expect(decision.action).toBe("accept");
+    vi.advanceTimersByTime(2000); // hard timer 已 clear，无延迟 reject
+    expect(await p).toEqual(decision);
+  });
+
+  it("hard-timeout 前 park（reject AgentParkError）→ hard timer 清除", async () => {
+    const p = createApproval("h-park-early", 0, 1000);
+    rejectApproval("h-park-early", new AgentParkError());
+    await expect(p).rejects.toBeInstanceOf(AgentParkError);
+    vi.advanceTimersByTime(2000);
+  });
+
+  it("无 hardTimeoutMs（undefined）→ 不限时（向后兼容）", async () => {
+    const p = createApproval("h-none", 0);
+    vi.advanceTimersByTime(60000);
+    resolveApproval("h-none", "accept");
+    expect((await p).action).toBe("accept");
   });
 });
 

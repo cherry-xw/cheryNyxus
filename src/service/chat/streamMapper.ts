@@ -1,10 +1,18 @@
-import { createChunk, createNotification, type Chunk, type Notification } from '../message/types.js'
+import {
+  createChunk,
+  createNotification,
+  type Chunk,
+  type Notification,
+  type StreamChunkData,
+  type StagedChunkData,
+} from '../message/types.js'
 import type {
   MiddlewareChunk,
   SenseTriggerChunk,
   SenseAcceptChunk,
   SenseRejectChunk,
   StagedChunk,
+  ConsumedChunk,
   MessageUpdatedChunk,
   ErrorChunk,
 } from '@/core/middleware/types'
@@ -18,6 +26,7 @@ import { maybeAutoCompactAfterDone } from './autoCompact.js'
 import { computeContextUsage } from '@/utils/token.js'
 import { getChat, getLastMessage } from '@/db/chat.js'
 import { safeJsonParse } from '@/utils/json.js'
+import { computeCanResume } from './canResume.js'
 import config from '@/utils/config.js'
 
 /**
@@ -27,23 +36,28 @@ import config from '@/utils/config.js'
  * chatId 用于 done notification 时计算 contextUsage（CP7）：跑完一轮 loop 后实时
  * 重算 chat 总 token / brain.contextLimit 推送给前端，ContextBar 随每轮更新。
  *
- * onError（可选）：当 stream 中出现 ErrorChunk（loop 失败 / retry 耗尽 / max loop 超限）
- * 时调用，send.ts 据此在 stream 正常结束时构造 failureResponse = success:false，
- * 避免「error notification + done notification + Response.success:true」三发歧义。
+ * 统一暂停语义：error（loop 失败 / retry 耗尽 / max loop 超限）与 done 都不再代表
+ * "失败/成功"终态，而是下发权威 canResume（computeCanResume 派生）让前端据末条消息
+ * 判定 paused（显继续按钮）/ ended（无按钮）。AI 报错归 paused，可 resume 重试。
  */
 export async function* streamAgentChunks(
   generator: AsyncGenerator<MiddlewareChunk, void, unknown>,
   rid: string,
   chatId: string,
   runId: string,
-  onError?: (message: string) => void,
 ): AsyncGenerator<Chunk | Notification, void, unknown> {
   // 失败守卫：error chunk 已出现时抑制后续 done notification（不让 loop 失败路径下发 done）。
   // runChain 内 ErrorChunk 是「流失败」信号；done 仅代表 loop 正常完成。
   let errored = false
   for await (const chunk of generator) {
     if (chunk.type === 'stream') {
-      const streamData: Record<string, unknown> = {}
+      if (!chunk.msgId || typeof chunk.createdAt !== 'number') {
+        throw new Error('stream chunk missing checkpoint msgId/createdAt')
+      }
+      const streamData: StreamChunkData = {
+        msgId: chunk.msgId,
+        createdAt: chunk.createdAt,
+      }
       if (chunk.thinkingDelta) {
         streamData.thinking = chunk.thinkingDelta
       }
@@ -56,7 +70,7 @@ export async function* streamAgentChunks(
       yield createChunk('stream', rid, streamData, { chatId, runId })
     } else if (chunk.type === 'staged') {
       const staged = chunk as StagedChunk
-      const stagedData: Record<string, unknown> = {
+      const stagedData: StagedChunkData = {
         type: staged.stagedType,
       }
       if (staged.thinking) {
@@ -73,6 +87,16 @@ export async function* streamAgentChunks(
       }
       if (staged.id) {
         stagedData.id = staged.id
+      }
+      // 实时路径预分配 msgId（= 落库 id），供前端实时累积与 done.finalMessage/chat.get 同 id 去重
+      if (staged.msgId) {
+        stagedData.msgId = staged.msgId
+      }
+      if (staged.role) {
+        stagedData.role = staged.role as StagedChunkData['role']
+      }
+      if (staged.createdAt) {
+        stagedData.createdAt = staged.createdAt
       }
       logger.event('staged', {
         stagedType: staged.stagedType,
@@ -159,9 +183,33 @@ export async function* streamAgentChunks(
         { chatId, runId },
       )
     } else if (chunk.type === 'consumed') {
-      const count = (chunk as { count?: number }).count || 0
-      logger.event('input.consumed', { count })
-      yield createNotification('consumed', rid, { count }, { chatId, runId })
+      const consumed = chunk as ConsumedChunk
+      const messages = (consumed.messages ?? []).map((message) => {
+        if (
+          message.role !== 'user' ||
+          typeof message.content !== 'string' ||
+          typeof message.createdAt !== 'number'
+        ) {
+          throw new Error('consumed message missing user content/createdAt')
+        }
+        return {
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          updateAt: message.updateAt ?? message.createdAt,
+        }
+      })
+      if (messages.length !== consumed.count) {
+        throw new Error('consumed message count mismatch')
+      }
+      logger.event('input.consumed', { count: consumed.count })
+      yield createNotification(
+        'consumed',
+        rid,
+        { count: consumed.count, messages },
+        { chatId, runId },
+      )
     } else if (chunk.type === 'error') {
       const e = chunk as ErrorChunk
       const info = e.errors[0]
@@ -178,13 +226,18 @@ export async function* streamAgentChunks(
           ? raw
           : `[${newTracingId()}] ${info?.userMessage ?? friendlyMessage(info?.category ?? 'unknown', info?.source ?? 'system')}`
       errored = true
-      if (onError) onError(message)
-      // 仍下发 error notification：流中途的失败信号，前端可立即更新 UI。
-      // 但不下发 done notification（见下「done + errored 抑制」）—— 流终止由 final Response 表达。
-      yield createNotification('error', rid, { message }, { chatId, runId })
+      // AI 报错归 paused（可 resume 重试）：下发 canResume 让前端显继续按钮。
+      // 不再构造 failureResponse——统一暂停语义下 final Response 恒 success:true。
+      // 不下发 done（见下「done + errored 抑制」）：error notification 作为本轮终态信号。
+      yield createNotification(
+        'error',
+        rid,
+        { message, canResume: computeCanResume(chatId) },
+        { chatId, runId },
+      )
     } else if (chunk.type === 'done') {
-      // 失败路径抑制 done notification：error chunk 已现 → loop 失败 → 让 final Response（success:false）
-      // 作为唯一权威终态。前端据 final Response 触发终态；error notification 仍流中发。
+      // error 路径抑制 done：error notification 已下发（含 canResume 表达 paused 终态），
+      // 无需再发 done（避免 contextUsage 冗余更新；error 已是本轮终态）。
       if (errored) {
         logger.event('chat.run.done.suppressed', { reason: 'errored' }, LogLevel.warn)
         continue
@@ -244,6 +297,8 @@ export async function* streamAgentChunks(
           contextBreakdown: ctxBd,
           ...(finished === true ? { finished: true } : {}),
           ...(finalMessage ? { finalMessage } : {}),
+          // 权威 canResume：前端据此区分 paused（显继续）/ ended（无按钮），取代旧 done→canResume=false 硬编码。
+          canResume: computeCanResume(chatId),
         },
         { chatId, runId },
       )

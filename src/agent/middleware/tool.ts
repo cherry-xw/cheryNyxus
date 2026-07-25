@@ -263,7 +263,12 @@ function buildSenseTrigger(
   if (supervisionLevel > SupervisionLevel.auto) {
     // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
     //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
-    approvalPromise = createApproval(id, ctx.global.approval_timeout)
+    // G2：approval_timeout=0（不限时）时 hardTimeoutMs（global.approval_hard_timeout）兜底释放。
+    approvalPromise = createApproval(
+      id,
+      ctx.global.approval_timeout,
+      ctx.global.approval_hard_timeout,
+    )
   }
 
   const trigger: SenseTriggerChunk = {

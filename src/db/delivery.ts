@@ -24,7 +24,6 @@ export interface SpawnTask {
   prompt: string
   brain: string
   senseGroup: string
-  wait: boolean
   status: 'pending' | 'started' | 'finished'
 }
 
@@ -151,6 +150,19 @@ export function getChatEvents(chatId: string, afterSeq: number): ChatEventPage {
   }
 }
 
+/**
+ * 取该 chat 最近 N 条 chat 事件（按 seq 升序），不受超窗 reset 影响。
+ * 供 currentState 快照扫描（pending approval / running tools / current todo）--
+ * 这些态仅依赖近期事件，且 run 在跑时事件必在留存窗内。
+ */
+export function getRecentChatEvents(chatId: string, limit = 500): StoredChatEvent[] {
+  const db = getMonthlyDb(chatMonth(chatId))
+  const rows = db
+    .prepare('SELECT event_json FROM chat_events WHERE chat_id = ? ORDER BY chat_seq DESC LIMIT ?')
+    .all(chatId, limit) as { event_json: string }[]
+  return rows.map((row) => JSON.parse(row.event_json) as StoredChatEvent).reverse()
+}
+
 export function createSpawnTask(
   input: Omit<SpawnTask, 'taskId' | 'status'> & { taskId?: string },
 ): SpawnTask {
@@ -159,8 +171,8 @@ export function createSpawnTask(
   getSoulDb()
     .prepare(
       `INSERT INTO spawn_tasks
-      (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, wait, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
     .run(
       taskId,
@@ -170,7 +182,6 @@ export function createSpawnTask(
       input.prompt,
       input.brain,
       input.senseGroup,
-      input.wait ? 1 : 0,
       now,
       now,
     )
@@ -186,7 +197,6 @@ function toSpawnTask(row: Record<string, unknown>): SpawnTask {
     prompt: String(row.prompt),
     brain: String(row.brain),
     senseGroup: String(row.sense_group),
-    wait: Number(row.wait) === 1,
     status: row.status as SpawnTask['status'],
   }
 }

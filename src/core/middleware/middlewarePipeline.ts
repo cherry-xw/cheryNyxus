@@ -10,6 +10,12 @@ export class MiddlewarePipeline<T = unknown> {
   private readonly chain: ComposedMiddleware<T>
   private readonly generator: () => AsyncGenerator<T, void, unknown>
   private isRunningFlag = false
+  /**
+   * 安全暂停请求：断连宽限期到期时由 `requestParkAfterTurn()` 置位。
+   * loop 在 runChain 正常结束、下一轮决策前读此标记；命中则抛 `AgentParkError`。
+   * 多次设置同值为幂等；abort / send 时清空。
+   */
+  private parkAfterTurnRequested = false
 
   constructor(
     handlers: MiddlewareHandler<T>[],
@@ -42,7 +48,28 @@ export class MiddlewarePipeline<T = unknown> {
    * 转发 compose.abort：.throw 注入错误到挂起的 await → senseMiddleware catch → throw 传播退出整个链。
    */
   abort(): void {
+    this.parkAfterTurnRequested = false
     this.chain.abort()
+  }
+
+  /**
+   * 标记当前 generator 在下一轮 loop 决策前抛 `AgentParkError`。
+   * 不打断当前 runChain；loop 在 runChain 正常结束后检查该标记并抛 park。
+   * 一次 runChain 期间多次请求幂等（同次 set true 重复）。自然停止循环（`stopped=true`）
+   * 不再读此标记；新 `send/resume` 会清空。
+   */
+  requestParkAfterTurn(): void {
+    this.parkAfterTurnRequested = true
+  }
+
+  /**
+   * 当前是否被标记「本轮输出结束后安全暂停」。loop 在每轮 runChain 完成后读取。
+   * 读取后由 loop 显式清空（避免连续轮重复抛 park）。
+   */
+  consumeParkAfterTurn(): boolean {
+    if (!this.parkAfterTurnRequested) return false
+    this.parkAfterTurnRequested = false
+    return true
   }
 
   /** 是否有活跃会话迭代器（service 层判断 send 恢复撤回仅在 idle 时触发）。 */

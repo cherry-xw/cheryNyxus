@@ -150,7 +150,14 @@ export interface StreamState {
   isWorking: boolean
   /** 当前 send/resume 运行；用于把 abort 定向到仍在执行的那一轮。 */
   activeRunId?: string
-  /** 历史消息（chat.get staged 累积；实时流不影响此处）。loaded=true 表示 staged 回放完成。 */
+  /** 历史消息（chat.get staged 累积；实时流不影响此处）。loaded=true 表示 staged 回放完成。
+   *
+   * F4 single-array-view 不变式：
+   * - append-only by createdAt；past（chat.sync staged 累加）+ present（C/D/E 乐观累加）单一有序数组。
+   * - 任意时刻 `history` 即 HistoryDrawer 直渲染源，无第二数组、无 in-progress 合并识别。
+   * - 实时轮打字机由 `stream.thinking` / `stream.content` 暂存（双气泡契约），不并入 `history` 末项。
+   * - 跨源唯一去重轴 = msgId（`pushHistoryItem` 幂等 + `accumulateStaged` staged 幂等共享同一轴）。
+   */
   history: HistoryItem[]
   historyLoaded: boolean
   /**
@@ -183,6 +190,11 @@ export interface StreamState {
   /** 运行中工具（sense_started push；accept 按 id 移除；done/error 清空）。供 pet bar 右侧 RunningTools 显 icon。 */
   runningTools: RunningTool[]
   /**
+   * 当前 todo（applyCurrentState 从后端 CurrentStateData.currentTodo 写入）。
+   * 暂存层——TodoPanel 改造留待 F5 收口后改读此字段（当前仍 walk back history 找最近 update_todo senseCall）。
+   */
+  currentTodo?: unknown[]
+  /**
    * 流式错误（P3 新增）。三个写入路径：
    * - sendMessage/resumeAgent 捕获 done Promise：final Response.success:false 时写入 res.error?.message
    * - routeNotification error 分支：error notification 到达时写入（流中即时）
@@ -191,17 +203,24 @@ export interface StreamState {
    */
   error?: string
   /**
-   * sync 回放标记（syncChatEvents 设置）。true 表示当前正在处理 chat.sync 回放的历史事件。
-   * routeChunk/routeNotification 检查此标记，跳过实时状态更新（thinking/content/isWorking/retainUntil），
-   * 防止历史 chunks 触发气泡显示。sync 完成后清除。
+   * 回放期标记（chat.sync 期间为 true，回放结束清；F3 收敛）。
+   * - true：回放期，事件幂等累加进缓存数组 + 抑制副作用 RPC（startSpawn/resumeAgent）+ 抑制终态
+   *   （done retainUntil / error-bubble / auto_compacted toast）。实时态由 currentState 快照给定（F2）。
+   * - undefined：实时流期，所有事件正常推进。
+   *
+   * 历史：'sync'/'resume' 双字面量收敛为单一 boolean。sync（一次性回灌缓存）与 resume（运行中重连）
+   * 在 F2 后行为一致——均由 currentState 权威给定实时态，事件流仅作实时期增量。
    */
-  isSyncing?: boolean
+  replaying?: boolean
 }
 
 /** stream chunk 携带的 data（实时增量）。 */
 export interface StreamChunkData {
+  msgId: string
+  createdAt: number
   thinking?: string
   content?: string
+  senseCall?: Array<{ index?: number; id?: string; name?: string; arguments?: string }>
 }
 
 /** staged chunk 携带的 data（历史回放，对齐后端 StagedChunkData）。 */

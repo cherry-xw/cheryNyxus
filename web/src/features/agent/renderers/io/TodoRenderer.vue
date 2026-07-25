@@ -53,9 +53,6 @@ const statusGlyph = (s: TodoItem['status']): string =>
         <span class="glyph" aria-hidden="true">{{ statusGlyph(t.status) }}</span>
         <span class="content">
           <span class="text" :class="{ done: t.status === 'completed' }">{{ t.content }}</span>
-          <span v-if="t.status === 'in_progress' && t.activeForm" class="active-form">{{
-            t.activeForm
-          }}</span>
         </span>
       </li>
     </ul>
@@ -138,12 +135,6 @@ const statusGlyph = (s: TodoItem['status']): string =>
       text-decoration: line-through;
       color: fade(@ink, 44%);
     }
-  }
-
-  .active-form {
-    font-size: 9.5px;
-    font-style: italic;
-    color: fade(@ink, 50%);
   }
 
   &.is-in_progress .glyph {

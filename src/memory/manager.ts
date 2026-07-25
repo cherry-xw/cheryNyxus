@@ -128,8 +128,15 @@ export function addMemory(params: {
     evictMemory(replaceTarget, replaceReason, name, workspace, scope)
   }
 
-  // 写入新记忆
-  const memory: Memory = { name, description, type, content, originSessionId }
+  // 写入新记忆（createdAt 注入，漂移防护新鲜度判断用）
+  const memory: Memory = {
+    name,
+    description,
+    type,
+    content,
+    createdAt: dayjs().toISOString(),
+    ...(originSessionId ? { originSessionId } : {}),
+  }
   writeMemory(memory, workspace, scope)
 
   // 追加活跃索引

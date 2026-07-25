@@ -15,6 +15,9 @@ export function createUiState() {
   const historyListOpen = ref(false)
   const settingsOpen = ref(false)
   const pendingScrollSenseCallId = ref<string | null>(null)
+  // 全局折叠子 agent 消息（role='role'/'subagent'）开关：跨所有 chat 持久。
+  // VirtualScroll 离屏销毁 MessageBubble 会丢 local 折叠态，故放 store 兜底。
+  const collapseSubagent = ref(false)
 
   /** 栈顶 chatId（无抽屉时 null）。供仅需“当前焦点”的旧调用方读。 */
   const topHistoryChatId: ComputedRef<string | null> = computed(() => {
@@ -62,6 +65,11 @@ export function createUiState() {
     historyDrawerStack.value = []
   }
 
+  /** 切换全局子 agent 消息折叠状态。 */
+  function toggleCollapseSubagent(): void {
+    collapseSubagent.value = !collapseSubagent.value
+  }
+
   /** 清理被删除的 chat（removePetsByIds）：从栈中移除所有命中项。 */
   function pruneHistoryStack(removeIds: string[]): void {
     if (removeIds.length === 0) return
@@ -82,5 +90,7 @@ export function createUiState() {
     historyListOpen,
     settingsOpen,
     pendingScrollSenseCallId,
+    collapseSubagent,
+    toggleCollapseSubagent,
   }
 }

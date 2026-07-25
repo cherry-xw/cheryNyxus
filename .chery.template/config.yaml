@@ -13,7 +13,17 @@ global:
   supervision: manual         # Sense 监管等级：auto | confirm | manual
   stream: true                # 是否流式返回（true/false）
   sense_execute_timeout: 10000  # [可选] 单次 Sense 执行超时(ms)，默认 10000
-  approval_timeout: 30000     # [可选] 审批等待超时(ms)，默认 30000
+  approval_timeout: 30000     # [可选] 审批等待超时(ms)，默认 30000；0=不限时(由 approval_hard_timeout 兜底)
+  approval_hard_timeout: 1800000  # [可选] 不限时审批(approval_timeout=0)的资源上限(ms)，默认 1800000(30min)；到点归 paused 可续
+  disconnect_grace_ms: 15000  # [可选] WS 断连后等待重连(ms)，默认 15000；到期后当前输出结束即暂停
+  watchdog:                   # [可选] 子 agent 看门狗（feed-dog 运行时监控，子无产出超时判定卡死）
+    timeout_ms: 300000        # [可选] 子无产出超时(ms)，默认 300000(5min)；子每产出 chunk 重置计时
+    wake_on_timeout: false    # [可选] 超时行为，默认 false / true
+                              # true：子判定卡死 → 标记 abandoned 为 ghost → 唤主告知「任务已结束，无法完成」，
+                              #       清唤醒链 + 清子 runtime；用户无法再对子 Agent 做任何操作（chat.send/resume 拒绝）。
+                              #       主决策后续补救（spawn 新子 / 改 prompt / 告知用户）。
+                              # false：主无限等待，不被超时唤醒；清子 runtime 但保留唤醒链 — 用户可手动 resume 子，
+                              #       子最终完成仍走 child_done → wakeParent 正常唤主（不依赖 timeout 通知路径）。
   bash_log_retention_hours: 24  # [可选] bash 日志保留时长(小时)，默认 24
   textEditor: notepad         # [可选] 文本编辑器命令，默认 notepad
   file_compression:
@@ -143,6 +153,11 @@ sense_groups:
     - read_file
     - search_codebase
     - ask_user_question
+  curator:                        # 记忆维护角色：Extract（每轮提取）/ Dream（定期整理）
+    - memory_manage
+    - read_file
+    - search_codebase
+    - ask_user_question
 
 # ------------------------------------------------------------
 # roles：角色定义
@@ -177,6 +192,12 @@ roles:
     mcpServers: []
     systemPrompt: prompt/housekeeper/housekeeper.md
     lock: true                       # 锁定禁止删除（保护 install 能力）
+  curator:                       # 记忆维护：Extract（每轮提取）/ Dream（定时整理）
+    brain: my-brain
+    senseGroup: curator
+    mcpServers: []
+    systemPrompt: prompt/curator/curator.md
+    lock: true                       # 锁定禁止删除（保护记忆维护能力）
 
 # ------------------------------------------------------------
 # presets：预设配置
@@ -193,6 +214,14 @@ presets:
       - reviewer
       - housekeeper                     # 管家（安装技能专用，主 agent 可 spawn）
     workspace: <YOUR_WORKSPACE_PATH>    # 修改为你的实际工作目录
+  维护:                                 # 记忆维护预设：定时触发 curator 做 Dream
+    leader: curator                     # curator 角色（记忆维护者）
+    roles:
+      - curator
+    workspace: <YOUR_WORKSPACE_PATH>    # 与默认预设同一工作区，整理 workspace 层记忆
+    schedule:                           # 定时触发器（后端 cron scheduler，见 src/service/schedule/scheduler.ts）
+      cron: "0 3 * * *"                 # 每天 03:00（本地时区）触发 Dream
+      task: "Dream：扫描记忆目录，合并重复/删除过时/精简 main.md 索引。逐层处理 scope=global 与 scope=workspace。"
 
 # ------------------------------------------------------------
 # server：服务监听配置
@@ -205,8 +234,13 @@ server:
 
 # ------------------------------------------------------------
 # memory：长期记忆参数
-# [可选]
+# [可选] 双层模型（global 跨 chat 共享 / workspace per chat）
+# 分类四类闭合：user / feedback / project / reference
 # ------------------------------------------------------------
 memory:
-  max_count: 15           # 单次对话最大记忆条数
-  max_chars: 500          # 单条记忆最大字符数
+  global:                          # 全局层（跨 chat 共享）
+    max_count: 30                  # 活跃记忆最大条数（超限触发淘汰）
+    max_chars: 500                 # 单条记忆正文字数上限
+  workspace:                       # workspace 层（per chat / per 项目）
+    max_count: 15
+    max_chars: 500

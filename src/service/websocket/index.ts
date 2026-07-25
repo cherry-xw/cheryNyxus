@@ -16,6 +16,7 @@ import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { OAuth2Auth } from '../auth/index.js'
 import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
+import { disconnectGrace } from './disconnectGrace.js'
 
 /** Requests still executing in this process. A reconnect joins this promise instead of rerunning a handler. */
 const inFlightRequests = new Map<string, Promise<RpcResponse>>()
@@ -32,6 +33,34 @@ function persistChatEvent<T extends { chatId?: string; seq?: number }>(
     event.seq = appendChatEvent(event.chatId, event as Record<string, unknown>)
   }
   return event
+}
+
+/**
+ * 发送单个 chat event（chunk/notification）。当前 output ws 不可写时仅记日志，
+ * 不抛出影响 generator；重连后新 ws 接管后续事件，断连窗口由 `chat.sync` 回放补齐。
+ */
+function sendChatEvent(ws: WebSocket, item: unknown): void {
+  if (ws.readyState !== ws.OPEN) {
+    logger.event('ws.event.skipped', { reason: 'socket-closed' })
+    return
+  }
+  try {
+    ws.send(transport.encode(item as Parameters<typeof transport.encode>[0]))
+  } catch (err) {
+    logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+  }
+}
+
+/**
+ * 解析实时输出目标 ws：chat.attach 重定向命中（按 event.chatId）→ 新连接 ws；否则回落启动 run 的捕获 ws。
+ * 使刷新后新连接能接管仍在运行的 run 的后续 chunk/notification（含终态 done/error）。
+ */
+function resolveOutputWs(item: { chatId?: string }, fallbackWs: WebSocket): WebSocket {
+  if (item.chatId) {
+    const redirected = connectionManager.getLiveOutput(item.chatId)
+    if (redirected) return redirected
+  }
+  return fallbackWs
 }
 
 /**
@@ -110,6 +139,9 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
 
     ws.on('close', async () => {
       logger.run({ connectionId: state.id }, () => logger.event('conn.close'))
+      // 进入断连宽限期：grace 期内同 requestId 在新 ws 重连 → rebind 继续当前 loop。
+      // 超过 disconnect_grace_ms 仍无新 owner → 由 disconnectGrace 标记安全边界暂停 + park 挂起审批。
+      disconnectGrace.onConnectionClosed(state.id)
       await connectionManager.close(ws)
     })
 
@@ -180,6 +212,16 @@ async function handleRequest(
   if (claim.state === 'active') {
     const running = inFlightRequests.get(request.id)
     if (running) {
+      // 同一 requestId 在新 connection 上重连：迁移输出目标到新 ws，
+      // 取消 grace timer，继续当前 loop（不再启第二个 generator）。
+      disconnectGrace.rebind({
+        requestId: request.id,
+        connectionId: state.id,
+        outputWs: ws,
+      })
+      // 同页瞬断重连：把仍在跑的 run 后续实时输出重定向到新 ws（sendChatEvent 按 chatId 解析 liveOutput）。
+      const reboundChatId = disconnectGrace.getChatId(request.id)
+      if (reboundChatId) connectionManager.setLiveOutput(reboundChatId, ws)
       const response = await running
       if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
       return
@@ -219,6 +261,21 @@ async function handleRequest(
     traceId: extractChatId(request.params),
   }
 
+  // 断连宽限：跟踪该 in-flight request；rebinds/cancel 由 disconnectGrace 控制。
+  // 仅对持久化事件（chat.send/resume/startSpawn）跟踪以减状态表体积。
+  if (shouldPersistChatEvent(request.method)) {
+    const chatId = scope.traceId
+    if (chatId) {
+      disconnectGrace.track({
+        requestId: request.id,
+        chatId,
+        runId: request.id,
+        connectionId: state.id,
+        outputWs: ws,
+      })
+    }
+  }
+
   let finalResponse: RpcResponse | undefined
   try {
     // 执行 handler（在 scope 内迭代流式输出）
@@ -249,13 +306,15 @@ async function handleRequest(
                 // ws.send(TIMEOUT)+close(ws) 拆连接是 bug 源（覆盖 registry 的正确 reject），已废。
                 const interrupt = item.data as { approvalId: string }
                 connectionManager.setRequestApprovalId(ws, request.id, interrupt.approvalId)
+                // 同步给断连宽限调度器：宽限期到期时 park。
+                disconnectGrace.setPendingApproval(request.id, interrupt.approvalId)
               }
-              if (ws.readyState === ws.OPEN) ws.send(transport.encode(item))
+              sendChatEvent(resolveOutputWs(item, ws), item)
               continue
             }
 
             // Chunk 消息
-            if (ws.readyState === ws.OPEN) ws.send(transport.encode(item))
+            sendChatEvent(resolveOutputWs(item, ws), item)
           }
           outcome = { success: finalResponse?.success !== false }
         } else {
@@ -290,6 +349,10 @@ async function handleRequest(
     completeRequest(request.id, response)
     settle(response)
     inFlightRequests.delete(request.id)
+    // 宽限期跟踪清理（rebound/finished 都用同一入口）
+    disconnectGrace.onRequestFinished(request.id)
+    // 若当前 ws 还活着：发终态 response + 释放 pending。rebinds 场景下 ws 已替换，
+    // 仍允许向新 ws 投递。
     if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
     connectionManager.removePendingRequest(ws, request.id)
   }

@@ -270,12 +270,14 @@ async function scrollToIndex(
   }
 }
 
-function scrollToEnd(): void {
+function scrollToEnd(behavior: ScrollBehavior = 'auto'): void {
   void nextTick(() => {
     const element = containerRef.value
     if (!element) return
-    element.scrollTop = element.scrollHeight
-    syncScrollTop()
+    const max = Math.max(0, element.scrollHeight - element.clientHeight)
+    element.scrollTo({ top: max, behavior })
+    // auto 模式下同步 scrollTop（供 scroll 事件回环）；smooth 让浏览器原生处理，无需 sync
+    if (behavior === 'auto') syncScrollTop()
   })
 }
 
@@ -389,6 +391,10 @@ defineExpose({
   ratioOf,
   scrollToOffset,
   scrollToRatio,
+  // 当前 scrollTop / viewportHeight（reactive ref；外部读 .value 以判断视口位置，
+  // 实现「滚到视口外上一条/下一条 user 消息」需要视口高度）
+  scrollTop,
+  viewportHeight,
 })
 </script>
 

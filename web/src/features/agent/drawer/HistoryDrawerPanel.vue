@@ -13,7 +13,7 @@
  * - 长消息、思考折叠和媒体加载均由 ResizeObserver 重新量测。
  * 错误显性化（规则 12）：stream 不存在时显 loading 而非崩（getHistory ensureStream，理论不达）。
  */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
 import { motion } from 'motion-v'
 import { useAgentsStore } from '@/stores'
 import type { HistoryItem } from '@/stores/agents'
@@ -29,6 +29,9 @@ import { useSubPetResolution } from '../composables/useSubPetResolution'
 import { useHistoryDrawerManager } from './useHistoryDrawerManager'
 import { breakdownSegments, fmtTokens } from '../toolbar/contextBreakdown'
 import type { BreakdownKey } from '../toolbar/contextBreakdown'
+import PromptSnapshotTip from './PromptSnapshotTip.vue'
+import { agentApi } from '@/services/agentApi'
+import type { PromptSnapshotTool } from '@/services/agentApi'
 
 const MotionDiv = motion.div
 
@@ -46,10 +49,27 @@ function estimateHeight(item: HistoryItem | undefined): number {
 }
 
 /** 取前 N 字预览：折叠空白 + 去首尾 + 超长 ellipsis。空内容显占位串。供滚动条标记 title 用。 */
-function previewOf(content: string | undefined): string {
+function previewOf(content: string | undefined, maxLen = 10): string {
   if (!content) return '(空)'
   const compact = content.replace(/\s+/g, ' ').trim()
-  return compact.length > 10 ? compact.slice(0, 10) + '…' : compact
+  return compact.length > maxLen ? compact.slice(0, maxLen) + '…' : compact
+}
+
+/** minimap hover tooltip 预览：保留原文换行（多行消息分多行显示），折叠多余空白；空内容显占位串。 */
+function previewTooltip(content: string | undefined): string {
+  if (!content) return '(空)'
+  // 保留 \n（多行消息分行显示），折叠空格/Tab，截 150 字符
+  const compact = content.replace(/[ \t]+/g, ' ').trim()
+  return compact.length > 150 ? compact.slice(0, 150) + '…' : compact
+}
+
+// minimap tooltip 内容样式：el-popper 渲染到 body 外，scoped 样式不命中，用 inline 注入。
+const previewTooltipStyle: CSSProperties = {
+  maxWidth: '320px',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  lineHeight: 1.45,
+  fontSize: '11.5px',
 }
 
 const props = defineProps<{
@@ -83,11 +103,16 @@ const stream = computed(() => agents.streams[props.chatId])
 const history = computed<HistoryItem[]>(() => {
   const h = stream.value?.history ?? []
   // UI 层防御性去重：按 msgId 合并同条消息的多条 HistoryItem。
-  // 修复历史 bug「打开抽屉显示 3 个 thinking：下面 1 条带正文、上面 2 条不带」——
-  // 多源叠加（实时流 / staged 回放 / done.finalMessage）偶尔产生同 msgId 多 item，
-  // 这里按顺序保留首条，把后续同 msgId 的 thinking/content/senseCalls 合并入首条。
+  // F4：上游 `pushHistoryItem` 已提供 msgId 幂等（与 accumulateStaged 共享同一轴），
+  // 此处为防御兜底——仅当多源竞态残留（如 chat.sync 全量与实时乐观并存期短暂重复）时才生效。
   const merged = dedupHistoryByMsgId(h)
-  return layout.value === 'group' ? mergeChildReplyHistory(merged) : merged
+  const result = layout.value === 'group' ? mergeChildReplyHistory(merged) : merged
+  // 全局折叠子 agent 消息（role='role'/'subagent'）：仅作用于主 chat 合并视图（group）。
+  // 子 agent 数据仍可经主 pet 消息内 spawn_role sense call 的「详情」下钻查看；
+  // 下钻打开的子 chat 自身抽屉（direct layout）必须照常显示，不受折叠开关影响。
+  return agents.collapseSubagent && layout.value === 'group'
+    ? result.filter((item) => item.role !== 'role' && item.role !== 'subagent')
+    : result
 })
 const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false)
 
@@ -98,11 +123,16 @@ const userMarks = computed<Array<{ item: HistoryItem; idx: number }>>(() =>
 )
 
 type VirtualScrollInstance = {
-  scrollToEnd: () => void
+  scrollToEnd: (behavior?: ScrollBehavior) => void
   scrollToIndex: (
     index: number,
     options?: { align?: 'start' | 'center' | 'end'; behavior?: ScrollBehavior },
   ) => Promise<void>
+  scrollToOffset: (offset: number, behavior?: ScrollBehavior) => void
+  offsetOf: (index: number) => number
+  /** 当前 scrollTop / 视口高度（Vue ref 形态，外部读 .value）。 */
+  scrollTop: { value: number }
+  viewportHeight: { value: number }
 }
 
 const virtualScrollRef = ref<VirtualScrollInstance | null>(null)
@@ -199,9 +229,27 @@ watch(
 )
 
 onBeforeUnmount(clearSettleTimer)
+onBeforeUnmount(() => {
+  if (copyResetTimer) clearTimeout(copyResetTimer)
+})
 
 function scrollToBottom(): void {
-  void nextTick(() => virtualScrollRef.value?.scrollToEnd())
+  void nextTick(() => virtualScrollRef.value?.scrollToEnd('auto'))
+}
+
+/** 滚动顶部 / 底部按钮（smooth）。走 scrollToIndex 复用其迭代收敛循环：
+ *  动态高度虚拟列表里，scrollToEnd/scrollToOffset 一次性 smooth 滚到底/顶时，滚动过程中新进入
+ *  视口的项被 ResizeObserver 量测 → flushMeasurements 的 anchorAdjustment 改写 scrollTop，
+ *  打断 smooth 动画并使 scrollHeight 偏移，停不在真顶/真底。scrollToIndex 先多次 auto 跳触
+ *  发量测、offsets 收敛后末次 smooth 收尾，精确落位。 */
+function scrollToTopSmooth(): void {
+  void virtualScrollRef.value?.scrollToIndex(0, { align: 'start', behavior: 'smooth' })
+}
+
+function scrollToBottomSmooth(): void {
+  const last = history.value.length - 1
+  if (last < 0) return
+  void virtualScrollRef.value?.scrollToIndex(last, { align: 'end', behavior: 'smooth' })
 }
 
 /** 把 idx 项对齐到视口（start 顶部 / center 中部 / end 底部）。
@@ -289,6 +337,35 @@ const titleText = computed(() => {
   return `历史 · ${props.chatId.slice(0, 8)}…`
 })
 
+// chatId 复制反馈：点击复制 icon 后短暂显「已复制」（1.2s 后恢复）
+const copied = ref(false)
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
+async function copyChatId(): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(props.chatId)
+  } catch {
+    // 降级：非 secure context 或权限拒绝时用 execCommand 兜底
+    const ta = document.createElement('textarea')
+    ta.value = props.chatId
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try {
+      document.execCommand('copy')
+    } catch {
+      /* 复制失败静默：icon 不切换，用户可重试 */
+    }
+    document.body.removeChild(ta)
+  }
+  copied.value = true
+  if (copyResetTimer) clearTimeout(copyResetTimer)
+  copyResetTimer = setTimeout(() => {
+    copied.value = false
+    copyResetTimer = null
+  }, 1200)
+}
+
 /** contextUsage 颜色分级（与 ContextBar / SessionList 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
 function usageClass(u: number): string {
   if (u >= 0.8) return 'usage-high'
@@ -338,6 +415,51 @@ function labelColor(key: BreakdownKey): string {
 
 /** 图例中 0 token 段的灰色（标签 + tokens 统一降明度，区别于有量的彩色标签）。 */
 const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
+
+/**
+ * 系统提示词快照（顶部「上下文」hover 面板用）。
+ * 懒加载：hover 顶部「上下文」标签才拉取 chat.promptSnapshot；按 chatId 缓存避免重复请求。
+ * chatId 切换（栈层切换）时清空缓存重拉。
+ */
+const promptSnap = ref<{
+  systemPrompt: string
+  tools: PromptSnapshotTool[]
+  status: 'idle' | 'loading' | 'error' | 'loaded'
+  error?: string
+} | null>(null)
+let promptSnapChatId = ''
+
+async function loadPromptSnapshot(chatId: string): Promise<void> {
+  // 同 chat 已加载或加载中 → 不重复请求
+  if (promptSnapChatId === chatId && promptSnap.value && promptSnap.value.status !== 'error') return
+  promptSnapChatId = chatId
+  promptSnap.value = { systemPrompt: '', tools: [], status: 'loading' }
+  try {
+    const res = await agentApi.promptSnapshot(chatId)
+    // chatId 期间未切换才写入（避免竞态覆盖）
+    if (promptSnapChatId === chatId) {
+      promptSnap.value = {
+        systemPrompt: res.systemPrompt,
+        tools: res.tools,
+        status: 'loaded',
+      }
+    }
+  } catch (err) {
+    if (promptSnapChatId === chatId) {
+      promptSnap.value = {
+        systemPrompt: '',
+        tools: [],
+        status: 'error',
+        error: (err as Error).message,
+      }
+    }
+  }
+}
+
+function onPromptSnapShow(): void {
+  if (!props.chatId) return
+  void loadPromptSnapshot(props.chatId)
+}
 </script>
 
 <template>
@@ -363,21 +485,57 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
     <header class="drawer-head">
       <div class="title-block">
         <span class="title">{{ titleText }}</span>
-        <span class="chat-id">{{ chatId }}</span>
+        <button
+          type="button"
+          class="copy-id-btn"
+          :class="{ copied }"
+          :title="copied ? '已复制 chatId' : '点击复制 chatId'"
+          @click="copyChatId"
+        >
+          <span class="copy-glyph">{{ copied ? '✓' : '📋' }}</span>
+          <span class="copy-hint">{{ copied ? '已复制' : '点击复制 ID' }}</span>
+        </button>
       </div>
-      <button
-        v-if="isTop"
-        type="button"
-        class="close-btn"
-        aria-label="Close"
-        @click="manager.closeTop()"
-      >
-        ✕
-      </button>
+      <div v-if="isTop" class="head-actions">
+        <button
+          v-if="layout === 'group'"
+          type="button"
+          class="collapse-sub-btn"
+          :class="{ active: agents.collapseSubagent }"
+          :aria-pressed="agents.collapseSubagent"
+          :title="
+            agents.collapseSubagent ? '当前已隐藏子 agent 消息，点击显示' : '隐藏所有子 agent 消息'
+          "
+          @click="agents.toggleCollapseSubagent()"
+        >
+          <span class="collapse-glyph">{{ agents.collapseSubagent ? '🙈' : '👥' }}</span>
+        </button>
+        <button type="button" class="close-btn" aria-label="Close" @click="manager.closeTop()">
+          ✕
+        </button>
+      </div>
     </header>
     <div v-if="usageDetail" class="usage-bar-wrap" :class="usageClass(pet?.contextUsage ?? 0)">
       <div class="usage-bar-row">
-        <span class="usage-label">上下文</span>
+        <el-popover
+          trigger="hover"
+          placement="bottom-start"
+          :width="460"
+          popper-class="prompt-snapshot-popper"
+          :show-after="200"
+          @show="onPromptSnapShow"
+        >
+          <template #reference>
+            <span class="usage-label usage-label-hover">上下文</span>
+          </template>
+          <PromptSnapshotTip
+            v-if="promptSnap"
+            :system-prompt="promptSnap.systemPrompt"
+            :tools="promptSnap.tools"
+            :status="promptSnap.status"
+            :error="promptSnap.error"
+          />
+        </el-popover>
         <div v-if="allSegs.length" class="usage-legend">
           <span
             v-for="seg in allSegs"
@@ -414,12 +572,14 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
     </div>
 
     <div class="drawer-body">
-      <div v-if="!loaded && !showAgentLoading" class="loading-row">载入历史…</div>
+      <div v-if="!loaded && history.length === 0 && !showAgentLoading" class="loading-row">
+        载入历史…
+      </div>
       <div v-else-if="loaded && history.length === 0 && !showAgentLoading" class="empty-row">
         暂无历史
       </div>
       <VirtualScroll
-        v-else-if="loaded && history.length > 0"
+        v-else-if="history.length > 0"
         ref="virtualScrollRef"
         class="history-list"
         :items="history"
@@ -448,21 +608,45 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
           <el-tooltip
             v-for="m in userMarks"
             :key="m.item.msgId ?? `idx-${m.idx}`"
-            :content="previewOf(m.item.content)"
             placement="left"
             :show-after="120"
           >
+            <template #content>
+              <div :style="previewTooltipStyle">{{ previewTooltip(m.item.content) }}</div>
+            </template>
             <button
               type="button"
               class="scrollbar-mark"
               :style="{ top: `${ratioOf(m.idx) * trackHeight}px` }"
-              :aria-label="`跳转到用户消息: ${previewOf(m.item.content)}`"
+              :aria-label="`跳转到用户消息: ${previewOf(m.item.content, 30)}`"
               @pointerdown.stop
               @click.stop="onRailJump(m.idx)"
             />
           </el-tooltip>
         </template>
       </VirtualScroll>
+
+      <!-- 滚动顶部 / 底部按钮：堆叠在 drawer-body 底部右侧（绝对定位，不挤压列表布局） -->
+      <div v-if="history.length > 0" class="scroll-actions">
+        <button
+          type="button"
+          class="scroll-btn"
+          aria-label="滚动到顶部"
+          title="滚动到顶部"
+          @click="scrollToTopSmooth"
+        >
+          👆
+        </button>
+        <button
+          type="button"
+          class="scroll-btn"
+          aria-label="滚动到底部"
+          title="滚动到底部"
+          @click="scrollToBottomSmooth"
+        >
+          👇
+        </button>
+      </div>
       <div v-if="showAgentLoading" class="agent-loading-list" aria-live="polite">
         <div v-for="entry in loadingAgents" :key="entry.chatId" class="agent-loading-row">
           <span class="agent-loading-face">{{ entry.face }}</span>
@@ -563,8 +747,8 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
 
   .title-block {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex-direction: row;
+    gap: 12px;
     min-width: 0;
   }
 
@@ -577,13 +761,82 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
     white-space: nowrap;
   }
 
-  .chat-id {
-    font-size: 10px;
-    color: fade(@ink, 44%);
+  // 复制 chatId 按钮：替代原直接显示的长 chatId 文本。
+  // 不显 ID 本体，仅用 icon + 「点击复制 ID」提示；复制成功短暂切「已复制 ✓」。
+  .copy-id-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border: 1px solid rgba(36, 38, 45, 0.12);
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.6);
+    color: fade(@ink, 50%);
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 10px;
+    line-height: 1.4;
+    cursor: pointer;
+    align-self: flex-start;
+    transition:
+      background 120ms ease,
+      color 120ms ease;
+
+    &:hover {
+      background: #ffffff;
+      color: fade(@ink, 78%);
+    }
+
+    &.copied {
+      border-color: rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.1);
+      color: #16a34a;
+    }
+
+    .copy-glyph {
+      font-size: 11px;
+    }
+  }
+}
+
+// 头部右侧操作组（折叠子 agent + 关闭）
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+// 折叠子 agent 消息切换按钮：active=已隐藏（高亮），非 active=正常显示
+.collapse-sub-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
+  color: fade(@ink, 70%);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+
+  &:hover {
+    background: #ffffff;
+    color: fade(@ink, 88%);
+  }
+
+  &.active {
+    border-color: rgba(246, 183, 60, 0.5);
+    background: rgba(246, 183, 60, 0.16);
+    color: #76500e;
+  }
+
+  .collapse-glyph {
+    font-size: 12px;
   }
 }
 
@@ -612,6 +865,47 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative; // 滚动按钮 .scroll-actions 绝对定位的参照
+}
+
+// 滚动顶部 / 底部按钮：堆叠在 drawer-body 右下角（绝对定位，不挤压列表布局）
+.scroll-actions {
+  position: absolute;
+  right: 14px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none; // 容器不拦截，单独恢复给按钮
+}
+
+.scroll-btn {
+  pointer-events: auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  color: fade(@ink, 78%);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
+
+  &:hover {
+    background: #ffffff;
+    color: fade(@ink, 92%);
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
 }
 
 .loading-row,
@@ -779,6 +1073,12 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
     font-size: 10px;
     color: fade(@ink, 52%);
     letter-spacing: 0.02em;
+  }
+  .usage-label-hover {
+    cursor: pointer;
+    &:hover {
+      color: fade(@ink, 78%);
+    }
   }
 
   .usage-values {

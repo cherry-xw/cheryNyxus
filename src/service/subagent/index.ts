@@ -2,8 +2,13 @@ import type { WebSocket } from 'ws'
 import { createNotification, type Notification } from '../message/types.js'
 import { transport } from '../websocket/transport.js'
 import { connectionManager } from '../websocket/connection.js'
-import { setSpawnBroadcaster, setAsyncWakeHandler } from '@/agent/spawnBroker.js'
+import {
+  setSpawnBroadcaster,
+  setAsyncWakeHandler,
+  setEagerSpawnStarter,
+} from '@/agent/spawnBroker.js'
 import { handleAsyncWakeTimeout } from '../chat/wake.js'
+import { runChildTaskInBackground } from '../chat/spawnEager.js'
 import { appendChatEvent } from '@/db/delivery.js'
 
 /**
@@ -45,12 +50,32 @@ function sendNotification(ws: WebSocket, notif: Notification): void {
 }
 
 /**
+ * 安装 spawn eager 启动器（spawn_role sense fire-and-forget 后台启动子 chat）。
+ *
+ * 动机：用户原设计要求「子 agent 与主 agent 走同一条 API」。原 chat.startSpawn 由前端驱动，
+ *   一旦前端 RPC 失败（requestMap 时序 / 网络抖动 / 页面关闭），子 agent stream 永远不到前端。
+ *   把启动收敛到 spawn_role sense 后端（service 层），端到端路径与 chat.send 相同：
+ *     spawn_role 完成 → startChildEager(taskId, parentChatId) → runChildTaskInBackground →
+ *     handleChatStartSpawn claim + handleChatSend 绑子 chatId + persistChatEvent + sendToWs(parent ws)。
+ *
+ * chat.startSpawn RPC 不删除（保留为 recovery：重连 / 抢占 / 已 finished 同步 / 流加入）。
+ */
+export function installEagerSpawnStarter(): void {
+  setEagerSpawnStarter((taskId, parentChatId) => {
+    // fire-and-forget：不等待，错误隔离在 runChildTaskInBackground 内部 try/catch。
+    void runChildTaskInBackground(taskId, parentChatId)
+  })
+}
+
+/**
  * service 启动期安装 spawn 相关注入（无 RPC handler——历史 subagent.result RPC 已废弃）：
  * - installSpawnBroadcaster：role_created/destroyed notification 推送
+ * - installEagerSpawnStarter：spawn_role sense 内后台启动子 chat（不依赖前端 RPC）
  * - installAsyncWakeHandler：wait=true 看门狗超时回调（wakeParent 超时 + abort 子）
  * service/index.ts 启动期调用。
  */
 export function registerRole(): void {
   installSpawnBroadcaster()
+  installEagerSpawnStarter()
   setAsyncWakeHandler(handleAsyncWakeTimeout)
 }

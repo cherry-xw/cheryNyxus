@@ -2,3 +2,4 @@
 export { useConnectionStore } from './connection'
 export { useAgentsStore } from './agents'
 export type { StreamState } from './agents'
+export { useChatSessionsStore } from './chats'

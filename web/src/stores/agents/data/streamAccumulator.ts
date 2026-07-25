@@ -8,7 +8,7 @@
 
 import type { RuntimeSelection } from '@/services/agentApi'
 import type { StageBounds } from '@/features/pets/types/types'
-import type { StreamState, StagedChunkData } from '../types'
+import type { HistoryItem, StreamState, StagedChunkData } from '../types'
 import { extractMediaUrls } from '@/utils/markdown'
 
 export function defaultBounds(): StageBounds {
@@ -16,11 +16,6 @@ export function defaultBounds(): StageBounds {
     width: typeof window !== 'undefined' ? window.innerWidth : 960,
     height: typeof window !== 'undefined' ? window.innerHeight : 640,
   }
-}
-
-/** chat.get 回放 staged 不带 runId；实时 checkpoint staged 带 runId，只作阶段边界。 */
-export function shouldAccumulateStagedHistory(runId: string | undefined): boolean {
-  return !runId
 }
 
 /** 同 runtime 判定（brain + senseGroup + mcpServers 集合相同）。 */
@@ -42,8 +37,9 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
   const history = stream.history
 
   if (d.type === 'thinking_end') {
-    // 去重：done.finalMessage 已按 msgId push 过（streamRouter.ts:139-164）→ 合并到既有 item，不 push 新 item。
-    // 否则 chat.get staged 回放会产出两条同 msgId assistant item（thinking 重复显示）。
+    // 去重：done.finalMessage 已按 msgId push 过（streamRouter.ts 经 pushHistoryItem 统一入口）
+    // → 合并到既有 item，不 push 新 item。否则 chat.sync staged 回放会产出两条同 msgId
+    // assistant item（thinking 重复显示）。
     if (d.msgId) {
       const existing = history.find((h) => h.msgId === d.msgId)
       if (existing) {
@@ -99,6 +95,7 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
       const content = d.content ?? ''
       const mediaAssets = extractMediaUrls(content)
       // 同一消息（同 msgId）：thinking_end 已 push 过 item（或 done.finalMessage 已 push）→ 合并 content 进既有 item。
+      // F4：done.finalMessage 经 pushHistoryItem 统一入口；pushHistoryItem 与 accumulateStaged 共享 msgId 幂等轴。
       // 不做跨行合并：多 loop turn 每个 loop 是独立消息（loop1=技能调用/thinking+senseCalls，loop2=正文），
       // 各自一条气泡，保持「先加载技能 → 下一 loop 回复」时序，避免 skill-box 被并进正文气泡（旧跨行合并所致）。
       if (d.msgId) {
@@ -203,4 +200,72 @@ export function accumulateStaged(stream: StreamState, d: StagedChunkData | undef
   }
 
   // d.type === "reverse"：消息撤回（chat.resume 场景），CP4 历史回放暂不处理
+}
+
+/**
+ * 把已成型 HistoryItem 推入 `stream.history`，与 accumulateStaged 共享 msgId 幂等轴（C/D/E 源）。
+ *
+ * 边界（与 accumulateStaged 互补）：
+ * - accumulateStaged 解析 `StagedChunkData` 行（B 源，chat.sync staged）→ 内部按 type 分流建/合 item
+ * - pushHistoryItem 接收**已成型** item（C/D/E 源：done finalMessage / role_reply / sendMessage 乐观）→
+ *   直接落库 + msgId 幂等补字段
+ * - 两者写同一 `stream.history`，msgId 命中既有 → 就地补空字段；不存在 → push 新 item
+ *
+ * 实时轮打字机不走本函数（由 stream.thinking/content 暂存，双气泡契约；不并入 history 末项）。
+ *
+ * 媒体抽取（extractMediaUrls）由调用方在构造 item 前完成，本函数不重复抽取。
+ */
+export function pushHistoryItem(stream: StreamState, item: HistoryItem): void {
+  const history = stream.history
+  if (item.msgId) {
+    const existing = history.find((h) => h.msgId === item.msgId)
+    if (existing) {
+      // 就地补空字段（已存在的不覆盖）
+      if (!existing.content && item.content) existing.content = item.content
+      if (!existing.thinking && item.thinking) existing.thinking = item.thinking
+      // msgId 已命中即一致，无需补；agentChatId 缺则补（兜底）
+      if (!existing.agentChatId && item.agentChatId) existing.agentChatId = item.agentChatId
+      // senseCalls 合并（按 id 去重）
+      if (item.senseCalls?.length) {
+        const calls = [...(existing.senseCalls ?? [])]
+        const fingerprints = new Set<string>()
+        for (const sc of calls) {
+          fingerprints.push(sc.id ? `id:${sc.id}` : `name:${sc.name}:${String(sc.args ?? '')}`)
+        }
+        for (const sc of item.senseCalls) {
+          const fp = sc.id ? `id:${sc.id}` : `name:${sc.name}:${String(sc.args ?? '')}`
+          if (fingerprints.has(fp)) continue
+          fingerprints.push(fp)
+          calls.push({ ...sc })
+        }
+        if (calls.length) existing.senseCalls = calls
+      }
+      return
+    }
+  }
+  history.push(item)
+}
+
+/**
+ * 实时把工具执行结果写入 stream.history 中对应 id 的 senseCall（accept/rejected notification 触发）。
+ * 与 accumulateStaged 的 content_end role=sense 回放路径一致：倒序找 id 匹配项，填 result + mediaAssets；
+ * 不改 status（与回放一致——回放只填 result，status 保持 sense_end 加入时的 'done'）。
+ * 找不到（sense_end staged 未到 / 已 reload）→ 静默返回（reload 后权威结果补齐）。
+ */
+export function fillSenseResultInHistory(
+  stream: StreamState,
+  senseId: string,
+  result: string,
+): void {
+  for (let i = stream.history.length - 1; i >= 0; i--) {
+    const item = stream.history[i]
+    if (!item?.senseCalls) continue
+    const sc = item.senseCalls.find((s) => s.id === senseId)
+    if (sc) {
+      sc.result = result
+      const mediaAssets = extractMediaUrls(result)
+      if (mediaAssets.length > 0) sc.mediaAssets = mediaAssets
+      return
+    }
+  }
 }

@@ -66,4 +66,4 @@ pnpm type-check
 ## 依赖与关联
 
 - **关联记忆**：[[test-module-deferred]]、[[test-suite-baseline-preexisting-failures]]、[[tsc-baseline-preexisting-errors]]、[[frontend-verification-user-only]]
-- **关联文档**：[docs/mock.md](./mock.md)（mock provider 脚本化离线测试，可手动跑 mock brain 验证修复）
+- **关联文档**：[docs/flow-test.md](./flow-test.md)（流程测试规约——刷新重连改造 G1/G3/G8 验收点为例外，独立全绿，不计入 86 基线）、[docs/mock.md](./mock.md)（mock provider 脚本化离线测试，可手动跑 mock brain 验证修复）

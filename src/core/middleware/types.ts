@@ -95,6 +95,10 @@ export interface AgentMessage {
   content?: string
   thinking?: string
   senseCalls?: Array<{ id: string; name: string; arguments: string }>
+  /** 消息创建时间（consumed 实时投影使用；内部 effect 可省略）。 */
+  createdAt?: number
+  /** 消息更新时间（内部 effect 可省略）。 */
+  updateAt?: number
   /** 感官执行结果的 hash */
   hash?: string
   /** 已撤回 */
@@ -141,6 +145,13 @@ export interface MiddlewareContext {
    */
   log: Logger
   /**
+   * 当前 pipeline 引用。loop 读取 `consumeParkAfterTurn()` 判断断连宽限期到期；
+   * `undefined` 时按未挂起处理（callbacks 不可用时不打断 loop）。
+   */
+  pipeline?: {
+    consumeParkAfterTurn(): boolean
+  }
+  /**
    * 消息周期日志：集中 ctx.soul.messages 的所有写操作（append/complete/replace/revoke）。
    * 中间件严禁直接 push/in-place 改 ctx.soul.messages，必须经 ctx.journal.* 以保证单一写者不变式。
    * 由 AgentSession 构造时注入（与 soul 同源引用）。
@@ -159,6 +170,10 @@ export interface StreamChunk {
   contentDelta: string
   /** Sense call 增量（可选，流式过程中实时传递，index 定位，arguments 为片段） */
   senseDelta?: SenseCallData[]
+  /** checkpoint 外层注入的本轮 assistant 消息 id；chat provider 内层产出时尚未附加。 */
+  msgId?: string
+  /** checkpoint 外层注入的本轮开始时间；chat provider 内层产出时尚未附加。 */
+  createdAt?: number
 }
 
 /**
@@ -226,6 +241,12 @@ export interface StagedChunk {
   senseArguments?: string
   /** sense 调用 id（sense_end 时使用，透传至 wire 供前端关联 result） */
   id?: string
+  /** 预分配的 assistant 消息 id（全部 assistant staged 携带，= 落库 id = chat.get/sync 回放 id）。 */
+  msgId: string
+  /** 消息角色（content_end 携 'assistant'，供前端 accumulateStaged 按 role 分流；其它 staged 省略）。 */
+  role?: string
+  /** turn 起始时间戳（全部 assistant staged 携带；reload 后由 DB created_at 替换）。 */
+  createdAt: number
 }
 
 /**

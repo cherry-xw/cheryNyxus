@@ -128,8 +128,8 @@ sense 层 Phase 2：executeCollectedCalls
   └─ needsApproval（confirm/manual）：
        ├─ await Promise.all(approvalPromise)           ← 阻塞，等 service.confirm
        │     （service: sense.approval → resolveApproval(id) 解除本 await）
-       ├─ WS 断连 → reject(AgentParkError) → catch 抛 park 信号（pending NULL，observer 静默不唤主，子 chat 待重连 chat.resume Case1 重建）
-       ├─ 用户 chat.abort → reject(AgentAbortError) → catch 抛 "approval aborted"（observer 唤主报错）
+       ├─ WS 断连 → reject(AgentParkError) → catch 抛 park 信号（pending NULL，observer 静默归 paused，子 chat 待重连 chat.resume Case1 重建）
+       ├─ 用户 chat.abort → reject(AgentAbortError) → catch 抛 abort 信号（统一暂停语义：observer 同样静默归 paused，不唤主报错）
        ├─ 超时 → resolve as reject（非 throw）→ yield sense_reject（填 content）
        │     ⚠ abort/park 均 throw 传播（不 return、不 yield sense_reject），pending sense 保持 NULL
        └─ 每个 decision：accept → doExecuteSense → yield sense_accept
@@ -140,11 +140,11 @@ sense 层 Phase 2：executeCollectedCalls
 
 - `approvalPromise` 不随 chunk 传递——P1-11 重构后改为 `createApproval(id)` 在 core 的 `approvalRegistry` 管理，service 调 `resolveApproval/rejectApproval` 触发。chunk 只带 `approvalId` 字符串。
 - 审批被 abort/park 时 **throw 而非 return**：return 只结束 `senseMiddleware`，loop 会误以为本轮完成继续第二轮 LLM 调用，破坏「应停在 pending sense 待 canResume」的语义。
-- **park vs abort**（错误类型区分控制流）：WS 断连 → `AgentParkError`（被动，[observer](../../src/service/chat/observer.ts) 静默不 `wakeParent`，子 chat 保持可恢复待重连）；用户 `chat.abort` → `AgentAbortError`（主动，observer 唤主报错）。两者都 throw 保 pending NULL，区别仅在 observer 是否注入错误 role 唤主。close(ws) 经 `approvalManager.park` 触发前者；`abortChatRuntime` 经 `approvalManager.abort` 触发后者。
+- **统一暂停语义（park ≡ abort）**：WS 断连在 `global.disconnect_grace_ms` 宽限期内不打断当前 loop；宽限期到期只设置“当前 `runChain` 输出结束后暂停”标记，loop 在下一轮决策前抛 `AgentParkError`。用户 `chat.abort` 仍立即抛 `AgentAbortError`（前者继承后者）。两者都 throw 保 pending NULL，[observer](../../src/service/chat/observer.ts) catch 对其一视同仁归 paused——均不 `wakeParent`、不写 finished、不注入错误 role；子 chat 末条保持原样，由 `computeCanResume` 派生 `canResume=true` 待用户点击 resume。保留两类型仅为日志区分来源（park=断连超时后安全边界暂停 / abort=用户主动）。审批挂起时断连同样等待宽限期，超时才由 `approvalManager.park` 解除 await。**结束态（ended）唯一条件**：loop 自然完成（末条 assistant 无 senseCalls）；AI 报错/工具报错/中断/断连超时/提问中/等子皆 paused。
 
 ### C. 问答流程（ask_user_question，agent 侧）
 
-ask_user_question 是特殊感官：`SupervisionLevel.auto`（不走 approval 流），采用 **yield-turn 模型**（镜像 `spawn_role wait=true`，不阻塞 await）。handler 立即 `ctx.yieldTurn()` + 返回**非空占位** content `"(等待用户回答…)"`；loop 末 `yieldTurn=true` → break。checkpoint 收集本 turn 的全部提问，等 placeholder sense 全部进入 journal 后才产生一个 `question_batch_pending`，批次 ID 使用稳定的 assistant message ID。
+ask_user_question 是特殊感官：`SupervisionLevel.auto`（不走 approval 流），采用 **yield-turn 模型**（镜像 `spawn_role` 一律 yield-turn，不阻塞 await）。handler 立即 `ctx.yieldTurn()` + 返回**非空占位** content `"(等待用户回答…)"`；loop 末 `yieldTurn=true` → break。checkpoint 收集本 turn 的全部提问，等 placeholder sense 全部进入 journal 后才产生一个 `question_batch_pending`，批次 ID 使用稳定的 assistant message ID。
 
 **答案到达后原子更新 + resume**：用户 `sense.question.batchAnswer` → service 在一个 SQLite 事务中校验并更新批次全部 sense content + 关闭 batch → 同步内存 journal → set `resumePending` + 持久化 `question_batch_completed`。RPC 返回 `shouldResume:true` 后前端启动 `chat.resume`，新一轮 LLM 一次看到整批答案。
 
@@ -225,6 +225,34 @@ sense 中间件自己的 `senseDeltaMap`（[tool.ts Phase 1](../../src/agent/mid
 `maxLoop`（默认 30，来自 `config.global.maxLoopCount`）耗尽时 yield `error` chunk。**重要：** `stopped` 标记区分 break（正常停止）vs while 条件耗尽——避免在第 maxLoop 轮正常 break 时误报超限。
 
 最终无论是否超限都 yield `done`（[loop.ts 末尾](../../src/agent/middleware/loop.ts)）。
+
+### G. 唤醒策略调度器（spawn 唤主判定的单一入口）
+
+取代旧「子完成即唤主」1:1 硬编码。介于 observer.child_done 与 wakeParent 之间，按 spawn 时声明的 **`WakePolicy`** 决定 silent 暂存 / resume 唤主。源码 [src/service/chat/wakeScheduler.ts](../../src/service/chat/wakeScheduler.ts)、类型 [src/agent/spawnBroker.ts `WakePolicy`](../../src/agent/spawnBroker.ts)。
+
+**三值语义**（`WakePolicy`）：
+
+| 值 | 子完成后行为 | 适用场景 |
+|----|-------------|---------|
+| `immediate`（默认） | 立即唤主（聚合所有已完成子结果） | 关键路径任务、单子依赖 |
+| `deferred` | 静默暂存（注入 role + DB 写，不唤主）；全 deferred 集最后一个完成隐式唤主（兜底） | 后台任务、批量中的末位 |
+| `barrier` | 声明栅栏，主 chat 进入 all 模式，**所有未完成子**完成才唤主（期间 immediate 子也暂存） | 批量并行后汇总 |
+
+**判定矩阵**（`evalWakePolicy(parentChatId, policy)`，每次扫 `findChatsByParent` 运行时推导，无持久 wake_mode）：
+
+| 模式 | 当前完成子 policy | 判定 |
+|------|------------------|------|
+| all（主的子中存在 `wake='barrier'`） | 任意 | `allChildrenFinished(parent)` 才唤主，否则暂存 |
+| first（无 barrier 子） | `immediate` | **唤主**（聚合已完成子结果） |
+| first（无 barrier 子） | `deferred` | 暂存；若碰巧 `allChildrenFinished` 则唤主（兜底，覆盖全 deferred 场景） |
+
+**spawn 总是 set yieldTurn + 后端 eager 启动**（[agent/sense/spawn.ts](../../src/agent/sense/spawn.ts)，2026-07-23 收敛）：spawn_role sense 完成时 fire-and-forget 调 `startChildEager(taskId, parentChatId)` → [runChildTaskInBackground](../../src/service/chat/spawnEager.ts) 同步触发 handleChatStartSpawn claim + handleChatSend 绑子 chatId + streamAgentChunks 推 ws 到主连接。**端到端路径与主 agent `chat.send` 完全一致**（user 原意：「子 agent 应该和主 agent 走同一条 API 路径」），前端不再调 `chat.startSpawn` RPC 触发子跑；该 RPC 退化为 recovery-only（重连 / 抢占 / 中断续跑）。主一轮内可连续 `spawn_role` 多子，yieldTurn 累积；本轮 LLM 结束 loop 检测 yieldTurn 统一停等。取消了旧 `wait=false` 「主继续本轮」分支——子群独立 loop 并行跑，按各自 wake 策略唤主。唤醒链递归天然支持（任何 agent 的 spawn 子都在 `waitedChildren`，子可再 spawn）。
+
+**wakeParent silent 参数**（[service/chat/wake.ts](../../src/service/chat/wake.ts)）：`silent=true` 只注入 role + DB 写 + 释放唤醒链（不置 `resumePending` / 不推 role_reply / 不 WS，deferred/barrier 暂存）；`silent=false` 完整唤主。调度器调 `wakeParent(..., { silent: !shouldWake })`。
+
+**feed-dog 看门狗**（取代旧固定 5min setTimeout）：[observer.ts](../../src/service/chat/observer.ts) for-await 每条 chunk 调 `feedWatchdog(chatId)` 重置计时。子 timeout_ms（`config.global.watchdog.timeout_ms`，默认 300000）内无 chunk 喂狗 → 判定卡死 → `handleAsyncWakeTimeout` 按 `config.global.watchdog.wake_on_timeout` 分支：`true` 唤主告知「已暂停可继续」/ `false`（默认）仅 abort 子不碰主（看门狗与唤醒链解耦）。
+
+**子 chat 终态 yield**（loop 末尾，主 chat 不发）：本 chat 是被注册的子（`getWaitedParent` 命中——spawn 总是 register 唤醒链 + set yieldTurn，见下方「唤醒策略调度器」）且 `!failed` 时，据子 loop 本身是否让出 turn 判：`child_yield`（子又 spawn 孙后 yield turn，本轮暂停不唤主）/ `child_done`（子真正完成 → observer 标 finished + wakeScheduler 按策略唤主/暂存，见 [agent-pet.md §5.4](../agent-pet.md)）。spawn 取消了旧 `wait=false` 继续本轮的分支：主一律 yieldTurn，一轮内可连续 spawn 多子，yieldTurn 累积，本轮 LLM 结束统一停等；子群独立 loop 并行跑，按各自 wake 策略唤主。
 
 ### F. retry 的回滚
 

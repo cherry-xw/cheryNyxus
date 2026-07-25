@@ -16,8 +16,8 @@
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 连接                       | 打开即建连；复用 [ws.ts](../../web/src/services/ws.ts)/[transport.ts](../../web/src/services/transport.ts)/[stores/connection.ts](../../web/src/stores/connection.ts)；FAB 下方小字显连接状态                                                                                                                                                                                         |
 | 数据模型                   | [PetInstance](../../web/src/features/pets/types.ts) 加 `chatId`/`parentChatId`/`agentType`/`isWorking`/`contextUsage`/`runtime?`；chat 表加 `parent_chat_id`；多主并存                                                                                                                                                                                                                |
-| **spawn 驱动（关键变更）** | **前端驱动**：spawn_role sense 发持久 `role_created` notification（含 taskId/prompt/子 chatId）→ 前端创建子 pet + 调 `chat.startSpawn` 原子领取任务 → 子 agent done 后结果回传主 pet。**不在后端 sense 内部跑子 agent**（规避 sense 无法直接驱动 chat、跨连接 busy 锁两大风险）                                                                                                       |
-| spawn wait 语义            | `wait=true`：sense 挂起等前端回传子结果（复用 approvalRegistry 式 Promise 挂起/唤醒，**无超时**），唤醒后返回子 agent content；`wait=false`：sense 立即返回，前端跑完子 agent 后将结果作新消息注入主 chat                                                                                                                                                                             |
+| **spawn 驱动（2026-07-23 架构收敛）** | **后端 eager 启动**：`spawn_role` sense 创建子 chat + 发持久 `role_created` notification（含 taskId/prompt/子 chatId）→ **fire-and-forget 调 `runChildTaskInBackground`**（[spawnEager.ts](../../src/service/chat/spawnEager.ts)，等同 chat.startSpawn 内部 `handleChatSend` 链）→ 子 stream chunks/notifications 走 `ws.send` 推到主 ws，与主 agent `chat.send` 完全同轴。**前端只通过 ws 订阅观察**，不再需要调 `chat.startSpawn` RPC。`chat.startSpawn` 退化为 **recovery-only**：重连 / 抢占 / 中断子续跑 / 已 finished 同步。**动机**：原 chat.startSpawn 由前端驱动——一旦前端 RPC 失败（requestMap 时序 / 网络抖动 / 页面关闭），子 agent stream 永远到不了前端。**收敛到 sense 后端后端到端路径与主 agent `chat.send` 完全一致**（用户原意：「子 agent 应该和主 agent 走同一条 API 路径」） |
+| spawn wake 策略            | `wake='immediate'`（默认）：子完成立即唤主；`wake='deferred'`：子完成静默暂存，全 deferred 集最后一个完成隐式唤主；`wake='barrier'`：声明栅栏，主进入 all 模式，所有未完成子完成才唤主。**主一律本轮结束停等**（spawn 总是 set yieldTurn，取消旧 wait=false「主继续本轮」分支），一轮内可连续 spawn 多子，子群独立 loop 并行跑。子结果都回传主（带 `[角色 type]` 来源前缀），唤主时机由 wakeScheduler 按 policy 决定（见 §5.4） |
 | 角色配置                   | 独立 `roles` 模块（名 = 给 AI 的角色名，`{brain, senseGroup}`），不复用 sense_groups 标记                                                                                                                                                                                                                                                                                             |
 | 子 pet 创建                | 主 agent LLM 自主调 `spawn_role`；后端发 `role_created` notification；前端创建子 pet 并驱动子 chat；用户不直接创建子 pet                                                                                                                                                                                                                                                              |
 | 工具栏                     | 主 pet：历史/中止/销毁；子 pet：历史/中止（runtime 切换融入发消息弹窗）                                                                                                                                                                                                                                                                                                               |
@@ -79,7 +79,7 @@ presets:
     roles: [coordinator] # leader 必须包含在 roles；无其他角色即 solo
 ```
 
-**多角色样例（项目预设，T10）**：主 agent（`leader` 组，无 `update_todo`）经 `spawn_role(wait=true)` 分派角色子 agent → 主 yield turn → 各子完成依次注入角色回复唤主 → 主汇总。todo 仅显于 planner 子 pet（`plan` 组含 `update_todo`，能力驱动，无 task-scale 判断逻辑）；reviewer 子 pet 用只读 `reviewer` 组（不改代码）。子 agent persona 由 `config.roles.<type>.systemPrompt` 单一源定义（per-type，非 per-preset）——故 planner persona 在所有引用 `plan` 的预设生效。
+**多角色样例（项目预设，T10）**：主 agent（`leader` 组，无 `update_todo`）经 `spawn_role(wake='immediate')` 分派角色子 agent → 主 yield turn → 各子完成依次注入角色回复唤主 → 主汇总。todo 仅显于 planner 子 pet（`plan` 组含 `update_todo`，能力驱动，无 task-scale 判断逻辑）；reviewer 子 pet 用只读 `reviewer` 组（不改代码）。子 agent persona 由 `config.roles.<type>.systemPrompt` 单一源定义（per-type，非 per-preset）——故 planner persona 在所有引用 `plan` 的预设生效。
 
 **字段语义**：
 
@@ -131,7 +131,7 @@ export interface PetInstance extends PetPreset {
 
 `StreamState`（[web/src/stores/agents/types.ts](../../web/src/stores/agents/types.ts)）增 `error?: string` 字段，记录当前流式失败的 message。三个写入路径：
 
-1. **sendMessage 捕获 done Promise**（[web/src/stores/agents/index.ts:319-346](../../web/src/stores/agents/index.ts#L319-L346)）：解构 `{ requestId, done }`，`done.then(res => { if (!res.success) stream.error = res.error?.message; }).catch(e => { stream.error = "连接中断: " + e.message; })`。覆盖 final Response.success:false（后端 P2 修复产 failureResponse 时命中）。
+1. **sendMessage 捕获 done Promise**（[web/src/stores/agents/index.ts:319-346](../../web/src/stores/agents/index.ts#L319-L346)）：解构 `{ requestId, done }`，`done.then(res => { if (!res.success) stream.error = res.error?.message; }).catch(e => { stream.error = "连接中断: " + e.message; })`。统一暂停语义下 final Response 恒 success:true（AI 报错归 paused，经 error notification 含 canResume 驱动前端继续按钮）；`!res.success` 仅参数错误等命中。
 2. **routeNotification error 分支**（[web/src/stores/agents/index.ts:674-676](../../web/src/stores/agents/index.ts#L674-L676)）：error notification 到达时填 `stream.error = errMsg`，覆盖 retry-yielded ErrorChunk 流中路径（done Promise resolve 之前）。
 3. **resumeAgent 同样捕获**（[web/src/stores/agents/index.ts:354](../../web/src/stores/agents/index.ts#L354)）。
 
@@ -143,42 +143,59 @@ UI 反馈：[web/src/features/pets/PetSprite.vue](../../web/src/features/pets/Pe
 
 ### 5.1 spawn_role sense（新增内置 sense，[agent/sense/spawn.ts](../../src/agent/sense/spawn.ts)）
 
-**前端驱动架构**（与原 plan 后端驱动不同）：
+**后端 eager 启动架构**（2026-07-23 收敛：从「前端驱动」改为「eager 后端启动」，子 agent 与主 agent 走完全相同的 `chat.send` → `handleChatSend` 流式路径）：
 
 ```ts
 // description 运行时拼接 catalog（= config.roles 单一源，让 LLM 可见可用类型及能力）
-// type 用 z.enum(roles 键) 硬约束（空配置兜底 z.string()），避免 LLM 幻觉类型名
-// 注：catalog 为全局全集（sense 定义模块加载期冻结，不支持 per-chat 动态）；实际可 spawn 类型由执行期 roster gate 强制
+// type 用 z.enum(roles 键) 硬约束，避免 LLM 幻觉类型名
+// catalog = config.roles 全集（模块加载期冻结）；实际可 spawn 类型由执行期 roster gate 强制
 sense(
   'spawn_role',
-  spawnDescription, // = "派发子 agent..." + 每类型 brain/senseGroup 清单
+  spawnDescription, // = "派发子 agent..." + 每类型 brain/senseGroup 清单 + wake 三值说明
   z.object({
     type: typeSchema, // z.enum(roles 键)（空配置兜底 z.string()）
     prompt: z.string(), // 交付子 agent 的任务
-    wait: z.boolean().default(false),
+    wake: z.enum(['immediate','deferred','barrier']).default('immediate'),
   }),
   async (args, _sharedData, ctx) => {
     // 1. 子 agent 定义恒从 config.roles[type] 单一源解析（无则 throw）
-    //    roster gate：preset chat → metadata.spawnTypes 快照（未选中 type → fail loud）；子 chat（无 preset）→ 全集可用
-    // 2. createChat(childChatId, { runtime: { brain, senseGroup, mcpServers: roleCfg.mcpServers ?? [] }, systemPromptFile }, parentChatId=ctx.chatId)
-    //    预创建并一次配齐 runtime（metadata.runtime 路径）：前端 notification 后直接 chat.send，
-    //    ensureChat 自动恢复 runtime（getChatRuntimeSelection）+ prompt（getChatSystemPromptFile），无需 chat.create/runtime.set
-    // 3. emitRoleCreated：经 spawnBroker.broadcaster 推 role_created notification
-    //    {childChatId, parentChatId, type, prompt, brain, senseGroup, wait}
-    // 4. wait=true：registerWaitedChild(childChatId,{parentChatId,type}) + 启动 watchdog + ctx.soul.yieldTurn=true
-    //    + 立即返回 {content: `子 agent ${type} 已派发，等待结果`, hash}（不再 await 阻塞）
-    //    主 loop 见 yieldTurn 立即结束本 turn（done 正常发）；子完成后后端注入角色回复唤起新一轮（见 §5.4）
-    //    wait=false：立即返回（纯 fire-and-forget，主 loop 继续，不收子结果）
-    // 注：sense 不内部跑子 agent；子 chat 由前端 chat.send 驱动，同 WS 连接按 chatId 路由 chunk
+    //    roster gate：preset chat → metadata.spawnTypes 快照；子 chat（无 preset）→ 全集可用
+    // 2. createChat(childChatId, { runtime: {...}, systemPromptFile, wake, type, spawnPromptHash }, parentChatId=ctx.chatId)
+    //    metadata.runtime 路径：子 agent pre-configured runtime，ensureChat 自动恢复
+    //    metadata.wake + metadata.type 持久化：重启后 rebuildWaitedChildren 按策略重建唤醒链
+    // 3. emitRoleCreated 经 spawnBroker.broadcaster 推 role_created notification
+    //    {childChatId, parentChatId, type, prompt, brain, senseGroup, wake}
+    // 4. registerWaitedChild(childChatId, parentChatId, type, wakePolicy) + 启动看门狗（所有 wake 值都注册）
+    // 5. **startChildEager(task.taskId, parentChatId)** ← 关键差异：fire-and-forget 触发
+    //    [runChildTaskInBackground](../../src/service/chat/spawnEager.ts)：
+    //      a) resolveParentWs 找主 chat 所属 ws（active 绑定期内必命中）
+    //      b) 构造脱离 RPC 的 ctx（connectionId=parent ws，requestId=`eager-{taskId}`）
+    //      c) handleChatStartSpawn claim + handleChatSend 绑子 chatId + streamAgentChunks 推 ws
+    //    与 chat.startSpawn recovery 共存；未注入 eager 时仅 warn，frontend RPC 兜底
+    //    **端到端路径 = chat.send 完全一致**（bindChatConnection → runId → streamAgentChunks → sendToWs）
+    // 6. 统一 yieldTurn（不再区分 wait=true/false）：ctx.soul.yieldTurn=true（一轮内多 spawn 累积）+ 立即返回
+    //    {content:`角色 "${type}" 已派发（chatId=${childChatId}，唤醒策略=${wake}），本轮结束后等待子结果。`}
+    //    主 loop 见 yieldTurn 立即结束本 turn（done 正常发）；子完成后 wakeScheduler 按策略唤主（见 §5.4）
   },
   SupervisionLevel.auto,
 )
 ```
 
-**wait 两态语义（2026-07-09 重构，废除原阻塞心跳）**：
+**chat.startSpawn 退化为 recovery-only**（保留下列语义，不删除）：
 
-- `wait=false`：spawn 立即返回，主 loop **继续**（纯 fire-and-forget，子结果不回传主）。
-- `wait=true`：spawn 立即返回 + 主 loop **立即结束本 turn**（`ctx.soul.yieldTurn`）+ 子完成后**后端注入角色回复**唤起主跑新一轮（区别于 user 消息，见 §5.4）。递归：任何有 spawn 能力的 agent（含子）都可被其 spawn 的子唤醒。
+- **重连 / 抢占**：子 running 时前端 ws 重连/换连接 → `chat.attach` 重定向实时输出，未运行也可 `chat.startSpawn` 接管
+- **中断续跑**：子 turn 中断（disconnect 超 grace / abort / 重启）→ 持久化 spawn_task + metadata.wake 重建 → 用户触发 `chat.startSpawn` 或前端 `chat.resume` 续跑
+- **已 finished 同步**：子完成（status='finished'）→ 返 `alreadyFinished: true` 给前端做 ghost 同步
+
+**chat.startSpawn 不再是「启动」入口**——启动收敛到 spawn_role sense 内部。RPC 始终可用，单调用不再触发 handleChatSend 首次跑子 chat（除非抢先 eager 完成前到达）。
+
+**wake 三值语义**（取代旧 wait:boolean，见 §5.4 唤醒策略调度器）：
+
+- **所有策略都回传**：无论 wake=immediate/deferred/barrier，子完成后后端均经 `child_done → wakeScheduler.onChildDone → wakeParent` 注入角色回复（`[角色 type] content`）到主 chat DB（role:role）。唤主时机按策略决定：
+- `immediate`（默认，关键路径任务）：子完成立即唤主（聚合所有已完成子结果）→ 推 `role_reply` → 前端 chat.resume 跑新一轮。
+- `deferred`（后台任务）：子完成静默暂存（注入 role + DB 写，不唤主）；全 deferred 集最后一个完成隐式唤主（兜底）。
+- `barrier`（批量并行后汇总）：声明栅栏，主 chat 进入 all 模式，**所有未完成子**完成才唤主（期间 immediate 子也暂存）。
+- **主一律本轮结束停等**：spawn 总是 set yieldTurn（取消旧 wait=false「主继续本轮」分支）。主一轮内可连续 spawn 多子，yieldTurn 累积，本轮 LLM 结束统一停；子群独立 loop 并行跑，按各自 wake 策略唤主。递归：任何有 spawn 能力的 agent（含子）都可被其 spawn 的子唤醒。
 - **废除**：原 `subagent.result` RPC、`spawnBroker.pendingSpawns`/`resolveSpawnResult`（legacy 未用）、阻塞心跳（`heartbeatListeners`/`registerHeartbeatListener`/`notifyHeartbeat`/`hasHeartbeatListener`/`clearHeartbeatListener`）。唤醒链改 `waitedChildren` Map（见 §5.4/§5.8）。
 
 **spawnBroker 选型（保留）**：新建 `spawnBroker`（[src/agent/spawnBroker.ts](../../src/agent/spawnBroker.ts)）集中管 spawn 唤醒态，不复用 approvalRegistry（语义错位）。当前职责：`waitedChildren` Map + watchdog + broadcaster 注入 + `rebuildFromDb`（重启重建）。
@@ -193,9 +210,9 @@ sense(
 
 子 agent **真正完成**后不删 chat、不移除 pet，转为 ghost 可视化遗迹保留：
 
-- **后端**（[observer.ts](../../src/service/chat/observer.ts) child_done 分支）：子 agent yield `child_done` chunk 时（表示真正完成），`updateChatMetadata(chatId, { finished: true })` 标记完成。
+- **后端**（[observer.ts](../../src/service/chat/observer.ts) child_done 分支）：子 agent yield `child_done` chunk 时（表示真正完成，任意 wake 策略子 loop 结束均经此——均注册唤醒链），`updateChatMetadata(chatId, { finished: true })` 标记完成。
 - **区分 yield turn 和真正完成**：
-  - `child_yield` chunk：子 agent 本轮暂停（spawn 孙 agent wait=true 后 yield turn），**不设 finished**，子 agent 保持活跃状态等待孙 agent 完成。
+  - `child_yield` chunk：子 agent 本轮暂停（spawn 孙 agent 后子自身 yield turn），**不设 finished**，子 agent 保持活跃状态等待孙 agent 完成。
   - `child_done` chunk：子 agent 真正完成（所有任务执行完毕），设 `finished=true`，前端据此变 ghost。
 - **chat.list 暴露 finished**（[handler.ts](../../src/service/chat/handler.ts) `handleChatList`）：解析 `metadata.finished` 映射到 `ChatSummary.finished`，刷新后前端据 `finished` 重建 ghost pet。
 - **前端 ghost 化**（[stores/agents](../../web/src/stores/agents/index.ts)）：done notification `finished===true` → 子 pet `isGhost=true` + pick `ghostFace`（灵魂 emoji 池，**按 tribe 内创建序号顺序取** `GHOST_FACES[N % 池长]`，N=本主已存在 ghost 数；非随机、不跨实例去重--同主 ghost 固定序列 0,1,2...，不同主可同 emoji）；`buildMasterAndChildren` 重建 finished 子 pet 同样设 `isGhost`，N 按 children 迭代顺序（= `ghostCreatedAt` 队列顺序，face 与队列位一一对应）。
@@ -209,62 +226,81 @@ sense(
 ```ts
 // 子 agent 创建（spawn_role 执行时，后端→前端）
 { kind:"notification", type:"role_created", requestId,
-  data:{ chatId, parentChatId, type, prompt, brain, senseGroup, wait } }
-// requestId = parentChatId（前端按 chatId 路由）
+  data:{ chatId, parentChatId, type, prompt, brain, senseGroup, wake } }
+// requestId = parentChatId（前端按 chatId 路由）；wake ∈ immediate/deferred/barrier（信息性，前端均驱动子跑）
 
 // 子 agent 销毁（destroy_role 执行时）—— CP6 实现
 { kind:"notification", type:"role_destroyed", requestId,
   data:{ chatId } }
 ```
 
-新增 RPC `subagent.result`（wait=true 结果回传，CP3 已实现）：
+新增 RPC `subagent.result`（旧 wait=true 结果回传，CP3 曾实现）：
 
-- **2026-07-09 废除**：wait=true 重构为「yield turn + 后端注入唤醒」（§5.4），结果不再由前端 RPC 回传。`subagent.result` handler + [service/subagent/result.ts](../../src/service/subagent/result.ts) + `spawnBroker.resolveSpawnResult` 全删；前端 `agentApi.subagentResult` 方法 + wait=true 回传分支删。
+- **2026-07-09 废除**：spawn 重构为「一律 yield turn + 后端注入唤醒 + wakeScheduler 按策略唤主」（§5.4），结果不再由前端 RPC 回传。`subagent.result` handler + [service/subagent/result.ts](../../src/service/subagent/result.ts) + `spawnBroker.resolveSpawnResult` 全删；前端 `agentApi.subagentResult` 方法 + 旧回传分支删。
 
-新增 notification 类型（wait=true 唤醒）：
+新增 notification 类型（子完成唤主，immediate/策略满足时推）：
 
 ```ts
-// 子完成唤主（子 loop 结束 + waitedChildren 命中时，后端→前端）
+// 子完成唤主（子 loop 结束 + waitedChildren 命中 + wakeScheduler evalWakePolicy shouldWake=true 时，后端→前端）
 { kind:"notification", type:"role_reply", requestId,
   data:{ parentChatId, childChatId, type, content } }
 // requestId = parentChatId；前端收后自动 chat.resume(parentChatId) 跑唤醒轮
-// content 仅即时展示用，权威内容已注入主 chat DB（role:subagent）
+// content 仅即时展示用，权威内容已注入主 chat DB（role:role）
+// deferred/barrier silent 暂存路径不推此 notification（主被将来唤主 resume 时消费暂存 role）
 ```
 
-### 5.4 wait=true 唤醒机制（B1：后端注入 + 前端续跑）
+### 5.4 子完成唤醒机制（B1：后端注入 + 前端续跑，wake 三值策略通用）
 
-wait=true 子完成后唤主跑新一轮。**传输架构 B1**（探索确认 streamMapper 沿请求 socket 回 + `findWsByChatId` 仅主 turn 活跃时有效，后端无法 turn 后流式推）：后端只注入回复 + 推一个 notification，实际唤醒轮由**前端 `chat.resume`** 发起（新 socket，复用全部现有流式路径，零后端起流风险）。
+子（任意 wake 策略）完成后唤主跑新一轮。**传输架构 B1**（探索确认 streamMapper 沿请求 socket 回 + `findWsByChatId` 仅主 turn 活跃时有效，后端无法 turn 后流式推）：后端只注入回复 + 推一个 notification，实际唤醒轮由**前端 `chat.resume`** 发起（新 socket，复用全部现有流式路径，零后端起流风险）。
 
-**唤醒链 `waitedChildren`**（[spawnBroker.ts](../../src/agent/spawnBroker.ts)）：`Map<childChatId, {parentChatId, type}>`。spawn wait=true 时 `registerWaitedChild`；唤醒后 `clearWaitedChild`。递归天然支持（任何 agent 的 spawn 子都在此 Map，子可再 spawn）。
+**唤醒链 `waitedChildren`**（[spawnBroker.ts](../../src/agent/spawnBroker.ts)）：`Map<childChatId, {parentChatId, type, wakePolicy}>`。spawn 时 `registerWaitedChild`（所有 wake 值都注册）；唤醒后 `clearWaitedChild`。递归天然支持（任何 agent 的 spawn 子都在此 Map，子可再 spawn）。
+
+**唤醒策略调度器**（[wakeScheduler.ts](../../src/service/chat/wakeScheduler.ts)，介于 observer.child_done 与 wakeParent 之间）：child_done 不再直调 wakeParent，而是 `wakeScheduler.onChildDone` 按子 wakePolicy 决定 silent 暂存（deferred/barrier）/ resume 唤主（immediate 或策略满足）。这是发布订阅模型的「调度层」，取代旧「子完成即唤主」1:1 硬编码。
+
+**evalWakePolicy 判定矩阵**（运行时推导，每次扫 `findChatsByParent`，无持久 wake_mode）：
+
+| 模式 | 当前完成子 policy | 判定 |
+|------|------------------|------|
+| all（主的子中存在 `wake='barrier'`） | 任意 | `allChildrenFinished(parent)` 才唤主，否则暂存 |
+| first（无 barrier 子） | `immediate` | **唤主**（聚合已完成子结果） |
+| first（无 barrier 子） | `deferred` | 暂存；若碰巧 `allChildrenFinished` 则唤主（兜底，覆盖全 deferred 场景） |
 
 **唤醒流（区分 yield turn 和真正完成）**：
 
-子 agent loop 结束时，[loop.ts](../../src/agent/middleware/loop.ts) 根据 `yieldTurn` 标记判断是"本轮暂停"还是"真正完成"：
+子 agent loop 结束时，[loop.ts](../../src/agent/middleware/loop.ts) 根据子 loop 本身是否让出 turn 判断是"本轮暂停"还是"真正完成"：
 
-1. **yield turn（本轮暂停）**：子 agent spawn 孙 agent（wait=true）后，`yieldTurn=true` → loop 结束 → yield `child_yield` chunk。
+1. **yield turn（本轮暂停）**：子 agent spawn 孙 agent 后，子自身的 `yieldTurn=true` → 子 loop 结束 → yield `child_yield` chunk。
    - [observer.ts](../../src/service/chat/observer.ts) 收到 `child_yield` → **仅记录日志，不唤醒主，不设 finished**。
    - 子 agent 保持活跃状态，等待孙 agent 完成。
 
-2. **真正完成**：子 agent 所有任务执行完毕，`yieldTurn=false` → loop 结束 → yield `child_done` chunk。
-   - [observer.ts](../../src/service/chat/observer.ts) 收到 `child_done` → `getWaitedParent` → 调 `wakeParent(parentChatId, childChatId, type, content)`：
-     - `ensureChat(parent)` → builder journal `appendRoleReply({content, agentType})` 写 soul.messages（内存，守单一写者）+ `addMessage` 直接落库 role:subagent（主 observer 未运行，不走 effect 路径）。
-     - `updateChatMetadata(childChatId, { finished: true })` 标记子 agent 完成。
-     - 推 `role_reply` notification（`findOwnerWsByChatId(parent)`，rid=parentChatId）。
-     - `clearWaitedChild` + clearWatchdog + 子 metadata `wait:false`（标记已消费）。
-   - 前端收 `role_reply` → 自动 `chat.resume(parentChatId)` → 主跑新一轮：loop 见末条 role:subagent → continue → LLM 响应 → 正常流式。
+2. **真正完成**：子 agent 所有任务执行完毕，子 loop 末尾 yield `child_done` chunk。
+   - [observer.ts](../../src/service/chat/observer.ts) 收到 `child_done` → `getWaitedParent` 命中 → 先 `updateChatMetadata(childChatId, { finished: true })` 持久化，再调 `wakeScheduler.onChildDone(childChatId, content)`：
+     - `evalWakePolicy(parentChatId, waited.wakePolicy)` 判定 `shouldWake`。
+     - `wakeParent(parentChatId, childChatId, type, content, { silent: !shouldWake })`：
+       - silent=false（immediate / 策略满足唤主）：注入 role 到内存 journal（置 `roleReplyPending`）+ `addMessage` DB 写 + 推 `role_reply` notification（`findOwnerWsByChatId(parent)`，rid=parentChatId）+ 父不在运行时置 `resumePending`。
+       - silent=true（deferred / barrier 暂存）：只注入 role（不置 `roleReplyPending`）+ `addMessage` DB 写，不推 notification、不置 resumePending、不 WS。主被将来某次唤主 resume 时，loop 消费所有暂存 role。
+     - `clearWaitedChild` + clearWatchdog（wakeParent 内部统一释放，幂等）。
+   - 前端收 `role_reply`（仅 silent=false 路径推）→ 自动 `chat.resume(parentChatId)` → 主跑新一轮：loop 见末条 role:role → continue → LLM 响应 → 正常流式。
 
 **多级 spawn（主→子→孙）处理**：
 
-- 子 agent spawn 孙 agent（wait=true）后 yield turn → yield `child_yield` → 子暂停，不唤醒主。
-- 孙 agent 完成后 → yield `child_done` → `wakeParent(子)` → 子 agent resume 继续运行（处理孙结果）。
-- 子 agent 所有任务完成 → yield `child_done` → `wakeParent(主)` → 主 agent resume 继续运行。
+- 子 agent spawn 孙 agent 后，子自身 yield turn → yield `child_yield` → 子暂停，不唤醒主。
+- 孙 agent 完成后 → yield `child_done` → `wakeScheduler.onChildDone(孙)` → `wakeParent(子)` → 子 agent resume 继续运行（处理孙结果）。
+- 子 agent 所有任务完成 → yield `child_done` → `wakeScheduler.onChildDone(子)` → `wakeParent(主)` → 主 agent resume 继续运行。
 - 每级 agent 的 `finished` 标记在该级 `child_done` 时设置，保证正确的生命周期管理。
 
 **subagent role**：新增后端 role（4 处类型 widening：[adapter.ts](../../src/agent/provider/../message/adapter.ts) Role + [db/chat.ts](../../src/db/chat.ts) MessageData + [core/middleware/types.ts](../../src/core/middleware/types.ts) AgentMessage + [service/message/types.ts](../../src/service/message/types.ts) StagedChunkData；DB role 自由 TEXT 无迁移）。Provider buildMessages 加 `subagent→user` 映射（防 OpenAI 拒未知 role）。前端 `subagent` 本就是显示 role（MessageBubble 零改），accumulateStaged 加 role:subagent 分支承接注入消息。
 
-**wait=false（纯 fire-and-forget）**：spawn 立即返回，主 loop 继续，**子结果不回传主**（移除原前端 `[子agent]` 注入）。主不感知子结果。
+**wake=deferred/barrier（暂存）**：spawn 总是 register 唤醒链 + set yieldTurn；主本轮停等。deferred/barrier 子完成时 wakeScheduler silent 暂存（role 已落 DB，主不唤），待 immediate 子完成唤主 / 全部完成兜底唤主 / barrier 全完成唤主时，主 resume 一轮 loop 消费所有暂存 role。
 
-**看门狗**（`asyncWatchdogs` Map，5min）：spawn wait=true 启动；子完成 clear；超时 → `wakeParent(parent, child, type, "[子agent type] 执行超时")` + `abortChatRuntime(child)`（规则12 fail loud）。超时回调由 service 启动期 `setAsyncWakeHandler` 注入（agent 层不直调 service）。
+**feed-dog 看门狗**（取代旧固定 5min setTimeout，[spawnBroker.ts feedWatchdog](../../src/agent/spawnBroker.ts)）：子 observer for-await 每条 chunk 调 `feedWatchdog(childChatId)` 重置计时。子 `timeout_ms`（`config.global.watchdog.timeout_ms`，默认 300000=5min）内无 chunk 喂狗 → 判定卡死 → `handleAsyncWakeTimeout`（[wake.ts](../../src/service/chat/wake.ts)）按 `config.global.watchdog.wake_on_timeout` 分流：
+
+- **true**：子标记 `abandoned=true, finished=true`（metadata）→ 变 ghost，**用户无法再对子 Agent 做任何操作**（chat.send/resume 拒绝；computeCanResume=false）。同时 `wakeParent` 唤主告知「任务已结束，无法完成」（resumePending + notification 推送），清唤醒链（wakeParent 内部 clearWaitedChild）+ abort 子 generator + 清子 runtime。父决策后续补救（spawn 新子 / 改 prompt / 告知用户）。子历史可见「超时」末条（chat.get/sync 仍允许）。
+- **false**（默认）：**主无限等待**，不被超时唤醒。清子 generator + 清子 runtime，但**保留唤醒链**（不清 waitedChildren） — 用户可在子会话手动 resume（chat.send/chat.resume，ensureChat 重建 builder）；子最终完成仍走 `child_done` → `wakeParent` 正常唤主（不依赖 timeout 通知路径，修复前 wake 链被清导致结果丢失）。
+
+两态共性：看门狗 timer 已 fire 一次不再自动 fire（无 chunk → 不 reset）；用户 resume 后子再产 chunk → `feedWatchdog` 重启 timer → 子再次 hang → 再 fire。重启容错 `rebuildWaitedChildren` 跳过 `abandoned=true` 子（避免重复唤主）。超时回调由 service 启动期 `setAsyncWakeHandler` 注入（agent 层不直调 service）。
+
+**来源说明格式**（[wake.ts](../../src/service/chat/wake.ts) `wakeParent` 入口统一拼）：注入主 chat 的 role 消息 content 统一前缀 `[角色 ${type}] `，即 `[角色 ${type}] ${content}`。idempotent check：caller 已带 `[角色 type]` 或 `[type]` 前缀（看门狗超时、rebuild 空结果、旧记录）则不重复拼。三处一致：`appendRoleReply`（内存 soul.messages，[messageJournal.ts](../../src/core/middleware/messageJournal.ts)）+ `addMessage`（DB role:role）+ `role_reply` notification.content。主 agent LLM 据前缀识别子来源。
 
 **持久 chat→ws owner**（[connection.ts](../../src/service/websocket/connection.ts)）：`chatOwnerConnections` Map（bindChatConnection 同步设，releaseChatConnection **不清**，connection.close + chat delete 清）+ `findOwnerWsByChatId`。`role_reply` 推送用它（主 turn 已结束、activeChatConnections 已释放）。
 
@@ -283,34 +319,38 @@ runtime 每轮可换（AgentDialog 发消息时改 brain/senseGroup），chat �
 - **仅 user 消息记**：[observer.ts](../../src/service/chat/observer.ts) `message_created` 入库时，`role==="user"` 传 `runtime = getChatSelection(chatId)`（当前 chat runtime，来自 [runtime.ts](../../src/service/chat/runtime.ts) `chatRuntimes`）；assistant/sense 不记（NULL）。
 - **chat.get 回放关联**：[handler.ts](../../src/service/chat/handler.ts) `handleChatGet` 维护 `lastUserRuntime`。content_end role=user 带 `runtime`（从 `messages.runtime`）+ 更新 `lastUserRuntime`；role=assistant 带 `runtime = lastUserRuntime`（关联前一条 user，不入库 assistant runtime）。
 - **前端 hover 面板**：[MessageBubble.vue](../../web/src/features/agent/MessageBubble.vue) 从 `item.runtime` 取 brain/senseGroup/mcpServers（不再从 pet.runtime 查）。user 不弹面板。
-- **subagent 消息**：wait=true 子完成后由后端 `wakeParent` 注入 role:subagent 消息（见 §5.4，非 user 前缀），记注入时主 chat runtime。
+- **subagent 消息**：任意 wake 策略子完成后由后端 `wakeParent` 注入 role:role 消息（见 §5.4，非 user 前缀），记注入时主 chat runtime。
 - **旧消息无 runtime**（迁移前）：parseMessageRow undefined → hover 显「—」（规则12）。
 
 ### 5.8 容错机制（断开恢复 + 重启恢复）
 
-主子 agent 断开/重启恢复容错。2026-07-09 重构后唤醒链 `waitedChildren` 持久化（子 metadata.wait）+ 重连/重启重建，覆盖原「进程崩溃不覆盖」缺口。看门狗兜底未完成子。
+主子 agent 断开/重启恢复容错。2026-07-09 重构后唤醒链 `waitedChildren` 持久化（子 metadata.wake + metadata.type）+ 重连/重启重建（按 policy 分流），覆盖原「进程崩溃不覆盖」缺口。feed-dog 看门狗兜底未完成子。
 
 #### 5.8.1 唤醒链持久化
 
-- **spawn wait=true**：子 chat metadata 加 `{wait:true, type}`（parent_chat_id 已链）。
-- **wakeParent 成功**（含看门狗超时）：清子 metadata `wait`（标记已消费）+ clearWaitedChild + clearWatchdog。
-- **子 loop 结束**：已设 metadata.finished（现有）。故持久态可判：`wait=true && finished=false`（interrupted 待续）、`wait=true && finished=true`（完成待补唤）、`wait=false/无`（已消费/非 wait）。
+- **spawn**（所有 wake 策略）：子 chat metadata 加 `{wake, type}`（parent_chat_id 已链）。
+- **wakeParent 完成**（含 silent 暂存 + 看门狗超时）：清子 metadata 唤醒链状态（`clearWaitedChild` + clearWatchdog）+ 写子 metadata `roleInjected=true`（持久幂等标记，防 rebuild 重复注入 role 回复）。
+- **子 loop 结束**：已设 metadata.finished（现有）。持久态可判：`finished=false`（interrupted 待续）、`finished=true`（完成待补唤）。
 
-#### 5.8.2 后端启动重建（spawnBroker.rebuildFromDb）
+#### 5.8.2 后端启动重建（wake.ts `rebuildWaitedChildren`）
 
-[service/index.ts](../../src/service/index.ts) init 调：扫子 chat metadata.wait=true：
+[service/index.ts](../../src/service/index.ts) init 调：扫所有子 chat（parent_chat_id 非空）按 wake 策略分流：
 
-- `finished=true`（子完成、崩溃前未唤）→ `wakeParent` 从 DB 末条 assistant content 补唤主（notification 无连接则丢，回复已落 DB）。
-- `finished=false`（interrupted）→ 重建 `waitedChildren` + 重启看门狗（待前端重连续跑子）。
+- `finished=true`（子完成、崩溃前未唤主）→ 从 DB 末条 assistant content 调 `wakeParent` 补注入：
+  - `wake='immediate'`（或旧记录无 wake 默认 immediate）→ `silent:false` 补唤主（通知无连接则丢，回复已落 DB）。
+  - `wake='deferred'/'barrier'`→ `silent:true` 静默注入（主 `resumePending` 不置，用户/前端 resume 时消费）。
+  - `roleInjected=true`（live 期已注入过 role 回复）→ 跳过，不重复补注入（幂等，防重启对已 live 唤过的子再落第二行 role DB 行致前端渲染重复）。旧记录无此标记默认未注入，正常补唤。
+- `finished!==true`（interrupted，turn 中断）→ `registerWaitedChild(childChatId, parentChatId, type, policy)` 重建唤醒链 + 重启看门狗（带 policy，待前端重连续跑子，完成唤主）。
+- 旧记录无 `metadata.wake` → 默认 `immediate`（保持原行为）。
 
 #### 5.8.3 前端重连同调（rework rebuildSpawnWaits）
 
 - **触发**：F5 刷新 `initFromChats` 调；瞬断重连 `App.vue onStatus` 调。
-- **逻辑**（[index.ts](../../web/src/stores/agents/index.ts)）：扫描 chat.list（需暴露子 `wait` 标记，ChatSummary 增 `wait?:boolean`）：
-  - wait-子 `!finished && canResume` → `chat.resume(child)` 续跑中断 turn → 完成 → child_done → 唤主（后端已重建链）。
+- **逻辑**（[index.ts](../../web/src/stores/agents/index.ts)）：扫描 chat.list（需暴露子 `wake` 标记，ChatSummary 增 `wake?:'immediate'|'deferred'|'barrier'`）：
+  - 子 `!finished && canResume` → `chat.resume(child)` 续跑中断 turn → 完成 → child_done → wakeScheduler 按策略唤主（后端已重建链 + 带 policy）。
   - 主含未处理 subagent-reply（末条 role:subagent 且 idle）→ 由 `chat.list` 的 `canResume` 字段同步到 pet，`PetToolbar` 显「▶ 继续」按钮让用户确认（**不再自动 resume**，避免未确认即执行）。
-  - 主 `running && !finished` 但前端无跟踪流 → 判卡死，`abortAgent` 清死锁。
-- **废除原逻辑**：`finished && !running` 子补传 `subagentResult`（subagent.result RPC 已废，改后端 rebuildFromDb 补唤）；`spawnWaits` 去 `wait` 字段。
+  - **主/子 `running && !finished`（真在跑）→ `chat.attach(chatId)` 重连实时流**（不再判卡死 abort）：attach 命中运行中 run 时后端重定向后续输出到本连接（见 [websocket.md 输出重定向](./service/websocket.md)）；attach 返回 `running:false`（竞态已停）才回落 canResume/继续按钮。F5 hydration 同时据 `ChatSummary.running` 置 `pet.isWorking`/`stream.isWorking`（实时气泡门槛），并以 `resume` 回放模式经 `chat.sync` 重建当前 thinking/content/runningTools/approval（不重放 startSpawn/resumeAgent/终态副作用）。
+- **废除原逻辑**：`finished && !running` 子补传 `subagentResult`（subagent.result RPC 已废，改后端 rebuildWaitedChildren 按策略补唤）；`spawnWaits` 去 `wake` 字段；**运行中主「800ms→abort 卡死检测」已由 `chat.attach` 取代**（F5 后真在跑的 run 应重连而非杀死）。
 
 #### 5.8.4 spawn 去重（避免重连后重复创建子 chat）
 
@@ -322,12 +362,12 @@ runtime 每轮可换（AgentDialog 发消息时改 brain/senseGroup），chat �
 
 - **running**：[handler.ts](../../src/service/chat/handler.ts) `handleChatList` 查 `isChatRunning(chatId)`（[runtime.ts](../../src/service/chat/runtime.ts)，`chatRuntimes.get(chatId)?.builder.isRunning()`）→ `ChatSummary.running`。
 - **finished**：解析 `metadata.finished` → `ChatSummary.finished`（ghost 重建用）。
-- **wait**：解析子 `metadata.wait` → `ChatSummary.wait`（前端重连识别 wait-子用）。
+- **wake**：解析子 `metadata.wake`（immediate/deferred/barrier）→ `ChatSummary.wake`（前端重连识别等待态子 + 后端 rebuildWaitedChildren 已按策略重建唤醒链）。
 
 #### 5.8.6 容错边界
 
-- **覆盖**：WS 瞬断（后端存活，generator 卡内存）；**后端进程重启**（waitedChildren 持久化 + rebuildFromDb 重建 + 前端重连续跑 interrupted 子）；子卡死（看门狗 5min 超时唤主 + abort）。
-- **残留限制**：前端永不重连时 wait-子靠看门狗超时兜底唤主（可接受）；多 wait-子并发完成多次注入+多次 resume 串行（isRunning 守卫防双 generator）。
+- **覆盖**：WS 瞬断（后端存活，generator 卡内存）；**后端进程重启**（waitedChildren 持久化 + rebuildWaitedChildren 按 policy 重建 + 前端重连续跑 interrupted 子）；子卡死（feed-dog 看门狗 timeout_ms 超时，按 wake_on_timeout 决定唤主或仅 abort 子）。
+- **残留限制**：前端永不重连时子靠看门狗超时兜底（wake_on_timeout=false 默认仅 abort 子不唤主，可接受）；多子并发完成多次注入+多次 resume 串行（isRunning 守卫防双 generator）。
 
 #### 5.8.7 常见 lifecycle 场景答复
 
@@ -338,22 +378,22 @@ runtime 每轮可换（AgentDialog 发消息时改 brain/senseGroup），chat �
 **答：仅停止接收输出，后端 loop 继续运行。** 设计上 generator 与 WebSocket 解耦（`chatRuntimes` Map 持 generator，`ws.send` 失败静默）。后端 loop 仅在以下情形自动停止：
 
 - `await approvalPromise` 收到 `AgentParkError`（WS 连接关闭，close(ws)→park）或 `AgentAbortError`（用户 `chat.abort`）——均 throw 退出 loop（pending sense content 保 NULL 待重连 resume）
-- `WATCHDOG_TIMEOUT_MS = 5min`（[spawnBroker.ts:119](../../src/agent/spawnBroker.ts#L119)）触发的 wait=true 子超时
+- `WATCHDOG_TIMEOUT_MS = 5min`（[spawnBroker.ts:119](../../src/agent/spawnBroker.ts#L119)，= `config.global.watchdog.timeout_ms` 默认值，feed-dog 每条 chunk 重置）触发的子超时；按 `config.global.watchdog.wake_on_timeout` 决定唤主或仅 abort 子（默认 false 仅 abort）
 - 限时审批超时（`global.approval_timeout`，由 core approvalRegistry 管）→ resolve as reject（**非 throw**，loop 继续运行，= 用户点 Reject）
 - 用户从新连接发起 `chat.abort`（[send.ts:264-276](../../src/service/chat/send.ts#L264-L276)）
 - 后端进程退出
 
-纯 LLM stream / sense 执行无自动停止机制。`chat.abort` 或进程杀是确定性结束的唯一手段。**无 stream-rejoin 协议**：重连后只能用 `chat.resume` 续跑（不会接管正在跑的 generator，`isRunning` 检查跳过），或 `chat.get` 看持久化历史。
+纯 LLM stream / sense 执行无自动停止机制。`chat.abort` 或进程杀是确定性结束的唯一手段。**stream-rejoin 协议**：同页瞬断复用 requestId join `inFlightRequests`；F5（新页面、requestId 丢失）用 `chat.attach(chatId)` 重连——后端把运行中 run 的后续 chunk/notification 按 chatId 重定向到新连接（`liveOutputByChat`），配合 `chat.sync` 回放补齐断连窗口已持久化事件，前端实时气泡无缝续显。仍可用 `chat.resume` 续跑已 park 的会话，或 `chat.get` 看持久化历史。
 
 **场景 2：手动结束主 agent，子 agent 会怎样？**
 
-**答：子继续运行，主对子的唤醒被丢弃。** `handleChatAbort`（[send.ts:264-276](../../src/service/chat/send.ts#L264-L276)）只 `abortChatRuntime(data.chatId)` + `clearWaitedChildrenByParent`，不触达 child runtimes。子直到完成 / 5min 看门狗 / 显式 `chat.abort` / 进程退出 才停。
+**答：子继续运行，主对子的唤醒被丢弃。** `handleChatAbort`（[send.ts:264-276](../../src/service/chat/send.ts#L264-L276)）只 `abortChatRuntime(data.chatId)` + `clearWaitedChildrenByParent`，不触达 child runtimes。子直到完成 / feed-dog 看门狗（按 wake_on_timeout 决定是否唤主）/ 显式 `chat.abort` / 进程退出 才停。
 
 唤醒链清理后，子完成时 `wakeParent` 仍执行（写入 `role:subagent` 到主 DB），但主 runtime 已清空 → notification 找不到 owner ws → dropped。`role:subagent` 落库等用户下次 `chat.list` 看到，主重建 `ensureChat` 后可见（若用户接着发新消息，`revokeTrailingCycle` 会丢弃未消费的 trailing cycle）。
 
-**场景 3：主在 wait=true 子上挂着，用户手动结束子，能恢复吗？**
+**场景 3：主在 wake=immediate 子上挂着，用户手动结束子，能恢复吗？**
 
-**答：能，主拿到 `[角色 X] 执行出错` 注入，可由用户主动 chat.resume 续跑。** 子 `chat.abort` → `compose.abort().throw(AgentAbortError)` → 中间件链抛出 → `observer.ts:115-122` 捕获 → 若 chat 是 waited child → `wakeParent(parent, child, type, "[角色 type] 执行出错: ...")`. 主 next resume 时 loop 决策（[loop.ts:80-89](../../src/agent/middleware/loop.ts#L80-L89)）看到 `lastVisible.role === "role"` → continue，LLM 据新上下文决定下一步。
+**答：统一暂停语义下，子 `chat.abort` 不再唤主报错——子 chat 归 paused 保持末条派生 canResume，待用户/前端 resume 续跑；父 chat 停在等待 idle（若父在等子，由看门狗中性唤主或用户干预）。** 子 `chat.abort` → `compose.abort().throw(AgentAbortError)` → 中间件链抛出 → observer catch 归 paused（不 `wakeParent`、不写 finished）。子 resume 后正常 child_done → wakeScheduler 按策略决定 silent 暂存 / resume 唤主（注入正常结果，非错误）。
 
 无需特殊操作：用户从主 chat 重发或调 `chat.resume(parent)` 即可续跑。
 
@@ -361,10 +401,10 @@ runtime 每轮可换（AgentDialog 发消息时改 brain/senseGroup），chat �
 
 **答：有，通过两路径恢复。**
 
-- **路径 A（DB 持久化优先）**：所有 `messages` 行已落库（[messageJournal.ts](../../src/core/middleware/messageJournal.ts) 是 single writer，DB+内存双写）。进程重启后 `chat.get` 拉历史 → 前端渲染。`metadata.finished` / `metadata.wait` / `metadata.type` 标识子 chat 状态。
-- **路径 B（唤醒链重建）**：后端 `startService` 调 `rebuildWaitedChildren`（[wake.ts:104-136](../../src/service/chat/wake.ts#L104-L136)）：
-  - 子 `finished=true && wait=true`（崩溃前子完成但未唤主）→ 从 DB 末条 assistant content `wakeParent` 补唤
-  - 子 `finished=false && wait=true`（interrupted）→ 重建 `waitedChildren` + 5min 看门狗；前端重连 `rebuildSpawnWaits`（[index.ts:211](../../web/src/stores/agents/index.ts#L211)）调 `chat.resume(child)` 续跑
+- **路径 A（DB 持久化优先）**：所有 `messages` 行已落库（[messageJournal.ts](../../src/core/middleware/messageJournal.ts) 是 single writer，DB+内存双写）。进程重启后 `chat.get` 拉历史 → 前端渲染。`metadata.finished` / `metadata.wake` / `metadata.type` 标识子 chat 状态。
+- **路径 B（唤醒链重建）**：后端 `startService` 调 `rebuildWaitedChildren`（[wake.ts:194-232](../../src/service/chat/wake.ts#L194-L232)），按 wake 策略分流：
+  - 子 `finished=true`（崩溃前子完成但未唤主）→ 从 DB 末条 assistant content `wakeParent` 补注入：immediate（或旧记录无 wake）silent:false 补唤主；deferred/barrier silent:true 静默注入
+  - 子 `finished=false`（interrupted）→ 重建 `waitedChildren` + feed-dog 看门狗（带 policy）；前端重连 `rebuildSpawnWaits`（[index.ts:211](../../web/src/stores/agents/index.ts#L211)）调 `chat.resume(child)` 续跑
 
 前端 `chat.get` 返回的 `canResume` 字段在末条为 `sense`、`user`、`role` 或旧 `subagent` 时为 true。子完成但前端离线时，`wakeParent` 会写入主 chat 的 `metadata.resumePending=true`；`chat.list` 同时暴露 `resumePending` 与 `canResume`（后者覆盖 resumePending 丢失场景）。前端重连后**不自动** resume 主 chat（避免未确认即执行），改由 `PetToolbar` 的「▶ 继续」按钮（`isMaster && !isWorking && canResume` 时显示）让用户确认触发 `chat.resume(parent)`。父 chat 运行中收到并发角色回复时，loop 用 `roleReplyPending` 在当前 assistant 输出后继续处理。
 
@@ -431,7 +471,7 @@ function mergeChildToMaster(items: HistoryItem[]): HistoryItem[] {
 
 | #   | 场景                                            | 期望                                                                  |
 | --- | ----------------------------------------------- | --------------------------------------------------------------------- |
-| 1   | 标准 wait=true spawn                            | group 视图合并项**只 1 条**                                           |
+| 1   | 标准 wake=immediate spawn                       | group 视图合并项**只 1 条**                                           |
 | 2   | direct 视图                                     | 完整子 chat 历史，无 mergedView 项                                    |
 | 3   | 子 chat 多轮（内部 user↔assistant 多轮 + 末条） | direct 全 N 条；group 前 N-1 中间 role 行无 A 配对保留 + 1 合并项 = N |
 | 4   | A 行缺失（role_reply 失败）                     | B 行按 role-role 样式正常渲染                                         |
@@ -556,8 +596,8 @@ FAB 点击 → 选择 preset → agentApi.createAgent({preset})（chat.create）
   → 前端 agents.ts 收 notification → 创建子 pet + chat.send(子chatId, prompt)
   → 子 pet isWorking，子 agent 流式显示
   → 子 agent done：
-      wait=true → 前端 subagent.result 回传 → 后端唤醒主 sense → 主 agent 继续
-      wait=false → 前端 chat.send(主chatId, "[子agent type] content") 注入主 agent
+      任意 wake 策略 → 子 loop 结束 yield child_done → 后端 wakeScheduler 按 policy 决定 silent 暂存（deferred/barrier）/ 推 role_reply 唤主（immediate/策略满足）→ 前端 chat.resume(主) 唤主 → 主 agent 继续
+      （spawn 时主已 yield turn 本轮停等；子群并行跑，按各自 wake 策略唤主）
       子 chat 标 metadata.finished → 子 pet 转 ghost 发光点，排在本 tribe 主 Agent 轨迹后
 
 主 agent 工具栏隐藏 → store.hide（主 pet + 其子/ghost pet 移出 stage，不删 DB）

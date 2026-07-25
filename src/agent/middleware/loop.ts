@@ -10,6 +10,7 @@ import type { MiddlewareChunk } from './index'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { getWaitedParent } from '@/agent/spawnBroker.js'
+import { AgentParkError } from '@/core/middleware/errors.js'
 
 /**
  * 创建 agent 层循环策略
@@ -53,6 +54,14 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
         throw err
       }
       if (failed) break
+
+      // 断连宽限期到期 → 标记安全边界。当前 `runChain` 输出已结束，
+      // 在本轮决策前抛 `AgentParkError`，让 observer 归 paused 并在 finally 释放 runtime/connection。
+      const parkRequested = ctx.pipeline?.consumeParkAfterTurn() ?? false
+      if (parkRequested) {
+        logger.event('loop.decision', { decision: 'park', reason: 'disconnect-grace-expired' })
+        throw new AgentParkError()
+      }
 
       if (ctx.soul.roleReplyPending) {
         logger.event('loop.decision', { decision: 'continue', reason: 'role-reply-during-run' })
@@ -162,9 +171,10 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
     // T9：本 chat 是被 wait 的子（waitedChildren 命中）→ loop 结束时判断是"本轮暂停"还是"真正完成"。
     // - yieldTurn=true（spawn 孙 agent wait=true 触发）→ yield child_yield（不唤醒主，不设 finished）
     // - yieldTurn=false（无 spawn 孙或所有任务完成）→ yield child_done（唤醒主，设 finished）
-    // getWaitedParent 守卫：仅被 wait 的子 chat 发，过滤主 agent / wait=false 子（也跑 loop 但无唤醒链）。
-    // 注：runChain 内 throw 路径下不执行此处（throw 跳过），子 error 由 observer catch → wakeParent(error)。
-    // failed 时不 yield child_yield/child_done：错误路径下由 observer catch 走 wakeParent(error)。
+    // getWaitedParent 守卫：仅被注册唤醒的子 chat 发（wait=true/false 均注册），过滤主 agent。
+    // 注：runChain 内 throw 路径下不执行此处（throw 跳过）；统一暂停语义下 observer catch 不再唤主报错，
+    //     子 chat 保持末条派生 canResume 待用户/前端 resume 续跑。
+    // failed 时不 yield child_yield/child_done：错误路径下由 observer catch 记 paused 日志。
     if (!failed) {
       const waited = getWaitedParent(ctx.soul.chatId)
       if (waited) {
@@ -201,8 +211,8 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
     }
 
     // loop 结束后 yield done（表示整个流程完成）。
-    // 失败路径（retry yield ErrorChunk / max loop 超限）跳过 done：让 streamMapper 不下发 done notification，
-    // send.ts 据 collected failure message 填 failureResponse，最终 Response.success=false。
+    // 失败路径（retry yield ErrorChunk / max loop 超限）跳过 done：streamMapper 已下发 error notification
+    // （含 canResume），统一暂停语义下 AI 报错/maxLoop 归 paused，可 resume 续跑；final Response 恒 success:true。
     if (!failed) {
       const doneChunk: DoneChunk = { type: 'done' }
       yield doneChunk

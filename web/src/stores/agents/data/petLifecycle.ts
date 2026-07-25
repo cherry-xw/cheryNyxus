@@ -49,10 +49,10 @@ export function turnChildIntoGhost(
  * callerSubPetChatId = 父 chat（主 chat 或上层 sub chat）— 用于 MessageBubble 徽章区分 caller。
  */
 export function remapChildHistory(
-  items: readonly import('./types').HistoryItem[],
+  items: readonly import('../types').HistoryItem[],
   childChatId: string,
   parentChatId: string,
-): import('./types').HistoryItem[] {
+): import('../types').HistoryItem[] {
   return items.map((item) => {
     if (item.role === 'assistant')
       return {
@@ -79,7 +79,8 @@ export function createPetLifecycle(
   historyListOpen: Ref<boolean>,
   getRuntime: (chatId: string) => RuntimeSelection | undefined,
   setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
-  removePetsByIds: (removeIds: string[]) => void,
+  removePetsOnly: (removeIds: string[]) => void,
+  removePetsAndStreams: (removeIds: string[]) => void,
 ) {
   /**
    * 从 chat 摘要建主 pet + 全部后代子 pet，push 进 pets（CP8 抽出，initFromChats / loadSession 复用）。
@@ -190,7 +191,8 @@ export function createPetLifecycle(
    */
   function hide(chatId: string): void {
     const removeIds = [chatId, ...collectDescendantChatIds(pets.value, chatId)]
-    removePetsByIds(removeIds)
+    // 统一暂停语义：hide 仅移除 pet 视觉，保留 streams（提问/审批/error 暂停态供重显恢复）
+    removePetsOnly(removeIds)
   }
 
   /**
@@ -202,7 +204,7 @@ export function createPetLifecycle(
     const childIds = collectDescendantChatIds(historyList.value, chatId)
     const removeIds = [chatId, ...childIds]
     historyList.value = historyList.value.filter((c) => !removeIds.includes(c.chatId))
-    removePetsByIds(removeIds)
+    removePetsAndStreams(removeIds)
   }
 
   /**

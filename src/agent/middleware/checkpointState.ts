@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import type {
   AgentMessage,
   AgentMessagePatch,
@@ -21,6 +22,11 @@ export class CheckpointState {
   private assistantFlushed = false
   /** 第一次 flush 时记录的 assistant id（流结束后 reconcile senseCalls 用） */
   private flushedAssistantId: string | null = null
+  /** 预分配的本轮 assistant 消息 id（= 落库 id = chat.get 回放 id）。
+   *  staged chunk 携此 msgId 供前端实时累积，与 done.finalMessage / chat.get 三路同 id 去重。 */
+  private readonly assistantId = randomUUID()
+  /** turn 起始时间戳，staged chunk 携此作为实时项 createdAt（reload 后由 DB 值替换）。 */
+  private readonly turnStartedAt = Date.now()
   /** 第一次 flush 时记录的 senseCalls（流结束后比对是否需要补充） */
   private flushedAssistantSenseCalls: Array<{ id: string; name: string; arguments: string }> = []
 
@@ -76,11 +82,14 @@ export class CheckpointState {
     const senseCalls = mergedSenseCalls
       .filter((sc) => sc.name)
       .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }))
-    const message = ctx.journal.appendAssistant({
-      content: this.content,
-      thinking: this.thinking,
-      senseCalls,
-    })
+    const message = ctx.journal.appendAssistant(
+      {
+        content: this.content,
+        thinking: this.thinking,
+        senseCalls,
+      },
+      this.assistantId,
+    )
     this.assistantFlushed = true
     this.flushedAssistantId = message.id
     this.flushedAssistantSenseCalls = senseCalls
@@ -126,11 +135,14 @@ export class CheckpointState {
       const senseCalls = mergedSenseCalls
         .filter((sc) => sc.name)
         .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }))
-      const message = ctx.journal.appendAssistant({
-        content: this.content,
-        thinking: this.thinking,
-        senseCalls,
-      })
+      const message = ctx.journal.appendAssistant(
+        {
+          content: this.content,
+          thinking: this.thinking,
+          senseCalls,
+        },
+        this.assistantId,
+      )
       // 流式场景（无 sense_end 触发）此路径直接拿到完整 senseCalls，不需要 reconcile
       this.assistantFlushed = true
       this.flushedAssistantId = message.id
@@ -166,6 +178,16 @@ export class CheckpointState {
   /** 当前 turn 已落 journal 的 assistant message id；问题批次以此作为稳定 batch id。 */
   getFlushedAssistantId(): string | undefined {
     return this.flushedAssistantId ?? undefined
+  }
+
+  /** 预分配的本轮 assistant id（staged chunk 携带，供前端实时累积与 done.finalMessage / chat.get 同 id 去重）。 */
+  getAssistantId(): string {
+    return this.assistantId
+  }
+
+  /** turn 起始时间戳（staged chunk createdAt，reload 后由 DB 值替换）。 */
+  getTurnStartedAt(): number {
+    return this.turnStartedAt
   }
 }
 

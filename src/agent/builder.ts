@@ -137,12 +137,13 @@ export class AgentBuilder {
   }
 
   /**
-   * 门面：注入角色回复消息（wait=true 子完成唤醒主用，见 docs/agent-pet.md §5.4）。
+   * 门面：注入角色回复消息（子完成唤醒主用，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
    * 守单一写者：经 journal.appendRoleReply 写 soul.messages（内存）；DB 落库由 service wakeParent addMessage。
+   * @param options.silent deferred/barrier 暂存注入不置 roleReplyPending
    * @returns 新消息 id（供 wakeParent addMessage 落库）
    */
-  appendRoleReply(content: string): string {
-    return this.requireAgent().appendRoleReply(content)
+  appendRoleReply(content: string, options?: { silent?: boolean }): string {
+    return this.requireAgent().appendRoleReply(content, options)
   }
 
   /**
@@ -160,6 +161,14 @@ export class AgentBuilder {
    */
   abort(): void {
     this.requireAgent().abort()
+  }
+
+  /**
+   * 门面：标记当前运行在“下一轮 loop 决策前”抛 `AgentParkError`（安全边界暂停）。
+   * 由 service 层在断连宽限期到期时调用；不影响当前正在输出的 runChain。
+   */
+  requestParkAfterTurn(): void {
+    this.requireAgent().requestParkAfterTurn()
   }
 
   /**

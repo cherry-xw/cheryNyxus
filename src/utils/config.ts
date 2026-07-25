@@ -37,10 +37,14 @@ export interface MockScriptResponse {
   senseCalls?: { id?: string; name: string; arguments: string }[]
   /** 抛错（测 retry 中间件） */
   error?: string
+  /** 每个 delta chunk 之间 sleep 毫秒（模拟流式节奏，刷新/重连测试用）；缺省取 brain.mock.chunkDelayMs */
+  chunkDelayMs?: number
+  /** 本轮首次响应前 sleep 毫秒（模拟首 token 延迟）；缺省取 brain.mock.preRespondMs */
+  preRespondMs?: number
 }
 
 /**
- * mock 配置（brain 内）：只保留开关 + 脚本文件路径。
+ * mock 配置（brain 内）：只保留开关 + 脚本文件路径 + 全局延迟兜底。
  * 脚本内容（repeat + script[]）放独立文件，避免 config.yaml 过长。
  */
 interface MockConfig {
@@ -48,6 +52,10 @@ interface MockConfig {
   enabled?: boolean
   /** 脚本文件路径，相对 .chery 目录（如 mock/read_file.yaml） */
   file: string
+  /** 全局兜底：每个 delta chunk 之间 sleep 毫秒（脚本项缺省时取此，默认 0 不延迟） */
+  chunkDelayMs?: number
+  /** 全局兜底：本轮首次响应前 sleep 毫秒（脚本项缺省时取此，默认 0） */
+  preRespondMs?: number
 }
 
 /** 模型声明的媒体能力。 */
@@ -180,6 +188,22 @@ export interface PresetConfig {
    *   - 保存期（saveRawConfig）：任一问题均返回错误给 UI，阻止写盘
    */
   workspace?: string
+  /**
+   * 定时触发器：到点 spawn 本预设 leader 执行 task（后端 cron scheduler，见 src/service/schedule/scheduler.ts）。
+   * 典型用途：「维护」预设定时触发 curator 做 Dream（记忆整理）。
+   * 缺省 → 不注册 cron 任务。
+   */
+  schedule?: PresetSchedule
+}
+
+/** 预设定时触发器配置 */
+export interface PresetSchedule {
+  /** 5 字段 cron（分 时 日 月 周），本地时区；如 "0 3 * * *" = 每天 03:00 */
+  cron: string
+  /** 交付 leader 执行的任务 prompt */
+  task: string
+  /** 是否启用，缺省 true。false → scheduler 跳过此预设 */
+  enabled?: boolean
 }
 
 /** 默认预设名：旧 config.default 迁移目标。/api/config default 字段 + brain.list default 标记据此派生 */
@@ -279,19 +303,40 @@ interface GlobalConfig {
   stream: boolean // 是否开启流式输出
   sense_execute_timeout?: number // 感官执行超时时间（毫秒）
   /**
-   * 审批等待超时（毫秒）。`>= 0`，0 = 不限时（无超时，永远等用户决）。
-   * 超时视为用户拒绝（非 abort），不影响断连/chat.abort 的 AgentAbortError 路径。
-   * 运行时由 core `createApproval(id, timeoutMs)` 消费；前端据 `interrupt.waitTime` 显倒计时。
+   * 审批等待超时（毫秒）。`>= 0`，0 = 不限时（无用户超时，永远等用户决）。
+   * `> 0` → 到点视为用户拒绝（resolve as reject，loop 继续）；`0` → 不限时，由 `approval_hard_timeout` 兜底释放。
+   * 不影响断连 grace / chat.abort 的 AgentParkError/AgentAbortError 路径。
+   * 运行时由 core `createApproval(id, timeoutMs, hardTimeoutMs)` 消费；前端据 `interrupt.waitTime` 显倒计时。
    * 校验：`validateRawConfig` 强制 `>= 0` + `Number.isFinite`；`config.save` zod schema `.min(0).optional()`。
-   * （注：当前 `connection.ts` 还有一层与本字段独立的硬编码 15min WS 层超时作兜底，与「0 = 不限时」语义不完全对齐，跟踪中。）
    */
   approval_timeout?: number
+  /**
+   * 不限时审批（`approval_timeout=0`）的资源上限（毫秒），默认 1800000（30min）。
+   * 到点 reject(AgentParkError) 归 paused 可续（非用户拒绝），释放挂起 generator/内存，避免无限挂起。
+   * 仅当 `approval_timeout<=0` 生效（用户显式超时已界顶，不叠加）。运行时由 core createApproval 第 3 参消费。
+   * 校验：`validateRawConfig` 强制 `>= 0` + `Number.isFinite`；`config.save` zod schema `.min(0).optional()`；缺省代码兜底 1800000。
+   */
+  approval_hard_timeout?: number
   maxLoopCount?: number // loop 最大执行次数（默认 30）
+  /**
+   * WS 断连宽限期（毫秒）。owner WebSocket 关闭后，等待该时间窗内同 requestId 的重连。
+   * 到期仍无新 owner：标记当前 run 在「下一轮 loop 决策前」抛 AgentParkError 安全暂停；
+   * 若有 pending approval 则立即 park。0 表示不等待，请求当前输出结束后立即暂停。
+   * 校验：必须为有限且 >= 0 的数字。
+   */
+  disconnect_grace_ms?: number
   bash_log_retention_hours?: number // bash 日志文件保留时间（小时）
   file_compression?: FileCompressionConfig // 文件压缩配置
   logger?: LoggerConfig // 日志配置
   textEditor?: string // 文本编辑器路径（如 vscode、notepad、记事本等），用于打开配置文件
   command?: CommandConfig // 内置命令（compact 等）触发与可见性配置
+  /**
+   * 看门狗配置（子 agent 运行时监控，见 docs/agent-pet.md §5.4 feed-dog 看门狗）。
+   * - timeout_ms：子无产出（observer for-await 无 chunk 喂狗）超过此值判定卡死，默认 300000（5min）。
+   * - wake_on_timeout：超时是否唤主。true=通知主（注入超时说明）；false=仅暂停子（abort+clear），主不受影响，默认 false。
+   *   统一暂停语义下子 chat 保持末条派生 canResume，用户可 resume 续跑。
+   */
+  watchdog?: { timeout_ms?: number; wake_on_timeout?: boolean }
 }
 
 /**
@@ -478,6 +523,16 @@ function loadConfig(): Config {
   config.global.prompts_dir = path.join(cheryDir, '.chery', 'prompt')
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, '.chery', 'db')
   config.global.memory_dir = path.join(cheryDir, '.chery', 'memory')
+
+  // 断连宽限期默认值：15000ms（与 .chery.template 同步；缺省 15s）
+  config.global.disconnect_grace_ms =
+    config.global.disconnect_grace_ms !== undefined ? config.global.disconnect_grace_ms : 15000
+
+  // 不限时审批资源上限默认值：1800000ms（30min；approval_timeout=0 时生效，与 .chery.template 同步）
+  config.global.approval_hard_timeout =
+    config.global.approval_hard_timeout !== undefined
+      ? config.global.approval_hard_timeout
+      : 1800000
 
   // 项目记忆配置默认值（缺省 → global{30,500} · workspace{15,500}）
   config.memory = {
@@ -731,6 +786,22 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       }
       // workspace 不在此校验：启动期不关心（workspace 是环境配置非服务必需）；
       // 保存期由 saveRawConfig 单独校验（errors/warnings 分离）。
+
+      // schedule 定时触发器：cron 非空字符串、task 非空、enabled boolean
+      const sched = pcfg?.schedule
+      if (sched) {
+        if (typeof sched.cron !== 'string' || sched.cron.trim() === '') {
+          errors.push(`presets.${pname}.schedule.cron 不能为空`)
+        }
+        if (typeof sched.task !== 'string' || sched.task.trim() === '') {
+          errors.push(`presets.${pname}.schedule.task 不能为空`)
+        }
+        if (sched.enabled !== undefined && typeof sched.enabled !== 'boolean') {
+          errors.push(
+            `presets.${pname}.schedule.enabled 必须为 boolean（当前：${String(sched.enabled)}）`,
+          )
+        }
+      }
     }
   }
 
@@ -760,6 +831,43 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     const t = raw.global.approval_timeout
     if (typeof t !== 'number' || !Number.isFinite(t) || t < 0) {
       errors.push(`global.approval_timeout 必须为 ≥ 0 的数字（0 = 不超时，当前：${String(t)}）`)
+    }
+  }
+
+  // approval_hard_timeout：≥ 0（不限时审批的资源上限，approval_timeout=0 时生效）
+  if (raw.global?.approval_hard_timeout !== undefined) {
+    const h = raw.global.approval_hard_timeout
+    if (typeof h !== 'number' || !Number.isFinite(h) || h < 0) {
+      errors.push(`global.approval_hard_timeout 必须为 ≥ 0 的数字（当前：${String(h)}）`)
+    }
+  }
+
+  // disconnect_grace_ms：≥ 0 有限毫秒（断连宽限期）
+  if (raw.global?.disconnect_grace_ms !== undefined) {
+    const g = raw.global.disconnect_grace_ms
+    if (typeof g !== 'number' || !Number.isFinite(g) || g < 0) {
+      errors.push(`global.disconnect_grace_ms 必须为 ≥ 0 的数字（0 = 不等待，当前：${String(g)}）`)
+    }
+  }
+
+  // watchdog：timeout_ms ≥ 0，wake_on_timeout boolean（子 agent feed-dog 看门狗）
+  if (raw.global?.watchdog !== undefined) {
+    const wd = raw.global.watchdog
+    if (typeof wd !== 'object' || wd === null) {
+      errors.push(`global.watchdog 必须为对象（当前：${String(wd)}）`)
+    } else {
+      const w = wd as { timeout_ms?: unknown; wake_on_timeout?: unknown }
+      if (
+        w.timeout_ms !== undefined &&
+        (typeof w.timeout_ms !== 'number' || !Number.isFinite(w.timeout_ms) || w.timeout_ms < 0)
+      ) {
+        errors.push(`global.watchdog.timeout_ms 必须为 ≥ 0 的数字（当前：${String(w.timeout_ms)}）`)
+      }
+      if (w.wake_on_timeout !== undefined && typeof w.wake_on_timeout !== 'boolean') {
+        errors.push(
+          `global.watchdog.wake_on_timeout 必须为 boolean（当前：${String(w.wake_on_timeout)}）`,
+        )
+      }
     }
   }
 

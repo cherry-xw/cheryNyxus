@@ -1,6 +1,5 @@
 import type { WebSocket } from 'ws'
 import { randomUUID } from 'crypto'
-import { approvalManager } from '../approval/manager.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 
@@ -33,6 +32,14 @@ export class ConnectionManager {
    * 仅 connection.close / chat delete（forceReleaseChatConnection）清。
    */
   private chatOwnerConnections = new Map<string, string>()
+  /**
+   * chatId → 当前实时输出目标 ws。仅 chat.attach（F5 重连运行中 run）写入、run 结束清除；
+   * 平时为空。流式循环发送时用 `getLiveOutput(item.chatId) ?? 捕获 ws` 解析目标，
+   * 使刷新后新连接能接管仍在运行的 run 的后续 chunk/notification（含终态 done/error）。
+   * 按 chatId 寻址（非 requestId）：startSpawn 子 run params 无 chatId、不被 disconnectGrace 跟踪，
+   * 仍可经此统一重定向。
+   */
+  private liveOutputByChat = new Map<string, WebSocket>()
 
   /**
    * 创建连接状态
@@ -157,6 +164,32 @@ export class ConnectionManager {
   }
 
   /**
+   * 按 connectionId 反查 ws（chat.attach 用：handler 只有 ctx.connectionId，需拿 ws 设为实时输出目标）。
+   * @returns 所属 ws；未找到返回 undefined
+   */
+  getWsByConnectionId(connectionId: string): WebSocket | undefined {
+    for (const state of this.connections.values()) {
+      if (state.id === connectionId) return state.ws
+    }
+    return undefined
+  }
+
+  /** chat.attach 命中运行中 run：重定向该 chat 后续实时输出到指定 ws。 */
+  setLiveOutput(chatId: string, ws: WebSocket): void {
+    this.liveOutputByChat.set(chatId, ws)
+  }
+
+  /** 流式循环解析实时输出目标（无重定向 → undefined，调用方回落捕获 ws）。 */
+  getLiveOutput(chatId: string): WebSocket | undefined {
+    return this.liveOutputByChat.get(chatId)
+  }
+
+  /** run 结束清除重定向（send/resume/startSpawn finally 调用）。 */
+  clearLiveOutput(chatId: string): void {
+    this.liveOutputByChat.delete(chatId)
+  }
+
+  /**
    * 关闭连接（持久化 pending approvals）
    */
   async close(ws: WebSocket): Promise<void> {
@@ -165,24 +198,12 @@ export class ConnectionManager {
 
     logger.event('conn.closing', { pendingRequests: state.pendingRequests.size }, LogLevel.debug)
 
-    // 终止所有 pending requests 的 generator
-    for (const [, pending] of state.pendingRequests) {
-      // 不调 gen.return()：await 态（审批/LLM stream）无法立即终止；
-      // 且 return 传播与 senseMiddleware catch 的 yield 交互会导致链条死锁——
-      // generator suspended 在 return completion 下的 yield，外层 checkpoint/observer finally
-      // 永不执行，assistant 无法落库（恢复回滚失效）。改靠下方 park reject 让 senseMiddleware
-      // 正常 catch 结束，链条自然 done，finally 正常执行。
-
-      // 挂起 pending approval（WS 断连触发，区别于用户主动 chat.abort 的 abort）：
-      // 调用 reject(AgentParkError) 解除 senseMiddleware 的 await Promise.all，
-      // 使挂起 generator 正常结束可被 GC（P0-1）。pending sense 保持 NULL 待重连 chat.resume。
-      // observer 见 AgentParkError 静默不 wakeParent——子 chat 保持可恢复态，重连 chat.resume
-      // Case1 重建 pending sense；主 chat 不被注入错误 role（approval aborted）。
-      // 注：限时审批超时由 core approvalRegistry 独占管理（不在此处），断连才走 park。
-      if (pending.approvalId) {
-        approvalManager.park(pending.approvalId)
-      }
-    }
+    // 不在此处 park 挂起审批 / 不 abort generator：disconnectGrace 拥有断连生命周期（G1 改造C）。
+    // 宽限期（disconnect_grace_ms）内 approval Promise 存活、generator 悬挂——同 requestId 重连
+    // 或 chat.attach 按 chatId 重连即迁移输出目标继续当前 loop（含用原 approvalId 审批续跑）；
+    // 宽限期到期 disconnectGrace.expireRun 才 requestParkAfterTurn + parkApproval（service 启动期注入式 deps）。
+    // 不调 gen.return()：与 senseMiddleware catch 的 yield 交互会致链条死锁（详见 disconnectGrace 注释）。
+    // pendingRequests Map 随下方 connections.delete(ws) 一并释放，无需逐项清理。
 
     // 释放该 connection 绑定的所有 chatId（P0-3）
     for (const [chatId, connId] of this.activeChatConnections) {
@@ -194,6 +215,12 @@ export class ConnectionManager {
     for (const [chatId, connId] of this.chatOwnerConnections) {
       if (connId === state.id) {
         this.chatOwnerConnections.delete(chatId)
+      }
+    }
+    // 清实时输出重定向：本连接是某 chat 的 attach 目标 → 移除（下次 sendChatEvent 回落捕获 ws / 被跳过）
+    for (const [chatId, target] of this.liveOutputByChat) {
+      if (target === ws) {
+        this.liveOutputByChat.delete(chatId)
       }
     }
 

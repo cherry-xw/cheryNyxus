@@ -14,6 +14,9 @@ import { registerSessionRuntimeHandlers } from './runtime/session.js'
 import { registerChatHandlers } from './chat/send.js'
 import { rebuildWaitedChildren } from './chat/wake.js'
 import { registerChatManageHandlers } from './chat/handler.js'
+import { requestParkAfterTurn } from './chat/runtime.js'
+import { disconnectGrace } from './websocket/disconnectGrace.js'
+import { approvalManager } from './approval/manager.js'
 import { registerBashHandlers } from './bash/handler.js'
 import { registerMcpHandlers } from './mcp/handler.js'
 import { registerRole } from './subagent/index.js'
@@ -21,6 +24,7 @@ import { registerConfigHandlers } from './config/handler.js'
 import { registerHooksHandlers } from './hooks/handler.js'
 import { registerUtilsHandlers } from './utils/handler.js'
 import { registerCommandHandlers } from './command/handler.js'
+import { startScheduleService, stopScheduleService } from './schedule/scheduler.js'
 import { randomBytes } from 'node:crypto'
 import { OAuth2Auth, type OAuth2Config } from './auth/index.js'
 
@@ -46,6 +50,8 @@ export interface StartServiceOptions {
 export interface ServiceHandle {
   wss: ReturnType<typeof createWebSocketServer>
   httpServer: ReturnType<typeof createHttpServer>
+  /** 停止定时触发器（cron scheduler），测试/关闭时调用 */
+  stopSchedule: () => void
 }
 
 /**
@@ -75,6 +81,15 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   // T9.10：从持久化 metadata 重建 wait=true 唤醒链（finished 子补唤 / interrupted 子重建链+看门狗）。
   // 须在 registerRole（注入 asyncWakeHandler）之后，使重建的看门狗超时可触发 wakeParent。
   void rebuildWaitedChildren()
+  // 定时触发器：为每个 schedule.enabled !== false 的预设注册 cron 任务（典型：「维护」预设定时派 curator 做 Dream）。
+  // 须在 config 加载后、服务就绪前注册；重启后自动重建。
+  startScheduleService()
+  // 断连宽限：宽限期到期调用 requestParkAfterTurn（runtime 层安全边界） + parkApproval（无 LLM 流时的 fallback）。
+  // 必须在 createWebSocketServer 之前注入，否则 handleRequest 的 rebind 路径无法找到依赖。
+  disconnectGrace.configure({
+    requestParkAfterTurn,
+    parkApproval: (approvalId) => approvalManager.park(approvalId),
+  })
   // Config 设置面板：读写 .chery/config.yaml（除 server 段，重启生效）
   registerConfigHandlers(router)
   // Hooks 管理：读写 .chery/hooks/hooks.json（独立于 config.yaml）
@@ -113,5 +128,5 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     auth,
   })
 
-  return { wss, httpServer }
+  return { wss, httpServer, stopSchedule: stopScheduleService }
 }

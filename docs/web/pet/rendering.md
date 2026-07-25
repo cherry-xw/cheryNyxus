@@ -2,6 +2,19 @@
 
 > 源码 [PetSprite.vue](../../../web/src/features/pets/PetSprite.vue) ｜ 上级 [README.md](./README.md) ｜ 动画 variant 见 [motion.md](./motion.md) ｜ 样式见 [style.md](./style.md)
 
+## Agent 数据边界
+
+Pet 渲染层不拥有 Agent 会话状态。Pet presentation 只保存动作、坐标、表情、拖拽和 ghost 动画，通过 `chatId` 从 ChatSession selector 获取 working、当前消息、审批、问题、工具、上下文与恢复状态。
+
+实时消息规范化保存在 `ChatSession.messagesById[msgId]`，`activeMessageId` 指向当前 LLM 响应。Pet 工作气泡与 HistoryDrawer 的实时行读取同一个 `ChatMessage`：
+
+- 新 `msgId` 首次到达时，旧 active 消息封口并保留在历史；新消息先以空 thinking/content 建立，再应用首个 delta。
+- Pet 只显示当前 active 消息（或 done 后 retain 期内最后一条），因此不会残留上一轮文本。
+- HistoryDrawer 以同一稳定 `msgId` key 原位更新该消息，服务端 delta 即打字效果；不创建第二份 typing buffer。
+- 一个 `runId` 可包含多个 `msgId`（工具循环），每个新 `msgId` 都执行上述切换。
+
+主历史通过 selector 聚合 root 与 descendants 的消息引用并做角色重映射，不把 child 消息复制进 parent。抽屉打开、关闭、下钻只改变 UI 栈，不加载历史、不清 Pet retain 状态。
+
 ```text
 div.pet-wrap                                                            // 根容器（无 z-index/position → 不创建 stacking context，气泡 z-index 跨 pet 比较）
   AnimatePresence > Motion.speech[:style=approvalStyle z=400]           // 主气泡 tier 1：审批卡片（CP5；优先级最高；z-index 单独提到 400 高过 AgentDialog/HistoryDrawer/FAB 防遮挡；✕ 移队列 + auto-pop 下一个；详见 §PetIcons）
@@ -69,7 +82,7 @@ div.pet-wrap                                                            // 根�
 </AnimatePresence>
 ```
 
-主气泡 4 tier 由 `AnimatePresence` 互斥切换（key=`approval`|`work-error`|`work-main`|`speech`）：① `stream.approval` 存在时显 ApprovalCard（CP5；z-index 400 单独提升防遮挡；✕ 关闭移队列 + auto-pop 下一个）；② `stream.error` 显 error-bubble；③ `showWorkMain` 工作中显工作主气泡（thinking-only 或 content）；④ 默认装饰气泡/`#dialog` slot（agent 接入后基本不达，预留扩展口）。气泡为 `.pet-wrap` 内 `.pet` 的**兄弟**（脱离 `.pet` 的 transform stacking context），独立 z-index（整体高于身体）。审批气泡锚点 = pet 顶部中心下移 `BUBBLE_OFFSET_Y`（贴 status-row 上方 16px），`left`/`top` 由 inline `approvalStyle` 提供（与 `speechStyle` 同位置但 z-index=400）；其他气泡走 `speechStyle`（z-index=100+）。motion `x:"-50%" y:"-100%"` 居中 + 上移自身高度。done 后 content/thinking 保留 20s（`stream.retainUntil`，新消息/abort 清除）；仅工作气泡自身 hover 期间保持显示（`bubbleHover`，即使 retainUntil 过期）。**pet 身体 hover 不显示历史气泡**：retainUntil 过期后悬浮宠物身体不再复现最后一次响应的 thinking/content 气泡（`petHover` 不参与气泡显隐门控，仅供 usePetStyles 提层级/冻结移动）。（显隐/保留/滚动逻辑下沉 [useStreamBubble.ts](../../../web/src/features/pets/useStreamBubble.ts)：`nowTick` retain 定时器 + auto-scroll watcher + `onBeforeUnmount` 清 `retainTimer` 集中；模板分层不变。）
+主气泡 4 tier 由 `AnimatePresence` 互斥切换：① ChatSession 当前 approval 显 ApprovalCard；② run error 显 error-bubble；③ active message 满足 working/retain/hover 门控时显工作气泡；④默认装饰气泡。thinking 阶段显示 `activeMessage.thinking`，content 到达后主气泡显示 `activeMessage.content`，thinking 收入副气泡。done 后 presentation selector 用 `retainUntil` 保留最后消息 20 秒；新 `msgId` 到达时立即切换到新空消息。pet 身体 hover 不复现已过期历史气泡。
 
 ApprovalCard 的参数内容默认展开。每条审批使用 approvalId 作为渲染 key，切换审批时重新初始化倒计时和请求状态。有限时审批到零即按 approvalId 从当前项或队列移除并推进下一项，避免保留不可操作的过期气泡；后端仍以审批超时自动拒绝为权威语义。审批气泡尾角继承主体暖色背景和边框，且不参与 pointer hit-test。
 
@@ -85,8 +98,8 @@ ApprovalCard 的参数内容默认展开。每条审批使用 approvalId 作为�
 
 | 列 | 数据源 | 元素 | 交互 |
 |---|---|---|---|
-| history 列（左） | `agents.streams[chatId].history`（最近 5 条，按 `createdAt` DESC；**proactive 预加载**：`initFromChats` 末尾并行预加载 top-5 master + 全部后代，`role_created` 时预加载新子 chat；`chat.get` 走 `StreamState.historyDirty` 守卫，!dirty && loaded → 零 RPC 命中缓存；dirty 标位：`sendMessage`/`resumeAgent`/`role_reply`/WS 重连；`loaded` notification 清脏） | `.history-icon` 14px 圆，**内嵌 4×4 `.dot`**，dot 按 `role` 着色：`user=#8a8f98`、`assistant=#f6b73c`（主色）、`subagent`/`role=#7c3aed`、`master=#f6b73c`；`has-thinking` 时外圈加 1.5px 紫色虚线（`#7c3aed`，55% alpha） | hover → 浮动气泡（210px max-width，从 icon **右侧**弹出 `left:100%+6px`）显 role tag + content 截 80 字 |
-| approval 列（右） | `agents.streams[chatId].approval`（实心高亮）+ `approvalQueue`（闪烁） | `.approval-icon` 14px 圆，内显 senseTools icon；`is-current` = 实心橙+辉光，`is-queued` = 白底橙边 + `approval-flash` 动画 | 当前项无 click（已展示）；queue 项 click → `agents.resummonApproval(chatId, approvalId)`；倒计时归零 → CSS opacity 渐隐消失 |
+| history 列（左） | `selectOwnTimeline(chatId)` 的最近 5 条消息；active 消息按同一 `msgId` 原位更新 | `.history-icon` 14px 圆，dot 按 role 着色；含 thinking 时外圈加紫色虚线 | hover → 浮动预览；不触发历史加载 |
+| approval 列（右） | ChatSession `interaction.approval` + `approvalQueue` | 当前项实心高亮，队列项闪烁 | queue 项通过 ChatSession action 重新唤起 |
 
 **闪烁频率**：`approval-flash` CSS keyframes，`animation-duration = var(--flash-period)`，`flash-period = max(0.2, min(5, remainingSec * 0.1))` 秒。剩余时间越少闪得越快，视觉紧迫感。`waitTime=0`（不超时）→ 周期封顶 5s（低频慢闪）。
 
@@ -94,7 +107,7 @@ ApprovalCard 的参数内容默认展开。每条审批使用 approvalId 作为�
 
 侧气泡（`.speech.side`）独立 `AnimatePresence`，仅在 `showWorkSide`（hasContent && thinking 非空 && 无 approval）时显，motion `x:"-100%" y:"-100%"`（顶部齐平主气泡），同尺寸（max 180×140）+ 复用 is-thinking 浅灰虚线 + 斜体灰字（与主气泡 content 白底实线区分），定位 `sideBubbleStyle`（`top` 同主气泡，`left=pet.x-60` 向左展开）。
 
-历史抽屉不把实时 staged phase chunk 直接写成历史消息：带 runId 的 staged 仅表示实时阶段边界，`chat.get` 回放（无 runId）的 staged 才参与 HistoryItem 重建。运行期历史使用每 Agent 独立 loading；同一聚合范围内全部 Agent 结束并稳定 300ms 后重新加载完整主/后代历史，再一次性替换 loading。
+历史抽屉直接渲染 ChatSession timeline。实时 stream delta 携稳定 `msgId`，reducer 首次看到该 id 时建立 streaming message，后续 staged/done/sync 只补全同一对象。MessageBubble 的 key 始终为 `msgId`，content/thinking 更新即产生与 Pet 相同的实时打字效果。主抽屉通过 selector 动态聚合后代 ChatSession，不保存 child 副本；整轮结束不再延迟 300ms 重载。
 
 Ghost 不再复用 PetBody。已完成子 Agent 使用独立的发光点渲染：约 10px 个体色圆点、外发光、轻呼吸闪烁和常显短名；不渲染手、表情、状态、气泡、图标或工具栏，也不接受点击、悬浮、拖拽。
 
@@ -107,7 +120,7 @@ Ghost 不再复用 PetBody。已完成子 Agent 使用独立的发光点渲染�
 **派生语义（C 方案）**：
 
 ```ts
-isBusy = !isGhost && (pet.isWorking || stream.runningTools.length > 0 || stream.approval != null);
+isBusy = !isGhost && (chat.run.isWorking || chat.interaction.runningTools.length > 0 || chat.interaction.approval != null || chat.interaction.questionBatches.length > 0);
 ```
 
 - 不含 hover（hover 仅保持气泡显示）

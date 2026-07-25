@@ -8,12 +8,14 @@ import {
 import { getChatSelection } from './runtime.js'
 import { approvalManager } from '../approval/manager.js'
 
-import { wakeParent } from './wake.js'
+import { onChildDone } from './wakeScheduler.js'
+import { maybeTriggerExtract } from './extractTrigger.js'
 import type { LLMResponse } from '@/core/message/adapter'
 import type { MiddlewareChunk } from '@/core/middleware/types'
 import { logger } from '@/utils/logger/index.js'
-import { getWaitedParent } from '@/agent/spawnBroker.js'
-import { isAgentParkError } from '@/core/middleware/errors.js'
+import { LogLevel } from '@/utils/logger/types.js'
+import { getWaitedParent, feedWatchdog } from '@/agent/spawnBroker.js'
+import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
 import { createQuestionBatch } from '@/db/question.js'
 
 /**
@@ -32,8 +34,12 @@ export async function* observeAgentChunks(
 ): AsyncGenerator<MiddlewareChunk, void, unknown> {
   // 历史消息（loadHistory 注入）视为已落库，避免 abort flush 时重复 INSERT 触发 UNIQUE 冲突。
   const syncedIds = new Set<string>(getMessages().map((m) => m.id))
+  let completedNormally = false
   try {
     for await (const chunk of generator) {
+      // feed-dog：每条 chunk 到达 = 子 agent generator 仍活着 = 未卡死，重置看门狗计时。
+      // 主 chat（非注册唤醒子）feedWatchdog 内部自动忽略（waitedChildren 无此 chatId）。
+      feedWatchdog(chatId)
       if (chunk.type === 'message_created') {
         if (!syncedIds.has(chunk.message.id)) {
           addMessage(chunk.message.id, chatId, {
@@ -140,18 +146,19 @@ export async function* observeAgentChunks(
         continue
       }
 
-      // child_done chunk（wait=true 子 loop 真正完成）→ wakeParent 注入角色回复唤主 + 设 finished
+      // child_done chunk（子 loop 真正完成）→ 标 finished + wakeScheduler 按策略唤主/暂存
       if (chunk.type === 'child_done') {
         const waited = getWaitedParent(chunk.childChatId)
         if (waited) {
-          // child_done 已是子 agent 的权威终态。先持久化，再唤醒父会话，避免
-          // role_reply 已送达但刷新恰好读不到 finished 的短暂状态窗口。
+          // child_done 已是子 agent 的权威终态。先持久化 finished，再交调度器：
+          // 避免聚合唤主时 role_reply 已送达但刷新读不到 finished 的窗口；
+          // 调度器 allChildrenFinished 判定也依赖此标记。
           updateChatMetadata(chunk.childChatId, { finished: true })
 
-          // wakeParent 内部 clearWaitedChild + 注入 role:role 回复（内存+DB）+ 推 role_reply
-          await wakeParent(waited.parentChatId, chunk.childChatId, waited.type, chunk.content)
+          // wakeScheduler 按 wake_policy 决定 silent 暂存（deferred/barrier）/ resume 唤主（immediate/策略满足）
+          await onChildDone(chunk.childChatId, chunk.content)
 
-          logger.event('child.done.wake', {
+          logger.event('child.done.schedule', {
             childChatId: chunk.childChatId,
             parentChatId: waited.parentChatId,
             contentLen: chunk.content.length,
@@ -162,24 +169,28 @@ export async function* observeAgentChunks(
 
       yield chunk
     }
+    completedNormally = true
   } catch (err) {
-    // park（WS 断连）：子 agent 审批被挂起，不向父唤主报错——子 chat 保持 canResume Case1，
-    // 待重连 chat.resume/chat.startSpawn 重建 pending sense，完成后正常唤主（注入子结果，非错误）。
-    // 仅其他错误（含用户主动 chat.abort 的 AgentAbortError）才唤主报错（不等 5min 看门狗，防主卡死）；
-    // child_done 正常完成路径不触发此处（throw 跳过 loop 末尾 child_done yield）；wakeParent 内部 clearWaitedChild 防并发。
-    if (!isAgentParkError(err)) {
-      const waited = getWaitedParent(chatId)
-      if (waited) {
-        // 已向父会话回传终态错误的子 agent 不再可续跑；与正常 child_done 一样
-        // 持久化 finished，保证实时和刷新重建都能转为 ghost。
-        updateChatMetadata(chatId, { finished: true })
-        await wakeParent(
-          waited.parentChatId,
+    // 统一暂停语义：所有控制流信号（用户 chat.abort / WS 断连 park）与未预期错误都归 paused。
+    // 不唤主、不写 finished——子 chat 末条保持原样，由 computeCanResume 派生 canResume=true，
+    // 用户/前端显式 resume 续跑（子结果不再当错误回传父；父若在等待由看门狗中性唤主或用户干预）。
+    // 仅记日志区分来源便于排查：park/abort=info，真实故障=error 带 stack。
+    // child_done 正常完成路径不触发此处（throw 跳过 loop 末尾 child_done yield）。
+    if (isAgentParkError(err)) {
+      logger.event('agent.paused', { chatId, kind: 'park' })
+    } else if (isAgentAbortError(err)) {
+      logger.event('agent.paused', { chatId, kind: 'abort' })
+    } else {
+      logger.event(
+        'agent.paused',
+        {
           chatId,
-          waited.type,
-          `[${waited.type}] 执行出错了: ${(err as Error).message}`,
-        )
-      }
+          kind: 'unexpected',
+          message: (err as Error).message,
+          stack: (err as Error).stack,
+        },
+        LogLevel.error,
+      )
     }
     throw err
   } finally {
@@ -205,5 +216,11 @@ export async function* observeAgentChunks(
       })
       syncedIds.add(m.id)
     }
+  }
+  // Extract 触发：主 agent 一轮正常完成（generator 自然结束，非 abort/park）后，
+  // fire-and-forget spawn curator 提取记忆。仅主 agent 触发，错误隔离在 maybeTriggerExtract 内部。
+  // 放 finally 之后确保 flush 落库完成、chatId 对应消息已持久化，curator 可读到本轮对话。
+  if (completedNormally) {
+    maybeTriggerExtract(chatId)
   }
 }

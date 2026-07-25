@@ -332,6 +332,48 @@ export function findChatsByParent(parentChatId: string): ChatRow[] {
 }
 
 /**
+ * 主 chat 下所有存活子 chat 及其角色 type（JOIN spawn_tasks）。
+ *
+ * 用途：session.runtime.set 回灌已存在子——按 type 匹配新 roles 编制，作用于已派发/卡住的子。
+ * INNER JOIN 保证子 chat 必有 spawn_task 记录（孤儿 chat 行不会返回）。
+ * 索引 idx_spawn_tasks_parent_status(parent_chat_id, status) 覆盖查询。
+ */
+export function findChildChatsWithType(
+  parentChatId: string,
+): { childChatId: string; type: string }[] {
+  const rows = getSoulDb()
+    .prepare(
+      `SELECT c.id AS child_chat_id, s.type AS type
+       FROM chats c
+       INNER JOIN spawn_tasks s ON s.child_chat_id = c.id
+       WHERE c.parent_chat_id = ?`,
+    )
+    .all(parentChatId) as { child_chat_id: string; type: string }[]
+  return rows.map((r) => ({ childChatId: r.child_chat_id, type: r.type }))
+}
+
+/**
+ * 递归收集 chat 的所有后代 chatId（子→孙→…，BFS，含 visited 防环）。
+ * 统一暂停语义：主 chat abort/resume 级联所有后代用。不含 parentChatId 本身，仅返回后代。
+ */
+export function collectDescendantsChatIds(parentChatId: string): string[] {
+  const result: string[] = []
+  const visited = new Set<string>([parentChatId])
+  const queue: string[] = [parentChatId]
+  while (queue.length > 0) {
+    const pid = queue.shift()!
+    for (const child of findChatsByParent(pid)) {
+      if (!visited.has(child.id)) {
+        visited.add(child.id)
+        result.push(child.id)
+        queue.push(child.id)
+      }
+    }
+  }
+  return result
+}
+
+/**
  * preview 单行规范化（CP8）：折叠空白 + 截断 ≤40 字符。
  * TODO(CP8 "指令"跳过)：当前默认取首条 user 消息（isDirective=false）。
  *   定义指令标记后，改为取首条「非指令」user 消息（需查多条 user 消息）。

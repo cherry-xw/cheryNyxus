@@ -12,7 +12,7 @@ import {
   getChatWorkspace,
   updateChatMetadata,
 } from '@/db/chat.js'
-import { emitRoleCreated, registerWaitedChild } from '@/agent/spawnBroker.js'
+import { emitRoleCreated, registerWaitedChild, startChildEager } from '@/agent/spawnBroker.js'
 import { logger } from '@/utils/logger/index.js'
 import { getSessionRoleRuntime, setEphemeralChatRuntime } from '@/service/chat/runtime.js'
 import { createSpawnTask, getSpawnTaskByChild } from '@/db/delivery.js'
@@ -53,15 +53,17 @@ const catalogText = roleKeys.length
       })
       .join('\n')
   : '（未配置任何角色）'
-const spawnDescription = `派发角色执行子任务（异步并行 / 同步等待）。
+const spawnDescription = `派发角色执行子任务（主 agent 一律本轮结束停等，子群并行跑；唤醒策略控制子完成后何时唤主）。
 可用角色类型（每类型能力 = brain + senseGroup）：
 ${catalogText}
 必填参数：
 - type: 角色类型名（上方枚举的可用键）
 - prompt: 交付角色的任务描述
-- wait: 是否需要角色结果
-  - true: 主 agent 立即结束本轮（yield turn），子完成后结果自动注入唤起新一轮（适合需汇总子结果的任务）
-  - false: 立即返回，主 agent 继续运行（fire-and-forget，子结果不回传）`
+- wake: 唤醒策略（控制子完成后是否/何时唤主）
+  - immediate: 子完成立即唤主（聚合所有已完成子结果）。适合关键路径任务
+  - deferred: 子完成结果暂存不唤主；全 deferred 集最后一个完成隐式唤主。适合后台任务
+  - barrier: 声明栅栏，主进入 all 模式，所有未完成子完成才唤主。适合批量并行后汇总
+  主一轮内可连续 spawn 多个子（本轮 LLM 结束后统一停等）；子结果都带 [角色 type] 来源说明注入主消息流。`
 
 /**
  * 解析 chat 可 spawn 的角色 type 集（roster gate，执行期强制）。
@@ -83,9 +85,9 @@ function resolveSpawnRoster(chatId: string): string[] {
  * 派发角色执行子任务。前端驱动架构（见 docs/agent-pet.md §2/§5.1/§5.4）：
  *   1. 后端创建子 chat 行（parent_chat_id 关联主 chat）+ 推 role_created notification
  *   2. 前端收 notification → 创建子 pet + 调 chat.startSpawn 原子领取任务（同 WS 连接按 chatId 路由 chunk）
- *   3. wait=true：registerWaitedChild + yieldTurn（主 loop 立即结束本 turn）；子完成后后端注入角色回复
- *      + 推 role_reply → 前端 chat.resume 唤主跑新一轮（B1 架构，不阻塞 sense）
- *      wait=false：立即返回，主 loop 继续（fire-and-forget，子结果不回传）
+ *   3. registerWaitedChild（带 wake 策略）+ yieldTurn（主 loop 本轮结束停等）；子完成后后端注入角色回复
+ *      + wakeScheduler 按 wake 策略决定 silent 暂存（deferred/barrier）/ 推 role_reply 唤主跑新一轮
+ *      （immediate/策略满足，见 docs/agent-pet.md §5.4 唤醒策略调度器）
  *
  * 不在后端 sense 内部跑子 agent（规避 sense 无法 trigger chat.send、跨连接 busy 锁两大风险）。
  */
@@ -95,13 +97,18 @@ export default sense(
   z.object({
     type: typeSchema.describe('角色类型名（上方枚举的可用键）'),
     prompt: z.string().describe('交付角色执行的任务描述'),
-    wait: z.boolean().default(false).describe('是否等待角色结果'),
+    wake: z
+      .enum(['immediate', 'deferred', 'barrier'])
+      .default('immediate')
+      .describe(
+        '唤醒策略：immediate(子完成立即唤主)/deferred(暂存,全完成兜底唤主)/barrier(栅栏,全完成唤主)',
+      ),
   }),
   async (input, senseSharedData: SenseSharedData, ctx): Promise<SenseResult> => {
     // senseSharedData 在 spawn_role 中无业务用途（子 agent 独立 chat，不继承主 sense 共享状态）；
     // 保留参数为 sense() 工厂签名契约。void 显式标记"已用但为空实现"，避免 TS strict unused 检查告警。
     void senseSharedData
-    const { type, prompt, wait } = input
+    const { type, prompt, wake } = input
 
     // ctx.chatId 是主 agent 当前 chatId（spawn 调用方）；缺省（异常调用场景）→ 抛错
     // 不静默兜底 chatId，避免子 chat 漂浮无 parent 溯源。先取 parentChatId 供预设解析。
@@ -115,6 +122,18 @@ export default sense(
     // 1. 角色定义恒从 config.roles[type] 单一源解析（fail loud，规则12）。
     //    roster gate：preset chat 限 metadata.spawnTypes 选中集（未选中 → fail loud）；
     //    子 chat（无 preset）→ 全集可用（递归：子也可 spawn 子）。
+    // 先判 type 是否为干净枚举值（roleKeys 精确匹配）：LLM 偶发输出畸形 args（type 含换行/标签
+    // 如 "planner\n<tool_input>\n..."）时 JSON.parse 仍成功，但 type 不是合法角色名。
+    // 区分「格式错误」vs「未知角色」：畸形 blob 走格式错误分支，错误消息截断不含整个 blob，
+    // 明确提示「合法 JSON + type 纯枚举」，引导 LLM 重试（规则 12 fail loud + 提示）。
+    if (!roleKeys.includes(type)) {
+      const preview = type.length > 40 ? `${type.slice(0, 40)}...` : type
+      throw new Error(
+        `spawn_role 参数格式错误：type 应为单一角色名（${roleKeys.join(' / ') || '（未配置任何角色）'}），` +
+          `收到 "${preview}"。请输出合法 JSON：type 为纯字符串枚举值，prompt 为任务字符串（换行用 \\n 转义，` +
+          `不得用 <tool_input> 等标签格式）。`,
+      )
+    }
     const roleCfg = config.roles?.[type]
     if (!roleCfg) {
       throw new Error(
@@ -195,8 +214,8 @@ export default sense(
           ...(systemPromptFile ? { systemPromptFile: systemPromptFile } : {}),
           ...(skillFilter ? { skillFilter } : {}),
           ...(parentWorkspace ? { workspace: parentWorkspace } : {}),
-          // T9.10 重启容错：wait+type 持久化，rebuildFromDb 扫 metadata.wait===true 重建唤醒链
-          wait,
+          // T9.10 重启容错：wake+type 持久化，rebuildWaitedChildren 扫 metadata.wake 按策略重建唤醒链
+          wake,
           type,
           // spawn 复用条件：type + spawnPromptHash 精确匹配（见上方 existingChildren.find）
           spawnPromptHash: inputPromptHash,
@@ -209,7 +228,7 @@ export default sense(
         childChatId,
         type,
         prompt: input.prompt,
-        wait,
+        wake,
         brain,
         senseGroup,
         temporaryRuntime: !!temporaryRuntime,
@@ -230,7 +249,6 @@ export default sense(
         prompt,
         brain,
         senseGroup,
-        wait,
       })
     }
 
@@ -253,25 +271,29 @@ export default sense(
       prompt,
       brain,
       senseGroup,
-      wait,
+      wake,
       spawnSenseCallId,
     })
 
-    // 4. wait=true:注册唤醒链 + yieldTurn（主 loop 本轮后立即结束 turn）+ 立即返回（不再阻塞 await）
-    //    子完成后后端注入角色回复唤主跑新一轮（见 docs/agent-pet.md §5.4 B1）
-    if (wait) {
-      registerWaitedChild(childChatId, parentChatId, type)
-      ctx?.yieldTurn?.()
-      // 不返回 hash：spawn 的"派发标识" hash 命中 ≠ 重复派发任务（实际可能是"不同任务复用未完成子 chat"），
-      //   会导致 tool.ts replaceSense 错误折叠 sense 消息、丢失原始 prompt 参数（见对话 90ecacf2）。
-      return {
-        content: `角色 "${type}" 已派发（chatId=${childChatId}），等待结果中。`,
-      }
-    }
+    // 4. 注册唤醒链 + 启动看门狗（带唤醒策略 wake）。子完成后经 child_done → wakeScheduler 按 wake 策略
+    //    决定 silent 暂存（deferred/barrier）/ resume 唤主（immediate/策略满足），见 docs/agent-pet.md §5.4。
+    registerWaitedChild(childChatId, parentChatId, type, wake)
 
-    // wait=false：立即返回，主 loop 继续（纯 fire-and-forget，子结果不回传主）
+    // 5. eager 启动子 chat 后台运行（fire-and-forget）：用户原设计要求「子 agent 与主 agent 走同一 API」，
+    //    原 chat.startSpawn 由前端驱动——若前端 RPC 失败（requestMap 时序 / 网络抖动 / 页面关闭），子 agent
+    //    stream 永远到不了前端。把启动收敛到 sense 后端，端到端路径与 chat.send 完全一致：
+    //    handleChatStartSpawn → handleChatSend → bindChatConnection 子 chatId → persistChatEvent + sendToWs 推
+    //    到 parent ws；前端只通过 ws 订阅观察即可。chat.startSpawn RPC 不删除（保留 recovery / 重连抢占 / 已
+    //    finished 同步 / 流加入）。未注入 starter 时仅 warn，由前端 chat.startSpawn RPC 兜底不影响主流程。
+    startChildEager(task.taskId, parentChatId)
+
+    // 主一律本轮结束停等（统一 yieldTurn）：主一轮内可连续 spawn 多个子，yieldTurn 累积，
+    // 本轮 LLM 结束后 loop 检测 yieldTurn 统一停。子群并行跑，按 wake 策略唤主。
+    ctx?.yieldTurn?.()
+    // 不返回 hash：spawn 的"派发标识" hash 命中 ≠ 重复派发任务（实际可能是"不同任务复用未完成子 chat"），
+    //   会导致 tool.ts replaceSense 错误折叠 sense 消息、丢失原始 prompt 参数（见对话 90ecacf2）。
     return {
-      content: `角色 "${type}" 已派发（chatId=${childChatId}），不等待结果。`,
+      content: `角色 "${type}" 已派发（chatId=${childChatId}，唤醒策略=${wake}），本轮结束后等待子结果。`,
     }
   },
   SupervisionLevel.auto,

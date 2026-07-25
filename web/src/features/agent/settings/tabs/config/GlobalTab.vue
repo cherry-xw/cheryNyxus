@@ -85,6 +85,7 @@ watch(
   (global) => {
     if (!global.logger) global.logger = {}
     if (!global.file_compression) global.file_compression = {}
+    if (!global.watchdog) global.watchdog = {}
   },
   { immediate: true },
 )
@@ -104,6 +105,27 @@ const approvalTimeoutSeconds = computed<number | undefined>({
       delete props.draft.global.approval_timeout
     } else {
       props.draft.global.approval_timeout = sec * 1000
+    }
+  },
+})
+
+/**
+ * 看门狗超时（global.watchdog.timeout_ms）：后端存 ms（默认 300000=5min），前端 UI 按秒录入。
+ * - 读取：ms ÷ 1000 → 秒（undefined 保持 undefined，placeholder 显「300」）
+ * - 写入：秒 × 1000 → ms；清空时 delete key（保留 yaml 原状，由后端兜底 5min）
+ */
+const watchdogTimeoutSeconds = computed<number | undefined>({
+  get: () => {
+    const ms = props.draft.global.watchdog?.timeout_ms
+    return ms === undefined ? undefined : Math.round(ms / 1000)
+  },
+  set: (sec) => {
+    const wd = props.draft.global.watchdog
+    if (!wd) return
+    if (sec === undefined || sec === null || Number.isNaN(sec)) {
+      delete wd.timeout_ms
+    } else {
+      wd.timeout_ms = sec * 1000
     }
   },
 })
@@ -319,6 +341,37 @@ const {
             :step="6"
             :min="0"
           />
+        </div>
+        <div v-if="draft.global.watchdog" class="watchdog-row">
+          <NeonNumberControl
+            v-model="watchdogTimeoutSeconds"
+            label="看门狗超时"
+            tip="子 agent 无产出超过此时间判定卡死（每次产出重置计时）"
+            placeholder="300"
+            unit="秒"
+            :step="30"
+            :min="0"
+          />
+          <button
+            type="button"
+            class="stream-chip"
+            :class="{ active: draft.global.watchdog.wake_on_timeout === true }"
+            :aria-pressed="draft.global.watchdog.wake_on_timeout === true"
+            :title="
+              draft.global.watchdog.wake_on_timeout
+                ? '超时将通知主 agent'
+                : '超时仅暂停子 agent（主不受影响）'
+            "
+            @click="
+              draft.global.watchdog.wake_on_timeout =
+                !draft.global.watchdog.wake_on_timeout
+            "
+          >
+            <span>⏰</span><b>超时唤主</b
+            ><small>{{
+              draft.global.watchdog.wake_on_timeout ? '通知主' : '仅暂停子'
+            }}</small>
+          </button>
         </div>
       </section>
 
@@ -851,6 +904,20 @@ const {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
+}
+// 看门狗组：NeonNumberControl + stream-chip 横排，与 limit-grid 底部对齐
+.watchdog-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+.watchdog-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.watchdog-row .stream-chip {
+  flex: 0 0 auto;
 }
 .card-grid {
   position: relative;

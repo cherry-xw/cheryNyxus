@@ -50,6 +50,42 @@ llm:
       mock:
         enabled: true
         file: mock/userloop.yaml
+    mock_todo:                   # 流程S7：todo list（update_todo:auto 自动执行）
+      model: mock_todo
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/todo_flow.yaml
+    mock_flow_stream:            # 流程S8：流式中断刷新续跑（chunkDelayMs=2000 造断连窗口）
+      model: mock_flow_stream
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/flow_stream.yaml
+    mock_spawn:                  # 流程S14：父派发 spawn_role(immediate)，子完成唤主后续跑
+      model: mock_spawn
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/spawn_immediate.yaml
+    mock_spawn_deferred:         # 流程S15：父一轮派发 2 个 spawn_role(deferred)，验静默批量唤主
+      model: mock_spawn_deferred
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/spawn_deferred.yaml
+    mock_spawn_stream:          # 流程S16：父派发 spawn_role(reviewer_stream)，子流式造刷新重连窗口
+      model: mock_spawn_stream
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/spawn_stream.yaml
+    mock_child_stream:           # 流程S16：子 agent 流式（chunkDelayMs=2000 造刷新重连窗口）
+      model: mock_child_stream
+      provider: mock
+      mock:
+        enabled: true
+        file: mock/child_stream.yaml
 
 # sense 分组（:level 后缀覆盖监管等级）
 sense_groups:
@@ -60,6 +96,19 @@ sense_groups:
   mixed_confirm:                 # 多感官 confirm
     - read_file:confirm
     - write_file:confirm
+  todo_senses:                   # update_todo 自动执行（todo 显示）
+    - update_todo:auto
+  spawn_senses:                  # spawn_role 派发（父 agent 用，builtin auto）
+    - spawn_role
+
+# 角色定义（spawn_role type 单一源；子 brain 决定子 agent 行为）
+roles:
+  reviewer:                      # S14/S15 子：mock_content 纯 content 即完成
+    brain: mock_content
+    senseGroup: auto_senses
+  reviewer_stream:               # S16 子：流式慢响应，造刷新重连窗口
+    brain: mock_child_stream
+    senseGroup: auto_senses
 
 global:
   thinking: true

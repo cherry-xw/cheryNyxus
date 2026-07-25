@@ -210,9 +210,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
               role="radio"
               @click="selectBrain(localSelection, brain.name)"
             >
-              <span class="choice-option-label">{{
-                brainConfig(brain.name)?.model ?? brain.name
-              }}</span>
+              <span class="choice-option-label">{{ brain.name }}</span>
               <span v-if="brain.name === roleDefault.brain" class="choice-default" aria-label="默认"
                 >★</span
               >

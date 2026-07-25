@@ -15,8 +15,11 @@ import {
   type ChatListResponseData,
   type ChatContextUsageRequestData,
   type ChatContextUsageResponseData,
+  type ChatAttachRequestData,
+  type ChatAttachResponseData,
   type ChatSyncRequestData,
   type ChatSyncResponseData,
+  type ChatSessionSnapshotData,
   type ChatStartSpawnRequestData,
   type ChatStartSpawnResponseData,
   type Response as RpcResponse,
@@ -33,9 +36,12 @@ import {
   findChatsByParent,
   getChatPreviews,
   getChatWorkspace,
+  getChatRuntimeSelection,
 } from '@/db/chat.js'
 import { clearChatRuntime, ensureChat, isChatRunning } from './runtime.js'
-import { getQuestionStateSnapshot, hasPendingQuestionBatches } from '@/db/question.js'
+import { connectionManager } from '../websocket/connection.js'
+import { disconnectGrace } from '../websocket/disconnectGrace.js'
+import { getQuestionStateSnapshot } from '@/db/question.js'
 import { randomUUID } from 'crypto'
 import {
   parseRuntimeSelection,
@@ -46,6 +52,7 @@ import { logger } from '@/utils/logger/index.js'
 import { breakdownUsed } from '@/utils/token.js'
 import config, { DEFAULT_COMMAND_CONFIG, validateWorkspacePath } from '@/utils/config'
 import { computeContextBreakdown } from './contextUsage.js'
+import { registerPromptSnapshotHandler } from './promptSnapshot.js'
 import { safeJsonParse } from '@/utils/json.js'
 import {
   getChatEvents,
@@ -56,23 +63,8 @@ import {
 } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { handleChatResume, handleChatSend } from './send.js'
-
-/**
- * 判定 chat 是否可 resume（末条非 revoked 消息为未完成周期）。
- * 提取共享：chat.get / chat.list 复用，避免逻辑漂移。
- *   - role=sense：pending 或 done 无后续 assistant
- *   - role/subagent：子任务结果已注入，需恢复主 loop 消费
- *   - role=user：用户消息已入库但 assistant 未响应（异常中断）
- * getLastMessage 已过滤 revoked，此处仅判角色。
- */
-export function computeCanResume(chatId: string): boolean {
-  // ask_user_question yield-turn：持久化批次 pending 期间禁止 resume（否则在占位 sense 上跑 LLM）。
-  if (hasPendingQuestionBatches(chatId)) return false
-  const last = getLastMessage(chatId)
-  if (!last) return false
-  const role = last.role
-  return role === 'sense' || role === 'user' || role === 'role' || role === 'subagent'
-}
+import { computeCanResume } from './canResume.js'
+import { computeCurrentState } from './currentState.js'
 
 /**
  * 创建聊天（chatId 可选由前端指定）
@@ -149,6 +141,29 @@ function getCommandConfig(): import('../message/types.js').CommandConfigData {
   }
 }
 
+/** 构建 chat.get/chat.sync 共用的前端会话快照，避免启动阶段再发 context/runtime RPC。 */
+function buildChatSessionSnapshot(chatId: string): ChatSessionSnapshotData {
+  const chat = getChat(chatId)
+  if (!chat) throw new Error('这个会话不见了')
+  const metadata = chat.metadata ? (safeJsonParse(chat.metadata, {}) as { preset?: string }) : {}
+  const contextBreakdown = computeContextBreakdown(chatId)
+  const workspace = getChatWorkspace(chatId)
+  const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
+  const runtime = getChatRuntimeSelection(chatId)
+  return {
+    ...(runtime ? { runtime } : {}),
+    ...(metadata.preset ? { preset: metadata.preset } : {}),
+    canResume: computeCanResume(chatId),
+    currentState: computeCurrentState(chatId),
+    contextUsage: contextBreakdown.usage,
+    contextUsed: breakdownUsed(contextBreakdown),
+    contextTotal: contextBreakdown.total,
+    contextBreakdown,
+    commandConfig: getCommandConfig(),
+    ...(workspace ? { workspace, workspaceValid } : {}),
+  }
+}
+
 /**
  * CP8：includePreview=true 时每项增返 preview（首条 user 消息截断）+ turnCount（user 消息数），
  *   按 messages_month 分组批量查，供会话列表渲染；省略=lean，供初始化重建 pet 树（免 N+1）。
@@ -164,7 +179,7 @@ export async function handleChatList(
     const meta = chat.metadata
       ? (safeJsonParse(chat.metadata, {}) as {
           finished?: boolean
-          wait?: boolean
+          wake?: 'immediate' | 'deferred' | 'barrier'
           resumePending?: boolean
           preset?: string
           type?: string
@@ -175,8 +190,11 @@ export async function handleChatList(
     const spawnTask = chat.parent_chat_id ? getSpawnTaskByChild(chat.id) : undefined
     const finished = meta.finished === true || spawnTask?.status === 'finished'
     const running = isChatRunning(chat.id)
-    // T9.10：wait（子 metadata.wait=true）供前端重连恢复等待状态；刷新阶段不自动续跑。
-    const wait = meta.wait === true
+    // 唤醒策略（子 metadata.wake）供前端重连恢复等待状态；刷新阶段不自动续跑。
+    const wake =
+      meta.wake === 'immediate' || meta.wake === 'deferred' || meta.wake === 'barrier'
+        ? meta.wake
+        : undefined
     const resumePending = meta.resumePending === true
     // canResume：idle chat 末条为未完成周期 → 前端重建时显示显式“继续”入口。
     // 仅非 finished 非 running 时计算（finished 不可恢复，running 不需恢复）
@@ -191,7 +209,7 @@ export async function handleChatList(
       parentChatId: chat.parent_chat_id ?? null,
       finished,
       running,
-      wait,
+      wake,
       resumePending,
       canResume,
       preset: typeof meta.preset === 'string' ? meta.preset : undefined,
@@ -221,6 +239,90 @@ export async function handleChatList(
 }
 
 /**
+ * 把 chat 持久消息转成 staged chunk 序列（消息→staged），供 chat.get 历史回放与 chat.sync 超窗回填复用。
+ * runtime 溯源：user 带自身 runtime（并推进 lastUserRuntime），assistant 带前一条 user runtime（关联，见 agent-pet.md §5.7）。
+ * 合成 chunk 的 requestId 为空串（非 RPC 产物），seq 缺省（超窗回填的旧历史无真实 seq，前端按 msgId/id 处理）。
+ */
+export function messagesToStagedEvents(chatId: string): Chunk[] {
+  const messages = getMessages(chatId)
+  let lastUserRuntime: RuntimeSelection | undefined
+  const chunks: Chunk[] = []
+  for (const msg of messages) {
+    const parsedMsg = parseMessageRow(msg)
+    if (parsedMsg.thinking) {
+      chunks.push(
+        createChunk(
+          'staged',
+          '',
+          {
+            type: 'thinking_end',
+            role: parsedMsg.role,
+            thinking: parsedMsg.thinking,
+            createdAt: msg.created_at,
+            msgId: msg.id,
+            agentChatId: chatId,
+          },
+          { chatId },
+        ),
+      )
+    }
+    if (parsedMsg.content) {
+      let msgRuntime: RuntimeSelection | undefined
+      if (parsedMsg.role === 'user') {
+        msgRuntime = parsedMsg.runtime
+        lastUserRuntime = msgRuntime
+      } else if (parsedMsg.role === 'assistant') {
+        msgRuntime = lastUserRuntime
+      }
+      chunks.push(
+        createChunk(
+          'staged',
+          '',
+          {
+            type: 'content_end',
+            role: parsedMsg.role,
+            content: parsedMsg.content,
+            createdAt: msg.created_at,
+            msgId: msg.id,
+            agentChatId: chatId,
+            ...(msgRuntime ? { runtime: msgRuntime } : {}),
+            ...(parsedMsg.role === 'sense' ? { id: msg.id } : {}),
+            ...(parsedMsg.replace?.state
+              ? { replace: parsedMsg.replace, originalContent: parsedMsg.originalContent }
+              : {}),
+            ...(parsedMsg.contextCompaction ? { contextCompaction: true } : {}),
+            ...(parsedMsg.contextCompactionTokens !== undefined
+              ? { contextCompactionTokens: parsedMsg.contextCompactionTokens }
+              : {}),
+          },
+          { chatId },
+        ),
+      )
+    }
+    if (parsedMsg.role !== 'sense' && parsedMsg.senseCall && parsedMsg.senseCall.length > 0) {
+      for (const sc of parsedMsg.senseCall) {
+        chunks.push(
+          createChunk(
+            'staged',
+            '',
+            {
+              type: 'sense_end',
+              role: parsedMsg.role,
+              senseName: sc.name,
+              arguments: sc.arguments,
+              id: sc.id,
+              agentChatId: chatId,
+            },
+            { chatId },
+          ),
+        )
+      }
+    }
+  }
+  return chunks
+}
+
+/**
  * 获取聊天详情（载入历史对话）
  * runtime selection 持久化在 chats.metadata.runtime，服务重启后 ensureChat 自动恢复，
  * 前端无需重新 runtime.set（除非持久化的 brain/group 已从 config.yaml 删除，恢复时报错）。
@@ -239,112 +341,27 @@ export async function* handleChatGet(
 
   const messages = getMessages(p.chatId)
 
-  // 消息级 runtime 溯源：user 消息带自身 runtime，assistant 带前一条 user runtime（关联，见 agent-pet.md §5.7）
-  let lastUserRuntime: RuntimeSelection | undefined
-
-  // 逐条返回历史消息
-  for (const msg of messages) {
-    const parsedMsg = parseMessageRow(msg)
-
-    if (parsedMsg.thinking) {
-      yield createChunk(
-        'staged',
-        requestId,
-        {
-          type: 'thinking_end',
-          role: parsedMsg.role,
-          thinking: parsedMsg.thinking,
-          createdAt: msg.created_at,
-          msgId: msg.id,
-          agentChatId: p.chatId,
-        },
-        { chatId: p.chatId },
-      )
-    }
-    if (parsedMsg.content) {
-      // runtime 关联：user=自身 runtime（并更新 lastUserRuntime），assistant=前一条 user runtime
-      let msgRuntime: RuntimeSelection | undefined
-      if (parsedMsg.role === 'user') {
-        msgRuntime = parsedMsg.runtime
-        lastUserRuntime = msgRuntime
-      } else if (parsedMsg.role === 'assistant') {
-        msgRuntime = lastUserRuntime
-      }
-      yield createChunk(
-        'staged',
-        requestId,
-        {
-          type: 'content_end',
-          role: parsedMsg.role,
-          content: parsedMsg.content,
-          createdAt: msg.created_at,
-          msgId: msg.id,
-          agentChatId: p.chatId,
-          ...(msgRuntime ? { runtime: msgRuntime } : {}),
-          // role:sense 的 content 是 sense 执行结果，带 id（= sense call id）供前端关联到 sense block
-          ...(parsedMsg.role === 'sense' ? { id: msg.id } : {}),
-          // 感官去重命中：附加 replace 元数据（content 仍为原内容，前端据此渲染"已过时"）
-          ...(parsedMsg.replace?.state
-            ? { replace: parsedMsg.replace, originalContent: parsedMsg.originalContent }
-            : {}),
-          ...(parsedMsg.contextCompaction ? { contextCompaction: true } : {}),
-          ...(parsedMsg.contextCompactionTokens !== undefined
-            ? { contextCompactionTokens: parsedMsg.contextCompactionTokens }
-            : {}),
-        },
-        { chatId: p.chatId },
-      )
-    }
-    // 仅 assistant 消息携带 senseCalls（sense 消息的 senseCalls 是冗余副本，跳过避免历史回放重复）
-    if (parsedMsg.role !== 'sense' && parsedMsg.senseCall && parsedMsg.senseCall.length > 0) {
-      for (const sc of parsedMsg.senseCall) {
-        yield createChunk(
-          'staged',
-          requestId,
-          {
-            type: 'sense_end',
-            role: parsedMsg.role,
-            senseName: sc.name,
-            arguments: sc.arguments,
-            id: sc.id,
-            agentChatId: p.chatId,
-          },
-          { chatId: p.chatId },
-        )
-      }
-    }
+  // 逐条返回历史消息（消息→staged 转换抽取为 messagesToStagedEvents，供 chat.sync 超窗回填复用）
+  for (const chunk of messagesToStagedEvents(p.chatId)) {
+    yield chunk
   }
 
   // 发送 loaded notification
   yield createNotification('loaded', requestId, null, { chatId: p.chatId })
 
-  // CP7：contextUsage = 当前 chat 总 token / brain.contextLimit，供前端 ContextBar 渲染。
-  // 历史载入后计算一次（前端 chat.get response 同步带值），发消息时由 done notification 实时更新。
-  const ctxBd = computeContextBreakdown(p.chatId)
-
-  // 复用共享判定（同 chat.list）
-  const canResume = computeCanResume(p.chatId)
-
+  const snapshot = buildChatSessionSnapshot(p.chatId)
   const questionSnapshot = getQuestionStateSnapshot(p.chatId)
   logger.event('chat.get', {
     chatId: p.chatId,
     messageCount: messages.length,
-    canResume,
-    contextUsage: ctxBd.usage,
+    canResume: snapshot.canResume,
+    contextUsage: snapshot.contextUsage,
     pendingQuestionBatches: questionSnapshot.pendingQuestionBatches.length,
     snapshotSeq: questionSnapshot.snapshotSeq,
   })
-  const workspace = getChatWorkspace(p.chatId)
-  const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
   return {
     chatId: p.chatId,
-    canResume,
-    contextUsage: ctxBd.usage,
-    contextUsed: breakdownUsed(ctxBd),
-    contextTotal: ctxBd.total,
-    contextBreakdown: ctxBd,
-    commandConfig: getCommandConfig(),
-    ...(workspace ? { workspace, workspaceValid } : {}),
+    ...snapshot,
     ...questionSnapshot,
   }
 }
@@ -361,8 +378,17 @@ export async function* handleChatSync(
 ): AsyncGenerator<Chunk | Notification, ChatSyncResponseData, unknown> {
   if (!getChat(data.chatId)) throw new Error('这个会话不见了')
   const page = getChatEvents(data.chatId, data.afterSeq)
+  let backfilled = false
   if (page.reset) {
+    // 超窗淘汰：role_created 补发（spawn task 是持久载体）+ 消息合成回填旧历史 + 留存近期事件，
+    // 拼成连续事件流（reset 转 false），前端单数组累积，无需回落 chat.get 双路合并（G3 改造A）。
     for (const task of listOpenSpawnTasks(data.chatId)) {
+      const childMetaRow = getChat(task.childChatId)
+      const childWakeRaw = childMetaRow?.metadata
+        ? (safeJsonParse(childMetaRow.metadata, {}) as { wake?: string }).wake
+        : undefined
+      const wake: 'immediate' | 'deferred' | 'barrier' =
+        childWakeRaw === 'deferred' || childWakeRaw === 'barrier' ? childWakeRaw : 'immediate'
       yield createNotification(
         'role_created',
         undefined,
@@ -375,22 +401,47 @@ export async function* handleChatSync(
           prompt: task.prompt,
           brain: task.brain,
           senseGroup: task.senseGroup,
-          wait: task.wait,
+          wake,
         },
         { chatId: data.chatId },
       )
     }
+    // 留存近期事件（minSeq..latest）：afterSeq = minSeq-1 不触发 reset，返回全部留存事件
+    const minSeq = page.minSeq ?? 1
+    const retained = getChatEvents(data.chatId, minSeq - 1).events
+    // 合成全部消息为 staged，按 msgId/id 去掉已被留存事件覆盖的近期消息，剩余 = 超窗淘汰的旧历史
+    const seenKeys = new Set<string>()
+    for (const ev of retained) {
+      const e = ev as Record<string, unknown>
+      if (e.kind === 'chunk' && e.type === 'staged') {
+        const d = (e.data ?? {}) as unknown as Record<string, unknown>
+        if (typeof d.msgId === 'string') seenKeys.add('m:' + d.msgId)
+        if (typeof d.id === 'string') seenKeys.add('s:' + d.id)
+      }
+    }
+    const backfill = messagesToStagedEvents(data.chatId).filter((ev) => {
+      const d = (ev.data ?? {}) as unknown as Record<string, unknown>
+      if (typeof d.msgId === 'string' && seenKeys.has('m:' + d.msgId)) return false
+      if (typeof d.id === 'string' && seenKeys.has('s:' + d.id)) return false
+      return true
+    })
+    for (const ev of backfill) yield ev
+    for (const ev of retained) yield ev as unknown as Chunk | Notification
+    backfilled = true
   } else {
     for (const event of page.events) {
       yield event as unknown as Chunk | Notification
     }
   }
   const questionSnapshot = getQuestionStateSnapshot(data.chatId)
+  const snapshot = buildChatSessionSnapshot(data.chatId)
   return {
     chatId: data.chatId,
     latestSeq: page.latestSeq,
     ...(page.minSeq !== undefined ? { minSeq: page.minSeq } : {}),
-    reset: page.reset,
+    reset: false,
+    ...(backfilled ? { backfilled: true } : {}),
+    ...snapshot,
     ...questionSnapshot,
   }
 }
@@ -516,6 +567,57 @@ export async function handleChatContextUsage(
 }
 
 /**
+ * chat.attach：F5 后重连运行中 run，把后续实时输出重定向到本连接。
+ * 非流式；attach 立即返回，后续 chunk/notification 由原 run 的（已重定向）流式循环持续投递。
+ * 前端时序：先 chat.attach（开启重定向）→ 再 chat.sync（回放补齐当前实时态，见 web streamRouter resume 模式）。
+ */
+export async function handleChatAttach(
+  ctx: HandlerContext,
+  data: ChatAttachRequestData,
+): Promise<ChatAttachResponseData> {
+  const { chatId } = data
+  if (!getChat(chatId)) throw new Error('这个会话不见了')
+
+  // cursor 锚点：chat_events.MAX(seq) 同 pendingQuestionBatches 一事务快照。
+  // 前端 attachRunningChats 用此 resetChatSeq，把 chatSeq 推到此刻；紧接 chat.sync 仅补回 >snapshotSeq 的事件。
+  const questionSnapshot = getQuestionStateSnapshot(chatId)
+
+  // 未在运行 → 前端回落历史，不重连实时流。
+  if (!isChatRunning(chatId)) {
+    return { chatId, running: false, ...questionSnapshot }
+  }
+
+  const ws = connectionManager.getWsByConnectionId(ctx.connectionId)
+  if (!ws) {
+    // 连接已不可达（竞态）：无法重定向，按未运行回落。
+    logger.event('chat.attach.no-ws', { chatId, connectionId: ctx.connectionId })
+    return { chatId, running: false, ...questionSnapshot }
+  }
+
+  // 重建 owner 绑定（供子 spawn 的 role_created / role_reply 通知到达新 ws）。
+  // F5 后旧连接 close 已释放；被其它活跃标签占用则抛错 → 回落历史，不破坏对方。
+  try {
+    connectionManager.bindChatConnection(chatId, ctx.connectionId)
+  } catch (e) {
+    logger.event('chat.attach.bind.failed', { chatId, message: (e as Error).message })
+    return { chatId, running: false, ...questionSnapshot }
+  }
+
+  // 重定向后续实时输出到本连接 + 取消该 run 的断连 park（子 run 未跟踪则 no-op）。
+  connectionManager.setLiveOutput(chatId, ws)
+  disconnectGrace.rebindByChatId(chatId, ctx.connectionId, ws)
+
+  logger.event('chat.attach', { chatId, connectionId: ctx.connectionId })
+  return {
+    chatId,
+    running: true,
+    attached: true,
+    currentState: computeCurrentState(chatId),
+    ...questionSnapshot,
+  }
+}
+
+/**
  * 注册 Chat 管理 handlers
  */
 export function registerChatManageHandlers(router: import('../message/router.js').RpcRouter): void {
@@ -526,4 +628,6 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_START_SPAWN, handleChatStartSpawn)
   router.register(Method.CHAT_DELETE, handleChatDelete)
   router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage)
+  registerPromptSnapshotHandler(router)
+  router.register(Method.CHAT_ATTACH, handleChatAttach)
 }

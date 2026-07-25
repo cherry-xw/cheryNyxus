@@ -4,9 +4,9 @@ script:
     senseCalls:
       - id: hd-0
         name: read_file
-        arguments: '{"path":"/tmp/cheryclaw-test-iUuXn6/dup.txt"}'
+        arguments: '{"path":"/tmp/cheryclaw-test-ZfJtrb/dup.txt"}'
   - senseCalls:
       - id: hd-1
         name: read_file
-        arguments: '{"path":"/tmp/cheryclaw-test-iUuXn6/dup.txt"}'
+        arguments: '{"path":"/tmp/cheryclaw-test-ZfJtrb/dup.txt"}'
   - content: done

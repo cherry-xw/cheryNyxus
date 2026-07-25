@@ -5,7 +5,7 @@
  * UI 设计：
  * - 头部：📄 图标 + "读取文件" + 文件名
  * - 文件路径：可点击的文件路径（未来可集成 IDE 跳转）
- * - 内容预览（可折叠，默认展开前 10 行）：
+ * - 内容预览（可折叠，默认收起）：
  *   - 行号前缀（如 `  1 | content`）
  *   - 压缩信息（如有）：末尾显示 `[compressed: truncate]`
  * - 元信息：offset + limit（如有）
@@ -16,7 +16,7 @@ import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
 
 const props = defineProps<RendererProps>()
 
-const showContent = ref(true)
+const showContent = ref(false)
 
 // 解析参数
 const parsedArgs = computed<ReadFileArgs | null>(() => {

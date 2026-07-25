@@ -133,19 +133,54 @@ websocket handleRequest 收 interrupt 仅做 `setRequestApprovalId`（记 approv
 
 ### 连接关闭流程（connection.ts `close`）
 
-关键：**不调 `gen.return()`**（await 态无法立即终止，且 return 传播与 senseMiddleware catch 的 yield 交互会导致链条死锁——generator suspended 在 return completion 下的 yield，checkpoint/observer finally 永不执行，assistant 无法落库）。改靠 approval park 让 senseMiddleware 正常 catch 结束。
+断连先进入 `global.disconnect_grace_ms` 宽限期（默认 15s）；不立即调用 `gen.return()`、`builder.abort()` 或 `approvalManager.park()`。
+
+连接关闭不立即终止 generator：
 
 ```
 close(ws):
-  for each pendingRequest in state.pendingRequests:
-    if pending.approvalId:
-      approvalManager.park(approvalId)     // → core approvalRegistry.rejectApproval(AgentParkError) → senseMiddleware await 解除（WS 断连挂起，子 chat 保持 canResume 待重连，observer 静默不唤主）
-  for [chatId, connId] in activeChatConnections:   // 释放本连接绑定的所有 chat
-    if connId === state.id: delete
-  connections.delete(ws)
+  for each active request owned by ws:
+    disconnectGrace.start(requestId, chatId, runId, disconnect_grace_ms)
+      ├─ 宽限期内重连（同 requestId join 或 chat.attach 按 chatId） → 取消 grace，继续当前 loop
+      └─ 宽限期到期仍未重连 → requestParkAfterTurn(chatId, runId)
+           ├─ 当前 runChain 输出结束后在 loop 边界抛 AgentParkError
+           └─ pending approval 才调用 approvalManager.park(approvalId)
+  connection.close 仅清理 ws 资源；active chat owner 在 rebind/实际 release 前保留
 ```
 
-> 详见 [./chat.md](./chat.md)「abort 与 pending approval」。
+`AgentParkError` 会被 observer 归为 paused：不写 `finished`、不唤父、不注入错误 role；service finally 负责 flush 消息、release runtime/connection。超宽限期未重连的会话，前端据 `chat.list` 的 `running=false + canResume=true` 显示继续入口，用户点击后才发起 `chat.resume`。
+
+#### 输出重定向（chatId 寻址）
+
+流式循环发送每个 chunk/notification 时，输出目标解析为 `liveOutputByChat.get(item.chatId) ?? 捕获 ws`：
+
+- 平时 `liveOutputByChat` 为空 → 用启动 run 的原 ws（实时客户端不变）。
+- `chat.attach` 命中运行中 run → 写 `liveOutputByChat[chatId] = 新连接 ws`，原 run 的后续 chunk/notification（含终态 `done`/`error`）改投新 ws。
+- run 结束（`onRequestFinished` / send·resume·startSpawn finally）清除该 chatId 映射。
+
+按 **chatId** 而非 requestId 寻址：`startSpawn` 请求 params 无 chatId（不被 disconnectGrace 跟踪），子 run 亦可经此统一重定向。断连窗口中已持久化但未投递的事件由 `chat.sync` 回放补齐（每个事件持久化带单调 seq，前端 `drainChatEvents` 连续补放、按 `seq<=consumed` 去重）。
+
+#### 刷新（F5）重连：chat.attach
+
+同页瞬时重连复用 requestId 命中 `inFlightRequests` join；**F5 后是新页面、requestId 已丢失**，改由 `chat.attach(chatId)`（非流式）重连运行中 run：
+
+```
+chat.attach(chatId):
+  !isChatRunning → { running:false }（前端回落历史，不实时流）
+  运行中 →
+    ├─ liveOutputByChat[chatId] = 本连接 ws（重定向后续输出）
+    ├─ disconnectGrace.cancelParkByChatId(chatId)（清 grace timer；子 run 未跟踪则 no-op）
+    ├─ bindChatConnection（重建 owner，供子 spawn role_created/role_reply 到达新 ws）
+    └─ { running:true, attached:true }
+```
+
+前端 hydration 时序：先 `chat.attach`（开启重定向 + 返 `currentState`）→ 再 `chat.sync`（回放补齐当前实时态）；运行中 chat 的回放用 `resume` 模式重建 thinking/content/runningTools/approval，但不重放 startSpawn/resumeAgent/终态副作用（详见 web 侧 streamRouter 分档）。
+
+> **单一 hydration 水源（G3 改造A）**：冷启动 `chat.sync(0)` 一次返回完整连续事件流（无超窗时即全部事件；超窗时消息合成回填旧历史 + 留存近期，`backfilled:true`），前端**单数组累积**，不再 chat.get 快照 + chat.sync 事件双路合并。`currentState`（chat.attach/chat.sync response）权威给 pending approval 存活判定 / 运行中工具 / 当前 todo，补事件无法可靠判定的事实（park 无 rejected 事件）。事件重放分类见 [protocol.md 事件重放分类](../protocol.md)。
+
+> 审批宽限期内继续等待；到期才 park，避免刷新瞬间丢审批。`disconnect_grace_ms=0` 表示不等待，直接请求当前输出结束后暂停。**断连不立即 park 挂起审批**（G1 改造C）：宽限期内 approval 存活，重连可用原 approvalId 审批续跑；到期才 park——由 `disconnectGrace` 接管，`connection.close` 不再立即 park。
+
+详见 [./chat.md](./chat.md)「断连宽限与暂停」。
 
 ## 依赖与关联 ⭐
 

@@ -72,7 +72,7 @@ export function resetEnvVarCache(): void;
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `global` | `ExtendedGlobalConfig` | 全局开关（thinking/supervision/stream/超时/loop 上限）+ logger + file_compression + 自动补全的 4 个 `.chery/` 子路径 |
+| `global` | `ExtendedGlobalConfig` | 全局开关（thinking/supervision/stream/超时/loop 上限）+ `disconnect_grace_ms` 断连宽限 + logger + file_compression + 自动补全的 4 个 `.chery/` 子路径 |
 | `llm.brain` | `Record<string, BrainConfig>` | Brain 名称 → provider/model/url/key/thinking/rpm/mock/capabilities 配置 |
 | `media` | `MediaConfig?` | 图片、视频、音频网关（url/model/key/enabled）及 `maxUploadMb` |
 | `sense_groups` | `Record<string, string[]>` | 感官分组（值如 `"read_file"` 或 `"execute_command:auto"` 覆盖监管等级） |
@@ -111,6 +111,7 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 - `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`；`presets.*.roles[*]` 必须引用已定义角色
 - `presets.*.workspace`（如配置）必须是已存在的目录绝对路径（`fs.accessSync` 校验，fail loud；该字段仅作 system prompt 提示词注入，不约束 sense 行为）
 - `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|confirm|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
+- `global.disconnect_grace_ms` 必须是有限且 `>= 0` 的毫秒值；缺省为 `15000`，`0` 表示断连后立即请求当前输出结束时暂停
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP

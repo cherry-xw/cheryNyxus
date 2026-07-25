@@ -206,7 +206,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
                   type="button"
                   class="role-summary-tag"
                   :class="{ 'is-primary': role === primaryRole }"
-                  :aria-label="`配置角色 ${role}，模型 ${(brainConfig(selection.brain)?.model ?? selection.brain) || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
+                  :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
                 >
                   <span class="role-summary-main">
                     <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
@@ -216,7 +216,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
                     <span class="role-summary-model-slot">
                       <span class="role-summary-model"
                         >◈
-                        {{ (brainConfig(selection.brain)?.model ?? selection.brain) || '—' }}</span
+                        {{ selection.brain || '—' }}</span
                       >
                     </span>
                     <el-tooltip

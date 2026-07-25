@@ -5,7 +5,7 @@
  * UI 设计：
  * - 头部：🤖 图标 + "派遣角色" + 角色类型
  * - 角色信息：type + prompt（截断到 100 字符）
- * - 状态：wait=true 显示"等待结果"，false 显示"已派发"
+ * - 状态：wake 策略（immediate/deferred/barrier）映射显示文案
  * - chatId：显示子 chat ID（可点击跳转）
  */
 import { computed } from 'vue'
@@ -46,13 +46,26 @@ const chatId = computed<string | null>(() => {
   return match?.[1] ?? null
 })
 
+// wake 策略中文映射（status: running/done 各态）
+const WAKE_LABEL_RUNNING: Record<NonNullable<SpawnRoleArgs['wake']>, string> = {
+  immediate: '等待结果',
+  deferred: '后台派发',
+  barrier: '栅栏等待',
+}
+const WAKE_LABEL_DONE: Record<NonNullable<SpawnRoleArgs['wake']>, string> = {
+  immediate: '已完成',
+  deferred: '已暂存',
+  barrier: '栅栏完成',
+}
+
 // 状态标签
 const statusLabel = computed(() => {
+  const wake = parsedArgs.value?.wake ?? 'immediate'
   if (props.call.status === 'running') {
-    return parsedArgs.value?.wait ? '等待结果' : '派发中'
+    return WAKE_LABEL_RUNNING[wake] ?? '派发中'
   }
   if (props.call.status === 'done') {
-    return parsedArgs.value?.wait ? '已完成' : '已派发'
+    return WAKE_LABEL_DONE[wake] ?? '已派发'
   }
   if (props.call.status === 'error') {
     return '错误'
@@ -109,9 +122,9 @@ function onDrillDetail(): void {
         <span class="spawn-label">任务:</span>
         <span class="spawn-prompt">{{ promptPreview }}</span>
       </div>
-      <div v-if="parsedArgs.wait !== undefined" class="spawn-row">
-        <span class="spawn-label">等待:</span>
-        <span class="spawn-badge">{{ parsedArgs.wait ? '是' : '否' }}</span>
+      <div v-if="parsedArgs.wake !== undefined" class="spawn-row">
+        <span class="spawn-label">唤醒:</span>
+        <span class="spawn-badge">{{ parsedArgs.wake }}</span>
       </div>
     </div>
 

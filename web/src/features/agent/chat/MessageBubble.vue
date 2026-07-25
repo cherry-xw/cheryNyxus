@@ -325,6 +325,8 @@ const emit = defineEmits<{
   font-size: 11.5px;
   line-height: 1.5;
   color: fade(@ink, 88%);
+  overflow: auto;
+  max-height: 80vh;
   .md {
     .md-content();
   }

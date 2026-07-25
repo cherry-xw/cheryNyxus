@@ -465,7 +465,7 @@ const HAND_PAIRS: Record<PetMood, PetHands[]> = {
   ],
   sleepy: [
     { left: 'z(', right: ')z' },
-    { left: '💤', right: '💤' },
+    { left: 'Zz', right: 'zZ' },
     { left: '(￣o', right: 'o￣)' },
     { left: '~', right: '~' },
     { left: '＿', right: '＿' },

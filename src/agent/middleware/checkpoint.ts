@@ -79,6 +79,8 @@ export async function* checkpointMiddleware(
               stagedType: 'thinking_end',
               content: '',
               thinking: state.getThinking(),
+              msgId: state.getAssistantId(),
+              createdAt: state.getTurnStartedAt(),
             }
             yield thinkingStaged
           }
@@ -95,6 +97,8 @@ export async function* checkpointMiddleware(
               stagedType: 'thinking_end',
               content: '',
               thinking: state.getThinking(),
+              msgId: state.getAssistantId(),
+              createdAt: state.getTurnStartedAt(),
             }
             yield thinkingStaged
           }
@@ -107,6 +111,9 @@ export async function* checkpointMiddleware(
               stagedType: 'content_end',
               content: state.getContent(),
               thinking: '',
+              msgId: state.getAssistantId(),
+              role: 'assistant',
+              createdAt: state.getTurnStartedAt(),
             }
             yield contentStaged
           }
@@ -125,6 +132,8 @@ export async function* checkpointMiddleware(
           senseName: trigger.name,
           senseArguments: trigger.arguments,
           id: trigger.id,
+          msgId: state.getAssistantId(),
+          createdAt: state.getTurnStartedAt(),
         }
         yield senseStaged
 
@@ -186,7 +195,15 @@ export async function* checkpointMiddleware(
       // sense_accept/sense_reject 时不重置标记（本轮 thinking/content 已 yield）
       // 新一轮标记由新 CheckpointState 初始化
 
-      yield chunk
+      if (chunk.type === 'stream') {
+        yield {
+          ...chunk,
+          msgId: state.getAssistantId(),
+          createdAt: state.getTurnStartedAt(),
+        } as StreamChunk
+      } else {
+        yield chunk
+      }
     }
 
     // === 流结束后 yield 最终 staged（仅正常完成时） ===
@@ -196,6 +213,8 @@ export async function* checkpointMiddleware(
         stagedType: 'thinking_end',
         content: '',
         thinking: state.getThinking(),
+        msgId: state.getAssistantId(),
+        createdAt: state.getTurnStartedAt(),
       } as StagedChunk
       thinkingActive = false
     }
@@ -205,6 +224,9 @@ export async function* checkpointMiddleware(
         stagedType: 'content_end',
         content: state.getContent(),
         thinking: '',
+        msgId: state.getAssistantId(),
+        role: 'assistant',
+        createdAt: state.getTurnStartedAt(),
       } as StagedChunk
       contentActive = false
     }

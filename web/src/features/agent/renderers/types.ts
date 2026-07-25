@@ -134,8 +134,8 @@ export interface SpawnRoleArgs {
   type: string
   /** 交付角色执行的任务描述 */
   prompt: string
-  /** 是否等待角色结果（可选，默认 false） */
-  wait?: boolean
+  /** 唤醒策略（可选，默认 immediate）：immediate 子完成立即唤主；deferred 暂存不唤主；barrier 声明栅栏等全部子完成 */
+  wake?: 'immediate' | 'deferred' | 'barrier'
 }
 
 // ============== skill 参数类型 ==============

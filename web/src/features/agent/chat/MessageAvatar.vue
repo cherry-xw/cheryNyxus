@@ -80,6 +80,39 @@ const resolvedName = computed(() => {
 
 // hover 详情面板 runtime：user=发送时配置，assistant=前一条 user runtime 后端关联
 // 旧消息无 runtime（迁移前）→ 字段显「—」（规则12）
+
+/** role → 中文标签（角色组首行） */
+const roleText = computed(() => {
+  switch (props.item.role) {
+    case 'user':
+      return '真人'
+    case 'assistant':
+      return '主 agent'
+    case 'master':
+      return '主 agent'
+    case 'subagent':
+    case 'role':
+      return '角色'
+    default:
+      return props.item.role || '—'
+  }
+})
+
+/** 时间戳 → HH:MM（缺则 —） */
+const timeText = computed(() => {
+  const ts = props.item.createdAt
+  if (!ts) return '—'
+  const d = new Date(ts)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
+})
+
+/** 是否展示「类型」行：仅 role/subagent/合并式有子 pet 类型 */
+const showTypeField = computed(
+  () => props.mergedChildToMaster || props.item.role === 'subagent' || props.item.role === 'role',
+)
+
 const senseGroupsText = computed(() => {
   const sg = props.item.runtime?.senseGroup
   return sg && sg.length > 0 ? sg : '-'
@@ -190,27 +223,17 @@ function onAvatarClick(): void {
     </template>
     <div class="info-panel" role="tooltip">
       <div class="panel-name">{{ resolvedName || 'agent' }}</div>
-      <dl class="panel-fields">
+      <div class="panel-group">
         <div class="field">
-          <dt>brain</dt>
-          <dd>{{ item.runtime?.brain ?? '—' }}</dd>
-        </div>
-        <div class="field">
-          <dt>senseGroup</dt>
-          <dd>{{ senseGroupsText }}</dd>
+          <span class="field-label">🧠 大脑：</span><span class="field-value">{{ item.runtime?.brain ?? '—' }}</span>
         </div>
         <div class="field">
-          <dt>mcpServers</dt>
-          <dd>{{ mcpServersText }}</dd>
+          <span class="field-label">📡 感官组：</span><span class="field-value">{{ senseGroupsText }}</span>
         </div>
-        <div
-          v-if="mergedChildToMaster || item.role === 'subagent' || item.role === 'role'"
-          class="field"
-        >
-          <dt>type</dt>
-          <dd>{{ subTypeText }}</dd>
+        <div class="field">
+          <span class="field-label">🔌 MCP：</span><span class="field-value">{{ mcpServersText }}</span>
         </div>
-      </dl>
+      </div>
     </div>
   </div>
 </template>
@@ -314,9 +337,9 @@ function onAvatarClick(): void {
   top: 0;
   left: calc(100% + 6px);
   z-index: 30;
-  min-width: 168px;
-  max-width: 220px;
-  padding: 8px 10px;
+  min-width: 200px;
+  max-width: 240px;
+  padding: 9px 11px;
   border-radius: 8px;
   background: #ffffff;
   border: 1px solid rgba(36, 38, 45, 0.16);
@@ -329,33 +352,40 @@ function onAvatarClick(): void {
     font-size: 12px;
     font-weight: 800;
     color: fade(@ink, 88%);
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     word-break: break-word;
   }
 
-  .panel-fields {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .field {
-    display: flex;
-    gap: 6px;
-    line-height: 1.4;
-
-    dt {
-      flex-shrink: 0;
-      min-width: 64px;
-      color: fade(@ink, 50%);
-      font-weight: 600;
+  .panel-group {
+    & + .panel-group {
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px solid rgba(36, 38, 45, 0.1);
     }
 
-    dd {
-      margin: 0;
+    .field {
+      display: flex;
+      gap: 4px;
+      align-items: baseline;
+      flex-direction: row;
+      line-height: 1.45;
+
+      & + .field {
+        margin-top: 1px;
+      }
+    }
+
+    .field-label {
+      flex-shrink: 0;
+      color: fade(@ink, 50%);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .field-value {
       flex: 1;
       word-break: break-word;
+      color: fade(@ink, 82%);
     }
   }
 }

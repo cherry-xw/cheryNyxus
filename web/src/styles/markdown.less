@@ -24,7 +24,21 @@
     font-size: 10.5px; padding: 1px 4px; border-radius: 3px;
     background: rgba(20, 22, 26, 0.06);
   }
-  :deep(pre) { margin: 6px 0; overflow-x: auto; }
+  // 代码块横向滚动条细化（4px，配色与 PetBubbles .work-text 一致）。
+  // 不加则回退浏览器默认粗滚动条，代码区最明显。横向滚动条用 height。
+  :deep(pre) {
+    margin: 6px 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(20, 22, 26, 0.25) transparent;
+    &::-webkit-scrollbar { height: 4px; width: 4px; }
+    &::-webkit-scrollbar-track { background: transparent; }
+    &::-webkit-scrollbar-thumb {
+      background: rgba(20, 22, 26, 0.25);
+      border-radius: 2px;
+      &:hover { background: rgba(20, 22, 26, 0.4); }
+    }
+  }
   :deep(pre code) { padding: 0; background: transparent; font-size: 10px; }
   :deep(hr) { border: none; border-top: 1px solid rgba(36, 38, 45, 0.15); margin: 8px 0; }
   :deep(img) { max-width: 100%; border-radius: 4px; }

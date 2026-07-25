@@ -127,12 +127,19 @@ export function readMemory(
   if (!existsSync(filePath)) return null
   const { frontmatter, body } = parseMd(readFileSync(filePath, 'utf-8'))
   const fm = frontmatter as unknown as MemoryFrontmatter
-  const meta = fm.metadata as { type?: MemoryType; originSessionId?: string } | undefined
+  const meta = fm.metadata as
+    | {
+        type?: MemoryType
+        created_at?: string
+        originSessionId?: string
+      }
+    | undefined
   return {
     name: fm.name ?? name,
     description: fm.description ?? '',
-    type: meta?.type ?? 'fact',
+    type: meta?.type ?? 'project',
     content: body,
+    createdAt: meta?.created_at,
     originSessionId: meta?.originSessionId,
   }
 }
@@ -151,6 +158,7 @@ export function writeMemory(
     metadata: {
       node_type: 'memory',
       type: memory.type,
+      ...(memory.createdAt ? { created_at: memory.createdAt } : {}),
       ...(memory.originSessionId ? { originSessionId: memory.originSessionId } : {}),
     },
   }
@@ -249,6 +257,7 @@ export function readHistoryEntry(
   const meta = fm.metadata as
     | {
         type?: MemoryType
+        created_at?: string
         originSessionId?: string
         replaced_at?: string
         replaced_reason?: string
@@ -258,8 +267,9 @@ export function readHistoryEntry(
   return {
     name: fm.name ?? name,
     description: fm.description ?? '',
-    type: meta?.type ?? 'fact',
+    type: meta?.type ?? 'project',
     content: body,
+    createdAt: meta?.created_at,
     originSessionId: meta?.originSessionId,
     replacedAt: meta?.replaced_at ?? '',
     replacedReason: meta?.replaced_reason ?? '',
@@ -281,6 +291,7 @@ export function writeHistoryEntry(
     metadata: {
       node_type: 'memory',
       type: entry.type,
+      ...(entry.createdAt ? { created_at: entry.createdAt } : {}),
       ...(entry.originSessionId ? { originSessionId: entry.originSessionId } : {}),
       replaced_at: entry.replacedAt,
       replaced_reason: entry.replacedReason,

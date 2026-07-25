@@ -70,14 +70,21 @@ export class MessageJournal {
     const created: AgentMessage[] = []
     for (const input of inputs) {
       const msgId = randomUUID()
+      const updateAt = Date.now()
       messages.push({
         id: msgId,
         role: 'user',
         content: input.content,
         createdAt: input.time, // 用户发送时间
-        updateAt: Date.now(), // 注入消息列表时间
+        updateAt, // 注入消息列表时间
       })
-      created.push({ id: msgId, role: 'user', content: input.content })
+      created.push({
+        id: msgId,
+        role: 'user',
+        content: input.content,
+        createdAt: input.time,
+        updateAt,
+      })
     }
     this.soul.messages = messages
     inputs.length = 0 // drain（避免重复处理）
@@ -114,13 +121,18 @@ export class MessageJournal {
   /**
    * 追加 assistant 消息（content/thinking/senseCalls 已完整）。
    * 调用方（CheckpointState）负责 assistantFlushed 守卫与"有无内容"判定——本方法纯追加。
+   * @param id 预分配的消息 id（可选）。传入则用之（= staged chunk 携带的 msgId，保证实时累积/落库/回放三路同 id）；
+   *           省略则现场生成。这样 DB 落库 id = 预分配 id = chat.get 回放 id。
    * @returns AgentMessage（供 yield message_created effect）
    */
-  appendAssistant(payload: {
-    content: string
-    thinking: string
-    senseCalls: Array<{ id: string; name: string; arguments: string }>
-  }): AgentMessage {
+  appendAssistant(
+    payload: {
+      content: string
+      thinking: string
+      senseCalls: Array<{ id: string; name: string; arguments: string }>
+    },
+    id?: string,
+  ): AgentMessage {
     const messages = this.soul.messages ?? []
     const previousUser = [...messages].reverse().find((message) => message.role === 'user')
     const contextCompaction = /\[\[command:\/compact\]\]/.test(previousUser?.content ?? '')
@@ -137,7 +149,7 @@ export class MessageJournal {
         )
       : undefined
     const assistantMsg: LLMResponse = {
-      id: randomUUID(),
+      id: id ?? randomUUID(),
       role: 'assistant' as const,
       content: payload.content,
       thinking: payload.thinking,
@@ -180,13 +192,14 @@ export class MessageJournal {
   }
 
   /**
-   * 追加角色消息（wait=true 子完成注入的回复，见 docs/agent-pet.md §5.4）。
+   * 追加角色消息（子完成注入的回复，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
    * 由 service wakeParent 调（守单一写者）：写 soul.messages（内存），DB 落库由 wakeParent 直接 addMessage
    * （主 observer 未运行，不走 message_created effect 路径）。
    * @param content 回复内容（caller 已格式化，如 `[角色 type] result`）
+   * @param options.silent true=deferred/barrier 暂存注入，不置 roleReplyPending（主停等态由 wakeScheduler 决定唤主时机）
    * @returns AgentMessage（供 wakeParent addMessage 落库用 id）
    */
-  appendRoleReply(content: string): AgentMessage {
+  appendRoleReply(content: string, options?: { silent?: boolean }): AgentMessage {
     const messages = this.soul.messages ?? []
     const msg: LLMResponse = {
       id: randomUUID(),
@@ -197,7 +210,11 @@ export class MessageJournal {
     }
     messages.push(msg)
     this.soul.messages = messages
-    this.soul.roleReplyPending = true
+    // silent（deferred/barrier 暂存）：不置 roleReplyPending，主 loop 不会因此多跑一轮；
+    // 主停等态下 roleReplyPending 本就无效（loop 未运行），显式区分仅为语义清晰 + 便于 wakeScheduler 决策。
+    if (!options?.silent) {
+      this.soul.roleReplyPending = true
+    }
     return {
       id: msg.id,
       role: 'role',

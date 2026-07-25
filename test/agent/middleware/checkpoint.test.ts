@@ -14,8 +14,10 @@ import {
   collectThinking,
   senseEnds,
   senseAccepts,
+  filterType,
   hasDone,
 } from "../helpers/chunkAssert.js";
+import type { StreamChunk, StagedChunk } from "@/core/middleware/types.js";
 
 describe("checkpointMiddleware 集成", () => {
   beforeAll(async () => {
@@ -54,6 +56,21 @@ describe("checkpointMiddleware 集成", () => {
     expect(consumed?.count).toBe(1);
     expect(consumed?.messages?.[0]?.content).toBe("注入测试内容");
     expect(consumed?.messages?.[0]?.role).toBe("user");
+    expect(consumed?.messages?.[0]?.id).toBeTruthy();
+    expect(consumed?.messages?.[0]?.createdAt).toEqual(expect.any(Number));
+  });
+
+  it("同一 LLM turn 的 stream/staged 共用预分配 msgId", async () => {
+    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
+    const chunks = await runSend(agent, "消息身份测试");
+    const streams = filterType<StreamChunk>(chunks, "stream");
+    const staged = filterType<StagedChunk>(chunks, "staged");
+    expect(streams.length).toBeGreaterThan(0);
+    const msgId = streams[0]?.msgId;
+    expect(msgId).toBeTruthy();
+    expect(streams.every((chunk) => chunk.msgId === msgId)).toBe(true);
+    expect(staged.every((chunk) => chunk.msgId === msgId)).toBe(true);
+    expect(streams.every((chunk) => chunk.createdAt === staged[0]?.createdAt)).toBe(true);
   });
 
   it("auto sense：sense_end staged + sense_accept + sense 消息创建", async () => {

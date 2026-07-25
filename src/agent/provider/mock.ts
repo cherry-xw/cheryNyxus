@@ -50,6 +50,9 @@ interface MockScriptFile {
 /** .chery 目录（与 config.ts 同源） */
 const cheryDir = process.env.CHERY_DIR || process.cwd()
 
+/** sleep 辅助（流式延迟用，仿 utils/rateLimiter） */
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
 /**
  * 按 model 查找 mock brain 的脚本文件配置（config.llm.brain 按 name 索引，遍历匹配 provider+model）
  */
@@ -58,6 +61,16 @@ function findMockFile(model: string): string | undefined {
     if (b.provider === 'mock' && b.model === model) return b.mock?.file
   }
   return undefined
+}
+
+/**
+ * 按 model 查找 mock brain 的全局延迟兜底（脚本项缺省时取此）。流式/刷新计时测试用。
+ */
+function findMockDelays(model: string): { chunkDelayMs?: number; preRespondMs?: number } {
+  for (const b of Object.values(config.llm.brain)) {
+    if (b.provider === 'mock' && b.model === model) return b.mock ?? {}
+  }
+  return {}
 }
 
 /**
@@ -165,6 +178,8 @@ const mockLLMAdapter: LLMAdapter = {
     const model = options?.model ?? ''
     const item = pickScriptItem(model, messages as LLMResponse[])
     if (item.error) throw new Error(item.error)
+    const preRespond = item.preRespondMs ?? findMockDelays(model).preRespondMs ?? 0
+    if (preRespond > 0) await sleep(preRespond)
     return toResponse(item)
   },
   async chatStream(messages, _senses, options?: LLMOptions): Promise<AsyncIterable<unknown>> {
@@ -172,12 +187,26 @@ const mockLLMAdapter: LLMAdapter = {
     const item = pickScriptItem(model, messages as LLMResponse[])
     if (item.error) throw new Error(item.error)
     const resp = toResponse(item)
+    const delays = findMockDelays(model)
+    const chunkDelay = item.chunkDelayMs ?? delays.chunkDelayMs ?? 0
+    const preRespond = item.preRespondMs ?? delays.preRespondMs ?? 0
+    if (preRespond > 0) await sleep(preRespond)
 
-    // 拆 delta：thinking / content / toolCalls 各一 chunk（触发 checkpoint delta 状态机）
+    // 拆 delta：thinking / content / toolCalls 各一 chunk（触发 checkpoint delta 状态机）。
+    // chunkDelay>0 时每个 delta 前 sleep，模拟流式节奏（刷新/重连测试可靠落在流式窗口内）。
     async function* gen(): AsyncIterable<MockStreamChunk> {
-      if (resp.thinking) yield { thinking: resp.thinking }
-      if (resp.content) yield { content: resp.content }
-      if (resp.toolCalls && resp.toolCalls.length > 0) yield { toolCalls: resp.toolCalls }
+      if (resp.thinking) {
+        if (chunkDelay > 0) await sleep(chunkDelay)
+        yield { thinking: resp.thinking }
+      }
+      if (resp.content) {
+        if (chunkDelay > 0) await sleep(chunkDelay)
+        yield { content: resp.content }
+      }
+      if (resp.toolCalls && resp.toolCalls.length > 0) {
+        if (chunkDelay > 0) await sleep(chunkDelay)
+        yield { toolCalls: resp.toolCalls }
+      }
     }
     return gen()
   },
