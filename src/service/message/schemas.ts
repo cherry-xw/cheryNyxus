@@ -161,6 +161,7 @@ const configSaveSchema = z
           brain: z.string(),
           avatar: z.string().max(24).optional(),
           description: z.string().optional(),
+          mentionable: z.boolean().optional(),
           senseGroup: z.string(),
           mcpServers: z.array(z.string()).optional(),
           systemPrompt: z.string().optional(),

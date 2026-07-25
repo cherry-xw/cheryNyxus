@@ -47,6 +47,12 @@ export interface PromptSegmentText {
   count?: number
 }
 
+/** 当前主会话可由用户 @ 选择的角色，运行时由 chat 编制快照解析。 */
+export interface RoleMentionInfo {
+  name: string
+  description: string
+}
+
 /** skills 段预聚合 token（getSkillMetas 一次性算好，buildSystemPromptSegments 直接累加）。 */
 export interface SkillsSegmentTokens {
   nameDescTokens: number
@@ -78,6 +84,7 @@ interface PromptPieces {
   skillsCount: number
   /** skill 段预聚合 token（从 getSkillMetas 复用，不在本模块重算）。 */
   skillsTokens: SkillsSegmentTokens
+  roleMentionsSection: string
   // 注意：内置命令（/.chery/command/*.md）不再预注入 system prompt；trigger 时由 send 路径临时附注。
   // 详见 docs/agent/command.md。
 }
@@ -92,6 +99,7 @@ function buildPromptPieces(
   systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
+  roleMentions: RoleMentionInfo[] = [],
 ): PromptPieces {
   // systemPromptFile 路径实时读（每子 agent 可不同文件）；缺失容错仅用全局 base（配置期 validateRawConfig 已校验存在）
   let userSystem = ''
@@ -163,6 +171,14 @@ function buildPromptPieces(
     }),
     { nameDescTokens: 0, triggerTokens: 0, contentTokens: 0, promptTokens: 0 },
   )
+  const roleMentionsSection =
+    roleMentions.length >= 2
+      ? `\n\n<role-mentions>\n当前会话可由用户明确选择的协作角色：\n${roleMentions
+          .map((role) => `- @${role.name}: ${role.description}`)
+          .join(
+            '\n',
+          )}\n\n用户消息中的 [[role:@名称]] 是选择器插入的结构化角色标记，不是普通文本。它表示用户希望你将该角色纳入本次协作候选编制。你作为 coordinator 必须结合任务依赖，自主决定是否派发、并行或串行顺序、是否补充其他角色以及 wake 策略；实际派发只能通过 spawn_role，且必须遵守其可用角色限制。不要把标记原样当作用户任务内容回复。\n</role-mentions>`
+      : ''
   // 内置命令（/.chery/command/*.md）不在默认 system prompt 注入；trigger 时由 autoCompact / manual
   // 路径临时附注到 user prompt 末尾。详见 docs/agent/command.md。
 
@@ -176,6 +192,7 @@ function buildPromptPieces(
     skillsInner,
     skillsCount: skillMetas.length,
     skillsTokens,
+    roleMentionsSection,
   }
 }
 
@@ -188,10 +205,11 @@ export function buildSystemPromptSegments(
   systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
+  roleMentions?: RoleMentionInfo[],
 ): SystemPromptSegments {
-  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter)
+  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter, roleMentions)
   return {
-    system: `<system-reminder>\n${p.globalBase}\n</system-reminder>\n\n${p.envBlock}${p.workspaceSection}`,
+    system: `<system-reminder>\n${p.globalBase}${p.roleMentionsSection}\n</system-reminder>\n\n${p.envBlock}${p.workspaceSection}`,
     userSystem: p.userSystem,
     memory: { text: p.memorySection, count: p.memoryCount },
     skills: {
@@ -215,10 +233,12 @@ export default function buildFirstSystemPrompt(
   systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
+  roleMentions?: RoleMentionInfo[],
 ): string {
-  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter)
+  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter, roleMentions)
   // 合并：全局 base 在前为基础，override 在后为补充
-  const body = p.userSystem ? `${p.globalBase}\n\n${p.userSystem}` : p.globalBase
+  const base = `${p.globalBase}${p.roleMentionsSection}`
+  const body = p.userSystem ? `${base}\n\n${p.userSystem}` : base
   return `<system-reminder>
 ${body}
 </system-reminder>

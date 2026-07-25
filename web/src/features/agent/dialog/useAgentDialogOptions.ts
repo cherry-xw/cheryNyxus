@@ -17,6 +17,7 @@ import {
   estimateCommandTokens,
   toSkillCommands,
   type MessageCommand,
+  type RoleMention,
 } from '@/features/agent/composables/commands'
 
 /**
@@ -38,6 +39,19 @@ export interface MediaAttachment {
   previewUrl: string
 }
 
+export type CommandTab = 'builtin' | 'skill' | 'combo'
+
+export interface CommandTabOption {
+  id: CommandTab
+  label: string
+  count: number
+}
+
+export interface ComboCommandGroup {
+  plugin: string
+  commands: MessageCommand[]
+}
+
 export function useAgentDialogOptions() {
   const agents = useAgentsStore()
 
@@ -54,6 +68,7 @@ export function useAgentDialogOptions() {
   const roleSelections = ref<Record<string, RuntimeSelection>>({})
   const primaryRole = ref('主角色')
   const text = ref('')
+  const builtinCommands = ref<MessageCommand[]>([COMPACT_COMMAND])
   const skillCommands = ref<MessageCommand[]>([])
   const editorRef = ref<HTMLElement | null>(null)
   const uploading = ref(false)
@@ -98,6 +113,19 @@ export function useAgentDialogOptions() {
       } catch (e) {
         skillCommands.value = []
         console.warn('[AgentDialog] skills.list 拉取失败，命令菜单仅保留内置命令:', e)
+      }
+      try {
+        const commands = await agentApi.listCommands()
+        builtinCommands.value = commands.map((command) => ({
+          id: `builtin:${command.name}`,
+          name: `/${command.name}`,
+          label: command.name,
+          description: command.description || '执行此内置指令。',
+          kind: 'builtin',
+        }))
+      } catch (e) {
+        builtinCommands.value = [COMPACT_COMMAND]
+        console.warn('[AgentDialog] command.list 拉取失败，命令菜单回退 compact:', e)
       }
       const preset = presetName.value ? loadedConfig.presets?.[presetName.value] : undefined
       const roleNames = preset?.roles?.length ? preset.roles : Object.keys(loadedConfig.roles ?? {})
@@ -152,13 +180,16 @@ export function useAgentDialogOptions() {
 
   const primarySelection = computed(() => roleSelections.value[primaryRole.value])
 
-  const allCommands = computed<MessageCommand[]>(() => [COMPACT_COMMAND, ...skillCommands.value])
+  const allCommands = computed<MessageCommand[]>(() => [
+    ...builtinCommands.value,
+    ...skillCommands.value,
+  ])
   /** 输入末尾的 /token；null 表示当前不应展示指令菜单。 */
   const slashQuery = computed<string | null>(() => {
     const match = text.value.match(/(?:^|\s)\/([^\s]*)$/)
     return match ? match[1]!.toLowerCase() : null
   })
-  const commandOptions = computed(() => {
+  const matchingCommands = computed(() => {
     if (slashQuery.value === null) return []
     const selected = new Set(
       [...text.value.matchAll(/\[\[command:(\/[^\]\s]+)\]\]/g)].map((match) => match[1]!),
@@ -176,17 +207,106 @@ export function useAgentDialogOptions() {
       return searchable.includes(q) || command.name.slice(1).toLowerCase().includes(q)
     })
   })
+  const activeCommandTab = ref<CommandTab>('builtin')
+  const commandOptionsByTab = computed<Record<CommandTab, MessageCommand[]>>(() => {
+    const result: Record<CommandTab, MessageCommand[]> = { builtin: [], skill: [], combo: [] }
+    for (const command of matchingCommands.value) {
+      result[command.kind === 'builtin' ? 'builtin' : command.plugin ? 'combo' : 'skill'].push(
+        command,
+      )
+    }
+    return result
+  })
+  const commandTabs = computed<CommandTabOption[]>(() => [
+    { id: 'builtin', label: '指令', count: commandOptionsByTab.value.builtin.length },
+    { id: 'skill', label: '技能', count: commandOptionsByTab.value.skill.length },
+    { id: 'combo', label: '组合技', count: commandOptionsByTab.value.combo.length },
+  ])
+  const commandOptions = computed(() => commandOptionsByTab.value[activeCommandTab.value])
+  const comboCommandGroups = computed<ComboCommandGroup[]>(() => {
+    const groups = new Map<string, MessageCommand[]>()
+    for (const command of commandOptionsByTab.value.combo) {
+      const plugin = command.plugin ?? '未分组'
+      const group = groups.get(plugin)
+      if (group) group.push(command)
+      else groups.set(plugin, [command])
+    }
+    return [...groups].map(([plugin, commands]) => ({ plugin, commands }))
+  })
   const showCommandMenu = computed(
-    () => slashQuery.value !== null && commandOptions.value.length > 0,
+    () => slashQuery.value !== null && commandTabs.value.some((tab) => tab.count > 0),
   )
 
   /** 当前高亮的命令项下标；菜单呼出/过滤变化时默认指向第一项。 */
   const activeCommandIndex = ref(0)
   const commandMenuRef = ref<HTMLElement | null>(null)
+  const roleMenuRef = ref<HTMLElement | null>(null)
   let instructionPopover: HTMLElement | null = null
 
-  // 过滤结果变化（含菜单首次呼出）→ 回到第一项，符合命令面板直觉。
-  watch(commandOptions, () => {
+  /** 仅展示当前预设编制中、显式标记 mentionable 的非主角色。 */
+  const roleMentions = computed<RoleMention[]>(() => {
+    const loadedConfig = config.value
+    const preset = presetName.value ? loadedConfig?.presets?.[presetName.value] : undefined
+    if (!loadedConfig?.roles || !preset?.roles) return []
+    return preset.roles.flatMap((name) => {
+      const role = loadedConfig.roles?.[name]
+      if (!role || name === primaryRole.value || !role.mentionable) return []
+      return [{ name, description: role.description || `委派 ${name} 角色处理任务。` }]
+    })
+  })
+  const roleQuery = computed<string | null>(() => {
+    const match = text.value.match(/(?:^|\s)@([^\s]*)$/)
+    return match ? match[1]!.toLowerCase() : null
+  })
+  const matchingRoleMentions = computed(() => {
+    if (roleQuery.value === null) return []
+    const selected = new Set(
+      [...text.value.matchAll(/\[\[role:@([^\]\s]+)\]\]/g)].map((match) => match[1]!),
+    )
+    return roleMentions.value.filter(
+      (role) =>
+        !selected.has(role.name) &&
+        `${role.name} ${role.description}`.toLowerCase().includes(roleQuery.value!),
+    )
+  })
+  const showRoleMenu = computed(
+    () => roleQuery.value !== null && matchingRoleMentions.value.length > 0,
+  )
+  const activeRoleIndex = ref(0)
+  watch(matchingRoleMentions, () => {
+    activeRoleIndex.value = 0
+  })
+  watch(
+    activeRoleIndex,
+    () => {
+      roleMenuRef.value
+        ?.querySelector<HTMLElement>('.command-option.is-active')
+        ?.scrollIntoView({ block: 'nearest' })
+    },
+    { flush: 'post' },
+  )
+
+  /** 切换 Tab 或更新过滤条件时，确保停留在一个有候选项的 Tab。 */
+  function selectCommandTab(tab: CommandTab): void {
+    if (commandOptionsByTab.value[tab].length === 0) return
+    activeCommandTab.value = tab
+    activeCommandIndex.value = 0
+  }
+
+  function moveCommandTab(direction: 1 | -1): void {
+    const tabs = commandTabs.value.filter((tab) => tab.count > 0)
+    if (tabs.length === 0) return
+    const current = tabs.findIndex((tab) => tab.id === activeCommandTab.value)
+    const next = tabs[(current + direction + tabs.length) % tabs.length]
+    if (next) selectCommandTab(next.id)
+  }
+
+  // 过滤结果变化（含菜单首次呼出）→ 切到首个可用 Tab 并高亮第一项。
+  watch(matchingCommands, () => {
+    if (commandOptionsByTab.value[activeCommandTab.value].length === 0) {
+      const first = commandTabs.value.find((tab) => tab.count > 0)
+      if (first) activeCommandTab.value = first.id
+    }
     activeCommandIndex.value = 0
   })
   // 键盘切换后将高亮项滚动进视口；flush:post 等 DOM 更新后再查节点。
@@ -205,6 +325,14 @@ export function useAgentDialogOptions() {
     if (!editor) return
     removeTrailingSlashQuery(editor)
     insertInstructionToken(editor, command)
+    syncEditorText()
+  }
+
+  function selectRoleMention(role: RoleMention): void {
+    const editor = editorRef.value
+    if (!editor) return
+    removeTrailingRoleQuery(editor)
+    insertRoleMentionToken(editor, role)
     syncEditorText()
   }
 
@@ -315,6 +443,16 @@ export function useAgentDialogOptions() {
   function onEditorKeydown(e: KeyboardEvent): void {
     if (showCommandMenu.value) {
       const opts = commandOptions.value
+      if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        moveCommandTab(1)
+        return
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        moveCommandTab(-1)
+        return
+      }
       if (e.key === 'ArrowDown') {
         e.preventDefault()
         if (opts.length) activeCommandIndex.value = (activeCommandIndex.value + 1) % opts.length
@@ -338,6 +476,32 @@ export function useAgentDialogOptions() {
         e.preventDefault()
         const cmd = opts[activeCommandIndex.value]
         if (cmd) selectCommand(cmd)
+        return
+      }
+    }
+    if (showRoleMenu.value) {
+      const roles = matchingRoleMentions.value
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        activeRoleIndex.value = (activeRoleIndex.value + 1) % roles.length
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        activeRoleIndex.value = (activeRoleIndex.value - 1 + roles.length) % roles.length
+        return
+      }
+      if (
+        e.key === 'Enter' &&
+        !e.isComposing &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey
+      ) {
+        e.preventDefault()
+        const role = roles[activeRoleIndex.value]
+        if (role) selectRoleMention(role)
         return
       }
     }
@@ -378,6 +542,7 @@ export function useAgentDialogOptions() {
       if (node.nodeType !== Node.ELEMENT_NODE) return ''
       const element = node as HTMLElement
       if (element.dataset.commandName) return `[[command:${element.dataset.commandName}]]`
+      if (element.dataset.roleName) return `[[role:@${element.dataset.roleName}]]`
       if (element.tagName === 'BR') return '\n'
       const content = [...element.childNodes].map(serializeNode).join('')
       return element.tagName === 'DIV' || element.tagName === 'P' ? `${content}\n` : content
@@ -389,9 +554,17 @@ export function useAgentDialogOptions() {
   }
 
   function removeTrailingSlashQuery(editor: HTMLElement): void {
+    removeTrailingEditorQuery(editor, /(^|\s)\/[^\s]*$/)
+  }
+
+  function removeTrailingRoleQuery(editor: HTMLElement): void {
+    removeTrailingEditorQuery(editor, /(^|\s)@[^\s]*$/)
+  }
+
+  function removeTrailingEditorQuery(editor: HTMLElement, pattern: RegExp): void {
     const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        return (node.parentElement?.closest('[data-command-name]') ?? null)
+        return (node.parentElement?.closest('[data-command-name], [data-role-name]') ?? null)
           ? NodeFilter.FILTER_REJECT
           : NodeFilter.FILTER_ACCEPT
       },
@@ -399,10 +572,10 @@ export function useAgentDialogOptions() {
     let lastTextNode: Text | null = null
     for (let node = walker.nextNode(); node; node = walker.nextNode()) lastTextNode = node as Text
     if (!lastTextNode) return
-    const slashStart = lastTextNode.data.search(/(^|\s)\/[^\s]*$/)
-    if (slashStart < 0) return
-    const match = lastTextNode.data.slice(slashStart)
-    const start = slashStart + match.lastIndexOf('/')
+    const queryStart = lastTextNode.data.search(pattern)
+    if (queryStart < 0) return
+    const match = lastTextNode.data.slice(queryStart)
+    const start = queryStart + Math.max(match.lastIndexOf('/'), match.lastIndexOf('@'))
     const range = document.createRange()
     range.setStart(lastTextNode, start)
     range.setEnd(lastTextNode, lastTextNode.data.length)
@@ -422,6 +595,35 @@ export function useAgentDialogOptions() {
     name.textContent = command.label
     token.append(name)
     token.addEventListener('pointerenter', () => showInstructionPopover(token, command))
+    token.addEventListener('pointerleave', hideInstructionPopover)
+
+    const selection = window.getSelection()
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : document.createRange()
+    if (!editor.contains(range.commonAncestorContainer)) {
+      range.selectNodeContents(editor)
+      range.collapse(false)
+    }
+    range.collapse(true)
+    range.insertNode(token)
+    const spacer = document.createTextNode(' ')
+    range.setStartAfter(token)
+    range.insertNode(spacer)
+    range.setStartAfter(spacer)
+    range.collapse(true)
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    editor.focus()
+  }
+
+  function insertRoleMentionToken(editor: HTMLElement, role: RoleMention): void {
+    const token = document.createElement('span')
+    token.className = 'instruction-token role-mention-token'
+    token.dataset.roleName = role.name
+    token.contentEditable = 'false'
+    token.setAttribute('role', 'note')
+    token.setAttribute('aria-label', `角色 @${role.name}：${role.description}`)
+    token.textContent = `@${role.name}`
+    token.addEventListener('pointerenter', () => showRoleMentionPopover(token, role))
     token.addEventListener('pointerleave', hideInstructionPopover)
 
     const selection = window.getSelection()
@@ -475,6 +677,41 @@ export function useAgentDialogOptions() {
             window.innerHeight - popoverRect.height - horizontalPadding,
             anchorRect.bottom + 8,
           )
+    const left = Math.min(
+      Math.max(horizontalPadding, anchorRect.left),
+      window.innerWidth - popoverRect.width - horizontalPadding,
+    )
+    popover.style.top = `${top}px`
+    popover.style.left = `${left}px`
+    popover.style.visibility = 'visible'
+    instructionPopover = popover
+  }
+
+  function showRoleMentionPopover(anchor: HTMLElement, role: RoleMention): void {
+    hideInstructionPopover()
+    const popover = document.createElement('div')
+    popover.className = 'instruction-token-floating-popover'
+    popover.setAttribute('role', 'tooltip')
+    const title = document.createElement('div')
+    title.className = 'instruction-token-floating-title'
+    title.textContent = `@${role.name}`
+    const description = document.createElement('div')
+    description.className = 'instruction-token-floating-description'
+    description.textContent = role.description
+    popover.append(title, description)
+    popover.style.visibility = 'hidden'
+    document.body.append(popover)
+    positionInstructionPopover(popover, anchor)
+  }
+
+  function positionInstructionPopover(popover: HTMLElement, anchor: HTMLElement): void {
+    const anchorRect = anchor.getBoundingClientRect()
+    const popoverRect = popover.getBoundingClientRect()
+    const horizontalPadding = 8
+    const top =
+      anchorRect.top - popoverRect.height - 8 >= horizontalPadding
+        ? anchorRect.top - popoverRect.height - 8
+        : Math.min(window.innerHeight - popoverRect.height - horizontalPadding, anchorRect.bottom + 8)
     const left = Math.min(
       Math.max(horizontalPadding, anchorRect.left),
       window.innerWidth - popoverRect.width - horizontalPadding,
@@ -627,9 +864,17 @@ export function useAgentDialogOptions() {
     text,
     editorRef,
     commandOptions,
+    commandTabs,
+    activeCommandTab,
+    comboCommandGroups,
     showCommandMenu,
     activeCommandIndex,
     commandMenuRef,
+    roleMenuRef,
+    roleMentions,
+    matchingRoleMentions,
+    showRoleMenu,
+    activeRoleIndex,
     uploading,
     mediaHint,
     uploadQueue,
@@ -647,6 +892,8 @@ export function useAgentDialogOptions() {
     onEditorInput,
     onEditorPaste,
     selectCommand,
+    selectRoleMention,
+    selectCommandTab,
     mediaKind,
     formatFileSize,
     resetMedia,

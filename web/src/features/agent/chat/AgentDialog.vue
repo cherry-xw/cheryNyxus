@@ -31,9 +31,16 @@ const {
   text,
   editorRef,
   commandOptions,
+  commandTabs,
+  activeCommandTab,
+  comboCommandGroups,
   showCommandMenu,
   activeCommandIndex,
   commandMenuRef,
+  roleMenuRef,
+  matchingRoleMentions,
+  showRoleMenu,
+  activeRoleIndex,
   uploading,
   mediaHint,
   mediaAttachments,
@@ -49,6 +56,8 @@ const {
   onEditorInput,
   onEditorPaste,
   selectCommand,
+  selectCommandTab,
+  selectRoleMention,
   removeMedia,
   onMediaSelected,
   senseEntries,
@@ -58,30 +67,35 @@ const {
 } = useAgentDialogOptions()
 
 // ── 斜杠指令菜单定位（Teleport 到 body 后用 fixed 定位；锚定 .msg-input 顶部，向上展开） ──
-const commandMenuStyle = reactive({ top: '0px', left: '0px', width: '390px' })
+const commandMenuStyle = reactive({
+  bottom: '0px',
+  left: '0px',
+  width: '390px',
+  maxHeight: '280px',
+})
 function positionCommandMenu(): void {
   const editor = editorRef.value
-  const menu = commandMenuRef.value
+  const menu = commandMenuRef.value ?? roleMenuRef.value
   if (!editor || !menu) return
   const editorRect = editor.getBoundingClientRect()
-  const menuRect = menu.getBoundingClientRect()
   const margin = 8
-  const spaceAbove = editorRect.top - margin
-  const spaceBelow = window.innerHeight - editorRect.bottom - margin
-  // 优先向上展开；上面空间不足时向下展开；都不够就放能放下更多的那一侧
-  const openUp = spaceAbove >= menuRect.height || spaceAbove >= spaceBelow
-  const top = openUp
-    ? Math.max(margin, editorRect.top - menuRect.height - 6)
-    : editorRect.bottom + 6
   const minWidth = 280
   const maxWidth = Math.min(420, window.innerWidth - margin * 2)
   const width = Math.max(minWidth, Math.min(maxWidth, editorRect.width))
   const left = Math.max(margin, Math.min(editorRect.left, window.innerWidth - width - margin))
-  commandMenuStyle.top = `${top}px`
+  // 菜单底边固定在输入框上沿 6px；内容/Tab 高度变化时只向上伸缩。
+  commandMenuStyle.bottom = `${window.innerHeight - editorRect.top + 6}px`
   commandMenuStyle.left = `${left}px`
   commandMenuStyle.width = `${width}px`
+  commandMenuStyle.maxHeight = `${Math.min(280, Math.max(0, editorRect.top - margin - 6))}px`
 }
 watch(showCommandMenu, async (open) => {
+  if (open) {
+    await nextTick()
+    positionCommandMenu()
+  }
+})
+watch(showRoleMenu, async (open) => {
   if (open) {
     await nextTick()
     positionCommandMenu()
@@ -92,6 +106,9 @@ watch(activeCommandIndex, () => {
   if (showCommandMenu.value) {
     nextTick(() => positionCommandMenu())
   }
+})
+watch([activeCommandTab, commandOptions], () => {
+  if (showCommandMenu.value) nextTick(() => positionCommandMenu())
 })
 if (typeof window !== 'undefined') {
   window.addEventListener('resize', positionCommandMenu)
@@ -214,10 +231,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
                   </span>
                   <span class="role-summary-meta-row">
                     <span class="role-summary-model-slot">
-                      <span class="role-summary-model"
-                        >◈
-                        {{ selection.brain || '—' }}</span
-                      >
+                      <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
                     </span>
                     <el-tooltip
                       v-if="roleUsages[role]"
@@ -299,24 +313,94 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
               aria-label="可用指令"
               :style="commandMenuStyle"
             >
+              <div class="command-tabs" role="tablist" aria-label="指令类型">
+                <button
+                  v-for="tab in commandTabs"
+                  :key="tab.id"
+                  type="button"
+                  class="command-tab"
+                  :class="{ 'is-active': tab.id === activeCommandTab }"
+                  :disabled="tab.count === 0"
+                  role="tab"
+                  :aria-selected="tab.id === activeCommandTab"
+                  @mousedown.prevent
+                  @click="selectCommandTab(tab.id)"
+                >
+                  {{ tab.label }}<span class="command-tab-count">{{ tab.count }}</span>
+                </button>
+              </div>
+              <div class="command-options-scroll">
+                <template v-if="activeCommandTab === 'combo'">
+                  <section
+                    v-for="group in comboCommandGroups"
+                    :key="group.plugin"
+                    class="combo-command-group"
+                  >
+                    <div class="combo-command-group-title">
+                      <span>{{ group.plugin }}</span
+                      ><span>{{ group.commands.length }} 项</span>
+                    </div>
+                    <button
+                      v-for="command in group.commands"
+                      :key="command.id"
+                      type="button"
+                      class="command-option"
+                      :class="{
+                        'is-active': commandOptions.indexOf(command) === activeCommandIndex,
+                      }"
+                      role="option"
+                      :aria-selected="commandOptions.indexOf(command) === activeCommandIndex"
+                      @mousedown.prevent
+                      @mousemove="activeCommandIndex = commandOptions.indexOf(command)"
+                      @click="selectCommand(command)"
+                    >
+                      <span class="command-option-name">{{ command.label }}</span>
+                      <span class="command-option-desc">{{ command.description }}</span>
+                    </button>
+                  </section>
+                </template>
+                <template v-else>
+                  <button
+                    v-for="(command, index) in commandOptions"
+                    :key="command.id"
+                    type="button"
+                    class="command-option"
+                    :class="{ 'is-active': index === activeCommandIndex }"
+                    role="option"
+                    :aria-selected="index === activeCommandIndex"
+                    @mousedown.prevent
+                    @mousemove="activeCommandIndex = index"
+                    @click="selectCommand(command)"
+                  >
+                    <span class="command-option-name">{{ command.label }}</span>
+                    <span class="command-option-desc">{{ command.description }}</span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </Teleport>
+          <Teleport v-if="showRoleMenu" to="body">
+            <div
+              ref="roleMenuRef"
+              class="command-menu role-mention-menu"
+              role="listbox"
+              aria-label="可委派角色"
+              :style="commandMenuStyle"
+            >
               <button
-                v-for="(command, index) in commandOptions"
-                :key="command.id"
+                v-for="(role, index) in matchingRoleMentions"
+                :key="role.name"
                 type="button"
                 class="command-option"
-                :class="{ 'is-active': index === activeCommandIndex }"
+                :class="{ 'is-active': index === activeRoleIndex }"
                 role="option"
-                :aria-selected="index === activeCommandIndex"
+                :aria-selected="index === activeRoleIndex"
                 @mousedown.prevent
-                @mousemove="activeCommandIndex = index"
-                @click="selectCommand(command)"
+                @mousemove="activeRoleIndex = index"
+                @click="selectRoleMention(role)"
               >
-                <span class="command-option-name">
-                  <span v-if="command.plugin" class="command-option-plugin"
-                    >{{ command.plugin }}:</span
-                  >{{ command.label }}
-                </span>
-                <span class="command-option-desc">{{ command.description }}</span>
+                <span class="command-option-name">@{{ role.name }}</span>
+                <span class="command-option-desc">{{ role.description }}</span>
               </button>
             </div>
           </Teleport>

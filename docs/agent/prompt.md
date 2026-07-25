@@ -166,12 +166,17 @@ export function getSkillMetas(filter?: SkillFilter): Array<SkillData & SkillToke
 - **`nameDescTokens` / `triggerTokens` / `contentTokens` / `promptTokens`**：分别对应 SKILL.md 各部分 token，由 `computeSkillTokens` 一次性算好供后端 `computeContextBreakdown` 与正文段直接复用，不重复 estimateTokens。
 - **`promptTokens`**：JSON 序列化全字段（含 extra 用户自定义字段）的 token——按设计用作正文段的 token 计算（与 skill 感官调用结果注入上下文的体量一致）。
 
-前端在发送窗口输入 `/`
-时据此展示可选命令；选中某个 `/<name>` 后，会在富文本编辑器的用户正文中插入一个带专用底色的
-不可编辑 tag。tag 仅显示不带 `/` 的指令词（例如选择 `/compact` 后显示 `compact`）；hover 的
-popover 卡片分为标题、可换行描述和底部 token 元信息。token 总量包含本条消息的指令标记本身，
-技能还会叠加 `contextTokens`；因此内置 compact 也能显示非零的标记消耗。用户可用编辑器的
-Backspace 或 Delete 一次移除整个 tag。传输和持久化时 token 序列化为
+前端在发送窗口输入 `/` 时展示候选面板，按「指令」（内置 command）、「技能」（独立
+skill）和「组合技」（插件 skill）分 Tab。组合技按插件名分组：组标题展示插件名和技能数量，
+条目只显示技能名，避免每一行重复插件前缀；搜索同时匹配插件名和技能名。左右方向键切换到有
+候选项的 Tab，上下方向键在当前 Tab 的候选中循环，Enter 选中高亮项（中文输入法组合期间不
+拦截 Enter）。
+
+选中某个 `/<name>` 后，会在富文本编辑器的用户正文中插入一个带专用底色的不可编辑 tag。tag
+仅显示不带 `/` 的指令词（例如选择 `/compact` 后显示 `compact`）；hover 的 popover 卡片分为
+标题、可换行描述和底部 token 元信息。token 总量包含本条消息的指令标记本身，技能还会叠加
+`contextTokens`；因此内置 compact 也能显示非零的标记消耗。用户可用编辑器的 Backspace 或
+Delete 一次移除整个 tag。传输和持久化时 token 序列化为
 `[[command:/<name>]]`，不会发送 HTML，也不会把完整 Skill 正文传到前端。
 
 指令 token 的语义由全局 system prompt 统一约定，而非由发送端为每条消息拼接具体提示词：

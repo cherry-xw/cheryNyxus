@@ -10,10 +10,11 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: transparent;       // 默认透明（非栈顶，不叠加 blur）
+  background: transparent; // 默认透明（非栈顶，不叠加 blur）
   backdrop-filter: none;
 }
-.dialog-overlay.is-top-mask {    // 栈顶 overlay：带 blur 遮罩盖住下层
+.dialog-overlay.is-top-mask {
+  // 栈顶 overlay：带 blur 遮罩盖住下层
   background: rgba(15, 17, 22, 0.42);
   backdrop-filter: blur(2px);
 }
@@ -63,7 +64,10 @@
   cursor: pointer;
   font-size: 11px;
   font-weight: 650;
-  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
 
   &:hover {
     border-color: rgba(190, 132, 28, 0.42);
@@ -92,7 +96,9 @@
   white-space: nowrap;
 }
 
-.role-summary-name { flex: 0 1 auto; }
+.role-summary-name {
+  flex: 0 1 auto;
+}
 
 // 与 RoleConfigPopover 的 .choice-slot + .choice-option 一致：固定 width/height 给 model 一个具体盒模型，
 // model 自身 position:absolute 填 slot；hover 时 width/max-width→max-content 突破 slot，z-index 提升盖在兄弟之上。
@@ -102,7 +108,7 @@
   display: inline-block;
   flex: none;
   width: 50px;
-  height: 16px;                    // 10px × 1.2 line-height + 上下 1px 边距；与 .role-usage-chip 等高
+  height: 16px; // 10px × 1.2 line-height + 上下 1px 边距；与 .role-usage-chip 等高
   interpolate-size: allow-keywords; // 允许 width: <length> → max-content/min-content/fit-content 平滑插值（与 .choice-list 同款）
 }
 
@@ -110,7 +116,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 50px;                     // 显式像素，与 slot 同宽；避免 width: 100%→max-content 跨类型插值不稳
+  width: 50px; // 显式像素，与 slot 同宽；避免 width: 100%→max-content 跨类型插值不稳
   max-width: 50px;
   height: 100%;
   display: inline-flex;
@@ -128,15 +134,18 @@
   white-space: nowrap;
   cursor: inherit;
   // 拉长 width 过渡到 0.32s + ease-out：默认 0.18s 太短，文字逐字符展开过程肉眼几乎看不到
-  transition: width 0.32s cubic-bezier(0.22, 0.94, 0.4, 1),
-              max-width 0.32s cubic-bezier(0.22, 0.94, 0.4, 1),
-              background-color 0.18s ease, border-color 0.18s ease,
-              color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    width 0.32s cubic-bezier(0.22, 0.94, 0.4, 1),
+    max-width 0.32s cubic-bezier(0.22, 0.94, 0.4, 1),
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .role-summary-model-slot:hover .role-summary-model,
 .role-summary-model:hover {
-  z-index: 2;                      // 提到兄弟（usage chip / senses）之上，避免 hover 展开被遮挡
+  z-index: 2; // 提到兄弟（usage chip / senses）之上，避免 hover 展开被遮挡
   width: max-content;
   max-width: max-content;
   // 保持 height: 100% + overflow: hidden：width 涨到 max-content 后 text-overflow:ellipsis 自然让位
@@ -169,8 +178,12 @@
 }
 
 @keyframes role-skel-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .role-summary-sense-icon {
@@ -254,20 +267,20 @@
 }
 
 .textarea-row {
-  position: relative;          // 为绝对定位的按钮提供定位上下文
+  position: relative; // 为绝对定位的按钮提供定位上下文
 }
 
 :deep(.instruction-token) {
   position: relative;
-  display: inline;            // 行内高亮字符串，非 chip/胶囊
+  display: inline; // 行内高亮字符串，非 chip/胶囊
   margin: 0;
   padding: 0 4px;
-  border: 0;                  // 去边框，避免跳脱
-  border-radius: 0;           // 去圆角，与正文字符贴合
-  background: rgba(246, 183, 60, 0.16);  // 平涂淡金底，无渐变
-  color: inherit;             // 颜色随正文，不再独立金棕
-  font-size: inherit;         // 字号随正文
-  font-weight: inherit;       // 字重随正文
+  border: 0; // 去边框，避免跳脱
+  border-radius: 0; // 去圆角，与正文字符贴合
+  background: rgba(246, 183, 60, 0.16); // 平涂淡金底，无渐变
+  color: inherit; // 颜色随正文，不再独立金棕
+  font-size: inherit; // 字号随正文
+  font-weight: inherit; // 字重随正文
   line-height: inherit;
   vertical-align: baseline;
   user-select: none;
@@ -279,19 +292,104 @@
   font-weight: inherit;
 }
 
-// 指令菜单：Teleport 后用 fixed 定位（位置由 .commandMenuStyle 注入）。
-// 限定高度 + 自带滚动，避免被 .dialog-panel 的 overflow 容器裁断。
+:deep(.role-mention-token) {
+  background: rgba(70, 126, 202, 0.16);
+  color: #2f6fae;
+}
+
+.role-mention-menu .command-option-name {
+  color: #2f6fae;
+}
+
+// 指令菜单：Teleport 后 fixed 定位，底边由 .commandMenuStyle 锚定在输入框上沿。
+// 限定高度；Tab 固定在顶部，候选项由内部区域滚动，避免被 .dialog-panel 的 overflow 容器裁断。
 .command-menu {
   position: fixed;
   z-index: 320;
+  display: flex;
+  flex-direction: column;
   max-height: 280px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   padding: 4px;
   border: 1px solid rgba(35, 38, 44, 0.13);
   border-radius: 9px;
   background: #fffdf8;
   box-shadow: 0 8px 20px rgba(20, 22, 26, 0.18);
+}
+
+.command-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  margin: -1px -1px 4px;
+  padding: 2px;
+  border-bottom: 1px solid rgba(35, 38, 44, 0.1);
+}
+
+.command-options-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.command-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: fade(@ink, 56%);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+
+  &:hover:not(:disabled),
+  &.is-active {
+    background: rgba(246, 183, 60, 0.12);
+    color: #8c6114;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.42;
+  }
+}
+
+.command-tab-count {
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: rgba(35, 38, 44, 0.07);
+  color: inherit;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 14px;
+  text-align: center;
+}
+
+.combo-command-group + .combo-command-group {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(35, 38, 44, 0.08);
+}
+
+.combo-command-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 8px 4px;
+  color: fade(@ink, 56%);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+
+  span:last-child {
+    color: fade(@ink, 42%);
+    font-size: 9px;
+    font-weight: 600;
+  }
 }
 
 // 指令项：纵向堆叠 name + desc；name 单行省略，desc 默认 2 行。
@@ -309,7 +407,10 @@
   text-align: left;
   min-width: 0;
 
-  &:hover, &.is-active { background: rgba(246, 183, 60, 0.12); }
+  &:hover,
+  &.is-active {
+    background: rgba(246, 183, 60, 0.12);
+  }
 }
 
 .command-option-name {
@@ -321,12 +422,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.command-option-plugin {
-  font-weight: 600;
-  color: color-mix(in srgb, var(--accent, #f6b73c) 80%, @ink);
-  margin-right: 1px;
 }
 
 // desc：默认显示 2 行；hover 不展开（控件级 tooltip 在上层 LabelTip 位置）。
@@ -407,7 +502,9 @@
   color: fade(@ink, 42%);
   border-radius: 6px;
   cursor: pointer;
-  transition: color 120ms ease, background-color 120ms ease;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease;
 
   &:hover:not(:disabled) {
     color: #f6b73c;

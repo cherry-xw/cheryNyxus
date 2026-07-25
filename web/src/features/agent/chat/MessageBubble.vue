@@ -151,6 +151,9 @@ const emit = defineEmits<{
               <span v-if="segment.type === 'command'" class="instruction-message-token">{{
                 segment.value
               }}</span>
+              <span v-else-if="segment.type === 'role'" class="instruction-message-token role-message-token">{{
+                segment.value
+              }}</span>
               <template v-else>{{ segment.value }}</template>
             </template>
           </template>
@@ -326,7 +329,7 @@ const emit = defineEmits<{
   line-height: 1.5;
   color: fade(@ink, 88%);
   overflow: auto;
-  max-height: 80vh;
+  max-height: 70vh;
   .md {
     .md-content();
   }
@@ -351,6 +354,12 @@ const emit = defineEmits<{
   font-weight: 700;
   line-height: 1.45;
   vertical-align: baseline;
+}
+
+.role-message-token {
+  border-color: rgba(70, 126, 202, 0.28);
+  background: linear-gradient(135deg, rgba(224, 239, 255, 0.94), rgba(70, 126, 202, 0.14));
+  color: #2f6fae;
 }
 
 .sense-list {

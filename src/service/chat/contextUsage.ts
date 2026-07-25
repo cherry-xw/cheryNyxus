@@ -26,6 +26,7 @@ import {
   type ContextBreakdown,
 } from '@/utils/token.js'
 import config from '@/utils/config'
+import { getChatMentionableRoles } from './roleMentions.js'
 
 /** contextLimit 兜底值（token）：brain 未配 contextLimit 时使用（与 utils/token 一致）。 */
 const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192
@@ -68,7 +69,12 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
     const skillFilter = getChatSkillFilter(chatId)
 
     // 段 1-4：提示词分段（系统消息不入库，需重建）
-    const promptSegs = buildSystemPromptSegments(systemPromptFile, workspace, skillFilter)
+    const promptSegs = buildSystemPromptSegments(
+      systemPromptFile,
+      workspace,
+      skillFilter,
+      getChatMentionableRoles(chatId),
+    )
     const system = seg(estimateTokens(promptSegs.system))
     const userSystem = seg(estimateTokens(promptSegs.userSystem))
     const memory = seg(estimateTokens(promptSegs.memory.text), promptSegs.memory.count)

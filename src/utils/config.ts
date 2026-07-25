@@ -160,6 +160,8 @@ export interface RoleConfig {
    * 缺省 -> 详情卡无说明行。
    */
   description?: string
+  /** 是否允许用户在输入框中通过 @ 选择此角色。缺省 false，避免配置/协调类角色被误派。 */
+  mentionable?: boolean
   /** 单一感官组（每 agent 恰一个 sense group） */
   senseGroup: string
   /** 启用的 MCP server 名（缺省 []，与主 agent 平权） */

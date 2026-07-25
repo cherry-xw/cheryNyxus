@@ -14,6 +14,7 @@ import {
 import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
 import { notifyRestartActivityChanged } from '@/service/restartCoordinator.js'
+import { getChatMentionableRoles } from './roleMentions.js'
 
 /**
  * Chat 运行时缓存：chatId → builder + runtime 选择（单 chat 绑定，跨轮不重建）
@@ -300,6 +301,7 @@ export async function ensureChat(
       getChatSystemPromptFile(chatId),
       getChatWorkspace(chatId),
       getChatSkillFilter(chatId),
+      getChatMentionableRoles(chatId),
     )
   } catch (err) {
     // 半初始化清理：configureRuntime 深校验或 init 抛错时，移除刚 set 的 map 项，

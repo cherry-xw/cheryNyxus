@@ -34,17 +34,28 @@ export const COMPACT_COMMAND: MessageCommand = {
 }
 
 const COMMAND_TOKEN_PATTERN = /\[\[command:(\/[^\]\s]+)\]\]/g
+const ROLE_TOKEN_PATTERN = /\[\[role:@([^\]\s]+)\]\]/g
 
 export interface CommandPromptSegment {
-  type: 'text' | 'command'
+  type: 'text' | 'command' | 'role'
   value: string
+}
+
+/** 当前会话中可由用户 @ 选择的协作角色。 */
+export interface RoleMention {
+  name: string
+  description: string
 }
 
 export function toSkillCommands(skills: SkillCommandMeta[]): MessageCommand[] {
   return skills.map((skill) => ({
     id: `skill:${skill.name}`,
     name: `/${skill.name}`,
-    label: skill.name,
+    // 插件技能的实际 name 是 `<plugin>__<skill>`；菜单已经按 plugin 分组时只展示 skill 部分。
+    label:
+      skill.plugin && skill.name.startsWith(`${skill.plugin}__`)
+        ? skill.name.slice(skill.plugin.length + 2)
+        : skill.name,
     description: skill.description || skill.trigger || '加载并遵守该技能的完整指令。',
     kind: 'skill',
     skillName: skill.name,
@@ -64,6 +75,11 @@ export function serializeCommandToken(command: MessageCommand): string {
   return `[[command:${command.name}]]`
 }
 
+/** 用户从 @ 菜单选择角色后写入消息历史的稳定 token。 */
+export function serializeRoleMentionToken(role: RoleMention): string {
+  return `[[role:@${role.name}]]`
+}
+
 /** 当前用户消息的指令标记 +（如有）完整技能加载指令的近似 token 消耗。 */
 export function estimateCommandTokens(command: MessageCommand): number {
   return Math.ceil(serializeCommandToken(command).length / 4) + (command.contextTokens ?? 0)
@@ -73,10 +89,22 @@ export function estimateCommandTokens(command: MessageCommand): number {
 export function splitCommandPrompt(content: string): CommandPromptSegment[] {
   const segments: CommandPromptSegment[] = []
   let cursor = 0
-  for (const match of content.matchAll(COMMAND_TOKEN_PATTERN)) {
+  const matches = [
+    ...content.matchAll(COMMAND_TOKEN_PATTERN).map((match) => ({
+      match,
+      type: 'command' as const,
+      value: match[1]!,
+    })),
+    ...content.matchAll(ROLE_TOKEN_PATTERN).map((match) => ({
+      match,
+      type: 'role' as const,
+      value: `@${match[1]!}`,
+    })),
+  ].sort((left, right) => (left.match.index ?? 0) - (right.match.index ?? 0))
+  for (const { match, type, value } of matches) {
     const start = match.index ?? 0
     if (start > cursor) segments.push({ type: 'text', value: content.slice(cursor, start) })
-    segments.push({ type: 'command', value: match[1]! })
+    segments.push({ type, value })
     cursor = start + match[0].length
   }
   if (cursor < content.length || segments.length === 0) {

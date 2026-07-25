@@ -6,6 +6,7 @@ import AgentSession, {
 import type { LLMResponse } from '@/core/message/adapter'
 import config from '@/utils/config'
 import buildFirstSystemPrompt from '@/agent/prompt/index'
+import type { RoleMentionInfo } from '@/agent/prompt/index'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
 import { randomUUID } from 'crypto'
 import { RuntimeResolver, type RuntimeSelection } from './runtimeResolver.js'
@@ -61,8 +62,14 @@ export class AgentBuilder {
     systemPromptFile?: string,
     workspace?: string,
     skillFilter?: SkillFilter,
+    roleMentions?: RoleMentionInfo[],
   ): this {
-    const systemMsg = this.createInitialMessages(systemPromptFile, workspace, skillFilter)
+    const systemMsg = this.createInitialMessages(
+      systemPromptFile,
+      workspace,
+      skillFilter,
+      roleMentions,
+    )
     let msgs: LLMResponse[]
     if (messages && messages.length > 0) {
       // DB 不持久化基础系统提示词；压缩恢复会带一条系统摘要，因此始终先注入当前基础系统提示词。
@@ -78,13 +85,14 @@ export class AgentBuilder {
     systemPromptFile?: string,
     workspace?: string,
     skillFilter?: SkillFilter,
+    roleMentions?: RoleMentionInfo[],
   ): LLMResponse[] {
     const now = Date.now()
     return [
       {
         id: randomUUID(),
         role: 'system',
-        content: buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter),
+        content: buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter, roleMentions),
         createdAt: now,
         updateAt: now,
       },
