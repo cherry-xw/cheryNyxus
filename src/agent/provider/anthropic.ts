@@ -128,7 +128,7 @@ interface AnthropicSplitResult {
 
 /**
  * ThinkingLevel → Anthropic thinking/output_config 参数。
- * off/undefined → 省略；on → {type:'adaptive'}；low/medium/high → +output_config.effort
+ * off/undefined → 省略；on → {type:'adaptive'}；low/medium/high → +output_config.effort；xhigh 降级 high。
  *
  * 钩子（PreLLMRequest）是覆盖逃生口：handler 可整体替换 body.thinking/body.output_config。
  */
@@ -145,6 +145,11 @@ function buildThinkingParam(level: ThinkingLevel | undefined): Record<string, un
       return {
         thinking: { type: 'adaptive' },
         output_config: { effort: level },
+      }
+    case 'xhigh':
+      return {
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'high' },
       }
   }
 }

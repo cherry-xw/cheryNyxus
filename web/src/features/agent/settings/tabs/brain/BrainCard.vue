@@ -15,6 +15,7 @@ import {
   type ThinkingLevel,
 } from '@/services/agentApi'
 import { PROVIDERS } from '../../config/constants'
+import { PROVIDER_META, isProviderLabelRedundant, isProviderIconAsset } from './providerMeta'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
 import LabelTip from '../config/LabelTip.vue'
@@ -401,7 +402,7 @@ async function openEnvFile(): Promise<void> {
           <label class="field field-wide">
             <LabelTip
               label="地址"
-              tip="url：完整 baseURL（含版本前缀）。openai/ollama 末位自动拼 /chat/completions，anthropic 末位拼 /messages，所以版本段（如 /v1、/v4）由你写。例：https://api.openai.com/v1 或 https://api.anthropic.com/v1 或 https://open.bigmodel.cn/api/paas/v4。支持 $ENV 占位从环境变量注入"
+              tip="url：完整 baseURL（含版本前缀）。openai/deepseek/ollama 末位自动拼 /chat/completions，anthropic 末位拼 /messages，所以版本段（如 /v1、/v4）由你写。例：https://api.openai.com/v1、https://api.deepseek.com 或 https://api.anthropic.com/v1。支持 $ENV 占位从环境变量注入"
             />
             <el-input
               v-model="cfg.url"
@@ -410,9 +411,32 @@ async function openEnvFile(): Promise<void> {
             />
           </label>
           <label class="field">
-            <LabelTip label="适配器" tip="provider：openai / ollama / mock，决定 API 方言" />
+            <LabelTip label="适配器" tip="provider：openai / deepseek / ollama / 智谱 / anthropic / mock，决定 API 方言" />
             <el-select v-model="cfg.provider" size="small">
-              <el-option v-for="p in PROVIDERS" :key="p" :label="p" :value="p" />
+              <el-option v-for="p in PROVIDERS" :key="p" :value="p">
+                <template #default>
+                  <span class="provider-option">
+                    <img
+                      v-if="isProviderIconAsset(p)"
+                      class="provider-icon-img"
+                      :src="PROVIDER_META[p].icon"
+                      :alt="PROVIDER_META[p].label"
+                    />
+                    <span v-else class="provider-icon-emoji" aria-hidden="true">{{
+                      PROVIDER_META[p].icon
+                    }}</span>
+                    <!-- 中文在前、英文在后；同名折叠：openai/OpenAI、ollama/Ollama、anthropic/Anthropic 折叠为仅 label；mock / bigmodel 显示「value · label」 -->
+                    <template v-if="isProviderLabelRedundant(p)">
+                      <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
+                      <span class="provider-sep">·</span>
+                      <span class="provider-value">{{ p }}</span>
+                    </template>
+                  </span>
+                </template>
+              </el-option>
             </el-select>
           </label>
           <label class="field">
@@ -520,7 +544,7 @@ async function openEnvFile(): Promise<void> {
           <div class="thinking-field">
             <LabelTip
               label="深度思考"
-              tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。off=不发思考参数；thinking=由模型决定；low/medium/high=强度递增（仅推理模型有效），需在「⚙ 全局」开启思考总闸。"
+              tip="推理模型的思考强度档位（按当前 model 暴露不同档位）。off=关闭；on=由模型决定；low/medium/high/xhigh 由 provider 映射，需在「⚙ 全局」开启思考总闸。"
             />
             <ThinkingLevelKnob v-model="cfg.thinking" :levels="thinkingLevels" />
           </div>
@@ -730,6 +754,47 @@ async function openEnvFile(): Promise<void> {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+// 适配器下拉选项：icon + 「value·label」或仅 label（同名时省略 value）
+.provider-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1;
+
+  .provider-icon-img {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .provider-icon-emoji {
+    font-size: 13px;
+    line-height: 1;
+    // emoji 字体回退，跟全局 sense-icon 保持一致
+    font-family:
+      ui-rounded, 'Hiragino Sans', 'PingFang SC', 'Noto Sans Symbols 2', 'Apple Color Emoji',
+      'Segoe UI Emoji', sans-serif;
+  }
+
+  .provider-value {
+    color: rgba(20, 22, 26, 0.55);
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
+
+  .provider-sep {
+    color: rgba(20, 22, 26, 0.3);
+    margin: 0 2px;
+  }
+
+  .provider-label {
+    color: rgba(20, 22, 26, 0.86);
+    font-weight: 600;
   }
 }
 

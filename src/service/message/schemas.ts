@@ -28,8 +28,8 @@ const brainSchema = z.object({
   url: z.string().optional(),
   model: z.string(),
   key: z.string().optional(),
-  /** ThinkingLevel（off/on/low/medium/high）；兼容 legacy boolean（true/false），由 normalizeBrainThinking 归一。对齐 BrainConfig.thinking */
-  thinking: z.union([z.enum(['off', 'on', 'low', 'medium', 'high']), z.boolean()]).optional(),
+  /** ThinkingLevel（off/on/low/medium/high/xhigh）；兼容 legacy boolean（true/false），由 normalizeBrainThinking 归一。对齐 BrainConfig.thinking */
+  thinking: z.union([z.enum(['off', 'on', 'low', 'medium', 'high', 'xhigh']), z.boolean()]).optional(),
   provider: z.string(),
   rpm: z.number().optional(),
   mock: z.object({ enabled: z.boolean().optional(), file: z.string() }).optional(),

@@ -18,12 +18,13 @@ registerSenseAdapter<Msg, Raw>(name, cfg)      ← core/sense/adapter
 
 | 文件 | 一句话 |
 |------|--------|
-| [index.ts](../../src/agent/provider/index.ts) | `registerBuiltinProviders()`：幂等注册 openai/ollama/mock/bigmodel/anthropic |
+| [index.ts](../../src/agent/provider/index.ts) | `registerBuiltinProviders()`：幂等注册 openai/deepseek/ollama/mock/bigmodel/anthropic |
 | [openai.ts](../../src/agent/provider/openai.ts) | OpenAI（含兼容服务）三件套，含 RPM 限流、`reasoning_effort` 映射、`reasoning_content` 提取、`strict:true` |
 | [ollama.ts](../../src/agent/provider/ollama.ts) | Ollama 三件套，含 `tool_calls` 处理与流式不可靠警告 |
 | [mock.ts](../../src/agent/provider/mock.ts) | 脚本回放 provider（离线测试），按 LLM 调用序逐条回放 |
 | [bigmodel.ts](../../src/agent/provider/bigmodel.ts) | 智谱 BigModel 三件套（fetch 实现），`reasoning_effort` 映射、`reasoning_content` 提取、image 多模态 |
 | [anthropic.ts](../../src/agent/provider/anthropic.ts) | Anthropic Messages API 三件套（fetch 实现），native fetch + x-api-key + typed SSE + PreLLMRequest hook |
+| [deepseek.ts](../../src/agent/provider/deepseek.ts) | DeepSeek Chat Completions 三件套，按工具调用条件回传 `reasoning_content` |
 
 ## 核心概念 / 导出
 
@@ -58,10 +59,10 @@ export function registerBuiltinProviders(): void {
 
 ### Provider 能力差异
 
-| 维度 | openai | ollama | mock | bigmodel | anthropic |
-|------|--------|--------|------|----------|-----------|
-| thinking 请求参数 | `reasoning_effort:level`（off 省略） | 无（不传） | N/A | `reasoning_effort:level`（同 openai） | `thinking:{type:'adaptive'}` + `output_config.effort`（off 省略） |
-| thinking 响应字段 | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` | `content[].thinking` block |
+| 维度 | openai | deepseek | ollama | mock | bigmodel | anthropic |
+|------|--------|----------|--------|------|----------|-----------|
+| thinking 请求参数 | `reasoning_effort:level`（off 省略） | `thinking.type` + `reasoning_effort` | 无（不传） | N/A | `reasoning_effort:level`（同 openai） | `thinking:{type:'adaptive'}` + `output_config.effort`（off 省略） |
+| thinking 响应字段 | `reasoning_content` | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` | `content[].thinking` block |
 | `buildSenses` 加 `strict:true` | ✓ | ✗ | ✗ | ✓ | ✗（Anthropic 不支持） |
 | tool_call.id | 有（`call_xxx`） | 无（randomUUID 占位） | 缺省 randomUUID | 有 | 有（`toolu_xxx`） |
 | 流式 tool_call 稳定 | 稳定 | 不稳定（P1-2） | 稳定（自拆 delta） | 稳定（OpenAI 协议） | 稳定（typed SSE） |
@@ -70,7 +71,11 @@ export function registerBuiltinProviders(): void {
 | buildMessages 把 `sense` 转 `tool` result | ✓（带 `tool_call_id`） | ✓（仅 role+content） | ✗（直接透传 LLMResponse） | ✓（同 openai） | ✓（嵌 user 消息 tool_result block） |
 | system prompt 字段 | messages 首条 | messages 首条 | messages 首条 | messages 首条 | **顶层 `system` 字段**（buildMessages 抽取） |
 | HTTP 实现 | openai SDK | ollama SDK | 脚本回放 | 原生 fetch（fetchBase） | 原生 fetch（私有 anthropicFetch/SSE） |
-| PreLLMRequest hook | ✗ | ✗ | ✗ | ✗ | ✓（anthropic provider 自动 dispatch） |
+| PreLLMRequest hook | ✗ | ✗ | ✗ | ✗ | ✗ | ✓（anthropic provider 自动 dispatch） |
+
+### 思考上下文回传策略
+
+接收、展示和持久化 `thinking` 与把它拼回下一次请求是两项独立策略。OpenAI 与 BigModel 在 assistant 历史中回传 `reasoning_content`，Ollama 回传原生 `thinking`，Anthropic 以原生 thinking block 回传，Mock 原样回放。DeepSeek 遵循其[思考模式文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode)：普通 assistant 轮不拼接 `reasoning_content`，但带 `tool_calls` 的 assistant 轮必须在之后所有请求中原样回传，否则 API 返回 400。
 
 ### 三 Provider 共有约定
 

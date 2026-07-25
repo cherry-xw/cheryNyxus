@@ -35,7 +35,7 @@ export const TABS: { key: TabKey; icon: string; label: string; color: string }[]
   { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },
 ]
 
-export const PROVIDERS = ['openai', 'ollama', 'mock', 'bigmodel', 'anthropic'] as const
+export const PROVIDERS = ['openai', 'ollama', 'mock', 'bigmodel', 'anthropic', 'deepseek'] as const
 export const SUPERVISIONS = ['auto', 'confirm', 'manual'] as const
 /** 监管等级中文展示名（下拉 label 用；value 仍存英文枚举，对应后端 SupervisionLevel）。 */
 export const SUPERVISION_LABEL: Record<(typeof SUPERVISIONS)[number], string> = {

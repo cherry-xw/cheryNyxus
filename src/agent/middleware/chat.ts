@@ -84,7 +84,7 @@ export async function* chatMiddleware(
     model: ctx.runtime.brain.model,
     url: ctx.runtime.brain.url,
     key: ctx.runtime.brain.key,
-    // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/low/medium/high）
+    // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/on/low/medium/high/xhigh）
     thinking: ctx.global.thinking ? (ctx.runtime.brain.thinking ?? 'off') : 'off',
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
   }

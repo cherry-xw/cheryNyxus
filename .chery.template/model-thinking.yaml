@@ -12,7 +12,7 @@
 # ThinkingLevel 枚举（src/core/llm/adapter.ts）：
 #   - off：关闭（provider 省略思考参数）
 #   - on：仅用于开关模型，对应"由服务端决定"或"未传 reasoning_effort"
-#   - low / medium / high：强度递增（OpenAI 兼容端点 → reasoning_effort）
+#   - low / medium / high / xhigh：强度递增（provider 自行映射）
 
 models:
   # 智谱 GLM 系列（OpenAI 兼容协议，reasoning_effort 全 4 档）
@@ -28,8 +28,8 @@ models:
     thinking: [off, low, medium, high]
 
   # DeepSeek 系列
-  - aliases: [deepseek-r1, deepseek-reasoner, deepseek-v3]
-    thinking: [off, low, medium, high]
+  - aliases: [deepseek-v4-pro, deepseek-v4-flash]
+    thinking: [off, on, high, max]
 
   # OpenAI o1 系列
   - aliases: [o1, o1-mini, o1-preview, o3, o3-mini, o4-mini]

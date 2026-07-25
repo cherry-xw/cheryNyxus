@@ -57,6 +57,7 @@ export async function handleUtilsModels(
   try {
     switch (provider) {
       case 'openai':
+      case 'deepseek':
         return await fetchOpenAIModels(url, key)
       case 'ollama':
         return await fetchOllamaModels(url)

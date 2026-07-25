@@ -457,9 +457,9 @@ export interface ChatSendAttachment {
 /** 思考强度档位（对齐后端 ThinkingLevel）：
  * - off：关闭
  * - on：由模型/服务端决定（不传参）
- * - low/medium/high：强度递增
+ * - low/medium/high/xhigh：强度递增
  */
-export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high'
+export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh'
 
 /** config.get 响应 / config.save 入参：.chery/config.yaml 原文（除 server 段）。对齐后端 ConfigRaw。 */
 export interface BrainConfigDto {

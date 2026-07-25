@@ -81,6 +81,14 @@ describe("Ollama message adapter", () => {
     expect(out[0]!.content).toBe("result");
   });
 
+  it("buildMessages: assistant 的 thinking 原生回传", () => {
+    const cfg = getMessageAdapter("ollama")!;
+    const out = cfg.buildMessages([
+      { id: "a", role: "assistant", content: "reply", thinking: "reason", createdAt: 0, updateAt: 0 },
+    ]) as Array<{ role: string; thinking?: string }>;
+    expect(out[0]).toMatchObject({ role: "assistant", thinking: "reason" });
+  });
+
   it("buildMessages: sense replaced → content=replace.content", () => {
     const cfg = getMessageAdapter("ollama")!;
     const out = cfg.buildMessages([

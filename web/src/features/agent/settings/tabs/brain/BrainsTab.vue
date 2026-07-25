@@ -2,10 +2,7 @@
 import { computed, ref } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import type { ConfigDto } from '@/services/agentApi'
-import openaiIcon from '@/assets/ai-icons/openai.png'
-import ollamaIcon from '@/assets/ai-icons/ollama.png'
-import anthropicIcon from '@/assets/ai-icons/anthropic.png'
-import zhipuIcon from '@/assets/ai-icons/zhipu.png'
+import { PROVIDER_META, isProviderIconAsset, type ProviderId } from './providerMeta'
 import BrainCard from './BrainCard.vue'
 import ResourceWorkbench, { type ResourceRailItem } from '../agent/ResourceWorkbench.vue'
 
@@ -15,13 +12,8 @@ const selected = ref('')
 const newName = ref('')
 const current = computed(() => props.draft.llm.brain[selected.value])
 
-/** provider → vendor logo；mock 无品牌资源，沿用 🎭 emoji。 */
-const PROVIDER_ICON: Record<string, string> = {
-  openai: openaiIcon,
-  ollama: ollamaIcon,
-  mock: '🎭',
-  bigmodel: zhipuIcon,
-  anthropic: anthropicIcon,
+function isProviderId(value: string): value is ProviderId {
+  return value in PROVIDER_META
 }
 
 /** 容量按 1024 进位显示（K → M → G）；旧 config 无 contextLimit 时按 add() 默认 128K 兜底。 */
@@ -41,16 +33,21 @@ function trim(n: number): string {
 }
 
 const items = computed<ResourceRailItem[]>(() =>
-  Object.entries(props.draft.llm.brain).map(([name, cfg]) => ({
-    key: name,
-    label: name,
-    // mock 走文本 avatar 通道；openai/ollama 用 vendor logo。
-    avatar: cfg.provider === 'mock' ? '🎭' : undefined,
-    avatarIcon: cfg.provider && cfg.provider !== 'mock' ? PROVIDER_ICON[cfg.provider] : undefined,
-    capacity: formatContextLimit(cfg.contextLimit),
-    meta: cfg.model || '未配置型号',
-    badge: cfg.capabilities?.toolCall === false ? '💬' : '🔧',
-  })),
+  Object.entries(props.draft.llm.brain).map(([name, cfg]) => {
+    const provider = cfg.provider && isProviderId(cfg.provider) ? cfg.provider : undefined
+    const meta = provider ? PROVIDER_META[provider] : undefined
+    const isAsset = provider ? isProviderIconAsset(provider) : false
+    return {
+      key: name,
+      label: name,
+      // 无品牌资源（mock emoji）走 avatar 文本通道；其他走 avatarIcon 图片通道。
+      avatar: meta && !isAsset ? meta.icon : undefined,
+      avatarIcon: meta && isAsset ? meta.icon : undefined,
+      capacity: formatContextLimit(cfg.contextLimit),
+      meta: cfg.model || '未配置型号',
+      badge: cfg.capabilities?.toolCall === false ? '💬' : '🔧',
+    }
+  }),
 )
 
 function add(): void {

@@ -38,6 +38,8 @@ const ollamaMessageAdapterConfig = {
         return {
           role,
           content,
+          // Ollama Message 原生支持 thinking；仅 assistant 历史带回，避免把内部字段注入 user/tool 消息。
+          ...(role === 'assistant' && m.thinking ? { thinking: m.thinking } : {}),
         }
       }) as Message[],
 }

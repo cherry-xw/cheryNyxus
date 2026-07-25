@@ -100,7 +100,7 @@ interface BrainConfig {
   url?: string
   model: string
   key?: string
-  /** 思考强度档位（ThinkingLevel）：off=关闭，low/medium/high=强度递增。legacy boolean 兼容（loadConfig/readRawConfig 归一）。 */
+  /** 思考强度档位（ThinkingLevel）：off=关闭，low/medium/high/xhigh=强度递增。legacy boolean 兼容（loadConfig/readRawConfig 归一）。 */
   thinking?: ThinkingLevel
   /** 表示这个大模型用什么适配的解析器 @/provider/xxx */
   provider: string
@@ -125,10 +125,11 @@ interface BrainConfig {
  * 在 loadConfig（运行时）和 readRawConfig（RPC 读，前端拿到的就是 level）两处调用，
  * 保证 ctx.runtime.brain.thinking 与前端 DTO 都规范化。
  */
-function normalizeBrainThinking(v: unknown): ThinkingLevel {
+function normalizeBrainThinking(v: unknown, provider?: string): ThinkingLevel {
   if (v === true) return 'high'
-  if (v === false || v === undefined || v === null) return 'off'
-  if (v === 'off' || v === 'on' || v === 'low' || v === 'medium' || v === 'high') return v
+  if (v === false || v === null) return 'off'
+  if (v === undefined) return provider === 'deepseek' ? 'on' : 'off'
+  if (v === 'off' || v === 'on' || v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh') return v
   return 'off'
 }
 
@@ -517,7 +518,7 @@ function loadConfig(): Config {
   // 运行时 ctx.runtime.brain.thinking 必为 level，provider 据 level 映射请求参数。
   if (config.llm?.brain) {
     for (const cfg of Object.values(config.llm.brain)) {
-      cfg.thinking = normalizeBrainThinking(cfg.thinking)
+      cfg.thinking = normalizeBrainThinking(cfg.thinking, cfg.provider)
     }
   }
 
@@ -680,7 +681,7 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   for (const [name, cfg] of brainEntries) {
     if (!cfg?.model) errors.push(`llm.brain.${name}.model 必填`)
     if (!cfg?.provider) errors.push(`llm.brain.${name}.provider 必填`)
-    // thinking：接受 legacy boolean（true/false）或 ThinkingLevel（off/on/low/medium/high）；非法 fail loud
+    // thinking：接受 legacy boolean（true/false）或 ThinkingLevel（off/on/low/medium/high/xhigh）；非法 fail loud
     // cfg.thinking 类型已为 ThinkingLevel，运行时值可能是 legacy boolean/字符串，用 unknown 比较避开类型冲突
     const t = cfg?.thinking as unknown
     if (
@@ -691,9 +692,10 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       t !== 'on' &&
       t !== 'low' &&
       t !== 'medium' &&
-      t !== 'high'
+      t !== 'high' &&
+      t !== 'xhigh'
     ) {
-      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/on/low/medium/high）`)
+      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/on/low/medium/high/xhigh）`)
     }
     if (
       cfg?.capabilities?.generate &&
@@ -959,7 +961,7 @@ export function readRawConfig(): ConfigRaw {
   // brain.thinking 归一化为 ThinkingLevel（前端 config.get 拿到的就是 level，无需再处理 legacy boolean）
   if (rest.llm?.brain) {
     for (const cfg of Object.values(rest.llm.brain)) {
-      cfg.thinking = normalizeBrainThinking(cfg.thinking)
+      cfg.thinking = normalizeBrainThinking(cfg.thinking, cfg.provider)
     }
   }
   return rest

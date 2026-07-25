@@ -53,7 +53,7 @@ export interface PreLLMRequestPayload {
   provider: string
   model: string
   url: string
-  thinking: 'off' | 'on' | 'low' | 'medium' | 'high' | undefined
+  thinking: 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' | undefined
   stream: boolean
   /** provider 构造的完整请求体（Anthropic/OpenAI/... 不同） */
   body: Record<string, unknown>

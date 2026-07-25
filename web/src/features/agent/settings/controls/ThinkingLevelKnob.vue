@@ -43,6 +43,7 @@ const META: Record<ThinkingLevel, LevelMeta> = {
   low: { value: 'low', label: 'low', accent: '#e3a548', textOnAccent: '#3a2406' },
   medium: { value: 'medium', label: 'medium', accent: '#f6b73c', textOnAccent: '#3a2406' },
   high: { value: 'high', label: 'high', accent: '#d99717', textOnAccent: '#fff7e6' },
+  xhigh: { value: 'xhigh', label: 'xhigh', accent: '#c66b12', textOnAccent: '#fff7e6' },
 }
 
 /** 完整月相标尺；实际档位数较少时从中等距取样。 */

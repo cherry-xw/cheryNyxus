@@ -17,7 +17,7 @@ import yaml from 'js-yaml'
 import type { ThinkingLevel } from '@/core/llm/adapter'
 
 /** 合法 ThinkingLevel 集合（与 ThinkingLevel union 一一对应）。 */
-const VALID_LEVELS = new Set<ThinkingLevel>(['off', 'on', 'low', 'medium', 'high'])
+const VALID_LEVELS = new Set<ThinkingLevel>(['off', 'on', 'low', 'medium', 'high', 'xhigh'])
 
 /** 兜底档位：未配置 / 未命中 / 解析失败 时返回。 */
 const FALLBACK_LEVELS: readonly ThinkingLevel[] = ['off', 'on']

@@ -3,9 +3,9 @@ import type { SenseFunction } from '../sense/adapter'
 /** 思考强度档位。
  * - off：关闭（provider 省略思考参数）
  * - on：开关模型的「开启」档（不传 reasoning_effort）；有显式强度档位的模型不列此值
- * - low/medium/high：强度递增，各 provider 自行映射为请求参数（如 OpenAI 兼容端点 reasoning_effort）
+ * - low/medium/high/xhigh：强度递增，各 provider 自行映射为请求参数
  */
-export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high'
+export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh'
 
 /**
  * LLM 调用选项（P1-6：替代 Record<string, unknown>，消除 provider 内强转）。

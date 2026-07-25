@@ -120,6 +120,14 @@ describe("OpenAI message adapter", () => {
     expect(out[1]).toEqual({ role: "user", content: "hey" });
   });
 
+  it("buildMessages: assistant 的 thinking → reasoning_content", () => {
+    const cfg = getMessageAdapter("openai")!;
+    const out = cfg.buildMessages([
+      { id: "a", role: "assistant", content: "hi", thinking: "reason", createdAt: 0, updateAt: 0 },
+    ]) as Array<{ role: string; reasoning_content?: string }>;
+    expect(out[0]).toMatchObject({ role: "assistant", reasoning_content: "reason" });
+  });
+
   it("buildMessages: 过滤 revoked", () => {
     const cfg = getMessageAdapter("openai")!;
     const out = cfg.buildMessages([

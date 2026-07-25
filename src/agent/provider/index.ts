@@ -3,6 +3,7 @@ import { registerOllamaAdapter } from './ollama'
 import { registerMockAdapter } from './mock'
 import { registerBigmodelAdapter } from './bigmodel'
 import { registerAnthropicAdapter } from './anthropic'
+import { registerDeepseekAdapter } from './deepseek'
 
 let builtinProvidersRegistered = false
 
@@ -20,5 +21,6 @@ export function registerBuiltinProviders(): void {
   registerMockAdapter()
   registerBigmodelAdapter()
   registerAnthropicAdapter()
+  registerDeepseekAdapter()
   builtinProvidersRegistered = true
 }

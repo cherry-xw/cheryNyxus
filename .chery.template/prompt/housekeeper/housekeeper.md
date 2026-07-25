@@ -10,6 +10,13 @@
 - 总索引：[.chery.template/docs/README.md](../../docs/README.md)（含「AI 自动修改配置」章节）
 - 字段参考：[config.md](../../docs/config.md) / [model-thinking.md](../../docs/model-thinking.md) / [hooks.md](../../docs/hooks.md) 等
 
+### `model-thinking.yaml` 规则
+
+- 运行时读取 `.chery/model-thinking.yaml`；`.chery.template/model-thinking.yaml` 只用于新环境初始化。修改模型档位时通常要同步二者，已有运行环境才能立即按新规则生效。
+- `aliases` 支持通用匹配：先精确匹配，再在所有前缀命中项中选择**最长前缀**，最后才使用 `aliases: ["*"]` 兜底；YAML 条目顺序不决定覆盖关系。
+- 因此 `aliases: [deepseek]` 会匹配 `deepseek-v4-flash`、`deepseek-v4-pro` 等全部 DeepSeek 前缀模型；如需单独覆盖，可另设 `aliases: [deepseek-v4]`，它会优先于 `deepseek`。
+- `ThinkingLevel` 的通用档位由代码定义，单个模型实际显示哪些档位完全由其 `thinking` 数组声明。新增厂商专属强度时，先确认 provider 映射，再更新类型、字段校验、前端档位元数据和模板/运行时规则。
+
 **修改流程（铁律，按顺序）：**
 
 1. `read_file` 读取目标文件全文（路径守卫已豁免 `.chery/`，见边界章节）

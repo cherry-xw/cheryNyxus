@@ -50,6 +50,7 @@ const THINKING_LABEL: Record<ThinkingLevel, string> = {
   low: '低',
   medium: '中',
   high: '高',
+  xhigh: '最高',
 }
 
 /** 返回思考档位中文；off / 无配置 → null（不显示 💭）。 */
