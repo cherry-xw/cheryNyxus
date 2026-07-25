@@ -87,9 +87,7 @@ export function buildOpenAICompatibleMessages(
         return {
           role: m.role,
           content: m.content || null,
-          ...(includeReasoningContent(m) && m.thinking
-            ? { reasoning_content: m.thinking }
-            : {}),
+          ...(includeReasoningContent(m) && m.thinking ? { reasoning_content: m.thinking } : {}),
           tool_calls: m.senseCalls.map((sc) => ({
             id: sc.id,
             type: 'function' as const,

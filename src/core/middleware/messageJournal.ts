@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import type { LLMResponse, ReplaceInfo } from '../message/adapter'
+import type { LLMResponse, ReplaceInfo, ThinkingBlock } from '../message/adapter'
 import type { Logger } from '@/utils/logger/types'
 import { LogLevel } from '@/utils/logger/types'
 import { estimateTokens } from '@/utils/token.js'
@@ -129,6 +129,8 @@ export class MessageJournal {
     payload: {
       content: string
       thinking: string
+      /** Anthropic 扩展：完整 thinking blocks（含 signature）。落库 + 下轮 buildMessages 原样回传。 */
+      thinkingBlocks?: ThinkingBlock[]
       senseCalls: Array<{ id: string; name: string; arguments: string }>
     },
     id?: string,
@@ -153,6 +155,9 @@ export class MessageJournal {
       role: 'assistant' as const,
       content: payload.content,
       thinking: payload.thinking,
+      ...(payload.thinkingBlocks && payload.thinkingBlocks.length > 0
+        ? { thinkingBlocks: payload.thinkingBlocks }
+        : {}),
       senseCalls: payload.senseCalls,
       createdAt: Date.now(),
       updateAt: Date.now(),
@@ -166,6 +171,9 @@ export class MessageJournal {
       role: 'assistant',
       content: payload.content || undefined,
       thinking: payload.thinking || undefined,
+      ...(payload.thinkingBlocks && payload.thinkingBlocks.length > 0
+        ? { thinkingBlocks: payload.thinkingBlocks }
+        : {}),
       senseCalls: payload.senseCalls,
       ...(contextCompaction ? { contextCompaction: true } : {}),
       ...(contextCompactionTokens !== undefined ? { contextCompactionTokens } : {}),

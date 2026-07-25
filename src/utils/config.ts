@@ -113,6 +113,13 @@ interface BrainConfig {
   capabilities?: BrainCapabilities
   /** brain 级 hooks.json 路径（相对 .chery/），与全局 .chery/hooks/hooks.json 合并（brain 级在全局后追加） */
   hooks?: string
+  /** Anthropic provider 兼容选项：3rd-party coding-plan 代理通常不实现 redacted_thinking。
+   *  默认 false（safe strip）；真官方 Anthropic 用户置 true 启用完整协议。 */
+  anthropicCompat?: {
+    /** 是否官方 Anthropic API；true=完整扩展思考协议（保留 redacted_thinking 原样回传），
+     *  false=strip redacted_thinking（兼容第三方 Anthropic 模式端点）。默认 false。 */
+    official?: boolean
+  }
 }
 
 /**
@@ -129,7 +136,8 @@ function normalizeBrainThinking(v: unknown, provider?: string): ThinkingLevel {
   if (v === true) return 'high'
   if (v === false || v === null) return 'off'
   if (v === undefined) return provider === 'deepseek' ? 'on' : 'off'
-  if (v === 'off' || v === 'on' || v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh') return v
+  if (v === 'off' || v === 'on' || v === 'low' || v === 'medium' || v === 'high' || v === 'xhigh')
+    return v
   return 'off'
 }
 
@@ -695,7 +703,9 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       t !== 'high' &&
       t !== 'xhigh'
     ) {
-      errors.push(`llm.brain.${name}.thinking 非法（合法：true/false 或 off/on/low/medium/high/xhigh）`)
+      errors.push(
+        `llm.brain.${name}.thinking 非法（合法：true/false 或 off/on/low/medium/high/xhigh）`,
+      )
     }
     if (
       cfg?.capabilities?.generate &&

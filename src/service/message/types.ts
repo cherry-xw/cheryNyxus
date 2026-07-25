@@ -4,6 +4,7 @@ import type { McpServerInfo } from '@/core/mcp/types.js'
 import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import type { ConfigRaw } from '@/utils/config.js'
 import type { ContextBreakdown } from '@/utils/token.js'
+import type { ThinkingBlockDelta } from '@/core/message/adapter.js'
 
 // ========== 消息基础类型 ==========
 
@@ -1363,6 +1364,9 @@ export interface StreamChunkData {
   thinking?: string
   content?: string
   senseCall?: SenseCallDelta[]
+  /** Anthropic 扩展：thinking blocks 流式增量（每 chunk 触发 0..N 个 delta）；
+   *  由 ThinkingBlockAssembler 聚合成完整 blocks 落库 + buildMessages 原样回传。 */
+  thinkingBlocksDelta?: ThinkingBlockDelta[]
 }
 
 export interface SenseCallDelta {

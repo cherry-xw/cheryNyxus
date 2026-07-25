@@ -1,4 +1,10 @@
-import type { MessageProviderAdapterConfig, LLMResponse, ReplaceInfo } from '../message/adapter'
+import type {
+  MessageProviderAdapterConfig,
+  LLMResponse,
+  ReplaceInfo,
+  ThinkingBlock,
+  ThinkingBlockDelta,
+} from '../message/adapter'
 import type { LLMAdapter } from '../llm/adapter'
 import type { SenseAdapter, SenseCallData, SenseFunction } from '../sense/adapter'
 import type { SenseResult, SenseSharedData, SenseRuntimeContext } from '../sense/senseCreator'
@@ -94,6 +100,8 @@ export interface AgentMessage {
   role: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent=旧历史兼容
   content?: string
   thinking?: string
+  /** Anthropic 扩展：thinking blocks 完整列表（含 signature / redacted）。UI 不读；仅供 provider round-trip。 */
+  thinkingBlocks?: ThinkingBlock[]
   senseCalls?: Array<{ id: string; name: string; arguments: string }>
   /** 消息创建时间（consumed 实时投影使用；内部 effect 可省略）。 */
   createdAt?: number
@@ -170,6 +178,8 @@ export interface StreamChunk {
   contentDelta: string
   /** Sense call 增量（可选，流式过程中实时传递，index 定位，arguments 为片段） */
   senseDelta?: SenseCallData[]
+  /** Anthropic 扩展：thinking blocks 流式增量（每 chunk 触发 0..N 个 delta） */
+  thinkingBlocksDelta?: ThinkingBlockDelta[]
   /** checkpoint 外层注入的本轮 assistant 消息 id；chat provider 内层产出时尚未附加。 */
   msgId?: string
   /** checkpoint 外层注入的本轮开始时间；chat provider 内层产出时尚未附加。 */

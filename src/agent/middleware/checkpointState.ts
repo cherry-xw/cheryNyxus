@@ -7,7 +7,9 @@ import type {
   SenseRejectChunk,
 } from '@/core/middleware/types'
 import type { SenseCallData } from '@/core/sense/adapter'
+import type { ThinkingBlock, ThinkingBlockDelta } from '@/core/message/adapter'
 import { SenseCallAssembler } from './senseCallAssembler.js'
+import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
 
 /**
  * Checkpoint 状态管理
@@ -18,6 +20,10 @@ export class CheckpointState {
   private content = ''
   private senseDeltas: SenseCallData[] = []
   private senseResults: (SenseAcceptChunk | SenseRejectChunk)[] = []
+  /** Anthropic 扩展：thinking blocks 累积器（按 index 累积 text/signature） */
+  private readonly thinkingBlockAssembler = new ThinkingBlockAssembler()
+  /** 第一次 flush 时记录的 thinkingBlocks（防止 finally flush 时清空后取不到） */
+  private thinkingBlocks: ThinkingBlock[] = []
   /** 本轮 assistant 是否已在 sense_end 时 flush（避免 finally 重复 push） */
   private assistantFlushed = false
   /** 第一次 flush 时记录的 assistant id（流结束后 reconcile senseCalls 用） */
@@ -38,6 +44,7 @@ export class CheckpointState {
     thinkingDelta?: string
     contentDelta?: string
     senseDelta?: SenseCallData[]
+    thinkingBlocksDelta?: ThinkingBlockDelta[]
     id?: string
     name?: string
     arguments?: string
@@ -48,6 +55,9 @@ export class CheckpointState {
     switch (chunk.type) {
       case 'stream':
         this.thinking += chunk.thinkingDelta ?? ''
+        if (chunk.thinkingBlocksDelta && chunk.thinkingBlocksDelta.length > 0) {
+          for (const op of chunk.thinkingBlocksDelta) this.thinkingBlockAssembler.push(op)
+        }
         this.content += chunk.contentDelta ?? ''
         if (chunk.senseDelta) {
           this.senseDeltas.push(...chunk.senseDelta)
@@ -82,10 +92,13 @@ export class CheckpointState {
     const senseCalls = mergedSenseCalls
       .filter((sc) => sc.name)
       .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }))
+    // 快照思考块（flush 后不再变化，供 reconcile 时引用）
+    this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
     const message = ctx.journal.appendAssistant(
       {
         content: this.content,
         thinking: this.thinking,
+        thinkingBlocks: this.thinkingBlocks.length > 0 ? this.thinkingBlocks : undefined,
         senseCalls,
       },
       this.assistantId,
@@ -135,10 +148,12 @@ export class CheckpointState {
       const senseCalls = mergedSenseCalls
         .filter((sc) => sc.name)
         .map((sc) => ({ id: sc.id, name: sc.name!, arguments: sc.arguments }))
+      this.thinkingBlocks = this.thinkingBlockAssembler.toArray()
       const message = ctx.journal.appendAssistant(
         {
           content: this.content,
           thinking: this.thinking,
+          thinkingBlocks: this.thinkingBlocks.length > 0 ? this.thinkingBlocks : undefined,
           senseCalls,
         },
         this.assistantId,
@@ -173,6 +188,12 @@ export class CheckpointState {
    */
   getThinking(): string {
     return this.thinking
+  }
+
+  /** 获取累积的 Anthropic thinking blocks（含 signature）；无则返回 undefined。 */
+  getThinkingBlocks(): ThinkingBlock[] | undefined {
+    const blocks = this.thinkingBlockAssembler.toArray()
+    return blocks.length > 0 ? blocks : undefined
   }
 
   /** 当前 turn 已落 journal 的 assistant message id；问题批次以此作为稳定 batch id。 */

@@ -23,6 +23,10 @@ export interface LLMOptions {
   brain?: string
   /** 内部 Provider 探测跳过 Hook；正式 chat 缺省 false。 */
   skipHooks?: boolean
+  /** Anthropic 官方 API 开关：true=完整扩展思考协议（保留 redacted_thinking 原样回传）；
+   *  false=strip redacted_thinking 块（默认；兼容第三方 Anthropic 模式端点）。
+   *  仅 Anthropic provider 读取，其它 provider 忽略。 */
+  anthropicOfficial?: boolean
 }
 
 /**

@@ -15,6 +15,27 @@ export interface SenseCallInfo {
 }
 
 /**
+ * Anthropic 扩展思考完整块（Anthropic 专属；其它 provider 仍走 thinking 字符串）。
+ * 与 m.thinking 字符串并存：m.thinking 供 UI / token 估算 / 非 Anthropic 回退，
+ * m.thinkingBlocks 供 Anthropic provider 原样回传（API 强制要求 thinking/redacted
+ * 块带 signature 原样回返）。落库序列化为 JSON 单列 thinking_blocks。
+ */
+export type ThinkingBlock =
+  | { type: 'thinking'; thinking: string; signature: string }
+  | { type: 'redacted_thinking'; data: string }
+
+/**
+ * 流式 thinking 增量（chat.ts / checkpointState 累积器的入参形态）。
+ * 与 content_block_start/delta/stop 事件一一对应：start 播种；text 拼接；
+ * signature 绑定到当前 index 的 block（不出块）；stop 关闭当前 block。
+ */
+export type ThinkingBlockDelta =
+  | { kind: 'start'; index: number; type: 'thinking' | 'redacted_thinking' }
+  | { kind: 'text'; index: number; text: string }
+  | { kind: 'signature'; index: number; signature: string }
+  | { kind: 'stop'; index: number }
+
+/**
  * 消息替换信息
  */
 export interface ReplaceInfo {
@@ -33,7 +54,10 @@ export interface LLMResponse {
   id: string
   role: Role
   content: string
+  /** 拼接的思考文本（UI 展示 + token 估算用；非 Anthropic provider 也可填写） */
   thinking?: string
+  /** Anthropic 扩展思考完整块（含 signature / redacted_thinking）— 供 Anthropic provider 原样回传 */
+  thinkingBlocks?: ThinkingBlock[]
   senseCalls?: SenseCallInfo[]
   createdAt: number
   updateAt: number
@@ -64,16 +88,33 @@ export interface LLMAttachment {
   kind?: MediaKind
 }
 
+/** buildMessages 可选的 provider 级选项（如 Anthropic 的 anthropicOfficial 开关）。
+ *  非 Anthropic provider 可忽略此参数。 */
+export interface BuildMessagesOptions {
+  /** Anthropic：true=完整协议（保留 redacted_thinking）；false=strip（默认） */
+  anthropicOfficial?: boolean
+}
+
 /**
  * MessageProvider 适配器接口
  */
 export type MessageProviderAdapterConfig<T = unknown, TStream = unknown, TMessage = unknown> = {
   content: (raw: T) => string
   thinking?: (raw: T) => string | undefined
+  /** Anthropic 扩展：完整 thinking blocks（含 signature）。非 Anthropic provider 不实现。 */
+  thinkingBlocks?: (raw: T) => ThinkingBlock[] | undefined
   extractStreamDelta: (chunk: TStream) => string
   extractStreamThinking?: (chunk: TStream) => string | undefined
-  /** P5b：attachments 为可选多模态附件，provider 据 mimeType/类型决定走原生多模态（image）还是忽略。 */
-  buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]) => TMessage[]
+  /** Anthropic 扩展：流式 blocks 增量（每次返回该 chunk 触发的 blocks 增量）。
+   *  由 middleware 累积器聚合成完整 blocks；非 Anthropic provider 不实现。 */
+  extractStreamThinkingBlocks?: (chunk: TStream) => ThinkingBlockDelta[] | undefined
+  /** P5b：attachments 为可选多模态附件，provider 据 mimeType/类型决定走原生多模态（image）还是忽略。
+   *  buildOptions：provider 级开关（Anthropic 官方模式等），默认 undefined 即用 provider 默认行为。 */
+  buildMessages: (
+    history: LLMResponse[],
+    attachments?: LLMAttachment[],
+    buildOptions?: BuildMessagesOptions,
+  ) => TMessage[]
 }
 
 /**

@@ -241,6 +241,17 @@ function setToolCall(cfg: BrainConfigDto, value: unknown): void {
   if (value === false) capabilities(cfg).generate = {}
 }
 
+/** 当前 brain 是否官方 Anthropic（影响 redacted_thinking 回传策略）；
+ *  仅 provider=anthropic 时生效；其它 provider 始终 false。 */
+function anthropicOfficial(cfg: BrainConfigDto): boolean {
+  return cfg.provider === 'anthropic' && cfg.anthropicCompat?.official === true
+}
+function setAnthropicOfficial(cfg: BrainConfigDto, value: unknown): void {
+  if (cfg.provider !== 'anthropic') return
+  if (!cfg.anthropicCompat) cfg.anthropicCompat = {}
+  cfg.anthropicCompat.official = value === true
+}
+
 // ── brain mutations ───────────────────────────────────────────────
 
 function removeBrain(): void {
@@ -411,33 +422,46 @@ async function openEnvFile(): Promise<void> {
             />
           </label>
           <label class="field">
-            <LabelTip label="适配器" tip="provider：openai / deepseek / ollama / 智谱 / anthropic / mock，决定 API 方言" />
-            <el-select v-model="cfg.provider" size="small">
-              <el-option v-for="p in PROVIDERS" :key="p" :value="p">
-                <template #default>
-                  <span class="provider-option">
-                    <img
-                      v-if="isProviderIconAsset(p)"
-                      class="provider-icon-img"
-                      :src="PROVIDER_META[p].icon"
-                      :alt="PROVIDER_META[p].label"
-                    />
-                    <span v-else class="provider-icon-emoji" aria-hidden="true">{{
-                      PROVIDER_META[p].icon
-                    }}</span>
-                    <!-- 中文在前、英文在后；同名折叠：openai/OpenAI、ollama/Ollama、anthropic/Anthropic 折叠为仅 label；mock / bigmodel 显示「value · label」 -->
-                    <template v-if="isProviderLabelRedundant(p)">
-                      <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
-                    </template>
-                    <template v-else>
-                      <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
-                      <span class="provider-sep">·</span>
-                      <span class="provider-value">{{ p }}</span>
-                    </template>
-                  </span>
-                </template>
-              </el-option>
-            </el-select>
+            <LabelTip
+              label="适配器"
+              tip="provider：openai / deepseek / ollama / 智谱 / anthropic / mock，决定 API 方言。选 anthropic 时，右侧「官方」勾选框开启 redacted_thinking 完整回传协议（关闭则按兼容模式处理）"
+            />
+            <div class="provider-row">
+              <el-select v-model="cfg.provider" size="small" class="provider-select">
+                <el-option v-for="p in PROVIDERS" :key="p" :value="p">
+                  <template #default>
+                    <span class="provider-option">
+                      <img
+                        v-if="isProviderIconAsset(p)"
+                        class="provider-icon-img"
+                        :src="PROVIDER_META[p].icon"
+                        :alt="PROVIDER_META[p].label"
+                      />
+                      <span v-else class="provider-icon-emoji" aria-hidden="true">{{
+                        PROVIDER_META[p].icon
+                      }}</span>
+                      <!-- 中文在前、英文在后；同名折叠：openai/OpenAI、ollama/Ollama、anthropic/Anthropic 折叠为仅 label；mock / bigmodel 显示「value · label」 -->
+                      <template v-if="isProviderLabelRedundant(p)">
+                        <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
+                      </template>
+                      <template v-else>
+                        <span class="provider-label">{{ PROVIDER_META[p].label }}</span>
+                        <span class="provider-sep">·</span>
+                        <span class="provider-value">{{ p }}</span>
+                      </template>
+                    </span>
+                  </template>
+                </el-option>
+              </el-select>
+              <el-checkbox
+                v-if="cfg.provider === 'anthropic'"
+                :model-value="anthropicOfficial(cfg)"
+                class="official-checkbox"
+                @change="(v: unknown) => setAnthropicOfficial(cfg, v)"
+              >
+                官方
+              </el-checkbox>
+            </div>
           </label>
           <label class="field">
             <span class="lbl">型号 *</span>
@@ -754,6 +778,46 @@ async function openEnvFile(): Promise<void> {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+// 适配器下拉 + 官方勾选框：同行 flex，仅 anthropic 时显示官方 checkbox
+.provider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-select {
+  flex: 1;
+  min-width: 0;
+}
+// el-checkbox 主题色覆盖：勾选态用 tab 主题色（取代默认 primary 蓝）
+.official-checkbox {
+  --el-checkbox-checked-bg-color: var(--tab-color, @accent);
+  --el-checkbox-checked-border-color: var(--tab-color, @accent);
+  --el-checkbox-checked-input-border-color: var(--tab-color, @accent);
+  --el-checkbox-checked-icon-color: #fff;
+  // 固定高度 = el-select size=small 的 24px，与 select 同行中线对齐
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(20, 22, 26, 0.6);
+
+  :deep(.el-checkbox__label) {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    padding-left: 4px;
+    color: rgba(20, 22, 26, 0.6);
+  }
+  :deep(.el-checkbox__input.is-checked + .el-checkbox__label) {
+    color: var(--tab-color, @accent);
   }
 }
 

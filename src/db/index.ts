@@ -155,6 +155,7 @@ function initMonthlyTables(db: Database.Database): void {
       role TEXT NOT NULL,
       content TEXT,
       thinking TEXT,
+      thinking_blocks TEXT,
       sense_calls TEXT,
       hash TEXT,
       replace_state INTEGER DEFAULT 0,
@@ -169,6 +170,14 @@ function initMonthlyTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id);
+
+    // schema migration：旧 db 缺 thinking_blocks 列 → ADD COLUMN 兜底（与 revoked 列同源模式）
+    const msgCols = (db.prepare("PRAGMA table_info(messages)").all() as { name: string }[]).map(
+      (r) => r.name,
+    )
+    if (!msgCols.includes('thinking_blocks')) {
+      db.exec('ALTER TABLE messages ADD COLUMN thinking_blocks TEXT')
+    }
 
     CREATE TABLE IF NOT EXISTS chat_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

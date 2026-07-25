@@ -7,6 +7,8 @@
  * 详见 [docs/agent/hooks.md](../../../../docs/agent/hooks.md)。
  */
 
+import type { ThinkingBlock } from '@/core/message/adapter.js'
+
 /** 所有 hooks 事件名（dispatcher 入口穷举）*/
 export type HookEvent =
   | 'SessionStart'
@@ -65,6 +67,8 @@ export interface PostLLMResponsePayload {
   model: string
   content: string
   thinking?: string
+  /** Anthropic 扩展：完整 thinking blocks（含 signature）。其它 provider 不传。 */
+  thinkingBlocks?: ThinkingBlock[]
   senseCalls?: { id: string; name: string; arguments: string }[]
 }
 
@@ -150,6 +154,8 @@ export interface CommonDecision {
   /** PostLLMResponse 专用：改写响应字段 */
   content?: string
   thinking?: string
+  /** Anthropic 扩展：handler 可改写 / 阻断重写 thinking blocks。 */
+  thinkingBlocks?: ThinkingBlock[]
   senseCalls?: { id: string; name: string; arguments: string }[]
 }
 

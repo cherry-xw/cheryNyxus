@@ -1,5 +1,6 @@
 import { getSoulDb, getMonthlyDb } from './index.js'
 import { safeJsonParse } from '@/utils/json.js'
+import type { ThinkingBlock } from '@/core/message/adapter.js'
 
 export interface ChatRow {
   id: string
@@ -21,6 +22,8 @@ export interface MessageRow {
   role: string
   content: string | null
   thinking: string | null
+  /** JSON 序列化的 ThinkingBlock[]（Anthropic 扩展思考完整块） */
+  thinking_blocks: string | null
   sense_calls: string | null
   hash: string | null
   replace_state: number | null
@@ -39,6 +42,8 @@ export interface MessageData {
   role: 'user' | 'assistant' | 'system' | 'sense' | 'role' | 'subagent' // role=新（子 pet 回复）；subagent 仅旧历史消息兼容读
   content?: string
   thinking?: string
+  /** Anthropic 扩展：thinking 完整块（含 signature）；JSON 列反序列化 */
+  thinkingBlocks?: ThinkingBlock[]
   senseCall?: Array<{
     id: string
     name: string
@@ -459,8 +464,8 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
   const now = Date.now()
 
   const stmt = monthlyDb.prepare(`
-    INSERT INTO messages (id, chat_id, role, content, thinking, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime, context_compaction, context_compaction_tokens)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, chat_id, role, content, thinking, thinking_blocks, sense_calls, hash, replace_state, replace_by, replace_content, original_content, revoked, created_at, runtime, context_compaction, context_compaction_tokens)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
 
   stmt.run(
@@ -469,6 +474,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     data.role,
     data.content ?? null,
     data.thinking ?? null,
+    data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
     data.senseCall ? JSON.stringify(data.senseCall) : null,
     data.hash ?? null,
     data.replace?.state ? 1 : 0,
@@ -496,6 +502,7 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     role: data.role,
     content: data.content ?? null,
     thinking: data.thinking ?? null,
+    thinking_blocks: data.thinkingBlocks ? JSON.stringify(data.thinkingBlocks) : null,
     sense_calls: data.senseCall ? JSON.stringify(data.senseCall) : null,
     hash: data.hash ?? null,
     replace_state: data.replace?.state ? 1 : 0,
@@ -706,6 +713,9 @@ export function parseMessageRow(row: MessageRow): MessageData {
     role: row.role as MessageData['role'],
     content: row.content ?? undefined,
     thinking: row.thinking ?? undefined,
+    thinkingBlocks: row.thinking_blocks
+      ? safeJsonParse<ThinkingBlock[] | undefined>(row.thinking_blocks, undefined)
+      : undefined,
     senseCall: row.sense_calls ? safeJsonParse(row.sense_calls, undefined) : undefined,
     hash: row.hash ?? undefined,
     replace: row.replace_state

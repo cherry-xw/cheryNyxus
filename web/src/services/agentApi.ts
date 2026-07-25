@@ -472,6 +472,12 @@ export interface BrainConfigDto {
   mock?: { enabled?: boolean; file: string }
   contextLimit?: number
   capabilities?: BrainCapabilitiesDto
+  /** Anthropic provider 兼容选项：3rd-party coding-plan 代理通常不实现 redacted_thinking。
+   *  默认 false（safe strip）；真官方 Anthropic 用户置 true 启用完整协议。 */
+  anthropicCompat?: {
+    /** true=完整协议（保留 redacted_thinking 原样回传）；false=strip（默认） */
+    official?: boolean
+  }
 }
 
 /** 编辑器信息（对齐后端 UtilsEditorsResponseData.editors[]） */

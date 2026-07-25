@@ -6,7 +6,12 @@
  * 详见 https://api-docs.deepseek.com/zh-cn/guides/thinking_mode 。
  */
 import type { SenseFunction, SenseAdapter } from '@/core/sense'
-import { registerLLMAdapter, type LLMAdapter, type LLMOptions, type ThinkingLevel } from '@/core/llm/adapter'
+import {
+  registerLLMAdapter,
+  type LLMAdapter,
+  type LLMOptions,
+  type ThinkingLevel,
+} from '@/core/llm/adapter'
 import { registerMessageAdapter, type MessageProviderAdapterConfig } from '@/core/message/adapter'
 import { registerSenseAdapter } from '@/core/sense/adapter'
 import {
@@ -27,7 +32,10 @@ function buildThinkingParams(level: ThinkingLevel | undefined): Record<string, u
 
 const deepseekMessageAdapterConfig = {
   ...openaiMessageAdapterConfig,
-  buildMessages: (history: Parameters<typeof buildOpenAICompatibleMessages>[0], attachments?: Parameters<typeof buildOpenAICompatibleMessages>[1]) =>
+  buildMessages: (
+    history: Parameters<typeof buildOpenAICompatibleMessages>[0],
+    attachments?: Parameters<typeof buildOpenAICompatibleMessages>[1],
+  ) =>
     buildOpenAICompatibleMessages(history, attachments, (message) =>
       Boolean(message.senseCalls && message.senseCalls.length > 0),
     ),
@@ -49,7 +57,11 @@ const deepseekLLMAdapter: LLMAdapter = {
       key,
     )
   },
-  async chatStream(messages: unknown[], senses: SenseFunction[], options?: LLMOptions): Promise<AsyncIterable<unknown>> {
+  async chatStream(
+    messages: unknown[],
+    senses: SenseFunction[],
+    options?: LLMOptions,
+  ): Promise<AsyncIterable<unknown>> {
     const { model, url, key } = assertChatOptions(options)
     await acquireRpm(options)
     return streamSSE(
@@ -68,6 +80,9 @@ const deepseekLLMAdapter: LLMAdapter = {
 
 export function registerDeepseekAdapter(): void {
   registerMessageAdapter('deepseek', deepseekMessageAdapterConfig as MessageProviderAdapterConfig)
-  registerSenseAdapter('deepseek', openaiSenseAdapterConfig as unknown as SenseAdapter<Record<string, unknown>>)
+  registerSenseAdapter(
+    'deepseek',
+    openaiSenseAdapterConfig as unknown as SenseAdapter<Record<string, unknown>>,
+  )
   registerLLMAdapter('deepseek', deepseekLLMAdapter)
 }

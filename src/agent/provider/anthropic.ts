@@ -28,6 +28,8 @@ import {
   type LLMResponse,
   type LLMAttachment,
   type MessageProviderAdapterConfig,
+  type ThinkingBlock,
+  type ThinkingBlockDelta,
 } from '@/core/message/adapter'
 import {
   registerSenseAdapter,
@@ -53,10 +55,14 @@ const ANTHROPIC_DEFAULT_MAX_TOKENS = 16384
 
 // ========== Anthropic 类型（局部定义，不引第三方 SDK）============
 
-/** Anthropic content block 联合 */
+/** Anthropic content block 联合
+ *  thinking 块的 signature 是扩展思考协议强制要求（多轮回传时 API 校验）；
+ *  本地类型标为可选以兼容 legacy/手动构造数据（缺 signature 的 block 上传 API 必 400）。
+ *  redacted_thinking 块 data 是不透明字符串，按 Anthropic 规定原样回传。 */
 type AnthropicContentBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
+  | { type: 'thinking'; thinking: string; signature?: string }
+  | { type: 'redacted_thinking'; data: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string | AnthropicContentBlock[] }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
@@ -170,6 +176,19 @@ const anthropicMessageAdapterConfig = {
     return parts.length > 0 ? parts.join('') : undefined
   },
 
+  /** 完整 thinking blocks（含 signature / redacted_thinking）；Anthropic 扩展回传用。 */
+  thinkingBlocks: (raw: AnthropicResponse): ThinkingBlock[] | undefined => {
+    const blocks: ThinkingBlock[] = []
+    for (const b of raw.content) {
+      if (b.type === 'thinking') {
+        blocks.push({ type: 'thinking', thinking: b.thinking, signature: b.signature ?? '' })
+      } else if (b.type === 'redacted_thinking') {
+        blocks.push({ type: 'redacted_thinking', data: b.data })
+      }
+    }
+    return blocks.length > 0 ? blocks : undefined
+  },
+
   extractStreamDelta: (chunk: AnthropicSSEEvent): string => {
     if (chunk.type === 'content_block_delta' && chunk.delta.type === 'text_delta') {
       return chunk.delta.text
@@ -184,6 +203,35 @@ const anthropicMessageAdapterConfig = {
     return undefined
   },
 
+  /** 流式 thinking 增量翻译 — mirror extractSenseCallDeltas 形态
+   *  返回该 chunk 触发的 ThinkingBlockDelta[]，由 middleware ThinkingBlockAssembler 聚合。 */
+  extractStreamThinkingBlocks: (chunk: AnthropicSSEEvent): ThinkingBlockDelta[] => {
+    if (chunk.type === 'content_block_start') {
+      const cb = chunk.content_block
+      if (cb.type === 'thinking') {
+        return [{ kind: 'start', index: chunk.index, type: 'thinking' }]
+      }
+      if (cb.type === 'redacted_thinking') {
+        return [{ kind: 'start', index: chunk.index, type: 'redacted_thinking' }]
+      }
+      return []
+    }
+    if (chunk.type === 'content_block_delta') {
+      const d = chunk.delta
+      if (d.type === 'thinking_delta') {
+        return [{ kind: 'text', index: chunk.index, text: d.thinking }]
+      }
+      if (d.type === 'signature_delta') {
+        return [{ kind: 'signature', index: chunk.index, signature: d.signature }]
+      }
+      return []
+    }
+    if (chunk.type === 'content_block_stop') {
+      return [{ kind: 'stop', index: chunk.index }]
+    }
+    return []
+  },
+
   /**
    * 把 LLMResponse[] + 可选 attachments 转换为 Anthropic 格式：
    * - 抽 role:'system' → 顶层 system（多条 \n\n 拼接）
@@ -195,7 +243,11 @@ const anthropicMessageAdapterConfig = {
    *
    * 返回元组（不是数组）：Anthropic system 顶层字段；messages 只剩 user/assistant
    */
-  buildMessages: (history: LLMResponse[], attachments?: LLMAttachment[]): AnthropicSplitResult => {
+  buildMessages: (
+    history: LLMResponse[],
+    attachments?: LLMAttachment[],
+    buildOptions?: { anthropicOfficial?: boolean },
+  ): AnthropicSplitResult => {
     let system: string | null = null
     const filtered: LLMResponse[] = []
 
@@ -209,7 +261,8 @@ const anthropicMessageAdapterConfig = {
     }
 
     const normalized = ensureAlternatingUserFirst(filtered)
-    const messages = normalized.map((m) => buildAnthropicMessage(m, attachments))
+    const official = buildOptions?.anthropicOfficial === true
+    const messages = normalized.map((m) => buildAnthropicMessage(m, attachments, { official }))
     return { system, messages }
   },
 }
@@ -252,8 +305,41 @@ function ensureAlternatingUserFirst(history: LLMResponse[]): LLMResponse[] {
   return merged
 }
 
+/** 把 LLMResponse 上的 thinking 块原样 emit 到 Anthropic content blocks
+ *  优先 m.thinkingBlocks（完整块含 signature）；无则降级用 m.thinking 字符串
+ *  （legacy 回退，Anthropic 会拒 400 — 文档化为已知限制）。
+ *
+ *  options?.official=false（默认）时 strip redacted_thinking 块，
+ *  兼容第三方 Anthropic 模式端点（coding-plan 代理通常不实现 redacted_thinking）。 */
+function pushThinkingBlocks(
+  blocks: AnthropicContentBlock[],
+  m: LLMResponse,
+  options?: { official?: boolean },
+): void {
+  if (m.thinkingBlocks && m.thinkingBlocks.length > 0) {
+    for (const tb of m.thinkingBlocks) {
+      if (tb.type === 'thinking') {
+        blocks.push({ type: 'thinking', thinking: tb.thinking, signature: tb.signature })
+      } else if (tb.type === 'redacted_thinking') {
+        // 非官方 Anthropic：strip redacted_thinking（3rd-party 端点不支持）
+        if (options?.official === true) {
+          blocks.push({ type: 'redacted_thinking', data: tb.data })
+        }
+      }
+    }
+    return
+  }
+  if (m.thinking) {
+    blocks.push({ type: 'thinking', thinking: m.thinking })
+  }
+}
+
 /** 单条 LLMResponse → Anthropic message */
-function buildAnthropicMessage(m: LLMResponse, attachments?: LLMAttachment[]): AnthropicMsg {
+function buildAnthropicMessage(
+  m: LLMResponse,
+  attachments?: LLMAttachment[],
+  buildOptions?: { official?: boolean },
+): AnthropicMsg {
   // case 1: sense → user 消息含 tool_result block
   if (m.role === 'sense') {
     const content = m.replace?.state ? m.replace.content : m.content
@@ -273,7 +359,7 @@ function buildAnthropicMessage(m: LLMResponse, attachments?: LLMAttachment[]): A
   if (m.role === 'assistant' && m.senseCalls && m.senseCalls.length > 0) {
     const blocks: AnthropicContentBlock[] = []
     // thinking 必须在 text/tool_use 之前（Anthropic 约束）
-    if (m.thinking) blocks.push({ type: 'thinking', thinking: m.thinking })
+    pushThinkingBlocks(blocks, m, buildOptions)
     if (m.content) blocks.push({ type: 'text', text: m.content })
     for (const sc of m.senseCalls) {
       let input: Record<string, unknown> = {}
@@ -297,7 +383,7 @@ function buildAnthropicMessage(m: LLMResponse, attachments?: LLMAttachment[]): A
   // case 3: assistant 无 senseCalls → [thinking?, text?]
   if (m.role === 'assistant') {
     const blocks: AnthropicContentBlock[] = []
-    if (m.thinking) blocks.push({ type: 'thinking', thinking: m.thinking })
+    pushThinkingBlocks(blocks, m, buildOptions)
     if (m.content) blocks.push({ type: 'text', text: m.content })
     // 全空时用 [{text:''}] 兜底（Anthropic 拒空 content）
     if (blocks.length === 0) blocks.push({ type: 'text', text: '' })

@@ -7,7 +7,8 @@ import type {
 import type { SenseFunction, SenseCallData } from '@/core/sense/adapter'
 import type { LLMOptions } from '@/core/llm/adapter'
 import { logger, LogLevel } from '@/utils/logger/index.js'
-import type { LLMResponse, LLMAttachment } from '@/core/message/adapter'
+import type { LLMResponse, LLMAttachment, ThinkingBlockDelta } from '@/core/message/adapter'
+import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
 import {
   readMediaAsset,
   understandMediaReference,
@@ -74,7 +75,6 @@ export async function* chatMiddleware(
       ...enriched.history,
     ]
   }
-  const messages = messageAdapter.buildMessages(historyForBuild, enriched.attachments)
 
   // 使用预构建的 senses（runtime.builtSenses）
   const senses = ctx.runtime.builtSenses
@@ -87,7 +87,14 @@ export async function* chatMiddleware(
     // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/on/low/medium/high/xhigh）
     thinking: ctx.global.thinking ? (ctx.runtime.brain.thinking ?? 'off') : 'off',
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
+    // Anthropic 官方开关：brain.anthropicCompat.official=true 时保留 redacted_thinking 原样回传；
+    // 默认 false → strip（兼容 3rd-party coding-plan 代理）。
+    anthropicOfficial: ctx.runtime.brain.anthropicCompat?.official === true,
   }
+
+  const messages = messageAdapter.buildMessages(historyForBuild, enriched.attachments, {
+    anthropicOfficial: options.anthropicOfficial,
+  })
 
   // ========== AI 输入参数日志 ==========
   logger.event('llm.req', {
@@ -131,6 +138,8 @@ async function* handleStream(
   let thinkingAccumulated = ''
   let contentAccumulated = ''
   const senseCallsAccumulated: SenseCallData[] = []
+  // Anthropic 扩展：累积 thinking blocks（含 signature）；仅当 provider 实现 extractStreamThinkingBlocks 时填充。
+  const thinkingAssembler = new ThinkingBlockAssembler()
 
   for await (const rawChunk of streamIterator) {
     chunkCount++
@@ -138,6 +147,8 @@ async function* handleStream(
     // 提取增量
     const thinkingDelta = messageAdapter.extractStreamThinking?.(rawChunk) || ''
     const contentDelta = messageAdapter.extractStreamDelta?.(rawChunk) || ''
+    const thinkingBlocksDelta: ThinkingBlockDelta[] =
+      messageAdapter.extractStreamThinkingBlocks?.(rawChunk) ?? []
 
     // 提取 sense call 增量
     const senseDelta = senseAdapter.extractSenseCallDeltas(rawChunk)
@@ -148,14 +159,16 @@ async function* handleStream(
     if (senseDelta.length > 0) {
       senseCallsAccumulated.push(...senseDelta)
     }
+    for (const op of thinkingBlocksDelta) thinkingAssembler.push(op)
 
     // yield stream chunk（包含 senseDelta）
-    if (thinkingDelta || contentDelta || senseDelta.length > 0) {
+    if (thinkingDelta || contentDelta || senseDelta.length > 0 || thinkingBlocksDelta.length > 0) {
       yield {
         type: 'stream',
         thinkingDelta,
         contentDelta,
         senseDelta: senseDelta.length > 0 ? senseDelta : undefined,
+        thinkingBlocksDelta: thinkingBlocksDelta.length > 0 ? thinkingBlocksDelta : undefined,
       }
     }
   }
@@ -167,6 +180,7 @@ async function* handleStream(
     thinkingLen: thinkingAccumulated.length,
     contentLen: contentAccumulated.length,
     senseCalls: senseCallsAccumulated.length,
+    thinkingBlocks: thinkingAssembler.toArray().length,
   })
 
   // PostLLMResponse + Stop hook（流式末尾）
@@ -174,6 +188,8 @@ async function* handleStream(
     provider: ctx.runtime?.brain.provider ?? '',
     content: contentAccumulated,
     thinking: thinkingAccumulated || undefined,
+    thinkingBlocks:
+      thinkingAssembler.toArray().length > 0 ? thinkingAssembler.toArray() : undefined,
     senseCalls: senseCallsAccumulated.map((sc) => ({
       id: sc.id,
       name: sc.name ?? '',
@@ -400,6 +416,7 @@ async function dispatchPostLLMResponse(
     provider: string
     content: string
     thinking?: string
+    thinkingBlocks?: import('@/core/message/adapter.js').ThinkingBlock[]
     senseCalls?: { id: string; name: string; arguments: string }[]
   },
 ): Promise<void> {

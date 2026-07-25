@@ -62,7 +62,7 @@ export function registerBuiltinProviders(): void {
 | 维度 | openai | deepseek | ollama | mock | bigmodel | anthropic |
 |------|--------|----------|--------|------|----------|-----------|
 | thinking 请求参数 | `reasoning_effort:level`（off 省略） | `thinking.type` + `reasoning_effort` | 无（不传） | N/A | `reasoning_effort:level`（同 openai） | `thinking:{type:'adaptive'}` + `output_config.effort`（off 省略） |
-| thinking 响应字段 | `reasoning_content` | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` | `content[].thinking` block |
+| thinking 响应字段 | `reasoning_content` | `reasoning_content` | `message.thinking` | `thinking` | `reasoning_content` | `content[].thinking` / `redacted_thinking` blocks（含 signature） |
 | `buildSenses` 加 `strict:true` | ✓ | ✗ | ✗ | ✓ | ✗（Anthropic 不支持） |
 | tool_call.id | 有（`call_xxx`） | 无（randomUUID 占位） | 缺省 randomUUID | 有 | 有（`toolu_xxx`） |
 | 流式 tool_call 稳定 | 稳定 | 不稳定（P1-2） | 稳定（自拆 delta） | 稳定（OpenAI 协议） | 稳定（typed SSE） |
@@ -75,7 +75,47 @@ export function registerBuiltinProviders(): void {
 
 ### 思考上下文回传策略
 
-接收、展示和持久化 `thinking` 与把它拼回下一次请求是两项独立策略。OpenAI 与 BigModel 在 assistant 历史中回传 `reasoning_content`，Ollama 回传原生 `thinking`，Anthropic 以原生 thinking block 回传，Mock 原样回放。DeepSeek 遵循其[思考模式文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode)：普通 assistant 轮不拼接 `reasoning_content`，但带 `tool_calls` 的 assistant 轮必须在之后所有请求中原样回传，否则 API 返回 400。
+接收、展示和持久化 `thinking` 与把它拼回下一次请求是两项独立策略。OpenAI 与 BigModel 在 assistant 历史中回传 `reasoning_content`，Ollama 回传原生 `thinking`，Anthropic 以原生 thinking block 回传（含 signature 完整块），Mock 原样回放。DeepSeek 遵循其[思考模式文档](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode)：普通 assistant 轮不拼接 `reasoning_content`，但带 `tool_calls` 的 assistant 轮必须在之后所有请求中原样回传，否则 API 返回 400。
+
+### Anthropic 扩展思考块协议（extended thinking blocks）
+
+[Anthropic Messages API](https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking) 在开启扩展思考时强制要求：
+
+> 在后续轮次中，必须把完整的 `thinking` / `redacted_thinking` content block 原样回传（含 `signature` 字段），否则 API 400。
+
+实现细节：
+
+- **双轨并存**：`LLMResponse.thinking` 保留拼接字符串（UI 展示 + token 估算 + 非 Anthropic 回退），新增 `LLMResponse.thinkingBlocks?: ThinkingBlock[]`（Anthropic 专属 round-trip 用）。两者独立填充，UI 不读 blocks。
+- **流式累积**：`anthropicMessageAdapterConfig.extractStreamThinkingBlocks` 把 SSE 事件翻译成 `ThinkingBlockDelta[]`（start/text/signature/stop），由 `chat.ts` / `checkpointState.ts` 内的 `ThinkingBlockAssembler`（[src/agent/provider/thinkingBlockAssembler.ts](../../src/agent/provider/thinkingBlockAssembler.ts)）按 index 累积，产出 `ThinkingBlock[]`。
+- **落库**：`messages.thinking_blocks TEXT` JSON 列（与 `thinking` 并存）。schema migration 自动 `ALTER TABLE ADD COLUMN thinking_blocks TEXT` 兜底旧库。
+- **回传**：`anthropic.ts` 的 `pushThinkingBlocks` 在 `buildMessages` 时优先用 `m.thinkingBlocks`（含 signature），无则降级 `m.thinking` 字符串（legacy fallback — Anthropic 会拒 400，已文档化）。
+- **协议违规兜底**：thinking 块缺 signature 时仍按原样 emit；调用方应据 `thinkingBlocks` 完整性判断是否使用 Anthropic brain。
+
+已知限制：跨 provider 历史切换（OpenAI session 切到 Anthropic brain）→ legacy fallback 无 signature，下一轮必 400。建议切换 brain 时新建 chat。
+
+### 第三方 Anthropic 模式端点兼容（coding-plan 代理）
+
+大量 3rd-party Anthropic 模式端点（如 Claude Code 风格的 coding-plan 代理）并不实现 `redacted_thinking` 块（此特性较新，仅官方 Anthropic API 支持）；按 Anthropic 协议原样回传会被这些端点拒 400。
+
+适配方式：**brain 级配置 `anthropicCompat.official`**：
+
+```yaml
+llm:
+  brain:
+    anthropic_main:  # 官方 Anthropic API
+      provider: anthropic
+      anthropicCompat:
+        official: true   # 完整协议：保留 redacted_thinking 原样回传
+    anthropic_proxy:  # 3rd-party coding-plan 代理
+      provider: anthropic
+      anthropicCompat:
+        official: false  # 默认：strip redacted_thinking，3rd-party 兼容
+```
+
+- `official=false`（默认）：buildMessages 时跳过 `redacted_thinking` 块，其它块（含 signature 的 thinking）原样保留。
+- `official=true`：完整 Anthropic 协议，包括 redacted 块原样回传。
+
+前端 BrainCard 在 `provider === 'anthropic'` 时显示「官方」勾选开关，与 yaml 同步。
 
 ### 三 Provider 共有约定
 

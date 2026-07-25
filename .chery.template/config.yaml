@@ -92,6 +92,9 @@ llm:
         input:
           image: true                      # 支持 image 多模态
         generate: {}
+      anthropicCompat:
+        official: true                     # 官方 Anthropic API：true=保留 redacted_thinking 原样回传
+      #                                     # 第三方 anthropic 模式端点（coding-plan 代理）通常不实现 redacted_thinking，保持 false
       # hooks: hooks/anthropic-main.json   # [可选] brain 级 hooks.json 路径（相对 .chery/）
       #                                     # 与全局 .chery/hooks/hooks.json 合并（brain 级在全局后追加）
     # ---- 示例 4：OpenAI 兼容本地服务（LM Studio / Ollama OpenAI 模式 / vLLM / LocalAI 等）----
