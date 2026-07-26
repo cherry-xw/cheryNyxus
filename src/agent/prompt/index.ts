@@ -177,7 +177,7 @@ function buildPromptPieces(
           .map((role) => `- @${role.name}: ${role.description}`)
           .join(
             '\n',
-          )}\n\n用户消息中的 [[role:@名称]] 是选择器插入的结构化角色标记，不是普通文本。它表示用户希望你将该角色纳入本次协作候选编制。你作为 coordinator 必须结合任务依赖，自主决定是否派发、并行或串行顺序、是否补充其他角色以及 wake 策略；实际派发只能通过 spawn_role，且必须遵守其可用角色限制。不要把标记原样当作用户任务内容回复。\n</role-mentions>`
+          )}\n\n用户消息中的 [[role:@名称]] 是选择器插入的结构化角色标记，不是普通文本。它表示用户已明确点名该角色参与本次协作——这是一个强信号：用户期望由该专职角色承担相关任务，而非你亲自代劳。你作为 coordinator，核心价值在于编排与交付而非独揽执行；把专业任务交给专职角色是本协作模式的立身之本，随手自办会浪费编制、削弱产出质量。你仍需结合任务依赖，自主决定是否派发、并行或串行顺序、是否补充其他角色以及 wake 策略；但权衡时应把「交给被 @ 的角色」作为首选倾向，仅当确有理由自办时才不派发。实际派发只能通过 spawn_role，且必须遵守其可用角色限制。不要把标记原样当作用户任务内容回复。\n</role-mentions>`
       : ''
   // 内置命令（/.chery/command/*.md）不在默认 system prompt 注入；trigger 时由 autoCompact / manual
   // 路径临时附注到 user prompt 末尾。详见 docs/agent/command.md。
