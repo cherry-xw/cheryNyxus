@@ -17,6 +17,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { useAgentsStore } from '@/stores'
 import { formatTime } from '@/utils/formatTime'
 import { fmtTokens } from '../toolbar/contextBreakdown'
+import { splitCommandPrompt } from '../composables/commands'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 
 const MotionDiv = motion.div
@@ -232,7 +233,20 @@ async function remove(chatId: string): Promise<void> {
             <div v-for="s in sessions" :key="s.chatId" class="session-row" @click="load(s.chatId)">
               <div class="row-main">
                 <span class="preview-line">
-                  <span class="preview">{{ s.preview || '(无消息)' }}</span>
+                  <span class="preview">
+                  <template
+                    v-for="(seg, i) in splitCommandPrompt(s.preview || '(无消息)')"
+                    :key="`${seg.type}-${i}`"
+                  >
+                    <span v-if="seg.type === 'role'" class="marker-tag marker-role">{{
+                      seg.value
+                    }}</span>
+                    <span v-else-if="seg.type === 'command'" class="marker-tag marker-cmd">{{
+                      seg.value
+                    }}</span>
+                    <template v-else>{{ seg.value }}</template>
+                  </template>
+                </span>
                   <el-tooltip placement="top" :show-after="300" :hide-after="0">
                     <template #content>
                       <div class="row-tip">
@@ -456,6 +470,28 @@ async function remove(chatId: string): Promise<void> {
     white-space: nowrap;
     flex: 1;
     min-width: 0;
+  }
+
+  /* 会话预览内联 marker tag（对齐 MessageBubble .instruction-message-token：command 琥珀 / role 蓝） */
+  .marker-tag {
+    display: inline-block;
+    margin: 0 3px 0 0;
+    padding: 0 5px;
+    border: 1px solid rgba(190, 132, 28, 0.28);
+    border-radius: 4px;
+    background: linear-gradient(135deg, rgba(255, 242, 195, 0.94), rgba(246, 183, 60, 0.14));
+    color: #76500e;
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.5;
+    vertical-align: baseline;
+  }
+
+  .marker-role {
+    border-color: rgba(70, 126, 202, 0.28);
+    background: linear-gradient(135deg, rgba(224, 239, 255, 0.94), rgba(70, 126, 202, 0.14));
+    color: #2f6fae;
   }
 
   .preview-line {

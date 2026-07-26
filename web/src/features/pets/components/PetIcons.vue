@@ -23,7 +23,6 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useAgentsStore } from '@/stores'
 import type { ApprovalState, HistoryItem, SenseCallRecord } from '@/stores/agents'
 import { hasRenderer } from '@/features/agent/renderers/registry'
-import { splitCommandPrompt, type CommandPromptSegment } from '@/features/agent/composables/commands'
 
 const props = defineProps<{
   /** chatId（数据源路由：streams[chatId].history / approval / approvalQueue） */
