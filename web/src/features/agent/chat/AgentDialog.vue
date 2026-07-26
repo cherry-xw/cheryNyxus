@@ -54,6 +54,7 @@ const {
   handleSend,
   onEditorKeydown,
   onEditorInput,
+  onEditorSelectionChange,
   onEditorPaste,
   selectCommand,
   selectCommandTab,
@@ -303,6 +304,8 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             data-placeholder="输入消息…（输入 / 选择指令）"
             @input="onEditorInput"
             @keydown="onEditorKeydown"
+            @keyup="onEditorSelectionChange"
+            @click="onEditorSelectionChange"
             @paste="onEditorPaste"
           />
           <Teleport v-if="showCommandMenu" to="body">

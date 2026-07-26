@@ -68,6 +68,8 @@ export function useAgentDialogOptions() {
   const roleSelections = ref<Record<string, RuntimeSelection>>({})
   const primaryRole = ref('主角色')
   const text = ref('')
+  /** 光标前内容序列化串；指令/角色菜单据此触发（支持句中输入 / 或 @）。 */
+  const caretPrefix = ref('')
   const builtinCommands = ref<MessageCommand[]>([COMPACT_COMMAND])
   const skillCommands = ref<MessageCommand[]>([])
   const editorRef = ref<HTMLElement | null>(null)
@@ -184,9 +186,9 @@ export function useAgentDialogOptions() {
     ...builtinCommands.value,
     ...skillCommands.value,
   ])
-  /** 输入末尾的 /token；null 表示当前不应展示指令菜单。 */
+  /** 光标前最近一个 / 起的 token；null 表示当前不应展示指令菜单。 */
   const slashQuery = computed<string | null>(() => {
-    const match = text.value.match(/(?:^|\s)\/([^\s]*)$/)
+    const match = caretPrefix.value.match(/\/([^\s/@]*)$/)
     return match ? match[1]!.toLowerCase() : null
   })
   const matchingCommands = computed(() => {
@@ -255,7 +257,7 @@ export function useAgentDialogOptions() {
     })
   })
   const roleQuery = computed<string | null>(() => {
-    const match = text.value.match(/(?:^|\s)@([^\s]*)$/)
+    const match = caretPrefix.value.match(/@([^\s/@]*)$/)
     return match ? match[1]!.toLowerCase() : null
   })
   const matchingRoleMentions = computed(() => {
@@ -323,7 +325,7 @@ export function useAgentDialogOptions() {
   function selectCommand(command: MessageCommand): void {
     const editor = editorRef.value
     if (!editor) return
-    removeTrailingSlashQuery(editor)
+    removeTrailingSlashQuery()
     insertInstructionToken(editor, command)
     syncEditorText()
   }
@@ -331,7 +333,7 @@ export function useAgentDialogOptions() {
   function selectRoleMention(role: RoleMention): void {
     const editor = editorRef.value
     if (!editor) return
-    removeTrailingRoleQuery(editor)
+    removeTrailingRoleQuery()
     insertRoleMentionToken(editor, role)
     syncEditorText()
   }
@@ -518,6 +520,11 @@ export function useAgentDialogOptions() {
     syncEditorText()
   }
 
+  /** 光标移动（点击/方向键）后刷新触发检测：句中把光标挪到 /foo 或 @bar 尾部亦应弹菜单。 */
+  function onEditorSelectionChange(): void {
+    updateCaretPrefix()
+  }
+
   function onEditorPaste(e: ClipboardEvent): void {
     e.preventDefault()
     const pasted = e.clipboardData?.getData('text/plain')
@@ -534,52 +541,85 @@ export function useAgentDialogOptions() {
 
   function syncEditorText(): void {
     text.value = editorRef.value ? serializeEditor(editorRef.value) : ''
+    updateCaretPrefix()
+  }
+
+  /** token / 块级换行语义与 serializeEditor 一致的单节点序列化（供整体与光标前片段复用）。 */
+  function serializeNode(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ''
+    if (node.nodeType !== Node.ELEMENT_NODE) return ''
+    const element = node as HTMLElement
+    if (element.dataset.commandName) return `[[command:${element.dataset.commandName}]]`
+    if (element.dataset.roleName) return `[[role:@${element.dataset.roleName}]]`
+    if (element.tagName === 'BR') return '\n'
+    const content = [...element.childNodes].map(serializeNode).join('')
+    return element.tagName === 'DIV' || element.tagName === 'P' ? `${content}\n` : content
   }
 
   function serializeEditor(editor: HTMLElement): string {
-    const serializeNode = (node: Node): string => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ''
-      if (node.nodeType !== Node.ELEMENT_NODE) return ''
-      const element = node as HTMLElement
-      if (element.dataset.commandName) return `[[command:${element.dataset.commandName}]]`
-      if (element.dataset.roleName) return `[[role:@${element.dataset.roleName}]]`
-      if (element.tagName === 'BR') return '\n'
-      const content = [...element.childNodes].map(serializeNode).join('')
-      return element.tagName === 'DIV' || element.tagName === 'P' ? `${content}\n` : content
-    }
     return [...editor.childNodes]
       .map(serializeNode)
       .join('')
       .replace(/\n{3,}/g, '\n\n')
   }
 
-  function removeTrailingSlashQuery(editor: HTMLElement): void {
-    removeTrailingEditorQuery(editor, /(^|\s)\/[^\s]*$/)
+  /**
+   * 光标前内容的序列化串（token/换行语义同 serializeEditor）。指令/角色菜单据此判断是否触发，
+   * 从而支持句中（光标非行尾）输入 `/` 或 `@`。无有效光标时回退整串 text.value。
+   */
+  function updateCaretPrefix(): void {
+    const editor = editorRef.value
+    const selection = window.getSelection()
+    if (!editor || !selection || selection.rangeCount === 0) {
+      caretPrefix.value = text.value
+      return
+    }
+    const caret = selection.getRangeAt(0)
+    if (!editor.contains(caret.startContainer)) {
+      caretPrefix.value = text.value
+      return
+    }
+    const prefixRange = document.createRange()
+    prefixRange.selectNodeContents(editor)
+    prefixRange.setEnd(caret.startContainer, caret.startOffset)
+    const fragment = prefixRange.cloneContents()
+    caretPrefix.value = [...fragment.childNodes]
+      .map(serializeNode)
+      .join('')
+      .replace(/\n{3,}/g, '\n\n')
   }
 
-  function removeTrailingRoleQuery(editor: HTMLElement): void {
-    removeTrailingEditorQuery(editor, /(^|\s)@[^\s]*$/)
+  function removeTrailingSlashQuery(): void {
+    removeQueryBeforeCaret(/\/[^\s/@]*$/)
   }
 
-  function removeTrailingEditorQuery(editor: HTMLElement, pattern: RegExp): void {
-    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        return (node.parentElement?.closest('[data-command-name], [data-role-name]') ?? null)
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT
-      },
-    })
-    let lastTextNode: Text | null = null
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) lastTextNode = node as Text
-    if (!lastTextNode) return
-    const queryStart = lastTextNode.data.search(pattern)
+  function removeTrailingRoleQuery(): void {
+    removeQueryBeforeCaret(/@[^\s/@]*$/)
+  }
+
+  /**
+   * 删除光标前紧邻的 query（/foo 或 @bar），并把光标停在删除起点，供 token 原地插入。
+   * 基于光标所在文本节点，支持句中（非行尾）选中。
+   */
+  function removeQueryBeforeCaret(pattern: RegExp): void {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    const caret = selection.getRangeAt(0)
+    const node = caret.startContainer
+    if (node.nodeType !== Node.TEXT_NODE) return
+    const offset = caret.startOffset
+    const before = (node as Text).data.slice(0, offset)
+    const queryStart = before.search(pattern)
     if (queryStart < 0) return
-    const match = lastTextNode.data.slice(queryStart)
-    const start = queryStart + Math.max(match.lastIndexOf('/'), match.lastIndexOf('@'))
+    const seg = before.slice(queryStart)
+    const start = queryStart + Math.max(seg.lastIndexOf('/'), seg.lastIndexOf('@'))
     const range = document.createRange()
-    range.setStart(lastTextNode, start)
-    range.setEnd(lastTextNode, lastTextNode.data.length)
+    range.setStart(node, start)
+    range.setEnd(node, offset)
     range.deleteContents()
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
   }
 
   function insertInstructionToken(editor: HTMLElement, command: MessageCommand): void {
@@ -890,6 +930,7 @@ export function useAgentDialogOptions() {
     handleSend,
     onEditorKeydown,
     onEditorInput,
+    onEditorSelectionChange,
     onEditorPaste,
     selectCommand,
     selectRoleMention,
