@@ -141,6 +141,12 @@ function getHistoryItemKey(item: HistoryItem, index: number): string {
   return item.msgId ?? `idx-${index}`
 }
 
+/** loading 头像三态背景框：master（主 agent）/ sub（子 agent 运行中）/ ghost（子 agent 已完成等待）。 */
+function faceStateClass(entry: AgentLoadingEntry): 'is-master' | 'is-sub' | 'is-ghost' {
+  if (entry.isMaster) return 'is-master'
+  return entry.running ? 'is-sub' : 'is-ghost'
+}
+
 const loadingAgents = ref<AgentLoadingEntry[]>([])
 const batchReloading = ref(false)
 const showAgentLoading = computed(() => loadingAgents.value.length > 0 || batchReloading.value)
@@ -178,11 +184,16 @@ function clearSettleTimer(): void {
 function mergeLoadingAgents(): void {
   loadingAgents.value = reconcileAgentLoadingEntries(
     loadingAgents.value,
-    workingScopePets.value.map((candidate) => ({
-      chatId: candidate.chatId,
-      name: candidate.name || candidate.agentType || candidate.chatId.slice(0, 8),
-      face: candidate.isGhost ? '•' : candidate.face[candidate.mood],
-    })),
+    workingScopePets.value.map((candidate) => {
+      const name = candidate.name || candidate.agentType || candidate.chatId.slice(0, 8)
+      return {
+        chatId: candidate.chatId,
+        name,
+        // 三态统一显 name 首字母（英文大写）；主/子/ghost 区分改由背景框形状/边框承载。
+        face: name.slice(0, 1).toUpperCase(),
+        isMaster: candidate.isMaster,
+      }
+    }),
   )
 }
 
@@ -649,7 +660,7 @@ function onPromptSnapShow(): void {
       </div>
       <div v-if="showAgentLoading" class="agent-loading-list" aria-live="polite">
         <div v-for="entry in loadingAgents" :key="entry.chatId" class="agent-loading-row">
-          <span class="agent-loading-face">{{ entry.face }}</span>
+          <span class="agent-loading-face" :class="faceStateClass(entry)">{{ entry.face }}</span>
           <span class="agent-loading-copy">
             <b>{{ entry.name }}</b>
             <small>{{ entry.running ? '正在输入…' : '已完成，等待其他 Agent…' }}</small>
@@ -946,8 +957,28 @@ function onPromptSnapShow(): void {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: rgba(99, 102, 241, 0.1);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+/* master：实心圆（暖橙填充 + 白字），主 agent 视觉最重。 */
+.agent-loading-face.is-master {
+  background: #f6b73c;
+  color: #fff;
+  border: 1px solid #f6b73c;
+}
+/* sub：描边圆（透明底 + 暖橙描边 + 橙字），子 agent 运行中。 */
+.agent-loading-face.is-sub {
+  background: transparent;
+  color: #b45309;
+  border: 1.5px solid rgba(246, 183, 60, 0.85);
+}
+/* ghost：虚线圆 + 降透明度，子 agent 已完成等待。 */
+.agent-loading-face.is-ghost {
+  background: transparent;
+  color: fade(@ink, 55%);
+  border: 1.5px dashed rgba(36, 38, 45, 0.32);
+  opacity: 0.55;
 }
 .agent-loading-copy {
   min-width: 0;

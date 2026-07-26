@@ -39,7 +39,10 @@ export function ensureStream(
     s = {
       thinking: '',
       content: '',
-      isWorking: true,
+      // 结构初始化不得断言 run 活跃：工作态由真正起跑路径（sendMessage/resumeAgent/
+      // routeChunk stream chunk/attachRunningChats）显式置 true。默认 true 会让纯读历史
+      // （getHistory→ensureStream）fabricate 出工作态，污染 hasActiveChatRun → 新 pet 抽屉永显「正在输入」。
+      isWorking: false,
       history: [],
       historyLoaded: false,
       historyDirty: true, // 默认 dirty；首次 loaded notification 或显式预加载后清

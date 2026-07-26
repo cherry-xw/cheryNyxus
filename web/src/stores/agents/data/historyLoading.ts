@@ -1,7 +1,10 @@
 export interface AgentLoadingEntry {
   chatId: string
   name: string
+  /** 头像字符：pet name 首字母（英文大写）。三态统一显示，靠背景框形状/边框区分。 */
   face: string
+  /** 主 agent 标记：模板据此 + running 派生 master/sub/ghost 三态背景框。 */
+  isMaster: boolean
   running: boolean
 }
 
