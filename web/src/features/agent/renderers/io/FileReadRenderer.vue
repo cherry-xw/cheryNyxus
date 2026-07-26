@@ -256,6 +256,7 @@ const fallback = computed(() => {
 .file-label {
   flex-shrink: 0;
   font-size: 10px;
+  line-height: 17px;
   font-weight: 700;
   color: fade(@ink, 56%);
 }

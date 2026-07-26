@@ -3,13 +3,14 @@
  * CommandRenderer：execute_command 专用渲染器。
  *
  * UI 设计：
- * - 头部：💻 图标 + "执行命令" + 状态指示
- * - 命令行：<code> 样式显示完整命令
+ * - 头部：💻 图标 + "执行命令" + 内联 meta（耗时 · PID · 退出码，灰色小字） + 状态指示
+ * - 命令区（args）：
+ *   - 说明（深色加粗，置于第一行）
+ *   - 命令行（<code> 样式 + 复制按钮）
  * - 输出区（可折叠，默认收起）：
  *   - 成功：显示 stdout/stderr（截断到 500 行）
  *   - 错误：红色高亮 error 信息
- *   - 超时：显示 timeout 提示 + logPath
- * - 元信息：duration（毫秒）+ pid + exitCode
+ *   - 超时：显示 timeout 提示 + 日志路径（输出区下方小字）
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { RendererProps, ExecuteCommandArgs, ExecuteCommandResult } from '../types'
@@ -96,6 +97,23 @@ const statusGlyph = computed(() => {
   }
 })
 
+/** 耗时格式化：<1000ms 显示 `Nms`，≥1000ms 显示 `X.Xs`。 */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  return `${(ms / 1000).toFixed(1)}s`
+}
+
+/** head 行内联 meta 文本（耗时/PID/退出码）；仅当 result 存在时输出。 */
+const headMetaText = computed<string>(() => {
+  const r = parsedResult.value
+  if (!r) return ''
+  const parts: string[] = []
+  if (r.duration) parts.push(`耗时 ${formatDuration(r.duration)}`)
+  if (r.pid) parts.push(`PID ${r.pid}`)
+  if (r.exitCode !== undefined) parts.push(`退出码 ${r.exitCode}`)
+  return parts.join(' · ')
+})
+
 const statusClass = computed(() => {
   if (props.call.status === 'error' || parsedResult.value?.status === 'error') {
     return 'status-error'
@@ -155,13 +173,19 @@ onBeforeUnmount(() => {
     <div class="cmd-head">
       <span class="cmd-icon" aria-hidden="true">💻</span>
       <span class="cmd-name">执行命令</span>
+      <span v-if="headMetaText" class="cmd-meta-inline">{{ headMetaText }}</span>
+      <span v-else style="flex: 1" />
       <span class="cmd-status" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
 
     <!-- 命令行 -->
     <div v-if="parsedArgs" class="cmd-section">
+      <div v-if="parsedArgs.description" class="cmd-row cmd-row-desc">
+        <span class="cmd-label">说明</span>
+        <span class="cmd-desc">{{ parsedArgs.description }}</span>
+      </div>
       <div class="cmd-row">
-        <span class="cmd-label">命令:</span>
+        <span class="cmd-label">命令</span>
         <div class="cmd-code-wrap">
           <code class="cmd-code">{{ parsedArgs.command }}</code>
           <button
@@ -177,11 +201,6 @@ onBeforeUnmount(() => {
             </el-icon>
           </button>
         </div>
-        <div style="flex: 1" />
-      </div>
-      <div v-if="parsedArgs.description" class="cmd-row">
-        <span class="cmd-label">说明:</span>
-        <span class="cmd-desc">{{ parsedArgs.description }}</span>
       </div>
     </div>
 
@@ -208,20 +227,7 @@ onBeforeUnmount(() => {
         <div v-if="truncatedOutput.truncated" class="output-truncated">
           显示前 {{ OUTPUT_MAX_LINES }} 行 / 共 {{ truncatedOutput.totalLines }} 行
         </div>
-      </div>
-
-      <!-- 元信息 -->
-      <div class="cmd-meta">
-        <span v-if="parsedResult.duration" class="meta-item">
-          耗时: {{ parsedResult.duration }}ms
-        </span>
-        <span v-if="parsedResult.pid" class="meta-item"> PID: {{ parsedResult.pid }} </span>
-        <span v-if="parsedResult.exitCode !== undefined" class="meta-item">
-          退出码: {{ parsedResult.exitCode }}
-        </span>
-        <span v-if="parsedResult.logPath" class="meta-item">
-          日志: {{ parsedResult.logPath }}
-        </span>
+        <div v-if="parsedResult.logPath" class="output-log">日志: {{ parsedResult.logPath }}</div>
       </div>
     </div>
   </div>
@@ -257,7 +263,6 @@ onBeforeUnmount(() => {
   }
 
   .cmd-name {
-    flex: 1;
     font-weight: 700;
     color: fade(@ink, 86%);
   }
@@ -296,6 +301,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
+  line-height: 17px;
   color: fade(@ink, 56%);
 }
 
@@ -316,11 +322,30 @@ onBeforeUnmount(() => {
   color: fade(@ink, 88%);
 }
 
+.cmd-meta-inline {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  margin-left: 2px;
+  margin-right: 8px;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: fade(@ink, 48%);
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cmd-desc {
   flex: 1;
   min-width: 0;
-  font-size: 10.5px;
-  color: fade(@ink, 70%);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  color: fade(@ink, 92%);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .copy-btn {
@@ -450,19 +475,11 @@ onBeforeUnmount(() => {
   color: fade(@ink, 50%);
 }
 
-.cmd-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-left: 12px;
-  margin-top: 2px;
-  line-height: 1.25em;
-}
-
-.meta-item {
+.output-log {
   font-size: 9.5px;
-  color: fade(@ink, 56%);
+  color: fade(@ink, 50%);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  word-break: break-all;
 }
 
 @keyframes cmd-pulse {
