@@ -29,7 +29,7 @@ function toggleParams(name: string): void {
 // 参数 schema 弱化展示：抽取 properties 的字段名/类型/required 标记，不渲染 schema 全文。
 function paramFields(
   tool: PromptSnapshotTool,
-): Array<{ name: string; type: string; required: boolean }> {
+): Array<{ name: string; type: string; required: boolean; description?: string }> {
   const params = tool.parameters
   if (!params?.properties) return []
   const required = new Set(params.required ?? [])
@@ -39,6 +39,10 @@ function paramFields(
       ? (v as { type: string[] }).type.join('|')
       : ((v as { type?: string }).type ?? 'any'),
     required: required.has(k),
+    description:
+      typeof (v as { description?: unknown }).description === 'string'
+        ? (v as { description: string }).description
+        : undefined,
   }))
 }
 </script>
@@ -63,7 +67,9 @@ function paramFields(
           <div class="ps-tool-head">
             <span class="ps-tool-name">{{ tool.name }}</span>
           </div>
-          <div class="ps-tool-desc">{{ tool.description }}</div>
+          <div class="ps-tool-body">
+            <div class="ps-tool-desc">{{ tool.description }}</div>
+          </div>
           <button
             v-if="tool.parameters && paramFields(tool).length > 0"
             type="button"
@@ -78,6 +84,11 @@ function paramFields(
               <span class="ps-param-name">{{ f.name }}</span>
               <span class="ps-param-type">{{ f.type }}</span>
               <span v-if="f.required" class="ps-param-req">required</span>
+              <span
+                v-if="f.description"
+                class="ps-param-desc"
+                :title="f.description"
+              >{{ f.description }}</span>
             </div>
           </div>
         </div>
@@ -92,9 +103,36 @@ function paramFields(
   flex-direction: column;
   gap: 8px;
   width: 460px;
+  margin: -6px -12px;
   max-width: 460px;
   max-height: 60vh;
   overflow: auto;
+  /* Firefox 细滚：滑块 0.2 黑 + 透明轨道 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(20, 22, 26, 0.2) transparent;
+}
+/* WebKit 细滚：6px 滑块 + 透明轨道 */
+.ps-panel::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.ps-panel::-webkit-scrollbar-thumb {
+  background: rgba(20, 22, 26, 0.2);
+  border-radius: 3px;
+}
+.ps-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 22, 26, 0.35);
+}
+.ps-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* 内部二级滚动区：保留滚动行为，隐藏滚动条 UI */
+.ps-panel * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.ps-panel *::-webkit-scrollbar {
+  display: none;
 }
 .ps-status {
   padding: 8px;
@@ -107,6 +145,7 @@ function paramFields(
 .ps-section {
   display: flex;
   flex-direction: column;
+  margin: 0 8px;
   gap: 4px;
 }
 .ps-section-title {
@@ -144,14 +183,25 @@ function paramFields(
   font-size: 11px;
 }
 .ps-tool {
+  display: flex;
+  flex-direction: column;
   padding: 6px 8px;
   border: 1px solid rgba(20, 22, 26, 0.08);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+}
+.ps-tool-body {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .ps-tool-head {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 6px;
 }
 .ps-tool-name {
@@ -164,10 +214,14 @@ function paramFields(
   color: rgba(20, 22, 26, 0.66);
   font-size: 10.5px;
   line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .ps-params-toggle {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   gap: 4px;
   margin-top: 3px;
   padding: 1px 5px;
@@ -185,10 +239,12 @@ function paramFields(
   }
 }
 .ps-params {
+  flex-shrink: 0;
   margin-top: 4px;
   padding: 4px 6px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.04);
+  overflow: hidden;
 }
 .ps-param-row {
   display: flex;
@@ -198,12 +254,15 @@ function paramFields(
   line-height: 1.5;
 }
 .ps-param-name {
-  color: rgba(20, 22, 26, 0.7);
+  color: #047857;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 .ps-param-type {
   color: rgba(20, 22, 26, 0.44);
   font-size: 9.5px;
+  flex-shrink: 0;
 }
 .ps-param-req {
   padding: 0 4px;
@@ -211,5 +270,16 @@ function paramFields(
   background: rgba(180, 83, 9, 0.12);
   color: #b45309;
   font-size: 9px;
+  flex-shrink: 0;
+}
+.ps-param-desc {
+  color: rgba(20, 22, 26, 0.55);
+  font-size: 9.5px;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 </style>
