@@ -67,6 +67,9 @@ export const useAgentsStore = defineStore('agents', () => {
   // requestId → chatId 映射（流式 RPC 调用前由 trackRequest 注册，chunk/notification 路由用）
   const requestMap = new Map<string, string>()
   let initialized = false
+  /** 同一 chat 的恢复任务唯一，确保 attach 快照与 sync cursor 串行。 */
+  const attachRecoveryTasks = new Map<string, Promise<void>>()
+  const ATTACH_RECOVERY_DELAY_MS = 1000
 
   // ── UI 状态（独立模块） ──
   const ui = createUiState()
@@ -146,12 +149,12 @@ export const useAgentsStore = defineStore('agents', () => {
   const approval = createApprovalActions(streams, pets)
   const question = createQuestionActions(streams, pets, resumeAgent)
 
-  /** 后端问题快照是权威 replace；返回 true 表示快照期间已消费更新事件，需从 snapshotSeq 补放。 */
-  function applyQuestionSnapshot(
-    chatId: string,
-    data: unknown,
-    advanceEventCursor = false,
-  ): boolean {
+  /**
+   * 后端问题快照是权威 replace，但它不能倒退已观察到的事件。
+   * Cursor 只由带 seq 的事件推进；attach/chat.get 的 snapshotSeq 仅用于
+   * 建立回放屏障，绝不能直接跳过 `(oldCursor, snapshotSeq]` 的事件。
+   */
+  function applyQuestionSnapshot(chatId: string, data: unknown): void {
     const snapshot = data as
       | {
           snapshotSeq?: number
@@ -162,36 +165,28 @@ export const useAgentsStore = defineStore('agents', () => {
       typeof snapshot?.snapshotSeq !== 'number' ||
       !Array.isArray(snapshot.pendingQuestionBatches)
     ) {
-      return false
+      return
     }
-    const observedSeq = wsClient.getLastSeq(chatId)
-    // chat.get 只包含消息+问题投影，不是完整 chat 事件快照；若已有更新事件，不用较旧快照覆盖。
-    if (!advanceEventCursor && observedSeq > snapshot.snapshotSeq) return false
+    // pending 中的实时事件也算“已观察到”：它们正等待 replay fence 释放，
+    // 不能被较早快照反向覆盖。
+    if (wsClient.getHighestSeenSeq(chatId) > snapshot.snapshotSeq) return
     const stream = _ensureStream(streams, chatId)
     replaceQuestionBatches(stream, snapshot.pendingQuestionBatches)
-    if (!advanceEventCursor) return false
-    wsClient.resetChatSeq(chatId, snapshot.snapshotSeq)
-    return observedSeq > snapshot.snapshotSeq
   }
 
   /**
    * 后端 currentState 是权威 replace；同步 pendingApproval / runningTools / currentTodo。
-   * 镜像 applyQuestionSnapshot 模式：快照期间已消费更新事件则推进 cursor；否则保留 seq。
+   * 镜像 applyQuestionSnapshot 模式：快照不能倒退已观察到的事件，seq 仅由事件消费推进。
    * - pendingApproval → stream.approval（=pendingApproval，含 waitTime/createdAt 倒计时）+ 清 approvalQueue
    * - runningTools → stream.runningTools（含 confirm/manual 待审批，补实时态缺口）
    * - currentTodo → stream.currentTodo（F5 收口：TodoPanel 改读此字段）
    * 缺 currentState 字段 = 后端未提供实时态；不动 StreamState。
    */
-  function applyCurrentState(
-    chatId: string,
-    data: unknown,
-    advanceEventCursor = false,
-  ): void {
+  function applyCurrentState(chatId: string, data: unknown): void {
     const cs = (data as { currentState?: CurrentStateData } | undefined)?.currentState
     if (!cs) return
-    const observedSeq = wsClient.getLastSeq(chatId)
     const snapshot = (data as { snapshotSeq?: number }).snapshotSeq
-    if (!advanceEventCursor && typeof snapshot === 'number' && observedSeq > snapshot) return
+    if (typeof snapshot === 'number' && wsClient.getHighestSeenSeq(chatId) > snapshot) return
     const stream = _ensureStream(streams, chatId)
     // pendingApproval → approval 权威 replace（审批存活判定：后端内存命中即视为仍挂起）
     if (cs.pendingApproval) {
@@ -214,8 +209,6 @@ export const useAgentsStore = defineStore('agents', () => {
     if (cs.currentTodo !== undefined) {
       stream.currentTodo = cs.currentTodo
     }
-    if (!advanceEventCursor) return
-    if (typeof snapshot === 'number') wsClient.resetChatSeq(chatId, snapshot)
   }
 
   const lifecycle = createPetLifecycle(
@@ -370,46 +363,21 @@ export const useAgentsStore = defineStore('agents', () => {
       })
   }
 
-  /** Starts a persisted spawn task. Replayed role_created events are safe: the server claims once. */
-  async function startSpawn(taskId: string, chatId: string): Promise<void> {
-    const { requestId, done } = agentApi.startSpawn(taskId)
-    _trackRequest(requestMap, requestId, chatId)
-    const pet = pets.value.find((p) => p.chatId === chatId)
-    setWorking(pet, true)
-    const stream = _ensureStream(streams, chatId)
-    // 后端 eager 已启动后，stream 可能已在累积 chunks（thinking/content 非空）→ 不抹，以保留已渲染。
-    // isWorking 仍显式置 true（chunks 推动也会再置，但 RPC 同步快路径先到位）。
-    if (stream.thinking.length === 0 && stream.content.length === 0) {
-      stream.thinking = ''
-      stream.content = ''
+  /**
+   * A child chat is an independent stream.  role_created only creates its
+   * visual shell; recovery attaches that child itself instead of issuing a
+   * second startSpawn request against the already eager-started task.
+   */
+  async function recoverChildChat(chatId: string): Promise<void> {
+    try {
+      const chats = await agentApi.listChats()
+      allChatsCache.value = chats
+      const child = chats.find((chat) => chat.chatId === chatId)
+      if (!child) return
+      await recoverUnattachedChat(child, true, true)
+    } catch (e) {
+      console.warn(`[agents] 子 chat 恢复失败 ${chatId}:`, e)
     }
-    stream.isWorking = true
-    if (!stream.activeRunId) stream.activeRunId = requestId
-    stream.historyDirty = true
-    stream.error = undefined
-    done
-      .then((res) => {
-        const data = res.data as
-          | {
-              runId?: string
-              finished?: boolean
-              alreadyFinished?: boolean
-              alreadyRunning?: boolean
-            }
-          | undefined
-        if (typeof data?.runId === 'string' && stream.isWorking) stream.activeRunId = data.runId
-        if (data?.finished || data?.alreadyFinished) {
-          stream.isWorking = false
-          stream.activeRunId = undefined
-          setWorking(pet, false)
-          turnChildIntoGhost(pet, pets.value)
-        }
-        if (data?.alreadyFinished || data?.alreadyRunning) requestMap.delete(requestId)
-        if (!res.success) stream.error = res.error?.message ?? '未知错误'
-      })
-      .catch((e) => {
-        stream.error = '连接断了，请重试'
-      })
   }
 
   const router = createStreamRouter(
@@ -418,7 +386,7 @@ export const useAgentsStore = defineStore('agents', () => {
     requestMap,
     setWorking,
     approval.dismissApproval,
-    startSpawn,
+    recoverChildChat,
     resumeAgent,
     lifecycle.pickGhostFace,
     allChatsCache,
@@ -554,31 +522,116 @@ export const useAgentsStore = defineStore('agents', () => {
   async function attachRunningChats(chats: ChatSummary[]): Promise<void> {
     await Promise.all(
       chats
-        .filter((c) => c.running && !c.finished)
+        // attach 同时登记服务端订阅；idle 主 chat 也必须登记，才能在子完成后
+        // 收到 role_reply / child_abandoned。running chat 另行接收实时 stream。
+        .filter((c) => !c.finished)
         .map(async (c) => {
           const pet = pets.value.find((p) => p.chatId === c.chatId)
           if (!pet) return
           try {
             const res = await agentApi.attachChat(c.chatId)
-            // M2 修复后 attach response 携带 snapshotSeq → applyCurrentState 第三参 true 自动 resetChatSeq，
-            // 把 chatSeq 推到此刻持久化的最新事件位（cursor 锚点）。
+            // attach 已开始向本连接推实时事件。先立住 snapshotSeq 屏障，
+            // 再回放旧 cursor 到该屏障；屏障后的 live event 会暂存到 replay 结束。
+            wsClient.beginChatReplay(c.chatId, res.snapshotSeq)
             // 1. 权威 replace 实时态（pendingApproval / runningTools / currentTodo）
-            applyCurrentState(c.chatId, res, true)
+            applyCurrentState(c.chatId, res)
             // 2. 权威 replace parked question batches（否则断连期发出的 question_requested 通知丢失）
-            applyQuestionSnapshot(c.chatId, res, true)
+            applyQuestionSnapshot(c.chatId, res)
             if (res.running) {
+              // chat.list 与 attach 之间可能刚起跑；以 attach 的实时判定为准，
+              // 避免 replay finally 按旧 list.running 清掉刚恢复的 loading。
+              const attachedChat = c.running ? c : { ...c, running: true }
               const stream = _ensureStream(streams, c.chatId)
               stream.isWorking = true
               setWorking(pet, true)
-              // M9：补回 disconnect-window 事件（chatSeq 已在 snapshotSeq，sync 仅取 >snapshotSeq 的留存事件，
-              // 包括 parked approval 的 accept / 新 question_requested / done 等）。
-              await syncOneChat(c, 'replay')
+              await syncOneChat(attachedChat, 'replay', res.snapshotSeq)
+            } else {
+              // attach 的 running:false 有两种含义：run 已结束，或旧 owner 仍 OPEN
+              // 导致接管被拒。无论哪种都先回放持久事件；若尚未收到终态则后台
+              // 继续 sync + attach，不能让刷新页永久停在 loading。
+              await syncOneChat(c, 'replay', res.snapshotSeq)
+              if (streams.value[c.chatId]?.isWorking) {
+                void recoverUnattachedChat(c)
+              }
             }
           } catch (e) {
             console.warn(`[agents] attachChat 失败 ${c.chatId}:`, e)
+            // 临时网络错误或旧连接尚未释放时不能放弃；恢复任务会以最新摘要重试。
+            void recoverUnattachedChat(c)
           }
         }),
     )
+  }
+
+  /**
+   * attach 暂时失败后的恢复兜底。
+   *
+   * 后端会区分「已结束」与「仍被另一 OPEN 连接持有」；前者由 sync 回放 done/error
+   * 收口，后者在旧 owner 释放前持续补事件。每轮先重新 list，也覆盖 F5 时
+   * 子 pet 已创建、但 eager 子 run 尚未进入 running 的窗口。
+   */
+  async function recoverUnattachedChat(
+    chat: ChatSummary,
+    immediate = false,
+    loadHistory = false,
+  ): Promise<void> {
+    const existing = attachRecoveryTasks.get(chat.chatId)
+    if (existing) return existing
+
+    const task = (async () => {
+      let firstAttempt = true
+      let historyRecovered = false
+      while (true) {
+        // 首轮 attach 已由 attachRunningChats 发起；等待让旧 socket 的 close/bind 完成。
+        if (!immediate || !firstAttempt) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, ATTACH_RECOVERY_DELAY_MS))
+        }
+        firstAttempt = false
+        try {
+          const chats = await agentApi.listChats()
+          allChatsCache.value = chats
+          const latest = chats.find((item) => item.chatId === chat.chatId)
+          if (!latest || latest.finished) {
+            if (latest) await syncOneChat(latest, 'replay')
+            return
+          }
+
+          // idle chat 也要 attach：它可能正等待 eager launcher，attach 后才能
+          // 收到其独立 chatId 的第一条实时 stream/tool/done。
+          const res = await agentApi.attachChat(latest.chatId)
+          wsClient.beginChatReplay(latest.chatId, res.snapshotSeq)
+          applyCurrentState(latest.chatId, res)
+          applyQuestionSnapshot(latest.chatId, res)
+
+          if (!res.running) {
+            await syncOneChat(latest, 'replay', res.snapshotSeq)
+            if (loadHistory && !historyRecovered) {
+              historyRecovered = true
+              await getHistory(latest.chatId)
+            }
+            // eager launcher 尚未写入首条 user message 的新子 chat 继续等；其他
+            // 非 running chat 是已暂停状态，不能由刷新逻辑擅自 resume。
+            const waitingForEagerStart =
+              !!latest.parentChatId && (latest.messageCount === undefined || latest.messageCount === 0)
+            if (waitingForEagerStart) continue
+            return
+          }
+
+          const attachedChat = latest.running ? latest : { ...latest, running: true }
+          await syncOneChat(attachedChat, 'replay', res.snapshotSeq)
+          if (loadHistory && !historyRecovered) {
+            historyRecovered = true
+            await getHistory(latest.chatId)
+          }
+          if (res.running || !streams.value[latest.chatId]?.isWorking) return
+        } catch (e) {
+          // RPC/网络临时失败不终止恢复；下一轮取最新 chat.list 后重试。
+          console.warn(`[agents] attach 恢复失败 ${chat.chatId}:`, e)
+        }
+      }
+    })().finally(() => attachRecoveryTasks.delete(chat.chatId))
+    attachRecoveryTasks.set(chat.chatId, task)
+    return task
   }
 
   /**
@@ -817,6 +870,7 @@ export const useAgentsStore = defineStore('agents', () => {
   async function syncOneChat(
     chat: ChatSummary,
     mode: 'replay' | 'loadHistory' = 'replay',
+    replayThroughSeq?: number,
   ): Promise<void> {
     const stream = _ensureStream(streams, chat.chatId)
     // loadHistory 模式：先清 history + dirty 标记，确保 chat.get 流重灌（与 doLoadHistory 旧 reset 语义一致）
@@ -844,8 +898,8 @@ export const useAgentsStore = defineStore('agents', () => {
       if (response.success) {
         // chat.get response 字段齐全：currentState + snapshotSeq + pendingQuestionBatches + canResume + contextUsage + workspace
         // 一次性 consume 全字段；无独立 contextUsage RPC 兜底
-        applyQuestionSnapshot(chat.chatId, response.data, true)
-        applyCurrentState(chat.chatId, response.data, true)
+        applyQuestionSnapshot(chat.chatId, response.data)
+        applyCurrentState(chat.chatId, response.data)
         const data = response.data as
           | {
               canResume?: boolean
@@ -873,54 +927,54 @@ export const useAgentsStore = defineStore('agents', () => {
     } else {
       // replay 模式：chat.sync 设回放标记，sync 流抑制副作用 RPC + 终态 + stream chunk 累加
       // 回放期一律 true（含非运行 chat）：历史 role_reply/done 等事件不得触发 resumeAgent/retainUntil，
-      // 历史 stream delta 不得累加进气泡。回放结束由下方按 running 决定清空或保留实时态。
+      // 非运行 chat 的历史 stream delta 不得累加进气泡；运行中 chat 则重建最后一个未结束 run。
       stream.replaying = true
-      let afterSeq = wsClient.getLastSeq(chat.chatId)
-      for (let attempt = 0; attempt < 2; attempt++) {
+      stream.replayLiveChunks = !!chat.running
+      try {
+        const afterSeq = wsClient.getLastSeq(chat.chatId)
         const { requestId, done } = agentApi.syncChat(chat.chatId, afterSeq)
         _trackRequest(requestMap, requestId, chat.chatId)
-        const response = await done
-        const data = response.data as
-          | {
-              latestSeq?: number
-              snapshotSeq?: number
-              pendingQuestionBatches?: QuestionBatchPayload[]
-              currentState?: CurrentStateData
-            }
-          | undefined
-        requestMap.delete(requestId)
-        if (!response.success) break
-
-        const needsQuestionReplay = applyQuestionSnapshot(chat.chatId, data, true)
-        applyCurrentState(chat.chatId, data, true)
-        if (!needsQuestionReplay || typeof data?.snapshotSeq !== 'number') break
-        afterSeq = data.snapshotSeq
-      }
-      // 回放完成：非运行清空实时态并清标记；运行中仅清标记、保留已重建的实时态（isWorking/thinking/content/runningTools/approval）
-      const cur = streams.value[chat.chatId]
-      if (!chat.running) {
-        if (cur) {
-          cur.replaying = undefined
-          cur.thinking = ''
-          cur.content = ''
-          cur.isWorking = false
-          cur.retainUntil = undefined
-          cur.activeRunId = undefined
-          cur.runningTools = []
-          cur.error = undefined
-          // 修复：sync 回放下残留的瞬态交互态一并清，避免 parked 子审批气泡/spinner 残留（统一暂停语义：paused 不显交互气泡，由 resume 重建）
-          cur.approval = undefined
-          cur.approvalQueue = []
-          cur.questionBatches = []
+        try {
+          const response = await done
+          if (response.success) {
+            // sync 的事件本身顺序推进 cursor；response snapshot 只补不可由
+            // 事件可靠推导的当前态，不能 reset cursor。
+            applyQuestionSnapshot(chat.chatId, response.data)
+            applyCurrentState(chat.chatId, response.data)
+          }
+        } finally {
+          requestMap.delete(requestId)
         }
-        const pet = pets.value.find((p) => p.chatId === chat.chatId)
-        if (pet) setWorking(pet, false)
-      } else if (cur) {
-        // 运行中：清回放标记后，后续 attach 实时流走正常路径继续推进（done 到达时正常清工作态）
-        cur.replaying = undefined
-        cur.isWorking = true
-        const pet = pets.value.find((p) => p.chatId === chat.chatId)
-        setWorking(pet, true)
+      } finally {
+        // 顺序不能反：先让 router 离开 replay，再释放屏障后缓存的 live
+        // 事件；这样每个 seq 恰好走一次正常 UI 路径。
+        const cur = streams.value[chat.chatId]
+        if (!chat.running) {
+          if (cur) {
+            cur.replaying = undefined
+            cur.replayLiveChunks = undefined
+            cur.thinking = ''
+            cur.content = ''
+            cur.isWorking = false
+            cur.retainUntil = undefined
+            cur.activeRunId = undefined
+            cur.runningTools = []
+            cur.error = undefined
+            cur.approval = undefined
+            cur.approvalQueue = []
+            cur.questionBatches = []
+          }
+          const pet = pets.value.find((p) => p.chatId === chat.chatId)
+          if (pet) setWorking(pet, false)
+        } else if (cur) {
+          cur.replaying = undefined
+          cur.replayLiveChunks = undefined
+          if (cur.isWorking) {
+            const pet = pets.value.find((p) => p.chatId === chat.chatId)
+            setWorking(pet, true)
+          }
+        }
+        if (replayThroughSeq !== undefined) wsClient.endChatReplay(chat.chatId)
       }
     }
     // loadHistory 模式：chat.get 流已灌满 history + applyQuestionSnapshot 已推 cursor → 标 loaded + 清 dirty
@@ -934,7 +988,44 @@ export const useAgentsStore = defineStore('agents', () => {
   async function syncChatEvents(): Promise<void> {
     const chats = await agentApi.listChats()
     allChatsCache.value = chats
-    await Promise.all(chats.map((chat) => syncOneChat(chat, 'replay')))
+    await Promise.all(
+      chats.map(async (chat) => {
+        // A non-finished visible chat can still emit while this initial sync is
+        // running. Obtain a fresh attach snapshot first so sync has a stable
+        // per-chat fence; finished/unrendered chats have no live UI race.
+        if (!chat.finished && pets.value.some((pet) => pet.chatId === chat.chatId)) {
+          try {
+            const res = await agentApi.attachChat(chat.chatId)
+            wsClient.beginChatReplay(chat.chatId, res.snapshotSeq)
+            applyCurrentState(chat.chatId, res)
+            applyQuestionSnapshot(chat.chatId, res)
+            await syncOneChat(
+              res.running && !chat.running ? { ...chat, running: true } : chat,
+              'replay',
+              res.snapshotSeq,
+            )
+            return
+          } catch (e) {
+            console.warn(`[agents] sync 前 attach 失败 ${chat.chatId}:`, e)
+            void recoverUnattachedChat(chat)
+          }
+        }
+        await syncOneChat(chat, 'replay')
+      }),
+    )
+    // role_created 已落库、但 eager launcher 尚未把子 chat 标为 running 时，首轮
+    // attachRunningChats 看不到它。给这类已展示的子 pet 保留恢复任务；真正运行后
+    // 任务只 attach，不会再次 startSpawn 或重复执行子任务。
+    for (const chat of chats) {
+      const waitingForEagerStart =
+        !!chat.parentChatId &&
+        !chat.finished &&
+        !chat.running &&
+        (chat.messageCount === undefined || chat.messageCount === 0)
+      if (waitingForEagerStart && pets.value.some((pet) => pet.chatId === chat.chatId)) {
+        void recoverUnattachedChat(chat)
+      }
+    }
   }
 
   return {

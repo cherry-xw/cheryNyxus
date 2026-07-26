@@ -582,11 +582,6 @@ export async function handleChatAttach(
   // 前端 attachRunningChats 用此 resetChatSeq，把 chatSeq 推到此刻；紧接 chat.sync 仅补回 >snapshotSeq 的事件。
   const questionSnapshot = getQuestionStateSnapshot(chatId)
 
-  // 未在运行 → 前端回落历史，不重连实时流。
-  if (!isChatRunning(chatId)) {
-    return { chatId, running: false, ...questionSnapshot }
-  }
-
   const ws = connectionManager.getWsByConnectionId(ctx.connectionId)
   if (!ws) {
     // 连接已不可达（竞态）：无法重定向，按未运行回落。
@@ -594,16 +589,16 @@ export async function handleChatAttach(
     return { chatId, running: false, ...questionSnapshot }
   }
 
-  // 重建 owner 绑定（供子 spawn 的 role_created / role_reply 通知到达新 ws）。
-  // F5 后旧连接 close 已释放；被其它活跃标签占用则抛错 → 回落历史，不破坏对方。
-  try {
-    connectionManager.bindChatConnection(chatId, ctx.connectionId)
-  } catch (e) {
-    logger.event('chat.attach.bind.failed', { chatId, message: (e as Error).message })
+  // attach 同时是订阅登记：idle 主 chat 也要接收随后由子完成触发的
+  // role_reply / child_abandoned；运行中 chat 则额外接收后续 stream。
+  connectionManager.subscribeChat(chatId, ctx.connectionId)
+
+  // 未在运行时仍保留订阅，用于后续子完成等异步 notification。
+  if (!isChatRunning(chatId)) {
     return { chatId, running: false, ...questionSnapshot }
   }
 
-  // 重定向后续实时输出到本连接 + 取消该 run 的断连 park（子 run 未跟踪则 no-op）。
+  // 加入后续实时输出订阅 + 取消该 run 的断连 park（子 run 未跟踪则 no-op）。
   connectionManager.setLiveOutput(chatId, ws)
   disconnectGrace.rebindByChatId(chatId, ctx.connectionId, ws)
 

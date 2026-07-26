@@ -177,6 +177,7 @@ export async function jsonRequest(
   url: string,
   body: unknown,
   key: string,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   let res: Response
   try {
@@ -184,6 +185,7 @@ export async function jsonRequest(
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders(key) },
       body: JSON.stringify(body),
+      signal,
     })
   } catch (err) {
     throw brainNetworkError((err as Error).message, err)
@@ -211,8 +213,12 @@ export async function* streamSSE(
   url: string,
   body: unknown,
   key: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
   const controller = new AbortController()
+  const abortFromParent = () => controller.abort()
+  if (signal?.aborted) controller.abort()
+  else signal?.addEventListener('abort', abortFromParent, { once: true })
   let res: Response
   try {
     res = await fetch(joinUrl(url, '/chat/completions'), {
@@ -227,11 +233,13 @@ export async function* streamSSE(
     })
   } catch (err) {
     controller.abort()
+    signal?.removeEventListener('abort', abortFromParent)
     throw brainNetworkError((err as Error).message, err)
   }
   if (!res.ok || !res.body) {
     const snippet = await readErrorSnippet(res)
     controller.abort()
+    signal?.removeEventListener('abort', abortFromParent)
     throw brainHttpError(res.status, snippet)
   }
   const reader = res.body.getReader()
@@ -266,5 +274,6 @@ export async function* streamSSE(
     // 正常结束或 generator.throw() 注入的 abort，都切断 HTTP 连接
     controller.abort()
     await reader.cancel().catch(() => {})
+    signal?.removeEventListener('abort', abortFromParent)
   }
 }

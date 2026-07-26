@@ -339,7 +339,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
     setReplaying(session, false)
     markLoaded(session, wsClient.getLastSeq(chatId))
-    if (running) {
+    if (running && session.run.status !== 'ended' && session.run.status !== 'paused') {
+      // sync 回放若已消费 done/error，reducer 已写入 ended/paused；不能再用 attach
+      // 前的旧 running 标记把会话反向改回 running。
       session.run.status = 'running'
       ;(effects.value.onWorkingChange ?? noop)(chatId, true)
     }

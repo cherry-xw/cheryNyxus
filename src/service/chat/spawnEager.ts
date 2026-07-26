@@ -34,15 +34,14 @@ function persistChatEvent<T extends { chatId?: string; seq?: number }>(
 }
 
 /** 单条 ws 推送（与 websocket/index.ts.sendChatEvent 同语义，service 层脱离调用版）。 */
-function sendToWs(ws: WebSocket, item: unknown): void {
-  if (ws.readyState !== ws.OPEN) {
-    logger.event('ws.event.skipped', { reason: 'socket-closed' })
-    return
-  }
-  try {
-    ws.send(transport.encode(item as Parameters<typeof transport.encode>[0]))
-  } catch (err) {
-    logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+function sendToWss(targets: readonly WebSocket[], item: unknown): void {
+  for (const ws of targets) {
+    if (ws.readyState !== ws.OPEN) continue
+    try {
+      ws.send(transport.encode(item as Parameters<typeof transport.encode>[0]))
+    } catch (err) {
+      logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+    }
   }
 }
 
@@ -50,12 +49,8 @@ function sendToWs(ws: WebSocket, item: unknown): void {
  * 解析实时输出目标 ws（liveOutput 命中 → 重定向 ws；否则回落运行启动 ws）。
  * 与 websocket/index.ts.resolveOutputWs 同语义。
  */
-function resolveOutputWs(item: { chatId?: string }, fallbackWs: WebSocket): WebSocket {
-  if (item.chatId) {
-    const redirected = connectionManager.getLiveOutput(item.chatId)
-    if (redirected) return redirected
-  }
-  return fallbackWs
+function resolveOutputWss(item: { chatId?: string }, fallbackWs: WebSocket): WebSocket[] {
+  return item.chatId ? connectionManager.getChatOutputs(item.chatId, fallbackWs) : [fallbackWs]
 }
 
 /**
@@ -124,7 +119,7 @@ export async function runChildTaskInBackground(
         break
       }
       const item = persistChatEvent('chat.startSpawn', iter.value as Chunk | Notification)
-      sendToWs(resolveOutputWs(item, parentWs), item)
+      sendToWss(resolveOutputWss(item, parentWs), item)
     }
   } catch (error) {
     logger.event(

@@ -57,6 +57,7 @@ const deepseekLLMAdapter: LLMAdapter = {
         ...(senses.length > 0 && { tools: senses }),
       },
       key,
+      options?.signal,
     )
   },
   async chatStream(
@@ -76,6 +77,7 @@ const deepseekLLMAdapter: LLMAdapter = {
         ...(senses.length > 0 && { tools: senses }),
       },
       key,
+      options?.signal,
     )
   },
 }

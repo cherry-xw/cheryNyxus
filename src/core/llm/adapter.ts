@@ -29,6 +29,8 @@ export interface LLMOptions {
    *  false=strip redacted_thinking 块（默认；兼容第三方 Anthropic 模式端点）。
    *  仅 Anthropic provider 读取，其它 provider 忽略。 */
   anthropicOfficial?: boolean
+  /** 当前 chat run 的取消信号。watchdog/用户 abort 时 provider 应立即终止请求流。 */
+  signal?: AbortSignal
 }
 
 /**

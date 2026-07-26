@@ -158,6 +158,10 @@ export interface MiddlewareContext {
    */
   pipeline?: {
     consumeParkAfterTurn(): boolean
+    /** 本 run 已被 watchdog/用户取消；loop 必须在边界直接退出，不得开启下一轮 LLM。 */
+    isAbortRequested(): boolean
+    /** 传递给 provider 的可取消请求信号。 */
+    getAbortSignal(): AbortSignal | undefined
   }
   /**
    * 消息周期日志：集中 ctx.soul.messages 的所有写操作（append/complete/replace/revoke）。

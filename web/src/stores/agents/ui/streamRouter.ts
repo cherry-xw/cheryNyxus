@@ -75,7 +75,7 @@ export function createStreamRouter(
   setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
   dismissApproval: (chatId: string) => void,
   // 跨模块依赖（打破循环：sendMessage/resumeAgent 在 index.ts 定义，用 standalone ensureStream/trackRequest）
-  startSpawn: (taskId: string, chatId: string) => Promise<void>,
+  recoverChildChat: (chatId: string) => Promise<void>,
   resumeAgent: (chatId: string) => Promise<void>,
   pickGhostFace: (tribe: string, pets: readonly PetInstance[], selfId?: string) => string,
   allChatsCache: Ref<ChatSummary[]>,
@@ -114,10 +114,10 @@ export function createStreamRouter(
     }
 
     // stream chunk：实时增量累积
-    // 回放期（chat.sync 历史回放）的 stream delta 不得累加进 thinking/content——否则 pet 气泡
-    // 会瞬显历史内容。replaying=true 时直接 return，历史内容已由 staged chunk 累积进 history。
-    // resume 期间（running chat 重连）replaying 已在 syncOneChat 设 false 后由 attach 实时流推进。
-    if (stream.replaying) return
+    // 普通历史回放不渲染临时气泡。只有仍在运行的 chat 才允许用回放
+    // chunk 重建最后一个未结束 run；旧 run 的 done/error 会在 notification
+    // 路径清掉其暂存文本，因而不会把前几轮串到当前 run。
+    if (stream.replaying && !stream.replayLiveChunks) return
     const data = (c.data as StreamChunkData | undefined) ?? {}
     if (data.thinking) stream.thinking += data.thinking
     if (data.content) stream.content += data.content
@@ -150,6 +150,12 @@ export function createStreamRouter(
         if (stream) {
           stream.isWorking = false
           if (!n.runId || n.runId === stream.activeRunId) stream.activeRunId = undefined
+          if (stream.replaying && stream.replayLiveChunks) {
+            // 回放中的终态属于已完成旧 run；清掉其积累，随后 seq 更大的
+            // 未结束 run 会成为刷新后应显示的当前气泡。
+            stream.thinking = ''
+            stream.content = ''
+          }
           // 问题指示器直接由 questionBatches 派生；runningTools 只保存实时 auto sense。
           stream.runningTools = []
           // 修复：回放期间跳过 retainUntil，防止历史 done 触发气泡保留（sync 与 resume 回放都跳过终态副作用）
@@ -450,16 +456,12 @@ export function createStreamRouter(
           updatedAt: Date.now(),
         })
       }
-      // 回放只恢复 pet/cache；旧 role_created 不能再次启动或续跑任务（sync/resume 都跳过副作用 RPC）。
+      // 回放只恢复 pet/cache；旧 role_created 不再重复启动任务。其独立
+      // chat 的恢复由启动时 chat.list 扫描承担，避免一条历史事件制造副作用。
       if (ensureStream(streams, d.parentChatId).replaying) return
-      // 后端已 eager 启动（spawn_role sense 内 fire-and-forget → handleChatStartSpawn），sub stream
-      //   可能在 role_created 到达前/同帧已收到 chunk。判断若 stream 已在累积（thinking/content 非空
-      //   或 isWorking=true）→ 跳过 RPC（避免重复启动 + 抹掉已收 chunks）。
-      const subStream = ensureStream(streams, d.chatId)
-      const alreadyRunning =
-        subStream.isWorking || subStream.thinking.length > 0 || subStream.content.length > 0
-      if (alreadyRunning) return
-      startSpawn(d.taskId, d.chatId).catch((e) => console.error('[agents] 子 agent 启动失败:', e))
+      // 后端 eager launcher 已负责启动。这里必须对子 chat 单独 attach →
+      // sync → history；不能借用父 chat 订阅，也不能再次 startSpawn。
+      void recoverChildChat(d.chatId)
       return
     }
 

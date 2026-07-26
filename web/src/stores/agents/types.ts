@@ -212,6 +212,8 @@ export interface StreamState {
    * 在 F2 后行为一致——均由 currentState 权威给定实时态，事件流仅作实时期增量。
    */
   replaying?: boolean
+  /** 回放运行中 chat 时，允许用 seq 流重建最后一个未结束 run 的气泡。 */
+  replayLiveChunks?: boolean
 }
 
 /** stream chunk 携带的 data（实时增量）。 */

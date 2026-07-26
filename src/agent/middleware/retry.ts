@@ -1,5 +1,5 @@
 import type { MiddlewareContext, ErrorChunk } from '@/core/middleware/types'
-import { isAgentAbortError } from '@/core/middleware/errors.js'
+import { AgentAbortError, isAgentAbortError } from '@/core/middleware/errors.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { classifyError, ClassifiedError, type ErrorCategory } from '@/utils/error.js'
@@ -68,6 +68,8 @@ export async function* retryMiddleware(
       yield* next()
       return // 成功，结束
     } catch (error) {
+      // provider 因 AbortSignal 抛出的网络错误不能落入 retry；watchdog 已终止此 run。
+      if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()
       // compose abort（chat.abort 注入的 AgentAbortError）：直接 re-throw 传播退出整个 generator，
       // 不重试、不转 ErrorChunk（保证 abort 在任意挂起点都"直接退出"，由 handleChatSend catch 静默）。
       if (isAgentAbortError(error)) {

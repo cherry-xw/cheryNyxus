@@ -24,14 +24,14 @@ export interface ConnectionState {
  */
 export class ConnectionManager {
   private connections = new Map<WebSocket, ConnectionState>()
-  /** chatId → connectionId：同 chat 活跃流期间绑定，拒绝跨连接并发（P0-3） */
+  /** chatId → 最近一次启动该 chat run 的 connectionId（仅供 eager spawn 取 fallback ws）。 */
   private activeChatConnections = new Map<string, string>()
   /**
    * chatId → connectionId：持久 owner 映射（T9 role_reply 唤醒通知用）。
    * bindChatConnection 同步设；releaseChatConnection **不清**（turn 结束仍记 owner，供后端 turn 后推 notification）；
    * 仅 connection.close / chat delete（forceReleaseChatConnection）清。
    */
-  private chatOwnerConnections = new Map<string, string>()
+  private chatOwnerConnections = new Map<string, Set<string>>()
   /**
    * chatId → 当前实时输出目标 ws。仅 chat.attach（F5 重连运行中 run）写入、run 结束清除；
    * 平时为空。流式循环发送时用 `getLiveOutput(item.chatId) ?? 捕获 ws` 解析目标，
@@ -39,7 +39,7 @@ export class ConnectionManager {
    * 按 chatId 寻址（非 requestId）：startSpawn 子 run params 无 chatId、不被 disconnectGrace 跟踪，
    * 仍可经此统一重定向。
    */
-  private liveOutputByChat = new Map<string, WebSocket>()
+  private liveOutputByChat = new Map<string, Set<WebSocket>>()
 
   /**
    * 创建连接状态
@@ -101,17 +101,12 @@ export class ConnectionManager {
   }
 
   /**
-   * 绑定 chatId 到 connection（同 chat 活跃流期间拒绝其他连接并发 send/resume，P0-3）
-   * @throws Error 若 chatId 已被其他活跃 connection 绑定
+   * 绑定运行发起者，并将连接加入该 chat 的实时订阅集合。
+   * 多页面可以同时控制；具体审批/问答/abort 的首个有效请求由各自服务端状态机原子仲裁。
    */
   bindChatConnection(chatId: string, connectionId: string): void {
-    const owner = this.activeChatConnections.get(chatId)
-    if (owner && owner !== connectionId) {
-      throw new Error('这个会话正在别处使用')
-    }
     this.activeChatConnections.set(chatId, connectionId)
-    // T9：同步记持久 owner（turn 结束 activeChatConnections 释放后，role_reply 仍可反查推送）
-    this.chatOwnerConnections.set(chatId, connectionId)
+    this.subscribeChat(chatId, connectionId)
   }
 
   /**
@@ -131,6 +126,7 @@ export class ConnectionManager {
   forceReleaseChatConnection(chatId: string): void {
     this.activeChatConnections.delete(chatId)
     this.chatOwnerConnections.delete(chatId)
+    this.liveOutputByChat.delete(chatId)
   }
 
   /**
@@ -140,12 +136,7 @@ export class ConnectionManager {
    * @returns owner 所属 ws；未绑定或已断开返回 undefined
    */
   findOwnerWsByChatId(chatId: string): WebSocket | undefined {
-    const connId = this.chatOwnerConnections.get(chatId)
-    if (!connId) return undefined
-    for (const state of this.connections.values()) {
-      if (state.id === connId) return state.ws
-    }
-    return undefined
+    return this.getChatOutputs(chatId)[0]
   }
 
   /**
@@ -174,19 +165,43 @@ export class ConnectionManager {
     return undefined
   }
 
-  /** chat.attach 命中运行中 run：重定向该 chat 后续实时输出到指定 ws。 */
+  /** 将连接加入 chat 的实时事件订阅（运行中 attach 与 idle chat 订阅共用）。 */
+  subscribeChat(chatId: string, connectionId: string): void {
+    const ws = this.getWsByConnectionId(connectionId)
+    if (!ws) return
+    let owners = this.chatOwnerConnections.get(chatId)
+    if (!owners) {
+      owners = new Set()
+      this.chatOwnerConnections.set(chatId, owners)
+    }
+    owners.add(connectionId)
+    let outputs = this.liveOutputByChat.get(chatId)
+    if (!outputs) {
+      outputs = new Set()
+      this.liveOutputByChat.set(chatId, outputs)
+    }
+    outputs.add(ws)
+  }
+
+  /** chat.attach 命中运行中 run：兼容旧调用，语义改为加入订阅而非抢占。 */
   setLiveOutput(chatId: string, ws: WebSocket): void {
-    this.liveOutputByChat.set(chatId, ws)
+    const state = this.connections.get(ws)
+    if (state) this.subscribeChat(chatId, state.id)
   }
 
-  /** 流式循环解析实时输出目标（无重定向 → undefined，调用方回落捕获 ws）。 */
-  getLiveOutput(chatId: string): WebSocket | undefined {
-    return this.liveOutputByChat.get(chatId)
+  /** 返回所有仍 OPEN 的订阅者；没有订阅者时保留运行发起 ws 作为 fallback。 */
+  getChatOutputs(chatId: string, fallbackWs?: WebSocket): WebSocket[] {
+    const targets = new Set<WebSocket>()
+    for (const ws of this.liveOutputByChat.get(chatId) ?? []) {
+      if (ws.readyState === ws.OPEN) targets.add(ws)
+    }
+    if (fallbackWs && fallbackWs.readyState === fallbackWs.OPEN) targets.add(fallbackWs)
+    return [...targets]
   }
 
-  /** run 结束清除重定向（send/resume/startSpawn finally 调用）。 */
+  /** run 结束不清订阅；连接关闭时才移除，以接收后续 role_reply 等 chat 事件。 */
   clearLiveOutput(chatId: string): void {
-    this.liveOutputByChat.delete(chatId)
+    void chatId
   }
 
   /**
@@ -212,16 +227,14 @@ export class ConnectionManager {
       }
     }
     // T9：同步清持久 owner（连接关闭 → 该连接 owner 的 chat 不再可达）
-    for (const [chatId, connId] of this.chatOwnerConnections) {
-      if (connId === state.id) {
-        this.chatOwnerConnections.delete(chatId)
-      }
+    for (const [chatId, owners] of this.chatOwnerConnections) {
+      owners.delete(state.id)
+      if (owners.size === 0) this.chatOwnerConnections.delete(chatId)
     }
     // 清实时输出重定向：本连接是某 chat 的 attach 目标 → 移除（下次 sendChatEvent 回落捕获 ws / 被跳过）
-    for (const [chatId, target] of this.liveOutputByChat) {
-      if (target === ws) {
-        this.liveOutputByChat.delete(chatId)
-      }
+    for (const [chatId, targets] of this.liveOutputByChat) {
+      targets.delete(ws)
+      if (targets.size === 0) this.liveOutputByChat.delete(chatId)
     }
 
     this.connections.delete(ws)

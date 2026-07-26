@@ -970,12 +970,17 @@ export const agentApi = {
     chatId: string
     running: boolean
     attached?: boolean
+    /** Stable event cursor captured together with the question snapshot. */
+    snapshotSeq: number
+    pendingQuestionBatches: unknown[]
     currentState?: CurrentStateData
   }> {
     return call<{
       chatId: string
       running: boolean
       attached?: boolean
+      snapshotSeq: number
+      pendingQuestionBatches: unknown[]
       currentState?: CurrentStateData
     }>('chat.attach', { chatId })
   },

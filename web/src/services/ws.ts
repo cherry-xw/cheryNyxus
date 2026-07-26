@@ -78,6 +78,12 @@ export class WsClient {
   private chatSeq = new Map<string, number>()
   /** Events that arrived ahead of a missing sequence while a sync is in flight. */
   private pendingChatEvents = new Map<string, Map<number, unknown>>()
+  /**
+   * Per-chat replay fence.  While recovering `(cursor, throughSeq]`, newer
+   * live events must stay pending: dispatching them into a replaying stream
+   * would make the UI intentionally ignore them while still advancing seq.
+   */
+  private chatReplayFences = new Map<string, number>()
 
   getStatus(): ConnectionStatus {
     return this.status
@@ -85,6 +91,33 @@ export class WsClient {
 
   getLastSeq(chatId: string): number {
     return this.chatSeq.get(chatId) ?? 0
+  }
+
+  /** Highest observed sequence, including events deliberately held by a replay fence. */
+  getHighestSeenSeq(chatId: string): number {
+    let highest = this.getLastSeq(chatId)
+    const pending = this.pendingChatEvents.get(chatId)
+    if (!pending) return highest
+    for (const seq of pending.keys()) highest = Math.max(highest, seq)
+    return highest
+  }
+
+  /** Start replaying through a stable server snapshot cursor. */
+  beginChatReplay(chatId: string, throughSeq: number): void {
+    const current = this.chatReplayFences.get(chatId)
+    // Recovery for one chat is single-flight in the store.  Keep the earlier
+    // fence if a caller accidentally nests it: releasing events earlier would
+    // reintroduce the replay/live race.
+    if (current === undefined || throughSeq < current) {
+      this.chatReplayFences.set(chatId, throughSeq)
+    }
+    this.drainChatEvents(chatId)
+  }
+
+  /** Release live events that arrived while the replay fence was active. */
+  endChatReplay(chatId: string): void {
+    this.chatReplayFences.delete(chatId)
+    this.drainChatEvents(chatId)
   }
 
   /** A reset snapshot supersedes all retained events at or before latestSeq. */
@@ -216,7 +249,9 @@ export class WsClient {
     const pending = this.pendingChatEvents.get(chatId)
     if (!pending) return
     let consumed = this.chatSeq.get(chatId) ?? 0
+    const replayThrough = this.chatReplayFences.get(chatId)
     while (true) {
+      if (replayThrough !== undefined && consumed + 1 > replayThrough) break
       const next = pending.get(consumed + 1)
       if (!next) break
       pending.delete(consumed + 1)

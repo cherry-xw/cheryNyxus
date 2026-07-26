@@ -10,7 +10,7 @@ import type { MiddlewareChunk } from './index'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { getWaitedParent } from '@/agent/spawnBroker.js'
-import { AgentParkError } from '@/core/middleware/errors.js'
+import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
 
 /**
  * 创建 agent 层循环策略
@@ -32,6 +32,9 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
     logger.event('loop.start', { max: maxLoop })
 
     while (times < maxLoop) {
+      // watchdog/user abort 的 durable fence：即使 compose.throw 在前一轮 stream 的
+      // yield* 边界被吞掉，旧 run 也绝不能据 last-sense 开启下一轮 LLM。
+      if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()
       times++
 
       logger.event('loop.iter', { n: times })
@@ -54,6 +57,10 @@ export function createLoopHandler(maxLoop: number = 30): LoopHandler<MiddlewareC
         throw err
       }
       if (failed) break
+
+      // runChain 在 abort 后自然返回（例如 provider 流被 AbortSignal 关闭）时，
+      // 同样必须终止，不能落入 last-sense → continue。
+      if (ctx.pipeline?.isAbortRequested()) throw new AgentAbortError()
 
       // 断连宽限期到期 → 标记安全边界。当前 `runChain` 输出已结束，
       // 在本轮决策前抛 `AgentParkError`，让 observer 归 paused 并在 finally 释放 runtime/connection。

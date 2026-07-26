@@ -542,7 +542,7 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
 
       if (options?.skipHooks !== true) body = await applyPreLLMRequest(body, options)
 
-      return anthropicStreamSSE(url, body, key)
+      return anthropicStreamSSE(url, body, key, options?.signal)
     },
   }
 
@@ -628,8 +628,12 @@ async function* anthropicStreamSSE(
   url: string,
   body: AnthropicBody,
   key: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<AnthropicSSEEvent, void, unknown> {
   const controller = new AbortController()
+  const abortFromParent = () => controller.abort()
+  if (signal?.aborted) controller.abort()
+  else signal?.addEventListener('abort', abortFromParent, { once: true })
   let res: Response
   try {
     res = await fetch(joinAnthropicUrl(url), {
@@ -640,11 +644,13 @@ async function* anthropicStreamSSE(
     })
   } catch (err) {
     controller.abort()
+    signal?.removeEventListener('abort', abortFromParent)
     throw brainNetworkError((err as Error).message, err)
   }
   if (!res.ok || !res.body) {
     const snippet = await readErrorSnippet(res)
     controller.abort()
+    signal?.removeEventListener('abort', abortFromParent)
     throw brainHttpError(res.status, snippet)
   }
 
@@ -684,6 +690,7 @@ async function* anthropicStreamSSE(
   } finally {
     controller.abort()
     await reader.cancel().catch(() => {})
+    signal?.removeEventListener('abort', abortFromParent)
   }
 }
 

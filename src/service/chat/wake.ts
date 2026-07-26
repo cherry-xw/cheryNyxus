@@ -21,6 +21,15 @@ import {
   type QuestionBatchAnswerInput,
 } from '@/db/question.js'
 
+/** 向该 chat 的全部仍在线订阅者广播持久化 notification。 */
+function broadcastChatNotification(chatId: string, notification: unknown): boolean {
+  const targets = connectionManager.getChatOutputs(chatId)
+  for (const ws of targets) {
+    ws.send(transport.encode(notification as Parameters<typeof transport.encode>[0]))
+  }
+  return targets.length > 0
+}
+
 /**
  * 唤醒主 chat（唤醒策略调度器调用，见 docs/agent-pet.md §5.4 唤醒策略调度器）。
  *
@@ -109,11 +118,7 @@ export async function wakeParent(
   )
   notif.seq = appendChatEvent(parentChatId, notif as unknown as Record<string, unknown>)
 
-  // 推 role_reply notification（findOwnerWsByChatId：主 turn 已结束也能反查 owner 推送）
-  const ws = connectionManager.findOwnerWsByChatId(parentChatId)
-  if (ws && ws.readyState === ws.OPEN) {
-    ws.send(transport.encode(notif))
-  } else {
+  if (!broadcastChatNotification(parentChatId, notif)) {
     // 前端离线：resumePending 已持久化，重连后 rebuildSpawnWaits 会恢复主循环。
     logger.event('wake.offline', { parentChatId, childChatId, type })
   }
@@ -139,10 +144,7 @@ function emitChildAbandoned(
     { chatId: parentChatId },
   )
   notif.seq = appendChatEvent(parentChatId, notif as unknown as Record<string, unknown>)
-  const ws = connectionManager.findOwnerWsByChatId(parentChatId)
-  if (ws && ws.readyState === ws.OPEN) {
-    ws.send(transport.encode(notif))
-  } else {
+  if (!broadcastChatNotification(parentChatId, notif)) {
     logger.event('wake.abandoned-offline', { parentChatId, childChatId, type })
   }
   logger.event('wake.child-abandoned', { parentChatId, childChatId, type })
@@ -169,10 +171,7 @@ export async function resolveQuestionBatch(
   updateChatMetadata(chatId, { resumePending: true })
   const notif = createNotification('question_batch_completed', undefined, { batchId }, { chatId })
   notif.seq = appendChatEvent(chatId, notif as unknown as Record<string, unknown>)
-  const ws = connectionManager.findOwnerWsByChatId(chatId)
-  if (ws && ws.readyState === ws.OPEN) {
-    ws.send(transport.encode(notif))
-  } else {
+  if (!broadcastChatNotification(chatId, notif)) {
     logger.event('question.batch.completed-offline', { chatId, batchId })
   }
   logger.event('question.batch.completed', {

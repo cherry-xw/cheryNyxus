@@ -9,7 +9,6 @@ import { getChatSelection } from './runtime.js'
 import { approvalManager } from '../approval/manager.js'
 
 import { onChildDone } from './wakeScheduler.js'
-import { maybeTriggerExtract } from './extractTrigger.js'
 import type { LLMResponse } from '@/core/message/adapter'
 import type { MiddlewareChunk } from '@/core/middleware/types'
 import { logger } from '@/utils/logger/index.js'
@@ -34,7 +33,6 @@ export async function* observeAgentChunks(
 ): AsyncGenerator<MiddlewareChunk, void, unknown> {
   // 历史消息（loadHistory 注入）视为已落库，避免 abort flush 时重复 INSERT 触发 UNIQUE 冲突。
   const syncedIds = new Set<string>(getMessages().map((m) => m.id))
-  let completedNormally = false
   try {
     for await (const chunk of generator) {
       // feed-dog：每条 chunk 到达 = 子 agent generator 仍活着 = 未卡死，重置看门狗计时。
@@ -170,7 +168,6 @@ export async function* observeAgentChunks(
 
       yield chunk
     }
-    completedNormally = true
   } catch (err) {
     // 统一暂停语义：所有控制流信号（用户 chat.abort / WS 断连 park）与未预期错误都归 paused。
     // 不唤主、不写 finished——子 chat 末条保持原样，由 computeCanResume 派生 canResume=true，
@@ -218,11 +215,5 @@ export async function* observeAgentChunks(
       })
       syncedIds.add(m.id)
     }
-  }
-  // Extract 触发：主 agent 一轮正常完成（generator 自然结束，非 abort/park）后，
-  // fire-and-forget spawn curator 提取记忆。仅主 agent 触发，错误隔离在 maybeTriggerExtract 内部。
-  // 放 finally 之后确保 flush 落库完成、chatId 对应消息已持久化，curator 可读到本轮对话。
-  if (completedNormally) {
-    maybeTriggerExtract(chatId)
   }
 }

@@ -55,13 +55,16 @@ const openaiLLMAdapter: LLMAdapter = {
     await acquireRpm(options)
     const client = new OpenAI({ baseURL: url, apiKey: key })
     try {
-      const stream = await client.chat.completions.create({
-        model,
-        messages: msgArray,
-        stream: true,
-        ...(effort ? { reasoning_effort: effort } : {}),
-        ...(senses.length > 0 && { tools: senses }),
-      })
+      const stream = await client.chat.completions.create(
+        {
+          model,
+          messages: msgArray,
+          stream: true,
+          ...(effort ? { reasoning_effort: effort } : {}),
+          ...(senses.length > 0 && { tools: senses }),
+        },
+        options?.signal ? { signal: options.signal } : undefined,
+      )
       // 包裹迭代：流中途抛错（连接中断/限流/鉴权）映射为大脑 ClassifiedError，避免裸抛漏到 compose 兜底。
       return wrapBrainStream(stream as AsyncIterable<unknown>)
     } catch (err) {

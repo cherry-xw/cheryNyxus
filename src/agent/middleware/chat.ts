@@ -90,6 +90,7 @@ export async function* chatMiddleware(
     // Anthropic 官方开关：brain.anthropicCompat.official=true 时保留 redacted_thinking 原样回传；
     // 默认 false → strip（兼容 3rd-party coding-plan 代理）。
     anthropicOfficial: ctx.runtime.brain.anthropicCompat?.official === true,
+    signal: ctx.pipeline?.getAbortSignal(),
   }
 
   const messages = messageAdapter.buildMessages(historyForBuild, enriched.attachments, {

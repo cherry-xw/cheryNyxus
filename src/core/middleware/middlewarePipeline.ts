@@ -16,6 +16,14 @@ export class MiddlewarePipeline<T = unknown> {
    * 多次设置同值为幂等；abort / send 时清空。
    */
   private parkAfterTurnRequested = false
+  /**
+   * 与 compose.throw 独立的持久取消态。
+   *
+   * async generator 的 throw 在 yield* / 外部 await 期间不能作为唯一的终止保证；
+   * watchdog abort 后必须让 loop 和 provider 都能观察到该状态，杜绝旧 run 继续下一轮。
+   */
+  private abortRequested = false
+  private abortController: AbortController | null = null
 
   constructor(
     handlers: MiddlewareHandler<T>[],
@@ -36,10 +44,13 @@ export class MiddlewarePipeline<T = unknown> {
   async *run(): AsyncGenerator<T, void, unknown> {
     if (this.isRunningFlag) return
     this.isRunningFlag = true
+    this.abortRequested = false
+    this.abortController = new AbortController()
     try {
       yield* this.generator()
     } finally {
       this.isRunningFlag = false
+      this.abortController = null
     }
   }
 
@@ -49,7 +60,19 @@ export class MiddlewarePipeline<T = unknown> {
    */
   abort(): void {
     this.parkAfterTurnRequested = false
+    this.abortRequested = true
+    this.abortController?.abort()
     this.chain.abort()
+  }
+
+  /** loop/retry 使用：取消一经请求，在本 run 结束前保持为 true。 */
+  isAbortRequested(): boolean {
+    return this.abortRequested
+  }
+
+  /** provider 使用：当前 run 的请求信号；idle 时不存在。 */
+  getAbortSignal(): AbortSignal | undefined {
+    return this.abortController?.signal
   }
 
   /**

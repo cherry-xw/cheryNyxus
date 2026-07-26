@@ -39,15 +39,14 @@ function persistChatEvent<T extends { chatId?: string; seq?: number }>(
  * 发送单个 chat event（chunk/notification）。当前 output ws 不可写时仅记日志，
  * 不抛出影响 generator；重连后新 ws 接管后续事件，断连窗口由 `chat.sync` 回放补齐。
  */
-function sendChatEvent(ws: WebSocket, item: unknown): void {
-  if (ws.readyState !== ws.OPEN) {
-    logger.event('ws.event.skipped', { reason: 'socket-closed' })
-    return
-  }
-  try {
-    ws.send(transport.encode(item as Parameters<typeof transport.encode>[0]))
-  } catch (err) {
-    logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+function sendChatEvent(targets: readonly WebSocket[], item: unknown): void {
+  for (const ws of targets) {
+    if (ws.readyState !== ws.OPEN) continue
+    try {
+      ws.send(transport.encode(item as Parameters<typeof transport.encode>[0]))
+    } catch (err) {
+      logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+    }
   }
 }
 
@@ -55,12 +54,8 @@ function sendChatEvent(ws: WebSocket, item: unknown): void {
  * 解析实时输出目标 ws：chat.attach 重定向命中（按 event.chatId）→ 新连接 ws；否则回落启动 run 的捕获 ws。
  * 使刷新后新连接能接管仍在运行的 run 的后续 chunk/notification（含终态 done/error）。
  */
-function resolveOutputWs(item: { chatId?: string }, fallbackWs: WebSocket): WebSocket {
-  if (item.chatId) {
-    const redirected = connectionManager.getLiveOutput(item.chatId)
-    if (redirected) return redirected
-  }
-  return fallbackWs
+function resolveOutputWss(item: { chatId?: string }, fallbackWs: WebSocket): WebSocket[] {
+  return item.chatId ? connectionManager.getChatOutputs(item.chatId, fallbackWs) : [fallbackWs]
 }
 
 /**
@@ -309,12 +304,12 @@ async function handleRequest(
                 // 同步给断连宽限调度器：宽限期到期时 park。
                 disconnectGrace.setPendingApproval(request.id, interrupt.approvalId)
               }
-              sendChatEvent(resolveOutputWs(item, ws), item)
+              sendChatEvent(resolveOutputWss(item, ws), item)
               continue
             }
 
             // Chunk 消息
-            sendChatEvent(resolveOutputWs(item, ws), item)
+            sendChatEvent(resolveOutputWss(item, ws), item)
           }
           outcome = { success: finalResponse?.success !== false }
         } else {
