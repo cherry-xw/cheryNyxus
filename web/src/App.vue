@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, provide, ref } from 'vue'
+import { onMounted, provide, ref, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import AgentFab from '@/features/agent/AgentFab.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
@@ -52,9 +52,26 @@ async function bootstrap(): Promise<void> {
   // 不再由 agents.store 驱动 → 经 effect 注入为唯一来源。
   chatSessions.bindEffects({
     onWorkingChange: agents.setWorkingForChat,
-    onRoleCreated: agents.applyRoleCreated,
     onRoleDestroyed: (chatId) => agents.removePetsOnly([chatId]),
   })
+
+  // 会话树是子 pet 身份的唯一权威源。无论来自 live role_created、快照还是
+  // 重连回放，catalog 一变化就幂等补建舞台视觉，避免把某条瞬时通知当唯一来源。
+  watch(
+    () =>
+      Object.values(chatSessions.sessionsById).map((session) =>
+        [
+          session.chatId,
+          session.meta.parentChatId,
+          session.meta.agentType,
+          session.meta.avatar,
+          session.meta.finished,
+          session.run.status,
+        ].join('|'),
+      ),
+    () => agents.reconcilePetsFromSessions(chatSessions.sessionsById),
+    { immediate: true },
+  )
 
   // 订阅 chunk/notification → agents store 路由
   wsClient.onChunk((chunk) => agents.routeChunk(chunk))

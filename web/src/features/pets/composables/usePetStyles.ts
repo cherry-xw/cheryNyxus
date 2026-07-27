@@ -119,19 +119,6 @@ export function usePetStyles(
     const s = stream()
     const hist = s?.history ?? []
     const ut = hist.some((it) => it.senseCalls?.some((c) => c.name === 'update_todo'))
-    console.log('[TodoDebug]', p.chatId?.slice(0, 8), {
-      sg,
-      ghost: p.isGhost,
-      todoEnabled: todoEnabled.value,
-      hasTodoData: hasTodoData.value,
-      hasStream: !!s,
-      hLen: hist.length,
-      utInHist: ut,
-      running: s?.runningTools?.map((t) => t.name) ?? [],
-      sgsLoaded: agents.senseGroupsResolved.map(
-        (g) => `${g.name}:${g.senses.includes('update_todo')}`,
-      ),
-    })
   })
   const todoPanelStyle = computed(() => ({
     position: 'absolute' as const,

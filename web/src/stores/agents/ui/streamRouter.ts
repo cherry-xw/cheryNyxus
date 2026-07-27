@@ -427,7 +427,8 @@ export function createStreamRouter(
     }
 
     if (type === 'role_created') {
-      applyRoleCreated((n.data ?? {}) as RoleCreatedData)
+      // 身份生命周期由 ChatSession catalog 消费并驱动 reconcilePetsFromSessions。
+      // agents router 仍处理 legacy stream/interaction，但不再双写 pet 树。
       return
     }
 
@@ -473,52 +474,9 @@ export function createStreamRouter(
     }
 
     if (type === 'role_reply') {
-      // T9 wait=true 唤醒：后端已注入角色回复到主 chat DB + 推本通知 → 前端即时展示 + resume 主跑唤醒轮
-      const d = (n.data ?? {}) as {
-        parentChatId: string
-        childChatId: string
-        type: string
-        content: string
-        spawnSenseCallId?: string
-        msgId: string
-      }
-      if (!d.parentChatId) {
-        console.warn('[agents] role_reply: 缺 parentChatId', d)
-        return
-      }
-      // 即时展示子回复（权威内容已注入主 chat DB，getHistory 也可见；live 气泡先显子回复再显主响应）
-      const stream = ensureStream(streams, d.parentChatId)
-      // 子 agent 注入主 chat 的 role:role 行 → 主 chat dirty（下次 drawer 打开需 reload 走完整合流）
-      stream.historyDirty = true
-      // pushHistoryItem 幂等兜底（同 msgId 命中 → 不重复 push；层③删，不再内联 some 检查）
-      pushHistoryItem(stream, {
-        role: 'role',
-        content: d.content ?? '',
-        petName: d.type,
-        createdAt: Date.now(),
-        spawnSenseCallId: d.spawnSenseCallId,
-        // 实时阶段尚未重新拉取子 chat 历史；通知已有的 childChatId 仅用于定位头像，
-        // 直接按"子→父"展示，历史重载后再由纯前端合并规则重建。
-        subPetChatId: d.childChatId,
-        callerSubPetChatId: d.parentChatId,
-        mergedView: 'child-to-master',
-        msgId: d.msgId,
-        // 反向溯源：该消息由子 chat 生成（agentChatId = childChatId）
-        agentChatId: d.childChatId,
-      })
-      // role_reply 表示子 agent 已向父会话交付终态（成功或错误），实时转 ghost；
-      // 对旧事件回放也可修复缺失 finished 的历史 pet 状态。
-      turnChildIntoGhost(
-        pets.value.find((pet) => pet.chatId === d.childChatId),
-        pets.value,
-        pickGhostFace,
-      )
-      // 回放不得重放实时副作用。真正未消费的 role 回复由 chat.list.canResume
-      // 显示"继续"入口，交给用户显式触发（sync/resume 都跳过 resumeAgent）。
-      if (stream.replaying) return
-      resumeAgent(d.parentChatId).catch((e) =>
-        console.error('[agents] role_reply resume 主失败:', e),
-      )
+      // ChatSessionStore 是 role 回复、父会话续跑和 working 状态的唯一所有者。
+      // 此处若再写 legacy stream 或 resume，会与 canonical run.status 竞争，并让
+      // 回放边界失效；Pet 由 ChatSession 投影渲染实时 role 消息。
       return
     }
 
@@ -542,7 +500,10 @@ export function createStreamRouter(
    * 幂等（pet 已存在即 early-return）：routeNotification 与 chatSessions.onRoleCreated
    * 双订阅下同一事件可能二次到达，故全程幂等。
    */
-  function applyRoleCreated(data: RoleCreatedData): void {
+  function applyRoleCreated(
+    data: RoleCreatedData,
+    options: { recover?: boolean; working?: boolean; finished?: boolean } = {},
+  ): void {
     // taskId/prompt 属于 eager launcher 的任务信息；创建可视 pet 只需要身份字段。
     // 重放或裁剪通知缺少可选任务描述时，仍必须显示子 pet。
     if (!data.chatId || !data.parentChatId || !data.type) {
@@ -565,6 +526,7 @@ export function createStreamRouter(
       chatId: data.chatId,
       parentChatId: data.parentChatId,
       agentType: data.type,
+      finished: options.finished,
     })
     pet.runtime = {
       brain: data.brain ?? '',
@@ -588,14 +550,16 @@ export function createStreamRouter(
     }
     // 回放只恢复 pet/cache；旧 role_created 不再重复启动任务。其独立
     // chat 的恢复由启动时 chat.list 扫描承担，避免一条历史事件制造副作用。
+    if (options.finished) return
     if (ensureStream(streams, data.parentChatId).replaying) return
     // 后端 eager launcher 已负责启动。这里必须对子 chat 单独 attach →
     // sync → history；不能借用父 chat 订阅，也不能再次 startSpawn。
     // 子任务由后端 eager launcher 启动。role_created 抵达即进入工作态，不能等
     // attach 或首个 stream chunk 才显示执行中的子 pet。
-    ensureStream(streams, data.chatId).isWorking = true
-    setWorking(pet, true)
-    void recoverChildChat(data.chatId)
+    const working = options.working ?? true
+    ensureStream(streams, data.chatId).isWorking = working
+    setWorking(pet, working)
+    if (options.recover !== false) void recoverChildChat(data.chatId)
   }
 
   return {

@@ -104,9 +104,13 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
       }
     }
 
-    // 段 6：用户对话（含 sense 调用结果）
+    // 段 6：用户对话（含 sense 调用结果）；thinking 拆分供前端 ContextBar hover 展示（已含在 tokens 合计内）
     const conv = sumChatConversationTokens(chatId)
-    const conversation = seg(conv.tokens, conv.count)
+    const conversation: Segment = {
+      tokens: conv.tokens,
+      count: conv.count,
+      thinking: conv.thinking,
+    }
 
     // total / usage
     const used =

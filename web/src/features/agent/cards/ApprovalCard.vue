@@ -13,8 +13,7 @@
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { agentApi } from '@/services/agentApi'
-import { useAgentsStore } from '@/stores'
+import { useChatSessionsStore } from '@/stores'
 import type { ApprovalState } from '@/stores/agents'
 import ParsedArgs from './ParsedArgs.vue'
 
@@ -24,7 +23,7 @@ const props = defineProps<{
   chatId: string
 }>()
 
-const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 
 // 待执行动作（请求中两按钮都禁用防双击；null = idle）
 const pending = ref<'accept' | 'reject' | null>(null)
@@ -51,7 +50,7 @@ const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000))
 const expired = computed(() => showCountdown.value && remainingMs.value <= 0)
 
 watch(expired, (value) => {
-  if (value) agents.expireApproval(props.chatId, props.approval.approvalId)
+  if (value) chatSessions.expireApproval(props.chatId, props.approval.approvalId)
 })
 
 async function submit(action: 'accept' | 'reject'): Promise<void> {
@@ -59,9 +58,8 @@ async function submit(action: 'accept' | 'reject'): Promise<void> {
   pending.value = action
   submitError.value = ''
   try {
-    await agentApi.approval(props.approval.approvalId, action)
+    await chatSessions.submitApproval(props.chatId, props.approval.approvalId, action)
     // 立即关闭：dismissApproval 清 stream.approval → 组件 v-if 卸载；自动 pop 下一个
-    agents.dismissApproval(props.chatId)
   } catch (e) {
     // 规则 12 fail loud：上报并复位允许重试
     console.error(`[ApprovalCard] approval ${action} failed (id=${props.approval.approvalId}):`, e)
@@ -77,7 +75,7 @@ async function submit(action: 'accept' | 'reject'): Promise<void> {
  */
 function closeToQueue(): void {
   if (pending.value !== null) return // 请求中禁止关闭，避免双触发
-  agents.dismissApprovalToQueue(props.chatId)
+  chatSessions.dismissApprovalToQueue(props.chatId)
 }
 </script>
 

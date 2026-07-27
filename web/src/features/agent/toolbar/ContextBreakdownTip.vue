@@ -4,7 +4,7 @@
  * 每段：色块·标签·(条数)·tokens·占比。scoped 样式随组件实例生效（popper 内仍生效）。
  */
 import type { ContextBreakdown } from '@/services/agentApi'
-import { breakdownSegments, fmtTokens, segmentCountText } from './contextBreakdown'
+import { breakdownSegments, fmtTokens, segmentCountText, segmentThinkingNote } from './contextBreakdown'
 
 defineProps<{ breakdown?: ContextBreakdown }>()
 </script>
@@ -19,6 +19,9 @@ defineProps<{ breakdown?: ContextBreakdown }>()
     >
       <span class="ctx-dot" :style="{ background: seg.color }" />
       <span class="ctx-tip-label">{{ seg.label }}</span>
+      <span v-if="segmentThinkingNote(seg)" class="ctx-tip-thinking">{{
+        segmentThinkingNote(seg)
+      }}</span>
       <span v-if="segmentCountText(seg)" class="ctx-tip-count">{{ segmentCountText(seg) }}</span>
       <span class="ctx-tip-val">{{ fmtTokens(seg.tokens) }}</span>
       <span class="ctx-tip-pct">{{ seg.pct }}%</span>
@@ -50,6 +53,10 @@ defineProps<{ breakdown?: ContextBreakdown }>()
   flex: 1;
 }
 .ctx-tip-count {
+  font-size: 10px;
+  opacity: 0.6;
+}
+.ctx-tip-thinking {
   font-size: 10px;
   opacity: 0.6;
 }

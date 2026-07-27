@@ -135,7 +135,11 @@ input { path, limit?, offset?, compression }
 
 ```text
 input { path, content, offset?, limit? }
-  ├─ offset/limit 必须同时给或不给
+  ├─ 三种调用模式（由 offset/limit 是否同时传决定）：
+  │     ① 全量写入（不传 offset/limit）：content=完整文件内容，已存在则整体覆盖
+  │     ② 行范围替换（同时传）：须先 read_file；从 offset 行起替换 limit 行；limit=0 纯插入
+  │     ③ 追加末尾：offset=总行数、limit=0
+  ├─ offset/limit 必须同时给或不给（违例报错并提示全量/追加写法）
   ├─ 写前修改检测（storedHash = sharedData["read_file"][path]）：
   │     ├─ 存在 storedHash：算当前文件基础 hash，不同 → 返回「文件修改警告，需重新读取」
   │     │   文件不存在（ENOENT）：行范围写入则报错，否则继续（新建）

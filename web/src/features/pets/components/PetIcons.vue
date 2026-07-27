@@ -20,16 +20,19 @@
  * 位置：pet 头部右侧（继承 .pet-wrap 坐标系，与 pet 同步移动）。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useAgentsStore } from '@/stores'
-import type { ApprovalState, HistoryItem, SenseCallRecord } from '@/stores/agents'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import type { ApprovalState, HistoryItem, SenseCallRecord, StreamState } from '@/stores/agents'
 import { hasRenderer } from '@/features/agent/renderers/registry'
 
 const props = defineProps<{
   /** chatId（数据源路由：streams[chatId].history / approval / approvalQueue） */
   chatId: string
+  /** ChatSession 投影；PetIcons 不再自行读取 legacy agents.streams。 */
+  stream?: StreamState
 }>()
 
 const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 
 // 闪烁驱动：now 每 250ms 刷新一次（与 ApprovalCard 倒计时节奏一致）。
 const now = ref(Date.now())
@@ -38,7 +41,7 @@ const timer = setInterval(() => {
 }, 250)
 onBeforeUnmount(() => clearInterval(timer))
 
-const stream = computed(() => agents.streams[props.chatId])
+const stream = computed(() => props.stream)
 const history = computed<HistoryItem[]>(() => stream.value?.history ?? [])
 const currentApproval = computed<ApprovalState | undefined>(() => stream.value?.approval)
 const queueApprovals = computed<ApprovalState[]>(() => stream.value?.approvalQueue ?? [])
@@ -48,7 +51,7 @@ const recentHistory = computed<HistoryItem[]>(() =>
   [...history.value]
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
     .filter((item) => item.role === 'user')
-    .slice(0, 3)
+    .slice(0, 3),
 )
 
 /**
@@ -77,7 +80,7 @@ watch(now, () => {
     (item): item is ApprovalState => !!item,
   )
   for (const approval of approvals) {
-    if (isExpired(approval)) agents.expireApproval(props.chatId, approval.approvalId)
+    if (isExpired(approval)) chatSessions.expireApproval(props.chatId, approval.approvalId)
   }
 })
 
@@ -191,7 +194,7 @@ function toolIconOf(a: ApprovalState): string {
 /** approval 列 icon 点击：从 queue 中把该项移到 approval（重新唤起气泡）。 */
 function clickApproval(a: ApprovalState): void {
   if (currentApproval.value?.approvalId === a.approvalId) return
-  agents.resummonApproval(props.chatId, a.approvalId)
+  chatSessions.resummonApproval(props.chatId, a.approvalId)
 }
 </script>
 

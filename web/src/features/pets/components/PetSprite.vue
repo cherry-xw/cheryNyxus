@@ -124,7 +124,7 @@ function setWorkTextRef(el: HTMLElement | null): void {
     <div v-if="todoEnabled && hasTodoData" class="todo-anchor" :style="todoPanelStyle">
       <TodoPanel :pet="pet" />
     </div>
-    <PetIcons :chat-id="pet.chatId" :style="petIconsStyle" />
+    <PetIcons :chat-id="pet.chatId" :stream="stream" :style="petIconsStyle" />
     <PetBody
       :pet="pet"
       :paused="paused"

@@ -51,9 +51,15 @@ const CONVERSATION_ROLES = new Set(['user', 'assistant', 'role', 'subagent', 'se
 
 /**
  * 累加 chat「用户对话」段 token（content+thinking）：role ∈ user/assistant/role/subagent/sense 的非 revoked 行。
- * system 行不计（observer 不持久化 system 消息，理论不存在）。返 { tokens, count(消息条数) }。
+ * system 行不计（observer 不持久化 system 消息，理论不存在）。
+ * 返 { tokens(content+thinking 合计), count(消息条数), thinking(thinking 拆分，已含在 tokens 内，前端展示用) }。
  */
-export function sumChatConversationTokens(chatId: string): { tokens: number; count: number } {
+export function sumChatConversationTokens(chatId: string): {
+  tokens: number
+  count: number
+  /** thinking 部分累计（已含在 tokens 合计内，前端拆分展示用）。 */
+  thinking: number
+} {
   const messages = getMessages(chatId)
   const latestCompaction = messages.reduce(
     (last, message, index) => (message.context_compaction === 1 ? index : last),
@@ -62,13 +68,16 @@ export function sumChatConversationTokens(chatId: string): { tokens: number; cou
   const visibleMessages = latestCompaction >= 0 ? messages.slice(latestCompaction) : messages
   let tokens = 0
   let count = 0
+  let thinking = 0
   for (const m of visibleMessages) {
     if (m.revoked === 1) continue
     if (!CONVERSATION_ROLES.has(m.role)) continue
-    tokens += estimateTokens(m.content) + estimateTokens(m.thinking)
+    const thinkingTokens = estimateTokens(m.thinking)
+    tokens += estimateTokens(m.content) + thinkingTokens
+    thinking += thinkingTokens
     count += 1
   }
-  return { tokens, count }
+  return { tokens, count, thinking }
 }
 
 /**
@@ -91,6 +100,8 @@ export interface ContextUsageDetail {
 export interface Segment {
   tokens: number
   count?: number
+  /** 用户对话段中 thinking 部分的 token 估算（拆分展示用，已含在 tokens 合计内；仅 conversation 段填）。 */
+  thinking?: number
 }
 
 /**

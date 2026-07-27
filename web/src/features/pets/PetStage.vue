@@ -63,8 +63,7 @@ function handleClick(pet: PetInstance): void {
 
 async function handleAbort(pet: PetInstance): Promise<void> {
   try {
-    // CP6: store.abort 封装 abortAgent + 清工作态（后端中止流可能不推 done）
-    await agents.abort(pet.chatId)
+    await chatSessions.abortAgent(pet.chatId)
   } catch (e) {
     // 规则 12 fail loud
     console.error('[PetStage] abort failed:', e)
@@ -84,7 +83,7 @@ function handleHistory(pet: PetInstance): void {
 
 async function handleCompact(pet: PetInstance): Promise<void> {
   try {
-    await agents.sendMessage(pet.chatId, serializeCommandToken(COMPACT_COMMAND))
+    await chatSessions.sendMessage(pet.chatId, serializeCommandToken(COMPACT_COMMAND))
   } catch (e) {
     console.error('[PetStage] compact failed:', e)
   }
@@ -92,8 +91,7 @@ async function handleCompact(pet: PetInstance): Promise<void> {
 
 async function handleResume(pet: PetInstance): Promise<void> {
   try {
-    pet.canResume = false // 立即隐藏按钮（乐观 UI），失败时后端状态不变
-    await agents.resumeAgent(pet.chatId)
+    await chatSessions.resumeAgent(pet.chatId)
   } catch (e) {
     console.error('[PetStage] resume failed:', e)
   }

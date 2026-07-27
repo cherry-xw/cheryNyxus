@@ -123,6 +123,7 @@ function openSessions(): void {
   align-items: center;
   gap: 6px;
   pointer-events: auto;
+  user-select: none;
 }
 
 .agent-fab {

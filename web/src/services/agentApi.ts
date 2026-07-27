@@ -20,10 +20,11 @@ function isSecretEnvVarName(name: string): boolean {
   return SECRET_SUFFIX.test(name)
 }
 
-/** 上下文用量单段（镜像后端 utils/token.ts Segment）：tokens = 段 token 估算；count = 条目数（记忆/技能/工具/消息）。 */
+/** 上下文用量单段（镜像后端 utils/token.ts Segment）：tokens = 段 token 估算；count = 条目数（记忆/技能/工具/消息）；thinking = 用户对话段思考拆分（仅 conversation，已含在 tokens 内）。 */
 export interface ContextSegment {
   tokens: number
   count?: number
+  thinking?: number
 }
 
 /** 上下文用量 6 段分解（镜像后端 utils/token.ts ContextBreakdown）。 */

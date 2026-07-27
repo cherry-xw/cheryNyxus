@@ -257,6 +257,8 @@ export function buildSystemPromptSegments(
 | 工具定义 | runtime senseTable 各 sense `definition` schema | Σ estimateTokens(JSON.stringify(sense)) | tool 数 |
 | 用户对话 | DB 消息行 role∈user/assistant/role/subagent/**sense**（含感官调用结果） | Σ estimateTokens(content+thinking) | 消息条数 |
 
+**conversation 段 thinking 拆分（展示用，不改计量）：** `Segment.thinking?` 单独暴露用户对话段中 thinking 部分的 token 估算（`Σ estimateTokens(thinking)`）；`tokens` 仍 = content+thinking 合计，**计量口径与 usage/total 全不变**，thinking 仅作前端拆分展示（ContextBar hover 追加"(含思考 N)"注脚）。仅 conversation 段填该字段，其余 5 段不填。
+
 **skills 段 token 来源（单一来源原则）：** `computeSkillTokens` 在 [loadSkill.ts](../../src/agent/prompt/loadSkill.ts) 一次性算好 `nameDescTokens`/`triggerTokens`/`contentTokens`/`promptTokens`/`contextTokens`，`buildPromptPieces` 累加成 `skillsTokens`，`buildSystemPromptSegments.skills` 直接返回，`computeContextBreakdown.skills` 复用 `triggerTokens`——**不在 contextUsage 重新 estimateTokens**，避免重复计算和口径不一致。
 
 **计量时机（recompute-at-compute）：** `computeContextBreakdown(chatId)` 从 chat metadata 取 `systemPromptFile`+`workspace`+`skillFilter`、从 `getChatRuntimeSelection` 取 runtime，重建各段文本与 senseTable。skills 段 token 直接复用预计算字段；其他段按需 estimateTokens。**不持久化 breakdown**——系统消息不入库，memory 按设计仅 init 一次性注入、recompute 偏差可忽略。详见 [utils/token.ts](../../src/utils/token.ts)。

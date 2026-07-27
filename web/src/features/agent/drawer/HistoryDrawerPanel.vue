@@ -27,7 +27,7 @@ import MessageBubble from '../chat/MessageBubble.vue'
 import { useDrawerWidth } from './useDrawerWidth'
 import { useSubPetResolution } from '../composables/useSubPetResolution'
 import { useHistoryDrawerManager } from './useHistoryDrawerManager'
-import { breakdownSegments, fmtTokens } from '../toolbar/contextBreakdown'
+import { breakdownSegments, fmtTokens, segmentThinkingNote } from '../toolbar/contextBreakdown'
 import type { BreakdownKey } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from './PromptSnapshotTip.vue'
 import { agentApi } from '@/services/agentApi'
@@ -663,6 +663,9 @@ function onPromptSnapShow(): void {
               :style="{ color: seg.tokens > 0 ? labelColor(seg.key) : ZERO_COLOR }"
               >{{ shortLabel(seg.key) }}</span
             >
+            <span v-if="segmentThinkingNote(seg)" class="legend-thinking">{{
+              segmentThinkingNote(seg)
+            }}</span>
             <span class="legend-tokens">{{ fmtTokens(seg.tokens) }}</span>
           </span>
         </div>
@@ -1195,6 +1198,10 @@ function onPromptSnapShow(): void {
 
     .legend-label {
       font-weight: 600;
+    }
+
+    .legend-thinking {
+      opacity: 0.55;
     }
 
     .legend-tokens {

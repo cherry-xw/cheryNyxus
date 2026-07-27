@@ -6,7 +6,7 @@
  */
 import { computed } from 'vue'
 import type { ContextBreakdown } from '@/services/agentApi'
-import { breakdownSegments, fmtTokens } from './contextBreakdown'
+import { breakdownSegments, fmtTokens, segmentThinkingNote } from './contextBreakdown'
 
 const props = defineProps<{
   usage: number // 0-1（无 breakdown 时填充 + aria 用）
@@ -31,7 +31,10 @@ const title = computed(() => {
   if (!props.breakdown) return `context ${pct}%`
   const lines = segs.value
     .filter((s) => s.tokens > 0)
-    .map((s) => `${s.label} ${fmtTokens(s.tokens)} · ${s.pct}%`)
+    .map((s) => {
+      const note = segmentThinkingNote(s)
+      return `${s.label} ${fmtTokens(s.tokens)} · ${s.pct}%${note ? ` ${note}` : ''}`
+    })
   return [`context ${pct}%`, ...lines].join('\n')
 })
 </script>

@@ -37,6 +37,8 @@ export interface BreakdownSegmentView {
   color: string
   tokens: number
   count?: number
+  /** 用户对话段 thinking 拆分（仅 conversation；已含在 tokens 内，注脚展示用）。 */
+  thinking?: number
   pct: number
 }
 
@@ -52,6 +54,7 @@ export function breakdownSegments(bd: ContextBreakdown | undefined): BreakdownSe
       color: meta.color,
       tokens: seg?.tokens ?? 0,
       count: seg?.count,
+      thinking: seg?.thinking,
       pct: total > 0 ? Math.round(((seg?.tokens ?? 0) / total) * 1000) / 10 : 0,
     }
   })
@@ -69,4 +72,14 @@ export function segmentCountText(view: BreakdownSegmentView): string {
     conversation: '条',
   }
   return `${view.count}${unit[view.key]}`
+}
+
+/**
+ * conversation 段思考注脚文本：thinking>0 返 `(含思考 N)`，否则空串。
+ * 供 ContextBar title / ContextBreakdownTip / HistoryDrawerPanel 统一展示（思考 token 已含在段 tokens 合计内，仅拆分提示）。
+ */
+export function segmentThinkingNote(view: BreakdownSegmentView): string {
+  if (view.key !== 'conversation') return ''
+  if (!view.thinking || view.thinking <= 0) return ''
+  return `(含思考 ${fmtTokens(view.thinking)})`
 }

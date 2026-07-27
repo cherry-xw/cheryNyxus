@@ -17,6 +17,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ChatSession, ChatSessionSnapshot, ChatEvent, ChatTimelineSnapshot } from './types'
+import type { QuestionDraftAnswer } from '../agents/types'
 import type {
   ChatSummary,
   ChatSendAttachment,
@@ -76,12 +77,34 @@ interface RoleReplyData {
 export interface ChatSessionEffects {
   onWorkingChange?: (chatId: string, working: boolean, freezeUntil?: number) => void
   onRoleCreated?: (data: RoleCreatedData) => void
-  onRoleReply?: (data: RoleReplyData) => void
   onRoleDestroyed?: (chatId: string) => void
   onAutoCompacted?: (data: { reason?: string; usedBefore?: number; total?: number }) => void
 }
 
 const noop = (): void => {}
+
+/**
+ * 实时命令已经发起时，不能等待首个 stream/tool 事件才让 UI 进入工作态。
+ * 返回值标识本次命令是否开启了新的本地 working 投影，便于失败时安全回滚。
+ * 快照与 sync 回放绝不可调用此函数，它们只还原后端已有状态。
+ */
+export function beginLiveRun(
+  session: ChatSession,
+  onWorkingChange: NonNullable<ChatSessionEffects['onWorkingChange']>,
+): boolean {
+  const started = session.run.status !== 'running'
+  session.run.status = 'running'
+  session.run.error = undefined
+  session.run.retainUntil = undefined
+  session.ui.bubbleVisible = true
+  if (started) onWorkingChange(session.chatId, true)
+  return started
+}
+
+/** 仅实时 role_reply 可续跑父会话；历史回放只能恢复消息。 */
+export function shouldResumeRoleReply(session: ChatSession): boolean {
+  return !session.sync.replaying
+}
 
 export const useChatSessionsStore = defineStore('chatSessions', () => {
   const sessionsById = ref<Record<string, ChatSession>>({})
@@ -282,14 +305,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const session = ensureEntity(chatId)
     // ACK 与首个 turn/stream event 之间可能跨越多轮 LLM 调用；工作视觉不能
     // 等待首个带 messageId 的 delta。请求失败时仅回滚本次自己启动的工作态。
-    const wasRunning = session.run.status === 'running'
-    session.run.status = 'running'
-    session.run.error = undefined
-    session.run.retainUntil = undefined
-    session.ui.bubbleVisible = true
-    if (!wasRunning) {
-      ;(effects.value.onWorkingChange ?? noop)(chatId, true)
-    }
+    const started = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
 
     let accepted: Awaited<ReturnType<typeof agentApi.submitChatInput>>
     try {
@@ -301,7 +317,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         attachments,
       })
     } catch (error) {
-      if (!wasRunning) {
+      if (started) {
         session.run.status = 'paused'
         session.run.error = error instanceof Error ? error.message : '发送失败'
         ;(effects.value.onWorkingChange ?? noop)(chatId, false)
@@ -446,7 +462,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
   }
 
-  /** role_reply：父 session push role 消息；副作用（ghost child + resume parent）仅 live 期。 */
+  /** role_reply：实时事件写父消息后续跑父会话；回放仅恢复消息，不得重新启动。 */
   function handleRoleReply(event: NotificationMessage, ctx: ReduceContext): void {
     const d = (event.data ?? {}) as RoleReplyData
     if (!d.parentChatId) {
@@ -455,8 +471,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
     const parent = ensureEntity(d.parentChatId)
     reduceRoleReply(parent, d, ctx)
-    if (!parent.sync.replaying) {
-      ;(effects.value.onRoleReply ?? noop)(d)
+    if (shouldResumeRoleReply(parent)) {
+      void resumeAgent(parent.chatId).catch((error) =>
+        console.error(`[chats] role_reply resume ${parent.chatId} 失败:`, error),
+      )
     }
   }
 
@@ -467,7 +485,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   function rekeyOptimisticUser(
     chatId: string,
     requestId: string | undefined,
-    messages: Array<{ id: string }>,
+    _messages: Array<{ id: string }>,
   ): void {
     const tempId = requestId ? requestMap.get(`optimistic:${requestId}`) : undefined
     if (!tempId) return
@@ -608,9 +626,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       if (am && am.status === 'streaming') am.status = 'sealed'
       session.activeMessageId = undefined
     }
-    session.run.error = undefined
-    session.run.retainUntil = undefined
-    session.ui.bubbleVisible = true
+    const started = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
 
     const { requestId, done } = agentApi.sendMessage(chatId, text, attachments)
     trackRequest(requestId, chatId)
@@ -650,26 +666,35 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         }
       }
     } catch (e) {
-      session.run.status = 'paused'
-      session.run.error = e instanceof Error ? e.message : '连接中断'
-      ;(effects.value.onWorkingChange ?? noop)(chatId, false)
+      if (started) {
+        session.run.status = 'paused'
+        session.run.error = e instanceof Error ? e.message : '连接中断'
+        session.run.activeRunId = undefined
+        ;(effects.value.onWorkingChange ?? noop)(chatId, false)
+      }
     }
   }
 
   async function resumeAgent(chatId: string): Promise<void> {
     const session = ensureEntity(chatId)
-    session.run.error = undefined
-    const { requestId, done } = agentApi.resumeChat(chatId)
-    trackRequest(requestId, chatId)
+    const started = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
     try {
+      const { requestId, done } = agentApi.resumeChat(chatId)
+      trackRequest(requestId, chatId)
       const response = await done
-      if (response.success) {
-        const data = (response.data ?? {}) as { runId?: string }
-        if (data.runId) session.run.activeRunId = data.runId
+      if (!response.success) {
+        throw new Error(response.error?.message ?? '恢复执行失败')
       }
+      const data = (response.data ?? {}) as { runId?: string }
+      if (data.runId) session.run.activeRunId = data.runId
     } catch (e) {
-      session.run.status = 'paused'
-      session.run.error = e instanceof Error ? e.message : '连接中断'
+      if (started) {
+        session.run.status = 'paused'
+        session.run.error = e instanceof Error ? e.message : '连接中断'
+        session.run.activeRunId = undefined
+        ;(effects.value.onWorkingChange ?? noop)(chatId, false)
+      }
+      throw e
     }
   }
 
@@ -732,9 +757,94 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     session.interaction.approval = target
   }
 
+  function expireApproval(chatId: string, approvalId: string): void {
+    const session = sessionsById.value[chatId]
+    if (!session) return
+    if (session.interaction.approval?.approvalId === approvalId) {
+      dismissApproval(chatId)
+      return
+    }
+    session.interaction.approvalQueue = session.interaction.approvalQueue.filter(
+      (approval) => approval.approvalId !== approvalId,
+    )
+  }
+
   function setActiveQuestion(chatId: string, questionId: string | undefined): void {
     const session = sessionsById.value[chatId]
     if (session) session.interaction.activeQuestionId = questionId
+  }
+
+  function updateQuestionDraft(
+    chatId: string,
+    questionId: string,
+    draft?: QuestionDraftAnswer,
+  ): void {
+    const session = sessionsById.value[chatId]
+    const question = session?.interaction.questionBatches
+      .flatMap((batch) => batch.questions)
+      .find((item) => item.questionId === questionId)
+    if (!question) return
+    if (draft) question.draftAnswer = draft
+    else delete question.draftAnswer
+  }
+
+  async function advanceQuestion(
+    chatId: string,
+    questionId: string,
+    draft: QuestionDraftAnswer,
+  ): Promise<void> {
+    const session = sessionsById.value[chatId]
+    const batch = session?.interaction.questionBatches.find((item) =>
+      item.questions.some((question) => question.questionId === questionId),
+    )
+    const question = batch?.questions.find((item) => item.questionId === questionId)
+    if (!batch || !question || batch.status === 'submitting') return
+    question.draftAnswer = draft
+    question.localStatus = 'ready'
+    const next = batch.questions.find((item) => item.localStatus === 'pending')
+    if (next) {
+      session!.interaction.activeQuestionId = next.questionId
+      return
+    }
+    batch.status = 'submitting'
+    try {
+      const response = await agentApi.answerQuestionBatch(
+        chatId,
+        batch.batchId,
+        batch.questions.map((item) => ({
+          questionId: item.questionId,
+          selectedLabels: [...item.draftAnswer!.selectedLabels],
+          ...(item.draftAnswer!.freeText ? { freeText: item.draftAnswer!.freeText } : {}),
+          ...(item.draftAnswer!.cancelled ? { cancelled: true } : {}),
+        })),
+      )
+      session!.interaction.questionBatches = session!.interaction.questionBatches.filter(
+        (item) => item.batchId !== batch.batchId,
+      )
+      if (response.shouldResume) await resumeAgent(chatId)
+    } catch (error) {
+      batch.status = 'pending'
+      throw error
+    }
+  }
+
+  async function cancelQuestion(chatId: string, questionId: string): Promise<void> {
+    await advanceQuestion(chatId, questionId, { selectedLabels: [], cancelled: true })
+  }
+
+  function backQuestion(chatId: string, questionId: string): void {
+    const session = sessionsById.value[chatId]
+    const batch = session?.interaction.questionBatches.find((item) =>
+      item.questions.some((question) => question.questionId === questionId),
+    )
+    const current = batch?.questions.find((item) => item.questionId === questionId)
+    if (!batch || !current || batch.status === 'submitting') return
+    const sorted = [...batch.questions].sort((a, b) => a.position - b.position)
+    const index = sorted.findIndex((item) => item.questionId === questionId)
+    const previous = index > 0 ? sorted[index - 1] : undefined
+    if (!previous) return
+    if (current.localStatus === 'ready') current.localStatus = 'pending'
+    session!.interaction.activeQuestionId = previous.questionId
   }
 
   async function submitQuestionBatch(
@@ -881,7 +991,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     dismissApproval,
     dismissApprovalToQueue,
     resummonApproval,
+    expireApproval,
     setActiveQuestion,
+    updateQuestionDraft,
+    advanceQuestion,
+    cancelQuestion,
+    backQuestion,
     submitQuestionBatch,
     // 绑定
     bindWsClient,

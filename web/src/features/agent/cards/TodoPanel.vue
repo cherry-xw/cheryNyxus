@@ -8,19 +8,24 @@
  */
 import { computed } from 'vue'
 import type { PetInstance } from '@/features/pets/types/types'
-import { useAgentsStore } from '@/stores'
+import { useChatSessionsStore } from '@/stores'
 import type { SenseCallRecord } from '@/stores/agents'
 import type { TodoItem } from '../renderers/types'
+import { selectOwnTimeline } from '@/stores/chats/selectors'
 
 const props = defineProps<{ pet: PetInstance }>()
-const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 
 /** walk back history 找最近一次 update_todo 调用的 todos（取最新 item 内最新一次）。 */
 const todos = computed<TodoItem[]>(() => {
-  const stream = agents.streams[props.pet.chatId]
-  if (!stream) return []
-  for (let i = stream.history.length - 1; i >= 0; i -= 1) {
-    const calls = stream.history[i]?.senseCalls
+  const session = chatSessions.sessionsById[props.pet.chatId]
+  if (!session) return []
+  if (Array.isArray(session.interaction.currentTodo)) {
+    return session.interaction.currentTodo as TodoItem[]
+  }
+  const history = selectOwnTimeline(session)
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const calls = history[i]?.senseCalls
     if (!calls || calls.length === 0) continue
     for (let j = calls.length - 1; j >= 0; j -= 1) {
       const c: SenseCallRecord | undefined = calls[j]
@@ -40,8 +45,9 @@ const todos = computed<TodoItem[]>(() => {
 
 /** 检查 runningTools 中是否有 update_todo（实时执行中） */
 const isRunning = computed(() => {
-  const stream = agents.streams[props.pet.chatId]
-  return (stream?.runningTools ?? []).some((t) => t.name === 'update_todo')
+  return (chatSessions.sessionsById[props.pet.chatId]?.interaction.runningTools ?? []).some(
+    (tool) => tool.name === 'update_todo',
+  )
 })
 
 const doneCount = computed(() => todos.value.filter((t) => t.status === 'completed').length)

@@ -13,13 +13,17 @@ const WriteSchema = z.object({
     .number()
     .int()
     .min(0)
-    .describe('起始行号偏移量（0-based），与 limit 配合使用实现行范围替换。不指定则写入整个文件')
+    .describe(
+      '行范围替换的起始行（0-based）。须与 limit 同时传（二者都不传=全量写入）；大文件局部编辑用，调用前须先 read_file 取准确行号',
+    )
     .optional(),
   limit: z
     .number()
     .int()
     .min(0)
-    .describe('要替换的行数，与 offset 配合使用。不指定则写入整个文件')
+    .describe(
+      '从 offset 起要替换的行数，须与 offset 同时传。0=纯插入不删行；追加末尾用 offset=文件总行数、limit=0',
+    )
     .optional(),
 })
 
@@ -54,7 +58,7 @@ function replaceLines(
 
 export default sense(
   'write_file',
-  '写入内容到指定文件。仅支持绝对路径。如果文件已存在将被覆盖，如果目录不存在将报错。先写入临时目录后移动到目标位置，确保数据安全。注意：写入文件主要使用`write_file`，而不是使用bash命令。',
+  '写入内容到指定文件，仅支持绝对路径。写入文件优先用本工具而非 bash。三种用法由 offset/limit 是否同时传入决定：①全量写入（新建/重写/小文件编辑）——不传 offset/limit，content 传完整文件内容，文件已存在则整体覆盖；②行范围替换（大文件局部改，省 token）——须先 read_file 拿到行号与写前校验，offset/limit 同时传，从 offset（0-based）行起替换 limit 行为 content，limit=0 表示纯插入不删行；③追加到末尾——先 read_file 取总行数 N，再 offset=N、limit=0，content 传追加内容。目录不存在或权限不足将报错。',
   WriteSchema,
   async (input, senseSharedData: SenseSharedData): Promise<SenseResult> => {
     try {
@@ -67,7 +71,7 @@ export default sense(
         (input.offset === undefined && input.limit !== undefined)
       ) {
         return {
-          content: `错误：offset 和 limit 必须同时指定或不指定`,
+          content: `错误：offset 和 limit 必须同时传或同时不传。追加内容：先 read_file 取总行数 N，再 offset=N、limit=0；整文件写入：两者都不传`,
           hash: '',
         }
       }

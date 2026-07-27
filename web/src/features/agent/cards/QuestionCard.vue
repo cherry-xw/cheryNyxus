@@ -9,7 +9,7 @@
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
 import { computed, ref, watch } from 'vue'
-import { useAgentsStore } from '@/stores'
+import { useChatSessionsStore } from '@/stores'
 import type { QuestionItemState } from '@/stores/agents'
 
 /** batch 进度信息（多问题批次时传入，控制"下一步"vs"提交"按钮） */
@@ -28,7 +28,7 @@ const props = defineProps<{
   batchInfo?: BatchInfo | null
 }>()
 
-const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 
 // 待提交（「其他」submit / 选项 submit 任一动作进行中；null = idle）
 const pending = ref<'other' | 'submit' | 'cancel' | null>(null)
@@ -47,10 +47,10 @@ function syncDraft(): void {
   const freeText = otherExpanded.value ? otherText.value.trim() : ''
   const selected = Array.from(selectedLabels.value)
   if (!selected.length && !freeText) {
-    agents.updateQuestionDraft(props.chatId, props.question.questionId)
+    chatSessions.updateQuestionDraft(props.chatId, props.question.questionId)
     return
   }
-  agents.updateQuestionDraft(props.chatId, props.question.questionId, {
+  chatSessions.updateQuestionDraft(props.chatId, props.question.questionId, {
     selectedLabels: selected,
     ...(freeText ? { freeText } : {}),
   })
@@ -68,9 +68,6 @@ const canSubmit = computed(() => {
 
 /** header 按钮文案：仅批次最后一题提交，其余一律进入下一步。 */
 const submitLabel = computed(() => (props.batchInfo?.isLast ? '提交' : '下一步'))
-
-/** 最后一题（含无 batchInfo 的单题）走文本按钮；其余显示右箭头 ‹ 图标。 */
-const isLastStep = computed(() => props.batchInfo?.isLast ?? true)
 
 /** 「上一步」可用：批首题无上一步；提交中禁用（防 race）。 */
 const canBack = computed(() => {
@@ -113,7 +110,7 @@ async function advanceOrSubmit(): Promise<void> {
       draft.freeText = otherText.value.trim()
     }
 
-    await agents.advanceQuestion(props.chatId, props.question.questionId, draft)
+    await chatSessions.advanceQuestion(props.chatId, props.question.questionId, draft)
   } catch (e) {
     console.error(`[QuestionCard] submit failed (id=${props.question.questionId}):`, e)
   } finally {
@@ -138,7 +135,7 @@ async function cancel(): Promise<void> {
   if (pending.value !== null) return
   pending.value = 'cancel'
   try {
-    await agents.cancelQuestion(props.chatId, props.question.questionId)
+    await chatSessions.cancelQuestion(props.chatId, props.question.questionId)
   } catch (e) {
     console.error(`[QuestionCard] cancel failed (id=${props.question.questionId}):`, e)
     pending.value = null
@@ -148,7 +145,7 @@ async function cancel(): Promise<void> {
 /** 「上一步」：撤回当前题 ready → pending，并切到同批上一题。无 store await，纯本地焦点切换。 */
 function back(): void {
   if (!canBack.value) return
-  agents.backQuestion(props.chatId, props.question.questionId)
+  chatSessions.backQuestion(props.chatId, props.question.questionId)
 }
 </script>
 

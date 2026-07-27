@@ -20,6 +20,12 @@ pet 模块已由纯装饰桌宠改造为 **主从 Agent 可视化交互系统**�
 
 每个 ChatSession 只保存自身物理消息。主 chat 的群聊历史由 selector 动态读取 root 和 descendants 后做角色重映射、按时间排序；禁止把 child 消息复制进 parent history。消息重复在 reducer 入口用 `seq` 和 `msgId` 阻止，展示层不再依赖 reload 或多层 dedup 修复。
 
+### Pet 投影边界
+
+`ChatSessionStore.sessionsById` 是主从关系、角色身份、运行态与交互态的唯一权威来源。Pet 舞台不得把 `role_created` 当作唯一的“创建子 pet”命令：它只能促使会话 catalog 更新；舞台随后按会话树幂等对账，补建缺失的视觉实例并将已完成的子实例转为 ghost。这样事件重放、快照恢复或事件暂缺都不会造成“历史已有子会话、舞台没有子 pet”。
+
+Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置、速度、拖拽、hover、表情及 ghost 动画时间。审批、运行中工具、ask_user_question 批次、todo、消息气泡、runtime、上下文与可继续状态必须从 ChatSession selector 投影；pet 组件发出的操作委托 ChatSession action，再由该 action 调 RPC。
+
 启动只完整 hydration 舞台最近 5 个主 chat 及其全部后代；其他会话只建立 catalog 实体，用户从 SessionList 加载时原位升级。running chat 遵循 `attach → sync`：attach 只重定向后续实时输出，不提前跳过 cursor；sync 从本地 cursor（冷启动为 0）补齐历史和当前实时消息，再在 `snapshotSeq` 边界应用 currentState/question/session metadata。HistoryDrawer、Pet hover、SessionList 打开均不触发 `chat.get`，只消费已构建实体。
 
 > “完整上下文”在前端仅指 UI 会话投影。system prompt、memory、skills、tools 和压缩后的 LLM 上下文仍由后端 `AgentBuilder` 独占构建。
@@ -64,7 +70,7 @@ pet 模块已由纯装饰桌宠改造为 **主从 Agent 可视化交互系统**�
   - **startSpawn 防御**（[index.ts:374](../../../web/src/stores/agents/index.ts#L374)）：stream 累积内容非空时不重置（避免抹掉后端 eager 跑出的 chunks）。
 - **chat.startSpawn 退化为 recovery-only**：[web/services/agentApi.ts:899](../../../web/src/services/agentApi.ts#L899) RPC 保留（重连 / 抢占 / 中断续跑 / 已 finished 同步），不再是「启动」入口。Response 分支 `alreadyRunning / alreadyFinished / finished` 任一即可判断「子任务生命周期已显式落地」。
 - **后端 spawn_role sense 已预创建 chat + runtime**（metadata.runtime 路径）：前端不调 chat.create（避 PRIMARY KEY 冲突）、不调 runtime.set。
-- **subagent 消息**：wake 策略决定的 `role_reply` 唤醒主 chat 后由前端 `resumeAgent` 注入（[streamRouter.ts:469](../../../web/src/stores/agents/ui/streamRouter.ts#L469)）；eager 启动 + 后端注入整体闭环，无前端额外 RPC 步骤。
+- **subagent 消息**：wake 策略决定的 `role_reply` 由 `ChatSessionStore` 在**实时**收到后写入父会话并调用 `resumeAgent`；启动 RPC 前立即把该会话的 `run.status` 投影为 `running`，Pet 只消费该投影。`sync.replaying`、快照与重连回放只还原数据，绝不调用 resume，避免刷新页面重放旧 `role_reply` 时误启动新一轮。legacy `streamRouter` 不再负责父会话续跑或 working 状态。
 - **agentApi.subagentResult**（已废）：wait=true 子完成回传通道，2026-07-09 后改为后端注入角色回复（role:role）+ role_reply notification 唤醒主 chat；前端 wait=true 回传分支已删。wait=false 复用 `sendMessage` 注入 `[子 agent {type}] {content}` 到主 chat。**2026-07-23 注**：连 wait=false 也由后端注入完成，前端不再做 sendMessage 注入。
 
 ### CP4（历史 + 群消息 + sense 调用 box）

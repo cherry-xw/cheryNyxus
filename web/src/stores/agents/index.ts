@@ -12,6 +12,7 @@ import {
   type SessionRuntimeSelection,
 } from '@/services/agentApi'
 import type { PetInstance, PetMood } from '@/features/pets/types/types'
+import type { ChatSession } from '../chats/types'
 import type { StreamState, HistoryItem } from './types'
 import { sameRuntime, defaultBounds, pushHistoryItem } from './data/streamAccumulator'
 import { replaceQuestionBatches, type QuestionBatchPayload } from './actions/questionBatch'
@@ -115,12 +116,12 @@ export const useAgentsStore = defineStore('agents', () => {
   }
 
   /** 按 chatId 设置工作态（chatSessions.onWorkingChange effect 注入用）。 */
-  function setWorkingForChat(
-    chatId: string,
-    working: boolean,
-    freezeUntil?: number,
-  ): void {
-    setWorking(pets.value.find((p) => p.chatId === chatId), working, freezeUntil)
+  function setWorkingForChat(chatId: string, working: boolean, freezeUntil?: number): void {
+    setWorking(
+      pets.value.find((p) => p.chatId === chatId),
+      working,
+      freezeUntil,
+    )
   }
 
   /**
@@ -403,6 +404,42 @@ export const useAgentsStore = defineStore('agents', () => {
     allChatsCache,
   )
 
+  /**
+   * 将权威会话树投影为舞台 pet。会话事件、快照与重连恢复都可调用；因此
+   * role_created 不再是创建子 pet 的唯一、不可恢复的瞬时命令。
+   * 这里仅补建/收尾身份视觉，坐标、拖拽和动画仍保留在既有 PetInstance 上。
+   */
+  function reconcilePetsFromSessions(sessions: Record<string, ChatSession>): void {
+    for (const session of Object.values(sessions)) {
+      const meta = session.meta
+      if (!meta.parentChatId || !meta.agentType) continue
+      const existing = pets.value.find((pet) => pet.chatId === session.chatId)
+      if (!existing) {
+        router.applyRoleCreated(
+          {
+            chatId: session.chatId,
+            parentChatId: meta.parentChatId,
+            type: meta.agentType,
+            avatar: meta.avatar,
+            brain: session.context.runtime?.brain,
+            senseGroup: session.context.runtime?.senseGroup,
+          },
+          {
+            recover: false,
+            working: session.run.status === 'running',
+            finished: meta.finished === true,
+          },
+        )
+        continue
+      }
+      if (meta.finished === true) {
+        turnChildIntoGhost(existing, pets.value, lifecycle.pickGhostFace)
+      } else {
+        setWorking(existing, session.run.status === 'running')
+      }
+    }
+  }
+
   // ── 剩余编排函数 ──
 
   /**
@@ -623,7 +660,8 @@ export const useAgentsStore = defineStore('agents', () => {
             // eager launcher 尚未写入首条 user message 的新子 chat 继续等；其他
             // 非 running chat 是已暂停状态，不能由刷新逻辑擅自 resume。
             const waitingForEagerStart =
-              !!latest.parentChatId && (latest.messageCount === undefined || latest.messageCount === 0)
+              !!latest.parentChatId &&
+              (latest.messageCount === undefined || latest.messageCount === 0)
             if (waitingForEagerStart) continue
             return
           }
@@ -1065,6 +1103,7 @@ export const useAgentsStore = defineStore('agents', () => {
     getRuntime,
     setSessionRuntime,
     setWorkingForChat,
+    reconcilePetsFromSessions,
     removePetsOnly,
     ...router,
   }
