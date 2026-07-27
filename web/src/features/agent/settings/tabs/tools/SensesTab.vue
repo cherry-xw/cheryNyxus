@@ -10,10 +10,10 @@
  * 删组走 ConfirmPopover 二次确认；工具移除=tag 关闭（频繁操作，不二次确认）。
  * 字段名 sense_groups / senseGroup 保留（后端协议），仅 UI 文案改"器官"。
  */
-import { ref, computed } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { ref, computed, reactive, nextTick } from 'vue'
+import { Delete, Plus } from '@element-plus/icons-vue'
 import type { ConfigDto, SenseToolInfo } from '@/services/agentApi'
-import { SUPERVISIONS } from '../../config/constants'
+import { SUPERVISIONS, SUPERVISION_LABEL } from '../../config/constants'
 import { toolName, toolLevel, isDangerousSense, matchedTool } from '../../config/shared'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
@@ -94,6 +94,21 @@ function onAddTool(group: string, raw: unknown): void {
   }
   arr.push(raw)
 }
+// 加工具 popover 内 el-select 实例表（per-group）：popover 展开时自动 focus select，直达选项过滤/输入。
+const addSelectRefs: Record<string, { focus: () => void } | undefined> = {}
+function setAddSelectRef(group: string, el: unknown): void {
+  if (el) addSelectRefs[group] = el as { focus: () => void }
+  else delete addSelectRefs[group]
+}
+// 行内加工具：点 + 切换为行内 select（替换 icon），失焦收起；选完复位可连续加。
+const addingGroups = reactive(new Set<string>())
+function openAdd(group: string): void {
+  addingGroups.add(group)
+  nextTick(() => addSelectRefs[group]?.focus())
+}
+function closeAdd(group: string): void {
+  addingGroups.delete(group)
+}
 // 点 tag 内等级标循环切换
 function cycleLevel(group: string, idx: number): void {
   const arr = props.draft.sense_groups?.[group]
@@ -121,6 +136,32 @@ function toolLabel(entry: string): string {
 
 function levelLabel(level: string): string {
   return level || '继承'
+}
+// 监管等级行为说明：tooltip 用，让用户直观看到等级/继承到的具体权限含义。
+// 文案与 GlobalTab 全局监管说明对齐（自动更流畅 / 确认关键操作前询问 / 手动最谨慎）。
+const SUPERVISION_DESC: Record<(typeof SUPERVISIONS)[number], string> = {
+  auto: 'AI 自行调用，无需确认（更流畅）',
+  confirm: '关键操作前询问你',
+  manual: '最谨慎，每次需手动放行',
+}
+// tag tooltip：合并工具描述 + 危险标志 + 监管等级/继承信息（pre-line 换行，popper-class sense-level-tip）。
+// 替代原 el-tag 上的原生 title，所有 hover 信息汇入一个 tip。
+function tagTip(entry: string): string {
+  const lines: string[] = []
+  const desc = toolDesc(entry)
+  if (desc) lines.push(desc)
+  if (isDangerousSense(entry)) lines.push('⚠ 危险器官')
+  const lv = toolLevel(entry)
+  if (lv) {
+    lines.push(`监管等级（点等级标切换）：${SUPERVISION_LABEL[lv as (typeof SUPERVISIONS)[number]] ?? lv}`)
+    lines.push(SUPERVISION_DESC[lv as (typeof SUPERVISIONS)[number]] ?? '')
+  } else {
+    const g = props.draft.global.supervision
+    lines.push('继承（点等级标切换）')
+    lines.push(SUPERVISION_DESC[g])
+    lines.push(`继承全局监管：${SUPERVISION_LABEL[g]}（${g}）`)
+  }
+  return lines.join('\n')
 }
 // tag 着色按监管松紧：auto（放权）= danger，confirm = warning，manual/info = info，继承 = info+plain
 function levelTagType(level: string): 'info' | 'warning' | 'danger' {
@@ -194,6 +235,43 @@ const indexItems = computed<IndexItem[]>(() => [])
                 title="含危险器官"
                 >⚠️ 危险</span
               >
+              <button
+                v-if="!addingGroups.has(gname as string)"
+                type="button"
+                class="icon-btn"
+                title="加工具"
+                aria-label="加工具"
+                @click="openAdd(gname as string)"
+              >
+                <Plus class="ico" />
+              </button>
+              <el-select
+                v-else
+                :ref="(el: unknown) => setAddSelectRef(gname as string, el)"
+                :model-value="''"
+                filterable
+                allow-create
+                default-first-option
+                size="small"
+                placeholder="搜工具"
+                class="add-tool-inline-select"
+                popper-class="sense-tool-popper"
+                @update:model-value="onAddTool(gname as string, $event)"
+                @blur="closeAdd(gname as string)"
+              >
+                <el-option
+                  v-for="t in availableTools(gname as string)"
+                  :key="t.name"
+                  :value="t.name"
+                  :label="t.label"
+                >
+                  <div class="opt-item">
+                    <SenseIcon :name="t.name" :tools="senseTools" />
+                    <span class="opt-label">{{ t.label }}</span>
+                    <span class="opt-desc" :title="t.description">{{ t.description }}</span>
+                  </div>
+                </el-option>
+              </el-select>
               <ConfirmPopover
                 :title="`确认删除器官组「${gname}」？`"
                 @confirm="removeGroup(gname as string)"
@@ -213,7 +291,6 @@ const indexItems = computed<IndexItem[]>(() => [])
             :key="idx"
             :type="levelTagType(toolLevel(entry))"
             :effect="toolLevel(entry) ? 'light' : 'plain'"
-            :title="toolDesc(entry)"
             closable
             size="default"
             class="sense-tag"
@@ -221,43 +298,26 @@ const indexItems = computed<IndexItem[]>(() => [])
           >
             <span class="tag-name">
               <SenseIcon :name="entry" :tools="senseTools" />
-              <span v-if="isDangerousSense(entry)" class="danger-mark" title="危险器官">⚠</span
+              <span v-if="isDangerousSense(entry)" class="danger-mark">⚠</span
               >{{ toolLabel(entry) }}
             </span>
-            <span
-              class="tag-level-btn"
-              :class="{ inherit: !toolLevel(entry) }"
-              :title="`监管等级（点切换）：${levelLabel(toolLevel(entry))}`"
-              @click.stop="cycleLevel(gname as string, idx)"
-              >{{ levelLabel(toolLevel(entry)) }}</span
+            <el-tooltip
+              :content="tagTip(entry)"
+              placement="top"
+              :show-after="120"
+              popper-class="sense-level-tip"
             >
+              <span
+                class="tag-level-btn"
+                :class="{ inherit: !toolLevel(entry) }"
+                @click.stop="cycleLevel(gname as string, idx)"
+                >{{ levelLabel(toolLevel(entry)) }}</span
+              >
+            </el-tooltip>
           </el-tag>
           <span v-if="!draft.sense_groups?.[gname as string]?.length" class="empty"
-            >无工具，点下方添加 →</span
+            >无工具，点标题 ＋</span
           >
-          <el-select
-            :model-value="''"
-            filterable
-            allow-create
-            default-first-option
-            placeholder="+ 加工具"
-            class="add-tool-select"
-            popper-class="sense-tool-popper"
-            @update:model-value="onAddTool(gname as string, $event)"
-          >
-            <el-option
-              v-for="t in availableTools(gname as string)"
-              :key="t.name"
-              :value="t.name"
-              :label="t.label"
-            >
-              <div class="opt-item">
-                <SenseIcon :name="t.name" :tools="senseTools" />
-                <span class="opt-label">{{ t.label }}</span>
-                <span class="opt-desc" :title="t.description">{{ t.description }}</span>
-              </div>
-            </el-option>
-          </el-select>
         </div>
       </article>
     </div>
@@ -311,9 +371,13 @@ const indexItems = computed<IndexItem[]>(() => [])
     gap: 4px;
   }
 }
-.add-tool-select {
-  width: 100%;
-  max-width: 100%;
+// 行内加工具 select：替换 + icon 原位展开；size=small 已对齐标题行高（24px），限宽 + 小字号适配行内。
+.add-tool-inline-select {
+  display: inline-flex;
+  width: 80px;
+  :deep(.el-input__inner) {
+    font-size: 12px;
+  }
 }
 .tag-name {
   display: inline-flex;
@@ -381,5 +445,10 @@ const indexItems = computed<IndexItem[]>(() => [])
     text-overflow: ellipsis;
     min-width: 0;
   }
+}
+// 等级标 tooltip：popper teleport 到 body，scoped 不穿透，故置全局样式；
+// pre-line 让 content 内 \n 换行（三行：切换提示 / 行为说明 / 继承来源）。
+.sense-level-tip {
+  white-space: pre-line;
 }
 </style>

@@ -1011,6 +1011,8 @@ function onPromptSnapShow(): void {
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  opacity: 0.3;
+  transition: opacity 120ms ease;
   transition:
     background 120ms ease,
     transform 120ms ease;
@@ -1019,6 +1021,7 @@ function onPromptSnapShow(): void {
     background: #ffffff;
     color: fade(@ink, 92%);
     transform: translateY(-1px);
+    opacity: 1;
   }
 
   &:active {

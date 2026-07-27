@@ -256,9 +256,8 @@ function formatDateTime(iso: string | undefined): string {
       </header>
       <div v-if="sources.length" class="source-grid">
         <article v-for="src in sources" :key="src.id" class="card source-card">
-          <header class="card-head">
+          <header class="card-head" style="padding-left: 0">
             <span class="card-title">{{ src.cloneUrl }}</span>
-            <span class="spacer" />
             <el-tooltip
               v-if="src.lastCheckError || src.lastSyncError"
               :content="src.lastCheckError || src.lastSyncError"
@@ -331,27 +330,35 @@ function formatDateTime(iso: string | undefined): string {
       <div class="standalone-grid">
         <article v-for="(s, i) in standalone" :key="s.name" class="card" :data-anchor="s.name">
           <span class="card-idx">{{ (currentPage - 1) * pageSize + i + 1 }}</span>
-          <header class="card-head">
-            <span class="card-title">{{ s.name }}</span>
-            <el-tooltip placement="top" :show-after="300">
-              <template #content>
-                <div style="max-width: 220px">
-                  系统提示词 ≈ {{ s.nameDescTokens + (s.triggerTokens ?? 0) }} tok<br />
-                  内容提示词 ≈ {{ s.contentTokens }} tok
-                </div>
-              </template>
-              <span class="badge system"
-                >系统 ≈{{ s.nameDescTokens + (s.triggerTokens ?? 0) }}</span
-              >
-            </el-tooltip>
-            <span class="badge content">内容 ≈{{ s.contentTokens }}</span>
-            <ConfirmPopover :title="`确认删除技能「${s.name}」？`" @confirm="onDelete(s.name)">
-              <template #trigger>
-                <button type="button" class="icon-btn danger" aria-label="删除" :disabled="busy">
-                  <Delete class="ico" />
-                </button>
-              </template>
-            </ConfirmPopover>
+          <header class="card-head skill-head">
+            <div class="title-row">
+              <div class="title-cell">
+                <el-tooltip :content="s.name" placement="top" :show-after="300">
+                  <span class="card-title">{{ s.name }}</span>
+                </el-tooltip>
+              </div>
+              <ConfirmPopover :title="`确认删除技能「${s.name}」？`" @confirm="onDelete(s.name)">
+                <template #trigger>
+                  <button type="button" class="icon-btn danger" aria-label="删除" :disabled="busy">
+                    <Delete class="ico" />
+                  </button>
+                </template>
+              </ConfirmPopover>
+            </div>
+            <div class="token-row">
+              <el-tooltip placement="top" :show-after="300">
+                <template #content>
+                  <div style="max-width: 220px">
+                    系统提示词 ≈ {{ s.nameDescTokens + (s.triggerTokens ?? 0) }} tok<br />
+                    内容提示词 ≈ {{ s.contentTokens }} tok
+                  </div>
+                </template>
+                <span class="badge system"
+                  >系统 ≈{{ s.nameDescTokens + (s.triggerTokens ?? 0) }}</span
+                >
+              </el-tooltip>
+              <span class="badge content">内容 ≈{{ s.contentTokens }}</span>
+            </div>
           </header>
           <div v-if="s.description || s.trigger" class="skill-body">
             <span v-if="s.description"><span class="k">说明：</span>{{ s.description }}</span>
@@ -514,6 +521,39 @@ code {
   overflow-wrap: anywhere;
   line-height: 1.35;
 }
+// 技能卡 card-head：标题行 + token 行纵向堆叠（source-card 的 card-head 不受影响）
+.skill-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+  // el-tooltip 在 trigger 外包 .el-tooltip__trigger wrapper，需显式 cell 收缩 + :deep 穿透
+  .title-cell {
+    flex: 1 1 auto;
+    min-width: 0;
+    :deep(.el-tooltip__trigger) {
+      display: block;
+      max-width: 100%;
+    }
+  }
+  .token-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  // 技能名单行截断，hover 由 el-tooltip 显示完整名
+  .card-title {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
 .badge {
   font-size: 10px;
   font-weight: 700;
@@ -547,14 +587,14 @@ code {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.5;
-  color: fade(@ink, 70%);
+  color: fade(@ink, 82%);
   word-break: break-word;
   display: flex;
   flex-direction: column;
   gap: 3px;
   .k {
-    font-weight: 600;
-    color: fade(@ink, 50%);
+    font-weight: 700;
+    color: fade(@ink, 88%);
   }
 }
 .src-meta {
