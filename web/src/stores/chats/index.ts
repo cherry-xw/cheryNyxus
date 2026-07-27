@@ -16,8 +16,16 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { ChatSession, ChatSessionSnapshot, ChatEvent } from './types'
-import type { ChatSummary, ChatSendAttachment } from '@/services/agentApi'
+import type { ChatSession, ChatSessionSnapshot, ChatEvent, ChatTimelineSnapshot } from './types'
+import type {
+  ChatSummary,
+  ChatSendAttachment,
+  ChatSessionEvent,
+  ChatOpenResponse,
+  PendingInput,
+  TimelinePatch,
+  RootTimelineSnapshot,
+} from '@/services/agentApi'
 import {
   createCatalogEntity,
   createEmptySession,
@@ -30,6 +38,9 @@ import {
   reduceRoleCreated,
   reduceRoleReply,
   reduceConsumed,
+  replaceTimeline,
+  applyTimelinePatch,
+  reduceSessionEvent,
   type ReduceContext,
 } from './reducer'
 import { collectDescendantChatIds } from '../agents/data/historyMerge'
@@ -74,10 +85,14 @@ const noop = (): void => {}
 
 export const useChatSessionsStore = defineStore('chatSessions', () => {
   const sessionsById = ref<Record<string, ChatSession>>({})
+  /** Root-owned projection; one snapshot covers the entire recursive tree. */
+  const rootTimelines = ref<Record<string, RootTimelineSnapshot>>({})
   /** requestId -> chatId（流式 RPC chunk 路由用；chunk.chatId 缺失时兜底）。 */
   const requestMap = new Map<string, string>()
   /** 每 chat hydration in-flight 去重（避免并发 loadSession 重复 sync）。 */
   const hydrating = new Map<string, Promise<void>>()
+  /** V2 chat.open in-flight 去重（event gap 期间可能同时收到多个事件）。 */
+  const opening = new Map<string, Promise<void>>()
   /** startup 幂等守卫（首次成功后不再重跑；F5 重连由 reconnect 处理）。 */
   let started = false
   const effects = ref<ChatSessionEffects>({})
@@ -129,12 +144,183 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     hydrating.delete(chatId)
   }
 
+  function rootIdOf(chatId: string): string {
+    let current = sessionsById.value[chatId]
+    const seen = new Set<string>()
+    while (current?.meta.parentChatId && !seen.has(current.chatId)) {
+      seen.add(current.chatId)
+      current = sessionsById.value[current.meta.parentChatId]
+    }
+    return current?.chatId ?? chatId
+  }
+
+  async function openRootTimeline(
+    rootChatId: string,
+    view: 'conversation' | 'tree' | 'audit' = 'conversation',
+  ): Promise<RootTimelineSnapshot> {
+    const current = rootTimelines.value[rootChatId]
+    const snapshot = await agentApi.getRootTimeline({
+      rootChatId,
+      view,
+      ...(current ? { knownRevision: current.revision } : {}),
+    })
+    rootTimelines.value[rootChatId] = snapshot
+    return snapshot
+  }
+
   // ---- 两个领域写入口 ----
 
   /** snapshot 权威替换（chat.get/sync/attach response）。 */
   function replaceSnapshot(chatId: string, snapshot: ChatSessionSnapshot): void {
     const s = ensureEntity(chatId)
     applySnapshot(s, snapshot, Date.now())
+  }
+
+  /** V2 timeline snapshot: backend owns message assembly; replace canonical entities atomically. */
+  function replaceTimelineSnapshot(chatId: string, snapshot: ChatTimelineSnapshot): void {
+    const session = ensureEntity(chatId)
+    replaceTimeline(session, snapshot)
+    session.sync.resyncRequired = false
+    session.sync.loaded = true
+  }
+
+  /** V2 revision patch. A false return marks the session for authoritative refetch. */
+  function applyTimelinePatchEvent(chatId: string, patch: TimelinePatch): boolean {
+    const session = ensureEntity(chatId)
+    const applied = applyTimelinePatch(session, patch)
+    if (!applied) {
+      session.sync.resyncRequired = true
+      return false
+    }
+    session.sync.resyncRequired = false
+    return true
+  }
+
+  function applyOpenSnapshot(chatId: string, response: ChatOpenResponse): void {
+    const session = ensureEntity(chatId)
+    session.sync.subscriptionId = response.subscriptionId
+    session.sync.eventSeq = response.eventSeq
+    session.sync.lastSeq = Math.max(session.sync.lastSeq, response.eventSeq)
+    // chat.open captures an atomic boundary. Advance the transport cursor before
+    // releasing buffered events so events <= boundary cannot replay into state.
+    wsClient.resetChatSeq(chatId, response.eventSeq)
+    session.sync.timelineRevision = response.timelineRevision
+    session.sync.resyncRequired = false
+    session.pendingInputs = [...(response.state.pendingInputs ?? [])]
+    session.activeTurns = (response.state.activeTurns ?? []).map((turn) => ({
+      ...turn,
+      nextThinkingOffset: turn.nextThinkingOffset ?? turn.thinkingOffset ?? turn.thinking.length,
+      nextContentOffset: turn.nextContentOffset ?? turn.contentOffset ?? turn.content.length,
+    }))
+    session.activeRun = response.state.run
+    if (response.state.run) {
+      session.run.activeRunId = response.state.run.runId
+      const runState = response.state.run.status ?? response.state.run.state
+      session.run.status =
+        runState === 'running' || runState === 'waiting'
+          ? 'running'
+          : runState === 'paused'
+            ? 'paused'
+            : 'ended'
+    }
+    session.sync.loaded = true
+  }
+
+  /** V2 atomic open: establish subscription, then fetch timeline only if revision changed. */
+  async function openSession(chatId: string): Promise<void> {
+    const previous = opening.get(chatId)
+    if (previous) return previous
+    const promise = openSessionOnce(chatId)
+    opening.set(chatId, promise)
+    try {
+      await promise
+    } finally {
+      opening.delete(chatId)
+    }
+  }
+
+  async function openSessionOnce(chatId: string): Promise<void> {
+    const session = ensureEntity(chatId)
+    const response = await agentApi.openChat({
+      chatId,
+      knownTimelineRevision: session.sync.timelineRevision,
+      knownEventSeq: session.sync.eventSeq ?? wsClient.getLastSeq(chatId),
+    })
+    applyOpenSnapshot(chatId, response)
+    if (response.timelineChanged || session.sync.timelineRevision === undefined) {
+      const timeline = await agentApi.getTimeline({
+        chatId,
+        knownRevision: session.sync.timelineRevision,
+      })
+      replaceTimelineSnapshot(chatId, timeline)
+    }
+  }
+
+  async function closeSession(chatId: string): Promise<void> {
+    const subscriptionId = sessionsById.value[chatId]?.sync.subscriptionId
+    if (!subscriptionId) return
+    await agentApi.closeChat(subscriptionId)
+    const session = sessionsById.value[chatId]
+    if (session) session.sync.subscriptionId = undefined
+  }
+
+  function makeClientId(prefix: string): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return `${prefix}-${crypto.randomUUID()}`
+    }
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  }
+
+  /** V2 command ACK: stable IDs are installed before any transient event arrives. */
+  async function submitInput(
+    chatId: string,
+    content: string,
+    attachments?: ChatSendAttachment[],
+  ): Promise<PendingInput> {
+    const clientMessageId = makeClientId('client-msg')
+    const commandId = makeClientId('command')
+    const session = ensureEntity(chatId)
+    // ACK 与首个 turn/stream event 之间可能跨越多轮 LLM 调用；工作视觉不能
+    // 等待首个带 messageId 的 delta。请求失败时仅回滚本次自己启动的工作态。
+    const wasRunning = session.run.status === 'running'
+    session.run.status = 'running'
+    session.run.error = undefined
+    session.run.retainUntil = undefined
+    session.ui.bubbleVisible = true
+    if (!wasRunning) {
+      ;(effects.value.onWorkingChange ?? noop)(chatId, true)
+    }
+
+    let accepted: Awaited<ReturnType<typeof agentApi.submitChatInput>>
+    try {
+      accepted = await agentApi.submitChatInput({
+        chatId,
+        commandId,
+        clientMessageId,
+        content,
+        attachments,
+      })
+    } catch (error) {
+      if (!wasRunning) {
+        session.run.status = 'paused'
+        session.run.error = error instanceof Error ? error.message : '发送失败'
+        ;(effects.value.onWorkingChange ?? noop)(chatId, false)
+      }
+      throw error
+    }
+    const pending: PendingInput = {
+      inputId: accepted.inputId,
+      clientMessageId: accepted.clientMessageId || clientMessageId,
+      messageId: accepted.messageId,
+      content,
+      state: accepted.state === 'started' ? 'accepted' : accepted.state,
+      queueSequence: accepted.queueSequence,
+      acceptedAt: accepted.acceptedAt,
+    }
+    const old = session.pendingInputs.findIndex((i) => i.inputId === pending.inputId)
+    if (old >= 0) session.pendingInputs.splice(old, 1, pending)
+    else session.pendingInputs.push(pending)
+    return pending
   }
 
   /**
@@ -145,6 +331,23 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const ctx: ReduceContext = { now: Date.now() }
     const session = ensureEntity(chatId)
 
+    if (event.kind === 'session') {
+      reduceSessionEvent(session, event, ctx)
+      if (event.type === 'timeline.patch') {
+        void openRootTimeline(rootIdOf(chatId)).catch((e) =>
+          console.warn(`[chats] root timeline refresh ${chatId} 失败:`, e),
+        )
+      }
+      if (session.sync.resyncRequired) {
+        void openSession(chatId).catch((e) => console.warn(`[chats] V2 resync ${chatId} 失败:`, e))
+      }
+      return
+    }
+    // A V2 subscription supplies turn.delta with explicit offsets. Legacy stream
+    // chunks are emitted in parallel during rollout; consuming both would append
+    // every token twice. Staged/history chunks remain available until timeline
+    // snapshot migration is complete.
+    if (event.kind === 'chunk' && event.type === 'stream' && session.sync.subscriptionId) return
     if (event.kind === 'notification') {
       const type = event.type
       if (type === 'role_created') {
@@ -153,6 +356,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       }
       if (type === 'role_reply') {
         handleRoleReply(event, ctx)
+        const parentChatId = ((event.data ?? {}) as { parentChatId?: string }).parentChatId
+        if (parentChatId) {
+          void openRootTimeline(rootIdOf(parentChatId)).catch((e) =>
+            console.warn(`[chats] root timeline reply refresh 失败:`, e),
+          )
+        }
         return
       }
       if (type === 'role_destroyed') {
@@ -165,7 +374,15 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         return
       }
       if (type === 'consumed') {
-        const d = (event.data ?? {}) as { messages?: Array<{ id: string; role: 'user'; content: string; createdAt: number; updateAt: number }> }
+        const d = (event.data ?? {}) as {
+          messages?: Array<{
+            id: string
+            role: 'user'
+            content: string
+            createdAt: number
+            updateAt: number
+          }>
+        }
         if (d.messages?.length) {
           // 乐观临时项 rekey：requestId 关联的 temp msgId 先移除，再 upsert 真实 msgId
           rekeyOptimisticUser(chatId, event.requestId, d.messages)
@@ -175,19 +392,31 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       }
       if (type === 'auto_compacted') {
         if (!session.sync.replaying) {
-          ;(effects.value.onAutoCompacted ?? noop)((event.data ?? {}) as { reason?: string; usedBefore?: number; total?: number })
+          ;(effects.value.onAutoCompacted ?? noop)(
+            (event.data ?? {}) as { reason?: string; usedBefore?: number; total?: number },
+          )
         }
         return
       }
     }
 
     // 单 session 数据变更
+    const prevStatus = session.run.status
     reduce(session, event, ctx)
 
-    // 工作态副作用（done/error 改 run.status 时通知 pet）
-    if (event.kind === 'notification' && (event.type === 'done' || event.type === 'error')) {
-      const working = session.run.status === 'running'
-      ;(effects.value.onWorkingChange ?? noop)(chatId, working, session.run.retainUntil)
+    // 工作态副作用：run.status 跨 running 阈值时通知 pet。
+    // V2 发送经 chatSessions，setWorking 不再由 agents.store 驱动 → 经 effect 注入。
+    // 回放期（chat.sync 历史）不触发实时 pet 动画。
+    if (
+      !session.sync.replaying &&
+      session.run.status !== prevStatus &&
+      (prevStatus === 'running' || session.run.status === 'running')
+    ) {
+      if (session.run.status === 'running') {
+        ;(effects.value.onWorkingChange ?? noop)(chatId, true)
+      } else {
+        ;(effects.value.onWorkingChange ?? noop)(chatId, false, session.run.retainUntil)
+      }
     }
   }
 
@@ -198,8 +427,19 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       console.warn('[chats] role_created: 字段残缺', d)
       return
     }
-    const child = ensureEntity(d.chatId, { chatId: d.chatId, parentChatId: d.parentChatId, agentType: d.type, avatar: d.avatar, wake: d.wake })
+    const child = ensureEntity(d.chatId, {
+      chatId: d.chatId,
+      parentChatId: d.parentChatId,
+      agentType: d.type,
+      avatar: d.avatar,
+      wake: d.wake,
+    })
     reduceRoleCreated(child, d)
+    // A newly spawned child joins the root timeline immediately. Opening its
+    // session is idempotent and gives refresh/replay a source for turn events.
+    void openSession(d.chatId).catch((e) =>
+      console.warn(`[chats] child session open ${d.chatId} 失败:`, e),
+    )
     const parent = sessionsById.value[d.parentChatId]
     if (parent && !parent.sync.replaying) {
       ;(effects.value.onRoleCreated ?? noop)(d)
@@ -224,7 +464,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
    * 乐观临时用户消息 rekey：sendMessage 创建 temp msgId 入 messageOrder；
    * consumed/send-Response 携真实 msgId 到达时，按 requestId 关联移除 temp，由 reduceConsumed upsert 真实项。
    */
-  function rekeyOptimisticUser(chatId: string, requestId: string | undefined, messages: Array<{ id: string }>): void {
+  function rekeyOptimisticUser(
+    chatId: string,
+    requestId: string | undefined,
+    messages: Array<{ id: string }>,
+  ): void {
     const tempId = requestId ? requestMap.get(`optimistic:${requestId}`) : undefined
     if (!tempId) return
     const session = sessionsById.value[chatId]
@@ -328,7 +572,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         ...(data.workspace !== undefined ? { workspace: data.workspace } : {}),
         ...(data.workspaceValid !== undefined ? { workspaceValid: data.workspaceValid } : {}),
         ...(data.snapshotSeq !== undefined ? { snapshotSeq: data.snapshotSeq } : {}),
-        ...(data.pendingQuestionBatches !== undefined ? { pendingQuestionBatches: data.pendingQuestionBatches } : {}),
+        ...(data.pendingQuestionBatches !== undefined
+          ? { pendingQuestionBatches: data.pendingQuestionBatches }
+          : {}),
       })
       if (typeof data.latestSeq === 'number') {
         wsClient.resetChatSeq(chatId, data.latestSeq)
@@ -350,7 +596,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   // ---- 命令 actions（消费层 #10 调用；委托 agentApi，事件经 wsClient -> applyEvent 回流）----
 
   /** 发送消息：乐观 push user 消息 + 流式 send。 */
-  async function sendMessage(chatId: string, text: string, attachments?: ChatSendAttachment[]): Promise<void> {
+  async function sendMessage(
+    chatId: string,
+    text: string,
+    attachments?: ChatSendAttachment[],
+  ): Promise<void> {
     const session = ensureEntity(chatId)
     // 清上一轮残留：封口 active + 清 error + 重置 run
     if (session.activeMessageId) {
@@ -432,7 +682,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     ;(effects.value.onWorkingChange ?? noop)(chatId, false)
   }
 
-  async function submitApproval(chatId: string, approvalId: string, action: 'accept' | 'reject'): Promise<void> {
+  async function submitApproval(
+    chatId: string,
+    approvalId: string,
+    action: 'accept' | 'reject',
+  ): Promise<void> {
     await agentApi.approval(approvalId, action)
     // 即时清 pending（不等 accept/rejected notification 回来）
     const session = sessionsById.value[chatId]
@@ -472,7 +726,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (idx < 0) return
     const target = session.interaction.approvalQueue[idx]
     if (!target) return
-    if (session.interaction.approval) session.interaction.approvalQueue.push(session.interaction.approval)
+    if (session.interaction.approval)
+      session.interaction.approvalQueue.push(session.interaction.approval)
     session.interaction.approvalQueue.splice(idx, 1)
     session.interaction.approval = target
   }
@@ -485,7 +740,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   async function submitQuestionBatch(
     chatId: string,
     batchId: string,
-    answers: Array<{ questionId: string; selectedLabels: string[]; freeText?: string; cancelled?: boolean }>,
+    answers: Array<{
+      questionId: string
+      selectedLabels: string[]
+      freeText?: string
+      cancelled?: boolean
+    }>,
   ): Promise<void> {
     await agentApi.answerQuestionBatch(chatId, batchId, answers)
   }
@@ -520,9 +780,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
    * 不自动 resume paused chat（统一暂停语义：paused 显继续入口交用户）。
    */
   async function reconnect(): Promise<void> {
-    const running = Object.values(sessionsById.value).filter(
-      (s) => s.sync.loaded && s.meta.running,
-    )
+    const running = Object.values(sessionsById.value).filter((s) => s.sync.loaded && s.meta.running)
     await Promise.all(
       running.map(async (s) => {
         try {
@@ -540,6 +798,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   let wsBound = false
   let unbindChunk: (() => void) | undefined
   let unbindNotif: (() => void) | undefined
+  let unbindEvent: (() => void) | undefined
 
   function bindWsClient(): void {
     if (wsBound) return
@@ -549,7 +808,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       if (!c) return
       const chatId = c.chatId ?? (c.requestId ? requestMap.get(c.requestId) : undefined)
       if (!chatId) return
-      applyEvent(chatId, { kind: 'chunk', ...c } as ChatEvent)
+      const { kind: _kind, ...chunkData } = c
+      void _kind
+      applyEvent(chatId, { kind: 'chunk', ...chunkData } as ChatEvent)
     })
     unbindNotif = wsClient.onNotification((notif) => {
       const n = notif as NotificationMessage | null
@@ -558,13 +819,30 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       // role_created/role_reply/role_destroyed 携自身 chatId（data.chatId / data.parentChatId）；
       // 路由优先用 envelope chatId，缺失时由 handler 内部从 data 取
       const target = chatId ?? ''
-      applyEvent(target, { kind: 'notification', ...n } as ChatEvent)
+      const { kind: _kind, ...notificationData } = n
+      void _kind
+      applyEvent(target, { kind: 'notification', ...notificationData } as ChatEvent)
+    })
+    unbindEvent = wsClient.onEvent((raw) => {
+      const e = raw as Partial<ChatSessionEvent> | null
+      const eventSeq =
+        e && typeof e.eventSeq === 'number'
+          ? e.eventSeq
+          : e && typeof (e as { seq?: unknown }).seq === 'number'
+            ? (e as { seq: number }).seq
+            : undefined
+      if (!e?.type || eventSeq === undefined || typeof e.chatId !== 'string') return
+      // Legacy notifications/chunks have no dotted V2 type; V2 events are kept
+      // on a distinct reducer path and never mutate the staged history reducer.
+      if (!e.type.includes('.')) return
+      applyEvent(e.chatId, { ...e, kind: 'session', eventSeq } as ChatEvent)
     })
   }
 
   function unbindWsClient(): void {
     unbindChunk?.()
     unbindNotif?.()
+    unbindEvent?.()
     wsBound = false
   }
 
@@ -574,16 +852,23 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
 
   return {
     sessionsById,
+    rootTimelines,
     // 实体管理
     ensureEntity,
     ensureCatalogEntity,
     initCatalog,
     deleteSession,
+    openRootTimeline,
     // 写入口
     replaceSnapshot,
+    replaceTimelineSnapshot,
+    applyTimelinePatchEvent,
+    openSession,
+    closeSession,
+    submitInput,
     applyEvent,
     trackRequest,
-  // hydration
+    // hydration
     hydrateTree,
     syncOne,
     startup,

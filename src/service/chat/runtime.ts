@@ -10,6 +10,8 @@ import {
   updateChatMetadata,
   getChat,
   findChildChatsWithType,
+  listPendingInputs,
+  markPendingInputsConsumed,
 } from '@/db/chat.js'
 import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
@@ -46,6 +48,19 @@ const ephemeralChatRuntimes = new Map<string, RuntimeSelection>()
  */
 export function getChatSelection(chatId: string): RuntimeSelection | undefined {
   return chatRuntimes.get(chatId)?.selection
+}
+
+/** Read-only queued user input snapshot for chat.open session hydration. */
+export function getPendingChatInputs(chatId: string): Array<{
+  content: string
+  time: number
+  inputId?: string
+  messageId?: string
+  clientMessageId?: string
+  commandId?: string
+}> {
+  const runtime = chatRuntimes.get(chatId)
+  return runtime?.builder.getPendingInputs().map((entry) => ({ ...entry })) ?? []
 }
 
 /**
@@ -295,14 +310,34 @@ export async function ensureChat(
     // 一次性加载历史到内存 + 注入 system prompt（chat metadata.systemPromptFile 合并补充；
     // 来源：spawn 写子 agent / chat.create 写预设主 agent；缺省 → undefined → 全局）
     // skillFilter：per-role 技能组/插件组过滤（metadata.skillFilter），仅 <skills> 块按角色裁剪。
+    const history = loadHistory(chatId)
     builder.init(
       chatId,
-      loadHistory(chatId),
+      history,
       getChatSystemPromptFile(chatId),
       getChatWorkspace(chatId),
       getChatSkillFilter(chatId),
       getChatMentionableRoles(chatId),
     )
+    // Restore accepted command-plane inputs that were acknowledged before a
+    // process restart. If the user message already reached the durable history,
+    // mark it consumed instead of enqueueing a duplicate.
+    const existingMessageIds = new Set((history ?? []).map((message) => message.id))
+    const durablePending = listPendingInputs(chatId)
+    const consumedIds: string[] = []
+    for (const pending of durablePending) {
+      if (existingMessageIds.has(pending.message_id)) {
+        consumedIds.push(pending.input_id)
+        continue
+      }
+      builder.enqueueInput(pending.content, {
+        inputId: pending.input_id,
+        messageId: pending.message_id,
+        clientMessageId: pending.client_message_id ?? undefined,
+        commandId: pending.command_id,
+      })
+    }
+    markPendingInputsConsumed(chatId, consumedIds)
   } catch (err) {
     // 半初始化清理：configureRuntime 深校验或 init 抛错时，移除刚 set 的 map 项，
     // 避免留半配置 runtime（无 brain/sense）被后续 send 误用。DB 行由调用方清理。

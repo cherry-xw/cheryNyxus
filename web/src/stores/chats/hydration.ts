@@ -8,12 +8,7 @@
  * 边界后缓冲事件由 wsClient gap buffer 按 seq 排出再经 reducer 应用（见 [docs/web/pet/agent-integration.md](../../../../docs/web/pet/agent-integration.md)）。
  */
 
-import type {
-  ChatSession,
-  ChatSessionSnapshot,
-  ChatMetadata,
-  ChatInteractionState,
-} from './types'
+import type { ChatSession, ChatSessionSnapshot, ChatMetadata, ChatInteractionState } from './types'
 import type { ChatSummary, CurrentStateData, RuntimeSelection } from '@/services/agentApi'
 import { replaceQuestionBatches } from './reducer'
 
@@ -33,6 +28,8 @@ export function createEmptySession(chatId: string, meta?: Partial<ChatMetadata>)
     context: {},
     sync: { loaded: false, replaying: false, lastSeq: 0 },
     ui: { drawerOpen: false, autoScroll: true, bubbleVisible: false },
+    pendingInputs: [],
+    activeTurns: [],
   }
 }
 
@@ -90,11 +87,7 @@ export function applyCurrentState(
  * 在 snapshotSeq 边界：context / meta / currentState / question 全量 replace；sync.snapshotSeq 锚定。
  * 边界后事件由 reducer 增量应用。
  */
-export function applySnapshot(
-  session: ChatSession,
-  snap: ChatSessionSnapshot,
-  now: number,
-): void {
+export function applySnapshot(session: ChatSession, snap: ChatSessionSnapshot, now: number): void {
   if (snap.meta) Object.assign(session.meta, snap.meta)
   if (snap.runtime) session.context.runtime = snap.runtime as RuntimeSelection
   if (snap.preset !== undefined) session.meta.preset = snap.preset

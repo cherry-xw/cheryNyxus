@@ -15,10 +15,10 @@
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
 import { motion } from 'motion-v'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import type { HistoryItem } from '@/stores/agents'
 import VirtualScroll from '@/components/VirtualScroll.vue'
-import { dedupHistoryByMsgId, mergeChildReplyHistory } from '@/stores/agents/data/historyMerge'
+import { dedupHistoryByMsgId } from '@/stores/agents/data/historyMerge'
 import {
   reconcileAgentLoadingEntries,
   type AgentLoadingEntry,
@@ -31,7 +31,8 @@ import { breakdownSegments, fmtTokens } from '../toolbar/contextBreakdown'
 import type { BreakdownKey } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from './PromptSnapshotTip.vue'
 import { agentApi } from '@/services/agentApi'
-import type { PromptSnapshotTool } from '@/services/agentApi'
+import type { CanonicalSenseCall, PromptSnapshotTool, TimelineNode } from '@/services/agentApi'
+import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 
 const MotionDiv = motion.div
 
@@ -63,6 +64,56 @@ function previewTooltip(content: string | undefined): string {
   return compact.length > 150 ? compact.slice(0, 150) + '…' : compact
 }
 
+/** CanonicalSenseCall（后端 V2：arguments + status pending/accepted/rejected/completed）
+ * → SenseCallRecord（渲染层：args + status running/done/error）。
+ * 与 reducer.canonicalToChatMessage 的 senseCalls 映射同款，避免 SenseCallBox 读到空 args / '?' 状态。 */
+function canonicalToolCallToSense(
+  c: CanonicalSenseCall,
+): NonNullable<HistoryItem['senseCalls']>[number] {
+  return {
+    id: c.id,
+    name: c.name,
+    args: c.arguments,
+    result: c.result,
+    status: c.status === 'rejected' ? 'error' : c.status === 'pending' ? 'running' : 'done',
+  }
+}
+
+/** Root timeline node -> legacy bubble view. All identity/direction decisions
+ * already came from the backend actor fields; this is presentation only. */
+function rootNodeToHistory(node: TimelineNode): HistoryItem {
+  const childId =
+    node.actor.kind === 'agent' && node.actor.chatId !== node.rootChatId
+      ? node.actor.chatId
+      : node.target?.kind === 'agent' && node.target.chatId !== node.rootChatId
+        ? node.target.chatId
+        : undefined
+  const role: HistoryItem['role'] =
+    node.actor.kind === 'user'
+      ? 'user'
+      : node.direction === 'parent-to-child'
+        ? 'master'
+        : node.direction === 'child-to-parent' || (node.actor.kind === 'agent' && childId)
+          ? 'role'
+          : 'assistant'
+  return {
+    role,
+    content: node.content,
+    ...(node.thinking ? { thinking: node.thinking } : {}),
+    ...(node.toolCalls?.length ? { senseCalls: node.toolCalls.map(canonicalToolCallToSense) } : {}),
+    createdAt: node.createdAt,
+    msgId: node.id,
+    agentChatId: node.sourceChatId,
+    ...(childId ? { subPetChatId: childId } : {}),
+    ...(node.target?.kind === 'agent' && node.target.chatId !== node.rootChatId
+      ? { callerSubPetChatId: node.actor.kind === 'agent' ? node.actor.chatId : node.rootChatId }
+      : {}),
+    ...(node.kind === 'return' ? { mergedView: 'child-to-master' as const } : {}),
+    ...(node.actor.kind === 'agent' && node.actor.roleType ? { petName: node.actor.roleType } : {}),
+    ...(node.causationId ? { spawnSenseCallId: node.causationId } : {}),
+  }
+}
+
 // minimap tooltip 内容样式：el-popper 渲染到 body 外，scoped 样式不命中，用 inline 注入。
 const previewTooltipStyle: CSSProperties = {
   maxWidth: '320px',
@@ -82,7 +133,9 @@ const props = defineProps<{
 }>()
 
 const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 const manager = useHistoryDrawerManager()
+const sessionData = useChatSessionData(() => props.chatId)
 
 const pet = computed(() => agents.pets.find((p) => p.chatId === props.chatId))
 const chatPetName = computed(() => pet.value?.name ?? '')
@@ -99,22 +152,69 @@ const masterPetName = computed(() =>
   layout.value === 'direct' ? (parentPet.value?.name ?? '') : chatPetName.value,
 )
 
-const stream = computed(() => agents.streams[props.chatId])
 const history = computed<HistoryItem[]>(() => {
-  const h = stream.value?.history ?? []
-  // UI 层防御性去重：按 msgId 合并同条消息的多条 HistoryItem。
-  // F4：上游 `pushHistoryItem` 已提供 msgId 幂等（与 accumulateStaged 共享同一轴），
-  // 此处为防御兜底——仅当多源竞态残留（如 chat.sync 全量与实时乐观并存期短暂重复）时才生效。
-  const merged = dedupHistoryByMsgId(h)
-  const result = layout.value === 'group' ? mergeChildReplyHistory(merged) : merged
+  // V2 canonical timeline is already assembled by the backend. The only local
+  // projection is layout (root + descendants) and transient session-plane rows.
+  const result =
+    layout.value === 'group'
+      ? (chatSessions.rootTimelines[props.chatId]?.nodes ?? []).map(rootNodeToHistory)
+      : sessionData.ownTimeline.value
+
+  const transient: HistoryItem[] = []
+  const ids = new Set<string>([props.chatId])
+  if (layout.value === 'group') {
+    for (const candidate of agents.pets) {
+      let parent = candidate.parentChatId
+      const seen = new Set<string>()
+      while (parent && !seen.has(parent)) {
+        if (parent === props.chatId) {
+          ids.add(candidate.chatId)
+          break
+        }
+        seen.add(parent)
+        parent = agents.pets.find((p) => p.chatId === parent)?.parentChatId
+      }
+    }
+  }
+  for (const id of ids) {
+    const session = chatSessions.sessionsById[id]
+    if (!session) continue
+    for (const input of session.pendingInputs) {
+      if (input.state === 'consumed' || input.state === 'cancelled' || input.state === 'rejected')
+        continue
+      transient.push({
+        role: 'user',
+        content: input.content,
+        createdAt: input.acceptedAt ?? input.createdAt ?? Date.now(),
+        msgId: `pending:${input.inputId}`,
+        agentChatId: id,
+      })
+    }
+    for (const turn of session.activeTurns) {
+      transient.push({
+        role: 'assistant',
+        content: turn.content,
+        thinking: turn.thinking || undefined,
+        createdAt: turn.createdAt ?? Date.now(),
+        msgId: `turn:${turn.messageId}`,
+        agentChatId: id,
+      })
+    }
+  }
+  const canonicalIds = new Set(result.map((item) => item.msgId).filter(Boolean))
+  const merged = dedupHistoryByMsgId(
+    [...result, ...transient.filter((item) => !canonicalIds.has(item.msgId))].sort(
+      (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
+    ),
+  )
   // 全局折叠子 agent 消息（role='role'/'subagent'）：仅作用于主 chat 合并视图（group）。
   // 子 agent 数据仍可经主 pet 消息内 spawn_role sense call 的「详情」下钻查看；
   // 下钻打开的子 chat 自身抽屉（direct layout）必须照常显示，不受折叠开关影响。
   return agents.collapseSubagent && layout.value === 'group'
-    ? result.filter((item) => item.role !== 'role' && item.role !== 'subagent')
-    : result
+    ? merged.filter((item) => item.role !== 'role' && item.role !== 'subagent')
+    : merged
 })
-const loaded = computed<boolean>(() => stream.value?.historyLoaded ?? false)
+const loaded = computed<boolean>(() => sessionData.loaded.value)
 
 // 仅人类用户消息（role === "user" 唯一标识；child-to-master 合并项底层是 master/role，不算）
 // 保留原 history 索引以便点击直接复用 VirtualScroll.scrollToIndex，不再二次查找。
@@ -224,7 +324,11 @@ watch(
       loadingAgents.value = []
       batchReloading.value = false
       batchChatId = chatId
-      if (working.length === 0) void manager.loadHistory(chatId)
+      // V2 session subscription is required even while a run is active so
+      // turn.delta and timeline.patch are visible immediately.
+      void manager
+        .loadHistory(chatId)
+        .catch((error) => console.error('[HistoryDrawer] V2 session open failed:', error))
     }
     if (working.length > 0) {
       clearSettleTimer()

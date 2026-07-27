@@ -47,6 +47,14 @@ async function bootstrap(): Promise<void> {
   // ChatSession 单一数据层（#7-#11 迁移期与旧 store 并行：双订阅无害，旧 store 仍供消费端，新 store 待 #10 切换）
   const chatSessions = useChatSessionsStore()
   chatSessions.bindWsClient()
+  // #9 接线：chatSessions 副作用 → agents pet 变更。
+  // V2 发送经 chatSessions（openSession+submitInput），pet 视觉（setWorking/role_created）
+  // 不再由 agents.store 驱动 → 经 effect 注入为唯一来源。
+  chatSessions.bindEffects({
+    onWorkingChange: agents.setWorkingForChat,
+    onRoleCreated: agents.applyRoleCreated,
+    onRoleDestroyed: (chatId) => agents.removePetsOnly([chatId]),
+  })
 
   // 订阅 chunk/notification → agents store 路由
   wsClient.onChunk((chunk) => agents.routeChunk(chunk))

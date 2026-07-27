@@ -1,14 +1,48 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import PetSprite from './components/PetSprite.vue'
 import { usePetWorld } from './composables/usePetWorld'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import type { StreamState } from '@/stores'
+import { selectOwnTimeline, selectActiveMessage } from '@/stores/chats/selectors'
 import type { PetInstance } from './types/types'
 import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
 
 const stageRef = ref<HTMLElement | null>(null)
 // pets 单一数据源 = agents store；usePetWorld 注入数组，RAF/交互直接作用于 store state
 const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
+/**
+ * Transitional presentation bridge: Pet widgets still accept legacy StreamState,
+ * while ChatSession is now authoritative for V2 timeline/session data. This
+ * projection keeps the visual surface live without letting it write history.
+ */
+const visibleStreams = computed<Record<string, StreamState>>(() => {
+  const result = { ...agents.streams }
+  for (const session of Object.values(chatSessions.sessionsById)) {
+    const base = result[session.chatId]
+    if (!base) continue
+    const active = selectActiveMessage(session)
+    const turn = session.activeTurns[session.activeTurns.length - 1]
+    result[session.chatId] = {
+      ...base,
+      thinking: turn?.thinking ?? active?.thinking ?? '',
+      content: turn?.content ?? active?.content ?? '',
+      isWorking: session.run.status === 'running',
+      history: selectOwnTimeline(session),
+      historyLoaded: session.sync.loaded,
+      historyDirty: false,
+      approval: session.interaction.approval,
+      approvalQueue: session.interaction.approvalQueue,
+      runningTools: session.interaction.runningTools,
+      questionBatches: session.interaction.questionBatches,
+      activeQuestionId: session.interaction.activeQuestionId,
+      currentTodo: session.interaction.currentTodo,
+      activeRunId: session.run.activeRunId,
+    }
+  }
+  return result
+})
 const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = usePetWorld(
   stageRef,
   agents.pets,
@@ -73,7 +107,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
       :key="pet.instanceId"
       :pet="pet"
       :paused="isPaused"
-      :stream="agents.streams[pet.chatId]"
+      :stream="visibleStreams[pet.chatId]"
       @start-drag="startDrag"
       @drag="dragPet"
       @end-drag="endDrag"

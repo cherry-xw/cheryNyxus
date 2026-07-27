@@ -46,7 +46,9 @@ function sendNotification(ws: WebSocket, notif: Notification): void {
   if (ws.readyState !== ws.OPEN) {
     return
   }
-  ws.send(transport.encode(notif))
+  for (const routed of connectionManager.prepareSessionEvent(ws, notif)) {
+    ws.send(transport.encode(routed as Notification))
+  }
 }
 
 /**

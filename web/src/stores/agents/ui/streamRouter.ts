@@ -26,6 +26,19 @@ import {
 import { removeApprovalById } from '../actions/approvalActions'
 import { turnChildIntoGhost } from '../data/petLifecycle'
 
+/** role_created 通知 / chatSessions effect 共享的子 agent 诞生载荷。 */
+type RoleCreatedData = {
+  taskId?: string
+  chatId?: string
+  parentChatId?: string
+  type?: string
+  prompt?: string
+  wake?: 'immediate' | 'deferred' | 'barrier'
+  brain?: string
+  senseGroup?: string
+  avatar?: string
+}
+
 /**
  * 确保 chatId 对应的 StreamState 存在。不存在则创建默认结构。
  * 兼容历史 StreamState（已存在但无 approvalQueue / historyDirty / questionBatches 字段）→ 补初始化。
@@ -121,12 +134,19 @@ export function createStreamRouter(
     // chunk 重建最后一个未结束 run；旧 run 的 done/error 会在 notification
     // 路径清掉其暂存文本，因而不会把前几轮串到当前 run。
     if (stream.replaying && !stream.replayLiveChunks) return
-    const data = (c.data as StreamChunkData | undefined) ?? {}
+    const pet = pets.value.find((p) => p.chatId === chatId)
+    // 看门狗终止后，网络缓冲区仍可能投递旧 stream chunk。ghost 是终态，
+    // 忽略迟到增量，避免 HistoryDrawer 又显示该子 agent「输入中」。
+    if (pet?.isGhost) {
+      stream.isWorking = false
+      stream.activeRunId = undefined
+      return
+    }
+    const data = (c.data ?? {}) as StreamChunkData
     if (data.thinking) stream.thinking += data.thinking
     if (data.content) stream.content += data.content
     stream.isWorking = true
 
-    const pet = pets.value.find((p) => p.chatId === chatId)
     setWorking(pet, true)
   }
 
@@ -407,64 +427,7 @@ export function createStreamRouter(
     }
 
     if (type === 'role_created') {
-      const d = (n.data ?? {}) as {
-        taskId?: string
-        chatId?: string
-        parentChatId?: string
-        type?: string
-        prompt?: string
-        wake?: 'immediate' | 'deferred' | 'barrier'
-        brain?: string
-        senseGroup?: string
-        avatar?: string
-      }
-      if (!d.taskId || !d.chatId || !d.parentChatId || !d.type || !d.prompt) {
-        console.warn('[agents] role_created: notification 字段残缺', d)
-        return
-      }
-      const master = pets.value.find((p) => p.chatId === d.parentChatId)
-      if (!master) {
-        console.warn('[agents] role_created: 主 pet 未找到', d.parentChatId)
-        return
-      }
-      // Event replay is normal after reconnect: create visual state once, then
-      // let the server-side task claim decide whether any child work starts.
-      if (!pets.value.some((p) => p.chatId === d.chatId)) {
-        const bounds = defaultBounds()
-        const usedFaces = new Set(pets.value.map((p) => p.face))
-        const preset = applyRoleAvatar(generatePet('emoji', usedFaces), d.avatar)
-        const pet = createPetInstance(preset, bounds, false, master.instanceId, {
-          chatId: d.chatId,
-          parentChatId: d.parentChatId,
-          agentType: d.type,
-        })
-        pet.runtime = {
-          brain: d.brain ?? '',
-          senseGroup: d.senseGroup ?? '',
-          mcpServers: [],
-        }
-        const pos = findSpawnPosition({ x: master.x, y: master.y }, pets.value, bounds)
-        pet.x = pos.x
-        pet.y = pos.y
-        pet.targetX = pos.x
-        pet.targetY = pos.y
-        pets.value.push(pet)
-      }
-      // 同步到 allChatsCache（getHistory 用它找子 chat）
-      if (!allChatsCache.value.some((chat) => chat.chatId === d.chatId)) {
-        allChatsCache.value.push({
-          chatId: d.chatId,
-          parentChatId: d.parentChatId,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        })
-      }
-      // 回放只恢复 pet/cache；旧 role_created 不再重复启动任务。其独立
-      // chat 的恢复由启动时 chat.list 扫描承担，避免一条历史事件制造副作用。
-      if (ensureStream(streams, d.parentChatId).replaying) return
-      // 后端 eager launcher 已负责启动。这里必须对子 chat 单独 attach →
-      // sync → history；不能借用父 chat 订阅，也不能再次 startSpawn。
-      void recoverChildChat(d.chatId)
+      applyRoleCreated((n.data ?? {}) as RoleCreatedData)
       return
     }
 
@@ -503,6 +466,8 @@ export function createStreamRouter(
         childStream.isWorking = false
         childStream.activeRunId = undefined
         childStream.retainUntil = undefined
+        childStream.thinking = ''
+        childStream.content = ''
       }
       return
     }
@@ -572,10 +537,72 @@ export function createStreamRouter(
     }
   }
 
+  /**
+   * 子 agent 诞生 → 建 pet + allChatsCache + 触发子 chat 恢复。
+   * 幂等（pet 已存在即 early-return）：routeNotification 与 chatSessions.onRoleCreated
+   * 双订阅下同一事件可能二次到达，故全程幂等。
+   */
+  function applyRoleCreated(data: RoleCreatedData): void {
+    // taskId/prompt 属于 eager launcher 的任务信息；创建可视 pet 只需要身份字段。
+    // 重放或裁剪通知缺少可选任务描述时，仍必须显示子 pet。
+    if (!data.chatId || !data.parentChatId || !data.type) {
+      console.warn('[agents] role_created: 字段残缺', data)
+      return
+    }
+    // 幂等：pet 已存在 = 本事件已处理过
+    if (pets.value.some((p) => p.chatId === data.chatId)) return
+    const master = pets.value.find((p) => p.chatId === data.parentChatId)
+    if (!master) {
+      console.warn('[agents] role_created: 主 pet 未找到', data.parentChatId)
+      return
+    }
+    // Event replay is normal after reconnect: create visual state once, then
+    // let the server-side task claim decide whether any child work starts.
+    const bounds = defaultBounds()
+    const usedFaces = new Set(pets.value.map((p) => p.face))
+    const preset = applyRoleAvatar(generatePet('emoji', usedFaces), data.avatar)
+    const pet = createPetInstance(preset, bounds, false, master.instanceId, {
+      chatId: data.chatId,
+      parentChatId: data.parentChatId,
+      agentType: data.type,
+    })
+    pet.runtime = {
+      brain: data.brain ?? '',
+      senseGroup: data.senseGroup ?? '',
+      mcpServers: [],
+    }
+    const pos = findSpawnPosition({ x: master.x, y: master.y }, pets.value, bounds)
+    pet.x = pos.x
+    pet.y = pos.y
+    pet.targetX = pos.x
+    pet.targetY = pos.y
+    pets.value.push(pet)
+    // 同步到 allChatsCache（getHistory 用它找子 chat）
+    if (!allChatsCache.value.some((chat) => chat.chatId === data.chatId)) {
+      allChatsCache.value.push({
+        chatId: data.chatId,
+        parentChatId: data.parentChatId,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+    }
+    // 回放只恢复 pet/cache；旧 role_created 不再重复启动任务。其独立
+    // chat 的恢复由启动时 chat.list 扫描承担，避免一条历史事件制造副作用。
+    if (ensureStream(streams, data.parentChatId).replaying) return
+    // 后端 eager launcher 已负责启动。这里必须对子 chat 单独 attach →
+    // sync → history；不能借用父 chat 订阅，也不能再次 startSpawn。
+    // 子任务由后端 eager launcher 启动。role_created 抵达即进入工作态，不能等
+    // attach 或首个 stream chunk 才显示执行中的子 pet。
+    ensureStream(streams, data.chatId).isWorking = true
+    setWorking(pet, true)
+    void recoverChildChat(data.chatId)
+  }
+
   return {
     ensureStream: (chatId: string) => ensureStream(streams, chatId),
     routeChunk,
     routeNotification,
+    applyRoleCreated,
     trackRequest: (requestId: string, chatId: string) =>
       trackRequest(requestMap, requestId, chatId),
   }

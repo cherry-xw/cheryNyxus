@@ -17,11 +17,25 @@ import {
   type ChatContextUsageResponseData,
   type ChatAttachRequestData,
   type ChatAttachResponseData,
+  type ChatOpenRequestData,
+  type ChatOpenResponseData,
+  type ChatCloseRequestData,
+  type ChatCloseResponseData,
+  type ActiveTurnSnapshot,
   type ChatSyncRequestData,
   type ChatSyncResponseData,
+  type ChatTimelineGetRequestData,
+  type ChatTimelineGetResponseData,
+  type CanonicalMessage,
+  type TimelineNode,
+  type TimelineActor,
+  type RootTimelineSnapshot,
+  type TimelinePatchData,
   type ChatSessionSnapshotData,
   type ChatStartSpawnRequestData,
   type ChatStartSpawnResponseData,
+  type ChatInputSubmitRequestData,
+  type ChatInputSubmitResponseData,
   type Response as RpcResponse,
 } from '../message/types.js'
 import {
@@ -30,6 +44,9 @@ import {
   getChat,
   deleteChat,
   getMessages,
+  getMessageLinksForRoot,
+  upsertMessageLink,
+  collectDescendantsChatIds,
   getLastMessage,
   updateChatMetadata,
   parseMessageRow,
@@ -37,8 +54,16 @@ import {
   getChatPreviews,
   getChatWorkspace,
   getChatRuntimeSelection,
+  getTimelineRevision,
+  addPendingInput,
 } from '@/db/chat.js'
-import { clearChatRuntime, ensureChat, isChatRunning } from './runtime.js'
+import {
+  clearChatRuntime,
+  ensureChat,
+  isChatRunning,
+  getActiveChatRunId,
+  getPendingChatInputs,
+} from './runtime.js'
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
 import { getQuestionStateSnapshot } from '@/db/question.js'
@@ -56,15 +81,21 @@ import { registerPromptSnapshotHandler } from './promptSnapshot.js'
 import { safeJsonParse } from '@/utils/json.js'
 import {
   getChatEvents,
+  getRecentChatEvents,
   claimSpawnTask,
   finishSpawnTask,
   getSpawnTaskByChild,
   listOpenSpawnTasks,
+  appendChatEvent,
+  claimRequest,
+  completeRequest,
 } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
-import { handleChatResume, handleChatSend } from './send.js'
+import { handleChatResume, handleChatSend, attachmentsToPromptMarkers } from './send.js'
 import { computeCanResume } from './canResume.js'
 import { computeCurrentState } from './currentState.js'
+import { transport } from '../websocket/transport.js'
+import { UserInputQueueFullError } from '@/core/middleware/messageJournal.js'
 
 /**
  * 创建聊天（chatId 可选由前端指定）
@@ -322,6 +353,478 @@ export function messagesToStagedEvents(chatId: string): Chunk[] {
   return chunks
 }
 
+function decodeTimelineCursor(cursor: string): { createdAt: number; id: string } | undefined {
+  try {
+    const raw = Buffer.from(cursor, 'base64url').toString('utf8')
+    const parsed = JSON.parse(raw) as { createdAt?: unknown; id?: unknown }
+    if (typeof parsed.createdAt !== 'number' || typeof parsed.id !== 'string') return undefined
+    return { createdAt: parsed.createdAt, id: parsed.id }
+  } catch {
+    return undefined
+  }
+}
+
+function encodeTimelineCursor(value: { createdAt: number; id: string }): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
+}
+
+/** Construct the backend-owned canonical timeline projection. */
+export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
+  const rows = getMessages(chatId)
+  const chat = getChat(chatId)
+  const parentChatId = chat?.parent_chat_id ?? undefined
+  const senseResults = new Map<string, { content: string; revoked: boolean }>()
+  for (const row of rows) {
+    if (row.role === 'sense') {
+      senseResults.set(row.id, { content: row.content ?? '', revoked: row.revoked === 1 })
+    }
+  }
+  let lastRuntime: RuntimeSelection | undefined
+  // sense 行是工具执行结果，已通过上方 senseResults 并入所属 assistant 的 senseCalls（按 call.id 匹配）；
+  // 不作为独立 CanonicalMessage 输出，否则前端 canonicalToChatMessage 会把 sense→assistant，
+  // 把工具结果渲染成一条主 agent 气泡。与 buildRootTimeline conversation 视图（L541 if sense -> continue）一致。
+  const visibleRows = rows.filter((row) => row.role !== 'sense')
+  return visibleRows.map((row) => {
+    const parsed = parseMessageRow(row)
+    if (parsed.role === 'user' && parsed.runtime) lastRuntime = parsed.runtime
+    const runtime =
+      parsed.role === 'user'
+        ? parsed.runtime
+        : parsed.role === 'assistant'
+          ? lastRuntime
+          : undefined
+    const senseCalls = (parsed.senseCall ?? []).map((call) => {
+      const result = senseResults.get(call.id)
+      return {
+        ...call,
+        ...(result && result.content ? { result: result.content } : {}),
+        status: result?.revoked
+          ? ('rejected' as const)
+          : result?.content
+            ? ('accepted' as const)
+            : ('pending' as const),
+      }
+    })
+    const origin = parentChatId ? { parentChatId, childChatId: chatId } : undefined
+    return {
+      id: row.id,
+      chatId,
+      role:
+        parsed.role === 'subagent'
+          ? 'role'
+          : parsed.role === 'system'
+            ? 'role'
+            : (parsed.role as CanonicalMessage['role']),
+      content: parsed.content ?? '',
+      ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
+      createdAt: row.created_at,
+      updatedAt: row.created_at,
+      status: row.revoked === 1 ? 'revoked' : 'committed',
+      ...(runtime ? { runtime } : {}),
+      ...(senseCalls.length > 0 ? { senseCalls } : {}),
+      ...(origin ? { origin } : {}),
+    }
+  })
+}
+
+/** Build an idempotent revision patch. Callers should invoke this only after
+ * the message mutation transaction commits; when a revision gap exists the
+ * client can safely replace its snapshot with the returned upserts. */
+export function buildTimelinePatch(chatId: string, baseRevision: number): TimelinePatchData {
+  const revision = getTimelineRevision(chatId)
+  const messages = buildCanonicalTimeline(chatId)
+  return {
+    chatId,
+    baseRevision,
+    revision,
+    operations:
+      revision === baseRevision
+        ? []
+        : messages.map((message) => ({ type: 'upsert' as const, message })),
+  }
+}
+
+/**
+ * Build the root-owned multi-agent projection. Raw messages remain in their
+ * own chat; this function is the only place that assigns actor/direction and
+ * hides standalone tool-result rows from the conversation view.
+ */
+export function buildRootTimeline(
+  rootChatId: string,
+  view: 'conversation' | 'tree' | 'audit' = 'conversation',
+): RootTimelineSnapshot {
+  const root = getChat(rootChatId)
+  if (!root) throw new Error('这个会话不见了')
+  const chatIds = [rootChatId, ...collectDescendantsChatIds(rootChatId)]
+  const existingLinkIds = new Set(getMessageLinksForRoot(rootChatId).map((link) => link.messageId))
+  // Lazy backfill makes pre-V2 conversations progressively auditable without
+  // a destructive one-shot migration. Ambiguous parent role rows are left
+  // unlinked so the projector can apply its conservative matcher below.
+  for (const chatId of chatIds) {
+    const child = chatId !== rootChatId
+    for (const row of getMessages(chatId)) {
+      if (!child && row.role === 'role') continue
+      if (!existingLinkIds.has(row.id)) {
+        upsertMessageLink(row.id, chatId, {
+          relation: child
+            ? row.role === 'user'
+              ? 'child_input'
+              : 'child_output'
+            : row.role === 'user'
+              ? 'root_input'
+              : row.role === 'sense'
+                ? 'tool_result'
+                : 'agent_output',
+        })
+        existingLinkIds.add(row.id)
+      }
+    }
+  }
+  const links = new Map(getMessageLinksForRoot(rootChatId).map((link) => [link.messageId, link]))
+  const allNodes: TimelineNode[] = []
+  const chatMeta = new Map<string, { type?: string; parent?: string }>()
+  const childByType = new Map<string, string[]>()
+  for (const chatId of chatIds) {
+    const chat = getChat(chatId)
+    const metadata = chat?.metadata
+      ? (safeJsonParse(chat.metadata, {}) as Record<string, unknown>)
+      : {}
+    chatMeta.set(chatId, {
+      type: typeof metadata.type === 'string' ? metadata.type : undefined,
+      parent: chat?.parent_chat_id ?? undefined,
+    })
+    if (chatId !== rootChatId) {
+      const type = chatMeta.get(chatId)?.type
+      if (type) childByType.set(type, [...(childByType.get(type) ?? []), chatId])
+    }
+  }
+  const actorForAgent = (chatId: string): TimelineActor => ({
+    kind: 'agent',
+    chatId,
+    ...(chatMeta.get(chatId)?.type ? { roleType: chatMeta.get(chatId)!.type } : {}),
+  })
+
+  for (const chatId of chatIds) {
+    const rows = getMessages(chatId)
+    const child = chatId !== rootChatId
+    for (const row of rows) {
+      let link = links.get(row.id)
+      const parsed = parseMessageRow(row)
+      // Legacy role rows predate message_links. Recover an unambiguous
+      // child-return association from the persisted role type prefix and the
+      // child terminal content; ambiguous records remain unknown.
+      if (!link && !child && row.role === 'role' && typeof row.content === 'string') {
+        const match = /^\[角色\s+([^\]]+)\]\s*(.*)$/s.exec(row.content)
+        const candidates = match ? (childByType.get(match[1]!) ?? []) : []
+        const matched = candidates.filter((candidate) => {
+          const last = getLastMessage(candidate)
+          return !!last && (last.content ?? '') === (match?.[2] ?? '')
+        })
+        if (matched.length === 1) {
+          const candidate = matched[0]!
+          link = {
+            messageId: row.id,
+            rootChatId,
+            sourceChatId: candidate,
+            parentChatId: rootChatId,
+            relation: 'child_return',
+            relatedMessageId: getLastMessage(candidate)?.id,
+            createdAt: row.created_at,
+          }
+        }
+      }
+      const relation =
+        link?.relation ??
+        (child
+          ? row.role === 'user'
+            ? 'child_input'
+            : 'child_output'
+          : row.role === 'user'
+            ? 'root_input'
+            : 'agent_output')
+      if (row.role === 'sense') {
+        if (view !== 'audit') continue
+        allNodes.push({
+          id: `tool:${row.id}`,
+          rootChatId,
+          sourceChatId: chatId,
+          sourceMessageId: row.id,
+          kind: 'tool-group',
+          actor: { kind: 'tool', toolName: 'unknown' },
+          direction: 'internal',
+          visibility: 'detail',
+          content: row.content ?? '',
+          createdAt: row.created_at,
+          updatedAt: row.created_at,
+          status: row.revoked === 1 ? 'revoked' : 'committed',
+        })
+        continue
+      }
+      let actor: TimelineActor
+      let target: TimelineActor | undefined
+      let direction: TimelineNode['direction']
+      let kind: TimelineNode['kind'] = 'message'
+      if (relation === 'root_input') {
+        actor = { kind: 'user', actorId: 'human' }
+        target = actorForAgent(rootChatId)
+        direction = 'user-to-agent'
+      } else if (relation === 'child_input') {
+        actor = actorForAgent(chatMeta.get(chatId)?.parent ?? rootChatId)
+        target = actorForAgent(chatId)
+        direction = 'parent-to-child'
+      } else if (relation === 'child_return') {
+        actor = actorForAgent(link?.sourceChatId ?? chatId)
+        target = actorForAgent(link?.parentChatId ?? rootChatId)
+        direction = 'child-to-parent'
+        kind = 'return'
+      } else if (child) {
+        actor = actorForAgent(chatId)
+        target = actorForAgent(chatMeta.get(chatId)?.parent ?? rootChatId)
+        direction = 'agent-to-user'
+      } else {
+        actor = actorForAgent(rootChatId)
+        direction = 'agent-to-user'
+      }
+      const senseCalls = (parsed.senseCall ?? []).map((call) => {
+        const result = getMessages(chatId).find((candidate) => candidate.id === call.id)
+        return {
+          id: call.id,
+          name: call.name,
+          arguments: call.arguments,
+          ...(result?.content ? { result: result.content } : {}),
+          status: result?.revoked
+            ? ('rejected' as const)
+            : result?.content
+              ? ('accepted' as const)
+              : ('pending' as const),
+        }
+      })
+      const node: TimelineNode = {
+        id: row.id,
+        rootChatId,
+        sourceChatId: relation === 'child_return' ? (link?.sourceChatId ?? chatId) : chatId,
+        sourceMessageId: row.id,
+        kind,
+        actor,
+        ...(target ? { target } : {}),
+        direction,
+        visibility: 'conversation',
+        content: parsed.content ?? '',
+        ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
+        ...(senseCalls.length > 0 ? { toolCalls: senseCalls } : {}),
+        ...(link?.relatedMessageId ? { causationId: link.relatedMessageId } : {}),
+        ...(link?.spawnId ? { parentNodeId: link.spawnId } : {}),
+        createdAt: row.created_at,
+        updatedAt: row.created_at,
+        status: row.revoked === 1 ? 'revoked' : 'committed',
+      }
+      allNodes.push(node)
+    }
+  }
+  allNodes.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  const nodes =
+    view === 'conversation'
+      ? allNodes.filter((node) => node.visibility === 'conversation')
+      : allNodes
+  const eventSeq = getChatEvents(rootChatId, Number.MAX_SAFE_INTEGER).latestSeq
+  return {
+    rootChatId,
+    view,
+    revision: getTimelineRevision(rootChatId),
+    nodes,
+    capturedEventSeq: eventSeq,
+  }
+}
+
+/**
+ * Command-plane input submission. The command is acknowledged immediately;
+ * execution is detached from the RPC response and uses the same live output
+ * routing as chat.send. IDs are allocated before enqueue so consumed user
+ * messages retain the optimistic message identity.
+ */
+export async function handleChatInputSubmit(
+  ctx: HandlerContext,
+  data: ChatInputSubmitRequestData,
+): Promise<ChatInputSubmitResponseData> {
+  if (!data.content.trim()) throw new Error('输入内容不能为空')
+  const claimed = claimRequest(data.commandId, Method.CHAT_INPUT_SUBMIT, data)
+  if (claimed.state === 'completed') {
+    return JSON.parse(claimed.responseJson) as ChatInputSubmitResponseData
+  }
+  if (claimed.state === 'active') throw new Error('该输入命令正在处理中')
+  if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
+
+  const chat = getChat(data.chatId)
+  if (!chat) throw new Error('这个会话不见了')
+  const agent = await ensureChat(data.chatId)
+  const running = agent.isRunning()
+  const pending = getPendingChatInputs(data.chatId)
+  if (pending.length >= 16) throw new UserInputQueueFullError()
+
+  const inputId = randomUUID()
+  const messageId = randomUUID()
+  const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
+  const acceptedAt = Date.now()
+  const queueSequence = pending.length + 1
+  const prompt = attachmentsToPromptMarkers(data.attachments, data.content)
+  const entry = agent.enqueueInput(prompt, {
+    inputId,
+    messageId,
+    clientMessageId: data.clientMessageId,
+    commandId: data.commandId,
+  })
+  if (!entry) throw new Error('输入内容不能为空')
+
+  addPendingInput({
+    inputId,
+    chatId: data.chatId,
+    messageId,
+    clientMessageId: data.clientMessageId,
+    commandId: data.commandId,
+    content: prompt,
+    queueSequence,
+    state: running ? 'queued' : 'started',
+    acceptedAt,
+  })
+
+  const response: ChatInputSubmitResponseData = {
+    chatId: data.chatId,
+    inputId,
+    clientMessageId: data.clientMessageId,
+    messageId,
+    runId,
+    state: running ? 'queued' : 'started',
+    queueSequence,
+    acceptedAt,
+  }
+  completeRequest(data.commandId, response)
+
+  // Session-plane lifecycle event: consumers can render the optimistic input
+  // without coupling it to the command RPC's requestId.
+  const inputUpdated = createNotification(
+    'input.updated',
+    undefined,
+    {
+      inputId,
+      clientMessageId: data.clientMessageId,
+      messageId,
+      state: response.state,
+      queueSequence,
+    },
+    { chatId: data.chatId, runId },
+  )
+  inputUpdated.seq = appendChatEvent(
+    data.chatId,
+    inputUpdated as unknown as Record<string, unknown>,
+  )
+  for (const ws of connectionManager.getChatOutputs(data.chatId)) {
+    if (ws.readyState !== ws.OPEN) continue
+    for (const routed of connectionManager.prepareSessionEvent(ws, inputUpdated)) {
+      try {
+        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+      } catch (err) {
+        logger.event('chat.input.submit.ack_output_failed', { message: (err as Error).message })
+      }
+    }
+  }
+
+  // Start the normal stream out-of-band. Existing chat.send remains unchanged;
+  // this path only feeds the pre-enqueued, ID-bearing input into that runner.
+  void (async () => {
+    try {
+      const generator = handleChatSend(
+        { ...ctx, requestId: runId },
+        {
+          chatId: data.chatId,
+          prompt,
+          inputAlreadyQueued: true,
+          inputMeta: {
+            inputId,
+            messageId,
+            clientMessageId: data.clientMessageId,
+            commandId: data.commandId,
+          },
+        },
+      )
+      for await (const item of generator) {
+        const event = item as Chunk | Notification
+        if (event.chatId)
+          event.seq = appendChatEvent(event.chatId, event as unknown as Record<string, unknown>)
+        for (const ws of connectionManager.getChatOutputs(data.chatId)) {
+          if (ws.readyState !== ws.OPEN) continue
+          for (const routed of connectionManager.prepareSessionEvent(ws, event)) {
+            try {
+              ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+            } catch (err) {
+              logger.event('chat.input.submit.output_failed', { message: (err as Error).message })
+            }
+          }
+        }
+      }
+    } catch (err) {
+      logger.event('chat.input.submit.run_failed', {
+        chatId: data.chatId,
+        message: (err as Error).message,
+      })
+    }
+  })()
+
+  return response
+}
+
+/** V2 authoritative timeline snapshot. The frontend receives complete messages only. */
+export async function handleChatTimelineGet(
+  _ctx: HandlerContext,
+  data: ChatTimelineGetRequestData,
+): Promise<ChatTimelineGetResponseData> {
+  const requestedChatId = data.chatId ?? data.rootChatId
+  if (!requestedChatId) throw new Error('缺少 chatId/rootChatId')
+  if (!getChat(requestedChatId)) throw new Error('这个会话不见了')
+  if (data.rootChatId) {
+    const rootTimeline = buildRootTimeline(data.rootChatId, data.view ?? 'conversation')
+    logger.event('chat.rootTimeline.get', {
+      rootChatId: data.rootChatId,
+      view: data.view ?? 'conversation',
+      revision: rootTimeline.revision,
+      count: rootTimeline.nodes.length,
+    })
+    return {
+      chatId: data.rootChatId,
+      revision: rootTimeline.revision,
+      messages: [],
+      rootTimeline,
+    }
+  }
+  const revision = getTimelineRevision(requestedChatId)
+  let messages = buildCanonicalTimeline(requestedChatId)
+  const cursor = data.before ? decodeTimelineCursor(data.before) : undefined
+  if (data.before && !cursor) throw new Error('历史分页游标无效')
+  if (cursor) {
+    messages = messages.filter(
+      (m) =>
+        m.createdAt < cursor.createdAt || (m.createdAt === cursor.createdAt && m.id < cursor.id),
+    )
+  }
+  const limit = data.limit ?? 500
+  const hasMore = messages.length > limit
+  if (hasMore) messages = messages.slice(messages.length - limit)
+  const oldest = messages[0]
+  logger.event('chat.timeline.get', {
+    chatId: requestedChatId,
+    revision,
+    count: messages.length,
+    hasMore,
+  })
+  return {
+    chatId: requestedChatId,
+    revision,
+    messages,
+    ...(hasMore && oldest
+      ? { nextCursor: encodeTimelineCursor({ createdAt: oldest.createdAt, id: oldest.id }) }
+      : {}),
+  }
+}
+
 /**
  * 获取聊天详情（载入历史对话）
  * runtime selection 持久化在 chats.metadata.runtime，服务重启后 ensureChat 自动恢复，
@@ -566,6 +1069,167 @@ export async function handleChatContextUsage(
   }
 }
 
+function buildActiveTurns(chatId: string): ActiveTurnSnapshot[] {
+  if (!isChatRunning(chatId)) return []
+  const activeRunId = getActiveChatRunId(chatId)
+  const turns = new Map<string, ActiveTurnSnapshot>()
+  for (const event of getRecentChatEvents(chatId, 2000)) {
+    const e = event as Record<string, unknown>
+    const runId = typeof e.runId === 'string' ? e.runId : undefined
+    const data = (e.data ?? {}) as Record<string, unknown>
+    if (e.kind === 'chunk' && e.type === 'stream' && typeof data.msgId === 'string') {
+      if (activeRunId && runId && runId !== activeRunId) continue
+      const id = data.msgId
+      const current = turns.get(id) ?? {
+        turnId: id,
+        messageId: id,
+        ...(runId ? { runId } : {}),
+        thinking: '',
+        content: '',
+        thinkingOffset: 0,
+        contentOffset: 0,
+        nextThinkingOffset: 0,
+        nextContentOffset: 0,
+        createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.now(),
+      }
+      if (typeof data.thinking === 'string') {
+        current.thinking += data.thinking
+        current.thinkingOffset = current.thinking.length
+        current.nextThinkingOffset = current.thinkingOffset
+      }
+      if (typeof data.content === 'string') {
+        current.content += data.content
+        current.contentOffset = current.content.length
+        current.nextContentOffset = current.contentOffset
+      }
+      turns.set(id, current)
+    }
+    if (e.kind === 'chunk' && e.type === 'staged' && typeof data.msgId === 'string') {
+      if (data.type === 'content_end' || data.type === 'sense_end') turns.delete(data.msgId)
+    }
+    if (e.kind === 'notification' && (e.type === 'done' || e.type === 'error')) {
+      const terminalRun = runId
+      for (const [id, turn] of turns) {
+        if (!terminalRun || !turn.runId || turn.runId === terminalRun) turns.delete(id)
+      }
+    }
+  }
+  return [...turns.values()]
+}
+
+/** V2 atomic session open: register subscription, capture event boundary, then hydrate state. */
+export async function handleChatOpen(
+  ctx: HandlerContext,
+  data: ChatOpenRequestData,
+): Promise<ChatOpenResponseData> {
+  if (!getChat(data.chatId)) throw new Error('这个会话不见了')
+  const subscriptionId = connectionManager.beginSessionOpen(data.chatId, ctx.connectionId)
+  try {
+    // Recreate the runtime before taking the session boundary. This restores
+    // durable accepted inputs after a process restart and lets the snapshot
+    // expose the same queue the runner will consume.
+    await ensureChat(data.chatId)
+    // getChatEvents is synchronous; registration and boundary capture therefore execute
+    // without an await gap, while outgoing events are fenced by ConnectionManager.
+    const page = getChatEvents(data.chatId, Number.MAX_SAFE_INTEGER)
+    const eventSeq = page.latestSeq
+    const timelineRevision = getTimelineRevision(data.chatId)
+    connectionManager.setSessionBoundary(subscriptionId, eventSeq)
+    const currentState = computeCurrentState(data.chatId)
+    const questionSnapshot = getQuestionStateSnapshot(data.chatId)
+    const pendingInputs = getPendingChatInputs(data.chatId).map((entry, index) => ({
+      inputId: entry.inputId ?? `queued-${data.chatId}-${index}`,
+      ...(entry.clientMessageId ? { clientMessageId: entry.clientMessageId } : {}),
+      ...(entry.messageId ? { messageId: entry.messageId } : {}),
+      content: entry.content,
+      createdAt: entry.time,
+      state: 'queued' as const,
+    }))
+    const runId = getActiveChatRunId(data.chatId)
+    const roles = listOpenSpawnTasks(data.chatId).map((task) => ({
+      taskId: task.taskId,
+      chatId: task.childChatId,
+      parentChatId: task.parentChatId,
+      type: task.type,
+      state: task.status,
+    }))
+    const snapshot: ChatOpenResponseData = {
+      chatId: data.chatId,
+      subscriptionId,
+      eventSeq,
+      timelineRevision,
+      timelineChanged: data.knownTimelineRevision !== timelineRevision,
+      state: {
+        ...(runId ? { run: { runId, state: 'running' as const } } : {}),
+        pendingInputs,
+        activeTurns: buildActiveTurns(data.chatId),
+        ...(currentState.pendingApproval ? { pendingApproval: currentState.pendingApproval } : {}),
+        questionBatches: questionSnapshot.pendingQuestionBatches,
+        runningTools: currentState.runningTools,
+        roles,
+      },
+    }
+    connectionManager.finishSessionOpen(subscriptionId)
+    logger.event('chat.open', { chatId: data.chatId, subscriptionId, eventSeq })
+    if (!runId && pendingInputs.length > 0) {
+      const prompt = pendingInputs[0]!.content
+      const resumedRunId = randomUUID()
+      void (async () => {
+        try {
+          const generator = handleChatSend(
+            { ...ctx, requestId: resumedRunId },
+            { chatId: data.chatId, prompt, inputAlreadyQueued: true },
+          )
+          for await (const item of generator) {
+            const event = item as Chunk | Notification
+            if (event.chatId) {
+              event.seq = appendChatEvent(event.chatId, event as unknown as Record<string, unknown>)
+            }
+            for (const ws of connectionManager.getChatOutputs(data.chatId)) {
+              if (ws.readyState !== ws.OPEN) continue
+              for (const routed of connectionManager.prepareSessionEvent(ws, event)) {
+                try {
+                  ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+                } catch (error) {
+                  logger.event('chat.open.resume_output_failed', {
+                    message: (error as Error).message,
+                  })
+                }
+              }
+            }
+          }
+        } catch (error) {
+          logger.event('chat.open.resume_failed', {
+            chatId: data.chatId,
+            message: (error as Error).message,
+          })
+        }
+      })()
+    }
+    return snapshot
+  } catch (error) {
+    connectionManager.closeSession(subscriptionId)
+    throw error
+  }
+}
+
+export async function handleChatClose(
+  ctx: HandlerContext,
+  data: ChatCloseRequestData,
+): Promise<ChatCloseResponseData> {
+  const sub = connectionManager.getSessionSubscription(data.subscriptionId)
+  if (!sub || sub.connectionId !== ctx.connectionId) {
+    return { subscriptionId: data.subscriptionId, closed: false }
+  }
+  const closed = connectionManager.closeSession(data.subscriptionId)
+  logger.event('chat.close', { chatId: closed?.chatId, subscriptionId: data.subscriptionId })
+  return {
+    subscriptionId: data.subscriptionId,
+    ...(closed ? { chatId: closed.chatId } : {}),
+    closed: true,
+  }
+}
+
 /**
  * chat.attach：F5 后重连运行中 run，把后续实时输出重定向到本连接。
  * 非流式；attach 立即返回，后续 chunk/notification 由原 run 的（已重定向）流式循环持续投递。
@@ -619,7 +1283,11 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_CREATE, handleChatCreate)
   router.register(Method.CHAT_LIST, handleChatList)
   router.register(Method.CHAT_GET, handleChatGet) // 流式返回历史
+  router.register(Method.CHAT_TIMELINE_GET, handleChatTimelineGet)
+  router.register(Method.CHAT_INPUT_SUBMIT, handleChatInputSubmit)
   router.register(Method.CHAT_SYNC, handleChatSync)
+  router.register(Method.CHAT_OPEN, handleChatOpen)
+  router.register(Method.CHAT_CLOSE, handleChatClose)
   router.register(Method.CHAT_START_SPAWN, handleChatStartSpawn)
   router.register(Method.CHAT_DELETE, handleChatDelete)
   router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage)

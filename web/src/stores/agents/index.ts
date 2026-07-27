@@ -93,6 +93,8 @@ export const useAgentsStore = defineStore('agents', () => {
    */
   function setWorking(pet: PetInstance | undefined, working: boolean, freezeUntil?: number): void {
     if (!pet) return
+    // ghost 是子任务终态；迟到的 V2 working effect 不能把已收尾的 pet 再次标为运行中。
+    if (working && pet.isGhost) return
     pet.isWorking = working
     if (working) {
       pet.action = 'chatting'
@@ -110,6 +112,15 @@ export const useAgentsStore = defineStore('agents', () => {
       pet.moodUntil = 0
       pet.bubbleRepelExtra = 0
     }
+  }
+
+  /** 按 chatId 设置工作态（chatSessions.onWorkingChange effect 注入用）。 */
+  function setWorkingForChat(
+    chatId: string,
+    working: boolean,
+    freezeUntil?: number,
+  ): void {
+    setWorking(pets.value.find((p) => p.chatId === chatId), working, freezeUntil)
   }
 
   /**
@@ -1053,6 +1064,8 @@ export const useAgentsStore = defineStore('agents', () => {
     syncChatEvents,
     getRuntime,
     setSessionRuntime,
+    setWorkingForChat,
+    removePetsOnly,
     ...router,
   }
 })

@@ -10,7 +10,7 @@ import {
 } from '@/db/chat.js'
 import { getMonthlyDb, getSoulDb } from '@/db/index.js'
 import { createSpawnTask, finishSpawnTask } from '@/db/delivery.js'
-import { handleChatList } from '@/service/chat/handler.js'
+import { buildRootTimeline, handleChatList } from '@/service/chat/handler.js'
 import type { HandlerContext } from '@/service/message/router.js'
 
 const cleanupChats: string[] = []
@@ -59,5 +59,29 @@ describe('chat recovery state', () => {
     expect(JSON.parse(getChat(childChatId)!.metadata ?? '{}')).not.toHaveProperty('finished')
     const response = await handleChatList({} as HandlerContext, {})
     expect(response.chats.find((chat) => chat.chatId === childChatId)?.finished).toBe(true)
+  })
+
+  it('projects a root timeline with explicit child actors and directions', () => {
+    const rootChatId = randomUUID()
+    const childChatId = randomUUID()
+    cleanupChats.push(rootChatId, childChatId)
+    createChat(rootChatId)
+    createChat(childChatId, { type: 'coder' }, rootChatId)
+    addMessage(randomUUID(), rootChatId, { role: 'user', content: 'delegate' })
+    addMessage(randomUUID(), childChatId, { role: 'user', content: 'work' })
+    addMessage(randomUUID(), childChatId, { role: 'assistant', content: 'done' })
+
+    const snapshot = buildRootTimeline(rootChatId)
+    expect(snapshot.nodes.map((node) => node.direction)).toEqual(
+      expect.arrayContaining(['user-to-agent', 'parent-to-child', 'agent-to-user']),
+    )
+    expect(snapshot.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          direction: 'agent-to-user',
+          actor: expect.objectContaining({ kind: 'agent', chatId: childChatId }),
+        }),
+      ]),
+    )
   })
 })

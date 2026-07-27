@@ -14,24 +14,27 @@
  * 改为 `messagesById`+`messageOrder` 规范化投影。
  */
 
-import type {
-  ChatSession,
-  ChatMessage,
-  ChatEvent,
-  ChatInteractionState,
-} from './types'
+import type { ChatSession, ChatMessage, ChatEvent, ChatInteractionState } from './types'
 import type {
   StreamChunkData,
   StagedChunkData,
   HistoryItem,
   ApprovalState,
   QuestionBatchState,
+  SenseCallRecord,
 } from '../agents/types'
-import type { RuntimeSelection, ContextBreakdown } from '@/services/agentApi'
-import { extractMediaUrls } from '@/utils/markdown'
 import type {
-  QuestionBatchPayload,
-} from '../agents/actions/questionBatch'
+  RuntimeSelection,
+  ContextBreakdown,
+  CanonicalMessage,
+  TimelinePatch,
+  ActiveTurnSnapshot,
+  PendingInput,
+  RunSnapshot,
+  ChatSessionEvent,
+} from '@/services/agentApi'
+import { extractMediaUrls } from '@/utils/markdown'
+import type { QuestionBatchPayload } from '../agents/actions/questionBatch'
 
 /** reducer 调用上下文（注入时间，保持纯函数）。 */
 export interface ReduceContext {
@@ -192,7 +195,12 @@ function toBatchState(
           ...q,
           localStatus: old?.localStatus ?? 'pending',
           ...(old?.draftAnswer
-            ? { draftAnswer: { ...old.draftAnswer, selectedLabels: [...old.draftAnswer.selectedLabels] } }
+            ? {
+                draftAnswer: {
+                  ...old.draftAnswer,
+                  selectedLabels: [...old.draftAnswer.selectedLabels],
+                },
+              }
             : {}),
         }
       }),
@@ -205,10 +213,8 @@ function ensureActiveQuestion(s: ChatInteractionState): void {
   )
   if (exists) return
   s.activeQuestionId =
-    s.questionBatches
-      .flatMap((b) => b.questions)
-      .find((q) => q.localStatus === 'pending')?.questionId ??
-    s.questionBatches[0]?.questions[0]?.questionId
+    s.questionBatches.flatMap((b) => b.questions).find((q) => q.localStatus === 'pending')
+      ?.questionId ?? s.questionBatches[0]?.questions[0]?.questionId
 }
 
 function upsertQuestionBatch(s: ChatInteractionState, payload: QuestionBatchPayload): void {
@@ -225,10 +231,7 @@ function removeQuestionBatch(s: ChatInteractionState, batchId: string): void {
   ensureActiveQuestion(s)
 }
 
-function replaceQuestionBatches(
-  s: ChatInteractionState,
-  payloads: QuestionBatchPayload[],
-): void {
+function replaceQuestionBatches(s: ChatInteractionState, payloads: QuestionBatchPayload[]): void {
   const prev = new Map(s.questionBatches.map((b) => [b.batchId, b]))
   s.questionBatches = payloads
     .map((p) => toBatchState(p, prev.get(p.batchId)))
@@ -314,7 +317,9 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
         agentChatId: d.agentChatId ?? session.chatId,
         ...(d.runtime ? { runtime: d.runtime } : {}),
         ...(d.contextCompaction ? { contextCompaction: true } : {}),
-        ...(d.contextCompactionTokens !== undefined ? { contextCompactionTokens: d.contextCompactionTokens } : {}),
+        ...(d.contextCompactionTokens !== undefined
+          ? { contextCompactionTokens: d.contextCompactionTokens }
+          : {}),
         ...(mediaAssets.length > 0 ? { mediaAssets } : {}),
       })
       return
@@ -343,7 +348,12 @@ function reduceStaged(session: ChatSession, d: StagedChunkData | undefined): voi
   }
 
   if (d.type === 'sense_end') {
-    if (d.id && session.messageOrder.some((id) => session.messagesById[id]?.senseCalls?.some((s) => s.id === d.id))) {
+    if (
+      d.id &&
+      session.messageOrder.some((id) =>
+        session.messagesById[id]?.senseCalls?.some((s) => s.id === d.id),
+      )
+    ) {
       return
     }
     const lastId = session.messageOrder[session.messageOrder.length - 1]
@@ -387,13 +397,19 @@ function reduceReverse(session: ChatSession, ids: string[]): void {
  */
 export function reduce(session: ChatSession, event: ChatEvent, ctx: ReduceContext): void {
   if (event.kind === 'chunk') {
-    reduceChunk(session, event, ctx)
+    reduceChunk(session, event as Extract<ChatEvent, { kind: 'chunk' }>, ctx)
     return
   }
-  reduceNotification(session, event, ctx)
+  if (event.kind === 'notification') {
+    reduceNotification(session, event as Extract<ChatEvent, { kind: 'notification' }>, ctx)
+  }
 }
 
-function reduceChunk(session: ChatSession, chunk: ChatEvent & { kind: 'chunk' }, ctx: ReduceContext): void {
+function reduceChunk(
+  session: ChatSession,
+  chunk: ChatEvent & { kind: 'chunk' },
+  ctx: ReduceContext,
+): void {
   if (!chunk.requestId) return
   if (chunk.runId && !session.run.activeRunId) session.run.activeRunId = chunk.runId
 
@@ -411,7 +427,8 @@ function reduceChunk(session: ChatSession, chunk: ChatEvent & { kind: 'chunk' },
   // 回放期（chat.sync 历史回放）的 stream delta 不得建 streaming 消息或累加 content——否则
   // 气泡会显历史内容。replaying=true 时直接 return，历史内容由 staged chunk 累积进 messages。
   if (session.sync.replaying) return
-  const data = (chunk.data as StreamChunkData | undefined) ?? {}
+  const data = chunk.data as StreamChunkData | undefined as StreamChunkData | undefined
+  if (!data) return
   if (!data.msgId) return // 协议保证必带 msgId；缺失 fail-loud 跳过
 
   // 新 msgId 首次到达：封口旧 active -> 建空 streaming -> 切 active（不变式 5）
@@ -458,7 +475,7 @@ function reduceNotification(
 
     if (type === 'done') {
       // finalMessage 幂等补全并 seal
-      const fm = (d.finalMessage as
+      const fm = d.finalMessage as
         | {
             msgId: string
             role: 'assistant'
@@ -469,7 +486,7 @@ function reduceNotification(
             contextCompaction?: boolean
             contextCompactionTokens?: number
           }
-        | undefined)
+        | undefined
       if (fm) {
         upsertMessage(session, {
           msgId: fm.msgId,
@@ -480,7 +497,9 @@ function reduceNotification(
           agentChatId: fm.agentChatId ?? session.chatId,
           ...(fm.thinking ? { thinking: fm.thinking } : {}),
           ...(fm.contextCompaction ? { contextCompaction: true } : {}),
-          ...(fm.contextCompactionTokens !== undefined ? { contextCompactionTokens: fm.contextCompactionTokens } : {}),
+          ...(fm.contextCompactionTokens !== undefined
+            ? { contextCompactionTokens: fm.contextCompactionTokens }
+            : {}),
         })
         if (session.activeMessageId === fm.msgId) session.activeMessageId = undefined
       }
@@ -490,7 +509,8 @@ function reduceNotification(
       if (typeof d.contextUsage === 'number') session.context.contextUsage = d.contextUsage
       if (typeof d.used === 'number') session.context.contextUsed = d.used
       if (typeof d.total === 'number') session.context.contextTotal = d.total
-      if (d.contextBreakdown) session.context.contextBreakdown = d.contextBreakdown as ContextBreakdown
+      if (d.contextBreakdown)
+        session.context.contextBreakdown = d.contextBreakdown as ContextBreakdown
       if (typeof canResume === 'boolean') session.context.canResume = canResume
       if (d.finished === true) session.meta.finished = true
     } else {
@@ -676,7 +696,9 @@ export function upsertHistoryItem(session: ChatSession, item: HistoryItem): void
     ...(item.runtime ? { runtime: item.runtime } : {}),
     ...(item.mediaAssets ? { mediaAssets: item.mediaAssets } : {}),
     ...(item.contextCompaction ? { contextCompaction: true } : {}),
-    ...(item.contextCompactionTokens !== undefined ? { contextCompactionTokens: item.contextCompactionTokens } : {}),
+    ...(item.contextCompactionTokens !== undefined
+      ? { contextCompactionTokens: item.contextCompactionTokens }
+      : {}),
     ...(item.petName ? { petName: item.petName } : {}),
     ...(item.subPetChatId ? { subPetChatId: item.subPetChatId } : {}),
     ...(item.callerSubPetChatId ? { callerSubPetChatId: item.callerSubPetChatId } : {}),
@@ -686,3 +708,260 @@ export function upsertHistoryItem(session: ChatSession, item: HistoryItem): void
 }
 
 export { replaceQuestionBatches, upsertQuestionBatch, removeQuestionBatch }
+
+// ---- Protocol V2 timeline/session reducer ---------------------------------
+
+/** Convert one backend canonical message to the existing render projection. */
+function canonicalToChatMessage(m: CanonicalMessage, chatId: string): ChatMessage {
+  const isChildOrigin = !!m.origin?.parentChatId && !!m.origin?.childChatId
+  const role = isChildOrigin
+    ? m.role === 'user'
+      ? 'master'
+      : m.role === 'assistant'
+        ? 'role'
+        : m.role === 'sense'
+          ? 'assistant'
+          : m.role
+    : m.role === 'master'
+      ? 'master'
+      : m.role === 'sense'
+        ? 'assistant'
+        : m.role
+  const senseCalls: SenseCallRecord[] = (m.senseCalls ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    args: c.arguments,
+    result: c.result,
+    status: (c.status === 'rejected'
+      ? 'error'
+      : c.status === 'pending'
+        ? 'running'
+        : 'done') as SenseCallRecord['status'],
+  }))
+  return {
+    msgId: m.id,
+    role,
+    thinking: m.thinking ?? '',
+    content: m.content ?? '',
+    senseCalls,
+    status: m.status === 'revoked' ? 'revoked' : 'sealed',
+    createdAt: m.createdAt,
+    updatedAt: m.updatedAt,
+    agentChatId: m.chatId || chatId,
+    ...(m.runtime ? { runtime: m.runtime } : {}),
+    ...(m.origin?.childChatId ? { subPetChatId: m.origin.childChatId } : {}),
+    ...(m.origin?.parentChatId ? { callerSubPetChatId: m.origin.parentChatId } : {}),
+  }
+}
+
+/** Replace the canonical timeline atomically. Returns the installed revision. */
+export function replaceTimeline(
+  session: ChatSession,
+  snapshot: { chatId: string; revision: number; messages: CanonicalMessage[]; eventSeq?: number },
+): number {
+  const byId: Record<string, ChatMessage> = {}
+  const order: string[] = []
+  for (const canonical of snapshot.messages ?? []) {
+    if (!canonical?.id || byId[canonical.id]) continue
+    const message = canonicalToChatMessage(canonical, session.chatId)
+    byId[message.msgId] = message
+    order.push(message.msgId)
+  }
+  session.messagesById = byId
+  session.messageOrder = order
+  session.activeMessageId = undefined
+  session.pendingInputs = session.pendingInputs.filter((input) => {
+    const id = input.messageId
+    return !id || !byId[id] || byId[id]?.status === 'revoked'
+  })
+  // Timeline replacement must not erase the independent session-plane
+  // snapshot. `chat.open` may have returned active turns at the same boundary;
+  // they are updated only by turn.* events or a subsequent open.
+  session.sync.timelineRevision = snapshot.revision
+  if (typeof snapshot.eventSeq === 'number') {
+    session.sync.eventSeq = snapshot.eventSeq
+    session.sync.lastSeq = Math.max(session.sync.lastSeq, snapshot.eventSeq)
+  }
+  return snapshot.revision
+}
+
+/** Apply a revisioned patch; false means base revision gap and caller must refetch. */
+export function applyTimelinePatch(session: ChatSession, patch: TimelinePatch): boolean {
+  const current = session.sync.timelineRevision ?? 0
+  if (patch.baseRevision !== current || patch.revision <= current) return false
+  for (const operation of patch.operations ?? []) {
+    if (operation.type === 'upsert' && operation.message?.id) {
+      const message = canonicalToChatMessage(operation.message, session.chatId)
+      if (!session.messagesById[message.msgId]) session.messageOrder.push(message.msgId)
+      session.messagesById[message.msgId] = message
+      session.pendingInputs = session.pendingInputs.filter((i) => i.messageId !== message.msgId)
+      session.activeTurns = session.activeTurns.filter((t) => t.messageId !== message.msgId)
+      if (session.activeMessageId === message.msgId) session.activeMessageId = undefined
+    } else if (
+      (operation.type === 'revoke' || operation.type === 'remove') &&
+      operation.messageId
+    ) {
+      const existing = session.messagesById[operation.messageId]
+      if (operation.type === 'revoke' && existing) existing.status = 'revoked'
+      if (operation.type === 'remove') {
+        delete session.messagesById[operation.messageId]
+        session.messageOrder = session.messageOrder.filter((id) => id !== operation.messageId)
+      }
+      session.pendingInputs = session.pendingInputs.filter(
+        (i) => i.messageId !== operation.messageId,
+      )
+      session.activeTurns = session.activeTurns.filter((t) => t.messageId !== operation.messageId)
+    }
+  }
+  session.sync.timelineRevision = patch.revision
+  if (typeof patch.eventSeq === 'number')
+    session.sync.eventSeq = Math.max(session.sync.eventSeq ?? 0, patch.eventSeq)
+  return true
+}
+
+function applyTurnDelta(session: ChatSession, event: ChatSessionEvent, ctx: ReduceContext): void {
+  const data = (event.data ?? event) as Partial<ActiveTurnSnapshot> & {
+    channel?: 'thinking' | 'content'
+    offset?: number
+    delta?: string
+  }
+  if (!data.turnId || !data.messageId || typeof data.delta !== 'string') return
+  let turn = session.activeTurns.find((t) => t.turnId === data.turnId)
+  if (!turn) {
+    turn = {
+      turnId: data.turnId,
+      runId: data.runId,
+      messageId: data.messageId,
+      thinking: '',
+      content: '',
+      nextThinkingOffset: 0,
+      nextContentOffset: 0,
+      status: 'running',
+      createdAt: data.createdAt,
+    }
+    session.activeTurns.push(turn)
+  }
+  const channel = data.channel === 'thinking' ? 'thinking' : 'content'
+  const expected =
+    channel === 'thinking'
+      ? (turn.nextThinkingOffset ?? turn.thinkingOffset ?? turn.thinking.length)
+      : (turn.nextContentOffset ?? turn.contentOffset ?? turn.content.length)
+  const offset = typeof data.offset === 'number' ? data.offset : expected
+  if (offset !== expected) {
+    session.sync.resyncRequired = true
+    return
+  }
+  turn[channel] += data.delta
+  if (channel === 'thinking') turn.nextThinkingOffset = expected + data.delta.length
+  else turn.nextContentOffset = expected + data.delta.length
+  session.run.status = 'running'
+  session.run.activeRunId = data.runId ?? session.run.activeRunId
+  session.activeMessageId = data.messageId
+  const active = session.messagesById[data.messageId]
+  if (active) {
+    active[channel] += data.delta
+    active.updatedAt = ctx.now
+    active.status = 'streaming'
+  } else {
+    session.messagesById[data.messageId] = {
+      msgId: data.messageId,
+      role: 'assistant',
+      thinking: channel === 'thinking' ? data.delta : '',
+      content: channel === 'content' ? data.delta : '',
+      senseCalls: [],
+      status: 'streaming',
+      createdAt: data.createdAt ?? ctx.now,
+      updatedAt: ctx.now,
+      agentChatId: session.chatId,
+    }
+    session.messageOrder.push(data.messageId)
+  }
+}
+
+/** Apply one V2 session event. Returns false for event-seq/revision gaps. */
+export function reduceSessionEvent(
+  session: ChatSession,
+  event: ChatSessionEvent,
+  ctx: ReduceContext,
+): boolean {
+  const currentSeq = session.sync.eventSeq ?? 0
+  if (event.eventSeq <= currentSeq) return true
+  if (event.eventSeq !== currentSeq + 1) {
+    session.sync.resyncRequired = true
+    return false
+  }
+  session.sync.eventSeq = event.eventSeq
+  session.sync.lastSeq = Math.max(session.sync.lastSeq, event.eventSeq)
+  // Both notification envelopes (`data: {...}`) and the compact V2 event
+  // shape (fields at the top level) are accepted during protocol rollout.
+  const data = (event.data && typeof event.data === 'object' ? event.data : event) as Record<
+    string,
+    unknown
+  >
+  switch (event.type) {
+    case 'turn.started': {
+      const turn = data as unknown as ActiveTurnSnapshot
+      if (turn.turnId && !session.activeTurns.some((t) => t.turnId === turn.turnId)) {
+        session.activeTurns.push({
+          turnId: turn.turnId,
+          runId: turn.runId,
+          messageId: turn.messageId,
+          thinking: turn.thinking ?? '',
+          content: turn.content ?? '',
+          nextThinkingOffset:
+            turn.nextThinkingOffset ?? turn.thinkingOffset ?? turn.thinking?.length ?? 0,
+          nextContentOffset:
+            turn.nextContentOffset ?? turn.contentOffset ?? turn.content?.length ?? 0,
+          status: 'running',
+          createdAt: turn.createdAt,
+        })
+      }
+      session.run.status = 'running'
+      session.run.activeRunId = (turn as { runId?: string }).runId ?? session.run.activeRunId
+      break
+    }
+    case 'turn.delta':
+      applyTurnDelta(session, event, ctx)
+      break
+    case 'turn.completed': {
+      const turnId = typeof data.turnId === 'string' ? data.turnId : undefined
+      const turn = session.activeTurns.find((t) => t.turnId === turnId)
+      if (turn) turn.status = 'completed'
+      session.activeTurns = session.activeTurns.filter((t) => t.turnId !== turnId)
+      if (typeof data.messageId === 'string' && session.messagesById[data.messageId]) {
+        session.messagesById[data.messageId]!.status = 'sealed'
+        if (session.activeMessageId === data.messageId) session.activeMessageId = undefined
+      }
+      break
+    }
+    case 'input.updated': {
+      const input = data as unknown as Partial<PendingInput>
+      if (!input.inputId) break
+      const existing = session.pendingInputs.find((i) => i.inputId === input.inputId)
+      if (existing) Object.assign(existing, input)
+      else if (input.messageId && input.clientMessageId && input.state) {
+        session.pendingInputs.push(input as PendingInput)
+      }
+      break
+    }
+    case 'run.updated': {
+      session.activeRun = data as unknown as RunSnapshot
+      const status = session.activeRun.status
+      session.run.status =
+        status === 'running' || status === 'waiting'
+          ? 'running'
+          : status === 'paused'
+            ? 'paused'
+            : 'ended'
+      session.run.activeRunId = session.activeRun.runId
+      break
+    }
+    case 'timeline.patch':
+      if (!applyTimelinePatch(session, data as unknown as TimelinePatch))
+        session.sync.resyncRequired = true
+      break
+    default:
+      break
+  }
+  return !session.sync.resyncRequired
+}

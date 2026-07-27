@@ -454,6 +454,168 @@ export interface ChatSendAttachment {
   mimeType: string
 }
 
+/** Chat Protocol V2：后端已构建完成的权威时间线消息。 */
+export interface CanonicalSenseCall {
+  id: string
+  name: string
+  arguments?: string
+  result?: string
+  status?: 'pending' | 'accepted' | 'rejected' | 'completed'
+  [key: string]: unknown
+}
+
+export interface CanonicalMessage {
+  id: string
+  chatId: string
+  runId?: string
+  role: 'user' | 'assistant' | 'sense' | 'role' | 'master'
+  content: string
+  thinking?: string
+  createdAt: number
+  updatedAt: number
+  status: 'committed' | 'revoked'
+  runtime?: RuntimeSelection
+  senseCalls?: CanonicalSenseCall[]
+  origin?: {
+    parentChatId?: string
+    childChatId?: string
+    spawnCallId?: string
+  }
+  [key: string]: unknown
+}
+
+export interface TimelineSnapshot {
+  chatId: string
+  revision: number
+  messages: CanonicalMessage[]
+  nextCursor?: string
+  eventSeq?: number
+  rootTimeline?: RootTimelineSnapshot
+}
+
+export type TimelineActor =
+  | { kind: 'user'; actorId: 'human'; displayName?: string }
+  | { kind: 'agent'; chatId: string; roleType?: string; avatarKey?: string }
+  | { kind: 'tool'; toolName: string }
+  | { kind: 'system' }
+
+export type TimelineDirection =
+  'user-to-agent' | 'agent-to-user' | 'parent-to-child' | 'child-to-parent' | 'internal'
+
+export interface TimelineNode {
+  id: string
+  rootChatId: string
+  sourceChatId: string
+  sourceMessageId?: string
+  kind: 'message' | 'tool-group' | 'spawn' | 'return' | 'system'
+  actor: TimelineActor
+  target?: TimelineActor
+  direction: TimelineDirection
+  visibility: 'conversation' | 'detail' | 'internal'
+  content: string
+  thinking?: string
+  toolCalls?: CanonicalSenseCall[]
+  parentNodeId?: string
+  causationId?: string
+  createdAt: number
+  updatedAt: number
+  status: 'committed' | 'revoked'
+}
+
+export interface RootTimelineSnapshot {
+  rootChatId: string
+  view: 'conversation' | 'tree' | 'audit'
+  revision: number
+  nodes: TimelineNode[]
+  nextCursor?: string
+  capturedEventSeq: number
+}
+
+export type TimelinePatchOperation =
+  | { type: 'upsert'; message: CanonicalMessage }
+  | { type: 'revoke'; messageId: string }
+  | { type: 'remove'; messageId: string }
+
+export interface TimelinePatch {
+  chatId: string
+  baseRevision: number
+  revision: number
+  operations: TimelinePatchOperation[]
+  eventSeq?: number
+}
+
+export interface PendingInput {
+  inputId: string
+  clientMessageId?: string
+  messageId?: string
+  content: string
+  state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
+  queueSequence?: number
+  acceptedAt?: number
+  createdAt?: number
+  reason?: string
+}
+
+export interface ActiveTurnSnapshot {
+  turnId: string
+  runId?: string
+  messageId: string
+  thinking: string
+  content: string
+  nextThinkingOffset?: number
+  nextContentOffset?: number
+  thinkingOffset?: number
+  contentOffset?: number
+  status?: 'running' | 'completed' | 'paused' | 'error'
+  createdAt?: number
+}
+
+export interface RunSnapshot {
+  runId: string
+  status?: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | string
+  state?: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | string
+  [key: string]: unknown
+}
+
+export interface ChatOpenResponse {
+  chatId: string
+  subscriptionId: string
+  eventSeq: number
+  timelineRevision: number
+  timelineChanged: boolean
+  state: {
+    run?: RunSnapshot
+    pendingInputs: PendingInput[]
+    activeTurns: ActiveTurnSnapshot[]
+    pendingApproval?: unknown
+    questionBatches?: unknown[]
+    runningTools?: unknown[]
+    roles?: unknown[]
+    [key: string]: unknown
+  }
+}
+
+export interface ChatSessionEvent {
+  kind?: 'event' | 'session'
+  type: string
+  chatId: string
+  subscriptionId?: string
+  eventSeq: number
+  data?: unknown
+  [key: string]: unknown
+}
+
+export interface InputAccepted {
+  chatId: string
+  inputId: string
+  clientMessageId: string
+  messageId: string
+  runId?: string
+  state: 'started' | 'queued' | 'accepted'
+  queueSequence?: number
+  acceptedAt: number
+}
+
 /** 思考强度档位（对齐后端 ThinkingLevel）：
  * - off：关闭
  * - on：由模型/服务端决定（不传参）
@@ -889,6 +1051,73 @@ export const agentApi = {
       workspace: data.workspace,
       workspaceValid: data.workspaceValid,
     }
+  },
+
+  /** V2 command plane：立即确认输入，不承载 Agent 流生命周期。 */
+  async submitChatInput(params: {
+    chatId: string
+    commandId: string
+    clientMessageId: string
+    content: string
+    attachments?: ChatSendAttachment[]
+  }): Promise<InputAccepted> {
+    return call<InputAccepted>('chat.input.submit', {
+      chatId: params.chatId,
+      commandId: params.commandId,
+      clientMessageId: params.clientMessageId,
+      content: params.content,
+      ...(params.attachments?.length ? { attachments: params.attachments } : {}),
+    })
+  },
+
+  /** V2 timeline plane：返回后端已经构建好的完整消息对象。 */
+  async getTimeline(params: {
+    chatId: string
+    before?: string
+    limit?: number
+    knownRevision?: number
+  }): Promise<TimelineSnapshot> {
+    return call<TimelineSnapshot>('chat.timeline.get', {
+      chatId: params.chatId,
+      ...(params.before ? { before: params.before } : {}),
+      ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      ...(params.knownRevision !== undefined ? { knownRevision: params.knownRevision } : {}),
+    })
+  },
+
+  /** Root timeline projection: backend joins all recursive descendants. */
+  async getRootTimeline(params: {
+    rootChatId: string
+    view?: 'conversation' | 'tree' | 'audit'
+    knownRevision?: number
+  }): Promise<RootTimelineSnapshot> {
+    const response = await call<TimelineSnapshot>('chat.timeline.get', {
+      rootChatId: params.rootChatId,
+      view: params.view ?? 'conversation',
+      ...(params.knownRevision !== undefined ? { knownRevision: params.knownRevision } : {}),
+    })
+    if (!response.rootTimeline) throw new Error('root timeline 响应缺少 rootTimeline')
+    return response.rootTimeline
+  },
+
+  /** V2 session plane：原子建立订阅并返回当前运行态快照。 */
+  async openChat(params: {
+    chatId: string
+    knownTimelineRevision?: number
+    knownEventSeq?: number
+  }): Promise<ChatOpenResponse> {
+    return call<ChatOpenResponse>('chat.open', {
+      chatId: params.chatId,
+      ...(params.knownTimelineRevision !== undefined
+        ? { knownTimelineRevision: params.knownTimelineRevision }
+        : {}),
+      ...(params.knownEventSeq !== undefined ? { knownEventSeq: params.knownEventSeq } : {}),
+    })
+  },
+
+  /** V2 session plane：显式关闭订阅。 */
+  async closeChat(subscriptionId: string): Promise<void> {
+    await call('chat.close', { subscriptionId })
   },
 
   /**

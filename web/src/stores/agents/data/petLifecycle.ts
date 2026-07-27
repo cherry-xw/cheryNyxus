@@ -40,6 +40,10 @@ export function turnChildIntoGhost(
   pet.interactionUntil = 0
   pet.moodUntil = 0
   pet.bubbleRepelExtra = 0
+  // ghost = 已交付终态，不再工作。child_abandoned/role_reply 路径未调 setWorking(false)
+  // 会导致 pet.isWorking 残留 true → HistoryDrawer workingScopePets 仍含此子 pet →
+  // agent-loading 持续显「正在输入…」。done 路径已先 setWorking(false)，此处幂等。
+  pet.isWorking = false
 }
 
 /**

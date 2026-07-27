@@ -10,6 +10,15 @@ interface PendingRequest {
   approvalId?: string
 }
 
+interface SessionSubscription {
+  subscriptionId: string
+  chatId: string
+  connectionId: string
+  status: 'opening' | 'open'
+  boundarySeq: number
+  buffer: unknown[]
+}
+
 /**
  * 连接状态
  */
@@ -40,6 +49,9 @@ export class ConnectionManager {
    * 仍可经此统一重定向。
    */
   private liveOutputByChat = new Map<string, Set<WebSocket>>()
+  /** V2 atomic chat subscriptions. A connection may open multiple chats. */
+  private sessionSubscriptions = new Map<string, SessionSubscription>()
+  private readySessionBuffers = new Map<string, unknown[]>()
 
   /**
    * 创建连接状态
@@ -183,6 +195,96 @@ export class ConnectionManager {
     outputs.add(ws)
   }
 
+  /** Register a V2 session before taking its event boundary. */
+  beginSessionOpen(chatId: string, connectionId: string): string {
+    const ws = this.getWsByConnectionId(connectionId)
+    if (!ws) throw new Error('连接丢了，请重连')
+    for (const [id, existing] of this.sessionSubscriptions) {
+      if (existing.chatId === chatId && existing.connectionId === connectionId) {
+        this.sessionSubscriptions.delete(id)
+        this.readySessionBuffers.delete(id)
+      }
+    }
+    const subscriptionId = randomUUID()
+    this.sessionSubscriptions.set(subscriptionId, {
+      subscriptionId,
+      chatId,
+      connectionId,
+      status: 'opening',
+      boundarySeq: 0,
+      buffer: [],
+    })
+    this.subscribeChat(chatId, connectionId)
+    return subscriptionId
+  }
+
+  /** Capture the per-chat event boundary after registration and before snapshot construction. */
+  setSessionBoundary(subscriptionId: string, boundarySeq: number): void {
+    const sub = this.sessionSubscriptions.get(subscriptionId)
+    if (sub) sub.boundarySeq = boundarySeq
+  }
+
+  /** Release the atomic open fence and return events emitted during snapshot construction. */
+  finishSessionOpen(subscriptionId: string): unknown[] {
+    const sub = this.sessionSubscriptions.get(subscriptionId)
+    if (!sub) return []
+    sub.status = 'open'
+    const buffered = sub.buffer.splice(0)
+    if (buffered.length > 0) this.readySessionBuffers.set(subscriptionId, buffered)
+    return buffered
+  }
+
+  drainSessionBuffer(subscriptionId: string): unknown[] {
+    const buffered = this.readySessionBuffers.get(subscriptionId) ?? []
+    this.readySessionBuffers.delete(subscriptionId)
+    return buffered
+  }
+
+  getSessionSubscription(
+    subscriptionId: string,
+  ): { chatId: string; connectionId: string } | undefined {
+    const sub = this.sessionSubscriptions.get(subscriptionId)
+    return sub ? { chatId: sub.chatId, connectionId: sub.connectionId } : undefined
+  }
+
+  /** Explicitly close a V2 subscription. */
+  closeSession(subscriptionId: string): { chatId: string } | undefined {
+    const sub = this.sessionSubscriptions.get(subscriptionId)
+    if (!sub) return undefined
+    this.sessionSubscriptions.delete(subscriptionId)
+    this.readySessionBuffers.delete(subscriptionId)
+    return { chatId: sub.chatId }
+  }
+
+  /**
+   * Prepare one event for a target socket. During chat.open snapshot construction,
+   * events newer than the captured boundary are buffered and not sent immediately.
+   * Open subscribers receive explicit subscriptionId/eventSeq context.
+   */
+  prepareSessionEvent(ws: WebSocket, item: unknown): unknown[] {
+    if (!item || typeof item !== 'object') return [item]
+    const event = item as { chatId?: string; seq?: number; eventSeq?: number }
+    if (!event.chatId) return [item]
+    const subs = [...this.sessionSubscriptions.values()].filter(
+      (s) => s.chatId === event.chatId && s.connectionId === this.get(ws)?.id,
+    )
+    if (subs.length === 0) return [item]
+    const seq = event.eventSeq ?? event.seq
+    const output: unknown[] = []
+    for (const sub of subs) {
+      if (sub.status === 'opening' && typeof seq === 'number' && seq > sub.boundarySeq) {
+        sub.buffer.push(item)
+        continue
+      }
+      output.push({
+        ...event,
+        subscriptionId: sub.subscriptionId,
+        ...(typeof seq === 'number' ? { eventSeq: seq } : {}),
+      })
+    }
+    return output
+  }
+
   /** chat.attach 命中运行中 run：兼容旧调用，语义改为加入订阅而非抢占。 */
   setLiveOutput(chatId: string, ws: WebSocket): void {
     const state = this.connections.get(ws)
@@ -235,6 +337,10 @@ export class ConnectionManager {
     for (const [chatId, targets] of this.liveOutputByChat) {
       targets.delete(ws)
       if (targets.size === 0) this.liveOutputByChat.delete(chatId)
+    }
+
+    for (const [id, sub] of this.sessionSubscriptions) {
+      if (sub.connectionId === state.id) this.sessionSubscriptions.delete(id)
     }
 
     this.connections.delete(ws)

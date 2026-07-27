@@ -243,11 +243,44 @@ export const requestSchemas = {
       )
       .optional(),
   }),
+  [Method.CHAT_INPUT_SUBMIT]: z.object({
+    chatId: z.string(),
+    commandId: z.string().min(1),
+    clientMessageId: z.string().min(1),
+    content: z.string(),
+    attachments: z
+      .array(
+        z.object({
+          assetId: z.string(),
+          kind: z.enum(['image', 'video', 'audio']),
+          mimeType: z.string(),
+        }),
+      )
+      .optional(),
+  }),
+  [Method.CHAT_TIMELINE_GET]: z
+    .object({
+      chatId: z.string().optional(),
+      rootChatId: z.string().optional(),
+      view: z.enum(['conversation', 'tree', 'audit']).optional(),
+      before: z.string().optional(),
+      limit: z.number().int().positive().max(500).optional(),
+      knownRevision: z.number().int().nonnegative().optional(),
+    })
+    .refine((value) => !!value.chatId || !!value.rootChatId, {
+      message: 'chatId 或 rootChatId 至少提供一个',
+    }),
   [Method.CHAT_RESUME]: chatIdSchema,
   [Method.CHAT_SYNC]: z.object({
     chatId: z.string(),
     afterSeq: z.number().int().min(0),
   }),
+  [Method.CHAT_OPEN]: z.object({
+    chatId: z.string(),
+    knownTimelineRevision: z.number().int().min(0).optional(),
+    knownEventSeq: z.number().int().min(0).optional(),
+  }),
+  [Method.CHAT_CLOSE]: z.object({ subscriptionId: z.string() }),
   [Method.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
   [Method.SENSE_APPROVAL]: z.object({
     approvalId: z.string(),

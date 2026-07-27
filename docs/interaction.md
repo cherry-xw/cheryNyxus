@@ -2,6 +2,9 @@
 
 > [← 返回 README](../README.md) ｜ [协议规范](protocol.md)
 
+> 本文的旧流式交互示例用于兼容期排查。V2 的目标流程和本轮已落地的 root timeline 行为，以
+> [multi-agent-canonical-timeline.md](multi-agent-canonical-timeline.md) 为准。
+
 各方法的完整交互序列（C→S / S→C 实际消息流）。协议规范（传输格式、消息结构、字段定义、错误码）见 [protocol.md](protocol.md)。
 
 > 方向标记：`→` C→S，`←` S→C。stream chunk 为二进制帧，其余为 JSON 帧。

@@ -9,6 +9,7 @@ export interface ChatRow {
   updated_at: number
   metadata: string | null
   message_count: number
+  timeline_revision?: number
   /**
    * 角色（子 pet）关联主 chat 的 chatId；主 chat 为 NULL。
    * 可选：旧库未补列前查询结果可能缺该字段（CREATE 后 ensureChatColumn 已统一补，运行时恒存在）。
@@ -61,6 +62,49 @@ export interface MessageData {
   runtime?: { brain: string; senseGroup: string; mcpServers: string[] }
   contextCompaction?: boolean
   contextCompactionTokens?: number
+  /** Cross-chat provenance used by the root timeline projector. */
+  link?: MessageLinkData
+}
+
+export type MessageLinkRelation =
+  | 'root_input'
+  | 'agent_output'
+  | 'tool_result'
+  | 'spawn_request'
+  | 'child_input'
+  | 'child_output'
+  | 'child_return'
+  | 'system'
+  | 'legacy_unknown'
+
+export interface MessageLinkData {
+  rootChatId?: string
+  sourceChatId?: string
+  parentChatId?: string
+  spawnId?: string
+  spawnCallId?: string
+  relatedMessageId?: string
+  relation: MessageLinkRelation
+}
+
+export interface MessageLinkRow extends MessageLinkData {
+  messageId: string
+  rootChatId: string
+  sourceChatId: string
+  createdAt: number
+}
+
+export interface PendingInputRow {
+  input_id: string
+  chat_id: string
+  message_id: string
+  client_message_id: string | null
+  command_id: string
+  content: string
+  queue_sequence: number
+  state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
+  accepted_at: number
+  consumed_at: number | null
 }
 
 /**
@@ -122,6 +166,7 @@ export function createChat(
     updated_at: now,
     metadata: metadata ? JSON.stringify(metadata) : null,
     message_count: 0,
+    timeline_revision: 0,
     parent_chat_id: parentChatId ?? null,
   }
 }
@@ -133,6 +178,61 @@ export function getChat(chatId: string): ChatRow | undefined {
   const db = getSoulDb()
   const stmt = db.prepare('SELECT * FROM chats WHERE id = ?')
   return stmt.get(chatId) as ChatRow | undefined
+}
+
+/** Durable command-plane input queue. Accepted rows survive a process restart. */
+export function addPendingInput(input: {
+  inputId: string
+  chatId: string
+  messageId: string
+  clientMessageId?: string
+  commandId: string
+  content: string
+  queueSequence: number
+  state: PendingInputRow['state']
+  acceptedAt: number
+}): void {
+  getSoulDb()
+    .prepare(
+      `INSERT INTO pending_inputs
+        (input_id, chat_id, message_id, client_message_id, command_id, content, queue_sequence, state, accepted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.inputId,
+      input.chatId,
+      input.messageId,
+      input.clientMessageId ?? null,
+      input.commandId,
+      input.content,
+      input.queueSequence,
+      input.state,
+      input.acceptedAt,
+    )
+}
+
+export function listPendingInputs(chatId: string): PendingInputRow[] {
+  return getSoulDb()
+    .prepare(
+      `SELECT * FROM pending_inputs
+       WHERE chat_id = ? AND state IN ('accepted', 'started', 'queued')
+       ORDER BY queue_sequence ASC, accepted_at ASC`,
+    )
+    .all(chatId) as PendingInputRow[]
+}
+
+export function markPendingInputsConsumed(chatId: string, inputIds: string[]): void {
+  if (inputIds.length === 0) return
+  const db = getSoulDb()
+  const update = db.prepare(
+    `UPDATE pending_inputs SET state = 'consumed', consumed_at = ?
+     WHERE chat_id = ? AND input_id = ? AND state IN ('accepted', 'started', 'queued')`,
+  )
+  const tx = db.transaction((ids: string[]) => {
+    const now = Date.now()
+    for (const id of ids) update.run(now, chatId, id)
+  })
+  tx(inputIds)
 }
 
 /**
@@ -151,6 +251,39 @@ export function updateChat(chatId: string): void {
   const db = getSoulDb()
   const result = db.prepare('UPDATE chats SET updated_at = ? WHERE id = ?').run(Date.now(), chatId)
   assertChanged(result, `updateChat(${chatId})`)
+}
+
+/** Return the current authoritative timeline revision for a chat. */
+export function getTimelineRevision(chatId: string): number {
+  const row = getSoulDb()
+    .prepare('SELECT timeline_revision FROM chats WHERE id = ?')
+    .get(chatId) as { timeline_revision?: number } | undefined
+  return row?.timeline_revision ?? 0
+}
+
+/** Advance timeline revision after a committed message mutation. */
+export function bumpTimelineRevision(chatId: string): number {
+  const db = getSoulDb()
+  const root = getRootChat(chatId)
+  const now = Date.now()
+  const result = db
+    .prepare(
+      'UPDATE chats SET timeline_revision = COALESCE(timeline_revision, 0) + 1, updated_at = ? WHERE id = ?',
+    )
+    .run(now, chatId)
+  assertChanged(result, `bumpTimelineRevision(${chatId})`)
+  if (root.id !== chatId) {
+    const rootResult = db
+      .prepare(
+        'UPDATE chats SET timeline_revision = COALESCE(timeline_revision, 0) + 1, updated_at = ? WHERE id = ?',
+      )
+      .run(now, root.id)
+    assertChanged(rootResult, `bumpTimelineRevision(root=${root.id})`)
+  }
+  // Existing per-chat timeline callers continue to receive the source chat
+  // revision; root projections read the root chat's independently advanced
+  // revision.
+  return getTimelineRevision(chatId)
 }
 
 /**
@@ -321,6 +454,12 @@ export function deleteChat(chatId: string): void {
     })
     clear()
   } finally {
+    soulDb
+      .prepare(
+        'DELETE FROM message_links WHERE source_chat_id = ? OR root_chat_id = ? OR parent_chat_id = ?',
+      )
+      .run(chatId, chatId, chatId)
+    soulDb.prepare('DELETE FROM pending_inputs WHERE chat_id = ?').run(chatId)
     const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
     stmt.run(chatId)
   }
@@ -493,8 +632,8 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     .prepare('UPDATE chats SET message_count = message_count + 1 WHERE id = ?')
     .run(chatId)
   assertChanged(countResult, `addMessage count (${chatId})`)
-
-  updateChat(chatId)
+  bumpTimelineRevision(chatId)
+  upsertMessageLink(messageId, chatId, data.link ?? defaultMessageLink(chatId, data.role))
 
   return {
     id: finalMessageId,
@@ -515,6 +654,109 @@ export function addMessage(messageId: string, chatId: string, data: MessageData)
     context_compaction: data.contextCompaction ? 1 : 0,
     context_compaction_tokens: data.contextCompactionTokens ?? null,
   }
+}
+
+function defaultMessageLink(chatId: string, role: MessageData['role']): MessageLinkData {
+  const root = getRootChat(chatId)
+  return {
+    rootChatId: root.id,
+    sourceChatId: chatId,
+    parentChatId: root.id === chatId ? undefined : (getChat(chatId)?.parent_chat_id ?? undefined),
+    relation:
+      role === 'user'
+        ? root.id === chatId
+          ? 'root_input'
+          : 'child_input'
+        : role === 'sense'
+          ? 'tool_result'
+          : role === 'system'
+            ? 'system'
+            : root.id === chatId
+              ? 'agent_output'
+              : 'child_output',
+  }
+}
+
+function getRootChat(chatId: string): ChatRow {
+  let current = getChat(chatId)
+  if (!current) throw new Error(`Chat ${chatId} not found`)
+  const seen = new Set<string>()
+  while (current.parent_chat_id && !seen.has(current.id)) {
+    seen.add(current.id)
+    const parent = getChat(current.parent_chat_id)
+    if (!parent) break
+    current = parent
+  }
+  return current
+}
+
+export function upsertMessageLink(messageId: string, chatId: string, link: MessageLinkData): void {
+  const chat = getChat(chatId)
+  if (!chat) throw new Error(`Chat ${chatId} not found`)
+  const root = link.rootChatId ? getChat(link.rootChatId) : getRootChat(chatId)
+  const now = Date.now()
+  getSoulDb()
+    .prepare(
+      `INSERT INTO message_links
+        (message_id, root_chat_id, source_chat_id, parent_chat_id, spawn_id, spawn_call_id, related_message_id, relation, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(message_id) DO UPDATE SET
+         root_chat_id=excluded.root_chat_id,
+         source_chat_id=excluded.source_chat_id,
+         parent_chat_id=excluded.parent_chat_id,
+         spawn_id=excluded.spawn_id,
+         spawn_call_id=excluded.spawn_call_id,
+         related_message_id=excluded.related_message_id,
+         relation=excluded.relation`,
+    )
+    .run(
+      messageId,
+      root?.id ?? chat.id,
+      link.sourceChatId ?? chatId,
+      link.parentChatId ?? chat.parent_chat_id ?? null,
+      link.spawnId ?? null,
+      link.spawnCallId ?? null,
+      link.relatedMessageId ?? null,
+      link.relation,
+      now,
+    )
+}
+
+export function getMessageLink(messageId: string): MessageLinkRow | undefined {
+  const row = getSoulDb()
+    .prepare('SELECT * FROM message_links WHERE message_id = ?')
+    .get(messageId) as Record<string, unknown> | undefined
+  if (!row) return undefined
+  return {
+    messageId,
+    rootChatId: String(row.root_chat_id),
+    sourceChatId: String(row.source_chat_id),
+    parentChatId: row.parent_chat_id ? String(row.parent_chat_id) : undefined,
+    spawnId: row.spawn_id ? String(row.spawn_id) : undefined,
+    spawnCallId: row.spawn_call_id ? String(row.spawn_call_id) : undefined,
+    relatedMessageId: row.related_message_id ? String(row.related_message_id) : undefined,
+    relation: String(row.relation) as MessageLinkRelation,
+    createdAt: Number(row.created_at),
+  }
+}
+
+export function getMessageLinksForRoot(rootChatId: string): MessageLinkRow[] {
+  const rows = getSoulDb()
+    .prepare(
+      'SELECT * FROM message_links WHERE root_chat_id = ? ORDER BY created_at ASC, message_id ASC',
+    )
+    .all(rootChatId) as Record<string, unknown>[]
+  return rows.map((row) => ({
+    messageId: String(row.message_id),
+    rootChatId: String(row.root_chat_id),
+    sourceChatId: String(row.source_chat_id),
+    parentChatId: row.parent_chat_id ? String(row.parent_chat_id) : undefined,
+    spawnId: row.spawn_id ? String(row.spawn_id) : undefined,
+    spawnCallId: row.spawn_call_id ? String(row.spawn_call_id) : undefined,
+    relatedMessageId: row.related_message_id ? String(row.related_message_id) : undefined,
+    relation: String(row.relation) as MessageLinkRelation,
+    createdAt: Number(row.created_at),
+  }))
 }
 
 /**
@@ -589,6 +831,7 @@ export function fillApprovalResult(
     .prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`)
     .run(...vals, messageId)
   assertChanged(result, `fillApprovalResult(${chatId}/${messageId})`)
+  bumpTimelineRevision(chatId)
 }
 
 /**
@@ -615,6 +858,7 @@ export function updateAssistantSenseCalls(
     .prepare('UPDATE messages SET sense_calls = ? WHERE id = ?')
     .run(JSON.stringify(senseCalls), messageId)
   assertChanged(result, `updateAssistantSenseCalls(${chatId}/${messageId})`)
+  bumpTimelineRevision(chatId)
 }
 
 /**
@@ -657,6 +901,7 @@ export function markMessagesRevoked(chatId: string, messageIds: string[]): void 
       .run(now, chatId, ...messageIds)
   })
   revoke()
+  bumpTimelineRevision(chatId)
 }
 
 /**
@@ -703,6 +948,7 @@ export function markMessageReplaced(
     .prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`)
     .run(...vals, messageId)
   assertChanged(result, `markMessageReplaced(${chatId}/${messageId})`)
+  bumpTimelineRevision(chatId)
 }
 
 /**

@@ -17,6 +17,12 @@ import type {
   CurrentStateData,
   RuntimeSelection,
   ChatSummary,
+  CanonicalMessage,
+  TimelinePatch,
+  PendingInput,
+  ActiveTurnSnapshot,
+  RunSnapshot,
+  ChatSessionEvent,
 } from '@/services/agentApi'
 import type {
   SenseCallRecord,
@@ -151,6 +157,14 @@ export interface ChatSyncState {
   lastSeq: number
   /** 最近一次 snapshot replace 的 seq 边界；边界后缓冲事件按 seq 应用。 */
   snapshotSeq?: number
+  /** V2 event cursor. Kept alongside legacy seq until the transport migration is complete. */
+  eventSeq?: number
+  /** V2 timeline revision; unlike eventSeq it advances only after DB commit. */
+  timelineRevision?: number
+  /** V2 subscription id returned by chat.open. */
+  subscriptionId?: string
+  /** Whether a gap was detected and a snapshot refresh is required. */
+  resyncRequired?: boolean
 }
 
 /** UI 扩展态（纯前端；不进入领域真值）。 */
@@ -176,6 +190,10 @@ export interface ChatSession {
   context: ChatContextState
   sync: ChatSyncState
   ui: ChatUiState
+  /** V2 transient session plane. Canonical timeline remains messagesById/messageOrder. */
+  pendingInputs: PendingInput[]
+  activeTurns: ActiveTurnSnapshot[]
+  activeRun?: RunSnapshot
 }
 
 /**
@@ -201,10 +219,23 @@ export interface ChatSessionSnapshot {
   pendingQuestionBatches?: QuestionBatchPayload[]
 }
 
+/** V2 timeline snapshot is intentionally separate from the legacy session snapshot. */
+export interface ChatTimelineSnapshot {
+  chatId: string
+  revision: number
+  messages: CanonicalMessage[]
+  nextCursor?: string
+  eventSeq?: number
+}
+
+export type ChatTimelinePatch = TimelinePatch
+export type ChatEventV2 = ChatSessionEvent
+
 /** WS 事件统一入口类型（chunk + notification 共用 applyEvent）。 */
 export type ChatEvent =
   | ({ kind: 'chunk' } & ChunkMessage)
   | ({ kind: 'notification' } & NotificationMessage)
+  | ({ kind: 'session' } & ChatSessionEvent)
 
 /** 实时 stream delta data（别名，语义明确）。 */
 export type { StreamChunkData, StagedChunkData }

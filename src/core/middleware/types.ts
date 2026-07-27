@@ -19,6 +19,10 @@ export type { LLMAdapter } from '../llm/adapter'
  * 用户输入条目
  */
 export interface UserInputEntry {
+  inputId?: string
+  messageId?: string
+  clientMessageId?: string
+  commandId?: string
   content: string
   time: number
 }
@@ -113,6 +117,10 @@ export interface AgentMessage {
   revoked?: boolean
   contextCompaction?: boolean
   contextCompactionTokens?: number
+  /** Command-plane correlation carried through consumption notification. */
+  inputId?: string
+  clientMessageId?: string
+  commandId?: string
 }
 
 /**

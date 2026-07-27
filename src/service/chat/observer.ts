@@ -4,6 +4,10 @@ import {
   markMessageReplaced,
   updateAssistantSenseCalls,
   updateChatMetadata,
+  getMessages,
+  getChat,
+  parseMessageRow,
+  getTimelineRevision,
 } from '@/db/chat.js'
 import { getChatSelection } from './runtime.js'
 import { approvalManager } from '../approval/manager.js'
@@ -16,6 +20,73 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { getWaitedParent, feedWatchdog } from '@/agent/spawnBroker.js'
 import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
 import { createQuestionBatch } from '@/db/question.js'
+import { connectionManager } from '../websocket/connection.js'
+import { transport } from '../websocket/transport.js'
+import { appendChatEvent } from '@/db/delivery.js'
+import { createNotification, type CanonicalMessage } from '../message/types.js'
+
+function emitTimelinePatch(chatId: string, baseRevision: number): void {
+  const rows = getMessages(chatId)
+  const chat = getChat(chatId)
+  const senseResults = new Map(rows.filter((r) => r.role === 'sense').map((r) => [r.id, r]))
+  let runtime: { brain: string; senseGroup: string; mcpServers: string[] } | undefined
+  const messages: CanonicalMessage[] = rows.map((row) => {
+    const parsed = parseMessageRow(row)
+    if (parsed.role === 'user' && parsed.runtime) runtime = parsed.runtime
+    const role = parsed.role === 'system' || parsed.role === 'subagent' ? 'role' : parsed.role
+    const senseCalls = (parsed.senseCall ?? []).map((call) => {
+      const result = senseResults.get(call.id)
+      return {
+        ...call,
+        ...(result?.content ? { result: result.content } : {}),
+        status:
+          result?.revoked === 1
+            ? ('rejected' as const)
+            : result?.content
+              ? ('accepted' as const)
+              : ('pending' as const),
+      }
+    })
+    return {
+      id: row.id,
+      chatId,
+      role: role as CanonicalMessage['role'],
+      content: parsed.content ?? '',
+      ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
+      createdAt: row.created_at,
+      updatedAt: row.created_at,
+      status: row.revoked === 1 ? 'revoked' : 'committed',
+      ...(parsed.role === 'user' && runtime ? { runtime } : {}),
+      ...(senseCalls.length > 0 ? { senseCalls } : {}),
+      ...(chat?.parent_chat_id
+        ? { origin: { parentChatId: chat.parent_chat_id, childChatId: chatId } }
+        : {}),
+    }
+  })
+  const revision = getTimelineRevision(chatId)
+  const notification = createNotification(
+    'timeline.patch',
+    undefined,
+    {
+      chatId,
+      baseRevision,
+      revision,
+      operations: messages.map((message) => ({ type: 'upsert' as const, message })),
+    },
+    { chatId },
+  )
+  notification.seq = appendChatEvent(chatId, notification as unknown as Record<string, unknown>)
+  for (const ws of connectionManager.getChatOutputs(chatId)) {
+    if (ws.readyState !== ws.OPEN) continue
+    for (const routed of connectionManager.prepareSessionEvent(ws, notification)) {
+      try {
+        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+      } catch (err) {
+        logger.event('timeline.patch.send_failed', { chatId, message: (err as Error).message })
+      }
+    }
+  }
+}
 
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
@@ -40,6 +111,7 @@ export async function* observeAgentChunks(
       feedWatchdog(chatId)
       if (chunk.type === 'message_created') {
         if (!syncedIds.has(chunk.message.id)) {
+          const baseRevision = getTimelineRevision(chatId)
           addMessage(chunk.message.id, chatId, {
             role: chunk.message.role,
             content: chunk.message.content,
@@ -53,6 +125,7 @@ export async function* observeAgentChunks(
             runtime: chunk.message.role === 'user' ? getChatSelection(chatId) : undefined,
           })
           syncedIds.add(chunk.message.id)
+          emitTimelinePatch(chatId, baseRevision)
           // user 消息落库后回调（send.ts 据此回 userMsgId 给前端做实时 push + msgId dedup）
           if (chunk.message.role === 'user' && onUserMessageCreated) {
             onUserMessageCreated(chunk.message.id)
@@ -70,6 +143,7 @@ export async function* observeAgentChunks(
       }
 
       if (chunk.type === 'message_updated') {
+        const baseRevision = getTimelineRevision(chatId)
         if (chunk.patch.kind === 'replace') {
           // 感官去重命中：content 改说明文字 + replace 状态 + originalContent 落库
           markMessageReplaced(chatId, chunk.id, {
@@ -78,6 +152,7 @@ export async function* observeAgentChunks(
             originalContent: chunk.patch.originalContent,
           })
           syncedIds.add(chunk.id)
+          emitTimelinePatch(chatId, baseRevision)
           logger.event('message.replaced.db', { messageId: chunk.id, by: chunk.patch.replace.by })
           // yield 出去让 streamAgentChunks 转 "replaced" notification，
           // 通知 web 实时更新对应历史 sense block（而非等下次 chat.get 回放）。
@@ -92,6 +167,7 @@ export async function* observeAgentChunks(
           hash: chunk.patch.hash,
         })
         syncedIds.add(chunk.id)
+        emitTimelinePatch(chatId, baseRevision)
         logger.event('message.updated', {
           messageId: chunk.id,
           contentLen: chunk.patch.content?.length ?? 0,
@@ -100,7 +176,9 @@ export async function* observeAgentChunks(
 
         // 流式多 sense_call reconcile：patch 仅含 senseCalls 时调 updateAssistantSenseCalls（独立 UPDATE）
         if (chunk.patch.senseCalls) {
+          const senseBaseRevision = getTimelineRevision(chatId)
           updateAssistantSenseCalls(chatId, chunk.id, chunk.patch.senseCalls)
+          emitTimelinePatch(chatId, senseBaseRevision)
           logger.event('message.updated.sense_calls', {
             messageId: chunk.id,
             senseCalls: chunk.patch.senseCalls.length,
@@ -201,6 +279,7 @@ export async function* observeAgentChunks(
       if (m.revoked) continue
       if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'sense') continue
       if (syncedIds.has(m.id)) continue
+      const baseRevision = getTimelineRevision(chatId)
       addMessage(m.id, chatId, {
         role: m.role,
         content: m.content,
@@ -214,6 +293,7 @@ export async function* observeAgentChunks(
         runtime: m.role === 'user' ? getChatSelection(chatId) : undefined,
       })
       syncedIds.add(m.id)
+      emitTimelinePatch(chatId, baseRevision)
     }
   }
 }

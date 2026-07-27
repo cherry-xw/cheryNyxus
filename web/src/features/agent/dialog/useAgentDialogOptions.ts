@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { UploadFile } from 'element-plus'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import {
   agentApi,
   fetchServerConfig,
@@ -54,6 +54,7 @@ export interface ComboCommandGroup {
 
 export function useAgentDialogOptions() {
   const agents = useAgentsStore()
+  const chatSessions = useChatSessionsStore()
 
   const chatId = computed<string | null>(() => agents.activeDialogChatId)
   const pet = computed<PetInstance | undefined>(() =>
@@ -431,12 +432,16 @@ export function useAgentDialogOptions() {
         kind: m.kind,
         mimeType: m.mimeType,
       }))
-      await agents.sendMessage(chatId.value, composeCommandPrompt(text.value), attachments)
+      // V2 command plane: ACK the input independently from the agent run. Opening
+      // the session first guarantees the subsequent input.updated/turn events are
+      // observed by the authoritative ChatSession reducer.
+      await chatSessions.openSession(chatId.value)
+      await chatSessions.submitInput(chatId.value, composeCommandPrompt(text.value), attachments)
       resetEditor()
       close()
     } catch (e) {
       error.value = (e as Error).message
-      console.error('[AgentDialog] sendMessage failed:', e)
+      console.error('[AgentDialog] submit input failed:', e)
     } finally {
       sending.value = false
     }
@@ -751,7 +756,10 @@ export function useAgentDialogOptions() {
     const top =
       anchorRect.top - popoverRect.height - 8 >= horizontalPadding
         ? anchorRect.top - popoverRect.height - 8
-        : Math.min(window.innerHeight - popoverRect.height - horizontalPadding, anchorRect.bottom + 8)
+        : Math.min(
+            window.innerHeight - popoverRect.height - horizontalPadding,
+            anchorRect.bottom + 8,
+          )
     const left = Math.min(
       Math.max(horizontalPadding, anchorRect.left),
       window.innerWidth - popoverRect.width - horizontalPadding,

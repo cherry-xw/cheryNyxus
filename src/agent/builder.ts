@@ -8,6 +8,7 @@ import config from '@/utils/config'
 import buildFirstSystemPrompt from '@/agent/prompt/index'
 import type { RoleMentionInfo } from '@/agent/prompt/index'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
+import type { UserInputEntry } from '@/core/middleware/types'
 import { randomUUID } from 'crypto'
 import { RuntimeResolver, type RuntimeSelection } from './runtimeResolver.js'
 
@@ -105,7 +106,11 @@ export class AgentBuilder {
    */
   run(
     input: string,
-    options?: { extraUserMessages?: string[] },
+    options?: {
+      extraUserMessages?: string[]
+      inputMeta?: Omit<Partial<UserInputEntry>, 'content' | 'time'>
+      inputAlreadyQueued?: boolean
+    },
   ): AsyncGenerator<MiddlewareChunk, void, unknown> {
     return this.requireAgent().send(input, options)
   }
@@ -142,6 +147,14 @@ export class AgentBuilder {
    */
   getMessages(): LLMResponse[] {
     return this.requireAgent().getMessages()
+  }
+
+  getPendingInputs() {
+    return this.requireAgent().getPendingInputs()
+  }
+
+  enqueueInput(content: string, metadata?: Omit<Partial<UserInputEntry>, 'content' | 'time'>) {
+    return this.requireAgent().enqueueInput(content, metadata)
   }
 
   /**

@@ -24,7 +24,7 @@ import { breakdownUsed } from '@/utils/token.js'
 import { computeContextBreakdown } from './contextUsage.js'
 import { maybeAutoCompactAfterDone } from './autoCompact.js'
 import { computeContextUsage } from '@/utils/token.js'
-import { getChat, getLastMessage } from '@/db/chat.js'
+import { getChat, getLastMessage, markPendingInputsConsumed } from '@/db/chat.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { computeCanResume } from './canResume.js'
 import config from '@/utils/config.js'
@@ -49,6 +49,8 @@ export async function* streamAgentChunks(
   // 失败守卫：error chunk 已出现时抑制后续 done notification（不让 loop 失败路径下发 done）。
   // runChain 内 ErrorChunk 是「流失败」信号；done 仅代表 loop 正常完成。
   let errored = false
+  const turnStarted = new Set<string>()
+  const offsets = new Map<string, { thinking: number; content: number }>()
   for await (const chunk of generator) {
     if (chunk.type === 'stream') {
       if (!chunk.msgId || typeof chunk.createdAt !== 'number') {
@@ -68,6 +70,38 @@ export async function* streamAgentChunks(
         streamData.senseCall = chunk.senseDelta
       }
       yield createChunk('stream', rid, streamData, { chatId, runId })
+      const turnId = chunk.msgId
+      const state = offsets.get(turnId) ?? { thinking: 0, content: 0 }
+      if (!turnStarted.has(turnId)) {
+        turnStarted.add(turnId)
+        yield createNotification(
+          'turn.started',
+          rid,
+          { turnId, messageId: turnId, runId, createdAt: chunk.createdAt },
+          { chatId, runId },
+        )
+      }
+      if (chunk.thinkingDelta) {
+        const offset = state.thinking
+        state.thinking += chunk.thinkingDelta.length
+        yield createNotification(
+          'turn.delta',
+          rid,
+          { turnId, messageId: turnId, channel: 'thinking', offset, delta: chunk.thinkingDelta },
+          { chatId, runId },
+        )
+      }
+      if (chunk.contentDelta) {
+        const offset = state.content
+        state.content += chunk.contentDelta.length
+        yield createNotification(
+          'turn.delta',
+          rid,
+          { turnId, messageId: turnId, channel: 'content', offset, delta: chunk.contentDelta },
+          { chatId, runId },
+        )
+      }
+      offsets.set(turnId, state)
     } else if (chunk.type === 'staged') {
       const staged = chunk as StagedChunk
       const stagedData: StagedChunkData = {
@@ -198,11 +232,18 @@ export async function* streamAgentChunks(
           content: message.content,
           createdAt: message.createdAt,
           updateAt: message.updateAt ?? message.createdAt,
+          ...(message.inputId ? { inputId: message.inputId } : {}),
+          ...(message.clientMessageId ? { clientMessageId: message.clientMessageId } : {}),
+          ...(message.commandId ? { commandId: message.commandId } : {}),
         }
       })
       if (messages.length !== consumed.count) {
         throw new Error('consumed message count mismatch')
       }
+      markPendingInputsConsumed(
+        chatId,
+        messages.flatMap((message) => (message.inputId ? [message.inputId] : [])),
+      )
       logger.event('input.consumed', { count: consumed.count })
       yield createNotification(
         'consumed',
@@ -210,6 +251,20 @@ export async function* streamAgentChunks(
         { count: consumed.count, messages },
         { chatId, runId },
       )
+      for (const message of messages) {
+        if (!message.inputId) continue
+        yield createNotification(
+          'input.updated',
+          rid,
+          {
+            inputId: message.inputId,
+            clientMessageId: message.clientMessageId,
+            messageId: message.id,
+            state: 'consumed',
+          },
+          { chatId, runId },
+        )
+      }
     } else if (chunk.type === 'error') {
       const e = chunk as ErrorChunk
       const info = e.errors[0]
@@ -302,6 +357,14 @@ export async function* streamAgentChunks(
         },
         { chatId, runId },
       )
+      for (const turnId of turnStarted) {
+        yield createNotification(
+          'turn.completed',
+          rid,
+          { turnId, messageId: turnId },
+          { chatId, runId },
+        )
+      }
     } else if (chunk.type === 'message_updated') {
       // kind:"replace" 的 message_updated = 感官去重命中（observeAgentChunks 已落库），
       // 转 "replaced" notification 通知 web 实时更新历史 sense block；content kind 不传 web。

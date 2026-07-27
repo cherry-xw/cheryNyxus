@@ -6,6 +6,7 @@ import type {
   MiddlewareHandler,
   LoopHandler,
   SoulGroup,
+  UserInputEntry,
 } from './types'
 import type { LLMResponse } from '../message/adapter'
 import type { GlobalConfig } from '@/utils/config'
@@ -89,6 +90,15 @@ export default class AgentSession<T = unknown> {
     return this.senseTableVersion !== getSenseRegistryVersion()
   }
 
+  /** Queue one command-plane input before starting the run. Returns stable IDs
+   * used by chat.input.submit ACK and consumed message persistence. */
+  enqueueInput(
+    content: string,
+    metadata?: Omit<Partial<UserInputEntry>, 'content' | 'time'>,
+  ): UserInputEntry | undefined {
+    return this.journal.appendUserInput(content, metadata)
+  }
+
   /**
    * 发送消息并返回 generator。
    * 空闲时入队并启动一次完整 loop；运行中调用只入队，由当前 loop 的下一轮自动消费。
@@ -101,7 +111,11 @@ export default class AgentSession<T = unknown> {
    */
   async *send(
     input: string,
-    options?: { extraUserMessages?: string[] },
+    options?: {
+      extraUserMessages?: string[]
+      inputMeta?: Omit<Partial<UserInputEntry>, 'content' | 'time'>
+      inputAlreadyQueued?: boolean
+    },
   ): AsyncGenerator<T, void, unknown> {
     this.requireInitialized()
     this.requireRuntime()
@@ -114,7 +128,7 @@ export default class AgentSession<T = unknown> {
         this.journal.appendUserInput(extra)
       }
     }
-    this.journal.appendUserInput(input)
+    if (!options?.inputAlreadyQueued) this.journal.appendUserInput(input, options?.inputMeta)
     yield* this.pipeline.run()
     if (compactRequested) this.journal.compactToLatestSummary()
   }
@@ -126,6 +140,11 @@ export default class AgentSession<T = unknown> {
    */
   getMessages(): LLMResponse[] {
     return this.journal.getMessages()
+  }
+
+  /** Read-only queued user input snapshot for session recovery. */
+  getPendingInputs() {
+    return this.journal.getPendingInputs()
   }
 
   /**

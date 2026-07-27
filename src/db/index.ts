@@ -93,6 +93,22 @@ function initSoulTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_request_journal_updated ON request_journal(updated_at);
 
+    CREATE TABLE IF NOT EXISTS pending_inputs (
+      input_id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      client_message_id TEXT,
+      command_id TEXT NOT NULL UNIQUE,
+      content TEXT NOT NULL,
+      queue_sequence INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      accepted_at INTEGER NOT NULL,
+      consumed_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pending_inputs_chat_state
+      ON pending_inputs(chat_id, state, queue_sequence);
+
     CREATE TABLE IF NOT EXISTS spawn_tasks (
       task_id TEXT PRIMARY KEY,
       child_chat_id TEXT NOT NULL UNIQUE,
@@ -108,9 +124,32 @@ function initSoulTables(db: Database.Database): void {
     );
 
     CREATE INDEX IF NOT EXISTS idx_spawn_tasks_parent_status ON spawn_tasks(parent_chat_id, status);
+
+    /* Cross-chat causality.  This deliberately lives in soul.db (rather than
+       the month-sharded message DB) so a root timeline can join messages from
+       chats created in different months without cross-database SQL. */
+    CREATE TABLE IF NOT EXISTS message_links (
+      message_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      source_chat_id TEXT NOT NULL,
+      parent_chat_id TEXT,
+      spawn_id TEXT,
+      spawn_call_id TEXT,
+      related_message_id TEXT,
+      relation TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_message_links_root_time
+      ON message_links(root_chat_id, created_at, message_id);
+    CREATE INDEX IF NOT EXISTS idx_message_links_spawn
+      ON message_links(spawn_id, relation);
   `)
   // P1-8：旧库 chats 表无 message_count，CREATE IF NOT EXISTS 跳过建表，按列检查补 ALTER。
   ensureChatColumn(db, 'message_count', 'INTEGER NOT NULL DEFAULT 0')
+  // V2 timeline monotonic revision. A revision is advanced whenever a
+  // persisted message projection changes; old databases are upgraded lazily.
+  ensureChatColumn(db, 'timeline_revision', 'INTEGER NOT NULL DEFAULT 0')
   // CP1 主从 Agent：旧库缺 parent_chat_id 列，按列检查补 ALTER（TEXT 缺省 NULL，无需回填）。
   ensureChatColumn(db, 'parent_chat_id', 'TEXT')
 }

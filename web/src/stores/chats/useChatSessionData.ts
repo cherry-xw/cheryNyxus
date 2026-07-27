@@ -15,6 +15,8 @@ import type { ApprovalState, QuestionItemState, RunningTool } from '../agents/ty
 import type {
   ContextBreakdown,
   RuntimeSelection,
+  PendingInput,
+  ActiveTurnSnapshot,
 } from '@/services/agentApi'
 import {
   selectBubble,
@@ -61,13 +63,20 @@ export interface ChatSessionData {
   approvalQueue: ComputedRef<ApprovalState[]>
   questionItems: ComputedRef<QuestionItemState[]>
   activeQuestionId: ComputedRef<string | undefined>
-  activeQuestion: ComputedRef<{ batch: { batchId: string; questions: QuestionItemState[] }; question: QuestionItemState } | undefined>
+  activeQuestion: ComputedRef<
+    | { batch: { batchId: string; questions: QuestionItemState[] }; question: QuestionItemState }
+    | undefined
+  >
   runningTools: ComputedRef<RunningTool[]>
   currentTodo: ComputedRef<unknown[] | undefined>
   loaded: ComputedRef<boolean>
   ownTimeline: ComputedRef<HistoryItem[]>
   /** 群聊时间线（root + descendants 聚合）；子 chat 自身抽屉用 ownTimeline。 */
   groupTimeline: ComputedRef<HistoryItem[]>
+  /** V2 session-plane transient inputs/turns; never folded into canonical history. */
+  pendingInputs: ComputedRef<PendingInput[]>
+  activeTurns: ComputedRef<ActiveTurnSnapshot[]>
+  timelineRevision: ComputedRef<number | undefined>
 }
 
 /**
@@ -101,9 +110,7 @@ export function useChatSessionData(chatId: (() => string | undefined) | string):
     session.value ? selectContextBreakdown(session.value!) : undefined,
   )
   const approval = computed(() => (session.value ? selectApproval(session.value!) : undefined))
-  const approvalQueue = computed(() =>
-    session.value ? selectApprovalQueue(session.value!) : [],
-  )
+  const approvalQueue = computed(() => (session.value ? selectApprovalQueue(session.value!) : []))
   const questionBatches = computed(() =>
     session.value ? selectQuestionBatches(session.value!) : [],
   )
@@ -119,7 +126,9 @@ export function useChatSessionData(chatId: (() => string | undefined) | string):
     return qid ? findQuestionFromBatches(batches, qid) : undefined
   })
   const runningTools = computed(() => (session.value ? selectRunningTools(session.value!) : []))
-  const currentTodo = computed(() => (session.value ? selectCurrentTodo(session.value!) : undefined))
+  const currentTodo = computed(() =>
+    session.value ? selectCurrentTodo(session.value!) : undefined,
+  )
   const loaded = computed(() => (session.value ? selectLoaded(session.value!) : false))
   const ownTimeline = computed<HistoryItem[]>(() => {
     const s = session.value
@@ -130,6 +139,9 @@ export function useChatSessionData(chatId: (() => string | undefined) | string):
     if (!id) return []
     return selectGroupTimeline(store.sessionsById, id)
   })
+  const pendingInputs = computed(() => session.value?.pendingInputs ?? [])
+  const activeTurns = computed(() => session.value?.activeTurns ?? [])
+  const timelineRevision = computed(() => session.value?.sync.timelineRevision)
 
   return {
     session,
@@ -151,6 +163,9 @@ export function useChatSessionData(chatId: (() => string | undefined) | string):
     loaded,
     ownTimeline,
     groupTimeline,
+    pendingInputs,
+    activeTurns,
+    timelineRevision,
   }
 }
 
@@ -164,7 +179,9 @@ function flattenQuestionItemsFromBatches(
 function findQuestionFromBatches(
   batches: ReturnType<typeof selectQuestionBatches>,
   questionId: string,
-): { batch: { batchId: string; questions: QuestionItemState[] }; question: QuestionItemState } | undefined {
+):
+  | { batch: { batchId: string; questions: QuestionItemState[] }; question: QuestionItemState }
+  | undefined {
   for (const batch of batches) {
     const question = batch.questions.find((q) => q.questionId === questionId)
     if (question) return { batch: { batchId: batch.batchId, questions: batch.questions }, question }

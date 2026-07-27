@@ -1,5 +1,5 @@
 import { computed, inject, type ComputedRef, type InjectionKey } from 'vue'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import type { HistoryItem } from '@/stores/agents'
 
 /**
@@ -53,6 +53,7 @@ export const HISTORY_DRAWER_MANAGER_KEY: InjectionKey<HistoryDrawerManager> =
  */
 export function createHistoryDrawerManager(): HistoryDrawerManager {
   const store = useAgentsStore()
+  const chatSessions = useChatSessionsStore()
   const historyCache = new Map<string, HistoryCacheEntry>()
 
   return {
@@ -62,10 +63,26 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
     closeTop: () => store.closeHistoryTop(),
     closeAll: () => store.closeAllHistory(),
     async loadHistory(chatId: string) {
-      // TODO(消息缓存): historyCache 命中（如 5 分钟内）→ 直接写 stream.history + historyLoaded=true 跳过 RPC。
-      //   实时对话一致性需脏标记/版本号失效配合（sendMessage done / child_done / spawn 标脏），
-      //   当前一律全量 store.getHistory，避免缓存陈旧掩盖新消息。historyCache Map 结构已就位。
-      await store.getHistory(chatId)
+      // V2 timeline is authoritative. Open the root and all currently known
+      // descendants so group selectors can aggregate canonical messages without
+      // replaying legacy chat.get/staged history.
+      const ids = new Set<string>([chatId])
+      for (const pet of store.pets) {
+        let parent = pet.parentChatId
+        const seen = new Set<string>()
+        while (parent && !seen.has(parent)) {
+          if (parent === chatId) {
+            ids.add(pet.chatId)
+            break
+          }
+          seen.add(parent)
+          parent = store.pets.find((candidate) => candidate.chatId === parent)?.parentChatId
+        }
+      }
+      await Promise.all([...ids].map((id) => chatSessions.openSession(id)))
+      // Root projection is the authoritative group history. Child sessions are
+      // still opened for direct/ghost views and active runtime state.
+      await chatSessions.openRootTimeline(chatId, 'conversation')
     },
     historyCache,
   }

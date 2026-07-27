@@ -71,6 +71,8 @@
 
 ## 按主题（横切参考）
 
+协议 V2 与多 Agent 根时间线的当前实现，以 [multi-agent-canonical-timeline.md](./multi-agent-canonical-timeline.md) 为最终落实规范；`protocol.md`、`interaction.md` 和前端绑定手册中的旧 `chat.get/chat.sync/chat.attach` 流程仅描述兼容期行为。
+
 | 文档 | 内容 |
 |------|------|
 | [system-prompt.md](./system-prompt.md) | **提示词来源汇总入口**：主 system message 组装、额外 system/user 消息、Tools 边界、缓存与生效时机 |

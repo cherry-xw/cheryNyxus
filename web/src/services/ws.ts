@@ -19,6 +19,8 @@ export interface RpcResponse {
 
 type ChunkHandler = (chunk: unknown) => void
 type NotificationHandler = (notification: unknown) => void
+/** V2 session/timeline event handler. Kept separate from legacy chunk/notification subscriptions. */
+type EventHandler = (event: unknown) => void
 type StatusHandler = (status: ConnectionStatus) => void
 
 interface PendingRequest {
@@ -69,6 +71,7 @@ export class WsClient {
   private status: ConnectionStatus = 'disconnected'
   private chunkHandlers = new Set<ChunkHandler>()
   private notificationHandlers = new Set<NotificationHandler>()
+  private eventHandlers = new Set<EventHandler>()
   private statusHandlers = new Set<StatusHandler>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private shouldReconnect = false
@@ -139,6 +142,12 @@ export class WsClient {
   onNotification(handler: NotificationHandler): () => void {
     this.notificationHandlers.add(handler)
     return () => this.notificationHandlers.delete(handler)
+  }
+
+  /** Subscribe to every non-RPC event, including V2 session and timeline events. */
+  onEvent(handler: EventHandler): () => void {
+    this.eventHandlers.add(handler)
+    return () => this.eventHandlers.delete(handler)
   }
 
   onStatus(handler: StatusHandler): () => void {
@@ -219,7 +228,7 @@ export class WsClient {
     if (!msg || typeof msg !== 'object') return
 
     const kind = (msg as { kind?: string }).kind
-    const envelope = msg as { chatId?: unknown; seq?: unknown }
+    const envelope = msg as { chatId?: unknown; seq?: unknown; eventSeq?: unknown }
     if (kind === 'response') {
       const response = msg as RpcResponse
       const pending = this.pending.get(response.requestId)
@@ -230,15 +239,23 @@ export class WsClient {
       }
       return
     }
-    if (typeof envelope.chatId === 'string' && typeof envelope.seq === 'number') {
+    // V2 renames the per-chat cursor to eventSeq. The same ordered gap buffer
+    // is deliberately reused; both protocols remain safe during migration.
+    const sequence =
+      typeof envelope.seq === 'number'
+        ? envelope.seq
+        : typeof envelope.eventSeq === 'number'
+          ? envelope.eventSeq
+          : undefined
+    if (typeof envelope.chatId === 'string' && sequence !== undefined) {
       const consumed = this.chatSeq.get(envelope.chatId) ?? 0
-      if (envelope.seq <= consumed) return
+      if (sequence <= consumed) return
       let pending = this.pendingChatEvents.get(envelope.chatId)
       if (!pending) {
         pending = new Map()
         this.pendingChatEvents.set(envelope.chatId, pending)
       }
-      pending.set(envelope.seq, msg)
+      pending.set(sequence, msg)
       this.drainChatEvents(envelope.chatId)
       return
     }
@@ -263,6 +280,7 @@ export class WsClient {
   }
 
   private dispatchEvent(msg: unknown, kind: unknown): void {
+    this.eventHandlers.forEach((h) => h(msg))
     if (kind === 'chunk') {
       this.chunkHandlers.forEach((h) => h(msg))
     } else if (kind === 'notification') {

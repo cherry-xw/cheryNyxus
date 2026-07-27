@@ -4,6 +4,7 @@ import {
   getChat,
   listAllChats,
   getMessages,
+  getLastMessage,
   parseMessageRow,
 } from '@/db/chat.js'
 import { safeJsonParse } from '@/utils/json.js'
@@ -14,7 +15,7 @@ import { createNotification } from '../message/types.js'
 import { clearWaitedChild, registerWaitedChild, type WakePolicy } from '@/agent/spawnBroker.js'
 import config from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
-import { appendChatEvent } from '@/db/delivery.js'
+import { appendChatEvent, getSpawnTaskByChild } from '@/db/delivery.js'
 import {
   completeQuestionBatch,
   type CompletedQuestionBatch,
@@ -25,7 +26,9 @@ import {
 function broadcastChatNotification(chatId: string, notification: unknown): boolean {
   const targets = connectionManager.getChatOutputs(chatId)
   for (const ws of targets) {
-    ws.send(transport.encode(notification as Parameters<typeof transport.encode>[0]))
+    for (const routed of connectionManager.prepareSessionEvent(ws, notification)) {
+      ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+    }
   }
   return targets.length > 0
 }
@@ -71,7 +74,19 @@ export async function wakeParent(
   const builder = await ensureChat(parentChatId)
   const parentWasRunning = builder.isRunning()
   const msgId = builder.appendRoleReply(formattedContent, { silent })
-  addMessage(msgId, parentChatId, { role: 'role', content: formattedContent })
+  const childLastMessage = getLastMessage(childChatId)
+  const spawnTask = getSpawnTaskByChild(childChatId)
+  addMessage(msgId, parentChatId, {
+    role: 'role',
+    content: formattedContent,
+    link: {
+      relation: 'child_return',
+      sourceChatId: childChatId,
+      parentChatId,
+      spawnId: spawnTask?.taskId,
+      relatedMessageId: childLastMessage?.id,
+    },
+  })
 
   // 持久幂等标记：子 chat metadata.roleInjected=true。重启后 rebuildWaitedChildren 据此跳过，
   // 避免对已 live 唤过的子再调 wakeParent 落第二行同内容 role DB 行（前端渲染重复两条）。

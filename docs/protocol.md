@@ -2,6 +2,10 @@
 
 > [← 返回 README](../README.md) ｜ [交互流程示例](interaction.md) ｜ [数据存储](db.md)
 
+> **当前实现说明（V2）**：连续输入、权威历史和多 Agent 根时间线的最新契约见
+> [multi-agent-canonical-timeline.md](multi-agent-canonical-timeline.md)。本文保留旧
+> `chat.get/chat.sync/chat.attach`、staged chunk 等兼容期帧格式；新代码不得据此重新设计前端历史重组。
+
 **连接地址：** `ws://localhost:8182`（端口通过 `.chery/config.yaml` 的 `server.port` 配置）
 
 **消息模式：** RPC 模式，四种消息类型：

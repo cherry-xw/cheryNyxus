@@ -9,6 +9,12 @@
 > 2. **后端改协议** —— 按组件反查「哪些 API 字段是哪些组件的依赖」，评估改字段的影响面。
 > 3. **多 agent 场景扩展** —— 已有组件是否要按 chat 类型分叉 / 新增独立组件 / 复用现有。
 
+> **V2 当前实现覆盖**：前端新增 `web/src/stores/chats` ChatSession 数据层与 root timeline 缓存。
+> `agentApi.getRootTimeline({ rootChatId, view })` 消费后端 `chat.timeline.get` 的
+> `RootTimelineSnapshot`；HistoryDrawer 的 group 视图从 `TimelineNode.actor/target/direction`
+> 映射头像和主→子/子→主样式，工具结果由后端归并。本文后续 `StreamState` / `chat.sync` 表格是
+> 兼容期组件的现状，不应覆盖 [multi-agent-canonical-timeline.md](../multi-agent-canonical-timeline.md) 的 V2 契约。
+
 ---
 
 ## 0. 三层模型

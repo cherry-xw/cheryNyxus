@@ -3,7 +3,7 @@ import type { LLMResponse, ReplaceInfo, ThinkingBlock } from '../message/adapter
 import type { Logger } from '@/utils/logger/types'
 import { LogLevel } from '@/utils/logger/types'
 import { estimateTokens } from '@/utils/token.js'
-import type { AgentMessage, AgentMessagePatch, SoulGroup } from './types'
+import type { AgentMessage, AgentMessagePatch, SoulGroup, UserInputEntry } from './types'
 
 /**
  * 消息变更结果（Journal 写操作的返回，供 checkpoint yield message_created/message_updated effect）。
@@ -13,8 +13,17 @@ export type MessageMutation =
   | { type: 'created'; message: AgentMessage }
   | { type: 'updated'; id: string; patch: AgentMessagePatch }
 
-/** P1-3：userInputs 队列容量上限，超限丢弃最早（背压，防高频 send 无限堆积拖长 loop 串行消费） */
+/** P1-3：userInputs 队列容量上限；超限必须显式拒绝，不能静默丢弃已接受输入。 */
 const MAX_USER_INPUTS = 16
+
+export class UserInputQueueFullError extends Error {
+  readonly code = 'INPUT_QUEUE_FULL'
+
+  constructor() {
+    super('输入队列已满，请稍后重试')
+    this.name = 'UserInputQueueFullError'
+  }
+}
 
 /**
  * 从压缩回复中提取 <summary> 块正文（compact.md 约定回复为 <analysis> + <summary> 两块）。
@@ -43,19 +52,48 @@ export class MessageJournal {
     private readonly log: Logger,
   ) {}
 
-  /** 入队用户输入（背压：超 MAX_USER_INPUTS 丢弃最早）。空串跳过。 */
-  appendUserInput(content: string): void {
+  /** Snapshot queued inputs without mutating the queue (session-plane hydration). */
+  getPendingInputs(): ReadonlyArray<UserInputEntry> {
+    return this.soul.userInputs.map((entry) => ({ ...entry }))
+  }
+
+  /** 入队用户输入（背压：超 MAX_USER_INPUTS 显式拒绝）。空串跳过。 */
+  appendUserInput(
+    content: string,
+    metadata?: Omit<Partial<UserInputEntry>, 'content' | 'time'>,
+  ): UserInputEntry | undefined {
     const trimmed = content.trim()
-    if (!trimmed) return
+    if (!trimmed) return undefined
     if (this.soul.userInputs.length >= MAX_USER_INPUTS) {
-      this.soul.userInputs.shift()
-      this.log.event(
-        'input.dropped',
-        { reason: 'max-user-inputs', limit: MAX_USER_INPUTS },
-        LogLevel.warn,
-      )
+      // V2 command inputs carry a commandId and must never be silently lost.
+      // Legacy chat.send has historical drop-oldest backpressure semantics;
+      // keep that compatibility path until the old command is removed.
+      if (!metadata?.commandId) {
+        this.soul.userInputs.shift()
+        this.log.event(
+          'input.dropped',
+          { reason: 'max-user-inputs', limit: MAX_USER_INPUTS },
+          LogLevel.warn,
+        )
+      } else {
+        this.log.event(
+          'input.rejected',
+          { reason: 'max-user-inputs', limit: MAX_USER_INPUTS },
+          LogLevel.warn,
+        )
+        throw new UserInputQueueFullError()
+      }
     }
-    this.soul.userInputs.push({ content: trimmed, time: Date.now() })
+    const entry: UserInputEntry = {
+      content: trimmed,
+      time: Date.now(),
+      ...(metadata?.inputId ? { inputId: metadata.inputId } : {}),
+      ...(metadata?.messageId ? { messageId: metadata.messageId } : {}),
+      ...(metadata?.clientMessageId ? { clientMessageId: metadata.clientMessageId } : {}),
+      ...(metadata?.commandId ? { commandId: metadata.commandId } : {}),
+    }
+    this.soul.userInputs.push(entry)
+    return entry
   }
 
   /**
@@ -69,7 +107,7 @@ export class MessageJournal {
     const messages = this.soul.messages ?? []
     const created: AgentMessage[] = []
     for (const input of inputs) {
-      const msgId = randomUUID()
+      const msgId = input.messageId ?? randomUUID()
       const updateAt = Date.now()
       messages.push({
         id: msgId,
@@ -84,6 +122,9 @@ export class MessageJournal {
         content: input.content,
         createdAt: input.time,
         updateAt,
+        ...(input.inputId ? { inputId: input.inputId } : {}),
+        ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
+        ...(input.commandId ? { commandId: input.commandId } : {}),
       })
     }
     this.soul.messages = messages

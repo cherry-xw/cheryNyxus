@@ -78,7 +78,7 @@ const MIME_EXT: Record<string, string> = {
  * enrichMediaInputs 仍以文本标记为解析入口；前端不再发 marker，服务端补 marker 保持向后兼容。
  * 当 mimeType 不在映射中时使用 .bin（MIME_KIND 已先在 saveMediaAsset 校验）。
  */
-function attachmentsToPromptMarkers(
+export function attachmentsToPromptMarkers(
   attachments: ChatSendRequestData['attachments'],
   basePrompt: string,
 ): string {
@@ -130,7 +130,10 @@ export async function* handleChatSend(
   // 避免空 generator（isRunning 时 send return 空 gen）立即结束而 finally 误释放当前活跃连接绑定（P0-1）。
   // 新输出跟随当前活跃流发出，客户端无需此流响应。
   if (agent.isRunning()) {
-    for await (const _ of agent.run(promptWithAttachments)) {
+    for await (const _ of agent.run(promptWithAttachments, {
+      inputMeta: data.inputMeta,
+      inputAlreadyQueued: data.inputAlreadyQueued,
+    })) {
       /* 运行中 send 不产出 chunk，迭代仅为触发 send body 入队 */
     }
     logger.event('chat.send.queued', {
@@ -207,6 +210,8 @@ export async function* handleChatSend(
       agent.run(cmdInjection.userPrompt, {
         extraUserMessages:
           cmdInjection.extraUserMessages.length > 0 ? cmdInjection.extraUserMessages : undefined,
+        inputMeta: data.inputMeta,
+        inputAlreadyQueued: data.inputAlreadyQueued,
       }),
       chatId,
       () => agent.getMessages(),

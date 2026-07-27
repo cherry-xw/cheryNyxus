@@ -42,10 +42,12 @@ function persistChatEvent<T extends { chatId?: string; seq?: number }>(
 function sendChatEvent(targets: readonly WebSocket[], item: unknown): void {
   for (const ws of targets) {
     if (ws.readyState !== ws.OPEN) continue
-    try {
-      ws.send(transport.encode(item as Parameters<typeof transport.encode>[0]))
-    } catch (err) {
-      logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+    for (const routed of connectionManager.prepareSessionEvent(ws, item)) {
+      try {
+        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+      } catch (err) {
+        logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+      }
     }
   }
 }
@@ -349,6 +351,19 @@ async function handleRequest(
     // 若当前 ws 还活着：发终态 response + 释放 pending。rebinds 场景下 ws 已替换，
     // 仍允许向新 ws 投递。
     if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
+    // chat.open releases its snapshot fence before returning. Flush events that
+    // arrived after the captured boundary only after the RPC response is visible.
+    if (request.method === 'chat.open' && response.success) {
+      const subscriptionId =
+        response.data && typeof response.data === 'object' && 'subscriptionId' in response.data
+          ? (response.data as { subscriptionId?: unknown }).subscriptionId
+          : undefined
+      if (typeof subscriptionId === 'string') {
+        for (const buffered of connectionManager.drainSessionBuffer(subscriptionId)) {
+          sendChatEvent(resolveOutputWss(buffered as { chatId?: string }, ws), buffered)
+        }
+      }
+    }
     connectionManager.removePendingRequest(ws, request.id)
   }
 }

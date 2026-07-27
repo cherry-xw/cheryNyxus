@@ -37,10 +37,12 @@ function persistChatEvent<T extends { chatId?: string; seq?: number }>(
 function sendToWss(targets: readonly WebSocket[], item: unknown): void {
   for (const ws of targets) {
     if (ws.readyState !== ws.OPEN) continue
-    try {
-      ws.send(transport.encode(item as Parameters<typeof transport.encode>[0]))
-    } catch (err) {
-      logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+    for (const routed of connectionManager.prepareSessionEvent(ws, item)) {
+      try {
+        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+      } catch (err) {
+        logger.event('ws.event.failed', { message: (err as Error).message }, 3)
+      }
     }
   }
 }
