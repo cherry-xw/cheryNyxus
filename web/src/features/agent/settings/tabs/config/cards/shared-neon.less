@@ -1,0 +1,128 @@
+// GlobalTab neon 体系跨业务卡复用的控件样式（从原 GlobalTab.vue scoped 提取）。
+// 各业务卡 <style scoped> @import './shared-neon.less'，class 带 data-v 隔离。
+// @import shared.less 顺带引入 @ink / @accent 变量 + .sub-title / .lbl 等通用原语。
+@import '../../../config/shared.less';
+
+// ── 状态切换药丸（监管流式 / 看门狗唤主）──
+.stream-chip {
+  flex: 0 0 auto;
+  height: 27px;
+  display: grid;
+  grid-template-columns: 16px auto auto;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 5px;
+  border: 1px solid rgba(14, 165, 233, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+  color: fade(@ink, 50%);
+  cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+  > span {
+    font-size: 15px;
+    line-height: 1;
+    color: #38bdf8;
+  }
+  b {
+    font-size: 9px;
+  }
+  small {
+    padding-left: 4px;
+    border-left: 1px solid rgba(14, 165, 233, 0.17);
+    font-size: 8px;
+    color: fade(@ink, 42%);
+  }
+  &.active {
+    border-color: rgba(34, 211, 238, 0.58);
+    background: linear-gradient(110deg, rgba(224, 242, 254, 0.82), rgba(243, 232, 255, 0.74));
+    color: #4338ca;
+    box-shadow:
+      0 0 9px rgba(14, 165, 233, 0.2),
+      inset 0 0 7px rgba(217, 70, 233, 0.08);
+    > span {
+      color: #06b6d4;
+      text-shadow: 0 0 7px rgba(34, 211, 238, 0.68);
+    }
+  }
+  &:hover {
+    transform: translateY(-1px);
+  }
+}
+
+// ── 自定义输入弹层（编辑器命令 / 日志扩展名 popover 内）──
+.custom-editor {
+  display: flex;
+  gap: 5px;
+}
+.custom-editor button {
+  border: 0;
+  border-radius: 6px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 10px;
+  padding: 0 9px;
+  cursor: pointer;
+}
+
+// ── 按钮组通用：editor-deck / segment-deck / signal-deck ──
+.editor-deck,
+.segment-deck,
+.signal-deck {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.editor-deck button,
+.segment-deck button,
+.signal-deck button {
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid rgba(99, 102, 241, 0.13);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.66);
+  color: fade(@ink, 55%);
+  font-size: 9px;
+  cursor: pointer;
+}
+.editor-deck button.active,
+.segment-deck button.active,
+.signal-deck button.active {
+  border-color: rgba(56, 189, 248, 0.48);
+  background: linear-gradient(120deg, rgba(224, 242, 254, 0.8), rgba(243, 232, 255, 0.76));
+  color: #4338ca;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.14);
+}
+.segment-deck button {
+  flex: 1;
+  min-width: 34px;
+  padding: 3px 4px;
+}
+.signal-deck button {
+  min-width: 42px;
+}
+
+// ── 卡内摘要说明（compression / memory 标题下小字）──
+.block-summary {
+  position: relative;
+  margin: 0;
+  font-size: 9px;
+  color: fade(@ink, 48%);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  code {
+    font-size: 9px;
+  }
+}
+
+// ── neon 两列网格（compression / memory 用；gap:6 区别于 shared.less .card-grid 的 gap:8）──
+.neon-grid {
+  position: relative;
+  gap: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}

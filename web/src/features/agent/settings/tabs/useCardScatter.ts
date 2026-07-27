@@ -8,6 +8,7 @@ import {
   ref,
   watch,
   type ComputedRef,
+  type InjectionKey,
   type Ref,
 } from 'vue'
 import { SETTINGS_ACTIVE_TAB_KEY } from '../config/constants'
@@ -91,6 +92,7 @@ export function useCardScatter(
 ): {
   ready: Ref<boolean>
   activeAnchor: Ref<GlobalCardAnchor | null>
+  isActive: ComputedRef<boolean>
   draggingAnchor: Ref<GlobalCardAnchor | null>
   pressedAnchor: Ref<GlobalCardAnchor | null>
   enterSeq: Ref<number>
@@ -372,3 +374,12 @@ export function useCardScatter(
     onEnterEnd,
   }
 }
+
+/**
+ * useCardScatter 返回的散落 API 类型。GlobalTab 调 useCardScatter 后 provide 此对象，
+ * ScatterCard 经 SCATTER_KEY inject 取用 → 散落交互细节对业务卡片透明。
+ */
+export type ScatterApi = ReturnType<typeof useCardScatter>
+
+/** provide/inject 键：把散落 API 从编排器（GlobalTab）传入各包裹卡（ScatterCard）。 */
+export const SCATTER_KEY: InjectionKey<ScatterApi> = Symbol('CardScatter')
