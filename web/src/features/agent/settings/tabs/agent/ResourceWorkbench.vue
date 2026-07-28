@@ -123,6 +123,22 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 4px;
+  // 滚动条跟随 tab 主题色（与 TabShell.shell-scroll 同款配色）
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--tab-color, @accent) 70%, transparent);
+  }
 }
 .resource-rail-card {
   position: relative;
@@ -283,6 +299,22 @@ watch(
   min-height: 0;
   overflow-y: auto;
   padding-right: 2px;
+  // 滚动条跟随 tab 主题色（与 TabShell.shell-scroll 同款配色）
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent) transparent;
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
+    border-radius: 3px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--tab-color, @accent) 70%, transparent);
+  }
 }
 // glowRail（大脑/角色）：所有卡灯条常亮 + neon-hue 持续变色 + 三层 glow 扩散照亮右侧；active 卡强化。
 // 每条灯条按 --rail-i 错开 animation-delay（负值），颜色不同步，节奏更有机。

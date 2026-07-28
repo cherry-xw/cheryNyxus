@@ -205,4 +205,11 @@ const indexItems = computed<IndexItem[]>(() => {
 .card-grid-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+
+// 输入框/下拉 focus 边框跟随多媒体主题色（取代全局 primary 暖橙）
+:deep(.el-input),
+:deep(.el-select),
+:deep(.el-input-number) {
+  --el-color-primary: var(--tab-color, @accent);
+}
 </style>

@@ -148,6 +148,20 @@ const TAG_PALETTE: Array<{ background: string; color: string }> = [
   { background: 'rgba(225,29,72,0.14)', color: '#9f1239' },
   { background: 'rgba(124,58,237,0.14)', color: '#5b21b6' },
   { background: 'rgba(217,119,6,0.14)', color: '#b45309' },
+  { background: 'rgba(14,165,233,0.14)', color: '#0369a1' },
+  { background: 'rgba(20,184,166,0.14)', color: '#0f766e' },
+  { background: 'rgba(132,204,22,0.14)', color: '#4d7c0f' },
+  { background: 'rgba(236,72,153,0.14)', color: '#9d174d' },
+  { background: 'rgba(168,85,247,0.14)', color: '#6b21a8' },
+  { background: 'rgba(245,158,11,0.14)', color: '#92400e' },
+  { background: 'rgba(34,197,94,0.14)', color: '#15803d' },
+  { background: 'rgba(239,68,68,0.14)', color: '#b91c1c' },
+  { background: 'rgba(6,182,212,0.14)', color: '#0e7490' },
+  { background: 'rgba(99,102,241,0.14)', color: '#3730a3' },
+  { background: 'rgba(190,24,93,0.14)', color: '#831843' },
+  { background: 'rgba(180,83,9,0.14)', color: '#7c2d12' },
+  { background: 'rgba(56,189,248,0.14)', color: '#0c4a6e' },
+  { background: 'rgba(139,92,246,0.14)', color: '#4c1d95' },
 ]
 function skillTagStyle(i: number): { background: string; color: string } {
   return TAG_PALETTE[i % TAG_PALETTE.length]!

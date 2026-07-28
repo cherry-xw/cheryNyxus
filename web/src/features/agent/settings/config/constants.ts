@@ -29,7 +29,7 @@ export const TABS: { key: TabKey; icon: string; label: string; color: string }[]
   { key: 'skills', icon: '✨', label: '技能', color: '#6366f1' },
   { key: 'plugins', icon: '🧩', label: '组合技', color: '#3b82f6' },
   { key: 'commands', icon: '📝', label: '指令', color: '#84cc16' },
-  { key: 'hooks', icon: '🪝', label: '钩子', color: '#f472b6' },
+  { key: 'hooks', icon: '⚓', label: '钩子', color: '#f472b6' },
   { key: 'mcp', icon: '🔌', label: 'MCP', color: '#8b5cf6' },
   { key: 'media', icon: '🖼️', label: '多媒体', color: '#f97316' },
   { key: 'global', icon: '⚙️', label: '全局', color: '#06b6d4' },

@@ -444,7 +444,6 @@ watch(selectedRole, () => {
               label="技能"
               :options="skillCatalog.skills"
               :token-map="skillCatalog.skillTokens"
-              :editing="activeEquipment === 'skills'"
               @edit="openEquipment('skills')"
               @mode-change="closeEquipment"
             />
@@ -453,7 +452,6 @@ watch(selectedRole, () => {
               label="插件"
               :options="skillCatalog.plugins"
               :token-map="skillCatalog.pluginTokens"
-              :editing="activeEquipment === 'plugins'"
               @edit="openEquipment('plugins')"
               @mode-change="closeEquipment"
             />
@@ -462,7 +460,6 @@ watch(selectedRole, () => {
               label="MCP 服务"
               :options="mcpNames"
               :token-map="mcpTokens"
-              :editing="activeEquipment === 'mcpServers'"
               @edit="openEquipment('mcpServers')"
               @mode-change="closeEquipment"
             />
@@ -477,7 +474,7 @@ watch(selectedRole, () => {
             @update:model-value="updateEquipment"
             @close="closeEquipment"
           />
-          <div class="equipment-roster">
+          <div class="equipment-roster" :class="{ 'equipment-editing': !!activeEquipment }">
             <div class="roster-row">
               <span class="roster-k">技能</span>
               <span v-if="!current.skills" class="roster-empty">继承全部</span>
@@ -736,6 +733,11 @@ watch(selectedRole, () => {
   border: 1px dashed rgba(36, 38, 45, 0.1);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.32);
+}
+// 装备整理面板展开时，给装备栏胶囊加主题色发光，提示正在编辑这一栏。
+.equipment-roster.equipment-editing {
+  border-color: color-mix(in srgb, var(--tab-color, @accent) 50%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
 }
 .roster-row {
   display: flex;

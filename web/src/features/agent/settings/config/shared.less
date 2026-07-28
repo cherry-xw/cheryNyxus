@@ -207,6 +207,14 @@
   :deep(.el-cascader) {
     width: 100%;
   }
+  // element 输入框 focus/hover 边框跟随 tab 主题色（取代全局 primary 暖橙）
+  :deep(.el-input),
+  :deep(.el-textarea),
+  :deep(.el-select),
+  :deep(.el-cascader),
+  :deep(.el-input-number) {
+    --el-color-primary: var(--tab-color, @accent);
+  }
 }
 .field-row {
   display: flex;

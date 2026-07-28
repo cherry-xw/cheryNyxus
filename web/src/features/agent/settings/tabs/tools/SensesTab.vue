@@ -389,7 +389,7 @@ const indexItems = computed<IndexItem[]>(() => [])
   white-space: nowrap;
   min-width: 0;
   .danger-mark {
-    color: #991b1b;
+    color: #be3939;
     margin-right: 2px;
   }
 }

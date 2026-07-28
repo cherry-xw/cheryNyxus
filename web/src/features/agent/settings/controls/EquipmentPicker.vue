@@ -9,9 +9,8 @@ const props = withDefaults(
     tokenMap?: Record<string, number>
     label: string
     inheritLabel?: string
-    editing?: boolean
   }>(),
-  { tokenMap: () => ({}), inheritLabel: '继承全部', editing: false },
+  { tokenMap: () => ({}), inheritLabel: '继承全部' },
 )
 
 const emit = defineEmits<{
@@ -34,7 +33,7 @@ function setMode(value: string[] | undefined): void {
 </script>
 
 <template>
-  <section class="equipment-slot" :class="{ overloaded: tokens > 5000, editing }">
+  <section class="equipment-slot" :class="{ overloaded: tokens > 5000 }">
     <header>
       <span
         ><b>{{ label }}</b
@@ -52,7 +51,7 @@ function setMode(value: string[] | undefined): void {
       <button type="button" :class="{ active: mode === 'inherit' }" @click="setMode(undefined)">
         继承全部
       </button>
-      <button type="button" :class="{ active: mode === 'custom' || editing }" @click="emit('edit')">
+      <button type="button" :class="{ active: mode === 'custom' }" @click="emit('edit')">
         自选装备
       </button>
       <button type="button" :class="{ active: mode === 'none' }" @click="setMode([])">
@@ -60,7 +59,7 @@ function setMode(value: string[] | undefined): void {
       </button>
     </div>
     <button v-if="mode === 'custom'" type="button" class="manage-btn" @click="emit('edit')">
-      {{ editing ? '正在整理' : '整理装备' }}
+      整理装备
     </button>
     <p v-if="tokens > 5000" class="equipment-warning">
       装备较多会增加每次对话的默认系统提示词体积。
@@ -81,10 +80,6 @@ function setMode(value: string[] | undefined): void {
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
-}
-.equipment-slot.editing {
-  border-color: color-mix(in srgb, var(--tab-color, @accent) 56%, transparent);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
 }
 .equipment-slot.overloaded {
   border-color: rgba(190, 132, 28, 0.45);

@@ -134,4 +134,10 @@ const indexItems = computed<IndexItem[]>(() => {
 
 <style scoped lang="less">
 @import '../../config/shared.less';
+
+// 输入框/下拉 focus 边框跟随 mcp 主题色（取代全局 primary 暖橙）
+:deep(.el-input),
+:deep(.el-select) {
+  --el-color-primary: var(--tab-color, @accent);
+}
 </style>

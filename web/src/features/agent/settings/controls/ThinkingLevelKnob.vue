@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
   width: 84px;
   height: 36px;
   overflow: hidden;
-  border: 1.5px solid fade(@accent, 65%);
+  border: 1.5px solid var(--tab-color, @accent);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.92);
   pointer-events: none;

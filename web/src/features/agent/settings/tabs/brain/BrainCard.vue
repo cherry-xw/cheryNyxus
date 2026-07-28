@@ -961,6 +961,8 @@ async function openEnvFile(): Promise<void> {
   border: 1px solid rgba(36, 38, 45, 0.1);
   border-radius: 6px;
   background: #fff;
+  // el-switch 开启态跟随 tab 主题色（取代默认 primary 蓝）
+  --el-switch-on-color: var(--tab-color, @accent);
 
   > div {
     display: grid;
