@@ -42,7 +42,7 @@ function getNodeExecutable(): string {
  * 解析用户运行时配置根目录（`CHERY_DIR` 的父目录，即 `.env` 与 `.chery/` 所在目录）：
  *
  * - 打包后：afterPack 钩子（[scripts/post-pack.mjs](../../scripts/post-pack.mjs)）已经把 `.env`
- *   和 `.chery/` 复制到 `cheryClaw.exe` 同级。默认 `dirname(process.execPath)`；
+ *   和 `.chery/` 复制到 `CheryNyxus.exe` 同级。默认 `dirname(process.execPath)`；
  *   `.env` 中 `CHERY_DIR` 非空时改用其值（便于跨平台部署）。
  * - 开发期：默认项目根 `<repo>/`（含 `.chery/`），`CHERY_DIR` env 优先。
  *
@@ -152,7 +152,7 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: "cheryClaw",
+    title: "CheryNyxus",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

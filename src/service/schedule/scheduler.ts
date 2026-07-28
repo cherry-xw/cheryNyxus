@@ -10,7 +10,7 @@ import { logger } from '@/utils/logger/index.js'
  * 遍历 config.presets，对有 schedule.enabled !== false 的预设注册 cron 任务，
  * 到点 spawn 该预设的 leader 执行 schedule.task（典型：「维护」预设定时派 curator 做 Dream）。
  *
- * 与文章 Dream 的差异：cheryClaw 无 CLI 空闲探测，改用 cron 定时（用户显式配置周期）。
+ * 与文章 Dream 的差异：CheryNyxus 无 CLI 空闲探测，改用 cron 定时（用户显式配置周期）。
  * 无后台守护进程轮询，cron 由 croner 纯 JS 计时（无 native 依赖）。
  *
  * 重启容错：cron 任务仅在运行期持有，进程重启后 startScheduleService 重建。

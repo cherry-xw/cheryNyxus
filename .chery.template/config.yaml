@@ -1,5 +1,5 @@
 # ============================================================
-# cheryClaw 配置模板
+# CheryNyxus 配置模板
 # 复制本文件到 .chery/config.yaml 后按注释修改
 # $ENV_VAR 语法：运行时从环境变量注入（推荐用于 API Key）
 # ============================================================
@@ -100,7 +100,7 @@ llm:
       #                                     # 与全局 .chery/hooks/hooks.json 合并（brain 级在全局后追加）
     # ---- 示例 4：OpenAI 兼容本地服务（LM Studio / Ollama OpenAI 模式 / vLLM / LocalAI 等）----
     # 端口：LM Studio 1234；Ollama 启用 OpenAI 兼容层 11434；vLLM / LocalAI 按各自配置
-    # key 必填非空（任意字符串即可），cheryClaw assertChatOptions 会拦截空 key；
+    # key 必填非空（任意字符串即可），CheryNyxus assertChatOptions 会拦截空 key；
     # thinking 多数本地模型不识别 reasoning_effort，建议 'off'
     lmstudio_remote:
       url: http://192.168.68.169:1234/v1 # 远端 LM Studio，确保防火墙放行 + LM Studio 启 CORS

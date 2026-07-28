@@ -1,4 +1,4 @@
-# cheryClaw Electron 桌面应用打包 — 进度总结
+# CheryNyxus Electron 桌面应用打包 — 进度总结
 
 > 日期：2026-07-13 | 分支：sp | 状态：**已完成**
 
@@ -6,14 +6,14 @@
 
 ## 1. 需求概述
 
-将 cheryClaw 前后端打包为 Electron 桌面应用安装包，支持 Windows (nsis)、macOS (dmg)、Linux (AppImage)，内嵌 Node 22 LTS 二进制。
+将 CheryNyxus 前后端打包为 Electron 桌面应用安装包，支持 Windows (nsis)、macOS (dmg)、Linux (AppImage)，内嵌 Node 22 LTS 二进制。
 
 ---
 
 ## 2. 项目结构速览
 
 ```
-cheryClaw/
+CheryNyxus/
 ├── src/                    # 后端源码（Node.js + better-sqlite3）
 ├── dist/                   # 后端 SSR 构建产物（vite build --ssr）
 │   ├── index.js
@@ -74,9 +74,9 @@ cheryClaw/
 | `getNodeExecutable()` | 优先 `resources/node[.exe]`，fallback 系统 `node` |
 | `getBackendBundle()` | `app.getAppPath()/../dist/index.js` |
 | `startBackend()` | spawn 系统 node，设 CHERY_DIR |
-| `loadEnvFile()` | 读 `cheryClaw.exe/.env`，空值不灌进 process.env，不覆盖 OS env；不存在则跳过 |
+| `loadEnvFile()` | 读 `CheryNyxus.exe/.env`，空值不灌进 process.env，不覆盖 OS env；不存在则跳过 |
 | `getRuntimeRoot()` | 打包后 `process.env.CHERY_DIR || dirname(process.execPath)`；开发期项目根 |
-| afterPack 钩子 | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `.env.example` / `.chery.template/` 复制到 `cheryClaw.exe` 同级，打包即就位 |
+| afterPack 钩子 | [web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs) 把 `.env.example` / `.chery.template/` 复制到 `CheryNyxus.exe` 同级，打包即就位 |
 | 配置目录入口 | 设置面板调用后端 `utils.openConfigDir` WebSocket RPC，由后端系统默认打开器打开 `<CHERY_DIR>/.chery`；不再维护专用 Electron IPC |
 | preload 注入 | `__BACKEND_CONFIG__` + `__BACKEND_HTTP_URL__` |
 
@@ -86,10 +86,10 @@ cheryClaw/
 files: [dist/**, dist-electron/**]
 extraResources:
   - from: ../dist    → dist                       # 后端 bundle
-  - from: ../.env.example → .env.example         # .env 模板（afterPack 复制为 cheryClaw.exe/.env）
-  - from: ../.chery.template → .chery.template   # .chery 模板（afterPack 复制为 cheryClaw.exe/.chery/）
+  - from: ../.env.example → .env.example         # .env 模板（afterPack 复制为 CheryNyxus.exe/.env）
+  - from: ../.chery.template → .chery.template   # .chery 模板（afterPack 复制为 CheryNyxus.exe/.chery/）
   - from: ../build/node → node                   # Node 22 LTS 二进制
-afterPack: ./scripts/post-pack.mjs               # 钩子：模板 → cheryClaw.exe 同级
+afterPack: ./scripts/post-pack.mjs               # 钩子：模板 → CheryNyxus.exe 同级
 targets: win=nsis, mac=dmg, linux=AppImage
 ```
 
@@ -142,7 +142,7 @@ targets: win=nsis, mac=dmg, linux=AppImage
 
 ```
 安装目录/                                          ← 用户可维护（afterPack 钩子打包即就位）
-├── cheryClaw.exe
+├── CheryNyxus.exe
 ├── .env                                           # API Key 占位符（用户填真实 Key）
 ├── .chery/                                        # 配置副本
 │   ├── config.yaml
@@ -167,7 +167,7 @@ targets: win=nsis, mac=dmg, linux=AppImage
 
 **用户配置（`.env` + `.chery/`）位置规则**：
 
-- 统一在 `cheryClaw.exe` 同级，**afterPack 钩子在打包阶段就位**——用户首次安装即看到。
+- 统一在 `CheryNyxus.exe` 同级，**afterPack 钩子在打包阶段就位**——用户首次安装即看到。
 - `CHERY_DIR`：`.env` 留空时默认 `dirname(process.execPath)`；用户可显式设置。
 - `DB_DIR`：始终 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题）。
 - 升级：主进程不主动重写；NSIS 默认会覆盖（暂未实现 NSIS include 跳过）。

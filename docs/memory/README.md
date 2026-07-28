@@ -248,7 +248,7 @@ memory:
 
 ## curator 角色（Extract / Dream）
 
-参考 Claude Code 的 Extract Memories Agent + Auto Dream，cheryClaw 用独立角色 `curator` 承担记忆的产生与维护（不直接处理用户业务任务，只在维护场景被派出）：
+参考 Claude Code 的 Extract Memories Agent + Auto Dream，CheryNyxus 用独立角色 `curator` 承担记忆的产生与维护（不直接处理用户业务任务，只在维护场景被派出）：
 
 | 职责 | 触发 | 实现 |
 |------|------|------|

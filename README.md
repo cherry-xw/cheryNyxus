@@ -1,10 +1,10 @@
-# cheryClaw
+# CheryNyxus
 
 多 LLM Brain 框架，支持 Ollama、OpenAI 等提供商。核心特性：Sense 调用监管、流式响应、两阶段执行。
 
 ## 隐喻体系
 
-cheryClaw 采用拟人化隐喻设计：
+CheryNyxus 采用拟人化隐喻设计：
 
 | 概念 | 隐喻 | 说明 |
 |------|------|------|

@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 export function createTempDir(): string {
-  const tempDir = mkdtempSync(join(tmpdir(), "cheryclaw-test-"));
+  const tempDir = mkdtempSync(join(tmpdir(), "cheryNyxus-test-"));
   return tempDir;
 }
 

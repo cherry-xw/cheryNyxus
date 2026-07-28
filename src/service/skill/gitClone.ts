@@ -270,7 +270,7 @@ export async function checkRemoteVersion(
     const apiUrl = `https://api.${parsed.host}/repos/${parsed.owner}/${parsed.repo}/commits/${latestSha}`
     const res = await fetch(apiUrl, {
       headers: {
-        'User-Agent': 'cheryClaw',
+        'User-Agent': 'CheryNyxus',
         Accept: 'application/vnd.github+json',
       },
     })

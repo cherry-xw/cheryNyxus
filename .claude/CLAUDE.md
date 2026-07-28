@@ -1,4 +1,4 @@
-# cheryClaw 项目规范
+# CheryNyxus 项目规范
 
 > 本文件是 AI 协作的**极简索引**。实现细节已下沉到 [docs/](../docs/) 各模块文档——针对开发目标时，从 [docs/README.md](../docs/README.md) 定位模块，读对应文档的「依赖与关联」即可确定最小上下文。
 

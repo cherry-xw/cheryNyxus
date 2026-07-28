@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * cheryClaw Electron 一键打包脚本
+ * CheryNyxus Electron 一键打包脚本
  *
  * 整合完整流程：依赖检查 → Node 二进制下载 → SQLite 预编译 → 后端构建 → 前端构建 → electron-builder 打包
  *
@@ -194,7 +194,7 @@ function stepElectronBuilderPack() {
 // ===== 主流程 =====
 async function main() {
   console.log("╔══════════════════════════════════════════════════════════╗");
-  console.log("║          cheryClaw Electron 一键打包                    ║");
+  console.log("║          CheryNyxus Electron 一键打包                    ║");
   console.log("╚══════════════════════════════════════════════════════════╝");
   console.log(`  平台: ${process.platform}-${process.arch}`);
   console.log(`  Node: ${process.version}`);

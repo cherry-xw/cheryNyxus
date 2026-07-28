@@ -9,7 +9,7 @@
 - 输入：一坨原始日志行。
 - 输出：每行归类到一个「**模板**」（token 序列，可变部分用通配 `<*>` 表示），如 `"User <*> logged in from <*>:<*>"`。
 
-在 cheryClaw 中的**唯一消费场景**：[`agent/sense/read.ts`](../../src/agent/sense/read.ts) 读取大日志文件时，若 `compression: "drain"`（或 `auto` 且判定为日志），调用本模块导出的 `compressLog()` 把海量重复日志行归纳成「模板摘要 + 前若干实例」，大幅缩减喂给 LLM 的 token 数。
+在 CheryNyxus 中的**唯一消费场景**：[`agent/sense/read.ts`](../../src/agent/sense/read.ts) 读取大日志文件时，若 `compression: "drain"`（或 `auto` 且判定为日志），调用本模块导出的 `compressLog()` 把海量重复日志行归纳成「模板摘要 + 前若干实例」，大幅缩减喂给 LLM 的 token 数。
 
 > 这是一个自包含、零业务依赖的纯算法模块（除 drainBase.ts 内部用 logger 打印调试树）。可独立测试、独立复用。
 

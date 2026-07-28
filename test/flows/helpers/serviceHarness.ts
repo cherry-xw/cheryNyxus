@@ -45,7 +45,7 @@ export async function bootFlowService(options?: BootFlowOptions): Promise<FlowSe
   // per-process 隔离 DB 目录：config.global.db_dir 改到临时目录（process.pid 唯一），
   // 避免多 Tier 2 文件并行跑时跨进程共享 fixtures DB 致 SQLITE_BUSY。
   // config.yaml/mock 仍读 CHERY_DIR(fixtures)，仅 DB 隔离；须在首次 DB 访问前设置。
-  config.global.db_dir = join(tmpdir(), `cheryclaw-flow-${process.pid}`)
+  config.global.db_dir = join(tmpdir(), `cheryNyxus-flow-${process.pid}`)
   if (options?.disconnectGraceMs !== undefined) {
     config.global.disconnect_grace_ms = options.disconnectGraceMs
   }

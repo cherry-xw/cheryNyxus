@@ -23,7 +23,7 @@ function setupHooksJson(content: string): void {
 
 describe('hooks registry', () => {
   beforeEach(() => {
-    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryclaw-hooks-test-'))
+    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryNyxus-hooks-test-'))
     process.env.CHERY_DIR = tempCheryDir
     clearHookRegistry()
   })

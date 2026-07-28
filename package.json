@@ -1,5 +1,5 @@
 {
-  "name": "cheryclaw",
+  "name": "cherynyxus",
   "version": "1.0.0",
   "description": "sp",
   "private": true,
@@ -41,7 +41,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cherry-xw/cheryClaw.git"
+    "url": "git+https://github.com/cherry-xw/CheryNyxus.git"
   },
   "keywords": [
     "sp"
@@ -49,9 +49,9 @@
   "author": "chery",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/cherry-xw/cheryClaw/issues"
+    "url": "https://github.com/cherry-xw/CheryNyxus/issues"
   },
-  "homepage": "https://github.com/cherry-xw/cheryClaw#readme",
+  "homepage": "https://github.com/cherry-xw/CheryNyxus#readme",
   "packConfig": {
     "nodeVersion": "22.11.0",
     "httpProxy": "http://127.0.0.1:7890",

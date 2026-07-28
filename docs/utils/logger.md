@@ -4,7 +4,7 @@
 
 ## 职责
 
-cheryClaw 全项目唯一日志出口。每条日志 = **一个 JSON 事件（单行）**，携带 `LogScope` 关联键，为「按会话还原用户每一步操作」的解读模块提供 trace 数据。
+CheryNyxus 全项目唯一日志出口。每条日志 = **一个 JSON 事件（单行）**，携带 `LogScope` 关联键，为「按会话还原用户每一步操作」的解读模块提供 trace 数据。
 
 - **结构化事件**：主接口 `logger.event(type, data?, level?)`，输出 JSON 行（`format: json` 默认）。
 - **ALS scope 传播**：`AsyncLocalStorage` 承载 `LogScope`，边界 `logger.run(scope, fn)` 注入，沿 async 链自动传播 —— 调用点无需透传 logger。

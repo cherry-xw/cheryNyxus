@@ -35,7 +35,7 @@ function makePreLLMRequestPayload(overrides: Partial<PreLLMRequestPayload> = {})
 
 describe('hooks dispatch PreLLMRequest', () => {
   beforeEach(() => {
-    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryclaw-dispatch-test-'))
+    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryNyxus-dispatch-test-'))
     process.env.CHERY_DIR = tempCheryDir
     clearHookRegistry()
   })
@@ -190,7 +190,7 @@ describe('hooks dispatch PreLLMRequest', () => {
 
 describe('hooks dispatch PreToolUse', () => {
   beforeEach(() => {
-    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryclaw-dispatch-test-'))
+    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryNyxus-dispatch-test-'))
     process.env.CHERY_DIR = tempCheryDir
     clearHookRegistry()
   })
@@ -255,7 +255,7 @@ describe('hooks dispatch PreToolUse', () => {
 
 describe('hooks dispatch stub 事件', () => {
   beforeEach(() => {
-    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryclaw-dispatch-test-'))
+    tempCheryDir = mkdtempSync(join(tmpdir(), 'cheryNyxus-dispatch-test-'))
     process.env.CHERY_DIR = tempCheryDir
     clearHookRegistry()
   })

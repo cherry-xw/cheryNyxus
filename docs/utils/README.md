@@ -4,7 +4,7 @@
 
 ## 职责
 
-`utils/` 是 cheryClaw 的**基础工具层**，为 `core/` / `agent/` / `service/` / `db/` / `web/` 所有上层提供：
+`utils/` 是 CheryNyxus 的**基础工具层**，为 `core/` / `agent/` / `service/` / `db/` / `web/` 所有上层提供：
 
 - **配置加载**：解析 `.chery/config.yaml`，做 `$ENV` 替换、路径补全、默认值兜底，产出全局 `Config` 单例。
 - **通用纯工具**：hash（cache key 生成）、json（安全解析）、generator（AsyncGenerator 判定）、rateLimiter（RPM 滑动窗口限流）。

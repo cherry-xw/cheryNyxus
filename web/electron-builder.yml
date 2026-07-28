@@ -1,8 +1,8 @@
 # electron-builder 配置
 # 详见 docs/web/electron.md 扩展点 + docs/web/deployment.md 模式 2
 
-appId: com.cheryclaw.app
-productName: cheryClaw
+appId: com.cherynyxus.app
+productName: CheryNyxus
 directories:
   output: release
   buildResources: build
@@ -12,7 +12,7 @@ files:
   - dist/**
   - dist-electron/**
 
-# 后端 bundle + 用户配置模板（afterPack 钩子把模板复制到 cheryClaw.exe 同级：
+# 后端 bundle + 用户配置模板（afterPack 钩子把模板复制到 CheryNyxus.exe 同级：
 # resources/.env.example → appOutDir/.env
 # resources/.chery.template/ → appOutDir/.chery/
 # 详见 scripts/post-pack.mjs）
@@ -34,7 +34,7 @@ extraResources:
 npmRebuild: true
 buildDependenciesFromSource: true
 
-# afterPack 钩子：把 .env 和 .chery/ 模板复制到 cheryClaw.exe 同级（用户首次安装即可见，无需启动时复制）
+# afterPack 钩子：把 .env 和 .chery/ 模板复制到 CheryNyxus.exe 同级（用户首次安装即可见，无需启动时复制）
 afterPack: ./scripts/post-pack.mjs
 
 win:

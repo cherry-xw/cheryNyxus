@@ -5,7 +5,7 @@
  * electron-builder 在生成 `win-unpacked/` / `mac/` / `linux-unpacked/` 之后、
  * 打包安装包（NSIS/DMG/AppImage）之前调用本脚本。
  *
- * 目的：把 resources/ 下的用户配置模板复制到 cheryClaw.exe 同级，让用户在安装包里
+ * 目的：把 resources/ 下的用户配置模板复制到 CheryNyxus.exe 同级，让用户在安装包里
  * 直接看到 .env 和 .chery/，**无需等待首次启动**。
  *
  * 复制规则：

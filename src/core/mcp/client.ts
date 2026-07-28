@@ -5,7 +5,7 @@ import type { McpServerConfig } from '@/utils/config.js'
 import type { McpClientHandle } from './types.js'
 
 /** 客户端自我声明，MCP 握手时上报给 server */
-const CLIENT_INFO = { name: 'cheryclaw', version: '1.0.0' }
+const CLIENT_INFO = { name: 'cherynyxus', version: '1.0.0' }
 
 /**
  * 按 McpServerConfig 构造传输层。

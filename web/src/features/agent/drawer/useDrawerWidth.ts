@@ -8,7 +8,7 @@ import { computed, onMounted, onUnmounted, ref, type Ref, type ComputedRef } fro
  * - 失败显性化（规则 12）：读 localStorage 失败回落默认（null）；写失败 console.warn 不阻塞拖拽
  */
 
-const WIDTH_KEY = 'cheryclaw:history-drawer:width'
+const WIDTH_KEY = 'cherynyxus:history-drawer:width'
 const MIN_W = 320
 const MAX_W_RATIO = 2 / 3
 

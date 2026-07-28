@@ -4,7 +4,7 @@
 
 ## 职责
 
-`web/` 是 cheryClaw 的**前端工作区**——pnpm workspace + Turborepo monorepo 中的一个 package，与后端（root）同仓不同包。前端通过 `/api/config` 获取公开服务配置，并用 WebSocket 客户端连接后端 RPC（[protocol.md](../protocol.md)）。
+`web/` 是 CheryNyxus 的**前端工作区**——pnpm workspace + Turborepo monorepo 中的一个 package，与后端（root）同仓不同包。前端通过 `/api/config` 获取公开服务配置，并用 WebSocket 客户端连接后端 RPC（[protocol.md](../protocol.md)）。
 
 ### 技术栈
 

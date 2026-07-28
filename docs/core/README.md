@@ -4,7 +4,7 @@
 
 ## 职责
 
-`core/` 是 cheryClaw 的**框架抽象层**：定义 Agent 运行所需的全部接口、类型与组合机制，但**不含任何具体实现**。所有 Provider（OpenAI/Ollama/Mock）、内置感官（bash/read/write/skill）、中间件行为（retry/checkpoint/chat/sense/loop）都在 [`agent/`](../../src/agent/) 中实现并通过 `core/` 暴露的注册表注入。
+`core/` 是 CheryNyxus 的**框架抽象层**：定义 Agent 运行所需的全部接口、类型与组合机制，但**不含任何具体实现**。所有 Provider（OpenAI/Ollama/Mock）、内置感官（bash/read/write/skill）、中间件行为（retry/checkpoint/chat/sense/loop）都在 [`agent/`](../../src/agent/) 中实现并通过 `core/` 暴露的注册表注入。
 
 这一层是「AI 知识地图」的根：要改 Agent 行为（接新模型、加工具、改监管、调执行链），先读 core/ 理解契约，再去 agent/ 找对应实现。core/ 本身保持薄、零 I/O 假设（两个例外：`sense/compiler/` 读写文件系统编译外部感官，`mcp/` 连接外部 MCP server）。
 

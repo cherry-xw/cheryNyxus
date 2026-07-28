@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cheryClaw Electron 桌面应用统一打包脚本
+// CheryNyxus Electron 桌面应用统一打包脚本
 //
 // 流程（Doc-First，对应 docs/web/electron-pack-progress.md §6.1-6.3、docs/web/deployment.md#native-addon-abi模式-2）：
 //   1. 检测 host 平台 → 选 Node 22 LTS 资源名（win-x64 / darwin-{x64,arm64} / linux-x64）
@@ -320,7 +320,7 @@ async function rebuildBetterSqlite3() {
     log("sqlite", `下载到 ${tmpTar}`);
     const curlCmd = process.platform === "win32" ? "curl.exe" : "curl";
     const curlResult = spawnSync(curlCmd, [
-      "-L", "-sS", "-A", "cheryClaw-electron-pack/1.0",
+      "-L", "-sS", "-A", "CheryNyxus-electron-pack/1.0",
       "-x", packConfig.httpProxy,
       "-o", tmpTar,
       url,

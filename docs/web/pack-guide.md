@@ -1,10 +1,10 @@
-# cheryClaw Electron 桌面应用打包操作手册
+# CheryNyxus Electron 桌面应用打包操作手册
 
 > 上级 [docs/web/README.md](./README.md) ｜ 相关 [electron.md](./electron.md)、[deployment.md](./deployment.md)
 
 ## 职责
 
-按序执行一组命令，把 cheryClaw 源码打包成可分发的桌面应用安装包。
+按序执行一组命令，把 CheryNyxus 源码打包成可分发的桌面应用安装包。
 
 ## 打包配置
 
@@ -99,9 +99,9 @@ pnpm electron:pack:force
 
 | 平台 | 安装包 | 路径 |
 | --- | --- | --- |
-| Windows | NSIS `.exe`（~150 MB） | `web/release/cheryClaw Setup 1.0.0.exe` |
-| macOS | DMG | `web/release/cheryClaw-1.0.0.dmg` |
-| Linux | AppImage | `web/release/cheryClaw-1.0.0.AppImage` |
+| Windows | NSIS `.exe`（~150 MB） | `web/release/CheryNyxus Setup 1.0.0.exe` |
+| macOS | DMG | `web/release/CheryNyxus-1.0.0.dmg` |
+| Linux | AppImage | `web/release/CheryNyxus-1.0.0.AppImage` |
 
 ## 二、底层子命令
 
@@ -115,13 +115,13 @@ node scripts/electron-pack.mjs pack    # 仅构建 + 打包（依赖前置步骤
 
 ## 三、打包后目录结构
 
-afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)）在打包阶段就把 `.env` 与 `.chery/` 复制到 `cheryClaw.exe` 同级——**用户首次安装即看到，无需首次启动**。
+afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)）在打包阶段就把 `.env` 与 `.chery/` 复制到 `CheryNyxus.exe` 同级——**用户首次安装即看到，无需首次启动**。
 
 > 开发环境的 `.env` / `.chery/` 由 [scripts/setup-env.mjs](../../scripts/setup-env.mjs) 走 `pnpm install` 的 `postinstall` 钩子从仓库根 `.env.example` / `.chery.template/` 拷出,逻辑与 afterPack 等价(目标存在即跳过,保护编辑)。
 
 ```
-安装目录（cheryClaw.exe 同级）          ← 用户可维护位置
-├── cheryClaw.exe
+安装目录（CheryNyxus.exe 同级）          ← 用户可维护位置
+├── CheryNyxus.exe
 ├── .env                                 # API Key 等环境变量（从 .env.example 模板复制，可编辑）
 ├── .chery\                              # 运行时配置（从 .chery.template/ 复制，可编辑）
 │   ├── config.yaml
@@ -154,8 +154,8 @@ afterPack 钩子（[web/scripts/post-pack.mjs](../../web/scripts/post-pack.mjs)�
 
 **用户配置（`.env` + `.chery/`）位置规则**：
 
-1. **统一在 `cheryClaw.exe` 同级目录**。打包即就位，无需运行时复制。
-2. **`CHERY_DIR`**：`.env` 留空时默认 `cheryClaw.exe` 同级；用户可显式设置（如部署到 NAS/容器）。
+1. **统一在 `CheryNyxus.exe` 同级目录**。打包即就位，无需运行时复制。
+2. **`CHERY_DIR`**：`.env` 留空时默认 `CheryNyxus.exe` 同级；用户可显式设置（如部署到 NAS/容器）。
 3. **`DB_DIR`**：始终在 `app.getPath('userData')/.chery/db/`（避开 Program Files 权限问题），不可改。
 4. **升级**：主进程不主动重写用户已修改的 `.env`；NSIS 默认会覆盖目标文件，**如需升级不覆盖需加 `nsis.include` 自定义 .nsh 脚本**（暂未实现）。
 5. **UX 入口**：设置面板「打开配置目录」按钮通过后端 `utils.openConfigDir` RPC 打开后端主机的 `<CHERY_DIR>/.chery`。

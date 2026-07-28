@@ -347,7 +347,7 @@ export function generateLogId(): string {
 // Bash 日志工具（内部函数，通过 logger.tools 暴露）
 // ============================================================================
 
-const BASH_LOG_DIR_NAME = 'cheryClaw-bash-logs'
+const BASH_LOG_DIR_NAME = 'CheryNyxus-bash-logs'
 
 function getBashLogDir(): string {
   return getLogDirectory(BASH_LOG_DIR_NAME)

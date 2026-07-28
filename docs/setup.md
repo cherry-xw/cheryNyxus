@@ -75,7 +75,7 @@ pnpm install
 
 ### 3.1 LLM API Key
 
-cheryClaw 至少需要一个可用 Brain（LLM）。Key 有三种等价写法，**任选其一**：
+CheryNyxus 至少需要一个可用 Brain（LLM）。Key 有三种等价写法，**任选其一**：
 
 **方式 A：写进 `.env`（推荐，不入库）**
 
