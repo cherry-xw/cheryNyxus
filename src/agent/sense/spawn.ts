@@ -10,6 +10,7 @@ import {
   getChatPreset,
   getChatSpawnTypes,
   getChatWorkspace,
+  getChatRule,
   updateChatMetadata,
 } from '@/db/chat.js'
 import { emitRoleCreated, registerWaitedChild, startChildEager } from '@/agent/spawnBroker.js'
@@ -202,6 +203,7 @@ export default sense(
       //   缺省 → undefined → 子 agent 用全局 system_prompt）。ensureChat 读 metadata.systemPromptFile 注入。
       // 子 agent 继承主 chat workspace（同项目，system prompt 注入同一工作区说明）
       const parentWorkspace = getChatWorkspace(parentChatId)
+      const parentRule = getChatRule(parentChatId)
       createChat(
         childChatId,
         {
@@ -214,6 +216,7 @@ export default sense(
           ...(systemPromptFile ? { systemPromptFile: systemPromptFile } : {}),
           ...(skillFilter ? { skillFilter } : {}),
           ...(parentWorkspace ? { workspace: parentWorkspace } : {}),
+          ...(parentRule ? { rule: parentRule } : {}),
           // T9.10 重启容错：wake+type 持久化，rebuildWaitedChildren 扫 metadata.wake 按策略重建唤醒链
           wake,
           type,

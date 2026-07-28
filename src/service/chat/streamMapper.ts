@@ -151,7 +151,7 @@ export async function* streamAgentChunks(
         arguments: sc.arguments, // 完整参数（JSON字符串）
       })
 
-      // confirm/manual（needsApproval）→ interrupt（前端弹审核卡 + 倒计时）；
+      // smart/manual（needsApproval）→ interrupt（前端弹审核卡 + 倒计时）；
       // auto → sense_started（前端 pet bar 显「运行中工具」icon，id 与 accept.approvalId 同源，accept 时移除）。
       // approval_timeout 缺省 → waitTime=0（不超时，前端不显倒计时）。
       if (needsApproval) {

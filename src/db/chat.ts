@@ -425,6 +425,22 @@ export function getChatWorkspace(chatId: string): string | undefined {
 }
 
 /**
+ * 读取 chat 关联的 smart 监管规则覆盖文件名（metadata.rule）。
+ * 来源：chat.create 选预设时快照写入（config.presets[preset].rule）/ spawn_role 子 chat 继承主 chat。
+ * resolve 期与 .chery/rule/base.yaml 深合并成 sensitivityRules（供 isSafeSenseCall）。
+ * 缺省（非预设主 agent / 预设未配 rule / 旧 chat）→ undefined → 仅用基准 base.yaml。
+ */
+export function getChatRule(chatId: string): string | undefined {
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const r = parsed.rule
+  return typeof r === 'string' && r.length > 0 ? r : undefined
+}
+
+/**
  * 删除聊天（手动清理 messages）
  * 跨库无事务：先删 messages 再删 chat，try/finally 保证 chat 行删除，
  * 崩溃风险仅留 chat 行未删的孤儿（指向已空 messages 库），可接受。
@@ -800,7 +816,7 @@ export function getLastMessage(chatId: string): MessageRow | null {
 /**
  * 填充审批结果（更新 content / hash 字段）
  * 按 chatId 路由月份库（与 addMessage/getMessages 同源），消除对 messageId 月份前缀的依赖：
- * confirm pending sense 的 messageId = trigger.id（LLM tool_call.id 或 sense-${index}），无月份前缀，
+ * smart pending sense 的 messageId = trigger.id（LLM tool_call.id 或 sense-${index}），无月份前缀，
  * 旧实现 substring(0,7) 会落到错误空库、UPDATE 命中 0 行 → content 永远 NULL。
  */
 export function fillApprovalResult(
@@ -927,7 +943,7 @@ export function markMessageReplaced(
   // content 可选：传入则更新（感官去重改写为短说明，剔除冗长重复内容）；
   // 未传则保留原 content，避免误清空。
   // 调用方（observer）经 AgentMessagePatch kind:"replace" 联合类型约束，replace patch 必携带 content，
-  // 故运行时 replace 路径总会传 content（confirm/manual 不再因缺 content 导致 DB 保留旧长内容）。
+  // 故运行时 replace 路径总会传 content（smart/manual 不再因缺 content 导致 DB 保留旧长内容）。
   const sets = [
     'replace_state = ?',
     'replace_by = ?',

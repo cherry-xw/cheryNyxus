@@ -9,3 +9,11 @@ export {
   clearAllApprovals,
   type ApprovalDecision,
 } from './approvalRegistry'
+export { isSafeSenseCall } from './sensitivity'
+export {
+  listRules,
+  loadMergedRuleSet,
+  BASE_RULE_FILE,
+  type CompiledRuleSet,
+  type CompiledRule,
+} from './ruleLoader'

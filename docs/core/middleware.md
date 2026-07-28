@@ -157,7 +157,7 @@ send(input)                      ── agent/builder.ts 门面转发 ──
             ├─       retry.enter ── 捕获 chat 层错误、决定重试 or 透传 ErrorChunk
             ├─          chat.core── 调 LLMAdapter.chatStream、yield StreamChunk（每个 delta）
             ├─       retry.exit
-            ├─    sense.exit     ── auto 直接执行；confirm/manual await approvalRegistry Promise 后执行
+            ├─    sense.exit     ── auto 直接执行；smart/manual await approvalRegistry Promise 后执行
             │                       → yield sense_accept / sense_reject
             └─ checkpoint.exit   ── yield StagedChunk + message_created/updated/sense_pending effect
                                   ↓

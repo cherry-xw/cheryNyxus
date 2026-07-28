@@ -24,7 +24,7 @@ import { analyzeSkillStaging } from '@/service/skill/import.js'
  *   - commit：据 selections cpSync 到 .chery/skills/ + 规范化 SKILL.md + 落 sourceUrl 追溯
  *
  * 三态确定性（规则 5）：按 URL 形状 + 内容魔数机器识别，不交 LLM 自由解析。
- * 监管 confirm（写 .chery/ = prompt 注入面）。.chery/ 路径守卫豁免（GUARD_EXEMPT）。
+ * 监管 smart（写 .chery/ = prompt 注入面）。.chery/ 路径守卫豁免（GUARD_EXEMPT）。
  *
  * 详见 docs/agent/skill-install.md。
  */
@@ -219,5 +219,5 @@ export default sense(
     }
     return doCommit(args)
   },
-  SupervisionLevel.confirm,
+  SupervisionLevel.smart,
 )

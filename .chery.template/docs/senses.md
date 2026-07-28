@@ -25,7 +25,7 @@ sense(
   description: string,                     // 给 LLM 看的说明（LLM 据此决定是否调用）
   schema: z.ZodType,                       // zod schema，定义 input 参数结构
   handler: async (input) => SenseResult,   // 实际执行逻辑
-  supervision?: SupervisionLevel,         // 可选：监管等级（auto / confirm / manual）
+  supervision?: SupervisionLevel,         // 可选：监管等级（auto / smart / manual）
 ): SenseDefinition
 ```
 
@@ -91,7 +91,7 @@ export default sense(
       hash: "",
     };
   },
-  SupervisionLevel.confirm,    // 监管等级：config.yaml 可覆盖
+  SupervisionLevel.smart,    // 监管等级：config.yaml 可覆盖
 );
 ```
 
@@ -114,7 +114,7 @@ sense_groups:
 | `sense.description` | string | ✅ | 给 LLM 看的功能说明 |
 | `sense.schema` | z.ZodType | ✅ | input 参数 schema；用 `.describe()` 标注字段语义 |
 | `sense.handler` | async fn | ✅ | `(input) => { content, hash? }` |
-| `sense.supervision` | enum | ❌ | `auto` / `confirm` / `manual`；缺省走 `global.supervision` |
+| `sense.supervision` | enum | ❌ | `auto` / `smart` / `manual`；缺省走 `global.supervision`。`smart` 档的安全/敏感判定规则外置 `.chery/rule/`（见下「smart 监管规则表」） |
 | `@test` 注解 | array | ❌ | 自测用例；失败则 Sense 不注册 |
 
 ## 注意事项
@@ -123,6 +123,30 @@ sense_groups:
 - **缓存语义**：`hash` 缺省视为空（不缓存）；返回相同 `hash` 字符串视为命中缓存
 - **描述质量**：`description` 直接影响 LLM 调用决策，必须清晰说明功能、参数语义、典型场景
 - **错误处理**：handler 内抛错 → senseMiddleware 捕获，标记为 `error` 状态喂回 LLM，不阻断 loop
+
+## smart 监管规则表
+
+`smart` 监管档的「危险需确认 / 默认放行」判定由 `.chery/rule/` 目录的 yaml 规则文件驱动（不再硬编码）——**黑名单 fail-open**：
+
+- **`base.yaml`**（基准，固定名）：默认合并基底，所有 smart 调用先以此打底。前端预设下拉**不可选**基准。
+- **`<name>.yaml`**（覆盖文件）：预设经 `presets.<name>.rule` 引用一个，与基准**深合并**（`dangerPatterns` 追加去重；`extract` 以覆盖为准；`false` = 硬开关整体需确认；条目内 `inherit: false` = replace，整体替换基准同名条目）。
+
+```yaml
+# .chery/rule/base.yaml
+generate_image: false          # 硬开关：整体需确认（破坏性 sense 兜底）
+execute_command:
+  extract: command             # 从 args.command 取待匹配串（支持点号路径如 input.path）
+  dangerPatterns:              # 命中 = 需确认；未命中 = 自动执行
+    - 'rm -rf'                 # 子串匹配 → 需确认
+    - '/^\w+\s+--version$/'    # 正则 /pattern/flags → 需确认
+# 未登记的 sense → fail-open 默认放行（降 auto）
+```
+
+- 仅 `configuredLevel === smart` 时查表；`auto`/`manual` 不经此表。
+- 黑名单 fail-open：未命中 `dangerPatterns` / 未知 sense / 无条目 → 默认放行（降 auto）。破坏性 sense 必须显式 `false` 兜底，否则自动执行。
+- 命中 `dangerPatterns` / `false` 硬开关 / 有条目但取参异常 → 需确认（保守）。
+- 基准/覆盖文件缺失 → 回退（不阻塞启动；空 ruleSet = 全放行）。
+- 详细合并语义与数据流见开发文档 `docs/core/sense.md`「smart 规则表」。
 
 ## 关联
 

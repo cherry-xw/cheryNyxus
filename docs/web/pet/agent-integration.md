@@ -146,7 +146,7 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
 **`applyCurrentState(chatId, data, advanceEventCursor)`**（[stores/agents/index.ts](../../../web/src/stores/agents/index.ts)）镜像 [applyQuestionSnapshot](#cp5审批--队列--peticons闪烁) 模式：
 - 缺 `currentState` 字段 → 早返回，不动 StreamState
 - `pendingApproval` → 权威 replace `stream.approval`（含 waitTime/createdAt 倒计时）+ 清 `stream.approvalQueue`
-- `runningTools` → 权威 replace `stream.runningTools`（含 confirm/manual 待审批，**补实时态缺口**：parked 审批气泡存活判定 + confirm/manual 工具态）
+- `runningTools` → 权威 replace `stream.runningTools`（含 smart/manual 待审批，**补实时态缺口**：parked 审批气泡存活判定 + smart/manual 工具态）
 - `currentTodo` → 写入新增字段 `stream.currentTodo`（TodoPanel 改造留待 F5 收口）
 - `advanceEventCursor=true` + `snapshotSeq` → `wsClient.resetChatSeq` 推进 cursor
 
@@ -283,7 +283,7 @@ CP7 后两者职责彻底分离：
 
 ## 运行中工具 bar + todo 专用渲染（能力驱动）
 
-**运行中工具 icon（`sense_started` notification）**：auto 工具触发执行时后端推 `sense_started` `{id, senseName, arguments}`（confirm/manual 仍走 interrupt）。agents store `routeNotification` 据 `id` push 到 `stream.runningTools`（`{id,name}[]`），`accept`（`approvalId=id`）到达时按 id 移除，`done`/`error` 清空。前端缓存 `sense.tools`（含 `icon`）name→icon，未命中 fallback ⚙。
+**运行中工具 icon（`sense_started` notification）**：auto 工具触发执行时后端推 `sense_started` `{id, senseName, arguments}`（smart/manual 仍走 interrupt）。agents store `routeNotification` 据 `id` push 到 `stream.runningTools`（`{id,name}[]`），`accept`（`approvalId=id`）到达时按 id 移除，`done`/`error` 清空。前端缓存 `sense.tools`（含 `icon`）name→icon，未命中 fallback ⚙。
 
 **RunningTools 组件**（[RunningTools.vue](../../../web/src/features/agent/RunningTools.vue)）：挂 [PetSprite](../../../web/src/features/pets/PetSprite.vue) `.meta-row` 右侧（PetToolbar 之后），多工具并发时并排多 icon；空间不足时 `.name` max-width+ellipsis 让位。每个 icon = 运行中工具的 `icon` 字段。
 

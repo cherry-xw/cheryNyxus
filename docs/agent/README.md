@@ -183,7 +183,7 @@ src/index.ts（服务入口）
 | core/llm/adapter | [core/llm/adapter.ts](../../src/core/llm/adapter.ts) | `LLMAdapter` 接口、`getLLMAdapter` 注册表、`LLMOptions` |
 | core/message/adapter | [core/message/adapter.ts](../../src/core/message/adapter.ts) | `MessageProviderAdapterConfig`、`registerMessageAdapter`、`LLMResponse`、`ReplaceInfo` |
 | core/sense/adapter | [core/sense/adapter.ts](../../src/core/sense/adapter.ts) | `SenseAdapter` 接口、`registerSenseAdapter`、`SenseCallData`、`SenseFunction` |
-| core/config | [core/config.ts](../../src/core/config.ts) | `SupervisionLevel` 枚举（auto=0/confirm=1/manual=2） |
+| core/config | [core/config.ts](../../src/core/config.ts) | `SupervisionLevel` 枚举（auto=0/smart=1/manual=2） |
 | utils/config | [utils/config.ts](../../src/utils/config.ts) | `config.global`、`config.llm.brain`、`config.sense_groups`、`BrainConfig`/`MockScriptResponse` 类型 |
 | utils/hash | [utils/hash.ts](../../src/utils/hash.ts) | `hashGenerator`（read_file/write_file/skill 的去重 hash） |
 | utils/drain | [utils/drain/](../../src/utils/drain/) | `compressLog`（read_file 大日志文件去重） |

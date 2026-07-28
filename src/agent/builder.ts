@@ -42,8 +42,12 @@ export class AgentBuilder {
    * 原子配置 brain + senseGroups，避免 provider 与工具定义处于半配置状态。
    * @param injectMemoryManage 主 agent 硬编码注入 memory_manage（默认 true）；子 agent 传 false
    */
-  configureRuntime(selection: RuntimeSelection, injectMemoryManage = true): this {
-    const runtime = this.runtimeResolver.resolve(selection, { injectMemoryManage })
+  configureRuntime(
+    selection: RuntimeSelection,
+    injectMemoryManage = true,
+    ruleName?: string,
+  ): this {
+    const runtime = this.runtimeResolver.resolve(selection, { injectMemoryManage, ruleName })
     this.requireAgent().configureRuntime(runtime)
     return this
   }

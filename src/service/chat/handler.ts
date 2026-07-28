@@ -123,6 +123,7 @@ export async function handleChatCreate(
     if (resolved.systemPromptFile) metadata.systemPromptFile = resolved.systemPromptFile
     if (resolved.skillFilter) metadata.skillFilter = resolved.skillFilter
     if (resolved.workspace) metadata.workspace = resolved.workspace
+    if (resolved.rule) metadata.rule = resolved.rule
   } else {
     // 显式路径：parseRuntimeSelection 校验 brain + senseGroups 必填
     selection = parseRuntimeSelection(p, 'chat.create')

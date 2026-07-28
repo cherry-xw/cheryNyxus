@@ -18,7 +18,7 @@
  *   - description:  给 LLM 看的说明（LLM 据此决定是否调用）
  *   - schema:       zod schema，定义 input 参数结构
  *   - handler:      async (input) => SenseResult，实际执行逻辑
- *   - supervision:  可选，监管等级（auto / confirm / manual）
+ *   - supervision:  可选，监管等级（auto / smart / manual）
  *                   优先级：感官配置 > 感官内置声明 > global.supervision
  *
  * 【自测注解 @test】
@@ -54,5 +54,5 @@ export default sense(
       hash: "",
     };
   },
-  SupervisionLevel.confirm,
+  SupervisionLevel.smart,
 );

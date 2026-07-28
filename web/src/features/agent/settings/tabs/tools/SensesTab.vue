@@ -29,7 +29,7 @@ function onError(msg: string): void {
   emit('error', msg)
 }
 
-// 监管等级循环序：继承('') → auto → confirm → manual → 继承
+// 监管等级循环序：继承('') → auto → smart → manual → 继承
 const LEVELS = ['', ...SUPERVISIONS] as const
 
 function addGroup(): void {
@@ -141,7 +141,7 @@ function levelLabel(level: string): string {
 // 文案与 GlobalTab 全局监管说明对齐（自动更流畅 / 确认关键操作前询问 / 手动最谨慎）。
 const SUPERVISION_DESC: Record<(typeof SUPERVISIONS)[number], string> = {
   auto: 'AI 自行调用，无需确认（更流畅）',
-  confirm: '关键操作前询问你',
+  smart: '安全操作自动执行，敏感操作先问你',
   manual: '最谨慎，每次需手动放行',
 }
 // tag tooltip：合并工具描述 + 危险标志 + 监管等级/继承信息（pre-line 换行，popper-class sense-level-tip）。
@@ -163,12 +163,12 @@ function tagTip(entry: string): string {
   }
   return lines.join('\n')
 }
-// tag 着色按监管松紧：auto（放权）= danger，confirm = warning，manual/info = info，继承 = info+plain
+// tag 着色按监管松紧：auto（放权）= danger，smart = warning，manual/info = info，继承 = info+plain
 function levelTagType(level: string): 'info' | 'warning' | 'danger' {
   switch (level) {
     case 'auto':
       return 'danger'
-    case 'confirm':
+    case 'smart':
       return 'warning'
     default:
       return 'info'

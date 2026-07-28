@@ -85,7 +85,7 @@ chat.send 路径前置校验。
 | `[xxxxxxxx] 感官出了点状况` | 感官 provider 类错误 | 查感官实现；通常为脚本 bug | 审视 |
 | `[xxxxxxxx] 感官没听懂这个请求` | 感官参数校验失败（Zod schema 不通过） | 检查感官调用参数；常见为 LLM 生成参数不合规 | 审视 |
 | `[xxxxxxxx] 感官出了点小问题` | 感官兜底 `unknown` | 查日志 `sense.*` scope | 审视 |
-| `审批等待超时` | 用户长时间未在 `confirm` / `manual` 监管下点确认 | 调高 `global.approval_timeout`；或降低 `global.supervision` 等级（auto 静默 / confirm 弹一次） | 审视 |
+| `审批等待超时` | 用户长时间未在 `smart` / `manual` 监管下点确认 | 调高 `global.approval_timeout`；或降低 `global.supervision` 等级（auto 静默 / smart 弹一次） | 审视 |
 
 ### 来源：media / mcp（占位）
 
@@ -158,7 +158,7 @@ grep -r "compose.unhandled\|llm.key.missing\|req.invalid_params" .chery/logs/ | 
 
 ### 改感官监管等级
 
-> 「去 **设置 → 感官 / 监管** 页，把 `global.supervision` 从 `confirm` 降到 `auto`（或反之），或为具体感官配置 `:level` 后缀。改完保存，**重启生效**。」
+> 「去 **设置 → 感官 / 监管** 页，把 `global.supervision` 从 `smart` 降到 `auto`（或反之），或为具体感官配置 `:level` 后缀。改完保存，**重启生效**。」
 
 ### 关闭 hook 临时排查
 

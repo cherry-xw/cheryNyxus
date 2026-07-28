@@ -22,7 +22,7 @@ const runtimeSelectionSchema = z.object({
 
 // ---------- config.save schema（结构与 ConfigRaw 一一对应，除 server 段）----------
 
-const supervisionNameSchema = z.enum(['auto', 'confirm', 'manual'])
+const supervisionNameSchema = z.enum(['auto', 'smart', 'manual'])
 
 const brainSchema = z.object({
   url: z.string().optional(),
@@ -182,6 +182,8 @@ const configSaveSchema = z
           mediaAudio: z.string().optional(),
           /** 项目工作目录绝对路径（对齐 PresetConfig.workspace；缺省 → 不注入 <workspace> 段） */
           workspace: z.string().optional(),
+          /** smart 监管规则覆盖文件名（对齐 PresetConfig.rule；缺省 → 仅用基准 base.yaml） */
+          rule: z.string().optional(),
         }),
       )
       .optional(),
@@ -201,6 +203,7 @@ export const requestSchemas = {
   }),
   [Method.SKILLS_LIST_NAMES]: emptySchema,
   [Method.PROMPTS_LIST]: emptySchema,
+  [Method.RULES_LIST]: emptySchema,
   [Method.RUNTIME_SET]: z.object({
     chatId: z.string(),
     brain: z.string(),

@@ -33,7 +33,7 @@ pnpm test             # vitest（套件有预存问题，开发期仅关注 TSC 
 ## 核心概念速查
 
 - **Middleware 洋葱链**（外→内）：`checkpoint → sense → retry → chat`，`loop` 循环到无 senseCalls。详见 [agent/middleware.md](../docs/agent/middleware.md)。
-- **Sense 监管等级**：`auto`(0) / `confirm`(1) / `manual`(2)；优先级：感官配置覆盖 > 感官内置声明 > `global.supervision`。详见 [core/sense.md](../docs/core/sense.md)。
+- **Sense 监管等级**：`auto`(0) / `smart`(1) / `manual`(2)；smart 按规则表判定（危险操作需确认、其余含未知 sense 自动执行，黑名单 fail-open 默认放行；破坏性 sense 须显式 `false` 兜底）；优先级：感官配置覆盖 > 感官内置声明 > `global.supervision`。详见 [core/sense.md](../docs/core/sense.md)。
 - **审批**：core `approvalRegistry` 创建 Promise 并 await，service `ApprovalManager` 仅登记 id、转调 core 触发。详见 [agent/middleware.md](../docs/agent/middleware.md) + [service/chat.md](../docs/service/chat.md)。
 - **主数据流**：`chat.send` → RPC router → `AgentBuilder.run` → Middleware 链 → LLM 流式 → service observer（DB 持久化 + 审批注册）→ WebSocket 推送。详见 [service/chat.md](../docs/service/chat.md)。
 - **插件 Git 导入**：`git clone --depth 1`（系统 git 为硬性前提）+ `http.extraheader` 注入鉴权（不嵌 URL 避免 argv 泄露）；分支选择 → 整仓安装（subpath 忽略）；凭据 AES-256-GCM 存 `.chery/.secrets/`（obfuscation 级）。详见 [docs/agent/plugin.md](../docs/agent/plugin.md)。

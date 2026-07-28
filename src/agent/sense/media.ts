@@ -27,7 +27,7 @@ function mediaSense(kind: MediaKind) {
           .join('\n') || `未返回${kind}资产`
       return { content, hash: hashGenerator(`media-${kind}`, content) }
     },
-    SupervisionLevel.confirm,
+    SupervisionLevel.smart,
   )
 }
 

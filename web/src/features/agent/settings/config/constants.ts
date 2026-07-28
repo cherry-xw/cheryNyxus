@@ -36,11 +36,11 @@ export const TABS: { key: TabKey; icon: string; label: string; color: string }[]
 ]
 
 export const PROVIDERS = ['openai', 'ollama', 'mock', 'bigmodel', 'anthropic', 'deepseek'] as const
-export const SUPERVISIONS = ['auto', 'confirm', 'manual'] as const
+export const SUPERVISIONS = ['auto', 'smart', 'manual'] as const
 /** 监管等级中文展示名（下拉 label 用；value 仍存英文枚举，对应后端 SupervisionLevel）。 */
 export const SUPERVISION_LABEL: Record<(typeof SUPERVISIONS)[number], string> = {
   auto: '自动',
-  confirm: '确认',
+  smart: '智能',
   manual: '手动',
 }
 export const DANGEROUS_SENSES = ['execute_command', 'write_file', 'destroy_role']

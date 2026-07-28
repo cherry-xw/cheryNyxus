@@ -17,7 +17,7 @@
 | `media` | object | ❌ | 媒体网关（图片/视频/音频生成），当前未启用，留作扩展 |
 | `sense_groups` | object | ✅（如启用感官） | 感官分组（角色通过 `senseGroup` 引用） |
 | `roles` | object | ✅（如启用角色） | 角色定义（brain + senseGroup + systemPrompt 三元组） |
-| `presets` | object | ✅ | 预设配置（启动时按 `默认` 加载；`workspace` 为绝对路径） |
+| `presets` | object | ✅ | 预设配置（启动时按 `默认` 加载；`workspace` 绝对路径、`rule` 引用 `.chery/rule/` 覆盖文件与基准 `base.yaml` 深合并） |
 | `server` | object | ❌ | WebSocket 服务监听配置（默认 port 8182 / transport binary / host 127.0.0.1） |
 | `memory` | object | ❌ | 长期记忆参数（`max_count` / `max_chars`） |
 
@@ -26,7 +26,7 @@
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
 | `thinking` | bool | ✅ | — | 是否启用 LLM 思考模式（全局开关；brain 级 `thinking` 覆盖） |
-| `supervision` | enum | ✅ | — | Sense 监管等级：`auto`（0，静默）/ `confirm`（1，审批）/ `manual`（2，手动）；可被感官配置或感官内置声明覆盖 |
+| `supervision` | enum | ✅ | — | Sense 监管等级：`auto`（0，静默）/ `smart`(1，审批）/ `manual`（2，手动）；可被感官配置或感官内置声明覆盖 |
 | `stream` | bool | ✅ | — | 是否流式返回（false 则整段返回） |
 | `sense_execute_timeout` | number (ms) | ❌ | 10000 | 单次 Sense 执行超时 |
 | `approval_timeout` | number (ms) | ❌ | 30000 | 审批等待超时（`global.approval_timeout` 也可由 RPC/感官级覆盖） |
@@ -96,7 +96,7 @@
 |------|------|------|------|
 | `sense_groups` | `Record<groupName, senseName[]>` | ✅ | `groupName` 为分组 key（角色通过 `roles.<role>.senseGroup` 引用）；`senseName[]` 为感官名列表，支持 `:level` 后缀覆盖监管等级 |
 
-**senseName 格式：** `<sense>:<level>`，`<level>` 取 `auto` / `confirm` / `manual`。优先级：感官配置覆盖 > 感官内置声明 > `global.supervision`。
+**senseName 格式：** `<sense>:<level>`，`<level>` 取 `auto` / `smart` / `manual`。优先级：感官配置覆盖 > 感官内置声明 > `global.supervision`。
 
 **内置 Sense：** `read_file` / `write_file` / `execute_command` / `search_codebase` / `spawn_role` / `update_todo` / `skill` / `install_skill` / `ask_user_question`。
 
@@ -193,7 +193,7 @@ llm:
 1. `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt` 文件必须存在
 2. `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`
 3. `presets.*.workspace` 必须是已存在的目录绝对路径
-4. `global.supervision` 必须是 `auto|confirm|manual`
+4. `global.supervision` 必须是 `auto|smart|manual`
 5. `sense_groups.*[]` 的 `:level` 后缀必须合法
 6. `llm.brain.*` 的 `model` / `provider` 必填
 7. `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合

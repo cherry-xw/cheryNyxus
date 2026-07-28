@@ -105,6 +105,9 @@ const senseTools = ref<SenseToolInfo[]>([])
 /** prompts.list 返回的 .chery/prompt/ 下 .md 路径清单（RolesTab/PresetsTab systemPrompt 级联选择器用）。每次打开重新拉。 */
 const prompts = ref<string[]>([])
 
+/** rules.list 返回的 .chery/rule/ 下 .yaml 文件名清单（PresetsTab 规则文件下拉用，排除 base.yaml）。每次打开重新拉。 */
+const rules = ref<string[]>([])
+
 /** env.list 返回的 .env 变量名列表（BrainsTab/MediaTab 密钥下拉选项）。每次打开重新拉。 */
 const envVars = ref<string[]>([])
 
@@ -171,6 +174,13 @@ watch(
     } catch (e) {
       console.error('[SettingsDialog] listPrompts failed:', e)
       prompts.value = []
+    }
+    // rules 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（下拉空选项 + placeholder）
+    try {
+      rules.value = await agentApi.listRules()
+    } catch (e) {
+      console.error('[SettingsDialog] listRules failed:', e)
+      rules.value = []
     }
     // env 变量列表：每次打开重新拉（.env 可能变动），失败不阻塞编辑（密钥下拉空选项）
     try {
@@ -568,6 +578,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
               v-show="activeTab === 'presets'"
               :draft="draft"
               :sense-tools="senseTools"
+              :rules="rules"
               :workspace-warnings="workspaceWarnings"
               @workspace-change="validatePresetWorkspace"
               @error="onError"

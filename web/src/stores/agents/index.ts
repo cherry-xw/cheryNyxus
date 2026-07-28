@@ -190,7 +190,7 @@ export const useAgentsStore = defineStore('agents', () => {
    * 后端 currentState 是权威 replace；同步 pendingApproval / runningTools / currentTodo。
    * 镜像 applyQuestionSnapshot 模式：快照不能倒退已观察到的事件，seq 仅由事件消费推进。
    * - pendingApproval → stream.approval（=pendingApproval，含 waitTime/createdAt 倒计时）+ 清 approvalQueue
-   * - runningTools → stream.runningTools（含 confirm/manual 待审批，补实时态缺口）
+   * - runningTools → stream.runningTools（含 smart/manual 待审批，补实时态缺口）
    * - currentTodo → stream.currentTodo（F5 收口：TodoPanel 改读此字段）
    * 缺 currentState 字段 = 后端未提供实时态；不动 StreamState。
    */
@@ -215,7 +215,7 @@ export const useAgentsStore = defineStore('agents', () => {
       stream.approval = undefined
       stream.approvalQueue = []
     }
-    // runningTools 权威 replace（含 confirm/manual 待审批 → 补实时态缺口：parked 子 chat spinner 不再残留）
+    // runningTools 权威 replace（含 smart/manual 待审批 → 补实时态缺口：parked 子 chat spinner 不再残留）
     stream.runningTools = cs.runningTools.map((t) => ({ id: t.id, name: t.senseName }))
     // currentTodo 透传（暂存 stream 顶层）
     if (cs.currentTodo !== undefined) {

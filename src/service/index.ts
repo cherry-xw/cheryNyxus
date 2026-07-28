@@ -9,6 +9,7 @@ import { registerSkillSourceHandlers } from './skill/sources.js'
 import { registerPluginHandlers } from './plugin/index.js'
 import { registerCredentialsHandlers } from './credentials/handler.js'
 import { registerPromptHandlers } from './prompt/list.js'
+import { registerRuleHandlers } from './rule/list.js'
 import { registerRuntimeSetHandlers } from './runtime/set.js'
 import { registerSessionRuntimeHandlers } from './runtime/session.js'
 import { registerChatHandlers } from './chat/send.js'
@@ -69,6 +70,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   registerPluginHandlers(router)
   registerCredentialsHandlers(router)
   registerPromptHandlers(router)
+  registerRuleHandlers(router)
   registerRuntimeSetHandlers(router)
   registerSessionRuntimeHandlers(router)
   registerChatHandlers(router)

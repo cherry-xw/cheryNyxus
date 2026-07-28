@@ -8,7 +8,7 @@ import { SupervisionLevel } from '@/core/config'
 import { getLLMAdapter } from '@/core/llm/adapter'
 import { getMessageAdapter } from '@/core/message/adapter'
 import { getSenseAdapter } from '@/core/sense/adapter'
-import { getSense } from '@/core/sense'
+import { getSense, loadMergedRuleSet } from '@/core/sense'
 import { getConnectedServerSenseNames } from '@/core/mcp'
 import { getSense as getBuiltinSense } from '@/core/sense'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
@@ -58,6 +58,8 @@ export function resolvePresetSelection(presetName: string): {
   workspace?: string
   /** leader 角色的技能组/插件组过滤（chat.create 快照入 metadata.skillFilter，<skills> 块按角色裁剪） */
   skillFilter?: SkillFilter
+  /** smart 监管规则覆盖文件名（chat.create 快照入 metadata.rule，resolve 期与 base.yaml 深合并） */
+  rule?: string
 } {
   const preset = config.presets?.[presetName]
   if (!preset?.leader) {
@@ -87,6 +89,7 @@ export function resolvePresetSelection(presetName: string): {
     spawnTypes: preset.roles ?? [],
     workspace: preset.workspace,
     skillFilter,
+    rule: preset.rule,
   }
 }
 
@@ -97,8 +100,13 @@ export class RuntimeResolver {
    *
    * @param opts.injectMemoryManage 主 agent 硬编码注入 memory_manage sense（默认 true）；
    *   子 agent 传 false 排除。
+   * @param opts.ruleName smart 监管规则覆盖文件名（metadata.rule；resolve 期与 base.yaml 深合并
+   *   冻结入 sensitivityRules）。缺省 → 仅用基准。所有 configureRuntime 触点须透传，避免切 brain 退化。
    */
-  resolve(selection: RuntimeSelection, opts?: { injectMemoryManage?: boolean }): RuntimeConfig {
+  resolve(
+    selection: RuntimeSelection,
+    opts?: { injectMemoryManage?: boolean; ruleName?: string },
+  ): RuntimeConfig {
     this.validateSelection(selection)
 
     const { brain, adapters } = this.resolveBrain(selection.brain)
@@ -115,6 +123,7 @@ export class RuntimeResolver {
       adapters,
       builtSenses,
       senseTable,
+      sensitivityRules: loadMergedRuleSet(opts?.ruleName),
     }
   }
 
@@ -236,13 +245,13 @@ export class RuntimeResolver {
     const levelName = rawLevel.trim()
     const supervisionByName: Record<string, SupervisionLevel> = {
       auto: SupervisionLevel.auto,
-      confirm: SupervisionLevel.confirm,
+      smart: SupervisionLevel.smart,
       manual: SupervisionLevel.manual,
     }
     const supervisionLevel = supervisionByName[levelName]
     if (supervisionLevel === undefined) {
       throw new Error(
-        `感官 "${senseName}" 的监管等级 "${rawLevel}" 无效（合法：auto/confirm/manual）`,
+        `感官 "${senseName}" 的监管等级 "${rawLevel}" 无效（合法：auto/smart/manual）`,
       )
     }
 

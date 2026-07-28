@@ -10,7 +10,7 @@
 # ------------------------------------------------------------
 global:
   thinking: true # 是否启用 LLM 思考模式（true/false）
-  supervision: manual # Sense 监管等级：auto | confirm | manual
+  supervision: manual # Sense 监管等级：auto | smart | manual
   stream: true # 是否流式返回（true/false）
   sense_execute_timeout: 10000 # [可选] 单次 Sense 执行超时(ms)，默认 10000
   approval_timeout: 30000 # [可选] 审批等待超时(ms)，默认 30000；0=不限时(由 approval_hard_timeout 兜底)
@@ -215,6 +215,7 @@ roles:
 # presets：预设配置
 # key 为预设名，"默认" 为启动时自动加载的预设
 # workspace：工作目录路径（必填，按实际环境修改）
+# rule：smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml），与基准 base.yaml 深合并；缺省仅用基准
 # ------------------------------------------------------------
 presets:
   默认:
@@ -226,6 +227,7 @@ presets:
       - reviewer
       - housekeeper # 管家（安装技能专用，主 agent 可 spawn）
     workspace: <YOUR_WORKSPACE_PATH> # 修改为你的实际工作目录
+    # rule: strict.yaml # 可选：smart 监管规则覆盖（.chery/rule/strict.yaml，与 base.yaml 深合并）
   维护: # 记忆维护预设：定时触发 curator 做 Dream
     leader: curator # curator 角色（记忆维护者）
     roles:

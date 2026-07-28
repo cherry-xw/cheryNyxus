@@ -210,6 +210,12 @@ export interface PresetConfig {
    * 缺省 → 不注册 cron 任务。
    */
   schedule?: PresetSchedule
+  /**
+   * smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml）。
+   * 与基准 base.yaml 深合并（dangerPatterns 追加去重；详见 docs/core/sense.md「smart 规则表」）。
+   * chat.create 选预设时快照入 metadata.rule（子 agent 继承父）；缺省 → 仅用基准。
+   */
+  rule?: string
 }
 
 /** 预设定时触发器配置 */
@@ -391,6 +397,7 @@ interface ExtendedGlobalConfig extends GlobalConfig {
   prompts_dir: string // 自动补全：chery_dir + "/.chery/prompt"（唯一 prompt 目录：含全局 base system.md + per-agent override 子文件夹）
   db_dir: string // 自动补全：chery_dir + "/db"
   memory_dir: string // 自动补全：chery_dir + "/.chery/memory"（非 workspace 模式记忆存储根目录）
+  rule_dir: string // 自动补全：chery_dir + "/.chery/rule"（smart 监管敏感判定规则 yaml）
 }
 
 interface Config {
@@ -413,12 +420,12 @@ interface Config {
  * 供 config.get/config.save RPC 传输与编辑。
  */
 interface GlobalConfigRaw extends Omit<GlobalConfig, 'supervision'> {
-  supervision: 'auto' | 'confirm' | 'manual'
+  supervision: 'auto' | 'smart' | 'manual'
 }
 
 /** 原始 MCP server 配置：supervision 为字符串（未转枚举） */
 interface McpServerConfigRaw extends Omit<McpServerConfig, 'supervision'> {
-  supervision?: 'auto' | 'confirm' | 'manual'
+  supervision?: 'auto' | 'smart' | 'manual'
 }
 
 /**
@@ -539,6 +546,7 @@ function loadConfig(): Config {
   config.global.prompts_dir = path.join(cheryDir, '.chery', 'prompt')
   config.global.db_dir = process.env.DB_DIR ?? path.join(cheryDir, '.chery', 'db')
   config.global.memory_dir = path.join(cheryDir, '.chery', 'memory')
+  config.global.rule_dir = path.join(cheryDir, '.chery', 'rule')
 
   // 断连宽限期默认值：15000ms（与 .chery.template 同步；缺省 15s）
   config.global.disconnect_grace_ms =
@@ -629,11 +637,11 @@ export function reloadMcpServersConfig(): Record<string, McpServerConfig> | unde
   return replaced
 }
 
-const VALID_SUPERVISION = ['auto', 'confirm', 'manual'] as const
+const VALID_SUPERVISION = ['auto', 'smart', 'manual'] as const
 type SupervisionName = (typeof VALID_SUPERVISION)[number]
 
 function isSupervisionName(v: unknown): v is SupervisionName {
-  return v === 'auto' || v === 'confirm' || v === 'manual'
+  return v === 'auto' || v === 'smart' || v === 'manual'
 }
 
 /**
@@ -652,14 +660,14 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   // supervision 合法值（global + mcp_servers）
   const gsup = raw.global?.supervision
   if (!isSupervisionName(gsup)) {
-    errors.push(`global.supervision "${String(gsup)}" 非法（合法：auto/confirm/manual）`)
+    errors.push(`global.supervision "${String(gsup)}" 非法（合法：auto/smart/manual）`)
   }
   if (raw.mcp_servers) {
     for (const [name, cfg] of Object.entries(raw.mcp_servers)) {
       const sup = cfg?.supervision
       if (sup !== undefined && !isSupervisionName(sup)) {
         errors.push(
-          `mcp_servers.${name}.supervision "${String(sup)}" 非法（合法：auto/confirm/manual）`,
+          `mcp_servers.${name}.supervision "${String(sup)}" 非法（合法：auto/smart/manual）`,
         )
       }
     }
@@ -674,7 +682,7 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
           const level = entry.slice(idx + 1)
           if (!isSupervisionName(level)) {
             errors.push(
-              `sense_groups.${group} 的 "${entry}" :level 后缀非法（合法：auto/confirm/manual）`,
+              `sense_groups.${group} 的 "${entry}" :level 后缀非法（合法：auto/smart/manual）`,
             )
           }
         }

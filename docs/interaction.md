@@ -28,7 +28,7 @@
 ```json
 → {"id":"r2","kind":"request","method":"sense.list","params":{}}
 ← {"id":"a2","kind":"response","requestId":"r2","success":true,
-   "data":{"senseGroups":[{"name":"safe","senses":["read_file","execute_command:auto","write_file:confirm"]}]}}
+   "data":{"senseGroups":[{"name":"safe","senses":["read_file","execute_command:auto","write_file:smart"]}]}}
 ```
 
 > `senses` 为原始字符串数组，含 `:level` 后缀，未解析。
@@ -181,7 +181,7 @@
 ← {"kind":"chunk","type":"staged","requestId":"r9","data":{"type":"content_end","content":"读取文件"}}
 ← {"kind":"chunk","type":"staged","requestId":"r9","data":{"type":"sense_end","senseName":"read_file","arguments":"{\"path\":\"/a.txt\"}"}}
 
-// 4. 感官触发：auto 不推 interrupt（无审批）；confirm/manual 推 interrupt 携 waitTime/createdAt 待审批
+// 4. 感官触发：auto 不推 interrupt（无审批）；smart/manual 推 interrupt 携 waitTime/createdAt 待审批
 // —— auto 模式：直接执行（无 interrupt）——
 ← {"kind":"notification","type":"accept","requestId":"r9",
    "data":{"approvalId":"call_abc","senseName":"read_file","result":"1\t文件内容..."}}
@@ -212,7 +212,7 @@
 ```json
 → {"id":"r10","kind":"request","method":"chat.resume","params":{"chatId":"c1"}}
 
-// Case 1：末尾有 pending sense → 进 loop 跳过 chat 层（senseMiddleware 不调 next，不调 LLM），重发 sense_end → interrupt（仅 confirm/manual；auto 直接执行不推）
+// Case 1：末尾有 pending sense → 进 loop 跳过 chat 层（senseMiddleware 不调 next，不调 LLM），重发 sense_end → interrupt（仅 smart/manual；auto 直接执行不推）
 ← {"kind":"notification","type":"interrupt","requestId":"r10",
    "data":{"approvalId":"call_abc","senseName":"read_file","arguments":"{...}","supervisionLevel":1,"needsApproval":true,"waitTime":30000,"createdAt":1700000000000}}
 
@@ -231,7 +231,7 @@ C→S sense.approval {action:"accept"}
 
 > **续接规则**（同默认 send 流完全一致，首轮仅跳过 chat 层不调 LLM）：
 >
-> - **末尾有 pending sense** → senseMiddleware 检测到 pending，重发 `sense_end` → auto 直接执行（不推 interrupt）/ confirm 推 `interrupt` 等客户端审批，不调 `next` 进 chat；执行后 loop 正常继续
+> - **末尾有 pending sense** → senseMiddleware 检测到 pending，重发 `sense_end` → auto 直接执行（不推 interrupt）/ smart 推 `interrupt` 等客户端审批，不调 `next` 进 chat；执行后 loop 正常继续
 > - **末尾全 done（无 pending）** → 直接进 loop，正常调 LLM 处理 sense 结果并回复
 > - **sense 群中有工具不在当前 senseTable**（sense group 已换 / 工具移除）→ 跳过监管，静默处理，写结果「无此工具」（占位回执，LLM 据此感知工具不存在）
 > - Phase 0（send 自动恢复执行 pending sense）已移除，续接必须由显式 `chat.resume` 按钮触发
@@ -269,7 +269,7 @@ C→S chat.send {prompt}
   ← done
 ```
 
-### 流程 C：confirm sense + 审批（write_file:confirm）
+### 流程 C：smart sense + 审批（write_file:smart）
 
 ```text
 C→S chat.send {prompt}

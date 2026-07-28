@@ -79,7 +79,7 @@ index = messages 中 role==="assistant" 的数量
 | 纯文本（流程A） | 1 | `[{content:"回复"}]` |
 | thinking + 文本 | 1 | `[{thinking:"...",content:"回复"}]` |
 | auto sense（流程B） | 2 | `[{content:"读取",senseCalls:[{name:"read_file",arguments:'{"path":"/a"}'}]},{content:"结果"}]` |
-| confirm sense（流程C） | 2 | 同上（confirm 由 sense_groups `:level` 定，mock 不感知） |
+| smart sense（流程C） | 2 | 同上（smart 由 sense_groups `:level` 定，mock 不感知） |
 | 多 sense 单轮 | 2 | `[{senseCalls:[A,B]},{content:"..."}]` |
 | 多轮 sense 链 | 3+ | `[{senseCalls:[A]},{senseCalls:[B]},{content:"完成"}]` |
 | maxLoop 超限 | 30+ | `[{senseCalls:[A]}]` + `repeat:last` |
@@ -104,7 +104,7 @@ script:
   - content: "文件内容是 hello"
 ```
 
-### confirm sense（需 sense_groups 配 `:level`）
+### smart sense（需 sense_groups 配 `:level`）
 
 ```yaml
 script:
@@ -115,12 +115,12 @@ script:
   - content: "已写入"
 ```
 
-config.yaml sense_groups 加 confirm 级：
+config.yaml sense_groups 加 smart 级：
 
 ```yaml
 sense_groups:
   write_senses:
-    - write_file:confirm
+    - write_file:smart
 ```
 
 ### maxLoop 超限
@@ -146,6 +146,6 @@ mock.chat/chatStream 抛错 → retry 中间件捕获。
 
 ## 注意
 
-- **监管等级不在 mock**：auto/confirm/manual 由 config `sense_groups` 的 `:level` 后缀决定。测 confirm 需在 sense_groups 配 `:confirm`
+- **监管等级不在 mock**：auto/smart/manual 由 config `sense_groups` 的 `:level` 后缀决定。测 smart 需在 sense_groups 配 `:smart`
 - mock 已作为 builtin 注册，生产环境不用 `provider:"mock"` brain 即不触发（惰性）
 - 脚本文件缺失：mock 返回空 content（warn 日志），不崩

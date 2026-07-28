@@ -307,7 +307,7 @@ export function createStreamRouter(
     }
 
     if (type === 'interrupt') {
-      // 感官审批请求（streamMapper sense_end → interrupt，仅 confirm/manual 推送；auto sense 不推）。
+      // 感官审批请求（streamMapper sense_end → interrupt，仅 smart/manual 推送；auto sense 不推）。
       // 后端 InterruptNotificationData: {approvalId, senseName, arguments, supervisionLevel, needsApproval, waitTime, createdAt}
       // 多审批堆叠：当前 approval 已存在 → 新审批入队（不覆盖，用户可依次处理）
       const d = (n.data ?? {}) as {
@@ -367,7 +367,7 @@ export function createStreamRouter(
 
     if (type === 'accept' || type === 'rejected') {
       // 审批已处理（用户 accept/reject 或超时/断连触发）→ 从 approval 或 approvalQueue 按 id 移除；当前 approval 清空时自动从 queue head pop 下一个。
-      // accept（approvalId=sense id）→ 移除运行中工具同 id 项；rejected 同（confirm/manual 工具未入 running 栈，filter 幂等）。
+      // accept（approvalId=sense id）→ 移除运行中工具同 id 项；rejected 同（smart/manual 工具未入 running 栈，filter 幂等）。
       // 实时把工具结果写入对应 history senseCall（执行过程实时渲染；与 chat.get 回放 content_end role=sense 同源，
       // 旧「暂不累积，后续 content 覆盖」假设已被实时 staged 设计取代）。
       if (chatId) {

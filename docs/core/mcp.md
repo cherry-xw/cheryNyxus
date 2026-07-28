@@ -4,7 +4,7 @@
 
 ## 职责
 
-`core/mcp/` 把外部 MCP server 的 tools/resources/prompts 映射为 **Sense** 注册进全局 [senseRegistry](./sense.md)，复用框架既有的监管等级（auto/confirm/manual）、审批、checkpoint、loop 机制。
+`core/mcp/` 把外部 MCP server 的 tools/resources/prompts 映射为 **Sense** 注册进全局 [senseRegistry](./sense.md)，复用框架既有的监管等级（auto/smart/manual）、审批、checkpoint、loop 机制。
 
 分**两层**：
 
@@ -35,7 +35,7 @@ mcp_servers:
     transport: stdio
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-    supervision: confirm
+    supervision: smart
   remote:
     transport: streamable-http
     url: http://localhost:8081/mcp

@@ -7,7 +7,7 @@ import type {
 import type { ReplaceInfo } from '@/core/message/adapter'
 import { safeJsonParse } from '@/utils/json.js'
 import { SupervisionLevel } from '@/core/config'
-import { createApproval } from '@/core/sense'
+import { createApproval, isSafeSenseCall } from '@/core/sense'
 import { logger } from '@/utils/logger/index.js'
 import { redactEnvKeys } from '@/utils/envGuard.js'
 import { checkCheryGuard } from '@/utils/pathGuard.js'
@@ -23,7 +23,7 @@ interface PendingSenseCall {
   name: string
   argsJson: string
   supervisionLevel: SupervisionLevel
-  /** confirm/manual 时存在，用于 Promise.all 批量等待审批 */
+  /** smart/manual 时存在，用于 Promise.all 批量等待审批 */
   approvalPromise?: Promise<{ action: 'accept' | 'reject'; reason?: string }>
 }
 
@@ -44,7 +44,7 @@ const NON_DEDUPABLE_SENSES = new Set<string>(['spawn_role'])
  * Sense Middleware（批量模式）
  * 职责：
  * 1. Phase 1：从 stream chunks 收集 senseDelta，检测完整 sense call，yield sense_end 触发器
- * 2. Phase 2：流结束后，auto sense 先执行；confirm/manual 批量 await Promise.all 等待审批后执行
+ * 2. Phase 2：流结束后，auto sense 先执行；smart/manual 批量 await Promise.all 等待审批后执行
  * pending sense 不再自动恢复执行，改由 chat.resume 撤回重跑（见 service/chat/send.ts handleChatResume）
  *
  * trace 日志：sense 触发/执行/拒绝由 chokepoint（streamMapper 的 sense.trigger/result/rejected）
@@ -256,11 +256,26 @@ function buildSenseTrigger(
 ): { trigger: SenseTriggerChunk; call: PendingSenseCall } {
   if (!ctx.runtime) throw new Error('Runtime not configured.')
   const senseEntry = ctx.runtime.senseTable.get(name)
-  const supervisionLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.confirm
+  const configuredLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.smart
+
+  // smart 监管：按规则表（core/sense/sensitivity.ts isSafeSenseCall）确定性判定本次是否安全。
+  //   ruleSet 来自 ctx.runtime.sensitivityRules（resolve 期从 .chery/rule/ 合并编译，进程内冻结）。
+  //   黑名单 fail-open：safe（未命中 dangerPatterns / 未知 sense）→ effectiveLevel=auto（不建审批，归入 autoCalls 直接执行）
+  //   unsafe（命中危险 / false 硬开关 / 取参异常）→ effectiveLevel=smart（建审批，走 interrupt 等待确认，fail-safe 默认确认）
+  // 仅 smart 走规则表；auto/manual 原样透传。trigger/call 都带 effectiveLevel →
+  // executeCollectedCalls(===auto/approvalPromise 有无)、streamMapper(>auto)、checkpoint(>0)
+  // 等下游数值分支自动正确，无需改消费方。确定性保证 resume 续接结论一致。
+  let effectiveLevel = configuredLevel
+  if (configuredLevel === SupervisionLevel.smart) {
+    const args = safeJsonParse(argsJson, {})
+    effectiveLevel = isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
+      ? SupervisionLevel.auto
+      : SupervisionLevel.smart
+  }
 
   let approvalPromise: Promise<{ action: 'accept' | 'reject'; reason?: string }> | undefined
 
-  if (supervisionLevel > SupervisionLevel.auto) {
+  if (effectiveLevel > SupervisionLevel.auto) {
     // P1-11：审批 Promise 由 core approvalRegistry 管理，resolve/reject 不再随 chunk 传 service。
     //   service ApprovalManager.confirm/abort 调 resolveApproval/rejectApproval 触发本 await。
     // G2：approval_timeout=0（不限时）时 hardTimeoutMs（global.approval_hard_timeout）兜底释放。
@@ -276,12 +291,12 @@ function buildSenseTrigger(
     id,
     name,
     arguments: argsJson,
-    supervisionLevel,
+    supervisionLevel: effectiveLevel,
   }
 
   return {
     trigger,
-    call: { id, name, argsJson, supervisionLevel, approvalPromise },
+    call: { id, name, argsJson, supervisionLevel: effectiveLevel, approvalPromise },
   }
 }
 

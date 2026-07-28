@@ -16,8 +16,8 @@
 |------|------|----------|
 | A0 纯文本 | 无 sense，loop 单轮，流式正文 | S1 |
 | A1 auto 感官（无审批） | `supervision=auto(0)` → `sense_started` 直接执行 → `sense_end` | S2 |
-| A2 confirm 接受 | `supervision=confirm(1)` → `interrupt` → 用户 accept → 执行 | S3 |
-| A3 confirm 拒绝 | `interrupt` → 用户 reject → `rejected` → loop 继续 | S4 |
+| A2 smart 接受 | `supervision=smart(1)` → `interrupt` → 用户 accept → 执行 | S3 |
+| A3 smart 拒绝 | `interrupt` → 用户 reject → `rejected` → loop 继续 | S4 |
 | A4 用户超时自动拒 | `approval_timeout>0` 到点 → resolve-as-reject → `sense_reject` → resume Case2 | S5 |
 | A5 不限时 + 30min 自动释放 | `approval_timeout=0` + `approval_hard_timeout` 到点 → `AgentParkError` → paused 可续 | S6 |
 
@@ -104,14 +104,14 @@
 - **功能点**：FP-A1 / FP-B2
 - **覆盖**：A1、B2
 
-#### S3 confirm 接受
-- **前置**：confirm 脚本 + `sense_groups` `:confirm`
+#### S3 smart 接受
+- **前置**：smart 脚本 + `sense_groups` `:smart`
 - **步骤**：`sense_end` → `interrupt`{waitTime,createdAt,supervisionLevel:1} → `[sense.approval accept]` → `accept` → stream → `done`
 - **检查**：审批中 `approvalManager` 含 id；accept 后移除；interrupt→accept 时序；confirm 返 true
 - **功能点**：FP-A2
 - **覆盖**：A2
 
-#### S4 confirm 拒绝
+#### S4 smart 拒绝
 - **前置**：同 S3
 - **步骤**：`interrupt` → `[reject reason]` → `rejected`{reason} → stream → `done`
 - **检查**：rejected 后 approval 移除；`rejected.reason` 透传；loop 继续（非 paused）
@@ -241,8 +241,8 @@
 |------|------|------|
 | A0 纯文本 | S1 | **Tier 1 已落地** |
 | A1 auto | S2 | **Tier 1 已落地** |
-| A2 confirm accept | S3 | **Tier 1 已落地** |
-| A3 confirm reject | S4 | **Tier 1 已落地** |
+| A2 smart accept | S3 | **Tier 1 已落地** |
+| A3 smart reject | S4 | **Tier 1 已落地** |
 | A4 超时拒 | S5 | **Tier 1 已落地** |
 | A5 不限时 hard-park | S6 | **G2 单元 + Tier 1 端到端已落地** |
 | B1 流式 | S1/S2 | **Tier 1 已落地** |
@@ -275,7 +275,7 @@
 - 复用 [agentHarness.ts](../test/agent/helpers/agentHarness.ts)：`createAgent`/`runSend`/`runSendWithApproval`/`runResume`/`approve`/`abortApproval`
 - 复用 [chunkAssert.ts](../test/agent/helpers/chunkAssert.ts)：`collectChunks`/`stagedTypes`/`senseEnds`/`senseAccepts`/`senseRejects`/`hasDone`
 - 复用 [mockScripts.ts](../test/agent/helpers/mockScripts.ts)：`addMockBrain` 动态注入脚本
-- 模式参照 [tool.test.ts](../test/agent/middleware/tool.test.ts)（auto/confirm accept·reject/批量审批/resume pending）、[loop.test.ts](../test/agent/middleware/loop.test.ts)（done vs firstError 失败抑制）
+- 模式参照 [tool.test.ts](../test/agent/middleware/tool.test.ts)（auto/smart accept·reject/批量审批/resume pending）、[loop.test.ts](../test/agent/middleware/loop.test.ts)（done vs firstError 失败抑制）
 
 ### Tier 2 — service+WS 级（S8–S16）
 慢、真实断连/重连/DB。**G1/G3/G8 验收主战场。**
@@ -298,7 +298,7 @@
 - `MockScriptResponse`（[config.ts](../src/utils/config.ts)）增 `chunkDelayMs?`（每 delta chunk 间 sleep）/ `preRespondMs?`（本轮首响应前 sleep）
 - `mock.ts` `gen()` 每个 yield 前 `await sleep(chunkDelayMs)`；`chatStream`/`chat` `pickScriptItem` 后 `await sleep(preRespondMs)`
 - 全局兜底：`brain.mock` 配置段 `chunkDelayMs`/`preRespondMs`，脚本项缺省取全局，默认 0（不拖慢单测）
-- 审批挂起非 mock 管：confirm/manual 中断由 `approvalRegistry` await，测试用真实短超时或 `vi.useFakeTimers()`
+- 审批挂起非 mock 管：smart/manual 中断由 `approvalRegistry` await，测试用真实短超时或 `vi.useFakeTimers()`
 
 ---
 

@@ -35,7 +35,7 @@
 
 **双重隔离自洽**：install_skill 只在管家 senseGroup（配置层）→ 其他角色 senseTable 看不到调不到；路径守卫 `GUARD_EXEMPT` 只认 install_skill → 其他角色即使绕路用 write_file/bash 写 `.chery/` 也被拦。无需 RuntimeSelection 带 role type。
 
-## install_skill 感官（[installSkill.ts](../../src/agent/sense/installSkill.ts)，confirm 监管）
+## install_skill 感官（[installSkill.ts](../../src/agent/sense/installSkill.ts)，smart 监管）
 
 ### schema（union 两阶段）
 

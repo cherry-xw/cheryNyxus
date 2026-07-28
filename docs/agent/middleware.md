@@ -13,7 +13,7 @@
 | [index.ts](../../src/agent/middleware/index.ts) | 聚合导出 + `defaultHandlers` 数组（定义洋葱执行顺序） |
 | [checkpoint.ts](../../src/agent/middleware/checkpoint.ts) | 第 1 层：归纳 delta → staged chunk，构建 messages，声明 message/sense effect |
 | [checkpointState.ts](../../src/agent/middleware/checkpointState.ts) | checkpoint 的状态封装：累积 delta、flushAssistant、sense 结果回写、senseDelta 合并 |
-| [tool.ts](../../src/agent/middleware/tool.ts) | 第 2 层（sense）：Phase 1 收集 senseDelta + 触发；Phase 2 auto/confirm/manual 批量执行 + 审批 |
+| [tool.ts](../../src/agent/middleware/tool.ts) | 第 2 层（sense）：Phase 1 收集 senseDelta + 触发；Phase 2 auto/smart/manual 批量执行 + 审批 |
 | [retry.ts](../../src/agent/middleware/retry.ts) | 第 3 层：捕获 chat 层错误，分类重试 MAX_RETRIES 次，失败 yield ErrorChunk |
 | [chat.ts](../../src/agent/middleware/chat.ts) | 第 4 层（最内）：调用 LLM（流式/非流式），yield StreamChunk |
 | [loop.ts](../../src/agent/middleware/loop.ts) | `createLoopHandler`：循环 runChain 直到无 senseCalls，超 maxLoop yield ErrorChunk，最终 yield DoneChunk |
@@ -39,7 +39,7 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
 | 层 | 职责 |
 |----|------|
 | checkpoint | 归纳所有 chunk；生成 `staged`（thinking_end/content_end/sense_end）；构建并维护 `ctx.soul.messages`；声明 `message_created`/`message_updated`/`sense_pending`/`consumed` effect |
-| sense | 收集 sense_end，confirm/manual 等审批，执行感官，yield `sense_accept`/`sense_reject` |
+| sense | 收集 sense_end，smart/manual 等审批，执行感官，yield `sense_accept`/`sense_reject` |
 | retry | 捕获 LLM 调用错误，可恢复错误重试 3 次，不可恢复直接 yield ErrorChunk |
 | chat | 调用 LLM（`llmAdapter.chatStream` 或 `chat`），yield `StreamChunk`（含 thinkingDelta/contentDelta/senseDelta） |
 
@@ -105,7 +105,7 @@ chat → checkpoint → finally → assistant(无 senseCalls)
 【loop 结束】yield done
 ```
 
-### B. 审批流程（confirm/manual，agent 侧）
+### B. 审批流程（smart/manual，agent 侧）
 
 完整跨模块流程见 [../interaction.md 流程 C](../interaction.md) 与 [../service/chat.md](../service/chat.md)。agent 侧的关键节点：
 
@@ -125,7 +125,7 @@ checkpoint 收到 sense_end：
 
 sense 层 Phase 2：executeCollectedCalls
   ├─ auto calls → 立即 doExecuteSense → yield sense_accept
-  └─ needsApproval（confirm/manual）：
+  └─ needsApproval（smart/manual）：
        ├─ await Promise.all(approvalPromise)           ← 阻塞，等 service.confirm
        │     （service: sense.approval → resolveApproval(id) 解除本 await）
        ├─ WS 断连 → reject(AgentParkError) → catch 抛 park 信号（pending NULL，observer 静默归 paused，子 chat 待重连 chat.resume Case1 重建）
@@ -374,7 +374,7 @@ for (const call of autoCalls) {
   for (const r of replaced) yield message_updated;   // 历史 hash 替换
 }
 
-// confirm/manual 批量等待
+// smart/manual 批量等待
 if (needsApproval.length > 0) {
   try { await Promise.all(approvalPromise); }
   catch { throw new Error("approval aborted"); }      // ★ 见上方「审批流程 B」

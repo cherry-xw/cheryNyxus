@@ -8,6 +8,7 @@ import type {
 import type { LLMAdapter } from '../llm/adapter'
 import type { SenseAdapter, SenseCallData, SenseFunction } from '../sense/adapter'
 import type { SenseResult, SenseSharedData, SenseRuntimeContext } from '../sense/senseCreator'
+import type { CompiledRuleSet } from '../sense/ruleLoader.js'
 import type { GlobalConfig, BrainConfig } from '@/utils/config'
 import type { Logger } from '@/utils/logger/types.js'
 import type { MessageJournal } from './messageJournal.js'
@@ -82,6 +83,8 @@ export interface RuntimeConfig {
   builtSenses: SenseFunction[]
   /** 感官查找表（name → 监管等级 + 执行器） */
   senseTable: Map<string, SenseEntry>
+  /** smart 监管敏感判定规则集（resolve 期从 .chery/rule/ 合并编译冻结，供 isSafeSenseCall） */
+  sensitivityRules: CompiledRuleSet
 }
 
 /**

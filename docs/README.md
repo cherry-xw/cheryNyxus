@@ -22,7 +22,7 @@
 - [llm.md](./core/llm.md) — `LLMAdapter`（chat/chatStream）+ 注册表
 - [message.md](./core/message.md) — `MessageAdapter`、统一响应、`SenseCallInfo`
 - [middleware.md](./core/middleware.md) — `compose()` 洋葱组合器、`AgentSession` / `MiddlewarePipeline` / `MessageJournal`、Context/Chunk 类型
-- [sense.md](./core/sense.md) — `sense()` 工厂、感官/审批注册表、**监管等级 auto/confirm/manual**
+- [sense.md](./core/sense.md) — `sense()` 工厂、感官/审批注册表、**监管等级 auto/smart/manual**
 - [compiler.md](./core/compiler.md) — 外部感官编译器（`.chery/senses/*.ts`）
 - [mcp.md](./core/mcp.md) — MCP server 接入：tools/resources/prompts → Sense
 
@@ -89,6 +89,7 @@
 
 | 资源 | 内容 |
 |------|------|
+| [setup.md](./setup.md) | **开发环境搭建**：前置依赖（Node/pnpm/git/native 工具链）→ install → 密钥与 config 配置 → 启动验证；🔧 人工必做 vs 🤖 AI 可执行 分级 |
 | [根 README](../README.md) | 项目综述、隐喻体系、启动指令、配置文件清单 |
 | [.chery/config.yaml](../.chery/config.yaml) | LLM 客户端 + Sense 分组 + 全局配置 + 服务端口 |
 | [.claude/CLAUDE.md](../.claude/CLAUDE.md) | AI 协作规范（极简索引） |

@@ -12,7 +12,7 @@
 
 | 文件 / 目录 | 职责 |
 |------|------|
-| [config.ts](../../src/core/config.ts) | `SupervisionLevel` 枚举（auto/confirm/manual），core 唯一的运行时常量定义 |
+| [config.ts](../../src/core/config.ts) | `SupervisionLevel` 枚举（auto/smart/manual），core 唯一的运行时常量定义 |
 | [llm/](../../src/core/llm/) | LLM Adapter 接口与注册表（`chat` / `chatStream` 契约）→ [llm.md](./llm.md) |
 | [message/](../../src/core/message/) | Message Adapter 接口、`LLMResponse` 统一响应结构、`SenseCallInfo` → [message.md](./message.md) |
 | [middleware/](../../src/core/middleware/) | 洋葱模型组合器 `compose()`、`AgentSession`、`MiddlewarePipeline`、`MessageJournal`、Context/Chunk 全部类型 → [middleware.md](./middleware.md) |
@@ -34,7 +34,7 @@ core/ 围绕三条解耦轴组织，对应三套 Adapter 注册表；再加 `Sup
 │  AgentSession     Pipeline + Journal + 单 chat 上下文   → middleware.md│
 │  sense() 工厂     zod schema → Sense 实例              → sense.md     │
 │                                                                       │
-│  SupervisionLevel 枚举  auto=0 / confirm=1 / manual=2  → 本文件       │
+│  SupervisionLevel 枚举  auto=0 / smart=1 / manual=2  → 本文件       │
 └───────────────────────────────────────────────────────────────────────┘
                               ↓ 被 agent/ 注入实现
 ┌────────────────────────── agent/（具体实现）─────────────────────────┐
@@ -52,7 +52,7 @@ core/ 围绕三条解耦轴组织，对应三套 Adapter 注册表；再加 `Sup
 ```ts
 export enum SupervisionLevel {
   auto = 0,     // 自动执行，无需确认
-  confirm = 1,  // 需用户确认后执行（senseMiddleware await 审批 Promise）
+  smart = 1,    // 智能监管：危险操作（黑名单命中/false/取参异常）需确认，其余（含未知 sense）自动执行（fail-open 默认放行）
   manual = 2,   // 禁止自动执行，仅手动触发
 }
 ```

@@ -32,9 +32,9 @@
 | `write_file` | [write.ts](../../src/agent/sense/write.ts) | manual | `path`、`content`、`offset?`、`limit?` |
 | `skill` | [skill.ts](../../src/agent/sense/skill.ts) | auto | `name` |
 | `search_codebase` | [search.ts](../../src/agent/sense/search.ts) | auto | `mode?`、`query`、`regex?`、`maxResults?`、`contextLines?` |
-| `generate_image` | [media.ts](../../src/agent/sense/media.ts) | confirm | `prompt` |
-| `generate_video` | [media.ts](../../src/agent/sense/media.ts) | confirm | `prompt` |
-| `generate_audio` | [media.ts](../../src/agent/sense/media.ts) | confirm | `prompt` |
+| `generate_image` | [media.ts](../../src/agent/sense/media.ts) | smart | `prompt` |
+| `generate_video` | [media.ts](../../src/agent/sense/media.ts) | smart | `prompt` |
+| `generate_audio` | [media.ts](../../src/agent/sense/media.ts) | smart | `prompt` |
 
 > ⚠ sense **函数名**（首参数）才是注册 key，与文件名无关。bash.ts → "execute_command"、skill.ts → "skill"。
 
@@ -43,16 +43,16 @@
 ### 监管等级（[core/config.ts](../../src/core/config.ts)）
 
 ```ts
-export enum SupervisionLevel { auto = 0, confirm = 1, manual = 2 }
+export enum SupervisionLevel { auto = 0, smart = 1, manual = 2 }
 ```
 
 | 等级 | 行为 |
 |------|------|
 | auto (0) | 直接执行，无需审批 |
-| confirm (1) | 等待客户端审批（`sense.approval`）后执行 |
+| smart (1) | 等待客户端审批（`sense.approval`）后执行 |
 | manual (2) | 禁止自动执行，仅手动触发 |
 
-**优先级链**（实际生效的等级）：感官组 `:level` 后缀覆盖 > 前组已解析 > **感官内置声明（本表）** > `global.supervision`。感官内置声明是**默认值**，可被 sense_groups 配置覆盖（如 `read_file:confirm`）。详见 [agent/README.md RuntimeResolver](./README.md)。
+**优先级链**（实际生效的等级）：感官组 `:level` 后缀覆盖 > 前组已解析 > **感官内置声明（本表）** > `global.supervision`。感官内置声明是**默认值**，可被 sense_groups 配置覆盖（如 `read_file:smart`）。详见 [agent/README.md RuntimeResolver](./README.md)。
 
 ### reloadSenses（[index.ts](../../src/agent/sense/index.ts)）
 
@@ -266,7 +266,7 @@ chatId → (pid → BashProcessRecord)
        // 执行逻辑；返回 { content, hash }
        return { content: "结果", hash: "" };   // hash 非空才会触发历史去重
      },
-     SupervisionLevel.confirm,         // ← 默认监管等级（可被 sense_groups 覆盖）
+     SupervisionLevel.smart,         // ← 默认监管等级（可被 sense_groups 覆盖）
    );
    ```
 

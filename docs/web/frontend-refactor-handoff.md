@@ -53,7 +53,7 @@
 | 显示态 | 当前 | 缺口 |
 |--------|------|------|
 | 审批气泡/队列 | `interrupt` 事件回放 | park **不发 rejected** → 事件流无法判定存活 → 已 park 审批可能「复活」 |
-| confirm/manual 工具态 | 无独立事件，只走 approval 气泡 | F5 后 `runningTools` **不含**待审批工具 |
+| smart/manual 工具态 | 无独立事件，只走 approval 气泡 | F5 后 `runningTools` **不含**待审批工具 |
 
 当前前端**零 currentState 消费**（grep 证实）。
 
@@ -70,9 +70,9 @@
 
 ### F2 — currentState 快照消费（**核心**，复用 applyQuestionSnapshot 模式）
 - [agentApi.ts](../../../web/src/services/agentApi.ts)：`syncChat`(:883)/`attachChat`(:908)/`getChat` response 类型加 `currentState: CurrentStateData`（对齐 [types.ts:1029](../../../src/service/message/types.ts#L1029)）。
-- 新增 `applyCurrentState(stream, cs)`（**镜像 [applyQuestionSnapshot:148](../../../web/src/stores/agents/index.ts#L148)**）：权威 replace `stream.approval`(=pendingApproval，含 waitTime/createdAt 倒计时) / `stream.runningTools`(含 confirm/manual) / currentTodo。
+- 新增 `applyCurrentState(stream, cs)`（**镜像 [applyQuestionSnapshot:148](../../../web/src/stores/agents/index.ts#L148)**）：权威 replace `stream.approval`(=pendingApproval，含 waitTime/createdAt 倒计时) / `stream.runningTools`(含 smart/manual) / currentTodo。
 - sync/attach response 到达后调用 `applyCurrentState`；`routeNotification` 删 `replayMode==='resume'` 下 interrupt/sense_started/accept/rejected 的**实时态重建**分支（改由快照给定）；这些事件仅留实时运行期增量 + 副作用抑制。
-- **补齐两口缺口**：审批气泡存活判定 + confirm/manual 工具执行态。
+- **补齐两口缺口**：审批气泡存活判定 + smart/manual 工具执行态。
 - 打字机 content **保留** stream delta（不入快照，单一内容源）。
 
 ### F3 — replayMode 收敛（中风险）
@@ -91,7 +91,7 @@
 - `stream.history`(已完成轮) + 实时轮 content/thinking → 单一有序数组视图（实时轮 = 末尾 in-progress 项）；[MessageBubble](../../../web/src/features/agent/chat/MessageBubble.vue)/[HistoryDrawerPanel](../../../web/src/features/agent/drawer/HistoryDrawerPanel.vue) 单源渲染。
 
 ### F5 — pet 显示态逐态验证（对应 §2.4 + plan §4.2 视角三表）
-F1–F4 后逐态手验刷新恢复：审批气泡（原 id 命中 + 存活判定）/ 运行工具（含 confirm/manual）/ todo（[TodoPanel.vue:19](../../../web/src/features/agent/cards/TodoPanel.vue#L19) 改读 currentTodo）/ 打字机 / role 气泡 / error·resume。F2 已补两口缺口，预期全充足；若仍缺 → 协议层补 currentState 字段。
+F1–F4 后逐态手验刷新恢复：审批气泡（原 id 命中 + 存活判定）/ 运行工具（含 smart/manual）/ todo（[TodoPanel.vue:19](../../../web/src/features/agent/cards/TodoPanel.vue#L19) 改读 currentTodo）/ 打字机 / role 气泡 / error·resume。F2 已补两口缺口，预期全充足；若仍缺 → 协议层补 currentState 字段。
 
 ---
 

@@ -161,7 +161,7 @@ export async function* observeAgentChunks(
         }
 
         // recovery update patch = { content, hash }，整体写入
-        // （旧实现仅判 content 丢 hash → confirm pending sense hash 永远 NULL → 重启去重失效）
+        // （旧实现仅判 content 丢 hash → smart pending sense hash 永远 NULL → 重启去重失效）
         fillApprovalResult(chatId, chunk.id, {
           content: chunk.patch.content,
           hash: chunk.patch.hash,

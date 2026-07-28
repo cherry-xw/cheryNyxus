@@ -617,7 +617,7 @@ FAB 点击 → 选择 preset → agentApi.createAgent({preset})（chat.create）
 | **CP2** | AgentFab + AgentDialog + 主 pet 双气泡 + 工作状态 + 流式 chunk 消费 + ContextBar（占位，待 CP7 接通后端估算）                                                           | ✅   | FAB 创建主 pet，发消息，气泡实时显示                |
 | **CP3** | spawn_role sense（前端驱动）+ role_created notification + 子 pet 创建/显示 + roles 配置 + subagent.result 回传                                                          | ✅   | 主 agent 派发子任务，子 pet 出现并工作              |
 | **CP4** | HistoryDrawer + MessageBubble + SenseCallBox + 群消息样式                                                                                                               | ✅   | 点数字气泡看完整历史                                |
-| **CP5** | ApprovalCard（interrupt→accept/reject）+ ✕关闭入队 + approvalQueue + PetIcons 闪烁列 + 审批 z-index 提到 400 避开浮层覆盖                                               | ✅   | bash confirm 审批闭环 + 关闭可重唤起                |
+| **CP5** | ApprovalCard（interrupt→accept/reject）+ ✕关闭入队 + approvalQueue + PetIcons 闪烁列 + 审批 z-index 提到 400 避开浮层覆盖                                               | ✅   | bash smart 审批闭环 + 关闭可重唤起                |
 | **CP6** | 中止（chat.abort）+ 隐藏（hide）+ ~~destroy_role sense~~（已移除，子 agent done 改转 ghost，§5.6）+ role_destroyed notification（失去发出方，保留协议项）+ 异步结果注入 | ✅   | 全生命周期闭环                                      |
 | **CP7** | contextUsage 计算（字符数估算，未接 tokenizer）+ 文档更新 + 验收                                                                                                        | ✅   | 全流程通（tokenizer 精确计算 + compact RPC 仍留待） |
 

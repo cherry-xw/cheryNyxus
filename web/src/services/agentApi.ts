@@ -661,7 +661,7 @@ export interface McpServerConfigDto {
   args?: string[]
   env?: Record<string, string>
   url?: string
-  supervision?: 'auto' | 'confirm' | 'manual'
+  supervision?: 'auto' | 'smart' | 'manual'
 }
 
 export type MediaKindDto = 'image' | 'video' | 'audio'
@@ -700,7 +700,7 @@ export interface CommandConfigDataDto {
 
 export interface GlobalConfigDto {
   thinking: boolean
-  supervision: 'auto' | 'confirm' | 'manual'
+  supervision: 'auto' | 'smart' | 'manual'
   stream: boolean
   sense_execute_timeout?: number
   /** 审批等待超时（ms）。`>= 0`，0 = 不限时。详见 `InterruptNotificationData.waitTime`。 */
@@ -743,6 +743,8 @@ export interface PresetDto {
   mediaAudio?: string
   /** 项目工作目录绝对路径（system prompt 提示词注入 <workspace> 段；不约束 sense 行为）。缺省 → 不注入 */
   workspace?: string
+  /** smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml；与基准深合并）。缺省 → 仅用基准 */
+  rule?: string
 }
 
 export interface ConfigDto {
@@ -1380,6 +1382,14 @@ export const agentApi = {
   async listPrompts(): Promise<string[]> {
     const data = await call<Partial<{ prompts?: string[] }>>('prompts.list', {})
     return Array.isArray(data?.prompts) ? data.prompts : []
+  },
+  /**
+   * rules.list：列出 .chery/rule/ 下全部 .yaml 文件名（排除基准 base.yaml），供设置面板预设 tab
+   * 「规则文件」下拉填充。返回形状容错（缺字段 -> 空数组）。
+   */
+  async listRules(): Promise<string[]> {
+    const data = await call<Partial<{ rules?: string[] }>>('rules.list', {})
+    return Array.isArray(data?.rules) ? data.rules : []
   },
   async uploadMedia(file: File): Promise<UploadedMediaAsset> {
     const server = await fetchServerConfig()

@@ -89,7 +89,7 @@ export function resetEnvVarCache(): void;
 ```ts
 // 原始形态（磁盘/YAML）：supervision 为字符串、无路径补全、key 仍为 $ENV 占位符
 export interface ConfigRaw {
-  global: GlobalConfigRaw;                 // supervision: "auto"|"confirm"|"manual"
+  global: GlobalConfigRaw;                 // supervision: "auto"|"smart"|"manual"
   llm: LLMConfig;
   media?: MediaConfig;
   sense_groups?: Record<string, string[]>;
@@ -110,7 +110,7 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 - `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt`（如配置）必须存在
 - `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`；`presets.*.roles[*]` 必须引用已定义角色
 - `presets.*.workspace`（如配置）必须是已存在的目录绝对路径（`fs.accessSync` 校验，fail loud；该字段仅作 system prompt 提示词注入，不约束 sense 行为）
-- `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|confirm|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
+- `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|smart|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
 - `global.disconnect_grace_ms` 必须是有限且 `>= 0` 的毫秒值；缺省为 `15000`，`0` 表示断连后立即请求当前输出结束时暂停
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填

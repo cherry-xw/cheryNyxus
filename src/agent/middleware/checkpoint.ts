@@ -148,7 +148,7 @@ export async function* checkpointMiddleware(
           } as MiddlewareChunk
         }
 
-        // confirm/manual 模式：创建 pending sense 消息（若不存在），并 yield effect 交给 service 持久化。
+        // smart/manual 模式：创建 pending sense 消息（若不存在），并 yield effect 交给 service 持久化。
         // resume 续接时 pending 已存在（同 trigger.id）→ 跳过创建，仅注册审批避免重复落库。
         if (trigger.supervisionLevel > 0 /* SupervisionLevel.auto */) {
           const { created, message } = ctx.journal.appendPendingSense({

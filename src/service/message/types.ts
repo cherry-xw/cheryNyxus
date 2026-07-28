@@ -80,7 +80,7 @@ export interface EventContext {
 }
 
 export type NotificationType =
-  | 'interrupt' // 感官审批请求（sense_end，仅 confirm/manual）
+  | 'interrupt' // 感官审批请求（sense_end，仅 smart/manual）
   | 'sense_started' // 感官开始执行（sense_end，仅 auto；前端维护「运行中工具」列表）
   | 'accept' // 感官执行成功（全工具；approvalId=sense id，前端移除运行中工具同 id 项）
   | 'rejected' // 感官执行被拒绝
@@ -132,6 +132,7 @@ export interface SkillsListRequestData {
 }
 
 export type PromptsListRequestData = EmptyObjectData
+export type RulesListRequestData = EmptyObjectData
 
 export interface ChatCreateRequestData {
   chatId?: string
@@ -1013,6 +1014,14 @@ export interface PromptsListResponseData {
   prompts: string[]
 }
 
+/**
+ * rules.list 响应：.chery/rule/ 下全部 .yaml 文件名（**排除基准 base.yaml**），供设置面板预设 tab
+ * 「规则文件」下拉填充。目录为空/不存在 → []。
+ */
+export interface RulesListResponseData {
+  rules: string[]
+}
+
 export interface ChatCreateResponseData {
   chatId: string
   /** 回显已生效的 runtime selection（含 MCP 开关） */
@@ -1663,7 +1672,7 @@ export interface InterruptNotificationData {
 }
 
 /**
- * 感官开始执行（sense_end，仅 auto 工具推送；confirm/manual 走 interrupt）。
+ * 感官开始执行（sense_end，仅 auto 工具推送；smart/manual 走 interrupt）。
  * 前端据 id 维护「运行中工具」列表（pet bar 右侧显 icon）；accept（approvalId=id）到达时移除。
  * id = SenseTriggerChunk.id（= sense 调用 id，与 accept.approvalId 同源）。
  */
@@ -1920,6 +1929,8 @@ export const Method = {
   SKILLS_RESYNC_ALL_SOURCES: 'skills.resyncAllSources',
   // 递归列出 .chery/prompt/ 下全部 .md（含子文件夹，排除 system.md），供设置面板 systemPrompt 级联选择器
   PROMPTS_LIST: 'prompts.list',
+  // 列出 .chery/rule/ 下全部 .yaml（排除基准 base.yaml），供设置面板预设「规则文件」下拉
+  RULES_LIST: 'rules.list',
 
   // Runtime 设置（每轮可换，必须原子携带 brain + senseGroups）
   RUNTIME_SET: 'runtime.set',
@@ -2066,6 +2077,7 @@ export interface RpcMethodMap {
     result: SkillsResyncAllSourcesResponseData
   }
   [Method.PROMPTS_LIST]: { params: PromptsListRequestData; result: PromptsListResponseData }
+  [Method.RULES_LIST]: { params: RulesListRequestData; result: RulesListResponseData }
   [Method.RUNTIME_SET]: { params: RuntimeSetRequestData; result: RuntimeSetResponseData }
   [Method.SESSION_RUNTIME_SET]: {
     params: SessionRuntimeSetRequestData

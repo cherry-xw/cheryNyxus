@@ -106,8 +106,8 @@ interface Notification {
 | type | data | 触发时机 |
 |------|------|----------|
 | `consumed` | `{count, messages:[{id,role:"user",content,createdAt,...}]}` | 用户输入入队；messages 是已进入 journal 的权威用户消息，前端按 id upsert/rekey 乐观消息 |
-| `interrupt` | `{approvalId, senseName, arguments, supervisionLevel, needsApproval, waitTime, createdAt}` | sense_end（仅 confirm/manual；auto 不推） |
-| `sense_started` | `{id, senseName, arguments}` | sense_end（**仅 auto**；confirm/manual 走 interrupt）。auto 工具开始执行信号，前端据 `id` 维护「运行中工具」列表（pet bar 右侧显 icon）；对应 `accept`（`approvalId=id`）到达时移除 |
+| `interrupt` | `{approvalId, senseName, arguments, supervisionLevel, needsApproval, waitTime, createdAt}` | sense_end（仅 smart/manual；auto 不推） |
+| `sense_started` | `{id, senseName, arguments}` | sense_end（**仅 auto**；smart/manual 走 interrupt）。auto 工具开始执行信号，前端据 `id` 维护「运行中工具」列表（pet bar 右侧显 icon）；对应 `accept`（`approvalId=id`）到达时移除 |
 | `accept` | `{approvalId, senseName, result}` | sense 执行成功（全工具推；`approvalId`=sense 调用 id，前端据此移除「运行中工具」同 id 项） |
 | `rejected` | `{approvalId, senseName, reason}` | sense 被拒 / 审批取消 |
 | `loaded` | `null` | chat.get 历史发完 |
@@ -121,7 +121,7 @@ interface Notification {
 | `question_batch_completed` | `{batchId}` | 整批答案已在单个 SQLite 事务中写入 sense 消息并关闭批次。事件进入 chat event log，前端收到或重放时仅清理对应批次；是否启动 `chat.resume` 由 `sense.question.batchAnswer` RPC 的 `shouldResume` 决定，避免重复续跑。 |
 | `question_requested` / `question_answered` | 旧逐题结构 | 仅兼容历史事件和旧客户端；新前端不再据此构造问题状态。 |
 
-> `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。auto sense（`needsApproval:false`）不推 `interrupt`（无审批需求，前端不弹审核卡）；仅 confirm/manual 推送。`waitTime` = `global.approval_timeout`（ms，字段约束 `>= 0`：`0` = 不限时，不显倒计时；省略 = `0` 同义），`createdAt` = 发起时间戳（ms），前端据此算倒计时：`remaining = waitTime - (now - createdAt)`，归零后端超时 reject → `rejected` notification；用户 accept/reject 后前端立即关闭（不等 `accept`/`rejected` notification 回来）。`approval_timeout` 的范围校验在 [config.ts §validateRawConfig](./utils/config.md) 与 [schemas.ts §globalSchema](./service/message.md) 双层执行。
+> `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。auto sense（`needsApproval:false`）不推 `interrupt`（无审批需求，前端不弹审核卡）；仅 smart/manual 推送。`waitTime` = `global.approval_timeout`（ms，字段约束 `>= 0`：`0` = 不限时，不显倒计时；省略 = `0` 同义），`createdAt` = 发起时间戳（ms），前端据此算倒计时：`remaining = waitTime - (now - createdAt)`，归零后端超时 reject → `rejected` notification；用户 accept/reject 后前端立即关闭（不等 `accept`/`rejected` notification 回来）。`approval_timeout` 的范围校验在 [config.ts §validateRawConfig](./utils/config.md) 与 [schemas.ts §globalSchema](./service/message.md) 双层执行。
 
 > **断连宽限 vs 审批超时**：WS 断连不立即 park 挂起审批（由 `disconnect_grace_ms` 宽限期接管，宽限期内 approval Promise 存活、重连可用**原 approvalId** 审批续跑，到期才 park；见 [websocket.md 断连宽限](./service/websocket.md)）。但 `approval_timeout>0` 的用户超时 timer 在宽限期内**仍计时**——若断连期间到点，registry resolve-as-reject（loop 继续，= 用户拒绝），重连后该工具显 rejected。即「断连推迟 park，但不暂停用户超时计时」。`approval_timeout=0`（不限时）的资源上限由 `global.approval_hard_timeout`（默认 30min）兜底，到点 park 归 paused 可续（非拒绝）。
 

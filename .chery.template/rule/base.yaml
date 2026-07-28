@@ -1,0 +1,84 @@
+# smart 监管敏感判定基准规则（.chery/rule/base.yaml）—— 黑名单模式（fail-open）
+#
+# 仅在 configuredLevel === smart 时生效：
+#   - 命中 dangerPatterns / 有条目但取参异常 → 敏感，需用户确认（保持 smart）
+#   - 未命中 dangerPatterns / 无条目 / 未知 sense → 放行，自动执行（降为 auto）
+#   - false → 整体敏感，无条件需确认（硬开关，破坏性 sense 兜底）
+# auto / manual 档不经此表。
+#
+# ⚠ fail-open 风险：未知 sense（本表未登记且未内置 auto）默认放行、无监管。
+#   新增破坏性 sense 必须在此显式标 false，否则自动执行；dangerPatterns 漏配即静默放行。
+#   高敏场景配 manual 档。
+#
+# 合并语义：预设经 presets.<name>.rule 指定覆盖文件，与本基准「深合并」——
+#   - 覆盖文件未提及的 sense → 用本基准条目
+#   - 覆盖文件给 false → 结果 false（硬开关：整体需确认）
+#   - 覆盖文件给对象 + 基准也是对象（缺省 / inherit:true）→ extract 取覆盖、dangerPatterns 追加去重
+#   - 覆盖文件给对象 + inherit:false → replace：纯用覆盖，丢弃基准同名条目（extract + dangerPatterns 全取覆盖）
+#   - 覆盖文件给对象 + 基准无/false → 纯用覆盖
+# inherit 字段仅对覆盖文件条目生效（基准本身无意义，基准即被继承/覆盖的基底）。
+# 前端预设下拉不可选本基准（rules.list 排除 base.yaml）。
+# 详见 docs/core/sense.md「smart 规则表」。
+
+# ── 命令类：高危不可逆命令黑名单（命中 = 需确认；未命中 = 自动执行）──
+# 黑名单不可穷举，此处仅覆盖高危不可逆；漏配即放行。常用只读命令（git status/ls/cat 等）默认自动执行。
+execute_command:
+  extract: command                   # 从 args.command 取待匹配串（支持点号路径如 input.path）
+  dangerPatterns:
+    - 'rm -rf'                       # 子串匹配
+    - 'rm -fr'
+    - '/\brm\s+-[a-z]*r/'            # 正则：rm 带 -r（覆盖 -rvf 等），约定 /pattern/flags
+    - '/\brm\s+-[a-z]*f/'            # rm 带 -f
+    - 'dd '                          # 磁盘写
+    - 'mkfs'                         # 格式化
+    - 'shred'                        # 安全擦除
+    - ':(){'                         # fork bomb
+    - '/>\s*\/dev\/(sd|nvme|vd|disk)/' # 写块设备
+    - 'shutdown'
+    - 'reboot'
+    - 'poweroff'
+    - 'git push --force'             # 强推覆盖远程
+    - 'git push -f'
+    - 'git reset --hard'             # 丢未提交改动
+    - 'git clean -fd'                # 删未跟踪文件
+    - '/curl[^|;&]*\|\s*(sh|bash)/'  # curl 管道执行远程脚本
+    - '/wget[^|;&]*\|\s*(sh|bash)/'
+
+# ── 文件读取：敏感路径黑名单（命中 = 需确认；其余放行）──
+read_file:
+  extract: path
+  dangerPatterns:
+    - '/\.ssh/'                      # 私钥目录
+    - 'id_rsa'
+    - 'id_ed25519'
+    - '/\.env'                       # 凭据文件
+    - '/\.aws/credentials'
+    - '/\.git-credentials'
+    - '/etc/shadow'
+
+# ── 代码搜索：敏感词黑名单（命中 = 需确认；其余放行）──
+# 探测凭据/密钥类查询 → 需确认；正常代码搜索 → 自动执行。
+search_codebase:
+  extract: query
+  dangerPatterns:
+    - 'password'
+    - 'secret'
+    - 'api_key'
+    - 'apikey'
+    - 'access_token'
+    - 'private_key'
+
+# ── 无害操作：不登记 → 默认放行（fail-open）──
+# ask_user_question：sense 内置 auto（src/agent/sense/ask.ts），根本不进此表。
+#   旧白名单版曾配 /^/ 表达全 safe；黑名单下 dangerPatterns 的 /^/ 会倒置成全 danger（荒谬），故删除条目。
+# update_todo：todos 为数组、extract 取不到 string；操作无损，不登记 = 放行。
+
+# ── 破坏性 / 资源消耗 / 外部副作用：硬开关 false（无条件需确认）──
+write_file: false
+spawn_role: false
+memory_manage: false
+skill: false
+install_skill: false
+generate_image: false
+generate_video: false
+generate_audio: false

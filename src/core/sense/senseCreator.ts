@@ -75,7 +75,7 @@ export interface SenseExecutor<T extends z.ZodType> {
 export interface Sense<T extends z.ZodType> {
   definition: SenseFunction
   executor: SenseExecutor<T>
-  /** Sense自身声明的监管等级（未声明时由外部 fallback 到 global || confirm） */
+  /** Sense自身声明的监管等级（未声明时由外部 fallback 到 global || smart） */
   supervisionLevel: SupervisionLevel | undefined
 }
 

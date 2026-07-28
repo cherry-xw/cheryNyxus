@@ -328,7 +328,7 @@ wakeParent(parentChatId, childChatId, type, content, { silent? })
    → handleSenseApproval → approvalManager.confirm(approvalId, action, reason)
      → core approvalRegistry.resolveApproval(id, action, reason)       // 解除 senseMiddleware await
 6. senseMiddleware 继续：accept 执行感官 / reject 跳过
-   → checkpoint 产 message_updated effect（confirm pending sense 的 content 回填）
+   → checkpoint 产 message_updated effect（smart pending sense 的 content 回填）
 7. observer 收 message_updated（非 replace）→ fillApprovalResult(chatId, id, {content, hash})
 8. streamMapper 收 sense_accept/sense_reject → yield accept/rejected notification
 ```
@@ -367,7 +367,7 @@ agent 侧（SenseTriggerChunk 生成、await Promise、tool.ts）见 [../agent/m
 - [@/core/message/adapter](../../src/core/message/adapter.ts)：`LLMResponse` 类型（observer getMessages 返回）。
 - [@/core/config](../../src/core/config.ts)：`SupervisionLevel`（streamMapper 算 `needsApproval`）。
 - [@/db/chat](../../src/db/chat.ts)：`createChat`/`listAllChats`/`getChat`/`getMessages`/`deleteChat`/`parseMessageRow`/`addMessage`/`fillApprovalResult`/`markMessagesRevoked`/`markMessageReplaced`/`updateChatMetadata`/`getChatRuntimeSelection`。详见 [db.md](../db.md)。
-- [../approval/manager](../../src/service/approval/manager.ts)：`approvalManager.register`（observer）/ `confirm`（handleSenseApproval）。
+- [../approval/manager](../../src/service/approval/manager.ts)：`approvalManager.register`（observer）/ `smart`(handleSenseApproval）。
 - [../websocket/connection](../../src/service/websocket/connection.ts)：`connectionManager.bindChatConnection` / `releaseChatConnection` / `forceReleaseChatConnection`。
 - [@/utils/logger](../../src/utils/logger/index.ts)：send/streamMapper 全流程日志。
 

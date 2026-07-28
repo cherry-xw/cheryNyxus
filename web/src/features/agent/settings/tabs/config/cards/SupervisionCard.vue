@@ -37,11 +37,11 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
       :class="{ active: global.supervision === s }"
       @click="global.supervision = s"
     >
-      <span>{{ s === 'auto' ? '⚡' : s === 'confirm' ? '◉' : '✋' }}</span
+      <span>{{ s === 'auto' ? '⚡' : s === 'smart' ? '◉' : '✋' }}</span
       ><b>{{ SUPERVISION_LABEL[s] }}</b>
     </button>
   </div>
-  <p class="deck-note">自动更流畅；确认会在关键操作前询问；手动最谨慎。</p>
+  <p class="deck-note">自动更流畅；智能：安全操作自动执行，敏感操作先询问；手动最谨慎。</p>
 </template>
 
 <style scoped lang="less">

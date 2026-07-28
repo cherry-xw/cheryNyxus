@@ -18,6 +18,8 @@ import { resolveRoleAvatar } from '../../config/roleAvatar'
 const props = defineProps<{
   draft: ConfigDto
   senseTools: SenseToolInfo[]
+  /** .chery/rule/ 下覆盖文件名清单（排除 base.yaml 基准），规则文件下拉选项。 */
+  rules: string[]
   /** 后端 config.save 返回的 workspace 校验告警，按 presetName 索引，显示在对应 workspace 输入框下方。 */
   workspaceWarnings?: Record<string, string>
 }>()
@@ -351,6 +353,22 @@ const indexItems = computed<IndexItem[]>(() => {
         <span class="hint">
           该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）。
           {{ canPickDir ? '' : '浏览器模式请手动填写绝对路径。' }}
+        </span>
+      </div>
+
+      <div class="field">
+        <span class="lbl">规则文件</span>
+        <el-select
+          :model-value="preset.rule ?? ''"
+          placeholder="使用基准（base.yaml）"
+          clearable
+          size="small"
+          @update:model-value="(v: string) => (preset.rule = v || undefined)"
+        >
+          <el-option v-for="n in rules" :key="n" :value="n" :label="n" />
+        </el-select>
+        <span class="hint">
+          smart 监管的敏感判定规则覆盖（与基准 base.yaml 深合并，同名 dangerPatterns 追加去重）。不选则仅用基准。
         </span>
       </div>
     </article>

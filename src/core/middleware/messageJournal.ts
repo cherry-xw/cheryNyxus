@@ -133,7 +133,7 @@ export class MessageJournal {
   }
 
   /**
-   * 追加 pending sense 消息（confirm/manual 模式，sense_end 时调用）。
+   * 追加 pending sense 消息（smart/manual 模式，sense_end 时调用）。
    * resume 续接时 pending 已存在（同 trigger.id）→ 跳过创建，仅返回 created:false。
    * @returns { created, message } — created=true 时调用方 yield message_created effect
    */

@@ -47,7 +47,7 @@ media:
 - runtime 使用空 `senseGroup`、空 `mcpServers`，`RuntimeResolver` 生成空 `builtSenses/senseTable`；provider 不发送 `tools` 参数。
 - 设置页切换角色 brain 时会清空并禁用感官/MCP；会话发送弹窗临时切换到无工具 brain 时同样清空工具选择。切回支持工具的 brain 后才可再次选择感官组。
 
-`generate_image`、`generate_video`、`generate_audio` 是内置 sense，但只会在当前 brain 的 `generate.*` 对应标记为真时注入 LLM schema；全部按 `confirm` 监管级别执行。
+`generate_image`、`generate_video`、`generate_audio` 是内置 sense，但只会在当前 brain 的 `generate.*` 对应标记为真时注入 LLM schema；全部按 `smart` 监管级别执行（敏感操作，规则表判定为需确认）。
 
 ## 媒体资产与输入理解
 
