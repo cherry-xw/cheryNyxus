@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import NyxusParticle from './components/NyxusParticle.vue'
+import NyxusParticle from './nyxus/components/NyxusParticle.vue'
 import { desktopPetBridge, type DesktopPetCandidate } from './desktopPetBridge'
 import type { PetAction, PetMood } from './types/types'
 

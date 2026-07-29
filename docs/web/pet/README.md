@@ -17,24 +17,63 @@
 | [movement.md](./movement.md) | 主/子 pet 与部落 + 运动学 + 抚摸光标 |
 | [motion.md](./motion.md) | 动画 motion-v（sprite/hand/face/speech variant） |
 | [rendering.md](./rendering.md) | 渲染分层 PetSprite + z-index + 4 tier 气泡 + PetIcons slot + 闪烁逻辑 |
+| [nyxus-galaxy-roadmap.md](./nyxus-galaxy-roadmap.md) | Nyxus 星系结构、双星系合并、断连黑洞与鼠标交互的实施路线 |
 | [style.md](./style.md) | 样式 less（变量/mixin/嵌套） |
 | [agent-integration.md](./agent-integration.md) | agent 接入 CP1-CP8 落地 + 工具栏去装饰记录 + fatigue/contextUsage 解耦 |
 
 ## 文件清单
 
+> 模块分两层：**Pet**（普通桌宠，渲染 `pets[]` PetInstance）与 **Nyxus 独立核心**（Cherry Nexus，全局挂载、不经 PetInstance）。共享 [useStreamBubble.ts](../../../web/src/features/pets/composables/useStreamBubble.ts) + [types/types.ts](../../../web/src/features/pets/types/types.ts)。
+
+### Pet（普通桌宠）
+
 | 路径 | 职责 |
 |------|------|
-| [types.ts](../../../web/src/features/pets/types.ts) | PetMood/Action/**Form**/Hands/Tool/Behavior/SleepConfig/Preset/Instance 类型（含 chatId/parentChatId/agentType/isWorking/contextUsage/runtime agent 字段） |
-| [petPresets.ts](../../../web/src/features/pets/petPresets.ts) | face 部件池（KAOMOJI/EMOJI_FACES）+ `HAND_PAIRS` 配对池 + COLOR/TALK/NAME 部件 + `generatePet(form, excludeFaces?)`（含 face 去重）+ `masterFacePool`/`subFacePool` 双池导出 |
-| [petMotion.ts](../../../web/src/features/pets/petMotion.ts) | sprite/hand/face/speech variant helper（含 sleep） |
-| [PetSprite.vue](../../../web/src/features/pets/PetSprite.vue) | 单 pet 渲染：motion 分层 + 部件 + 状态条（emotion + ContextBar）+ PetToolbar + PetIcons + 4 tier 气泡（approval z=400 / error / work-main / speech slot）+ zzz + 光标 + slot |
-| [usePetDrag.ts](../../../web/src/features/pets/usePetDrag.ts) | PetSprite 拖拽 composable：长按拖拽/短按抚摸状态机（`LONG_PRESS_MS`/`DRAG_THRESHOLD_PX` + `suppressClick`）+ `petHover` + emit startDrag/drag/endDrag/hover/clickPet；自管 `onBeforeUnmount` |
-| [useStreamBubble.ts](../../../web/src/features/pets/useStreamBubble.ts) | PetSprite 工作气泡 composable：4 tier 显隐（approval/error/work-main/speech）+ 侧气泡 + retainUntil 保留 + auto-scroll 底部；收 `petHover` ref 算 `isHovered`；自管 retain 定时器 |
-| [PetIcons.vue](../../../web/src/features/pets/PetIcons.vue) | pet 头部右侧 icon slot（CP5 扩展）：history 列（本 chat 最近 5 条 HistoryItem 小圆点，hover 气泡显 preview）+ approval 列（当前实心高亮 + queue 闪烁，频率=remainingSec） |
-| [PetStage.vue](../../../web/src/features/pets/PetStage.vue) | 舞台 + agent 事件接线（abort/destroy/history/compact 委托 store）+ PetSprite 渲染（注入 agents.streams[chatId]） |
-| [usePetWorld.ts](../../../web/src/features/pets/usePetWorld.ts) | RAF / retarget 策略 / 交互 / 主子部落 / 休息 / 慢速（状态数值逻辑抽到 petStatus.ts）；导出 `createPetInstance` 工厂供 agents store 用 |
-| [petStatus.ts](../../../web/src/features/pets/petStatus.ts) | 状态数值算法纯函数：`StatusConfig`（速率/阈值/增量默认值）+ `resolveStatus` + adjustEmotion/adjustFatigue/restMood/stepVitals/shouldSleep/shouldWake |
-| [petMovement.ts](../../../web/src/features/pets/petMovement.ts) | 运动学纯函数：stepMovement（力积分 seek+部落引力/斥力）/ arrivedAtTarget / findSpawnPosition（排斥采样）/ keepInBounds |
+| [types/types.ts](../../../web/src/features/pets/types/types.ts) | PetMood/Action/**Form**/Hands/Tool/Behavior/SleepConfig/Preset/Instance 类型（含 chatId/parentChatId/agentType/isWorking/contextUsage/runtime agent 字段） |
+| [types/petPresets.ts](../../../web/src/features/pets/types/petPresets.ts) | 生成逻辑：`generatePet(form, excludeFaces?)`（face 去重）+ `applyRoleAvatar` + `masterFacePool`/`subFacePool`/`GHOST_FACES` 导出 |
+| [types/petPresetData.ts](../../../web/src/features/pets/types/petPresetData.ts) | 纯数据池：face 部件（KAOMOJI/EMOJI_FACES）+ `HAND_PAIRS` + COLOR/TALK/NAME 部件 + TOOL |
+| [petFactory.ts](../../../web/src/features/pets/petFactory.ts) | `createPetInstance` 工厂（供 agents store 复用，切断 store→composable 反向依赖）+ rand/pick/clamp/randomTarget/moodForAction/actionTalk 纯辅助 |
+| [PetStage.vue](../../../web/src/features/pets/PetStage.vue) | 舞台 + agent 事件接线（abort/destroy/history/compact 委托 store）+ PetSprite 渲染 |
+| [components/PetSprite.vue](../../../web/src/features/pets/components/PetSprite.vue) | 单 pet 编排器：组合 usePetDrag/useStreamBubble/usePetStyles + PetBody + PetIcons |
+| [components/PetBody.vue](../../../web/src/features/pets/components/PetBody.vue) | pet 身体骨架（.pet/.dir/.sprite/.head-row 排版）；脸/状态条/名字已拆子组件 |
+| [components/PetFaceFlip.vue](../../../web/src/features/pets/components/PetFaceFlip.vue) | 子 pet 3D 翻转脸卡（front+back 双面） |
+| [components/PetStatusBar.vue](../../../web/src/features/pets/components/PetStatusBar.vue) | emotion 条 + ContextBar + busy-indicator 三点脉冲 |
+| [components/PetNameTag.vue](../../../web/src/features/pets/components/PetNameTag.vue) | 名字标签 + workspace icon + ws-bubble + per-char 彩虹 |
+| [components/PetBubbles.vue](../../../web/src/features/pets/components/PetBubbles.vue) | 4 tier 气泡编排（approval z=400 / error / work-main / speech）+ PetBubble 包装 |
+| [components/PetBubble.vue](../../../web/src/features/pets/components/PetBubble.vue) | 统一气泡 motion 包装（5 variant + slot + ::after 尾箭头） |
+| [components/ThinkingTrigger.vue](../../../web/src/features/pets/components/ThinkingTrigger.vue) | 思考按钮 + flyout |
+| [components/PetIcons.vue](../../../web/src/features/pets/components/PetIcons.vue) | pet 头部右侧 icon slot：history 列 + approval 列（计时/闪烁逻辑抽 utils/） |
+| [components/GhostDot.vue](../../../web/src/features/pets/components/GhostDot.vue) | 已完成子 Agent 的发光跟随点（纯展示，不接受交互） |
+| [composables/usePetWorld.ts](../../../web/src/features/pets/composables/usePetWorld.ts) | RAF 运动循环 + 拖拽/hover/click 交互 + tickPet 状态机；组合 useGhostQueue（状态数值抽 motion/petStatus，目标选取抽 motion/petTargeting） |
+| [composables/useGhostQueue.ts](../../../web/src/features/pets/composables/useGhostQueue.ts) | ghost 跟随队列：主 Agent 轨迹采样 + 队列序号→弧长目标点 |
+| [composables/usePetDrag.ts](../../../web/src/features/pets/composables/usePetDrag.ts) | PetSprite 拖拽 composable：长按拖拽/短按抚摸状态机（LONG_PRESS_MS/DRAG_THRESHOLD_PX + suppressClick） |
+| [composables/usePetStyles.ts](../../../web/src/features/pets/composables/usePetStyles.ts) | pet 视觉样式 composable（face/hand/name motion + 气泡 z-index 派发） |
+| [composables/useStreamBubble.ts](../../../web/src/features/pets/composables/useStreamBubble.ts) | 工作气泡 composable（Pet + Nyxus 共用，不依赖 PetInstance）：4 tier 显隐 + retainUntil + auto-scroll |
+| [composables/useNow.ts](../../../web/src/features/pets/composables/useNow.ts) | 通用时基 composable（250ms tick，PetIcons/审批计时共用） |
+| [motion/petMotion.ts](../../../web/src/features/pets/motion/petMotion.ts) | sprite/hand/face/speech variant helper（含 sleep） |
+| [motion/petMovement.ts](../../../web/src/features/pets/motion/petMovement.ts) | 运动学纯函数：stepMovement（力积分 seek+部落引力/斥力）/ arrivedAtTarget / findSpawnPosition / keepInBounds / ghost trail |
+| [motion/petStatus.ts](../../../web/src/features/pets/motion/petStatus.ts) | 状态数值算法纯函数：StatusConfig + resolveStatus + adjustEmotion/adjustFatigue/restMood/stepVitals/shouldSleep/shouldWake |
+| [motion/petTargeting.ts](../../../web/src/features/pets/motion/petTargeting.ts) | 目标选取纯函数：retarget（部落聚拢 ±TRIBE_CLUSTER_RADIUS）+ findMaster |
+| [motion/petStyle.ts](../../../web/src/features/pets/motion/petStyle.ts) | 纯函数：hashHue / petBodyZIndex / speechZIndex / APPROVAL_Z_INDEX |
+| [utils/historyPreview.ts](../../../web/src/features/pets/utils/historyPreview.ts) | 历史预览纯函数：parseToolDetail/toolSummaryOf/previewOf/truncate |
+| [utils/approvalTiming.ts](../../../web/src/features/pets/utils/approvalTiming.ts) | 审批计时纯函数：remainingSecOf/flashPeriodOf/isExpired |
+
+### Nyxus 独立核心（[nyxus/](../../../web/src/features/pets/nyxus/)）
+
+全局挂载（App 顶层 `position:fixed; z-index:250`），**不经 PetStage/PetBody/PetInstance**。数据源 = chatSessions 的 nyxus session（root + `preset==='cheryNyxus'`，经 `selectNyxusSession` 解析）。详见 [rendering.md](./rendering.md) §nyxus 独立核心。
+
+| 路径 | 职责 |
+|------|------|
+| [nyxus/components/NyxusCore.vue](../../../web/src/features/pets/nyxus/components/NyxusCore.vue) | 独立核心 host：standalone 运动 + 粒子 + 气泡 + 工具环 + 单击/双击/3 连击状态机 |
+| [nyxus/components/NyxusParticle.vue](../../../web/src/features/pets/nyxus/components/NyxusParticle.vue) | canvas 宿主（瘦）：RAF frame 编排，委托 nyxusRenderer + useNyxusParticleInput |
+| [nyxus/components/NyxusBubbles.vue](../../../web/src/features/pets/nyxus/components/NyxusBubbles.vue) | nyxus 工作气泡（仅 error + work-main 两 tier + busy-indicator） |
+| [nyxus/components/NyxusToolRing.vue](../../../web/src/features/pets/nyxus/components/NyxusToolRing.vue) | 工具环（create/chat/history/settings）+ Canvas 雾化连线测量（updateToolTargets） |
+| [nyxus/composables/useNyxusWorkState.ts](../../../web/src/features/pets/nyxus/composables/useNyxusWorkState.ts) | chatSessions→nyxus 工作态投影 → useStreamBubble 气泡逻辑 |
+| [nyxus/composables/useStandaloneNyxusMotion.ts](../../../web/src/features/pets/nyxus/composables/useStandaloneNyxusMotion.ts) | 独立运动：分段航行 + 长按拖拽 + pointer 扰动 + pets 避让 + 边缘 clamp |
+| [nyxus/composables/useNyxusParticleInput.ts](../../../web/src/features/pets/nyxus/composables/useNyxusParticleInput.ts) | 粒子输入派生：pointer/cosmic/action/release 状态 → NyxusParticleInput |
+| [nyxus/motion/nyxusPointerMotion.ts](../../../web/src/features/pets/nyxus/motion/nyxusPointerMotion.ts) | pointer 漂移 + pets 避让目标纯函数 + 速度/时长常量 |
+| [nyxus/particles/](../../../web/src/features/pets/nyxus/particles/) | 粒子物理引擎（拆分）：types/math/colors/tone/targets/physics + barrel([nyxusParticleEngine.ts](../../../web/src/features/pets/nyxus/particles/nyxusParticleEngine.ts)) + [nyxusRenderer.ts](../../../web/src/features/pets/nyxus/particles/nyxusRenderer.ts)（canvas 绘制提纯） |
+| [nyxus/nyxusUiState.ts](../../../web/src/features/pets/nyxus/nyxusUiState.ts) | 工具环菜单 UI 状态（开闭/目标坐标/高亮 tool） |
 
 ### agent 交互 UI 层（[features/agent/](../../../web/src/features/agent/)）
 

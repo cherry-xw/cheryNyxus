@@ -59,8 +59,10 @@ export function nyxusAvoidanceTarget(
   if (!nearest || nearest.distance >= safeDistance) return undefined
 
   const fallbackAngle = ((nearest.x * 0.173 + nearest.y * 0.117) % 1) * Math.PI * 2
-  const ux = nearest.distance > 0.001 ? (point.x - nearest.x) / nearest.distance : Math.cos(fallbackAngle)
-  const uy = nearest.distance > 0.001 ? (point.y - nearest.y) / nearest.distance : Math.sin(fallbackAngle)
+  const ux =
+    nearest.distance > 0.001 ? (point.x - nearest.x) / nearest.distance : Math.cos(fallbackAngle)
+  const uy =
+    nearest.distance > 0.001 ? (point.y - nearest.y) / nearest.distance : Math.sin(fallbackAngle)
   return {
     x: nearest.x + ux * safeDistance,
     y: nearest.y + uy * safeDistance,

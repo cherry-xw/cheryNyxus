@@ -1,23 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ChatDotRound, Clock, Plus, Setting } from '@element-plus/icons-vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/stores'
 import { agentApi } from '@/services/agentApi'
-import NyxusParticle from '@/features/pets/components/NyxusParticle.vue'
-import type { NyxusReaction } from '@/features/pets/particles/nyxusParticleEngine'
-import { useStandaloneNyxusMotion } from '@/features/pets/composables/useStandaloneNyxusMotion'
-import { useNyxusWorkState } from '@/features/pets/composables/useNyxusWorkState'
+import NyxusParticle from './NyxusParticle.vue'
+import type { NyxusReaction } from '../particles/nyxusParticleEngine'
+import { useStandaloneNyxusMotion } from '../composables/useStandaloneNyxusMotion'
+import { useNyxusWorkState } from '../composables/useNyxusWorkState'
 import { useStreamBubble } from '@/features/pets/composables/useStreamBubble'
 import NyxusBubbles from './NyxusBubbles.vue'
-import {
-  closeNyxusMenu,
-  highlightNyxusTool,
-  nyxusMenuOpen,
-  setNyxusMenuTargets,
-  toggleNyxusMenu,
-  type NyxusMenuTarget,
-} from '@/features/pets/nyxusUiState'
-import PresetPicker from '@/features/agent/toolbar/PresetPicker.vue'
+import NyxusToolRing from './NyxusToolRing.vue'
+import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from '../nyxusUiState'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
 const agents = useAgentsStore()
@@ -28,10 +20,6 @@ const openingChat = ref(false)
 const error = ref<string | null>(null)
 const hovering = ref(false)
 const reaction = ref<NyxusReaction | null>(null)
-const createButtonRef = ref<HTMLElement | null>(null)
-const chatButtonRef = ref<HTMLElement | null>(null)
-const historyButtonRef = ref<HTMLElement | null>(null)
-const settingsButtonRef = ref<HTMLElement | null>(null)
 const {
   position: standalonePosition,
   dragging: standaloneDragging,
@@ -76,7 +64,6 @@ function setWorkTextRef(el: HTMLElement | null): void {
 
 let clickTimer: ReturnType<typeof setTimeout> | undefined
 let reactionTimer: ReturnType<typeof setTimeout> | undefined
-let toolTrackingRaf = 0
 let rapidClicks = 0
 let lastClickAt = 0
 
@@ -153,7 +140,7 @@ async function runCreate(opts: {
   creating.value = true
   error.value = null
   try {
-    const chatId = await agents.createMasterPet(opts)
+    await agents.createMasterPet(opts)
     closeNyxusMenu()
   } catch (cause) {
     error.value = (cause as Error).message
@@ -176,44 +163,9 @@ function openSettings(): void {
   closeNyxusMenu()
 }
 
-function updateToolTargets(): void {
-  const entries: Array<[NyxusMenuTarget['id'], HTMLElement | null]> = [
-    ['create', createButtonRef.value],
-    ['chat', chatButtonRef.value],
-    ['history', historyButtonRef.value],
-    ['settings', settingsButtonRef.value],
-  ]
-  const targets = entries.flatMap<NyxusMenuTarget>(([id, element]) => {
-    if (!element) return []
-    const rect = element.getBoundingClientRect()
-    return [{ id, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }]
-  })
-  setNyxusMenuTargets(targets)
-  toolTrackingRaf = requestAnimationFrame(updateToolTargets)
-}
-
-watch(
-  nyxusMenuOpen,
-  async (open) => {
-    cancelAnimationFrame(toolTrackingRaf)
-    toolTrackingRaf = 0
-    if (!open) {
-      setNyxusMenuTargets([])
-      highlightNyxusTool(null)
-      return
-    }
-    await nextTick()
-    updateToolTargets()
-  },
-  { flush: 'post' },
-)
-
 onBeforeUnmount(() => {
   if (clickTimer) clearTimeout(clickTimer)
   if (reactionTimer) clearTimeout(reactionTimer)
-  cancelAnimationFrame(toolTrackingRaf)
-  setNyxusMenuTargets([])
-  highlightNyxusTool(null)
 })
 </script>
 
@@ -275,74 +227,16 @@ onBeforeUnmount(() => {
       </span>
     </button>
 
-    <transition name="ring">
-      <div v-if="nyxusMenuOpen" class="tool-ring">
-        <el-tooltip content="创建预设宠物" placement="left">
-          <span class="tool-slot tool-create">
-            <PresetPicker
-              :disabled="disabled"
-              :excluded="[CHERY_NYXUS_PRESET]"
-              @pick="pickPreset"
-              @fallback="createFallback"
-            >
-              <button
-                ref="createButtonRef"
-                type="button"
-                class="ring-button"
-                :disabled="disabled"
-                aria-label="创建预设宠物"
-                @pointerenter="highlightNyxusTool('create')"
-                @pointerleave="highlightNyxusTool(null)"
-              >
-                <Plus />
-              </button>
-            </PresetPicker>
-          </span>
-        </el-tooltip>
-        <el-tooltip content="历史会话" placement="top">
-          <button
-            ref="historyButtonRef"
-            type="button"
-            class="ring-button tool-history"
-            :disabled="connection.status !== 'connected'"
-            aria-label="历史会话"
-            @click="openSessions"
-            @pointerenter="highlightNyxusTool('history')"
-            @pointerleave="highlightNyxusTool(null)"
-          >
-            <Clock />
-          </button>
-        </el-tooltip>
-        <el-tooltip content="设置" placement="right">
-          <button
-            ref="settingsButtonRef"
-            type="button"
-            class="ring-button tool-settings"
-            :disabled="connection.status !== 'connected'"
-            aria-label="设置"
-            @click="openSettings"
-            @pointerenter="highlightNyxusTool('settings')"
-            @pointerleave="highlightNyxusTool(null)"
-          >
-            <Setting />
-          </button>
-        </el-tooltip>
-        <el-tooltip content="与 cheryNyxus 对话" placement="bottom">
-          <button
-            ref="chatButtonRef"
-            type="button"
-            class="ring-button tool-chat"
-            :disabled="disabled"
-            aria-label="与 cheryNyxus 对话"
-            @click="openNyxusChat"
-            @pointerenter="highlightNyxusTool('chat')"
-            @pointerleave="highlightNyxusTool(null)"
-          >
-            <ChatDotRound />
-          </button>
-        </el-tooltip>
-      </div>
-    </transition>
+    <NyxusToolRing
+      :disabled="disabled"
+      :connected="connection.status === 'connected'"
+      :excluded-presets="[CHERY_NYXUS_PRESET]"
+      @create-preset="pickPreset"
+      @create-fallback="createFallback"
+      @open-chat="openNyxusChat"
+      @open-history="openSessions"
+      @open-settings="openSettings"
+    />
     <div v-if="error" class="nyxus-error" role="alert">{{ error }}</div>
   </aside>
 </template>
@@ -385,83 +279,6 @@ onBeforeUnmount(() => {
   cursor: pointer;
   pointer-events: auto;
   touch-action: none;
-}
-
-.tool-ring {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 5;
-  width: 1px;
-  height: 1px;
-  pointer-events: auto;
-}
-
-.ring-button {
-  position: absolute;
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  padding: 8px;
-  border: 1px solid rgba(120, 231, 255, 0.72);
-  border-radius: 50%;
-  color: #e0ffff;
-  background: #202432;
-  box-shadow:
-    0 0 0 2px rgba(16, 18, 29, 0.7),
-    0 5px 14px rgba(0, 0, 0, 0.28);
-  cursor: pointer;
-  transition:
-    transform 120ms steps(2, end),
-    background 120ms linear;
-
-  &:hover:not(:disabled) {
-    color: #15212a;
-    background: #8ef2ff;
-    transform: scale(1.12);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.42;
-  }
-
-  svg {
-    width: 20px;
-    height: 20px;
-  }
-}
-
-.tool-slot,
-.tool-history,
-.tool-settings,
-.tool-chat {
-  position: absolute;
-}
-
-.tool-create {
-  left: -76px;
-  top: -22px;
-}
-
-.tool-create .ring-button {
-  position: relative;
-}
-
-.tool-history {
-  left: -19px;
-  top: -78px;
-}
-
-.tool-settings {
-  left: 38px;
-  top: -22px;
-}
-
-.tool-chat {
-  left: -19px;
-  top: 40px;
 }
 
 .nyxus-error {
@@ -521,18 +338,4 @@ onBeforeUnmount(() => {
     transform: translateY(-2px);
   }
 }
-
-.ring-enter-active,
-.ring-leave-active {
-  transition:
-    opacity 120ms linear,
-    transform 180ms steps(3, end);
-}
-
-.ring-enter-from,
-.ring-leave-to {
-  opacity: 0;
-  transform: scale(0.45) rotate(-16deg);
-}
-
 </style>

@@ -1,15 +1,5 @@
 import { onMounted, onUnmounted, reactive, ref, type Ref } from 'vue'
-import {
-  PET_WIDTH,
-  PET_HEIGHT,
-  arrivedAtTarget,
-  keepInBounds,
-  stepMovement,
-  pushTrail,
-  pointAtArc,
-  ghostTrailDistance,
-} from '../motion/petMovement'
-import type { GhostTrail } from '../motion/petMovement'
+import { arrivedAtTarget, keepInBounds, stepMovement } from '../motion/petMovement'
 import {
   adjustEmotion,
   adjustFatigue,
@@ -19,9 +9,11 @@ import {
   shouldWake,
   stepVitals,
 } from '../motion/petStatus'
-import type { PetAction, PetInstance, PetMood, PetPreset, StageBounds } from '../types/types'
+import { rand, pick, clamp, moodForAction, actionTalk } from '../petFactory'
+import { retarget } from '../motion/petTargeting'
+import { useGhostQueue } from './useGhostQueue'
+import type { PetAction, PetInstance, StageBounds } from '../types/types'
 
-const TRIBE_CLUSTER_RADIUS = 70 // 子 pet retarget 偏向本主的半径
 const RAPID_CLICK_WINDOW = 1200
 const RAPID_CLICK_THRESHOLD = 3
 const PANIC_MOVEMENT = 32
@@ -41,146 +33,26 @@ const MASTER_ATTRACT_RADIUS = 180 // 默认 200
 /** hover 离开 pet 后 280ms 静止缓冲（闭包 Map，不污染 PetInstance 类型）。 */
 const hoverCooldownUntil = new Map<string, number>()
 
-function rand(min: number, max: number): number {
-  return min + Math.random() * (max - min)
-}
-
-function pick<T>(items: readonly T[]): T {
-  const item = items[Math.floor(Math.random() * items.length)]
-  if (item === undefined) {
-    throw new Error('Cannot pick from an empty list')
-  }
-  return item
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
-
-function randomTarget(bounds: StageBounds): { x: number; y: number } {
-  return {
-    x: rand(16, Math.max(16, bounds.width - PET_WIDTH - 16)),
-    y: rand(56, Math.max(56, bounds.height - PET_HEIGHT - 16)),
-  }
-}
-
-function moodForAction(action: PetAction): PetMood {
-  if (action === 'dragging') return 'surprised'
-  if (action === 'clicked') return 'happy'
-  if (action === 'chatting') return pick(['happy', 'nagging', 'curious'] as const)
-  if (action === 'dropped') return 'sad'
-  if (action === 'sleep') return 'sleepy'
-  return 'calm'
-}
-
-function actionTalk(pet: PetInstance, action: PetAction): string {
-  return pick(pet.behaviors?.[action]?.talks ?? pet.talks)
-}
-
-/**
- * 从 preset 构建 PetInstance（含 agent 绑定字段）。
- * 位置随机；子 pet 落点由调用方用 findSpawnPosition 覆盖（挂主附近）。
- * 导出供 agents store 的 initFromChats / createMasterPet 复用，避免重复创建逻辑。
- */
-export function createPetInstance(
-  preset: PetPreset,
-  bounds: StageBounds,
-  isMaster: boolean,
-  masterId: string | undefined,
-  agent: { chatId: string; parentChatId?: string; agentType?: string; finished?: boolean },
-): PetInstance {
-  const now = performance.now()
-  const instanceId = `${preset.id}-${agent.chatId}`
-  const start = randomTarget(bounds)
-  const target = randomTarget(bounds)
-
-  return {
-    ...preset,
-    instanceId,
-    visualKind: 'default',
-    isMaster,
-    tribe: isMaster ? instanceId : (masterId ?? instanceId),
-    tools: preset.tools,
-    x: start.x,
-    y: start.y,
-    vx: 0,
-    vy: 0,
-    targetX: target.x,
-    targetY: target.y,
-    width: PET_WIDTH,
-    height: PET_HEIGHT,
-    direction: 1,
-    mood: isMaster ? 'serious' : 'calm',
-    action: 'walk',
-    speech: '',
-    speechUntil: 0,
-    moodUntil: 0,
-    interactionUntil: 0,
-    lastInteractionAt: now,
-    emotion: status.emotionInit,
-    fatigue: 0,
-    dragOffsetX: 0,
-    dragOffsetY: 0,
-    draggingPointerId: null,
-    pairCooldowns: {},
-    rapidClicks: 0,
-    lastClickAt: 0,
-    chatId: agent.chatId,
-    parentChatId: agent.parentChatId,
-    agentType: agent.agentType,
-    isWorking: false,
-    contextUsage: 0,
-    contextUsed: 0,
-    contextTotal: 0,
-    isGhost: !!agent.finished,
-    ghostFace: undefined,
-    bubbleRepelExtra: 0,
-  }
-}
-
 /**
  * pet 世界 composable：RAF 运动循环 + 拖拽/hover/click 交互。
  * CP1 起 pets 数据源由调用方注入（agents store 单一数据源）；未注入时回退本地 reactive（独立可用）。
  * 装饰交互（invokeTool/randomEmotion/addPet/summonSub/maybeTriggerChats/triggerChat/faceEachOther/masterTools）已移除。
+ * 工厂 createPetInstance + 纯辅助（rand/pick/clamp/randomTarget/moodForAction/actionTalk）抽到 petFactory.ts；
+ * 目标选取 retarget/findMaster 抽到 motion/petTargeting.ts（纯函数，显式入参 pets/bounds）。
  */
-export function usePetWorld(
-  stageRef: Ref<HTMLElement | null>,
-  petsSource?: PetInstance[],
-) {
+export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetInstance[]) {
   const pets = petsSource ?? reactive<PetInstance[]>([])
   const isPaused = ref(false)
   const bounds = reactive<StageBounds>({ width: 960, height: 640 })
   let raf = 0
   let lastTime = 0
-  // ghost 队列 trail：key=tribe，value=主 Agent 移动轨迹（newest-first）。
-  const ghostTrails = new Map<string, GhostTrail>()
+  const ghostQueue = useGhostQueue(pets)
 
   function readBounds(): StageBounds {
     const rect = stageRef.value?.getBoundingClientRect()
     bounds.width = rect?.width ?? window.innerWidth
     bounds.height = rect?.height ?? window.innerHeight
     return bounds
-  }
-
-  function retarget(pet: PetInstance): void {
-    // 子 pet：聚拢本主（部落扎堆）；主 pet / 孤儿子：自由游走
-    const master = pet.isMaster ? undefined : findMaster(pet)
-    if (master) {
-      pet.targetX = clamp(
-        master.x + rand(-TRIBE_CLUSTER_RADIUS, TRIBE_CLUSTER_RADIUS),
-        0,
-        Math.max(0, bounds.width - pet.width),
-      )
-      pet.targetY = clamp(
-        master.y + rand(-TRIBE_CLUSTER_RADIUS, TRIBE_CLUSTER_RADIUS),
-        42,
-        Math.max(42, bounds.height - pet.height),
-      )
-      return
-    }
-    const target = randomTarget(bounds)
-    pet.targetX = target.x
-    pet.targetY = target.y
   }
 
   function showSpeech(pet: PetInstance, text: string, duration = 1800): void {
@@ -217,40 +89,8 @@ export function usePetWorld(
     pet.mood = restMood(pet, status)
     pet.moodUntil = 0
     pet.lastInteractionAt = now
-    retarget(pet)
+    retarget(pet, pets, bounds)
     showSpeech(pet, pick(['醒了', '嗯?', 'zZ...']), 800)
-  }
-
-  function findMaster(pet: PetInstance): PetInstance | undefined {
-    if (pet.isMaster) return pet
-    return pets.find((p) => p.instanceId === pet.tribe && p.isMaster)
-  }
-
-  /** 同 tribe ghost 按 ghostCreatedAt 排序（首领 idx 0）。 */
-  function sortedTribeGhosts(tribe: string): PetInstance[] {
-    return pets
-      .filter((p) => p.isGhost && p.tribe === tribe)
-      .sort((a, b) => (a.ghostCreatedAt ?? 0) - (b.ghostCreatedAt ?? 0))
-  }
-
-  /** ghost 在本 tribe 队列中的序号（0=主 Agent 后第一颗点）；非 ghost 返回 -1。 */
-  function ghostQueueIndex(pet: PetInstance): number {
-    return pet.isGhost ? sortedTribeGhosts(pet.tribe).indexOf(pet) : -1
-  }
-
-  /**
-   * ghost 队列路径拟合：主 Agent 是队首，全部 ghost 都是跟随者。
-   * 第 idx 个 ghost 取主 Agent trail 上弧长 (idx+1)*SPACING 处的点。
-   */
-  function getGhostQueueTarget(pet: PetInstance): { x: number; y: number } | null {
-    if (!pet.isGhost) return null
-    const idx = ghostQueueIndex(pet)
-    if (idx < 0) return null
-    const leader = findMaster(pet)
-    if (!leader) return null
-    const trail = ghostTrails.get(pet.tribe)
-    if (!trail || trail.pts.length < 2) return { x: leader.x, y: leader.y }
-    return pointAtArc(trail, ghostTrailDistance(idx))
   }
 
   function tickPet(pet: PetInstance, now: number, dt: number): void {
@@ -302,7 +142,7 @@ export function usePetWorld(
         pet.action = 'walk'
         pet.mood = restMood(pet, status)
         pet.bubbleRepelExtra = 0 // Req 8: 冻结结束，斥力增量清零
-        retarget(pet)
+        retarget(pet, pets, bounds)
       }
       return
     }
@@ -316,7 +156,7 @@ export function usePetWorld(
     // ghost 队列：全部 ghost 持续 seek 主 Agent trail 点
     let ghostFollower = false
     if (pet.isGhost) {
-      const queueTarget = getGhostQueueTarget(pet)
+      const queueTarget = ghostQueue.getTarget(pet)
       if (queueTarget) {
         // 跟随者：持续朝首领 trail 弧长点移动
         ghostFollower = true
@@ -326,7 +166,7 @@ export function usePetWorld(
       } else {
         // 孤儿 ghost（主 Agent 暂不可见）退化为近原 tribe 自由移动。
         if (arrivedAtTarget(pet)) {
-          retarget(pet)
+          retarget(pet, pets, bounds)
           pet.action = 'idle'
           pet.mood = restMood(pet, status)
           pet.moodUntil = now + rand(800, 1800)
@@ -336,7 +176,7 @@ export function usePetWorld(
         }
       }
     } else if (arrivedAtTarget(pet)) {
-      retarget(pet)
+      retarget(pet, pets, bounds)
       pet.action = 'idle'
       pet.mood = restMood(pet, status)
       pet.moodUntil = now + rand(800, 1800)
@@ -395,7 +235,7 @@ export function usePetWorld(
 
   function loop(now: number): void {
     const currentBounds = readBounds()
-    const dt = Math.min(0.04, Math.max(0, (now - lastTime) / 1000 || 0))
+    const dt = Math.min(0.04, Math.max(0, (now - lastTime) / 1000) || 0)
     lastTime = now
 
     if (!isPaused.value && currentBounds.width > 0 && currentBounds.height > 0) {
@@ -404,18 +244,7 @@ export function usePetWorld(
         tickPet(pet, now, dt)
       }
       // 每个 tribe 以主 Agent 为队首并采样轨迹；主 Agent 拖拽时也持续记录。
-      const leaderByTribe = new Map<string, PetInstance>()
-      for (const pet of pets) {
-        if (pet.isMaster) leaderByTribe.set(pet.tribe, pet)
-      }
-      for (const pet of leaderByTribe.values()) {
-        let trail = ghostTrails.get(pet.tribe)
-        if (!trail) {
-          trail = { pts: [] }
-          ghostTrails.set(pet.tribe, trail)
-        }
-        pushTrail(trail, { x: pet.x, y: pet.y })
-      }
+      ghostQueue.sampleLeaders()
     }
 
     raf = requestAnimationFrame(loop)
@@ -476,7 +305,7 @@ export function usePetWorld(
     pet.dragOffsetY = 0
     keepInBounds(pet, bounds)
     setTemporaryAction(pet, 'dropped', 900, actionTalk(pet, 'dropped'))
-    retarget(pet)
+    retarget(pet, pets, bounds)
   }
 
   function hoverPet(pet: PetInstance, hovering: boolean): void {

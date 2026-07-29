@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
 import { applyRoleAvatar, generatePet } from '@/features/pets/types/petPresets'
 import { findSpawnPosition } from '@/features/pets/motion/petMovement'
-import { createPetInstance } from '@/features/pets/composables/usePetWorld'
+import { createPetInstance } from '@/features/pets/petFactory'
 import type { PetInstance } from '@/features/pets/types/types'
 import type { ChatSummary, ContextBreakdown } from '@/services/agentApi'
 import type {

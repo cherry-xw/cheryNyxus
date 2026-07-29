@@ -125,7 +125,7 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
   - **隐藏**（stage pet 工具栏 ✕，仅主 pet）：`store.hide(chatId)` 仅前端移除 `pets`（含子 pet），不删 DB。运行中禁用（`isWorking` 或任一子 isWorking → destroy 按钮 disabled）。
   - **删除**（会话列表行 ✕）：`store.deleteSession(chatId)` 调 `chat.delete`（后端级联子 chat）→ 从 `historyList` + `pets` 移除。
 - **会话列表 UI**（[SessionList.vue](../../../web/src/features/agent/SessionList.vue)）：右侧抽屉，`historyListOpen` 驱动。`fetchHistoryList()` 调 `chat.list({includePreview:true})` 缓存 `historyList`。行显 `preview` 截断（hover 显 chatId/创建时间）+ last-run（`updatedAt`）+ 轮次（`turnCount`）；点行 → `loadSession(chatId)` 从缓存建主+子 pet 入 `pets`（允许 >5）。
-- **会话列表入口**（[NyxusCore.vue](../../../web/src/features/pets/components/NyxusCore.vue)）：工具环 history 按钮 → `historyListOpen=true` + `fetchHistoryList()`。
+- **会话列表入口**（[NyxusCore.vue](../../../web/src/features/pets/nyxus/components/NyxusCore.vue)）：工具环 history 按钮 → `historyListOpen=true` + `fetchHistoryList()`。
 - **命名区分**：`HistoryDrawer`（单 pet 消息史，pet 工具栏 ▤）保留；`SessionList`（会话列表，☰）为 CP8 新组件。
 - **隐藏不持久化**：重连重取 top-5，隐藏但仍 top-5 的 pet 会重现（transient，不增 schema）。
 

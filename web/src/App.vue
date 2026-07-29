@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import DesktopPetApp from '@/features/pets/DesktopPetApp.vue'
 import { desktopPetBridge } from '@/features/pets/desktopPetBridge'
-import NyxusCore from '@/features/pets/components/NyxusCore.vue'
+import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SessionList from '@/features/agent/drawer/SessionList.vue'
@@ -71,7 +71,8 @@ async function bootstrap(): Promise<void> {
               mood: 'serious',
               working: session.run.status === 'running',
               speech: '',
-              activity: session.run.status === 'running' ? Date.now() : (session.meta.updatedAt ?? 0),
+              activity:
+                session.run.status === 'running' ? Date.now() : (session.meta.updatedAt ?? 0),
             },
           ])
         },

@@ -6,8 +6,12 @@
  *
  * 优先级：question > approval > error > work-main > speech。
  *  问题阻塞 LLM 主线程，最高优先级；审批可入队延后处理。
+ *
+ * 气泡 motion 包装 + 外壳样式（.speech/.work-bubble/.approval-bubble/.question-bubble/.error-bubble）
+ * 委托 PetBubble；思考按钮 + flyout 委托 ThinkingTrigger；本组件保留 .work-text/.error-text 等内容样式
+ * （通过组件根 data-v 继承，PetBubble 根匹配 .work-bubble 后下行命中 slot 内 .work-text）。
  */
-import { AnimatePresence, motion } from 'motion-v'
+import { AnimatePresence } from 'motion-v'
 import { computed } from 'vue'
 import type { VariantType } from 'motion-v'
 import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
@@ -16,8 +20,8 @@ import type { StreamState } from '@/stores'
 import type { QuestionItemState } from '@/stores/agents'
 import { findQuestion } from '@/stores/agents/actions/questionBatch'
 import type { PetInstance } from '../types/types'
-
-const MotionDiv = motion.div
+import PetBubble from './PetBubble.vue'
+import ThinkingTrigger from './ThinkingTrigger.vue'
 
 defineEmits<{
   bubbleEnter: []
@@ -80,15 +84,12 @@ const batchInfo = computed(() => {
 
 <template>
   <AnimatePresence>
-    <MotionDiv
+    <PetBubble
       v-if="activeQuestion"
       key="question"
-      class="speech question-bubble"
+      variant="question"
+      :speech="speech"
       :style="approvalStyle"
-      :initial="speech.initial"
-      :animate="speech.animate"
-      :exit="speech.exit"
-      :transition="speech.transition"
     >
       <QuestionCard
         :key="activeQuestion!.questionId"
@@ -96,43 +97,35 @@ const batchInfo = computed(() => {
         :chat-id="pet.chatId"
         :batch-info="batchInfo"
       />
-    </MotionDiv>
-    <MotionDiv
+    </PetBubble>
+    <PetBubble
       v-else-if="stream?.approval"
       :key="`approval-${stream.approval.approvalId}`"
-      class="speech approval-bubble"
+      variant="approval"
+      :speech="speech"
       :style="approvalStyle"
-      :initial="speech.initial"
-      :animate="speech.animate"
-      :exit="speech.exit"
-      :transition="speech.transition"
     >
       <ApprovalCard :approval="stream!.approval!" :chat-id="pet.chatId" />
-    </MotionDiv>
-    <MotionDiv
+    </PetBubble>
+    <PetBubble
       v-else-if="stream?.error"
       key="work-error"
-      class="speech work-bubble error-bubble"
+      variant="error"
+      :speech="speech"
       :style="speechStyle"
-      :initial="speech.initial"
-      :animate="speech.animate"
-      :exit="speech.exit"
-      :transition="speech.transition"
     >
       <div class="work-text error-text">⚠ {{ stream.error }}</div>
-    </MotionDiv>
-    <MotionDiv
+    </PetBubble>
+    <PetBubble
       v-else-if="showWorkMain"
       key="work-main"
-      class="speech work-bubble"
-      :class="{ 'is-thinking': thinkingOnly, 'is-sub': !pet.isMaster }"
+      variant="work"
+      :speech="speech"
       :style="speechStyle"
-      :initial="speech.initial"
-      :animate="speech.animate"
-      :exit="speech.exit"
-      :transition="speech.transition"
-      @pointerenter="$emit('bubbleEnter')"
-      @pointerleave="$emit('bubbleLeave')"
+      :is-thinking="thinkingOnly"
+      :is-sub="!pet.isMaster"
+      @enter="$emit('bubbleEnter')"
+      @leave="$emit('bubbleLeave')"
     >
       <div
         :ref="(el) => workTextRef(el as HTMLElement | null)"
@@ -145,23 +138,17 @@ const batchInfo = computed(() => {
         <template v-else>{{ displayThinking }}</template>
       </div>
       <!-- thinking 按钮：思考结束后出现，锚 content 气泡左外侧（emoji 🤔）；hover 向左上拉伸显思考框（盖住按钮），移开缩回恢复 icon -->
-      <div v-if="showThinkingButton" class="thinking-trigger" aria-label="查看 thinking">
-        <span class="thinking-icon" aria-hidden="true">🤔</span>
-        <div class="thinking-flyout" role="tooltip">{{ displayThinking }}</div>
-      </div>
-    </MotionDiv>
-    <MotionDiv
+      <ThinkingTrigger v-if="showThinkingButton" :display-thinking="displayThinking" />
+    </PetBubble>
+    <PetBubble
       v-else-if="pet.speech || $slots.dialog"
       :key="pet.speechUntil"
-      class="speech"
+      variant="speech"
+      :speech="speech"
       :style="speechStyle"
-      :initial="speech.initial"
-      :animate="speech.animate"
-      :exit="speech.exit"
-      :transition="speech.transition"
     >
       <slot name="dialog" :pet="pet">{{ pet.speech }}</slot>
-    </MotionDiv>
+    </PetBubble>
   </AnimatePresence>
 </template>
 
@@ -169,54 +156,9 @@ const batchInfo = computed(() => {
 @import '@/styles/markdown.less';
 @ink: #14161a;
 
-.speech {
-  position: absolute;
-  min-width: 28px;
-  max-width: 96px;
-  padding: 4px 7px;
-  border: 1px solid rgba(255, 255, 255, 0.74);
-  border-radius: 7px;
-  color: #23242a;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16);
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-  transform-origin: center bottom;
-
-  &::after {
-    content: '';
-    position: absolute;
-    left: 14px;
-    bottom: -5px;
-    width: 8px;
-    height: 8px;
-    border-right: 1px solid rgba(255, 255, 255, 0.74);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.74);
-    background: rgba(255, 255, 255, 0.92);
-    transform: rotate(45deg);
-    pointer-events: none;
-  }
-}
-
+/* .work-bubble / .error-bubble 类落在 PetBubble 根（组件根继承父 data-v，
+   故本 scoped 选择器仍可命中），其内部 .work-text/.error-text 为本组件 slot 内容。 */
 .work-bubble {
-  max-width: 180px;
-  max-height: 140px;
-  padding: 5px 0 5px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.35;
-  overflow: visible; /* 放行 thinking-flyout 溢出；work-text 自身 overflow 裁内容不依赖此处 */
-  display: flex;
-  flex-direction: column;
-
-  &.is-thinking {
-    background: rgba(240, 238, 245, 0.92);
-    border-color: rgba(140, 130, 170, 0.4);
-    border-style: dashed;
-  }
-
   /* 子 pet：流式过程（思考 / 正文打字机）默认单行不可滚，hover 展开可滚 */
   &.is-sub .work-text {
     max-height: 14px;
@@ -274,96 +216,6 @@ const batchInfo = computed(() => {
       }
     }
   }
-
-  /* thinking 按钮：思考结束后锚 content 气泡左外侧（emoji icon）；hover 向左上拉伸显思考框（盖住按钮），
-     鼠标移开 scale(0) 缩回恢复 icon。emoji 黄脸（🤔）作按钮。 */
-  .thinking-trigger {
-    position: absolute;
-    right: 100%; /* content 气泡左外侧 */
-    bottom: -1px; /* 贴气泡左下角外侧 */
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    line-height: 1;
-    cursor: default;
-    user-select: none;
-
-    .thinking-icon {
-      font-size: 13px;
-      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
-      transition: transform 140ms ease;
-    }
-
-    &:hover .thinking-icon {
-      transform: scale(1.15);
-    }
-
-    &:hover .thinking-flyout {
-      transform: scale(1);
-      opacity: 1;
-      pointer-events: auto;
-    }
-  }
-
-  .thinking-flyout {
-    position: absolute;
-    right: 0; /* 右沿对齐按钮（= 气泡左沿），向左拉伸 */
-    bottom: 0; /* 底对齐按钮，向上拉伸 */
-    z-index: 30;
-    box-sizing: border-box;
-    width: 200px;
-    max-height: 150px;
-    padding: 5px 7px;
-    border-radius: 7px;
-    border: 1px dashed rgba(140, 130, 170, 0.4);
-    background: rgba(240, 238, 245, 0.97);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.14);
-    color: fade(@ink, 64%);
-    font-size: 9.5px;
-    font-weight: 400;
-    font-style: italic;
-    line-height: 1.4;
-    white-space: pre-wrap;
-    overflow: auto;
-    text-align: left;
-    transform: scale(0); /* 收起：缩成右下角点；hover scale(1) 向左上拉伸展开盖住按钮 */
-    transform-origin: bottom right;
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform 180ms ease,
-      opacity 140ms ease;
-  }
-}
-
-.approval-bubble {
-  max-width: 220px;
-  padding: 5px 8px;
-  background: rgba(255, 248, 235, 0.96);
-  border-color: rgba(234, 88, 12, 0.42);
-
-  &::after {
-    border-right-color: rgba(234, 88, 12, 0.42);
-    border-bottom-color: rgba(234, 88, 12, 0.42);
-    background: rgba(255, 248, 235, 0.96);
-  }
-}
-
-.question-bubble {
-  max-width: 230px;
-  padding: 6px 9px;
-  background: rgba(245, 243, 255, 0.96);
-  border-color: rgba(124, 58, 237, 0.42);
-}
-
-.error-bubble {
-  max-width: 240px;
-  padding: 6px 10px;
-  background: rgba(254, 226, 226, 0.96);
-  border-color: rgba(220, 38, 38, 0.55);
-  color: #7f1d1d;
 }
 
 .error-bubble .error-text {

@@ -69,8 +69,8 @@ const mergedStyle = computed(() => ({ ...props.style, ...twinkle.value }))
   display: flex;
   align-items: center;
   justify-content: center;
-  animation: ghost-twinkle var(--twinkle-duration, 2.2s) ease-in-out
-    var(--twinkle-delay, 0s) infinite;
+  animation: ghost-twinkle var(--twinkle-duration, 2.2s) ease-in-out var(--twinkle-delay, 0s)
+    infinite;
 }
 .ghost-core {
   position: relative;
@@ -87,12 +87,7 @@ const mergedStyle = computed(() => ({ ...props.style, ...twinkle.value }))
   position: absolute;
   left: 50%;
   top: 50%;
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--pet-color, #8b5cf6),
-    transparent
-  );
+  background: linear-gradient(to right, transparent, var(--pet-color, #8b5cf6), transparent);
   transform-origin: center;
 }
 .ghost-ray--h {

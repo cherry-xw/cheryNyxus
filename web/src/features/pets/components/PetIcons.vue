@@ -19,10 +19,12 @@
  * 容器 .pet-icons pointer-events:none，内部 icon 显式 auto 收点击。
  * 位置：pet 头部右侧（继承 .pet-wrap 坐标系，与 pet 同步移动）。
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
-import type { ApprovalState, HistoryItem, SenseCallRecord, StreamState } from '@/stores/agents'
-import { hasRenderer } from '@/features/agent/renderers/registry'
+import type { ApprovalState, HistoryItem, StreamState } from '@/stores/agents'
+import { previewOf } from '../utils/historyPreview'
+import { flashPeriodOf, isExpired } from '../utils/approvalTiming'
+import { useNow } from '../composables/useNow'
 
 const props = defineProps<{
   /** chatId（数据源路由：streams[chatId].history / approval / approvalQueue） */
@@ -35,11 +37,7 @@ const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
 
 // 闪烁驱动：now 每 250ms 刷新一次（与 ApprovalCard 倒计时节奏一致）。
-const now = ref(Date.now())
-const timer = setInterval(() => {
-  now.value = Date.now()
-}, 250)
-onBeforeUnmount(() => clearInterval(timer))
+const now = useNow()
 
 const stream = computed(() => props.stream)
 const history = computed<HistoryItem[]>(() => stream.value?.history ?? [])
@@ -54,137 +52,25 @@ const recentHistory = computed<HistoryItem[]>(() =>
     .slice(0, 3),
 )
 
-/**
- * 剩余秒数（用于闪烁周期）。
- * waitTime=0（不超时）→ Infinity → 周期封顶 5s。
- */
-function remainingSecOf(a: ApprovalState): number {
-  if (a.waitTime <= 0) return Infinity
-  return Math.max(0, (a.waitTime - (now.value - a.createdAt)) / 1000)
-}
-
-/** icon 闪烁周期（秒）：剩余越少越快，封顶 [0.2, 5]s。 */
-function flashPeriodOf(a: ApprovalState): number {
-  const s = remainingSecOf(a)
-  if (!isFinite(s)) return 5
-  return Math.max(0.2, Math.min(5, s * 0.1))
-}
-
-/** icon 是否已超时（remaining <= 0）：CSS 控制淡出 */
-function isExpired(a: ApprovalState): boolean {
-  return a.waitTime > 0 && remainingSecOf(a) <= 0
-}
-
 watch(now, () => {
   const approvals = [currentApproval.value, ...queueApprovals.value].filter(
     (item): item is ApprovalState => !!item,
   )
   for (const approval of approvals) {
-    if (isExpired(approval)) chatSessions.expireApproval(props.chatId, approval.approvalId)
+    if (isExpired(approval, now.value))
+      chatSessions.expireApproval(props.chatId, approval.approvalId)
   }
 })
 
 /** approval icon 闪烁动画周期 → CSS 变量 */
 function flashStyle(a: ApprovalState, isQueued: boolean): Record<string, string> {
   if (!isQueued) return {}
-  return { '--flash-period': `${flashPeriodOf(a)}s` }
+  return { '--flash-period': `${flashPeriodOf(a, now.value)}s` }
 }
 
 /** role → CSS class（与 MessageBubble avatar 配色对齐） */
 function roleClass(item: HistoryItem): string {
   return `role-${item.role}`
-}
-
-/**
- * hover-bubble 内容预览。
- * - 有 content → 截 80 字
- * - 无 content 但有 senseCalls → 按工具类型分支展示
- *   - 内置（有 renderer） → icon + 解析后的关键字段（question / command / path / query / prompt 等）
- *   - 外部（无 renderer） → 「工具」前缀 + 工具名
- *   - 内置但解析失败 → 降级为 icon + 工具名
- * - 都没有 → "(空消息)"
- */
-function previewOf(item: HistoryItem): string {
-  const text = (item.content ?? '').trim()
-  if (text) return truncate(text, 80)
-  const calls = item.senseCalls ?? []
-  if (calls.length === 0) return '(空消息)'
-  return calls.map(toolSummaryOf).join('\n')
-}
-
-/** 截断到 n 字符，末尾省略号（hover-bubble 单行宽度有限）。 */
-function truncate(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n)}…` : s
-}
-
-/** 单条 sense 调用的单行摘要。 */
-function toolSummaryOf(call: SenseCallRecord): string {
-  const name = call.name || '(unknown)'
-  const icon = agents.iconForTool(name)
-  if (!hasRenderer(name)) return `工具 ${name}`
-  const detail = parseToolDetail(call)
-  return detail ? `${icon} ${truncate(detail, 80)}` : `${icon} ${name}`
-}
-
-/**
- * 按工具名从 args 提取关键展示字段。失败返回 null，调用方降级到「icon + name」。
- * 后端契约：args 可能是 JSON 字符串或对象（与 parseArgs.ts 一致）。
- */
-function parseToolDetail(call: SenseCallRecord): string | null {
-  const obj = parseJsonObject(call.args)
-  if (!obj) return null
-  const s = (k: string): string | null => {
-    const v = obj[k]
-    return typeof v === 'string' && v.length > 0 ? v : null
-  }
-  switch (call.name) {
-    case 'ask_user_question':
-      return s('question')
-    case 'execute_command':
-      return s('command')
-    case 'read_file':
-    case 'write_file':
-      return s('path')
-    case 'search_codebase':
-      return s('query')
-    case 'spawn_role':
-      return s('type')
-    case 'skill':
-      return s('name')
-    case 'generate_image':
-    case 'generate_video':
-    case 'generate_audio':
-      return s('prompt')
-    case 'update_todo': {
-      const todos = obj.todos
-      if (!Array.isArray(todos) || todos.length === 0) return null
-      const first = todos[0] as { content?: unknown } | undefined
-      const content = typeof first?.content === 'string' ? first.content : ''
-      return todos.length > 1 ? `${content} (+${todos.length - 1})` : content
-    }
-    default:
-      return null
-  }
-}
-
-/** args → 对象；失败返回 null。复用 parseArgs 的契约。 */
-function parseJsonObject(raw: unknown): Record<string, unknown> | null {
-  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-    return raw as Record<string, unknown>
-  }
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim()
-    if (!trimmed) return null
-    try {
-      const v = JSON.parse(trimmed)
-      if (v && typeof v === 'object' && !Array.isArray(v)) {
-        return v as Record<string, unknown>
-      }
-    } catch {
-      /* 非 JSON → null */
-    }
-  }
-  return null
 }
 
 function toolIconOf(a: ApprovalState): string {
@@ -215,7 +101,7 @@ function clickApproval(a: ApprovalState): void {
             <span class="role-tag" :class="roleClass(item)">{{ item.role }}</span>
             <span v-if="item.thinking" class="thinking-tag">+thinking</span>
           </div>
-          <div class="bubble-content">{{ previewOf(item) }}</div>
+          <div class="bubble-content">{{ previewOf(item, agents) }}</div>
         </div>
       </div>
     </div>
@@ -235,7 +121,7 @@ function clickApproval(a: ApprovalState): void {
         v-for="a in queueApprovals"
         :key="`apr-${a.approvalId}`"
         class="icon approval-icon is-queued"
-        :class="{ expired: isExpired(a) }"
+        :class="{ expired: isExpired(a, now) }"
         :style="flashStyle(a, true)"
         :aria-label="`已关闭审批 ${a.senseName}，点击重新唤起`"
         role="button"

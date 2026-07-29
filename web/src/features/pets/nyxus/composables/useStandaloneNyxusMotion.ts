@@ -90,7 +90,8 @@ export function useStandaloneNyxusMotion(
     } else {
       target = randomPoint(window.innerWidth, window.innerHeight)
       movementSpeed =
-        NYXUS_POINTER_MIN_SPEED + Math.random() * (NYXUS_POINTER_MAX_SPEED - NYXUS_POINTER_MIN_SPEED)
+        NYXUS_POINTER_MIN_SPEED +
+        Math.random() * (NYXUS_POINTER_MAX_SPEED - NYXUS_POINTER_MIN_SPEED)
     }
     travelStartedAt = now
     travelUntil =

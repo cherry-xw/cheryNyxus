@@ -1,20 +1,23 @@
 <script setup lang="ts">
 /**
  * PetBody：宠物身体视觉组件（纯展示 + 交互事件上传）。
- * 包含 shadow / dir / sprite / status-row / head-row（hands + face-flip 3D card + meta-row）/ zzz / busy-indicator。
+ * 骨架：shadow / dir / sprite / head-row（hands + face：master 单 face / sub 委托 PetFaceFlip）/ meta-row（PetNameTag + PetToolbar）/ running-row / zzz。
+ * 状态条（emotion/context/busy）委托 PetStatusBar；3D 翻转脸卡委托 PetFaceFlip；名字/工作区委托 PetNameTag。
  * 主pet 禁翻转：--pet-direction 锁 1（身体不镜像）+ 脸绕过 3D card 渲染单一静态 .face（无背面重叠）；子pet 保留翻转。
  * 所有 drag/hover/click handler 由父组件传入（usePetDrag）。
  */
 import { computed } from 'vue'
 import { motion } from 'motion-v'
 import type { VariantType } from 'motion-v'
-import ContextBar from '@/features/agent/toolbar/ContextBar.vue'
 import PetToolbar from '@/features/agent/toolbar/PetToolbar.vue'
 import RunningTools from '@/features/agent/cards/RunningTools.vue'
 import type { StreamState } from '@/stores'
 import type { PetInstance } from '../types/types'
 import type { RunningTool } from '@/stores/agents'
 import { flattenQuestionItems } from '@/stores/agents/actions/questionBatch'
+import PetStatusBar from './PetStatusBar.vue'
+import PetFaceFlip from './PetFaceFlip.vue'
+import PetNameTag from './PetNameTag.vue'
 
 const MotionSpan = motion.span
 
@@ -74,24 +77,13 @@ const emit = defineEmits<{
         :animate="sprite.animate"
         :transition="sprite.transition"
       >
-        <div
+        <PetStatusBar
           v-if="!pet.isGhost"
-          class="status-stack"
-          :aria-label="`emotion ${Math.round(pet.emotion)}, context ${Math.round(pet.contextUsage * 100)}%`"
-        >
-          <div class="status-row">
-            <span class="stat emotion"
-              ><span class="fill" :style="{ width: `${pet.emotion}%` }"
-            /></span>
-            <ContextBar :usage="pet.contextUsage" :breakdown="pet.contextBreakdown" />
-          </div>
-          <!-- busy-indicator：思考中三点脉冲；显隐走 isBusy（与气泡显示 hasStream 解耦）。 -->
-          <span v-if="isBusy" class="busy-indicator" aria-label="思考中">
-            <span class="thinking-dot" />
-            <span class="thinking-dot" />
-            <span class="thinking-dot" />
-          </span>
-        </div>
+          :emotion="pet.emotion"
+          :context-usage="pet.contextUsage"
+          :context-breakdown="pet.contextBreakdown"
+          :is-busy="isBusy"
+        />
         <span
           class="head-row"
           role="button"
@@ -124,28 +116,7 @@ const emit = defineEmits<{
             :transition="face.transition"
             >{{ faceGlyph }}</MotionSpan
           >
-          <span v-else class="face-flip">
-            <span class="face-rotate">
-              <span class="face-side front">
-                <MotionSpan
-                  class="face"
-                  :initial="false"
-                  :animate="face.animate"
-                  :transition="face.transition"
-                  >{{ faceGlyph }}</MotionSpan
-                >
-              </span>
-              <span class="face-side back">
-                <MotionSpan
-                  class="face"
-                  :initial="false"
-                  :animate="face.animate"
-                  :transition="face.transition"
-                  >{{ faceGlyph }}</MotionSpan
-                >
-              </span>
-            </span>
-          </span>
+          <PetFaceFlip v-else :face-glyph="faceGlyph" :face-motion="face" />
           <MotionSpan
             v-if="!pet.isGhost"
             class="hand hand-right"
@@ -157,20 +128,15 @@ const emit = defineEmits<{
           >
         </span>
         <div class="meta-row">
-          <span class="name">
-            <span
-              v-if="pet.isMaster && pet.workspace"
-              class="workspace-icon"
-              :class="{ 'is-invalid': pet.workspaceValid === false }"
-              :aria-label="`工作区 ${workspaceFolder}`"
-            >
-              {{ workspaceIcon }}
-              <span class="ws-bubble">{{ workspaceFolder }}</span>
-            </span>
-            <span v-for="(ch, i) in nameChars" :key="i" class="char" :style="{ '--char-i': i }">{{
-              ch
-            }}</span>
-          </span>
+          <PetNameTag
+            :name-chars="nameChars"
+            :is-master="pet.isMaster"
+            :is-sub="!pet.isMaster"
+            :workspace="pet.workspace"
+            :workspace-valid="pet.workspaceValid"
+            :workspace-folder="workspaceFolder"
+            :workspace-icon="workspaceIcon"
+          />
           <PetToolbar
             v-if="!pet.isGhost"
             :pet="pet"
@@ -200,9 +166,6 @@ const emit = defineEmits<{
 @ink: #14161a;
 @glyph-fonts: ui-rounded, 'Hiragino Sans', 'PingFang SC', 'Noto Sans Symbols 2',
   'Noto Sans Symbols', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
-@tribe-border: hsl(var(--tribe-hue) 60% 82%);
-@tribe-bg: hsl(var(--tribe-hue) 60% 94%);
-@tribe-ink: hsl(var(--tribe-hue) 50% 28%);
 
 .glyph-font() {
   font-family: @glyph-fonts;
@@ -233,22 +196,6 @@ const emit = defineEmits<{
     }
   }
 
-  &.is-master .name {
-    border-color: @tribe-border;
-    background: @tribe-bg;
-    .char {
-      color: hsl(0 85% 55%);
-      animation: rainbow-char 3s linear infinite;
-      animation-delay: calc(var(--char-i, 0) * 0.2s);
-    }
-  }
-
-  &.is-sub .name {
-    border-color: @tribe-border;
-    background: @tribe-bg;
-    color: @tribe-ink;
-  }
-
   &.is-paused {
     opacity: 0.78;
   }
@@ -263,30 +210,6 @@ const emit = defineEmits<{
       min-width: 0;
       min-height: 0;
     }
-  }
-}
-
-@keyframes rainbow-char {
-  0% {
-    color: hsl(0 85% 55%);
-  }
-  17% {
-    color: hsl(60 85% 55%);
-  }
-  33% {
-    color: hsl(120 85% 55%);
-  }
-  50% {
-    color: hsl(180 85% 55%);
-  }
-  67% {
-    color: hsl(240 85% 55%);
-  }
-  83% {
-    color: hsl(300 85% 55%);
-  }
-  100% {
-    color: hsl(360 85% 55%);
   }
 }
 
@@ -351,38 +274,6 @@ const emit = defineEmits<{
   transform-origin: center;
 }
 
-.face-flip {
-  display: inline-grid;
-  place-items: center;
-  transform: scaleX(var(--pet-direction));
-}
-
-.face-rotate {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  transform-style: preserve-3d;
-  transform: rotateY(calc((1 + var(--pet-direction)) * 90deg));
-  transition: transform 420ms ease-out;
-}
-
-.face-side {
-  display: inline-grid;
-  place-items: center;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-
-  &.front {
-    position: relative;
-  }
-
-  &.back {
-    position: absolute;
-    inset: 0;
-    transform: rotateY(180deg) scaleX(-1);
-  }
-}
-
 .hand {
   width: 14px;
   min-height: 20px;
@@ -421,98 +312,6 @@ const emit = defineEmits<{
   transform: translateX(-50%) scaleX(var(--pet-direction));
 }
 
-.name {
-  padding: 1px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: fade(@ink, 72%);
-  font-size: 8px;
-  font-weight: 400;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-/* 工作区 icon：meta-row name 前，pet 带 workspace 时显。hover 弹 basename（最后一层文件夹名）。
-   呼应 AgentDialog 工作区提示（📁/⚠），icon 改 🖥️/💢 以区分桌面端工作区语义。 */
-.workspace-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  margin-right: 2px;
-  font-size: 10px;
-  line-height: 1;
-  vertical-align: middle;
-  cursor: default;
-  user-select: none;
-
-  &:hover .ws-bubble {
-    display: block;
-  }
-}
-
-.ws-bubble {
-  display: none;
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  z-index: 20;
-  box-sizing: border-box;
-  width: max-content;
-  max-width: 160px;
-  margin-bottom: 4px;
-  padding: 3px 6px;
-  border-radius: 5px;
-  background: #fff;
-  border: 1px solid rgba(36, 38, 45, 0.16);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
-  color: fade(@ink, 84%);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1.3;
-  white-space: nowrap;
-  pointer-events: none;
-  text-align: center;
-  /* meta-row 有 scaleX(direction)；bubble 反向 scaleX 抵消，避免 pet 朝左时文字镜像 */
-  transform: translateX(-50%) scaleX(var(--pet-direction));
-}
-
-.status-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  margin-bottom: 2px; /* 原 .status-row 的 margin-bottom */
-}
-
-.status-row {
-  display: flex;
-  gap: 3px;
-  width: 44px;
-  position: relative;
-  top: -4px; /* 上移避免与 .busy-indicator 绝对定位重叠 */
-}
-
-.stat {
-  position: relative;
-  flex: 1;
-  height: 2px;
-  border-radius: 1px;
-  background: fade(@ink, 14%);
-  overflow: hidden;
-
-  .fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    border-radius: 1px;
-    transition: width 200ms ease;
-  }
-
-  &.emotion .fill {
-    background: #f6b73c;
-  }
-}
-
 .zzz {
   position: absolute;
   left: 50%;
@@ -523,50 +322,6 @@ const emit = defineEmits<{
   font-weight: 600;
   pointer-events: none;
   animation: zzz-float 2.2s ease-in-out infinite;
-}
-
-.busy-indicator {
-  /* 改为 .status-stack 的 flex 子项，与 .status-row 上下堆叠 */
-  display: inline-flex;
-  position: absolute;
-  right: 0;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 5px;
-  border: 1px dashed rgba(124, 58, 237, 0.55); /* 思考紫虚线，呼应 PetBubbles.is-thinking */
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  pointer-events: none;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
-  transform-origin: center center;
-
-  .thinking-dot {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: #7c3aed; /* 思考紫 */
-    animation: thinking-dot 1.2s ease-in-out infinite;
-
-    &:nth-child(2) {
-      animation-delay: 0.18s;
-    }
-    &:nth-child(3) {
-      animation-delay: 0.36s;
-    }
-  }
-}
-
-@keyframes thinking-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.28;
-    transform: translateY(0);
-  }
-  30% {
-    opacity: 1;
-    transform: translateY(-2px);
-  }
 }
 
 @keyframes zzz-float {
