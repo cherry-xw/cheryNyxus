@@ -24,7 +24,7 @@ import { wsClient } from '@/services/ws'
 import { createUiState } from './ui/uiState'
 import { createApprovalActions } from './actions/approvalActions'
 import { createQuestionActions } from './actions/questionActions'
-import { createPetLifecycle, turnChildIntoGhost } from './data/petLifecycle'
+import { CHERY_NYXUS_PRESET, createPetLifecycle, turnChildIntoGhost } from './data/petLifecycle'
 import {
   createStreamRouter,
   ensureStream as _ensureStream,
@@ -491,7 +491,7 @@ export const useAgentsStore = defineStore('agents', () => {
 
     const bounds = defaultBounds()
     const usedFaces = new Set<Record<PetMood, string>>()
-    const mains = chats.filter((c) => !c.parentChatId)
+    const mains = chats.filter((c) => !c.parentChatId && c.preset !== CHERY_NYXUS_PRESET)
 
     // CP8：stage 默认显最近 5 个会话。sessionRecency = max(master.updatedAt, 其子 updatedAt)
     //   （子 agent done 会回传/注入主 chat → 主 updatedAt 被刷新，但子运行中窗口期取 max 更准）

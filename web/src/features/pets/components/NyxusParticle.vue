@@ -6,9 +6,13 @@ import {
   cosmicModeDuration,
   createNyxusParticles,
   kickNyxusParticles,
+  nyxusCloudColor,
   nyxusChromaticStrength,
+  nyxusCosmicTransitionStrength,
   nyxusParticleCoreRadius,
   nyxusParticleHaloRadius,
+  nyxusStarColor,
+  nyxusStarHaloColor,
   resolveNyxusMode,
   stepNyxusParticles,
   toneForNyxus,
@@ -96,13 +100,16 @@ let reducedMotionQuery: MediaQueryList | undefined
 const glowTextures = new Map<string, HTMLCanvasElement>()
 let shadowCanvas: HTMLCanvasElement | undefined
 let shadowContext: CanvasRenderingContext2D | null = null
+let nebulaCanvas: HTMLCanvasElement | undefined
+let nebulaContext: CanvasRenderingContext2D | null = null
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
 function randomCosmicModeDelay(): number {
-  const base = 12000 + Math.random() * 10000
+  // 自动形态之间也至少留出半分钟星云态，避免连续频繁换形。
+  const base = 30000 + Math.random() * 30000
   return reducedMotion ? base * 2.2 : base
 }
 
@@ -300,8 +307,9 @@ function glowTexture(color: string): HTMLCanvasElement {
   if (context) {
     const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16)
     gradient.addColorStop(0, colorWithAlpha(color, 1))
-    gradient.addColorStop(0.18, colorWithAlpha(color, 0.9))
-    gradient.addColorStop(0.48, colorWithAlpha(color, 0.3))
+    gradient.addColorStop(0.14, colorWithAlpha(color, 0.88))
+    gradient.addColorStop(0.42, colorWithAlpha(color, 0.36))
+    gradient.addColorStop(0.72, colorWithAlpha(color, 0.09))
     gradient.addColorStop(1, colorWithAlpha(color, 0))
     context.fillStyle = gradient
     context.fillRect(0, 0, 32, 32)
@@ -329,6 +337,17 @@ function ensureShadowSurface(extent: number, ratio: number): CanvasRenderingCont
     shadowContext = shadowCanvas.getContext('2d')
   }
   return shadowContext
+}
+
+function ensureNebulaSurface(extent: number, ratio: number): CanvasRenderingContext2D | null {
+  nebulaCanvas ??= document.createElement('canvas')
+  const width = Math.round(extent * ratio)
+  if (nebulaCanvas.width !== width || nebulaCanvas.height !== width) {
+    nebulaCanvas.width = width
+    nebulaCanvas.height = width
+    nebulaContext = nebulaCanvas.getContext('2d')
+  }
+  return nebulaContext
 }
 
 function fogMenuTargets(input: NyxusParticleInput): Vec2[] {
@@ -396,10 +415,11 @@ function renderShadowMask(
   mask.globalCompositeOperation = 'lighter'
   const renderMode = resolveNyxusMode(input)
 
-  const centerRadius = input.size * 0.24
-  mask.globalAlpha = 0.38
+  // 中心只保留小而克制的聚焦亮核，外围旋转光晕维持整体体积感。
+  const centerRadius = input.size * 0.145
+  mask.globalAlpha = 0.2
   mask.drawImage(maskTexture, -centerRadius, -centerRadius, centerRadius * 2, centerRadius * 2)
-  mask.globalAlpha = 0.14
+  mask.globalAlpha = 0.09
   for (let index = 0; index < 2; index += 1) {
     const angle = input.time * 0.12 + index * Math.PI
     const offset = input.size * 0.075
@@ -446,12 +466,12 @@ function renderShadowMask(
 
   const spread = input.size * 0.07
   context.save()
-  context.globalAlpha = 0.12
+  context.globalAlpha = 0.055
   context.filter = `blur(${Math.max(7, input.size * 0.085)}px)`
   context.drawImage(shadowCanvas, -spread, -spread, extent + spread * 2, extent + spread * 2)
   context.restore()
   context.save()
-  context.globalAlpha = 0.18
+  context.globalAlpha = 0.085
   context.drawImage(shadowCanvas, 0, 0, extent, extent)
   context.restore()
 }
@@ -463,8 +483,10 @@ function renderShadowMask(
  * connecting 明灭走 input.time 正弦;离线 halo 用 source-over(lighter 下暗色不可见)。
  */
 function renderStatusDot(context: CanvasRenderingContext2D, input: NyxusParticleInput): void {
-  // binary 双星阶段有自身双心结构,中心状态点与之冲突 → 隐藏
-  if (input.cosmicMode === 'binary') return
+  // 双星有自身双心结构；状态点复用形态过渡曲线渐隐/渐显，避免切换时闪断。
+  const binaryOpacity =
+    input.cosmicMode === 'binary' ? 1 - nyxusCosmicTransitionStrength(input.cosmicProgress) : 1
+  if (binaryOpacity <= 0.01) return
   const status = connection.status
   const breath =
     status === 'connecting' ? 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(input.time * 4)) : 1
@@ -480,11 +502,11 @@ function renderStatusDot(context: CanvasRenderingContext2D, input: NyxusParticle
   context.rotate(input.time * 0.8)
   context.scale(1, 0.72)
   context.globalCompositeOperation = isOffline ? 'source-over' : 'lighter'
-  context.globalAlpha = (isOffline ? 0.55 : 0.9) * breath
+  context.globalAlpha = (isOffline ? 0.55 : 0.9) * breath * binaryOpacity
   context.drawImage(glow, -haloR, -haloR, haloR * 2, haloR * 2)
   context.restore()
   context.globalCompositeOperation = 'source-over'
-  context.globalAlpha = breath
+  context.globalAlpha = breath * binaryOpacity
   context.fillStyle = coreColor
   context.beginPath()
   context.arc(0, 0, 2, 0, Math.PI * 2)
@@ -493,16 +515,56 @@ function renderStatusDot(context: CanvasRenderingContext2D, input: NyxusParticle
 
 function render(context: CanvasRenderingContext2D, input: NyxusParticleInput): void {
   const extent = canvasExtent.value
+  const ratio = Math.min(2.5, window.devicePixelRatio || 1)
   const tone = toneForNyxus(input)
-  const redGlow = glowTexture(tone.star)
 
   context.clearRect(0, 0, extent, extent)
   renderShadowMask(context, input, extent)
+  const nebula = ensureNebulaSurface(extent, ratio)
+  if (nebula && nebulaCanvas) {
+    nebula.setTransform(ratio, 0, 0, ratio, 0, 0)
+    nebula.clearRect(0, 0, extent, extent)
+    nebula.save()
+    nebula.translate(extent / 2, extent / 2)
+
+    // 云团在独立图层以内常规混合：中心不再被大量彩光加白，外围悬臂保持鲜明层次。
+    nebula.globalCompositeOperation = 'source-over'
+    const nebulaBreath =
+      1 + Math.sin(input.time * 0.46) * 0.105 + Math.sin(input.time * 0.13 + 1.1) * 0.025
+    const gathering = clamp((1.13 - nebulaBreath) / 0.26, 0, 1)
+    for (const particle of particles) {
+      if (!contributesToNyxusFog(particle)) continue
+      const color = nyxusCloudColor(particle, input.time, gathering)
+      const radius = input.size * (0.165 + particle.size * 0.09)
+      const pulse = 0.78 + Math.sin(input.time * 0.22 + particle.phase) * 0.14
+      const centerDensity = 1 - clamp(Math.hypot(particle.x, particle.y) / (input.size * 0.38), 0, 1)
+      const centerFade = 0.13 + (1 - centerDensity) * 0.87
+      const colorLift = 0.9 + gathering * 0.2
+      const spreadShade = 0.84 + (1 - gathering) * 0.12
+      nebula.globalAlpha = pulse * colorLift * spreadShade * centerFade * 0.13
+      const cloudGlow = glowTexture(color)
+      nebula.drawImage(
+        cloudGlow,
+        particle.x - radius,
+        particle.y - radius,
+        radius * 2,
+        radius * 2,
+      )
+    }
+    nebula.restore()
+
+    // 云团作为单一图层落到主画布，实际合成透明度硬性不超过 80%。
+    context.save()
+    context.globalAlpha = 0.8
+    context.drawImage(nebulaCanvas, 0, 0, extent, extent)
+    context.restore()
+  }
+
   context.save()
   context.translate(extent / 2, extent / 2)
 
   for (let brightness = 0; brightness <= 1; brightness += 1) {
-    context.fillStyle = colorWithAlpha(tone.spark, brightness === 0 ? 0.07 : 0.14)
+    context.fillStyle = colorWithAlpha(tone.accent, brightness === 0 ? 0.1 : 0.18)
     context.beginPath()
     for (const particle of particles) {
       if (particle.brightness !== brightness) continue
@@ -514,11 +576,11 @@ function render(context: CanvasRenderingContext2D, input: NyxusParticleInput): v
   }
 
   for (let brightness = 0; brightness <= 1; brightness += 1) {
-    context.fillStyle = colorWithAlpha(tone.spark, brightness === 0 ? 0.5 : 0.74)
+    context.fillStyle = colorWithAlpha(tone.spark, brightness === 0 ? 0.66 : 0.86)
     context.beginPath()
     for (const particle of particles) {
       if (particle.brightness !== brightness) continue
-      const radius = nyxusParticleCoreRadius(particle)
+      const radius = nyxusParticleCoreRadius(particle) * 1.12
       context.moveTo(particle.x + radius, particle.y)
       context.arc(particle.x, particle.y, radius, 0, Math.PI * 2)
     }
@@ -529,8 +591,8 @@ function render(context: CanvasRenderingContext2D, input: NyxusParticleInput): v
   const glowCells = new Map<string, number>()
   const glowCellSize = Math.max(3, (input.size / 112) * 4)
   for (const particle of particles) {
-    const redStrength = nyxusChromaticStrength(particle, input.time)
-    if (particle.brightness < 2 && redStrength <= 0) continue
+    const chromaticStrength = nyxusChromaticStrength(particle, input.time)
+    if (particle.brightness < 2 && chromaticStrength <= 0) continue
     const cellKey = `${Math.floor(particle.x / glowCellSize)}:${Math.floor(particle.y / glowCellSize)}`
     const cellCount = glowCells.get(cellKey) ?? 0
     if (cellCount >= 3) continue
@@ -545,21 +607,22 @@ function render(context: CanvasRenderingContext2D, input: NyxusParticleInput): v
     const alpha = clamp(twinkle * highlighted, 0.16, 1)
     if (particle.brightness >= 2) {
       const radius = nyxusParticleHaloRadius(particle) * particle.birthT
-      // 恒星固定太阳红;爆炸渐隐(explosionT) + 生长渐入(birthT)
       const fade = (1 - particle.explosionT) * particle.birthT
       context.globalAlpha = alpha * (particle.brightness === 3 ? 0.3 : 0.16) * fade
+      const starGlow = glowTexture(nyxusStarHaloColor(particle))
       context.drawImage(
-        redGlow,
+        starGlow,
         particle.x - radius,
         particle.y - radius,
         radius * 2,
         radius * 2,
       )
     }
-    if (redStrength > 0) {
+    if (chromaticStrength > 0) {
       const radius = 2.25 + particle.size * 0.7
-      context.globalAlpha = alpha * redStrength * 0.36
-      context.drawImage(redGlow, particle.x - radius, particle.y - radius, radius * 2, radius * 2)
+      context.globalAlpha = alpha * chromaticStrength * 0.36
+      const sparkGlow = glowTexture(tone.star)
+      context.drawImage(sparkGlow, particle.x - radius, particle.y - radius, radius * 2, radius * 2)
     }
   }
   // 恒星爆炸闪光环:径向扩张 + alpha 中峰(sin)渐隐
@@ -568,8 +631,9 @@ function render(context: CanvasRenderingContext2D, input: NyxusParticleInput): v
     const progress = particle.explosionT
     const ringRadius = (4 + particle.size * 2.2) * (0.4 + progress * 1.6)
     context.globalAlpha = Math.sin(progress * Math.PI) * 0.55
+    const starGlow = glowTexture(nyxusStarHaloColor(particle))
     context.drawImage(
-      redGlow,
+      starGlow,
       particle.x - ringRadius,
       particle.y - ringRadius,
       ringRadius * 2,
@@ -577,25 +641,25 @@ function render(context: CanvasRenderingContext2D, input: NyxusParticleInput): v
     )
   }
   context.globalCompositeOperation = 'source-over'
-  context.fillStyle = tone.star // 恒星固定太阳红
   for (const particle of particles) {
     if (particle.brightness < 2) continue
-    const fade = (1 - particle.explosionT) * particle.birthT // 爆炸渐隐 + 生长渐入
+    const fade = (1 - particle.explosionT) * particle.birthT
     if (fade <= 0) continue
     const radius = nyxusParticleCoreRadius(particle) * particle.birthT
     context.globalAlpha = (particle.brightness === 3 ? 1 : 0.92) * fade
+    context.fillStyle = nyxusStarColor(particle)
     context.beginPath()
     context.arc(particle.x, particle.y, radius, 0, Math.PI * 2)
     context.fill()
   }
   context.globalAlpha = 0.96
-  context.fillStyle = tone.star
   context.beginPath()
   for (const particle of particles) {
-    const redStrength = nyxusChromaticStrength(particle, input.time)
-    if (redStrength <= 0) continue
-    context.globalAlpha = redStrength * 0.96
-    const radius = nyxusParticleCoreRadius(particle) * (1 + redStrength * 0.08)
+    const chromaticStrength = nyxusChromaticStrength(particle, input.time)
+    if (chromaticStrength <= 0) continue
+    context.globalAlpha = chromaticStrength * 0.96
+    context.fillStyle = tone.star
+    const radius = nyxusParticleCoreRadius(particle) * (1 + chromaticStrength * 0.08)
     context.moveTo(particle.x + radius, particle.y)
     context.arc(particle.x, particle.y, radius, 0, Math.PI * 2)
     context.fill()

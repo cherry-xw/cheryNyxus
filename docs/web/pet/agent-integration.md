@@ -54,7 +54,7 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
 
 ### CP2（FAB + 对话 + 双气泡 + ContextBar + PetToolbar）
 
-- **AgentFab**（[AgentFab.vue](../../../web/src/features/agent/AgentFab.vue)）：右下常驻圆形按钮 + 下方小字连接状态（disconnected 灰 / connecting 黄 / connected 绿）；点击先 `fetchServerConfig` 取 `presets`（T6）并弹预设选择器（每项显 name + leader 角色的 brain + 角色数）；选预设 → `createMasterPet({preset})`（后端通过 `presets[name].leader` 引用的角色解析编制快照）；无可用预设时不能创建主 pet；非 connected 禁用。
+- **NyxusCore**（[NyxusCore.vue](../../../web/src/features/pets/components/NyxusCore.vue)，原 AgentFab）：nyxus 独立核心（脱离 pet 体系，详见 [rendering.md](./rendering.md) §nyxus 独立核心），工具环 create 按钮点击先 `fetchServerConfig` 取 `presets`（T6）并弹预设选择器（每项显 name + leader 角色的 brain + 角色数）；选预设 → `createMasterPet({preset})`（后端通过 `presets[name].leader` 引用的角色解析编制快照）；无可用预设时不能创建主 pet；非 connected 禁用。
 - **AgentDialog**（[AgentDialog.vue](../../../web/src/features/agent/AgentDialog.vue)）：overlay + panel 弹窗。弹窗按当前小组以“组长优先”的顺序列出带主/成员图标的两行紧凑角色摘要：首行显示角色名与完整当前模型，次行显示当前感官组 icon；点击后在更宽的横向角色名片中查看配置。名片展示模型、思考、上下文、Tool Call 状态及图片/视频/音频输入和生成徽标。大脑选择项显示完整 `model` 名；临时切换到 `toolCall:false` 模型会清空并隐藏感官选择，按仅对话编制提交，切回支持工具的模型才可再选感官。图片/视频/音频上传入口会先检查当前临时 brain 的 `capabilities.input`，通过后上传至 `/api/media/upload` 并把受控资产引用加入本轮消息。选择经 `session.runtime.set` 写入内存态且不改会话默认配置；`Cmd/Ctrl+Enter` 发送、`Esc` 关闭、点遮罩关闭。完整能力规则见 [../../model-capabilities.md](../../model-capabilities.md)。
 - **ContextBar**（[ContextBar.vue](../../../web/src/features/agent/ContextBar.vue)）：contextUsage 0-1 progressbar，色阶：<50% 绿 / 50-80% 黄 / ≥80% 红。
 - **PetToolbar**（[PetToolbar.vue](../../../web/src/features/agent/PetToolbar.vue)）：主 pet = 历史/中止/隐藏（✕ destroy=hide，CP8）；子 pet = 历史/中止（无隐藏）；contextUsage ≥ 50% 显 compact（预留）。中止按钮 `:disabled="!pet.isWorking"`——非工作态灰显不可点。**隐藏按钮 `:disabled="pet.isWorking || hasWorkingChild"`**（CP8）——运行中或任一子 pet 运行中禁用（避免孤儿流）。
@@ -125,7 +125,7 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
   - **隐藏**（stage pet 工具栏 ✕，仅主 pet）：`store.hide(chatId)` 仅前端移除 `pets`（含子 pet），不删 DB。运行中禁用（`isWorking` 或任一子 isWorking → destroy 按钮 disabled）。
   - **删除**（会话列表行 ✕）：`store.deleteSession(chatId)` 调 `chat.delete`（后端级联子 chat）→ 从 `historyList` + `pets` 移除。
 - **会话列表 UI**（[SessionList.vue](../../../web/src/features/agent/SessionList.vue)）：右侧抽屉，`historyListOpen` 驱动。`fetchHistoryList()` 调 `chat.list({includePreview:true})` 缓存 `historyList`。行显 `preview` 截断（hover 显 chatId/创建时间）+ last-run（`updatedAt`）+ 轮次（`turnCount`）；点行 → `loadSession(chatId)` 从缓存建主+子 pet 入 `pets`（允许 >5）。
-- **会话列表入口**（[AgentFab.vue](../../../web/src/features/agent/AgentFab.vue)）：`+` 下方加 ☰ "会话列表"按钮 → `historyListOpen=true` + `fetchHistoryList()`。
+- **会话列表入口**（[NyxusCore.vue](../../../web/src/features/pets/components/NyxusCore.vue)）：工具环 history 按钮 → `historyListOpen=true` + `fetchHistoryList()`。
 - **命名区分**：`HistoryDrawer`（单 pet 消息史，pet 工具栏 ▤）保留；`SessionList`（会话列表，☰）为 CP8 新组件。
 - **隐藏不持久化**：重连重取 top-5，隐藏但仍 top-5 的 pet 会重现（transient，不增 schema）。
 

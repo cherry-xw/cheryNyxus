@@ -11,15 +11,6 @@ import {
 } from '../motion/petMovement'
 import type { GhostTrail } from '../motion/petMovement'
 import {
-  createNyxusPointerDrift,
-  nyxusPointerTarget,
-  NYXUS_POINTER_ACCELERATION,
-  NYXUS_POINTER_DRIFT_MAX_MS,
-  NYXUS_POINTER_DRIFT_MIN_MS,
-  NYXUS_POINTER_MAX_SPEED,
-  type NyxusPointerPoint,
-} from '../motion/nyxusPointerMotion'
-import {
   adjustEmotion,
   adjustFatigue,
   restMood,
@@ -155,16 +146,12 @@ export function createPetInstance(
 export function usePetWorld(
   stageRef: Ref<HTMLElement | null>,
   petsSource?: PetInstance[],
-  nyxusPaused: () => boolean = () => false,
 ) {
   const pets = petsSource ?? reactive<PetInstance[]>([])
   const isPaused = ref(false)
   const bounds = reactive<StageBounds>({ width: 960, height: 640 })
   let raf = 0
   let lastTime = 0
-  let nyxusPointer: NyxusPointerPoint | undefined
-  let nyxusPointerDrift = createNyxusPointerDrift()
-  let nextNyxusPointerDriftAt = 0
   // ghost 队列 trail：key=tribe，value=主 Agent 移动轨迹（newest-first）。
   const ghostTrails = new Map<string, GhostTrail>()
 
@@ -194,25 +181,6 @@ export function usePetWorld(
     const target = randomTarget(bounds)
     pet.targetX = target.x
     pet.targetY = target.y
-  }
-
-  function updateNyxusPointerTarget(pet: PetInstance, now: number): boolean {
-    if (!nyxusPointer || !pet.isMaster || pet.visualKind !== 'chery-nyxus') return false
-    if (now >= nextNyxusPointerDriftAt) {
-      nyxusPointerDrift = createNyxusPointerDrift()
-      nextNyxusPointerDriftAt =
-        now +
-        NYXUS_POINTER_DRIFT_MIN_MS +
-        Math.random() * (NYXUS_POINTER_DRIFT_MAX_MS - NYXUS_POINTER_DRIFT_MIN_MS)
-    }
-    const pointerTarget = nyxusPointerTarget(nyxusPointer, nyxusPointerDrift)
-    pet.targetX = clamp(pointerTarget.x - pet.width / 2, 0, Math.max(0, bounds.width - pet.width))
-    pet.targetY = clamp(
-      pointerTarget.y - pet.height / 2,
-      42,
-      Math.max(42, bounds.height - pet.height),
-    )
-    return true
   }
 
   function showSpeech(pet: PetInstance, text: string, duration = 1800): void {
@@ -289,12 +257,6 @@ export function usePetWorld(
     if (pet.draggingPointerId !== null) {
       return
     }
-    if (pet.visualKind === 'chery-nyxus' && nyxusPaused()) {
-      pet.vx = 0
-      pet.vy = 0
-      return
-    }
-    const followsPointer = updateNyxusPointerTarget(pet, now)
 
     // Ghost 是纯运动点，不进入睡眠、悬浮、工作气泡或疲劳状态机。
     if (pet.isGhost) {
@@ -367,18 +329,17 @@ export function usePetWorld(
           retarget(pet)
           pet.action = 'idle'
           pet.mood = restMood(pet, status)
-          pet.moodUntil =
-            now + (pet.visualKind === 'chery-nyxus' ? rand(4000, 9000) : rand(800, 1800))
+          pet.moodUntil = now + rand(800, 1800)
           pet.vx = 0
           pet.vy = 0
           return
         }
       }
-    } else if (!followsPointer && arrivedAtTarget(pet)) {
+    } else if (arrivedAtTarget(pet)) {
       retarget(pet)
       pet.action = 'idle'
       pet.mood = restMood(pet, status)
-      pet.moodUntil = now + (pet.visualKind === 'chery-nyxus' ? rand(4000, 9000) : rand(800, 1800))
+      pet.moodUntil = now + rand(800, 1800)
       pet.vx = 0
       pet.vy = 0
       return
@@ -394,9 +355,8 @@ export function usePetWorld(
       // 否则主 pet 被钉在子 pet 堆中心，被子 pet 围到屏幕边缘后斥力顶住边界无法离开 → 全部堆积边缘。
       // 只保留斥力（近距防重叠，不重叠即无力）→ 主 pet 凭 seek 全屏自由游走。
       stepMovement(pet, pets, bounds, dt, {
-        maxSpeed: pet.visualKind === 'chery-nyxus' ? NYXUS_POINTER_MAX_SPEED : maxSpeed * 0.6,
-        acceleration:
-          pet.visualKind === 'chery-nyxus' ? NYXUS_POINTER_ACCELERATION : MASTER_ACCELERATION,
+        maxSpeed: maxSpeed * 0.6,
+        acceleration: MASTER_ACCELERATION,
         tribeAttract: 0,
         tribeRepel: MASTER_TRIBE_REPEL,
         otherRepel: MASTER_OTHER_REPEL,
@@ -467,10 +427,6 @@ export function usePetWorld(
       x: event.clientX - (rect?.left ?? 0),
       y: event.clientY - (rect?.top ?? 0),
     }
-  }
-
-  function trackNyxusPointer(event: PointerEvent): void {
-    nyxusPointer = pointerPosition(event)
   }
 
   function startDrag(pet: PetInstance, event: PointerEvent): void {
@@ -585,13 +541,11 @@ export function usePetWorld(
     lastTime = performance.now()
     raf = requestAnimationFrame(loop)
     window.addEventListener('resize', readBounds)
-    window.addEventListener('pointermove', trackNyxusPointer, { passive: true })
   })
 
   onUnmounted(() => {
     cancelAnimationFrame(raf)
     window.removeEventListener('resize', readBounds)
-    window.removeEventListener('pointermove', trackNyxusPointer)
   })
 
   return {

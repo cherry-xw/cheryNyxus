@@ -11,14 +11,6 @@ import { collectDescendantChatIds } from './historyMerge'
 
 export const CHERY_NYXUS_PRESET = 'cheryNyxus'
 
-function applyMasterIdentity(pet: PetInstance, presetName?: string): void {
-  if (presetName !== CHERY_NYXUS_PRESET) return
-  pet.visualKind = 'chery-nyxus'
-  pet.name = CHERY_NYXUS_PRESET
-  pet.color = '#62e6ff'
-  pet.accent = '#282238'
-}
-
 /**
  * 按 tribe（同主）内创建序号顺序取灵魂 emoji：第 N 个 ghost = GHOST_FACES[N % 池长]。
  * N = 本 tribe 已存在 ghost 数（排除 self，避 done 实时分支自指：pet 已在 pets 且 isGhost=true）。
@@ -107,19 +99,14 @@ export function createPetLifecycle(
     bounds: { width: number; height: number },
     usedFaces: Set<Record<PetMood, string>>,
   ): void {
-    if (
-      masterSummary.preset === CHERY_NYXUS_PRESET &&
-      pets.value.some((pet) => pet.visualKind === 'chery-nyxus')
-    ) {
-      return
-    }
+    // nyxus 不再建 PetInstance（独立核心 NyxusCore 渲染，脱离 pets[]）
+    if (masterSummary.preset === CHERY_NYXUS_PRESET) return
     const preset = generatePet('kaomoji', usedFaces, masterSummary.chatId)
     usedFaces.add(preset.face)
     const master = createPetInstance(preset, bounds, true, undefined, {
       chatId: masterSummary.chatId,
     })
     master.preset = masterSummary.preset
-    applyMasterIdentity(master, masterSummary.preset)
     master.canResume = masterSummary.canResume
     if (masterSummary.workspace) {
       master.workspace = masterSummary.workspace
@@ -183,10 +170,6 @@ export function createPetLifecycle(
     mcpServers?: string[]
     chatId?: string
   }): Promise<string> {
-    if (opts.preset === CHERY_NYXUS_PRESET) {
-      const existing = pets.value.find((pet) => pet.visualKind === 'chery-nyxus')
-      if (existing) return existing.chatId
-    }
     const result = await agentApi.createAgent(opts)
     const chatId = result.chatId
     const bounds = defaultBounds()
@@ -196,7 +179,6 @@ export function createPetLifecycle(
     // 记录初始 runtime（后端响应回填：预设路径编制由后端解析；显式路径 = 传入值）+ 预设名。
     // AgentDialog 首次发送对比 = 相同（无需 runtime.set）；preset pet 切 brain-only。
     pet.preset = opts.preset
-    applyMasterIdentity(pet, opts.preset)
     pet.runtime = {
       brain: result.brain,
       senseGroup: result.senseGroup,
@@ -211,27 +193,17 @@ export function createPetLifecycle(
   }
 
   /**
-   * 取得唯一 cheryNyxus 会话：先复用舞台实例，再从历史重挂载，最后才初始化固定会话。
-   * 后端 chat.create 同时做唯一性兜底，所以多端/并发点击不会产生新实例。
+   * 取得唯一 cheryNyxus 会话 chatId（chat-only，不建 PetInstance）。
+   * 先从历史查 root + preset=cheryNyxus；无则 createAgent（后端唯一性兜底）。
+   * 调用方（NyxusCore）负责 chatSessions.hydrateTree 灌入投影。
    */
   async function getOrCreateCheryNyxus(): Promise<string> {
-    const visible = pets.value.find((pet) => pet.visualKind === 'chery-nyxus')
-    if (visible) return visible.chatId
-
     const chats = await agentApi.listChats(true)
     historyList.value = chats
     const existing = chats.find((chat) => !chat.parentChatId && chat.preset === CHERY_NYXUS_PRESET)
-    if (existing) {
-      // 等待 RPC 时另一个入口可能已经建好舞台视觉，二次检查避免重复 push。
-      if (!pets.value.some((pet) => pet.chatId === existing.chatId)) {
-        const bounds = defaultBounds()
-        const usedFaces = new Set(pets.value.map((pet) => pet.face))
-        buildMasterAndChildren(existing, chats, bounds, usedFaces)
-      }
-      return existing.chatId
-    }
-
-    return createMasterPet({ preset: CHERY_NYXUS_PRESET })
+    if (existing) return existing.chatId
+    const result = await agentApi.createAgent({ preset: CHERY_NYXUS_PRESET })
+    return result.chatId
   }
 
   /**

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChatDotRound, Clock, Plus, Setting } from '@element-plus/icons-vue'
-import { useAgentsStore, useConnectionStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/stores'
 import { agentApi } from '@/services/agentApi'
 import NyxusParticle from '@/features/pets/components/NyxusParticle.vue'
 import type { NyxusReaction } from '@/features/pets/particles/nyxusParticleEngine'
 import { useStandaloneNyxusMotion } from '@/features/pets/composables/useStandaloneNyxusMotion'
+import { useNyxusWorkState } from '@/features/pets/composables/useNyxusWorkState'
+import { useStreamBubble } from '@/features/pets/composables/useStreamBubble'
+import NyxusBubbles from './NyxusBubbles.vue'
 import {
   closeNyxusMenu,
   highlightNyxusTool,
@@ -14,10 +17,11 @@ import {
   toggleNyxusMenu,
   type NyxusMenuTarget,
 } from '@/features/pets/nyxusUiState'
-import PresetPicker from './toolbar/PresetPicker.vue'
+import PresetPicker from '@/features/agent/toolbar/PresetPicker.vue'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
 const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 const connection = useConnectionStore()
 const creating = ref(false)
 const openingChat = ref(false)
@@ -28,10 +32,6 @@ const createButtonRef = ref<HTMLElement | null>(null)
 const chatButtonRef = ref<HTMLElement | null>(null)
 const historyButtonRef = ref<HTMLElement | null>(null)
 const settingsButtonRef = ref<HTMLElement | null>(null)
-const nyxusPet = computed(() =>
-  agents.pets.find((pet) => pet.isMaster && pet.visualKind === 'chery-nyxus'),
-)
-const isStandalone = computed(() => !nyxusPet.value)
 const {
   position: standalonePosition,
   dragging: standaloneDragging,
@@ -40,18 +40,39 @@ const {
   endPointer: endStandalonePointer,
   consumeSuppressedClick,
 } = useStandaloneNyxusMotion(
-  () => isStandalone.value,
+  () => true,
   () => nyxusMenuOpen.value,
   closeNyxusMenu,
+  () => agents.pets,
 )
 const disabled = computed(
   () => creating.value || openingChat.value || connection.status !== 'connected',
 )
-const anchorStyle = computed(() => {
-  const pet = nyxusPet.value
-  if (pet) return { left: `${pet.x + pet.width / 2}px`, top: `${pet.y + 42}px` }
-  return { left: `${standalonePosition.x}px`, top: `${standalonePosition.y}px` }
-})
+const anchorStyle = computed(() => ({
+  left: `${standalonePosition.x}px`,
+  top: `${standalonePosition.y}px`,
+}))
+
+// nyxus 工作态：chatSessions 投影 → useStreamBubble 气泡逻辑（不经 PetInstance）
+const { stream, working } = useNyxusWorkState()
+const {
+  isBusy,
+  showWorkMain,
+  showThinkingButton,
+  thinkingOnly,
+  hasContent,
+  displayThinking,
+  displayContent,
+  renderedContent,
+  workTextRef,
+  onWorkTextScroll,
+  onBubbleEnter,
+  onBubbleLeave,
+} = useStreamBubble({ isGhost: false, isWorking: working, stream })
+
+function setWorkTextRef(el: HTMLElement | null): void {
+  workTextRef.value = el
+}
 
 let clickTimer: ReturnType<typeof setTimeout> | undefined
 let reactionTimer: ReturnType<typeof setTimeout> | undefined
@@ -89,30 +110,13 @@ function onStandaloneDoubleClick(): void {
   void openNyxusChat()
 }
 
-function placeNyxusAtStandalone(chatId: string): void {
-  const pet = agents.pets.find(
-    (candidate) => candidate.chatId === chatId && candidate.visualKind === 'chery-nyxus',
-  )
-  if (!pet) return
-  pet.x = Math.min(
-    Math.max(0, standalonePosition.x - pet.width / 2),
-    Math.max(0, window.innerWidth - pet.width),
-  )
-  pet.y = Math.min(
-    Math.max(42, standalonePosition.y - 42),
-    Math.max(42, window.innerHeight - pet.height),
-  )
-  pet.targetX = pet.x
-  pet.targetY = pet.y
-}
-
 async function openNyxusChat(): Promise<void> {
   if (connection.status !== 'connected' || openingChat.value || creating.value) return
   openingChat.value = true
   error.value = null
   try {
     const chatId = await agents.getOrCreateCheryNyxus()
-    placeNyxusAtStandalone(chatId)
+    await chatSessions.hydrateTree(chatId)
     agents.activeDialogChatId = chatId
     closeNyxusMenu()
   } catch (cause) {
@@ -150,7 +154,6 @@ async function runCreate(opts: {
   error.value = null
   try {
     const chatId = await agents.createMasterPet(opts)
-    placeNyxusAtStandalone(chatId)
     closeNyxusMenu()
   } catch (cause) {
     error.value = (cause as Error).message
@@ -225,15 +228,27 @@ onBeforeUnmount(() => {
   <aside
     class="nyxus-controls"
     :class="{
-      'is-bound': !isStandalone,
       'is-open': nyxusMenuOpen,
       'is-dragging': standaloneDragging,
     }"
     :style="anchorStyle"
     aria-label="cheryNyxus controls"
   >
+    <NyxusBubbles
+      :stream="stream"
+      :show-work-main="showWorkMain"
+      :show-thinking-button="showThinkingButton"
+      :thinking-only="thinkingOnly"
+      :has-content="hasContent"
+      :display-thinking="displayThinking"
+      :display-content="displayContent"
+      :rendered-content="renderedContent"
+      :work-text-ref="setWorkTextRef"
+      :on-work-text-scroll="onWorkTextScroll"
+      @bubble-enter="onBubbleEnter"
+      @bubble-leave="onBubbleLeave"
+    />
     <button
-      v-if="isStandalone"
       type="button"
       class="nyxus-hit"
       aria-label="cheryNyxus，单击打开工具，双击聊天"
@@ -253,6 +268,11 @@ onBeforeUnmount(() => {
         :status-dot="true"
         boot
       />
+      <span v-if="isBusy" class="busy-indicator" aria-label="思考中">
+        <span class="thinking-dot" />
+        <span class="thinking-dot" />
+        <span class="thinking-dot" />
+      </span>
     </button>
 
     <transition name="ring">
@@ -459,9 +479,47 @@ onBeforeUnmount(() => {
   pointer-events: auto;
 }
 
-.is-bound .nyxus-error {
-  left: -105px;
-  bottom: 70px;
+.busy-indicator {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 5px;
+  border: 1px dashed rgba(124, 58, 237, 0.55); /* 思考紫虚线 */
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
+
+  .thinking-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #7c3aed;
+    animation: nyxus-thinking-dot 1.2s ease-in-out infinite;
+
+    &:nth-child(2) {
+      animation-delay: 0.18s;
+    }
+    &:nth-child(3) {
+      animation-delay: 0.36s;
+    }
+  }
+}
+
+@keyframes nyxus-thinking-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.28;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 .ring-enter-active,

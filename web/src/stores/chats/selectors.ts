@@ -221,3 +221,16 @@ export function selectRecentRootIds(
     .slice(0, topN)
     .map((s) => s.chatId)
 }
+
+/**
+ * nyxus 独立核心会话（root chat + preset=cheryNyxus）。
+ * 后端 chat.create 对 cheryNyxus 预设做唯一性兜底，故全系统至多一个；
+ * 与 petLifecycle.getOrCreateCheryNyxus 同源判定，作为 NyxusCore 脱离 pets[] 后的数据锚点。
+ */
+export function selectNyxusSession(
+  sessionsById: Record<string, ChatSession>,
+): ChatSession | undefined {
+  return Object.values(sessionsById).find(
+    (s) => !s.meta.parentChatId && s.meta.preset === 'cheryNyxus',
+  )
+}

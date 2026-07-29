@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import DesktopPetApp from '@/features/pets/DesktopPetApp.vue'
 import { desktopPetBridge } from '@/features/pets/desktopPetBridge'
-import AgentFab from '@/features/agent/AgentFab.vue'
+import NyxusCore from '@/features/pets/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SessionList from '@/features/agent/drawer/SessionList.vue'
@@ -15,6 +15,7 @@ import {
 import { useConnectionStore, useAgentsStore, useChatSessionsStore } from '@/stores'
 import { wsClient } from '@/services/ws'
 import { httpUrl } from '@/services/http'
+import { selectNyxusSession } from '@/stores/chats/selectors'
 
 const authChecked = ref(false)
 const authenticated = ref(false)
@@ -50,51 +51,44 @@ async function bootstrap(): Promise<void> {
 
   const conn = useConnectionStore()
   const agents = useAgentsStore()
+  const chatSessions = useChatSessionsStore()
   const petBridge = desktopPetBridge()
   if (petBridge) {
+    // nyxus 桌面窗口数据源：chatSessions 的 nyxus session（root + preset=cheryNyxus），不经 PetInstance
     cleanupDesktopBridge.push(
       watch(
-        () =>
-          agents.pets.map((pet) => [
-            pet.chatId,
-            pet.visualKind,
-            pet.action,
-            pet.mood,
-            pet.isWorking,
-            pet.speech,
-            pet.lastInteractionAt,
-          ]),
-        () => {
-          petBridge.publish(
-            agents.pets
-              .filter((pet) => pet.isMaster && pet.visualKind === 'chery-nyxus')
-              .map((pet) => ({
-                chatId: pet.chatId,
-                label: pet.workspace?.split(/[\\/]/).filter(Boolean).pop() || pet.name,
-                action: pet.action,
-                mood: pet.mood,
-                working: pet.isWorking,
-                speech: pet.speech,
-                activity: pet.isWorking ? Date.now() : pet.lastInteractionAt,
-              })),
-          )
+        () => selectNyxusSession(chatSessions.sessionsById) ?? null,
+        (session) => {
+          if (!session) {
+            petBridge.publish([])
+            return
+          }
+          petBridge.publish([
+            {
+              chatId: session.chatId,
+              label: session.meta.workspace?.split(/[\\/]/).filter(Boolean).pop() ?? 'cheryNyxus',
+              action: session.run.status === 'running' ? 'chatting' : 'idle',
+              mood: 'serious',
+              working: session.run.status === 'running',
+              speech: '',
+              activity: session.run.status === 'running' ? Date.now() : (session.meta.updatedAt ?? 0),
+            },
+          ])
         },
-        { deep: true, immediate: true },
+        { immediate: true },
       ),
     )
     cleanupDesktopBridge.push(
       petBridge.onOpenChat((chatId) => {
-        if (agents.pets.some((pet) => pet.chatId === chatId)) agents.activeDialogChatId = chatId
+        if (chatSessions.sessionsById[chatId]) agents.activeDialogChatId = chatId
       }),
     )
     cleanupDesktopBridge.push(
       petBridge.onOpenHistory((chatId) => {
-        if (agents.pets.some((pet) => pet.chatId === chatId)) agents.openHistoryRoot(chatId)
+        if (chatSessions.sessionsById[chatId]) agents.openHistoryRoot(chatId)
       }),
     )
   }
-  // ChatSession 单一数据层（#7-#11 迁移期与旧 store 并行：双订阅无害，旧 store 仍供消费端，新 store 待 #10 切换）
-  const chatSessions = useChatSessionsStore()
   chatSessions.bindWsClient()
   // #9 接线：chatSessions 副作用 → agents pet 变更。
   // V2 发送经 chatSessions（openSession+submitInput），pet 视觉（setWorking/role_created）
@@ -165,7 +159,7 @@ async function bootstrap(): Promise<void> {
   <DesktopPetApp v-if="isDesktopPetSurface" />
   <template v-else-if="authenticated">
     <PetStage />
-    <AgentFab />
+    <NyxusCore />
     <AgentDialog />
     <HistoryDrawer />
     <SessionList />

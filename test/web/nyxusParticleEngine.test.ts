@@ -3,9 +3,14 @@ import {
   contributesToNyxusFog,
   cosmicModeDuration,
   createNyxusParticles,
+  nyxusCloudColor,
   nyxusChromaticStrength,
+  nyxusCosmicTransitionStrength,
   nyxusParticleCoreRadius,
   nyxusParticleHaloRadius,
+  nyxusRotationPeriod,
+  nyxusStarColor,
+  nyxusStarHaloColor,
   NYXUS_CHROMATIC_CYCLE_SECONDS,
   particleTarget,
   resolveNyxusMode,
@@ -166,12 +171,39 @@ describe('nyxus particle engine', () => {
     expect(target.x).toBeGreaterThan(50)
   })
 
-  it('uses one particle layer for stars and fog while excluding reach filaments', () => {
+  it('uses one particle layer for stars and more numerous nebula clouds while excluding reach filaments', () => {
     const particles = createNyxusParticles(500, 7)
     const fogParticles = particles.filter(contributesToNyxusFog)
-    expect(fogParticles.length).toBeGreaterThan(70)
-    expect(fogParticles.every((particle) => particle.armRank >= 0.18)).toBe(true)
+    expect(fogParticles.length).toBeGreaterThan(130)
+    expect(fogParticles.every((particle) => particle.armRank >= 0.12)).toBe(true)
     expect(fogParticles.every((particle) => !('fogX' in particle || 'fogY' in particle))).toBe(true)
+  })
+
+  it('assigns varied, slowly changing colors to nebula clouds', () => {
+    const cloud = createNyxusParticles(500, 7).find(contributesToNyxusFog)
+    expect(cloud).toBeDefined()
+    expect(nyxusCloudColor(cloud!, 0)).not.toEqual(nyxusCloudColor(cloud!, 48))
+  })
+
+  it('keeps stellar cores pure white while distributing vivid lifecycle halo colors', () => {
+    const stars = createNyxusParticles(800, 42).filter((particle) => particle.brightness >= 2)
+    expect(new Set(stars.map(nyxusStarColor))).toEqual(new Set(['#ffffff']))
+    expect(new Set(stars.map(nyxusStarHaloColor)).size).toBeGreaterThanOrEqual(3)
+  })
+
+  it('replaces a fading star with a growing, newly colored star', () => {
+    const particles = createNyxusParticles(500, 42)
+    const fading = particles.find((particle) => particle.brightness === 2)
+    expect(fading).toBeDefined()
+    fading!.explosionT = 0.999
+
+    stepNyxusParticles(particles, input(), 1 / 30)
+
+    expect(fading!.brightness).toBeLessThan(2)
+    const newborn = particles.find((particle) => particle.brightness >= 2 && particle.birthT < 1)
+    expect(newborn).toBeDefined()
+    expect(nyxusStarColor(newborn!)).toBe('#ffffff')
+    expect(nyxusStarHaloColor(newborn!)).toMatch(/^#[0-9a-f]{6}$/i)
   })
 
   it('keeps weak-gravity integration finite during a released trail', () => {
@@ -191,8 +223,16 @@ describe('nyxus particle engine', () => {
       'supernova',
       'tidalRings',
     ]
-    expect(modes.every((mode) => cosmicModeDuration(mode) >= 8)).toBe(true)
-    expect(modes.every((mode) => cosmicModeDuration(mode) <= 12)).toBe(true)
+    // 统一淡入/淡出各占一段，64 秒以上才会让完整形态稳定保持至少半分钟。
+    expect(modes.every((mode) => cosmicModeDuration(mode) >= 60)).toBe(true)
+  })
+
+  it('uses one smooth transition curve for cosmic shapes and the binary center light', () => {
+    expect(nyxusCosmicTransitionStrength(0)).toBe(0)
+    expect(nyxusCosmicTransitionStrength(1)).toBe(0)
+    expect(nyxusCosmicTransitionStrength(0.1)).toBeGreaterThan(0)
+    expect(nyxusCosmicTransitionStrength(0.5)).toBe(1)
+    expect(nyxusCosmicTransitionStrength(0.9)).toBeGreaterThan(0)
   })
 
   it('builds finite and distinct target fields for every special cosmic mode', () => {
@@ -248,24 +288,15 @@ describe('nyxus particle engine', () => {
     )
   })
 
-  it('uses a low-saturation warm stellar palette by default', () => {
+  it('keeps a gentle base tone while leaving stellar color to each particle', () => {
     const tone = toneForNyxus(input())
     expect(tone).toEqual({
-      core: '#181313',
-      dust: '#c2aaa6',
-      star: '#cf9d96',
-      accent: '#d2c0b5',
-      spark: '#f3eeea',
+      core: '#333451',
+      dust: '#aeb8d2',
+      star: '#fff0c1',
+      accent: '#9daed3',
+      spark: '#dbe9ff',
     })
-
-    const star = Number.parseInt(tone.star.slice(1), 16)
-    expect((star >> 16) & 255).toBeGreaterThan((star >> 8) & 255)
-    expect((star >> 16) & 255).toBeGreaterThan(star & 255)
-    const channels = [(star >> 16) & 255, (star >> 8) & 255, star & 255]
-    const maximum = Math.max(...channels)
-    const minimum = Math.min(...channels)
-    const saturation = (maximum - minimum) / (255 - Math.abs(maximum + minimum - 255))
-    expect(saturation).toBeLessThan(0.4)
   })
 
   it('uses distinct controlled dual-tone palettes with bounded transition steps', () => {
@@ -283,14 +314,6 @@ describe('nyxus particle engine', () => {
       const value = Number.parseInt(hex.slice(1), 16)
       return (((value >> 16) & 255) + ((value >> 8) & 255) + (value & 255)) / 3
     }
-    const saturation = (hex: string) => {
-      const value = Number.parseInt(hex.slice(1), 16)
-      const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255]
-      const maximum = Math.max(...channels)
-      const minimum = Math.min(...channels)
-      if (maximum === minimum) return 0
-      return (maximum - minimum) / (255 - Math.abs(maximum + minimum - 255))
-    }
     expect(new Set(modeTones.map((tone) => tone.accent)).size).toBe(modes.length)
     expect(modeTones.every((tone) => tone.spark !== tone.star && tone.accent !== tone.star)).toBe(
       true,
@@ -303,7 +326,7 @@ describe('nyxus particle engine', () => {
           lightness(tone.accent) > 150,
       ),
     ).toBe(true)
-    expect(modeTones.every((tone) => saturation(tone.star) < 0.45)).toBe(true)
+    expect(new Set(modeTones.map((tone) => tone.star)).size).toBeGreaterThanOrEqual(3)
 
     for (const cosmicMode of modes) {
       const transitionStars = new Set<string>()
@@ -414,17 +437,11 @@ describe('nyxus particle engine', () => {
     expect(recoveredError).toBeLessThan(disruptedError * 0.65)
   })
 
-  it('keeps the star field in a visible slow orbit outside autonomous actions', () => {
-    const particle = createNyxusParticles(1, 31)[0]!
-    particle.radius = 0.9
-    particle.noise = 0
-    const start = particleTarget(particle, input({ time: 0 }))
-    const later = particleTarget(particle, input({ time: 20 }))
-    const startAngle = Math.atan2(start.y, start.x)
-    const laterAngle = Math.atan2(later.y, later.x)
-    const turn = Math.abs(Math.atan2(Math.sin(laterAngle - startAngle), Math.cos(laterAngle - startAngle)))
+  it('assigns every particle a stable 30–60 second rotation period', () => {
+    const particles = createNyxusParticles(800, 31)
+    const periods = particles.map(nyxusRotationPeriod)
 
-    expect(turn).toBeGreaterThan(0.7)
-    expect(turn).toBeLessThan(2.5)
+    expect(periods.every((period) => period >= 30 && period <= 60)).toBe(true)
+    expect(new Set(periods).size).toBeGreaterThan(100)
   })
 })

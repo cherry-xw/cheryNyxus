@@ -6,11 +6,17 @@
 
 Pet 渲染层不拥有 Agent 会话状态。Pet presentation 只保存动作、坐标、表情、拖拽和 ghost 动画，通过 `chatId` 从 ChatSession selector 获取 working、当前消息、审批、问题、工具、上下文与恢复状态。
 
-### cheryNyxus 专属主体
+### nyxus 独立核心（NyxusCore）
 
-预设名 `cheryNyxus` 的主 pet 使用固定 `chery-nyxus` visual kind。该标识在新建、chat.list 重建和历史会话重新载入时都从 `metadata.preset` 派生；子 pet 与其他预设仍使用原随机主体。专属主体由高 DPI Canvas 粒子引擎绘制为可变形星系，不读取可编辑 avatar，因而设置页不能更换其身份外观。
+nyxus 粒子核心是独立于 pet 体系的视觉组件（[NyxusCore.vue](../../../web/src/features/pets/components/NyxusCore.vue)），全局挂载于 App 顶层（`position:fixed; z-index:250`），**不经过 PetStage/PetBody，也不是 PetInstance**。数据源为 chatSessions 的 nyxus 会话（root chat + `preset==='cheryNyxus'`，经 `selectNyxusSession` 解析），工作态（thinking/content/busy）由 `useNyxusWorkState` 投影、`useStreamBubble` 派生，不经 pets[]。核心复用 standalone 运动（`useStandaloneNyxusMotion`：自由漂移 + 长按拖拽 + pointer 扰动 + 边缘 clamp）；单击触发工具环菜单（create/chat/history/settings，状态在 `nyxusUiState`），双击打开 AgentDialog，3 连击触发 agitated 反应；Canvas 雾化轨迹连接菜单按钮（`updateToolTargets` 每帧测量按钮矩形写入）。工作气泡（[NyxusBubbles.vue](../../../web/src/features/pets/components/NyxusBubbles.vue)）仅 error + work-main（thinking/content）两 tier + busy-indicator，approval/question 走 AgentDialog。cheryNyxus 会话由 `getOrCreateCheryNyxus`（chat-only，不建 pet）确保，创建后 `chatSessions.hydrateTree` 灌入投影。
 
-粒子场按暗点、普通点、高亮星、强闪星分成四档。多数点为白色细小核心；高亮星（恒星）固定太阳正红色（#ff2d00）核心与红柔光，在初始分布和运行碰撞中保持间距，形成疏密交错的星体层级。恒星会随机触发爆炸缓慢消逝（径向闪光环扩张 + 渐隐，约 2.5s），消逝后随机白点经数秒渐生长为新恒星补位、总数恒定；普通白点周期性随机变红为临时态。灰雾、悬臂和星点共用同一运动场，支持星云、黑洞、脉冲星、双星、超新星与潮汐环模式。
+粒子场按暗点、普通点、高亮星、强闪星分成四档。暗点中的一部分按归属聚为更多层次的云团：梦幻紫、靛蓝、宝蓝、青蓝、青绿和玫红等高饱和色以低频插值缓慢流转，保持纯净绚烂而不掺灰。星云整体收拢时按实时密度提高饱和度和亮度，散开时保持同色系压暗以形成纵深；外围云团和悬臂也维持清晰的彩色外发光，连成明亮但柔和的带状星云。彩色云团先在独立图层内以常规混合绘制：中心按密度显著降亮并保持颜色，外围悬臂则更明亮；图层仅以最高 80% 的透明度合成到主体，避免加色叠加泛成大块纯白，也不遮住随后绘制的星点。中心暗色基底只保留小范围聚焦与外围轮廓。云团、悬臂和星点仍共用同一运动场；普通星点使用略带冷暖色的小核心与细微光晕，确保在云团中可辨但不抢眼。高亮星（恒星）在初始分布和运行碰撞中保持间距，核心始终纯白；鲜艳的紫、青蓝、玫红等颜色只用于其柔光、诞生与爆发环。恒星会持续经历缓慢渐生、长期稳定、爆发和消逝：爆发以所属鲜艳色的径向闪光环扩张并渐隐，消逝后随机白点再渐生为新恒星补位、总数恒定。星盘主旋转周期按粒子随机落在 30–60 秒；自动宇宙形态的完整稳定段至少保持 30 秒，并以平滑曲线切换。双星形态会让中心状态点随形态渐隐和渐显，不会突变。该粒子场支持星云、黑洞、脉冲星、双星、超新星与潮汐环模式。
+
+### Nyxus 移动与云团过渡
+
+独立运动采用分段航行：每次选定一个有限目标后，以较低速度缓慢加速、缓慢减速并抵达，再静止数秒播放粒子动画；鼠标位置仅在下一航段取样，绝不逐帧重算目标，因此不会出现像素级追随抖动或突然蹿动。Nyxus 会按包含外部光晕的安全距离避开 `pets[]` 中的普通 Pet；避让沿用相同的缓慢曲线，只改变其独立位置，Nyxus 不进入 `PetInstance`，也不会获得主 Pet 的信息栏、名称或工具栏。
+
+紫、蓝云团在聚散时共用一套连续的色相插值；端点仅改变明度和透明度，避免最散或最聚时跳成灰浊杂色。云团纹理以更长的径向渐隐衔接，形成更柔的外发光悬臂；最终云层合成透明度仍不超过 80%。
 
 Canvas 动作按以下优先级解析，避免鼠标和 Agent 状态互相覆盖：`dragging > released > menu > working > reach > reaction > cosmic > sleep > idle`。待机时星盘缓慢自旋、呼吸收缩并随机切换宇宙模式；鼠标靠近会扰动粒子场，长按可拖拽主体，工具菜单打开后灰雾和星点向环绕入口延伸。
 

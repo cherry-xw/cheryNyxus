@@ -44,10 +44,6 @@ export function usePetDrag(props: PetDragProps, emit: PetDragEmit) {
   let longPressTimer: ReturnType<typeof setTimeout> | undefined
   let draggingStarted = false
   let suppressClick = false
-  let lastHoverX = 0
-  let lastHoverDirection = 0
-  let strokeReversals = 0
-  let strokeStartedAt = 0
 
   function beginDrag(target: HTMLElement, event: PointerEvent): void {
     draggingStarted = true
@@ -68,24 +64,6 @@ export function usePetDrag(props: PetDragProps, emit: PetDragEmit) {
   }
 
   function onPointerMove(event: PointerEvent): void {
-    if (event.buttons === 0 && props.pet.visualKind === 'chery-nyxus') {
-      const now = performance.now()
-      if (now - strokeStartedAt > 850) {
-        strokeStartedAt = now
-        strokeReversals = 0
-        lastHoverDirection = 0
-      }
-      const dx = event.clientX - lastHoverX
-      const direction = Math.abs(dx) >= 3 ? Math.sign(dx) : 0
-      if (direction && lastHoverDirection && direction !== lastHoverDirection) strokeReversals += 1
-      if (direction) lastHoverDirection = direction
-      lastHoverX = event.clientX
-      if (strokeReversals >= 3) {
-        emit('strokePet', props.pet)
-        strokeReversals = 0
-        strokeStartedAt = now
-      }
-    }
     if (longPressTimer !== undefined) {
       // 长按等待中：移动超阈值 -> 立即进拖拽（同长按超时路径）
       const dx = event.clientX - downX

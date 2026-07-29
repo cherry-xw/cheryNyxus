@@ -152,7 +152,6 @@ onBeforeUnmount(() => {
       @dblclick="onDoubleClick"
       @contextmenu="onContextMenu"
     >
-      <div v-if="pet.speech || pet.working" class="speech">{{ pet.speech || '处理中...' }}</div>
       <NyxusParticle
         :action="action"
         :mood="mood"
@@ -161,7 +160,6 @@ onBeforeUnmount(() => {
         :respect-connection="false"
         boot
       />
-      <strong>{{ pet.label }}</strong>
     </section>
   </main>
 </template>
@@ -189,37 +187,5 @@ onBeforeUnmount(() => {
 }
 .pet-hit:active {
   cursor: grabbing;
-}
-.pet-hit strong {
-  max-width: 150px;
-  margin-top: -8px;
-  padding: 2px 7px;
-  overflow: hidden;
-  color: #e8fbff;
-  background: rgba(22, 19, 36, 0.82);
-  border: 1px solid rgba(98, 230, 255, 0.75);
-  border-radius: 6px;
-  font:
-    700 12px/1.3 ui-monospace,
-    monospace;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.speech {
-  position: absolute;
-  left: 50%;
-  bottom: 144px;
-  max-width: 190px;
-  padding: 7px 9px;
-  border: 1px solid rgba(40, 34, 56, 0.2);
-  border-radius: 6px;
-  color: #282238;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 5px 15px rgba(22, 19, 36, 0.16);
-  font:
-    12px/1.4 system-ui,
-    sans-serif;
-  transform: translateX(-50%);
-  white-space: nowrap;
 }
 </style>

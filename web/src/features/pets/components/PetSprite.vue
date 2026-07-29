@@ -62,7 +62,11 @@ const {
   onWorkTextScroll,
   onBubbleEnter,
   onBubbleLeave,
-} = useStreamBubble(props)
+} = useStreamBubble({
+  isGhost: () => props.pet.isGhost,
+  isWorking: () => props.pet.isWorking,
+  stream: () => props.stream,
+})
 
 const {
   faceGlyph,

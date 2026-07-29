@@ -5,9 +5,12 @@ import {
 } from '../../web/src/features/pets/composables/useStandaloneNyxusMotion'
 import {
   createNyxusPointerDrift,
+  nyxusAvoidanceTarget,
   nyxusPointerTarget,
   NYXUS_POINTER_DRIFT_MIN_MS,
   NYXUS_POINTER_MAX_SPEED,
+  NYXUS_POINTER_MIN_SPEED,
+  NYXUS_AVOIDANCE_DISTANCE,
 } from '../../web/src/features/pets/motion/nyxusPointerMotion'
 
 describe('standalone Nyxus viewport movement', () => {
@@ -29,8 +32,20 @@ describe('standalone Nyxus viewport movement', () => {
     })
   })
 
-  it('keeps pointer pursuit subtle enough for long-running desktop use', () => {
-    expect(NYXUS_POINTER_MAX_SPEED).toBeLessThanOrEqual(2)
+  it('uses slow movement legs with a clearly stationary interval', () => {
+    expect(NYXUS_POINTER_MIN_SPEED).toBeGreaterThanOrEqual(5)
+    expect(NYXUS_POINTER_MAX_SPEED).toBeLessThanOrEqual(12)
     expect(NYXUS_POINTER_DRIFT_MIN_MS).toBeGreaterThanOrEqual(8000)
+  })
+
+  it('returns an outward target when a normal pet enters the Nyxus safety halo', () => {
+    expect(
+      nyxusAvoidanceTarget({ x: 400, y: 300 }, [{ x: 350, y: 270, width: 72, height: 96 }]),
+    ).toEqual(expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }))
+    expect(
+      nyxusAvoidanceTarget({ x: 400 + NYXUS_AVOIDANCE_DISTANCE, y: 318 }, [
+        { x: 364, y: 270, width: 72, height: 96 },
+      ]),
+    ).toBeUndefined()
   })
 })

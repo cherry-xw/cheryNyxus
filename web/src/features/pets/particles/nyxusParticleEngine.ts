@@ -23,6 +23,9 @@ export interface NyxusParticle {
   size: number
   brightness: number
   colorCycle: number
+  /** 云团色带与恒星色温均由种子固定，保证重建后的视觉分布稳定。 */
+  cloudColor: number
+  starColor: number
   armRank: number
   armT: number
   armSlot: number
@@ -73,65 +76,66 @@ const HIGHLIGHT_RATIO = 0.02
 const SPARK_RATIO = 0.003
 const HIGHLIGHT_BASE_SPACING = 0.075
 export const NYXUS_CHROMATIC_CYCLE_SECONDS = 84
-/** 恒星爆炸:消逝持续时长(s) + 每恒星每秒触发概率(稀疏);缓慢渐变 */
-const EXPLOSION_DURATION = 2.5
-const EXPLOSION_RATE = 0.004
-/** 恒星生长:promote 后白点渐入为恒星的时长(s),对称寂灭渐隐 */
-const BIRTH_DURATION = 2.5
+/** 恒星爆发与再生均放缓，让生灭循环能被看清。 */
+const EXPLOSION_DURATION = 8
+const EXPLOSION_RATE = 0.0015
+const BIRTH_DURATION = 8
 const NYXUS_CHROMATIC_WINDOW = 0.032
 
 const COSMIC_MODE_DURATION: Record<NyxusCosmicMode, number> = {
-  blackHole: 11.6,
-  pulsar: 9.4,
-  binary: 10.8,
-  supernova: 8.8,
-  tidalRings: 10.2,
+  blackHole: 72,
+  pulsar: 64,
+  binary: 80,
+  supernova: 64,
+  tidalRings: 72,
 }
 
-/** 恒星固定太阳正红色:跨所有模式统一,恒星(brightness≥2)不再随机变色 */
-const SUN_RED = '#ff2d00'
+const CLOUD_COLORS = ['#a45cff', '#6d72ff', '#277cff', '#22d5ff', '#11d8c0', '#ff4fb4'] as const
+const COHESIVE_CLOUD_COLORS = ['#a45cff', '#786cff', '#4b83ff', '#2aaeff'] as const
+const STAR_HALO_COLORS = ['#a45cff', '#22d5ff', '#ff4fb4', '#4b83ff'] as const
+const WHITE_STAR_CORE = '#ffffff'
 
 const NEBULA_TONE: NyxusTone = {
-  core: '#181313',
-  dust: '#c2aaa6',
-  star: SUN_RED,
-  accent: '#d2c0b5',
-  spark: '#f3eeea',
+  core: '#333451',
+  dust: '#aeb8d2',
+  star: '#fff0c1',
+  accent: '#9daed3',
+  spark: '#dbe9ff',
 }
 
 const COSMIC_MODE_TONES: Record<NyxusCosmicMode, NyxusTone> = {
   blackHole: {
-    core: '#161216',
-    dust: '#b9a9b1',
-    star: SUN_RED,
+    core: '#302d4a',
+    dust: '#aeb0ce',
+    star: '#d9e9ff',
     accent: '#b8b1c4',
     spark: '#f1ecef',
   },
   pulsar: {
-    core: '#151416',
-    dust: '#c0aaa9',
-    star: SUN_RED,
+    core: '#2c304b',
+    dust: '#a8b8d0',
+    star: '#d9e9ff',
     accent: '#b4c1c3',
     spark: '#f2eeee',
   },
   binary: {
-    core: '#181411',
-    dust: '#c8afa5',
-    star: SUN_RED,
+    core: '#393244',
+    dust: '#c4b4aa',
+    star: '#fff0c1',
     accent: '#d3c29f',
     spark: '#f3eee8',
   },
   supernova: {
-    core: '#19140f',
-    dust: '#cbb09f',
-    star: SUN_RED,
+    core: '#41333c',
+    dust: '#cfb7a9',
+    star: '#ffc58e',
     accent: '#d4c199',
     spark: '#f5f0e7',
   },
   tidalRings: {
-    core: '#161316',
-    dust: '#b9aab8',
-    star: SUN_RED,
+    core: '#332d4a',
+    dust: '#b5aecb',
+    star: '#e0c9ff',
     accent: '#aec0b9',
     spark: '#f2edef',
   },
@@ -148,7 +152,8 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t)
 }
 
-function envelope(progress: number): number {
+/** 特殊宇宙形态的统一淡入淡出强度；0/1 为静态星云，中央区为完整形态。 */
+export function nyxusCosmicTransitionStrength(progress: number): number {
   const enter = smoothstep(0, 0.22, progress)
   const leave = 1 - smoothstep(0.72, 1, progress)
   return enter * leave
@@ -186,6 +191,8 @@ export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusPar
       size: 0.45 + random() * 0.9,
       brightness,
       colorCycle: 0,
+      cloudColor: Math.floor(random() * CLOUD_COLORS.length),
+      starColor: Math.floor(random() * STAR_HALO_COLORS.length),
       armRank: random(),
       armT: random(),
       armSlot: Math.floor(random() * 3),
@@ -227,11 +234,47 @@ export function cosmicModeDuration(mode: NyxusCosmicMode): number {
 }
 
 export function contributesToNyxusFog(particle: NyxusParticle): boolean {
-  return particle.brightness === 0 && particle.armRank >= 0.18 && particle.armRank <= 0.48
+  return particle.brightness === 0 && particle.armRank >= 0.12 && particle.armRank <= 0.66
+}
+
+/** 由同一暗点层生成的星云云团色；缓慢跨越相邻色带，避免闪烁。 */
+export function nyxusCloudColor(particle: NyxusParticle, time: number, cohesion = 0): string {
+  const offset = particle.cloudColor + particle.phase / TAU
+  const position =
+    ((offset + time / 96) % CLOUD_COLORS.length + CLOUD_COLORS.length) % CLOUD_COLORS.length
+  const index = Math.floor(position)
+  const next = (index + 1) % CLOUD_COLORS.length
+  const individual = mixHexColor(
+    CLOUD_COLORS[index]!,
+    CLOUD_COLORS[next]!,
+    smoothstep(0.16, 0.84, position - index),
+  )
+  const cohesivePosition =
+    ((time / 120) % COHESIVE_CLOUD_COLORS.length + COHESIVE_CLOUD_COLORS.length) %
+    COHESIVE_CLOUD_COLORS.length
+  const cohesiveIndex = Math.floor(cohesivePosition)
+  const cohesiveNext = (cohesiveIndex + 1) % COHESIVE_CLOUD_COLORS.length
+  const cohesive = mixHexColor(
+    COHESIVE_CLOUD_COLORS[cohesiveIndex]!,
+    COHESIVE_CLOUD_COLORS[cohesiveNext]!,
+    smoothstep(0.16, 0.84, cohesivePosition - cohesiveIndex),
+  )
+  return mixHexColor(individual, cohesive, smoothstep(0.16, 0.88, cohesion) * 0.72)
+}
+
+/** 恒星核心始终纯白，保证在鲜艳星云中清晰可辨。 */
+export function nyxusStarColor(particle: NyxusParticle): string {
+  void particle
+  return WHITE_STAR_CORE
+}
+
+/** 所属色只用于恒星的柔光、诞生和爆发环，维持生死阶段的鲜艳辨识度。 */
+export function nyxusStarHaloColor(particle: NyxusParticle): string {
+  return STAR_HALO_COLORS[particle.starColor % STAR_HALO_COLORS.length]!
 }
 
 export function nyxusChromaticStrength(particle: NyxusParticle, time: number): number {
-  // 恒星(brightness≥2)固定太阳红,不参与随机变色;仅白点(0/1)随机变红
+  // 恒星由独立色温绘制；仅普通点保留极少量暖色闪烁。
   if (particle.brightness >= 2) return 0
   const cycle = (((particle.colorCycle + time / NYXUS_CHROMATIC_CYCLE_SECONDS) % 1) + 1) % 1
   const distance = Math.min(cycle, 1 - cycle)
@@ -293,24 +336,24 @@ function mixTone(from: NyxusTone, to: NyxusTone, amount: number): NyxusTone {
 export function toneForNyxus(input: NyxusParticleInput): NyxusTone {
   if (!input.connected || input.reaction === 'error') {
     return {
-      core: '#211a1a',
-      dust: '#ad9f9d',
-      star: SUN_RED,
+      core: '#41353f',
+      dust: '#b8acb8',
+      star: '#ffc9bd',
       accent: '#b9aaad',
       spark: '#eee8e6',
     }
   }
   if (input.working || input.action === 'chatting') {
     return {
-      core: '#181416',
-      dust: '#bea9b2',
-      star: SUN_RED,
+      core: '#30324a',
+      dust: '#adb8d0',
+      star: '#d9e9ff',
       accent: '#afc2c3',
       spark: '#f1ecee',
     }
   }
   if (!input.cosmicMode) return NEBULA_TONE
-  const transition = Math.round(envelope(input.cosmicProgress) * 8) / 8
+  const transition = Math.round(nyxusCosmicTransitionStrength(input.cosmicProgress) * 8) / 8
   return mixTone(NEBULA_TONE, COSMIC_MODE_TONES[input.cosmicMode], transition)
 }
 
@@ -330,6 +373,11 @@ function mixAngle(from: number, to: number, amount: number): number {
   return from + difference * amount
 }
 
+/** 基于固定粒子种子的旋转周期，始终落在 30–60 秒范围。 */
+export function nyxusRotationPeriod(particle: NyxusParticle): number {
+  return 30 + clamp((particle.orbit - 0.35) / 0.9, 0, 1) * 30
+}
+
 function cloudTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 {
   const baseRadius = input.size * 0.34
   const breath = 1 + Math.sin(input.time * 0.46) * 0.105 + Math.sin(input.time * 0.13 + 1.1) * 0.025
@@ -342,10 +390,11 @@ function cloudTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 {
   const flattening = (1 - Math.cos(input.time * 0.2)) * 0.5
   const axis = 1.02 + flattening * 0.34
   const axisAngle = input.time * 0.021 + Math.sin(input.time * 0.09) * 0.18
-  const orbitPeriod = 52 + clamp(particle.radius, 0, 1) * 68
+  // 每颗恒星/星点的主旋转周期稳定地随机落在 30–60 秒，既有差异也不会频繁转相。
+  const orbitPeriod = nyxusRotationPeriod(particle)
   const orbitSpeed = (TAU / orbitPeriod) * (0.94 + particle.orbit * 0.11)
   const freeOrbitAngle = particle.angle + input.time * orbitSpeed
-  const armPatternSpeed = 0.05 - clamp(particle.radius, 0, 1) * 0.018
+  const armPatternSpeed = (TAU / orbitPeriod) * (0.78 - clamp(particle.radius, 0, 1) * 0.16)
   const armAngle =
     (particle.galaxyArm / 6) * TAU +
     particle.radius * 4.2 +
@@ -602,7 +651,7 @@ function tidalRingsTarget(particle: NyxusParticle, input: NyxusParticleInput): V
 function cosmicModeTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleInput): Vec2 {
   const mode = input.cosmicMode
   if (!mode) return body
-  const amount = envelope(input.cosmicProgress)
+  const amount = nyxusCosmicTransitionStrength(input.cosmicProgress)
   let target = body
   if (mode === 'blackHole') target = blackHoleTarget(particle, input)
   else if (mode === 'pulsar') target = pulsarTarget(particle, input)
@@ -644,10 +693,10 @@ export function particleTarget(particle: NyxusParticle, input: NyxusParticleInpu
 }
 
 /**
- * 恒星随机爆炸状态机:
- * 1) 推进进行中爆炸 → 达 1 消逝,该恒星降级为白点(brightness 0/1)
- * 2) 每个降级恒星随机晋升一个白点补位(总数恒定,保留原 spark/brightness2 层级)
- * 3) 稀疏概率随机触发新爆炸(仅静止恒星)
+ * 恒星生灭状态机:
+ * 1) 稳定恒星随机进入爆发，径向渐隐后消逝为普通点。
+ * 2) 每个消逝位置晋升一个普通点，经历渐生后成为新恒星（总数恒定）。
+ * 3) 新星重新分配鲜艳光晕色；核心始终纯白，生命周期更容易辨识。
  */
 function stepNyxusExplosions(particles: NyxusParticle[], dt: number): void {
   const demoted: Array<{ particle: NyxusParticle; wasSpark: boolean }> = []
@@ -670,6 +719,7 @@ function stepNyxusExplosions(particles: NyxusParticle[], dt: number): void {
       if (candidates.length === 0) break
       const pick = candidates[Math.floor(Math.random() * candidates.length)]!
       pick.brightness = wasSpark ? 3 : 2
+      pick.starColor = Math.floor(Math.random() * STAR_HALO_COLORS.length)
       pick.birthT = 1e-4 // 渐入:白点缓慢生长为恒星,对称寂灭渐隐
       promoted.add(pick)
     }
