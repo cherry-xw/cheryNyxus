@@ -28,6 +28,8 @@ const emit = defineEmits<{
   endDrag: [pet: PetInstance, event: PointerEvent]
   hover: [pet: PetInstance, hovering: boolean]
   clickPet: [pet: PetInstance]
+  strokePet: [pet: PetInstance]
+  doubleClickPet: [pet: PetInstance]
   history: [pet: PetInstance]
   abort: [pet: PetInstance]
   destroy: [pet: PetInstance]
@@ -152,6 +154,7 @@ function setWorkTextRef(el: HTMLElement | null): void {
       @head-row-enter="onHeadRowEnter"
       @head-row-leave="onHeadRowLeave"
       @click-pet="onClick"
+      @double-click-pet="emit('doubleClickPet', pet)"
     />
   </div>
 </template>

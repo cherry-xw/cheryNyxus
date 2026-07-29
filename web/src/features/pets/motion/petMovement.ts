@@ -39,6 +39,8 @@ const DIRECTION_THRESHOLD = 8 // |vx| > 此才翻朝向，避免抖动
 const MIN_SPAWN_GAP = 100 // 生成时最小中心距（> REPEL_RADIUS，出生即不斥力）
 const SPAWN_SEARCH_RADIUS = 140 // 落点附近搜索半径
 const SPAWN_ATTEMPTS = 14
+export const NYXUS_EXCLUSION_RADIUS = 190
+export const NYXUS_EXCLUSION_FORCE = 900
 
 export interface MovementOptions {
   /** 速度上限（px/s），调用方按 mood/个体差异传入。 */
@@ -111,18 +113,31 @@ export function stepMovement(
   const cy = pet.y + pet.height / 2
   for (const other of neighbors) {
     if (other.instanceId === pet.instanceId) continue
-    if (other.action === 'chatting') continue
-    const dx = cx - (other.x + other.width / 2)
-    const dy = cy - (other.y + other.height / 2)
-    const d = Math.hypot(dx, dy)
-    if (d < 0.001) continue
+    const nyxusPair = pet.visualKind === 'chery-nyxus' || other.visualKind === 'chery-nyxus'
+    if (other.action === 'chatting' && !nyxusPair) continue
+    let dx = cx - (other.x + other.width / 2)
+    let dy = cy - (other.y + other.height / 2)
+    let d = Math.hypot(dx, dy)
+    if (d < 0.001) {
+      if (!nyxusPair) continue
+      dx = pet.instanceId.localeCompare(other.instanceId) <= 0 ? -1 : 1
+      dy = 0
+      d = 1
+    }
     const sameTribe = pet.tribe === other.tribe
-    const attract = sameTribe ? tribeAttract : otherAttract
-    const repel = sameTribe ? tribeRepel : otherRepel
+    const attract = nyxusPair ? 0 : sameTribe ? tribeAttract : otherAttract
+    const repel = nyxusPair
+      ? Math.max(NYXUS_EXCLUSION_FORCE, sameTribe ? tribeRepel : otherRepel)
+      : sameTribe
+        ? tribeRepel
+        : otherRepel
     // 斥力半径：同部落 repelRadius（近距不重叠）+ 双方 bubbleRepelExtra（Req 8: 有气泡时增大间距）
-    const repelR = sameTribe
+    const normalRepelRadius = sameTribe
       ? repelRadius + pet.bubbleRepelExtra + other.bubbleRepelExtra
       : attractRadius
+    const repelR = nyxusPair
+      ? Math.max(NYXUS_EXCLUSION_RADIUS, normalRepelRadius)
+      : normalRepelRadius
     const ux = dx / d // 远离方向
     const uy = dy / d
     if (d < repelR) {

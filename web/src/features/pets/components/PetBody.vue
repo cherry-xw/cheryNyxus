@@ -11,6 +11,7 @@ import type { VariantType } from 'motion-v'
 import ContextBar from '@/features/agent/toolbar/ContextBar.vue'
 import PetToolbar from '@/features/agent/toolbar/PetToolbar.vue'
 import RunningTools from '@/features/agent/cards/RunningTools.vue'
+import NyxusParticle from './NyxusParticle.vue'
 import type { StreamState } from '@/stores'
 import type { PetInstance } from '../types/types'
 import type { RunningTool } from '@/stores/agents'
@@ -60,6 +61,7 @@ const emit = defineEmits<{
   headRowEnter: []
   headRowLeave: [event: PointerEvent]
   clickPet: [pet: PetInstance]
+  doubleClickPet: [pet: PetInstance]
 }>()
 </script>
 
@@ -103,10 +105,19 @@ const emit = defineEmits<{
           @pointerenter="emit('headRowEnter')"
           @pointerleave="(e: PointerEvent) => emit('headRowLeave', e)"
           @click.stop="emit('clickPet', pet)"
+          @dblclick.stop="emit('doubleClickPet', pet)"
           @keydown.enter.space.prevent="emit('clickPet', pet)"
         >
+          <NyxusParticle
+            v-if="pet.visualKind === 'chery-nyxus'"
+            :action="pet.action"
+            :mood="pet.mood"
+            :working="pet.isWorking"
+            :size="88"
+            :status-dot="pet.isMaster"
+          />
           <MotionSpan
-            v-if="!pet.isGhost"
+            v-else-if="!pet.isGhost"
             class="hand hand-left"
             aria-hidden="true"
             :initial="false"
@@ -115,14 +126,14 @@ const emit = defineEmits<{
             >{{ leftHand }}</MotionSpan
           >
           <MotionSpan
-            v-if="pet.isMaster"
+            v-if="pet.visualKind !== 'chery-nyxus' && pet.isMaster"
             class="face"
             :initial="false"
             :animate="face.animate"
             :transition="face.transition"
             >{{ faceGlyph }}</MotionSpan
           >
-          <span v-else class="face-flip">
+          <span v-else-if="pet.visualKind !== 'chery-nyxus'" class="face-flip">
             <span class="face-rotate">
               <span class="face-side front">
                 <MotionSpan
@@ -145,7 +156,7 @@ const emit = defineEmits<{
             </span>
           </span>
           <MotionSpan
-            v-if="!pet.isGhost"
+            v-if="pet.visualKind !== 'chery-nyxus' && !pet.isGhost"
             class="hand hand-right"
             aria-hidden="true"
             :initial="false"
@@ -188,9 +199,6 @@ const emit = defineEmits<{
         </div>
       </MotionSpan>
     </span>
-    <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{
-      pet.sleep?.zzz ?? 'zZ'
-    }}</span>
     <span v-if="pet.action === 'sleep'" class="zzz" aria-hidden="true">{{
       pet.sleep?.zzz ?? 'zZ'
     }}</span>

@@ -9,6 +9,7 @@ const props = withDefaults(
     tokenMap?: Record<string, number>
     label: string
     inheritLabel?: string
+    disabled?: boolean
   }>(),
   { tokenMap: () => ({}), inheritLabel: '继承全部' },
 )
@@ -27,13 +28,14 @@ const tokens = computed(() =>
 )
 
 function setMode(value: string[] | undefined): void {
+  if (props.disabled) return
   emit('update:modelValue', value)
   emit('mode-change')
 }
 </script>
 
 <template>
-  <section class="equipment-slot" :class="{ overloaded: tokens > 5000 }">
+  <section class="equipment-slot" :class="{ overloaded: tokens > 5000, disabled }">
     <header>
       <span
         ><b>{{ label }}</b
@@ -48,17 +50,38 @@ function setMode(value: string[] | undefined): void {
       <span class="equipment-token">≈ {{ tokens }} token</span>
     </header>
     <div class="equipment-mode">
-      <button type="button" :class="{ active: mode === 'inherit' }" @click="setMode(undefined)">
+      <button
+        type="button"
+        :disabled="disabled"
+        :class="{ active: mode === 'inherit' }"
+        @click="setMode(undefined)"
+      >
         继承全部
       </button>
-      <button type="button" :class="{ active: mode === 'custom' }" @click="emit('edit')">
+      <button
+        type="button"
+        :disabled="disabled"
+        :class="{ active: mode === 'custom' }"
+        @click="emit('edit')"
+      >
         自选装备
       </button>
-      <button type="button" :class="{ active: mode === 'none' }" @click="setMode([])">
+      <button
+        type="button"
+        :disabled="disabled"
+        :class="{ active: mode === 'none' }"
+        @click="setMode([])"
+      >
         全不使用
       </button>
     </div>
-    <button v-if="mode === 'custom'" type="button" class="manage-btn" @click="emit('edit')">
+    <button
+      v-if="mode === 'custom'"
+      type="button"
+      class="manage-btn"
+      :disabled="disabled"
+      @click="emit('edit')"
+    >
       整理装备
     </button>
     <p v-if="tokens > 5000" class="equipment-warning">
@@ -83,6 +106,9 @@ function setMode(value: string[] | undefined): void {
 }
 .equipment-slot.overloaded {
   border-color: rgba(190, 132, 28, 0.45);
+}
+.equipment-slot.disabled {
+  opacity: 0.72;
 }
 .equipment-slot header {
   display: flex;
@@ -128,6 +154,10 @@ function setMode(value: string[] | undefined): void {
   border-color: color-mix(in srgb, var(--tab-color, @accent) 48%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
   font-weight: 800;
+}
+.equipment-mode button:disabled,
+.manage-btn:disabled {
+  cursor: not-allowed;
 }
 .manage-btn {
   align-self: flex-start;

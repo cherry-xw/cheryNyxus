@@ -6,6 +6,14 @@
 
 Pet 渲染层不拥有 Agent 会话状态。Pet presentation 只保存动作、坐标、表情、拖拽和 ghost 动画，通过 `chatId` 从 ChatSession selector 获取 working、当前消息、审批、问题、工具、上下文与恢复状态。
 
+### cheryNyxus 专属主体
+
+预设名 `cheryNyxus` 的主 pet 使用固定 `chery-nyxus` visual kind。该标识在新建、chat.list 重建和历史会话重新载入时都从 `metadata.preset` 派生；子 pet 与其他预设仍使用原随机主体。专属主体由高 DPI Canvas 粒子引擎绘制为可变形星系，不读取可编辑 avatar，因而设置页不能更换其身份外观。
+
+粒子场按暗点、普通点、高亮星、强闪星分成四档。多数点为白色细小核心；高亮星（恒星）固定太阳正红色（#ff2d00）核心与红柔光，在初始分布和运行碰撞中保持间距，形成疏密交错的星体层级。恒星会随机触发爆炸缓慢消逝（径向闪光环扩张 + 渐隐，约 2.5s），消逝后随机白点经数秒渐生长为新恒星补位、总数恒定；普通白点周期性随机变红为临时态。灰雾、悬臂和星点共用同一运动场，支持星云、黑洞、脉冲星、双星、超新星与潮汐环模式。
+
+Canvas 动作按以下优先级解析，避免鼠标和 Agent 状态互相覆盖：`dragging > released > menu > working > reach > reaction > cosmic > sleep > idle`。待机时星盘缓慢自旋、呼吸收缩并随机切换宇宙模式；鼠标靠近会扰动粒子场，长按可拖拽主体，工具菜单打开后灰雾和星点向环绕入口延伸。
+
 实时消息规范化保存在 `ChatSession.messagesById[msgId]`，`activeMessageId` 指向当前 LLM 响应。Pet 工作气泡与 HistoryDrawer 的实时行读取同一个 `ChatMessage`：
 
 - 新 `msgId` 首次到达时，旧 active 消息封口并保留在历史；新消息先以空 thinking/content 建立，再应用首个 delta。

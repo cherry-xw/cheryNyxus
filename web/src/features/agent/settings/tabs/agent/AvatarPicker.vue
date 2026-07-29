@@ -7,7 +7,7 @@ import {
   validateRoleAvatar,
 } from '../../config/roleAvatar'
 
-const props = defineProps<{ modelValue?: string; roleType: string }>()
+const props = defineProps<{ modelValue?: string; roleType: string; disabled?: boolean }>()
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string | undefined): void
   (e: 'error', value: string): void
@@ -17,6 +17,7 @@ const custom = ref('')
 const resolved = computed(() => props.modelValue || defaultRoleAvatar(props.roleType))
 
 function choose(value?: string): void {
+  if (props.disabled) return
   emit('update:modelValue', value)
   open.value = false
 }
@@ -34,15 +35,20 @@ function applyCustom(): void {
 <template>
   <el-popover
     v-model:visible="open"
-    trigger="click"
+    :trigger="disabled ? 'manual' : 'click'"
     placement="bottom-start"
     :width="310"
     popper-class="avatar-picker-popper"
   >
     <template #reference>
-      <button type="button" class="avatar-picker-trigger" aria-label="切换角色头像">
+      <button
+        type="button"
+        class="avatar-picker-trigger"
+        :disabled="disabled"
+        :aria-label="disabled ? '角色头像已锁定' : '切换角色头像'"
+      >
         <span>{{ resolved }}</span
-        ><small>切换头像</small>
+        ><small>{{ disabled ? '身份锁定' : '切换头像' }}</small>
       </button>
     </template>
     <div class="avatar-picker">
@@ -102,6 +108,10 @@ function applyCustom(): void {
   background: linear-gradient(145deg, #fffdf8, #f2eadc);
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(36, 38, 45, 0.09);
+}
+.avatar-picker-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.78;
 }
 .avatar-picker-trigger span {
   font-size: 34px;

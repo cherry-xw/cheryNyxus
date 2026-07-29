@@ -79,6 +79,7 @@ import config, { DEFAULT_COMMAND_CONFIG, validateWorkspacePath } from '@/utils/c
 import { computeContextBreakdown } from './contextUsage.js'
 import { registerPromptSnapshotHandler } from './promptSnapshot.js'
 import { safeJsonParse } from '@/utils/json.js'
+import { CHERY_NYXUS_NAME } from '@/utils/lockedRole.js'
 import {
   getChatEvents,
   getRecentChatEvents,
@@ -110,7 +111,33 @@ export async function handleChatCreate(
   data: ChatCreateRequestData,
 ): Promise<ChatCreateResponseData> {
   const p = data
-  const chatId = p.chatId || randomUUID()
+  const isFixedNyxus = p.preset === CHERY_NYXUS_NAME
+  if (isFixedNyxus) {
+    if (p.parentChatId) throw new Error('cheryNyxus 是固定主角色，不能创建为子实例')
+    const existing = listAllChats().find((chat) => {
+      if (chat.parent_chat_id) return false
+      const metadata = chat.metadata
+        ? (safeJsonParse(chat.metadata, {}) as { preset?: string })
+        : {}
+      return metadata.preset === CHERY_NYXUS_NAME
+    })
+    if (existing) {
+      const selection =
+        getChatRuntimeSelection(existing.id) ?? resolvePresetSelection(CHERY_NYXUS_NAME).selection
+      const workspace = getChatWorkspace(existing.id)
+      const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
+      logger.event('chat.reuse-fixed', { chatId: existing.id, preset: CHERY_NYXUS_NAME })
+      return {
+        chatId: existing.id,
+        brain: selection.brain,
+        senseGroup: selection.senseGroup,
+        mcpServers: selection.mcpServers,
+        ...(workspace ? { workspace, workspaceValid } : {}),
+      }
+    }
+  }
+  // 固定角色用稳定 id 初始化；并发请求也只能命中同一条 DB 记录。
+  const chatId = isFixedNyxus ? CHERY_NYXUS_NAME : p.chatId || randomUUID()
 
   let selection: RuntimeSelection
   const metadata: Record<string, unknown> = {}

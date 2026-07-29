@@ -12,6 +12,8 @@ import { resolveRoleAvatar } from '../../config/roleAvatar'
 import { computeSelectionTokens } from '../../config/shared'
 import { buildPromptTree } from '../promptTree'
 
+const CHERY_NYXUS_ROLE = 'cheryNyxus'
+
 type RoleDraft = NonNullable<ConfigDto['roles']>[string]
 type SkillCatalog = {
   skills: string[]
@@ -57,6 +59,7 @@ const removeImpact = computed(() => {
 
 const roles = computed(() => props.draft.roles ?? {})
 const current = computed(() => roles.value[selectedRole.value])
+const isFixedRole = computed(() => selectedRole.value === CHERY_NYXUS_ROLE)
 const brainNames = computed(() => Object.keys(props.draft.llm.brain))
 const senseNames = computed(() => Object.keys(props.draft.sense_groups ?? {}))
 const mcpNames = computed(() => Object.keys(props.draft.mcp_servers ?? {}))
@@ -102,7 +105,7 @@ const descEditing = ref(false)
 const descEditValue = ref('')
 const vFocus = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
 function startDescEdit(): void {
-  if (current.value?.lock) return
+  if (current.value?.lock || isFixedRole.value) return
   descEditing.value = true
   descEditValue.value = current.value?.description ?? ''
 }
@@ -176,7 +179,7 @@ function addRole(): void {
   selectedRole.value = type
 }
 function removeRole(type: string): void {
-  if (!props.draft.roles || props.draft.roles[type]?.lock) return
+  if (!props.draft.roles || props.draft.roles[type]?.lock || type === CHERY_NYXUS_ROLE) return
   delete props.draft.roles[type]
   for (const preset of Object.values(props.draft.presets ?? {})) {
     preset.roles = preset.roles?.filter((name) => name !== type)
@@ -184,7 +187,8 @@ function removeRole(type: string): void {
   }
 }
 function duplicateRole(type: string): void {
-  if (!props.draft.roles?.[type]) return
+  if (!props.draft.roles?.[type] || props.draft.roles[type].lock || type === CHERY_NYXUS_ROLE)
+    return
   let name = `${type}_copy`
   let suffix = 2
   while (props.draft.roles[name]) name = `${type}_copy_${suffix++}`
@@ -202,7 +206,7 @@ function duplicateRole(type: string): void {
   nextTick(() => titleRef.value?.start())
 }
 function renameRole(oldType: string, newType: string): void {
-  if (!props.draft.roles?.[oldType]) return
+  if (!props.draft.roles?.[oldType] || oldType === CHERY_NYXUS_ROLE) return
   const rebuilt: NonNullable<ConfigDto['roles']> = {}
   for (const [key, value] of Object.entries(props.draft.roles))
     rebuilt[key === oldType ? newType : key] = value
@@ -228,6 +232,7 @@ function setBrain(cfg: RoleDraft, brain: string): void {
 }
 
 function openEquipment(kind: EquipmentKind): void {
+  if (isFixedRole.value) return
   activeEquipment.value = kind
 }
 
@@ -238,7 +243,7 @@ function closeEquipment(): void {
 function updateEquipment(value: string[]): void {
   const cfg = current.value
   const kind = activeEquipment.value
-  if (!cfg || !kind) return
+  if (!cfg || !kind || isFixedRole.value) return
   cfg[kind] = value
 }
 
@@ -283,6 +288,7 @@ watch(selectedRole, () => {
           <AvatarPicker
             v-model="current.avatar"
             :role-type="selectedRole"
+            :disabled="!!current.lock || isFixedRole"
             @error="emit('error', $event)"
           />
           <div class="role-title-zone">
@@ -291,13 +297,13 @@ watch(selectedRole, () => {
               class="role-name-edit"
               :model-value="selectedRole"
               :validate="validateRename"
-              :disabled="!!current.lock"
+              :disabled="!!current.lock || isFixedRole"
               @rename="(name: string) => renameRole(selectedRole, name)"
               @error="emit('error', $event)"
             >
               <template #actions>
                 <button
-                  v-if="!current.lock"
+                  v-if="!current.lock && !isFixedRole"
                   type="button"
                   class="icon-btn"
                   aria-label="复制角色"
@@ -306,11 +312,15 @@ watch(selectedRole, () => {
                   <CopyDocument class="ico" />
                 </button>
                 <button
-                  v-if="current.lock"
+                  v-if="current.lock || isFixedRole"
                   type="button"
                   class="icon-btn"
                   disabled
-                  title="角色已锁定：禁止改名/复制/改专属背景说明/改角色说明"
+                  :title="
+                    isFixedRole
+                      ? '固定角色：所有配置均不可修改'
+                      : '角色已锁定：禁止改名/复制/改专属背景说明/改角色说明'
+                  "
                 >
                   <Lock class="ico" />
                 </button>
@@ -333,10 +343,12 @@ watch(selectedRole, () => {
               <span
                 v-if="!descEditing"
                 class="role-desc-text"
-                :class="{ editable: !current.lock }"
-                :title="current.lock ? undefined : '点击编辑说明'"
+                :class="{ editable: !current.lock && !isFixedRole }"
+                :title="current.lock || isFixedRole ? undefined : '点击编辑说明'"
                 @click="startDescEdit"
-                >{{ current.description || (current.lock ? '—' : '点击添加角色说明') }}</span
+                >{{
+                  current.description || (current.lock || isFixedRole ? '—' : '点击添加角色说明')
+                }}</span
               >
               <el-input
                 v-else
@@ -365,6 +377,7 @@ watch(selectedRole, () => {
                 :key="name"
                 type="button"
                 class="brain-choice"
+                :disabled="isFixedRole"
                 :class="{ active: current.brain === name }"
                 :data-overflow-name="isOverflowing[`brain-name-${name}`] ? 'true' : undefined"
                 :data-overflow-model="isOverflowing[`brain-model-${name}`] ? 'true' : undefined"
@@ -404,6 +417,7 @@ watch(selectedRole, () => {
             <div class="choice-board compact">
               <button
                 type="button"
+                :disabled="isFixedRole"
                 :class="{ active: !current.senseGroup }"
                 @click="current.senseGroup = ''"
               >
@@ -412,7 +426,7 @@ watch(selectedRole, () => {
                 v-for="name in senseNames"
                 :key="name"
                 type="button"
-                :disabled="!supportsTools(current.brain)"
+                :disabled="isFixedRole || !supportsTools(current.brain)"
                 :class="{ active: current.senseGroup === name }"
                 @click="current.senseGroup = name"
               >
@@ -429,7 +443,7 @@ watch(selectedRole, () => {
               placeholder="无专属背景(仅全局)"
               filterable
               clearable
-              :disabled="!!current.lock"
+              :disabled="!!current.lock || isFixedRole"
               popper-class="role-prompt-cascader"
               class="prompt-cascader"
             />
@@ -444,6 +458,7 @@ watch(selectedRole, () => {
               label="技能"
               :options="skillCatalog.skills"
               :token-map="skillCatalog.skillTokens"
+              :disabled="isFixedRole"
               @edit="openEquipment('skills')"
               @mode-change="closeEquipment"
             />
@@ -452,6 +467,7 @@ watch(selectedRole, () => {
               label="插件"
               :options="skillCatalog.plugins"
               :token-map="skillCatalog.pluginTokens"
+              :disabled="isFixedRole"
               @edit="openEquipment('plugins')"
               @mode-change="closeEquipment"
             />
@@ -460,6 +476,7 @@ watch(selectedRole, () => {
               label="MCP 服务"
               :options="mcpNames"
               :token-map="mcpTokens"
+              :disabled="isFixedRole"
               @edit="openEquipment('mcpServers')"
               @mode-change="closeEquipment"
             />

@@ -1,5 +1,6 @@
 import dotenv from 'dotenv'
 import yaml from 'js-yaml'
+import { validateFixedPresetEdits, validateLockedRoleEdits } from './lockedRole.js'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -178,7 +179,7 @@ export interface RoleConfig {
    * role 激活时仅这些插件下的 skill 进入 `<skills>` 块。
    */
   plugins?: string[]
-  /** 锁定：true = 禁止删除（前端 UI 隐藏删除、显示 lock 图标）。保护管家等关键角色不被误删。 */
+  /** 锁定身份：禁止删除/改名/复制及修改 avatar/description/systemPrompt；cheryNyxus 作为固定角色全字段不可修改。 */
   lock?: boolean
 }
 
@@ -1021,7 +1022,12 @@ export function saveRawConfig(
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
 
   // 读盘取 server 段（保留不动），合并 partial（除 server 外全部字段）
-  const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as { server?: ServerConfig }
+  const disk = yaml.load(fs.readFileSync(configPath, 'utf8')) as ConfigRaw & {
+    server?: ServerConfig
+  }
+  errors.push(...validateLockedRoleEdits(disk.roles, partial.roles))
+  errors.push(...validateFixedPresetEdits(disk.presets, partial.presets))
+  if (errors.length > 0) return { ok: false, errors, warnings }
   const merged = { ...partial, server: disk.server ?? { port: 8182, transport: 'binary' as const } }
 
   fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))

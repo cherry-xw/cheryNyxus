@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { onMounted, provide, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
+import DesktopPetApp from '@/features/pets/DesktopPetApp.vue'
+import { desktopPetBridge } from '@/features/pets/desktopPetBridge'
 import AgentFab from '@/features/agent/AgentFab.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
@@ -16,6 +18,9 @@ import { httpUrl } from '@/services/http'
 
 const authChecked = ref(false)
 const authenticated = ref(false)
+const isDesktopPetSurface =
+  new URLSearchParams(window.location.search).get('surface') === 'desktop-pet'
+const cleanupDesktopBridge: Array<() => void> = []
 
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
@@ -27,8 +32,9 @@ function startLogin(): void {
 }
 
 onMounted(() => {
-  void bootstrap()
+  if (!isDesktopPetSurface) void bootstrap()
 })
+onBeforeUnmount(() => cleanupDesktopBridge.splice(0).forEach((cleanup) => cleanup()))
 
 async function bootstrap(): Promise<void> {
   try {
@@ -44,6 +50,49 @@ async function bootstrap(): Promise<void> {
 
   const conn = useConnectionStore()
   const agents = useAgentsStore()
+  const petBridge = desktopPetBridge()
+  if (petBridge) {
+    cleanupDesktopBridge.push(
+      watch(
+        () =>
+          agents.pets.map((pet) => [
+            pet.chatId,
+            pet.visualKind,
+            pet.action,
+            pet.mood,
+            pet.isWorking,
+            pet.speech,
+            pet.lastInteractionAt,
+          ]),
+        () => {
+          petBridge.publish(
+            agents.pets
+              .filter((pet) => pet.isMaster && pet.visualKind === 'chery-nyxus')
+              .map((pet) => ({
+                chatId: pet.chatId,
+                label: pet.workspace?.split(/[\\/]/).filter(Boolean).pop() || pet.name,
+                action: pet.action,
+                mood: pet.mood,
+                working: pet.isWorking,
+                speech: pet.speech,
+                activity: pet.isWorking ? Date.now() : pet.lastInteractionAt,
+              })),
+          )
+        },
+        { deep: true, immediate: true },
+      ),
+    )
+    cleanupDesktopBridge.push(
+      petBridge.onOpenChat((chatId) => {
+        if (agents.pets.some((pet) => pet.chatId === chatId)) agents.activeDialogChatId = chatId
+      }),
+    )
+    cleanupDesktopBridge.push(
+      petBridge.onOpenHistory((chatId) => {
+        if (agents.pets.some((pet) => pet.chatId === chatId)) agents.openHistoryRoot(chatId)
+      }),
+    )
+  }
   // ChatSession 单一数据层（#7-#11 迁移期与旧 store 并行：双订阅无害，旧 store 仍供消费端，新 store 待 #10 切换）
   const chatSessions = useChatSessionsStore()
   chatSessions.bindWsClient()
@@ -113,7 +162,8 @@ async function bootstrap(): Promise<void> {
 </script>
 
 <template>
-  <template v-if="authenticated">
+  <DesktopPetApp v-if="isDesktopPetSurface" />
+  <template v-else-if="authenticated">
     <PetStage />
     <AgentFab />
     <AgentDialog />

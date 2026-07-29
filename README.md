@@ -30,6 +30,14 @@ CheryNyxus 采用拟人化隐喻设计：
 
 > 启动时会先全局注册 Provider 并重建 Sense registry（内置感官 + 编译产物）。`compile-senses` 子命令完成后会在当前进程调用一次 `reloadSenses()`；长运行服务的热重载触发机制后续单独实现。
 
+## 开发规范
+
+| 规范 | 说明 |
+|------|------|
+| **文档先行** | 编码前先更新涉及的 `docs/` 模块文档，保证文档先于实现。先改代码后补文档视为违规（纯重构、格式化、修复 typo 可豁免） |
+| **组件化拆分** | 单个组件超过 400 行时，审查是否可抽象优化——从设计模式出发（高内聚低耦合、职责单一），优先拆分而非继续堆砌 |
+| **前端验证交由用户** | 前端交互变动的测试验证由用户完成；AI 改完代码即止，不自行运行 `vue-tsc` / `vite build` / `vitest` |
+
 ## 配置文件
 
 `.env` 与 `.chery/` 由 `pnpm install` 的 `postinstall` 钩子（[scripts/setup-env.mjs](scripts/setup-env.mjs)）自动从仓库内的 `.env.example` / `.chery.template/` 拷贝初始化；目标已存在则跳过，不覆盖用户编辑。手动初始化：`node scripts/setup-env.mjs`。

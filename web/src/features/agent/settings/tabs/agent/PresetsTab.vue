@@ -6,7 +6,7 @@
  * 增删预设走底部输入框 + ConfirmPopover 二次确认；标题可点击改名。合法性由后端 config.save 校验 fail loud。
  */
 import { ref, computed } from 'vue'
-import { ArrowDown, Check, Delete, WarningFilled } from '@element-plus/icons-vue'
+import { ArrowDown, Check, Delete, Lock, WarningFilled } from '@element-plus/icons-vue'
 import type { ConfigDto, SenseToolInfo } from '@/services/agentApi'
 import { pickDirectory, isElectron } from '@/services/platform'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
@@ -29,6 +29,11 @@ const emit = defineEmits<{
 }>()
 
 const newPresetName = ref('')
+const CHERY_NYXUS_PRESET = 'cheryNyxus'
+
+function isFixedPreset(name: string): boolean {
+  return name === CHERY_NYXUS_PRESET
+}
 
 function removeImpact(pname: string): string[] {
   const preset = props.draft.presets?.[pname]
@@ -57,13 +62,13 @@ function addPreset(): void {
 }
 
 function removePreset(name: string): void {
-  if (!props.draft.presets) return
+  if (!props.draft.presets || isFixedPreset(name)) return
   delete props.draft.presets[name]
 }
 
 /** 改名：保序重建 presets。 */
 function renamePreset(oldName: string, newName: string): void {
-  if (!props.draft.presets) return
+  if (!props.draft.presets || isFixedPreset(oldName)) return
   const cfg = props.draft.presets[oldName]
   const rebuilt = {} as typeof props.draft.presets
   for (const [k, v] of Object.entries(props.draft.presets)) {
@@ -82,14 +87,15 @@ function validateRename(newName: string): string | null {
 function updateMembers(pname: string, roles: string[]): void {
   const p = props.draft.presets?.[pname]
   if (!p) return
-  p.roles = roles
-  if (p.leader && !roles.includes(p.leader)) p.leader = ''
+  p.roles =
+    isFixedPreset(pname) && p.leader && !roles.includes(p.leader) ? [p.leader, ...roles] : roles
+  if (!isFixedPreset(pname) && p.leader && !roles.includes(p.leader)) p.leader = ''
 }
 
 /** 点击已选角色卡设为组长。 */
 function setLeader(pname: string, role: string): void {
   const p = props.draft.presets?.[pname]
-  if (!p) return
+  if (!p || isFixedPreset(pname)) return
   if (!(p.roles ?? []).includes(role)) p.roles = [...(p.roles ?? []), role]
   p.leader = role
 }
@@ -177,6 +183,7 @@ const indexItems = computed<IndexItem[]>(() => {
         <EditableTitle
           :model-value="pname as string"
           :validate="validateRename"
+          :disabled="isFixedPreset(pname as string)"
           @rename="(n: string) => renamePreset(pname as string, n)"
           @error="onError"
         >
@@ -196,6 +203,9 @@ const indexItems = computed<IndexItem[]>(() => {
                       v-for="(_, rname) in draft.roles"
                       :key="rname"
                       :value="rname as string"
+                      :disabled="
+                        isFixedPreset(pname as string) && preset.leader === (rname as string)
+                      "
                     >
                       <span class="picker-role-option"
                         ><span>{{
@@ -208,7 +218,18 @@ const indexItems = computed<IndexItem[]>(() => {
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
+            <button
+              v-if="isFixedPreset(pname as string)"
+              type="button"
+              class="icon-btn"
+              disabled
+              title="固定预设：不可改名、删除或更换组长"
+              aria-label="固定预设"
+            >
+              <Lock class="ico" />
+            </button>
             <ConfirmPopover
+              v-else
               :title="`删除预设「${String(pname)}」？`"
               :impact="removeImpact(String(pname))"
               @confirm="removePreset(String(pname))"
@@ -232,8 +253,21 @@ const indexItems = computed<IndexItem[]>(() => {
               :key="rname"
               class="member-role"
               :class="{ leader: preset.leader === rname }"
-              :aria-label="`设 ${rname} 为组长`"
-              :title="preset.leader === rname ? `${rname}（当前组长）` : `点击设 ${rname} 为组长`"
+              :disabled="isFixedPreset(pname as string)"
+              :aria-label="
+                isFixedPreset(pname as string)
+                  ? `${rname}，固定预设不可更换组长`
+                  : `设 ${rname} 为组长`
+              "
+              :title="
+                isFixedPreset(pname as string)
+                  ? preset.leader === rname
+                    ? `${rname}（固定组长）`
+                    : '固定预设不可更换组长'
+                  : preset.leader === rname
+                    ? `${rname}（当前组长）`
+                    : `点击设 ${rname} 为组长`
+              "
               @click="setLeader(pname as string, rname)"
             >
               <span class="member-role-name"
@@ -271,7 +305,11 @@ const indexItems = computed<IndexItem[]>(() => {
               </span>
             </button>
           </div>
-          <span class="hint">在上方选择团队成员；点击成员卡片即可设为组长。</span>
+          <span class="hint">{{
+            isFixedPreset(pname as string)
+              ? '该预设组长已固定；其他团队成员仍可调整。'
+              : '在上方选择团队成员；点击成员卡片即可设为组长。'
+          }}</span>
         </template>
         <span v-else class="empty">请先在「角色」中添加成员</span>
         <span v-if="preset.roles && preset.roles.length && !preset.leader" class="hint"
@@ -368,7 +406,8 @@ const indexItems = computed<IndexItem[]>(() => {
           <el-option v-for="n in rules" :key="n" :value="n" :label="n" />
         </el-select>
         <span class="hint">
-          smart 监管的敏感判定规则覆盖（与基准 base.yaml 深合并，同名 dangerPatterns 追加去重）。不选则仅用基准。
+          smart 监管的敏感判定规则覆盖（与基准 base.yaml 深合并，同名 dangerPatterns
+          追加去重）。不选则仅用基准。
         </span>
       </div>
     </article>
@@ -473,6 +512,10 @@ const indexItems = computed<IndexItem[]>(() => {
   &.leader {
     border-color: #d99717;
     background: rgba(246, 183, 60, 0.23);
+  }
+  &:disabled {
+    cursor: default;
+    opacity: 0.82;
   }
 }
 .member-role-name {

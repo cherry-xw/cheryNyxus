@@ -24,6 +24,18 @@ electron({
 - **`base:'./'`**:生产 `loadFile` 相对路径必需。
 - **vue-router `createWebHashHistory`**:Electron `file://` 必需。
 
+## 控制台与系统桌宠双窗口
+
+Electron 模式包含两个职责分离的 renderer：
+
+- 控制台窗口继续承载 Pinia、唯一 WebSocket、Agent 生命周期、设置、历史与审批；关闭窗口仅隐藏到托盘。
+- companion 窗口是透明、无边框、置顶的小型系统桌宠窗口，只绘制当前选中的 `cheryNyxus` 主 pet，不建立后端连接。
+- 控制台通过类型化 preload bridge 推送候选会话与当前 pet 状态；主进程选择最近活跃会话并把最小快照转发给 companion。companion 的双击、拖拽、滚轮和右键命令经主进程回送控制台。
+- 多个 `cheryNyxus` 会话存在时桌面仍只有一只猫；默认选最近活跃会话，托盘菜单可显式切换。housekeeper、curator 和其他预设不投影到 companion。
+- Windows 使用透明区域鼠标穿透并按当前 display 的 `workArea` 约束窗口；非 Electron Web 模式没有 bridge，继续只显示应用内 PetStage。
+
+退出必须走托盘“退出”或应用 quit 流程，随后停止后端子进程。控制台隐藏不释放 WebSocket，避免 companion 存活期间丢失 Agent 通知。
+
 依赖版本:Vite 8 + `@vitejs/plugin-vue` 6 + `vite-plugin-electron` 1.1 + `electron` 43。`pnpm-workspace.yaml` `allowBuilds` 含 `electron:true`。[turbo.json](../../turbo.json) build outputs 含 `dist-electron/**`。[web/package.json](../../web/package.json) `"main":"dist-electron/main.js"` + `"electron":"electron ."`。
 
 ## 主进程路径解析

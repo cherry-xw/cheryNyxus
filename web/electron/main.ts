@@ -1,15 +1,35 @@
-import { join, dirname } from "node:path";
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { join, dirname } from 'node:path'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
 
-const WS_PORT = Number(process.env.WS_PORT ?? 8182);
-const WEB_PORT = Number(process.env.WEB_PORT ?? 8183);
+interface DesktopPetCandidate {
+  chatId: string
+  label: string
+  action: string
+  mood: string
+  working: boolean
+  speech: string
+  activity: number
+}
 
-let backend: ChildProcess | null = null;
-let serverConfig: { wsPort: number; webPort: number; transport: string } | null = null;
+const WS_PORT = Number(process.env.WS_PORT ?? 8182)
+const WEB_PORT = Number(process.env.WEB_PORT ?? 8183)
+
+let backend: ChildProcess | null = null
+let controlWindow: BrowserWindow | null = null
+let petWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let petCandidates: DesktopPetCandidate[] = []
+let selectedPetChatId: string | null = null
+let manualPetSelection = false
+let petPaused = false
+let isQuitting = false
+let hoverUntil = 0
+let roamTimer: ReturnType<typeof setInterval> | null = null
+let serverConfig: { wsPort: number; webPort: number; transport: string } | null = null
 /** `getRuntimeRoot()` 解析结果缓存（启动后固定）。 */
-let runtimeRoot: string | null = null;
+let runtimeRoot: string | null = null
 
 /**
  * 后端 bundle 路径：
@@ -17,7 +37,7 @@ let runtimeRoot: string | null = null;
  * - 打包后：extraResources dist/ → resources/dist，app.getAppPath() = resources/app，../dist = resources/dist
  */
 function getBackendBundle(): string {
-  return join(app.getAppPath(), "..", "dist", "index.js");
+  return join(app.getAppPath(), '..', 'dist', 'index.js')
 }
 
 /**
@@ -32,10 +52,10 @@ function getBackendBundle(): string {
  * 发行版通过 scripts/electron-pack.mjs 下载匹配的 Node 22 LTS 二进制到 build/node/。
  */
 function getNodeExecutable(): string {
-  const ext = process.platform === "win32" ? ".exe" : "";
-  const bundled = join(app.getAppPath(), "..", "node", "node" + ext);
-  if (existsSync(bundled)) return bundled;
-  return "node";
+  const ext = process.platform === 'win32' ? '.exe' : ''
+  const bundled = join(app.getAppPath(), '..', 'node', 'node' + ext)
+  if (existsSync(bundled)) return bundled
+  return 'node'
 }
 
 /**
@@ -49,13 +69,13 @@ function getNodeExecutable(): string {
  * 返回值缓存：启动后固定，后端子进程与启动日志共用。
  */
 function getRuntimeRoot(): string {
-  if (runtimeRoot) return runtimeRoot;
+  if (runtimeRoot) return runtimeRoot
   if (!app.isPackaged) {
-    runtimeRoot = process.env.CHERY_DIR ?? join(app.getAppPath(), "..");
+    runtimeRoot = process.env.CHERY_DIR ?? join(app.getAppPath(), '..')
   } else {
-    runtimeRoot = process.env.CHERY_DIR || dirname(process.execPath);
+    runtimeRoot = process.env.CHERY_DIR || dirname(process.execPath)
   }
-  return runtimeRoot;
+  return runtimeRoot
 }
 
 /**
@@ -70,28 +90,31 @@ function getRuntimeRoot(): string {
  * 钩子在打包阶段复制；不存在则静默跳过（用户可能手动删了 `.env`）。
  */
 function loadEnvFile(): void {
-  const envPath = join(getRuntimeRoot(), ".env");
+  const envPath = join(getRuntimeRoot(), '.env')
   if (!existsSync(envPath)) {
-    console.log(`[setup] no .env at ${envPath}, skipping env load`);
-    return;
+    console.log(`[setup] no .env at ${envPath}, skipping env load`)
+    return
   }
 
-  const content = readFileSync(envPath, "utf8");
-  let loadedCount = 0;
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx <= 0) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    const value = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    if (!value) continue; // 空值：保留默认推断（不灌进 process.env）
-    if (key in process.env) continue; // 不覆盖已有（OS env 优先）
-    process.env[key] = value;
-    loadedCount++;
+  const content = readFileSync(envPath, 'utf8')
+  let loadedCount = 0
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) continue
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx <= 0) continue
+    const key = trimmed.slice(0, eqIdx).trim()
+    const value = trimmed
+      .slice(eqIdx + 1)
+      .trim()
+      .replace(/^["']|["']$/g, '')
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue
+    if (!value) continue // 空值：保留默认推断（不灌进 process.env）
+    if (key in process.env) continue // 不覆盖已有（OS env 优先）
+    process.env[key] = value
+    loadedCount++
   }
-  console.log(`[setup] loaded ${loadedCount} env var(s) from ${envPath}`);
+  console.log(`[setup] loaded ${loadedCount} env var(s) from ${envPath}`)
 }
 
 /**
@@ -103,147 +126,408 @@ function loadEnvFile(): void {
  */
 function startBackend(): ChildProcess {
   // 加载 .env（必须在 CHERY_DIR 计算之前，因为 .env 可能覆盖 CHERY_DIR）
-  loadEnvFile();
+  loadEnvFile()
 
   // 重新解析 runtimeRoot（CHERY_DIR 可能被 .env 改了）
-  runtimeRoot = null;
-  const cheryDir = getRuntimeRoot();
+  runtimeRoot = null
+  const cheryDir = getRuntimeRoot()
 
-  const env: NodeJS.ProcessEnv = { ...process.env, CHERY_DIR: cheryDir };
+  const env: NodeJS.ProcessEnv = { ...process.env, CHERY_DIR: cheryDir }
   // 清理 shell 可能注入的 ELECTRON_RUN_AS_NODE（系统 node 不认，但避免污染）
-  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.ELECTRON_RUN_AS_NODE
   if (app.isPackaged) {
-    env.DB_DIR = join(app.getPath("userData"), ".chery", "db");
+    env.DB_DIR = join(app.getPath('userData'), '.chery', 'db')
   }
 
   const child = spawn(getNodeExecutable(), [getBackendBundle()], {
     env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stdout?.on("data", (d) => process.stdout.write(`[backend] ${d}`));
-  child.stderr?.on("data", (d) => process.stderr.write(`[backend] ${d}`));
-  child.on("exit", (code) => {
-    console.log(`[backend] exited with ${code}`);
-  });
-  return child;
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  child.stdout?.on('data', (d) => process.stdout.write(`[backend] ${d}`))
+  child.stderr?.on('data', (d) => process.stderr.write(`[backend] ${d}`))
+  child.on('exit', (code) => {
+    console.log(`[backend] exited with ${code}`)
+  })
+  return child
 }
 
 /**
  * 轮询 /api/config 等后端就绪，顺带取端口配置。
  */
 async function waitForBackend(timeoutMs = 30000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://localhost:${WEB_PORT}/api/config`);
+      const res = await fetch(`http://localhost:${WEB_PORT}/api/config`)
       if (res.ok) {
-        serverConfig = (await res.json()) as { wsPort: number; webPort: number; transport: string };
-        return;
+        serverConfig = (await res.json()) as { wsPort: number; webPort: number; transport: string }
+        return
       }
     } catch {
       // 后端尚未就绪
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 500))
   }
-  throw new Error(`后端启动超时（${timeoutMs}ms）`);
+  throw new Error(`后端启动超时（${timeoutMs}ms）`)
 }
 
-function createWindow(): void {
+function loadRenderer(win: BrowserWindow, surface?: 'desktop-pet'): void {
+  const query = surface ? `?surface=${surface}` : ''
+  if (process.env.VITE_DEV_SERVER_URL) {
+    const url = new URL(process.env.VITE_DEV_SERVER_URL)
+    if (surface) url.searchParams.set('surface', surface)
+    void win.loadURL(url.toString())
+  } else {
+    void win.loadFile(join(import.meta.dirname, '..', 'dist', 'index.html'), {
+      search: query,
+    })
+  }
+}
+
+function showControlWindow(): void {
+  if (!controlWindow || controlWindow.isDestroyed()) return
+  controlWindow.show()
+  controlWindow.focus()
+}
+
+function selectedPet(): DesktopPetCandidate | null {
+  return petCandidates.find((candidate) => candidate.chatId === selectedPetChatId) ?? null
+}
+
+function sendPetState(): void {
+  if (!petWindow || petWindow.isDestroyed()) return
+  const selected = selectedPet()
+  petWindow.webContents.send(
+    'desktop-pet:state',
+    selected && petPaused ? { ...selected, action: 'idle', working: false } : selected,
+  )
+  if (selected && !petWindow.isVisible()) petWindow.showInactive()
+}
+
+function choosePet(chatId: string, manual = true): void {
+  if (!petCandidates.some((candidate) => candidate.chatId === chatId)) return
+  selectedPetChatId = chatId
+  manualPetSelection = manual
+  sendPetState()
+  rebuildTrayMenu()
+}
+
+function requestControlAction(
+  channel: 'desktop-pet:open-chat' | 'desktop-pet:open-history',
+  chatId: string,
+): void {
+  showControlWindow()
+  controlWindow?.webContents.send(channel, chatId)
+}
+
+function quitApplication(): void {
+  isQuitting = true
+  app.quit()
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return
+  const sessionItems = petCandidates.map((candidate) => ({
+    label: `${candidate.label} · ${candidate.chatId.slice(0, 6)}`,
+    type: 'radio' as const,
+    checked: candidate.chatId === selectedPetChatId,
+    click: () => choosePet(candidate.chatId),
+  }))
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: '显示控制台', click: showControlWindow },
+      ...(sessionItems.length
+        ? [{ type: 'separator' as const }, { label: '桌宠会话', submenu: sessionItems }]
+        : []),
+      { type: 'separator' },
+      {
+        label: petPaused ? '恢复桌宠' : '暂停桌宠',
+        click: () => {
+          petPaused = !petPaused
+          sendPetState()
+          rebuildTrayMenu()
+        },
+      },
+      { label: '隐藏桌宠', click: () => petWindow?.hide() },
+      { type: 'separator' },
+      { label: '退出', click: quitApplication },
+    ]),
+  )
+}
+
+function createTray(): void {
+  // A tiny embedded PNG keeps packaging independent from platform icon paths.
+  const icon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAIUlEQVR42mNkYPj/n4ECwESJ5lEDRg0YNYDRABg1gNEAAHn9AhE8m6YAAAAASUVORK5CYII=',
+  )
+  tray = new Tray(icon)
+  tray.setToolTip('CheryNyxus')
+  tray.on('double-click', showControlWindow)
+  rebuildTrayMenu()
+}
+
+function createControlWindow(): void {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: "CheryNyxus",
+    title: 'CheryNyxus',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      preload: join(import.meta.dirname, "preload.mjs"),
+      preload: join(import.meta.dirname, 'preload.mjs'),
     },
-  });
+  })
+  controlWindow = win
+  win.on('close', (event) => {
+    if (isQuitting) return
+    event.preventDefault()
+    win.hide()
+  })
+  win.on('closed', () => (controlWindow = null))
+  loadRenderer(win)
+}
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    void win.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    void win.loadFile(join(import.meta.dirname, "..", "dist", "index.html"));
+function createPetWindow(): void {
+  const display = screen.getPrimaryDisplay().workArea
+  const width = 220
+  const height = 230
+  const win = new BrowserWindow({
+    x: display.x + display.width - width - 24,
+    y: display.y + display.height - height - 18,
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: join(import.meta.dirname, 'preload.mjs'),
+    },
+  })
+  petWindow = win
+  win.setAlwaysOnTop(true, 'floating')
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.on('close', (event) => {
+    if (isQuitting) return
+    event.preventDefault()
+    win.hide()
+  })
+  win.on('closed', () => (petWindow = null))
+  win.webContents.on('did-finish-load', sendPetState)
+  loadRenderer(win, 'desktop-pet')
+}
+
+function clampPetWindow(x: number, y: number): { x: number; y: number } {
+  if (!petWindow) return { x, y }
+  const bounds = petWindow.getBounds()
+  const display = screen.getDisplayMatching({
+    x,
+    y,
+    width: bounds.width,
+    height: bounds.height,
+  }).workArea
+  return {
+    x: Math.min(Math.max(Math.round(x), display.x), display.x + display.width - bounds.width),
+    y: Math.min(Math.max(Math.round(y), display.y), display.y + display.height - bounds.height),
   }
+}
+
+function startPetRoaming(): void {
+  roamTimer = setInterval(() => {
+    const candidate = selectedPet()
+    if (!petWindow || petPaused || candidate?.working || Date.now() < hoverUntil) return
+    const current = petWindow.getBounds()
+    const display = screen.getDisplayMatching(current).workArea
+    const target = clampPetWindow(
+      current.x + Math.round((Math.random() - 0.5) * 180),
+      current.y + Math.round((Math.random() - 0.5) * 90),
+    )
+    const started = Date.now()
+    const animation = setInterval(() => {
+      if (!petWindow || Date.now() < hoverUntil) {
+        clearInterval(animation)
+        return
+      }
+      const p = Math.min(1, (Date.now() - started) / 1200)
+      const eased = p * p * (3 - 2 * p)
+      petWindow.setPosition(
+        Math.round(current.x + (target.x - current.x) * eased),
+        Math.round(current.y + (target.y - current.y) * eased),
+      )
+      if (p >= 1) clearInterval(animation)
+    }, 33)
+    void display
+  }, 5000)
 }
 
 app.whenReady().then(async () => {
   // 单实例锁
   if (!app.requestSingleInstanceLock()) {
-    app.quit();
-    return;
+    app.quit()
+    return
   }
 
   // IPC：preload 同步取后端端口配置（createWindow 在 waitForBackend 之后，配置已就绪）
-  ipcMain.on("get-backend-config", (event) => {
-    event.returnValue = serverConfig ?? { wsPort: WS_PORT, webPort: WEB_PORT, transport: "binary" };
-  });
+  ipcMain.on('get-backend-config', (event) => {
+    event.returnValue = serverConfig ?? { wsPort: WS_PORT, webPort: WEB_PORT, transport: 'binary' }
+  })
 
   // IPC：渲染进程请求选择目录（预设 workspace 字段用）。canceled → null。
-  ipcMain.handle("dialog:pickDirectory", async () => {
-    const result = await dialog.showOpenDialog({ properties: ["openDirectory"] });
-    return result.canceled || !result.filePaths.length ? null : result.filePaths[0]!;
-  });
+  ipcMain.handle('dialog:pickDirectory', async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    return result.canceled || !result.filePaths.length ? null : result.filePaths[0]!
+  })
+
+  ipcMain.on('desktop-pet:publish', (event, value: unknown) => {
+    if (event.sender !== controlWindow?.webContents || !Array.isArray(value)) return
+    petCandidates = value.filter((item): item is DesktopPetCandidate => {
+      if (!item || typeof item !== 'object') return false
+      const candidate = item as Partial<DesktopPetCandidate>
+      return (
+        typeof candidate.chatId === 'string' &&
+        typeof candidate.label === 'string' &&
+        typeof candidate.action === 'string' &&
+        typeof candidate.mood === 'string' &&
+        typeof candidate.working === 'boolean' &&
+        typeof candidate.speech === 'string' &&
+        typeof candidate.activity === 'number' &&
+        Number.isFinite(candidate.activity)
+      )
+    })
+    if (!petCandidates.some((candidate) => candidate.chatId === selectedPetChatId)) {
+      manualPetSelection = false
+      selectedPetChatId = null
+    }
+    if (!manualPetSelection) {
+      selectedPetChatId =
+        [...petCandidates].sort((a, b) => b.activity - a.activity)[0]?.chatId ?? null
+    }
+    sendPetState()
+    rebuildTrayMenu()
+  })
+
+  ipcMain.on('desktop-pet:request-open-chat', (event, chatId: unknown) => {
+    if (event.sender !== petWindow?.webContents || typeof chatId !== 'string') return
+    if (petCandidates.some((candidate) => candidate.chatId === chatId)) {
+      requestControlAction('desktop-pet:open-chat', chatId)
+    }
+  })
+
+  ipcMain.on('desktop-pet:context-menu', (event, chatId: unknown) => {
+    if (event.sender !== petWindow?.webContents || typeof chatId !== 'string') return
+    if (!petCandidates.some((candidate) => candidate.chatId === chatId)) return
+    Menu.buildFromTemplate([
+      { label: '发消息', click: () => requestControlAction('desktop-pet:open-chat', chatId) },
+      { label: '查看历史', click: () => requestControlAction('desktop-pet:open-history', chatId) },
+      { label: '显示控制台', click: showControlWindow },
+      { type: 'separator' },
+      {
+        label: petPaused ? '恢复游走' : '暂停游走',
+        click: () => {
+          petPaused = !petPaused
+          sendPetState()
+          rebuildTrayMenu()
+        },
+      },
+      { label: '隐藏桌宠', click: () => petWindow?.hide() },
+      { type: 'separator' },
+      { label: '退出 CheryNyxus', click: quitApplication },
+    ]).popup({ window: petWindow ?? undefined })
+  })
+
+  ipcMain.on('desktop-pet:move', (event, position: unknown) => {
+    if (event.sender !== petWindow?.webContents || !position || typeof position !== 'object') return
+    const point = position as { x?: unknown; y?: unknown }
+    if (typeof point.x !== 'number' || typeof point.y !== 'number') return
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return
+    hoverUntil = Date.now() + 5000
+    const next = clampPetWindow(point.x, point.y)
+    petWindow?.setPosition(next.x, next.y)
+  })
+
+  ipcMain.on('desktop-pet:mouse-passthrough', (event, ignore: unknown) => {
+    if (event.sender !== petWindow?.webContents || typeof ignore !== 'boolean') return
+    if (!ignore) hoverUntil = Date.now() + 2000
+    // Linux does not support forwarded mouse moves while ignored, so it would never become interactive again.
+    if (process.platform === 'win32') petWindow?.setIgnoreMouseEvents(ignore, { forward: true })
+  })
 
   // 启动日志：让用户在 console / 日志文件里能找到 .env 和 .chery 的真实路径
-  console.log(`[setup] runtime root: ${getRuntimeRoot()}`);
-  console.log(`[setup] .chery path: ${join(getRuntimeRoot(), ".chery")}`);
-  console.log(`[setup] .env path: ${join(getRuntimeRoot(), ".env")}`);
+  console.log(`[setup] runtime root: ${getRuntimeRoot()}`)
+  console.log(`[setup] .chery path: ${join(getRuntimeRoot(), '.chery')}`)
+  console.log(`[setup] .env path: ${join(getRuntimeRoot(), '.env')}`)
 
   try {
-    backend = startBackend();
-    await waitForBackend();
-    createWindow();
+    backend = startBackend()
+    await waitForBackend()
+    createControlWindow()
+    createPetWindow()
+    createTray()
+    startPetRoaming()
   } catch (e) {
-    console.error("启动后端失败:", e);
-    app.quit();
+    console.error('启动后端失败:', e)
+    app.quit()
   }
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+  app.on('activate', () => {
+    if (!controlWindow) createControlWindow()
+    showControlWindow()
+  })
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+  app.on('second-instance', showControlWindow)
+})
 
-app.on("before-quit", async (e) => {
+app.on('window-all-closed', () => {
+  // The tray owns application lifetime; closing the control window only hides it.
+})
+
+app.on('before-quit', async (e) => {
   // 阻止默认退出，等待清理完成
-  e.preventDefault();
+  e.preventDefault()
+  isQuitting = true
+  if (roamTimer) clearInterval(roamTimer)
+  roamTimer = null
+  tray?.destroy()
+  tray = null
 
   // 1. 清理 IPC 监听器
-  ipcMain.removeAllListeners();
+  ipcMain.removeAllListeners()
 
   // 2. 等待 backend 子进程退出（最长 5 秒超时）
   if (backend && !backend.killed) {
-    const BACKEND_EXIT_TIMEOUT_MS = 5000;
+    const BACKEND_EXIT_TIMEOUT_MS = 5000
 
-    backend.kill("SIGTERM");
+    backend.kill('SIGTERM')
 
     // 监听 backend exit 事件
     const exitPromise = new Promise<void>((resolve) => {
-      backend!.once("exit", () => {
-        console.log("[backend] 已退出");
-        resolve();
-      });
-    });
+      backend!.once('exit', () => {
+        console.log('[backend] 已退出')
+        resolve()
+      })
+    })
 
     // 超时强制 kill
     const timeoutPromise = new Promise<void>((resolve) => {
       setTimeout(() => {
         if (backend && !backend.killed) {
-          console.warn(`[backend] ${BACKEND_EXIT_TIMEOUT_MS}ms 超时，强制 SIGKILL`);
-          backend.kill("SIGKILL");
+          console.warn(`[backend] ${BACKEND_EXIT_TIMEOUT_MS}ms 超时，强制 SIGKILL`)
+          backend.kill('SIGKILL')
         }
-        resolve();
-      }, BACKEND_EXIT_TIMEOUT_MS);
-    });
+        resolve()
+      }, BACKEND_EXIT_TIMEOUT_MS)
+    })
 
-    await Promise.race([exitPromise, timeoutPromise]);
-    backend = null;
+    await Promise.race([exitPromise, timeoutPromise])
+    backend = null
   }
 
   // 3. 允许退出
-  app.exit(0);
-});
+  app.exit(0)
+})

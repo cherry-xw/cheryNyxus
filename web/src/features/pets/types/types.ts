@@ -19,6 +19,7 @@ export type PetAction =
  * 生成器形态参数：'kaomoji' 主池（颜文字 face）/ 'emoji' 子池（emoji face）/ 'random' 其他纯随机（按池容量比例抽）。
  */
 export type PetForm = 'kaomoji' | 'emoji' | 'random'
+export type PetVisualKind = 'default' | 'chery-nyxus'
 
 export interface PetHands {
   left: string
@@ -61,6 +62,8 @@ export interface PetPreset {
 
 export interface PetInstance extends PetPreset {
   instanceId: string
+  /** 固定主体类型；cheryNyxus 预设主 pet 在任何重建路径都派生为 chery-nyxus。 */
+  visualKind: PetVisualKind
   /** 主 pet 标记：主 = 全尺寸 + 持有 summon + 基础 mood serious；子 = 体型缩小（--pet-scale）。 */
   isMaster: boolean
   /** 部落 id = 本主 pet 的 instanceId。主 pet = 自身 instanceId；子 pet = 其主 instanceId。同 tribe 聚拢、异 tribe 避让。 */

@@ -168,6 +168,14 @@ sense_groups:
 # systemPrompt 路径相对于 .chery/
 # ------------------------------------------------------------
 roles:
+  cheryNyxus:
+    brain: my-brain
+    avatar: '🐈‍⬛'
+    senseGroup: leader
+    mcpServers: []
+    systemPrompt: prompt/prefebMain/leader.md
+    description: Chery Nyxus：固定像素猫形态的系统桌宠组长
+    lock: true
   coordinator:
     brain: my-brain # 引用 llm.brain 中的 key
     avatar: '🧭' # [可选] 角色头像；缺省按角色名稳定生成，也可在设置页切换 Emoji
@@ -218,6 +226,12 @@ roles:
 # rule：smart 监管规则覆盖文件名（.chery/rule/ 下，不含 base.yaml），与基准 base.yaml 深合并；缺省仅用基准
 # ------------------------------------------------------------
 presets:
+  cheryNyxus:
+    leader: cheryNyxus
+    roles:
+      - cheryNyxus
+      - housekeeper
+      - curator
   默认:
     leader: coordinator # 主角色（leader brain）
     roles:

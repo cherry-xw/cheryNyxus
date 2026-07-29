@@ -7,9 +7,13 @@
 import { ref } from 'vue'
 import { fetchServerConfig, type PresetOption } from '@/services/agentApi'
 
-defineProps<{
-  disabled: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    disabled: boolean
+    excluded?: string[]
+  }>(),
+  { excluded: () => [] },
+)
 
 const emit = defineEmits<{
   (e: 'pick', presetName: string): void
@@ -23,7 +27,8 @@ async function loadPresets(): Promise<void> {
   if (presets.value.length > 0) return
   try {
     const cfg = await fetchServerConfig()
-    presets.value = cfg.presets ?? []
+    const excluded = new Set(props.excluded)
+    presets.value = (cfg.presets ?? []).filter((preset) => !excluded.has(preset.name))
   } catch {
     presets.value = []
   }

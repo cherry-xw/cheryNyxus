@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import PetSprite from './components/PetSprite.vue'
 import { usePetWorld } from './composables/usePetWorld'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
@@ -7,6 +7,7 @@ import type { StreamState } from '@/stores'
 import { selectOwnTimeline, selectActiveMessage } from '@/stores/chats/selectors'
 import type { PetInstance } from './types/types'
 import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
+import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from './nyxusUiState'
 
 const stageRef = ref<HTMLElement | null>(null)
 // pets 单一数据源 = agents store；usePetWorld 注入数组，RAF/交互直接作用于 store state
@@ -46,7 +47,9 @@ const visibleStreams = computed<Record<string, StreamState>>(() => {
 const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = usePetWorld(
   stageRef,
   agents.pets,
+  () => nyxusMenuOpen.value,
 )
+let nyxusClickTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
  * 主 pet 点击 → 打开 AgentDialog（设 activeDialogChatId）。
@@ -54,12 +57,41 @@ const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = useP
  * 工作中主 pet 仍可点击（用户可排队下一条）。
  */
 function handleClick(pet: PetInstance): void {
+  if (pet.visualKind === 'chery-nyxus') {
+    clickPet(pet)
+    if (nyxusClickTimer) clearTimeout(nyxusClickTimer)
+    nyxusClickTimer = setTimeout(() => toggleNyxusMenu(), 220)
+    return
+  }
   if (pet.isMaster) {
     agents.activeDialogChatId = pet.chatId
     return
   }
   clickPet(pet)
 }
+
+function handleDoubleClick(pet: PetInstance): void {
+  if (!pet.isMaster) return
+  if (pet.visualKind === 'chery-nyxus' && nyxusClickTimer) {
+    clearTimeout(nyxusClickTimer)
+    nyxusClickTimer = undefined
+    closeNyxusMenu()
+  }
+  agents.activeDialogChatId = pet.chatId
+}
+
+function handleStroke(pet: PetInstance): void {
+  clickPet(pet)
+}
+
+function handleStartDrag(pet: PetInstance, event: PointerEvent): void {
+  if (pet.visualKind === 'chery-nyxus') closeNyxusMenu()
+  startDrag(pet, event)
+}
+
+onBeforeUnmount(() => {
+  if (nyxusClickTimer) clearTimeout(nyxusClickTimer)
+})
 
 async function handleAbort(pet: PetInstance): Promise<void> {
   try {
@@ -106,11 +138,13 @@ async function handleResume(pet: PetInstance): Promise<void> {
       :pet="pet"
       :paused="isPaused"
       :stream="visibleStreams[pet.chatId]"
-      @start-drag="startDrag"
+      @start-drag="handleStartDrag"
       @drag="dragPet"
       @end-drag="endDrag"
       @hover="hoverPet"
       @click-pet="handleClick"
+      @stroke-pet="handleStroke"
+      @double-click-pet="handleDoubleClick"
       @history="handleHistory"
       @abort="handleAbort"
       @destroy="handleDestroy"
