@@ -5,9 +5,41 @@ export interface Vec2 {
   y: number
 }
 
+/** 普通 Pet 仅以只读视觉关联进入 Nyxus；坐标相对 Nyxus 核心。 */
+export interface NyxusNearbyPet {
+  position: Vec2
+  distance: number
+  color: string
+}
+
 export type NyxusReaction = 'positive' | 'agitated' | 'error'
 
-export type NyxusCosmicMode = 'blackHole' | 'pulsar' | 'binary' | 'supernova' | 'tidalRings'
+/** 服务连接驱动的系统呈现态；只有 disconnected 会渲染黑洞。 */
+export type NyxusServiceState = 'connected' | 'connecting' | 'disconnected'
+
+/** 由对话运行状态投影的视觉节奏，不改变聊天/工具业务语义。 */
+export type NyxusActivity =
+  | 'idle'
+  | 'thinking'
+  | 'toolRunning'
+  | 'waitingForUser'
+  | 'responding'
+  | 'error'
+
+/**
+ * 保留 cosmicMode 名称以兼容现有渲染数据属性；blackHole 不再由 idle 调度选择，
+ * 仅用于 disconnected 的服务呈现态。
+ */
+export type NyxusCosmicMode =
+  | 'blackHole'
+  | 'pulsar'
+  | 'binary'
+  | 'supernova'
+  | 'tidalRings'
+  | 'barredSpiral'
+  | 'inclinedDisk'
+  | 'merger'
+  | 'starburst'
 
 export type NyxusRenderMode =
   'dragging' | 'released' | 'menu' | 'working' | 'reach' | 'reaction' | 'cosmic' | 'sleep' | 'idle'
@@ -43,6 +75,11 @@ export interface NyxusParticleInput {
   mood: PetMood
   working: boolean
   reaction: NyxusReaction | null
+  serviceState: NyxusServiceState
+  activity: NyxusActivity
+  runningToolCount: number
+  /** 节流后的内容输出脉冲；renderer 只据此产生低频波纹。 */
+  contentPulse: number
   connected: boolean
   menuOpen: boolean
   menuTargets: Vec2[]
@@ -58,6 +95,16 @@ export interface NyxusParticleInput {
   bootProgress: number
   swipe: Vec2
   swipeStrength: number
+  /** 同向绕行累积的旋臂相位，只作局部、缓慢且可衰减的偏移。 */
+  armPhaseOffset: number
+  /** 快速掠过留下的短暂潮汐尘埃尾，方向指向尾端。 */
+  tidalTailDirection: Vec2
+  tidalTailStrength: number
+  /** 在旋臂静止停留后形成的低亮结；生命周期完全由输入侧计时。 */
+  starFormationPoint: Vec2 | null
+  starFormationStrength: number
+  /** 安全距离外的最近普通 Pet；只供渲染，不参与运动或交互。 */
+  nearbyPet: NyxusNearbyPet | null
   release: Vec2
   releaseStrength: number
   time: number

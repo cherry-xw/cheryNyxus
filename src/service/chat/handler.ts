@@ -112,32 +112,12 @@ export async function handleChatCreate(
 ): Promise<ChatCreateResponseData> {
   const p = data
   const isFixedNyxus = p.preset === CHERY_NYXUS_NAME
-  if (isFixedNyxus) {
-    if (p.parentChatId) throw new Error('cheryNyxus 是固定主角色，不能创建为子实例')
-    const existing = listAllChats().find((chat) => {
-      if (chat.parent_chat_id) return false
-      const metadata = chat.metadata
-        ? (safeJsonParse(chat.metadata, {}) as { preset?: string })
-        : {}
-      return metadata.preset === CHERY_NYXUS_NAME
-    })
-    if (existing) {
-      const selection =
-        getChatRuntimeSelection(existing.id) ?? resolvePresetSelection(CHERY_NYXUS_NAME).selection
-      const workspace = getChatWorkspace(existing.id)
-      const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
-      logger.event('chat.reuse-fixed', { chatId: existing.id, preset: CHERY_NYXUS_NAME })
-      return {
-        chatId: existing.id,
-        brain: selection.brain,
-        senseGroup: selection.senseGroup,
-        mcpServers: selection.mcpServers,
-        ...(workspace ? { workspace, workspaceValid } : {}),
-      }
-    }
+  // cheryNyxus 仍是固定主角色（不可作子实例），但不再全局唯一：允许多个 root 会话，
+  // 以规避单会话 LLM 上下文上限（compact 遗忘）。每次 chat.create 都新建一条，用随机 chatId。
+  if (isFixedNyxus && p.parentChatId) {
+    throw new Error('cheryNyxus 是固定主角色，不能创建为子实例')
   }
-  // 固定角色用稳定 id 初始化；并发请求也只能命中同一条 DB 记录。
-  const chatId = isFixedNyxus ? CHERY_NYXUS_NAME : p.chatId || randomUUID()
+  const chatId = p.chatId || randomUUID()
 
   let selection: RuntimeSelection
   const metadata: Record<string, unknown> = {}

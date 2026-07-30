@@ -4,6 +4,7 @@ import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/stor
 import { agentApi } from '@/services/agentApi'
 import NyxusParticle from './NyxusParticle.vue'
 import type { NyxusReaction } from '../particles/nyxusParticleEngine'
+import type { NyxusNearbyPet } from '../particles/nyxusParticleEngine'
 import { useStandaloneNyxusMotion } from '../composables/useStandaloneNyxusMotion'
 import { useNyxusWorkState } from '../composables/useNyxusWorkState'
 import { useStreamBubble } from '@/features/pets/composables/useStreamBubble'
@@ -40,9 +41,26 @@ const anchorStyle = computed(() => ({
   left: `${standalonePosition.x}px`,
   top: `${standalonePosition.y}px`,
 }))
+/**
+ * 普通 Pet 只以相对中心和主题色进入 Canvas。既有 motion composable 仍独占避让与位置，
+ * 因而该弱关联不会拉动 Pet、改变安全距离或暴露任何 Pet UI。
+ */
+const nearbyPet = computed<NyxusNearbyPet | null>(() => {
+  let closest: NyxusNearbyPet | null = null
+  for (const pet of agents.pets) {
+    const position = {
+      x: pet.x + pet.width / 2 - standalonePosition.x,
+      y: pet.y + pet.height / 2 - standalonePosition.y,
+    }
+    const distance = Math.hypot(position.x, position.y)
+    if (distance < 190 || distance > 390 || (closest && distance >= closest.distance)) continue
+    closest = { position, distance, color: pet.color }
+  }
+  return closest
+})
 
 // nyxus 工作态：chatSessions 投影 → useStreamBubble 气泡逻辑（不经 PetInstance）
-const { stream, working } = useNyxusWorkState()
+const { stream, working, activity, runningToolCount, contentPulse } = useNyxusWorkState()
 const {
   isBusy,
   showWorkMain,
@@ -102,7 +120,7 @@ async function openNyxusChat(): Promise<void> {
   openingChat.value = true
   error.value = null
   try {
-    const chatId = await agents.getOrCreateCheryNyxus()
+    const chatId = await agents.getActiveNyxus()
     await chatSessions.hydrateTree(chatId)
     agents.activeDialogChatId = chatId
     closeNyxusMenu()
@@ -153,7 +171,7 @@ async function runCreate(opts: {
 
 function openSessions(): void {
   if (connection.status !== 'connected') return
-  agents.historyListOpen = true
+  agents.nyxusHistoryOpen = true
   closeNyxusMenu()
 }
 
@@ -216,7 +234,12 @@ onBeforeUnmount(() => {
       <NyxusParticle
         :size="112"
         :action="standaloneDragging ? 'dragging' : hovering ? 'hover' : 'idle'"
+        :working="working"
         :reaction="reaction"
+        :activity="activity"
+        :running-tool-count="runningToolCount"
+        :content-pulse="contentPulse"
+        :nearby-pet="nearbyPet"
         :status-dot="true"
         boot
       />
@@ -249,6 +272,10 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 0;
   background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .nyxus-controls {

@@ -1,6 +1,7 @@
-import { computed } from 'vue'
-import { useChatSessionsStore } from '@/stores'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import type { StreamState } from '@/stores'
+import type { NyxusActivity } from '../particles/nyxusParticleEngine'
 import {
   selectNyxusSession,
   selectBubble,
@@ -18,7 +19,10 @@ import {
  */
 export function useNyxusWorkState() {
   const chatSessions = useChatSessionsStore()
-  const session = computed(() => selectNyxusSession(chatSessions.sessionsById))
+  const agents = useAgentsStore()
+  const session = computed(() =>
+    selectNyxusSession(chatSessions.sessionsById, agents.activeNyxusChatId),
+  )
   const bubble = computed(() => {
     const s = session.value
     return s ? selectBubble(s) : null
@@ -27,6 +31,53 @@ export function useNyxusWorkState() {
   const resolved = computed(() => !!session.value)
   const chatId = computed(() => session.value?.chatId)
   const working = computed(() => bubble.value?.isWorking ?? false)
+  const runningToolCount = computed(() => (session.value ? selectRunningTools(session.value).length : 0))
+  const activity = computed<NyxusActivity>(() => {
+    const s = session.value
+    const b = bubble.value
+    if (!s || !b) return 'idle'
+    if (b.error) return 'error'
+    if (selectApproval(s) || selectQuestionBatches(s).length > 0) return 'waitingForUser'
+    if (selectRunningTools(s).length > 0) return 'toolRunning'
+    if (!b.isWorking) return 'idle'
+    if (b.content.trim()) return 'responding'
+    return 'thinking'
+  })
+
+  // 将持续流式文本压成低频视觉事件，避免每个字符都驱动一次粒子波纹。
+  const contentPulse = ref(0)
+  let lastContent = ''
+  let lastPulseAt = Number.NEGATIVE_INFINITY
+  let pendingPulse: ReturnType<typeof setTimeout> | undefined
+
+  function emitContentPulse(): void {
+    lastPulseAt = performance.now()
+    contentPulse.value += 1
+  }
+
+  watch(
+    () => bubble.value?.content ?? '',
+    (content) => {
+      if (!content || content === lastContent) {
+        lastContent = content
+        return
+      }
+      lastContent = content
+      const remaining = 1500 - (performance.now() - lastPulseAt)
+      if (remaining <= 0) {
+        if (pendingPulse) clearTimeout(pendingPulse)
+        pendingPulse = undefined
+        emitContentPulse()
+        return
+      }
+      if (!pendingPulse) {
+        pendingPulse = setTimeout(() => {
+          pendingPulse = undefined
+          emitContentPulse()
+        }, remaining)
+      }
+    },
+  )
 
   /** StreamState 投影：供 useStreamBubble 复用气泡逻辑；history 留空（核心不显历史）。 */
   const stream = computed<StreamState | undefined>(() => {
@@ -49,5 +100,9 @@ export function useNyxusWorkState() {
     }
   })
 
-  return { chatId, resolved, working, stream }
+  onBeforeUnmount(() => {
+    if (pendingPulse) clearTimeout(pendingPulse)
+  })
+
+  return { chatId, resolved, working, stream, activity, runningToolCount, contentPulse }
 }

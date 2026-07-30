@@ -5,7 +5,9 @@ import {
   resolveNyxusMode,
   stepNyxusParticles,
   type NyxusCosmicMode,
+  type NyxusActivity,
   type NyxusReaction,
+  type NyxusNearbyPet,
 } from '../particles/nyxusParticleEngine'
 import { createNyxusRenderer } from '../particles/nyxusRenderer'
 import { useNyxusParticleInput } from '../composables/useNyxusParticleInput'
@@ -18,8 +20,13 @@ const props = withDefaults(
     working?: boolean
     size?: number
     reaction?: NyxusReaction | null
+    activity?: NyxusActivity
+    runningToolCount?: number
+    contentPulse?: number
     boot?: boolean
     respectConnection?: boolean
+    /** Core 提供的最近普通 Pet 视觉关联；只读且不参与运动。 */
+    nearbyPet?: NyxusNearbyPet | null
     /** 中心在线状态点(仅主 pet):connected 白发光 / connecting 明灭 / disconnected 黑发光 */
     statusDot?: boolean
   }>(),
@@ -29,8 +36,12 @@ const props = withDefaults(
     working: false,
     size: 112,
     reaction: null,
+    activity: 'idle',
+    runningToolCount: 0,
+    contentPulse: 0,
     boot: false,
     respectConnection: true,
+    nearbyPet: null,
     statusDot: false,
   },
 )

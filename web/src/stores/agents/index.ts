@@ -232,6 +232,7 @@ export const useAgentsStore = defineStore('agents', () => {
     setWorking,
     removePetsOnly,
     removePetsAndStreams,
+    ui.activeNyxusChatId,
   )
 
   // ── 流式 RPC 编排（sendMessage/resumeAgent 用 standalone ensureStream/trackRequest） ──

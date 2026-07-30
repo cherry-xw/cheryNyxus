@@ -2,11 +2,11 @@ import { smoothstep, mixHexColor } from './math'
 import type { NyxusTone, NyxusParticleInput, NyxusCosmicMode } from './types'
 
 const NEBULA_TONE: NyxusTone = {
-  core: '#333451',
-  dust: '#aeb8d2',
-  star: '#fff0c1',
-  accent: '#9daed3',
-  spark: '#dbe9ff',
+  core: '#252a4d',
+  dust: '#9aabd1',
+  star: '#f8e4c8',
+  accent: '#8299d8',
+  spark: '#d9ecff',
 }
 
 const COSMIC_MODE_TONES: Record<NyxusCosmicMode, NyxusTone> = {
@@ -39,11 +39,39 @@ const COSMIC_MODE_TONES: Record<NyxusCosmicMode, NyxusTone> = {
     spark: '#f5f0e7',
   },
   tidalRings: {
-    core: '#332d4a',
-    dust: '#b5aecb',
-    star: '#e0c9ff',
-    accent: '#aec0b9',
+    core: '#2c3154',
+    dust: '#9ba9d4',
+    star: '#f0d6df',
+    accent: '#8eafe0',
     spark: '#f2edef',
+  },
+  barredSpiral: {
+    core: '#302b4f',
+    dust: '#a6a8d5',
+    star: '#f6d4ba',
+    accent: '#829ee4',
+    spark: '#dcecff',
+  },
+  inclinedDisk: {
+    core: '#24334f',
+    dust: '#a0b8d4',
+    star: '#f1d8bd',
+    accent: '#77abe0',
+    spark: '#dcf1ff',
+  },
+  merger: {
+    core: '#382d50',
+    dust: '#b0a9d4',
+    star: '#f4d1bd',
+    accent: '#a486df',
+    spark: '#e2efff',
+  },
+  starburst: {
+    core: '#403150',
+    dust: '#c0a7c9',
+    star: '#ffd1af',
+    accent: '#d28bc6',
+    spark: '#f7e7d6',
   },
 }
 
@@ -65,6 +93,7 @@ function mixTone(from: NyxusTone, to: NyxusTone, amount: number): NyxusTone {
 }
 
 export function toneForNyxus(input: NyxusParticleInput): NyxusTone {
+  if (input.serviceState === 'disconnected') return COSMIC_MODE_TONES.blackHole
   if (!input.connected || input.reaction === 'error') {
     return {
       core: '#41353f',

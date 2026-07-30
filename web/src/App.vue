@@ -7,6 +7,7 @@ import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SessionList from '@/features/agent/drawer/SessionList.vue'
+import NyxusHistoryPanel from '@/features/pets/nyxus/components/NyxusHistoryPanel.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
 import {
   createHistoryDrawerManager,
@@ -57,7 +58,7 @@ async function bootstrap(): Promise<void> {
     // nyxus 桌面窗口数据源：chatSessions 的 nyxus session（root + preset=cheryNyxus），不经 PetInstance
     cleanupDesktopBridge.push(
       watch(
-        () => selectNyxusSession(chatSessions.sessionsById) ?? null,
+        () => selectNyxusSession(chatSessions.sessionsById, agents.activeNyxusChatId) ?? null,
         (session) => {
           if (!session) {
             petBridge.publish([])
@@ -164,6 +165,7 @@ async function bootstrap(): Promise<void> {
     <AgentDialog />
     <HistoryDrawer />
     <SessionList />
+    <NyxusHistoryPanel />
     <SettingsDialog />
   </template>
   <div

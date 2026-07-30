@@ -11,10 +11,14 @@ import {
   cosmicModeDuration,
   createNyxusParticles,
   kickNyxusParticles,
+  promoteNyxusParticleAt,
   type NyxusCosmicMode,
   type NyxusParticle,
   type NyxusParticleInput,
   type NyxusReaction,
+  type NyxusActivity,
+  type NyxusServiceState,
+  type NyxusNearbyPet,
   type Vec2,
 } from '../particles/nyxusParticleEngine'
 import {
@@ -31,16 +35,34 @@ export interface NyxusInputProps {
   working: boolean
   size: number
   reaction: NyxusReaction | null
+  activity: NyxusActivity
+  runningToolCount: number
+  contentPulse: number
   boot: boolean
   respectConnection: boolean
+  nearbyPet: NyxusNearbyPet | null
+}
+
+/** 归一化后的有符号角增量，供绕圈手势与单测共用。 */
+export function nyxusAngularDelta(previous: Vec2, next: Vec2): number {
+  const previousAngle = Math.atan2(previous.y, previous.x)
+  const nextAngle = Math.atan2(next.y, next.x)
+  let delta = nextAngle - previousAngle
+  if (delta > Math.PI) delta -= Math.PI * 2
+  if (delta < -Math.PI) delta += Math.PI * 2
+  return delta
+}
+
+export function nyxusOuterDiskHit(distance: number, size: number): boolean {
+  return distance >= size * 0.34 && distance <= size * 1.02
 }
 
 const COSMIC_MODES: readonly NyxusCosmicMode[] = [
-  'blackHole',
+  'barredSpiral',
+  'inclinedDisk',
+  'merger',
   'pulsar',
-  'binary',
-  'supernova',
-  'tidalRings',
+  'starburst',
 ]
 const MENU_TOOL_ORDER: readonly NyxusMenuTool[] = ['create', 'chat', 'history', 'settings']
 
@@ -70,6 +92,16 @@ export function useNyxusParticleInput(opts: {
   let lastPointerAt = 0
   let lastPointerMoveAt = 0
   let swipeStrength = 0
+  let armPhaseOffset = 0
+  let previousOrbitPoint: Vec2 | null = null
+  let tidalTailDirection: Vec2 = { x: 0, y: 0 }
+  let tidalTailStrength = 0
+  let dwellStartedAt = 0
+  let dwellPoint: Vec2 | null = null
+  let starFormationStartedAt = Number.NEGATIVE_INFINITY
+  let starFormationPoint: Vec2 | null = null
+  let pendingBirthPoint: Vec2 | null = null
+  let pointerDownAt: Vec2 | null = null
   let activeCosmicMode: NyxusCosmicMode | null = null
   let cosmicModeStartedAt = 0
   let nextCosmicModeAt = 0
@@ -108,6 +140,20 @@ export function useNyxusParticleInput(opts: {
     lastPointerMoveAt = now
     lastPointerAt = now
     swipeStrength = clamp(pointerSpeed / 900, 0, 1)
+    const local = localPointer()
+    if (pointerSpeed > 620 && local.distance <= props.size * 1.3) {
+      const speed = Math.max(1, pointerSpeed)
+      tidalTailDirection = { x: -pointerVelocityX / speed, y: -pointerVelocityY / speed }
+      tidalTailStrength = clamp(pointerSpeed / 1450, 0, 0.72)
+    }
+    if (local.distance >= props.size * 0.22 && local.distance <= props.size * 1.22) {
+      if (previousOrbitPoint) {
+        armPhaseOffset = clamp(armPhaseOffset + nyxusAngularDelta(previousOrbitPoint, local.point) * 0.11, -0.72, 0.72)
+      }
+      previousOrbitPoint = local.point
+    } else {
+      previousOrbitPoint = null
+    }
   }
 
   function onPointerDown(event: PointerEvent): void {
@@ -116,11 +162,30 @@ export function useNyxusParticleInput(opts: {
     pointerClientX = event.clientX
     pointerClientY = event.clientY
     lastPointerAt = performance.now()
+    pointerDownAt = localPointer().point
+    pendingBirthPoint =
+      !nyxusMenuOpen.value && nyxusOuterDiskHit(localPointer().distance, props.size)
+        ? pointerDownAt
+        : null
     kickNyxusParticles(particles, 1.5, true)
   }
 
-  function onPointerUp(): void {
+  function onPointerUp(event: PointerEvent): void {
+    pointerClientX = event.clientX
+    pointerClientY = event.clientY
+    const releasedPoint = localPointer().point
+    if (
+      pendingBirthPoint &&
+      pointerDownAt &&
+      props.action !== 'dragging' &&
+      !nyxusMenuOpen.value &&
+      Math.hypot(releasedPoint.x - pointerDownAt.x, releasedPoint.y - pointerDownAt.y) < 7
+    ) {
+      promoteNyxusParticleAt(particles, pendingBirthPoint)
+    }
     pointerDown = false
+    pendingBirthPoint = null
+    pointerDownAt = null
   }
 
   function onReducedMotionChange(event: MediaQueryListEvent): void {
@@ -159,6 +224,28 @@ export function useNyxusParticleInput(opts: {
 
   function highlightedMenuIndex(): number {
     return nyxusHighlightedTool.value ? MENU_TOOL_ORDER.indexOf(nyxusHighlightedTool.value) : -1
+  }
+
+  function updateDwell(now: number, pointer: { point: Vec2; distance: number }): void {
+    const canDwell =
+      !nyxusMenuOpen.value &&
+      pointer.distance >= props.size * 0.36 &&
+      pointer.distance <= props.size * 0.94 &&
+      pointerSpeed < 72 &&
+      now - lastPointerAt < 1300
+    if (canDwell) {
+      if (!dwellPoint || Math.hypot(pointer.point.x - dwellPoint.x, pointer.point.y - dwellPoint.y) > props.size * 0.1) {
+        dwellStartedAt = now
+        dwellPoint = pointer.point
+      } else if (now - dwellStartedAt > 900 && !starFormationPoint) {
+        starFormationPoint = dwellPoint
+        starFormationStartedAt = now
+      }
+    } else {
+      dwellStartedAt = 0
+      dwellPoint = null
+    }
+    if (now - starFormationStartedAt > 5200) starFormationPoint = null
   }
 
   function maybeRunCosmicMode(
@@ -208,18 +295,29 @@ export function useNyxusParticleInput(opts: {
 
   function createInput(now: number): NyxusParticleInput {
     const pointer = localPointer()
+    updateDwell(now, pointer)
     const pointerIsFresh = now - lastPointerAt < 1400
-    const connected = !props.respectConnection || connection.status !== 'disconnected'
+    const serviceState: NyxusServiceState = props.respectConnection
+      ? connection.status
+      : 'connected'
+    const connected = serviceState !== 'disconnected'
+    // 重连期间保留普通星系，但暂时压低工作态的环系/波纹，避免状态快速往返时显得躁动。
+    const activity: NyxusActivity = serviceState === 'connecting' ? 'idle' : props.activity
+    const runningToolCount = serviceState === 'connecting' ? 0 : props.runningToolCount
+    const contentPulse = serviceState === 'connecting' ? 0 : props.contentPulse
     const menuTargets = nyxusMenuOpen.value ? localMenuTargets() : []
     const pointerNear = pointerIsFresh && pointer.distance <= props.size * 1.45
-    const cosmic = maybeRunCosmicMode(
-      now,
-      (props.action === 'idle' || props.action === 'walk') &&
-        !props.working &&
-        !nyxusMenuOpen.value &&
-        !props.reaction,
-      pointerNear,
-    )
+    const cosmic =
+      serviceState === 'disconnected'
+        ? { mode: 'blackHole' as const, progress: 0.5 }
+        : maybeRunCosmicMode(
+            now,
+            (props.action === 'idle' || props.action === 'walk') &&
+              !props.working &&
+              !nyxusMenuOpen.value &&
+              !props.reaction,
+            pointerNear,
+          )
     const releaseAge = Math.max(0, (now - releaseStartedAt) / 1000)
     const releaseStrength = releaseAge < 5 ? Math.exp(-releaseAge / 1.25) : 0
 
@@ -228,6 +326,10 @@ export function useNyxusParticleInput(opts: {
       mood: props.mood,
       working: props.working,
       reaction: props.reaction,
+      serviceState,
+      activity,
+      runningToolCount,
+      contentPulse,
       connected,
       menuOpen: nyxusMenuOpen.value,
       menuTargets,
@@ -243,6 +345,14 @@ export function useNyxusParticleInput(opts: {
       bootProgress: props.boot ? clamp((now - mountedAt) / (reducedMotion ? 900 : 2200), 0, 1) : 1,
       swipe: { x: pointerVelocityX, y: pointerVelocityY },
       swipeStrength,
+      armPhaseOffset,
+      tidalTailDirection,
+      tidalTailStrength,
+      starFormationPoint,
+      starFormationStrength: starFormationPoint
+        ? clamp(1 - Math.max(0, now - starFormationStartedAt - 3800) / 1400, 0, 1) * 0.46
+        : 0,
+      nearbyPet: props.nearbyPet,
       release: { x: releaseVelocityX, y: releaseVelocityY },
       releaseStrength,
       time: now / 1000,
@@ -254,6 +364,8 @@ export function useNyxusParticleInput(opts: {
   function decay(dt: number): void {
     swipeStrength *= Math.pow(0.88, dt * 60)
     pointerSpeed *= Math.pow(0.9, dt * 60)
+    armPhaseOffset *= Math.pow(0.992, dt * 60)
+    tidalTailStrength *= Math.pow(0.955, dt * 60)
   }
 
   onMounted(() => {

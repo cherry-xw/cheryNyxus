@@ -17,6 +17,10 @@ const COSMIC_MODE_DURATION: Record<NyxusCosmicMode, number> = {
   binary: 80,
   supernova: 64,
   tidalRings: 72,
+  barredSpiral: 72,
+  inclinedDisk: 72,
+  merger: 80,
+  starburst: 64,
 }
 
 export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusParticle[] {
@@ -210,4 +214,27 @@ export function kickNyxusParticles(
     particle.vx += (particle.x / distance) * impulse
     particle.vy += (particle.y / distance) * impulse
   }
+}
+
+/**
+ * 将外盘落点附近的一颗普通粒子晋升为新生恒星。
+ * 保持总粒子数不变，并复用 stepNyxusExplosions 的出生—稳定—消亡周期。
+ */
+export function promoteNyxusParticleAt(particles: NyxusParticle[], point: { x: number; y: number }): boolean {
+  let selected: NyxusParticle | undefined
+  let selectedDistance = Number.POSITIVE_INFINITY
+  for (const particle of particles) {
+    if (particle.brightness >= 2 || particle.explosionT > 0) continue
+    const distance = Math.hypot(particle.x - point.x, particle.y - point.y)
+    if (distance < selectedDistance) {
+      selected = particle
+      selectedDistance = distance
+    }
+  }
+  if (!selected) return false
+  selected.brightness = 2
+  selected.birthT = 1e-4
+  selected.explosionT = 0
+  selected.starColor = Math.floor(Math.random() * STAR_HALO_COLORS.length)
+  return true
 }

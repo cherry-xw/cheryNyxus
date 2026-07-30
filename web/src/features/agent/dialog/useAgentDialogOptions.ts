@@ -60,7 +60,13 @@ export function useAgentDialogOptions() {
   const pet = computed<PetInstance | undefined>(() =>
     chatId.value ? agents.pets.find((p) => p.chatId === chatId.value) : undefined,
   )
-  const presetName = computed<string | undefined>(() => pet.value?.preset)
+  // Cherry Nexus 会话不建 PetInstance（pet 为 undefined）→ 回退从 chatSessions.meta.preset 取
+  const presetName = computed<string | undefined>(() => {
+    const fromPet = pet.value?.preset
+    if (fromPet) return fromPet
+    const s = chatId.value ? chatSessions.sessionsById[chatId.value] : undefined
+    return s?.meta.preset
+  })
 
   const brains = ref<BrainInfo[]>([])
   const senseGroups = ref<readonly SenseGroupOption[]>(SENSE_GROUPS_FALLBACK)

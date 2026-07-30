@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clampNyxusPoint,
   clampNyxusPointerTarget,
-} from '../../web/src/features/pets/composables/useStandaloneNyxusMotion'
+} from '../../web/src/features/pets/nyxus/composables/useStandaloneNyxusMotion'
 import {
   createNyxusPointerDrift,
   nyxusAvoidanceTarget,
@@ -11,7 +11,7 @@ import {
   NYXUS_POINTER_MAX_SPEED,
   NYXUS_POINTER_MIN_SPEED,
   NYXUS_AVOIDANCE_DISTANCE,
-} from '../../web/src/features/pets/motion/nyxusPointerMotion'
+} from '../../web/src/features/pets/nyxus/motion/nyxusPointerMotion'
 
 describe('standalone Nyxus viewport movement', () => {
   it('keeps the particle cloud and status label inside the viewport', () => {

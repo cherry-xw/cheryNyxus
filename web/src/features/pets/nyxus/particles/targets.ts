@@ -3,6 +3,7 @@ import { nyxusCosmicTransitionStrength } from './tone'
 import type { NyxusParticle, NyxusParticleInput, Vec2, NyxusRenderMode } from './types'
 
 export function resolveNyxusMode(input: NyxusParticleInput): NyxusRenderMode {
+  if (input.serviceState === 'disconnected') return 'cosmic'
   if (input.action === 'dragging') return 'dragging'
   if (input.releaseStrength > 0.035) return 'released'
   if (input.menuOpen && input.menuTargets.length > 0) return 'menu'
@@ -51,6 +52,8 @@ function cloudTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 {
     (particle.galaxyArm / 6) * TAU +
     particle.radius * 4.2 +
     input.time * armPatternSpeed +
+    // 绕圈只推进外盘旋臂相位，核心仍稳定，且 input 侧会在数秒内回落。
+    input.armPhaseOffset * smoothstep(0.18, 0.88, particle.radius) +
     particle.noise * 0.13 +
     Math.sin(particle.phase * 0.7) * 0.05
   const armStrength =
@@ -246,33 +249,97 @@ function pulsarTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 
   return rotatePoint({ x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.18 }, tilt)
 }
 
-function binaryTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 {
-  const orbitAngle = input.time * 0.16
-  const firstCore = {
-    x: Math.cos(orbitAngle) * input.size * 0.17,
-    y: Math.sin(orbitAngle) * input.size * 0.11,
-  }
-  const secondCore = { x: -firstCore.x, y: -firstCore.y }
-  if (particle.armRank < 0.12) {
-    const point = curvePoint(
-      firstCore,
-      secondCore,
-      particle.armT,
-      Math.sin(input.time * 0.35 + particle.phase) * input.size * 0.055,
-    )
-    return {
-      x: point.x + particle.noise * input.size * 0.018,
-      y: point.y + Math.sin(particle.phase) * input.size * 0.012,
-    }
-  }
+/** 短暖棒核连接两条主旋臂；保留基础盘面的缓慢进动，避免形态停滞成图标。 */
+function barredSpiralTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleInput): Vec2 {
+  const tilt = input.time * 0.028 + Math.sin(input.time * 0.09) * 0.14
+  const barStrength = 1 - smoothstep(0.14, 0.42, particle.radius)
+  const bar = rotatePoint(
+    {
+      x: particle.noise * input.size * (0.045 + particle.radius * 0.52),
+      y: Math.sin(particle.phase * 2.3) * input.size * 0.028,
+    },
+    tilt,
+  )
+  const armLift = rotatePoint(body, tilt * 0.35)
+  return blendPoint(armLift, bar, barStrength * (0.72 + (1 - particle.armRank) * 0.2))
+}
 
-  const center = particle.galaxyArm % 2 === 0 ? firstCore : secondCore
-  const localRadius = input.size * (0.025 + particle.radius * 0.135)
-  const localAngle = particle.phase + input.time * (0.18 + particle.orbit * 0.07)
-  return {
-    x: center.x + Math.cos(localAngle) * localRadius,
-    y: center.y + Math.sin(localAngle) * localRadius * 0.72,
+/** 倾斜盘以窄而有厚度的冷色盘面呈现，中心核球保持更圆，留出暗尘带的视觉空间。 */
+function inclinedDiskTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleInput): Vec2 {
+  const tilt = 0.7 + Math.sin(input.time * 0.055) * 0.24
+  const local = rotatePoint(body, -tilt)
+  const nucleus = 1 - smoothstep(0.08, 0.3, particle.radius)
+  const diskThickness = 0.3 + nucleus * 0.6
+  const dustLaneOffset =
+    particle.radius > 0.26 && particle.armRank > 0.5
+      ? Math.sign(Math.sin(particle.phase * 1.7)) * input.size * 0.012
+      : 0
+  return rotatePoint({ x: local.x * 1.08, y: local.y * diskThickness + dustLaneOffset }, tilt)
+}
+
+/**
+ * 两个星系在一段模式周期内完成靠近、潮汐桥/尾、双核并合、局部星暴与再次拆分。
+ * binary/tidalRings 复用同一叙事，只保留极小参数差异，旧调用方无需迁移。
+ */
+function mergerTarget(
+  particle: NyxusParticle,
+  body: Vec2,
+  input: NyxusParticleInput,
+  legacy: 'binary' | 'tidalRings' | null = null,
+): Vec2 {
+  const progress = clamp(input.cosmicProgress, 0, 1)
+  const approaching = 1 - smoothstep(0.08, 0.48, progress)
+  const separating = smoothstep(0.64, 0.94, progress)
+  const separation =
+    input.size *
+    (0.055 + (approaching + separating) * (legacy === 'tidalRings' ? 0.24 : 0.2))
+  const axis = input.time * 0.09 + Math.sin(input.time * 0.035) * 0.34
+  const side = particle.galaxyArm % 2 === 0 ? 1 : -1
+  const core = rotatePoint({ x: side * separation, y: side * input.size * 0.035 }, axis)
+  const localAngle = particle.angle + side * 0.32 + input.time * (0.12 + particle.orbit * 0.035)
+  const localRadius = input.size * (0.018 + particle.radius * 0.24)
+  const localDisk = rotatePoint(
+    {
+      x: Math.cos(localAngle) * localRadius * 1.06,
+      y: Math.sin(localAngle) * localRadius * 0.68,
+    },
+    axis + side * 0.18,
+  )
+  const galaxyPoint = { x: core.x + localDisk.x, y: core.y + localDisk.y }
+
+  const bridgeAmount =
+    smoothstep(0.14, 0.42, progress) * (1 - smoothstep(0.68, 0.88, progress))
+  const bridgeRank = 1 - smoothstep(0.1, 0.34, particle.armRank)
+  const bridge = curvePoint(
+    rotatePoint({ x: -separation, y: -input.size * 0.035 }, axis),
+    rotatePoint({ x: separation, y: input.size * 0.035 }, axis),
+    particle.armT,
+    Math.sin(particle.phase + input.time * 0.23) * input.size * 0.075,
+  )
+  const tailAmount =
+    smoothstep(0.16, 0.5, progress) *
+    (1 - smoothstep(0.72, 0.96, progress)) *
+    smoothstep(0.55, 0.94, particle.radius)
+  const tail = rotatePoint(
+    {
+      x: side * input.size * (0.18 + particle.radius * 0.3),
+      y: Math.sin(particle.phase * 1.5) * input.size * (0.1 + particle.radius * 0.16),
+    },
+    axis - side * 0.78,
+  )
+  const burst = smoothstep(0.42, 0.62, progress) * (1 - smoothstep(0.7, 0.86, progress))
+  const mergedBody = {
+    x: body.x * (0.68 + particle.radius * 0.18),
+    y: body.y * (0.68 + particle.radius * 0.18),
   }
+  const mergedStarburst = {
+    x: mergedBody.x + Math.cos(particle.phase * 2.1) * input.size * particle.radius * burst * 0.12,
+    y: mergedBody.y + Math.sin(particle.phase * 2.1) * input.size * particle.radius * burst * 0.12,
+  }
+  const dual = blendPoint(galaxyPoint, bridge, bridgeAmount * bridgeRank)
+  const tailed = blendPoint(dual, tail, tailAmount * (1 - bridgeRank) * 0.46)
+  const mergeAmount = smoothstep(0.36, 0.58, progress) * (1 - smoothstep(0.72, 0.9, progress))
+  return blendPoint(tailed, mergedStarburst, mergeAmount)
 }
 
 function supernovaTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleInput): Vec2 {
@@ -289,17 +356,6 @@ function supernovaTarget(particle: NyxusParticle, body: Vec2, input: NyxusPartic
   return blendPoint(collapsed, expanded, shell)
 }
 
-function tidalRingsTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 {
-  const ring = particle.galaxyArm % 3
-  const radius = input.size * (0.17 + ring * 0.095 + particle.noise * 0.012)
-  const angle = particle.angle + particle.phase * 0.08 + input.time * (0.075 + ring * 0.025)
-  const ringPoint = {
-    x: Math.cos(angle) * radius,
-    y: Math.sin(angle) * radius * (0.42 + ring * 0.12),
-  }
-  return rotatePoint(ringPoint, ring * 0.82 + Math.sin(input.time * 0.09 + ring) * 0.16)
-}
-
 function cosmicModeTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleInput): Vec2 {
   const mode = input.cosmicMode
   if (!mode) return body
@@ -307,9 +363,13 @@ function cosmicModeTarget(particle: NyxusParticle, body: Vec2, input: NyxusParti
   let target = body
   if (mode === 'blackHole') target = blackHoleTarget(particle, input)
   else if (mode === 'pulsar') target = pulsarTarget(particle, input)
-  else if (mode === 'binary') target = binaryTarget(particle, input)
+  else if (mode === 'binary') target = mergerTarget(particle, body, input, 'binary')
   else if (mode === 'supernova') target = supernovaTarget(particle, body, input)
-  else if (mode === 'tidalRings') target = tidalRingsTarget(particle, input)
+  else if (mode === 'tidalRings') target = mergerTarget(particle, body, input, 'tidalRings')
+  else if (mode === 'barredSpiral') target = barredSpiralTarget(particle, body, input)
+  else if (mode === 'inclinedDisk') target = inclinedDiskTarget(particle, body, input)
+  else if (mode === 'merger') target = mergerTarget(particle, body, input)
+  else if (mode === 'starburst') target = supernovaTarget(particle, body, input)
   return blendPoint(body, target, amount)
 }
 

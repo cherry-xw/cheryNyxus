@@ -87,6 +87,7 @@ export function createPetLifecycle(
   setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
   removePetsOnly: (removeIds: string[]) => void,
   removePetsAndStreams: (removeIds: string[]) => void,
+  activeNyxusChatId: Ref<string | null>,
 ) {
   /**
    * 从 chat 摘要建主 pet + 全部后代子 pet，push 进 pets（CP8 抽出，initFromChats / loadSession 复用）。
@@ -193,16 +194,29 @@ export function createPetLifecycle(
   }
 
   /**
-   * 取得唯一 cheryNyxus 会话 chatId（chat-only，不建 PetInstance）。
-   * 先从历史查 root + preset=cheryNyxus；无则 createAgent（后端唯一性兜底）。
+   * 取「活跃」Nexus 会话 chatId（chat-only，不建 PetInstance）：activeNyxusChatId 命中则直返；
+   * 否则取最近一条 root + preset=cheryNyxus；全无则新建并设活跃。
+   * 多会话模型：打破历史单例，允许多个 Nexus 会话以规避单会话上下文上限（compact 遗忘）。
    * 调用方（NyxusCore）负责 chatSessions.hydrateTree 灌入投影。
    */
-  async function getOrCreateCheryNyxus(): Promise<string> {
+  async function getActiveNyxus(): Promise<string> {
+    if (activeNyxusChatId.value) return activeNyxusChatId.value
     const chats = await agentApi.listChats(true)
     historyList.value = chats
-    const existing = chats.find((chat) => !chat.parentChatId && chat.preset === CHERY_NYXUS_PRESET)
-    if (existing) return existing.chatId
+    const recent = chats
+      .filter((c) => !c.parentChatId && c.preset === CHERY_NYXUS_PRESET)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
+    if (recent) {
+      activeNyxusChatId.value = recent.chatId
+      return recent.chatId
+    }
+    return createNyxusSession()
+  }
+
+  /** 始终新建一条 Nexus 会话并设为活跃（AgentDialog 索引签「+新建」、Nexus 历史面板新建入口调用）。 */
+  async function createNyxusSession(): Promise<string> {
     const result = await agentApi.createAgent({ preset: CHERY_NYXUS_PRESET })
+    activeNyxusChatId.value = result.chatId
     return result.chatId
   }
 
@@ -252,7 +266,8 @@ export function createPetLifecycle(
   return {
     buildMasterAndChildren,
     createMasterPet,
-    getOrCreateCheryNyxus,
+    getActiveNyxus,
+    createNyxusSession,
     hide,
     deleteSession,
     loadSession,

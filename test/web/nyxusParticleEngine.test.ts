@@ -18,7 +18,7 @@ import {
   toneForNyxus,
   type NyxusCosmicMode,
   type NyxusParticleInput,
-} from '../../web/src/features/pets/particles/nyxusParticleEngine'
+} from '../../web/src/features/pets/nyxus/particles/nyxusParticleEngine'
 
 function input(overrides: Partial<NyxusParticleInput> = {}): NyxusParticleInput {
   return {
@@ -26,6 +26,10 @@ function input(overrides: Partial<NyxusParticleInput> = {}): NyxusParticleInput 
     mood: 'serious',
     working: false,
     reaction: null,
+    serviceState: 'connected',
+    activity: 'idle',
+    runningToolCount: 0,
+    contentPulse: 0,
     connected: true,
     menuOpen: false,
     menuTargets: [],
@@ -41,6 +45,12 @@ function input(overrides: Partial<NyxusParticleInput> = {}): NyxusParticleInput 
     bootProgress: 1,
     swipe: { x: 0, y: 0 },
     swipeStrength: 0,
+    armPhaseOffset: 0,
+    tidalTailDirection: { x: 0, y: 0 },
+    tidalTailStrength: 0,
+    starFormationPoint: null,
+    starFormationStrength: 0,
+    nearbyPet: null,
     release: { x: 0, y: 0 },
     releaseStrength: 0,
     time: 1,
@@ -222,6 +232,10 @@ describe('nyxus particle engine', () => {
       'binary',
       'supernova',
       'tidalRings',
+      'barredSpiral',
+      'inclinedDisk',
+      'merger',
+      'starburst',
     ]
     // 统一淡入/淡出各占一段，64 秒以上才会让完整形态稳定保持至少半分钟。
     expect(modes.every((mode) => cosmicModeDuration(mode) >= 60)).toBe(true)
@@ -243,6 +257,10 @@ describe('nyxus particle engine', () => {
       'binary',
       'supernova',
       'tidalRings',
+      'barredSpiral',
+      'inclinedDisk',
+      'merger',
+      'starburst',
     ]
     const baseline = particles.map((particle) => particleTarget(particle, input({ time: 6 })))
 
@@ -291,11 +309,11 @@ describe('nyxus particle engine', () => {
   it('keeps a gentle base tone while leaving stellar color to each particle', () => {
     const tone = toneForNyxus(input())
     expect(tone).toEqual({
-      core: '#333451',
-      dust: '#aeb8d2',
-      star: '#fff0c1',
-      accent: '#9daed3',
-      spark: '#dbe9ff',
+      core: '#252a4d',
+      dust: '#9aabd1',
+      star: '#f8e4c8',
+      accent: '#8299d8',
+      spark: '#d9ecff',
     })
   })
 
@@ -306,6 +324,10 @@ describe('nyxus particle engine', () => {
       'binary',
       'supernova',
       'tidalRings',
+      'barredSpiral',
+      'inclinedDisk',
+      'merger',
+      'starburst',
     ]
     const modeTones = modes.map((cosmicMode) =>
       toneForNyxus(input({ cosmicMode, cosmicProgress: 0.5 })),
@@ -402,6 +424,40 @@ describe('nyxus particle engine', () => {
     const flattened = aspectRatioAt(Math.PI / 0.2)
     expect(round).toBeLessThan(1.3)
     expect(flattened).toBeGreaterThan(round * 1.35)
+  })
+
+  it('gives the new galaxy structures distinct finite target fields', () => {
+    const particles = createNyxusParticles(500, 115)
+    const baseline = particles.map((particle) => particleTarget(particle, input({ time: 9 })))
+    for (const cosmicMode of ['barredSpiral', 'inclinedDisk', 'merger', 'starburst'] as const) {
+      const targets = particles.map((particle) =>
+        particleTarget(particle, input({ cosmicMode, cosmicProgress: 0.5, time: 9 })),
+      )
+      const meanDifference =
+        targets.reduce(
+          (sum, target, index) =>
+            sum + Math.hypot(target.x - baseline[index]!.x, target.y - baseline[index]!.y),
+          0,
+        ) / targets.length
+      expect(targets.every((target) => Number.isFinite(target.x + target.y))).toBe(true)
+      expect(meanDifference).toBeGreaterThan(3)
+    }
+  })
+
+  it('uses a bridge-and-dual-core merger field between separated and merged phases', () => {
+    const particles = createNyxusParticles(500, 319)
+    const meanRadiusAt = (cosmicProgress: number) =>
+      particles.reduce(
+        (sum, particle) =>
+          sum +
+          Math.hypot(
+            particleTarget(particle, input({ cosmicMode: 'merger', cosmicProgress, time: 7 })).x,
+            particleTarget(particle, input({ cosmicMode: 'merger', cosmicProgress, time: 7 })).y,
+          ),
+        0,
+      ) / particles.length
+    expect(meanRadiusAt(0.25)).toBeGreaterThan(meanRadiusAt(0.55) * 1.08)
+    expect(meanRadiusAt(0.9)).toBeGreaterThan(meanRadiusAt(0.55) * 1.08)
   })
 
   it('disrupts near the pointer and gradually returns to the galaxy field', () => {

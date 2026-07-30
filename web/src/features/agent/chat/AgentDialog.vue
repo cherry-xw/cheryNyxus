@@ -3,7 +3,7 @@
  * AgentDialog orchestrator：发消息弹窗（runtime 切换合一）。
  * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
  */
-import { computed, nextTick, onBeforeUnmount, reactive, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { ElPopover, ElTooltip, ElUpload } from 'element-plus'
 import RoleConfigPopover from '../dialog/RoleConfigPopover.vue'
@@ -11,9 +11,11 @@ import MediaPreviewBar from '../dialog/media/MediaPreviewBar.vue'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import { useAgentDialogOptions } from '../dialog/useAgentDialogOptions'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
 const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 // 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
 const isTopMask = computed(() => agents.topOverlay === 'agentDialog')
 
@@ -22,6 +24,7 @@ const MotionDiv = motion.div
 const {
   chatId,
   pet,
+  presetName,
   brains,
   senseGroups,
   config,
@@ -66,6 +69,85 @@ const {
   brainConfig,
   supportsTools,
 } = useAgentDialogOptions()
+
+/** Cherry Nexus 会话：弱化角色编制 + 启用会话索引签。 */
+const isNyxus = computed(() => presetName.value === CHERY_NYXUS_PRESET)
+
+// ── Nexus 会话索引签（切换/新建入口） ──
+const tabOpen = ref(false)
+const creating = ref(false)
+const tabAnchorRef = ref<HTMLElement | null>(null)
+
+/** 最近 6 条 Nexus 主会话（root + preset=cheryNyxus），按 updatedAt 降序。 */
+const nyxusSessions = computed(() =>
+  Object.values(chatSessions.sessionsById)
+    .filter((s) => !s.meta.parentChatId && s.meta.preset === CHERY_NYXUS_PRESET)
+    .sort((a, b) => (b.meta.updatedAt ?? 0) - (a.meta.updatedAt ?? 0))
+    .slice(0, 6),
+)
+
+function toggleTab(): void {
+  tabOpen.value = !tabOpen.value
+}
+
+function switchSession(id: string): void {
+  if (id === chatId.value) {
+    tabOpen.value = false
+    return
+  }
+  // activeDialogChatId 变化触发本文件已有的 watch chatId 自动重载 options，无需手动 hydrate。
+  agents.activeNyxusChatId = id
+  agents.activeDialogChatId = id
+  tabOpen.value = false
+}
+
+async function createSession(): Promise<void> {
+  if (creating.value) return
+  creating.value = true
+  try {
+    const id = await agents.createNyxusSession()
+    await chatSessions.hydrateTree(id)
+    agents.activeDialogChatId = id
+    tabOpen.value = false
+  } catch (e) {
+    console.error('[AgentDialog] createNyxusSession failed:', e)
+  } finally {
+    creating.value = false
+  }
+}
+
+function previewText(s: { chatId: string; meta: { preview?: string } }): string {
+  const p = s.meta.preview?.trim()
+  if (p) return p.length > 28 ? `${p.slice(0, 28)}…` : p
+  return s.chatId.slice(0, 8)
+}
+
+function formatTime(ts?: number): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return sameDay ? `${pad(d.getHours())}:${pad(d.getMinutes())}` : `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+// 点索引签锚点外任意处 → 关闭浮层。
+function onDocClick(e: MouseEvent): void {
+  if (!tabOpen.value) return
+  const anchor = tabAnchorRef.value
+  if (anchor && !anchor.contains(e.target as Node)) tabOpen.value = false
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', onDocClick)
+  onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+}
+// 会话切换/关闭时收起浮层，避免下次打开仍展开。
+watch(chatId, () => {
+  tabOpen.value = false
+})
 
 // ── 斜杠指令菜单定位（Teleport 到 body 后用 fixed 定位；锚定 .msg-input 顶部，向上展开） ──
 const commandMenuStyle = reactive({
@@ -167,19 +249,20 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
       <MotionDiv
         key="panel"
         class="dialog-panel"
+        :class="{ 'is-nyxus-panel': isNyxus }"
         :initial="{ opacity: 0, y: 16, scale: 0.96 }"
         :animate="{ opacity: 1, y: 0, scale: 1 }"
         :exit="{ opacity: 0, y: 12, scale: 0.97 }"
         :transition="{ duration: 0.18, ease: 'easeOut' }"
         role="dialog"
         aria-modal="true"
-        :aria-label="`向 ${pet?.name ?? '智能体'} 发送消息`"
+        :aria-label="`向 ${isNyxus ? 'Cherry Nexus' : (pet?.name ?? '智能体')} 发送消息`"
       >
         <header class="dialog-head">
           <span class="title">
             <span class="title-row">
               <el-tooltip
-                v-if="pet?.workspace"
+                v-if="pet?.workspace && !isNyxus"
                 placement="bottom"
                 :show-after="200"
                 :hide-after="0"
@@ -193,14 +276,16 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
                   >{{ pet?.name ?? 'agent' }}
                 </span>
               </el-tooltip>
-              <span v-else class="who">{{ pet?.name ?? 'agent' }}</span>
+              <span v-else class="who">{{
+                isNyxus ? 'Cherry Nexus' : (pet?.name ?? 'agent')
+              }}</span>
             </span>
             <span class="hint">Cmd/Ctrl+Enter 发送 · Esc 关闭</span>
           </span>
           <button type="button" class="close-btn" aria-label="关闭" @click="close">✕</button>
         </header>
 
-        <div class="role-configs">
+        <div v-if="!isNyxus" class="role-configs">
           <div class="session-note">小组角色编制</div>
           <div
             v-if="loading"
@@ -292,7 +377,45 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 
         <div v-if="mediaHint" class="media-hint-row">{{ mediaHint }}</div>
 
-        <div class="textarea-row">
+        <div class="composer-wrap">
+          <div v-if="isNyxus" ref="tabAnchorRef" class="index-tab-anchor">
+            <button
+              type="button"
+              class="index-tab"
+              :class="{ 'is-open': tabOpen }"
+              :aria-expanded="tabOpen"
+              aria-label="切换 Nexus 会话"
+              @click="toggleTab"
+            >
+              <span class="index-tab-label">会话</span>
+              <span class="index-tab-count">{{ nyxusSessions.length }}</span>
+            </button>
+            <div v-if="tabOpen" class="index-tab-panel" role="menu" aria-label="最近 Nexus 会话">
+              <div class="index-tab-panel-title">最近 Nexus 会话</div>
+              <button
+                v-for="s in nyxusSessions"
+                :key="s.chatId"
+                type="button"
+                class="index-tab-item"
+                :class="{ 'is-active': s.chatId === chatId }"
+                role="menuitem"
+                @click="switchSession(s.chatId)"
+              >
+                <span class="index-tab-item-preview">{{ previewText(s) }}</span>
+                <span class="index-tab-item-meta">{{ formatTime(s.meta.updatedAt) }}</span>
+              </button>
+              <button
+                type="button"
+                class="index-tab-new"
+                role="menuitem"
+                :disabled="creating"
+                @click="createSession"
+              >
+                + 新建会话
+              </button>
+            </div>
+          </div>
+          <div class="textarea-row">
           <div
             ref="editorRef"
             class="msg-input rich-message-input"
@@ -516,6 +639,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             </button>
           </div>
         </div>
+        </div>
 
         <div v-if="error" class="error-row" role="alert">{{ error }}</div>
       </MotionDiv>
@@ -554,6 +678,146 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 .role-usage-chip.usage-high {
   background: rgba(239, 68, 68, 0.16);
   color: #b91c1c;
+}
+
+// ── Nexus 会话索引签（composer 左外沿，折叠/展开双态） ──
+// dialog-panel 默认 overflow:auto 会裁断外溢的索引签；Nexus 会话内容短，放开 visible 让签+浮层外溢。
+.dialog-panel.is-nyxus-panel {
+  overflow: visible;
+}
+
+.composer-wrap {
+  position: relative;
+}
+
+.index-tab-anchor {
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-right: 6px;
+  // row-reverse：button（DOM 首位）贴右（邻近 composer），panel 向左展开。
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 6px;
+  z-index: 4;
+}
+
+.index-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 6px;
+  border: 1px solid rgba(246, 183, 60, 0.4);
+  border-radius: 8px;
+  background: rgba(246, 183, 60, 0.12);
+  color: #9a7422;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background-color 120ms ease, border-color 120ms ease;
+  &:hover {
+    background: rgba(246, 183, 60, 0.2);
+    border-color: rgba(246, 183, 60, 0.6);
+  }
+  &.is-open {
+    background: rgba(246, 183, 60, 0.28);
+    border-color: rgba(246, 183, 60, 0.7);
+  }
+}
+
+.index-tab-label {
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: 1px;
+}
+
+.index-tab-count {
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(246, 183, 60, 0.3);
+  color: #7a5a18;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.index-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 220px;
+  padding: 8px;
+  border: 1px solid rgba(35, 38, 44, 0.12);
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow: 0 8px 20px rgba(20, 22, 26, 0.18);
+  color: #14161a;
+  font-size: 12px;
+  white-space: normal;
+}
+
+.index-tab-panel-title {
+  padding: 2px 6px 6px;
+  color: #8c6114;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.index-tab-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+  &:hover {
+    background: rgba(246, 183, 60, 0.12);
+  }
+  &.is-active {
+    background: rgba(246, 183, 60, 0.22);
+  }
+}
+
+.index-tab-item-preview {
+  font-size: 12px;
+  font-weight: 550;
+  color: #14161a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.index-tab-item-meta {
+  font-size: 10px;
+  color: rgba(20, 22, 26, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.index-tab-new {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(246, 183, 60, 0.14);
+  color: #9a7422;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 100ms ease;
+  &:hover:not(:disabled) {
+    background: rgba(246, 183, 60, 0.24);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 </style>
 

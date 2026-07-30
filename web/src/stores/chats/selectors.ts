@@ -223,14 +223,20 @@ export function selectRecentRootIds(
 }
 
 /**
- * nyxus 独立核心会话（root chat + preset=cheryNyxus）。
- * 后端 chat.create 对 cheryNyxus 预设做唯一性兜底，故全系统至多一个；
- * 与 petLifecycle.getOrCreateCheryNyxus 同源判定，作为 NyxusCore 脱离 pets[] 后的数据锚点。
+ * nyxus 独立核心的「活跃」会话（root chat + preset=cheryNyxus）。
+ * 多会话模型：优先返回 activeChatId 命中的会话；未命中或未指定则回退到最近一条（updatedAt 降序）。
+ * 与 petLifecycle.getActiveNyxus 同源判定，作为 NyxusCore 脱离 pets[] 后的数据锚点。
  */
 export function selectNyxusSession(
   sessionsById: Record<string, ChatSession>,
+  activeChatId?: string | null,
 ): ChatSession | undefined {
-  return Object.values(sessionsById).find(
+  const nyxusSessions = Object.values(sessionsById).filter(
     (s) => !s.meta.parentChatId && s.meta.preset === 'cheryNyxus',
   )
+  if (activeChatId) {
+    const hit = nyxusSessions.find((s) => s.chatId === activeChatId)
+    if (hit) return hit
+  }
+  return nyxusSessions.sort((a, b) => (b.meta.updatedAt ?? 0) - (a.meta.updatedAt ?? 0))[0]
 }

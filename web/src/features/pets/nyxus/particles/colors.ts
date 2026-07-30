@@ -5,14 +5,16 @@ export const NYXUS_CHROMATIC_CYCLE_SECONDS = 84
 const NYXUS_CHROMATIC_WINDOW = 0.032
 
 export const CLOUD_COLORS = [
-  '#a45cff',
-  '#6d72ff',
-  '#277cff',
-  '#22d5ff',
-  '#11d8c0',
-  '#ff4fb4',
+  '#7566ff',
+  '#4f7dff',
+  '#318dff',
+  '#42b8ff',
+  '#9a5cff',
+  '#d957bb',
 ] as const
-const COHESIVE_CLOUD_COLORS = ['#a45cff', '#786cff', '#4b83ff', '#2aaeff'] as const
+const COHESIVE_CLOUD_COLORS = ['#8568ff', '#587fff', '#3a9bff', '#6d75ff'] as const
+const WARM_NUCLEUS = '#e8bd9e'
+const STAR_FORMING_COLORS = ['#e85abf', '#54c9ff'] as const
 export const STAR_HALO_COLORS = ['#a45cff', '#22d5ff', '#ff4fb4', '#4b83ff'] as const
 const WHITE_STAR_CORE = '#ffffff'
 
@@ -20,7 +22,10 @@ export function contributesToNyxusFog(particle: NyxusParticle): boolean {
   return particle.brightness === 0 && particle.armRank >= 0.12 && particle.armRank <= 0.66
 }
 
-/** 由同一暗点层生成的星云云团色；缓慢跨越相邻色带，避免闪烁。 */
+/**
+ * 由同一暗点层生成的结构化星系色：外盘固定为冷蓝靛，玫红/青蓝只落在少量旋臂结，
+ * 小而受控的暖色核球不再把整片中心抬成纯白。
+ */
 export function nyxusCloudColor(particle: NyxusParticle, time: number, cohesion = 0): string {
   const offset = particle.cloudColor + particle.phase / TAU
   const position =
@@ -42,7 +47,20 @@ export function nyxusCloudColor(particle: NyxusParticle, time: number, cohesion 
     COHESIVE_CLOUD_COLORS[cohesiveNext]!,
     smoothstep(0.16, 0.84, cohesivePosition - cohesiveIndex),
   )
-  return mixHexColor(individual, cohesive, smoothstep(0.16, 0.88, cohesion) * 0.72)
+  const coolDisk = mixHexColor(individual, cohesive, smoothstep(0.16, 0.88, cohesion) * 0.72)
+  const nucleus = 1 - smoothstep(0.04, 0.24, particle.radius)
+  const knotSeed =
+    (particle.galaxyArm * 0.31 + particle.phase / TAU + particle.noise * 0.17 + 2) % 1
+  const knot =
+    smoothstep(0.68, 0.94, particle.radius) *
+    smoothstep(0.72, 0.96, particle.armRank) *
+    smoothstep(0.34, 0.76, knotSeed)
+  const formation = STAR_FORMING_COLORS[particle.galaxyArm % STAR_FORMING_COLORS.length]!
+  return mixHexColor(
+    mixHexColor(coolDisk, formation, knot * 0.66),
+    WARM_NUCLEUS,
+    nucleus * 0.72,
+  )
 }
 
 /** 恒星核心始终纯白，保证在鲜艳星云中清晰可辨。 */

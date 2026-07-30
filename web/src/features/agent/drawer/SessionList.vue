@@ -1,44 +1,39 @@
 <script setup lang="ts">
 /**
- * SessionList：历史会话列表抽屉（CP8）。
- * - 显示驱动：agents.historyListOpen=true 滑入；false 滑出（AnimatePresence + motion.div）
- * - 打开（watch historyListOpen → true）：agents.fetchHistoryList() → chat.list(includePreview) 缓存 historyList
- * - 行：仅主 chat（!parentChatId）= 会话；显 preview（首条 user 消息截断）+ last-run（updatedAt）+ 轮次（turnCount）
- * - 点行 → agents.loadSession(chatId)（建主+子 pet 入 stage，允许 >5）
- * - 行尾 ✕ → ElMessageBox.confirm 后 agents.deleteSession(chatId)（chat.delete 真删，后端级联子 chat）
- * - hover 行显 item 高亮（表示可点击打开 pet）；标题信息走 tooltip（id/创建/更新/标题/轮次换行）
- * - 顶部搜索框：按 preview 标题实时过滤；复制按钮（⧉）复制 chatId，成功转 ✓ 1.2s 复位
- * 命名区分 HistoryDrawer（单 pet 消息史，▤）；本组件 = 会话列表（☰）。
- * motion-v：inline initial/animate/exit 字面量（同 HistoryDrawer 风格，无 TargetAndTransition 导出）。
+ * SessionList：用户历史会话列表（左下角小卡片形态，CP8 改造）。
+ * - 仅用户创建会话（排除 cheryNyxus——其走独立 NyxusHistoryPanel）。
+ * - 形态：常驻左下索引签 launcher（点击展开/收起卡片），与 HistoryDrawer（消息史抽屉）形态区分。
+ * - 显示驱动：agents.historyListOpen=true 展开；false 收起（AnimatePresence + motion.div）。
+ * - 打开（watch open→true）：agents.fetchHistoryList() → chat.list(includePreview) 缓存 historyList。
+ * - 行：preview（首条 user 消息截断，splitCommandPrompt 渲染 /cmd @role marker）+ 预设签 + 时间；矮行单行。
+ * - 点行 → agents.loadSession(chatId)（建主+子 pet 入 stage）。
+ * - 行尾 ✕ → ElMessageBox.confirm 后 agents.deleteSession(chatId)。
+ * 命名区分 HistoryDrawer（单 pet 消息史，▤）；本组件 = 用户会话列表（☰，左下卡片）。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
-import { ElMessageBox, ElMessage } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { useAgentsStore } from '@/stores'
 import { formatTime } from '@/utils/formatTime'
-import { fmtTokens } from '../toolbar/contextBreakdown'
 import { splitCommandPrompt } from '../composables/commands'
-import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
+import PresetTag from './PresetTag.vue'
+import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
 const MotionDiv = motion.div
 const agents = useAgentsStore()
 
 const open = computed(() => agents.historyListOpen)
-// 共用单蒙层：仅当 SessionList 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
-const isTopMask = computed(() => agents.topOverlay === 'sessionList')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const pendingDelete = ref<string | null>(null)
-// 搜索词（顶部输入框）：按 preview 标题实时过滤会话列表
 const searchQuery = ref('')
-// 复制成功的会话 chatId（短暂打勾反馈，1.2s 后复位）
-const copiedChatId = ref<string | null>(null)
-let copyTimer: ReturnType<typeof setTimeout> | undefined
 
-// 仅主 chat = 会话（子 chat 随主加载/删除，不单列）；按搜索词过滤 preview
+// 仅用户会话（排除 cheryNyxus 独立核心）+ 主 chat + 搜索词过滤
 const sessions = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  const all = agents.historyList.filter((c) => !c.parentChatId)
+  const all = agents.historyList.filter(
+    (c) => !c.parentChatId && c.preset !== CHERY_NYXUS_PRESET,
+  )
   if (!q) return all
   return all.filter((c) => (c.preview ?? '').toLowerCase().includes(q))
 })
@@ -57,15 +52,14 @@ watch(open, async (v) => {
   }
 })
 
+function toggleOpen(): void {
+  agents.historyListOpen = !agents.historyListOpen
+}
 function close(): void {
   agents.historyListOpen = false
 }
 
-function onOverlayClick(e: MouseEvent): void {
-  if (e.target === e.currentTarget) close()
-}
-
-// 全局 ESC 关闭抽屉（仅在 open 且为栈顶 overlay 时生效；topOverlay 守卫避免双重关闭）。
+// 全局 ESC 关闭（仅 open 且为栈顶 overlay 时生效；topOverlay 守卫避免双重关闭）。
 function onGlobalKeydown(e: KeyboardEvent): void {
   if (e.key === 'Escape' && open.value && agents.topOverlay === 'sessionList') {
     e.preventDefault()
@@ -75,52 +69,10 @@ function onGlobalKeydown(e: KeyboardEvent): void {
 window.addEventListener('keydown', onGlobalKeydown)
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
-  if (copyTimer) clearTimeout(copyTimer)
 })
 
-/** contextUsage 颜色分级（与 ContextBar 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
-function usageClass(u: number): string {
-  if (u >= 0.8) return 'usage-high'
-  if (u >= 0.5) return 'usage-mid'
-  return 'usage-low'
-}
-
-function load(chatId: string): void {
-  agents.loadSession(chatId)
-}
-
-/** 复制 chatId 到剪贴板（降级 execCommand 兼容非 HTTPS / 旧 Electron webview）。 */
-async function copyChatId(chatId: string): Promise<void> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(chatId)
-    } else {
-      const ta = document.createElement('textarea')
-      ta.value = chatId
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
-    }
-    copiedChatId.value = chatId
-    if (copyTimer) clearTimeout(copyTimer)
-    copyTimer = setTimeout(() => {
-      copiedChatId.value = null
-    }, 1200)
-  } catch (e) {
-    console.warn('[SessionList] 复制 chatId 失败', e)
-    ElMessage.warning({ message: '复制失败', duration: 2000, offset: 24 })
-  }
-}
-
-/** 删除确认文案池：8 种风格随机抽一，icon=应景 emoji（替代 element-plus 状态图标）。删除本身恒为危险操作，按钮保持 danger。 */
-type DeletePromptStyle = {
-  icon: string
-  title: string
-  body: string
-}
+/** 删除确认文案池：8 种风格随机抽一，icon=应景 emoji。删除本身恒为危险操作，按钮保持 danger。 */
+type DeletePromptStyle = { icon: string; title: string; body: string }
 const DELETE_PROMPTS: readonly DeletePromptStyle[] = [
   {
     icon: '⚛️',
@@ -182,137 +134,97 @@ async function remove(chatId: string): Promise<void> {
     pendingDelete.value = null
   }
 }
+
+function load(chatId: string): void {
+  agents.loadSession(chatId)
+}
 </script>
 
 <template>
+  <!-- 常驻左下索引签 launcher（点击展开/收起卡片） -->
+  <button
+    type="button"
+    class="session-launcher"
+    :class="{ active: open }"
+    :aria-expanded="open"
+    aria-label="用户历史会话"
+    @click="toggleOpen"
+  >
+    <span class="launcher-icon">☰</span>
+    <span class="launcher-label">会话</span>
+    <span v-if="sessions.length" class="launcher-count">{{ sessions.length }}</span>
+  </button>
+
   <AnimatePresence>
     <MotionDiv
       v-if="open"
-      key="session-overlay"
-      class="session-overlay"
-      :class="{ 'is-top-mask': isTopMask }"
-      :initial="{ opacity: 0 }"
-      :animate="{ opacity: 1 }"
-      :exit="{ opacity: 0 }"
-      :transition="{ duration: 0.16 }"
-      @pointerdown="onOverlayClick"
+      key="session-card"
+      class="session-card"
+      role="dialog"
+      aria-modal="false"
+      aria-label="用户历史会话列表"
+      :initial="{ opacity: 0, y: 12 }"
+      :animate="{ opacity: 1, y: 0 }"
+      :exit="{ opacity: 0, y: 12 }"
+      :transition="{ duration: 0.18, ease: 'easeOut' }"
     >
-      <MotionDiv
-        key="session-panel"
-        class="session-panel"
-        :initial="{ x: '100%' }"
-        :animate="{ x: 0 }"
-        :exit="{ x: '100%' }"
-        :transition="{ duration: 0.24, ease: 'easeOut' }"
-        role="dialog"
-        aria-modal="true"
-        aria-label="历史会话列表"
-      >
-        <header class="session-head">
-          <span class="title">历史会话</span>
-          <button type="button" class="close-btn" aria-label="Close" @click="close">✕</button>
-        </header>
+      <header class="card-head">
+        <span class="title">历史会话</span>
+        <button type="button" class="close-btn" aria-label="Close" @click="close">✕</button>
+      </header>
 
-        <div class="session-search">
-          <input
-            v-model="searchQuery"
-            type="search"
-            class="search-input"
-            placeholder="搜索会话标题…"
-            aria-label="搜索会话标题"
-          />
+      <div class="card-search">
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="search-input"
+          placeholder="搜索会话标题…"
+          aria-label="搜索会话标题"
+        />
+      </div>
+
+      <div class="card-body">
+        <div v-if="loading" class="row-hint">载入会话…</div>
+        <div v-else-if="error" class="row-hint err" role="alert">{{ error }}</div>
+        <div v-else-if="sessions.length === 0" class="row-hint">
+          {{ searchQuery.trim() ? '无匹配会话' : '暂无历史会话' }}
         </div>
-
-        <div class="session-body">
-          <div v-if="loading" class="row-hint">载入会话…</div>
-          <div v-else-if="error" class="row-hint err" role="alert">{{ error }}</div>
-          <div v-else-if="sessions.length === 0" class="row-hint">
-            {{ searchQuery.trim() ? '无匹配会话' : '暂无历史会话' }}
-          </div>
-          <template v-else>
-            <div v-for="s in sessions" :key="s.chatId" class="session-row" @click="load(s.chatId)">
-              <div class="row-main">
-                <span class="preview-line">
-                  <span class="preview">
-                  <template
-                    v-for="(seg, i) in splitCommandPrompt(s.preview || '(无消息)')"
-                    :key="`${seg.type}-${i}`"
-                  >
-                    <span v-if="seg.type === 'role'" class="marker-tag marker-role">{{
-                      seg.value
-                    }}</span>
-                    <span v-else-if="seg.type === 'command'" class="marker-tag marker-cmd">{{
-                      seg.value
-                    }}</span>
-                    <template v-else>{{ seg.value }}</template>
-                  </template>
-                </span>
-                  <el-tooltip placement="top" :show-after="300" :hide-after="0">
-                    <template #content>
-                      <div class="row-tip">
-                        <div>id: {{ s.chatId }}</div>
-                        <div>创建: {{ formatTime(s.createdAt) }}</div>
-                        <div>更新: {{ formatTime(s.updatedAt) }}</div>
-                        <div>标题: {{ s.preview || '(无消息)' }}</div>
-                        <div>轮次: {{ s.turnCount ?? 0 }}</div>
-                      </div>
-                    </template>
-                    <button
-                      type="button"
-                      class="copy-btn"
-                      :class="{ copied: copiedChatId === s.chatId }"
-                      :aria-label="copiedChatId === s.chatId ? '已复制' : '复制 chatId'"
-                      @click.stop="copyChatId(s.chatId)"
-                    >
-                      {{ copiedChatId === s.chatId ? '✓' : '⧉' }}
-                    </button>
-                  </el-tooltip>
-                </span>
-                <span class="meta">
-                  <span class="time">{{ formatTime(s.updatedAt) }}</span>
-                  <span class="turns">{{ s.turnCount ?? 0 }} 轮</span>
-                  <el-tooltip
-                    v-if="typeof s.contextUsage === 'number'"
-                    placement="top"
-                    :show-after="200"
-                    :hide-after="0"
-                  >
-                    <template #content>
-                      <ContextBreakdownTip
-                        v-if="s.contextBreakdown"
-                        :breakdown="s.contextBreakdown"
-                      />
-                      <span v-else>上下文 {{ Math.round(s.contextUsage * 100) }}%</span>
-                    </template>
-                    <span class="usage" :class="usageClass(s.contextUsage)">
-                      <span
-                        v-if="
-                          typeof s.contextUsed === 'number' &&
-                          typeof s.contextTotal === 'number' &&
-                          s.contextTotal > 0
-                        "
-                        class="usage-detail"
-                      >
-                        {{ fmtTokens(s.contextUsed) }}/{{ fmtTokens(s.contextTotal) }}
-                      </span>
-                      <span class="usage-pct">{{ Math.round(s.contextUsage * 100) }}%</span>
-                    </span>
-                  </el-tooltip>
-                </span>
-              </div>
-              <button
-                type="button"
-                class="del-btn"
-                aria-label="删除会话"
-                :disabled="pendingDelete === s.chatId"
-                @click.stop="remove(s.chatId)"
+        <template v-else>
+          <div
+            v-for="s in sessions"
+            :key="s.chatId"
+            class="session-row"
+            :title="s.preview || '(无消息)'"
+            @click="load(s.chatId)"
+          >
+            <PresetTag :preset="s.preset" />
+            <span class="preview">
+              <template
+                v-for="(seg, i) in splitCommandPrompt(s.preview || '(无消息)')"
+                :key="`${seg.type}-${i}`"
               >
-                ✕
-              </button>
-            </div>
-          </template>
-        </div>
-      </MotionDiv>
+                <span v-if="seg.type === 'role'" class="marker-tag marker-role">{{
+                  seg.value
+                }}</span>
+                <span v-else-if="seg.type === 'command'" class="marker-tag marker-cmd">{{
+                  seg.value
+                }}</span>
+                <template v-else>{{ seg.value }}</template>
+              </template>
+            </span>
+            <span class="time">{{ formatTime(s.updatedAt) }}</span>
+            <button
+              type="button"
+              class="del-btn"
+              aria-label="删除会话"
+              :disabled="pendingDelete === s.chatId"
+              @click.stop="remove(s.chatId)"
+            >
+              ✕
+            </button>
+          </div>
+        </template>
+      </div>
     </MotionDiv>
   </AnimatePresence>
 </template>
@@ -320,55 +232,88 @@ async function remove(chatId: string): Promise<void> {
 <style scoped lang="less">
 @ink: #14161a;
 
-.session-overlay {
+// ── 常驻索引签 launcher（左下角，便利贴式）──
+.session-launcher {
   position: fixed;
-  inset: 0;
-  z-index: 270;
-  display: flex;
-  justify-content: flex-end;
-  background: transparent; // 默认透明（非栈顶，不叠加 blur）
-  backdrop-filter: none;
-}
-.session-overlay.is-top-mask {
-  // 栈顶 overlay：带 blur 遮罩盖住下层
-  background: rgba(15, 17, 22, 0.36);
-  backdrop-filter: blur(2px);
+  left: 16px;
+  bottom: 16px;
+  z-index: 258;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 5px 8px;
+  border: 1px solid rgba(180, 110, 20, 0.4);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #ffd27a, #f6b73c);
+  color: #3d2606;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+
+  .launcher-icon {
+    font-size: 13px;
+    line-height: 1;
+  }
+  .launcher-count {
+    padding: 0 6px;
+    border-radius: 8px;
+    background: rgba(61, 38, 6, 0.16);
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
+  }
+  &.active {
+    background: linear-gradient(135deg, #ffe9b8, #ffd27a);
+  }
 }
 
-.session-panel {
-  width: clamp(300px, 34vw, 480px);
-  height: 100%;
+// ── 卡片（左下浮卡，位于 launcher 上方）──
+.session-card {
+  position: fixed;
+  left: 16px;
+  bottom: 56px;
+  z-index: 269;
+  width: 286px;
+  max-height: 360px;
   display: flex;
   flex-direction: column;
   background: #fbf9f4;
-  border-left: 1px solid rgba(36, 38, 45, 0.12);
-  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(36, 38, 45, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
 }
 
-.session-head {
+.card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
+  padding: 7px 10px;
   border-bottom: 1px solid rgba(36, 38, 45, 0.1);
   background: rgba(255, 255, 255, 0.6);
 
   .title {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 800;
     color: fade(@ink, 86%);
   }
 }
 
 .close-btn {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: 1px solid rgba(36, 38, 45, 0.16);
-  border-radius: 6px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.7);
   color: fade(@ink, 70%);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1;
   cursor: pointer;
 
@@ -378,29 +323,20 @@ async function remove(chatId: string): Promise<void> {
   }
 }
 
-.session-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 8px 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.session-search {
-  padding: 8px 10px;
+.card-search {
+  padding: 6px 8px;
   border-bottom: 1px solid rgba(36, 38, 45, 0.1);
   background: rgba(255, 255, 255, 0.5);
 
   .search-input {
     width: 100%;
-    height: 28px;
-    padding: 0 10px;
+    height: 24px;
+    padding: 0 8px;
     border: 1px solid rgba(36, 38, 45, 0.16);
-    border-radius: 6px;
+    border-radius: 5px;
     background: #ffffff;
     color: fade(@ink, 86%);
-    font-size: 12px;
+    font-size: 11px;
     outline: none;
     transition: border-color 120ms ease;
 
@@ -410,28 +346,26 @@ async function remove(chatId: string): Promise<void> {
     &:focus {
       border-color: fade(@ink, 48%);
     }
-    // 去掉原生 search 取消按钮
     &::-webkit-search-cancel-button {
       display: none;
     }
   }
 }
 
-// tooltip 内多行信息（id/创建/更新/标题/轮次）
-.row-tip {
-  line-height: 1.6;
-  font-size: 12px;
-
-  > div {
-    white-space: nowrap;
-  }
+.card-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 5px 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .row-hint {
-  padding: 24px 8px;
+  padding: 18px 8px;
   text-align: center;
   color: fade(@ink, 48%);
-  font-size: 12px;
+  font-size: 11px;
   font-style: italic;
 
   &.err {
@@ -444,8 +378,8 @@ async function remove(chatId: string): Promise<void> {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 5px 8px;
+  border-radius: 7px;
   cursor: pointer;
   transition: background 120ms ease;
 
@@ -453,154 +387,71 @@ async function remove(chatId: string): Promise<void> {
     background: rgba(246, 183, 60, 0.14);
   }
 
-  .row-main {
+  .preview {
     flex: 1;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .preview {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
-    color: fade(@ink, 86%);
+    color: fade(@ink, 84%);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
-    min-width: 0;
   }
 
-  /* 会话预览内联 marker tag（对齐 MessageBubble .instruction-message-token：command 琥珀 / role 蓝） */
+  /* 预览内联 marker tag（command 琥珀 / role 蓝） */
   .marker-tag {
     display: inline-block;
     margin: 0 3px 0 0;
-    padding: 0 5px;
+    padding: 0 4px;
     border: 1px solid rgba(190, 132, 28, 0.28);
-    border-radius: 4px;
+    border-radius: 3px;
     background: linear-gradient(135deg, rgba(255, 242, 195, 0.94), rgba(246, 183, 60, 0.14));
     color: #76500e;
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
     line-height: 1.5;
     vertical-align: baseline;
   }
-
   .marker-role {
     border-color: rgba(70, 126, 202, 0.28);
     background: linear-gradient(135deg, rgba(224, 239, 255, 0.94), rgba(70, 126, 202, 0.14));
     color: #2f6fae;
   }
 
-  .preview-line {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .copy-btn {
+  .time {
     flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: 1px solid rgba(36, 38, 45, 0.16);
-    border-radius: 5px;
-    background: transparent;
-    color: fade(@ink, 60%);
-    font-size: 11px;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0;
-    transition:
-      opacity 120ms ease,
-      color 120ms ease,
-      background 120ms ease;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.9);
-      color: fade(@ink, 88%);
-    }
-    &.copied {
-      opacity: 1;
-      color: #16a34a;
-      border-color: rgba(34, 197, 94, 0.4);
-    }
-  }
-
-  // 行 hover 时显复制按钮（触屏无 hover 始终显）
-  &:hover .copy-btn {
-    opacity: 1;
-  }
-
-  .usage {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
     font-size: 10px;
-    font-weight: 700;
-    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    padding: 1px 6px;
-    border-radius: 4px;
-    line-height: 1.3;
-
-    &.usage-low {
-      background: rgba(34, 197, 94, 0.14);
-      color: #16a34a;
-    }
-    &.usage-mid {
-      background: rgba(234, 179, 8, 0.16);
-      color: #a16207;
-    }
-    &.usage-high {
-      background: rgba(239, 68, 68, 0.16);
-      color: #b91c1c;
-    }
-
-    .usage-detail {
-      opacity: 0.78;
-      font-weight: 500;
-    }
-
-    .usage-pct {
-      font-weight: 800;
-    }
-  }
-
-  .meta {
-    display: flex;
-    gap: 8px;
-    font-size: 10px;
-    color: fade(@ink, 48%);
-
-    .turns {
-      font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    }
+    color: fade(@ink, 44%);
   }
 
   .del-btn {
     flex-shrink: 0;
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
     padding: 0;
     border: 1px solid rgba(185, 28, 28, 0.24);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.7);
+    border-radius: 4px;
+    background: transparent;
     color: #b91c1c;
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1;
     cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms ease, background 120ms ease;
 
     &:hover:not(:disabled) {
       background: #fee2e2;
     }
-
     &:disabled {
       opacity: 0.5;
       cursor: not-allowed;
     }
+  }
+
+  // 行 hover 时显删除按钮（触屏无 hover 始终显）
+  &:hover .del-btn {
+    opacity: 1;
   }
 }
 </style>
