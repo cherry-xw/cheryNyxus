@@ -66,6 +66,8 @@ const recoveringGraph = ref(false)
 const recoveryError = ref('')
 const gpuRenderError = ref('')
 const hasNewTail = ref(false)
+/** 已在图中出现过的节点 id；判定「回到底部」要用全新 id，排除末节点抖动。 */
+let knownTailIds = new Set<string>()
 let gpuRenderer: ExecutionGraphPixiRenderer | undefined
 let gpuMountGeneration = 0
 let lastGpuSceneSignature = ''
@@ -791,6 +793,7 @@ watch(
     endpointLayoutEngine.reset()
     recoveryError.value = ''
     hasNewTail.value = false
+    knownTailIds = new Set()
     selectedFoldMembers.value = new Map()
     unreadFoldMembers.value = new Map()
     actionSelectedCallIds.value = new Map()
@@ -814,11 +817,17 @@ watch(
     void nextTick(() => canvas.followContentEnd(endpointLayout.value.height))
   },
 )
-// 用户拖离后末尾追加新节点 -> 显示「回到底部」浮标；点击 fit 回末尾并恢复跟随。
+// 用户拖离后末尾真正追加了「新」节点（id 此前未出现在图中）才显示「回到底部」浮标。
+// 排除 transient 占位增删 / 投影折叠重排造成的末节点 id 抖动：新尾若是旧节点则不置位。
+// 首次 / 切根后 knownTailIds 为空，先建档不置位，避免把根节点误判为「新尾」。
 watch(
-  () => graph.value.nodes.at(-1)?.id,
-  (id, prev) => {
-    if (id && id !== prev && canvas.userPanned.value) hasNewTail.value = true
+  () => graph.value.nodes,
+  (nodes) => {
+    const known = knownTailIds
+    knownTailIds = new Set(nodes.map((node) => node.id))
+    const tailId = nodes.at(-1)?.id
+    if (!tailId || known.size === 0) return
+    if (canvas.userPanned.value && !known.has(tailId)) hasNewTail.value = true
   },
 )
 function returnToBottom(): void {
@@ -958,14 +967,26 @@ defineExpose({ resetLayout })
           <span>GPU 图形渲染器不可用</span>
           <small>{{ gpuRenderError }}</small>
         </div>
-        <button
-          v-if="canvas.userPanned.value && hasNewTail"
-          type="button"
-          class="tree-return-tail"
-          @click.stop="returnToBottom"
-        >
-          回到最新
-        </button>
+        <div class="tree-float-actions">
+          <button
+            v-if="canvas.userPanned.value"
+            type="button"
+            class="tree-float-action"
+            aria-label="复位视图"
+            title="复位视图"
+            @click.stop="resetLayout"
+          >
+            ↻ 复位视图
+          </button>
+          <button
+            v-if="canvas.userPanned.value && hasNewTail"
+            type="button"
+            class="tree-return-tail"
+            @click.stop="returnToBottom"
+          >
+            回到最新
+          </button>
+        </div>
         <div v-if="persistentGraph.diagnostics.length" class="graph-diagnostic" role="alert">
           <span>执行图数据异常（{{ persistentGraph.diagnostics.length }}）</span>
           <button type="button" :disabled="recoveringGraph" @click.stop="recoverGraph">
@@ -1156,11 +1177,39 @@ defineExpose({ resetLayout })
   outline: 2px solid #b5fff2;
   outline-offset: 2px;
 }
-.tree-return-tail {
+.tree-float-actions {
   position: absolute;
   right: 16px;
   bottom: 16px;
   z-index: var(--nx-z-chrome);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+.tree-float-action {
+  padding: 6px 12px;
+  border: 1px solid rgba(138, 211, 228, 0.5);
+  border-radius: 8px;
+  background: rgba(9, 32, 44, 0.92);
+  color: #bfe9f5;
+  font:
+    600 11px/1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: transform 140ms ease;
+  &:hover {
+    transform: translateY(-2px);
+  }
+}
+.tree-return-tail {
   padding: 6px 12px;
   border: 1px solid rgba(246, 183, 60, 0.7);
   border-radius: 8px;

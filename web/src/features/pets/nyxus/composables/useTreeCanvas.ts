@@ -282,6 +282,8 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     const oldScale = scale.value
     const nextScale = clampScale(oldScale * Math.exp(-event.deltaY * 0.0014))
     if (nextScale === oldScale) return
+    // 缩放同样是手动改变视图：暂停自动跟随，并让「复位视图」浮标出现。
+    userPanned.value = true
     const contentX = (anchorX - offsetX.value) / oldScale
     const contentY = (anchorY - offsetY.value) / oldScale
     scale.value = nextScale

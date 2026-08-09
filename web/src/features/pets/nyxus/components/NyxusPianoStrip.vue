@@ -14,7 +14,6 @@ import type { ApprovalState } from '@/stores/agents'
 import type { ChatSummary } from '@/services/agentApi'
 import {
   BASE_MIDI,
-  WHITE_H,
   WHITE_W,
   isBlackKey,
   keyboardKeyCount,
@@ -72,6 +71,8 @@ const layout = computed(() =>
 )
 
 const viewportRef = ref<HTMLElement | null>(null)
+const keyboardRef = ref<HTMLElement | null>(null)
+const keyboardW = ref(0)
 const drag = useDragPan({
   viewportWidth: () => viewportRef.value?.clientWidth ?? 0,
   contentWidth: () => layout.value.trackWidth,
@@ -83,8 +84,10 @@ onMounted(() => {
   const el = viewportRef.value
   if (!el) return
   viewportW.value = el.clientWidth
+  keyboardW.value = keyboardRef.value?.clientWidth ?? 0
   pianoRO = new ResizeObserver(() => {
     viewportW.value = el.clientWidth
+    keyboardW.value = keyboardRef.value?.clientWidth ?? 0
   })
   pianoRO.observe(el)
 })
@@ -211,8 +214,8 @@ function onKeyUp(e: PointerEvent): void {
   window.removeEventListener('pointercancel', onKeyUp)
 }
 
-// ── 拖拽删除（二次确认 = 拖到面板右上角垃圾桶释放，不开弹窗） ──
-// hover 可删键 -> 键下方显清除 icon；按住 icon 拖拽 -> 顶栏垃圾桶强化显示；
+// ── 拖拽删除（二次确认 = 拖到顶部垃圾桶释放，不开弹窗） ──
+// hover 可删键 -> 键顶部显清除 icon；垃圾桶滑到该键附近顶行；按住 icon 拖拽 ->
 // 释放在垃圾桶上 -> emit delete。运行中/pending 审批键不可删（deletable=false，icon 不显）。
 const hoveredIdx = ref<number | null>(null)
 const hoveredKeyView = computed<KeyView | null>(() =>
@@ -225,18 +228,48 @@ const clearIconLeft = computed(() => {
   // 绝对定位相对 .piano-stage；琴键轨在其左右 6px 内边距之后。
   return 6 + v.geom.left + drag.offsetX.value + v.geom.width / 2
 })
-/** 删除按钮贴琴键底边下方。 */
-/** 清除按钮统一贴琴轨最底部（不随白/黑键高度变化）。 */
-const clearIconTop = WHITE_H - 3
+/** 清除按钮贴琴键顶部：黑白键顶部对齐 y=0，黑->白键移动不换位，避免从底部拉拽时跨键换位点不到。 */
+const clearIconTop = 0
 
 const trashRef = ref<HTMLElement | null>(null)
-const clearDrag = ref<{ chatId: string } | null>(null)
+const clearDrag = ref<{ chatId: string; centerX: number } | null>(null)
 const ghostX = ref(0)
 const ghostY = ref(0)
 const overTrash = ref(false)
 const dumping = ref(false)
 const ghostFlying = ref(false)
 const deletingChatId = ref<string | null>(null)
+/**
+ * 自适应垃圾桶：interact（hover 可删键 / 拖拽）时滑到焦点键附近顶行，idle 回右上角。
+ * 焦点 = 拖拽源键（centerX 在 onClearDown 冻结）否则 hover 键中心；x clamp 到面板内。
+ */
+const TRASH_SIZE = 24
+const TRASH_MARGIN = 4
+/** 垃圾桶锚点到焦点键右上的水平偏移：不贴键正上方，留一段拖拽动作空间，clamp 后不会太远。 */
+const TRASH_RIGHT_OFFSET = 48
+/** 右上角预留宽：头部右侧 padding 2 + 静音键 24 + gap 4 + 垃圾桶 24 = 54。 */
+const IDLE_RIGHT_RESERVE = 54
+const focusCenterX = computed<number>(() => {
+  if (clearDrag.value) return clearDrag.value.centerX
+  const v = hoveredKeyView.value
+  if (!v) return Number.NaN
+  return 6 + v.geom.left + drag.offsetX.value + v.geom.width / 2
+})
+const trashStyle = computed<Record<string, string>>(() => {
+  const w = keyboardW.value
+  const size = TRASH_SIZE
+  const cx = focusCenterX.value
+  if (!Number.isFinite(cx) || w <= 0) {
+    return { left: `${Math.max(w - IDLE_RIGHT_RESERVE, TRASH_MARGIN)}px`, top: '2px' }
+  }
+  // 锚定焦点键右上方：向右偏移一段让拖拽动作自然；clamp 保证右缘键仍贴右缘不越界。
+  const tx = cx + TRASH_RIGHT_OFFSET
+  const left = Math.min(
+    Math.max(tx - size / 2, TRASH_MARGIN),
+    Math.max(w - size - TRASH_MARGIN, TRASH_MARGIN),
+  )
+  return { left: `${left}px`, top: '2px' }
+})
 /** 删除交互进行中（hover 可删键 / 拖拽 / ghost 飞入 / 倒掉动画）：通知父级锁定 popout 不关闭。 */
 const interacting = computed(
   () =>
@@ -334,7 +367,10 @@ function onClearDown(e: PointerEvent, v: KeyView): void {
   e.stopPropagation()
   e.preventDefault()
   clearPointerId = e.pointerId
-  clearDrag.value = { chatId: v.chatId }
+  clearDrag.value = {
+    chatId: v.chatId,
+    centerX: 6 + v.geom.left + drag.offsetX.value + v.geom.width / 2,
+  }
   ghostX.value = e.clientX
   ghostY.value = e.clientY
   window.addEventListener('pointermove', onClearMove)
@@ -365,7 +401,7 @@ onScopeDispose(() => {
 </script>
 
 <template>
-  <div class="piano-keyboard">
+  <div ref="keyboardRef" class="piano-keyboard">
     <header class="piano-panel-head">
       <span class="piano-panel-title">NYXUS · SESSION KEYS</span>
       <span class="piano-panel-actions">
@@ -380,28 +416,30 @@ onScopeDispose(() => {
         >
           <span aria-hidden="true">{{ audio.muted.value ? '∅' : '♪' }}</span>
         </button>
-        <span
-          ref="trashRef"
-          class="piano-trash-target"
-          :class="{ 'is-ready': clearDrag, 'is-over': overTrash, 'is-dumping': dumping }"
-          :title="clearDrag ? '松开以删除该会话' : '将琴键上的清除按钮拖到这里'"
-          aria-label="删除会话拖放目标"
-        >
-          <svg class="trash-svg" viewBox="0 0 24 24" aria-hidden="true">
-            <g class="trash-lid">
-              <rect x="5" y="5" width="14" height="2.2" rx="0.6" />
-              <rect x="10" y="2.6" width="4" height="2.6" rx="0.6" />
-            </g>
-            <g class="trash-body">
-              <path d="M6.5 8 L17.5 8 L16.3 21 H7.7 Z" />
-              <line class="trash-content" x1="9.5" y1="11" x2="9.5" y2="18" />
-              <line class="trash-content" x1="12" y1="11" x2="12" y2="18" />
-              <line class="trash-content" x1="14.5" y1="11" x2="14.5" y2="18" />
-            </g>
-          </svg>
-        </span>
       </span>
     </header>
+    <!-- 自适应垃圾桶：interact 时滑到焦点键附近顶行，idle 回右上角。 -->
+    <span
+      ref="trashRef"
+      class="piano-trash-target"
+      :class="{ 'is-ready': clearDrag || hoveredKeyView?.deletable, 'is-over': overTrash, 'is-dumping': dumping }"
+      :style="trashStyle"
+      :title="clearDrag ? '松开以删除该会话' : '将琴键顶部的清除按钮拖到这里'"
+      aria-label="删除会话拖放目标"
+    >
+      <svg class="trash-svg" viewBox="0 0 24 24" aria-hidden="true">
+        <g class="trash-lid">
+          <rect x="5" y="5" width="14" height="2.2" rx="0.6" />
+          <rect x="10" y="2.6" width="4" height="2.6" rx="0.6" />
+        </g>
+        <g class="trash-body">
+          <path d="M6.5 8 L17.5 8 L16.3 21 H7.7 Z" />
+          <line class="trash-content" x1="9.5" y1="11" x2="9.5" y2="18" />
+          <line class="trash-content" x1="12" y1="11" x2="12" y2="18" />
+          <line class="trash-content" x1="14.5" y1="11" x2="14.5" y2="18" />
+        </g>
+      </svg>
+    </span>
     <div class="piano-stage">
       <div
         ref="viewportRef"
@@ -424,7 +462,7 @@ onScopeDispose(() => {
             v-for="v in keyViews"
             :key="v.geom.index"
             :content="v.tip"
-            placement="top"
+            placement="bottom"
             :show-after="150"
           >
             <button
@@ -462,13 +500,13 @@ onScopeDispose(() => {
         </div>
         <div v-else class="piano-empty">暂无历史会话</div>
       </div>
-      <!-- 清除按钮：hover 可删键时在其底部中心显示，按住拖到右上角垃圾桶才删除。 -->
+      <!-- 清除按钮：hover 可删键时在其顶部中心显示，按住拖到上方垃圾桶才删除。 -->
       <button
         v-if="hoveredKeyView?.deletable"
         type="button"
         class="key-clear-icon"
         :style="{ left: clearIconLeft + 'px', top: clearIconTop + 'px' }"
-        title="拖到右上角垃圾桶删除该会话"
+        title="拖到上方垃圾桶删除该会话"
         @pointerdown="onClearDown($event, hoveredKeyView!)"
         @pointerenter="onIconEnter"
         @pointerleave="onIconLeave($event)"
@@ -777,7 +815,7 @@ onScopeDispose(() => {
   }
 }
 
-// ── 拖拽删除：琴键底部中心圆形 × 按钮 ──
+// ── 拖拽删除：琴键顶部中心圆形 × 按钮 ──
 .key-clear-icon {
   position: absolute;
   transform: translateX(-50%);
@@ -824,8 +862,12 @@ onScopeDispose(() => {
   pointer-events: none;
 }
 .piano-trash-target {
+  position: absolute;
+  top: 2px;
+  z-index: 30;
   pointer-events: none;
   transition:
+    left 200ms cubic-bezier(0.23, 1, 0.32, 1),
     color 140ms ease,
     background-color 140ms ease;
   .trash-svg {

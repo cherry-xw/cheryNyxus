@@ -119,6 +119,9 @@ const navigationStyle = computed<CSSProperties>(() => ({
   }px`,
   top: `${props.anchorY - STAGE_HEIGHT / 2}px`,
 }))
+// rail 在节点右侧时，stage 左缘朝向节点，active 卡仍落在 +x（右缘）会背对节点；
+// 水平取反后 active 落左缘贴节点，上方按钮随之到最左，与左侧渲染对称。
+const mirrorX = computed(() => (props.side === 'right' ? -1 : 1))
 
 let wheelAccumulator = 0
 let wheelResetTimer: ReturnType<typeof setTimeout> | undefined
@@ -303,12 +306,12 @@ function onFocusOut(event: FocusEvent): void {
 }
 
 function seamPoint(): { x: number; y: number } {
-  return { x: -42, y: animationDirection.value > 0 ? 16 : -16 }
+  return { x: -42 * mirrorX.value, y: animationDirection.value > 0 ? 16 : -16 }
 }
 
 function cardPoint(card: RenderedWheelCard): { x: number; y: number; opacity: number } {
   const slot = motionAtTarget.value ? card.target : card.source
-  if (slot) return { x: slot.x, y: slot.y, opacity: slot.opacity }
+  if (slot) return { x: slot.x * mirrorX.value, y: slot.y, opacity: slot.opacity }
   return { ...seamPoint(), opacity: 0 }
 }
 

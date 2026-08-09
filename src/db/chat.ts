@@ -1,5 +1,6 @@
 import { getSoulDb, getMonthlyDb } from './index.js'
 import { safeJsonParse } from '@/utils/json.js'
+import config from '@/utils/config.js'
 import type { ThinkingBlock } from '@/core/message/adapter.js'
 
 export interface ChatRow {
@@ -384,6 +385,28 @@ export function getChatPreset(chatId: string): string | undefined {
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
   const p = parsed.preset
   return typeof p === 'string' && p.length > 0 ? p : undefined
+}
+
+/**
+ * 读取 chat 自身的角色 type（self-spawn 禁止用：角色不能派发任务给自己）。
+ * - 子 chat：metadata.type（spawn_role 创建时写入，如 housekeeper）。
+ * - 主 chat：无 type 字段 → 回退 preset.leader（config.presets[preset].leader，主 chat 自身角色）。
+ * 缺省（无 preset 的非子 chat / 未知）→ undefined → 不做 self 排除。
+ */
+export function getChatType(chatId: string): string | undefined {
+  const db = getSoulDb()
+  const row = db.prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    { metadata: string | null } | undefined
+  if (!row?.metadata) return undefined
+  const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  const t = parsed.type
+  if (typeof t === 'string' && t.length > 0) return t
+  const presetName = parsed.preset
+  if (typeof presetName === 'string' && presetName.length > 0) {
+    const leader = config.presets?.[presetName]?.leader
+    if (typeof leader === 'string' && leader.length > 0) return leader
+  }
+  return undefined
 }
 
 /**

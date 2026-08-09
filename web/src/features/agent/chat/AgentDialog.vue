@@ -84,17 +84,17 @@ const {
 /** Cherry Nyxus 会话：节点树铺满工作台，历史钢琴与角色卡从右侧 dock 按需展开。 */
 const dialogVisible = computed(() => !!chatId.value || emptyNyxusDialog.value)
 const isNyxus = computed(() => emptyNyxusDialog.value || presetName.value === CHERY_NYXUS_PRESET)
-const branchTreeRef = ref<InstanceType<typeof MessageBranchTree> | null>(null)
 const nyxusDraftActive = ref(false)
 const treeFolded = ref(true)
-const toolDrawerOpen = ref(false)
-const toolDrawerPinned = ref(false)
-let toolDrawerCloseTimer: ReturnType<typeof setTimeout> | undefined
 const pianoOpen = ref(false)
 /** 删除交互期间锁定 popout：hover 可删键 / 拖拽 / 倒掉动画时为 true，跳过延迟关闭。 */
 const pianoPinned = ref(false)
 let pianoCloseTimer: ReturnType<typeof setTimeout> | undefined
 let pianoCloseRequested = false
+const roleListOpen = ref(false)
+/** 角色列表配置交互期间锁定：点击内部控件（select 等）时置位，防 hover 误关。 */
+const roleListPinned = ref(false)
+let roleListCloseTimer: ReturnType<typeof setTimeout> | undefined
 // AgentComposer 的 3 个 DOM ref 桥接回 useAgentDialogOptions（selectCommand / commandMenuStyle 等依赖）。
 const editorRefFn = (el: HTMLElement | null) => {
   editorRef.value = el
@@ -105,48 +105,12 @@ const commandMenuRefFn = (el: HTMLElement | null) => {
 const roleMenuRefFn = (el: HTMLElement | null) => {
   roleMenuRef.value = el
 }
-function cancelToolDrawerClose(): void {
-  if (toolDrawerCloseTimer) clearTimeout(toolDrawerCloseTimer)
-  toolDrawerCloseTimer = undefined
-}
-function openToolDrawer(): void {
-  cancelToolDrawerClose()
-  toolDrawerOpen.value = true
-}
-function toggleToolDrawer(): void {
-  if (toolDrawerPinned.value) {
-    closeToolDrawer()
-    return
-  }
-  openToolDrawer()
-  toolDrawerPinned.value = true
-}
-function scheduleToolDrawerClose(): void {
-  if (toolDrawerPinned.value) return
-  if (toolDrawerCloseTimer) clearTimeout(toolDrawerCloseTimer)
-  toolDrawerCloseTimer = setTimeout(() => {
-    toolDrawerOpen.value = false
-    toolDrawerCloseTimer = undefined
-    if (!pianoPinned.value) pianoOpen.value = false
-  }, 120)
-}
-function closeToolDrawer(): void {
-  if (toolDrawerCloseTimer) clearTimeout(toolDrawerCloseTimer)
-  toolDrawerCloseTimer = undefined
-  toolDrawerPinned.value = false
-  toolDrawerOpen.value = false
-  if (!pianoPinned.value) pianoOpen.value = false
-}
-function onToolNavFocusOut(event: FocusEvent): void {
-  const nav = event.currentTarget as HTMLElement | null
-  if (nav?.contains(event.relatedTarget as Node | null)) return
-  if (nav?.matches(':hover')) return
-  scheduleToolDrawerClose()
-}
 function showPiano(): void {
   if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
   pianoCloseTimer = undefined
   pianoCloseRequested = false
+  // 与角色列表互斥：展开钢琴时收起角色列表。
+  closeRoleList()
   pianoOpen.value = true
 }
 function schedulePianoClose(): void {
@@ -169,9 +133,46 @@ function onPianoInteracting(v: boolean): void {
   }
   if (pianoCloseRequested) schedulePianoClose()
 }
+// ── 角色列表（参照钢琴 popout：hover/click 展开、延迟关闭、交互期间锁定） ──
+function showRoleList(): void {
+  if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
+  roleListCloseTimer = undefined
+  // 与钢琴互斥：展开角色列表时收起钢琴。
+  if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
+  pianoCloseTimer = undefined
+  pianoOpen.value = false
+  roleListOpen.value = true
+}
+function scheduleRoleListClose(): void {
+  if (roleListPinned.value) return
+  if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
+  roleListCloseTimer = setTimeout(() => {
+    roleListOpen.value = false
+    roleListCloseTimer = undefined
+  }, 160)
+}
+function closeRoleList(): void {
+  if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
+  roleListCloseTimer = undefined
+  roleListPinned.value = false
+  roleListOpen.value = false
+}
+function toggleRoleList(): void {
+  if (roleListOpen.value) closeRoleList()
+  else showRoleList()
+}
+/** 点击 popout/按钮之外 → 关闭（配置面板点外部关闭）。 */
+function onRoleOutsidePointerDown(e: PointerEvent): void {
+  const t = e.target as HTMLElement | null
+  if (t?.closest('.nyxus-role-popout') || t?.closest('.nyxus-role-tool')) return
+  closeRoleList()
+}
+watch(roleListOpen, (open) => {
+  if (open) window.addEventListener('pointerdown', onRoleOutsidePointerDown)
+  else window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
+})
 function activateNyxusInput(): void {
   nyxusDraftActive.value = true
-  closeToolDrawer()
   void nextTick(() => editorRef.value?.focus())
 }
 function cancelNyxusInput(): void {
@@ -185,9 +186,6 @@ async function sendFromComposer(): Promise<void> {
   if (isNyxus.value) nyxusDraftActive.value = false
   await handleSend()
   if (isNyxus.value && text.value) nyxusDraftActive.value = true
-}
-function resetBranchTree(): void {
-  branchTreeRef.value?.resetLayout()
 }
 /** 查看 Nyxus 会话完整对话历史：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
 function openHistory(): void {
@@ -331,7 +329,6 @@ async function deleteNyxusSession(targetId: string): Promise<void> {
 
 function closeDialog(): void {
   const observedRoot = treeRootChatId.value
-  closeToolDrawer()
   cancelNyxusInput()
   emptyNyxusDialog.value = false
   closeAgentDialog()
@@ -408,7 +405,8 @@ onBeforeUnmount(() => {
     window.removeEventListener('scroll', positionCommandMenu, true)
   }
   if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
-  if (toolDrawerCloseTimer) clearTimeout(toolDrawerCloseTimer)
+  if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
+  window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
 })
 
 /** 颜色分级（与 SessionList / HistoryDrawerPanel / ContextBar 对齐：<50% 绿 / 50-80% 黄 / >=80% 红）。 */
@@ -466,7 +464,6 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
       <div v-if="isNyxus" class="nyxus-branch-top">
         <MessageBranchTree
           v-if="treeRootChatId"
-          ref="branchTreeRef"
           :key="treeRootChatId"
           :root-chat-id="treeRootChatId"
           :folded="treeFolded"
@@ -562,9 +559,8 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         v-if="isNyxus"
         class="nyxus-side-tools"
         aria-label="Nyxus 功能工具栏"
-        @focusout="onToolNavFocusOut"
-        @keydown.esc.stop.prevent="closeToolDrawer"
       >
+        <div class="nyxus-tool-column">
         <div class="nyxus-primary-tools" aria-label="主要操作">
           <button
             type="button"
@@ -592,129 +588,67 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             <span aria-hidden="true">{{ sessionControl.mode === 'stop' ? '■' : '▶' }}</span>
           </button>
         </div>
-        <div
-          class="nyxus-tool-capsule"
-          :class="{ 'is-expanded': toolDrawerOpen }"
-          @pointerenter="openToolDrawer"
-          @pointerleave="scheduleToolDrawerClose"
-        >
-          <section
-            v-if="toolDrawerOpen"
-            id="nyxus-tool-capsule-content"
-            class="nyxus-capsule-content"
-            aria-label="更多工具"
-          >
-            <div class="nyxus-capsule-group" role="group" aria-label="会话工具">
-              <button
-                type="button"
-                class="nyxus-drawer-tool"
-                :disabled="!chatId"
-                aria-label="对话历史"
-                title="对话历史"
-                @click="openHistory"
-              >
-                <span aria-hidden="true">◷</span>
-              </button>
-              <button
-                type="button"
-                class="nyxus-drawer-tool"
-                :class="{ 'is-busy': creating }"
-                :disabled="creating"
-                aria-label="新建会话"
-                title="新建会话"
-                @click="createSession"
-              >
-                <span aria-hidden="true">＋</span>
-              </button>
-              <div
-                class="nyxus-piano-tool"
-                @pointerenter="showPiano"
-                @focusin="showPiano"
-              >
-                <button
-                  type="button"
-                  class="nyxus-drawer-tool"
-                  :class="{ 'is-active': pianoOpen }"
-                  aria-label="会话钢琴"
-                  title="会话钢琴"
-                  :aria-expanded="pianoOpen"
-                  @click="showPiano"
-                >
-                  <span aria-hidden="true">▥</span>
-                </button>
-              </div>
-            </div>
-            <div class="nyxus-capsule-group is-secondary" role="group" aria-label="视图与配置工具">
-              <button
-                type="button"
-                class="nyxus-drawer-tool"
-                :class="{ 'is-active': treeFolded }"
-                :aria-label="treeFolded ? '展开完整节点树' : '折叠已完成节点'"
-                :title="treeFolded ? '展开完整节点树' : '折叠已完成节点'"
-                :aria-pressed="treeFolded"
-                @click="treeFolded = !treeFolded"
-              >
-                <span aria-hidden="true">{{ treeFolded ? '▤' : '☷' }}</span>
-              </button>
-              <button
-                type="button"
-                class="nyxus-drawer-tool"
-                aria-label="复位布局"
-                title="复位布局"
-                @click="resetBranchTree"
-              >
-                <span aria-hidden="true">↻</span>
-              </button>
-              <el-popover
-                trigger="click"
-                placement="left-start"
-                :width="440"
-                popper-class="role-runtime-popper nyxus-role-popper"
-              >
-                <template #reference>
-                  <button
-                    type="button"
-                    class="nyxus-drawer-tool"
-                    aria-label="角色配置"
-                    title="角色配置"
-                  >
-                    <span aria-hidden="true">♟</span>
-                  </button>
-                </template>
-                <div class="nyxus-role-card-list" aria-label="Nyxus 角色列表">
-                  <div v-if="loading" class="nyxus-role-loading">角色加载中…</div>
-                  <template v-else>
-                    <RoleConfigPopover
-                      v-for="[role, selection] in orderedRoleSelections"
-                      :key="role"
-                      :role="role"
-                      :selection="selection"
-                      :brains="brains"
-                      :sense-groups="senseGroups"
-                      :config="config"
-                      :sense-tools="senseTools"
-                      :is-primary="role === primaryRole"
-                      :primary-role="primaryRole"
-                      @update:selection="roleSelections[role] = $event"
-                    />
-                  </template>
-                </div>
-              </el-popover>
-            </div>
-          </section>
+        <div class="nyxus-tool-group" role="group" aria-label="会话工具">
           <button
             type="button"
-            class="nyxus-drawer-handle"
-            :class="{ 'is-open': toolDrawerOpen }"
-            aria-label="更多工具"
-            title="更多工具"
-            aria-controls="nyxus-tool-capsule-content"
-            :aria-expanded="toolDrawerOpen"
-            @focus="openToolDrawer"
-            @click="toggleToolDrawer"
+            class="nyxus-rail-action"
+            :disabled="!chatId"
+            aria-label="对话历史"
+            title="对话历史"
+            @click="openHistory"
           >
-            <span class="nyxus-drawer-handle-dots" aria-hidden="true"><i /><i /><i /></span>
+            <span aria-hidden="true">◷</span>
           </button>
+          <button
+            type="button"
+            class="nyxus-rail-action"
+            :disabled="creating"
+            aria-label="新建会话"
+            title="新建会话"
+            @click="createSession"
+          >
+            <span aria-hidden="true">＋</span>
+          </button>
+          <div class="nyxus-piano-tool" @pointerenter="showPiano" @focusin="showPiano">
+            <button
+              type="button"
+              class="nyxus-rail-action"
+              :class="{ 'is-active': pianoOpen }"
+              aria-label="会话钢琴"
+              title="会话钢琴"
+              :aria-expanded="pianoOpen"
+              @click="showPiano"
+            >
+              <span aria-hidden="true">▥</span>
+            </button>
+          </div>
+        </div>
+        <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
+          <button
+            type="button"
+            class="nyxus-rail-action"
+            :class="{ 'is-active': treeFolded }"
+            :aria-label="treeFolded ? '展开完整节点树' : '折叠已完成节点'"
+            :title="treeFolded ? '展开完整节点树' : '折叠已完成节点'"
+            :aria-pressed="treeFolded"
+            @click="treeFolded = !treeFolded"
+          >
+            <span aria-hidden="true">{{ treeFolded ? '▤' : '☷' }}</span>
+          </button>
+          <div class="nyxus-role-tool" @pointerenter="showRoleList" @focusin="showRoleList">
+            <button
+              type="button"
+              class="nyxus-rail-action"
+              :class="{ 'is-active': roleListOpen }"
+              aria-label="角色配置"
+              title="角色配置"
+              :aria-expanded="roleListOpen"
+              @click="toggleRoleList"
+            >
+              <span aria-hidden="true">♟</span>
+            </button>
+          </div>
+        </div>
         </div>
         <AnimatePresence>
           <MotionDiv
@@ -725,14 +659,47 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             :animate="{ opacity: 1, transform: 'translateX(0) scale(1)' }"
             :exit="{ opacity: 0, transform: 'translateX(14px) scale(0.97)' }"
             :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
-            @pointerenter="openToolDrawer(); showPiano()"
-            @pointerleave="scheduleToolDrawerClose(); schedulePianoClose()"
+            @pointerenter="showPiano()"
+            @pointerleave="schedulePianoClose()"
           >
             <NyxusPianoStrip
               @select="switchSession"
               @delete="deleteNyxusSession"
               @interacting-change="onPianoInteracting"
             />
+          </MotionDiv>
+        </AnimatePresence>
+        <AnimatePresence>
+          <MotionDiv
+            v-if="roleListOpen"
+            key="role-popout"
+            class="nyxus-role-popout"
+            :initial="{ opacity: 0, transform: 'translateX(18px) translateY(-50%) scale(0.96)' }"
+            :animate="{ opacity: 1, transform: 'translateX(0) translateY(-50%) scale(1)' }"
+            :exit="{ opacity: 0, transform: 'translateX(14px) translateY(-50%) scale(0.97)' }"
+            :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
+            @pointerenter="showRoleList()"
+            @pointerleave="scheduleRoleListClose()"
+            @pointerdown="roleListPinned = true"
+          >
+            <div class="nyxus-role-card-list" aria-label="Nyxus 角色列表">
+              <div v-if="loading" class="nyxus-role-loading">角色加载中…</div>
+              <template v-else>
+                <RoleConfigPopover
+                  v-for="[role, selection] in orderedRoleSelections"
+                  :key="role"
+                  :role="role"
+                  :selection="selection"
+                  :brains="brains"
+                  :sense-groups="senseGroups"
+                  :config="config"
+                  :sense-tools="senseTools"
+                  :is-primary="role === primaryRole"
+                  :primary-role="primaryRole"
+                  @update:selection="roleSelections[role] = $event"
+                />
+              </template>
+            </div>
           </MotionDiv>
         </AnimatePresence>
       </nav>
@@ -974,15 +941,26 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   z-index: var(--nx-z-chrome);
   top: 50%;
   right: max(10px, env(safe-area-inset-right));
-  width: 148px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   transform: translateY(-50%);
   pointer-events: none;
 }
+/* 内部滚动列承载高度限制；弹窗作为 nav 兄弟节点，避免被 overflow 裁剪。 */
+.nyxus-tool-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .nyxus-primary-tools {
-  width: 30px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  margin: 0 0 6px auto;
   pointer-events: auto;
 }
 .nyxus-rail-action {
@@ -1021,115 +999,30 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 .nyxus-rail-action.is-resume {
   color: #c8ffda;
 }
-.nyxus-tool-capsule {
-  width: 148px;
-  height: 66px;
-  display: flex;
-  justify-content: flex-end;
-  box-sizing: border-box;
-  border: 1px solid rgba(138, 211, 228, 0.16);
-  border-radius: 15px;
-  background: rgba(5, 18, 27, 0.68);
-  box-shadow: -6px 8px 22px rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(12px) saturate(120%);
-  clip-path: inset(0 0 0 116px round 15px);
-  pointer-events: auto;
-  transition: clip-path 180ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-.nyxus-tool-capsule.is-expanded {
-  clip-path: inset(0 0 0 0 round 15px);
-}
-.nyxus-capsule-content {
-  width: 116px;
-  box-sizing: border-box;
-  display: grid;
-  grid-template-rows: repeat(2, 1fr);
-  padding: 4px 3px 4px 5px;
-}
-.nyxus-capsule-group {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: center;
-  gap: 2px;
-}
-.nyxus-capsule-group.is-secondary {
-  border-top: 1px solid rgba(145, 207, 219, 0.08);
-}
-.nyxus-drawer-handle {
-  position: relative;
-  flex: 0 0 31px;
-  width: 31px;
-  height: 64px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-left: 1px solid rgba(155, 215, 226, 0.09);
-  border-radius: 0 14px 14px 0;
-  color: rgba(202, 231, 237, 0.64);
-  background: transparent;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    color 120ms ease,
-    background-color 120ms ease;
-}
-.nyxus-drawer-handle.is-open {
-  color: #eafffa;
-  background: rgba(112, 225, 205, 0.13);
-}
-.nyxus-drawer-handle-dots {
+/* 分组间用一条分割线切割，不做边框盒子；按钮与发送按钮同款 rail-action。 */
+.nyxus-tool-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(145, 207, 219, 0.16);
+  pointer-events: auto;
 }
-.nyxus-drawer-handle-dots i {
-  width: 2px;
-  height: 2px;
-  border-radius: 50%;
-  background: currentColor;
+.nyxus-tool-group.is-secondary {
+  border-top-color: rgba(145, 207, 219, 0.16);
 }
-.nyxus-rail-action:active:not(:disabled),
-.nyxus-drawer-handle:active,
-.nyxus-drawer-tool:active:not(:disabled) {
+.nyxus-piano-tool,
+.nyxus-role-tool {
+  position: relative;
+}
+.nyxus-rail-action:active:not(:disabled) {
   transform: scale(0.97);
 }
-.nyxus-rail-action:disabled,
-.nyxus-drawer-tool:disabled {
+.nyxus-rail-action:disabled {
   cursor: not-allowed;
   opacity: 0.36;
 }
-.nyxus-drawer-tool {
-  width: 100%;
-  height: 27px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  color: rgba(216, 241, 245, 0.7);
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-  line-height: 1;
-  transition:
-    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    color 120ms ease,
-    background-color 120ms ease;
-}
-.nyxus-piano-tool {
-  position: relative;
-  width: 100%;
-}
-.nyxus-drawer-tool.is-active {
-  color: #c8fff2;
-  background: rgba(83, 211, 187, 0.1);
-}
 .nyxus-rail-action:focus-visible,
-.nyxus-drawer-handle:focus-visible,
-.nyxus-drawer-tool:focus-visible,
 .nyxus-page-close:focus-visible {
   outline: 2px solid #b5fff2;
   outline-offset: 2px;
@@ -1167,12 +1060,36 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 .nyxus-piano-popout :deep(.piano-viewport) {
   height: 112px;
 }
+.nyxus-role-popout {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  width: min(440px, calc(100vw - 190px));
+  padding: 0 7px 7px;
+  transform-origin: right center;
+  pointer-events: auto;
+}
 .nyxus-role-card-list {
   display: grid;
   gap: 10px;
-  max-height: min(72vh, 680px);
+  max-height: calc(100vh - 128px);
   overflow: auto;
   padding: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 221, 151, 0.4) transparent;
+}
+.nyxus-role-card-list::-webkit-scrollbar {
+  width: 6px;
+}
+.nyxus-role-card-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nyxus-role-card-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 221, 151, 0.4);
+  border-radius: 3px;
+}
+.nyxus-role-card-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 221, 151, 0.6);
 }
 .nyxus-role-loading {
   padding: 18px;
@@ -1312,14 +1229,9 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
     border-color: #ff718c;
     background: rgba(86, 18, 37, 0.92);
   }
-  .nyxus-rail-action:hover:not(:active):not(:disabled),
-  .nyxus-drawer-handle:hover:not(:active) {
+  .nyxus-rail-action:hover:not(:active):not(:disabled) {
     color: #effffc;
     background: rgba(112, 225, 205, 0.11);
-  }
-  .nyxus-drawer-tool:hover:not(:active):not(:disabled) {
-    color: #f3fdff;
-    background: rgba(101, 207, 190, 0.11);
   }
   .nyxus-composer-close:hover:not(:disabled) {
     color: #edf5f7;
@@ -1367,12 +1279,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   .nyxus-piano-popout {
     transform: none !important;
   }
-  .nyxus-tool-capsule {
-    transition: none;
-  }
   .nyxus-rail-action,
-  .nyxus-drawer-handle,
-  .nyxus-drawer-tool,
   .nyxus-page-close,
   .nyxus-composer-close {
     transform: none !important;
@@ -1381,7 +1288,6 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 }
 @media (prefers-reduced-transparency: reduce) {
   .nyxus-rail-action,
-  .nyxus-tool-capsule,
   .nyxus-composer-dock {
     background: #071822;
     backdrop-filter: none;
@@ -1389,12 +1295,8 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 }
 @media (prefers-contrast: more) {
   .nyxus-rail-action,
-  .nyxus-tool-capsule,
   .nyxus-composer-dock {
     border-color: currentcolor;
-  }
-  .nyxus-drawer-tool {
-    border: 1px solid currentcolor;
   }
 }
 

@@ -52,6 +52,7 @@ function buildPromptSnapshot(chatId: string): {
   const isSubagent = !!getChat(chatId)?.parent_chat_id
   const runtime = new RuntimeResolver().resolve(selection, {
     injectMemoryManage: !isSubagent,
+    chatId,
   })
   const tools: PromptSnapshotTool[] = runtime.builtSenses.map((fn) => ({
     name: fn.function.name,

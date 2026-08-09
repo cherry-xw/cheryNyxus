@@ -12,6 +12,7 @@ import { getSense, loadMergedRuleSet } from '@/core/sense'
 import { getConnectedServerSenseNames } from '@/core/mcp'
 import { getSense as getBuiltinSense } from '@/core/sense'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
+import { buildSpawnRoleSense } from './sense/spawn.js'
 
 export interface RuntimeSelection {
   brain: string
@@ -105,7 +106,7 @@ export class RuntimeResolver {
    */
   resolve(
     selection: RuntimeSelection,
-    opts?: { injectMemoryManage?: boolean; ruleName?: string },
+    opts?: { injectMemoryManage?: boolean; ruleName?: string; chatId?: string },
   ): RuntimeConfig {
     this.validateSelection(selection)
 
@@ -116,6 +117,7 @@ export class RuntimeResolver {
       selection.mcpServers,
       brain.capabilities?.generate,
       opts?.injectMemoryManage ?? true,
+      opts?.chatId,
     )
 
     return {
@@ -175,6 +177,7 @@ export class RuntimeResolver {
     mcpServers: string[],
     generateCapabilities?: { image?: boolean; video?: boolean; audio?: boolean },
     injectMemoryManage = true,
+    chatId?: string,
   ): { builtSenses: SenseFunction[]; senseTable: Map<string, SenseEntry> } {
     const resolved = new Map<string, Sense<ZodType>>()
 
@@ -189,9 +192,15 @@ export class RuntimeResolver {
       const mediaKind = senseName.match(/^generate_(image|video|audio)$/)?.[1] as
         'image' | 'video' | 'audio' | undefined
       if (mediaKind && !generateCapabilities?.[mediaKind]) continue
-      const original = getSense(senseName)
+      let original = getSense(senseName)
       if (!original) {
         throw new Error(`感官 "${senseName}" 不存在，请在设置里检查`)
+      }
+
+      // spawn_role：「可见即可选」——按当前 chat roster 裁剪工具定义（preset 编制 + self-spawn 排除）。
+      // 工具 type 枚举只暴露本 chat 可派发角色，LLM 不再选到别处角色（原有执行期 roster gate 保留为纵深防御）。
+      if (senseName === 'spawn_role' && chatId) {
+        original = buildSpawnRoleSense(chatId)
       }
 
       const name = original.definition.function.name

@@ -96,7 +96,7 @@ presets:
 - **主 pet 创建**（`chat.create`）携带 `preset` 名 → 后端用 `config.presets[preset].leader` 查找对应的 `config.roles[leader]`，从中解析 `{brain, senseGroup, mcpServers}` 作 RuntimeSelection 快照写入 `metadata.runtime`；该角色的 `systemPrompt`（绝对路径）写入 `metadata.systemPromptFile`；`metadata.preset` 记预设名；`metadata.spawnTypes` 快照写入该预设选中的角色 type 列表（编制锁定一致）。主 pet 恒走预设（无独立 default；旧 default 迁为「默认」预设）。
 - **编制锁定**：创建即快照入 `metadata.runtime` + `metadata.spawnTypes`，运行后不可改（即便设置面板编辑预设，只影响**未来**新建 pet，已运行 chat 用自身快照）。
 - **runtime.set（preset chat）**：仅 `brain` 可覆盖，`senseGroup`/`mcpServers` 强制取现有快照；显式带了不同 senseGroup/mcp → fail loud（防前端绕过锁定）。
-- **spawn roster gate**：角色定义恒从 `config.roles[type]` 单一源解析；可 spawn 的类型集 = 该 chat 预设选中的 `spawnTypes` 快照（preset chat），未选中类型 spawn → fail loud。子 chat（无 preset）→ 全集 `config.roles` 可用（递归：子也可 spawn 子）。catalog 描述（LLM 可见）= `config.roles` 全集（模块加载期冻结，sense 定义不支持 per-chat 动态），实际 roster 由执行期 gate 强制。
+- **spawn roster gate（可见即可选）**：角色定义恒从 `config.roles[type]` 单一源解析；可 spawn 的类型集 = 该 chat 预设选中的 `spawnTypes` 快照（preset chat），未选中类型 spawn → fail loud。子 chat（无 preset）→ 全集 `config.roles` 可用（递归：子也可 spawn 子）。**self-spawn 禁止**：恒过滤当前 chat 自身角色 type（主=preset.leader，子=metadata.type）。**工具定义随 roster 裁剪**：per-chat 构建 spawn_role sense（`buildSpawnRoleSense`），工具 description 与 type enum 只暴露本 chat 可派发角色（预设编制 + 排除自身），LLM 看不到也不可选 diff 于编制的角色——「可见即可选」+「不可自派」双端一致（原先工具暴露全局全集、靠执行期 gate 拒绝导致 LLM 选错角色的缺陷已修）。
 
 **与 roles 关系**：`config.roles` 是角色的唯一来源（全字段 brain/senseGroup/mcpServers/systemPrompt）；预设只从中**选择** type 子集。todo 存在与否 = 是否在 senseGroup（无 task-scale 判断逻辑）。
 
@@ -150,20 +150,20 @@ UI 反馈：[web/src/features/pets/PetSprite.vue](../../web/src/features/pets/Pe
 **后端 eager 启动架构**（2026-07-23 收敛：从「前端驱动」改为「eager 后端启动」，子 agent 与主 agent 走完全相同的 `chat.send` → `handleChatSend` 流式路径）：
 
 ```ts
-// description 运行时拼接 catalog（= config.roles 单一源，让 LLM 可见可用类型及能力）
-// type 用 z.enum(roles 键) 硬约束，避免 LLM 幻觉类型名
-// catalog = config.roles 全集（模块加载期冻结）；实际可 spawn 类型由执行期 roster gate 强制
+// 【可见即可选】工具定义随 roster 裁剪：description 与 type enum 只暴露本 chat 可派发角色
+// (resolveSpawnRoster = preset 编制 + self-spawn 排除)；执行期 roster gate 保留为纵深防御。
+// type 用 z.enum(roster 键) 硬约束（空编制兜底 z.string()），避免 LLM 幻觉类型名
 sense(
   'spawn_role',
-  spawnDescription, // = "派发子 agent..." + 每类型 brain/senseGroup 清单 + wake 三值说明
+  buildSpawnDescription(roster), // = "派发子 agent..." + 本 chat roster 清单 + wake 三值说明
   z.object({
-    type: typeSchema, // z.enum(roles 键)（空配置兜底 z.string()）
+    type: schema, // z.enum(resolveSpawnRoster(chatId))（空编制兜底 z.string()）
     prompt: z.string(), // 交付子 agent 的任务
     wake: z.enum(['immediate','deferred','barrier']).default('immediate'),
   }),
   async (args, _sharedData, ctx) => {
     // 1. 子 agent 定义恒从 config.roles[type] 单一源解析（无则 throw）
-    //    roster gate：preset chat → metadata.spawnTypes 快照；子 chat（无 preset）→ 全集可用
+    //    roster gate：preset chat → metadata.spawnTypes 快照；子 chat（无 preset）→ 全集可用；self-spawn 恒排除
     // 2. createChat(childChatId, { runtime: {...}, systemPromptFile, wake, type, spawnPromptHash }, parentChatId=ctx.chatId)
     //    metadata.runtime 路径：子 agent pre-configured runtime，ensureChat 自动恢复
     //    metadata.wake + metadata.type 持久化：重启后 rebuildWaitedChildren 按策略重建唤醒链

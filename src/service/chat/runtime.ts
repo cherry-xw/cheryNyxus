@@ -120,7 +120,7 @@ async function ensureRuntime(chatId: string): Promise<ChatRuntime> {
 function configureRuntime(runtime: ChatRuntime, chatId: string, selection: RuntimeSelection): void {
   runtime.selection = selection
   const isMainAgent = !getChat(chatId)?.parent_chat_id
-  runtime.builder.configureRuntime(selection, isMainAgent, getChatRule(chatId))
+  runtime.builder.configureRuntime(selection, isMainAgent, getChatRule(chatId), chatId)
   // 持久化 selection 到 metadata.runtime，服务重启后 ensureChat 自动恢复
   updateChatMetadata(chatId, { runtime: selection })
 }
@@ -156,7 +156,7 @@ export async function setSessionRoleRuntimes(
 ): Promise<SessionRoleRuntimeResult> {
   const runtime = await ensureRuntime(chatId)
   runtime.selection = primary
-  runtime.builder.configureRuntime(primary, true, getChatRule(chatId))
+  runtime.builder.configureRuntime(primary, true, getChatRule(chatId), chatId)
   sessionRoleRuntimes.set(chatId, { primary, roles })
 
   // 回灌已存在的同 type 子 chat（修主发送界面改子角色 brain 不作用于已派发子的缺口）。
@@ -172,7 +172,7 @@ export async function setSessionRoleRuntimes(
       // chunk，与 ctx.runtime 解耦），同时持久化 metadata.runtime。下一轮 LLM 请求自然取新 brain。
       // 仅在日志层标记 deferredRunning（前端可选提示「下一轮生效」）；不静默。
       childRt.selection = sel
-      childRt.builder.configureRuntime(sel, false, getChatRule(childChatId))
+      childRt.builder.configureRuntime(sel, false, getChatRule(childChatId), childChatId)
       updateChatMetadata(childChatId, { runtime: sel })
       applied.push(childChatId)
       deferredRunning.push(childChatId)
@@ -182,7 +182,7 @@ export async function setSessionRoleRuntimes(
     // 下次 ensureChat 从 metadata 恢复（重启/切回皆生效）。
     if (childRt) {
       childRt.selection = sel
-      childRt.builder.configureRuntime(sel, false, getChatRule(childChatId))
+      childRt.builder.configureRuntime(sel, false, getChatRule(childChatId), childChatId)
     }
     updateChatMetadata(childChatId, { runtime: sel })
     applied.push(childChatId)
@@ -211,7 +211,7 @@ export function setEphemeralChatRuntime(chatId: string, selection: RuntimeSelect
   // 已初始化但尚未运行的复用子角色也切到临时编制；运行中的请求保持其启动时配置。
   if (runtime && !runtime.builder.isRunning()) {
     runtime.selection = selection
-    runtime.builder.configureRuntime(selection, false, getChatRule(chatId))
+    runtime.builder.configureRuntime(selection, false, getChatRule(chatId), chatId)
   }
 }
 

@@ -41,13 +41,19 @@ export class AgentBuilder {
   /**
    * 原子配置 brain + senseGroups，避免 provider 与工具定义处于半配置状态。
    * @param injectMemoryManage 主 agent 硬编码注入 memory_manage（默认 true）；子 agent 传 false
+   * @param chatId 透传 resolve，使 spawn_role 工具定义按本 chat roster 裁剪（preset 编制 + self-spawn 排除）。
    */
   configureRuntime(
     selection: RuntimeSelection,
     injectMemoryManage = true,
     ruleName?: string,
+    chatId?: string,
   ): this {
-    const runtime = this.runtimeResolver.resolve(selection, { injectMemoryManage, ruleName })
+    const runtime = this.runtimeResolver.resolve(selection, {
+      injectMemoryManage,
+      ruleName,
+      chatId,
+    })
     this.requireAgent().configureRuntime(runtime)
     return this
   }

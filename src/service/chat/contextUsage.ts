@@ -90,6 +90,7 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
         const isSubagent = !!getChat(chatId)?.parent_chat_id
         const runtime = new RuntimeResolver().resolve(selection, {
           injectMemoryManage: !isSubagent,
+          chatId,
         })
         let toolTokens = 0
         for (const fn of runtime.builtSenses) {
