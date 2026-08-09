@@ -11,19 +11,19 @@ export interface NodeSkin {
 
 /** Internal skin registry: rendering selects semantic keys, never hardcodes a theme in graph data. */
 export const NODE_SKINS: Record<NodeSkinKey, NodeSkin> = {
-  start: { key: 'start', glyph: '◉', accent: '#f6c85f', label: '开始' },
-  message: { key: 'message', glyph: '✦', accent: '#67d7ff', label: '消息' },
+  start: { key: 'start', glyph: '◉', accent: '#f6c85f', label: '任务起点' },
+  message: { key: 'message', glyph: '✦', accent: '#67d7ff', label: '对话内容' },
   user: { key: 'user', glyph: '●', accent: '#58d7f0', label: '我' },
-  'root-agent': { key: 'root-agent', glyph: '✹', accent: '#7da7ff', label: '主 Agent' },
-  'child-agent': { key: 'child-agent', glyph: '◆', accent: '#ed79bd', label: '子 Agent' },
-  'tool-batch': { key: 'tool-batch', glyph: '⬡', accent: '#ffca73', label: '工具批次' },
-  fold: { key: 'fold', glyph: '⋯', accent: '#9dd8ee', label: 'Fold' },
-  return: { key: 'return', glyph: '↩', accent: '#8bf0b1', label: '回传' },
-  dispatch: { key: 'dispatch', glyph: '⇢', accent: '#e29aff', label: '派发' },
-  spawn: { key: 'spawn', glyph: '⑂', accent: '#e29aff', label: '分支' },
-  system: { key: 'system', glyph: '◇', accent: '#b7a7ff', label: '系统' },
-  input: { key: 'input', glyph: '◌', accent: '#efc7ff', label: '我' },
-  unknown: { key: 'unknown', glyph: '?', accent: '#ff809b', label: '未知' },
+  'root-agent': { key: 'root-agent', glyph: '✹', accent: '#7da7ff', label: 'Cherry Nyxus' },
+  'child-agent': { key: 'child-agent', glyph: '◆', accent: '#ed79bd', label: '协作节点' },
+  'tool-batch': { key: 'tool-batch', glyph: '⬡', accent: '#ffca73', label: '工具执行' },
+  fold: { key: 'fold', glyph: '⋯', accent: '#9dd8ee', label: '过程组' },
+  return: { key: 'return', glyph: '↩', accent: '#8bf0b1', label: '结果返回' },
+  dispatch: { key: 'dispatch', glyph: '⇢', accent: '#e29aff', label: '任务委派' },
+  spawn: { key: 'spawn', glyph: '⑂', accent: '#e29aff', label: '创建协作节点' },
+  system: { key: 'system', glyph: '◇', accent: '#b7a7ff', label: '系统事件' },
+  input: { key: 'input', glyph: '◌', accent: '#efc7ff', label: '我的指令' },
+  unknown: { key: 'unknown', glyph: '?', accent: '#ff809b', label: '未识别节点' },
 }
 
 /** Every rendered execution-node kind has a read-only hover detail surface. */

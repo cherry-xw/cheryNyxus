@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createClickDisambiguator } from '../../../src/features/pets/nyxus/composables/clickDisambiguator'
 
-describe('Cherry Nexus click disambiguation', () => {
+describe('Cherry Nyxus click disambiguation', () => {
   afterEach(() => vi.useRealTimers())
 
   it('runs the single-click action only after the double-click window', () => {

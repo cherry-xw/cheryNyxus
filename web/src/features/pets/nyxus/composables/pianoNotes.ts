@@ -1,6 +1,6 @@
 /**
  * 钢琴键纯布局数据（无 Vue 依赖）。
- * 会话索引 → MIDI → 音名/频率/黑白键/绝对 left，供 NexusPianoStrip 物理钢琴布局。
+ * 会话索引 → MIDI → 音名/频率/黑白键/绝对 left，供 NyxusPianoStrip 物理钢琴布局。
  *
  * 锚点：session 索引 0 = MIDI 60（C4）。会话按 createdAt 升序占连续半音键，
  * 故相邻会话落在相邻钢琴键，黑白键天然交替（符合「钢琴键规律」）。
@@ -18,9 +18,33 @@ export const WHITE_H = 112
 export const BLACK_W = 19
 export const BLACK_H = 72
 
-/** Product rule: every Nexus root history item owns exactly one piano key. */
+/** Product rule: every Nyxus root history item owns exactly one piano key. */
 export function sessionPianoKeyCount(historyCount: number): number {
   return Math.max(0, Math.floor(historyCount))
+}
+
+/** 每八度半音键数（12）。 */
+export const OCTAVE_KEYS = 12
+/** 每八度白键数（7）。 */
+export const WHITE_PER_OCTAVE = 7
+/** 键盘档位上下限（1/2/3 八度 = 小/中/大键盘）。 */
+export const MIN_OCTAVES = 1
+export const MAX_OCTAVES = 3
+
+/**
+ * 视口宽度 -> 整八度档位（1/2/3）。
+ * 取视口能容纳的最大整八度（白键容量 / 7 向下取整），clamp 到 [1,3]；
+ * 视口窄于 1 八度时取小档（1 八度，超出部分由调用方拖拽）。
+ */
+export function keyboardOctaveCount(viewportW: number): number {
+  if (viewportW <= 0) return MIN_OCTAVES
+  const whiteCapacity = Math.floor(viewportW / WHITE_W)
+  return Math.max(MIN_OCTAVES, Math.min(MAX_OCTAVES, Math.floor(whiteCapacity / WHITE_PER_OCTAVE)))
+}
+
+/** 视口宽度 -> 档位键数（12/24/36 = 1/2/3 八度）。 */
+export function keyboardKeyCount(viewportW: number): number {
+  return keyboardOctaveCount(viewportW) * OCTAVE_KEYS
 }
 
 /** 半音音名（不含八度），如 "C"、"C#"。 */

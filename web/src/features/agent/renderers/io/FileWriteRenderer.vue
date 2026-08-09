@@ -10,12 +10,15 @@
  * - 内容预览（可折叠，默认收起）：
  *   - 显示写入内容（截断到 20 行）
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
 import type { RendererProps, WriteFileArgs } from '../types'
 
 const props = defineProps<RendererProps>()
 
 const showContent = ref(props.defaultExpanded ?? false)
+const copied = ref(false)
+let copyTimer: ReturnType<typeof setTimeout> | undefined
 
 // 解析参数
 const parsedArgs = computed<WriteFileArgs | null>(() => {
@@ -29,13 +32,6 @@ const parsedArgs = computed<WriteFileArgs | null>(() => {
     console.warn('[FileWriteRenderer] args 解析失败', e)
     return null
   }
-})
-
-// 提取文件名（从路径）
-const fileName = computed(() => {
-  const path = parsedArgs.value?.path ?? ''
-  const segments = path.split('/')
-  return segments[segments.length - 1] || path
 })
 
 // 判断写入模式
@@ -94,6 +90,25 @@ const fallback = computed(() => {
   }
   return ''
 })
+
+async function copyPath(): Promise<void> {
+  const path = parsedArgs.value?.path ?? ''
+  if (!path) return
+  try {
+    await navigator.clipboard?.writeText(path)
+    copied.value = true
+    if (copyTimer) clearTimeout(copyTimer)
+    copyTimer = setTimeout(() => {
+      copied.value = false
+    }, 1200)
+  } catch (error) {
+    console.warn('[FileWriteRenderer] 复制路径失败', error)
+  }
+}
+
+onBeforeUnmount(() => {
+  if (copyTimer) clearTimeout(copyTimer)
+})
 </script>
 
 <template>
@@ -108,7 +123,21 @@ const fallback = computed(() => {
     <div v-if="parsedArgs" class="file-section">
       <div class="file-row">
         <span class="file-label">路径:</span>
-        <code class="file-path">{{ parsedArgs.path }}</code>
+        <div class="file-path-wrap">
+          <code class="file-path">{{ parsedArgs.path }}</code>
+          <button
+            type="button"
+            class="copy-btn"
+            :class="{ copied }"
+            :aria-label="copied ? '已复制' : '复制路径'"
+            @click="copyPath"
+          >
+            <el-icon>
+              <DocumentChecked v-if="copied" />
+              <CopyDocument v-else />
+            </el-icon>
+          </button>
+        </div>
       </div>
       <div class="file-row">
         <span class="file-label">模式:</span>
@@ -211,10 +240,16 @@ const fallback = computed(() => {
   color: fade(@ink, 56%);
 }
 
-.file-path {
+.file-path-wrap {
   flex: 1;
   min-width: 0;
+  position: relative;
+}
+
+.file-path {
+  display: block;
   padding: 2px 6px;
+  padding-right: 22px;
   border-radius: 4px;
   background: rgba(20, 22, 26, 0.06);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
@@ -222,6 +257,26 @@ const fallback = computed(() => {
   white-space: pre-wrap;
   word-break: break-word;
   color: fade(@ink, 88%);
+}
+
+.copy-btn {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.7);
+  color: fade(@ink, 60%);
+  cursor: pointer;
+
+  &.copied {
+    color: #16a34a;
+  }
 }
 
 .file-mode {

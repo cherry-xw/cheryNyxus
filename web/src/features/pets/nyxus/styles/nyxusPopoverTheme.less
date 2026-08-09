@@ -1,5 +1,5 @@
 /**
- * Nexus 节点树弹窗 CRT 终端主题。
+ * Nyxus 节点树弹窗 CRT 终端主题。
  *
  * 集中管理 MessageBranchTree 三类弹窗（hover 预览 popover / 常驻审批气泡 / 提问气泡）
  * 内所有节点类型的渲染样式：工具 renderer（SenseCallRenderer 分发的全部专用渲染器 +
@@ -38,7 +38,7 @@
 
 .approval-anchor {
   position: fixed;
-  z-index: 430;
+  z-index: var(--nx-z-blocking-interaction);
   pointer-events: auto;
   transform: translateX(-100%);
 }
@@ -71,7 +71,7 @@
 
 .node-popover {
   position: fixed;
-  z-index: 410;
+  z-index: var(--nx-z-node-overlay);
   max-height: var(--popover-max-height, 60vh);
   overflow: auto;
   // 右侧不留 padding，主滚动条贴框体边缘；内容自身留出同等右侧呼吸空间。
@@ -460,7 +460,13 @@
   .q-text {
     color: @nx-text;
   }
-  .q-chip {
+  .q-kind {
+    border-color: rgba(201, 182, 255, 0.34);
+    border-radius: 0;
+    background: rgba(201, 182, 255, 0.1);
+    color: @nx-purple;
+  }
+  .q-option {
     border: 1px solid @nx-border-soft;
     border-radius: 0;
     background: @nx-code-bg-soft;
@@ -469,9 +475,25 @@
       background: rgba(201, 182, 255, 0.18);
       border-color: rgba(201, 182, 255, 0.55);
       color: @nx-purple;
-      .check {
+      .q-control {
         color: @nx-purple;
       }
+    }
+  }
+  .q-control {
+    border-color: rgba(201, 182, 255, 0.55);
+  }
+  .q-option-copy small {
+    color: @nx-text-faint;
+  }
+  .q-other-answer {
+    border-left-color: @nx-purple;
+    background: rgba(201, 182, 255, 0.1);
+    small {
+      color: @nx-purple;
+    }
+    p {
+      color: @nx-text;
     }
   }
   .q-fallback {

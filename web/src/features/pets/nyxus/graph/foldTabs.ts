@@ -82,9 +82,20 @@ export function foldTabForMember(member: ExecutionFoldMember): FoldTabView {
     glyph: error ? '!' : question ? '?' : interaction ? '◷' : skin.glyph,
     accent: error ? '#ff718c' : question ? '#b7a7ff' : interaction ? '#ffca73' : skin.accent,
     label:
-      firstCall?.name ||
-      (node.actor.kind === 'agent' ? node.actor.roleType?.trim() || 'Agent 响应' : skin.label),
-    status: batch?.status ?? (node.status === 'revoked' ? 'revoked' : 'completed'),
+      (firstCall ? '工具执行' : undefined) ||
+      (node.actor.kind === 'agent' ? node.actor.roleType?.trim() || skin.label : skin.label),
+    status:
+      batch?.status === 'active'
+        ? '执行中'
+        : batch?.status === 'pending'
+          ? '等待中'
+          : batch?.status === 'error'
+            ? '执行失败'
+            : batch?.status === 'rejected'
+              ? '已拒绝'
+              : node.status === 'revoked'
+                ? '已撤回'
+                : '已完成',
   }
 }
 

@@ -384,7 +384,12 @@ describe('Agent-local Fold projection', () => {
     expect(treeSource).toContain('props.folded\n    ? projectFoldExecutionGraph')
     expect(treeSource).not.toContain('node-detail-bookmark')
     expect(treeSource).not.toContain('class="fold-card"')
-    expect(treeSource).toContain('class="node-fold-count"')
+    expect(treeSource).toContain('foldCount: node.fold.members.length')
+    const rendererSource = await readFile(
+      resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
+      'utf8',
+    )
+    expect(rendererSource).toContain('if (node.foldCount)')
     expect(treeSource).toContain('<FoldTabRail')
     expect(railSource).not.toContain('fold-spine')
     expect(railSource).toContain('fold-wheel-navigation')

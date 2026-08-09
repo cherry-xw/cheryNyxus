@@ -14,9 +14,19 @@ let seenThinking = false
 let seenContent = false
 
 const tabs = computed<Array<{ id: CrtTab; label: string }>>(() => [
-  { id: 'output', label: 'OUTPUT' },
-  ...(props.card.thinking ? [{ id: 'thinking' as const, label: 'THINKING' }] : []),
+  { id: 'output', label: '正文' },
+  ...(props.card.thinking ? [{ id: 'thinking' as const, label: '思考' }] : []),
 ])
+const statusLabel = computed(() => {
+  const labels: Record<RunCrtModel['status'], string> = {
+    completed: '已完成',
+    running: '正在接收',
+    waiting: '等待中',
+    paused: '已暂停',
+    failed: '执行失败',
+  }
+  return labels[props.card.status]
+})
 
 function followBottom(): void {
   if (userScrolledUp.value) return
@@ -81,13 +91,10 @@ function onEscape(event: KeyboardEvent): void {
 <template>
   <article
     class="run-crt"
-    :class="[
-      `status-${card.status}`,
-      { 'is-pinned': pinned },
-    ]"
+    :class="[`status-${card.status}`, { 'is-pinned': pinned }]"
     :style="{ maxHeight: `${maxHeight}px` }"
     :role="pinned ? 'dialog' : 'status'"
-    :aria-label="`${card.title} 运行信息`"
+    :aria-label="`${card.title}运行信息`"
     :aria-modal="pinned ? 'false' : undefined"
     tabindex="-1"
     @keydown="onEscape"
@@ -98,11 +105,9 @@ function onEscape(event: KeyboardEvent): void {
     @wheel.stop
   >
     <header class="crt-head">
-      <div class="crt-title">
-        <span aria-hidden="true">┌─</span>
-        <strong>{{ card.title }}</strong>
-        <small>{{ card.status }} · {{ card.runId }}</small>
-      </div>
+      <span class="live-dot" aria-hidden="true" />
+      <strong>{{ card.title }}</strong>
+      <span class="status-copy">{{ statusLabel }}</span>
       <div class="crt-actions">
         <button
           type="button"
@@ -112,13 +117,7 @@ function onEscape(event: KeyboardEvent): void {
         >
           {{ pinned ? '◇' : '◆' }}
         </button>
-        <button
-          type="button"
-          aria-label="关闭运行卡片"
-          @click="emit('close')"
-        >
-          ×
-        </button>
+        <button type="button" aria-label="关闭运行卡片" @click="emit('close')">×</button>
       </div>
     </header>
 
@@ -139,144 +138,204 @@ function onEscape(event: KeyboardEvent): void {
       </button>
     </nav>
 
-    <section
-      v-if="activeTab === 'output'"
-      :id="`${card.id}:output:panel`"
-      ref="bodyRef"
-      class="crt-body markdown-body"
-      role="tabpanel"
-      :aria-labelledby="`${card.id}:output:tab`"
-      @scroll="onBodyScroll"
-      v-html="renderMarkdown(card.content || 'awaiting response…')"
-    />
-    <section
-      v-else-if="activeTab === 'thinking'"
-      :id="`${card.id}:thinking:panel`"
-      ref="bodyRef"
-      class="crt-body markdown-body is-thinking"
-      role="tabpanel"
-      :aria-labelledby="`${card.id}:thinking:tab`"
-      @scroll="onBodyScroll"
-      v-html="renderMarkdown(card.thinking || 'awaiting trace…')"
-    />
+    <Transition name="crt-content" mode="out-in">
+      <section
+        v-if="activeTab === 'output'"
+        :id="`${card.id}:output:panel`"
+        ref="bodyRef"
+        key="output"
+        class="crt-body markdown-body"
+        role="tabpanel"
+        :aria-labelledby="`${card.id}:output:tab`"
+        @scroll="onBodyScroll"
+        v-html="renderMarkdown(card.content || '等待响应…')"
+      />
+      <section
+        v-else
+        :id="`${card.id}:thinking:panel`"
+        ref="bodyRef"
+        key="thinking"
+        class="crt-body markdown-body is-thinking"
+        role="tabpanel"
+        :aria-labelledby="`${card.id}:thinking:tab`"
+        @scroll="onBodyScroll"
+        v-html="renderMarkdown(card.thinking || '等待思考内容…')"
+      />
+    </Transition>
 
     <footer class="crt-foot">
-      <span>└─ {{ card.status === 'running' ? 'RECEIVING…' : card.status.toUpperCase() }}</span>
+      <span>{{ userScrolledUp ? '已暂停自动跟随' : statusLabel }}</span>
     </footer>
   </article>
 </template>
 
 <style scoped lang="less">
+@bg: #0b1116;
+@surface: #101820;
+@ink: #d9e4e8;
+@muted: #84949b;
+@accent: #57c7d4;
+@line: rgba(150, 180, 190, 0.18);
+@ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
 .run-crt {
-  width: 340px;
+  width: 420px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  color: #b9f7d1;
-  border: 1px solid rgba(111, 232, 155, 0.72);
-  border-radius: 10px;
-  background: rgba(5, 16, 13, 0.97);
-  box-shadow:
-    6px 7px 0 rgba(0, 0, 0, 0.24),
-    0 18px 42px rgba(0, 0, 0, 0.34),
-    inset 0 0 0 1px rgba(141, 255, 181, 0.08);
+  color: @ink;
+  border: 1px solid rgba(121, 165, 176, 0.42);
+  border-radius: 4px;
+  background: @bg;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.4);
   font-family: ui-monospace, 'JetBrains Mono', monospace;
   user-select: text;
   -webkit-user-select: text;
 }
 .run-crt.is-pinned {
-  border-color: #b5fff2;
-  box-shadow:
-    0 0 0 1px rgba(181, 255, 242, 0.22),
-    0 18px 42px rgba(0, 0, 0, 0.4);
+  border-color: rgba(87, 199, 212, 0.7);
 }
 .run-crt:focus-visible {
-  outline: 2px solid #b5fff2;
+  outline: 2px solid @accent;
   outline-offset: 2px;
 }
-.crt-head,
-.crt-foot {
-  flex: 0 0 auto;
+.crt-head {
+  flex: 0 0 38px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 9px;
-  background: rgba(79, 184, 112, 0.1);
-  font-size: 9px;
-  letter-spacing: 0.04em;
+  gap: 7px;
+  padding: 0 7px 0 10px;
+  border-bottom: 1px solid @line;
+  background: #0d151b;
 }
-.crt-head {
-  border-bottom: 1px solid rgba(101, 205, 132, 0.3);
-}
-.crt-title {
+.crt-head strong {
   min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-}
-.crt-title strong {
-  flex: 0 0 auto;
-  font-size: 11px;
-}
-.crt-title small {
   overflow: hidden;
-  color: rgba(185, 247, 209, 0.56);
+  color: #edf5f7;
+  font:
+    650 11px/1.2 system-ui,
+    sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.live-dot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: @accent;
+  box-shadow: 0 0 0 2px rgba(87, 199, 212, 0.11);
+}
+.status-running .live-dot {
+  background: #69c995;
+}
+.status-waiting .live-dot {
+  background: #e7b76b;
+}
+.status-paused .live-dot {
+  background: @muted;
+}
+.status-completed .live-dot {
+  background: #69c995;
+}
+.status-failed .live-dot {
+  background: #ef7185;
+}
+.status-copy {
+  flex: 0 0 auto;
+  color: @muted;
+  font:
+    9px/1.2 system-ui,
+    sans-serif;
+}
 .crt-actions {
   display: flex;
-  gap: 3px;
+  gap: 2px;
+  margin-left: auto;
 }
 .crt-actions button,
 .crt-tabs button {
   border: 0;
-  color: inherit;
+  color: @muted;
   background: transparent;
-  font: inherit;
   cursor: pointer;
 }
 .crt-actions button {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
-  font-size: 15px;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  font:
+    14px/1 ui-monospace,
+    monospace;
+  transition:
+    transform 120ms @ease-out,
+    color 120ms ease,
+    background-color 120ms ease;
 }
-.crt-actions button:hover,
-.crt-actions button:focus-visible {
-  background: rgba(185, 247, 209, 0.12);
+.crt-actions button:active,
+.crt-tabs button:active {
+  transform: scale(0.97);
 }
 .crt-tabs {
-  flex: 0 0 auto;
+  flex: 0 0 30px;
   display: flex;
-  gap: 3px;
-  padding: 6px 8px 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 8px;
+  border-bottom: 1px solid @line;
+  background: @surface;
 }
 .crt-tabs button {
-  flex: 0 0 auto;
-  padding: 4px 7px;
-  border: 1px solid rgba(111, 232, 155, 0.18);
-  border-radius: 5px 5px 0 0;
-  color: rgba(185, 247, 209, 0.55);
-  font-size: 8px;
+  position: relative;
+  padding: 0 10px;
+  font:
+    10px/1.2 system-ui,
+    sans-serif;
+  transition:
+    transform 120ms @ease-out,
+    color 120ms ease,
+    background-color 120ms ease;
+}
+.crt-tabs button::after {
+  content: '';
+  position: absolute;
+  right: 9px;
+  bottom: -1px;
+  left: 9px;
+  height: 2px;
+  background: @accent;
+  opacity: 0;
+  transform: scaleX(0.6);
+  transition:
+    opacity 140ms ease,
+    transform 140ms @ease-out;
 }
 .crt-tabs button.active {
-  color: #eafff1;
-  border-color: rgba(111, 232, 155, 0.55);
-  background: rgba(111, 232, 155, 0.1);
+  color: #edf5f7;
+  background: rgba(87, 199, 212, 0.05);
+}
+.crt-tabs button.active::after {
+  opacity: 1;
+  transform: scaleX(1);
 }
 .crt-body {
-  min-height: 86px;
-  padding: 10px;
-  overflow: auto;
+  min-height: 110px;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 10px 12px;
   overscroll-behavior: contain;
-  color: #d8fbe5;
-  font-size: 10px;
+  color: #d4dfe2;
+  font-size: 10.5px;
   line-height: 1.55;
+  scrollbar-color: rgba(114, 147, 154, 0.58) transparent;
   scrollbar-width: thin;
+}
+.crt-body::-webkit-scrollbar {
+  width: 6px;
+}
+.crt-body::-webkit-scrollbar-thumb {
+  background: rgba(114, 147, 154, 0.58);
 }
 .markdown-body :deep(p) {
   margin: 0 0 0.55em;
@@ -284,37 +343,81 @@ function onEscape(event: KeyboardEvent): void {
 .markdown-body :deep(p:last-child) {
   margin-bottom: 0;
 }
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3) {
+  margin: 0.7em 0 0.35em;
+  color: #edf5f7;
+  font-size: 11px;
+}
 .markdown-body :deep(pre) {
-  overflow: auto;
-  padding: 7px;
-  background: rgba(0, 0, 0, 0.35);
+  overflow: visible;
+  padding: 7px 8px;
+  color: #cce5e9;
+  background: #080d11;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.markdown-body :deep(code) {
+  color: #bfe2e7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .is-thinking {
-  color: rgba(185, 247, 209, 0.66);
+  color: #9aa9ae;
 }
 .crt-foot {
-  border-top: 1px solid rgba(101, 205, 132, 0.22);
-  color: #70e89b;
+  flex: 0 0 24px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-top: 1px solid @line;
+  color: @muted;
+  background: #0d151b;
+  font:
+    9px/1.2 system-ui,
+    sans-serif;
 }
-.tone-danger {
-  color: #ff9bb0;
+.crt-content-enter-active,
+.crt-content-leave-active {
+  transition: opacity 130ms @ease-out;
 }
-.tone-warning {
-  color: #ffcf7c;
+.crt-content-enter-from,
+.crt-content-leave-to {
+  opacity: 0;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .status-running:not(.is-pinned) {
-    animation: crt-scan 2.4s ease-in-out infinite;
+@media (hover: hover) and (pointer: fine) {
+  .crt-actions button:hover,
+  .crt-tabs button:hover {
+    color: #e3edef;
+    background: rgba(87, 199, 212, 0.065);
   }
 }
-@keyframes crt-scan {
+@media (prefers-reduced-motion: no-preference) {
+  .status-running .live-dot {
+    animation: live-dot-pulse 1.4s linear infinite;
+  }
+}
+@keyframes live-dot-pulse {
   50% {
-    border-color: rgba(181, 255, 242, 0.78);
+    opacity: 0.42;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .run-crt {
+  .live-dot {
     animation: none;
+  }
+  .crt-content-enter-active,
+  .crt-content-leave-active {
+    transition: opacity 120ms ease;
+  }
+  .crt-actions button,
+  .crt-tabs button,
+  .crt-tabs button::after {
+    transition:
+      color 120ms ease,
+      background-color 120ms ease,
+      opacity 120ms ease;
   }
 }
 </style>

@@ -6,7 +6,7 @@ import {
 } from '../../src/stores/agents/data/petLifecycle'
 
 describe('registerNewNyxusSession', () => {
-  it('makes a newly-created session immediately identifiable as Nexus', () => {
+  it('makes a newly-created session immediately identifiable as Nyxus', () => {
     expect(registerNewNyxusSession([], 'new-nyxus', 100)).toEqual([
       {
         chatId: 'new-nyxus',
@@ -42,9 +42,9 @@ describe('selectRefreshRecoveryChats', () => {
       { chatId: 'ordinary-root', preset: 'assistant' },
       { chatId: 'ordinary-child', parentChatId: 'ordinary-root' },
       { chatId: 'hidden-root', preset: 'assistant' },
-      { chatId: 'nexus-root', preset: CHERY_NYXUS_PRESET },
-      { chatId: 'nexus-child', parentChatId: 'nexus-root' },
-      { chatId: 'nexus-grandchild', parentChatId: 'nexus-child' },
+      { chatId: 'nyxus-root', preset: CHERY_NYXUS_PRESET },
+      { chatId: 'nyxus-child', parentChatId: 'nyxus-root' },
+      { chatId: 'nyxus-grandchild', parentChatId: 'nyxus-child' },
     ]
 
     expect(
@@ -55,7 +55,7 @@ describe('selectRefreshRecoveryChats', () => {
     ).toEqual(['ordinary-root', 'ordinary-child', 'hidden-root'])
 
     expect(
-      selectRefreshRecoveryChats(chats, new Set(['ordinary-root', 'nexus-root'])).map(
+      selectRefreshRecoveryChats(chats, new Set(['ordinary-root', 'nyxus-root'])).map(
         (chat) => chat.chatId,
       ),
     ).toEqual(['ordinary-root'])

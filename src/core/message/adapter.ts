@@ -73,6 +73,8 @@ export interface LLMResponse {
   contextCompaction?: boolean
   /** 本次压缩释放的对话上下文 token（estimateTokens 估算）。 */
   contextCompactionTokens?: number
+  /** 仅供当前运行的模型上下文使用，不进入持久化历史。 */
+  ephemeral?: boolean
 }
 
 /**

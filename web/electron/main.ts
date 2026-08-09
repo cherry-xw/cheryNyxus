@@ -209,7 +209,7 @@ function rebuildTrayMenu(): void {
     Menu.buildFromTemplate([
       { label: '显示控制台', click: showControlWindow },
       { type: 'separator' },
-      { label: '隐藏 Nexus 入口', click: () => petWindow?.hide() },
+      { label: '隐藏 Nyxus 入口', click: () => petWindow?.hide() },
       { type: 'separator' },
       { label: '退出', click: quitApplication },
     ]),
@@ -232,6 +232,7 @@ function createControlWindow(): void {
     width: 1200,
     height: 800,
     title: 'CheryNyxus',
+    skipTaskbar: true,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

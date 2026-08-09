@@ -5,7 +5,8 @@
  * 视觉沿用 QuestionCard（紫色系 #7c3aed）：
  * - header 行：indicator + 可选 header + 右侧 AnswerBadge（已回答/已取消/等待中/超时）
  * - question 正文（pre-wrap）
- * - options chip 行：按 result 字符串反推用户选择，命中 chip 加 .selected 样式
+ * - 选项列表：单选使用圆形标记，多选使用方形标记，已选项显示勾选态
+ * - 自由文本：将“其他”回答与已选项分开展示
  *
  * 数据来源：
  * - args: JSON 字符串 `{ question, header?, options:[{label,description?}], multiSelect }`（后端契约 types.ts:192）
@@ -15,73 +16,18 @@
  */
 import { computed } from 'vue'
 import type { RendererProps } from '../types'
-import type { SenseCallRecord } from '@/stores/agents'
-
-interface Option {
-  label: string
-  description?: string
-}
-
-interface Args {
-  question: string
-  header?: string
-  options: Option[]
-  multiSelect?: boolean
-}
-
-/** call.args 解析（后端契约：JSON 字符串；防御性兼容对象）。 */
-function parseArgs(call: SenseCallRecord): Args | null {
-  try {
-    const raw = typeof call.args === 'string' ? call.args : JSON.stringify(call.args ?? {})
-    const obj = JSON.parse(raw) as Partial<Args>
-    if (typeof obj.question !== 'string' || !Array.isArray(obj.options)) return null
-    return {
-      question: obj.question,
-      header: typeof obj.header === 'string' ? obj.header : undefined,
-      options: obj.options.filter((o): o is Option => typeof o?.label === 'string'),
-      multiSelect: obj.multiSelect === true,
-    }
-  } catch (e) {
-    console.warn('[QuestionRenderer] args 解析失败', e)
-    return null
-  }
-}
+import { parseQuestionAnswer, parseQuestionArgs } from './questionDisplay'
 
 const props = defineProps<RendererProps>()
 
-const args = computed(() => parseArgs(props.call))
-
-type AnswerState =
-  | { kind: 'running' }
-  | { kind: 'cancelled' }
-  | { kind: 'missing' }
-  | { kind: 'other'; text: string }
-  | { kind: 'labels'; labels: string[] }
-
-/** 从 result 字符串反推答案状态（匹配 ask.ts:45-48 的三种返回格式）。 */
-const answerState = computed<AnswerState>(() => {
-  if (props.call.status === 'running') return { kind: 'running' }
-  const r = props.call.result
-  if (typeof r !== 'string') return { kind: 'missing' }
-  if (r === '(用户取消了此问题)') return { kind: 'cancelled' }
-  const prefix = '用户回答: '
-  if (!r.startsWith(prefix)) return { kind: 'missing' }
-  const body = r.slice(prefix.length)
-  if (body.startsWith('其他: ')) return { kind: 'other', text: body.slice(4) }
-  // 单选/多选用 ", " 拆分；注意：label 内若含逗号会误拆，ask.ts 后端未转义，此处保持与后端一致的解析
-  const labels = body
-    .split(', ')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  return { kind: 'labels', labels }
-})
+const args = computed(() => parseQuestionArgs(props.call.args))
+const answerState = computed(() =>
+  parseQuestionAnswer(props.call.result, props.call.status, args.value),
+)
 
 /** 当前 chip 是否高亮为"用户选中"。 */
 function isSelected(label: string): boolean {
-  const s = answerState.value
-  if (s.kind === 'labels') return s.labels.includes(label)
-  if (s.kind === 'other') return label === '其他'
-  return false
+  return answerState.value.kind === 'answered' && answerState.value.labels.includes(label)
 }
 
 /** header 右侧 AnswerBadge 文案 + 样式类。 */
@@ -94,11 +40,10 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
       return { text: '已取消', cls: 'badge-cancelled' }
     case 'missing':
       return { text: '无回答', cls: 'badge-missing' }
-    case 'other':
-      return { text: `已回答 · 其他: ${s.text}`, cls: 'badge-answered' }
-    case 'labels':
-      return { text: `已回答 · ${s.labels.join(', ')}`, cls: 'badge-answered' }
+    case 'answered':
+      return { text: '已回答', cls: 'badge-answered' }
   }
+  return { text: '状态未知', cls: 'badge-missing' }
 })
 </script>
 
@@ -107,20 +52,35 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
     <div class="q-head">
       <span class="indicator" aria-hidden="true" />
       <span v-if="args?.header" class="q-header">{{ args.header }}</span>
+      <span v-if="args" class="q-kind">{{ args.multiSelect ? '多选' : '单选' }}</span>
       <span class="q-badge" :class="answerBadge.cls">{{ answerBadge.text }}</span>
     </div>
     <div v-if="args" class="q-text">{{ args.question }}</div>
-    <div v-if="args && args.options.length > 0" class="q-options">
-      <span
+    <div
+      v-if="args && args.options.length > 0"
+      class="q-options"
+      role="list"
+      :aria-label="args.multiSelect ? '多选选项' : '单选选项'"
+    >
+      <div
         v-for="opt in args.options"
         :key="opt.label"
-        class="q-chip"
+        class="q-option"
         :class="{ selected: isSelected(opt.label) }"
-        :title="opt.description ?? opt.label"
+        role="listitem"
       >
-        <span v-if="isSelected(opt.label)" class="check" aria-hidden="true">✓</span>
-        {{ opt.label }}
-      </span>
+        <span class="q-control" :class="{ 'is-multi': args.multiSelect }" aria-hidden="true">
+          {{ isSelected(opt.label) ? '✓' : '' }}
+        </span>
+        <span class="q-option-copy">
+          <strong>{{ opt.label }}</strong>
+          <small v-if="opt.description">{{ opt.description }}</small>
+        </span>
+      </div>
+    </div>
+    <div v-if="answerState.kind === 'answered' && answerState.freeText" class="q-other-answer">
+      <small>其他补充</small>
+      <p>{{ answerState.freeText }}</p>
     </div>
     <!-- 解析失败降级：显示原始 result -->
     <pre v-if="!args" class="q-fallback">{{ call.result ?? '(无数据)' }}</pre>
@@ -162,6 +122,17 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
     font-weight: 800;
     line-height: 1.2;
     overflow-wrap: anywhere;
+  }
+
+  .q-kind {
+    flex-shrink: 0;
+    padding: 1px 5px;
+    border: 1px solid rgba(124, 58, 237, 0.2);
+    border-radius: 4px;
+    color: #6d28d9;
+    background: rgba(124, 58, 237, 0.08);
+    font-size: 9px;
+    font-weight: 800;
   }
 
   .q-badge {
@@ -207,37 +178,85 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 }
 
 .q-options {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 4px;
 }
 
-.q-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
+.q-option {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+  padding: 6px 7px;
   border: 1px solid rgba(36, 38, 45, 0.16);
-  border-radius: 999px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.82);
   color: fade(@ink, 78%);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.2;
+  font-size: 10.5px;
+  line-height: 1.3;
 
   &.selected {
     background: rgba(124, 58, 237, 0.14);
     border-color: rgba(124, 58, 237, 0.55);
     color: #5b21b6;
+  }
+}
 
-    .check {
-      font-weight: 800;
-      color: #6d28d9;
-    }
+.q-control {
+  display: grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  margin-top: 1px;
+  border: 1px solid rgba(124, 58, 237, 0.5);
+  border-radius: 50%;
+  color: #6d28d9;
+  font-size: 9px;
+  font-weight: 900;
+
+  &.is-multi {
+    border-radius: 2px;
+  }
+}
+
+.q-option-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+
+  strong {
+    overflow-wrap: anywhere;
+    font-weight: 750;
   }
 
-  .check {
+  small {
+    color: fade(@ink, 58%);
+    font-size: 9.5px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+.q-other-answer {
+  padding: 6px 7px;
+  border-left: 2px solid rgba(124, 58, 237, 0.55);
+  background: rgba(124, 58, 237, 0.08);
+
+  small {
+    display: block;
+    margin-bottom: 3px;
+    color: #6d28d9;
     font-size: 9px;
+    font-weight: 800;
+  }
+
+  p {
+    margin: 0;
+    color: fade(@ink, 82%);
+    font-size: 10.5px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 }
 

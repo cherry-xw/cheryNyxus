@@ -4,8 +4,8 @@
  * 聚焦 chunk 归纳：consumed / 三 delta staged（thinking_end/content_end/sense_end）
  * / message_created effect / user input 注入。sense 执行细节见 tool.test.ts。
  */
-import { describe, it, expect, beforeAll } from "vitest";
-import { bootstrapForTests, createAgent, runSend } from "../helpers/agentHarness.js";
+import { describe, it, expect, beforeAll } from 'vitest'
+import { bootstrapForTests, createAgent, runSend } from '../helpers/agentHarness.js'
 import {
   stagedTypes,
   messageCreated,
@@ -16,79 +16,103 @@ import {
   senseAccepts,
   filterType,
   hasDone,
-} from "../helpers/chunkAssert.js";
-import type { StreamChunk, StagedChunk } from "@/core/middleware/types.js";
+} from '../helpers/chunkAssert.js'
+import type { StreamChunk, StagedChunk } from '@/core/middleware/types.js'
 
-describe("checkpointMiddleware 集成", () => {
+describe('checkpointMiddleware 集成', () => {
   beforeAll(async () => {
-    await bootstrapForTests();
-  });
+    await bootstrapForTests()
+  })
 
-  it("content-only：consumed + thinking_end + content_end + message_created(user,assistant)", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
-    const chunks = await runSend(agent, "你好");
-    expect(firstConsumed(chunks)?.count).toBe(1);
-    const staged = stagedTypes(chunks);
-    expect(staged).toContain("thinking_end");
-    expect(staged).toContain("content_end");
-    const roles = messageCreated(chunks).map((m) => m.message.role);
-    expect(roles).toContain("user");
-    expect(roles).toContain("assistant");
-    expect(collectContent(chunks)).toContain("纯文本回复");
-    expect(collectThinking(chunks)).toContain("思考");
-    expect(hasDone(chunks)).toBe(true);
-  });
+  it('content-only：consumed + thinking_end + content_end + message_created(user,assistant)', async () => {
+    const agent = createAgent({ brain: 'mock_content', senseGroup: 'auto_senses' })
+    const chunks = await runSend(agent, '你好')
+    expect(firstConsumed(chunks)?.count).toBe(1)
+    const staged = stagedTypes(chunks)
+    expect(staged).toContain('thinking_end')
+    expect(staged).toContain('content_end')
+    const roles = messageCreated(chunks).map((m) => m.message.role)
+    expect(roles).toContain('user')
+    expect(roles).toContain('assistant')
+    expect(collectContent(chunks)).toContain('纯文本回复')
+    expect(collectThinking(chunks)).toContain('思考')
+    expect(hasDone(chunks)).toBe(true)
+  })
 
-  it("三 delta 顺序：thinking_end 在 content_end 之前", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
-    const chunks = await runSend(agent, "顺序测试");
-    const staged = stagedTypes(chunks);
-    const tIdx = staged.indexOf("thinking_end");
-    const cIdx = staged.indexOf("content_end");
-    expect(tIdx).toBeGreaterThanOrEqual(0);
-    expect(cIdx).toBeGreaterThan(tIdx);
-  });
+  it('三 delta 顺序：thinking_end 在 content_end 之前', async () => {
+    const agent = createAgent({ brain: 'mock_content', senseGroup: 'auto_senses' })
+    const chunks = await runSend(agent, '顺序测试')
+    const staged = stagedTypes(chunks)
+    const tIdx = staged.indexOf('thinking_end')
+    const cIdx = staged.indexOf('content_end')
+    expect(tIdx).toBeGreaterThanOrEqual(0)
+    expect(cIdx).toBeGreaterThan(tIdx)
+  })
 
-  it("user input 注入 messages（consumed 携带 message）", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
-    const chunks = await runSend(agent, "注入测试内容");
-    const consumed = firstConsumed(chunks);
-    expect(consumed?.count).toBe(1);
-    expect(consumed?.messages?.[0]?.content).toBe("注入测试内容");
-    expect(consumed?.messages?.[0]?.role).toBe("user");
-    expect(consumed?.messages?.[0]?.id).toBeTruthy();
-    expect(consumed?.messages?.[0]?.createdAt).toEqual(expect.any(Number));
-  });
+  it('user input 注入 messages（consumed 携带 message）', async () => {
+    const agent = createAgent({ brain: 'mock_content', senseGroup: 'auto_senses' })
+    const chunks = await runSend(agent, '注入测试内容')
+    const consumed = firstConsumed(chunks)
+    expect(consumed?.count).toBe(1)
+    expect(consumed?.messages?.[0]?.content).toBe('注入测试内容')
+    expect(consumed?.messages?.[0]?.role).toBe('user')
+    expect(consumed?.messages?.[0]?.id).toBeTruthy()
+    expect(consumed?.messages?.[0]?.createdAt).toEqual(expect.any(Number))
+  })
 
-  it("同一 LLM turn 的 stream/staged 共用预分配 msgId", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
-    const chunks = await runSend(agent, "消息身份测试");
-    const streams = filterType<StreamChunk>(chunks, "stream");
-    const staged = filterType<StagedChunk>(chunks, "staged");
-    expect(streams.length).toBeGreaterThan(0);
-    const msgId = streams[0]?.msgId;
-    expect(msgId).toBeTruthy();
-    expect(streams.every((chunk) => chunk.msgId === msgId)).toBe(true);
-    expect(staged.every((chunk) => chunk.msgId === msgId)).toBe(true);
-    expect(streams.every((chunk) => chunk.createdAt === staged[0]?.createdAt)).toBe(true);
-  });
+  it('模型专用指令不进入 consumed，自动附加内容保留用户原文', async () => {
+    const agent = createAgent({ brain: 'mock_content', senseGroup: 'auto_senses' })
+    const chunks: MiddlewareChunk[] = []
+    for await (const chunk of agent.run('[[command:/review]]\n真实问题', {
+      extraUserMessages: ['完整指令正文'],
+      inputMeta: { persistedContent: '真实问题' },
+    })) {
+      chunks.push(chunk)
+    }
 
-  it("auto sense：sense_end staged + sense_accept + sense 消息创建", async () => {
-    const agent = createAgent({ brain: "mock_auto", senseGroup: "auto_senses" });
-    const chunks = await runSend(agent, "读文件");
-    const staged = stagedTypes(chunks);
-    expect(staged).toContain("sense_end");
-    expect(senseEnds(chunks).length).toBeGreaterThanOrEqual(1);
-    expect(senseAccepts(chunks).length).toBeGreaterThanOrEqual(1);
-    const roles = messageCreated(chunks).map((m) => m.message.role);
-    expect(roles).toContain("assistant");
-    expect(roles).toContain("sense");
-  });
+    const consumed = firstConsumed(chunks)
+    expect(consumed?.count).toBe(1)
+    expect(consumed?.messages?.map((message) => message.content)).toEqual(['真实问题'])
+    expect(
+      messageCreated(chunks)
+        .filter((chunk) => chunk.message.role === 'user')
+        .map((chunk) => ({ content: chunk.message.content, ephemeral: chunk.message.ephemeral })),
+    ).toEqual([
+      { content: '完整指令正文', ephemeral: true },
+      { content: '真实问题', ephemeral: undefined },
+    ])
+    expect(agent.getMessages().some((message) => message.content === '完整指令正文')).toBe(false)
+  })
 
-  it("纯 content 无 sense_end", async () => {
-    const agent = createAgent({ brain: "mock_content", senseGroup: "auto_senses" });
-    const chunks = await runSend(agent, "纯文本");
-    expect(stagedTypes(chunks)).not.toContain("sense_end");
-    expect(senseEnds(chunks)).toHaveLength(0);
-  });
-});
+  it('同一 LLM turn 的 stream/staged 共用预分配 msgId', async () => {
+    const agent = createAgent({ brain: 'mock_content', senseGroup: 'auto_senses' })
+    const chunks = await runSend(agent, '消息身份测试')
+    const streams = filterType<StreamChunk>(chunks, 'stream')
+    const staged = filterType<StagedChunk>(chunks, 'staged')
+    expect(streams.length).toBeGreaterThan(0)
+    const msgId = streams[0]?.msgId
+    expect(msgId).toBeTruthy()
+    expect(streams.every((chunk) => chunk.msgId === msgId)).toBe(true)
+    expect(staged.every((chunk) => chunk.msgId === msgId)).toBe(true)
+    expect(streams.every((chunk) => chunk.createdAt === staged[0]?.createdAt)).toBe(true)
+  })
+
+  it('auto sense：sense_end staged + sense_accept + sense 消息创建', async () => {
+    const agent = createAgent({ brain: 'mock_auto', senseGroup: 'auto_senses' })
+    const chunks = await runSend(agent, '读文件')
+    const staged = stagedTypes(chunks)
+    expect(staged).toContain('sense_end')
+    expect(senseEnds(chunks).length).toBeGreaterThanOrEqual(1)
+    expect(senseAccepts(chunks).length).toBeGreaterThanOrEqual(1)
+    const roles = messageCreated(chunks).map((m) => m.message.role)
+    expect(roles).toContain('assistant')
+    expect(roles).toContain('sense')
+  })
+
+  it('纯 content 无 sense_end', async () => {
+    const agent = createAgent({ brain: 'mock_content', senseGroup: 'auto_senses' })
+    const chunks = await runSend(agent, '纯文本')
+    expect(stagedTypes(chunks)).not.toContain('sense_end')
+    expect(senseEnds(chunks)).toHaveLength(0)
+  })
+})

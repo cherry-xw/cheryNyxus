@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
+import { useAgentsStore } from '@/stores'
 import type { ExecutionFoldMember } from '../graph/executionGraph'
 import {
   FOLD_WHEEL_LAYER_CAPACITY,
@@ -7,6 +8,7 @@ import {
   foldWheelView,
   type FoldWheelSlot,
 } from '../graph/foldTabs'
+import { toolBatchDetail } from '../graph/toolBatchDetails'
 
 const props = defineProps<{
   members: ExecutionFoldMember[]
@@ -20,10 +22,11 @@ const emit = defineEmits<{
   select: [memberId: string]
   interaction: [active: boolean]
 }>()
+const agents = useAgentsStore()
 
 const WHEEL_THRESHOLD = 46
-const ANIMATION_MS = 340
-const LAYER_SWITCH_MS = 170
+const ANIMATION_MS = 220
+const LAYER_SWITCH_MS = 110
 const CARD_WIDTH = 144
 const CARD_HEIGHT = 38
 const STAGE_WIDTH = 216
@@ -32,6 +35,18 @@ const NODE_GAP = 18
 
 type MemberSlot = FoldWheelSlot<ExecutionFoldMember>
 type FoldTab = ReturnType<typeof foldTabForMember>
+
+function displayTab(member: ExecutionFoldMember): FoldTab {
+  const tab = foldTabForMember(member)
+  const call = toolBatchDetail(member.displayNode)?.calls[0]
+  if (!call) return tab
+  const meta = agents.senseTools.find((tool) => tool.name === call.name)
+  return {
+    ...tab,
+    glyph: meta?.icon || tab.glyph,
+    label: meta?.label?.trim() || '工具',
+  }
+}
 
 interface RenderedWheelCard {
   key: string
@@ -92,7 +107,7 @@ const renderedCards = computed<RenderedWheelCard[]>(() => {
         source,
         target,
         slot,
-        tab: realContent ? foldTabForMember(item) : undefined,
+        tab: realContent ? displayTab(item) : undefined,
         interactive: !animating.value && realContent && slot.interactive,
       },
     ]
@@ -337,7 +352,7 @@ onBeforeUnmount(() => {
     class="fold-wheel-navigation"
     :class="{ 'is-dragging': dragging, 'is-animating': animating }"
     :style="navigationStyle"
-    aria-label="Fold 椭圆页签轮盘"
+    aria-label="过程组页签轮盘"
     tabindex="0"
     @pointerenter="emit('interaction', true)"
     @pointerleave="leaveWheel"

@@ -35,7 +35,7 @@ function onOverlayClick(e: MouseEvent): void {
   if (e.target === e.currentTarget) closeTop()
 }
 
-// 历史抽屉由当前 Nexus 对话框主动打开时，必须盖在输入弹窗上方；审批层仍保持更高优先级。
+// 历史抽屉由当前 Nyxus 对话框主动打开时，必须盖在输入弹窗上方；审批层仍保持更高优先级。
 const BASE_Z = OVERLAY_Z_INDEX.historyDrawer
 const overlayRef = ref<HTMLElement | null>(null)
 

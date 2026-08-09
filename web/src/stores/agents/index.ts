@@ -521,7 +521,7 @@ export const useAgentsStore = defineStore('agents', () => {
     // 顺序关键：attach 在 sync 之前，断连窗口后续实时事件由 sync 推进 cursor 后 drainChatEvents 连续补放。
     await attachRunningChats(chats)
     // F5 是新的浏览器进程，尚无 seq cursor；只恢复当前舞台上的普通 Pet。
-    // Nexus 及其后代由用户打开具体 root 后通过 root timeline 原子恢复。
+    // Nyxus 及其后代由用户打开具体 root 后通过 root timeline 原子恢复。
     await syncChatEvents()
 
     // 初始载入 contextUsage（ContextBar 渲染用）。

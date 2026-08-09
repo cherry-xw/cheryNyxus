@@ -43,6 +43,11 @@ export async function* observeAgentChunks(
       // 主 chat（非注册唤醒子）feedWatchdog 内部自动忽略（waitedChildren 无此 chatId）。
       feedWatchdog(chatId)
       if (chunk.type === 'message_created') {
+        if (chunk.message.ephemeral) {
+          // 命令正文等模型专用上下文不属于用户历史，也不应产生 timeline fact。
+          syncedIds.add(chunk.message.id)
+          continue
+        }
         if (!syncedIds.has(chunk.message.id)) {
           const baseRevision = getTimelineRevision(chatId)
           addMessage(chunk.message.id, chatId, {
@@ -244,6 +249,7 @@ export async function* observeAgentChunks(
     for (const m of getMessages()) {
       // 仅落库 user/assistant/sense（system 仅内存 loadHistory 期不入库；function 本项目不产生）
       if (m.revoked) continue
+      if (m.ephemeral) continue
       if (m.role !== 'user' && m.role !== 'assistant' && m.role !== 'sense') continue
       if (syncedIds.has(m.id)) continue
       const baseRevision = getTimelineRevision(chatId)

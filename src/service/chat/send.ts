@@ -218,7 +218,12 @@ export async function* handleChatSend(
       agent.run(cmdInjection.userPrompt, {
         extraUserMessages:
           cmdInjection.extraUserMessages.length > 0 ? cmdInjection.extraUserMessages : undefined,
-        inputMeta: data.inputMeta,
+        inputMeta: {
+          ...data.inputMeta,
+          ...(cmdInjection.userPrompt !== promptWithAttachments
+            ? { persistedContent: promptWithAttachments }
+            : {}),
+        },
         inputAlreadyQueued: data.inputAlreadyQueued,
       }),
       chatId,

@@ -1,12 +1,12 @@
 <script setup lang="ts">
 /**
- * NexusPianoStrip：对话框底部边框线「外挂」的标准钢琴键盘。
+ * NyxusPianoStrip：对话框底部边框线「外挂」的标准钢琴键盘。
  * 挂在 .dialog-panel.is-nyxus-panel 之外（position:absolute; top:100%），如琴键从琴体下沿伸出。
- * 琴键数量严格等于 Nexus 根历史会话数量；会话按 createdAt 升序从左到右占连续键。
+ * 琴键数量严格等于 Nyxus 根历史会话数量；会话按 createdAt 升序从左到右占连续键。
  * 运行中且有 pending 审批 → 该键闪烁（临近过期加速）；选中键高亮。
- * 静音开关与新建会话钮均已移至 AgentDialog 标题栏（共享 usePianoAudio 单例 muted）。
+ * 静音与删除目标固定在钢琴面板右上角；删除拖拽幽灵 Teleport 到 body，使用视口坐标跟随。
  */
-import { computed, onBeforeUnmount, onMounted, onScopeDispose, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { ElTooltip } from 'element-plus'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
@@ -14,10 +14,12 @@ import type { ApprovalState } from '@/stores/agents'
 import type { ChatSummary } from '@/services/agentApi'
 import {
   BASE_MIDI,
+  WHITE_H,
+  WHITE_W,
   isBlackKey,
+  keyboardKeyCount,
   layoutPianoKeys,
   sessionPianoKeyCount,
-  WHITE_W,
   type PianoKeyGeom,
 } from '../composables/pianoNotes'
 import { usePianoAudio } from '../composables/usePianoAudio'
@@ -28,6 +30,7 @@ import { remainingSecOf, flashPeriodOf, isExpired } from '@/features/pets/utils/
 const emit = defineEmits<{
   select: [chatId: string]
   delete: [chatId: string]
+  'interacting-change': [v: boolean]
 }>()
 
 const agents = useAgentsStore()
@@ -35,29 +38,28 @@ const chatSessions = useChatSessionsStore()
 const audio = usePianoAudio()
 const now = useNow(250)
 
-/** Nexus 主会话（root + cheryNyxus），createdAt 升序 → chromatic 占键。 */
+/** Nyxus 主会话（root + cheryNyxus），createdAt 降序：最新在最左，最老在最右。 */
 const sessions = computed<ChatSummary[]>(() =>
   (agents.historyList ?? [])
     .filter((c) => !c.parentChatId && c.preset === CHERY_NYXUS_PRESET)
-    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
 )
 
-/** 一条根历史会话对应一枚琴键，不渲染无数据占位键。 */
-const renderCount = computed(() => sessionPianoKeyCount(sessions.value.length))
-
-/** 渲染范围内的白键数（fit 模式均分分母）。 */
+/**
+ * 渲染键数 = max(档位键数, 会话数)：档位按视口选 1/2/3 八度（12/24/36 键）作下限，
+ * 会话多于档位则按会话数占键。viewportW 由 ResizeObserver 实时测。
+ * 铺满判定：渲染白键 × 32 ≤ 视口 -> 白键按比例均分填满视口（消除右侧空隙，单键宽随档位
+ * 接近 32px 钢琴规制）；会话多于档位致轨宽超出视口 -> 固定 32px + 拖拽平移。
+ */
+const viewportW = ref(0)
+const renderCount = computed(() =>
+  Math.max(keyboardKeyCount(viewportW.value), sessionPianoKeyCount(sessions.value.length)),
+)
 const whiteCount = computed(() => {
   let n = 0
   for (let i = 0; i < renderCount.value; i++) if (!isBlackKey(BASE_MIDI + i)) n++
   return n
 })
-
-/**
- * fit 判定：固定 32px 白键轨宽 ≤ 视口宽 → 白键按比例均分填满视口（消除右侧空隙）；
- * 会话多于标准键（轨宽明显大于视口）→ 固定 32px + 拖拽。viewportW 由 ResizeObserver 实时测。
- */
-const viewportW = ref(0)
-// 键盘外框内边距和边线最多吞掉 8px；标准琴键不应因此出现无意义的横向滚动。
 const FIT_TOLERANCE_PX = 8
 const fitMode = computed(
   () =>
@@ -75,7 +77,7 @@ const drag = useDragPan({
   contentWidth: () => layout.value.trackWidth,
 })
 
-// 视口宽实时测量 → 驱动 fit 模式（白键均分填满，消除右侧空隙）。
+// 视口宽实时测量 -> 驱动键盘档位选择（1/2/3 八度）。
 let pianoRO: ResizeObserver | null = null
 onMounted(() => {
   const el = viewportRef.value
@@ -209,22 +211,23 @@ function onKeyUp(e: PointerEvent): void {
   window.removeEventListener('pointercancel', onKeyUp)
 }
 
-// ── 拖拽删除（二次确认 = 拖到右侧垃圾桶释放，不开弹窗） ──
-// hover 可删键 -> 键下方显清除 icon；按住 icon 拖拽 -> 右侧固定垃圾桶 + callout 出现；
+// ── 拖拽删除（二次确认 = 拖到面板右上角垃圾桶释放，不开弹窗） ──
+// hover 可删键 -> 键下方显清除 icon；按住 icon 拖拽 -> 顶栏垃圾桶强化显示；
 // 释放在垃圾桶上 -> emit delete。运行中/pending 审批键不可删（deletable=false，icon 不显）。
 const hoveredIdx = ref<number | null>(null)
 const hoveredKeyView = computed<KeyView | null>(() =>
   hoveredIdx.value != null ? (keyViews.value[hoveredIdx.value] ?? null) : null,
 )
-/** 清除按钮中心与 hover 键中心对齐（相对 piano-keyboard 左缘）。 */
+/** 清除按钮中心与 hover 键中心对齐（相对 piano-stage 左缘）。 */
 const clearIconLeft = computed(() => {
   const v = hoveredKeyView.value
   if (!v) return 0
-  // 绝对定位相对 .piano-keyboard；琴键轨在其左右 6px 内边距之后。
+  // 绝对定位相对 .piano-stage；琴键轨在其左右 6px 内边距之后。
   return 6 + v.geom.left + drag.offsetX.value + v.geom.width / 2
 })
 /** 删除按钮贴琴键底边下方。 */
-const clearIconTop = computed(() => (hoveredKeyView.value?.geom.height ?? 0) - 3)
+/** 清除按钮统一贴琴轨最底部（不随白/黑键高度变化）。 */
+const clearIconTop = WHITE_H - 3
 
 const trashRef = ref<HTMLElement | null>(null)
 const clearDrag = ref<{ chatId: string } | null>(null)
@@ -232,6 +235,17 @@ const ghostX = ref(0)
 const ghostY = ref(0)
 const overTrash = ref(false)
 const dumping = ref(false)
+const ghostFlying = ref(false)
+const deletingChatId = ref<string | null>(null)
+/** 删除交互进行中（hover 可删键 / 拖拽 / ghost 飞入 / 倒掉动画）：通知父级锁定 popout 不关闭。 */
+const interacting = computed(
+  () =>
+    !!clearDrag.value ||
+    dumping.value ||
+    ghostFlying.value ||
+    !!hoveredKeyView.value?.deletable,
+)
+watch(interacting, (v) => emit('interacting-change', v))
 let clearPointerId = -1
 let dumpTimer: ReturnType<typeof setTimeout> | undefined
 let hoverLeaveTimer: ReturnType<typeof setTimeout> | undefined
@@ -253,19 +267,32 @@ function onClearUp(e: PointerEvent): void {
   const hit = hitTrash(e.clientX, e.clientY)
   const chatId = clearDrag.value?.chatId
   clearPointerId = -1
-  clearDrag.value = null
   overTrash.value = false
   window.removeEventListener('pointermove', onClearMove)
   window.removeEventListener('pointerup', onClearUp)
   window.removeEventListener('pointercancel', onClearUp)
   if (hit && chatId) {
-    // 释放命中垃圾桶：先播倒掉动画，动画结束后再删除数据。
-    dumping.value = true
+    // 释放命中：ghost 飞向垃圾桶中心缩小消失 -> 被删键淡出 -> 倒掉动画 -> 删除数据。
+    deletingChatId.value = chatId
+    const r = trashRef.value?.getBoundingClientRect()
+    if (r) {
+      ghostFlying.value = true
+      ghostX.value = r.left + r.width / 2
+      ghostY.value = r.top + r.height / 2
+    }
     dumpTimer = setTimeout(() => {
-      dumping.value = false
-      dumpTimer = undefined
-      emit('delete', chatId)
-    }, 650)
+      ghostFlying.value = false
+      clearDrag.value = null
+      dumping.value = true
+      dumpTimer = setTimeout(() => {
+        dumping.value = false
+        deletingChatId.value = null
+        dumpTimer = undefined
+        emit('delete', chatId)
+      }, 450)
+    }, 250)
+  } else {
+    clearDrag.value = null
   }
 }
 function cancelHoverLeave(): void {
@@ -326,6 +353,8 @@ onScopeDispose(() => {
     hoverLeaveTimer = undefined
   }
   dumping.value = false
+  ghostFlying.value = false
+  deletingChatId.value = null
   if (clearPointerId === -1) return
   clearPointerId = -1
   clearDrag.value = null
@@ -337,120 +366,215 @@ onScopeDispose(() => {
 
 <template>
   <div class="piano-keyboard">
-    <div
-      ref="viewportRef"
-      class="piano-viewport"
-      @pointerdown="drag.onPointerDown"
-      @pointermove="drag.onPointerMove"
-      @pointerup="drag.onPointerUp"
-      @pointercancel="drag.onPointerUp"
-      @wheel.prevent="drag.onWheel"
-    >
-      <div
-        v-if="keyViews.length"
-        class="piano-track"
-        :style="{
-          width: layout.trackWidth + 'px',
-          transform: `translateX(${drag.offsetX.value}px)`,
-        }"
-      >
-        <ElTooltip
-          v-for="v in keyViews"
-          :key="v.geom.index"
-          :content="v.tip"
-          placement="top"
-          :show-after="260"
+    <header class="piano-panel-head">
+      <span class="piano-panel-title">NYXUS · SESSION KEYS</span>
+      <span class="piano-panel-actions">
+        <button
+          type="button"
+          class="piano-panel-action"
+          :class="{ 'is-active': audio.muted.value }"
+          :aria-label="audio.muted.value ? '开启琴键音' : '静音琴键音'"
+          :title="audio.muted.value ? '开启琴键音' : '静音琴键音'"
+          :aria-pressed="audio.muted.value"
+          @click="audio.toggleMute"
         >
-          <button
-            type="button"
-            class="piano-key"
-            :class="[
-              v.geom.isBlack ? 'is-black' : 'is-white',
-              {
-                'is-nodata': !v.hasData,
-                'is-active': v.hasData && v.selected,
-                'is-pressed': v.geom.index === pressedKeyId,
-                'is-blink': v.blink,
-              },
-            ]"
-            :style="keyStyle(v)"
-            :aria-disabled="!v.hasData"
-            @click="onKeyClick(v)"
-            @pointerdown="onKeyDown($event, v)"
-            @pointerenter="onKeyEnter(v)"
-            @pointerleave="onKeyLeave($event, v)"
-          >
-            <span v-if="v.geom.isBlack" class="key-black-face">
-              <span v-if="v.blink" class="key-countdown is-on-black">{{ formatCountdown(v) }}</span>
-              <span v-if="v.hasData" class="key-time is-on-black">{{ v.time }}</span>
-            </span>
-            <span v-else class="key-face">
-              <span v-if="v.blink" class="key-countdown">{{ formatCountdown(v) }}</span>
-              <span v-if="v.hasData" class="key-time">{{ v.time }}</span>
-            </span>
-            <span v-if="v.selected" class="key-selected-marker" aria-hidden="true" />
-          </button>
-        </ElTooltip>
-      </div>
-      <div v-else class="piano-empty">暂无历史会话</div>
-    </div>
-    <!-- 清除按钮：hover 可删键时在其底部中心显示，按住拖到垃圾桶才删除。 -->
-    <button
-      v-if="hoveredKeyView?.deletable"
-      type="button"
-      class="key-clear-icon"
-      :style="{ left: clearIconLeft + 'px', top: clearIconTop + 'px' }"
-      title="拖到右侧垃圾桶删除该会话"
-      @pointerdown="onClearDown($event, hoveredKeyView!)"
-      @pointerenter="onIconEnter"
-      @pointerleave="onIconLeave($event)"
-    >
-      <span class="key-clear-glyph" aria-hidden="true">×</span>
-    </button>
-    <!-- 拖拽目标垃圾桶（右侧固定）+ callout 标签 -->
-    <div v-if="clearDrag || dumping" class="trash-dropzone" :class="{ 'is-over': overTrash }">
-      <span ref="trashRef" class="trash-icon" :class="{ 'is-dumping': dumping }">
-        <svg class="trash-svg" viewBox="0 0 24 24" aria-hidden="true">
-          <g class="trash-lid">
-            <rect x="5" y="5" width="14" height="2.2" rx="0.6" />
-            <rect x="10" y="2.6" width="4" height="2.6" rx="0.6" />
-          </g>
-          <g class="trash-body">
-            <path d="M6.5 8 L17.5 8 L16.3 21 H7.7 Z" />
-            <line class="trash-content" x1="9.5" y1="11" x2="9.5" y2="18" />
-            <line class="trash-content" x1="12" y1="11" x2="12" y2="18" />
-            <line class="trash-content" x1="14.5" y1="11" x2="14.5" y2="18" />
-          </g>
-        </svg>
+          <span aria-hidden="true">{{ audio.muted.value ? '∅' : '♪' }}</span>
+        </button>
+        <span
+          ref="trashRef"
+          class="piano-trash-target"
+          :class="{ 'is-ready': clearDrag, 'is-over': overTrash, 'is-dumping': dumping }"
+          :title="clearDrag ? '松开以删除该会话' : '将琴键上的清除按钮拖到这里'"
+          aria-label="删除会话拖放目标"
+        >
+          <svg class="trash-svg" viewBox="0 0 24 24" aria-hidden="true">
+            <g class="trash-lid">
+              <rect x="5" y="5" width="14" height="2.2" rx="0.6" />
+              <rect x="10" y="2.6" width="4" height="2.6" rx="0.6" />
+            </g>
+            <g class="trash-body">
+              <path d="M6.5 8 L17.5 8 L16.3 21 H7.7 Z" />
+              <line class="trash-content" x1="9.5" y1="11" x2="9.5" y2="18" />
+              <line class="trash-content" x1="12" y1="11" x2="12" y2="18" />
+              <line class="trash-content" x1="14.5" y1="11" x2="14.5" y2="18" />
+            </g>
+          </svg>
+        </span>
       </span>
-      <span class="trash-callout">拖到此处删除该会话</span>
+    </header>
+    <div class="piano-stage">
+      <div
+        ref="viewportRef"
+        class="piano-viewport"
+        @pointerdown="drag.onPointerDown"
+        @pointermove="drag.onPointerMove"
+        @pointerup="drag.onPointerUp"
+        @pointercancel="drag.onPointerUp"
+        @wheel.prevent="drag.onWheel"
+      >
+        <div
+          v-if="keyViews.length"
+          class="piano-track"
+          :style="{
+            width: layout.trackWidth + 'px',
+            transform: `translateX(${drag.offsetX.value}px)`,
+          }"
+        >
+          <ElTooltip
+            v-for="v in keyViews"
+            :key="v.geom.index"
+            :content="v.tip"
+            placement="top"
+            :show-after="150"
+          >
+            <button
+              type="button"
+              class="piano-key"
+              :class="[
+                v.geom.isBlack ? 'is-black' : 'is-white',
+                {
+                  'is-nodata': !v.hasData,
+                  'is-active': v.hasData && v.selected,
+                  'is-pressed': v.geom.index === pressedKeyId,
+                  'is-blink': v.blink,
+                  'is-drag-source': v.chatId === clearDrag?.chatId,
+                  'is-deleting': v.chatId === deletingChatId,
+                },
+              ]"
+              :style="keyStyle(v)"
+              :aria-disabled="!v.hasData"
+              @click="onKeyClick(v)"
+              @pointerdown="onKeyDown($event, v)"
+              @pointerenter="onKeyEnter(v)"
+              @pointerleave="onKeyLeave($event, v)"
+            >
+              <span v-if="v.geom.isBlack" class="key-black-face">
+                <span v-if="v.blink" class="key-countdown is-on-black">{{ formatCountdown(v) }}</span>
+                <span v-if="v.hasData" class="key-time is-on-black">{{ v.time }}</span>
+              </span>
+              <span v-else class="key-face">
+                <span v-if="v.blink" class="key-countdown">{{ formatCountdown(v) }}</span>
+                <span v-if="v.hasData" class="key-time">{{ v.time }}</span>
+              </span>
+              <span v-if="v.selected" class="key-selected-marker" aria-hidden="true" />
+            </button>
+          </ElTooltip>
+        </div>
+        <div v-else class="piano-empty">暂无历史会话</div>
+      </div>
+      <!-- 清除按钮：hover 可删键时在其底部中心显示，按住拖到右上角垃圾桶才删除。 -->
+      <button
+        v-if="hoveredKeyView?.deletable"
+        type="button"
+        class="key-clear-icon"
+        :style="{ left: clearIconLeft + 'px', top: clearIconTop + 'px' }"
+        title="拖到右上角垃圾桶删除该会话"
+        @pointerdown="onClearDown($event, hoveredKeyView!)"
+        @pointerenter="onIconEnter"
+        @pointerleave="onIconLeave($event)"
+      >
+        <span class="key-clear-glyph" aria-hidden="true">×</span>
+      </button>
     </div>
-    <!-- 拖拽幽灵（fixed 跟随光标） -->
-    <div v-if="clearDrag" class="clear-ghost" :style="{ left: ghostX + 'px', top: ghostY + 'px' }">
-      <svg class="sticker-svg ghost-sticker" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 4 H14 L20 10 V20 H5 Z" />
-        <path d="M14 4 V10 H20 Z" />
-      </svg>
-    </div>
+    <Teleport to="body">
+      <!-- 脱离 transformed popout，fixed 坐标与 PointerEvent.clientX/Y 使用同一视口参照。 -->
+      <div
+        v-if="clearDrag"
+        class="clear-ghost"
+        :class="{ 'is-flying': ghostFlying }"
+        :style="{ left: ghostX + 'px', top: ghostY + 'px' }"
+      >
+        <svg class="ghost-msg" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 5 H20 V15 H10 L6 19 V15 H4 Z" />
+          <line x1="7" y1="9" x2="17" y2="9" />
+          <line x1="7" y1="12" x2="14" y2="12" />
+        </svg>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped lang="less">
-// 外挂于 .dialog-panel.is-nyxus-panel（position:relative）底边框线之外。
 .piano-keyboard {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
+  position: relative;
   z-index: 5;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: 146px;
+  box-sizing: border-box;
+}
+.piano-panel-head {
+  flex: 0 0 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 2px 0 5px;
+  box-sizing: border-box;
+}
+.piano-panel-title {
+  overflow: hidden;
+  color: rgba(255, 230, 177, 0.76);
+  font:
+    700 8px/1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.13em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.piano-panel-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.piano-panel-action,
+.piano-trash-target {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 7px;
+  color: rgba(255, 232, 187, 0.62);
+  background: rgba(45, 24, 8, 0.26);
+}
+.piano-panel-action {
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 120ms ease,
+    background-color 120ms ease;
+  &:active {
+    transform: scale(0.97);
+  }
+  &.is-active {
+    color: #ffe4a6;
+    background: rgba(111, 65, 16, 0.46);
+  }
+}
+.piano-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
   padding: 0 6px 6px;
   box-sizing: border-box;
 }
 
 .piano-viewport {
   position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(48, 25, 7, 0.84);
   border-top: 1px solid rgba(255, 223, 157, 0.48);
@@ -535,6 +659,21 @@ onScopeDispose(() => {
   }
   &.is-blink {
     animation: nx-key-flash var(--flash-period, 1s) ease-in-out infinite;
+  }
+  &.is-deleting {
+    transform: scale(0.6) translateY(10px);
+    opacity: 0;
+    transition: transform 300ms ease, opacity 300ms ease;
+  }
+  &.is-drag-source {
+    filter: brightness(1.08) saturate(1.18);
+    outline: 2px solid rgba(246, 183, 60, 0.94);
+    outline-offset: -2px;
+    box-shadow:
+      0 0 0 2px rgba(246, 183, 60, 0.22),
+      0 0 12px rgba(246, 183, 60, 0.5),
+      inset 0 0 10px rgba(246, 183, 60, 0.18);
+    transform: translateY(-2px);
   }
 
   // 无数据键：置灰不可用。
@@ -658,6 +797,7 @@ onScopeDispose(() => {
   transition:
     transform 120ms ease,
     box-shadow 120ms ease;
+  animation: nx-clear-pulse 1.8s ease-in-out infinite;
   &:hover {
     transform: translateX(-50%) scale(1.06);
     background: #b46422;
@@ -668,123 +808,110 @@ onScopeDispose(() => {
     transform: translateX(-50%) scale(0.96);
   }
 }
+@keyframes nx-clear-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 rgba(246, 183, 60, 0));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(246, 183, 60, 0.7));
+  }
+}
 .key-clear-glyph {
   font-size: 16px;
   font-weight: 800;
   line-height: 1;
   pointer-events: none;
 }
-.sticker-svg {
-  width: 15px;
-  height: 15px;
-  path {
-    fill: #f6b73c;
-    stroke: #9a6b1a;
-    stroke-width: 1.2;
-    stroke-linejoin: round;
-  }
-  path:nth-child(2) {
-    fill: #e09a2a;
-  }
-}
-
-// ── 拖拽目标垃圾桶（弹窗右上角固定）+ callout 标签 ──
-// pointer-events:none：hit-test 用 getBoundingClientRect，不靠 pointer 事件，免遮挡幽灵移动。
-// 定位在 piano-keyboard 右上角（popout 内 title 正下方右侧）：拖拽全程光标留在 popout 内，
-// 不触发 popout 的 pointerleave -> 不会中途关闭卸载组件而中断拖拽。
-.trash-dropzone {
-  position: absolute;
-  right: 0;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
+.piano-trash-target {
   pointer-events: none;
-}
-.trash-icon {
-  display: block;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
   .trash-svg {
-    width: 30px;
-    height: 30px;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
-    .trash-lid {
-      transform-box: fill-box;
-      transform-origin: 50% 100%;
-      transition: transform 220ms ease;
-      rect {
-        fill: #6b5436;
-      }
-    }
-    .trash-body {
-      transform-box: fill-box;
-      transform-origin: 50% 100%;
-      transition: transform 220ms ease;
-      path {
-        fill: #8a7355;
-        stroke: #4a3a1a;
-        stroke-width: 1;
-        stroke-linejoin: round;
-      }
-    }
-    .trash-content {
-      stroke: #f6e8c8;
-      stroke-width: 1.4;
-      stroke-linecap: round;
-      transition:
-        transform 220ms ease,
-        opacity 220ms ease;
-    }
+    width: 16px;
+    height: 16px;
+    opacity: 0.58;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+    transition:
+      transform 180ms cubic-bezier(0.23, 1, 0.32, 1),
+      filter 180ms ease,
+      opacity 140ms ease;
   }
-}
-// 命中预览：主题色高亮。
-.trash-dropzone.is-over .trash-svg {
-  filter: drop-shadow(0 0 8px rgba(246, 183, 60, 0.9));
-}
-// 释放命中：倒掉动画（盖子翻开 + 桶身倾斜 + 内容倒出）。
-.trash-icon.is-dumping .trash-svg {
   .trash-lid {
-    transform: rotate(-60deg);
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transition: transform 220ms ease;
+    rect {
+      fill: currentcolor;
+    }
   }
   .trash-body {
-    transform: rotate(-22deg);
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    transition: transform 220ms ease;
+    path {
+      fill: currentcolor;
+      stroke: rgba(57, 31, 8, 0.7);
+      stroke-width: 1;
+      stroke-linejoin: round;
+    }
   }
   .trash-content {
-    transform: translateY(10px);
+    stroke: rgba(69, 38, 10, 0.82);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    transition:
+      transform 220ms ease,
+      opacity 220ms ease;
+  }
+  &.is-ready {
+    color: #ffe4a6;
+    background: rgba(111, 65, 16, 0.52);
+    .trash-svg {
+      opacity: 1;
+      transform: scale(1.08);
+    }
+  }
+  &.is-over {
+    color: #fff0bd;
+    background: rgba(163, 91, 18, 0.72);
+    .trash-svg {
+      opacity: 1;
+      filter: drop-shadow(0 0 7px rgba(246, 183, 60, 0.9));
+      transform: scale(1.16);
+    }
+  }
+}
+// 释放命中：倒掉动画（盖子弹性翻开 + 桶身下沉倾斜 + 内容粒子化散落 + 回弹）。
+.piano-trash-target.is-dumping .trash-svg {
+  .trash-lid {
+    transform: rotate(-74deg);
+    transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .trash-body {
+    transform: rotate(-14deg) translateY(2px);
+    transition: transform 380ms ease;
+  }
+  .trash-content {
     opacity: 0;
+    transition: transform 300ms ease, opacity 300ms ease;
   }
-}
-.trash-callout {
-  position: relative;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: #fff;
-  color: #4a3a1a;
-  font-size: 11px;
-  line-height: 1.3;
-  white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-  // 上三角指向垃圾桶（callout 在 icon 下方，三角朝上）。
-  &::before {
-    content: '';
-    position: absolute;
-    top: -5px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-bottom-color: #fff;
+  .trash-content:nth-child(2) {
+    transform: translateY(13px) translateX(-3px) rotate(-14deg);
+    transition-delay: 0ms;
   }
-}
-.trash-dropzone.is-over .trash-callout {
-  background: #f6b73c;
-  color: #2a1a05;
-  &::before {
-    border-bottom-color: #f6b73c;
+  .trash-content:nth-child(3) {
+    transform: translateY(14px) rotate(8deg);
+    transition-delay: 70ms;
+  }
+  .trash-content:nth-child(4) {
+    transform: translateY(13px) translateX(3px) rotate(16deg);
+    transition-delay: 140ms;
   }
 }
 
-// ── 拖拽幽灵（fixed 跟随光标，只显标签贴纸） ──
+// ── 拖拽幽灵（fixed 跟随光标，会话消息气泡 icon） ──
 .clear-ghost {
   position: fixed;
   z-index: 1000;
@@ -793,10 +920,49 @@ onScopeDispose(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  .ghost-sticker {
+  &.is-flying {
+    transition: left 250ms cubic-bezier(0.4, 0, 0.6, 1), top 250ms cubic-bezier(0.4, 0, 0.6, 1);
+  }
+  .ghost-msg {
     width: 26px;
     height: 26px;
     filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45));
+    animation: nx-ghost-wobble 1.4s ease-in-out infinite;
+    path {
+      fill: #f6b73c;
+      stroke: #9a6b1a;
+      stroke-width: 1.2;
+      stroke-linejoin: round;
+    }
+    line {
+      stroke: #5a3a0a;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+    }
+  }
+  &.is-flying .ghost-msg {
+    animation: none;
+    transform: scale(0.2);
+    opacity: 0;
+    transition: transform 250ms ease, opacity 250ms ease;
+  }
+}
+@keyframes nx-ghost-wobble {
+  0%,
+  100% {
+    transform: rotate(-8deg) scale(1);
+  }
+  50% {
+    transform: rotate(8deg) scale(1.06);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .piano-key.is-drag-source {
+    transform: none;
+  }
+  .key-clear-icon,
+  .clear-ghost .ghost-msg {
+    animation: none;
   }
 }
 </style>

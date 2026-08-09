@@ -4,7 +4,7 @@ import {
   sessionPianoKeyCount,
 } from '../../../src/features/pets/nyxus/composables/pianoNotes'
 
-describe('Nexus history piano key count', () => {
+describe('Nyxus history piano key count', () => {
   it('creates exactly one key per root history item without filler keys', () => {
     expect(sessionPianoKeyCount(0)).toBe(0)
     expect(sessionPianoKeyCount(3)).toBe(3)

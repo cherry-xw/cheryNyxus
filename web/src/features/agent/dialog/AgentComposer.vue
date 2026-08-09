@@ -4,7 +4,7 @@
  * 从 AgentDialog panel 内提取，Nyxus/非 Nyxus 双挂载共用。逻辑留 useAgentDialogOptions + AgentDialog，
  * 本组件仅 UI + emit；3 个 DOM ref 经函数 ref 桥接回 composable（selectCommand/commandMenuStyle 等依赖）。
  */
-import type { CSSProperties } from 'vue'
+import type { ComponentPublicInstance, CSSProperties } from 'vue'
 import { ElPopover, ElUpload } from 'element-plus'
 import type { UploadFile } from 'element-plus'
 import MediaPreviewBar from './media/MediaPreviewBar.vue'
@@ -18,7 +18,7 @@ import {
 import type { MessageCommand, RoleMention } from '../composables/commands'
 import type { RuntimeSelection } from '@/services/agentApi'
 
-defineProps<{
+const props = defineProps<{
   isNyxus: boolean
   nyxusDraftActive: boolean
   sending: boolean
@@ -46,9 +46,28 @@ defineProps<{
   roleMenuRefFn: (el: HTMLElement | null) => void
 }>()
 
+type TemplateRefValue = Element | ComponentPublicInstance | null
+
+function refElement(value: TemplateRefValue): HTMLElement | null {
+  if (value instanceof HTMLElement) return value
+  const root = value && '$el' in value ? value.$el : null
+  return root instanceof HTMLElement ? root : null
+}
+
+function setEditorRef(value: TemplateRefValue): void {
+  props.editorRefFn(refElement(value))
+}
+
+function setCommandMenuRef(value: TemplateRefValue): void {
+  props.commandMenuRefFn(refElement(value))
+}
+
+function setRoleMenuRef(value: TemplateRefValue): void {
+  props.roleMenuRefFn(refElement(value))
+}
+
 const emit = defineEmits<{
   removeMedia: [attachment: MediaAttachment]
-  cancel: []
   editorInput: []
   editorKeydown: [event: KeyboardEvent]
   editorSelectionChange: []
@@ -64,35 +83,21 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <MediaPreviewBar
-    v-if="!isNyxus || nyxusDraftActive"
-    :attachments="mediaAttachments"
-    @remove="(a) => emit('removeMedia', a)"
-  />
-
-  <div v-if="(!isNyxus || nyxusDraftActive) && mediaHint" class="media-hint-row">
-    {{ mediaHint }}
-  </div>
-
   <div
     v-if="!isNyxus || nyxusDraftActive"
     class="composer-wrap"
-    :class="{ 'is-node-terminal': isNyxus }"
+    :class="{ 'is-nyxus-composer': isNyxus }"
   >
-    <button
-      v-if="isNyxus"
-      type="button"
-      class="composer-close-btn"
-      aria-label="关闭未发送输入"
-      title="关闭未发送输入"
-      :disabled="sending"
-      @click="emit('cancel')"
-    >
-      ×
-    </button>
+    <MediaPreviewBar
+      :attachments="mediaAttachments"
+      @remove="(a) => emit('removeMedia', a)"
+    />
+    <div v-if="mediaHint" class="media-hint-row">
+      {{ mediaHint }}
+    </div>
     <div class="textarea-row">
       <div
-        :ref="editorRefFn"
+        :ref="setEditorRef"
         class="msg-input rich-message-input"
         :class="{ 'is-disabled': sending, 'is-empty': !text }"
         :contenteditable="!sending"
@@ -108,7 +113,7 @@ const emit = defineEmits<{
       />
       <Teleport v-if="showCommandMenu" to="body">
         <div
-          :ref="commandMenuRefFn"
+          :ref="setCommandMenuRef"
           class="command-menu"
           role="listbox"
           aria-label="可用指令"
@@ -182,7 +187,7 @@ const emit = defineEmits<{
       </Teleport>
       <Teleport v-if="showRoleMenu" to="body">
         <div
-          :ref="roleMenuRefFn"
+          :ref="setRoleMenuRef"
           class="command-menu role-mention-menu"
           role="listbox"
           aria-label="可委派角色"
@@ -314,13 +319,158 @@ const emit = defineEmits<{
         </button>
       </div>
     </div>
-  </div>
-
-  <div v-if="error" class="error-row" :class="{ 'node-composer-error': isNyxus }" role="alert">
-    {{ error }}
+    <div v-if="error" class="error-row" :class="{ 'node-composer-error': isNyxus }" role="alert">
+      {{ error }}
+    </div>
   </div>
 </template>
 
 <style scoped lang="less">
 @import './agentDialog.less';
+
+.composer-wrap {
+  position: relative;
+}
+
+.composer-wrap.is-nyxus-composer {
+  padding: 10px 12px 6px;
+
+  :deep(.media-preview-bar) {
+    padding: 0 0 8px;
+  }
+
+  :deep(.media-preview-strip) {
+    padding: 0 0 3px;
+    scrollbar-color: rgba(116, 173, 184, 0.34) transparent;
+  }
+
+  :deep(.media-preview-thumb) {
+    border-color: rgba(116, 173, 184, 0.22);
+    background: rgba(11, 22, 29, 0.92);
+    box-shadow: none;
+  }
+
+  :deep(.thumb-visual) {
+    background: rgba(5, 11, 16, 0.9);
+  }
+
+  :deep(.thumb-name) {
+    color: rgba(220, 232, 235, 0.82);
+  }
+
+  :deep(.thumb-size) {
+    color: rgba(173, 194, 199, 0.54);
+  }
+
+  .rich-message-input {
+    min-height: 88px;
+    max-height: min(34vh, 300px);
+    padding: 12px 88px 42px 13px;
+    border: 1px solid rgba(116, 173, 184, 0.3);
+    border-radius: 8px;
+    color: #dce8eb;
+    background: rgba(5, 11, 16, 0.76);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+    caret-color: #69c995;
+    font-size: 13px;
+    line-height: 1.55;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      background-color 150ms ease;
+
+    &.is-empty::before {
+      color: rgba(173, 194, 199, 0.46);
+    }
+
+    &:focus {
+      border-color: rgba(87, 199, 212, 0.68);
+      background: rgba(6, 14, 20, 0.92);
+      box-shadow:
+        0 0 0 3px rgba(87, 199, 212, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.024);
+    }
+
+    &.is-disabled {
+      color: rgba(180, 199, 204, 0.48);
+      background: rgba(5, 11, 16, 0.9);
+    }
+  }
+
+  :deep(.instruction-token) {
+    background: rgba(231, 183, 107, 0.16);
+    color: #f1d6a0;
+  }
+
+  :deep(.role-mention-token) {
+    background: rgba(87, 199, 212, 0.14);
+    color: #a8e4eb;
+  }
+
+  .textarea-actions {
+    right: 10px;
+    bottom: 9px;
+  }
+
+  .add-media-btn,
+  .send-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid rgba(116, 173, 184, 0.2);
+    border-radius: 7px;
+    color: rgba(179, 201, 206, 0.68);
+    background: rgba(116, 173, 184, 0.055);
+    transition:
+      transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+      color 140ms ease,
+      border-color 140ms ease,
+      background-color 140ms ease;
+
+    &:active:not(:disabled) {
+      transform: scale(0.97);
+    }
+  }
+
+  .send-btn:not(:disabled) {
+    border-color: rgba(105, 201, 149, 0.32);
+    color: #9de0b9;
+    background: rgba(105, 201, 149, 0.1);
+  }
+
+  .media-hint-row {
+    margin-bottom: 8px;
+    border: 1px solid rgba(231, 183, 107, 0.18);
+    color: #dfbd7c;
+    background: rgba(231, 183, 107, 0.065);
+  }
+
+  .node-composer-error {
+    margin-top: 8px;
+    border: 1px solid rgba(239, 113, 133, 0.26);
+    color: #f1a0ad;
+    background: rgba(239, 113, 133, 0.075);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .composer-wrap.is-nyxus-composer .add-media-btn:hover:not(:disabled) {
+    border-color: rgba(87, 199, 212, 0.4);
+    color: #a8e4eb;
+    background: rgba(87, 199, 212, 0.1);
+  }
+  .composer-wrap.is-nyxus-composer .send-btn:hover:not(:disabled) {
+    border-color: rgba(105, 201, 149, 0.54);
+    color: #c3f1d5;
+    background: rgba(105, 201, 149, 0.16);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-wrap.is-nyxus-composer :is(.add-media-btn, .send-btn) {
+    transition:
+      color 120ms ease,
+      border-color 120ms ease,
+      background-color 120ms ease;
+  }
+}
 </style>

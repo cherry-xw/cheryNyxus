@@ -2,7 +2,7 @@ import { onScopeDispose, ref } from 'vue'
 import type { Ref } from 'vue'
 
 /**
- * 横向拖拽平移（NexusPianoStrip + MessageBranchTree 共用）。
+ * 横向拖拽平移（NyxusPianoStrip + MessageBranchTree 共用）。
  * pointer 驱动 offsetX；溢出时 clamp 到 [viewport-content, 0]；不溢出则不平移。
  * wasDrag 标志区分「拖拽」与「点击」：位移超阈值则后续 click 不触发选键/发声。
  *

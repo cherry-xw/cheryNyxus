@@ -134,6 +134,51 @@ describe('execution graph projector', () => {
     )
   })
 
+  it('collapses a resolved spawn target into the durable child delegation input', () => {
+    const graph = projectPersistentExecutionGraph(
+      snapshot(
+        [
+          node('batch', 1, { kind: 'tool-batch' }),
+          node('spawn-target:task-child', 2, {
+            sourceChatId: 'child',
+            kind: 'dispatch',
+            actor: { kind: 'agent', chatId: 'root' },
+            target: { kind: 'agent', chatId: 'child' },
+            direction: 'parent-to-child',
+            visibility: 'internal',
+          }),
+          node('child-input', 3, {
+            sourceChatId: 'child',
+            actor: { kind: 'agent', chatId: 'root' },
+            target: { kind: 'agent', chatId: 'child' },
+            direction: 'parent-to-child',
+          }),
+        ],
+        [
+          edge('spawn-edge', 4, 'batch', 'spawn-target:task-child', 'spawn', {
+            targetChatId: 'child',
+          }),
+          edge('target-sequence', 5, 'spawn-target:task-child', 'child-input', 'sequence', {
+            sourceChatId: 'child',
+            targetChatId: 'child',
+          }),
+        ],
+      ),
+    )
+
+    expect(graph.nodes.some((item) => item.id === 'spawn-target:task-child')).toBe(false)
+    expect(graph.nodes.filter((item) => item.direction === 'parent-to-child')).toHaveLength(1)
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({
+        id: 'spawn-edge',
+        from: 'batch',
+        to: 'child-input',
+        kind: 'spawn',
+      }),
+    )
+    expect(graph.edges.some((item) => item.id === 'target-sequence')).toBe(false)
+  })
+
   it('retains revoked facts, termination and exact active-run references', () => {
     const run: ActiveRunFact = {
       rootChatId: 'root',

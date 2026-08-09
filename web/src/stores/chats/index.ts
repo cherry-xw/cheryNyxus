@@ -365,7 +365,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
   }
 
-  /** Observe one visible Nexus root. UI supplies only the selected root/view;
+  /** Observe one visible Nyxus root. UI supplies only the selected root/view;
    * this message-layer controller owns subscription replacement and snapshots. */
   async function observeRootTimeline(
     rootChatId: string,

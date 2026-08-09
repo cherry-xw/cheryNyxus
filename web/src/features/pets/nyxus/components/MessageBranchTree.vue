@@ -6,12 +6,10 @@
  * come from pure graph modules, while this layer owns only the canvas gesture
  * and visual skin. Later checkpoints add termination controls and CRT anchoring.
  */
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useChatSessionsStore } from '@/stores'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import { effectiveRootLiveState } from '@/stores/chats/rootTimeline'
-import type { TimelineActor } from '@/services/agentApi'
 import {
-  mainExecutionEndpoint,
   projectActiveTurnNodes,
   projectInputNodes,
   projectPersistentExecutionGraph,
@@ -21,47 +19,39 @@ import {
 } from '../graph/executionGraph'
 import { projectFoldExecutionGraph } from '../graph/foldProjection'
 import { createIncrementalExecutionLayout } from '../graph/executionLayout'
-import { EXECUTION_ICON_RADIUS } from '../graph/executionLayout'
-import { executionEdgeGeometry } from '../graph/executionGeometry'
 import { edgeStyle } from '../graph/edgeStyles'
 import { canPinNodeDetail, hasNodeHoverDetail, skinForNode } from '../graph/nodeSkins'
 import {
   anchoredPopoverPosition,
   oppositePopoverPlacement,
   toolBatchDetail,
-  type ToolBatchVisualStatus,
 } from '../graph/toolBatchDetails'
-import { useTreeCanvas } from '../composables/useTreeCanvas'
-import {
-  createMainInputState,
-  pendingInputAnchor,
-  pendingInputPhase,
-  reduceMainInputState,
-} from '../composables/mainInputState'
-import FiberPulseLine from './FiberPulseLine.vue'
+import { useTreeCanvas, type CanvasTransform } from '../composables/useTreeCanvas'
+import { pendingInputAnchor, pendingInputPhase } from '../composables/mainInputState'
 import ExecutionNodePopover from './ExecutionNodePopover.vue'
 import FoldTabRail from './FoldTabRail.vue'
 import AnchoredRunCrt from './AnchoredRunCrt.vue'
 import { terminationDisplay } from '../graph/termination'
-import {
-  buildRunCrtModels,
-  effectiveRunFacts,
-  type RunCrtModel,
-} from '../graph/crtModel'
+import { buildRunCrtModels, effectiveRunFacts, type RunCrtModel } from '../graph/crtModel'
 import { layoutAnchoredCrts, selectVisibleCrtIds } from '../graph/crtLayout'
+import { buildDefaultNodePopovers, type DefaultNodePopover } from '../graph/nodePopoverModel'
 import {
-  buildDefaultNodePopovers,
-  type DefaultNodePopover,
-} from '../graph/nodePopoverModel'
+  ExecutionGraphPixiRenderer,
+  type PixiExecutionScene,
+} from '../renderer/ExecutionGraphPixiRenderer'
+import {
+  createExecutionViewportIndex,
+  selectVisibleExecutionItems,
+  viewportSelectionContainsCamera,
+  visibleItemsKey,
+  type ExecutionCamera,
+} from '../renderer/executionViewport'
 
-const props = withDefaults(
-  defineProps<{ rootChatId: string; editing?: boolean; folded?: boolean }>(),
-  { folded: true },
-)
-const emit = defineEmits<{ activateInput: []; composerTarget: [target: HTMLElement] }>()
+const props = withDefaults(defineProps<{ rootChatId: string; folded?: boolean }>(), { folded: true })
 const chatSessions = useChatSessionsStore()
+const agents = useAgentsStore()
 const viewportRef = ref<HTMLElement | null>(null)
-const composerMountRef = ref<HTMLElement | null>(null)
+const pixiMountRef = ref<HTMLElement | null>(null)
 const hoveredDetailNodeId = ref<string>()
 const pinnedDetailNodeId = ref<string>()
 const selectedCallId = ref<string>()
@@ -69,26 +59,23 @@ const selectedFoldMembers = ref<Map<string, string>>(new Map())
 const unreadFoldMembers = ref<Map<string, number>>(new Map())
 const readingFoldId = ref<string>()
 const viewportSize = ref({ width: 0, height: 0 })
-const inputState = ref(createMainInputState(`draft:${props.rootChatId}`))
 const pinnedCrtIds = ref<Set<string>>(new Set())
 const hiddenCrtIds = ref<Set<string>>(new Set())
 const actionSelectedCallIds = ref<Map<string, string>>(new Map())
 const recoveringGraph = ref(false)
 const recoveryError = ref('')
+const gpuRenderError = ref('')
+const hasNewTail = ref(false)
+let gpuRenderer: ExecutionGraphPixiRenderer | undefined
+let gpuMountGeneration = 0
+let lastGpuSceneSignature = ''
 let detailHideTimer: ReturnType<typeof setTimeout> | undefined
-function getComposerTarget(): HTMLElement | null {
-  return composerMountRef.value
-}
 
 const timelineSnapshot = computed(() => chatSessions.rootTimeline(props.rootChatId, 'tree'))
 const timelineNodes = computed(() => timelineSnapshot.value?.nodes ?? [])
 const rootTransientState = computed(() => chatSessions.rootTimelineStates[props.rootChatId])
 const liveState = computed(() =>
-  effectiveRootLiveState(
-    props.rootChatId,
-    rootTransientState.value,
-    chatSessions.sessionsById,
-  ),
+  effectiveRootLiveState(props.rootChatId, rootTransientState.value, chatSessions.sessionsById),
 )
 const activeCrtRuns = computed(() =>
   effectiveRunFacts(
@@ -119,23 +106,6 @@ const pendingInputs = computed<VirtualInputNode[]>(() => {
         a.id.localeCompare(b.id),
     )
 })
-const draftInputs = computed<VirtualInputNode[]>(() =>
-  inputState.value.phase === 'editing'
-    ? [
-        {
-          id: `input:draft:${props.rootChatId}`,
-          content: '输入需求…',
-          createdAt:
-            Math.max(
-              0,
-              ...pendingInputs.value.map((item) => item.createdAt),
-              ...(rootTransientState.value?.activeTurns ?? []).map((turn) => turn.createdAt ?? 0),
-            ) + 1,
-          state: inputState.value.phase,
-        },
-      ]
-    : [],
-)
 const persistentGraph = computed(() =>
   projectPersistentExecutionGraph(
     timelineSnapshot.value
@@ -157,8 +127,8 @@ const liveGraph = computed(() =>
 )
 const foldProjection = computed(() =>
   props.folded
-    ? projectFoldExecutionGraph(projectInputNodes(liveGraph.value, draftInputs.value))
-    : { graph: projectInputNodes(liveGraph.value, draftInputs.value), ranges: [] },
+    ? projectFoldExecutionGraph(liveGraph.value)
+    : { graph: liveGraph.value, ranges: [] },
 )
 const graph = computed(() => foldProjection.value.graph)
 const defaultNodePopovers = computed(() =>
@@ -180,7 +150,6 @@ const layoutEngine = createIncrementalExecutionLayout()
 const endpointLayoutEngine = createIncrementalExecutionLayout()
 const layout = computed(() => layoutEngine.layout(graph.value))
 const endpointLayout = computed(() => endpointLayoutEngine.layout(endpointGraph.value))
-const inputEndpointId = computed(() => mainExecutionEndpoint(endpointGraph.value).id)
 
 const canvas = useTreeCanvas({
   viewport: () => viewportRef.value,
@@ -189,7 +158,89 @@ const canvas = useTreeCanvas({
   minScale: 0.32,
   maxScale: 2.2,
   padding: 18,
+  deferDragCommit: true,
+  onDragStart: startGpuDrag,
+  onDragFrame: presentGpuDrag,
+  onDragEnd: finishGpuDrag,
 })
+
+const executionCamera = computed<ExecutionCamera>(() => ({
+  scale: canvas.scale.value,
+  x: canvas.offsetX.value,
+  y: canvas.offsetY.value,
+  width: viewportSize.value.width,
+  height: viewportSize.value.height,
+}))
+const viewportSelectionCamera = shallowRef<ExecutionCamera>(executionCamera.value)
+const VIEWPORT_RETENTION_OVERSCAN = 1600
+const VIEWPORT_RETENTION_SAFETY_MARGIN = 240
+const RUN_CRT_HEADER_CENTER_OFFSET_Y = 19
+const forcedGpuNodeIds = computed(
+  () =>
+    new Set(
+      [hoveredDetailNodeId.value, pinnedDetailNodeId.value, ...runningTailIds.value].filter(
+        (id): id is string => !!id,
+      ),
+    ),
+)
+const executionViewportIndex = computed(() => createExecutionViewportIndex(layout.value))
+const visibleExecutionItems = computed(() =>
+  selectVisibleExecutionItems(
+    layout.value,
+    viewportSelectionCamera.value,
+    forcedGpuNodeIds.value,
+    executionViewportIndex.value,
+    VIEWPORT_RETENTION_OVERSCAN,
+  ),
+)
+const visibleExecutionKey = computed(() => visibleItemsKey(visibleExecutionItems.value))
+const visibleInteractiveNodes = computed(() =>
+  visibleExecutionItems.value.nodes.filter(isInteractiveNode),
+)
+
+function dragExecutionCamera(transform: CanvasTransform): ExecutionCamera {
+  return { ...transform, width: viewportSize.value.width, height: viewportSize.value.height }
+}
+
+function setDragOverlayTranslation(x: number, y: number): void {
+  viewportRef.value?.style.setProperty('--tree-drag-x', `${x}px`)
+  viewportRef.value?.style.setProperty('--tree-drag-y', `${y}px`)
+}
+
+function startGpuDrag(transform: CanvasTransform): void {
+  gpuRenderer?.setCamera(dragExecutionCamera(transform))
+  viewportRef.value?.classList.add('is-panning')
+  setDragOverlayTranslation(0, 0)
+}
+
+function retainCameraSelection(camera: ExecutionCamera): void {
+  if (
+    !viewportSelectionContainsCamera(
+      visibleExecutionItems.value.bounds,
+      camera,
+      VIEWPORT_RETENTION_SAFETY_MARGIN,
+    )
+  ) {
+    viewportSelectionCamera.value = camera
+  }
+}
+
+function presentGpuDrag(transform: CanvasTransform): void {
+  const camera = dragExecutionCamera(transform)
+  gpuRenderer?.setCamera(camera)
+  setDragOverlayTranslation(transform.x - canvas.offsetX.value, transform.y - canvas.offsetY.value)
+  retainCameraSelection(camera)
+}
+
+function finishGpuDrag(transform: CanvasTransform): void {
+  const camera = dragExecutionCamera(transform)
+  gpuRenderer?.setCamera(camera)
+  retainCameraSelection(camera)
+  void nextTick(() => {
+    setDragOverlayTranslation(0, 0)
+    viewportRef.value?.classList.remove('is-panning')
+  })
+}
 
 const projectedCrts = computed(() =>
   buildRunCrtModels({
@@ -206,16 +257,14 @@ const retainedCrts = computed(
 )
 
 const runningTailIds = computed(() => {
-  return new Set(
-    [
-      ...graph.value.nodes
-        .filter((node) => node.activeRuns.some((run) => run.status === 'running'))
-        .map((node) => node.id),
-      ...projectedCrts.value
-        .filter((card) => card.status === 'running' || card.status === 'waiting')
-        .map((card) => card.anchorNodeId),
-    ],
-  )
+  return new Set([
+    ...graph.value.nodes
+      .filter((node) => node.activeRuns.some((run) => run.status === 'running'))
+      .map((node) => node.id),
+    ...projectedCrts.value
+      .filter((card) => card.status === 'running' || card.status === 'waiting')
+      .map((card) => card.anchorNodeId),
+  ])
 })
 
 watch(
@@ -263,7 +312,7 @@ const visibleCrts = computed(() =>
 
 const overlayPlacements = computed(() => {
   const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
-  const heightLimit = Math.max(160, viewportSize.value.height - 24)
+  const heightLimit = Math.max(160, viewportSize.value.height - 96)
   return layoutAnchoredCrts(
     [
       ...visibleCrts.value.flatMap((card, order) => {
@@ -273,11 +322,12 @@ const overlayPlacements = computed(() => {
           {
             id: card.id,
             anchor: canvas.worldToScreen(node),
-            panel: { width: 340, height: Math.min(heightLimit, 280) },
+            panel: { width: 420, height: Math.min(heightLimit, 560) },
             main: card.main,
             actionable: false,
             pinned: pinnedCrtIds.value.has(card.id),
             order: card.updatedAt || order,
+            lineTargetOffsetY: RUN_CRT_HEADER_CENTER_OFFSET_Y,
           },
         ]
       }),
@@ -288,7 +338,7 @@ const overlayPlacements = computed(() => {
           {
             id: model.id,
             anchor: canvas.worldToScreen(node),
-            panel: { width: 360, height: Math.min(heightLimit, 420) },
+            panel: { width: 480, height: Math.min(heightLimit, 640) },
             main: node.main,
             actionable: true,
             pinned: false,
@@ -339,24 +389,34 @@ function closeCrt(id: string): void {
   updateCrtSet(hiddenCrtIds, (next) => next.add(id))
 }
 
-function actorLabel(actor: TimelineActor): string {
+function actorLabel(node: (typeof layout.value.nodes)[number]): string {
+  const actor = node.actor
   if (actor.kind === 'user') return actor.displayName?.trim() || '我'
-  if (actor.kind === 'agent') return actor.roleType?.trim() || '主 Agent'
-  if (actor.kind === 'tool') return actor.toolName
-  return '系统'
+  if (actor.kind === 'agent') {
+    return actor.roleType?.trim() || (node.sourceChatId === node.rootChatId ? 'Cherry Nyxus' : '协作节点')
+  }
+  if (actor.kind === 'tool') return toolDisplayName(actor.toolName)
+  return '系统事件'
+}
+
+function toolDisplayName(name: string): string {
+  return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || '工具'
 }
 
 function nodeTitle(node: (typeof layout.value.nodes)[number]): string {
-  if (node.kind === 'start') return '开始'
-  if (node.kind === 'input') return '我'
-  if (node.kind === 'return') return `${actorLabel(node.actor)} · 回传`
+  if (node.kind === 'start') return '任务起点'
+  if (node.kind === 'input') return '我的指令'
+  if (node.kind === 'return') return '结果返回'
+  if (node.direction === 'parent-to-child') return '委派任务'
   if (node.kind === 'tool-batch') {
     const detail = toolBatchDetail(node)
-    return detail?.spawn ? 'Spawn' : detail?.calls[0]?.name || '工具'
+    if (detail?.calls.length === 1) return toolDisplayName(detail.calls[0]!.name)
+    return detail?.calls.length ? `工具执行 · ${detail.calls.length} 项` : '工具执行'
   }
   if (node.kind === 'fold') return skinForNode(node).label
-  if (node.kind === 'dispatch') return '派发'
-  return actorLabel(node.actor)
+  if (node.kind === 'dispatch') return '任务委派'
+  if (node.kind === 'spawn') return '创建协作节点'
+  return actorLabel(node)
 }
 
 function nodeAriaLabel(node: (typeof layout.value.nodes)[number]): string {
@@ -379,15 +439,24 @@ function focusRelativeNode(nodeId: string, direction: -1 | 1 | 'first' | 'last')
       : direction === 'last'
         ? ids.length - 1
         : Math.min(ids.length - 1, Math.max(0, current + direction))
-  const layoutIndex = layout.value.nodes.findIndex((node) => node.id === ids[index])
-  const target = viewportRef.value?.querySelector<SVGGElement>(
-    `[data-execution-node-index="${layoutIndex}"]`,
-  )
-  target?.focus()
+  const nextId = ids[index]!
+  const node = layout.value.nodes.find((candidate) => candidate.id === nextId)
+  if (!node) return
+  const focusTarget = (): boolean => {
+    const target = viewportRef.value?.querySelector<HTMLButtonElement>(
+      `[data-execution-node-id="${CSS.escape(nextId)}"]`,
+    )
+    target?.focus()
+    return !!target
+  }
+  if (!focusTarget()) {
+    canvas.panToPoint(node)
+    void nextTick(focusTarget)
+  }
 }
 
 function isInteractiveNode(node: (typeof layout.value.nodes)[number]): boolean {
-  return isInputActivationTarget(node) || hasNodeHoverDetail(node) || crtsByAnchor.value.has(node.id)
+  return hasNodeHoverDetail(node) || crtsByAnchor.value.has(node.id)
 }
 
 function cancelDetailHide(): void {
@@ -496,21 +565,10 @@ function onFoldRailInteraction(foldId: string, active: boolean): void {
   if (!detailStillOpen && readingFoldId.value === foldId) readingFoldId.value = undefined
 }
 
-function isInputEndpoint(node: (typeof layout.value.nodes)[number]): boolean {
-  return node.id === inputEndpointId.value
-}
-function isInputActivationTarget(node: (typeof layout.value.nodes)[number]): boolean {
-  return isInputEndpoint(node) || node.id === `input:draft:${props.rootChatId}`
-}
-
 function onNodePointerDown(event: PointerEvent, node: (typeof layout.value.nodes)[number]): void {
   // Interactive nodes must retain pointer ownership. Otherwise the viewport's
   // pointer capture retargets the eventual click to the canvas.
   if (isInteractiveNode(node)) event.stopPropagation()
-}
-
-function edgePath(edge: (typeof layout.value.edges)[number]): string {
-  return executionEdgeGeometry(edge.from, edge.to, EXECUTION_ICON_RADIUS).path
 }
 
 async function recoverGraph(): Promise<void> {
@@ -540,30 +598,15 @@ function isError(node: (typeof layout.value.nodes)[number]): boolean {
 
 function activateNode(node: (typeof layout.value.nodes)[number]): void {
   if (canvas.consumeClickAfterDrag()) return
-  if (isInputActivationTarget(node)) emit('activateInput')
-  else if (defaultPopoverAnchorIds.value.has(node.id)) return
+  if (defaultPopoverAnchorIds.value.has(node.id)) return
   else if (crtsByAnchor.value.has(node.id)) {
     for (const card of crtsByAnchor.value.get(node.id) ?? []) pinCrt(card.id)
-  }
-  else if (canPinNodeDetail(node)) {
+  } else if (canPinNodeDetail(node)) {
     pinnedDetailNodeId.value = node.id
     hoveredDetailNodeId.value = node.id
     if (node.kind === 'fold') readingFoldId.value = node.id
   }
 }
-
-const composerAnchorStyle = computed(() => {
-  const node = layout.value.nodes.find((item) => item.id === `input:draft:${props.rootChatId}`)
-  if (!node) return undefined
-  const position = anchoredPopoverPosition({
-    anchor: canvas.worldToScreen(node),
-    viewport: viewportSize.value,
-    panel: { width: 380, height: 204 },
-    gap: 28,
-    margin: 12,
-  })
-  return { left: `${position.left}px`, top: `${position.top}px` }
-})
 
 const detailNode = computed(() => {
   const id = pinnedDetailNodeId.value ?? hoveredDetailNodeId.value
@@ -591,7 +634,7 @@ const detailRelatedEdges = computed(() => {
     : []
 })
 const detailMaxHeight = computed(() => {
-  return Math.min(420, Math.max(120, viewportSize.value.height - 184))
+  return Math.min(640, Math.max(160, viewportSize.value.height - 96))
 })
 const detailPlacement = computed(() => {
   const node = detailNode.value
@@ -601,7 +644,7 @@ const detailPlacement = computed(() => {
   const position = anchoredPopoverPosition({
     anchor,
     viewport: viewportSize.value,
-    panel: { width: 360, height: detailMaxHeight.value },
+    panel: { width: 480, height: detailMaxHeight.value },
     margin: 12,
   })
   return {
@@ -614,8 +657,45 @@ const detailAnchorStyle = computed(() => detailPlacement.value?.style)
 const foldRailSide = computed(() =>
   detailPlacement.value ? oppositePopoverPlacement(detailPlacement.value.placement) : 'left',
 )
-function batchStatus(node: (typeof layout.value.nodes)[number]): ToolBatchVisualStatus | undefined {
-  return toolBatchDetail(node)?.status
+const pixiScene = computed<PixiExecutionScene>(() => ({
+  nodes: visibleExecutionItems.value.nodes.map((node) => {
+    const skin = skinForNode(node)
+    return {
+      id: node.id,
+      x: node.x,
+      y: node.y,
+      accent: skin.accent,
+      glyph: skin.glyph,
+      title: nodeTitle(node),
+      ...(node.sourceFact?.termination
+        ? { termination: terminationDisplay(node.sourceFact.termination).label }
+        : {}),
+      ...(node.kind === 'fold' && node.fold ? { foldCount: node.fold.members.length } : {}),
+      running: runningTailIds.value.has(node.id),
+      detailActive: hoveredDetailNodeId.value === node.id || pinnedDetailNodeId.value === node.id,
+      paused: isPaused(node),
+      error: isError(node),
+      revoked: node.status === 'revoked',
+    }
+  }),
+  edges: visibleExecutionItems.value.edges.map((edge) => ({
+    id: edge.id,
+    from: edge.from,
+    to: edge.to,
+    color: edgeStyle(edge.kind).color,
+    active: runningTailIds.value.has(edge.from.id) || runningTailIds.value.has(edge.to.id),
+    phaseSeconds: (edge.to.createdAt % 1300) / 1000,
+  })),
+}))
+
+function gpuNodeHitStyle(node: (typeof layout.value.nodes)[number]): Record<string, string> {
+  const position = canvas.worldToScreen(node)
+  const size = Math.max(30, 46 * canvas.scale.value)
+  return {
+    width: `${size}px`,
+    height: `${size}px`,
+    transform: `translate3d(${position.x - size / 2}px, ${position.y - size / 2}px, 0)`,
+  }
 }
 
 function defaultPopoverNodes(
@@ -707,10 +787,10 @@ watch(
   () => props.rootChatId,
   (rootChatId, previousRootChatId) => {
     if (!rootChatId) return
-    inputState.value = createMainInputState(`draft:${rootChatId}`)
     layoutEngine.reset()
     endpointLayoutEngine.reset()
     recoveryError.value = ''
+    hasNewTail.value = false
     selectedFoldMembers.value = new Map()
     unreadFoldMembers.value = new Map()
     actionSelectedCallIds.value = new Map()
@@ -734,15 +814,82 @@ watch(
     void nextTick(() => canvas.followContentEnd(endpointLayout.value.height))
   },
 )
+// 用户拖离后末尾追加新节点 -> 显示「回到底部」浮标；点击 fit 回末尾并恢复跟随。
 watch(
-  () => props.editing,
-  (editing) => {
-    inputState.value = reduceMainInputState(inputState.value, {
-      type: editing ? 'edit' : 'close',
-    })
+  () => graph.value.nodes.at(-1)?.id,
+  (id, prev) => {
+    if (id && id !== prev && canvas.userPanned.value) hasNewTail.value = true
   },
-  { immediate: true },
 )
+function returnToBottom(): void {
+  hasNewTail.value = false
+  canvas.fitToView({ animate: true, duration: 460 })
+}
+function gpuSceneSignature(scene: PixiExecutionScene): string {
+  return [
+    visibleExecutionKey.value,
+    ...scene.nodes.map((node) =>
+      [
+        node.id,
+        node.title,
+        node.termination ?? '',
+        node.foldCount ?? '',
+        Number(node.running),
+        Number(node.detailActive),
+        Number(node.paused),
+        Number(node.error),
+        Number(node.revoked),
+      ].join('\u0001'),
+    ),
+    '\u0002',
+    ...scene.edges.map((edge) =>
+      [edge.id, edge.color, Number(edge.active), edge.phaseSeconds].join('\u0001'),
+    ),
+  ].join('\u0000')
+}
+
+function syncGpuScene(scene = pixiScene.value): void {
+  const signature = gpuSceneSignature(scene)
+  if (signature === lastGpuSceneSignature) return
+  lastGpuSceneSignature = signature
+  gpuRenderer?.setScene(scene)
+}
+
+watch(
+  executionCamera,
+  (camera) => {
+    gpuRenderer?.setCamera(camera)
+    if (!canvas.dragging.value) viewportSelectionCamera.value = camera
+  },
+  { deep: true, flush: 'sync' },
+)
+watch(pixiScene, (scene) => syncGpuScene(scene))
+
+async function mountGpuRenderer(): Promise<void> {
+  const host = pixiMountRef.value
+  if (!host) return
+  const generation = ++gpuMountGeneration
+  const renderer = new ExecutionGraphPixiRenderer()
+  gpuRenderer = renderer
+  renderer.setScene(pixiScene.value)
+  try {
+    await renderer.mount(host)
+  } catch (error) {
+    if (generation === gpuMountGeneration) {
+      gpuRenderError.value = error instanceof Error ? error.message : 'GPU 渲染器初始化失败'
+    }
+    return
+  }
+  if (generation !== gpuMountGeneration) {
+    renderer.destroy()
+    return
+  }
+  renderer.setCamera(executionCamera.value)
+  gpuRenderError.value = ''
+  lastGpuSceneSignature = ''
+  syncGpuScene()
+}
+
 onMounted(() => {
   viewportRO = new ResizeObserver(() => {
     viewportSize.value = {
@@ -754,25 +901,27 @@ onMounted(() => {
   if (viewportRef.value) viewportRO.observe(viewportRef.value)
   void nextTick(() => {
     resetLayout()
-    if (composerMountRef.value) emit('composerTarget', composerMountRef.value)
   })
+  void mountGpuRenderer()
   window.addEventListener('keydown', onEscape)
 })
 onBeforeUnmount(() => {
+  gpuMountGeneration += 1
+  gpuRenderer?.destroy()
+  gpuRenderer = undefined
   viewportRO?.disconnect()
   cancelDetailHide()
   window.removeEventListener('keydown', onEscape)
 })
 
-defineExpose({ resetLayout, getComposerTarget })
+defineExpose({ resetLayout })
 </script>
 
 <template>
-  <section class="execution-tree" aria-label="Agent 执行节点树">
+  <section class="execution-tree" aria-label="任务执行节点树">
     <div
       ref="viewportRef"
       class="tree-viewport"
-      :class="{ 'is-panning': canvas.dragging.value }"
       @pointerdown="canvas.onPointerDown"
       @pointermove="canvas.onPointerMove"
       @pointerup="canvas.onPointerUp"
@@ -780,91 +929,43 @@ defineExpose({ resetLayout, getComposerTarget })
       @lostpointercapture="canvas.onPointerUp"
       @wheel.prevent="canvas.onWheel"
     >
-      <svg class="tree-canvas" width="100%" height="100%" role="img">
-        <defs>
-          <filter id="execution-node-glow" x="-80%" y="-80%" width="260%" height="260%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        <g class="tree-world" :transform="canvas.transform.value">
-          <g class="tree-edges">
-            <FiberPulseLine
-              v-for="edge in layout.edges"
-              :key="edge.id"
-              :d="edgePath(edge)"
-              :color="edgeStyle(edge.kind).color"
-              :kind="edge.kind"
-              :active="runningTailIds.has(edge.from.id) || runningTailIds.has(edge.to.id)"
-              :delay="(edge.to.createdAt % 1300) / 1000"
-            />
-          </g>
-          <g
-            v-for="(node, nodeIndex) in layout.nodes"
-            :key="node.id"
-            class="execution-node"
-            :class="[
-              `kind-${node.kind}`,
-              {
-                'is-running': runningTailIds.has(node.id),
-                'is-detail-active': detailNode?.id === node.id,
-                'is-paused': isPaused(node),
-                'is-error': isError(node),
-                'is-revoked': node.status === 'revoked',
-                'is-input-pending': node.inputState === 'pending',
-                'is-input-consuming': node.inputState === 'consuming',
-                [`is-tool-${batchStatus(node)}`]: !!batchStatus(node),
-              },
-            ]"
-            :transform="`translate(${node.x} ${node.y})`"
-            :tabindex="isInteractiveNode(node) ? 0 : undefined"
-            :role="isInteractiveNode(node) ? 'button' : undefined"
-            :aria-label="isInteractiveNode(node) ? nodeAriaLabel(node) : undefined"
-            :data-execution-node-index="isInteractiveNode(node) ? nodeIndex : undefined"
-            @pointerdown="onNodePointerDown($event, node)"
-            @pointerenter="showNodeDetail(node)"
-            @pointerleave="hideNodeDetail(node)"
-            @focus="showNodeDetail(node)"
-            @blur="hideNodeDetail(node)"
-            @keydown.enter.prevent.stop="activateNode(node)"
-            @keydown.space.prevent.stop="activateNode(node)"
-            @keydown.down.prevent.stop="focusRelativeNode(node.id, 1)"
-            @keydown.right.prevent.stop="focusRelativeNode(node.id, 1)"
-            @keydown.up.prevent.stop="focusRelativeNode(node.id, -1)"
-            @keydown.left.prevent.stop="focusRelativeNode(node.id, -1)"
-            @keydown.home.prevent.stop="focusRelativeNode(node.id, 'first')"
-            @keydown.end.prevent.stop="focusRelativeNode(node.id, 'last')"
-            @click.stop="activateNode(node)"
-          >
-            <circle class="node-halo" cx="0" cy="0" r="18" :stroke="skinForNode(node).accent" />
-            <circle class="node-icon" cx="0" cy="0" r="15" :stroke="skinForNode(node).accent" />
-            <circle class="node-state-overlay" cx="0" cy="0" r="19" />
-            <text class="node-glyph" x="0" y="7" :fill="skinForNode(node).accent">
-              {{ skinForNode(node).glyph }}
-            </text>
-            <text class="node-title" x="0" y="34">{{ nodeTitle(node) }}</text>
-            <text v-if="node.sourceFact?.termination" class="node-termination" x="0" y="47">
-              {{ terminationDisplay(node.sourceFact.termination).label }}
-            </text>
-            <g v-if="node.kind === 'fold' && node.fold" class="node-fold-count">
-              <circle cx="12" cy="-12" r="8" :stroke="skinForNode(node).accent" />
-              <text x="12" y="-9">{{ node.fold.members.length }}</text>
-            </g>
-            <circle
-              v-if="runningTailIds.has(node.id)"
-              class="node-running-dot"
-              cx="11"
-              cy="-11"
-              r="3"
-              :fill="skinForNode(node).accent"
-            />
-          </g>
-        </g>
-      </svg>
+      <div ref="pixiMountRef" class="tree-gpu-surface" role="img" aria-label="任务执行节点图" />
       <div class="tree-overlay" aria-live="polite">
+        <button
+          v-for="node in visibleInteractiveNodes"
+          :key="`${node.id}:hit-target`"
+          type="button"
+          class="gpu-node-hit-target"
+          :style="gpuNodeHitStyle(node)"
+          :aria-label="nodeAriaLabel(node)"
+          :data-execution-node-id="node.id"
+          @pointerdown="onNodePointerDown($event, node)"
+          @pointerenter="showNodeDetail(node)"
+          @pointerleave="hideNodeDetail(node)"
+          @focus="showNodeDetail(node)"
+          @blur="hideNodeDetail(node)"
+          @keydown.enter.prevent.stop="activateNode(node)"
+          @keydown.space.prevent.stop="activateNode(node)"
+          @keydown.down.prevent.stop="focusRelativeNode(node.id, 1)"
+          @keydown.right.prevent.stop="focusRelativeNode(node.id, 1)"
+          @keydown.up.prevent.stop="focusRelativeNode(node.id, -1)"
+          @keydown.left.prevent.stop="focusRelativeNode(node.id, -1)"
+          @keydown.home.prevent.stop="focusRelativeNode(node.id, 'first')"
+          @keydown.end.prevent.stop="focusRelativeNode(node.id, 'last')"
+          @click.stop="activateNode(node)"
+        />
+        <div v-if="gpuRenderError" class="graph-diagnostic" role="alert">
+          <span>GPU 图形渲染器不可用</span>
+          <small>{{ gpuRenderError }}</small>
+        </div>
+        <button
+          v-if="canvas.userPanned.value && hasNewTail"
+          type="button"
+          class="tree-return-tail"
+          @click.stop="returnToBottom"
+        >
+          回到最新
+        </button>
         <div v-if="persistentGraph.diagnostics.length" class="graph-diagnostic" role="alert">
           <span>执行图数据异常（{{ persistentGraph.diagnostics.length }}）</span>
           <button type="button" :disabled="recoveringGraph" @click.stop="recoverGraph">
@@ -896,7 +997,11 @@ defineExpose({ resetLayout, getComposerTarget })
           :style="{
             left: `${placement.left}px`,
             top: `${placement.top}px`,
-            zIndex: placement.actionable ? 6 : placement.pinned ? 5 : 4,
+            zIndex: placement.actionable
+              ? 'var(--nx-z-blocking-interaction)'
+              : placement.pinned
+                ? 'calc(var(--nx-z-run-crt) + 1)'
+                : 'var(--nx-z-run-crt)',
           }"
         >
           <AnchoredRunCrt
@@ -918,9 +1023,10 @@ defineExpose({ resetLayout, getComposerTarget })
           :style="{
             left: `${view.placement.left}px`,
             top: `${view.placement.top}px`,
-            zIndex: 6,
+            zIndex: 'var(--nx-z-blocking-interaction)',
           }"
           class="node-detail-anchor is-action-default"
+          :class="`is-${view.placement.placement}`"
           @pointerdown.stop
           @pointermove.stop
           @pointerup.stop
@@ -940,51 +1046,43 @@ defineExpose({ resetLayout, getComposerTarget })
             @select-call="selectActionCall(view.model.id, $event)"
           />
         </div>
-        <div
-          v-if="detailNode && detailAnchorStyle && !defaultPopoverAnchorIds.has(detailNode.id)"
-          :style="detailAnchorStyle"
-          class="node-detail-anchor"
-          @pointerenter="keepNodeDetailOpen"
-          @pointerleave="leaveNodeDetail"
-          @pointerdown.stop
-          @pointermove.stop
-          @pointerup.stop
-          @wheel.stop
-        >
-          <FoldTabRail
-            v-if="detailNode.kind === 'fold' && detailNode.fold && detailPlacement"
-            :members="detailNode.fold.members"
-            :selected-member-id="detailFoldMember?.id"
-            :unread-count="unreadFoldMembers.get(detailNode.id)"
-            :anchor-x="detailPlacement.nodeOffset.x"
-            :anchor-y="detailPlacement.nodeOffset.y"
-            :side="foldRailSide"
-            @select="detailNode && selectFoldMember(detailNode.id, $event)"
-            @interaction="detailNode && onFoldRailInteraction(detailNode.id, $event)"
-          />
-          <ExecutionNodePopover
-            v-if="detailDisplayNode"
-            :node="detailDisplayNode"
-            :fold-node="detailNode.kind === 'fold' ? detailNode : undefined"
-            :related-edges="detailRelatedEdges"
-            :pinned="detailPinned"
-            :max-height="detailMaxHeight"
-            :selected-call-id="selectedCallId"
-            @select-call="selectedCallId = $event"
-            @close="closeNodeDetail"
-          />
-        </div>
-        <div
-          v-show="editing && composerAnchorStyle"
-          :style="composerAnchorStyle"
-          class="node-composer-anchor"
-          @pointerdown.stop
-          @pointermove.stop
-          @pointerup.stop
-          @wheel.stop
-        >
-          <div ref="composerMountRef" class="node-composer-mount" />
-        </div>
+        <Transition name="node-detail">
+          <div
+            v-if="detailNode && detailAnchorStyle && !defaultPopoverAnchorIds.has(detailNode.id)"
+            :style="detailAnchorStyle"
+            class="node-detail-anchor"
+            :class="detailPlacement ? `is-${detailPlacement.placement}` : undefined"
+            @pointerenter="keepNodeDetailOpen"
+            @pointerleave="leaveNodeDetail"
+            @pointerdown.stop
+            @pointermove.stop
+            @pointerup.stop
+            @wheel.stop
+          >
+            <FoldTabRail
+              v-if="detailNode.kind === 'fold' && detailNode.fold && detailPlacement"
+              :members="detailNode.fold.members"
+              :selected-member-id="detailFoldMember?.id"
+              :unread-count="unreadFoldMembers.get(detailNode.id)"
+              :anchor-x="detailPlacement.nodeOffset.x"
+              :anchor-y="detailPlacement.nodeOffset.y"
+              :side="foldRailSide"
+              @select="detailNode && selectFoldMember(detailNode.id, $event)"
+              @interaction="detailNode && onFoldRailInteraction(detailNode.id, $event)"
+            />
+            <ExecutionNodePopover
+              v-if="detailDisplayNode"
+              :node="detailDisplayNode"
+              :fold-node="detailNode.kind === 'fold' ? detailNode : undefined"
+              :related-edges="detailRelatedEdges"
+              :pinned="detailPinned"
+              :max-height="detailMaxHeight"
+              :selected-call-id="selectedCallId"
+              @select-call="selectedCallId = $event"
+              @close="closeNodeDetail"
+            />
+          </div>
+        </Transition>
       </div>
     </div>
   </section>
@@ -1010,13 +1108,17 @@ defineExpose({ resetLayout, getComposerTarget })
 .tree-viewport.is-panning {
   cursor: grabbing;
 }
-.tree-canvas {
-  display: block;
-  user-select: none;
-  -webkit-user-select: none;
+.tree-gpu-surface {
+  position: absolute;
+  z-index: var(--nx-z-canvas);
+  inset: 0;
+  pointer-events: none;
 }
-.tree-world {
-  transform-origin: 0 0;
+.tree-gpu-surface :deep(.execution-pixi-canvas) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 .tree-overlay {
   position: absolute;
@@ -1024,8 +1126,78 @@ defineExpose({ resetLayout, getComposerTarget })
   overflow: hidden;
   pointer-events: none;
 }
+.gpu-node-hit-target {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--nx-z-node-hit-target);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  outline: none;
+  color: transparent;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  will-change: transform;
+}
+.tree-viewport.is-panning
+  :is(
+    .gpu-node-hit-target,
+    .crt-anchor-lines,
+    .run-crt-anchor,
+    .node-detail-anchor
+  ) {
+  translate: var(--tree-drag-x, 0) var(--tree-drag-y, 0);
+  will-change: translate;
+}
+.gpu-node-hit-target:focus-visible {
+  outline: 2px solid #b5fff2;
+  outline-offset: 2px;
+}
+.tree-return-tail {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--nx-z-chrome);
+  padding: 6px 12px;
+  border: 1px solid rgba(246, 183, 60, 0.7);
+  border-radius: 8px;
+  background: rgba(66, 36, 15, 0.95);
+  color: #f6b73c;
+  font:
+    600 11px/1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  animation: nx-return-pulse 1.6s ease-in-out infinite;
+  transition: transform 140ms ease;
+  &:hover {
+    transform: translateY(-2px);
+  }
+}
+@keyframes nx-return-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.4),
+      0 0 0 0 rgba(246, 183, 60, 0);
+  }
+  50% {
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.4),
+      0 0 8px 2px rgba(246, 183, 60, 0.5);
+  }
+}
 .crt-anchor-lines {
   position: absolute;
+  z-index: var(--nx-z-run-crt);
   inset: 0;
   overflow: visible;
   pointer-events: none;
@@ -1037,26 +1209,29 @@ defineExpose({ resetLayout, getComposerTarget })
 }
 .run-crt-anchor {
   position: absolute;
-  width: 340px;
+  width: 420px;
   pointer-events: auto;
+  cursor: auto;
 }
 .crt-overflow-summary {
   position: absolute;
   left: 12px;
   bottom: 12px;
-  z-index: 3;
+  z-index: var(--nx-z-run-crt);
   padding: 5px 8px;
   border: 1px solid rgba(181, 255, 242, 0.34);
   border-radius: 6px;
   color: rgba(224, 255, 246, 0.72);
   background: rgba(5, 16, 13, 0.9);
-  font: 9px/1.2 ui-monospace, monospace;
+  font:
+    9px/1.2 ui-monospace,
+    monospace;
 }
 .graph-diagnostic {
   position: absolute;
   top: 12px;
   left: 50%;
-  z-index: 8;
+  z-index: var(--nx-z-blocking-interaction);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1068,7 +1243,9 @@ defineExpose({ resetLayout, getComposerTarget })
   background: rgba(38, 8, 16, 0.94);
   transform: translateX(-50%);
   pointer-events: auto;
-  font: 11px/1.3 system-ui, sans-serif;
+  font:
+    11px/1.3 system-ui,
+    sans-serif;
 }
 .graph-diagnostic button {
   border: 1px solid rgba(255, 227, 233, 0.5);
@@ -1082,28 +1259,95 @@ defineExpose({ resetLayout, getComposerTarget })
 }
 .node-detail-anchor {
   position: absolute;
-  z-index: 2;
+  z-index: var(--nx-z-node-overlay);
   pointer-events: auto;
+  cursor: auto;
 }
-.node-composer-anchor {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 380px;
-  min-height: 204px;
-  pointer-events: auto;
+.node-detail-anchor.is-left {
+  --popover-origin: right center;
 }
-.node-composer-mount {
-  width: 100%;
-  min-height: 204px;
-  pointer-events: auto;
-  user-select: text;
-  -webkit-user-select: text;
+.node-detail-anchor.is-right {
+  --popover-origin: left center;
+}
+.node-detail-enter-active,
+.node-detail-leave-active {
+  transition: opacity 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.node-detail-enter-from,
+.node-detail-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .node-detail-enter-active,
+  .node-detail-leave-active {
+    transition: opacity 160ms ease;
+  }
 }
 .node-halo {
   fill: none;
   stroke-width: 8;
   opacity: 0;
+}
+/* 雷达状态环：节点本体保持静止，只有圆环匀速向外扩散。 */
+.node-ping {
+  fill: none;
+  stroke-width: 2;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: node-ping 1.8s linear infinite;
+}
+.node-ping-secondary {
+  display: none;
+}
+@keyframes node-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+/* 当前详情节点用相差半周期的双环；普通节点保持单环。 */
+.execution-node.is-detail-active .node-ping {
+  animation-name: node-ping-detail;
+  animation-duration: 1.05s;
+  stroke-width: 3;
+}
+.execution-node.is-detail-active .node-ping-secondary {
+  display: initial;
+  animation-delay: -0.525s;
+}
+.execution-node.is-running .node-ping {
+  animation-name: node-ping-strong;
+  animation-duration: 1.2s;
+  stroke-width: 3;
+}
+.execution-node.is-detail-active.is-running .node-ping {
+  animation-name: node-ping-detail;
+  animation-duration: 1.05s;
+}
+@keyframes node-ping-detail {
+  0% {
+    transform: scale(1);
+    opacity: 0.92;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+@keyframes node-ping-strong {
+  0% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
 }
 .execution-node[role='button'] {
   cursor: pointer;
@@ -1201,13 +1445,11 @@ defineExpose({ resetLayout, getComposerTarget })
   text-anchor: middle;
 }
 .execution-node.is-running .node-halo {
-  opacity: 0.42;
+  opacity: 0.5;
   filter: url(#execution-node-glow);
-  animation: node-breathe 1.4s ease-in-out infinite;
-}
-.execution-node.is-detail-active .node-halo {
-  filter: url(#execution-node-glow);
-  animation: node-detail-pulse 1.05s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: node-breathe 0.9s ease-in-out infinite;
 }
 .execution-node.is-detail-active .node-icon {
   filter: url(#execution-node-glow);
@@ -1218,25 +1460,15 @@ defineExpose({ resetLayout, getComposerTarget })
 .node-running-dot {
   animation: node-dot 0.9s ease-in-out infinite alternate;
 }
-@keyframes node-detail-pulse {
+@keyframes node-breathe {
   0%,
   100% {
-    stroke-width: 5;
-    opacity: 0.24;
+    transform: scale(1);
+    opacity: 0.3;
   }
   50% {
-    stroke-width: 10;
-    opacity: 0.68;
-  }
-}
-@keyframes node-breathe {
-  from {
-    stroke-width: 4;
-    opacity: 0.18;
-  }
-  to {
-    stroke-width: 11;
-    opacity: 0.54;
+    transform: scale(1.4);
+    opacity: 0.7;
   }
 }
 @keyframes node-dot {
@@ -1252,17 +1484,67 @@ defineExpose({ resetLayout, getComposerTarget })
     stroke-dashoffset: -14;
   }
 }
+/* ── 节点交互动态样式 ─────────────────────────────── */
+/* 内层 node-body 负责缩放/入场，避免覆盖外层 translate(x y) 属性变换。 */
+.node-body {
+  transform-box: fill-box;
+  transform-origin: center;
+  overflow: visible;
+  transition: transform 180ms cubic-bezier(0.34, 1.3, 0.64, 1);
+  animation: node-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+/* 入场：弹性缩放淡入，键控 node.id 保证只在新节点出现时播放一次。 */
+@keyframes node-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+/* 常驻环境微光：图标内描边缓慢明暗呼吸，让整棵树有生命感（运行节点仍以更强光晕优先）。 */
+.execution-node .node-icon {
+  animation: node-ambient 3.4s ease-in-out infinite;
+}
+@keyframes node-ambient {
+  0%,
+  100% {
+    stroke-opacity: 0.85;
+  }
+  50% {
+    stroke-opacity: 1;
+  }
+}
+/* 悬停不改变节点几何；按下时仅保留一次性的操作反馈。 */
+.execution-node:active .node-body {
+  transform: scale(0.95);
+}
+/* ── 赛博全息光效 ─────────────────────────────── */
+/* 霓虹 rim：青→紫→品红渐变静态描边，作为彩色轮廓；脉冲交给 node-ping 雷达波。 */
+.node-neon-rim {
+  fill: none;
+  stroke: url(#nx-neon);
+  stroke-width: 1.5;
+  opacity: 0.4;
+}
 @media (prefers-reduced-motion: reduce) {
   .execution-node.is-running .node-halo,
-  .execution-node.is-detail-active .node-halo,
   .node-running-dot,
+  .node-ping,
   .execution-node.is-tool-active .node-state-overlay,
   .execution-node.is-input-consuming .node-state-overlay {
     animation: none;
   }
-  .execution-node.is-detail-active .node-halo {
-    stroke-width: 8;
-    opacity: 0.52;
+  .node-body {
+    animation: none;
+  }
+  .execution-node .node-icon {
+    animation: none;
+  }
+  .node-neon-rim {
+    opacity: 0.35;
   }
 }
 </style>

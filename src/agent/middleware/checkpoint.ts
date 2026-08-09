@@ -34,12 +34,15 @@ export async function* checkpointMiddleware(
       } as MiddlewareChunk
     }
 
-    // yield consumed notification（注入时立即通知）
-    yield {
-      type: 'consumed',
-      count: consumedCount,
-      messages: consumedMessages,
-    } as MiddlewareChunk
+    const durableConsumedMessages = consumedMessages.filter((message) => !message.ephemeral)
+    if (durableConsumedMessages.length > 0) {
+      // 仅真实用户输入进入 consumed；模型专用注入不得伪装成用户消息。
+      yield {
+        type: 'consumed',
+        count: durableConsumedMessages.length,
+        messages: durableConsumedMessages,
+      } as MiddlewareChunk
+    }
   }
 
   const state = new CheckpointState()

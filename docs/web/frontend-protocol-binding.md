@@ -32,7 +32,7 @@
 
 **组件不直连 wsClient / 直读 agentApi**，只调 store 上暴露的编排方法（`store.sendMessage` / `store.abort` / `store.getHistory` ...） + 读 store ref/computed。
 
-Nexus 节点树进一步收紧该边界：`MessageBranchTree` 只读取消息层提供的 root render state，
+Nyxus 节点树进一步收紧该边界：`MessageBranchTree` 只读取消息层提供的 root render state，
 并 emit 输入、审批和节点交互意图；它不负责打开、关闭或恢复 root subscription。当前被观察的
 root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有一个订阅，所有 timeline view
 共享该订阅。切换 root 关闭的是观察订阅，不会调用 `chat.abort`，后台 Agent 继续运行。

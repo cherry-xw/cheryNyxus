@@ -6,19 +6,19 @@ import { desktopPetBridge, type DesktopPetCandidate } from './desktopPetBridge'
 const bridge = desktopPetBridge()
 const previewEntry: DesktopPetCandidate = {
   chatId: 'desktop-preview',
-  label: 'Cherry Nexus',
+  label: 'Cherry Nyxus',
   working: false,
 }
 const entry = ref<DesktopPetCandidate | null>(bridge ? null : previewEntry)
 let unsubscribe: (() => void) | undefined
 
-function openNexus(): void {
+function openNyxus(): void {
   if (entry.value) bridge?.openChat(entry.value.chatId)
 }
 
 function trackPassthrough(event: PointerEvent): void {
   const target = event.target as HTMLElement | null
-  bridge?.setMousePassthrough(!target?.closest('.nexus-entry-hit'))
+  bridge?.setMousePassthrough(!target?.closest('.nyxus-entry-hit'))
 }
 
 onMounted(() => {
@@ -33,13 +33,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="desktop-nexus-surface" aria-label="Cherry Nexus desktop entry">
+  <main class="desktop-nyxus-surface" aria-label="Cherry Nyxus desktop entry">
     <button
       v-if="entry"
       type="button"
-      class="nexus-entry-hit"
-      aria-label="打开 Cherry Nexus"
-      @click="openNexus"
+      class="nyxus-entry-hit"
+      aria-label="打开 Cherry Nyxus"
+      @click="openNyxus"
     >
       <NyxusParticle
         :working="entry.working"
@@ -53,7 +53,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.desktop-nexus-surface {
+.desktop-nyxus-surface {
   width: 100vw;
   height: 100vh;
   display: grid;
@@ -63,7 +63,7 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
-.nexus-entry-hit {
+.nyxus-entry-hit {
   width: 156px;
   height: 184px;
   display: flex;

@@ -33,6 +33,11 @@ export interface TreeCanvasOptions {
   maxScale?: number
   padding?: number
   threshold?: number
+  /** Keep drag presentation outside Vue's reactive graph and commit once on release. */
+  deferDragCommit?: boolean
+  onDragStart?: (transform: CanvasTransform) => void
+  onDragFrame?: (transform: CanvasTransform) => void
+  onDragEnd?: (transform: CanvasTransform) => void
 }
 
 export interface FitToViewOptions {
@@ -112,6 +117,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
   cancelAnimation: () => void
   isElementInView: (el: Element, margin?: number) => boolean
   panToElement: (el: Element, align?: 'center' | 'bottom') => void
+  panToPoint: (point: CanvasPoint, align?: 'center' | 'bottom') => void
   followContentEnd: (endY: number) => void
   worldToScreen: (point: CanvasPoint) => CanvasPoint
   screenToWorld: (point: CanvasPoint) => CanvasPoint
@@ -136,6 +142,12 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
   let startOffsetY = 0
   let animationFrame = 0
   let pointerTarget: HTMLElement | null = null
+  // 拖拽合并：pointermove 只记录位移，rAF 每帧写一次 offset，避免事件频率驱动响应式 flush。
+  let dragFrame = 0
+  let pendingDX = 0
+  let pendingDY = 0
+  let presentedOffsetX = 0
+  let presentedOffsetY = 0
 
   const transform = computed(
     () => `translate(${offsetX.value} ${offsetY.value}) scale(${scale.value})`,
@@ -161,6 +173,20 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     if (!animationFrame) return
     cancelAnimationFrame(animationFrame)
     animationFrame = 0
+  }
+  function cancelDragFrame(): void {
+    if (!dragFrame) return
+    cancelAnimationFrame(dragFrame)
+    dragFrame = 0
+  }
+  /** 拖拽 rAF 回调：把合并后的最终位移写入 offset。 */
+  function flushDragFrame(): void {
+    dragFrame = 0
+    presentedOffsetX = startOffsetX + pendingDX
+    presentedOffsetY = startOffsetY + pendingDY
+    const presented = { scale: scale.value, x: presentedOffsetX, y: presentedOffsetY }
+    if (!opts.deferDragCommit) applyOffset(presented.x, presented.y)
+    opts.onDragFrame?.(presented)
   }
   function fitToView(options: FitToViewOptions = {}): void {
     const viewport = viewportSize()
@@ -207,6 +233,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     if (event.button !== 0) return
     event.preventDefault()
     cancelAnimation()
+    cancelDragFrame()
     const el = event.currentTarget as HTMLElement | null
     el?.setPointerCapture?.(event.pointerId)
     pointerTarget = el
@@ -215,8 +242,11 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     startY = event.clientY
     startOffsetX = offsetX.value
     startOffsetY = offsetY.value
+    presentedOffsetX = startOffsetX
+    presentedOffsetY = startOffsetY
     dragging.value = true
     wasDrag.value = false
+    opts.onDragStart?.({ scale: scale.value, x: presentedOffsetX, y: presentedOffsetY })
   }
   function onPointerMove(event: PointerEvent): void {
     if (!dragging.value || event.pointerId !== pointerId) return
@@ -226,13 +256,19 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
       wasDrag.value = true
       userPanned.value = true
     }
-    applyOffset(startOffsetX + dx, startOffsetY + dy)
+    pendingDX = dx
+    pendingDY = dy
+    if (!dragFrame) dragFrame = requestAnimationFrame(flushDragFrame)
   }
   function onPointerUp(event: PointerEvent): void {
     if (event.pointerId !== pointerId) return
+    // 落笔前若有未刷新的合并帧，先写终值，避免丢失最后一次位移。
+    if (dragFrame) flushDragFrame()
+    if (opts.deferDragCommit) applyOffset(presentedOffsetX, presentedOffsetY)
     const el = event.currentTarget as HTMLElement | null
     if (el?.hasPointerCapture?.(event.pointerId)) el.releasePointerCapture(event.pointerId)
     dragging.value = false
+    opts.onDragEnd?.({ scale: scale.value, x: presentedOffsetX, y: presentedOffsetY })
     pointerId = -1
     pointerTarget = null
   }
@@ -278,6 +314,13 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     const anchorY = align === 'bottom' ? vr.height - padding : vr.height / 2
     applyOffset(anchorX - cx * s, anchorY - cy * s)
   }
+  /** 平移到世界坐标；GPU 节点没有对应 DOM 时供键盘导航使用。 */
+  function panToPoint(point: CanvasPoint, align: 'center' | 'bottom' = 'center'): void {
+    const vp = viewportSize()
+    if (vp.width <= 0 || vp.height <= 0) return
+    const anchorY = align === 'bottom' ? vp.height - padding : vp.height / 2
+    applyOffset(vp.width / 2 - point.x * scale.value, anchorY - point.y * scale.value)
+  }
   /** 末尾跟随：用户未拖动时，内容下端越界则上移补差使其贴下沿可见（垂直树时间轴向下增长）。 */
   function followContentEnd(endY: number): void {
     if (userPanned.value) return
@@ -304,6 +347,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
 
   onScopeDispose(() => {
     cancelAnimation()
+    cancelDragFrame()
     if (pointerId >= 0 && pointerTarget?.hasPointerCapture?.(pointerId)) {
       pointerTarget.releasePointerCapture(pointerId)
     }
@@ -328,6 +372,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     cancelAnimation,
     isElementInView,
     panToElement,
+    panToPoint,
     followContentEnd,
     worldToScreen: convertWorldToScreen,
     screenToWorld: convertScreenToWorld,

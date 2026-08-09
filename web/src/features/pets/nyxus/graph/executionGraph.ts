@@ -153,7 +153,9 @@ function graphKind(node: TimelineNode): ExecutionNodeKind {
 function indexActiveRuns(activeRuns: readonly ActiveRunFact[]): Map<string, ActiveRunFact[]> {
   const index = new Map<string, ActiveRunFact[]>()
   for (const run of activeRuns) {
-    for (const id of new Set([run.nodeId, run.batchId].filter((value): value is string => !!value))) {
+    for (const id of new Set(
+      [run.nodeId, run.batchId].filter((value): value is string => !!value),
+    )) {
       const entries = index.get(id) ?? []
       entries.push(run)
       index.set(id, entries)
@@ -211,13 +213,60 @@ function projectPersistentEdge(edge: ExecutionEdgeFact): ExecutionEdge {
   }
 }
 
+/**
+ * A spawn target is a temporary structural anchor used before the child input
+ * exists. Once the backend provides an explicit spawn -> target -> sequence ->
+ * child chain, render the durable child input as the single delegation node.
+ */
+function collapseResolvedSpawnTargets(
+  nodes: readonly ExecutionNode[],
+  edges: readonly ExecutionEdge[],
+): { nodes: ExecutionNode[]; edges: ExecutionEdge[] } {
+  const removedNodeIds = new Set<string>()
+  const removedEdgeIds = new Set<string>()
+  const redirectedEdges = new Map<string, ExecutionEdge>()
+
+  for (const node of nodes) {
+    if (!node.id.startsWith('spawn-target:') || node.kind !== 'dispatch') continue
+    const incoming = edges.filter((edge) => edge.to === node.id && edge.kind === 'spawn')
+    const outgoing = edges.filter((edge) => edge.from === node.id && edge.kind === 'sequence')
+    const incident = edges.filter((edge) => edge.from === node.id || edge.to === node.id)
+    if (incoming.length === 0 || outgoing.length !== 1) continue
+    if (incident.length !== incoming.length + outgoing.length) continue
+    const successor = outgoing[0]!
+    if (!nodes.some((candidate) => candidate.id === successor.to)) continue
+
+    removedNodeIds.add(node.id)
+    removedEdgeIds.add(successor.id)
+    for (const edge of incoming) {
+      redirectedEdges.set(edge.id, {
+        ...edge,
+        to: successor.to,
+        targetChatId: successor.targetChatId,
+      })
+    }
+  }
+
+  return {
+    nodes: nodes.filter((node) => !removedNodeIds.has(node.id)),
+    edges: edges
+      .filter((edge) => !removedEdgeIds.has(edge.id))
+      .map((edge) => redirectedEdges.get(edge.id) ?? edge),
+  }
+}
+
 /** Canonical graph facts -> deterministic UI-neutral persistent graph. */
 export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot): ExecutionGraph {
   const canonicalNodes = uniqueFacts(snapshot.nodes)
   const canonicalEdges = uniqueFacts(snapshot.edges)
   const activeRunsByAnchor = indexActiveRuns(snapshot.activeRuns)
-  const persistentNodes = canonicalNodes.map((node) =>
+  const projectedNodes = canonicalNodes.map((node) =>
     projectPersistentNode(snapshot.rootChatId, node, activeRunsByAnchor),
+  )
+  const projectedEdges = canonicalEdges.map(projectPersistentEdge)
+  const { nodes: persistentNodes, edges: persistentEdges } = collapseResolvedSpawnTargets(
+    projectedNodes,
+    projectedEdges,
   )
   const firstMain = persistentNodes.find(
     (node) => node.sourceChatId === snapshot.rootChatId && node.rootChatId === snapshot.rootChatId,
@@ -241,7 +290,7 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
     },
     ...persistentNodes,
   ]
-  const edges = canonicalEdges.map(projectPersistentEdge)
+  const edges = persistentEdges
   if (firstMain) {
     edges.unshift({
       id: `start:${snapshot.rootChatId}->${firstMain.id}`,
@@ -350,10 +399,7 @@ export function projectActiveTurnNodes(
   for (const node of nodes) {
     if (node.kind === 'start') continue
     previousByChat.set(node.sourceChatId, node)
-    if (
-      (node.kind === 'dispatch' || node.kind === 'spawn') &&
-      node.target?.kind === 'agent'
-    ) {
+    if ((node.kind === 'dispatch' || node.kind === 'spawn') && node.target?.kind === 'agent') {
       previousByChat.set(node.target.chatId, node)
     }
   }
@@ -368,8 +414,7 @@ export function projectActiveTurnNodes(
       continue
     }
     const run = activeRuns.find(
-      (candidate) =>
-        candidate.chatId === chatId && (!turn.runId || candidate.runId === turn.runId),
+      (candidate) => candidate.chatId === chatId && (!turn.runId || candidate.runId === turn.runId),
     )
     const projectedRun =
       run ??

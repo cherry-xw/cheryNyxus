@@ -16,6 +16,8 @@ export interface CrtLayoutInput {
   actionable: boolean
   pinned?: boolean
   order: number
+  /** Optional panel-local Y coordinate for the anchor line endpoint. */
+  lineTargetOffsetY?: number
 }
 
 export interface CrtPlacement extends CrtLayoutInput {
@@ -136,7 +138,10 @@ export function layoutAnchoredCrts(
     }
     if (!best) continue
     const edgeX = best.placement === 'right' ? best.left : best.left + card.panel.width
-    const edgeY = Math.max(best.top + 18, Math.min(best.top + card.panel.height - 18, card.anchor.y))
+    const edgeY =
+      card.lineTargetOffsetY === undefined
+        ? Math.max(best.top + 18, Math.min(best.top + card.panel.height - 18, card.anchor.y))
+        : best.top + Math.max(0, Math.min(card.panel.height, card.lineTargetOffsetY))
     placed.push({
       ...card,
       left: best.left,

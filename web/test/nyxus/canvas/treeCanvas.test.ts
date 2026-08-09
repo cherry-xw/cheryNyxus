@@ -24,6 +24,12 @@ describe('tree canvas long-content behavior', () => {
   })
 
   it('allows unrestricted pan far beyond every content boundary', () => {
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frame = cb
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
     const scope = effectScope()
     scope.run(() => {
       const canvas = useTreeCanvas({
@@ -44,6 +50,7 @@ describe('tree canvas long-content behavior', () => {
         clientX: 1_000_000,
         clientY: -1_000_000,
       } as PointerEvent)
+      frame?.(0)
 
       expect(canvas.offsetX.value).toBe(1_000_000)
       expect(canvas.offsetY.value).toBe(-1_000_000)
@@ -53,10 +60,12 @@ describe('tree canvas long-content behavior', () => {
         clientX: -1_000_000,
         clientY: 1_000_000,
       } as PointerEvent)
+      frame?.(1)
       expect(canvas.offsetX.value).toBe(-1_000_000)
       expect(canvas.offsetY.value).toBe(1_000_000)
     })
     scope.stop()
+    vi.unstubAllGlobals()
   })
 
   it('continues to center content that fits inside the viewport', () => {
@@ -69,6 +78,52 @@ describe('tree canvas long-content behavior', () => {
     })
 
     expect(fitted).toEqual({ scale: 1, x: 300, y: 150 })
+  })
+
+  it('presents deferred drag frames without committing reactive offsets until release', () => {
+    let frame: FrameRequestCallback | undefined
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frame = callback
+      return 1
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const onDragFrame = vi.fn()
+    const onDragEnd = vi.fn()
+    const scope = effectScope()
+    scope.run(() => {
+      const canvas = useTreeCanvas({
+        viewport: () => ({ clientWidth: 800, clientHeight: 600 }) as HTMLElement,
+        contentSize: () => ({ width: 400, height: 500 }),
+        deferDragCommit: true,
+        onDragFrame,
+        onDragEnd,
+      })
+      const currentTarget = {
+        setPointerCapture: vi.fn(),
+        hasPointerCapture: vi.fn(() => false),
+      }
+      canvas.onPointerDown({
+        button: 0,
+        pointerId: 7,
+        clientX: 20,
+        clientY: 30,
+        currentTarget,
+        preventDefault: vi.fn(),
+      } as unknown as PointerEvent)
+      canvas.onPointerMove({ pointerId: 7, clientX: 120, clientY: 180 } as PointerEvent)
+      frame?.(0)
+
+      expect(onDragFrame).toHaveBeenLastCalledWith({ scale: 1, x: 100, y: 150 })
+      expect(canvas.offsetX.value).toBe(0)
+      expect(canvas.offsetY.value).toBe(0)
+
+      canvas.onPointerUp({ pointerId: 7, currentTarget } as unknown as PointerEvent)
+      expect(canvas.offsetX.value).toBe(100)
+      expect(canvas.offsetY.value).toBe(150)
+      expect(onDragEnd).toHaveBeenLastCalledWith({ scale: 1, x: 100, y: 150 })
+    })
+    scope.stop()
+    vi.unstubAllGlobals()
   })
 
   it('prevents native text selection when canvas dragging starts', () => {
@@ -110,6 +165,8 @@ describe('tree canvas long-content behavior', () => {
   })
 
   it('suppresses exactly one click after a threshold drag', () => {
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
     const scope = effectScope()
     scope.run(() => {
       const canvas = useTreeCanvas({
@@ -131,5 +188,6 @@ describe('tree canvas long-content behavior', () => {
       expect(canvas.consumeClickAfterDrag()).toBe(false)
     })
     scope.stop()
+    vi.unstubAllGlobals()
   })
 })

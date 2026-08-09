@@ -678,6 +678,31 @@ describe('CRT collision layout', () => {
     }
   })
 
+  it('connects a CRT line to the vertical center of its title bar', () => {
+    const [placement] = layoutAnchoredCrts(
+      [
+        {
+          id: 'crt',
+          anchor: { x: 200, y: 360 },
+          panel: { width: 420, height: 240 },
+          main: true,
+          actionable: false,
+          order: 1,
+          lineTargetOffsetY: 19,
+        },
+      ],
+      { width: 1200, height: 800, margin: 12 },
+    )
+
+    expect(placement).toBeDefined()
+    expect(placement!.line.to.y).toBe(placement!.top + 19)
+    expect(placement!.line.to.x).toBe(
+      placement!.placement === 'right'
+        ? placement!.left
+        : placement!.left + placement!.panel.width,
+    )
+  })
+
   it('never hides approvals/questions when passive concurrency is capped', () => {
     const cards = Array.from({ length: 10 }, (_, order) => ({
       id: `passive:${order}`,

@@ -125,12 +125,16 @@ export default class AgentSession<T = unknown> {
     const extras = options?.extraUserMessages
     if (extras && extras.length > 0) {
       for (const extra of extras) {
-        this.journal.appendUserInput(extra)
+        this.journal.appendUserInput(extra, { ephemeral: true })
       }
     }
     if (!options?.inputAlreadyQueued) this.journal.appendUserInput(input, options?.inputMeta)
-    yield* this.pipeline.run()
-    if (compactRequested) this.journal.compactToLatestSummary()
+    try {
+      yield* this.pipeline.run()
+      if (compactRequested) this.journal.compactToLatestSummary()
+    } finally {
+      this.journal.pruneEphemeralMessages()
+    }
   }
 
   /**

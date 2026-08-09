@@ -112,12 +112,16 @@ describe('performance and recovery boundaries', () => {
       resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )
-    expect(source).toContain(
-      ':aria-label="isInteractiveNode(node) ? nodeAriaLabel(node) : undefined"',
-    )
+    expect(source).toContain(':aria-label="nodeAriaLabel(node)"')
+    expect(source).toContain('class="gpu-node-hit-target"')
+    expect(source).toContain('class="tree-gpu-surface"')
     expect(source).toContain('@keydown.down.prevent.stop')
     expect(source).toContain('@keydown.home.prevent.stop')
     expect(source).toContain('class="graph-diagnostic" role="alert"')
-    expect(source).toContain('@media (prefers-reduced-motion: reduce)')
+    const renderer = await readFile(
+      resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
+      'utf8',
+    )
+    expect(renderer).toContain("matchMedia('(prefers-reduced-motion: reduce)')")
   })
 })

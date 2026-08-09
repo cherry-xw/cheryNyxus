@@ -310,9 +310,9 @@ Reducer 只做四件事：安装快照、应用 revision patch、按 offset 累�
 - 新 spawn：其 child 自动属于 root subscription，前端不额外 `attach/open` child。
 - 切换/关闭树：`chat.close(subscriptionId)` 只取消观察与重输出路由，后台 run 保持不变；只有显式 `chat.abort` 可以终止。
 
-### 5.4 Nexus 前端三层边界
+### 5.4 Nyxus 前端三层边界
 
-Nexus 实时树固定采用以下单向依赖，组件挂载不能直接拥有 WebSocket 订阅生命周期：
+Nyxus 实时树固定采用以下单向依赖，组件挂载不能直接拥有 WebSocket 订阅生命周期：
 
 1. **后端 API / LLM 层**输出完整节点事实、父子关系、持久 revision，以及运行期
    `input.updated` / `turn.started` / `turn.delta` / `turn.completed` / 审批事件。历史接口只返回

@@ -57,6 +57,12 @@ export class MessageJournal {
     return this.soul.userInputs.map((entry) => ({ ...entry }))
   }
 
+  /** 当前运行结束后移除模型专用临时消息，避免污染后续轮次。 */
+  pruneEphemeralMessages(): void {
+    if (!this.soul.messages?.some((message) => message.ephemeral)) return
+    this.soul.messages = this.soul.messages.filter((message) => !message.ephemeral)
+  }
+
   /** 入队用户输入（背压：超 MAX_USER_INPUTS 显式拒绝）。空串跳过。 */
   appendUserInput(
     content: string,
@@ -91,6 +97,10 @@ export class MessageJournal {
       ...(metadata?.messageId ? { messageId: metadata.messageId } : {}),
       ...(metadata?.clientMessageId ? { clientMessageId: metadata.clientMessageId } : {}),
       ...(metadata?.commandId ? { commandId: metadata.commandId } : {}),
+      ...(metadata?.ephemeral ? { ephemeral: true } : {}),
+      ...(metadata?.persistedContent !== undefined
+        ? { persistedContent: metadata.persistedContent }
+        : {}),
     }
     this.soul.userInputs.push(entry)
     return entry
@@ -115,16 +125,18 @@ export class MessageJournal {
         content: input.content,
         createdAt: input.time, // 用户发送时间
         updateAt, // 注入消息列表时间
+        ...(input.ephemeral ? { ephemeral: true } : {}),
       })
       created.push({
         id: msgId,
         role: 'user',
-        content: input.content,
+        content: input.persistedContent ?? input.content,
         createdAt: input.time,
         updateAt,
         ...(input.inputId ? { inputId: input.inputId } : {}),
         ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
         ...(input.commandId ? { commandId: input.commandId } : {}),
+        ...(input.ephemeral ? { ephemeral: true } : {}),
       })
     }
     this.soul.messages = messages

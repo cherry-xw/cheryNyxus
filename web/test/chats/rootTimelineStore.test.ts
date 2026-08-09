@@ -34,7 +34,7 @@ function opened(): ChatOpenResponse {
   }
 }
 
-describe('Nexus root message controller', () => {
+describe('Nyxus root message controller', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()

@@ -13,7 +13,7 @@ export const CHERY_NYXUS_PRESET = 'cheryNyxus'
 
 /**
  * Legacy Pet recovery may only touch chats that currently have a stage visual.
- * Nexus roots and every descendant are owned by the root timeline subscription
+ * Nyxus roots and every descendant are owned by the root timeline subscription
  * and must remain demand-loaded even if a stale PetInstance happens to exist.
  */
 export function selectRefreshRecoveryChats(
@@ -35,8 +35,8 @@ export function selectRefreshRecoveryChats(
 }
 
 /**
- * chat.create 不会回传完整 ChatSummary。Nexus 在首次打开时仍需要立即被 UI
- * 识别为 Nexus，不能等下一次 chat.list（例如刷新）才补齐 preset 元数据。
+ * chat.create 不会回传完整 ChatSummary。Nyxus 在首次打开时仍需要立即被 UI
+ * 识别为 Nyxus，不能等下一次 chat.list（例如刷新）才补齐 preset 元数据。
  */
 export function registerNewNyxusSession(
   sessions: readonly ChatSummary[],
@@ -235,9 +235,9 @@ export function createPetLifecycle(
   }
 
   /**
-   * 取「活跃」Nexus 会话 chatId（chat-only，不建 PetInstance）：activeNyxusChatId 命中则直返；
+   * 取「活跃」Nyxus 会话 chatId（chat-only，不建 PetInstance）：activeNyxusChatId 命中则直返；
    * 否则取最近一条 root + preset=cheryNyxus；全无则新建并设活跃。
-   * 多会话模型：打破历史单例，允许多个 Nexus 会话以规避单会话上下文上限（compact 遗忘）。
+   * 多会话模型：打破历史单例，允许多个 Nyxus 会话以规避单会话上下文上限（compact 遗忘）。
    * 调用方（NyxusCore）负责 chatSessions.hydrateTree 灌入投影。
    */
   async function getActiveNyxus(): Promise<string> {
@@ -256,7 +256,7 @@ export function createPetLifecycle(
     return createNyxusSession()
   }
 
-  /** 始终新建一条 Nexus 会话并设为活跃（AgentDialog 索引签「+新建」、Nexus 历史面板新建入口调用）。 */
+  /** 始终新建一条 Nyxus 会话并设为活跃（AgentDialog 索引签「+新建」、Nyxus 历史面板新建入口调用）。 */
   async function createNyxusSession(): Promise<string> {
     const result = await agentApi.createAgent({ preset: CHERY_NYXUS_PRESET })
     historyList.value = registerNewNyxusSession(historyList.value, result.chatId)

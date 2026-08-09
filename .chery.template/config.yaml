@@ -210,6 +210,7 @@ roles:
     mcpServers: []
     systemPrompt: prompt/housekeeper/housekeeper.md
     description: 管家：安装与维护 .chery/ 技能、配置（install_skill 独占，.chery 路径守卫豁免）
+    mentionable: true
     lock: true # 锁定禁止删除（保护 install 能力）
   curator: # 记忆维护：Extract（每轮提取）/ Dream（定时整理）
     brain: my-brain
@@ -217,6 +218,7 @@ roles:
     mcpServers: []
     systemPrompt: prompt/curator/curator.md
     description: 记忆维护：每轮提取记忆、定期整理（Extract/Dream）
+    mentionable: true
     lock: true # 锁定禁止删除（保护记忆维护能力）
 
 # ------------------------------------------------------------

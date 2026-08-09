@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-describe('Nexus demand loading contract', () => {
+describe('Nyxus demand loading contract', () => {
   it('keeps startup catalog-only instead of hydrating every running root', async () => {
     const source = await readFile(resolve('web/src/stores/chats/index.ts'), 'utf8')
     const startup = source.slice(source.indexOf('async function startup()'), source.indexOf('async function reconnect()'))
@@ -27,7 +27,7 @@ describe('Nexus demand loading contract', () => {
     expect(switchSession).not.toContain('abortAgent(')
   })
 
-  it('does not scan all conversation previews when the Nexus workspace opens', async () => {
+  it('does not scan all conversation previews when the Nyxus workspace opens', async () => {
     const core = await readFile(
       resolve('web/src/features/pets/nyxus/components/NyxusCore.vue'),
       'utf8',

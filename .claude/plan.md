@@ -1,152 +1,117 @@
-# web/test 重组：按功能模块收纳 + 去 CP 命名
+# Nexus 节点树 / 钢琴键条 / 删除交互优化
 
 ## 目标
-1. web/test/ 下 31 个 `.test.ts` 从平铺改为按功能模块分文件夹。
-2. 文件名中的 `cpN` 前缀去掉，改为与功能点/模块关联的名称。
-3. describe/it 文案中的 `CPN` 标签同步去掉。
-4. 同步更新所有引用（package.json 脚本路径、docs 路径）。
+优化三处交互：节点树（MessageBranchTree）、钢琴键条（NexusPianoStrip=历史列表）、钢琴删除流程。删除流程为本次重点（用户给出 4 点 + 1 bug + 动画），节点树与钢琴键条各取 1 项高价值轻量优化。
 
-## 分类方案（对齐 src 模块边界）
+## 范围与优先级
+- **A 删除流程**（必做）：bug 修复 + ghost icon + 垃圾桶位置 + 倒垃圾动画 + 整体动画特效
+- **B 节点树**（轻量）：B1 回到底部 + 流式新内容回弹提示
+- **C 钢琴键条**（轻量）：C2 tooltip/hover 时序对齐
+- B2/C1/C3/C4 列为可选，本次不做（控制范围）
 
-```
-web/test/
-├── nyxus/
-│   ├── graph/            # features/pets/nyxus/graph/*（投影/布局/fold/termination/CRT/popover/skin/toolBatch）
-│   │   ├── executionGraph.test.ts            （不动）
-│   │   ├── executionGraphFixtures.test.ts    （不动）
-│   │   ├── graphLayout.test.ts               ← cp4Layout
-│   │   ├── inputState.test.ts                ← cp5InputState
-│   │   ├── toolBatch.test.ts                 ← cp6ToolBatch
-│   │   ├── fold.test.ts                      ← cp7Fold
-│   │   ├── termination.test.ts               ← cp8Termination
-│   │   ├── anchoredCrt.test.ts               ← cp9AnchoredCrt
-│   │   ├── performanceRecovery.test.ts       ← cp10PerformanceRecovery
-│   │   ├── knownFailures.test.ts             ← cp0KnownFailures
-│   │   └── nodeHoverDetails.test.ts          （不动；测 nodeSkins）
-│   └── canvas/           # features/pets/nyxus/composables/*（tree canvas/浮动面板/点击/钢琴键/节点交互）
-│       ├── treeCanvas.test.ts                （不动）
-│       ├── floatingPanel.test.ts             （不动）
-│       ├── clickDisambiguator.test.ts        （不动）
-│       ├── pianoNotes.test.ts                （不动）
-│       └── nodeInteraction.test.ts           （不动；测 composables/nodeInteraction）
-├── agents/               # stores/agents/*（stream/history/approval/question/pet 生命周期/ghost）
-│   ├── approvalQueue.test.ts                 （不动）
-│   ├── compactHistory.test.ts                （不动）
-│   ├── ghostStreamTermination.test.ts        （不动）
-│   ├── historyApprovalRegression.test.ts     （不动）
-│   ├── historyLoadingAndGhost.test.ts        （不动）
-│   ├── historyRendering.test.ts              （不动）
-│   ├── streamAccumulator.test.ts             （不动）
-│   ├── questionBatch.test.ts                 （不动）
-│   └── petLifecycle.test.ts                  （不动；测 stores/agents/data/petLifecycle）
-├── chats/                # stores/chats/* + services/ws（root timeline/sessions/按需加载/ws）
-│   ├── rootTimeline.test.ts                  （不动）
-│   ├── rootTimelineStore.test.ts             （不动）
-│   ├── chatRunRecovery.test.ts               （不动）
-│   ├── wsRootSubscription.test.ts            （不动）
-│   └── nyxusDemandLoading.test.ts            （不动；契约测试，读 chats store 源码）
-└── styles/
-    └── overlayLayers.test.ts                 （不动；测 styles/overlayLayers）
-```
+---
 
-计数：nyxus/graph=11、nyxus/canvas=5、agents=9、chats=5、styles=1，合计 31。
+## A. 删除流程优化
 
-### 为什么这么分
-- 对齐 src 真实目录：`nyxus/graph` ↔ `features/pets/nyxus/graph/`，`nyxus/canvas` ↔ `features/pets/nyxus/composables/`，`agents` ↔ `stores/agents/`，`chats` ↔ `stores/chats/` + `services/ws`，`styles` ↔ `src/styles/`。
-- `nyxus/graph` 11 个文件偏多但镜像 src `graph/`（13 文件），按子关注点再拆会主观且易错，保持一层。如需可后续拆 projection/layout/interaction。
-- 不新建 `pet/`：pianoNotes→canvas、petLifecycle→agents、nyxusDemandLoading→chats，无纯 `features/pets/*` 独占测试。
+文件：`web/src/features/pets/nyxus/components/NexusPianoStrip.vue`、`web/src/features/agent/chat/AgentDialog.vue`
 
-## 改名映射（去 cpN 前缀，保留描述性后缀）
+### A1. 修 hover 删除按键关闭钢琴弹窗 bug
+**成因**：`schedulePianoClose` 延迟仅 160ms（AgentDialog L114）；`key-clear-icon` 定位 `top:WHITE_H-3=109px` + 18px 高 = 127px，溢出 popout 盒（height 153，piano-keyboard 占 30..146）底部，且 icon 紧贴琴轨底边。hover icon 底缘 / 从键移到 icon 的瞬时路径易触发 popout `pointerleave` -> 160ms 后 `pianoOpen=false` 关闭 popout，拖拽中断。
 
-| 旧名 | 新名 | 文件夹 |
-|------|------|--------|
-| cp0KnownFailures | knownFailures | nyxus/graph |
-| cp4Layout | graphLayout | nyxus/graph |
-| cp5InputState | inputState | nyxus/graph |
-| cp6ToolBatch | toolBatch | nyxus/graph |
-| cp7Fold | fold | nyxus/graph |
-| cp8Termination | termination | nyxus/graph |
-| cp9AnchoredCrt | anchoredCrt | nyxus/graph |
-| cp10PerformanceRecovery | performanceRecovery | nyxus/graph |
+**修复**：删除交互期间锁定 popout 不关闭。
+- NexusPianoStrip 新增 computed `interacting = hoveredKeyView?.deletable || !!clearDrag || dumping`；`watch(interacting)` 时 `emit('interacting-change', v)`。
+- emit 类型扩展：`interacting-change: [boolean]`。
+- AgentDialog：`<NexusPianoStrip @interacting-change="onPianoInteracting" />`；新增 `pianoPinned = ref(false)`；`onPianoInteracting(v)`：`v` true -> `showPiano()` + `pianoPinned.value=true`；`v` false -> `pianoPinned.value=false` + `schedulePianoClose()`。
+- `schedulePianoClose` 开头加 `if (pianoPinned.value) return` 守卫。
 
-其余 23 个文件名本身已与功能关联，仅移动位置、不改名。
+**为什么不在 CSS 层修**：扩大 popout height / 下移 icon 只补几何缝隙，不覆盖拖拽全程（pointer 可能短暂离 popout hit 区）。interacting 标志覆盖 hover-icon + 拖拽 + dumping 全程，鲁棒。
 
-## describe/it 文案去 CP 标签
+### A2. ghost icon 改为会话消息 icon
+**当前**：`clear-ghost` 内 `sticker-svg`（便利贴，L432-435）。
+**改为**：消息气泡 SVG——圆角矩形气泡 + 左下尾角 + 内部 2-3 条短横线（代表消息文本），主题橙 `#f6b73c` 描边/填充，与节点树消息节点视觉同源。
+- 替换 `.sticker-svg.ghost-sticker` 的两 path 为气泡图形；`.clear-ghost` 样式保留 fixed + translate(-50%,-50%) + drop-shadow。
+- 加轻微动画：拖拽中 ghost 微旋转 ±8deg 或呼吸缩放，增强"拖拽中"反馈（A5 一部分）。
 
-| 文件 | 旧 | 新 |
-|------|----|----|
-| knownFailures | `CP0 known failures` | `known failures` |
-| graphLayout | `CP4 execution layout and edge geometry` | `execution layout and edge geometry` |
-| graphLayout (it) | `...redacted real CP0 capture...` | `...redacted real baseline capture...` |
-| inputState | `CP5 main input state machine` / `CP5 real recovery fixture` | `main input state machine` / `real recovery fixture` |
-| toolBatch | `CP6 tool batch detail projection` / `CP6 topology and real fixture` | `tool batch detail projection` / `tool batch topology and real fixture` |
-| fold | `CP7 Agent-local Fold projection` | `agent-local fold projection` |
-| termination | `CP8 termination presentation` | `termination presentation` |
-| anchoredCrt | `CP9 anchored CRT model` / `CP9 CRT collision layout` | `anchored CRT model` / `CRT collision layout` |
-| performanceRecovery | `CP10 performance and recovery boundaries` | `performance and recovery boundaries` |
-| executionGraph | `CP3 execution graph projector` | `execution graph projector` |
-| executionGraphFixtures | `CP3 topology fixtures` / it `...real legacy CP0 capture` | `execution graph topology fixtures` / `...real legacy baseline capture` |
-| treeCanvas | `CP3 tree canvas long-content behavior` | `tree canvas long-content behavior` |
-| floatingPanel | `CP4 floating piano bounds` | `floating piano bounds` |
-| overlayLayers | `CP1 overlay layer contract` | `overlay layer contract` |
-| rootTimeline | `RootTimelineStore CP1` | `RootTimelineStore` |
+### A3. 垃圾桶移到弹窗右侧专用区
+**当前**：`trash-dropzone` 在 piano-keyboard 右上角（`right:0; top:0`，键条内，挡键 + 离左键远）。
+**改为**：垃圾桶在键条右侧专用区，不挡键条主体。
 
-## import 路径深度修正（关键）
+**布局方案**（实现时二选一，倾向方案 1）：
+1. **NexusPianoStrip 内 flex 布局**：`.piano-keyboard` 改 `display:flex; flex-direction:row`；左 `.piano-viewport`（flex:1），右 `.trash-slot`（拖拽时 `width:52px`，非拖拽 `width:0` + transition）。trash-dropzone 移入 trash-slot，取消 absolute。
+2. **popout 内右侧浮动**：trash-dropzone 仍 absolute 但定位到 popout 右边缘内侧，键条右 padding 让出空间。
 
-所有测试当前用 `'../src/...'`（= web/src）。移动后按新深度改：
+> 注意：piano-popout `right:calc(100%+12px)` 向左展开，右侧外是 piano-tool 按钮。trash 不可溢出 popout 右边缘叠到按钮上。方案 1 把 trash 限制在 popout 内右侧最稳。
+- trash-callout 文案位置随之调整（icon 下方或左侧）。
 
-- `nyxus/graph/` 与 `nyxus/canvas/`（离 web/ 三层）：`'../src/` → `'../../../src/`
-- `agents/`、`chats/`、`styles/`（离 web/ 两层）：`'../src/` → `'../../src/`
+### A4. 倒垃圾动画优化
+**当前**（L748-759）：盖子翻开 -60deg + 桶身倾斜 -22deg + 内容下移淡出，650ms setTimeout 后 emit delete。问题：动画平铺无层次、被删键无反馈、ghost 无归位。
+**优化**：
+- **ghost 归位**：`onClearUp` 命中时，ghost 从释放点动画飞向 trash 中心并缩小消失（CSS transition on transform/left/top，~250ms），再进 dumping。
+- **被删键反馈**：命中后被删键加 `.is-deleting` class（收缩 + 淡出 + 轻微下沉），与 dumping 同步。
+- **trash 增强**：盖子翻开角度加大并加弹性（cubic-bezier overshoot）；桶身先下沉再倾斜晃动；内容线条粒子化散落（多条 line 各自 translateY+rotate+opacity 随机延迟）。
+- **回弹**：dumping 结束 trash 回正（盖子闭合、桶身复位）带 spring 过渡。
+- 时长保持 650ms 或调整为 700ms（ghost 250 + dump 450 轻微重叠）。
 
-实现：`git mv` 后对每个文件按目标深度跑 sed：
-- 深度 2：`s|'\.\./src/|'../../src/|g`
-- 深度 3：`s|'\.\./src/|'../../../src/|g`
+### A5. 整体动画特效
+- **hover 删除 icon**：`.key-clear-icon` 加常驻轻脉冲发光（box-shadow 呼吸），hover 加强（已有 scale，加 glow）。
+- **trash 入场**：拖拽开始 trash-dropzone 用 motion spring 入场（scale 0.6->1 + opacity），而非瞬间 v-if 显现。复用 motion-v `MotionDiv` + `AnimatePresence`。
+- **命中预览**：`is-over` 时 trash 缩放 1.08 + 高亮辉光强化 + callout 抖动一下。
+- **ghost 拖尾**（轻量）：ghost 拖拽中 `filter: drop-shadow` + 微旋转（A2 已含）。
+- **删除完成**：被删键淡出后，剩余键无过渡（保持原位，键按 chatId 原地复用，符合 rendering.md §69「不重挂载」）。
 
-该模式同时命中 `from '../src/...'` 与 `historyApprovalRegression` 里的 `new URL('../src/...')`（移到 agents/，深度 2，正确）。
+---
 
-### 不受影响
-- `resolve('test/fixtures/...')`：cwd 相对（非文件相对），移动文件不改 cwd，路径不变。
-- 无跨测试文件 import；无 `@/` 别名 import；无双引号 `../src` import。
+## B. 节点树（MessageBranchTree.vue）
 
-## package.json 脚本路径更新
+### B1. 回到底部 + 流式新内容回弹提示
+**现状**：`userPanned` 后停止末尾跟随；流式新节点到达无提示、无回底部入口（抽屉有 scroll-actions，树无）。`reset` 已存在（恢复 fit + 跟随）。
+**方案**：
+- 新增浮标按钮 `v-if="userPanned && hasNewTail"`，定位画布右下角（`.nyxus-branch-top` 警戒条内侧），文案「↓ 回到最新」或仅箭头 icon。
+- `hasNewTail` = userPanned 期间又有新节点追加到末尾（watch graph 末节点 id 变化置 true；reset 或点击浮标置 false）。
+- 点击浮标 -> `reset()`（已恢复 fit + 末尾跟随）。
+- 入场动画：浮标 spring 滑入 + 脉冲提示。
 
-**保留 `test:cp0`…`test:cp10` 脚本 key**（checkpoint 验证工作流，docs/plan/cpN.md + maintenance.md 引用），仅更新其中 web/test 文件路径：
+> 实现时确认 `userPanned`/`reset`/末节点 id 的具体变量名（分析指向 L776-781 区域 useTreeCanvas）。
 
-| 旧路径 | 新路径 |
-|--------|--------|
-| web/test/cp0KnownFailures.test.ts | web/test/nyxus/graph/knownFailures.test.ts |
-| web/test/cp4Layout.test.ts | web/test/nyxus/graph/graphLayout.test.ts |
-| web/test/cp5InputState.test.ts | web/test/nyxus/graph/inputState.test.ts |
-| web/test/cp6ToolBatch.test.ts | web/test/nyxus/graph/toolBatch.test.ts |
-| web/test/cp7Fold.test.ts | web/test/nyxus/graph/fold.test.ts |
-| web/test/cp8Termination.test.ts | web/test/nyxus/graph/termination.test.ts |
-| web/test/cp9AnchoredCrt.test.ts | web/test/nyxus/graph/anchoredCrt.test.ts |
-| web/test/cp10PerformanceRecovery.test.ts | web/test/nyxus/graph/performanceRecovery.test.ts |
-| web/test/executionGraph.test.ts | web/test/nyxus/graph/executionGraph.test.ts |
-| web/test/executionGraphFixtures.test.ts | web/test/nyxus/graph/executionGraphFixtures.test.ts |
-| web/test/treeCanvas.test.ts | web/test/nyxus/canvas/treeCanvas.test.ts |
-| web/test/floatingPanel.test.ts | web/test/nyxus/canvas/floatingPanel.test.ts |
-| web/test/overlayLayers.test.ts | web/test/styles/overlayLayers.test.ts |
-| web/test/rootTimeline.test.ts | web/test/chats/rootTimeline.test.ts |
-| web/test/rootTimelineStore.test.ts | web/test/chats/rootTimelineStore.test.ts |
-| web/test/chatRunRecovery.test.ts | web/test/chats/chatRunRecovery.test.ts |
+### B2（可选，本次不做）
+ESC 关 CRT 需按两次（先 detail 后 CRT，L660-667）。保持当前层级语义，仅加过渡反馈。留后续。
 
-未被脚本引用的 15 个文件仍照常移动+改 import。
+---
 
-## docs 更新
-- `docs/web/pet/nexus-node-tree-maintenance.md:13`：`web/test/cp10PerformanceRecovery.test.ts` → `web/test/nyxus/graph/performanceRecovery.test.ts`。
-- `docs/web/frontend-protocol-binding.md:401`：`web/test/ 已有 streamAccumulator/approvalQueue/historyRendering` → `web/test/agents/ 已有 ...`。
-- maintenance.md:29 的 `pnpm test:cp2/cp3/cp10` 是脚本 key，保留不动。
-- `.claude/plan.md`（上一任务历史记录）：不改，留作记录。
+## C. 钢琴键条（NexusPianoStrip.vue）
 
-## 执行步骤
-1. `mkdir -p web/test/{nyxus/graph,nyxus/canvas,agents,chats,styles}`
-2. 对 31 个文件逐一 `git mv` 到目标位置（含改名）。
-3. 按深度跑 sed 修 `'../src/` import。
-4. sed 改 describe/it 文案去 CP 标签。
-5. Edit `package.json` 16 处路径。
-6. Edit 2 个 docs 路径。
-7. 验证：grep 确认无残留 `cpN` 文件名、无错误 `'../src/`（深度 2/3 文件夹内不应再有 `'../src/`）、无残留 `CP[0-9]` describe 文案。
+### C2. tooltip / hover 时序对齐
+**现状**：`ElTooltip :show-after="260"`（L364）vs `onKeyLeave` 的 `scheduleHoverLeave` 150ms（L285）。快速划过键时 tooltip 在 260ms 后才显现，但 hoverLeave 150ms 已清 hoveredIdx，若 pointer 已离开但 tooltip 定时器未取消 -> tooltip 残留或错位。
+**方案**：对齐为同一阈值。`show-after` 改 150ms 与 hoverLeave 一致；或 hoverLeave 改 260ms。倾向前者（更快响应 tooltip，hoverLeave 同步缩短）。同时确认 ElTooltip 在 hoverLeave 时是否需手动 `v-model:visible` 关闭（快速划过残留场景）。
+
+### C1/C3/C4（可选，本次不做）
+- C1 倒计时 `ceil` 250ms 跳变：本质整数秒向上取整，可接受，加 CSS transition 缓和。
+- C3 无数据键发声：设计如此（rendering.md §67「所有键点击发声」），保留。
+- C4 fit/overflow 键宽突变：absolute 定位 width transition 易抖动，风险高，留后续。
+
+---
+
+## 文档同步（Doc-First，先改文档再改码）
+- `docs/web/pet/rendering.md` §65-69（钢琴键条 / NexusPianoStrip）：
+  - 更新删除流程描述：ghost 改消息 icon、垃圾桶移右侧专用区、interacting 锁定 popout、倒垃圾动画增强、整体动画。
+  - 更新 hover/tooltip 时序（C2）。
+- `docs/web/pet/rendering.md` §44-49（节点树）：
+  - 补「回到底部」浮标 + 流式新内容回弹提示（B1）。
+- 不涉及配置/管家文档。
 
 ## 验证（交用户）
-按 memory「前端验证交给用户」，不跑 vitest/vue-tsc。改完码即止，用户自验 `pnpm test:cpN` 仍可定位文件。
+按 memory「前端验证交给用户」：不跑 vue-tsc/vite build/vitest，改完码即止。用户自验：
+- hover 删除 icon / 拖拽中 / dumping 期间钢琴 popout 不再误关。
+- ghost 显消息气泡 icon + 拖拽微动画。
+- 垃圾桶在键条右侧专用区、不挡键。
+- 倒垃圾动画：ghost 飞入 + 键淡出 + 桶增强 + 回弹。
+- 节点树 userPanned 后有「回到底部」浮标。
+- 钢琴 tooltip 快速划过无残留。
+
+## 执行顺序
+1. 改 `docs/web/pet/rendering.md`（§65-69 + §44-49）。
+2. A1 bug 修复（NexusPianoStrip emit + AgentDialog pianoPinned）。
+3. A2 ghost icon + A3 垃圾桶位置 + A4 倒垃圾动画 + A5 动画特效（NexusPianoStrip 模板/样式 + AgentDialog 若需）。
+4. B1 节点树回到底部浮标（MessageBranchTree）。
+5. C2 钢琴 tooltip 时序（NexusPianoStrip）。
+6. 检查点：TSC 排除预存错误基线（memory tsc-baseline），lint。

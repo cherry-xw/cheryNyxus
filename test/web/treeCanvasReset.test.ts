@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { treeResetProgress } from '../../web/src/features/pets/nyxus/composables/useTreeCanvas'
 
-describe('Nexus tree reset motion', () => {
+describe('Nyxus tree reset motion', () => {
   it('moves continuously from the dragged state to the fitted state', () => {
     expect(treeResetProgress(0)).toBe(0)
     expect(treeResetProgress(0.25)).toBeGreaterThan(0)

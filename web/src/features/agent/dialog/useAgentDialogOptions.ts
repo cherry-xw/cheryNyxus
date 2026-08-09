@@ -61,7 +61,7 @@ export function useAgentDialogOptions() {
   const pet = computed<PetInstance | undefined>(() =>
     chatId.value ? agents.pets.find((p) => p.chatId === chatId.value) : undefined,
   )
-  // Cherry Nexus 会话不建 PetInstance；琴键切到尚未水合的会话时，historyList 先提供 preset，
+  // Cherry Nyxus 会话不建 PetInstance；琴键切到尚未水合的会话时，historyList 先提供 preset，
   // 避免上方树在 hydrate 期间被误判为非 Nyxus 而卸载。
   const presetName = computed<string | undefined>(() => {
     const fromPet = pet.value?.preset
@@ -449,7 +449,7 @@ export function useAgentDialogOptions() {
       }))
       // V2 command plane: ACK the input independently from the agent run. Opening
       // the session first guarantees the subsequent input.updated/turn events are
-      // observed by the authoritative ChatSession reducer. Nexus additionally
+      // observed by the authoritative ChatSession reducer. Nyxus additionally
       // depends on the root tree subscription for its node/CRT projection, so its
       // first command must not race that subscription's initial tree snapshot.
       if (presetName.value === CHERY_NYXUS_PRESET) {
@@ -460,7 +460,7 @@ export function useAgentDialogOptions() {
       await chatSessions.submitInput(targetChatId, prompt, attachments, preparedInput)
       preparedInput = undefined
       resetEditor()
-      // Nexus 是持续会话工作台：提交后保留输入窗口，等待下一轮指令；其他预设维持原关闭行为。
+      // Nyxus 是持续会话工作台：提交后保留输入窗口，等待下一轮指令；其他预设维持原关闭行为。
       if (presetName.value !== CHERY_NYXUS_PRESET) close()
     } catch (e) {
       if (preparedInput) chatSessions.rollbackPreparedInput(preparedInput, e)

@@ -30,17 +30,17 @@ const disabled = computed(
 const clickIntent = createClickDisambiguator(toggleNyxusMenu, () => void openNyxusDialog())
 
 /** 单击延迟到双击判定窗结束后切换工具环，避免第一次 click 抢先打开业务界面。 */
-function onNexusClick(): void {
+function onNyxusClick(): void {
   if (consumeSuppressedClick()) return
   clickIntent.single()
 }
 
 /** 双击独占开窗语义：取消尚未执行的单击，再打开统一消息对话框。 */
-function onNexusDoubleClick(): void {
+function onNyxusDoubleClick(): void {
   clickIntent.double()
 }
 
-/** Cherry Nexus 双击或工具环聊天按钮打开统一弹窗。 */
+/** Cherry Nyxus 双击或工具环聊天按钮打开统一弹窗。 */
 async function openNyxusDialog(): Promise<void> {
   if (connection.status !== 'connected' || openingChat.value || creating.value) return
   openingChat.value = true
@@ -52,8 +52,8 @@ async function openNyxusDialog(): Promise<void> {
     agents.activeDialogChatId = chatId
     closeNyxusMenu()
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '打开 Cherry Nexus 失败'
-    console.error('[CherryNexus] open dialog failed:', cause)
+    error.value = cause instanceof Error ? cause.message : '打开 Cherry Nyxus 失败'
+    console.error('[CherryNyxus] open dialog failed:', cause)
   } finally {
     openingChat.value = false
   }
@@ -69,7 +69,7 @@ async function createFallback(): Promise<void> {
     const list = await agentApi.listBrains()
     firstBrain = list.brains[0]?.name ?? firstBrain
   } catch (cause) {
-    console.warn('[CherryNexus] brain.list unavailable:', cause)
+    console.warn('[CherryNyxus] brain.list unavailable:', cause)
   }
   await runCreate({ brain: firstBrain, senseGroup: '', mcpServers: [] })
 }
@@ -88,7 +88,7 @@ async function runCreate(opts: {
     closeNyxusMenu()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '创建失败'
-    console.error('[CherryNexus] create master pet failed:', cause)
+    console.error('[CherryNyxus] create master pet failed:', cause)
   } finally {
     creating.value = false
   }
@@ -110,27 +110,27 @@ onBeforeUnmount(() => {
   <button
     v-if="nyxusMenuOpen"
     type="button"
-    class="nexus-menu-dismiss"
-    aria-label="关闭 Cherry Nexus 工具"
+    class="nyxus-menu-dismiss"
+    aria-label="关闭 Cherry Nyxus 工具"
     @click="closeNyxusMenu"
   />
   <aside
-    class="nexus-entry"
+    class="nyxus-entry"
     :class="{ 'is-dragging': dragging, 'is-open': nyxusMenuOpen }"
     :style="anchorStyle"
-    aria-label="Cherry Nexus 入口"
+    aria-label="Cherry Nyxus 入口"
   >
     <button
       type="button"
-      class="nexus-entry-button"
+      class="nyxus-entry-button"
       :aria-disabled="openingChat || connection.status !== 'connected'"
-      aria-label="打开 Cherry Nexus"
+      aria-label="打开 Cherry Nyxus"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="endPointer"
       @pointercancel="endPointer"
-      @click="onNexusClick"
-      @dblclick="onNexusDoubleClick"
+      @click="onNyxusClick"
+      @dblclick="onNyxusDoubleClick"
     >
       <NyxusParticle :size="112" :working="working" :interactive="false" :status-dot="true" boot />
     </button>
@@ -143,12 +143,12 @@ onBeforeUnmount(() => {
       @open-chat="openNyxusDialog"
       @open-settings="openSettings"
     />
-    <div v-if="error" class="nexus-error" role="alert">{{ error }}</div>
+    <div v-if="error" class="nyxus-error" role="alert">{{ error }}</div>
   </aside>
 </template>
 
 <style scoped lang="less">
-.nexus-menu-dismiss {
+.nyxus-menu-dismiss {
   position: fixed;
   inset: 0;
   z-index: 249;
@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
   -webkit-appearance: none;
 }
 
-.nexus-entry {
+.nyxus-entry {
   position: fixed;
   z-index: 250;
   width: 1px;
@@ -167,7 +167,7 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
-.nexus-entry-button {
+.nyxus-entry-button {
   position: absolute;
   left: -56px;
   top: -56px;
@@ -189,11 +189,11 @@ onBeforeUnmount(() => {
   }
 }
 
-.nexus-entry.is-dragging .nexus-entry-button {
+.nyxus-entry.is-dragging .nyxus-entry-button {
   cursor: grabbing;
 }
 
-.nexus-error {
+.nyxus-error {
   position: absolute;
   left: -105px;
   bottom: 78px;

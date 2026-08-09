@@ -103,6 +103,15 @@ function isNodeTerminal(node: ExecutionNode): boolean {
   return isSelfAgentMessage(node)
 }
 
+/** A standalone reply message that closes a round — the last thing the agent
+ *  says, with no tool batch after it. It stays visible instead of folding so
+ *  the tree never hides the round's answer under a fold card. */
+function isReplyUnit(units: readonly FoldUnit[]): boolean {
+  const last = units.at(-1)
+  const onlyNode = last?.nodes.length === 1 ? last.nodes[0] : undefined
+  return !!onlyNode && isSelfAgentMessage(onlyNode)
+}
+
 function foldUnits(branchNodes: readonly ExecutionNode[]): Array<FoldUnit | undefined> {
   const units: Array<FoldUnit | undefined> = []
   for (let index = 0; index < branchNodes.length; index += 1) {
@@ -180,8 +189,11 @@ export function computeFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] 
   const ranges: FoldRange[] = []
   for (const [sourceChatId, branch] of branches) {
     const terminalUnits: FoldUnit[] = []
-    const flush = (): void => {
-      const range = toRange(sourceChatId, terminalUnits)
+    const flush = (final = false): void => {
+      // The round-closing reply is the last thing the agent says; keep it out
+      // of the fold so it renders as a normal message node.
+      const units = final && isReplyUnit(terminalUnits) ? terminalUnits.slice(0, -1) : terminalUnits
+      const range = toRange(sourceChatId, units)
       if (range) ranges.push(range)
       terminalUnits.splice(0)
     }
@@ -196,7 +208,7 @@ export function computeFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] 
       }
       terminalUnits.push(unit)
     }
-    flush()
+    flush(true)
   }
   return ranges.sort(
     (a, b) =>

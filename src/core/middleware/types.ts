@@ -24,6 +24,10 @@ export interface UserInputEntry {
   messageId?: string
   clientMessageId?: string
   commandId?: string
+  /** 仅供本轮模型上下文使用，不进入消息历史或 consumed 通知。 */
+  ephemeral?: boolean
+  /** 模型看到的 content 与用户实际输入不同时，持久化和通知使用此正文。 */
+  persistedContent?: string
   content: string
   time: number
 }
@@ -124,6 +128,8 @@ export interface AgentMessage {
   inputId?: string
   clientMessageId?: string
   commandId?: string
+  /** 仅供模型上下文使用；service observer 不得持久化。 */
+  ephemeral?: boolean
 }
 
 /**
