@@ -53,8 +53,12 @@ const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = useP
  * 子 pet 点击 → 沿用装饰 clickPet（CP3+ 改路由 HistoryDrawer）。
  * 工作中主 pet 仍可点击（用户可排队下一条）。
  */
-function handleClick(pet: PetInstance): void {
+async function handleClick(pet: PetInstance): Promise<void> {
   if (pet.isMaster) {
+    // startup 仅 hydrate running root；非运行会话点开时按需加载，AgentDialog 数据渐进填充。
+    void chatSessions
+      .hydrateTree(pet.chatId)
+      .catch((e) => console.warn(`[PetStage] hydrateTree ${pet.chatId} 失败:`, e))
     agents.activeDialogChatId = pet.chatId
     return
   }

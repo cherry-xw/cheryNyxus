@@ -114,6 +114,11 @@ export interface ChatSummary {
   workspace?: string
   /** workspace 路径当前是否为可访问目录。workspace 缺省时 undefined。 */
   workspaceValid?: boolean
+  /**
+   * 该 chat 当前是否有待用户审批的 sense 调用（后端 ApprovalManager chatId 索引；list 廉价读取，覆盖未 hydrate 会话）。
+   * null/缺省 = 无；非空 = 有 in-flight 审批。钢琴键据此跨所有会话闪烁。args 不含（由 active 会话 hydrated interaction.approval 提供）。
+   */
+  pendingApproval?: { senseName: string; waitTime: number; createdAt: number } | null
 }
 
 /** chat.create 参数。预设路径（T6）：preset 给出则后端从预设解析编制，brain/senseGroup 可省；
@@ -482,6 +487,8 @@ export interface CanonicalMessage {
     childChatId?: string
     spawnCallId?: string
   }
+  /** wakeParent 注入的子返回（child_return 链接）；前端据此标 mergedView 从主轴过滤。 */
+  childReturn?: boolean
   [key: string]: unknown
 }
 
@@ -503,19 +510,41 @@ export type TimelineActor =
 export type TimelineDirection =
   'user-to-agent' | 'agent-to-user' | 'parent-to-child' | 'child-to-parent' | 'internal'
 
+export interface GraphToolCall {
+  callId: string
+  index: number
+  name: string
+  arguments: string
+  result?: string
+  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+  childChatId?: string
+  targetChatId?: string
+}
+
+export interface TerminationFact {
+  actor: 'user' | 'system' | 'agent'
+  code: 'user_abort' | 'system_stop' | 'watchdog' | 'error' | 'agent_redirect'
+  at: number
+  detail?: string
+}
+
 export interface TimelineNode {
   id: string
   rootChatId: string
   sourceChatId: string
   sourceMessageId?: string
-  kind: 'message' | 'tool-group' | 'spawn' | 'return' | 'system'
+  kind: 'message' | 'tool-batch' | 'return' | 'dispatch' | 'system' | 'tool-group' | 'spawn'
   actor: TimelineActor
   target?: TimelineActor
   direction: TimelineDirection
   visibility: 'conversation' | 'detail' | 'internal'
   content: string
   thinking?: string
-  toolCalls?: CanonicalSenseCall[]
+  toolCalls?: GraphToolCall[]
+  batchId?: string
+  orderKey: number
+  termination?: TerminationFact
+  /** Legacy read compatibility only. */
   parentNodeId?: string
   causationId?: string
   createdAt: number
@@ -523,11 +552,39 @@ export interface TimelineNode {
   status: 'committed' | 'revoked'
 }
 
+export type ExecutionEdgeKind =
+  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation'
+
+export interface ExecutionEdgeFact {
+  id: string
+  rootChatId: string
+  fromNodeId: string
+  toNodeId: string
+  kind: ExecutionEdgeKind
+  orderKey: number
+  sourceChatId: string
+  targetChatId: string
+  callId?: string
+}
+
+export interface ActiveRunFact {
+  rootChatId: string
+  chatId: string
+  runId: string
+  status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed'
+  turnId?: string
+  nodeId?: string
+  batchId?: string
+}
+
 export interface RootTimelineSnapshot {
   rootChatId: string
   view: 'conversation' | 'tree' | 'audit'
   revision: number
   nodes: TimelineNode[]
+  edges: ExecutionEdgeFact[]
+  activeRuns: ActiveRunFact[]
+  pendingInputs: PendingInput[]
   nextCursor?: string
   capturedEventSeq: number
 }
@@ -543,9 +600,31 @@ export interface TimelinePatch {
   revision: number
   operations: TimelinePatchOperation[]
   eventSeq?: number
+  rootPatch?: RootTimelinePatch
+  rootPatches?: RootTimelinePatch[]
+}
+
+export type RootTimelinePatchOperation =
+  | { type: 'upsert'; node: TimelineNode }
+  | { type: 'revoke'; nodeId: string }
+  | { type: 'remove'; nodeId: string }
+  | { type: 'upsert-edge'; edge: ExecutionEdgeFact }
+  | { type: 'remove-edge'; edgeId: string }
+  | { type: 'upsert-run'; run: ActiveRunFact }
+  | { type: 'remove-run'; chatId: string; runId: string }
+  | { type: 'upsert-input'; input: PendingInput }
+  | { type: 'remove-input'; inputId: string }
+
+export interface RootTimelinePatch {
+  rootChatId: string
+  view: RootTimelineSnapshot['view']
+  baseRevision: number
+  revision: number
+  operations: RootTimelinePatchOperation[]
 }
 
 export interface PendingInput {
+  chatId?: string
   inputId: string
   clientMessageId?: string
   messageId?: string
@@ -558,6 +637,7 @@ export interface PendingInput {
 }
 
 export interface ActiveTurnSnapshot {
+  chatId?: string
   turnId: string
   runId?: string
   messageId: string
@@ -572,6 +652,7 @@ export interface ActiveTurnSnapshot {
 }
 
 export interface RunSnapshot {
+  chatId?: string
   runId: string
   status?: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | string
   state?: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | string
@@ -584,8 +665,11 @@ export interface ChatOpenResponse {
   eventSeq: number
   timelineRevision: number
   timelineChanged: boolean
+  rootTimeline?: RootTimelineSnapshot
   state: {
+    chatIds?: string[]
     run?: RunSnapshot
+    runs?: RunSnapshot[]
     pendingInputs: PendingInput[]
     activeTurns: ActiveTurnSnapshot[]
     pendingApproval?: unknown
@@ -1061,6 +1145,7 @@ export const agentApi = {
     chatId: string
     commandId: string
     clientMessageId: string
+    messageId: string
     content: string
     attachments?: ChatSendAttachment[]
   }): Promise<InputAccepted> {
@@ -1068,6 +1153,7 @@ export const agentApi = {
       chatId: params.chatId,
       commandId: params.commandId,
       clientMessageId: params.clientMessageId,
+      messageId: params.messageId,
       content: params.content,
       ...(params.attachments?.length ? { attachments: params.attachments } : {}),
     })
@@ -1105,12 +1191,14 @@ export const agentApi = {
 
   /** V2 session plane：原子建立订阅并返回当前运行态快照。 */
   async openChat(params: {
-    chatId: string
+    chatId?: string
+    rootChatId?: string
     knownTimelineRevision?: number
     knownEventSeq?: number
   }): Promise<ChatOpenResponse> {
     return call<ChatOpenResponse>('chat.open', {
-      chatId: params.chatId,
+      ...(params.chatId ? { chatId: params.chatId } : {}),
+      ...(params.rootChatId ? { rootChatId: params.rootChatId } : {}),
       ...(params.knownTimelineRevision !== undefined
         ? { knownTimelineRevision: params.knownTimelineRevision }
         : {}),
@@ -1188,8 +1276,12 @@ export const agentApi = {
   },
 
   /** chat.abort：中止当前流（清内存运行时 + 释放连接，不删 DB）。 */
-  async abortAgent(chatId: string, runId?: string): Promise<void> {
-    await call('chat.abort', { chatId, ...(runId ? { runId } : {}) })
+  async abortAgent(chatId: string, runId?: string, commandId?: string): Promise<void> {
+    await call('chat.abort', {
+      chatId,
+      ...(runId ? { runId } : {}),
+      ...(commandId ? { commandId } : {}),
+    })
   },
 
   /**

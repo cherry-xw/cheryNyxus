@@ -15,10 +15,10 @@ import { formatArgValue, formatValue, parseArgs } from '@/utils/parseArgs'
 import { extractMediaUrls } from '@/utils/markdown'
 import MediaInlineRenderer from '../dialog/media/MediaInlineRenderer.vue'
 
-const props = defineProps<{ call: SenseCallRecord }>()
+const props = defineProps<{ call: SenseCallRecord; defaultExpanded?: boolean }>()
 
-const showArgs = ref(false)
-const showResult = ref(false)
+const showArgs = ref(props.defaultExpanded ?? false)
+const showResult = ref(props.defaultExpanded ?? false)
 
 const argsParsed = computed(() => parseArgs(props.call.args))
 const argsFallback = computed(() => argsParsed.value.fallback)

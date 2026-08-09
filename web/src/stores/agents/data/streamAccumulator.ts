@@ -230,12 +230,12 @@ export function pushHistoryItem(stream: StreamState, item: HistoryItem): void {
         const calls = [...(existing.senseCalls ?? [])]
         const fingerprints = new Set<string>()
         for (const sc of calls) {
-          fingerprints.push(sc.id ? `id:${sc.id}` : `name:${sc.name}:${String(sc.args ?? '')}`)
+          fingerprints.add(sc.id ? `id:${sc.id}` : `name:${sc.name}:${String(sc.args ?? '')}`)
         }
         for (const sc of item.senseCalls) {
           const fp = sc.id ? `id:${sc.id}` : `name:${sc.name}:${String(sc.args ?? '')}`
           if (fingerprints.has(fp)) continue
-          fingerprints.push(fp)
+          fingerprints.add(fp)
           calls.push({ ...sc })
         }
         if (calls.length) existing.senseCalls = calls

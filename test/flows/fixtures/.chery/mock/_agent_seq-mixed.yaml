@@ -4,8 +4,8 @@ script:
     senseCalls:
       - id: sm-0
         name: write_file
-        arguments: '{"path":"/tmp/cheryclaw-test-Nk58Gt/a.txt","content":"a"}'
+        arguments: '{"path":"/tmp/cheryNyxus-test-a749nc/a.txt","content":"a"}'
       - id: sm-1
         name: write_file
-        arguments: '{"path":"/tmp/cheryclaw-test-Nk58Gt/b.txt","content":"b"}'
+        arguments: '{"path":"/tmp/cheryNyxus-test-a749nc/b.txt","content":"b"}'
   - content: done

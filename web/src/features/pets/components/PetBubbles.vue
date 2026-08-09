@@ -70,10 +70,12 @@ const activeQuestion = computed<QuestionItemState | null>(() => activeEntry.valu
 const batchInfo = computed(() => {
   const entry = activeEntry.value
   if (!entry) return null
+  const sorted = [...entry.batch.questions].sort((a, b) => a.position - b.position)
   return {
     batchId: entry.batch.batchId,
     total: entry.batch.questions.length,
     readyCount: entry.batch.questions.filter((question) => question.localStatus === 'ready').length,
+    currentIndex: sorted.findIndex((question) => question.questionId === entry.question.questionId),
     isLast: !entry.batch.questions.some(
       (question) =>
         question.questionId !== entry.question.questionId && question.localStatus === 'pending',

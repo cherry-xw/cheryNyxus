@@ -16,6 +16,13 @@ export interface ChatEventPage {
   reset: boolean
 }
 
+export interface RootEventPage {
+  events: StoredChatEvent[]
+  latestSeq: number
+  minSeq?: number
+  reset: boolean
+}
+
 export interface SpawnTask {
   taskId: string
   childChatId: string
@@ -24,7 +31,9 @@ export interface SpawnTask {
   prompt: string
   brain: string
   senseGroup: string
-  status: 'pending' | 'started' | 'finished'
+  spawnCallId?: string
+  owningBatchId?: string
+  status: 'pending' | 'started' | 'finished' | 'timed_out'
 }
 
 export type RequestClaim =
@@ -123,7 +132,91 @@ export function appendChatEvent(chatId: string, event: Record<string, unknown>):
       )
     return seq
   })
-  return write()
+  const seq = write()
+  const rootChatId = rootChatIdOf(chatId)
+  const rootEventSeq = appendRootEvent(rootChatId, {
+    ...event,
+    chatId,
+    sourceChatId: chatId,
+    sourceEventSeq: seq,
+  })
+  // Call sites route the same object after persistence. Enrich it in place so
+  // root subscriptions can use the root sequence without reconstructing it.
+  event.rootChatId = rootChatId
+  event.rootEventSeq = rootEventSeq
+  return seq
+}
+
+function rootChatIdOf(chatId: string): string {
+  const db = getSoulDb()
+  let current = chatId
+  const seen = new Set<string>()
+  while (!seen.has(current)) {
+    seen.add(current)
+    const row = db.prepare('SELECT parent_chat_id FROM chats WHERE id = ?').get(current) as
+      { parent_chat_id?: string | null } | undefined
+    if (!row?.parent_chat_id) return current
+    current = row.parent_chat_id
+  }
+  return current
+}
+
+function appendRootEvent(rootChatId: string, event: Record<string, unknown>): number {
+  const db = getSoulDb()
+  const now = Date.now()
+  return db.transaction(() => {
+    const next = db
+      .prepare(
+        'SELECT COALESCE(MAX(root_seq), 0) + 1 AS nextSeq FROM root_events WHERE root_chat_id = ?',
+      )
+      .get(rootChatId) as { nextSeq: number }
+    const stored = { ...event, rootChatId, rootEventSeq: next.nextSeq }
+    db.prepare(
+      'INSERT INTO root_events (root_chat_id, root_seq, event_json, created_at) VALUES (?, ?, ?, ?)',
+    ).run(rootChatId, next.nextSeq, JSON.stringify(stored), now)
+    db.prepare('DELETE FROM root_events WHERE root_chat_id = ? AND created_at < ?').run(
+      rootChatId,
+      now - RETENTION_MS,
+    )
+    const cutoff = db
+      .prepare(
+        'SELECT root_seq FROM root_events WHERE root_chat_id = ? ORDER BY root_seq DESC LIMIT 1 OFFSET ?',
+      )
+      .get(rootChatId, RETENTION_EVENTS_PER_CHAT) as { root_seq: number } | undefined
+    if (cutoff)
+      db.prepare('DELETE FROM root_events WHERE root_chat_id = ? AND root_seq <= ?').run(
+        rootChatId,
+        cutoff.root_seq,
+      )
+    return next.nextSeq
+  })()
+}
+
+export function getRootEvents(rootChatId: string, afterSeq: number): RootEventPage {
+  const db = getSoulDb()
+  const bounds = db
+    .prepare(
+      'SELECT MIN(root_seq) AS minSeq, MAX(root_seq) AS latestSeq FROM root_events WHERE root_chat_id = ?',
+    )
+    .get(rootChatId) as { minSeq: number | null; latestSeq: number | null }
+  const minSeq = bounds.minSeq ?? undefined
+  // latestSeq is the journal's persisted high-water mark, not an echo of the
+  // caller's cursor. An empty journal starts at boundary 0 so its first event
+  // (seq 1) is not mistaken for an event already covered by a snapshot fence.
+  const latestSeq = bounds.latestSeq ?? 0
+  const reset = minSeq !== undefined && afterSeq < minSeq - 1
+  if (reset) return { events: [], latestSeq, minSeq, reset: true }
+  const rows = db
+    .prepare(
+      'SELECT event_json FROM root_events WHERE root_chat_id = ? AND root_seq > ? ORDER BY root_seq ASC',
+    )
+    .all(rootChatId, afterSeq) as { event_json: string }[]
+  return {
+    events: rows.map((row) => JSON.parse(row.event_json) as StoredChatEvent),
+    latestSeq,
+    minSeq,
+    reset: false,
+  }
 }
 
 export function getChatEvents(chatId: string, afterSeq: number): ChatEventPage {
@@ -134,7 +227,10 @@ export function getChatEvents(chatId: string, afterSeq: number): ChatEventPage {
     )
     .get(chatId) as { minSeq: number | null; latestSeq: number | null }
   const minSeq = bounds.minSeq ?? undefined
-  const latestSeq = bounds.latestSeq ?? afterSeq
+  // Keep the response boundary independent from the requested cursor. Internal
+  // callers use MAX_SAFE_INTEGER to read only the high-water mark; an empty
+  // journal must still report 0 because the first persisted event uses seq 1.
+  const latestSeq = bounds.latestSeq ?? 0
   const reset = minSeq !== undefined && afterSeq < minSeq - 1
   if (reset) return { events: [], latestSeq, minSeq, reset: true }
   const rows = db
@@ -171,8 +267,8 @@ export function createSpawnTask(
   getSoulDb()
     .prepare(
       `INSERT INTO spawn_tasks
-      (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, spawn_call_id, owning_batch_id, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
     .run(
       taskId,
@@ -182,6 +278,8 @@ export function createSpawnTask(
       input.prompt,
       input.brain,
       input.senseGroup,
+      input.spawnCallId ?? null,
+      input.owningBatchId ?? null,
       now,
       now,
     )
@@ -197,6 +295,8 @@ function toSpawnTask(row: Record<string, unknown>): SpawnTask {
     prompt: String(row.prompt),
     brain: String(row.brain),
     senseGroup: String(row.sense_group),
+    ...(row.spawn_call_id ? { spawnCallId: String(row.spawn_call_id) } : {}),
+    ...(row.owning_batch_id ? { owningBatchId: String(row.owning_batch_id) } : {}),
     status: row.status as SpawnTask['status'],
   }
 }
@@ -232,15 +332,48 @@ export function claimSpawnTask(taskId: string): { task?: SpawnTask; firstStart: 
 
 export function finishSpawnTask(taskId: string): void {
   getSoulDb()
-    .prepare("UPDATE spawn_tasks SET status = 'finished', updated_at = ? WHERE task_id = ?")
+    .prepare(
+      "UPDATE spawn_tasks SET status = 'finished', updated_at = ? WHERE task_id = ? AND status IN ('pending', 'started')",
+    )
     .run(Date.now(), taskId)
+}
+
+export function setSpawnTaskOwnership(
+  taskId: string,
+  spawnCallId: string,
+  owningBatchId?: string,
+): void {
+  getSoulDb()
+    .prepare(
+      'UPDATE spawn_tasks SET spawn_call_id = ?, owning_batch_id = COALESCE(?, owning_batch_id), updated_at = ? WHERE task_id = ?',
+    )
+    .run(spawnCallId, owningBatchId ?? null, Date.now(), taskId)
+}
+
+export function timeoutSpawnTask(childChatId: string): {
+  task?: SpawnTask
+  firstTimeout: boolean
+} {
+  const db = getSoulDb()
+  const task = getSpawnTaskByChild(childChatId)
+  if (!task) return { firstTimeout: false }
+  if (task.status === 'timed_out') return { task, firstTimeout: false }
+  const changed = db
+    .prepare(
+      "UPDATE spawn_tasks SET status = 'timed_out', updated_at = ? WHERE task_id = ? AND status IN ('pending', 'started')",
+    )
+    .run(Date.now(), task.taskId)
+  return {
+    task: getSpawnTask(task.taskId),
+    firstTimeout: changed.changes === 1,
+  }
 }
 
 /** Pending/started tasks are replayed when the event history has expired. */
 export function listOpenSpawnTasks(parentChatId: string): SpawnTask[] {
   const rows = getSoulDb()
     .prepare(
-      "SELECT * FROM spawn_tasks WHERE parent_chat_id = ? AND status != 'finished' ORDER BY created_at ASC",
+      "SELECT * FROM spawn_tasks WHERE parent_chat_id = ? AND status IN ('pending', 'started') ORDER BY created_at ASC",
     )
     .all(parentChatId) as Record<string, unknown>[]
   return rows.map(toSpawnTask)

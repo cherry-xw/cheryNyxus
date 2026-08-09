@@ -21,12 +21,14 @@ import {
   type SenseQuestionBatchAnswerResponseData,
   type ChatAbortRequestData,
   type ChatAbortResponseData,
+  type ChildControlTargetResult,
 } from '../message/types.js'
 import {
   getChat,
   markMessagesRevoked,
   updateChatMetadata,
   collectDescendantsChatIds,
+  getTimelineRevision,
 } from '@/db/chat.js'
 import { approvalManager } from '../approval/manager.js'
 import { findPendingQuestionBatchByQuestionId } from '@/db/question.js'
@@ -53,6 +55,10 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { isAgentAbortError } from '@/core/middleware/errors.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { randomUUID } from 'crypto'
+import { recordTerminationFact } from './executionFacts.js'
+import { emitTimelinePatch } from './rootGraphPatch.js'
+import { claimRequest, completeRequest } from '@/db/delivery.js'
+import { getExecutionActiveRun } from '@/db/executionGraph.js'
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
@@ -185,7 +191,9 @@ export async function* handleChatSend(
   if (!agent.isRunning()) {
     const revokedIds = agent.revokeTrailingCycle()
     if (revokedIds.length > 0) {
+      const baseRevision = getTimelineRevision(chatId)
       markMessagesRevoked(chatId, revokedIds)
+      emitTimelinePatch(chatId, baseRevision)
       logger.event('chat.send.revoke', { count: revokedIds.length, messageIds: revokedIds })
       yield createChunk(
         'staged',
@@ -467,7 +475,7 @@ export async function handleSenseQuestionBatchAnswer(
  * 单独的 compose.abort()→gen.throw 注入到「await 外部 pending promise」挂起点在此 yield* 链不可靠，
  * 故 abort-during-approval 必须走 promise reject 路径（与 park/用户超时一致）。
  */
-function abortPendingApproval(runId: string | undefined): void {
+export function abortPendingApproval(runId: string | undefined): void {
   if (!runId) return
   const approvalId = disconnectGrace.getPendingApprovalId(runId)
   if (approvalId) approvalManager.abort(approvalId)
@@ -477,7 +485,15 @@ export async function handleChatAbort(
   ctx: HandlerContext,
   data: ChatAbortRequestData,
 ): Promise<ChatAbortResponseData | RpcResponse> {
-  const activeRunId = getActiveChatRunId(data.chatId)
+  let activeRunId = getActiveChatRunId(data.chatId)
+  if (
+    activeRunId &&
+    ['paused', 'completed', 'failed'].includes(
+      getExecutionActiveRun(data.chatId, activeRunId)?.status ?? 'running',
+    )
+  ) {
+    activeRunId = undefined
+  }
   if (data.runId && activeRunId && data.runId !== activeRunId) {
     return createResponse(
       ctx.requestId ?? '',
@@ -486,17 +502,56 @@ export async function handleChatAbort(
       createError(ErrorCode.CONFLICT, '操作的目标已改变'),
     )
   }
+  if (data.commandId) {
+    const claimed = claimRequest(data.commandId, Method.CHAT_ABORT, data)
+    if (claimed.state === 'completed') {
+      return JSON.parse(claimed.responseJson) as ChatAbortResponseData
+    }
+    if (claimed.state === 'active') throw new Error('该暂停命令正在处理中')
+    if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
+  }
 
   // 统一暂停语义：主 abort 时递归暂停所有后代（主停→子停→孙停）。
   // 主可能 idle（spawn wait=true 等子回复，无 activeRunId）但后代在跑——仍需级联停后代。
   const descendants = collectDescendantsChatIds(data.chatId)
-  for (const childId of descendants) {
+  const results: ChildControlTargetResult[] = []
+  for (const childId of [...descendants].reverse()) {
     clearWaitedChildrenByParent(childId)
-    const childRunId = getActiveChatRunId(childId)
+    let childRunId = getActiveChatRunId(childId)
+    if (
+      childRunId &&
+      ['paused', 'completed', 'failed'].includes(
+        getExecutionActiveRun(childId, childRunId)?.status ?? 'running',
+      )
+    ) {
+      childRunId = undefined
+    }
     if (childRunId) {
+      const baseRevision = getTimelineRevision(childId)
+      recordTerminationFact({
+        chatId: childId,
+        runId: childRunId,
+        actor: 'user',
+        code: 'user_abort',
+      })
+      emitTimelinePatch(childId, baseRevision)
       // 先 reject 挂起审批（可靠中断 approval.wait），再 gen.throw（中断流式 yield 挂起）。
       abortPendingApproval(childRunId)
       abortChatRuntime(childId)
+      results.push({
+        chatId: childId,
+        previousState: 'running',
+        state: 'paused',
+        outcome: 'stopped',
+        runId: childRunId,
+      })
+    } else {
+      results.push({
+        chatId: childId,
+        previousState: 'paused',
+        state: 'paused',
+        outcome: 'unchanged',
+      })
     }
     // 强制解绑连接（不校验 owner）：跨连接重连后旧 owner 须无条件清除避免 busy 死锁（P0-2）
     connectionManager.forceReleaseChatConnection(childId)
@@ -505,8 +560,30 @@ export async function handleChatAbort(
 
   // 主 chat 自身
   if (activeRunId) {
+    const baseRevision = getTimelineRevision(data.chatId)
+    recordTerminationFact({
+      chatId: data.chatId,
+      runId: activeRunId,
+      actor: 'user',
+      code: 'user_abort',
+    })
+    emitTimelinePatch(data.chatId, baseRevision)
     abortPendingApproval(activeRunId)
     abortChatRuntime(data.chatId)
+    results.push({
+      chatId: data.chatId,
+      previousState: 'running',
+      state: 'paused',
+      outcome: 'stopped',
+      runId: activeRunId,
+    })
+  } else {
+    results.push({
+      chatId: data.chatId,
+      previousState: 'paused',
+      state: 'paused',
+      outcome: 'unchanged',
+    })
   }
   // 清主→子唤醒链，防子完成反唤醒已停的主
   clearWaitedChildrenByParent(data.chatId)
@@ -518,12 +595,15 @@ export async function handleChatAbort(
     runId: activeRunId,
     cascaded: descendants.length,
   })
-  return {
+  const response: ChatAbortResponseData = {
     chatId: data.chatId,
     ...(activeRunId ? { runId: activeRunId } : {}),
     aborted: !!activeRunId,
     cascaded: descendants.length,
+    results,
   }
+  if (data.commandId) completeRequest(data.commandId, response)
+  return response
 }
 
 /**

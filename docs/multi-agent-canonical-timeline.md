@@ -81,16 +81,16 @@ CREATE INDEX idx_message_links_spawn
 
 `relation` 枚举：
 
-| 值 | 表示 |
-|---|---|
-| `root_input` | 真人输入主会话 |
-| `agent_output` | agent 正常输出 |
-| `tool_result` | 工具原始结果，仅供归并 |
-| `spawn_request` | 父 agent 派发子任务 |
-| `child_input` | 父 agent 向子 agent 发送的任务输入 |
-| `child_output` | 子 agent 在自身会话的输出 |
-| `child_return` | 子 agent 回传给父 agent 的持久化注入 |
-| `system` | 系统消息，不默认显示 |
+| 值              | 表示                                 |
+| --------------- | ------------------------------------ |
+| `root_input`    | 真人输入主会话                       |
+| `agent_output`  | agent 正常输出                       |
+| `tool_result`   | 工具原始结果，仅供归并               |
+| `spawn_request` | 父 agent 派发子任务                  |
+| `child_input`   | 父 agent 向子 agent 发送的任务输入   |
+| `child_output`  | 子 agent 在自身会话的输出            |
+| `child_return`  | 子 agent 回传给父 agent 的持久化注入 |
+| `system`        | 系统消息，不默认显示                 |
 
 写入约束：
 
@@ -116,27 +116,23 @@ type Actor =
   | { kind: 'system' }
 
 type Direction =
-  | 'user-to-agent'
-  | 'agent-to-user'
-  | 'parent-to-child'
-  | 'child-to-parent'
-  | 'internal'
+  'user-to-agent' | 'agent-to-user' | 'parent-to-child' | 'child-to-parent' | 'internal'
 
 type TimelineNode = {
   id: string
   rootChatId: string
   sourceChatId: string
   sourceMessageId?: string
-  kind: 'message' | 'tool-group' | 'spawn' | 'return' | 'system'
+  kind: 'message' | 'tool-batch' | 'return' | 'dispatch' | 'system'
   actor: Actor
   target?: Actor
   direction: Direction
   visibility: 'conversation' | 'detail' | 'internal'
   content: string
   thinking?: string
-  toolCalls?: CanonicalToolCall[]
-  parentNodeId?: string
-  causationId?: string
+  toolCalls?: GraphToolCall[]
+  orderKey: number
+  termination?: Termination
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
@@ -173,12 +169,15 @@ interface RootTimelineSnapshot {
   view: 'conversation' | 'tree' | 'audit'
   revision: number
   nodes: TimelineNode[]
+  edges: ExecutionEdgeFact[]
+  activeRuns: ActiveRunFact[]
+  pendingInputs: PendingInputSnapshot[]
   nextCursor?: Cursor
   capturedEventSeq: number
 }
 ```
 
-`conversation` 默认只返回 `visibility='conversation'` 的用户、agent、派发、回传节点；`tree` 保留 `parentNodeId`；`audit` 可展开系统和工具详情。分页 cursor 排序键为 `(created_at, id)`，而不是前端数组下标。
+`conversation` 默认只返回 `visibility='conversation'` 的用户、agent、派发、回传节点；`tree` 与 `audit` 同时携带完整 graph facts，`audit` 可展开系统和工具详情。持久排序键为 `orderKey`；分页 cursor 的兼容展示键仍可包含 `(created_at,id)`，但不得用于推断因果。
 
 ### 3.3 原子订阅与增量
 
@@ -210,14 +209,20 @@ timeline.patch({
   operations: Array<
     | { type: 'upsert'; node: TimelineNode }
     | { type: 'remove'; nodeId: string }
+    | { type: 'upsert-edge'; edge: ExecutionEdgeFact }
+    | { type: 'remove-edge'; edgeId: string }
+    | { type: 'upsert-run'; run: ActiveRunFact }
+    | { type: 'remove-run'; chatId: string; runId: string }
+    | { type: 'upsert-input'; input: PendingInputSnapshot }
+    | { type: 'remove-input'; inputId: string }
     | { type: 'revoke'; nodeId: string }
-  >
+  >,
 })
 ```
 
 目标架构中，任何涉及 child chat 的消息、工具结果、派发或回传，只要已提交，均递增**根会话** revision 并发出 root patch；前端无需对每个 child 建立独立 timeline 订阅。
 
-当前实现状态：root 历史快照和 root revision 已落地，但实时传输仍是兼容期的 per-chat subscription；root-tree subscription 与 root `TimelineNode` patch 尚未完成，见第 9 节。
+CP2 实施契约：root-tree subscription 与 root graph patch 作为 canonical 实时链路；兼容期 per-chat subscription 仅服务旧展示路径，不再作为 HistoryDrawer root/group 视图的事实源。root open 在同一 fence 返回 nodes、edges、按来源 chat 标识的 pending input、active turn 与 active run；前端以 `(rootChatId, view)` 隔离并原子安装快照。
 
 ### 3.4 实时 Session 事件
 
@@ -230,6 +235,17 @@ turn.completed({ rootChatId, sourceChatId, turnId, messageId })
 ```
 
 前端按 `messageId` 建立 transient node，使用 event 的 `actor` 渲染正确的子 agent 头像。数据库提交后收到 `timeline.patch`，用同一 `sourceMessageId/messageId` 原子替换 transient node；禁止同时把 transient 和 committed 节点显示为两条消息。
+
+每个 `messageId` 都拥有独立的实时 CRT 生命周期，而不是由 `chatId` 或 `runId` 共享一台 CRT：
+
+1. `turn.started(A)` 建立节点 A，并打开仅属于 A 的 CRT；后续 `turn.delta(A)` 只更新该 CRT。
+2. assistant A 的完整节点事实提交后，服务端立即发送 `turn.completed(A)`；前端关闭 CRT-A，保留实际节点 A，详情改由 hover popover 展示。
+3. 同一 run 后续出现 `turn.started(B)` 时创建 CRT-B，不复用 CRT-A 的组件身份、隐藏状态或固定状态。run 结束只补全尚未完成的 turn，不重复完成 A。
+4. 不同 child chat 的 active turn 可以并发存在，因此多个节点 CRT 可以同时显示；其中任一 turn 完成不得关闭其他节点的 CRT。
+
+审批/提问弹窗属于节点交互状态，不属于 CRT 生命周期。待审批节点即使启用默认折叠也保持展开，交互弹窗持续显示到用户完成操作；对应流结束只关闭该节点 CRT，不提前关闭审批弹窗。
+
+节点树历史读取不得调用 `chat.sync` 重播已完成 turn 的 delta。`turn.delta` 只服务当前打开的 root subscription；已完成历史只由 `RootTimelineSnapshot.nodes/edges` 返回完整节点。切换 root 时关闭旧 subscription 仅表示停止观察，绝不隐含 pause/abort；旧 root 的 Agent、输入队列和子 Agent 在后台继续运行。
 
 刷新中断后，不保证恢复“已经错过的逐 token 动画”；正确行为是 `chat.open` 返回 active turn 的当前累计文本，随后继续接收新的 delta。最终内容始终以 timeline snapshot/patch 为准。
 
@@ -286,12 +302,45 @@ Reducer 只做四件事：安装快照、应用 revision patch、按 offset 累�
 
 ### 5.3 刷新与缺口处理
 
-目标架构的刷新只执行一次 `chat.open(rootChatId)`，然后按返回 revision 拉取 `chat.timeline.get(rootChatId)`。当前兼容实现仍会为已知 running child 建立/恢复 per-chat session，并逐 chat 执行历史 sync；root drawer 另行读取一次 `chat.timeline.get({ rootChatId, view: 'conversation' })`。后续：
+目标架构的刷新只执行一次 `chat.open(rootChatId)`，然后按返回 revision 拉取 `chat.timeline.get(rootChatId)`。首页只读取轻量 catalog，不为所有 running root 自动 hydration；用户打开或切换到某个 root 时才建立该 root subscription。后续：
 
 - `eventSeq` 断档：重新 `chat.open(rootChatId)`；
 - `baseRevision` 不匹配：重新 `chat.timeline.get(rootChatId)`；
 - 订阅重连：用最后已确认的 root `eventSeq/revision` 打开同一 root；
 - 新 spawn：其 child 自动属于 root subscription，前端不额外 `attach/open` child。
+- 切换/关闭树：`chat.close(subscriptionId)` 只取消观察与重输出路由，后台 run 保持不变；只有显式 `chat.abort` 可以终止。
+
+### 5.4 Nexus 前端三层边界
+
+Nexus 实时树固定采用以下单向依赖，组件挂载不能直接拥有 WebSocket 订阅生命周期：
+
+1. **后端 API / LLM 层**输出完整节点事实、父子关系、持久 revision，以及运行期
+   `input.updated` / `turn.started` / `turn.delta` / `turn.completed` / 审批事件。历史接口只返回
+   完整节点；逐 token delta 只服务当前运行中的 CRT，不作为历史回放单元。
+2. **前端消息层**为每个被观察的 `rootChatId` 维护唯一 subscription。`conversation`、`tree`、
+   `audit` 是同一订阅下的只读快照视图，不能分别调用 `chat.open`。消息层原子合并 snapshot、
+   patch 和 transient event，并向 UI 暴露只读渲染状态。
+3. **UI 投影层**只消费节点事实与实时 turn 状态，自行完成树布局、分支、折叠、CRT、悬浮详情和
+   审批弹窗。节点组件不得调用 `chat.open`、持有 `subscriptionId` 或根据协议序号触发重同步。
+
+同一个 root 的视图并发加载必须先共享一次 subscription single-flight，再分别加载缺失快照；旧的
+异步 open 响应不得覆盖较新的观察代次。已经由 root reducer 应用成功的 `timeline.patch` 不再通过
+session 兼容路径反向触发 `chat.open` 或快照刷新。
+
+兼容期消息层必须向 UI 暴露一份统一的 live view：root subscription 的 transient turn/run 为
+权威值；若某个当前 root 会话族的实时事件已经进入 per-chat session、但对应 root transient
+尚未安装或在订阅交接窗口暂时缺失，则以该 session 的同一 `chatId + runId + messageId` 状态
+补位。补位只作用于当前运行态，不读取历史 delta、不建立额外订阅，也不触发同步。节点瞬态投影
+与 CRT 必须消费同一份合并结果，禁止 CRT 单独把空 root transient 数组当成“没有实时响应”。
+
+Root subscription envelope 只能由 root reducer 消费其顺序游标和运行态。即使 envelope 同时携带
+`sourceEventSeq`，前端也不得再把它送入 per-chat sequenced reducer；root snapshot 并不提供每个后代
+chat 的 per-chat cursor fence，这样做会把正常 source 序号误判为缺口并错误触发 direct
+`chat.open(chatId)`。普通 direct subscription 的事件仍由 per-chat reducer 独占处理。
+
+服务端同样隔离两类订阅的所有权：建立 direct subscription 只能替换相同 chat 的旧 direct
+subscription，不能删除同连接上的 root subscription。事件路由同时匹配两者时，root envelope 保持
+权威并抑制重复 direct envelope。
 
 ## 6. 迁移步骤
 
@@ -307,7 +356,7 @@ Reducer 只做四件事：安装快照、应用 revision patch、按 offset 累�
 2. 扩展现有 `chat.timeline.get`，接受 `rootChatId` 与 `view` 并返回 `rootTimeline`（不另造 `chat.rootTimeline.get` RPC）。
 3. 对比旧 UI 与新 projection：工具不独立冒泡、child 消息头像正确、回传不重复。
 
-### Phase 3：root 订阅（planned / deferred）
+### Phase 3：root 订阅（in progress）
 
 1. root 维度 event journal 和 revision；
 2. `chat.open(rootChatId)` 原子 fence；
@@ -364,8 +413,8 @@ Reducer 只做四件事：安装快照、应用 revision patch、按 offset 累�
 
 兼容说明与未完成项：
 
-- 当前实时传输仍复用现有 V2 的每-chat subscription；刷新/重连仍需对 root 及已知 descendants 做兼容期 hydrate/sync。单个 root-tree subscription、跨 child 的 root eventSeq fence 尚未实现。
-- `timeline.patch` 当前仍发送单 chat `CanonicalMessage` 操作；root timeline 变化由前端收到事件后重新获取 root snapshot，root `TimelineNode` patch 属后续实现。
+- 每个后代 chat 事件同步写入 `soul.db.root_events`。`chat.open({rootChatId})` 以 root eventSeq 建立原子订阅栅栏，覆盖当前和未来后代；direct 视图仍保留每-chat subscription 兼容路径。
+- `timeline.patch` 保留单 chat `CanonicalMessage` 操作以兼容 direct 视图，并同时携带 root `TimelineNode` patch。RootTimelineStore 直接应用 root patch；revision 不连续时重取 root snapshot。
 - Pet 实时气泡及部分审批/问题组件仍保留 ChatSession/legacy agents store 兼容桥；这不改变 root snapshot 的权威性，但意味着“所有 UI 只读 RootTimelineStore”尚未完成。
 - 旧数据回填当前采用按 chat 层级懒回填；无法唯一匹配的旧 role 行保持未关联，不会写入虚假的 `legacy_unknown` 关系。
 

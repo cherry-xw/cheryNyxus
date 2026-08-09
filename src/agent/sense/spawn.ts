@@ -11,13 +11,16 @@ import {
   getChatSpawnTypes,
   getChatWorkspace,
   getChatRule,
+  getRootChatId,
   updateChatMetadata,
 } from '@/db/chat.js'
 import { emitRoleCreated, registerWaitedChild, startChildEager } from '@/agent/spawnBroker.js'
 import { logger } from '@/utils/logger/index.js'
 import { getSessionRoleRuntime, setEphemeralChatRuntime } from '@/service/chat/runtime.js'
-import { createSpawnTask, getSpawnTaskByChild } from '@/db/delivery.js'
+import { createSpawnTask, getSpawnTaskByChild, setSpawnTaskOwnership } from '@/db/delivery.js'
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
+import { getToolCallOwner } from '@/db/executionGraph.js'
+import { recordSpawnEdgeFact, recordSpawnTargetFact } from '@/service/chat/executionFacts.js'
 
 // tool 暴露面：让主 agent LLM 可见可用角色及能力（非盲串 type）。
 // - type 用 z.enum(roles 键) 硬约束（空配置兜底 z.string()，z.enum([]) 构造抛错）
@@ -241,6 +244,8 @@ export default sense(
     // 新建与复用子角色都使用当前会话的内存覆盖；不触碰其持久化默认编制。
     if (temporaryRuntime) setEphemeralChatRuntime(childChatId, temporaryRuntime)
 
+    const spawnSenseCallId = ctx?.messageId
+
     // task 是 role_created 的持久化权威载体：重连/事件重放不再依赖瞬时 notification。
     // 旧 child（创建于该表引入前）首次复用时补建任务，保持向后兼容。
     let task = getSpawnTaskByChild(childChatId)
@@ -252,16 +257,38 @@ export default sense(
         prompt,
         brain,
         senseGroup,
+        ...(spawnSenseCallId ? { spawnCallId: spawnSenseCallId } : {}),
       })
     }
+
+    const rootChatId = getRootChatId(parentChatId)
+    recordSpawnTargetFact({
+      rootChatId,
+      parentChatId,
+      childChatId,
+      taskId: task.taskId,
+      ...(spawnSenseCallId ? { callId: spawnSenseCallId } : {}),
+      content: prompt,
+    })
 
     // 回写触发本次 spawn 的 sense call id 到子 chat metadata。
     // 新建分支：写入新 metadata 备用 + role_created 通知 + role_reply 唤醒时回读。
     // 复用分支：覆盖旧子 chat metadata（旧子可能存了上一轮 spawn id；用户断连重发触发同一子时新 id 应刷新）。
     // ctx?.messageId 缺省时（如外部/未注入 messageId 的 sense）→ undefined → 不写 key，前端兜底。
-    const spawnSenseCallId = ctx?.messageId
     if (spawnSenseCallId) {
       updateChatMetadata(childChatId, { spawnSenseCallId })
+      const owner = getToolCallOwner(spawnSenseCallId)
+      setSpawnTaskOwnership(task.taskId, spawnSenseCallId, owner?.batchId)
+      if (owner?.resolution === 'owned' && owner.batchId) {
+        recordSpawnEdgeFact({
+          rootChatId,
+          parentChatId,
+          childChatId,
+          taskId: task.taskId,
+          callId: spawnSenseCallId,
+          batchId: owner.batchId,
+        })
+      }
     }
 
     // 3. 推 role_created notification(spawnBroker.broadcaster → 主 chat 所属连接 ws)

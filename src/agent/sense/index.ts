@@ -21,6 +21,7 @@ import memorySense from './memory'
 import mediaSenses from './media'
 import askSense from './ask'
 import installSkillSense from './installSkill'
+import childControlSenses from './childControl'
 import { logger } from '@/utils/logger/index.js'
 
 /**
@@ -62,6 +63,13 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
     icon: '🔍',
   },
   { name: 'spawn_role', label: '派遣角色', description: '派出角色执行子任务', icon: '👥' },
+  { name: 'stop_child', label: '停止子角色', description: '停止指定子 Agent 或其子树', icon: '⏹️' },
+  {
+    name: 'send_to_child',
+    label: '追加子任务',
+    description: '向运行中或暂停的子 Agent 派发任务',
+    icon: '📨',
+  },
   { name: 'update_todo', label: '更新待办', description: '增删改待办事项列表', icon: '📋' },
   { name: 'generate_image', label: '生成图片', description: '调用配置的图片媒体服务', icon: '🖼️' },
   { name: 'generate_video', label: '生成视频', description: '调用配置的视频媒体服务', icon: '🎬' },
@@ -101,6 +109,7 @@ function registerBuiltinSenses(): void {
     memorySense,
     askSense,
     installSkillSense,
+    ...childControlSenses,
     ...mediaSenses,
   ])
 }

@@ -53,7 +53,7 @@ export function nyxusCloudColor(particle: NyxusParticle, time: number, cohesion 
     (particle.galaxyArm * 0.31 + particle.phase / TAU + particle.noise * 0.17 + 2) % 1
   const knot =
     smoothstep(0.68, 0.94, particle.radius) *
-    smoothstep(0.72, 0.96, particle.armRank) *
+    (1 - smoothstep(0.3, 0.66, particle.armRank)) *
     smoothstep(0.34, 0.76, knotSeed)
   const formation = STAR_FORMING_COLORS[particle.galaxyArm % STAR_FORMING_COLORS.length]!
   return mixHexColor(

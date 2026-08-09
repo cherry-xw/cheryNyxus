@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
  * NyxusToolRing：nyxus 独立核心的工具环子组件。
- * 含 4 个工具按钮（create/chat/history/settings）+ PresetPicker + 雾化连线测量。
+ * 含 3 个工具按钮（create/chat/settings）+ PresetPicker + 雾化连线测量。
  * 每帧测量按钮矩形 → setNyxusMenuTargets（驱动粒子雾化连线）；
  * 菜单启停时序（watch nyxusMenuOpen）+ onBeforeUnmount 清理在此自管。
  * 按钮点击通过 emit 上抛，由 NyxusCore host 执行实际 store 调用。
  */
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ChatDotRound, Clock, Plus, Setting } from '@element-plus/icons-vue'
+import { ChatDotRound, Plus, Setting } from '@element-plus/icons-vue'
 import PresetPicker from '@/features/agent/toolbar/PresetPicker.vue'
 import {
   highlightNyxusTool,
@@ -26,13 +26,11 @@ defineEmits<{
   'create-preset': [name: string]
   'create-fallback': []
   'open-chat': []
-  'open-history': []
   'open-settings': []
 }>()
 
 const createButtonRef = ref<HTMLElement | null>(null)
 const chatButtonRef = ref<HTMLElement | null>(null)
-const historyButtonRef = ref<HTMLElement | null>(null)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 let toolTrackingRaf = 0
 
@@ -40,7 +38,6 @@ function updateToolTargets(): void {
   const entries: Array<[NyxusMenuTarget['id'], HTMLElement | null]> = [
     ['create', createButtonRef.value],
     ['chat', chatButtonRef.value],
-    ['history', historyButtonRef.value],
     ['settings', settingsButtonRef.value],
   ]
   const targets = entries.flatMap<NyxusMenuTarget>(([id, element]) => {
@@ -98,18 +95,6 @@ onBeforeUnmount(() => {
           </button>
         </PresetPicker>
       </span>
-      <button
-        ref="historyButtonRef"
-        type="button"
-        class="ring-button tool-history"
-        :disabled="!props.connected"
-        aria-label="历史会话"
-        @click="$emit('open-history')"
-        @pointerenter="highlightNyxusTool('history')"
-        @pointerleave="highlightNyxusTool(null)"
-      >
-        <Clock />
-      </button>
       <button
         ref="settingsButtonRef"
         type="button"
@@ -194,10 +179,9 @@ onBeforeUnmount(() => {
   }
 }
 
-// 4 按钮上半圆均布（半径 64px，角度 180°/240°/300°/360°，y 向下故负 y 朝上）
-// create=180°(-64,0) history=240°(-32,-55) settings=300°(32,-55) chat=360°(64,0)
+// 3 按钮上半圆均布（半径 64px，y 向下故负 y 朝上）
+// create=180°(-64,0) settings=270°(0,-64) chat=360°(64,0)
 .tool-slot,
-.tool-history,
 .tool-settings,
 .tool-chat {
   position: absolute;
@@ -218,14 +202,9 @@ onBeforeUnmount(() => {
   --y: 0px;
 }
 
-.tool-history {
-  --x: -32px;
-  --y: -55px;
-}
-
 .tool-settings {
-  --x: 32px;
-  --y: -55px;
+  --x: 0px;
+  --y: -64px;
 }
 
 .tool-chat {

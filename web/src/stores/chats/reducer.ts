@@ -501,6 +501,15 @@ function reduceNotification(
             ? { contextCompactionTokens: fm.contextCompactionTokens }
             : {}),
         })
+        // done.finalMessage 是该轮权威结果；覆盖可能因丢帧而只包含前缀的流式文本。
+        const sealed = session.messagesById[fm.msgId]
+        if (sealed) {
+          sealed.content = fm.content
+          if (fm.thinking !== undefined) sealed.thinking = fm.thinking
+          sealed.status = 'sealed'
+          const mediaAssets = extractMediaUrls(sealed.content)
+          if (mediaAssets.length > 0) sealed.mediaAssets = mediaAssets
+        }
         if (session.activeMessageId === fm.msgId) session.activeMessageId = undefined
       }
       const canResume = typeof d.canResume === 'boolean' ? d.canResume : undefined
@@ -751,6 +760,8 @@ function canonicalToChatMessage(m: CanonicalMessage, chatId: string): ChatMessag
     ...(m.runtime ? { runtime: m.runtime } : {}),
     ...(m.origin?.childChatId ? { subPetChatId: m.origin.childChatId } : {}),
     ...(m.origin?.parentChatId ? { callerSubPetChatId: m.origin.parentChatId } : {}),
+    // child_return（子返回/超时注入）-> mergedView=child-to-master，分支树主轴过滤（与 live reducer 一致）。
+    ...(m.childReturn ? { mergedView: 'child-to-master' as const } : {}),
   }
 }
 
@@ -878,6 +889,38 @@ function applyTurnDelta(session: ChatSession, event: ChatSessionEvent, ctx: Redu
   }
 }
 
+/** 把 chat.open 的 active turn 快照投影回 canonical message，供树与 CRT 立即续显。 */
+export function installActiveTurns(
+  session: ChatSession,
+  turns: ActiveTurnSnapshot[],
+  now: number,
+): void {
+  for (const turn of turns) {
+    if (!turn.messageId || turn.status === 'completed') continue
+    const existing = session.messagesById[turn.messageId]
+    if (existing) {
+      existing.thinking = turn.thinking
+      existing.content = turn.content
+      existing.status = 'streaming'
+      existing.updatedAt = now
+    } else {
+      session.messagesById[turn.messageId] = {
+        msgId: turn.messageId,
+        role: 'assistant',
+        thinking: turn.thinking,
+        content: turn.content,
+        senseCalls: [],
+        status: 'streaming',
+        createdAt: turn.createdAt ?? now,
+        updatedAt: now,
+        agentChatId: session.chatId,
+      }
+      session.messageOrder.push(turn.messageId)
+    }
+    session.activeMessageId = turn.messageId
+  }
+}
+
 /** Apply one V2 session event. Returns false for event-seq/revision gaps. */
 export function reduceSessionEvent(
   session: ChatSession,
@@ -916,6 +959,11 @@ export function reduceSessionEvent(
           createdAt: turn.createdAt,
         })
       }
+      installActiveTurns(
+        session,
+        session.activeTurns.filter((item) => item.turnId === turn.turnId),
+        ctx.now,
+      )
       session.run.status = 'running'
       session.run.activeRunId = (turn as { runId?: string }).runId ?? session.run.activeRunId
       break
@@ -937,6 +985,17 @@ export function reduceSessionEvent(
     case 'input.updated': {
       const input = data as unknown as Partial<PendingInput>
       if (!input.inputId) break
+      if (input.clientMessageId && input.messageId) {
+        const optimisticId = `optimistic-input:${input.clientMessageId}`
+        const optimistic = session.messagesById[optimisticId]
+        if (optimistic && input.messageId !== optimisticId) {
+          optimistic.msgId = input.messageId
+          session.messagesById[input.messageId] = optimistic
+          delete session.messagesById[optimisticId]
+          const messageIndex = session.messageOrder.indexOf(optimisticId)
+          if (messageIndex >= 0) session.messageOrder[messageIndex] = input.messageId
+        }
+      }
       const existing = session.pendingInputs.find((i) => i.inputId === input.inputId)
       if (existing) Object.assign(existing, input)
       else if (input.messageId && input.clientMessageId && input.state) {

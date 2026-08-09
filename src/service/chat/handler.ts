@@ -29,13 +29,19 @@ import {
   type CanonicalMessage,
   type TimelineNode,
   type TimelineActor,
+  type ExecutionEdgeFact,
+  type GraphToolCall,
+  type ActiveRunFact,
   type RootTimelineSnapshot,
-  type TimelinePatchData,
   type ChatSessionSnapshotData,
   type ChatStartSpawnRequestData,
   type ChatStartSpawnResponseData,
   type ChatInputSubmitRequestData,
   type ChatInputSubmitResponseData,
+  type ChatStopChildRequestData,
+  type ChatStopChildResponseData,
+  type ChatSendToChildRequestData,
+  type ChatSendToChildResponseData,
   type Response as RpcResponse,
 } from '../message/types.js'
 import {
@@ -45,6 +51,7 @@ import {
   deleteChat,
   getMessages,
   getMessageLinksForRoot,
+  getChildReturnMessageIds,
   upsertMessageLink,
   collectDescendantsChatIds,
   getLastMessage,
@@ -55,8 +62,20 @@ import {
   getChatWorkspace,
   getChatRuntimeSelection,
   getTimelineRevision,
+  getRootChatId,
   addPendingInput,
+  listPendingInputs,
 } from '@/db/chat.js'
+import {
+  getExecutionActiveRun,
+  listExecutionEdges,
+  listExecutionNodes,
+  listLatestExecutionRuns,
+  removeExecutionEdge,
+  upsertExecutionEdge,
+  upsertExecutionNode,
+  upsertToolCallOwner,
+} from '@/db/executionGraph.js'
 import {
   clearChatRuntime,
   ensureChat,
@@ -86,8 +105,10 @@ import {
   claimSpawnTask,
   finishSpawnTask,
   getSpawnTaskByChild,
+  setSpawnTaskOwnership,
   listOpenSpawnTasks,
   appendChatEvent,
+  getRootEvents,
   claimRequest,
   completeRequest,
 } from '@/db/delivery.js'
@@ -96,7 +117,15 @@ import { handleChatResume, handleChatSend, attachmentsToPromptMarkers } from './
 import { computeCanResume } from './canResume.js'
 import { computeCurrentState } from './currentState.js'
 import { transport } from '../websocket/transport.js'
+import { approvalManager } from '../approval/manager.js'
 import { UserInputQueueFullError } from '@/core/middleware/messageJournal.js'
+import {
+  assertRootControlsChild,
+  childAgentControlState,
+  childDispatchOutcome,
+} from './childControl.js'
+import { recordDispatchFact } from './executionFacts.js'
+import { emitTimelinePatch } from './rootGraphPatch.js'
 
 /**
  * 创建聊天（chatId 可选由前端指定）
@@ -227,7 +256,10 @@ export async function handleChatList(
     // 兼容旧数据：历史终态异常可能已经完成 spawn task 并回传父会话，
     // 但尚未写入 metadata.finished。任务终态同样是子 agent 已结束的权威事实。
     const spawnTask = chat.parent_chat_id ? getSpawnTaskByChild(chat.id) : undefined
-    const finished = meta.finished === true || spawnTask?.status === 'finished'
+    const finished =
+      meta.finished === true ||
+      spawnTask?.status === 'finished' ||
+      spawnTask?.status === 'timed_out'
     const running = isChatRunning(chat.id)
     // 唤醒策略（子 metadata.wake）供前端重连恢复等待状态；刷新阶段不自动续跑。
     const wake =
@@ -251,6 +283,9 @@ export async function handleChatList(
       wake,
       resumePending,
       canResume,
+      // pendingApproval：approvalManager 内存索引派生（轻量，免 hydration），供会话列表「琴键」闪烁。
+      // 与 currentState.pendingApproval（computeCurrentState 扫事件，单 chat 已 hydration）同为 approval 生命周期。
+      pendingApproval: approvalManager.getForChat(chat.id) ?? null,
       preset: typeof meta.preset === 'string' ? meta.preset : undefined,
       agentType: typeof meta.type === 'string' ? meta.type : undefined,
       avatar:
@@ -381,6 +416,9 @@ export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
   const rows = getMessages(chatId)
   const chat = getChat(chatId)
   const parentChatId = chat?.parent_chat_id ?? undefined
+  // child_return 链接的消息（wakeParent 注入的子返回/超时）-> 标 childReturn，
+  // 前端 canonicalToChatMessage 据此设 mergedView=child-to-master 从主轴过滤（与 live 一致）。
+  const childReturnIds = getChildReturnMessageIds(chatId)
   const senseResults = new Map<string, { content: string; revoked: boolean }>()
   for (const row of rows) {
     if (row.role === 'sense') {
@@ -431,25 +469,9 @@ export function buildCanonicalTimeline(chatId: string): CanonicalMessage[] {
       ...(runtime ? { runtime } : {}),
       ...(senseCalls.length > 0 ? { senseCalls } : {}),
       ...(origin ? { origin } : {}),
+      ...(childReturnIds.has(row.id) ? { childReturn: true } : {}),
     }
   })
-}
-
-/** Build an idempotent revision patch. Callers should invoke this only after
- * the message mutation transaction commits; when a revision gap exists the
- * client can safely replace its snapshot with the returned upserts. */
-export function buildTimelinePatch(chatId: string, baseRevision: number): TimelinePatchData {
-  const revision = getTimelineRevision(chatId)
-  const messages = buildCanonicalTimeline(chatId)
-  return {
-    chatId,
-    baseRevision,
-    revision,
-    operations:
-      revision === baseRevision
-        ? []
-        : messages.map((message) => ({ type: 'upsert' as const, message })),
-  }
 }
 
 /**
@@ -489,9 +511,10 @@ export function buildRootTimeline(
     }
   }
   const links = new Map(getMessageLinksForRoot(rootChatId).map((link) => [link.messageId, link]))
-  const allNodes: TimelineNode[] = []
-  const chatMeta = new Map<string, { type?: string; parent?: string }>()
+  const chatMeta = new Map<string, { type?: string; parent?: string; spawnCallId?: string }>()
   const childByType = new Map<string, string[]>()
+  const childBySpawnCall = new Map<string, string[]>()
+  const messagesByChat = new Map(chatIds.map((chatId) => [chatId, getMessages(chatId)]))
   for (const chatId of chatIds) {
     const chat = getChat(chatId)
     const metadata = chat?.metadata
@@ -500,10 +523,16 @@ export function buildRootTimeline(
     chatMeta.set(chatId, {
       type: typeof metadata.type === 'string' ? metadata.type : undefined,
       parent: chat?.parent_chat_id ?? undefined,
+      spawnCallId:
+        typeof metadata.spawnSenseCallId === 'string' ? metadata.spawnSenseCallId : undefined,
     })
     if (chatId !== rootChatId) {
       const type = chatMeta.get(chatId)?.type
       if (type) childByType.set(type, [...(childByType.get(type) ?? []), chatId])
+      const spawnCallId = chatMeta.get(chatId)?.spawnCallId
+      if (spawnCallId) {
+        childBySpawnCall.set(spawnCallId, [...(childBySpawnCall.get(spawnCallId) ?? []), chatId])
+      }
     }
   }
   const actorForAgent = (chatId: string): TimelineActor => ({
@@ -512,8 +541,15 @@ export function buildRootTimeline(
     ...(chatMeta.get(chatId)?.type ? { roleType: chatMeta.get(chatId)!.type } : {}),
   })
 
+  type Candidate = {
+    node: Omit<TimelineNode, 'orderKey'>
+    branchChatId: string
+    rank: number
+    relation: string
+  }
+  const candidates: Candidate[] = []
   for (const chatId of chatIds) {
-    const rows = getMessages(chatId)
+    const rows = messagesByChat.get(chatId) ?? []
     const child = chatId !== rootChatId
     for (const row of rows) {
       let link = links.get(row.id)
@@ -550,24 +586,7 @@ export function buildRootTimeline(
           : row.role === 'user'
             ? 'root_input'
             : 'agent_output')
-      if (row.role === 'sense') {
-        if (view !== 'audit') continue
-        allNodes.push({
-          id: `tool:${row.id}`,
-          rootChatId,
-          sourceChatId: chatId,
-          sourceMessageId: row.id,
-          kind: 'tool-group',
-          actor: { kind: 'tool', toolName: 'unknown' },
-          direction: 'internal',
-          visibility: 'detail',
-          content: row.content ?? '',
-          createdAt: row.created_at,
-          updatedAt: row.created_at,
-          status: row.revoked === 1 ? 'revoked' : 'committed',
-        })
-        continue
-      }
+      if (row.role === 'sense') continue
       let actor: TimelineActor
       let target: TimelineActor | undefined
       let direction: TimelineNode['direction']
@@ -593,21 +612,29 @@ export function buildRootTimeline(
         actor = actorForAgent(rootChatId)
         direction = 'agent-to-user'
       }
-      const senseCalls = (parsed.senseCall ?? []).map((call) => {
-        const result = getMessages(chatId).find((candidate) => candidate.id === call.id)
-        return {
-          id: call.id,
-          name: call.name,
-          arguments: call.arguments,
-          ...(result?.content ? { result: result.content } : {}),
-          status: result?.revoked
-            ? ('rejected' as const)
-            : result?.content
-              ? ('accepted' as const)
-              : ('pending' as const),
-        }
-      })
-      const node: TimelineNode = {
+      const senseCalls: GraphToolCall[] = (parsed.senseCall ?? [])
+        .map((call, fallbackIndex) => {
+          const result = rows.find((candidate) => candidate.id === call.id)
+          const childMatches = childBySpawnCall.get(call.id) ?? []
+          return {
+            callId: call.id,
+            index: call.index ?? fallbackIndex,
+            name: call.name ?? '',
+            arguments: call.arguments,
+            ...(result ? { result: result.content ?? '' } : {}),
+            ...(childMatches.length === 1 ? { childChatId: childMatches[0] } : {}),
+            status:
+              result?.revoked || result?.content?.startsWith('被拒绝:')
+                ? ('rejected' as const)
+                : result?.content?.startsWith('感官执行失败：')
+                  ? ('error' as const)
+                  : result
+                    ? ('completed' as const)
+                    : ('pending' as const),
+          }
+        })
+        .sort((a, b) => a.index - b.index || a.callId.localeCompare(b.callId))
+      const node: Omit<TimelineNode, 'orderKey'> = {
         id: row.id,
         rootChatId,
         sourceChatId: relation === 'child_return' ? (link?.sourceChatId ?? chatId) : chatId,
@@ -620,26 +647,302 @@ export function buildRootTimeline(
         content: parsed.content ?? '',
         ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
         ...(senseCalls.length > 0 ? { toolCalls: senseCalls } : {}),
-        ...(link?.relatedMessageId ? { causationId: link.relatedMessageId } : {}),
-        ...(link?.spawnId ? { parentNodeId: link.spawnId } : {}),
+        ...(link?.causationNodeId ? { causationId: link.causationNodeId } : {}),
         createdAt: row.created_at,
         updatedAt: row.created_at,
         status: row.revoked === 1 ? 'revoked' : 'committed',
       }
-      allNodes.push(node)
+      candidates.push({ node, branchChatId: chatId, rank: 0, relation })
+      if (senseCalls.length > 0) {
+        candidates.push({
+          node: {
+            id: `batch:${row.id}`,
+            rootChatId,
+            sourceChatId: chatId,
+            sourceMessageId: row.id,
+            kind: 'tool-batch',
+            actor,
+            ...(target ? { target } : {}),
+            direction: 'internal',
+            visibility: 'detail',
+            content: '',
+            toolCalls: senseCalls,
+            batchId: `batch:${row.id}`,
+            createdAt: row.created_at,
+            updatedAt: row.created_at,
+            status: row.revoked === 1 ? 'revoked' : 'committed',
+          },
+          branchChatId: chatId,
+          rank: 1,
+          relation: 'tool_batch',
+        })
+      }
     }
   }
-  allNodes.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-  const nodes =
-    view === 'conversation'
-      ? allNodes.filter((node) => node.visibility === 'conversation')
-      : allNodes
-  const eventSeq = getChatEvents(rootChatId, Number.MAX_SAFE_INTEGER).latestSeq
+
+  candidates.sort(
+    (a, b) =>
+      a.node.createdAt - b.node.createdAt ||
+      a.node.sourceMessageId!.localeCompare(b.node.sourceMessageId!) ||
+      a.rank - b.rank,
+  )
+  const persistedById = new Map<string, TimelineNode>()
+  for (const candidate of candidates) {
+    const persisted = upsertExecutionNode(candidate.node) as unknown as TimelineNode
+    persistedById.set(persisted.id, persisted)
+    if (persisted.kind === 'tool-batch') {
+      for (const call of persisted.toolCalls ?? []) {
+        upsertToolCallOwner({
+          callId: call.callId,
+          rootChatId,
+          owningNodeId: persisted.id,
+          batchId: persisted.batchId,
+          index: call.index,
+          resolution: 'owned',
+        })
+      }
+    }
+  }
+
+  // Mark unresolved legacy IDs explicitly. A task id and a call id are not the
+  // same identity space, so no edge is fabricated when ownership is unknown.
+  for (const link of links.values()) {
+    const legacyCallId = link.spawnCallId ?? link.spawnId
+    if (!legacyCallId || persistedById.has(legacyCallId)) continue
+    const owned = candidates.some((candidate) =>
+      candidate.node.toolCalls?.some((call) => call.callId === legacyCallId),
+    )
+    if (!owned) {
+      upsertToolCallOwner({
+        callId: legacyCallId,
+        rootChatId,
+        resolution: 'unknown',
+        detail: 'legacy spawn id has no unique owning tool batch',
+      })
+    }
+  }
+
+  const branchCandidates = new Map<string, Candidate[]>()
+  for (const candidate of candidates) {
+    const list = branchCandidates.get(candidate.branchChatId) ?? []
+    list.push(candidate)
+    branchCandidates.set(candidate.branchChatId, list)
+  }
+  const storedNodesBeforeEdges = listExecutionNodes(rootChatId) as unknown as Array<
+    TimelineNode & { targetChatId?: string; callId?: string }
+  >
+  const storedNodeById = new Map(storedNodesBeforeEdges.map((node) => [node.id, node]))
+  const existingEdgesBefore = listExecutionEdges(rootChatId) as unknown as ExecutionEdgeFact[]
+  const edgeInputs: Array<Omit<ExecutionEdgeFact, 'orderKey'>> = []
+  const addEdge = (
+    kind: ExecutionEdgeFact['kind'],
+    fromNodeId: string,
+    toNodeId: string,
+    sourceChatId: string,
+    targetChatId: string,
+    callId?: string,
+  ): void => {
+    if (fromNodeId === toNodeId) return
+    edgeInputs.push({
+      id: `edge:${kind}:${fromNodeId}:${toNodeId}`,
+      rootChatId,
+      fromNodeId,
+      toNodeId,
+      kind,
+      sourceChatId,
+      targetChatId,
+      ...(callId ? { callId } : {}),
+    })
+  }
+
+  for (const [branchChatId, branch] of branchCandidates) {
+    branch.sort(
+      (a, b) => persistedById.get(a.node.id)!.orderKey - persistedById.get(b.node.id)!.orderKey,
+    )
+    // Return nodes describe cross-branch delivery. They are not turns on the
+    // parent's ordinary sequence, otherwise sibling returns become chained and
+    // a spawn batch can "continue" into a child return instead of its parent.
+    const sequenceBranch = branch.filter(
+      (candidate) => persistedById.get(candidate.node.id)!.kind !== 'return',
+    )
+    for (let index = 1; index < sequenceBranch.length; index += 1) {
+      const previous = persistedById.get(sequenceBranch[index - 1]!.node.id)!
+      const current = persistedById.get(sequenceBranch[index]!.node.id)!
+      const spawnBatch =
+        previous.kind === 'tool-batch' &&
+        previous.toolCalls?.some((call) => typeof call.childChatId === 'string')
+      addEdge(
+        spawnBatch ? 'continue' : 'sequence',
+        previous.id,
+        current.id,
+        branchChatId,
+        branchChatId,
+      )
+    }
+  }
+
+  for (const candidate of candidates) {
+    const node = persistedById.get(candidate.node.id)!
+    if (node.kind === 'tool-batch') {
+      for (const call of node.toolCalls ?? []) {
+        if (!call.childChatId) continue
+        if (
+          existingEdgesBefore.some(
+            (edge) =>
+              edge.kind === 'spawn' && edge.fromNodeId === node.id && edge.callId === call.callId,
+          )
+        )
+          continue
+        const spawnTarget = storedNodesBeforeEdges.find(
+          (stored) =>
+            stored.id.startsWith('spawn-target:') &&
+            stored.targetChatId === call.childChatId &&
+            stored.callId === call.callId,
+        )
+        const firstChild = (branchCandidates.get(call.childChatId) ?? []).find(
+          (childCandidate) => persistedById.get(childCandidate.node.id)!.kind !== 'return',
+        )
+        const targetNodeId = spawnTarget?.id ?? firstChild?.node.id
+        if (targetNodeId) {
+          addEdge(
+            'spawn',
+            node.id,
+            targetNodeId,
+            candidate.branchChatId,
+            call.childChatId,
+            call.callId,
+          )
+          const task = getSpawnTaskByChild(call.childChatId)
+          if (task) setSpawnTaskOwnership(task.taskId, call.callId, node.id)
+        }
+      }
+    }
+    if (node.kind === 'return') {
+      const link = node.sourceMessageId ? links.get(node.sourceMessageId) : undefined
+      const childBranch = branchCandidates.get(node.sourceChatId) ?? []
+      const explicit = link?.causationNodeId
+        ? storedNodeById.get(link.causationNodeId)
+        : link?.relatedMessageId
+          ? persistedById.get(link.relatedMessageId)
+          : undefined
+      const childTerminal =
+        explicit ??
+        childBranch
+          .map((item) => persistedById.get(item.node.id)!)
+          .filter(
+            (item) =>
+              item.orderKey < node.orderKey && item.kind !== 'tool-batch' && item.kind !== 'return',
+          )
+          .at(-1)
+      if (childTerminal) {
+        addEdge('return', childTerminal.id, node.id, node.sourceChatId, candidate.branchChatId)
+      }
+      const parentBranch = branchCandidates.get(candidate.branchChatId) ?? []
+      const continuation = parentBranch
+        .map((item) => persistedById.get(item.node.id)!)
+        .find((item) => item.orderKey > node.orderKey && item.kind !== 'return')
+      if (continuation) {
+        addEdge(
+          'return-continuation',
+          node.id,
+          continuation.id,
+          node.sourceChatId,
+          candidate.branchChatId,
+        )
+      }
+    }
+  }
+  for (const spawnTarget of storedNodesBeforeEdges) {
+    if (!spawnTarget.id.startsWith('spawn-target:') || !spawnTarget.targetChatId) continue
+    const firstChild = (branchCandidates.get(spawnTarget.targetChatId) ?? []).find(
+      (candidate) => persistedById.get(candidate.node.id)!.kind !== 'return',
+    )
+    if (firstChild) {
+      addEdge(
+        'sequence',
+        spawnTarget.id,
+        firstChild.node.id,
+        spawnTarget.sourceChatId,
+        spawnTarget.targetChatId,
+      )
+    }
+  }
+  const desiredGeneratedEdgeIds = new Set(edgeInputs.map((edge) => edge.id))
+  const regeneratedKinds = new Set<ExecutionEdgeFact['kind']>([
+    'sequence',
+    'continue',
+    'return',
+    'return-continuation',
+  ])
+  for (const edge of existingEdgesBefore) {
+    const generatedId = `edge:${edge.kind}:${edge.fromNodeId}:${edge.toNodeId}`
+    if (
+      regeneratedKinds.has(edge.kind) &&
+      edge.id === generatedId &&
+      !desiredGeneratedEdgeIds.has(edge.id)
+    ) {
+      removeExecutionEdge(edge.id)
+    }
+  }
+  for (const edge of edgeInputs) upsertExecutionEdge(edge)
+
+  const allNodes = listExecutionNodes(rootChatId) as unknown as TimelineNode[]
+  const allEdges = listExecutionEdges(rootChatId) as unknown as ExecutionEdgeFact[]
+  // Every view carries the same complete graph fact set. Consumers such as the
+  // conversation drawer filter by visibility; graph consumers never receive
+  // dangling edges merely because a tool batch is detail-only.
+  const nodes = allNodes
+  const knownNodeIds = new Set(nodes.map((node) => node.id))
+  const edges = allEdges.filter(
+    (edge) => knownNodeIds.has(edge.fromNodeId) && knownNodeIds.has(edge.toNodeId),
+  )
+  const pendingInputs = chatIds.flatMap((chatId) =>
+    listPendingInputs(chatId).map((entry) => ({
+      chatId,
+      inputId: entry.input_id,
+      ...(entry.client_message_id ? { clientMessageId: entry.client_message_id } : {}),
+      messageId: entry.message_id,
+      content: entry.content,
+      createdAt: entry.accepted_at,
+      state: entry.state,
+      queueSequence: entry.queue_sequence,
+      acceptedAt: entry.accepted_at,
+    })),
+  )
+  const durableRuns = new Map(
+    listLatestExecutionRuns(rootChatId)
+      .filter((run) => chatIds.includes(run.chatId))
+      .map((run) => [run.chatId, run]),
+  )
+  const liveRuns: ActiveRunFact[] = chatIds.flatMap((chatId) => {
+    const runId = getActiveChatRunId(chatId)
+    if (!runId) return []
+    const turn = buildActiveTurns(chatId).find((candidate) => candidate.runId === runId)
+    const nodeId = turn && persistedById.has(turn.messageId) ? turn.messageId : undefined
+    const batchId = nodeId && persistedById.has(`batch:${nodeId}`) ? `batch:${nodeId}` : undefined
+    return [
+      {
+        rootChatId,
+        chatId,
+        runId,
+        status: 'running' as const,
+        ...(turn ? { turnId: turn.turnId } : {}),
+        ...(nodeId ? { nodeId } : {}),
+        ...(batchId ? { batchId } : {}),
+      },
+    ]
+  })
+  for (const run of liveRuns) durableRuns.set(run.chatId, run)
+  const activeRuns: ActiveRunFact[] = [...durableRuns.values()]
+  const eventSeq = getRootEvents(rootChatId, Number.MAX_SAFE_INTEGER).latestSeq
   return {
     rootChatId,
     view,
     revision: getTimelineRevision(rootChatId),
     nodes,
+    edges,
+    activeRuns,
+    pendingInputs,
     capturedEventSeq: eventSeq,
   }
 }
@@ -664,13 +967,16 @@ export async function handleChatInputSubmit(
 
   const chat = getChat(data.chatId)
   if (!chat) throw new Error('这个会话不见了')
+  if (chat.parent_chat_id && data.controlRootChatId !== getRootChatId(data.chatId)) {
+    throw new Error('用户输入只能提交到主 Agent')
+  }
   const agent = await ensureChat(data.chatId)
   const running = agent.isRunning()
   const pending = getPendingChatInputs(data.chatId)
   if (pending.length >= 16) throw new UserInputQueueFullError()
 
   const inputId = randomUUID()
-  const messageId = randomUUID()
+  const messageId = data.messageId
   const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
   const acceptedAt = Date.now()
   const queueSequence = pending.length + 1
@@ -716,8 +1022,10 @@ export async function handleChatInputSubmit(
       inputId,
       clientMessageId: data.clientMessageId,
       messageId,
+      content: data.content,
       state: response.state,
       queueSequence,
+      acceptedAt,
     },
     { chatId: data.chatId, runId },
   )
@@ -778,6 +1086,97 @@ export async function handleChatInputSubmit(
   })()
 
   return response
+}
+
+/** Main-agent-only dispatch path used by the send_to_child sense. */
+export async function dispatchToChild(
+  data: ChatSendToChildRequestData,
+): Promise<ChatSendToChildResponseData> {
+  if (!data.content.trim()) throw new Error('派发内容不能为空')
+  assertRootControlsChild(data.rootChatId, data.childChatId)
+  const previousState = childAgentControlState(data.childChatId)
+  const dispatchOutcome = childDispatchOutcome(previousState)
+  if (dispatchOutcome === 'rejected') {
+    return {
+      rootChatId: data.rootChatId,
+      commandId: data.commandId,
+      result: {
+        chatId: data.childChatId,
+        previousState,
+        state: previousState,
+        outcome: 'rejected',
+        detail: '目标子 Agent 已进入只读终态',
+      },
+    }
+  }
+
+  const claimed = claimRequest(data.commandId, Method.CHAT_SEND_TO_CHILD, data)
+  if (claimed.state === 'completed') {
+    return JSON.parse(claimed.responseJson) as ChatSendToChildResponseData
+  }
+  if (claimed.state === 'active') throw new Error('该派发命令正在处理中')
+  if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
+
+  const parentWs = connectionManager.findWsByChatId(data.rootChatId)
+  const parentConnection = parentWs ? connectionManager.get(parentWs) : undefined
+  if (!parentConnection) throw new Error('主 Agent 当前没有可用的实时连接')
+  const accepted = await handleChatInputSubmit(
+    {
+      requestId: `dispatch-${data.commandId}`,
+      connectionId: parentConnection.id,
+      log: logger,
+    },
+    {
+      chatId: data.childChatId,
+      commandId: `${data.commandId}:input`,
+      clientMessageId: `dispatch:${data.commandId}`,
+      messageId: randomUUID(),
+      content: data.content,
+      controlRootChatId: data.rootChatId,
+    },
+  )
+  const dispatchBaseRevision = getTimelineRevision(data.rootChatId)
+  recordDispatchFact({
+    rootChatId: data.rootChatId,
+    parentChatId: data.rootChatId,
+    targetChatId: data.childChatId,
+    commandId: data.commandId,
+    targetNodeId: accepted.messageId,
+    content: data.content,
+    actor: { kind: 'agent', chatId: data.rootChatId },
+    target: { kind: 'agent', chatId: data.childChatId },
+    createdAt: accepted.acceptedAt,
+  })
+  emitTimelinePatch(data.rootChatId, dispatchBaseRevision)
+  const response: ChatSendToChildResponseData = {
+    rootChatId: data.rootChatId,
+    commandId: data.commandId,
+    result: {
+      chatId: data.childChatId,
+      previousState,
+      state: 'running',
+      outcome: dispatchOutcome,
+      runId: accepted.runId,
+      messageId: accepted.messageId,
+    },
+  }
+  completeRequest(data.commandId, response)
+  return response
+}
+
+/** Websocket callers cannot impersonate the main Agent's internal control tools. */
+export async function handleChatStopChild(
+  _ctx: HandlerContext,
+  _data: ChatStopChildRequestData,
+): Promise<ChatStopChildResponseData> {
+  throw new Error('stop_child 只能由主 Agent 调用')
+}
+
+export async function handleChatSendToChild(
+  _ctx: HandlerContext,
+  _data: ChatSendToChildRequestData,
+): Promise<ChatSendToChildResponseData> {
+  throw new Error('send_to_child 只能由主 Agent 调用')
 }
 
 /** V2 authoritative timeline snapshot. The frontend receives complete messages only. */
@@ -969,7 +1368,7 @@ export async function* handleChatStartSpawn(
   const claimed = claimSpawnTask(data.taskId)
   const task = claimed.task
   if (!task) throw new Error('找不到这个 spawn 任务')
-  if (task.status === 'finished') {
+  if (task.status === 'finished' || task.status === 'timed_out') {
     updateChatMetadata(task.childChatId, { finished: true })
     return { chatId: task.childChatId, runId: ctx.requestId ?? data.taskId, alreadyFinished: true }
   }
@@ -1077,17 +1476,91 @@ export async function handleChatContextUsage(
   }
 }
 
-function buildActiveTurns(chatId: string): ActiveTurnSnapshot[] {
-  if (!isChatRunning(chatId)) return []
+export function buildActiveTurns(chatId: string): ActiveTurnSnapshot[] {
   const activeRunId = getActiveChatRunId(chatId)
+  if (!isChatRunning(chatId) && !activeRunId) return []
   const turns = new Map<string, ActiveTurnSnapshot>()
+  const v2MessageIds = new Set<string>()
+  if (activeRunId) {
+    const durableRun = getExecutionActiveRun(chatId, activeRunId)
+    if (durableRun?.turnId && durableRun.nodeId) {
+      turns.set(durableRun.turnId, {
+        turnId: durableRun.turnId,
+        runId: durableRun.runId,
+        messageId: durableRun.nodeId,
+        thinking: '',
+        content: '',
+        thinkingOffset: 0,
+        contentOffset: 0,
+        nextThinkingOffset: 0,
+        nextContentOffset: 0,
+        createdAt: Date.now(),
+      })
+    }
+  }
   for (const event of getRecentChatEvents(chatId, 2000)) {
     const e = event as Record<string, unknown>
     const runId = typeof e.runId === 'string' ? e.runId : undefined
     const data = (e.data ?? {}) as Record<string, unknown>
+    if (
+      e.kind === 'notification' &&
+      e.type === 'turn.started' &&
+      typeof data.turnId === 'string' &&
+      typeof data.messageId === 'string'
+    ) {
+      const turnRunId = typeof data.runId === 'string' ? data.runId : runId
+      if (activeRunId && turnRunId && turnRunId !== activeRunId) continue
+      v2MessageIds.add(data.messageId)
+      turns.set(data.turnId, {
+        turnId: data.turnId,
+        ...(turnRunId ? { runId: turnRunId } : {}),
+        messageId: data.messageId,
+        thinking: '',
+        content: '',
+        thinkingOffset: 0,
+        contentOffset: 0,
+        nextThinkingOffset: 0,
+        nextContentOffset: 0,
+        createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.now(),
+      })
+      continue
+    }
+    if (
+      e.kind === 'notification' &&
+      e.type === 'turn.delta' &&
+      typeof data.turnId === 'string' &&
+      typeof data.delta === 'string' &&
+      typeof data.offset === 'number'
+    ) {
+      const turn = turns.get(data.turnId)
+      if (!turn) continue
+      if (data.channel === 'thinking' && data.offset === turn.thinking.length) {
+        turn.thinking += data.delta
+        turn.thinkingOffset = turn.thinking.length
+        turn.nextThinkingOffset = turn.thinkingOffset
+      } else if (data.channel === 'content' && data.offset === turn.content.length) {
+        turn.content += data.delta
+        turn.contentOffset = turn.content.length
+        turn.nextContentOffset = turn.contentOffset
+      }
+      continue
+    }
+    if (
+      e.kind === 'notification' &&
+      e.type === 'turn.completed' &&
+      typeof data.turnId === 'string'
+    ) {
+      const completed = turns.get(data.turnId)
+      turns.delete(data.turnId)
+      if (completed) v2MessageIds.delete(completed.messageId)
+      continue
+    }
     if (e.kind === 'chunk' && e.type === 'stream' && typeof data.msgId === 'string') {
       if (activeRunId && runId && runId !== activeRunId) continue
       const id = data.msgId
+      // V2 turn events are authoritative. Legacy chunks only reconstruct chats
+      // created before the turn lifecycle protocol was available.
+      if (v2MessageIds.has(id)) continue
       const current = turns.get(id) ?? {
         turnId: id,
         messageId: id,
@@ -1130,31 +1603,96 @@ export async function handleChatOpen(
   ctx: HandlerContext,
   data: ChatOpenRequestData,
 ): Promise<ChatOpenResponseData> {
-  if (!getChat(data.chatId)) throw new Error('这个会话不见了')
-  const subscriptionId = connectionManager.beginSessionOpen(data.chatId, ctx.connectionId)
+  const requestedChatId = data.rootChatId ?? data.chatId
+  if (!requestedChatId || !getChat(requestedChatId)) throw new Error('这个会话不见了')
+  if (data.rootChatId) {
+    const subscriptionId = connectionManager.beginRootSessionOpen(data.rootChatId, ctx.connectionId)
+    try {
+      const chatIds = [data.rootChatId, ...collectDescendantsChatIds(data.rootChatId)]
+      // Rehydrate durable input queues before the boundary is captured. Events
+      // produced while runtimes are restored remain fenced by the subscription.
+      await Promise.all(chatIds.map((chatId) => ensureChat(chatId)))
+      const page = getRootEvents(data.rootChatId, Number.MAX_SAFE_INTEGER)
+      const eventSeq = page.latestSeq
+      connectionManager.setSessionBoundary(subscriptionId, eventSeq)
+      const rootTimeline = buildRootTimeline(data.rootChatId, 'conversation')
+      rootTimeline.capturedEventSeq = eventSeq
+      const pendingInputs = chatIds.flatMap((chatId) =>
+        listPendingInputs(chatId).map((entry) => ({
+          chatId,
+          inputId: entry.input_id,
+          ...(entry.client_message_id ? { clientMessageId: entry.client_message_id } : {}),
+          messageId: entry.message_id,
+          content: entry.content,
+          createdAt: entry.accepted_at,
+          state: entry.state,
+          queueSequence: entry.queue_sequence,
+          acceptedAt: entry.accepted_at,
+        })),
+      )
+      const activeTurns = chatIds.flatMap((chatId) =>
+        buildActiveTurns(chatId).map((turn) => ({ ...turn, chatId })),
+      )
+      const runs = chatIds.flatMap((chatId) => {
+        const runId = getActiveChatRunId(chatId)
+        return runId ? [{ chatId, runId, state: 'running' as const }] : []
+      })
+      connectionManager.finishSessionOpen(subscriptionId)
+      logger.event('chat.open.root', {
+        rootChatId: data.rootChatId,
+        subscriptionId,
+        eventSeq,
+        revision: rootTimeline.revision,
+      })
+      return {
+        chatId: data.rootChatId,
+        subscriptionId,
+        eventSeq,
+        timelineRevision: rootTimeline.revision,
+        timelineChanged: data.knownTimelineRevision !== rootTimeline.revision,
+        rootTimeline,
+        state: {
+          chatIds,
+          pendingInputs,
+          activeTurns,
+          runs,
+          questionBatches: [],
+          runningTools: [],
+          roles: [],
+        },
+      }
+    } catch (error) {
+      connectionManager.closeSession(subscriptionId)
+      throw error
+    }
+  }
+  const chatId = data.chatId!
+  const subscriptionId = connectionManager.beginSessionOpen(chatId, ctx.connectionId)
   try {
     // Recreate the runtime before taking the session boundary. This restores
     // durable accepted inputs after a process restart and lets the snapshot
     // expose the same queue the runner will consume.
-    await ensureChat(data.chatId)
+    await ensureChat(chatId)
     // getChatEvents is synchronous; registration and boundary capture therefore execute
     // without an await gap, while outgoing events are fenced by ConnectionManager.
-    const page = getChatEvents(data.chatId, Number.MAX_SAFE_INTEGER)
+    const page = getChatEvents(chatId, Number.MAX_SAFE_INTEGER)
     const eventSeq = page.latestSeq
-    const timelineRevision = getTimelineRevision(data.chatId)
+    const timelineRevision = getTimelineRevision(chatId)
     connectionManager.setSessionBoundary(subscriptionId, eventSeq)
-    const currentState = computeCurrentState(data.chatId)
-    const questionSnapshot = getQuestionStateSnapshot(data.chatId)
-    const pendingInputs = getPendingChatInputs(data.chatId).map((entry, index) => ({
-      inputId: entry.inputId ?? `queued-${data.chatId}-${index}`,
-      ...(entry.clientMessageId ? { clientMessageId: entry.clientMessageId } : {}),
-      ...(entry.messageId ? { messageId: entry.messageId } : {}),
+    const currentState = computeCurrentState(chatId)
+    const questionSnapshot = getQuestionStateSnapshot(chatId)
+    const pendingInputs = listPendingInputs(chatId).map((entry) => ({
+      inputId: entry.input_id,
+      ...(entry.client_message_id ? { clientMessageId: entry.client_message_id } : {}),
+      messageId: entry.message_id,
       content: entry.content,
-      createdAt: entry.time,
-      state: 'queued' as const,
+      createdAt: entry.accepted_at,
+      state: entry.state,
+      queueSequence: entry.queue_sequence,
+      acceptedAt: entry.accepted_at,
     }))
-    const runId = getActiveChatRunId(data.chatId)
-    const roles = listOpenSpawnTasks(data.chatId).map((task) => ({
+    const runId = getActiveChatRunId(chatId)
+    const roles = listOpenSpawnTasks(chatId).map((task) => ({
       taskId: task.taskId,
       chatId: task.childChatId,
       parentChatId: task.parentChatId,
@@ -1162,7 +1700,7 @@ export async function handleChatOpen(
       state: task.status,
     }))
     const snapshot: ChatOpenResponseData = {
-      chatId: data.chatId,
+      chatId,
       subscriptionId,
       eventSeq,
       timelineRevision,
@@ -1170,7 +1708,7 @@ export async function handleChatOpen(
       state: {
         ...(runId ? { run: { runId, state: 'running' as const } } : {}),
         pendingInputs,
-        activeTurns: buildActiveTurns(data.chatId),
+        activeTurns: buildActiveTurns(chatId),
         ...(currentState.pendingApproval ? { pendingApproval: currentState.pendingApproval } : {}),
         questionBatches: questionSnapshot.pendingQuestionBatches,
         runningTools: currentState.runningTools,
@@ -1178,7 +1716,7 @@ export async function handleChatOpen(
       },
     }
     connectionManager.finishSessionOpen(subscriptionId)
-    logger.event('chat.open', { chatId: data.chatId, subscriptionId, eventSeq })
+    logger.event('chat.open', { chatId, subscriptionId, eventSeq })
     if (!runId && pendingInputs.length > 0) {
       const prompt = pendingInputs[0]!.content
       const resumedRunId = randomUUID()
@@ -1186,14 +1724,14 @@ export async function handleChatOpen(
         try {
           const generator = handleChatSend(
             { ...ctx, requestId: resumedRunId },
-            { chatId: data.chatId, prompt, inputAlreadyQueued: true },
+            { chatId, prompt, inputAlreadyQueued: true },
           )
           for await (const item of generator) {
             const event = item as Chunk | Notification
             if (event.chatId) {
               event.seq = appendChatEvent(event.chatId, event as unknown as Record<string, unknown>)
             }
-            for (const ws of connectionManager.getChatOutputs(data.chatId)) {
+            for (const ws of connectionManager.getChatOutputs(chatId)) {
               if (ws.readyState !== ws.OPEN) continue
               for (const routed of connectionManager.prepareSessionEvent(ws, event)) {
                 try {
@@ -1208,7 +1746,7 @@ export async function handleChatOpen(
           }
         } catch (error) {
           logger.event('chat.open.resume_failed', {
-            chatId: data.chatId,
+            chatId,
             message: (error as Error).message,
           })
         }
@@ -1297,6 +1835,8 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_OPEN, handleChatOpen)
   router.register(Method.CHAT_CLOSE, handleChatClose)
   router.register(Method.CHAT_START_SPAWN, handleChatStartSpawn)
+  router.register(Method.CHAT_STOP_CHILD, handleChatStopChild)
+  router.register(Method.CHAT_SEND_TO_CHILD, handleChatSendToChild)
   router.register(Method.CHAT_DELETE, handleChatDelete)
   router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage)
   registerPromptSnapshotHandler(router)

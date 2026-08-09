@@ -17,7 +17,7 @@ import { httpUrl } from '@/services/http'
 
 const props = defineProps<RendererProps>()
 
-const showPrompt = ref(false)
+const showPrompt = ref(props.defaultExpanded ?? false)
 
 // 从 call.name 提取媒体类型
 const mediaKind = computed<MediaKind>(() => {

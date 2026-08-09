@@ -50,16 +50,32 @@ export class Transport {
    * `{ data: StreamChunkData, chatId?, runId? }`。
    */
   private encodeStreamFrame(chunk: Chunk): Buffer {
+    const hasEnvelope =
+      !!chunk.chatId ||
+      !!chunk.runId ||
+      chunk.seq !== undefined ||
+      chunk.eventSeq !== undefined ||
+      !!chunk.subscriptionId ||
+      !!chunk.rootChatId ||
+      chunk.rootEventSeq !== undefined ||
+      chunk.sourceEventSeq !== undefined
     const data =
-      typeof chunk.data === 'string'
+      typeof chunk.data === 'string' && !hasEnvelope
         ? chunk.data
         : JSON.stringify(
-            chunk.chatId || chunk.runId || chunk.seq !== undefined
+            hasEnvelope
               ? {
                   data: chunk.data,
                   ...(chunk.chatId ? { chatId: chunk.chatId } : {}),
                   ...(chunk.runId ? { runId: chunk.runId } : {}),
                   ...(chunk.seq !== undefined ? { seq: chunk.seq } : {}),
+                  ...(chunk.eventSeq !== undefined ? { eventSeq: chunk.eventSeq } : {}),
+                  ...(chunk.subscriptionId ? { subscriptionId: chunk.subscriptionId } : {}),
+                  ...(chunk.rootChatId ? { rootChatId: chunk.rootChatId } : {}),
+                  ...(chunk.rootEventSeq !== undefined ? { rootEventSeq: chunk.rootEventSeq } : {}),
+                  ...(chunk.sourceEventSeq !== undefined
+                    ? { sourceEventSeq: chunk.sourceEventSeq }
+                    : {}),
                 }
               : chunk.data,
           )

@@ -15,7 +15,7 @@ import type { RendererProps, WriteFileArgs } from '../types'
 
 const props = defineProps<RendererProps>()
 
-const showContent = ref(false)
+const showContent = ref(props.defaultExpanded ?? false)
 
 // 解析参数
 const parsedArgs = computed<WriteFileArgs | null>(() => {

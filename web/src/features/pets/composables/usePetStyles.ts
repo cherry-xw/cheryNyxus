@@ -80,11 +80,12 @@ export function usePetStyles(
     () => !pet().isGhost && agents.senseGroupsHasSense(pet().runtime?.senseGroup, 'update_todo'),
   )
   const hasTodoData = computed(() => {
+    const hasCurrent = (stream()?.currentTodo?.length ?? 0) > 0
     const h = stream()?.history
     const hasInHistory = !!h && h.some((it) => it.senseCalls?.some((c) => c.name === 'update_todo'))
     // 也检查 runningTools（实时运行中的 sense），使 TodoPanel 在子 agent 开始执行时能立即显示
     const hasInRunning = (stream()?.runningTools ?? []).some((t) => t.name === 'update_todo')
-    return hasInHistory || hasInRunning
+    return hasCurrent || hasInHistory || hasInRunning
   })
   const todoPanelStyle = computed(() => ({
     position: 'absolute' as const,

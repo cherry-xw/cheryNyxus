@@ -118,6 +118,8 @@ function initSoulTables(db: Database.Database): void {
       brain TEXT NOT NULL,
       sense_group TEXT NOT NULL,
       wait INTEGER NOT NULL DEFAULT 0,
+      spawn_call_id TEXT,
+      owning_batch_id TEXT,
       status TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -136,6 +138,7 @@ function initSoulTables(db: Database.Database): void {
       spawn_id TEXT,
       spawn_call_id TEXT,
       related_message_id TEXT,
+      causation_node_id TEXT,
       relation TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
@@ -144,6 +147,91 @@ function initSoulTables(db: Database.Database): void {
       ON message_links(root_chat_id, created_at, message_id);
     CREATE INDEX IF NOT EXISTS idx_message_links_spawn
       ON message_links(spawn_id, relation);
+
+    /* Root subscriptions need one monotonic sequence across every descendant
+       chat. Keep this journal in soul.db so a root tree can span monthly
+       message shards without client-side event merging. */
+    CREATE TABLE IF NOT EXISTS root_events (
+      root_chat_id TEXT NOT NULL,
+      root_seq INTEGER NOT NULL,
+      event_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (root_chat_id, root_seq)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_root_events_retention
+      ON root_events(root_chat_id, created_at);
+
+    /* CP2 canonical execution graph facts. Payload JSON keeps the protocol
+       extensible while indexed identity/order columns make snapshots auditable. */
+    CREATE TABLE IF NOT EXISTS execution_graph_counters (
+      root_chat_id TEXT PRIMARY KEY,
+      next_order_key INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS execution_nodes (
+      node_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      source_chat_id TEXT NOT NULL,
+      source_message_id TEXT,
+      kind TEXT NOT NULL,
+      order_key INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(root_chat_id, order_key)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_execution_nodes_root_order
+      ON execution_nodes(root_chat_id, order_key);
+    CREATE INDEX IF NOT EXISTS idx_execution_nodes_source_message
+      ON execution_nodes(root_chat_id, source_message_id);
+
+    CREATE TABLE IF NOT EXISTS execution_edges (
+      edge_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      from_node_id TEXT NOT NULL,
+      to_node_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      order_key INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(root_chat_id, order_key),
+      UNIQUE(root_chat_id, from_node_id, to_node_id, kind)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_execution_edges_root_order
+      ON execution_edges(root_chat_id, order_key);
+
+    CREATE TABLE IF NOT EXISTS tool_call_owners (
+      call_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      owning_node_id TEXT,
+      batch_id TEXT,
+      call_index INTEGER,
+      resolution TEXT NOT NULL,
+      detail TEXT,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tool_call_owners_root
+      ON tool_call_owners(root_chat_id, resolution, call_index);
+
+    CREATE TABLE IF NOT EXISTS execution_active_runs (
+      chat_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      root_chat_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      turn_id TEXT,
+      node_id TEXT,
+      batch_id TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (chat_id, run_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_execution_active_runs_root_status
+      ON execution_active_runs(root_chat_id, status, updated_at);
   `)
   // P1-8：旧库 chats 表无 message_count，CREATE IF NOT EXISTS 跳过建表，按列检查补 ALTER。
   ensureChatColumn(db, 'message_count', 'INTEGER NOT NULL DEFAULT 0')
@@ -152,6 +240,21 @@ function initSoulTables(db: Database.Database): void {
   ensureChatColumn(db, 'timeline_revision', 'INTEGER NOT NULL DEFAULT 0')
   // CP1 主从 Agent：旧库缺 parent_chat_id 列，按列检查补 ALTER（TEXT 缺省 NULL，无需回填）。
   ensureChatColumn(db, 'parent_chat_id', 'TEXT')
+  ensureTableColumn(db, 'spawn_tasks', 'spawn_call_id', 'TEXT')
+  ensureTableColumn(db, 'spawn_tasks', 'owning_batch_id', 'TEXT')
+  ensureTableColumn(db, 'message_links', 'causation_node_id', 'TEXT')
+}
+
+function ensureTableColumn(
+  db: Database.Database,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
+  if (!cols.some((entry) => entry.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  }
 }
 
 /**

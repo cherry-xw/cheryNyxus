@@ -16,7 +16,7 @@ import type { RendererProps, SearchCodebaseArgs } from '../types'
 
 const props = defineProps<RendererProps>()
 
-const showResults = ref(false)
+const showResults = ref(props.defaultExpanded ?? false)
 
 // 解析参数
 const parsedArgs = computed<SearchCodebaseArgs | null>(() => {

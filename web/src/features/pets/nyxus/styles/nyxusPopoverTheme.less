@@ -1,0 +1,940 @@
+/**
+ * Nexus 节点树弹窗 CRT 终端主题。
+ *
+ * 集中管理 MessageBranchTree 三类弹窗（hover 预览 popover / 常驻审批气泡 / 提问气泡）
+ * 内所有节点类型的渲染样式：工具 renderer（SenseCallRenderer 分发的全部专用渲染器 +
+ * 通用 SenseCallBox）、ApprovalCard/ParsedArgs、QuestionCard、消息内容（user/markdown/
+ * thinking/streaming）。
+ *
+ * 设计：统一 CRT 终端风--深灰绿底 + scanline 横纹 + 噪点 + 偏移 text-shadow + 方角 +
+ * 等宽字体。提问气泡从原蓝紫玻璃风改为 CRT 灰绿调，与 popover/审批容器一致。
+ *
+ * 约束：基组件（ApprovalCard/QuestionCard/ParsedArgs/各 renderer/SenseCallBox）自身浅色
+ * 样式不动（仍服务主聊天面 MessageBubble .bubble 暖米黄卡片）；此处只通过 :deep() 在
+ * .popover-tool / .approval-frame / .question-frame / .node-popover 等组件内真实 class 下
+ * 穿透覆写。:deep() 均带父选择器，兼容 scoped + less @import 编译序（less 合并在前，
+ * Vue PostCSS scoped 识别 :deep() 在后）。由 MessageBranchTree.vue <style scoped> @import。
+ */
+
+// ── CRT 调色板 ──
+@nx-bg: rgba(55, 61, 60, 0.97);
+@nx-border: rgba(188, 202, 191, 0.72);
+@nx-border-soft: rgba(192, 205, 195, 0.34);
+@nx-text: #d7dfd8;
+@nx-text-dim: #cbd6cd;
+@nx-text-faint: rgba(215, 223, 216, 0.5);
+@nx-code-bg: rgba(0, 0, 0, 0.4);
+@nx-code-bg-soft: rgba(21, 26, 25, 0.5);
+@nx-font: ui-monospace, 'JetBrains Mono', 'Cascadia Code', monospace;
+@nx-green: #5be5b0;
+@nx-yellow: #ffe18b;
+@nx-red: #ff809b;
+@nx-blue: #7da7ff;
+@nx-cyan: #5ce1f5;
+@nx-purple: #c9b6ff;
+@nx-ts: 0.55px 0 rgba(228, 239, 230, 0.44), -0.55px 0 rgba(15, 21, 19, 0.72);
+
+// ═══════════════════ 区块 A：弹窗容器 ═══════════════════
+
+.approval-anchor {
+  position: fixed;
+  z-index: 430;
+  pointer-events: auto;
+  transform: translateX(-100%);
+}
+.approval-anchor.is-right {
+  transform: none;
+}
+.question-anchor {
+  width: min(380px, calc(100vw - 16px));
+}
+
+// CRT 容器底（popover 与审批气泡共用）：scanline + 噪点 + 偏移 text-shadow + 顶光带。
+.crt-shell() {
+  color: @nx-text;
+  font-family: @nx-font;
+  -webkit-font-smoothing: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(227, 238, 229, 0.035) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 1px 1px, rgba(232, 241, 233, 0.1) 0 0.55px, transparent 0.8px) 0 0 /
+      4px 4px,
+    @nx-bg;
+  border: 1px solid @nx-border;
+  border-radius: 2px;
+  box-shadow:
+    3px 3px 0 rgba(4, 8, 7, 0.66),
+    0 12px 30px rgba(0, 0, 0, 0.48),
+    inset 0 0 24px rgba(204, 220, 207, 0.05);
+  text-shadow: @nx-ts;
+  animation: crt-grain-shift 1.8s steps(2, end) infinite;
+}
+
+.node-popover {
+  position: fixed;
+  z-index: 410;
+  max-height: var(--popover-max-height, 60vh);
+  overflow: auto;
+  // 右侧不留 padding，主滚动条贴框体边缘；内容自身留出同等右侧呼吸空间。
+  padding: 10px 0 10px 12px;
+  .crt-shell();
+  &::before {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(226, 237, 228, 0.78), transparent);
+  }
+  scrollbar-color: rgba(191, 204, 194, 0.62) rgba(31, 36, 35, 0.72);
+  scrollbar-width: thin;
+  &::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  &::-webkit-scrollbar-track {
+    background: rgba(31, 36, 35, 0.72);
+    border-radius: 0;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #9ca9a0;
+    border: 2px solid #373d3c;
+    border-radius: 0;
+  }
+  > .popover-tool,
+  > .popover-content,
+  > .popover-streaming,
+  > .popover-message {
+    padding-right: 12px;
+  }
+}
+
+.approval-frame {
+  position: relative;
+  padding: 10px;
+  color: #d8e0d9;
+  font-family: @nx-font;
+  -webkit-font-smoothing: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(226, 238, 228, 0.035) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 1px 1px, rgba(231, 240, 232, 0.1) 0 0.55px, transparent 0.8px) 0 0 /
+      4px 4px,
+    rgba(57, 63, 62, 0.97);
+  border: 1px solid rgba(185, 199, 188, 0.72);
+  border-radius: 2px;
+  box-shadow:
+    3px 3px 0 rgba(5, 8, 8, 0.62),
+    0 10px 26px rgba(0, 0, 0, 0.42),
+    inset 0 0 18px rgba(204, 222, 207, 0.045);
+  text-shadow:
+    0.55px 0 rgba(226, 239, 229, 0.42),
+    -0.55px 0 rgba(17, 23, 21, 0.7);
+  animation: crt-grain-shift 1.8s steps(2, end) infinite;
+}
+.approval-frame::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  background: #393f3e;
+  border-top: 1px solid rgba(185, 199, 188, 0.72);
+  border-right: 1px solid rgba(185, 199, 188, 0.72);
+  transform: translateY(-50%) rotate(45deg);
+}
+.approval-anchor.is-right .approval-frame::after {
+  right: auto;
+  left: -7px;
+  border: 0;
+  border-bottom: 1px solid rgba(185, 199, 188, 0.72);
+  border-left: 1px solid rgba(185, 199, 188, 0.72);
+}
+.approval-node-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -1px -1px 7px;
+  padding: 4px 6px;
+  border: 1px solid rgba(193, 207, 196, 0.34);
+  border-radius: 0;
+  background: rgba(214, 226, 216, 0.08);
+  color: #e0e8e1;
+  font-family: @nx-font;
+  font-size: 11px;
+  font-weight: 700;
+}
+.approval-node-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+// ═══════════════════ 区块 B：工具 renderer 根统一复位 ═══════════════════
+// 去掉基组件默认浅色卡片（border/白底/border-radius/box-shadow），融入 CRT 容器。
+.node-popover .popover-tool :deep(.cmd-box),
+.node-popover .popover-tool :deep(.search-box),
+.node-popover .popover-tool :deep(.skill-box),
+.node-popover .popover-tool :deep(.file-read-box),
+.node-popover .popover-tool :deep(.file-write-box),
+.node-popover .popover-tool :deep(.spawn-box),
+.node-popover .popover-tool :deep(.media-box),
+.node-popover .popover-tool :deep(.sense-box),
+.node-popover .popover-tool :deep(.question-renderer),
+.node-popover .popover-tool :deep(.todo-box) {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: @nx-text;
+  font-family: @nx-font;
+  font-size: 11px;
+  max-width: none;
+  // 状态根类底色清空（CommandRenderer .status-error 等）
+  &.status-error {
+    border-color: transparent;
+    background: transparent;
+  }
+}
+
+// 通用 button 复位：去默认按钮外观，统一 CRT 方角等宽（各 renderer 的 toggle/copy-btn/detail-link 兜底）
+.node-popover .popover-tool :deep(button) {
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 0;
+  font-family: @nx-font;
+}
+
+// ═══════════════════ 区块 C：renderer 子元素统一 CRT ═══════════════════
+
+// C1 head 行：名字 + 状态字形
+.node-popover .popover-tool :deep(.cmd-name),
+.node-popover .popover-tool :deep(.search-name),
+.node-popover .popover-tool :deep(.skill-name),
+.node-popover .popover-tool :deep(.file-name),
+.node-popover .popover-tool :deep(.spawn-name),
+.node-popover .popover-tool :deep(.media-name),
+.node-popover .popover-tool :deep(.sense-name),
+.node-popover .popover-tool :deep(.todo-name) {
+  color: @nx-text;
+  font-weight: 700;
+}
+.node-popover .popover-tool :deep(.cmd-status),
+.node-popover .popover-tool :deep(.search-status),
+.node-popover .popover-tool :deep(.skill-status),
+.node-popover .popover-tool :deep(.file-status),
+.node-popover .popover-tool :deep(.spawn-status),
+.node-popover .popover-tool :deep(.media-status),
+.node-popover .popover-tool :deep(.sense-status) {
+  font-weight: 800;
+  &.status-done {
+    color: @nx-green;
+  }
+  &.status-running {
+    color: @nx-yellow;
+    animation: nx-pulse 1.1s ease-in-out infinite;
+  }
+  &.status-error {
+    color: @nx-red;
+  }
+}
+
+// C2 彩色 badge：方角（底色/字色按 class 各自着色，避免合并选择器 & 分支错乱）
+.node-popover .popover-tool :deep(.search-mode),
+.node-popover .popover-tool :deep(.search-badge),
+.node-popover .popover-tool :deep(.skill-type),
+.node-popover .popover-tool :deep(.spawn-type),
+.node-popover .popover-tool :deep(.spawn-badge),
+.node-popover .popover-tool :deep(.compression-badge) {
+  border-radius: 0;
+}
+.node-popover .popover-tool :deep(.search-mode) {
+  background: rgba(125, 167, 255, 0.18);
+  color: @nx-blue;
+}
+.node-popover .popover-tool :deep(.search-badge),
+.node-popover .popover-tool :deep(.spawn-type) {
+  background: rgba(201, 182, 255, 0.18);
+  color: @nx-purple;
+}
+.node-popover .popover-tool :deep(.spawn-badge) {
+  background: rgba(125, 167, 255, 0.18);
+  color: @nx-blue;
+}
+.node-popover .popover-tool :deep(.skill-type),
+.node-popover .popover-tool :deep(.compression-badge) {
+  background: rgba(255, 225, 139, 0.18);
+  color: @nx-yellow;
+}
+
+// C3 label / meta / 弱色文本
+.node-popover .popover-tool :deep(.cmd-label),
+.node-popover .popover-tool :deep(.search-label),
+.node-popover .popover-tool :deep(.file-label),
+.node-popover .popover-tool :deep(.spawn-label) {
+  color: @nx-text-faint;
+  font-weight: 700;
+}
+.node-popover .popover-tool :deep(.cmd-desc) {
+  color: @nx-text;
+  font-weight: 600;
+}
+.node-popover .popover-tool :deep(.cmd-meta-inline),
+.node-popover .popover-tool :deep(.file-range),
+.node-popover .popover-tool :deep(.file-mode),
+.node-popover .popover-tool :deep(.spawn-prompt),
+.node-popover .popover-tool :deep(.output-truncated),
+.node-popover .popover-tool :deep(.output-log),
+.node-popover .popover-tool :deep(.line-count),
+.node-popover .popover-tool :deep(.result-count),
+.node-popover .popover-tool :deep(.result-line),
+.node-popover .popover-tool :deep(.prompt-preview) {
+  color: @nx-text-faint;
+  font-family: @nx-font;
+  &.output-truncated,
+  &.prompt-preview {
+    font-style: italic;
+  }
+}
+.node-popover .popover-tool :deep(.result-content) {
+  color: @nx-text-dim;
+}
+.node-popover .popover-tool :deep(.result-file) {
+  color: @nx-blue;
+  font-family: @nx-font;
+}
+
+// C4 code 块：深底 + 方角 + 浅字
+.node-popover .popover-tool :deep(.cmd-code),
+.node-popover .popover-tool :deep(.search-query),
+.node-popover .popover-tool :deep(.file-path),
+.node-popover .popover-tool :deep(.spawn-value) {
+  background: @nx-code-bg;
+  border-radius: 0;
+  color: @nx-text;
+  font-family: @nx-font;
+}
+
+// C5 pre / fallback 块：深底 + 方角 + 暗边 + 浅字（保留 max-h 滚动）
+.node-popover .popover-tool :deep(.content-pre),
+.node-popover .popover-tool :deep(.output-pre),
+.node-popover .popover-tool :deep(.sense-pre),
+.node-popover .popover-tool :deep(.prompt-pre),
+.node-popover .popover-tool :deep(.search-fallback),
+.node-popover .popover-tool :deep(.file-fallback),
+.node-popover .popover-tool :deep(.spawn-fallback),
+.node-popover .popover-tool :deep(.media-fallback),
+.node-popover .popover-tool :deep(.cmd-fallback),
+.node-popover .popover-tool :deep(.todo-fallback) {
+  margin: 0;
+  padding: 6px 8px;
+  background: @nx-code-bg;
+  border: 1px solid @nx-border-soft;
+  border-radius: 0;
+  color: @nx-text-dim;
+  font-family: @nx-font;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// C6 toggle 折叠按钮 + caret
+.node-popover .popover-tool :deep(.toggle) {
+  border: none;
+  background: transparent;
+  color: @nx-text-faint;
+  font-family: @nx-font;
+  cursor: pointer;
+  &:hover {
+    color: @nx-text;
+  }
+  .toggle-label {
+    color: inherit;
+  }
+}
+.node-popover .popover-tool :deep(.caret) {
+  display: inline-block;
+  transition: transform 140ms ease;
+  &.open {
+    transform: rotate(90deg);
+  }
+}
+
+// C7 copy-btn：深底 + 浅边 + 浅字；.copied 绿
+.node-popover .popover-tool :deep(.copy-btn) {
+  border: 1px solid @nx-border;
+  border-radius: 0;
+  background: @nx-code-bg-soft;
+  color: @nx-text-dim;
+  &:hover {
+    background: rgba(188, 202, 191, 0.16);
+    color: @nx-text;
+  }
+  &.copied {
+    border-color: rgba(91, 229, 176, 0.5);
+    background: rgba(91, 229, 176, 0.14);
+    color: @nx-green;
+  }
+  .el-icon {
+    font-size: 10px;
+  }
+}
+
+// C8 spawn-detail-link：蓝链接
+.node-popover .popover-tool :deep(.spawn-detail-link) {
+  border: none;
+  background: transparent;
+  color: @nx-blue;
+  font-family: @nx-font;
+  cursor: pointer;
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+// C9 media 预览：保留媒体，阴影调暗适应深底
+.node-popover .popover-tool :deep(.media-preview) {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+.node-popover .popover-tool :deep(.media-img),
+.node-popover .popover-tool :deep(.media-video) {
+  border-radius: 2px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+.node-popover .popover-tool :deep(.media-audio) {
+  width: 100%;
+  max-width: 280px;
+}
+
+// C10 CommandRenderer 输出区徽章
+.node-popover .popover-tool :deep(.timeout-badge) {
+  background: rgba(255, 225, 139, 0.18);
+  color: @nx-yellow;
+  border-radius: 0;
+}
+.node-popover .popover-tool :deep(.error-badge) {
+  background: rgba(255, 128, 155, 0.18);
+  color: @nx-red;
+  border-radius: 0;
+}
+
+// C11 QuestionRenderer（只读历史）内部
+.node-popover .popover-tool :deep(.question-renderer) {
+  .q-head {
+    .indicator {
+      background: @nx-purple;
+      box-shadow: 0 0 0 2px rgba(201, 182, 255, 0.18);
+    }
+    .q-header {
+      color: @nx-text;
+    }
+    .q-badge {
+      border-radius: 0;
+      &.badge-answered {
+        background: rgba(201, 182, 255, 0.18);
+        color: @nx-purple;
+      }
+      &.badge-cancelled {
+        background: rgba(215, 223, 216, 0.14);
+        color: @nx-text-dim;
+      }
+      &.badge-running {
+        background: rgba(255, 225, 139, 0.18);
+        color: @nx-yellow;
+        animation: nx-pulse 1.1s ease-in-out infinite;
+      }
+      &.badge-missing {
+        background: rgba(255, 128, 155, 0.16);
+        color: @nx-red;
+      }
+    }
+  }
+  .q-text {
+    color: @nx-text;
+  }
+  .q-chip {
+    border: 1px solid @nx-border-soft;
+    border-radius: 0;
+    background: @nx-code-bg-soft;
+    color: @nx-text-dim;
+    &.selected {
+      background: rgba(201, 182, 255, 0.18);
+      border-color: rgba(201, 182, 255, 0.55);
+      color: @nx-purple;
+      .check {
+        color: @nx-purple;
+      }
+    }
+  }
+  .q-fallback {
+    background: @nx-code-bg;
+    border-radius: 0;
+    color: @nx-text-dim;
+  }
+}
+
+// C12 TodoRenderer 内部
+.node-popover .popover-tool :deep(.todo-box) {
+  .todo-head {
+    .todo-name {
+      color: @nx-text;
+    }
+    .todo-count {
+      color: @nx-text-faint;
+      font-family: @nx-font;
+    }
+  }
+  .todo-item {
+    .text {
+      color: @nx-text-dim;
+      &.done {
+        color: @nx-text-faint;
+        text-decoration: line-through;
+      }
+    }
+    &.is-in_progress .glyph {
+      color: @nx-yellow;
+      animation: nx-pulse 1.1s ease-in-out infinite;
+    }
+    &.is-completed .glyph {
+      color: @nx-green;
+    }
+  }
+  .todo-fallback {
+    background: @nx-code-bg;
+    border-radius: 0;
+    color: @nx-text-dim;
+  }
+}
+
+// ═══════════════════ 区块 D：卡片（审批 / 提问）═══════════════════
+
+// D1 ApprovalCard（迁移现有 CRT，保持暗底高对比）
+.approval-frame :deep(.approval-card) {
+  max-width: none;
+  color: #d8e0d9;
+}
+.approval-frame :deep(.sense-name),
+.approval-frame :deep(.args-toggle),
+.approval-frame :deep(.arg-key),
+.approval-frame :deep(.arg-val),
+.approval-frame :deep(.arg-empty) {
+  color: #dce6dd;
+}
+.approval-frame :deep(.args-toggle) {
+  border-color: rgba(194, 207, 197, 0.4);
+  background: rgba(21, 26, 25, 0.6);
+  &:hover {
+    background: rgba(194, 207, 197, 0.18);
+  }
+}
+.approval-frame :deep(.args) {
+  border-color: rgba(194, 207, 197, 0.34);
+  background: rgba(21, 26, 25, 0.36);
+}
+.approval-frame :deep(.args-body),
+.approval-frame :deep(.args-pre) {
+  color: #cbd6cd;
+  background: transparent;
+}
+.approval-frame :deep(.arg-val),
+.approval-frame :deep(.args-pre) {
+  max-height: 130px;
+}
+// 弹出面板排版收紧：缩字号/行高，多看内容。
+.approval-frame :deep(.sense-name) {
+  font-size: 10px;
+}
+.approval-frame :deep(.arg-key),
+.approval-frame :deep(.arg-val),
+.approval-frame :deep(.args-pre),
+.approval-frame :deep(.arg-empty) {
+  font-size: 8.5px;
+  line-height: 1.3;
+}
+.approval-frame :deep(.btn) {
+  font-size: 9px;
+}
+.approval-frame :deep(button) {
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 0;
+  border-color: rgba(197, 211, 200, 0.58);
+  background: rgba(23, 28, 27, 0.4);
+  color: #dce5de;
+  font: inherit;
+  box-shadow: none;
+  text-shadow: inherit;
+}
+.approval-frame :deep(button:hover:not(:disabled)) {
+  border-color: #e4ece5;
+  background: rgba(218, 230, 220, 0.16);
+  color: #f4f7f4;
+}
+.approval-frame :deep(button:focus-visible) {
+  outline: 1px dashed #eef5ef;
+  outline-offset: 2px;
+}
+.approval-frame :deep(button:disabled) {
+  color: rgba(213, 222, 215, 0.46);
+  border-color: rgba(182, 194, 185, 0.25);
+  background: rgba(25, 29, 28, 0.25);
+}
+// accept/reject 强暗底高对比
+.approval-frame :deep(.btn.accept) {
+  border-color: rgba(91, 229, 176, 0.6);
+  background: rgba(26, 121, 82, 0.42);
+  color: #7ef7b8;
+  &:hover:not(:disabled) {
+    background: rgba(26, 121, 82, 0.68);
+    color: #c4ffe2;
+  }
+}
+.approval-frame :deep(.btn.reject) {
+  border-color: rgba(255, 128, 155, 0.6);
+  background: rgba(126, 43, 62, 0.42);
+  color: #ff9db0;
+  &:hover:not(:disabled) {
+    background: rgba(126, 43, 62, 0.68);
+    color: #ffd0db;
+  }
+}
+
+// D2 ParsedArgs 内 arg-val/arg-key 已随 D1 覆写；arg-row 布局不变。
+
+// D3 QuestionCard：从蓝紫玻璃风改 CRT 灰绿调（交互结构不变）
+.question-frame :deep(.question-card) {
+  width: 100%;
+  max-width: none;
+  padding: 12px;
+  gap: 9px;
+  border: 1px solid @nx-border;
+  border-radius: 2px;
+  color: @nx-text;
+  background:
+    repeating-linear-gradient(0deg, rgba(227, 238, 229, 0.035) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 1px 1px, rgba(232, 241, 233, 0.1) 0 0.55px, transparent 0.8px) 0 0 /
+      4px 4px,
+    @nx-bg;
+  box-shadow:
+    0 22px 58px rgba(0, 0, 0, 0.52),
+    inset 0 0 18px rgba(204, 220, 207, 0.05);
+  font-family: @nx-font;
+  text-shadow: @nx-ts;
+  -webkit-font-smoothing: none;
+}
+.question-frame :deep(.heading-kicker) {
+  color: @nx-text-faint;
+}
+.question-frame :deep(.question-text) {
+  font-size: 12px;
+  color: @nx-text;
+}
+.question-frame :deep(.option-label) {
+  font-size: 10px;
+  color: @nx-text;
+}
+.question-frame :deep(.question-symbol) {
+  background: linear-gradient(145deg, @nx-cyan, @nx-purple);
+  box-shadow: 0 7px 20px rgba(92, 225, 245, 0.24);
+}
+.question-frame :deep(.question-progress) {
+  color: @nx-cyan;
+  background: rgba(92, 225, 245, 0.14);
+  border-radius: 0;
+}
+.question-frame :deep(.option-card) {
+  border: 1px solid @nx-border-soft;
+  border-radius: 2px;
+  color: @nx-text;
+  background: @nx-code-bg-soft;
+}
+.question-frame :deep(.option-card:hover:not(:disabled)) {
+  border-color: rgba(92, 225, 245, 0.52);
+  background: rgba(92, 225, 245, 0.1);
+  box-shadow: 0 7px 18px rgba(0, 0, 0, 0.2);
+}
+.question-frame :deep(.option-card.selected) {
+  border-color: rgba(92, 225, 245, 0.72);
+  background: linear-gradient(120deg, rgba(92, 225, 245, 0.18), rgba(201, 182, 255, 0.1));
+  box-shadow:
+    inset 3px 0 0 @nx-cyan,
+    0 0 18px rgba(92, 225, 245, 0.1);
+}
+.question-frame :deep(.choice-mark) {
+  border-color: @nx-border-soft;
+  background: @nx-code-bg;
+  color: @nx-text;
+}
+.question-frame :deep(.option-card.selected .choice-mark) {
+  border-color: @nx-cyan;
+  color: #07141e;
+  background: @nx-cyan;
+  box-shadow: 0 0 0 3px rgba(92, 225, 245, 0.14);
+}
+.question-frame :deep(.option-description) {
+  font-size: 8px;
+  color: @nx-text-faint;
+}
+.question-frame :deep(.action-btn.secondary) {
+  border-color: @nx-border-soft;
+  color: @nx-text-dim;
+  background: @nx-code-bg-soft;
+  border-radius: 2px;
+}
+.question-frame :deep(.action-btn.ghost) {
+  color: @nx-text-faint;
+  background: transparent;
+  border-radius: 2px;
+}
+.question-frame :deep(.action-btn.primary) {
+  color: #07141e;
+  background: linear-gradient(135deg, @nx-cyan, @nx-purple);
+  box-shadow: 0 7px 20px rgba(92, 225, 245, 0.2);
+  border-radius: 2px;
+}
+.question-frame :deep(.question-card .el-textarea__inner) {
+  color: @nx-text;
+  background: @nx-code-bg;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(92, 225, 245, 0.3) inset;
+  caret-color: @nx-cyan;
+  font-family: @nx-font;
+}
+.question-frame :deep(.question-card .el-textarea__inner::placeholder) {
+  color: @nx-text-faint;
+}
+
+// ═══════════════════ 区块 E：消息 popover 内容 ═══════════════════
+
+.popover-streaming {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 42px;
+  color: #dce8de;
+  font-family: @nx-font;
+  font-size: 11px;
+}
+.streaming-dot {
+  width: 7px;
+  height: 7px;
+  background: #dbe8dd;
+  box-shadow: 0 0 7px rgba(219, 232, 221, 0.78);
+  animation: input-pulse 0.9s steps(1) infinite;
+}
+.popover-content {
+  font-size: 11px;
+  line-height: 1.45;
+  color: @nx-text;
+  word-break: break-word;
+}
+.popover-content.is-user {
+  white-space: pre-wrap;
+  color: #d1dad2;
+}
+
+// user 正文内的指令 / 角色 token：像素风 terminal 方括号 tag。
+// 字符化 = 用 [ ] 括号定界；像素风 = 方角 + 等宽 + 关闭字体平滑 + CRT text-shadow。
+// 配色对齐主聊天面 MessageBubble（command 暖黄、role 蓝）并映射到 CRT 调色板。
+.nx-tag {
+  display: inline-block;
+  margin: 1px 3px 1px 0;
+  padding: 0 4px;
+  border: 1px solid;
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.32);
+  font-family: @nx-font;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  -webkit-font-smoothing: none;
+  text-shadow: @nx-ts;
+  vertical-align: baseline;
+  &.is-cmd {
+    color: @nx-yellow;
+    border-color: rgba(255, 225, 139, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(255, 225, 139, 0.1);
+  }
+  &.is-role {
+    color: @nx-blue;
+    border-color: rgba(125, 167, 255, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(125, 167, 255, 0.1);
+  }
+}
+.nx-tag-brk {
+  opacity: 0.5;
+  margin: 0 1px;
+}
+.popover-content.is-markdown {
+  :deep(p) {
+    margin: 0 0 4px;
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+  :deep(ul),
+  :deep(ol) {
+    margin: 0 0 4px;
+    padding-left: 20px;
+  }
+  :deep(li) {
+    margin: 1px 0;
+  }
+  :deep(code) {
+    font-family: @nx-font;
+    font-size: 10px;
+    background: rgba(222, 234, 224, 0.1);
+    color: #e2e9e3;
+    padding: 1px 5px;
+    border-radius: 0;
+  }
+  :deep(pre) {
+    margin: 4px 0;
+    padding: 6px 8px;
+    background: @nx-code-bg;
+    border: 1px solid @nx-border-soft;
+    border-radius: 0;
+    overflow-x: auto;
+    code {
+      background: none;
+      color: #e0e8e1;
+      padding: 0;
+    }
+  }
+  :deep(.hljs) {
+    color: #dce5de;
+    background: transparent;
+  }
+  :deep(.hljs-keyword),
+  :deep(.hljs-selector-tag),
+  :deep(.hljs-literal) {
+    color: #ffb86c;
+  }
+  :deep(.hljs-string),
+  :deep(.hljs-attr),
+  :deep(.hljs-title) {
+    color: #a8e7a1;
+  }
+  :deep(.hljs-comment),
+  :deep(.hljs-quote) {
+    color: #89a4ad;
+  }
+  :deep(.hljs-number),
+  :deep(.hljs-built_in),
+  :deep(.hljs-variable) {
+    color: #a9c8ff;
+  }
+  :deep(h1),
+  :deep(h2),
+  :deep(h3) {
+    margin: 5px 0 3px;
+    line-height: 1.3;
+    color: #eef3ef;
+  }
+  :deep(a) {
+    color: #d5e1d7;
+  }
+  :deep(strong) {
+    font-weight: 700;
+    color: #f0f4f1;
+  }
+}
+.popover-thinking {
+  margin: 0 0 8px;
+  padding: 5px 7px;
+  border-left: 2px solid rgba(205, 216, 207, 0.7);
+  background: rgba(221, 232, 223, 0.07);
+  color: #cbd5cc;
+}
+.thinking-label {
+  font-family: @nx-font;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.thinking-label::-webkit-details-marker {
+  display: none;
+}
+.thinking-label::before {
+  content: '›';
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 140ms ease;
+}
+.popover-thinking[open] .thinking-label {
+  margin-bottom: 6px;
+}
+.popover-thinking[open] .thinking-label::before {
+  transform: rotate(90deg);
+}
+.popover-thinking pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font:
+    10px/1.45 @nx-font;
+  color: inherit;
+}
+
+// ═══════════════════ 区块 F：keyframes ═══════════════════
+
+@keyframes crt-grain-shift {
+  0%,
+  100% {
+    background-position:
+      0 0,
+      0 0,
+      0 0;
+  }
+  47% {
+    background-position:
+      0 1px,
+      1px -1px,
+      0 0;
+  }
+  49% {
+    background-position:
+      0 -1px,
+      -1px 1px,
+      0 0;
+  }
+}
+@keyframes input-pulse {
+  50% {
+    opacity: 0.2;
+  }
+}
+@keyframes nx-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+// 减少动态效果：停用 CRT 抖动与脉冲，保留静态可读性。
+@media (prefers-reduced-motion: reduce) {
+  .approval-frame,
+  .node-popover,
+  .streaming-dot {
+    animation: none;
+  }
+  .node-popover .popover-tool :deep(.status-running),
+  .node-popover .popover-tool :deep(.badge-running),
+  .node-popover .popover-tool :deep(.is-in_progress .glyph) {
+    animation: none;
+  }
+}

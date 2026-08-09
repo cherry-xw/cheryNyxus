@@ -12,6 +12,47 @@ import { collectDescendantChatIds } from './historyMerge'
 export const CHERY_NYXUS_PRESET = 'cheryNyxus'
 
 /**
+ * Legacy Pet recovery may only touch chats that currently have a stage visual.
+ * Nexus roots and every descendant are owned by the root timeline subscription
+ * and must remain demand-loaded even if a stale PetInstance happens to exist.
+ */
+export function selectRefreshRecoveryChats(
+  chats: readonly ChatSummary[],
+  visibleChatIds: ReadonlySet<string>,
+): ChatSummary[] {
+  const byId = new Map(chats.map((chat) => [chat.chatId, chat] as const))
+  const belongsToNyxus = (chat: ChatSummary): boolean => {
+    let current: ChatSummary | undefined = chat
+    const seen = new Set<string>()
+    while (current && !seen.has(current.chatId)) {
+      if (current.preset === CHERY_NYXUS_PRESET) return true
+      seen.add(current.chatId)
+      current = current.parentChatId ? byId.get(current.parentChatId) : undefined
+    }
+    return false
+  }
+  return chats.filter((chat) => visibleChatIds.has(chat.chatId) && !belongsToNyxus(chat))
+}
+
+/**
+ * chat.create 不会回传完整 ChatSummary。Nexus 在首次打开时仍需要立即被 UI
+ * 识别为 Nexus，不能等下一次 chat.list（例如刷新）才补齐 preset 元数据。
+ */
+export function registerNewNyxusSession(
+  sessions: readonly ChatSummary[],
+  chatId: string,
+  now = Date.now(),
+): ChatSummary[] {
+  const summary: ChatSummary = {
+    chatId,
+    createdAt: now,
+    updatedAt: now,
+    preset: CHERY_NYXUS_PRESET,
+  }
+  return [summary, ...sessions.filter((session) => session.chatId !== chatId)]
+}
+
+/**
  * 按 tribe（同主）内创建序号顺序取灵魂 emoji：第 N 个 ghost = GHOST_FACES[N % 池长]。
  * N = 本 tribe 已存在 ghost 数（排除 self，避 done 实时分支自指：pet 已在 pets 且 isGhost=true）。
  * 非随机、不跨实例去重--「每个主 pet 后面按顺序排列」：同主 ghost 固定序列 0,1,2...，
@@ -201,7 +242,9 @@ export function createPetLifecycle(
    */
   async function getActiveNyxus(): Promise<string> {
     if (activeNyxusChatId.value) return activeNyxusChatId.value
-    const chats = await agentApi.listChats(true)
+    // listChats(false) 轻量取 recent root（不需 preview）；preview 由 fetchHistoryList(true) 后台补全，
+    // 避免打开节点树时阻塞在所有会话的 preview 计算上。
+    const chats = await agentApi.listChats(false)
     historyList.value = chats
     const recent = chats
       .filter((c) => !c.parentChatId && c.preset === CHERY_NYXUS_PRESET)
@@ -216,6 +259,7 @@ export function createPetLifecycle(
   /** 始终新建一条 Nexus 会话并设为活跃（AgentDialog 索引签「+新建」、Nexus 历史面板新建入口调用）。 */
   async function createNyxusSession(): Promise<string> {
     const result = await agentApi.createAgent({ preset: CHERY_NYXUS_PRESET })
+    historyList.value = registerNewNyxusSession(historyList.value, result.chatId)
     activeNyxusChatId.value = result.chatId
     return result.chatId
   }

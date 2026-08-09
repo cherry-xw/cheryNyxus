@@ -32,6 +32,11 @@
 
 **组件不直连 wsClient / 直读 agentApi**，只调 store 上暴露的编排方法（`store.sendMessage` / `store.abort` / `store.getHistory` ...） + 读 store ref/computed。
 
+Nexus 节点树进一步收紧该边界：`MessageBranchTree` 只读取消息层提供的 root render state，
+并 emit 输入、审批和节点交互意图；它不负责打开、关闭或恢复 root subscription。当前被观察的
+root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有一个订阅，所有 timeline view
+共享该订阅。切换 root 关闭的是观察订阅，不会调用 `chat.abort`，后台 Agent 继续运行。
+
 ---
 
 ## 1. 核心 store 字段（消费组件的输入源）
@@ -393,7 +398,7 @@
 | 问 | 答案写在 |
 |----|---------|
 | 后端契约是否需要 vitest 流程测试？ | 加 `test/flows/service/flowXxx.test.ts`（见 [docs/flow-test.md](../flow-test.md)）|
-| 前端 store 字段是否需要单测？ | `web/test/` 已有 streamAccumulator/approvalQueue/historyRendering；新增字段按同模式加 |
+| 前端 store 字段是否需要单测？ | `web/test/agents/` 已有 streamAccumulator/approvalQueue/historyRendering；新增字段按同模式加 |
 | 前端组件是否需要测？ | 当前无组件层测试；仅 store 单测覆盖 |
 | 多 agent 场景是否有专门 case？ | 子 chat finished 状态、子 chat resume 主唤起、孙 chat 路径 |
 

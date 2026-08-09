@@ -8,7 +8,9 @@ Pet 渲染层不拥有 Agent 会话状态。Pet presentation 只保存动作、�
 
 ### nyxus 独立核心（NyxusCore）
 
-nyxus 粒子核心是独立于 pet 体系的视觉组件（[NyxusCore.vue](../../../web/src/features/pets/nyxus/components/NyxusCore.vue)），全局挂载于 App 顶层（`position:fixed; z-index:250`），**不经过 PetStage/PetBody，也不是 PetInstance**。数据源为 chatSessions 的 nyxus 会话（root chat + `preset==='cheryNyxus'`，经 `selectNyxusSession` 解析），工作态（thinking/content/busy）由 `useNyxusWorkState` 投影、`useStreamBubble` 派生，不经 pets[]。核心复用 standalone 运动（`useStandaloneNyxusMotion`：自由漂移 + 长按拖拽 + pointer 扰动 + 边缘 clamp）；单击触发工具环菜单（create/chat/history/settings，状态在 `nyxusUiState`），双击打开 AgentDialog，3 连击触发 agitated 反应；Canvas 雾化轨迹连接菜单按钮（`updateToolTargets` 每帧测量按钮矩形写入）。工作气泡（[NyxusBubbles.vue](../../../web/src/features/pets/nyxus/components/NyxusBubbles.vue)）仅 error + work-main（thinking/content）两 tier + busy-indicator，approval/question 走 AgentDialog。cheryNyxus 会话由 `getOrCreateCheryNyxus`（chat-only，不建 pet）确保，创建后 `chatSessions.hydrateTree` 灌入投影。
+Cherry Nexus 是独立于 Pet/Agent 身份的弹窗入口（[NyxusCore.vue](../../../web/src/features/pets/nyxus/components/NyxusCore.vue)），全局挂载在 App 顶层（`position:fixed; z-index:250`），**不经过 PetStage/PetBody，也不是 PetInstance**。入口保留自主游走、向鼠标缓慢靠近、拖拽和边界约束，但不参与普通 Pet 避让或关联；单击切换创建、聊天和设置工具环，双击才取得活跃 Nexus 会话并打开 AgentDialog。单击动作延迟到双击判定窗结束后执行，双击会取消待执行的单击，拖拽结束也会吞掉同一次 click，避免误开工具或弹窗。工作/错误气泡不在入口呈现，运行内容、审批与问题交互仍集中在 AgentDialog。
+
+入口从 chatSessions 只投影一个 `working` 布尔值。`working=true` 时强制显示脉冲星 Loading 形态；运行结束立即恢复 idle 形态轮播，不再区分 thinking、toolRunning、waitingForUser、responding 或 error 的外部视觉。服务断连黑洞仍具有最高系统优先级。
 
 粒子场按暗点、普通点、高亮星、强闪星分成四档。暗点中的一部分按归属聚为更多层次的云团：梦幻紫、靛蓝、宝蓝、青蓝、青绿和玫红等高饱和色以低频插值缓慢流转，保持纯净绚烂而不掺灰。星云整体收拢时按实时密度提高饱和度和亮度，散开时保持同色系压暗以形成纵深；外围云团和悬臂也维持清晰的彩色外发光，连成明亮但柔和的带状星云。彩色云团先在独立图层内以常规混合绘制：中心按密度显著降亮并保持颜色，外围悬臂则更明亮；图层仅以最高 80% 的透明度合成到主体，避免加色叠加泛成大块纯白，也不遮住随后绘制的星点。中心暗色基底只保留小范围聚焦与外围轮廓。云团、悬臂和星点仍共用同一运动场；普通星点使用略带冷暖色的小核心与细微光晕，确保在云团中可辨但不抢眼。高亮星（恒星）在初始分布和运行碰撞中保持间距，核心始终纯白；鲜艳的紫、青蓝、玫红等颜色只用于其柔光、诞生与爆发环。恒星会持续经历缓慢渐生、长期稳定、爆发和消逝：爆发以所属鲜艳色的径向闪光环扩张并渐隐，消逝后随机白点再渐生为新恒星补位、总数恒定。星盘主旋转周期按粒子随机落在 30–60 秒；自动宇宙形态的完整稳定段至少保持 30 秒，并以平滑曲线切换。双星形态会让中心状态点随形态渐隐和渐显，不会突变。该粒子场支持星云、黑洞、脉冲星、双星、超新星与潮汐环模式。
 
@@ -20,11 +22,13 @@ nyxus 粒子核心是独立于 pet 体系的视觉组件（[NyxusCore.vue](../..
 
 ### Nyxus 星系与运行状态
 
-正常连接时 Nyxus 以旋涡星系为基底，在棒旋、倾斜盘、星系并合、脉冲星和星暴等长形态间平滑切换；黑洞不参与 idle 随机选择。服务 `disconnected` 时强制切到暗核、吸积盘和弱透镜弧构成的黑洞，并在恢复连接后平滑重建星系；`connecting` 保持低活动星系。双星系形态经历伴星系靠近、潮汐桥、双核并合、局部星暴和反向拆分，保持同一粒子群连续变形。
+正常连接时 Nyxus 以两条高密度主旋臂和少量低密度外段分叉构成的旋涡星系为基底，在棒旋、倾斜盘、星系并合、双星融合、脉冲星和星暴等长形态间平滑切换；黑洞不参与 idle 选择。idle 调度使用覆盖全部候选的交错洗牌袋：一轮内每种形态只出现一次，结构形态与事件形态尽量交错，`binary` 与 `merger` 不相邻。hover、工作和菜单等临时高优先级呈现只暂停当前长形态，恢复 idle 后继续原进度，不重新随机。
 
-围绕小暖核的 1–3 条不完整倾斜环是所有常态的共享结构：待机时缓慢进动；thinking 时内收；工具运行时带少量轨道信标；等待用户输入时留出缺口并暂停；内容输出时向旋臂发出节流波纹；错误时断裂并降为暗紫。运行态只改变粒子节奏，不新增文本、状态条或主 Pet UI。
+服务 `disconnected` 时强制切到暗核、吸积盘和弱透镜弧构成的黑洞，并在恢复连接后平滑重建星系；`connecting` 保持低活动星系。`merger` 继续表现两个不等大伴星系的靠近、潮汐桥、双核并合、局部星暴和反向拆分；`binary` 则从单盘裂变为两个各自带暖色小核心的完整盘，短暂互绕后收紧轨道并融合回同一个单盘。两种形态都使用同一粒子群连续变形，核心与星盘共享中心轨迹，不允许瞬移换场。
 
-Canvas 动作按以下优先级解析，避免鼠标和 Agent 状态互相覆盖：`dragging > released > menu > working > reach > reaction > cosmic > sleep > idle`。待机时星盘缓慢自旋、呼吸收缩并随机切换宇宙模式；鼠标靠近会扰动粒子场，长按可拖拽主体，工具菜单打开后灰雾和星点向环绕入口延伸。
+单环星与多环星是完整的 idle 粒子目标场，与棒旋、倾斜盘、星暴、双星和并合一起进入洗牌轮播，不再由工具数量或运行阶段临时生成。脉冲星不参与 idle 洗牌，专用于 Loading。
+
+入口 Canvas 的形态优先级为 `disconnected 黑洞 > running 脉冲星 > idle 洗牌`。入口禁用粒子 pointer 手势，因此鼠标仅触发外层按钮的打开弹窗行为。
 
 实时消息规范化保存在 `ChatSession.messagesById[msgId]`，`activeMessageId` 指向当前 LLM 响应。Pet 工作气泡与 HistoryDrawer 的实时行读取同一个 `ChatMessage`：
 
@@ -34,6 +38,35 @@ Canvas 动作按以下优先级解析，避免鼠标和 Agent 状态互相覆盖
 - 一个 `runId` 可包含多个 `msgId`（工具循环），每个新 `msgId` 都执行上述切换。
 
 主历史通过 selector 聚合 root 与 descendants 的消息引用并做角色重映射，不把 child 消息复制进 parent。抽屉打开、关闭、下钻只改变 UI 栈，不加载历史、不清 Pet retain 状态。
+
+### Nexus 消息神经树
+
+Nexus 对话框上方的 `MessageBranchTree` 是独立的 SVG 画布：消息和工具调用使用统一的内联线框图标，不依赖操作系统 emoji。图标按用户、主 AI、子 Agent 和工具类别使用不同主色，以霓虹双描边渲染（外辉光 halo + 加粗亮外描边 + 细内芯 + 强调色能量扫描），不绘制方形/圆形容器底板。主用户显示“我”，root assistant/master 显示“CherryNyxus”，子 Agent 优先显示实际 `petName/agentType/preset`。普通节点 hover 在节点左侧显示只读详情（详情靠左、树靠右贴警戒条，左侧空间不足时翻转到节点右侧）；详情展示期间，对应节点的外辉光以轻量呼吸闪烁持续标记弹窗归属，弹窗关闭后立即停止，减少动态模式下则降级为静态高亮；待回答问题和待审批工具按 `questionId/approvalId === senseCall.id` 精确锚定可交互面板（同样靠左弹出），完成后保留工具图标并以终态色点区分完成/取消（绿点=已回答/已通过，红点=已拒绝/已过期/已取消），替代文字徽章；待回答/待审批等活跃态仍显文字徽章。提问面板不把交互类型表现成新的“单选/多选节点”，而以问题标题、具有明确选择标记和说明文本的选项卡、自由输入及独立操作区组成；单选/多选只决定选择行为。审批倒计时直接显示在节点上，并与图标能量扫描、入边脉冲共用随剩余时间加速的周期。画布外围使用独立灰黑椭圆径向衬底，中心压暗并在四周连续衰减至完全透明，不出现矩形边界；所有连线使用平滑垂直贝塞尔曲线（控制点取纵向中点，跨车道分支形成上下 S 弯，同车道相邻退化为直线），thread/spawn/tool/merge 分别使用青、品红、琥珀和绿色纤维，紧凑波头与短尾沿源节点到目标节点传播。点击节点时其入边播放一次脉冲；运行判定对工具节点与消息节点统一（待审/待答/调用运行中均视为运行），正在响应或等待交互的节点其入边与出边整条活跃路径（含工具分支节点）持续脉冲，不再跳过中间工具节点。
+
+纵向布局采用压缩时间轴：相邻消息保持最小可读间距，长时间空档和分支扇出均设较短上限；子 Agent 分支首节点锚定到 spawn 原点下方的短跨度处（不按绝对创建时间平铺到远处），形成 git 分支式扇出；车道按 spawn 树分配：root 固定 lane 0，直接子代按负载落在 lane -1 或 +1；同一工具批次并发派发的同侧子代各占一列向外递增不复用，跨批次串行同侧子代仍复用该列；单个后代向父同侧外移一列。一个 agent 派生多个后代时，其整列先向外移一格，再让子分支从内侧到外侧连续展开（例如左侧 child -1 派生两个孙代后，child 改为 -2、孙代为 -1 与 -3；右侧镜像）。工具链按固定短步长纵向排列。树以二维画布呈现：初次载入、切换根会话或刷新时按可用顶部空间 fit 并贴右沿（树靠右贴警戒条，左侧让详情区）；新增节点实时自动滚动到末尾保持可见；用户拖动平移后停止跟随，显式 reset 或切换根会话刷新后恢复跟随。存在待审批节点时强制定位到审核节点（无论用户是否拖动，仅当其不在视窗内时触发），审核解决后恢复末尾跟随。拖动空白区域平移整棵树，拖动节点只改变该节点的页面内临时偏移且所有相连边实时跟随；4px 阈值区分点击与拖动。滚轮以指针位置为锚点缩放；显式 reset 会让节点偏移、画布平移和缩放从当前值同步缓动回 fit 状态，新拖拽或滚轮输入可立即接管。根会话时间轴最下端（x 坐标最大）的末节点承载运行控制：会话运行中显示“停止”，暂停且满足 `canResume`、并且没有未完成直接子会话时显示“运行”；点击分别复用 ChatSession 的 `abortAgent` 与 `resumeAgent`。系统请求减少动态效果时，复位直接完成，波前、尾焰和图标能量扫描停用，保留静态层级与状态可读性。
+
+真实数据下 assistant 消息的工具调用按响应批次聚合为单个 `tool-batch` 节点（排除 `spawn_role`——它由 spawn 分支线表达子 agent，重复会冲突）；同一批次内含多个工具调用时，在节点详情 popover 顶部以 tabs 按 `index` 切换，单工具直接展示，不拆分为独立节点。root 主 Agent 的工具链使用相邻 lane 分叉并回归；子 Agent 的提问、Todo、审批等工具节点在该子分支的同一 lane 内顺序排列，不再产生嵌套分叉。V2 提交先建立乐观 user 消息；assistant 节点只在 `turn.started` 建立，不伪造首个 delta 前的 AI 占位。运行节点与 CRT 读取同一 canonical message。每个 assistant `messageId` 对应一台 CRT；同一 chat 新节点出现时先创建新 CRT，再关闭上一台，并行子 Agent 各自保留独立 CRT。CRT 仅在根会话 `run.status==='running'`（实时）时产出流式卡，历史/暂停会话不弹；切换根会话时清空旧 cards，避免跨会话重滚闪现。CRT 卡片在右侧专属区斜向错落层叠（每张相对首张左偏并下移、z 序递增覆盖），保留拖拽；`.nyxus-branch-top` 右边界为 CRT 区预留 400px。CRT 的 thinking/output 块实时渲染安全 Markdown 与代码高亮，并在每次 DOM 更新后滚到底部。
+
+### Nexus 弹窗渲染主题
+
+节点树三类弹窗（hover 预览 popover / 常驻审批气泡 / 提问气泡）统一使用一套 CRT 终端风渲染主题，集中管理在独立的 [nyxusPopoverTheme.less](../../../web/src/features/pets/nyxus/styles/nyxusPopoverTheme.less)，由 `MessageBranchTree.vue` 的 `<style scoped lang="less">` 经 `@import` 引入。主题覆盖所有节点类型的弹窗内容：
+
+- **工具节点**：`SenseCallRenderer` 分发的全部专用渲染器（`CommandRenderer`/`SearchRenderer`/`SkillRenderer`/`FileReadRenderer`/`FileWriteRenderer`/`SpawnRenderer`/`MediaRenderer`/`QuestionRenderer`/`TodoRenderer`）与通用降级 `SenseCallBox`，统一复位其默认浅色卡片（去 `border`/白底/`border-radius`/`box-shadow`），内部 head/label/code 块/pre 块/toggle 折叠/copy-btn/彩色 badge/状态字形/输出区全部 CRT 化。
+- **审批气泡**：`ApprovalCard` + `ParsedArgs` 的参数行、按钮、徽章。
+- **提问气泡**：`QuestionCard` 的标题、选项卡、选择标记、自由输入（element-plus `el-textarea`）、操作按钮--从原蓝紫玻璃风改为 CRT 灰绿调，交互结构不变。
+- **消息节点 popover**：user 文本、assistant markdown（含 thinking 折叠--内容低于 5 行默认展开、streaming 占位、hljs 代码高亮）。user 正文中的 `[[command:/x]]` / `[[role:@x]]` token 经 `splitCommandPrompt`（与主聊天面 `MessageBubble` 同源）拆分后渲染为像素风 terminal 方括号 tag（`.nx-tag`）：方角 + 等宽 + 关闭字体平滑 + CRT text-shadow + 字符化 `[ ]` 括号定界，command 黄 `#ffe18b`、role 蓝 `#7da7ff`，括号半透明弱化突出值；其余纯文本仍走 `pre-wrap`。
+
+CRT 调色板：深灰绿底 `rgba(55,61,60,0.97)` + scanline 横纹 + 噪点 + 偏移 text-shadow，方角（容器 `border-radius:2px`、内部元素 `0`），等宽字体；浅灰绿字 `#d7dfd8`/`#cbd6cd`，代码块底 `rgba(0,0,0,0.4)`；语义色绿 `#5be5b0`（done/ok）、黄 `#ffe18b`（running/warn）、红 `#ff809b`（error/no）、蓝 `#7da7ff`、紫 `#c9b6ff`。button 为深底+浅边+浅字、hover 浅底；badge 为暗底+语义色字。
+
+popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/文件内容/技能内容/媒体提示词）默认全展开——`SenseCallRenderer` 透传 `defaultExpanded` prop，节点树 popover 传 `true`，主聊天面 `MessageBubble` 不传=默认收起不变。
+
+**约束**：基组件（`ApprovalCard`/`QuestionCard`/`ParsedArgs`/各 renderer/`SenseCallBox`）自身的浅色样式不动--它们仍服务主聊天面 `MessageBubble` 的暖米黄 `.bubble` 卡片。节点树只通过 `:deep()` 在 `.popover-tool`/`.approval-frame`/`.question-frame` 等组件内真实 class 下穿透覆写，不影响主界面。`:deep()` 均带父选择器以兼容 scoped + less `@import` 编译序（less 编译合并在前，Vue PostCSS scoped 识别 `:deep()` 在后）。
+
+### Nexus 钢琴键条（NexusPianoStrip）
+
+对话框底部边框线外挂的标准钢琴键盘（3 八度固定铺满，会话数超出可横向拖拽平移）。所有键点击都会发声并短暂高亮；只有存在会话摘要的键才切换活跃会话并保留选中态。hover 始终显示音名与 MIDI 编号，有首条用户消息时追加消息摘要，已有会话但无消息时追加“无消息”。运行中且有 pending 审批的键显示倒计时并闪烁（临近过期加速），时间标签使用高对比度样式。
+
+会话删除走拖拽二次确认（不开弹窗）：hover 可删键时该键下方显示「标签贴纸」icon（拖拽源，SVG 便利贴，非垃圾桶语义）；按住贴纸进入拖拽，弹窗右上角固定垃圾桶出现，其下 callout 标签「拖到此处删除该会话」仅为说明（不参与命中判定）；拖到垃圾桶 icon 上释放即触发 `agents.deleteSession`（后端 `destroyAgent` 级联后代 + 同步清 historyList/pets/streams），同时垃圾桶播倒掉动画（盖子翻开 + 桶身倾斜 + 内容倒出）。命中判定仅针对 trash icon 元素（`getBoundingClientRect` hit-test，callout 不算），拖拽幽灵只显贴纸本身、不带文本。运行中（`run.status==='running'`）或有 pending 审批的键不可删（贴纸不显示）。删的若是弹窗当前焦点会话，**先把焦点切到剩余 updatedAt 最近一条（无剩余则新建空会话兜底）再级联删除**——删除前切走焦点，避免 `removePetsAndStreams` 把 `activeDialogChatId` 清成 null 致 overlay `v-if` 失败重挂载（整弹窗闪烁）；删除完成后 `fetchHistoryList` 仅重赋 `historyList` 数组（纯数据响应式更新，键按 chatId 原地复用），弹窗不重挂载。
 
 ```text
 div.pet-wrap                                                            // 根容器（无 z-index/position → 不创建 stacking context，气泡 z-index 跨 pet 比较）

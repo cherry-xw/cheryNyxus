@@ -2,6 +2,7 @@ import type { WebSocket } from 'ws'
 import { randomUUID } from 'crypto'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
+import { getRootChatId } from '@/db/chat.js'
 
 /**
  * 待处理请求
@@ -13,6 +14,8 @@ interface PendingRequest {
 interface SessionSubscription {
   subscriptionId: string
   chatId: string
+  /** Present only for a root subscription; source events may come from descendants. */
+  rootChatId?: string
   connectionId: string
   status: 'opening' | 'open'
   boundarySeq: number
@@ -51,6 +54,9 @@ export class ConnectionManager {
   private liveOutputByChat = new Map<string, Set<WebSocket>>()
   /** V2 atomic chat subscriptions. A connection may open multiple chats. */
   private sessionSubscriptions = new Map<string, SessionSubscription>()
+  /** Roots explicitly unobserved by a connection. Their agents keep running,
+   * but heavy turn/chunk output is no longer routed to that view. */
+  private mutedRootsByConnection = new Map<string, Set<string>>()
   private readySessionBuffers = new Map<string, unknown[]>()
 
   /**
@@ -200,7 +206,11 @@ export class ConnectionManager {
     const ws = this.getWsByConnectionId(connectionId)
     if (!ws) throw new Error('连接丢了，请重连')
     for (const [id, existing] of this.sessionSubscriptions) {
-      if (existing.chatId === chatId && existing.connectionId === connectionId) {
+      if (
+        !existing.rootChatId &&
+        existing.chatId === chatId &&
+        existing.connectionId === connectionId
+      ) {
         this.sessionSubscriptions.delete(id)
         this.readySessionBuffers.delete(id)
       }
@@ -218,6 +228,31 @@ export class ConnectionManager {
     return subscriptionId
   }
 
+  /** Register a root tree subscription before its root event boundary is read. */
+  beginRootSessionOpen(rootChatId: string, connectionId: string): string {
+    const ws = this.getWsByConnectionId(connectionId)
+    if (!ws) throw new Error('连接丢了，请重连')
+    this.mutedRootsByConnection.get(connectionId)?.delete(rootChatId)
+    for (const [id, existing] of this.sessionSubscriptions) {
+      if (existing.rootChatId === rootChatId && existing.connectionId === connectionId) {
+        this.sessionSubscriptions.delete(id)
+        this.readySessionBuffers.delete(id)
+      }
+    }
+    const subscriptionId = randomUUID()
+    this.sessionSubscriptions.set(subscriptionId, {
+      subscriptionId,
+      chatId: rootChatId,
+      rootChatId,
+      connectionId,
+      status: 'opening',
+      boundarySeq: 0,
+      buffer: [],
+    })
+    this.subscribeChat(rootChatId, connectionId)
+    return subscriptionId
+  }
+
   /** Capture the per-chat event boundary after registration and before snapshot construction. */
   setSessionBoundary(subscriptionId: string, boundarySeq: number): void {
     const sub = this.sessionSubscriptions.get(subscriptionId)
@@ -229,7 +264,16 @@ export class ConnectionManager {
     const sub = this.sessionSubscriptions.get(subscriptionId)
     if (!sub) return []
     sub.status = 'open'
-    const buffered = sub.buffer.splice(0)
+    const buffered = sub.buffer.splice(0).filter((item) => {
+      if (!item || typeof item !== 'object') return false
+      const event = item as { eventSeq?: unknown; seq?: unknown; rootEventSeq?: unknown }
+      const seq = sub.rootChatId
+        ? event.rootEventSeq
+        : typeof event.eventSeq === 'number'
+          ? event.eventSeq
+          : event.seq
+      return typeof seq === 'number' && seq > sub.boundarySeq
+    })
     if (buffered.length > 0) this.readySessionBuffers.set(subscriptionId, buffered)
     return buffered
   }
@@ -242,18 +286,29 @@ export class ConnectionManager {
 
   getSessionSubscription(
     subscriptionId: string,
-  ): { chatId: string; connectionId: string } | undefined {
+  ): { chatId: string; rootChatId?: string; connectionId: string } | undefined {
     const sub = this.sessionSubscriptions.get(subscriptionId)
-    return sub ? { chatId: sub.chatId, connectionId: sub.connectionId } : undefined
+    return sub
+      ? {
+          chatId: sub.chatId,
+          ...(sub.rootChatId ? { rootChatId: sub.rootChatId } : {}),
+          connectionId: sub.connectionId,
+        }
+      : undefined
   }
 
   /** Explicitly close a V2 subscription. */
-  closeSession(subscriptionId: string): { chatId: string } | undefined {
+  closeSession(subscriptionId: string): { chatId: string; rootChatId?: string } | undefined {
     const sub = this.sessionSubscriptions.get(subscriptionId)
     if (!sub) return undefined
     this.sessionSubscriptions.delete(subscriptionId)
     this.readySessionBuffers.delete(subscriptionId)
-    return { chatId: sub.chatId }
+    if (sub.rootChatId) {
+      const muted = this.mutedRootsByConnection.get(sub.connectionId) ?? new Set<string>()
+      muted.add(sub.rootChatId)
+      this.mutedRootsByConnection.set(sub.connectionId, muted)
+    }
+    return { chatId: sub.chatId, ...(sub.rootChatId ? { rootChatId: sub.rootChatId } : {}) }
   }
 
   /**
@@ -263,23 +318,51 @@ export class ConnectionManager {
    */
   prepareSessionEvent(ws: WebSocket, item: unknown): unknown[] {
     if (!item || typeof item !== 'object') return [item]
-    const event = item as { chatId?: string; seq?: number; eventSeq?: number }
+    const event = item as {
+      chatId?: string
+      seq?: number
+      eventSeq?: number
+      rootChatId?: string
+      rootEventSeq?: number
+      sourceEventSeq?: number
+    }
     if (!event.chatId) return [item]
-    const subs = [...this.sessionSubscriptions.values()].filter(
-      (s) => s.chatId === event.chatId && s.connectionId === this.get(ws)?.id,
-    )
+    const matchingSubs = [...this.sessionSubscriptions.values()].filter((s) => {
+      if (s.connectionId !== this.get(ws)?.id) return false
+      return s.rootChatId ? s.rootChatId === event.rootChatId : s.chatId === event.chatId
+    })
+    const connectionId = this.get(ws)?.id
+    if (
+      matchingSubs.length === 0 &&
+      connectionId &&
+      event.rootChatId &&
+      this.mutedRootsByConnection.get(connectionId)?.has(event.rootChatId)
+    ) {
+      return []
+    }
+    // A root subscription is the authoritative superset for this connection.
+    // Emitting both root and direct envelopes repeats the same source chat/seq;
+    // the transport de-duplicates whichever arrives second and can therefore
+    // discard the root graph patch when the direct subscription was opened first.
+    const rootSubs = matchingSubs.filter((sub) => sub.rootChatId)
+    const subs = rootSubs.length > 0 ? rootSubs : matchingSubs
     if (subs.length === 0) return [item]
     const seq = event.eventSeq ?? event.seq
     const output: unknown[] = []
     for (const sub of subs) {
-      if (sub.status === 'opening' && typeof seq === 'number' && seq > sub.boundarySeq) {
+      const subscriptionSeq = sub.rootChatId ? event.rootEventSeq : seq
+      // The boundary is not authoritative until snapshot construction captures
+      // it. Buffer every sequenced event while opening; finishSessionOpen drops
+      // events covered by the snapshot and releases only events above the fence.
+      if (sub.status === 'opening' && typeof subscriptionSeq === 'number') {
         sub.buffer.push(item)
         continue
       }
       output.push({
         ...event,
         subscriptionId: sub.subscriptionId,
-        ...(typeof seq === 'number' ? { eventSeq: seq } : {}),
+        ...(typeof subscriptionSeq === 'number' ? { eventSeq: subscriptionSeq } : {}),
+        ...(sub.rootChatId && typeof seq === 'number' ? { sourceEventSeq: seq } : {}),
       })
     }
     return output
@@ -296,6 +379,21 @@ export class ConnectionManager {
     const targets = new Set<WebSocket>()
     for (const ws of this.liveOutputByChat.get(chatId) ?? []) {
       if (ws.readyState === ws.OPEN) targets.add(ws)
+    }
+    // A root subscriber must receive events from every descendant, including
+    // children created after the root subscription was opened.
+    let rootChatId: string | undefined
+    try {
+      rootChatId = getRootChatId(chatId)
+    } catch {
+      // Deletion can race connection cleanup. Direct subscribers collected
+      // above remain valid for this dispatch; there is no root tree to expand.
+      rootChatId = undefined
+    }
+    for (const sub of this.sessionSubscriptions.values()) {
+      if (!rootChatId || sub.rootChatId !== rootChatId) continue
+      const ws = this.getWsByConnectionId(sub.connectionId)
+      if (ws && ws.readyState === ws.OPEN) targets.add(ws)
     }
     if (fallbackWs && fallbackWs.readyState === fallbackWs.OPEN) targets.add(fallbackWs)
     return [...targets]
@@ -342,6 +440,7 @@ export class ConnectionManager {
     for (const [id, sub] of this.sessionSubscriptions) {
       if (sub.connectionId === state.id) this.sessionSubscriptions.delete(id)
     }
+    this.mutedRootsByConnection.delete(state.id)
 
     this.connections.delete(ws)
   }

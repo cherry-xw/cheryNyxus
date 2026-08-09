@@ -10,6 +10,7 @@ import {
   nyxusChromaticStrength,
   nyxusCloudColor,
   nyxusCosmicTransitionStrength,
+  nyxusBinaryGeometry,
   nyxusParticleCoreRadius,
   nyxusParticleHaloRadius,
   nyxusStarColor,
@@ -41,8 +42,6 @@ export function createNyxusRenderer(): NyxusRenderer {
   let shadowContext: CanvasRenderingContext2D | null = null
   let nebulaCanvas: HTMLCanvasElement | undefined
   let nebulaContext: CanvasRenderingContext2D | null = null
-  let lastContentPulse = 0
-  let contentPulseStartedAt = Number.NEGATIVE_INFINITY
 
   function colorWithAlpha(hex: string, alpha: number): string {
     const normalized = hex.replace('#', '')
@@ -283,14 +282,17 @@ export function createNyxusRenderer(): NyxusRenderer {
       if (foregroundOnly && !isBlackHoleForeground(particle, input)) continue
       const color = nyxusCloudColor(particle, input.time, gathering)
       const normalizedDistance = clamp(Math.hypot(particle.x, particle.y) / (input.size * 0.42), 0, 1)
-      const radius = input.size * (0.17 + particle.size * 0.11 + normalizedDistance * 0.055)
+      // 云斑必须窄于旋臂间距，否则目标场虽有旋臂，合成后仍会被填回均匀圆盘。
+      const radius = input.size * (0.075 + particle.size * 0.055 + normalizedDistance * 0.025)
       const pulse = 0.78 + Math.sin(input.time * 0.22 + particle.phase) * 0.14
       const centerDensity = 1 - clamp(Math.hypot(particle.x, particle.y) / (input.size * 0.38), 0, 1)
       const centerFade = 0.1 + (1 - centerDensity) * 0.9
       const colorLift = 0.9 + gathering * 0.2
       const spreadShade = 0.82 + (1 - gathering) * 0.14
-      const armDensity = 0.78 + smoothstep(0.12, 0.82, particle.radius) * 0.22
-      context.globalAlpha = pulse * colorLift * spreadShade * centerFade * armDensity * 0.12
+      const branch = Math.floor(particle.galaxyArm / 2)
+      const branchDensity = branch === 0 ? 1 : branch === 1 ? 0.72 : 0.56
+      const armDensity = (0.78 + smoothstep(0.12, 0.82, particle.radius) * 0.22) * branchDensity
+      context.globalAlpha = pulse * colorLift * spreadShade * centerFade * armDensity * 0.15
       const cloudGlow = glowTexture(color)
       context.drawImage(cloudGlow, particle.x - radius, particle.y - radius, radius * 2, radius * 2)
     }
@@ -326,8 +328,9 @@ export function createNyxusRenderer(): NyxusRenderer {
     // 黑洞是断连时唯一的中心焦点，在线状态点不再与暗核竞争注意力。
     if (input.serviceState === 'disconnected') return
     // 双星及并合形态有自身双心结构；状态点复用形态过渡曲线渐隐/渐显，避免切换时闪断。
-    const binaryOpacity =
-      input.cosmicMode === 'binary' || input.cosmicMode === 'merger'
+    const binaryOpacity = input.cosmicMode === 'binary'
+      ? 1 - nyxusBinaryGeometry(input).displayStrength
+      : input.cosmicMode === 'merger'
         ? 1 - nyxusCosmicTransitionStrength(input.cosmicProgress)
         : 1
     if (binaryOpacity <= 0.01) return
@@ -356,66 +359,35 @@ export function createNyxusRenderer(): NyxusRenderer {
     context.fill()
   }
 
-  /** 围绕同一暖核的共享轨道层：由真实运行态改变节奏，不新增文字或状态栏。 */
-  function renderOperationalRings(
-    context: CanvasRenderingContext2D,
-    input: NyxusParticleInput,
-    tone: ReturnType<typeof toneForNyxus>,
-  ): void {
-    if (input.serviceState === 'disconnected') return
-    if (input.contentPulse !== lastContentPulse) {
-      lastContentPulse = input.contentPulse
-      contentPulseStartedAt = input.time
-    }
+  /** binary 的两个核心与目标场共用中心轨迹；核心只在双盘实际成形时出现。 */
+  function renderBinaryCores(context: CanvasRenderingContext2D, input: NyxusParticleInput): void {
+    if (input.cosmicMode !== 'binary') return
+    const geometry = nyxusBinaryGeometry(input)
+    if (geometry.displayStrength <= 0.01) return
+    const glow = glowTexture('#ffd7ae')
 
-    const activity = input.activity
-    const ringCount = activity === 'toolRunning' ? Math.min(3, Math.max(1, input.runningToolCount)) : activity === 'error' ? 1 : 2
-    const speed =
-      activity === 'waitingForUser' ? 0 : activity === 'thinking' ? -0.11 : activity === 'toolRunning' ? 0.22 : 0.09
-    const inward = activity === 'thinking' ? 0.86 : 1
-    const gap = activity === 'waitingForUser' ? 0.5 : activity === 'error' ? 0.28 : 0.12
-    const ringColor = activity === 'error' ? '#7b587f' : tone.accent
-
-    context.save()
-    context.globalCompositeOperation = 'lighter'
-    context.lineCap = 'round'
-    for (let index = 0; index < ringCount; index += 1) {
-      const radius = input.size * (0.115 + index * 0.055) * inward
-      const rotation = input.time * speed * (index % 2 === 0 ? 1 : -0.78) + index * 1.28
+    for (let index = 0; index < geometry.displayCenters.length; index += 1) {
+      const center = geometry.displayCenters[index]!
+      const scale = geometry.coreScales[index]!
+      const haloRadius = input.size * 0.082 * scale
       context.save()
-      context.rotate(rotation)
-      context.scale(1, 0.56 + index * 0.1)
-      context.strokeStyle = ringColor
-      context.lineWidth = Math.max(0.55, input.size * 0.008)
-      context.globalAlpha = 0.085 + (activity === 'toolRunning' ? 0.04 : 0)
+      context.globalCompositeOperation = 'lighter'
+      context.globalAlpha = geometry.displayStrength * 0.42
+      context.drawImage(
+        glow,
+        center.x - haloRadius,
+        center.y - haloRadius,
+        haloRadius * 2,
+        haloRadius * 2,
+      )
+      context.globalCompositeOperation = 'source-over'
+      context.globalAlpha = geometry.displayStrength * 0.94
+      context.fillStyle = '#fffaf2'
       context.beginPath()
-      context.arc(0, 0, radius, gap, Math.PI * 2 - gap)
-      context.stroke()
+      context.arc(center.x, center.y, Math.max(0.8, 1.25 * scale), 0, Math.PI * 2)
+      context.fill()
       context.restore()
-
-      if (activity === 'toolRunning') {
-        const angle = input.time * (0.82 + index * 0.18) + index * 2.1
-        const x = Math.cos(angle) * radius
-        const y = Math.sin(angle) * radius * (0.56 + index * 0.1)
-        const beacon = glowTexture(index % 2 === 0 ? '#7bdfff' : '#cf8dff')
-        const beaconRadius = input.size * 0.045
-        context.globalAlpha = 0.2
-        context.drawImage(beacon, x - beaconRadius, y - beaconRadius, beaconRadius * 2, beaconRadius * 2)
-      }
     }
-
-    const pulseAge = input.time - contentPulseStartedAt
-    if (activity === 'responding' && pulseAge >= 0 && pulseAge < 1.9) {
-      const progress = pulseAge / 1.9
-      const radius = input.size * (0.12 + progress * 0.34)
-      context.strokeStyle = '#9bc9ff'
-      context.lineWidth = Math.max(0.45, input.size * 0.006)
-      context.globalAlpha = (1 - progress) * 0.16
-      context.beginPath()
-      context.ellipse(0, 0, radius, radius * 0.62, input.time * 0.12, 0, Math.PI * 2)
-      context.stroke()
-    }
-    context.restore()
   }
 
   /** 鼠标手势与普通 Pet 关联只叠加低亮局部痕迹，不改变粒子目标或闲置形态。 */
@@ -546,7 +518,6 @@ export function createNyxusRenderer(): NyxusRenderer {
 
     context.save()
     context.translate(extent / 2, extent / 2)
-    renderOperationalRings(context, input, tone)
     renderInteractionAccents(context, input)
 
     for (let brightness = 0; brightness <= 1; brightness += 1) {
@@ -657,6 +628,8 @@ export function createNyxusRenderer(): NyxusRenderer {
       context.fill()
       context.beginPath()
     }
+    // 双核心在星点之后收尾，避免小尺寸下被普通粒子覆盖而失去辨识度。
+    renderBinaryCores(context, input)
     if (input.serviceState === 'disconnected') {
       // 前景云沿星盘局部下方的下凸弧切入事件视界，端点落在圆周两侧。
       context.save()

@@ -16,7 +16,6 @@ import {
   renameSync,
   rmSync,
   mkdirSync,
-  statSync,
   type Dirent,
 } from 'fs'
 import { join, resolve, basename, posix } from 'path'
@@ -303,13 +302,4 @@ export function skillDirExists(name: string): boolean {
 /** 判断 plugins_dir/<name> 是否已存在（冲突检测）。 */
 export function pluginDirExists(name: string): boolean {
   return existsSync(join(pluginsDir(), name))
-}
-
-/** stat 兜底：目录是否存在且是目录。 */
-export function isDir(p: string): boolean {
-  try {
-    return statSync(p).isDirectory()
-  } catch {
-    return false
-  }
 }

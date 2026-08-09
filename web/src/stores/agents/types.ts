@@ -5,7 +5,7 @@
  * - store 内部协议：StreamChunkData / StagedChunkData / ChunkMessage / NotificationMessage
  */
 
-import type { RuntimeSelection } from '@/services/agentApi'
+import type { RuntimeSelection, TerminationFact } from '@/services/agentApi'
 
 /** 消息内嵌媒体引用（从 content/result 解析 `/api/media/` URL）。 */
 export interface MediaAssetRef {
@@ -90,6 +90,8 @@ export interface HistoryItem {
   contextCompaction?: boolean
   /** 该次压缩释放的估算 token 数，用于历史分割线提示。 */
   contextCompactionTokens?: number
+  /** Structured terminal annotation shared by history and the execution tree. */
+  termination?: TerminationFact
 }
 
 /** 当前 chat 的待审批（interrupt 写入；accept/rejected/超时/新轮清空；submit 后 dismissApproval 立即清）。 */
@@ -264,6 +266,12 @@ export interface ChunkMessage {
   chatId?: string
   /** 事件所属 send/resume 运行。 */
   runId?: string
+  seq?: number
+  eventSeq?: number
+  subscriptionId?: string
+  rootChatId?: string
+  rootEventSeq?: number
+  sourceEventSeq?: number
   data?: StreamChunkData | StagedChunkData
 }
 
@@ -275,5 +283,11 @@ export interface NotificationMessage {
   chatId?: string
   /** 事件所属 send/resume 运行。 */
   runId?: string
+  seq?: number
+  eventSeq?: number
+  subscriptionId?: string
+  rootChatId?: string
+  rootEventSeq?: number
+  sourceEventSeq?: number
   data?: unknown
 }

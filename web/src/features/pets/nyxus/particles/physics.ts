@@ -17,6 +17,8 @@ const COSMIC_MODE_DURATION: Record<NyxusCosmicMode, number> = {
   binary: 80,
   supernova: 64,
   tidalRings: 72,
+  singleRing: 72,
+  multiRing: 72,
   barredSpiral: 72,
   inclinedDisk: 72,
   merger: 80,
@@ -33,6 +35,13 @@ export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusPar
     const initialDistance = radius * 46
     const x = Math.cos(angle) * initialDistance + (random() - 0.5) * 12
     const y = Math.sin(angle) * initialDistance + (random() - 0.5) * 12
+    const armRoll = random()
+    const galaxyArm =
+      armRoll < 0.62
+        ? Math.floor(random() * 2)
+        : armRoll < 0.86
+          ? 2 + Math.floor(random() * 2)
+          : 4 + Math.floor(random() * 2)
     return {
       x,
       y,
@@ -49,7 +58,8 @@ export function createNyxusParticles(count: number, seed = 0x4e797875): NyxusPar
       armRank: random(),
       armT: random(),
       armSlot: Math.floor(random() * 3),
-      galaxyArm: Math.floor(random() * 6),
+      // 0/1 是双主臂，2–5 是从外盘分出的两级弱支臂。
+      galaxyArm,
       noise: random() * 2 - 1,
       orbit: 0.35 + random() * 0.9,
       explosionT: 0,

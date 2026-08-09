@@ -24,7 +24,12 @@ import { wsClient } from '@/services/ws'
 import { createUiState } from './ui/uiState'
 import { createApprovalActions } from './actions/approvalActions'
 import { createQuestionActions } from './actions/questionActions'
-import { CHERY_NYXUS_PRESET, createPetLifecycle, turnChildIntoGhost } from './data/petLifecycle'
+import {
+  CHERY_NYXUS_PRESET,
+  createPetLifecycle,
+  selectRefreshRecoveryChats,
+  turnChildIntoGhost,
+} from './data/petLifecycle'
 import {
   createStreamRouter,
   ensureStream as _ensureStream,
@@ -515,8 +520,8 @@ export const useAgentsStore = defineStore('agents', () => {
     // F5 重连运行中 run 的实时流：先 attach（开启后端输出重定向）→ 再 syncChatEvents（'resume' 回放补齐当前实时态）。
     // 顺序关键：attach 在 sync 之前，断连窗口后续实时事件由 sync 推进 cursor 后 drainChatEvents 连续补放。
     await attachRunningChats(chats)
-    // F5 是新的浏览器进程，尚无 seq cursor；从持久事件/任务快照补回
-    // role_created，避免仅靠 chat.list 发现子 chat 后却没有启动任务。
+    // F5 是新的浏览器进程，尚无 seq cursor；只恢复当前舞台上的普通 Pet。
+    // Nexus 及其后代由用户打开具体 root 后通过 root timeline 原子恢复。
     await syncChatEvents()
 
     // 初始载入 contextUsage（ContextBar 渲染用）。
@@ -541,23 +546,6 @@ export const useAgentsStore = defineStore('agents', () => {
       ),
     ).catch(() => {})
 
-    // 主动预加载历史（drawer 打开零 RPC 命中缓存）：
-    // top-5 master + 全部后代 chat 并行 getHistory。
-    // 不阻塞初始化（fire-and-forget）；失败不报错（drawer 打开会兜底重取）。
-    const preloadTargets = new Set<string>()
-    for (const m of topMasters) {
-      preloadTargets.add(m.chatId)
-      // collectDescendantChatIds 含直接子 + 孙子（递归）
-      for (const childId of collectDescendantChatIds(chats, m.chatId)) {
-        preloadTargets.add(childId)
-      }
-    }
-    console.log('[agents] initFromChats: 预加载历史', { count: preloadTargets.size })
-    Promise.all(
-      [...preloadTargets].map((id) =>
-        getHistory(id).catch((e) => console.warn(`[agents] 预加载历史失败 ${id}:`, e)),
-      ),
-    ).catch(() => {})
   }
 
   /**
@@ -569,8 +557,12 @@ export const useAgentsStore = defineStore('agents', () => {
    * 同页瞬断重连不走此路径（ws.ts 复用原 requestId 触发后端 active-join 重定向）。
    */
   async function attachRunningChats(chats: ChatSummary[]): Promise<void> {
+    const recoveryChats = selectRefreshRecoveryChats(
+      chats,
+      new Set(pets.value.map((pet) => pet.chatId)),
+    )
     await Promise.all(
-      chats
+      recoveryChats
         // attach 同时登记服务端订阅；idle 主 chat 也必须登记，才能在子完成后
         // 收到 role_reply / child_abandoned。running chat 另行接收实时 stream。
         .filter((c) => !c.finished)
@@ -1038,12 +1030,16 @@ export const useAgentsStore = defineStore('agents', () => {
   async function syncChatEvents(): Promise<void> {
     const chats = await agentApi.listChats()
     allChatsCache.value = chats
+    const recoveryChats = selectRefreshRecoveryChats(
+      chats,
+      new Set(pets.value.map((pet) => pet.chatId)),
+    )
     await Promise.all(
-      chats.map(async (chat) => {
-        // A non-finished visible chat can still emit while this initial sync is
+      recoveryChats.map(async (chat) => {
+        // A non-finished visible chat can still emit while this recovery is
         // running. Obtain a fresh attach snapshot first so sync has a stable
-        // per-chat fence; finished/unrendered chats have no live UI race.
-        if (!chat.finished && pets.value.some((pet) => pet.chatId === chat.chatId)) {
+        // per-chat fence.
+        if (!chat.finished) {
           try {
             const res = await agentApi.attachChat(chat.chatId)
             wsClient.beginChatReplay(chat.chatId, res.snapshotSeq)
@@ -1066,7 +1062,7 @@ export const useAgentsStore = defineStore('agents', () => {
     // role_created 已落库、但 eager launcher 尚未把子 chat 标为 running 时，首轮
     // attachRunningChats 看不到它。给这类已展示的子 pet 保留恢复任务；真正运行后
     // 任务只 attach，不会再次 startSpawn 或重复执行子任务。
-    for (const chat of chats) {
+    for (const chat of recoveryChats) {
       const waitingForEagerStart =
         !!chat.parentChatId &&
         !chat.finished &&

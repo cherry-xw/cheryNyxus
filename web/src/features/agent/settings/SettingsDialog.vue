@@ -23,6 +23,7 @@ import {
 } from '@/services/agentApi'
 import { wsClient } from '@/services/ws'
 import { TABS, HINT_LINES, INDEX_COUNT, SETTINGS_ACTIVE_TAB_KEY, type TabKey } from './config/constants'
+import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
 import MediaTab from './tabs/config/MediaTab.vue'
 import SensesTab from './tabs/tools/SensesTab.vue'
@@ -463,6 +464,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
       v-if="agents.settingsOpen"
       key="overlay"
       class="settings-overlay"
+      :style="{ zIndex: OVERLAY_Z_INDEX.modal }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"

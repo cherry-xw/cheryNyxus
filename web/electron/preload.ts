@@ -3,11 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 interface DesktopPetCandidate {
   chatId: string
   label: string
-  action: string
-  mood: string
   working: boolean
-  speech: string
-  activity: number
 }
 
 /**
@@ -52,12 +48,7 @@ const desktopPetBridge = {
   onState: (listener: (candidate: DesktopPetCandidate | null) => void) =>
     subscribe('desktop-pet:state', listener),
   onOpenChat: (listener: (chatId: string) => void) => subscribe('desktop-pet:open-chat', listener),
-  onOpenHistory: (listener: (chatId: string) => void) =>
-    subscribe('desktop-pet:open-history', listener),
   openChat: (chatId: string) => ipcRenderer.send('desktop-pet:request-open-chat', chatId),
-  showContextMenu: (chatId: string) => ipcRenderer.send('desktop-pet:context-menu', chatId),
-  moveWindow: (position: { x: number; y: number }) =>
-    ipcRenderer.send('desktop-pet:move', position),
   setMousePassthrough: (ignore: boolean) =>
     ipcRenderer.send('desktop-pet:mouse-passthrough', ignore),
 }

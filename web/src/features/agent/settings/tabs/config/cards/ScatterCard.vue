@@ -27,10 +27,11 @@ if (!scatter) {
 }
 
 /** 合并散落定位样式 + 装饰载流（颜色 / 圆角）。 */
-const sectionStyle = computed(() => [
-  { '--block-neon': props.accent, 'border-radius': props.radius },
-  scatter.cardStyle(props.anchor),
-])
+const sectionStyle = computed(() => ({
+  ...scatter.cardStyle(props.anchor),
+  '--block-neon': props.accent,
+  ...(props.radius ? { borderRadius: props.radius } : {}),
+}))
 </script>
 
 <template>

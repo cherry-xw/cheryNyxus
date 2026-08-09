@@ -47,11 +47,13 @@ export const SenseCallRenderer = defineComponent({
   props: {
     call: { type: Object as PropType<SenseCallRecord>, required: true },
     id: { type: String, required: false },
+    defaultExpanded: { type: Boolean, required: false },
   },
   setup(props) {
     // 快速路径：未注册工具直接用通用渲染器（避免异步开销）
     if (!hasRenderer(props.call.name)) {
-      return () => h(SenseCallBox, { call: props.call, id: props.id })
+      return () =>
+        h(SenseCallBox, { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded })
     }
 
     // 注册工具：异步加载专用渲染器
@@ -65,7 +67,8 @@ export const SenseCallRenderer = defineComponent({
       delay: 0, // 立即显示 loading
     })
 
-    return () => h(asyncComponent, { call: props.call, id: props.id })
+    return () =>
+      h(asyncComponent, { call: props.call, id: props.id, defaultExpanded: props.defaultExpanded })
   },
 })
 

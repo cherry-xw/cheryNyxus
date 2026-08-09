@@ -45,6 +45,20 @@ const COSMIC_MODE_TONES: Record<NyxusCosmicMode, NyxusTone> = {
     accent: '#8eafe0',
     spark: '#f2edef',
   },
+  singleRing: {
+    core: '#302d50',
+    dust: '#9caee0',
+    star: '#f3dfc7',
+    accent: '#739be8',
+    spark: '#dcecff',
+  },
+  multiRing: {
+    core: '#30284f',
+    dust: '#aaa0dc',
+    star: '#f2d5c8',
+    accent: '#967fe2',
+    spark: '#e4eaff',
+  },
   barredSpiral: {
     core: '#302b4f',
     dust: '#a6a8d5',
@@ -101,15 +115,6 @@ export function toneForNyxus(input: NyxusParticleInput): NyxusTone {
       star: '#ffc9bd',
       accent: '#b9aaad',
       spark: '#eee8e6',
-    }
-  }
-  if (input.working || input.action === 'chatting') {
-    return {
-      core: '#30324a',
-      dust: '#adb8d0',
-      star: '#d9e9ff',
-      accent: '#afc2c3',
-      spark: '#f1ecee',
     }
   }
   if (!input.cosmicMode) return NEBULA_TONE

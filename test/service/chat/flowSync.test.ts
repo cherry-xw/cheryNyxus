@@ -6,10 +6,21 @@
  */
 import { randomUUID } from 'crypto'
 import { afterEach, describe, expect, it } from 'vitest'
-import { addMessage, createChat, deleteChat, getChat, getMessages } from '@/db/chat.js'
+import { addMessage, createChat, deleteChat, getChat } from '@/db/chat.js'
 import { getMonthlyDb } from '@/db/index.js'
-import { appendChatEvent } from '@/db/delivery.js'
-import { handleChatSync, messagesToStagedEvents } from '@/service/chat/handler.js'
+import { appendChatEvent, getChatEvents, getRootEvents } from '@/db/delivery.js'
+import {
+  buildActiveTurns,
+  buildRootTimeline,
+  handleChatSync,
+  messagesToStagedEvents,
+} from '@/service/chat/handler.js'
+import {
+  activateChatRun,
+  clearChatRuntime,
+  ensureChat,
+  releaseChatRun,
+} from '@/service/chat/runtime.js'
 import type { HandlerContext } from '@/service/message/router.js'
 import type { Chunk, Notification } from '@/service/message/types.js'
 
@@ -74,6 +85,115 @@ describe('chat.sync 非超窗（单一水源）', () => {
   })
 })
 
+describe('root event journal', () => {
+  it('空 journal 的实际水位为 0，不回显查询游标', () => {
+    const rootChatId = randomUUID()
+    cleanup.push(rootChatId)
+    createChat(rootChatId)
+
+    expect(getChatEvents(rootChatId, Number.MAX_SAFE_INTEGER)).toMatchObject({
+      events: [],
+      latestSeq: 0,
+      reset: false,
+    })
+    expect(getRootEvents(rootChatId, Number.MAX_SAFE_INTEGER)).toMatchObject({
+      events: [],
+      latestSeq: 0,
+      reset: false,
+    })
+  })
+
+  it('子 chat 事件进入祖先 root 的单调事件流', () => {
+    const rootChatId = randomUUID()
+    const childChatId = randomUUID()
+    cleanup.push(childChatId, rootChatId)
+    createChat(rootChatId)
+    createChat(childChatId, {}, rootChatId)
+    appendChatEvent(rootChatId, {
+      kind: 'notification',
+      type: 'root',
+      data: {},
+      chatId: rootChatId,
+    })
+    appendChatEvent(childChatId, {
+      kind: 'notification',
+      type: 'child',
+      data: {},
+      chatId: childChatId,
+    })
+
+    const page = getRootEvents(rootChatId, 0)
+    expect(page.reset).toBe(false)
+    expect(page.events).toHaveLength(2)
+    expect(page.events.map((event) => event.rootEventSeq)).toEqual([1, 2])
+    expect(page.events.map((event) => event.sourceChatId)).toEqual([rootChatId, childChatId])
+    expect(buildRootTimeline(rootChatId, 'tree').capturedEventSeq).toBe(2)
+  })
+})
+
+describe('active turn snapshot recovery', () => {
+  it('以 V2 turn 生命周期恢复 CRT 状态且不重复累积 legacy stream', async () => {
+    const chatId = randomUUID()
+    const runId = randomUUID()
+    cleanup.push(chatId)
+    createChat(chatId)
+    await ensureChat(chatId)
+    activateChatRun(chatId, runId)
+    try {
+      appendChatEvent(chatId, {
+        kind: 'notification',
+        type: 'turn.started',
+        chatId,
+        runId,
+        data: { turnId: 'turn-1', messageId: 'message-1', runId, createdAt: 100 },
+      })
+      appendChatEvent(chatId, {
+        kind: 'chunk',
+        type: 'stream',
+        requestId: runId,
+        chatId,
+        runId,
+        data: { msgId: 'message-1', createdAt: 100, content: 'A' },
+      })
+      appendChatEvent(chatId, {
+        kind: 'notification',
+        type: 'turn.delta',
+        chatId,
+        runId,
+        data: {
+          turnId: 'turn-1',
+          messageId: 'message-1',
+          channel: 'content',
+          offset: 0,
+          delta: 'A',
+        },
+      })
+
+      expect(buildActiveTurns(chatId)).toEqual([
+        expect.objectContaining({
+          turnId: 'turn-1',
+          runId,
+          messageId: 'message-1',
+          content: 'A',
+          nextContentOffset: 1,
+        }),
+      ])
+
+      appendChatEvent(chatId, {
+        kind: 'notification',
+        type: 'turn.completed',
+        chatId,
+        runId,
+        data: { turnId: 'turn-1', messageId: 'message-1' },
+      })
+      expect(buildActiveTurns(chatId)).toEqual([])
+    } finally {
+      releaseChatRun(chatId, runId)
+      clearChatRuntime(chatId)
+    }
+  })
+})
+
 describe('chat.sync 超窗回填（G3）', () => {
   it('强制淘汰旧事件 → 回填合成旧消息 + 留存近期，按 msgId 去重', async () => {
     const chatId = randomUUID()
@@ -93,7 +213,9 @@ describe('chat.sync 超窗回填（G3）', () => {
     })
     // 强制淘汰 seq1, seq2（模拟超窗）→ minSeq=3
     const month = getChat(chatId)!.messages_month
-    getMonthlyDb(month).prepare('DELETE FROM chat_events WHERE chat_id = ? AND chat_seq < 3').run(chatId)
+    getMonthlyDb(month)
+      .prepare('DELETE FROM chat_events WHERE chat_id = ? AND chat_seq < 3')
+      .run(chatId)
 
     const { events, response } = await drainSync(chatId, 0)
     const res = response as { reset: boolean; backfilled?: boolean; currentState: unknown }

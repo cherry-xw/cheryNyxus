@@ -82,11 +82,6 @@ export function loadModelThinking(): ModelThinkingConfig {
   }
 }
 
-/** 重置缓存（供测试 / 热更场景）。 */
-export function resetModelThinkingCache(): void {
-  cached = undefined
-}
-
 /**
  * 按 model 名查档位（按 YAML 文件原顺序原样返回）。
  * 匹配顺序：精确（aliases 含完整 model） → 最长前缀（aliases 中作为 model 前缀）→ 通配 `*` → 兜底。

@@ -512,11 +512,11 @@ export function createStreamRouter(
     }
     // 幂等：pet 已存在 = 本事件已处理过
     if (pets.value.some((p) => p.chatId === data.chatId)) return
+    // nexus 多会话下父会话（nyxus 独立核心）脱离 pets[] 是常态；子 Agent 渲染走
+    // ChatSession catalog（handleRoleCreated 已独立 ensureEntity + openSession），不依赖 master pet。
+    // legacy 场景（父是 pet）仍走下方建 pet；此处仅跳过 pet 创建，不阻断 catalog 路径。
     const master = pets.value.find((p) => p.chatId === data.parentChatId)
-    if (!master) {
-      console.warn('[agents] role_created: 主 pet 未找到', data.parentChatId)
-      return
-    }
+    if (!master) return
     // Event replay is normal after reconnect: create visual state once, then
     // let the server-side task claim decide whether any child work starts.
     const bounds = defaultBounds()

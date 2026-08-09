@@ -76,7 +76,14 @@ export function useStandaloneNyxusMotion(
   let resumeAt = 0
   let longPressTimer: ReturnType<typeof setTimeout> | undefined
   let down:
-    | { pointerId: number; clientX: number; clientY: number; offsetX: number; offsetY: number }
+    | {
+        pointerId: number
+        clientX: number
+        clientY: number
+        offsetX: number
+        offsetY: number
+        element: HTMLElement
+      }
     | undefined
   let suppressClick = false
 
@@ -174,28 +181,33 @@ export function useStandaloneNyxusMotion(
     pointer = { x: event.clientX, y: event.clientY }
   }
 
-  function beginDrag(event: PointerEvent): void {
+  function beginDrag(): void {
     if (!down || dragging.value) return
     dragging.value = true
     velocityX = 0
     velocityY = 0
     onDragStart?.()
-    const element = event.currentTarget as HTMLElement
-    if (!element.hasPointerCapture(event.pointerId)) element.setPointerCapture(event.pointerId)
+    // 长按计时器触发时 Event.currentTarget 已被浏览器清空，必须使用 pointerdown 时保存的元素。
+    if (!down.element.hasPointerCapture(down.pointerId))
+      down.element.setPointerCapture(down.pointerId)
   }
 
   function onPointerDown(event: PointerEvent): void {
     if (event.button !== 0 || !active()) return
+    const element = event.currentTarget
+    if (!(element instanceof HTMLElement)) return
+    event.preventDefault()
     down = {
       pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
       offsetX: position.x - event.clientX,
       offsetY: position.y - event.clientY,
+      element,
     }
     longPressTimer = setTimeout(() => {
       longPressTimer = undefined
-      beginDrag(event)
+      beginDrag()
     }, LONG_PRESS_MS)
   }
 
@@ -207,7 +219,7 @@ export function useStandaloneNyxusMotion(
     ) {
       if (longPressTimer) clearTimeout(longPressTimer)
       longPressTimer = undefined
-      beginDrag(event)
+      beginDrag()
     }
     if (!dragging.value) return
     position.x = event.clientX + down.offsetX
@@ -219,8 +231,8 @@ export function useStandaloneNyxusMotion(
     if (longPressTimer) clearTimeout(longPressTimer)
     longPressTimer = undefined
     if (!down || down.pointerId !== event.pointerId) return
-    const element = event.currentTarget as HTMLElement
-    if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId)
+    if (down.element.hasPointerCapture(event.pointerId))
+      down.element.releasePointerCapture(event.pointerId)
     if (dragging.value) {
       suppressClick = true
       dragging.value = false

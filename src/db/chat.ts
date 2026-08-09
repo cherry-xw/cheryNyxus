@@ -46,6 +46,7 @@ export interface MessageData {
   /** Anthropic 扩展：thinking 完整块（含 signature）；JSON 列反序列化 */
   thinkingBlocks?: ThinkingBlock[]
   senseCall?: Array<{
+    index?: number
     id: string
     name: string
     arguments: string
@@ -84,6 +85,7 @@ export interface MessageLinkData {
   spawnId?: string
   spawnCallId?: string
   relatedMessageId?: string
+  causationNodeId?: string
   relation: MessageLinkRelation
 }
 
@@ -242,15 +244,6 @@ export function listAllChats(): ChatRow[] {
   const db = getSoulDb()
   const stmt = db.prepare('SELECT * FROM chats ORDER BY updated_at DESC')
   return stmt.all() as ChatRow[]
-}
-
-/**
- * 更新聊天时间戳
- */
-export function updateChat(chatId: string): void {
-  const db = getSoulDb()
-  const result = db.prepare('UPDATE chats SET updated_at = ? WHERE id = ?').run(Date.now(), chatId)
-  assertChanged(result, `updateChat(${chatId})`)
 }
 
 /** Return the current authoritative timeline revision for a chat. */
@@ -453,6 +446,7 @@ export function deleteChat(chatId: string): void {
   const chat = chatStmt.get(chatId) as { messages_month: string } | undefined
 
   if (!chat) return
+  const executionRootId = getRootChat(chatId).id
 
   // 2. 先删 messages（跨库），finally 删 chat 行避免中途崩溃留孤儿 chat 指向空库
   try {
@@ -470,6 +464,23 @@ export function deleteChat(chatId: string): void {
     })
     clear()
   } finally {
+    soulDb
+      .prepare(
+        'DELETE FROM execution_edges WHERE root_chat_id = ? AND (? = ? OR from_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?) OR to_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?))',
+      )
+      .run(executionRootId, chatId, executionRootId, chatId, chatId)
+    soulDb
+      .prepare(
+        'DELETE FROM execution_nodes WHERE root_chat_id = ? AND (? = ? OR source_chat_id = ?)',
+      )
+      .run(executionRootId, chatId, executionRootId, chatId)
+    soulDb.prepare('DELETE FROM execution_active_runs WHERE chat_id = ?').run(chatId)
+    if (chatId === executionRootId) {
+      soulDb.prepare('DELETE FROM tool_call_owners WHERE root_chat_id = ?').run(executionRootId)
+      soulDb
+        .prepare('DELETE FROM execution_graph_counters WHERE root_chat_id = ?')
+        .run(executionRootId)
+    }
     soulDb
       .prepare(
         'DELETE FROM message_links WHERE source_chat_id = ? OR root_chat_id = ? OR parent_chat_id = ?',
@@ -706,6 +717,11 @@ function getRootChat(chatId: string): ChatRow {
   return current
 }
 
+/** Root chat identity for root-scoped event journals and subscriptions. */
+export function getRootChatId(chatId: string): string {
+  return getRootChat(chatId).id
+}
+
 export function upsertMessageLink(messageId: string, chatId: string, link: MessageLinkData): void {
   const chat = getChat(chatId)
   if (!chat) throw new Error(`Chat ${chatId} not found`)
@@ -714,8 +730,8 @@ export function upsertMessageLink(messageId: string, chatId: string, link: Messa
   getSoulDb()
     .prepare(
       `INSERT INTO message_links
-        (message_id, root_chat_id, source_chat_id, parent_chat_id, spawn_id, spawn_call_id, related_message_id, relation, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (message_id, root_chat_id, source_chat_id, parent_chat_id, spawn_id, spawn_call_id, related_message_id, causation_node_id, relation, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(message_id) DO UPDATE SET
          root_chat_id=excluded.root_chat_id,
          source_chat_id=excluded.source_chat_id,
@@ -723,6 +739,7 @@ export function upsertMessageLink(messageId: string, chatId: string, link: Messa
          spawn_id=excluded.spawn_id,
          spawn_call_id=excluded.spawn_call_id,
          related_message_id=excluded.related_message_id,
+         causation_node_id=excluded.causation_node_id,
          relation=excluded.relation`,
     )
     .run(
@@ -733,27 +750,10 @@ export function upsertMessageLink(messageId: string, chatId: string, link: Messa
       link.spawnId ?? null,
       link.spawnCallId ?? null,
       link.relatedMessageId ?? null,
+      link.causationNodeId ?? null,
       link.relation,
       now,
     )
-}
-
-export function getMessageLink(messageId: string): MessageLinkRow | undefined {
-  const row = getSoulDb()
-    .prepare('SELECT * FROM message_links WHERE message_id = ?')
-    .get(messageId) as Record<string, unknown> | undefined
-  if (!row) return undefined
-  return {
-    messageId,
-    rootChatId: String(row.root_chat_id),
-    sourceChatId: String(row.source_chat_id),
-    parentChatId: row.parent_chat_id ? String(row.parent_chat_id) : undefined,
-    spawnId: row.spawn_id ? String(row.spawn_id) : undefined,
-    spawnCallId: row.spawn_call_id ? String(row.spawn_call_id) : undefined,
-    relatedMessageId: row.related_message_id ? String(row.related_message_id) : undefined,
-    relation: String(row.relation) as MessageLinkRelation,
-    createdAt: Number(row.created_at),
-  }
 }
 
 export function getMessageLinksForRoot(rootChatId: string): MessageLinkRow[] {
@@ -770,9 +770,22 @@ export function getMessageLinksForRoot(rootChatId: string): MessageLinkRow[] {
     spawnId: row.spawn_id ? String(row.spawn_id) : undefined,
     spawnCallId: row.spawn_call_id ? String(row.spawn_call_id) : undefined,
     relatedMessageId: row.related_message_id ? String(row.related_message_id) : undefined,
+    causationNodeId: row.causation_node_id ? String(row.causation_node_id) : undefined,
     relation: String(row.relation) as MessageLinkRelation,
     createdAt: Number(row.created_at),
   }))
+}
+
+/**
+ * 取注入本 chat 的 child_return 角色回复消息 id（wakeParent 注入的子返回/超时）。
+ * 前端 hydration 据此标记 mergedView=child-to-master，从主轴过滤（与 live reducer 一致）--
+ * 否则 DB 重新加载后子返回 role 消息丢失 live 标记，被误认作主轴消息渲染到 lane 0。
+ */
+export function getChildReturnMessageIds(parentChatId: string): Set<string> {
+  const rows = getSoulDb()
+    .prepare('SELECT message_id FROM message_links WHERE parent_chat_id = ? AND relation = ?')
+    .all(parentChatId, 'child_return') as { message_id: string }[]
+  return new Set(rows.map((r) => r.message_id))
 }
 
 /**

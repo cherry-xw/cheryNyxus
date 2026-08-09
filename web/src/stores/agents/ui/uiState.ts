@@ -9,19 +9,16 @@ export type OverlayKind =
   | 'agentDialog'
   | 'historyDrawer'
   | 'sessionList'
-  | 'nyxusHistory'
 
 /** UI 焦点 / 面板开关 / 滚动触发——独立于数据层的纯 UI 状态。 */
 export function createUiState() {
   const activeDialogChatId = ref<string | null>(null)
-  // 当前「活跃」的 Cherry Nexus 会话 id（多会话模型下桌宠绑定此会话）。null 时 selector 回退到最近一条。
+  // 当前「活跃」的 Cherry Nexus 会话 id（页面与桌面入口绑定此会话）。null 时 selector 回退到最近一条。
   const activeNyxusChatId = ref<string | null>(null)
   // 历史抽屉栈：chatId 数组，栈底=根抽屉，栈顶=当前可见层。空=无抽屉。
   // spawn 多级下钻逐层 push（盖在上层之上）；ESC/遮罩/✕ 仅 pop 栈顶（逐层返回）。
   const historyDrawerStack = ref<string[]>([])
   const historyListOpen = ref(false)
-  // Nexus 专属历史面板（独立于用户会话列表 SessionList）。
-  const nyxusHistoryOpen = ref(false)
   const settingsOpen = ref(false)
   const pendingScrollSenseCallId = ref<string | null>(null)
   // 全局折叠子 agent 消息（role='role'/'subagent'）开关：跨所有 chat 持久。
@@ -36,12 +33,12 @@ export function createUiState() {
 
   /** 当前栈顶 overlay 类型（按 z 优先级）。用于“共用单蒙层”：同屏仅栈顶 overlay 蒙层带 blur，
    *  非栈顶蒙层透明，避免多层 blur 叠加导致底层完全不可见。
-   *  优先级：settings > agentDialog > historyDrawer > nyxusHistory > sessionList。 */
+   *  优先级：settings > historyDrawer > agentDialog > sessionList。
+   *  历史由 Nexus 输入弹窗主动打开时，抽屉是当前浏览焦点，应处于该弹窗之上。 */
   const topOverlay: ComputedRef<OverlayKind | null> = computed(() => {
     if (settingsOpen.value) return 'settings'
-    if (activeDialogChatId.value) return 'agentDialog'
     if (historyDrawerStack.value.length > 0) return 'historyDrawer'
-    if (nyxusHistoryOpen.value) return 'nyxusHistory'
+    if (activeDialogChatId.value) return 'agentDialog'
     if (historyListOpen.value) return 'sessionList'
     return null
   })
@@ -99,7 +96,6 @@ export function createUiState() {
     closeAllHistory,
     pruneHistoryStack,
     historyListOpen,
-    nyxusHistoryOpen,
     settingsOpen,
     pendingScrollSenseCallId,
     collapseSubagent,

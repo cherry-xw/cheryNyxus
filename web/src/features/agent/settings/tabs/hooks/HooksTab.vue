@@ -124,16 +124,16 @@ onMounted(loadHooks)
     <template #popper="{ item }">
       <div class="index-card">
         <div class="index-card-title">
-          {{ (item as HookEventMeta).label ?? (item as HookEventMeta).name }}
+          {{ (item as unknown as HookEventMeta).label ?? (item as unknown as HookEventMeta).name }}
         </div>
         <div class="index-card-line">
-          <b>事件</b><span>{{ (item as HookEventMeta).name }}</span>
+          <b>事件</b><span>{{ (item as unknown as HookEventMeta).name }}</span>
         </div>
         <div class="index-card-line">
           <b>能力</b>
           <span class="caps">
             <span
-              v-for="c in (item as HookEventMeta).capabilities"
+              v-for="c in (item as unknown as HookEventMeta).capabilities"
               :key="c"
               class="cap-chip"
               :class="capKind(c)"
@@ -142,8 +142,8 @@ onMounted(loadHooks)
             </span>
           </span>
         </div>
-        <div v-if="(item as HookEventMeta).matcherField" class="index-card-line">
-          <b>matcher</b><span>{{ (item as HookEventMeta).matcherField }}</span>
+        <div v-if="(item as unknown as HookEventMeta).matcherField" class="index-card-line">
+          <b>matcher</b><span>{{ (item as unknown as HookEventMeta).matcherField }}</span>
         </div>
       </div>
     </template>

@@ -17,6 +17,7 @@ interface BatchInfo {
   batchId: string
   total: number
   readyCount: number
+  currentIndex: number
   isLast: boolean
 }
 
@@ -32,6 +33,7 @@ const chatSessions = useChatSessionsStore()
 
 // 待提交（「其他」submit / 选项 submit 任一动作进行中；null = idle）
 const pending = ref<'other' | 'submit' | 'cancel' | null>(null)
+const submitError = ref('')
 
 // 用户已选的 label 集合（单选互斥 / 多选累加）
 const selectedLabels = ref<Set<string>>(new Set(props.question.draftAnswer?.selectedLabels ?? []))
@@ -73,7 +75,7 @@ const submitLabel = computed(() => (props.batchInfo?.isLast ? '提交' : '下一
 const canBack = computed(() => {
   if (pending.value !== null) return false
   if (!props.batchInfo || props.batchInfo.total <= 1) return false
-  return props.batchInfo.readyCount >= 0 // readyCount > 0 已说明当前题不是批首
+  return props.batchInfo.currentIndex > 0
 })
 
 /** 单选 chip 点击：互斥切换（选中则清空，未选中则替换） */
@@ -102,6 +104,7 @@ function toggleMulti(label: string): void {
 async function advanceOrSubmit(): Promise<void> {
   if (!canSubmit.value || pending.value !== null) return
   pending.value = 'submit'
+  submitError.value = ''
   try {
     const draft: { selectedLabels: string[]; freeText?: string } = {
       selectedLabels: Array.from(selectedLabels.value),
@@ -134,6 +137,7 @@ function toggleOther(): void {
 async function cancel(): Promise<void> {
   if (pending.value !== null) return
   pending.value = 'cancel'
+  submitError.value = ''
   try {
     await chatSessions.cancelQuestion(props.chatId, props.question.questionId)
   } catch (e) {
@@ -150,97 +154,115 @@ function back(): void {
 </script>
 
 <template>
-  <div class="question-card" role="group" :aria-label="`Question: ${question.question}`">
-    <div class="header">
-      <span class="indicator" aria-hidden="true" />
-      <span v-if="question.header" class="header-text">{{ question.header }}</span>
-      <span class="type-tag" :class="{ 'is-multi': question.multiSelect }">{{
-        question.multiSelect ? '多选' : '单选'
-      }}</span>
-      <span class="header-actions">
-        <button
-          v-if="batchInfo && batchInfo.total > 1"
-          type="button"
-          class="nav-btn back"
-          :disabled="!canBack"
-          aria-label="上一步"
-          title="回到上一题"
-          @click="back"
-        >
-          ‹
-        </button>
-        <button
-          type="button"
-          class="nav-btn submit"
-          :disabled="!canSubmit || pending !== null"
-          :title="submitLabel"
-          @click="advanceOrSubmit"
-        >
-          {{ submitLabel }}
-        </button>
-        <button
-          type="button"
-          class="nav-btn skip"
-          :disabled="pending !== null"
-          aria-label="跳过此问题"
-          :title="
-            '跳过此问题' +
-            (question.question.length > 1 ? '' : '（只针对这一个问题，不包含本批次其他问题）')
-          "
-          @click="cancel"
-        >
-          跳过
-        </button>
+  <section class="question-card" role="group" :aria-label="`问题：${question.question}`">
+    <header class="question-heading">
+      <span class="question-symbol" aria-hidden="true">?</span>
+      <span class="heading-copy">
+        <span class="heading-kicker">{{ question.header || '需要你的选择' }}</span>
+        <span class="question-text">{{ question.question }}</span>
       </span>
-    </div>
-    <div class="question-text">{{ question.question }}</div>
-    <div class="options">
+      <span v-if="batchInfo && batchInfo.total > 1" class="question-progress">
+        {{ batchInfo.currentIndex + 1 }} / {{ batchInfo.total }}
+      </span>
+    </header>
+
+    <div
+      class="options"
+      role="listbox"
+      :aria-multiselectable="question.multiSelect ? 'true' : 'false'"
+    >
       <button
         v-for="opt in question.options"
         :key="opt.label"
         type="button"
-        class="chip"
+        class="option-card"
         :class="{
           selected: selectedLabels.has(opt.label),
           disabled: pending !== null,
           'is-multi': question.multiSelect,
           'is-single': !question.multiSelect,
         }"
-        :title="opt.description ?? opt.label"
+        role="option"
+        :aria-selected="selectedLabels.has(opt.label)"
         :disabled="pending !== null"
         @click="question.multiSelect ? toggleMulti(opt.label) : toggleSingle(opt.label)"
       >
-        {{ opt.label }}
+        <span class="choice-mark" aria-hidden="true">
+          <span v-if="selectedLabels.has(opt.label)">✓</span>
+        </span>
+        <span class="option-copy">
+          <span class="option-label">{{ opt.label }}</span>
+          <span v-if="opt.description" class="option-description">{{ opt.description }}</span>
+        </span>
       </button>
       <button
         type="button"
-        class="chip other"
+        class="option-card other"
         :class="{
           selected: otherExpanded,
           disabled: pending !== null,
           'is-multi': question.multiSelect,
           'is-single': !question.multiSelect,
         }"
+        role="option"
+        :aria-selected="otherExpanded"
         :disabled="pending !== null"
-        title="「其他」+ 自由文本输入"
         @click="toggleOther"
       >
-        其他
+        <span class="choice-mark" aria-hidden="true">
+          <span v-if="otherExpanded">✓</span>
+        </span>
+        <span class="option-copy">
+          <span class="option-label">其他</span>
+          <span class="option-description">用自己的话补充回答</span>
+        </span>
       </button>
     </div>
+
     <div v-if="otherExpanded" class="other-input">
       <el-input
         v-model="otherText"
         type="textarea"
         :autosize="{ minRows: 2, maxRows: 5 }"
-        placeholder="其他（Ctrl+Enter 提交）"
+        placeholder="输入你的回答（Ctrl/Cmd + Enter 提交）"
         :disabled="pending !== null"
         maxlength="500"
         @keydown.enter.ctrl="advanceOrSubmit"
         @keydown.enter.meta="advanceOrSubmit"
       />
     </div>
-  </div>
+    <div v-if="submitError" class="submit-error" role="alert">{{ submitError }}</div>
+
+    <footer class="question-actions">
+      <button
+        v-if="batchInfo && batchInfo.total > 1"
+        type="button"
+        class="action-btn secondary back"
+        :disabled="!canBack"
+        @click="back"
+      >
+        <span aria-hidden="true">←</span> 上一步
+      </button>
+      <span class="action-spacer" />
+      <button
+        type="button"
+        class="action-btn ghost skip"
+        :disabled="pending !== null"
+        @click="cancel"
+      >
+        跳过
+      </button>
+      <button
+        type="button"
+        class="action-btn primary submit"
+        :disabled="!canSubmit || pending !== null"
+        @click="advanceOrSubmit"
+      >
+        <span>{{ pending === 'submit' ? '处理中…' : submitLabel }}</span>
+        <span v-if="pending !== 'submit'" aria-hidden="true">→</span>
+      </button>
+    </footer>
+  </section>
 </template>
 
 <style scoped lang="less">
@@ -249,201 +271,114 @@ function back(): void {
 .question-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-width: 160px;
-  max-width: 240px;
+  gap: 12px;
+  min-width: 260px;
+  max-width: 360px;
+  padding: 16px;
+  border: 1px solid rgba(36, 38, 45, 0.12);
+  border-radius: 16px;
+  color: @ink;
+  background: rgba(255, 253, 248, 0.98);
+  box-shadow: 0 18px 46px rgba(20, 22, 26, 0.2);
 }
-
-.header {
+.submit-error {
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 700;
+}
+.question-heading {
   display: flex;
-  align-items: center;
-  gap: 5px;
-
-  .indicator {
-    flex-shrink: 0;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #7c3aed;
-    box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.18);
-  }
-
-  .header-text {
-    color: #23242a;
-    font-size: 11px;
-    font-weight: 800;
-    line-height: 1.2;
-    overflow-wrap: anywhere;
-  }
-
-  .type-tag {
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: rgba(124, 58, 237, 0.12);
-    color: #6d28d9;
-    font-size: 9px;
-    font-weight: 800;
-    flex-shrink: 0;
-
-    &.is-multi {
-      border-radius: 4px;
-      background: rgba(37, 99, 235, 0.12);
-      color: #2563eb;
-    }
-  }
-
-  .countdown {
-    margin-left: auto;
-    padding: 1px 5px;
-    border-radius: 4px;
-    background: rgba(124, 58, 237, 0.12);
-    color: #6d28d9;
-    font-size: 9px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-
-    &.expired {
-      background: rgba(239, 68, 68, 0.14);
-      color: #b91c1c;
-    }
-  }
-
-  .header-actions {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    flex-shrink: 0;
-  }
-
-  .nav-btn {
-    flex-shrink: 0;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 4px;
-    border: 1px solid;
-    font-size: 9px;
-    font-weight: 800;
-    line-height: 1;
-    cursor: pointer;
-    transition:
-      background 120ms ease,
-      opacity 120ms ease;
-
-    &:disabled {
-      cursor: not-allowed;
-      opacity: 0.4;
-    }
-
-    &.back {
-      border-color: rgba(36, 38, 45, 0.18);
-      background: rgba(255, 255, 255, 0.7);
-      color: fade(@ink, 70%);
-      font-size: 11px;
-      padding: 0 2px;
-
-      &:hover:not(:disabled) {
-        background: #fff;
-        color: @ink;
-      }
-    }
-
-    &.submit {
-      border-color: #7c3aed;
-      background: #ede9fe;
-      color: #5b21b6;
-
-      &:hover:not(:disabled) {
-        background: #ddd6fe;
-      }
-    }
-
-    &.skip {
-      border-color: rgba(36, 38, 45, 0.18);
-      background: rgba(255, 255, 255, 0.7);
-      color: fade(@ink, 70%);
-
-      &:hover:not(:disabled) {
-        background: #fff;
-        color: @ink;
-      }
-    }
-  }
+  align-items: flex-start;
+  gap: 10px;
+}
+.question-symbol {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: #fff;
+  background: linear-gradient(145deg, #7c3aed, #4f46e5);
+  box-shadow: 0 6px 16px rgba(91, 33, 182, 0.28);
+  font-size: 15px;
+  font-weight: 900;
+}
+.heading-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+.heading-kicker {
+  color: rgba(55, 48, 107, 0.68);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.question-progress {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #5b21b6;
+  background: rgba(124, 58, 237, 0.1);
+  font-size: 9px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .question-text {
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.4;
   color: @ink;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  display: grid;
+  gap: 7px;
 }
 
-.chip {
-  display: inline-flex;
+.option-card {
+  appearance: none;
+  width: 100%;
+  display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 7px;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 11px;
   border: 1px solid rgba(36, 38, 45, 0.16);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.72);
   color: @ink;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.2;
+  text-align: left;
   cursor: pointer;
   transition:
-    background 120ms ease,
+    transform 120ms ease,
+    background-color 120ms ease,
     border-color 120ms ease,
-    opacity 120ms ease;
+    box-shadow 120ms ease;
 
   &:hover:not(:disabled) {
-    background: rgba(124, 58, 237, 0.06);
-    border-color: rgba(124, 58, 237, 0.4);
+    transform: translateY(-1px);
+    border-color: rgba(124, 58, 237, 0.44);
+    background: #fff;
+    box-shadow: 0 5px 14px rgba(42, 33, 86, 0.09);
   }
 
   &.selected {
-    background: rgba(124, 58, 237, 0.14);
-    border-color: rgba(124, 58, 237, 0.55);
-    color: #5b21b6;
-  }
-
-  &.other {
-    background: rgba(255, 255, 255, 0.6);
-    color: fade(@ink, 70%);
-    border-style: dashed;
-  }
-
-  // 「其他」选中（otherExpanded）：.other 在 .selected 之后定义会覆盖其背景，此处显式补回高亮
-  &.other.selected {
-    background: rgba(124, 58, 237, 0.14);
-    border-color: rgba(124, 58, 237, 0.55);
-    color: #5b21b6;
-    border-style: dashed;
+    border-color: rgba(91, 33, 182, 0.68);
+    background: linear-gradient(120deg, rgba(124, 58, 237, 0.13), rgba(79, 70, 229, 0.06));
+    box-shadow: inset 3px 0 0 #7c3aed;
   }
 
   &.is-multi {
-    border-radius: 5px;
-
-    &:hover:not(:disabled) {
-      background: rgba(37, 99, 235, 0.06);
-      border-color: rgba(37, 99, 235, 0.4);
-    }
-
-    &.selected,
-    &.other.selected {
-      background: rgba(37, 99, 235, 0.14);
-      border-color: rgba(37, 99, 235, 0.55);
-      color: #1d4ed8;
+    .choice-mark {
+      border-radius: 5px;
     }
   }
 
@@ -453,6 +388,41 @@ function back(): void {
     opacity: 0.55;
   }
 }
+.choice-mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid rgba(36, 38, 45, 0.28);
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-weight: 900;
+}
+.option-card.selected .choice-mark {
+  border-color: #6d28d9;
+  background: #6d28d9;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+.option-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.option-label {
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.option-description {
+  color: rgba(20, 22, 26, 0.58);
+  font-size: 9px;
+  font-weight: 550;
+  line-height: 1.35;
+}
 
 .other-input {
   display: flex;
@@ -461,7 +431,62 @@ function back(): void {
   margin-top: 2px;
   width: 100%;
   :deep(.el-textarea__inner) {
+    min-height: 62px !important;
+    border-radius: 10px;
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.24) inset;
     font-size: 11px;
+  }
+}
+
+.question-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 2px;
+}
+.action-spacer {
+  flex: 1;
+}
+.action-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    opacity 120ms ease;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+  }
+  &.primary {
+    min-width: 76px;
+    color: #fff;
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    box-shadow: 0 6px 15px rgba(91, 33, 182, 0.24);
+  }
+  &.secondary {
+    border-color: rgba(36, 38, 45, 0.14);
+    color: rgba(20, 22, 26, 0.72);
+    background: rgba(255, 255, 255, 0.76);
+  }
+  &.ghost {
+    color: rgba(20, 22, 26, 0.55);
+    background: transparent;
   }
 }
 </style>

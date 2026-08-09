@@ -18,7 +18,7 @@ import { CopyDocument, DocumentChecked } from '@element-plus/icons-vue'
 
 const props = defineProps<RendererProps>()
 
-const showOutput = ref(false)
+const showOutput = ref(props.defaultExpanded ?? false)
 
 // 解析参数
 const parsedArgs = computed<ExecuteCommandArgs | null>(() => {

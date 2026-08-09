@@ -25,13 +25,6 @@ export function getEnvVarNames(): string[] {
 }
 
 /**
- * 重置缓存（供测试使用）
- */
-export function resetEnvVarCache(): void {
-  cachedEnvVarNames = null
-}
-
-/**
  * 在文本中脱敏环境变量名
  *
  * 将所有 .env 中定义的环境变量名替换为占位符

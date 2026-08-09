@@ -79,10 +79,11 @@
 // includePreview（会话列表用，按 messages_month 分组批量查首条 user 消息 + 计数）
 → {"id":"r5b","kind":"request","method":"chat.list","params":{"includePreview":true}}
 ← {"id":"a5b","kind":"response","requestId":"r5b","success":true,
-   "data":{"chats":[{"chatId":"c1","createdAt":1718150400000,"updatedAt":1718151000000,"messageCount":12,"parentChatId":null,"preview":"读一下 a.txt","turnCount":3}]}}
+   "data":{"chats":[{"chatId":"c1","createdAt":1718150400000,"updatedAt":1718151000000,"messageCount":12,"parentChatId":null,"preview":"读一下 a.txt","turnCount":3,"pendingApproval":null}]}}
 ```
 
 > `includePreview=true` 时每项增返 `preview`（首条 user 消息截断 ≤40 字符）+ `turnCount`（user 消息数）。"指令"跳过规则待定，默认取首条 user 消息。lean 模式省略该二字段，免 N+1。
+> 每项恒带 `pendingApproval`（与 `includePreview` 无关，源自 approvalManager 内存索引，非 messages 查询）：非 null = 该 chat 有 in-flight sense 审批待用户 accept/reject，形如 `{ senseName, waitTime, createdAt }`——`waitTime` = 审批窗口 ms（= `global.approval_timeout`，0 = 不限时），`createdAt` = interrupt 触发时间戳（ms），前端倒计时 = `waitTime - (now - createdAt)`；null = 无挂起审批。供会话列表「琴键」闪烁提示（含未 hydration 的 chat）。与 `chat.get`/`chat.sync` 的 `currentState.pendingApproval`（computeCurrentState 扫事件重建）一致——同为 approval 生命周期。**非请求参数**（响应未做 schema 校验）。
 
 ### chat.delete
 

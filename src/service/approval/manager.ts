@@ -8,15 +8,29 @@ import { logger } from '@/utils/logger/index.js'
  * P1-11：不再存 resolve/reject 函数指针（解耦 core）。core 审批 Promise 由 approvalRegistry 管理，
  * 本 manager 仅记录待审批 id；confirm/abort/park 转调 core registry 触发 senseMiddleware 的 await Promise。
  * 无数据库持久化（pending sense 靠 messages.content 空判断，见 interaction.md）。
+ *
+ * manager 自存 payload（chatId/senseName/waitTime/createdAt）：chat.list 据此派生 per-chat pendingApproval
+ * 「琴键」闪烁态（含未 hydration 的 chat），免扫事件。与 computeCurrentState（扫事件，单 chat 已 hydration
+ * 快照）同为 approval 生命周期派生，两者必一致。
  */
+export type ApprovalPayload = {
+  chatId: string
+  senseName: string
+  /** 审批窗口 ms（= global.approval_timeout，0 = 不限时）。与 interrupt 通知 waitTime 同源。 */
+  waitTime: number
+  /** interrupt 触发时间戳（ms，Date.now()）。与 interrupt 通知 createdAt 同源。 */
+  createdAt: number
+}
+
 export class ApprovalManager {
-  private approvals = new Set<string>()
+  private approvals = new Map<string, ApprovalPayload>()
 
   /**
-   * 注册待审批 id（service observer 收 sense_pending 时调用）
+   * 注册待审批 id（service observer 收 sense_pending 时调用）。
+   * payload 用于 chat.list 派生 pendingApproval，无需 hydration。
    */
-  register(approvalId: string): void {
-    this.approvals.add(approvalId)
+  register(approvalId: string, payload: ApprovalPayload): void {
+    this.approvals.set(approvalId, payload)
   }
 
   /**
@@ -25,6 +39,32 @@ export class ApprovalManager {
    */
   has(approvalId: string): boolean {
     return this.approvals.has(approvalId)
+  }
+
+  /**
+   * chat 是否有 in-flight 审批。chat.list 「琴键」闪烁判定（轻量，免扫事件）。
+   */
+  hasForChat(chatId: string): boolean {
+    for (const p of this.approvals.values()) {
+      if (p.chatId === chatId) return true
+    }
+    return false
+  }
+
+  /**
+   * 取 chat 首个 in-flight 审批（approvals-per-chat 典型 0-1 in-flight，或小队列）。
+   * 返回裁剪形态（无 chatId/approvalId）。chat.list pendingApproval 字段源。
+   * 无则 undefined（调用方 ?? null）。
+   */
+  getForChat(
+    chatId: string,
+  ): { senseName: string; waitTime: number; createdAt: number } | undefined {
+    for (const p of this.approvals.values()) {
+      if (p.chatId === chatId) {
+        return { senseName: p.senseName, waitTime: p.waitTime, createdAt: p.createdAt }
+      }
+    }
+    return undefined
   }
 
   /**

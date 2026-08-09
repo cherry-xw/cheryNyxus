@@ -4,6 +4,7 @@ import {
   cosmicModeDuration,
   createNyxusParticles,
   nyxusCloudColor,
+  nyxusBinaryGeometry,
   nyxusChromaticStrength,
   nyxusCosmicTransitionStrength,
   nyxusParticleCoreRadius,
@@ -27,9 +28,6 @@ function input(overrides: Partial<NyxusParticleInput> = {}): NyxusParticleInput 
     working: false,
     reaction: null,
     serviceState: 'connected',
-    activity: 'idle',
-    runningToolCount: 0,
-    contentPulse: 0,
     connected: true,
     menuOpen: false,
     menuTargets: [],
@@ -232,6 +230,8 @@ describe('nyxus particle engine', () => {
       'binary',
       'supernova',
       'tidalRings',
+      'singleRing',
+      'multiRing',
       'barredSpiral',
       'inclinedDisk',
       'merger',
@@ -257,6 +257,8 @@ describe('nyxus particle engine', () => {
       'binary',
       'supernova',
       'tidalRings',
+      'singleRing',
+      'multiRing',
       'barredSpiral',
       'inclinedDisk',
       'merger',
@@ -277,6 +279,53 @@ describe('nyxus particle engine', () => {
       expect(targets.every((target) => Number.isFinite(target.x + target.y))).toBe(true)
       expect(meanDifference).toBeGreaterThan(4)
     }
+  })
+
+  it('builds one radial band for single-ring idle and three bands for multi-ring idle', () => {
+    const particles = createNyxusParticles(800, 91).filter((particle) => particle.radius >= 0.2)
+    const time = 6
+    const radialCoordinate = (
+      point: { x: number; y: number },
+      tilt: number,
+      flattening: number,
+    ) => {
+      const cosine = Math.cos(-tilt)
+      const sine = Math.sin(-tilt)
+      const x = point.x * cosine - point.y * sine
+      const y = point.x * sine + point.y * cosine
+      return Math.hypot(x, y / flattening)
+    }
+    const mean = (values: number[]) =>
+      values.reduce((sum, value) => sum + value, 0) / values.length
+
+    const singleRadii = particles.map((particle) => {
+      const target = particleTarget(
+        particle,
+        input({ cosmicMode: 'singleRing', cosmicProgress: 0.5, time }),
+      )
+      return radialCoordinate(target, time * 0.018 + 0.42, 0.52)
+    })
+    expect(Math.max(...singleRadii) - Math.min(...singleRadii)).toBeLessThan(6)
+
+    const multiBands = [0, 1, 2].map((ringIndex) => {
+      const values = particles
+        .filter((particle) => particle.armSlot % 3 === ringIndex)
+        .map((particle) => {
+          const target = particleTarget(
+            particle,
+            input({ cosmicMode: 'multiRing', cosmicProgress: 0.5, time }),
+          )
+          return radialCoordinate(
+            target,
+            time * (0.018 + ringIndex * 0.006) + 0.18 + ringIndex * 0.62,
+            0.48 + ringIndex * 0.09,
+          )
+        })
+      expect(Math.max(...values) - Math.min(...values)).toBeLessThan(4)
+      return mean(values)
+    })
+    expect(multiBands[1]! - multiBands[0]!).toBeGreaterThan(8)
+    expect(multiBands[2]! - multiBands[1]!).toBeGreaterThan(8)
   })
 
   it('smoothly enters and leaves cosmic modes while pointer reach stays higher priority', () => {
@@ -324,6 +373,8 @@ describe('nyxus particle engine', () => {
       'binary',
       'supernova',
       'tidalRings',
+      'singleRing',
+      'multiRing',
       'barredSpiral',
       'inclinedDisk',
       'merger',
@@ -373,18 +424,28 @@ describe('nyxus particle engine', () => {
     expect(later.some((point, index) => Math.hypot(point.x - first[index]!.x, point.y - first[index]!.y) > 2)).toBe(true)
   })
 
-  it('organizes outer particles into six narrow rotating spiral arms', () => {
-    const particles = createNyxusParticles(800, 73).filter(
-      (particle) => particle.radius >= 0.7 && particle.radius <= 0.82,
+  it('organizes outer particles into two dense main arms with fewer weak branches', () => {
+    const allParticles = createNyxusParticles(800, 73)
+    const mainCount = allParticles.filter((particle) => particle.galaxyArm < 2).length
+    const firstBranchCount = allParticles.filter(
+      (particle) => particle.galaxyArm >= 2 && particle.galaxyArm < 4,
+    ).length
+    const secondBranchCount = allParticles.filter((particle) => particle.galaxyArm >= 4).length
+    expect(mainCount).toBeGreaterThan(firstBranchCount * 1.8)
+    expect(firstBranchCount).toBeGreaterThan(secondBranchCount)
+
+    const particles = allParticles.filter(
+      (particle) =>
+        particle.galaxyArm < 2 && particle.radius >= 0.7 && particle.radius <= 0.82,
     )
     const points = particles.map((particle) => particleTarget(particle, input({ time: 0 })))
     const armPhase = points.reduce(
       (sum, point, index) => {
         const angle = Math.atan2(point.y, point.x)
-        const unwoundAngle = angle - particles[index]!.radius * 4.2
+        const unwoundAngle = angle - particles[index]!.radius * 4.45
         return {
-          x: sum.x + Math.cos(unwoundAngle * 6),
-          y: sum.y + Math.sin(unwoundAngle * 6),
+          x: sum.x + Math.cos(unwoundAngle * 2),
+          y: sum.y + Math.sin(unwoundAngle * 2),
         }
       },
       { x: 0, y: 0 },
@@ -392,7 +453,7 @@ describe('nyxus particle engine', () => {
     const armCoherence = Math.hypot(armPhase.x, armPhase.y) / points.length
 
     expect(points.length).toBeGreaterThan(50)
-    expect(armCoherence).toBeGreaterThan(0.45)
+    expect(armCoherence).toBeGreaterThan(0.7)
   })
 
   it('slowly morphs from nearly round into a flattened galaxy disk', () => {
@@ -458,6 +519,39 @@ describe('nyxus particle engine', () => {
       ) / particles.length
     expect(meanRadiusAt(0.25)).toBeGreaterThan(meanRadiusAt(0.55) * 1.08)
     expect(meanRadiusAt(0.9)).toBeGreaterThan(meanRadiusAt(0.55) * 1.08)
+  })
+
+  it('splits one binary disk into two tracked cores before fusing it back together', () => {
+    const particles = createNyxusParticles(800, 417)
+    const stateAt = (cosmicProgress: number) =>
+      input({ cosmicMode: 'binary', cosmicProgress, time: 11 })
+    const start = nyxusBinaryGeometry(stateAt(0))
+    const dual = nyxusBinaryGeometry(stateAt(0.5))
+    const fusing = nyxusBinaryGeometry(stateAt(0.78))
+    const end = nyxusBinaryGeometry(stateAt(1))
+
+    expect(start.dualStrength).toBe(0)
+    expect(end.dualStrength).toBe(0)
+    expect(dual.dualStrength).toBeGreaterThan(0.95)
+    expect(Math.hypot(dual.centers[1].x - dual.centers[0].x, dual.centers[1].y - dual.centers[0].y))
+      .toBeGreaterThan(40)
+    expect(Math.hypot(fusing.centers[1].x - fusing.centers[0].x, fusing.centers[1].y - fusing.centers[0].y))
+      .toBeLessThan(Math.hypot(dual.centers[1].x - dual.centers[0].x, dual.centers[1].y - dual.centers[0].y))
+
+    const dualTargets = particles.map((particle) => particleTarget(particle, stateAt(0.5)))
+    for (const sideIndex of [0, 1] as const) {
+      const sideParticles = particles
+        .map((particle, index) => ({ particle, target: dualTargets[index]! }))
+        .filter(({ particle }) => particle.galaxyArm % 2 === sideIndex)
+      const center = sideParticles.reduce(
+        (sum, { target }) => ({ x: sum.x + target.x, y: sum.y + target.y }),
+        { x: 0, y: 0 },
+      )
+      center.x /= sideParticles.length
+      center.y /= sideParticles.length
+      expect(Math.hypot(center.x - dual.centers[sideIndex].x, center.y - dual.centers[sideIndex].y))
+        .toBeLessThan(6)
+    }
   })
 
   it('disrupts near the pointer and gradually returns to the galaxy field', () => {

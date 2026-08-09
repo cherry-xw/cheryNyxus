@@ -63,26 +63,15 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
     closeTop: () => store.closeHistoryTop(),
     closeAll: () => store.closeAllHistory(),
     async loadHistory(chatId: string) {
-      // V2 timeline is authoritative. Open the root and all currently known
-      // descendants so group selectors can aggregate canonical messages without
-      // replaying legacy chat.get/staged history.
-      const ids = new Set<string>([chatId])
-      for (const pet of store.pets) {
-        let parent = pet.parentChatId
-        const seen = new Set<string>()
-        while (parent && !seen.has(parent)) {
-          if (parent === chatId) {
-            ids.add(pet.chatId)
-            break
-          }
-          seen.add(parent)
-          parent = store.pets.find((candidate) => candidate.chatId === parent)?.parentChatId
-        }
+      const isChild = Boolean(chatSessions.sessionsById[chatId]?.meta.parentChatId)
+      if (isChild) {
+        // Direct drill-down remains a per-chat compatibility view during CP1.
+        await chatSessions.openSession(chatId)
+      } else {
+        // Group history has exactly one source: the root snapshot + root
+        // transient state returned by the atomic root subscription.
+        await chatSessions.observeRootTimeline(chatId, 'conversation')
       }
-      await Promise.all([...ids].map((id) => chatSessions.openSession(id)))
-      // Root projection is the authoritative group history. Child sessions are
-      // still opened for direct/ghost views and active runtime state.
-      await chatSessions.openRootTimeline(chatId, 'conversation')
     },
     historyCache,
   }

@@ -168,6 +168,8 @@ export interface RendererProps {
   parsedArgs?: unknown
   /** DOM ID（用于可访问性） */
   id?: string
+  /** 折叠区默认展开（节点树 popover 全展开传 true；主聊天面不传=默认收起） */
+  defaultExpanded?: boolean
 }
 
 /**

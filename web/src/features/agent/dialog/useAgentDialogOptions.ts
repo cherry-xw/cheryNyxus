@@ -11,6 +11,7 @@ import {
   type SenseGroupOption,
 } from '@/services/agentApi'
 import type { PetInstance } from '@/features/pets/types/types'
+import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 import {
   COMPACT_COMMAND,
   composeCommandPrompt,
@@ -60,12 +61,14 @@ export function useAgentDialogOptions() {
   const pet = computed<PetInstance | undefined>(() =>
     chatId.value ? agents.pets.find((p) => p.chatId === chatId.value) : undefined,
   )
-  // Cherry Nexus 会话不建 PetInstance（pet 为 undefined）→ 回退从 chatSessions.meta.preset 取
+  // Cherry Nexus 会话不建 PetInstance；琴键切到尚未水合的会话时，historyList 先提供 preset，
+  // 避免上方树在 hydrate 期间被误判为非 Nyxus 而卸载。
   const presetName = computed<string | undefined>(() => {
     const fromPet = pet.value?.preset
     if (fromPet) return fromPet
     const s = chatId.value ? chatSessions.sessionsById[chatId.value] : undefined
-    return s?.meta.preset
+    if (s?.meta.preset) return s.meta.preset
+    return chatId.value ? agents.historyList.find((item) => item.chatId === chatId.value)?.preset : undefined
   })
 
   const brains = ref<BrainInfo[]>([])
@@ -404,6 +407,7 @@ export function useAgentDialogOptions() {
     if (!chatId.value || !text.value.trim() || sending.value) return
     sending.value = true
     error.value = null
+    let preparedInput: ReturnType<typeof chatSessions.prepareInput> | undefined
     try {
       if (!primarySelection.value) throw new Error('主角色编制未加载完成')
       const safeRoles: Record<string, RuntimeSelection> = {}
@@ -418,6 +422,11 @@ export function useAgentDialogOptions() {
         throw new Error(
           `主角色 brain 为空（${primaryRole.value}），roleSelections=${JSON.stringify(roleSelections.value)}`,
         )
+      }
+      const targetChatId = chatId.value
+      const prompt = composeCommandPrompt(text.value)
+      if (presetName.value === CHERY_NYXUS_PRESET) {
+        preparedInput = chatSessions.prepareInput(targetChatId, prompt)
       }
       // session.runtime.set 返回 applied/deferredRunning：回灌已存在子 chat 的反馈。
       // - applied：所有子（含 running）已即时切换 ctx.runtime + 持久化 metadata.runtime。
@@ -440,12 +449,21 @@ export function useAgentDialogOptions() {
       }))
       // V2 command plane: ACK the input independently from the agent run. Opening
       // the session first guarantees the subsequent input.updated/turn events are
-      // observed by the authoritative ChatSession reducer.
-      await chatSessions.openSession(chatId.value)
-      await chatSessions.submitInput(chatId.value, composeCommandPrompt(text.value), attachments)
+      // observed by the authoritative ChatSession reducer. Nexus additionally
+      // depends on the root tree subscription for its node/CRT projection, so its
+      // first command must not race that subscription's initial tree snapshot.
+      if (presetName.value === CHERY_NYXUS_PRESET) {
+        await chatSessions.observeRootTimeline(targetChatId, 'tree')
+      } else {
+        await chatSessions.openSession(targetChatId)
+      }
+      await chatSessions.submitInput(targetChatId, prompt, attachments, preparedInput)
+      preparedInput = undefined
       resetEditor()
-      close()
+      // Nexus 是持续会话工作台：提交后保留输入窗口，等待下一轮指令；其他预设维持原关闭行为。
+      if (presetName.value !== CHERY_NYXUS_PRESET) close()
     } catch (e) {
+      if (preparedInput) chatSessions.rollbackPreparedInput(preparedInput, e)
       error.value = (e as Error).message
       console.error('[AgentDialog] submit input failed:', e)
     } finally {
@@ -518,7 +536,7 @@ export function useAgentDialogOptions() {
         return
       }
     }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key === 'Enter' && !e.isComposing && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       void handleSend()
     } else if (e.key === 'Escape') {
@@ -952,6 +970,7 @@ export function useAgentDialogOptions() {
     mediaKind,
     formatFileSize,
     resetMedia,
+    resetEditor,
     removeMedia,
     onMediaSelected,
     brainInfo,

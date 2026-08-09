@@ -250,6 +250,7 @@ export const requestSchemas = {
     chatId: z.string(),
     commandId: z.string().min(1),
     clientMessageId: z.string().min(1),
+    messageId: z.string().min(1),
     content: z.string(),
     attachments: z
       .array(
@@ -278,13 +279,30 @@ export const requestSchemas = {
     chatId: z.string(),
     afterSeq: z.number().int().min(0),
   }),
-  [Method.CHAT_OPEN]: z.object({
-    chatId: z.string(),
-    knownTimelineRevision: z.number().int().min(0).optional(),
-    knownEventSeq: z.number().int().min(0).optional(),
-  }),
+  [Method.CHAT_OPEN]: z
+    .object({
+      chatId: z.string().optional(),
+      rootChatId: z.string().optional(),
+      knownTimelineRevision: z.number().int().min(0).optional(),
+      knownEventSeq: z.number().int().min(0).optional(),
+    })
+    .refine((value) => !!value.chatId || !!value.rootChatId, {
+      message: 'chatId 或 rootChatId 至少提供一个',
+    }),
   [Method.CHAT_CLOSE]: z.object({ subscriptionId: z.string() }),
   [Method.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
+  [Method.CHAT_STOP_CHILD]: z.object({
+    rootChatId: z.string().min(1),
+    childChatId: z.string().min(1),
+    commandId: z.string().min(1),
+    recursive: z.boolean().optional(),
+  }),
+  [Method.CHAT_SEND_TO_CHILD]: z.object({
+    rootChatId: z.string().min(1),
+    childChatId: z.string().min(1),
+    commandId: z.string().min(1),
+    content: z.string().min(1),
+  }),
   [Method.SENSE_APPROVAL]: z.object({
     approvalId: z.string(),
     action: z.enum(['accept', 'reject']),
@@ -313,6 +331,7 @@ export const requestSchemas = {
   [Method.CHAT_ABORT]: z.object({
     chatId: z.string(),
     runId: z.string().optional(),
+    commandId: z.string().min(1).optional(),
   }),
   [Method.CHAT_ATTACH]: chatIdSchema,
   [Method.BASH_LIST]: chatIdSchema,

@@ -5,22 +5,27 @@ import {
   listAllChats,
   getMessages,
   getLastMessage,
+  getMessageLinksForRoot,
   parseMessageRow,
+  getRootChatId,
+  getTimelineRevision,
 } from '@/db/chat.js'
 import { safeJsonParse } from '@/utils/json.js'
-import { ensureChat, abortChatRuntime, clearChatRuntime } from './runtime.js'
+import { ensureChat, abortChatRuntime, clearChatRuntime, getActiveChatRunId } from './runtime.js'
 import { connectionManager } from '../websocket/connection.js'
 import { transport } from '../websocket/transport.js'
 import { createNotification } from '../message/types.js'
 import { clearWaitedChild, registerWaitedChild, type WakePolicy } from '@/agent/spawnBroker.js'
 import config from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
-import { appendChatEvent, getSpawnTaskByChild } from '@/db/delivery.js'
+import { appendChatEvent, getSpawnTaskByChild, timeoutSpawnTask } from '@/db/delivery.js'
 import {
   completeQuestionBatch,
   type CompletedQuestionBatch,
   type QuestionBatchAnswerInput,
 } from '@/db/question.js'
+import { emitTimelinePatch } from './rootGraphPatch.js'
+import { recordSpawnTerminationFact, recordTerminationFact } from './executionFacts.js'
 
 /** 向该 chat 的全部仍在线订阅者广播持久化 notification。 */
 function broadcastChatNotification(chatId: string, notification: unknown): boolean {
@@ -54,7 +59,7 @@ export async function wakeParent(
   childChatId: string,
   type: string,
   content: string,
-  opts?: { silent?: boolean },
+  opts?: { silent?: boolean; causationNodeId?: string },
 ): Promise<void> {
   const silent = opts?.silent ?? false
   // 来源说明：注入主 chat 的 role 消息统一带 [角色 type] 前缀（主 LLM 据此识别子来源）。
@@ -70,12 +75,30 @@ export async function wakeParent(
     return
   }
 
+  const spawnTask = getSpawnTaskByChild(childChatId)
+  const existingReturn = spawnTask
+    ? getMessageLinksForRoot(getRootChatId(parentChatId)).find(
+        (link) => link.relation === 'child_return' && link.spawnId === spawnTask.taskId,
+      )
+    : undefined
+  if (existingReturn) {
+    updateChatMetadata(childChatId, { roleInjected: true })
+    if (!silent) updateChatMetadata(parentChatId, { resumePending: true })
+    clearWaitedChild(childChatId)
+    logger.event('wake.duplicate-suppressed', {
+      parentChatId,
+      childChatId,
+      messageId: existingReturn.messageId,
+    })
+    return
+  }
+
   // 注入角色回复到主 chat：内存（journal，守单一写者，silent 不置 roleReplyPending）+ DB（addMessage）
   const builder = await ensureChat(parentChatId)
   const parentWasRunning = builder.isRunning()
   const msgId = builder.appendRoleReply(formattedContent, { silent })
   const childLastMessage = getLastMessage(childChatId)
-  const spawnTask = getSpawnTaskByChild(childChatId)
+  const baseRevision = getTimelineRevision(parentChatId)
   addMessage(msgId, parentChatId, {
     role: 'role',
     content: formattedContent,
@@ -85,8 +108,10 @@ export async function wakeParent(
       parentChatId,
       spawnId: spawnTask?.taskId,
       relatedMessageId: childLastMessage?.id,
+      causationNodeId: opts?.causationNodeId ?? childLastMessage?.id,
     },
   })
+  emitTimelinePatch(parentChatId, baseRevision)
 
   // 持久幂等标记：子 chat metadata.roleInjected=true。重启后 rebuildWaitedChildren 据此跳过，
   // 避免对已 live 唤过的子再调 wakeParent 落第二行同内容 role DB 行（前端渲染重复两条）。
@@ -217,21 +242,42 @@ export async function resolveQuestionBatch(
  *   - abortChatRuntime + clearChatRuntime 释放子 generator + runtime
  *   - 主不被错误情况唤醒
  */
-export function handleAsyncWakeTimeout(child: {
+export async function handleAsyncWakeTimeout(child: {
   childChatId: string
   parentChatId: string
   type: string
-}): void {
+}): Promise<void> {
   const wakeOnTimeout = config.global.watchdog?.wake_on_timeout ?? false
   const timeoutSec = (config.global.watchdog?.timeout_ms ?? 5 * 60 * 1000) / 1000
   if (wakeOnTimeout) {
+    const timeout = timeoutSpawnTask(child.childChatId)
+    if (!timeout.task) {
+      logger.event('watchdog.timeout.missing-task', child, 3)
+      abortChatRuntime(child.childChatId)
+      clearChatRuntime(child.childChatId)
+      return
+    }
+    if (!timeout.firstTimeout) return
+    const activeRunId = getActiveChatRunId(child.childChatId)
+    const baseRevision = getTimelineRevision(child.childChatId)
+    const termination = recordSpawnTerminationFact({
+      rootChatId: getRootChatId(child.parentChatId),
+      parentChatId: child.parentChatId,
+      childChatId: child.childChatId,
+      taskId: timeout.task.taskId,
+      ...(activeRunId ? { runId: activeRunId } : {}),
+      code: 'watchdog',
+      detail: `${timeoutSec}s without output`,
+    })
+    emitTimelinePatch(child.childChatId, baseRevision)
     // true：子标记 ghost + 唤主告知任务已结束 + 释放子 runtime。
     const reason = `子任务执行超时（${timeoutSec}s 无输出），任务已结束，无法完成`
-    void wakeParent(
+    await wakeParent(
       child.parentChatId,
       child.childChatId,
       child.type,
       `[角色 ${child.type}] ${reason}`,
+      { causationNodeId: termination.id },
     )
     // 显式 child_abandoned notification：前端据 childChatId 即时转 ghost，不等 role_reply
     // 的 WS 投递兜底（role_reply 走 findOwnerWsByChatId，连接轮换/非 owner 会丢）。
@@ -241,6 +287,18 @@ export function handleAsyncWakeTimeout(child: {
     abortChatRuntime(child.childChatId)
     clearChatRuntime(child.childChatId)
     return
+  }
+  const activeRunId = getActiveChatRunId(child.childChatId)
+  if (activeRunId) {
+    const baseRevision = getTimelineRevision(child.childChatId)
+    recordTerminationFact({
+      chatId: child.childChatId,
+      runId: activeRunId,
+      actor: 'system',
+      code: 'watchdog',
+      detail: `${timeoutSec}s without output`,
+    })
+    emitTimelinePatch(child.childChatId, baseRevision)
   }
   // false：主无限等待；唤醒链保留（不清 waitedChildren）；释放子 runtime。
   // 子若恢复 chunk → feedWatchdog 续命；子若最终完成 → child_done → wakeParent 正常唤主。
@@ -257,8 +315,8 @@ export function handleAsyncWakeTimeout(child: {
 /**
  * 后端启动重建唤醒链（T9.10 重启容错，见 docs/agent-pet.md §5.8）。
  * 扫所有子 chat（parent_chat_id 非空）按 wake 策略分流：
- * - abandoned=true（看门狗 wake_on_timeout=true 标记的 ghost）→ 跳过：超时回调已处理
- *   （wakeParent 一次性唤主），避免重启后重复唤主。
+ * - spawn task timed_out 且尚未 roleInjected → 以稳定 termination 因果补写超时回传。
+ * - abandoned=true（已处理的 ghost）→ 跳过，避免重启后重复唤主。
  * - finished=true（子完成、崩溃前未唤主）→ wakeParent 从 DB 末条 assistant content 补注入：
  *   immediate 补唤主（silent=false）；deferred/barrier 静默注入（silent=true，主 resumePending 不置，用户手动 resume 消费）。
  * - finished!==true（interrupted，turn 中断）→ registerWaitedChild 重建链+看门狗（带 policy，待前端重连续跑子，完成唤主）。
@@ -285,16 +343,39 @@ export async function rebuildWaitedChildren(): Promise<void> {
     const type = meta.type ?? 'unknown'
     const policy: WakePolicy = meta.wake ?? 'immediate' // 旧记录无 wake 默认 immediate
 
-    // abandoned 兜底：ghost 子（超时回调已唤主）重启不重建、不重复唤主
-    if (meta.abandoned === true) {
-      logger.event('rebuild.skip-abandoned', { childChatId, parentChatId, type })
-      continue
-    }
-
     // roleInjected 幂等：live 期 wakeParent 已注入过 role 回复 → 跳过，不重复补注入。
     // 防重启对已唤过的子再落第二行同内容 role DB 行（前端渲染重复两条）。旧记录无此标记默认未注入。
     if (meta.roleInjected === true) {
       logger.event('rebuild.skip-injected', { childChatId, parentChatId, type, policy })
+      continue
+    }
+
+    const spawnTask = getSpawnTaskByChild(childChatId)
+    if (spawnTask?.status === 'timed_out') {
+      const timeoutSec = (config.global.watchdog?.timeout_ms ?? 5 * 60 * 1000) / 1000
+      const termination = recordSpawnTerminationFact({
+        rootChatId: getRootChatId(parentChatId),
+        parentChatId,
+        childChatId,
+        taskId: spawnTask.taskId,
+        code: 'watchdog',
+        detail: `${timeoutSec}s without output`,
+      })
+      await wakeParent(
+        parentChatId,
+        childChatId,
+        type,
+        `[角色 ${type}] 子任务执行超时（${timeoutSec}s 无输出），任务已结束，无法完成`,
+        { causationNodeId: termination.id },
+      )
+      updateChatMetadata(childChatId, { abandoned: true, finished: true })
+      logger.event('rebuild.wake-timeout', { childChatId, parentChatId, type })
+      continue
+    }
+
+    // abandoned 兜底：已成功注入回传的 ghost 子不会走到这里；异常残留也不重建为可运行任务。
+    if (meta.abandoned === true) {
+      logger.event('rebuild.skip-abandoned', { childChatId, parentChatId, type })
       continue
     }
 

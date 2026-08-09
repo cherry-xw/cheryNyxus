@@ -8,7 +8,6 @@
  * 配置来自 .chery/config.yaml 的 global.logger（utils/config.ts LoggerConfig）。
  */
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { randomUUID } from 'node:crypto'
 import { createWriteStream, mkdirSync, existsSync, statSync, readdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -333,15 +332,6 @@ export const logger: Logger = new Proxy({} as Logger, {
     return Reflect.get(getLogger(), prop)
   },
 })
-
-// ============================================================================
-// Scope 辅助导出（供边界处生成 runId 等）
-// ============================================================================
-
-/** 生成一个新的 runId / spanId */
-export function generateLogId(): string {
-  return randomUUID()
-}
 
 // ============================================================================
 // Bash 日志工具（内部函数，通过 logger.tools 暴露）

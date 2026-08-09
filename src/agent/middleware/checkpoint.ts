@@ -43,6 +43,16 @@ export async function* checkpointMiddleware(
   }
 
   const state = new CheckpointState()
+  // Announce the preallocated assistant turn before the provider produces its
+  // first token. The service mapper turns this empty checkpoint into
+  // turn.started but suppresses an empty legacy stream chunk.
+  yield {
+    type: 'stream',
+    thinkingDelta: '',
+    contentDelta: '',
+    msgId: state.getAssistantId(),
+    createdAt: state.getTurnStartedAt(),
+  } as StreamChunk
   const questionCandidates: Array<{
     questionId: string
     question: string

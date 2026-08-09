@@ -17,15 +17,6 @@ export type NyxusReaction = 'positive' | 'agitated' | 'error'
 /** 服务连接驱动的系统呈现态；只有 disconnected 会渲染黑洞。 */
 export type NyxusServiceState = 'connected' | 'connecting' | 'disconnected'
 
-/** 由对话运行状态投影的视觉节奏，不改变聊天/工具业务语义。 */
-export type NyxusActivity =
-  | 'idle'
-  | 'thinking'
-  | 'toolRunning'
-  | 'waitingForUser'
-  | 'responding'
-  | 'error'
-
 /**
  * 保留 cosmicMode 名称以兼容现有渲染数据属性；blackHole 不再由 idle 调度选择，
  * 仅用于 disconnected 的服务呈现态。
@@ -36,13 +27,15 @@ export type NyxusCosmicMode =
   | 'binary'
   | 'supernova'
   | 'tidalRings'
+  | 'singleRing'
+  | 'multiRing'
   | 'barredSpiral'
   | 'inclinedDisk'
   | 'merger'
   | 'starburst'
 
 export type NyxusRenderMode =
-  'dragging' | 'released' | 'menu' | 'working' | 'reach' | 'reaction' | 'cosmic' | 'sleep' | 'idle'
+  'dragging' | 'released' | 'menu' | 'reach' | 'reaction' | 'cosmic' | 'sleep' | 'idle'
 
 export interface NyxusParticle {
   x: number
@@ -76,10 +69,6 @@ export interface NyxusParticleInput {
   working: boolean
   reaction: NyxusReaction | null
   serviceState: NyxusServiceState
-  activity: NyxusActivity
-  runningToolCount: number
-  /** 节流后的内容输出脉冲；renderer 只据此产生低频波纹。 */
-  contentPulse: number
   connected: boolean
   menuOpen: boolean
   menuTargets: Vec2[]

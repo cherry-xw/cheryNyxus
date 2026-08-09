@@ -7,7 +7,7 @@ export function resolveNyxusMode(input: NyxusParticleInput): NyxusRenderMode {
   if (input.action === 'dragging') return 'dragging'
   if (input.releaseStrength > 0.035) return 'released'
   if (input.menuOpen && input.menuTargets.length > 0) return 'menu'
-  if (input.working || input.action === 'chatting') return 'working'
+  if (input.working && input.cosmicMode) return 'cosmic'
   if (input.pointerActive && input.pointerDistance < input.size * 1.45) return 'reach'
   if (input.action === 'clicked' || input.reaction) return 'reaction'
   if (input.cosmicMode) return 'cosmic'
@@ -48,16 +48,24 @@ function cloudTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 {
   const orbitSpeed = (TAU / orbitPeriod) * (0.94 + particle.orbit * 0.11)
   const freeOrbitAngle = particle.angle + input.time * orbitSpeed
   const armPatternSpeed = (TAU / orbitPeriod) * (0.78 - clamp(particle.radius, 0, 1) * 0.16)
+  const armBranch = Math.floor(particle.galaxyArm / 2)
+  const branchDirection = armBranch === 1 ? 1 : armBranch === 2 ? -1 : 0
+  const branchSpread =
+    branchDirection * smoothstep(0.46, 0.94, particle.radius) * (0.38 + armBranch * 0.08)
   const armAngle =
-    (particle.galaxyArm / 6) * TAU +
-    particle.radius * 4.2 +
+    (particle.galaxyArm % 2) * Math.PI +
+    particle.radius * 4.45 +
+    branchSpread +
     input.time * armPatternSpeed +
     // 绕圈只推进外盘旋臂相位，核心仍稳定，且 input 侧会在数秒内回落。
     input.armPhaseOffset * smoothstep(0.18, 0.88, particle.radius) +
-    particle.noise * 0.13 +
-    Math.sin(particle.phase * 0.7) * 0.05
+    particle.noise * (armBranch === 0 ? 0.075 : 0.115) +
+    (particle.armRank - 0.5) * (armBranch === 0 ? 0.12 : 0.18) +
+    Math.sin(particle.phase * 0.7) * 0.035
   const armStrength =
-    smoothstep(0.14, 0.68, particle.radius) * (0.9 + (1 - particle.armRank) * 0.06)
+    smoothstep(0.12, 0.58, particle.radius) *
+    (armBranch === 0 ? 0.98 : 0.88) *
+    (0.94 + (1 - particle.armRank) * 0.05)
   const orbitAngle = mixAngle(freeOrbitAngle, armAngle, armStrength)
   const distance = particle.radius * baseRadius * breath * harmonic
   const rawX = Math.cos(orbitAngle) * distance * axis
@@ -277,22 +285,119 @@ function inclinedDiskTarget(particle: NyxusParticle, body: Vec2, input: NyxusPar
   return rotatePoint({ x: local.x * 1.08, y: local.y * diskThickness + dustLaneOffset }, tilt)
 }
 
-/**
- * 两个星系在一段模式周期内完成靠近、潮汐桥/尾、双核并合、局部星暴与再次拆分。
- * binary/tidalRings 复用同一叙事，只保留极小参数差异，旧调用方无需迁移。
- */
+/** 单环/多环是完整 idle 星系目标场，不再由运行状态临时叠加线框。 */
+function ringGalaxyTarget(
+  particle: NyxusParticle,
+  body: Vec2,
+  input: NyxusParticleInput,
+  ringCount: 1 | 3,
+): Vec2 {
+  const nucleus = 1 - smoothstep(0.06, 0.2, particle.radius)
+  const ringIndex = ringCount === 1 ? 0 : particle.armSlot % ringCount
+  const baseRadius = ringCount === 1 ? 0.31 : 0.18 + ringIndex * 0.105
+  const thickness = particle.noise * input.size * (ringCount === 1 ? 0.022 : 0.016)
+  const radius = input.size * baseRadius + thickness
+  const direction = ringIndex % 2 === 0 ? 1 : -1
+  const angle =
+    particle.angle +
+    input.time * direction * (0.09 + particle.orbit * 0.025 + ringIndex * 0.012) +
+    particle.phase * 0.055
+  const tilt =
+    input.time * (0.018 + ringIndex * 0.006) +
+    (ringCount === 1 ? 0.42 : 0.18 + ringIndex * 0.62)
+  const flattening = ringCount === 1 ? 0.52 : 0.48 + ringIndex * 0.09
+  const ring = rotatePoint(
+    { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * flattening },
+    tilt,
+  )
+  const nucleusPoint = { x: body.x * 0.38, y: body.y * 0.38 }
+  return blendPoint(ring, nucleusPoint, nucleus)
+}
+
+export interface NyxusBinaryGeometry {
+  centers: [Vec2, Vec2]
+  displayCenters: [Vec2, Vec2]
+  coreScales: [number, number]
+  dualStrength: number
+  displayStrength: number
+  bridgeStrength: number
+}
+
+/** 单盘裂变、双核互绕和再次融合共享的几何，目标场与渲染核心必须共同消费。 */
+export function nyxusBinaryGeometry(input: NyxusParticleInput): NyxusBinaryGeometry {
+  const progress = clamp(input.cosmicProgress, 0, 1)
+  const split = smoothstep(0.1, 0.34, progress)
+  const fuse = 1 - smoothstep(0.66, 0.92, progress)
+  const dualStrength = split * fuse
+  const orbit = smoothstep(0.28, 0.58, progress) * (1 - smoothstep(0.66, 0.86, progress))
+  const separation = input.size * 0.205 * dualStrength * (1 + Math.sin(input.time * 0.16) * 0.035)
+  const axis = input.time * 0.055 + orbit * 0.72 + Math.sin(input.time * 0.035) * 0.16
+  const verticalOffset = input.size * 0.032 * dualStrength
+  const centers: [Vec2, Vec2] = [
+    rotatePoint({ x: -separation, y: -verticalOffset }, axis),
+    rotatePoint({ x: separation, y: verticalOffset }, axis),
+  ]
+  const transitionStrength = nyxusCosmicTransitionStrength(progress)
+  return {
+    centers,
+    displayCenters: [
+      { x: centers[0].x * transitionStrength, y: centers[0].y * transitionStrength },
+      { x: centers[1].x * transitionStrength, y: centers[1].y * transitionStrength },
+    ],
+    coreScales: [1, 0.82],
+    dualStrength,
+    displayStrength: dualStrength * transitionStrength,
+    bridgeStrength:
+      smoothstep(0.48, 0.68, progress) *
+      (1 - smoothstep(0.78, 0.94, progress)) *
+      dualStrength,
+  }
+}
+
+function binaryTarget(particle: NyxusParticle, body: Vec2, input: NyxusParticleInput): Vec2 {
+  const geometry = nyxusBinaryGeometry(input)
+  const sideIndex = particle.galaxyArm % 2
+  const side = sideIndex === 0 ? -1 : 1
+  const center = geometry.centers[sideIndex]!
+  const localRadius =
+    input.size * (0.012 + particle.radius * 0.235) * geometry.coreScales[sideIndex]!
+  const localArm = particle.phase < Math.PI ? 0 : 1
+  const localAngle =
+    localArm * Math.PI +
+    particle.radius * 3.85 +
+    input.time * (0.1 + particle.orbit * 0.025) * side +
+    particle.noise * 0.12
+  const localDisk = rotatePoint(
+    {
+      x: Math.cos(localAngle) * localRadius,
+      y: Math.sin(localAngle) * localRadius * 0.7,
+    },
+    input.time * 0.055 + side * 0.18,
+  )
+  const galaxyPoint = { x: center.x + localDisk.x, y: center.y + localDisk.y }
+  const bridgeRank = 1 - smoothstep(0.12, 0.31, particle.armRank)
+  const bridge = curvePoint(
+    geometry.centers[0],
+    geometry.centers[1],
+    particle.armT,
+    Math.sin(particle.phase + input.time * 0.2) * input.size * 0.055,
+  )
+  const bridged = blendPoint(galaxyPoint, bridge, geometry.bridgeStrength * bridgeRank)
+  return blendPoint(body, bridged, geometry.dualStrength)
+}
+
+/** 两个星系在一段模式周期内完成靠近、潮汐桥/尾、双核并合、局部星暴与再次拆分。 */
 function mergerTarget(
   particle: NyxusParticle,
   body: Vec2,
   input: NyxusParticleInput,
-  legacy: 'binary' | 'tidalRings' | null = null,
 ): Vec2 {
   const progress = clamp(input.cosmicProgress, 0, 1)
   const approaching = 1 - smoothstep(0.08, 0.48, progress)
   const separating = smoothstep(0.64, 0.94, progress)
   const separation =
     input.size *
-    (0.055 + (approaching + separating) * (legacy === 'tidalRings' ? 0.24 : 0.2))
+    (0.055 + (approaching + separating) * 0.2)
   const axis = input.time * 0.09 + Math.sin(input.time * 0.035) * 0.34
   const side = particle.galaxyArm % 2 === 0 ? 1 : -1
   const core = rotatePoint({ x: side * separation, y: side * input.size * 0.035 }, axis)
@@ -363,9 +468,11 @@ function cosmicModeTarget(particle: NyxusParticle, body: Vec2, input: NyxusParti
   let target = body
   if (mode === 'blackHole') target = blackHoleTarget(particle, input)
   else if (mode === 'pulsar') target = pulsarTarget(particle, input)
-  else if (mode === 'binary') target = mergerTarget(particle, body, input, 'binary')
+  else if (mode === 'binary') target = binaryTarget(particle, body, input)
   else if (mode === 'supernova') target = supernovaTarget(particle, body, input)
-  else if (mode === 'tidalRings') target = mergerTarget(particle, body, input, 'tidalRings')
+  else if (mode === 'tidalRings') target = ringGalaxyTarget(particle, body, input, 3)
+  else if (mode === 'singleRing') target = ringGalaxyTarget(particle, body, input, 1)
+  else if (mode === 'multiRing') target = ringGalaxyTarget(particle, body, input, 3)
   else if (mode === 'barredSpiral') target = barredSpiralTarget(particle, body, input)
   else if (mode === 'inclinedDisk') target = inclinedDiskTarget(particle, body, input)
   else if (mode === 'merger') target = mergerTarget(particle, body, input)
@@ -384,12 +491,7 @@ export function particleTarget(particle: NyxusParticle, input: NyxusParticleInpu
   if (mode === 'reach') return reachTarget(particle, body, input)
   if (mode === 'cosmic') return body
 
-  if (mode === 'working') {
-    const angle = Math.atan2(body.y, body.x) + input.time * 0.025 * particle.orbit
-    const distance =
-      Math.hypot(body.x, body.y) * (0.96 + Math.sin(input.time + particle.phase) * 0.035)
-    body = { x: Math.cos(angle) * distance, y: Math.sin(angle) * distance }
-  } else if (mode === 'reaction') {
+  if (mode === 'reaction') {
     const wave =
       Math.sin(input.actionAge * 3.2 - particle.radius * 5) * Math.exp(-input.actionAge * 0.85)
     body = { x: body.x * (1 - wave * 0.1), y: body.y * (1 - wave * 0.1) }

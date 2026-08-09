@@ -1,4 +1,5 @@
 import type { PetInstance } from '../types/types'
+import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
 /** tribe → 色相：子 pet name 部落色区分（主 pet name 保持 --pet-color 高亮） */
 export function hashHue(s: string): number {
@@ -27,4 +28,4 @@ export function speechZIndex(pet: PetInstance): number {
 }
 
 /** 审批气泡专属 z-index：固定 400。 */
-export const APPROVAL_Z_INDEX = 400
+export const APPROVAL_Z_INDEX = OVERLAY_Z_INDEX.approval

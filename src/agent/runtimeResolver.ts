@@ -212,13 +212,14 @@ export class RuntimeResolver {
       }
     }
 
-    // 主 agent 硬编码注入 memory_manage sense（子 agent 排除）
+    // 主 agent 硬编码注入记忆与子 Agent 控制能力（子 agent 排除）。
     if (injectMemoryManage) {
-      const memorySense = getBuiltinSense('memory_manage')
-      if (memorySense) {
-        const s: Sense<ZodType> = { ...memorySense }
+      for (const senseName of ['memory_manage', 'stop_child', 'send_to_child']) {
+        const mainSense = getBuiltinSense(senseName)
+        if (!mainSense) continue
+        const s: Sense<ZodType> = { ...mainSense }
         s.supervisionLevel = s.supervisionLevel ?? config.global.supervision
-        resolved.set('memory_manage', s)
+        resolved.set(senseName, s)
       }
     }
 

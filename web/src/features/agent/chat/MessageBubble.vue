@@ -20,6 +20,7 @@ import { splitCommandPrompt } from '../composables/commands'
 import { SenseCallRenderer } from '../renderers/index'
 import MessageAvatar from './MessageAvatar.vue'
 import MediaInlineRenderer from '../dialog/media/MediaInlineRenderer.vue'
+import { terminationDisplay } from '@/features/pets/nyxus/graph/termination'
 
 const props = defineProps<{
   item: HistoryItem
@@ -75,6 +76,9 @@ const isCompactTrigger = computed(
   () => props.item.role === 'user' && /\[\[command:\/compact\]\]/.test(props.item.content ?? ''),
 )
 const isCompactSummary = computed(() => props.item.contextCompaction === true)
+const termination = computed(() =>
+  props.item.termination ? terminationDisplay(props.item.termination) : undefined,
+)
 
 // jumpToSpawn 转发：MessageAvatar 点击头像 → 透传给 HistoryDrawer
 const emit = defineEmits<{
@@ -151,9 +155,11 @@ const emit = defineEmits<{
               <span v-if="segment.type === 'command'" class="instruction-message-token">{{
                 segment.value
               }}</span>
-              <span v-else-if="segment.type === 'role'" class="instruction-message-token role-message-token">{{
-                segment.value
-              }}</span>
+              <span
+                v-else-if="segment.type === 'role'"
+                class="instruction-message-token role-message-token"
+                >{{ segment.value }}</span
+              >
               <template v-else>{{ segment.value }}</template>
             </template>
           </template>
@@ -170,6 +176,14 @@ const emit = defineEmits<{
             :key="call.id ?? `${call.name}-${idx}`"
             :call="call"
           />
+        </div>
+        <div
+          v-if="termination"
+          class="termination-tail"
+          :class="`tone-${termination.tone}`"
+          role="note"
+        >
+          {{ termination.label }}
         </div>
       </div>
     </div>
@@ -264,6 +278,24 @@ const emit = defineEmits<{
     background: linear-gradient(135deg, #f2f8f3, #e3f0e7);
     border-color: rgba(42, 117, 72, 0.28);
   }
+}
+.termination-tail {
+  margin-top: 3px;
+  padding-top: 5px;
+  border-top: 1px dashed rgba(70, 76, 86, 0.2);
+  color: #6b7280;
+  font-size: 10px;
+  font-weight: 700;
+}
+.termination-tail.tone-warning,
+.termination-tail.tone-user {
+  color: #9a6700;
+}
+.termination-tail.tone-error {
+  color: #b4233b;
+}
+.termination-tail.tone-redirect {
+  color: #7c3aed;
 }
 
 .compact-label {

@@ -18,6 +18,11 @@
   background: rgba(15, 17, 22, 0.42);
   backdrop-filter: blur(2px);
 }
+.dialog-overlay.is-nyxus-layout {
+  // 标题信息条默认停靠底部；钢琴和功能入口已迁移到页面右侧工具栏。
+  align-items: flex-end;
+  padding-bottom: 28px;
+}
 
 .dialog-panel {
   width: min(680px, 96vw);
@@ -240,7 +245,6 @@
     color: fade(@ink, 52%);
   }
 }
-
 .close-btn {
   width: 24px;
   height: 24px;

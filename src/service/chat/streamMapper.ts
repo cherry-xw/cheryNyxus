@@ -13,6 +13,7 @@ import type {
   SenseRejectChunk,
   StagedChunk,
   ConsumedChunk,
+  MessageCreatedChunk,
   MessageUpdatedChunk,
   ErrorChunk,
 } from '@/core/middleware/types'
@@ -24,10 +25,16 @@ import { breakdownUsed } from '@/utils/token.js'
 import { computeContextBreakdown } from './contextUsage.js'
 import { maybeAutoCompactAfterDone } from './autoCompact.js'
 import { computeContextUsage } from '@/utils/token.js'
-import { getChat, getLastMessage, markPendingInputsConsumed } from '@/db/chat.js'
+import {
+  getChat,
+  getLastMessage,
+  getTimelineRevision,
+  markPendingInputsConsumed,
+} from '@/db/chat.js'
 import { safeJsonParse } from '@/utils/json.js'
 import { computeCanResume } from './canResume.js'
 import config from '@/utils/config.js'
+import { recordRunFact, recordTerminationFact } from './executionFacts.js'
 
 /**
  * 将 agent generator 的 MiddlewareChunk 转换为 WebSocket 协议的 Chunk/Notification
@@ -50,7 +57,12 @@ export async function* streamAgentChunks(
   // runChain 内 ErrorChunk 是「流失败」信号；done 仅代表 loop 正常完成。
   let errored = false
   const turnStarted = new Set<string>()
+  const completedTurns = new Set<string>()
   const offsets = new Map<string, { thinking: number; content: number }>()
+  recordRunFact({ chatId, runId, status: 'running' })
+  // A run is active before the provider emits its first token. Consumers must
+  // not infer working state from turn.started/assistant output.
+  yield createNotification('run.updated', rid, { runId, status: 'running' }, { chatId, runId })
   for await (const chunk of generator) {
     if (chunk.type === 'stream') {
       if (!chunk.msgId || typeof chunk.createdAt !== 'number') {
@@ -69,17 +81,27 @@ export async function* streamAgentChunks(
       if (chunk.senseDelta && chunk.senseDelta.length > 0) {
         streamData.senseCall = chunk.senseDelta
       }
-      yield createChunk('stream', rid, streamData, { chatId, runId })
       const turnId = chunk.msgId
       const state = offsets.get(turnId) ?? { thinking: 0, content: 0 }
       if (!turnStarted.has(turnId)) {
         turnStarted.add(turnId)
+        recordRunFact({ chatId, runId, status: 'running', turnId, nodeId: turnId })
         yield createNotification(
           'turn.started',
           rid,
           { turnId, messageId: turnId, runId, createdAt: chunk.createdAt },
           { chatId, runId },
         )
+      }
+      // The checkpoint emits one empty stream item before invoking the provider
+      // so the response node and CRT exist immediately. Only real provider data
+      // is mirrored to the legacy chunk channel.
+      if (
+        chunk.thinkingDelta ||
+        chunk.contentDelta ||
+        (chunk.senseDelta && chunk.senseDelta.length > 0)
+      ) {
+        yield createChunk('stream', rid, streamData, { chatId, runId })
       }
       if (chunk.thinkingDelta) {
         const offset = state.thinking
@@ -281,6 +303,15 @@ export async function* streamAgentChunks(
           ? raw
           : `[${newTracingId()}] ${info?.userMessage ?? friendlyMessage(info?.category ?? 'unknown', info?.source ?? 'system')}`
       errored = true
+      const terminationBaseRevision = getTimelineRevision(chatId)
+      const terminationNode = recordTerminationFact({
+        chatId,
+        runId,
+        actor: 'system',
+        code: 'error',
+        detail: raw ?? info?.userMessage,
+      })
+      const rootRevision = getTimelineRevision(terminationNode.rootChatId)
       // AI 报错归 paused（可 resume 重试）：下发 canResume 让前端显继续按钮。
       // 不再构造 failureResponse——统一暂停语义下 final Response 恒 success:true。
       // 不下发 done（见下「done + errored 抑制」）：error notification 作为本轮终态信号。
@@ -290,6 +321,35 @@ export async function* streamAgentChunks(
         { message, canResume: computeCanResume(chatId) },
         { chatId, runId },
       )
+      yield createNotification(
+        'timeline.patch',
+        rid,
+        {
+          chatId,
+          baseRevision: terminationBaseRevision,
+          revision: getTimelineRevision(chatId),
+          operations: [],
+          rootPatches: (['conversation', 'tree', 'audit'] as const).map((view) => ({
+            rootChatId: terminationNode.rootChatId,
+            view,
+            baseRevision: Math.max(0, rootRevision - 1),
+            revision: rootRevision,
+            operations: [{ type: 'upsert' as const, node: terminationNode }],
+          })),
+        },
+        { chatId, runId },
+      )
+      yield createNotification('run.updated', rid, { runId, status: 'paused' }, { chatId, runId })
+      for (const turnId of turnStarted) {
+        if (completedTurns.has(turnId)) continue
+        completedTurns.add(turnId)
+        yield createNotification(
+          'turn.completed',
+          rid,
+          { turnId, messageId: turnId },
+          { chatId, runId },
+        )
+      }
     } else if (chunk.type === 'done') {
       // error 路径抑制 done：error notification 已下发（含 canResume 表达 paused 终态），
       // 无需再发 done（避免 contextUsage 冗余更新；error 已是本轮终态）。
@@ -342,6 +402,8 @@ export async function* streamAgentChunks(
                 : {}),
             }
           : undefined
+      const canResume = computeCanResume(chatId)
+      recordRunFact({ chatId, runId, status: canResume ? 'paused' : 'completed' })
       yield createNotification(
         'done',
         rid,
@@ -353,11 +415,19 @@ export async function* streamAgentChunks(
           ...(finished === true ? { finished: true } : {}),
           ...(finalMessage ? { finalMessage } : {}),
           // 权威 canResume：前端据此区分 paused（显继续）/ ended（无按钮），取代旧 done→canResume=false 硬编码。
-          canResume: computeCanResume(chatId),
+          canResume,
         },
         { chatId, runId },
       )
+      yield createNotification(
+        'run.updated',
+        rid,
+        { runId, status: canResume ? 'paused' : 'completed' },
+        { chatId, runId },
+      )
       for (const turnId of turnStarted) {
+        if (completedTurns.has(turnId)) continue
+        completedTurns.add(turnId)
         yield createNotification(
           'turn.completed',
           rid,
@@ -396,7 +466,26 @@ export async function* streamAgentChunks(
         },
         { chatId, runId },
       )
-    } else if (chunk.type === 'message_created' || chunk.type === 'sense_pending') {
+    } else if (chunk.type === 'message_created') {
+      // observeAgentChunks has already persisted the message and published its
+      // timeline patch. Close only this assistant node's live CRT; later turns
+      // in the same run retain independent lifecycles.
+      const created = chunk as MessageCreatedChunk
+      const turnId = created.message.id
+      if (
+        created.message.role === 'assistant' &&
+        turnStarted.has(turnId) &&
+        !completedTurns.has(turnId)
+      ) {
+        completedTurns.add(turnId)
+        yield createNotification(
+          'turn.completed',
+          rid,
+          { turnId, messageId: turnId },
+          { chatId, runId },
+        )
+      }
+    } else if (chunk.type === 'sense_pending') {
       // 内部 effect chunk 应由 observeAgentChunks 消费，不进入传输层。
       // 注：question_batch_pending 已在上面分发为 question_batch_requested 通知，此处不列。
       continue

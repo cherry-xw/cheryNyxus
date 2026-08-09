@@ -5,7 +5,6 @@ import {
   resolveNyxusMode,
   stepNyxusParticles,
   type NyxusCosmicMode,
-  type NyxusActivity,
   type NyxusReaction,
   type NyxusNearbyPet,
 } from '../particles/nyxusParticleEngine'
@@ -20,9 +19,7 @@ const props = withDefaults(
     working?: boolean
     size?: number
     reaction?: NyxusReaction | null
-    activity?: NyxusActivity
-    runningToolCount?: number
-    contentPulse?: number
+    interactive?: boolean
     boot?: boolean
     respectConnection?: boolean
     /** Core 提供的最近普通 Pet 视觉关联；只读且不参与运动。 */
@@ -36,9 +33,7 @@ const props = withDefaults(
     working: false,
     size: 112,
     reaction: null,
-    activity: 'idle',
-    runningToolCount: 0,
-    contentPulse: 0,
+    interactive: true,
     boot: false,
     respectConnection: true,
     nearbyPet: null,
@@ -98,20 +93,24 @@ watch(particleCount, () => inputState.resetParticles())
 
 onMounted(() => {
   inputState.resetParticles()
-  window.addEventListener('pointermove', inputState.onPointerMove, { passive: true })
-  window.addEventListener('pointerdown', inputState.onPointerDown, { passive: true })
-  window.addEventListener('pointerup', inputState.onPointerUp, { passive: true })
-  window.addEventListener('pointercancel', inputState.onPointerUp, { passive: true })
+  if (props.interactive) {
+    window.addEventListener('pointermove', inputState.onPointerMove, { passive: true })
+    window.addEventListener('pointerdown', inputState.onPointerDown, { passive: true })
+    window.addEventListener('pointerup', inputState.onPointerUp, { passive: true })
+    window.addEventListener('pointercancel', inputState.onPointerUp, { passive: true })
+  }
   document.addEventListener('visibilitychange', onVisibilityChange)
   raf = requestAnimationFrame(frame)
 })
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
-  window.removeEventListener('pointermove', inputState.onPointerMove)
-  window.removeEventListener('pointerdown', inputState.onPointerDown)
-  window.removeEventListener('pointerup', inputState.onPointerUp)
-  window.removeEventListener('pointercancel', inputState.onPointerUp)
+  if (props.interactive) {
+    window.removeEventListener('pointermove', inputState.onPointerMove)
+    window.removeEventListener('pointerdown', inputState.onPointerDown)
+    window.removeEventListener('pointerup', inputState.onPointerUp)
+    window.removeEventListener('pointercancel', inputState.onPointerUp)
+  }
   document.removeEventListener('visibilitychange', onVisibilityChange)
   renderer.dispose()
 })
@@ -123,7 +122,7 @@ onBeforeUnmount(() => {
     class="nyxus-particle"
     :style="{ width: `${size}px`, height: `${size}px` }"
     role="img"
-    aria-label="cheryNyxus particle pet"
+    aria-label="Cherry Nexus galaxy entry"
     :data-mode="mode"
     :data-cosmic-mode="cosmicModeLabel"
     :data-particle-count="particleCount"

@@ -41,11 +41,3 @@ function notifyIfReady(): void {
   restartNotified = true
   onRestartReady?.()
 }
-
-/** 仅供单元测试和同进程 worker 重建时重置模块状态。 */
-export function resetRestartCoordinator(): void {
-  restartRequested = false
-  restartNotified = false
-  isIdle = undefined
-  onRestartReady = undefined
-}

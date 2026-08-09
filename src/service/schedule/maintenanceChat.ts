@@ -1,12 +1,6 @@
 import { randomUUID } from 'crypto'
 import { createChat, updateChatMetadata } from '@/db/chat.js'
-import {
-  ensureChat,
-  clearChatRuntime,
-  getActiveChatRunId,
-  activateChatRun,
-  releaseChatRun,
-} from '../chat/runtime.js'
+import { ensureChat, clearChatRuntime, activateChatRun, releaseChatRun } from '../chat/runtime.js'
 import { observeAgentChunks } from '../chat/observer.js'
 import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import type { SkillFilter } from '@/agent/prompt/loadSkill.js'
@@ -130,11 +124,4 @@ export async function runMaintenanceChat(opts: MaintenanceChatOptions): Promise<
     // 仅当 wake=deferred 时这是期望行为（不唤主）；immediate/barrier 需 caller 自行处理（当前不用）
     // 独立主 chat（无 parent）无需唤醒链
   }
-}
-
-/**
- * 简易存在性校验：chat 是否仍在运行（供 schedule 重入保护）。
- */
-export function isMaintenanceChatRunning(chatId: string): boolean {
-  return getActiveChatRunId(chatId) !== undefined
 }

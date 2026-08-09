@@ -23,7 +23,7 @@
 
 ## 文件清单
 
-> 模块分两层：**Pet**（普通桌宠，渲染 `pets[]` PetInstance）与 **Nyxus 独立核心**（Cherry Nexus，全局挂载、不经 PetInstance）。共享 [useStreamBubble.ts](../../../web/src/features/pets/composables/useStreamBubble.ts) + [types/types.ts](../../../web/src/features/pets/types/types.ts)。
+> 模块分两层：**Pet**（普通桌宠，渲染 `pets[]` PetInstance）与 **Cherry Nexus 入口**（全局挂载、不经 PetInstance）。Nexus 不是 Agent 或 Pet：入口之外的创建、会话、设置和运行详情只在 AgentDialog 中交互。
 
 ### Pet（普通桌宠）
 
@@ -58,18 +58,24 @@
 | [utils/historyPreview.ts](../../../web/src/features/pets/utils/historyPreview.ts) | 历史预览纯函数：parseToolDetail/toolSummaryOf/previewOf/truncate |
 | [utils/approvalTiming.ts](../../../web/src/features/pets/utils/approvalTiming.ts) | 审批计时纯函数：remainingSecOf/flashPeriodOf/isExpired |
 
-### Nyxus 独立核心（[nyxus/](../../../web/src/features/pets/nyxus/)）
+### Cherry Nexus 入口（[nyxus/](../../../web/src/features/pets/nyxus/)）
 
-全局挂载（App 顶层 `position:fixed; z-index:250`），**不经 PetStage/PetBody/PetInstance**。数据源 = chatSessions 的 nyxus session（root + `preset==='cheryNyxus'`，经 `selectNyxusSession` 解析）。详见 [rendering.md](./rendering.md) §nyxus 独立核心。
+全局挂载在 App 顶层（`position:fixed; z-index:250`），**不经 PetStage/PetBody/PetInstance**。入口保留自主游走、向鼠标缓慢靠近、拖拽和视口边界约束；单击切换创建、聊天和设置工具环，双击才打开 AgentDialog，拖拽结束不触发任一点击动作。它没有 hover 反应、工作气泡、Pet 避让或 Pet 关联。数据源只读取 chatSessions 的 nyxus session 是否 `running`，用来切换专属 Loading 星系。
 
 | 路径 | 职责 |
 |------|------|
-| [nyxus/components/NyxusCore.vue](../../../web/src/features/pets/nyxus/components/NyxusCore.vue) | 独立核心 host：standalone 运动 + 粒子 + 气泡 + 工具环 + 单击/双击/3 连击状态机 |
+| [nyxus/components/NyxusCore.vue](../../../web/src/features/pets/nyxus/components/NyxusCore.vue) | 游走入口 host：向鼠标移动 + 单击工具环 + 双击 AgentDialog + 粒子 Loading 呈现 |
 | [nyxus/components/NyxusParticle.vue](../../../web/src/features/pets/nyxus/components/NyxusParticle.vue) | canvas 宿主（瘦）：RAF frame 编排，委托 nyxusRenderer + useNyxusParticleInput |
-| [nyxus/components/NyxusBubbles.vue](../../../web/src/features/pets/nyxus/components/NyxusBubbles.vue) | nyxus 工作气泡（仅 error + work-main 两 tier + busy-indicator） |
-| [nyxus/components/NyxusToolRing.vue](../../../web/src/features/pets/nyxus/components/NyxusToolRing.vue) | 工具环（create/chat/history/settings）+ Canvas 雾化连线测量（updateToolTargets） |
-| [nyxus/composables/useNyxusWorkState.ts](../../../web/src/features/pets/nyxus/composables/useNyxusWorkState.ts) | chatSessions→nyxus 工作态投影 → useStreamBubble 气泡逻辑 |
-| [nyxus/composables/useStandaloneNyxusMotion.ts](../../../web/src/features/pets/nyxus/composables/useStandaloneNyxusMotion.ts) | 独立运动：分段航行 + 长按拖拽 + pointer 扰动 + pets 避让 + 边缘 clamp |
+| [nyxus/components/NyxusToolRing.vue](../../../web/src/features/pets/nyxus/components/NyxusToolRing.vue) | 创建、聊天和设置工具环；单击 Nexus 入口时显示 |
+| [nyxus/components/MessageBranchTree.vue](../../../web/src/features/pets/nyxus/components/MessageBranchTree.vue) | canonical graph 画布编排：节点、连线、pan/zoom、输入、Fold、popover 与锚定 CRT |
+| [nyxus/components/FiberPulseLine.vue](../../../web/src/features/pets/nyxus/components/FiberPulseLine.vue) | 分支树轴突连线：低亮纤维、前沿波与渐隐尾焰 |
+| [nyxus/composables/useNyxusWorkState.ts](../../../web/src/features/pets/nyxus/composables/useNyxusWorkState.ts) | chatSessions→Nexus `working` Loading 布尔投影 |
+| [nyxus/graph/executionGraph.ts](../../../web/src/features/pets/nyxus/graph/executionGraph.ts) | canonical graph facts 的唯一 UI-neutral 投影；不按时间、正文或角色猜测跨 Agent 关系 |
+| [nyxus/graph/executionLayout.ts](../../../web/src/features/pets/nyxus/graph/executionLayout.ts) | 基于显式拓扑的稳定子树 lane 与增量布局；流式正文变化复用既有坐标 |
+| [nyxus/graph/edgeStyles.ts](../../../web/src/features/pets/nyxus/graph/edgeStyles.ts) | execution edge 视觉 registry |
+| [Nexus 节点树维护、迁移与回滚](nexus-node-tree-maintenance.md) | 模块边界、性能预算、兼容字段期限、迁移和回滚步骤 |
+| [nyxus/composables/useTreeCanvas.ts](../../../web/src/features/pets/nyxus/composables/useTreeCanvas.ts) | 消息树二维画布交互：fit、鼠标拖拽平移与以指针为锚点的滚轮缩放 |
+| [nyxus/composables/useStandaloneNyxusMotion.ts](../../../web/src/features/pets/nyxus/composables/useStandaloneNyxusMotion.ts) | Nexus 入口自主游走、鼠标趋近、拖拽与边界约束 |
 | [nyxus/composables/useNyxusParticleInput.ts](../../../web/src/features/pets/nyxus/composables/useNyxusParticleInput.ts) | 粒子输入派生：pointer/cosmic/action/release 状态 → NyxusParticleInput |
 | [nyxus/motion/nyxusPointerMotion.ts](../../../web/src/features/pets/nyxus/motion/nyxusPointerMotion.ts) | pointer 漂移 + pets 避让目标纯函数 + 速度/时长常量 |
 | [nyxus/particles/](../../../web/src/features/pets/nyxus/particles/) | 粒子物理引擎（拆分）：types/math/colors/tone/targets/physics + barrel([nyxusParticleEngine.ts](../../../web/src/features/pets/nyxus/particles/nyxusParticleEngine.ts)) + [nyxusRenderer.ts](../../../web/src/features/pets/nyxus/particles/nyxusRenderer.ts)（canvas 绘制提纯） |

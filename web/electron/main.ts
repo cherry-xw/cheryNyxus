@@ -6,11 +6,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } 
 interface DesktopPetCandidate {
   chatId: string
   label: string
-  action: string
-  mood: string
   working: boolean
-  speech: string
-  activity: number
 }
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8182)
@@ -22,11 +18,7 @@ let petWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let petCandidates: DesktopPetCandidate[] = []
 let selectedPetChatId: string | null = null
-let manualPetSelection = false
-let petPaused = false
 let isQuitting = false
-let hoverUntil = 0
-let roamTimer: ReturnType<typeof setInterval> | null = null
 let serverConfig: { wsPort: number; webPort: number; transport: string } | null = null
 /** `getRuntimeRoot()` 解析结果缓存（启动后固定）。 */
 let runtimeRoot: string | null = null
@@ -197,25 +189,11 @@ function selectedPet(): DesktopPetCandidate | null {
 function sendPetState(): void {
   if (!petWindow || petWindow.isDestroyed()) return
   const selected = selectedPet()
-  petWindow.webContents.send(
-    'desktop-pet:state',
-    selected && petPaused ? { ...selected, action: 'idle', working: false } : selected,
-  )
+  petWindow.webContents.send('desktop-pet:state', selected)
   if (selected && !petWindow.isVisible()) petWindow.showInactive()
 }
 
-function choosePet(chatId: string, manual = true): void {
-  if (!petCandidates.some((candidate) => candidate.chatId === chatId)) return
-  selectedPetChatId = chatId
-  manualPetSelection = manual
-  sendPetState()
-  rebuildTrayMenu()
-}
-
-function requestControlAction(
-  channel: 'desktop-pet:open-chat' | 'desktop-pet:open-history',
-  chatId: string,
-): void {
+function requestControlAction(channel: 'desktop-pet:open-chat', chatId: string): void {
   showControlWindow()
   controlWindow?.webContents.send(channel, chatId)
 }
@@ -227,28 +205,11 @@ function quitApplication(): void {
 
 function rebuildTrayMenu(): void {
   if (!tray) return
-  const sessionItems = petCandidates.map((candidate) => ({
-    label: `${candidate.label} · ${candidate.chatId.slice(0, 6)}`,
-    type: 'radio' as const,
-    checked: candidate.chatId === selectedPetChatId,
-    click: () => choosePet(candidate.chatId),
-  }))
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '显示控制台', click: showControlWindow },
-      ...(sessionItems.length
-        ? [{ type: 'separator' as const }, { label: '桌宠会话', submenu: sessionItems }]
-        : []),
       { type: 'separator' },
-      {
-        label: petPaused ? '恢复桌宠' : '暂停桌宠',
-        click: () => {
-          petPaused = !petPaused
-          sendPetState()
-          rebuildTrayMenu()
-        },
-      },
-      { label: '隐藏桌宠', click: () => petWindow?.hide() },
+      { label: '隐藏 Nexus 入口', click: () => petWindow?.hide() },
       { type: 'separator' },
       { label: '退出', click: quitApplication },
     ]),
@@ -323,49 +284,6 @@ function createPetWindow(): void {
   loadRenderer(win, 'desktop-pet')
 }
 
-function clampPetWindow(x: number, y: number): { x: number; y: number } {
-  if (!petWindow) return { x, y }
-  const bounds = petWindow.getBounds()
-  const display = screen.getDisplayMatching({
-    x,
-    y,
-    width: bounds.width,
-    height: bounds.height,
-  }).workArea
-  return {
-    x: Math.min(Math.max(Math.round(x), display.x), display.x + display.width - bounds.width),
-    y: Math.min(Math.max(Math.round(y), display.y), display.y + display.height - bounds.height),
-  }
-}
-
-function startPetRoaming(): void {
-  roamTimer = setInterval(() => {
-    const candidate = selectedPet()
-    if (!petWindow || petPaused || candidate?.working || Date.now() < hoverUntil) return
-    const current = petWindow.getBounds()
-    const display = screen.getDisplayMatching(current).workArea
-    const target = clampPetWindow(
-      current.x + Math.round((Math.random() - 0.5) * 180),
-      current.y + Math.round((Math.random() - 0.5) * 90),
-    )
-    const started = Date.now()
-    const animation = setInterval(() => {
-      if (!petWindow || Date.now() < hoverUntil) {
-        clearInterval(animation)
-        return
-      }
-      const p = Math.min(1, (Date.now() - started) / 1200)
-      const eased = p * p * (3 - 2 * p)
-      petWindow.setPosition(
-        Math.round(current.x + (target.x - current.x) * eased),
-        Math.round(current.y + (target.y - current.y) * eased),
-      )
-      if (p >= 1) clearInterval(animation)
-    }, 33)
-    void display
-  }, 5000)
-}
-
 app.whenReady().then(async () => {
   // 单实例锁
   if (!app.requestSingleInstanceLock()) {
@@ -392,22 +310,10 @@ app.whenReady().then(async () => {
       return (
         typeof candidate.chatId === 'string' &&
         typeof candidate.label === 'string' &&
-        typeof candidate.action === 'string' &&
-        typeof candidate.mood === 'string' &&
-        typeof candidate.working === 'boolean' &&
-        typeof candidate.speech === 'string' &&
-        typeof candidate.activity === 'number' &&
-        Number.isFinite(candidate.activity)
+        typeof candidate.working === 'boolean'
       )
     })
-    if (!petCandidates.some((candidate) => candidate.chatId === selectedPetChatId)) {
-      manualPetSelection = false
-      selectedPetChatId = null
-    }
-    if (!manualPetSelection) {
-      selectedPetChatId =
-        [...petCandidates].sort((a, b) => b.activity - a.activity)[0]?.chatId ?? null
-    }
+    selectedPetChatId = petCandidates[0]?.chatId ?? null
     sendPetState()
     rebuildTrayMenu()
   })
@@ -419,41 +325,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  ipcMain.on('desktop-pet:context-menu', (event, chatId: unknown) => {
-    if (event.sender !== petWindow?.webContents || typeof chatId !== 'string') return
-    if (!petCandidates.some((candidate) => candidate.chatId === chatId)) return
-    Menu.buildFromTemplate([
-      { label: '发消息', click: () => requestControlAction('desktop-pet:open-chat', chatId) },
-      { label: '查看历史', click: () => requestControlAction('desktop-pet:open-history', chatId) },
-      { label: '显示控制台', click: showControlWindow },
-      { type: 'separator' },
-      {
-        label: petPaused ? '恢复游走' : '暂停游走',
-        click: () => {
-          petPaused = !petPaused
-          sendPetState()
-          rebuildTrayMenu()
-        },
-      },
-      { label: '隐藏桌宠', click: () => petWindow?.hide() },
-      { type: 'separator' },
-      { label: '退出 CheryNyxus', click: quitApplication },
-    ]).popup({ window: petWindow ?? undefined })
-  })
-
-  ipcMain.on('desktop-pet:move', (event, position: unknown) => {
-    if (event.sender !== petWindow?.webContents || !position || typeof position !== 'object') return
-    const point = position as { x?: unknown; y?: unknown }
-    if (typeof point.x !== 'number' || typeof point.y !== 'number') return
-    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return
-    hoverUntil = Date.now() + 5000
-    const next = clampPetWindow(point.x, point.y)
-    petWindow?.setPosition(next.x, next.y)
-  })
-
   ipcMain.on('desktop-pet:mouse-passthrough', (event, ignore: unknown) => {
     if (event.sender !== petWindow?.webContents || typeof ignore !== 'boolean') return
-    if (!ignore) hoverUntil = Date.now() + 2000
     // Linux does not support forwarded mouse moves while ignored, so it would never become interactive again.
     if (process.platform === 'win32') petWindow?.setIgnoreMouseEvents(ignore, { forward: true })
   })
@@ -469,7 +342,6 @@ app.whenReady().then(async () => {
     createControlWindow()
     createPetWindow()
     createTray()
-    startPetRoaming()
   } catch (e) {
     console.error('启动后端失败:', e)
     app.quit()
@@ -491,8 +363,6 @@ app.on('before-quit', async (e) => {
   // 阻止默认退出，等待清理完成
   e.preventDefault()
   isQuitting = true
-  if (roamTimer) clearInterval(roamTimer)
-  roamTimer = null
   tray?.destroy()
   tray = null
 

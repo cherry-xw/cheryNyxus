@@ -92,10 +92,10 @@ sense_groups:
   auto_senses:                   # read_file 自动执行
     - read_file:auto
   confirm_senses:                # write_file 需审批
-    - write_file:confirm
+    - write_file:smart
   mixed_confirm:                 # 多感官 confirm
-    - read_file:confirm
-    - write_file:confirm
+    - read_file:smart
+    - write_file:smart
   todo_senses:                   # update_todo 自动执行（todo 显示）
     - update_todo:auto
   spawn_senses:                  # spawn_role 派发（父 agent 用，builtin auto）

@@ -49,6 +49,12 @@ export interface Chunk {
   eventSeq?: number
   /** V2 session subscription that received this event. */
   subscriptionId?: string
+  /** Root tree that owns this event when routed through a root subscription. */
+  rootChatId?: string
+  /** Monotonic cursor across the entire recursive root tree. */
+  rootEventSeq?: number
+  /** Original per-chat cursor retained inside a root subscription envelope. */
+  sourceEventSeq?: number
   data: ChunkData
 }
 
@@ -70,6 +76,12 @@ export interface Notification {
   eventSeq?: number
   /** V2 session subscription that received this event. */
   subscriptionId?: string
+  /** Root tree that owns this event when routed through a root subscription. */
+  rootChatId?: string
+  /** Monotonic cursor across the entire recursive root tree. */
+  rootEventSeq?: number
+  /** Original per-chat cursor retained inside a root subscription envelope. */
+  sourceEventSeq?: number
   data: NotificationData
 }
 
@@ -190,8 +202,13 @@ export interface ChatInputSubmitRequestData {
   chatId: string
   commandId: string
   clientMessageId: string
+  /** Client-preallocated durable user node identity. The accepted input and
+   * committed timeline node reuse it so the tree never deletes/recreates the node. */
+  messageId: string
   content: string
   attachments?: ChatSendAttachment[]
+  /** Internal-only authorization marker. The websocket schema intentionally strips it. */
+  controlRootChatId?: string
 }
 
 export type ChatAttachmentKind = 'image' | 'video' | 'audio'
@@ -244,12 +261,16 @@ export interface ChatSyncRequestData {
 
 /** Atomic session subscription open. */
 export interface ChatOpenRequestData {
-  chatId: string
+  chatId?: string
+  /** Root mode subscribes every current and future descendant chat. */
+  rootChatId?: string
   knownTimelineRevision?: number
   knownEventSeq?: number
 }
 
 export interface ActiveTurnSnapshot {
+  /** Present for root snapshots so one flat list can cover every descendant. */
+  chatId?: string
   turnId: string
   messageId: string
   runId?: string
@@ -263,12 +284,16 @@ export interface ActiveTurnSnapshot {
 }
 
 export interface PendingInputSnapshot {
+  /** Present for root snapshots so the client can preserve source identity. */
+  chatId?: string
   inputId: string
   clientMessageId?: string
   messageId?: string
   content: string
   createdAt: number
-  state: 'queued' | 'consumed'
+  state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
+  queueSequence?: number
+  acceptedAt?: number
 }
 
 export interface ChatOpenResponseData {
@@ -277,8 +302,17 @@ export interface ChatOpenResponseData {
   eventSeq: number
   timelineRevision: number
   timelineChanged: boolean
+  rootTimeline?: RootTimelineSnapshot
   state: {
+    /** Root mode identity set used to atomically clear stale descendant state. */
+    chatIds?: string[]
     run?: { runId: string; state: 'running' | 'paused' | 'completed' | 'failed' }
+    /** Root mode returns every active descendant run; direct mode leaves this empty. */
+    runs?: Array<{
+      chatId: string
+      runId: string
+      state: 'running' | 'paused' | 'completed' | 'failed'
+    }>
     pendingInputs: PendingInputSnapshot[]
     activeTurns: ActiveTurnSnapshot[]
     pendingApproval?: CurrentStateData['pendingApproval']
@@ -351,6 +385,46 @@ export interface ChatAbortRequestData {
   chatId: string
   /** 仅中止该运行；与当前 active run 不一致时返回 CONFLICT，防止旧页面误杀新一轮。 */
   runId?: string
+  /** Optional idempotency key used by the CP8 global pause command. */
+  commandId?: string
+}
+
+export type ChildAgentControlState = 'running' | 'paused' | 'finished' | 'failed' | 'redirected'
+
+export interface ChildControlTargetResult {
+  chatId: string
+  previousState: ChildAgentControlState
+  state: ChildAgentControlState
+  outcome: 'stopped' | 'queued' | 'resumed' | 'unchanged' | 'rejected' | 'failed'
+  runId?: string
+  messageId?: string
+  detail?: string
+}
+
+export interface ChatStopChildRequestData {
+  rootChatId: string
+  childChatId: string
+  commandId: string
+  recursive?: boolean
+}
+
+export interface ChatStopChildResponseData {
+  rootChatId: string
+  commandId: string
+  results: ChildControlTargetResult[]
+}
+
+export interface ChatSendToChildRequestData {
+  rootChatId: string
+  childChatId: string
+  commandId: string
+  content: string
+}
+
+export interface ChatSendToChildResponseData {
+  rootChatId: string
+  commandId: string
+  result: ChildControlTargetResult
 }
 
 export interface ChatAttachRequestData {
@@ -1098,6 +1172,16 @@ export interface ChatListResponseData {
      * 主 chat 有已持久化、尚未由 chat.resume 消费的角色回复。前端重连后据此恢复主循环。
      */
     resumePending?: boolean
+    /**
+     * 该 chat 的 in-flight sense 审批（approvalManager 内存索引派生，轻量，免 hydration）。
+     * 非 null = 有待用户 accept/reject 的审批，供会话列表「琴键」闪烁提示（含未打开/未 hydration 的 chat）；
+     * null = 无挂起审批。恒返回（非请求参数；响应未做 schema 校验）。
+     * 与 currentState.pendingApproval（computeCurrentState 扫事件重建，单 chat 已 hydration 路径）一致——
+     * 同为 approval 生命周期；此处为 chat.list 的第二轻量源。
+     * senseName = 待审批感官名；waitTime = 审批窗口 ms（= global.approval_timeout，0 = 不限时）；
+     * createdAt = interrupt 触发时间戳（ms），前端倒计时 = waitTime - (now - createdAt)。
+     */
+    pendingApproval?: { senseName: string; waitTime: number; createdAt: number } | null
   }>
 }
 
@@ -1116,7 +1200,7 @@ export interface PendingQuestionBatchData {
   }>
 }
 
-export interface QuestionStateSnapshotData {
+interface QuestionStateSnapshotData {
   /** 与 pendingQuestionBatches 同一 SQLite 读快照中的 chat event 游标。 */
   snapshotSeq: number
   pendingQuestionBatches: PendingQuestionBatchData[]
@@ -1278,6 +1362,8 @@ export interface CanonicalMessage {
   runtime?: RuntimeSelection
   senseCalls?: CanonicalSenseCall[]
   origin?: { parentChatId?: string; childChatId?: string; spawnCallId?: string }
+  /** 该消息是 wakeParent 注入的子返回（child_return 链接）。前端据此标 mergedView 从主轴过滤。 */
+  childReturn?: boolean
 }
 
 export type TimelineActor =
@@ -1289,19 +1375,41 @@ export type TimelineActor =
 export type TimelineDirection =
   'user-to-agent' | 'agent-to-user' | 'parent-to-child' | 'child-to-parent' | 'internal'
 
+export interface GraphToolCall {
+  callId: string
+  index: number
+  name: string
+  arguments: string
+  result?: string
+  status: 'pending' | 'accepted' | 'rejected' | 'completed' | 'error'
+  childChatId?: string
+  targetChatId?: string
+}
+
+export interface TerminationFact {
+  actor: 'user' | 'system' | 'agent'
+  code: 'user_abort' | 'system_stop' | 'watchdog' | 'error' | 'agent_redirect'
+  at: number
+  detail?: string
+}
+
 export interface TimelineNode {
   id: string
   rootChatId: string
   sourceChatId: string
   sourceMessageId?: string
-  kind: 'message' | 'tool-group' | 'spawn' | 'return' | 'system'
+  kind: 'message' | 'tool-batch' | 'return' | 'dispatch' | 'system' | 'tool-group' | 'spawn'
   actor: TimelineActor
   target?: TimelineActor
   direction: TimelineDirection
   visibility: 'conversation' | 'detail' | 'internal'
   content: string
   thinking?: string
-  toolCalls?: CanonicalSenseCall[]
+  toolCalls?: GraphToolCall[]
+  batchId?: string
+  orderKey: number
+  termination?: TerminationFact
+  /** Legacy read compatibility only. CP2 writers do not populate these fields. */
   parentNodeId?: string
   causationId?: string
   createdAt: number
@@ -1309,11 +1417,39 @@ export interface TimelineNode {
   status: 'committed' | 'revoked'
 }
 
+export type ExecutionEdgeKind =
+  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation'
+
+export interface ExecutionEdgeFact {
+  id: string
+  rootChatId: string
+  fromNodeId: string
+  toNodeId: string
+  kind: ExecutionEdgeKind
+  orderKey: number
+  sourceChatId: string
+  targetChatId: string
+  callId?: string
+}
+
+export interface ActiveRunFact {
+  rootChatId: string
+  chatId: string
+  runId: string
+  status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed'
+  turnId?: string
+  nodeId?: string
+  batchId?: string
+}
+
 export interface RootTimelineSnapshot {
   rootChatId: string
   view: 'conversation' | 'tree' | 'audit'
   revision: number
   nodes: TimelineNode[]
+  edges: ExecutionEdgeFact[]
+  activeRuns: ActiveRunFact[]
+  pendingInputs: PendingInputSnapshot[]
   nextCursor?: string
   capturedEventSeq: number
 }
@@ -1331,11 +1467,32 @@ export type TimelinePatchOperation =
   | { type: 'revoke'; messageId: string }
   | { type: 'remove'; messageId: string }
 
+export type RootTimelinePatchOperation =
+  | { type: 'upsert'; node: TimelineNode }
+  | { type: 'revoke'; nodeId: string }
+  | { type: 'remove'; nodeId: string }
+  | { type: 'upsert-edge'; edge: ExecutionEdgeFact }
+  | { type: 'remove-edge'; edgeId: string }
+  | { type: 'upsert-run'; run: ActiveRunFact }
+  | { type: 'remove-run'; chatId: string; runId: string }
+  | { type: 'upsert-input'; input: PendingInputSnapshot }
+  | { type: 'remove-input'; inputId: string }
+
+export interface RootTimelinePatchData {
+  rootChatId: string
+  view: RootTimelineSnapshot['view']
+  baseRevision: number
+  revision: number
+  operations: RootTimelinePatchOperation[]
+}
+
 export interface TimelinePatchData {
   chatId: string
   baseRevision: number
   revision: number
   operations: TimelinePatchOperation[]
+  rootPatch?: RootTimelinePatchData
+  rootPatches?: RootTimelinePatchData[]
 }
 
 export interface TurnStartedNotificationData {
@@ -1362,7 +1519,14 @@ export interface InputUpdatedNotificationData {
   messageId?: string
   state: 'accepted' | 'started' | 'queued' | 'consumed' | 'cancelled' | 'rejected'
   queueSequence?: number
+  content?: string
+  acceptedAt?: number
   reason?: string
+}
+
+export interface RunUpdatedNotificationData {
+  runId: string
+  status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed'
 }
 
 export interface RuntimeSetResponseData {
@@ -1415,6 +1579,8 @@ export interface ChatAbortResponseData {
   aborted: boolean
   /** 统一暂停语义：级联暂停的后代 chat 数（主 abort 时递归暂停所有后代）。 */
   cascaded?: number
+  /** Per-target audit result. Present for CP8-aware clients. */
+  results?: ChildControlTargetResult[]
 }
 
 /**
@@ -1657,6 +1823,7 @@ export type NotificationData =
   | TurnDeltaNotificationData
   | TurnCompletedNotificationData
   | InputUpdatedNotificationData
+  | RunUpdatedNotificationData
   | null
 
 export interface InterruptNotificationData {
@@ -1953,6 +2120,8 @@ export const Method = {
   CHAT_OPEN: 'chat.open',
   CHAT_CLOSE: 'chat.close',
   CHAT_START_SPAWN: 'chat.startSpawn',
+  CHAT_STOP_CHILD: 'chat.stopChild',
+  CHAT_SEND_TO_CHILD: 'chat.sendToChild',
 
   // Sense 审批
   SENSE_APPROVAL: 'sense.approval',
@@ -2111,6 +2280,14 @@ export interface RpcMethodMap {
   [Method.CHAT_START_SPAWN]: {
     params: ChatStartSpawnRequestData
     result: ChatStartSpawnResponseData
+  }
+  [Method.CHAT_STOP_CHILD]: {
+    params: ChatStopChildRequestData
+    result: ChatStopChildResponseData
+  }
+  [Method.CHAT_SEND_TO_CHILD]: {
+    params: ChatSendToChildRequestData
+    result: ChatSendToChildResponseData
   }
   [Method.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData }
   [Method.SENSE_QUESTION_ANSWER]: {

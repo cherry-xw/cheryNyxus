@@ -228,7 +228,14 @@ export class WsClient {
     if (!msg || typeof msg !== 'object') return
 
     const kind = (msg as { kind?: string }).kind
-    const envelope = msg as { chatId?: unknown; seq?: unknown; eventSeq?: unknown }
+    const envelope = msg as {
+      chatId?: unknown
+      seq?: unknown
+      eventSeq?: unknown
+      rootChatId?: unknown
+      rootEventSeq?: unknown
+      subscriptionId?: unknown
+    }
     if (kind === 'response') {
       const response = msg as RpcResponse
       const pending = this.pending.get(response.requestId)
@@ -237,6 +244,19 @@ export class WsClient {
         this.pending.delete(response.requestId)
         pending.resolve(response)
       }
+      return
+    }
+    // Root subscriptions have their own root-wide cursor. They must not enter
+    // the per-chat gap buffer below: opening an existing root can legitimately
+    // deliver source seq 3000 while this page has never consumed source seq 1.
+    // The root timeline store validates rootEventSeq against the atomic
+    // chat.open boundary and performs an authoritative resync on a real gap.
+    if (
+      typeof envelope.rootChatId === 'string' &&
+      typeof envelope.rootEventSeq === 'number' &&
+      typeof envelope.subscriptionId === 'string'
+    ) {
+      this.dispatchEvent(msg, kind)
       return
     }
     // V2 renames the per-chat cursor to eventSeq. The same ordered gap buffer

@@ -6,8 +6,6 @@ import { desktopPetBridge } from '@/features/pets/desktopPetBridge'
 import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
-import SessionList from '@/features/agent/drawer/SessionList.vue'
-import NyxusHistoryPanel from '@/features/pets/nyxus/components/NyxusHistoryPanel.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
 import {
   createHistoryDrawerManager,
@@ -68,12 +66,7 @@ async function bootstrap(): Promise<void> {
             {
               chatId: session.chatId,
               label: session.meta.workspace?.split(/[\\/]/).filter(Boolean).pop() ?? 'cheryNyxus',
-              action: session.run.status === 'running' ? 'chatting' : 'idle',
-              mood: 'serious',
               working: session.run.status === 'running',
-              speech: '',
-              activity:
-                session.run.status === 'running' ? Date.now() : (session.meta.updatedAt ?? 0),
             },
           ])
         },
@@ -83,11 +76,6 @@ async function bootstrap(): Promise<void> {
     cleanupDesktopBridge.push(
       petBridge.onOpenChat((chatId) => {
         if (chatSessions.sessionsById[chatId]) agents.activeDialogChatId = chatId
-      }),
-    )
-    cleanupDesktopBridge.push(
-      petBridge.onOpenHistory((chatId) => {
-        if (chatSessions.sessionsById[chatId]) agents.openHistoryRoot(chatId)
       }),
     )
   }
@@ -164,8 +152,6 @@ async function bootstrap(): Promise<void> {
     <NyxusCore />
     <AgentDialog />
     <HistoryDrawer />
-    <SessionList />
-    <NyxusHistoryPanel />
     <SettingsDialog />
   </template>
   <div

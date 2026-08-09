@@ -172,7 +172,7 @@ export type AsyncWakeHandler = (child: {
   childChatId: string
   parentChatId: string
   type: string
-}) => void
+}) => void | Promise<void>
 
 /** 看门狗超时阈值：读 config.global.watchdog.timeout_ms（默认 5min；feed-dog 每条 chunk 重置） */
 function getWatchdogTimeoutMs(): number {
@@ -204,7 +204,14 @@ function startWatchdog(childChatId: string): void {
     console.warn(
       `[spawnBroker] 看门狗超时 ${timeoutMs / 1000}s（childChatId=${childChatId}），触发 asyncWakeHandler`,
     )
-    asyncWakeHandler?.({ childChatId, parentChatId: entry.parentChatId, type: entry.type })
+    void Promise.resolve(
+      asyncWakeHandler?.({ childChatId, parentChatId: entry.parentChatId, type: entry.type }),
+    ).catch((error) => {
+      console.error(
+        `[spawnBroker] 看门狗处理失败（childChatId=${childChatId}）:`,
+        (error as Error).message,
+      )
+    })
   }, timeoutMs)
   asyncWatchdogs.set(childChatId, timer)
 }

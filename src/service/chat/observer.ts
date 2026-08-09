@@ -4,12 +4,9 @@ import {
   markMessageReplaced,
   updateAssistantSenseCalls,
   updateChatMetadata,
-  getMessages,
-  getChat,
-  parseMessageRow,
   getTimelineRevision,
 } from '@/db/chat.js'
-import { getChatSelection } from './runtime.js'
+import { getActiveChatRunId, getChatSelection } from './runtime.js'
 import { approvalManager } from '../approval/manager.js'
 
 import { onChildDone } from './wakeScheduler.js'
@@ -17,76 +14,12 @@ import type { LLMResponse } from '@/core/message/adapter'
 import type { MiddlewareChunk } from '@/core/middleware/types'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
+import config from '@/utils/config.js'
 import { getWaitedParent, feedWatchdog } from '@/agent/spawnBroker.js'
 import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
 import { createQuestionBatch } from '@/db/question.js'
-import { connectionManager } from '../websocket/connection.js'
-import { transport } from '../websocket/transport.js'
-import { appendChatEvent } from '@/db/delivery.js'
-import { createNotification, type CanonicalMessage } from '../message/types.js'
-
-function emitTimelinePatch(chatId: string, baseRevision: number): void {
-  const rows = getMessages(chatId)
-  const chat = getChat(chatId)
-  const senseResults = new Map(rows.filter((r) => r.role === 'sense').map((r) => [r.id, r]))
-  let runtime: { brain: string; senseGroup: string; mcpServers: string[] } | undefined
-  const messages: CanonicalMessage[] = rows.map((row) => {
-    const parsed = parseMessageRow(row)
-    if (parsed.role === 'user' && parsed.runtime) runtime = parsed.runtime
-    const role = parsed.role === 'system' || parsed.role === 'subagent' ? 'role' : parsed.role
-    const senseCalls = (parsed.senseCall ?? []).map((call) => {
-      const result = senseResults.get(call.id)
-      return {
-        ...call,
-        ...(result?.content ? { result: result.content } : {}),
-        status:
-          result?.revoked === 1
-            ? ('rejected' as const)
-            : result?.content
-              ? ('accepted' as const)
-              : ('pending' as const),
-      }
-    })
-    return {
-      id: row.id,
-      chatId,
-      role: role as CanonicalMessage['role'],
-      content: parsed.content ?? '',
-      ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
-      createdAt: row.created_at,
-      updatedAt: row.created_at,
-      status: row.revoked === 1 ? 'revoked' : 'committed',
-      ...(parsed.role === 'user' && runtime ? { runtime } : {}),
-      ...(senseCalls.length > 0 ? { senseCalls } : {}),
-      ...(chat?.parent_chat_id
-        ? { origin: { parentChatId: chat.parent_chat_id, childChatId: chatId } }
-        : {}),
-    }
-  })
-  const revision = getTimelineRevision(chatId)
-  const notification = createNotification(
-    'timeline.patch',
-    undefined,
-    {
-      chatId,
-      baseRevision,
-      revision,
-      operations: messages.map((message) => ({ type: 'upsert' as const, message })),
-    },
-    { chatId },
-  )
-  notification.seq = appendChatEvent(chatId, notification as unknown as Record<string, unknown>)
-  for (const ws of connectionManager.getChatOutputs(chatId)) {
-    if (ws.readyState !== ws.OPEN) continue
-    for (const routed of connectionManager.prepareSessionEvent(ws, notification)) {
-      try {
-        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-      } catch (err) {
-        logger.event('timeline.patch.send_failed', { chatId, message: (err as Error).message })
-      }
-    }
-  }
-}
+import { emitTimelinePatch } from './rootGraphPatch.js'
+import { recordTerminationFact } from './executionFacts.js'
 
 /**
  * 统一消费 agent 内部 effect chunk（P2-1 从 send.ts 拆出）。
@@ -139,6 +72,10 @@ export async function* observeAgentChunks(
             hash: chunk.message.hash,
           })
         }
+        // Keep the effect internal, but let the transport mapper observe the
+        // committed assistant boundary. The timeline patch has already been
+        // emitted above, so it is safe for the mapper to close this node's CRT.
+        yield chunk
         continue
       }
 
@@ -190,7 +127,14 @@ export async function* observeAgentChunks(
       if (chunk.type === 'sense_pending') {
         // P1-11：approvalPromise 由 core approvalRegistry 管理，service 仅按 approvalId 注册标记，
         //   confirm/abort 时 ApprovalManager 调 resolveApproval/rejectApproval 触发 core await。
-        approvalManager.register(chunk.approvalId)
+        // payload（chatId/senseName/waitTime/createdAt）供 chat.list 派生 pendingApproval「琴键」闪烁态；
+        //   waitTime/createdAt 与 streamMapper interrupt 通知同源（global.approval_timeout / Date.now()）。
+        approvalManager.register(chunk.approvalId, {
+          chatId,
+          senseName: chunk.senseName,
+          waitTime: config.global.approval_timeout ?? 0,
+          createdAt: Date.now(),
+        })
         logger.event('approval.pending', {
           approvalId: chunk.approvalId,
           senseName: chunk.senseName,
@@ -252,11 +196,34 @@ export async function* observeAgentChunks(
     // 用户/前端显式 resume 续跑（子结果不再当错误回传父；父若在等待由看门狗中性唤主或用户干预）。
     // 仅记日志区分来源便于排查：park/abort=info，真实故障=error 带 stack。
     // child_done 正常完成路径不触发此处（throw 跳过 loop 末尾 child_done yield）。
+    const activeRunId = getActiveChatRunId(chatId)
     if (isAgentParkError(err)) {
+      if (activeRunId) {
+        const baseRevision = getTimelineRevision(chatId)
+        recordTerminationFact({
+          chatId,
+          runId: activeRunId,
+          actor: 'system',
+          code: 'system_stop',
+          detail: 'disconnect grace park',
+        })
+        emitTimelinePatch(chatId, baseRevision)
+      }
       logger.event('agent.paused', { chatId, kind: 'park' })
     } else if (isAgentAbortError(err)) {
       logger.event('agent.paused', { chatId, kind: 'abort' })
     } else {
+      if (activeRunId) {
+        const baseRevision = getTimelineRevision(chatId)
+        recordTerminationFact({
+          chatId,
+          runId: activeRunId,
+          actor: 'system',
+          code: 'error',
+          detail: (err as Error).message,
+        })
+        emitTimelinePatch(chatId, baseRevision)
+      }
       logger.event(
         'agent.paused',
         {

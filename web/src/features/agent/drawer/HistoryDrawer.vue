@@ -8,11 +8,12 @@
  * - 关闭：✕（panel 内，仅栈顶）/ 点遮罩 / ESC → manager.closeTop（逐层返回）
  * motion-v：AnimatePresence + MotionDiv overlay 控制进出（inline 字面量，同 AgentDialog 风格）。
  */
-import { computed, onBeforeUnmount } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { useHistoryDrawerManager } from './useHistoryDrawerManager'
 import { useAgentsStore } from '@/stores'
 import HistoryDrawerPanel from './HistoryDrawerPanel.vue'
+import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
 const MotionDiv = motion.div
 
@@ -34,26 +35,44 @@ function onOverlayClick(e: MouseEvent): void {
   if (e.target === e.currentTarget) closeTop()
 }
 
-// 基础 z-index（与原 HistoryDrawer 一致，低于审批 400 / AgentDialog 300）
-const BASE_Z = 280
+// 历史抽屉由当前 Nexus 对话框主动打开时，必须盖在输入弹窗上方；审批层仍保持更高优先级。
+const BASE_Z = OVERLAY_Z_INDEX.historyDrawer
+const overlayRef = ref<HTMLElement | null>(null)
 
 // 全局 ESC 关栈顶（栈非空时生效；topOverlay 守卫避免与 AgentDialog 等同开时双重关闭）
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && stack.value.length > 0 && agents.topOverlay === 'historyDrawer') {
+  if (stack.value.length === 0 || agents.topOverlay !== 'historyDrawer') return
+  const insideDrawer = e.target instanceof Element && Boolean(e.target.closest('.drawer-overlay'))
+  if (e.key === 'Escape') {
     e.preventDefault()
+    e.stopImmediatePropagation()
     closeTop()
+  } else if (!insideDrawer) {
+    // Focus can still point at the composer that opened the drawer. Capture the
+    // event before that input receives it so background shortcuts/text cannot run.
+    e.preventDefault()
+    e.stopImmediatePropagation()
   }
 }
-window.addEventListener('keydown', onGlobalKeydown)
-onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
+window.addEventListener('keydown', onGlobalKeydown, true)
+onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown, true))
+watch(
+  () => stack.value.length,
+  (length) => {
+    if (length > 0) void nextTick(() => overlayRef.value?.focus({ preventScroll: true }))
+  },
+)
 </script>
 
 <template>
   <AnimatePresence>
     <MotionDiv
       v-if="stack.length > 0"
+      ref="overlayRef"
       key="history-overlay"
       class="drawer-overlay"
+      tabindex="-1"
+      :style="{ zIndex: BASE_Z }"
       :class="{ 'is-top-mask': isTopMask }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
@@ -78,7 +97,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onGlobalKeydown))
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  z-index: 280;
   background: transparent;
   backdrop-filter: none;
 }

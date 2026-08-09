@@ -31,7 +31,7 @@ import { breakdownSegments, fmtTokens, segmentThinkingNote } from '../toolbar/co
 import type { BreakdownKey } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from './PromptSnapshotTip.vue'
 import { agentApi } from '@/services/agentApi'
-import type { CanonicalSenseCall, PromptSnapshotTool, TimelineNode } from '@/services/agentApi'
+import type { GraphToolCall, PromptSnapshotTool, TimelineNode } from '@/services/agentApi'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 
 const MotionDiv = motion.div
@@ -68,10 +68,10 @@ function previewTooltip(content: string | undefined): string {
  * → SenseCallRecord（渲染层：args + status running/done/error）。
  * 与 reducer.canonicalToChatMessage 的 senseCalls 映射同款，避免 SenseCallBox 读到空 args / '?' 状态。 */
 function canonicalToolCallToSense(
-  c: CanonicalSenseCall,
+  c: GraphToolCall,
 ): NonNullable<HistoryItem['senseCalls']>[number] {
   return {
-    id: c.id,
+    id: c.callId,
     name: c.name,
     args: c.arguments,
     result: c.result,
@@ -111,6 +111,7 @@ function rootNodeToHistory(node: TimelineNode): HistoryItem {
     ...(node.kind === 'return' ? { mergedView: 'child-to-master' as const } : {}),
     ...(node.actor.kind === 'agent' && node.actor.roleType ? { petName: node.actor.roleType } : {}),
     ...(node.causationId ? { spawnSenseCallId: node.causationId } : {}),
+    ...(node.termination ? { termination: node.termination } : {}),
   }
 }
 
@@ -157,47 +158,56 @@ const history = computed<HistoryItem[]>(() => {
   // projection is layout (root + descendants) and transient session-plane rows.
   const result =
     layout.value === 'group'
-      ? (chatSessions.rootTimelines[props.chatId]?.nodes ?? []).map(rootNodeToHistory)
+      ? (chatSessions.rootTimeline(props.chatId, 'conversation')?.nodes ?? [])
+          .filter((node) => node.visibility === 'conversation' || !!node.termination)
+          .map(rootNodeToHistory)
       : sessionData.ownTimeline.value
 
   const transient: HistoryItem[] = []
-  const ids = new Set<string>([props.chatId])
   if (layout.value === 'group') {
-    for (const candidate of agents.pets) {
-      let parent = candidate.parentChatId
-      const seen = new Set<string>()
-      while (parent && !seen.has(parent)) {
-        if (parent === props.chatId) {
-          ids.add(candidate.chatId)
-          break
-        }
-        seen.add(parent)
-        parent = agents.pets.find((p) => p.chatId === parent)?.parentChatId
-      }
-    }
-  }
-  for (const id of ids) {
-    const session = chatSessions.sessionsById[id]
-    if (!session) continue
-    for (const input of session.pendingInputs) {
+    const rootState = chatSessions.rootTimelineStates[props.chatId]
+    for (const input of rootState?.pendingInputs ?? []) {
       if (input.state === 'consumed' || input.state === 'cancelled' || input.state === 'rejected')
         continue
       transient.push({
         role: 'user',
         content: input.content,
         createdAt: input.acceptedAt ?? input.createdAt ?? Date.now(),
-        msgId: `pending:${input.inputId}`,
-        agentChatId: id,
+        msgId: input.messageId ?? `pending:${input.inputId}`,
+        agentChatId: input.chatId ?? props.chatId,
       })
     }
-    for (const turn of session.activeTurns) {
+    for (const turn of rootState?.activeTurns ?? []) {
       transient.push({
         role: 'assistant',
         content: turn.content,
         thinking: turn.thinking || undefined,
         createdAt: turn.createdAt ?? Date.now(),
-        msgId: `turn:${turn.messageId}`,
-        agentChatId: id,
+        msgId: turn.messageId,
+        agentChatId: turn.chatId ?? props.chatId,
+      })
+    }
+  } else {
+    const session = chatSessions.sessionsById[props.chatId]
+    for (const input of session?.pendingInputs ?? []) {
+      if (input.state === 'consumed' || input.state === 'cancelled' || input.state === 'rejected')
+        continue
+      transient.push({
+        role: 'user',
+        content: input.content,
+        createdAt: input.acceptedAt ?? input.createdAt ?? Date.now(),
+        msgId: input.messageId ?? `pending:${input.inputId}`,
+        agentChatId: props.chatId,
+      })
+    }
+    for (const turn of session?.activeTurns ?? []) {
+      transient.push({
+        role: 'assistant',
+        content: turn.content,
+        thinking: turn.thinking || undefined,
+        createdAt: turn.createdAt ?? Date.now(),
+        msgId: turn.messageId,
+        agentChatId: props.chatId,
       })
     }
   }

@@ -8,15 +8,12 @@
 import { onBeforeUnmount, onMounted, type Ref } from 'vue'
 import { useConnectionStore } from '@/stores'
 import {
-  cosmicModeDuration,
   createNyxusParticles,
   kickNyxusParticles,
   promoteNyxusParticleAt,
-  type NyxusCosmicMode,
   type NyxusParticle,
   type NyxusParticleInput,
   type NyxusReaction,
-  type NyxusActivity,
   type NyxusServiceState,
   type NyxusNearbyPet,
   type Vec2,
@@ -28,6 +25,7 @@ import {
   type NyxusMenuTool,
 } from '../nyxusUiState'
 import type { PetAction, PetMood } from '@/features/pets/types/types'
+import { createNyxusCosmicScheduler, nyxusForcedCosmicState } from './cosmicScheduler'
 
 export interface NyxusInputProps {
   action: PetAction
@@ -35,12 +33,10 @@ export interface NyxusInputProps {
   working: boolean
   size: number
   reaction: NyxusReaction | null
-  activity: NyxusActivity
-  runningToolCount: number
-  contentPulse: number
   boot: boolean
   respectConnection: boolean
   nearbyPet: NyxusNearbyPet | null
+  interactive: boolean
 }
 
 /** 归一化后的有符号角增量，供绕圈手势与单测共用。 */
@@ -57,14 +53,7 @@ export function nyxusOuterDiskHit(distance: number, size: number): boolean {
   return distance >= size * 0.34 && distance <= size * 1.02
 }
 
-const COSMIC_MODES: readonly NyxusCosmicMode[] = [
-  'barredSpiral',
-  'inclinedDisk',
-  'merger',
-  'pulsar',
-  'starburst',
-]
-const MENU_TOOL_ORDER: readonly NyxusMenuTool[] = ['create', 'chat', 'history', 'settings']
+const MENU_TOOL_ORDER: readonly NyxusMenuTool[] = ['create', 'chat', 'settings']
 
 export function useNyxusParticleInput(opts: {
   props: NyxusInputProps
@@ -102,18 +91,9 @@ export function useNyxusParticleInput(opts: {
   let starFormationPoint: Vec2 | null = null
   let pendingBirthPoint: Vec2 | null = null
   let pointerDownAt: Vec2 | null = null
-  let activeCosmicMode: NyxusCosmicMode | null = null
-  let cosmicModeStartedAt = 0
-  let nextCosmicModeAt = 0
-  let previousCosmicMode: NyxusCosmicMode | null = null
+  const cosmicScheduler = createNyxusCosmicScheduler()
   let reducedMotion = false
   let reducedMotionQuery: MediaQueryList | undefined
-
-  function randomCosmicModeDelay(): number {
-    // 自动形态之间也至少留出半分钟星云态，避免连续频繁换形。
-    const base = 30000 + Math.random() * 30000
-    return reducedMotion ? base * 2.2 : base
-  }
 
   function resetParticles(): void {
     particles = createNyxusParticles(particleCount())
@@ -128,6 +108,7 @@ export function useNyxusParticleInput(opts: {
   }
 
   function onPointerMove(event: PointerEvent): void {
+    if (!props.interactive) return
     const now = performance.now()
     if (lastPointerMoveAt > 0) {
       const dt = Math.max(8, now - lastPointerMoveAt) / 1000
@@ -157,6 +138,7 @@ export function useNyxusParticleInput(opts: {
   }
 
   function onPointerDown(event: PointerEvent): void {
+    if (!props.interactive) return
     if (event.button !== 0 || !pointInsideRoot(event.clientX, event.clientY)) return
     pointerDown = true
     pointerClientX = event.clientX
@@ -171,6 +153,7 @@ export function useNyxusParticleInput(opts: {
   }
 
   function onPointerUp(event: PointerEvent): void {
+    if (!props.interactive) return
     pointerClientX = event.clientX
     pointerClientY = event.clientY
     const releasedPoint = localPointer().point
@@ -248,33 +231,6 @@ export function useNyxusParticleInput(opts: {
     if (now - starFormationStartedAt > 5200) starFormationPoint = null
   }
 
-  function maybeRunCosmicMode(
-    now: number,
-    eligible: boolean,
-    blockStart: boolean,
-  ): { mode: NyxusCosmicMode | null; progress: number } {
-    if (!eligible) {
-      activeCosmicMode = null
-      nextCosmicModeAt = Math.max(nextCosmicModeAt, now + 2500)
-      return { mode: null, progress: 0 }
-    }
-
-    if (activeCosmicMode) {
-      const elapsed = (now - cosmicModeStartedAt) / 1000
-      const duration = cosmicModeDuration(activeCosmicMode)
-      if (elapsed < duration) return { mode: activeCosmicMode, progress: elapsed / duration }
-      previousCosmicMode = activeCosmicMode
-      activeCosmicMode = null
-      nextCosmicModeAt = now + randomCosmicModeDelay()
-    }
-
-    if (blockStart || now < nextCosmicModeAt) return { mode: null, progress: 0 }
-    const candidates = COSMIC_MODES.filter((candidate) => candidate !== previousCosmicMode)
-    activeCosmicMode = candidates[Math.floor(Math.random() * candidates.length)] ?? 'blackHole'
-    cosmicModeStartedAt = now
-    return { mode: activeCosmicMode, progress: 0 }
-  }
-
   function syncAction(now: number): number {
     if (props.action !== previousAction) {
       if (previousAction === 'dragging') {
@@ -302,22 +258,20 @@ export function useNyxusParticleInput(opts: {
       : 'connected'
     const connected = serviceState !== 'disconnected'
     // 重连期间保留普通星系，但暂时压低工作态的环系/波纹，避免状态快速往返时显得躁动。
-    const activity: NyxusActivity = serviceState === 'connecting' ? 'idle' : props.activity
-    const runningToolCount = serviceState === 'connecting' ? 0 : props.runningToolCount
-    const contentPulse = serviceState === 'connecting' ? 0 : props.contentPulse
-    const menuTargets = nyxusMenuOpen.value ? localMenuTargets() : []
-    const pointerNear = pointerIsFresh && pointer.distance <= props.size * 1.45
-    const cosmic =
-      serviceState === 'disconnected'
-        ? { mode: 'blackHole' as const, progress: 0.5 }
-        : maybeRunCosmicMode(
-            now,
-            (props.action === 'idle' || props.action === 'walk') &&
-              !props.working &&
-              !nyxusMenuOpen.value &&
-              !props.reaction,
-            pointerNear,
-          )
+    const menuTargets = props.interactive && nyxusMenuOpen.value ? localMenuTargets() : []
+    const pointerNear = props.interactive && pointerIsFresh && pointer.distance <= props.size * 1.45
+    const forcedCosmic = nyxusForcedCosmicState(serviceState, props.working)
+    if (serviceState === 'disconnected') cosmicScheduler.cancel(now, reducedMotion)
+    else if (props.working) cosmicScheduler.update(now, false, false, reducedMotion)
+    const cosmic = forcedCosmic ?? cosmicScheduler.update(
+      now,
+      serviceState === 'connected' &&
+        (props.action === 'idle' || props.action === 'walk') &&
+        !nyxusMenuOpen.value &&
+        !props.reaction,
+      pointerNear,
+      reducedMotion,
+    )
     const releaseAge = Math.max(0, (now - releaseStartedAt) / 1000)
     const releaseStrength = releaseAge < 5 ? Math.exp(-releaseAge / 1.25) : 0
 
@@ -327,17 +281,14 @@ export function useNyxusParticleInput(opts: {
       working: props.working,
       reaction: props.reaction,
       serviceState,
-      activity,
-      runningToolCount,
-      contentPulse,
       connected,
-      menuOpen: nyxusMenuOpen.value,
+      menuOpen: props.interactive && nyxusMenuOpen.value,
       menuTargets,
       highlightedMenuIndex: highlightedMenuIndex(),
       pointer: pointer.point,
       pointerDistance: pointer.distance,
       pointerSpeed,
-      pointerActive: pointerIsFresh,
+      pointerActive: props.interactive && pointerIsFresh,
       pointerDown,
       actionAge: syncAction(now),
       cosmicMode: cosmic.mode,
@@ -371,9 +322,9 @@ export function useNyxusParticleInput(opts: {
   onMounted(() => {
     mountedAt = performance.now()
     actionStartedAt = mountedAt
-    nextCosmicModeAt = mountedAt + randomCosmicModeDelay()
     reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
     reducedMotion = reducedMotionQuery.matches
+    cosmicScheduler.initialize(mountedAt, reducedMotion)
     reducedMotionQuery.addEventListener('change', onReducedMotionChange)
   })
 
