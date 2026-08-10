@@ -32,17 +32,50 @@ const emit = defineEmits<{
   'interacting-change': [v: boolean]
 }>()
 
+const props = withDefaults(
+  defineProps<{
+    presetId?: string
+    presetName?: string
+    activeChatId?: string | null
+  }>(),
+  { presetName: CHERY_NYXUS_PRESET },
+)
+
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
 const audio = usePianoAudio()
 const now = useNow(250)
 
-/** Nyxus 主会话（root + cheryNyxus），createdAt 降序：最新在最左，最老在最右。 */
+/** One key per root conversation in the selected preset workspace. */
 const sessions = computed<ChatSummary[]>(() =>
   (agents.historyList ?? [])
-    .filter((c) => !c.parentChatId && c.preset === CHERY_NYXUS_PRESET)
+    .filter(
+      (c) =>
+        !c.parentChatId &&
+        (props.presetId ? c.presetId === props.presetId : c.preset === props.presetName),
+    )
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
 )
+
+const presetChats = computed<ChatSummary[]>(() =>
+  (agents.historyList ?? []).filter((c) =>
+    props.presetId ? c.presetId === props.presetId : c.preset === props.presetName,
+  ),
+)
+
+function chatsInRoot(rootChatId: string): ChatSummary[] {
+  const byId = new Map(presetChats.value.map((chat) => [chat.chatId, chat]))
+  return presetChats.value.filter((chat) => {
+    let current: ChatSummary | undefined = chat
+    const seen = new Set<string>()
+    while (current && !seen.has(current.chatId)) {
+      if (current.chatId === rootChatId) return true
+      seen.add(current.chatId)
+      current = current.parentChatId ? byId.get(current.parentChatId) : undefined
+    }
+    return false
+  })
+}
 
 /**
  * 渲染键数 = max(档位键数, 会话数)：档位按视口选 1/2/3 八度（12/24/36 键）作下限，
@@ -106,6 +139,7 @@ interface KeyView {
   time: string
   tip: string
   approval?: ApprovalState
+  attentionCount: number
   /** 可删除：有数据 && 非运行中 && 无 pending 审批。 */
   deletable: boolean
 }
@@ -125,12 +159,16 @@ const keyViews = computed<KeyView[]>(() => {
         flashPeriod: 5,
         time: '',
         tip: `${g.name} · MIDI ${g.midi}`,
+        attentionCount: 0,
         deletable: false,
       }
     }
+    const rootChats = chatsInRoot(summary.chatId)
     const session = chatSessions.sessionsById[summary.chatId]
-    const hydrated = session?.interaction.approval
-    const listed = summary.pendingApproval ?? undefined
+    const hydrated = rootChats
+      .map((chat) => chatSessions.sessionsById[chat.chatId]?.interaction.approval)
+      .find((item): item is ApprovalState => !!item)
+    const listed = rootChats.map((chat) => chat.pendingApproval).find((item) => !!item) ?? undefined
     const approval: ApprovalState | undefined =
       hydrated ??
       (listed
@@ -142,19 +180,38 @@ const keyViews = computed<KeyView[]>(() => {
           }
         : undefined)
     const running = session?.run.status === 'running' || summary.running === true
+    const attentionCount = rootChats.reduce((count, chat) => {
+      const hydratedChat = chatSessions.sessionsById[chat.chatId]
+      const questionCount = hydratedChat
+        ? hydratedChat.interaction.questionBatches.reduce(
+            (sum, batch) =>
+              sum + batch.questions.filter((question) => question.localStatus === 'pending').length,
+            0,
+          )
+        : (chat.pendingQuestionCount ?? 0)
+      const approvalCount = hydratedChat
+        ? hydratedChat.interaction.approval
+          ? 1
+          : 0
+        : chat.pendingApproval
+          ? 1
+          : 0
+      return count + questionCount + approvalCount
+    }, 0)
     const blink = running && !!approval && !isExpired(approval, now.value)
     const prev = summary.preview?.trim()
     return {
       geom: g,
       hasData: true,
       chatId: summary.chatId,
-      selected: summary.chatId === agents.activeNyxusChatId,
+      selected: summary.chatId === (props.activeChatId ?? agents.activeNyxusChatId),
       blink,
       flashPeriod: approval ? flashPeriodOf(approval, now.value) : 5,
       time: formatTime(summary.createdAt),
-      tip: `${g.name} · MIDI ${g.midi} · ${prev || '无消息'}`,
+      tip: `${g.name} · MIDI ${g.midi} · ${prev || '无消息'}${attentionCount ? ` · ${attentionCount} 项待处理` : ''}`,
       approval,
-      deletable: !running && !approval,
+      attentionCount,
+      deletable: !running && attentionCount === 0,
     }
   })
 })
@@ -403,7 +460,7 @@ onScopeDispose(() => {
 <template>
   <div ref="keyboardRef" class="piano-keyboard">
     <header class="piano-panel-head">
-      <span class="piano-panel-title">NYXUS · SESSION KEYS</span>
+      <span class="piano-panel-title">{{ (presetName || 'PRESET').toUpperCase() }} · SESSION KEYS</span>
       <span class="piano-panel-actions">
         <button
           type="button"
@@ -495,6 +552,7 @@ onScopeDispose(() => {
                 <span v-if="v.hasData" class="key-time">{{ v.time }}</span>
               </span>
               <span v-if="v.selected" class="key-selected-marker" aria-hidden="true" />
+              <span v-if="v.attentionCount" class="key-attention-count">{{ v.attentionCount }}</span>
             </button>
           </ElTooltip>
         </div>
@@ -746,6 +804,20 @@ onScopeDispose(() => {
   border-radius: 50%;
   background: #f6b73c;
   box-shadow: 0 1px 2px rgba(56, 29, 5, 0.35);
+  pointer-events: none;
+}
+.key-attention-count {
+  position: absolute;
+  top: 5px;
+  right: 3px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  color: #fff;
+  background: #d85b27;
+  box-shadow: 0 1px 4px rgba(75, 28, 5, 0.38);
+  font: 800 8px/13px ui-monospace, Menlo, monospace;
   pointer-events: none;
 }
 

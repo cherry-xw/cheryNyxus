@@ -9,7 +9,9 @@ import {
 } from '../../../src/features/pets/nyxus/graph/executionGraph'
 import {
   computeFoldRanges,
+  computeFullFoldRanges,
   projectFoldExecutionGraph,
+  projectFullFoldExecutionGraph,
 } from '../../../src/features/pets/nyxus/graph/foldProjection'
 import { foldTabForMember, foldWheelView } from '../../../src/features/pets/nyxus/graph/foldTabs'
 import {
@@ -381,7 +383,8 @@ describe('Agent-local Fold projection', () => {
       readFile(resolve('web/src/features/pets/nyxus/components/FoldTabRail.vue'), 'utf8'),
       readFile(resolve('web/src/features/agent/chat/AgentDialog.vue'), 'utf8'),
     ])
-    expect(treeSource).toContain('props.folded\n    ? projectFoldExecutionGraph')
+    expect(treeSource).toContain("props.foldMode === 'full'")
+    expect(treeSource).toContain('projectFullFoldExecutionGraph')
     expect(treeSource).not.toContain('node-detail-bookmark')
     expect(treeSource).not.toContain('class="fold-card"')
     expect(treeSource).toContain('foldCount: node.fold.members.length')
@@ -406,7 +409,75 @@ describe('Agent-local Fold projection', () => {
     expect(railSource).toContain('WHEEL_THRESHOLD')
     expect(railSource).toContain('PageDown')
     expect(railSource).toContain('@media (prefers-reduced-motion: reduce)')
-    expect(dialogSource).toContain(':folded="treeFolded"')
-    expect(dialogSource).toContain('@click="treeFolded = !treeFolded"')
+    expect(dialogSource).toContain(':fold-mode="foldMode"')
+    expect(dialogSource).toContain('selectFoldMode')
+  })
+})
+
+describe('Full-fold projection', () => {
+  function userMessage(id: string, orderKey: number, sourceChatId = rootChatId): TimelineNode {
+    return message(id, orderKey, sourceChatId, {
+      actor: { kind: 'user', actorId: 'human' },
+      target: { kind: 'agent', chatId: sourceChatId },
+      direction: 'user-to-agent',
+    })
+  }
+
+  it('keeps only user messages and the final reply of each completed round', () => {
+    const canonical = graph([
+      userMessage('u1', 1),
+      ...unit('tool-a', 2),
+      message('reply-1', 4),
+      userMessage('u2', 5),
+      ...unit('tool-b', 6),
+      message('reply-2', 8),
+    ])
+    const projected = projectFullFoldExecutionGraph(canonical)
+
+    const visibleIds = new Set(projected.graph.nodes.map((node) => node.id))
+    for (const keep of ['message:u1', 'message:reply-1', 'message:u2', 'message:reply-2']) {
+      expect(visibleIds.has(keep)).toBe(true)
+    }
+    for (const hidden of ['message:tool-a', 'batch:tool-a', 'message:tool-b', 'batch:tool-b']) {
+      expect(visibleIds.has(hidden)).toBe(false)
+    }
+    expect(projected.ranges).toHaveLength(2)
+    expect(projected.ranges[0]!.nodes.map((n) => n.id)).toEqual([
+      'message:tool-a',
+      'batch:tool-a',
+    ])
+    expect(projected.ranges[1]!.nodes.map((n) => n.id)).toEqual([
+      'message:tool-b',
+      'batch:tool-b',
+    ])
+  })
+
+  it('keeps a running round fully expanded', () => {
+    const pending = batch('running', 3, rootChatId)
+    const canonical = graph(
+      [userMessage('u1', 1), message('intermediate', 2), pending, message('reply', 4)],
+      [
+        {
+          rootChatId,
+          chatId: rootChatId,
+          runId: 'run:pending',
+          batchId: pending.id,
+          status: 'running',
+        },
+      ],
+    )
+    const projected = projectFullFoldExecutionGraph(canonical)
+
+    expect(projected.ranges).toHaveLength(0)
+    expect(projected.graph.nodes.some((n) => n.id === 'batch:running')).toBe(true)
+  })
+
+  it('does not fold a boundary-less leading segment', () => {
+    const canonical = graph([...unit('a', 1), userMessage('u1', 3), message('reply', 4)])
+    const projected = projectFullFoldExecutionGraph(canonical)
+
+    expect(projected.ranges).toHaveLength(0)
+    expect(projected.graph.nodes.some((n) => n.id === 'message:a')).toBe(true)
+    expect(projected.graph.nodes.some((n) => n.id === 'batch:a')).toBe(true)
   })
 })

@@ -57,7 +57,11 @@ function addPreset(): void {
     return
   }
   // 初始化：空组长 + 空成员。添加成员后选择组长（后端校验组长必填）。
-  props.draft.presets[name] = { leader: '', roles: [] }
+  props.draft.presets[name] = {
+    id: `preset-${crypto.randomUUID().replaceAll('-', '')}`,
+    leader: '',
+    roles: [],
+  }
   newPresetName.value = ''
 }
 
@@ -362,6 +366,24 @@ const indexItems = computed<IndexItem[]>(() => {
           <span class="hint">按类型选择媒体服务。不选则该类型无媒体能力。</span>
         </template>
         <span v-else class="empty"> 暂无媒体服务。在「🖼️ 媒体服务」tab 中新建。 </span>
+      </div>
+
+      <div class="field">
+        <span class="lbl">对话路由大脑</span>
+        <el-select
+          v-model="preset.routingBrain"
+          placeholder="关闭智能推荐"
+          clearable
+          size="small"
+        >
+          <el-option
+            v-for="brainName in Object.keys(draft.llm?.brain ?? {})"
+            :key="brainName"
+            :value="brainName"
+            :label="brainName"
+          />
+        </el-select>
+        <span class="hint">仅用于给 Pet 快速发送窗口排序历史会话，不执行工具，也不会自行发送消息。</span>
       </div>
 
       <div class="field">

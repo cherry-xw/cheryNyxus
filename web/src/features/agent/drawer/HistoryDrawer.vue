@@ -25,6 +25,23 @@ const stack = computed(() => manager.stack.value)
 
 // 共用单蒙层：仅当 HistoryDrawer 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
 const isTopMask = computed(() => agents.topOverlay === 'historyDrawer')
+const drawerMode = computed(() => agents.historyDrawerMode)
+const drawerVisible = computed(
+  () => !(drawerMode.value === 'workbench-docked' && agents.workbenchMinimized),
+)
+const overlayStyle = computed(() => {
+  const anchor = agents.historyDrawerAnchor
+  if (drawerMode.value !== 'workbench-docked' || !anchor) return { zIndex: BASE_Z }
+  return {
+    zIndex: BASE_Z,
+    top: `${anchor.top}px`,
+    left: `${anchor.left}px`,
+    width: `${anchor.width}px`,
+    height: `${anchor.height}px`,
+    right: 'auto',
+    bottom: 'auto',
+  }
+})
 
 function closeTop(): void {
   manager.closeTop()
@@ -68,25 +85,30 @@ watch(
   <AnimatePresence>
     <MotionDiv
       v-if="stack.length > 0"
-      ref="overlayRef"
+      v-show="drawerVisible"
       key="history-overlay"
-      class="drawer-overlay"
-      tabindex="-1"
-      :style="{ zIndex: BASE_Z }"
-      :class="{ 'is-top-mask': isTopMask }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
       :transition="{ duration: 0.16 }"
-      @pointerdown="onOverlayClick"
     >
-      <HistoryDrawerPanel
-        v-for="(cid, i) in stack"
-        :key="cid"
-        :chat-id="cid"
-        :is-top="i === stack.length - 1"
-        :z-index="BASE_Z + i * 10 + 1"
-      />
+      <!-- ref 绑在原生 div 上（MotionDiv 是组件，ref 拿不到 DOM，.focus 不存在）。 -->
+      <div
+        ref="overlayRef"
+        class="drawer-overlay"
+        :class="{ 'is-top-mask': isTopMask, 'is-workbench-docked': drawerMode === 'workbench-docked' }"
+        :style="overlayStyle"
+        tabindex="-1"
+        @pointerdown="onOverlayClick"
+      >
+        <HistoryDrawerPanel
+          v-for="(cid, i) in stack"
+          :key="cid"
+          :chat-id="cid"
+          :is-top="i === stack.length - 1"
+          :z-index="BASE_Z + i * 10 + 1"
+        />
+      </div>
     </MotionDiv>
   </AnimatePresence>
 </template>
@@ -103,5 +125,9 @@ watch(
 .drawer-overlay.is-top-mask {
   background: rgba(15, 17, 22, 0.36);
   backdrop-filter: blur(2px);
+}
+.drawer-overlay.is-workbench-docked {
+  overflow: hidden;
+  border-radius: inherit;
 }
 </style>

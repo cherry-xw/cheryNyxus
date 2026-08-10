@@ -24,13 +24,27 @@ export type ApprovalPayload = {
 
 export class ApprovalManager {
   private approvals = new Map<string, ApprovalPayload>()
+  private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  private clearExpiry(approvalId: string): void {
+    const timer = this.expiryTimers.get(approvalId)
+    if (timer) clearTimeout(timer)
+    this.expiryTimers.delete(approvalId)
+  }
 
   /**
    * 注册待审批 id（service observer 收 sense_pending 时调用）。
    * payload 用于 chat.list 派生 pendingApproval，无需 hydration。
    */
   register(approvalId: string, payload: ApprovalPayload): void {
+    this.clearExpiry(approvalId)
     this.approvals.set(approvalId, payload)
+    if (payload.waitTime > 0) {
+      this.expiryTimers.set(
+        approvalId,
+        setTimeout(() => this.park(approvalId), payload.waitTime),
+      )
+    }
   }
 
   /**
@@ -58,10 +72,10 @@ export class ApprovalManager {
    */
   getForChat(
     chatId: string,
-  ): { senseName: string; waitTime: number; createdAt: number } | undefined {
-    for (const p of this.approvals.values()) {
+  ): { approvalId: string; senseName: string; waitTime: number; createdAt: number } | undefined {
+    for (const [approvalId, p] of this.approvals) {
       if (p.chatId === chatId) {
-        return { senseName: p.senseName, waitTime: p.waitTime, createdAt: p.createdAt }
+        return { approvalId, senseName: p.senseName, waitTime: p.waitTime, createdAt: p.createdAt }
       }
     }
     return undefined
@@ -76,6 +90,7 @@ export class ApprovalManager {
     if (this.approvals.has(approvalId)) {
       resolveApproval(approvalId, action, reason)
       this.approvals.delete(approvalId)
+      this.clearExpiry(approvalId)
       return true
     }
     logger.event('approval.confirm.unknown', { approvalId, action })
@@ -93,6 +108,7 @@ export class ApprovalManager {
     if (this.approvals.has(approvalId)) {
       rejectApproval(approvalId, new AgentParkError())
       this.approvals.delete(approvalId)
+      this.clearExpiry(approvalId)
     }
   }
 
@@ -106,6 +122,7 @@ export class ApprovalManager {
     if (this.approvals.has(approvalId)) {
       rejectApproval(approvalId, new AgentAbortError())
       this.approvals.delete(approvalId)
+      this.clearExpiry(approvalId)
     }
   }
 }

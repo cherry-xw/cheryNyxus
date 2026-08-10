@@ -100,6 +100,8 @@ export interface PetInstance extends PetPreset {
   // ===== agent 绑定（CP1 新增） =====
   /** 绑定的 chat id（agent 会话实体）。主 pet = 主 agent chat；子 pet = 子 agent chat。 */
   chatId: string
+  /** Stable preset workspace identity. Master Pet chatId remains its creation identity; active root lives in UI state. */
+  presetId?: string
   /** 子 pet 关联主 pet 的 chatId（主 pet 为 undefined）。 */
   parentChatId?: string
   /** 角色类型（roles 模块名，主 pet 为 undefined）。 */

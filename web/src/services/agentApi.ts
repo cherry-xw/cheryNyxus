@@ -76,6 +76,8 @@ export interface CurrentStateData {
 /** chat.list 返回的单条 chat 摘要（对齐后端 listAllChats）。brain/senseGroups 在 metadata.runtime 不暴露于 list。 */
 export interface ChatSummary {
   chatId: string
+  presetId?: string
+  lastUserActivityAt?: number
   /** ms 时间戳（后端 created_at） */
   createdAt?: number
   /** ms 时间戳（后端 updated_at）= 最后运行时间，stage top-5 排序 + 会话列表 last-run 用 */
@@ -118,7 +120,32 @@ export interface ChatSummary {
    * 该 chat 当前是否有待用户审批的 sense 调用（后端 ApprovalManager chatId 索引；list 廉价读取，覆盖未 hydrate 会话）。
    * null/缺省 = 无；非空 = 有 in-flight 审批。钢琴键据此跨所有会话闪烁。args 不含（由 active 会话 hydrated interaction.approval 提供）。
    */
-  pendingApproval?: { senseName: string; waitTime: number; createdAt: number } | null
+  pendingApproval?: {
+    approvalId: string
+    senseName: string
+    waitTime: number
+    createdAt: number
+  } | null
+  /** 待回答问题数量；完整批次仅在打开该根会话后加载。 */
+  pendingQuestionCount?: number
+  pendingQuestions?: Array<{
+    batchId: string
+    questionId: string
+    header?: string
+    question: string
+    createdAt: number
+  }>
+}
+
+export interface ConversationRouteCandidate {
+  chatId: string | null
+  confidence: number
+  reason: string
+}
+
+export interface ConversationRouteSuggestion {
+  requestVersion: number
+  candidates: ConversationRouteCandidate[]
 }
 
 /** chat.create 参数。预设路径（T6）：preset 给出则后端从预设解析编制，brain/senseGroup 可省；
@@ -138,6 +165,7 @@ export interface CreateAgentOptions {
 /** chat.create 响应：chatId + 实际生效的编制（预设路径由后端解析回填，供前端记 pet.runtime）。 */
 export interface CreateAgentResult {
   chatId: string
+  presetId?: string
   brain: string
   senseGroup: string
   mcpServers: string[]
@@ -813,10 +841,16 @@ export interface GlobalConfigDto {
    * - wake_on_timeout：超时是否唤主。true=通知主；false=仅暂停子，默认 false。
    */
   watchdog?: { timeout_ms?: number; wake_on_timeout?: boolean }
+  /** 节点树全量渲染阈值（节点数≤此值跳过视口裁剪避免平移卡顿；0=始终裁剪）。 */
+  tree_full_render_threshold?: number
 }
 
 /** 预设（对齐后端 PresetConfig）：选中的角色 type 列表（引用 config.roles 单一源）+ 指定组长 + 按类型媒体服务 */
 export interface PresetDto {
+  /** Stable preset workspace identity; generated for legacy configs when read. */
+  id?: string
+  /** Optional text-only brain used for asynchronous conversation routing suggestions. */
+  routingBrain?: string
   /** 组长角色 type 名（必填，主 pet 编制取 config.roles[leader]） */
   leader: string
   /** 选中的角色 type 名 */
@@ -1110,10 +1144,19 @@ export const agentApi = {
     return data?.chats ?? []
   },
 
+  async suggestConversationRoute(params: {
+    presetId: string
+    draft: string
+    requestVersion: number
+  }): Promise<ConversationRouteSuggestion> {
+    return call<ConversationRouteSuggestion>('chat.route.suggest', params)
+  },
+
   /** chat.create：创建 chat。返回 chatId + 实际生效编制（预设路径由后端回填，供记 pet.runtime）。 */
   async createAgent(opts: CreateAgentOptions): Promise<CreateAgentResult> {
     const data = await call<{
       chatId?: string
+      presetId?: string
       brain?: string
       senseGroup?: string
       mcpServers?: string[]
@@ -1132,6 +1175,7 @@ export const agentApi = {
     }
     return {
       chatId: data.chatId,
+      presetId: data.presetId,
       brain: data.brain,
       senseGroup: data.senseGroup ?? '',
       mcpServers: data.mcpServers ?? [],

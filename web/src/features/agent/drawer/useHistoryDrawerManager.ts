@@ -1,6 +1,7 @@
 import { computed, inject, type ComputedRef, type InjectionKey } from 'vue'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import type { HistoryItem } from '@/stores/agents'
+import type { HistoryDrawerAnchor, HistoryDrawerMode } from '@/stores/agents/ui/uiState'
 
 /**
  * useHistoryDrawerManager：历史抽屉跨层管理层。
@@ -30,7 +31,7 @@ export interface HistoryDrawerManager {
   /** 抽屉栈（只读 computed；栈底=根，栈顶=当前可见层）。 */
   stack: ComputedRef<string[]>
   /** 打开根抽屉（PetStage 从 pet 列表打开）：重置栈为单元素。 */
-  openRoot: (chatId: string) => void
+  openRoot: (chatId: string, mode?: HistoryDrawerMode, anchor?: HistoryDrawerAnchor | null) => void
   /** 下钻子 chat（SpawnRenderer「详情」）：push 栈顶。 */
   drillChild: (chatId: string) => void
   /** 关闭栈顶（✕ / 遮罩 / ESC）：逐层返回。 */
@@ -58,7 +59,7 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
 
   return {
     stack: computed(() => store.historyDrawerStack),
-    openRoot: (chatId: string) => store.openHistoryRoot(chatId),
+    openRoot: (chatId, mode, anchor) => store.openHistoryRoot(chatId, mode, anchor),
     drillChild: (chatId: string) => store.drillHistoryChild(chatId),
     closeTop: () => store.closeHistoryTop(),
     closeAll: () => store.closeAllHistory(),

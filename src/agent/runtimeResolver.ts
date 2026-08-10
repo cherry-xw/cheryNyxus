@@ -51,6 +51,7 @@ export function parseRuntimeSelection(
  * chat.create 选预设时调用；运行编制快照入 metadata.runtime，运行后不可改。
  */
 export function resolvePresetSelection(presetName: string): {
+  presetId: string
   selection: RuntimeSelection
   systemPromptFile?: string
   /** 该预设选中的角色 type 列表（chat.create 快照入 metadata.spawnTypes，spawn roster gate 用） */
@@ -85,6 +86,7 @@ export function resolvePresetSelection(presetName: string): {
       ? { skills: leader.skills, plugins: leader.plugins }
       : undefined
   return {
+    presetId: preset.id!,
     selection,
     systemPromptFile: leader.systemPrompt,
     spawnTypes: preset.roles ?? [],

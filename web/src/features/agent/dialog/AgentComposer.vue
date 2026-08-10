@@ -44,6 +44,7 @@ const props = defineProps<{
   editorRefFn: (el: HTMLElement | null) => void
   commandMenuRefFn: (el: HTMLElement | null) => void
   roleMenuRefFn: (el: HTMLElement | null) => void
+  targetLocked?: boolean
 }>()
 
 type TemplateRefValue = Element | ComponentPublicInstance | null
@@ -300,6 +301,7 @@ const emit = defineEmits<{
             loading ||
             !primarySelection?.brain ||
             (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)
+            || targetLocked === false
           "
           aria-label="发送消息"
           @click="emit('send')"

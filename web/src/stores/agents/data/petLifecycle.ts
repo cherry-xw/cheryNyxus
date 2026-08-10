@@ -149,6 +149,7 @@ export function createPetLifecycle(
       chatId: masterSummary.chatId,
     })
     master.preset = masterSummary.preset
+    master.presetId = masterSummary.presetId
     master.canResume = masterSummary.canResume
     if (masterSummary.workspace) {
       master.workspace = masterSummary.workspace
@@ -214,6 +215,18 @@ export function createPetLifecycle(
   }): Promise<string> {
     const result = await agentApi.createAgent(opts)
     const chatId = result.chatId
+    const existing = result.presetId
+      ? pets.value.find((candidate) => candidate.isMaster && candidate.presetId === result.presetId)
+      : undefined
+    if (existing) {
+      existing.preset = opts.preset
+      existing.runtime = {
+        brain: result.brain,
+        senseGroup: result.senseGroup,
+        mcpServers: [...result.mcpServers],
+      }
+      return chatId
+    }
     const bounds = defaultBounds()
     const usedFaces = new Set(pets.value.map((p) => p.face))
     const preset = generatePet('kaomoji', usedFaces, chatId)
@@ -221,6 +234,7 @@ export function createPetLifecycle(
     // 记录初始 runtime（后端响应回填：预设路径编制由后端解析；显式路径 = 传入值）+ 预设名。
     // AgentDialog 首次发送对比 = 相同（无需 runtime.set）；preset pet 切 brain-only。
     pet.preset = opts.preset
+    pet.presetId = result.presetId
     pet.runtime = {
       brain: result.brain,
       senseGroup: result.senseGroup,

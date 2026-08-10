@@ -10,8 +10,8 @@ import { AgentParkError } from '@/core/middleware/errors.js'
  * chunk 只产 {approvalId, needsApproval} 事实；service ApprovalManager 通过
  * resolveApproval/rejectApproval 触发对应 Promise，结果经独立 channel 回填到 await。
  *
- * 审批超时（P1.9）：createApproval 接 timeoutMs，超时 resolve as reject（非 abort）。
- *   - 用户超时（approval_timeout>0）→ sense_reject → pending sense 填「被拒绝」→ resume Case2 跑 LLM
+ * 审批超时：createApproval 接 timeoutMs，超时 park（不是用户拒绝）。
+ *   - 用户未在窗口内操作 → pending sense 保持可恢复，停止自动向下运行
  *   - 断连 abort → rejectApproval(AgentAbortError) → throw → pending NULL → resume Case1 重跑
  *
  * 不限时审批资源上限（G2 改造D）：approval_timeout=0 时由 hardTimeoutMs（global.approval_hard_timeout，
@@ -36,7 +36,7 @@ const registry = new Map<string, PendingApproval>()
 /**
  * 创建审批 Promise 并注册 resolve/reject（core senseMiddleware 调用）。
  * @param timeoutMs 用户超时毫秒（来自 `global.approval_timeout`，校验 `>= 0`）。
- *                  `> 0` → 到点 resolve as reject（视为用户拒绝，loop 继续）。
+ *                  `> 0` → 到点 reject AgentParkError，保留为可恢复交互。
  *                  `undefined` 或 `<= 0` = 不限时（无用户超时）。
  * @param hardTimeoutMs 不限时审批的资源上限毫秒（来自 `global.approval_hard_timeout`，默认 30min）。
  *                      **仅当 timeoutMs<=0（不限时）生效**：到点 reject(AgentParkError) 归 paused 可续。
@@ -52,11 +52,11 @@ export function createApproval(
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined
     let hardTimer: ReturnType<typeof setTimeout> | undefined
     if (timeoutMs && timeoutMs > 0) {
-      // 用户超时：resolve as reject（loop 继续，= 用户拒绝）
+      // 超时只是用户未响应，不等价于明确拒绝；park 后由用户重新打开会话继续。
       timeoutTimer = setTimeout(() => {
         const entry = registry.get(id)
         if (entry) {
-          entry.resolve({ action: 'reject', reason: '审批超时' })
+          entry.reject(new AgentParkError())
           registry.delete(id)
         }
       }, timeoutMs)

@@ -20,6 +20,7 @@ const props = defineProps<{
   pet: PetInstance
   paused: boolean
   stream?: StreamState
+  attentionCount?: number
 }>()
 
 const emit = defineEmits<{
@@ -35,6 +36,7 @@ const emit = defineEmits<{
   destroy: [pet: PetInstance]
   compact: [pet: PetInstance]
   resume: [pet: PetInstance]
+  attention: [pet: PetInstance]
 }>()
 
 const {
@@ -130,7 +132,13 @@ function setWorkTextRef(el: HTMLElement | null): void {
     <div v-if="todoEnabled && hasTodoData" class="todo-anchor" :style="todoPanelStyle">
       <TodoPanel :pet="pet" />
     </div>
-    <PetIcons :chat-id="pet.chatId" :stream="stream" :style="petIconsStyle" />
+    <PetIcons
+      :chat-id="pet.chatId"
+      :stream="stream"
+      :attention-count="attentionCount"
+      :style="petIconsStyle"
+      @attention="emit('attention', pet)"
+    />
     <PetBody
       :pet="pet"
       :paused="paused"

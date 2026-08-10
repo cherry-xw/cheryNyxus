@@ -31,7 +31,10 @@ const props = defineProps<{
   chatId: string
   /** ChatSession 投影；PetIcons 不再自行读取 legacy agents.streams。 */
   stream?: StreamState
+  /** 当前预设下所有根会话/子节点的待确认与待回答总数。 */
+  attentionCount?: number
 }>()
+const emit = defineEmits<{ attention: [] }>()
 
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
@@ -86,6 +89,16 @@ function clickApproval(a: ApprovalState): void {
 
 <template>
   <div class="pet-icons" aria-label="pet history and pending approvals">
+    <button
+      v-if="attentionCount"
+      type="button"
+      class="attention-badge"
+      :aria-label="`${attentionCount} 项来自其他会话的待处理交互`"
+      title="查看待处理交互"
+      @click.stop="emit('attention')"
+    >
+      {{ attentionCount > 99 ? '99+' : attentionCount }}
+    </button>
     <!-- history 列：5 个最近 history item icon -->
     <div class="col history-col" aria-label="最近历史">
       <div
@@ -151,6 +164,24 @@ function clickApproval(a: ApprovalState): void {
     margin-top: 20px;
     margin-left: 6px;
   }
+}
+.attention-badge {
+  position: absolute;
+  right: 1px;
+  top: -12px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid #fff;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 16px;
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: 0 2px 7px rgba(127, 29, 29, 0.35);
 }
 
 .col {

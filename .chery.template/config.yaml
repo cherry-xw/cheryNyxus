@@ -26,6 +26,7 @@ global:
       # false：主无限等待，不被超时唤醒；清子 runtime 但保留唤醒链 — 用户可手动 resume 子，
       #       子最终完成仍走 child_done → wakeParent 正常唤主（不依赖 timeout 通知路径）。
   bash_log_retention_hours: 24 # [可选] bash 日志保留时长(小时)，默认 24
+  tree_full_render_threshold: 500 # [可选] 节点树全量渲染阈值(节点数≤此值跳过视口裁剪避免平移卡顿)，默认 500；0=始终裁剪
   textEditor: notepad # [可选] 文本编辑器命令，默认 notepad
   file_compression:
     truncate_threshold: 50000 # [可选] 文件截断阈值(bytes)，默认 50000

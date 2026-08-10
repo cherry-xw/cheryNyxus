@@ -175,6 +175,8 @@ const configSaveSchema = z
       .record(
         z.string(),
         z.object({
+          id: z.string().regex(/^preset-[a-zA-Z0-9_-]{8,}$/).optional(),
+          routingBrain: z.string().optional(),
           leader: z.string(),
           roles: z.array(z.string()).optional(),
           mediaImage: z.string().optional(),
@@ -227,6 +229,11 @@ export const requestSchemas = {
   [Method.CHAT_LIST]: z.object({
     /** CP8：true 增返 preview/turnCount（会话列表用）；省略=lean（初始化重建 pet 树用） */
     includePreview: z.boolean().optional(),
+  }),
+  [Method.CHAT_ROUTE_SUGGEST]: z.object({
+    presetId: z.string().min(1),
+    draft: z.string().trim().min(1).max(12000),
+    requestVersion: z.number().int().nonnegative(),
   }),
   [Method.CHAT_GET]: chatIdSchema,
   [Method.CHAT_DELETE]: chatIdSchema,

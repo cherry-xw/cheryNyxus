@@ -254,7 +254,7 @@ F1+F2+F3 已落地 hydration 单一水源 + currentState 快照消费 + replayMo
 
 #### 渲染管道稳定
 
-[HistoryDrawerPanel.vue:100-114](../../../web/src/features/agent/drawer/HistoryDrawerPanel.vue#L100) history computed 零改动：`stream.history → dedupHistoryByMsgId(⑤ 防御) → group?mergeChildReplyHistory(⑥) → collapseSubagent filter`。上游 5→3 源收敛后同一有序数组，管道输入形状不变。
+[HistoryDrawerPanel.vue:100-114](../../../web/src/features/agent/drawer/HistoryDrawerPanel.vue#L100) history computed 零改动：`stream.history → dedupHistoryByMsgId(⑤ 防御) → group?mergeChildReplyHistory(⑥) → subagentDisplay filter`。上游 5→3 源收敛后同一有序数组，管道输入形状不变。
 
 [MessageBubble.vue](../../../web/src/features/agent/chat/MessageBubble.vue) 单 item 契约不变。VirtualScroll key（`getHistoryItemKey` [vue:138-140](../../../web/src/features/agent/drawer/HistoryDrawerPanel.vue#L138)）`item.msgId ?? idx-<index>`：E 乐观 push tempMsgId 保证首帧稳定 key，userMsgId 替换后切一次（单条 user，可接受）。
 

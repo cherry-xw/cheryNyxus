@@ -167,6 +167,23 @@ export interface ChatListRequestData {
   includePreview?: boolean
 }
 
+export interface ChatRouteSuggestRequestData {
+  presetId: string
+  draft: string
+  requestVersion: number
+}
+
+export interface ChatRouteCandidateData {
+  chatId: string | null
+  confidence: number
+  reason: string
+}
+
+export interface ChatRouteSuggestResponseData {
+  requestVersion: number
+  candidates: ChatRouteCandidateData[]
+}
+
 export interface ChatGetRequestData {
   chatId: string
 }
@@ -1098,6 +1115,7 @@ export interface RulesListResponseData {
 
 export interface ChatCreateResponseData {
   chatId: string
+  presetId?: string
   /** 回显已生效的 runtime selection（含 MCP 开关） */
   brain: string
   senseGroup: string
@@ -1119,6 +1137,10 @@ export interface ChatListResponseData {
      * 前端据此溯源重建 pet 树（主 chat → 主 pet，子 chat 挂主 pet 附近）。CP1。
      */
     parentChatId: string | null
+    /** Stable preset workspace identity; legacy chats are resolved by preset name. */
+    presetId?: string
+    /** Updated only by explicit user input/interaction, never by background output. */
+    lastUserActivityAt?: number
     /** 子 chat 的角色 type 与解析后的头像；主 chat 缺省。 */
     agentType?: string
     avatar?: string
@@ -1181,7 +1203,21 @@ export interface ChatListResponseData {
      * senseName = 待审批感官名；waitTime = 审批窗口 ms（= global.approval_timeout，0 = 不限时）；
      * createdAt = interrupt 触发时间戳（ms），前端倒计时 = waitTime - (now - createdAt)。
      */
-    pendingApproval?: { senseName: string; waitTime: number; createdAt: number } | null
+    pendingApproval?: {
+      approvalId: string
+      senseName: string
+      waitTime: number
+      createdAt: number
+    } | null
+    /** 待回答问题数量。列表只携带计数；完整问题在打开对应根会话后按需加载。 */
+    pendingQuestionCount?: number
+    pendingQuestions?: Array<{
+      batchId: string
+      questionId: string
+      header?: string
+      question: string
+      createdAt: number
+    }>
   }>
 }
 
@@ -2107,6 +2143,7 @@ export const Method = {
   // Chat 管理
   CHAT_CREATE: 'chat.create',
   CHAT_LIST: 'chat.list',
+  CHAT_ROUTE_SUGGEST: 'chat.route.suggest',
   CHAT_GET: 'chat.get',
   CHAT_DELETE: 'chat.delete',
   CHAT_CONTEXT_USAGE: 'chat.contextUsage',
@@ -2254,6 +2291,10 @@ export interface RpcMethodMap {
   }
   [Method.CHAT_CREATE]: { params: ChatCreateRequestData; result: ChatCreateResponseData }
   [Method.CHAT_LIST]: { params: ChatListRequestData; result: ChatListResponseData }
+  [Method.CHAT_ROUTE_SUGGEST]: {
+    params: ChatRouteSuggestRequestData
+    result: ChatRouteSuggestResponseData
+  }
   [Method.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData }
   [Method.CHAT_DELETE]: { params: ChatDeleteRequestData; result: ChatDeleteResponseData }
   [Method.CHAT_CONTEXT_USAGE]: {

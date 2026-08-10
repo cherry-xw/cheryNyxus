@@ -59,7 +59,7 @@ export function useAgentDialogOptions() {
 
   const chatId = computed<string | null>(() => agents.activeDialogChatId)
   const pet = computed<PetInstance | undefined>(() =>
-    chatId.value ? agents.pets.find((p) => p.chatId === chatId.value) : undefined,
+    chatId.value ? agents.petForChat(chatId.value) : undefined,
   )
   // Cherry Nyxus 会话不建 PetInstance；琴键切到尚未水合的会话时，historyList 先提供 preset，
   // 避免上方树在 hydrate 期间被误判为非 Nyxus 而卸载。
@@ -91,6 +91,41 @@ export function useAgentDialogOptions() {
   const loading = ref(false)
   const error = ref<string | null>(null)
   const loaded = ref(false)
+  /** 全局选项已加载时对应的预设；同预设内切历史会话据此跳过重载。 */
+  const loadedPreset = ref<string | null>(null)
+
+  /** 由已加载的 config + 当前 chat 的 runtime 重建角色编制。切同预设会话仅调用此重建，不重拉全局选项。 */
+  function rebuildRoleSelections(): void {
+    const loadedConfig = config.value
+    if (!loadedConfig) return
+    const preset = presetName.value ? loadedConfig.presets?.[presetName.value] : undefined
+    const roleNames = preset?.roles?.length ? preset.roles : Object.keys(loadedConfig.roles ?? {})
+    primaryRole.value = preset?.leader ?? '主角色'
+    const fallback: RuntimeSelection = {
+      brain: brains.value.find((b) => b.default)?.name ?? brains.value[0]?.name ?? '',
+      senseGroup: senseGroups.value.find((g) => g.default)?.name ?? senseGroups.value[0]?.name ?? '',
+      mcpServers: [],
+    }
+    const selections: Record<string, RuntimeSelection> = {}
+    for (const role of roleNames) {
+      const configured = loadedConfig.roles?.[role]
+      selections[role] = configured
+        ? {
+            brain: configured.brain,
+            senseGroup: configured.senseGroup,
+            mcpServers: configured.mcpServers ?? [],
+          }
+        : { ...fallback }
+    }
+    const cur = chatId.value ? agents.getRuntime(chatId.value) : undefined
+    selections[primaryRole.value] = cur
+      ? { ...cur, mcpServers: [...(cur.mcpServers ?? [])] }
+      : (selections[primaryRole.value] ?? fallback)
+    roleSelections.value = selections
+    for (const [k, v] of Object.entries(selections)) {
+      if (!v.brain) console.warn(`[AgentDialog] 角色 ${k} brain 为空:`, v)
+    }
+  }
 
   async function loadOptions(): Promise<void> {
     if (loaded.value || !chatId.value) return
@@ -139,35 +174,9 @@ export function useAgentDialogOptions() {
         builtinCommands.value = [COMPACT_COMMAND]
         console.warn('[AgentDialog] command.list 拉取失败，命令菜单回退 compact:', e)
       }
-      const preset = presetName.value ? loadedConfig.presets?.[presetName.value] : undefined
-      const roleNames = preset?.roles?.length ? preset.roles : Object.keys(loadedConfig.roles ?? {})
-      primaryRole.value = preset?.leader ?? '主角色'
-      const fallback: RuntimeSelection = {
-        brain: brains.value.find((b) => b.default)?.name ?? brains.value[0]?.name ?? '',
-        senseGroup:
-          senseGroups.value.find((g) => g.default)?.name ?? senseGroups.value[0]?.name ?? '',
-        mcpServers: [],
-      }
-      const selections: Record<string, RuntimeSelection> = {}
-      for (const role of roleNames) {
-        const configured = loadedConfig.roles?.[role]
-        selections[role] = configured
-          ? {
-              brain: configured.brain,
-              senseGroup: configured.senseGroup,
-              mcpServers: configured.mcpServers ?? [],
-            }
-          : { ...fallback }
-      }
-      const cur = agents.getRuntime(chatId.value)
-      selections[primaryRole.value] = cur
-        ? { ...cur, mcpServers: [...(cur.mcpServers ?? [])] }
-        : (selections[primaryRole.value] ?? fallback)
-      roleSelections.value = selections
-      for (const [k, v] of Object.entries(selections)) {
-        if (!v.brain) console.warn(`[AgentDialog] 角色 ${k} brain 为空:`, v)
-      }
+      rebuildRoleSelections()
       loaded.value = true
+      loadedPreset.value = presetName.value ?? null
     } catch (e) {
       error.value = (e as Error).message
       console.error('[AgentDialog] loadOptions failed:', e)
@@ -183,12 +192,22 @@ export function useAgentDialogOptions() {
         resetEditor()
         resetMedia()
         error.value = null
-        loaded.value = false
-        void loadOptions()
+        void refreshForChat()
       }
     },
     { immediate: true },
   )
+
+  /** 切会话：同预设已加载时仅重建角色编制（读 chat runtime），不重拉全局选项、不置 loading。 */
+  async function refreshForChat(): Promise<void> {
+    if (!chatId.value) return
+    if (loaded.value && loadedPreset.value === presetName.value) {
+      rebuildRoleSelections()
+      return
+    }
+    loaded.value = false
+    await loadOptions()
+  }
 
   const primarySelection = computed(() => roleSelections.value[primaryRole.value])
 
@@ -403,8 +422,12 @@ export function useAgentDialogOptions() {
     hideInstructionPopover()
   })
 
-  async function handleSend(): Promise<void> {
-    if (!chatId.value || !text.value.trim() || sending.value) return
+  async function handleSend(
+    targetOverride?: string,
+    options: { keepOpen?: boolean } = {},
+  ): Promise<boolean> {
+    const targetChatId = targetOverride ?? chatId.value
+    if (!targetChatId || !text.value.trim() || sending.value) return false
     sending.value = true
     error.value = null
     let preparedInput: ReturnType<typeof chatSessions.prepareInput> | undefined
@@ -423,7 +446,6 @@ export function useAgentDialogOptions() {
           `主角色 brain 为空（${primaryRole.value}），roleSelections=${JSON.stringify(roleSelections.value)}`,
         )
       }
-      const targetChatId = chatId.value
       const prompt = composeCommandPrompt(text.value)
       if (presetName.value === CHERY_NYXUS_PRESET) {
         preparedInput = chatSessions.prepareInput(targetChatId, prompt)
@@ -431,7 +453,7 @@ export function useAgentDialogOptions() {
       // session.runtime.set 返回 applied/deferredRunning：回灌已存在子 chat 的反馈。
       // - applied：所有子（含 running）已即时切换 ctx.runtime + 持久化 metadata.runtime。
       // - deferredRunning：applied 中本次正在运行的子，下一轮 LLM loop 自动取新 brain；流未打断。
-      const { applied, deferredRunning } = await agents.setSessionRuntime(chatId.value, {
+      const { applied, deferredRunning } = await agents.setSessionRuntime(targetChatId, {
         primary: primarySelection.value,
         roles: safeRoles,
       })
@@ -461,17 +483,19 @@ export function useAgentDialogOptions() {
       preparedInput = undefined
       resetEditor()
       // Nyxus 是持续会话工作台：提交后保留输入窗口，等待下一轮指令；其他预设维持原关闭行为。
-      if (presetName.value !== CHERY_NYXUS_PRESET) close()
+      if (presetName.value !== CHERY_NYXUS_PRESET && !options.keepOpen) close()
+      return true
     } catch (e) {
       if (preparedInput) chatSessions.rollbackPreparedInput(preparedInput, e)
       error.value = (e as Error).message
       console.error('[AgentDialog] submit input failed:', e)
+      return false
     } finally {
       sending.value = false
     }
   }
 
-  function onEditorKeydown(e: KeyboardEvent): void {
+  function onEditorKeydown(e: KeyboardEvent, send?: () => void): void {
     if (showCommandMenu.value) {
       const opts = commandOptions.value
       if (e.key === 'ArrowRight') {
@@ -538,7 +562,8 @@ export function useAgentDialogOptions() {
     }
     if (e.key === 'Enter' && !e.isComposing && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
-      void handleSend()
+      if (send) send()
+      else void handleSend()
     } else if (e.key === 'Escape') {
       e.preventDefault()
       close()

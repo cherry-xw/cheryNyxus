@@ -1328,8 +1328,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       applyEvent(chatId, { kind: 'chunk', ...chunkData } as ChatEvent)
     })
     unbindNotif = wsClient.onNotification((notif) => {
-      const n = notif as NotificationMessage | null
+      const n = notif as (NotificationMessage & { background?: boolean }) | null
       if (!n?.type) return
+      if (n.background) return
       const isRootEvent = applyRootSubscriptionEvent(n)
       const chatId = n.chatId ?? (n.requestId ? requestMap.get(n.requestId) : undefined)
       // role_created/role_reply/role_destroyed 携自身 chatId（data.chatId / data.parentChatId）；

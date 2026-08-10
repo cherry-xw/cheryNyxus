@@ -151,6 +151,49 @@ describe('ConnectionManager chat subscriptions', () => {
       }),
     ).toEqual([])
 
+    expect(
+      manager.prepareSessionEvent(ws, {
+        kind: 'notification',
+        type: 'interrupt',
+        chatId: 'child-old',
+        rootChatId: 'root-old',
+        seq: 9,
+        rootEventSeq: 21,
+        data: {
+          approvalId: 'approval-1',
+          senseName: 'bash',
+          arguments: 'large payload intentionally omitted',
+        },
+      }),
+    ).toEqual([
+      {
+        kind: 'notification',
+        type: 'interrupt',
+        chatId: 'child-old',
+        rootChatId: 'root-old',
+        runId: undefined,
+        background: true,
+        data: { approvalId: 'approval-1', senseName: 'bash' },
+      },
+    ])
+
+    expect(
+      manager.prepareSessionEvent(ws, {
+        kind: 'notification',
+        type: 'question_batch_requested',
+        chatId: 'child-old',
+        rootChatId: 'root-old',
+        seq: 10,
+        rootEventSeq: 22,
+        data: { batchId: 'batch-1', questions: [{}, {}] },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        background: true,
+        data: { batchId: 'batch-1', questionCount: 2 },
+      }),
+    ])
+
     const nextRoot = manager.beginRootSessionOpen('root-next', state.id)
     manager.setSessionBoundary(nextRoot, 0)
     manager.finishSessionOpen(nextRoot)

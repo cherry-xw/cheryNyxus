@@ -132,7 +132,14 @@ export function selectVisibleExecutionItems(
   forceNodeIds: ReadonlySet<string> = new Set(),
   suppliedIndex?: Readonly<ExecutionViewportIndex>,
   overscan = EXECUTION_VIEWPORT_OVERSCAN,
+  fullRenderThreshold?: number,
 ): VisibleExecutionItems {
+  // 全量短路：节点数低于阈值时跳过裁剪，整套可见集合与 camera 解耦，
+  // 平移期 GPU 场景与 DOM hit-target 不再随节点进出视图而增删（消除平移卡顿）。
+  // fullRenderThreshold=0 → `length <= 0` 恒 false（空图除外），即始终裁剪。
+  if (fullRenderThreshold !== undefined && layout.nodes.length <= fullRenderThreshold) {
+    return { bounds: layout.bounds, nodes: [...layout.nodes], edges: [...layout.edges] }
+  }
   const bounds = cameraWorldBounds(camera, overscan)
   const index =
     suppliedIndex?.layout === layout ? suppliedIndex : createExecutionViewportIndex(layout)

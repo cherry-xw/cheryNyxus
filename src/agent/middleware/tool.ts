@@ -159,9 +159,8 @@ async function* executeCollectedCalls(
 
     for (const call of needsApproval) {
       // approvalPromise 结果：
-      //   - resolve accept/reject（用户决）或 reject reason=审批超时（超时→approvalRegistry resolve as reject）
-      //     → 正常 yield sense_accept/sense_reject，pending sense 填 content，resume Case2 跑 LLM
-      //   - reject AgentAbortError（断连→rejectApproval）→ 抛出传播终止流程，pending NULL，resume Case1 重跑
+      //   - resolve accept/reject（仅用户明确决定）→ 正常 yield sense_accept/sense_reject
+      //   - reject AgentAbortError/AgentParkError（断连或超时）→ 抛出传播终止流程，pending NULL，resume Case1 重跑
       //     不 yield sense_reject：会填 pending content 破坏 canResume Case1（pending 需保持 NULL）。
       //     不 return：return 结束 senseMiddleware，loop 误判本轮完成继续第二轮 LLM，破坏未完成周期语义。
       //     已执行 call（序列靠前的）保持 done；未到达 call 保持 pending NULL，resume 续接重跑。

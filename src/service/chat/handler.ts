@@ -85,7 +85,10 @@ import {
 } from './runtime.js'
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
-import { getQuestionStateSnapshot } from '@/db/question.js'
+import {
+  getPendingQuestionAttention,
+  getQuestionStateSnapshot,
+} from '@/db/question.js'
 import { randomUUID } from 'crypto'
 import {
   parseRuntimeSelection,
@@ -155,6 +158,8 @@ export async function handleChatCreate(
     const resolved = resolvePresetSelection(p.preset)
     selection = resolved.selection
     metadata.preset = p.preset
+    metadata.presetId = resolved.presetId
+    metadata.lastUserActivityAt = Date.now()
     metadata.spawnTypes = resolved.spawnTypes
     if (resolved.systemPromptFile) metadata.systemPromptFile = resolved.systemPromptFile
     if (resolved.skillFilter) metadata.skillFilter = resolved.skillFilter
@@ -188,6 +193,7 @@ export async function handleChatCreate(
   const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
   return {
     chatId,
+    ...(typeof metadata.presetId === 'string' ? { presetId: metadata.presetId } : {}),
     brain: selection.brain,
     senseGroup: selection.senseGroup,
     mcpServers: selection.mcpServers,
@@ -250,6 +256,8 @@ export async function handleChatList(
           wake?: 'immediate' | 'deferred' | 'barrier'
           resumePending?: boolean
           preset?: string
+          presetId?: string
+          lastUserActivityAt?: number
           type?: string
         })
       : {}
@@ -272,6 +280,7 @@ export async function handleChatList(
     const canResume = !finished && !running ? computeCanResume(chat.id) : false
     const workspace = getChatWorkspace(chat.id)
     const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
+    const pendingQuestions = getPendingQuestionAttention(chat.id)
     const base = {
       chatId: chat.id,
       createdAt: chat.created_at,
@@ -286,7 +295,18 @@ export async function handleChatList(
       // pendingApproval：approvalManager 内存索引派生（轻量，免 hydration），供会话列表「琴键」闪烁。
       // 与 currentState.pendingApproval（computeCurrentState 扫事件，单 chat 已 hydration）同为 approval 生命周期。
       pendingApproval: approvalManager.getForChat(chat.id) ?? null,
+      // 目录只携带计数与裁剪后的问题标题；完整选项在打开对应根会话后按需取得。
+      pendingQuestionCount: pendingQuestions.length,
+      pendingQuestions,
       preset: typeof meta.preset === 'string' ? meta.preset : undefined,
+      presetId:
+        typeof meta.presetId === 'string'
+          ? meta.presetId
+          : typeof meta.preset === 'string'
+            ? config.presets?.[meta.preset]?.id
+            : undefined,
+      lastUserActivityAt:
+        typeof meta.lastUserActivityAt === 'number' ? meta.lastUserActivityAt : undefined,
       agentType: typeof meta.type === 'string' ? meta.type : undefined,
       avatar:
         typeof meta.type === 'string'
@@ -979,6 +999,7 @@ export async function handleChatInputSubmit(
   const messageId = data.messageId
   const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
   const acceptedAt = Date.now()
+  updateChatMetadata(data.chatId, { lastUserActivityAt: acceptedAt })
   const queueSequence = pending.length + 1
   const prompt = attachmentsToPromptMarkers(data.attachments, data.content)
   const entry = agent.enqueueInput(prompt, {

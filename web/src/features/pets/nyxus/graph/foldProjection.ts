@@ -247,9 +247,90 @@ function projectedEdge(edge: ExecutionEdge, from: string, to: string): Execution
   return { ...edge, id: `fold-edge:${edge.id}:${from}:${to}`, from, to }
 }
 
-/** UI-only projection; canonical nodes, edges and their identities remain untouched. */
-export function projectFoldExecutionGraph(graph: Readonly<ExecutionGraph>): FoldProjectionResult {
-  const ranges = computeFoldRanges(graph)
+/** A conversation round's boundary: a user-led message opens a new round. */
+function isUserMessage(node: ExecutionNode): boolean {
+  return (
+    node.kind === 'message' &&
+    node.actor.kind === 'user' &&
+    node.direction === 'user-to-agent'
+  )
+}
+
+/** The agent's own outbound reply message (candidate for a round's final answer). */
+function isAgentReply(node: ExecutionNode): boolean {
+  return (
+    node.kind === 'message' &&
+    node.actor.kind === 'agent' &&
+    node.direction === 'agent-to-user'
+  )
+}
+
+function toFullRange(round: ExecutionNode[], foldNodes: ExecutionNode[]): FoldRange {
+  const sourceChatId = round[0]!.sourceChatId
+  const first = foldNodes[0]!
+  const members = foldNodes.map<ExecutionFoldMember>((node) => ({
+    id: node.id,
+    displayNode: node,
+    nodes: [node],
+  }))
+  return {
+    id: `full-fold:${sourceChatId}:${first.id}`,
+    sourceChatId,
+    firstNodeId: first.id,
+    lastNodeId: foldNodes.at(-1)!.id,
+    members,
+    nodes: foldNodes,
+  }
+}
+
+/**
+ * Full fold: within each conversation round (user-led message → next user
+ * message) keep only the user messages and the round's final agent reply, and
+ * fold every other node into a single fold card. Running rounds (any active
+ * run) stay expanded so in-flight tool/answer state is never hidden.
+ */
+export function computeFullFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
+  const persistent = graph.nodes
+    .filter((item) => item.orderSlot === 'persistent')
+    .sort(compareNodes)
+
+  const rounds: ExecutionNode[][] = []
+  let current: ExecutionNode[] = []
+  for (const node of persistent) {
+    if (isUserMessage(node) && current.length > 0) {
+      rounds.push(current)
+      current = [node]
+    } else {
+      current.push(node)
+    }
+  }
+  if (current.length > 0) rounds.push(current)
+
+  const ranges: FoldRange[] = []
+  for (const round of rounds) {
+    if (round.some(hasActiveRun)) continue
+    const keepIds = new Set<string>()
+    for (const node of round) if (isUserMessage(node)) keepIds.add(node.id)
+    // The final agent reply is the last outbound message; keep it visible.
+    const finalReply = [...round].reverse().find(isAgentReply)
+    if (finalReply) keepIds.add(finalReply.id)
+    const foldNodes = round.filter((node) => !keepIds.has(node.id))
+    // Only genuine user-led rounds fold; boundary-less leading segments stay expanded.
+    if (!round.some(isUserMessage) || foldNodes.length < 1) continue
+    ranges.push(toFullRange(round, foldNodes))
+  }
+  return ranges.sort(
+    (a, b) =>
+      (a.nodes[0]?.orderKey ?? Number.MAX_SAFE_INTEGER) -
+        (b.nodes[0]?.orderKey ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id),
+  )
+}
+
+/** Shared UI-only projection; canonical nodes, edges and their identities remain untouched. */
+function projectRanges(
+  graph: Readonly<ExecutionGraph>,
+  ranges: FoldRange[],
+): FoldProjectionResult {
   if (ranges.length === 0) return { graph: graph as ExecutionGraph, ranges }
 
   const foldByNode = new Map<string, FoldRange>()
@@ -263,4 +344,14 @@ export function projectFoldExecutionGraph(graph: Readonly<ExecutionGraph>): Fold
     return from === to ? [] : [projectedEdge(edge, from, to)]
   })
   return { graph: { ...graph, nodes, edges }, ranges }
+}
+
+export function projectFoldExecutionGraph(graph: Readonly<ExecutionGraph>): FoldProjectionResult {
+  return projectRanges(graph, computeFoldRanges(graph))
+}
+
+export function projectFullFoldExecutionGraph(
+  graph: Readonly<ExecutionGraph>,
+): FoldProjectionResult {
+  return projectRanges(graph, computeFullFoldRanges(graph))
 }

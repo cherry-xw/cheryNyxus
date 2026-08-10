@@ -2,7 +2,7 @@
  * approvalRegistry 单元测试（P1.9：审批超时机制）。
  *
  * 决策2 语义：
- * - 超时 → resolve as reject（非 abort）→ sense_reject → resume Case2
+ * - 超时 → AgentParkError，保留 pending sense，不冒充用户拒绝
  * - 断连 → rejectApproval(AgentAbortError) → throw → resume Case1
  * - resolve/reject 前若已超时，timer 须清除避免泄漏/重复触发
  */
@@ -14,12 +14,10 @@ describe("approvalRegistry 超时（P1.9）", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it("超时 → resolve as reject（reason 含「超时」，非 abort reject）", async () => {
+  it("超时 → park，保留为可恢复交互", async () => {
     const p = createApproval("t-timeout", 1000);
     vi.advanceTimersByTime(1000);
-    const decision = await p;
-    expect(decision.action).toBe("reject");
-    expect(decision.reason).toContain("超时");
+    await expect(p).rejects.toBeInstanceOf(AgentParkError);
   });
 
   it("超时前用户 accept → resolve accept，timer 清除（推进超时无副作用）", async () => {
@@ -76,12 +74,11 @@ describe("approvalRegistry 超时（P1.9）", () => {
   it("超时后 resolve/reject 不再触发（registry 已删）", async () => {
     const p = createApproval("t-post-timeout", 1000);
     vi.advanceTimersByTime(1000);
-    const decision = await p;
-    expect(decision.action).toBe("reject");
+    await expect(p).rejects.toBeInstanceOf(AgentParkError);
     // 再次 resolve 同 id → 无副作用
     resolveApproval("t-post-timeout", "accept");
     // Promise 已 settled，不会改变
-    expect(await p).toEqual(decision);
+    await expect(p).rejects.toBeInstanceOf(AgentParkError);
   });
 });
 
@@ -95,13 +92,10 @@ describe("approvalRegistry hard-timeout（G2：不限时审批资源上限）", 
     await expect(p).rejects.toBeInstanceOf(AgentParkError);
   });
 
-  it("hardTimeoutMs 仅当 timeoutMs<=0 生效（用户超时优先，不叠加）", async () => {
-    // timeoutMs>0 + hardTimeoutMs：用户超时到点 resolve as reject（非 hard park）
+  it("hardTimeoutMs 仅当 timeoutMs<=0 生效（用户窗口优先，不叠加）", async () => {
     const p = createApproval("h-user", 500, 100000);
     vi.advanceTimersByTime(500);
-    const decision = await p;
-    expect(decision.action).toBe("reject");
-    expect(decision.reason).toContain("超时");
+    await expect(p).rejects.toBeInstanceOf(AgentParkError);
   });
 
   it("hard-timeout 前用户 accept → resolve accept，hard timer 清除", async () => {

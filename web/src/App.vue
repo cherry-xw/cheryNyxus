@@ -75,7 +75,10 @@ async function bootstrap(): Promise<void> {
     )
     cleanupDesktopBridge.push(
       petBridge.onOpenChat((chatId) => {
-        if (chatSessions.sessionsById[chatId]) agents.activeDialogChatId = chatId
+        if (chatSessions.sessionsById[chatId]) {
+          agents.activeDialogSource = 'history'
+          agents.activeDialogChatId = chatId
+        }
       }),
     )
   }
@@ -108,7 +111,28 @@ async function bootstrap(): Promise<void> {
 
   // 订阅 chunk/notification → agents store 路由
   wsClient.onChunk((chunk) => agents.routeChunk(chunk))
-  wsClient.onNotification((notif) => agents.routeNotification(notif))
+  wsClient.onNotification((notif) => {
+    const event = notif as { background?: boolean; type?: string; chatId?: string } | null
+    if (event?.background) {
+      // 后台控制面事件不进入流式 reducer：只刷新轻量会话目录。用户点 Pet/琴键后，
+      // 再由 chat.open 获取完整审批参数或问题批次。
+      void agents.fetchHistoryList().catch((cause) =>
+        console.warn('[App] refresh background attention failed:', cause),
+      )
+      return
+    }
+    agents.routeNotification(notif)
+    if (
+      event?.type &&
+      ['interrupt', 'accept', 'rejected', 'question_batch_requested', 'question_batch_completed'].includes(
+        event.type,
+      )
+    ) {
+      void agents.fetchHistoryList().catch((cause) =>
+        console.warn('[App] refresh foreground attention failed:', cause),
+      )
+    }
+  })
 
   // 建连成功后拉 chat.list 重建 pet 树（store 内部幂等，断线重连后可再触发）
   let prevStatus: string | null = null

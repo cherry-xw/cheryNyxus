@@ -141,7 +141,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | 组件 | 读取字段 | 写入字段 | 调用 RPC |
 |------|---------|---------|---------|
 | `HistoryDrawer.vue` | `manager.stack` | — | `manager.closeTop()`（点遮罩 / ESC）|
-| `HistoryDrawerPanel.vue` | `stream.history` / `stream.historyLoaded` / `stream.historyDirty` / `pet.parentChatId`（layout=group/direct 切换）/ `allChatsCache`（找父/子 pet）/ `agents.collapseSubagent` | — | `agents.getHistory(chatId)`（drawer 打开时）→ 内部 `syncOneChat('loadHistory')` + 并行拉所有子 chat |
+| `HistoryDrawerPanel.vue` | `stream.history` / `stream.historyLoaded` / `stream.historyDirty` / `pet.parentChatId`（layout=group/direct 切换）/ `allChatsCache`（找父/子 pet）/ `agents.subagentDisplay`（show/collapse/round 三态） | — | `agents.getHistory(chatId)`（drawer 打开时）→ 内部 `syncOneChat('loadHistory')` + 并行拉所有子 chat |
 | `MessageBubble.vue` | `item.role`（5 种）/ `item.thinking` / `item.content` / `item.senseCalls` / `item.senseCalls[].result` / `item.runtime` / `item.msgId` / `item.createdAt` / `item.contextCompaction` / `item.spawnSenseCallId` / `masterPetName` / `subPetName/Face/Type`（从 pets 查） | `showThinking` ref | — |
 | `MessageAvatar.vue` | `item.role` / `item.runtime`（hover 详情面板 brain/senseGroup/mcpServers）/ `item.petName`（注入式 role fallback）/ `item.spawnSenseCallId` | — | `@click` 触发 `emit('jumpToSpawn')` → 上抛到 drawer |
 

@@ -15,6 +15,7 @@ import { registerSessionRuntimeHandlers } from './runtime/session.js'
 import { registerChatHandlers } from './chat/send.js'
 import { rebuildWaitedChildren } from './chat/wake.js'
 import { registerChatManageHandlers } from './chat/handler.js'
+import { registerConversationRouterHandlers } from './chat/conversationRouter.js'
 import { requestParkAfterTurn } from './chat/runtime.js'
 import { disconnectGrace } from './websocket/disconnectGrace.js'
 import { approvalManager } from './approval/manager.js'
@@ -75,6 +76,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   registerSessionRuntimeHandlers(router)
   registerChatHandlers(router)
   registerChatManageHandlers(router)
+  registerConversationRouterHandlers(router)
   registerBashHandlers(router)
   registerMcpHandlers(router)
   // CP3 + T9：spawn broadcaster 注入 + wait=true 看门狗超时回调（spawn_role sense 用）。

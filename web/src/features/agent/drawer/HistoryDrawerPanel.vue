@@ -138,7 +138,7 @@ const chatSessions = useChatSessionsStore()
 const manager = useHistoryDrawerManager()
 const sessionData = useChatSessionData(() => props.chatId)
 
-const pet = computed(() => agents.pets.find((p) => p.chatId === props.chatId))
+const pet = computed(() => agents.petForChat(props.chatId))
 const chatPetName = computed(() => pet.value?.name ?? '')
 
 // 布局：子 chat（ghost 自身面板，有 parentChatId）→ direct（master 右/ghost 左 1:1）；
@@ -217,13 +217,51 @@ const history = computed<HistoryItem[]>(() => {
       (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
     ),
   )
-  // 全局折叠子 agent 消息（role='role'/'subagent'）：仅作用于主 chat 合并视图（group）。
+  // 子 agent 消息显示模式（show/collapse/round）：仅作用于主 chat 合并视图（group）。
   // 子 agent 数据仍可经主 pet 消息内 spawn_role sense call 的「详情」下钻查看；
-  // 下钻打开的子 chat 自身抽屉（direct layout）必须照常显示，不受折叠开关影响。
-  return agents.collapseSubagent && layout.value === 'group'
-    ? merged.filter((item) => item.role !== 'role' && item.role !== 'subagent')
-    : merged
+  // 下钻打开的子 chat 自身抽屉（direct layout）必须照常显示，不受显示模式影响。
+  return applySubagentDisplay(merged)
 })
+
+/** 子 agent 消息角色（role='role'/'subagent'）。 */
+const SUB_ROLES = new Set<HistoryItem['role']>(['role', 'subagent'])
+
+/** 按当前子 agent 显示模式过滤历史（仅 group 合并视图生效；direct 子 chat 自身抽屉不过滤）。 */
+function applySubagentDisplay(items: HistoryItem[]): HistoryItem[] {
+  if (layout.value !== 'group') return items
+  const mode = agents.subagentDisplay
+  if (mode === 'show') return items
+  if (mode === 'collapse') return items.filter((item) => !SUB_ROLES.has(item.role))
+  // mode === 'round'：每条用户消息一轮，轮内只保留该轮用户消息 + 最后一条回复消息。
+  return keepLastPerRound(items)
+}
+
+/** 轮次压缩：用户消息开启一轮，到下一用户消息前为同一轮。
+ *  每轮保留开头用户消息 + 轮内最后一条非用户消息（作为大模型最终回复，可能是
+ *  assistant/master/role——多 agent 场景下主大模型回复常经子 agent 合并成 role）。
+ *  中间过程（子 agent、中间大模型回复）丢弃。 */
+function keepLastPerRound(items: HistoryItem[]): HistoryItem[] {
+  const result: HistoryItem[] = []
+  let firstUser: HistoryItem | null = null
+  let lastReply: HistoryItem | null = null
+  const flush = () => {
+    // 用户消息 + 该轮最后一条回复各保留一条；无用户消息（如历史首条即回复）则只留最后一条回复。
+    if (firstUser) result.push(firstUser)
+    if (lastReply) result.push(lastReply)
+    firstUser = null
+    lastReply = null
+  }
+  for (const item of items) {
+    if (item.role === 'user') {
+      flush()
+      firstUser = item
+    } else {
+      lastReply = item
+    }
+  }
+  flush()
+  return result
+}
 const loaded = computed<boolean>(() => sessionData.loaded.value)
 
 // 仅人类用户消息（role === "user" 唯一标识；child-to-master 合并项底层是 master/role，不算）
@@ -267,6 +305,7 @@ const scopePets = computed(() => {
   const root = props.chatId
   if (layout.value === 'direct') return pet.value ? [pet.value] : []
   return agents.pets.filter((candidate) => {
+    if (candidate.instanceId === pet.value?.instanceId) return true
     if (candidate.chatId === root) return true
     const seen = new Set<string>()
     let parent = candidate.parentChatId
@@ -622,19 +661,32 @@ function onPromptSnapShow(): void {
         </button>
       </div>
       <div v-if="isTop" class="head-actions">
-        <button
-          v-if="layout === 'group'"
-          type="button"
-          class="collapse-sub-btn"
-          :class="{ active: agents.collapseSubagent }"
-          :aria-pressed="agents.collapseSubagent"
-          :title="
-            agents.collapseSubagent ? '当前已隐藏子 agent 消息，点击显示' : '隐藏所有子 agent 消息'
-          "
-          @click="agents.toggleCollapseSubagent()"
-        >
-          <span class="collapse-glyph">{{ agents.collapseSubagent ? '🙈' : '👥' }}</span>
-        </button>
+        <div v-if="layout === 'group'" class="display-mode-seg" role="group" aria-label="子 agent 消息显示模式">
+          <button
+            type="button"
+            class="mode-btn"
+            :class="{ active: agents.subagentDisplay === 'show' }"
+            :aria-pressed="agents.subagentDisplay === 'show'"
+            title="不折叠子 Agent 消息"
+            @click="agents.setSubagentDisplay('show')"
+          >👥</button
+          ><button
+            type="button"
+            class="mode-btn"
+            :class="{ active: agents.subagentDisplay === 'collapse' }"
+            :aria-pressed="agents.subagentDisplay === 'collapse'"
+            title="折叠子 Agent 消息"
+            @click="agents.setSubagentDisplay('collapse')"
+          >🙈</button
+          ><button
+            type="button"
+            class="mode-btn"
+            :class="{ active: agents.subagentDisplay === 'round' }"
+            :aria-pressed="agents.subagentDisplay === 'round'"
+            title="只保留用户和大模型单个轮次最后一条消息"
+            @click="agents.setSubagentDisplay('round')"
+          >🎯</button>
+        </div>
         <button type="button" class="close-btn" aria-label="Close" @click="manager.closeTop()">
           ✕
         </button>
@@ -799,7 +851,7 @@ function onPromptSnapShow(): void {
   position: absolute;
   top: 0;
   right: 0;
-  width: var(--drawer-w, clamp(320px, 40vw, 560px));
+  width: min(var(--drawer-w, clamp(320px, 40vw, 560px)), calc(100% - 16px));
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -934,37 +986,44 @@ function onPromptSnapShow(): void {
   flex-shrink: 0;
 }
 
-// 折叠子 agent 消息切换按钮：active=已隐藏（高亮），非 active=正常显示
-.collapse-sub-btn {
+// 子 agent 消息三态显示选择器（group 合并视图）：肩并肩分段按钮，active 高亮。
+.display-mode-seg {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 26px;
-  padding: 0 8px;
   border: 1px solid rgba(36, 38, 45, 0.16);
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 70%);
-  font-size: 11px;
-  line-height: 1;
-  cursor: pointer;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
+  overflow: hidden;
 
-  &:hover {
-    background: #ffffff;
-    color: fade(@ink, 88%);
-  }
-
-  &.active {
-    border-color: rgba(246, 183, 60, 0.5);
-    background: rgba(246, 183, 60, 0.16);
-    color: #76500e;
-  }
-
-  .collapse-glyph {
+  .mode-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 26px;
+    padding: 0 7px;
+    border: 0;
+    background: transparent;
+    color: fade(@ink, 55%);
     font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background 120ms ease,
+      color 120ms ease;
+
+    & + .mode-btn {
+      border-left: 1px solid rgba(36, 38, 45, 0.1);
+    }
+
+    &:hover {
+      background: #ffffff;
+      color: fade(@ink, 88%);
+    }
+
+    &.active {
+      background: rgba(246, 183, 60, 0.16);
+      color: #76500e;
+    }
   }
 }
 

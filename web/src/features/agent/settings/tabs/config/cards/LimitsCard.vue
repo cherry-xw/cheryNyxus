@@ -87,6 +87,14 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
       :step="6"
       :min="0"
     />
+    <NeonNumberControl
+      v-model="global.tree_full_render_threshold"
+      label="节点树全量渲染阈值"
+      tip="节点数≤此值跳过视口裁剪，消除平移卡顿；0 = 始终裁剪"
+      placeholder="500"
+      :step="50"
+      :min="0"
+    />
   </div>
   <div v-if="global.watchdog" class="watchdog-row">
     <NeonNumberControl

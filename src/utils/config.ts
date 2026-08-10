@@ -3,6 +3,7 @@ import yaml from 'js-yaml'
 import { validateFixedPresetEdits, validateLockedRoleEdits } from './lockedRole.js'
 import fs from 'fs'
 import path from 'path'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'url'
 import { SupervisionLevel } from '@/core/config'
 import type { OAuth2Config } from '@/service/auth/index.js'
@@ -189,6 +190,10 @@ export interface RoleConfig {
  * 旧 config.default 已并入「默认」预设（DEFAULT_PRESET_NAME）。
  */
 export interface PresetConfig {
+  /** Stable workspace identity. Display-name changes must preserve this value. */
+  id?: string
+  /** Optional lightweight brain used only to rank existing root conversations. */
+  routingBrain?: string
   /** 组长角色 type 名（必填，必须 ∈ config.roles 且 ∈ 下属 roles 列表）；主 pet 编制取此角色 */
   leader: string
   /** 选中的角色 type 名（引用 config.roles 已定义的键，不在预设内重定义） */
@@ -217,6 +222,18 @@ export interface PresetConfig {
    * chat.create 选预设时快照入 metadata.rule（子 agent 继承父）；缺省 → 仅用基准。
    */
   rule?: string
+}
+
+/** Deterministic compatibility id for configs created before preset ids existed. */
+export function legacyPresetId(name: string): string {
+  return `preset-${createHash('sha256').update(name).digest('hex').slice(0, 16)}`
+}
+
+function ensurePresetIds(presets?: Record<string, PresetConfig>): void {
+  if (!presets) return
+  for (const [name, preset] of Object.entries(presets)) {
+    if (!preset.id?.trim()) preset.id = legacyPresetId(name)
+  }
 }
 
 /** 预设定时触发器配置 */
@@ -360,6 +377,8 @@ interface GlobalConfig {
    *   统一暂停语义下子 chat 保持末条派生 canResume，用户可 resume 续跑。
    */
   watchdog?: { timeout_ms?: number; wake_on_timeout?: boolean }
+  /** 节点树全量渲染阈值（节点数≤此值跳过视口裁剪避免平移卡顿；0=始终裁剪） */
+  tree_full_render_threshold?: number
 }
 
 /**
@@ -495,6 +514,8 @@ function loadConfig(): Config {
   const rawConfig = yaml.load(configFile) as Config
 
   const config = replaceEnvVars(rawConfig) as Config
+
+  ensurePresetIds(config.presets)
 
   // 业务校验（raw 形态：supervision 仍为字符串）。启动期 fail loud（规则12）。
   // brain 引用 / supervision 合法值 / sense :level / brain 必填项均在此（原内联块抽出共用）。
@@ -776,6 +797,14 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   if (raw.presets) {
     const roleNames = Object.keys(raw.roles ?? {})
     for (const [pname, pcfg] of Object.entries(raw.presets)) {
+      if (pcfg.id !== undefined && !/^preset-[a-zA-Z0-9_-]{8,}$/.test(pcfg.id)) {
+        errors.push(`presets.${pname}.id 非法（必须以 preset- 开头且至少包含 8 位标识）`)
+      }
+      if (pcfg.routingBrain && !brainNames.includes(pcfg.routingBrain)) {
+        errors.push(
+          `presets.${pname}.routingBrain "${pcfg.routingBrain}" 不在 llm.brain 列表（可用：${brainNames.join(', ')})`,
+        )
+      }
       const members = pcfg?.roles ?? []
       if (!pcfg?.leader) {
         errors.push(`presets.${pname}.leader 必填（组长角色）`)
@@ -899,6 +928,16 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     }
   }
 
+  // tree_full_render_threshold：≥ 0（节点树全量渲染阈值，0 = 始终裁剪）
+  if (raw.global?.tree_full_render_threshold !== undefined) {
+    const t = raw.global.tree_full_render_threshold
+    if (typeof t !== 'number' || !Number.isFinite(t) || t < 0) {
+      errors.push(
+        `global.tree_full_render_threshold 必须为 ≥ 0 的数字（0 = 始终裁剪，当前：${String(t)}）`,
+      )
+    }
+  }
+
   // command 配置：warn/auto 为 Threshold{unit,value}；min_context_limit / safety_margin ≥ 0
   if (raw.global?.command) {
     const cmd = raw.global.command
@@ -979,6 +1018,7 @@ export function readRawConfig(): ConfigRaw {
   // 端口/传输不通过面板编辑，剥离 server
   const { server: _server, ...rest } = raw
   void _server
+  ensurePresetIds(rest.presets)
   // brain.thinking 归一化为 ThinkingLevel（前端 config.get 拿到的就是 level，无需再处理 legacy boolean）
   if (rest.llm?.brain) {
     for (const cfg of Object.values(rest.llm.brain)) {

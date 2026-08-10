@@ -317,6 +317,39 @@ export function hasPendingQuestionBatches(chatId: string): boolean {
   )
 }
 
+export function getPendingQuestionAttention(chatId: string): Array<{
+  batchId: string
+  questionId: string
+  header?: string
+  question: string
+  createdAt: number
+}> {
+  backfillLegacyPendingQuestionBatches(chatId)
+  const db = monthlyDbForChat(chatId)
+  const rows = db
+    .prepare(
+      `SELECT qi.batch_id, qi.question_id, qi.header, qi.question, qi.created_at
+       FROM question_items qi
+       JOIN question_batches qb ON qb.batch_id = qi.batch_id
+       WHERE qb.chat_id = ? AND qb.status = 'pending' AND qi.status = 'pending'
+       ORDER BY qi.created_at ASC, qi.position ASC`,
+    )
+    .all(chatId) as Array<{
+      batch_id: string
+      question_id: string
+      header: string | null
+      question: string
+      created_at: number
+    }>
+  return rows.map((row) => ({
+    batchId: row.batch_id,
+    questionId: row.question_id,
+    ...(row.header ? { header: row.header } : {}),
+    question: row.question.slice(0, 160),
+    createdAt: row.created_at,
+  }))
+}
+
 function normalizeAnswer(
   item: QuestionItemRow,
   answer: QuestionBatchAnswerInput,

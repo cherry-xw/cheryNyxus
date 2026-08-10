@@ -31,6 +31,7 @@
 | `sense_execute_timeout` | number (ms) | ❌ | 10000 | 单次 Sense 执行超时 |
 | `approval_timeout` | number (ms) | ❌ | 30000 | 审批等待超时（`global.approval_timeout` 也可由 RPC/感官级覆盖） |
 | `bash_log_retention_hours` | number (hours) | ❌ | 24 | bash 子进程日志保留时长 |
+| `tree_full_render_threshold` | number | ❌ | 500 | 节点树全量渲染阈值（节点数≤此值跳过视口裁剪避免平移卡顿；`0`=始终裁剪） |
 | `textEditor` | string | ❌ | `notepad` | 文本编辑器命令（设置页「打开配置」按钮调用） |
 | `file_compression` | object | ❌ | 见下 | 大日志文件读取时的截断/压缩配置 |
 

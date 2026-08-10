@@ -49,7 +49,9 @@ Nyxus 对话框上方的 `MessageBranchTree` 是独立的 SVG 画布：消息和
 
 节点树内部使用独立于应用 overlay 的语义层级：GPU 画布与连线位于最底层，其上依次为节点命中层、节点 hover 详情、CRT 实时运行卡、消息 composer、待审批/待回答等强制交互，最后是工作台关闭按钮和侧边工具。内部层级只在 `AgentDialog` 的工作台 stacking context 中比较，不得使用 `410/430` 等应用级数字越过 HistoryDrawer 或 SettingsDialog。hover 详情是被动预览，不覆盖 CRT；composer 是用户主动输入，始终高于 hover 和 CRT；审批/提问要求用户决策，始终高于 composer。
 
-Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport 到节点坐标。点击主执行终点只打开固定在工作台底部中央的浮动 composer；画布仍可见，但临时 hover 详情关闭。composer 在自身坐标系内向上自适应增长，命令/角色菜单锚定输入框并继承 composer 层级；`@` 菜单只列出当前 preset 中非 leader 且显式配置 `mentionable: true` 的角色，Nyxus 默认的 `housekeeper`、`curator` 均可选择；`Esc` 放弃草稿，发送中禁止关闭。提交成功后 composer 收起，只有服务端 pending input 或乐观 user message 才进入 canonical 节点树，因此节点数量、布局和 fit 不受未发送草稿影响。
+Nyxus 消息输入不再投影 `input:draft:*` 虚拟节点，也不 Teleport 到节点坐标。点击主执行终点只打开固定在工作台底部中央的浮动 composer；画布仍可见，但临时 hover 详情关闭。composer 在自身坐标系内向上自适应增长，命令/角色菜单锚定输入框并继承 composer 层级。composer 头部内置小组角色编制：展示全部角色并允许就地调整各角色大脑（模型），与普通发消息弹窗能力一致（不提供会话目标选择，发送目标即当前展示的节点树会话）。`@` 菜单只列出当前 preset 中非 leader 且显式配置 `mentionable: true` 的角色，Nyxus 默认的 `housekeeper`、`curator` 均可选择；`Esc` 放弃草稿，发送中禁止关闭。提交成功后 composer 收起，只有服务端 pending input 或乐观 user message 才进入 canonical 节点树，因此节点数量、布局和 fit 不受未发送草稿影响。
+
+工作台画布从标题栏（窗口控制一栏）下方开始：节点树视口不覆盖标题栏，`fitToView` 在标题栏之下的可视区内居中/锚定，复位或最大化后起始节点不会滑到标题栏下方。
 
 ### Nyxus 弹窗渲染主题
 

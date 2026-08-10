@@ -43,6 +43,19 @@ const visibleStreams = computed<Record<string, StreamState>>(() => {
   }
   return result
 })
+function presetAttentionCount(pet: PetInstance): number {
+  return agents.historyList
+    .filter((chat) =>
+      pet.presetId ? chat.presetId === pet.presetId : chat.preset === pet.name,
+    )
+    .reduce(
+      (count, chat) => count + (chat.pendingApproval ? 1 : 0) + (chat.pendingQuestionCount ?? 0),
+      0,
+    )
+}
+function activeRoot(pet: PetInstance): string {
+  return agents.activeRootForPet(pet)
+}
 const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = usePetWorld(
   stageRef,
   agents.pets,
@@ -55,11 +68,21 @@ const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = useP
  */
 async function handleClick(pet: PetInstance): Promise<void> {
   if (pet.isMaster) {
+    const restoringMinimizedWorkbench =
+      agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
+    agents.workbenchMinimized = false
+    if (!restoringMinimizedWorkbench) {
+      agents.activeDialogSource = 'pet'
+      agents.activeDialogView = 'composer'
+    }
+    void agents.fetchHistoryList().catch((e) =>
+      console.warn(`[PetStage] fetchHistoryList ${pet.presetId ?? pet.chatId} 失败:`, e),
+    )
     // startup 仅 hydrate running root；非运行会话点开时按需加载，AgentDialog 数据渐进填充。
     void chatSessions
-      .hydrateTree(pet.chatId)
-      .catch((e) => console.warn(`[PetStage] hydrateTree ${pet.chatId} 失败:`, e))
-    agents.activeDialogChatId = pet.chatId
+      .hydrateTree(activeRoot(pet))
+      .catch((e) => console.warn(`[PetStage] hydrateTree ${activeRoot(pet)} 失败:`, e))
+    agents.activeDialogChatId = activeRoot(pet)
     return
   }
   clickPet(pet)
@@ -67,7 +90,14 @@ async function handleClick(pet: PetInstance): Promise<void> {
 
 function handleDoubleClick(pet: PetInstance): void {
   if (!pet.isMaster) return
-  agents.activeDialogChatId = pet.chatId
+  const restoringMinimizedWorkbench =
+    agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
+  agents.workbenchMinimized = false
+  if (!restoringMinimizedWorkbench) {
+    agents.activeDialogSource = 'pet'
+    agents.activeDialogView = 'composer'
+  }
+  agents.activeDialogChatId = activeRoot(pet)
 }
 
 function handleStroke(pet: PetInstance): void {
@@ -80,7 +110,7 @@ function handleStartDrag(pet: PetInstance, event: PointerEvent): void {
 
 async function handleAbort(pet: PetInstance): Promise<void> {
   try {
-    await chatSessions.abortAgent(pet.chatId)
+    await chatSessions.abortAgent(activeRoot(pet))
   } catch (e) {
     // 规则 12 fail loud
     console.error('[PetStage] abort failed:', e)
@@ -94,13 +124,38 @@ function handleDestroy(pet: PetInstance): void {
 }
 
 function handleHistory(pet: PetInstance): void {
-  // CP4 接 HistoryDrawer；本轮仅设 store 值（数字气泡/抽屉触发点共用）
-  agents.openHistoryRoot(pet.chatId)
+  // 历史按钮只查看当前会话消息，不再进入“历史会话选择”界面。
+  agents.openHistoryRoot(activeRoot(pet))
+}
+
+async function handleAttention(pet: PetInstance): Promise<void> {
+  await agents.fetchHistoryList()
+  const chats = agents.historyList.filter((chat) =>
+    pet.presetId ? chat.presetId === pet.presetId : chat.preset === pet.name,
+  )
+  const byId = new Map(chats.map((chat) => [chat.chatId, chat]))
+  const source = chats.find(
+    (chat) => !!chat.pendingApproval || (chat.pendingQuestionCount ?? 0) > 0,
+  )
+  if (!source) return
+  agents.workbenchMinimized = false
+  let root = source
+  const seen = new Set<string>()
+  while (root.parentChatId && !seen.has(root.chatId)) {
+    seen.add(root.chatId)
+    root = byId.get(root.parentChatId) ?? root
+    if (!root.parentChatId) break
+  }
+  agents.activeDialogSource = 'history'
+  agents.activatePresetSession(pet.presetId, root.chatId)
+  agents.activeDialogView = 'attention'
+  agents.activeDialogChatId = root.chatId
+  await chatSessions.hydrateTree(root.chatId)
 }
 
 async function handleCompact(pet: PetInstance): Promise<void> {
   try {
-    await chatSessions.sendMessage(pet.chatId, serializeCommandToken(COMPACT_COMMAND))
+    await chatSessions.sendMessage(activeRoot(pet), serializeCommandToken(COMPACT_COMMAND))
   } catch (e) {
     console.error('[PetStage] compact failed:', e)
   }
@@ -108,7 +163,7 @@ async function handleCompact(pet: PetInstance): Promise<void> {
 
 async function handleResume(pet: PetInstance): Promise<void> {
   try {
-    await chatSessions.resumeAgent(pet.chatId)
+    await chatSessions.resumeAgent(activeRoot(pet))
   } catch (e) {
     console.error('[PetStage] resume failed:', e)
   }
@@ -122,7 +177,8 @@ async function handleResume(pet: PetInstance): Promise<void> {
       :key="pet.instanceId"
       :pet="pet"
       :paused="isPaused"
-      :stream="visibleStreams[pet.chatId]"
+      :stream="visibleStreams[activeRoot(pet)]"
+      :attention-count="presetAttentionCount(pet)"
       @start-drag="handleStartDrag"
       @drag="dragPet"
       @end-drag="endDrag"
@@ -131,6 +187,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
       @stroke-pet="handleStroke"
       @double-click-pet="handleDoubleClick"
       @history="handleHistory"
+      @attention="handleAttention"
       @abort="handleAbort"
       @destroy="handleDestroy"
       @compact="handleCompact"

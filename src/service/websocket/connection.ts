@@ -22,6 +22,40 @@ interface SessionSubscription {
   buffer: unknown[]
 }
 
+const BACKGROUND_CONTROL_TYPES = new Set([
+  'interrupt',
+  'accept',
+  'rejected',
+  'question_batch_requested',
+  'question_batch_completed',
+  'done',
+  'error',
+  'role_reply',
+  'child_abandoned',
+])
+
+function backgroundControlEvent(event: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (event.kind !== 'notification' || !BACKGROUND_CONTROL_TYPES.has(String(event.type))) return
+  const data = event.data && typeof event.data === 'object' ? (event.data as Record<string, unknown>) : {}
+  const type = String(event.type)
+  const compactData: Record<string, unknown> = {}
+  for (const key of ['approvalId', 'batchId', 'childChatId', 'senseName']) {
+    if (data[key] !== undefined) compactData[key] = data[key]
+  }
+  if (type === 'question_batch_requested' && Array.isArray(data.questions)) {
+    compactData.questionCount = data.questions.length
+  }
+  return {
+    kind: 'notification',
+    type,
+    chatId: event.chatId,
+    rootChatId: event.rootChatId,
+    runId: event.runId,
+    background: true,
+    data: compactData,
+  }
+}
+
 /**
  * 连接状态
  */
@@ -303,9 +337,17 @@ export class ConnectionManager {
     if (!sub) return undefined
     this.sessionSubscriptions.delete(subscriptionId)
     this.readySessionBuffers.delete(subscriptionId)
-    if (sub.rootChatId) {
+    let mutedRoot = sub.rootChatId
+    if (!mutedRoot) {
+      try {
+        mutedRoot = getRootChatId(sub.chatId)
+      } catch {
+        mutedRoot = undefined
+      }
+    }
+    if (mutedRoot) {
       const muted = this.mutedRootsByConnection.get(sub.connectionId) ?? new Set<string>()
-      muted.add(sub.rootChatId)
+      muted.add(mutedRoot)
       this.mutedRootsByConnection.set(sub.connectionId, muted)
     }
     return { chatId: sub.chatId, ...(sub.rootChatId ? { rootChatId: sub.rootChatId } : {}) }
@@ -338,7 +380,8 @@ export class ConnectionManager {
       event.rootChatId &&
       this.mutedRootsByConnection.get(connectionId)?.has(event.rootChatId)
     ) {
-      return []
+      const compact = backgroundControlEvent(event as Record<string, unknown>)
+      return compact ? [compact] : []
     }
     // A root subscription is the authoritative superset for this connection.
     // Emitting both root and direct envelopes repeats the same source chat/seq;

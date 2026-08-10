@@ -8,9 +8,15 @@ import { AnimatePresence, motion } from 'motion-v'
 import { ElPopover, ElTooltip } from 'element-plus'
 import RoleConfigPopover from '../dialog/RoleConfigPopover.vue'
 import AgentComposer from '../dialog/AgentComposer.vue'
+import ConversationTargetPicker from '../dialog/ConversationTargetPicker.vue'
+import WorkspaceSessionBrowser from '../dialog/WorkspaceSessionBrowser.vue'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import { useAgentDialogOptions } from '../dialog/useAgentDialogOptions'
+import {
+  useWorkbenchWindow,
+  type ResizeDirection,
+} from '../dialog/useWorkbenchWindow'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 import MessageBranchTree from '@/features/pets/nyxus/components/MessageBranchTree.vue'
@@ -84,9 +90,173 @@ const {
 /** Cherry Nyxus 会话：节点树铺满工作台，历史钢琴与角色卡从右侧 dock 按需展开。 */
 const dialogVisible = computed(() => !!chatId.value || emptyNyxusDialog.value)
 const isNyxus = computed(() => emptyNyxusDialog.value || presetName.value === CHERY_NYXUS_PRESET)
+interface QuickTargetSelection {
+  target: string | 'new'
+  source: 'ai' | 'user'
+  confidence?: number
+}
+const quickTarget = ref<QuickTargetSelection>()
+const quickRoutingPending = ref(false)
+const quickRoutingWaiters: Array<() => void> = []
+function setQuickRoutingPending(pending: boolean): void {
+  quickRoutingPending.value = pending
+  if (!pending) quickRoutingWaiters.splice(0).forEach((resolve) => resolve())
+}
+function clearAiQuickTarget(): void {
+  if (quickTarget.value?.source === 'ai') quickTarget.value = undefined
+}
+function enableAiQuickTarget(): void {
+  quickTarget.value = undefined
+  error.value = null
+}
+async function waitForQuickRouting(): Promise<void> {
+  if (!quickRoutingPending.value) return
+  await new Promise<void>((resolve) => quickRoutingWaiters.push(resolve))
+}
+const dialogView = computed({
+  get: () => agents.activeDialogView,
+  set: (view: 'composer' | 'attention' | 'tree') => {
+    agents.activeDialogView = view
+  },
+})
+const isWorkbench = computed(() => isNyxus.value || dialogView.value === 'tree')
+const workbenchWindow = useWorkbenchWindow()
+const {
+  shellRef: workbenchShellRef,
+  mode: workbenchMode,
+  position: workbenchPosition,
+  size: workbenchSize,
+  shellStyle: workbenchShellStyle,
+} = workbenchWindow
+const resizeDirections: ResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
+const WORKBENCH_RAIL_RESERVE = 148
+/** 节点树实例 ref：最大化/窗口切换时显式触发复位，确保画布按新视口重排（RO 对瞬时全屏切换并不可靠）。 */
+const branchTreeRef = ref<{ resetLayout: () => void } | null>(null)
+function workbenchDrawerAnchor() {
+  const rect = workbenchShellRef.value?.getBoundingClientRect()
+  if (!rect) return null
+  return {
+    top: rect.top,
+    left: rect.left,
+    width: Math.max(0, rect.width - WORKBENCH_RAIL_RESERVE),
+    height: rect.height,
+  }
+}
+function syncWorkbenchDrawerAnchor(): void {
+  if (agents.historyDrawerMode !== 'workbench-docked') return
+  agents.updateHistoryDrawerAnchor(workbenchDrawerAnchor())
+}
+let workbenchResizeObserver: ResizeObserver | undefined
+watch(workbenchShellRef, (element) => {
+  workbenchResizeObserver?.disconnect()
+  if (!element) return
+  workbenchResizeObserver = new ResizeObserver(syncWorkbenchDrawerAnchor)
+  workbenchResizeObserver.observe(element)
+  void nextTick(syncWorkbenchDrawerAnchor)
+})
+watch(
+  [
+    workbenchMode,
+    () => workbenchPosition.value.x,
+    () => workbenchPosition.value.y,
+    () => workbenchSize.value.width,
+    () => workbenchSize.value.height,
+  ],
+  () => void nextTick(syncWorkbenchDrawerAnchor),
+)
+// 最大化/窗口切换（shell 尺寸瞬时变化）显式复位节点树画布，避免相机停留在旧视口导致画布未铺满/下边截断。
+watch(
+  [workbenchMode, () => workbenchSize.value.width, () => workbenchSize.value.height],
+  () => void nextTick(() => branchTreeRef.value?.resetLayout()),
+)
+const quickTargetRequired = computed(
+  () => agents.activeDialogSource === 'pet' && !isNyxus.value && !!presetName.value,
+)
+const quickPresetId = computed(() => {
+  if (pet.value?.presetId) return pet.value.presetId
+  const summary = chatId.value
+    ? agents.historyList.find((item) => item.chatId === chatId.value)
+    : undefined
+  return summary?.presetId
+})
+const quickSessions = computed(() =>
+  (agents.historyList ?? [])
+    .filter(
+      (item) =>
+        !item.parentChatId &&
+        (quickPresetId.value
+          ? item.presetId === quickPresetId.value
+          : !!presetName.value && item.preset === presetName.value),
+    )
+    .sort(
+      (a, b) =>
+        (b.lastUserActivityAt ?? b.createdAt ?? 0) -
+        (a.lastUserActivityAt ?? a.createdAt ?? 0),
+    ),
+)
+const workspaceChats = computed(() =>
+  (agents.historyList ?? []).filter((item) =>
+    quickPresetId.value
+      ? item.presetId === quickPresetId.value
+      : !!presetName.value && item.preset === presetName.value,
+  ),
+)
+const workspaceAttentionCount = computed(() =>
+  workspaceChats.value.reduce(
+    (count, item) => count + (item.pendingApproval ? 1 : 0) + (item.pendingQuestionCount ?? 0),
+    0,
+  ),
+)
+const quickRoutingEnabled = computed(() => {
+  const preset = presetName.value ? config.value?.presets?.[presetName.value] : undefined
+  return !!preset?.routingBrain
+})
+watch(dialogVisible, (open) => {
+  if (open) {
+    workbenchWindow.resetForOpen()
+    if (agents.activeDialogSource === 'pet') quickTarget.value = undefined
+  }
+  if (!open) {
+    agents.workbenchMinimized = false
+    const observedRoot = treeRootChatId.value
+    if (observedRoot) {
+      if (isWorkbench.value) void chatSessions.closeRootTimeline(observedRoot)
+      else void chatSessions.closeSession(observedRoot)
+    }
+    agents.closeAllHistory()
+    quickTarget.value = undefined
+    setQuickRoutingPending(false)
+  }
+})
 const nyxusDraftActive = ref(false)
-const treeFolded = ref(true)
+type FoldMode = 'none' | 'partial' | 'full'
+const foldMode = ref<FoldMode>('partial')
+/** 折叠三档控件：hover 时按钮自身变宽，左侧滑出 3 个子按钮，点击切换档位。 */
+const foldToolOpen = ref(false)
+const FOLD_GLYPHS: Record<FoldMode, string> = { none: '☷', partial: '▤', full: '▦' }
+const FOLD_LABELS: Record<FoldMode, string> = {
+  none: '不折叠',
+  partial: '部分折叠',
+  full: '全折叠',
+}
+let foldCloseTimer: ReturnType<typeof setTimeout> | undefined
+function showFoldTool(): void {
+  if (foldCloseTimer) clearTimeout(foldCloseTimer)
+  foldCloseTimer = undefined
+  foldToolOpen.value = true
+}
+function scheduleFoldToolClose(): void {
+  if (foldCloseTimer) clearTimeout(foldCloseTimer)
+  foldCloseTimer = setTimeout(() => {
+    foldToolOpen.value = false
+    foldCloseTimer = undefined
+  }, 160)
+}
+function selectFoldMode(mode: FoldMode): void {
+  foldMode.value = mode
+}
 const pianoOpen = ref(false)
+const workspaceBrowserMode = ref<'attention'>()
 /** 删除交互期间锁定 popout：hover 可删键 / 拖拽 / 倒掉动画时为 true，跳过延迟关闭。 */
 const pianoPinned = ref(false)
 let pianoCloseTimer: ReturnType<typeof setTimeout> | undefined
@@ -111,6 +281,8 @@ function showPiano(): void {
   pianoCloseRequested = false
   // 与角色列表互斥：展开钢琴时收起角色列表。
   closeRoleList()
+  agents.closeAllHistory()
+  workspaceBrowserMode.value = undefined
   pianoOpen.value = true
 }
 function schedulePianoClose(): void {
@@ -141,6 +313,8 @@ function showRoleList(): void {
   if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
   pianoCloseTimer = undefined
   pianoOpen.value = false
+  agents.closeAllHistory()
+  workspaceBrowserMode.value = undefined
   roleListOpen.value = true
 }
 function scheduleRoleListClose(): void {
@@ -160,6 +334,12 @@ function closeRoleList(): void {
 function toggleRoleList(): void {
   if (roleListOpen.value) closeRoleList()
   else showRoleList()
+}
+function toggleWorkspaceBrowser(mode: 'attention'): void {
+  closeRoleList()
+  pianoOpen.value = false
+  agents.closeAllHistory()
+  workspaceBrowserMode.value = workspaceBrowserMode.value === mode ? undefined : mode
 }
 /** 点击 popout/按钮之外 → 关闭（配置面板点外部关闭）。 */
 function onRoleOutsidePointerDown(e: PointerEvent): void {
@@ -183,15 +363,57 @@ function cancelNyxusInput(): void {
   error.value = null
 }
 async function sendFromComposer(): Promise<void> {
-  if (isNyxus.value) nyxusDraftActive.value = false
-  await handleSend()
-  if (isNyxus.value && text.value) nyxusDraftActive.value = true
+  if (quickTargetRequired.value && quickRoutingPending.value) await waitForQuickRouting()
+  if (quickTargetRequired.value && !quickTarget.value) {
+    error.value = '请选择消息指向的目标后继续'
+    return
+  }
+  if (isWorkbench.value) nyxusDraftActive.value = false
+  let targetChatId = chatId.value ?? undefined
+  if (quickTargetRequired.value) {
+    if (quickTarget.value?.target === 'new') {
+      if (!presetName.value) {
+        error.value = '当前 Pet 没有关联预设'
+        return
+      }
+      try {
+        targetChatId = await agents.createMasterPet({ preset: presetName.value })
+        await agents.fetchHistoryList()
+      } catch (cause) {
+        console.error('[AgentDialog] create target session failed:', cause)
+        error.value = '新建会话失败，请重试或选择一个历史会话'
+        return
+      }
+    } else {
+      targetChatId = quickTarget.value?.target
+    }
+  }
+  if (targetChatId) {
+    agents.activatePresetSession(quickPresetId.value, targetChatId, presetName.value)
+    agents.activeDialogChatId = targetChatId
+  }
+  await handleSend(targetChatId, { keepOpen: isWorkbench.value })
+  if (isWorkbench.value && text.value) nyxusDraftActive.value = true
+}
+async function selectQuickTarget(selection: QuickTargetSelection): Promise<void> {
+  if (quickTarget.value?.source === 'user' && selection.source === 'ai') return
+  quickTarget.value = selection
+  if (selection.target === 'new') return
+  agents.activatePresetSession(quickPresetId.value, selection.target, presetName.value)
+  agents.activeDialogChatId = selection.target
+  await chatSessions.openSession(selection.target).catch((cause) =>
+    console.warn('[AgentDialog] open explicitly selected target failed:', cause),
+  )
 }
 /** 查看 Nyxus 会话完整对话历史：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
 function openHistory(): void {
   const id = chatId.value
   if (!id) return
-  agents.openHistoryRoot(id)
+  agents.openHistoryRoot(
+    id,
+    isWorkbench.value ? 'workbench-docked' : 'overlay',
+    isWorkbench.value ? workbenchDrawerAnchor() : null,
+  )
 }
 /**
  * 会话控制（停止/继续运行）：原挂 MessageBranchTree 终点节点，现移至弹窗 header 刷新按钮边。
@@ -229,6 +451,9 @@ async function executeSessionControl(): Promise<void> {
 }
 /** 顶部树的独立根：琴键按下即同步更新，不等待对话框 options/hydration 的异步链。 */
 const treeRootChatId = ref('')
+const treeFocusSourceChatId = ref<string>()
+const treeFocusInteractionId = ref<string>()
+const showingTree = computed(() => isWorkbench.value)
 watch(
   chatId,
   (id) => {
@@ -240,16 +465,16 @@ watch(
   { immediate: true },
 )
 watch(
-  [treeRootChatId, isNyxus],
-  ([rootChatId, nyxus]) => {
+  [treeRootChatId, showingTree],
+  ([rootChatId, treeVisible]) => {
     if (!rootChatId) return
-    if (!nyxus) {
+    if (!treeVisible) {
       void chatSessions.closeRootTimeline(rootChatId)
       return
     }
     void chatSessions
       .observeRootTimeline(rootChatId, 'tree')
-      .catch((cause) => console.error('[AgentDialog] observe Nyxus root failed:', cause))
+      .catch((cause) => console.error('[AgentDialog] observe root tree failed:', cause))
   },
   { immediate: true },
 )
@@ -259,16 +484,63 @@ const creating = ref(false)
  * 新 root 通过原子 open + 完整 tree snapshot 恢复，不回放逐 chat token 事件。 */
 async function switchSession(id: string): Promise<void> {
   if (!id) return
+  const previousId = chatId.value
+  agents.activeDialogSource = 'history'
+  agents.activatePresetSession(quickPresetId.value, id, presetName.value)
   treeRootChatId.value = id
   if (id !== chatId.value) {
-    agents.activeNyxusChatId = id
+    if (isNyxus.value) agents.activeNyxusChatId = id
     agents.activeDialogChatId = id
   }
   try {
-    await chatSessions.observeRootTimeline(id, 'tree')
+    if (showingTree.value) await chatSessions.observeRootTimeline(id, 'tree')
+    else {
+      if (previousId && previousId !== id) await chatSessions.closeSession(previousId)
+      await chatSessions.openSession(id)
+    }
+    if (agents.historyDrawerStack.length > 0) {
+      agents.openHistoryRoot(id, agents.historyDrawerMode, workbenchDrawerAnchor())
+    }
   } catch (e) {
-    console.error('[AgentDialog] switch Nyxus session failed:', e)
+    console.error('[AgentDialog] switch session failed:', e)
   }
+}
+
+async function openWorkspaceTree(
+  rootChatId: string,
+  sourceChatId?: string,
+  interactionId?: string,
+): Promise<void> {
+  workspaceBrowserMode.value = undefined
+  treeFocusSourceChatId.value = sourceChatId
+  treeFocusInteractionId.value = interactionId
+  dialogView.value = 'tree'
+  await switchSession(rootChatId)
+}
+
+function toggleCurrentTree(): void {
+  if (dialogView.value === 'tree') {
+    dialogView.value = 'composer'
+    return
+  }
+  if (chatId.value) {
+    agents.activeDialogSource = 'history'
+    agents.activatePresetSession(quickPresetId.value, chatId.value, presetName.value)
+  }
+  dialogView.value = 'tree'
+}
+
+async function deletePresetSession(targetId: string): Promise<void> {
+  if (!targetId) return
+  if (targetId === chatId.value) {
+    const remaining = quickSessions.value.find((session) => session.chatId !== targetId)
+    if (remaining) await switchSession(remaining.chatId)
+    else {
+      error.value = '请先新建一个会话，再删除当前会话'
+      return
+    }
+  }
+  await agents.deleteSession(targetId)
 }
 
 /**
@@ -282,9 +554,17 @@ async function createSession(): Promise<void> {
   try {
     await agents.fetchHistoryList()
     const blank = agents.historyList.find(
-      (c) => !c.parentChatId && c.preset === CHERY_NYXUS_PRESET && (c.turnCount ?? 0) === 0,
+      (c) =>
+        !c.parentChatId &&
+        (quickPresetId.value ? c.presetId === quickPresetId.value : c.preset === presetName.value) &&
+        (c.turnCount ?? 0) === 0,
     )
-    const id = blank ? blank.chatId : await agents.createNyxusSession()
+    const id = blank
+      ? blank.chatId
+      : isNyxus.value
+        ? await agents.createNyxusSession()
+        : await agents.createMasterPet({ preset: presetName.value })
+    if (!blank) await agents.fetchHistoryList()
     await switchSession(id)
     emptyNyxusDialog.value = false
   } catch (e) {
@@ -329,14 +609,31 @@ async function deleteNyxusSession(targetId: string): Promise<void> {
 
 function closeDialog(): void {
   const observedRoot = treeRootChatId.value
+  const wasNyxus = isNyxus.value
   cancelNyxusInput()
+  agents.workbenchMinimized = false
   emptyNyxusDialog.value = false
+  agents.closeAllHistory()
   closeAgentDialog()
-  if (observedRoot) void chatSessions.closeRootTimeline(observedRoot)
+  agents.activeDialogSource = 'history'
+  if (observedRoot) {
+    if (wasNyxus || dialogView.value === 'tree') void chatSessions.closeRootTimeline(observedRoot)
+    else void chatSessions.closeSession(observedRoot)
+  }
+}
+
+function minimizeWorkbench(): void {
+  if (!isWorkbench.value) return
+  agents.workbenchMinimized = true
+}
+
+function restoreWorkbench(): void {
+  if (!isWorkbench.value) return
+  agents.workbenchMinimized = false
 }
 
 function onDialogEditorKeydown(e: KeyboardEvent): void {
-  if (isNyxus.value && nyxusDraftActive.value && e.key === 'Escape') {
+  if (isWorkbench.value && nyxusDraftActive.value && e.key === 'Escape') {
     e.preventDefault()
     e.stopPropagation()
     cancelNyxusInput()
@@ -347,7 +644,7 @@ function onDialogEditorKeydown(e: KeyboardEvent): void {
     closeDialog()
     return
   }
-  onEditorKeydown(e)
+  onEditorKeydown(e, () => void sendFromComposer())
 }
 
 // ── 斜杠指令菜单定位（Teleport 到 body 后用 fixed 定位；锚定 .msg-input 顶部，向上展开） ──
@@ -400,12 +697,14 @@ if (typeof window !== 'undefined') {
   window.addEventListener('scroll', positionCommandMenu, true)
 }
 onBeforeUnmount(() => {
+  workbenchResizeObserver?.disconnect()
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', positionCommandMenu)
     window.removeEventListener('scroll', positionCommandMenu, true)
   }
   if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
   if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
+  if (foldCloseTimer) clearTimeout(foldCloseTimer)
   window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
 })
 
@@ -443,6 +742,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   <AnimatePresence>
     <MotionDiv
       v-if="dialogVisible"
+      v-show="!agents.workbenchMinimized"
       key="overlay"
       class="dialog-overlay"
       :style="{
@@ -455,24 +755,82 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         '--nx-z-blocking-interaction': NYXUS_WORKBENCH_Z_INDEX.blockingInteraction,
         '--nx-z-chrome': NYXUS_WORKBENCH_Z_INDEX.chrome,
       }"
-      :class="{ 'is-top-mask': isTopMask, 'is-nyxus-layout': isNyxus }"
+      :class="{
+        'is-top-mask': isTopMask && !isWorkbench,
+        'is-nyxus-layout': isWorkbench,
+        'is-windowed-workbench': isWorkbench && workbenchMode === 'window',
+      }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
       :transition="{ duration: 0.16 }"
     >
-      <div v-if="isNyxus" class="nyxus-branch-top">
+      <section
+        v-if="isWorkbench"
+        ref="workbenchShellRef"
+        class="workbench-shell"
+        :class="`is-${workbenchMode}`"
+        :style="workbenchShellStyle"
+        aria-label="节点树工作台"
+      >
+      <div class="nyxus-branch-top">
         <MessageBranchTree
           v-if="treeRootChatId"
+          ref="branchTreeRef"
           :key="treeRootChatId"
           :root-chat-id="treeRootChatId"
-          :folded="treeFolded"
+          :fold-mode="foldMode"
+          :focus-source-chat-id="treeFocusSourceChatId"
+          :focus-interaction-id="treeFocusInteractionId"
+          :full-render-threshold="agents.globalConfig?.global.tree_full_render_threshold"
         />
       </div>
 
+      <header
+        class="workbench-titlebar"
+        :class="{ 'is-draggable': workbenchMode === 'window' }"
+        @pointerdown="workbenchWindow.onTitlePointerDown"
+      >
+        <span class="workbench-title">{{ presetName || pet?.name || '节点树工作台' }}</span>
+        <small>{{ workbenchMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台' }}</small>
+        <div class="workbench-window-actions" role="group" aria-label="窗口控制">
+          <button
+            type="button"
+            class="window-control is-minimize"
+            aria-label="最小化工作台"
+            title="最小化"
+            @click="minimizeWorkbench"
+          >
+            <span class="window-control-icon is-minimize" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="window-control is-maximize"
+            :aria-label="workbenchMode === 'fullscreen' ? '还原窗口' : '最大化窗口'"
+            :title="workbenchMode === 'fullscreen' ? '还原' : '最大化'"
+            @click="workbenchWindow.toggleMode"
+          >
+            <span
+              class="window-control-icon"
+              :class="workbenchMode === 'fullscreen' ? 'is-restore' : 'is-maximize'"
+              aria-hidden="true"
+            />
+          </button>
+          <button
+            type="button"
+            class="window-control is-close"
+            aria-label="关闭节点树工作台"
+            title="关闭"
+            @click="closeDialog"
+          >
+            <span class="window-control-icon is-close" aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+
       <Transition name="nyxus-composer">
         <section
-          v-if="isNyxus && nyxusDraftActive"
+          v-if="nyxusDraftActive"
           id="nyxus-message-composer"
           class="nyxus-composer-dock"
           role="dialog"
@@ -500,6 +858,89 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
               ✕
             </button>
           </header>
+          <div class="role-configs nyxus-role-configs">
+            <div class="session-note">小组角色编制</div>
+            <div
+              v-if="loading"
+              class="role-tags role-tags-skel"
+              aria-busy="true"
+              aria-label="角色编制加载中"
+            >
+              <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
+            </div>
+            <div v-else class="role-tags" aria-label="小组角色编制">
+              <el-popover
+                v-for="[role, selection] in orderedRoleSelections"
+                :key="role"
+                trigger="click"
+                placement="bottom-start"
+                :width="420"
+                popper-class="role-runtime-popper"
+              >
+                <template #reference>
+                  <button
+                    type="button"
+                    class="role-summary-tag"
+                    :class="{ 'is-primary': role === primaryRole }"
+                    :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
+                  >
+                    <span class="role-summary-main">
+                      <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
+                      <span class="role-summary-name">{{ role }}</span>
+                    </span>
+                    <span class="role-summary-meta-row">
+                      <span class="role-summary-model-slot">
+                        <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
+                      </span>
+                      <el-tooltip
+                        v-if="roleUsages[role]"
+                        placement="top"
+                        :show-after="200"
+                        :hide-after="0"
+                      >
+                        <template #content>
+                          <span>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
+                        </template>
+                        <span
+                          class="role-usage-chip"
+                          :class="usageClass(roleUsages[role]!.usage)"
+                          :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
+                          >{{ fmtTokens(roleUsages[role]!.used) }}/{{
+                            fmtTokens(roleUsages[role]!.total)
+                          }}</span
+                        >
+                      </el-tooltip>
+                    </span>
+                    <span
+                      v-if="senseEntries(selection.senseGroup).length"
+                      class="role-summary-senses"
+                      aria-label="当前能力"
+                    >
+                      <span
+                        v-for="entry in senseEntries(selection.senseGroup)"
+                        :key="entry"
+                        class="role-summary-sense-icon"
+                      >
+                        {{ senseTool(entry)?.icon ?? '⚙' }}
+                      </span>
+                    </span>
+                  </button>
+                </template>
+
+                <RoleConfigPopover
+                  :role="role"
+                  :selection="selection"
+                  :brains="brains"
+                  :sense-groups="senseGroups"
+                  :config="config"
+                  :sense-tools="senseTools"
+                  :is-primary="role === primaryRole"
+                  :primary-role="primaryRole"
+                  @update:selection="roleSelections[role] = $event"
+                />
+              </el-popover>
+            </div>
+          </div>
           <AgentComposer
             is-nyxus
             :nyxus-draft-active="nyxusDraftActive"
@@ -545,21 +986,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           </footer>
         </section>
       </Transition>
-      <button
-        v-if="isNyxus"
-        type="button"
-        class="nyxus-page-close"
-        aria-label="关闭 Nyxus 工作台"
-        title="关闭"
-        @click="closeDialog"
-      >
-        ✕
-      </button>
-      <nav
-        v-if="isNyxus"
-        class="nyxus-side-tools"
-        aria-label="Nyxus 功能工具栏"
-      >
+      <nav class="nyxus-side-tools" aria-label="节点树工作台功能工具栏">
         <div class="nyxus-tool-column">
         <div class="nyxus-primary-tools" aria-label="主要操作">
           <button
@@ -601,6 +1028,17 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           </button>
           <button
             type="button"
+            class="nyxus-rail-action attention-rail-action"
+            :class="{ 'is-active': workspaceBrowserMode === 'attention' }"
+            aria-label="待处理交互"
+            title="待处理交互"
+            @click="toggleWorkspaceBrowser('attention')"
+          >
+            <span aria-hidden="true">!</span>
+            <b v-if="workspaceAttentionCount">{{ workspaceAttentionCount }}</b>
+          </button>
+          <button
+            type="button"
             class="nyxus-rail-action"
             :disabled="creating"
             aria-label="新建会话"
@@ -609,7 +1047,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           >
             <span aria-hidden="true">＋</span>
           </button>
-          <div class="nyxus-piano-tool" @pointerenter="showPiano" @focusin="showPiano">
+          <div class="nyxus-piano-tool" @pointerenter="showPiano" @focusin="showPiano" @pointerleave="schedulePianoClose">
             <button
               type="button"
               class="nyxus-rail-action"
@@ -625,17 +1063,38 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         </div>
         <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
           <button
+            v-if="!isNyxus"
             type="button"
             class="nyxus-rail-action"
-            :class="{ 'is-active': treeFolded }"
-            :aria-label="treeFolded ? '展开完整节点树' : '折叠已完成节点'"
-            :title="treeFolded ? '展开完整节点树' : '折叠已完成节点'"
-            :aria-pressed="treeFolded"
-            @click="treeFolded = !treeFolded"
+            aria-label="返回快速发送窗口"
+            title="返回快速发送窗口"
+            @click="dialogView = 'composer'"
           >
-            <span aria-hidden="true">{{ treeFolded ? '▤' : '☷' }}</span>
+            <span aria-hidden="true">↙</span>
           </button>
-          <div class="nyxus-role-tool" @pointerenter="showRoleList" @focusin="showRoleList">
+          <div
+            class="nyxus-fold-tool"
+            :class="{ 'is-open': foldToolOpen }"
+            @pointerenter="showFoldTool"
+            @focusin="showFoldTool"
+            @pointerleave="scheduleFoldToolClose"
+          >
+            <button
+              v-for="mode in (['none', 'partial', 'full'] as FoldMode[])"
+              :key="mode"
+              type="button"
+              class="nyxus-fold-part"
+              :class="{ 'is-selected': foldMode === mode }"
+              :aria-label="FOLD_LABELS[mode]"
+              :title="FOLD_LABELS[mode]"
+              :aria-pressed="foldMode === mode"
+              @click="selectFoldMode(mode)"
+            >
+              <span aria-hidden="true">{{ FOLD_GLYPHS[mode] }}</span>
+            </button>
+            <span class="nyxus-fold-current" aria-hidden="true">{{ FOLD_GLYPHS[foldMode] }}</span>
+          </div>
+          <div class="nyxus-role-tool" @pointerenter="showRoleList" @focusin="showRoleList" @pointerleave="scheduleRoleListClose">
             <button
               type="button"
               class="nyxus-rail-action"
@@ -652,6 +1111,22 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         </div>
         <AnimatePresence>
           <MotionDiv
+            v-if="workspaceBrowserMode"
+            key="workspace-browser-popout"
+            class="nyxus-workspace-browser-popout"
+            :initial="{ opacity: 0, transform: 'translateX(18px) translateY(-50%) scale(0.96)' }"
+            :animate="{ opacity: 1, transform: 'translateX(0) translateY(-50%) scale(1)' }"
+            :exit="{ opacity: 0, transform: 'translateX(14px) translateY(-50%) scale(0.97)' }"
+            :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
+          >
+            <WorkspaceSessionBrowser
+              :sessions="workspaceChats"
+              @tree="openWorkspaceTree"
+            />
+          </MotionDiv>
+        </AnimatePresence>
+        <AnimatePresence>
+          <MotionDiv
             v-if="pianoOpen"
             key="piano-popout"
             class="nyxus-piano-popout"
@@ -663,8 +1138,11 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             @pointerleave="schedulePianoClose()"
           >
             <NyxusPianoStrip
+              :preset-id="quickPresetId"
+              :preset-name="presetName"
+              :active-chat-id="chatId"
               @select="switchSession"
-              @delete="deleteNyxusSession"
+              @delete="isNyxus ? deleteNyxusSession($event) : deletePresetSession($event)"
               @interacting-change="onPianoInteracting"
             />
           </MotionDiv>
@@ -703,6 +1181,17 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           </MotionDiv>
         </AnimatePresence>
       </nav>
+      <template v-if="workbenchMode === 'window'">
+        <span
+          v-for="direction in resizeDirections"
+          :key="direction"
+          class="workbench-resize-handle"
+          :class="`is-${direction}`"
+          :aria-label="`调整窗口大小 ${direction}`"
+          @pointerdown="workbenchWindow.onResizePointerDown(direction, $event)"
+        />
+      </template>
+      </section>
       <!-- 非 Nyxus：发消息弹窗 panel（header + 角色编制 + composer） -->
       <MotionDiv
         v-else
@@ -739,12 +1228,40 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             <span class="hint">Cmd/Ctrl+Enter 发送 · Esc 关闭</span>
           </span>
           <div class="head-actions">
+            <button
+              type="button"
+              class="history-keys-btn"
+              :class="{ 'is-active': dialogView === 'tree' }"
+              aria-label="打开当前会话节点树工作台"
+              title="打开节点树工作台"
+              @click="toggleCurrentTree"
+            >
+              ⑂
+            </button>
+            <button
+              type="button"
+              class="history-keys-btn attention-head-btn"
+              :class="{ 'is-active': dialogView === 'attention' }"
+              aria-label="待处理交互"
+              title="待处理交互"
+              :aria-pressed="dialogView === 'attention'"
+              @click="dialogView = dialogView === 'attention' ? 'composer' : 'attention'"
+            >
+              !<b v-if="workspaceAttentionCount">{{ workspaceAttentionCount }}</b>
+            </button>
             <button type="button" class="close-btn" aria-label="关闭" @click="closeDialog">
               ✕
             </button>
           </div>
         </header>
 
+        <WorkspaceSessionBrowser
+          v-show="dialogView === 'attention'"
+          :sessions="workspaceChats"
+          @tree="openWorkspaceTree"
+        />
+
+        <div v-show="dialogView !== 'attention'" class="dialog-composer-content">
         <div class="role-configs">
           <div class="session-note">小组角色编制</div>
           <div
@@ -833,6 +1350,21 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           </div>
         </div>
 
+        <ConversationTargetPicker
+          v-if="quickTargetRequired && quickPresetId"
+          :preset-id="quickPresetId"
+          :draft="text"
+          :sessions="quickSessions"
+          :selected="quickTarget?.target"
+          :selected-source="quickTarget?.source"
+          :routing-enabled="quickRoutingEnabled"
+          @select="selectQuickTarget"
+          @clear-ai="clearAiQuickTarget"
+          @clear-target="quickTarget = undefined"
+          @enable-auto="enableAiQuickTarget"
+          @routing-change="setQuickRoutingPending"
+        />
+
         <AgentComposer
           :is-nyxus="false"
           :nyxus-draft-active="nyxusDraftActive"
@@ -859,6 +1391,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           :editor-ref-fn="editorRefFn"
           :command-menu-ref-fn="commandMenuRefFn"
           :role-menu-ref-fn="roleMenuRefFn"
+          :target-locked="!quickTargetRequired || (!!quickTarget && !quickRoutingPending)"
           @remove-media="removeMedia"
           @editor-input="onEditorInput"
           @editor-keydown="onDialogEditorKeydown"
@@ -872,9 +1405,37 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           @update:active-command-index="activeCommandIndex = $event"
           @update:active-role-index="activeRoleIndex = $event"
         />
+        </div>
       </MotionDiv>
     </MotionDiv>
   </AnimatePresence>
+  <Teleport to="body">
+    <Transition name="nyxus-min-tab">
+      <div
+        v-if="dialogVisible && isWorkbench && agents.workbenchMinimized"
+        class="workbench-min-tab"
+        role="button"
+        tabindex="0"
+        aria-label="还原节点树工作台"
+        title="还原工作台"
+        :style="{ zIndex: OVERLAY_Z_INDEX.composer }"
+        @click="restoreWorkbench"
+        @keydown.enter="restoreWorkbench"
+        @keydown.space.prevent="restoreWorkbench"
+      >
+        <span class="workbench-min-tab-label">{{ presetName || pet?.name || '节点树工作台' }}</span>
+        <button
+          type="button"
+          class="workbench-min-tab-close"
+          aria-label="关闭节点树工作台"
+          title="关闭"
+          @click.stop="closeDialog"
+        >
+          <span class="workbench-min-tab-close-icon" aria-hidden="true" />
+        </button>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped lang="less">
@@ -888,6 +1449,36 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
+}
+.history-keys-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(36, 38, 45, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #50535b;
+  cursor: pointer;
+}
+.history-keys-btn.is-active {
+  border-color: #7c3aed;
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.1);
+}
+.attention-head-btn {
+  position: relative;
+}
+.attention-head-btn b {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 8px;
+  line-height: 15px;
 }
 .role-summary-meta-row {
   display: inline-flex;
@@ -909,6 +1500,251 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   background: rgba(239, 68, 68, 0.16);
   color: #b91c1c;
 }
+
+.workbench-shell {
+  position: absolute;
+  overflow: hidden;
+  color: #d9e7ea;
+  background: #071018;
+  isolation: isolate;
+  pointer-events: auto;
+}
+.dialog-overlay.is-windowed-workbench {
+  pointer-events: none;
+}
+.workbench-shell.is-fullscreen {
+  inset: 0;
+}
+.workbench-shell.is-window {
+  border: 0;
+  border-radius: 4px;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.4);
+}
+.workbench-titlebar {
+  position: absolute;
+  z-index: var(--nx-z-chrome);
+  inset: 0 0 auto;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 150px 0 14px;
+  color: rgba(222, 241, 244, 0.9);
+  background: linear-gradient(180deg, rgba(13, 31, 41, 0.96), rgba(8, 22, 30, 0.84));
+  border-bottom: 1px solid rgba(138, 211, 228, 0.14);
+  cursor: default;
+  user-select: none;
+}
+.workbench-titlebar.is-draggable {
+  cursor: grab;
+}
+.workbench-titlebar.is-draggable:active {
+  cursor: grabbing;
+}
+.workbench-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 750;
+}
+.workbench-titlebar small {
+  color: rgba(177, 203, 209, 0.56);
+  font-size: 9px;
+}
+.workbench-window-actions {
+  position: absolute;
+  inset: 0 0 auto auto;
+  height: 40px;
+  display: flex;
+  align-items: stretch;
+}
+.window-control {
+  position: relative;
+  width: 46px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: rgba(222, 241, 244, 0.86);
+  background: transparent;
+  cursor: default;
+  transition:
+    color 100ms ease,
+    background-color 100ms ease;
+}
+.window-control:hover,
+.window-control:focus-visible {
+  color: #fff;
+  background: rgba(190, 216, 221, 0.14);
+}
+.window-control.is-close:hover,
+.window-control.is-close:focus-visible {
+  background: #c42b1c;
+}
+.window-control:focus-visible {
+  outline: 1px solid rgba(181, 255, 242, 0.86);
+  outline-offset: -2px;
+}
+.window-control-icon {
+  position: relative;
+  width: 11px;
+  height: 11px;
+}
+.window-control-icon.is-minimize::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  left: 0;
+  border-top: 1px solid currentcolor;
+}
+.window-control-icon.is-maximize {
+  border: 1px solid currentcolor;
+}
+.window-control-icon.is-restore::before,
+.window-control-icon.is-restore::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 1px solid currentcolor;
+}
+.window-control-icon.is-restore::before {
+  top: 0;
+  right: 0;
+}
+.window-control-icon.is-restore::after {
+  bottom: 0;
+  left: 0;
+  background: #0d1f29;
+}
+.window-control-icon.is-close::before,
+.window-control-icon.is-close::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 0;
+  width: 12px;
+  border-top: 1px solid currentcolor;
+}
+.window-control-icon.is-close::before { transform: rotate(45deg); }
+.window-control-icon.is-close::after { transform: rotate(-45deg); }
+.workbench-shell.is-fullscreen .window-control-icon.is-restore::after {
+  background: #071018;
+}
+.workbench-min-tab {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 6px 0 12px;
+  border-radius: 6px;
+  color: rgba(222, 241, 244, 0.9);
+  background: #0d1f29;
+  border: 1px solid rgba(138, 211, 228, 0.22);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  user-select: none;
+}
+.workbench-min-tab:hover {
+  background: #122a36;
+}
+.workbench-min-tab:focus-visible {
+  outline: 1px solid rgba(181, 255, 242, 0.86);
+  outline-offset: 1px;
+}
+.workbench-min-tab-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+}
+.workbench-min-tab-close {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: rgba(222, 241, 244, 0.7);
+  background: transparent;
+  cursor: pointer;
+}
+.workbench-min-tab-close:hover,
+.workbench-min-tab-close:focus-visible {
+  color: #fff;
+  background: #c42b1c;
+}
+.workbench-min-tab-close-icon {
+  position: relative;
+  width: 10px;
+  height: 10px;
+}
+.workbench-min-tab-close-icon::before,
+.workbench-min-tab-close-icon::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 0;
+  width: 10px;
+  border-top: 1px solid currentcolor;
+}
+.workbench-min-tab-close-icon::before { transform: rotate(45deg); }
+.workbench-min-tab-close-icon::after { transform: rotate(-45deg); }
+.nyxus-min-tab-enter-active,
+.nyxus-min-tab-leave-active {
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+.nyxus-min-tab-enter-from,
+.nyxus-min-tab-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.workbench-resize-handle {
+  position: absolute;
+  z-index: calc(var(--nx-z-chrome) + 1);
+}
+.workbench-resize-handle.is-n,
+.workbench-resize-handle.is-s {
+  left: 10px;
+  right: 10px;
+  height: 8px;
+  cursor: ns-resize;
+}
+.workbench-resize-handle.is-n { top: -3px; }
+.workbench-resize-handle.is-s { bottom: -3px; }
+.workbench-resize-handle.is-e,
+.workbench-resize-handle.is-w {
+  top: 10px;
+  bottom: 10px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.workbench-resize-handle.is-e { right: -3px; }
+.workbench-resize-handle.is-w { left: -3px; }
+.workbench-resize-handle.is-ne,
+.workbench-resize-handle.is-se,
+.workbench-resize-handle.is-sw,
+.workbench-resize-handle.is-nw {
+  width: 15px;
+  height: 15px;
+}
+.workbench-resize-handle.is-ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.workbench-resize-handle.is-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
+.workbench-resize-handle.is-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.workbench-resize-handle.is-nw { top: -4px; left: -4px; cursor: nwse-resize; }
 
 .nyxus-page-close {
   position: absolute;
@@ -1010,10 +1846,68 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 }
 .nyxus-tool-group.is-secondary {
   border-top-color: rgba(145, 207, 219, 0.16);
+  /* 折叠按钮变宽时会撑宽本组；右对齐让角色按钮等保持贴 rail 边缘，不随折叠按钮左移。 */
+  align-items: flex-end;
 }
 .nyxus-piano-tool,
-.nyxus-role-tool {
+.nyxus-role-tool,
+.nyxus-fold-tool {
   position: relative;
+}
+/* 折叠三档按钮：复用同一个外边框，hover 时水平变宽，左侧滑出 3 个子按钮，
+   右侧保持当前档 icon。子按钮在流内，随容器一起把 rail 列撑宽，不触发裁剪。 */
+.nyxus-fold-tool {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  width: 30px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(138, 211, 228, 0.14);
+  border-radius: 10px;
+  color: rgba(202, 231, 237, 0.64);
+  background: rgba(5, 18, 27, 0.5);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(9px) saturate(115%);
+  pointer-events: auto;
+  transition: width 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.nyxus-fold-tool.is-open {
+  width: 128px;
+}
+.nyxus-fold-part,
+.nyxus-fold-current {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  line-height: 1;
+}
+.nyxus-fold-part {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity 120ms ease,
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    color 120ms ease;
+}
+.nyxus-fold-tool.is-open .nyxus-fold-part {
+  opacity: 1;
+  transform: translateX(0);
+}
+.nyxus-fold-part:hover,
+.nyxus-fold-part.is-selected {
+  color: #eafffa;
 }
 .nyxus-rail-action:active:not(:disabled) {
   transform: scale(0.97);
@@ -1050,6 +1944,34 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   box-shadow:
     0 18px 34px rgba(0, 0, 0, 0.42),
     inset 0 1px 0 rgba(255, 221, 151, 0.38);
+}
+.attention-rail-action b {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  color: #fff;
+  background: #dc2626;
+  font-size: 8px;
+  line-height: 15px;
+}
+.nyxus-workspace-browser-popout {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  width: min(620px, calc(100vw - 190px));
+  max-height: min(72vh, 680px);
+  overflow: hidden;
+  pointer-events: auto;
+  border: 1px solid rgba(138, 211, 228, 0.24);
+  border-radius: 12px;
+  color: #252932;
+  background: rgba(251, 249, 244, 0.98);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.38);
+  transform-origin: right center;
 }
 .nyxus-piano-popout :deep(.piano-keyboard) {
   position: relative;
@@ -1098,9 +2020,11 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 }
 
 // 节点树不建立独立 stacking context；内部语义层可与 composer/工具栏正确比较。
+// 画布从标题栏（40px）下方开始：fitToView 在「下方可视区」内居中/锚定，
+// 复位/最大化后起始节点不再藏到标题栏下，画布真正用满可视区。
 .nyxus-branch-top {
   position: absolute;
-  inset: 0;
+  inset: 40px 0 0;
   padding: 0;
   display: flex;
   align-items: center;
@@ -1208,6 +2132,11 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   color: rgba(210, 225, 228, 0.78);
   background: rgba(150, 180, 190, 0.06);
   font: inherit;
+}
+// 节点树 composer 内置角色编制：与 composer 主体分隔，顶部留白让浅色 chip 不贴 dock 边缘。
+.nyxus-role-configs {
+  padding: 8px 14px 5px;
+  border-bottom: 1px solid rgba(150, 180, 190, 0.14);
 }
 .nyxus-composer-enter-active,
 .nyxus-composer-leave-active {

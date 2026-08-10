@@ -17,7 +17,10 @@ import {
   type ExecutionNode,
   type VirtualInputNode,
 } from '../graph/executionGraph'
-import { projectFoldExecutionGraph } from '../graph/foldProjection'
+import {
+  projectFoldExecutionGraph,
+  projectFullFoldExecutionGraph,
+} from '../graph/foldProjection'
 import { createIncrementalExecutionLayout } from '../graph/executionLayout'
 import { edgeStyle } from '../graph/edgeStyles'
 import { canPinNodeDetail, hasNodeHoverDetail, skinForNode } from '../graph/nodeSkins'
@@ -47,7 +50,17 @@ import {
   type ExecutionCamera,
 } from '../renderer/executionViewport'
 
-const props = withDefaults(defineProps<{ rootChatId: string; folded?: boolean }>(), { folded: true })
+const props = withDefaults(
+  defineProps<{
+    rootChatId: string
+    foldMode?: 'none' | 'partial' | 'full'
+    focusSourceChatId?: string
+    focusInteractionId?: string
+    /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
+    fullRenderThreshold?: number
+  }>(),
+  { foldMode: 'partial' },
+)
 const chatSessions = useChatSessionsStore()
 const agents = useAgentsStore()
 const viewportRef = ref<HTMLElement | null>(null)
@@ -127,11 +140,11 @@ const liveGraph = computed(() =>
     activeCrtRuns.value,
   ),
 )
-const foldProjection = computed(() =>
-  props.folded
-    ? projectFoldExecutionGraph(liveGraph.value)
-    : { graph: liveGraph.value, ranges: [] },
-)
+const foldProjection = computed(() => {
+  if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
+  if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
+  return projectFoldExecutionGraph(liveGraph.value)
+})
 const graph = computed(() => foldProjection.value.graph)
 const defaultNodePopovers = computed(() =>
   buildDefaultNodePopovers(graph.value.nodes, chatSessions.sessionsById),
@@ -142,11 +155,11 @@ const defaultPopoverById = computed(
 const defaultPopoverAnchorIds = computed(
   () => new Set(defaultNodePopovers.value.map((model) => model.anchorNodeId)),
 )
-const endpointFoldProjection = computed(() =>
-  props.folded
-    ? projectFoldExecutionGraph(liveGraph.value)
-    : { graph: liveGraph.value, ranges: [] },
-)
+const endpointFoldProjection = computed(() => {
+  if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
+  if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
+  return projectFoldExecutionGraph(liveGraph.value)
+})
 const endpointGraph = computed(() => endpointFoldProjection.value.graph)
 const layoutEngine = createIncrementalExecutionLayout()
 const endpointLayoutEngine = createIncrementalExecutionLayout()
@@ -186,6 +199,8 @@ const forcedGpuNodeIds = computed(
     ),
 )
 const executionViewportIndex = computed(() => createExecutionViewportIndex(layout.value))
+/** 全量渲染默认阈值（config 未配置时兜底）：节点数≤此值跳过视口裁剪。 */
+const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 500
 const visibleExecutionItems = computed(() =>
   selectVisibleExecutionItems(
     layout.value,
@@ -193,6 +208,7 @@ const visibleExecutionItems = computed(() =>
     forcedGpuNodeIds.value,
     executionViewportIndex.value,
     VIEWPORT_RETENTION_OVERSCAN,
+    props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT,
   ),
 )
 const visibleExecutionKey = computed(() => visibleItemsKey(visibleExecutionItems.value))
@@ -461,6 +477,23 @@ function isInteractiveNode(node: (typeof layout.value.nodes)[number]): boolean {
   return hasNodeHoverDetail(node) || crtsByAnchor.value.has(node.id)
 }
 
+watch(
+  [layout, () => props.focusSourceChatId, () => props.focusInteractionId],
+  ([currentLayout, sourceChatId, interactionId]) => {
+    if (!sourceChatId && !interactionId) return
+    const node = currentLayout.nodes.find((candidate) => {
+      if (interactionId && toolBatchDetail(candidate)?.calls.some((call) => call.callId === interactionId))
+        return true
+      return !!sourceChatId && candidate.sourceChatId === sourceChatId
+    })
+    if (!node) return
+    canvas.panToPoint(node)
+    if (hasNodeHoverDetail(node)) pinnedDetailNodeId.value = node.id
+    if (interactionId) selectedCallId.value = interactionId
+  },
+  { flush: 'post' },
+)
+
 function cancelDetailHide(): void {
   if (detailHideTimer) clearTimeout(detailHideTimer)
   detailHideTimer = undefined
@@ -586,8 +619,15 @@ async function recoverGraph(): Promise<void> {
   }
 }
 
+// 折叠档位/切根后禁止 `followContentEnd` 立即把相机拖到末尾：fit 应锚定开始节点，
+// 让用户看清新投影的起点。动画结束后恢复自动跟随（流式新增节点仍可贴底）。
+let suppressAutoFollow = false
 function resetLayout(): void {
+  suppressAutoFollow = true
   canvas.fitToView({ animate: true, duration: 300 })
+  window.setTimeout(() => {
+    suppressAutoFollow = false
+  }, 360)
 }
 
 function isPaused(node: (typeof layout.value.nodes)[number]): boolean {
@@ -757,7 +797,7 @@ watch(
       members: range.members,
     })),
   (ranges) => {
-    if (!props.folded) return
+    if (props.foldMode === 'none') return
     const selected = new Map(selectedFoldMembers.value)
     const unread = new Map(unreadFoldMembers.value)
     const nextCounts = new Map<string, number>()
@@ -808,12 +848,20 @@ watch(
   { immediate: true },
 )
 watch(
-  () => props.folded,
-  () => closeNodeDetail(),
+  () => props.foldMode,
+  () => {
+    closeNodeDetail()
+    // 折叠档位改变会整体重排投影图（节点增删），旧相机位置/缩放已不再对应新图。
+    // 与切根一致：清空增量布局缓存并重新 fit 到新投影，否则开始/末尾节点定位不到视口内。
+    layoutEngine.reset()
+    endpointLayoutEngine.reset()
+    void nextTick(resetLayout)
+  },
 )
 watch(
   () => endpointLayout.value.height,
   () => {
+    if (suppressAutoFollow) return
     void nextTick(() => canvas.followContentEnd(endpointLayout.value.height))
   },
 )
@@ -901,10 +949,12 @@ async function mountGpuRenderer(): Promise<void> {
 
 onMounted(() => {
   viewportRO = new ResizeObserver(() => {
-    viewportSize.value = {
-      width: viewportRef.value?.clientWidth ?? 0,
-      height: viewportRef.value?.clientHeight ?? 0,
-    }
+    const width = viewportRef.value?.clientWidth ?? 0
+    const height = viewportRef.value?.clientHeight ?? 0
+    viewportSize.value = { width, height }
+    // 与画布相机同步：resizeTo 对工作台瞬时全屏切换可能漏触发，导致 GPU 位图停留在旧高度、
+    // 图底部被裁剪。这里显式重设渲染器尺寸，与 SVG 视口保持一致。
+    gpuRenderer?.resize(width, height)
     canvas.fitToView()
   })
   if (viewportRef.value) viewportRO.observe(viewportRef.value)
@@ -974,6 +1024,7 @@ defineExpose({ resetLayout })
             class="tree-float-action"
             aria-label="复位视图"
             title="复位视图"
+            @pointerdown.stop
             @click.stop="resetLayout"
           >
             ↻ 复位视图
@@ -982,6 +1033,7 @@ defineExpose({ resetLayout })
             v-if="canvas.userPanned.value && hasNewTail"
             type="button"
             class="tree-return-tail"
+            @pointerdown.stop
             @click.stop="returnToBottom"
           >
             回到最新
@@ -1278,7 +1330,8 @@ defineExpose({ resetLayout })
 }
 .graph-diagnostic {
   position: absolute;
-  top: 12px;
+  /* 避开工作台标题栏（40px）遮挡：横幅下移到其下方 */
+  top: 48px;
   left: 50%;
   z-index: var(--nx-z-blocking-interaction);
   display: flex;

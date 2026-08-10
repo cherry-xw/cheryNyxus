@@ -161,18 +161,19 @@ function colorNumber(color: string): number {
 async function initializeApplication(
   host: HTMLElement,
 ): Promise<{ app: Application; backend: 'webgpu' | 'webgl' }> {
-  const options = {
+  const baseOptions = {
     resizeTo: host,
     backgroundAlpha: 0,
     antialias: true,
     autoDensity: true,
     resolution: Math.min(window.devicePixelRatio || 1, 2),
-    powerPreference: 'high-performance' as const,
   }
   if ('gpu' in navigator) {
     const app = new Application()
     try {
-      await app.init({ ...options, preference: 'webgpu' })
+      // 不给 WebGPU requestAdapter 传 powerPreference：Windows 上该选项被忽略（crbug 369219127）
+      // 且每次初始化刷警告，去掉无行为变化。
+      await app.init({ ...baseOptions, preference: 'webgpu' })
       return { app, backend: 'webgpu' }
     } catch {
       // A partially initialized WebGPU application may not have a renderer to
@@ -180,7 +181,7 @@ async function initializeApplication(
     }
   }
   const app = new Application()
-  await app.init({ ...options, preference: 'webgl' })
+  await app.init({ ...baseOptions, preference: 'webgl', powerPreference: 'high-performance' })
   return { app, backend: 'webgl' }
 }
 
@@ -238,6 +239,16 @@ export class ExecutionGraphPixiRenderer {
     this.world.position.set(camera.x, camera.y)
     this.world.scale.set(camera.scale)
     this.refreshMotionItems()
+  }
+
+  /**
+   * 显式重设渲染器尺寸（CSS 像素）。resizeTo 依赖 Pixi 内部 ResizeObserver，
+   * 工作台最大化/窗口切换属瞬时尺寸变化，该观察者可能漏触发，导致画布位图停留在旧高度、
+   * 图底部被裁剪。视口尺寸变化时由宿主显式调用，消除对 resizeTo 时序的依赖。
+   */
+  resize(width: number, height: number): void {
+    if (!this.app || width <= 0 || height <= 0) return
+    this.app.renderer.resize(width, height)
   }
 
   setScene(scene: PixiExecutionScene): void {

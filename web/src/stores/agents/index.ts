@@ -5,6 +5,7 @@ import {
   type ChatSummary,
   type ChatSendAttachment,
   type CommandConfigDataDto,
+  type ConfigDto,
   type ContextBreakdown,
   type CurrentStateData,
   type RuntimeSelection,
@@ -69,6 +70,8 @@ export const useAgentsStore = defineStore('agents', () => {
   // initFromChats 载入；供 RunningTools icon 查询 + 能力判定（pet senseGroups 含某工具，如 update_todo）。
   const senseTools = ref<SenseToolInfo[]>([])
   const senseGroupsResolved = ref<{ name: string; senses: string[] }[]>([])
+  // 全局配置快照（initFromChats 时拉取；节点树全量渲染阈值等重启生效字段用）
+  const globalConfig = ref<ConfigDto | null>(null)
 
   // requestId → chatId 映射（流式 RPC 调用前由 trackRequest 注册，chunk/notification 路由用）
   const requestMap = new Map<string, string>()
@@ -85,7 +88,37 @@ export const useAgentsStore = defineStore('agents', () => {
   /** 读 chat 当前 runtime（首次 = createMasterPet 时的 default）。AgentDialog 初始化复选框用。
    * runtime 挂 pet（pet.runtime）；hide 移除 pet / 刷新 initFromChats 不恢复 → undefined，AgentDialog 退 default 预选。 */
   function getRuntime(chatId: string): RuntimeSelection | undefined {
-    return pets.value.find((p) => p.chatId === chatId)?.runtime
+    return petForChat(chatId)?.runtime
+  }
+
+  function presetKey(presetId?: string, presetName?: string): string | undefined {
+    return presetId ? `id:${presetId}` : presetName ? `name:${presetName}` : undefined
+  }
+
+  function summaryForChat(chatId: string): ChatSummary | undefined {
+    return historyList.value.find((chat) => chat.chatId === chatId) ??
+      allChatsCache.value.find((chat) => chat.chatId === chatId)
+  }
+
+  /** Resolve the stable workspace Pet for any root in that preset. Child pets still win exact lookup. */
+  function petForChat(chatId: string): PetInstance | undefined {
+    const exact = pets.value.find((pet) => pet.chatId === chatId)
+    if (exact && !exact.isMaster) return exact
+    const summary = summaryForChat(chatId)
+    const key = presetKey(summary?.presetId, summary?.preset)
+    if (key) {
+      const workspacePet = pets.value.find(
+        (pet) => pet.isMaster && presetKey(pet.presetId, pet.preset) === key,
+      )
+      if (workspacePet) return workspacePet
+    }
+    return exact
+  }
+
+  function activeRootForPet(pet: PetInstance): string {
+    if (!pet.isMaster) return pet.chatId
+    const key = presetKey(pet.presetId, pet.preset)
+    return (key ? ui.activeRootByPreset.value[key] : undefined) ?? pet.chatId
   }
 
   /**
@@ -122,11 +155,9 @@ export const useAgentsStore = defineStore('agents', () => {
 
   /** 按 chatId 设置工作态（chatSessions.onWorkingChange effect 注入用）。 */
   function setWorkingForChat(chatId: string, working: boolean, freezeUntil?: number): void {
-    setWorking(
-      pets.value.find((p) => p.chatId === chatId),
-      working,
-      freezeUntil,
-    )
+    const pet = petForChat(chatId)
+    if (pet?.isMaster && activeRootForPet(pet) !== chatId) return
+    setWorking(pet, working, freezeUntil)
   }
 
   /**
@@ -258,7 +289,7 @@ export const useAgentsStore = defineStore('agents', () => {
     runtime?: RuntimeSelection,
   ): Promise<void> {
     if (runtime) {
-      const pet = pets.value.find((p) => p.chatId === chatId)
+      const pet = petForChat(chatId)
       const cur = pet?.runtime
       if (!cur || !sameRuntime(cur, runtime)) {
         await agentApi.setRuntime(chatId, runtime)
@@ -273,7 +304,7 @@ export const useAgentsStore = defineStore('agents', () => {
     }
     const { requestId, done } = agentApi.sendMessage(chatId, text, attachments)
     _trackRequest(requestMap, requestId, chatId)
-    const pet = pets.value.find((p) => p.chatId === chatId)
+    const pet = petForChat(chatId)
     setWorking(pet, true)
     const stream = _ensureStream(streams, chatId)
     // 新一轮发送：重置实时累积。当前 pending 审批不丢失 → 移到 queue 保留（用户可从 PetIcons 重新唤起）。
@@ -345,7 +376,7 @@ export const useAgentsStore = defineStore('agents', () => {
   async function resumeAgent(chatId: string): Promise<void> {
     const { requestId, done } = agentApi.resumeChat(chatId)
     _trackRequest(requestMap, requestId, chatId)
-    const pet = pets.value.find((p) => p.chatId === chatId)
+    const pet = petForChat(chatId)
     setWorking(pet, true)
     const stream = _ensureStream(streams, chatId)
     stream.thinking = ''
@@ -477,12 +508,34 @@ export const useAgentsStore = defineStore('agents', () => {
     return !!senses?.includes(senseName)
   }
 
+  function activatePresetSession(
+    presetId: string | undefined,
+    chatId: string,
+    presetName?: string,
+  ): void {
+    const summary = summaryForChat(chatId)
+    const key = presetKey(presetId ?? summary?.presetId, presetName ?? summary?.preset)
+    if (!key) return
+    ui.activeRootByPreset.value[key] = chatId
+    const pet = pets.value.find(
+      (candidate) => candidate.isMaster && presetKey(candidate.presetId, candidate.preset) === key,
+    )
+    if (pet) setWorking(pet, streams.value[chatId]?.isWorking === true || summary?.running === true)
+  }
+
   /** 连接成功后拉 chat.list → 重建 pet 树。幂等（initialized 守卫），失败可重试。 */
   async function initFromChats(): Promise<void> {
     if (initialized) return
     // listChats 失败 → initialized 不置位，下次 status=connected 时可重试
-    const chats = await agentApi.listChats()
+    const [chats, configSnapshot] = await Promise.all([
+      agentApi.listChats(),
+      agentApi.getConfig().catch((cause) => {
+        console.warn('[agents] 读取预设目录失败，暂保留历史 Pet 投影:', cause)
+        return undefined
+      }),
+    ])
     initialized = true
+    globalConfig.value = configSnapshot ?? null
 
     // 载入工具元信息 + 组解析（icon 查询 + 能力判定用）；失败不阻塞（容错降级）
     loadSenseMeta().catch((e) => console.warn('[agents] loadSenseMeta 失败:', e))
@@ -497,14 +550,37 @@ export const useAgentsStore = defineStore('agents', () => {
 
     const bounds = defaultBounds()
     const usedFaces = new Set<Record<PetMood, string>>()
-    const mains = chats.filter((c) => !c.parentChatId && c.preset !== CHERY_NYXUS_PRESET)
+    const activePresetIds = configSnapshot
+      ? new Set(Object.values(configSnapshot.presets ?? {}).map((preset) => preset.id).filter(Boolean))
+      : undefined
+    const activePresetNames = configSnapshot
+      ? new Set(Object.keys(configSnapshot.presets ?? {}))
+      : undefined
+    const mains = chats.filter(
+      (c) =>
+        !c.parentChatId &&
+        c.preset !== CHERY_NYXUS_PRESET &&
+        (!activePresetIds ||
+          (c.presetId ? activePresetIds.has(c.presetId) : !!c.preset && activePresetNames!.has(c.preset))),
+    )
 
     // CP8：stage 默认显最近 5 个会话。sessionRecency = max(master.updatedAt, 其子 updatedAt)
     //   （子 agent done 会回传/注入主 chat → 主 updatedAt 被刷新，但子运行中窗口期取 max 更准）
-    const topMasters = mains
-      .map((m) => {
-        const children = chats.filter((c) => c.parentChatId === m.chatId)
-        const recency = Math.max(m.updatedAt ?? 0, ...children.map((c) => c.updatedAt ?? 0))
+    const grouped = new Map<string, ChatSummary[]>()
+    for (const main of mains) {
+      const key = main.presetId ?? (main.preset ? `legacy:${main.preset}` : `chat:${main.chatId}`)
+      const group = grouped.get(key)
+      if (group) group.push(main)
+      else grouped.set(key, [main])
+    }
+    const topMasters = [...grouped.values()]
+      .map((roots) => {
+        const m = [...roots].sort(
+          (a, b) =>
+            (b.lastUserActivityAt ?? b.createdAt ?? 0) -
+            (a.lastUserActivityAt ?? a.createdAt ?? 0),
+        )[0]!
+        const recency = Math.max(...roots.map((root) => root.lastUserActivityAt ?? root.updatedAt ?? 0))
         return { m, recency }
       })
       .sort((a, b) => b.recency - a.recency)
@@ -831,7 +907,7 @@ export const useAgentsStore = defineStore('agents', () => {
   async function abort(chatId: string): Promise<void> {
     const stream = streams.value[chatId]
     await agentApi.abortAgent(chatId, stream?.activeRunId)
-    const pet = pets.value.find((p) => p.chatId === chatId)
+    const pet = petForChat(chatId)
     setWorking(pet, false)
     if (stream) {
       stream.isWorking = false
@@ -865,7 +941,7 @@ export const useAgentsStore = defineStore('agents', () => {
     selection: SessionRuntimeSelection,
   ): Promise<{ applied: string[]; deferredRunning: string[] }> {
     const result = await agentApi.setSessionRuntime(chatId, selection)
-    const pet = pets.value.find((p) => p.chatId === chatId)
+    const pet = petForChat(chatId)
     if (pet)
       pet.runtime = { ...selection.primary, mcpServers: [...(selection.primary.mcpServers ?? [])] }
     return result
@@ -873,7 +949,9 @@ export const useAgentsStore = defineStore('agents', () => {
 
   /** 拉取全量会话列表（includePreview=true）缓存到 historyList。CP8：会话列表打开时调。 */
   async function fetchHistoryList(): Promise<void> {
-    historyList.value = await agentApi.listChats(true)
+    const chats = await agentApi.listChats(true)
+    historyList.value = chats
+    allChatsCache.value = chats
   }
 
   /**
@@ -1082,6 +1160,7 @@ export const useAgentsStore = defineStore('agents', () => {
     historyList,
     senseTools,
     senseGroupsResolved,
+    globalConfig,
     loadSenseMeta,
     iconForTool,
     senseGroupsHasSense,
@@ -1100,6 +1179,9 @@ export const useAgentsStore = defineStore('agents', () => {
     getRuntime,
     setSessionRuntime,
     setWorkingForChat,
+    activatePresetSession,
+    activeRootForPet,
+    petForChat,
     reconcilePetsFromSessions,
     removePetsOnly,
     ...router,
