@@ -105,9 +105,13 @@ function applyCustom(): void {
   gap: 4px;
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 35%, transparent);
   border-radius: 14px;
-  background: linear-gradient(145deg, #fffdf8, #f2eadc);
+  background: linear-gradient(
+    145deg,
+    var(--surface-hover),
+    color-mix(in srgb, var(--surface-hover) 90%, var(--panel))
+  );
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(36, 38, 45, 0.09);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ink) 9%, transparent);
 }
 .avatar-picker-trigger:disabled {
   cursor: not-allowed;
@@ -122,7 +126,7 @@ function applyCustom(): void {
 }
 .avatar-picker-trigger small {
   font-size: 9px;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .avatar-picker {
   display: flex;
@@ -132,7 +136,7 @@ function applyCustom(): void {
 .avatar-group-title {
   font-size: 10px;
   font-weight: 800;
-  color: fade(@ink, 54%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 .avatar-grid {
   display: grid;
@@ -141,9 +145,9 @@ function applyCustom(): void {
 }
 .avatar-grid button {
   height: 30px;
-  border: 1px solid rgba(36, 38, 45, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   border-radius: 7px;
-  background: #fff;
+  background: var(--surface);
   font-size: 18px;
   cursor: pointer;
 }

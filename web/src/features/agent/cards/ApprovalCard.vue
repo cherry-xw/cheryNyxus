@@ -124,7 +124,7 @@ function closeToQueue(): void {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .approval-card {
   display: flex;
@@ -144,12 +144,12 @@ function closeToQueue(): void {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #ea580c;
+    background: #dcfce7;
     box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.18);
   }
 
   .sense-name {
-    color: #23242a;
+    color: color-mix(in srgb, #dc2626 80%, var(--ink));
     font-size: 11px;
     font-weight: 800;
     line-height: 1.2;
@@ -161,7 +161,7 @@ function closeToQueue(): void {
     padding: 1px 5px;
     border-radius: 4px;
     background: rgba(234, 88, 12, 0.12);
-    color: #c2410c;
+    color: color-mix(in srgb, #16a34a 80%, var(--ink));
     font-size: 9px;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
@@ -169,7 +169,7 @@ function closeToQueue(): void {
 
     &.expired {
       background: rgba(239, 68, 68, 0.14);
-      color: #b91c1c;
+      color: color-mix(in srgb, #dc2626 80%, var(--ink));
     }
   }
 
@@ -178,10 +178,10 @@ function closeToQueue(): void {
     width: 16px;
     height: 16px;
     padding: 0;
-    border: 1px solid rgba(36, 38, 45, 0.16);
+    border: 1px solid var(--border);
     border-radius: 4px;
-    background: rgba(255, 255, 255, 0.7);
-    color: fade(@ink, 56%);
+    background: var(--surface-soft);
+    color: color-mix(in srgb, var(--ink) 56%, transparent);
     font-size: 9px;
     font-weight: 700;
     line-height: 1;
@@ -191,8 +191,8 @@ function closeToQueue(): void {
       color 100ms ease;
 
     &:hover:not(:disabled) {
-      background: #fff;
-      color: fade(@ink, 86%);
+      background: #fee2e2;
+      color: color-mix(in srgb, var(--ink) 86%, transparent);
     }
 
     &:disabled {
@@ -210,8 +210,7 @@ function closeToQueue(): void {
 
 .submit-error {
   margin: 1px 0 0;
-  color: #b91c1c;
-  font-size: 9px;
+  color: color-mix(in srgb, #dc2626 80%, var(--ink));
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -236,7 +235,7 @@ function closeToQueue(): void {
   &.accept {
     border-color: #16a34a;
     background: #dcfce7;
-    color: #166534;
+    color: #14532d;
 
     &:hover:not(:disabled) {
       background: #bbf7d0;

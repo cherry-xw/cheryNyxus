@@ -88,7 +88,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .question-renderer {
   display: flex;
@@ -117,7 +117,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   }
 
   .q-header {
-    color: fade(@ink, 80%);
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
     font-size: 10px;
     font-weight: 800;
     line-height: 1.2;
@@ -129,8 +129,8 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
     padding: 1px 5px;
     border: 1px solid rgba(124, 58, 237, 0.2);
     border-radius: 4px;
+    color: var(--ink);
     color: #6d28d9;
-    background: rgba(124, 58, 237, 0.08);
     font-size: 9px;
     font-weight: 800;
   }
@@ -150,20 +150,21 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 
     &.badge-answered {
       background: rgba(124, 58, 237, 0.14);
-      color: #5b21b6;
+      color: var(--ink);
     }
+      color: #5b21b6;
     &.badge-cancelled {
-      background: rgba(107, 114, 128, 0.14);
-      color: #4b5563;
+      background: color-mix(in srgb, var(--info) 14%, transparent);
+      color: var(--info);
     }
     &.badge-running {
-      background: rgba(234, 179, 8, 0.16);
-      color: #a16207;
+      background: color-mix(in srgb, var(--warning) 16%, transparent);
+      color: var(--warning);
       animation: q-pulse 1.1s ease-in-out infinite;
     }
     &.badge-missing {
-      background: rgba(239, 68, 68, 0.12);
-      color: #b91c1c;
+      background: color-mix(in srgb, var(--danger) 12%, transparent);
+      color: var(--danger);
     }
   }
 }
@@ -172,7 +173,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   font-size: 11px;
   font-weight: 600;
   line-height: 1.35;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -188,18 +189,19 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   align-items: start;
   gap: 6px;
   padding: 6px 7px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.82);
-  color: fade(@ink, 78%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
   font-size: 10.5px;
   line-height: 1.3;
 
   &.selected {
     background: rgba(124, 58, 237, 0.14);
     border-color: rgba(124, 58, 237, 0.55);
-    color: #5b21b6;
+    color: var(--ink);
   }
+    color: #5b21b6;
 }
 
 .q-control {
@@ -210,8 +212,8 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   margin-top: 1px;
   border: 1px solid rgba(124, 58, 237, 0.5);
   border-radius: 50%;
+  color: var(--ink);
   color: #6d28d9;
-  font-size: 9px;
   font-weight: 900;
 
   &.is-multi {
@@ -230,7 +232,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   }
 
   small {
-    color: fade(@ink, 58%);
+    color: color-mix(in srgb, var(--ink) 58%, transparent);
     font-size: 9.5px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -245,14 +247,14 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   small {
     display: block;
     margin-bottom: 3px;
+    color: var(--ink);
     color: #6d28d9;
-    font-size: 9px;
     font-weight: 800;
   }
 
   p {
     margin: 0;
-    color: fade(@ink, 82%);
+    color: color-mix(in srgb, var(--ink) 82%, transparent);
     font-size: 10.5px;
     line-height: 1.4;
     white-space: pre-wrap;
@@ -264,12 +266,12 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: fade(@ink, 66%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 
 @keyframes q-pulse {

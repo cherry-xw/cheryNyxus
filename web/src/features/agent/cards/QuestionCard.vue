@@ -266,7 +266,7 @@ function back(): void {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .question-card {
   display: flex;
@@ -275,14 +275,14 @@ function back(): void {
   min-width: 260px;
   max-width: 360px;
   padding: 16px;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 16px;
   color: @ink;
-  background: rgba(255, 253, 248, 0.98);
+  background: var(--surface-hover);
   box-shadow: 0 18px 46px rgba(20, 22, 26, 0.2);
 }
 .submit-error {
-  color: #dc2626;
+  color: color-mix(in srgb, #dc2626 80%, var(--ink));
   font-size: 11px;
   font-weight: 700;
 }
@@ -298,7 +298,7 @@ function back(): void {
   width: 28px;
   height: 28px;
   border-radius: 9px;
-  color: #fff;
+  color: var(--ink);
   background: linear-gradient(145deg, #7c3aed, #4f46e5);
   box-shadow: 0 6px 16px rgba(91, 33, 182, 0.28);
   font-size: 15px;
@@ -312,7 +312,7 @@ function back(): void {
   gap: 4px;
 }
 .heading-kicker {
-  color: rgba(55, 48, 107, 0.68);
+  color: color-mix(in srgb, #6d28d9 78%, var(--ink));
   font-size: 9px;
   font-weight: 850;
   letter-spacing: 0.1em;
@@ -322,8 +322,7 @@ function back(): void {
   flex: 0 0 auto;
   padding: 3px 7px;
   border-radius: 999px;
-  color: #5b21b6;
-  background: rgba(124, 58, 237, 0.1);
+  color: color-mix(in srgb, #5b21b6 80%, var(--ink));
   font-size: 9px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
@@ -351,9 +350,9 @@ function back(): void {
   gap: 10px;
   min-height: 44px;
   padding: 9px 11px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-soft);
   color: @ink;
   text-align: left;
   cursor: pointer;
@@ -366,7 +365,7 @@ function back(): void {
   &:hover:not(:disabled) {
     transform: translateY(-1px);
     border-color: rgba(124, 58, 237, 0.44);
-    background: #fff;
+    background: var(--surface-hover);
     box-shadow: 0 5px 14px rgba(42, 33, 86, 0.09);
   }
 
@@ -394,17 +393,17 @@ function back(): void {
   place-items: center;
   width: 18px;
   height: 18px;
-  border: 1.5px solid rgba(36, 38, 45, 0.28);
+  border: 1.5px solid color-mix(in srgb, var(--ink) 28%, transparent);
   border-radius: 50%;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.7);
+  color: var(--ink);
+  background: var(--surface-soft);
   font-size: 11px;
   font-weight: 900;
 }
 .option-card.selected .choice-mark {
+  border-color: var(--ink);
   border-color: #6d28d9;
   background: #6d28d9;
-  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
 }
 .option-copy {
   min-width: 0;
@@ -418,7 +417,7 @@ function back(): void {
   line-height: 1.25;
 }
 .option-description {
-  color: rgba(20, 22, 26, 0.58);
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
   font-size: 9px;
   font-weight: 550;
   line-height: 1.35;
@@ -475,17 +474,17 @@ function back(): void {
   }
   &.primary {
     min-width: 76px;
-    color: #fff;
+    color: var(--ink);
     background: linear-gradient(135deg, #7c3aed, #4f46e5);
     box-shadow: 0 6px 15px rgba(91, 33, 182, 0.24);
   }
   &.secondary {
-    border-color: rgba(36, 38, 45, 0.14);
-    color: rgba(20, 22, 26, 0.72);
-    background: rgba(255, 255, 255, 0.76);
+    border-color: var(--border);
+    color: color-mix(in srgb, var(--ink) 72%, transparent);
+    background: var(--surface-soft);
   }
   &.ghost {
-    color: rgba(20, 22, 26, 0.55);
+    color: color-mix(in srgb, var(--ink) 55%, transparent);
     background: transparent;
   }
 }

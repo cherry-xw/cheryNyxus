@@ -67,7 +67,7 @@ function isDrafted(question: QuestionItemState): boolean {
   width: 16px;
   height: 16px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 5px;
   background: rgba(255, 196, 87, 0.4);
   font-family: @glyph-fonts;

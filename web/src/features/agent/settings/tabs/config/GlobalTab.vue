@@ -209,10 +209,10 @@ const { ready, isActive, activeAnchor, cardNumber, raise } = scatter
   height: 20px;
   padding: 0 5px;
   box-sizing: border-box;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #595e66;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   font:
     800 11px/20px ui-monospace,
     SFMono-Regular,
@@ -229,12 +229,12 @@ const { ready, isActive, activeAnchor, cardNumber, raise } = scatter
 .global-card-no:hover {
   transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--tab-color, #06b6d4) 50%, transparent);
-  color: #2a2a2a;
+  color: color-mix(in srgb, var(--ink) 85%, transparent);
 }
 .global-card-no.active {
-  background: color-mix(in srgb, var(--tab-color, #06b6d4) 22%, white);
+  background: color-mix(in srgb, var(--tab-color, #06b6d4) 22%, var(--surface));
   border-color: color-mix(in srgb, var(--tab-color, #06b6d4) 60%, transparent);
-  color: #1f2937;
+  color: color-mix(in srgb, var(--accent-ink) 85%, transparent);
   box-shadow: 0 2px 8px color-mix(in srgb, var(--tab-color, #06b6d4) 30%, transparent);
 }
 </style>

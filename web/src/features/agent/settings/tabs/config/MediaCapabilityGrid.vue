@@ -88,7 +88,7 @@ const emit = defineEmits<{
   gap: 14px;
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(36, 38, 45, 0.09);
+  border-top: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
 }
 
 .cap-group {
@@ -105,12 +105,12 @@ const emit = defineEmits<{
   padding-right: 2px;
 
   strong {
-    color: rgba(20, 22, 26, 0.72);
+    color: color-mix(in srgb, var(--ink) 82%, transparent);
     font-size: 11px;
     line-height: 1.1;
   }
   small {
-    color: rgba(20, 22, 26, 0.4);
+    color: color-mix(in srgb, var(--ink) 62%, transparent);
     font-size: 9px;
     line-height: 1.1;
   }
@@ -120,9 +120,9 @@ const emit = defineEmits<{
   position: relative;
   width: 24px;
   height: 24px;
-  border: 1px solid rgba(36, 38, 45, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--surface-soft);
   cursor: pointer;
   perspective: 220px;
   transform-style: preserve-3d;
@@ -132,8 +132,8 @@ const emit = defineEmits<{
     box-shadow 0.18s ease;
 
   &:hover:not(:disabled) {
-    border-color: rgba(190, 132, 28, 0.3);
-    background: rgba(246, 183, 60, 0.08);
+    border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
 
   &:active:not(:disabled) {
@@ -141,7 +141,7 @@ const emit = defineEmits<{
   }
 
   &:focus-visible {
-    outline: 2px solid rgba(246, 183, 60, 0.65);
+    outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
     outline-offset: 1px;
   }
 
@@ -151,8 +151,12 @@ const emit = defineEmits<{
   }
 
   &.active {
-    border-color: rgba(190, 132, 28, 0.34);
-    background: linear-gradient(145deg, rgba(255, 247, 222, 0.94), rgba(246, 183, 60, 0.16));
+    border-color: color-mix(in srgb, var(--warning) 34%, transparent);
+    background: linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--accent) 12%, var(--surface)),
+      color-mix(in srgb, var(--accent) 16%, transparent)
+    );
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45);
   }
 }
@@ -172,7 +176,7 @@ const emit = defineEmits<{
 
 .cap-front {
   transform: rotateY(0deg);
-  color: rgba(20, 22, 26, 0.52);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
 }
 
 .cap-back {

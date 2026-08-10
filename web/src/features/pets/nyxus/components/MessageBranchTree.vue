@@ -7,7 +7,8 @@
  * and visual skin. Later checkpoints add termination controls and CRT anchoring.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore, useThemeStore } from '@/stores'
+import { useThemeTokens } from '@/composables/useThemeTokens'
 import { effectiveRootLiveState } from '@/stores/chats/rootTimeline'
 import {
   projectActiveTurnNodes,
@@ -23,7 +24,7 @@ import {
 } from '../graph/foldProjection'
 import { createIncrementalExecutionLayout } from '../graph/executionLayout'
 import { edgeStyle } from '../graph/edgeStyles'
-import { canPinNodeDetail, hasNodeHoverDetail, skinForNode } from '../graph/nodeSkins'
+import { accentForTheme, canPinNodeDetail, hasNodeHoverDetail, skinForNode } from '../graph/nodeSkins'
 import {
   anchoredPopoverPosition,
   oppositePopoverPlacement,
@@ -63,6 +64,8 @@ const props = withDefaults(
 )
 const chatSessions = useChatSessionsStore()
 const agents = useAgentsStore()
+const themeStore = useThemeStore()
+const { canvasPalette } = useThemeTokens()
 const viewportRef = ref<HTMLElement | null>(null)
 const pixiMountRef = ref<HTMLElement | null>(null)
 const hoveredDetailNodeId = ref<string>()
@@ -706,7 +709,7 @@ const pixiScene = computed<PixiExecutionScene>(() => ({
       id: node.id,
       x: node.x,
       y: node.y,
-      accent: skin.accent,
+      accent: accentForTheme(themeStore.theme, skin.key),
       glyph: skin.glyph,
       title: nodeTitle(node),
       ...(node.sourceFact?.termination
@@ -888,6 +891,7 @@ function gpuSceneSignature(scene: PixiExecutionScene): string {
     ...scene.nodes.map((node) =>
       [
         node.id,
+        node.accent,
         node.title,
         node.termination ?? '',
         node.foldCount ?? '',
@@ -921,6 +925,8 @@ watch(
   { deep: true, flush: 'sync' },
 )
 watch(pixiScene, (scene) => syncGpuScene(scene))
+// 主题切换：更新画布调色板并重画静态层（accent 随 pixiScene 重算）。
+watch(canvasPalette, (palette) => gpuRenderer?.setPalette(palette))
 
 async function mountGpuRenderer(): Promise<void> {
   const host = pixiMountRef.value
@@ -929,6 +935,7 @@ async function mountGpuRenderer(): Promise<void> {
   const renderer = new ExecutionGraphPixiRenderer()
   gpuRenderer = renderer
   renderer.setScene(pixiScene.value)
+  renderer.setPalette(canvasPalette.value)
   try {
     await renderer.mount(host)
   } catch (error) {
@@ -1226,7 +1233,7 @@ defineExpose({ resetLayout })
   will-change: translate;
 }
 .gpu-node-hit-target:focus-visible {
-  outline: 2px solid #b5fff2;
+  outline: 2px solid var(--nx-green);
   outline-offset: 2px;
 }
 .tree-float-actions {
@@ -1242,10 +1249,10 @@ defineExpose({ resetLayout })
 }
 .tree-float-action {
   padding: 6px 12px;
-  border: 1px solid rgba(138, 211, 228, 0.5);
+  border: 1px solid color-mix(in srgb, var(--nx-cyan) 50%, transparent);
   border-radius: 8px;
-  background: rgba(9, 32, 44, 0.92);
-  color: #bfe9f5;
+  background: var(--nx-bg);
+  color: var(--nx-text);
   font:
     600 11px/1 ui-monospace,
     SFMono-Regular,
@@ -1263,10 +1270,10 @@ defineExpose({ resetLayout })
 }
 .tree-return-tail {
   padding: 6px 12px;
-  border: 1px solid rgba(246, 183, 60, 0.7);
+  border: 1px solid color-mix(in srgb, var(--nx-yellow) 70%, transparent);
   border-radius: 8px;
-  background: rgba(66, 36, 15, 0.95);
-  color: #f6b73c;
+  background: var(--nx-bg);
+  color: var(--nx-yellow);
   font:
     600 11px/1 ui-monospace,
     SFMono-Regular,
@@ -1288,12 +1295,12 @@ defineExpose({ resetLayout })
   100% {
     box-shadow:
       0 4px 12px rgba(0, 0, 0, 0.4),
-      0 0 0 0 rgba(246, 183, 60, 0);
+      0 0 0 0 color-mix(in srgb, var(--nx-yellow) 0%, transparent);
   }
   50% {
     box-shadow:
       0 4px 12px rgba(0, 0, 0, 0.4),
-      0 0 8px 2px rgba(246, 183, 60, 0.5);
+      0 0 8px 2px color-mix(in srgb, var(--nx-yellow) 50%, transparent);
   }
 }
 .crt-anchor-lines {
@@ -1304,7 +1311,7 @@ defineExpose({ resetLayout })
   pointer-events: none;
 }
 .crt-anchor-lines line {
-  stroke: rgba(181, 255, 242, 0.52);
+  stroke: color-mix(in srgb, var(--nx-green) 52%, transparent);
   stroke-width: 1;
   stroke-dasharray: 3 4;
 }
@@ -1320,10 +1327,10 @@ defineExpose({ resetLayout })
   bottom: 12px;
   z-index: var(--nx-z-run-crt);
   padding: 5px 8px;
-  border: 1px solid rgba(181, 255, 242, 0.34);
+  border: 1px solid color-mix(in srgb, var(--nx-green) 34%, transparent);
   border-radius: 6px;
-  color: rgba(224, 255, 246, 0.72);
-  background: rgba(5, 16, 13, 0.9);
+  color: color-mix(in srgb, var(--nx-text) 72%, transparent);
+  background: var(--nx-bg);
   font:
     9px/1.2 ui-monospace,
     monospace;
@@ -1339,10 +1346,10 @@ defineExpose({ resetLayout })
   gap: 8px;
   max-width: calc(100% - 24px);
   padding: 7px 10px;
-  border: 1px solid rgba(255, 113, 140, 0.72);
+  border: 1px solid color-mix(in srgb, var(--nx-red) 72%, transparent);
   border-radius: 7px;
-  color: #ffe3e9;
-  background: rgba(38, 8, 16, 0.94);
+  color: var(--nx-red);
+  background: var(--nx-bg);
   transform: translateX(-50%);
   pointer-events: auto;
   font:
@@ -1350,14 +1357,14 @@ defineExpose({ resetLayout })
     sans-serif;
 }
 .graph-diagnostic button {
-  border: 1px solid rgba(255, 227, 233, 0.5);
+  border: 1px solid color-mix(in srgb, var(--nx-red) 50%, transparent);
   border-radius: 5px;
   color: inherit;
   background: transparent;
   cursor: pointer;
 }
 .graph-diagnostic small {
-  color: #ffb6c4;
+  color: color-mix(in srgb, var(--nx-red) 80%, transparent);
 }
 .node-detail-anchor {
   position: absolute;
@@ -1456,10 +1463,10 @@ defineExpose({ resetLayout })
   outline: none;
 }
 .execution-node[role='button']:focus-visible .node-state-overlay {
-  stroke: #b5fff2;
+  stroke: var(--nx-green);
 }
 .node-icon {
-  fill: rgba(8, 25, 37, 0.88);
+  fill: var(--nx-bg);
   stroke-width: 1.4;
 }
 .node-state-overlay {
@@ -1469,33 +1476,33 @@ defineExpose({ resetLayout })
   stroke-dasharray: 3 4;
 }
 .execution-node.is-paused .node-state-overlay {
-  stroke: #f6c85f;
+  stroke: var(--nx-yellow);
 }
 .execution-node.is-error .node-state-overlay {
-  stroke: #ff718c;
+  stroke: var(--nx-red);
   stroke-dasharray: none;
 }
 .execution-node.is-tool-active .node-state-overlay {
-  stroke: #6bcff7;
+  stroke: var(--nx-cyan);
   animation: node-spin 1.2s linear infinite;
 }
 .execution-node.is-tool-pending .node-state-overlay {
-  stroke: #ffca73;
+  stroke: var(--nx-yellow);
 }
 .execution-node.is-tool-completed .node-state-overlay {
-  stroke: #8bf0b1;
+  stroke: var(--nx-green);
   stroke-dasharray: none;
 }
 .execution-node.is-tool-error .node-state-overlay {
-  stroke: #ff718c;
+  stroke: var(--nx-red);
   stroke-dasharray: none;
 }
 .execution-node.is-tool-rejected .node-state-overlay {
-  stroke: #93a4ad;
+  stroke: var(--nx-text-dim);
   stroke-dasharray: 2 3;
 }
 .execution-node.is-revoked .node-state-overlay {
-  stroke: #93a4ad;
+  stroke: var(--nx-text-dim);
 }
 .execution-node.is-revoked {
   opacity: 0.46;
@@ -1510,7 +1517,7 @@ defineExpose({ resetLayout })
   opacity: 0.72;
 }
 .execution-node.is-input-consuming .node-state-overlay {
-  stroke: #6bcff7;
+  stroke: var(--nx-cyan);
   animation: node-spin 1.2s linear infinite;
 }
 .node-glyph {
@@ -1522,25 +1529,25 @@ defineExpose({ resetLayout })
   text-anchor: middle;
 }
 .node-title {
-  fill: #e6f8ff;
+  fill: var(--nx-text);
   font:
     700 11px/1.2 system-ui,
     sans-serif;
   text-anchor: middle;
 }
 .node-termination {
-  fill: #ffb6c4;
+  fill: color-mix(in srgb, var(--nx-red) 80%, transparent);
   font:
     700 8px/1.2 system-ui,
     sans-serif;
   text-anchor: middle;
 }
 .node-fold-count circle {
-  fill: rgba(7, 19, 30, 0.98);
+  fill: var(--nx-bg);
   stroke-width: 1;
 }
 .node-fold-count text {
-  fill: #e6f8ff;
+  fill: var(--nx-text);
   font:
     700 7px/1 ui-monospace,
     monospace;
@@ -1557,7 +1564,7 @@ defineExpose({ resetLayout })
   filter: url(#execution-node-glow);
 }
 .execution-node.is-detail-active .node-title {
-  fill: #fff;
+  fill: var(--nx-text);
 }
 .node-running-dot {
   animation: node-dot 0.9s ease-in-out infinite alternate;

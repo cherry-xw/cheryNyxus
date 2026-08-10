@@ -75,7 +75,7 @@ function pickPreset(name: string): void {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .picker-wrap {
   position: relative;
@@ -97,11 +97,10 @@ function pickPreset(name: string): void {
   width: 220px;
   padding: 8px;
   border-radius: 12px;
-  background: #fbf9f4;
-  border: 1px solid rgba(36, 38, 45, 0.14);
+  background: var(--panel);
   box-shadow:
-    0 14px 30px rgba(0, 0, 0, 0.22),
-    0 3px 8px rgba(0, 0, 0, 0.12);
+    0 14px 30px color-mix(in srgb, var(--ink) 22%, transparent),
+    0 3px 8px color-mix(in srgb, var(--ink) 12%, transparent);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -110,7 +109,7 @@ function pickPreset(name: string): void {
 .picker-title {
   font-size: 11px;
   font-weight: 800;
-  color: fade(@ink, 56%);
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
   padding: 2px 6px 4px;
   letter-spacing: 0.02em;
 }
@@ -128,18 +127,18 @@ function pickPreset(name: string): void {
   transition: background 100ms ease;
 
   &:hover {
-    background: fade(#f6b73c, 18%);
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
   }
 
   .pi-name {
     font-size: 13px;
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .pi-meta {
     font-size: 10px;
-    color: fade(@ink, 50%);
+    color: color-mix(in srgb, var(--ink) 50%, transparent);
   }
 }
 

@@ -26,6 +26,31 @@ export const NODE_SKINS: Record<NodeSkinKey, NodeSkin> = {
   unknown: { key: 'unknown', glyph: '?', accent: '#ff809b', label: '未识别节点' },
 }
 
+/**
+ * 浅色主题下的节点强调色（比深色版更饱和，保证浅底上可读）。
+ * NODE_SKINS 的 accent 是深色树所用；浅色树换用此表。
+ */
+export const NODE_ACCENT_LIGHT: Record<NodeSkinKey, string> = {
+  start: '#b7791f',
+  message: '#0e9bb8',
+  user: '#0e6f88',
+  'root-agent': '#3b6fd4',
+  'child-agent': '#c026d3',
+  'tool-batch': '#b7791f',
+  fold: '#16789a',
+  return: '#1a9e6b',
+  dispatch: '#7a5bd6',
+  spawn: '#7a5bd6',
+  system: '#6d5bd6',
+  input: '#b05bd6',
+  unknown: '#d6455d',
+}
+
+/** 按主题取某类节点的强调色（浅色用 NODE_ACCENT_LIGHT，否则用 NODE_SKINS 深色版）。 */
+export function accentForTheme(theme: 'light' | 'dark', key: NodeSkinKey): string {
+  return (theme === 'light' ? NODE_ACCENT_LIGHT[key] : NODE_SKINS[key].accent) ?? NODE_SKINS.unknown.accent
+}
+
 /** Every rendered execution-node kind has a read-only hover detail surface. */
 export const NODE_HOVER_DETAIL_KINDS: Record<ExecutionNodeKind, true> = {
   start: true,

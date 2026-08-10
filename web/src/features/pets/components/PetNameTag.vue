@@ -33,17 +33,18 @@ defineProps<{
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
-@tribe-border: hsl(var(--tribe-hue) 60% 82%);
-@tribe-bg: hsl(var(--tribe-hue) 60% 94%);
-@tribe-ink: hsl(var(--tribe-hue) 50% 28%);
+@ink: var(--ink);
+@tribe-border: hsl(var(--tribe-hue) 60% 55%);
+@tribe-bg: hsl(var(--tribe-hue) 58% 92%);
+@tribe-ink: hsl(var(--tribe-hue) 50% 26%);
 
 .name {
   padding: 1px 5px;
-  border: 1px solid rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
-  color: fade(@ink, 72%);
+  // 不透明底（panel），避免半透明白/黑导致名字与上层信息看不清
+  background: var(--panel);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
   font-size: 8px;
   font-weight: 400;
   line-height: 1.2;
@@ -53,6 +54,7 @@ defineProps<{
 .name.is-master {
   border-color: @tribe-border;
   background: @tribe-bg;
+  color: @tribe-ink;
   .char {
     color: hsl(0 85% 55%);
     animation: rainbow-char 3s linear infinite;
@@ -64,6 +66,14 @@ defineProps<{
   border-color: @tribe-border;
   background: @tribe-bg;
   color: @tribe-ink;
+}
+
+// 深色：tribe 牌换深底浅字，避免浅黄牌在深底刺眼
+[data-theme='dark'] .name.is-master,
+[data-theme='dark'] .name.is-sub {
+  border-color: hsl(var(--tribe-hue) 50% 55%);
+  background: hsl(var(--tribe-hue) 42% 20%);
+  color: hsl(var(--tribe-hue) 55% 88%);
 }
 
 /* 工作区 icon：meta-row name 前，pet 带 workspace 时显。hover 弹 basename（最后一层文件夹名）。
@@ -96,10 +106,10 @@ defineProps<{
   margin-bottom: 4px;
   padding: 3px 6px;
   border-radius: 5px;
-  background: #fff;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  background: var(--panel);
+  border: 1px solid var(--border);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
-  color: fade(@ink, 84%);
+  color: color-mix(in srgb, var(--ink) 84%, transparent);
   font-size: 9px;
   font-weight: 600;
   line-height: 1.3;

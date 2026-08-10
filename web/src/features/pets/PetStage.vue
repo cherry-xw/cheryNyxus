@@ -123,9 +123,12 @@ function handleDestroy(pet: PetInstance): void {
   agents.hide(pet.chatId)
 }
 
-function handleHistory(pet: PetInstance): void {
-  // 历史按钮只查看当前会话消息，不再进入“历史会话选择”界面。
-  agents.openHistoryRoot(activeRoot(pet))
+async function handleHistory(pet: PetInstance): Promise<void> {
+  // 方案 A：默认绑定 preset 工作区内最近更新的 root 会话（历史入口恒定「最新」）；
+  //   抽屉内下拉可切换查看其他会话，切换不写 activeRootByPreset/activeNyxusChatId（纯查看器）。
+  await agents.fetchHistoryList()
+  const latest = agents.latestRootInPreset(pet.presetId, pet.preset)
+  agents.openHistoryRoot(latest ?? activeRoot(pet))
 }
 
 async function handleAttention(pet: PetInstance): Promise<void> {
@@ -206,11 +209,11 @@ async function handleResume(pet: PetInstance): Promise<void> {
   min-width: 320px;
   min-height: 420px;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.36) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.36) 1px, transparent 1px),
+    linear-gradient(color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ink) 9%, transparent) 1px, transparent 1px),
     radial-gradient(circle at 18% 18%, rgba(255, 196, 87, 0.34), transparent 28%),
     radial-gradient(circle at 82% 28%, rgba(88, 196, 189, 0.28), transparent 30%),
-    radial-gradient(circle at 50% 80%, rgba(151, 122, 255, 0.26), transparent 34%), #f5f0e8;
+    radial-gradient(circle at 50% 80%, rgba(151, 122, 255, 0.26), transparent 34%), var(--bg);
   background-size:
     42px 42px,
     42px 42px,
@@ -218,7 +221,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
     auto,
     auto,
     auto;
-  color: #25262d;
+  color: var(--ink);
 
   &::before {
     content: '';
@@ -226,8 +229,8 @@ async function handleResume(pet: PetInstance): Promise<void> {
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.74), transparent 22%),
-      linear-gradient(0deg, rgba(0, 0, 0, 0.08), transparent 34%);
+      linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 55%, transparent), transparent 22%),
+      linear-gradient(0deg, color-mix(in srgb, var(--ink) 8%, transparent), transparent 34%);
   }
 }
 </style>

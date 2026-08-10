@@ -1,0 +1,23 @@
+// 内层/嵌套滚动条统一弱化 mixin。
+// 用于「可滚动内容区内部的子滚动条」——消息内长响应、代码块、标签行、媒体缩略图等，
+// 与主滚动条（VirtualScroll 自定义 thumb、设置面板/工作区）拉开对比度，降低多层滚动视图负担。
+// 用法：@import '@/styles/scrollbar.less' 后，在下层滚动容器内调用 .inner-scrollbar()。
+.inner-scrollbar(@thumb: 14%, @hover: 28%, @size: 4px) {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: color-mix(in srgb, var(--ink) @thumb, transparent) transparent;
+
+  &::-webkit-scrollbar {
+    width: @size;
+    height: @size;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--ink) @thumb, transparent);
+    border-radius: calc(@size / 2);
+    &:hover {
+      background: color-mix(in srgb, var(--ink) @hover, transparent);
+    }
+  }
+}

@@ -94,18 +94,18 @@ const statusClass = computed(() => `status-${props.call.status}`)
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .sense-box {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 6px 8px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface-soft);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .sense-head {
@@ -121,7 +121,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   .sense-name {
     flex: 1;
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
     word-break: break-all;
   }
 
@@ -155,7 +155,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   padding: 2px 4px;
   border: none;
   background: transparent;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 10px;
   font-family: inherit;
   cursor: pointer;
@@ -163,7 +163,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   text-align: left;
 
   &:hover {
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .toggle-label {
@@ -206,7 +206,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   font-weight: 700;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 
 .arg-val {
@@ -217,7 +217,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
-  color: fade(@ink, 86%);
+  color: color-mix(in srgb, var(--ink) 86%, transparent);
   max-height: 160px;
   overflow: auto;
 }
@@ -225,15 +225,15 @@ const statusClass = computed(() => `status-${props.call.status}`)
 .arg-empty {
   font-size: 10px;
   font-style: italic;
-  color: fade(@ink, 44%);
+  color: color-mix(in srgb, var(--ink) 44%, transparent);
 }
 
 .sense-pre {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
-  color: fade(@ink, 86%);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;

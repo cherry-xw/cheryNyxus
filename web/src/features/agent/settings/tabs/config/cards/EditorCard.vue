@@ -103,9 +103,9 @@ onMounted(loadEditors)
   gap: 3px;
   padding: 2px 5px;
   border-radius: 999px;
-  background: rgba(36, 38, 45, 0.055);
+  background: color-mix(in srgb, var(--ink) 5.5%, transparent);
   font-size: 8px;
-  color: fade(@ink, 45%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .editor-status i {
   width: 4px;
@@ -119,6 +119,6 @@ onMounted(loadEditors)
 }
 .editor-status small {
   font-size: 8px;
-  color: fade(@ink, 40%);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
 </style>

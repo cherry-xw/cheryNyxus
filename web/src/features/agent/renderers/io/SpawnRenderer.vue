@@ -142,18 +142,18 @@ function onDrillDetail(): void {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .spawn-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .spawn-head {
@@ -167,7 +167,7 @@ function onDrillDetail(): void {
 
   .spawn-name {
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .spawn-type {
@@ -176,7 +176,7 @@ function onDrillDetail(): void {
     padding: 1px 4px;
     border-radius: 3px;
     background: rgba(168, 85, 247, 0.12);
-    color: #9333ea;
+    color: #2563eb;
     font-weight: 700;
     text-align: right;
   }
@@ -215,20 +215,20 @@ function onDrillDetail(): void {
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
-  color: fade(@ink, 56%);
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
 .spawn-value {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .spawn-prompt {
   flex: 1;
   min-width: 0;
   font-size: 10.5px;
-  color: fade(@ink, 70%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -247,7 +247,7 @@ function onDrillDetail(): void {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
@@ -262,8 +262,8 @@ function onDrillDetail(): void {
   background: transparent;
   font-family: inherit;
   font-size: 10.5px;
+  color: var(--ink);
   color: #2563eb;
-  cursor: pointer;
 
   &:hover {
     text-decoration: underline;

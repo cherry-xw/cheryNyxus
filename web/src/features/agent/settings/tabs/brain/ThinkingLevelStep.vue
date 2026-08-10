@@ -22,7 +22,12 @@ interface LevelOption {
 }
 
 const LEVELS: LevelOption[] = [
-  { value: 'off', label: '关闭', color: 'rgba(36, 38, 45, 0.62)', bg: 'rgba(36, 38, 45, 0.1)' },
+  {
+    value: 'off',
+    label: '关闭',
+    color: 'color-mix(in srgb, var(--ink) 62%, transparent)',
+    bg: 'color-mix(in srgb, var(--ink) 10%, transparent)',
+  },
   { value: 'low', label: '低', color: '#9a6b14', bg: '#ffd27a' },
   { value: 'medium', label: '中', color: '#7a4d0e', bg: '#f6b73c' },
   { value: 'high', label: '高', color: '#fff7e6', bg: '#d99717' },
@@ -86,7 +91,7 @@ function onKeydown(e: KeyboardEvent): void {
   outline: none;
 
   &:focus-visible {
-    box-shadow: 0 0 0 2px fade(@accent, 45%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
     border-radius: 7px;
   }
 }
@@ -98,13 +103,13 @@ function onKeydown(e: KeyboardEvent): void {
   justify-content: center;
   gap: 4px;
   padding: 4px 2px;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface-soft);
   cursor: pointer;
   font-family: inherit;
   font-size: 11px;
-  color: fade(@ink, 46%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
   transition:
     background 0.18s ease,
     color 0.18s ease,
@@ -115,7 +120,7 @@ function onKeydown(e: KeyboardEvent): void {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(36, 38, 45, 0.22);
+    background: color-mix(in srgb, var(--ink) 22%, transparent);
     transition: background 0.18s ease;
     flex-shrink: 0;
   }
@@ -144,7 +149,7 @@ function onKeydown(e: KeyboardEvent): void {
   }
 
   &:hover {
-    border-color: fade(@accent, 50%);
+    border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   }
 }
 </style>

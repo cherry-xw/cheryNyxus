@@ -206,13 +206,13 @@ function onEscape(event: KeyboardEvent): void {
   gap: 7px;
   padding: 0 7px 0 10px;
   border-bottom: 1px solid @line;
-  background: #0d151b;
+  background: @surface;
 }
 .crt-head strong {
   min-width: 0;
   overflow: hidden;
-  color: #edf5f7;
-  font:
+    color: #edf5f7;
+      font:
     650 11px/1.2 system-ui,
     sans-serif;
   text-overflow: ellipsis;
@@ -311,8 +311,8 @@ function onEscape(event: KeyboardEvent): void {
     transform 140ms @ease-out;
 }
 .crt-tabs button.active {
+  color: var(--ink);
   color: #edf5f7;
-  background: rgba(87, 199, 212, 0.05);
 }
 .crt-tabs button.active::after {
   opacity: 1;
@@ -325,8 +325,8 @@ function onEscape(event: KeyboardEvent): void {
   overflow-y: auto;
   padding: 10px 12px;
   overscroll-behavior: contain;
+  color: var(--ink);
   color: #d4dfe2;
-  font-size: 10.5px;
   line-height: 1.55;
   scrollbar-color: rgba(114, 147, 154, 0.58) transparent;
   scrollbar-width: thin;
@@ -347,20 +347,20 @@ function onEscape(event: KeyboardEvent): void {
 .markdown-body :deep(h2),
 .markdown-body :deep(h3) {
   margin: 0.7em 0 0.35em;
+  color: var(--ink);
   color: #edf5f7;
-  font-size: 11px;
 }
 .markdown-body :deep(pre) {
   overflow: visible;
   padding: 7px 8px;
+  color: var(--ink);
   color: #cce5e9;
-  background: #080d11;
   white-space: pre-wrap;
   word-break: break-word;
 }
 .markdown-body :deep(code) {
+  color: var(--ink);
   color: #bfe2e7;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .is-thinking {
@@ -373,7 +373,7 @@ function onEscape(event: KeyboardEvent): void {
   padding: 0 10px;
   border-top: 1px solid @line;
   color: @muted;
-  background: #0d151b;
+  background: @surface;
   font:
     9px/1.2 system-ui,
     sans-serif;
@@ -389,8 +389,8 @@ function onEscape(event: KeyboardEvent): void {
 @media (hover: hover) and (pointer: fine) {
   .crt-actions button:hover,
   .crt-tabs button:hover {
+    color: var(--ink);
     color: #e3edef;
-    background: rgba(87, 199, 212, 0.065);
   }
 }
 @media (prefers-reduced-motion: no-preference) {

@@ -389,14 +389,14 @@ const indexItems = computed<IndexItem[]>(() => [])
   white-space: nowrap;
   min-width: 0;
   .danger-mark {
-    color: #be3939;
+    color: var(--danger);
     margin-right: 2px;
   }
 }
 .tag-level-btn {
   flex-shrink: 0;
   padding-left: 6px;
-  border-left: 1px solid rgba(20, 22, 26, 0.15);
+  border-left: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
   cursor: pointer;
   font-size: 11px;
   opacity: 0.75;
@@ -439,7 +439,7 @@ const indexItems = computed<IndexItem[]>(() => [])
   }
   .opt-desc {
     font-size: 11px;
-    color: rgba(20, 22, 26, 0.45);
+    color: color-mix(in srgb, var(--ink) 64%, transparent);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

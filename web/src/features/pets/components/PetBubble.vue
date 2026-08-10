@@ -69,10 +69,10 @@ const bubbleClass = computed(() => {
   min-width: 28px;
   max-width: 96px;
   padding: 4px 7px;
-  border: 1px solid rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  color: #23242a;
-  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  background: var(--surface-soft);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16);
   font-size: 10px;
   font-weight: 800;
@@ -87,9 +87,9 @@ const bubbleClass = computed(() => {
     bottom: -5px;
     width: 8px;
     height: 8px;
-    border-right: 1px solid rgba(255, 255, 255, 0.74);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.74);
-    background: rgba(255, 255, 255, 0.92);
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-soft);
     transform: rotate(45deg);
     pointer-events: none;
   }
@@ -107,8 +107,8 @@ const bubbleClass = computed(() => {
   flex-direction: column;
 
   &.is-thinking {
-    background: rgba(240, 238, 245, 0.92);
-    border-color: rgba(140, 130, 170, 0.4);
+    background: var(--panel);
+    border-color: color-mix(in srgb, var(--neon-indigo) 40%, transparent);
     border-style: dashed;
   }
 }
@@ -116,28 +116,28 @@ const bubbleClass = computed(() => {
 .approval-bubble {
   max-width: 220px;
   padding: 5px 8px;
-  background: rgba(255, 248, 235, 0.96);
-  border-color: rgba(234, 88, 12, 0.42);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 
   &::after {
-    border-right-color: rgba(234, 88, 12, 0.42);
-    border-bottom-color: rgba(234, 88, 12, 0.42);
-    background: rgba(255, 248, 235, 0.96);
+    border-right-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
   }
 }
 
 .question-bubble {
   max-width: 230px;
   padding: 6px 9px;
-  background: rgba(245, 243, 255, 0.96);
-  border-color: rgba(124, 58, 237, 0.42);
+  background: color-mix(in srgb, var(--neon-indigo) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--neon-indigo) 42%, transparent);
 }
 
 .error-bubble {
   max-width: 240px;
   padding: 6px 10px;
-  background: rgba(254, 226, 226, 0.96);
-  border-color: rgba(220, 38, 38, 0.55);
-  color: #7f1d1d;
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger);
 }
 </style>

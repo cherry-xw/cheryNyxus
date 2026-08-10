@@ -156,7 +156,7 @@ const batchInfo = computed(() => {
 
 <style scoped lang="less">
 @import '@/styles/markdown.less';
-@ink: #14161a;
+@ink: var(--ink);
 
 /* .work-bubble / .error-bubble 类落在 PetBubble 根（组件根继承父 data-v，
    故本 scoped 选择器仍可命中），其内部 .work-text/.error-text 为本组件 slot 内容。 */
@@ -178,25 +178,10 @@ const batchInfo = computed(() => {
     white-space: pre-wrap;
     font-weight: 400;
     padding-right: 8px;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(20, 22, 26, 0.25) transparent;
-
-    &::-webkit-scrollbar {
-      width: 4px;
-    }
-    &::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    &::-webkit-scrollbar-thumb {
-      background: rgba(20, 22, 26, 0.25);
-      border-radius: 2px;
-      &:hover {
-        background: rgba(20, 22, 26, 0.4);
-      }
-    }
+    .inner-scrollbar(); /* 内层滚动：pet 工作文本，弱化滚动条 */
 
     &.is-thinking {
-      color: fade(@ink, 64%);
+      color: color-mix(in srgb, var(--ink) 64%, transparent);
       font-style: italic;
     }
 

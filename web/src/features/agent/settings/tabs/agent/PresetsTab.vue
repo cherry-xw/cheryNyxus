@@ -458,15 +458,15 @@ const indexItems = computed<IndexItem[]>(() => {
   gap: 3px;
   height: 24px;
   padding: 0 7px;
-  border: 1px solid rgba(36, 38, 45, 0.2);
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
   border-radius: 5px;
-  background: #fff;
-  color: rgba(20, 22, 26, 0.7);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   font-size: 11px;
   cursor: pointer;
   &:hover {
-    border-color: rgba(246, 183, 60, 0.8);
-    color: rgba(20, 22, 26, 0.9);
+    border-color: color-mix(in srgb, var(--accent) 80%, transparent);
+    color: color-mix(in srgb, var(--ink) 90%, transparent);
   }
 }
 .picker-role-option {
@@ -514,10 +514,10 @@ const indexItems = computed<IndexItem[]>(() => {
   align-items: center;
   min-height: 26px;
   padding: 0 9px;
-  border: 1px solid rgba(20, 22, 26, 0.18);
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
   border-radius: 6px;
-  background: #fff;
-  color: rgba(20, 22, 26, 0.62);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
   cursor: pointer;
   font-family: inherit;
   transition:
@@ -527,13 +527,13 @@ const indexItems = computed<IndexItem[]>(() => {
   &:hover,
   &:focus-visible {
     outline: none;
-    border-color: rgba(246, 183, 60, 0.75);
-    background: rgba(246, 183, 60, 0.1);
-    color: rgba(20, 22, 26, 0.9);
+    border-color: color-mix(in srgb, var(--accent) 75%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: color-mix(in srgb, var(--ink) 90%, transparent);
   }
   &.leader {
     border-color: #d99717;
-    background: rgba(246, 183, 60, 0.23);
+    background: color-mix(in srgb, var(--accent) 23%, transparent);
   }
   &:disabled {
     cursor: default;
@@ -543,7 +543,7 @@ const indexItems = computed<IndexItem[]>(() => {
 .member-role-name {
   font-size: 12px;
   font-weight: 700;
-  color: rgba(20, 22, 26, 0.86);
+  color: color-mix(in srgb, var(--ink) 86%, transparent);
 }
 .member-role-card {
   position: absolute;
@@ -554,11 +554,11 @@ const indexItems = computed<IndexItem[]>(() => {
   width: max-content;
   max-width: 260px;
   padding: 8px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
   border-radius: 8px;
-  background: #fffdf8;
-  box-shadow: 0 5px 14px rgba(36, 38, 45, 0.14);
-  color: rgba(20, 22, 26, 0.72);
+  background: var(--surface-hover);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--ink) 14%, transparent);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
   font-size: 10px;
   line-height: 1.35;
 }
@@ -572,7 +572,7 @@ const indexItems = computed<IndexItem[]>(() => {
   display: flex;
   gap: 6px;
   b {
-    color: rgba(20, 22, 26, 0.48);
+    color: color-mix(in srgb, var(--ink) 66%, transparent);
     font-weight: 700;
   }
 }
@@ -582,10 +582,10 @@ const indexItems = computed<IndexItem[]>(() => {
   gap: 3px;
   min-height: 15px;
   padding-top: 2px;
-  border-top: 1px solid rgba(20, 22, 26, 0.08);
+  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .no-senses {
-  color: rgba(20, 22, 26, 0.42);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
 .leader-mark {
   position: absolute;
@@ -631,16 +631,16 @@ const indexItems = computed<IndexItem[]>(() => {
 .ws-warning {
   display: block;
   margin-top: 4px;
-  color: #b91c1c;
+  color: var(--danger);
   font-size: 11px;
   line-height: 1.4;
 }
 .workspace-input.is-invalid {
   :deep(.el-input__wrapper) {
-    box-shadow: 0 0 0 1px #dc2626 inset;
+    box-shadow: 0 0 0 1px var(--danger) inset;
   }
   :deep(.el-input__suffix-inner) {
-    color: #dc2626;
+    color: var(--danger);
   }
 }
 </style>

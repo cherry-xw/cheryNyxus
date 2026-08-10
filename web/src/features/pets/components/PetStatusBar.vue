@@ -33,7 +33,7 @@ defineProps<{
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .status-stack {
   display: flex;
@@ -56,7 +56,7 @@ defineProps<{
   flex: 1;
   height: 2px;
   border-radius: 1px;
-  background: fade(@ink, 14%);
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
   overflow: hidden;
 
   .fill {
@@ -79,9 +79,9 @@ defineProps<{
   align-items: center;
   gap: 2px;
   padding: 2px 5px;
-  border: 1px dashed rgba(124, 58, 237, 0.55); /* 思考紫虚线，呼应 PetBubbles.is-thinking */
+  border: 1px dashed color-mix(in srgb, var(--neon-indigo) 55%, transparent); /* 思考紫虚线，呼应 PetBubbles.is-thinking */
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface-soft);
   pointer-events: none;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
   transform-origin: center center;

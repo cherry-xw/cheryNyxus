@@ -16,7 +16,7 @@ defineProps<{
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 /* thinking 按钮：思考结束后锚 content 气泡左外侧（emoji icon）；hover 向左上拉伸显思考框（盖住按钮），
    鼠标移开 scale(0) 缩回恢复 icon。emoji 黄脸（🤔）作按钮。 */
@@ -60,10 +60,10 @@ defineProps<{
   max-height: 150px;
   padding: 5px 7px;
   border-radius: 7px;
-  border: 1px dashed rgba(140, 130, 170, 0.4);
-  background: rgba(240, 238, 245, 0.97);
+  border: 1px dashed color-mix(in srgb, var(--neon-indigo) 40%, transparent);
+  background: var(--panel);
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.14);
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 9.5px;
   font-weight: 400;
   font-style: italic;

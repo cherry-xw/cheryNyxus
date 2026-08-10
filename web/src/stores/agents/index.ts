@@ -955,6 +955,18 @@ export const useAgentsStore = defineStore('agents', () => {
   }
 
   /**
+   * preset 工作区内最近更新的 root 会话 chatId（Pad 历史入口默认绑定）。
+   * historyList 须已加载（调用方先 fetchHistoryList）。无则 undefined → 调用方回退当前 pet。
+   * 纯确定性选择器，不落状态（方案 A：抽屉是纯查看器，切换不写 activeRootByPreset/activeNyxusChatId）。
+   */
+  function latestRootInPreset(presetId?: string, presetName?: string): string | undefined {
+    const roots = historyList.value.filter(
+      (c) => !c.parentChatId && (presetId ? c.presetId === presetId : c.preset === presetName),
+    )
+    return [...roots].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]?.chatId
+  }
+
+  /**
    * 标记所有已加载 stream dirty（WS 重连兜底）。
    * disconnect 期间后端可能产生新消息（其他客户端 send、role_created 等），
    * 重连后无法依赖 sendMessage/role_reply 隐含 dirty 触发（事件可能漏推），
@@ -1174,6 +1186,8 @@ export const useAgentsStore = defineStore('agents', () => {
     ...approval,
     ...question,
     fetchHistoryList,
+    latestRootInPreset,
+    summaryForChat,
     markAllStreamsDirty,
     syncChatEvents,
     getRuntime,

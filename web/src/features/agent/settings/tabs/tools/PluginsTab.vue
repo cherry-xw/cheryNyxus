@@ -10,6 +10,7 @@ import { agentApi, type PluginInfo } from '@/services/agentApi'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import PluginImportDialog from './components/PluginImportDialog.vue'
+import { useThemeStore } from '@/stores'
 
 const props = defineProps<{ plugins: PluginInfo[] }>()
 const emit = defineEmits<{ (e: 'error', msg: string): void; (e: 'refresh-plugins'): void }>()
@@ -141,30 +142,31 @@ function skillLabel(name: string, plugin: string): string {
   return name.startsWith(prefix) ? name.slice(prefix.length) : name
 }
 
-const TAG_PALETTE: Array<{ background: string; color: string }> = [
-  { background: 'rgba(99,102,241,0.14)', color: '#4338ca' },
-  { background: 'rgba(2,132,199,0.14)', color: '#075985' },
-  { background: 'rgba(22,163,74,0.14)', color: '#166534' },
-  { background: 'rgba(225,29,72,0.14)', color: '#9f1239' },
-  { background: 'rgba(124,58,237,0.14)', color: '#5b21b6' },
-  { background: 'rgba(217,119,6,0.14)', color: '#b45309' },
-  { background: 'rgba(14,165,233,0.14)', color: '#0369a1' },
-  { background: 'rgba(20,184,166,0.14)', color: '#0f766e' },
-  { background: 'rgba(132,204,22,0.14)', color: '#4d7c0f' },
-  { background: 'rgba(236,72,153,0.14)', color: '#9d174d' },
-  { background: 'rgba(168,85,247,0.14)', color: '#6b21a8' },
-  { background: 'rgba(245,158,11,0.14)', color: '#92400e' },
-  { background: 'rgba(34,197,94,0.14)', color: '#15803d' },
-  { background: 'rgba(239,68,68,0.14)', color: '#b91c1c' },
-  { background: 'rgba(6,182,212,0.14)', color: '#0e7490' },
-  { background: 'rgba(99,102,241,0.14)', color: '#3730a3' },
-  { background: 'rgba(190,24,93,0.14)', color: '#831843' },
-  { background: 'rgba(180,83,9,0.14)', color: '#7c2d12' },
-  { background: 'rgba(56,189,248,0.14)', color: '#0c4a6e' },
-  { background: 'rgba(139,92,246,0.14)', color: '#4c1d95' },
+const TAG_PALETTE: Array<{ background: string; color: string; dark: string }> = [
+  { background: 'rgba(99,102,241,0.14)', color: '#4338ca', dark: '#a5b4fc' },
+  { background: 'rgba(2,132,199,0.14)', color: '#075985', dark: '#7dd3fc' },
+  { background: 'rgba(22,163,74,0.14)', color: '#166534', dark: '#86efac' },
+  { background: 'rgba(225,29,72,0.14)', color: '#9f1239', dark: '#fca5a5' },
+  { background: 'rgba(124,58,237,0.14)', color: '#5b21b6', dark: '#c4b5fd' },
+  { background: 'rgba(217,119,6,0.14)', color: '#b45309', dark: '#fcd34d' },
+  { background: 'rgba(14,165,233,0.14)', color: '#0369a1', dark: '#7dd3fc' },
+  { background: 'rgba(20,184,166,0.14)', color: '#0f766e', dark: '#5eead4' },
+  { background: 'rgba(132,204,22,0.14)', color: '#4d7c0f', dark: '#bef264' },
+  { background: 'rgba(236,72,153,0.14)', color: '#9d174d', dark: '#f9a8d4' },
+  { background: 'rgba(168,85,247,0.14)', color: '#6b21a8', dark: '#d8b4fe' },
+  { background: 'rgba(245,158,11,0.14)', color: '#92400e', dark: '#fcd34d' },
+  { background: 'rgba(34,197,94,0.14)', color: '#15803d', dark: '#86efac' },
+  { background: 'rgba(239,68,68,0.14)', color: '#b91c1c', dark: '#fca5a5' },
+  { background: 'rgba(6,182,212,0.14)', color: '#0e7490', dark: '#67e8f9' },
+  { background: 'rgba(99,102,241,0.14)', color: '#3730a3', dark: '#a5b4fc' },
+  { background: 'rgba(190,24,93,0.14)', color: '#831843', dark: '#f9a8d4' },
+  { background: 'rgba(180,83,9,0.14)', color: '#7c2d12', dark: '#fdba74' },
+  { background: 'rgba(56,189,248,0.14)', color: '#0c4a6e', dark: '#7dd3fc' },
+  { background: 'rgba(139,92,246,0.14)', color: '#4c1d95', dark: '#c4b5fd' },
 ]
 function skillTagStyle(i: number): { background: string; color: string } {
-  return TAG_PALETTE[i % TAG_PALETTE.length]!
+  const tag = TAG_PALETTE[i % TAG_PALETTE.length]!
+  return { background: tag.background, color: useThemeStore().theme === 'dark' ? tag.dark : tag.color }
 }
 </script>
 
@@ -356,7 +358,7 @@ code {
   font-size: 11px;
   padding: 1px 4px;
   border-radius: 3px;
-  background: rgba(36, 38, 45, 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .sha {
   background: transparent;
@@ -383,7 +385,7 @@ code {
   }
   .last-check {
     font-size: 11px;
-    color: fade(@ink, 55%);
+    color: color-mix(in srgb, var(--ink) 55%, transparent);
   }
 }
 .card-head {
@@ -397,27 +399,27 @@ code {
 .card-title {
   font-size: 14px;
   font-weight: 800;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 .badge {
   font-size: 10px;
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 8px;
-  background: rgba(36, 38, 45, 0.08);
-  color: fade(@ink, 65%);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: color-mix(in srgb, var(--ink) 65%, transparent);
   &.branch {
-    background: rgba(190, 132, 28, 0.14);
-    color: #80560a;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-ink);
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   }
   &.ok {
-    background: rgba(22, 101, 52, 0.14);
-    color: #166534;
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
   }
   &.warn {
-    background: rgba(185, 28, 28, 0.14);
-    color: #b91c1c;
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    color: var(--danger);
   }
 }
 .plugin-meta {
@@ -427,7 +429,7 @@ code {
   gap: 8px;
   margin-top: 4px;
   font-size: 11px;
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   .meta-item {
     display: inline-flex;
     align-items: center;
@@ -437,7 +439,7 @@ code {
 .plugin-src {
   margin: 4px 0 0;
   font-size: 11px;
-  color: fade(@ink, 55%);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 .plugin-tokens {
   display: flex;
@@ -446,12 +448,12 @@ code {
   margin-top: 4px;
 }
 .plugin-tokens .badge.tok-system {
-  background: rgba(99, 102, 241, 0.14);
-  color: #4338ca;
+  background: color-mix(in srgb, var(--neon-indigo) 14%, transparent);
+  color: var(--neon-indigo);
 }
 .plugin-tokens .badge.tok-content {
-  background: rgba(22, 163, 74, 0.14);
-  color: #166534;
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
 }
 .update-btn {
   color: @accent;
@@ -471,29 +473,29 @@ code {
   cursor: default;
 }
 .skill-tag.more {
-  background: rgba(36, 38, 45, 0.08) !important;
-  color: fade(@ink, 55%) !important;
+  background: color-mix(in srgb, var(--ink) 8%, transparent) !important;
+  color: color-mix(in srgb, var(--ink) 55%, transparent) !important;
 }
 .empty-card {
   text-align: center;
   .empty-title {
     font-size: 14px;
     font-weight: 800;
-    color: fade(@ink, 80%);
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {
     margin-top: 6px;
     font-size: 11px;
-    color: fade(@ink, 60%);
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
 }
 .ghost-btn {
   height: 24px;
   padding: 0 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 80%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
   font-size: 11px;
   cursor: pointer;
   display: inline-flex;
@@ -502,8 +504,8 @@ code {
   gap: 4px;
   line-height: 1;
   &:hover:not(:disabled) {
-    background: #ffffff;
-    color: fade(@ink, 92%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
   }
   &:disabled {
     opacity: 0.45;

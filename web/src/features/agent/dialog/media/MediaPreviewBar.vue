@@ -77,7 +77,8 @@ function formatSize(bytes: number): string {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@import '@/styles/scrollbar.less';
+@ink: var(--ink);
 
 .media-preview-bar {
   padding: 6px 2px 0;
@@ -88,16 +89,7 @@ function formatSize(bytes: number): string {
   gap: 8px;
   overflow-x: auto;
   padding: 2px 2px 4px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(20, 22, 26, 0.18) transparent;
-
-  &::-webkit-scrollbar {
-    height: 4px;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: rgba(20, 22, 26, 0.18);
-    border-radius: 2px;
-  }
+  .inner-scrollbar(); /* 内层横向滚动：媒体缩略图，弱化滚动条 */
 }
 
 .media-preview-thumb {
@@ -106,9 +98,9 @@ function formatSize(bytes: number): string {
   width: 156px;
   display: grid;
   grid-template-rows: 72px auto;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface-soft);
   cursor: pointer;
   overflow: hidden;
   transition:
@@ -116,8 +108,8 @@ function formatSize(bytes: number): string {
     box-shadow 120ms ease;
 
   &:hover {
-    border-color: rgba(190, 132, 28, 0.4);
-    box-shadow: 0 2px 8px rgba(20, 22, 26, 0.08);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 8%, transparent);
 
     .thumb-remove {
       opacity: 1;
@@ -129,8 +121,7 @@ function formatSize(bytes: number): string {
   position: relative;
   width: 100%;
   height: 72px;
-  background: #f4f0e8;
-  display: flex;
+  background: var(--surface-soft);
   align-items: center;
   justify-content: center;
   overflow: hidden;
@@ -145,8 +136,8 @@ function formatSize(bytes: number): string {
 
 .thumb-audio-icon {
   font-size: 22px;
+  color: var(--ink);
   color: #c58b20;
-  opacity: 0.7;
 }
 
 .thumb-kind {
@@ -155,8 +146,8 @@ function formatSize(bytes: number): string {
   bottom: 4px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.65);
-  color: #fff;
+  background: color-mix(in srgb, var(--ink) 65%, transparent);
+  color: var(--ink);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -178,13 +169,13 @@ function formatSize(bytes: number): string {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10px;
-  color: fade(@ink, 72%);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
 }
 
 .thumb-size {
   flex: none;
   font-size: 9px;
-  color: fade(@ink, 44%);
+  color: color-mix(in srgb, var(--ink) 44%, transparent);
 }
 
 .thumb-remove {
@@ -198,8 +189,8 @@ function formatSize(bytes: number): string {
   justify-content: center;
   border: none;
   border-radius: 50%;
-  background: rgba(20, 22, 26, 0.6);
-  color: #fff;
+  background: color-mix(in srgb, var(--ink) 60%, transparent);
+  color: var(--ink);
   cursor: pointer;
   opacity: 0;
   transition:
@@ -207,7 +198,7 @@ function formatSize(bytes: number): string {
     background 120ms ease;
 
   &:hover {
-    background: rgba(220, 38, 38, 0.85);
+    background: color-mix(in srgb, var(--danger) 85%, transparent);
   }
 }
 </style>

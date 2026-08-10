@@ -244,14 +244,13 @@ onMounted(loadHooks)
 @import '../../config/shared.less';
 
 // ============ Neumorphism 基础色 ============
-@neu-bg: #e8e6e1;
-
+@neu-bg: color-mix(in srgb, var(--ink) 8%, transparent);
 // ============ 加载 ============
 
 .loading-hint {
   padding: 20px;
   text-align: center;
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   font-size: 12px;
 }
 
@@ -279,6 +278,22 @@ onMounted(loadHooks)
     inset 2px 2px 4px color-mix(in srgb, var(--tab-color, #f472b6) 12%, rgba(0, 0, 0, 0.05)),
     inset -2px -2px 4px rgba(255, 255, 255, 0.5);
 }
+[data-theme='dark'] .neu-card {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--tab-color, #f472b6) 16%, var(--surface)) 0%,
+    color-mix(in srgb, var(--tab-color, #f472b6) 6%, var(--surface)) 60%,
+    var(--surface) 100%
+  );
+  box-shadow:
+    5px 5px 12px rgba(0, 0, 0, 0.4),
+    -5px -5px 12px rgba(255, 255, 255, 0.04);
+}
+[data-theme='dark'] .neu-inset {
+  box-shadow:
+    inset 2px 2px 4px rgba(0, 0, 0, 0.35),
+    inset -2px -2px 4px rgba(255, 255, 255, 0.05);
+}
 
 // ============ 能力 chip 语义色 ============
 
@@ -305,18 +320,20 @@ onMounted(loadHooks)
     color: #6d28d9;
   }
   &.block {
-    background: rgba(220, 38, 38, 0.12);
-    color: #b91c1c;
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    color: var(--danger);
   }
   &.info {
     background: rgba(37, 99, 235, 0.12);
     color: #1d4ed8;
   }
   &.readonly {
-    background: rgba(36, 38, 45, 0.08);
-    color: fade(@ink, 50%);
+    background: color-mix(in srgb, var(--ink) 8%, transparent);
+    color: color-mix(in srgb, var(--ink) 68%, transparent);
   }
 }
+[data-theme='dark'] .cap-chip.action { background: rgba(139, 92, 246, 0.18); color: #c4b5fd; }
+[data-theme='dark'] .cap-chip.info { background: rgba(37, 99, 235, 0.2); color: #60a5fa; }
 
 // ============ 事件行（左右两列布局）============
 
@@ -352,7 +369,7 @@ onMounted(loadHooks)
 .ev-label {
   font-size: 13px;
   font-weight: 800;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -363,8 +380,8 @@ onMounted(loadHooks)
   font-weight: 600;
   padding: 1px 5px;
   border-radius: 3px;
-  background: rgba(36, 38, 45, 0.08);
-  color: fade(@ink, 50%);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   flex-shrink: 0;
 }
@@ -372,20 +389,20 @@ onMounted(loadHooks)
 .ev-desc {
   margin: 0;
   font-size: 11px;
-  color: fade(@ink, 65%);
+  color: color-mix(in srgb, var(--ink) 65%, transparent);
   line-height: 1.4;
 }
 
 .ev-matcher-hint {
   font-size: 10px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 10px;
     padding: 0 3px;
     border-radius: 3px;
-    background: rgba(255, 255, 255, 0.6);
-    color: fade(@ink, 70%);
+    background: var(--surface-soft);
+    color: color-mix(in srgb, var(--ink) 70%, transparent);
   }
 }
 
@@ -405,17 +422,17 @@ onMounted(loadHooks)
   gap: 6px;
   padding: 8px 10px;
   font-size: 11px;
-  color: fade(@ink, 45%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-style: italic;
   .empty-icon {
     font-size: 13px;
-    color: fade(@ink, 35%);
+    color: color-mix(in srgb, var(--ink) 35%, transparent);
   }
   .empty-text {
     font-weight: 600;
   }
   .empty-tip {
-    color: fade(@ink, 40%);
+    color: color-mix(in srgb, var(--ink) 62%, transparent);
     font-style: normal;
     &::before {
       content: '·';
@@ -447,12 +464,12 @@ onMounted(loadHooks)
   border-radius: 3px;
   font-size: 9px;
   font-weight: 600;
-  background: rgba(36, 38, 45, 0.06);
-  color: fade(@ink, 60%);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 9px;
-    color: fade(@ink, 80%);
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
     max-width: 80px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -473,13 +490,17 @@ onMounted(loadHooks)
     }
   }
 }
+[data-theme='dark'] .cond-chip.matcher { background: rgba(139, 92, 246, 0.16); color: #c4b5fd; }
+[data-theme='dark'] .cond-chip.matcher code { color: #c4b5fd; }
+[data-theme='dark'] .cond-chip.if { background: rgba(37, 99, 235, 0.18); color: #60a5fa; }
+[data-theme='dark'] .cond-chip.if code { color: #60a5fa; }
 
 .handler-cmd {
   flex: 1 1 0;
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -488,7 +509,7 @@ onMounted(loadHooks)
 .handler-timeout {
   font-size: 10px;
   font-weight: 600;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
   flex-shrink: 0;
 }
 
@@ -499,15 +520,15 @@ onMounted(loadHooks)
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: fade(@ink, 40%);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   &:hover {
-    color: #b91c1c;
-    background: rgba(185, 28, 28, 0.08);
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
   }
 }
 
@@ -538,7 +559,7 @@ onMounted(loadHooks)
 .guide-title {
   font-size: 13px;
   font-weight: 800;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .guide-body {
@@ -548,7 +569,7 @@ onMounted(loadHooks)
 .guide-text {
   margin: 0 0 6px;
   font-size: 12px;
-  color: fade(@ink, 70%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   line-height: 1.5;
 }
 
@@ -556,7 +577,7 @@ onMounted(loadHooks)
   margin: 0 0 8px;
   padding-left: 20px;
   font-size: 12px;
-  color: fade(@ink, 75%);
+  color: color-mix(in srgb, var(--ink) 75%, transparent);
   line-height: 1.7;
   li {
     margin-bottom: 2px;
@@ -566,20 +587,20 @@ onMounted(loadHooks)
     font-size: 11px;
     padding: 1px 4px;
     border-radius: 3px;
-    background: rgba(36, 38, 45, 0.08);
+    background: color-mix(in srgb, var(--ink) 8%, transparent);
   }
 }
 
 .guide-file {
   margin: 0;
   font-size: 11px;
-  color: fade(@ink, 55%);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
   code {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 11px;
     padding: 1px 4px;
     border-radius: 3px;
-    background: rgba(36, 38, 45, 0.08);
+    background: color-mix(in srgb, var(--ink) 8%, transparent);
   }
 }
 
@@ -588,7 +609,7 @@ onMounted(loadHooks)
 .brain-section {
   margin-top: 12px;
   padding: 10px 14px;
-  border-top: 1px dashed rgba(36, 38, 45, 0.12);
+  border-top: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
   flex-shrink: 0;
 }
 
@@ -596,13 +617,13 @@ onMounted(loadHooks)
   margin: 0 0 4px;
   font-size: 12px;
   font-weight: 700;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .brain-hint {
   margin: 0 0 8px;
   font-size: 11px;
-  color: fade(@ink, 55%);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .brain-tags {
@@ -617,11 +638,11 @@ onMounted(loadHooks)
   gap: 4px;
   padding: 3px 8px;
   border-radius: 4px;
-  background: rgba(36, 38, 45, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-size: 11px;
-  color: fade(@ink, 75%);
+  color: color-mix(in srgb, var(--ink) 75%, transparent);
   small {
-    color: fade(@ink, 50%);
+    color: color-mix(in srgb, var(--ink) 68%, transparent);
   }
 }
 </style>

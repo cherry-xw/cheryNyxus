@@ -59,8 +59,8 @@ function onCancel(): void {
      新拟物化（Neumorphism）：同色系背景 + 内外阴影 = 凸出/凹陷效果。 -->
 <style lang="less">
 .confirm-popover-popper.el-popover.el-popper {
-  --confirm-pop-bg: #e8e6e1;
-  --confirm-pop-border: rgba(80, 76, 69, 0.18);
+  --confirm-pop-bg: var(--panel);
+  --confirm-pop-border: var(--border);
   padding: 12px 14px;
   border: none;
   border-radius: 12px;
@@ -86,7 +86,7 @@ function onCancel(): void {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.5;
-  color: rgba(20, 22, 26, 0.84);
+  color: color-mix(in srgb, var(--ink) 84%, transparent);
   white-space: normal;
   word-break: break-all;
 }
@@ -95,7 +95,7 @@ function onCancel(): void {
   border: 1px solid var(--confirm-pop-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.28);
-  color: rgba(20, 22, 26, 0.64);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 11px;
   line-height: 1.5;
   p {
@@ -131,11 +131,11 @@ function onCancel(): void {
       inset -2px -2px 4px rgba(255, 255, 255, 0.5);
   }
   &.cancel {
-    color: rgba(20, 22, 26, 0.7);
+    color: color-mix(in srgb, var(--ink) 70%, transparent);
   }
   &.ok {
     // danger 保留红色文字标识，按钮本体仍 neumorphism 凸出
-    color: #b91c1c;
+    color: var(--danger);
     &:hover {
       color: #dc2626;
     }

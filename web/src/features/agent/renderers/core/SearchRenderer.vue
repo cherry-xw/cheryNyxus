@@ -153,18 +153,18 @@ const fallback = computed(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .search-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .search-head {
@@ -179,7 +179,7 @@ const fallback = computed(() => {
   .search-name {
     flex: 1;
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .search-mode {
@@ -225,7 +225,7 @@ const fallback = computed(() => {
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
-  color: fade(@ink, 56%);
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
 .search-query {
@@ -233,12 +233,12 @@ const fallback = computed(() => {
   min-width: 0;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .search-badge {
@@ -248,14 +248,14 @@ const fallback = computed(() => {
   font-size: 9px;
   font-weight: 700;
   background: rgba(168, 85, 247, 0.12);
-  color: #9333ea;
+  color: #2563eb;
 }
 
 .search-fallback {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
@@ -271,7 +271,7 @@ const fallback = computed(() => {
   padding: 2px 4px;
   border: none;
   background: transparent;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 10px;
   font-family: inherit;
   cursor: pointer;
@@ -279,7 +279,7 @@ const fallback = computed(() => {
   text-align: left;
 
   &:hover {
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .toggle-label {
@@ -300,7 +300,7 @@ const fallback = computed(() => {
 
 .result-count {
   font-size: 9px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
@@ -324,15 +324,15 @@ const fallback = computed(() => {
 .result-file {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10px;
+  color: var(--ink);
   color: #2563eb;
-  font-weight: 600;
   word-break: break-all;
 }
 
 .result-line {
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10px;
-  color: fade(@ink, 56%);
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
   flex-shrink: 0;
 }
 
@@ -341,7 +341,7 @@ const fallback = computed(() => {
   min-width: 0;
   margin-left: 6px;
   font-size: 10px;
-  color: fade(@ink, 70%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
 }

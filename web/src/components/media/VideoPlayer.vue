@@ -124,7 +124,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .video-player-overlay {
   position: fixed;
@@ -143,14 +143,14 @@ onBeforeUnmount(() => {
   width: min(720px, 92vw);
   border-radius: 12px;
   overflow: hidden;
-  background: #000;
+  background: #f6b73c;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
 }
 
 .video-player-el {
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: #000;
+  background: var(--ink);
   cursor: pointer;
 }
 
@@ -217,7 +217,6 @@ onBeforeUnmount(() => {
 .vp-progress-fill {
   height: 100%;
   background: #f6b73c;
-  border-radius: 2px;
   transition: width 80ms linear;
 }
 

@@ -400,7 +400,7 @@ function formatDateTime(iso: string | undefined): string {
 }
 .standalone-grid > .card {
   .neon-glass();
-  border-color: fade(@neon-indigo, 20%);
+  border-color: color-mix(in srgb, var(--neon-indigo) 20%, transparent);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -414,7 +414,7 @@ code {
   font-size: 11px;
   padding: 1px 4px;
   border-radius: 3px;
-  background: rgba(36, 38, 45, 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .fixed-search {
   flex: 1;
@@ -426,14 +426,14 @@ code {
   .search-status {
     flex: 0 0 auto;
     font-size: 10px;
-    color: fade(@ink, 48%);
+    color: color-mix(in srgb, var(--ink) 66%, transparent);
     font-variant-numeric: tabular-nums;
   }
 }
 .sect-hint {
   margin: 0 0 8px;
   font-size: 11px;
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
 .section {
   margin-bottom: 12px;
@@ -451,9 +451,9 @@ code {
 }
 .source-empty {
   padding: 14px 10px;
-  border: 1px dashed rgba(36, 38, 45, 0.12);
+  border: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 8px;
-  color: fade(@ink, 46%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 10px;
   text-align: center;
 }
@@ -467,7 +467,7 @@ code {
   gap: 7px;
   margin-top: 7px;
   font-size: 10px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .sync-btn {
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 42%, transparent);
@@ -483,8 +483,8 @@ code {
   margin: 0 0 6px;
   font-size: 12px;
   font-weight: 700;
-  color: fade(@ink, 70%);
-  border-bottom: 1px dashed rgba(36, 38, 45, 0.12);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
   padding-bottom: 3px;
 }
 .sect-head {
@@ -516,7 +516,7 @@ code {
   min-width: 0;
   font-size: 14px;
   font-weight: 800;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.35;
@@ -561,40 +561,40 @@ code {
   border-radius: 8px;
   cursor: default;
   &.system {
-    background: rgba(36, 38, 45, 0.08);
-    color: fade(@ink, 65%);
+    background: color-mix(in srgb, var(--ink) 8%, transparent);
+    color: color-mix(in srgb, var(--ink) 65%, transparent);
   }
   &.content {
-    background: rgba(246, 167, 30, 0.18);
-    color: #a97612;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent-ink);
   }
   &.branch {
-    background: rgba(190, 132, 28, 0.14);
-    color: #80560a;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-ink);
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   }
   &.warn {
-    background: rgba(246, 183, 60, 0.2);
-    color: #80560a;
-    border: 1px solid rgba(190, 132, 28, 0.4);
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent-ink);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   }
   &.ok {
-    background: rgba(22, 101, 52, 0.14);
-    color: #166534;
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
   }
 }
 .skill-body {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.5;
-  color: fade(@ink, 82%);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   word-break: break-word;
   display: flex;
   flex-direction: column;
   gap: 3px;
   .k {
     font-weight: 700;
-    color: fade(@ink, 88%);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
   }
 }
 .src-meta {
@@ -604,7 +604,7 @@ code {
   gap: 8px;
   margin-top: 4px;
   font-size: 11px;
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   .meta-item {
     display: inline-flex;
     align-items: center;
@@ -623,8 +623,8 @@ code {
   font-weight: 600;
   padding: 1px 8px;
   border-radius: 10px;
-  background: rgba(99, 102, 241, 0.14);
-  color: #4338ca;
+  background: color-mix(in srgb, var(--neon-indigo) 14%, transparent);
+  color: var(--neon-indigo);
   cursor: default;
 }
 .empty-card {
@@ -632,21 +632,21 @@ code {
   .empty-title {
     font-size: 14px;
     font-weight: 800;
-    color: fade(@ink, 80%);
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {
     margin-top: 6px;
     font-size: 11px;
-    color: fade(@ink, 60%);
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
 }
 .ghost-btn {
   height: 24px;
   padding: 0 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 80%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
   font-size: 11px;
   cursor: pointer;
   display: inline-flex;
@@ -655,8 +655,8 @@ code {
   gap: 4px;
   line-height: 1;
   &:hover:not(:disabled) {
-    background: #ffffff;
-    color: fade(@ink, 92%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
   }
   &:disabled {
     opacity: 0.45;

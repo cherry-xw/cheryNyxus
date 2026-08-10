@@ -103,16 +103,16 @@ function removeLogExtension(value: string): void {
 .extension-magazine button {
   height: 24px;
   padding: 2px 6px;
-  border: 1px solid rgba(139, 92, 246, 0.17);
+  border: 1px solid color-mix(in srgb, var(--neon-indigo) 30%, transparent);
   border-radius: 7px;
-  background: rgba(245, 243, 255, 0.78);
-  color: #6d28d9;
+  background: color-mix(in srgb, var(--neon-indigo) 14%, transparent);
+  color: color-mix(in srgb, var(--neon-indigo) 82%, var(--ink));
   font-size: 9px;
   cursor: pointer;
 }
 .extension-magazine .add-extension {
   border-style: dashed;
   background: transparent;
-  color: #6366f1;
+  color: var(--neon-indigo);
 }
 </style>

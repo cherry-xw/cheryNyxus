@@ -94,9 +94,9 @@ function setMode(value: string[] | undefined): void {
 @import '../config/shared.less';
 .equipment-slot {
   padding: 9px;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface-soft);
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -105,7 +105,7 @@ function setMode(value: string[] | undefined): void {
     box-shadow 0.15s ease;
 }
 .equipment-slot.overloaded {
-  border-color: rgba(190, 132, 28, 0.45);
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
 }
 .equipment-slot.disabled {
   opacity: 0.72;
@@ -127,7 +127,7 @@ function setMode(value: string[] | undefined): void {
 }
 .equipment-slot small {
   font-size: 10px;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .equipment-token {
   flex-shrink: 0;
@@ -142,15 +142,15 @@ function setMode(value: string[] | undefined): void {
 }
 .equipment-mode button {
   height: 25px;
-  border: 1px solid rgba(36, 38, 45, 0.13);
+  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
   border-radius: 7px;
-  background: #fff;
-  color: fade(@ink, 62%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-size: 10px;
   cursor: pointer;
 }
 .equipment-mode button.active {
-  background: color-mix(in srgb, var(--tab-color, @accent) 15%, #fff);
+  background: color-mix(in srgb, var(--tab-color, @accent) 15%, var(--surface));
   border-color: color-mix(in srgb, var(--tab-color, @accent) 48%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
   font-weight: 800;
@@ -173,6 +173,6 @@ function setMode(value: string[] | undefined): void {
 .equipment-warning {
   margin: 0;
   font-size: 10px;
-  color: #92590a;
+  color: var(--warning);
 }
 </style>

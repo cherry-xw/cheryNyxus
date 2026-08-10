@@ -167,7 +167,7 @@ const canHide = computed(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .pet-toolbar {
   display: inline-flex;
@@ -180,10 +180,11 @@ const canHide = computed(() => {
   width: 16px;
   height: 16px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #24262d;
+  // 不透明实底（var(--surface)），避免半透明 rgba 在 pet 场景上通透显浅
+  background: var(--surface);
+  color: var(--ink);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -191,16 +192,16 @@ const canHide = computed(() => {
   overflow: visible;
 
   &:hover {
-    background: #ffffff;
+    background: var(--surface-hover);
   }
 
   &:disabled {
-    color: fade(@ink, 32%);
-    background: rgba(255, 255, 255, 0.5);
+    color: color-mix(in srgb, var(--ink) 32%, transparent);
+    background: var(--surface-soft);
     cursor: not-allowed;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.5);
+      background: var(--surface-soft);
     }
 
     .tip {
@@ -239,8 +240,10 @@ const canHide = computed(() => {
     transform: translateX(-50%) scale(0.9);
     padding: 3px 7px;
     border-radius: 5px;
-    background: fade(@ink, 90%);
-    color: #fff;
+    border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
     font-size: 11px;
     font-weight: 700;
     line-height: 1.2;

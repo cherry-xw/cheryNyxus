@@ -493,16 +493,16 @@ defineExpose({
   left: 2px;
   right: 2px;
   border-radius: 4px;
-  background: rgba(36, 38, 45, 0.22);
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
   cursor: grab;
   pointer-events: auto; /* thumb 可拖 */
   transition: background 0.15s ease;
 }
 .vs-thumb:hover {
-  background: rgba(36, 38, 45, 0.38);
+  background: color-mix(in srgb, var(--ink) 38%, transparent);
 }
 .vs-thumb.is-dragging {
-  background: rgba(36, 38, 45, 0.5);
+  background: color-mix(in srgb, var(--ink) 50%, transparent);
   cursor: grabbing;
   transition: none; /* 拖拽中禁用过渡避免滞后 */
 }

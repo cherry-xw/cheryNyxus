@@ -192,8 +192,9 @@ const emit = defineEmits<{
 
 <style scoped lang="less">
 @import '@/styles/markdown.less';
+@import '@/styles/scrollbar.less';
 
-@ink: #14161a;
+@ink: var(--ink);
 
 .msg-row {
   display: flex;
@@ -215,7 +216,7 @@ const emit = defineEmits<{
   align-items: center;
   gap: 8px;
   margin: 12px 0 8px;
-  color: fade(@ink, 46%);
+  color: color-mix(in srgb, var(--ink) 46%, transparent);
   font-size: 10px;
   letter-spacing: 0.04em;
 
@@ -244,7 +245,7 @@ const emit = defineEmits<{
   justify-content: center;
   font-size: 14px;
   font-weight: 800;
-  color: #fff;
+  color: #7c3aed;
   user-select: none;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 
@@ -261,21 +262,20 @@ const emit = defineEmits<{
   max-width: 92%;
   padding: 6px 10px;
   border-radius: 10px;
-  background: #fbf9f4;
-  border: 1px solid rgba(36, 38, 45, 0.1);
+  background: var(--panel);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   word-break: break-word;
 
   &.role-user {
-    background: linear-gradient(135deg, #fff7e0, #ffe9b8);
+    background: color-mix(in srgb, var(--surface) 90%, var(--accent));
     border-color: rgba(246, 183, 60, 0.32);
   }
   &.is-compact-trigger {
-    background: linear-gradient(135deg, #fff6dc, #f8e9bb);
+    background: color-mix(in srgb, var(--surface) 90%, var(--accent));
     border-color: rgba(181, 126, 27, 0.42);
   }
   &.is-compact-summary {
-    background: linear-gradient(135deg, #f2f8f3, #e3f0e7);
+    background: color-mix(in srgb, var(--surface) 90%, var(--success));
     border-color: rgba(42, 117, 72, 0.28);
   }
 }
@@ -283,7 +283,7 @@ const emit = defineEmits<{
   margin-top: 3px;
   padding-top: 5px;
   border-top: 1px dashed rgba(70, 76, 86, 0.2);
-  color: #6b7280;
+  color: var(--ink);
   font-size: 10px;
   font-weight: 700;
 }
@@ -303,8 +303,8 @@ const emit = defineEmits<{
   padding: 1px 6px;
   border-radius: 999px;
   background: rgba(75, 108, 69, 0.12);
+  color: var(--ink);
   color: #456342;
-  font-size: 9.5px;
   font-weight: 700;
 }
 
@@ -322,14 +322,14 @@ const emit = defineEmits<{
   padding: 1px 4px;
   border: none;
   background: transparent;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-size: 10px;
   font-family: inherit;
   cursor: pointer;
   user-select: none;
 
   &:hover {
-    color: fade(@ink, 78%);
+    color: color-mix(in srgb, var(--ink) 78%, transparent);
   }
 }
 
@@ -346,22 +346,24 @@ const emit = defineEmits<{
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.05);
-  color: fade(@ink, 66%);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 9.5px;
   line-height: 1.45;
   white-space: pre-wrap;
   max-height: 220px;
   overflow: auto;
+  .inner-scrollbar(); /* 内层滚动：折叠思考过程，弱化滚动条 */
 }
 
 .content {
   font-size: 11.5px;
   line-height: 1.5;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   overflow: auto;
   max-height: 70vh;
+  .inner-scrollbar(); /* 内层滚动：长响应内容，弱化滚动条 */
   .md {
     .md-content();
   }
@@ -377,11 +379,12 @@ const emit = defineEmits<{
   display: inline-block;
   margin: 1px 3px 1px 0;
   padding: 1px 6px;
-  border: 1px solid rgba(190, 132, 28, 0.28);
+  border: 1px solid color-mix(in srgb, #b67c1c 32%, transparent);
   border-radius: 5px;
-  background: linear-gradient(135deg, rgba(255, 242, 195, 0.94), rgba(246, 183, 60, 0.14));
-  color: #76500e;
-  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  // 主题自适应 tag：随 --surface-soft 深/浅翻转，文字随 --ink 抬亮
+  // （原白→透明渐变 + 固定深褐字，深色下成白→黑过渡、两主题都不对）
+  background: color-mix(in srgb, #f6b73c 18%, var(--surface-soft));
+  color: color-mix(in srgb, #b67c1c 72%, var(--ink));
   font-size: 10.5px;
   font-weight: 700;
   line-height: 1.45;
@@ -389,9 +392,9 @@ const emit = defineEmits<{
 }
 
 .role-message-token {
-  border-color: rgba(70, 126, 202, 0.28);
-  background: linear-gradient(135deg, rgba(224, 239, 255, 0.94), rgba(70, 126, 202, 0.14));
-  color: #2f6fae;
+  border-color: color-mix(in srgb, #4682ca 32%, transparent);
+  background: color-mix(in srgb, #4682ca 18%, var(--surface-soft));
+  color: color-mix(in srgb, #4682ca 72%, var(--ink));
 }
 
 .sense-list {
@@ -406,7 +409,7 @@ const emit = defineEmits<{
   margin-left: auto;
   font-size: 10px;
   line-height: 1;
-  color: fade(@ink, 40%);
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   white-space: nowrap;
 }

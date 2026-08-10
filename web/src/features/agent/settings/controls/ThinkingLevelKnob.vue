@@ -410,22 +410,22 @@ onBeforeUnmount(() => {
   height: 72px; // 更高的放大镜 + 轨道 + 底部辅助按钮
   padding: 7px 9px;
   box-sizing: border-box;
-  border: 1px solid rgba(36, 38, 45, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   outline: none;
   user-select: none;
   touch-action: pan-y;
   overflow: hidden;
 
   &:focus-visible {
-    box-shadow: 0 0 0 2px fade(@accent, 45%);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
     border-radius: 6px;
   }
 }
 
 .thinking-knob-empty {
-  color: fade(@ink, 36%);
+  color: color-mix(in srgb, var(--ink) 36%, transparent);
   font-size: 11px;
   text-align: center;
   padding: 6px 0;
@@ -448,8 +448,8 @@ onBeforeUnmount(() => {
   padding: 0 3px;
   font-size: 10px;
   font-weight: 700;
-  color: fade(@ink, 60%);
-  background: rgba(255, 255, 255, 0.76);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
+  background: var(--surface-soft);
   border-radius: 3px;
   letter-spacing: 0.5px;
   pointer-events: none;
@@ -467,7 +467,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border: 1.5px solid var(--tab-color, @accent);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--surface);
   pointer-events: none;
   // 镜头深度：顶部高光 + 底部阴影 + 整体内阴影
   box-shadow:
@@ -485,7 +485,7 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  color: fade(@ink, 44%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   cursor: pointer;
   opacity: 0.7;
 
@@ -498,7 +498,7 @@ onBeforeUnmount(() => {
   }
 
   &:focus-visible {
-    outline: 2px solid fade(@accent, 45%);
+    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
     outline-offset: 1px;
   }
 
@@ -583,7 +583,7 @@ onBeforeUnmount(() => {
   left: -27px;
   width: 54px;
   height: 1px;
-  background: rgba(36, 38, 45, 0.18);
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
 
   &.active {
     background: @accent;
@@ -630,7 +630,7 @@ onBeforeUnmount(() => {
   left: -27px;
   width: 54px;
   height: 1px;
-  background: rgba(36, 38, 45, 0.15);
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
   pointer-events: none;
   z-index: 0;
 

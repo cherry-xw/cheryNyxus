@@ -146,7 +146,7 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 245, 230, 0.32);
   border-radius: 50%;
   color: #3d2606;
-  background: linear-gradient(135deg, rgba(255, 210, 122, 0.42), rgba(246, 183, 60, 0.3));
+  background: linear-gradient(135deg, rgba(255, 216, 130, 0.92), rgba(248, 190, 66, 0.86));
   backdrop-filter: blur(6px) saturate(1.15);
   -webkit-backdrop-filter: blur(6px) saturate(1.15);
   box-shadow:
@@ -159,8 +159,8 @@ onBeforeUnmount(() => {
     box-shadow 120ms linear;
 
   &:hover:not(:disabled) {
-    color: #5a3d0a;
-    background: linear-gradient(135deg, rgba(255, 233, 184, 0.68), rgba(255, 210, 122, 0.52));
+    color: #4a3008;
+    background: linear-gradient(135deg, rgba(255, 233, 184, 0.98), rgba(255, 213, 122, 0.94));
     box-shadow:
       0 0 0 1px rgba(255, 255, 255, 0.24),
       0 6px 16px rgba(0, 0, 0, 0.22);
@@ -176,6 +176,20 @@ onBeforeUnmount(() => {
   svg {
     width: 14px;
     height: 14px;
+  }
+}
+
+// 深色主题：暗橙底 + 白色 icon（浅色主题默认已用亮底 + 深色 icon）
+[data-theme='dark'] .ring-button {
+  color: #fff;
+  border-color: rgba(255, 245, 230, 0.2);
+  background: linear-gradient(135deg, rgba(74, 52, 22, 0.92), rgba(48, 34, 15, 0.92));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 4px 12px rgba(0, 0, 0, 0.4);
+  &:hover:not(:disabled) {
+    color: #fff;
+    background: linear-gradient(135deg, rgba(104, 72, 30, 0.94), rgba(70, 49, 21, 0.94));
   }
 }
 

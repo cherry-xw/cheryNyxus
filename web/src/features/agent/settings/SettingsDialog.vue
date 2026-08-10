@@ -12,8 +12,8 @@
  */
 import { computed, nextTick, onUnmounted, provide, readonly, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
-import { ArrowLeft, ArrowRight, Close, FolderOpened } from '@element-plus/icons-vue'
-import { useAgentsStore, useConnectionStore } from '@/stores'
+import { ArrowLeft, ArrowRight, Close, FolderOpened, Moon, Sunny } from '@element-plus/icons-vue'
+import { useAgentsStore, useConnectionStore, useThemeStore } from '@/stores'
 import {
   agentApi,
   type ConfigDto,
@@ -41,6 +41,7 @@ import SkeletonTab from './tabs/SkeletonTab.vue'
 const MotionDiv = motion.div
 const agents = useAgentsStore()
 const connection = useConnectionStore()
+const themeStore = useThemeStore()
 
 const draft = ref<ConfigDto | null>(null)
 const activeTab = ref<TabKey>('presets')
@@ -485,6 +486,23 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         <header class="head">
           <div class="title-row">
             <span class="title">设置</span>
+            <el-tooltip
+              :content="themeStore.theme === 'dark' ? '切换到浅色' : '切换到深色'"
+              placement="top"
+              :show-after="120"
+            >
+              <span class="tooltip-trigger">
+                <button
+                  type="button"
+                  class="icon-btn theme-btn"
+                  :aria-label="themeStore.theme === 'dark' ? '切换到浅色' : '切换到深色'"
+                  @click="themeStore.toggle()"
+                >
+                  <Sunny v-if="themeStore.theme === 'dark'" class="open-ico" />
+                  <Moon v-else class="open-ico" />
+                </button>
+              </span>
+            </el-tooltip>
             <el-tooltip content="打开配置文件夹" placement="top" :show-after="120">
               <span class="tooltip-trigger">
                 <button
@@ -672,7 +690,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(15, 17, 22, 0.42);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
 }
 
@@ -697,7 +715,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
       color-mix(in srgb, var(--tab-color, @accent) 11%, transparent),
       transparent 31%
     ),
-    rgba(248, 248, 252, 0.96);
+    color-mix(in srgb, var(--panel) 96%, transparent);
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 28%, transparent);
   box-shadow:
     0 18px 36px rgba(0, 0, 0, 0.28),
@@ -717,9 +735,9 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
     SFMono-Regular,
     Consolas,
     monospace;
-  color: #991b1b;
-  background: #fff3f3;
-  border: 1px solid rgba(185, 28, 28, 0.18);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
   border-radius: 8px;
   padding: 10px;
 }
@@ -736,7 +754,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   .title {
     font-size: 15px;
     font-weight: 800;
-    color: fade(@ink, 88%);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
   }
   .tooltip-trigger {
     display: inline-flex;
@@ -745,17 +763,17 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
     width: 24px;
     height: 24px;
     padding: 0;
-    border: 1px solid rgba(36, 38, 45, 0.16);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.7);
-    color: fade(@ink, 70%);
+    background: var(--surface-soft);
+    color: color-mix(in srgb, var(--ink) 82%, transparent);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     &:hover:not(:disabled) {
-      background: #ffffff;
-      color: fade(@ink, 88%);
+      background: var(--surface);
+      color: color-mix(in srgb, var(--ink) 92%, transparent);
     }
     &:disabled {
       opacity: 0.45;
@@ -772,17 +790,17 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 70%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   &:hover {
-    background: #ffffff;
-    color: fade(@ink, 88%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
   }
 }
 .close-ico {
@@ -793,7 +811,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 .tab-bar-wrap {
   position: relative;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(36, 38, 45, 0.12);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
 .tab-bar {
@@ -817,10 +835,10 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   z-index: 2;
   width: 22px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(251, 249, 244, 0.92);
-  color: fade(@ink, 70%);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -833,8 +851,8 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
     opacity: 1;
     pointer-events: auto;
     &:hover {
-      background: #ffffff;
-      color: fade(@ink, 88%);
+      background: var(--surface);
+      color: color-mix(in srgb, var(--ink) 92%, transparent);
     }
   }
   &.tab-arrow-left {
@@ -859,19 +877,19 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
-  color: fade(@ink, 78%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
   // 默认态轻显主题色（hover），非选中不发光；active 满色 + conic 转圈边框（签名克制）
   // 主题色统一混入 @ink 28% 提对比，避免浅色（金黄/青/翠绿）在淡底上对比度不足
   &:hover {
-    color: color-mix(in srgb, var(--tab-color, @accent) 78%, @ink);
+    color: color-mix(in srgb, var(--tab-color, @accent) 85%, @ink);
     background: color-mix(in srgb, var(--tab-color, @accent) 8%, transparent);
   }
   &.active {
     background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
-    color: color-mix(in srgb, var(--tab-color, @accent) 72%, @ink);
+    color: color-mix(in srgb, var(--tab-color, @accent) 80%, @ink);
     font-weight: 700;
     box-shadow: 0 0 12px color-mix(in srgb, var(--tab-color, @accent) 28%, transparent);
     // conic 转圈边框：伪元素 mask 镂空，只让 1px 边框显 conic 渐变并旋转
@@ -912,8 +930,8 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 .error-row {
   padding: 6px 8px;
   border-radius: 6px;
-  background: #fee2e2;
-  color: #991b1b;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
   font-size: 11px;
   line-height: 1.4;
   word-break: break-word;
@@ -926,17 +944,17 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   gap: 8px;
   padding: 6px 8px;
   border-radius: 6px;
-  background: #dcfce7;
-  color: #166534;
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
   font-size: 11px;
   &.waiting {
-    background: #fdf6ec;
-    color: #e6a23c;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--warning);
   }
 }
 
 .wait-elapsed {
-  color: #c9933e;
+  color: color-mix(in srgb, var(--warning) 70%, transparent);
   font-variant-numeric: tabular-nums;
 }
 
@@ -946,7 +964,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   align-items: center;
   gap: 8px;
   padding-top: 6px;
-  border-top: 1px solid rgba(36, 38, 45, 0.1);
+  border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
 }
 
 .foot-left {
@@ -970,15 +988,15 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 
 .ghost-btn {
   padding: 6px 12px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 80%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-size: 12px;
   cursor: pointer;
   &:hover:not(:disabled) {
-    background: #ffffff;
-    color: fade(@ink, 92%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 94%, transparent);
   }
   &:disabled {
     opacity: 0.45;

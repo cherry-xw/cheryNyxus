@@ -12,12 +12,16 @@ import ConversationTargetPicker from '../dialog/ConversationTargetPicker.vue'
 import WorkspaceSessionBrowser from '../dialog/WorkspaceSessionBrowser.vue'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
+import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
+import ContextUsageBar from '../drawer/ContextUsageBar.vue'
+import { agentApi, type ContextBreakdown, type PromptSnapshotTool } from '@/services/agentApi'
 import { useAgentDialogOptions } from '../dialog/useAgentDialogOptions'
 import {
   useWorkbenchWindow,
   type ResizeDirection,
 } from '../dialog/useWorkbenchWindow'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 import MessageBranchTree from '@/features/pets/nyxus/components/MessageBranchTree.vue'
 import NyxusPianoStrip from '@/features/pets/nyxus/components/NyxusPianoStrip.vue'
@@ -129,17 +133,19 @@ const {
   shellStyle: workbenchShellStyle,
 } = workbenchWindow
 const resizeDirections: ResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
-const WORKBENCH_RAIL_RESERVE = 148
 /** 节点树实例 ref：最大化/窗口切换时显式触发复位，确保画布按新视口重排（RO 对瞬时全屏切换并不可靠）。 */
 const branchTreeRef = ref<{ resetLayout: () => void } | null>(null)
 function workbenchDrawerAnchor() {
   const rect = workbenchShellRef.value?.getBoundingClientRect()
   if (!rect) return null
+  // 完全参考「待处理交互抽屉」：从标题栏（40px）下方起始、铺满内容区全宽，
+  // 使历史抽屉盖住右侧 rail 按钮；标题栏窗口控制按钮（关闭/最大化/最小化）保持可用。
+  const TITLEBAR_H = 40
   return {
-    top: rect.top,
+    top: rect.top + TITLEBAR_H,
     left: rect.left,
-    width: Math.max(0, rect.width - WORKBENCH_RAIL_RESERVE),
-    height: rect.height,
+    width: rect.width,
+    height: Math.max(0, rect.height - TITLEBAR_H),
   }
 }
 function syncWorkbenchDrawerAnchor(): void {
@@ -341,6 +347,17 @@ function toggleWorkspaceBrowser(mode: 'attention'): void {
   agents.closeAllHistory()
   workspaceBrowserMode.value = workspaceBrowserMode.value === mode ? undefined : mode
 }
+/** 抽屉为 modal：遮罩点击/✕/ESC 关闭，关闭前底层内容不可交互。 */
+function onWorkspaceDrawerKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && workspaceBrowserMode.value) {
+    e.preventDefault()
+    toggleWorkspaceBrowser('attention')
+  }
+}
+watch(workspaceBrowserMode, (open) => {
+  if (open) window.addEventListener('keydown', onWorkspaceDrawerKeydown)
+  else window.removeEventListener('keydown', onWorkspaceDrawerKeydown)
+})
 /** 点击 popout/按钮之外 → 关闭（配置面板点外部关闭）。 */
 function onRoleOutsidePointerDown(e: PointerEvent): void {
   const t = e.target as HTMLElement | null
@@ -706,6 +723,7 @@ onBeforeUnmount(() => {
   if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
   if (foldCloseTimer) clearTimeout(foldCloseTimer)
   window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
+  window.removeEventListener('keydown', onWorkspaceDrawerKeydown)
 })
 
 /** 颜色分级（与 SessionList / HistoryDrawerPanel / ContextBar 对齐：<50% 绿 / 50-80% 黄 / >=80% 红）。 */
@@ -736,6 +754,82 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
 
 /** dialog-head 工作区模式：workspace 有值时 pet name 前 📁（路径失效改 ⚠ 红色），hover 显全路径。无 workspace 纯文本。 */
 const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
+
+// ── 节点树工作台上下文占用 ──
+// Nyxus 会话不建 PetInstance，不走 pet.contextUsage。session 的 context.contextUsage/contextBreakdown
+// 仅在会话发生 stream.done 后水合（树模式 observeRootTimeline 走 rootTimelines，不水合 sessionsById），
+// 故对刚加载的历史树可能为空 → 显式调 chat.contextUsage RPC 拉取权威快照兜底。
+const rootSessionData = useChatSessionData(() => treeRootChatId.value || undefined)
+const treeCtxUsage = ref<{ usage: number; breakdown: ContextBreakdown | null }>({
+  usage: 0,
+  breakdown: null,
+})
+let treeCtxUsageChatId = ''
+async function loadTreeContextUsage(chatId: string): Promise<void> {
+  if (treeCtxUsageChatId === chatId) return
+  treeCtxUsageChatId = chatId
+  try {
+    const res = await agentApi.contextUsage(chatId)
+    if (treeCtxUsageChatId === chatId) {
+      treeCtxUsage.value = { usage: res.contextUsage, breakdown: res.contextBreakdown }
+    }
+  } catch {
+    // 拉取失败保持当前值；session 水合后仍可实时补上
+  }
+}
+watch(
+  treeRootChatId,
+  (id) => {
+    if (id) void loadTreeContextUsage(id)
+  },
+  { immediate: true },
+)
+// 实时 session 数据优先；未水合（undefined/null）时退回 RPC 快照。
+const treeUsage = computed(() => rootSessionData.contextUsage.value ?? treeCtxUsage.value.usage) // 0-1
+const treeUsagePct = computed(() => Math.round(treeUsage.value * 100)) // 「看上下文」按钮 tooltip 用
+const treeBreakdown = computed(
+  () => rootSessionData.contextBreakdown.value ?? treeCtxUsage.value.breakdown,
+)
+
+/**
+ * 系统提示词快照（「看上下文」按钮 hover 面板用）。
+ * 懒加载：点击「看上下文」才拉取 chat.promptSnapshot；按 chatId 缓存避免重复请求。
+ * treeRootChatId 切换（切根）时重拉。
+ */
+const treePromptSnap = ref<{
+  systemPrompt: string
+  tools: PromptSnapshotTool[]
+  status: 'idle' | 'loading' | 'error' | 'loaded'
+  error?: string
+} | null>(null)
+let treePromptSnapChatId = ''
+
+async function loadTreePromptSnapshot(chatId: string): Promise<void> {
+  if (treePromptSnapChatId === chatId && treePromptSnap.value && treePromptSnap.value.status !== 'error')
+    return
+  treePromptSnapChatId = chatId
+  treePromptSnap.value = { systemPrompt: '', tools: [], status: 'loading' }
+  try {
+    const res = await agentApi.promptSnapshot(chatId)
+    if (treePromptSnapChatId === chatId) {
+      treePromptSnap.value = { systemPrompt: res.systemPrompt, tools: res.tools, status: 'loaded' }
+    }
+  } catch (err) {
+    if (treePromptSnapChatId === chatId) {
+      treePromptSnap.value = {
+        systemPrompt: '',
+        tools: [],
+        status: 'error',
+        error: (err as Error).message,
+      }
+    }
+  }
+}
+
+function onTreePromptSnapShow(): void {
+  if (!treeRootChatId.value) return
+  void loadTreePromptSnapshot(treeRootChatId.value)
+}
 </script>
 
 <template>
@@ -754,6 +848,8 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         '--nx-z-composer': NYXUS_WORKBENCH_Z_INDEX.composer,
         '--nx-z-blocking-interaction': NYXUS_WORKBENCH_Z_INDEX.blockingInteraction,
         '--nx-z-chrome': NYXUS_WORKBENCH_Z_INDEX.chrome,
+        '--nx-z-drawer-mask': NYXUS_WORKBENCH_Z_INDEX.drawerMask,
+        '--nx-z-drawer': NYXUS_WORKBENCH_Z_INDEX.drawer,
       }"
       :class="{
         'is-top-mask': isTopMask && !isWorkbench,
@@ -827,6 +923,14 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           </button>
         </div>
       </header>
+
+      <div v-if="treeRootChatId" class="workbench-ctx-bar">
+        <ContextUsageBar
+          :usage="treeUsage"
+          :breakdown="treeBreakdown"
+          variant="divider"
+        />
+      </div>
 
       <Transition name="nyxus-composer">
         <section
@@ -1060,6 +1164,32 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
               <span aria-hidden="true">▥</span>
             </button>
           </div>
+          <el-popover
+            trigger="click"
+            placement="left"
+            :width="460"
+            popper-class="prompt-snapshot-popper"
+            @show="onTreePromptSnapShow"
+          >
+            <template #reference>
+              <button
+                type="button"
+                class="nyxus-rail-action"
+                :disabled="!chatId"
+                aria-label="上下文"
+                :title="`查看上下文 · ${treeUsagePct}%`"
+              >
+                <span aria-hidden="true">◍</span>
+              </button>
+            </template>
+            <PromptSnapshotTip
+              v-if="treePromptSnap"
+              :system-prompt="treePromptSnap.systemPrompt"
+              :tools="treePromptSnap.tools"
+              :status="treePromptSnap.status"
+              :error="treePromptSnap.error"
+            />
+          </el-popover>
         </div>
         <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
           <button
@@ -1109,22 +1239,6 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           </div>
         </div>
         </div>
-        <AnimatePresence>
-          <MotionDiv
-            v-if="workspaceBrowserMode"
-            key="workspace-browser-popout"
-            class="nyxus-workspace-browser-popout"
-            :initial="{ opacity: 0, transform: 'translateX(18px) translateY(-50%) scale(0.96)' }"
-            :animate="{ opacity: 1, transform: 'translateX(0) translateY(-50%) scale(1)' }"
-            :exit="{ opacity: 0, transform: 'translateX(14px) translateY(-50%) scale(0.97)' }"
-            :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
-          >
-            <WorkspaceSessionBrowser
-              :sessions="workspaceChats"
-              @tree="openWorkspaceTree"
-            />
-          </MotionDiv>
-        </AnimatePresence>
         <AnimatePresence>
           <MotionDiv
             v-if="pianoOpen"
@@ -1181,6 +1295,51 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
           </MotionDiv>
         </AnimatePresence>
       </nav>
+      <AnimatePresence>
+        <MotionDiv
+          v-if="workspaceBrowserMode"
+          key="workspace-drawer-mask"
+          class="workspace-drawer-mask"
+          aria-hidden="true"
+          :initial="{ opacity: 0 }"
+          :animate="{ opacity: 1 }"
+          :exit="{ opacity: 0 }"
+          :transition="{ duration: 0.18 }"
+          @click="toggleWorkspaceBrowser('attention')"
+        />
+        <MotionDiv
+          v-if="workspaceBrowserMode"
+          key="workspace-drawer"
+          class="workspace-drawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="待处理交互"
+          :initial="{ transform: 'translateX(100%)' }"
+          :animate="{ transform: 'translateX(0)' }"
+          :exit="{ transform: 'translateX(100%)' }"
+          :transition="{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }"
+        >
+          <header class="workspace-drawer-head">
+            <strong>待处理交互</strong>
+            <span v-if="workspaceAttentionCount">{{ workspaceAttentionCount }} 项待处理</span>
+            <button
+              type="button"
+              class="workspace-drawer-close"
+              aria-label="关闭待处理交互"
+              title="关闭"
+              @click="toggleWorkspaceBrowser('attention')"
+            >
+              ✕
+            </button>
+          </header>
+          <div class="workspace-drawer-body">
+            <WorkspaceSessionBrowser
+              :sessions="workspaceChats"
+              @tree="openWorkspaceTree"
+            />
+          </div>
+        </MotionDiv>
+      </AnimatePresence>
       <template v-if="workbenchMode === 'window'">
         <span
           v-for="direction in resizeDirections"
@@ -1453,10 +1612,10 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 .history-keys-btn {
   width: 30px;
   height: 30px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #50535b;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   cursor: pointer;
 }
 .history-keys-btn.is-active {
@@ -1958,20 +2117,89 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   font-size: 8px;
   line-height: 15px;
 }
-.nyxus-workspace-browser-popout {
+.workspace-drawer-mask {
   position: absolute;
-  right: calc(100% + 8px);
-  top: 50%;
-  width: min(620px, calc(100vw - 190px));
-  max-height: min(72vh, 680px);
-  overflow: hidden;
+  z-index: var(--nx-z-drawer-mask);
+  inset: 40px 0 0 0; /* 从标题栏下方开始，永遮不住上方关闭/最大化/最小化按钮 */
+  background: rgba(2, 8, 12, 0.5);
+  backdrop-filter: blur(2px);
   pointer-events: auto;
-  border: 1px solid rgba(138, 211, 228, 0.24);
-  border-radius: 12px;
-  color: #252932;
-  background: rgba(251, 249, 244, 0.98);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.38);
-  transform-origin: right center;
+}
+// 右侧抽屉：内容区内部满高，盖住右侧 rail 与 ctx-bar，遮罩之下须关闭抽屉才能继续使用。
+.workspace-drawer {
+  position: absolute;
+  z-index: var(--nx-z-drawer);
+  top: 40px;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 72%);
+  display: flex;
+  flex-direction: column;
+  color: var(--ink);
+  background: var(--panel);
+  border-left: 1px solid rgba(138, 211, 228, 0.2);
+  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+.workspace-drawer-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid rgba(138, 211, 228, 0.14);
+}
+.workspace-drawer-head strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.workspace-drawer-head span {
+  flex: 1;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-size: 10px;
+}
+.workspace-drawer-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    color 100ms ease,
+    background-color 100ms ease;
+}
+.workspace-drawer-close:hover,
+.workspace-drawer-close:focus-visible {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.workspace-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+// 抽屉内复用 WorkspaceSessionBrowser：隐藏其自带 header（计数移至抽屉头），列表撑满滚动。
+.workspace-drawer :deep(.workspace-browser) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workspace-drawer :deep(.browser-head) {
+  display: none;
+}
+.workspace-drawer :deep(.browser-list) {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 .nyxus-piano-popout :deep(.piano-keyboard) {
   position: relative;
@@ -2030,6 +2258,17 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   align-items: center;
   justify-content: center;
   pointer-events: none;
+}
+
+// 节点树上下文占用条：定位容器（标题栏下方 40px 处，分割线位置）。
+// 视觉由共享组件 ContextUsageBar variant="divider" 渲染：默认仅 4px 细线
+// （track 底色即分割线，无数据也可见）；hover 时条变宽并展开图例/数值。
+.workbench-ctx-bar {
+  position: absolute;
+  z-index: var(--nx-z-chrome);
+  top: 40px;
+  right: 0;
+  left: 0;
 }
 
 .nyxus-branch-top :deep(.tree-viewport) {
@@ -2309,7 +2548,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   cursor: pointer;
   font-size: 12px;
   font-weight: 550;
-  color: #14161a;
+  color: var(--ink);
   transition: background-color 100ms ease;
 
   &:hover {
@@ -2344,11 +2583,11 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   gap: 5px;
   width: 248px;
   padding: 8px 9px;
-  border: 1px solid rgba(35, 38, 44, 0.14);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #fffdf8;
+  background: var(--surface-hover);
   box-shadow: 0 7px 18px rgba(20, 22, 26, 0.18);
-  color: #14161a;
+  color: var(--ink);
   font-size: 10.5px;
   font-weight: 500;
   line-height: 1.45;
@@ -2362,7 +2601,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 }
 
 .instruction-token-floating-description {
-  color: rgba(20, 22, 26, 0.76);
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
 }
 
 .instruction-token-floating-meta {
@@ -2370,8 +2609,8 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   align-items: center;
   justify-content: space-between;
   padding-top: 5px;
-  border-top: 1px solid rgba(35, 38, 44, 0.1);
-  color: #8c6114;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--accent-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
   font-weight: 700;

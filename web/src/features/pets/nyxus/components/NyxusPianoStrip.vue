@@ -460,20 +460,18 @@ onScopeDispose(() => {
 <template>
   <div ref="keyboardRef" class="piano-keyboard">
     <header class="piano-panel-head">
+      <button
+        type="button"
+        class="piano-panel-action"
+        :class="{ 'is-active': audio.muted.value }"
+        :aria-label="audio.muted.value ? '开启琴键音' : '静音琴键音'"
+        :title="audio.muted.value ? '开启琴键音' : '静音琴键音'"
+        :aria-pressed="audio.muted.value"
+        @click="audio.toggleMute"
+      >
+        <span aria-hidden="true">{{ audio.muted.value ? '∅' : '♪' }}</span>
+      </button>
       <span class="piano-panel-title">{{ (presetName || 'PRESET').toUpperCase() }} · SESSION KEYS</span>
-      <span class="piano-panel-actions">
-        <button
-          type="button"
-          class="piano-panel-action"
-          :class="{ 'is-active': audio.muted.value }"
-          :aria-label="audio.muted.value ? '开启琴键音' : '静音琴键音'"
-          :title="audio.muted.value ? '开启琴键音' : '静音琴键音'"
-          :aria-pressed="audio.muted.value"
-          @click="audio.toggleMute"
-        >
-          <span aria-hidden="true">{{ audio.muted.value ? '∅' : '♪' }}</span>
-        </button>
-      </span>
     </header>
     <!-- 自适应垃圾桶：interact 时滑到焦点键附近顶行，idle 回右上角。 -->
     <span
@@ -605,12 +603,14 @@ onScopeDispose(() => {
   height: 28px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 6px;
   padding: 0 2px 0 5px;
   box-sizing: border-box;
 }
 .piano-panel-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: rgba(255, 230, 177, 0.76);
   font:
@@ -622,12 +622,6 @@ onScopeDispose(() => {
   letter-spacing: 0.13em;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.piano-panel-actions {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 .piano-panel-action,
 .piano-trash-target {

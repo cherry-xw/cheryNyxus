@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore, useThemeStore } from '@/stores'
 import type { ExecutionFoldMember } from '../graph/executionGraph'
 import {
   FOLD_WHEEL_LAYER_CAPACITY,
@@ -23,6 +23,7 @@ const emit = defineEmits<{
   interaction: [active: boolean]
 }>()
 const agents = useAgentsStore()
+const themeStore = useThemeStore()
 
 const WHEEL_THRESHOLD = 46
 const ANIMATION_MS = 220
@@ -37,7 +38,7 @@ type MemberSlot = FoldWheelSlot<ExecutionFoldMember>
 type FoldTab = ReturnType<typeof foldTabForMember>
 
 function displayTab(member: ExecutionFoldMember): FoldTab {
-  const tab = foldTabForMember(member)
+  const tab = foldTabForMember(member, themeStore.theme)
   const call = toolBatchDetail(member.displayNode)?.calls[0]
   if (!call) return tab
   const meta = agents.senseTools.find((tool) => tool.name === call.name)

@@ -1,7 +1,8 @@
 // Settings 面板共享 less：变量 + 通用 class。
 // 各组件 <style scoped> 内 @import 此文件，class 会带上该组件 data-v（ scoped 隔离），源码集中维护避免重复。
-@ink: #14161a;
-@accent: #f6b73c; // 暖橙强调色：金色系主色，box-shadow / border / hover 描边共用
+// 颜色引用全局 token（theme.css）：@ink 主文字、@accent 暖橙强调。
+@ink: var(--ink);
+@accent: var(--accent); // 暖橙强调色：金色系主色，box-shadow / border / hover 描边共用
 @import "./neon.less"; // 霓虹赛博视觉系统：色板/mixin/keyframes（灯条/转圈边框/modal）
 
 .sect {
@@ -11,7 +12,7 @@
 }
 .sect-hint {
   margin: 0;
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 74%, transparent);
   font-size: 11px;
   line-height: 1.5;
   // 骨架模式：覆盖为 shimmer 占位条；保持 .sect-hint 同样字号行高 → 计算高度一致。
@@ -20,9 +21,9 @@
     border-radius: 4px;
     background: linear-gradient(
       90deg,
-      rgba(36, 38, 45, 0.05),
-      rgba(36, 38, 45, 0.13),
-      rgba(36, 38, 45, 0.05)
+      color-mix(in srgb, var(--ink) 5%, transparent),
+      color-mix(in srgb, var(--ink) 13%, transparent),
+      color-mix(in srgb, var(--ink) 5%, transparent)
     );
     background-size: 200% 100%;
     animation: skel-shimmer 1.4s linear infinite;
@@ -44,9 +45,9 @@
     border-radius: 4px;
     background: linear-gradient(
       90deg,
-      rgba(36, 38, 45, 0.05),
-      rgba(36, 38, 45, 0.13),
-      rgba(36, 38, 45, 0.05)
+      color-mix(in srgb, var(--ink) 5%, transparent),
+      color-mix(in srgb, var(--ink) 13%, transparent),
+      color-mix(in srgb, var(--ink) 5%, transparent)
     );
     background-size: 200% 100%;
     animation: skel-shimmer 1.4s linear infinite;
@@ -55,9 +56,9 @@
 .card {
   position: relative;
   padding: 10px;
-  border: 1px solid rgba(36, 38, 45, 0.14);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--surface-soft);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -95,7 +96,7 @@
   .card-name {
     font-size: 17px;
     font-weight: 800;
-    color: fade(@ink, 88%);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
     &.editable {
       cursor: pointer;
       &:hover {
@@ -126,31 +127,31 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.2);
+  border: 1px solid var(--border-strong);
   border-radius: 5px;
-  background: #ffffff;
-  color: fade(@ink, 70%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   &.ok {
-    color: #166534;
-    border-color: rgba(22, 101, 52, 0.3);
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 30%, transparent);
   }
   &.danger {
-    color: #991b1b;
-    border-color: rgba(185, 28, 28, 0.3);
-    background: #fee2e2;
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
     &:hover {
-      background: #fecaca;
+      background: color-mix(in srgb, var(--danger) 18%, transparent);
     }
   }
   &:hover {
-    background: #f5f5f0;
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
   }
   &.danger:hover {
-    background: #fecaca;
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
   }
 }
 .ico {
@@ -167,21 +168,21 @@
 }
 // 失败 pill：刷新/检查失败标记（红）
 .badge.fail {
-  background: rgba(185, 28, 28, 0.14);
-  color: #b91c1c;
-  border: 1px solid rgba(185, 28, 28, 0.3);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
 }
 // 整卡可点击（Git 来源 / 插件 updateAvailable 卡）；卡片内按钮用 @click.stop 隔离。
 .card.clickable {
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
   &:hover {
-    background: rgba(255, 255, 255, 0.92);
-    border-color: rgba(36, 38, 45, 0.22);
-    box-shadow: 0 1px 2px rgba(36, 38, 45, 0.04);
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent);
   }
   &:active {
-    background: rgba(255, 255, 255, 0.8);
+    background: color-mix(in srgb, var(--surface-hover) 88%, var(--surface));
   }
 }
 .card-grid {
@@ -224,11 +225,11 @@
 .lbl {
   font-size: 11px;
   font-weight: 700;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
 }
 .hint {
   font-size: 10px;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
   line-height: 1.4;
 }
 .chk-list {
@@ -238,7 +239,7 @@
 }
 .empty {
   font-size: 11px;
-  color: fade(@ink, 40%);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-style: italic;
 }
 .add-row {
@@ -251,10 +252,10 @@
 .link-btn {
   align-self: flex-start;
   padding: 4px 8px;
-  border: 1px dashed rgba(36, 38, 45, 0.3);
+  border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent);
   border-radius: 6px;
   background: transparent;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
   font-size: 11px;
   cursor: pointer;
   &:hover {
@@ -264,14 +265,14 @@
 }
 .ghost-btn {
   padding: 5px 12px;
-  border: 1px solid rgba(36, 38, 45, 0.2);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #ffffff;
-  color: fade(@ink, 78%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-size: 12px;
   cursor: pointer;
   &:hover {
-    border-color: fade(@ink, 40%);
+    border-color: color-mix(in srgb, var(--ink) 40%, transparent);
   }
 }
 
@@ -287,7 +288,7 @@
   flex-direction: column;
   gap: 6px;
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(36, 38, 45, 0.08);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .shell-hints {
   display: flex;
@@ -311,10 +312,10 @@
   height: 18px;
   padding: 0 5px;
   box-sizing: border-box;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.6);
-  color: fade(@ink, 62%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -366,9 +367,9 @@
   border-radius: 4px;
   background: linear-gradient(
     90deg,
-    rgba(36, 38, 45, 0.05),
-    rgba(36, 38, 45, 0.13),
-    rgba(36, 38, 45, 0.05)
+    color-mix(in srgb, var(--ink) 5%, transparent),
+    color-mix(in srgb, var(--ink) 13%, transparent),
+    color-mix(in srgb, var(--ink) 5%, transparent)
   );
   background-size: 200% 100%;
   animation: skel-shimmer 1.4s linear infinite;
@@ -389,7 +390,7 @@
 
 .skel-tile {
   border-radius: 5px;
-  background: rgba(36, 38, 45, 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   animation: skel-pulse 1.4s ease-in-out infinite;
 }
 
@@ -410,7 +411,7 @@
   min-width: 16px;
   height: 16px;
   border-radius: 999px;
-  background: rgba(36, 38, 45, 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   animation: skel-pulse 1.4s ease-in-out infinite;
 }
 
@@ -427,7 +428,7 @@
   margin: 10px 0 0;
   font-size: 13px;
   font-weight: 800;
-  color: fade(@ink, 84%);
+  color: color-mix(in srgb, var(--ink) 90%, transparent);
   letter-spacing: 0.01em;
 }
 
@@ -439,10 +440,10 @@
   min-width: 18px;
   height: 18px;
   padding: 0 4px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.6);
-  color: fade(@ink, 62%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
   font-size: 10px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -458,7 +459,7 @@
 }
 .shell-index-page-info {
   font-size: 10px;
-  color: fade(@ink, 45%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   margin: 0 2px;
   white-space: nowrap;
 }
@@ -481,14 +482,14 @@
   padding: 0 6px;
   height: 22px;
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.08);
-  color: #4338ca;
+  background: color-mix(in srgb, var(--neon-indigo) 8%, transparent);
+  color: var(--neon-indigo);
   font-size: 10px;
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s ease;
   &:hover {
-    background: rgba(99, 102, 241, 0.18);
+    background: color-mix(in srgb, var(--neon-indigo) 18%, transparent);
   }
 }
 .tag-select-input {
@@ -507,12 +508,12 @@
   padding: 1px 6px;
   border-radius: 8px;
   &.warn {
-    background: rgba(246, 183, 60, 0.2);
-    color: #80560a;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
   }
   &.danger {
-    background: rgba(185, 28, 28, 0.14);
-    color: #b91c1c;
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    color: var(--danger);
     animation: token-pulse 1.4s ease-in-out infinite;
   }
 }
@@ -532,17 +533,17 @@
   align-items: center;
   padding: 2px 10px;
   height: 24px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 70%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
   &:hover {
     border-color: color-mix(in srgb, var(--tab-color, @accent) 45%, transparent);
-    color: fade(@ink, 88%);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
   }
   &.active {
     background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
@@ -559,9 +560,9 @@
   gap: 8px;
   padding-left: 28px;
   font-size: 11px;
-  color: fade(@ink, 55%);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
   .brain-summary-sep {
-    color: fade(@ink, 25%);
+    color: color-mix(in srgb, var(--ink) 25%, transparent);
   }
 }
 .brain-detail {
@@ -606,9 +607,9 @@
   border-radius: 50%;
   animation: confetti-fall 0.6s ease-out forwards;
   &:nth-child(1) { background: @accent; left: -8px; animation-delay: 0s; }
-  &:nth-child(2) { background: #4338ca; left: 0; animation-delay: 0.05s; }
-  &:nth-child(3) { background: #166534; left: 8px; animation-delay: 0.1s; }
-  &:nth-child(4) { background: #b91c1c; left: 16px; animation-delay: 0.15s; }
+  &:nth-child(2) { background: var(--neon-indigo); left: 0; animation-delay: 0.05s; }
+  &:nth-child(3) { background: var(--success); left: 8px; animation-delay: 0.1s; }
+  &:nth-child(4) { background: var(--danger); left: 16px; animation-delay: 0.15s; }
 }
 @keyframes confetti-fall {
   0% { transform: translateY(0) scale(1); opacity: 1; }

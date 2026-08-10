@@ -103,7 +103,7 @@ watch(
   flex-direction: column;
   border: 1px solid rgba(129, 140, 248, 0.16);
   border-radius: 12px;
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.58), rgba(238, 242, 255, 0.38));
+  background: linear-gradient(155deg, var(--surface-soft), var(--surface));
   backdrop-filter: blur(14px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.66),
@@ -114,7 +114,7 @@ watch(
   display: flex;
   gap: 5px;
   padding: 7px;
-  border-bottom: 1px solid rgba(36, 38, 45, 0.08);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .resource-rail-list {
   min-height: 0;
@@ -152,7 +152,7 @@ watch(
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
-  color: fade(@ink, 76%);
+  color: color-mix(in srgb, var(--ink) 76%, transparent);
   text-align: left;
   cursor: pointer;
   transition:
@@ -177,7 +177,7 @@ watch(
     0 0 14px rgba(168, 85, 247, 0.65);
 }
 .resource-rail-card:hover {
-  background: rgba(255, 255, 255, 0.46);
+  background: var(--surface-hover);
   transform: translateX(3px) rotate(-0.25deg);
 }
 .resource-rail-card:nth-child(even):hover {
@@ -211,6 +211,9 @@ watch(
   color: #4338ca;
   text-shadow: 0 0 9px rgba(99, 102, 241, 0.3);
 }
+[data-theme='dark'] .resource-rail-card.active .resource-copy b {
+  color: #a5b4fc;
+}
 .resource-rail-card.active .resource-copy b::after {
   content: '';
   position: absolute;
@@ -230,10 +233,10 @@ watch(
   padding: 5px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(36, 38, 45, 0.07);
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
   border-radius: 11px 9px 12px 8px;
-  background: linear-gradient(145deg, #fff, #eee8dc);
-  box-shadow: 0 2px 7px rgba(36, 38, 45, 0.12);
+  background: linear-gradient(145deg, var(--surface), var(--surface-hover));
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--ink) 12%, transparent);
   font-size: 18px;
   transition: 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
   overflow: hidden;
@@ -244,12 +247,16 @@ watch(
   object-fit: contain;
   border-radius: inherit;
 }
+/* 大脑 vendor logo 多为深色图形，需恒定浅底才可见（不随主题翻转） */
+.resource-avatar:has(.avatar-img) {
+  background: linear-gradient(145deg, #ffffff, #f0ede6);
+}
 .resource-meta {
   display: flex;
   align-items: baseline;
   gap: 4px;
   font-size: 10px;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -260,11 +267,11 @@ watch(
 }
 .resource-capacity {
   font-weight: 700;
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   flex-shrink: 0;
 }
 .resource-meta-sep {
-  color: fade(@ink, 30%);
+  color: color-mix(in srgb, var(--ink) 30%, transparent);
   flex-shrink: 0;
 }
 .resource-copy {
@@ -284,7 +291,7 @@ watch(
 }
 .resource-copy small {
   font-size: 10px;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .resource-badge {
   padding: 1px 5px;
@@ -326,24 +333,24 @@ watch(
   box-shadow:
     0 0 6px @neon-cyan,
     0 0 14px @neon-indigo,
-    0 0 24px fade(@neon-magenta, 28%);
+    0 0 24px color-mix(in srgb, var(--neon-magenta) 28%, transparent);
 }
 .glow-rail-enabled .resource-rail-card.active::before {
   opacity: 1;
   box-shadow:
     0 0 9px @neon-cyan,
     0 0 22px @neon-indigo,
-    0 0 38px fade(@neon-magenta, 38%);
+    0 0 38px color-mix(in srgb, var(--neon-magenta) 38%, transparent);
 }
 // 灯条漏光投射到右侧详情卡左缘
 .glow-rail-enabled .resource-detail {
-  box-shadow: inset 8px 0 24px -8px fade(@neon-indigo, 22%);
+  box-shadow: inset 8px 0 24px -8px color-mix(in srgb, var(--neon-indigo) 22%, transparent);
 }
 .resource-rail-empty {
   padding: 24px 8px;
   text-align: center;
   font-size: 11px;
-  color: fade(@ink, 45%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 .rail-search-icon {
   width: 12px;

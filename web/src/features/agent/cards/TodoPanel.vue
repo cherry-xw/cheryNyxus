@@ -79,7 +79,8 @@ const statusGlyph = (s: TodoItem['status']): string =>
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@import '@/styles/scrollbar.less';
+@ink: var(--ink);
 @glyph-fonts: ui-rounded, 'Hiragino Sans', 'PingFang SC', 'Noto Sans Symbols 2',
   'Noto Sans Symbols', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
 
@@ -87,11 +88,11 @@ const statusGlyph = (s: TodoItem['status']): string =>
   min-width: 96px;
   max-width: 168px;
   padding: 5px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.74);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--surface-soft);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16);
-  color: #23242a;
+  color: var(--ink);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.3;
@@ -103,7 +104,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   gap: 4px;
   margin-bottom: 4px;
   padding-bottom: 3px;
-  border-bottom: 1px solid rgba(36, 38, 45, 0.1);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
 
   .head-icon {
     font-family: @glyph-fonts;
@@ -116,7 +117,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   .head-count {
     font-size: 9px;
     font-weight: 700;
-    color: fade(@ink, 56%);
+    color: color-mix(in srgb, var(--ink) 56%, transparent);
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   }
 }
@@ -130,7 +131,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   gap: 2px;
   max-height: 140px;
   overflow: auto;
-  scrollbar-width: thin;
+  .inner-scrollbar(); /* 内层滚动：todo 列表，弱化滚动条 */
 }
 
 .panel-item {
@@ -157,7 +158,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
 
     &.done {
       text-decoration: line-through;
-      color: fade(@ink, 44%);
+      color: color-mix(in srgb, var(--ink) 44%, transparent);
     }
   }
 
@@ -173,7 +174,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
 .empty {
   font-size: 9.5px;
   font-style: italic;
-  color: fade(@ink, 44%);
+  color: color-mix(in srgb, var(--ink) 44%, transparent);
 }
 
 .panel-loading {
@@ -191,7 +192,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   .loading-text {
     font-size: 9.5px;
     font-style: italic;
-    color: fade(@ink, 56%);
+    color: color-mix(in srgb, var(--ink) 56%, transparent);
   }
 }
 

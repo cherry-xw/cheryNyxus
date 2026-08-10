@@ -98,6 +98,8 @@ function paramFields(
 </template>
 
 <style scoped lang="less">
+@import '@/styles/scrollbar.less';
+
 .ps-panel {
   display: flex;
   flex-direction: column;
@@ -107,24 +109,7 @@ function paramFields(
   max-width: 460px;
   max-height: 60vh;
   overflow: auto;
-  /* Firefox 细滚：滑块 0.2 黑 + 透明轨道 */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(20, 22, 26, 0.2) transparent;
-}
-/* WebKit 细滚：6px 滑块 + 透明轨道 */
-.ps-panel::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.ps-panel::-webkit-scrollbar-thumb {
-  background: rgba(20, 22, 26, 0.2);
-  border-radius: 3px;
-}
-.ps-panel::-webkit-scrollbar-thumb:hover {
-  background: rgba(20, 22, 26, 0.35);
-}
-.ps-panel::-webkit-scrollbar-track {
-  background: transparent;
+  .inner-scrollbar(); /* 内层滚动：prompt 快照弹窗，弱化滚动条 */
 }
 /* 内部二级滚动区：保留滚动行为，隐藏滚动条 UI */
 .ps-panel * {
@@ -136,11 +121,11 @@ function paramFields(
 }
 .ps-status {
   padding: 8px;
-  color: rgba(20, 22, 26, 0.5);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-size: 12px;
 }
 .ps-error {
-  color: #b91c1c;
+  color: var(--danger);
 }
 .ps-section {
   display: flex;
@@ -152,7 +137,7 @@ function paramFields(
   display: flex;
   align-items: center;
   gap: 6px;
-  color: rgba(20, 22, 26, 0.82);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -168,8 +153,8 @@ function paramFields(
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.05);
-  color: rgba(20, 22, 26, 0.8);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
@@ -179,16 +164,16 @@ function paramFields(
   overflow: auto;
 }
 .ps-empty {
-  color: rgba(20, 22, 26, 0.4);
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
   font-size: 11px;
 }
 .ps-tool {
   display: flex;
   flex-direction: column;
   padding: 6px 8px;
-  border: 1px solid rgba(20, 22, 26, 0.08);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--surface-soft);
   overflow: hidden;
 }
 .ps-tool-body {
@@ -211,7 +196,7 @@ function paramFields(
   font-weight: 700;
 }
 .ps-tool-desc {
-  color: rgba(20, 22, 26, 0.66);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
   font-size: 10.5px;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -227,7 +212,7 @@ function paramFields(
   padding: 1px 5px;
   border: none;
   background: transparent;
-  color: rgba(20, 22, 26, 0.46);
+  color: color-mix(in srgb, var(--ink) 46%, transparent);
   font-size: 10px;
   cursor: pointer;
 }
@@ -243,7 +228,7 @@ function paramFields(
   margin-top: 4px;
   padding: 4px 6px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.04);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
   overflow: hidden;
 }
 .ps-param-row {
@@ -260,7 +245,7 @@ function paramFields(
   flex-shrink: 0;
 }
 .ps-param-type {
-  color: rgba(20, 22, 26, 0.44);
+  color: color-mix(in srgb, var(--ink) 44%, transparent);
   font-size: 9.5px;
   flex-shrink: 0;
 }
@@ -273,7 +258,7 @@ function paramFields(
   flex-shrink: 0;
 }
 .ps-param-desc {
-  color: rgba(20, 22, 26, 0.55);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
   font-size: 9.5px;
   line-height: 1.45;
   white-space: nowrap;

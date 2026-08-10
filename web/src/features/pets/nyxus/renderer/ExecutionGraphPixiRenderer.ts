@@ -14,6 +14,7 @@ import {
   EXECUTION_EDGE_PULSE_SPEED,
   edgePulseVisibleInterval,
 } from '../graph/edgeMotion'
+import { PIXI_CANVAS_PALETTES, type PixiCanvasPalette } from '@/composables/useThemeTokens'
 
 export interface PixiExecutionNode {
   id: string
@@ -203,7 +204,15 @@ export class ExecutionGraphPixiRenderer {
   private ticker?: () => void
   private media?: MediaQueryList
   private motionPreferenceListener?: () => void
+  private canvasPalette: PixiCanvasPalette = PIXI_CANVAS_PALETTES.dark
   backend: 'webgpu' | 'webgl' | 'uninitialized' = 'uninitialized'
+
+  /** 主题切换时更新画布调色板并重画静态层。 */
+  setPalette(palette: PixiCanvasPalette): void {
+    if (this.canvasPalette === palette) return
+    this.canvasPalette = palette
+    this.drawStatic()
+  }
 
   async mount(host: HTMLElement): Promise<void> {
     const initialized = await initializeApplication(host)
@@ -297,15 +306,16 @@ export class ExecutionGraphPixiRenderer {
 
     this.staticNodes.clear()
     this.labels.removeChildren().forEach((child) => child.destroy())
+    const p = this.canvasPalette
     for (const node of this.scene.nodes) {
       const accent = colorNumber(node.accent)
-      this.staticNodes.circle(node.x, node.y, 15).fill({ color: 0x081925, alpha: 0.88 })
+      this.staticNodes.circle(node.x, node.y, 15).fill({ color: p.nodeFill, alpha: 0.88 })
       this.staticNodes.circle(node.x, node.y, 15).stroke({ color: accent, width: 1.4, alpha: 1 })
       this.staticNodes
         .circle(node.x, node.y, 19)
-        .stroke({ color: 0x7a5cff, width: 1.5, alpha: 0.34 })
+        .stroke({ color: p.ringNeutral, width: 1.5, alpha: 0.34 })
       if (node.paused || node.error || node.revoked) {
-        const stateColor = node.error ? 0xff718c : node.revoked ? 0x8b8f99 : 0xf6c85f
+        const stateColor = node.error ? p.stateError : node.revoked ? p.stateRevoked : p.statePaused
         this.staticNodes
           .circle(node.x, node.y, 19)
           .stroke({ color: stateColor, width: 2, alpha: 0.9 })
@@ -328,7 +338,7 @@ export class ExecutionGraphPixiRenderer {
         anchor: { x: 0.5, y: 0 },
         position: { x: node.x, y: node.y + 23 },
         style: {
-          fill: 0xdce9ff,
+          fill: p.title,
           fontFamily: 'ui-monospace, monospace',
           fontSize: 10,
           fontWeight: '600',
@@ -342,13 +352,13 @@ export class ExecutionGraphPixiRenderer {
             text: node.termination,
             anchor: { x: 0.5, y: 0 },
             position: { x: node.x, y: node.y + 38 },
-            style: { fill: 0xffb6c4, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
+            style: { fill: p.termination, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
             resolution: 1,
           }),
         )
       }
       if (node.foldCount) {
-        this.staticNodes.circle(node.x + 12, node.y - 12, 8).fill({ color: 0x081925, alpha: 0.95 })
+        this.staticNodes.circle(node.x + 12, node.y - 12, 8).fill({ color: p.nodeFill, alpha: 0.95 })
         this.staticNodes
           .circle(node.x + 12, node.y - 12, 8)
           .stroke({ color: accent, width: 1, alpha: 1 })
@@ -357,7 +367,7 @@ export class ExecutionGraphPixiRenderer {
             text: String(node.foldCount),
             anchor: 0.5,
             position: { x: node.x + 12, y: node.y - 12 },
-            style: { fill: 0xffffff, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
+            style: { fill: p.foldCount, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
             resolution: 1,
           }),
         )

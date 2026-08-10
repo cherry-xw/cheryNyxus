@@ -239,7 +239,7 @@ function onAvatarClick(): void {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .avatar-wrap {
   position: relative;
@@ -257,24 +257,25 @@ function onAvatarClick(): void {
   justify-content: center;
   font-size: 14px;
   font-weight: 800;
-  color: #fff;
+  color: #7c3aed;
   user-select: none;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 
   // assistant 单头像：暖橙
   &.role-assistant {
     background: linear-gradient(135deg, #ffd27a, #f6b73c);
-    color: #3b2b12;
+    color: #f6b73c;
   }
   // 主 pet 头像（master 发言者大 / role 对方小徽章）：米色
   &.pet-master {
     background: linear-gradient(135deg, #ffd27a, #f6b73c);
-    color: #3b2b12;
+    color: var(--ink);
   }
+    color: #3b2b12;
   // 子 pet 头像（role 发言者大 / master 对方小徽章）：紫色
   &.pet-sub {
     background: linear-gradient(135deg, #c4b5fd, #7c3aed);
-    color: #fff;
+    color: var(--ink);
   }
   // 大头像（发言者）：相对定位，承载右上角 name 首字母小字
   &.is-speaker {
@@ -288,7 +289,7 @@ function onAvatarClick(): void {
     width: 16px;
     height: 16px;
     font-size: 9px;
-    border: 2px solid #fbf9f4;
+    border: 2px solid var(--panel);
   }
 }
 
@@ -307,9 +308,9 @@ function onAvatarClick(): void {
   height: 12px;
   padding: 0 2px;
   border-radius: 6px;
-  background: #fbf9f4;
+  background: #ffffff;
+  color: var(--ink);
   color: #7c3aed;
-  font-size: 8px;
   font-weight: 800;
   line-height: 12px;
   text-align: center;
@@ -341,17 +342,16 @@ function onAvatarClick(): void {
   max-width: 240px;
   padding: 9px 11px;
   border-radius: 8px;
-  background: #ffffff;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  background: var(--panel);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.16);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
   pointer-events: none;
 
   .panel-name {
     font-size: 12px;
     font-weight: 800;
-    color: fade(@ink, 88%);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
     margin-bottom: 6px;
     word-break: break-word;
   }
@@ -360,7 +360,7 @@ function onAvatarClick(): void {
     & + .panel-group {
       margin-top: 4px;
       padding-top: 4px;
-      border-top: 1px solid rgba(36, 38, 45, 0.1);
+      border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
     }
 
     .field {
@@ -377,7 +377,7 @@ function onAvatarClick(): void {
 
     .field-label {
       flex-shrink: 0;
-      color: fade(@ink, 50%);
+      color: color-mix(in srgb, var(--ink) 50%, transparent);
       font-weight: 600;
       white-space: nowrap;
     }
@@ -385,7 +385,7 @@ function onAvatarClick(): void {
     .field-value {
       flex: 1;
       word-break: break-word;
-      color: fade(@ink, 82%);
+      color: color-mix(in srgb, var(--ink) 82%, transparent);
     }
   }
 }
@@ -410,9 +410,8 @@ function onAvatarClick(): void {
   height: 12px;
   padding: 0 2px;
   border-radius: 6px;
-  background: #fbf9f4;
+  background: var(--panel);
   color: #f6b73c;
-  font-size: 9px;
   font-weight: 800;
   line-height: 12px;
   text-align: center;
@@ -423,7 +422,7 @@ function onAvatarClick(): void {
 // F-展示合并：info-panel name 加「↗」前缀，标识"发给主 pet"方向
 .msg-row.is-child-to-master .panel-name::before {
   content: '↗ ';
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-weight: 600;
 }
 </style>

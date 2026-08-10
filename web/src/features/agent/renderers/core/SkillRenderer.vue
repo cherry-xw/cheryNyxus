@@ -119,18 +119,18 @@ const fallback = computed(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .skill-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .skill-head {
@@ -144,7 +144,7 @@ const fallback = computed(() => {
 
   .skill-name {
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .skill-type {
@@ -153,8 +153,8 @@ const fallback = computed(() => {
     padding: 1px 4px;
     border-radius: 3px;
     background: rgba(234, 179, 8, 0.16);
+    color: var(--ink);
     color: #ca8a04;
-    font-weight: 700;
     text-align: right;
   }
 
@@ -188,7 +188,7 @@ const fallback = computed(() => {
   padding: 2px 4px;
   border: none;
   background: transparent;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 10px;
   font-family: inherit;
   cursor: pointer;
@@ -196,7 +196,7 @@ const fallback = computed(() => {
   text-align: left;
 
   &:hover {
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .toggle-label {
@@ -217,7 +217,7 @@ const fallback = computed(() => {
 
 .line-count {
   font-size: 9px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
@@ -232,8 +232,8 @@ const fallback = computed(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
-  color: fade(@ink, 86%);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
@@ -247,7 +247,7 @@ const fallback = computed(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;

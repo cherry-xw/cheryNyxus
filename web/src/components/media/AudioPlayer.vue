@@ -79,7 +79,7 @@ function drawWaveform(): void {
     const barH = Math.max(2, peakVal * (h - 4))
     const x = i * (barWidth + gap) + gap / 2
     const y = (h - barH) / 2
-    ctx.fillStyle = x < playedX ? '#f6b73c' : 'rgba(255, 255, 255, 0.32)'
+    ctx.fillStyle = x < playedX ? '#f6b73c' : '&'
     ctx.beginPath()
     ctx.roundRect(x, y, barWidth, barH, 1)
     ctx.fill()

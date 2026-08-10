@@ -194,18 +194,18 @@ const fallback = computed(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .file-read-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .file-head {
@@ -220,7 +220,7 @@ const fallback = computed(() => {
   .file-name {
     flex: 1;
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .file-status {
@@ -258,7 +258,7 @@ const fallback = computed(() => {
   font-size: 10px;
   line-height: 17px;
   font-weight: 700;
-  color: fade(@ink, 56%);
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
 .file-path-wrap {
@@ -270,19 +270,19 @@ const fallback = computed(() => {
   display: block;
   padding: 2px 18px 2px 6px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .file-range {
   flex: 1;
   min-width: 0;
   font-size: 10.5px;
-  color: fade(@ink, 70%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
@@ -296,10 +296,10 @@ const fallback = computed(() => {
   width: 14px;
   height: 14px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 60%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   cursor: pointer;
   user-select: none;
 
@@ -308,13 +308,13 @@ const fallback = computed(() => {
   }
 
   &:hover {
-    background: #ffffff;
-    color: fade(@ink, 84%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 84%, transparent);
   }
 
   &.copied {
-    border-color: rgba(22, 163, 74, 0.4);
-    background: rgba(22, 163, 74, 0.12);
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
     color: #16a34a;
   }
 }
@@ -323,7 +323,7 @@ const fallback = computed(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
@@ -339,7 +339,7 @@ const fallback = computed(() => {
   padding: 2px 4px;
   border: none;
   background: transparent;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 10px;
   font-family: inherit;
   cursor: pointer;
@@ -347,7 +347,7 @@ const fallback = computed(() => {
   text-align: left;
 
   &:hover {
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .toggle-label {
@@ -368,7 +368,7 @@ const fallback = computed(() => {
 
 .line-count {
   font-size: 9px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
@@ -386,8 +386,8 @@ const fallback = computed(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
-  color: fade(@ink, 86%);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;

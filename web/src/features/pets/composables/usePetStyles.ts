@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import type { Ref } from 'vue'
 import type { StreamState } from '@/stores'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore, useThemeStore } from '@/stores'
 import {
   faceMotion,
   ghostFaceMotion,
@@ -21,6 +21,17 @@ import { APPROVAL_Z_INDEX, hashHue, petBodyZIndex, speechZIndex } from '../motio
 
 export { APPROVAL_Z_INDEX, hashHue, petBodyZIndex, speechZIndex } from '../motion/petStyle'
 
+/** 深色主题下把 pet accent 提亮成浅色（脸/手部颜文字文本在深底可读）。 */
+function lightenAccent(hex: string, weight = 0.72): string {
+  const from = Number.parseInt(hex.replace('#', ''), 16)
+  const r = Math.round(
+    ((from >> 16) & 255) * (1 - weight) + 255 * weight,
+  )
+  const g = Math.round(((from >> 8) & 255) * (1 - weight) + 255 * weight)
+  const b = Math.round((from & 255) * (1 - weight) + 255 * weight)
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`
+}
+
 /** 气泡锚点基准值：气泡底部贴 status-row 上方 16px。offset=28（44-16）。
  *  running-row 已改 absolute（零布局高度），脸位不再随工具数变动，无需 running 补偿。 */
 const BUBBLE_OFFSET_Y_BASE = 28
@@ -32,6 +43,7 @@ export function usePetStyles(
   paused: () => boolean,
 ) {
   const agents = useAgentsStore()
+  const themeStore = useThemeStore()
 
   // === 气泡 offset：恒为 base（running-row absolute 不再顶动脸位） ===
   const bubbleOffsetY = computed(() => BUBBLE_OFFSET_Y_BASE)
@@ -56,7 +68,8 @@ export function usePetStyles(
     transform: `translate3d(${pet().x}px, ${pet().y}px, 0)`,
     zIndex: String(petBodyZIndex(pet(), petHover.value)),
     '--pet-color': pet().color,
-    '--pet-accent': pet().accent,
+    '--pet-accent':
+      themeStore.theme === 'dark' ? lightenAccent(pet().accent) : pet().accent,
     '--pet-direction': pet().isMaster ? '1' : String(pet().direction),
     '--pet-scale': pet().isGhost ? '0.7' : pet().isMaster ? '1' : '0.75',
     '--tribe-hue': `${hashHue(pet().tribe)}deg`,

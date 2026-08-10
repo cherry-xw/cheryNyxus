@@ -123,7 +123,7 @@ watch(
   backdrop-filter: none;
 }
 .drawer-overlay.is-top-mask {
-  background: rgba(15, 17, 22, 0.36);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
 }
 .drawer-overlay.is-workbench-docked {

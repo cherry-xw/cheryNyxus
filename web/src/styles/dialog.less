@@ -1,11 +1,9 @@
-@dialog-ink: #14161a;
-
 // 居中 dialog overlay（AgentDialog, SettingsDialog）
 .dialog-overlay-base() {
   position: fixed; inset: 0;
   display: flex; align-items: center; justify-content: center;
   padding: 16px;
-  background: rgba(15, 17, 22, 0.42);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
 }
 
@@ -13,22 +11,22 @@
 .drawer-overlay-base() {
   position: fixed; inset: 0;
   display: flex; justify-content: flex-end;
-  background: rgba(15, 17, 22, 0.36);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
 }
 
 // 居中 dialog panel 基础
 .dialog-panel-base() {
   border-radius: 12px;
-  background: #fbf9f4;
+  background: var(--panel);
   box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28), 0 4px 8px rgba(0, 0, 0, 0.12);
   display: flex; flex-direction: column; gap: 10px;
 }
 
 // 通用 close button
 .close-btn-base() {
-  padding: 0; border: 1px solid rgba(36, 38, 45, 0.16); border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7); color: fade(@dialog-ink, 70%);
+  padding: 0; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-soft); color: color-mix(in srgb, var(--ink) 70%, transparent);
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-  &:hover { background: #ffffff; color: fade(@dialog-ink, 88%); }
+  &:hover { background: var(--surface); color: color-mix(in srgb, var(--ink) 88%, transparent); }
 }

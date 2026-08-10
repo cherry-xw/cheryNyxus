@@ -1,5 +1,5 @@
 import type { ExecutionFoldMember } from './executionGraph'
-import { skinForNode } from './nodeSkins'
+import { accentForTheme, skinForNode } from './nodeSkins'
 import { toolBatchDetail } from './toolBatchDetails'
 
 export type FoldTabKind = 'agent' | 'tool' | 'question' | 'interaction' | 'error'
@@ -59,7 +59,7 @@ const FOLD_WHEEL_SLOT_SPECS: readonly FoldWheelSlotSpec[] = [
 ]
 export const FOLD_WHEEL_LAYER_CAPACITY = FOLD_WHEEL_SLOT_SPECS.length
 
-export function foldTabForMember(member: ExecutionFoldMember): FoldTabView {
+export function foldTabForMember(member: ExecutionFoldMember, theme: 'light' | 'dark' = 'dark'): FoldTabView {
   const node = member.displayNode
   const skin = skinForNode(node)
   const batch = toolBatchDetail(node)
@@ -76,11 +76,21 @@ export function foldTabForMember(member: ExecutionFoldMember): FoldTabView {
         : batch
           ? 'tool'
           : 'agent'
+  const statusAccent =
+    theme === 'light'
+      ? { error: '#d6455d', question: '#6d5bd6', interaction: '#b7791f' }
+      : { error: '#ff718c', question: '#b7a7ff', interaction: '#ffca73' }
   return {
     memberId: member.id,
     kind,
     glyph: error ? '!' : question ? '?' : interaction ? '◷' : skin.glyph,
-    accent: error ? '#ff718c' : question ? '#b7a7ff' : interaction ? '#ffca73' : skin.accent,
+    accent: error
+      ? statusAccent.error
+      : question
+        ? statusAccent.question
+        : interaction
+          ? statusAccent.interaction
+          : accentForTheme(theme, skin.key),
     label:
       (firstCall ? '工具执行' : undefined) ||
       (node.actor.kind === 'agent' ? node.actor.roleType?.trim() || skin.label : skin.label),

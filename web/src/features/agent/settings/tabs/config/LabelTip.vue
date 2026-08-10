@@ -22,7 +22,7 @@ defineProps<{ label: string; tip: string }>()
 .lbl {
   font-size: 11px;
   font-weight: 700;
-  color: rgba(20, 22, 26, 0.64);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -30,7 +30,7 @@ defineProps<{ label: string; tip: string }>()
 .info-ico {
   width: 12px;
   height: 12px;
-  color: rgba(20, 22, 26, 0.38);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   cursor: help;
   &:hover {
     color: var(--tab-color, #f6b73c);

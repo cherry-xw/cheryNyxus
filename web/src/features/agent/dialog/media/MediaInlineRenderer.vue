@@ -92,7 +92,7 @@ function closePreview() {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 @accent: #f6b73c;
 
 .media-inline-group {
@@ -106,14 +106,14 @@ function closePreview() {
   cursor: pointer;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   transition:
     transform 120ms ease,
     box-shadow 120ms ease;
 
   &:hover {
     transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--ink) 10%, transparent);
   }
 }
 
@@ -128,7 +128,7 @@ function closePreview() {
   position: relative;
   width: 200px;
   height: 120px;
-  background: #000;
+  background: var(--surface-soft);
 
   video {
     width: 100%;
@@ -144,8 +144,8 @@ function closePreview() {
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
+    background: color-mix(in srgb, var(--ink) 60%, transparent);
+    color: var(--ink);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -159,8 +159,8 @@ function closePreview() {
     left: 4px;
     padding: 1px 6px;
     border-radius: 3px;
-    background: rgba(0, 0, 0, 0.6);
-    color: #fff;
+    background: color-mix(in srgb, var(--ink) 60%, transparent);
+    color: var(--ink);
     font-size: 10px;
   }
 }
@@ -170,7 +170,7 @@ function closePreview() {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  background: linear-gradient(135deg, rgba(246, 183, 60, 0.08), rgba(246, 183, 60, 0.02));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, transparent), color-mix(in srgb, var(--accent) 2%, transparent));
   min-width: 140px;
 
   .audio-icon {
@@ -180,7 +180,7 @@ function closePreview() {
 
   .audio-label {
     font-size: 11px;
-    color: fade(@ink, 70%);
+    color: color-mix(in srgb, var(--ink) 70%, transparent);
   }
 }
 </style>

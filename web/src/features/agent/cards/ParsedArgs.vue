@@ -48,7 +48,7 @@ const hasArgs = computed(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .args {
   display: flex;
@@ -59,16 +59,16 @@ const hasArgs = computed(() => {
 
 .args-toggle {
   padding: 1px 5px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.6);
-  color: fade(@ink, 70%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   font-size: 9px;
   font-weight: 700;
   cursor: pointer;
 
   &:hover {
-    background: #fff;
+    background: var(--surface-hover);
   }
 }
 
@@ -98,7 +98,7 @@ const hasArgs = computed(() => {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 9px;
   font-weight: 700;
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
 
 .arg-val {
@@ -109,7 +109,7 @@ const hasArgs = computed(() => {
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 9px;
   line-height: 1.4;
-  color: fade(@ink, 82%);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   max-height: 80px;
   overflow: auto;
 }
@@ -117,15 +117,15 @@ const hasArgs = computed(() => {
 .arg-empty {
   font-size: 9px;
   font-style: italic;
-  color: fade(@ink, 44%);
+  color: color-mix(in srgb, var(--ink) 44%, transparent);
 }
 
 .args-pre {
   margin: 0;
   padding: 3px 5px;
   border-radius: 4px;
-  background: fade(@ink, 6%);
-  color: fade(@ink, 82%);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 9px;
   font-weight: 500;

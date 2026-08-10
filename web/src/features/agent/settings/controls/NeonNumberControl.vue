@@ -79,7 +79,7 @@ function commit(): void {
   font-size: 10px;
   line-height: 13px;
   font-weight: 800;
-  color: fade(@ink, 54%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 .neon-number-console {
   height: 29px;
@@ -87,7 +87,7 @@ function commit(): void {
   grid-template-columns: 25px minmax(0, 1fr) 25px;
   border: 1px solid rgba(99, 102, 241, 0.17);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface-soft);
   overflow: hidden;
 }
 .neon-number-console > button {
@@ -111,7 +111,7 @@ function commit(): void {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  color: fade(@ink, 76%) !important;
+  color: color-mix(in srgb, var(--ink) 76%, transparent) !important;
   line-height: 1;
 }
 .number-readout b {
@@ -126,7 +126,7 @@ function commit(): void {
 .number-readout small {
   font-size: 9px;
   line-height: 1.2;
-  color: fade(@ink, 40%);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
 .neon-number-console input {
   min-width: 0;
@@ -144,5 +144,9 @@ function commit(): void {
     monospace;
   color: #4338ca;
   box-shadow: inset 0 0 8px rgba(99, 102, 241, 0.09);
+}
+[data-theme='dark'] .neon-number-console input {
+  background: color-mix(in srgb, #6366f1 14%, var(--surface));
+  color: #a5b4fc;
 }
 </style>

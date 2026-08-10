@@ -314,17 +314,18 @@ onBeforeUnmount(() => {
 .target-picker { min-width:0; padding:6px 0; }
 .target-options { display:flex; align-items:center; gap:4px; min-width:0; overflow-x:auto; padding:1px; scrollbar-width:none; }
 .target-options::-webkit-scrollbar { display:none; }
-.target-option { flex:0 1 124px; min-width:64px; height:26px; display:inline-flex; align-items:center; gap:4px; padding:3px 7px; overflow:hidden; text-align:left; border:1px solid rgba(36,38,45,.13); border-radius:6px; background:rgba(255,255,255,.78); color:#3b3e45; cursor:pointer; }
-.target-option:hover:not(:disabled) { border-color:rgba(190,132,28,.42); background:#fffdf8; }
+.target-option { flex:0 1 124px; min-width:64px; height:26px; display:inline-flex; align-items:center; gap:4px; padding:3px 7px; overflow:hidden; text-align:left; border:1px solid color-mix(in srgb, var(--ink) 13%, transparent); border-radius:6px; background:color-mix(in srgb, var(--surface) 78%, transparent); color:var(--ink); cursor:pointer; }
+.target-option:hover:not(:disabled) { border-color:color-mix(in srgb, var(--accent) 42%, transparent); background:var(--surface-hover); }
 .target-option:disabled { cursor:not-allowed; opacity:.45; }
 .target-option.is-new { flex:0 0 66px; }
-.target-option.is-info { flex:0 1 auto; min-width:0; margin-left:auto; border-style:dashed; border-color:rgba(36,38,45,.18); background:rgba(255,255,255,.5); color:#727780; cursor:default; }
-.target-option.is-info:hover:not(:disabled) { border-color:rgba(36,38,45,.18); background:rgba(255,255,255,.5); }
-.target-option.is-suggested { border-style:dashed; border-color:#d58a3b; background:#fffaf2; }
-.target-option.is-selected { border-style:solid; border-color:#e07a22; background:#fff3e6; box-shadow:0 0 0 1px rgba(224,122,34,.1); }
-.target-state { flex:none; color:#b86620; font-size:8px; font-weight:800; }
+.target-option.is-info { flex:0 1 auto; min-width:0; margin-left:auto; border-style:dashed; border-color:color-mix(in srgb, var(--ink) 18%, transparent); background:color-mix(in srgb, var(--surface) 50%, transparent); color:color-mix(in srgb, var(--ink) 55%, transparent); cursor:default; }
+.target-option.is-info:hover:not(:disabled) { border-color:color-mix(in srgb, var(--ink) 18%, transparent); background:color-mix(in srgb, var(--surface) 50%, transparent); }
+.target-option.is-suggested { border-style:dashed; border-color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, transparent); }
+.target-option.is-selected { border-style:solid; border-color:var(--accent); background:color-mix(in srgb, var(--accent) 14%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent); }
+.target-state { flex:none; color:var(--accent-ink); font-size:8px; font-weight:800; }
 .target-label { min-width:0; display:inline-flex; align-items:baseline; gap:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9.5px; font-weight:650; }
 .target-label-tag { flex:none; padding:0 4px; border-radius:4px; font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace; font-size:8.5px; font-weight:700; line-height:1.5; }
-.target-label-tag.is-command { background:rgba(246,183,60,.18); color:#8c6114; }
+.target-label-tag.is-command { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent-ink); }
 .target-label-tag.is-role { background:rgba(70,126,202,.16); color:#2f6fae; }
+[data-theme='dark'] .target-label-tag.is-role { background:color-mix(in srgb, #3b82f6 24%, transparent); color:#93c5fd; }
 </style>

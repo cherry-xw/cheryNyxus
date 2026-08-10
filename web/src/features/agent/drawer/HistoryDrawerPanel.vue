@@ -27,11 +27,11 @@ import MessageBubble from '../chat/MessageBubble.vue'
 import { useDrawerWidth } from './useDrawerWidth'
 import { useSubPetResolution } from '../composables/useSubPetResolution'
 import { useHistoryDrawerManager } from './useHistoryDrawerManager'
-import { breakdownSegments, fmtTokens, segmentThinkingNote } from '../toolbar/contextBreakdown'
-import type { BreakdownKey } from '../toolbar/contextBreakdown'
+import { splitCommandPrompt } from '../composables/commands'
 import PromptSnapshotTip from './PromptSnapshotTip.vue'
+import ContextUsageBar from './ContextUsageBar.vue'
 import { agentApi } from '@/services/agentApi'
-import type { GraphToolCall, PromptSnapshotTool, TimelineNode } from '@/services/agentApi'
+import type { ChatSummary, GraphToolCall, PromptSnapshotTool, TimelineNode } from '@/services/agentApi'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 
 const MotionDiv = motion.div
@@ -151,6 +151,54 @@ const parentPet = computed(() =>
 )
 const masterPetName = computed(() =>
   layout.value === 'direct' ? (parentPet.value?.name ?? '') : chatPetName.value,
+)
+
+// ── 根会话切换下拉（方案 A，仅 root/group 面板）：列同 preset 工作区的 root 会话，
+//   选中 → openRoot 重置栈到该 root。纯本地查看切换，不写 activeRootByPreset/activeNyxusChatId。 ──
+const scopedPreset = computed<{ presetId?: string; presetName?: string }>(() => {
+  const s = agents.summaryForChat(props.chatId)
+  return {
+    presetId: s?.presetId ?? pet.value?.presetId,
+    presetName: s?.preset ?? pet.value?.preset,
+  }
+})
+const rootOptions = computed<ChatSummary[]>(() => {
+  const { presetId, presetName } = scopedPreset.value
+  return agents.historyList
+    .filter(
+      (c) => !c.parentChatId && (presetId ? c.presetId === presetId : c.preset === presetName),
+    )
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+})
+function rootOptionLabel(c: ChatSummary): string {
+  const preview = c.preview?.trim()
+  const when = c.updatedAt
+    ? new Date(c.updatedAt).toLocaleString(undefined, {
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : ''
+  // 用户消息含指令/角色 token（[[command:/x]] / [[role:@x]]），下拉展示去掉双中括号、保留内文
+  const plain = preview
+    ? splitCommandPrompt(preview)
+        .map((seg) => seg.value)
+        .join('')
+    : ''
+  return `${when}${plain ? ' · ' + plain : ''}`
+}
+function onSwitchRoot(cid: string): void {
+  if (!cid || cid === props.chatId) return
+  manager.openRoot(cid)
+}
+// 从非 Pad 入口开 drawer 时 historyList 可能未加载，懒拉一次供下拉用。
+watch(
+  () => [layout.value, agents.historyList.length],
+  ([l, len]) => {
+    if (l === 'group' && !len) void agents.fetchHistoryList()
+  },
+  { immediate: true },
 )
 
 const history = computed<HistoryItem[]>(() => {
@@ -530,56 +578,6 @@ async function copyChatId(): Promise<void> {
   }, 1200)
 }
 
-/** contextUsage 颜色分级（与 ContextBar / SessionList 对齐：<50% 绿 / 50-80% 黄 / >80% 红）。 */
-function usageClass(u: number): string {
-  if (u >= 0.8) return 'usage-high'
-  if (u >= 0.5) return 'usage-mid'
-  return 'usage-low'
-}
-
-const usagePct = computed(() => (pet.value ? Math.round(pet.value.contextUsage * 100) : 0))
-const usageDetail = computed(() => {
-  if (!pet.value) return null
-  const { contextUsed, contextTotal } = pet.value
-  if (typeof contextUsed !== 'number' || typeof contextTotal !== 'number' || contextTotal <= 0)
-    return null
-  return { used: contextUsed, total: contextTotal }
-})
-/** 分段（breakdown 给出时用于分段彩色条 + 行内图例；缺省 → []，退化为单段 usage-fill）。
- *  - allSegs：全量，供图例（0 段灰色展示完整类目）。
- *  - usageSegs：过滤 token=0，供色块条（避免空类 min-width 显色噪声）。 */
-const allSegs = computed(() => breakdownSegments(pet.value?.contextBreakdown))
-const usageSegs = computed(() => allSegs.value.filter((s) => s.tokens > 0))
-
-/** 行内图例短标签（区别于 ContextBreakdownTip 的全称标签，适配单行紧凑布局）。 */
-const SHORT_LABELS: Record<BreakdownKey, string> = {
-  system: '系统',
-  userSystem: '用户',
-  memory: '记忆',
-  skills: '技能',
-  tools: '工具',
-  conversation: '对话',
-}
-function shortLabel(key: BreakdownKey): string {
-  return SHORT_LABELS[key] ?? key
-}
-
-/** 图例标签文字色（加深版，区别于色块条鲜艳色：amber/green 原色在米白底对比不足）。 */
-const LABEL_COLORS: Record<BreakdownKey, string> = {
-  system: '#4338ca',
-  userSystem: '#7e22ce',
-  memory: '#be185d',
-  skills: '#b45309',
-  tools: '#047857',
-  conversation: '#1d4ed8',
-}
-function labelColor(key: BreakdownKey): string {
-  return LABEL_COLORS[key] ?? '#4338ca'
-}
-
-/** 图例中 0 token 段的灰色（标签 + tokens 统一降明度，区别于有量的彩色标签）。 */
-const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
-
 /**
  * 系统提示词快照（顶部「上下文」hover 面板用）。
  * 懒加载：hover 顶部「上下文」标签才拉取 chat.promptSnapshot；按 chatId 缓存避免重复请求。
@@ -659,6 +657,21 @@ function onPromptSnapShow(): void {
           <span class="copy-glyph">{{ copied ? '✓' : '📋' }}</span>
           <span class="copy-hint">{{ copied ? '已复制' : '点击复制 ID' }}</span>
         </button>
+        <el-select
+          v-if="layout === 'group' && rootOptions.length > 1 && agents.historyDrawerMode !== 'workbench-docked'"
+          class="root-switch"
+          size="small"
+          :model-value="props.chatId"
+          :placeholder="'切换会话'"
+          @change="onSwitchRoot"
+        >
+          <el-option
+            v-for="c in rootOptions"
+            :key="c.chatId"
+            :value="c.chatId"
+            :label="rootOptionLabel(c)"
+          />
+        </el-select>
       </div>
       <div v-if="isTop" class="head-actions">
         <div v-if="layout === 'group'" class="display-mode-seg" role="group" aria-label="子 agent 消息显示模式">
@@ -692,8 +705,13 @@ function onPromptSnapShow(): void {
         </button>
       </div>
     </header>
-    <div v-if="usageDetail" class="usage-bar-wrap" :class="usageClass(pet?.contextUsage ?? 0)">
-      <div class="usage-bar-row">
+    <ContextUsageBar
+      v-if="pet?.contextBreakdown?.total"
+      :usage="pet?.contextUsage ?? 0"
+      :breakdown="pet?.contextBreakdown"
+      variant="inline"
+    >
+      <template #label>
         <el-popover
           trigger="hover"
           placement="bottom-start"
@@ -713,43 +731,8 @@ function onPromptSnapShow(): void {
             :error="promptSnap.error"
           />
         </el-popover>
-        <div v-if="allSegs.length" class="usage-legend">
-          <span
-            v-for="seg in allSegs"
-            :key="seg.key"
-            class="legend-item"
-            :class="{ 'is-zero': seg.tokens === 0 }"
-          >
-            <span
-              class="legend-label"
-              :style="{ color: seg.tokens > 0 ? labelColor(seg.key) : ZERO_COLOR }"
-              >{{ shortLabel(seg.key) }}</span
-            >
-            <span v-if="segmentThinkingNote(seg)" class="legend-thinking">{{
-              segmentThinkingNote(seg)
-            }}</span>
-            <span class="legend-tokens">{{ fmtTokens(seg.tokens) }}</span>
-          </span>
-        </div>
-        <span class="usage-values">
-          <span class="usage-used">{{ fmtTokens(usageDetail.used) }}</span>
-          <span class="usage-sep">/</span>
-          <span class="usage-total">{{ fmtTokens(usageDetail.total) }}</span>
-          <span class="usage-pct">{{ usagePct }}%</span>
-        </span>
-      </div>
-      <div class="usage-track">
-        <template v-if="usageSegs.length">
-          <div
-            v-for="seg in usageSegs"
-            :key="seg.key"
-            class="usage-seg"
-            :style="{ width: `${seg.pct}%`, background: seg.color }"
-          />
-        </template>
-        <div v-else class="usage-fill" :style="{ width: `${Math.min(100, usagePct)}%` }" />
-      </div>
-    </div>
+      </template>
+    </ContextUsageBar>
 
     <div class="drawer-body">
       <div v-if="!loaded && history.length === 0 && !showAgentLoading" class="loading-row">
@@ -844,7 +827,7 @@ function onPromptSnapShow(): void {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 // 面板绝对定位叠加（栈中多面板同位置 right:0，靠 z-index + DOM 顺序层叠）
 .drawer-panel {
@@ -855,8 +838,8 @@ function onPromptSnapShow(): void {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #fbf9f4;
-  border-left: 1px solid rgba(36, 38, 45, 0.12);
+  background: var(--panel);
+  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
 }
 
@@ -873,7 +856,7 @@ function onPromptSnapShow(): void {
 
   &:hover,
   &:active {
-    background: rgba(36, 38, 45, 0.18);
+    background: color-mix(in srgb, var(--ink) 18%, transparent);
   }
 }
 
@@ -909,7 +892,6 @@ function onPromptSnapShow(): void {
 .scrollbar-mark:hover::before,
 .scrollbar-mark:focus-visible::before {
   background: #ca8a04; // 深黄（yellow-600）hover
-  height: 3px; // hover 加粗增强反馈
   box-shadow: 0 0 4px rgba(202, 138, 4, 0.55);
 }
 .scrollbar-mark:focus-visible {
@@ -922,20 +904,24 @@ function onPromptSnapShow(): void {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid rgba(36, 38, 45, 0.1);
-  background: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: var(--surface-soft);
 
   .title-block {
     display: flex;
     flex-direction: row;
+    align-items: center;
     gap: 12px;
     min-width: 0;
+    flex: 1 1 auto;
   }
 
   .title {
+    flex: 0 1 auto;
+    min-width: 0;
     font-size: 13px;
     font-weight: 800;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -948,22 +934,21 @@ function onPromptSnapShow(): void {
     align-items: center;
     gap: 4px;
     padding: 1px 6px;
-    border: 1px solid rgba(36, 38, 45, 0.12);
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.6);
-    color: fade(@ink, 50%);
+    background: var(--surface-soft);
+    color: color-mix(in srgb, var(--ink) 50%, transparent);
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
     font-size: 10px;
     line-height: 1.4;
     cursor: pointer;
-    align-self: flex-start;
     transition:
       background 120ms ease,
       color 120ms ease;
 
     &:hover {
-      background: #ffffff;
-      color: fade(@ink, 78%);
+      background: var(--surface);
+      color: color-mix(in srgb, var(--ink) 78%, transparent);
     }
 
     &.copied {
@@ -974,6 +959,29 @@ function onPromptSnapShow(): void {
 
     .copy-glyph {
       font-size: 11px;
+    }
+  }
+
+  // 根会话切换下拉（方案 A）：仅 root/group 面板，列同 preset 的 root 会话。
+  // 标题行内紧凑尺寸，宽度随内容自适应（不做大块占位）。
+  // 标题不抢占（flex:0 1 auto），下拉 flex:1 吃掉剩余空余 → 选中内容有足够宽度展示。
+  .root-switch {
+    align-self: center;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 160px;
+    max-width: 360px;
+    :deep(.el-select__wrapper) {
+      background: var(--surface-soft);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent) inset;
+      font-size: 11px;
+      color: color-mix(in srgb, var(--ink) 78%, transparent);
+    }
+    :deep(.el-select__placeholder) {
+      color: color-mix(in srgb, var(--ink) 45%, transparent);
+    }
+    :deep(.el-select__selected-item) {
+      color: color-mix(in srgb, var(--ink) 78%, transparent);
     }
   }
 }
@@ -990,9 +998,9 @@ function onPromptSnapShow(): void {
 .display-mode-seg {
   display: inline-flex;
   align-items: center;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface-soft);
   overflow: hidden;
 
   .mode-btn {
@@ -1003,7 +1011,7 @@ function onPromptSnapShow(): void {
     padding: 0 7px;
     border: 0;
     background: transparent;
-    color: fade(@ink, 55%);
+    color: color-mix(in srgb, var(--ink) 55%, transparent);
     font-size: 12px;
     line-height: 1;
     cursor: pointer;
@@ -1012,17 +1020,17 @@ function onPromptSnapShow(): void {
       color 120ms ease;
 
     & + .mode-btn {
-      border-left: 1px solid rgba(36, 38, 45, 0.1);
+      border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
     }
 
     &:hover {
-      background: #ffffff;
-      color: fade(@ink, 88%);
+      background: var(--surface);
+      color: color-mix(in srgb, var(--ink) 88%, transparent);
     }
 
     &.active {
       background: rgba(246, 183, 60, 0.16);
-      color: #76500e;
+      color: #16a34a;
     }
   }
 }
@@ -1031,18 +1039,18 @@ function onPromptSnapShow(): void {
   width: 26px;
   height: 26px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 70%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
   flex-shrink: 0;
 
   &:hover {
-    background: #ffffff;
-    color: fade(@ink, 88%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
   }
 }
 
@@ -1072,10 +1080,10 @@ function onPromptSnapShow(): void {
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.92);
-  color: fade(@ink, 78%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -1087,8 +1095,8 @@ function onPromptSnapShow(): void {
     transform 120ms ease;
 
   &:hover {
-    background: #ffffff;
-    color: fade(@ink, 92%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
     transform: translateY(-1px);
     opacity: 1;
   }
@@ -1102,7 +1110,7 @@ function onPromptSnapShow(): void {
 .empty-row {
   padding: 16px 8px;
   text-align: center;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
   font-size: 12px;
   font-style: italic;
 }
@@ -1119,7 +1127,7 @@ function onPromptSnapShow(): void {
   gap: 6px;
   margin: 8px 14px 0 0;
   padding-top: 8px;
-  border-top: 1px dashed rgba(36, 38, 45, 0.13);
+  border-top: 1px dashed color-mix(in srgb, var(--ink) 13%, transparent);
 }
 .agent-loading-row {
   display: flex;
@@ -1128,7 +1136,7 @@ function onPromptSnapShow(): void {
   padding: 7px 9px;
   border: 1px solid rgba(99, 102, 241, 0.16);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-soft);
 }
 .agent-loading-face {
   width: 24px;
@@ -1142,21 +1150,21 @@ function onPromptSnapShow(): void {
 }
 /* master：实心圆（暖橙填充 + 白字），主 agent 视觉最重。 */
 .agent-loading-face.is-master {
-  background: #f6b73c;
+  background: #6366f1;
   color: #fff;
   border: 1px solid #f6b73c;
 }
 /* sub：描边圆（透明底 + 暖橙描边 + 橙字），子 agent 运行中。 */
 .agent-loading-face.is-sub {
   background: transparent;
+  color: var(--ink);
   color: #b45309;
-  border: 1.5px solid rgba(246, 183, 60, 0.85);
 }
 /* ghost：虚线圆 + 降透明度，子 agent 已完成等待。 */
 .agent-loading-face.is-ghost {
   background: transparent;
-  color: fade(@ink, 55%);
-  border: 1.5px dashed rgba(36, 38, 45, 0.32);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 32%, transparent);
   opacity: 0.55;
 }
 .agent-loading-copy {
@@ -1170,12 +1178,12 @@ function onPromptSnapShow(): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
   font-size: 11px;
 }
 .agent-loading-copy small,
 .batch-loading {
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
   font-size: 9.5px;
 }
 .typing-dots {
@@ -1187,7 +1195,6 @@ function onPromptSnapShow(): void {
   height: 4px;
   border-radius: 50%;
   background: #6366f1;
-  animation: history-typing 1.1s ease-in-out infinite;
 }
 .typing-dots i:nth-child(2) {
   animation-delay: 0.16s;
@@ -1196,8 +1203,8 @@ function onPromptSnapShow(): void {
   animation-delay: 0.32s;
 }
 .agent-done {
+  color: var(--ink);
   color: #16a34a;
-  font-size: 12px;
   font-weight: 900;
 }
 .batch-loading {
@@ -1217,138 +1224,15 @@ function onPromptSnapShow(): void {
   }
 }
 
-.usage-bar-wrap {
-  padding: 6px 14px 8px;
-  border-bottom: 1px solid rgba(36, 38, 45, 0.08);
-  background: rgba(255, 255, 255, 0.4);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-
-  &.usage-low {
-    --usage-color: #22c55e;
-    --usage-bg: rgba(34, 197, 94, 0.18);
-  }
-  &.usage-mid {
-    --usage-color: #eab308;
-    --usage-bg: rgba(234, 179, 8, 0.22);
-  }
-  &.usage-high {
-    --usage-color: #ef4444;
-    --usage-bg: rgba(239, 68, 68, 0.22);
-  }
-
-  .usage-bar-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .usage-legend {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    row-gap: 2px;
-    column-gap: 6px;
-    overflow: hidden;
-
-    .legend-item {
-      display: inline-flex;
-      align-items: baseline;
-      gap: 2px;
-      font-size: 9px;
-      line-height: 1;
-      white-space: nowrap;
-    }
-
-    .legend-item.is-zero .legend-tokens {
-      opacity: 0.5;
-    }
-
-    .legend-label {
-      font-weight: 600;
-    }
-
-    .legend-thinking {
-      opacity: 0.55;
-    }
-
-    .legend-tokens {
-      font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-      font-variant-numeric: tabular-nums;
-      color: fade(@ink, 60%);
-    }
-  }
-
-  .usage-label {
-    font-size: 10px;
-    color: fade(@ink, 52%);
-    letter-spacing: 0.02em;
-  }
-  .usage-label-hover {
-    cursor: pointer;
-    &:hover {
-      color: fade(@ink, 78%);
-    }
-  }
-
-  .usage-values {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-    font-size: 11px;
-    font-weight: 600;
-    color: fade(@ink, 78%);
-
-    .usage-used {
-      color: var(--usage-color);
-      font-weight: 800;
-    }
-
-    .usage-sep {
-      opacity: 0.5;
-    }
-
-    .usage-total {
-      opacity: 0.7;
-    }
-
-    .usage-pct {
-      margin-left: 6px;
-      padding: 1px 5px;
-      border-radius: 4px;
-      background: var(--usage-bg);
-      color: var(--usage-color);
-      font-weight: 800;
-      font-size: 10px;
-    }
-  }
-
-  .usage-track {
-    height: 3px;
-    border-radius: 2px;
-    background: rgba(36, 38, 45, 0.08);
-    overflow: hidden;
-    display: flex;
-    gap: 2px;
-
-    .usage-seg {
-      height: 100%;
-      flex-shrink: 0;
-      min-width: 8px;
-      transition: width 0.3s ease;
-    }
-
-    .usage-fill {
-      height: 100%;
-      background: var(--usage-color);
-      border-radius: 2px;
-      transition: width 0.3s ease;
-    }
+.usage-label {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  letter-spacing: 0.02em;
+}
+.usage-label-hover {
+  cursor: pointer;
+  &:hover {
+    color: color-mix(in srgb, var(--ink) 78%, transparent);
   }
 }
 </style>

@@ -601,9 +601,9 @@ async function openEnvFile(): Promise<void> {
 
 .brain-section {
   padding: 10px;
-  border: 1px solid rgba(36, 38, 45, 0.09);
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.46);
+  background: var(--surface-soft);
 }
 
 .section-heading {
@@ -613,13 +613,13 @@ async function openEnvFile(): Promise<void> {
   margin-bottom: 8px;
 
   > span {
-    color: rgba(20, 22, 26, 0.8);
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
     font-size: 12px;
     font-weight: 800;
   }
 
   small {
-    color: rgba(20, 22, 26, 0.42);
+    color: color-mix(in srgb, var(--ink) 62%, transparent);
     font-size: 10px;
   }
 }
@@ -698,7 +698,7 @@ async function openEnvFile(): Promise<void> {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: rgba(20, 22, 26, 0.25);
+    background: color-mix(in srgb, var(--ink) 25%, transparent);
 
     &.success {
       background: var(--el-color-success);
@@ -707,7 +707,7 @@ async function openEnvFile(): Promise<void> {
       background: var(--el-color-danger);
     }
     &.idle {
-      background: rgba(20, 22, 26, 0.25);
+      background: color-mix(in srgb, var(--ink) 25%, transparent);
     }
 
     &.spinning {
@@ -734,7 +734,7 @@ async function openEnvFile(): Promise<void> {
     color: var(--el-color-danger);
   }
   &.muted {
-    color: rgba(20, 22, 26, 0.42);
+    color: color-mix(in srgb, var(--ink) 62%, transparent);
   }
 }
 
@@ -754,7 +754,7 @@ async function openEnvFile(): Promise<void> {
   padding: 0;
   border: none;
   background: transparent;
-  color: rgba(20, 22, 26, 0.32);
+  color: color-mix(in srgb, var(--ink) 32%, transparent);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -766,7 +766,7 @@ async function openEnvFile(): Promise<void> {
 
   &:hover {
     color: var(--tab-color, @accent);
-    background: rgba(20, 22, 26, 0.04);
+    background: color-mix(in srgb, var(--ink) 4%, transparent);
   }
 
   .ico {
@@ -807,14 +807,14 @@ async function openEnvFile(): Promise<void> {
   white-space: nowrap;
   font-size: 11px;
   font-weight: 600;
-  color: rgba(20, 22, 26, 0.6);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
 
   :deep(.el-checkbox__label) {
     font-size: 11px;
     font-weight: 600;
     line-height: 1;
     padding-left: 4px;
-    color: rgba(20, 22, 26, 0.6);
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
   :deep(.el-checkbox__input.is-checked + .el-checkbox__label) {
     color: var(--tab-color, @accent);
@@ -846,18 +846,18 @@ async function openEnvFile(): Promise<void> {
   }
 
   .provider-value {
-    color: rgba(20, 22, 26, 0.55);
+    color: color-mix(in srgb, var(--ink) 55%, transparent);
     font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     font-size: 11px;
   }
 
   .provider-sep {
-    color: rgba(20, 22, 26, 0.3);
+    color: color-mix(in srgb, var(--ink) 30%, transparent);
     margin: 0 2px;
   }
 
   .provider-label {
-    color: rgba(20, 22, 26, 0.86);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
     font-weight: 600;
   }
 }
@@ -873,7 +873,7 @@ async function openEnvFile(): Promise<void> {
     padding: 0;
     border: none;
     background: transparent;
-    color: rgba(20, 22, 26, 0.38);
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
     cursor: pointer;
     display: inline-flex;
     align-items: center;
@@ -912,14 +912,14 @@ async function openEnvFile(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 5px;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
   transition: background 0.15s;
 
   &:hover {
-    background: rgba(36, 38, 45, 0.04);
+    background: color-mix(in srgb, var(--ink) 4%, transparent);
   }
   &:disabled {
     opacity: 0.5;
@@ -958,9 +958,9 @@ async function openEnvFile(): Promise<void> {
   gap: 8px;
   height: 60px;
   padding: 7px 9px;
-  border: 1px solid rgba(36, 38, 45, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   // el-switch 开启态跟随 tab 主题色（取代默认 primary 蓝）
   --el-switch-on-color: var(--tab-color, @accent);
 

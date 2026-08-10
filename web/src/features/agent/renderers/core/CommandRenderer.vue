@@ -234,22 +234,22 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .cmd-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 
   &.status-error {
-    border-color: rgba(220, 38, 38, 0.32);
-    background: rgba(254, 242, 242, 0.66);
+    border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
   }
 }
 
@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
 
   .cmd-name {
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .cmd-status {
@@ -302,7 +302,7 @@ onBeforeUnmount(() => {
   font-size: 10px;
   font-weight: 700;
   line-height: 17px;
-  color: fade(@ink, 56%);
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
 .cmd-code-wrap {
@@ -314,12 +314,12 @@ onBeforeUnmount(() => {
   display: block;
   padding: 2px 18px 2px 6px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .cmd-meta-inline {
@@ -330,7 +330,7 @@ onBeforeUnmount(() => {
   margin-right: 8px;
   font-size: 9.5px;
   font-weight: 500;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -343,7 +343,7 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 600;
   line-height: 17px;
-  color: fade(@ink, 92%);
+  color: color-mix(in srgb, var(--ink) 92%, transparent);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -358,10 +358,10 @@ onBeforeUnmount(() => {
   width: 14px;
   height: 14px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 60%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   cursor: pointer;
   user-select: none;
 
@@ -370,13 +370,13 @@ onBeforeUnmount(() => {
   }
 
   &:hover {
-    background: #ffffff;
-    color: fade(@ink, 84%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 84%, transparent);
   }
 
   &.copied {
-    border-color: rgba(22, 163, 74, 0.4);
-    background: rgba(22, 163, 74, 0.12);
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
+    background: color-mix(in srgb, var(--success) 12%, transparent);
     color: #16a34a;
   }
 }
@@ -385,7 +385,7 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
@@ -401,7 +401,7 @@ onBeforeUnmount(() => {
   padding: 2px 4px;
   border: none;
   background: transparent;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 10px;
   font-family: inherit;
   cursor: pointer;
@@ -409,7 +409,7 @@ onBeforeUnmount(() => {
   text-align: left;
 
   &:hover {
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .toggle-label {
@@ -438,13 +438,13 @@ onBeforeUnmount(() => {
 }
 
 .timeout-badge {
-  background: rgba(234, 179, 8, 0.16);
-  color: #ca8a04;
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
 }
 
 .error-badge {
-  background: rgba(220, 38, 38, 0.12);
-  color: #dc2626;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
 }
 
 .output-body {
@@ -458,8 +458,8 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
-  color: fade(@ink, 86%);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
@@ -472,12 +472,12 @@ onBeforeUnmount(() => {
 .output-truncated {
   font-size: 9px;
   font-style: italic;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
 }
 
 .output-log {
   font-size: 9.5px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   word-break: break-all;
 }

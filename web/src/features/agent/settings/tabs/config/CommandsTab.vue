@@ -280,7 +280,7 @@ code {
   font-size: 11px;
   padding: 1px 4px;
   border-radius: 3px;
-  background: rgba(36, 38, 45, 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .compact-card,
@@ -313,7 +313,7 @@ code {
 .card-title {
   font-size: 14px;
   font-weight: 800;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .badge.warn {
@@ -321,20 +321,20 @@ code {
   font-weight: 700;
   padding: 1px 6px;
   border-radius: 8px;
-  background: rgba(248, 113, 113, 0.18);
-  color: #b91c1c;
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+  color: var(--danger);
 }
 
 .unavail-hint {
   margin: 4px 0 8px;
   font-size: 11px;
-  color: #b91c1c;
+  color: var(--danger);
 }
 
 .readonly-desc {
   margin-top: 4px;
   font-size: 12px;
-  color: fade(@ink, 70%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
 .empty-card {
@@ -342,12 +342,12 @@ code {
   .empty-title {
     font-size: 14px;
     font-weight: 800;
-    color: fade(@ink, 80%);
+    color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {
     margin-top: 6px;
     font-size: 11px;
-    color: fade(@ink, 60%);
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
 }
 
@@ -356,7 +356,7 @@ code {
   gap: 8px;
   padding: 10px 12px;
   margin: 8px 0 4px;
-  border-top: 1px dashed rgba(36, 38, 45, 0.12);
+  border-top: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
   .ghost-btn {
     display: inline-flex;
     align-items: center;
@@ -366,15 +366,15 @@ code {
 
 .ghost-btn {
   padding: 5px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 80%);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
   font-size: 11px;
   cursor: pointer;
   &:hover:not(:disabled) {
-    background: #ffffff;
-    color: fade(@ink, 92%);
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
   }
   &:disabled {
     opacity: 0.45;
@@ -383,7 +383,7 @@ code {
 }
 
 :deep(.invalid .el-input__wrapper) {
-  box-shadow: 0 0 0 1px #ef4444 inset;
+  box-shadow: 0 0 0 1px var(--danger) inset;
 }
 
 .ico {

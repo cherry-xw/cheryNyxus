@@ -160,7 +160,9 @@ const sectionStyle = computed(() => ({
     SFMono-Regular,
     monospace;
   letter-spacing: 0.14em;
-  color: rgba(79, 70, 229, 0.55);
+  // 主题自适应：浅色为深靛，深色随 --ink 抬亮（原硬编码 rgba(79,70,229,.55) 深色不可读）
+  color: color-mix(in srgb, var(--neon-indigo) 42%, var(--ink));
+  opacity: 0.85;
 }
 .neon-block :deep(.block-kicker .kicker-no) {
   padding-right: 5px;
@@ -171,7 +173,8 @@ const sectionStyle = computed(() => ({
   position: relative;
   margin: 0;
   font-size: 13px;
-  color: #3730a3;
+  // 主题自适应标题：浅色深靛、深色随 --ink 抬亮的靛蓝（原硬编码 #3730a3 深色近不可见）
+  color: color-mix(in srgb, var(--neon-indigo) 68%, var(--ink));
 }
 .neon-block :deep(.field) {
   gap: 2px;
@@ -182,7 +185,7 @@ const sectionStyle = computed(() => ({
 .neon-block :deep(.el-input__wrapper),
 .neon-block :deep(.el-select__wrapper) {
   min-height: 28px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--surface-soft);
   box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12) inset;
 }
 .neon-block :deep(.el-input__inner),

@@ -149,7 +149,7 @@ function clickApproval(a: ApprovalState): void {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .pet-icons {
   position: absolute;
@@ -172,16 +172,16 @@ function clickApproval(a: ApprovalState): void {
   min-width: 18px;
   height: 18px;
   padding: 0 4px;
-  border: 1px solid #fff;
+  border: 1px solid var(--surface);
   border-radius: 999px;
   background: #dc2626;
-  color: #fff;
+  color: #7c3aed;
   font-size: 9px;
   font-weight: 800;
   line-height: 16px;
   pointer-events: auto;
   cursor: pointer;
-  box-shadow: 0 2px 7px rgba(127, 29, 29, 0.35);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 .col {
@@ -209,37 +209,37 @@ function clickApproval(a: ApprovalState): void {
 
 /* history 列：role 着色 + 极小 dot */
 .history-icon {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(36, 38, 45, 0.18);
+  background: var(--surface-soft);
+  border-color: var(--border-strong);
 
   .dot {
     width: 4px;
     height: 4px;
     border-radius: 50%;
-    background: fade(@ink, 50%);
+    background: color-mix(in srgb, var(--ink) 50%, transparent);
   }
 
   &.role-user .dot {
-    background: #8a8f98;
+    background: #f6b73c;
   }
   &.role-assistant .dot {
-    background: #f6b73c;
+    background: #7c3aed;
   }
   &.role-subagent .dot {
     background: #7c3aed;
   }
   &.role-role .dot {
-    background: #7c3aed;
+    background: #f6b73c;
   }
   &.role-master .dot {
-    background: #f6b73c;
+    background: #ffffff;
   }
 
   &.has-thinking::after {
     content: '';
     position: absolute;
     inset: -1.5px;
-    border: 1px dashed rgba(124, 58, 237, 0.55);
+    border: 1px dashed color-mix(in srgb, var(--neon-indigo) 55%, transparent);
     border-radius: 50%;
     pointer-events: none;
   }
@@ -259,12 +259,11 @@ function clickApproval(a: ApprovalState): void {
   max-width: 210px;
   padding: 5px 7px;
   border-radius: 6px;
-  background: #ffffff;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  background: var(--panel);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
   font-size: 9.5px;
   line-height: 1.35;
-  color: fade(@ink, 84%);
+  color: color-mix(in srgb, var(--ink) 84%, transparent);
   pointer-events: none;
   text-align: left;
   white-space: pre-wrap;
@@ -285,18 +284,19 @@ function clickApproval(a: ApprovalState): void {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.02em;
-  color: #fff;
+  color: var(--ink);
 
   &.role-user {
-    background: #6b7280;
+    background: #f6b73c;
   }
   &.role-assistant {
-    background: #f6b73c;
-    color: #3b2b12;
+    background: #7c3aed;
+    color: var(--ink);
   }
+    color: #3b2b12;
   &.role-subagent,
   &.role-role {
-    background: #7c3aed;
+    background: #f6b73c;
   }
   &.role-master {
     background: #f6b73c;
@@ -319,7 +319,7 @@ function clickApproval(a: ApprovalState): void {
   font-size: 9px;
   font-weight: 800;
   cursor: pointer;
-  border: 1px solid #ea580c;
+  border: 1px solid var(--accent);
 
   .tool-icon {
     font-size: 8px;
@@ -328,15 +328,14 @@ function clickApproval(a: ApprovalState): void {
 
   &.is-current {
     background: #ea580c;
-    color: #fff;
-    box-shadow: 0 0 0 1.5px rgba(234, 88, 12, 0.2);
+    box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 20%, transparent);
     cursor: default;
   }
 
   &.is-queued {
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--surface-soft);
+    color: var(--ink);
     color: #ea580c;
-    animation: approval-flash var(--flash-period, 1s) ease-in-out infinite alternate;
   }
 
   &.expired {
@@ -350,7 +349,7 @@ function clickApproval(a: ApprovalState): void {
   }
 
   &:focus-visible {
-    outline: 2px solid #ea580c;
+    outline: 2px solid var(--accent);
     outline-offset: 1px;
   }
 }

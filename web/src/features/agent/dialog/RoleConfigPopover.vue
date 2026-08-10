@@ -256,9 +256,9 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 .role-card {
   width: 100%;
   overflow: hidden;
-  border-color: rgba(32, 35, 42, 0.12);
+  border-color: color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 12px;
-  background: #fffdf9;
+  background: var(--panel);
 
   :deep(.el-card__body) {
     display: grid;
@@ -273,8 +273,13 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  background: linear-gradient(115deg, rgba(246, 183, 60, 0.28), rgba(255, 255, 255, 0.42)), #f8f0df;
-  border-bottom: 1px solid rgba(155, 111, 27, 0.14);
+  background: linear-gradient(
+      115deg,
+      color-mix(in srgb, var(--accent) 20%, transparent),
+      color-mix(in srgb, var(--accent) 4%, transparent)
+    ),
+    var(--surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .profile-avatar {
@@ -295,7 +300,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
   strong {
     overflow: hidden;
-    color: #292015;
+    color: var(--ink);
     font-size: 16px;
     line-height: 1.15;
     text-overflow: ellipsis;
@@ -308,17 +313,15 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 3px 7px;
-  color: rgba(72, 55, 30, 0.68);
-  font-size: 11px;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
 
 .identity-kind {
-  color: #a06f18;
+  color: var(--accent-ink);
   font-weight: 750;
 }
 .brain-name {
-  color: rgba(42, 34, 23, 0.72);
-  font-weight: 650;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
 }
 
 .brain-facts {
@@ -326,7 +329,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 3px 5px;
-  color: rgba(28, 31, 36, 0.65);
+  color: color-mix(in srgb, var(--ink) 65%, transparent);
   font-size: 10px;
 
   .brain-fact-text {
@@ -338,7 +341,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
   b {
     margin-right: 3px;
-    color: rgba(28, 31, 36, 0.42);
+    color: color-mix(in srgb, var(--ink) 42%, transparent);
     font-weight: 700;
   }
 
@@ -348,21 +351,20 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     justify-content: center;
     width: 18px;
     height: 18px;
-    border: 1px solid rgba(87, 75, 49, 0.12);
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+    background: var(--surface-soft);
     font-size: 11px;
     line-height: 1;
     cursor: pointer;
 
     &.cap-input {
       border-color: rgba(59, 130, 246, 0.28);
-      background: rgba(219, 234, 254, 0.6);
+      background: color-mix(in srgb, #3b82f6 14%, var(--surface));
     }
 
     &.cap-generate {
       border-color: rgba(234, 88, 12, 0.3);
-      background: linear-gradient(145deg, rgba(254, 243, 199, 0.85), rgba(253, 230, 138, 0.45));
+      background: color-mix(in srgb, #ea580c 12%, var(--surface));
     }
   }
 }
@@ -379,9 +381,8 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   justify-content: center;
   width: 18px;
   height: 18px;
-  border: 1px solid rgba(87, 75, 49, 0.12);
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  background: var(--surface-soft);
   font-size: 11px;
   cursor: pointer;
 }
@@ -395,13 +396,13 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 .profile-setting {
   min-width: 0;
   padding: 7px 8px;
-  border: 1px solid rgba(35, 38, 44, 0.1);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   border-radius: 8px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .sense-setting {
-  background: #fcfaf5;
+  background: var(--surface-soft);
 }
 
 .setting-heading {
@@ -409,7 +410,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   align-items: center;
   gap: 4px;
   margin-bottom: 4px;
-  color: rgba(30, 33, 38, 0.68);
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.03em;
@@ -451,8 +452,8 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   overflow: hidden;
   border: 1px solid transparent;
   border-radius: 5px;
-  background: rgba(35, 38, 44, 0.045);
-  color: rgba(30, 33, 38, 0.64);
+  background: color-mix(in srgb, var(--ink) 4.5%, transparent);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font: inherit;
   font-size: 10px;
   line-height: 1.2;
@@ -471,19 +472,19 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     width: max-content;
     max-width: max-content;
     overflow: visible;
-    background: #fffdf8;
-    box-shadow: 0 2px 7px rgba(20, 22, 26, 0.14);
-    color: rgba(30, 33, 38, 0.82);
+    background: var(--surface-hover);
+    box-shadow: 0 2px 7px color-mix(in srgb, var(--ink) 14%, transparent);
+    color: color-mix(in srgb, var(--ink) 82%, transparent);
   }
 
   &.selected {
-    border-color: rgba(190, 132, 28, 0.33);
-    background: rgba(246, 183, 60, 0.16);
-    color: #815811;
+    border-color: color-mix(in srgb, var(--accent) 33%, transparent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent-ink);
     font-weight: 750;
 
     &:hover {
-      background: #fff4d7;
+      background: color-mix(in srgb, var(--accent) 15%, transparent);
     }
   }
 }
@@ -504,7 +505,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 }
 
 .runtime-note {
-  color: rgba(53, 55, 61, 0.46);
+  color: color-mix(in srgb, var(--ink) 46%, transparent);
   font-size: 9px;
   line-height: 1.2;
   text-align: right;

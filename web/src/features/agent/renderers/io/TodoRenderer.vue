@@ -61,18 +61,18 @@ const statusGlyph = (s: TodoItem['status']): string =>
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .todo-box {
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 6px 8px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .todo-head {
@@ -87,13 +87,13 @@ const statusGlyph = (s: TodoItem['status']): string =>
   .todo-name {
     flex: 1;
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .todo-count {
     font-size: 10px;
     font-weight: 700;
-    color: fade(@ink, 56%);
+    color: color-mix(in srgb, var(--ink) 56%, transparent);
     font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   }
 }
@@ -133,7 +133,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
 
     &.done {
       text-decoration: line-through;
-      color: fade(@ink, 44%);
+      color: color-mix(in srgb, var(--ink) 44%, transparent);
     }
   }
 
@@ -150,7 +150,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;

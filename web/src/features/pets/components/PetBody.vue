@@ -163,7 +163,7 @@ const emit = defineEmits<{
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 @glyph-fonts: ui-rounded, 'Hiragino Sans', 'PingFang SC', 'Noto Sans Symbols 2',
   'Noto Sans Symbols', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
 
@@ -173,8 +173,7 @@ const emit = defineEmits<{
 
 .pet {
   --pet-color: #f6b73c;
-  --pet-accent: #3b2b12;
-  --pet-direction: 1;
+  --pet-accent: var(--ink);
   position: absolute;
   left: 0;
   top: 0;
@@ -317,7 +316,7 @@ const emit = defineEmits<{
   left: 50%;
   bottom: 72px;
   transform: translateX(-50%);
-  color: fade(@ink, 60%);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   font-size: 11px;
   font-weight: 600;
   pointer-events: none;
@@ -343,7 +342,7 @@ const emit = defineEmits<{
   width: 32px;
   height: 7px;
   border-radius: 50%;
-  background: fade(@ink, 16%);
+  background: color-mix(in srgb, var(--ink) 16%, transparent);
   filter: blur(2px);
   transform: scale(var(--pet-scale, 1));
   transform-origin: center;

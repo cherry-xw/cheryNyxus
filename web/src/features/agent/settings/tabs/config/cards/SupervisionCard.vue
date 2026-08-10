@@ -76,8 +76,8 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
   gap: 2px;
   border: 1px solid rgba(99, 102, 241, 0.13);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.72);
-  color: rgba(36, 38, 45, 0.58);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
   cursor: pointer;
   transition: 0.16s ease;
   span {
@@ -97,10 +97,15 @@ defineProps<{ global: GlobalConfigDto; no: number }>()
     transform: translateY(-1px);
   }
 }
+[data-theme='dark'] .supervision-deck button.active {
+  border-color: rgba(96, 165, 250, 0.6);
+  color: #a5b4fc;
+  background: linear-gradient(145deg, color-mix(in srgb, #6366f1 22%, var(--surface)), color-mix(in srgb, #a855f7 16%, var(--surface)));
+}
 .deck-note {
   position: relative;
   margin: 0;
   font-size: 9px;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 </style>

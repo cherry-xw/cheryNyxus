@@ -26,29 +26,36 @@ const legacyColor = computed(() => {
   return COLORS.low
 })
 const segs = computed(() => breakdownSegments(props.breakdown))
-const title = computed(() => {
+const titleLines = computed(() => {
   const pct = Math.round((props.breakdown?.usage ?? clamped.value) * 100)
-  if (!props.breakdown) return `context ${pct}%`
-  const lines = segs.value
-    .filter((s) => s.tokens > 0)
-    .map((s) => {
-      const note = segmentThinkingNote(s)
-      return `${s.label} ${fmtTokens(s.tokens)} · ${s.pct}%${note ? ` ${note}` : ''}`
-    })
-  return [`context ${pct}%`, ...lines].join('\n')
+  if (!props.breakdown) return [`context ${pct}%`]
+  return [
+    `context ${pct}%`,
+    ...segs.value
+      .filter((s) => s.tokens > 0)
+      .map((s) => {
+        const note = segmentThinkingNote(s)
+        return `${s.label} ${fmtTokens(s.tokens)} · ${s.pct}%${note ? ` ${note}` : ''}`
+      }),
+  ]
 })
 </script>
 
 <template>
-  <div
-    class="context-bar"
-    role="progressbar"
-    :aria-valuenow="Math.round(clamped * 100)"
-    aria-valuemin="0"
-    aria-valuemax="100"
-    :aria-label="`context usage ${Math.round(clamped * 100)}%`"
-    :title="title"
-  >
+  <el-tooltip placement="top" :show-after="200" :hide-after="0">
+    <template #content>
+      <div class="ctxbar-tip">
+        <div v-for="(line, i) in titleLines" :key="i">{{ line }}</div>
+      </div>
+    </template>
+    <div
+      class="context-bar"
+      role="progressbar"
+      :aria-valuenow="Math.round(clamped * 100)"
+      aria-valuemin="0"
+      aria-valuemax="100"
+      :aria-label="`context usage ${Math.round(clamped * 100)}%`"
+    >
     <template v-if="segs.length">
       <span
         v-for="s in segs"
@@ -58,7 +65,8 @@ const title = computed(() => {
       />
     </template>
     <span v-else class="fill" :style="{ width: `${clamped * 100}%`, background: legacyColor }" />
-  </div>
+    </div>
+  </el-tooltip>
 </template>
 
 <style scoped lang="less">
@@ -67,7 +75,7 @@ const title = computed(() => {
   width: 44px;
   height: 2px;
   border-radius: 1px;
-  background: rgba(20, 22, 26, 0.14);
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
   overflow: hidden;
   display: flex;
   cursor: help;
@@ -86,5 +94,15 @@ const title = computed(() => {
   transition:
     width 200ms ease,
     background 200ms ease;
+}
+
+// 用量 tip：el-tooltip 内容，文字色随 EP 主题（深色模式 el-popper 深底浅字）
+.ctxbar-tip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 </style>

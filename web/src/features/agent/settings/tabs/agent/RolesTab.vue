@@ -579,9 +579,9 @@ watch(selectedRole, () => {
   gap: 12px;
   align-items: center;
   padding: 11px;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.58);
+  background: var(--surface-soft);
 }
 .role-title-zone {
   min-width: 0;
@@ -628,13 +628,13 @@ watch(selectedRole, () => {
   max-width: 100%;
   font-size: 11px;
   line-height: 1.4;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
   word-break: break-word;
   &.editable {
     cursor: text;
     border-radius: 4px;
     &:hover {
-      color: fade(@ink, 68%);
+      color: color-mix(in srgb, var(--ink) 68%, transparent);
       background: color-mix(in srgb, var(--tab-color, @accent) 8%, transparent);
     }
   }
@@ -649,9 +649,9 @@ watch(selectedRole, () => {
 }
 .detail-section {
   padding: 10px;
-  border: 1px solid rgba(36, 38, 45, 0.11);
+  border: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.42);
+  background: var(--surface-soft);
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -659,7 +659,7 @@ watch(selectedRole, () => {
 .detail-section h3 {
   margin: 0;
   font-size: 12px;
-  color: fade(@ink, 68%);
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
 .core-field {
   display: grid;
@@ -671,7 +671,7 @@ watch(selectedRole, () => {
   padding-top: 6px;
   font-size: 10px;
   font-weight: 800;
-  color: fade(@ink, 54%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 .choice-board {
   display: grid;
@@ -688,10 +688,10 @@ watch(selectedRole, () => {
   flex-direction: column;
   justify-content: center;
   gap: 2px;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 8px;
-  background: #fff;
-  color: fade(@ink, 70%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   cursor: pointer;
   min-width: 0;
   overflow: hidden;
@@ -715,7 +715,7 @@ watch(selectedRole, () => {
 
 .brain-choice-model {
   font-size: 10px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
   font-weight: 500;
 }
 .choice-board.compact button {
@@ -729,7 +729,7 @@ watch(selectedRole, () => {
 }
 .choice-board small {
   font-size: 9px;
-  color: fade(@ink, 45%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 .prompt-cascader {
   width: 100%;
@@ -747,9 +747,10 @@ watch(selectedRole, () => {
   gap: 5px;
   margin-top: 8px;
   padding: 8px;
-  border: 1px dashed rgba(36, 38, 45, 0.1);
+  border: 1px dashed color-mix(in srgb, var(--ink) 10%, transparent);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.32);
+  // 主题自适应底：深色时为深灰而非硬编码白 32%（白底 + 白字不可读）
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 // 装备整理面板展开时，给装备栏胶囊加主题色发光，提示正在编辑这一栏。
 .equipment-roster.equipment-editing {
@@ -768,22 +769,22 @@ watch(selectedRole, () => {
   width: 32px;
   font-size: 10px;
   font-weight: 800;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .roster-tag {
   padding: 1px 7px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
   font-size: 10px;
-  color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
+  color: color-mix(in srgb, var(--tab-color, @accent) 88%, @ink);
 }
 .roster-tag small {
   font-size: 9px;
-  opacity: 0.7;
+  opacity: 0.9;
 }
 .roster-empty {
   font-size: 10px;
-  color: fade(@ink, 40%);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-style: italic;
 }
 @keyframes role-spawn {

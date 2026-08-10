@@ -104,12 +104,12 @@ function scrollTo(item: IndexItem, i: number): void {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: #fbf9f4;
+  background: var(--panel);
 
   .index-card-title {
     font-size: 12px;
     font-weight: 800;
-    color: fade(@ink, 88%);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
     line-height: 1.3;
     word-break: break-all;
   }
@@ -119,12 +119,12 @@ function scrollTo(item: IndexItem, i: number): void {
     align-items: baseline;
     gap: 6px;
     font-size: 11px;
-    color: fade(@ink, 70%);
+    color: color-mix(in srgb, var(--ink) 70%, transparent);
     line-height: 1.4;
 
     b {
       font-weight: 700;
-      color: fade(@ink, 55%);
+      color: color-mix(in srgb, var(--ink) 55%, transparent);
       font-size: 10px;
       letter-spacing: 0.02em;
       flex: 0 0 auto;
@@ -137,13 +137,13 @@ function scrollTo(item: IndexItem, i: number): void {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: fade(@ink, 82%);
+      color: color-mix(in srgb, var(--ink) 82%, transparent);
     }
   }
 
   .index-card-empty {
     font-size: 11px;
-    color: fade(@ink, 42%);
+    color: color-mix(in srgb, var(--ink) 42%, transparent);
     font-style: italic;
   }
 }

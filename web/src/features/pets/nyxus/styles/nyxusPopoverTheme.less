@@ -16,23 +16,23 @@
  * Vue PostCSS scoped 识别 :deep() 在后）。由 MessageBranchTree.vue <style scoped> @import。
  */
 
-// ── CRT 调色板 ──
-@nx-bg: rgba(55, 61, 60, 0.97);
-@nx-border: rgba(188, 202, 191, 0.72);
-@nx-border-soft: rgba(192, 205, 195, 0.34);
-@nx-text: #d7dfd8;
-@nx-text-dim: #cbd6cd;
-@nx-text-faint: rgba(215, 223, 216, 0.5);
-@nx-code-bg: rgba(0, 0, 0, 0.4);
-@nx-code-bg-soft: rgba(21, 26, 25, 0.5);
+// ── CRT 调色板（引用全局 token，随浅/深主题翻转）──
+@nx-bg: var(--nx-bg);
+@nx-border: var(--nx-border);
+@nx-border-soft: var(--nx-border-soft);
+@nx-text: var(--nx-text);
+@nx-text-dim: var(--nx-text-dim);
+@nx-text-faint: var(--nx-text-faint);
+@nx-code-bg: var(--nx-code-bg);
+@nx-code-bg-soft: var(--nx-code-bg-soft);
 @nx-font: ui-monospace, 'JetBrains Mono', 'Cascadia Code', monospace;
-@nx-green: #5be5b0;
-@nx-yellow: #ffe18b;
-@nx-red: #ff809b;
-@nx-blue: #7da7ff;
-@nx-cyan: #5ce1f5;
-@nx-purple: #c9b6ff;
-@nx-ts: 0.55px 0 rgba(228, 239, 230, 0.44), -0.55px 0 rgba(15, 21, 19, 0.72);
+@nx-green: var(--nx-green);
+@nx-yellow: var(--nx-yellow);
+@nx-red: var(--nx-red);
+@nx-blue: var(--nx-blue);
+@nx-cyan: var(--nx-cyan);
+@nx-purple: var(--nx-purple);
+@nx-ts: var(--nx-ts);
 
 // ═══════════════════ 区块 A：弹窗容器 ═══════════════════
 
@@ -55,8 +55,8 @@
   font-family: @nx-font;
   -webkit-font-smoothing: none;
   background:
-    repeating-linear-gradient(0deg, rgba(227, 238, 229, 0.035) 0 1px, transparent 1px 3px),
-    radial-gradient(circle at 1px 1px, rgba(232, 241, 233, 0.1) 0 0.55px, transparent 0.8px) 0 0 /
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px, transparent 0.8px) 0 0 /
       4px 4px,
     @nx-bg;
   border: 1px solid @nx-border;
@@ -64,7 +64,7 @@
   box-shadow:
     3px 3px 0 rgba(4, 8, 7, 0.66),
     0 12px 30px rgba(0, 0, 0, 0.48),
-    inset 0 0 24px rgba(204, 220, 207, 0.05);
+    inset 0 0 24px color-mix(in srgb, var(--nx-border) 5%, transparent);
   text-shadow: @nx-ts;
   animation: crt-grain-shift 1.8s steps(2, end) infinite;
 }
@@ -85,16 +85,16 @@
     right: 0;
     top: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(226, 237, 228, 0.78), transparent);
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--nx-border) 78%, transparent), transparent);
   }
-  scrollbar-color: rgba(191, 204, 194, 0.62) rgba(31, 36, 35, 0.72);
+  scrollbar-color: color-mix(in srgb, var(--nx-border) 62%, transparent) color-mix(in srgb, var(--nx-code-bg) 72%, transparent);
   scrollbar-width: thin;
   &::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   &::-webkit-scrollbar-track {
-    background: rgba(31, 36, 35, 0.72);
+    background: color-mix(in srgb, var(--nx-code-bg) 72%, transparent);
     border-radius: 0;
   }
   &::-webkit-scrollbar-thumb {
@@ -113,23 +113,23 @@
 .approval-frame {
   position: relative;
   padding: 10px;
-  color: #d8e0d9;
+  color: var(--nx-text);
   font-family: @nx-font;
   -webkit-font-smoothing: none;
   background:
-    repeating-linear-gradient(0deg, rgba(226, 238, 228, 0.035) 0 1px, transparent 1px 3px),
-    radial-gradient(circle at 1px 1px, rgba(231, 240, 232, 0.1) 0 0.55px, transparent 0.8px) 0 0 /
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px, transparent 0.8px) 0 0 /
       4px 4px,
-    rgba(57, 63, 62, 0.97);
-  border: 1px solid rgba(185, 199, 188, 0.72);
+    color-mix(in srgb, var(--nx-bg) 97%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nx-border) 72%, transparent);
   border-radius: 2px;
   box-shadow:
     3px 3px 0 rgba(5, 8, 8, 0.62),
     0 10px 26px rgba(0, 0, 0, 0.42),
-    inset 0 0 18px rgba(204, 222, 207, 0.045);
+    inset 0 0 18px color-mix(in srgb, var(--nx-border) 4.5%, transparent);
   text-shadow:
-    0.55px 0 rgba(226, 239, 229, 0.42),
-    -0.55px 0 rgba(17, 23, 21, 0.7);
+    0.55px 0 color-mix(in srgb, var(--nx-text) 42%, transparent),
+    -0.55px 0 color-mix(in srgb, var(--nx-code-bg) 70%, transparent);
   animation: crt-grain-shift 1.8s steps(2, end) infinite;
 }
 .approval-frame::after {
@@ -140,16 +140,16 @@
   width: 12px;
   height: 12px;
   background: #393f3e;
-  border-top: 1px solid rgba(185, 199, 188, 0.72);
-  border-right: 1px solid rgba(185, 199, 188, 0.72);
+  border-top: 1px solid color-mix(in srgb, var(--nx-border) 72%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--nx-border) 72%, transparent);
   transform: translateY(-50%) rotate(45deg);
 }
 .approval-anchor.is-right .approval-frame::after {
   right: auto;
   left: -7px;
   border: 0;
-  border-bottom: 1px solid rgba(185, 199, 188, 0.72);
-  border-left: 1px solid rgba(185, 199, 188, 0.72);
+  border-bottom: 1px solid color-mix(in srgb, var(--nx-border) 72%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--nx-border) 72%, transparent);
 }
 .approval-node-tag {
   display: flex;
@@ -157,10 +157,10 @@
   gap: 6px;
   margin: -1px -1px 7px;
   padding: 4px 6px;
-  border: 1px solid rgba(193, 207, 196, 0.34);
+  border: 1px solid color-mix(in srgb, var(--nx-border) 34%, transparent);
   border-radius: 0;
-  background: rgba(214, 226, 216, 0.08);
-  color: #e0e8e1;
+  background: color-mix(in srgb, var(--nx-text) 8%, transparent);
+  color: var(--nx-text);
   font-family: @nx-font;
   font-size: 11px;
   font-weight: 700;
@@ -255,21 +255,21 @@
   border-radius: 0;
 }
 .node-popover .popover-tool :deep(.search-mode) {
-  background: rgba(125, 167, 255, 0.18);
+  background: color-mix(in srgb, var(--nx-blue) 18%, transparent);
   color: @nx-blue;
 }
 .node-popover .popover-tool :deep(.search-badge),
 .node-popover .popover-tool :deep(.spawn-type) {
-  background: rgba(201, 182, 255, 0.18);
+  background: color-mix(in srgb, var(--nx-purple) 18%, transparent);
   color: @nx-purple;
 }
 .node-popover .popover-tool :deep(.spawn-badge) {
-  background: rgba(125, 167, 255, 0.18);
+  background: color-mix(in srgb, var(--nx-blue) 18%, transparent);
   color: @nx-blue;
 }
 .node-popover .popover-tool :deep(.skill-type),
 .node-popover .popover-tool :deep(.compression-badge) {
-  background: rgba(255, 225, 139, 0.18);
+  background: color-mix(in srgb, var(--nx-yellow) 18%, transparent);
   color: @nx-yellow;
 }
 
@@ -373,12 +373,12 @@
   background: @nx-code-bg-soft;
   color: @nx-text-dim;
   &:hover {
-    background: rgba(188, 202, 191, 0.16);
+    background: color-mix(in srgb, var(--nx-border) 16%, transparent);
     color: @nx-text;
   }
   &.copied {
-    border-color: rgba(91, 229, 176, 0.5);
-    background: rgba(91, 229, 176, 0.14);
+    border-color: color-mix(in srgb, var(--nx-green) 50%, transparent);
+    background: color-mix(in srgb, var(--nx-green) 14%, transparent);
     color: @nx-green;
   }
   .el-icon {
@@ -416,12 +416,12 @@
 
 // C10 CommandRenderer 输出区徽章
 .node-popover .popover-tool :deep(.timeout-badge) {
-  background: rgba(255, 225, 139, 0.18);
+  background: color-mix(in srgb, var(--nx-yellow) 18%, transparent);
   color: @nx-yellow;
   border-radius: 0;
 }
 .node-popover .popover-tool :deep(.error-badge) {
-  background: rgba(255, 128, 155, 0.18);
+  background: color-mix(in srgb, var(--nx-red) 18%, transparent);
   color: @nx-red;
   border-radius: 0;
 }
@@ -431,7 +431,7 @@
   .q-head {
     .indicator {
       background: @nx-purple;
-      box-shadow: 0 0 0 2px rgba(201, 182, 255, 0.18);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--nx-purple) 18%, transparent);
     }
     .q-header {
       color: @nx-text;
@@ -439,20 +439,20 @@
     .q-badge {
       border-radius: 0;
       &.badge-answered {
-        background: rgba(201, 182, 255, 0.18);
+        background: color-mix(in srgb, var(--nx-purple) 18%, transparent);
         color: @nx-purple;
       }
       &.badge-cancelled {
-        background: rgba(215, 223, 216, 0.14);
+        background: color-mix(in srgb, var(--nx-text) 14%, transparent);
         color: @nx-text-dim;
       }
       &.badge-running {
-        background: rgba(255, 225, 139, 0.18);
+        background: color-mix(in srgb, var(--nx-yellow) 18%, transparent);
         color: @nx-yellow;
         animation: nx-pulse 1.1s ease-in-out infinite;
       }
       &.badge-missing {
-        background: rgba(255, 128, 155, 0.16);
+        background: color-mix(in srgb, var(--nx-red) 16%, transparent);
         color: @nx-red;
       }
     }
@@ -461,9 +461,9 @@
     color: @nx-text;
   }
   .q-kind {
-    border-color: rgba(201, 182, 255, 0.34);
+    border-color: color-mix(in srgb, var(--nx-purple) 34%, transparent);
     border-radius: 0;
-    background: rgba(201, 182, 255, 0.1);
+    background: color-mix(in srgb, var(--nx-purple) 10%, transparent);
     color: @nx-purple;
   }
   .q-option {
@@ -472,8 +472,8 @@
     background: @nx-code-bg-soft;
     color: @nx-text-dim;
     &.selected {
-      background: rgba(201, 182, 255, 0.18);
-      border-color: rgba(201, 182, 255, 0.55);
+      background: color-mix(in srgb, var(--nx-purple) 18%, transparent);
+      border-color: color-mix(in srgb, var(--nx-purple) 55%, transparent);
       color: @nx-purple;
       .q-control {
         color: @nx-purple;
@@ -481,14 +481,14 @@
     }
   }
   .q-control {
-    border-color: rgba(201, 182, 255, 0.55);
+    border-color: color-mix(in srgb, var(--nx-purple) 55%, transparent);
   }
   .q-option-copy small {
     color: @nx-text-faint;
   }
   .q-other-answer {
     border-left-color: @nx-purple;
-    background: rgba(201, 182, 255, 0.1);
+    background: color-mix(in srgb, var(--nx-purple) 10%, transparent);
     small {
       color: @nx-purple;
     }
@@ -542,29 +542,29 @@
 // D1 ApprovalCard（迁移现有 CRT，保持暗底高对比）
 .approval-frame :deep(.approval-card) {
   max-width: none;
-  color: #d8e0d9;
+  color: var(--nx-text);
 }
 .approval-frame :deep(.sense-name),
 .approval-frame :deep(.args-toggle),
 .approval-frame :deep(.arg-key),
 .approval-frame :deep(.arg-val),
 .approval-frame :deep(.arg-empty) {
-  color: #dce6dd;
+  color: var(--nx-text);
 }
 .approval-frame :deep(.args-toggle) {
-  border-color: rgba(194, 207, 197, 0.4);
-  background: rgba(21, 26, 25, 0.6);
+  border-color: color-mix(in srgb, var(--nx-border) 40%, transparent);
+  background: color-mix(in srgb, var(--nx-code-bg) 60%, transparent);
   &:hover {
-    background: rgba(194, 207, 197, 0.18);
+    background: color-mix(in srgb, var(--nx-border) 18%, transparent);
   }
 }
 .approval-frame :deep(.args) {
-  border-color: rgba(194, 207, 197, 0.34);
-  background: rgba(21, 26, 25, 0.36);
+  border-color: color-mix(in srgb, var(--nx-border) 34%, transparent);
+  background: color-mix(in srgb, var(--nx-code-bg) 36%, transparent);
 }
 .approval-frame :deep(.args-body),
 .approval-frame :deep(.args-pre) {
-  color: #cbd6cd;
+  color: var(--nx-text-dim);
   background: transparent;
 }
 .approval-frame :deep(.arg-val),
@@ -589,44 +589,44 @@
   appearance: none;
   -webkit-appearance: none;
   border-radius: 0;
-  border-color: rgba(197, 211, 200, 0.58);
-  background: rgba(23, 28, 27, 0.4);
-  color: #dce5de;
+  border-color: color-mix(in srgb, var(--nx-border) 58%, transparent);
+  background: color-mix(in srgb, var(--nx-code-bg) 40%, transparent);
+  color: var(--nx-text);
   font: inherit;
   box-shadow: none;
   text-shadow: inherit;
 }
 .approval-frame :deep(button:hover:not(:disabled)) {
-  border-color: #e4ece5;
-  background: rgba(218, 230, 220, 0.16);
-  color: #f4f7f4;
+  border-color: var(--nx-text);
+  background: color-mix(in srgb, var(--nx-text) 16%, transparent);
+  color: var(--nx-text);
 }
 .approval-frame :deep(button:focus-visible) {
-  outline: 1px dashed #eef5ef;
+  outline: 1px dashed var(--nx-text);
   outline-offset: 2px;
 }
 .approval-frame :deep(button:disabled) {
-  color: rgba(213, 222, 215, 0.46);
-  border-color: rgba(182, 194, 185, 0.25);
-  background: rgba(25, 29, 28, 0.25);
+  color: color-mix(in srgb, var(--nx-border) 46%, transparent);
+  border-color: color-mix(in srgb, var(--nx-border) 25%, transparent);
+  background: color-mix(in srgb, var(--nx-code-bg) 25%, transparent);
 }
 // accept/reject 强暗底高对比
 .approval-frame :deep(.btn.accept) {
-  border-color: rgba(91, 229, 176, 0.6);
+  border-color: color-mix(in srgb, var(--nx-green) 60%, transparent);
   background: rgba(26, 121, 82, 0.42);
-  color: #7ef7b8;
+  color: var(--nx-green);
   &:hover:not(:disabled) {
     background: rgba(26, 121, 82, 0.68);
-    color: #c4ffe2;
+    color: var(--nx-green);
   }
 }
 .approval-frame :deep(.btn.reject) {
-  border-color: rgba(255, 128, 155, 0.6);
+  border-color: color-mix(in srgb, var(--nx-red) 60%, transparent);
   background: rgba(126, 43, 62, 0.42);
-  color: #ff9db0;
+  color: var(--nx-red);
   &:hover:not(:disabled) {
     background: rgba(126, 43, 62, 0.68);
-    color: #ffd0db;
+    color: var(--nx-red);
   }
 }
 
@@ -642,13 +642,13 @@
   border-radius: 2px;
   color: @nx-text;
   background:
-    repeating-linear-gradient(0deg, rgba(227, 238, 229, 0.035) 0 1px, transparent 1px 3px),
-    radial-gradient(circle at 1px 1px, rgba(232, 241, 233, 0.1) 0 0.55px, transparent 0.8px) 0 0 /
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--nx-text) 3.5%, transparent) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--nx-text) 10%, transparent) 0 0.55px, transparent 0.8px) 0 0 /
       4px 4px,
     @nx-bg;
   box-shadow:
     0 22px 58px rgba(0, 0, 0, 0.52),
-    inset 0 0 18px rgba(204, 220, 207, 0.05);
+    inset 0 0 18px color-mix(in srgb, var(--nx-border) 5%, transparent);
   font-family: @nx-font;
   text-shadow: @nx-ts;
   -webkit-font-smoothing: none;
@@ -666,11 +666,11 @@
 }
 .question-frame :deep(.question-symbol) {
   background: linear-gradient(145deg, @nx-cyan, @nx-purple);
-  box-shadow: 0 7px 20px rgba(92, 225, 245, 0.24);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--nx-cyan) 24%, transparent);
 }
 .question-frame :deep(.question-progress) {
   color: @nx-cyan;
-  background: rgba(92, 225, 245, 0.14);
+  background: color-mix(in srgb, var(--nx-cyan) 14%, transparent);
   border-radius: 0;
 }
 .question-frame :deep(.option-card) {
@@ -680,16 +680,16 @@
   background: @nx-code-bg-soft;
 }
 .question-frame :deep(.option-card:hover:not(:disabled)) {
-  border-color: rgba(92, 225, 245, 0.52);
-  background: rgba(92, 225, 245, 0.1);
+  border-color: color-mix(in srgb, var(--nx-cyan) 52%, transparent);
+  background: color-mix(in srgb, var(--nx-cyan) 10%, transparent);
   box-shadow: 0 7px 18px rgba(0, 0, 0, 0.2);
 }
 .question-frame :deep(.option-card.selected) {
-  border-color: rgba(92, 225, 245, 0.72);
-  background: linear-gradient(120deg, rgba(92, 225, 245, 0.18), rgba(201, 182, 255, 0.1));
+  border-color: color-mix(in srgb, var(--nx-cyan) 72%, transparent);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--nx-cyan) 18%, transparent), color-mix(in srgb, var(--nx-purple) 10%, transparent));
   box-shadow:
     inset 3px 0 0 @nx-cyan,
-    0 0 18px rgba(92, 225, 245, 0.1);
+    0 0 18px color-mix(in srgb, var(--nx-cyan) 10%, transparent);
 }
 .question-frame :deep(.choice-mark) {
   border-color: @nx-border-soft;
@@ -700,7 +700,7 @@
   border-color: @nx-cyan;
   color: #07141e;
   background: @nx-cyan;
-  box-shadow: 0 0 0 3px rgba(92, 225, 245, 0.14);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-cyan) 14%, transparent);
 }
 .question-frame :deep(.option-description) {
   font-size: 8px;
@@ -720,14 +720,14 @@
 .question-frame :deep(.action-btn.primary) {
   color: #07141e;
   background: linear-gradient(135deg, @nx-cyan, @nx-purple);
-  box-shadow: 0 7px 20px rgba(92, 225, 245, 0.2);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--nx-cyan) 20%, transparent);
   border-radius: 2px;
 }
 .question-frame :deep(.question-card .el-textarea__inner) {
   color: @nx-text;
   background: @nx-code-bg;
   border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(92, 225, 245, 0.3) inset;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--nx-cyan) 30%, transparent) inset;
   caret-color: @nx-cyan;
   font-family: @nx-font;
 }
@@ -742,15 +742,15 @@
   align-items: center;
   gap: 7px;
   min-height: 42px;
-  color: #dce8de;
+  color: var(--nx-text);
   font-family: @nx-font;
   font-size: 11px;
 }
 .streaming-dot {
   width: 7px;
   height: 7px;
-  background: #dbe8dd;
-  box-shadow: 0 0 7px rgba(219, 232, 221, 0.78);
+  background: var(--nx-text);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--nx-text) 78%, transparent);
   animation: input-pulse 0.9s steps(1) infinite;
 }
 .popover-content {
@@ -761,7 +761,7 @@
 }
 .popover-content.is-user {
   white-space: pre-wrap;
-  color: #d1dad2;
+  color: var(--nx-text-dim);
 }
 
 // user 正文内的指令 / 角色 token：像素风 terminal 方括号 tag。
@@ -773,7 +773,7 @@
   padding: 0 4px;
   border: 1px solid;
   border-radius: 0;
-  background: rgba(0, 0, 0, 0.32);
+  background: var(--nx-code-bg);
   font-family: @nx-font;
   font-size: 10px;
   font-weight: 700;
@@ -784,13 +784,13 @@
   vertical-align: baseline;
   &.is-cmd {
     color: @nx-yellow;
-    border-color: rgba(255, 225, 139, 0.55);
-    box-shadow: inset 0 0 0 1px rgba(255, 225, 139, 0.1);
+    border-color: color-mix(in srgb, var(--nx-yellow) 55%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nx-yellow) 10%, transparent);
   }
   &.is-role {
     color: @nx-blue;
-    border-color: rgba(125, 167, 255, 0.55);
-    box-shadow: inset 0 0 0 1px rgba(125, 167, 255, 0.1);
+    border-color: color-mix(in srgb, var(--nx-blue) 55%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nx-blue) 10%, transparent);
   }
 }
 .nx-tag-brk {
@@ -815,8 +815,8 @@
   :deep(code) {
     font-family: @nx-font;
     font-size: 10px;
-    background: rgba(222, 234, 224, 0.1);
-    color: #e2e9e3;
+    background: color-mix(in srgb, var(--nx-text) 10%, transparent);
+    color: var(--nx-text);
     padding: 1px 5px;
     border-radius: 0;
   }
@@ -829,54 +829,54 @@
     overflow-x: auto;
     code {
       background: none;
-      color: #e0e8e1;
+      color: var(--nx-text);
       padding: 0;
     }
   }
   :deep(.hljs) {
-    color: #dce5de;
+    color: var(--nx-text);
     background: transparent;
   }
   :deep(.hljs-keyword),
   :deep(.hljs-selector-tag),
   :deep(.hljs-literal) {
-    color: #ffb86c;
+    color: var(--nx-hljs-keyword);
   }
   :deep(.hljs-string),
   :deep(.hljs-attr),
   :deep(.hljs-title) {
-    color: #a8e7a1;
+    color: var(--nx-hljs-string);
   }
   :deep(.hljs-comment),
   :deep(.hljs-quote) {
-    color: #89a4ad;
+    color: var(--nx-hljs-comment);
   }
   :deep(.hljs-number),
   :deep(.hljs-built_in),
   :deep(.hljs-variable) {
-    color: #a9c8ff;
+    color: var(--nx-hljs-number);
   }
   :deep(h1),
   :deep(h2),
   :deep(h3) {
     margin: 5px 0 3px;
     line-height: 1.3;
-    color: #eef3ef;
+    color: var(--nx-text);
   }
   :deep(a) {
-    color: #d5e1d7;
+    color: var(--nx-text);
   }
   :deep(strong) {
     font-weight: 700;
-    color: #f0f4f1;
+    color: var(--nx-text);
   }
 }
 .popover-thinking {
   margin: 0 0 8px;
   padding: 5px 7px;
-  border-left: 2px solid rgba(205, 216, 207, 0.7);
-  background: rgba(221, 232, 223, 0.07);
-  color: #cbd5cc;
+  border-left: 2px solid color-mix(in srgb, var(--nx-text) 70%, transparent);
+  background: color-mix(in srgb, var(--nx-text) 7%, transparent);
+  color: var(--nx-text-dim);
 }
 .thinking-label {
   font-family: @nx-font;

@@ -173,18 +173,18 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="less">
-@ink: #14161a;
+@ink: var(--ink);
 
 .file-write-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.66);
+  background: var(--surface);
   font-size: 11px;
-  color: fade(@ink, 80%);
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 
 .file-head {
@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
   .file-name {
     flex: 1;
     font-weight: 700;
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .file-status {
@@ -237,7 +237,7 @@ onBeforeUnmount(() => {
   line-height: 17px;
   font-size: 10px;
   font-weight: 700;
-  color: fade(@ink, 56%);
+  color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
 .file-path-wrap {
@@ -251,12 +251,12 @@ onBeforeUnmount(() => {
   padding: 2px 6px;
   padding-right: 22px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: fade(@ink, 88%);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .copy-btn {
@@ -268,10 +268,10 @@ onBeforeUnmount(() => {
   width: 16px;
   height: 16px;
   padding: 0;
-  border: 1px solid rgba(36, 38, 45, 0.16);
+  border: 1px solid var(--border);
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.7);
-  color: fade(@ink, 60%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
   cursor: pointer;
 
   &.copied {
@@ -283,14 +283,14 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   font-size: 10.5px;
-  color: fade(@ink, 70%);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
 .file-fallback {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   white-space: pre-wrap;
@@ -306,7 +306,7 @@ onBeforeUnmount(() => {
   padding: 2px 4px;
   border: none;
   background: transparent;
-  color: fade(@ink, 64%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
   font-size: 10px;
   font-family: inherit;
   cursor: pointer;
@@ -314,7 +314,7 @@ onBeforeUnmount(() => {
   text-align: left;
 
   &:hover {
-    color: fade(@ink, 86%);
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
   .toggle-label {
@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
 
 .line-count {
   font-size: 9px;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 }
 
@@ -350,8 +350,8 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(20, 22, 26, 0.06);
-  color: fade(@ink, 86%);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: color-mix(in srgb, var(--ink) 86%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
   line-height: 1.45;
@@ -364,7 +364,7 @@ onBeforeUnmount(() => {
 .content-truncated {
   font-size: 9px;
   font-style: italic;
-  color: fade(@ink, 50%);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
 }
 
 @keyframes file-pulse {

@@ -119,8 +119,8 @@ function remove(name: string): void {
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 36%, transparent);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--tab-color, @accent) 5%, rgba(255, 255, 255, 0.78));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  background: color-mix(in srgb, var(--tab-color, @accent) 5%, var(--surface));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 10%, transparent);
 }
 .editor-head,
 .inventory-toolbar {
@@ -142,14 +142,14 @@ function remove(name: string): void {
 .editor-head small,
 .inventory-toolbar > span {
   font-size: 10px;
-  color: fade(@ink, 48%);
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .close-editor {
   height: 24px;
   padding: 0 11px;
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 46%, transparent);
   border-radius: 7px;
-  background: color-mix(in srgb, var(--tab-color, @accent) 14%, #fff);
+  background: color-mix(in srgb, var(--tab-color, @accent) 14%, var(--surface));
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
   font-size: 10px;
   font-weight: 800;
@@ -170,7 +170,7 @@ function remove(name: string): void {
   padding: 3px 7px;
   border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 30%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--tab-color, @accent) 13%, #fff);
+  background: color-mix(in srgb, var(--tab-color, @accent) 13%, var(--surface));
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
   font-size: 10px;
   cursor: pointer;
@@ -187,7 +187,7 @@ function remove(name: string): void {
 }
 .editor-empty,
 .inventory-empty {
-  color: fade(@ink, 42%);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
   font-size: 10px;
   font-style: italic;
 }
@@ -207,10 +207,10 @@ function remove(name: string): void {
   align-items: center;
   gap: 5px;
   padding: 5px 8px;
-  border: 1px solid rgba(36, 38, 45, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 8px;
-  background: #fff;
-  color: fade(@ink, 74%);
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 74%, transparent);
   text-align: left;
   cursor: pointer;
 }
@@ -229,7 +229,7 @@ function remove(name: string): void {
 }
 .equipment-inventory small {
   font-size: 9px;
-  color: fade(@ink, 44%);
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 .inventory-empty {
   grid-column: 1 / -1;
@@ -241,15 +241,15 @@ function remove(name: string): void {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: fade(@ink, 55%);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
   font-size: 10px;
 }
 .editor-pages button {
   width: 28px;
   height: 24px;
-  border: 1px solid rgba(36, 38, 45, 0.14);
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
   cursor: pointer;
 }
 .editor-pages button:disabled {

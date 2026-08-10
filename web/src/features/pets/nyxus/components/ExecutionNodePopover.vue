@@ -941,7 +941,7 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .popover-chrome {
   flex: 0 0 auto;
-  background: #0d151b;
+  background: ;
   box-shadow: 0 1px rgba(255, 255, 255, 0.025);
 }
 .popover-head {
@@ -964,8 +964,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .popover-head strong {
   min-width: 0;
   overflow: hidden;
-  color: #edf5f7;
-  font:
+    color: #edf5f7;
+      font:
     650 12px/1.2 system-ui,
     sans-serif;
   text-overflow: ellipsis;
@@ -983,14 +983,14 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .status-error,
 .status-rejected {
+  color: ;
   color: #ef7185;
-  border-color: rgba(239, 113, 133, 0.34);
 }
 .status-active,
 .status-accepted,
 .status-pending {
+  color: ;
   color: #e7b76b;
-  border-color: rgba(231, 183, 107, 0.34);
 }
 .icon-button,
 .copy-button {
@@ -1081,8 +1081,8 @@ async function copyField(key: string, value: string): Promise<void> {
   white-space: nowrap;
 }
 .tool-tabs button.active {
+  color: ;
   color: #e9f6f8;
-  background: rgba(87, 199, 212, 0.055);
 }
 .tool-tabs button.active::after {
   opacity: 1;
@@ -1105,6 +1105,15 @@ async function copyField(key: string, value: string): Promise<void> {
 .node-action {
   padding: 8px;
   border-bottom: 1px solid @line;
+  // 待处理交互卡片（审批/提问）是独立组件，自身用全局主题 token（--ink/--surface-hover 等）。
+  // 本 popover 硬编码深底浅字，卡片在浅色主题下会呈现「白底/深底 + 浅字」不可读。
+  // 在此作用域把 token 覆写为深色系，使卡片正文随 popover 变浅字、内表面变深底。
+  --ink: @ink;
+  --surface: @surface;
+  --surface-hover: #1a2129;
+  --surface-soft: rgba(255, 255, 255, 0.08);
+  --border: @line;
+  color: @ink;
 }
 .node-action :deep(.approval-card),
 .node-action :deep(.question-card) {
@@ -1162,8 +1171,8 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .field-copy-button:hover,
 .field-copy-button:focus-visible {
+  color: ;
   color: #d9ecef;
-  border-color: rgba(87, 199, 212, 0.34);
   background: rgba(87, 199, 212, 0.08);
 }
 .detail-field {
@@ -1185,8 +1194,8 @@ async function copyField(key: string, value: string): Promise<void> {
   border: 1px solid @line;
   border-left-color: var(--detail-accent, @line);
   border-radius: 3px;
+  color: ;
   color: #cbd7db;
-  background: @surface;
   font-size: 10.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -1196,7 +1205,7 @@ async function copyField(key: string, value: string): Promise<void> {
   padding-right: 34px;
 }
 .detail-value.is-multiline {
-  background: #080d11;
+  background: ;
 }
 .detail-value > :first-child {
   margin-top: 0;
@@ -1211,12 +1220,12 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .spawn-field {
   min-width: 0;
+  color: ;
   color: #d4dfe2;
-  font-size: 11px;
 }
 .spawn-field code {
-  color: #edcafa;
-  font:
+    color: #edcafa;
+      font:
     10.5px/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
@@ -1228,23 +1237,23 @@ async function copyField(key: string, value: string): Promise<void> {
   margin-bottom: 10px;
 }
 .instruction-copy {
+  color: ;
   color: #e8f0f2;
-  font-size: 12px;
 }
 .command-line {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  color: #d9e4e8;
-  font:
+    color: #d9e4e8;
+      font:
     11px/1.55 ui-monospace,
     'JetBrains Mono',
     monospace;
 }
 .command-line > span {
   flex: 0 0 auto;
+  color: ;
   color: #69c995;
-  user-select: none;
 }
 .command-line code {
   min-width: 0;
@@ -1252,8 +1261,8 @@ async function copyField(key: string, value: string): Promise<void> {
   white-space: pre-wrap;
 }
 .user-node-content {
+  color: ;
   color: #d7e2e5;
-  font-size: 12px;
   line-height: 1.65;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -1270,8 +1279,8 @@ async function copyField(key: string, value: string): Promise<void> {
   box-shadow:
     inset 0 1px rgba(255, 233, 180, 0.08),
     0 0 10px rgba(241, 188, 91, 0.08);
-  color: #f6d488;
-  font:
+    color: #f6d488;
+      font:
     650 10.5px/1.55 ui-monospace,
     'JetBrains Mono',
     monospace;
@@ -1323,8 +1332,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .field-row code,
 .field-row pre {
   margin: 0;
-  color: #c7dde2;
-  font:
+    color: #c7dde2;
+      font:
     10px/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
@@ -1348,8 +1357,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .file-path-line code {
   display: block;
   min-width: 0;
-  color: #c7dde2;
-  font:
+    color: #c7dde2;
+      font:
     10.5px/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
@@ -1368,8 +1377,8 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 0;
   border: 0;
   border-radius: 0;
+  color: ;
   color: #cce5e9;
-  background: transparent;
   font:
     10px/1.55 ui-monospace,
     'JetBrains Mono',
@@ -1385,8 +1394,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .question-heading > span {
   min-width: 0;
   flex: 1;
+  color: ;
   color: #e5edf0;
-  font-size: 10.5px;
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -1395,14 +1404,14 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 2px 5px;
   border: 1px solid rgba(226, 154, 255, 0.36);
   border-radius: 3px;
+  color: ;
   color: #edcafa;
-  background: rgba(226, 154, 255, 0.08);
   font-size: 9px;
 }
 .question-text {
   margin: 0;
+  color: ;
   color: #e5edf0;
-  font-size: 12px;
   font-weight: 600;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -1420,13 +1429,13 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 7px 8px;
   border: 1px solid @line;
   border-radius: 3px;
+  color: ;
   color: #cbd7db;
-  background: @surface;
 }
 .question-option.selected {
   border-color: rgba(226, 154, 255, 0.58);
+  color: ;
   color: #f0ddf7;
-  background: rgba(226, 154, 255, 0.09);
 }
 .question-control {
   display: grid;
@@ -1436,8 +1445,8 @@ async function copyField(key: string, value: string): Promise<void> {
   margin-top: 1px;
   border: 1px solid rgba(226, 154, 255, 0.54);
   border-radius: 50%;
+  color: ;
   color: #edcafa;
-  font-size: 9px;
   font-weight: 800;
 }
 .question-control.is-multi {
@@ -1465,8 +1474,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .question-other p,
 .question-note {
   margin: 0;
+  color: ;
   color: #d7e2e5;
-  font-size: 10.5px;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1487,8 +1496,8 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 2px 6px;
   border: 1px solid rgba(87, 199, 212, 0.36);
   border-radius: 3px;
+  color: ;
   color: #8ddce5;
-  background: rgba(87, 199, 212, 0.08);
   font-weight: 650;
 }
 .search-configuration {
@@ -1501,8 +1510,8 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 2px 5px;
   border: 1px solid rgba(150, 180, 190, 0.16);
   border-radius: 3px;
+  color: ;
   color: #b9c8cd;
-  background: rgba(150, 180, 190, 0.055);
   font-size: 9.5px;
 }
 .search-results-field {
@@ -1515,8 +1524,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .search-result-summary {
   margin: 0;
   padding: 8px 25px 8px 0;
+  color: ;
   color: #a9bbc0;
-  font-size: 9.5px;
   line-height: 1.45;
 }
 .search-result-list {
@@ -1536,8 +1545,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .search-result-location code {
   min-width: 0;
   flex: 1;
-  color: #79d2dd;
-  font:
+    color: #79d2dd;
+      font:
     650 10px/1.45 ui-monospace,
     'JetBrains Mono',
     monospace;
@@ -1553,8 +1562,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .search-result-raw {
   margin: 4px 0 0;
   padding: 5px 7px;
+  color: ;
   color: #cbd7db;
-  border-left: 2px solid rgba(87, 199, 212, 0.34);
   background: rgba(87, 199, 212, 0.04);
   font:
     10px/1.5 ui-monospace,
@@ -1567,14 +1576,14 @@ async function copyField(key: string, value: string): Promise<void> {
   display: flex;
   align-items: center;
   gap: 7px;
+  color: ;
   color: #eed4a0;
-  border-left-color: rgba(231, 183, 107, 0.58);
   background: rgba(231, 183, 107, 0.055);
 }
 .skill-glyph {
   flex: 0 0 auto;
+  color: ;
   color: #e7b76b;
-  font-size: 13px;
 }
 .skill-name-value strong {
   min-width: 0;
@@ -1587,8 +1596,8 @@ async function copyField(key: string, value: string): Promise<void> {
   margin: 0;
   padding: 7px 8px;
   border-left: 2px solid #ef7185;
+  color: ;
   color: #ef9aa8;
-  background: rgba(239, 113, 133, 0.07);
   font-size: 10px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1604,8 +1613,8 @@ async function copyField(key: string, value: string): Promise<void> {
   gap: 8px;
 }
 .section-heading strong {
-  color: #b9c8cd;
-  font:
+    color: #b9c8cd;
+      font:
     650 10px/1.2 system-ui,
     sans-serif;
 }
@@ -1635,21 +1644,21 @@ async function copyField(key: string, value: string): Promise<void> {
 .markdown-body :deep(h2),
 .markdown-body :deep(h3),
 .markdown-body :deep(h4) {
+  color: ;
   color: #e4edef;
-  font-size: 11px;
 }
 .markdown-body :deep(pre) {
   max-width: 100%;
   overflow: visible;
   padding: 7px 8px;
+  color: ;
   color: #cce5e9;
-  background: #080d11;
   white-space: pre-wrap;
   word-break: break-word;
 }
 .markdown-body :deep(code) {
+  color: ;
   color: #bfe2e7;
-  background: rgba(87, 199, 212, 0.075);
 }
 .markdown-body :deep(blockquote) {
   color: @muted;
@@ -1675,8 +1684,8 @@ async function copyField(key: string, value: string): Promise<void> {
   margin: 0 12px 10px;
   padding: 6px 8px;
   border-left: 2px solid #e7b76b;
+  color: ;
   color: #e7b76b;
-  background: rgba(231, 183, 107, 0.06);
   font:
     10px/1.4 system-ui,
     sans-serif;
@@ -1698,13 +1707,13 @@ async function copyField(key: string, value: string): Promise<void> {
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover,
   .copy-button:hover {
+    color: ;
     color: #e7f2f4;
-    border-color: @line;
     background: rgba(87, 199, 212, 0.07);
   }
   .tool-tabs button:hover {
+    color: ;
     color: #d5e5e8;
-    background: rgba(87, 199, 212, 0.04);
   }
 }
 @media (prefers-reduced-motion: reduce) {
