@@ -44,8 +44,10 @@ function node(kind: ExecutionNodeKind): ExecutionNode {
 }
 
 describe('execution node hover details', () => {
-  it('covers every rendered node kind', () => {
-    expect(NODE_KINDS.every((kind) => hasNodeHoverDetail(node(kind)))).toBe(true)
+  it('covers every interactive node kind (start is decorative, excluded)', () => {
+    const interactiveKinds = NODE_KINDS.filter((kind) => kind !== 'start')
+    expect(interactiveKinds.every((kind) => hasNodeHoverDetail(node(kind)))).toBe(true)
+    expect(hasNodeHoverDetail(node('start'))).toBe(false)
   })
 
   it('does not broaden the existing click-to-pin interaction', () => {
@@ -74,6 +76,11 @@ describe('execution node hover details', () => {
     expect(source).toContain('v-if="actualDescription"')
     expect(source).not.toContain('toolMeta.value?.description')
     expect(source).not.toContain('正在处理这一步所需的工具操作')
+    expect(source).not.toContain('batchMessageNode')
+    expect(source).toContain('props.node.thinking?.trim()')
+    expect(source.indexOf('class="batch-lead"')).toBeLessThan(source.indexOf('class="tool-tabs"'))
+    expect(source).toContain('v-if="batch" class="batch-lead"')
+    expect(source).toContain('v-if="batch && toolBatchUsesTabs(batch.calls)"')
   })
 
   it('renders every user command token with the dedicated node-tree treatment', async () => {

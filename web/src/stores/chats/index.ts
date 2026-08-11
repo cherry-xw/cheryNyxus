@@ -169,10 +169,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   >()
   /** Snapshot reads are independent from the root subscription and dedupe per view. */
   const rootViewOpening = new Map<string, Promise<RootTimelineSnapshot>>()
-  /** Latest root selected by the UI. A late response from an older selection
-   * is closed instead of being allowed to take subscription ownership back. */
-  let observedRootChatId: string | undefined
-  let rootObservationEpoch = 0
   /** startup 幂等守卫（首次成功后不再重跑；F5 重连由 reconnect 处理）。 */
   let started = false
   const effects = ref<ChatSessionEffects>({})
@@ -241,21 +237,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     return readRootTimeline(rootTimelines.value, rootChatId, view)
   }
 
-  async function closeStaleRootSubscriptions(rootChatId: string): Promise<void> {
-    const stale = Object.entries(rootSubscriptions.value).filter(([id]) => id !== rootChatId)
-    for (const [id, subscription] of stale) {
-      delete rootSubscriptions.value[id]
-      await agentApi.closeChat(subscription.subscriptionId).catch(() => undefined)
-    }
-  }
-
   /** Stop observing one root without touching its Agent runtime. Cached durable
    * nodes remain available for an instant stale-while-revalidate reopen. */
   async function closeRootTimeline(rootChatId: string): Promise<void> {
-    if (observedRootChatId === rootChatId) {
-      observedRootChatId = undefined
-      rootObservationEpoch += 1
-    }
     const subscription = rootSubscriptions.value[rootChatId]
     if (!subscription) return
     delete rootSubscriptions.value[rootChatId]
@@ -365,23 +349,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
   }
 
-  /** Observe one visible Nyxus root. UI supplies only the selected root/view;
-   * this message-layer controller owns subscription replacement and snapshots. */
+  /** Observe a visible Nyxus root. UI supplies root/view; this message-layer
+   * controller establishes an independent per-root subscription and returns the
+   * snapshot. Multiple different roots may be observed concurrently. */
   async function observeRootTimeline(
     rootChatId: string,
     view: 'conversation' | 'tree' | 'audit' = 'conversation',
   ): Promise<RootTimelineSnapshot> {
-    if (observedRootChatId !== rootChatId) {
-      observedRootChatId = rootChatId
-      rootObservationEpoch += 1
-    }
-    const observationEpoch = rootObservationEpoch
-    await closeStaleRootSubscriptions(rootChatId)
     const subscription = await ensureRootSubscription(rootChatId)
-    if (observedRootChatId !== rootChatId || observationEpoch !== rootObservationEpoch) {
-      await closeRootTimeline(rootChatId)
-      throw new Error(`Root observation superseded: ${rootChatId}`)
-    }
     if (view === 'conversation' && subscription.conversation) return subscription.conversation
     const current = rootTimeline(rootChatId, view)
     // An already-open subscription keeps installed views current through root
@@ -1113,6 +1088,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     ;(effects.value.onWorkingChange ?? noop)(chatId, false)
   }
 
+  async function resumeTree(rootChatId: string, pauseId: string): Promise<void> {
+    await agentApi.resumeTree(rootChatId, pauseId, makeClientId('resume-tree'))
+  }
+
   async function submitApproval(
     chatId: string,
     approvalId: string,
@@ -1415,6 +1394,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     // 命令
     sendMessage,
     resumeAgent,
+    resumeTree,
     abortAgent,
     submitApproval,
     dismissApproval,

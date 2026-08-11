@@ -270,6 +270,53 @@ export interface ChatResumeRequestData {
   chatId: string
 }
 
+export type TreeControlOperationStatus =
+  | 'pausing'
+  | 'paused'
+  | 'resuming'
+  | 'partial'
+  | 'completed'
+  | 'superseded'
+
+export type TreeControlTargetStatus =
+  | 'paused'
+  | 'resuming'
+  | 'resumed'
+  | 'delegated'
+  | 'skipped'
+  | 'failed'
+
+export interface TreeControlTarget {
+  chatId: string
+  pausedRunId: string
+  status: TreeControlTargetStatus
+  resumeRunId?: string
+  detail?: string
+}
+
+export interface TreeControlState {
+  pauseId: string
+  rootChatId: string
+  status: TreeControlOperationStatus
+  createdAt: number
+  updatedAt: number
+  targets: TreeControlTarget[]
+}
+
+export interface ChatResumeTreeRequestData {
+  rootChatId: string
+  pauseId: string
+  commandId: string
+}
+
+export interface ChatResumeTreeResponseData {
+  rootChatId: string
+  pauseId: string
+  commandId: string
+  status: TreeControlOperationStatus
+  results: TreeControlTarget[]
+}
+
 /** Replays recoverable chat events newer than afterSeq. */
 export interface ChatSyncRequestData {
   chatId: string
@@ -1427,6 +1474,7 @@ export interface TerminationFact {
   code: 'user_abort' | 'system_stop' | 'watchdog' | 'error' | 'agent_redirect'
   at: number
   detail?: string
+  controlOperationId?: string
 }
 
 export interface TimelineNode {
@@ -1486,6 +1534,7 @@ export interface RootTimelineSnapshot {
   edges: ExecutionEdgeFact[]
   activeRuns: ActiveRunFact[]
   pendingInputs: PendingInputSnapshot[]
+  controlState?: TreeControlState
   nextCursor?: string
   capturedEventSeq: number
 }
@@ -1520,6 +1569,7 @@ export interface RootTimelinePatchData {
   baseRevision: number
   revision: number
   operations: RootTimelinePatchOperation[]
+  controlState?: TreeControlState
 }
 
 export interface TimelinePatchData {
@@ -1609,6 +1659,9 @@ export interface SenseQuestionAnswerResponseData {
 
 export interface ChatAbortResponseData {
   chatId: string
+  /** Tree-level pause identity. Present when commandId was supplied. */
+  pauseId?: string
+  status?: TreeControlOperationStatus
   /** 实际被中止的运行；chat 不在运行时省略。 */
   runId?: string
   /** 是否存在并中止了活跃运行。 */
@@ -2153,6 +2206,7 @@ export const Method = {
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
   CHAT_RESUME: 'chat.resume',
+  CHAT_RESUME_TREE: 'chat.resumeTree',
   CHAT_SYNC: 'chat.sync',
   CHAT_OPEN: 'chat.open',
   CHAT_CLOSE: 'chat.close',
@@ -2315,6 +2369,10 @@ export interface RpcMethodMap {
     result: ChatTimelineGetResponseData
   }
   [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData }
+  [Method.CHAT_RESUME_TREE]: {
+    params: ChatResumeTreeRequestData
+    result: ChatResumeTreeResponseData
+  }
   [Method.CHAT_SYNC]: { params: ChatSyncRequestData; result: ChatSyncResponseData }
   [Method.CHAT_OPEN]: { params: ChatOpenRequestData; result: ChatOpenResponseData }
   [Method.CHAT_CLOSE]: { params: ChatCloseRequestData; result: ChatCloseResponseData }

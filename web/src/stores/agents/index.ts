@@ -429,6 +429,26 @@ export const useAgentsStore = defineStore('agents', () => {
     }
   }
 
+  /**
+   * 定位含 chatId 的工作台窗口（root 或其任意后代），并设置其 attentionBlink（Phase E）。
+   * 仅非聚焦窗口闪烁：聚焦窗用户正看着/操作中，额外高亮是噪音；非聚焦窗（含最小化胶囊）才需被注意到。
+   * 未匹配到窗口（chatId 不属于任何已开工作台）→ 忽略，不建窗。
+   */
+  function setWorkbenchWindowBlinkForChat(chatId: string, blink: boolean): void {
+    for (const w of Object.values(ui.workbenchWindows.value)) {
+      if (!w.chatId) continue
+      if (
+        w.chatId !== chatId &&
+        !collectDescendantChatIds(allChatsCache.value, w.chatId).includes(chatId)
+      ) {
+        continue
+      }
+      if (blink && w.focused) return
+      ui.setWorkbenchWindowBlink(w.id, blink)
+      return
+    }
+  }
+
   const router = createStreamRouter(
     streams,
     pets,
@@ -439,6 +459,7 @@ export const useAgentsStore = defineStore('agents', () => {
     resumeAgent,
     lifecycle.pickGhostFace,
     allChatsCache,
+    setWorkbenchWindowBlinkForChat,
   )
 
   /**

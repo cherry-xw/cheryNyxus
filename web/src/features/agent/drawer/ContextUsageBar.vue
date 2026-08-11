@@ -57,21 +57,7 @@ function shortLabel(key: BreakdownKey): string {
   return SHORT_LABELS[key] ?? key
 }
 
-/** 图例标签文字色（加深版，区别于色块条鲜艳色：amber/green 原色在浅底对比不足）。 */
-const LABEL_COLORS: Record<BreakdownKey, string> = {
-  system: '#4338ca',
-  userSystem: '#7e22ce',
-  memory: '#be185d',
-  skills: '#b45309',
-  tools: '#047857',
-  conversation: '#1d4ed8',
-}
-function labelColor(key: BreakdownKey): string {
-  return LABEL_COLORS[key] ?? '#4338ca'
-}
-
-/** 图例中 0 token 段的灰色（标签 + tokens 统一降明度，区别于有量的彩色标签）。 */
-const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
+/** 图例标签文字色定义在 scoped CSS（label-${key} 类），并随 [data-theme='dark'] 提亮。 */
 </script>
 
 <template>
@@ -90,7 +76,7 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
         >
           <span
             class="ctx-legend-label"
-            :style="{ color: seg.tokens > 0 ? labelColor(seg.key) : ZERO_COLOR }"
+            :class="[`label-${seg.key}`, { 'is-zero': seg.tokens === 0 }]"
             >{{ shortLabel(seg.key) }}</span
           >
           <span v-if="segmentThinkingNote(seg)" class="ctx-legend-thinking">{{
@@ -172,6 +158,26 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
   }
   .ctx-legend-label {
     font-weight: 600;
+    &.is-zero {
+      color: rgba(20, 22, 26, 0.38);
+    }
+  }
+  // 图例标签类别色（加深版，区别于色块条鲜艳色：amber/green 原色在浅底对比不足）。
+  .label-system { color: #4338ca; }
+  .label-userSystem { color: #7e22ce; }
+  .label-memory { color: #be185d; }
+  .label-skills { color: #b45309; }
+  .label-tools { color: #047857; }
+  .label-conversation { color: #1d4ed8; }
+  // 深色模式提亮标签色（深底用更浅的同色系），保持可读。
+  :global([data-theme='dark']) {
+    .label-system { color: #a5b4fc; }
+    .label-userSystem { color: #d8b4fe; }
+    .label-memory { color: #f9a8d4; }
+    .label-skills { color: #fcd34d; }
+    .label-tools { color: #34d399; }
+    .label-conversation { color: #93c5fd; }
+    .ctx-legend-label.is-zero { color: rgba(235, 238, 244, 0.38); }
   }
   .ctx-legend-thinking {
     opacity: 0.55;
@@ -265,7 +271,10 @@ const ZERO_COLOR = 'rgba(20, 22, 26, 0.38)'
       min-width: 200px;
       padding: 6px 8px;
       border-radius: 6px;
-      background: rgba(8, 16, 22, 0.96);
+      // 工作台分割线悬浮气泡：背景随主题（浅色白底 / 深色深底），加边框 + 阴影与节点树画布区分。
+      background: var(--surface);
+      border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
     }
     .ctx-usage-track {
       order: 1;

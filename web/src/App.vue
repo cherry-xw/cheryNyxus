@@ -5,6 +5,8 @@ import DesktopPetApp from '@/features/pets/DesktopPetApp.vue'
 import { desktopPetBridge } from '@/features/pets/desktopPetBridge'
 import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
+import WorkbenchDialog from '@/features/agent/dialog/WorkbenchDialog.vue'
+import WorkbenchCapsule from '@/features/agent/dialog/WorkbenchCapsule.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
 import {
@@ -18,6 +20,8 @@ import { selectNyxusSession } from '@/stores/chats/selectors'
 
 const authChecked = ref(false)
 const authenticated = ref(false)
+// 节点树工作台多窗口：每预设一窗（windowId = presetId），由 workbenchWindowsList 驱动渲染。
+const agents = useAgentsStore()
 const isDesktopPetSurface =
   new URLSearchParams(window.location.search).get('surface') === 'desktop-pet'
 const cleanupDesktopBridge: Array<() => void> = []
@@ -175,6 +179,15 @@ async function bootstrap(): Promise<void> {
     <PetStage />
     <NyxusCore />
     <AgentDialog />
+    <WorkbenchDialog
+      v-for="win in agents.workbenchWindowsList"
+      :key="win.id"
+      :window-id="win.id"
+      :preset-id="win.presetId"
+    />
+    <template v-for="win in agents.workbenchWindowsList" :key="`capsule-${win.id}`">
+      <WorkbenchCapsule v-if="win.minimized" :window-id="win.id" />
+    </template>
     <HistoryDrawer />
     <SettingsDialog />
   </template>

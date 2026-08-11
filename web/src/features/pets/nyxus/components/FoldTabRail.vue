@@ -433,7 +433,7 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 .fold-wheel-navigation:focus-visible .fold-wheel-stage {
-  filter: drop-shadow(0 0 6px rgba(181, 255, 242, 0.32));
+  filter: drop-shadow(0 0 6px rgba(246, 183, 60, 0.32));
 }
 .fold-wheel-stage {
   position: absolute;
@@ -451,7 +451,7 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   margin: 0;
   appearance: none;
-  border: 1px solid rgba(107, 207, 247, 0.28);
+  border: 1px solid rgba(60, 68, 64, 0.18);
   border-radius: 7px;
   transition:
     left 340ms cubic-bezier(0.22, 0.68, 0.2, 1),
@@ -466,24 +466,24 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
-  color: rgba(221, 244, 252, 0.82);
-  background: linear-gradient(100deg, rgba(8, 26, 39, 0.99), rgba(12, 38, 52, 0.96));
-  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.3);
+  color: #1f2328;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.98), rgba(247, 244, 237, 0.96));
+  box-shadow: 0 7px 16px rgba(31, 35, 40, 0.12);
   text-align: left;
   cursor: pointer;
 }
 .fold-wheel-card.is-real:hover {
-  color: #fff;
-  border-color: rgba(181, 255, 242, 0.82);
-  filter: brightness(1.14);
+  color: #000;
+  border-color: rgba(246, 183, 60, 0.9);
+  filter: brightness(1.02);
 }
 .fold-wheel-card.is-selected {
   cursor: default;
-  border-color: #b5fff2;
+  border-color: #f6b73c;
   box-shadow:
-    0 9px 22px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(181, 255, 242, 0.18),
-    0 0 16px rgba(107, 207, 247, 0.2);
+    0 9px 22px rgba(31, 35, 40, 0.14),
+    0 0 0 1px rgba(246, 183, 60, 0.18),
+    0 0 16px rgba(246, 183, 60, 0.12);
 }
 .fold-wheel-card.is-ghost {
   display: grid;
@@ -491,16 +491,16 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 7px;
   padding: 6px 9px;
-  color: rgba(157, 216, 238, 0.44);
-  background: linear-gradient(100deg, rgba(6, 18, 29, 0.88), rgba(12, 31, 43, 0.72));
-  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.22);
+  color: rgba(31, 35, 40, 0.42);
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.9), rgba(247, 244, 237, 0.74));
+  box-shadow: 0 5px 12px rgba(31, 35, 40, 0.1);
   pointer-events: none;
 }
 .fold-wheel-card.role-transition {
-  border-color: rgba(107, 207, 247, 0.2);
+  border-color: rgba(60, 68, 64, 0.12);
 }
 .fold-wheel-card.role-back {
-  border-color: rgba(107, 207, 247, 0.12);
+  border-color: rgba(60, 68, 64, 0.08);
 }
 .wheel-card-glyph {
   font:
@@ -525,7 +525,7 @@ onBeforeUnmount(() => {
     sans-serif;
 }
 .wheel-card-copy small {
-  color: rgba(202, 231, 244, 0.52);
+  color: rgba(31, 35, 40, 0.55);
   font:
     8px/1 ui-monospace,
     monospace;
@@ -540,9 +540,9 @@ onBeforeUnmount(() => {
   right: -5px;
   top: -6px;
   padding: 2px 4px;
-  color: #07131e;
+  color: #fff;
   border-radius: 5px;
-  background: #ffca73;
+  background: #d85b27;
   font:
     700 8px/1 ui-monospace,
     monospace;
@@ -556,7 +556,7 @@ onBeforeUnmount(() => {
 .ghost-line {
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, rgba(157, 216, 238, 0.35), transparent);
+  background: linear-gradient(90deg, rgba(31, 35, 40, 0.28), transparent);
 }
 .fold-wheel-position {
   position: absolute;
@@ -564,11 +564,63 @@ onBeforeUnmount(() => {
   bottom: 0;
   display: flex;
   gap: 8px;
-  color: rgba(157, 216, 238, 0.56);
+  color: rgba(31, 35, 40, 0.56);
   font:
     700 8px/1 ui-monospace,
     monospace;
 }
+
+// 深色主题：沿用现行深蓝青轮盘（浅色默认已用白底深字）。
+[data-theme='dark'] {
+  .fold-wheel-navigation:focus-visible .fold-wheel-stage {
+    filter: drop-shadow(0 0 6px rgba(181, 255, 242, 0.32));
+  }
+  .fold-wheel-card {
+    border-color: rgba(107, 207, 247, 0.28);
+  }
+  .fold-wheel-card.is-real {
+    color: rgba(221, 244, 252, 0.82);
+    background: linear-gradient(100deg, rgba(8, 26, 39, 0.99), rgba(12, 38, 52, 0.96));
+    box-shadow: 0 7px 16px rgba(0, 0, 0, 0.3);
+  }
+  .fold-wheel-card.is-real:hover {
+    color: #fff;
+    border-color: rgba(181, 255, 242, 0.82);
+    filter: brightness(1.14);
+  }
+  .fold-wheel-card.is-selected {
+    border-color: #b5fff2;
+    box-shadow:
+      0 9px 22px rgba(0, 0, 0, 0.4),
+      0 0 0 1px rgba(181, 255, 242, 0.18),
+      0 0 16px rgba(107, 207, 247, 0.2);
+  }
+  .fold-wheel-card.is-ghost {
+    color: rgba(157, 216, 238, 0.44);
+    background: linear-gradient(100deg, rgba(6, 18, 29, 0.88), rgba(12, 31, 43, 0.72));
+    box-shadow: 0 5px 12px rgba(0, 0, 0, 0.22);
+  }
+  .fold-wheel-card.role-transition {
+    border-color: rgba(107, 207, 247, 0.2);
+  }
+  .fold-wheel-card.role-back {
+    border-color: rgba(107, 207, 247, 0.12);
+  }
+  .wheel-card-copy small {
+    color: rgba(202, 231, 244, 0.52);
+  }
+  .wheel-card-unread {
+    color: #07131e;
+    background: #ffca73;
+  }
+  .ghost-line {
+    background: linear-gradient(90deg, rgba(157, 216, 238, 0.35), transparent);
+  }
+  .fold-wheel-position {
+    color: rgba(157, 216, 238, 0.56);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fold-wheel-card {
     transition: none;

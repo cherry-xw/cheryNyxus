@@ -12,7 +12,8 @@ export const OVERLAY_Z_INDEX = {
 export const NYXUS_WORKBENCH_Z_INDEX = {
   canvas: 0,
   nodeHitTarget: 10,
-  nodeOverlay: 20,
+  // 节点 hover 详情需盖住 CRT 显示（runCrt 30），但低于阻塞交互（blockingInteraction 50）。
+  nodeOverlay: 35,
   runCrt: 30,
   composer: 40,
   blockingInteraction: 50,

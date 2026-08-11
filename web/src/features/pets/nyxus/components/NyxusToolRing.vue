@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
  * NyxusToolRing：nyxus 独立核心的工具环子组件。
- * 含 3 个工具按钮（create/chat/settings）+ PresetPicker + 雾化连线测量。
+ * 含 2 个工具按钮（create/settings）+ PresetPicker + 雾化连线测量。
+ * 发消息按钮已移除：双击 Nyxus 直接打开对话弹窗（AI 自动选择目标后可直接发送）。
  * 每帧测量按钮矩形 → setNyxusMenuTargets（驱动粒子雾化连线）；
  * 菜单启停时序（watch nyxusMenuOpen）+ onBeforeUnmount 清理在此自管。
  * 按钮点击通过 emit 上抛，由 NyxusCore host 执行实际 store 调用。
  */
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { ChatDotRound, Plus, Setting } from '@element-plus/icons-vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { Plus, Setting } from '@element-plus/icons-vue'
 import PresetPicker from '@/features/agent/toolbar/PresetPicker.vue'
 import {
   highlightNyxusTool,
@@ -25,20 +26,52 @@ const props = defineProps<{
 defineEmits<{
   'create-preset': [name: string]
   'create-fallback': []
-  'open-chat': []
   'open-settings': []
+  'open-workbench': []
 }>()
 
 const createButtonRef = ref<HTMLElement | null>(null)
-const chatButtonRef = ref<HTMLElement | null>(null)
 const settingsButtonRef = ref<HTMLElement | null>(null)
+const workbenchButtonRef = ref<HTMLElement | null>(null)
+/** 是否有可创建的预设（PresetPicker 上报）；false → 隐藏 create 并将 settings 按单按钮居中。 */
+const hasCreate = ref(false)
 let toolTrackingRaf = 0
+
+// 顶部上扇对称布点：奇数个 → 12 点(顶部)一个 + 两侧对称；偶数个 → 左右对称、无正中。
+// 按实际可见按钮数自适应（全部预设已打开 → 仅剩 settings → 居中）。
+const TOOL_RADIUS = 80
+type ToolId = 'create' | 'settings' | 'workbench'
+const toolPositions = computed<Record<ToolId, { x: number; y: number }>>(() => {
+  const ids: ToolId[] = hasCreate.value
+    ? ['create', 'settings', 'workbench']
+    : ['settings', 'workbench']
+  const n = ids.length
+  const half = 90
+  const out: Record<ToolId, { x: number; y: number }> = {
+    create: { x: 0, y: 0 },
+    settings: { x: 0, y: 0 },
+    workbench: { x: 0, y: 0 },
+  }
+  ids.forEach((id, i) => {
+    // 单按钮 → 12 点；奇数 → i 均分含 0°；偶数 → 半格偏移（无正中、左右对称）。
+    const angle = n === 1 ? 0 : n % 2 === 1 ? -half + (i * 2 * half) / (n - 1) : -half + ((i + 0.5) * 2 * half) / n
+    const rad = (angle * Math.PI) / 180
+    out[id] = {
+      x: Math.round(TOOL_RADIUS * Math.sin(rad)),
+      y: Math.round(-TOOL_RADIUS * Math.cos(rad)),
+    }
+  })
+  return out
+})
+function toolStyle(pos: { x: number; y: number }): Record<string, string> {
+  return { '--x': `${pos.x}px`, '--y': `${pos.y}px` }
+}
 
 function updateToolTargets(): void {
   const entries: Array<[NyxusMenuTarget['id'], HTMLElement | null]> = [
-    ['create', createButtonRef.value],
-    ['chat', chatButtonRef.value],
+    ['create', hasCreate.value ? createButtonRef.value : null],
     ['settings', settingsButtonRef.value],
+    ['workbench', workbenchButtonRef.value],
   ]
   const targets = entries.flatMap<NyxusMenuTarget>(([id, element]) => {
     if (!element) return []
@@ -75,12 +108,13 @@ onBeforeUnmount(() => {
 <template>
   <transition name="ring">
     <div v-if="nyxusMenuOpen" class="tool-ring">
-      <span class="tool-slot tool-create">
+      <span class="tool-slot tool-create" :style="toolStyle(toolPositions.create)" v-show="hasCreate">
         <PresetPicker
           :disabled="props.disabled"
           :excluded="props.excludedPresets"
           @pick="$emit('create-preset', $event)"
           @fallback="$emit('create-fallback')"
+          @has-creatable="hasCreate = $event"
         >
           <button
             ref="createButtonRef"
@@ -99,6 +133,7 @@ onBeforeUnmount(() => {
         ref="settingsButtonRef"
         type="button"
         class="ring-button tool-settings"
+        :style="toolStyle(toolPositions.settings)"
         :disabled="!props.connected"
         aria-label="设置"
         @click="$emit('open-settings')"
@@ -108,16 +143,17 @@ onBeforeUnmount(() => {
         <Setting />
       </button>
       <button
-        ref="chatButtonRef"
+        ref="workbenchButtonRef"
         type="button"
-        class="ring-button tool-chat"
-        :disabled="props.disabled"
-        aria-label="与 cheryNyxus 对话"
-        @click="$emit('open-chat')"
-        @pointerenter="highlightNyxusTool('chat')"
+        class="ring-button tool-workbench"
+        :style="toolStyle(toolPositions.workbench)"
+        :disabled="!props.connected"
+        aria-label="打开工作台"
+        @click="$emit('open-workbench')"
+        @pointerenter="highlightNyxusTool('workbench')"
         @pointerleave="highlightNyxusTool(null)"
       >
-        <ChatDotRound />
+        🌳
       </button>
     </div>
   </transition>
@@ -193,36 +229,21 @@ onBeforeUnmount(() => {
   }
 }
 
-// 3 按钮上半圆均布（半径 64px，y 向下故负 y 朝上）
-// create=180°(-64,0) settings=270°(0,-64) chat=360°(64,0)
+// 位置由脚本 toolPositions 按「奇数顶部 12 点+对称 / 偶数左右对称」公式计算，经 --x/--y 注入。
+// 此处仅保留基础定位与 create 内层 hover 覆盖（避免二次平移）。
 .tool-slot,
 .tool-settings,
-.tool-chat {
+.tool-workbench {
   position: absolute;
   --x: 0px;
   --y: 0px;
   transform: translate(var(--x), var(--y));
 }
 
-.tool-create {
-  --x: -64px;
-  --y: 0px;
-}
-
 .tool-create .ring-button {
   position: relative;
   // 内层 button 覆盖继承的 --x/--y，避免 hover translate 二次平移
   --x: 0px;
-  --y: 0px;
-}
-
-.tool-settings {
-  --x: 0px;
-  --y: -64px;
-}
-
-.tool-chat {
-  --x: 64px;
   --y: 0px;
 }
 

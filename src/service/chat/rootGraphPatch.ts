@@ -54,5 +54,6 @@ function toRootPatch(timeline: ReturnType<typeof buildRootTimeline>) {
     baseRevision: Math.max(0, timeline.revision - 1),
     revision: timeline.revision,
     operations,
+    ...(timeline.controlState ? { controlState: timeline.controlState } : {}),
   }
 }

@@ -26,6 +26,15 @@ const anchorStyle = computed(() => ({ left: `${position.x}px`, top: `${position.
 const disabled = computed(
   () => creating.value || openingChat.value || connection.status !== 'connected',
 )
+/** 已打开成 pet 的预设（master）→ 从创建列表隐藏；全部打开时 PresetPicker 隐藏按钮。 */
+const openedPresets = computed(() =>
+  [...new Set(
+    agents.pets
+      .filter((pet) => pet.isMaster && pet.preset)
+      .map((pet) => pet.preset as string),
+  )],
+)
+const excludedPresets = computed(() => [CHERY_NYXUS_PRESET, ...openedPresets.value])
 
 const clickIntent = createClickDisambiguator(toggleNyxusMenu, () => void openNyxusDialog())
 
@@ -100,6 +109,23 @@ function openSettings(): void {
   closeNyxusMenu()
 }
 
+/** 打开 cheryNyxus（主预设）的节点树工作台。 */
+function openWorkbench(): void {
+  if (connection.status !== 'connected') return
+  const id = agents.openWorkbenchWindow(CHERY_NYXUS_PRESET)
+  // 仅新建窗口（chatId 为空）时恢复活跃 Nyxus 会话，避免打开即空树；已存在窗口不覆盖当前浏览。
+  if (!agents.workbenchWindows[id]?.chatId) {
+    const active = agents.activeNyxusChatId
+    if (active) agents.setWorkbenchWindowChat(id, active)
+    else {
+      void agents.getActiveNyxus().then((cid) => {
+        if (cid) agents.setWorkbenchWindowChat(id, cid)
+      })
+    }
+  }
+  closeNyxusMenu()
+}
+
 onBeforeUnmount(() => {
   clickIntent.dispose()
   closeNyxusMenu()
@@ -137,11 +163,11 @@ onBeforeUnmount(() => {
     <NyxusToolRing
       :disabled="disabled"
       :connected="connection.status === 'connected'"
-      :excluded-presets="[CHERY_NYXUS_PRESET]"
+      :excluded-presets="excludedPresets"
       @create-preset="createPreset"
       @create-fallback="createFallback"
-      @open-chat="openNyxusDialog"
       @open-settings="openSettings"
+      @open-workbench="openWorkbench"
     />
     <div v-if="error" class="nyxus-error" role="alert">{{ error }}</div>
   </aside>

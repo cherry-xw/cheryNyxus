@@ -28,6 +28,9 @@ export interface UserInputEntry {
   ephemeral?: boolean
   /** 模型看到的 content 与用户实际输入不同时，持久化和通知使用此正文。 */
   persistedContent?: string
+  /** Internal task-tree notices are model-visible role messages, not user input. */
+  role?: 'user' | 'role'
+  linkRelation?: 'system'
   content: string
   time: number
 }
@@ -128,6 +131,7 @@ export interface AgentMessage {
   inputId?: string
   clientMessageId?: string
   commandId?: string
+  linkRelation?: 'system'
   /** 仅供模型上下文使用；service observer 不得持久化。 */
   ephemeral?: boolean
 }

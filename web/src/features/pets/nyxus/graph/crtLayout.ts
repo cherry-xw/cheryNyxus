@@ -31,7 +31,7 @@ export interface CrtViewport extends CrtSize {
   margin?: number
 }
 
-const GAP = 34
+const GAP = 12
 const COLLISION_GAP = 10
 
 function overlaps(

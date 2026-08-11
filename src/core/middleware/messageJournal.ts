@@ -97,6 +97,8 @@ export class MessageJournal {
       ...(metadata?.messageId ? { messageId: metadata.messageId } : {}),
       ...(metadata?.clientMessageId ? { clientMessageId: metadata.clientMessageId } : {}),
       ...(metadata?.commandId ? { commandId: metadata.commandId } : {}),
+      ...(metadata?.role ? { role: metadata.role } : {}),
+      ...(metadata?.linkRelation ? { linkRelation: metadata.linkRelation } : {}),
       ...(metadata?.ephemeral ? { ephemeral: true } : {}),
       ...(metadata?.persistedContent !== undefined
         ? { persistedContent: metadata.persistedContent }
@@ -121,7 +123,7 @@ export class MessageJournal {
       const updateAt = Date.now()
       messages.push({
         id: msgId,
-        role: 'user',
+        role: input.role ?? 'user',
         content: input.content,
         createdAt: input.time, // 用户发送时间
         updateAt, // 注入消息列表时间
@@ -129,13 +131,14 @@ export class MessageJournal {
       })
       created.push({
         id: msgId,
-        role: 'user',
+        role: input.role ?? 'user',
         content: input.persistedContent ?? input.content,
         createdAt: input.time,
         updateAt,
         ...(input.inputId ? { inputId: input.inputId } : {}),
         ...(input.clientMessageId ? { clientMessageId: input.clientMessageId } : {}),
         ...(input.commandId ? { commandId: input.commandId } : {}),
+        ...(input.linkRelation ? { linkRelation: input.linkRelation } : {}),
         ...(input.ephemeral ? { ephemeral: true } : {}),
       })
     }

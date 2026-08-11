@@ -250,6 +250,17 @@ const nodeContent = computed(() => {
 const isUserNode = computed(() => props.node.actor.kind === 'user')
 const nodeContentSegments = computed(() => splitCommandPrompt(nodeContent.value || ''))
 const renderedNodeContent = computed(() => renderMarkdown(nodeContent.value || ''))
+/** 持久图投影已把同源 message 的 thinking 合并进 tool-batch。 */
+const nodeThinking = computed(
+  () => props.node.thinking?.trim() || props.node.sourceFact?.thinking?.trim() || '',
+)
+const thinkingOpen = ref(false)
+watch(
+  () => props.node.id,
+  () => {
+    thinkingOpen.value = false
+  },
+)
 const nodeTitle = computed(() => {
   if (foldPosition.value) return `过程组 · ${foldPosition.value.index}/${foldPosition.value.total}`
   if (batch.value) {
@@ -432,6 +443,37 @@ async function copyField(key: string, value: string): Promise<void> {
           ×
         </button>
       </header>
+
+      <div v-if="batch" class="batch-lead">
+        <section v-if="nodeThinking" class="thinking-block">
+          <button
+            type="button"
+            class="thinking-toggle"
+            :aria-expanded="thinkingOpen"
+            @click="thinkingOpen = !thinkingOpen"
+          >
+            <span class="thinking-glyph" aria-hidden="true">✦</span>
+            <span>思考</span>
+            <span class="thinking-toggle-hint" aria-hidden="true">
+              {{ thinkingOpen ? '−' : '+' }}
+            </span>
+          </button>
+          <div v-if="thinkingOpen" class="thinking-body">
+            <div class="markdown-body thinking-copy" v-html="renderMarkdown(nodeThinking)" />
+          </div>
+        </section>
+        <section v-if="nodeDescription" class="actual-description detail-field">
+          <small class="detail-label">说明</small>
+          <div class="detail-value">
+            <div class="markdown-body" v-html="renderMarkdown(nodeDescription)" />
+          </div>
+        </section>
+        <div
+          v-if="nodeContent"
+          class="markdown-body primary-content batch-lead-content"
+          v-html="renderedNodeContent"
+        />
+      </div>
 
       <div
         v-if="batch && toolBatchUsesTabs(batch.calls)"
@@ -864,6 +906,21 @@ async function copyField(key: string, value: string): Promise<void> {
       </template>
 
       <section v-else-if="!batch" class="node-content">
+        <section v-if="nodeThinking" class="thinking-block">
+          <button
+            type="button"
+            class="thinking-toggle"
+            :aria-expanded="thinkingOpen"
+            @click="thinkingOpen = !thinkingOpen"
+          >
+            <span class="thinking-glyph" aria-hidden="true">✦</span>
+            <span>思考</span>
+            <span class="thinking-toggle-hint" aria-hidden="true">{{ thinkingOpen ? '−' : '+' }}</span>
+          </button>
+          <div v-if="thinkingOpen" class="thinking-body">
+            <div class="markdown-body thinking-copy" v-html="renderMarkdown(nodeThinking)" />
+          </div>
+        </section>
         <section v-if="nodeDescription" class="actual-description detail-field">
           <small class="detail-label">说明</small>
           <div class="detail-value">
@@ -891,7 +948,7 @@ async function copyField(key: string, value: string): Promise<void> {
           </div>
           <div v-else class="markdown-body primary-content" v-html="renderedNodeContent" />
         </template>
-        <p v-else-if="!nodeDescription" class="empty-detail">暂无正文。</p>
+        <p v-else-if="!nodeDescription && !nodeThinking" class="empty-detail">暂无正文。</p>
         <p v-if="nodeTermination" class="termination-note" :class="`tone-${nodeTermination.tone}`">
           {{ nodeTermination.label }}
         </p>
@@ -903,12 +960,13 @@ async function copyField(key: string, value: string): Promise<void> {
 <style scoped lang="less">
 @import '@/styles/markdown.less';
 
-@bg: #0b1116;
-@surface: #101820;
-@ink: #d9e4e8;
-@muted: #84949b;
-@accent: #57c7d4;
-@line: rgba(150, 180, 190, 0.18);
+// 节点 hover 悬浮窗：随深浅主题翻转（引用全局 --nx-* CRT token）。
+@bg: var(--nx-bg);
+@surface: var(--nx-code-bg);
+@ink: var(--nx-text);
+@muted: var(--nx-text-dim);
+@accent: var(--nx-cyan);
+@line: var(--nx-border-soft);
 @ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
 .node-popover {
@@ -917,12 +975,12 @@ async function copyField(key: string, value: string): Promise<void> {
   flex-direction: column;
   overflow: hidden;
   color: @ink;
-  border: 1px solid rgba(121, 165, 176, 0.42);
+  border: 1px solid var(--nx-border);
   border-radius: 4px;
   background: @bg;
   box-shadow:
     0 18px 42px rgba(0, 0, 0, 0.42),
-    inset 0 1px rgba(255, 255, 255, 0.035);
+    inset 0 1px color-mix(in srgb, var(--nx-text) 6%, transparent);
   transform-origin: var(--popover-origin, left center);
   transition:
     opacity 170ms @ease-out,
@@ -937,12 +995,11 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .node-popover.is-pinned,
 .node-popover.is-actionable {
-  border-color: rgba(87, 199, 212, 0.68);
+  border-color: color-mix(in srgb, var(--nx-cyan) 68%, transparent);
 }
 .popover-chrome {
   flex: 0 0 auto;
-  background: ;
-  box-shadow: 0 1px rgba(255, 255, 255, 0.025);
+  box-shadow: 0 1px color-mix(in srgb, var(--nx-text) 5%, transparent);
 }
 .popover-head {
   height: 38px;
@@ -964,7 +1021,7 @@ async function copyField(key: string, value: string): Promise<void> {
 .popover-head strong {
   min-width: 0;
   overflow: hidden;
-    color: #edf5f7;
+    color: var(--nx-text);
       font:
     650 12px/1.2 system-ui,
     sans-serif;
@@ -983,14 +1040,12 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .status-error,
 .status-rejected {
-  color: ;
-  color: #ef7185;
+  color: var(--nx-red);
 }
 .status-active,
 .status-accepted,
 .status-pending {
-  color: ;
-  color: #e7b76b;
+  color: var(--nx-yellow);
 }
 .icon-button,
 .copy-button {
@@ -1015,6 +1070,24 @@ async function copyField(key: string, value: string): Promise<void> {
   height: 24px;
   margin-left: auto;
   font-size: 16px;
+}
+.batch-lead {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid @line;
+}
+.batch-lead .actual-description {
+  margin-bottom: 0;
+}
+.batch-lead .thinking-block {
+  margin-bottom: 0;
+}
+.batch-lead-content {
+  color: var(--nx-text-dim);
+  font:
+    10.5px/1.55 system-ui,
+    sans-serif;
 }
 .tool-tabs {
   min-height: 32px;
@@ -1081,8 +1154,7 @@ async function copyField(key: string, value: string): Promise<void> {
   white-space: nowrap;
 }
 .tool-tabs button.active {
-  color: ;
-  color: #e9f6f8;
+  color: var(--nx-text);
 }
 .tool-tabs button.active::after {
   opacity: 1;
@@ -1093,25 +1165,24 @@ async function copyField(key: string, value: string): Promise<void> {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-color: rgba(114, 147, 154, 0.58) transparent;
+  scrollbar-color: color-mix(in srgb, var(--nx-border) 60%, transparent) transparent;
   scrollbar-width: thin;
 }
 .popover-body::-webkit-scrollbar {
   width: 6px;
 }
 .popover-body::-webkit-scrollbar-thumb {
-  background: rgba(114, 147, 154, 0.58);
+  background: color-mix(in srgb, var(--nx-border) 60%, transparent);
 }
 .node-action {
   padding: 8px;
   border-bottom: 1px solid @line;
   // 待处理交互卡片（审批/提问）是独立组件，自身用全局主题 token（--ink/--surface-hover 等）。
-  // 本 popover 硬编码深底浅字，卡片在浅色主题下会呈现「白底/深底 + 浅字」不可读。
-  // 在此作用域把 token 覆写为深色系，使卡片正文随 popover 变浅字、内表面变深底。
+  // popover 随主题翻转，此处把 token 覆写为当月 --nx-* 调色，使卡片正文/内表面与 popover 一致。
   --ink: @ink;
   --surface: @surface;
-  --surface-hover: #1a2129;
-  --surface-soft: rgba(255, 255, 255, 0.08);
+  --surface-hover: color-mix(in srgb, var(--nx-text) 8%, var(--nx-bg));
+  --surface-soft: color-mix(in srgb, var(--nx-bg) 90%, transparent);
   --border: @line;
   color: @ink;
 }
@@ -1133,19 +1204,62 @@ async function copyField(key: string, value: string): Promise<void> {
     sans-serif;
 }
 .single-tool-status .status-completed {
-  color: #69c995;
+  color: var(--nx-green);
 }
 .single-tool-status .status-error,
 .single-tool-status .status-rejected {
-  color: #ef7185;
+  color: var(--nx-red);
 }
 .single-tool-status .status-accepted,
 .single-tool-status .status-pending {
-  color: #e7b76b;
+  color: var(--nx-yellow);
 }
 .actual-description {
   margin-bottom: 10px;
   border-left: 2px solid @accent;
+}
+.thinking-block {
+  margin-bottom: 10px;
+}
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--nx-purple) 32%, transparent);
+  border-radius: 3px;
+  color: var(--nx-purple);
+  background: color-mix(in srgb, var(--nx-purple) 6%, transparent);
+  cursor: pointer;
+  font:
+    650 10px/1.2 system-ui,
+    sans-serif;
+  letter-spacing: 0.03em;
+  text-align: left;
+}
+.thinking-glyph {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+.thinking-toggle-hint {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: color-mix(in srgb, var(--nx-purple) 72%, transparent);
+  font-weight: 800;
+}
+.thinking-toggle:hover,
+.thinking-toggle:focus-visible {
+  background: color-mix(in srgb, var(--nx-purple) 10%, transparent);
+}
+.thinking-body {
+  margin-top: 6px;
+  padding: 7px 9px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--nx-purple) 5%, transparent);
+}
+.thinking-copy {
+  color: var(--nx-text-dim);
 }
 .field-copy-button {
   position: absolute;
@@ -1171,9 +1285,8 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .field-copy-button:hover,
 .field-copy-button:focus-visible {
-  color: ;
-  color: #d9ecef;
-  background: rgba(87, 199, 212, 0.08);
+  color: var(--nx-text);
+  background: color-mix(in srgb, var(--nx-cyan) 8%, transparent);
 }
 .detail-field {
   min-width: 0;
@@ -1194,8 +1307,7 @@ async function copyField(key: string, value: string): Promise<void> {
   border: 1px solid @line;
   border-left-color: var(--detail-accent, @line);
   border-radius: 3px;
-  color: ;
-  color: #cbd7db;
+  color: var(--nx-text-dim);
   font-size: 10.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
@@ -1205,7 +1317,6 @@ async function copyField(key: string, value: string): Promise<void> {
   padding-right: 34px;
 }
 .detail-value.is-multiline {
-  background: ;
 }
 .detail-value > :first-child {
   margin-top: 0;
@@ -1220,31 +1331,29 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .spawn-field {
   min-width: 0;
-  color: ;
-  color: #d4dfe2;
+  color: var(--nx-text-dim);
 }
 .spawn-field code {
-    color: #edcafa;
+    color: var(--nx-purple);
       font:
     10.5px/1.5 ui-monospace,
     'JetBrains Mono',
     monospace;
 }
 .spawn-field.is-prompt {
-  --detail-accent: rgba(226, 154, 255, 0.62);
+  --detail-accent: color-mix(in srgb, var(--nx-purple) 62%, transparent);
 }
 .primary-instruction {
   margin-bottom: 10px;
 }
 .instruction-copy {
-  color: ;
-  color: #e8f0f2;
+  color: var(--nx-text);
 }
 .command-line {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-    color: #d9e4e8;
+    color: var(--nx-text);
       font:
     11px/1.55 ui-monospace,
     'JetBrains Mono',
@@ -1252,8 +1361,7 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .command-line > span {
   flex: 0 0 auto;
-  color: ;
-  color: #69c995;
+  color: var(--nx-green);
 }
 .command-line code {
   min-width: 0;
@@ -1261,9 +1369,8 @@ async function copyField(key: string, value: string): Promise<void> {
   white-space: pre-wrap;
 }
 .user-node-content {
-  color: ;
-  color: #d7e2e5;
-  line-height: 1.65;
+  color: var(--nx-text-dim);
+  font: 10.5px/1.65 system-ui, sans-serif;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -1273,13 +1380,13 @@ async function copyField(key: string, value: string): Promise<void> {
   max-width: 100%;
   margin: 1px 4px 1px 0;
   overflow: hidden;
-  border: 1px solid rgba(241, 188, 91, 0.58);
+  border: 1px solid color-mix(in srgb, var(--nx-yellow) 58%, transparent);
   border-radius: 3px;
-  background: linear-gradient(180deg, rgba(70, 48, 18, 0.72), rgba(35, 28, 17, 0.82));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--nx-yellow) 26%, transparent), color-mix(in srgb, var(--nx-yellow) 12%, transparent));
   box-shadow:
-    inset 0 1px rgba(255, 233, 180, 0.08),
-    0 0 10px rgba(241, 188, 91, 0.08);
-    color: #f6d488;
+    inset 0 1px color-mix(in srgb, var(--nx-yellow) 14%, transparent),
+    0 0 10px color-mix(in srgb, var(--nx-yellow) 8%, transparent);
+    color: var(--nx-yellow);
       font:
     650 10.5px/1.55 ui-monospace,
     'JetBrains Mono',
@@ -1294,9 +1401,9 @@ async function copyField(key: string, value: string): Promise<void> {
   display: inline-grid;
   place-items: center;
   padding: 1px 5px;
-  border-right: 1px solid rgba(241, 188, 91, 0.34);
-  background: rgba(241, 188, 91, 0.13);
-  color: rgba(255, 225, 160, 0.72);
+  border-right: 1px solid color-mix(in srgb, var(--nx-yellow) 34%, transparent);
+  background: color-mix(in srgb, var(--nx-yellow) 13%, transparent);
+  color: color-mix(in srgb, var(--nx-yellow) 78%, transparent);
   font-size: 8px;
   line-height: 1;
   letter-spacing: 0.09em;
@@ -1332,7 +1439,7 @@ async function copyField(key: string, value: string): Promise<void> {
 .field-row code,
 .field-row pre {
   margin: 0;
-    color: #c7dde2;
+    color: var(--nx-text-dim);
       font:
     10px/1.5 ui-monospace,
     'JetBrains Mono',
@@ -1357,7 +1464,7 @@ async function copyField(key: string, value: string): Promise<void> {
 .file-path-line code {
   display: block;
   min-width: 0;
-    color: #c7dde2;
+    color: var(--nx-text-dim);
       font:
     10.5px/1.5 ui-monospace,
     'JetBrains Mono',
@@ -1377,8 +1484,7 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 0;
   border: 0;
   border-radius: 0;
-  color: ;
-  color: #cce5e9;
+  color: var(--nx-text-dim);
   font:
     10px/1.55 ui-monospace,
     'JetBrains Mono',
@@ -1394,24 +1500,21 @@ async function copyField(key: string, value: string): Promise<void> {
 .question-heading > span {
   min-width: 0;
   flex: 1;
-  color: ;
-  color: #e5edf0;
+  color: var(--nx-text);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
 .question-heading > small {
   flex: 0 0 auto;
   padding: 2px 5px;
-  border: 1px solid rgba(226, 154, 255, 0.36);
+  border: 1px solid color-mix(in srgb, var(--nx-purple) 36%, transparent);
   border-radius: 3px;
-  color: ;
-  color: #edcafa;
+  color: var(--nx-purple);
   font-size: 9px;
 }
 .question-text {
   margin: 0;
-  color: ;
-  color: #e5edf0;
+  color: var(--nx-text);
   font-weight: 600;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -1429,13 +1532,11 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 7px 8px;
   border: 1px solid @line;
   border-radius: 3px;
-  color: ;
-  color: #cbd7db;
+  color: var(--nx-text-dim);
 }
 .question-option.selected {
-  border-color: rgba(226, 154, 255, 0.58);
-  color: ;
-  color: #f0ddf7;
+  border-color: color-mix(in srgb, var(--nx-purple) 58%, transparent);
+  color: var(--nx-purple);
 }
 .question-control {
   display: grid;
@@ -1443,10 +1544,9 @@ async function copyField(key: string, value: string): Promise<void> {
   width: 13px;
   height: 13px;
   margin-top: 1px;
-  border: 1px solid rgba(226, 154, 255, 0.54);
+  border: 1px solid color-mix(in srgb, var(--nx-purple) 54%, transparent);
   border-radius: 50%;
-  color: ;
-  color: #edcafa;
+  color: var(--nx-purple);
   font-weight: 800;
 }
 .question-control.is-multi {
@@ -1469,13 +1569,12 @@ async function copyField(key: string, value: string): Promise<void> {
   overflow-wrap: anywhere;
 }
 .question-other {
-  --detail-accent: rgba(226, 154, 255, 0.62);
+  --detail-accent: color-mix(in srgb, var(--nx-purple) 62%, transparent);
 }
 .question-other p,
 .question-note {
   margin: 0;
-  color: ;
-  color: #d7e2e5;
+  color: var(--nx-text-dim);
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1494,10 +1593,9 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .search-mode-badge {
   padding: 2px 6px;
-  border: 1px solid rgba(87, 199, 212, 0.36);
+  border: 1px solid color-mix(in srgb, var(--nx-cyan) 36%, transparent);
   border-radius: 3px;
-  color: ;
-  color: #8ddce5;
+  color: var(--nx-cyan);
   font-weight: 650;
 }
 .search-configuration {
@@ -1508,10 +1606,9 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .search-configuration span {
   padding: 2px 5px;
-  border: 1px solid rgba(150, 180, 190, 0.16);
+  border: 1px solid var(--nx-border-soft);
   border-radius: 3px;
-  color: ;
-  color: #b9c8cd;
+  color: var(--nx-text-dim);
   font-size: 9.5px;
 }
 .search-results-field {
@@ -1524,8 +1621,7 @@ async function copyField(key: string, value: string): Promise<void> {
 .search-result-summary {
   margin: 0;
   padding: 8px 25px 8px 0;
-  color: ;
-  color: #a9bbc0;
+  color: var(--nx-text-dim);
   line-height: 1.45;
 }
 .search-result-list {
@@ -1545,7 +1641,7 @@ async function copyField(key: string, value: string): Promise<void> {
 .search-result-location code {
   min-width: 0;
   flex: 1;
-    color: #79d2dd;
+    color: var(--nx-cyan);
       font:
     650 10px/1.45 ui-monospace,
     'JetBrains Mono',
@@ -1562,9 +1658,8 @@ async function copyField(key: string, value: string): Promise<void> {
 .search-result-raw {
   margin: 4px 0 0;
   padding: 5px 7px;
-  color: ;
-  color: #cbd7db;
-  background: rgba(87, 199, 212, 0.04);
+  color: var(--nx-text-dim);
+  background: color-mix(in srgb, var(--nx-cyan) 4%, transparent);
   font:
     10px/1.5 ui-monospace,
     'JetBrains Mono',
@@ -1576,28 +1671,25 @@ async function copyField(key: string, value: string): Promise<void> {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: ;
-  color: #eed4a0;
-  background: rgba(231, 183, 107, 0.055);
+  color: var(--nx-yellow);
+  background: color-mix(in srgb, var(--nx-yellow) 5.5%, transparent);
 }
 .skill-glyph {
   flex: 0 0 auto;
-  color: ;
-  color: #e7b76b;
+  color: var(--nx-yellow);
 }
 .skill-name-value strong {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .skill-instructions {
-  --detail-accent: rgba(231, 183, 107, 0.58);
+  --detail-accent: color-mix(in srgb, var(--nx-yellow) 58%, transparent);
 }
 .tool-error-note {
   margin: 0;
   padding: 7px 8px;
-  border-left: 2px solid #ef7185;
-  color: ;
-  color: #ef9aa8;
+  border-left: 2px solid var(--nx-red);
+  color: var(--nx-red);
   font-size: 10px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -1613,7 +1705,7 @@ async function copyField(key: string, value: string): Promise<void> {
   gap: 8px;
 }
 .section-heading strong {
-    color: #b9c8cd;
+    color: var(--nx-text-dim);
       font:
     650 10px/1.2 system-ui,
     sans-serif;
@@ -1626,12 +1718,12 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .primary-content,
 .result-copy {
-  color: #d4dfe2;
+  color: var(--nx-text-dim);
 }
 .markdown-body {
   min-width: 0;
   overflow-wrap: anywhere;
-  color: #cbd7db;
+  color: var(--nx-text-dim);
   font:
     10.5px/1.55 system-ui,
     sans-serif;
@@ -1644,28 +1736,25 @@ async function copyField(key: string, value: string): Promise<void> {
 .markdown-body :deep(h2),
 .markdown-body :deep(h3),
 .markdown-body :deep(h4) {
-  color: ;
-  color: #e4edef;
+  color: var(--nx-text);
 }
 .markdown-body :deep(pre) {
   max-width: 100%;
   overflow: visible;
   padding: 7px 8px;
-  color: ;
-  color: #cce5e9;
+  color: var(--nx-text-dim);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .markdown-body :deep(code) {
-  color: ;
-  color: #bfe2e7;
+  color: var(--nx-text-dim);
 }
 .markdown-body :deep(blockquote) {
   color: @muted;
-  border-color: rgba(87, 199, 212, 0.45);
+  border-color: color-mix(in srgb, var(--nx-cyan) 45%, transparent);
 }
 .markdown-body :deep(a) {
-  color: #71d3df;
+  color: var(--nx-cyan);
 }
 .empty-detail,
 .truncation-hint {
@@ -1677,15 +1766,14 @@ async function copyField(key: string, value: string): Promise<void> {
     sans-serif;
 }
 .truncation-hint {
-  color: #e7b76b;
+  color: var(--nx-yellow);
 }
 .termination-list,
 .termination-note {
   margin: 0 12px 10px;
   padding: 6px 8px;
-  border-left: 2px solid #e7b76b;
-  color: ;
-  color: #e7b76b;
+  border-left: 2px solid var(--nx-yellow);
+  color: var(--nx-yellow);
   font:
     10px/1.4 system-ui,
     sans-serif;
@@ -1707,13 +1795,11 @@ async function copyField(key: string, value: string): Promise<void> {
 @media (hover: hover) and (pointer: fine) {
   .icon-button:hover,
   .copy-button:hover {
-    color: ;
-    color: #e7f2f4;
-    background: rgba(87, 199, 212, 0.07);
+    color: var(--nx-text);
+    background: color-mix(in srgb, var(--nx-cyan) 7%, transparent);
   }
   .tool-tabs button:hover {
-    color: ;
-    color: #d5e5e8;
+    color: var(--nx-text);
   }
 }
 @media (prefers-reduced-motion: reduce) {

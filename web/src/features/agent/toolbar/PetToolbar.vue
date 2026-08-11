@@ -53,6 +53,25 @@ const emit = defineEmits<{
 
 const agents = useAgentsStore()
 
+/** 工作台 presetId：优先 pet.presetId，回退到该 chat 的历史 summary.presetId（对齐 AgentDialog.quickPresetId）。 */
+const workbenchPresetId = computed(() => {
+  if (props.pet.presetId) return props.pet.presetId
+  const summary = agents.historyList.find((item) => item.chatId === props.pet.chatId)
+  return summary?.presetId ?? null
+})
+
+/** 打开该 pet 预设的节点树工作台多窗口（重复打开复用状态，不重复创建）。 */
+function openWorkbench(): void {
+  const presetId = workbenchPresetId.value
+  if (!presetId) return
+  const id = agents.openWorkbenchWindow(presetId)
+  // 仅新建窗口（chatId 为空）时恢复该 preset 活跃根会话，避免打开即空树；已存在窗口不覆盖当前浏览。
+  if (!agents.workbenchWindows[id]?.chatId) {
+    const root = agents.activeRootForPet(props.pet)
+    if (root) agents.setWorkbenchWindowChat(id, root)
+  }
+}
+
 /**
  * 阈值命中（与后端 thresholdReached 同语义）：
  * percent → used/total ≥ value；tokens → used ≥ value。total ≤ 0 → false。
@@ -116,6 +135,15 @@ const canHide = computed(() => {
 
 <template>
   <div class="pet-toolbar" @pointerdown.stop @click.stop>
+    <button
+      type="button"
+      class="tool-btn"
+      aria-label="节点树工作台"
+      :disabled="!workbenchPresetId"
+      @click="openWorkbench"
+    >
+      🌳<span class="tip">工作台</span>
+    </button>
     <button
       v-if="showCompact"
       type="button"

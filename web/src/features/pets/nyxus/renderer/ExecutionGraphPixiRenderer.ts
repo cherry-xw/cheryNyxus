@@ -205,6 +205,8 @@ export class ExecutionGraphPixiRenderer {
   private media?: MediaQueryList
   private motionPreferenceListener?: () => void
   private canvasPalette: PixiCanvasPalette = PIXI_CANVAS_PALETTES.dark
+  /** 标签纹理分辨率。随相机缩放逐档提升，避免放大后文字（含数字角标）糊。 */
+  private labelResolution = 1
   backend: 'webgpu' | 'webgl' | 'uninitialized' = 'uninitialized'
 
   /** 主题切换时更新画布调色板并重画静态层。 */
@@ -247,7 +249,19 @@ export class ExecutionGraphPixiRenderer {
     this.camera = camera
     this.world.position.set(camera.x, camera.y)
     this.world.scale.set(camera.scale)
+    // 世界被 camera.scale 整体放大，标签纹理分辨率须随其提升，放大后文字才不糊。
+    const needed = this.labelResolutionNeeded(camera.scale)
+    if (needed !== this.labelResolution) {
+      this.labelResolution = needed
+      this.rebuildLabels()
+    }
     this.refreshMotionItems()
+  }
+
+  /** 标签纹理目标分辨率：≥ 渲染器分辨率 × 相机缩放，保证放大后按 1:1 命中设备像素。 */
+  private labelResolutionNeeded(scale: number): number {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    return Math.max(1, Math.ceil(dpr * scale))
   }
 
   /**
@@ -305,7 +319,6 @@ export class ExecutionGraphPixiRenderer {
     }
 
     this.staticNodes.clear()
-    this.labels.removeChildren().forEach((child) => child.destroy())
     const p = this.canvasPalette
     for (const node of this.scene.nodes) {
       const accent = colorNumber(node.accent)
@@ -320,6 +333,23 @@ export class ExecutionGraphPixiRenderer {
           .circle(node.x, node.y, 19)
           .stroke({ color: stateColor, width: 2, alpha: 0.9 })
       }
+      if (node.foldCount) {
+        this.staticNodes.circle(node.x + 12, node.y - 12, 8).fill({ color: p.nodeFill, alpha: 0.95 })
+        this.staticNodes
+          .circle(node.x + 12, node.y - 12, 8)
+          .stroke({ color: accent, width: 1, alpha: 1 })
+      }
+    }
+    this.rebuildLabels()
+  }
+
+  /** 重建全部标签（glyph/title/termination/数字角标）。分辨率用当前档位，随相机缩放逐档重渲。 */
+  private rebuildLabels(): void {
+    this.labels.removeChildren().forEach((child) => child.destroy())
+    const p = this.canvasPalette
+    const resolution = this.labelResolution
+    for (const node of this.scene.nodes) {
+      const accent = colorNumber(node.accent)
       const glyph = new Text({
         text: node.glyph,
         anchor: 0.5,
@@ -331,7 +361,7 @@ export class ExecutionGraphPixiRenderer {
           fontWeight: '700',
           trim: true,
         },
-        resolution: 1,
+        resolution,
       })
       const title = new Text({
         text: node.title,
@@ -343,7 +373,7 @@ export class ExecutionGraphPixiRenderer {
           fontSize: 10,
           fontWeight: '600',
         },
-        resolution: 1,
+        resolution,
       })
       this.labels.addChild(glyph, title)
       if (node.termination) {
@@ -353,22 +383,18 @@ export class ExecutionGraphPixiRenderer {
             anchor: { x: 0.5, y: 0 },
             position: { x: node.x, y: node.y + 38 },
             style: { fill: p.termination, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
-            resolution: 1,
+            resolution,
           }),
         )
       }
       if (node.foldCount) {
-        this.staticNodes.circle(node.x + 12, node.y - 12, 8).fill({ color: p.nodeFill, alpha: 0.95 })
-        this.staticNodes
-          .circle(node.x + 12, node.y - 12, 8)
-          .stroke({ color: accent, width: 1, alpha: 1 })
         this.labels.addChild(
           new Text({
             text: String(node.foldCount),
             anchor: 0.5,
             position: { x: node.x + 12, y: node.y - 12 },
             style: { fill: p.foldCount, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
-            resolution: 1,
+            resolution,
           }),
         )
       }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import { agentApi, type ChatSummary } from '@/services/agentApi'
+import { formatTime } from '@/utils/formatTime'
 import {
   acceptedRouteCandidates,
   automaticRouteCandidate,
@@ -159,6 +160,49 @@ function labelSegments(session: ChatSummary): CommandPromptSegment[] {
   return splitCommandPrompt(labelOf(session))
 }
 
+/**
+ * 每个历史会话按钮的 DOM ref（ElPopover virtual-ref 锚定 hover tooltip）。
+ * 用 virtual-triggering 而非包 wrapper，避免 tooltip 触发 span 破坏 .target-options 的 flex 布局。
+ */
+const buttonRefs = new Map<string, Ref<HTMLElement | null>>()
+function buttonRefOf(chatId: string): Ref<HTMLElement | null> {
+  let r = buttonRefs.get(chatId)
+  if (!r) {
+    r = ref(null)
+    buttonRefs.set(chatId, r)
+  }
+  return r
+}
+function bindButtonRef(chatId: string): (el: HTMLElement | null) => void {
+  const r = buttonRefOf(chatId)
+  return (el) => {
+    r.value = el
+  }
+}
+
+/** 按钮角标：用户锁定 → 指定；AI 推荐 → 推荐；手动半选 → 待定。 */
+function stateLabelOf(session: ChatSummary): string {
+  if (props.selected === session.chatId && props.selectedSource === 'user') return '指定'
+  if (visualStateOf(session.chatId) === 'recommended') {
+    return suggestedIds.value.includes(session.chatId) ? '推荐' : '待定'
+  }
+  return ''
+}
+
+/** hover tooltip 状态行：完整状态描述。 */
+function stateHintOf(session: ChatSummary): string {
+  if (props.selected === session.chatId && props.selectedSource === 'user') return '已指定为本次发送目标'
+  if (visualStateOf(session.chatId) === 'recommended') {
+    return suggestedIds.value.includes(session.chatId) ? 'AI 推荐为发送目标' : '候选目标，再次点击锁定'
+  }
+  return '未选择'
+}
+
+/** 会话创建时间（tooltip 展示）。 */
+function timeOf(session: ChatSummary): string {
+  return session.createdAt ? formatTime(session.createdAt) : ''
+}
+
 /** 前置信息节点（不可选）：反映当前目标选择状态，内容随用户操作联动。 */
 const aiStatusLabel = computed(() => {
   if (props.selectedSource === 'user') return '已手动选中会话，再次点击可取消'
@@ -253,41 +297,58 @@ onBeforeUnmount(() => {
 <template>
   <section class="target-picker" aria-label="选择消息目标">
     <div class="target-options">
-      <button
-        v-for="session in orderedSessions"
-        :key="session.chatId"
-        type="button"
-        class="target-option"
-        :class="{
-          'is-selected': visualStateOf(session.chatId) === 'manual',
-          'is-suggested': visualStateOf(session.chatId) === 'recommended',
-        }"
-        :title="reasons[session.chatId] || session.preview"
-        @click="selectByUser(session.chatId)"
-      >
-        <span v-if="selected === session.chatId && selectedSource === 'user'" class="target-state">✓</span>
-        <span
-          v-else-if="visualStateOf(session.chatId) === 'recommended'"
-          class="target-state"
-          >{{ suggestedIds.includes(session.chatId) ? 'AI 推荐' : '半选' }}</span
+      <template v-for="session in orderedSessions" :key="session.chatId">
+        <el-popover
+          :virtual-ref="buttonRefOf(session.chatId)"
+          virtual-triggering
+          trigger="hover"
+          placement="top"
+          :show-after="120"
+          :hide-after="0"
+          popper-class="target-tip"
         >
-        <span class="target-label">
-          <template
-            v-for="(segment, index) in labelSegments(session)"
-            :key="`${segment.type}-${index}`"
-          >
-            <span
-              v-if="segment.type === 'command'"
-              class="target-label-tag is-command"
-              >{{ segment.value }}</span
-            >
-            <span v-else-if="segment.type === 'role'" class="target-label-tag is-role">{{
-              segment.value
-            }}</span>
-            <template v-else>{{ segment.value }}</template>
+          <template #content>
+            <div class="target-tip">
+              <div class="target-tip-state">{{ stateHintOf(session) }}</div>
+              <div class="target-tip-content">{{
+                session.preview?.trim() || '（无历史消息）'
+              }}</div>
+              <div class="target-tip-meta">
+                <span v-if="reasons[session.chatId]">{{ reasons[session.chatId] }}</span>
+                <span v-if="timeOf(session)">{{ timeOf(session) }}</span>
+              </div>
+            </div>
           </template>
-        </span>
-      </button>
+        </el-popover>
+        <button
+          :ref="bindButtonRef(session.chatId)"
+          type="button"
+          class="target-option"
+          :class="{
+            'is-selected': visualStateOf(session.chatId) === 'manual',
+            'is-suggested': visualStateOf(session.chatId) === 'recommended',
+          }"
+          @click="selectByUser(session.chatId)"
+        >
+          <span v-if="stateLabelOf(session)" class="target-state">{{ stateLabelOf(session) }}</span>
+          <span class="target-label">
+            <template
+              v-for="(segment, index) in labelSegments(session)"
+              :key="`${segment.type}-${index}`"
+            >
+              <span
+                v-if="segment.type === 'command'"
+                class="target-label-tag is-command"
+                >{{ segment.value }}</span
+              >
+              <span v-else-if="segment.type === 'role'" class="target-label-tag is-role">{{
+                segment.value
+              }}</span>
+              <template v-else>{{ segment.value }}</template>
+            </template>
+          </span>
+        </button>
+      </template>
       <button
         type="button"
         class="target-option is-new"
@@ -328,4 +389,14 @@ onBeforeUnmount(() => {
 .target-label-tag.is-command { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent-ink); }
 .target-label-tag.is-role { background:rgba(70,126,202,.16); color:#2f6fae; }
 [data-theme='dark'] .target-label-tag.is-role { background:color-mix(in srgb, #3b82f6 24%, transparent); color:#93c5fd; }
+</style>
+
+<!-- hover tooltip 内容（el-popper teleport 到 body，scoped 样式不命中，故独立非 scoped 块） -->
+<style lang="less">
+.target-tip {
+  max-width: 320px;
+  .target-tip-state { margin-bottom: 4px; font-size: 11px; font-weight: 800; color: var(--accent-ink); }
+  .target-tip-content { font-size: 11.5px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; word-break: break-word; }
+  .target-tip-meta { display: flex; gap: 8px; margin-top: 6px; font-size: 10px; color: color-mix(in srgb, var(--ink) 55%, transparent); }
+}
 </style>

@@ -29,6 +29,7 @@ export function recordTerminationFact(input: {
   actor: TerminationFact['actor']
   code: TerminationFact['code']
   detail?: string
+  controlOperationId?: string
 }): TimelineNode {
   const rootChatId = getRootChatId(input.chatId)
   const active = getExecutionActiveRun(input.chatId, input.runId)
@@ -37,6 +38,7 @@ export function recordTerminationFact(input: {
     code: input.code,
     at: Date.now(),
     ...(input.detail ? { detail: input.detail } : {}),
+    ...(input.controlOperationId ? { controlOperationId: input.controlOperationId } : {}),
   }
   const annotated = active?.nodeId
     ? annotateExecutionNode(active.nodeId, { termination })

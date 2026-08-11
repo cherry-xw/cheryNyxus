@@ -46,6 +46,11 @@ export function isSpawnCall(call: GraphToolCall): boolean {
   return SPAWN_TOOL_NAMES.has(call.name) || typeof call.childChatId === 'string'
 }
 
+/** ask_user_question 是交互点（用户已回答），不应被折叠进过程组而隐藏。 */
+export function isQuestionCall(call: GraphToolCall): boolean {
+  return call.name === 'ask_user_question'
+}
+
 export function toolBatchDetail(node: ExecutionNode): ToolBatchDetail | undefined {
   if (node.kind === 'fold' && node.fold) {
     const children = node.fold.members

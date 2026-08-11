@@ -21,6 +21,7 @@ import {
 import {
   projectFoldExecutionGraph,
   projectFullFoldExecutionGraph,
+  projectParticipantFoldExecutionGraph,
 } from '../graph/foldProjection'
 import { createIncrementalExecutionLayout } from '../graph/executionLayout'
 import { edgeStyle } from '../graph/edgeStyles'
@@ -54,7 +55,7 @@ import {
 const props = withDefaults(
   defineProps<{
     rootChatId: string
-    foldMode?: 'none' | 'partial' | 'full'
+    foldMode?: 'none' | 'partial' | 'full' | 'participant'
     focusSourceChatId?: string
     focusInteractionId?: string
     /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
@@ -146,6 +147,7 @@ const liveGraph = computed(() =>
 const foldProjection = computed(() => {
   if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
   if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
+  if (props.foldMode === 'participant') return projectParticipantFoldExecutionGraph(liveGraph.value)
   return projectFoldExecutionGraph(liveGraph.value)
 })
 const graph = computed(() => foldProjection.value.graph)
@@ -161,6 +163,7 @@ const defaultPopoverAnchorIds = computed(
 const endpointFoldProjection = computed(() => {
   if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
   if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
+  if (props.foldMode === 'participant') return projectParticipantFoldExecutionGraph(liveGraph.value)
   return projectFoldExecutionGraph(liveGraph.value)
 })
 const endpointGraph = computed(() => endpointFoldProjection.value.graph)
@@ -681,6 +684,22 @@ const detailRelatedEdges = computed(() => {
 const detailMaxHeight = computed(() => {
   return Math.min(640, Math.max(160, viewportSize.value.height - 96))
 })
+/** 实际渲染的详情弹窗高度。定位用真实高度而非上限，否则弹窗被按上限钳制到视口顶部、
+ *  低处节点 hover 时弹窗停在顶部不跟随节点（「游离」）。未测到前回退到上限。 */
+const detailAnchorEl = ref<HTMLElement>()
+const measuredDetailHeight = ref(0)
+let detailHeightRO: ResizeObserver | undefined
+watch(detailAnchorEl, (el) => {
+  detailHeightRO?.disconnect()
+  detailHeightRO = undefined
+  measuredDetailHeight.value = 0
+  if (!el) return
+  detailHeightRO = new ResizeObserver(() => {
+    const height = el.offsetHeight
+    if (height > 0 && height !== measuredDetailHeight.value) measuredDetailHeight.value = height
+  })
+  detailHeightRO.observe(el)
+})
 const detailPlacement = computed(() => {
   const node = detailNode.value
   const viewport = viewportRef.value
@@ -689,7 +708,7 @@ const detailPlacement = computed(() => {
   const position = anchoredPopoverPosition({
     anchor,
     viewport: viewportSize.value,
-    panel: { width: 480, height: detailMaxHeight.value },
+    panel: { width: 480, height: measuredDetailHeight.value || detailMaxHeight.value },
     margin: 12,
   })
   return {
@@ -976,6 +995,7 @@ onBeforeUnmount(() => {
   gpuRenderer?.destroy()
   gpuRenderer = undefined
   viewportRO?.disconnect()
+  detailHeightRO?.disconnect()
   cancelDetailHide()
   window.removeEventListener('keydown', onEscape)
 })
@@ -1129,6 +1149,7 @@ defineExpose({ resetLayout })
         <Transition name="node-detail">
           <div
             v-if="detailNode && detailAnchorStyle && !defaultPopoverAnchorIds.has(detailNode.id)"
+            ref="detailAnchorEl"
             :style="detailAnchorStyle"
             class="node-detail-anchor"
             :class="detailPlacement ? `is-${detailPlacement.placement}` : undefined"

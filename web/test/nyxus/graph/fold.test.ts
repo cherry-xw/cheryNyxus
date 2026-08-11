@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { RootTimelineSnapshot, TimelineNode } from '../../../src/services/agentApi'
+import type {
+  ExecutionEdgeFact,
+  RootTimelineSnapshot,
+  TimelineNode,
+} from '../../../src/services/agentApi'
 import {
   projectPersistentExecutionGraph,
   type ExecutionFoldMember,
@@ -12,6 +16,7 @@ import {
   computeFullFoldRanges,
   projectFoldExecutionGraph,
   projectFullFoldExecutionGraph,
+  projectParticipantFoldExecutionGraph,
 } from '../../../src/features/pets/nyxus/graph/foldProjection'
 import { foldTabForMember, foldWheelView } from '../../../src/features/pets/nyxus/graph/foldTabs'
 import {
@@ -84,8 +89,12 @@ function unit(id: string, orderKey: number, sourceChatId = rootChatId): Timeline
   return [message(id, orderKey, sourceChatId), batch(id, orderKey + 1, sourceChatId)]
 }
 
-function graph(nodes: TimelineNode[], activeRuns: RootTimelineSnapshot['activeRuns'] = []) {
-  return projectPersistentExecutionGraph({ rootChatId, nodes, edges: [], activeRuns })
+function graph(
+  nodes: TimelineNode[],
+  activeRuns: RootTimelineSnapshot['activeRuns'] = [],
+  edges: ExecutionEdgeFact[] = [],
+) {
+  return projectPersistentExecutionGraph({ rootChatId, nodes, edges, activeRuns })
 }
 
 function member(node: ExecutionNode): ExecutionFoldMember {
@@ -238,9 +247,9 @@ describe('Agent-local Fold projection', () => {
       const projected = projectFoldExecutionGraph(canonical)
 
       expect(projected.ranges).toHaveLength(0)
-      expect(projected.graph.nodes.some((node) => node.id === 'message:done')).toBe(true)
+      expect(projected.graph.nodes.some((node) => node.id === 'message:done')).toBe(false)
       expect(projected.graph.nodes.some((node) => node.id === 'batch:done')).toBe(true)
-      expect(projected.graph.nodes.some((node) => node.id === 'message:question')).toBe(true)
+      expect(projected.graph.nodes.some((node) => node.id === 'message:question')).toBe(false)
       expect(projected.graph.nodes.some((node) => node.id === 'batch:question')).toBe(true)
     },
   )
@@ -442,14 +451,8 @@ describe('Full-fold projection', () => {
       expect(visibleIds.has(hidden)).toBe(false)
     }
     expect(projected.ranges).toHaveLength(2)
-    expect(projected.ranges[0]!.nodes.map((n) => n.id)).toEqual([
-      'message:tool-a',
-      'batch:tool-a',
-    ])
-    expect(projected.ranges[1]!.nodes.map((n) => n.id)).toEqual([
-      'message:tool-b',
-      'batch:tool-b',
-    ])
+    expect(projected.ranges[0]!.nodes.map((n) => n.id)).toEqual(['batch:tool-a'])
+    expect(projected.ranges[1]!.nodes.map((n) => n.id)).toEqual(['batch:tool-b'])
   })
 
   it('keeps a running round fully expanded', () => {
@@ -477,7 +480,251 @@ describe('Full-fold projection', () => {
     const projected = projectFullFoldExecutionGraph(canonical)
 
     expect(projected.ranges).toHaveLength(0)
-    expect(projected.graph.nodes.some((n) => n.id === 'message:a')).toBe(true)
+    expect(projected.graph.nodes.some((n) => n.id === 'message:a')).toBe(false)
     expect(projected.graph.nodes.some((n) => n.id === 'batch:a')).toBe(true)
+  })
+})
+
+describe('Participant fold projection', () => {
+  function edge(
+    id: string,
+    orderKey: number,
+    fromNodeId: string,
+    toNodeId: string,
+    kind: ExecutionEdgeFact['kind'],
+    sourceChatId = rootChatId,
+    targetChatId = sourceChatId,
+  ): ExecutionEdgeFact {
+    return {
+      id,
+      rootChatId,
+      fromNodeId,
+      toNodeId,
+      kind,
+      orderKey,
+      sourceChatId,
+      targetChatId,
+    }
+  }
+
+  function userMessage(id: string, orderKey: number, sourceChatId = rootChatId): TimelineNode {
+    return message(id, orderKey, sourceChatId, {
+      actor: { kind: 'user', actorId: 'human' },
+      target: { kind: 'agent', chatId: sourceChatId },
+      direction: 'user-to-agent',
+    })
+  }
+
+  function dispatchNode(orderKey: number): TimelineNode {
+    return message('dispatch', orderKey, rootChatId, {
+      kind: 'dispatch',
+      direction: 'agent-to-agent',
+      visibility: 'internal',
+      target: { kind: 'agent', chatId: 'child' },
+    })
+  }
+
+  function returnedNode(orderKey: number): TimelineNode {
+    return message('return', orderKey, 'child', {
+      kind: 'return',
+      direction: 'agent-to-agent',
+      target: { kind: 'agent', chatId: rootChatId },
+    })
+  }
+
+  it('keeps dispatch/spawn/return and the final reply, but folds execution details', () => {
+    const spawn = batch('spawn', 3, rootChatId, {
+      toolCalls: [
+        {
+          callId: 'call:spawn',
+          index: 0,
+          name: 'spawn_agent',
+          arguments: '{}',
+          result: 'ok',
+          status: 'completed',
+          childChatId: 'child',
+        },
+      ],
+    })
+    const canonical = graph([
+      userMessage('u1', 1),
+      dispatchNode(2),
+      spawn,
+      returnedNode(4),
+      ...unit('tool-a', 5),
+      message('reply', 8),
+    ])
+    const projected = projectParticipantFoldExecutionGraph(canonical)
+    const visibleIds = new Set(projected.graph.nodes.map((node) => node.id))
+
+    for (const keep of [
+      'message:u1',
+      'message:dispatch',
+      'batch:spawn',
+      'message:return',
+      'message:reply',
+    ]) {
+      expect(visibleIds.has(keep)).toBe(true)
+    }
+    for (const hidden of ['message:tool-a', 'batch:tool-a']) {
+      expect(visibleIds.has(hidden)).toBe(false)
+    }
+    expect(projected.ranges).toHaveLength(1)
+  })
+
+  it('folds a sub-agent internal segment into the round fold card', () => {
+    const canonical = graph([
+      userMessage('u1', 1),
+      dispatchNode(2),
+      ...unit('child-work', 3, 'child'),
+      returnedNode(6),
+      message('reply', 7),
+    ])
+    const projected = projectParticipantFoldExecutionGraph(canonical)
+    const visibleIds = new Set(projected.graph.nodes.map((node) => node.id))
+
+    expect(visibleIds.has('message:dispatch')).toBe(true)
+    expect(visibleIds.has('message:return')).toBe(true)
+    expect(visibleIds.has('message:child-work')).toBe(false)
+    expect(visibleIds.has('batch:child-work')).toBe(false)
+    expect(projected.ranges).toHaveLength(1)
+  })
+
+  it('keeps fan-out and return convergence while folding every participant branch independently', () => {
+    const spawn = batch('spawn-many', 4, rootChatId, {
+      toolCalls: ['child-a', 'child-b'].map((childChatId, index) => ({
+        callId: `call:spawn:${childChatId}`,
+        index,
+        name: 'spawn_agent',
+        arguments: '{}',
+        result: 'ok',
+        status: 'completed' as const,
+        childChatId,
+      })),
+    })
+    const taskA = message('task-a', 5, 'child-a', {
+      actor: { kind: 'agent', chatId: rootChatId },
+      target: { kind: 'agent', chatId: 'child-a' },
+      direction: 'parent-to-child',
+    })
+    const taskB = message('task-b', 6, 'child-b', {
+      actor: { kind: 'agent', chatId: rootChatId },
+      target: { kind: 'agent', chatId: 'child-b' },
+      direction: 'parent-to-child',
+    })
+    const returnA = message('return-a', 11, 'child-a', {
+      kind: 'return',
+      direction: 'child-to-parent',
+      target: { kind: 'agent', chatId: rootChatId },
+    })
+    const returnB = message('return-b', 12, 'child-b', {
+      kind: 'return',
+      direction: 'child-to-parent',
+      target: { kind: 'agent', chatId: rootChatId },
+    })
+    const received = message('received', 13, rootChatId, {
+      direction: 'child-to-parent',
+    })
+    const canonical = graph(
+      [
+        userMessage('u1', 1),
+        ...unit('root-before-dispatch', 2),
+        spawn,
+        taskA,
+        taskB,
+        ...unit('child-a-work', 7, 'child-a'),
+        ...unit('child-b-work', 9, 'child-b'),
+        returnA,
+        returnB,
+        received,
+        ...unit('root-after-return', 14),
+        message('final', 16),
+      ],
+      [],
+      [
+        edge('u-to-pre', 101, 'message:u1', 'message:root-before-dispatch', 'sequence'),
+        edge('pre-owner', 102, 'message:root-before-dispatch', 'batch:root-before-dispatch', 'sequence'),
+        edge('pre-to-spawn', 103, 'batch:root-before-dispatch', 'batch:spawn-many', 'sequence'),
+        edge('spawn-a', 104, 'batch:spawn-many', 'message:task-a', 'spawn', rootChatId, 'child-a'),
+        edge('spawn-b', 105, 'batch:spawn-many', 'message:task-b', 'spawn', rootChatId, 'child-b'),
+        edge('task-a-work', 106, 'message:task-a', 'message:child-a-work', 'sequence', 'child-a'),
+        edge('child-a-owner', 107, 'message:child-a-work', 'batch:child-a-work', 'sequence', 'child-a'),
+        edge('child-a-return', 108, 'batch:child-a-work', 'message:return-a', 'return', 'child-a', rootChatId),
+        edge('task-b-work', 109, 'message:task-b', 'message:child-b-work', 'sequence', 'child-b'),
+        edge('child-b-owner', 110, 'message:child-b-work', 'batch:child-b-work', 'sequence', 'child-b'),
+        edge('child-b-return', 111, 'batch:child-b-work', 'message:return-b', 'return', 'child-b', rootChatId),
+        edge('return-a-received', 112, 'message:return-a', 'message:received', 'return-continuation', 'child-a', rootChatId),
+        edge('return-b-received', 113, 'message:return-b', 'message:received', 'return-continuation', 'child-b', rootChatId),
+        edge('received-work', 114, 'message:received', 'message:root-after-return', 'sequence'),
+        edge('root-after-owner', 115, 'message:root-after-return', 'batch:root-after-return', 'sequence'),
+        edge('root-after-final', 116, 'batch:root-after-return', 'message:final', 'sequence'),
+      ],
+    )
+    const projected = projectParticipantFoldExecutionGraph(canonical)
+    const visibleIds = new Set(projected.graph.nodes.map((node) => node.id))
+
+    for (const keep of [
+      'message:u1',
+      'batch:spawn-many',
+      'message:task-a',
+      'message:task-b',
+      'message:return-a',
+      'message:return-b',
+      'message:received',
+      'message:final',
+    ]) {
+      expect(visibleIds.has(keep)).toBe(true)
+    }
+    expect(
+      projected.ranges.map((range) => [
+        range.sourceChatId,
+        range.nodes.map((node) => node.id),
+      ]),
+    ).toEqual([
+      [rootChatId, ['batch:root-before-dispatch']],
+      ['child-a', ['batch:child-a-work']],
+      ['child-b', ['batch:child-b-work']],
+      [rootChatId, ['batch:root-after-return']],
+    ])
+    expect(projected.graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: 'message:u1',
+          to: 'participant-fold:root:batch:root-before-dispatch',
+        }),
+        expect.objectContaining({
+          from: 'participant-fold:root:batch:root-before-dispatch',
+          to: 'batch:spawn-many',
+        }),
+        expect.objectContaining({ from: 'batch:spawn-many', to: 'message:task-a' }),
+        expect.objectContaining({ from: 'batch:spawn-many', to: 'message:task-b' }),
+        expect.objectContaining({
+          from: 'message:task-a',
+          to: 'participant-fold:child-a:batch:child-a-work',
+        }),
+        expect.objectContaining({
+          from: 'participant-fold:child-a:batch:child-a-work',
+          to: 'message:return-a',
+        }),
+        expect.objectContaining({
+          from: 'message:task-b',
+          to: 'participant-fold:child-b:batch:child-b-work',
+        }),
+        expect.objectContaining({
+          from: 'participant-fold:child-b:batch:child-b-work',
+          to: 'message:return-b',
+        }),
+        expect.objectContaining({ from: 'message:return-a', to: 'message:received' }),
+        expect.objectContaining({ from: 'message:return-b', to: 'message:received' }),
+        expect.objectContaining({
+          from: 'message:received',
+          to: 'participant-fold:root:batch:root-after-return',
+        }),
+        expect.objectContaining({
+          from: 'participant-fold:root:batch:root-after-return',
+          to: 'message:final',
+        }),
+      ]),
+    )
   })
 })

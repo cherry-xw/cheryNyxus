@@ -343,37 +343,37 @@ const emit = defineEmits<{
 
   :deep(.media-preview-strip) {
     padding: 0 0 3px;
-    scrollbar-color: rgba(116, 173, 184, 0.34) transparent;
+    scrollbar-color: color-mix(in srgb, var(--nx-border) 34%, transparent) transparent;
   }
 
   :deep(.media-preview-thumb) {
-    border-color: rgba(116, 173, 184, 0.22);
-    background: rgba(11, 22, 29, 0.92);
+    border-color: color-mix(in srgb, var(--nx-border) 45%, transparent);
+    background: color-mix(in srgb, var(--nx-bg) 92%, transparent);
     box-shadow: none;
   }
 
   :deep(.thumb-visual) {
-    background: rgba(5, 11, 16, 0.9);
+    background: color-mix(in srgb, var(--nx-bg) 88%, transparent);
   }
 
   :deep(.thumb-name) {
-    color: rgba(220, 232, 235, 0.82);
+    color: color-mix(in srgb, var(--nx-text) 82%, transparent);
   }
 
   :deep(.thumb-size) {
-    color: rgba(173, 194, 199, 0.54);
+    color: color-mix(in srgb, var(--nx-text) 54%, transparent);
   }
 
   .rich-message-input {
     min-height: 88px;
     max-height: min(34vh, 300px);
     padding: 12px 88px 42px 13px;
-    border: 1px solid rgba(116, 173, 184, 0.3);
+    border: 1px solid color-mix(in srgb, var(--nx-border) 60%, transparent);
     border-radius: 8px;
-    color: #dce8eb;
-    background: rgba(5, 11, 16, 0.76);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
-    caret-color: #69c995;
+    color: var(--nx-text);
+    background: color-mix(in srgb, var(--nx-bg) 76%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--nx-text) 4%, transparent);
+    caret-color: var(--nx-green);
     font-size: 13px;
     line-height: 1.55;
     transition:
@@ -382,31 +382,31 @@ const emit = defineEmits<{
       background-color 150ms ease;
 
     &.is-empty::before {
-      color: rgba(173, 194, 199, 0.46);
+      color: color-mix(in srgb, var(--nx-text) 46%, transparent);
     }
 
     &:focus {
-      border-color: rgba(87, 199, 212, 0.68);
-      background: rgba(6, 14, 20, 0.92);
+      border-color: color-mix(in srgb, var(--nx-cyan) 68%, transparent);
+      background: color-mix(in srgb, var(--nx-bg) 92%, transparent);
       box-shadow:
-        0 0 0 3px rgba(87, 199, 212, 0.08),
-        inset 0 1px 0 rgba(255, 255, 255, 0.024);
+        0 0 0 3px color-mix(in srgb, var(--nx-cyan) 8%, transparent),
+        inset 0 1px 0 color-mix(in srgb, var(--nx-text) 5%, transparent);
     }
 
     &.is-disabled {
-      color: rgba(180, 199, 204, 0.48);
-      background: rgba(5, 11, 16, 0.9);
+      color: color-mix(in srgb, var(--nx-text) 48%, transparent);
+      background: color-mix(in srgb, var(--nx-bg) 90%, transparent);
     }
   }
 
   :deep(.instruction-token) {
-    background: rgba(231, 183, 107, 0.16);
-    color: #f1d6a0;
+    background: color-mix(in srgb, var(--nx-yellow) 16%, transparent);
+    color: var(--nx-yellow);
   }
 
   :deep(.role-mention-token) {
-    background: rgba(87, 199, 212, 0.14);
-    color: #a8e4eb;
+    background: color-mix(in srgb, var(--nx-cyan) 14%, transparent);
+    color: var(--nx-cyan);
   }
 
   .textarea-actions {
@@ -418,10 +418,10 @@ const emit = defineEmits<{
   .send-btn {
     width: 32px;
     height: 32px;
-    border: 1px solid rgba(116, 173, 184, 0.2);
+    border: 1px solid color-mix(in srgb, var(--nx-border) 40%, transparent);
     border-radius: 7px;
-    color: rgba(179, 201, 206, 0.68);
-    background: rgba(116, 173, 184, 0.055);
+    color: color-mix(in srgb, var(--nx-text) 68%, transparent);
+    background: color-mix(in srgb, var(--nx-text) 5%, transparent);
     transition:
       transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
       color 140ms ease,
@@ -434,36 +434,36 @@ const emit = defineEmits<{
   }
 
   .send-btn:not(:disabled) {
-    border-color: rgba(105, 201, 149, 0.32);
-    color: #9de0b9;
-    background: rgba(105, 201, 149, 0.1);
+    border-color: color-mix(in srgb, var(--nx-green) 32%, transparent);
+    color: var(--nx-green);
+    background: color-mix(in srgb, var(--nx-green) 10%, transparent);
   }
 
   .media-hint-row {
     margin-bottom: 8px;
-    border: 1px solid rgba(231, 183, 107, 0.18);
-    color: #dfbd7c;
-    background: rgba(231, 183, 107, 0.065);
+    border: 1px solid color-mix(in srgb, var(--nx-yellow) 18%, transparent);
+    color: var(--nx-yellow);
+    background: color-mix(in srgb, var(--nx-yellow) 6.5%, transparent);
   }
 
   .node-composer-error {
     margin-top: 8px;
-    border: 1px solid rgba(239, 113, 133, 0.26);
-    color: #f1a0ad;
-    background: rgba(239, 113, 133, 0.075);
+    border: 1px solid color-mix(in srgb, var(--nx-red) 26%, transparent);
+    color: var(--nx-red);
+    background: color-mix(in srgb, var(--nx-red) 7.5%, transparent);
   }
 }
 
 @media (hover: hover) and (pointer: fine) {
   .composer-wrap.is-nyxus-composer .add-media-btn:hover:not(:disabled) {
-    border-color: rgba(87, 199, 212, 0.4);
-    color: #a8e4eb;
-    background: rgba(87, 199, 212, 0.1);
+    border-color: color-mix(in srgb, var(--nx-cyan) 40%, transparent);
+    color: var(--nx-cyan);
+    background: color-mix(in srgb, var(--nx-cyan) 10%, transparent);
   }
   .composer-wrap.is-nyxus-composer .send-btn:hover:not(:disabled) {
-    border-color: rgba(105, 201, 149, 0.54);
-    color: #c3f1d5;
-    background: rgba(105, 201, 149, 0.16);
+    border-color: color-mix(in srgb, var(--nx-green) 54%, transparent);
+    color: var(--nx-green);
+    background: color-mix(in srgb, var(--nx-green) 16%, transparent);
   }
 }
 

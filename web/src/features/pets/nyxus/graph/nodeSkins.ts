@@ -51,9 +51,9 @@ export function accentForTheme(theme: 'light' | 'dark', key: NodeSkinKey): strin
   return (theme === 'light' ? NODE_ACCENT_LIGHT[key] : NODE_SKINS[key].accent) ?? NODE_SKINS.unknown.accent
 }
 
-/** Every rendered execution-node kind has a read-only hover detail surface. */
-export const NODE_HOVER_DETAIL_KINDS: Record<ExecutionNodeKind, true> = {
-  start: true,
+/** Interactive execution-node kinds that open a read-only hover detail surface.
+ *  start 是纯装饰节点，不参与 hover/点击。 */
+export const NODE_HOVER_DETAIL_KINDS: Partial<Record<ExecutionNodeKind, true>> = {
   message: true,
   'tool-batch': true,
   return: true,
@@ -66,7 +66,7 @@ export const NODE_HOVER_DETAIL_KINDS: Record<ExecutionNodeKind, true> = {
 }
 
 export function hasNodeHoverDetail(node: ExecutionNode): boolean {
-  return NODE_HOVER_DETAIL_KINDS[node.kind]
+  return !!NODE_HOVER_DETAIL_KINDS[node.kind]
 }
 
 /** Keep click-to-pin scoped to the detail nodes that already supported that interaction. */

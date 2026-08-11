@@ -61,6 +61,9 @@ export async function* observeAgentChunks(
             contextCompactionTokens: chunk.message.contextCompactionTokens,
             // 仅 user 消息记 runtime（发送时配置）；assistant/sense 不记 NULL
             runtime: chunk.message.role === 'user' ? getChatSelection(chatId) : undefined,
+            ...(chunk.message.linkRelation
+              ? { link: { relation: chunk.message.linkRelation } }
+              : {}),
           })
           syncedIds.add(chunk.message.id)
           emitTimelinePatch(chatId, baseRevision)

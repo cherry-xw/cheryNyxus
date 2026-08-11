@@ -2,9 +2,10 @@
 /**
  * PresetPicker：预设选择器组件。
  * 从 AgentFab 拆出，含内部 button + popover + backdrop + transition。
- * 点击加载预设列表；空 → emit fallback；非空 → toggle picker。
+ * 列表 = 配置预设 − excluded（CHERY_NYXUS + 已打开成 pet 的）；全部打开 → 隐藏触发按钮。
+ * 无任何预设配置 → 保留按钮 emit fallback（现有行为）。
  */
-import { ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { fetchServerConfig, type PresetOption } from '@/services/agentApi'
 
 const props = withDefaults(
@@ -18,30 +19,45 @@ const props = withDefaults(
 const emit = defineEmits<{
   (e: 'pick', presetName: string): void
   (e: 'fallback'): void
+  (e: 'has-creatable', has: boolean): void
 }>()
 
 const pickerOpen = ref(false)
-const presets = ref<PresetOption[]>([])
+const configPresets = ref<PresetOption[]>([])
+const configLoaded = ref(false)
+
+/** 可创建的预设 = 配置预设 − 已排除（随 excluded 响应式，打开 pet 后自动减少）。 */
+const creatable = computed(() => {
+  const excluded = new Set(props.excluded)
+  return configPresets.value.filter((preset) => !excluded.has(preset.name))
+})
+/** 配置加载完成前不显示按钮（避免「先出现后消失」闪现）；无任何配置 → 保留按钮走 fallback。 */
+const showTrigger = computed(
+  () => configLoaded.value && (configPresets.value.length === 0 || creatable.value.length > 0),
+)
 
 async function loadPresets(): Promise<void> {
-  if (presets.value.length > 0) return
+  if (configLoaded.value) return
   try {
-    const cfg = await fetchServerConfig()
-    const excluded = new Set(props.excluded)
-    presets.value = (cfg.presets ?? []).filter((preset) => !excluded.has(preset.name))
+    configPresets.value = (await fetchServerConfig()).presets ?? []
   } catch {
-    presets.value = []
+    configPresets.value = []
+  } finally {
+    configLoaded.value = true
   }
 }
 
+// 打开工具环即预载配置；加载完成与可创建状态变化时上报，供父级按实际按钮数排布。
+onMounted(loadPresets)
+watch(showTrigger, (v) => emit('has-creatable', v), { immediate: true })
+
 async function handleClick(): Promise<void> {
   await loadPresets()
-  // 无预设 → emit fallback；有预设 → toggle picker
-  if (presets.value.length === 0) {
+  if (configPresets.value.length === 0) {
     emit('fallback')
-  } else {
-    pickerOpen.value = !pickerOpen.value
+    return
   }
+  pickerOpen.value = !pickerOpen.value
 }
 
 function pickPreset(name: string): void {
@@ -56,7 +72,7 @@ function pickPreset(name: string): void {
       <div v-if="pickerOpen" class="picker-popover">
         <div class="picker-title">选择预设</div>
         <button
-          v-for="p in presets"
+          v-for="p in creatable"
           :key="p.name"
           type="button"
           class="picker-item"
@@ -68,7 +84,13 @@ function pickPreset(name: string): void {
       </div>
     </transition>
     <div v-if="pickerOpen" class="picker-backdrop" @click="pickerOpen = false" />
-    <button type="button" class="picker-trigger" :disabled="disabled" @click="handleClick">
+    <button
+      v-if="showTrigger"
+      type="button"
+      class="picker-trigger"
+      :disabled="disabled"
+      @click="handleClick"
+    >
       <slot />
     </button>
   </div>

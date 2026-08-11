@@ -4,7 +4,7 @@ import type {
   ExecutionGraph,
   ExecutionNode,
 } from './executionGraph'
-import { isSpawnCall } from './toolBatchDetails'
+import { isQuestionCall, isSpawnCall } from './toolBatchDetails'
 
 export interface FoldRange {
   id: string
@@ -87,7 +87,9 @@ function isFoldableBatch(node: ExecutionNode): boolean {
     node.actor.chatId === node.sourceChatId &&
     !!node.sourceFact &&
     !node.sourceFact.termination &&
-    !(node.sourceFact.toolCalls ?? []).some(isSpawnCall)
+    !(node.sourceFact.toolCalls ?? []).some(isSpawnCall) &&
+    // 提问批次是不可隐藏的交互点（用户已回答），应保持为可见节点 + 多个 tab，而非折叠进过程组。
+    !(node.sourceFact.toolCalls ?? []).some(isQuestionCall)
   )
 }
 
@@ -284,12 +286,17 @@ function toFullRange(round: ExecutionNode[], foldNodes: ExecutionNode[]): FoldRa
 }
 
 /**
- * Full fold: within each conversation round (user-led message → next user
- * message) keep only the user messages and the round's final agent reply, and
- * fold every other node into a single fold card. Running rounds (any active
- * run) stay expanded so in-flight tool/answer state is never hidden.
+ * Round-fold core: within each conversation round (user-led message → next user
+ * message) keep the user messages, the round's final agent reply, and any node
+ * matching `extraKeep`; fold every other node into a single fold card. Running
+ * rounds (any active run) stay expanded so in-flight tool/answer state is never
+ * hidden. `extraKeep` allows another round-level projection to preserve
+ * additional boundary nodes on the backbone.
  */
-export function computeFullFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
+function computeRoundFoldRanges(
+  graph: Readonly<ExecutionGraph>,
+  extraKeep: ((node: ExecutionNode) => boolean) | null,
+): FoldRange[] {
   const persistent = graph.nodes
     .filter((item) => item.orderSlot === 'persistent')
     .sort(compareNodes)
@@ -311,6 +318,7 @@ export function computeFullFoldRanges(graph: Readonly<ExecutionGraph>): FoldRang
     if (round.some(hasActiveRun)) continue
     const keepIds = new Set<string>()
     for (const node of round) if (isUserMessage(node)) keepIds.add(node.id)
+    if (extraKeep) for (const node of round) if (extraKeep(node)) keepIds.add(node.id)
     // The final agent reply is the last outbound message; keep it visible.
     const finalReply = [...round].reverse().find(isAgentReply)
     if (finalReply) keepIds.add(finalReply.id)
@@ -319,6 +327,116 @@ export function computeFullFoldRanges(graph: Readonly<ExecutionGraph>): FoldRang
     if (!round.some(isUserMessage) || foldNodes.length < 1) continue
     ranges.push(toFullRange(round, foldNodes))
   }
+  return ranges.sort(
+    (a, b) =>
+      (a.nodes[0]?.orderKey ?? Number.MAX_SAFE_INTEGER) -
+        (b.nodes[0]?.orderKey ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id),
+  )
+}
+
+/**
+ * Full fold: within each conversation round keep only the user messages and the
+ * round's final agent reply, and fold every other node into a single fold card.
+ */
+export function computeFullFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
+  return computeRoundFoldRanges(graph, null)
+}
+
+/**
+ * Participant fold keeps the explicit delegation DAG visible and independently
+ * folds each participant's work between dispatch, return and convergence
+ * boundaries.
+ */
+function isParticipantBoundary(node: ExecutionNode): boolean {
+  return (
+    node.kind === 'dispatch' ||
+    node.kind === 'spawn' ||
+    node.kind === 'return' ||
+    (node.kind === 'tool-batch' && (node.sourceFact?.toolCalls ?? []).some(isSpawnCall))
+  )
+}
+
+export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
+  const persistent = graph.nodes
+    .filter((item) => item.orderSlot === 'persistent')
+    .sort(compareNodes)
+  const rounds: ExecutionNode[][] = []
+  let current: ExecutionNode[] = []
+  for (const node of persistent) {
+    if (isUserMessage(node) && current.length > 0) {
+      rounds.push(current)
+      current = [node]
+    } else {
+      current.push(node)
+    }
+  }
+  if (current.length > 0) rounds.push(current)
+
+  const ranges: FoldRange[] = []
+  for (const round of rounds) {
+    if (!round.some(isUserMessage) || round.some(hasActiveRun)) continue
+
+    const roundIds = new Set(round.map((node) => node.id))
+    const roundEdges = graph.edges.filter(
+      (edge) => roundIds.has(edge.from) && roundIds.has(edge.to),
+    )
+    const incidentChats = new Map<string, Set<string>>()
+    for (const edge of roundEdges) {
+      for (const nodeId of [edge.from, edge.to]) {
+        const chats = incidentChats.get(nodeId) ?? new Set<string>()
+        chats.add(edge.sourceChatId)
+        chats.add(edge.targetChatId)
+        incidentChats.set(nodeId, chats)
+      }
+    }
+    const keepIds = new Set(
+      round.filter((node) => isUserMessage(node) || isParticipantBoundary(node)).map((node) => node.id),
+    )
+    for (const edge of roundEdges) {
+      if (edge.kind === 'spawn' || edge.kind === 'dispatch') {
+        keepIds.add(edge.from)
+        keepIds.add(edge.to)
+      } else if (edge.kind === 'return-continuation') {
+        keepIds.add(edge.from)
+        keepIds.add(edge.to)
+      }
+    }
+    const finalReply = [...round].reverse().find(isAgentReply)
+    if (finalReply) keepIds.add(finalReply.id)
+
+    const pendingByChat = new Map<string, ExecutionNode[]>()
+    const flush = (chatId: string): void => {
+      const nodes = pendingByChat.get(chatId)
+      if (!nodes?.length) return
+      const first = nodes[0]!
+      ranges.push({
+        id: `participant-fold:${chatId}:${first.id}`,
+        sourceChatId: chatId,
+        firstNodeId: first.id,
+        lastNodeId: nodes.at(-1)!.id,
+        members: nodes.map((node) => ({ id: node.id, displayNode: node, nodes: [node] })),
+        nodes: nodes.slice(),
+      })
+      pendingByChat.delete(chatId)
+    }
+
+    for (const node of round) {
+      if (!keepIds.has(node.id)) {
+        const pending = pendingByChat.get(node.sourceChatId) ?? []
+        pending.push(node)
+        pendingByChat.set(node.sourceChatId, pending)
+        continue
+      }
+
+      const affectedChats = new Set<string>([node.sourceChatId])
+      if (node.actor.kind === 'agent') affectedChats.add(node.actor.chatId)
+      if (node.target?.kind === 'agent') affectedChats.add(node.target.chatId)
+      for (const chatId of incidentChats.get(node.id) ?? []) affectedChats.add(chatId)
+      for (const chatId of affectedChats) flush(chatId)
+    }
+    for (const chatId of pendingByChat.keys()) flush(chatId)
+  }
+
   return ranges.sort(
     (a, b) =>
       (a.nodes[0]?.orderKey ?? Number.MAX_SAFE_INTEGER) -
@@ -354,4 +472,10 @@ export function projectFullFoldExecutionGraph(
   graph: Readonly<ExecutionGraph>,
 ): FoldProjectionResult {
   return projectRanges(graph, computeFullFoldRanges(graph))
+}
+
+export function projectParticipantFoldExecutionGraph(
+  graph: Readonly<ExecutionGraph>,
+): FoldProjectionResult {
+  return projectRanges(graph, computeParticipantFoldRanges(graph))
 }

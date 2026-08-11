@@ -32,6 +32,8 @@
   --danger: #991b1b;
   --warning: #80560a;
   --info: #8c8980;
+  --violet: #6d28d9; /* ask_user_question 紫色系文字（浅色 violet-700） */
+  --violet-soft: rgba(124, 58, 237, 0.09); /* 选中项淡紫底（浅色，不抢眼） */
 
   /* 霓虹装饰三色（settings neon 签名） */
   --neon-cyan: #5ee7ff;
@@ -84,6 +86,8 @@
   --danger: #f87171;
   --warning: #fbbf24;
   --info: #9ca3af;
+  --violet: #c4b5fd; /* ask_user_question 紫色系文字（深色 violet-300，浅紫可读） */
+  --violet-soft: rgba(139, 92, 246, 0.22); /* 选中项紫色底（深色，可见但不刺眼） */
 
   /* 霓虹装饰三色沿用 */
   --neon-cyan: #5ee7ff;

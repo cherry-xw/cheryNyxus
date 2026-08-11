@@ -327,6 +327,7 @@ function onEscape(event: KeyboardEvent): void {
   overscroll-behavior: contain;
   color: var(--ink);
   color: #d4dfe2;
+  font-size: 11px;
   line-height: 1.55;
   scrollbar-color: rgba(114, 147, 154, 0.58) transparent;
   scrollbar-width: thin;

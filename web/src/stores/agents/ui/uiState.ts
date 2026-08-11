@@ -24,6 +24,26 @@ export interface HistoryDrawerAnchor {
  *  - 'round'    只保留用户与大模型单个轮次最后一条消息 */
 export type SubagentDisplayMode = 'show' | 'collapse' | 'round'
 
+/** 节点树工作台多窗口状态（每预设一窗，key = presetId）。独立于下方单例投影。 */
+export interface WorkbenchWindowState {
+  id: string // = presetId（每预设一窗）
+  presetId: string
+  chatId: string | null // 当前根会话
+  view: 'composer' | 'attention' | 'tree'
+  minimized: boolean
+  mode: 'fullscreen' | 'window'
+  position: { x: number; y: number }
+  size: { width: number; height: number }
+  capsulePos: { x: number; y: number } // 胶囊摆放位置
+  historyDrawerStack: string[]
+  historyDrawerMode: 'overlay' | 'workbench-docked'
+  historyDrawerAnchor: HistoryDrawerAnchor | null
+  workspaceBrowserMode?: 'attention'
+  focused: boolean
+  zOrder: number
+  attentionBlink: boolean
+}
+
 /** UI 焦点 / 面板开关 / 滚动触发——独立于数据层的纯 UI 状态。 */
 export function createUiState() {
   const activeDialogChatId = ref<string | null>(null)
@@ -118,6 +138,167 @@ export function createUiState() {
     subagentDisplay.value = mode
   }
 
+  // ---- 节点树工作台多窗口注册表（每预设一窗，key = presetId） ----
+  const workbenchWindows = ref<Record<string, WorkbenchWindowState>>({})
+  // z 序：index 小 = 底层，末尾 = 最上层。
+  const workbenchWindowOrder = ref<string[]>([])
+  const focusedWorkbenchWindowId = ref<string | null>(null)
+
+  /** id 存在性守卫：不存在则 console.warn 并 return false（调用方据此失败返回）。 */
+  function guardWorkbenchWindow(id: string): boolean {
+    if (!workbenchWindows.value[id]) {
+      console.warn(`[uiState] workbench window ${id} 不存在，忽略写入`)
+      return false
+    }
+    return true
+  }
+
+  /** 打开窗口：已存在同 presetId 则置焦点并返回其 id；否则新建并注册。 */
+  function openWorkbenchWindow(presetId: string): string {
+    const existing = workbenchWindows.value[presetId]
+    if (existing) {
+      focusWorkbenchWindow(existing.id)
+      return existing.id
+    }
+    const id = presetId
+    const order = workbenchWindowOrder.value
+    const window: WorkbenchWindowState = {
+      id,
+      presetId,
+      chatId: null,
+      view: 'tree',
+      minimized: false,
+      mode: 'fullscreen',
+      position: { x: 0, y: 0 },
+      size: { width: 0, height: 0 },
+      capsulePos: { x: 16, y: 16 },
+      historyDrawerStack: [],
+      historyDrawerMode: 'overlay',
+      historyDrawerAnchor: null,
+      focused: true,
+      zOrder: order.length,
+      attentionBlink: false,
+    }
+    workbenchWindows.value[id] = window
+    order.push(id)
+    focusedWorkbenchWindowId.value = id
+    return id
+  }
+
+  /** 关闭窗口：从 map 与 order 移除；若移除的是焦点窗，焦点移到 order 末尾。 */
+  function closeWorkbenchWindow(id: string): void {
+    if (!guardWorkbenchWindow(id)) return
+    delete workbenchWindows.value[id]
+    const order = workbenchWindowOrder.value
+    const idx = order.indexOf(id)
+    if (idx !== -1) order.splice(idx, 1)
+    if (focusedWorkbenchWindowId.value === id) {
+      const last = order[order.length - 1]
+      focusedWorkbenchWindowId.value = last ?? null
+    }
+  }
+
+  /** 置焦点：该 id 移到 order 末尾，其它窗口 focused=false。 */
+  function focusWorkbenchWindow(id: string): void {
+    if (!guardWorkbenchWindow(id)) return
+    const order = workbenchWindowOrder.value
+    const idx = order.indexOf(id)
+    if (idx !== -1) {
+      order.splice(idx, 1)
+      order.push(id)
+    }
+    for (const w of Object.values(workbenchWindows.value)) {
+      w.focused = w.id === id
+    }
+    focusedWorkbenchWindowId.value = id
+  }
+
+  /** 守卫后写单个窗口字段的通用 setter。 */
+  function setWorkbenchWindowField<K extends keyof WorkbenchWindowState>(
+    id: string,
+    field: K,
+    value: WorkbenchWindowState[K],
+  ): void {
+    if (!guardWorkbenchWindow(id)) return
+    workbenchWindows.value[id]![field] = value
+  }
+
+  function setWorkbenchWindowMinimized(id: string, minimized: boolean): void {
+    setWorkbenchWindowField(id, 'minimized', minimized)
+  }
+
+  function setWorkbenchWindowChat(id: string, chatId: string | null): void {
+    setWorkbenchWindowField(id, 'chatId', chatId)
+  }
+
+  function setWorkbenchWindowView(
+    id: string,
+    view: 'composer' | 'attention' | 'tree',
+  ): void {
+    setWorkbenchWindowField(id, 'view', view)
+  }
+
+  function setWorkbenchWindowGeometry(
+    id: string,
+    geometry: {
+      mode: 'fullscreen' | 'window'
+      position: { x: number; y: number }
+      size: { width: number; height: number }
+    },
+  ): void {
+    if (!guardWorkbenchWindow(id)) return
+    const win = workbenchWindows.value[id]!
+    win.mode = geometry.mode
+    win.position = geometry.position
+    win.size = geometry.size
+  }
+
+  function setWorkbenchWindowCapsulePos(
+    id: string,
+    pos: { x: number; y: number },
+  ): void {
+    setWorkbenchWindowField(id, 'capsulePos', pos)
+  }
+
+  function setWorkbenchWindowBlink(id: string, blink: boolean): void {
+    setWorkbenchWindowField(id, 'attentionBlink', blink)
+  }
+
+  function setWorkbenchWindowDrawer(
+    id: string,
+    drawer: {
+      stack: string[]
+      mode: 'overlay' | 'workbench-docked'
+      anchor: HistoryDrawerAnchor | null
+    },
+  ): void {
+    if (!guardWorkbenchWindow(id)) return
+    const win = workbenchWindows.value[id]!
+    win.historyDrawerStack = drawer.stack
+    win.historyDrawerMode = drawer.mode
+    win.historyDrawerAnchor = drawer.anchor
+  }
+
+  function setWorkbenchWindowWorkspaceBrowser(
+    id: string,
+    mode: 'attention' | undefined,
+  ): void {
+    if (!guardWorkbenchWindow(id)) return
+    const win = workbenchWindows.value[id]!
+    if (mode === undefined) {
+      delete win.workspaceBrowserMode
+    } else {
+      win.workspaceBrowserMode = mode
+    }
+  }
+
+  /** 按 z 序（order 顺序）返回窗口数组。 */
+  const workbenchWindowsList: ComputedRef<WorkbenchWindowState[]> = computed(() =>
+    workbenchWindowOrder.value
+      .map((id) => workbenchWindows.value[id])
+      .filter((w): w is WorkbenchWindowState => w != null),
+  )
+
   /** 清理被删除的 chat（removePetsByIds）：从栈中移除所有命中项。 */
   function pruneHistoryStack(removeIds: string[]): void {
     if (removeIds.length === 0) return
@@ -152,5 +333,20 @@ export function createUiState() {
     pendingScrollSenseCallId,
     subagentDisplay,
     setSubagentDisplay,
+    workbenchWindows,
+    workbenchWindowOrder,
+    focusedWorkbenchWindowId,
+    workbenchWindowsList,
+    openWorkbenchWindow,
+    closeWorkbenchWindow,
+    focusWorkbenchWindow,
+    setWorkbenchWindowMinimized,
+    setWorkbenchWindowChat,
+    setWorkbenchWindowView,
+    setWorkbenchWindowGeometry,
+    setWorkbenchWindowCapsulePos,
+    setWorkbenchWindowBlink,
+    setWorkbenchWindowDrawer,
+    setWorkbenchWindowWorkspaceBrowser,
   }
 }

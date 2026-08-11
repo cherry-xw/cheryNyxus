@@ -554,6 +554,62 @@ export interface TerminationFact {
   code: 'user_abort' | 'system_stop' | 'watchdog' | 'error' | 'agent_redirect'
   at: number
   detail?: string
+  controlOperationId?: string
+}
+
+export type TreeControlOperationStatus =
+  | 'pausing'
+  | 'paused'
+  | 'resuming'
+  | 'partial'
+  | 'completed'
+  | 'superseded'
+export type TreeControlTargetStatus =
+  | 'paused'
+  | 'resuming'
+  | 'resumed'
+  | 'delegated'
+  | 'skipped'
+  | 'failed'
+export interface TreeControlTarget {
+  chatId: string
+  pausedRunId: string
+  status: TreeControlTargetStatus
+  resumeRunId?: string
+  detail?: string
+}
+export interface TreeControlState {
+  pauseId: string
+  rootChatId: string
+  status: TreeControlOperationStatus
+  createdAt: number
+  updatedAt: number
+  targets: TreeControlTarget[]
+}
+export interface TreeResumeResponse {
+  rootChatId: string
+  pauseId: string
+  commandId: string
+  status: TreeControlOperationStatus
+  results: TreeControlTarget[]
+}
+export interface ChildControlTargetResult {
+  chatId: string
+  previousState: 'running' | 'paused' | 'finished' | 'failed' | 'redirected'
+  state: 'running' | 'paused' | 'finished' | 'failed' | 'redirected'
+  outcome: 'stopped' | 'queued' | 'resumed' | 'unchanged' | 'rejected' | 'failed'
+  runId?: string
+  messageId?: string
+  detail?: string
+}
+export interface ChatAbortResponse {
+  chatId: string
+  pauseId?: string
+  status?: TreeControlOperationStatus
+  runId?: string
+  aborted: boolean
+  cascaded?: number
+  results?: ChildControlTargetResult[]
 }
 
 export interface TimelineNode {
@@ -613,6 +669,7 @@ export interface RootTimelineSnapshot {
   edges: ExecutionEdgeFact[]
   activeRuns: ActiveRunFact[]
   pendingInputs: PendingInput[]
+  controlState?: TreeControlState
   nextCursor?: string
   capturedEventSeq: number
 }
@@ -649,6 +706,7 @@ export interface RootTimelinePatch {
   baseRevision: number
   revision: number
   operations: RootTimelinePatchOperation[]
+  controlState?: TreeControlState
 }
 
 export interface PendingInput {
@@ -1320,12 +1378,24 @@ export const agentApi = {
   },
 
   /** chat.abort：中止当前流（清内存运行时 + 释放连接，不删 DB）。 */
-  async abortAgent(chatId: string, runId?: string, commandId?: string): Promise<void> {
-    await call('chat.abort', {
+  async abortAgent(
+    chatId: string,
+    runId?: string,
+    commandId?: string,
+  ): Promise<ChatAbortResponse | undefined> {
+    return call<ChatAbortResponse | undefined>('chat.abort', {
       chatId,
       ...(runId ? { runId } : {}),
       ...(commandId ? { commandId } : {}),
     })
+  },
+
+  async resumeTree(
+    rootChatId: string,
+    pauseId: string,
+    commandId: string,
+  ): Promise<TreeResumeResponse> {
+    return call<TreeResumeResponse>('chat.resumeTree', { rootChatId, pauseId, commandId })
   },
 
   /**

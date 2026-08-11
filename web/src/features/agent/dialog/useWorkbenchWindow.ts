@@ -24,10 +24,14 @@ interface PersistedWorkbenchLayout extends WorkbenchPoint {
   mode: WorkbenchMode
 }
 
-const STORAGE_KEY = 'cherynyxus:workbench-layout:v1'
+const STORAGE_KEY_PREFIX = 'cherynyxus:workbench-layout'
 const VIEWPORT_GAP = 16
 const MIN_WIDTH = 720
 const MIN_HEIGHT = 480
+
+function storageKey(windowId: string): string {
+  return `${STORAGE_KEY_PREFIX}:${windowId}:v1`
+}
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -69,10 +73,10 @@ export function clampWorkbenchGeometry(
   }
 }
 
-function readLayout(): PersistedWorkbenchLayout | undefined {
+function readLayout(windowId: string): PersistedWorkbenchLayout | undefined {
   if (typeof localStorage === 'undefined') return undefined
   try {
-    const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null') as Partial<PersistedWorkbenchLayout> | null
+    const value = JSON.parse(localStorage.getItem(storageKey(windowId)) ?? 'null') as Partial<PersistedWorkbenchLayout> | null
     if (!value || (value.mode !== 'fullscreen' && value.mode !== 'window')) return undefined
     if (!finite(value.x) || !finite(value.y)) return undefined
     return { mode: value.mode, x: value.x, y: value.y }
@@ -81,16 +85,25 @@ function readLayout(): PersistedWorkbenchLayout | undefined {
   }
 }
 
-function writeLayout(layout: PersistedWorkbenchLayout): void {
+function writeLayout(windowId: string, layout: PersistedWorkbenchLayout): void {
   if (typeof localStorage === 'undefined') return
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(layout))
+    localStorage.setItem(storageKey(windowId), JSON.stringify(layout))
   } catch (cause) {
     console.warn('[useWorkbenchWindow] 保存工作台布局失败:', cause)
   }
 }
 
-export function useWorkbenchWindow(): {
+export interface WorkbenchInitialGeometry {
+  mode: WorkbenchMode
+  position: WorkbenchPoint
+  size: WorkbenchSize
+}
+
+export function useWorkbenchWindow(options: {
+  windowId?: string
+  initialGeometry?: WorkbenchInitialGeometry
+} = {}): {
   shellRef: Ref<HTMLElement | null>
   mode: Ref<WorkbenchMode>
   position: Ref<WorkbenchPoint>
@@ -102,21 +115,32 @@ export function useWorkbenchWindow(): {
   onTitlePointerDown: (event: PointerEvent) => void
   onResizePointerDown: (direction: ResizeDirection, event: PointerEvent) => void
 } {
-  const persisted = readLayout()
+  const windowId = options.windowId ?? 'default'
+  const persisted = readLayout(windowId)
   const initialSize = defaultWorkbenchSize(window.innerWidth, window.innerHeight)
   const centered = {
     x: (window.innerWidth - initialSize.width) / 2,
     y: (window.innerHeight - initialSize.height) / 2,
   }
-  const initial = clampWorkbenchGeometry(
-    persisted ? { x: persisted.x, y: persisted.y } : centered,
-    initialSize,
-    window.innerWidth,
-    window.innerHeight,
-  )
+  const initial = ((): { position: WorkbenchPoint; size: WorkbenchSize } => {
+    if (options.initialGeometry) {
+      return clampWorkbenchGeometry(
+        options.initialGeometry.position,
+        options.initialGeometry.size,
+        window.innerWidth,
+        window.innerHeight,
+      )
+    }
+    return clampWorkbenchGeometry(
+      persisted ? { x: persisted.x, y: persisted.y } : centered,
+      initialSize,
+      window.innerWidth,
+      window.innerHeight,
+    )
+  })()
 
   const shellRef = ref<HTMLElement | null>(null)
-  const mode = ref<WorkbenchMode>(persisted?.mode ?? 'fullscreen')
+  const mode = ref<WorkbenchMode>(options.initialGeometry ? options.initialGeometry.mode : (persisted?.mode ?? 'fullscreen'))
   const position = ref(initial.position)
   const size = ref(initial.size)
 
@@ -132,7 +156,7 @@ export function useWorkbenchWindow(): {
   )
 
   function persist(): void {
-    writeLayout({ mode: mode.value, ...position.value })
+    writeLayout(windowId, { mode: mode.value, ...position.value })
   }
 
   function normalize(): void {

@@ -14,6 +14,7 @@
  */
 import { computed } from 'vue'
 import type { HistoryItem } from '@/stores/agents'
+import type { RuntimeSelection } from '@/services/agentApi'
 
 const props = defineProps<{
   item: HistoryItem
@@ -29,6 +30,8 @@ const props = defineProps<{
   callerIsMaster?: boolean
   canJumpToSpawn?: boolean
   mergedChildToMaster?: boolean
+  /** 历史项无 runtime（旧数据）时，用该 chat 当前 pet 的 runtime 兜底（6c）。缺则显「—」。 */
+  fallbackRuntime?: RuntimeSelection
 }>()
 
 const emit = defineEmits<{
@@ -113,12 +116,15 @@ const showTypeField = computed(
   () => props.mergedChildToMaster || props.item.role === 'subagent' || props.item.role === 'role',
 )
 
+const brainText = computed(
+  () => props.item.runtime?.brain ?? props.fallbackRuntime?.brain ?? '—',
+)
 const senseGroupsText = computed(() => {
-  const sg = props.item.runtime?.senseGroup
+  const sg = props.item.runtime?.senseGroup ?? props.fallbackRuntime?.senseGroup
   return sg && sg.length > 0 ? sg : '-'
 })
 const mcpServersText = computed(() => {
-  const m = props.item.runtime?.mcpServers
+  const m = props.item.runtime?.mcpServers ?? props.fallbackRuntime?.mcpServers
   return m && m.length > 0 ? m.join(', ') : '—'
 })
 
@@ -225,7 +231,7 @@ function onAvatarClick(): void {
       <div class="panel-name">{{ resolvedName || 'agent' }}</div>
       <div class="panel-group">
         <div class="field">
-          <span class="field-label">🧠 大脑：</span><span class="field-value">{{ item.runtime?.brain ?? '—' }}</span>
+          <span class="field-label">🧠 大脑：</span><span class="field-value">{{ brainText }}</span>
         </div>
         <div class="field">
           <span class="field-label">📡 感官组：</span><span class="field-value">{{ senseGroupsText }}</span>

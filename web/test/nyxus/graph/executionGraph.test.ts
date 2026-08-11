@@ -134,6 +134,110 @@ describe('execution graph projector', () => {
     )
   })
 
+  it.each([
+    ['single tool', ['read_file']],
+    ['multiple tools', ['read_file', 'search_codebase']],
+    ['question tool', ['ask_user_question']],
+    ['spawn tool', ['spawn_agent']],
+  ])('merges one assistant response into its %s batch by sourceMessageId', (_, tools) => {
+    const responseId = 'assistant-response'
+    const message = node('assistant-message', 2, {
+      sourceMessageId: responseId,
+      content: '先检查相关信息。',
+      thinking: '需要先调用工具。',
+    })
+    const batch = node('assistant-batch', 3, {
+      sourceMessageId: responseId,
+      kind: 'tool-batch',
+      direction: 'internal',
+      content: '',
+      toolCalls: tools.map((name, index) => ({
+        callId: `call:${index}`,
+        index,
+        name,
+        arguments: '{}',
+        status: 'completed' as const,
+      })),
+    })
+    const projected = projectPersistentExecutionGraph(
+      snapshot(
+        [node('user-message', 1), message, batch, node('next-message', 4)],
+        [
+          edge('into-response', 5, 'user-message', message.id),
+          edge('message-to-batch', 6, message.id, batch.id),
+          edge('batch-exit', 7, batch.id, 'next-message', 'continue'),
+        ],
+        [
+          {
+            rootChatId: 'root',
+            chatId: 'root',
+            runId: 'message-run',
+            status: 'running',
+            nodeId: message.id,
+          },
+          {
+            rootChatId: 'root',
+            chatId: 'root',
+            runId: 'batch-run',
+            status: 'waiting',
+            batchId: batch.id,
+          },
+        ],
+      ),
+    )
+
+    expect(projected.nodes.some((item) => item.id === message.id)).toBe(false)
+    expect(projected.nodes.find((item) => item.id === batch.id)).toMatchObject({
+      content: '先检查相关信息。',
+      thinking: '需要先调用工具。',
+      activeRuns: expect.arrayContaining([
+        expect.objectContaining({ runId: 'message-run' }),
+        expect.objectContaining({ runId: 'batch-run' }),
+      ]),
+    })
+    expect(projected.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'into-response', from: 'user-message', to: batch.id }),
+        expect.objectContaining({ id: 'batch-exit', from: batch.id, to: 'next-message' }),
+      ]),
+    )
+    expect(projected.edges.some((item) => item.id === 'message-to-batch')).toBe(false)
+  })
+
+  it('does not merge same-looking response ids across chats or termination boundaries', () => {
+    const projected = projectPersistentExecutionGraph(
+      snapshot([
+        node('terminated-message', 1, {
+          sourceMessageId: 'terminated',
+          termination: { actor: 'system', code: 'error', at: 1 },
+        }),
+        node('terminated-batch', 2, {
+          sourceMessageId: 'terminated',
+          kind: 'tool-batch',
+          toolCalls: [],
+        }),
+        node('other-chat-message', 3, {
+          sourceChatId: 'child',
+          sourceMessageId: 'shared',
+        }),
+        node('root-batch', 4, {
+          sourceMessageId: 'shared',
+          kind: 'tool-batch',
+          toolCalls: [],
+        }),
+      ]),
+    )
+
+    expect(projected.nodes.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        'terminated-message',
+        'terminated-batch',
+        'other-chat-message',
+        'root-batch',
+      ]),
+    )
+  })
+
   it('collapses a resolved spawn target into the durable child delegation input', () => {
     const graph = projectPersistentExecutionGraph(
       snapshot(

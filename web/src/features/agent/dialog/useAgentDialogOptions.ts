@@ -1,4 +1,5 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 import type { UploadFile } from 'element-plus'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import {
@@ -53,11 +54,19 @@ export interface ComboCommandGroup {
   commands: MessageCommand[]
 }
 
-export function useAgentDialogOptions() {
+export interface UseAgentDialogOptionsOptions {
+  /** 本实例的 chatId 来源。传入时优先使用（Ref 直接复用，函数包成 computed）；未传入回退全局单例 activeDialogChatId。 */
+  chatId?: Ref<string | null> | (() => string | null)
+}
+
+export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
 
-  const chatId = computed<string | null>(() => agents.activeDialogChatId)
+  const chatId: Ref<string | null> =
+    typeof options?.chatId === 'function'
+      ? computed(options.chatId)
+      : options?.chatId ?? computed<string | null>(() => agents.activeDialogChatId)
   const pet = computed<PetInstance | undefined>(() =>
     chatId.value ? agents.petForChat(chatId.value) : undefined,
   )

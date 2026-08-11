@@ -1,6 +1,6 @@
 import { ref, shallowRef } from 'vue'
 
-export type NyxusMenuTool = 'create' | 'chat' | 'settings'
+export type NyxusMenuTool = 'create' | 'chat' | 'settings' | 'workbench'
 
 export interface NyxusMenuTarget {
   id: NyxusMenuTool

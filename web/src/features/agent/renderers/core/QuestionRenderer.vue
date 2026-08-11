@@ -97,7 +97,8 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   padding: 8px 10px;
   border: 1px solid rgba(124, 58, 237, 0.28);
   border-radius: 8px;
-  background: rgba(245, 243, 255, 0.6);
+  // 紫色系容器：随主题深浅翻转（深色下若用固定浅紫 rgba(245,243,255,.6) 会过亮）
+  background: color-mix(in srgb, #7c3aed 12%, var(--surface));
   min-width: 180px;
   max-width: 420px;
 }
@@ -129,8 +130,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
     padding: 1px 5px;
     border: 1px solid rgba(124, 58, 237, 0.2);
     border-radius: 4px;
-    color: var(--ink);
-    color: #6d28d9;
+    color: var(--violet);
     font-size: 9px;
     font-weight: 800;
   }
@@ -150,9 +150,8 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 
     &.badge-answered {
       background: rgba(124, 58, 237, 0.14);
-      color: var(--ink);
+      color: var(--violet);
     }
-      color: #5b21b6;
     &.badge-cancelled {
       background: color-mix(in srgb, var(--info) 14%, transparent);
       color: var(--info);
@@ -197,11 +196,10 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   line-height: 1.3;
 
   &.selected {
-    background: rgba(124, 58, 237, 0.14);
-    border-color: rgba(124, 58, 237, 0.55);
-    color: var(--ink);
+    background: var(--violet-soft);
+    border-color: color-mix(in srgb, var(--violet) 45%, transparent);
+    color: var(--violet);
   }
-    color: #5b21b6;
 }
 
 .q-control {
@@ -212,9 +210,9 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   margin-top: 1px;
   border: 1px solid rgba(124, 58, 237, 0.5);
   border-radius: 50%;
-  color: var(--ink);
-  color: #6d28d9;
+  color: var(--violet);
   font-weight: 900;
+  line-height: 1;
 
   &.is-multi {
     border-radius: 2px;
@@ -247,8 +245,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   small {
     display: block;
     margin-bottom: 3px;
-    color: var(--ink);
-    color: #6d28d9;
+    color: var(--violet);
     font-weight: 800;
   }
 

@@ -185,6 +185,7 @@ export function applyRootPatch(
     ),
     activeRuns: [...runsById.values()],
     pendingInputs: [...inputsById.values()],
+    controlState: patch.controlState,
   }
   return 'applied'
 }

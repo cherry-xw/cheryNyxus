@@ -14,6 +14,7 @@
  */
 import { computed, ref } from 'vue'
 import type { HistoryItem } from '@/stores/agents'
+import type { RuntimeSelection } from '@/services/agentApi'
 import { renderMarkdown } from '@/utils/markdown'
 import { formatTime } from '@/utils/formatTime'
 import { splitCommandPrompt } from '../composables/commands'
@@ -42,6 +43,10 @@ const props = defineProps<{
   callerPetName?: string
   /** caller 是不是 master pet（无 caller 时也默认 true，徽章走 pet-master 样式 + masterText fallback）。 */
   callerIsMaster?: boolean
+  /** 历史项无 runtime 时，该 chat 当前 pet 的 runtime 兜底（透传给 MessageAvatar，6c）。 */
+  fallbackRuntime?: RuntimeSelection
+  /** 真人头像 hover 的「系统提示」描述（6d，抽屉打开时随机选一套，整次打开稳定）。 */
+  userAvatarCaption?: string
 }>()
 
 const showThinking = ref(false)
@@ -118,9 +123,12 @@ const emit = defineEmits<{
         :caller-is-master="callerIsMaster"
         :can-jump-to-spawn="!!item.spawnSenseCallId"
         :merged-child-to-master="item.mergedView === 'child-to-master'"
+        :fallback-runtime="fallbackRuntime"
         @jump-to-spawn="(p) => emit('jumpToSpawn', p)"
       />
-      <div v-else class="avatar" :class="roleClass" aria-hidden="true">🧑</div>
+      <el-tooltip v-else :content="userAvatarCaption" placement="left" :show-after="200">
+        <div class="avatar role-user" aria-hidden="true">🧑</div>
+      </el-tooltip>
       <div
         class="bubble"
         :class="[
@@ -261,8 +269,10 @@ const emit = defineEmits<{
   min-width: 0;
   max-width: 92%;
   padding: 6px 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--surface);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   word-break: break-word;
 

@@ -95,6 +95,8 @@ export function createStreamRouter(
   resumeAgent: (chatId: string) => Promise<void>,
   pickGhostFace: (tribe: string, pets: readonly PetInstance[], selfId?: string) => string,
   allChatsCache: Ref<ChatSummary[]>,
+  // Phase E：工作台窗口 attentionBlink 触发/熄灭（index.ts 注入，含聚焦窗判定与窗口匹配）
+  setWorkbenchWindowBlinkForChat: (chatId: string, blink: boolean) => void,
 ) {
   /**
    * 路由 chunk 到对应 pet 的 StreamState（按 requestId→chatId）。
@@ -157,6 +159,23 @@ export function createStreamRouter(
    * interrupt/accept/rejected：审批状态机（CP5 ApprovalCard 数据源）。
    * role_created/destroyed：子 pet 生命周期（CP3）。
    */
+  /**
+   * 交互处理完（accept/rejected/question_batch_completed）时熄灭该窗口闪烁。
+   * 仅当该 chat 自身已无挂起审批/提问批次才熄灭（队列仍有审批或批次未清 → 窗口仍需注意）。
+   * 兄弟 chat 仍有挂起时的窗口级误灭是边缘情形，由下一次 interrupt/question 通知重新触发自愈。
+   */
+  function maybeClearWorkbenchBlink(chatId: string): void {
+    if (!chatId) return
+    const stream = streams.value[chatId]
+    if (
+      stream &&
+      (stream.approval || stream.approvalQueue.length > 0 || stream.questionBatches.length > 0)
+    ) {
+      return
+    }
+    setWorkbenchWindowBlinkForChat(chatId, false)
+  }
+
   function routeNotification(notif: unknown): void {
     const n = notif as NotificationMessage | null
     if (!n || !n.type) return
@@ -343,6 +362,8 @@ export function createStreamRouter(
         } else {
           stream.approval = newApproval
         }
+        // Phase E：审批请求 = 需用户操作 → 所在工作台窗口闪烁
+        setWorkbenchWindowBlinkForChat(chatId, true)
       }
       return
     }
@@ -391,6 +412,8 @@ export function createStreamRouter(
               stream.approval = stream.approvalQueue.shift()
             }
           }
+          // Phase E：审批已处理 → 若该 chat 再无挂起则熄灭窗口闪烁
+          maybeClearWorkbenchBlink(chatId)
         }
       }
       return
@@ -414,6 +437,8 @@ export function createStreamRouter(
         return
       }
       upsertQuestionBatch(ensureStream(streams, chatId), data as QuestionBatchPayload)
+      // Phase E：提问批次到达 = 需用户操作 → 所在工作台窗口闪烁
+      setWorkbenchWindowBlinkForChat(chatId, true)
       return
     }
 
@@ -422,6 +447,8 @@ export function createStreamRouter(
       if (chatId && data.batchId) {
         const stream = streams.value[chatId]
         if (stream) removeQuestionBatch(stream, data.batchId)
+        // Phase E：提问批处理完 → 若该 chat 再无挂起则熄灭窗口闪烁
+        maybeClearWorkbenchBlink(chatId)
       }
       return
     }

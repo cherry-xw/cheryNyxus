@@ -93,6 +93,31 @@ function initSoulTables(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_request_journal_updated ON request_journal(updated_at);
 
+    CREATE TABLE IF NOT EXISTS tree_control_operations (
+      pause_id TEXT PRIMARY KEY,
+      root_chat_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tree_control_root_updated
+      ON tree_control_operations(root_chat_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS tree_control_targets (
+      pause_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      paused_run_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      resume_run_id TEXT,
+      detail TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (pause_id, chat_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_tree_control_targets_status
+      ON tree_control_targets(pause_id, status, updated_at);
+
     CREATE TABLE IF NOT EXISTS pending_inputs (
       input_id TEXT PRIMARY KEY,
       chat_id TEXT NOT NULL,

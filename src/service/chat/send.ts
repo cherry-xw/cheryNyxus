@@ -29,6 +29,8 @@ import {
   updateChatMetadata,
   collectDescendantsChatIds,
   getTimelineRevision,
+  getRootChatId,
+  bumpTimelineRevision,
 } from '@/db/chat.js'
 import { approvalManager } from '../approval/manager.js'
 import { findPendingQuestionBatchByQuestionId } from '@/db/question.js'
@@ -57,8 +59,14 @@ import { safeJsonParse } from '@/utils/json.js'
 import { randomUUID } from 'crypto'
 import { recordTerminationFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
-import { claimRequest, completeRequest } from '@/db/delivery.js'
+import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
+import { transport } from '../websocket/transport.js'
+import {
+  addTreePauseTarget,
+  createTreePause,
+  refreshTreeControlStatus,
+} from '@/db/treeControl.js'
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
@@ -384,6 +392,52 @@ export async function* handleChatResume(
   return { chatId, runId }
 }
 
+/** Launch a resume outside the command RPC while preserving normal event routing. */
+export async function launchDetachedResume(
+  ctx: HandlerContext,
+  chatId: string,
+  runId: string,
+): Promise<void> {
+  const generator = handleChatResume({ ...ctx, requestId: runId }, { chatId })
+  const route = (item: Chunk | Notification): void => {
+    if (item.chatId) {
+      item.seq = appendChatEvent(item.chatId, item as unknown as Record<string, unknown>)
+    }
+    for (const ws of connectionManager.getChatOutputs(chatId)) {
+      if (ws.readyState !== ws.OPEN) continue
+      for (const routed of connectionManager.prepareSessionEvent(ws, item)) {
+        try {
+          ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+        } catch (error) {
+          logger.event('chat.resumeTree.output_failed', {
+            chatId,
+            message: (error as Error).message,
+          })
+        }
+      }
+    }
+  }
+  const first = await generator.next()
+  if (first.done) {
+    const response = first.value as ChatResumeResponseData | RpcResponse
+    if ('success' in response && response.success === false) {
+      throw new Error(response.error?.message ?? '恢复执行失败')
+    }
+    return
+  }
+  route(first.value)
+  void (async () => {
+    try {
+      for await (const item of generator) route(item)
+    } catch (error) {
+      logger.event('chat.resumeTree.run_failed', {
+        chatId,
+        message: (error as Error).message,
+      })
+    }
+  })()
+}
+
 /**
  * 审批 Sense
  */
@@ -516,6 +570,10 @@ export async function handleChatAbort(
     if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
   }
 
+  const treePauseId =
+    data.commandId && getRootChatId(data.chatId) === data.chatId ? data.commandId : undefined
+  if (treePauseId) createTreePause(treePauseId, data.chatId)
+
   // 统一暂停语义：主 abort 时递归暂停所有后代（主停→子停→孙停）。
   // 主可能 idle（spawn wait=true 等子回复，无 activeRunId）但后代在跑——仍需级联停后代。
   const descendants = collectDescendantsChatIds(data.chatId)
@@ -538,7 +596,9 @@ export async function handleChatAbort(
         runId: childRunId,
         actor: 'user',
         code: 'user_abort',
+        ...(treePauseId ? { controlOperationId: treePauseId } : {}),
       })
+      if (treePauseId) addTreePauseTarget(treePauseId, childId, childRunId)
       emitTimelinePatch(childId, baseRevision)
       // 先 reject 挂起审批（可靠中断 approval.wait），再 gen.throw（中断流式 yield 挂起）。
       abortPendingApproval(childRunId)
@@ -571,7 +631,9 @@ export async function handleChatAbort(
       runId: activeRunId,
       actor: 'user',
       code: 'user_abort',
+      ...(treePauseId ? { controlOperationId: treePauseId } : {}),
     })
+    if (treePauseId) addTreePauseTarget(treePauseId, data.chatId, activeRunId)
     emitTimelinePatch(data.chatId, baseRevision)
     abortPendingApproval(activeRunId)
     abortChatRuntime(data.chatId)
@@ -602,10 +664,18 @@ export async function handleChatAbort(
   })
   const response: ChatAbortResponseData = {
     chatId: data.chatId,
+    ...(treePauseId
+      ? { pauseId: treePauseId, status: refreshTreeControlStatus(treePauseId) }
+      : {}),
     ...(activeRunId ? { runId: activeRunId } : {}),
     aborted: !!activeRunId,
     cascaded: descendants.length,
     results,
+  }
+  if (treePauseId) {
+    const controlBaseRevision = getTimelineRevision(data.chatId)
+    bumpTimelineRevision(data.chatId)
+    emitTimelinePatch(data.chatId, controlBaseRevision)
   }
   if (data.commandId) completeRequest(data.commandId, response)
   return response

@@ -59,7 +59,9 @@ function assignChildLanes(graph: ExecutionGraph, previous?: ReadonlyMap<string, 
   const { nodes, rootChatId } = graph
   const weights = new Map<string, { firstOrder: number; count: number }>()
   for (const node of nodes) {
-    if (node.kind === 'start' || node.sourceChatId === rootChatId) continue
+    // 仅排除归因主 chat 的节点（含主 start）。子 chat 的 start 计入权重，
+    // 使刚 spawn 的子 agent（仅 start 节点）也能立刻获得 lane，创建即平衡。
+    if (node.sourceChatId === rootChatId) continue
     const current = weights.get(node.sourceChatId)
     if (current) {
       current.count += 1
@@ -219,7 +221,7 @@ export function layoutExecutionGraph(
   const lanes = assignChildLanes(graph, options.previousLanes)
   const ordered = graph.nodes.slice().sort(compareNodes)
   const positioned = ordered.map((node, index) => {
-    const lane = node.kind === 'start' ? 0 : (lanes.get(node.sourceChatId) ?? 0)
+    const lane = lanes.get(node.sourceChatId) ?? 0
     return {
       ...node,
       lane,

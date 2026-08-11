@@ -129,6 +129,11 @@ import {
 } from './childControl.js'
 import { recordDispatchFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
+import { handleChatResumeTree, toTreeControlState } from './treeControl.js'
+import {
+  markActiveTreeTargetDelegated,
+} from '@/db/treeControl.js'
+import { buildTreeInterruptionNotice } from './treeInterruption.js'
 
 /**
  * 创建聊天（chatId 可选由前端指定）
@@ -615,6 +620,11 @@ export function buildRootTimeline(
         actor = { kind: 'user', actorId: 'human' }
         target = actorForAgent(rootChatId)
         direction = 'user-to-agent'
+      } else if (relation === 'system') {
+        actor = { kind: 'system' }
+        target = actorForAgent(rootChatId)
+        direction = 'internal'
+        kind = 'system'
       } else if (relation === 'child_input') {
         actor = actorForAgent(chatMeta.get(chatId)?.parent ?? rootChatId)
         target = actorForAgent(chatId)
@@ -955,6 +965,7 @@ export function buildRootTimeline(
   for (const run of liveRuns) durableRuns.set(run.chatId, run)
   const activeRuns: ActiveRunFact[] = [...durableRuns.values()]
   const eventSeq = getRootEvents(rootChatId, Number.MAX_SAFE_INTEGER).latestSeq
+  const controlState = toTreeControlState(rootChatId)
   return {
     rootChatId,
     view,
@@ -963,6 +974,7 @@ export function buildRootTimeline(
     edges,
     activeRuns,
     pendingInputs,
+    ...(controlState ? { controlState } : {}),
     capturedEventSeq: eventSeq,
   }
 }
@@ -1009,6 +1021,20 @@ export async function handleChatInputSubmit(
     commandId: data.commandId,
   })
   if (!entry) throw new Error('输入内容不能为空')
+
+  // A new root instruction resumes only the root. Interrupted children remain
+  // paused and are exposed to the main Agent as one durable, auditable notice.
+  if (!running && !chat.parent_chat_id) {
+    const notice = buildTreeInterruptionNotice(data.chatId, data.commandId)
+    if (notice) {
+      agent.enqueueInput(notice.content, {
+        messageId: notice.messageId,
+        role: 'role',
+        linkRelation: 'system',
+      })
+    }
+    markActiveTreeTargetDelegated(data.chatId, data.chatId)
+  }
 
   addPendingInput({
     inputId,
@@ -1156,6 +1182,7 @@ export async function dispatchToChild(
       controlRootChatId: data.rootChatId,
     },
   )
+  markActiveTreeTargetDelegated(data.rootChatId, data.childChatId)
   const dispatchBaseRevision = getTimelineRevision(data.rootChatId)
   recordDispatchFact({
     rootChatId: data.rootChatId,
@@ -1852,6 +1879,7 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_GET, handleChatGet) // 流式返回历史
   router.register(Method.CHAT_TIMELINE_GET, handleChatTimelineGet)
   router.register(Method.CHAT_INPUT_SUBMIT, handleChatInputSubmit)
+  router.register(Method.CHAT_RESUME_TREE, handleChatResumeTree)
   router.register(Method.CHAT_SYNC, handleChatSync)
   router.register(Method.CHAT_OPEN, handleChatOpen)
   router.register(Method.CHAT_CLOSE, handleChatClose)

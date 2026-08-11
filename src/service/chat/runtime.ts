@@ -18,6 +18,7 @@ import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
 import { notifyRestartActivityChanged } from '@/service/restartCoordinator.js'
 import { getChatMentionableRoles } from './roleMentions.js'
+import { buildTreeInterruptionNotice } from './treeInterruption.js'
 
 /**
  * Chat 运行时缓存：chatId → builder + runtime 选择（单 chat 绑定，跨轮不重建）
@@ -329,14 +330,27 @@ export async function ensureChat(
     for (const pending of durablePending) {
       if (existingMessageIds.has(pending.message_id)) {
         consumedIds.push(pending.input_id)
-        continue
+      } else {
+        builder.enqueueInput(pending.content, {
+          inputId: pending.input_id,
+          messageId: pending.message_id,
+          clientMessageId: pending.client_message_id ?? undefined,
+          commandId: pending.command_id,
+        })
       }
-      builder.enqueueInput(pending.content, {
-        inputId: pending.input_id,
-        messageId: pending.message_id,
-        clientMessageId: pending.client_message_id ?? undefined,
-        commandId: pending.command_id,
-      })
+      // Only the input that started the detached root runner owns this notice;
+      // later queued inputs must not each produce a duplicate interruption.
+      const notice =
+        pending.state === 'started'
+          ? buildTreeInterruptionNotice(chatId, pending.command_id)
+          : undefined
+      if (notice && !existingMessageIds.has(notice.messageId)) {
+        builder.enqueueInput(notice.content, {
+          messageId: notice.messageId,
+          role: 'role',
+          linkRelation: 'system',
+        })
+      }
     }
     markPendingInputsConsumed(chatId, consumedIds)
   } catch (err) {

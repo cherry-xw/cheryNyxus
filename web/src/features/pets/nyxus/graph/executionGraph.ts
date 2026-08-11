@@ -28,6 +28,7 @@ export interface ExecutionNode {
   target?: TimelineActor
   direction: TimelineDirection
   content: string
+  thinking?: string
   createdAt: number
   status: TimelineNode['status'] | 'transient'
   main: boolean
@@ -187,6 +188,7 @@ function projectPersistentNode(
     ...(node.target ? { target: node.target } : {}),
     direction: node.direction,
     content: node.content,
+    ...(node.thinking ? { thinking: node.thinking } : {}),
     createdAt: node.createdAt,
     status: node.status,
     main: node.sourceChatId === rootChatId,
@@ -255,6 +257,71 @@ function collapseResolvedSpawnTargets(
   }
 }
 
+function responseIdentity(node: ExecutionNode): string | undefined {
+  const sourceMessageId = node.sourceFact?.sourceMessageId
+  return sourceMessageId ? `${node.sourceChatId}:${sourceMessageId}` : undefined
+}
+
+/**
+ * The tree snapshot keeps one assistant response as two canonical facts:
+ * message(thinking/content) -> tool-batch(calls). They remain separate in the
+ * protocol, but the execution UI presents that explicit sourceMessageId pair
+ * as one tool node without changing the durable batch identity or its exits.
+ */
+function collapseToolResponseMessages(
+  nodes: readonly ExecutionNode[],
+  edges: readonly ExecutionEdge[],
+): { nodes: ExecutionNode[]; edges: ExecutionEdge[] } {
+  const messagesByResponse = new Map<string, ExecutionNode>()
+  for (const node of nodes) {
+    const identity = responseIdentity(node)
+    if (
+      identity &&
+      node.kind === 'message' &&
+      node.actor.kind === 'agent' &&
+      node.direction === 'agent-to-user' &&
+      !node.sourceFact?.termination &&
+      !messagesByResponse.has(identity)
+    ) {
+      messagesByResponse.set(identity, node)
+    }
+  }
+
+  const batchByMessageId = new Map<string, string>()
+  const mergedBatches = new Map<string, ExecutionNode>()
+  for (const batch of nodes) {
+    const identity = responseIdentity(batch)
+    if (!identity || batch.kind !== 'tool-batch') continue
+    const message = messagesByResponse.get(identity)
+    if (!message) continue
+    batchByMessageId.set(message.id, batch.id)
+    const activeRuns = new Map<string, ActiveRunFact>()
+    for (const run of [...message.activeRuns, ...batch.activeRuns]) {
+      activeRuns.set(`${run.chatId}:${run.runId}`, run)
+    }
+    mergedBatches.set(batch.id, {
+      ...batch,
+      content: message.content,
+      ...(message.thinking ? { thinking: message.thinking } : {}),
+      activeRuns: [...activeRuns.values()].sort(
+        (a, b) => a.runId.localeCompare(b.runId) || a.chatId.localeCompare(b.chatId),
+      ),
+    })
+  }
+
+  if (batchByMessageId.size === 0) return { nodes: [...nodes], edges: [...edges] }
+  return {
+    nodes: nodes
+      .filter((node) => !batchByMessageId.has(node.id))
+      .map((node) => mergedBatches.get(node.id) ?? node),
+    edges: edges.flatMap((edge) => {
+      const from = batchByMessageId.get(edge.from) ?? edge.from
+      const to = batchByMessageId.get(edge.to) ?? edge.to
+      return from === to ? [] : [{ ...edge, from, to }]
+    }),
+  }
+}
+
 /** Canonical graph facts -> deterministic UI-neutral persistent graph. */
 export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot): ExecutionGraph {
   const canonicalNodes = uniqueFacts(snapshot.nodes)
@@ -264,9 +331,10 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
     projectPersistentNode(snapshot.rootChatId, node, activeRunsByAnchor),
   )
   const projectedEdges = canonicalEdges.map(projectPersistentEdge)
-  const { nodes: persistentNodes, edges: persistentEdges } = collapseResolvedSpawnTargets(
-    projectedNodes,
-    projectedEdges,
+  const withoutSpawnTargets = collapseResolvedSpawnTargets(projectedNodes, projectedEdges)
+  const { nodes: persistentNodes, edges: persistentEdges } = collapseToolResponseMessages(
+    withoutSpawnTargets.nodes,
+    withoutSpawnTargets.edges,
   )
   const firstMain = persistentNodes.find(
     (node) => node.sourceChatId === snapshot.rootChatId && node.rootChatId === snapshot.rootChatId,

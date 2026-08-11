@@ -13,7 +13,7 @@
  * - 长消息、思考折叠和媒体加载均由 ResizeObserver 重新量测。
  * 错误显性化（规则 12）：stream 不存在时显 loading 而非崩（getHistory ensureStream，理论不达）。
  */
-import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
 import { motion } from 'motion-v'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
 import type { HistoryItem } from '@/stores/agents'
@@ -31,7 +31,13 @@ import { splitCommandPrompt } from '../composables/commands'
 import PromptSnapshotTip from './PromptSnapshotTip.vue'
 import ContextUsageBar from './ContextUsageBar.vue'
 import { agentApi } from '@/services/agentApi'
-import type { ChatSummary, GraphToolCall, PromptSnapshotTool, TimelineNode } from '@/services/agentApi'
+import type {
+  ChatSummary,
+  GraphToolCall,
+  PromptSnapshotTool,
+  RuntimeSelection,
+  TimelineNode,
+} from '@/services/agentApi'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 
 const MotionDiv = motion.div
@@ -549,6 +555,27 @@ const titleText = computed(() => {
   return `历史 · ${props.chatId.slice(0, 8)}…`
 })
 
+/** 6c：解析某条历史消息所属 chat 的 pet runtime 兜底（subPetChatId 优先 → agentChatId → 当前 drawer chat）。
+ * 旧历史项无 runtime 时，面板用该 pet 当前 runtime 的 brain/senseGroup/mcpServers 补全。 */
+function runtimeForItem(item: HistoryItem): RuntimeSelection | undefined {
+  const chatId = item.subPetChatId ?? item.agentChatId ?? props.chatId
+  return agents.petForChat(chatId)?.runtime
+}
+
+// 6d：真人头像 hover 的「系统提示」描述库（打开抽屉随机一套，整次打开稳定，不随 hover 重随机）。
+const USER_AVATAR_CAPTIONS = [
+  '你是一个全能真人用户。能力：观察上下文、澄清歧义、拍板决策、编写任务说明。约束：一次只给一个明确意图；破坏性操作前先确认；尊重 agent 的判断。',
+  '你是人类指挥者。能力：拆解目标、给出硬约束、评估产出。约束：不重复描述既有事实；对不确定处明确提问；批量操作前先小样验证。',
+  '你是真人协作者。能力：注入领域知识、设定验收标准、仲裁分歧。约束：信息一次给全；不臆造既定事实；对安全敏感操作保持谨慎。',
+  '你是具有判断力的真人。能力：快速理解上下文、给出可行性反馈、追加迭代任务。约束：先对齐再行动；不打断保护性检查；长任务分步推进。',
+  '你是谨慎的真人决策者。能力：识别风险、权衡取舍、验收输出。约束：变更先说明理由；对成本/风险显式确认；不把确定性逻辑甩给模型。',
+]
+const userAvatarCaption = ref('')
+onMounted(() => {
+  userAvatarCaption.value =
+    USER_AVATAR_CAPTIONS[Math.floor(Math.random() * USER_AVATAR_CAPTIONS.length)]!
+})
+
 // chatId 复制反馈：点击复制 icon 后短暂显「已复制」（1.2s 后恢复）
 const copied = ref(false)
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null
@@ -651,11 +678,11 @@ function onPromptSnapShow(): void {
           type="button"
           class="copy-id-btn"
           :class="{ copied }"
-          :title="copied ? '已复制 chatId' : '点击复制 chatId'"
+          :title="copied ? '已复制' : '复制 ID'"
+          aria-label="复制 chatId"
           @click="copyChatId"
         >
           <span class="copy-glyph">{{ copied ? '✓' : '📋' }}</span>
-          <span class="copy-hint">{{ copied ? '已复制' : '点击复制 ID' }}</span>
         </button>
         <el-select
           v-if="layout === 'group' && rootOptions.length > 1 && agents.historyDrawerMode !== 'workbench-docked'"
@@ -762,6 +789,8 @@ function onPromptSnapShow(): void {
             :caller-pet-name="callerPetName(history[index]!)"
             :caller-is-master="callerIsMaster(history[index]!)"
             :show-master-badge="isLastSubReply(history[index]!)"
+            :fallback-runtime="runtimeForItem(history[index]!)"
+            :user-avatar-caption="userAvatarCaption"
             @jump-to-spawn="onJumpToSpawn"
           />
         </template>
@@ -917,7 +946,9 @@ function onPromptSnapShow(): void {
   }
 
   .title {
-    flex: 0 1 auto;
+    // 标题抢占剩余空间并先 ellipsis（flex-basis 0 + flex:1 + overflow ellipsis），
+    // 让过长标题截断而非推挤右侧操作组（6a）。
+    flex: 1 1 0;
     min-width: 0;
     font-size: 13px;
     font-weight: 800;
@@ -927,12 +958,12 @@ function onPromptSnapShow(): void {
     white-space: nowrap;
   }
 
-  // 复制 chatId 按钮：替代原直接显示的长 chatId 文本。
-  // 不显 ID 本体，仅用 icon + 「点击复制 ID」提示；复制成功短暂切「已复制 ✓」。
+  // 复制 chatId 按钮：纯 icon（📋/✓），hover title 提示。不随空间压缩（flex-shrink:0）。
   .copy-id-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    flex-shrink: 0;
     padding: 1px 6px;
     border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
     border-radius: 5px;
@@ -963,11 +994,10 @@ function onPromptSnapShow(): void {
   }
 
   // 根会话切换下拉（方案 A）：仅 root/group 面板，列同 preset 的 root 会话。
-  // 标题行内紧凑尺寸，宽度随内容自适应（不做大块占位）。
-  // 标题不抢占（flex:0 1 auto），下拉 flex:1 吃掉剩余空余 → 选中内容有足够宽度展示。
+  // 固定宽度不随空间压缩（flex-shrink:0），标题先 ellipsis 让位（6a）。
   .root-switch {
     align-self: center;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     width: auto;
     min-width: 160px;
     max-width: 360px;
@@ -1148,10 +1178,10 @@ function onPromptSnapShow(): void {
   font-weight: 700;
   box-sizing: border-box;
 }
-/* master：实心圆（暖橙填充 + 白字），主 agent 视觉最重。 */
+/* master：实心圆（靛蓝填充 + 深墨字），主 agent 视觉最重。白字在靛蓝上过亮，改深墨提对比（6b）。 */
 .agent-loading-face.is-master {
   background: #6366f1;
-  color: #fff;
+  color: var(--ink);
   border: 1px solid #f6b73c;
 }
 /* sub：描边圆（透明底 + 暖橙描边 + 橙字），子 agent 运行中。 */

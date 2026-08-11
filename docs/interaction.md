@@ -239,6 +239,21 @@ C→S sense.approval {action:"accept"}
 >
 > 无 prompt。前置：chat 必须已有可恢复的 runtime selection。新建/更新时由 `chat.create` 或 `runtime.set` 写入 `metadata.runtime`；服务重启后 `chat.get` / `chat.send` / `chat.resume` 会从 metadata 自动恢复。
 
+### 工作台树级暂停与续接
+
+```text
+C→S chat.abort {chatId:root, commandId:pauseId}
+  → 按孙→子→根停止当时活跃 run，持久化精确目标集和 termination
+  ← {pauseId,status:"paused",results:[...]}
+
+C→S chat.resumeTree {rootChatId:root,pauseId,commandId}
+  → 只启动仍属于该暂停集的目标；后代优先、根最后
+  ← {pauseId,status:"completed|partial",results:[...]}
+  ← root subscription 持续收到各 chat 的 run.updated/stream/done
+```
+
+暂停后用户直接发送新消息时，不等价于 `chat.resumeTree`：服务端只启动根 Agent。若本次暂停还有子 Agent 目标，则在用户消息之后追加一条持久 system 执行事件，列出角色、`chatId` 和 `pauseId`；根 Agent 据此决定是否调用 `send_to_child`。事件 ID 由 `pauseId + 输入 commandId` 稳定派生；若进程在输入确认后、事件落库前退出，恢复 accepted input 时必须检测并补回，已存在则不得重复。被 `send_to_child` 接管的目标标记为 `delegated`，旧暂停命令不再恢复它。
+
 ---
 
 ## 端到端标准流程

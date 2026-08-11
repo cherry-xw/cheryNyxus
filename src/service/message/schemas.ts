@@ -282,6 +282,11 @@ export const requestSchemas = {
       message: 'chatId 或 rootChatId 至少提供一个',
     }),
   [Method.CHAT_RESUME]: chatIdSchema,
+  [Method.CHAT_RESUME_TREE]: z.object({
+    rootChatId: z.string().min(1),
+    pauseId: z.string().min(1),
+    commandId: z.string().min(1),
+  }),
   [Method.CHAT_SYNC]: z.object({
     chatId: z.string(),
     afterSeq: z.number().int().min(0),

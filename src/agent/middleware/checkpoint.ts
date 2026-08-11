@@ -34,7 +34,9 @@ export async function* checkpointMiddleware(
       } as MiddlewareChunk
     }
 
-    const durableConsumedMessages = consumedMessages.filter((message) => !message.ephemeral)
+    const durableConsumedMessages = consumedMessages.filter(
+      (message) => !message.ephemeral && message.role === 'user',
+    )
     if (durableConsumedMessages.length > 0) {
       // 仅真实用户输入进入 consumed；模型专用注入不得伪装成用户消息。
       yield {
