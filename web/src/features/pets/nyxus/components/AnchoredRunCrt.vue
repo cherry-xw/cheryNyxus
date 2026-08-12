@@ -6,12 +6,45 @@ import type { RunCrtModel } from '../graph/crtModel'
 type CrtTab = 'output' | 'thinking'
 
 const props = defineProps<{ card: RunCrtModel; pinned: boolean; maxHeight: number }>()
-const emit = defineEmits<{ pin: []; unpin: []; close: [] }>()
+const emit = defineEmits<{
+  pin: []
+  unpin: []
+  close: []
+  focus: []
+  drag: [delta: { x: number; y: number }]
+}>()
 const activeTab = ref<CrtTab>('output')
 const bodyRef = ref<HTMLElement | null>(null)
 const userScrolledUp = ref(false)
 let seenThinking = false
 let seenContent = false
+let dragPointerId = -1
+let dragX = 0
+let dragY = 0
+
+function onHeaderPointerDown(event: PointerEvent): void {
+  if (event.button !== 0 || (event.target as Element | null)?.closest('button')) return
+  event.preventDefault()
+  emit('focus')
+  dragPointerId = event.pointerId
+  dragX = event.clientX
+  dragY = event.clientY
+  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+}
+
+function onHeaderPointerMove(event: PointerEvent): void {
+  if (event.pointerId !== dragPointerId) return
+  emit('drag', { x: event.clientX - dragX, y: event.clientY - dragY })
+  dragX = event.clientX
+  dragY = event.clientY
+}
+
+function onHeaderPointerUp(event: PointerEvent): void {
+  if (event.pointerId !== dragPointerId) return
+  const target = event.currentTarget as HTMLElement
+  if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId)
+  dragPointerId = -1
+}
 
 const tabs = computed<Array<{ id: CrtTab; label: string }>>(() => [
   { id: 'output', label: '正文' },
@@ -102,9 +135,16 @@ function onEscape(event: KeyboardEvent): void {
     @pointermove.stop
     @pointerup.stop
     @click.stop
+    @pointerdown="emit('focus')"
     @wheel.stop
   >
-    <header class="crt-head">
+    <header
+      class="crt-head"
+      @pointerdown.stop="onHeaderPointerDown"
+      @pointermove.stop="onHeaderPointerMove"
+      @pointerup.stop="onHeaderPointerUp"
+      @pointercancel.stop="onHeaderPointerUp"
+    >
       <span class="live-dot" aria-hidden="true" />
       <strong>{{ card.title }}</strong>
       <span class="status-copy">{{ statusLabel }}</span>
@@ -179,7 +219,7 @@ function onEscape(event: KeyboardEvent): void {
 @ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 
 .run-crt {
-  width: 420px;
+  width: 360px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -200,20 +240,23 @@ function onEscape(event: KeyboardEvent): void {
   outline-offset: 2px;
 }
 .crt-head {
-  flex: 0 0 38px;
+  flex: 0 0 32px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 0 7px 0 10px;
+  gap: 6px;
+  padding: 0 6px 0 8px;
   border-bottom: 1px solid @line;
   background: @surface;
+  cursor: grab;
+  touch-action: none;
 }
+.crt-head:active { cursor: grabbing; }
 .crt-head strong {
   min-width: 0;
   overflow: hidden;
     color: #edf5f7;
       font:
-    650 11px/1.2 system-ui,
+    650 10px/1.2 system-ui,
     sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -245,7 +288,7 @@ function onEscape(event: KeyboardEvent): void {
   flex: 0 0 auto;
   color: @muted;
   font:
-    9px/1.2 system-ui,
+    8px/1.2 system-ui,
     sans-serif;
 }
 .crt-actions {
@@ -261,11 +304,11 @@ function onEscape(event: KeyboardEvent): void {
   cursor: pointer;
 }
 .crt-actions button {
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   border-radius: 3px;
   font:
-    14px/1 ui-monospace,
+    12px/1 ui-monospace,
     monospace;
   transition:
     transform 120ms @ease-out,
@@ -277,19 +320,19 @@ function onEscape(event: KeyboardEvent): void {
   transform: scale(0.97);
 }
 .crt-tabs {
-  flex: 0 0 30px;
+  flex: 0 0 26px;
   display: flex;
   align-items: stretch;
   gap: 0;
-  padding: 0 8px;
+  padding: 0 7px;
   border-bottom: 1px solid @line;
   background: @surface;
 }
 .crt-tabs button {
   position: relative;
-  padding: 0 10px;
+  padding: 0 8px;
   font:
-    10px/1.2 system-ui,
+    9px/1.2 system-ui,
     sans-serif;
   transition:
     transform 120ms @ease-out,
@@ -319,15 +362,15 @@ function onEscape(event: KeyboardEvent): void {
   transform: scaleX(1);
 }
 .crt-body {
-  min-height: 110px;
+  min-height: 94px;
   flex: 1 1 auto;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 10px 12px;
+  padding: 8px 10px;
   overscroll-behavior: contain;
   color: var(--ink);
   color: #d4dfe2;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.55;
   scrollbar-color: rgba(114, 147, 154, 0.58) transparent;
   scrollbar-width: thin;
@@ -353,7 +396,7 @@ function onEscape(event: KeyboardEvent): void {
 }
 .markdown-body :deep(pre) {
   overflow: visible;
-  padding: 7px 8px;
+  padding: 6px 7px;
   color: var(--ink);
   color: #cce5e9;
   white-space: pre-wrap;
@@ -368,15 +411,15 @@ function onEscape(event: KeyboardEvent): void {
   color: #9aa9ae;
 }
 .crt-foot {
-  flex: 0 0 24px;
+  flex: 0 0 20px;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 8px;
   border-top: 1px solid @line;
   color: @muted;
   background: @surface;
   font:
-    9px/1.2 system-ui,
+    8px/1.2 system-ui,
     sans-serif;
 }
 .crt-content-enter-active,

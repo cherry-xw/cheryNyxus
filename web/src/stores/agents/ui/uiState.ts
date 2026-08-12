@@ -42,6 +42,7 @@ export interface WorkbenchWindowState {
   focused: boolean
   zOrder: number
   attentionBlink: boolean
+  interactionFocus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
 }
 
 /** UI 焦点 / 面板开关 / 滚动触发——独立于数据层的纯 UI 状态。 */
@@ -61,6 +62,7 @@ export function createUiState() {
   const historyDrawerStack = ref<string[]>([])
   const historyDrawerMode = ref<HistoryDrawerMode>('overlay')
   const historyDrawerAnchor = ref<HistoryDrawerAnchor | null>(null)
+  const historyDrawerTaskBranches = ref<import('@/services/agentApi').ConversationBranchSummary[]>([])
   const historyListOpen = ref(false)
   const settingsOpen = ref(false)
   const pendingScrollSenseCallId = ref<string | null>(null)
@@ -131,6 +133,7 @@ export function createUiState() {
     historyDrawerStack.value = []
     historyDrawerMode.value = 'overlay'
     historyDrawerAnchor.value = null
+    historyDrawerTaskBranches.value = []
   }
 
   /** 设置子 agent 消息显示模式。 */
@@ -264,6 +267,13 @@ export function createUiState() {
     setWorkbenchWindowField(id, 'attentionBlink', blink)
   }
 
+  function setWorkbenchWindowFocus(
+    id: string,
+    focus: WorkbenchWindowState['interactionFocus'],
+  ): void {
+    setWorkbenchWindowField(id, 'interactionFocus', focus)
+  }
+
   function setWorkbenchWindowDrawer(
     id: string,
     drawer: {
@@ -320,6 +330,7 @@ export function createUiState() {
     historyDrawerStack,
     historyDrawerMode,
     historyDrawerAnchor,
+    historyDrawerTaskBranches,
     topHistoryChatId,
     topOverlay,
     openHistoryRoot,
@@ -346,6 +357,7 @@ export function createUiState() {
     setWorkbenchWindowGeometry,
     setWorkbenchWindowCapsulePos,
     setWorkbenchWindowBlink,
+    setWorkbenchWindowFocus,
     setWorkbenchWindowDrawer,
     setWorkbenchWindowWorkspaceBrowser,
   }

@@ -18,6 +18,8 @@ import config from '@/utils/config.js'
 import { getWaitedParent, feedWatchdog } from '@/agent/spawnBroker.js'
 import { isAgentAbortError, isAgentParkError } from '@/core/middleware/errors.js'
 import { createQuestionBatch } from '@/db/question.js'
+import { upsertPendingInteraction } from '@/db/interaction.js'
+import { broadcastInteractionChanged } from '../interaction/events.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { recordTerminationFact } from './executionFacts.js'
 
@@ -142,6 +144,8 @@ export async function* observeAgentChunks(
           senseName: chunk.senseName,
           waitTime: config.global.approval_timeout ?? 0,
           createdAt: Date.now(),
+          arguments: chunk.arguments,
+          supervisionLevel: chunk.supervisionLevel,
         })
         logger.event('approval.pending', {
           approvalId: chunk.approvalId,
@@ -156,6 +160,17 @@ export async function* observeAgentChunks(
         // 这样任何收到事件的客户端都能立即安全调用原子 batchAnswer。
         const batch = createQuestionBatch(chatId, chunk.assistantMessageId, chunk.questions)
         if (!batch) continue
+        const interaction = upsertPendingInteraction({
+          interactionId: batch.batchId,
+          kind: 'question_batch',
+          chatId,
+          anchorNodeId: batch.assistantMessageId,
+          payload: {
+            assistantMessageId: batch.assistantMessageId,
+            questions: batch.questions,
+          },
+        })
+        broadcastInteractionChanged(interaction)
         logger.event('question.batch.pending', {
           batchId: chunk.batchId,
           assistantMessageId: chunk.assistantMessageId,

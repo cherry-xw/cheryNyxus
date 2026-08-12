@@ -110,6 +110,9 @@ export interface ChatSummary {
   resumePending?: boolean
   /** idle chat 末条非 revoked 消息为未完成周期；前端据此提供显式“继续”入口，不在刷新时自动 resume。 */
   canResume?: boolean
+  taskId?: string
+  branchId?: string
+  branchKind?: 'original' | 'continuation' | 'detail'
   /** 主 chat 创建时所选预设；用于恢复小组角色临时配置面板。 */
   preset?: string
   /** 当前 chat 关联的项目工作目录绝对路径（metadata.workspace 快照）。缺省 → 未配置。 */
@@ -146,6 +149,23 @@ export interface ConversationRouteCandidate {
 export interface ConversationRouteSuggestion {
   requestVersion: number
   candidates: ConversationRouteCandidate[]
+}
+
+export interface InteractionRecord {
+  interactionId: string
+  kind: 'approval' | 'question_batch'
+  chatId: string
+  rootChatId: string
+  presetId?: string
+  anchorNodeId?: string
+  status: 'pending' | 'resolving' | 'completed' | 'expired' | 'cancelled' | 'blocked'
+  payload: Record<string, unknown>
+  deadlineAt?: number
+  result?: Record<string, unknown>
+  revision: number
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
 }
 
 /** chat.create 参数。预设路径（T6）：preset 给出则后端从预设解析编制，brain/senseGroup 可省；
@@ -624,6 +644,8 @@ export interface TimelineNode {
   visibility: 'conversation' | 'detail' | 'internal'
   content: string
   thinking?: string
+  /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。 */
+  runtime?: RuntimeSelection
   toolCalls?: GraphToolCall[]
   batchId?: string
   orderKey: number
@@ -634,10 +656,15 @@ export interface TimelineNode {
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
+  taskId?: string
+  branchId?: string
+  branchKind?: 'original' | 'continuation' | 'detail'
+  forkAnchor?: boolean
 }
 
 export type ExecutionEdgeKind =
-  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation'
+  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation' |
+  'fork-continuation' | 'fork-detail'
 
 export interface ExecutionEdgeFact {
   id: string
@@ -649,6 +676,20 @@ export interface ExecutionEdgeFact {
   sourceChatId: string
   targetChatId: string
   callId?: string
+  taskId?: string
+  branchId?: string
+}
+
+export interface ConversationBranchSummary {
+  branchId: string
+  taskId: string
+  chatId: string
+  kind: 'original' | 'continuation' | 'detail'
+  sourceBranchId?: string
+  anchorRootChatId?: string
+  anchorNodeId?: string
+  title?: string
+  createdAt: number
 }
 
 export interface ActiveRunFact {
@@ -663,6 +704,9 @@ export interface ActiveRunFact {
 
 export interface RootTimelineSnapshot {
   rootChatId: string
+  taskId?: string
+  activeBranchId?: string
+  branches?: ConversationBranchSummary[]
   view: 'conversation' | 'tree' | 'audit'
   revision: number
   nodes: TimelineNode[]
@@ -909,6 +953,7 @@ export interface PresetDto {
   id?: string
   /** Optional text-only brain used for asynchronous conversation routing suggestions. */
   routingBrain?: string
+  detailRole?: string
   /** 组长角色 type 名（必填，主 pet 编制取 config.roles[leader]） */
   leader: string
   /** 选中的角色 type 名 */
@@ -1001,6 +1046,39 @@ function callStream(
 }
 
 export const agentApi = {
+  async listInteractions(params?: {
+    presetId?: string
+    includeActivity?: boolean
+  }): Promise<InteractionRecord[]> {
+    const response = await call<{ interactions: InteractionRecord[] }>('interaction.list', params ?? {})
+    return response.interactions
+  },
+
+  async decideInteractionApproval(params: {
+    interactionId: string
+    action: 'accept' | 'reject'
+    expectedRevision: number
+    commandId: string
+    reason?: string
+  }): Promise<InteractionRecord> {
+    const response = await call<{ interaction: InteractionRecord }>('interaction.approval.decide', params)
+    return response.interaction
+  },
+
+  async answerInteractionQuestion(params: {
+    interactionId: string
+    expectedRevision: number
+    commandId: string
+    answers: Array<{
+      questionId: string
+      selectedLabels: string[]
+      freeText?: string
+      cancelled?: boolean
+    }>
+  }): Promise<InteractionRecord> {
+    const response = await call<{ interaction: InteractionRecord }>('interaction.question.answer', params)
+    return response.interaction
+  },
   /** skills.list：实时列出用户可加载的技能（独立 + 插件）；内置命令不在此结果中。支持可选分页与搜索。 */
   async listSkills(params?: {
     page?: number
@@ -1289,6 +1367,62 @@ export const agentApi = {
     })
     if (!response.rootTimeline) throw new Error('root timeline 响应缺少 rootTimeline')
     return response.rootTimeline
+  },
+
+  async getTaskTimeline(params: {
+    taskId: string
+    view?: 'conversation' | 'tree' | 'audit'
+  }): Promise<RootTimelineSnapshot> {
+    const response = await call<TimelineSnapshot>('chat.timeline.get', {
+      taskId: params.taskId,
+      view: params.view ?? 'tree',
+    })
+    if (!response.rootTimeline) throw new Error('task timeline 响应缺少 rootTimeline')
+    return response.rootTimeline
+  },
+
+  async previewBranch(rootChatId: string, anchorNodeId: string): Promise<{
+    taskId: string
+    sourceBranchId: string
+    eligible: boolean
+    reason?: string
+    sideEffects: Array<{ nodeId: string; callId: string; toolName: string; arguments: string; result?: string }>
+    effectDigest: string
+  }> {
+    return call<{
+      taskId: string
+      sourceBranchId: string
+      eligible: boolean
+      reason?: string
+      sideEffects: Array<{ nodeId: string; callId: string; toolName: string; arguments: string; result?: string }>
+      effectDigest: string
+    }>('chat.branch.preview', { rootChatId, anchorNodeId })
+  },
+
+  async createBranch(params: {
+    rootChatId: string
+    anchorNodeId: string
+    branchType: 'continuation' | 'detail'
+    prompt: string
+    commandId: string
+    clientMessageId: string
+    messageId: string
+    effectDigest?: string
+  }): Promise<ConversationBranchSummary & { input: InputAccepted }> {
+    return call<ConversationBranchSummary & { input: InputAccepted }>('chat.branch.create', params)
+  },
+
+  async activateBranch(branchId: string, commandId: string): Promise<{
+    taskId: string
+    activeBranchId: string
+    activeChatId: string
+    deliveryGeneration: number
+  }> {
+    return call('chat.branch.activate', { branchId, commandId })
+  },
+
+  async abortTask(taskId: string, commandId: string): Promise<{ taskId: string; abortedBranches: string[] }> {
+    return call<{ taskId: string; abortedBranches: string[] }>('chat.abortTask', { taskId, commandId })
   },
 
   /** V2 session plane：原子建立订阅并返回当前运行态快照。 */

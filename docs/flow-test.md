@@ -19,7 +19,7 @@
 | A2 smart 接受 | `supervision=smart(1)` → `interrupt` → 用户 accept → 执行 | S3 |
 | A3 smart 拒绝 | `interrupt` → 用户 reject → `rejected` → loop 继续 | S4 |
 | A4 用户超时自动拒 | `approval_timeout>0` 到点 → resolve-as-reject → `sense_reject` → resume Case2 | S5 |
-| A5 不限时 + 30min 自动释放 | `approval_timeout=0` + `approval_hard_timeout` 到点 → `AgentParkError` → paused 可续 | S6 |
+| A5 不限时 + 30min 自动释放 | `approval_timeout=0` + `approval_hard_timeout` 到点 → runtime paused；同一持久待办仍可直接处理并续跑 | S6 |
 
 ### FP-B 流式与多轮 loop
 
@@ -128,7 +128,7 @@
 #### S6 不限时 hard-park（**G2 验收点**）
 - **前置**：`approval_timeout=0` + `approval_hard_timeout`（测试缩短至 ~100ms，或 `vi.useFakeTimers`）
 - **步骤**：`interrupt` →（hard timer）→ `AgentParkError` → run 结束 paused
-- **检查**：pending sense content NULL；`canResume=true`（paused）；hard=park（可续）**非** reject；`chat.resume` Case1 用新 id 重弹
+- **检查**：pending sense content NULL；`canResume=true`（paused）；hard=park（可续）**非** reject；全局待办保留同一稳定 interactionId，直接处理后自动恢复
 - **功能点**：FP-A5
 - **覆盖**：A5
 - **已落地测试**：[approvalRegistry.test.ts](../test/core/sense/approvalRegistry.test.ts)「hard-timeout（G2）」5 项（单元级，到点 reject(AgentParkError)、用户超时优先不叠加、accept/park 清 timer、无 hard 兼容）

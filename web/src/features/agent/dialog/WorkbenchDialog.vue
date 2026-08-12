@@ -9,7 +9,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
-import { ElMessage, ElPopover, ElTooltip } from 'element-plus'
+import { ElMessage, ElMessageBox, ElPopover, ElTooltip } from 'element-plus'
 import RoleConfigPopover from './RoleConfigPopover.vue'
 import AgentComposer from './AgentComposer.vue'
 import WorkspaceSessionBrowser from './WorkspaceSessionBrowser.vue'
@@ -20,13 +20,14 @@ import {
   agentApi,
   type ContextBreakdown,
   type PromptSnapshotTool,
+  type RootTimelineSnapshot,
 } from '@/services/agentApi'
 import { useAgentDialogOptions } from './useAgentDialogOptions'
 import {
   useWorkbenchWindow,
   type ResizeDirection,
 } from './useWorkbenchWindow'
-import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 import MessageBranchTree from '@/features/pets/nyxus/components/MessageBranchTree.vue'
@@ -41,6 +42,7 @@ const props = defineProps<{ windowId: string; presetId: string }>()
 
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
+const interactions = useInteractionsStore()
 
 /** 本窗口状态（store 注册表按 windowId 索引）。窗口关闭/不存在时组件不渲染。 */
 const win = computed(() => agents.workbenchWindows[props.windowId])
@@ -222,19 +224,155 @@ const quickSessions = computed(() =>
         (a.lastUserActivityAt ?? a.createdAt ?? 0),
     ),
 )
-const workspaceChats = computed(() =>
-  (agents.historyList ?? []).filter((item) => item.presetId === quickPresetId.value),
-)
 const workspaceAttentionCount = computed(() =>
-  workspaceChats.value.reduce(
-    (count, item) => count + (item.pendingApproval ? 1 : 0) + (item.pendingQuestionCount ?? 0),
-    0,
-  ),
+  interactions.pending.filter((item) => item.presetId === quickPresetId.value).length,
 )
 
 const nyxusDraftActive = ref(false)
 type FoldMode = 'none' | 'partial' | 'full' | 'participant'
-const foldMode = ref<FoldMode>('partial')
+type WorkbenchViewPreference = {
+  layout: 'timeline' | 'topology'
+  foldMode: FoldMode
+}
+const DEFAULT_WORKBENCH_VIEW: WorkbenchViewPreference = {
+  layout: 'timeline',
+  foldMode: 'participant',
+}
+const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'
+const FOLD_MODES = new Set<FoldMode>(['none', 'partial', 'participant', 'full'])
+
+function workbenchViewStorageKey(): string {
+  return `${WORKBENCH_VIEW_STORAGE_PREFIX}${props.presetId}`
+}
+
+function loadWorkbenchViewPreference(): WorkbenchViewPreference {
+  if (typeof localStorage === 'undefined') return DEFAULT_WORKBENCH_VIEW
+  try {
+    const value = JSON.parse(localStorage.getItem(workbenchViewStorageKey()) ?? 'null') as
+      | Partial<WorkbenchViewPreference>
+      | null
+    return {
+      layout: value?.layout === 'topology' ? 'topology' : 'timeline',
+      foldMode:
+        typeof value?.foldMode === 'string' && FOLD_MODES.has(value.foldMode as FoldMode)
+          ? (value.foldMode as FoldMode)
+          : DEFAULT_WORKBENCH_VIEW.foldMode,
+    }
+  } catch {
+    return DEFAULT_WORKBENCH_VIEW
+  }
+}
+
+function saveWorkbenchViewPreference(): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(
+      workbenchViewStorageKey(),
+      JSON.stringify({
+        layout: topologyLayout.value ? 'topology' : 'timeline',
+        foldMode: foldMode.value,
+      } satisfies WorkbenchViewPreference),
+    )
+  } catch {
+    // Storage may be unavailable in privacy mode; keep the in-memory selection usable.
+  }
+}
+
+const initialWorkbenchView = loadWorkbenchViewPreference()
+/** 当前预设的工作台布局与折叠偏好；右侧按钮选择写入前端本地存储。 */
+const topologyLayout = ref(initialWorkbenchView.layout === 'topology')
+const foldMode = ref<FoldMode>(initialWorkbenchView.foldMode)
+const branchTarget = ref<{
+  type: 'detail' | 'continuation'
+  nodeId: string
+  sourceRootChatId: string
+  effectDigest?: string
+}>()
+const taskTimeline = ref<RootTimelineSnapshot>()
+const detailBranchAvailability = computed(() => {
+  const loaded = config.value
+  const preset = presetName.value ? loaded?.presets?.[presetName.value] : undefined
+  if (!preset?.detailRole) return { available: false, reason: '当前预设未指定解释角色，请在预设成员卡中设置。' }
+  if (!(preset.roles ?? []).includes(preset.detailRole)) return { available: false, reason: '解释角色必须是当前预设成员。' }
+  const detail = loaded?.roles?.[preset.detailRole]
+  return detail?.brain && detail.senseGroup
+    ? { available: true, reason: '' }
+    : { available: false, reason: '解释角色配置不完整，请在角色设置中配置大脑和器官组。' }
+})
+const composerBranchTitle = computed(() =>
+  branchTarget.value?.type === 'detail'
+    ? '解释所选节点'
+    : branchTarget.value?.type === 'continuation'
+      ? '从所选节点继续'
+      : '发送新消息',
+)
+const composerBranchDescription = computed(() =>
+  branchTarget.value?.type === 'detail'
+    ? '使用专用诊断角色创建独立解释分支，不影响原任务'
+    : branchTarget.value?.type === 'continuation'
+      ? '继承原角色创建并列任务分支，既有工具副作用不会撤销'
+      : '发送后将作为新节点加入当前会话',
+)
+let taskTimelineRefreshTimer: ReturnType<typeof setInterval> | undefined
+watch(
+  () => taskTimeline.value?.taskId,
+  (taskId) => {
+    if (taskTimelineRefreshTimer) clearInterval(taskTimelineRefreshTimer)
+    taskTimelineRefreshTimer = undefined
+    if (!taskId) return
+    taskTimelineRefreshTimer = setInterval(() => {
+      void agentApi
+        .getTaskTimeline({ taskId, view: 'tree' })
+        .then((snapshot) => {
+          if (taskTimeline.value?.taskId === taskId) taskTimeline.value = snapshot
+        })
+        .catch(() => undefined)
+    }, 1200)
+  },
+)
+
+async function selectBranchTarget(payload: {
+  type: 'detail' | 'continuation'
+  nodeId: string
+  sourceRootChatId: string
+  ordinary?: boolean
+}): Promise<void> {
+  if (payload.ordinary) {
+    branchTarget.value = undefined
+    nyxusDraftActive.value = true
+    error.value = null
+    void nextTick(() => editorRef.value?.focus())
+    return
+  }
+  const sourceRootChatId = payload.sourceRootChatId
+  try {
+    const preview = await agentApi.previewBranch(sourceRootChatId, payload.nodeId)
+    if (!preview.eligible) throw new Error(preview.reason || '该节点不能发起分支')
+    if (payload.type === 'continuation' && preview.sideEffects.length) {
+      const summary = preview.sideEffects
+        .slice(0, 8)
+        .map((effect) => `• ${effect.toolName}`)
+        .join('\n')
+      await ElMessageBox.confirm(
+        `所选节点之后已有 ${preview.sideEffects.length} 个工具调用产生结果，这些副作用不会被撤销。\n\n${summary}`,
+        '从此处继续',
+        { confirmButtonText: '确认创建并列分支', cancelButtonText: '取消', type: 'warning' },
+      )
+    }
+    branchTarget.value = {
+      type: payload.type,
+      nodeId: payload.nodeId,
+      sourceRootChatId,
+      effectDigest: preview.effectDigest,
+    }
+    nyxusDraftActive.value = true
+    void nextTick(() => editorRef.value?.focus())
+  } catch (cause) {
+    if (cause === 'cancel' || cause === 'close') return
+    ElMessage.error(cause instanceof Error ? cause.message : '无法从该节点发起分支')
+  }
+}
+
 /** 折叠四档控件：hover 时按钮自身变宽，左侧滑出 4 个子按钮，点击切换档位。 */
 const foldToolOpen = ref(false)
 interface FoldIconDefinition {
@@ -311,6 +449,7 @@ function scheduleFoldToolClose(): void {
 function selectFoldMode(mode: FoldMode): void {
   foldMode.value = mode
 }
+watch([topologyLayout, foldMode], saveWorkbenchViewPreference)
 const pianoOpen = ref(false)
 const workspaceBrowserMode = ref<'attention'>()
 /** 删除交互期间锁定 popout：hover 可删键 / 拖拽 / 倒掉动画时为 true，跳过延迟关闭。 */
@@ -425,6 +564,7 @@ function activateNyxusInput(): void {
 function cancelNyxusInput(): void {
   if (sending.value) return
   nyxusDraftActive.value = false
+  branchTarget.value = undefined
   resetEditor()
   resetMedia()
   error.value = null
@@ -436,6 +576,39 @@ async function sendFromComposer(): Promise<void> {
     return
   }
   nyxusDraftActive.value = false
+  if (branchTarget.value) {
+    const target = branchTarget.value
+    const prompt = text.value.trim()
+    if (!prompt) {
+      error.value = '请输入要在新分支中继续的内容'
+      nyxusDraftActive.value = true
+      return
+    }
+    try {
+      const created = await agentApi.createBranch({
+        rootChatId: target.sourceRootChatId,
+        anchorNodeId: target.nodeId,
+        branchType: target.type,
+        prompt,
+        commandId: crypto.randomUUID(),
+        clientMessageId: crypto.randomUUID(),
+        messageId: crypto.randomUUID(),
+        ...(target.type === 'continuation' ? { effectDigest: target.effectDigest } : {}),
+      })
+      branchTarget.value = undefined
+      resetEditor()
+      resetMedia()
+      agents.setWorkbenchWindowChat(props.windowId, created.chatId)
+      treeRootChatId.value = created.chatId
+      taskTimeline.value = await agentApi.getTaskTimeline({ taskId: created.taskId, view: 'tree' })
+      await chatSessions.openSession(created.chatId).catch(() => undefined)
+      return
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '创建分支失败'
+      nyxusDraftActive.value = true
+      return
+    }
+  }
   let targetChatId = chatId.value ?? undefined
   if (quickTargetRequired.value) {
     if (quickTarget.value?.target === 'new') {
@@ -464,8 +637,9 @@ async function sendFromComposer(): Promise<void> {
 }
 /** 查看 Nyxus 会话完整对话历史：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
 function openHistory(): void {
-  const id = chatId.value
+  const id = taskTimeline.value?.branches?.find((branch) => branch.kind === 'original')?.chatId ?? chatId.value
   if (!id) return
+  agents.historyDrawerTaskBranches = taskTimeline.value?.branches ?? []
   agents.openHistoryRoot(id, 'workbench-docked', workbenchDrawerAnchor())
 }
 /**
@@ -474,16 +648,23 @@ function openHistory(): void {
  */
 const sessionControlPending = ref(false)
 type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root'
+const taskHasRunningBranches = computed(() =>
+  taskTimeline.value?.activeRuns.some(
+    (run) => run.status === 'running' || run.status === 'waiting',
+  ) ?? false,
+)
 const sessionControl = computed<{ mode: WorkbenchControlMode; label: string } | undefined>(() => {
   const id = chatId.value
   if (!id) return undefined
   const session = chatSessions.sessionsById[id]
   if (!session) return undefined
-  const timeline = chatSessions.rootTimeline(id, 'tree')
+  const timeline = taskTimeline.value ?? chatSessions.rootTimeline(id, 'tree')
   const treeRunning = timeline?.activeRuns.some(
     (run) => run.status === 'running' || run.status === 'waiting',
   )
-  if (treeRunning || session.run.status === 'running') return { mode: 'pause', label: '暂停' }
+  if (treeRunning || (!taskTimeline.value && session.run.status === 'running')) {
+    return { mode: 'pause', label: '暂停' }
+  }
   const control = timeline?.controlState
   const resumableTargets = control?.targets.filter(
     (target) => target.status === 'paused' || target.status === 'failed',
@@ -520,16 +701,56 @@ async function executeSessionControl(): Promise<void> {
     sessionControlPending.value = false
   }
 }
+const taskControlPending = ref(false)
+async function pauseWholeTask(): Promise<void> {
+  const taskId = taskTimeline.value?.taskId
+  if (!taskId || taskControlPending.value) return
+  taskControlPending.value = true
+  try {
+    await agentApi.abortTask(taskId, crypto.randomUUID())
+    taskTimeline.value = await agentApi.getTaskTimeline({ taskId, view: 'tree' })
+  } catch (cause) {
+    ElMessage.error(cause instanceof Error ? cause.message : '暂停全部分支失败')
+  } finally {
+    taskControlPending.value = false
+  }
+}
 /** 顶部树的独立根：琴键按下即同步更新，不等待对话框 options/hydration 的异步链。 */
 const treeRootChatId = ref('')
 const treeFocusSourceChatId = ref<string>()
 const treeFocusInteractionId = ref<string>()
+const rootSubscriptionOwner = `workbench:${props.windowId}`
+watch(
+  () => win.value?.interactionFocus,
+  (focus) => {
+    if (!focus) return
+    treeFocusSourceChatId.value = focus.sourceChatId
+    treeFocusInteractionId.value = focus.anchorNodeId ?? focus.interactionId
+    agents.setWorkbenchWindowFocus(props.windowId, undefined)
+  },
+  { immediate: true },
+)
 watch(
   chatId,
   (id) => {
     if (id) {
       nyxusDraftActive.value = false
       treeRootChatId.value = id
+      const summary = agents.historyList.find((item) => item.chatId === id)
+      if (summary?.taskId) {
+        const requestedChatId = id
+        taskTimeline.value = undefined
+        void agentApi
+          .getTaskTimeline({ taskId: summary.taskId, view: 'tree' })
+          .then((snapshot) => {
+            if (treeRootChatId.value === requestedChatId) taskTimeline.value = snapshot
+          })
+          .catch(() => {
+            if (treeRootChatId.value === requestedChatId) taskTimeline.value = undefined
+          })
+      } else {
+        taskTimeline.value = undefined
+      }
     }
   },
   { immediate: true },
@@ -537,10 +758,15 @@ watch(
 // 树订阅：按窗口 chatId 观察根 timeline（多窗口各自独立订阅）。
 watch(
   treeRootChatId,
-  (rootChatId) => {
+  (rootChatId, previousRootChatId) => {
     if (!rootChatId) return
     void chatSessions
-      .observeRootTimeline(rootChatId, 'tree')
+      .acquireRootTimeline(rootChatId, rootSubscriptionOwner, 'tree')
+      .then(async () => {
+        if (previousRootChatId && previousRootChatId !== rootChatId) {
+          await chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
+        }
+      })
       .catch((cause) => console.error('[WorkbenchDialog] observe root tree failed:', cause))
   },
   { immediate: true },
@@ -551,7 +777,6 @@ const creating = ref(false)
  * 新 root 通过原子 open + 完整 tree snapshot 恢复，不回放逐 chat token 事件。 */
 async function switchSession(id: string): Promise<void> {
   if (!id) return
-  const previousId = chatId.value
   agents.activeDialogSource = 'history'
   agents.activatePresetSession(quickPresetId.value, id, presetName.value)
   treeRootChatId.value = id
@@ -559,7 +784,6 @@ async function switchSession(id: string): Promise<void> {
     agents.setWorkbenchWindowChat(props.windowId, id)
   }
   try {
-    await chatSessions.observeRootTimeline(id, 'tree')
     if (agents.historyDrawerStack.length > 0) {
       agents.openHistoryRoot(id, agents.historyDrawerMode, workbenchDrawerAnchor())
     }
@@ -572,10 +796,11 @@ async function openWorkspaceTree(
   rootChatId: string,
   sourceChatId?: string,
   interactionId?: string,
+  anchorNodeId?: string,
 ): Promise<void> {
   workspaceBrowserMode.value = undefined
   treeFocusSourceChatId.value = sourceChatId
-  treeFocusInteractionId.value = interactionId
+  treeFocusInteractionId.value = anchorNodeId ?? interactionId
   winView.value = 'tree'
   await switchSession(rootChatId)
 }
@@ -653,10 +878,9 @@ function closeWorkbench(): void {
   const observedRoot = treeRootChatId.value
   resetMedia()
   error.value = null
-  agents.closeAllHistory()
   agents.closeWorkbenchWindow(props.windowId)
   if (observedRoot) {
-    void chatSessions.closeRootTimeline(observedRoot)
+    void chatSessions.releaseRootTimeline(observedRoot, rootSubscriptionOwner)
   }
 }
 
@@ -734,8 +958,12 @@ onBeforeUnmount(() => {
   if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
   if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
   if (foldCloseTimer) clearTimeout(foldCloseTimer)
+  if (taskTimelineRefreshTimer) clearInterval(taskTimelineRefreshTimer)
   window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
   window.removeEventListener('keydown', onWorkspaceDrawerKeydown)
+  if (treeRootChatId.value) {
+    void chatSessions.releaseRootTimeline(treeRootChatId.value, rootSubscriptionOwner)
+  }
 })
 
 /** 颜色分级（与 SessionList / HistoryDrawerPanel / ContextBar 对齐：<50% 绿 / 50-80% 黄 / >=80% 红）。 */
@@ -876,10 +1104,17 @@ function onTreePromptSnapShow(): void {
           ref="branchTreeRef"
           :key="treeRootChatId"
           :root-chat-id="treeRootChatId"
+          :timeline-override="taskTimeline"
+          :layout-mode="topologyLayout ? 'topology' : 'timeline'"
           :fold-mode="foldMode"
           :focus-source-chat-id="treeFocusSourceChatId"
           :focus-interaction-id="treeFocusInteractionId"
           :full-render-threshold="agents.globalConfig?.global.tree_full_render_threshold"
+          :branch-anchor-node-id="branchTarget?.nodeId"
+          :branch-anchor-kind="branchTarget?.type"
+          :detail-branch-available="detailBranchAvailability.available"
+          :detail-branch-unavailable-reason="detailBranchAvailability.reason"
+          @branch="selectBranchTarget"
         />
       </div>
 
@@ -946,12 +1181,26 @@ function onTreePromptSnapShow(): void {
           @pointerup.stop
           @wheel.stop
         >
-          <header class="nyxus-composer-head">
-            <span class="nyxus-composer-status" aria-hidden="true" />
-            <span class="nyxus-composer-title">
-              <strong>发送新消息</strong>
-              <small>发送后将作为新节点加入当前会话</small>
+          <header
+            class="nyxus-composer-head"
+            :class="branchTarget ? `is-${branchTarget.type}` : undefined"
+          >
+            <span class="nyxus-composer-status" aria-hidden="true">
+              {{ branchTarget?.type === 'detail' ? '◉' : branchTarget?.type === 'continuation' ? '⑂' : '' }}
             </span>
+            <span class="nyxus-composer-title">
+              <strong>{{ composerBranchTitle }}</strong>
+              <small>{{ composerBranchDescription }}</small>
+            </span>
+            <el-tooltip
+              v-if="branchTarget"
+              :content="branchTarget.type === 'detail'
+                ? '解释分支使用专用诊断角色，可读取、搜索和运行诊断命令，但不会回传或修改原任务。'
+                : '继续分支继承来源分支角色和工具；它与原流程并列，已经发生的外部副作用不会回退。'"
+              placement="top"
+            >
+              <span class="nyxus-composer-info" aria-label="分支影响说明">ⓘ</span>
+            </el-tooltip>
             <button
               type="button"
               class="nyxus-composer-close"
@@ -1135,6 +1384,25 @@ function onTreePromptSnapShow(): void {
               </button>
             </span>
           </el-tooltip>
+          <el-tooltip
+            v-if="taskTimeline?.taskId && taskHasRunningBranches && (taskTimeline.branches?.length ?? 0) > 1"
+            :content="taskControlPending ? '正在暂停全部分支…' : '暂停全部分支'"
+            placement="left"
+            :show-after="200"
+            :hide-after="0"
+          >
+            <span class="nyxus-tool-tip-anchor">
+              <button
+                type="button"
+                class="nyxus-rail-action is-stop"
+                :disabled="taskControlPending"
+                aria-label="暂停全部分支"
+                @click="pauseWholeTask"
+              >
+                <span aria-hidden="true">▣</span>
+              </button>
+            </span>
+          </el-tooltip>
         </div>
         <div class="nyxus-tool-group" role="group" aria-label="会话工具">
           <el-tooltip
@@ -1240,6 +1508,31 @@ function onTreePromptSnapShow(): void {
           </el-tooltip>
         </div>
         <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
+          <el-tooltip
+            :content="topologyLayout ? '切换为时间布局' : '切换为层级布局'"
+            placement="left"
+            :show-after="200"
+            :hide-after="0"
+          >
+            <span class="nyxus-tool-tip-anchor">
+              <button
+                type="button"
+                class="nyxus-rail-action"
+                :class="{ 'is-active': topologyLayout }"
+                :aria-label="topologyLayout ? '切换为时间布局' : '切换为层级布局'"
+                :aria-pressed="topologyLayout"
+                @click="topologyLayout = !topologyLayout"
+              >
+                <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
+                  <circle cx="12" cy="4" r="2" />
+                  <circle cx="7" cy="15" r="2" />
+                  <circle cx="17" cy="15" r="2" />
+                  <path d="M7 17v3M17 17v3" />
+                </svg>
+              </button>
+            </span>
+          </el-tooltip>
           <el-tooltip
             v-if="!isNyxus"
             content="返回快速发送窗口"
@@ -1427,7 +1720,7 @@ function onTreePromptSnapShow(): void {
           </header>
           <div class="workspace-drawer-body">
             <WorkspaceSessionBrowser
-              :sessions="workspaceChats"
+              :preset-id="quickPresetId"
               @tree="openWorkspaceTree"
             />
           </div>
@@ -1478,6 +1771,22 @@ function onTreePromptSnapShow(): void {
 .role-usage-chip.usage-high {
   background: rgba(239, 68, 68, 0.16);
   color: #b91c1c;
+}
+:global([data-theme='dark']) .role-usage-chip {
+  border: 1px solid currentColor;
+  font-weight: 700;
+}
+:global([data-theme='dark']) .role-usage-chip.usage-low {
+  background: rgba(74, 222, 128, 0.2);
+  color: #86efac;
+}
+:global([data-theme='dark']) .role-usage-chip.usage-mid {
+  background: rgba(250, 204, 21, 0.2);
+  color: #fde047;
+}
+:global([data-theme='dark']) .role-usage-chip.usage-high {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
 }
 
 .workbench-shell {
@@ -1729,6 +2038,16 @@ function onTreePromptSnapShow(): void {
 }
 .nyxus-rail-action.is-resume {
   color: var(--nx-green);
+}
+.nyxus-layout-icon {
+  width: 17px;
+  height: 17px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 /* 分组间用一条分割线切割，不做边框盒子；按钮与发送按钮同款 rail-action。 */
 .nyxus-tool-group {
@@ -2073,11 +2392,32 @@ function onTreePromptSnapShow(): void {
 }
 .nyxus-composer-status {
   flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
+  min-width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
   border-radius: 50%;
+  color: var(--nx-bg);
+  font-size: 11px;
   background: var(--nx-green);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-green) 10%, transparent);
+}
+.nyxus-composer-head.is-detail .nyxus-composer-status {
+  color: var(--nx-cyan);
+  background: color-mix(in srgb, var(--nx-cyan) 16%, var(--nx-bg));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-cyan) 12%, transparent);
+}
+.nyxus-composer-head.is-continuation .nyxus-composer-status {
+  color: var(--nx-yellow);
+  background: color-mix(in srgb, var(--nx-yellow) 16%, var(--nx-bg));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-yellow) 12%, transparent);
+}
+.nyxus-composer-head.is-detail { border-color: color-mix(in srgb, var(--nx-cyan) 38%, transparent); }
+.nyxus-composer-head.is-continuation { border-color: color-mix(in srgb, var(--nx-yellow) 38%, transparent); }
+.nyxus-composer-info {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
+  cursor: help;
 }
 .nyxus-composer-title {
   min-width: 0;

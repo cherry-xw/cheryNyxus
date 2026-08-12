@@ -70,6 +70,8 @@ export interface ExecutionEdge {
 
 export interface ExecutionGraph {
   rootChatId: string
+  activeBranchId?: string
+  branches?: RootTimelineSnapshot['branches']
   nodes: ExecutionNode[]
   edges: ExecutionEdge[]
   diagnostics: ExecutionGraphDiagnostic[]
@@ -88,7 +90,7 @@ export type ExecutionGraphProjection = (graph: Readonly<ExecutionGraph>) => Exec
 
 export type ExecutionGraphSnapshot = Pick<
   RootTimelineSnapshot,
-  'rootChatId' | 'nodes' | 'edges' | 'activeRuns'
+  'rootChatId' | 'activeBranchId' | 'branches' | 'nodes' | 'edges' | 'activeRuns'
 >
 
 const PERSISTENT_NODE_KINDS = new Set<PersistentExecutionNodeKind>([
@@ -373,6 +375,8 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
   }
   return {
     rootChatId: snapshot.rootChatId,
+    activeBranchId: snapshot.activeBranchId,
+    branches: snapshot.branches,
     nodes,
     edges,
     diagnostics: diagnoseExecutionGraphFacts(snapshot.rootChatId, snapshot.nodes, snapshot.edges),

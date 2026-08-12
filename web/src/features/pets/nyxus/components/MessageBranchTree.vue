@@ -11,6 +11,7 @@ import { useAgentsStore, useChatSessionsStore, useThemeStore } from '@/stores'
 import { useThemeTokens } from '@/composables/useThemeTokens'
 import { effectiveRootLiveState } from '@/stores/chats/rootTimeline'
 import {
+  mainExecutionEndpoint,
   projectActiveTurnNodes,
   projectInputNodes,
   projectPersistentExecutionGraph,
@@ -23,7 +24,10 @@ import {
   projectFullFoldExecutionGraph,
   projectParticipantFoldExecutionGraph,
 } from '../graph/foldProjection'
-import { createIncrementalExecutionLayout } from '../graph/executionLayout'
+import {
+  createIncrementalExecutionLayout,
+  type ExecutionLayoutMode,
+} from '../graph/executionLayout'
 import { edgeStyle } from '../graph/edgeStyles'
 import { accentForTheme, canPinNodeDetail, hasNodeHoverDetail, skinForNode } from '../graph/nodeSkins'
 import {
@@ -51,18 +55,33 @@ import {
   visibleItemsKey,
   type ExecutionCamera,
 } from '../renderer/executionViewport'
+import type { RootTimelineSnapshot } from '@/services/agentApi'
 
 const props = withDefaults(
   defineProps<{
     rootChatId: string
+    timelineOverride?: RootTimelineSnapshot
+    branchAnchorNodeId?: string
+    branchAnchorKind?: 'detail' | 'continuation'
+    detailBranchAvailable?: boolean
+    detailBranchUnavailableReason?: string
+    layoutMode?: ExecutionLayoutMode
     foldMode?: 'none' | 'partial' | 'full' | 'participant'
     focusSourceChatId?: string
     focusInteractionId?: string
     /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
     fullRenderThreshold?: number
   }>(),
-  { foldMode: 'partial' },
+  { foldMode: 'partial', layoutMode: 'timeline' },
 )
+const emit = defineEmits<{
+  branch: [payload: {
+    type: 'detail' | 'continuation'
+    nodeId: string
+    sourceRootChatId: string
+    ordinary?: boolean
+  }]
+}>()
 const chatSessions = useChatSessionsStore()
 const agents = useAgentsStore()
 const themeStore = useThemeStore()
@@ -78,6 +97,8 @@ const readingFoldId = ref<string>()
 const viewportSize = ref({ width: 0, height: 0 })
 const pinnedCrtIds = ref<Set<string>>(new Set())
 const hiddenCrtIds = ref<Set<string>>(new Set())
+const crtWindowState = ref<Map<string, { left: number; top: number; z: number }>>(new Map())
+let nextCrtZ = 1
 const actionSelectedCallIds = ref<Map<string, string>>(new Map())
 const recoveringGraph = ref(false)
 const recoveryError = ref('')
@@ -90,7 +111,7 @@ let gpuMountGeneration = 0
 let lastGpuSceneSignature = ''
 let detailHideTimer: ReturnType<typeof setTimeout> | undefined
 
-const timelineSnapshot = computed(() => chatSessions.rootTimeline(props.rootChatId, 'tree'))
+const timelineSnapshot = computed(() => props.timelineOverride ?? chatSessions.rootTimeline(props.rootChatId, 'tree'))
 const timelineNodes = computed(() => timelineSnapshot.value?.nodes ?? [])
 const rootTransientState = computed(() => chatSessions.rootTimelineStates[props.rootChatId])
 const liveState = computed(() =>
@@ -169,8 +190,10 @@ const endpointFoldProjection = computed(() => {
 const endpointGraph = computed(() => endpointFoldProjection.value.graph)
 const layoutEngine = createIncrementalExecutionLayout()
 const endpointLayoutEngine = createIncrementalExecutionLayout()
-const layout = computed(() => layoutEngine.layout(graph.value))
-const endpointLayout = computed(() => endpointLayoutEngine.layout(endpointGraph.value))
+const layout = computed(() => layoutEngine.layout(graph.value, { mode: props.layoutMode }))
+const endpointLayout = computed(() =>
+  endpointLayoutEngine.layout(endpointGraph.value, { mode: props.layoutMode }),
+)
 
 const canvas = useTreeCanvas({
   viewport: () => viewportRef.value,
@@ -195,7 +218,6 @@ const executionCamera = computed<ExecutionCamera>(() => ({
 const viewportSelectionCamera = shallowRef<ExecutionCamera>(executionCamera.value)
 const VIEWPORT_RETENTION_OVERSCAN = 1600
 const VIEWPORT_RETENTION_SAFETY_MARGIN = 240
-const RUN_CRT_HEADER_CENTER_OFFSET_Y = 19
 const forcedGpuNodeIds = computed(
   () =>
     new Set(
@@ -334,52 +356,95 @@ const visibleCrts = computed(() =>
   ),
 )
 
-const overlayPlacements = computed(() => {
+const initialCrtPlacements = computed(() => {
   const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
   const heightLimit = Math.max(160, viewportSize.value.height - 96)
   return layoutAnchoredCrts(
-    [
-      ...visibleCrts.value.flatMap((card, order) => {
-        const node = positioned.get(card.anchorNodeId)
-        if (!node) return []
-        return [
-          {
-            id: card.id,
-            anchor: canvas.worldToScreen(node),
-            panel: { width: 420, height: Math.min(heightLimit, 560) },
-            main: card.main,
-            actionable: false,
-            pinned: pinnedCrtIds.value.has(card.id),
-            order: card.updatedAt || order,
-            lineTargetOffsetY: RUN_CRT_HEADER_CENTER_OFFSET_Y,
-          },
-        ]
-      }),
-      ...defaultNodePopovers.value.flatMap((model, order) => {
-        const node = positioned.get(model.anchorNodeId)
-        if (!node) return []
-        return [
-          {
-            id: model.id,
-            anchor: canvas.worldToScreen(node),
-            panel: { width: 480, height: Math.min(heightLimit, 640) },
-            main: node.main,
-            actionable: true,
-            pinned: false,
-            order: model.createdAt || order,
-          },
-        ]
-      }),
-    ],
+    visibleCrts.value.flatMap((card, order) => {
+      const node = positioned.get(card.anchorNodeId)
+      if (!node) return []
+      return [{
+        id: card.id,
+        anchor: canvas.worldToScreen(node),
+        panel: { width: 360, height: Math.min(heightLimit, 476) },
+        main: card.main,
+        actionable: false,
+        pinned: pinnedCrtIds.value.has(card.id),
+        order: card.updatedAt || order,
+        lineTargetOffsetY: 16,
+      }]
+    }),
     { ...viewportSize.value, margin: 12 },
   )
 })
-const crtPlacements = computed(() =>
-  overlayPlacements.value.filter((placement) => retainedCrts.value.has(placement.id)),
+
+watch(
+  initialCrtPlacements,
+  (placements) => {
+    const live = new Set(visibleCrts.value.map((card) => card.id))
+    const next = new Map(crtWindowState.value)
+    for (const id of next.keys()) if (!live.has(id)) next.delete(id)
+    for (const placement of placements) {
+      if (!next.has(placement.id)) {
+        next.set(placement.id, { left: placement.left, top: placement.top, z: nextCrtZ++ })
+      }
+    }
+    crtWindowState.value = next
+  },
+  { immediate: true },
 )
-const defaultPopoverPlacements = computed(() =>
-  overlayPlacements.value.filter((placement) => defaultPopoverById.value.has(placement.id)),
-)
+
+const crtPlacements = computed(() => {
+  const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
+  return visibleCrts.value.flatMap((card, order) => {
+    const node = positioned.get(card.anchorNodeId)
+    const state = crtWindowState.value.get(card.id)
+    if (!node || !state) return []
+    const anchor = canvas.worldToScreen(node)
+    const panel = { width: 360, height: Math.min(Math.max(160, viewportSize.value.height - 96), 476) }
+    const centerX = state.left + panel.width / 2
+    const placement = anchor.x <= centerX ? 'right' as const : 'left' as const
+    const edgeX = placement === 'right' ? state.left : state.left + panel.width
+    return [{
+      id: card.id,
+      anchor,
+      panel,
+      main: card.main,
+      actionable: card.actionable,
+      pinned: pinnedCrtIds.value.has(card.id),
+      order: card.updatedAt || order,
+      left: state.left,
+      top: state.top,
+      placement,
+      windowZ: state.z,
+      line: { from: anchor, to: { x: edgeX, y: state.top + 16 } },
+    }]
+  })
+})
+
+const defaultPopoverPlacements = computed(() => {
+  const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
+  const heightLimit = Math.max(160, viewportSize.value.height - 96)
+  return layoutAnchoredCrts(
+    defaultNodePopovers.value.flatMap((model, order) => {
+      const node = positioned.get(model.anchorNodeId)
+      if (!node) return []
+      return [
+        {
+          id: model.id,
+          anchor: canvas.worldToScreen(node),
+          panel: { width: 480, height: Math.min(heightLimit, 640) },
+          main: node.main,
+          actionable: true,
+          pinned: false,
+          order: model.createdAt || order,
+        },
+      ]
+    }),
+    { ...viewportSize.value, margin: 12 },
+  )
+})
+const overlayPlacements = computed(() => [...crtPlacements.value, ...defaultPopoverPlacements.value])
 
 const crtById = computed(() => new Map(visibleCrts.value.map((card) => [card.id, card])))
 const crtsByAnchor = computed(() => {
@@ -413,6 +478,31 @@ function closeCrt(id: string): void {
   updateCrtSet(hiddenCrtIds, (next) => next.add(id))
 }
 
+function focusCrt(id: string): void {
+  const current = crtWindowState.value.get(id)
+  if (!current) return
+  const next = new Map(crtWindowState.value)
+  const ordered = [...next.entries()]
+    .filter(([candidate]) => candidate !== id)
+    .sort((a, b) => a[1].z - b[1].z || a[0].localeCompare(b[0]))
+  ordered.forEach(([candidate, state], index) => next.set(candidate, { ...state, z: index + 1 }))
+  next.set(id, { ...current, z: ordered.length + 1 })
+  nextCrtZ = ordered.length + 2
+  crtWindowState.value = next
+}
+
+function dragCrt(id: string, delta: { x: number; y: number }): void {
+  const current = crtWindowState.value.get(id)
+  if (!current) return
+  const width = 360
+  const headerVisible = 32
+  const left = Math.min(viewportSize.value.width - headerVisible, Math.max(-width + headerVisible, current.left + delta.x))
+  const top = Math.min(viewportSize.value.height - headerVisible, Math.max(0, current.top + delta.y))
+  const next = new Map(crtWindowState.value)
+  next.set(id, { left, top, z: current.z })
+  crtWindowState.value = next
+}
+
 function actorLabel(node: (typeof layout.value.nodes)[number]): string {
   const actor = node.actor
   if (actor.kind === 'user') return actor.displayName?.trim() || '我'
@@ -441,6 +531,11 @@ function nodeTitle(node: (typeof layout.value.nodes)[number]): string {
   if (node.kind === 'dispatch') return '任务委派'
   if (node.kind === 'spawn') return '创建协作节点'
   return actorLabel(node)
+}
+
+function compactNodeTitle(node: (typeof layout.value.nodes)[number]): string {
+  const title = nodeTitle(node)
+  return title.length > 10 ? `${title.slice(0, 9)}…` : title
 }
 
 function nodeAriaLabel(node: (typeof layout.value.nodes)[number]): string {
@@ -488,6 +583,7 @@ watch(
   ([currentLayout, sourceChatId, interactionId]) => {
     if (!sourceChatId && !interactionId) return
     const node = currentLayout.nodes.find((candidate) => {
+      if (interactionId && candidate.id === interactionId) return true
       if (interactionId && toolBatchDetail(candidate)?.calls.some((call) => call.callId === interactionId))
         return true
       return !!sourceChatId && candidate.sourceChatId === sourceChatId
@@ -546,6 +642,23 @@ function closeNodeDetail(): void {
   hoveredDetailNodeId.value = undefined
   selectedCallId.value = undefined
   readingFoldId.value = undefined
+}
+
+function requestBranch(type: 'detail' | 'continuation', nodeId: string): void {
+  const node = persistentGraph.value.nodes.find((candidate) => candidate.id === nodeId)
+  if (!node) return
+  const branchId = node.sourceFact?.branchId
+  const sourceRootChatId = branchId
+    ? props.timelineOverride?.branches?.find((branch) => branch.branchId === branchId)?.chatId
+    : props.rootChatId
+  if (!sourceRootChatId) return
+  // 结尾节点（主执行流终点）的「从此处继续」= 普通发送：在当前会话末尾追加一条新消息。
+  // 是否普通发送只看该节点是否就是执行流终点，与工作台当前聚焦的聊天无关——
+  // 工作台可能聚焦在某一分支，而整棵任务树的真正终点落在根会话里。
+  const ordinary =
+    type === 'continuation' && mainExecutionEndpoint(persistentGraph.value).id === node.id
+  emit('branch', { type, nodeId, sourceRootChatId, ...(ordinary ? { ordinary: true } : {}) })
+  closeNodeDetail()
 }
 
 function updateStringMap(
@@ -628,12 +741,16 @@ async function recoverGraph(): Promise<void> {
 // 折叠档位/切根后禁止 `followContentEnd` 立即把相机拖到末尾：fit 应锚定开始节点，
 // 让用户看清新投影的起点。动画结束后恢复自动跟随（流式新增节点仍可贴底）。
 let suppressAutoFollow = false
-function resetLayout(): void {
+function resetLayout(): boolean {
   suppressAutoFollow = true
-  canvas.fitToView({ animate: true, duration: 300 })
+  if (!canvas.fitToView({ animate: true, duration: 300 })) {
+    suppressAutoFollow = false
+    return false
+  }
   window.setTimeout(() => {
     suppressAutoFollow = false
   }, 360)
+  return true
 }
 
 function isPaused(node: (typeof layout.value.nodes)[number]): boolean {
@@ -675,6 +792,15 @@ const detailDisplayNode = computed(() =>
   detailNode.value?.kind === 'fold' ? detailFoldMember.value?.displayNode : detailNode.value,
 )
 const detailPinned = computed(() => !!pinnedDetailNodeId.value && !!detailNode.value)
+function containsBranchAnchor(node: (typeof layout.value.nodes)[number]): boolean {
+  const anchorId = props.branchAnchorNodeId
+  if (!anchorId) return false
+  if (node.id === anchorId || node.sourceFact?.id === anchorId) return true
+  return !!node.fold?.members.some((member) =>
+    member.id === anchorId || member.displayNode.sourceFact?.id === anchorId ||
+    member.nodes.some((candidate) => candidate.id === anchorId || candidate.sourceFact?.id === anchorId),
+  )
+}
 const detailRelatedEdges = computed(() => {
   const node = detailNode.value
   return node
@@ -730,13 +856,14 @@ const pixiScene = computed<PixiExecutionScene>(() => ({
       y: node.y,
       accent: accentForTheme(themeStore.theme, skin.key),
       glyph: skin.glyph,
-      title: nodeTitle(node),
+      title: compactNodeTitle(node),
       ...(node.sourceFact?.termination
         ? { termination: terminationDisplay(node.sourceFact.termination).label }
         : {}),
       ...(node.kind === 'fold' && node.fold ? { foldCount: node.fold.members.length } : {}),
       running: runningTailIds.value.has(node.id),
       detailActive: hoveredDetailNodeId.value === node.id || pinnedDetailNodeId.value === node.id,
+      branchAnchorKind: containsBranchAnchor(node) ? props.branchAnchorKind : undefined,
       paused: isPaused(node),
       error: isError(node),
       revoked: node.status === 'revoked',
@@ -812,6 +939,9 @@ function onEscape(event: KeyboardEvent): void {
 
 let viewportRO: ResizeObserver | undefined
 let knownFoldCounts = new Map<string, number>()
+// 首次进入/切根时，数据布局与工作台视口可能分两拍就绪。保留待 fit 状态，直到两者都有效，
+// 避免早到的 resetLayout 静默失败后一直使用默认相机；成功后即停止，不能抢走用户视角。
+let initialFitPending = true
 watch(
   () =>
     foldProjection.value.ranges.map((range) => ({
@@ -851,6 +981,7 @@ watch(
   () => props.rootChatId,
   (rootChatId, previousRootChatId) => {
     if (!rootChatId) return
+    initialFitPending = true
     layoutEngine.reset()
     endpointLayoutEngine.reset()
     recoveryError.value = ''
@@ -863,11 +994,32 @@ watch(
     if (previousRootChatId && previousRootChatId !== rootChatId) {
       pinnedCrtIds.value = new Set()
       hiddenCrtIds.value = new Set()
+      crtWindowState.value = new Map()
+      nextCrtZ = 1
     }
     closeNodeDetail()
-    void nextTick(resetLayout)
+    void nextTick(tryInitialFit)
   },
   { immediate: true },
+)
+function tryInitialFit(): void {
+  // 数据请求完成前 graph 可能已有占位边界，不能据此结束首次 fit，否则真实历史到达后仍是默认相机。
+  if (!initialFitPending || !timelineSnapshot.value) return
+  if (resetLayout()) initialFitPending = false
+}
+watch(
+  [
+    () => timelineSnapshot.value?.revision,
+    () => graph.value.nodes.length,
+    () => layout.value.bounds.minX,
+    () => layout.value.bounds.minY,
+    () => layout.value.bounds.maxX,
+    () => layout.value.bounds.maxY,
+    () => viewportSize.value.width,
+    () => viewportSize.value.height,
+  ],
+  () => void nextTick(tryInitialFit),
+  { flush: 'post' },
 )
 watch(
   () => props.foldMode,
@@ -881,10 +1033,12 @@ watch(
   },
 )
 watch(
-  () => endpointLayout.value.height,
+  () => props.layoutMode,
   () => {
-    if (suppressAutoFollow) return
-    void nextTick(() => canvas.followContentEnd(endpointLayout.value.height))
+    closeNodeDetail()
+    layoutEngine.reset()
+    endpointLayoutEngine.reset()
+    void nextTick(resetLayout)
   },
 )
 // 用户拖离后末尾真正追加了「新」节点（id 此前未出现在图中）才显示「回到底部」浮标。
@@ -916,6 +1070,7 @@ function gpuSceneSignature(scene: PixiExecutionScene): string {
         node.foldCount ?? '',
         Number(node.running),
         Number(node.detailActive),
+        node.branchAnchorKind ?? '',
         Number(node.paused),
         Number(node.error),
         Number(node.revoked),
@@ -981,11 +1136,10 @@ onMounted(() => {
     // 与画布相机同步：resizeTo 对工作台瞬时全屏切换可能漏触发，导致 GPU 位图停留在旧高度、
     // 图底部被裁剪。这里显式重设渲染器尺寸，与 SVG 视口保持一致。
     gpuRenderer?.resize(width, height)
-    canvas.fitToView()
   })
   if (viewportRef.value) viewportRO.observe(viewportRef.value)
   void nextTick(() => {
-    resetLayout()
+    tryInitialFit()
   })
   void mountGpuRenderer()
   window.addEventListener('keydown', onEscape)
@@ -1097,11 +1251,7 @@ defineExpose({ resetLayout })
           :style="{
             left: `${placement.left}px`,
             top: `${placement.top}px`,
-            zIndex: placement.actionable
-              ? 'var(--nx-z-blocking-interaction)'
-              : placement.pinned
-                ? 'calc(var(--nx-z-run-crt) + 1)'
-                : 'var(--nx-z-run-crt)',
+            zIndex: `calc(var(--nx-z-run-crt) + ${placement.windowZ})`,
           }"
         >
           <AnchoredRunCrt
@@ -1112,6 +1262,8 @@ defineExpose({ resetLayout })
             @pin="pinCrt(placement.id)"
             @unpin="unpinCrt(placement.id)"
             @close="closeCrt(placement.id)"
+            @focus="focusCrt(placement.id)"
+            @drag="dragCrt(placement.id, $event)"
           />
         </div>
         <div v-if="crtVisibility.hiddenPassive" class="crt-overflow-summary" role="status">
@@ -1179,7 +1331,10 @@ defineExpose({ resetLayout })
               :pinned="detailPinned"
               :max-height="detailMaxHeight"
               :selected-call-id="selectedCallId"
+              :detail-branch-available="detailBranchAvailable"
+              :detail-branch-unavailable-reason="detailBranchUnavailableReason"
               @select-call="selectedCallId = $event"
+              @branch="requestBranch"
               @close="closeNodeDetail"
             />
           </div>

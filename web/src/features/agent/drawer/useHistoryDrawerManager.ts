@@ -56,13 +56,34 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
   const store = useAgentsStore()
   const chatSessions = useChatSessionsStore()
   const historyCache = new Map<string, HistoryCacheEntry>()
+  const ownerId = 'history-drawer'
+  const rootOf = (chatId: string): string | undefined => {
+    const session = chatSessions.sessionsById[chatId]
+    return session && !session.meta.parentChatId ? chatId : undefined
+  }
+  const release = (chatIds: readonly string[]): void => {
+    for (const rootChatId of new Set(chatIds.map(rootOf).filter((id): id is string => !!id))) {
+      void chatSessions.releaseRootTimeline(rootChatId, ownerId)
+    }
+  }
 
   return {
     stack: computed(() => store.historyDrawerStack),
-    openRoot: (chatId, mode, anchor) => store.openHistoryRoot(chatId, mode, anchor),
+    openRoot: (chatId, mode, anchor) => {
+      release(store.historyDrawerStack.filter((id) => id !== chatId))
+      store.openHistoryRoot(chatId, mode, anchor)
+    },
     drillChild: (chatId: string) => store.drillHistoryChild(chatId),
-    closeTop: () => store.closeHistoryTop(),
-    closeAll: () => store.closeAllHistory(),
+    closeTop: () => {
+      const top = store.historyDrawerStack.at(-1)
+      store.closeHistoryTop()
+      if (top) release([top])
+    },
+    closeAll: () => {
+      const open = [...store.historyDrawerStack]
+      store.closeAllHistory()
+      release(open)
+    },
     async loadHistory(chatId: string) {
       const isChild = Boolean(chatSessions.sessionsById[chatId]?.meta.parentChatId)
       if (isChild) {
@@ -71,7 +92,7 @@ export function createHistoryDrawerManager(): HistoryDrawerManager {
       } else {
         // Group history has exactly one source: the root snapshot + root
         // transient state returned by the atomic root subscription.
-        await chatSessions.observeRootTimeline(chatId, 'conversation')
+        await chatSessions.acquireRootTimeline(chatId, ownerId, 'conversation')
       }
     },
     historyCache,

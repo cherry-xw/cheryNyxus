@@ -184,6 +184,7 @@ function removeRole(type: string): void {
   for (const preset of Object.values(props.draft.presets ?? {})) {
     preset.roles = preset.roles?.filter((name) => name !== type)
     if (preset.leader === type) preset.leader = ''
+    if (preset.detailRole === type) preset.detailRole = undefined
   }
 }
 function duplicateRole(type: string): void {
@@ -214,6 +215,7 @@ function renameRole(oldType: string, newType: string): void {
   for (const preset of Object.values(props.draft.presets ?? {})) {
     preset.roles = preset.roles?.map((name) => (name === oldType ? newType : name))
     if (preset.leader === oldType) preset.leader = newType
+    if (preset.detailRole === oldType) preset.detailRole = newType
   }
   selectedRole.value = newType
 }

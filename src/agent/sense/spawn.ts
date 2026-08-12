@@ -46,6 +46,9 @@ for (const [name, cfg] of Object.entries(config.roles ?? {})) {
   })
 }
 const roleKeys = [...roleCatalog.keys()]
+const reservedDetailRoles = new Set(
+  Object.values(config.presets ?? {}).flatMap((preset) => preset.detailRole ? [preset.detailRole] : []),
+)
 
 /** 按给定角色键子集拼装 catalog 文本（roster 裁剪时复用）。 */
 function buildCatalogText(keys: string[]): string {
@@ -92,7 +95,7 @@ export function resolveSpawnRoster(chatId: string): string[] {
     ? (getChatSpawnTypes(chatId) ?? config.presets?.[presetName]?.roles ?? roleKeys)
     : roleKeys
   const selfType = getChatType(chatId)
-  return selfType ? raw.filter((t) => t !== selfType) : raw
+  return raw.filter((type) => type !== selfType && !reservedDetailRoles.has(type))
 }
 
 /**
@@ -136,7 +139,7 @@ export function buildSpawnRoleSense(chatId: string): Sense<z.ZodType> {
 }
 
 // 默认导出（registry 兜底）：全量 catalog。per-chat 场景由 buildSpawnRoleSense 按 roster 覆盖。
-export default buildSpawnRoleSenseFromRoster(roleKeys)
+export default buildSpawnRoleSenseFromRoster(roleKeys.filter((type) => !reservedDetailRoles.has(type)))
 
 /** spawn_role 执行器（含执行期 roster gate + self-spawn 禁止，纵深防御）。 */
 async function spawnHandler(

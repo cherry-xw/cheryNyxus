@@ -65,6 +65,16 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('retainCameraSelection(camera)')
   })
 
+  it('retries the shared reset layout until initial timeline geometry is ready', async () => {
+    const source = await treeComponentSource()
+
+    expect(source).toContain('if (!initialFitPending || !timelineSnapshot.value) return')
+    expect(source).toContain('if (resetLayout()) initialFitPending = false')
+    expect(source).toContain('() => layout.value.bounds.maxY')
+    expect(source).toContain('() => viewportSize.value.height')
+    expect(source).toContain('@click.stop="resetLayout"')
+  })
+
   it('keeps the enlarged static cache out of the per-frame animation loops', async () => {
     const source = await rendererSource()
     const drawMotion = source.slice(

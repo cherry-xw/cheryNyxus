@@ -131,6 +131,11 @@ import { recordDispatchFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { handleChatResumeTree, toTreeControlState } from './treeControl.js'
 import {
+  getConversationBranchByChat,
+  getConversationTask,
+  listConversationBranches,
+} from '@/db/conversationBranch.js'
+import {
   markActiveTreeTargetDelegated,
 } from '@/db/treeControl.js'
 import { buildTreeInterruptionNotice } from './treeInterruption.js'
@@ -255,6 +260,7 @@ export async function handleChatList(
   const previews = data.includePreview ? getChatPreviews(rows) : undefined
 
   const chats = rows.map((chat) => {
+    const conversationBranch = getConversationBranchByChat(chat.id)
     const meta = chat.metadata
       ? (safeJsonParse(chat.metadata, {}) as {
           finished?: boolean
@@ -292,6 +298,13 @@ export async function handleChatList(
       updatedAt: chat.updated_at,
       messageCount: chat.message_count,
       parentChatId: chat.parent_chat_id ?? null,
+      ...(conversationBranch
+        ? {
+            taskId: conversationBranch.taskId,
+            branchId: conversationBranch.branchId,
+            branchKind: conversationBranch.kind,
+          }
+        : {}),
       finished,
       running,
       wake,
@@ -540,6 +553,7 @@ export function buildRootTimeline(
   const childByType = new Map<string, string[]>()
   const childBySpawnCall = new Map<string, string[]>()
   const messagesByChat = new Map(chatIds.map((chatId) => [chatId, getMessages(chatId)]))
+  const runtimeByMessageId = new Map<string, RuntimeSelection>()
   for (const chatId of chatIds) {
     const chat = getChat(chatId)
     const metadata = chat?.metadata
@@ -558,6 +572,18 @@ export function buildRootTimeline(
       if (spawnCallId) {
         childBySpawnCall.set(spawnCallId, [...(childBySpawnCall.get(spawnCallId) ?? []), chatId])
       }
+    }
+    let lastUserRuntime: RuntimeSelection | undefined
+    for (const row of messagesByChat.get(chatId) ?? []) {
+      const parsed = parseMessageRow(row)
+      if (parsed.role === 'user' && parsed.runtime) lastUserRuntime = parsed.runtime
+      const runtime =
+        parsed.role === 'user'
+          ? parsed.runtime
+          : parsed.role === 'assistant'
+            ? lastUserRuntime
+            : undefined
+      if (runtime) runtimeByMessageId.set(row.id, runtime)
     }
   }
   const actorForAgent = (chatId: string): TimelineActor => ({
@@ -602,6 +628,11 @@ export function buildRootTimeline(
           }
         }
       }
+      const runtime =
+        runtimeByMessageId.get(row.id) ??
+        (link?.relation === 'child_return' && link.relatedMessageId
+          ? runtimeByMessageId.get(link.relatedMessageId)
+          : undefined)
       const relation =
         link?.relation ??
         (child
@@ -676,6 +707,7 @@ export function buildRootTimeline(
         visibility: 'conversation',
         content: parsed.content ?? '',
         ...(parsed.thinking ? { thinking: parsed.thinking } : {}),
+        ...(runtime ? { runtime } : {}),
         ...(senseCalls.length > 0 ? { toolCalls: senseCalls } : {}),
         ...(link?.causationNodeId ? { causationId: link.causationNodeId } : {}),
         createdAt: row.created_at,
@@ -1232,8 +1264,119 @@ export async function handleChatTimelineGet(
   _ctx: HandlerContext,
   data: ChatTimelineGetRequestData,
 ): Promise<ChatTimelineGetResponseData> {
+  if (data.taskId) {
+    const task = getConversationTask(data.taskId)
+    if (!task) throw new Error('任务不存在')
+    const branches = listConversationBranches(data.taskId)
+    const snapshots = branches.map((branch) => ({
+      branch,
+      timeline: buildRootTimeline(branch.chatId, data.view ?? 'tree'),
+    }))
+    const nodes: TimelineNode[] = []
+    const edges: ExecutionEdgeFact[] = []
+    const activeRuns: ActiveRunFact[] = []
+    const pendingInputs: RootTimelineSnapshot['pendingInputs'] = []
+    let orderOffset = 0
+    for (const { branch, timeline } of snapshots) {
+      const maxOrder = Math.max(
+        0,
+        ...timeline.nodes.map((node) => node.orderKey),
+        ...timeline.edges.map((edge) => edge.orderKey),
+      )
+      for (const node of timeline.nodes) {
+        nodes.push({
+          ...node,
+          rootChatId: task.originalChatId,
+          orderKey: node.orderKey + orderOffset,
+          taskId: data.taskId,
+          branchId: branch.branchId,
+          branchKind: branch.kind,
+        })
+      }
+      for (const edge of timeline.edges) {
+        edges.push({
+          ...edge,
+          rootChatId: task.originalChatId,
+          orderKey: edge.orderKey + orderOffset,
+          taskId: data.taskId,
+          branchId: branch.branchId,
+        })
+      }
+      activeRuns.push(...timeline.activeRuns.map((run) => ({ ...run, rootChatId: task.originalChatId })))
+      pendingInputs.push(...timeline.pendingInputs)
+      orderOffset += maxOrder + 1
+    }
+    for (const { branch, timeline } of snapshots) {
+      if (!branch.sourceBranchId || !branch.anchorNodeId) continue
+      const first = timeline.nodes
+        .filter((node) => node.status === 'committed')
+        .sort((a, b) => a.orderKey - b.orderKey)[0]
+      const anchor = nodes.find(
+        (node) => node.id === branch.anchorNodeId && node.branchId === branch.sourceBranchId,
+      )
+      if (!first || !anchor) continue
+      anchor.forkAnchor = true
+      const projectedFirst = nodes.find(
+        (node) => node.id === first.id && node.branchId === branch.branchId,
+      )
+      if (projectedFirst) projectedFirst.forkAnchor = true
+      edges.push({
+        id: `edge:fork:${branch.branchId}`,
+        rootChatId: task.originalChatId,
+        fromNodeId: anchor.id,
+        toNodeId: first.id,
+        kind: branch.kind === 'detail' ? 'fork-detail' : 'fork-continuation',
+        orderKey: orderOffset++,
+        sourceChatId: anchor.sourceChatId,
+        targetChatId: branch.chatId,
+        taskId: data.taskId,
+        branchId: branch.branchId,
+      })
+    }
+    const rootTimeline: RootTimelineSnapshot = {
+      rootChatId: task.originalChatId,
+      taskId: data.taskId,
+      activeBranchId: task.activeBranchId,
+      branches: snapshots.map(({ branch, timeline }) => {
+        const firstUserMessage = timeline.nodes
+          .filter((node) => node.status === 'committed' && node.actor.kind === 'user')
+          .sort((a, b) => a.orderKey - b.orderKey)[0]?.content.trim()
+        const snapshotMetadata = branch.runtimeSnapshot.metadata
+        const storedTitle = snapshotMetadata && typeof snapshotMetadata === 'object'
+          ? (snapshotMetadata as Record<string, unknown>).branchTitle
+          : undefined
+        const title = typeof storedTitle === 'string' && storedTitle.trim()
+          ? storedTitle.trim()
+          : firstUserMessage
+        return {
+          branchId: branch.branchId,
+          taskId: branch.taskId,
+          chatId: branch.chatId,
+          kind: branch.kind,
+          ...(branch.sourceBranchId ? { sourceBranchId: branch.sourceBranchId } : {}),
+          ...(branch.anchorRootChatId ? { anchorRootChatId: branch.anchorRootChatId } : {}),
+          ...(branch.anchorNodeId ? { anchorNodeId: branch.anchorNodeId } : {}),
+          ...(title ? { title } : {}),
+          createdAt: branch.createdAt,
+        }
+      }),
+      view: data.view ?? 'tree',
+      revision: Math.max(0, ...snapshots.map((item) => item.timeline.revision)),
+      nodes,
+      edges,
+      activeRuns,
+      pendingInputs,
+      capturedEventSeq: Math.max(0, ...snapshots.map((item) => item.timeline.capturedEventSeq)),
+    }
+    return {
+      chatId: task.originalChatId,
+      revision: rootTimeline.revision,
+      messages: [],
+      rootTimeline,
+    }
+  }
   const requestedChatId = data.chatId ?? data.rootChatId
-  if (!requestedChatId) throw new Error('缺少 chatId/rootChatId')
+  if (!requestedChatId) throw new Error('缺少 chatId/rootChatId/taskId')
   if (!getChat(requestedChatId)) throw new Error('这个会话不见了')
   if (data.rootChatId) {
     const rootTimeline = buildRootTimeline(data.rootChatId, data.view ?? 'conversation')

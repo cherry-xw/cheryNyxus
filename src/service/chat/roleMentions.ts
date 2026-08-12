@@ -17,7 +17,7 @@ export function getChatMentionableRoles(chatId: string): RoleMentionInfo[] {
   const roster = getChatSpawnTypes(chatId) ?? preset.roles ?? []
   return roster.flatMap((name) => {
     const role = config.roles?.[name]
-    if (!role || name === preset.leader || !role.mentionable) return []
+    if (!role || name === preset.leader || name === preset.detailRole || !role.mentionable) return []
     return [{ name, description: role.description ?? `委派 ${name} 角色处理任务。` }]
   })
 }

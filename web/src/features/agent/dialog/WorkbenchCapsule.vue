@@ -126,6 +126,8 @@ function restore(): void {
   agents.focusWorkbenchWindow(props.windowId)
 }
 function close(): void {
+  const rootChatId = win.value?.chatId
+  if (rootChatId) void chatSessions.releaseRootTimeline(rootChatId, `workbench:${props.windowId}`)
   agents.closeWorkbenchWindow(props.windowId)
 }
 function onHover(): void {

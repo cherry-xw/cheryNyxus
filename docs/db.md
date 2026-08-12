@@ -18,6 +18,8 @@
 
 三大隐喻映射：**Chat**（chatId）是顶层实体存于 soul.db；**消息**（含 Brain 响应与 Sense 调用结果）按月分片存于 `YYYY-MM.db`。审批与撤回不建独立表，靠 `content` 空与 `revoked=1` 判定。
 
+任务分支使用 soul.db 中的 `conversation_tasks` / `conversation_branches`。分支 Chat 仍是普通根 Chat，`parent_chat_id=NULL`；分支血缘、锚点和因果快照只存在分支表，不复用子 Agent 关系。
+
 ## 文件清单
 
 | 文件 | 一句话 |

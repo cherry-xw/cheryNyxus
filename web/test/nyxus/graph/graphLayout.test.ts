@@ -2,10 +2,16 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { RootTimelineSnapshot, TimelineNode } from '../../../src/services/agentApi'
-import { projectPersistentExecutionGraph } from '../../../src/features/pets/nyxus/graph/executionGraph'
+import {
+  projectPersistentExecutionGraph,
+  type ExecutionGraph,
+  type ExecutionNode,
+} from '../../../src/features/pets/nyxus/graph/executionGraph'
 import {
   EXECUTION_ICON_RADIUS,
   EXECUTION_LANE_GAP,
+  EXECUTION_ROW_GAP,
+  createIncrementalExecutionLayout,
   layoutExecutionGraph,
 } from '../../../src/features/pets/nyxus/graph/executionLayout'
 import { executionEdgeGeometry } from '../../../src/features/pets/nyxus/graph/executionGeometry'
@@ -18,7 +24,110 @@ async function json<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(resolve(path), 'utf8')) as T
 }
 
+function executionNode(id: string, orderKey: number, sourceChatId = 'root'): ExecutionNode {
+  return {
+    id,
+    kind: orderKey === 0 ? 'start' : 'message',
+    rootChatId: 'root',
+    sourceChatId,
+    actor: orderKey === 0 ? { kind: 'system' } : { kind: 'agent', chatId: sourceChatId },
+    direction: orderKey === 0 ? 'internal' : 'agent-to-user',
+    content: id,
+    createdAt: orderKey,
+    status: 'committed',
+    main: sourceChatId === 'root',
+    orderSlot: orderKey === 0 ? 'start' : 'persistent',
+    orderKey: orderKey === 0 ? null : orderKey,
+    activeRuns: [],
+  }
+}
+
+function topologyGraph(): ExecutionGraph {
+  const nodes = [
+    executionNode('root', 0),
+    executionNode('left-1', 1, 'left'),
+    executionNode('left-2', 4, 'left'),
+    executionNode('right-1', 3, 'right'),
+    executionNode('merge', 5),
+  ]
+  const edge = (id: string, from: string, to: string) => ({
+    id,
+    from,
+    to,
+    kind: 'sequence' as const,
+    orderSlot: 'persistent' as const,
+    orderKey: 1,
+    sourceChatId: nodes.find((node) => node.id === from)!.sourceChatId,
+    targetChatId: nodes.find((node) => node.id === to)!.sourceChatId,
+  })
+  return {
+    rootChatId: 'root',
+    nodes,
+    edges: [
+      edge('root-left', 'root', 'left-1'),
+      edge('left-chain', 'left-1', 'left-2'),
+      edge('root-right', 'root', 'right-1'),
+      edge('left-merge', 'left-2', 'merge'),
+      edge('right-merge', 'right-1', 'merge'),
+    ],
+    diagnostics: [],
+  }
+}
+
 describe('execution layout and edge geometry', () => {
+  it('places topology peers on the same row and a merge below its deepest parent', () => {
+    const graph = topologyGraph()
+    const timeline = layoutExecutionGraph(graph)
+    const topology = layoutExecutionGraph(graph, { mode: 'topology' })
+    const byId = new Map(topology.nodes.map((node) => [node.id, node]))
+
+    expect(byId.get('left-1')!.y).toBe(byId.get('right-1')!.y)
+    expect(byId.get('left-2')!.y - byId.get('left-1')!.y).toBe(EXECUTION_ROW_GAP)
+    expect(byId.get('merge')!.y - byId.get('left-2')!.y).toBe(EXECUTION_ROW_GAP)
+    expect(topology.height).toBeLessThan(timeline.height)
+    expect(EXECUTION_LANE_GAP).toBe(110)
+  })
+
+  it('recomputes incremental coordinates when the layout mode changes', () => {
+    const engine = createIncrementalExecutionLayout()
+    const graph = topologyGraph()
+    engine.layout(graph, { mode: 'timeline' })
+    const topology = engine.layout(graph, { mode: 'topology' })
+
+    expect(engine.recomputations()).toBe(2)
+    expect(topology.nodes.find((node) => node.id === 'left-1')!.y).toBe(
+      topology.nodes.find((node) => node.id === 'right-1')!.y,
+    )
+    engine.layout({
+      ...graph,
+      nodes: graph.nodes.map((node) => ({ ...node, content: `${node.content} streamed` })),
+    }, { mode: 'topology' })
+    expect(engine.recomputations()).toBe(2)
+  })
+
+  it('renders malformed topology cycles deterministically', () => {
+    const graph = topologyGraph()
+    const cycle = {
+      ...graph,
+      edges: [
+        ...graph.edges,
+        {
+          ...graph.edges[0]!,
+          id: 'cycle',
+          from: 'merge',
+          to: 'left-1',
+        },
+      ],
+    }
+    const first = layoutExecutionGraph(cycle, { mode: 'topology' })
+    const second = layoutExecutionGraph(cycle, { mode: 'topology' })
+
+    expect(first.nodes.map(({ id, y }) => ({ id, y }))).toEqual(
+      second.nodes.map(({ id, y }) => ({ id, y })),
+    )
+    expect(first.nodes.every((node) => Number.isFinite(node.y))).toBe(true)
+  })
+
   it('keeps canonical time strictly descending with the root centered and a single descendant one lane outward', async () => {
     const fixture = await json<TopologyFixture>('test/fixtures/cp3-topology-matrix.json')
     const layout = layoutExecutionGraph(projectPersistentExecutionGraph(fixture.snapshot))

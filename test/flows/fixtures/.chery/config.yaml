@@ -100,6 +100,10 @@ sense_groups:
     - update_todo:auto
   spawn_senses:                  # spawn_role 派发（父 agent 用，builtin auto）
     - spawn_role
+  detail_diagnostics:
+    - read_file
+    - search_codebase
+    - execute_command
 
 # 角色定义（spawn_role type 单一源；子 brain 决定子 agent 行为）
 roles:
@@ -109,6 +113,16 @@ roles:
   reviewer_stream:               # S16 子：流式慢响应，造刷新重连窗口
     brain: mock_child_stream
     senseGroup: auto_senses
+  explanation:
+    brain: mock_content
+    senseGroup: detail_diagnostics
+    mcpServers: []
+
+presets:
+  detail-test:
+    leader: reviewer
+    roles: [reviewer, explanation]
+    detailRole: explanation
 
 global:
   thinking: true

@@ -16,6 +16,9 @@ import { registerChatHandlers } from './chat/send.js'
 import { rebuildWaitedChildren } from './chat/wake.js'
 import { registerChatManageHandlers } from './chat/handler.js'
 import { registerConversationRouterHandlers } from './chat/conversationRouter.js'
+import { registerConversationBranchHandlers } from './chat/conversationBranch.js'
+import { registerInteractionHandlers } from './interaction/handler.js'
+import { startInteractionLifecycle, stopInteractionLifecycle } from './interaction/lifecycle.js'
 import { requestParkAfterTurn } from './chat/runtime.js'
 import { disconnectGrace } from './websocket/disconnectGrace.js'
 import { approvalManager } from './approval/manager.js'
@@ -77,6 +80,8 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   registerChatHandlers(router)
   registerChatManageHandlers(router)
   registerConversationRouterHandlers(router)
+  registerConversationBranchHandlers(router)
+  registerInteractionHandlers(router)
   registerBashHandlers(router)
   registerMcpHandlers(router)
   // CP3 + T9：spawn broadcaster 注入 + wait=true 看门狗超时回调（spawn_role sense 用）。
@@ -88,6 +93,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   // 定时触发器：为每个 schedule.enabled !== false 的预设注册 cron 任务（典型：「维护」预设定时派 curator 做 Dream）。
   // 须在 config 加载后、服务就绪前注册；重启后自动重建。
   startScheduleService()
+  startInteractionLifecycle()
   // 断连宽限：宽限期到期调用 requestParkAfterTurn（runtime 层安全边界） + parkApproval（无 LLM 流时的 fallback）。
   // 必须在 createWebSocketServer 之前注入，否则 handleRequest 的 rebind 路径无法找到依赖。
   disconnectGrace.configure({
@@ -132,5 +138,12 @@ export function startService(options: StartServiceOptions): ServiceHandle {
     auth,
   })
 
-  return { wss, httpServer, stopSchedule: stopScheduleService }
+  return {
+    wss,
+    httpServer,
+    stopSchedule: () => {
+      stopInteractionLifecycle()
+      stopScheduleService()
+    },
+  }
 }

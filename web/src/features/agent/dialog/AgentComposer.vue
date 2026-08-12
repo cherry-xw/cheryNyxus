@@ -301,7 +301,7 @@ const emit = defineEmits<{
             loading ||
             !primarySelection?.brain ||
             (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)
-            || targetLocked === false
+            || (targetLocked !== undefined && targetLocked === false)
           "
           aria-label="发送消息"
           @click="emit('send')"

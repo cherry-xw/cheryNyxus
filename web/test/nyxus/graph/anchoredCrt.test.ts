@@ -416,10 +416,8 @@ describe('anchored CRT model', () => {
         activeRuns: [],
       }),
     )
-    expect(completed.ranges[0]?.members.map((member) => member.id)).toEqual([
-      'assistant:old',
-      'assistant:live',
-    ])
+    expect(completed.ranges).toEqual([])
+    expect(completed.graph.nodes.some((node) => node.id === 'assistant:old')).toBe(true)
     expect(
       buildRunCrtModels({
         rootChatId: 'root',

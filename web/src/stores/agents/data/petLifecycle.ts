@@ -249,17 +249,20 @@ export function createPetLifecycle(
   }
 
   /**
-   * 取「活跃」Nyxus 会话 chatId（chat-only，不建 PetInstance）：activeNyxusChatId 命中则直返；
-   * 否则取最近一条 root + preset=cheryNyxus；全无则新建并设活跃。
+   * 取「活跃」Nyxus 会话 chatId（chat-only，不建 PetInstance）：先刷新轻量目录；
+   * activeNyxusChatId 仍存在则返回，否则取最近一条 root + preset=cheryNyxus；全无则新建并设活跃。
    * 多会话模型：打破历史单例，允许多个 Nyxus 会话以规避单会话上下文上限（compact 遗忘）。
    * 调用方（NyxusCore）负责 chatSessions.hydrateTree 灌入投影。
    */
   async function getActiveNyxus(): Promise<string> {
-    if (activeNyxusChatId.value) return activeNyxusChatId.value
     // listChats(false) 轻量取 recent root（不需 preview）；preview 由 fetchHistoryList(true) 后台补全，
-    // 避免打开节点树时阻塞在所有会话的 preview 计算上。
+    // 避免打开节点树时阻塞在所有会话的 preview 计算上。已有 active id 时也刷新目录，
+    // 保证从 Cherry Nyxus 直接进入工作台后钢琴能渲染当前全部根会话。
     const chats = await agentApi.listChats(false)
     historyList.value = chats
+    if (activeNyxusChatId.value && chats.some((chat) => chat.chatId === activeNyxusChatId.value)) {
+      return activeNyxusChatId.value
+    }
     const recent = chats
       .filter((c) => !c.parentChatId && c.preset === CHERY_NYXUS_PRESET)
       .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]

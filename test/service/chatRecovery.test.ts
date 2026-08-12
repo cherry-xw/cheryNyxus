@@ -84,4 +84,50 @@ describe('chat recovery state', () => {
       ]),
     )
   })
+
+  it('projects message runtime snapshots for root and child agent replies', () => {
+    const rootChatId = randomUUID()
+    const childChatId = randomUUID()
+    cleanupChats.push(rootChatId, childChatId)
+    createChat(rootChatId)
+    createChat(childChatId, { type: 'coder' }, rootChatId)
+    const rootRuntime = { brain: 'root-brain', senseGroup: 'root-senses', mcpServers: ['root-mcp'] }
+    const childRuntime = {
+      brain: 'child-brain',
+      senseGroup: 'child-senses',
+      mcpServers: ['child-mcp'],
+    }
+    addMessage('root-user-runtime', rootChatId, {
+      role: 'user',
+      content: 'root prompt',
+      runtime: rootRuntime,
+    })
+    addMessage('root-assistant-runtime', rootChatId, { role: 'assistant', content: 'root reply' })
+    addMessage('child-user-runtime', childChatId, {
+      role: 'user',
+      content: 'child prompt',
+      runtime: childRuntime,
+    })
+    addMessage('child-assistant-runtime', childChatId, {
+      role: 'assistant',
+      content: 'child reply',
+    })
+    addMessage('child-return-runtime', rootChatId, {
+      role: 'role',
+      content: '[角色 coder] child reply',
+      link: {
+        relation: 'child_return',
+        sourceChatId: childChatId,
+        parentChatId: rootChatId,
+        relatedMessageId: 'child-assistant-runtime',
+      },
+    })
+
+    const nodes = buildRootTimeline(rootChatId).nodes
+    expect(nodes.find((node) => node.id === 'root-assistant-runtime')?.runtime).toEqual(rootRuntime)
+    expect(nodes.find((node) => node.id === 'child-assistant-runtime')?.runtime).toEqual(
+      childRuntime,
+    )
+    expect(nodes.find((node) => node.id === 'child-return-runtime')?.runtime).toEqual(childRuntime)
+  })
 })

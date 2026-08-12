@@ -83,7 +83,7 @@ describe('Nyxus root message controller', () => {
     expect(getTimeline).toHaveBeenCalledTimes(1)
   })
 
-  it('closes a late subscription response after the UI has selected another root', async () => {
+  it('keeps late subscriptions for different roots independent', async () => {
     const resolvers = new Map<string, (response: ChatOpenResponse) => void>()
     vi.spyOn(agentApi, 'openChat').mockImplementation(
       ({ rootChatId }) =>
@@ -116,10 +116,27 @@ describe('Nyxus root message controller', () => {
       subscriptionId: 'subscription-old',
       rootTimeline: { ...snapshot('conversation'), rootChatId: 'root-old' },
     })
-    await expect(oldRoot).rejects.toThrow('Root observation superseded')
-    expect(close).toHaveBeenCalledWith('subscription-old')
-    expect(store.rootSubscriptions['root-old']).toBeUndefined()
+    await expect(oldRoot).resolves.toMatchObject({ rootChatId: 'root-old' })
+    expect(close).not.toHaveBeenCalled()
+    expect(store.rootSubscriptions['root-old']?.subscriptionId).toBe('subscription-old')
     expect(store.rootSubscriptions['root-new']?.subscriptionId).toBe('subscription-new')
+  })
+
+  it('closes a root only after its final owner releases it', async () => {
+    vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
+    vi.spyOn(agentApi, 'getRootTimeline').mockResolvedValue(snapshot('tree'))
+    const close = vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
+    const store = useChatSessionsStore()
+
+    await store.acquireRootTimeline('root-live', 'workbench:a', 'tree')
+    await store.acquireRootTimeline('root-live', 'history-drawer', 'conversation')
+    await store.releaseRootTimeline('root-live', 'workbench:a')
+    expect(close).not.toHaveBeenCalled()
+    expect(store.rootSubscriptions['root-live']).toBeDefined()
+
+    await store.releaseRootTimeline('root-live', 'history-drawer')
+    expect(close).toHaveBeenCalledWith('subscription-live')
+    expect(store.rootSubscriptions['root-live']).toBeUndefined()
   })
 
   it('applies a root input event without opening a direct session for its source cursor', async () => {

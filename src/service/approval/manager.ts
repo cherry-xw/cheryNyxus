@@ -1,17 +1,20 @@
 import { resolveApproval, rejectApproval } from '@/core/sense/approvalRegistry.js'
 import { AgentAbortError, AgentParkError } from '@/core/middleware/errors.js'
 import { logger } from '@/utils/logger/index.js'
+import {
+  getInteraction,
+  transitionInteraction,
+  upsertPendingInteraction,
+} from '@/db/interaction.js'
+import { broadcastInteractionChanged } from '../interaction/events.js'
 
 /**
  * 审批管理器（极简版）
  *
  * P1-11：不再存 resolve/reject 函数指针（解耦 core）。core 审批 Promise 由 approvalRegistry 管理，
  * 本 manager 仅记录待审批 id；confirm/abort/park 转调 core registry 触发 senseMiddleware 的 await Promise。
- * 无数据库持久化（pending sense 靠 messages.content 空判断，见 interaction.md）。
- *
- * manager 自存 payload（chatId/senseName/waitTime/createdAt）：chat.list 据此派生 per-chat pendingApproval
- * 「琴键」闪烁态（含未 hydration 的 chat），免扫事件。与 computeCurrentState（扫事件，单 chat 已 hydration
- * 快照）同为 approval 生命周期派生，两者必一致。
+ * manager 只持有当前进程的 Promise 桥接；持久 interactions 表是跨断线、刷新和重启的
+ * 用户可见事实源。payload 同时供旧 chat.list 的轻量 pendingApproval 投影使用。
  */
 export type ApprovalPayload = {
   chatId: string
@@ -20,10 +23,12 @@ export type ApprovalPayload = {
   waitTime: number
   /** interrupt 触发时间戳（ms，Date.now()）。与 interrupt 通知 createdAt 同源。 */
   createdAt: number
+  arguments: string
+  supervisionLevel: number
 }
 
 export class ApprovalManager {
-  private approvals = new Map<string, ApprovalPayload>()
+  private approvals = new Map<string, ApprovalPayload | undefined>()
   private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   private clearExpiry(approvalId: string): void {
@@ -36,13 +41,41 @@ export class ApprovalManager {
    * 注册待审批 id（service observer 收 sense_pending 时调用）。
    * payload 用于 chat.list 派生 pendingApproval，无需 hydration。
    */
-  register(approvalId: string, payload: ApprovalPayload): void {
+  register(approvalId: string, payload?: ApprovalPayload): void {
     this.clearExpiry(approvalId)
+    const existing = getInteraction(approvalId)
+    if (existing && ['completed', 'expired', 'cancelled'].includes(existing.status)) {
+      // A crash may happen after the durable decision but before the rebuilt
+      // core promise observes it. Replay that terminal decision; never expose
+      // an invisible in-memory approval or revive the inbox row.
+      const action = existing.result?.action === 'accept' ? 'accept' : 'reject'
+      const reason = typeof existing.result?.reason === 'string' ? existing.result.reason : undefined
+      resolveApproval(approvalId, action, reason)
+      return
+    }
     this.approvals.set(approvalId, payload)
+    if (!payload) return
+    const deadlineAt = payload.waitTime > 0 ? payload.createdAt + payload.waitTime : undefined
+    {
+      const interaction = upsertPendingInteraction({
+        interactionId: approvalId,
+        kind: 'approval',
+        chatId: payload.chatId,
+        anchorNodeId: approvalId,
+        payload: {
+          senseName: payload.senseName,
+          arguments: payload.arguments,
+          supervisionLevel: payload.supervisionLevel,
+        },
+        ...(deadlineAt !== undefined ? { deadlineAt } : {}),
+      })
+      broadcastInteractionChanged(interaction)
+    }
     if (payload.waitTime > 0) {
+      const remaining = Math.max(0, (deadlineAt ?? Date.now()) - Date.now())
       this.expiryTimers.set(
         approvalId,
-        setTimeout(() => this.park(approvalId), payload.waitTime),
+        setTimeout(() => this.expire(approvalId), remaining),
       )
     }
   }
@@ -60,7 +93,7 @@ export class ApprovalManager {
    */
   hasForChat(chatId: string): boolean {
     for (const p of this.approvals.values()) {
-      if (p.chatId === chatId) return true
+      if (p?.chatId === chatId) return true
     }
     return false
   }
@@ -74,7 +107,7 @@ export class ApprovalManager {
     chatId: string,
   ): { approvalId: string; senseName: string; waitTime: number; createdAt: number } | undefined {
     for (const [approvalId, p] of this.approvals) {
-      if (p.chatId === chatId) {
+      if (p?.chatId === chatId) {
         return { approvalId, senseName: p.senseName, waitTime: p.waitTime, createdAt: p.createdAt }
       }
     }
@@ -91,17 +124,38 @@ export class ApprovalManager {
       resolveApproval(approvalId, action, reason)
       this.approvals.delete(approvalId)
       this.clearExpiry(approvalId)
+      const interaction = transitionInteraction(approvalId, ['pending', 'resolving', 'blocked'], 'completed', {
+        action,
+        ...(reason ? { reason } : {}),
+      })
+      broadcastInteractionChanged(interaction)
       return true
     }
     logger.event('approval.confirm.unknown', { approvalId, action })
     return false
   }
 
+  /** Business deadline: reject this tool and let the Agent continue. */
+  expire(approvalId: string): void {
+    if (!this.approvals.has(approvalId)) return
+    const interaction = transitionInteraction(
+      approvalId,
+      ['pending', 'resolving'],
+      'expired',
+      { action: 'reject', reason: '审批超时，工具未执行' },
+    )
+    if (!interaction) return
+    broadcastInteractionChanged(interaction)
+    resolveApproval(approvalId, 'reject', '审批超时，工具未执行')
+    this.approvals.delete(approvalId)
+    this.clearExpiry(approvalId)
+  }
+
   /**
    * 挂起审批（WS 断连触发，close(ws) 调用）：转调 core registry reject(AgentParkError)，
    * 解除 senseMiddleware await（复用 abort 的「throw 保 pending sense content=NULL」机制），
-   * 但 observer 见 AgentParkError 静默不 wakeParent——子 chat 保持 canResume Case1，
-   * 重连 chat.resume/chat.startSpawn 重建 pending sense（新 approvalId），用户重新审批后子正常完成唤主。
+   * 但 observer 见 AgentParkError 静默不 wakeParent——chat 保持 canResume；持久 interactionId
+   * 不变，收件箱审批时由服务端恢复原 pending sense 后继续。
    * 区别于 abort（用户主动 chat.abort，唤主报错）。
    */
   park(approvalId: string): void {

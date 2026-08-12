@@ -11,6 +11,7 @@ import type { ConfigDto, SenseToolInfo } from '@/services/agentApi'
 import { pickDirectory, isElectron } from '@/services/platform'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
+import LabelTip from '../config/LabelTip.vue'
 import SenseIcon from '../tools/SenseIcon.vue'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
 import { resolveRoleAvatar } from '../../config/roleAvatar'
@@ -30,6 +31,18 @@ const emit = defineEmits<{
 
 const newPresetName = ref('')
 const CHERY_NYXUS_PRESET = 'cheryNyxus'
+type RolePickerMode = 'leader' | 'detail'
+const rolePickerModes = ref<Record<string, RolePickerMode>>({})
+
+function rolePickerMode(pname: string): RolePickerMode {
+  if (isFixedPreset(pname)) return 'detail'
+  return rolePickerModes.value[pname] ?? 'leader'
+}
+
+function setRolePickerMode(pname: string, mode: RolePickerMode): void {
+  if (isFixedPreset(pname) && mode === 'leader') return
+  rolePickerModes.value[pname] = mode
+}
 
 function isFixedPreset(name: string): boolean {
   return name === CHERY_NYXUS_PRESET
@@ -94,6 +107,7 @@ function updateMembers(pname: string, roles: string[]): void {
   p.roles =
     isFixedPreset(pname) && p.leader && !roles.includes(p.leader) ? [p.leader, ...roles] : roles
   if (!isFixedPreset(pname) && p.leader && !roles.includes(p.leader)) p.leader = ''
+  if (p.detailRole && !roles.includes(p.detailRole)) p.detailRole = undefined
 }
 
 /** 点击已选角色卡设为组长。 */
@@ -102,6 +116,18 @@ function setLeader(pname: string, role: string): void {
   if (!p || isFixedPreset(pname)) return
   if (!(p.roles ?? []).includes(role)) p.roles = [...(p.roles ?? []), role]
   p.leader = role
+  if (p.detailRole === role) p.detailRole = undefined
+}
+
+function setDetailRole(pname: string, role: string): void {
+  const p = props.draft.presets?.[pname]
+  if (!p || p.leader === role || !(p.roles ?? []).includes(role)) return
+  p.detailRole = p.detailRole === role ? undefined : role
+}
+
+function selectRoleDuty(pname: string, role: string): void {
+  if (rolePickerMode(pname) === 'detail') setDetailRole(pname, role)
+  else setLeader(pname, role)
 }
 
 /** 按类型筛选媒体服务名（供下拉选项）。 */
@@ -137,6 +163,7 @@ const indexItems = computed<IndexItem[]>(() => {
     label: pname,
     count: (p.roles ?? []).length,
     leader: p.leader || '未指定',
+    detailRole: p.detailRole || '未指定',
     mediaImage: p.mediaImage || '未挂载',
     mediaVideo: p.mediaVideo || '未挂载',
     mediaAudio: p.mediaAudio || '未挂载',
@@ -160,6 +187,9 @@ const indexItems = computed<IndexItem[]>(() => {
         </div>
         <div class="index-card-line">
           <b>组长</b><span>{{ item.leader as string }}</span>
+        </div>
+        <div class="index-card-line">
+          <b>解释角色</b><span>{{ item.detailRole as string }}</span>
         </div>
         <div class="index-card-line">
           <b>🖼️ 图片</b><span>{{ item.mediaImage as string }}</span>
@@ -249,71 +279,133 @@ const indexItems = computed<IndexItem[]>(() => {
       </header>
 
       <div class="field">
-        <span class="lbl">团队成员与组长</span>
+        <LabelTip
+          label="团队成员与角色职责"
+          tip="组长负责主任务；解释角色不参与派发、不会出现在 @角色 中，只用于节点的独立解释上下文。两种职责互斥。"
+        />
         <template v-if="draft.roles && Object.keys(draft.roles).length">
-          <div v-if="preset.roles?.length" class="member-roles">
-            <button
-              v-for="rname in preset.roles"
-              :key="rname"
-              class="member-role"
-              :class="{ leader: preset.leader === rname }"
-              :disabled="isFixedPreset(pname as string)"
-              :aria-label="
-                isFixedPreset(pname as string)
-                  ? `${rname}，固定预设不可更换组长`
-                  : `设 ${rname} 为组长`
-              "
-              :title="
-                isFixedPreset(pname as string)
-                  ? preset.leader === rname
-                    ? `${rname}（固定组长）`
-                    : '固定预设不可更换组长'
-                  : preset.leader === rname
-                    ? `${rname}（当前组长）`
-                    : `点击设 ${rname} 为组长`
-              "
-              @click="setLeader(pname as string, rname)"
-            >
-              <span class="member-role-name"
-                ><span class="member-avatar">{{
-                  resolveRoleAvatar(rname, draft.roles?.[rname]?.avatar)
-                }}</span
-                >{{ rname }}</span
+          <div v-if="preset.roles?.length" class="role-picker-section">
+            <div class="role-picker-head">
+              <span>为成员指定职责</span>
+              <span class="role-picker-modes" role="group" aria-label="选择要设置的职责">
+                <button
+                  type="button"
+                  class="role-mode is-leader"
+                  :class="{ active: rolePickerMode(pname as string) === 'leader' }"
+                  :disabled="isFixedPreset(pname as string)"
+                  :aria-pressed="rolePickerMode(pname as string) === 'leader'"
+                  :title="
+                    isFixedPreset(pname as string)
+                      ? '固定预设的组长不可调整'
+                      : '切换为设置组长'
+                  "
+                  @click="setRolePickerMode(pname as string, 'leader')"
+                >
+                  <Lock v-if="isFixedPreset(pname as string)" />
+                  设置组长
+                </button>
+                <button
+                  type="button"
+                  class="role-mode is-detail"
+                  :class="{ active: rolePickerMode(pname as string) === 'detail' }"
+                  :aria-pressed="rolePickerMode(pname as string) === 'detail'"
+                  @click="setRolePickerMode(pname as string, 'detail')"
+                >
+                  设置解释
+                </button>
+              </span>
+              <span v-if="isFixedPreset(pname as string)" class="fixed-leader-note">
+                <Lock />固定预设，组长不可调整
+              </span>
+            </div>
+            <div class="member-roles">
+              <button
+                v-for="rname in preset.roles"
+                :key="rname"
+                type="button"
+                class="member-role"
+                :class="{
+                  leader: preset.leader === rname,
+                  'detail-role': preset.detailRole === rname,
+                }"
+                :disabled="
+                  rolePickerMode(pname as string) === 'leader'
+                    ? isFixedPreset(pname as string)
+                    : preset.leader === rname
+                "
+                :aria-pressed="
+                  rolePickerMode(pname as string) === 'leader'
+                    ? preset.leader === rname
+                    : preset.detailRole === rname
+                "
+                :aria-label="
+                  rolePickerMode(pname as string) === 'leader'
+                    ? isFixedPreset(pname as string)
+                      ? `${rname}，固定预设不可更换组长`
+                      : `设 ${rname} 为组长`
+                    : preset.leader === rname
+                      ? `${rname} 是组长，不能同时作为解释角色`
+                      : `${preset.detailRole === rname ? '取消' : '设'} ${rname} 为解释角色`
+                "
+                :title="
+                  rolePickerMode(pname as string) === 'leader'
+                    ? isFixedPreset(pname as string)
+                      ? '固定预设不可更换组长'
+                      : `点击设 ${rname} 为组长`
+                    : preset.leader === rname
+                      ? '组长不能同时作为专用解释角色'
+                      : preset.detailRole === rname
+                        ? '当前专用解释角色；点击取消'
+                        : `点击设 ${rname} 为专用解释角色`
+                "
+                @click="selectRoleDuty(pname as string, rname)"
               >
-              <span v-if="draft.roles[rname]" class="member-role-card">
-                <span class="member-card-line"
-                  ><b>大脑</b>{{ draft.roles[rname].brain || '未选' }}</span
+                <span class="member-role-name"
+                  ><span class="member-avatar">{{
+                    resolveRoleAvatar(rname, draft.roles?.[rname]?.avatar)
+                  }}</span
+                  >{{ rname }}</span
                 >
-                <span class="member-card-line"
-                  ><b>器官组</b>{{ draft.roles[rname].senseGroup || '未选' }}</span
-                >
-                <span v-if="draft.roles[rname].senseGroup" class="member-card-senses">
-                  <template
-                    v-for="entry in draft.sense_groups?.[draft.roles[rname].senseGroup] ?? []"
-                    :key="entry"
+                <span v-if="draft.roles[rname]" class="member-role-card">
+                  <span class="member-card-line"
+                    ><b>大脑</b>{{ draft.roles[rname].brain || '未选' }}</span
                   >
-                    <SenseIcon :name="entry" :tools="senseTools" />
-                  </template>
-                  <span
-                    v-if="!(draft.sense_groups?.[draft.roles[rname].senseGroup] ?? []).length"
-                    class="no-senses"
-                    >未配置能力</span
+                  <span class="member-card-line"
+                    ><b>器官组</b>{{ draft.roles[rname].senseGroup || '未选' }}</span
+                  >
+                  <span v-if="draft.roles[rname].senseGroup" class="member-card-senses">
+                    <template
+                      v-for="entry in draft.sense_groups?.[draft.roles[rname].senseGroup] ?? []"
+                      :key="entry"
+                    >
+                      <SenseIcon :name="entry" :tools="senseTools" />
+                    </template>
+                    <span
+                      v-if="!(draft.sense_groups?.[draft.roles[rname].senseGroup] ?? []).length"
+                      class="no-senses"
+                      >未配置能力</span
+                    >
+                  </span>
+                  <span v-if="draft.roles[rname].mcpServers?.length" class="member-card-line"
+                    ><b>MCP</b>{{ draft.roles[rname].mcpServers.join('、') }}</span
                   >
                 </span>
-                <span v-if="draft.roles[rname].mcpServers?.length" class="member-card-line"
-                  ><b>MCP</b>{{ draft.roles[rname].mcpServers.join('、') }}</span
+                <span v-if="preset.leader === rname" class="leader-mark" aria-label="当前组长">
+                  <Check />
+                </span>
+                <span
+                  v-else-if="preset.detailRole === rname"
+                  class="leader-mark detail-role-mark"
+                  aria-label="当前解释角色"
                 >
-              </span>
-              <span v-if="preset.leader === rname" class="leader-mark" aria-label="当前组长">
-                <Check />
-              </span>
-            </button>
+                  <Check />
+                </span>
+              </button>
+            </div>
+            <span class="hint">
+              先选择要设置的职责，再点击成员卡；黄色角标表示组长，青色角标表示解释角色。
+            </span>
           </div>
-          <span class="hint">{{
-            isFixedPreset(pname as string)
-              ? '该预设组长已固定；其他团队成员仍可调整。'
-              : '在上方选择团队成员；点击成员卡片即可设为组长。'
-          }}</span>
         </template>
         <span v-else class="empty">请先在「角色」中添加成员</span>
         <span v-if="preset.roles && preset.roles.length && !preset.leader" class="hint"
@@ -508,6 +600,81 @@ const indexItems = computed<IndexItem[]>(() => {
   flex-wrap: wrap;
   gap: 6px;
 }
+.role-picker-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+}
+.role-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
+}
+.role-picker-modes {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.role-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 23px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-radius: 5px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  svg {
+    width: 10px;
+    height: 10px;
+  }
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    outline-offset: 1px;
+  }
+  &.is-leader:hover,
+  &.is-leader.active {
+    border-color: #d99717;
+    background: color-mix(in srgb, #d99717 16%, var(--surface));
+    color: color-mix(in srgb, #d99717 82%, var(--ink));
+  }
+  &.is-detail:hover,
+  &.is-detail.active {
+    border-color: var(--nx-cyan, #38bdf8);
+    background: color-mix(in srgb, var(--nx-cyan, #38bdf8) 16%, var(--surface));
+    color: color-mix(in srgb, var(--nx-cyan, #0284c7) 82%, var(--ink));
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.48;
+  }
+}
+.fixed-leader-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: color-mix(in srgb, #d99717 72%, var(--ink));
+  font-size: 10px;
+  font-weight: 600;
+  svg {
+    width: 10px;
+    height: 10px;
+  }
+}
 .member-role {
   position: relative;
   display: inline-flex;
@@ -533,7 +700,11 @@ const indexItems = computed<IndexItem[]>(() => {
   }
   &.leader {
     border-color: #d99717;
-    background: color-mix(in srgb, var(--accent) 23%, transparent);
+    background: color-mix(in srgb, #d99717 12%, var(--surface));
+  }
+  &.detail-role {
+    border-color: var(--nx-cyan, #38bdf8);
+    background: color-mix(in srgb, var(--nx-cyan, #38bdf8) 18%, transparent);
   }
   &:disabled {
     cursor: default;
@@ -541,6 +712,9 @@ const indexItems = computed<IndexItem[]>(() => {
   }
 }
 .member-role-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 12px;
   font-weight: 700;
   color: color-mix(in srgb, var(--ink) 86%, transparent);
@@ -598,7 +772,6 @@ const indexItems = computed<IndexItem[]>(() => {
   justify-content: flex-end;
   padding: 2px 2px 0 0;
   box-sizing: border-box;
-  // 右上贴合成员 pill 的圆角；左下留出斜切的三角缺口。
   border-radius: 0 6px 0 0;
   clip-path: polygon(100% 0, 100% 100%, 0 0);
   background: #d99717;
@@ -608,7 +781,9 @@ const indexItems = computed<IndexItem[]>(() => {
     height: 6px;
   }
 }
-
+.detail-role-mark {
+  background: var(--nx-cyan, #38bdf8);
+}
 // 媒体三选 row：紧凑横排（gap 缩小到 6px），与 small size el-select 配套不显笨重。
 .media-row {
   gap: 6px;

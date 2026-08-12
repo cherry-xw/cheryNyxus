@@ -270,14 +270,13 @@ function onAvatarClick(): void {
   // assistant 单头像：暖橙
   &.role-assistant {
     background: linear-gradient(135deg, #ffd27a, #f6b73c);
-    color: #f6b73c;
+    color: #3b2b12;
   }
   // 主 pet 头像（master 发言者大 / role 对方小徽章）：米色
   &.pet-master {
     background: linear-gradient(135deg, #ffd27a, #f6b73c);
-    color: var(--ink);
-  }
     color: #3b2b12;
+  }
   // 子 pet 头像（role 发言者大 / master 对方小徽章）：紫色
   &.pet-sub {
     background: linear-gradient(135deg, #c4b5fd, #7c3aed);

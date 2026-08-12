@@ -116,6 +116,7 @@ export type NotificationType =
   | 'turn.completed'
   | 'input.updated'
   | 'run.updated'
+  | 'interaction.changed'
 
 // ========== Request Data ==========
 
@@ -194,6 +195,74 @@ export interface ChatContextUsageRequestData {
 
 export interface ChatDeleteRequestData {
   chatId: string
+}
+
+export type ConversationBranchKind = 'original' | 'continuation' | 'detail'
+
+export interface ConversationBranchSummary {
+  branchId: string
+  taskId: string
+  chatId: string
+  kind: ConversationBranchKind
+  sourceBranchId?: string
+  anchorRootChatId?: string
+  anchorNodeId?: string
+  /** First user message in this branch, used as the history selector label. */
+  title?: string
+  createdAt: number
+}
+
+export interface BranchSideEffect {
+  nodeId: string
+  callId: string
+  toolName: string
+  arguments: string
+  result?: string
+}
+
+export interface ChatBranchPreviewRequestData { rootChatId: string; anchorNodeId: string }
+export interface ChatBranchPreviewResponseData {
+  taskId: string
+  sourceBranchId: string
+  eligible: boolean
+  reason?: string
+  sideEffects: BranchSideEffect[]
+  effectDigest: string
+  inheritedCompletedTasks: BranchInheritedTask[]
+  inheritedPausedTasks: BranchInheritedTask[]
+}
+export interface BranchInheritedTask {
+  taskId: string
+  childChatId: string
+  parentChatId: string
+  type: string
+  status: 'pending' | 'started' | 'finished' | 'timed_out'
+  content?: string
+}
+export interface ChatBranchCreateRequestData {
+  rootChatId: string
+  anchorNodeId: string
+  branchType: 'continuation' | 'detail'
+  prompt: string
+  commandId: string
+  clientMessageId: string
+  messageId: string
+  effectDigest?: string
+}
+export interface ChatBranchCreateResponseData extends ConversationBranchSummary {
+  input: ChatInputSubmitResponseData
+}
+export interface ChatAbortTaskRequestData { taskId: string; commandId: string }
+export interface ChatAbortTaskResponseData {
+  taskId: string
+  abortedBranches: string[]
+}
+export interface ChatBranchActivateRequestData { branchId: string; commandId: string }
+export interface ChatBranchActivateResponseData {
+  taskId: string
+  activeBranchId: string
+  activeChatId: string
+  deliveryGeneration: number
 }
 
 /**
@@ -406,6 +475,45 @@ export interface SenseApprovalRequestData {
   action: 'accept' | 'reject'
   reason?: string
 }
+
+export interface InteractionListRequestData {
+  presetId?: string
+  includeActivity?: boolean
+}
+
+export interface InteractionData {
+  interactionId: string
+  kind: 'approval' | 'question_batch'
+  chatId: string
+  rootChatId: string
+  presetId?: string
+  anchorNodeId?: string
+  status: 'pending' | 'resolving' | 'completed' | 'expired' | 'cancelled' | 'blocked'
+  payload: Record<string, unknown>
+  deadlineAt?: number
+  result?: Record<string, unknown>
+  revision: number
+  createdAt: number
+  updatedAt: number
+  completedAt?: number
+}
+
+export interface InteractionListResponseData { interactions: InteractionData[] }
+export interface InteractionApprovalDecideRequestData {
+  interactionId: string
+  action: 'accept' | 'reject'
+  expectedRevision: number
+  commandId: string
+  reason?: string
+}
+export interface InteractionApprovalDecideResponseData { interaction: InteractionData }
+export interface InteractionQuestionAnswerRequestData {
+  interactionId: string
+  expectedRevision: number
+  commandId: string
+  answers: SenseQuestionBatchAnswerRequestData['answers']
+}
+export interface InteractionQuestionAnswerResponseData { interaction: InteractionData }
 
 /**
  * sense.question.answer 入参（用户回答 ask_user_question）。
@@ -1184,6 +1292,9 @@ export interface ChatListResponseData {
      * 前端据此溯源重建 pet 树（主 chat → 主 pet，子 chat 挂主 pet 附近）。CP1。
      */
     parentChatId: string | null
+    taskId?: string
+    branchId?: string
+    branchKind?: ConversationBranchKind
     /** Stable preset workspace identity; legacy chats are resolved by preset name. */
     presetId?: string
     /** Updated only by explicit user input/interaction, never by background output. */
@@ -1418,6 +1529,7 @@ export interface ChatTimelineGetRequestData {
   /** Legacy single-chat key. Root timeline clients should send rootChatId. */
   chatId?: string
   rootChatId?: string
+  taskId?: string
   view?: 'conversation' | 'tree' | 'audit'
   before?: string
   limit?: number
@@ -1489,6 +1601,8 @@ export interface TimelineNode {
   visibility: 'conversation' | 'detail' | 'internal'
   content: string
   thinking?: string
+  /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。 */
+  runtime?: RuntimeSelection
   toolCalls?: GraphToolCall[]
   batchId?: string
   orderKey: number
@@ -1499,10 +1613,15 @@ export interface TimelineNode {
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
+  taskId?: string
+  branchId?: string
+  branchKind?: ConversationBranchKind
+  forkAnchor?: boolean
 }
 
 export type ExecutionEdgeKind =
-  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation'
+  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation' |
+  'fork-continuation' | 'fork-detail'
 
 export interface ExecutionEdgeFact {
   id: string
@@ -1514,6 +1633,8 @@ export interface ExecutionEdgeFact {
   sourceChatId: string
   targetChatId: string
   callId?: string
+  taskId?: string
+  branchId?: string
 }
 
 export interface ActiveRunFact {
@@ -1528,6 +1649,9 @@ export interface ActiveRunFact {
 
 export interface RootTimelineSnapshot {
   rootChatId: string
+  taskId?: string
+  activeBranchId?: string
+  branches?: ConversationBranchSummary[]
   view: 'conversation' | 'tree' | 'audit'
   revision: number
   nodes: TimelineNode[]
@@ -1913,7 +2037,14 @@ export type NotificationData =
   | TurnCompletedNotificationData
   | InputUpdatedNotificationData
   | RunUpdatedNotificationData
+  | InteractionChangedNotificationData
   | null
+
+export interface InteractionChangedNotificationData {
+  interactionId: string
+  status: InteractionData['status']
+  revision: number
+}
 
 export interface InterruptNotificationData {
   approvalId: string
@@ -2199,6 +2330,10 @@ export const Method = {
   CHAT_ROUTE_SUGGEST: 'chat.route.suggest',
   CHAT_GET: 'chat.get',
   CHAT_DELETE: 'chat.delete',
+  CHAT_BRANCH_PREVIEW: 'chat.branch.preview',
+  CHAT_BRANCH_CREATE: 'chat.branch.create',
+  CHAT_BRANCH_ACTIVATE: 'chat.branch.activate',
+  CHAT_ABORT_TASK: 'chat.abortTask',
   CHAT_CONTEXT_USAGE: 'chat.contextUsage',
   /** 重建 chat 当前 runtime 的 system prompt 全文 + 工具定义，供前端历史抽屉「上下文」hover 面板展示。 */
   CHAT_PROMPT_SNAPSHOT: 'chat.promptSnapshot',
@@ -2216,6 +2351,9 @@ export const Method = {
 
   // Sense 审批
   SENSE_APPROVAL: 'sense.approval',
+  INTERACTION_LIST: 'interaction.list',
+  INTERACTION_APPROVAL_DECIDE: 'interaction.approval.decide',
+  INTERACTION_QUESTION_ANSWER: 'interaction.question.answer',
   // Sense 问答（ask_user_question 感官答案回传）
   SENSE_QUESTION_ANSWER: 'sense.question.answer',
   SENSE_QUESTION_BATCH_ANSWER: 'sense.question.batchAnswer',
@@ -2351,6 +2489,10 @@ export interface RpcMethodMap {
   }
   [Method.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData }
   [Method.CHAT_DELETE]: { params: ChatDeleteRequestData; result: ChatDeleteResponseData }
+  [Method.CHAT_BRANCH_PREVIEW]: { params: ChatBranchPreviewRequestData; result: ChatBranchPreviewResponseData }
+  [Method.CHAT_BRANCH_CREATE]: { params: ChatBranchCreateRequestData; result: ChatBranchCreateResponseData }
+  [Method.CHAT_BRANCH_ACTIVATE]: { params: ChatBranchActivateRequestData; result: ChatBranchActivateResponseData }
+  [Method.CHAT_ABORT_TASK]: { params: ChatAbortTaskRequestData; result: ChatAbortTaskResponseData }
   [Method.CHAT_CONTEXT_USAGE]: {
     params: ChatContextUsageRequestData
     result: ChatContextUsageResponseData
@@ -2389,6 +2531,18 @@ export interface RpcMethodMap {
     result: ChatSendToChildResponseData
   }
   [Method.SENSE_APPROVAL]: { params: SenseApprovalRequestData; result: SenseApprovalResponseData }
+  [Method.INTERACTION_LIST]: {
+    params: InteractionListRequestData
+    result: InteractionListResponseData
+  }
+  [Method.INTERACTION_APPROVAL_DECIDE]: {
+    params: InteractionApprovalDecideRequestData
+    result: InteractionApprovalDecideResponseData
+  }
+  [Method.INTERACTION_QUESTION_ANSWER]: {
+    params: InteractionQuestionAnswerRequestData
+    result: InteractionQuestionAnswerResponseData
+  }
   [Method.SENSE_QUESTION_ANSWER]: {
     params: SenseQuestionAnswerRequestData
     result: SenseQuestionAnswerResponseData

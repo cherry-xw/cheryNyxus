@@ -96,6 +96,34 @@ export function resolvePresetSelection(presetName: string): {
   }
 }
 
+export function resolveDetailSelection(presetName: string): {
+  selection: RuntimeSelection
+  systemPromptFile?: string
+  description?: string
+  skillFilter?: SkillFilter
+} {
+  const preset = config.presets?.[presetName]
+  if (!preset?.detailRole) throw new Error(`预设 "${presetName}" 未配置解释角色`)
+  if (!(preset.roles ?? []).includes(preset.detailRole)) {
+    throw new Error(`预设 "${presetName}" 的解释角色必须是预设成员`)
+  }
+  const detail = config.roles?.[preset.detailRole]
+  if (!detail) throw new Error(`预设 "${presetName}" 的解释角色 "${preset.detailRole}" 不存在`)
+  const selection = parseRuntimeSelection(
+    { brain: detail.brain, senseGroup: detail.senseGroup, mcpServers: detail.mcpServers ?? [] },
+    'detail role',
+  )
+  const skillFilter = detail.skills !== undefined || detail.plugins !== undefined
+    ? { skills: detail.skills, plugins: detail.plugins }
+    : undefined
+  return {
+    selection,
+    systemPromptFile: detail.systemPrompt,
+    description: detail.description,
+    skillFilter,
+  }
+}
+
 export class RuntimeResolver {
   /**
    * 原子解析完整 runtime。
@@ -135,9 +163,11 @@ export class RuntimeResolver {
     if (!selection.brain || selection.brain.trim().length === 0) {
       throw new Error('必须选择一颗大脑')
     }
-    const brain = config.llm.brain[selection.brain]
-    if (brain?.capabilities?.toolCall !== false && !selection.senseGroup)
-      throw new Error('这颗大脑需要配一个感官组')
+    // Public runtime/create inputs stay strict in parseRuntimeSelection. Internal
+    // detail branches deliberately pass an empty group to create a no-tools role.
+    if (!config.llm.brain[selection.brain]) {
+      throw new Error(`大脑 "${selection.brain}" 不存在，请在设置里检查`)
+    }
   }
 
   /**

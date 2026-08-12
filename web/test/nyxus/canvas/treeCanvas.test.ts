@@ -80,6 +80,44 @@ describe('tree canvas long-content behavior', () => {
     expect(fitted).toEqual({ scale: 1, x: 300, y: 150 })
   })
 
+  it('reports when an initial fit must be retried after geometry becomes ready', () => {
+    let viewport = { width: 0, height: 0 }
+    let content = { width: 0, height: 0 }
+    const scope = effectScope()
+    scope.run(() => {
+      const canvas = useTreeCanvas({
+        viewport: () =>
+          ({ clientWidth: viewport.width, clientHeight: viewport.height }) as HTMLElement,
+        contentSize: () => content,
+      })
+
+      expect(canvas.fitToView()).toBe(false)
+      expect({
+        scale: canvas.scale.value,
+        x: canvas.offsetX.value,
+        y: canvas.offsetY.value,
+      }).toEqual({
+        scale: 1,
+        x: 0,
+        y: 0,
+      })
+
+      viewport = { width: 1200, height: 700 }
+      content = { width: 600, height: 400 }
+      expect(canvas.fitToView()).toBe(true)
+      expect({
+        scale: canvas.scale.value,
+        x: canvas.offsetX.value,
+        y: canvas.offsetY.value,
+      }).toEqual({
+        scale: 1,
+        x: 300,
+        y: 150,
+      })
+    })
+    scope.stop()
+  })
+
   it('presents deferred drag frames without committing reactive offsets until release', () => {
     let frame: FrameRequestCallback | undefined
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {

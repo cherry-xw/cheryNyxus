@@ -26,6 +26,8 @@ import {
 } from '@/db/question.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { recordSpawnTerminationFact, recordTerminationFact } from './executionFacts.js'
+import { transitionInteraction } from '@/db/interaction.js'
+import { broadcastInteractionChanged } from '../interaction/events.js'
 
 /** 向该 chat 的全部仍在线订阅者广播持久化 notification。 */
 function broadcastChatNotification(chatId: string, notification: unknown): boolean {
@@ -62,6 +64,10 @@ export async function wakeParent(
   opts?: { silent?: boolean; causationNodeId?: string },
 ): Promise<void> {
   const silent = opts?.silent ?? false
+  const initialSpawnTask = getSpawnTaskByChild(childChatId)
+  // parent_chat_id remains immutable dispatch ownership; delivery_chat_id is
+  // the mutable mainline target selected by continuation/activation.
+  parentChatId = initialSpawnTask?.deliveryChatId ?? parentChatId
   // 来源说明：注入主 chat 的 role 消息统一带 [角色 type] 前缀（主 LLM 据此识别子来源）。
   // idempotent：caller 已格式化（看门狗超时、rebuild 空结果、旧记录带 [type]/[角色 type]）则不重复拼。
   const prefix = `[角色 ${type}]`
@@ -75,10 +81,11 @@ export async function wakeParent(
     return
   }
 
-  const spawnTask = getSpawnTaskByChild(childChatId)
-  const existingReturn = spawnTask
+  let spawnTask = getSpawnTaskByChild(childChatId)
+  const spawnTaskId = spawnTask?.taskId
+  const existingReturn = spawnTaskId
     ? getMessageLinksForRoot(getRootChatId(parentChatId)).find(
-        (link) => link.relation === 'child_return' && link.spawnId === spawnTask.taskId,
+        (link) => link.relation === 'child_return' && link.spawnId === spawnTaskId,
       )
     : undefined
   if (existingReturn) {
@@ -95,6 +102,17 @@ export async function wakeParent(
 
   // 注入角色回复到主 chat：内存（journal，守单一写者，silent 不置 roleReplyPending）+ DB（addMessage）
   const builder = await ensureChat(parentChatId)
+  // ensureChat may yield while a mainline switch commits. Re-read the
+  // generation fence before the synchronous journal + DB append.
+  const latestSpawnTask = getSpawnTaskByChild(childChatId)
+  if (
+    latestSpawnTask &&
+    (latestSpawnTask.deliveryGeneration !== (spawnTask?.deliveryGeneration ?? -1) ||
+      latestSpawnTask.deliveryChatId !== parentChatId)
+  ) {
+    return wakeParent(latestSpawnTask.deliveryChatId, childChatId, type, content, opts)
+  }
+  spawnTask = latestSpawnTask ?? spawnTask
   const parentWasRunning = builder.isRunning()
   const msgId = builder.appendRoleReply(formattedContent, { silent })
   const childLastMessage = getLastMessage(childChatId)
@@ -202,13 +220,27 @@ export async function resolveQuestionBatch(
   if (!getChat(chatId)) throw new Error('这个会话不见了')
 
   const completed = completeQuestionBatch(chatId, batchId, answers)
-  if (completed.alreadyCompleted) return completed
+  const interaction = transitionInteraction(batchId, ['pending', 'resolving', 'blocked'], 'completed', {
+    answers: completed.answers,
+  })
+  broadcastInteractionChanged(interaction)
 
-  const builder = await ensureChat(chatId)
-  for (const answer of completed.answers) {
-    builder.completeSenseResult(answer.questionId, answer.answerText)
-  }
   updateChatMetadata(chatId, { resumePending: true })
+  try {
+    const builder = await ensureChat(chatId)
+    for (const answer of completed.answers) {
+      builder.completeSenseResult(answer.questionId, answer.answerText)
+    }
+  } catch (cause) {
+    // DB answers + resumePending are already durable. A cold resume will rebuild
+    // the journal from those rows, so an in-memory hydration failure is recoverable.
+    logger.event('question.batch.runtime_sync_failed', {
+      chatId,
+      batchId,
+      message: cause instanceof Error ? cause.message : String(cause),
+    })
+  }
+  if (completed.alreadyCompleted) return completed
   const notif = createNotification('question_batch_completed', undefined, { batchId }, { chatId })
   notif.seq = appendChatEvent(chatId, notif as unknown as Record<string, unknown>)
   if (!broadcastChatNotification(chatId, notif)) {

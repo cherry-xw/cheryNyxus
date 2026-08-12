@@ -113,7 +113,8 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
   onPointerMove: (event: PointerEvent) => void
   onPointerUp: (event: PointerEvent) => void
   onWheel: (event: WheelEvent) => void
-  fitToView: (options?: FitToViewOptions) => void
+  /** Returns false when viewport or content geometry is not ready yet. */
+  fitToView: (options?: FitToViewOptions) => boolean
   cancelAnimation: () => void
   isElementInView: (el: Element, margin?: number) => boolean
   panToElement: (el: Element, align?: 'center' | 'bottom') => void
@@ -188,12 +189,12 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
     if (!opts.deferDragCommit) applyOffset(presented.x, presented.y)
     opts.onDragFrame?.(presented)
   }
-  function fitToView(options: FitToViewOptions = {}): void {
+  function fitToView(options: FitToViewOptions = {}): boolean {
     const viewport = viewportSize()
     const bounds = contentBounds()
     const content = { width: bounds.maxX - bounds.minX, height: bounds.maxY - bounds.minY }
     if (viewport.width <= 0 || viewport.height <= 0 || content.width <= 0 || content.height <= 0)
-      return
+      return false
     userPanned.value = false
     const target = calculateFitTransform({
       viewport,
@@ -210,7 +211,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
       scale.value = target.scale
       offsetX.value = target.x
       offsetY.value = target.y
-      return
+      return true
     }
 
     const startScale = scale.value
@@ -228,6 +229,7 @@ export function useTreeCanvas(opts: TreeCanvasOptions): {
       else animationFrame = 0
     }
     animationFrame = requestAnimationFrame(step)
+    return true
   }
   function onPointerDown(event: PointerEvent): void {
     if (event.button !== 0) return

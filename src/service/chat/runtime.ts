@@ -10,6 +10,7 @@ import {
   getChatRule,
   updateChatMetadata,
   getChat,
+  getChatBranchContext,
   findChildChatsWithType,
   listPendingInputs,
   markPendingInputsConsumed,
@@ -222,9 +223,17 @@ export function setEphemeralChatRuntime(chatId: string, selection: RuntimeSelect
  */
 function loadHistory(chatId: string): LLMResponse[] | undefined {
   const rows = getMessages(chatId)
-  if (rows.length === 0) {
-    return undefined
-  }
+  const branchContext = getChatBranchContext(chatId)
+  const contextMessage: LLMResponse | undefined = branchContext
+    ? {
+        id: `branch-context:${chatId}`,
+        role: 'system',
+        content: branchContext,
+        createdAt: 0,
+        updateAt: 0,
+      }
+    : undefined
+  if (rows.length === 0) return contextMessage ? [contextMessage] : undefined
   const parsedRows = rows.map((row) => {
     const parsed = parseMessageRow(row)
     return {
@@ -253,9 +262,10 @@ function loadHistory(chatId: string): LLMResponse[] | undefined {
       break
     }
   }
-  if (summaryIdx === -1) return parsedRows
+  if (summaryIdx === -1) return contextMessage ? [contextMessage, ...parsedRows] : parsedRows
   const latestSummary = parsedRows[summaryIdx]!
   return [
+    ...(contextMessage ? [contextMessage] : []),
     {
       ...latestSummary,
       role: 'system',

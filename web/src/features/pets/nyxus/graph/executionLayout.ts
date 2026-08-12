@@ -1,11 +1,13 @@
 import type { ExecutionEdge, ExecutionGraph, ExecutionNode } from './executionGraph'
 
-export const EXECUTION_LANE_GAP = 190
+export const EXECUTION_LANE_GAP = 110
 export const EXECUTION_ROW_GAP = 82
 export const EXECUTION_TOP = 32
-export const EXECUTION_LABEL_HALF_WIDTH = 86
+export const EXECUTION_LABEL_HALF_WIDTH = 48
 export const EXECUTION_LABEL_HEIGHT = 66
 export const EXECUTION_ICON_RADIUS = 15
+
+export type ExecutionLayoutMode = 'timeline' | 'topology'
 
 export interface PositionedExecutionNode extends ExecutionNode {
   x: number
@@ -32,6 +34,7 @@ export interface ExecutionLayout {
 
 export interface ExecutionLayoutOptions {
   previousLanes?: ReadonlyMap<string, number>
+  mode?: ExecutionLayoutMode
 }
 
 function compareNodes(a: ExecutionNode, b: ExecutionNode): number {
@@ -76,11 +79,18 @@ function assignChildLanes(graph: ExecutionGraph, previous?: ReadonlyMap<string, 
 
   const parentByChat = new Map<string, string>()
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const forkTargets = new Set<string>()
   for (const edge of graph.edges) {
-    if (edge.kind !== 'spawn' || edge.targetChatId === rootChatId) continue
+    if (
+      !['spawn', 'fork-continuation', 'fork-detail'].includes(edge.kind) ||
+      edge.targetChatId === rootChatId
+    ) continue
     const parent = nodeById.get(edge.from)?.sourceChatId ?? edge.sourceChatId
     if (parent !== edge.targetChatId && !parentByChat.has(edge.targetChatId)) {
       parentByChat.set(edge.targetChatId, parent)
+    }
+    if (edge.kind === 'fork-continuation' || edge.kind === 'fork-detail') {
+      forkTargets.add(edge.targetChatId)
     }
   }
   for (const chatId of weights.keys()) {
@@ -106,6 +116,8 @@ function assignChildLanes(graph: ExecutionGraph, previous?: ReadonlyMap<string, 
     )
   }
   const lanes = new Map<string, number>([[rootChatId, 0]])
+  const activeChatId = graph.branches?.find((branch) => branch.branchId === graph.activeBranchId)?.chatId
+  if (activeChatId) lanes.set(activeChatId, 0)
   let leftWeight = 0
   let rightWeight = 0
 
@@ -164,6 +176,7 @@ function assignChildLanes(graph: ExecutionGraph, previous?: ReadonlyMap<string, 
   let groupOuterLeft = -1
   let groupOuterRight = 1
   for (const chatId of children.get(rootChatId) ?? []) {
+    if (chatId === activeChatId) continue
     const group = spawnSourceByChat.get(chatId) ?? chatId
     if (group !== currentGroup) {
       currentGroup = group
@@ -178,7 +191,14 @@ function assignChildLanes(graph: ExecutionGraph, previous?: ReadonlyMap<string, 
       : leftWeight <= rightWeight
         ? -1
         : 1
-    const lane = side < 0 ? groupOuterLeft : groupOuterRight
+    const occupiedLanes = [...lanes.values()]
+    const lane = forkTargets.has(chatId)
+      ? side < 0
+        ? Math.min(0, ...occupiedLanes) - 1
+        : Math.max(0, ...occupiedLanes) + 1
+      : side < 0
+        ? groupOuterLeft
+        : groupOuterRight
     const weight = subtreeWeight(chatId)
     assignBranch(chatId, lane, side)
     const outer = subtreeOuterLane(chatId, side)
@@ -211,22 +231,86 @@ function displayEdges(
 }
 
 /**
- * Vertical execution layout. The globally ordered row index is intentional:
- * a later canonical `orderKey` can never render above an earlier node.
+ * Assigns every acyclic node to the row immediately below its deepest parent.
+ * Nodes blocked by malformed cycles are appended deterministically so corrupt
+ * facts remain visible without allowing a cycle to grow the layout forever.
  */
+function topologyRows(graph: ExecutionGraph): Map<string, number> {
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node] as const))
+  const incomingCount = new Map<string, number>(graph.nodes.map((node) => [node.id, 0]))
+  const outgoing = new Map<string, ExecutionEdge[]>()
+  for (const edge of graph.edges) {
+    if (!nodesById.has(edge.from) || !nodesById.has(edge.to)) continue
+    incomingCount.set(edge.to, (incomingCount.get(edge.to) ?? 0) + 1)
+    const edges = outgoing.get(edge.from) ?? []
+    edges.push(edge)
+    outgoing.set(edge.from, edges)
+  }
+  for (const edges of outgoing.values()) {
+    edges.sort((a, b) => a.to.localeCompare(b.to) || a.id.localeCompare(b.id))
+  }
+
+  const rows = new Map<string, number>()
+  const ready = graph.nodes
+    .filter((node) => (incomingCount.get(node.id) ?? 0) === 0)
+    .sort(compareNodes)
+  while (ready.length) {
+    const node = ready.shift()!
+    const row = rows.get(node.id) ?? 0
+    rows.set(node.id, row)
+    for (const edge of outgoing.get(node.id) ?? []) {
+      rows.set(edge.to, Math.max(rows.get(edge.to) ?? 0, row + 1))
+      const remaining = (incomingCount.get(edge.to) ?? 0) - 1
+      incomingCount.set(edge.to, remaining)
+      if (remaining === 0) {
+        const target = nodesById.get(edge.to)!
+        ready.push(target)
+        ready.sort(compareNodes)
+      }
+    }
+  }
+
+  let fallbackRow = Math.max(-1, ...rows.values()) + 1
+  for (const node of graph.nodes.slice().sort(compareNodes)) {
+    if (rows.has(node.id)) continue
+    rows.set(node.id, fallbackRow)
+    fallbackRow += 1
+  }
+  return rows
+}
+
+/** Vertical execution layout: canonical timeline by default, dependency rows on demand. */
 export function layoutExecutionGraph(
   graph: ExecutionGraph,
   options: ExecutionLayoutOptions = {},
 ): ExecutionLayout {
   const lanes = assignChildLanes(graph, options.previousLanes)
   const ordered = graph.nodes.slice().sort(compareNodes)
+  const rows = options.mode === 'topology' ? topologyRows(graph) : undefined
+  const activeBranch = graph.branches?.find((branch) => branch.branchId === graph.activeBranchId)
+  const activeFork = activeBranch
+    ? graph.edges.find(
+        (edge) => edge.kind === 'fork-continuation' && edge.targetChatId === activeBranch.chatId,
+      )
+    : undefined
+  const activeForkAnchor = activeFork ? graph.nodes.find((node) => node.id === activeFork.from) : undefined
+  const displacedLane = (() => {
+    if (!activeBranch?.sourceBranchId || !activeForkAnchor) return undefined
+    const hinted = options.previousLanes?.get(activeForkAnchor.sourceChatId)
+    return hinted && hinted !== 0 ? hinted : 1
+  })()
   const positioned = ordered.map((node, index) => {
-    const lane = lanes.get(node.sourceChatId) ?? 0
+    const displacedSuffix =
+      displacedLane !== undefined &&
+      node.sourceFact?.branchId === activeBranch?.sourceBranchId &&
+      node.orderSlot === 'persistent' &&
+      (node.orderKey ?? Number.NEGATIVE_INFINITY) > (activeForkAnchor?.orderKey ?? Number.POSITIVE_INFINITY)
+    const lane = displacedSuffix ? displacedLane : (lanes.get(node.sourceChatId) ?? 0)
     return {
       ...node,
       lane,
       x: lane * EXECUTION_LANE_GAP,
-      y: EXECUTION_TOP + index * EXECUTION_ROW_GAP,
+      y: EXECUTION_TOP + (rows?.get(node.id) ?? index) * EXECUTION_ROW_GAP,
     }
   })
   const byId = new Map(positioned.map((node) => [node.id, node]))
@@ -238,10 +322,8 @@ export function layoutExecutionGraph(
   const minX = minLane * EXECUTION_LANE_GAP - horizontalPadding
   const maxX = maxLane * EXECUTION_LANE_GAP + horizontalPadding
   const minY = 0
-  const maxY =
-    (positioned[positioned.length - 1]?.y ?? EXECUTION_TOP) +
-    EXECUTION_LABEL_HEIGHT +
-    EXECUTION_TOP
+  const maxY = Math.max(EXECUTION_TOP, ...positioned.map((node) => node.y)) +
+    EXECUTION_LABEL_HEIGHT + EXECUTION_TOP
   return {
     nodes: positioned,
     edges,
@@ -283,7 +365,7 @@ function refreshLayout(previous: ExecutionLayout, graph: Readonly<ExecutionGraph
 }
 
 export interface IncrementalExecutionLayout {
-  layout(graph: Readonly<ExecutionGraph>): ExecutionLayout
+  layout(graph: Readonly<ExecutionGraph>, options?: ExecutionLayoutOptions): ExecutionLayout
   recomputations(): number
   reset(): void
 }
@@ -294,14 +376,15 @@ export function createIncrementalExecutionLayout(): IncrementalExecutionLayout {
   let previous: ExecutionLayout | undefined
   let count = 0
   return {
-    layout(graph) {
-      const nextSignature = topologySignature(graph)
+    layout(graph, options = {}) {
+      const nextSignature = `${options.mode ?? 'timeline'}\u0003${topologySignature(graph)}`
       if (previous && signature === nextSignature) {
         previous = refreshLayout(previous, graph)
         return previous
       }
       previous = layoutExecutionGraph(graph as ExecutionGraph, {
         previousLanes: previous?.laneByChat,
+        mode: options.mode,
       })
       signature = nextSignature
       count += 1

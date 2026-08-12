@@ -1,107 +1,173 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import type { ChatSummary } from '@/services/agentApi'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useInteractionsStore } from '@/stores'
+import type { InteractionRecord } from '@/services/agentApi'
 
-const props = defineProps<{
-  sessions: ChatSummary[]
-}>()
-
+const props = defineProps<{ presetId?: string }>()
 const emit = defineEmits<{
-  tree: [chatId: string, sourceChatId?: string, interactionId?: string]
+  tree: [rootChatId: string, sourceChatId?: string, interactionId?: string, anchorNodeId?: string]
 }>()
 
-const byId = computed(() => new Map(props.sessions.map((chat) => [chat.chatId, chat])))
+const interactions = useInteractionsStore()
+const scope = ref<'workspace' | 'all'>(props.presetId ? 'workspace' : 'all')
+const section = ref<'pending' | 'activity'>('pending')
+const submitError = ref('')
+const drafts = reactive<Record<string, Record<string, { selectedLabels: string[]; freeText: string }>>>({})
 
-function rootOf(chat: ChatSummary): ChatSummary {
-  let current = chat
-  const seen = new Set<string>()
-  while (current.parentChatId && !seen.has(current.chatId)) {
-    seen.add(current.chatId)
-    const parent = byId.value.get(current.parentChatId)
-    if (!parent) break
-    current = parent
-  }
-  return current
+const scoped = computed(() => {
+  const source = section.value === 'pending' ? interactions.pending : interactions.activity
+  if (scope.value === 'all' || !props.presetId) return source
+  return source.filter((item) => item.presetId === props.presetId)
+})
+
+function payload(item: InteractionRecord): Record<string, unknown> {
+  return item.payload ?? {}
 }
-
-const attentionItems = computed(() =>
-  props.sessions.flatMap((chat) => {
-    const root = rootOf(chat)
-    const source = chat.agentType || chat.preview || chat.chatId.slice(0, 8)
-    const approval = chat.pendingApproval
-      ? [
-          {
-            id: chat.pendingApproval.approvalId,
-            rootChatId: root.chatId,
-            sourceChatId: chat.chatId,
-            type: 'approval' as const,
-            title: `确认 ${chat.pendingApproval.senseName}`,
-            source,
-            createdAt: chat.pendingApproval.createdAt,
-          },
-        ]
-      : []
-    const questions = (chat.pendingQuestions ?? []).map((question) => ({
-      id: question.questionId,
-      rootChatId: root.chatId,
-      sourceChatId: chat.chatId,
-      type: 'question' as const,
-      title: question.header || question.question,
-      source,
-      createdAt: question.createdAt,
-    }))
-    return [...approval, ...questions]
-  }).sort((a, b) => a.createdAt - b.createdAt),
-)
-
-function titleOf(chat: ChatSummary): string {
-  return chat.preview?.trim() || `会话 ${chat.chatId.slice(0, 8)}`
+function questionsOf(item: InteractionRecord): Array<{
+  questionId: string
+  question: string
+  header?: string
+  options: Array<{ label: string; description?: string }>
+  multiSelect: boolean
+}> {
+  return Array.isArray(payload(item).questions)
+    ? payload(item).questions as ReturnType<typeof questionsOf>
+    : []
 }
-
+function draftOf(item: InteractionRecord, questionId: string) {
+  const group = (drafts[item.interactionId] ??= {})
+  return (group[questionId] ??= { selectedLabels: [], freeText: '' })
+}
+function toggleOption(item: InteractionRecord, questionId: string, label: string, multi: boolean): void {
+  const draft = draftOf(item, questionId)
+  if (!multi) draft.selectedLabels = [label]
+  else if (draft.selectedLabels.includes(label)) {
+    draft.selectedLabels = draft.selectedLabels.filter((value) => value !== label)
+  } else draft.selectedLabels.push(label)
+}
+function titleOf(item: InteractionRecord): string {
+  if (item.kind === 'approval') return `确认 ${String(payload(item).senseName ?? '工具调用')}`
+  const questions = questionsOf(item)
+  return questions[0]?.header || questions[0]?.question || '回答 Agent 提问'
+}
+function statusOf(item: InteractionRecord): string {
+  return {
+    pending: '待处理', resolving: '处理中', blocked: '恢复失败',
+    completed: '已完成', expired: '审批超时，未执行', cancelled: '已取消',
+  }[item.status]
+}
 function timeOf(timestamp?: number): string {
   return timestamp ? new Date(timestamp).toLocaleString() : ''
 }
+async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Promise<void> {
+  submitError.value = ''
+  try { await interactions.decide(item, action) }
+  catch (cause) { submitError.value = cause instanceof Error ? cause.message : '审批失败' }
+}
+async function answer(item: InteractionRecord): Promise<void> {
+  submitError.value = ''
+  const answers = questionsOf(item).map((question) => {
+    const draft = draftOf(item, question.questionId)
+    return {
+      questionId: question.questionId,
+      selectedLabels: [...draft.selectedLabels],
+      ...(draft.freeText.trim() ? { freeText: draft.freeText.trim() } : {}),
+    }
+  })
+  if (answers.some((answer) => answer.selectedLabels.length === 0 && !answer.freeText)) {
+    submitError.value = '请完成全部问题后提交'
+    return
+  }
+  try { await interactions.answer(item, answers) }
+  catch (cause) { submitError.value = cause instanceof Error ? cause.message : '回答失败' }
+}
+
+onMounted(() => void interactions.refresh().catch(() => undefined))
 </script>
 
 <template>
-  <section class="workspace-browser" aria-label="待处理交互">
-    <header class="browser-head">
-      <strong>待处理交互</strong>
-      <span>{{ attentionItems.length }} 项待处理</span>
-    </header>
+  <section class="interaction-inbox" aria-label="待处理交互">
+    <div class="inbox-toolbar">
+      <div class="segmented">
+        <button type="button" :class="{ active: section === 'pending' }" @click="section = 'pending'">待处理 {{ interactions.pending.length }}</button>
+        <button type="button" :class="{ active: section === 'activity' }" @click="section = 'activity'">最近活动</button>
+      </div>
+      <div class="segmented" v-if="presetId">
+        <button type="button" :class="{ active: scope === 'workspace' }" @click="scope = 'workspace'">当前工作台</button>
+        <button type="button" :class="{ active: scope === 'all' }" @click="scope = 'all'">全部</button>
+      </div>
+      <button type="button" class="refresh" :disabled="interactions.loading" @click="interactions.refresh()">↻</button>
+    </div>
 
-    <div class="browser-list">
-      <button
-        v-for="item in attentionItems"
-        :key="`${item.type}:${item.id}`"
-        type="button"
-        class="attention-row"
-        @click="emit('tree', item.rootChatId, item.sourceChatId, item.id)"
-      >
-        <span class="attention-kind">{{ item.type === 'approval' ? '需确认' : '需回答' }}</span>
-        <span class="attention-copy">
-          <strong>{{ item.title }}</strong>
-          <small>{{ titleOf(byId.get(item.rootChatId)!) }} → {{ item.source }}</small>
-        </span>
-        <span class="attention-time">{{ timeOf(item.createdAt) }}</span>
-      </button>
-      <p v-if="attentionItems.length === 0" class="empty">当前 Pet 没有待处理交互</p>
+    <p v-if="submitError || interactions.error" class="error">{{ submitError || interactions.error }}</p>
+    <div class="inbox-list">
+      <article v-for="item in scoped" :key="item.interactionId" class="interaction-card" :class="`is-${item.status}`">
+        <header>
+          <span class="kind">{{ item.kind === 'approval' ? '需确认' : '需回答' }}</span>
+          <strong>{{ titleOf(item) }}</strong>
+          <small>{{ statusOf(item) }} · {{ timeOf(item.createdAt) }}</small>
+        </header>
+
+        <pre v-if="item.kind === 'approval'" class="arguments">{{ payload(item).arguments }}</pre>
+        <div v-else class="questions">
+          <fieldset v-for="question in questionsOf(item)" :key="question.questionId" :disabled="item.status !== 'pending'">
+            <legend>{{ question.header || question.question }}</legend>
+            <small v-if="question.header">{{ question.question }}</small>
+            <div class="options">
+              <button
+                v-for="option in question.options" :key="option.label" type="button"
+                :class="{ selected: draftOf(item, question.questionId).selectedLabels.includes(option.label) }"
+                @click="toggleOption(item, question.questionId, option.label, question.multiSelect)"
+              >
+                <b>{{ option.label }}</b><span v-if="option.description">{{ option.description }}</span>
+              </button>
+            </div>
+            <input v-model="draftOf(item, question.questionId).freeText" placeholder="其他补充（可选）" />
+          </fieldset>
+        </div>
+
+        <footer>
+          <button type="button" class="locate" @click="emit('tree', item.rootChatId, item.chatId, item.interactionId, item.anchorNodeId)">在节点树中查看</button>
+          <template v-if="section === 'pending' && item.kind === 'approval'">
+            <button type="button" class="reject" :disabled="item.status === 'resolving'" @click="decide(item, 'reject')">拒绝</button>
+            <button type="button" class="accept" :disabled="item.status === 'resolving'" @click="decide(item, 'accept')">{{ item.status === 'blocked' ? '重试并接受' : '接受' }}</button>
+          </template>
+          <button v-else-if="section === 'pending' && item.kind === 'question_batch'" type="button" class="accept" :disabled="item.status !== 'pending'" @click="answer(item)">提交回答</button>
+        </footer>
+      </article>
+      <p v-if="scoped.length === 0" class="empty">{{ interactions.loading ? '正在加载…' : section === 'pending' ? '没有待处理交互' : '暂无最近活动' }}</p>
     </div>
   </section>
 </template>
 
 <style scoped lang="less">
-.workspace-browser { min-height: 280px; padding: 12px 14px 16px; overflow: hidden; }
-.browser-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; color:var(--ink); }
-.browser-head strong { font-size:13px; }
-.browser-head span { color:color-mix(in srgb, var(--ink) 55%, transparent); font-size:10px; }
-.browser-list { display:flex; flex-direction:column; gap:7px; max-height:min(52vh,430px); overflow:auto; }
-.attention-row { display:flex; align-items:center; gap:9px; width:100%; padding:9px; border:1px solid color-mix(in srgb, var(--ink) 12%, transparent); border-radius:10px; background:var(--surface); text-align:left; cursor:pointer; }
-.attention-kind { flex:none; padding:3px 6px; border-radius:999px; background:color-mix(in srgb, #f6b73c 20%, var(--surface-soft)); color:color-mix(in srgb, #c25b12 78%, var(--ink)); font-size:9px; font-weight:800; }
-.attention-copy { flex:1; min-width:0; }
-.attention-copy strong,.attention-copy small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.attention-copy strong { color:var(--ink); font-size:11px; }
-.attention-copy small { margin-top:3px; color:color-mix(in srgb, var(--ink) 55%, transparent); font-size:9px; }
-.attention-time { flex:none; color:color-mix(in srgb, var(--ink) 50%, transparent); font-size:8px; }
-.empty { margin:36px 0; text-align:center; color:color-mix(in srgb, var(--ink) 50%, transparent); font-size:11px; }
+.interaction-inbox { height:100%; min-height:280px; padding:12px 14px 16px; overflow:hidden; color:var(--ink); }
+.inbox-toolbar,.segmented,article header,article footer { display:flex; align-items:center; gap:7px; }
+.inbox-toolbar { justify-content:space-between; margin-bottom:10px; }
+.segmented { padding:2px; border-radius:9px; background:color-mix(in srgb,var(--ink) 7%,transparent); }
+.segmented button,.refresh { border:0; border-radius:7px; padding:5px 8px; background:transparent; color:color-mix(in srgb,var(--ink) 62%,transparent); font-size:10px; cursor:pointer; }
+.segmented button.active { background:var(--surface); color:var(--ink); box-shadow:0 1px 4px color-mix(in srgb,var(--ink) 10%,transparent); }
+.inbox-list { display:flex; flex-direction:column; gap:9px; max-height:min(62vh,580px); overflow:auto; }
+.interaction-card { padding:11px; border:1px solid color-mix(in srgb,var(--ink) 12%,transparent); border-radius:12px; background:var(--surface); }
+.interaction-card.is-blocked { border-color:#e59a35; }
+article header { align-items:baseline; }
+article header strong { flex:1; font-size:12px; }
+article header small { color:color-mix(in srgb,var(--ink) 52%,transparent); font-size:8px; }
+.kind { padding:3px 6px; border-radius:999px; background:color-mix(in srgb,#f6b73c 20%,var(--surface-soft)); color:#b45a16; font-size:9px; font-weight:800; }
+.arguments { max-height:130px; margin:10px 0; padding:9px; overflow:auto; border-radius:8px; background:var(--surface-soft); white-space:pre-wrap; font-size:9px; }
+fieldset { margin:10px 0; padding:9px; border:1px solid color-mix(in srgb,var(--ink) 10%,transparent); border-radius:9px; }
+legend { padding:0 4px; font-size:11px; font-weight:700; }
+fieldset>small { display:block; margin-bottom:7px; opacity:.65; }
+.options { display:grid; gap:5px; }
+.options button { display:grid; gap:2px; padding:7px; border:1px solid color-mix(in srgb,var(--ink) 13%,transparent); border-radius:8px; background:transparent; color:var(--ink); text-align:left; cursor:pointer; }
+.options button.selected { border-color:#c98224; background:color-mix(in srgb,#f6b73c 13%,var(--surface)); }
+.options span { font-size:9px; opacity:.6; }
+input { box-sizing:border-box; width:100%; margin-top:6px; padding:7px; border:1px solid color-mix(in srgb,var(--ink) 12%,transparent); border-radius:7px; background:var(--surface); color:var(--ink); }
+article footer { justify-content:flex-end; margin-top:9px; }
+article footer button { padding:6px 10px; border:0; border-radius:8px; cursor:pointer; }
+.locate { margin-right:auto; background:transparent; color:color-mix(in srgb,var(--ink) 65%,transparent); }
+.reject { background:color-mix(in srgb,#e35a49 12%,var(--surface)); color:#b74438; }
+.accept { background:#d88a26; color:white; }
+.error { padding:7px; border-radius:8px; background:color-mix(in srgb,#e35a49 13%,var(--surface)); color:#b74438; font-size:10px; }
+.empty { margin:48px 0; text-align:center; opacity:.5; font-size:11px; }
 </style>

@@ -446,8 +446,8 @@ export async function handleSenseApproval(
   data: SenseApprovalRequestData,
 ): Promise<SenseApprovalResponseData> {
   // 转调 ApprovalManager.confirm → core approvalRegistry.resolve（P1-11 解耦后）
-  // confirm 返回 false：approvalId 失效（WS 断 park / 超时 / 已处理）→ 抛错让前端感知（规则12），
-  // 前端 ApprovalCard.submit catch 显示「审批已失效」；用户重新触发的审批走 chat.resume Case1 新 approvalId。
+  // 旧气泡直连入口只处理当前进程仍存活的 approval；全局待办入口可跨断线/重启
+  // 恢复同一个稳定 approvalId 后再提交决定。
   const ok = approvalManager.confirm(data.approvalId, data.action, data.reason)
   if (!ok) {
     throw new Error('审批已失效（可能因连接中断或超时被清除），请重新触发该工具的审批')

@@ -13,8 +13,8 @@ global:
   supervision: manual # Sense 监管等级：auto | smart | manual
   stream: true # 是否流式返回（true/false）
   sense_execute_timeout: 10000 # [可选] 单次 Sense 执行超时(ms)，默认 10000
-  approval_timeout: 30000 # [可选] 审批等待超时(ms)，默认 30000；0=不限时(由 approval_hard_timeout 兜底)
-  approval_hard_timeout: 1800000 # [可选] 不限时审批(approval_timeout=0)的资源上限(ms)，默认 1800000(30min)；到点归 paused 可续
+  approval_timeout: 30000 # [可选] 审批业务截止时间(ms)，默认 30000；到期拒绝本次工具并继续 Agent；0=无业务截止时间
+  approval_hard_timeout: 1800000 # [可选] 内存运行资源上限(ms)，默认 1800000(30min)；到点只暂停运行，持久审批仍可恢复
   disconnect_grace_ms: 15000 # [可选] WS 断连后等待重连(ms)，默认 15000；到期后当前输出结束即暂停
   watchdog: # [可选] 子 agent 看门狗（feed-dog 运行时监控，子无产出超时判定卡死）
     timeout_ms: 300000 # [可选] 子无产出超时(ms)，默认 300000(5min)；子每产出 chunk 重置计时
@@ -152,6 +152,10 @@ sense_groups:
     - read_file
     - search_codebase
     - skill
+  detail_diagnostics: # 解释分支专用：允许核对项目与执行诊断，禁止修改/派发
+    - read_file
+    - search_codebase
+    - execute_command
   housekeeper: # 管家角色：安装/维护 .chery/ 配置（install_skill 独占）
     - install_skill
     - read_file
@@ -221,6 +225,13 @@ roles:
     description: 记忆维护：每轮提取记忆、定期整理（Extract/Dream）
     mentionable: true
     lock: true # 锁定禁止删除（保护记忆维护能力）
+  # 解释角色仍走普通角色配置；被 preset.detailRole 引用后会从 spawn_role/@角色候选排除。
+  explanation:
+    brain: my-brain
+    senseGroup: detail_diagnostics
+    mcpServers: []
+    description: 只解释所选节点的概念与因果，不执行项目任务
+    mentionable: false
 
 # ------------------------------------------------------------
 # presets：预设配置
@@ -231,18 +242,22 @@ roles:
 presets:
   cheryNyxus:
     leader: cheryNyxus
+    detailRole: explanation
     roles:
       - cheryNyxus
       - housekeeper
       - curator
+      - explanation
   默认:
     leader: coordinator # 主角色（leader brain）
+    detailRole: explanation
     roles:
       - plan
       - coder
       - coordinator
       - reviewer
       - housekeeper # 管家（安装技能专用，主 agent 可 spawn）
+      - explanation # 专用解释角色，不可由主 agent 派发
     workspace: <YOUR_WORKSPACE_PATH> # 修改为你的实际工作目录
     # rule: strict.yaml # 可选：smart 监管规则覆盖（.chery/rule/strict.yaml，与 base.yaml 深合并）
   维护: # 记忆维护预设：定时触发 curator 做 Dream

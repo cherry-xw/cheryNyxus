@@ -27,6 +27,7 @@ export interface PixiExecutionNode {
   foldCount?: number
   running: boolean
   detailActive: boolean
+  branchAnchorKind?: 'detail' | 'continuation'
   paused: boolean
   error: boolean
   revoked: boolean
@@ -333,6 +334,10 @@ export class ExecutionGraphPixiRenderer {
           .circle(node.x, node.y, 19)
           .stroke({ color: stateColor, width: 2, alpha: 0.9 })
       }
+      if (node.branchAnchorKind) {
+        const markerColor = colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
+        this.staticNodes.circle(node.x, node.y, 22).stroke({ color: markerColor, width: 2.4, alpha: 0.95 })
+      }
       if (node.foldCount) {
         this.staticNodes.circle(node.x + 12, node.y - 12, 8).fill({ color: p.nodeFill, alpha: 0.95 })
         this.staticNodes
@@ -435,6 +440,21 @@ export class ExecutionGraphPixiRenderer {
     this.motionNodes.clear()
     for (const node of this.visibleMotionNodes) {
       const accent = colorNumber(node.accent)
+      if (node.branchAnchorKind) {
+        const markerColor = colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
+        const markerPhase = ((seconds + (node.x + node.y) * 0.0004) % 1.25) / 1.25
+        this.motionNodes.circle(node.x, node.y, 23 + markerPhase * 15).stroke({
+          color: markerColor,
+          width: 3.5,
+          alpha: 0.95 * (1 - markerPhase),
+        })
+        const secondMarkerPhase = (markerPhase + 0.5) % 1
+        this.motionNodes.circle(node.x, node.y, 23 + secondMarkerPhase * 15).stroke({
+          color: markerColor,
+          width: 2.5,
+          alpha: 0.72 * (1 - secondMarkerPhase),
+        })
+      }
       const duration = node.detailActive ? 1.05 : node.running ? 1.2 : 1.8
       const phase = ((seconds + (node.x + node.y) * 0.0007) % duration) / duration
       const maxScale = node.detailActive ? 1.9 : node.running ? 1.8 : 1.7

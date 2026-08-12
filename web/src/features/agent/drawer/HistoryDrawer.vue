@@ -96,14 +96,17 @@ watch(
       <div
         ref="overlayRef"
         class="drawer-overlay"
-        :class="{ 'is-top-mask': isTopMask, 'is-workbench-docked': drawerMode === 'workbench-docked' }"
+        :class="{
+          'is-top-mask': isTopMask,
+          'is-workbench-docked': drawerMode === 'workbench-docked',
+        }"
         :style="overlayStyle"
         tabindex="-1"
         @pointerdown="onOverlayClick"
       >
         <HistoryDrawerPanel
           v-for="(cid, i) in stack"
-          :key="cid"
+          :key="i"
           :chat-id="cid"
           :is-top="i === stack.length - 1"
           :z-index="BASE_Z + i * 10 + 1"

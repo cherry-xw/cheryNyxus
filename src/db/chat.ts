@@ -323,6 +323,18 @@ export function getChatRuntimeSelection(
   return { brain: rt.brain, senseGroup, mcpServers }
 }
 
+export function getChatMetadata(chatId: string): Record<string, unknown> {
+  const row = getSoulDb().prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
+    | { metadata: string | null }
+    | undefined
+  return row?.metadata ? (safeJsonParse(row.metadata, {}) as Record<string, unknown>) : {}
+}
+
+export function getChatBranchContext(chatId: string): string | undefined {
+  const value = getChatMetadata(chatId).branchContext
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
 /**
  * 读取持久化的 per-agent system prompt 路径（metadata.systemPromptFile）。
  * 来源：spawn_role sense createChat（角色，来自 config.roles[type].systemPrompt）
@@ -487,6 +499,7 @@ export function deleteChat(chatId: string): void {
     })
     clear()
   } finally {
+    soulDb.prepare('DELETE FROM interactions WHERE chat_id = ?').run(chatId)
     soulDb
       .prepare(
         'DELETE FROM execution_edges WHERE root_chat_id = ? AND (? = ? OR from_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?) OR to_node_id IN (SELECT node_id FROM execution_nodes WHERE source_chat_id = ?))',
@@ -510,6 +523,18 @@ export function deleteChat(chatId: string): void {
       )
       .run(chatId, chatId, chatId)
     soulDb.prepare('DELETE FROM pending_inputs WHERE chat_id = ?').run(chatId)
+    const branch = soulDb
+      .prepare('SELECT task_id FROM conversation_branches WHERE chat_id = ?')
+      .get(chatId) as { task_id: string } | undefined
+    soulDb.prepare('DELETE FROM conversation_branches WHERE chat_id = ?').run(chatId)
+    if (branch) {
+      const remaining = soulDb
+        .prepare('SELECT COUNT(*) AS count FROM conversation_branches WHERE task_id = ?')
+        .get(branch.task_id) as { count: number }
+      if (remaining.count === 0) {
+        soulDb.prepare('DELETE FROM conversation_tasks WHERE task_id = ?').run(branch.task_id)
+      }
+    }
     const stmt = soulDb.prepare('DELETE FROM chats WHERE id = ?')
     stmt.run(chatId)
   }

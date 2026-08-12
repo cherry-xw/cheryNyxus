@@ -30,15 +30,18 @@ import { useHistoryDrawerManager } from './useHistoryDrawerManager'
 import { splitCommandPrompt } from '../composables/commands'
 import PromptSnapshotTip from './PromptSnapshotTip.vue'
 import ContextUsageBar from './ContextUsageBar.vue'
-import { agentApi } from '@/services/agentApi'
 import type {
   ChatSummary,
+  ConversationBranchSummary,
   GraphToolCall,
   PromptSnapshotTool,
+  RootTimelineSnapshot,
   RuntimeSelection,
   TimelineNode,
 } from '@/services/agentApi'
+import { agentApi } from '@/services/agentApi'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
+import { detailBranchContextNodes } from './detailBranchContext'
 
 const MotionDiv = motion.div
 
@@ -106,6 +109,7 @@ function rootNodeToHistory(node: TimelineNode): HistoryItem {
     role,
     content: node.content,
     ...(node.thinking ? { thinking: node.thinking } : {}),
+    ...(node.runtime ? { runtime: node.runtime } : {}),
     ...(node.toolCalls?.length ? { senseCalls: node.toolCalls.map(canonicalToolCallToSense) } : {}),
     createdAt: node.createdAt,
     msgId: node.id,
@@ -198,6 +202,67 @@ function onSwitchRoot(cid: string): void {
   if (!cid || cid === props.chatId) return
   manager.openRoot(cid)
 }
+
+const taskBranches = ref<ConversationBranchSummary[]>([])
+const taskTimeline = ref<RootTimelineSnapshot>()
+const taskId = computed(() => agents.summaryForChat(props.chatId)?.taskId)
+watch(
+  taskId,
+  (id) => {
+    taskBranches.value = agents.historyDrawerTaskBranches
+    taskTimeline.value = undefined
+    if (!id) return
+    const requestedTaskId = id
+    void agentApi
+      .getTaskTimeline({ taskId: id, view: 'conversation' })
+      .then((snapshot) => {
+        if (taskId.value === requestedTaskId) {
+          taskTimeline.value = snapshot
+          taskBranches.value = snapshot.branches ?? []
+          agents.historyDrawerTaskBranches = taskBranches.value
+        }
+      })
+      .catch(() => undefined)
+  },
+  { immediate: true },
+)
+const orderedTaskBranches = computed(() => taskBranches.value.slice().sort((a, b) => {
+  if (a.branchId === taskTimeline.value?.activeBranchId) return -1
+  if (b.branchId === taskTimeline.value?.activeBranchId) return 1
+  if (a.kind === 'detail' && b.kind !== 'detail') return 1
+  if (b.kind === 'detail' && a.kind !== 'detail') return -1
+  return a.createdAt - b.createdAt || a.branchId.localeCompare(b.branchId)
+}))
+const currentTaskBranch = computed(() =>
+  taskBranches.value.find((branch) => branch.chatId === props.chatId),
+)
+function branchOptionLabel(branch: ConversationBranchSummary): string {
+  const prefix = branch.branchId === taskTimeline.value?.activeBranchId
+    ? '主流程'
+    : branch.kind === 'detail'
+      ? '解释'
+      : branch.kind === 'original'
+        ? '原流程'
+        : '继续'
+  const plain = splitCommandPrompt(branch.title?.trim() || '未命名问题').map((segment) => segment.value).join('')
+  return `${prefix} · ${plain}`
+}
+function onSwitchTaskBranch(cid: string): void {
+  if (!cid || cid === props.chatId) return
+  manager.openRoot(cid, agents.historyDrawerMode, agents.historyDrawerAnchor)
+}
+const activatingBranch = ref(false)
+async function activateCurrentBranch(): Promise<void> {
+  const branch = currentTaskBranch.value
+  if (!branch || branch.kind === 'detail' || branch.branchId === taskTimeline.value?.activeBranchId) return
+  activatingBranch.value = true
+  try {
+    await agentApi.activateBranch(branch.branchId, crypto.randomUUID())
+    if (taskId.value) taskTimeline.value = await agentApi.getTaskTimeline({ taskId: taskId.value, view: 'conversation' })
+  } finally {
+    activatingBranch.value = false
+  }
+}
 // 从非 Pad 入口开 drawer 时 historyList 可能未加载，懒拉一次供下拉用。
 watch(
   () => [layout.value, agents.historyList.length],
@@ -207,7 +272,7 @@ watch(
   { immediate: true },
 )
 
-const history = computed<HistoryItem[]>(() => {
+const branchHistory = computed<HistoryItem[]>(() => {
   // V2 canonical timeline is already assembled by the backend. The only local
   // projection is layout (root + descendants) and transient session-plane rows.
   const result =
@@ -276,6 +341,23 @@ const history = computed<HistoryItem[]>(() => {
   // 下钻打开的子 chat 自身抽屉（direct layout）必须照常显示，不受显示模式影响。
   return applySubagentDisplay(merged)
 })
+
+const detailContextHistory = computed<HistoryItem[]>(() => {
+  const currentIds = new Set(branchHistory.value.map((item) => item.msgId).filter(Boolean))
+  const context = detailBranchContextNodes(taskTimeline.value, currentTaskBranch.value)
+    .map(rootNodeToHistory)
+    .filter((item) => !item.msgId || !currentIds.has(item.msgId))
+  return applySubagentDisplay(dedupHistoryByMsgId(context))
+})
+
+const history = computed<HistoryItem[]>(() => [
+  ...detailContextHistory.value,
+  ...branchHistory.value,
+])
+const detailBranchStartIndex = computed(() => detailContextHistory.value.length)
+const showDetailBranchDivider = computed(
+  () => detailBranchStartIndex.value > 0 && branchHistory.value.length > 0,
+)
 
 /** 子 agent 消息角色（role='role'/'subagent'）。 */
 const SUB_ROLES = new Set<HistoryItem['role']>(['role', 'subagent'])
@@ -555,11 +637,20 @@ const titleText = computed(() => {
   return `历史 · ${props.chatId.slice(0, 8)}…`
 })
 
+/** 下拉作为标题：存在任一可切换下拉（根会话 / 任务分支）时，静态标题隐去，由下拉承载占位。 */
+const dropdownAsTitle = computed(
+  () =>
+    (layout.value === 'group' &&
+      rootOptions.value.length > 1 &&
+      agents.historyDrawerMode !== 'workbench-docked') ||
+    orderedTaskBranches.value.length > 1,
+)
+
 /** 6c：解析某条历史消息所属 chat 的 pet runtime 兜底（subPetChatId 优先 → agentChatId → 当前 drawer chat）。
- * 旧历史项无 runtime 时，面板用该 pet 当前 runtime 的 brain/senseGroup/mcpServers 补全。 */
+ * 旧历史项无 runtime 时，优先用 V2 session 当前 runtime 补全，再退化到 pet 投影。 */
 function runtimeForItem(item: HistoryItem): RuntimeSelection | undefined {
   const chatId = item.subPetChatId ?? item.agentChatId ?? props.chatId
-  return agents.petForChat(chatId)?.runtime
+  return chatSessions.sessionsById[chatId]?.context.runtime ?? agents.petForChat(chatId)?.runtime
 }
 
 // 6d：真人头像 hover 的「系统提示」描述库（打开抽屉随机一套，整次打开稳定，不随 hover 重随机）。
@@ -673,17 +764,7 @@ function onPromptSnapShow(): void {
     />
     <header class="drawer-head">
       <div class="title-block">
-        <span class="title">{{ titleText }}</span>
-        <button
-          type="button"
-          class="copy-id-btn"
-          :class="{ copied }"
-          :title="copied ? '已复制' : '复制 ID'"
-          aria-label="复制 chatId"
-          @click="copyChatId"
-        >
-          <span class="copy-glyph">{{ copied ? '✓' : '📋' }}</span>
-        </button>
+        <span v-if="!dropdownAsTitle" class="title">{{ titleText }}</span>
         <el-select
           v-if="layout === 'group' && rootOptions.length > 1 && agents.historyDrawerMode !== 'workbench-docked'"
           class="root-switch"
@@ -699,6 +780,42 @@ function onPromptSnapShow(): void {
             :label="rootOptionLabel(c)"
           />
         </el-select>
+        <el-select
+          v-if="orderedTaskBranches.length > 1"
+          class="branch-switch"
+          size="small"
+          :model-value="props.chatId"
+          placeholder="任务分支"
+          aria-label="切换任务分支历史"
+          @change="onSwitchTaskBranch"
+        >
+          <el-option
+            v-for="branch in orderedTaskBranches"
+            :key="branch.branchId"
+            :value="branch.chatId"
+            :label="branchOptionLabel(branch)"
+          >
+            <span :title="branchOptionLabel(branch)">{{ branchOptionLabel(branch) }}</span>
+          </el-option>
+        </el-select>
+        <button
+          v-if="currentTaskBranch && currentTaskBranch.kind !== 'detail' && currentTaskBranch.branchId !== taskTimeline?.activeBranchId"
+          type="button"
+          class="activate-branch-btn"
+          :disabled="activatingBranch"
+          title="将当前分支切换为任务主流程；不会复制消息或启动执行"
+          @click="activateCurrentBranch"
+        >设为主流程</button>
+        <button
+          type="button"
+          class="copy-id-btn"
+          :class="{ copied }"
+          :title="copied ? '已复制' : '复制 ID'"
+          aria-label="复制 chatId"
+          @click="copyChatId"
+        >
+          <span class="copy-glyph">{{ copied ? '✓' : '📋' }}</span>
+        </button>
       </div>
       <div v-if="isTop" class="head-actions">
         <div v-if="layout === 'group'" class="display-mode-seg" role="group" aria-label="子 agent 消息显示模式">
@@ -778,21 +895,32 @@ function onPromptSnapShow(): void {
         :default-render-count="12"
       >
         <template #default="{ index }">
-          <MessageBubble
-            :item="history[index]!"
-            :layout="layout"
-            :master-pet-name="masterPetName"
-            :sub-pet-name="subPetName(history[index]!)"
-            :sub-pet-face="subPetFace(history[index]!)"
-            :sub-pet-type="subPetType(history[index]!)"
-            :caller-pet-face="callerPetFace(history[index]!)"
-            :caller-pet-name="callerPetName(history[index]!)"
-            :caller-is-master="callerIsMaster(history[index]!)"
-            :show-master-badge="isLastSubReply(history[index]!)"
-            :fallback-runtime="runtimeForItem(history[index]!)"
-            :user-avatar-caption="userAvatarCaption"
-            @jump-to-spawn="onJumpToSpawn"
-          />
+          <div :class="{ 'detail-context-item': index < detailBranchStartIndex }">
+            <div
+              v-if="showDetailBranchDivider && index === detailBranchStartIndex"
+              class="detail-branch-divider"
+              role="separator"
+              aria-label="解释分支开始"
+            >
+              <span>以上为创建解释分支时的前置对话</span>
+              <strong>以下为解释分支</strong>
+            </div>
+            <MessageBubble
+              :item="history[index]!"
+              :layout="layout"
+              :master-pet-name="masterPetName"
+              :sub-pet-name="subPetName(history[index]!)"
+              :sub-pet-face="subPetFace(history[index]!)"
+              :sub-pet-type="subPetType(history[index]!)"
+              :caller-pet-face="callerPetFace(history[index]!)"
+              :caller-pet-name="callerPetName(history[index]!)"
+              :caller-is-master="callerIsMaster(history[index]!)"
+              :show-master-badge="isLastSubReply(history[index]!)"
+              :fallback-runtime="runtimeForItem(history[index]!)"
+              :user-avatar-caption="userAvatarCaption"
+              @jump-to-spawn="onJumpToSpawn"
+            />
+          </div>
         </template>
 
         <!-- 滚动条轨道上的 user 消息 minimap 标记：hover 预览 + 点击跳转（VirtualScroll 暴露 ratioOf/trackHeight） -->
@@ -993,25 +1121,27 @@ function onPromptSnapShow(): void {
     }
   }
 
-  // 根会话切换下拉（方案 A）：仅 root/group 面板，列同 preset 的 root 会话。
-  // 固定宽度不随空间压缩（flex-shrink:0），标题先 ellipsis 让位（6a）。
-  .root-switch {
+  // 根会话 / 任务分支切换下拉：作为标题展示（方案 A）。
+  // 存在下拉时静态 .title 隐去，下拉 flex:1 抢占标题区并先 ellipsis，承载标题职能。
+  .root-switch,
+  .branch-switch {
     align-self: center;
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 160px;
-    max-width: 360px;
+    flex: 1 1 0;
+    min-width: 0;
     :deep(.el-select__wrapper) {
       background: var(--surface-soft);
       box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent) inset;
-      font-size: 11px;
-      color: color-mix(in srgb, var(--ink) 78%, transparent);
+      font-size: 13px;
+      font-weight: 800;
     }
     :deep(.el-select__placeholder) {
       color: color-mix(in srgb, var(--ink) 45%, transparent);
     }
     :deep(.el-select__selected-item) {
-      color: color-mix(in srgb, var(--ink) 78%, transparent);
+      color: color-mix(in srgb, var(--ink) 86%, transparent);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
   }
 }
@@ -1150,6 +1280,62 @@ function onPromptSnapShow(): void {
   min-height: 0;
   --virtual-scroll-gap: 10px;
 }
+
+.detail-context-item {
+  opacity: 0.68;
+}
+
+.activate-branch-btn {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 4px;
+  padding: 4px 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  font-size: 11px;
+  cursor: pointer;
+
+  &:disabled { cursor: wait; opacity: 0.5; }
+}
+
+.detail-branch-divider {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 6px 14px 0;
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+  font-size: 11px;
+  line-height: 1.35;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    left: 0;
+    border-top: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+
+  span,
+  strong {
+    position: relative;
+    padding: 0 6px;
+    background: var(--panel);
+  }
+
+  span {
+    justify-self: start;
+  }
+
+  strong {
+    justify-self: end;
+    color: color-mix(in srgb, var(--ink) 72%, transparent);
+    font-weight: 700;
+  }
+}
+
 .agent-loading-list {
   flex-shrink: 0;
   display: flex;

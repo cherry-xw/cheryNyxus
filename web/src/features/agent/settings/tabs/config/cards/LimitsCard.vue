@@ -64,7 +64,7 @@ const watchdogTimeoutSeconds = computed<number | undefined>({
     <NeonNumberControl
       v-model="approvalTimeoutSeconds"
       label="审批等待"
-      tip="0 = 不限时；超时按拒绝处理"
+      tip="0 = 不设置截止时间；到期拒绝该工具，Agent 继续执行；用户提问不受影响"
       placeholder="不限时"
       unit="秒"
       :step="10"

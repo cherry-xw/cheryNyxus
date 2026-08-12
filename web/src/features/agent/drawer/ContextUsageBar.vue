@@ -169,16 +169,6 @@ function shortLabel(key: BreakdownKey): string {
   .label-skills { color: #b45309; }
   .label-tools { color: #047857; }
   .label-conversation { color: #1d4ed8; }
-  // 深色模式提亮标签色（深底用更浅的同色系），保持可读。
-  :global([data-theme='dark']) {
-    .label-system { color: #a5b4fc; }
-    .label-userSystem { color: #d8b4fe; }
-    .label-memory { color: #f9a8d4; }
-    .label-skills { color: #fcd34d; }
-    .label-tools { color: #34d399; }
-    .label-conversation { color: #93c5fd; }
-    .ctx-legend-label.is-zero { color: rgba(235, 238, 244, 0.38); }
-  }
   .ctx-legend-thinking {
     opacity: 0.55;
   }
@@ -293,4 +283,17 @@ function shortLabel(key: BreakdownKey): string {
     }
   }
 }
+</style>
+
+<!-- 深色模式提亮必须放独立的无 scoped 样式块：scoped 块内 :global([data-theme='dark']) .x 会被
+@vue/compiler-sfc 编译成裸 [data-theme='dark'] { … }，丢弃全部后代选择器导致不生效。
+unscoped 块原样输出，specificity 用 .ctx-legend-item 抬高到 (0,5,0)，必然盖过带 [data-v] 的基础规则。 -->
+<style lang="less">
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-system { color: #a5b4fc; }
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-userSystem { color: #d8b4fe; }
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-memory { color: #f9a8d4; }
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-skills { color: #fcd34d; }
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-tools { color: #34d399; }
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.label-conversation { color: #93c5fd; }
+[data-theme='dark'] .ctx-usage-bar .ctx-legend-item .ctx-legend-label.is-zero { color: rgba(234, 236, 240, 0.55); }
 </style>

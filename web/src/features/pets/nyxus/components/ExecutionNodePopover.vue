@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { ElTooltip } from 'element-plus'
 import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import { splitCommandPrompt } from '@/features/agent/composables/commands'
@@ -10,6 +11,7 @@ import {
 import { useAgentsStore } from '@/stores'
 import type { ApprovalState } from '@/stores/agents'
 import { renderMarkdown } from '@/utils/markdown'
+import { formatTime } from '@/utils/formatTime'
 import type { ExecutionEdge, ExecutionNode } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
@@ -87,8 +89,14 @@ const props = defineProps<{
   chatId?: string
   approval?: ApprovalState
   question?: NodePopoverQuestion
+  detailBranchAvailable?: boolean
+  detailBranchUnavailableReason?: string
 }>()
-const emit = defineEmits<{ close: []; selectCall: [callId: string] }>()
+const emit = defineEmits<{
+  close: []
+  selectCall: [callId: string]
+  branch: [type: 'detail' | 'continuation', nodeId: string]
+}>()
 const agents = useAgentsStore()
 const batch = computed(() => toolBatchDetail(props.node))
 const copiedFieldKey = ref('')
@@ -248,6 +256,12 @@ const nodeContent = computed(() => {
   return Object.keys(rest).length ? JSON.stringify(rest, null, 2) : ''
 })
 const isUserNode = computed(() => props.node.actor.kind === 'user')
+const canBranch = computed(() => {
+  const fact = props.node.sourceFact
+  if (!fact || fact.status !== 'committed' || fact.kind === 'system') return false
+  if (!fact.content.trim() && !fact.toolCalls?.length) return false
+  return !(fact.toolCalls ?? []).some((call) => call.status === 'pending' || call.status === 'accepted')
+})
 const nodeContentSegments = computed(() => splitCommandPrompt(nodeContent.value || ''))
 const renderedNodeContent = computed(() => renderMarkdown(nodeContent.value || ''))
 /** 持久图投影已把同源 message 的 thinking 合并进 tool-batch。 */
@@ -280,6 +294,7 @@ const nodeTitle = computed(() => {
 const nodeStatus = computed(() =>
   statusLabel(props.node.inputState ?? props.node.sourceFact?.status ?? props.node.status),
 )
+const nodeTime = computed(() => formatTime(props.node.createdAt))
 
 function parseRecord(source?: string): Record<string, unknown> {
   if (!source) return {}
@@ -430,9 +445,43 @@ async function copyField(key: string, value: string): Promise<void> {
           {{ batch ? toolIcon : skinForNode(node).glyph }}
         </span>
         <strong>{{ nodeTitle }}</strong>
+        <span v-if="nodeTime" class="node-time" aria-label="节点发起时间">{{ nodeTime }}</span>
         <span v-if="!batch" class="status-pill" :class="`status-${node.status}`">
           {{ nodeStatus }}
         </span>
+        <div v-if="canBranch && !approval && !question" class="branch-head-actions" role="group" aria-label="从此节点发起对话">
+          <span class="branch-action-wrap">
+            <button
+              type="button"
+              class="branch-head-action is-detail"
+              :disabled="detailBranchAvailable === false"
+              @click="emit('branch', 'detail', node.sourceFact!.id)"
+            ><span aria-hidden="true">◉</span>解释此处</button>
+            <ElTooltip
+              :content="detailBranchAvailable === false
+                ? (detailBranchUnavailableReason || '当前预设未配置解释角色')
+                : '创建独立解释分支，使用专用诊断角色；可读取、搜索并运行诊断命令，不修改原任务。'"
+              placement="top"
+              :show-after="180"
+            >
+              <span class="branch-info" aria-hidden="true">ⓘ</span>
+            </ElTooltip>
+          </span>
+          <span class="branch-action-wrap">
+            <button
+              type="button"
+              class="branch-head-action is-continuation"
+              @click="emit('branch', 'continuation', node.sourceFact!.id)"
+            ><span aria-hidden="true">⑂</span>从此处继续</button>
+            <ElTooltip
+              content="从该历史状态创建并列任务分支并继承原角色；节点之后已经发生的工具副作用不会撤销。"
+              placement="top"
+              :show-after="180"
+            >
+              <span class="branch-info" aria-hidden="true">ⓘ</span>
+            </ElTooltip>
+          </span>
+        </div>
         <button
           v-if="pinned && !approval && !question"
           type="button"
@@ -444,6 +493,28 @@ async function copyField(key: string, value: string): Promise<void> {
         </button>
       </header>
 
+      <div
+        v-if="batch && toolBatchUsesTabs(batch.calls)"
+        class="tool-tabs"
+        role="tablist"
+        aria-label="工具类型"
+      >
+        <button
+          v-for="call in batch.calls"
+          :key="call.callId"
+          type="button"
+          role="tab"
+          :aria-selected="call.callId === selectedCall?.callId"
+          :class="{ active: call.callId === selectedCall?.callId }"
+          @click="emit('selectCall', call.callId)"
+        >
+          <span class="tool-tab-icon" aria-hidden="true">{{ toolGlyph(call.name) }}</span>
+          <span class="tool-tab-label">{{ toolLabel(call.name) }}</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="popover-body">
       <div v-if="batch" class="batch-lead">
         <section v-if="nodeThinking" class="thinking-block">
           <button
@@ -474,29 +545,6 @@ async function copyField(key: string, value: string): Promise<void> {
           v-html="renderedNodeContent"
         />
       </div>
-
-      <div
-        v-if="batch && toolBatchUsesTabs(batch.calls)"
-        class="tool-tabs"
-        role="tablist"
-        aria-label="工具类型"
-      >
-        <button
-          v-for="call in batch.calls"
-          :key="call.callId"
-          type="button"
-          role="tab"
-          :aria-selected="call.callId === selectedCall?.callId"
-          :class="{ active: call.callId === selectedCall?.callId }"
-          @click="emit('selectCall', call.callId)"
-        >
-          <span class="tool-tab-icon" aria-hidden="true">{{ toolGlyph(call.name) }}</span>
-          <span class="tool-tab-label">{{ toolLabel(call.name) }}</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="popover-body">
       <section v-if="approval || question" class="node-action">
         <ApprovalCard v-if="approval && chatId" :approval="approval" :chat-id="chatId" />
         <QuestionCard
@@ -958,6 +1006,37 @@ async function copyField(key: string, value: string): Promise<void> {
 </template>
 
 <style scoped lang="less">
+.branch-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.branch-action-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.branch-head-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  padding: 0 6px;
+  font: 600 10px/1 system-ui, sans-serif;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+.branch-head-action:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.branch-head-action.is-detail { color: var(--nx-cyan); }
+.branch-head-action.is-continuation { color: var(--nx-yellow); }
+.branch-head-action:disabled { cursor: not-allowed; opacity: 0.38; }
+.branch-info { color: var(--nx-text-dim); font-size: 11px; line-height: 1; }
 @import '@/styles/markdown.less';
 
 // 节点 hover 悬浮窗：随深浅主题翻转（引用全局 --nx-* CRT token）。
@@ -1028,6 +1107,14 @@ async function copyField(key: string, value: string): Promise<void> {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.node-time {
+  flex: 0 0 auto;
+  color: var(--nx-text-dim);
+  font:
+    9.5px/1.2 system-ui,
+    sans-serif;
+}
+.branch-head-actions + .close-button { margin-left: 0; }
 .status-pill {
   flex: 0 0 auto;
   padding: 2px 5px;
@@ -1217,6 +1304,7 @@ async function copyField(key: string, value: string): Promise<void> {
 .actual-description {
   margin-bottom: 10px;
   border-left: 2px solid @accent;
+  padding-left: 6px;
 }
 .thinking-block {
   margin-bottom: 10px;
@@ -1278,15 +1366,18 @@ async function copyField(key: string, value: string): Promise<void> {
   font:
     13px/1 ui-monospace,
     monospace;
+  opacity: 0.3;
   transition:
     color 120ms ease,
     border-color 120ms ease,
-    background-color 120ms ease;
+    background-color 120ms ease,
+    opacity 140ms ease;
 }
 .field-copy-button:hover,
 .field-copy-button:focus-visible {
   color: var(--nx-text);
   background: color-mix(in srgb, var(--nx-cyan) 8%, transparent);
+  opacity: 1;
 }
 .detail-field {
   min-width: 0;
@@ -1503,6 +1594,7 @@ async function copyField(key: string, value: string): Promise<void> {
   color: var(--nx-text);
   font-weight: 650;
   overflow-wrap: anywhere;
+  font-size: 14px;
 }
 .question-heading > small {
   flex: 0 0 auto;
@@ -1519,6 +1611,7 @@ async function copyField(key: string, value: string): Promise<void> {
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-size: 12px;
 }
 .question-options {
   display: grid;
@@ -1544,6 +1637,7 @@ async function copyField(key: string, value: string): Promise<void> {
   width: 13px;
   height: 13px;
   margin-top: 1px;
+  line-height: 0;
   border: 1px solid color-mix(in srgb, var(--nx-purple) 54%, transparent);
   border-radius: 50%;
   color: var(--nx-purple);

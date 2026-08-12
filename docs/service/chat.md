@@ -13,6 +13,18 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `sense.approval`）转�
 - **chat 管理**（handler.ts）：`chat.create` / `list` / `get`（流式载入历史 + `canResume`）/ `delete`。
 - **审批 service 侧**（send.ts `handleSenseApproval`）：转调 `approvalManager.confirm` → core `approvalRegistry.resolveApproval` 触发 senseMiddleware await。
 - **问答 service 侧**（send.ts `handleSenseQuestionBatchAnswer` + wake.ts `resolveQuestionBatch`）：按 `chatId+batchId` 原子校验整批答案，在同一月库事务中更新全部 sense content、question_items 和 question_batches；随后同步内存 journal、set `resumePending`、持久化 `question_batch_completed`。旧单题 RPC 仅兼容单题批次。
+- **任务分支**（conversationBranch.ts）：一个用户任务可包含多个独立根 Chat，但任一时刻只有一个 `active_branch_id` 主干。`continuation` 从历史节点继承因果闭包并接管主干，`detail` 只用于解释；二者都不使用 `parent_chat_id`。
+
+## 任务分支语义
+
+- 历史根 Chat 首次预览/创建分支时懒补一个 `original` 分支，并将它设为任务初始 `active_branch_id`。`original`/`continuation` 可被 `chat.branch.activate` 原子切换为活动主干；`detail` 永远不能成为主干。切换身份本身不复制消息、不启动运行。
+- `chat.branch.preview` 返回锚点之后已完成工具的副作用清单与 digest，同时列出锚点因果闭包中已完成和暂停的派发任务；它不尝试撤销外部世界。
+- `chat.branch.create` 以首条用户输入原子创建新根 Chat。`continuation` 允许任务处于树级暂停：复核 preview digest 后，将锚点前的主流程历史、锚点前已派发的同批兄弟任务及其递归后代纳入继承；锚点后才派发的任务不继承。新 continuation 与任务 `active_branch_id` 在同一事务内提交。`detail` 不切换活动主干。
+- `detail` 必须使用 preset 成员中显式绑定的 `detailRole`，完整采用该普通角色的大脑、感官、MCP、system prompt 与技能过滤。解释角色从 `spawn_role` 和 `@角色`候选中排除；缺失时拒绝创建，不回退到原角色。
+- continuation 将继承历史作为只读 system 前缀；已完成子任务按派发顺序、任务 ID 稳定排序，以其原始最终返回拼接为一个持久 `system` 合并节点，位于新用户消息之前。合并节点保留来源任务和内容摘要校验值，不用模型重新总结；外部副作用仍由 preview 单独提示。
+- 未完成的继承子任务保持不可变 `parent_chat_id` 作为绘图/审计归属，同时把 `spawn_tasks.delivery_chat_id/delivery_branch_id/delivery_generation` 原子改到新主干。恢复后每个结果各写一个 `return` 节点并自动唤醒当前活动主 Agent；再次切换时仅尚未投递且仍在新因果闭包内的任务随最新主干移动。投递以 generation 做并发栅栏，已投递结果不搬移、不复制。
+- `chat.abortTask` 级联暂停任务内所有分支根及各自的子 Agent；继续仍按分支分别操作。
+- v1 前端通过 `chat.timeline.get({taskId})` 每 1.2 秒刷新任务投影；单根 Chat 的既有实时事件订阅保持不变，后续可在不改变分支协议的前提下升级为任务级 WebSocket patch。
 
 ## 前端 ChatSession 信息契约
 

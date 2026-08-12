@@ -109,19 +109,22 @@ function openSettings(): void {
   closeNyxusMenu()
 }
 
-/** 打开 cheryNyxus（主预设）的节点树工作台。 */
-function openWorkbench(): void {
+/** 打开 cheryNyxus（主预设）的节点树工作台，并刷新钢琴依赖的轻量会话目录。 */
+async function openWorkbench(): Promise<void> {
   if (connection.status !== 'connected') return
+  try {
+    await agents.getActiveNyxus()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '加载 Cherry Nyxus 绘画列表失败'
+    console.error('[CherryNyxus] load workbench catalog failed:', cause)
+    return
+  }
   const id = agents.openWorkbenchWindow(CHERY_NYXUS_PRESET)
   // 仅新建窗口（chatId 为空）时恢复活跃 Nyxus 会话，避免打开即空树；已存在窗口不覆盖当前浏览。
   if (!agents.workbenchWindows[id]?.chatId) {
     const active = agents.activeNyxusChatId
     if (active) agents.setWorkbenchWindowChat(id, active)
-    else {
-      void agents.getActiveNyxus().then((cid) => {
-        if (cid) agents.setWorkbenchWindowChat(id, cid)
-      })
-    }
+    else return
   }
   closeNyxusMenu()
 }

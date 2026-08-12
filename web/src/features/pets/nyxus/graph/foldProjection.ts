@@ -94,7 +94,16 @@ function isFoldableBatch(node: ExecutionNode): boolean {
 }
 
 function isFoldableNode(node: ExecutionNode): boolean {
+  if (node.sourceFact?.forkAnchor) return false
   return isSelfAgentMessage(node) || isFoldableBatch(node)
+}
+
+function branchId(node: ExecutionNode): string {
+  return node.sourceFact?.branchId ?? `legacy:${node.rootChatId}`
+}
+
+function branchChatKey(node: ExecutionNode): string {
+  return `${branchId(node)}\u0000${node.sourceChatId}`
 }
 
 function isNodeTerminal(node: ExecutionNode): boolean {
@@ -143,7 +152,7 @@ function foldUnits(branchNodes: readonly ExecutionNode[]): Array<FoldUnit | unde
   return units
 }
 
-function toRange(sourceChatId: string, units: FoldUnit[]): FoldRange | undefined {
+function toRange(sourceChatId: string, units: FoldUnit[], rangeNamespace = sourceChatId): FoldRange | undefined {
   if (units.length < 2) return undefined
   const members = units.map<ExecutionFoldMember>((unit) => ({
     id: unit.id,
@@ -154,7 +163,7 @@ function toRange(sourceChatId: string, units: FoldUnit[]): FoldRange | undefined
   const first = nodes[0]!
   const last = nodes.at(-1)!
   return {
-    id: `fold:${sourceChatId}:${first.id}`,
+    id: `fold:${rangeNamespace}:${first.id}`,
     sourceChatId,
     firstNodeId: first.id,
     lastNodeId: last.id,
@@ -170,12 +179,13 @@ function toRange(sourceChatId: string, units: FoldUnit[]): FoldRange | undefined
  * folds without revealing it when the next node is streaming or awaiting input.
  */
 export function computeFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] {
-  const branches = new Map<string, ExecutionNode[]>()
+  const branches = new Map<string, { branchId: string; sourceChatId: string; nodes: ExecutionNode[] }>()
   const persistentNodes = graph.nodes.filter((item) => item.orderSlot === 'persistent')
   for (const node of persistentNodes) {
-    const branch = branches.get(node.sourceChatId) ?? []
-    branch.push(node)
-    branches.set(node.sourceChatId, branch)
+    const key = branchChatKey(node)
+    const branch = branches.get(key) ?? { branchId: branchId(node), sourceChatId: node.sourceChatId, nodes: [] }
+    branch.nodes.push(node)
+    branches.set(key, branch)
   }
   // Cross-agent facts are boundaries on both sides of the interaction. In
   // particular, a child-sourced return targeting root must split the root's
@@ -183,19 +193,20 @@ export function computeFoldRanges(graph: Readonly<ExecutionGraph>): FoldRange[] 
   for (const node of persistentNodes) {
     const targetChatId = node.target?.kind === 'agent' ? node.target.chatId : undefined
     if (!targetChatId || targetChatId === node.sourceChatId || isFoldableNode(node)) continue
-    const targetBranch = branches.get(targetChatId) ?? []
-    if (!targetBranch.some((candidate) => candidate.id === node.id)) targetBranch.push(node)
-    branches.set(targetChatId, targetBranch)
+    const key = `${branchId(node)}\u0000${targetChatId}`
+    const targetBranch = branches.get(key) ?? { branchId: branchId(node), sourceChatId: targetChatId, nodes: [] }
+    if (!targetBranch.nodes.some((candidate) => candidate.id === node.id)) targetBranch.nodes.push(node)
+    branches.set(key, targetBranch)
   }
 
   const ranges: FoldRange[] = []
-  for (const [sourceChatId, branch] of branches) {
+  for (const { branchId: currentBranchId, sourceChatId, nodes: branch } of branches.values()) {
     const terminalUnits: FoldUnit[] = []
     const flush = (final = false): void => {
       // The round-closing reply is the last thing the agent says; keep it out
       // of the fold so it renders as a normal message node.
       const units = final && isReplyUnit(terminalUnits) ? terminalUnits.slice(0, -1) : terminalUnits
-      const range = toRange(sourceChatId, units)
+      const range = toRange(sourceChatId, units, `${currentBranchId}:${sourceChatId}`)
       if (range) ranges.push(range)
       terminalUnits.splice(0)
     }
@@ -269,6 +280,7 @@ function isAgentReply(node: ExecutionNode): boolean {
 
 function toFullRange(round: ExecutionNode[], foldNodes: ExecutionNode[]): FoldRange {
   const sourceChatId = round[0]!.sourceChatId
+  const currentBranchId = branchId(round[0]!)
   const first = foldNodes[0]!
   const members = foldNodes.map<ExecutionFoldMember>((node) => ({
     id: node.id,
@@ -276,13 +288,17 @@ function toFullRange(round: ExecutionNode[], foldNodes: ExecutionNode[]): FoldRa
     nodes: [node],
   }))
   return {
-    id: `full-fold:${sourceChatId}:${first.id}`,
+    id: `full-fold:${currentBranchId}:${sourceChatId}:${first.id}`,
     sourceChatId,
     firstNodeId: first.id,
     lastNodeId: foldNodes.at(-1)!.id,
     members,
     nodes: foldNodes,
   }
+}
+
+function hasMultipleFoldMembers(nodes: readonly ExecutionNode[]): boolean {
+  return nodes.length >= 2
 }
 
 /**
@@ -302,29 +318,36 @@ function computeRoundFoldRanges(
     .sort(compareNodes)
 
   const rounds: ExecutionNode[][] = []
-  let current: ExecutionNode[] = []
+  const byBranch = new Map<string, ExecutionNode[]>()
   for (const node of persistent) {
-    if (isUserMessage(node) && current.length > 0) {
-      rounds.push(current)
-      current = [node]
-    } else {
-      current.push(node)
-    }
+    const list = byBranch.get(branchId(node)) ?? []
+    list.push(node)
+    byBranch.set(branchId(node), list)
   }
-  if (current.length > 0) rounds.push(current)
+  for (const branch of byBranch.values()) {
+    let current: ExecutionNode[] = []
+    for (const node of branch) {
+      if (isUserMessage(node) && current.length > 0) {
+        rounds.push(current)
+        current = [node]
+      } else current.push(node)
+    }
+    if (current.length > 0) rounds.push(current)
+  }
 
   const ranges: FoldRange[] = []
   for (const round of rounds) {
     if (round.some(hasActiveRun)) continue
     const keepIds = new Set<string>()
     for (const node of round) if (isUserMessage(node)) keepIds.add(node.id)
+    for (const node of round) if (node.sourceFact?.forkAnchor) keepIds.add(node.id)
     if (extraKeep) for (const node of round) if (extraKeep(node)) keepIds.add(node.id)
     // The final agent reply is the last outbound message; keep it visible.
     const finalReply = [...round].reverse().find(isAgentReply)
     if (finalReply) keepIds.add(finalReply.id)
     const foldNodes = round.filter((node) => !keepIds.has(node.id))
     // Only genuine user-led rounds fold; boundary-less leading segments stay expanded.
-    if (!round.some(isUserMessage) || foldNodes.length < 1) continue
+    if (!round.some(isUserMessage) || !hasMultipleFoldMembers(foldNodes)) continue
     ranges.push(toFullRange(round, foldNodes))
   }
   return ranges.sort(
@@ -361,16 +384,22 @@ export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): F
     .filter((item) => item.orderSlot === 'persistent')
     .sort(compareNodes)
   const rounds: ExecutionNode[][] = []
-  let current: ExecutionNode[] = []
+  const byBranch = new Map<string, ExecutionNode[]>()
   for (const node of persistent) {
-    if (isUserMessage(node) && current.length > 0) {
-      rounds.push(current)
-      current = [node]
-    } else {
-      current.push(node)
-    }
+    const list = byBranch.get(branchId(node)) ?? []
+    list.push(node)
+    byBranch.set(branchId(node), list)
   }
-  if (current.length > 0) rounds.push(current)
+  for (const branch of byBranch.values()) {
+    let current: ExecutionNode[] = []
+    for (const node of branch) {
+      if (isUserMessage(node) && current.length > 0) {
+        rounds.push(current)
+        current = [node]
+      } else current.push(node)
+    }
+    if (current.length > 0) rounds.push(current)
+  }
 
   const ranges: FoldRange[] = []
   for (const round of rounds) {
@@ -390,7 +419,7 @@ export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): F
       }
     }
     const keepIds = new Set(
-      round.filter((node) => isUserMessage(node) || isParticipantBoundary(node)).map((node) => node.id),
+      round.filter((node) => isUserMessage(node) || isParticipantBoundary(node) || node.sourceFact?.forkAnchor).map((node) => node.id),
     )
     for (const edge of roundEdges) {
       if (edge.kind === 'spawn' || edge.kind === 'dispatch') {
@@ -408,9 +437,13 @@ export function computeParticipantFoldRanges(graph: Readonly<ExecutionGraph>): F
     const flush = (chatId: string): void => {
       const nodes = pendingByChat.get(chatId)
       if (!nodes?.length) return
+      if (!hasMultipleFoldMembers(nodes)) {
+        pendingByChat.delete(chatId)
+        return
+      }
       const first = nodes[0]!
       ranges.push({
-        id: `participant-fold:${chatId}:${first.id}`,
+        id: `participant-fold:${branchId(first)}:${chatId}:${first.id}`,
         sourceChatId: chatId,
         firstNodeId: first.id,
         lastNodeId: nodes.at(-1)!.id,

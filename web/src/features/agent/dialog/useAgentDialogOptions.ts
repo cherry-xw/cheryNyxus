@@ -290,7 +290,7 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     if (!loadedConfig?.roles || !preset?.roles) return []
     return preset.roles.flatMap((name) => {
       const role = loadedConfig.roles?.[name]
-      if (!role || name === primaryRole.value || !role.mentionable) return []
+      if (!role || name === primaryRole.value || name === preset.detailRole || !role.mentionable) return []
       return [{ name, description: role.description || `委派 ${name} 角色处理任务。` }]
     })
   })
@@ -484,17 +484,23 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       // depends on the root tree subscription for its node/CRT projection, so its
       // first command must not race that subscription's initial tree snapshot.
       if (presetName.value === CHERY_NYXUS_PRESET) {
-        await chatSessions.observeRootTimeline(targetChatId, 'tree')
+        await chatSessions.acquireRootTimeline(targetChatId, 'agent-dialog-submit', 'tree')
       } else {
         await chatSessions.openSession(targetChatId)
       }
       await chatSessions.submitInput(targetChatId, prompt, attachments, preparedInput)
+      if (presetName.value === CHERY_NYXUS_PRESET) {
+        await chatSessions.releaseRootTimeline(targetChatId, 'agent-dialog-submit')
+      }
       preparedInput = undefined
       resetEditor()
       // Nyxus 是持续会话工作台：提交后保留输入窗口，等待下一轮指令；其他预设维持原关闭行为。
       if (presetName.value !== CHERY_NYXUS_PRESET && !options.keepOpen) close()
       return true
     } catch (e) {
+      if (targetChatId && presetName.value === CHERY_NYXUS_PRESET) {
+        void chatSessions.releaseRootTimeline(targetChatId, 'agent-dialog-submit')
+      }
       if (preparedInput) chatSessions.rollbackPreparedInput(preparedInput, e)
       error.value = (e as Error).message
       console.error('[AgentDialog] submit input failed:', e)

@@ -194,6 +194,8 @@ export interface PresetConfig {
   id?: string
   /** Optional lightweight brain used only to rank existing root conversations. */
   routingBrain?: string
+  /** References one member in roles; reserved for detail branches and excluded from spawn_role. */
+  detailRole?: string
   /** 组长角色 type 名（必填，必须 ∈ config.roles 且 ∈ 下属 roles 列表）；主 pet 编制取此角色 */
   leader: string
   /** 选中的角色 type 名（引用 config.roles 已定义的键，不在预设内重定义） */
@@ -344,16 +346,16 @@ interface GlobalConfig {
   sense_execute_timeout?: number // 感官执行超时时间（毫秒）
   /**
    * 审批等待超时（毫秒）。`>= 0`，0 = 不限时（无用户超时，永远等用户决）。
-   * `> 0` → 到点视为用户拒绝（resolve as reject，loop 继续）；`0` → 不限时，由 `approval_hard_timeout` 兜底释放。
+   * `> 0` → 到点视为用户拒绝（工具不执行，loop 继续）；`0` → 不设置业务截止时间。
    * 不影响断连 grace / chat.abort 的 AgentParkError/AgentAbortError 路径。
    * 运行时由 core `createApproval(id, timeoutMs, hardTimeoutMs)` 消费；前端据 `interrupt.waitTime` 显倒计时。
    * 校验：`validateRawConfig` 强制 `>= 0` + `Number.isFinite`；`config.save` zod schema `.min(0).optional()`。
    */
   approval_timeout?: number
   /**
-   * 不限时审批（`approval_timeout=0`）的资源上限（毫秒），默认 1800000（30min）。
-   * 到点 reject(AgentParkError) 归 paused 可续（非用户拒绝），释放挂起 generator/内存，避免无限挂起。
-   * 仅当 `approval_timeout<=0` 生效（用户显式超时已界顶，不叠加）。运行时由 core createApproval 第 3 参消费。
+   * 审批等待期间的内存资源上限（毫秒），默认 1800000（30min）。
+   * 到点只暂停并释放 runtime；持久 interaction 不终结，仍可从待办恢复处理。
+   * 仅当 `approval_timeout<=0` 生效。运行时由 core createApproval 第 3 参消费。
    * 校验：`validateRawConfig` 强制 `>= 0` + `Number.isFinite`；`config.save` zod schema `.min(0).optional()`；缺省代码兜底 1800000。
    */
   approval_hard_timeout?: number
@@ -574,7 +576,7 @@ function loadConfig(): Config {
   config.global.disconnect_grace_ms =
     config.global.disconnect_grace_ms !== undefined ? config.global.disconnect_grace_ms : 15000
 
-  // 不限时审批资源上限默认值：1800000ms（30min；approval_timeout=0 时生效，与 .chery.template 同步）
+  // 审批 runtime 资源上限默认值：1800000ms（30min；approval_timeout=0 时生效，与 .chery.template 同步）
   config.global.approval_hard_timeout =
     config.global.approval_hard_timeout !== undefined
       ? config.global.approval_hard_timeout
@@ -806,6 +808,13 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
         )
       }
       const members = pcfg?.roles ?? []
+      if (pcfg.detailRole && !roleNames.includes(pcfg.detailRole)) {
+        errors.push(`presets.${pname}.detailRole "${pcfg.detailRole}" 不在 config.roles 列表`)
+      } else if (pcfg.detailRole && !members.includes(pcfg.detailRole)) {
+        errors.push(`presets.${pname}.detailRole "${pcfg.detailRole}" 不在其 roles 成员列表中`)
+      } else if (pcfg.detailRole && pcfg.detailRole === pcfg.leader) {
+        errors.push(`presets.${pname}.detailRole 不能与 leader 使用同一角色`)
+      }
       if (!pcfg?.leader) {
         errors.push(`presets.${pname}.leader 必填（组长角色）`)
       } else if (!roleNames.includes(pcfg.leader)) {
@@ -891,7 +900,7 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     }
   }
 
-  // approval_hard_timeout：≥ 0（不限时审批的资源上限，approval_timeout=0 时生效）
+  // approval_hard_timeout：≥ 0（审批 runtime 资源上限，approval_timeout=0 时生效）
   if (raw.global?.approval_hard_timeout !== undefined) {
     const h = raw.global.approval_hard_timeout
     if (typeof h !== 'number' || !Number.isFinite(h) || h < 0) {

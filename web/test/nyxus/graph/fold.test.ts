@@ -161,6 +161,43 @@ describe('Agent-local Fold projection', () => {
     ).toEqual([['root', ['batch:root-a', 'batch:root-b']]])
   })
 
+  it('partitions local folds by conversation branch even when the source Chat is shared', () => {
+    const nodes = [
+      ...unit('a1', 1).map((node) => ({ ...node, branchId: 'branch-a' })),
+      ...unit('b1', 3).map((node) => ({ ...node, branchId: 'branch-b' })),
+      ...unit('a2', 5).map((node) => ({ ...node, branchId: 'branch-a' })),
+      ...unit('b2', 7).map((node) => ({ ...node, branchId: 'branch-b' })),
+    ]
+    const ranges = computeFoldRanges(graph(nodes))
+
+    expect(ranges).toHaveLength(2)
+    expect(ranges.map((range) => range.members.map((item) => item.id))).toEqual(
+      expect.arrayContaining([
+        ['batch:a1', 'batch:a2'],
+        ['batch:b1', 'batch:b2'],
+      ]),
+    )
+    expect(new Set(ranges.map((range) => range.id)).size).toBe(2)
+  })
+
+  it('never folds a fork anchor in local mode', () => {
+    const anchored = unit('anchor', 3).map((node) => ({
+      ...node,
+      branchId: 'branch-a',
+      forkAnchor: true,
+    }))
+    const projected = projectFoldExecutionGraph(
+      graph([
+        ...unit('before', 1).map((node) => ({ ...node, branchId: 'branch-a' })),
+        ...anchored,
+        ...unit('after', 5).map((node) => ({ ...node, branchId: 'branch-a' })),
+      ]),
+    )
+
+    expect(projected.graph.nodes.some((node) => node.id === 'batch:anchor')).toBe(true)
+    expect(projected.ranges.every((range) => range.nodes.every((node) => node.id !== 'batch:anchor'))).toBe(true)
+  })
+
   it('keeps user/upstream, return, spawn, termination and dispatch facts outside folds', () => {
     const upstream = message('upstream', 1, rootChatId, {
       actor: { kind: 'user', actorId: 'human' },
@@ -390,7 +427,7 @@ describe('Agent-local Fold projection', () => {
     const [treeSource, railSource, dialogSource] = await Promise.all([
       readFile(resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'), 'utf8'),
       readFile(resolve('web/src/features/pets/nyxus/components/FoldTabRail.vue'), 'utf8'),
-      readFile(resolve('web/src/features/agent/chat/AgentDialog.vue'), 'utf8'),
+      readFile(resolve('web/src/features/agent/dialog/WorkbenchDialog.vue'), 'utf8'),
     ])
     expect(treeSource).toContain("props.foldMode === 'full'")
     expect(treeSource).toContain('projectFullFoldExecutionGraph')
@@ -432,7 +469,7 @@ describe('Full-fold projection', () => {
     })
   }
 
-  it('keeps only user messages and the final reply of each completed round', () => {
+  it('keeps a lone execution node canonical instead of wrapping it in a process group', () => {
     const canonical = graph([
       userMessage('u1', 1),
       ...unit('tool-a', 2),
@@ -447,12 +484,9 @@ describe('Full-fold projection', () => {
     for (const keep of ['message:u1', 'message:reply-1', 'message:u2', 'message:reply-2']) {
       expect(visibleIds.has(keep)).toBe(true)
     }
-    for (const hidden of ['message:tool-a', 'batch:tool-a', 'message:tool-b', 'batch:tool-b']) {
-      expect(visibleIds.has(hidden)).toBe(false)
-    }
-    expect(projected.ranges).toHaveLength(2)
-    expect(projected.ranges[0]!.nodes.map((n) => n.id)).toEqual(['batch:tool-a'])
-    expect(projected.ranges[1]!.nodes.map((n) => n.id)).toEqual(['batch:tool-b'])
+    expect(visibleIds.has('batch:tool-a')).toBe(true)
+    expect(visibleIds.has('batch:tool-b')).toBe(true)
+    expect(projected.ranges).toHaveLength(0)
   })
 
   it('keeps a running round fully expanded', () => {
@@ -473,6 +507,28 @@ describe('Full-fold projection', () => {
 
     expect(projected.ranges).toHaveLength(0)
     expect(projected.graph.nodes.some((n) => n.id === 'batch:running')).toBe(true)
+  })
+
+  it('retains the input, final reply and fork anchor for every branch', () => {
+    const branchA = 'branch-a'
+    const branchB = 'branch-b'
+    const canonical = graph([
+      { ...userMessage('ua', 1), branchId: branchA, forkAnchor: true },
+      ...unit('tool-a', 2).map((node) => ({ ...node, branchId: branchA })),
+      { ...message('reply-a', 4), branchId: branchA },
+      { ...userMessage('ub', 5), branchId: branchB, forkAnchor: true },
+      ...unit('tool-b', 6).map((node) => ({ ...node, branchId: branchB })),
+      { ...message('reply-b', 8), branchId: branchB },
+    ])
+    const projected = projectFullFoldExecutionGraph(canonical)
+    const visibleIds = new Set(projected.graph.nodes.map((node) => node.id))
+
+    for (const keep of ['message:ua', 'message:reply-a', 'message:ub', 'message:reply-b']) {
+      expect(visibleIds.has(keep)).toBe(true)
+    }
+    expect(projected.ranges).toHaveLength(0)
+    expect(visibleIds.has('batch:tool-a')).toBe(true)
+    expect(visibleIds.has('batch:tool-b')).toBe(true)
   })
 
   it('does not fold a boundary-less leading segment', () => {
@@ -566,10 +622,8 @@ describe('Participant fold projection', () => {
     ]) {
       expect(visibleIds.has(keep)).toBe(true)
     }
-    for (const hidden of ['message:tool-a', 'batch:tool-a']) {
-      expect(visibleIds.has(hidden)).toBe(false)
-    }
-    expect(projected.ranges).toHaveLength(1)
+    expect(visibleIds.has('batch:tool-a')).toBe(true)
+    expect(projected.ranges).toHaveLength(0)
   })
 
   it('folds a sub-agent internal segment into the round fold card', () => {
@@ -586,8 +640,8 @@ describe('Participant fold projection', () => {
     expect(visibleIds.has('message:dispatch')).toBe(true)
     expect(visibleIds.has('message:return')).toBe(true)
     expect(visibleIds.has('message:child-work')).toBe(false)
-    expect(visibleIds.has('batch:child-work')).toBe(false)
-    expect(projected.ranges).toHaveLength(1)
+    expect(visibleIds.has('batch:child-work')).toBe(true)
+    expect(projected.ranges).toHaveLength(0)
   })
 
   it('keeps fan-out and return convergence while folding every participant branch independently', () => {
@@ -675,55 +729,21 @@ describe('Participant fold projection', () => {
     ]) {
       expect(visibleIds.has(keep)).toBe(true)
     }
-    expect(
-      projected.ranges.map((range) => [
-        range.sourceChatId,
-        range.nodes.map((node) => node.id),
-      ]),
-    ).toEqual([
-      [rootChatId, ['batch:root-before-dispatch']],
-      ['child-a', ['batch:child-a-work']],
-      ['child-b', ['batch:child-b-work']],
-      [rootChatId, ['batch:root-after-return']],
-    ])
+    expect(projected.ranges).toEqual([])
     expect(projected.graph.edges).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          from: 'message:u1',
-          to: 'participant-fold:root:batch:root-before-dispatch',
-        }),
-        expect.objectContaining({
-          from: 'participant-fold:root:batch:root-before-dispatch',
-          to: 'batch:spawn-many',
-        }),
+        expect.objectContaining({ from: 'message:u1', to: 'batch:root-before-dispatch' }),
+        expect.objectContaining({ from: 'batch:root-before-dispatch', to: 'batch:spawn-many' }),
         expect.objectContaining({ from: 'batch:spawn-many', to: 'message:task-a' }),
         expect.objectContaining({ from: 'batch:spawn-many', to: 'message:task-b' }),
-        expect.objectContaining({
-          from: 'message:task-a',
-          to: 'participant-fold:child-a:batch:child-a-work',
-        }),
-        expect.objectContaining({
-          from: 'participant-fold:child-a:batch:child-a-work',
-          to: 'message:return-a',
-        }),
-        expect.objectContaining({
-          from: 'message:task-b',
-          to: 'participant-fold:child-b:batch:child-b-work',
-        }),
-        expect.objectContaining({
-          from: 'participant-fold:child-b:batch:child-b-work',
-          to: 'message:return-b',
-        }),
+        expect.objectContaining({ from: 'message:task-a', to: 'batch:child-a-work' }),
+        expect.objectContaining({ from: 'batch:child-a-work', to: 'message:return-a' }),
+        expect.objectContaining({ from: 'message:task-b', to: 'batch:child-b-work' }),
+        expect.objectContaining({ from: 'batch:child-b-work', to: 'message:return-b' }),
         expect.objectContaining({ from: 'message:return-a', to: 'message:received' }),
         expect.objectContaining({ from: 'message:return-b', to: 'message:received' }),
-        expect.objectContaining({
-          from: 'message:received',
-          to: 'participant-fold:root:batch:root-after-return',
-        }),
-        expect.objectContaining({
-          from: 'participant-fold:root:batch:root-after-return',
-          to: 'message:final',
-        }),
+        expect.objectContaining({ from: 'message:received', to: 'batch:root-after-return' }),
+        expect.objectContaining({ from: 'batch:root-after-return', to: 'message:final' }),
       ]),
     )
   })

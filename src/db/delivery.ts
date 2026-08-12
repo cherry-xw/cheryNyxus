@@ -33,6 +33,9 @@ export interface SpawnTask {
   senseGroup: string
   spawnCallId?: string
   owningBatchId?: string
+  deliveryChatId: string
+  deliveryBranchId?: string
+  deliveryGeneration: number
   status: 'pending' | 'started' | 'finished' | 'timed_out'
 }
 
@@ -93,6 +96,13 @@ export function completeRequest(requestId: string, response: unknown): void {
       "UPDATE request_journal SET status = 'completed', response_json = ?, updated_at = ? WHERE request_id = ?",
     )
     .run(JSON.stringify(response), Date.now(), requestId)
+}
+
+/** Release a failed claim so an identical command can be retried safely. */
+export function abandonRequest(requestId: string): void {
+  getSoulDb()
+    .prepare("DELETE FROM request_journal WHERE request_id = ? AND status = 'active'")
+    .run(requestId)
 }
 
 /** Persist an event before it is put on a socket. `seq` is monotonic for every chat. */
@@ -260,15 +270,20 @@ export function getRecentChatEvents(chatId: string, limit = 500): StoredChatEven
 }
 
 export function createSpawnTask(
-  input: Omit<SpawnTask, 'taskId' | 'status'> & { taskId?: string },
+  input: Omit<SpawnTask, 'taskId' | 'status' | 'deliveryChatId' | 'deliveryGeneration'> & {
+    taskId?: string
+    deliveryChatId?: string
+    deliveryGeneration?: number
+  },
 ): SpawnTask {
   const taskId = input.taskId ?? randomUUID()
   const now = Date.now()
   getSoulDb()
     .prepare(
       `INSERT INTO spawn_tasks
-      (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, spawn_call_id, owning_batch_id, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      (task_id, child_chat_id, parent_chat_id, type, prompt, brain, sense_group, spawn_call_id, owning_batch_id,
+       delivery_chat_id, delivery_branch_id, delivery_generation, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
     .run(
       taskId,
@@ -280,10 +295,19 @@ export function createSpawnTask(
       input.senseGroup,
       input.spawnCallId ?? null,
       input.owningBatchId ?? null,
+      input.deliveryChatId ?? input.parentChatId,
+      input.deliveryBranchId ?? null,
+      input.deliveryGeneration ?? 0,
       now,
       now,
     )
-  return { ...input, taskId, status: 'pending' }
+  return {
+    ...input,
+    taskId,
+    status: 'pending',
+    deliveryChatId: input.deliveryChatId ?? input.parentChatId,
+    deliveryGeneration: input.deliveryGeneration ?? 0,
+  }
 }
 
 function toSpawnTask(row: Record<string, unknown>): SpawnTask {
@@ -297,6 +321,9 @@ function toSpawnTask(row: Record<string, unknown>): SpawnTask {
     senseGroup: String(row.sense_group),
     ...(row.spawn_call_id ? { spawnCallId: String(row.spawn_call_id) } : {}),
     ...(row.owning_batch_id ? { owningBatchId: String(row.owning_batch_id) } : {}),
+    deliveryChatId: String(row.delivery_chat_id ?? row.parent_chat_id),
+    ...(row.delivery_branch_id ? { deliveryBranchId: String(row.delivery_branch_id) } : {}),
+    deliveryGeneration: Number(row.delivery_generation ?? 0),
     status: row.status as SpawnTask['status'],
   }
 }
@@ -377,4 +404,27 @@ export function listOpenSpawnTasks(parentChatId: string): SpawnTask[] {
     )
     .all(parentChatId) as Record<string, unknown>[]
   return rows.map(toSpawnTask)
+}
+
+export function listSpawnTasksByParents(parentChatIds: readonly string[]): SpawnTask[] {
+  if (!parentChatIds.length) return []
+  const placeholders = parentChatIds.map(() => '?').join(',')
+  const rows = getSoulDb()
+    .prepare(`SELECT * FROM spawn_tasks WHERE parent_chat_id IN (${placeholders}) ORDER BY created_at, task_id`)
+    .all(...parentChatIds) as Record<string, unknown>[]
+  return rows.map(toSpawnTask)
+}
+
+export function rerouteSpawnTasks(
+  taskIds: readonly string[],
+  deliveryChatId: string,
+  deliveryBranchId: string,
+  generation: number,
+): void {
+  if (!taskIds.length) return
+  const placeholders = taskIds.map(() => '?').join(',')
+  getSoulDb().prepare(
+    `UPDATE spawn_tasks SET delivery_chat_id = ?, delivery_branch_id = ?, delivery_generation = ?, updated_at = ?
+     WHERE task_id IN (${placeholders}) AND status IN ('pending', 'started')`,
+  ).run(deliveryChatId, deliveryBranchId, generation, Date.now(), ...taskIds)
 }

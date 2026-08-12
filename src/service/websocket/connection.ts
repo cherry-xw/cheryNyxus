@@ -217,6 +217,11 @@ export class ConnectionManager {
     return undefined
   }
 
+  /** All currently writable sockets, used by global control-plane invalidations. */
+  getAllOutputs(): WebSocket[] {
+    return [...this.connections.keys()].filter((ws) => ws.readyState === ws.OPEN)
+  }
+
   /** 将连接加入 chat 的实时事件订阅（运行中 attach 与 idle chat 订阅共用）。 */
   subscribeChat(chatId: string, connectionId: string): void {
     const ws = this.getWsByConnectionId(connectionId)

@@ -15,11 +15,12 @@ import WorkspaceSessionBrowser from '../dialog/WorkspaceSessionBrowser.vue'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import { useAgentDialogOptions } from '../dialog/useAgentDialogOptions'
-import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
+const interactions = useInteractionsStore()
 // 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
 const isTopMask = computed(() => agents.topOverlay === 'agentDialog')
 
@@ -131,18 +132,8 @@ const quickSessions = computed(() =>
         (a.lastUserActivityAt ?? a.createdAt ?? 0),
     ),
 )
-const workspaceChats = computed(() =>
-  (agents.historyList ?? []).filter((item) =>
-    quickPresetId.value
-      ? item.presetId === quickPresetId.value
-      : !!presetName.value && item.preset === presetName.value,
-  ),
-)
 const workspaceAttentionCount = computed(() =>
-  workspaceChats.value.reduce(
-    (count, item) => count + (item.pendingApproval ? 1 : 0) + (item.pendingQuestionCount ?? 0),
-    0,
-  ),
+  interactions.pending.filter((item) => item.presetId === quickPresetId.value).length,
 )
 const quickRoutingEnabled = computed(() => {
   const preset = presetName.value ? config.value?.presets?.[presetName.value] : undefined
@@ -212,11 +203,21 @@ function openWorkbenchForChat(): void {
 }
 
 /** 从待处理抽屉 @tree 打开某会话的节点树工作台。 */
-async function openWorkspaceTree(rootChatId: string): Promise<void> {
+async function openWorkspaceTree(
+  rootChatId: string,
+  sourceChatId?: string,
+  interactionId?: string,
+  anchorNodeId?: string,
+): Promise<void> {
   const preset = quickPresetId.value
   if (!preset) return
   const id = agents.openWorkbenchWindow(preset)
   agents.setWorkbenchWindowChat(id, rootChatId)
+  agents.setWorkbenchWindowFocus(id, {
+    sourceChatId,
+    interactionId,
+    anchorNodeId,
+  })
 }
 
 function closeDialog(): void {
@@ -398,7 +399,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 
         <WorkspaceSessionBrowser
           v-show="dialogView === 'attention'"
-          :sessions="workspaceChats"
+          :preset-id="quickPresetId"
           @tree="openWorkspaceTree"
         />
 

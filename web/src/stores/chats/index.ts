@@ -154,6 +154,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const rootTimelineStates = ref<Record<string, RootTimelineTransientState>>({})
   /** Root subscription cursor; one subscription covers all descendants. */
   const rootSubscriptions = ref<Record<string, { subscriptionId: string; eventSeq: number }>>({})
+  /** Visible owners of a root subscription. A root closes only after its final owner leaves. */
+  const rootSubscriptionOwners = new Map<string, Set<string>>()
   /** requestId -> chatId（流式 RPC chunk 路由用；chunk.chatId 缺失时兜底）。 */
   const requestMap = new Map<string, string>()
   /** 每 chat hydration in-flight 去重（避免并发 loadSession 重复 sync）。 */
@@ -239,11 +241,38 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
 
   /** Stop observing one root without touching its Agent runtime. Cached durable
    * nodes remain available for an instant stale-while-revalidate reopen. */
-  async function closeRootTimeline(rootChatId: string): Promise<void> {
+  async function closeRootTimeline(rootChatId: string, force = false): Promise<void> {
+    if (!force && (rootSubscriptionOwners.get(rootChatId)?.size ?? 0) > 0) return
     const subscription = rootSubscriptions.value[rootChatId]
     if (!subscription) return
     delete rootSubscriptions.value[rootChatId]
     await agentApi.closeChat(subscription.subscriptionId).catch(() => undefined)
+  }
+
+  async function acquireRootTimeline(
+    rootChatId: string,
+    ownerId: string,
+    view: 'conversation' | 'tree' | 'audit' = 'conversation',
+  ): Promise<RootTimelineSnapshot> {
+    const owners = rootSubscriptionOwners.get(rootChatId) ?? new Set<string>()
+    owners.add(ownerId)
+    rootSubscriptionOwners.set(rootChatId, owners)
+    try {
+      return await observeRootTimeline(rootChatId, view)
+    } catch (cause) {
+      owners.delete(ownerId)
+      if (owners.size === 0) rootSubscriptionOwners.delete(rootChatId)
+      throw cause
+    }
+  }
+
+  async function releaseRootTimeline(rootChatId: string, ownerId: string): Promise<void> {
+    const owners = rootSubscriptionOwners.get(rootChatId)
+    if (!owners) return
+    owners.delete(ownerId)
+    if (owners.size > 0) return
+    rootSubscriptionOwners.delete(rootChatId)
+    await closeRootTimeline(rootChatId, true)
   }
 
   function installRootOpenState(response: ChatOpenResponse): void {
@@ -1371,6 +1400,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     initCatalog,
     deleteSession,
     observeRootTimeline,
+    acquireRootTimeline,
+    releaseRootTimeline,
     resyncRootTimeline,
     closeRootTimeline,
     rootTimeline,

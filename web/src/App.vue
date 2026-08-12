@@ -13,7 +13,7 @@ import {
   createHistoryDrawerManager,
   HISTORY_DRAWER_MANAGER_KEY,
 } from '@/features/agent/drawer/useHistoryDrawerManager'
-import { useConnectionStore, useAgentsStore, useChatSessionsStore } from '@/stores'
+import { useConnectionStore, useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
 import { wsClient } from '@/services/ws'
 import { httpUrl } from '@/services/http'
 import { selectNyxusSession } from '@/stores/chats/selectors'
@@ -55,6 +55,7 @@ async function bootstrap(): Promise<void> {
   const conn = useConnectionStore()
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
+  const interactions = useInteractionsStore()
   const petBridge = desktopPetBridge()
   if (petBridge) {
     // nyxus 桌面窗口数据源：chatSessions 的 nyxus session（root + preset=cheryNyxus），不经 PetInstance
@@ -117,6 +118,11 @@ async function bootstrap(): Promise<void> {
   wsClient.onChunk((chunk) => agents.routeChunk(chunk))
   wsClient.onNotification((notif) => {
     const event = notif as { background?: boolean; type?: string; chatId?: string } | null
+    if (event?.type === 'interaction.changed') {
+      void interactions.refresh().catch((cause) =>
+        console.warn('[App] refresh interactions failed:', cause),
+      )
+    }
     if (event?.background) {
       // 后台控制面事件不进入流式 reducer：只刷新轻量会话目录。用户点 Pet/琴键后，
       // 再由 chat.open 获取完整审批参数或问题批次。
@@ -132,6 +138,9 @@ async function bootstrap(): Promise<void> {
         event.type,
       )
     ) {
+      void interactions.refresh().catch((cause) =>
+        console.warn('[App] refresh interactions failed:', cause),
+      )
       void agents.fetchHistoryList().catch((cause) =>
         console.warn('[App] refresh foreground attention failed:', cause),
       )
@@ -142,6 +151,7 @@ async function bootstrap(): Promise<void> {
   let prevStatus: string | null = null
   wsClient.onStatus((s) => {
     if (s === 'connected') {
+      void interactions.refresh().catch((e) => console.warn('[interactions] refresh 失败:', e))
       // F5 刷新:initialized=false → initFromChats 重建 pet 树 + rebuildSpawnWaits
       // 瞬断重连:initialized=true → 仅 rebuildSpawnWaits(重建子等待 + 检测主卡死)
       if (prevStatus === 'disconnected') {

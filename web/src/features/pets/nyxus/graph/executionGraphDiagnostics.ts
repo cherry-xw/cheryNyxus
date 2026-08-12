@@ -34,6 +34,8 @@ const PERSISTENT_EDGE_KINDS = new Set([
   'dispatch',
   'return',
   'return-continuation',
+  'fork-continuation',
+  'fork-detail',
 ])
 
 function diagnostic(
@@ -129,6 +131,7 @@ export function diagnoseExecutionGraphFacts(
     }
     if (
       node.actor.kind === 'user' &&
+      (!node.branchKind || node.branchKind === 'original') &&
       (node.sourceChatId !== rootChatId ||
         (node.target?.kind === 'agent' && node.target.chatId !== rootChatId))
     ) {

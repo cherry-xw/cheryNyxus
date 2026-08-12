@@ -494,6 +494,69 @@ describe('execution graph projector', () => {
     ])
   })
 
+  it('accepts a detail fork and its branch-local user input as valid task graph facts', () => {
+    const source = node('child-answer', 1, {
+      sourceChatId: 'child',
+      branchId: 'original-branch',
+      branchKind: 'original',
+    })
+    const detailInput = node('detail-input', 2, {
+      sourceChatId: 'detail-chat',
+      actor: { kind: 'user', actorId: 'human' },
+      target: { kind: 'agent', chatId: 'detail-chat' },
+      direction: 'user-to-agent',
+      branchId: 'detail-branch',
+      branchKind: 'detail',
+    })
+    const graph = projectExecutionGraph(
+      snapshot(
+        [source, detailInput],
+        [
+          edge('detail-fork', 3, source.id, detailInput.id, 'fork-detail', {
+            sourceChatId: 'child',
+            targetChatId: 'detail-chat',
+            branchId: 'detail-branch',
+          }),
+        ],
+      ),
+    )
+
+    expect(graph.diagnostics).toEqual([])
+  })
+
+  it('places a fork from a child agent on a distinct descendant lane', () => {
+    const graph = projectExecutionGraph(
+      snapshot(
+        [
+          node('root-dispatch', 1),
+          node('child-answer', 2, { sourceChatId: 'child' }),
+          node('detail-input', 3, {
+            sourceChatId: 'detail-chat',
+            actor: { kind: 'user', actorId: 'human' },
+            target: { kind: 'agent', chatId: 'detail-chat' },
+            direction: 'user-to-agent',
+            branchId: 'detail-branch',
+            branchKind: 'detail',
+          }),
+        ],
+        [
+          edge('spawn-child', 4, 'root-dispatch', 'child-answer', 'spawn', {
+            targetChatId: 'child',
+          }),
+          edge('fork-detail', 5, 'child-answer', 'detail-input', 'fork-detail', {
+            sourceChatId: 'child',
+            targetChatId: 'detail-chat',
+            branchId: 'detail-branch',
+          }),
+        ],
+      ),
+    )
+    const layout = layoutExecutionGraph(graph)
+
+    expect(layout.laneByChat.get('detail-chat')).not.toBe(layout.laneByChat.get('child'))
+    expect(Math.abs(layout.laneByChat.get('detail-chat')! - layout.laneByChat.get('child')!)).toBe(1)
+  })
+
   it('lays out persistent facts by orderKey rather than createdAt', () => {
     const graph = projectExecutionGraph(
       snapshot([node('later', 2, { createdAt: 1 }), node('earlier', 1, { createdAt: 100 })]),
@@ -512,7 +575,7 @@ describe('execution graph projector', () => {
       projectExecutionGraph(facts, [{ id: 'draft', content: '', createdAt: 3, state: 'editing' }]),
     )
 
-    expect(EXECUTION_LANE_GAP).toBe(190)
+    expect(EXECUTION_LANE_GAP).toBe(110)
     expect(EXECUTION_ROW_GAP).toBe(82)
     for (const nodeId of ['start:root', 'root-1', 'root-2']) {
       expect(withDraft.nodes.find((item) => item.id === nodeId)).toMatchObject(

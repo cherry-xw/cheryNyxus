@@ -81,6 +81,33 @@ function initSoulTables(db: Database.Database): void {
       parent_chat_id TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS conversation_tasks (
+      task_id TEXT PRIMARY KEY,
+      original_chat_id TEXT NOT NULL UNIQUE,
+      active_branch_id TEXT,
+      delivery_generation INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_branches (
+      branch_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL,
+      source_branch_id TEXT,
+      anchor_root_chat_id TEXT,
+      anchor_node_id TEXT,
+      context_snapshot_json TEXT,
+      runtime_snapshot_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY(task_id) REFERENCES conversation_tasks(task_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversation_branches_task
+      ON conversation_branches(task_id, created_at);
+
     CREATE TABLE IF NOT EXISTS request_journal (
       request_id TEXT PRIMARY KEY,
       method TEXT NOT NULL,
@@ -134,6 +161,30 @@ function initSoulTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_pending_inputs_chat_state
       ON pending_inputs(chat_id, state, queue_sequence);
 
+    /* Durable user-facing interaction inbox. Runtime approval promises are
+       deliberately not authoritative: this row survives disconnects/restarts. */
+    CREATE TABLE IF NOT EXISTS interactions (
+      interaction_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      root_chat_id TEXT NOT NULL,
+      preset_id TEXT,
+      anchor_node_id TEXT,
+      status TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      deadline_at INTEGER,
+      result_json TEXT,
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      completed_at INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_interactions_status_updated
+      ON interactions(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_interactions_preset_status
+      ON interactions(preset_id, status, updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS spawn_tasks (
       task_id TEXT PRIMARY KEY,
       child_chat_id TEXT NOT NULL UNIQUE,
@@ -145,6 +196,9 @@ function initSoulTables(db: Database.Database): void {
       wait INTEGER NOT NULL DEFAULT 0,
       spawn_call_id TEXT,
       owning_batch_id TEXT,
+      delivery_chat_id TEXT,
+      delivery_branch_id TEXT,
+      delivery_generation INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -267,6 +321,19 @@ function initSoulTables(db: Database.Database): void {
   ensureChatColumn(db, 'parent_chat_id', 'TEXT')
   ensureTableColumn(db, 'spawn_tasks', 'spawn_call_id', 'TEXT')
   ensureTableColumn(db, 'spawn_tasks', 'owning_batch_id', 'TEXT')
+  ensureTableColumn(db, 'spawn_tasks', 'delivery_chat_id', 'TEXT')
+  ensureTableColumn(db, 'spawn_tasks', 'delivery_branch_id', 'TEXT')
+  ensureTableColumn(db, 'spawn_tasks', 'delivery_generation', 'INTEGER NOT NULL DEFAULT 0')
+  ensureTableColumn(db, 'conversation_tasks', 'active_branch_id', 'TEXT')
+  ensureTableColumn(db, 'conversation_tasks', 'delivery_generation', 'INTEGER NOT NULL DEFAULT 0')
+  db.exec(`UPDATE spawn_tasks SET delivery_chat_id = parent_chat_id WHERE delivery_chat_id IS NULL`)
+  db.exec(`UPDATE conversation_tasks
+    SET active_branch_id = (
+      SELECT branch_id FROM conversation_branches
+      WHERE conversation_branches.task_id = conversation_tasks.task_id
+      ORDER BY CASE kind WHEN 'original' THEN 0 ELSE 1 END, created_at, branch_id LIMIT 1
+    )
+    WHERE active_branch_id IS NULL`)
   ensureTableColumn(db, 'message_links', 'causation_node_id', 'TEXT')
 }
 

@@ -119,7 +119,7 @@ const globalSchema = z.object({
   stream: z.boolean(),
   sense_execute_timeout: z.number().optional(),
   approval_timeout: z.number().min(0).optional(),
-  // 不限时审批（approval_timeout=0）的资源上限（ms，>= 0）；缺省 1800000 由 utils/config 兜底
+  // 审批等待期间的内存资源上限；到点只 park runtime，不终结持久交互。
   approval_hard_timeout: z.number().min(0).optional(),
   // 断连宽限期（毫秒，>= 0；0 = 不等待）；缺省 15000 由 utils/config 兜底
   disconnect_grace_ms: z.number().min(0).optional(),
@@ -177,6 +177,7 @@ const configSaveSchema = z
         z.object({
           id: z.string().regex(/^preset-[a-zA-Z0-9_-]{8,}$/).optional(),
           routingBrain: z.string().optional(),
+          detailRole: z.string().optional(),
           leader: z.string(),
           roles: z.array(z.string()).optional(),
           mediaImage: z.string().optional(),
@@ -237,6 +238,25 @@ export const requestSchemas = {
   }),
   [Method.CHAT_GET]: chatIdSchema,
   [Method.CHAT_DELETE]: chatIdSchema,
+  [Method.CHAT_BRANCH_PREVIEW]: z.object({
+    rootChatId: z.string().min(1),
+    anchorNodeId: z.string().min(1),
+  }),
+  [Method.CHAT_BRANCH_CREATE]: z.object({
+    rootChatId: z.string().min(1),
+    anchorNodeId: z.string().min(1),
+    branchType: z.enum(['continuation', 'detail']),
+    prompt: z.string().trim().min(1),
+    commandId: z.string().min(1),
+    clientMessageId: z.string().min(1),
+    messageId: z.string().min(1),
+    effectDigest: z.string().optional(),
+  }),
+  [Method.CHAT_BRANCH_ACTIVATE]: z.object({
+    branchId: z.string().min(1),
+    commandId: z.string().min(1),
+  }),
+  [Method.CHAT_ABORT_TASK]: z.object({ taskId: z.string().min(1), commandId: z.string().min(1) }),
   [Method.CHAT_CONTEXT_USAGE]: chatIdSchema,
   [Method.CHAT_PROMPT_SNAPSHOT]: chatIdSchema,
   [Method.CHAT_SEND]: z.object({
@@ -273,13 +293,14 @@ export const requestSchemas = {
     .object({
       chatId: z.string().optional(),
       rootChatId: z.string().optional(),
+      taskId: z.string().optional(),
       view: z.enum(['conversation', 'tree', 'audit']).optional(),
       before: z.string().optional(),
       limit: z.number().int().positive().max(500).optional(),
       knownRevision: z.number().int().nonnegative().optional(),
     })
-    .refine((value) => !!value.chatId || !!value.rootChatId, {
-      message: 'chatId 或 rootChatId 至少提供一个',
+    .refine((value) => !!value.chatId || !!value.rootChatId || !!value.taskId, {
+      message: 'chatId、rootChatId 或 taskId 至少提供一个',
     }),
   [Method.CHAT_RESUME]: chatIdSchema,
   [Method.CHAT_RESUME_TREE]: z.object({
@@ -319,6 +340,28 @@ export const requestSchemas = {
     approvalId: z.string(),
     action: z.enum(['accept', 'reject']),
     reason: z.string().optional(),
+  }),
+  [Method.INTERACTION_LIST]: z.object({
+    presetId: z.string().min(1).optional(),
+    includeActivity: z.boolean().optional(),
+  }),
+  [Method.INTERACTION_APPROVAL_DECIDE]: z.object({
+    interactionId: z.string().min(1),
+    action: z.enum(['accept', 'reject']),
+    expectedRevision: z.number().int().positive(),
+    commandId: z.string().min(1),
+    reason: z.string().optional(),
+  }),
+  [Method.INTERACTION_QUESTION_ANSWER]: z.object({
+    interactionId: z.string().min(1),
+    expectedRevision: z.number().int().positive(),
+    commandId: z.string().min(1),
+    answers: z.array(z.object({
+      questionId: z.string().min(1),
+      selectedLabels: z.array(z.string()),
+      freeText: z.string().optional(),
+      cancelled: z.boolean().optional(),
+    })).min(1),
   }),
   [Method.SENSE_QUESTION_ANSWER]: z.object({
     questionId: z.string(),
