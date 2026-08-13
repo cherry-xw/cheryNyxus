@@ -27,6 +27,7 @@ const props = defineProps<{
   chatId: string
   /** batch 进度信息（可选，单问题时为 null） */
   batchInfo?: BatchInfo | null
+  variant?: 'default' | 'paper'
 }>()
 
 const chatSessions = useChatSessionsStore()
@@ -154,7 +155,12 @@ function back(): void {
 </script>
 
 <template>
-  <section class="question-card" role="group" :aria-label="`问题：${question.question}`">
+  <section
+    class="question-card"
+    :class="`is-${variant ?? 'default'}`"
+    role="group"
+    :aria-label="`问题：${question.question}`"
+  >
     <header class="question-heading">
       <span class="question-symbol" aria-hidden="true">?</span>
       <span class="heading-copy">
@@ -280,6 +286,36 @@ function back(): void {
   color: @ink;
   background: var(--surface-hover);
   box-shadow: 0 18px 46px rgba(20, 22, 26, 0.2);
+}
+.question-card.is-paper {
+  --ink: #342312;
+  --surface-hover: #ead5a2;
+  --surface-soft: #dfc58d;
+  --border: #785934;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  padding: 12px;
+  border: 3px solid #352215;
+  border-radius: 0;
+  color: var(--ink);
+  background:
+    repeating-linear-gradient(0deg, transparent 0 7px, rgba(70, 42, 19, 0.05) 7px 8px), #dfc790;
+  box-shadow: 5px 6px 0 rgba(28, 16, 8, 0.38);
+  font-family: 'HYPixel Paper', system-ui, sans-serif;
+}
+.question-card.is-paper .question-symbol,
+.question-card.is-paper .action-btn.primary {
+  border-radius: 0;
+  color: #f1deb1;
+  background: #654a82;
+  box-shadow: 2px 3px 0 rgba(37, 23, 13, 0.32);
+}
+.question-card.is-paper .option-card,
+.question-card.is-paper .action-btn,
+.question-card.is-paper :deep(.el-textarea__inner) {
+  border-radius: 0;
+  font-family: inherit;
 }
 .submit-error {
   color: color-mix(in srgb, #dc2626 80%, var(--ink));
@@ -486,6 +522,43 @@ function back(): void {
   &.ghost {
     color: color-mix(in srgb, var(--ink) 55%, transparent);
     background: transparent;
+  }
+}
+
+// 卡牌阅读模式使用像素字体，字号过小时会丢失笔画；仅在卡牌卡内提升可读性。
+.question-card.is-paper {
+  .question-symbol {
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+  }
+  .heading-kicker,
+  .question-progress {
+    font-size: var(--paper-font-small, 11px);
+  }
+  .question-text {
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .option-card {
+    min-height: 50px;
+  }
+  .choice-mark {
+    width: 21px;
+    height: 21px;
+    font-size: var(--paper-font-body, 13px);
+  }
+  .option-label,
+  :deep(.el-textarea__inner) {
+    font-size: var(--paper-font-body, 13px);
+  }
+  .option-description,
+  .submit-error,
+  .action-btn {
+    font-size: var(--paper-font-small, 11px);
+  }
+  .action-btn {
+    min-height: 38px;
   }
 }
 </style>

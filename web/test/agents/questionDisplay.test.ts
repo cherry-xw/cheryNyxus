@@ -50,4 +50,10 @@ describe('question history display', () => {
       freeText: '自定义回答',
     })
   })
+
+  it('distinguishes waiting, cancellation, and missing historical answers', () => {
+    expect(parseQuestionAnswer('', 'running', args).kind).toBe('running')
+    expect(parseQuestionAnswer('(用户取消了此问题)', 'done', args).kind).toBe('cancelled')
+    expect(parseQuestionAnswer('', 'done', args).kind).toBe('missing')
+  })
 })

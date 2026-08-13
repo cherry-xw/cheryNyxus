@@ -431,6 +431,8 @@ describe('Agent-local Fold projection', () => {
     ])
     expect(treeSource).toContain("props.foldMode === 'full'")
     expect(treeSource).toContain('projectFullFoldExecutionGraph')
+    // The fourth fold level must not vary with the row-overlap layout toggle.
+    expect(treeSource).not.toContain("strategy: props.layoutMode")
     expect(treeSource).not.toContain('node-detail-bookmark')
     expect(treeSource).not.toContain('class="fold-card"')
     expect(treeSource).toContain('foldCount: node.fold.members.length')
@@ -529,6 +531,27 @@ describe('Full-fold projection', () => {
     expect(projected.ranges).toHaveLength(0)
     expect(visibleIds.has('batch:tool-a')).toBe(true)
     expect(visibleIds.has('batch:tool-b')).toBe(true)
+  })
+
+  it('folds a whole multi-participant round into a single backbone card', () => {
+    const canonical = graph([
+      userMessage('u1', 1),
+      message('left-1', 2, 'left'),
+      message('right-1', 3, 'right'),
+      message('left-2', 4, 'left'),
+      message('right-2', 5, 'right'),
+      message('reply', 6),
+    ])
+    const projected = projectFullFoldExecutionGraph(canonical)
+
+    expect(projected.ranges).toHaveLength(1)
+    expect(projected.ranges[0]!.sourceChatId).toBe(rootChatId)
+    expect(projected.graph.nodes.filter((node) => node.kind === 'fold')).toHaveLength(1)
+    expect(projected.graph.edges.every((edge) => edge.from !== edge.to)).toBe(true)
+    const edgeKeys = projected.graph.edges.map(
+      (edge) => `${edge.from}:${edge.to}:${edge.kind}`,
+    )
+    expect(new Set(edgeKeys).size).toBe(edgeKeys.length)
   })
 
   it('does not fold a boundary-less leading segment', () => {
@@ -746,5 +769,61 @@ describe('Participant fold projection', () => {
         expect.objectContaining({ from: 'batch:root-after-return', to: 'message:final' }),
       ]),
     )
+  })
+
+  it('folds a delegated round into one card while keeping the quotient acyclic', () => {
+    const spawn = batch('spawn', 4, rootChatId, {
+      toolCalls: [
+        {
+          callId: 'call:spawn',
+          index: 0,
+          name: 'spawn_agent',
+          arguments: '{}',
+          result: 'ok',
+          status: 'completed',
+          childChatId: 'child',
+        },
+      ],
+    })
+    const canonical = graph(
+      [
+        userMessage('u1', 1),
+        ...unit('root-a', 2),
+        spawn,
+        ...unit('child-work', 5, 'child'),
+        returnedNode(7),
+        ...unit('root-b', 8),
+        message('final', 10),
+      ],
+      [],
+      [
+        edge('u-root-a', 101, 'message:u1', 'message:root-a', 'sequence'),
+        edge('root-a-owner', 102, 'message:root-a', 'batch:root-a', 'sequence'),
+        edge('root-a-spawn', 103, 'batch:root-a', 'batch:spawn', 'sequence'),
+        edge('spawn-child', 104, 'batch:spawn', 'message:child-work', 'spawn', rootChatId, 'child'),
+        edge('child-work-owner', 105, 'message:child-work', 'batch:child-work', 'sequence', 'child'),
+        edge('child-return', 106, 'batch:child-work', 'message:return', 'return', 'child', rootChatId),
+        edge(
+          'return-root-b',
+          107,
+          'message:return',
+          'message:root-b',
+          'return-continuation',
+          'child',
+          rootChatId,
+        ),
+        edge('root-b-owner', 108, 'message:root-b', 'batch:root-b', 'sequence'),
+        edge('root-b-final', 109, 'batch:root-b', 'message:final', 'sequence'),
+      ],
+    )
+    const projected = projectFullFoldExecutionGraph(canonical)
+
+    // The whole delegated round collapses into a single backbone card; cross
+    // participant edges (spawn/return) become self-loops and are dropped.
+    expect(projected.ranges).toHaveLength(1)
+    expect(projected.graph.nodes.filter((node) => node.kind === 'fold')).toHaveLength(1)
+    expect(projected.graph.edges.every((e) => e.from !== e.to)).toBe(true)
+    const edgeKeys = projected.graph.edges.map((e) => `${e.from}:${e.to}:${e.kind}`)
+    expect(new Set(edgeKeys).size).toBe(edgeKeys.length)
   })
 })

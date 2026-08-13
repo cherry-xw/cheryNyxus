@@ -45,7 +45,7 @@ function displayTab(member: ExecutionFoldMember): FoldTab {
   return {
     ...tab,
     glyph: meta?.icon || tab.glyph,
-    label: meta?.label?.trim() || '工具',
+    label: meta?.label?.trim() || call.name,
   }
 }
 

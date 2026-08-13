@@ -15,27 +15,20 @@ import { formatTime } from '@/utils/formatTime'
 import type { ExecutionEdge, ExecutionNode } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
+import ToolFieldTree from './ToolFieldTree.vue'
 import { selectedToolCall, toolBatchDetail, toolBatchUsesTabs } from '../graph/toolBatchDetails'
 import { terminationDisplay } from '../graph/termination'
+import {
+  displayValue,
+  fieldView,
+  parseFieldViews,
+  parseRecord,
+  type FieldView,
+} from '../graph/toolArgumentFields'
 
 const RESULT_PREVIEW_LIMIT = 20_000
 const DESCRIPTION_KEYS = ['description', 'explanation'] as const
 const INSTRUCTION_KEYS = ['task', 'prompt', 'query', 'instruction', 'command'] as const
-const FIELD_LABELS: Record<string, string> = {
-  description: '说明',
-  explanation: '说明',
-  task: '任务',
-  prompt: '提示词',
-  query: '查询',
-  instruction: '指令',
-  command: '命令',
-  path: '路径',
-  url: '地址',
-  content: '内容',
-  offset: '起始行',
-  limit: '行数限制',
-  compression: '压缩方式',
-}
 const STATUS_LABELS: Record<string, string> = {
   active: '执行中',
   accepted: '执行中',
@@ -55,13 +48,6 @@ const WAKE_LABELS: Record<string, string> = {
 }
 const SPAWN_TOOL_NAMES = new Set(['spawn_role', 'spawn_agent'])
 
-type FieldKind = 'command' | 'path' | 'url' | 'structured' | 'scalar' | 'multiline' | 'text'
-interface FieldView {
-  key: string
-  label: string
-  value: string
-  kind: FieldKind
-}
 interface SearchResultItem {
   filePath: string
   line?: number
@@ -91,6 +77,7 @@ const props = defineProps<{
   question?: NodePopoverQuestion
   detailBranchAvailable?: boolean
   detailBranchUnavailableReason?: string
+  variant?: 'popover' | 'paper'
 }>()
 const emit = defineEmits<{
   close: []
@@ -145,7 +132,7 @@ const toolMeta = computed(() => {
   return name ? agents.senseTools.find((tool) => tool.name === name) : undefined
 })
 const toolIcon = computed(() => toolMeta.value?.icon || '⚙')
-const toolName = computed(() => toolMeta.value?.label?.trim() || '工具')
+const toolName = computed(() => toolMeta.value?.label?.trim() || selectedCall.value?.name || '工具')
 const selectedStatus = computed(() =>
   selectedCall.value ? statusLabel(selectedCall.value.status) : statusLabel(batch.value?.status),
 )
@@ -238,6 +225,7 @@ const renderedResult = computed(() => {
       : result
   return renderMarkdown(preview)
 })
+const resultFields = computed(() => parseFieldViews(selectedCall.value?.result))
 const resultTruncated = computed(
   () => (selectedCall.value?.result?.length ?? 0) > RESULT_PREVIEW_LIMIT,
 )
@@ -296,34 +284,8 @@ const nodeStatus = computed(() =>
 )
 const nodeTime = computed(() => formatTime(props.node.createdAt))
 
-function parseRecord(source?: string): Record<string, unknown> {
-  if (!source) return {}
-  try {
-    const value: unknown = JSON.parse(source)
-    return value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {}
-  } catch {
-    return {}
-  }
-}
-
 function statusLabel(status?: string): string {
   return status ? STATUS_LABELS[status] || '状态已更新' : '状态未知'
-}
-
-function fieldLabel(key: string): string {
-  return FIELD_LABELS[key] || '参数'
-}
-
-function fieldKind(key: string, value: unknown): FieldKind {
-  if (key === 'command') return 'command'
-  if (key === 'path') return 'path'
-  if (key === 'url') return 'url'
-  if (key === 'content' && typeof value === 'string') return 'multiline'
-  if (Array.isArray(value) || (value && typeof value === 'object')) return 'structured'
-  if (typeof value === 'number' || typeof value === 'boolean') return 'scalar'
-  return 'text'
 }
 
 function isQuestionOptionSelected(label: string): boolean {
@@ -388,10 +350,6 @@ function parseSkillResult(source: string, fallbackName: string): SkillResultView
   }
 }
 
-function fieldView(key: string, value: unknown): FieldView {
-  return { key, label: fieldLabel(key), value: displayValue(value), kind: fieldKind(key, value) }
-}
-
 function isCopyableField(field: FieldView): boolean {
   return (
     field.kind === 'command' ||
@@ -402,14 +360,8 @@ function isCopyableField(field: FieldView): boolean {
   )
 }
 
-function displayValue(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (value === undefined) return ''
-  return JSON.stringify(value, null, 2)
-}
-
 function toolLabel(name: string): string {
-  return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || '工具'
+  return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || name
 }
 
 function toolGlyph(name: string): string {
@@ -434,7 +386,10 @@ async function copyField(key: string, value: string): Promise<void> {
 <template>
   <aside
     class="node-popover"
-    :class="{ 'is-pinned': pinned, 'is-actionable': approval || question }"
+    :class="[
+      `is-${variant ?? 'popover'}`,
+      { 'is-pinned': pinned, 'is-actionable': approval || question },
+    ]"
     :style="{ maxHeight: `${maxHeight}px` }"
     role="dialog"
     :aria-label="`${nodeTitle}详情`"
@@ -708,6 +663,9 @@ async function copyField(key: string, value: string): Promise<void> {
                   <p v-else-if="questionAnswer.kind === 'running'" class="question-note">
                     等待用户选择…
                   </p>
+                  <p v-else-if="questionAnswer.kind === 'missing'" class="question-note">
+                    这次执行没有留下可识别的回答。
+                  </p>
                 </template>
                 <pre v-else class="question-fallback">{{ selectedCall.arguments }}</pre>
               </section>
@@ -864,39 +822,7 @@ async function copyField(key: string, value: string): Promise<void> {
                   </div>
                 </section>
 
-                <dl v-if="secondaryFields.length" class="field-list">
-                  <div
-                    v-for="field in secondaryFields"
-                    :key="field.key"
-                    class="field-row"
-                    :class="`is-${field.kind}`"
-                  >
-                    <dt class="detail-label">{{ field.label }}</dt>
-                    <dd class="detail-value" :class="{ 'is-copyable': isCopyableField(field) }">
-                      <code
-                        v-if="
-                          field.kind === 'path' || field.kind === 'url' || field.kind === 'scalar'
-                        "
-                      >
-                        {{ field.value }}
-                      </code>
-                      <pre v-else-if="field.kind === 'structured' || field.kind === 'multiline'">{{
-                        field.value
-                      }}</pre>
-                      <div v-else class="markdown-body" v-html="renderMarkdown(field.value)" />
-                      <button
-                        v-if="isCopyableField(field)"
-                        type="button"
-                        class="field-copy-button"
-                        :title="copiedFieldKey === field.key ? '已复制' : `复制${field.label}`"
-                        :aria-label="copiedFieldKey === field.key ? '已复制' : `复制${field.label}`"
-                        @click="copyField(field.key, field.value)"
-                      >
-                        <span aria-hidden="true">⧉</span>
-                      </button>
-                    </dd>
-                  </div>
-                </dl>
+                <ToolFieldTree v-if="secondaryFields.length" :fields="secondaryFields" />
               </template>
 
               <section
@@ -911,7 +837,8 @@ async function copyField(key: string, value: string): Promise<void> {
               >
                 <small class="detail-label">执行结果</small>
                 <div class="detail-value is-copyable is-multiline">
-                  <div class="markdown-body result-copy" v-html="renderedResult" />
+                  <ToolFieldTree v-if="resultFields.length" :fields="resultFields" />
+                  <div v-else class="markdown-body result-copy" v-html="renderedResult" />
                   <button
                     type="button"
                     class="field-copy-button"

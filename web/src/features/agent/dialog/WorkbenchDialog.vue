@@ -233,10 +233,12 @@ type FoldMode = 'none' | 'partial' | 'full' | 'participant'
 type WorkbenchViewPreference = {
   layout: 'timeline' | 'topology'
   foldMode: FoldMode
+  paperMode: boolean
 }
 const DEFAULT_WORKBENCH_VIEW: WorkbenchViewPreference = {
   layout: 'timeline',
   foldMode: 'participant',
+  paperMode: false,
 }
 const WORKBENCH_VIEW_STORAGE_PREFIX = 'nx-workbench-view:'
 const FOLD_MODES = new Set<FoldMode>(['none', 'partial', 'participant', 'full'])
@@ -257,6 +259,7 @@ function loadWorkbenchViewPreference(): WorkbenchViewPreference {
         typeof value?.foldMode === 'string' && FOLD_MODES.has(value.foldMode as FoldMode)
           ? (value.foldMode as FoldMode)
           : DEFAULT_WORKBENCH_VIEW.foldMode,
+      paperMode: value?.paperMode === true,
     }
   } catch {
     return DEFAULT_WORKBENCH_VIEW
@@ -271,6 +274,7 @@ function saveWorkbenchViewPreference(): void {
       JSON.stringify({
         layout: topologyLayout.value ? 'topology' : 'timeline',
         foldMode: foldMode.value,
+        paperMode: paperMode.value,
       } satisfies WorkbenchViewPreference),
     )
   } catch {
@@ -282,6 +286,7 @@ const initialWorkbenchView = loadWorkbenchViewPreference()
 /** 当前预设的工作台布局与折叠偏好；右侧按钮选择写入前端本地存储。 */
 const topologyLayout = ref(initialWorkbenchView.layout === 'topology')
 const foldMode = ref<FoldMode>(initialWorkbenchView.foldMode)
+const paperMode = ref(initialWorkbenchView.paperMode)
 const branchTarget = ref<{
   type: 'detail' | 'continuation'
   nodeId: string
@@ -449,7 +454,7 @@ function scheduleFoldToolClose(): void {
 function selectFoldMode(mode: FoldMode): void {
   foldMode.value = mode
 }
-watch([topologyLayout, foldMode], saveWorkbenchViewPreference)
+watch([topologyLayout, foldMode, paperMode], saveWorkbenchViewPreference)
 const pianoOpen = ref(false)
 const workspaceBrowserMode = ref<'attention'>()
 /** 删除交互期间锁定 popout：hover 可删键 / 拖拽 / 倒掉动画时为 true，跳过延迟关闭。 */
@@ -1107,6 +1112,7 @@ function onTreePromptSnapShow(): void {
           :timeline-override="taskTimeline"
           :layout-mode="topologyLayout ? 'topology' : 'timeline'"
           :fold-mode="foldMode"
+          :paper-mode="paperMode"
           :focus-source-chat-id="treeFocusSourceChatId"
           :focus-interaction-id="treeFocusInteractionId"
           :full-render-threshold="agents.globalConfig?.global.tree_full_render_threshold"
@@ -1342,247 +1348,289 @@ function onTreePromptSnapShow(): void {
       </Transition>
       <nav class="nyxus-side-tools" aria-label="节点树工作台功能工具栏">
         <div class="nyxus-tool-column">
-        <div class="nyxus-primary-tools" aria-label="主要操作">
-          <el-tooltip
-            :content="nyxusDraftActive ? '继续编辑消息' : '发送消息'"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action is-message"
-                :class="{ 'is-active': nyxusDraftActive }"
-                :disabled="!chatId"
-                :aria-label="nyxusDraftActive ? '继续编辑消息' : '发送消息'"
-                aria-controls="nyxus-message-composer"
-                :aria-expanded="nyxusDraftActive"
-                @click="activateNyxusInput"
-              >
-                <span aria-hidden="true">↗</span>
-              </button>
-            </span>
-          </el-tooltip>
-          <el-tooltip
-            v-if="chatId && sessionControl"
-            :content="sessionControlPending ? '正在处理…' : sessionControl.mode === 'pause' ? '暂停任务树' : '继续任务树'"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action"
-                :class="sessionControl.mode === 'pause' ? 'is-stop' : 'is-run'"
-                :disabled="sessionControlPending"
-                :aria-label="sessionControl.mode === 'pause' ? '暂停任务树' : '继续任务树'"
-                @click="executeSessionControl"
-              >
-                <span aria-hidden="true">{{ sessionControl.mode === 'pause' ? '■' : '▶' }}</span>
-              </button>
-            </span>
-          </el-tooltip>
-          <el-tooltip
-            v-if="taskTimeline?.taskId && taskHasRunningBranches && (taskTimeline.branches?.length ?? 0) > 1"
-            :content="taskControlPending ? '正在暂停全部分支…' : '暂停全部分支'"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action is-stop"
-                :disabled="taskControlPending"
-                aria-label="暂停全部分支"
-                @click="pauseWholeTask"
-              >
-                <span aria-hidden="true">▣</span>
-              </button>
-            </span>
-          </el-tooltip>
-        </div>
-        <div class="nyxus-tool-group" role="group" aria-label="会话工具">
-          <el-tooltip
-            content="对话历史"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action"
-                :disabled="!chatId"
-                aria-label="对话历史"
-                @click="openHistory"
-              >
-                <span aria-hidden="true">◷</span>
-              </button>
-            </span>
-          </el-tooltip>
-          <el-tooltip
-            content="待处理交互"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action attention-rail-action"
-                :class="{ 'is-active': workspaceBrowserMode === 'attention' }"
-                aria-label="待处理交互"
-                @click="toggleWorkspaceBrowser('attention')"
-              >
-                <span aria-hidden="true">!</span>
-                <b v-if="workspaceAttentionCount">{{ workspaceAttentionCount }}</b>
-              </button>
-            </span>
-          </el-tooltip>
-          <el-tooltip
-            content="新建会话"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action"
-                :disabled="creating"
-                aria-label="新建会话"
-                @click="createSession"
-              >
-                <span aria-hidden="true">＋</span>
-              </button>
-            </span>
-          </el-tooltip>
-          <div class="nyxus-piano-tool" @pointerenter="showPiano" @focusin="showPiano" @pointerleave="schedulePianoClose">
-            <button
-              type="button"
-              class="nyxus-rail-action"
-              :class="{ 'is-active': pianoOpen }"
-              aria-label="会话钢琴"
-              :aria-expanded="pianoOpen"
-              @click="showPiano"
-            >
-              <span aria-hidden="true">▥</span>
-            </button>
-          </div>
-          <el-tooltip
-            :content="`查看上下文 · ${treeUsagePct}%`"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <el-popover
-                trigger="click"
-                placement="left"
-                :width="460"
-                popper-class="prompt-snapshot-popper"
-                @show="onTreePromptSnapShow"
-              >
-                <template #reference>
-                  <button
-                    type="button"
-                    class="nyxus-rail-action"
-                    :disabled="!chatId"
-                    :aria-label="`查看上下文 · ${treeUsagePct}%`"
-                  >
-                    <span aria-hidden="true">◍</span>
-                  </button>
-                </template>
-                <PromptSnapshotTip
-                  v-if="treePromptSnap"
-                  :system-prompt="treePromptSnap.systemPrompt"
-                  :tools="treePromptSnap.tools"
-                  :status="treePromptSnap.status"
-                  :error="treePromptSnap.error"
-                />
-              </el-popover>
-            </span>
-          </el-tooltip>
-        </div>
-        <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
-          <el-tooltip
-            :content="topologyLayout ? '切换为时间布局' : '切换为层级布局'"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action"
-                :class="{ 'is-active': topologyLayout }"
-                :aria-label="topologyLayout ? '切换为时间布局' : '切换为层级布局'"
-                :aria-pressed="topologyLayout"
-                @click="topologyLayout = !topologyLayout"
-              >
-                <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
-                  <circle cx="12" cy="4" r="2" />
-                  <circle cx="7" cy="15" r="2" />
-                  <circle cx="17" cy="15" r="2" />
-                  <path d="M7 17v3M17 17v3" />
-                </svg>
-              </button>
-            </span>
-          </el-tooltip>
-          <el-tooltip
-            v-if="!isNyxus"
-            content="返回快速发送窗口"
-            placement="left"
-            :show-after="200"
-            :hide-after="0"
-          >
-            <span class="nyxus-tool-tip-anchor">
-              <button
-                type="button"
-                class="nyxus-rail-action"
-                aria-label="返回快速发送窗口"
-                @click="closeWorkbench"
-              >
-                <span aria-hidden="true">↙</span>
-              </button>
-            </span>
-          </el-tooltip>
-          <div
-            class="nyxus-fold-tool"
-            :class="{ 'is-open': foldToolOpen }"
-            @pointerenter="showFoldTool"
-            @focusin="showFoldTool"
-            @pointerleave="scheduleFoldToolClose"
-          >
+          <div class="nyxus-primary-tools" aria-label="主要操作">
             <el-tooltip
-              v-for="mode in (['none', 'partial', 'participant', 'full'] as FoldMode[])"
-              :key="mode"
-              :content="FOLD_TIPS[mode]"
-              placement="top"
+              :content="nyxusDraftActive ? '继续编辑消息' : '发送消息'"
+              placement="left"
               :show-after="200"
               :hide-after="0"
             >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action is-message"
+                  :class="{ 'is-active': nyxusDraftActive }"
+                  :disabled="!chatId"
+                  :aria-label="nyxusDraftActive ? '继续编辑消息' : '发送消息'"
+                  aria-controls="nyxus-message-composer"
+                  :aria-expanded="nyxusDraftActive"
+                  @click="activateNyxusInput"
+                >
+                  <span aria-hidden="true">↗</span>
+                </button>
+              </span>
+            </el-tooltip>
+            <el-tooltip
+              v-if="chatId && sessionControl"
+              :content="sessionControlPending ? '正在处理…' : sessionControl.mode === 'pause' ? '暂停任务树' : '继续任务树'"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action"
+                  :class="sessionControl.mode === 'pause' ? 'is-stop' : 'is-run'"
+                  :disabled="sessionControlPending"
+                  :aria-label="sessionControl.mode === 'pause' ? '暂停任务树' : '继续任务树'"
+                  @click="executeSessionControl"
+                >
+                  <span aria-hidden="true">{{ sessionControl.mode === 'pause' ? '■' : '▶' }}</span>
+                </button>
+              </span>
+            </el-tooltip>
+            <el-tooltip
+              v-if="taskTimeline?.taskId && taskHasRunningBranches && (taskTimeline.branches?.length ?? 0) > 1"
+              :content="taskControlPending ? '正在暂停全部分支…' : '暂停全部分支'"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action is-stop"
+                  :disabled="taskControlPending"
+                  aria-label="暂停全部分支"
+                  @click="pauseWholeTask"
+                >
+                  <span aria-hidden="true">▣</span>
+                </button>
+              </span>
+            </el-tooltip>
+          </div>
+          <div class="nyxus-tool-group" role="group" aria-label="会话工具">
+            <el-tooltip
+              content="对话历史"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action"
+                  :disabled="!chatId"
+                  aria-label="对话历史"
+                  @click="openHistory"
+                >
+                  <span aria-hidden="true">◷</span>
+                </button>
+              </span>
+            </el-tooltip>
+            <el-tooltip
+              content="待处理交互"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action attention-rail-action"
+                  :class="{ 'is-active': workspaceBrowserMode === 'attention' }"
+                  aria-label="待处理交互"
+                  @click="toggleWorkspaceBrowser('attention')"
+                >
+                  <span aria-hidden="true">!</span>
+                  <b v-if="workspaceAttentionCount">{{ workspaceAttentionCount }}</b>
+                </button>
+              </span>
+            </el-tooltip>
+            <el-tooltip
+              content="新建会话"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action"
+                  :disabled="creating"
+                  aria-label="新建会话"
+                  @click="createSession"
+                >
+                  <span aria-hidden="true">＋</span>
+                </button>
+              </span>
+            </el-tooltip>
+            <div class="nyxus-piano-tool" @pointerenter="showPiano" @focusin="showPiano" @pointerleave="schedulePianoClose">
               <button
                 type="button"
-                class="nyxus-fold-part"
-                :class="{ 'is-selected': foldMode === mode }"
-                :aria-label="FOLD_TIPS[mode]"
-                :aria-pressed="foldMode === mode"
-                @click="selectFoldMode(mode)"
+                class="nyxus-rail-action"
+                :class="{ 'is-active': pianoOpen }"
+                aria-label="会话钢琴"
+                :aria-expanded="pianoOpen"
+                @click="showPiano"
               >
-                <svg class="nyxus-fold-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <span aria-hidden="true">▥</span>
+              </button>
+            </div>
+            <el-tooltip
+              :content="`查看上下文 · ${treeUsagePct}%`"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <el-popover
+                  trigger="click"
+                  placement="left"
+                  :width="460"
+                  popper-class="prompt-snapshot-popper"
+                  @show="onTreePromptSnapShow"
+                >
+                  <template #reference>
+                    <button
+                      type="button"
+                      class="nyxus-rail-action"
+                      :disabled="!chatId"
+                      :aria-label="`查看上下文 · ${treeUsagePct}%`"
+                    >
+                      <span aria-hidden="true">◍</span>
+                    </button>
+                  </template>
+                  <PromptSnapshotTip
+                    v-if="treePromptSnap"
+                    :system-prompt="treePromptSnap.systemPrompt"
+                    :tools="treePromptSnap.tools"
+                    :status="treePromptSnap.status"
+                    :error="treePromptSnap.error"
+                  />
+                </el-popover>
+              </span>
+            </el-tooltip>
+          </div>
+          <div class="nyxus-tool-group is-secondary" role="group" aria-label="视图与配置工具">
+            <el-tooltip
+              :content="paperMode ? '关闭卡牌阅读模式' : '打开卡牌阅读模式'"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action"
+                  :class="{ 'is-active': paperMode }"
+                  :aria-label="paperMode ? '关闭卡牌阅读模式' : '打开卡牌阅读模式'"
+                  :aria-pressed="paperMode"
+                  @click="paperMode = !paperMode"
+                >
+                  <svg class="nyxus-paper-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M7 4h10l2 3v13H7z" />
+                    <path d="M5 7v13h11M9 9h7M9 12h7M9 15h5" />
+                  </svg>
+                </button>
+              </span>
+            </el-tooltip>
+            <el-tooltip
+              :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor nyxus-pinned-layout-action">
+                <button
+                  type="button"
+                  class="nyxus-rail-action is-layout-action"
+                  data-view-action="layout"
+                  :class="{ 'is-active': topologyLayout }"
+                  :aria-label="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
+                  :aria-pressed="topologyLayout"
+                  @click="topologyLayout = !topologyLayout"
+                >
+                  <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
+                    <circle cx="12" cy="4" r="2" />
+                    <circle cx="7" cy="15" r="2" />
+                    <circle cx="17" cy="15" r="2" />
+                    <path d="M7 17v3M17 17v3" />
+                  </svg>
+                </button>
+              </span>
+            </el-tooltip>
+            <el-tooltip
+              v-if="!isNyxus"
+              content="返回快速发送窗口"
+              placement="left"
+              :show-after="200"
+              :hide-after="0"
+            >
+              <span class="nyxus-tool-tip-anchor">
+                <button
+                  type="button"
+                  class="nyxus-rail-action"
+                  aria-label="返回快速发送窗口"
+                  @click="closeWorkbench"
+                >
+                  <span aria-hidden="true">↙</span>
+                </button>
+              </span>
+            </el-tooltip>
+            <div
+              class="nyxus-fold-tool"
+              :class="{ 'is-open': foldToolOpen }"
+              @pointerenter="showFoldTool"
+              @focusin="showFoldTool"
+              @pointerleave="scheduleFoldToolClose"
+            >
+              <el-tooltip
+                v-for="mode in (['none', 'partial', 'participant', 'full'] as FoldMode[])"
+                :key="mode"
+                :content="FOLD_TIPS[mode]"
+                placement="top"
+                :show-after="200"
+                :hide-after="0"
+              >
+                <button
+                  type="button"
+                  class="nyxus-fold-part"
+                  :class="{ 'is-selected': foldMode === mode }"
+                  :aria-label="FOLD_TIPS[mode]"
+                  :aria-pressed="foldMode === mode"
+                  @click="selectFoldMode(mode)"
+                >
+                  <svg class="nyxus-fold-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      v-for="path in FOLD_ICONS[mode].paths"
+                      :key="path"
+                      class="nyxus-fold-icon-edge"
+                      :d="path"
+                    />
+                    <circle
+                      v-for="([cx, cy], index) in FOLD_ICONS[mode].nodes"
+                      :key="`${cx}-${cy}-${index}`"
+                      class="nyxus-fold-icon-node"
+                      :cx="cx"
+                      :cy="cy"
+                      r="1.65"
+                    />
+                  </svg>
+                </button>
+              </el-tooltip>
+              <span class="nyxus-fold-current" aria-hidden="true">
+                <svg class="nyxus-fold-icon" viewBox="0 0 24 24">
                   <path
-                    v-for="path in FOLD_ICONS[mode].paths"
+                    v-for="path in FOLD_ICONS[foldMode].paths"
                     :key="path"
                     class="nyxus-fold-icon-edge"
                     :d="path"
                   />
                   <circle
-                    v-for="([cx, cy], index) in FOLD_ICONS[mode].nodes"
+                    v-for="([cx, cy], index) in FOLD_ICONS[foldMode].nodes"
                     :key="`${cx}-${cy}-${index}`"
                     class="nyxus-fold-icon-node"
                     :cx="cx"
@@ -1590,40 +1638,21 @@ function onTreePromptSnapShow(): void {
                     r="1.65"
                   />
                 </svg>
+              </span>
+            </div>
+            <div class="nyxus-role-tool" @pointerenter="showRoleList" @focusin="showRoleList" @pointerleave="scheduleRoleListClose">
+              <button
+                type="button"
+                class="nyxus-rail-action"
+                :class="{ 'is-active': roleListOpen }"
+                aria-label="角色配置"
+                :aria-expanded="roleListOpen"
+                @click="toggleRoleList"
+              >
+                <span aria-hidden="true">♟</span>
               </button>
-            </el-tooltip>
-            <span class="nyxus-fold-current" aria-hidden="true">
-              <svg class="nyxus-fold-icon" viewBox="0 0 24 24">
-                <path
-                  v-for="path in FOLD_ICONS[foldMode].paths"
-                  :key="path"
-                  class="nyxus-fold-icon-edge"
-                  :d="path"
-                />
-                <circle
-                  v-for="([cx, cy], index) in FOLD_ICONS[foldMode].nodes"
-                  :key="`${cx}-${cy}-${index}`"
-                  class="nyxus-fold-icon-node"
-                  :cx="cx"
-                  :cy="cy"
-                  r="1.65"
-                />
-              </svg>
-            </span>
+            </div>
           </div>
-          <div class="nyxus-role-tool" @pointerenter="showRoleList" @focusin="showRoleList" @pointerleave="scheduleRoleListClose">
-            <button
-              type="button"
-              class="nyxus-rail-action"
-              :class="{ 'is-active': roleListOpen }"
-              aria-label="角色配置"
-              :aria-expanded="roleListOpen"
-              @click="toggleRoleList"
-            >
-              <span aria-hidden="true">♟</span>
-            </button>
-          </div>
-        </div>
         </div>
         <AnimatePresence>
           <MotionDiv
@@ -1985,8 +2014,14 @@ function onTreePromptSnapShow(): void {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  max-height: calc(100% - 64px);
   transform: translateY(-50%);
   pointer-events: none;
+}
+.nyxus-pinned-layout-action {
+  flex: none;
+  margin-bottom: 7px;
+  pointer-events: auto;
 }
 /* 内部滚动列承载高度限制；弹窗作为 nav 兄弟节点，避免被 overflow 裁剪。 */
 .nyxus-tool-column {
@@ -1994,7 +2029,8 @@ function onTreePromptSnapShow(): void {
   flex-direction: column;
   align-items: flex-end;
   gap: 7px;
-  max-height: calc(100vh - 24px);
+  min-height: 0;
+  max-height: calc(100% - 37px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -2046,6 +2082,16 @@ function onTreePromptSnapShow(): void {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nyxus-paper-icon {
+  width: 17px;
+  height: 17px;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
   stroke-linecap: round;
   stroke-linejoin: round;
 }

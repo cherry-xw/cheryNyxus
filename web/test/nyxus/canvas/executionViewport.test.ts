@@ -119,4 +119,20 @@ describe('GPU execution viewport selection', () => {
     expect(visible.edges.length).toBeGreaterThan(0)
     expect(visible.edges.length).toBeLessThan(30)
   })
+
+  it('retains an edge when its reserved route corridor intersects the viewport', () => {
+    const layout = layoutWithNodes(2, true)
+    layout.nodes[0]!.x = -300
+    layout.nodes[1]!.x = -300
+    layout.edges[0]!.routeX = 100
+    const visible = selectVisibleExecutionItems(
+      layout,
+      { scale: 1, x: 0, y: 0, width: 200, height: 300 },
+      new Set(),
+      createExecutionViewportIndex(layout),
+      0,
+    )
+
+    expect(visible.edges.map((edge) => edge.id)).toContain('edge:0')
+  })
 })

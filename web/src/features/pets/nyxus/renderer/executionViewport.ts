@@ -173,9 +173,9 @@ export function selectVisibleExecutionItems(
     for (const edge of index.edgesByNode.get(nodeId) ?? []) edgeCandidates.add(edge)
   }
   const edges = [...edgeCandidates].filter((edge) => {
-    const minX = Math.min(edge.from.x, edge.to.x)
+    const minX = Math.min(edge.from.x, edge.to.x, edge.routeX ?? Number.POSITIVE_INFINITY)
     const minY = Math.min(edge.from.y, edge.to.y)
-    const maxX = Math.max(edge.from.x, edge.to.x)
+    const maxX = Math.max(edge.from.x, edge.to.x, edge.routeX ?? Number.NEGATIVE_INFINITY)
     const maxY = Math.max(edge.from.y, edge.to.y)
     return (
       selectedIds.has(edge.from.id) ||

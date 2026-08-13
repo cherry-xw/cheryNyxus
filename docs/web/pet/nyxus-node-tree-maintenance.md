@@ -7,6 +7,9 @@
 - `web/src/features/pets/nyxus/graph/executionLayout.ts` 只处理稳定 lane、全局纵向顺序和坐标缓存；流式正文变化复用坐标，拓扑变化才重算。
 - `web/src/features/pets/nyxus/graph/nodeSkins.ts`、`edgeStyles.ts`、`termination.ts` 和 `web/src/styles/overlayLayers.ts` 分别集中 skin、edge、termination 文案和 overlay 层级。
 - `MessageBranchTree.vue` 只编排画布、HTML overlay、输入和可访问性交互，不重新构造 canonical relation。
+- `MessageBranchTree.vue` 向 Pixi 同步场景时，去重签名必须覆盖节点坐标及边的起点、终点和路由坐标；切换折叠或同行布局即使不改变节点 ID，也必须把新的几何位置提交给 GPU 渲染器。
+- 同行布局按 lane 感知的最早可用行压缩，但任何直接连线的目标节点都必须比来源节点至少低一行；该规则不区分同列、跨列、派遣、分叉、返回或汇合。只有彼此之间不存在因果约束的节点才允许同行，禁止渲染水平因果连线。
+- 极致压缩的参与者过程组不得跨越任何保留的可见节点；用户输入、最终回复和分支锚点既是展示边界也是折叠区间边界，避免过程组同时位于同一锚点的前后两侧而形成投影环。
 - 工作台右侧工具栏的运行控制只消费 root snapshot `controlState` 和 `activeRuns`；运行时显示暂停，无运行且暂停集有剩余目标时同槽切换为继续。
 - 工作台展示任务聚合快照时，暂停任务树与暂停全部分支均只由该任务 `activeRuns` 中的 `running/waiting` 事实控制；所有分支结束后不得继续读取单会话缓存运行态来显示暂停按钮。
 

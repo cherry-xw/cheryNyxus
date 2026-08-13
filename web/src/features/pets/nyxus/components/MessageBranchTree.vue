@@ -24,11 +24,12 @@ import {
   projectFullFoldExecutionGraph,
   projectParticipantFoldExecutionGraph,
 } from '../graph/foldProjection'
+import { projectCoreFlowExecutionGraph } from '../graph/coreFlowProjection'
 import {
   createIncrementalExecutionLayout,
   type ExecutionLayoutMode,
 } from '../graph/executionLayout'
-import { edgeStyle } from '../graph/edgeStyles'
+import { DETAIL_BRANCH_COLOR, edgeStyle } from '../graph/edgeStyles'
 import { accentForTheme, canPinNodeDetail, hasNodeHoverDetail, skinForNode } from '../graph/nodeSkins'
 import {
   anchoredPopoverPosition,
@@ -40,6 +41,7 @@ import { pendingInputAnchor, pendingInputPhase } from '../composables/mainInputS
 import ExecutionNodePopover from './ExecutionNodePopover.vue'
 import FoldTabRail from './FoldTabRail.vue'
 import AnchoredRunCrt from './AnchoredRunCrt.vue'
+import NodePaperStack from './NodePaperStack.vue'
 import { terminationDisplay } from '../graph/termination'
 import { buildRunCrtModels, effectiveRunFacts, type RunCrtModel } from '../graph/crtModel'
 import { layoutAnchoredCrts, selectVisibleCrtIds } from '../graph/crtLayout'
@@ -48,6 +50,7 @@ import {
   ExecutionGraphPixiRenderer,
   type PixiExecutionScene,
 } from '../renderer/ExecutionGraphPixiRenderer'
+import { executionSceneSignature } from '../renderer/executionSceneSignature'
 import {
   createExecutionViewportIndex,
   selectVisibleExecutionItems,
@@ -56,6 +59,7 @@ import {
   type ExecutionCamera,
 } from '../renderer/executionViewport'
 import type { RootTimelineSnapshot } from '@/services/agentApi'
+import { buildPaperStack } from '../paper/paperStackModel'
 
 const props = withDefaults(
   defineProps<{
@@ -71,6 +75,7 @@ const props = withDefaults(
     focusInteractionId?: string
     /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
     fullRenderThreshold?: number
+    paperMode?: boolean
   }>(),
   { foldMode: 'partial', layoutMode: 'timeline' },
 )
@@ -172,9 +177,24 @@ const foldProjection = computed(() => {
   return projectFoldExecutionGraph(liveGraph.value)
 })
 const graph = computed(() => foldProjection.value.graph)
+const coreFlowProjection = computed(() => projectCoreFlowExecutionGraph(graph.value))
+const paperGraph = computed(() => coreFlowProjection.value.paperGraph)
+const paperEntries = computed(() => buildPaperStack(paperGraph.value.nodes, nodeTitle))
+const activePaperNodeId = ref<string>()
+const paperHasNewTail = ref(false)
+const paperCurrentIndex = computed(() => {
+  const index = paperEntries.value.findIndex((entry) => entry.id === activePaperNodeId.value)
+  return index >= 0 ? index : Math.max(0, paperEntries.value.length - 1)
+})
 const defaultNodePopovers = computed(() =>
   buildDefaultNodePopovers(graph.value.nodes, chatSessions.sessionsById),
 )
+const activePaperQuestionPopover = computed(() => {
+  if (!props.paperMode || !activePaperNodeId.value) return undefined
+  return defaultNodePopovers.value.find(
+    (model) => model.question && model.anchorNodeId === activePaperNodeId.value,
+  )
+})
 const defaultPopoverById = computed(
   () => new Map(defaultNodePopovers.value.map((model) => [model.id, model] as const)),
 )
@@ -190,9 +210,17 @@ const endpointFoldProjection = computed(() => {
 const endpointGraph = computed(() => endpointFoldProjection.value.graph)
 const layoutEngine = createIncrementalExecutionLayout()
 const endpointLayoutEngine = createIncrementalExecutionLayout()
-const layout = computed(() => layoutEngine.layout(graph.value, { mode: props.layoutMode }))
+const layout = computed(() =>
+  layoutEngine.layout(graph.value, {
+    mode: props.layoutMode,
+    branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
+  }),
+)
 const endpointLayout = computed(() =>
-  endpointLayoutEngine.layout(endpointGraph.value, { mode: props.layoutMode }),
+  endpointLayoutEngine.layout(endpointGraph.value, {
+    mode: props.layoutMode,
+    branchPacking: props.foldMode === 'full' ? 'inward' : 'balanced',
+  }),
 )
 
 const canvas = useTreeCanvas({
@@ -221,7 +249,12 @@ const VIEWPORT_RETENTION_SAFETY_MARGIN = 240
 const forcedGpuNodeIds = computed(
   () =>
     new Set(
-      [hoveredDetailNodeId.value, pinnedDetailNodeId.value, ...runningTailIds.value].filter(
+      [
+        hoveredDetailNodeId.value,
+        pinnedDetailNodeId.value,
+        props.paperMode ? activePaperNodeId.value : undefined,
+        ...runningTailIds.value,
+      ].filter(
         (id): id is string => !!id,
       ),
     ),
@@ -503,7 +536,7 @@ function dragCrt(id: string, delta: { x: number; y: number }): void {
   crtWindowState.value = next
 }
 
-function actorLabel(node: (typeof layout.value.nodes)[number]): string {
+function actorLabel(node: ExecutionNode): string {
   const actor = node.actor
   if (actor.kind === 'user') return actor.displayName?.trim() || '我'
   if (actor.kind === 'agent') {
@@ -514,10 +547,10 @@ function actorLabel(node: (typeof layout.value.nodes)[number]): string {
 }
 
 function toolDisplayName(name: string): string {
-  return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || '工具'
+  return agents.senseTools.find((tool) => tool.name === name)?.label?.trim() || name
 }
 
-function nodeTitle(node: (typeof layout.value.nodes)[number]): string {
+function nodeTitle(node: ExecutionNode): string {
   if (node.kind === 'start') return '任务起点'
   if (node.kind === 'input') return '我的指令'
   if (node.kind === 'return') return '结果返回'
@@ -533,7 +566,7 @@ function nodeTitle(node: (typeof layout.value.nodes)[number]): string {
   return actorLabel(node)
 }
 
-function compactNodeTitle(node: (typeof layout.value.nodes)[number]): string {
+function compactNodeTitle(node: ExecutionNode): string {
   const title = nodeTitle(node)
   return title.length > 10 ? `${title.slice(0, 9)}…` : title
 }
@@ -602,6 +635,7 @@ function cancelDetailHide(): void {
 }
 
 function showNodeDetail(node: (typeof layout.value.nodes)[number]): void {
+  if (props.paperMode) return
   if (crtsByAnchor.value.has(node.id) || defaultPopoverAnchorIds.value.has(node.id)) return
   if (!hasNodeHoverDetail(node)) return
   cancelDetailHide()
@@ -610,6 +644,7 @@ function showNodeDetail(node: (typeof layout.value.nodes)[number]): void {
 }
 
 function hideNodeDetail(node: (typeof layout.value.nodes)[number]): void {
+  if (props.paperMode) return
   if (pinnedDetailNodeId.value === node.id) return
   cancelDetailHide()
   detailHideTimer = setTimeout(() => {
@@ -763,6 +798,10 @@ function isError(node: (typeof layout.value.nodes)[number]): boolean {
 
 function activateNode(node: (typeof layout.value.nodes)[number]): void {
   if (canvas.consumeClickAfterDrag()) return
+  if (props.paperMode && hasNodeHoverDetail(node)) {
+    selectPaperNode(node.id)
+    return
+  }
   if (defaultPopoverAnchorIds.value.has(node.id)) return
   else if (crtsByAnchor.value.has(node.id)) {
     for (const card of crtsByAnchor.value.get(node.id) ?? []) pinCrt(card.id)
@@ -771,6 +810,33 @@ function activateNode(node: (typeof layout.value.nodes)[number]): void {
     hoveredDetailNodeId.value = node.id
     if (node.kind === 'fold') readingFoldId.value = node.id
   }
+}
+
+function focusNode(node: (typeof layout.value.nodes)[number]): void {
+  if (props.paperMode && hasNodeHoverDetail(node)) {
+    selectPaperNode(node.id)
+    return
+  }
+  showNodeDetail(node)
+}
+
+function selectPaperNode(nodeId: string): void {
+  const index = paperEntries.value.findIndex((entry) => entry.id === nodeId)
+  if (index < 0) return
+  activePaperNodeId.value = nodeId
+  paperHasNewTail.value = index < paperEntries.value.length - 1 && paperHasNewTail.value
+  closeNodeDetail()
+}
+
+function selectPaperIndex(index: number): void {
+  const entry = paperEntries.value[index]
+  if (!entry) return
+  selectPaperNode(entry.id)
+  if (index === paperEntries.value.length - 1) paperHasNewTail.value = false
+}
+
+function returnToLatestPaper(): void {
+  selectPaperIndex(paperEntries.value.length - 1)
 }
 
 const detailNode = computed(() => {
@@ -862,21 +928,36 @@ const pixiScene = computed<PixiExecutionScene>(() => ({
         : {}),
       ...(node.kind === 'fold' && node.fold ? { foldCount: node.fold.members.length } : {}),
       running: runningTailIds.value.has(node.id),
-      detailActive: hoveredDetailNodeId.value === node.id || pinnedDetailNodeId.value === node.id,
+      detailActive:
+        hoveredDetailNodeId.value === node.id ||
+        pinnedDetailNodeId.value === node.id ||
+        (props.paperMode && activePaperNodeId.value === node.id),
       branchAnchorKind: containsBranchAnchor(node) ? props.branchAnchorKind : undefined,
       paused: isPaused(node),
       error: isError(node),
       revoked: node.status === 'revoked',
+      deemphasized: !coreFlowProjection.value.coreNodeIds.has(node.id),
+      detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id),
     }
   }),
-  edges: visibleExecutionItems.value.edges.map((edge) => ({
-    id: edge.id,
-    from: edge.from,
-    to: edge.to,
-    color: edgeStyle(edge.kind).color,
-    active: runningTailIds.value.has(edge.from.id) || runningTailIds.value.has(edge.to.id),
-    phaseSeconds: (edge.to.createdAt % 1300) / 1000,
-  })),
+  edges: visibleExecutionItems.value.edges.map((edge) => {
+    const detailBranch =
+      coreFlowProjection.value.detailNodeIds.has(edge.from.id) ||
+      coreFlowProjection.value.detailNodeIds.has(edge.to.id)
+    return {
+      id: edge.id,
+      from: edge.from,
+      to: edge.to,
+      color: detailBranch ? DETAIL_BRANCH_COLOR : edgeStyle(edge.kind).color,
+      active: runningTailIds.value.has(edge.from.id) || runningTailIds.value.has(edge.to.id),
+      phaseSeconds: (edge.to.createdAt % 1300) / 1000,
+      deemphasized:
+        !coreFlowProjection.value.coreNodeIds.has(edge.from.id) ||
+        !coreFlowProjection.value.coreNodeIds.has(edge.to.id),
+      detailBranch,
+      ...(edge.routeX === undefined ? {} : { routeX: edge.routeX }),
+    }
+  }),
 }))
 
 function gpuNodeHitStyle(node: (typeof layout.value.nodes)[number]): Record<string, string> {
@@ -913,6 +994,7 @@ const defaultPopoverViews = computed(() =>
   defaultPopoverPlacements.value.flatMap((placement) => {
     const model = defaultPopoverById.value.get(placement.id)
     if (!model) return []
+    if (activePaperQuestionPopover.value?.id === model.id) return []
     const nodes = defaultPopoverNodes(model)
     if (!nodes) return []
     return [
@@ -991,6 +1073,8 @@ watch(
     unreadFoldMembers.value = new Map()
     actionSelectedCallIds.value = new Map()
     knownFoldCounts = new Map()
+    activePaperNodeId.value = undefined
+    paperHasNewTail.value = false
     if (previousRootChatId && previousRootChatId !== rootChatId) {
       pinnedCrtIds.value = new Set()
       hiddenCrtIds.value = new Set()
@@ -1001,6 +1085,41 @@ watch(
     void nextTick(tryInitialFit)
   },
   { immediate: true },
+)
+watch(
+  paperEntries,
+  (entries, previousEntries) => {
+    if (!props.paperMode) return
+    if (!entries.length) {
+      activePaperNodeId.value = undefined
+      paperHasNewTail.value = false
+      return
+    }
+    const previousIds = new Set(previousEntries?.map((entry) => entry.id) ?? [])
+    const previousActive = activePaperNodeId.value
+    const wasAtTail =
+      !previousEntries?.length || previousEntries.at(-1)?.id === previousActive || !previousActive
+    if (previousActive && entries.some((entry) => entry.id === previousActive)) {
+      if (wasAtTail && entries.at(-1)?.id !== previousActive) {
+        activePaperNodeId.value = entries.at(-1)!.id
+      } else if (!wasAtTail && entries.some((entry) => !previousIds.has(entry.id))) {
+        paperHasNewTail.value = true
+      }
+      return
+    }
+    activePaperNodeId.value = entries.at(-1)!.id
+  },
+  { immediate: true },
+)
+watch(
+  () => props.paperMode,
+  (enabled) => {
+    closeNodeDetail()
+    if (enabled && !activePaperNodeId.value) activePaperNodeId.value = paperEntries.value.at(-1)?.id
+    // 卡牌模式开关会让树视口在「全宽 ↔ 右半区」间切换，旧相机位置不再对齐新视口。
+    // 与折叠档位/布局模式一致：开关后重新 fit，使节点树在新视口内居中。
+    void nextTick(resetLayout)
+  },
 )
 function tryInitialFit(): void {
   // 数据请求完成前 graph 可能已有占位边界，不能据此结束首次 fit，否则真实历史到达后仍是默认相机。
@@ -1058,34 +1177,10 @@ function returnToBottom(): void {
   hasNewTail.value = false
   canvas.fitToView({ animate: true, duration: 460 })
 }
-function gpuSceneSignature(scene: PixiExecutionScene): string {
-  return [
-    visibleExecutionKey.value,
-    ...scene.nodes.map((node) =>
-      [
-        node.id,
-        node.accent,
-        node.title,
-        node.termination ?? '',
-        node.foldCount ?? '',
-        Number(node.running),
-        Number(node.detailActive),
-        node.branchAnchorKind ?? '',
-        Number(node.paused),
-        Number(node.error),
-        Number(node.revoked),
-      ].join('\u0001'),
-    ),
-    '\u0002',
-    ...scene.edges.map((edge) =>
-      [edge.id, edge.color, Number(edge.active), edge.phaseSeconds].join('\u0001'),
-    ),
-  ].join('\u0000')
-}
-
 function syncGpuScene(scene = pixiScene.value): void {
-  const signature = gpuSceneSignature(scene)
-  if (signature === lastGpuSceneSignature) return
+  const signature = executionSceneSignature(scene, visibleExecutionKey.value)
+  const appliedToPixi = signature !== lastGpuSceneSignature
+  if (!appliedToPixi) return
   lastGpuSceneSignature = signature
   gpuRenderer?.setScene(scene)
 }
@@ -1158,7 +1253,28 @@ defineExpose({ resetLayout })
 </script>
 
 <template>
-  <section class="execution-tree" aria-label="任务执行节点树">
+  <section
+    class="execution-tree"
+    :class="{ 'is-paper-mode': paperMode }"
+    aria-label="任务执行节点树"
+  >
+    <NodePaperStack
+      v-if="paperMode"
+      :entries="paperEntries"
+      :edges="paperGraph.edges"
+      :current-index="paperCurrentIndex"
+      :max-height="Math.min(640, Math.max(160, viewportSize.height - 150))"
+      :has-new-tail="paperHasNewTail"
+      :detail-branch-available="detailBranchAvailable"
+      :detail-branch-unavailable-reason="detailBranchUnavailableReason"
+      :sense-tools="agents.senseTools"
+      :chat-id="activePaperQuestionPopover?.chatId"
+      :question="activePaperQuestionPopover?.question"
+      :question-node-id="activePaperQuestionPopover?.displayNodeId"
+      @select="selectPaperIndex"
+      @latest="returnToLatestPaper"
+      @branch="requestBranch"
+    />
     <div
       ref="viewportRef"
       class="tree-viewport"
@@ -1182,7 +1298,7 @@ defineExpose({ resetLayout })
           @pointerdown="onNodePointerDown($event, node)"
           @pointerenter="showNodeDetail(node)"
           @pointerleave="hideNodeDetail(node)"
-          @focus="showNodeDetail(node)"
+          @focus="focusNode(node)"
           @blur="hideNodeDetail(node)"
           @keydown.enter.prevent.stop="activateNode(node)"
           @keydown.space.prevent.stop="activateNode(node)"
@@ -1360,6 +1476,16 @@ defineExpose({ resetLayout })
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
+}
+.execution-tree.is-paper-mode .tree-viewport {
+  left: 50%;
+  width: 50%;
+}
+@media (max-width: 900px) {
+  .execution-tree.is-paper-mode .tree-viewport {
+    left: 54%;
+    width: 46%;
+  }
 }
 .tree-viewport.is-panning {
   cursor: grabbing;

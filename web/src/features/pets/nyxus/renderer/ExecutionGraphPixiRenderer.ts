@@ -15,6 +15,7 @@ import {
   edgePulseVisibleInterval,
 } from '../graph/edgeMotion'
 import { PIXI_CANVAS_PALETTES, type PixiCanvasPalette } from '@/composables/useThemeTokens'
+import { DETAIL_BRANCH_COLOR } from '../graph/edgeStyles'
 
 export interface PixiExecutionNode {
   id: string
@@ -31,6 +32,8 @@ export interface PixiExecutionNode {
   paused: boolean
   error: boolean
   revoked: boolean
+  deemphasized: boolean
+  detailBranch: boolean
 }
 
 export interface PixiExecutionEdge {
@@ -40,6 +43,9 @@ export interface PixiExecutionEdge {
   color: string
   active: boolean
   phaseSeconds: number
+  deemphasized: boolean
+  detailBranch: boolean
+  routeX?: number
 }
 
 export interface PixiExecutionScene {
@@ -58,6 +64,13 @@ const EMPTY_SCENE: PixiExecutionScene = { nodes: [], edges: [] }
 const MIN_SAMPLE_STEPS = 12
 const MAX_SAMPLE_STEPS = 512
 const MOTION_VIEWPORT_OVERSCAN = 120
+const DEEMPHASIZED_ALPHA = 0.3
+const DETAIL_BRANCH_ALPHA = 0.55
+
+function emphasisAlpha(deemphasized: boolean, detailBranch: boolean): number {
+  if (!deemphasized) return 1
+  return detailBranch ? DETAIL_BRANCH_ALPHA : DEEMPHASIZED_ALPHA
+}
 
 function pointOnCubic(geometry: ExecutionEdgeGeometry, t: number): { x: number; y: number } {
   const inverse = 1 - t
@@ -72,7 +85,7 @@ function pointOnCubic(geometry: ExecutionEdgeGeometry, t: number): { x: number; 
 }
 
 function sampleEdge(edge: PixiExecutionEdge): SampledEdge {
-  const geometry = executionEdgeGeometry(edge.from, edge.to, EXECUTION_ICON_RADIUS)
+  const geometry = executionEdgeGeometry(edge.from, edge.to, EXECUTION_ICON_RADIUS, edge.routeX)
   const controlLength =
     Math.hypot(geometry.control1.x - geometry.from.x, geometry.control1.y - geometry.from.y) +
     Math.hypot(
@@ -311,11 +324,16 @@ export class ExecutionGraphPixiRenderer {
     this.staticEdges.clear()
     for (const edge of this.sampledEdges) {
       const color = colorNumber(edge.color)
-      drawCurve(this.staticEdges, edge.geometry).stroke({ color, width: 4.5, alpha: 0.07 })
+      const alpha = emphasisAlpha(edge.deemphasized, edge.detailBranch)
+      drawCurve(this.staticEdges, edge.geometry).stroke({
+        color,
+        width: 4.5,
+        alpha: 0.07 * alpha,
+      })
       drawCurve(this.staticEdges, edge.geometry).stroke({
         color,
         width: 1.35,
-        alpha: edge.active ? 0.52 : 0.38,
+        alpha: (edge.active ? 0.52 : 0.38) * alpha,
       })
     }
 
@@ -323,26 +341,38 @@ export class ExecutionGraphPixiRenderer {
     const p = this.canvasPalette
     for (const node of this.scene.nodes) {
       const accent = colorNumber(node.accent)
-      this.staticNodes.circle(node.x, node.y, 15).fill({ color: p.nodeFill, alpha: 0.88 })
-      this.staticNodes.circle(node.x, node.y, 15).stroke({ color: accent, width: 1.4, alpha: 1 })
+      const alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
+      this.staticNodes.circle(node.x, node.y, 15).fill({ color: p.nodeFill, alpha: 0.88 * alpha })
+      this.staticNodes.circle(node.x, node.y, 15).stroke({ color: accent, width: 1.4, alpha })
       this.staticNodes
         .circle(node.x, node.y, 19)
-        .stroke({ color: p.ringNeutral, width: 1.5, alpha: 0.34 })
+        .stroke({ color: p.ringNeutral, width: 1.5, alpha: 0.34 * alpha })
       if (node.paused || node.error || node.revoked) {
         const stateColor = node.error ? p.stateError : node.revoked ? p.stateRevoked : p.statePaused
         this.staticNodes
           .circle(node.x, node.y, 19)
-          .stroke({ color: stateColor, width: 2, alpha: 0.9 })
+          .stroke({ color: stateColor, width: 2, alpha: 0.9 * alpha })
       }
       if (node.branchAnchorKind) {
         const markerColor = colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
-        this.staticNodes.circle(node.x, node.y, 22).stroke({ color: markerColor, width: 2.4, alpha: 0.95 })
+        this.staticNodes
+          .circle(node.x, node.y, 22)
+          .stroke({ color: markerColor, width: 2.4, alpha: 0.95 * alpha })
+      }
+      if (node.detailBranch) {
+        this.staticNodes.circle(node.x, node.y, 25).stroke({
+          color: colorNumber(DETAIL_BRANCH_COLOR),
+          width: 1.8,
+          alpha: 0.82 * alpha,
+        })
       }
       if (node.foldCount) {
-        this.staticNodes.circle(node.x + 12, node.y - 12, 8).fill({ color: p.nodeFill, alpha: 0.95 })
         this.staticNodes
           .circle(node.x + 12, node.y - 12, 8)
-          .stroke({ color: accent, width: 1, alpha: 1 })
+          .fill({ color: p.nodeFill, alpha: 0.95 * alpha })
+        this.staticNodes
+          .circle(node.x + 12, node.y - 12, 8)
+          .stroke({ color: accent, width: 1, alpha })
       }
     }
     this.rebuildLabels()
@@ -380,28 +410,31 @@ export class ExecutionGraphPixiRenderer {
         },
         resolution,
       })
+      const alpha = emphasisAlpha(node.deemphasized, node.detailBranch)
+      glyph.alpha = alpha
+      title.alpha = alpha
       this.labels.addChild(glyph, title)
       if (node.termination) {
-        this.labels.addChild(
-          new Text({
-            text: node.termination,
-            anchor: { x: 0.5, y: 0 },
-            position: { x: node.x, y: node.y + 38 },
-            style: { fill: p.termination, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
-            resolution,
-          }),
-        )
+        const termination = new Text({
+          text: node.termination,
+          anchor: { x: 0.5, y: 0 },
+          position: { x: node.x, y: node.y + 38 },
+          style: { fill: p.termination, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
+          resolution,
+        })
+        termination.alpha = alpha
+        this.labels.addChild(termination)
       }
       if (node.foldCount) {
-        this.labels.addChild(
-          new Text({
-            text: String(node.foldCount),
-            anchor: 0.5,
-            position: { x: node.x + 12, y: node.y - 12 },
-            style: { fill: p.foldCount, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
-            resolution,
-          }),
-        )
+        const foldCount = new Text({
+          text: String(node.foldCount),
+          anchor: 0.5,
+          position: { x: node.x + 12, y: node.y - 12 },
+          style: { fill: p.foldCount, fontFamily: 'ui-monospace, monospace', fontSize: 8 },
+          resolution,
+        })
+        foldCount.alpha = alpha
+        this.labels.addChild(foldCount)
       }
     }
   }
@@ -417,6 +450,7 @@ export class ExecutionGraphPixiRenderer {
     this.motionEdges.clear()
     for (const edge of this.visibleMotionEdges) {
       const color = colorNumber(edge.color)
+      const emphasis = emphasisAlpha(edge.deemphasized, edge.detailBranch)
       const phase =
         ((seconds - edge.phaseSeconds) * EXECUTION_EDGE_PULSE_SPEED) % EXECUTION_EDGE_PULSE_PERIOD
       for (
@@ -427,7 +461,8 @@ export class ExecutionGraphPixiRenderer {
         EXECUTION_EDGE_PULSE_SEGMENTS.forEach((segment, index) => {
           const visible = edgePulseVisibleInterval(edge.length, head, segment.length)
           if (!visible) return
-          const alpha = [0.12, 0.16, 0.22, 0.3, 0.48, 0.3, 0.55][index]! * (edge.active ? 1.12 : 1)
+          const alpha =
+            [0.12, 0.16, 0.22, 0.3, 0.48, 0.3, 0.55][index]! * (edge.active ? 1.12 : 1) * emphasis
           drawSampledSegment(this.motionEdges, edge, visible.start, visible.end).stroke({
             color,
             width: 2.2,
@@ -440,25 +475,27 @@ export class ExecutionGraphPixiRenderer {
     this.motionNodes.clear()
     for (const node of this.visibleMotionNodes) {
       const accent = colorNumber(node.accent)
+      const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)
       if (node.branchAnchorKind) {
         const markerColor = colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
         const markerPhase = ((seconds + (node.x + node.y) * 0.0004) % 1.25) / 1.25
         this.motionNodes.circle(node.x, node.y, 23 + markerPhase * 15).stroke({
           color: markerColor,
           width: 3.5,
-          alpha: 0.95 * (1 - markerPhase),
+          alpha: 0.95 * (1 - markerPhase) * emphasis,
         })
         const secondMarkerPhase = (markerPhase + 0.5) % 1
         this.motionNodes.circle(node.x, node.y, 23 + secondMarkerPhase * 15).stroke({
           color: markerColor,
           width: 2.5,
-          alpha: 0.72 * (1 - secondMarkerPhase),
+          alpha: 0.72 * (1 - secondMarkerPhase) * emphasis,
         })
       }
       const duration = node.detailActive ? 1.05 : node.running ? 1.2 : 1.8
       const phase = ((seconds + (node.x + node.y) * 0.0007) % duration) / duration
       const maxScale = node.detailActive ? 1.9 : node.running ? 1.8 : 1.7
-      const opacity = (node.detailActive ? 0.92 : node.running ? 0.85 : 0.35) * (1 - phase)
+      const opacity =
+        (node.detailActive ? 0.92 : node.running ? 0.85 : 0.35) * (1 - phase) * emphasis
       this.motionNodes.circle(node.x, node.y, 19 * (1 + (maxScale - 1) * phase)).stroke({
         color: accent,
         width: node.running || node.detailActive ? 3 : 2,
@@ -469,17 +506,17 @@ export class ExecutionGraphPixiRenderer {
         this.motionNodes.circle(node.x, node.y, 19 * (1 + 0.9 * secondPhase)).stroke({
           color: accent,
           width: 3,
-          alpha: 0.92 * (1 - secondPhase),
+          alpha: 0.92 * (1 - secondPhase) * emphasis,
         })
       }
       if (node.running) {
         const breathe = 0.3 + 0.4 * (0.5 + Math.sin((seconds * Math.PI * 2) / 0.9) * 0.5)
         this.motionNodes
           .circle(node.x, node.y, 18 + breathe * 5)
-          .stroke({ color: accent, width: 6, alpha: breathe * 0.45 })
+          .stroke({ color: accent, width: 6, alpha: breathe * 0.45 * emphasis })
         this.motionNodes
           .circle(node.x + 11, node.y - 11, 3)
-          .fill({ color: accent, alpha: 0.55 + breathe * 0.45 })
+          .fill({ color: accent, alpha: (0.55 + breathe * 0.45) * emphasis })
       }
     }
   }

@@ -126,9 +126,34 @@ describe('Nyxus tree motion contract', () => {
   it('keeps the static line subdued while the pulse head and tail stay luminous', async () => {
     const source = await rendererSource()
 
-    expect(source).toContain('width: 4.5, alpha: 0.07')
+    expect(source).toContain('alpha: 0.07 * alpha')
     expect(source).toContain('width: 1.35')
-    expect(source).toContain('edge.active ? 0.52 : 0.38')
+    expect(source).toContain('(edge.active ? 0.52 : 0.38) * alpha')
     expect(source).toContain('[0.12, 0.16, 0.22, 0.3, 0.48, 0.3, 0.55]')
+    expect(source).toContain('const DEEMPHASIZED_ALPHA = 0.3')
+  })
+
+  it('applies non-core emphasis to graphics, labels, and motion', async () => {
+    const source = await rendererSource()
+
+    expect(source).toContain('const alpha = emphasisAlpha(edge.deemphasized, edge.detailBranch)')
+    expect(source).toContain('const alpha = emphasisAlpha(node.deemphasized, node.detailBranch)')
+    expect(source).toContain('glyph.alpha = alpha')
+    expect(source).toContain('title.alpha = alpha')
+    expect(source).toContain('termination.alpha = alpha')
+    expect(source).toContain('foldCount.alpha = alpha')
+    expect(source).toContain('const emphasis = emphasisAlpha(edge.deemphasized, edge.detailBranch)')
+    expect(source).toContain('const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)')
+  })
+
+  it('gives detail branches a distinct cyan 55% treatment', async () => {
+    const [renderer, component] = await Promise.all([rendererSource(), treeComponentSource()])
+
+    expect(renderer).toContain('const DETAIL_BRANCH_ALPHA = 0.55')
+    expect(renderer).toContain('detailBranch ? DETAIL_BRANCH_ALPHA : DEEMPHASIZED_ALPHA')
+    expect(renderer).toContain('if (node.detailBranch)')
+    expect(renderer).toContain('width: 1.8')
+    expect(component).toContain('color: detailBranch ? DETAIL_BRANCH_COLOR')
+    expect(component).toContain('detailBranch: coreFlowProjection.value.detailNodeIds.has(node.id)')
   })
 })
