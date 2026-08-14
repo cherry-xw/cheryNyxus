@@ -8,13 +8,27 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 
 - `GET /api/config` → 返回 `{wsPort, webPort, transport}`,供前端自动构建 WS 连接地址(无需硬编码端口)
 - `POST /api/media/upload` / `GET /api/media/:filename` → 上传和读取 `.chery/media/` 下的受控媒体资产
-- 其余路径 → 静态 serve 前端构建产物(`web/dist/`),SPA fallback 到 `index.html`
+- 其余路径 → 默认静态 serve 前端构建产物(`web/dist/`),SPA fallback 到 `index.html`
+- `server.serve_frontend=false` 或 `web/dist/` 缺失时 → 仅 serve `/api/*`；其他路径返回 JSON 404 提示
 
 服务端口 `config.server.web_port`(默认 8183),与 WS 端口 `config.server.port`(8182)分离,避免 WS upgrade 重构。
 
 启用 `server.auth.enabled` 时，静态 SPA 仍可加载以显示登录遮罩，但 `GET /api/config` 及 WebSocket 控制面必须
 有 OAuth2 登录后的 HttpOnly 会话。认证端点为 `GET /api/auth/me`、`GET /api/auth/login`、
 `GET /api/auth/callback`、`POST /api/auth/logout`；仅服务端 OAuth2 callback 交换 token，浏览器不接触 client secret。
+
+## 静态托管开关
+
+`server.serve_frontend`（默认 `true`）+ 可选 `server.static_dir_override` 控制 HTTP 服务是否同时托管前端 SPA。典型场景：
+
+- **开发产物已构建**（`pnpm web:build` 输出 `web/dist/`）：`serve_frontend: true`（默认）+ 不设 `static_dir_override` → HTTP 服务 serve `web/dist/`，SPA fallback 到 `index.html`
+- **反向代理（nginx/caddy）已托管 SPA**：`serve_frontend: false` → HTTP 服务仅 serve `/api/*`；其他路径返回 JSON 404
+- **独立部署把 `dist/` 拷到 `/opt/chery/dist`**：`serve_frontend: true` + `static_dir_override: /opt/chery/dist` → HTTP 服务 serve 该目录
+- **容器/CI 一键脚本**：`serve_frontend: true` + 不设 `static_dir_override`，但设环境变量 `WEB_DIST_DIR=/path` → worker 读取 env，覆盖默认
+
+**为什么需要同源托管**：浏览器场景下，登录 cookie（HttpOnly）由后端通过同 origin 颁发。如前端走 vite dev（`:5173`）而后端在 `:8183`，浏览器会因端口不同视为跨域，OAuth 登录与 HttpOnly cookie 无法落定（开发期也会触发 CORS preflight）。开启 `serve_frontend` 让浏览器访问 `:8183` 同时拿到 UI 与 API，绕过跨域。
+
+`server.serve_frontend=true` 但目录缺失时，worker 与 HTTP 服务都会 logger.warn，但**不会阻塞启动**（仅 API 模式生效），便于先启后端再补构建的反模式。
 
 ## 文件清单
 

@@ -73,7 +73,7 @@ pnpm electron:pack
 | 2. 下载 Node 22 LTS + SQLite 预编译 | `electron-pack.mjs sqlite` | `build/node/node.exe` + `better_sqlite3.node` (ABI 127) |
 | 3. 后端类型检查 | `pnpm type-check` | 无 |
 | 4. 后端 SSR 构建 | `pnpm build` | `dist/index.js` + native addon |
-| 5. 前端 + Electron 主进程构建 | `vite build` (跳过 vue-tsc) | `web/dist/` + `web/dist-electron/` |
+| 5. 前端 + Electron 主进程构建 | `vite build` (跳过 vue-tsc) | `dist/web/`（SPA，`outDir: '../dist/web'`）+ `web/dist-electron/`（Electron 主进程） |
 | 6. 安装包生成 | `electron-builder` | `web/release/*.exe` |
 
 ### 增量打包（日常开发）

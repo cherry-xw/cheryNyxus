@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { existsSync } from 'node:fs'
 import { startService } from './service/index.js'
 import { getSoulDb, closeAllDbs } from './db/index.js'
 import { reconcileMessageCounts } from './db/chat.js'
@@ -27,7 +28,26 @@ import yaml from 'js-yaml'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const WEB_PORT = Number(process.env.WEB_PORT ?? 8183)
-const STATIC_DIR = process.env.WEB_DIST_DIR ?? path.resolve(__dirname, '..', 'web', 'dist')
+/**
+ * 解析前端静态目录，优先级：
+ * 1. `server.static_dir_override`（绝对路径，用户在 config.yaml 显式指定）
+ * 2. `WEB_DIST_DIR` 环境变量（脚本/容器场景）
+ * 3. 默认 `<repo>/dist/web/`（当前构建布局，pnpm web:build 与 pnpm build 输出到此处）
+ * 4. 兼容 fallback `<repo>/web/dist/`（旧 vite.config 的 outDir，新工程无需）
+ *
+ * `server.serve_frontend=false` 时返回 `undefined` → 不挂文件 handler，仅 serve /api/*。
+ * 探测到路径但磁盘不存在时仍返回路径（createHttpServer 内部日志警告并降级）。
+ */
+function resolveStaticDir(): string | undefined {
+  if (config.server.serve_frontend === false) return undefined
+  const fromConfig = config.server.static_dir_override
+  if (fromConfig) return fromConfig
+  if (process.env.WEB_DIST_DIR) return process.env.WEB_DIST_DIR
+  const newLayout = path.resolve(__dirname, '..', 'dist', 'web')
+  if (existsSync(newLayout)) return newLayout
+  const legacyLayout = path.resolve(__dirname, '..', 'web', 'dist')
+  return existsSync(legacyLayout) ? legacyLayout : newLayout
+}
 
 /** 业务 worker 入口；可由守护进程 IPC 拉起，也可为维护子命令直接运行。 */
 export async function startWorker(args: string[] = process.argv.slice(2)): Promise<void> {
@@ -64,10 +84,16 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   }
 
   await bootstrapAgentRuntime()
+  const staticDir = resolveStaticDir()
+  if (staticDir && !existsSync(staticDir)) {
+    logger.warn(
+      `server.serve_frontend=true 但静态目录不存在: ${staticDir}（先 pnpm web:build；仅 API 模式生效）`,
+    )
+  }
   const { wss, httpServer } = startService({
     port: config.server.port,
     webPort: WEB_PORT,
-    staticDir: STATIC_DIR,
+    staticDir,
     host: config.server.host,
     auth: config.server.auth,
   })

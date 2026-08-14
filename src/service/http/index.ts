@@ -30,7 +30,14 @@ const MIME: Record<string, string> = {
 
 export interface CreateHttpServerOptions {
   webPort: number
-  staticDir: string
+  /**
+   * 前端静态产物目录。省略或磁盘不存在时：
+   * - 仅 serve `/api/*`（config、auth、media、skills）
+   * - 其他路径返回 JSON 404 + 提示（前端未托管，部署需在反向代理或 vite dev 中接管）
+   *
+   * 提供了但路径不存在 → logger.info 警告后退化为上述行为（不阻塞启动）。
+   */
+  staticDir?: string
   /** Local bootstrap capability for the separately bound WebSocket server. */
   sessionToken?: string
   host?: string
@@ -40,7 +47,8 @@ export interface CreateHttpServerOptions {
 /**
  * 创建 HTTP 服务器：
  * - GET /api/config → 返回 {wsPort, webPort, transport}，供前端自动构建 WS 连接地址
- * - 其余路径 → 静态 serve staticDir（SPA fallback 到 index.html）
+ * - 其余 `/api/*` → 业务端点（auth、media、skills）
+ * - 非 API 路径 → 静态 serve `staticDir`（提供且存在）/ JSON 404（未提供）
  *
  * 协议规范见 docs/protocol.md「HTTP API」段。
  */
@@ -51,10 +59,10 @@ export function createHttpServer({
   host = '127.0.0.1',
   auth,
 }: CreateHttpServerOptions) {
-  const root = resolve(staticDir)
-
-  if (!existsSync(root)) {
-    logger.info(`HTTP 静态目录不存在: ${root}（serve 时返回 404，请先 pnpm web:build）`)
+  // 静态目录解析：未提供 → null（不挂文件 handler，所有非 API 路径返回 JSON 404 提示）
+  const root = staticDir ? resolve(staticDir) : null
+  if (root && !existsSync(root)) {
+    logger.info(`HTTP 静态目录不存在: ${root}（仅 serve API，其他路径返回 JSON 404，请先 pnpm web:build）`)
   }
 
   const server = createServer((req, res) => {
@@ -68,7 +76,11 @@ export function createHttpServer({
   })
 
   server.listen(webPort, host)
-  logger.info(`HTTP 服务启动，端口: ${webPort}（静态目录: ${root}）`)
+  if (root && existsSync(root)) {
+    logger.info(`HTTP 服务启动，端口: ${webPort}（静态目录: ${root}）`)
+  } else {
+    logger.info(`HTTP 服务启动，端口: ${webPort}（仅 API 模式，未托管前端 SPA）`)
+  }
 
   return server
 }
@@ -76,7 +88,7 @@ export function createHttpServer({
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  root: string,
+  root: string | null,
   sessionToken?: string,
   auth?: OAuth2Auth,
 ): Promise<void> {
@@ -210,36 +222,50 @@ async function handleRequest(
     return
   }
 
-  // 静态文件 serve
-  const pathname = decodeURIComponent(url.split('?')[0] ?? '/')
-  const safe = normalize(pathname).replace(/^(\.\.[/\\])+/, '')
-  const filePath = join(root, safe)
+  // 静态文件 serve（仅 root 存在时）
+  if (root) {
+    const pathname = decodeURIComponent(url.split('?')[0] ?? '/')
+    const safe = normalize(pathname).replace(/^(\.\.[/\\])+/, '')
+    const filePath = join(root, safe)
 
-  // 防目录越界
-  if (!filePath.startsWith(root)) {
-    res.writeHead(403)
-    res.end('Forbidden')
-    return
+    // 防目录越界
+    if (!filePath.startsWith(root)) {
+      res.writeHead(403)
+      res.end('Forbidden')
+      return
+    }
+
+    const stats = await stat(filePath).catch(() => null)
+    if (stats?.isFile()) {
+      const data = await readFile(filePath)
+      res.writeHead(200, {
+        'Content-Type': MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+      })
+      res.end(data)
+      return
+    }
+
+    // SPA fallback —— hash 路由下未知路径回 index.html
+    const indexData = await readFile(join(root, 'index.html')).catch(() => null)
+    if (indexData) {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(indexData)
+      return
+    }
   }
 
-  const stats = await stat(filePath).catch(() => null)
-  if (stats?.isFile()) {
-    const data = await readFile(filePath)
-    res.writeHead(200, {
-      'Content-Type': MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
-    })
-    res.end(data)
-    return
-  }
-
-  // SPA fallback —— hash 路由下未知路径回 index.html
-  const indexData = await readFile(join(root, 'index.html')).catch(() => null)
-  if (indexData) {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    res.end(indexData)
-    return
-  }
-
-  res.writeHead(404)
-  res.end('Not Found')
+  // 未托管前端：非 API 路径返回 JSON 404 + 提示，便于浏览器/CLI 排查
+  res.writeHead(404, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  })
+  res.end(
+    JSON.stringify({
+      error: 'Not Found',
+      hint: root
+        ? '静态资源未找到，请先 pnpm web:build 生成 web/dist/，或将前端通过 vite dev / 反向代理托管'
+        : '后端未托管前端 SPA（server.serve_frontend=false）。请通过 vite dev（:5173）或反向代理访问前端',
+      path: url,
+    }),
+  )
 }

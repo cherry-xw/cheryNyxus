@@ -422,6 +422,20 @@ interface ServerConfig {
   transport: 'binary' | 'json' // 传输格式：binary（二进制帧）/ json（JSON 字符串）
   /** Keep localhost by default; set 0.0.0.0 or an intranet address behind TLS/reverse proxy. */
   host?: string
+  /**
+   * 是否由后端 HTTP 服务托管前端 SPA（web/dist/）。开启则用单一 origin 解决跨域：
+   * 浏览器访问 http://<host>:8183/ 同时拿到 UI 与 API，避免 vite proxy 与同源 cookie 边界。
+   * - 缺省 true（仅当 `static_dir_override` 或默认 `web/dist` 存在时实际托管，否则日志警告并退化为仅 API）
+   * - false → HTTP 服务仅 serve /api/*；UI 走 vite dev / Electron 各自路径
+   * - 部署在反向代理后无需开启（nginx/caddy 已托管 SPA），配置即可关闭
+   */
+  serve_frontend?: boolean
+  /**
+   * 自定义前端构建产物路径（绝对路径），覆盖默认 `<repo>/web/dist`。
+   * 典型用途：Electron 打包后落到 `resources/app`，或独立部署时把 dist/ 拷到任意目录。
+   * 不设则与 `startService` 默认路径一致；设错则启动期日志警告并跳过托管。
+   */
+  static_dir_override?: string
   /** OIDC/OAuth2 authorization-code login for browser control-plane access. */
   auth?: OAuth2Config
 }
@@ -640,6 +654,9 @@ function loadConfig(): Config {
     port: serverRaw?.port ?? 8182,
     transport: serverRaw?.transport === 'json' ? 'json' : 'binary',
     host: serverRaw?.host ?? '127.0.0.1',
+    // 默认托管前端 SPA：仅在 dev/prod 产物存在时实际生效；缺失时日志警告并退化为仅 API
+    serve_frontend: serverRaw?.serve_frontend !== false,
+    static_dir_override: serverRaw?.static_dir_override,
     auth: serverRaw?.auth,
   }
 

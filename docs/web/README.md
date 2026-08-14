@@ -28,7 +28,7 @@
 | 路径 | 职责 |
 |------|------|
 | [web/package.json](../../web/package.json) | workspace 包定义；`scripts`: dev / dev:web / dev:electron / build / type-check / electron |
-| [web/vite.config.ts](../../web/vite.config.ts) | Vite 配置；`ELECTRON_ENABLED` 开关条件挂 electron 插件；`base:'./'`；`@` 别名；`build.cssMinify:'esbuild'`（绕开 lightningcss 对 Vue `:deep(...)` 的误报警告）；`rollupOptions.manualChunks` 拆 `vendor-{vue,ui,motion,markdown}`；`rollupOptions.onwarn` 静默 `@vueuse/core` 的 `INVALID_ANNOTATION`（上游库已知问题） |
+| [web/vite.config.ts](../../web/vite.config.ts) | Vite 配置；`ELECTRON_ENABLED` 开关条件挂 electron 插件；`base:'./'`；`@` 别名；`build.outDir:'../dist/web'`（SPA 进 root `dist/web/`，与 SSR `dist/index.js` 同级，单一可分发目录）；`build.cssMinify:'esbuild'`（绕开 lightningcss 对 Vue `:deep(...)` 的误报警告）；`rollupOptions.manualChunks` 拆 `vendor-{vue,ui,motion,markdown}`；`rollupOptions.onwarn` 静默 `@vueuse/core` 的 `INVALID_ANNOTATION`（上游库已知问题） |
 | [web/tsconfig.json](../../web/tsconfig.json) | `references` 拆分 app + node |
 | [web/tsconfig.app.json](../../web/tsconfig.app.json) | 渲染进程 TS（严格、Bundler 解析、`@/*` 别名、`noUncheckedIndexedAccess`） |
 | [web/tsconfig.node.json](../../web/tsconfig.node.json) | 主进程 / vite 配置 TS（`types:["node"]`、`composite`） |

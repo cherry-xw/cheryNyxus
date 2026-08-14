@@ -6,7 +6,13 @@
  * 登录 / 设置地址成功后 reload，让 bootstrap 以新连接目标 + token 重新初始化。
  */
 import { computed, ref, watch } from 'vue'
-import { useAuthStore, hostOf, isLoopbackHost, normalizeAddress } from '@/stores/auth'
+import {
+  useAuthStore,
+  hostOf,
+  isLoopbackHost,
+  normalizeAddress,
+  type AuthError,
+} from '@/stores/auth'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void }>()
@@ -18,11 +24,30 @@ const address = ref(auth.serverAddress || DEFAULT_LOCAL)
 const username = ref('')
 const password = ref('')
 const busy = ref(false)
-const error = ref<string | null>(null)
+const error = ref<AuthError | null>(null)
+const showRaw = ref(false)
 
 const isLocal = computed(() => {
   const host = hostOf(normalizeAddress(address.value))
   return host !== '' ? isLoopbackHost(host) : true
+})
+
+/** 错误图标（按 kind 映射） */
+const errorIcon = computed(() => {
+  switch (error.value?.kind) {
+    case 'network':
+      return '🔌'
+    case 'cors':
+      return '🚫'
+    case 'timeout':
+      return '⏱️'
+    case 'credential':
+      return '🔑'
+    case 'http':
+      return '⚠️'
+    default:
+      return '❗'
+  }
 })
 
 watch(
@@ -33,13 +58,18 @@ watch(
     username.value = ''
     password.value = ''
     error.value = null
+    showRaw.value = false
   },
 )
 
 async function submit(): Promise<void> {
   const base = normalizeAddress(address.value)
   if (!base) {
-    error.value = '请输入后端服务地址'
+    error.value = {
+      kind: 'unknown',
+      title: '请输入后端服务地址',
+      detail: '后端服务地址不能为空，例如 http://127.0.0.1:8183',
+    }
     return
   }
   busy.value = true
@@ -50,7 +80,11 @@ async function submit(): Promise<void> {
       auth.setServerAddress(base)
     } else {
       if (!username.value || !password.value) {
-        error.value = '请输入用户名与密码'
+        error.value = {
+          kind: 'unknown',
+          title: '请输入用户名与密码',
+          detail: '远端地址需登录访问，用户名与密码均为必填。',
+        }
         return
       }
       await auth.login(base, username.value, password.value)
@@ -58,7 +92,16 @@ async function submit(): Promise<void> {
     emit('update:visible', false)
     window.location.reload()
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : '连接失败'
+    // 兼容：之前测试可能仍抛 Error（如从其他 store 调用）
+    error.value =
+      cause && typeof cause === 'object' && 'kind' in cause
+        ? (cause as AuthError)
+        : {
+            kind: 'unknown',
+            title: '登录失败',
+            detail: cause instanceof Error ? cause.message : '未知错误',
+            raw: cause,
+          }
   } finally {
     busy.value = false
   }
@@ -95,7 +138,37 @@ async function submit(): Promise<void> {
         </el-form-item>
       </template>
 
-      <el-alert v-if="error" type="error" :closable="false" :title="error" class="login-error" />
+      <el-alert
+        v-if="error"
+        type="error"
+        :closable="false"
+        :title="`${errorIcon}  ${error.title}`"
+        show-icon
+        class="login-error"
+      >
+        <template #default>
+          <div class="error-body">
+            <p class="error-detail">{{ error.detail }}</p>
+            <p v-if="error.backendMessage" class="error-backend">
+              <span class="error-label">后端：</span>{{ error.backendMessage }}
+            </p>
+            <p v-if="error.status" class="error-status">
+              <el-tag size="small" type="danger" effect="plain">HTTP {{ error.status }}</el-tag>
+            </p>
+            <button
+              v-if="error.raw"
+              type="button"
+              class="error-toggle"
+              @click="showRaw = !showRaw"
+            >
+              {{ showRaw ? '收起' : '查看' }}原始错误
+            </button>
+            <pre v-if="showRaw && error.raw" class="error-raw">{{
+              error.raw instanceof Error ? `${error.raw.name}: ${error.raw.message}` : error.raw
+            }}</pre>
+          </div>
+        </template>
+      </el-alert>
 
       <div class="dialog-footer">
         <el-button @click="emit('update:visible', false)">取消</el-button>
@@ -116,5 +189,50 @@ async function submit(): Promise<void> {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+.error-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.error-detail {
+  margin: 0;
+  color: var(--el-text-color-regular);
+  line-height: 1.55;
+}
+.error-label {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.error-backend,
+.error-status {
+  margin: 0;
+  font-size: 12px;
+}
+.error-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+.error-toggle:hover {
+  color: var(--el-color-primary-light-3);
+}
+.error-raw {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
 }
 </style>

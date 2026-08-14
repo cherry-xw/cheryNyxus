@@ -43,8 +43,11 @@ export interface StartServiceOptions {
   port: number
   /** HTTP 静态服务端口（config.server.web_port） */
   webPort: number
-  /** 前端静态产物目录（web/dist/） */
-  staticDir: string
+  /**
+   * 前端静态产物目录（web/dist/）。未提供或磁盘不存在时仅 serve /api/*，
+   * 非 API 路径返回 JSON 404 提示前端未托管（让 vite proxy / 反向代理接管）。
+   */
+  staticDir?: string
   /** Allows tests/integrators to supply a stable local session capability. */
   sessionToken?: string
   /** Network binding. Defaults to loopback; set explicitly for an intranet deployment. */
@@ -132,7 +135,7 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   // 创建 HTTP 服务器（静态 serve + /api/config）
   const httpServer = createHttpServer({
     webPort: options.webPort,
-    staticDir: options.staticDir,
+    ...(options.staticDir ? { staticDir: options.staticDir } : {}),
     sessionToken,
     host: options.host ?? '127.0.0.1',
     auth,

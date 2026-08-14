@@ -277,6 +277,14 @@ server:
   port: 8182 # WebSocket 端口
   transport: binary # 传输格式：binary|json
   host: 127.0.0.1 # 监听地址（0.0.0.0 或局域网 IP 可允许非本地前端访问）
+  # 是否由后端 HTTP 服务托管前端 SPA（web/dist/）。开启则用单一 origin 解决跨域，
+  # 浏览器访问 http://<host>:8183/ 同时拿到 UI 与 API，避免 vite proxy 与 cookie 跨域边界。
+  # 默认 true：仅在 web/dist/ 存在时实际托管，缺失则日志警告并退化为仅 API。
+  # 反向代理（nginx/caddy）已托管 SPA 时设为 false，避免重复 serve。
+  serve_frontend: true
+  # [可选] 自定义前端构建产物绝对路径，覆盖默认 <repo>/web/dist。
+  # 典型：独立部署把 dist/ 拷到 /opt/chery/dist，或容器挂载点。
+  # static_dir_override: /opt/chery/dist
   # 用户名/密码认证（可选）：设置 username 后启用。远端访问需登录，本地 loopback 信任豁免。
   # password 可写明文（启动时自动改写为 scrypt 哈希并重启），也可直接写哈希（scrypt$<salt>$<hash>）。
   # auth:
