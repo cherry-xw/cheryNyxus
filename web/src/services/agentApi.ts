@@ -8,6 +8,7 @@
 import { wsClient } from './ws'
 import type { RpcResponse } from './ws'
 import { httpUrl } from './http'
+import { sessionHeaders } from './platform'
 
 /**
  * 凭据类 .env 变量名后缀白名单：仅 API_KEY / APIKEY / TOKEN / SECRET(_KEY) /
@@ -1119,7 +1120,7 @@ export const agentApi = {
       headers: {
         'Content-Type': 'application/zip',
         'X-Filename': file.name,
-        ...(server.sessionToken ? { 'X-Chery-Session-Token': server.sessionToken } : {}),
+        ...sessionHeaders(server),
       },
       body: file,
     })
@@ -1738,7 +1739,7 @@ export const agentApi = {
       headers: {
         'Content-Type': file.type,
         'X-Filename': file.name,
-        ...(server.sessionToken ? { 'X-Chery-Session-Token': server.sessionToken } : {}),
+        ...sessionHeaders(server),
       },
       body: file,
     })
@@ -1832,7 +1833,8 @@ let serverConfigCache: ConfigDefault | null | undefined
 export async function fetchServerConfig(): Promise<ConfigDefault> {
   if (serverConfigCache) return serverConfigCache
   try {
-    const res = await fetch(httpUrl('/api/config'))
+    // 远端需带 token（非 loopback 来源）；本地 loopback 豁免无需 token。
+    const res = await fetch(httpUrl('/api/config'), { headers: sessionHeaders({}) })
     if (!res.ok) throw new Error(`/api/config ${res.status}`)
     serverConfigCache = (await res.json()) as ConfigDefault
     return serverConfigCache as ConfigDefault

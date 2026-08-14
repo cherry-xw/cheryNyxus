@@ -53,7 +53,13 @@ export function nyxusOuterDiskHit(distance: number, size: number): boolean {
   return distance >= size * 0.34 && distance <= size * 1.02
 }
 
-const MENU_TOOL_ORDER: readonly NyxusMenuTool[] = ['create', 'chat', 'settings']
+const MENU_TOOL_ORDER: readonly NyxusMenuTool[] = [
+  'create',
+  'chat',
+  'settings',
+  'workbench',
+  'theme',
+]
 
 export function useNyxusParticleInput(opts: {
   props: NyxusInputProps

@@ -3,7 +3,7 @@ import yaml from 'js-yaml'
 import { validateFixedPresetEdits, validateLockedRoleEdits } from './lockedRole.js'
 import fs from 'fs'
 import path from 'path'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'url'
 import { SupervisionLevel } from '@/core/config'
 import type { OAuth2Config } from '@/service/auth/index.js'
@@ -21,6 +21,37 @@ const rootEnvPath = isSourceRuntime
   : path.join(__dirname, '..', '.env')
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath })
+}
+
+// 会话签名密钥持久化：确保 .chery/.env 存在 CHERY_AUTH_SESSION_SECRET，跨重启复用。
+// 必须在 config.yaml 加载前注入 process.env，供 server.auth 鉴权（OAuth2Auth）读取。
+ensureAuthSessionSecret()
+
+/**
+ * 生成/复用会话签名密钥（CHERY_AUTH_SESSION_SECRET），写入 .chery/.env 持久化。
+ * - 进程环境已设置：直接复用，不改文件。
+ * - .chery/.env 已含该键：读入注入进程环境。
+ * - 否则生成 32 字节随机 hex 并追加写入。
+ * 失效/轮换方案：删除 .chery/.env 中该行（或整文件）后重启，即重新生成新密钥，
+ * 所有已签发 access/refresh token 立即失效（HMAC 验签失败），需重新登录。
+ */
+function ensureAuthSessionSecret(): void {
+  if (process.env.CHERY_AUTH_SESSION_SECRET) return
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const envPath = path.join(cheryDir, '.chery', '.env')
+  const envKey = 'CHERY_AUTH_SESSION_SECRET'
+  if (fs.existsSync(envPath)) {
+    const existing = fs.readFileSync(envPath, 'utf8')
+    const match = existing.match(new RegExp(`^${envKey}=(.*)$`, 'm'))
+    if (match?.[1]) {
+      process.env[envKey] = match[1]
+      return
+    }
+  }
+  const secret = randomBytes(32).toString('hex')
+  fs.mkdirSync(path.dirname(envPath), { recursive: true })
+  fs.appendFileSync(envPath, `\n${envKey}=${secret}\n`)
+  process.env[envKey] = secret
 }
 
 // 从 core 层重新导出 SupervisionLevel

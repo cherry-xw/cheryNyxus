@@ -8,7 +8,7 @@
  * 按钮点击通过 emit 上抛，由 NyxusCore host 执行实际 store 调用。
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { Plus, Setting } from '@element-plus/icons-vue'
+import { Moon, Plus, Setting, Sunny } from '@element-plus/icons-vue'
 import PresetPicker from '@/features/agent/toolbar/PresetPicker.vue'
 import {
   highlightNyxusTool,
@@ -21,6 +21,7 @@ const props = defineProps<{
   disabled: boolean
   connected: boolean
   excludedPresets: string[]
+  dark: boolean
 }>()
 
 defineEmits<{
@@ -28,11 +29,15 @@ defineEmits<{
   'create-fallback': []
   'open-settings': []
   'open-workbench': []
+  'open-login': []
+  'toggle-theme': []
 }>()
 
 const createButtonRef = ref<HTMLElement | null>(null)
 const settingsButtonRef = ref<HTMLElement | null>(null)
 const workbenchButtonRef = ref<HTMLElement | null>(null)
+const loginButtonRef = ref<HTMLElement | null>(null)
+const themeButtonRef = ref<HTMLElement | null>(null)
 /** 是否有可创建的预设（PresetPicker 上报）；false → 隐藏 create 并将 settings 按单按钮居中。 */
 const hasCreate = ref(false)
 let toolTrackingRaf = 0
@@ -40,21 +45,25 @@ let toolTrackingRaf = 0
 // 顶部上扇对称布点：奇数个 → 12 点(顶部)一个 + 两侧对称；偶数个 → 左右对称、无正中。
 // 按实际可见按钮数自适应（全部预设已打开 → 仅剩 settings → 居中）。
 const TOOL_RADIUS = 80
-type ToolId = 'create' | 'settings' | 'workbench'
+type ToolId = 'create' | 'settings' | 'workbench' | 'login' | 'theme'
 const toolPositions = computed<Record<ToolId, { x: number; y: number }>>(() => {
   const ids: ToolId[] = hasCreate.value
-    ? ['create', 'settings', 'workbench']
-    : ['settings', 'workbench']
+    ? ['create', 'settings', 'workbench', 'login', 'theme']
+    : ['settings', 'workbench', 'login', 'theme']
   const n = ids.length
-  const half = 90
+  // 相邻按钮弧度上限 40°；超出上半圆(±90°)范围时按 40° 收拢，否则均分摊满上半圆。
+  // 对称轴为 12 点(0°)：奇数 → 正中一个 + 两侧对称；偶数 → 左右对称、无正中；n=1 → 居中 0°。
+  const STEP_MAX_DEG = 40
+  const step = Math.min(STEP_MAX_DEG, 180 / (n - 1))
   const out: Record<ToolId, { x: number; y: number }> = {
     create: { x: 0, y: 0 },
     settings: { x: 0, y: 0 },
     workbench: { x: 0, y: 0 },
+    login: { x: 0, y: 0 },
+    theme: { x: 0, y: 0 },
   }
   ids.forEach((id, i) => {
-    // 单按钮 → 12 点；奇数 → i 均分含 0°；偶数 → 半格偏移（无正中、左右对称）。
-    const angle = n === 1 ? 0 : n % 2 === 1 ? -half + (i * 2 * half) / (n - 1) : -half + ((i + 0.5) * 2 * half) / n
+    const angle = (i - (n - 1) / 2) * step
     const rad = (angle * Math.PI) / 180
     out[id] = {
       x: Math.round(TOOL_RADIUS * Math.sin(rad)),
@@ -72,6 +81,8 @@ function updateToolTargets(): void {
     ['create', hasCreate.value ? createButtonRef.value : null],
     ['settings', settingsButtonRef.value],
     ['workbench', workbenchButtonRef.value],
+    ['login', loginButtonRef.value],
+    ['theme', themeButtonRef.value],
   ]
   const targets = entries.flatMap<NyxusMenuTarget>(([id, element]) => {
     if (!element) return []
@@ -155,6 +166,31 @@ onBeforeUnmount(() => {
       >
         🌳
       </button>
+      <button
+        ref="loginButtonRef"
+        type="button"
+        class="ring-button tool-login"
+        :style="toolStyle(toolPositions.login)"
+        aria-label="登录/连接服务"
+        @click="$emit('open-login')"
+        @pointerenter="highlightNyxusTool('login')"
+        @pointerleave="highlightNyxusTool(null)"
+      >
+        🔑
+      </button>
+      <button
+        ref="themeButtonRef"
+        type="button"
+        class="ring-button tool-theme"
+        :style="toolStyle(toolPositions.theme)"
+        :aria-label="props.dark ? '切换到浅色' : '切换到深色'"
+        @click="$emit('toggle-theme')"
+        @pointerenter="highlightNyxusTool('theme')"
+        @pointerleave="highlightNyxusTool(null)"
+      >
+        <Sunny v-if="props.dark" />
+        <Moon v-else />
+      </button>
     </div>
   </transition>
 </template>
@@ -233,7 +269,9 @@ onBeforeUnmount(() => {
 // 此处仅保留基础定位与 create 内层 hover 覆盖（避免二次平移）。
 .tool-slot,
 .tool-settings,
-.tool-workbench {
+.tool-workbench,
+.tool-login,
+.tool-theme {
   position: absolute;
   --x: 0px;
   --y: 0px;

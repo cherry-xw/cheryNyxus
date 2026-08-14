@@ -1,5 +1,6 @@
 import { encodeRequest, decodeMessage } from './transport'
 import { getServerConfig, wsUrl, type ServerConfig } from './platform'
+import { useAuthStore } from '@/stores/auth'
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
 
@@ -188,8 +189,11 @@ export class WsClient {
     if (!this.serverConfig) return
     this.setStatus('connecting')
     const baseUrl = wsUrl(this.serverConfig)
-    const url = this.serverConfig.sessionToken
-      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(this.serverConfig.sessionToken)}`
+    // 远端走 access token（browser WS 无法设 Authorization 头 → URL ?token=）；本地走进程 sessionToken。
+    const auth = useAuthStore()
+    const token = auth.isRemote ? auth.accessToken : this.serverConfig.sessionToken
+    const url = token
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
       : baseUrl
     const ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'
@@ -393,6 +397,12 @@ export class WsClient {
     try {
       // 每次重连刷新 token/端口/transport；worker 重启后旧 token 必然失效。
       this.serverConfig = await getServerConfig({ refresh: true })
+      // 远端：重连前用 refresh token 续期 access（过期则自动重新登录；失败登出）。
+      // 仅当已登录（有 access token）才续期，未登录连接不触发。
+      const auth = useAuthStore()
+      if (auth.isRemote && auth.accessToken) {
+        await auth.refresh()
+      }
       if (this.shouldReconnect) this.open()
     } catch {
       this.setStatus('disconnected')

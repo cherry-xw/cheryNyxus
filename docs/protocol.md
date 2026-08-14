@@ -446,6 +446,15 @@ Web 静态服务（端口由环境变量 `WEB_PORT` 指定，默认 `8183`；原
 
 > 前端通过 `fetch('/api/config')` 获取配置，结合 `window.location.hostname` 自动构建 `ws://` 连接地址，无需硬编码端口。
 
+#### 认证（用户名/密码）
+
+`server.auth.username`+`password`（加盐 scrypt 哈希）配置后启用。**授权规则：本地 loopback 信任豁免；非本地未登录的接口请求 401 拒绝。** 登录成功签发双 token（HMAC 无状态）：access token（15min，`Authorization: Bearer` 或 WS `?token=`）+ refresh token（7d）。签名密钥 `server.auth.sessionSecret`（或环境变量 `CHERY_AUTH_SESSION_SECRET`）默认由后端启动自动生成 32 字节随机值并持久化到 `.chery/.env` 跨重启复用；**失效/轮换：删除 `.chery/.env` 中该行后重启即重新生成，所有已签发 token 立即失效需重新登录**。
+
+- `POST /api/auth/login` — body `{username, password}` → `200 {accessToken, refreshToken, expiresIn}`；凭据错误 `401 {error}`。
+- `POST /api/auth/refresh` — body `{refreshToken}` → `200 {accessToken, expiresIn}`；无效 `401 {error}`。
+- `GET /api/auth/me` — 空白验证：已登录 `200 {authenticated:true, user:{sub,username,isAdmin}}`，否则 `401 {authenticated:false}`。
+- `POST /api/auth/logout` — 清 OAuth2 会话 cookie，`204`（密码认证前端自行丢弃 token）。
+
 #### `POST /api/skills/import`
 
 上传 ZIP 包导入独立技能（两阶段 stage→commit 的 **stage 入口**；raw bytes + `X-Chery-Session-Token` 鉴权，与 `/api/media/upload` 同模式）。

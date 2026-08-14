@@ -12,8 +12,8 @@
  */
 import { computed, nextTick, onUnmounted, provide, readonly, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
-import { ArrowLeft, ArrowRight, Close, FolderOpened, Moon, Sunny } from '@element-plus/icons-vue'
-import { useAgentsStore, useConnectionStore, useThemeStore } from '@/stores'
+import { ArrowLeft, ArrowRight, Close, FolderOpened } from '@element-plus/icons-vue'
+import { useAgentsStore, useConnectionStore } from '@/stores'
 import {
   agentApi,
   type ConfigDto,
@@ -41,7 +41,6 @@ import SkeletonTab from './tabs/SkeletonTab.vue'
 const MotionDiv = motion.div
 const agents = useAgentsStore()
 const connection = useConnectionStore()
-const themeStore = useThemeStore()
 
 const draft = ref<ConfigDto | null>(null)
 const activeTab = ref<TabKey>('presets')
@@ -486,23 +485,6 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         <header class="head">
           <div class="title-row">
             <span class="title">设置</span>
-            <el-tooltip
-              :content="themeStore.theme === 'dark' ? '切换到浅色' : '切换到深色'"
-              placement="top"
-              :show-after="120"
-            >
-              <span class="tooltip-trigger">
-                <button
-                  type="button"
-                  class="icon-btn theme-btn"
-                  :aria-label="themeStore.theme === 'dark' ? '切换到浅色' : '切换到深色'"
-                  @click="themeStore.toggle()"
-                >
-                  <Sunny v-if="themeStore.theme === 'dark'" class="open-ico" />
-                  <Moon v-else class="open-ico" />
-                </button>
-              </span>
-            </el-tooltip>
             <el-tooltip content="打开配置文件夹" placement="top" :show-after="120">
               <span class="tooltip-trigger">
                 <button

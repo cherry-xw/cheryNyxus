@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, provide, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import DesktopPetApp from '@/features/pets/DesktopPetApp.vue'
 import { desktopPetBridge } from '@/features/pets/desktopPetBridge'
@@ -15,11 +15,9 @@ import {
 } from '@/features/agent/drawer/useHistoryDrawerManager'
 import { useConnectionStore, useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
 import { wsClient } from '@/services/ws'
-import { httpUrl } from '@/services/http'
 import { selectNyxusSession } from '@/stores/chats/selectors'
 
-const authChecked = ref(false)
-const authenticated = ref(false)
+// 鉴权非强制：本地直连不鉴权；远端由 cheryNyxus 登录弹窗对接（token 存 auth store）。
 // 节点树工作台多窗口：每预设一窗（windowId = presetId），由 workbenchWindowsList 驱动渲染。
 const agents = useAgentsStore()
 const isDesktopPetSurface =
@@ -29,29 +27,12 @@ const cleanupDesktopBridge: Array<() => void> = []
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
 
-function startLogin(): void {
-  window.location.assign(
-    httpUrl(`/api/auth/login?returnTo=${encodeURIComponent(window.location.pathname || '/')}`),
-  )
-}
-
 onMounted(() => {
   if (!isDesktopPetSurface) void bootstrap()
 })
 onBeforeUnmount(() => cleanupDesktopBridge.splice(0).forEach((cleanup) => cleanup()))
 
 async function bootstrap(): Promise<void> {
-  try {
-    const response = await fetch(httpUrl('/api/auth/me'), { credentials: 'same-origin' })
-    const data = (await response.json()) as { authenticated?: boolean }
-    authenticated.value = response.ok && data.authenticated === true
-  } catch {
-    authenticated.value = false
-  } finally {
-    authChecked.value = true
-  }
-  if (!authenticated.value) return
-
   const conn = useConnectionStore()
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
@@ -185,7 +166,7 @@ async function bootstrap(): Promise<void> {
 
 <template>
   <DesktopPetApp v-if="isDesktopPetSurface" />
-  <template v-else-if="authenticated">
+  <template v-else>
     <PetStage />
     <NyxusCore />
     <AgentDialog />
@@ -201,19 +182,6 @@ async function bootstrap(): Promise<void> {
     <HistoryDrawer />
     <SettingsDialog />
   </template>
-  <div
-    v-else-if="authChecked"
-    class="login-overlay"
-    role="dialog"
-    aria-modal="true"
-    aria-label="登录"
-  >
-    <section class="login-card">
-      <h1>需要管理员登录</h1>
-      <p>设置和控制功能已锁定。只有身份提供商中配置为 admin 的账号可以进入。</p>
-      <button type="button" @click="startLogin">使用 OAuth2 登录</button>
-    </section>
-  </div>
 </template>
 
 <style lang="less">
@@ -241,44 +209,4 @@ body {
     sans-serif;
 }
 
-.login-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(15, 17, 22, 0.72);
-  backdrop-filter: blur(5px);
-}
-
-.login-card {
-  width: min(400px, 100%);
-  padding: 30px;
-  border-radius: 16px;
-  color: #f7f5ef;
-  background: #20242d;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-
-  h1 {
-    margin: 0 0 12px;
-    font-size: 22px;
-  }
-  p {
-    margin: 0 0 24px;
-    line-height: 1.6;
-    color: #c6c9d0;
-  }
-  button {
-    width: 100%;
-    border: 0;
-    border-radius: 8px;
-    padding: 11px 16px;
-    color: white;
-    background: #5376d4;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-  }
-}
 </style>

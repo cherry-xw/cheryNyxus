@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { isHashed, verifyPassword } from '@/utils/password.js'
 
 export interface OAuth2Config {
   enabled?: boolean
@@ -17,7 +18,10 @@ export interface OAuth2Config {
   adminValues?: string[]
   /** Additional separately-hosted internal UIs allowed to open a control socket. */
   trustedOrigins?: string[]
-  sessionSecret?: string
+  /** 本地用户名/密码认证：设置 username 后启用（远端强制，loopback 豁免）。 */
+  username?: string
+  /** password 明文或 scrypt 哈希（scrypt$<salt>$<hash>）；启动自检明文→哈希。 */
+  password?: string
 }
 
 export interface AuthenticatedUser {
@@ -39,6 +43,8 @@ const SESSION_COOKIE = 'chery_session'
 const STATE_COOKIE = 'chery_oauth_state'
 const SESSION_TTL_SECONDS = 8 * 60 * 60
 const STATE_TTL_SECONDS = 10 * 60
+const ACCESS_TTL_SECONDS = 15 * 60
+const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60
 
 /**
  * Server-side OIDC/OAuth2 login gate. OAuth2 alone does not identify people,
@@ -54,43 +60,103 @@ export class OAuth2Auth {
   private readonly secret: string
 
   constructor(config: OAuth2Config | undefined) {
-    this.enabled = config?.enabled === true
     this.cfg = {
       ...config,
       adminUsers: config?.adminUsers ?? [],
       adminValues: config?.adminValues ?? ['admin'],
       trustedOrigins: config?.trustedOrigins ?? [],
     }
-    this.secret = config?.sessionSecret || process.env.CHERY_AUTH_SESSION_SECRET || ''
-    if (this.enabled) {
-      for (const key of [
-        'authorizationUrl',
-        'tokenUrl',
-        'userInfoUrl',
-        'clientId',
-        'redirectUri',
-      ]) {
-        if (!this.cfg[key as keyof OAuth2Config])
-          throw new Error(`server.auth.enabled=true requires server.auth.${key}`)
-      }
-      if (!this.secret || this.secret.length < 32)
+    // 会话签名密钥：环境变量 > 后端动态生成。由 config.ts ensureAuthSessionSecret 持久化到
+    // .chery/.env（CHERY_AUTH_SESSION_SECRET）跨重启复用；未注入时动态生成兜底。
+    this.secret = process.env.CHERY_AUTH_SESSION_SECRET || randomBytes(32).toString('hex')
+    // 密码认证或 OAuth2 任一启用即开启鉴权门禁。
+    this.enabled = config?.enabled === true || !!config?.username
+    if (!this.enabled) return
+    if (this.cfg.username) {
+      // 密码认证模式：password 必须是已哈希值（明文由 worker 启动自检改写后重启）。
+      if (!this.cfg.password || !isHashed(this.cfg.password))
         throw new Error(
-          'server.auth.enabled=true requires a 32+ character CHERY_AUTH_SESSION_SECRET (or server.auth.sessionSecret)',
+          'server.auth.password must be a scrypt hash (scrypt$<salt>$<hash>); plaintext is rewritten to hash on startup',
         )
-      if (this.cfg.adminUsers.length === 0 && !this.cfg.adminClaim)
-        throw new Error(
-          'OAuth2 login needs server.auth.adminUsers or server.auth.adminClaim; public registration is intentionally disabled',
-        )
+      return
     }
+    // OAuth2 issuer 模式：保留原有强制校验。
+    for (const key of ['authorizationUrl', 'tokenUrl', 'userInfoUrl', 'clientId', 'redirectUri']) {
+      if (!this.cfg[key as keyof OAuth2Config])
+        throw new Error(`server.auth.enabled=true requires server.auth.${key}`)
+    }
+    if (this.cfg.adminUsers.length === 0 && !this.cfg.adminClaim)
+      throw new Error(
+        'OAuth2 login needs server.auth.adminUsers or server.auth.adminClaim; public registration is intentionally disabled',
+      )
   }
 
   getUser(req: IncomingMessage): AuthenticatedUser | null {
     if (!this.enabled) return { sub: 'local', username: 'local', isAdmin: true }
-    const token = readCookie(req, SESSION_COOKIE)
-    const payload = token ? this.verify<SessionPayload>(token) : null
-    return payload && payload.exp > nowSeconds()
-      ? { sub: payload.sub, username: payload.username, isAdmin: true }
-      : null
+    // 本地 loopback 信任豁免：直连不鉴权。
+    if (isLoopback(req)) return { sub: 'local', username: 'local', isAdmin: true }
+    // 远端：校验 access token（Authorization: Bearer / WS ?token=）或 OAuth2 会话 cookie。
+    const token = readBearer(req) ?? readCookie(req, SESSION_COOKIE) ?? readTokenQuery(req)
+    const payload = token ? this.verifyAuthToken(token) : null
+    return payload ? { sub: payload.sub, username: payload.username, isAdmin: true } : null
+  }
+
+  /** 校验用户名/密码，成功签发双 token。失败返回 null。 */
+  authenticate(
+    username: string,
+    password: string,
+  ): { accessToken: string; refreshToken: string; accessTtl: number } | null {
+    if (!this.cfg.username || !this.cfg.password) return null
+    if (username !== this.cfg.username) return null
+    if (!verifyPassword(password, this.cfg.password)) return null
+    return this.issueTokens(username)
+  }
+
+  /** 校验 refresh token，换发新 access token。失败返回 null。 */
+  refresh(refreshToken: string): { accessToken: string; expiresIn: number } | null {
+    const payload = this.verifyToken(refreshToken, 'refresh')
+    if (!payload) return null
+    const accessToken = this.sign<SessionPayload & { type: string }>({
+      sub: payload.sub,
+      username: payload.username,
+      isAdmin: true,
+      type: 'access',
+      exp: nowSeconds() + ACCESS_TTL_SECONDS,
+    })
+    return { accessToken, expiresIn: ACCESS_TTL_SECONDS }
+  }
+
+  private issueTokens(username: string): {
+    accessToken: string
+    refreshToken: string
+    accessTtl: number
+  } {
+    const now = nowSeconds()
+    const accessToken = this.sign<SessionPayload & { type: string }>({
+      sub: username,
+      username,
+      isAdmin: true,
+      type: 'access',
+      exp: now + ACCESS_TTL_SECONDS,
+    })
+    const refreshToken = this.sign<SessionPayload & { type: string }>({
+      sub: username,
+      username,
+      isAdmin: true,
+      type: 'refresh',
+      exp: now + REFRESH_TTL_SECONDS,
+    })
+    return { accessToken, refreshToken, accessTtl: ACCESS_TTL_SECONDS }
+  }
+
+  private verifyAuthToken(token: string): SessionPayload | null {
+    const payload = this.verify<SessionPayload & { type?: string }>(token)
+    return payload && payload.exp > nowSeconds() ? payload : null
+  }
+
+  private verifyToken(token: string, type: 'access' | 'refresh'): SessionPayload | null {
+    const payload = this.verify<SessionPayload & { type?: string }>(token)
+    return payload && payload.exp > nowSeconds() && payload.type === type ? payload : null
   }
 
   async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
@@ -107,6 +173,40 @@ export class OAuth2Auth {
     if (path === '/api/auth/logout' && req.method === 'POST') {
       this.clearCookies(res, req)
       writeJson(res, 204)
+      return true
+    }
+    // 密码认证：POST /api/auth/login → 校验用户名/密码 → 签发双 token。
+    if (path === '/api/auth/login' && req.method === 'POST') {
+      if (!this.cfg.username) {
+        writeJson(res, 404, { error: 'Not found' })
+        return true
+      }
+      const body = await readJsonBody<{ username?: string; password?: string }>(req)
+      const tokens = this.authenticate(body?.username ?? '', body?.password ?? '')
+      if (!tokens) {
+        writeJson(res, 401, { error: 'Invalid credentials' })
+        return true
+      }
+      writeJson(res, 200, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresIn: tokens.accessTtl,
+      })
+      return true
+    }
+    // 密码认证：POST /api/auth/refresh → 校验 refresh token → 换发新 access token。
+    if (path === '/api/auth/refresh' && req.method === 'POST') {
+      if (!this.cfg.username) {
+        writeJson(res, 404, { error: 'Not found' })
+        return true
+      }
+      const body = await readJsonBody<{ refreshToken?: string }>(req)
+      const result = body?.refreshToken ? this.refresh(body.refreshToken) : null
+      if (!result) {
+        writeJson(res, 401, { error: 'Invalid refresh token' })
+        return true
+      }
+      writeJson(res, 200, { accessToken: result.accessToken, expiresIn: result.expiresIn })
       return true
     }
     if (path === '/api/auth/login') {
@@ -292,6 +392,37 @@ function base64url(value: Buffer): string {
 function readCookie(req: IncomingMessage, name: string): string | undefined {
   const pair = req.headers.cookie?.split(/;\s*/).find((item) => item.startsWith(`${name}=`))
   return pair ? decodeURIComponent(pair.slice(name.length + 1)) : undefined
+}
+function readBearer(req: IncomingMessage): string | undefined {
+  const header = req.headers.authorization ?? ''
+  const [scheme, token, ...extra] = header.split(/\s+/)
+  return scheme?.toLowerCase() === 'bearer' && token && extra.length === 0 ? token : undefined
+}
+function readTokenQuery(req: IncomingMessage): string | undefined {
+  const url = new URL(req.url ?? '/', 'http://localhost')
+  const token = url.searchParams.get('token')
+  return token ? decodeURIComponent(token) : undefined
+}
+/** 本地 loopback 判定：remoteAddress 为 127.0.0.1 / ::1 / ::ffff:127.0.0.1。 */
+function isLoopback(req: IncomingMessage): boolean {
+  const addr = (req.socket.remoteAddress ?? '').toLowerCase()
+  return (
+    addr === '127.0.0.1' ||
+    addr === '::1' ||
+    addr === '::ffff:127.0.0.1' ||
+    addr === '::ffff:127.0.0.1%0'
+  )
+}
+async function readJsonBody<T>(req: IncomingMessage): Promise<T | null> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  const raw = Buffer.concat(chunks).toString('utf8')
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return null
+  }
 }
 function appendCookie(res: ServerResponse, value: string): void {
   const current = res.getHeader('Set-Cookie')

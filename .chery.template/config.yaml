@@ -276,7 +276,12 @@ presets:
 server:
   port: 8182 # WebSocket 端口
   transport: binary # 传输格式：binary|json
-  host: 127.0.0.1 # 监听地址
+  host: 127.0.0.1 # 监听地址（0.0.0.0 或局域网 IP 可允许非本地前端访问）
+  # 用户名/密码认证（可选）：设置 username 后启用。远端访问需登录，本地 loopback 信任豁免。
+  # password 可写明文（启动时自动改写为 scrypt 哈希并重启），也可直接写哈希（scrypt$<salt>$<hash>）。
+  # auth:
+  #   username: admin
+  #   password: your-password
 
 # ------------------------------------------------------------
 # memory：长期记忆参数

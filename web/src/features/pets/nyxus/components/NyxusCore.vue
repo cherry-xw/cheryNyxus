@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { useAgentsStore, useConnectionStore } from '@/stores'
+import { useAgentsStore, useConnectionStore, useThemeStore } from '@/stores'
 import { agentApi } from '@/services/agentApi'
 import NyxusParticle from './NyxusParticle.vue'
 import NyxusToolRing from './NyxusToolRing.vue'
+import ServerLoginDialog from '@/components/dialog/ServerLoginDialog.vue'
 import { useNyxusWorkState } from '../composables/useNyxusWorkState'
 import { useStandaloneNyxusMotion } from '../composables/useStandaloneNyxusMotion'
 import { createClickDisambiguator } from '../composables/clickDisambiguator'
@@ -12,8 +13,10 @@ import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
 const agents = useAgentsStore()
 const connection = useConnectionStore()
+const themeStore = useThemeStore()
 const creating = ref(false)
 const openingChat = ref(false)
+const loginOpen = ref(false)
 const error = ref<string | null>(null)
 const { working } = useNyxusWorkState()
 const { position, dragging, onPointerDown, onPointerMove, endPointer, consumeSuppressedClick } =
@@ -109,6 +112,11 @@ function openSettings(): void {
   closeNyxusMenu()
 }
 
+/** 打开登录/连接服务弹窗（远端后端对接）。 */
+function openLogin(): void {
+  loginOpen.value = true
+}
+
 /** 打开 cheryNyxus（主预设）的节点树工作台，并刷新钢琴依赖的轻量会话目录。 */
 async function openWorkbench(): Promise<void> {
   if (connection.status !== 'connected') return
@@ -167,11 +175,15 @@ onBeforeUnmount(() => {
       :disabled="disabled"
       :connected="connection.status === 'connected'"
       :excluded-presets="excludedPresets"
+      :dark="themeStore.theme === 'dark'"
       @create-preset="createPreset"
       @create-fallback="createFallback"
       @open-settings="openSettings"
       @open-workbench="openWorkbench"
+      @open-login="openLogin"
+      @toggle-theme="themeStore.toggle"
     />
+    <ServerLoginDialog v-model="loginOpen" />
     <div v-if="error" class="nyxus-error" role="alert">{{ error }}</div>
   </aside>
 </template>
