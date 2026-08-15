@@ -59,6 +59,8 @@ async function openNyxusDialog(): Promise<void> {
   error.value = null
   try {
     const chatId = await agents.getActiveNyxus()
+    // 双击打开的 nyxus 直接发消息窗：浮动、无遮罩（同 pet），目标固定为活跃 nyxus 会话。
+    agents.activeDialogSource = 'nyxus'
     // getActiveNyxus 的轻量 catalog 已足够建立钢琴索引；节点正文由树挂载后
     // 仅针对当前 rootChatId 按需读取，不在开窗时扫描所有会话 preview。
     agents.activeDialogChatId = chatId
@@ -183,7 +185,7 @@ onBeforeUnmount(() => {
       @open-login="openLogin"
       @toggle-theme="themeStore.toggle"
     />
-    <ServerLoginDialog v-model="loginOpen" />
+    <ServerLoginDialog :visible="loginOpen" @update:visible="loginOpen = $event" />
     <div v-if="error" class="nyxus-error" role="alert">{{ error }}</div>
   </aside>
 </template>

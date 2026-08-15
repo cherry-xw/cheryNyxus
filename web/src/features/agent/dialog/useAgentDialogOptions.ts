@@ -108,7 +108,11 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     const loadedConfig = config.value
     if (!loadedConfig) return
     const preset = presetName.value ? loadedConfig.presets?.[presetName.value] : undefined
-    const roleNames = preset?.roles?.length ? preset.roles : Object.keys(loadedConfig.roles ?? {})
+    const roleNames = preset?.roles?.length
+      ? preset.roles
+      : Object.entries(loadedConfig.roles ?? {})
+          .filter(([, role]) => role.kind !== 'shadow')
+          .map(([name]) => name)
     primaryRole.value = preset?.leader ?? '主角色'
     const fallback: RuntimeSelection = {
       brain: brains.value.find((b) => b.default)?.name ?? brains.value[0]?.name ?? '',
@@ -290,7 +294,14 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     if (!loadedConfig?.roles || !preset?.roles) return []
     return preset.roles.flatMap((name) => {
       const role = loadedConfig.roles?.[name]
-      if (!role || name === primaryRole.value || name === preset.detailRole || !role.mentionable) return []
+      if (
+        !role ||
+        role.kind === 'shadow' ||
+        name === primaryRole.value ||
+        name === preset.detailRole ||
+        !role.mentionable
+      )
+        return []
       return [{ name, description: role.description || `委派 ${name} 角色处理任务。` }]
     })
   })

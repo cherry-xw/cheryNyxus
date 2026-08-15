@@ -62,7 +62,9 @@ export function createHttpServer({
   // 静态目录解析：未提供 → null（不挂文件 handler，所有非 API 路径返回 JSON 404 提示）
   const root = staticDir ? resolve(staticDir) : null
   if (root && !existsSync(root)) {
-    logger.info(`HTTP 静态目录不存在: ${root}（仅 serve API，其他路径返回 JSON 404，请先 pnpm web:build）`)
+    logger.info(
+      `HTTP 静态目录不存在: ${root}（仅 serve API，其他路径返回 JSON 404，请先 pnpm web:build）`,
+    )
   }
 
   const server = createServer((req, res) => {
@@ -205,11 +207,12 @@ async function handleRequest(
       leader: p.leader,
       brain: p.leader ? (config.roles?.[p.leader]?.brain ?? '') : '',
       roles: p.roles ?? [],
+      ...(p.shadows ? { shadows: p.shadows } : {}),
     }))
     res.end(
       JSON.stringify({
         wsPort: config.server.port,
-        webPort: Number(process.env.WEB_PORT ?? 8183),
+        webPort: config.server.webPort,
         transport: config.server.transport,
         // Legacy local capability is not issued when OAuth2 is enabled: the
         // WebSocket authenticates with the HttpOnly browser session instead.

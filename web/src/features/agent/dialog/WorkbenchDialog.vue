@@ -300,7 +300,7 @@ const detailBranchAvailability = computed(() => {
   if (!preset?.detailRole) return { available: false, reason: '当前预设未指定解释角色，请在预设成员卡中设置。' }
   if (!(preset.roles ?? []).includes(preset.detailRole)) return { available: false, reason: '解释角色必须是当前预设成员。' }
   const detail = loaded?.roles?.[preset.detailRole]
-  return detail?.brain && detail.senseGroup
+  return detail?.kind !== 'shadow' && detail?.brain && detail.senseGroup
     ? { available: true, reason: '' }
     : { available: false, reason: '解释角色配置不完整，请在角色设置中配置大脑和器官组。' }
 })
@@ -1671,6 +1671,7 @@ function onTreePromptSnapShow(): void {
               :preset-name="presetName"
               :active-chat-id="chatId"
               @select="switchSession"
+              @create="createSession"
               @delete="isNyxus ? deleteNyxusSession($event) : deletePresetSession($event)"
               @interacting-change="onPianoInteracting"
             />

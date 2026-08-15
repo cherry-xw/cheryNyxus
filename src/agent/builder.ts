@@ -29,11 +29,11 @@ export class AgentBuilder {
    * 创建空 Middleware 实例（service 层每 chat 一个，跨轮不重建）
    * 构造只注入跨轮不变项：global + handlers + loopHandler
    */
-  build(): this {
+  build(options?: { maxLoopCount?: number }): this {
     this.agent = new AgentSession<MiddlewareChunk>(
       config.global,
       defaultHandlers,
-      createLoopHandler(config.global.maxLoopCount),
+      createLoopHandler(options?.maxLoopCount ?? config.global.maxLoopCount),
     )
     return this
   }
@@ -89,6 +89,24 @@ export class AgentBuilder {
       msgs = systemMsg
     }
     this.requireAgent().init(chatId, msgs)
+    return this
+  }
+
+  /**
+   * 初始化不属于 Chat 领域的临时 Agent。调用方提供完整 system prompt；不加载全局角色提示，
+   * 也不触碰 DB/runtime cache。仅供 ShadowRunner 等进程内短流程使用。
+   */
+  initEphemeral(runId: string, systemPrompt: string): this {
+    const now = Date.now()
+    this.requireAgent().init(runId, [
+      {
+        id: randomUUID(),
+        role: 'system',
+        content: systemPrompt,
+        createdAt: now,
+        updateAt: now,
+      },
+    ])
     return this
   }
 

@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import config from './utils/config.js'
 
 const WORKER_FLAG = '--worker'
 const MAX_BACKOFF_MS = 10_000
-const HEALTH_PORT = Number(process.env.WEB_PORT ?? 8183)
+const HEALTH_PORT = config.server.webPort
 let worker: ChildProcess | undefined
 let stopping = false
 let intentionalRestart = false

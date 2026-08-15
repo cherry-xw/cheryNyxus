@@ -1,24 +1,19 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
-import { agentApi, type ChatSummary } from '@/services/agentApi'
+import { computed, onBeforeUnmount, ref, watch, type ComponentPublicInstance, type Ref } from 'vue'
+import { agentApi, type ChatSummary, type ConversationRouteTrace } from '@/services/agentApi'
 import { formatTime } from '@/utils/formatTime'
 import {
-  acceptedRouteCandidates,
-  automaticRouteCandidate,
-  canRequestAutomaticRoute,
   conversationTargetVisualState,
   nextTargetCycleState,
+  visibleConversationTargetSessions,
   type ConversationTargetVisualState,
+  type RouteStatus,
   type TargetCycleState,
 } from './conversationTargetRouting'
-import {
-  splitCommandPrompt,
-  type CommandPromptSegment,
-} from '../composables/commands'
+import { splitCommandPrompt, type CommandPromptSegment } from '../composables/commands'
 
 const props = defineProps<{
   presetId: string
-  draft: string
   sessions: ChatSummary[]
   selected: string | 'new' | undefined
   selectedSource?: 'ai' | 'user'
@@ -37,15 +32,20 @@ const emit = defineEmits<{
   'clear-target': []
   'enable-auto': []
   'routing-change': [routing: boolean]
+  'auto-mode-change': [automatic: boolean]
+  'ai-status-hover': []
+  'ai-status-leave': []
+  'route-status': [status: RouteStatus]
 }>()
-const suggestedIds = ref<string[]>([])
-const reasons = ref<Record<string, string>>({})
+
+const routeTrace = ref<ConversationRouteTrace>()
+/** 流式期间实时累积的 thinking/content（供 AgentDialog 路由小窗渲染）。 */
+const liveThinking = ref('')
+const liveContent = ref('')
 const routeError = ref('')
-let timer: ReturnType<typeof setTimeout> | undefined
 let requestVersion = 0
 const routing = ref(false)
 const autoMode = ref(props.routingEnabled)
-const autoRequestNonce = ref(0)
 /** 用户手动半选（待再次点击锁定的候选会话）。与 AI 推荐共同构成「半选」视觉态。 */
 const manualHalfId = ref<string>()
 
@@ -53,6 +53,19 @@ function setRouting(value: boolean): void {
   if (routing.value === value) return
   routing.value = value
   emit('routing-change', value)
+}
+
+function resetRouteState(): void {
+  routeTrace.value = undefined
+  liveThinking.value = ''
+  liveContent.value = ''
+  routeError.value = ''
+}
+
+function setAutoMode(value: boolean): void {
+  if (autoMode.value === value) return
+  autoMode.value = value
+  emit('auto-mode-change', value)
 }
 
 function clearAiSelection(): void {
@@ -64,33 +77,31 @@ function visualStateOf(chatId: string): ConversationTargetVisualState {
     chatId,
     props.selected,
     props.selectedSource,
-    suggestedIds.value,
+    [],
     manualHalfId.value,
   )
 }
 
 function cycleStateOf(chatId: string): TargetCycleState {
-  if (visualStateOf(chatId) === 'manual') return 'full'
-  if (visualStateOf(chatId) === 'recommended') return 'half'
+  const visualState = visualStateOf(chatId)
+  if (visualState === 'manual' || visualState === 'ai-selected') return 'full'
+  if (visualState === 'recommended') return 'half'
   return 'idle'
 }
 
 /** 停止自动路由并清空推荐，进入用户操作分支。 */
 function beginManualControl(): void {
   requestVersion += 1
-  if (timer) clearTimeout(timer)
-  autoMode.value = false
-  routeError.value = ''
-  suggestedIds.value = []
-  reasons.value = {}
+  setAutoMode(false)
+  resetRouteState()
   setRouting(false)
 }
 
-/** 未选 → 半选：标记为候选，等待再次点击锁定。半选历史会话时，清掉此前选中的「＋新会话」，避免冲突。 */
+/** 未选 → 半选：标记为候选，等待再次点击锁定，并清掉此前目标以避免冲突。 */
 function enterManualHalf(target: string): void {
   manualHalfId.value = target
   beginManualControl()
-  if (props.selected === 'new') emit('clear-target')
+  if (props.selected) emit('clear-target')
 }
 
 /** 半选 → 选中：锁定为用户选择并提交目标。 */
@@ -126,29 +137,31 @@ function selectByUser(target: string | 'new'): void {
 function selectAuto(): void {
   if (!props.routingEnabled) return
   requestVersion += 1
-  if (timer) clearTimeout(timer)
-  autoMode.value = true
-  autoRequestNonce.value += 1
-  routeError.value = ''
+  setAutoMode(true)
+  resetRouteState()
   emit('enable-auto')
 }
 
 const orderedSessions = computed(() => {
-  const byId = new Map(props.sessions.map((session) => [session.chatId, session]))
-  const routed = suggestedIds.value.flatMap((id) => {
-    const session = byId.get(id)
-    if (!session) return []
-    byId.delete(id)
-    return [session]
-  })
-  return [
-    ...routed,
-    ...[...byId.values()].sort(
-      (a, b) =>
-        (b.lastUserActivityAt ?? b.createdAt ?? 0) -
-        (a.lastUserActivityAt ?? a.createdAt ?? 0),
-    ),
-  ].slice(0, 3)
+  const sessions = [...props.sessions]
+  if (
+    props.selected &&
+    props.selected !== 'new' &&
+    !sessions.some((session) => session.chatId === props.selected)
+  ) {
+    const traced = routeTrace.value?.context.candidates.find(
+      (candidate) => candidate.chatId === props.selected,
+    )
+    if (traced) {
+      sessions.push({
+        chatId: traced.chatId,
+        preview: traced.preview,
+        lastUserActivityAt: traced.lastUserActivityAt,
+        createdAt: traced.lastUserActivityAt,
+      })
+    }
+  }
+  return visibleConversationTargetSessions(sessions, props.selected)
 })
 
 function labelOf(session: ChatSummary): string {
@@ -165,6 +178,7 @@ function labelSegments(session: ChatSummary): CommandPromptSegment[] {
  * 用 virtual-triggering 而非包 wrapper，避免 tooltip 触发 span 破坏 .target-options 的 flex 布局。
  */
 const buttonRefs = new Map<string, Ref<HTMLElement | null>>()
+const newButtonRef = ref<HTMLElement | null>(null)
 function buttonRefOf(chatId: string): Ref<HTMLElement | null> {
   let r = buttonRefs.get(chatId)
   if (!r) {
@@ -173,29 +187,40 @@ function buttonRefOf(chatId: string): Ref<HTMLElement | null> {
   }
   return r
 }
-function bindButtonRef(chatId: string): (el: HTMLElement | null) => void {
+function bindButtonRef(chatId: string): (el: Element | ComponentPublicInstance | null) => void {
   const r = buttonRefOf(chatId)
   return (el) => {
-    r.value = el
+    r.value = el instanceof HTMLElement ? el : null
   }
 }
+function bindNewButtonRef(el: Element | ComponentPublicInstance | null): void {
+  newButtonRef.value = el instanceof HTMLElement ? el : null
+}
 
-/** 按钮角标：用户锁定 → 指定；AI 推荐 → 推荐；手动半选 → 待定。 */
+/** 按钮角标：用户锁定 → 指定；AI 最终选择 → AI 选定；其他推荐 → 推荐。 */
 function stateLabelOf(session: ChatSummary): string {
   if (props.selected === session.chatId && props.selectedSource === 'user') return '指定'
+  if (props.selected === session.chatId && props.selectedSource === 'ai') return 'AI 选定'
   if (visualStateOf(session.chatId) === 'recommended') {
-    return suggestedIds.value.includes(session.chatId) ? '推荐' : '待定'
+    return '待定'
   }
   return ''
 }
 
 /** hover tooltip 状态行：完整状态描述。 */
 function stateHintOf(session: ChatSummary): string {
-  if (props.selected === session.chatId && props.selectedSource === 'user') return '已指定为本次发送目标'
+  if (props.selected === session.chatId && props.selectedSource === 'user')
+    return '已指定为本次发送目标'
+  if (props.selected === session.chatId && props.selectedSource === 'ai')
+    return 'AI 已选定为本次发送目标'
   if (visualStateOf(session.chatId) === 'recommended') {
-    return suggestedIds.value.includes(session.chatId) ? 'AI 推荐为发送目标' : '候选目标，再次点击锁定'
+    return '候选目标，再次点击锁定'
   }
   return '未选择'
+}
+
+function showsAiTrace(target: string | 'new'): boolean {
+  return !!routeTrace.value && props.selectedSource === 'ai' && props.selected === target
 }
 
 /** 会话创建时间（tooltip 展示）。 */
@@ -208,16 +233,17 @@ const aiStatusLabel = computed(() => {
   if (props.selectedSource === 'user') return '已手动选中会话，再次点击可取消'
   if (manualHalfId.value) return '已半选会话，再次点击锁定'
   if (routeError.value) return 'AI 未确定目标，请手动选择'
-  if (routing.value) return 'AI 选择中…'
-  if (props.selectedSource === 'ai' && props.selected !== 'new') return 'AI 已推荐发送目标'
-  return props.routingEnabled ? '未手选时由 AI 自动选择' : '请选择发送目标'
+  if (routing.value) return 'AI 选择会话中…'
+  if (props.selectedSource === 'ai' && props.selected === 'new') return 'AI 已选定新对话'
+  if (props.selectedSource === 'ai' && props.selected) return 'AI 已选定发送目标'
+  return props.routingEnabled ? '发送后由 AI 自动选择' : '请选择发送目标'
 })
 
 const aiStatusIcon = computed(() => {
   if (props.selectedSource === 'user' || manualHalfId.value) return '✋'
   if (routing.value) return '⏳'
   if (routeError.value) return '⚠'
-  if (props.selectedSource === 'ai' && props.selected !== 'new') return '✨'
+  if (props.selectedSource === 'ai' && props.selected) return '✨'
   return '🤖'
 })
 
@@ -233,63 +259,82 @@ watch(
   },
 )
 
+/** routingEnabled 随 config 异步就绪后同步 autoMode，避免初始 false 将自动路由永久锁死。 */
 watch(
-  () => [props.draft, props.routingEnabled, autoMode.value, autoRequestNonce.value] as const,
-  ([draft, enabled, automatic]) => {
-    if (timer) clearTimeout(timer)
-    const version = ++requestVersion
-    if (!canRequestAutomaticRoute(automatic, enabled, draft)) {
-      setRouting(false)
-      routeError.value = ''
-      if (automatic && (!props.selected || props.selectedSource === 'ai')) {
-        clearAiSelection()
-        suggestedIds.value = []
-        reasons.value = {}
-      }
-      return
-    }
-    clearAiSelection()
-    setRouting(true)
-    timer = setTimeout(async () => {
-      routeError.value = ''
-      try {
-        const result = await agentApi.suggestConversationRoute({
-          presetId: props.presetId,
-          draft,
-          requestVersion: version,
-        })
-        if (version !== requestVersion || props.selectedSource === 'user') return
-        const accepted = acceptedRouteCandidates(result.candidates)
-        suggestedIds.value = accepted.map((candidate) => candidate.chatId!)
-        reasons.value = Object.fromEntries(
-          accepted.map((candidate) => [candidate.chatId!, candidate.reason]),
-        )
-        const automatic = automaticRouteCandidate(accepted)
-        if (automatic?.chatId) {
-          emit('select', {
-            target: automatic.chatId,
-            source: 'ai',
-            confidence: automatic.confidence,
-          })
-        } else {
-          routeError.value = 'AI 未找到明确目标，请手动选择'
-        }
-      } catch (error) {
-        if (version !== requestVersion || !autoMode.value) return
-        clearAiSelection()
-        routeError.value = '智能推荐暂不可用，请手动选择目标'
-        console.warn('[ConversationTargetPicker] route suggestion failed:', error)
-      } finally {
-        if (version === requestVersion) setRouting(false)
-      }
-    }, 400)
+  () => props.routingEnabled,
+  (enabled) => {
+    setAutoMode(enabled)
   },
-  { immediate: true },
 )
+
+/**
+ * 由父级发送动作显式调用。输入阶段不请求路由；这里完成选择后，父级才会真正提交消息。
+ */
+async function routeForSend(draft: string): Promise<ConversationTargetSelection | undefined> {
+  const prompt = draft.trim()
+  if (!prompt || !props.routingEnabled || !autoMode.value || routing.value) return undefined
+
+  const version = ++requestVersion
+  clearAiSelection()
+  routeError.value = ''
+  routeTrace.value = undefined
+  liveThinking.value = ''
+  liveContent.value = ''
+  setRouting(true)
+  emit('route-status', { routing: true, thinking: '', content: '' })
+  try {
+    const result = await agentApi.suggestConversationRouteStream(
+      {
+        presetId: props.presetId,
+        draft: prompt,
+        requestVersion: version,
+      },
+      (delta) => {
+        if (version !== requestVersion) return
+        liveThinking.value += delta.thinking
+        liveContent.value += delta.content
+        emit('route-status', {
+          routing: true,
+          thinking: liveThinking.value,
+          content: liveContent.value,
+        })
+      },
+    )
+    if (version !== requestVersion || !autoMode.value || props.selectedSource === 'user') {
+      return undefined
+    }
+    routeTrace.value = result.trace
+    emit('route-status', {
+      routing: false,
+      trace: result.trace,
+      thinking: liveThinking.value,
+      content: liveContent.value,
+    })
+    const selection: ConversationTargetSelection = result.target.chatId
+      ? { target: result.target.chatId, source: 'ai', confidence: result.target.confidence }
+      : { target: 'new', source: 'ai', confidence: result.target.confidence }
+    emit('select', selection)
+    return selection
+  } catch (error) {
+    if (version !== requestVersion || !autoMode.value) return undefined
+    clearAiSelection()
+    routeTrace.value = undefined
+    liveThinking.value = ''
+    liveContent.value = ''
+    routeError.value = '智能推荐暂不可用，请手动选择目标'
+    emit('route-status', { routing: false, thinking: '', content: '' })
+    console.warn('[ConversationTargetPicker] route suggestion failed:', error)
+    return undefined
+  } finally {
+    if (version === requestVersion) setRouting(false)
+  }
+}
+
+defineExpose({ routeForSend })
 
 onBeforeUnmount(() => {
   requestVersion += 1
-  if (timer) clearTimeout(timer)
+  resetRouteState()
   setRouting(false)
 })
 </script>
@@ -307,14 +352,34 @@ onBeforeUnmount(() => {
           :hide-after="0"
           popper-class="target-tip"
         >
-          <template #content>
-            <div class="target-tip">
+          <template #default>
+            <div v-if="showsAiTrace(session.chatId) && routeTrace" class="target-tip is-trace">
+              <div class="target-tip-state">本次 AI 会话选择</div>
+              <div class="target-tip-section">
+                <b>选择上下文</b>
+                <p>{{ routeTrace.context.draft }}</p>
+                <ul class="target-tip-candidates">
+                  <li v-for="candidate in routeTrace.context.candidates" :key="candidate.chatId">
+                    <code>{{ candidate.chatId }}</code>
+                    <span>{{ candidate.preview || '（无历史消息）' }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div class="target-tip-section">
+                <b>AI 回复</b>
+                <p>{{ routeTrace.response.content || '（无正文，直接调用工具）' }}</p>
+              </div>
+              <div class="target-tip-section is-tool">
+                <b>{{ routeTrace.response.toolCall.name }}</b>
+                <code>{{ JSON.stringify(routeTrace.response.toolCall.arguments) }}</code>
+              </div>
+            </div>
+            <div v-else class="target-tip">
               <div class="target-tip-state">{{ stateHintOf(session) }}</div>
-              <div class="target-tip-content">{{
-                session.preview?.trim() || '（无历史消息）'
-              }}</div>
+              <div class="target-tip-content">
+                {{ session.preview?.trim() || '（无历史消息）' }}
+              </div>
               <div class="target-tip-meta">
-                <span v-if="reasons[session.chatId]">{{ reasons[session.chatId] }}</span>
                 <span v-if="timeOf(session)">{{ timeOf(session) }}</span>
               </div>
             </div>
@@ -324,8 +389,9 @@ onBeforeUnmount(() => {
           :ref="bindButtonRef(session.chatId)"
           type="button"
           class="target-option"
+          :disabled="routing"
           :class="{
-            'is-selected': visualStateOf(session.chatId) === 'manual',
+            'is-selected': ['manual', 'ai-selected'].includes(visualStateOf(session.chatId)),
             'is-suggested': visualStateOf(session.chatId) === 'recommended',
           }"
           @click="selectByUser(session.chatId)"
@@ -336,11 +402,9 @@ onBeforeUnmount(() => {
               v-for="(segment, index) in labelSegments(session)"
               :key="`${segment.type}-${index}`"
             >
-              <span
-                v-if="segment.type === 'command'"
-                class="target-label-tag is-command"
-                >{{ segment.value }}</span
-              >
+              <span v-if="segment.type === 'command'" class="target-label-tag is-command">{{
+                segment.value
+              }}</span>
               <span v-else-if="segment.type === 'role'" class="target-label-tag is-role">{{
                 segment.value
               }}</span>
@@ -349,13 +413,51 @@ onBeforeUnmount(() => {
           </span>
         </button>
       </template>
+      <el-popover
+        v-if="showsAiTrace('new')"
+        :virtual-ref="newButtonRef"
+        virtual-triggering
+        trigger="hover"
+        placement="top"
+        :show-after="120"
+        :hide-after="0"
+        popper-class="target-tip"
+      >
+        <template #default>
+          <div v-if="routeTrace" class="target-tip is-trace">
+            <div class="target-tip-state">本次 AI 会话选择</div>
+            <div class="target-tip-section">
+              <b>选择上下文</b>
+              <p>{{ routeTrace.context.draft }}</p>
+              <ul class="target-tip-candidates">
+                <li v-for="candidate in routeTrace.context.candidates" :key="candidate.chatId">
+                  <code>{{ candidate.chatId }}</code>
+                  <span>{{ candidate.preview || '（无历史消息）' }}</span>
+                </li>
+              </ul>
+            </div>
+            <div class="target-tip-section">
+              <b>AI 回复</b>
+              <p>{{ routeTrace.response.content || '（无正文，直接调用工具）' }}</p>
+            </div>
+            <div class="target-tip-section is-tool">
+              <b>{{ routeTrace.response.toolCall.name }}</b>
+              <code>{{ JSON.stringify(routeTrace.response.toolCall.arguments) }}</code>
+            </div>
+          </div>
+        </template>
+      </el-popover>
       <button
+        :ref="bindNewButtonRef"
         type="button"
         class="target-option is-new"
+        :disabled="routing"
         :class="{ 'is-selected': selected === 'new' }"
         @click="selectByUser('new')"
       >
-        <span v-if="selected === 'new'" class="target-state">✓</span>
+        <span v-if="selected === 'new'" class="target-state">{{
+          selectedSource === 'ai' ? 'AI 选定' : '✓'
+        }}</span>
         <span class="target-label">＋新对话</span>
       </button>
       <div
@@ -363,6 +465,8 @@ onBeforeUnmount(() => {
         role="status"
         aria-live="polite"
         :title="aiStatusLabel"
+        @mouseenter="emit('ai-status-hover')"
+        @mouseleave="emit('ai-status-leave')"
       >
         <span class="target-state" aria-hidden="true">{{ aiStatusIcon }}</span>
         <span class="target-label">{{ aiStatusLabel }}</span>
@@ -372,31 +476,196 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped lang="less">
-.target-picker { min-width:0; padding:6px 0; }
-.target-options { display:flex; align-items:center; gap:4px; min-width:0; overflow-x:auto; padding:1px; scrollbar-width:none; }
-.target-options::-webkit-scrollbar { display:none; }
-.target-option { flex:0 1 124px; min-width:64px; height:26px; display:inline-flex; align-items:center; gap:4px; padding:3px 7px; overflow:hidden; text-align:left; border:1px solid color-mix(in srgb, var(--ink) 13%, transparent); border-radius:6px; background:color-mix(in srgb, var(--surface) 78%, transparent); color:var(--ink); cursor:pointer; }
-.target-option:hover:not(:disabled) { border-color:color-mix(in srgb, var(--accent) 42%, transparent); background:var(--surface-hover); }
-.target-option:disabled { cursor:not-allowed; opacity:.45; }
-.target-option.is-new { flex:0 0 66px; }
-.target-option.is-info { flex:0 1 auto; min-width:0; margin-left:auto; border-style:dashed; border-color:color-mix(in srgb, var(--ink) 18%, transparent); background:color-mix(in srgb, var(--surface) 50%, transparent); color:color-mix(in srgb, var(--ink) 55%, transparent); cursor:default; }
-.target-option.is-info:hover:not(:disabled) { border-color:color-mix(in srgb, var(--ink) 18%, transparent); background:color-mix(in srgb, var(--surface) 50%, transparent); }
-.target-option.is-suggested { border-style:dashed; border-color:var(--accent); background:color-mix(in srgb, var(--accent) 7%, transparent); }
-.target-option.is-selected { border-style:solid; border-color:var(--accent); background:color-mix(in srgb, var(--accent) 14%, transparent); box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent); }
-.target-state { flex:none; color:var(--accent-ink); font-size:8px; font-weight:800; }
-.target-label { min-width:0; display:inline-flex; align-items:baseline; gap:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:9.5px; font-weight:650; }
-.target-label-tag { flex:none; padding:0 4px; border-radius:4px; font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace; font-size:8.5px; font-weight:700; line-height:1.5; }
-.target-label-tag.is-command { background:color-mix(in srgb, var(--accent) 18%, transparent); color:var(--accent-ink); }
-.target-label-tag.is-role { background:rgba(70,126,202,.16); color:#2f6fae; }
-[data-theme='dark'] .target-label-tag.is-role { background:color-mix(in srgb, #3b82f6 24%, transparent); color:#93c5fd; }
+.target-picker {
+  min-width: 0;
+  padding: 6px 0;
+}
+.target-options {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px;
+  scrollbar-width: none;
+}
+.target-options::-webkit-scrollbar {
+  display: none;
+}
+.target-option {
+  flex: 0 1 124px;
+  min-width: 64px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid color-mix(in srgb, var(--ink) 13%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+}
+.target-option:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: var(--surface-hover);
+}
+.target-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.target-option.is-new {
+  flex: 0 0 66px;
+}
+.target-option.is-info {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  cursor: default;
+}
+.target-option.is-info:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ink) 18%, transparent);
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
+}
+.target-option.is-suggested {
+  border-style: dashed;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.target-option.is-selected {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.target-state {
+  flex: none;
+  color: var(--accent-ink);
+  font-size: 8px;
+  font-weight: 800;
+}
+.target-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: 650;
+}
+.target-label-tag {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.target-label-tag.is-command {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-ink);
+}
+.target-label-tag.is-role {
+  background: rgba(70, 126, 202, 0.16);
+  color: #2f6fae;
+}
+[data-theme='dark'] .target-label-tag.is-role {
+  background: color-mix(in srgb, #3b82f6 24%, transparent);
+  color: #93c5fd;
+}
 </style>
 
 <!-- hover tooltip 内容（el-popper teleport 到 body，scoped 样式不命中，故独立非 scoped 块） -->
 <style lang="less">
 .target-tip {
   max-width: 320px;
-  .target-tip-state { margin-bottom: 4px; font-size: 11px; font-weight: 800; color: var(--accent-ink); }
-  .target-tip-content { font-size: 11.5px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; word-break: break-word; }
-  .target-tip-meta { display: flex; gap: 8px; margin-top: 6px; font-size: 10px; color: color-mix(in srgb, var(--ink) 55%, transparent); }
+  .target-tip-state {
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--accent-ink);
+  }
+  .target-tip-content {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--ink);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .target-tip-meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 10px;
+    color: color-mix(in srgb, var(--ink) 55%, transparent);
+  }
+  &.is-trace {
+    width: min(420px, calc(100vw - 40px));
+    max-width: 420px;
+    max-height: 420px;
+    overflow: auto;
+  }
+  .target-tip-section {
+    margin-top: 9px;
+    padding-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  }
+  .target-tip-section b {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 10.5px;
+    color: var(--accent-ink);
+  }
+  .target-tip-section p {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--ink);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .target-tip-section.is-tool code {
+    display: block;
+    padding: 6px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--ink) 6%, transparent);
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 10px;
+  }
+  .target-tip-candidates {
+    display: grid;
+    gap: 5px;
+    max-height: 150px;
+    margin: 5px 0 0;
+    padding: 0;
+    overflow: auto;
+    list-style: none;
+  }
+  .target-tip-candidates li {
+    display: grid;
+    grid-template-columns: minmax(72px, auto) 1fr;
+    gap: 7px;
+    align-items: start;
+    font-size: 10px;
+    line-height: 1.4;
+  }
+  .target-tip-candidates code {
+    color: color-mix(in srgb, var(--ink) 62%, transparent);
+    word-break: break-all;
+  }
+  .target-tip-candidates span {
+    color: var(--ink);
+    word-break: break-word;
+  }
 }
 </style>

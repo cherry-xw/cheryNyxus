@@ -158,6 +158,7 @@ const configSaveSchema = z
       .record(
         z.string(),
         z.object({
+          kind: z.enum(['role', 'shadow']).optional(),
           brain: z.string(),
           avatar: z.string().max(24).optional(),
           description: z.string().optional(),
@@ -175,8 +176,15 @@ const configSaveSchema = z
       .record(
         z.string(),
         z.object({
-          id: z.string().regex(/^preset-[a-zA-Z0-9_-]{8,}$/).optional(),
-          routingBrain: z.string().optional(),
+          id: z
+            .string()
+            .regex(/^preset-[a-zA-Z0-9_-]{8,}$/)
+            .optional(),
+          shadows: z
+            .object({
+              conversationRouting: z.string().optional(),
+            })
+            .optional(),
           detailRole: z.string().optional(),
           leader: z.string(),
           roles: z.array(z.string()).optional(),
@@ -356,12 +364,16 @@ export const requestSchemas = {
     interactionId: z.string().min(1),
     expectedRevision: z.number().int().positive(),
     commandId: z.string().min(1),
-    answers: z.array(z.object({
-      questionId: z.string().min(1),
-      selectedLabels: z.array(z.string()),
-      freeText: z.string().optional(),
-      cancelled: z.boolean().optional(),
-    })).min(1),
+    answers: z
+      .array(
+        z.object({
+          questionId: z.string().min(1),
+          selectedLabels: z.array(z.string()),
+          freeText: z.string().optional(),
+          cancelled: z.boolean().optional(),
+        }),
+      )
+      .min(1),
   }),
   [Method.SENSE_QUESTION_ANSWER]: z.object({
     questionId: z.string(),

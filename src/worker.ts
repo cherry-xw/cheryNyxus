@@ -27,7 +27,6 @@ import fs from 'node:fs'
 import yaml from 'js-yaml'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const WEB_PORT = Number(process.env.WEB_PORT ?? 8183)
 /**
  * 解析前端静态目录，优先级：
  * 1. `server.static_dir_override`（绝对路径，用户在 config.yaml 显式指定）
@@ -92,11 +91,17 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   }
   const { wss, httpServer } = startService({
     port: config.server.port,
-    webPort: WEB_PORT,
+webPort: config.server.webPort,
     staticDir,
     host: config.server.host,
     auth: config.server.auth,
   })
+  // 启动汇报：打印监听的服务地址（rule12 fail loud——端口监听可见）。
+  const bindHost = config.server.host === '0.0.0.0' ? '0.0.0.0 (所有接口)' : config.server.host
+  logger.info(
+    `服务已启动：WebSocket ws://${bindHost}:${config.server.port} · ` +
+      `HTTP http://${bindHost}:${config.server.webPort}（登录/静态资源）`,
+  )
 
   getSoulDb()
   const reconcileResult = reconcileMessageCounts()

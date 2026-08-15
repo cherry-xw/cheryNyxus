@@ -22,7 +22,13 @@ import {
   type PluginInfo,
 } from '@/services/agentApi'
 import { wsClient } from '@/services/ws'
-import { TABS, HINT_LINES, INDEX_COUNT, SETTINGS_ACTIVE_TAB_KEY, type TabKey } from './config/constants'
+import {
+  TABS,
+  HINT_LINES,
+  INDEX_COUNT,
+  SETTINGS_ACTIVE_TAB_KEY,
+  type TabKey,
+} from './config/constants'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
 import MediaTab from './tabs/config/MediaTab.vue'
@@ -44,12 +50,22 @@ const connection = useConnectionStore()
 
 const draft = ref<ConfigDto | null>(null)
 const activeTab = ref<TabKey>('presets')
+const rolesShadowMode = ref(false)
 provide(SETTINGS_ACTIVE_TAB_KEY, readonly(activeTab))
 /** 当前激活 tab 的主题色：提升到 panel 根作为 --tab-color，让保存按钮/序号/卡片强调点/panel 背景/边框随 tab 整体变色。
  *  tab 按钮仍各自绑自己的 color（hover/active 显示对应 tab 色），与此处全局基调互不冲突。 */
-const activeTabColor = computed(
-  () => TABS.find((t) => t.key === activeTab.value)?.color ?? '#f6b73c',
+const activeTabColor = computed(() =>
+  activeTab.value === 'roles' && rolesShadowMode.value
+    ? '#64748b'
+    : (TABS.find((t) => t.key === activeTab.value)?.color ?? '#f6b73c'),
 )
+const activeTabHighlight = computed(() =>
+  activeTab.value === 'roles' && rolesShadowMode.value ? '#cbd5e1' : activeTabColor.value,
+)
+const settingsThemeStyle = computed(() => ({
+  '--tab-color': activeTabColor.value,
+  '--tab-highlight': activeTabHighlight.value,
+}))
 /** 当前 tab 的 hints 段落拆分（sect + warn），渲染与真实 hints 像素级一致。 */
 const hintLines = computed(() => HINT_LINES[activeTab.value] ?? { sect: 1, warn: 0 })
 /** 当前 tab 序号按钮典型数（SkeletonTab 用，在 footer 左侧渲染导航占位）。 */
@@ -141,6 +157,7 @@ watch(
       workspaceWarnings.value = {}
       workspaceValidationSeq.clear()
       activeTab.value = 'presets'
+      rolesShadowMode.value = false
       return
     }
     loading.value = true
@@ -473,7 +490,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
       <MotionDiv
         key="panel"
         class="settings-panel"
-        :style="{ '--tab-color': activeTabColor }"
+        :style="settingsThemeStyle"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1 }"
         :exit="{ opacity: 0 }"
@@ -574,6 +591,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
               :draft="draft"
               :prompts="prompts"
               :skill-catalog="skillNames"
+              @mode-change="(mode) => (rolesShadowMode = mode === 'shadow')"
               @error="onError"
             />
             <PresetsTab
@@ -646,7 +664,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
           <div
             id="settings-footer-nav"
             class="foot-left"
-            :style="{ '--tab-color': activeTabColor }"
+            :style="settingsThemeStyle"
             aria-live="polite"
           />
           <div class="foot-right">
@@ -689,7 +707,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
     ),
     radial-gradient(
       circle at 88% 12%,
-      color-mix(in srgb, var(--tab-color, @accent) 12%, transparent),
+      color-mix(in srgb, var(--tab-highlight, var(--tab-color, @accent)) 12%, transparent),
       transparent 27%
     ),
     radial-gradient(
@@ -705,6 +723,10 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
 }
 .settings-error-detail {
   margin: 0;

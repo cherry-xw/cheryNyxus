@@ -1,4 +1,4 @@
-import config from '@/utils/config.js'
+import config, { isOrdinaryRole } from '@/utils/config.js'
 import type { RoleMentionInfo } from '@/agent/prompt/index.js'
 import { getChat, getChatPreset, getChatSpawnTypes } from '@/db/chat.js'
 
@@ -17,7 +17,13 @@ export function getChatMentionableRoles(chatId: string): RoleMentionInfo[] {
   const roster = getChatSpawnTypes(chatId) ?? preset.roles ?? []
   return roster.flatMap((name) => {
     const role = config.roles?.[name]
-    if (!role || name === preset.leader || name === preset.detailRole || !role.mentionable) return []
+    if (
+      !isOrdinaryRole(role) ||
+      name === preset.leader ||
+      name === preset.detailRole ||
+      !role.mentionable
+    )
+      return []
     return [{ name, description: role.description ?? `委派 ${name} 角色处理任务。` }]
   })
 }

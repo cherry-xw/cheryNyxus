@@ -17,6 +17,10 @@ HTTP 静态服务 + 配置端点,与 WebSocket server 同进程启动(分端口)
 有 OAuth2 登录后的 HttpOnly 会话。认证端点为 `GET /api/auth/me`、`GET /api/auth/login`、
 `GET /api/auth/callback`、`POST /api/auth/logout`；仅服务端 OAuth2 callback 交换 token，浏览器不接触 client secret。
 
+**密码认证（`server.auth.username`+`password`）** 走另一组端点，凭据不落明文：前端先 `POST /api/auth/challenge`
+取一次性 `nonce`，用它作为 keyHex 经 SHA-256 CTR 流密码加密 `{username, password}` 信封后 `POST /api/auth/login`
+提交 `{challengeId, cipher}`；后端解密后按 scrypt 校验。规范见 [docs/protocol.md](../protocol.md)「认证」段。
+
 ## 静态托管开关
 
 `server.serve_frontend`（默认 `true`）+ 可选 `server.static_dir_override` 控制 HTTP 服务是否同时托管前端 SPA。典型场景：

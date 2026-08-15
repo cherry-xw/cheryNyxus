@@ -29,7 +29,7 @@ describe('detail role config isolation', () => {
     const raw = rawConfig()
     raw.presets.default.detailRole = 'missing'
     expect(validateRawConfig(raw as never)).toContain(
-      'presets.default.detailRole "missing" 不在 config.roles 列表',
+      'presets.default.detailRole "missing" 必须引用普通角色',
     )
   })
 
@@ -45,7 +45,9 @@ describe('detail role config isolation', () => {
     const raw = rawConfig()
     raw.roles.explanation.brain = 'missing'
     expect(validateRawConfig(raw as never)).toEqual(
-      expect.arrayContaining([expect.stringContaining('roles.explanation.brain "missing" 不在 llm.brain 列表')]),
+      expect.arrayContaining([
+        expect.stringContaining('roles.explanation.brain "missing" 不在 llm.brain 列表'),
+      ]),
     )
   })
 

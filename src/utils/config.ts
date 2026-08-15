@@ -185,6 +185,8 @@ interface LLMConfig {
  *   缺省 → 角色用全局 system_prompt。per-role system prompt（T7）。
  */
 export interface RoleConfig {
+  /** 角色类别；缺省为普通角色。Shadow 仅供内部临时 Agent 流程使用。 */
+  kind?: 'role' | 'shadow'
   brain: string
   /** 角色头像字形；缺省时按角色 type 稳定映射内置头像。 */
   avatar?: string
@@ -223,8 +225,11 @@ export interface RoleConfig {
 export interface PresetConfig {
   /** Stable workspace identity. Display-name changes must preserve this value. */
   id?: string
-  /** Optional lightweight brain used only to rank existing root conversations. */
-  routingBrain?: string
+  /** 与预设关联的内部 Shadow 流程。 */
+  shadows?: {
+    /** 选择消息应发送到哪个根会话；缺省表示关闭自动路由。 */
+    conversationRouting?: string
+  }
   /** References one member in roles; reserved for detail branches and excluded from spawn_role. */
   detailRole?: string
   /** 组长角色 type 名（必填，必须 ∈ config.roles 且 ∈ 下属 roles 列表）；主 pet 编制取此角色 */
@@ -260,6 +265,17 @@ export interface PresetConfig {
 /** Deterministic compatibility id for configs created before preset ids existed. */
 export function legacyPresetId(name: string): string {
   return `preset-${createHash('sha256').update(name).digest('hex').slice(0, 16)}`
+}
+
+/** 缺省 kind 兼容现有配置：未声明的一律是普通角色。 */
+export function isShadowRole(
+  role: RoleConfig | undefined,
+): role is RoleConfig & { kind: 'shadow' } {
+  return role?.kind === 'shadow'
+}
+
+export function isOrdinaryRole(role: RoleConfig | undefined): role is RoleConfig {
+  return !!role && !isShadowRole(role)
 }
 
 function ensurePresetIds(presets?: Record<string, PresetConfig>): void {
@@ -419,6 +435,8 @@ interface GlobalConfig {
  */
 interface ServerConfig {
   port: number // WebSocket 服务端口
+  /** HTTP 静态服务 + /api/auth 登录端口；优先级 WEB_PORT 环境变量 > 本字段 > 默认 8183。 */
+  webPort: number
   transport: 'binary' | 'json' // 传输格式：binary（二进制帧）/ json（JSON 字符串）
   /** Keep localhost by default; set 0.0.0.0 or an intranet address behind TLS/reverse proxy. */
   host?: string
@@ -648,10 +666,12 @@ function loadConfig(): Config {
     safety_margin: config.global.command?.safety_margin ?? DEFAULT_COMMAND_CONFIG.safety_margin,
   }
 
-  // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 WEB_PORT 环境变量）
+  // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 server.webPort，
+  // 优先级 WEB_PORT 环境变量 > server.webPort > 默认 8183）
   const serverRaw = config.server as Partial<ServerConfig> | undefined
   config.server = {
     port: serverRaw?.port ?? 8182,
+    webPort: Number(process.env.WEB_PORT ?? serverRaw?.webPort ?? 8183),
     transport: serverRaw?.transport === 'json' ? 'json' : 'binary',
     host: serverRaw?.host ?? '127.0.0.1',
     // 默认托管前端 SPA：仅在 dev/prod 产物存在时实际生效；缺失时日志警告并退化为仅 API
@@ -816,6 +836,12 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   if (raw.roles) {
     const cheryDir = process.env.CHERY_DIR || process.cwd()
     for (const [name, cfg] of Object.entries(raw.roles)) {
+      if (cfg.kind !== undefined && cfg.kind !== 'role' && cfg.kind !== 'shadow') {
+        errors.push(`roles.${name}.kind "${String(cfg.kind)}" 非法（合法：role/shadow）`)
+      }
+      if (cfg.kind === 'shadow' && cfg.mentionable === true) {
+        errors.push(`roles.${name} 是 Shadow，不能配置 mentionable:true`)
+      }
       if (!brainNames.includes(cfg.brain)) {
         errors.push(
           `roles.${name}.brain "${cfg.brain}" 不在 llm.brain 列表（可用：${brainNames.join(', ')})`,
@@ -846,18 +872,15 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   // 主 pet 编制取 leader 角色的 RoleConfig（brain/senseGroup/mcp/systemPrompt），故 leader 合法性即 main 编制合法性。
   if (raw.presets) {
     const roleNames = Object.keys(raw.roles ?? {})
+    const ordinaryRoleNames = roleNames.filter((name) => isOrdinaryRole(raw.roles?.[name]))
+    const shadowRoleNames = roleNames.filter((name) => isShadowRole(raw.roles?.[name]))
     for (const [pname, pcfg] of Object.entries(raw.presets)) {
       if (pcfg.id !== undefined && !/^preset-[a-zA-Z0-9_-]{8,}$/.test(pcfg.id)) {
         errors.push(`presets.${pname}.id 非法（必须以 preset- 开头且至少包含 8 位标识）`)
       }
-      if (pcfg.routingBrain && !brainNames.includes(pcfg.routingBrain)) {
-        errors.push(
-          `presets.${pname}.routingBrain "${pcfg.routingBrain}" 不在 llm.brain 列表（可用：${brainNames.join(', ')})`,
-        )
-      }
       const members = pcfg?.roles ?? []
-      if (pcfg.detailRole && !roleNames.includes(pcfg.detailRole)) {
-        errors.push(`presets.${pname}.detailRole "${pcfg.detailRole}" 不在 config.roles 列表`)
+      if (pcfg.detailRole && !ordinaryRoleNames.includes(pcfg.detailRole)) {
+        errors.push(`presets.${pname}.detailRole "${pcfg.detailRole}" 必须引用普通角色`)
       } else if (pcfg.detailRole && !members.includes(pcfg.detailRole)) {
         errors.push(`presets.${pname}.detailRole "${pcfg.detailRole}" 不在其 roles 成员列表中`)
       } else if (pcfg.detailRole && pcfg.detailRole === pcfg.leader) {
@@ -865,19 +888,41 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
       }
       if (!pcfg?.leader) {
         errors.push(`presets.${pname}.leader 必填（组长角色）`)
-      } else if (!roleNames.includes(pcfg.leader)) {
+      } else if (!ordinaryRoleNames.includes(pcfg.leader)) {
         errors.push(
-          `presets.${pname}.leader "${pcfg.leader}" 不在 config.roles 列表（可用：${roleNames.join(', ') || '（未配置任何角色）'}）`,
+          `presets.${pname}.leader "${pcfg.leader}" 必须引用普通角色（可用：${ordinaryRoleNames.join(', ') || '（未配置任何普通角色）'}）`,
         )
       } else if (!members.includes(pcfg.leader)) {
         errors.push(`presets.${pname}.leader "${pcfg.leader}" 不在其 roles 成员列表中`)
       }
       // roles 成员为 type 名引用（string[]），每个必须存在于 config.roles
       for (const type of members) {
-        if (!roleNames.includes(type)) {
+        if (!ordinaryRoleNames.includes(type)) {
           errors.push(
-            `presets.${pname}.roles 引用未知角色类型 "${type}"（可用：${roleNames.join(', ') || '（未配置任何角色）'}）`,
+            `presets.${pname}.roles 只能引用普通角色，收到 "${type}"（可用：${ordinaryRoleNames.join(', ') || '（未配置任何普通角色）'}）`,
           )
+        }
+      }
+      const routingShadow = pcfg.shadows?.conversationRouting
+      if (routingShadow) {
+        if (!shadowRoleNames.includes(routingShadow)) {
+          errors.push(
+            `presets.${pname}.shadows.conversationRouting "${routingShadow}" 必须引用 Shadow（可用：${shadowRoleNames.join(', ') || '（未配置任何 Shadow）'}）`,
+          )
+        } else {
+          const shadow = raw.roles?.[routingShadow]
+          const senses = raw.sense_groups?.[shadow?.senseGroup ?? ''] ?? []
+          if (
+            senses.length !== 1 ||
+            (senses[0] !== 'select_conversation' && senses[0] !== 'select_conversation:auto')
+          ) {
+            errors.push(
+              `会话路由 Shadow "${routingShadow}" 的 senseGroup 必须且只能包含 select_conversation:auto`,
+            )
+          }
+          if ((shadow?.mcpServers?.length ?? 0) > 0) {
+            errors.push(`会话路由 Shadow "${routingShadow}" 不能配置 MCP server`)
+          }
         }
       }
       // mediaImage/mediaVideo/mediaAudio 引用必须存在于 config.media 且 type 匹配
@@ -1076,6 +1121,10 @@ export function readRawConfig(): ConfigRaw {
   const { server: _server, ...rest } = raw
   void _server
   ensurePresetIds(rest.presets)
+  // routingBrain 已废弃；读取设置时主动剥离，下一次保存自然从磁盘删除。
+  for (const preset of Object.values(rest.presets ?? {})) {
+    delete (preset as PresetConfig & { routingBrain?: string }).routingBrain
+  }
   // brain.thinking 归一化为 ThinkingLevel（前端 config.get 拿到的就是 level，无需再处理 legacy boolean）
   if (rest.llm?.brain) {
     for (const cfg of Object.values(rest.llm.brain)) {

@@ -50,8 +50,8 @@ export function createUiState() {
   const activeDialogChatId = ref<string | null>(null)
   /** preset workspace key -> currently selected root chat. Pet identity stays stable. */
   const activeRootByPreset = ref<Record<string, string>>({})
-  /** pet=quick composer requires an explicit target; history=context is already fixed. */
-  const activeDialogSource = ref<'pet' | 'history'>('history')
+  /** pet=quick composer requires an explicit target; history=context is already fixed; nyxus=直接发消息浮动窗（无遮罩，目标固定）。 */
+  const activeDialogSource = ref<'pet' | 'history' | 'nyxus'>('history')
   const activeDialogView = ref<'composer' | 'attention' | 'tree'>('composer')
   /** 最小化仅隐藏工作台 DOM；会话、草稿、树订阅与运行状态保持。 */
   const workbenchMinimized = ref(false)

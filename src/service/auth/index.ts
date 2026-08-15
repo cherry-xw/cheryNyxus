@@ -1,4 +1,9 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isHashed, verifyPassword } from '@/utils/password.js'
 
@@ -45,6 +50,8 @@ const SESSION_TTL_SECONDS = 8 * 60 * 60
 const STATE_TTL_SECONDS = 10 * 60
 const ACCESS_TTL_SECONDS = 15 * 60
 const REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60
+/** 登录挑战（challenge）TTL：前端须在有效期内完成加密登录，过期作废。 */
+const CHALLENGE_TTL_SECONDS = 120
 
 /**
  * Server-side OIDC/OAuth2 login gate. OAuth2 alone does not identify people,
@@ -58,6 +65,8 @@ export class OAuth2Auth {
   > &
     OAuth2Config
   private readonly secret: string
+  /** 一次性登录挑战：challengeId → nonce + 过期时间。解密后即删除（防重放）。 */
+  private readonly challenges = new Map<string, { nonce: string; exp: number }>()
 
   constructor(config: OAuth2Config | undefined) {
     this.cfg = {
@@ -126,6 +135,36 @@ export class OAuth2Auth {
     return { accessToken, expiresIn: ACCESS_TTL_SECONDS }
   }
 
+  /** 清理已过期的登录挑战。 */
+  private pruneChallenges(): void {
+    const now = nowSeconds()
+    for (const [id, challenge] of this.challenges) {
+      if (challenge.exp <= now) this.challenges.delete(id)
+    }
+  }
+
+  /**
+   * 解密前端 SHA-256 CTR 流密码凭据信封。challenge 单次使用（命中即删除，防重放）。
+   * 信封明文 = JSON.stringify({username, password})。
+   * 失败（challenge 无效/过期/解密失败/解析失败）返回 null。
+   */
+  private decryptCredentials(
+    challengeId: string,
+    cipher: string,
+  ): { username: string; password: string } | null {
+    const challenge = this.challenges.get(challengeId)
+    this.challenges.delete(challengeId)
+    if (!challenge || challenge.exp <= nowSeconds() || !challenge.nonce) return null
+    try {
+      const plain = xorDecrypt(challenge.nonce, cipher)
+      const parsed = JSON.parse(plain) as { username?: unknown; password?: unknown }
+      if (typeof parsed.username !== 'string' || typeof parsed.password !== 'string') return null
+      return { username: parsed.username, password: parsed.password }
+    } catch {
+      return null
+    }
+  }
+
   private issueTokens(username: string): {
     accessToken: string
     refreshToken: string
@@ -175,19 +214,38 @@ export class OAuth2Auth {
       writeJson(res, 204)
       return true
     }
-    // 密码认证：POST /api/auth/login → 校验用户名/密码 → 签发双 token。
+    // 密码认证：POST /api/auth/challenge → 分发一次性 nonce（公开，供前端派生加密密钥）。
+    if (path === '/api/auth/challenge' && req.method === 'POST') {
+      if (!this.cfg.username) {
+        writeJson(res, 404, { error: 'Not found' })
+        return true
+      }
+      this.pruneChallenges()
+      const challengeId = randomBytes(16).toString('base64url')
+      const nonce = randomBytes(24).toString('hex')
+      this.challenges.set(challengeId, { nonce, exp: nowSeconds() + CHALLENGE_TTL_SECONDS })
+      writeJson(res, 200, { challengeId, nonce })
+      return true
+    }
+    // 密码认证：POST /api/auth/login → 解密凭据信封 → 校验用户名/密码 → 签发双 token。
     if (path === '/api/auth/login' && req.method === 'POST') {
       if (!this.cfg.username) {
         writeJson(res, 404, { error: 'Not found' })
         return true
       }
-      const body = await readJsonBody<{ username?: string; password?: string }>(req)
-      const tokens = this.authenticate(body?.username ?? '', body?.password ?? '')
+      const body = await readJsonBody<{ challengeId?: string; cipher?: string }>(req)
+      const creds = body?.challengeId && body?.cipher
+        ? this.decryptCredentials(body.challengeId, body.cipher)
+        : null
+      const tokens =
+        creds &&
+        this.authenticate(creds.username ?? '', creds.password ?? '')
       if (!tokens) {
         writeJson(res, 401, { error: 'Invalid credentials' })
         return true
       }
       writeJson(res, 200, {
+        username: creds?.username ?? '',
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresIn: tokens.accessTtl,
@@ -385,6 +443,30 @@ export class OAuth2Auth {
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000)
+}
+/**
+ * SHA-256 CTR 流密码解密（与前端 web/src/utils/obfuscate.ts 的 xorDecrypt 严格一致）。
+ * keystream = SHA-256(keyHex_U8 || BE32(counter)) 逐块拼接，与密文逐字节异或。
+ */
+function xorDecrypt(keyHex: string, cipherB64: string): string {
+  const key = Buffer.from(keyHex, 'utf8')
+  const buf = Buffer.from(cipherB64, 'base64')
+  const out = Buffer.alloc(buf.length)
+  let counter = 0
+  let block = Buffer.alloc(0)
+  let offset = 32
+  for (let i = 0; i < buf.length; i += 1) {
+    if (offset >= block.length) {
+      const count = Buffer.allocUnsafe(4)
+      count.writeUInt32BE(counter, 0)
+      counter += 1
+      block = createHash('sha256').update(key).update(count).digest()
+      offset = 0
+    }
+    out[i] = buf[i]! ^ block[offset]!
+    offset += 1
+  }
+  return out.toString('utf8')
 }
 function base64url(value: Buffer): string {
   return value.toString('base64url')

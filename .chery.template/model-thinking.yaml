@@ -13,8 +13,10 @@
 
 models:
   # 智谱 GLM 系列（OpenAI 兼容协议，reasoning_effort 全 4 档）
-  - aliases: [glm-5.2, glm-5, glm-4.6, glm-4-plus, glm-4]
+  - aliases: [glm-5.2, glm-5, glm-4.6, glm-4.6, glm-4-plus, glm-4]
     thinking: [off, low, medium, high]
+  - aliases: [glm-5.3]
+    thinking: [low, medium, high]
 
   # LongCat-Flash-Thinking 系列（专属思考模型，仅开关两档）
   - aliases: [LongCat-Flash-Thinking, LongCat-Flash-Thinking-2601]

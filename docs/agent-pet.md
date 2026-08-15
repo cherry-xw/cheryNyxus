@@ -36,6 +36,7 @@
 # 子 agent 类型模块（名 = 给 AI 的子 agent 名；单一源定义，预设按 type 引用，见 §3.1）
 roles:
   read_code:
+    kind: role # 可省略；普通角色。影子角色写 shadow
     brain: longcat # 需在 llm.brain 列表中
     senseGroup: default # 工具组 = 能力体现
     mcpServers: [] # MCP server 名（缺省 []，与主 agent 平权）
@@ -48,6 +49,11 @@ roles:
   web_search:
     brain: longcat
     senseGroup: default
+  conversation_router:
+    kind: shadow
+    brain: longcat
+    senseGroup: conversation_routing # 仅含 select_conversation:auto
+    mcpServers: []
 
 # 主 pet 编制 = 预设（presets，见 §3.1）；无独立 default 段——旧 default 已并入「默认」预设。
 
@@ -73,6 +79,8 @@ presets:
   默认: # 旧 config.default 迁移而来：FAB 兜底预设
     leader: coordinator_ali # config.roles 的角色 type；主 pet 编制从该角色取得
     roles: [coordinator_ali, read_code, read_image, plan, coder]
+    shadows:
+      conversationRouting: conversation_router
   项目: # 项目预设（T10 样例）：多角色分工——主协调（无 update_todo），planner 规划+管 todo / coder 实现 / reviewer 只读评审
     leader: coordinator_proj
     roles: [coordinator_proj, plan, coder, reviewer]
@@ -87,6 +95,8 @@ presets:
 
 - `presets.<name>.leader`：组长角色 type 名，必须引用 `config.roles` 且包含于该预设的 `roles`。主 agent 的 brain/senseGroup/mcpServers/systemPrompt 均从该角色取得；brain 每轮可覆盖（runtime.set brain-only），sense/mcp/systemPrompt 锁定。
 - `presets.<name>.roles`：`string[]`，引用 `config.roles` 中已定义的子 agent type 名（**不在预设内重定义** brain/sense 等）。子 agent 的 brain/senseGroup/mcpServers/systemPrompt 统一在 `config.roles.<type>` 单一源维护。
+- `presets.<name>.shadows.conversationRouting`：可选的会话路由 Shadow type，必须引用 `kind: shadow` 的角色。缺省或清空时，该预设关闭自动会话路由。
+- `roles.<type>.kind`：`role | shadow`，缺省按 `role`。Shadow 是内部临时流程角色，不得成为 leader/detailRole、预设 team member、`@` 提及或 `spawn_role` 目标，也不会创建 Pet、Chat 或节点树节点；Shadow 不允许 `mentionable:true`。
 - `systemPrompt` 路径相对 `.chery`（loadConfig 解析为绝对）；缺省 → 全局。per-agent prompt 数据流见 [agent/prompt.md](./agent/prompt.md)。
 - `roles.<type>.description`：角色说明文本，**仅 UI 展示**（角色名下方注释样式，点击 inline 编辑；不注入 prompt，与 `systemPrompt` 职责不重叠）；`lock:true` 角色只读不可编辑；缺省则显示占位。
 - `roles.<type>.lock`：`true` 时前端锁定该角色--禁止改名/复制/改专属背景说明/改角色说明（`description`）；大脑/器官套装/装备栏仍可改。保护 `housekeeper`/`curator` 等系统默认角色不被误改。
@@ -98,11 +108,11 @@ presets:
 - **runtime.set（preset chat）**：仅 `brain` 可覆盖，`senseGroup`/`mcpServers` 强制取现有快照；显式带了不同 senseGroup/mcp → fail loud（防前端绕过锁定）。
 - **spawn roster gate（可见即可选）**：角色定义恒从 `config.roles[type]` 单一源解析；可 spawn 的类型集 = 该 chat 预设选中的 `spawnTypes` 快照（preset chat），未选中类型 spawn → fail loud。子 chat（无 preset）→ 全集 `config.roles` 可用（递归：子也可 spawn 子）。**self-spawn 禁止**：恒过滤当前 chat 自身角色 type（主=preset.leader，子=metadata.type）。**工具定义随 roster 裁剪**：per-chat 构建 spawn_role sense（`buildSpawnRoleSense`），工具 description 与 type enum 只暴露本 chat 可派发角色（预设编制 + 排除自身），LLM 看不到也不可选 diff 于编制的角色——「可见即可选」+「不可自派」双端一致（原先工具暴露全局全集、靠执行期 gate 拒绝导致 LLM 选错角色的缺陷已修）。
 
-**与 roles 关系**：`config.roles` 是角色的唯一来源（全字段 brain/senseGroup/mcpServers/systemPrompt）；预设只从中**选择** type 子集。todo 存在与否 = 是否在 senseGroup（无 task-scale 判断逻辑）。
+**与 roles 关系**：`config.roles` 是普通角色与 Shadow 的唯一来源（全字段 brain/senseGroup/mcpServers/systemPrompt/kind）；预设的 `leader`、`detailRole`、`roles` 只可选择普通角色，`shadows` 只可选择 Shadow。todo 存在与否 = 是否在 senseGroup（无 task-scale 判断逻辑）。
 
 **T8 编辑 UI（已落地）**：设置面板（[SettingsDialog.vue](../../web/src/features/agent/settings/SettingsDialog.vue)）「预设」tab = [PresetsTab.vue](../../web/src/features/agent/settings/tabs/PresetsTab.vue)。每预设一卡片：`leader` 选择 `config.roles` 中的角色 type，`roles` 多选已定义的 type 名；角色的 brain、senseGroup、mcpServers、systemPrompt 均在「角色」tab 维护，不在预设内联编辑。增删预设走底部输入框 + ConfirmPopover。保存统一走外壳 `config.save`，presets 段经后端 schema + `validateRawConfig` 校验 fail loud。**「默认宠物」tab 已移除**（default 并入预设）；默认 brain/senseGroup/mcp 标记（AgentDialog 无 runtime 预选用）派生自「默认」预设的 leader 角色。
 
-**校验**：`presets.<name>.leader` 必须引用 `config.roles` 且存在于同一预设的 `roles`；`presets.<name>.roles[*]` 引用的 type 必须存在于 `config.roles`；每个 `roles.<type>.brain` 必须存在于 `llm.brain`，其 `systemPrompt` 文件须存在（皆 fail loud）。`config.save`（设置面板编辑）的 `presets` 段同样校验（见 [service/README.md](./service/README.md)）。
+**校验**：`presets.<name>.leader` 必须引用普通角色且存在于同一预设的 `roles`；`detailRole` 与 `roles[*]` 也必须引用普通角色；`shadows.conversationRouting` 必须引用 Shadow。每个 `roles.<type>.brain` 必须存在于 `llm.brain`，其 `systemPrompt` 文件须存在；Shadow 的 `mentionable:true` 非法（皆 fail loud）。会话路由 Shadow 还必须使用只含 `select_conversation` 的 sense group 且 `mcpServers` 为空。`config.save` 同样校验（见 [service/README.md](./service/README.md)）。
 
 ## 4. 数据模型变更
 

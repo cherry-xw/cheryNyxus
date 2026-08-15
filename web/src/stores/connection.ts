@@ -33,5 +33,25 @@ export const useConnectionStore = defineStore('connection', () => {
     }
   }
 
-  return { status, error, init, rpc }
+  /**
+   * 登录/登出后重建连接：重新拉取 /api/config（带新 token）+ 建立 WS。
+   * bootstrap 首次 connect 因 401 失败后 serverConfig 仍为空，再次 connect 会重拉配置。
+   */
+  async function reconnect(): Promise<void> {
+    // 已连接则跳过，避免创建重复 WS（本地直连场景登录面板重按时）。
+    if (status.value === 'connected') return
+    try {
+      await wsClient.connect()
+    } catch (e) {
+      error.value = (e as Error).message
+    }
+  }
+
+  /** 登出后停止 WS 自动重连并断开（远端无 token 再连必 401）。 */
+  function disconnect(): void {
+    wsClient.disconnect()
+    status.value = 'disconnected'
+  }
+
+  return { status, error, init, rpc, reconnect, disconnect }
 })

@@ -41,7 +41,7 @@ const usageDetail = computed(() => {
   return { used: Math.round(bd.total * bd.usage), total: bd.total }
 })
 /** allSegs 全量（图例，0 段灰色展示完整类目）；usageSegs 过滤 token=0（色块条，避空类 min-width 噪声）。 */
-const allSegs = computed(() => breakdownSegments(props.breakdown))
+const allSegs = computed(() => breakdownSegments(props.breakdown ?? undefined))
 const usageSegs = computed(() => allSegs.value.filter((s) => s.tokens > 0))
 
 /** 行内图例短标签（区别于 ContextBreakdownTip 全称，适配单行紧凑布局）。 */

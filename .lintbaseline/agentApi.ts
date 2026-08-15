@@ -141,27 +141,15 @@ export interface ChatSummary {
   }>
 }
 
-export interface ConversationRouteTarget {
+export interface ConversationRouteCandidate {
   chatId: string | null
   confidence: number
   reason: string
 }
 
-export interface ConversationRouteTrace {
-  context: {
-    draft: string
-    candidates: Array<{ chatId: string; preview: string; lastUserActivityAt: number }>
-  }
-  response: {
-    content?: string
-    toolCall: { name: 'select_conversation'; arguments: ConversationRouteTarget }
-  }
-}
-
 export interface ConversationRouteSuggestion {
   requestVersion: number
-  target: ConversationRouteTarget
-  trace: ConversationRouteTrace
+  candidates: ConversationRouteCandidate[]
 }
 
 export interface InteractionRecord {
@@ -964,7 +952,8 @@ export interface GlobalConfigDto {
 export interface PresetDto {
   /** Stable preset workspace identity; generated for legacy configs when read. */
   id?: string
-  shadows?: { conversationRouting?: string }
+  /** Optional text-only brain used for asynchronous conversation routing suggestions. */
+  routingBrain?: string
   detailRole?: string
   /** 组长角色 type 名（必填，主 pet 编制取 config.roles[leader]） */
   leader: string
@@ -989,7 +978,6 @@ export interface ConfigDto {
   roles?: Record<
     string,
     {
-      kind?: 'role' | 'shadow'
       brain: string
       avatar?: string
       description?: string
@@ -1040,12 +1028,8 @@ function fail(method: string, res: RpcResponse): Error {
 }
 
 /** 非流式 RPC：返回 success 时解包 data，否则 throw。 */
-async function call<T>(
-  method: string,
-  params: unknown,
-  options?: { timeoutMs?: number },
-): Promise<T> {
-  const res = await wsClient.rpc(method, params, options)
+async function call<T>(method: string, params: unknown): Promise<T> {
+  const res = await wsClient.rpc(method, params)
   if (!res.success) throw fail(method, res)
   return res.data as T
 }
@@ -1302,36 +1286,7 @@ export const agentApi = {
     draft: string
     requestVersion: number
   }): Promise<ConversationRouteSuggestion> {
-    return call<ConversationRouteSuggestion>('chat.route.suggest', params, { timeoutMs: 30_000 })
-  },
-
-  /**
-   * 流式会话路由：实时回传路由 Shadow 的 thinking/content 增量（onDelta），resolve 时返回最终结果。
-   * 后端以 `route` chunk 流式推送增量，最终以 response 返回完整 suggestion。
-   */
-  async suggestConversationRouteStream(
-    params: { presetId: string; draft: string; requestVersion: number },
-    onDelta: (delta: { thinking: string; content: string }) => void,
-  ): Promise<ConversationRouteSuggestion> {
-    const { requestId, response } = wsClient.rpcTrack('chat.route.suggest', params)
-    const unsubscribe = wsClient.onChunk((chunk) => {
-      const c = chunk as {
-        kind?: string
-        type?: string
-        requestId?: string
-        data?: { delta?: { thinking?: string; content?: string } }
-      }
-      if (c.kind !== 'chunk' || c.type !== 'route' || c.requestId !== requestId) return
-      const delta = c.data?.delta
-      if (delta) onDelta({ thinking: delta.thinking ?? '', content: delta.content ?? '' })
-    })
-    try {
-      const res = await response
-      if (!res.success) throw fail('chat.route.suggest', res)
-      return res.data as ConversationRouteSuggestion
-    } finally {
-      unsubscribe()
-    }
+    return call<ConversationRouteSuggestion>('chat.route.suggest', params)
   },
 
   /** chat.create：创建 chat。返回 chatId + 实际生效编制（预设路径由后端回填，供记 pet.runtime）。 */

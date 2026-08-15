@@ -54,7 +54,7 @@ function cloudTarget(particle: NyxusParticle, input: NyxusParticleInput): Vec2 {
     branchDirection * smoothstep(0.46, 0.94, particle.radius) * (0.38 + armBranch * 0.08)
   const armAngle =
     (particle.galaxyArm % 2) * Math.PI +
-    particle.radius * 4.45 +
+    -particle.radius * 4.45 +
     branchSpread +
     input.time * armPatternSpeed +
     // 绕圈只推进外盘旋臂相位，核心仍稳定，且 input 侧会在数秒内回落。

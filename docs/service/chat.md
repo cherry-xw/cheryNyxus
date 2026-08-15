@@ -14,6 +14,15 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `sense.approval`）转�
 - **审批 service 侧**（send.ts `handleSenseApproval`）：转调 `approvalManager.confirm` → core `approvalRegistry.resolveApproval` 触发 senseMiddleware await。
 - **问答 service 侧**（send.ts `handleSenseQuestionBatchAnswer` + wake.ts `resolveQuestionBatch`）：按 `chatId+batchId` 原子校验整批答案，在同一月库事务中更新全部 sense content、question_items 和 question_batches；随后同步内存 journal、set `resumePending`、持久化 `question_batch_completed`。旧单题 RPC 仅兼容单题批次。
 - **任务分支**（conversationBranch.ts）：一个用户任务可包含多个独立根 Chat，但任一时刻只有一个 `active_branch_id` 主干。`continuation` 从历史节点继承因果闭包并接管主干，`detail` 只用于解释；二者都不使用 `parent_chat_id`。
+- **会话路由 Shadow**（conversationRouter.ts + shadowRunner.ts）：`chat.route.suggest` 在真正发送用户消息前启动一次临时 Shadow Agent，由 `select_conversation` 终止工具选择历史根会话或新对话。Shadow 只复用 Agent loop，不创建 Chat/Pet、不写 DB、不发送流式事件。
+
+## 会话路由 Shadow
+
+- 预设通过 `presets.<name>.shadows.conversationRouting` 绑定一个 `kind: shadow` 角色；未绑定即关闭自动会话路由。路由候选最多取最近 10 个根会话。
+- `ShadowRunner` 为每次调用创建唯一临时 run id 和独立 `AgentBuilder`/`AgentSession`。它不调用 `ensureChat`、`observeAgentChunks`，也不进入 chat runtime、WebSocket stream mapping 或任何持久化路径。
+- 路由 Shadow 的感官组只能包含内置自动工具 `select_conversation`（配置可写 `select_conversation` 或 `select_conversation:auto`），且不得配置 MCP。工具参数为 `{chatId:string|null, confidence:number, reason:string}`；非空 `chatId` 必须属于本次候选快照，成功后记录唯一结果并 `yieldTurn()`。
+- 最多运行两个模型 turn：首轮未产生合法终止工具调用时追加一次纠正输入；第二次仍失败即终止。Shadow 总超时 25 秒，RPC 客户端等待 30 秒。超时、无工具或参数非法时原消息保持未发送，前端进入手动选择。
+- RPC 只公开领域接口 `chat.route.suggest`，不暴露通用 `shadow.run`。返回单个 `target`；`chatId:null` 表示新对话。`trace` 只含本次 draft、候选摘要、模型可见回复文本与规范化工具参数，不含 thinking、provider 原始响应或其他内部状态，也不落库。
 
 ## 任务分支语义
 

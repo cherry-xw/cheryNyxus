@@ -15,7 +15,7 @@ import {
   mediaKindForMime,
   type MediaKind,
 } from '@/service/media/index.js'
-import config from '@/utils/config.js'
+import config, { isOrdinaryRole } from '@/utils/config.js'
 import { dispatch } from '@/agent/hooks/index.js'
 import { ClassifiedError } from '@/utils/error.js'
 
@@ -271,6 +271,7 @@ export default chatMiddleware
 function findCapableRoles(kind: MediaKind): string[] {
   const result: string[] = []
   for (const [roleName, roleCfg] of Object.entries(config.roles ?? {})) {
+    if (!isOrdinaryRole(roleCfg)) continue
     if (config.llm.brain[roleCfg.brain]?.capabilities?.input?.[kind]) {
       result.push(roleName)
     }

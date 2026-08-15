@@ -37,7 +37,7 @@ export interface Response<TData extends ResponseData = ResponseData> {
  */
 export interface Chunk {
   kind: 'chunk'
-  type: 'stream' | 'staged'
+  type: 'stream' | 'staged' | 'route'
   requestId: string
   /** 事件所属 chat。不得再通过 requestId 猜测 chat 路由。 */
   chatId?: string
@@ -174,16 +174,46 @@ export interface ChatRouteSuggestRequestData {
   requestVersion: number
 }
 
-export interface ChatRouteCandidateData {
+export interface ChatRouteTargetData {
   chatId: string | null
   confidence: number
   reason: string
 }
 
+export interface ChatRouteContextCandidateData {
+  chatId: string
+  preview: string
+  lastUserActivityAt: number
+}
+
+export interface ChatRouteTraceData {
+  context: {
+    draft: string
+    candidates: ChatRouteContextCandidateData[]
+  }
+  response: {
+    content?: string
+    toolCall: {
+      name: 'select_conversation'
+      arguments: ChatRouteTargetData
+    }
+  }
+}
+
 export interface ChatRouteSuggestResponseData {
   requestVersion: number
-  candidates: ChatRouteCandidateData[]
+  target: ChatRouteTargetData
+  trace: ChatRouteTraceData
 }
+
+/** 会话路由 Shadow 流式增量（实时 thinking/content，供前端路由小窗渲染）。 */
+export interface RouteDeltaData {
+  thinking: string
+  content: string
+}
+
+/** 会话路由 Shadow 流式 chunk：delta=进行中；无 delta 即最终结果（= ChatRouteSuggestResponseData）。 */
+export type RouteChunkData = { delta: RouteDeltaData } | ChatRouteSuggestResponseData
 
 export interface ChatGetRequestData {
   chatId: string
@@ -220,7 +250,10 @@ export interface BranchSideEffect {
   result?: string
 }
 
-export interface ChatBranchPreviewRequestData { rootChatId: string; anchorNodeId: string }
+export interface ChatBranchPreviewRequestData {
+  rootChatId: string
+  anchorNodeId: string
+}
 export interface ChatBranchPreviewResponseData {
   taskId: string
   sourceBranchId: string
@@ -252,12 +285,18 @@ export interface ChatBranchCreateRequestData {
 export interface ChatBranchCreateResponseData extends ConversationBranchSummary {
   input: ChatInputSubmitResponseData
 }
-export interface ChatAbortTaskRequestData { taskId: string; commandId: string }
+export interface ChatAbortTaskRequestData {
+  taskId: string
+  commandId: string
+}
 export interface ChatAbortTaskResponseData {
   taskId: string
   abortedBranches: string[]
 }
-export interface ChatBranchActivateRequestData { branchId: string; commandId: string }
+export interface ChatBranchActivateRequestData {
+  branchId: string
+  commandId: string
+}
 export interface ChatBranchActivateResponseData {
   taskId: string
   activeBranchId: string
@@ -340,20 +379,10 @@ export interface ChatResumeRequestData {
 }
 
 export type TreeControlOperationStatus =
-  | 'pausing'
-  | 'paused'
-  | 'resuming'
-  | 'partial'
-  | 'completed'
-  | 'superseded'
+  'pausing' | 'paused' | 'resuming' | 'partial' | 'completed' | 'superseded'
 
 export type TreeControlTargetStatus =
-  | 'paused'
-  | 'resuming'
-  | 'resumed'
-  | 'delegated'
-  | 'skipped'
-  | 'failed'
+  'paused' | 'resuming' | 'resumed' | 'delegated' | 'skipped' | 'failed'
 
 export interface TreeControlTarget {
   chatId: string
@@ -498,7 +527,9 @@ export interface InteractionData {
   completedAt?: number
 }
 
-export interface InteractionListResponseData { interactions: InteractionData[] }
+export interface InteractionListResponseData {
+  interactions: InteractionData[]
+}
 export interface InteractionApprovalDecideRequestData {
   interactionId: string
   action: 'accept' | 'reject'
@@ -506,14 +537,18 @@ export interface InteractionApprovalDecideRequestData {
   commandId: string
   reason?: string
 }
-export interface InteractionApprovalDecideResponseData { interaction: InteractionData }
+export interface InteractionApprovalDecideResponseData {
+  interaction: InteractionData
+}
 export interface InteractionQuestionAnswerRequestData {
   interactionId: string
   expectedRevision: number
   commandId: string
   answers: SenseQuestionBatchAnswerRequestData['answers']
 }
-export interface InteractionQuestionAnswerResponseData { interaction: InteractionData }
+export interface InteractionQuestionAnswerResponseData {
+  interaction: InteractionData
+}
 
 /**
  * sense.question.answer 入参（用户回答 ask_user_question）。
@@ -1620,8 +1655,14 @@ export interface TimelineNode {
 }
 
 export type ExecutionEdgeKind =
-  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation' |
-  'fork-continuation' | 'fork-detail'
+  | 'sequence'
+  | 'spawn'
+  | 'continue'
+  | 'dispatch'
+  | 'return'
+  | 'return-continuation'
+  | 'fork-continuation'
+  | 'fork-detail'
 
 export interface ExecutionEdgeFact {
   id: string
@@ -1956,7 +1997,7 @@ export interface UtilsEditorsResponseData {
 
 // ========== Chunk Data ==========
 
-export type ChunkData = StreamChunkData | StagedChunkData
+export type ChunkData = StreamChunkData | StagedChunkData | RouteChunkData
 
 export interface StreamChunkData {
   /** 当前 LLM 响应消息 id（checkpoint 预分配，= 最终 messages.id）。 */
@@ -2489,9 +2530,18 @@ export interface RpcMethodMap {
   }
   [Method.CHAT_GET]: { params: ChatGetRequestData; result: ChatGetResponseData }
   [Method.CHAT_DELETE]: { params: ChatDeleteRequestData; result: ChatDeleteResponseData }
-  [Method.CHAT_BRANCH_PREVIEW]: { params: ChatBranchPreviewRequestData; result: ChatBranchPreviewResponseData }
-  [Method.CHAT_BRANCH_CREATE]: { params: ChatBranchCreateRequestData; result: ChatBranchCreateResponseData }
-  [Method.CHAT_BRANCH_ACTIVATE]: { params: ChatBranchActivateRequestData; result: ChatBranchActivateResponseData }
+  [Method.CHAT_BRANCH_PREVIEW]: {
+    params: ChatBranchPreviewRequestData
+    result: ChatBranchPreviewResponseData
+  }
+  [Method.CHAT_BRANCH_CREATE]: {
+    params: ChatBranchCreateRequestData
+    result: ChatBranchCreateResponseData
+  }
+  [Method.CHAT_BRANCH_ACTIVATE]: {
+    params: ChatBranchActivateRequestData
+    result: ChatBranchActivateResponseData
+  }
   [Method.CHAT_ABORT_TASK]: { params: ChatAbortTaskRequestData; result: ChatAbortTaskResponseData }
   [Method.CHAT_CONTEXT_USAGE]: {
     params: ChatContextUsageRequestData
@@ -2660,7 +2710,7 @@ export function createResponse<TData extends ResponseData = ResponseData>(
 }
 
 export function createChunk(
-  type: 'stream' | 'staged',
+  type: 'stream' | 'staged' | 'route',
   requestId: string,
   data: ChunkData,
   context: EventContext = {},

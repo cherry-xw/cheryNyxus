@@ -58,6 +58,7 @@ const MENU_TOOL_ORDER: readonly NyxusMenuTool[] = [
   'chat',
   'settings',
   'workbench',
+  'login',
   'theme',
 ]
 

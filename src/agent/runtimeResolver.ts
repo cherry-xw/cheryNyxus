@@ -1,7 +1,7 @@
 import type { AdaptersGroup, RuntimeConfig, SenseEntry } from '@/core/middleware/types'
 import type { Sense, SenseFunction } from '@/core/sense'
 import type { SenseAdapter } from '@/core/sense/adapter'
-import type { BrainConfig } from '@/utils/config'
+import { isOrdinaryRole, type BrainConfig } from '@/utils/config'
 import type { ZodType } from 'zod'
 import config from '@/utils/config'
 import { SupervisionLevel } from '@/core/config'
@@ -71,7 +71,7 @@ export function resolvePresetSelection(presetName: string): {
   }
   // 主 pet 编制取 leader 角色的 RoleConfig（config.roles 单一源）。
   const leader = config.roles?.[preset.leader]
-  if (!leader) {
+  if (!isOrdinaryRole(leader)) {
     throw new Error(
       `预设 "${presetName}" 的组长角色 "${preset.leader}" 不存在（可用：${Object.keys(config.roles ?? {}).join(', ') || '（未配置任何角色）'}）`,
     )
@@ -89,7 +89,7 @@ export function resolvePresetSelection(presetName: string): {
     presetId: preset.id!,
     selection,
     systemPromptFile: leader.systemPrompt,
-    spawnTypes: preset.roles ?? [],
+    spawnTypes: (preset.roles ?? []).filter((name) => isOrdinaryRole(config.roles?.[name])),
     workspace: preset.workspace,
     skillFilter,
     rule: preset.rule,
@@ -108,14 +108,16 @@ export function resolveDetailSelection(presetName: string): {
     throw new Error(`预设 "${presetName}" 的解释角色必须是预设成员`)
   }
   const detail = config.roles?.[preset.detailRole]
-  if (!detail) throw new Error(`预设 "${presetName}" 的解释角色 "${preset.detailRole}" 不存在`)
+  if (!isOrdinaryRole(detail))
+    throw new Error(`预设 "${presetName}" 的解释角色 "${preset.detailRole}" 必须是普通角色`)
   const selection = parseRuntimeSelection(
     { brain: detail.brain, senseGroup: detail.senseGroup, mcpServers: detail.mcpServers ?? [] },
     'detail role',
   )
-  const skillFilter = detail.skills !== undefined || detail.plugins !== undefined
-    ? { skills: detail.skills, plugins: detail.plugins }
-    : undefined
+  const skillFilter =
+    detail.skills !== undefined || detail.plugins !== undefined
+      ? { skills: detail.skills, plugins: detail.plugins }
+      : undefined
   return {
     selection,
     systemPromptFile: detail.systemPrompt,

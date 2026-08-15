@@ -1,12 +1,20 @@
-export interface RouteCandidateLike {
-  chatId?: string | null
-  confidence: number
+export interface ConversationTargetSessionLike {
+  chatId: string
+  lastUserActivityAt?: number
+  createdAt?: number
 }
 
-export const AUTO_ROUTE_CONFIDENCE = 0.85
-export const RECOMMEND_ROUTE_CONFIDENCE = 0.75
+/** 会话路由 Shadow 的实时状态（供 AgentDialog 路由小窗渲染）。 */
+export interface RouteStatus {
+  routing: boolean
+  trace?: ConversationRouteTrace
+  thinking: string
+  content: string
+}
 
-export type ConversationTargetVisualState = 'manual' | 'recommended' | 'idle'
+export type { ConversationRouteTrace } from '@/services/agentApi'
+
+export type ConversationTargetVisualState = 'manual' | 'ai-selected' | 'recommended' | 'idle'
 
 /** 历史会话按钮的点击循环档位：idle → half → full → idle。 */
 export type TargetCycleState = 'idle' | 'half' | 'full'
@@ -28,26 +36,28 @@ export function conversationTargetVisualState(
   halfId?: string,
 ): ConversationTargetVisualState {
   if (selected === chatId && selectedSource === 'user') return 'manual'
+  if (selected === chatId && selectedSource === 'ai') return 'ai-selected'
   if (halfId === chatId || recommendedIds.includes(chatId)) return 'recommended'
   return 'idle'
 }
 
-export function canRequestAutomaticRoute(
-  automatic: boolean,
-  routingEnabled: boolean,
-  draft: string,
-): boolean {
-  return automatic && routingEnabled && draft.trim().length >= 2
-}
-
-export function acceptedRouteCandidates<T extends RouteCandidateLike>(candidates: T[]): T[] {
-  return candidates.filter(
-    (candidate) => Boolean(candidate.chatId) && candidate.confidence >= RECOMMEND_ROUTE_CONFIDENCE,
+/**
+ * 页面始终保留原本可见的最近会话；AI/用户选中的历史会话若在可见范围外，
+ * 作为额外节点追加到这些历史会话之后（组件模板会在其后渲染「＋新对话」）。
+ */
+export function visibleConversationTargetSessions<T extends ConversationTargetSessionLike>(
+  sessions: readonly T[],
+  selected: string | 'new' | undefined,
+  visibleLimit = 3,
+): T[] {
+  const ordered = [...sessions].sort(
+    (a, b) =>
+      (b.lastUserActivityAt ?? b.createdAt ?? 0) - (a.lastUserActivityAt ?? a.createdAt ?? 0),
   )
-}
-
-export function automaticRouteCandidate<T extends RouteCandidateLike>(candidates: T[]): T | undefined {
-  return candidates.find(
-    (candidate) => Boolean(candidate.chatId) && candidate.confidence >= AUTO_ROUTE_CONFIDENCE,
-  )
+  const visible = ordered.slice(0, visibleLimit)
+  if (!selected || selected === 'new' || visible.some((session) => session.chatId === selected)) {
+    return visible
+  }
+  const selectedSession = ordered.find((session) => session.chatId === selected)
+  return selectedSession ? [...visible, selectedSession] : visible
 }

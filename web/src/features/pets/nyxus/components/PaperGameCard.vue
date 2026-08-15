@@ -1375,8 +1375,8 @@ async function copyDetail(): Promise<void> {
   left: 58%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(84%, 360px);
-  height: 82%;
+  width: min(92%, 560px);
+  height: 88%;
   min-width: 260px;
   overflow: hidden;
   border: 4px solid #26170d;

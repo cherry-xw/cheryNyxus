@@ -22,6 +22,7 @@ import mediaSenses from './media'
 import askSense from './ask'
 import installSkillSense from './installSkill'
 import childControlSenses from './childControl'
+import selectConversationSense from './selectConversation'
 import { logger } from '@/utils/logger/index.js'
 
 /**
@@ -92,6 +93,12 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
     description: '从 URL 安装技能（管家角色专用，zip/git/manifest）',
     icon: '📥',
   },
+  {
+    name: 'select_conversation',
+    label: '选择会话',
+    description: 'Shadow 流程终止工具：选择历史会话或新对话',
+    icon: '🧭',
+  },
 ]
 
 /**
@@ -109,6 +116,7 @@ function registerBuiltinSenses(): void {
     memorySense,
     askSense,
     installSkillSense,
+    selectConversationSense,
     ...childControlSenses,
     ...mediaSenses,
   ])

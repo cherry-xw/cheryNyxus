@@ -11,26 +11,18 @@ import { ElPopover, ElTooltip } from 'element-plus'
 import RoleConfigPopover from '../dialog/RoleConfigPopover.vue'
 import AgentComposer from '../dialog/AgentComposer.vue'
 import ConversationTargetPicker from '../dialog/ConversationTargetPicker.vue'
-import RoutingTraceWindow from '../dialog/RoutingTraceWindow.vue'
 import WorkspaceSessionBrowser from '../dialog/WorkspaceSessionBrowser.vue'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import { useAgentDialogOptions } from '../dialog/useAgentDialogOptions'
-import type { RouteStatus } from '../dialog/conversationTargetRouting'
-import { useAgentsStore, useInteractionsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
 const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 const interactions = useInteractionsStore()
-// 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 且非 pet/nyxus 来源时其蒙层带 blur，否则透明。
-// pet 发送窗口与 nyxus 直接发消息浮动窗要求无遮罩（可拖动、不叠层），故 activeDialogSource 为
-// 'pet' 或 'nyxus' 时始终透明；'history' 为历史抽屉式模态，带遮罩。
-const isTopMask = computed(
-  () =>
-    agents.topOverlay === 'agentDialog' &&
-    agents.activeDialogSource !== 'pet' &&
-    agents.activeDialogSource !== 'nyxus',
-)
+// 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 时其蒙层带 blur，否则透明（避免多层 blur 叠加）
+const isTopMask = computed(() => agents.topOverlay === 'agentDialog')
 
 const MotionDiv = motion.div
 
@@ -91,15 +83,12 @@ interface QuickTargetSelection {
   source: 'ai' | 'user'
   confidence?: number
 }
-interface ConversationTargetPickerExpose {
-  routeForSend: (draft: string) => Promise<QuickTargetSelection | undefined>
-}
-const targetPickerRef = ref<ConversationTargetPickerExpose>()
 const quickTarget = ref<QuickTargetSelection>()
 const quickRoutingPending = ref(false)
-const quickAutoMode = ref(false)
+const quickRoutingWaiters: Array<() => void> = []
 function setQuickRoutingPending(pending: boolean): void {
   quickRoutingPending.value = pending
+  if (!pending) quickRoutingWaiters.splice(0).forEach((resolve) => resolve())
 }
 function clearAiQuickTarget(): void {
   if (quickTarget.value?.source === 'ai') quickTarget.value = undefined
@@ -107,6 +96,10 @@ function clearAiQuickTarget(): void {
 function enableAiQuickTarget(): void {
   quickTarget.value = undefined
   error.value = null
+}
+async function waitForQuickRouting(): Promise<void> {
+  if (!quickRoutingPending.value) return
+  await new Promise<void>((resolve) => quickRoutingWaiters.push(resolve))
 }
 const dialogView = computed({
   get: () => agents.activeDialogView,
@@ -135,131 +128,16 @@ const quickSessions = computed(() =>
     )
     .sort(
       (a, b) =>
-        (b.lastUserActivityAt ?? b.createdAt ?? 0) - (a.lastUserActivityAt ?? a.createdAt ?? 0),
+        (b.lastUserActivityAt ?? b.createdAt ?? 0) -
+        (a.lastUserActivityAt ?? a.createdAt ?? 0),
     ),
 )
-const workspaceAttentionCount = computed(
-  () => interactions.pending.filter((item) => item.presetId === quickPresetId.value).length,
+const workspaceAttentionCount = computed(() =>
+  interactions.pending.filter((item) => item.presetId === quickPresetId.value).length,
 )
 const quickRoutingEnabled = computed(() => {
   const preset = presetName.value ? config.value?.presets?.[presetName.value] : undefined
-  return !!preset?.shadows?.conversationRouting
-})
-watch(
-  quickRoutingEnabled,
-  (enabled) => {
-    quickAutoMode.value = enabled
-  },
-  { immediate: true },
-)
-
-// ── 路由小窗实时状态（由 ConversationTargetPicker 经 route-status 事件上抛） ──
-const routeStatus = reactive<RouteStatus>({ routing: false, thinking: '', content: '' })
-const traceHover = ref(false)
-const traceAutoHideUntil = ref(0)
-let traceAutoHideTimer: ReturnType<typeof setTimeout> | undefined
-/** 路由结束后最终选定的目标会话 id；undefined=路由未完成/失败，null=新建对话。 */
-const finalizedTargetChatId = computed<string | null | undefined>(
-  () => routeStatus.trace?.response.toolCall.arguments.chatId,
-)
-/** 目标会话是否仍存在：新建对话恒显示；历史会话若已被删除则不再展示路由小窗。 */
-const finalizedTargetStillExists = computed(() => {
-  const id = finalizedTargetChatId.value
-  if (id === undefined) return false
-  if (id === null) return true
-  return (agents.historyList ?? []).some((item) => item.chatId === id)
-})
-/** 显示：路由进行中 / 悬浮 AI 路由状态指示 / 流式结束后停留 10s（目标会话已删除则不显示）。 */
-const showTraceWindow = computed(() => {
-  if (routeStatus.routing) return true
-  if (!finalizedTargetStillExists.value) return false
-  return traceHover.value || Date.now() < traceAutoHideUntil.value
-})
-function onRouteStatus(status: RouteStatus): void {
-  const wasRouting = routeStatus.routing
-  routeStatus.routing = status.routing
-  routeStatus.trace = status.trace
-  routeStatus.thinking = status.thinking
-  routeStatus.content = status.content
-  if (wasRouting && !status.routing) {
-    // 流式结束：停留 10s 后自动关闭（新一轮路由/hover 会打断）。
-    traceAutoHideUntil.value = Date.now() + 10_000
-    if (traceAutoHideTimer) clearTimeout(traceAutoHideTimer)
-    traceAutoHideTimer = setTimeout(() => {
-      traceAutoHideUntil.value = 0
-    }, 10_000)
-  }
-}
-function onTraceHover(hover: boolean): void {
-  traceHover.value = hover
-}
-
-// ── 发送面板可拖动（pet 无遮罩小窗，允许拖动定位） ──
-const panelEl = ref<HTMLElement | null>(null)
-const panelPos = ref<{ x: number; y: number } | null>(null)
-let dragCtx: { pointerX: number; pointerY: number; origX: number; origY: number } | undefined
-function bindPanelEl(el: HTMLElement | { $el?: HTMLElement } | null): void {
-  panelEl.value = el instanceof HTMLElement ? el : (el?.$el ?? null)
-}
-function onHeaderPointerDown(e: PointerEvent): void {
-  const target = e.target as HTMLElement
-  if (target.closest('button, input, a, [contenteditable="true"], .el-tooltip')) return
-  const panel = panelEl.value
-  if (!panel) return
-  const rect = panel.getBoundingClientRect()
-  if (!panelPos.value) panelPos.value = { x: rect.left, y: rect.top }
-  dragCtx = {
-    pointerX: e.clientX,
-    pointerY: e.clientY,
-    origX: panelPos.value.x,
-    origY: panelPos.value.y,
-  }
-  window.addEventListener('pointermove', onPanelPointerMove)
-  window.addEventListener('pointerup', onPanelPointerUp)
-  e.preventDefault()
-}
-function onPanelPointerMove(e: PointerEvent): void {
-  if (!dragCtx) return
-  panelPos.value = {
-    x: dragCtx.origX + (e.clientX - dragCtx.pointerX),
-    y: dragCtx.origY + (e.clientY - dragCtx.pointerY),
-  }
-}
-function onPanelPointerUp(): void {
-  dragCtx = undefined
-  window.removeEventListener('pointermove', onPanelPointerMove)
-  window.removeEventListener('pointerup', onPanelPointerUp)
-}
-const panelStyle = computed(() =>
-  panelPos.value
-    ? {
-        position: 'fixed',
-        left: `${panelPos.value.x}px`,
-        top: `${panelPos.value.y}px`,
-        margin: '0',
-      }
-    : {},
-)
-/** 路由小窗锚定在发送面板右侧；实时读面板 rect，拖动/布局变化自适应。 */
-const traceWindowPos = computed(() => {
-  void panelPos.value // 面板拖动变更时触发重算；未拖动时读当前居中布局的实际 rect。
-  const panel = panelEl.value
-  if (!panel) return { left: '0px', top: '0px' }
-  const rect = panel.getBoundingClientRect()
-  return { left: `${rect.right + 10}px`, top: `${Math.max(8, rect.top)}px` }
-})
-watch(chatId, (v) => {
-  if (!v) {
-    routeStatus.routing = false
-    routeStatus.trace = undefined
-    routeStatus.thinking = ''
-    routeStatus.content = ''
-    traceAutoHideUntil.value = 0
-    if (traceAutoHideTimer) {
-      clearTimeout(traceAutoHideTimer)
-      traceAutoHideTimer = undefined
-    }
-  }
+  return !!preset?.routingBrain
 })
 
 // AgentComposer 的 3 个 DOM ref 桥接回 useAgentDialogOptions（selectCommand / commandMenuStyle 等依赖）。
@@ -273,29 +151,26 @@ const roleMenuRefFn = (el: HTMLElement | null) => {
   roleMenuRef.value = el
 }
 
-function selectQuickTarget(selection: QuickTargetSelection): void {
+async function selectQuickTarget(selection: QuickTargetSelection): Promise<void> {
   if (quickTarget.value?.source === 'user' && selection.source === 'ai') return
   quickTarget.value = selection
+  if (selection.target === 'new') return
+  agents.activatePresetSession(quickPresetId.value, selection.target, presetName.value)
+  agents.activeDialogChatId = selection.target
+  await chatSessions.openSession(selection.target).catch((cause) =>
+    console.warn('[AgentDialog] open explicitly selected target failed:', cause),
+  )
 }
 
 async function sendFromComposer(): Promise<void> {
-  if (!text.value.trim() || sending.value || quickRoutingPending.value) return
-  let targetSelection = quickTarget.value
-  if (quickTargetRequired.value && targetSelection?.source !== 'user') {
-    if (!quickRoutingEnabled.value || !quickAutoMode.value) {
-      error.value = '请选择消息指向的目标后继续'
-      return
-    }
-    error.value = null
-    targetSelection = await targetPickerRef.value?.routeForSend(text.value)
-    if (!targetSelection) {
-      error.value = 'AI 未确定发送目标，请手动选择后重试'
-      return
-    }
+  if (quickTargetRequired.value && quickRoutingPending.value) await waitForQuickRouting()
+  if (quickTargetRequired.value && !quickTarget.value) {
+    error.value = '请选择消息指向的目标后继续'
+    return
   }
   let targetChatId = chatId.value ?? undefined
   if (quickTargetRequired.value) {
-    if (targetSelection?.target === 'new') {
+    if (quickTarget.value?.target === 'new') {
       if (!presetName.value) {
         error.value = '当前 Pet 没有关联预设'
         return
@@ -309,14 +184,14 @@ async function sendFromComposer(): Promise<void> {
         return
       }
     } else {
-      targetChatId = targetSelection?.target
+      targetChatId = quickTarget.value?.target
     }
   }
   if (targetChatId) {
     agents.activatePresetSession(quickPresetId.value, targetChatId, presetName.value)
+    agents.activeDialogChatId = targetChatId
   }
-  // pet 发送窗口提交后保持打开（不关闭），路由小窗展示 Shadow Agent 工作流程。
-  await handleSend(targetChatId, quickTargetRequired.value ? { keepOpen: true } : {})
+  await handleSend(targetChatId)
 }
 
 /** 打开当前会话的节点树工作台（WorkbenchDialog 多窗口，windowId = presetId）。 */
@@ -407,10 +282,7 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', positionCommandMenu)
     window.removeEventListener('scroll', positionCommandMenu, true)
-    window.removeEventListener('pointermove', onPanelPointerMove)
-    window.removeEventListener('pointerup', onPanelPointerUp)
   }
-  if (traceAutoHideTimer) clearTimeout(traceAutoHideTimer)
 })
 
 /** 颜色分级（与 SessionList / HistoryDrawerPanel / ContextBar 对齐：<50% 绿 / 50-80% 黄 / >=80% 红）。 */
@@ -458,9 +330,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
       <!-- 快速发送 composer 弹窗 panel（header + 角色编制 + composer + 待处理抽屉） -->
       <MotionDiv
         key="panel"
-        :ref="bindPanelEl"
         class="dialog-panel"
-        :style="panelStyle"
         :initial="{ opacity: 0, y: 16, scale: 0.96 }"
         :animate="{ opacity: 1, y: 0, scale: 1 }"
         :exit="{ opacity: 0, y: 12, scale: 0.97 }"
@@ -469,7 +339,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         aria-modal="true"
         :aria-label="`向 ${pet?.name ?? '智能体'} 发送消息`"
       >
-        <header class="dialog-head" @pointerdown="onHeaderPointerDown">
+        <header class="dialog-head">
           <span class="title">
             <span class="title-row">
               <el-tooltip
@@ -534,170 +404,151 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         />
 
         <div v-show="dialogView !== 'attention'" class="dialog-composer-content">
-          <div class="role-configs">
-            <div class="session-note">小组角色编制</div>
-            <div
-              v-if="loading"
-              class="role-tags role-tags-skel"
-              aria-busy="true"
-              aria-label="角色编制加载中"
-            >
-              <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
-            </div>
-            <div v-else class="role-tags" aria-label="小组角色编制">
-              <el-popover
-                v-for="[role, selection] in orderedRoleSelections"
-                :key="role"
-                trigger="click"
-                placement="bottom-start"
-                :width="420"
-                popper-class="role-runtime-popper"
-              >
-                <template #reference>
-                  <button
-                    type="button"
-                    class="role-summary-tag"
-                    :class="{ 'is-primary': role === primaryRole }"
-                    :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
-                  >
-                    <span class="role-summary-main">
-                      <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
-                      <span class="role-summary-name">{{ role }}</span>
-                    </span>
-                    <span class="role-summary-meta-row">
-                      <span class="role-summary-model-slot">
-                        <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
-                      </span>
-                      <el-tooltip
-                        v-if="roleUsages[role]"
-                        placement="top"
-                        :show-after="200"
-                        :hide-after="0"
-                      >
-                        <template #content>
-                          <ContextBreakdownTip
-                            v-if="pet?.contextBreakdown"
-                            :breakdown="pet.contextBreakdown"
-                          />
-                          <span v-else
-                            >上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span
-                          >
-                        </template>
-                        <span
-                          class="role-usage-chip"
-                          :class="usageClass(roleUsages[role]!.usage)"
-                          :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
-                          >{{ fmtTokens(roleUsages[role]!.used) }}/{{
-                            fmtTokens(roleUsages[role]!.total)
-                          }}</span
-                        >
-                      </el-tooltip>
-                    </span>
-                    <span
-                      v-if="senseEntries(selection.senseGroup).length"
-                      class="role-summary-senses"
-                      aria-label="当前能力"
-                    >
-                      <span
-                        v-for="entry in senseEntries(selection.senseGroup)"
-                        :key="entry"
-                        class="role-summary-sense-icon"
-                      >
-                        {{ senseTool(entry)?.icon ?? '⚙' }}
-                      </span>
-                    </span>
-                  </button>
-                </template>
-
-                <RoleConfigPopover
-                  :role="role"
-                  :selection="selection"
-                  :brains="brains"
-                  :sense-groups="senseGroups"
-                  :config="config"
-                  :sense-tools="senseTools"
-                  :is-primary="role === primaryRole"
-                  :primary-role="primaryRole"
-                  @update:selection="roleSelections[role] = $event"
-                />
-              </el-popover>
-            </div>
+        <div class="role-configs">
+          <div class="session-note">小组角色编制</div>
+          <div
+            v-if="loading"
+            class="role-tags role-tags-skel"
+            aria-busy="true"
+            aria-label="角色编制加载中"
+          >
+            <span v-for="n in 3" :key="n" class="role-skel-tile" aria-hidden="true" />
           </div>
+          <div v-else class="role-tags" aria-label="小组角色编制">
+            <el-popover
+              v-for="[role, selection] in orderedRoleSelections"
+              :key="role"
+              trigger="click"
+              placement="bottom-start"
+              :width="420"
+              popper-class="role-runtime-popper"
+            >
+              <template #reference>
+                <button
+                  type="button"
+                  class="role-summary-tag"
+                  :class="{ 'is-primary': role === primaryRole }"
+                  :aria-label="`配置角色 ${role}，大脑 ${selection.brain || '未选择'}，${senseEntries(selection.senseGroup).length} 项能力`"
+                >
+                  <span class="role-summary-main">
+                    <span aria-hidden="true">{{ role === primaryRole ? '♛' : '✦' }}</span>
+                    <span class="role-summary-name">{{ role }}</span>
+                  </span>
+                  <span class="role-summary-meta-row">
+                    <span class="role-summary-model-slot">
+                      <span class="role-summary-model">◈ {{ selection.brain || '—' }}</span>
+                    </span>
+                    <el-tooltip
+                      v-if="roleUsages[role]"
+                      placement="top"
+                      :show-after="200"
+                      :hide-after="0"
+                    >
+                      <template #content>
+                        <ContextBreakdownTip
+                          v-if="pet?.contextBreakdown"
+                          :breakdown="pet.contextBreakdown"
+                        />
+                        <span v-else>上下文 {{ Math.round(roleUsages[role]!.usage * 100) }}%</span>
+                      </template>
+                      <span
+                        class="role-usage-chip"
+                        :class="usageClass(roleUsages[role]!.usage)"
+                        :aria-label="`上下文 ${Math.round(roleUsages[role]!.usage * 100)}% · ${fmtTokens(roleUsages[role]!.used)} / ${fmtTokens(roleUsages[role]!.total)}`"
+                        >{{ fmtTokens(roleUsages[role]!.used) }}/{{
+                          fmtTokens(roleUsages[role]!.total)
+                        }}</span
+                      >
+                    </el-tooltip>
+                  </span>
+                  <span
+                    v-if="senseEntries(selection.senseGroup).length"
+                    class="role-summary-senses"
+                    aria-label="当前能力"
+                  >
+                    <span
+                      v-for="entry in senseEntries(selection.senseGroup)"
+                      :key="entry"
+                      class="role-summary-sense-icon"
+                    >
+                      {{ senseTool(entry)?.icon ?? '⚙' }}
+                    </span>
+                  </span>
+                </button>
+              </template>
 
-          <ConversationTargetPicker
-            v-if="quickTargetRequired && quickPresetId"
-            ref="targetPickerRef"
-            :preset-id="quickPresetId"
-            :sessions="quickSessions"
-            :selected="quickTarget?.target"
-            :selected-source="quickTarget?.source"
-            :routing-enabled="quickRoutingEnabled"
-            @select="selectQuickTarget"
-            @clear-ai="clearAiQuickTarget"
-            @clear-target="quickTarget = undefined"
-            @enable-auto="enableAiQuickTarget"
-            @routing-change="setQuickRoutingPending"
-            @auto-mode-change="quickAutoMode = $event"
-            @ai-status-hover="onTraceHover(true)"
-            @ai-status-leave="onTraceHover(false)"
-            @route-status="onRouteStatus"
-          />
+              <RoleConfigPopover
+                :role="role"
+                :selection="selection"
+                :brains="brains"
+                :sense-groups="senseGroups"
+                :config="config"
+                :sense-tools="senseTools"
+                :is-primary="role === primaryRole"
+                :primary-role="primaryRole"
+                @update:selection="roleSelections[role] = $event"
+              />
+            </el-popover>
+          </div>
+        </div>
 
-          <AgentComposer
-            :is-nyxus="false"
-            :nyxus-draft-active="false"
-            :sending="sending || quickRoutingPending"
-            :loading="loading"
-            :text="text"
-            :error="error"
-            :media-attachments="mediaAttachments"
-            :media-hint="mediaHint"
-            :uploading="uploading"
-            :primary-selection="primarySelection"
-            :supports-tools="supportsTools"
-            :media-services-by-type="mediaServicesByType"
-            :command-options="commandOptions"
-            :command-tabs="commandTabs"
-            :active-command-tab="activeCommandTab"
-            :combo-command-groups="comboCommandGroups"
-            :show-command-menu="showCommandMenu"
-            :command-menu-style="commandMenuStyle"
-            :active-command-index="activeCommandIndex"
-            :show-role-menu="showRoleMenu"
-            :matching-role-mentions="matchingRoleMentions"
-            :active-role-index="activeRoleIndex"
-            :editor-ref-fn="editorRefFn"
-            :command-menu-ref-fn="commandMenuRefFn"
-            :role-menu-ref-fn="roleMenuRefFn"
-            :target-locked="
-              !quickTargetRequired ||
-              (!quickRoutingPending && (!!quickTarget || (quickRoutingEnabled && quickAutoMode)))
-            "
-            @remove-media="removeMedia"
-            @editor-input="onEditorInput"
-            @editor-keydown="onDialogEditorKeydown"
-            @editor-selection-change="onEditorSelectionChange"
-            @editor-paste="onEditorPaste"
-            @select-command="selectCommand"
-            @select-command-tab="selectCommandTab"
-            @select-role-mention="selectRoleMention"
-            @media-selected="(f: any) => onMediaSelected(f)"
-            @send="sendFromComposer"
-            @update:active-command-index="activeCommandIndex = $event"
-            @update:active-role-index="activeRoleIndex = $event"
-          />
+        <ConversationTargetPicker
+          v-if="quickTargetRequired && quickPresetId"
+          :preset-id="quickPresetId"
+          :draft="text"
+          :sessions="quickSessions"
+          :selected="quickTarget?.target"
+          :selected-source="quickTarget?.source"
+          :routing-enabled="quickRoutingEnabled"
+          @select="selectQuickTarget"
+          @clear-ai="clearAiQuickTarget"
+          @clear-target="quickTarget = undefined"
+          @enable-auto="enableAiQuickTarget"
+          @routing-change="setQuickRoutingPending"
+        />
+
+        <AgentComposer
+          :is-nyxus="false"
+          :nyxus-draft-active="false"
+          :sending="sending"
+          :loading="loading"
+          :text="text"
+          :error="error"
+          :media-attachments="mediaAttachments"
+          :media-hint="mediaHint"
+          :uploading="uploading"
+          :primary-selection="primarySelection"
+          :supports-tools="supportsTools"
+          :media-services-by-type="mediaServicesByType"
+          :command-options="commandOptions"
+          :command-tabs="commandTabs"
+          :active-command-tab="activeCommandTab"
+          :combo-command-groups="comboCommandGroups"
+          :show-command-menu="showCommandMenu"
+          :command-menu-style="commandMenuStyle"
+          :active-command-index="activeCommandIndex"
+          :show-role-menu="showRoleMenu"
+          :matching-role-mentions="matchingRoleMentions"
+          :active-role-index="activeRoleIndex"
+          :editor-ref-fn="editorRefFn"
+          :command-menu-ref-fn="commandMenuRefFn"
+          :role-menu-ref-fn="roleMenuRefFn"
+          :target-locked="!quickTargetRequired || (!!quickTarget && !quickRoutingPending)"
+          @remove-media="removeMedia"
+          @editor-input="onEditorInput"
+          @editor-keydown="onDialogEditorKeydown"
+          @editor-selection-change="onEditorSelectionChange"
+          @editor-paste="onEditorPaste"
+          @select-command="selectCommand"
+          @select-command-tab="selectCommandTab"
+          @select-role-mention="selectRoleMention"
+          @media-selected="(f: any) => onMediaSelected(f)"
+          @send="sendFromComposer"
+          @update:active-command-index="activeCommandIndex = $event"
+          @update:active-role-index="activeRoleIndex = $event"
+        />
         </div>
       </MotionDiv>
-
-      <!-- 会话路由小窗：锚定在发送面板右侧，展示 Shadow Agent 工作流程（候选+选择+思考/正文） -->
-      <RoutingTraceWindow
-        v-if="showTraceWindow"
-        :pos="traceWindowPos"
-        :routing="routeStatus.routing"
-        :trace="routeStatus.trace"
-        :thinking="routeStatus.thinking"
-        :content="routeStatus.content"
-      />
     </MotionDiv>
   </AnimatePresence>
 </template>

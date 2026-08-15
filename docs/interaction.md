@@ -138,6 +138,26 @@
 
 ## 流式方法
 
+### chat.route.suggest — 会话目标选择（流式 Shadow 工作流程）
+
+> 发送动作触发：前端调 `suggestConversationRouteStream`，后端先实时推送 `type:'route'` chunk（`data.delta` 的 thinking/content 累积增量），结束后推送最终 `data`（含 `target`/`trace`，无 `delta` 字段）。前端据此在发送面板右侧渲染路由小窗（候选会话 + 最终选择 + 实时思考/正文）。
+
+```json
+→ {"id":"r7","kind":"request","method":"chat.route.suggest","params":{"presetId":"p1","draft":"帮我看看昨天的报告","requestVersion":1}}
+
+// 实时增量（thinking/content 为增量，前端累积拼接）
+← {"kind":"chunk","type":"route","requestId":"r7","data":{"delta":{"thinking":"需要判断这条消息应继续哪个历史会话。","content":""}}}
+← {"kind":"chunk","type":"route","requestId":"r7","data":{"delta":{"thinking":"候选中有两个预设会话，其中「项目周报」与报告相关。","content":"正在调用 select_conversation 选择目标。"}}}
+
+// 最终结果（无 delta 字段）
+← {"kind":"chunk","type":"route","requestId":"r7","data":{"requestVersion":1,"target":{"chatId":"c2","confidence":0.9,"reason":"与历史报告会话语义相关"},"trace":{"context":{"draft":"帮我看看昨天的报告","candidates":[{"chatId":"c1","preview":"闲聊","lastUserActivityAt":1700000000000},{"chatId":"c2","preview":"项目周报","lastUserActivityAt":1700000000001}]},"response":{"content":"已确定目标会话。","toolCall":{"name":"select_conversation","arguments":{"chatId":"c2","confidence":0.9,"reason":"与历史报告会话语义相关"}}}}}}
+
+// 最终响应
+← {"id":"a7","kind":"response","requestId":"r7","success":true,"data":{"requestVersion":1,"target":{"chatId":"c2","confidence":0.9,"reason":"与历史报告会话语义相关"},"trace":{"context":{"draft":"帮我看看昨天的报告","candidates":[{"chatId":"c1","preview":"闲聊","lastUserActivityAt":1700000000000},{"chatId":"c2","preview":"项目周报","lastUserActivityAt":1700000000001}]},"response":{"content":"已确定目标会话。","toolCall":{"name":"select_conversation","arguments":{"chatId":"c2","confidence":0.9,"reason":"与历史报告会话语义相关"}}}}}}
+```
+
+> `chatId:null` 表示选择新建对话。失败时消息不得发送，由用户手动选目标。
+
 ### chat.get — 流式返回历史
 
 ```json

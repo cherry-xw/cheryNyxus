@@ -166,6 +166,8 @@ sense_groups:
     - read_file
     - search_codebase
     - ask_user_question
+  conversation_routing: # Shadow 专用终止工具组；不得添加其他 Sense/MCP
+    - select_conversation:auto
 
 # ------------------------------------------------------------
 # roles：角色定义
@@ -232,6 +234,12 @@ roles:
     mcpServers: []
     description: 只解释所选节点的概念与因果，不执行项目任务
     mentionable: false
+  conversation_router:
+    kind: shadow
+    brain: my-brain
+    senseGroup: conversation_routing
+    mcpServers: []
+    description: 在发送后选择应继续的历史会话或新建会话，不进入节点树
 
 # ------------------------------------------------------------
 # presets：预设配置
@@ -248,6 +256,8 @@ presets:
       - housekeeper
       - curator
       - explanation
+    shadows:
+      conversationRouting: conversation_router
   默认:
     leader: coordinator # 主角色（leader brain）
     detailRole: explanation
@@ -258,6 +268,8 @@ presets:
       - reviewer
       - housekeeper # 管家（安装技能专用，主 agent 可 spawn）
       - explanation # 专用解释角色，不可由主 agent 派发
+    shadows:
+      conversationRouting: conversation_router
     workspace: <YOUR_WORKSPACE_PATH> # 修改为你的实际工作目录
     # rule: strict.yaml # 可选：smart 监管规则覆盖（.chery/rule/strict.yaml，与 base.yaml 深合并）
   维护: # 记忆维护预设：定时触发 curator 做 Dream
@@ -275,6 +287,7 @@ presets:
 # ------------------------------------------------------------
 server:
   port: 8182 # WebSocket 端口
+  webPort: 8183 # HTTP 端口（登录 /api/auth + 静态资源）；优先级 WEB_PORT 环境变量 > 本字段 > 默认 8183
   transport: binary # 传输格式：binary|json
   host: 127.0.0.1 # 监听地址（0.0.0.0 或局域网 IP 可允许非本地前端访问）
   # 是否由后端 HTTP 服务托管前端 SPA（web/dist/）。开启则用单一 origin 解决跨域，

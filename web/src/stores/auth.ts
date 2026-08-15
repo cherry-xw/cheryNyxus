@@ -1,9 +1,15 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { randomHex, xorDecrypt, xorEncrypt } from '@/utils/obfuscate'
 
 const KEY_ADDR = 'chery.serverAddress'
 const KEY_ACCESS = 'chery.accessToken'
 const KEY_REFRESH = 'chery.refreshToken'
+const KEY_USER = 'chery.username'
+const KEY_REMEMBER_PW = 'chery.rememberPassword'
+const KEY_SAVED_USER = 'chery.savedUsername'
+const KEY_SAVED_PW = 'chery.savedPassword'
+const KEY_PW_KEY = 'chery.pwKey'
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
 
@@ -139,6 +145,71 @@ export function classifyError(cause: unknown, status?: number): AuthError {
   }
 }
 
+interface LoginChallenge {
+  challengeId: string
+  nonce: string
+}
+
+/** 向后端申请一次性登录挑战（challenge）。失败抛 classifyError 归类结果。 */
+async function fetchChallenge(base: string): Promise<LoginChallenge> {
+  let res: Response
+  try {
+    res = await fetch(`${base}/api/auth/challenge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+  } catch (cause) {
+    throw classifyError(cause)
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null
+    const err = classifyError(new Error(body?.error ?? `HTTP ${res.status}`), res.status)
+    err.backendMessage = body?.error
+    throw err
+  }
+  return (await res.json()) as LoginChallenge
+}
+
+/**
+ * 用 challenge nonce 作为 keyHex，SHA-256 CTR 流密码加密 `{username, password}` 信封。
+ * 纯 JS（无 WebCrypto），非安全上下文（非 HTTPS 远端）亦可用。
+ * 返回可直接 POST /api/auth/login 的载荷。
+ */
+function encryptCredentials(
+  challengeId: string,
+  nonce: string,
+  username: string,
+  password: string,
+): { challengeId: string; cipher: string } {
+  return { challengeId, cipher: xorEncrypt(nonce, JSON.stringify({ username, password })) }
+}
+
+/**
+ * 取本地「记住密码」keyHex：localStorage 无则生成随机 hex（32B）持久化。
+ * key 存 localStorage（客户端可恢复）→ 静态混淆级，防明文裸露，不防运行时提取。
+ */
+async function getPwKeyHex(): Promise<string> {
+  const stored = localStorage.getItem(KEY_PW_KEY)
+  if (stored) return stored
+  const key = randomHex(32)
+  localStorage.setItem(KEY_PW_KEY, key)
+  return key
+}
+
+/** 加密密码 → base64 密文（SHA-256 CTR，无 WebCrypto）。 */
+async function encryptPasswordForStorage(password: string): Promise<string> {
+  return xorEncrypt(await getPwKeyHex(), password)
+}
+
+/** 解密 base64 密文 → 明文密码；失败返回 null。 */
+async function decryptPasswordFromStorage(data: string): Promise<string | null> {
+  try {
+    return xorDecrypt(await getPwKeyHex(), data)
+  } catch {
+    return null
+  }
+}
+
 /**
  * 认证状态 store：持有目标后端服务地址 + access/refresh token。
  * 本地（loopback）直连不鉴权；远端需登录后携带 token。
@@ -148,6 +219,13 @@ export const useAuthStore = defineStore('auth', () => {
   const serverAddress = ref(localStorage.getItem(KEY_ADDR) ?? '')
   const accessToken = ref(localStorage.getItem(KEY_ACCESS) ?? '')
   const refreshToken = ref(localStorage.getItem(KEY_REFRESH) ?? '')
+  const username = ref(localStorage.getItem(KEY_USER) ?? '')
+  /** 记住密码：默认关；勾选后密码 AES-GCM 加密存 localStorage，下次预填。 */
+  const rememberPassword = ref(localStorage.getItem(KEY_REMEMBER_PW) === '1')
+  /** 已记住的用户名（服务地址+用户名始终默认记住）。 */
+  const savedUsername = ref(localStorage.getItem(KEY_SAVED_USER) ?? '')
+  /** 已记住的密码密文（base64(iv||ct)）；未勾选记住密码时为空。 */
+  const savedPassword = ref(localStorage.getItem(KEY_SAVED_PW) ?? '')
 
   /** 目标后端是否为远端（非 loopback）→ 需鉴权。 */
   const isRemote = computed(() => {
@@ -160,6 +238,10 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem(KEY_ADDR, serverAddress.value)
     localStorage.setItem(KEY_ACCESS, accessToken.value)
     localStorage.setItem(KEY_REFRESH, refreshToken.value)
+    localStorage.setItem(KEY_USER, username.value)
+    localStorage.setItem(KEY_REMEMBER_PW, rememberPassword.value ? '1' : '0')
+    localStorage.setItem(KEY_SAVED_USER, savedUsername.value)
+    localStorage.setItem(KEY_SAVED_PW, savedPassword.value)
   }
 
   function setServerAddress(addr: string): void {
@@ -179,15 +261,22 @@ export const useAuthStore = defineStore('auth', () => {
     return {}
   }
 
-  /** 登录：远端地址 → POST /api/auth/login 取双 token。 */
-  async function login(addr: string, username: string, password: string): Promise<void> {
+  /** 登录：远端地址 → 取 challenge → 加密凭据 → POST /api/auth/login 取双 token。 */
+  async function login(
+    addr: string,
+    user: string,
+    password: string,
+    rememberPw = false,
+  ): Promise<void> {
     const base = normalizeAddress(addr)
     let res: Response
     try {
+      const challenge = await fetchChallenge(base)
+      const sealed = await encryptCredentials(challenge.challengeId, challenge.nonce, user, password)
       res = await fetch(`${base}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(sealed),
       })
     } catch (cause) {
       throw classifyError(cause)
@@ -198,11 +287,22 @@ export const useAuthStore = defineStore('auth', () => {
       err.backendMessage = body?.error
       throw err
     }
-    const data = (await res.json()) as { accessToken: string; refreshToken: string }
+    const data = (await res.json()) as { username?: string; accessToken: string; refreshToken: string }
     serverAddress.value = base
+    username.value = data.username ?? ''
     accessToken.value = data.accessToken
     refreshToken.value = data.refreshToken
+    // 服务地址 + 用户名始终默认记住；密码仅勾选「记住密码」时才加密存储。
+    savedUsername.value = data.username ?? user
+    rememberPassword.value = rememberPw
+    savedPassword.value = rememberPw ? await encryptPasswordForStorage(password) : ''
     persist()
+  }
+
+  /** 预填用：若勾选「记住密码」则解密返回明文密码，否则空串。失败（key/密文损坏）返回空串。 */
+  async function savedPasswordPlain(): Promise<string> {
+    if (!rememberPassword.value || !savedPassword.value) return ''
+    return (await decryptPasswordFromStorage(savedPassword.value)) ?? ''
   }
 
   /** 续期：access 过期用 refresh 换新 access。失败登出。 */
@@ -237,6 +337,9 @@ export const useAuthStore = defineStore('auth', () => {
   function logout(): void {
     accessToken.value = ''
     refreshToken.value = ''
+    username.value = ''
+    // 服务地址 + 用户名始终保留（下次预填）；记住密码时保留密文，否则清空。
+    if (!rememberPassword.value) savedPassword.value = ''
     persist()
   }
 
@@ -244,12 +347,17 @@ export const useAuthStore = defineStore('auth', () => {
     serverAddress,
     accessToken,
     refreshToken,
+    username,
+    rememberPassword,
+    savedUsername,
+    savedPassword,
     isRemote,
     loggedIn,
     setServerAddress,
     getBaseUrl,
     authHeader,
     login,
+    savedPasswordPlain,
     refresh,
     logout,
   }

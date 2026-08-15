@@ -19,7 +19,7 @@ service 层是「外部世界 ↔ agent 内核」的边界。它把 WebSocket �
 ```
 initLogger(config.global.logger)
 WS_PORT    = config.server.port
-WEB_PORT   = config.server.web_port
+WEB_PORT   = config.server.webPort   // 优先级 WEB_PORT 环境变量 > server.webPort > 默认 8183
 STATIC_DIR = process.env.WEB_DIST_DIR ?? ../web/dist
 bootstrapAgentRuntime()          // 注册内置 Provider + 重建 Sense registry
 { wss, httpServer } = startService({ port: WS_PORT, webPort: WEB_PORT, staticDir: STATIC_DIR })  // ← 本模块入口

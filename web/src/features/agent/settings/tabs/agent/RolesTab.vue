@@ -23,7 +23,12 @@ type SkillCatalog = {
 }
 
 const props = defineProps<{ draft: ConfigDto; prompts: string[]; skillCatalog: SkillCatalog }>()
-const emit = defineEmits<{ (e: 'error', msg: string): void }>()
+type RoleMode = 'role' | 'shadow'
+const emit = defineEmits<{
+  (e: 'error', msg: string): void
+  (e: 'mode-change', mode: RoleMode): void
+}>()
+const roleMode = ref<RoleMode>('role')
 const selectedRole = ref('')
 const newRoleType = ref('')
 const copiedRole = ref('')
@@ -49,8 +54,10 @@ function checkOverflow(key: string, ev: MouseEvent): void {
   }
 }
 const removeImpact = computed(() => {
-  const presetRefs = Object.values(props.draft.presets ?? {}).filter((p) =>
-    p.roles?.includes(selectedRole.value),
+  const presetRefs = Object.values(props.draft.presets ?? {}).filter(
+    (p) =>
+      p.roles?.includes(selectedRole.value) ||
+      p.shadows?.conversationRouting === selectedRole.value,
   ).length
   const lines: string[] = ['该角色的全部配置（大脑 / 器官 / 装备）将被移除。']
   if (presetRefs) lines.push(`${presetRefs} 个预设引用了本角色，将自动清理。`)
@@ -58,6 +65,13 @@ const removeImpact = computed(() => {
 })
 
 const roles = computed(() => props.draft.roles ?? {})
+const filteredRoles = computed(() =>
+  Object.fromEntries(
+    Object.entries(roles.value).filter(([, cfg]) =>
+      roleMode.value === 'shadow' ? cfg.kind === 'shadow' : cfg.kind !== 'shadow',
+    ),
+  ),
+)
 const current = computed(() => roles.value[selectedRole.value])
 const isFixedRole = computed(() => selectedRole.value === CHERY_NYXUS_ROLE)
 const brainNames = computed(() => Object.keys(props.draft.llm.brain))
@@ -153,7 +167,7 @@ function roleTokens(cfg: RoleDraft): number {
   )
 }
 const railItems = computed<ResourceRailItem[]>(() =>
-  Object.entries(roles.value).map(([type, cfg]) => ({
+  Object.entries(filteredRoles.value).map(([type, cfg]) => ({
     key: type,
     label: type,
     avatar: resolveRoleAvatar(type, cfg.avatar),
@@ -172,8 +186,18 @@ function addRole(): void {
     return
   }
   props.draft.roles[type] = {
+    ...(roleMode.value === 'shadow' ? { kind: 'shadow' as const } : {}),
     brain: brainNames.value[0] ?? '',
-    senseGroup: senseNames.value[0] ?? '',
+    senseGroup:
+      roleMode.value === 'shadow'
+        ? (senseNames.value.find((name) =>
+            (props.draft.sense_groups?.[name] ?? []).some((entry) =>
+              entry.startsWith('select_conversation'),
+            ),
+          ) ??
+          senseNames.value[0] ??
+          '')
+        : (senseNames.value[0] ?? ''),
   }
   newRoleType.value = ''
   selectedRole.value = type
@@ -185,6 +209,9 @@ function removeRole(type: string): void {
     preset.roles = preset.roles?.filter((name) => name !== type)
     if (preset.leader === type) preset.leader = ''
     if (preset.detailRole === type) preset.detailRole = undefined
+    if (preset.shadows?.conversationRouting === type) {
+      preset.shadows.conversationRouting = undefined
+    }
   }
 }
 function duplicateRole(type: string): void {
@@ -216,6 +243,9 @@ function renameRole(oldType: string, newType: string): void {
     preset.roles = preset.roles?.map((name) => (name === oldType ? newType : name))
     if (preset.leader === oldType) preset.leader = newType
     if (preset.detailRole === oldType) preset.detailRole = newType
+    if (preset.shadows?.conversationRouting === oldType) {
+      preset.shadows.conversationRouting = newType
+    }
   }
   selectedRole.value = newType
 }
@@ -253,28 +283,76 @@ watch(selectedRole, () => {
   closeEquipment()
   titleRef.value?.cancel()
 })
+
+function setRoleMode(mode: RoleMode): void {
+  if (roleMode.value === mode) return
+  roleMode.value = mode
+  emit('mode-change', mode)
+  selectedRole.value = Object.keys(filteredRoles.value)[0] ?? ''
+}
+
+watch(
+  filteredRoles,
+  (available) => {
+    if (!available[selectedRole.value]) selectedRole.value = Object.keys(available)[0] ?? ''
+  },
+  { immediate: true },
+)
+
+onMounted(() => emit('mode-change', roleMode.value))
 </script>
 
 <template>
   <section class="roles-workspace">
     <p class="sect-hint">
-      像管理小队装备一样配置角色。点击左侧头像进入详情；技能、插件和 MCP 支持继承、自选与全部关闭。
+      <template v-if="roleMode === 'role'">
+        普通角色会进入团队、@ 菜单和节点树。点击左侧头像进入详情；技能、插件和 MCP
+        支持继承、自选与全部关闭。
+      </template>
+      <template v-else>
+        Shadow 只运行内部临时流程，不创建会话、Pet 或节点树，也不能成为组长、团队成员或 @ 目标。
+      </template>
     </p>
+    <div class="role-mode-stack" role="group" aria-label="角色类别">
+      <button
+        type="button"
+        class="role-kind-card is-ordinary"
+        :class="{ 'is-front': roleMode === 'role', 'is-back': roleMode !== 'role' }"
+        :aria-pressed="roleMode === 'role'"
+        @click="setRoleMode('role')"
+      >
+        普通角色
+      </button>
+      <button
+        type="button"
+        class="role-kind-card is-shadow"
+        :class="{ 'is-front': roleMode === 'shadow', 'is-back': roleMode !== 'shadow' }"
+        :aria-pressed="roleMode === 'shadow'"
+        @click="setRoleMode('shadow')"
+      >
+        影子角色
+      </button>
+    </div>
     <ResourceWorkbench
       v-model="selectedRole"
       :items="railItems"
-      search-placeholder="搜索角色"
+      :search-placeholder="roleMode === 'shadow' ? '搜索影子角色' : '搜索普通角色'"
       :glow-rail="true"
     >
       <template #rail-actions>
         <el-popover trigger="click" placement="bottom-start" :width="230">
           <template #reference
-            ><button type="button" class="rail-add" aria-label="新增角色"><Plus /></button
+            ><button
+              type="button"
+              class="rail-add"
+              :aria-label="roleMode === 'shadow' ? '新增影子角色' : '新增普通角色'"
+            >
+              <Plus /></button
           ></template>
           <div class="new-role-pop">
             <el-input
               v-model="newRoleType"
-              placeholder="新角色类型名"
+              :placeholder="roleMode === 'shadow' ? '新 Shadow 类型名' : '新角色类型名'"
               @keydown.enter="addRole"
             /><button type="button" class="primary-btn" @click="addRole">创建</button>
           </div>
@@ -542,6 +620,57 @@ watch(selectedRole, () => {
 }
 .roles-workspace :deep(.resource-workbench) {
   flex: 1;
+}
+.role-mode-stack {
+  position: relative;
+  width: 142px;
+  height: 39px;
+  flex: none;
+  margin: 0 8px 2px;
+}
+.role-kind-card {
+  position: absolute;
+  inset: 0;
+  width: 134px;
+  height: 29px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-radius: 8px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+  transform-origin: center;
+  transition:
+    transform 220ms cubic-bezier(0.77, 0, 0.175, 1),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+  &.is-front {
+    z-index: 2;
+    transform: translate3d(0, 0, 0) rotate(0) scale(1);
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 52%, transparent);
+    background: color-mix(in srgb, var(--tab-color, @accent) 14%, var(--surface));
+    color: color-mix(in srgb, var(--tab-color, @accent) 82%, var(--ink));
+    box-shadow: 0 5px 12px color-mix(in srgb, var(--tab-color, @accent) 15%, transparent);
+  }
+  &.is-back {
+    z-index: 1;
+  }
+  &.is-ordinary.is-back {
+    transform: translate3d(-8px, 10px, 0) rotate(-1.5deg) scale(0.97);
+  }
+  &.is-shadow.is-back {
+    transform: translate3d(8px, 10px, 0) rotate(1.5deg) scale(0.97);
+  }
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+    outline-offset: 2px;
+  }
 }
 .rail-add {
   width: 27px;
@@ -814,6 +943,9 @@ watch(selectedRole, () => {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .role-kind-card {
+    transition: none;
+  }
   .role-detail-card.copied {
     animation: none;
   }

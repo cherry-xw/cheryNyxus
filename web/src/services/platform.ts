@@ -112,15 +112,16 @@ export function sessionHeaders(server: { sessionToken?: string }): Record<string
 export async function getServerConfig(options: { refresh?: boolean } = {}): Promise<ServerConfig> {
   const auth = useAuthStore()
   // 远端：必须向目标后端拉取配置（Electron 本地 short-circuit 不适用）。
+  // 远端需鉴权，附 Bearer token（本地分支 sessionHeaders 返回空 {}，靠后端 loopback 豁免）。
   if (auth.isRemote) {
-    const res = await fetch(httpUrl('/api/config'), { cache: 'no-store' })
+    const res = await fetch(httpUrl('/api/config'), { cache: 'no-store', headers: sessionHeaders({}) })
     if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
     return (await res.json()) as ServerConfig
   }
   // Electron preload 的配置只在应用启动时注入。worker 重启会轮换本地 sessionToken，
   // 自动重连必须改从仍由守护进程恢复的 HTTP /api/config 读取新值。
   if (window.__BACKEND_CONFIG__ && !options.refresh) return window.__BACKEND_CONFIG__
-  const res = await fetch(httpUrl('/api/config'), { cache: 'no-store' })
+  const res = await fetch(httpUrl('/api/config'), { cache: 'no-store', headers: sessionHeaders({}) })
   if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
   return (await res.json()) as ServerConfig
 }

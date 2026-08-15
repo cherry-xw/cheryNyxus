@@ -4,7 +4,7 @@ import { sense, type Sense, type SenseResult, type SenseSharedData } from '@/cor
 import type { SenseRuntimeContext } from '@/core/sense/senseCreator.js'
 import { SupervisionLevel } from '@/core/config'
 import { hashGenerator } from '@/utils/hash.js' // 仅复用条件 promptHash 仍用
-import config from '@/utils/config.js'
+import config, { isOrdinaryRole } from '@/utils/config.js'
 import {
   createChat,
   findChatsByParent,
@@ -35,6 +35,7 @@ const roleCatalog = new Map<
   { brain: string; senseGroup: string; inputCapabilities: string[] }
 >()
 for (const [name, cfg] of Object.entries(config.roles ?? {})) {
+  if (!isOrdinaryRole(cfg)) continue
   const brainCfg = config.llm.brain[cfg.brain]
   const inputCaps = Object.entries(brainCfg?.capabilities?.input ?? {})
     .filter(([, v]) => v === true)
@@ -47,7 +48,9 @@ for (const [name, cfg] of Object.entries(config.roles ?? {})) {
 }
 const roleKeys = [...roleCatalog.keys()]
 const reservedDetailRoles = new Set(
-  Object.values(config.presets ?? {}).flatMap((preset) => preset.detailRole ? [preset.detailRole] : []),
+  Object.values(config.presets ?? {}).flatMap((preset) =>
+    preset.detailRole ? [preset.detailRole] : [],
+  ),
 )
 
 /** 按给定角色键子集拼装 catalog 文本（roster 裁剪时复用）。 */
@@ -95,7 +98,9 @@ export function resolveSpawnRoster(chatId: string): string[] {
     ? (getChatSpawnTypes(chatId) ?? config.presets?.[presetName]?.roles ?? roleKeys)
     : roleKeys
   const selfType = getChatType(chatId)
-  return raw.filter((type) => type !== selfType && !reservedDetailRoles.has(type))
+  return raw.filter(
+    (type) => roleKeys.includes(type) && type !== selfType && !reservedDetailRoles.has(type),
+  )
 }
 
 /**
@@ -139,7 +144,9 @@ export function buildSpawnRoleSense(chatId: string): Sense<z.ZodType> {
 }
 
 // 默认导出（registry 兜底）：全量 catalog。per-chat 场景由 buildSpawnRoleSense 按 roster 覆盖。
-export default buildSpawnRoleSenseFromRoster(roleKeys.filter((type) => !reservedDetailRoles.has(type)))
+export default buildSpawnRoleSenseFromRoster(
+  roleKeys.filter((type) => !reservedDetailRoles.has(type)),
+)
 
 /** spawn_role 执行器（含执行期 roster gate + self-spawn 禁止，纵深防御）。 */
 async function spawnHandler(
@@ -177,7 +184,7 @@ async function spawnHandler(
     )
   }
   const roleCfg = config.roles?.[type]
-  if (!roleCfg) {
+  if (!isOrdinaryRole(roleCfg)) {
     throw new Error(
       `没有 "${type}" 这个角色（可用：${roleKeys.join(', ') || '（未配置任何角色）'}）`,
     )

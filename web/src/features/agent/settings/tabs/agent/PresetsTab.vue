@@ -33,6 +33,16 @@ const newPresetName = ref('')
 const CHERY_NYXUS_PRESET = 'cheryNyxus'
 type RolePickerMode = 'leader' | 'detail'
 const rolePickerModes = ref<Record<string, RolePickerMode>>({})
+const ordinaryRoles = computed(() =>
+  Object.fromEntries(
+    Object.entries(props.draft.roles ?? {}).filter(([, role]) => role.kind !== 'shadow'),
+  ),
+)
+const shadowRoles = computed(() =>
+  Object.fromEntries(
+    Object.entries(props.draft.roles ?? {}).filter(([, role]) => role.kind === 'shadow'),
+  ),
+)
 
 function rolePickerMode(pname: string): RolePickerMode {
   if (isFixedPreset(pname)) return 'detail'
@@ -108,6 +118,17 @@ function updateMembers(pname: string, roles: string[]): void {
     isFixedPreset(pname) && p.leader && !roles.includes(p.leader) ? [p.leader, ...roles] : roles
   if (!isFixedPreset(pname) && p.leader && !roles.includes(p.leader)) p.leader = ''
   if (p.detailRole && !roles.includes(p.detailRole)) p.detailRole = undefined
+}
+
+function setConversationRoutingShadow(pname: string, value: string): void {
+  const preset = props.draft.presets?.[pname]
+  if (!preset) return
+  if (!value) {
+    if (preset.shadows) preset.shadows.conversationRouting = undefined
+    return
+  }
+  preset.shadows ??= {}
+  preset.shadows.conversationRouting = value
 }
 
 /** 点击已选角色卡设为组长。 */
@@ -234,7 +255,7 @@ const indexItems = computed<IndexItem[]>(() => {
                     @update:model-value="(roles: string[]) => updateMembers(pname as string, roles)"
                   >
                     <el-checkbox
-                      v-for="(_, rname) in draft.roles"
+                      v-for="(_, rname) in ordinaryRoles"
                       :key="rname"
                       :value="rname as string"
                       :disabled="
@@ -283,7 +304,7 @@ const indexItems = computed<IndexItem[]>(() => {
           label="团队成员与角色职责"
           tip="组长负责主任务；解释角色不参与派发、不会出现在 @角色 中，只用于节点的独立解释上下文。两种职责互斥。"
         />
-        <template v-if="draft.roles && Object.keys(draft.roles).length">
+        <template v-if="draft.roles && Object.keys(ordinaryRoles).length">
           <div v-if="preset.roles?.length" class="role-picker-section">
             <div class="role-picker-head">
               <span>为成员指定职责</span>
@@ -461,21 +482,28 @@ const indexItems = computed<IndexItem[]>(() => {
       </div>
 
       <div class="field">
-        <span class="lbl">对话路由大脑</span>
+        <span class="lbl">会话路由 Shadow</span>
         <el-select
-          v-model="preset.routingBrain"
-          placeholder="关闭智能推荐"
+          :model-value="preset.shadows?.conversationRouting ?? ''"
+          placeholder="关闭自动会话路由"
           clearable
           size="small"
+          @update:model-value="(v: string) => setConversationRoutingShadow(pname as string, v)"
         >
           <el-option
-            v-for="brainName in Object.keys(draft.llm?.brain ?? {})"
-            :key="brainName"
-            :value="brainName"
-            :label="brainName"
+            v-for="(_, shadowName) in shadowRoles"
+            :key="shadowName"
+            :value="shadowName as string"
+            :label="shadowName as string"
           />
         </el-select>
-        <span class="hint">仅用于给 Pet 快速发送窗口排序历史会话，不执行工具，也不会自行发送消息。</span>
+        <span class="hint">
+          用户点击发送后，此 Shadow 在消息真正提交前调用 select_conversation
+          选择目标。清空即关闭自动路由。
+        </span>
+        <span v-if="!Object.keys(shadowRoles).length" class="empty">
+          请先在「角色 → 影子角色」中创建会话路由 Shadow。
+        </span>
       </div>
 
       <div class="field">

@@ -30,6 +30,7 @@ interface PendingRequest {
   reject: (error: Error) => void
   /** 非流式 rpc 超时计时器；response 到达 / 断连 / 重连重置时清除。防 WS 半开时永久挂起。 */
   timer?: ReturnType<typeof setTimeout>
+  timeoutMs?: number
 }
 
 const RECONNECT_DELAY = 2000
@@ -312,14 +313,18 @@ export class WsClient {
     }
   }
 
-  rpc(method: string, params: unknown = {}): Promise<RpcResponse> {
+  rpc(
+    method: string,
+    params: unknown = {},
+    options?: { timeoutMs?: number },
+  ): Promise<RpcResponse> {
     if (!this.ws || this.status !== 'connected') {
       return Promise.reject(new Error('还没连上服务器'))
     }
     const id = uuid()
     const request = { id, kind: 'request' as const, method, params }
     return new Promise((resolve, reject) => {
-      const pending: PendingRequest = { request, resolve, reject }
+      const pending: PendingRequest = { request, resolve, reject, timeoutMs: options?.timeoutMs }
       this.pending.set(id, pending)
       this.armRpcTimeout(pending)
       this.ws!.send(encodeRequest(request))
@@ -336,7 +341,7 @@ export class WsClient {
       if (this.pending.delete(pending.request.id)) {
         pending.reject(new Error('请求超时，连接可能已断开，请重试'))
       }
-    }, RPC_TIMEOUT_MS)
+    }, pending.timeoutMs ?? RPC_TIMEOUT_MS)
   }
 
   /**

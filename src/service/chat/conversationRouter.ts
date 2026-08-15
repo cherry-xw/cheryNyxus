@@ -1,39 +1,47 @@
-import type { LLMResponse } from '@/core/message/adapter'
-import { getLLMAdapter } from '@/core/llm/adapter'
-import { getMessageAdapter } from '@/core/message/adapter'
 import { getChatPreviews, listAllChats } from '@/db/chat'
-import config from '@/utils/config'
+import { readFileSync } from 'node:fs'
+import config, { isShadowRole } from '@/utils/config'
 import { safeJsonParse } from '@/utils/json'
-import { Method, type ChatRouteSuggestResponseData } from '../message/types.js'
+import { ShadowRunner } from '@/agent/shadow/ShadowRunner.js'
+import {
+  clearConversationSelectionRun,
+  getConversationSelection,
+  registerConversationSelectionRun,
+  type ConversationSelection,
+} from '@/agent/shadow/conversationSelectionRegistry.js'
+import {
+  createChunk,
+  Method,
+  type ChatRouteSuggestResponseData,
+  type Chunk,
+  type RouteDeltaData,
+} from '../message/types.js'
 import type { RpcRouter } from '../message/router.js'
 
-const ROUTER_TIMEOUT_MS = 2500
+const SHADOW_TIMEOUT_MS = 25_000
 const MAX_CANDIDATES = 10
-const MAX_RESULTS = 3
 
-type RouterShape = {
-  candidates?: Array<{ chatId?: unknown; confidence?: unknown; reason?: unknown }>
+function loadShadowBackground(systemPromptFile?: string): string {
+  return systemPromptFile ? readFileSync(systemPromptFile, 'utf8').trim() : ''
 }
 
 function presetForId(presetId: string) {
   return Object.entries(config.presets ?? {}).find(([, preset]) => preset.id === presetId)
 }
 
-function stripFence(value: string): string {
-  return value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
-}
-
 export async function suggestConversationRoute(
   presetId: string,
   draft: string,
   requestVersion: number,
+  onDelta?: (delta: RouteDeltaData) => void,
 ): Promise<ChatRouteSuggestResponseData> {
   const presetEntry = presetForId(presetId)
   if (!presetEntry) throw new Error('这个预设不见了')
   const [presetName, preset] = presetEntry
-  if (!preset.routingBrain) throw new Error('当前预设没有配置对话路由大脑')
-  const brain = config.llm.brain[preset.routingBrain]
-  if (!brain) throw new Error(`对话路由大脑 "${preset.routingBrain}" 不存在`)
+  const shadowName = preset.shadows?.conversationRouting
+  if (!shadowName) throw new Error('当前预设没有配置会话路由 Shadow')
+  const shadow = config.roles?.[shadowName]
+  if (!isShadowRole(shadow)) throw new Error(`会话路由 Shadow "${shadowName}" 不存在`)
 
   const roots = listAllChats()
     .filter((chat) => !chat.parent_chat_id)
@@ -47,8 +55,7 @@ export async function suggestConversationRoute(
     })
     .filter(
       ({ metadata }) =>
-        metadata.presetId === presetId ||
-        (!metadata.presetId && metadata.preset === presetName),
+        metadata.presetId === presetId || (!metadata.presetId && metadata.preset === presetName),
     )
     .sort(
       (a, b) =>
@@ -57,70 +64,142 @@ export async function suggestConversationRoute(
     )
     .slice(0, MAX_CANDIDATES)
   const previews = getChatPreviews(roots.map(({ chat }) => chat))
-  const allowedIds = new Set(roots.map(({ chat }) => chat.id))
-  const summaries = roots.map(({ chat, metadata }) => ({
+  const candidates = roots.map(({ chat, metadata }) => ({
     chatId: chat.id,
     preview: previews.get(chat.id)?.preview ?? '',
     lastUserActivityAt: metadata.lastUserActivityAt ?? chat.updated_at,
   }))
 
-  const llm = getLLMAdapter(brain.provider)
-  const messages = getMessageAdapter(brain.provider)
-  if (!llm || !messages) throw new Error(`对话路由不支持 ${brain.provider} provider`)
-  const now = Date.now()
-  const prompt = [
-    '你是对话路由器。根据用户新消息，从候选历史中选出最多三个最相关目标。',
-    '也可以用 chatId=null 推荐新对话。只输出 JSON：',
-    '{"candidates":[{"chatId":"候选ID或null","confidence":0到1,"reason":"简短原因"}]}',
-    `用户消息：${draft}`,
-    `候选历史：${JSON.stringify(summaries)}`,
-  ].join('\n')
-  const history: LLMResponse[] = [
-    { id: `route-${requestVersion}`, role: 'user', content: prompt, createdAt: now, updateAt: now },
+  const systemPrompt = [
+    loadShadowBackground(shadow.systemPrompt),
+    '你是会话路由 Shadow。你的唯一任务是判断这条新消息应该继续哪个历史根会话，还是新建会话。',
+    '你只能使用 select_conversation 工具结束流程；不得回答用户消息本身。',
+    '选择历史会话时 chatId 必须逐字取自候选列表；没有合适候选时使用 chatId=null。',
+    'confidence 是 0 到 1 的信息性判断，reason 用一句简短中文解释语义关联。',
   ]
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), ROUTER_TIMEOUT_MS)
-  try {
-    const raw = await Promise.race([
-      llm.chat(messages.buildMessages(history), [], {
-        model: brain.model,
-        url: brain.url,
-        key: brain.key,
-        rpm: brain.rpm,
-        brain: preset.routingBrain,
-        thinking: 'off',
-        signal: controller.signal,
-      }),
-      new Promise<never>((_, reject) => {
-        const timeout = () => reject(new Error('对话路由超时，请手动选择目标'))
-        if (controller.signal.aborted) timeout()
-        else controller.signal.addEventListener('abort', timeout, { once: true })
-      }),
-    ])
-    const parsed = JSON.parse(stripFence(messages.content(raw))) as RouterShape
-    const candidates = (parsed.candidates ?? [])
-      .flatMap((candidate) => {
-        const chatId = candidate.chatId === null ? null : String(candidate.chatId ?? '')
-        const confidence = Number(candidate.confidence)
-        if ((chatId !== null && !allowedIds.has(chatId)) || !Number.isFinite(confidence)) return []
-        return [
-          {
-            chatId,
-            confidence: Math.max(0, Math.min(1, confidence)),
-            reason: String(candidate.reason ?? '').slice(0, 80),
-          },
-        ]
-      })
-      .sort((a, b) => b.confidence - a.confidence)
-      .slice(0, MAX_RESULTS)
-    return { requestVersion, candidates }
-  } finally {
-    clearTimeout(timer)
+    .filter(Boolean)
+    .join('\n\n')
+  const input = [
+    `待发送消息：${draft}`,
+    `候选历史（按最近活跃排序）：${JSON.stringify(candidates)}`,
+    '现在调用 select_conversation 完成选择。',
+  ].join('\n')
+  const correctiveInput =
+    '你尚未完成路由。不要输出说明或回答消息；现在必须调用一次 select_conversation。只能使用候选中的 chatId，或用 null 新建会话。'
+
+  const runner = new ShadowRunner()
+  const run = await runner
+    .run<ConversationSelection>({
+      roleName: shadowName,
+      role: shadow,
+      systemPrompt,
+      input,
+      correctiveInput,
+      maxTurns: 2,
+      timeoutMs: SHADOW_TIMEOUT_MS,
+      setup: (runId) =>
+        registerConversationSelectionRun(
+          runId,
+          candidates.map((candidate) => candidate.chatId),
+        ),
+      readResult: getConversationSelection,
+      cleanup: clearConversationSelectionRun,
+      // 转发 Shadow 的增量 thinking/content（调用方在前端累积，仅取 streaming 增量）。
+      onChunk: (chunk) => {
+        if (chunk.type !== 'stream') return
+        onDelta?.({ thinking: chunk.thinkingDelta, content: chunk.contentDelta })
+      },
+    })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/超时/.test(message)) throw new Error('对话路由超时，请手动选择目标')
+      throw new Error(`对话路由失败：${message}，请手动选择目标`)
+    })
+
+  const content = [...run.messages]
+    .reverse()
+    .find((message) => message.role === 'assistant')
+    ?.content.trim()
+    .slice(0, 4000)
+  const target = run.result
+  return {
+    requestVersion,
+    target,
+    trace: {
+      context: { draft, candidates },
+      response: {
+        ...(content ? { content } : {}),
+        toolCall: { name: 'select_conversation', arguments: target },
+      },
+    },
   }
 }
 
-export function registerConversationRouterHandlers(router: RpcRouter): void {
-  router.register(Method.CHAT_ROUTE_SUGGEST, async (_ctx, data) =>
-    suggestConversationRoute(data.presetId, data.draft, data.requestVersion),
+/**
+ * 极简 push-channel：把回调式增量流适配为 async-iterator，供流式 handler generator 消费。
+ */
+class PushChannel<T> {
+  private queue: T[] = []
+  private resolvers: Array<(entry: IteratorResult<T>) => void> = []
+  private closed = false
+
+  push(value: T): void {
+    if (this.closed) return
+    const r = this.resolvers.shift()
+    if (r) r({ done: false, value })
+    else this.queue.push(value)
+  }
+
+  close(): void {
+    if (this.closed) return
+    this.closed = true
+    for (const r of this.resolvers.splice(0)) r({ done: true, value: undefined })
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: (): Promise<IteratorResult<T>> => {
+        const head = this.queue.shift()
+        if (head !== undefined) return Promise.resolve({ done: false, value: head })
+        if (this.closed) return Promise.resolve({ done: true, value: undefined })
+        return new Promise((resolve) => this.resolvers.push(resolve))
+      },
+    }
+  }
+}
+
+/** 流式推算：先实时 yield 路由 Shadow 的 thinking/content 增量，最后 yield 完整结果。 */
+export async function* suggestConversationRouteStream(
+  presetId: string,
+  draft: string,
+  requestVersion: number,
+): AsyncGenerator<Chunk, ChatRouteSuggestResponseData, unknown> {
+  const channel = new PushChannel<RouteDeltaData>()
+  let error: unknown
+  let final: ChatRouteSuggestResponseData | undefined
+  const pending = suggestConversationRoute(presetId, draft, requestVersion, (delta) =>
+    channel.push(delta),
   )
+    .then((result) => {
+      final = result
+    })
+    .catch((cause: unknown) => {
+      error = cause
+    })
+    .finally(() => channel.close())
+
+  for await (const delta of channel) {
+    yield createChunk('route', presetId, { delta })
+  }
+  await pending
+  if (error) throw error
+  if (!final) throw new Error('会话路由未返回结果')
+  yield createChunk('route', presetId, final)
+  return final
+}
+
+export function registerConversationRouterHandlers(router: RpcRouter): void {
+  router.register(Method.CHAT_ROUTE_SUGGEST, async function* (_ctx, data) {
+    return yield* suggestConversationRouteStream(data.presetId, data.draft, data.requestVersion)
+  })
 }

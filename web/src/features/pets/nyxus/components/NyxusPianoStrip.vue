@@ -29,6 +29,8 @@ import { remainingSecOf, flashPeriodOf, isExpired } from '@/features/pets/utils/
 const emit = defineEmits<{
   select: [chatId: string]
   delete: [chatId: string]
+  /** 无历史数据的空键被点击：请求清空并新建空白会话（仅渲染开始节点）。 */
+  create: []
   'interacting-change': [v: boolean]
 }>()
 
@@ -46,20 +48,25 @@ const chatSessions = useChatSessionsStore()
 const audio = usePianoAudio()
 const now = useNow(250)
 
+/**
+ * 归属判定：会话属于该工作台预设 ⇔ 预设名或 presetId 命中其一。
+ * 预设名总是存在（Nyxus 工作台以预设名'cheryNyxus'开窗，Pet 以 hashed presetId 开窗），
+ * 而会话 metadata.presetId 统一存 hashed id（config ensurePresetIds 派生），故须双通道匹配。
+ */
+function belongsToPreset(c: ChatSummary): boolean {
+  return c.preset === props.presetName || c.presetId === props.presetId
+}
+
 /** One key per root conversation in the selected preset workspace. */
 const sessions = computed<ChatSummary[]>(() =>
   (agents.historyList ?? [])
-    .filter(
-      (c) =>
-        !c.parentChatId &&
-        (props.presetId ? c.presetId === props.presetId : c.preset === props.presetName),
-    )
+    .filter((c) => !c.parentChatId && belongsToPreset(c))
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
 )
 
 const presetChats = computed<ChatSummary[]>(() =>
-  (agents.historyList ?? []).filter((c) =>
-    props.presetId ? c.presetId === props.presetId : c.preset === props.presetName,
+  (agents.historyList ?? []).filter(
+    (c) => c.preset === props.presetName || c.presetId === props.presetId,
   ),
 )
 
@@ -251,6 +258,8 @@ function onKeyClick(v: KeyView): void {
   if (drag.wasDrag.value) return
   void audio.play(v.geom.freq)
   if (v.hasData) emit('select', v.chatId)
+  // 空键（无历史数据）：不复用旧树，请求父级清空并切到空白会话。
+  else emit('create')
 }
 
 const pressedKeyId = ref<number | null>(null)
