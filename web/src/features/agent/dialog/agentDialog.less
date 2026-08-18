@@ -24,6 +24,11 @@
   align-items: flex-end;
   padding-bottom: 28px;
 }
+.dialog-overlay.is-floating {
+  // pet/nyxus 来源浮动窗（含 Electron desktop surface）：全屏 overlay 不拦截指针，
+  // 命中测试只认 panel 实体（穿透判定见 useDesktopPassthrough）；panel 内恢复 auto。
+  pointer-events: none;
+}
 
 .dialog-panel {
   width: min(680px, 96vw);
@@ -38,6 +43,9 @@
   flex-direction: column;
   gap: 10px;
   overflow: auto;
+}
+.dialog-overlay.is-floating .dialog-panel {
+  pointer-events: auto;
 }
 
 .role-configs {

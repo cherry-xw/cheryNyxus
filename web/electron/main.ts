@@ -3,21 +3,40 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
 
-interface DesktopPetCandidate {
-  chatId: string
-  label: string
-  working: boolean
+/**
+ * desktop renderer → main 请求打开控制台的导航目标。
+ * main 确保 console 窗可见（惰性创建 + ready 队列）后经 `console:navigate` 转发给 console renderer。
+ */
+export type ConsoleTarget =
+  | { target: 'show' }
+  | { target: 'settings' }
+  | { target: 'workbench'; presetId: string; chatId?: string }
+  | { target: 'history'; chatId: string }
+
+/** IPC 载荷防御校验：desktop:open-console 的 target 结构不合法时静默丢弃。 */
+function isValidConsoleTarget(value: unknown): value is ConsoleTarget {
+  if (!value || typeof value !== 'object') return false
+  const target = value as Partial<ConsoleTarget>
+  if (target.target === 'show' || target.target === 'settings') return true
+  if (target.target === 'workbench') {
+    return typeof target.presetId === 'string' && (target.chatId === undefined || typeof target.chatId === 'string')
+  }
+  if (target.target === 'history') {
+    return typeof (target as { chatId?: unknown }).chatId === 'string'
+  }
+  return false
 }
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8182)
 const WEB_PORT = Number(process.env.WEB_PORT ?? 8183)
 
 let backend: ChildProcess | null = null
-let controlWindow: BrowserWindow | null = null
-let petWindow: BrowserWindow | null = null
+let desktopWindow: BrowserWindow | null = null
+let consoleWindow: BrowserWindow | null = null
 let tray: Tray | null = null
-let petCandidates: DesktopPetCandidate[] = []
-let selectedPetChatId: string | null = null
+/** console 窗 did-finish-load 后置位；未就绪期间的 navigate 请求入队，就绪后补发。 */
+let consoleReady = false
+let pendingConsoleTargets: ConsoleTarget[] = []
 let isQuitting = false
 let serverConfig: { wsPort: number; webPort: number; transport: string } | null = null
 /** `getRuntimeRoot()` 解析结果缓存（启动后固定）。 */
@@ -163,7 +182,7 @@ async function waitForBackend(timeoutMs = 30000): Promise<void> {
   throw new Error(`后端启动超时（${timeoutMs}ms）`)
 }
 
-function loadRenderer(win: BrowserWindow, surface?: 'desktop-pet'): void {
+function loadRenderer(win: BrowserWindow, surface?: 'desktop' | 'console'): void {
   const query = surface ? `?surface=${surface}` : ''
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL)
@@ -176,26 +195,30 @@ function loadRenderer(win: BrowserWindow, surface?: 'desktop-pet'): void {
   }
 }
 
-function showControlWindow(): void {
-  if (!controlWindow || controlWindow.isDestroyed()) return
-  controlWindow.show()
-  controlWindow.focus()
+function showConsoleWindow(): void {
+  if (!consoleWindow || consoleWindow.isDestroyed()) return
+  consoleWindow.show()
+  consoleWindow.focus()
 }
 
-function selectedPet(): DesktopPetCandidate | null {
-  return petCandidates.find((candidate) => candidate.chatId === selectedPetChatId) ?? null
-}
-
-function sendPetState(): void {
-  if (!petWindow || petWindow.isDestroyed()) return
-  const selected = selectedPet()
-  petWindow.webContents.send('desktop-pet:state', selected)
-  if (selected && !petWindow.isVisible()) petWindow.showInactive()
-}
-
-function requestControlAction(channel: 'desktop-pet:open-chat', chatId: string): void {
-  showControlWindow()
-  controlWindow?.webContents.send(channel, chatId)
+/**
+ * 打开（或显示）控制台并导航到指定目标。
+ *
+ * console 窗惰性创建：首次调用才建窗 + 加载 `?surface=console`。did-finish-load 前
+ * 的 navigate 请求入队，就绪后按序补发——避免 renderer 尚未挂监听时消息丢失。
+ */
+function openConsole(target: ConsoleTarget = { target: 'show' }): void {
+  if (!consoleWindow || consoleWindow.isDestroyed()) {
+    createConsoleWindow()
+    pendingConsoleTargets.push(target)
+    return
+  }
+  showConsoleWindow()
+  if (consoleReady) {
+    consoleWindow.webContents.send('console:navigate', target)
+  } else {
+    pendingConsoleTargets.push(target)
+  }
 }
 
 function quitApplication(): void {
@@ -203,13 +226,62 @@ function quitApplication(): void {
   app.quit()
 }
 
+/**
+ * 程序化托盘图标：16x16 RGBA 位图（暖橙圆点 + 透明底）。
+ * 仓库无磁盘图标资源，embedded data URL 在 Windows 缩放下几乎不可见；
+ * 逐像素绘制保证任何环境托盘区都有可见锚点（打包后可替换为品牌图标资源）。
+ */
+function createTrayIcon(): Electron.NativeImage {
+  const SIZE = 16
+  const R = SIZE / 2
+  const data = Buffer.alloc(SIZE * SIZE * 4)
+  for (let y = 0; y < SIZE; y++) {
+    for (let x = 0; x < SIZE; x++) {
+      // 圆内实心（边缘 0.5px 抗锯齿过渡），圆外透明
+      const dist = Math.hypot(x + 0.5 - R, y + 0.5 - R)
+      const alpha = Math.max(0, Math.min(1, R - 0.5 - (dist - 0.5)))
+      const idx = (y * SIZE + x) * 4
+      if (alpha > 0) {
+        data[idx] = 246 // r
+        data[idx + 1] = 183 // g
+        data[idx + 2] = 60 // b（品牌暖橙 #f6b73c）
+        data[idx + 3] = Math.round(alpha * 255)
+      }
+    }
+  }
+  return nativeImage.createFromBuffer(data, { width: SIZE, height: SIZE })
+}
+
 function rebuildTrayMenu(): void {
   if (!tray) return
+  // 直接读注册表现值，避免自建持久化的状态漂移；开发期禁用，防止把 electron.exe dev 路径写进自启项。
+  const autoLaunchEnabled = app.isPackaged && app.getLoginItemSettings().openAtLogin
+  const petVisible = desktopWindow ? desktopWindow.isVisible() : true
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: '显示控制台', click: showControlWindow },
+      { label: '显示控制台', click: () => openConsole() },
       { type: 'separator' },
-      { label: '隐藏 Nyxus 入口', click: () => petWindow?.hide() },
+      {
+        label: '显示桌面宠物',
+        type: 'checkbox',
+        checked: petVisible,
+        click: () => {
+          if (!desktopWindow || desktopWindow.isDestroyed()) return
+          if (desktopWindow.isVisible()) desktopWindow.hide()
+          else desktopWindow.show()
+          rebuildTrayMenu()
+        },
+      },
+      {
+        label: '开机自启',
+        type: 'checkbox',
+        checked: autoLaunchEnabled,
+        enabled: app.isPackaged,
+        click: () => {
+          app.setLoginItemSettings({ openAtLogin: !autoLaunchEnabled })
+          rebuildTrayMenu()
+        },
+      },
       { type: 'separator' },
       { label: '退出', click: quitApplication },
     ]),
@@ -217,47 +289,26 @@ function rebuildTrayMenu(): void {
 }
 
 function createTray(): void {
-  // A tiny embedded PNG keeps packaging independent from platform icon paths.
-  const icon = nativeImage.createFromDataURL(
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAIUlEQVR42mNkYPj/n4ECwESJ5lEDRg0YNYDRABg1gNEAAHn9AhE8m6YAAAAASUVORK5CYII=',
-  )
-  tray = new Tray(icon)
+  tray = new Tray(createTrayIcon())
   tray.setToolTip('CheryNyxus')
-  tray.on('double-click', showControlWindow)
+  tray.on('double-click', () => openConsole())
+  // 单击也显示控制台：托盘是唯一常驻入口，降低唤起门槛（双击保留既有语义）。
+  tray.on('click', () => openConsole())
   rebuildTrayMenu()
 }
 
-function createControlWindow(): void {
+/**
+ * 全工作区透明覆盖窗（desktop surface）：宠物 + 星系 + 发消息浮动窗直接渲染在桌面上。
+ * 空区域鼠标穿透由 renderer 驱动（`desktop:mouse-passthrough`）；分辨率变化经
+ * `display-*` 事件 setBounds 重贴 workArea。
+ */
+function createDesktopWindow(): void {
+  const workArea = screen.getPrimaryDisplay().workArea
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    title: 'CheryNyxus',
-    skipTaskbar: true,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: join(import.meta.dirname, 'preload.mjs'),
-    },
-  })
-  controlWindow = win
-  win.on('close', (event) => {
-    if (isQuitting) return
-    event.preventDefault()
-    win.hide()
-  })
-  win.on('closed', () => (controlWindow = null))
-  loadRenderer(win)
-}
-
-function createPetWindow(): void {
-  const display = screen.getPrimaryDisplay().workArea
-  const width = 220
-  const height = 230
-  const win = new BrowserWindow({
-    x: display.x + display.width - width - 24,
-    y: display.y + display.height - height - 18,
-    width,
-    height,
+    x: workArea.x,
+    y: workArea.y,
+    width: workArea.width,
+    height: workArea.height,
     frame: false,
     transparent: true,
     resizable: false,
@@ -265,14 +316,13 @@ function createPetWindow(): void {
     skipTaskbar: true,
     hasShadow: false,
     backgroundColor: '#00000000',
-    show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       preload: join(import.meta.dirname, 'preload.mjs'),
     },
   })
-  petWindow = win
+  desktopWindow = win
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   win.on('close', (event) => {
@@ -280,9 +330,63 @@ function createPetWindow(): void {
     event.preventDefault()
     win.hide()
   })
-  win.on('closed', () => (petWindow = null))
-  win.webContents.on('did-finish-load', sendPetState)
-  loadRenderer(win, 'desktop-pet')
+  win.on('closed', () => (desktopWindow = null))
+  loadRenderer(win, 'desktop')
+}
+
+/** desktop 窗随主显示器 workArea 变化重贴（分辨率切换 / 任务栏调整）。 */
+function realignDesktopWindow(): void {
+  if (!desktopWindow || desktopWindow.isDestroyed()) return
+  desktopWindow.setBounds(screen.getPrimaryDisplay().workArea)
+}
+
+/**
+ * 惰性控制台窗（console surface）：承载设置 / 工作台等大界面。
+ * 无边框（frame:false）——标题栏由渲染层 ConsoleShell 自绘（拖拽/最大化/最小化/关闭），
+ * 经 `console:window-control` IPC 驱动原生窗口。关闭仅 hide 不 destroy——disconnectGrace
+ * 按发起连接跟踪 run，console 发起 run 后关窗若断 WS 会触发 park；hide 保持连接存活。
+ */
+function createConsoleWindow(): void {
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    title: 'CheryNyxus',
+    frame: false,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: join(import.meta.dirname, 'preload.mjs'),
+    },
+  })
+  consoleWindow = win
+  consoleReady = false
+  win.once('ready-to-show', () => win.show())
+  // 原生最大化态变化（双击标题栏 / Win+↑ / 拖到屏幕边缘）→ 回推渲染层切标题栏图标
+  const pushMaximized = () => {
+    if (!win.isDestroyed()) win.webContents.send('console:maximize-changed', win.isMaximized())
+  }
+  win.on('maximize', pushMaximized)
+  win.on('unmaximize', pushMaximized)
+  win.on('close', (event) => {
+    if (isQuitting) return
+    event.preventDefault()
+    win.hide()
+  })
+  win.on('closed', () => {
+    consoleWindow = null
+    consoleReady = false
+  })
+  win.webContents.on('did-finish-load', () => {
+    consoleReady = true
+    // 就绪前积压的 navigate 请求按序补发（含首开时的那一条）。
+    const queued = pendingConsoleTargets.splice(0)
+    for (const target of queued) {
+      win.webContents.send('console:navigate', target)
+    }
+    pushMaximized()
+  })
+  loadRenderer(win, 'console')
 }
 
 app.whenReady().then(async () => {
@@ -303,33 +407,35 @@ app.whenReady().then(async () => {
     return result.canceled || !result.filePaths.length ? null : result.filePaths[0]!
   })
 
-  ipcMain.on('desktop-pet:publish', (event, value: unknown) => {
-    if (event.sender !== controlWindow?.webContents || !Array.isArray(value)) return
-    petCandidates = value.filter((item): item is DesktopPetCandidate => {
-      if (!item || typeof item !== 'object') return false
-      const candidate = item as Partial<DesktopPetCandidate>
-      return (
-        typeof candidate.chatId === 'string' &&
-        typeof candidate.label === 'string' &&
-        typeof candidate.working === 'boolean'
-      )
-    })
-    selectedPetChatId = petCandidates[0]?.chatId ?? null
-    sendPetState()
-    rebuildTrayMenu()
-  })
-
-  ipcMain.on('desktop-pet:request-open-chat', (event, chatId: unknown) => {
-    if (event.sender !== petWindow?.webContents || typeof chatId !== 'string') return
-    if (petCandidates.some((candidate) => candidate.chatId === chatId)) {
-      requestControlAction('desktop-pet:open-chat', chatId)
-    }
-  })
-
-  ipcMain.on('desktop-pet:mouse-passthrough', (event, ignore: unknown) => {
-    if (event.sender !== petWindow?.webContents || typeof ignore !== 'boolean') return
+  ipcMain.on('desktop:mouse-passthrough', (event, ignore: unknown) => {
+    if (event.sender !== desktopWindow?.webContents || typeof ignore !== 'boolean') return
     // Linux does not support forwarded mouse moves while ignored, so it would never become interactive again.
-    if (process.platform === 'win32') petWindow?.setIgnoreMouseEvents(ignore, { forward: true })
+    if (process.platform === 'win32') desktopWindow?.setIgnoreMouseEvents(ignore, { forward: true })
+  })
+
+  ipcMain.on('desktop:open-console', (event, target: unknown) => {
+    if (event.sender !== desktopWindow?.webContents) return
+    if (!isValidConsoleTarget(target)) return
+    openConsole(target)
+  })
+
+  // console 自绘标题栏 → 原生窗口控制（sender 校验 console 窗）。
+  ipcMain.on('console:window-control', (event, action: unknown) => {
+    const win = consoleWindow
+    if (!win || win.isDestroyed() || event.sender !== win.webContents) return
+    if (action === 'minimize' || action === 'close') {
+      // 最小化与关闭都走 hide：断 WS 会触发 disconnectGrace park 运行中任务
+      win.hide()
+      return
+    }
+    if (action === 'maximize') {
+      if (!win.isMaximized()) win.maximize()
+      return
+    }
+    if (action === 'restore') {
+      if (win.isMaximized()) win.unmaximize()
+      return
+    }
   })
 
   // 启动日志：让用户在 console / 日志文件里能找到 .env 和 .chery 的真实路径
@@ -340,24 +446,26 @@ app.whenReady().then(async () => {
   try {
     backend = startBackend()
     await waitForBackend()
-    createControlWindow()
-    createPetWindow()
+    createDesktopWindow()
     createTray()
+    // 分辨率切换 / 任务栏调整 → desktop 窗重贴 workArea（渲染层 resize 后自行 clamp 宠物/星系位置）
+    screen.on('display-metrics-changed', realignDesktopWindow)
+    screen.on('display-added', realignDesktopWindow)
+    screen.on('display-removed', realignDesktopWindow)
   } catch (e) {
     console.error('启动后端失败:', e)
     app.quit()
   }
 
   app.on('activate', () => {
-    if (!controlWindow) createControlWindow()
-    showControlWindow()
+    openConsole()
   })
 
-  app.on('second-instance', showControlWindow)
+  app.on('second-instance', () => openConsole())
 })
 
 app.on('window-all-closed', () => {
-  // The tray owns application lifetime; closing the control window only hides it.
+  // The tray owns application lifetime; closing windows only hides them.
 })
 
 app.on('before-quit', async (e) => {

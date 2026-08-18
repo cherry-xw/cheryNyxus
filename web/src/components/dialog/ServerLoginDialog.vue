@@ -1,13 +1,16 @@
 <script setup lang="ts">
 /**
- * ServerLoginDialog：后端服务对接弹窗（拟态玻璃，非 Element Plus）。
+ * ServerLoginDialog：后端服务对接弹窗（拟态玻璃浮动窗，非 Element Plus）。
  * 输入后端服务地址 + 用户名/密码。
  * 授权规则：本地 loopback 直连不鉴权（隐藏用户名/密码）；远端地址需登录（签发双 token）。
  * 安全：远端登录凭据经「挑战式 AES-256-GCM 加密」传输（先取 challenge，再加密信封）。
  * 存储：服务地址 + 用户名始终默认记住；「记住密码」默认关，勾选后密码 AES-GCM 加密存本地并预填。
  * 地址默认：web = 当前域名/IP+端口（window.location.origin）；Electron = 本地服务（http://localhost:<webPort>），均可改。
+ *
+ * 浮动窗形态（工作台弹窗一致）：无全屏遮罩、标题栏可拖动、✕/ESC 关闭、`data-desktop-hit`
+ * 标记（Electron desktop 透明窗穿透命中测试）。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useAuthStore, hostOf, isLoopbackHost, normalizeAddress, type AuthError } from '@/stores/auth'
 import { isElectron } from '@/services/platform'
 import { useConnectionStore } from '@/stores'
@@ -33,6 +36,11 @@ const busy = ref(false)
 const error = ref<AuthError | null>(null)
 const showRaw = ref(false)
 const toast = ref('')
+
+/** 浮动窗位置（拖动偏移）；每次打开复位到视口中心。 */
+const offset = reactive({ x: 0, y: 0 })
+const dragging = ref(false)
+let dragCleanup: (() => void) | undefined
 
 /** 远端已登录 → 显示用户信息 + 登出；否则显示表单。 */
 const loggedIn = computed(() => auth.isRemote && auth.loggedIn)
@@ -60,6 +68,55 @@ const errorIcon = computed(() => {
   }
 })
 
+function close(): void {
+  emit('update:visible', false)
+}
+
+/** 标题栏拖拽（与 SettingsDialog/WorkbenchDialog 一致的 offset 方案）。 */
+function onTitlePointerDown(e: PointerEvent): void {
+  if (e.button !== 0) return
+  if ((e.target as Element | null)?.closest('button')) return
+  e.preventDefault()
+  const startPointer = { x: e.clientX, y: e.clientY }
+  const startOffset = { x: offset.x, y: offset.y }
+  dragging.value = true
+  document.body.style.userSelect = 'none'
+  const move = (ev: PointerEvent) => {
+    offset.x = startOffset.x + ev.clientX - startPointer.x
+    offset.y = startOffset.y + ev.clientY - startPointer.y
+  }
+  const end = () => {
+    dragging.value = false
+    document.body.style.userSelect = ''
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', end)
+    window.removeEventListener('pointercancel', end)
+    dragCleanup = undefined
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', end)
+  window.addEventListener('pointercancel', end)
+  dragCleanup = end
+}
+
+onBeforeUnmount(() => dragCleanup?.())
+
+// ESC 关闭（打开时挂载）
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    close()
+  }
+}
+watch(
+  () => props.visible,
+  (open) => {
+    if (open) window.addEventListener('keydown', onKeydown)
+    else window.removeEventListener('keydown', onKeydown)
+  },
+)
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+
 watch(
   () => props.visible,
   async (open) => {
@@ -71,6 +128,8 @@ watch(
     error.value = null
     showRaw.value = false
     toast.value = ''
+    offset.x = 0
+    offset.y = 0
   },
 )
 
@@ -139,19 +198,27 @@ function logout(): void {
 <template>
   <Teleport to="body">
     <Transition name="glass-fade">
-      <div v-if="visible" class="glass-backdrop" @click.self="emit('update:visible', false)">
-        <!-- 背景漂浮光斑 -->
-        <div class="orbs" aria-hidden="true">
-          <span v-for="n in 3" :key="n" class="orb" :style="{ '--i': n }" />
-        </div>
-
-        <div class="glass-card" role="dialog" aria-modal="true" aria-label="连接后端服务">
+      <div
+        v-if="visible"
+        class="glass-float"
+        data-desktop-hit
+        role="dialog"
+        aria-modal="true"
+        aria-label="连接后端服务"
+        :style="{ transform: `translate(${offset.x}px, ${offset.y}px)` }"
+      >
+        <div class="glass-card">
           <div class="glass-card-inner">
-            <div class="glass-head">
-              <div class="glass-logo" aria-hidden="true">🐾</div>
-              <h2 class="glass-title">{{ isLocal ? '连接本地服务' : '连接后端服务' }}</h2>
-              <p class="glass-sub">{{ isLocal ? 'loopback 直连，无需登录' : '请完成远端服务登录' }}</p>
-            </div>
+            <header class="glass-titlebar" @pointerdown="onTitlePointerDown">
+              <div class="glass-head">
+                <div class="glass-logo" aria-hidden="true">🐾</div>
+                <h2 class="glass-title">{{ isLocal ? '连接本地服务' : '连接后端服务' }}</h2>
+                <p class="glass-sub">{{ isLocal ? 'loopback 直连，无需登录' : '请完成远端服务登录' }}</p>
+              </div>
+              <button type="button" class="glass-close" aria-label="关闭" title="关闭" @click="close">
+                ✕
+              </button>
+            </header>
 
             <!-- 已登录态 -->
             <template v-if="loggedIn">
@@ -166,7 +233,6 @@ function logout(): void {
                 </div>
               </div>
               <div class="actions">
-                <button class="btn btn--ghost" @click="emit('update:visible', false)">关闭</button>
                 <button class="btn btn--danger" @click="logout">登出</button>
               </div>
             </template>
@@ -241,9 +307,7 @@ function logout(): void {
               </div>
 
               <div class="actions">
-                <button type="button" class="btn btn--ghost" @click="emit('update:visible', false)">
-                  取消
-                </button>
+                <button type="button" class="btn btn--ghost" @click="close">取消</button>
                 <button type="submit" class="btn btn--primary" :class="{ 'btn--busy': busy }">
                   {{ busy ? (isLocal ? '连接中…' : '登录中…') : isLocal ? '连接' : '登录并连接' }}
                 </button>
@@ -252,7 +316,7 @@ function logout(): void {
           </div>
         </div>
 
-        <!-- 顶栏 toast -->
+        <!-- 浮窗下方 toast -->
         <Transition name="toast-fade">
           <div v-if="toast" class="glass-toast">{{ toast }}</div>
         </Transition>
@@ -262,18 +326,15 @@ function logout(): void {
 </template>
 
 <style scoped lang="less">
-.glass-backdrop {
+/* 浮动窗（无全屏遮罩）：fixed 定位，初始位于视口偏上中心；拖动 offset 经内联 transform
+   注入（translate(offset)），负 margin（-50% 卡宽 / -240px 约半卡高）保持初始中心点。 */
+.glass-float {
   position: fixed;
-  inset: 0;
+  top: 50%;
+  left: 50%;
   z-index: 3000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: radial-gradient(circle at 25% 20%, rgba(90, 120, 255, 0.16), rgba(10, 12, 24, 0.55) 60%);
-  backdrop-filter: blur(10px) saturate(1.2);
-  -webkit-backdrop-filter: blur(10px) saturate(1.2);
-  overflow: hidden;
+  margin-left: -200px;
+  margin-top: -240px;
 }
 
 .glass-fade-enter-active,
@@ -294,52 +355,11 @@ function logout(): void {
   opacity: 0;
 }
 
-/* —— 漂浮光斑 —— */
-.orbs {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  filter: blur(60px);
-}
-.orb {
-  position: absolute;
-  width: 240px;
-  height: 240px;
-  border-radius: 50%;
-  opacity: 0.5;
-  animation: orbDrift calc(9s + var(--i) * 2.5s) ease-in-out infinite alternate;
-  --c1: #6d8bff;
-  --c2: #b06bff;
-}
-.orb:nth-child(1) {
-  top: 8%;
-  left: 12%;
-  background: radial-gradient(circle at 30% 30%, rgba(109, 139, 255, 0.55), transparent 70%);
-}
-.orb:nth-child(2) {
-  bottom: 6%;
-  right: 10%;
-  background: radial-gradient(circle at 60% 40%, rgba(176, 107, 255, 0.5), transparent 70%);
-}
-.orb:nth-child(3) {
-  top: 55%;
-  left: 60%;
-  background: radial-gradient(circle at 50% 50%, rgba(255, 183, 110, 0.4), transparent 70%);
-}
-@keyframes orbDrift {
-  from {
-    transform: translate(0, 0) scale(1);
-  }
-  to {
-    transform: translate(30px, -24px) scale(1.12);
-  }
-}
-
 /* —— 玻璃卡片 —— */
 .glass-card {
   position: relative;
   width: 400px;
-  max-width: 100%;
+  max-width: calc(100vw - 32px);
   border-radius: 6px;
   padding: 1px;
   background: linear-gradient(
@@ -360,7 +380,7 @@ function logout(): void {
 }
 .glass-card-inner {
   border-radius: 5px;
-  padding: 28px 28px 22px;
+  padding: 0 28px 22px;
   background: rgba(236, 240, 255, 0.55);
   backdrop-filter: blur(24px) saturate(1.4);
   -webkit-backdrop-filter: blur(24px) saturate(1.4);
@@ -371,7 +391,21 @@ function logout(): void {
   color: #e8ecff;
 }
 
+/* —— 标题栏（拖动 + 关闭） —— */
+.glass-titlebar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 24px 0 0;
+  cursor: grab;
+  user-select: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
 .glass-head {
+  flex: 1;
   text-align: center;
   margin-bottom: 18px;
 }
@@ -389,6 +423,29 @@ function logout(): void {
   margin: 4px 0 0;
   font-size: 12.5px;
   opacity: 0.55;
+}
+.glass-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  opacity: 0.65;
+  background: transparent;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    opacity 120ms ease,
+    background-color 120ms ease;
+
+  &:hover {
+    opacity: 1;
+    background: rgba(120, 140, 255, 0.16);
+  }
 }
 
 /* —— 表单 —— */
@@ -635,7 +692,7 @@ function logout(): void {
 /* —— toast —— */
 .glass-toast {
   position: absolute;
-  top: 22px;
+  top: -44px;
   left: 50%;
   transform: translateX(-50%);
   padding: 9px 18px;
@@ -648,6 +705,7 @@ function logout(): void {
   font-weight: 600;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.14);
+  white-space: nowrap;
 }
 .toast-fade-enter-active,
 .toast-fade-leave-active {

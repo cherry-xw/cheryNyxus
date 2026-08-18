@@ -9,6 +9,7 @@ import { useNyxusWorkState } from '../composables/useNyxusWorkState'
 import { useStandaloneNyxusMotion } from '../composables/useStandaloneNyxusMotion'
 import { createClickDisambiguator } from '../composables/clickDisambiguator'
 import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from '../nyxusUiState'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
 const agents = useAgentsStore()
@@ -110,7 +111,13 @@ async function runCreate(opts: {
 
 function openSettings(): void {
   if (connection.status !== 'connected') return
-  agents.settingsOpen = true
+  // desktop surface：设置等大界面由惰性 console 窗承载；浏览器保持应用内弹窗
+  const bridge = desktopBridge()
+  if (bridge) {
+    bridge.openConsole({ target: 'settings' })
+  } else {
+    agents.settingsOpen = true
+  }
   closeNyxusMenu()
 }
 
@@ -127,6 +134,18 @@ async function openWorkbench(): Promise<void> {
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '加载 Cherry Nyxus 绘画列表失败'
     console.error('[CherryNyxus] load workbench catalog failed:', cause)
+    return
+  }
+  // desktop surface：工作台在 console 窗渲染（含 Pixi 画布等重组件），经 bridge 导航打开；
+  // 浏览器保持应用内多窗口。chatId 语义与下方分支一致：仅新建窗口时恢复活跃会话。
+  const bridge = desktopBridge()
+  if (bridge) {
+    bridge.openConsole({
+      target: 'workbench',
+      presetId: CHERY_NYXUS_PRESET,
+      chatId: agents.activeNyxusChatId ?? undefined,
+    })
+    closeNyxusMenu()
     return
   }
   const id = agents.openWorkbenchWindow(CHERY_NYXUS_PRESET)
@@ -157,6 +176,7 @@ onBeforeUnmount(() => {
     class="nyxus-entry"
     :class="{ 'is-dragging': dragging, 'is-open': nyxusMenuOpen }"
     :style="anchorStyle"
+    data-desktop-hit
     aria-label="Cherry Nyxus 入口"
   >
     <button

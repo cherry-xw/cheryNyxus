@@ -17,6 +17,7 @@ import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import { useAgentDialogOptions } from '../dialog/useAgentDialogOptions'
 import type { RouteStatus } from '../dialog/conversationTargetRouting'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { useAgentsStore, useInteractionsStore } from '@/stores'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
@@ -33,6 +34,13 @@ const isTopMask = computed(
 )
 
 const MotionDiv = motion.div
+
+// desktop surface（Electron 全工作区透明窗）：pet/nyxus 来源为无遮罩浮动窗，overlay 的
+// 全屏 DOM 不能拦截命中测试——置 pointer-events:none 让穿透判定只认 panel 实体，
+// panel 内部恢复 auto（agentDialog.less 的 .dialog-panel）。
+const isFloatingOverlay = computed(
+  () => agents.activeDialogSource === 'pet' || agents.activeDialogSource === 'nyxus',
+)
 
 const {
   chatId,
@@ -205,8 +213,9 @@ const dragPreview = ref<{ x: number; y: number; w: number; h: number } | null>(n
 let dragCtx:
   | { pointerX: number; pointerY: number; origX: number; origY: number; w: number; h: number }
   | undefined
-function bindPanelEl(el: HTMLElement | { $el?: HTMLElement } | null): void {
-  panelEl.value = el instanceof HTMLElement ? el : (el?.$el ?? null)
+function bindPanelEl(el: unknown): void {
+  panelEl.value =
+    el instanceof HTMLElement ? el : ((el as { $el?: HTMLElement } | null)?.$el ?? null)
 }
 function onHeaderPointerDown(e: PointerEvent): void {
   const target = e.target as HTMLElement
@@ -357,6 +366,12 @@ async function sendFromComposer(): Promise<void> {
 function openWorkbenchForChat(): void {
   const preset = quickPresetId.value
   if (!preset) return
+  // desktop surface：工作台在 console 窗渲染，经 bridge 导航；浏览器保持应用内多窗口
+  const bridge = desktopBridge()
+  if (bridge) {
+    bridge.openConsole({ target: 'workbench', presetId: preset, chatId: chatId.value ?? undefined })
+    return
+  }
   const id = agents.openWorkbenchWindow(preset)
   if (chatId.value) agents.setWorkbenchWindowChat(id, chatId.value)
 }
@@ -483,7 +498,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
       v-if="dialogVisible"
       key="overlay"
       class="dialog-overlay"
-      :class="{ 'is-top-mask': isTopMask }"
+      :class="{ 'is-top-mask': isTopMask, 'is-floating': isFloatingOverlay }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
@@ -494,6 +509,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         key="panel"
         :ref="bindPanelEl"
         class="dialog-panel"
+        data-desktop-hit
         :style="panelStyle"
         :initial="{ opacity: 0, y: 16, scale: 0.96 }"
         :animate="{ opacity: 1, y: 0, scale: 1 }"

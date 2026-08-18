@@ -117,6 +117,7 @@ const emit = defineEmits<{
           class="command-menu"
           role="listbox"
           aria-label="可用指令"
+          data-desktop-hit
           :style="commandMenuStyle"
         >
           <div class="command-tabs" role="tablist" aria-label="指令类型">
@@ -191,6 +192,7 @@ const emit = defineEmits<{
           class="command-menu role-mention-menu"
           role="listbox"
           aria-label="可委派角色"
+          data-desktop-hit
           :style="commandMenuStyle"
         >
           <button

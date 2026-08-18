@@ -95,6 +95,12 @@ const panelStyle = computed(() => ({
     : `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
 }))
 
+/** 面板合并样式：主题色变量 + 拖动 transform（motion-v 的 style 不接受 Vue 数组语法，展开合并）。 */
+const panelStyles = computed(() => ({
+  ...settingsThemeStyle.value,
+  ...panelStyle.value,
+}))
+
 function onTitlePointerDown(e: PointerEvent): void {
   if (e.button !== 0) return
   if ((e.target as Element | null)?.closest('button')) return
@@ -559,7 +565,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         :ref="setPanelEl"
         class="settings-panel"
         :class="{ 'is-maximized': maximized, 'is-dragging': dragging }"
-        :style="[settingsThemeStyle, panelStyle]"
+        :style="panelStyles"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1 }"
         :exit="{ opacity: 0 }"

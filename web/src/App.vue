@@ -1,73 +1,79 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, provide, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
-import DesktopPetApp from '@/features/pets/DesktopPetApp.vue'
-import { desktopPetBridge } from '@/features/pets/desktopPetBridge'
+import DesktopSurface from '@/features/desktop/DesktopSurface.vue'
+import ConsoleShell from '@/features/desktop/ConsoleShell.vue'
 import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import WorkbenchDialog from '@/features/agent/dialog/WorkbenchDialog.vue'
 import WorkbenchCapsule from '@/features/agent/dialog/WorkbenchCapsule.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
+import { desktopBridge, type ConsoleTarget } from '@/features/desktop/desktopBridge'
 import {
   createHistoryDrawerManager,
   HISTORY_DRAWER_MANAGER_KEY,
 } from '@/features/agent/drawer/useHistoryDrawerManager'
 import { useConnectionStore, useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
 import { wsClient } from '@/services/ws'
-import { selectNyxusSession } from '@/stores/chats/selectors'
 
 // 鉴权非强制：本地直连不鉴权；远端由 cheryNyxus 登录弹窗对接（token 存 auth store）。
+// 三 surface：desktop（Electron 全工作区透明宠物窗）/ console（Electron 惰性 frameless
+// 控制台窗，ConsoleShell 自绘标题栏）/ undefined（浏览器完整单页）。两个 Electron surface
+// 都直连 WS（后端按连接扇出），
 // 节点树工作台多窗口：每预设一窗（windowId = presetId），由 workbenchWindowsList 驱动渲染。
 const agents = useAgentsStore()
-const isDesktopPetSurface =
-  new URLSearchParams(window.location.search).get('surface') === 'desktop-pet'
-const cleanupDesktopBridge: Array<() => void> = []
+const surface = new URLSearchParams(window.location.search).get('surface')
+/** console surface 的 bridge 导航清理函数（非 console surface 为空）。 */
+const consoleCleanup: Array<() => void> = []
 
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
 
 onMounted(() => {
-  if (!isDesktopPetSurface) void bootstrap()
+  bindConsoleNavigation()
+  void bootstrap()
 })
-onBeforeUnmount(() => cleanupDesktopBridge.splice(0).forEach((cleanup) => cleanup()))
+onBeforeUnmount(() => consoleCleanup.splice(0).forEach((cleanup) => cleanup()))
+
+/** console surface：消费 main 转发的导航目标（desktop 窗工具环 / 托盘触发）。 */
+function bindConsoleNavigation(): void {
+  if (surface !== 'console') return
+  const bridge = desktopBridge()
+  if (!bridge) return
+  consoleCleanup.push(
+    bridge.onConsoleNavigate((target: ConsoleTarget) => {
+      if (target.target === 'settings') {
+        // console 窗 hide 不销毁，工作台窗口状态跨开关存活：打开设置时收起全部工作台，
+        // 避免上次会话遗留的工作台残留在设置面板后面（收起为胶囊，可随时还原）。
+        for (const win of agents.workbenchWindowsList) {
+          agents.setWorkbenchWindowMinimized(win.id, true)
+        }
+        agents.settingsOpen = true
+        return
+      }
+      if (target.target === 'workbench') {
+        const id = agents.openWorkbenchWindow(target.presetId)
+        // 与 NyxusCore.openWorkbench 语义一致：仅新建窗口恢复会话，已存在窗口不覆盖浏览
+        if (target.chatId && !agents.workbenchWindows[id]?.chatId) {
+          agents.setWorkbenchWindowChat(id, target.chatId)
+        }
+        return
+      }
+      if (target.target === 'history') {
+        agents.activeDialogSource = 'history'
+        agents.activeDialogChatId = target.chatId
+      }
+      // 'show'：仅显示控制台，无导航
+    }),
+  )
+}
 
 async function bootstrap(): Promise<void> {
   const conn = useConnectionStore()
   const agents = useAgentsStore()
   const chatSessions = useChatSessionsStore()
   const interactions = useInteractionsStore()
-  const petBridge = desktopPetBridge()
-  if (petBridge) {
-    // nyxus 桌面窗口数据源：chatSessions 的 nyxus session（root + preset=cheryNyxus），不经 PetInstance
-    cleanupDesktopBridge.push(
-      watch(
-        () => selectNyxusSession(chatSessions.sessionsById, agents.activeNyxusChatId) ?? null,
-        (session) => {
-          if (!session) {
-            petBridge.publish([])
-            return
-          }
-          petBridge.publish([
-            {
-              chatId: session.chatId,
-              label: session.meta.workspace?.split(/[\\/]/).filter(Boolean).pop() ?? 'cheryNyxus',
-              working: session.run.status === 'running',
-            },
-          ])
-        },
-        { immediate: true },
-      ),
-    )
-    cleanupDesktopBridge.push(
-      petBridge.onOpenChat((chatId) => {
-        if (chatSessions.sessionsById[chatId]) {
-          agents.activeDialogSource = 'history'
-          agents.activeDialogChatId = chatId
-        }
-      }),
-    )
-  }
   chatSessions.bindWsClient()
   // #9 接线：chatSessions 副作用 → agents pet 变更。
   // V2 发送经 chatSessions（openSession+submitInput），pet 视觉（setWorking/role_created）
@@ -165,7 +171,20 @@ async function bootstrap(): Promise<void> {
 </script>
 
 <template>
-  <DesktopPetApp v-if="isDesktopPetSurface" />
+  <DesktopSurface v-if="surface === 'desktop'" />
+  <ConsoleShell v-else-if="surface === 'console'">
+    <SettingsDialog />
+    <WorkbenchDialog
+      v-for="win in agents.workbenchWindowsList"
+      :key="win.id"
+      :window-id="win.id"
+      :preset-id="win.presetId"
+    />
+    <template v-for="win in agents.workbenchWindowsList" :key="`capsule-${win.id}`">
+      <WorkbenchCapsule v-if="win.minimized" :window-id="win.id" />
+    </template>
+    <HistoryDrawer />
+  </ConsoleShell>
   <template v-else>
     <PetStage />
     <NyxusCore />

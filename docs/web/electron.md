@@ -24,17 +24,48 @@ electron({
 - **`base:'./'`**:生产 `loadFile` 相对路径必需。
 - **vue-router `createWebHashHistory`**:Electron `file://` 必需。
 
-## 控制台与系统桌宠双窗口
+## 双 surface 模型（桌面宠物 + 惰性控制台）
 
-Electron 模式包含两个职责分离的 renderer：
+Electron 模式包含两个职责分离的 renderer，均直连后端 WebSocket（后端 `liveOutputByChat: Map<chatId, Set<WebSocket>>` 原生支持多连接订阅同一 chat，chunk/notification 按连接扇出）：
 
-- 控制台窗口继续承载 Pinia、唯一 WebSocket、Agent 生命周期、设置、历史与审批；关闭窗口仅隐藏到托盘。
-- companion 窗口是透明、无边框、置顶的小型系统桌宠窗口，只绘制当前选中的 `cheryNyxus` 主 pet，不建立后端连接。
-- 控制台通过类型化 preload bridge 推送候选会话与当前 pet 状态；主进程选择最近活跃会话并把最小快照转发给 companion。companion 的双击、拖拽、滚轮和右键命令经主进程回送控制台。
-- 多个 `cheryNyxus` 会话存在时桌面仍只有一只猫；默认选最近活跃会话，托盘菜单可显式切换。housekeeper、curator 和其他预设不投影到 companion。
-- Windows 使用透明区域鼠标穿透并按当前 display 的 `workArea` 约束窗口；非 Electron Web 模式没有 bridge，继续只显示应用内 PetStage。
+- **desktop 窗口**（`?surface=desktop`）：启动即创建的**全工作区透明覆盖窗**（尺寸取 `screen.getPrimaryDisplay().workArea`，`frame:false / transparent / alwaysOnTop('floating') / skipTaskbar / hasShadow:false`）。承载 PetStage（透明模式，无网格背景）、NyxusCore 星系、AgentDialog 发消息浮动窗、HistoryDrawer、ServerLoginDialog（浮动模式）。宠物与星系直接渲染在桌面上，可随意拖动，空区域鼠标点击穿透到桌面。
+- **console 窗口**（`?surface=console`）：**惰性创建**的**无边框窗**（`frame:false`，1200x800，`titleBarStyle` 不用——完全自绘标题栏）。渲染层根组件 [ConsoleShell.vue](../../web/src/features/desktop/ConsoleShell.vue) 提供自研标题栏（拖拽移动 / 最大化-还原 / 最小化-hide / 关闭-hide），经 IPC `console:window-control` 驱动原生窗口；承载 SettingsDialog、WorkbenchDialog 多窗口、WorkbenchCapsule、HistoryDrawer。启动不创建；桌面窗工具环「设置/工作台」或托盘「显示控制台」时才首次创建。关闭仅 hide 不 destroy——`disconnectGrace` 按「发起连接」跟踪 run，发起方连接断开且无人接管会 park 运行中任务，故 console 窗必须保持 WS 存活。
+- **desktop 透明窗禁止 `color-scheme: dark`**：Element Plus dark css-vars 会设 `html.dark { color-scheme: dark }`，Chromium 在 dark color-scheme 下给根画布（`html`/`body` 底色）绘制系统默认深色底，透明窗下表现为全屏灰罩。双层修复：DesktopSurface 挂载时对 `document.documentElement` 强制 inline `color-scheme: light`（主题 token 仍正常切换，只锁画布底色）；同时 desktop surface 专属全局样式 `html/body/#app { background: transparent !important }` 兜底任何组件给根画布铺底色（`!important` 压过 EP dark css-vars 的低特异性规则）。
 
-退出必须走托盘“退出”或应用 quit 流程，随后停止后端子进程。控制台隐藏不释放 WebSocket，避免 companion 存活期间丢失 Agent 通知。
+### 鼠标穿透（win32）
+
+desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——Windows 在忽略鼠标时仍转发 move 事件。渲染层 [web/src/features/desktop/useDesktopPassthrough.ts](../../web/src/features/desktop/useDesktopPassthrough.ts) 在 forwarded `pointermove` 中做 `document.elementFromPoint(x,y)?.closest(DESKTOP_HIT_SELECTOR)` 命中测试：
+
+- 命中交互根（`[data-desktop-hit]` 标记的宠物/星系/工具环/弹窗面板，及 ElementPlus teleport 弹层 `.el-popper` 等）→ 撤销穿透；
+- pointerdown 命中后 `lockInteractive()` 锁定 non-passthrough 直到 pointerup——防止拖拽/长按中途穿透丢事件；
+- 状态变化才发 IPC（rAF 节流），避免每次 move 刷 IPC。
+
+### IPC 通道清单
+
+| 通道 | 方向 | 载荷 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `get-backend-config` | renderer→main sendSync | — | preload 取后端端口配置 |
+| `dialog:pickDirectory` | renderer→main invoke | → `string\|null` | 原生目录选择 |
+| `desktop:mouse-passthrough` | desktop→main | `{ ignore: boolean }` | 仅 win32 生效，sender 校验 desktop 窗 |
+| `desktop:open-console` | desktop→main | `ConsoleTarget` | main 确保 console 可见（惰性创建 + ready 队列）→ 转发 `console:navigate` |
+| `console:navigate` | main→console | `ConsoleTarget` | console surface 消费：`show`/`settings`（打开设置并最小化全部工作台窗口，避免旧工作台残留在设置后面）/`workbench{presetId,chatId?}`/`history{chatId}` |
+| `console:window-control` | console→main | `'minimize'\|'maximize'\|'restore'\|'close'` | console 自绘标题栏的原生窗口控制（sender 校验 console 窗）；minimize/close 均 hide 不销毁 |
+| `console:maximize-changed` | main→console | `boolean` | 原生最大化态回推（双击标题栏最大化 / Win+↑ 等），标题栏图标切换 |
+
+### 开机自启（托盘可选项）
+
+托盘菜单 checkbox：`checked: app.isPackaged && app.getLoginItemSettings().openAtLogin`；点击切换 `app.setLoginItemSettings({ openAtLogin: !current })` 后 rebuild 菜单。状态直接读系统注册表，无需自建持久化。开发期（未打包）该项 `enabled:false`——避免把 electron.exe dev 路径写进注册表。
+
+### 托盘
+
+- **图标**：无磁盘图标资源时用 `nativeImage.createEmpty()` + `tray.setImage` 兜底不可靠（Windows 空图标不渲染），故用**程序化绘制**的 16x16 RGBA 位图（`nativeImage.createFromBuffer`，两位一像素的暖橙圆点 + 透明底），保证任何环境托盘区都有可见图标；打包后如需品牌图标，在 `createTray()` 里替换为 `nativeImage.createFromPath` 加载打包资源。
+- **菜单**：显示控制台 / 显示桌面宠物（toggle，checked 跟随 desktop 窗可见态）/ 开机自启（checkbox，仅打包可用）/ 退出。点击托盘图标 = 显示控制台；所有路径都可到达「退出」，无死局。
+
+### 显示器自适应
+
+main 监听 `screen` 的 `display-metrics-changed` / `display-added` / `display-removed`，desktop 窗口 `setBounds(新 workArea)`。渲染层自愈：`usePetWorld` 监听 `resize` 重读 bounds 并 clamp 宠物目标；`useStandaloneNyxusMotion` 以 `window.innerWidth/innerHeight` clamp 星系位置。
+
+退出必须走托盘“退出”或应用 quit 流程，随后停止后端子进程。任一窗口隐藏都不释放 WebSocket，避免丢失 Agent 通知（尤其 console 窗发起 run 后关闭——hide 保持连接，run 不被 park）。
 
 依赖版本:Vite 8 + `@vitejs/plugin-vue` 6 + `vite-plugin-electron` 1.1 + `electron` 43。`pnpm-workspace.yaml` `allowBuilds` 含 `electron:true`。[turbo.json](../../turbo.json) build outputs 含 `dist-electron/**`。[web/package.json](../../web/package.json) `"main":"dist-electron/main.js"` + `"electron":"electron ."`。
 
@@ -144,7 +175,7 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 ## 构建产物
 
 | 产物 | 产出方 | 内容 |
-|------|--------|------|
+| ------ | -------- | ------ |
 | [web/dist/](../../web/dist/) | Vite 渲染构建 | `index.html` + assets |
 | [web/dist-electron/main.js](../../web/dist-electron/) | rollup 经 `vite-plugin-electron` | 主进程 ESM |
 | [web/dist-electron/preload.mjs](../../web/dist-electron/) | rollup 经 `vite-plugin-electron` | preload(`contextBridge`) |
@@ -156,7 +187,7 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 详见 [README.md#双运行模式浏览器--electron](./README.md#双运行模式浏览器--electron)。要点:
 
 | 命令 | 实现 | X 依赖 |
-|------|------|--------|
+| ------ | ------ | -------- |
 | `dev:web` | `ELECTRON_ENABLED=false vite` | 无 |
 | `dev:electron` | `bash scripts/electron-dev.sh` → `exec vite` | 有 |
 | `electron` | `electron .`(spawn 后端 + loadFile) | 有 |
@@ -188,7 +219,7 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 
 ## 扩展点
 
-- **IPC 扩展**:当前 `ipcMain` 仅注册 `get-backend-config`（同步，preload 取后端端口配置）。业务能力优先通过现有 WebSocket RPC 扩展；只有必须在 Electron main 进程执行、且后端进程无法承担的能力，才新增 `ipcMain.handle` + preload bridge。
+- **IPC 扩展**：当前 `ipcMain` 注册 `get-backend-config`（同步，preload 取后端端口配置）、`dialog:pickDirectory`（invoke）、desktop 穿透/开控制台通道、console 窗口控制通道（见上文「IPC 通道清单」）。业务能力优先通过现有 WebSocket RPC 扩展；只有必须在 Electron main 进程执行、且后端进程无法承担的能力，才新增 `ipcMain.handle` + preload bridge。
 - **后端原生能力扩展**:配置目录打开等能力按 [../service/message.md](../service/message.md) 的 RPC 扩展流程实现，Electron 与浏览器共用；远程浏览器调用作用于后端主机。
 - **`.env` / `.chery` 用户位置扩展**:主进程用 `getWritableCheryRoot()` 返回 `cheryDir`,内部已统一探测 `exeRoot` 可写性 + 降级逻辑。若需新增可维护文件,放在 `cheryDir` 下并复用同一探测函数(避免绕过降级逻辑)。
 - **native ABI 解决**:已通过 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)(Node 22 LTS + prebuild-install)实现,见 [native addon ABI](#native-addon-abi模式-2)。

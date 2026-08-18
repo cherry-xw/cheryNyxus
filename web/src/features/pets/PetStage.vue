@@ -8,6 +8,12 @@ import { selectOwnTimeline, selectActiveMessage } from '@/stores/chats/selectors
 import type { PetInstance } from './types/types'
 import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
 
+/**
+ * 透明模式（Electron desktop surface）：清除网格纹理与渐变背景，只保留 sprite——
+ * 全工作区透明覆盖窗下实体外区域全部让给桌面。
+ */
+withDefaults(defineProps<{ transparent?: boolean }>(), { transparent: false })
+
 const stageRef = ref<HTMLElement | null>(null)
 // pets 单一数据源 = agents store；usePetWorld 注入数组，RAF/交互直接作用于 store state
 const agents = useAgentsStore()
@@ -174,7 +180,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
 </script>
 
 <template>
-  <main ref="stageRef" class="pet-stage" aria-label="Interactive desktop pets">
+  <main ref="stageRef" class="pet-stage" :class="{ 'is-transparent': transparent }" aria-label="Interactive desktop pets">
     <PetSprite
       v-for="pet in pets"
       :key="pet.instanceId"
@@ -231,6 +237,16 @@ async function handleResume(pet: PetInstance): Promise<void> {
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 55%, transparent), transparent 22%),
       linear-gradient(0deg, color-mix(in srgb, var(--ink) 8%, transparent), transparent 34%);
+  }
+
+  // desktop surface：背景全清（含 ::before），透明窗下只保留 sprite 实体
+  &.is-transparent {
+    background: none;
+    color: inherit;
+
+    &::before {
+      display: none;
+    }
   }
 }
 </style>

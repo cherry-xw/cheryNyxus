@@ -1,3 +1,5 @@
+import type { ConversationRouteTrace } from '@/services/agentApi'
+
 export interface ConversationTargetSessionLike {
   chatId: string
   lastUserActivityAt?: number
