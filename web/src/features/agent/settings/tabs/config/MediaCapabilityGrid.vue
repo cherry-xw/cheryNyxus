@@ -197,16 +197,6 @@ const emit = defineEmits<{
   height: 13px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .cap-face,
-  .cap-item {
-    transition: none;
-  }
-  .cap-item:active:not(:disabled) {
-    transform: none;
-  }
-}
-
 @media (max-width: 560px) {
   .cap-row {
     flex-wrap: wrap;

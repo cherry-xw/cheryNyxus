@@ -650,8 +650,22 @@ onBeforeUnmount(() => {
   transition: filter 0.18s ease;
 }
 
-.mag-level.current .moon-icon,
+// 下方小轨道月球：比分轨道放大一档（10px→13px），但整体压暗、去饱和，
+// 与放大镜内高亮的选中月拉开前后对比，突出「镜头里才是亮的」。
+.point-item .moon-icon {
+  font-size: 13px;
+  filter: grayscale(45%) brightness(0.7);
+}
+// 小轨道上当前选中位：比其余小月稍亮以标示位置，但仍明显暗于放大镜内的选中月。
 .point-item.current .moon-icon {
-  filter: grayscale(0%);
+  filter: grayscale(18%) brightness(0.9);
+}
+
+// 放大镜内选中的月球：月相 emoji 本体是暗月（🌔 大部分为黑），仅 brightness/光晕救不亮它。
+// 故先用 sepia→saturate→hue-rotate 把暗月重新染成暖金色，再 brightness 提亮 + 光晕，
+// 让月亮本体发光变亮，而不是只在外圈加一圈光。
+.mag-level.current .moon-icon {
+  filter: sepia(1) saturate(3.2) hue-rotate(-12deg) brightness(1.5)
+    drop-shadow(0 0 4px rgba(255, 200, 90, 0.75));
 }
 </style>

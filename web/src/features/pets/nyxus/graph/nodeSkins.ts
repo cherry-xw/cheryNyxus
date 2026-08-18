@@ -22,6 +22,7 @@ export const NODE_SKINS: Record<NodeSkinKey, NodeSkin> = {
   dispatch: { key: 'dispatch', glyph: '⇢', accent: '#e29aff', label: '任务委派' },
   spawn: { key: 'spawn', glyph: '⑂', accent: '#e29aff', label: '创建协作节点' },
   system: { key: 'system', glyph: '◇', accent: '#b7a7ff', label: '系统事件' },
+  pack: { key: 'pack', glyph: '❒', accent: '#f6b73c', label: '打包历史' },
   input: { key: 'input', glyph: '◌', accent: '#efc7ff', label: '我的指令' },
   unknown: { key: 'unknown', glyph: '?', accent: '#ff809b', label: '未识别节点' },
 }
@@ -42,6 +43,7 @@ export const NODE_ACCENT_LIGHT: Record<NodeSkinKey, string> = {
   dispatch: '#7a5bd6',
   spawn: '#7a5bd6',
   system: '#6d5bd6',
+  pack: '#b7791f',
   input: '#b05bd6',
   unknown: '#d6455d',
 }
@@ -60,6 +62,7 @@ export const NODE_HOVER_DETAIL_KINDS: Partial<Record<ExecutionNodeKind, true>> =
   dispatch: true,
   system: true,
   spawn: true,
+  pack: true,
   fold: true,
   input: true,
   unknown: true,

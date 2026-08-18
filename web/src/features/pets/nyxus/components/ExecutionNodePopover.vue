@@ -1823,24 +1823,4 @@ async function copyField(key: string, value: string): Promise<void> {
     color: var(--nx-text);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .node-popover {
-    transform: none;
-    transition: opacity 150ms ease;
-    @starting-style {
-      opacity: 0;
-      transform: none;
-    }
-  }
-  .icon-button,
-  .copy-button,
-  .tool-tabs button,
-  .tool-tabs button::after {
-    transition:
-      color 120ms ease,
-      border-color 120ms ease,
-      background-color 120ms ease,
-      opacity 120ms ease;
-  }
-}
 </style>

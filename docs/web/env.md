@@ -72,6 +72,8 @@ async function openConfigDir(): Promise<void> {
 
 该调用经 WebSocket RPC 在后端主机执行；远程浏览器不会打开浏览器客户端机器的目录。
 
+**目录选择（预设 workspace）**：仅 Electron 模式可用原生对话框拿**绝对路径**——preload 注入 `__PICK_DIRECTORY__`（main 进程 `dialog.showOpenDialog({ properties: ['openDirectory'] })`）。Electron 渲染进程与后端同机，所选即后端机器路径（所有执行在后端）。**浏览器模式无目录选择**：前端机器路径与后端无关（浏览器安全沙箱也无绝对路径），纯文本输入。路径校验双层：前端 `isAbsolutePathFormat` 即时格式校验（POSIX `/` / Windows `C:\` / UNC `\\server\share`，非法红框 `ws-warning`）+ 后端 `validateWorkspace` RPC 存在性校验（设置面板实时 + 保存时）。
+
 ### 业务服务（HTTP / WS）
 
 ```ts

@@ -172,12 +172,15 @@ interface RootTimelineSnapshot {
   edges: ExecutionEdgeFact[]
   activeRuns: ActiveRunFact[]
   pendingInputs: PendingInputSnapshot[]
+  generations: GenerationEntry[]
   nextCursor?: Cursor
   capturedEventSeq: number
 }
 ```
 
 `conversation` 默认只返回 `visibility='conversation'` 的用户、agent、派发、回传节点；`tree` 与 `audit` 同时携带完整 graph facts，`audit` 可展开系统和工具详情。持久排序键为 `orderKey`；分页 cursor 的兼容展示键仍可包含 `(created_at,id)`，但不得用于推断因果。
+
+**代际窗口（generations windowing）**：`nodes/edges` 只携带代际窗口——当前代 + 上一代（`orderKey > windowFloor`，`windowFloor = generations[length-2].boundaryOrderKey`，不足两代时为 0 即全量）；edges 只保留两端节点均在窗口内的。服务端持久层（`execution_nodes/execution_edges`）仍保存全量事实，窗口过滤仅发生在返回 snapshot 之前。`generations` 为 L0 代际索引（无 compact 时 `[]`），更早代通过 `chat.timeline.generation.get` 按需拉取。
 
 ### 3.3 原子订阅与增量
 
@@ -248,6 +251,31 @@ turn.completed({ rootChatId, sourceChatId, turnId, messageId })
 节点树历史读取不得调用 `chat.sync` 重播已完成 turn 的 delta。`turn.delta` 只服务当前打开的 root subscription；已完成历史只由 `RootTimelineSnapshot.nodes/edges` 返回完整节点。切换 root 时关闭旧 subscription 仅表示停止观察，绝不隐含 pause/abort；旧 root 的 Agent、输入队列和子 Agent 在后台继续运行。
 
 刷新中断后，不保证恢复“已经错过的逐 token 动画”；正确行为是 `chat.open` 返回 active turn 的当前累计文本，随后继续接收新的 delta。最终内容始终以 timeline snapshot/patch 为准。
+
+### 3.5 长会话代际分割（Generations）
+
+compact 事件（手动 `[[command:/compact]]` 与 autoCompact 统一）把历史切为**代（Generation）**：第 k 次压缩的摘要 assistant 消息即第 k 代的定稿边界（消息行携带 `context_compaction=1`）。代际为**推导计算**（`src/service/chat/generations.ts` `computeGenerations`），不落新表：
+
+```ts
+interface GenerationEntry {
+  index: number              // 1-based，第 k 次压缩 = 第 k 代定稿
+  boundaryMessageId: string  // 摘要 assistant 消息 id（打包锚点）
+  boundaryNodeId: string     // 对应 execution node id（= 消息 id；消息未成节点时回退区间内最后一个节点）
+  boundaryOrderKey: number   // 该代最后一个 orderKey
+  fromOrderKey: number       // 该代起始（上一代 boundaryOrderKey，首代 0）；区间为 (fromOrderKey, boundaryOrderKey]
+  summary: string            // extractSummaryBlock(摘要 assistant content)，空则回退截断 500 字符
+  nodeCount: number          // 区间内 execution node 数
+  createdAt: number
+  trigger: 'manual' | 'auto' // auto 由 send 侧内存标记 best-effort 回填；重启后重算一律 manual（装饰性字段）
+}
+```
+
+查询与限制：
+
+- **`chat.timeline.generation.get`**（`{rootChatId, generationIndex}` 1-based）→ `{rootChatId, generation, nodes, edges}`：直接按 `orderKey` 区间读 `execution_nodes/execution_edges`（不重跑 projector，不触发回填），edges 两端均在区间内。代际不存在显式报错。响应体量有界（单代 ≈ 一个上下文窗口节点量）。
+- **分支不可跨代**：`chat.branch.preview`/`chat.branch.create` 的 anchor 节点 `orderKey <= 最后一代 boundaryOrderKey`（已打包代）时拒绝——「只能在当前对话段内创建分支，已打包的历史不支持分支」。无 compact（generations 为空）不限制。
+- **`knownRevision` 短路**：`chat.timeline.get` root 路径请求 `knownRevision >= revision` 时返回 `{chatId, revision, unchanged: true}`（无 nodes/edges/generations/messages）；`chat.open` root 路径 `knownTimelineRevision >= revision` 时省略 `rootTimeline` 并返回 `timelineUnchanged: true`（订阅栅栏与 state 照常返回）。
+- **patch 增量化**：`timeline.patch` 的 rootPatch 与单 chat canonical operations 均为**diff**——服务端模块级缓存上次已发送的 JSON 事实，新增/变化 upsert、消失 remove（node→remove、edge→remove-edge、run→remove-run、input→remove-input、message→remove）。缓存未命中（进程重启后首次）退化为全量 upsert（等价旧行为）。窗口滑动（新 compact 定稿）时，滑出窗口的节点以 remove 下发，前端收拢为打包节点。`baseRevision` 语义不变，缺口仍触发整体 resync。
 
 ## 4. Projection 规则
 

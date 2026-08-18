@@ -112,6 +112,7 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 - `presets.*.workspace`（如配置）必须是已存在的目录绝对路径（`fs.accessSync` 校验，fail loud；该字段仅作 system prompt 提示词注入，不约束 sense 行为）
 - `global.supervision` / `mcp_servers.*.supervision` 必须是 `auto|smart|manual`（修原 `SupervisionLevel[name]` 非法值静默变 undefined 的 bug）
 - `global.disconnect_grace_ms` 必须是有限且 `>= 0` 的毫秒值；缺省为 `15000`，`0` 表示断连后立即请求当前输出结束时暂停
+- `global.history_recall.max_output_chars`（如配置）必须是 `> 0` 的数字；缺省 `4000` 由 utils/config 兜底（`history_recall` 感官单次返回硬字符上限）
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP

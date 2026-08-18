@@ -220,5 +220,5 @@ const sectionStyle = computed(() => ({
   }
 }
 
-// reduced-motion 全局降级见 neon.less；这里不重复声明。
+// 应用不跟随 prefers-reduced-motion（见 docs/web/settings.md 动效降级约定），动效恒开。
 </style>

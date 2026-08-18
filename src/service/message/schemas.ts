@@ -123,6 +123,12 @@ const globalSchema = z.object({
   approval_hard_timeout: z.number().min(0).optional(),
   // 断连宽限期（毫秒，>= 0；0 = 不等待）；缺省 15000 由 utils/config 兜底
   disconnect_grace_ms: z.number().min(0).optional(),
+  // history_recall 感官单次返回硬字符上限（> 0）；缺省 4000 由 utils/config 兜底
+  history_recall: z
+    .object({
+      max_output_chars: z.number().min(1).optional(),
+    })
+    .optional(),
   watchdog: z
     .object({
       timeout_ms: z.number().min(0).optional(),
@@ -310,6 +316,10 @@ export const requestSchemas = {
     .refine((value) => !!value.chatId || !!value.rootChatId || !!value.taskId, {
       message: 'chatId、rootChatId 或 taskId 至少提供一个',
     }),
+  [Method.CHAT_TIMELINE_GENERATION_GET]: z.object({
+    rootChatId: z.string().min(1),
+    generationIndex: z.number().int().positive(),
+  }),
   [Method.CHAT_RESUME]: chatIdSchema,
   [Method.CHAT_RESUME_TREE]: z.object({
     rootChatId: z.string().min(1),
@@ -413,6 +423,20 @@ export const requestSchemas = {
   [Method.MCP_RELOAD]: z.object({ name: z.string().optional() }),
   [Method.CONFIG_GET]: emptySchema,
   [Method.CONFIG_WORKSPACE_VALIDATE]: z.object({ workspace: z.string().optional() }).strict(),
+  [Method.CONFIG_WORKSPACE_BROWSE_START]: emptySchema,
+  // encPath 不设 .min(1)：根选择层为 xorEncrypt('')='' 空串（合法语义）
+  [Method.CONFIG_WORKSPACE_BROWSE_LIST]: z
+    .object({
+      sessionId: z.string().min(1).max(128),
+      nonce: z
+        .string()
+        .regex(/^[0-9a-f]+$/i)
+        .min(16)
+        .max(128),
+      encPath: z.string().max(8192),
+      includeFiles: z.boolean().optional(),
+    })
+    .strict(),
   [Method.CONFIG_SAVE]: configSaveSchema,
   // Hooks 管理（读写 .chery/hooks/hooks.json，独立于 config.yaml）
   [Method.HOOKS_GET]: emptySchema,

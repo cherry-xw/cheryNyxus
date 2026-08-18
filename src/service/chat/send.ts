@@ -51,6 +51,7 @@ import { observeAgentChunks } from './observer.js'
 import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
 import { streamAgentChunks } from './streamMapper.js'
 import { injectCommands } from './autoCompact.js'
+import { recordAutoCompactTrigger } from './generations.js'
 import { computeContextUsage } from '@/utils/token.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
@@ -179,6 +180,8 @@ export async function* handleChatSend(
   const usageBefore = computeContextUsage(chatId)
   const cmdInjection = injectCommands(chatId, promptWithAttachments)
   if (cmdInjection.triggered) {
+    // 自动压缩代际标记（computeGenerations 消费；重启后重算一律 manual，best-effort）
+    recordAutoCompactTrigger(chatId)
     logger.event('chat.send.autoCompact', {
       chatId,
       reason: cmdInjection.reason,

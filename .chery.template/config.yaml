@@ -27,6 +27,8 @@ global:
       #       子最终完成仍走 child_done → wakeParent 正常唤主（不依赖 timeout 通知路径）。
   bash_log_retention_hours: 24 # [可选] bash 日志保留时长(小时)，默认 24
   tree_full_render_threshold: 500 # [可选] 节点树全量渲染阈值(节点数≤此值跳过视口裁剪避免平移卡顿)，默认 500；0=始终裁剪
+  history_recall: # [可选] history_recall 感官（长会话历史回忆，只读）配置
+    max_output_chars: 4000 # [可选] 单次返回硬字符上限，默认 4000；超限截断并提示缩小范围
   textEditor: notepad # [可选] 文本编辑器命令，默认 notepad
   file_compression:
     truncate_threshold: 50000 # [可选] 文件截断阈值(bytes)，默认 50000
@@ -135,6 +137,7 @@ sense_groups:
     - search_codebase
     - spawn_role
     - ask_user_question
+    - history_recall
   plan:
     - update_todo
     - skill
@@ -303,6 +306,20 @@ server:
   # auth:
   #   username: admin
   #   password: your-password
+  # 文件夹浏览协议（config.workspace.browse.*，设置页工作区「浏览」弹层）：[可选] 以下为默认值
+  # 默认全盘可浏览（POSIX 从 /、win32 全部盘符），权限由系统对后端的实际访问报错把关
+  # （无权限目录 → 前端提示「下级无法加载（无权限）」）；.chery 系统配置目录恒不可浏览。
+  # 配置 roots 白名单可收窄浏览范围（~ 展开；缺省不设 = 全盘）。
+  # default_include_files 是"是否允许返回文件"的硬上限：admin 置 true 后调用方才可能取到文件。
+  # workspace_browse:
+  #   roots:
+  #     - '~'
+  #   default_include_files: false
+  #   show_hidden: false
+  #   max_depth: 10
+  #   session_ttl_ms: 600000
+  #   rpm: 60
+  #   max_sessions: 20
 
 # ------------------------------------------------------------
 # memory：长期记忆参数

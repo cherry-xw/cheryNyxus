@@ -9,6 +9,8 @@
  *
  * 豁免：install_skill（管家专用感官，合法写 .chery/skills/）。install_skill 只在管家
  *   senseGroup → 其他角色 senseTable 无此感官 → 双重隔离（调不到 + 写 .chery 被拦）。
+ * 另：管家角色（senseTable 含 install_skill）额外豁免 .chery/rule/ 的读写，用于生成/
+ *   修改审批规则文件（与基准 base.yaml 深合并）。仅限该目录，.chery/ 其余路径仍拦。
  */
 import { resolve, isAbsolute } from 'path'
 
@@ -32,6 +34,27 @@ export function isCheryPath(target: string): boolean {
     try {
       const p = resolve(t)
       const root = cheryRoot()
+      if (p === root || p.startsWith(root + '/') || p.startsWith(root + '\\')) return true
+    } catch {
+      // resolve 失败 → 不拦
+    }
+  }
+  return false
+}
+
+/**
+ * 判断目标字符串是否指向 .chery/rule/ 下（审批规则目录）。
+ * 匹配 .chery/rule 作为路径段：(^|[\/\\])\.chery[\/\\]rule([\/\\]|$) —— 不误伤 .chery/rules.txt。
+ * 绝对路径额外 resolve 判定落 <root>/.chery/rule 下。
+ */
+export function isRuleDirPath(target: string): boolean {
+  if (!target) return false
+  const t = target.trim()
+  if (/(^|[\/\\])\.chery[\/\\]rule([\/\\]|$)/.test(t)) return true
+  if (isAbsolute(t)) {
+    try {
+      const p = resolve(t)
+      const root = resolve(cheryRoot(), 'rule')
       if (p === root || p.startsWith(root + '/') || p.startsWith(root + '\\')) return true
     } catch {
       // resolve 失败 → 不拦
@@ -65,13 +88,28 @@ export const CHERY_GUARD_MESSAGE =
   '.chery/ 是系统配置目录（技能/插件/提示词/命令/数据库），不能直接读写。' +
   '安装或修改技能请用 spawn_role 派出「管家」角色（type: housekeeper），通过 install_skill 感官完成。'
 
+export interface CheryGuardOptions {
+  /**
+   * 管家角色（senseTable 含 install_skill）：允许对 .chery/rule/ 读写（生成/修改审批规则）。
+   * 仅限该目录；.chery/ 其余路径仍拦截。
+   */
+  allowRuleDir?: boolean
+}
+
 /**
  * 守卫主入口。返回拦截文案（命中）或 null（放行）。
  * 豁免感官直接放行；否则提取路径参数，任一命中 isCheryPath 即拦。
+ * allowRuleDir：管家对 .chery/rule/ 的读写放行（全部命中路径都在规则目录），其余仍拦。
  */
-export function checkCheryGuard(name: string, args: Record<string, unknown>): string | null {
+export function checkCheryGuard(
+  name: string,
+  args: Record<string, unknown>,
+  opts?: CheryGuardOptions,
+): string | null {
   if (GUARD_EXEMPT.has(name)) return null
-  const paths = extractSensePaths(name, args)
+  const paths = extractSensePaths(name, args).filter((p) => p.trim())
+  // 管家写/读 .chery/rule/（审批规则）：全部命中路径都在规则目录 → 放行
+  if (opts?.allowRuleDir && paths.length && paths.every((p) => isRuleDirPath(p))) return null
   for (const p of paths) {
     if (isCheryPath(p)) return CHERY_GUARD_MESSAGE
   }

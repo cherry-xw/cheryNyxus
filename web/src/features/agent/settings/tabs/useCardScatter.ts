@@ -22,7 +22,7 @@ import { SETTINGS_ACTIVE_TAB_KEY } from '../config/constants'
  *  - pointerdown 即 raise（含左下数字标冒泡）；topZ 单调递增；BASE_Z=10 避开 hover/modal 层。
  *  - SHIELD_PX=8 内缩 clamp，配合 canvas padding:6px + shell-scroll overflow:hidden 防 box-shadow 裁切。
  *  - ready flag：布局成功后不再重算，避免覆盖用户拖拽。
- *  - 坠落入场动画：每次进入 global tab（activeTab === 'global'）触发；prefers-reduced-motion 跳过。
+ *  - 坠落入场动画：每次进入 global tab（activeTab === 'global'）触发。
  *
  * v-show 切换 tab 时组件不卸载，clientWidth 在隐藏时为 0 → 三重兜底：
  *  onMounted nextTick(layout) / ResizeObserver(layout) / watch(activeTab → nextTick(layout))。
@@ -282,14 +282,6 @@ export function useCardScatter(
     // 准入：未 ready 时延后到 layout 成功后再放（cards 此时无位置，坠落无意义）。
     if (!ready.value) {
       pendingEntry = true
-      return
-    }
-    if (
-      typeof window !== 'undefined' &&
-      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    ) {
-      // reduced-motion：跳过动画，cards 直接到位。
-      enteringSet.clear()
       return
     }
     enteringSet.clear()

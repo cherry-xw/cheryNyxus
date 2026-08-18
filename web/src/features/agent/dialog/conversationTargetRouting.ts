@@ -19,10 +19,10 @@ export type ConversationTargetVisualState = 'manual' | 'ai-selected' | 'recommen
 /** 历史会话按钮的点击循环档位：idle → half → full → idle。 */
 export type TargetCycleState = 'idle' | 'half' | 'full'
 
-/** 单击循环：未选 → 半选 → 选中 → 未选（取消）。 */
+/** 单击循环：未选 → 指定（full）→ 半指定（half）→ 取消（未选）。 */
 export function nextTargetCycleState(state: TargetCycleState): TargetCycleState {
-  if (state === 'idle') return 'half'
-  if (state === 'half') return 'full'
+  if (state === 'idle') return 'full'
+  if (state === 'full') return 'half'
   return 'idle'
 }
 
@@ -48,7 +48,7 @@ export function conversationTargetVisualState(
 export function visibleConversationTargetSessions<T extends ConversationTargetSessionLike>(
   sessions: readonly T[],
   selected: string | 'new' | undefined,
-  visibleLimit = 3,
+  visibleLimit = 6,
 ): T[] {
   const ordered = [...sessions].sort(
     (a, b) =>

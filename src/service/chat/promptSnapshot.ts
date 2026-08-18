@@ -26,6 +26,7 @@ import {
   getChatSkillFilter,
 } from '@/db/chat.js'
 import { getChatMentionableRoles } from './roleMentions.js'
+import { computeHistoryGenerationInfos } from './generations.js'
 
 /**
  * 重建 system prompt 全文 + tools 列表。
@@ -44,6 +45,7 @@ function buildPromptSnapshot(chatId: string): {
     workspace,
     skillFilter,
     getChatMentionableRoles(chatId),
+    computeHistoryGenerationInfos(chatId),
   )
 
   const selection = getChatRuntimeSelection(chatId)

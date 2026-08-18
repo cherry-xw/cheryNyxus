@@ -90,6 +90,8 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 -- item 保存结构化问题、单/多选标记、pending/answered/cancelled 和答案审计字段。
 ```
 
+> **compact 代际（Generations）无新表**：代际索引（`computeGenerations`，src/service/chat/generations.ts）为纯推导计算——以 messages 行 `context_compaction=1` 的 assistant 消息（observer 按 `addMessage` data.contextCompaction 落库，手动/自动 compact 统一携带）为边界，配合 `execution_nodes` 按 orderKey 区间统计 nodeCount。每次查询现算，不持久化、无迁移。注意 autoCompact 注入的 `[[command:/compact]]` token 经 `persistedContent` 剥离不落库，代际检测不得依赖 token 扫描。
+
 ### CRUD 函数（chat.ts）
 
 | 函数 | 签名要点 | 说明 |

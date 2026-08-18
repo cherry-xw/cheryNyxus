@@ -224,6 +224,7 @@ const indexItems = computed<IndexItem[]>(() => [])
         <header class="card-head">
           <EditableTitle
             :model-value="gname as string"
+            :name-title="gname as string"
             :validate="validateRename"
             @rename="(n: string) => renameGroup(gname as string, n)"
             @error="onError"
@@ -346,6 +347,17 @@ const indexItems = computed<IndexItem[]>(() => [])
   :deep(.el-input) {
     width: 160px;
   }
+}
+// 组名超长：省略缩略显示，title 由 EditableTitle 的 nameTitle 传入完整名（hover tip）。
+// min-width:0 让 .card-title 内的 .flex-1 吸收剩余空间，避免把右侧动作按钮挤出卡片。
+.card-head :deep(.card-title) {
+  min-width: 0;
+}
+.card-head :deep(.card-name) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tags {
   display: flex;

@@ -371,14 +371,6 @@ watch(
     justify-items: center;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .resource-rail-card,
-  .resource-avatar,
-  .resource-rail-card::before {
-    transition: none !important;
-    transform: none !important;
-  }
-}
 @keyframes rail-neon-ignite {
   0% {
     opacity: 0.15;

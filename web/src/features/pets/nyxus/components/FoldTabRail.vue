@@ -144,10 +144,6 @@ function normalizedIndex(index: number, wrap: boolean): number {
   return wrap ? circularIndex(index) : Math.max(0, Math.min(index, props.members.length - 1))
 }
 
-function transitionDuration(): number {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : ANIMATION_MS
-}
-
 function clearAnimationTimers(): void {
   if (animationFrame !== undefined) cancelAnimationFrame(animationFrame)
   if (layerTimer) clearTimeout(layerTimer)
@@ -199,13 +195,6 @@ function beginTransition(targetIndex: number, direction: 1 | -1, shouldEmit: boo
   animating.value = true
 
   void nextTick(() => {
-    const duration = transitionDuration()
-    if (duration === 0) {
-      motionAtTarget.value = true
-      layersAtTarget.value = true
-      finishTransition()
-      return
-    }
     animationFrame = requestAnimationFrame(() => {
       animationFrame = undefined
       motionAtTarget.value = true
@@ -213,7 +202,7 @@ function beginTransition(targetIndex: number, direction: 1 | -1, shouldEmit: boo
         layerTimer = undefined
         layersAtTarget.value = true
       }, LAYER_SWITCH_MS)
-      finishTimer = setTimeout(finishTransition, duration)
+      finishTimer = setTimeout(finishTransition, ANIMATION_MS)
     })
   })
 }
@@ -618,12 +607,6 @@ onBeforeUnmount(() => {
   }
   .fold-wheel-position {
     color: rgba(157, 216, 238, 0.56);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fold-wheel-card {
-    transition: none;
   }
 }
 </style>

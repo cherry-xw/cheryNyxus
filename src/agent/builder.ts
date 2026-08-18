@@ -6,7 +6,7 @@ import AgentSession, {
 import type { LLMResponse } from '@/core/message/adapter'
 import config from '@/utils/config'
 import buildFirstSystemPrompt from '@/agent/prompt/index'
-import type { RoleMentionInfo } from '@/agent/prompt/index'
+import type { HistoryGenerationInfo, RoleMentionInfo } from '@/agent/prompt/index'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
 import type { UserInputEntry } from '@/core/middleware/types'
 import { randomUUID } from 'crypto'
@@ -74,12 +74,14 @@ export class AgentBuilder {
     workspace?: string,
     skillFilter?: SkillFilter,
     roleMentions?: RoleMentionInfo[],
+    historyGenerations?: HistoryGenerationInfo[],
   ): this {
     const systemMsg = this.createInitialMessages(
       systemPromptFile,
       workspace,
       skillFilter,
       roleMentions,
+      historyGenerations,
     )
     let msgs: LLMResponse[]
     if (messages && messages.length > 0) {
@@ -115,13 +117,20 @@ export class AgentBuilder {
     workspace?: string,
     skillFilter?: SkillFilter,
     roleMentions?: RoleMentionInfo[],
+    historyGenerations?: HistoryGenerationInfo[],
   ): LLMResponse[] {
     const now = Date.now()
     return [
       {
         id: randomUUID(),
         role: 'system',
-        content: buildFirstSystemPrompt(systemPromptFile, workspace, skillFilter, roleMentions),
+        content: buildFirstSystemPrompt(
+          systemPromptFile,
+          workspace,
+          skillFilter,
+          roleMentions,
+          historyGenerations,
+        ),
         createdAt: now,
         updateAt: now,
       },

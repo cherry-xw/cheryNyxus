@@ -179,6 +179,8 @@ smart 档的「危险/放行」判定规则**外置**到 `.chery/rule/` 目录�
 - `base.yaml`（基准，固定名）：默认合并基底，所有 smart 调用先以此打底。前端下拉**不可选**基准（`rules.list` 排除它）。
 - `<name>.yaml`（覆盖文件）：预设经 `presets.<name>.rule` 引用一个，与基准**深合并**。
 
+**AI 生成（管家豁免）**：前端预设 Tab 该字段显示名「审批规则」（原「规则文件」）。管家（housekeeper）角色可对 `.chery/rule/` 读写——pathGuard 对管家（senseTable 含 `install_skill`，双重隔离信号）放行该目录的 `read_file`/`write_file`（`checkCheryGuard` 的 `allowRuleDir`），用于对话生成/修改审批规则文件；`.chery/` 其余路径仍拦。管家提示词（`.chery/prompt/housekeeper/housekeeper.md`）含规则编写规范，铁律：只允许**加严**（新增危险模式/改为需确认），禁止**放宽**（删除危险模式/改为放行）——防 AI 自授权绕过审批。
+
 **深合并语义**（[`ruleLoader.loadMergedRuleSet`](../../src/core/sense/ruleLoader.ts)，per sense）：
 - 覆盖文件未提及的 sense → 用基准条目。
 - 覆盖文件给某 sense `false` → 结果 `false`（硬开关：整体需确认）。
@@ -238,6 +240,32 @@ chatMiddleware yield StreamChunk（含 senseDelta）
               ├─ checkpoint → yield MessageCreatedChunk(sense 结果消息)
               └─ loop 进入下一轮：把 sense 结果作为新消息喂给 LLM
 ```
+
+## 内置感官：history_recall（长会话历史回忆，只读）
+
+长会话 compact 后，LLM 内存上下文只剩最新摘要——`history_recall`（[agent/sense/historyRecall.ts](../../src/agent/sense/historyRecall.ts)）提供被压缩历史的只读回忆能力。代际切分数据源为 [`service/chat/generations.ts`](../service/chat.md) 的 `computeGenerations(rootChatId)`（推导计算，无新表）。轻量代际索引另注入 system prompt `<history_generations>` 段（见 [agent/prompt.md](../agent/prompt.md)），多数回忆免工具即止步。
+
+**参数**（JSON，action 二选一）：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `action` | `'list_generations' \| 'search'` | 列代际目录 / 按关键词检索 |
+| `query` | string（search 必填） | 大小写不敏感子串匹配消息 content |
+| `generation` | number（可选） | 限定查询的代序号（`list_generations` 的 index；缺省查全部已定稿代） |
+| `role` | string（可选） | 限定消息角色（user/assistant/role 等） |
+| `limit` | number（可选，默认 10） | 命中条数上限 |
+
+**行为**：
+
+- `list_generations` → 每代一行：`第N代 [手动|自动] <时间> <节点数>节点 <摘要前200字>` + 当前代提示。
+- `search` → 数据源为 **root chat + 全部后代 chat** 的持久化消息（`collectDescendantsChatIds`，按 `createdAt` 排序），默认范围「全部已定稿代」（即最近一次 compact 边界之前的消息）；命中返回 `消息角色 + 前后各 ~150 字符上下文 + 所在代 index`。
+- **硬字符上限**：结果总文本超过 `global.history_recall.max_output_chars`（默认 4000，见 [config 文档](../../.chery.template/docs/config.md)）时截断，尾部注明「已截断，请缩小 query / 指定 generation」。
+- 代归属按 `createdAt` 与各代边界时间窗（`(上一代边界时间, 本代边界时间]`）判定——root 与后代 chat 的消息共用时间坐标（orderKey 仅 root 图内有意义）。
+- 错误显式返回（query 为空 / generation 不存在 / 未命中 → 友好中文说明，不抛崩）。
+
+**监管**：只读感官，内置 `SupervisionLevel.auto`（同 read_file / search_codebase 惯例），smart 档位不经规则表直接放行；`.chery/rule/base.yaml` 无需登记条目（fail-open 未登记 = 放行，且内置 auto 根本不进表）。
+
+**接入**：sense_groups 显式列出才可用（模板 `leader` 组已含）；`BUILTIN_SENSE_TOOLS` 已登记元信息。
 
 ## 依赖与关联
 

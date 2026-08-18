@@ -122,7 +122,7 @@ function cancelToAuto(): void {
   emit('enable-auto')
 }
 
-/** 单击循环一档：未选→半选→选中→取消（未选）。 */
+/** 单击循环一档：未选→指定→半指定→取消（未选）。 */
 function selectByUser(target: string | 'new'): void {
   if (target === 'new') {
     commitUserSelection('new')
@@ -197,16 +197,6 @@ function bindNewButtonRef(el: Element | ComponentPublicInstance | null): void {
   newButtonRef.value = el instanceof HTMLElement ? el : null
 }
 
-/** 按钮角标：用户锁定 → 指定；AI 最终选择 → AI 选定；其他推荐 → 推荐。 */
-function stateLabelOf(session: ChatSummary): string {
-  if (props.selected === session.chatId && props.selectedSource === 'user') return '指定'
-  if (props.selected === session.chatId && props.selectedSource === 'ai') return 'AI 选定'
-  if (visualStateOf(session.chatId) === 'recommended') {
-    return '待定'
-  }
-  return ''
-}
-
 /** hover tooltip 状态行：完整状态描述。 */
 function stateHintOf(session: ChatSummary): string {
   if (props.selected === session.chatId && props.selectedSource === 'user')
@@ -219,24 +209,15 @@ function stateHintOf(session: ChatSummary): string {
   return '未选择'
 }
 
-function showsAiTrace(target: string | 'new'): boolean {
-  return !!routeTrace.value && props.selectedSource === 'ai' && props.selected === target
-}
-
-/** 会话创建时间（tooltip 展示）。 */
-function timeOf(session: ChatSummary): string {
-  return session.createdAt ? formatTime(session.createdAt) : ''
-}
-
-/** 前置信息节点（不可选）：反映当前目标选择状态，内容随用户操作联动。 */
+/** 前置信息节点（不可选）：展示当前目标选择模式（全自动/半自动/手动），动态过程保留原文案。 */
 const aiStatusLabel = computed(() => {
-  if (props.selectedSource === 'user') return '已手动选中会话，再次点击可取消'
-  if (manualHalfId.value) return '已半选会话，再次点击锁定'
+  if (props.selectedSource === 'user') return '手动选择'
+  if (manualHalfId.value) return 'AI半自动选择'
   if (routeError.value) return 'AI 未确定目标，请手动选择'
   if (routing.value) return 'AI 选择会话中…'
-  if (props.selectedSource === 'ai' && props.selected === 'new') return 'AI 已选定新对话'
-  if (props.selectedSource === 'ai' && props.selected) return 'AI 已选定发送目标'
-  return props.routingEnabled ? '发送后由 AI 自动选择' : '请选择发送目标'
+  if (props.selectedSource === 'ai' && props.selected === 'new') return 'AI全自动选择'
+  if (props.selectedSource === 'ai' && props.selected) return 'AI全自动选择'
+  return props.routingEnabled ? 'AI全自动选择' : '手动选择'
 })
 
 const aiStatusIcon = computed(() => {
@@ -246,6 +227,15 @@ const aiStatusIcon = computed(() => {
   if (props.selectedSource === 'ai' && props.selected) return '✨'
   return '🤖'
 })
+
+function showsAiTrace(target: string | 'new'): boolean {
+  return !!routeTrace.value && props.selectedSource === 'ai' && props.selected === target
+}
+
+/** 会话创建时间（tooltip 展示）。 */
+function timeOf(session: ChatSummary): string {
+  return session.createdAt ? formatTime(session.createdAt) : ''
+}
 
 /** 外部选中目标变化（AI 自动选定 / 父级清空）时，若不再对应当前手动半选则清除半选态。
  * 例外：我们自己清掉「＋新会话」（selected:'new'→undefined）时保留本次历史会话半选，否则半选会被误清。 */
@@ -396,7 +386,7 @@ onBeforeUnmount(() => {
           }"
           @click="selectByUser(session.chatId)"
         >
-          <span v-if="stateLabelOf(session)" class="target-state">{{ stateLabelOf(session) }}</span>
+          <!-- 按钮仅展示截断标题（/命令、@角色 tag 保留）；选中/推荐态由边框底色区分，完整预览悬停可见 -->
           <span class="target-label">
             <template
               v-for="(segment, index) in labelSegments(session)"
@@ -408,7 +398,9 @@ onBeforeUnmount(() => {
               <span v-else-if="segment.type === 'role'" class="target-label-tag is-role">{{
                 segment.value
               }}</span>
-              <template v-else>{{ segment.value }}</template>
+              <template v-else>
+                <span class="target-label-text">{{ segment.value }}</span>
+              </template>
             </template>
           </span>
         </button>
@@ -455,11 +447,9 @@ onBeforeUnmount(() => {
         :class="{ 'is-selected': selected === 'new' }"
         @click="selectByUser('new')"
       >
-        <span v-if="selected === 'new'" class="target-state">{{
-          selectedSource === 'ai' ? 'AI 选定' : '✓'
-        }}</span>
         <span class="target-label">＋新对话</span>
       </button>
+      <!-- 行尾前置信息节点（不可选）：展示当前目标选择模式（AI全自动/AI半自动/手动） -->
       <div
         class="target-option is-info"
         role="status"
@@ -485,12 +475,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  overflow-x: auto;
+  overflow: hidden; /* 禁滚动：节点收缩到 min-width，超出部分裁切 */
   padding: 1px;
-  scrollbar-width: none;
-}
-.target-options::-webkit-scrollbar {
-  display: none;
 }
 .target-option {
   flex: 0 1 124px;
@@ -520,7 +506,7 @@ onBeforeUnmount(() => {
   flex: 0 0 66px;
 }
 .target-option.is-info {
-  flex: 0 1 auto;
+  flex: 0 0 auto; /* 不可收缩：状态文案（AI全自动/AI半自动/手动）必须完整显示，空间不足时压缩前面的待选按钮 */
   min-width: 0;
   margin-left: auto;
   border-style: dashed;
@@ -552,6 +538,7 @@ onBeforeUnmount(() => {
 }
 .target-label {
   min-width: 0;
+  max-width: 100%; /* 宽度自适应按钮：超宽省略，避免整行裁切无省略号 */
   display: inline-flex;
   align-items: baseline;
   gap: 2px;
@@ -560,6 +547,15 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   font-size: 9.5px;
   font-weight: 650;
+}
+.target-label-text {
+  /* 省略作用在文本 span 上：flex 容器自身的 text-overflow 不生效（裸文本是匿名 flex item），
+     必须让文本段成为可收缩的 flex 项并在此省略。tag 保持 flex:none 不被压缩。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .target-label-tag {
   flex: none;

@@ -1,13 +1,49 @@
 import type {
   ActiveTurnSnapshot,
+  GenerationEntry,
   PendingInput,
   RootTimelinePatch,
   RootTimelineSnapshot,
   RunSnapshot,
+  TimelineNode,
+  ExecutionEdgeFact,
 } from '@/services/agentApi'
 import type { ChatSession } from './types'
 
 export type RootTimelineView = RootTimelineSnapshot['view']
+
+/** 代际图缓存条目（chat.timeline.generation.get 响应体）。 */
+export interface GenerationPayload {
+  generation: GenerationEntry
+  nodes: TimelineNode[]
+  edges: ExecutionEdgeFact[]
+}
+
+/** 每个代际是只读的不可变历史：缓存命中直接复用，LRU 上限约束内存。 */
+const GENERATION_CACHE_LIMIT = 4
+
+/** LRU Map（同 drainBase LogClusterCache 模式）：get 命中即提升为新近项。 */
+export class GenerationLruCache extends Map<number, GenerationPayload> {
+  override get(key: number): GenerationPayload | undefined {
+    const value = super.get(key)
+    if (value !== undefined) {
+      super.delete(key)
+      super.set(key, value)
+    }
+    return value
+  }
+
+  override set(key: number, value: GenerationPayload): this {
+    if (super.has(key)) super.delete(key)
+    super.set(key, value)
+    while (this.size > GENERATION_CACHE_LIMIT) {
+      const oldestKey = this.keys().next().value
+      if (oldestKey === undefined) break
+      super.delete(oldestKey)
+    }
+    return this
+  }
+}
 
 export interface RootTimelineTransientState {
   pendingInputs: PendingInput[]
@@ -150,8 +186,10 @@ export function applyRootPatch(
   const current = cache[key]
   if (!current) return 'missing'
   if (patch.revision <= current.revision) return 'duplicate'
-  if (current.revision !== patch.baseRevision || patch.revision !== patch.baseRevision + 1)
-    return 'gap'
+  // revision 单调即应用：消息写与图回填并行 bump 使 baseRevision 跳号是常态，
+  // 严格链校验会把每次跳号误判 gap → 全量刷新风暴（主线程打满、CSS 动画卡死）。
+  // 增量正确性依赖事件流有序前缀（WS 有序 + 断线 chat.sync 重放 + 重连 chat.open 全量），
+  // 错过 emit 由重连链路兜底；真实增量缺失表现为 revision 落后、经全量拉取补齐。
 
   const byId = new Map(current.nodes.map((node) => [node.id, node]))
   const edgesById = new Map(current.edges.map((edge) => [edge.id, edge]))

@@ -1296,21 +1296,6 @@ async function copyDetail(): Promise<void> {
   transform: translateY(-28%);
   transform-origin: left center;
 }
-@media (prefers-reduced-motion: reduce) {
-  .process-name-viewport.is-looping {
-    overflow-x: auto;
-    scrollbar-width: thin;
-  }
-  .process-name-viewport.is-looping .process-name-track {
-    animation: none;
-  }
-  .process-name-viewport.is-looping .process-name-track > strong:nth-child(n + 1) {
-    display: block;
-  }
-  .process-name-viewport.is-looping .process-name-track > strong[aria-hidden='true'] {
-    display: none;
-  }
-}
 
 .game-card-footer {
   display: flex;
@@ -1711,34 +1696,4 @@ button:focus-visible {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .pixel-spark-field {
-    display: none;
-  }
-  .side-card-enter-active,
-  .side-card-leave-active {
-    transition: opacity 100ms linear;
-  }
-  .side-card-enter-from,
-  .side-card-leave-to {
-    opacity: 0;
-    transform: none;
-  }
-  .detail-tile,
-  .skill-slots button,
-  .branch-actions button,
-  .paper-side-card footer button {
-    transition-duration: 0ms;
-  }
-  .game-card-header,
-  .status-ribbon,
-  .quest-summary,
-  .stat-grid,
-  .skill-section,
-  .detail-section,
-  .game-card-footer {
-    animation: quiet-card-enter 100ms linear both;
-    animation-delay: 0ms;
-  }
-}
 </style>

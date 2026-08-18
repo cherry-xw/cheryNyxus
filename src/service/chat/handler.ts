@@ -62,6 +62,7 @@ import {
   getChatWorkspace,
   getChatRuntimeSelection,
   getTimelineRevision,
+  bumpTimelineRevision,
   getRootChatId,
   addPendingInput,
   listPendingInputs,
@@ -129,6 +130,11 @@ import {
 } from './childControl.js'
 import { recordDispatchFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
+import {
+  computeGenerations,
+  generationWindowFloor,
+  handleChatTimelineGenerationGet,
+} from './generations.js'
 import { handleChatResumeTree, toTreeControlState } from './treeControl.js'
 import {
   getConversationBranchByChat,
@@ -749,8 +755,14 @@ export function buildRootTimeline(
       a.rank - b.rank,
   )
   const persistedById = new Map<string, TimelineNode>()
+  // 回填改图检测：懒回填（spawn 边/return-continuation 等）不经消息写路径，不会自然推进
+  // timeline_revision。图变更必须 bump（见返回前），否则客户端同 revision 丢弃增量 patch，
+  // knownRevision 短路会冻结残缺快照（不变量：图变更 ⇒ revision 前进）。
+  const nodeIdsBefore = new Set(listExecutionNodes(rootChatId).map((node) => node.id))
+  let graphMutated = false
   for (const candidate of candidates) {
     const persisted = upsertExecutionNode(candidate.node) as unknown as TimelineNode
+    if (!nodeIdsBefore.has(persisted.id)) graphMutated = true
     persistedById.set(persisted.id, persisted)
     if (persisted.kind === 'tool-batch') {
       for (const call of persisted.toolCalls ?? []) {
@@ -943,17 +955,23 @@ export function buildRootTimeline(
       edge.id === generatedId &&
       !desiredGeneratedEdgeIds.has(edge.id)
     ) {
-      removeExecutionEdge(edge.id)
+      if (removeExecutionEdge(edge.id)) graphMutated = true
     }
   }
-  for (const edge of edgeInputs) upsertExecutionEdge(edge)
+  const edgeIdsBefore = new Set(existingEdgesBefore.map((edge) => edge.id))
+  for (const edge of edgeInputs) {
+    const persistedEdge = upsertExecutionEdge(edge)
+    if (!edgeIdsBefore.has(persistedEdge.id)) graphMutated = true
+  }
 
   const allNodes = listExecutionNodes(rootChatId) as unknown as TimelineNode[]
   const allEdges = listExecutionEdges(rootChatId) as unknown as ExecutionEdgeFact[]
-  // Every view carries the same complete graph fact set. Consumers such as the
-  // conversation drawer filter by visibility; graph consumers never receive
-  // dangling edges merely because a tool batch is detail-only.
-  const nodes = allNodes
+  // 代际窗口：默认完整展示两代（当前代 + 上一代），更早代由前端按 generations 索引
+  // 经 chat.timeline.generation.get 按需拉取。窗口过滤只影响返回的 snapshot，
+  // 持久层（execution_nodes/execution_edges）与上方全量重建/回填逻辑不受影响。
+  const generations = computeGenerations(rootChatId)
+  const windowFloor = generationWindowFloor(generations)
+  const nodes = windowFloor > 0 ? allNodes.filter((node) => node.orderKey > windowFloor) : allNodes
   const knownNodeIds = new Set(nodes.map((node) => node.id))
   const edges = allEdges.filter(
     (edge) => knownNodeIds.has(edge.fromNodeId) && knownNodeIds.has(edge.toNodeId),
@@ -998,6 +1016,9 @@ export function buildRootTimeline(
   const activeRuns: ActiveRunFact[] = [...durableRuns.values()]
   const eventSeq = getRootEvents(rootChatId, Number.MAX_SAFE_INTEGER).latestSeq
   const controlState = toTreeControlState(rootChatId)
+  // 本次 rebuild 实际改图（插入节点/边或删除边）：bump 必须先于下方 revision 读取，
+  // 使 snapshot/patch 携带新 revision，客户端丢增量后可经全量拉取自愈。
+  if (graphMutated) bumpTimelineRevision(rootChatId)
   return {
     rootChatId,
     view,
@@ -1006,6 +1027,7 @@ export function buildRootTimeline(
     edges,
     activeRuns,
     pendingInputs,
+    generations,
     ...(controlState ? { controlState } : {}),
     capturedEventSeq: eventSeq,
   }
@@ -1366,6 +1388,7 @@ export async function handleChatTimelineGet(
       edges,
       activeRuns,
       pendingInputs,
+      generations: [],
       capturedEventSeq: Math.max(0, ...snapshots.map((item) => item.timeline.capturedEventSeq)),
     }
     return {
@@ -1379,6 +1402,11 @@ export async function handleChatTimelineGet(
   if (!requestedChatId) throw new Error('缺少 chatId/rootChatId/taskId')
   if (!getChat(requestedChatId)) throw new Error('这个会话不见了')
   if (data.rootChatId) {
+    // knownRevision 短路：客户端已持有该 revision 的窗口快照，不重传图
+    const revision = getTimelineRevision(data.rootChatId)
+    if (data.knownRevision !== undefined && data.knownRevision >= revision) {
+      return { chatId: data.rootChatId, revision, unchanged: true }
+    }
     const rootTimeline = buildRootTimeline(data.rootChatId, data.view ?? 'conversation')
     logger.event('chat.rootTimeline.get', {
       rootChatId: data.rootChatId,
@@ -1806,8 +1834,6 @@ export async function handleChatOpen(
       const page = getRootEvents(data.rootChatId, Number.MAX_SAFE_INTEGER)
       const eventSeq = page.latestSeq
       connectionManager.setSessionBoundary(subscriptionId, eventSeq)
-      const rootTimeline = buildRootTimeline(data.rootChatId, 'conversation')
-      rootTimeline.capturedEventSeq = eventSeq
       const pendingInputs = chatIds.flatMap((chatId) =>
         listPendingInputs(chatId).map((entry) => ({
           chatId,
@@ -1828,6 +1854,38 @@ export async function handleChatOpen(
         const runId = getActiveChatRunId(chatId)
         return runId ? [{ chatId, runId, state: 'running' as const }] : []
       })
+      // knownTimelineRevision 短路：客户端已持有该 revision 的窗口快照，
+      // 省略 rootTimeline（订阅栅栏与 state 照常返回）
+      const revision = getTimelineRevision(data.rootChatId)
+      if (data.knownTimelineRevision !== undefined && data.knownTimelineRevision >= revision) {
+        connectionManager.finishSessionOpen(subscriptionId)
+        logger.event('chat.open.root', {
+          rootChatId: data.rootChatId,
+          subscriptionId,
+          eventSeq,
+          revision,
+          unchanged: true,
+        })
+        return {
+          chatId: data.rootChatId,
+          subscriptionId,
+          eventSeq,
+          timelineRevision: revision,
+          timelineChanged: false,
+          timelineUnchanged: true,
+          state: {
+            chatIds,
+            pendingInputs,
+            activeTurns,
+            runs,
+            questionBatches: [],
+            runningTools: [],
+            roles: [],
+          },
+        }
+      }
+      const rootTimeline = buildRootTimeline(data.rootChatId, 'conversation')
+      rootTimeline.capturedEventSeq = eventSeq
       connectionManager.finishSessionOpen(subscriptionId)
       logger.event('chat.open.root', {
         rootChatId: data.rootChatId,
@@ -2021,6 +2079,7 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_LIST, handleChatList)
   router.register(Method.CHAT_GET, handleChatGet) // 流式返回历史
   router.register(Method.CHAT_TIMELINE_GET, handleChatTimelineGet)
+  router.register(Method.CHAT_TIMELINE_GENERATION_GET, handleChatTimelineGenerationGet)
   router.register(Method.CHAT_INPUT_SUBMIT, handleChatInputSubmit)
   router.register(Method.CHAT_RESUME_TREE, handleChatResumeTree)
   router.register(Method.CHAT_SYNC, handleChatSync)

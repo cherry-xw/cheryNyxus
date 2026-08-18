@@ -6,6 +6,7 @@ import {
 } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isHashed, verifyPassword } from '@/utils/password.js'
+import { xorDecrypt } from '@/utils/obfuscate.js'
 
 export interface OAuth2Config {
   enabled?: boolean
@@ -443,30 +444,6 @@ export class OAuth2Auth {
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000)
-}
-/**
- * SHA-256 CTR 流密码解密（与前端 web/src/utils/obfuscate.ts 的 xorDecrypt 严格一致）。
- * keystream = SHA-256(keyHex_U8 || BE32(counter)) 逐块拼接，与密文逐字节异或。
- */
-function xorDecrypt(keyHex: string, cipherB64: string): string {
-  const key = Buffer.from(keyHex, 'utf8')
-  const buf = Buffer.from(cipherB64, 'base64')
-  const out = Buffer.alloc(buf.length)
-  let counter = 0
-  let block = Buffer.alloc(0)
-  let offset = 32
-  for (let i = 0; i < buf.length; i += 1) {
-    if (offset >= block.length) {
-      const count = Buffer.allocUnsafe(4)
-      count.writeUInt32BE(counter, 0)
-      counter += 1
-      block = createHash('sha256').update(key).update(count).digest()
-      offset = 0
-    }
-    out[i] = buf[i]! ^ block[offset]!
-    offset += 1
-  }
-  return out.toString('utf8')
 }
 function base64url(value: Buffer): string {
   return value.toString('base64url')

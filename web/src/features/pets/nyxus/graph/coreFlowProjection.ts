@@ -120,7 +120,13 @@ function buildBranchMetadata(graph: Readonly<ExecutionGraph>): BranchMetadata | 
   }
 
   for (const node of canonicalNodesById.values()) {
-    if (node.kind === 'start' || node.kind === 'fold' || node.orderSlot !== 'persistent') continue
+    if (
+      node.kind === 'start' ||
+      node.kind === 'fold' ||
+      node.kind === 'pack' ||
+      node.orderSlot !== 'persistent'
+    )
+      continue
     const branchId = node.sourceFact?.branchId
     if (!branchId || !byId.has(branchId)) return undefined
   }

@@ -170,11 +170,4 @@ function applyCustom(): void {
   text-align: left;
   padding: 0;
 }
-@media (prefers-reduced-motion: reduce) {
-  .avatar-picker-trigger span,
-  .avatar-grid button {
-    transition: none !important;
-    transform: none !important;
-  }
-}
 </style>

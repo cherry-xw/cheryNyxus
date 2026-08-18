@@ -79,6 +79,9 @@ export function startService(options: { port: number; webPort: number; staticDir
 | [src/service/plugin/import.ts](../../src/service/plugin/import.ts) | `plugins.preImportUrl` / `plugins.importUrl` / `plugins.commit` / `plugins.checkUpdate` / `plugins.update` / `plugins.uninstall` handler |
 | [src/service/plugin/index.ts](../../src/service/plugin/index.ts) | barrel：`registerPluginHandlers`（7 方法，见 [启动流程](#启动流程)） |
 | [src/service/credentials/handler.ts](../../src/service/credentials/handler.ts) | `credentials.list` / `credentials.save` / `credentials.delete` handler + `registerCredentialsHandlers`（包 [secretStore](../../src/utils/secretStore.ts)） |
+| [src/service/browse/sandbox.ts](../../src/service/browse/sandbox.ts) | `config.workspace.browse` 沙箱：默认全盘浏览（POSIX `/` / win32 盘符）+ 可选 roots 收窄、`.chery` 拦截、软链逃逸阻断、跨平台 |
+| [src/service/browse/session.ts](../../src/service/browse/session.ts) | `BrowseSessionStore` 单例：浏览会话 TTL + 每会话限流 + 并发上限 + sweep 清理 |
+| [src/service/browse/handler.ts](../../src/service/browse/handler.ts) | `config.workspace.browse.start` / `.list` handler + `registerBrowseHandlers`（解密路径 → 沙箱 → 加密回传） |
 
 ## RPC 模式
 
@@ -132,6 +135,8 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `utils.openFile` | `handleUtilsOpenFile` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 打开指定文件（用配置编辑器或系统默认） |
 | `utils.openConfigDir` | `handleUtilsOpenConfigDir` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 固定打开后端主机的 `CHERY_DIR/.chery` 配置目录 |
 | `utils.editors` | `handleUtilsEditors` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 检测后端主机可用的文本编辑器 |
+| `config.workspace.browse.start` | `handleBrowseStart` | [browse/handler.ts](../../src/service/browse/handler.ts) | 否 | 开启浏览会话（根锚定 + 一次性 sessionId + 限流） |
+| `config.workspace.browse.list` | `handleBrowseList` | 同上 | 否 | 解密路径 → 沙箱列目录 → 同 nonce 加密回传（权限拒绝结构化返回不抛错） |
 
 `Method` 常量全集见 [./message.md](./message.md)「Method 常量」。chat.* 流程细节见 [./chat.md](./chat.md)。
 

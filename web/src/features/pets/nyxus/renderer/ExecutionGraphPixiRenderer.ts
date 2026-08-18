@@ -214,10 +214,7 @@ export class ExecutionGraphPixiRenderer {
   private readonly visibleMotionEdges: SampledEdge[] = []
   private readonly visibleMotionNodes: PixiExecutionNode[] = []
   private camera?: ExecutionCamera
-  private reduceMotion = false
   private ticker?: () => void
-  private media?: MediaQueryList
-  private motionPreferenceListener?: () => void
   private canvasPalette: PixiCanvasPalette = PIXI_CANVAS_PALETTES.dark
   /** 标签纹理分辨率。随相机缩放逐档提升，避免放大后文字（含数字角标）糊。 */
   private labelResolution = 1
@@ -246,14 +243,6 @@ export class ExecutionGraphPixiRenderer {
       this.labels,
     )
     this.app.stage.addChild(this.world)
-    this.media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const updateMotionPreference = () => {
-      this.reduceMotion = this.media?.matches ?? false
-      if (this.reduceMotion) this.clearMotion()
-    }
-    this.motionPreferenceListener = updateMotionPreference
-    updateMotionPreference()
-    this.media.addEventListener('change', updateMotionPreference)
     this.ticker = () => this.drawMotion(performance.now())
     this.app.ticker.add(this.ticker)
     this.drawStatic()
@@ -439,13 +428,8 @@ export class ExecutionGraphPixiRenderer {
     }
   }
 
-  private clearMotion(): void {
-    this.motionEdges.clear()
-    this.motionNodes.clear()
-  }
-
   private drawMotion(now: number): void {
-    if (!this.app || this.reduceMotion || document.hidden) return
+    if (!this.app || document.hidden) return
     const seconds = now / 1000
     this.motionEdges.clear()
     for (const edge of this.visibleMotionEdges) {
@@ -523,11 +507,6 @@ export class ExecutionGraphPixiRenderer {
 
   destroy(): void {
     if (this.ticker) this.app?.ticker.remove(this.ticker)
-    if (this.motionPreferenceListener) {
-      this.media?.removeEventListener('change', this.motionPreferenceListener)
-    }
-    this.motionPreferenceListener = undefined
-    this.media = undefined
     this.app?.destroy({ removeView: true }, { children: true })
     this.app = undefined
     this.backend = 'uninitialized'

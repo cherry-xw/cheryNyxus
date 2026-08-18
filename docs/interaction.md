@@ -94,6 +94,30 @@
 
 > 目标为主 chat（无 `parent_chat_id`）时级联删其所有子 chat + 各自消息 + 清内存 runtime（`clearChatRuntime`），避免孤儿子 chat。子 chat 自身删除不级联。
 
+### chat.timeline.generation.get — 按需拉取已打包代际
+
+用户点击节点树打包节点 / 历史抽屉代际卡片时调用；前端 LRU 缓存，关闭二层即释放。
+
+```json
+// 成功（generationIndex 1-based，指向 RootTimelineSnapshot.generations[].index）
+→ {"id":"rg1","kind":"request","method":"chat.timeline.generation.get",
+   "params":{"rootChatId":"c1","generationIndex":2}}
+← {"id":"ag1","kind":"response","requestId":"rg1","success":true,
+   "data":{"rootChatId":"c1",
+     "generation":{"index":2,"boundaryMessageId":"m-compact-2","boundaryNodeId":"m-compact-2",
+       "boundaryOrderKey":42,"fromOrderKey":17,"summary":"第二段会话摘要…","nodeCount":25,
+       "createdAt":1718151000000,"trigger":"auto"},
+     "nodes":[{"id":"m-18","orderKey":18,"kind":"message", ...}],
+     "edges":[{"id":"edge:sequence:m-18:m-19", ...}]}}
+
+// 代际不存在
+→ {"id":"rg2","kind":"request","method":"chat.timeline.generation.get",
+   "params":{"rootChatId":"c1","generationIndex":9}}
+← {"id":"ag2","kind":"response","requestId":"rg2","success":false,"error":{"code":-32602,"message":"代际 9 不存在"}}
+```
+
+> 直接按 `orderKey` 区间 `(fromOrderKey, boundaryOrderKey]` 读持久 `execution_nodes/execution_edges`，不重跑 projector、不触发回填；edges 两端节点均在区间内。响应体量有界（单代 ≈ 一个上下文窗口节点量）。配套：`chat.timeline.get` root 路径 `knownRevision >= revision` → `{"chatId","revision","unchanged":true}` 短路；`chat.open` root 路径 `knownTimelineRevision >= revision` → 省略 `rootTimeline` + `"timelineUnchanged":true`。
+
 ### sense.approval
 
 ```json

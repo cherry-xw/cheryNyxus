@@ -63,6 +63,8 @@ export function createUiState() {
   const historyDrawerMode = ref<HistoryDrawerMode>('overlay')
   const historyDrawerAnchor = ref<HistoryDrawerAnchor | null>(null)
   const historyDrawerTaskBranches = ref<import('@/services/agentApi').ConversationBranchSummary[]>([])
+  /** 历史抽屉二层代际视图（栈深恒 ≤2 的第二层）：root 面板展开的已打包代。null = 关闭。 */
+  const historyDrawerGeneration = ref<{ rootChatId: string; generationIndex: number } | null>(null)
   const historyListOpen = ref(false)
   const settingsOpen = ref(false)
   const pendingScrollSenseCallId = ref<string | null>(null)
@@ -98,6 +100,17 @@ export function createUiState() {
     historyDrawerMode.value = mode
     historyDrawerAnchor.value = mode === 'workbench-docked' ? anchor : null
     historyDrawerStack.value = [chatId]
+    historyDrawerGeneration.value = null
+  }
+
+  /** 打开抽屉二层代际视图（抽屉卡片 / 树 pack 节点联动共用入口）。 */
+  function openHistoryGeneration(rootChatId: string, generationIndex: number): void {
+    historyDrawerGeneration.value = { rootChatId, generationIndex }
+  }
+
+  /** 关闭抽屉二层代际视图（仅二层；首层抽屉栈不受影响）。 */
+  function closeHistoryGeneration(): void {
+    historyDrawerGeneration.value = null
   }
 
   function updateHistoryDrawerAnchor(anchor: HistoryDrawerAnchor | null): void {
@@ -122,6 +135,7 @@ export function createUiState() {
   /** 关闭栈顶（✕ / 遮罩 / ESC）：逐层返回。 */
   function closeHistoryTop(): void {
     historyDrawerStack.value.pop()
+    historyDrawerGeneration.value = null
     if (historyDrawerStack.value.length === 0) {
       historyDrawerMode.value = 'overlay'
       historyDrawerAnchor.value = null
@@ -134,6 +148,7 @@ export function createUiState() {
     historyDrawerMode.value = 'overlay'
     historyDrawerAnchor.value = null
     historyDrawerTaskBranches.value = []
+    historyDrawerGeneration.value = null
   }
 
   /** 设置子 agent 消息显示模式。 */
@@ -314,6 +329,9 @@ export function createUiState() {
     if (removeIds.length === 0) return
     const set = new Set(removeIds)
     historyDrawerStack.value = historyDrawerStack.value.filter((id) => !set.has(id))
+    if (set.has(historyDrawerGeneration.value?.rootChatId ?? '')) {
+      historyDrawerGeneration.value = null
+    }
     if (historyDrawerStack.value.length === 0) {
       historyDrawerMode.value = 'overlay'
       historyDrawerAnchor.value = null
@@ -331,9 +349,12 @@ export function createUiState() {
     historyDrawerMode,
     historyDrawerAnchor,
     historyDrawerTaskBranches,
+    historyDrawerGeneration,
     topHistoryChatId,
     topOverlay,
     openHistoryRoot,
+    openHistoryGeneration,
+    closeHistoryGeneration,
     updateHistoryDrawerAnchor,
     drillHistoryChild,
     closeHistoryTop,

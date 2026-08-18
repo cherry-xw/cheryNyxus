@@ -10,6 +10,7 @@ import {
   reportSenseCompileResult,
 } from './agent/sense/compileToolsReporter.js'
 import { bootstrapAgentRuntime } from './agent/bootstrap.js'
+import { validateBrowseRoots } from './service/browse/sandbox.js'
 import { closeMcpClients } from '@/core/mcp/index.js'
 import { reloadSenses } from './agent/sense/index.js'
 import { clearAllApprovals } from '@/core/sense'
@@ -83,6 +84,10 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   }
 
   await bootstrapAgentRuntime()
+
+  // 启动自检：文件夹浏览协议（config.workspace.browse.*）根白名单有效性（rule12 fail loud）
+  const browseRootWarnings = validateBrowseRoots()
+  for (const w of browseRootWarnings) logger.warn(w)
   const staticDir = resolveStaticDir()
   if (staticDir && !existsSync(staticDir)) {
     logger.warn(

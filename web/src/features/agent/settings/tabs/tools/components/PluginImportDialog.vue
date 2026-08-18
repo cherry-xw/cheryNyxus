@@ -1083,18 +1083,6 @@ button:disabled {
     width: 100%;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .shuffle-cards > span,
-  .reveal-card {
-    animation: none !important;
-  }
-  .coordinate-card,
-  .beam-btn,
-  .launch-btn,
-  .payload-chip {
-    transition: none !important;
-  }
-}
 .proxy-field {
   margin-top: 8px;
 }

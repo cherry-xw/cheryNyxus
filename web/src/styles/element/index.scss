@@ -35,10 +35,24 @@
   }
 }
 
-// LabelTip info-ico hover popper：长 tip 限宽自动换行（密钥 tip 含长说明）
-.label-tip-popper {
+// LabelTip info-ico hover popper：长 tip 限宽自动换行 + 结构化多行（content 内 \n + pre-line）。
+// 配色随主题自适应：背景 var(--panel) / 文字 var(--ink)（深色黑底白字、浅色白底黑字），
+// 覆盖 el-tooltip 默认 dark（黑底白字，不随主题）。teleport 到 body，故置全局非 scoped。
+// 特异性抬到 .el-popper.is-dark 之上（同源覆盖，不用 !important）。
+.el-popper.is-dark.label-tip-popper {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--ink) 16%, transparent);
+  // 箭头底色随主题（dark 默认黑）
+  .el-popper__arrow::before {
+    background: var(--panel);
+    border-color: color-mix(in srgb, var(--ink) 14%, transparent);
+  }
+}
+.el-popper.label-tip-popper {
   max-width: 260px;
-  white-space: normal;
+  white-space: pre-line;
   line-height: 1.5;
   word-break: break-word;
 }

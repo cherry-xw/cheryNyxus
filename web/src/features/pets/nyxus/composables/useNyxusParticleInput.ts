@@ -5,7 +5,7 @@
  * 每帧产出 NyxusParticleInput 供 physics + renderer 消费。
  * 不持有 RAF 循环与 canvas（归 NyxusParticle.vue 宿主）。零行为变更。
  */
-import { onBeforeUnmount, onMounted, type Ref } from 'vue'
+import { onMounted, type Ref } from 'vue'
 import { useConnectionStore } from '@/stores'
 import {
   createNyxusParticles,
@@ -99,8 +99,6 @@ export function useNyxusParticleInput(opts: {
   let pendingBirthPoint: Vec2 | null = null
   let pointerDownAt: Vec2 | null = null
   const cosmicScheduler = createNyxusCosmicScheduler()
-  let reducedMotion = false
-  let reducedMotionQuery: MediaQueryList | undefined
 
   function resetParticles(): void {
     particles = createNyxusParticles(particleCount())
@@ -176,10 +174,6 @@ export function useNyxusParticleInput(opts: {
     pointerDown = false
     pendingBirthPoint = null
     pointerDownAt = null
-  }
-
-  function onReducedMotionChange(event: MediaQueryListEvent): void {
-    reducedMotion = event.matches
   }
 
   function localPointer(): { point: Vec2; distance: number } {
@@ -268,8 +262,8 @@ export function useNyxusParticleInput(opts: {
     const menuTargets = props.interactive && nyxusMenuOpen.value ? localMenuTargets() : []
     const pointerNear = props.interactive && pointerIsFresh && pointer.distance <= props.size * 1.45
     const forcedCosmic = nyxusForcedCosmicState(serviceState, props.working)
-    if (serviceState === 'disconnected') cosmicScheduler.cancel(now, reducedMotion)
-    else if (props.working) cosmicScheduler.update(now, false, false, reducedMotion)
+    if (serviceState === 'disconnected') cosmicScheduler.cancel(now, false)
+    else if (props.working) cosmicScheduler.update(now, false, false, false)
     const cosmic = forcedCosmic ?? cosmicScheduler.update(
       now,
       serviceState === 'connected' &&
@@ -277,7 +271,7 @@ export function useNyxusParticleInput(opts: {
         !nyxusMenuOpen.value &&
         !props.reaction,
       pointerNear,
-      reducedMotion,
+      false,
     )
     const releaseAge = Math.max(0, (now - releaseStartedAt) / 1000)
     const releaseStrength = releaseAge < 5 ? Math.exp(-releaseAge / 1.25) : 0
@@ -300,7 +294,7 @@ export function useNyxusParticleInput(opts: {
       actionAge: syncAction(now),
       cosmicMode: cosmic.mode,
       cosmicProgress: cosmic.progress,
-      bootProgress: props.boot ? clamp((now - mountedAt) / (reducedMotion ? 900 : 2200), 0, 1) : 1,
+      bootProgress: props.boot ? clamp((now - mountedAt) / 2200, 0, 1) : 1,
       swipe: { x: pointerVelocityX, y: pointerVelocityY },
       swipeStrength,
       armPhaseOffset,
@@ -329,14 +323,7 @@ export function useNyxusParticleInput(opts: {
   onMounted(() => {
     mountedAt = performance.now()
     actionStartedAt = mountedAt
-    reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
-    reducedMotion = reducedMotionQuery.matches
-    cosmicScheduler.initialize(mountedAt, reducedMotion)
-    reducedMotionQuery.addEventListener('change', onReducedMotionChange)
-  })
-
-  onBeforeUnmount(() => {
-    reducedMotionQuery?.removeEventListener('change', onReducedMotionChange)
+    cosmicScheduler.initialize(mountedAt, false)
   })
 
   return {
@@ -347,7 +334,7 @@ export function useNyxusParticleInput(opts: {
     onPointerMove,
     onPointerDown,
     onPointerUp,
-    isReducedMotion: () => reducedMotion,
+    isReducedMotion: () => false,
   }
 }
 

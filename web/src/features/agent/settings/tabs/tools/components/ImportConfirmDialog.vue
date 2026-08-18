@@ -714,13 +714,4 @@ function formatDate(iso: string | undefined): string {
     grid-template-columns: 1fr;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .cand,
-  .card-foil::after,
-  .cargo-enter-active {
-    animation: none !important;
-    transition: none !important;
-    transform: none !important;
-  }
-}
 </style>

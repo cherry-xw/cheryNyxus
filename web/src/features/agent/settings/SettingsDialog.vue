@@ -10,7 +10,7 @@
  * ⚠ 入场动画只用 opacity + y（无 scale）：scale 会让 panel 视觉上 < 720px，
  *    若 RPC 在 180ms 内 resolve，content 切换会被叠在 scale 动画里导致宽高抖动。
  */
-import { computed, nextTick, onUnmounted, provide, readonly, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, provide, reactive, readonly, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { ArrowLeft, ArrowRight, Close, FolderOpened } from '@element-plus/icons-vue'
 import { useAgentsStore, useConnectionStore } from '@/stores'
@@ -75,6 +75,68 @@ const saving = ref(false)
 const openingConfigDir = ref(false)
 const error = ref<string | null>(null)
 const savedHint = ref<string | null>(null)
+
+// ── 窗口拖动最大化：拖标题栏到屏幕顶部边缘 → 最大化；最大化后标题栏按钮还原 ──
+const maximized = ref(false)
+/** 面板 DOM 元素（motion.div 经 $el 解包；函数 ref 统一取底层 div）。 */
+const panelEl = ref<HTMLElement | null>(null)
+function setPanelEl(el: unknown): void {
+  panelEl.value = (el as { $el?: HTMLElement } | null)?.$el ?? (el as HTMLElement | null)
+}
+const dragging = ref(false)
+const dragOffset = reactive({ x: 0, y: 0 })
+let dragCleanup: (() => void) | undefined
+/** 释放时判定「拖到顶部」的阈值（px）：面板上缘距视口顶 ≤ 该值即最大化。 */
+const MAXIMIZE_TOP_THRESHOLD = 12
+
+const panelStyle = computed(() => ({
+  transform: maximized.value
+    ? undefined
+    : `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+}))
+
+function onTitlePointerDown(e: PointerEvent): void {
+  if (e.button !== 0) return
+  if ((e.target as Element | null)?.closest('button')) return
+  e.preventDefault()
+  // 最大化状态下再拖标题栏：先还原到居中再拖动（拖下即还原，拖上可再最大化）
+  if (maximized.value) {
+    maximized.value = false
+    dragOffset.x = 0
+    dragOffset.y = 0
+  }
+  const startPointer = { x: e.clientX, y: e.clientY }
+  const startOffset = { x: dragOffset.x, y: dragOffset.y }
+  dragging.value = true
+  document.body.style.userSelect = 'none'
+  const move = (ev: PointerEvent) => {
+    dragOffset.x = startOffset.x + ev.clientX - startPointer.x
+    dragOffset.y = startOffset.y + ev.clientY - startPointer.y
+  }
+  const end = () => {
+    dragging.value = false
+    document.body.style.userSelect = ''
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', end)
+    window.removeEventListener('pointercancel', end)
+    dragCleanup = undefined
+    const top = panelEl.value?.getBoundingClientRect().top ?? 0
+    // 拖到顶部边缘 → 最大化；否则回弹居中（offset 归零，transition 平滑回弹）
+    if (top <= MAXIMIZE_TOP_THRESHOLD) maximized.value = true
+    dragOffset.x = 0
+    dragOffset.y = 0
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', end)
+  window.addEventListener('pointercancel', end)
+  dragCleanup = end
+}
+
+function toggleMaximize(): void {
+  maximized.value = !maximized.value
+  dragOffset.x = 0
+  dragOffset.y = 0
+}
 /** 后端 config.save 返回的 workspace 校验告警，按预设名分发到 PresetsTab 输入框下（key=presetName, value=错误文案）。 */
 const workspaceWarnings = ref<Record<string, string>>({})
 /** 每个预设独立的最新校验序号，丢弃输入已变化后的迟到响应。 */
@@ -194,12 +256,7 @@ watch(
       prompts.value = []
     }
     // rules 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（下拉空选项 + placeholder）
-    try {
-      rules.value = await agentApi.listRules()
-    } catch (e) {
-      console.error('[SettingsDialog] listRules failed:', e)
-      rules.value = []
-    }
+    await refreshRules()
     // env 变量列表：每次打开重新拉（.env 可能变动），失败不阻塞编辑（密钥下拉空选项）
     try {
       envVars.value = await agentApi.listEnvVars()
@@ -214,6 +271,15 @@ watch(
   },
 )
 
+/** 重新拉取审批规则文件清单（PresetsTab 审批规则下拉用；手动新建/管家生成后触发）。 */
+async function refreshRules(): Promise<void> {
+  try {
+    rules.value = await agentApi.listRules()
+  } catch (e) {
+    console.error('[SettingsDialog] listRules failed:', e)
+    rules.value = []
+  }
+}
 /** 重新拉取技能列表（SkillsTab/RolesTab 共用；导入/删除后触发）。 */
 async function refreshSkills(): Promise<void> {
   try {
@@ -389,6 +455,7 @@ async function save(): Promise<void> {
 }
 
 onUnmounted(() => {
+  dragCleanup?.()
   clearRestartWait()
   teardownTabScroll()
 })
@@ -489,8 +556,10 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
     >
       <MotionDiv
         key="panel"
+        :ref="setPanelEl"
         class="settings-panel"
-        :style="settingsThemeStyle"
+        :class="{ 'is-maximized': maximized, 'is-dragging': dragging }"
+        :style="[settingsThemeStyle, panelStyle]"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1 }"
         :exit="{ opacity: 0 }"
@@ -499,7 +568,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         aria-modal="true"
         aria-label="设置"
       >
-        <header class="head">
+        <header class="head" @pointerdown="onTitlePointerDown">
           <div class="title-row">
             <span class="title">设置</span>
             <el-tooltip content="打开配置文件夹" placement="top" :show-after="120">
@@ -516,9 +585,20 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
               </span>
             </el-tooltip>
           </div>
-          <button type="button" class="close-btn" aria-label="关闭" @click="close">
-            <Close class="close-ico" />
-          </button>
+          <div class="head-actions">
+            <button
+              type="button"
+              class="close-btn"
+              :aria-label="maximized ? '还原设置窗口' : '最大化设置窗口'"
+              :title="maximized ? '还原' : '最大化'"
+              @click="toggleMaximize"
+            >
+              <span class="mx-glyph" :class="{ restore: maximized }" aria-hidden="true" />
+            </button>
+            <button type="button" class="close-btn" aria-label="关闭" @click="close">
+              <Close class="close-ico" />
+            </button>
+          </div>
         </header>
 
         <nav class="tab-bar-wrap">
@@ -601,6 +681,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
               :rules="rules"
               :workspace-warnings="workspaceWarnings"
               @workspace-change="validatePresetWorkspace"
+              @refresh-rules="refreshRules"
               @error="onError"
             />
             <McpTab v-show="activeTab === 'mcp'" :draft="draft" @error="onError" />
@@ -724,9 +805,20 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   flex-direction: column;
   gap: 10px;
   transition:
+    transform 180ms ease,
     border-color 180ms ease,
     box-shadow 180ms ease,
     color 180ms ease;
+}
+// 拖动中禁用 transform 过渡，避免拖拽跟手延迟；释放回弹或最大化时才启用过渡。
+.settings-panel.is-dragging {
+  transition: none;
+}
+// 最大化：铺满 overlay（overlay 自带 16px padding），仅留圆角收边。
+.settings-panel.is-maximized {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
 }
 .settings-error-detail {
   margin: 0;
@@ -750,10 +842,17 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  cursor: grab;
+  user-select: none;
   .title-row {
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .title {
     font-size: 15px;
@@ -810,6 +909,38 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 .close-ico {
   width: 12px;
   height: 12px;
+}
+
+.mx-glyph {
+  position: relative;
+  display: block;
+  width: 10px;
+  height: 10px;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1px solid currentColor;
+  }
+  // 还原态：右下主框 + 左上叠一层小框（原生窗口还原图标）
+  // 两个框都加粗到 2px，与「最大化」单框（1px）形成强对比，能一眼看出处于最大化态。
+  &.restore::before {
+    border-width: 2px;
+  }
+  &.restore::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: 2px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid currentColor;
+    background: var(--panel);
+  }
+}
+// 拖动中标题栏抓手态
+.settings-panel.is-dragging .head {
+  cursor: grabbing;
 }
 
 .tab-bar-wrap {

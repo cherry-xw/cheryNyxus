@@ -437,31 +437,12 @@ function onEscape(event: KeyboardEvent): void {
     color: #e3edef;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .status-running .live-dot {
-    animation: live-dot-pulse 1.4s linear infinite;
-  }
+.status-running .live-dot {
+  animation: live-dot-pulse 1.4s linear infinite;
 }
 @keyframes live-dot-pulse {
   50% {
     opacity: 0.42;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .live-dot {
-    animation: none;
-  }
-  .crt-content-enter-active,
-  .crt-content-leave-active {
-    transition: opacity 120ms ease;
-  }
-  .crt-actions button,
-  .crt-tabs button,
-  .crt-tabs button::after {
-    transition:
-      color 120ms ease,
-      background-color 120ms ease,
-      opacity 120ms ease;
   }
 }
 </style>

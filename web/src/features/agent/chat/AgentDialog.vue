@@ -115,7 +115,9 @@ const dialogView = computed({
   },
 })
 const quickTargetRequired = computed(
-  () => agents.activeDialogSource === 'pet' && !!presetName.value,
+  () =>
+    (agents.activeDialogSource === 'pet' || agents.activeDialogSource === 'nyxus') &&
+    !!presetName.value,
 )
 const quickPresetId = computed(() => {
   if (pet.value?.presetId) return pet.value.presetId
@@ -190,6 +192,7 @@ function onRouteStatus(status: RouteStatus): void {
     }, 10_000)
   }
 }
+
 function onTraceHover(hover: boolean): void {
   traceHover.value = hover
 }
@@ -197,7 +200,11 @@ function onTraceHover(hover: boolean): void {
 // ── 发送面板可拖动（pet 无遮罩小窗，允许拖动定位） ──
 const panelEl = ref<HTMLElement | null>(null)
 const panelPos = ref<{ x: number; y: number } | null>(null)
-let dragCtx: { pointerX: number; pointerY: number; origX: number; origY: number } | undefined
+/** 拖拽中的边框占位框位置（fixed）；null=未在拖拽。拖动只更新它（transform 驱动，避免实时重排面板），松开后整体瞬移。 */
+const dragPreview = ref<{ x: number; y: number; w: number; h: number } | null>(null)
+let dragCtx:
+  | { pointerX: number; pointerY: number; origX: number; origY: number; w: number; h: number }
+  | undefined
 function bindPanelEl(el: HTMLElement | { $el?: HTMLElement } | null): void {
   panelEl.value = el instanceof HTMLElement ? el : (el?.$el ?? null)
 }
@@ -213,19 +220,33 @@ function onHeaderPointerDown(e: PointerEvent): void {
     pointerY: e.clientY,
     origX: panelPos.value.x,
     origY: panelPos.value.y,
+    w: rect.width,
+    h: rect.height,
   }
+  // 拖拽中只移动边框占位框（transform 驱动，GPU 合成，不触发面板重排），松开后瞬移面板。
+  dragPreview.value = { x: panelPos.value.x, y: panelPos.value.y, w: rect.width, h: rect.height }
   window.addEventListener('pointermove', onPanelPointerMove)
   window.addEventListener('pointerup', onPanelPointerUp)
-  e.preventDefault()
+  // 不可 preventDefault：会阻止 mousedown 默认的文档聚焦。失焦/切 tab 回来首次点击时，
+  // 页面若得不到焦点则 Chromium 不派发后续 pointermove，导致无法拖动。
+  // 拖拽中防文本选择已由 .dialog-head 的 user-select:none 承担，无需 preventDefault。
 }
 function onPanelPointerMove(e: PointerEvent): void {
   if (!dragCtx) return
-  panelPos.value = {
+  dragPreview.value = {
     x: dragCtx.origX + (e.clientX - dragCtx.pointerX),
     y: dragCtx.origY + (e.clientY - dragCtx.pointerY),
+    w: dragCtx.w,
+    h: dragCtx.h,
   }
 }
 function onPanelPointerUp(): void {
+  const preview = dragPreview.value
+  if (dragCtx && preview) {
+    // 鼠标松开：面板整体瞬移到占位框位置（无过渡）。
+    panelPos.value = { x: preview.x, y: preview.y }
+  }
+  dragPreview.value = null
   dragCtx = undefined
   window.removeEventListener('pointermove', onPanelPointerMove)
   window.removeEventListener('pointerup', onPanelPointerUp)
@@ -237,6 +258,19 @@ const panelStyle = computed(() =>
         left: `${panelPos.value.x}px`,
         top: `${panelPos.value.y}px`,
         margin: '0',
+      }
+    : {},
+)
+/** 拖拽占位框样式：fixed + transform 跟随；width/height 在 pointerdown 时记录一次，避免拖拽中实时读布局。 */
+const dragPreviewStyle = computed(() =>
+  dragPreview.value
+    ? {
+        position: 'fixed' as const,
+        left: '0px',
+        top: '0px',
+        width: `${dragPreview.value.w}px`,
+        height: `${dragPreview.value.h}px`,
+        transform: `translate3d(${dragPreview.value.x}px, ${dragPreview.value.y}px, 0)`,
       }
     : {},
 )
@@ -315,8 +349,8 @@ async function sendFromComposer(): Promise<void> {
   if (targetChatId) {
     agents.activatePresetSession(quickPresetId.value, targetChatId, presetName.value)
   }
-  // pet 发送窗口提交后保持打开（不关闭），路由小窗展示 Shadow Agent 工作流程。
-  await handleSend(targetChatId, quickTargetRequired.value ? { keepOpen: true } : {})
+  // 发送后保持窗口打开（不关闭），路由小窗展示 Shadow Agent 工作流程。
+  await handleSend(targetChatId, { keepOpen: true })
 }
 
 /** 打开当前会话的节点树工作台（WorkbenchDialog 多窗口，windowId = presetId）。 */
@@ -669,10 +703,6 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
             :editor-ref-fn="editorRefFn"
             :command-menu-ref-fn="commandMenuRefFn"
             :role-menu-ref-fn="roleMenuRefFn"
-            :target-locked="
-              !quickTargetRequired ||
-              (!quickRoutingPending && (!!quickTarget || (quickRoutingEnabled && quickAutoMode)))
-            "
             @remove-media="removeMedia"
             @editor-input="onEditorInput"
             @editor-keydown="onDialogEditorKeydown"
@@ -689,6 +719,14 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         </div>
       </MotionDiv>
 
+      <!-- 拖拽占位框：拖动中仅此边框跟随鼠标（transform 驱动），松开后面板整体瞬移到位 -->
+      <div
+        v-if="dragPreview"
+        class="dialog-drag-preview"
+        :style="dragPreviewStyle"
+        aria-hidden="true"
+      />
+
       <!-- 会话路由小窗：锚定在发送面板右侧，展示 Shadow Agent 工作流程（候选+选择+思考/正文） -->
       <RoutingTraceWindow
         v-if="showTraceWindow"
@@ -704,6 +742,16 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 
 <style scoped lang="less">
 @import '../dialog/agentDialog.less';
+
+/* 拖拽占位框：拖动中只显示此边框，尺寸在 pointerdown 时记录一次；松开后 panel 瞬移，本框消失。 */
+.dialog-drag-preview {
+  z-index: 2;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  pointer-events: none;
+  will-change: transform;
+}
 
 .role-usage-chip {
   flex-shrink: 0;

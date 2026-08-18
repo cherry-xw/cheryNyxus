@@ -15,6 +15,7 @@ import readSense from './read'
 import writeSense from './write'
 import skillSense from './skill'
 import searchSense from './search'
+import historyRecallSense from './historyRecall'
 import spawnSense from './spawn'
 import todoSense from './todo'
 import memorySense from './memory'
@@ -62,6 +63,12 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
     label: '搜索代码库',
     description: '按内容或文件名搜索代码',
     icon: '🔍',
+  },
+  {
+    name: 'history_recall',
+    label: '历史回忆',
+    description: '检索被压缩的长会话历史（代际目录 + 关键词搜索，只读）',
+    icon: '🕰️',
   },
   { name: 'spawn_role', label: '派遣角色', description: '派出角色执行子任务', icon: '👥' },
   { name: 'stop_child', label: '停止子角色', description: '停止指定子 Agent 或其子树', icon: '⏹️' },
@@ -111,6 +118,7 @@ function registerBuiltinSenses(): void {
     writeSense,
     skillSense,
     searchSense,
+    historyRecallSense,
     spawnSense,
     todoSense,
     memorySense,

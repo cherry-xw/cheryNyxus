@@ -948,15 +948,3 @@
 }
 
 // 减少动态效果：停用 CRT 抖动与脉冲，保留静态可读性。
-@media (prefers-reduced-motion: reduce) {
-  .approval-frame,
-  .node-popover,
-  .streaming-dot {
-    animation: none;
-  }
-  .node-popover .popover-tool :deep(.status-running),
-  .node-popover .popover-tool :deep(.badge-running),
-  .node-popover .popover-tool :deep(.is-in_progress .glyph) {
-    animation: none;
-  }
-}

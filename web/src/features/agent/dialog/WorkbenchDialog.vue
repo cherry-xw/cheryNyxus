@@ -1946,9 +1946,9 @@ function onTreePromptSnapShow(): void {
 .window-control-icon.is-restore::after {
   content: '';
   position: absolute;
-  width: 8px;
-  height: 8px;
-  border: 1px solid currentcolor;
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentcolor;
 }
 .window-control-icon.is-restore::before {
   top: 0;
@@ -2582,27 +2582,6 @@ function onTreePromptSnapShow(): void {
 @media (max-height: 520px) and (min-width: 721px) {
   .nyxus-side-tools {
     top: 50%;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .workbench-titlebar.has-attention {
-    animation: none;
-  }
-  .nyxus-composer-enter-active,
-  .nyxus-composer-leave-active {
-    transition: opacity 150ms ease;
-  }
-  .nyxus-composer-enter-from,
-  .nyxus-composer-leave-to {
-    transform: none;
-  }
-  .nyxus-piano-popout {
-    transform: none !important;
-  }
-  .nyxus-rail-action,
-  .nyxus-composer-close {
-    transform: none !important;
-    transition-duration: 0ms, 120ms, 120ms, 120ms;
   }
 }
 @media (prefers-reduced-transparency: reduce) {

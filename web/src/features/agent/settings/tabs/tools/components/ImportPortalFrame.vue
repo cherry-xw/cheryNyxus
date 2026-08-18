@@ -855,20 +855,6 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
     display: none;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .pack-shell,
-  .pack-shell::before,
-  .pack-shell * {
-    animation: none !important;
-    transition: none !important;
-  }
-  .neon-confetti {
-    opacity: 0.22;
-  }
-  .pack-spark {
-    display: none;
-  }
-}
 </style>
 
 <style lang="less">

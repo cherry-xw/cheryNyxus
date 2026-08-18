@@ -34,6 +34,20 @@ service 层的核心枢纽。把 RPC 请求（`chat.*` / `sense.approval`）转�
 - 未完成的继承子任务保持不可变 `parent_chat_id` 作为绘图/审计归属，同时把 `spawn_tasks.delivery_chat_id/delivery_branch_id/delivery_generation` 原子改到新主干。恢复后每个结果各写一个 `return` 节点并自动唤醒当前活动主 Agent；再次切换时仅尚未投递且仍在新因果闭包内的任务随最新主干移动。投递以 generation 做并发栅栏，已投递结果不搬移、不复制。
 - `chat.abortTask` 级联暂停任务内所有分支根及各自的子 Agent；继续仍按分支分别操作。
 - v1 前端通过 `chat.timeline.get({taskId})` 每 1.2 秒刷新任务投影；单根 Chat 的既有实时事件订阅保持不变，后续可在不改变分支协议的前提下升级为任务级 WebSocket patch。
+- **分支不可跨代**：anchor 节点属已打包代（orderKey <= 最后一代的 boundaryOrderKey，见「长会话代际分割」）时 preview 返回 `eligible:false`（reason「只能在当前对话段内创建分支，已打包的历史不支持分支」），create 同步拒绝；无 compact 不限制。
+
+## 长会话代际分割（generations.ts）
+
+compact 事件（手动 `[[command:/compact]]` 与 autoCompact 统一）把 root 历史切为**代**：第 k 次压缩的摘要 assistant 消息（消息行 `context_compaction=1`，含手动+自动——autoCompact 注入的 token 经 `persistedContent` 剥离不落库，token 扫描会漏检，故以持久标志为准）即第 k 代定稿边界。
+
+- **`computeGenerations(rootChatId)`**：扫描 root chat 持久消息 + `listExecutionNodes` 推导 `GenerationEntry[]`（`{index, boundaryMessageId, boundaryNodeId, boundaryOrderKey, fromOrderKey, summary, nodeCount, createdAt, trigger}`，区间 `(fromOrderKey, boundaryOrderKey]`）。纯推导计算，无新表。`trigger` best-effort：send 侧 `injectCommands` triggered 时 `recordAutoCompactTrigger(chatId)` 计数，computeGenerations 从尾部消费；重启后重算一律 `manual`（装饰性字段）。
+- **timeline 代际窗口**：`buildRootTimeline` 返回 snapshot 前过滤——`windowFloor = generations.length >= 2 ? generations[length-2].boundaryOrderKey : 0`，nodes 只含 `orderKey > windowFloor`（当前代+上一代），edges 两端均在窗口内；内部全量重建/回填/落库逻辑不变（`execution_nodes` 仍写全量）。`RootTimelineSnapshot.generations` 恒存在（无 compact 为 `[]`）。
+- **`chat.timeline.generation.get`**（`handleChatTimelineGenerationGet`，generations.ts）：`{rootChatId, generationIndex}`（1-based）→ 该代完整 nodes/edges，直接按 orderKey 区间读 DB，不重跑 projector；代际不存在显式报错。
+- **knownRevision 短路**：`handleChatTimelineGet` root 路径 `knownRevision >= getTimelineRevision` → `{chatId, revision, unchanged: true}`；`handleChatOpen` root 路径 `knownTimelineRevision >= revision` → 省略 `rootTimeline` + `timelineUnchanged: true`（订阅与 state 照常）。
+- **patch 增量化**（rootGraphPatch.ts）：仍全量 build，但 toRootPatch 按模块级 JSON 缓存 diff——新增/变化 upsert、消失 remove（node/edge/run/input 各自 remove 类型）；canonical operations 同理（消失 message → `remove`）。三 view 的 nodes/edges/runs/inputs 相同，diff 共享计算一次。缓存未命中（重启后首次）→ 全量 upsert（等价旧行为）。同轮三 view 的 patch revision 取各 timeline revision 的 max（见下条回填 bump 时序）。
+- **不变量「图变更 ⇒ revision 前进」**：buildRootTimeline 的懒回填（spawn 边、return-continuation、spawn-target 链等）由 `upsertExecutionNode/Edge` 直接写图、不经过消息写路径，不会自然推进 `timeline_revision`。回填若不 bump，客户端会以同 revision 丢弃增量 patch（`applyRootPatch` 判 duplicate），且读路径（timeline.get 触发 rebuild）回填不产生任何 patch——增量一旦丢失且 revision 相等，knownRevision 短路会永久冻结残缺快照。故 buildRootTimeline 在本次 rebuild 实际改图（插入节点/边或删除边）时于返回前 `bumpTimelineRevision(rootChatId)`（在 revision 读取之前），保证任何持久图变化都伴随 revision 前进，丢增量必然导致客户端 revision 落后、经全量拉取自愈。
+- **patch 应用规则（客户端 applyRootPatch）**：`patch.revision > current.revision` 即应用增量，`<=` 判 duplicate；**不做** `baseRevision` 精确衔接校验。原因：消息写与图回填并行 bump 使 patch revision 跳号是常态，严格链校验会把每次跳号误判 gap → 触发全量刷新风暴（主线程打满、CSS 动画卡死、增量布局重置）。增量正确性依赖事件流有序前缀（WS 单连接有序 + 断线 `chat.sync` 重放 + 重连 `chat.open` 全量快照），错过 emit 由重连链路兜底；服务端「图变更 ⇒ revision 前进」不变量保证任何真实增量缺失必然表现为 revision 落后、经全量拉取补齐。
+- **分支限制**：见上节「分支不可跨代」。
 
 ## 前端 ChatSession 信息契约
 
@@ -55,6 +69,7 @@ running chat hydration 顺序固定：`chat.attach` 先建立实时输出重定�
 | [src/service/chat/send.ts](../../src/service/chat/send.ts) | `handleChatSend` / `handleChatResume` / `handleSenseApproval` / `handleChatAbort` + `registerChatHandlers` |
 | [src/service/chat/handler.ts](../../src/service/chat/handler.ts) | `handleChatCreate` / `handleChatList` / `handleChatGet`（流式历史 + canResume）/ `handleChatDelete` + `registerChatManageHandlers` |
 | [src/service/chat/contextUsage.ts](../../src/service/chat/contextUsage.ts) | `computeContextBreakdown`：6 段 token 用量分解（chat.contextUsage / chat.get 快照共用） |
+| [src/service/chat/generations.ts](../../src/service/chat/generations.ts) | `computeGenerations`（compact 边界推导代际索引）+ `handleChatTimelineGenerationGet`（chat.timeline.generation.get）+ 分支代际校验辅助 |
 | [src/service/chat/promptSnapshot.ts](../../src/service/chat/promptSnapshot.ts) | `handleChatPromptSnapshot`：重建 chat 当前 runtime 的 system prompt 全文 + 工具定义（chat.promptSnapshot RPC，供历史抽屉「上下文」hover 面板） |
 | [src/service/chat/observer.ts](../../src/service/chat/observer.ts) | `observeAgentChunks`：消费 effect chunk 做 DB 副作用 + 审批注册 + child_done 调度，finally abort flush + 每条 chunk feed-dog 喂狗 |
 | [src/service/chat/streamMapper.ts](../../src/service/chat/streamMapper.ts) | `streamAgentChunks`：MiddlewareChunk → 协议 Chunk/Notification 映射 |

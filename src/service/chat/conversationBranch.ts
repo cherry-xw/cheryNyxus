@@ -44,6 +44,7 @@ import {
 } from '@/db/delivery.js'
 import { clearChatRuntime, ensureChat } from './runtime.js'
 import { buildRootTimeline, handleChatInputSubmit } from './handler.js'
+import { isNodeInPackedGeneration } from './generations.js'
 import { handleChatAbort } from './send.js'
 import { resolveDetailSelection, type RuntimeSelection } from '@/agent/runtimeResolver.js'
 import { collectDescendantsChatIds } from '@/db/chat.js'
@@ -199,6 +200,20 @@ export async function handleChatBranchPreview(
   const source = sourceIdentity(rootChatId)
   const snapshot = buildRootTimeline(rootChatId, 'tree')
   const anchor = snapshot.nodes.find((node) => node.id === data.anchorNodeId)
+  // 分支不可跨代：anchor 属已打包代（不在代际窗口内且 orderKey <= 最后一代边界）时拒绝。
+  // 无 compact（generations 为空）不限制。
+  if (!anchor && isNodeInPackedGeneration(rootChatId, data.anchorNodeId)) {
+    return {
+      taskId: source.taskId,
+      sourceBranchId: source.branchId,
+      eligible: false,
+      reason: '只能在当前对话段内创建分支，已打包的历史不支持分支',
+      sideEffects: [],
+      effectDigest: digest([]),
+      inheritedCompletedTasks: [],
+      inheritedPausedTasks: [],
+    }
+  }
   const eligible = eligibleAnchor(anchor)
   const effects = eligible ? sideEffects(snapshot, anchor) : []
   const inherited = eligible ? inheritedTasks(snapshot, anchor) : []

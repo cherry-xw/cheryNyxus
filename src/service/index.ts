@@ -28,6 +28,7 @@ import { registerRole } from './subagent/index.js'
 import { registerConfigHandlers } from './config/handler.js'
 import { registerHooksHandlers } from './hooks/handler.js'
 import { registerUtilsHandlers } from './utils/handler.js'
+import { registerBrowseHandlers } from './browse/handler.js'
 import { registerCommandHandlers } from './command/handler.js'
 import { startScheduleService, stopScheduleService } from './schedule/scheduler.js'
 import { randomBytes } from 'node:crypto'
@@ -109,6 +110,8 @@ export function startService(options: StartServiceOptions): ServiceHandle {
   registerHooksHandlers(router)
   // Utils 工具：独立信息查询（utils.models 等，不依赖 chat/brain 运行时）
   registerUtilsHandlers(router)
+  // 文件夹浏览协议：设置页工作区「浏览」（config.workspace.browse.*，根锚定 + 载荷加密）
+  registerBrowseHandlers(router)
   // 内置命令系统：settings 「指令」tab 后端（读写 .chery/command/*.md）
   registerCommandHandlers(router)
 

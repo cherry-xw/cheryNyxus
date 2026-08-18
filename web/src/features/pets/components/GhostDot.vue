@@ -115,9 +115,4 @@ const mergedStyle = computed(() => ({ ...props.style, ...twinkle.value }))
     transform: scale(1);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .ghost-star {
-    animation: none;
-  }
-}
 </style>

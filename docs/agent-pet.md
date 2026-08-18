@@ -95,7 +95,7 @@ presets:
 
 - `presets.<name>.leader`：组长角色 type 名，必须引用 `config.roles` 且包含于该预设的 `roles`。主 agent 的 brain/senseGroup/mcpServers/systemPrompt 均从该角色取得；brain 每轮可覆盖（runtime.set brain-only），sense/mcp/systemPrompt 锁定。
 - `presets.<name>.roles`：`string[]`，引用 `config.roles` 中已定义的子 agent type 名（**不在预设内重定义** brain/sense 等）。子 agent 的 brain/senseGroup/mcpServers/systemPrompt 统一在 `config.roles.<type>` 单一源维护。
-- `presets.<name>.shadows.conversationRouting`：可选的会话路由 Shadow type，必须引用 `kind: shadow` 的角色。缺省或清空时，该预设关闭自动会话路由。
+- `presets.<name>.shadows.conversationRouting`：可选的会话路由 Shadow type，必须引用 `kind: shadow` 的角色。缺省或清空时，该预设关闭自动会话路由。路由选择器（ConversationTargetPicker：AI 自动选目标 + 候选会话列表）在前端发消息窗中为 pet 与 Cherry Nyxus **共通启用**——只要预设配置了 `conversationRouting`，双击 pet 或 Nyxus 打开发消息窗都会渲染该模块；配置了路由的预设每次发送须先经目标选择（AI 自动 or 手动），与 pet 行为一致，未配路由则直达当前活跃会话。选择器候选会话在页面直显最近 6 条（超出范围仅展示选中项），按钮显示截断标题（/命令、@角色 tag 保留），未选中在尾部附加小字时间、选中态突出标题，完整预览与时间均悬停可见。
 - `roles.<type>.kind`：`role | shadow`，缺省按 `role`。Shadow 是内部临时流程角色，不得成为 leader/detailRole、预设 team member、`@` 提及或 `spawn_role` 目标，也不会创建 Pet、Chat 或节点树节点；Shadow 不允许 `mentionable:true`。
 - `systemPrompt` 路径相对 `.chery`（loadConfig 解析为绝对）；缺省 → 全局。per-agent prompt 数据流见 [agent/prompt.md](./agent/prompt.md)。
 - `roles.<type>.description`：角色说明文本，**仅 UI 展示**（角色名下方注释样式，点击 inline 编辑；不注入 prompt，与 `systemPrompt` 职责不重叠）；`lock:true` 角色只读不可编辑；缺省则显示占位。

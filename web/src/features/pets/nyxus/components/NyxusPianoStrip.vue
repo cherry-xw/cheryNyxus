@@ -1073,13 +1073,4 @@ onScopeDispose(() => {
     transform: rotate(8deg) scale(1.06);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .piano-key.is-drag-source {
-    transform: none;
-  }
-  .key-clear-icon,
-  .clear-ghost .ghost-msg {
-    animation: none;
-  }
-}
 </style>

@@ -153,6 +153,7 @@ onUpdated(() => {
 })
 onBeforeUnmount(() => {
   roleNameObserver?.disconnect()
+  window.clearTimeout(swapTimer)
 })
 
 function roleTokens(cfg: RoleDraft): number {
@@ -166,15 +167,19 @@ function roleTokens(cfg: RoleDraft): number {
     computeSelectionTokens(cfg.mcpServers, mcpNames.value, mcpTokens.value)
   )
 }
+// 轨道排序：锁定角色固定在上半部分（lock 优先），组内保持原插入顺序；
+// 稳定 sort 仅把 lock 角色提到前面，不改变两类各自内部的相对顺序。
 const railItems = computed<ResourceRailItem[]>(() =>
-  Object.entries(filteredRoles.value).map(([type, cfg]) => ({
-    key: type,
-    label: type,
-    avatar: resolveRoleAvatar(type, cfg.avatar),
-    meta: `${cfg.brain || '未选大脑'} · ${cfg.senseGroup || '无器官'}`,
-    badge: cfg.lock ? '锁定' : roleTokens(cfg) > 5000 ? '高负重' : undefined,
-    danger: !props.draft.llm.brain[cfg.brain],
-  })),
+  Object.entries(filteredRoles.value)
+    .sort(([, a], [, b]) => Number(!!b.lock) - Number(!!a.lock))
+    .map(([type, cfg]) => ({
+      key: type,
+      label: type,
+      avatar: resolveRoleAvatar(type, cfg.avatar),
+      meta: `${cfg.brain || '未选大脑'} · ${cfg.senseGroup || '无器官'}`,
+      badge: cfg.lock ? '锁定' : roleTokens(cfg) > 5000 ? '高负重' : undefined,
+      danger: !props.draft.llm.brain[cfg.brain],
+    })),
 )
 
 function addRole(): void {
@@ -291,6 +296,19 @@ function setRoleMode(mode: RoleMode): void {
   selectedRole.value = Object.keys(filteredRoles.value)[0] ?? ''
 }
 
+// 卡牌换位：点击触发上卡向上 / 下卡向下分离；150ms 分离顶点（完全不重叠）翻转 roleMode，
+// z-index 随 is-front/is-back 同帧互换，再合拢成交叉换层后的姿态。期间连点忽略。
+let swapTimer = 0
+const swapping = ref(false)
+function toggleRoleMode(): void {
+  if (swapping.value) return
+  swapping.value = true
+  swapTimer = window.setTimeout(() => {
+    swapping.value = false
+    setRoleMode(roleMode.value === 'role' ? 'shadow' : 'role')
+  }, 150)
+}
+
 watch(
   filteredRoles,
   (available) => {
@@ -313,13 +331,18 @@ onMounted(() => emit('mode-change', roleMode.value))
         Shadow 只运行内部临时流程，不创建会话、Pet 或节点树，也不能成为组长、团队成员或 @ 目标。
       </template>
     </p>
-    <div class="role-mode-stack" role="group" aria-label="角色类别">
+    <div
+      class="role-mode-stack"
+      :class="{ 'is-swapping': swapping }"
+      role="group"
+      aria-label="角色类别"
+    >
       <button
         type="button"
         class="role-kind-card is-ordinary"
         :class="{ 'is-front': roleMode === 'role', 'is-back': roleMode !== 'role' }"
         :aria-pressed="roleMode === 'role'"
-        @click="setRoleMode('role')"
+        @click="toggleRoleMode"
       >
         普通角色
       </button>
@@ -328,7 +351,7 @@ onMounted(() => emit('mode-change', roleMode.value))
         class="role-kind-card is-shadow"
         :class="{ 'is-front': roleMode === 'shadow', 'is-back': roleMode !== 'shadow' }"
         :aria-pressed="roleMode === 'shadow'"
-        @click="setRoleMode('shadow')"
+        @click="toggleRoleMode"
       >
         影子角色
       </button>
@@ -672,6 +695,23 @@ onMounted(() => emit('mode-change', roleMode.value))
     outline-offset: 2px;
   }
 }
+// 卡牌换位分离段：上层卡向上、下层卡向下各拉 14px（合计 28px > 19px 竖向重叠高度，保证完全不重叠）；
+// JS 在 150ms 分离顶点翻转 roleMode，z-index 随 is-front/is-back 同帧互换后按基础 220ms 合拢交叉换层。
+// 减弱动态偏好下跳过分离位移，仅保留原有小位移过渡。
+@media (prefers-reduced-motion: no-preference) {
+  .role-mode-stack.is-swapping .role-kind-card {
+    transition-duration: 140ms;
+    &.is-front {
+      transform: translate3d(0, -14px, 0);
+    }
+    &.is-ordinary.is-back {
+      transform: translate3d(-8px, 24px, 0) rotate(-1.5deg) scale(0.97);
+    }
+    &.is-shadow.is-back {
+      transform: translate3d(8px, 24px, 0) rotate(1.5deg) scale(0.97);
+    }
+  }
+}
 .rail-add {
   width: 27px;
   height: 27px;
@@ -940,14 +980,6 @@ onMounted(() => emit('mode-change', roleMode.value))
   }
   .core-field > span {
     padding: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .role-kind-card {
-    transition: none;
-  }
-  .role-detail-card.copied {
-    animation: none;
   }
 }
 </style>

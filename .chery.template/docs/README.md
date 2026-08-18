@@ -49,6 +49,7 @@ housekeeper 角色：
 | 加 / 改角色 | [./config.md#rolesrole-字段](./config.md#rolesrole-字段) + [./prompt.md](./prompt.md) | [../../docs/system-prompt.md](../../docs/system-prompt.md) |
 | 改预设 | [./config.md#presetsname-字段](./config.md#presetsname-字段) | — |
 | 改服务端口 | [./config.md#server-字段](./config.md#server-字段) | [../../docs/protocol.md](../../docs/protocol.md) |
+| 改文件夹浏览白名单 / 文件可见性 | [./config.md#workspace_browse-字段文件夹浏览协议](./config.md#workspace_browse-字段文件夹浏览协议) | [../../docs/protocol.md](../../docs/protocol.md) |
 | 加 model 档位映射 | [./model-thinking.md](./model-thinking.md) | — |
 | 加 / 改钩子 | [./hooks.md](./hooks.md) | [../../docs/agent/hooks.md](../../docs/agent/hooks.md) |
 | 排查错误 / 用户报错 | [./error-troubleshooting.md](./error-troubleshooting.md) | [../../docs/error-conventions.md](../../docs/error-conventions.md) |

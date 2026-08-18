@@ -32,6 +32,7 @@
 | `approval_timeout` | number (ms) | ❌ | 30000 | 审批等待超时（`global.approval_timeout` 也可由 RPC/感官级覆盖） |
 | `bash_log_retention_hours` | number (hours) | ❌ | 24 | bash 子进程日志保留时长 |
 | `tree_full_render_threshold` | number | ❌ | 500 | 节点树全量渲染阈值（节点数≤此值跳过视口裁剪避免平移卡顿；`0`=始终裁剪） |
+| `history_recall.max_output_chars` | number | ❌ | 4000 | `history_recall` 感官（长会话历史回忆）单次返回的硬字符上限，超限截断并提示缩小范围 |
 | `textEditor` | string | ❌ | `notepad` | 文本编辑器命令（设置页「打开配置」按钮调用） |
 | `file_compression` | object | ❌ | 见下 | 大日志文件读取时的截断/压缩配置 |
 
@@ -154,6 +155,21 @@ sense_groups:
 | `port` | number | 8182 | WebSocket 监听端口 |
 | `transport` | enum | `binary` | 传输格式：`binary` / `json`（详见 [docs/protocol.md](../../docs/protocol.md)） |
 | `host` | string | `127.0.0.1` | 监听地址 |
+| `workspace_browse` | object | — | 文件夹浏览协议（`config.workspace.browse.*`）配置，见下 |
+
+### workspace_browse 字段（文件夹浏览协议）
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `roots` | string[] | 全盘 | 允许浏览的根白名单（绝对路径，支持 `~` 展开）。**缺省不设 = 全盘可浏览**：POSIX 为 `/`、win32 为全部存在盘符；权限由系统对后端的实际访问报错把关（无权限目录 → 「下级无法加载」）。配置后收窄为白名单内（路径穿越/软链逃逸拒绝）。`.chery` 系统配置目录恒不可浏览 |
+| `default_include_files` | boolean | `false` | 是否允许返回文件（**硬上限**：置 `false` 时调用方传 `includeFiles:true` 也被忽略；置 `true` 后调用方可选） |
+| `show_hidden` | boolean | `false` | 是否显示隐藏条目（`.` 开头；`.chery` 恒隐藏不受此控） |
+| `max_depth` | number | 不限 | 从根算起的最大浏览深度 |
+| `session_ttl_ms` | number | 600000 | 浏览会话存活时间（10 分钟） |
+| `rpm` | number | 60 | 每会话每分钟请求上限 |
+| `max_sessions` | number | 20 | 并发浏览会话上限 |
+
+> ⚠ `workspace_browse` 是 **server 侧专属**：被 `config.get` 剥离（设置面板不可编辑）、`config.save` 原样保留；改配置需直接编辑 `.chery/config.yaml` 后重启生效。载荷加密为混淆级（协议见 [docs/protocol.md](../../docs/protocol.md) `config.workspace.browse.*`）。
 
 > ⚠ Web 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定。
 

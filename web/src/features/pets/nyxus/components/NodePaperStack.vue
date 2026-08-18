@@ -1017,27 +1017,6 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .paper-reader-enter-active,
-  .paper-reader-leave-active,
-  .paper-title-strip,
-  .paper-bundle {
-    transition: opacity 100ms linear;
-  }
-
-  .paper-reader-enter-from,
-  .paper-reader-leave-to {
-    opacity: 0;
-    transform: translate3d(-50%, -50%, 0);
-  }
-
-  .paper-title-strip-content,
-  .paper-latest,
-  .paper-scrubber-thumb-position {
-    transition-duration: 0ms;
-  }
-}
-
 @media (prefers-contrast: more) {
   .paper-title-strip,
   .paper-current,

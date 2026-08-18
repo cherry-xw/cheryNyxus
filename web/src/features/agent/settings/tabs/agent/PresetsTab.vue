@@ -15,6 +15,7 @@ import LabelTip from '../config/LabelTip.vue'
 import SenseIcon from '../tools/SenseIcon.vue'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
 import { resolveRoleAvatar } from '../../config/roleAvatar'
+import WorkspaceDirBrowser from './WorkspaceDirBrowser.vue'
 
 const props = defineProps<{
   draft: ConfigDto
@@ -27,6 +28,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'error', msg: string): void
   (e: 'workspaceChange', presetName: string, workspace: string | undefined): void
+  /** 规则文件下拉刷新：SettingsDialog 重新拉取 rules.list（手动新建/管家生成后立即可见）。 */
+  (e: 'refreshRules'): void
 }>()
 
 const newPresetName = ref('')
@@ -159,22 +162,52 @@ function mediaNamesByType(type: 'image' | 'video' | 'audio'): string[] {
     .map(([name]) => name)
 }
 
-/** Electron 模式有原生目录选择对话框；浏览器模式降级为纯文本框输入。 */
+/** 目录选择按钮：仅 Electron 模式（选的是后端同机路径，绝对路径有效）；浏览器模式无此能力（前端机器路径与后端无关）。 */
 const canPickDir = isElectron
 
-/** 调原生目录选择器选工作区；取消（null）不改值。 */
+/** 每预设的绝对路径格式错误提示（前端即时校验；存在性由后端 validateWorkspace RPC 校验）。 */
+const workspaceFormatErrors = ref<Record<string, string>>({})
+
+/** 绝对路径格式校验：POSIX `/` 开头；Windows `C:\`、`C:/` 或 UNC `\\server\share`。 */
+function isAbsolutePathFormat(p: string): boolean {
+  return /^\//.test(p) || /^[A-Za-z]:[\\/]/.test(p) || /^\\\\[^\\]/.test(p)
+}
+
+/** 调 Electron 原生目录选择器选工作区（后端同机绝对路径）；取消（null）不改值。 */
 async function onPickWorkspace(pname: string): Promise<void> {
   const dir = await pickDirectory()
   const p = props.draft.presets?.[pname]
   if (dir && p) updateWorkspace(pname, dir)
 }
 
-/** 输入与目录选择共用：写 draft 后立刻通知外壳按该预设单独校验。 */
+/** 输入与目录选择共用：写 draft 后立刻通知外壳按该预设单独校验；前端同时做绝对路径格式校验。 */
 function updateWorkspace(pname: string, value: string): void {
   const p = props.draft.presets?.[pname]
   if (!p) return
   p.workspace = value || undefined
+  if (p.workspace && !isAbsolutePathFormat(p.workspace)) {
+    workspaceFormatErrors.value[pname] =
+      '路径格式不正确：请填绝对路径（POSIX `/xxx` 或 Windows `C:\\xxx`）'
+  } else {
+    delete workspaceFormatErrors.value[pname]
+  }
   emit('workspaceChange', pname, p.workspace)
+}
+
+/** 服务端文件夹浏览弹层（全模式可用；选中目录走 updateWorkspace 同一链路）。 */
+const browserOpenFor = ref<string | null>(null)
+const browserOpen = computed({
+  get: () => browserOpenFor.value !== null,
+  set: (v: boolean) => {
+    if (!v) browserOpenFor.value = null
+  },
+})
+function openBrowser(pname: string): void {
+  browserOpenFor.value = pname
+}
+function onBrowserSelect(path: string): void {
+  if (browserOpenFor.value) updateWorkspace(browserOpenFor.value, path)
+  browserOpenFor.value = null
 }
 
 /** 序号按钮列表：每预设一项。brief 给 mini popper 用（成员数 + 组长 + 媒体服务）。 */
@@ -197,7 +230,8 @@ const indexItems = computed<IndexItem[]>(() => {
   <TabShell tab-key="presets" :index-items="indexItems">
     <template #hints>
       <p class="sect-hint">
-        预设用于快速组建团队：选择成员，再从成员中指定组长。保存后的修改只会用于之后新建的会话，进行中的会话不受影响。
+        预设用于快速组建团队：选择成员并指定组长，即可一键创建多角色协作会话。Cherry Nexus
+        为系统固定预设，成员不可修改。保存后的修改只影响之后新建的会话。
       </p>
     </template>
     <template #popper="{ item }">
@@ -243,8 +277,23 @@ const indexItems = computed<IndexItem[]>(() => {
           @error="onError"
         >
           <template #actions>
-            <el-dropdown trigger="click" :hide-on-click="false" class="member-picker">
-              <button type="button" class="member-picker-trigger" aria-label="选择团队成员">
+            <el-dropdown
+              trigger="click"
+              :hide-on-click="false"
+              class="member-picker"
+              :disabled="isFixedPreset(pname as string)"
+            >
+              <button
+                type="button"
+                class="member-picker-trigger"
+                aria-label="选择团队成员"
+                :disabled="isFixedPreset(pname as string)"
+                :title="
+                  isFixedPreset(pname as string)
+                    ? '固定预设：成员不可修改'
+                    : '选择团队成员'
+                "
+              >
                 <span>选择成员</span>
                 <ArrowDown class="picker-arrow" />
               </button>
@@ -329,7 +378,13 @@ const indexItems = computed<IndexItem[]>(() => {
                   type="button"
                   class="role-mode is-detail"
                   :class="{ active: rolePickerMode(pname as string) === 'detail' }"
+                  :disabled="isFixedPreset(pname as string)"
                   :aria-pressed="rolePickerMode(pname as string) === 'detail'"
+                  :title="
+                    isFixedPreset(pname as string)
+                      ? '固定预设：成员不可修改'
+                      : '切换为设置解释'
+                  "
                   @click="setRolePickerMode(pname as string, 'detail')"
                 >
                   设置解释
@@ -350,9 +405,9 @@ const indexItems = computed<IndexItem[]>(() => {
                   'detail-role': preset.detailRole === rname,
                 }"
                 :disabled="
-                  rolePickerMode(pname as string) === 'leader'
-                    ? isFixedPreset(pname as string)
-                    : preset.leader === rname
+                  isFixedPreset(pname as string) ||
+                  (rolePickerMode(pname as string) === 'detail' &&
+                    preset.leader === (rname as string))
                 "
                 :aria-pressed="
                   rolePickerMode(pname as string) === 'leader'
@@ -360,24 +415,24 @@ const indexItems = computed<IndexItem[]>(() => {
                     : preset.detailRole === rname
                 "
                 :aria-label="
-                  rolePickerMode(pname as string) === 'leader'
-                    ? isFixedPreset(pname as string)
-                      ? `${rname}，固定预设不可更换组长`
-                      : `设 ${rname} 为组长`
-                    : preset.leader === rname
-                      ? `${rname} 是组长，不能同时作为解释角色`
-                      : `${preset.detailRole === rname ? '取消' : '设'} ${rname} 为解释角色`
+                  isFixedPreset(pname as string)
+                    ? `${rname}，固定预设：成员不可修改`
+                    : rolePickerMode(pname as string) === 'leader'
+                      ? `设 ${rname} 为组长`
+                      : preset.leader === rname
+                        ? `${rname} 是组长，不能同时作为解释角色`
+                        : `${preset.detailRole === rname ? '取消' : '设'} ${rname} 为解释角色`
                 "
                 :title="
-                  rolePickerMode(pname as string) === 'leader'
-                    ? isFixedPreset(pname as string)
-                      ? '固定预设不可更换组长'
-                      : `点击设 ${rname} 为组长`
-                    : preset.leader === rname
-                      ? '组长不能同时作为专用解释角色'
-                      : preset.detailRole === rname
-                        ? '当前专用解释角色；点击取消'
-                        : `点击设 ${rname} 为专用解释角色`
+                  isFixedPreset(pname as string)
+                    ? '固定预设：成员不可修改'
+                    : rolePickerMode(pname as string) === 'leader'
+                      ? `点击设 ${rname} 为组长`
+                      : preset.leader === rname
+                        ? '组长不能同时作为专用解释角色'
+                        : preset.detailRole === rname
+                          ? '当前专用解释角色；点击取消'
+                          : `点击设 ${rname} 为专用解释角色`
                 "
                 @click="selectRoleDuty(pname as string, rname)"
               >
@@ -482,74 +537,102 @@ const indexItems = computed<IndexItem[]>(() => {
       </div>
 
       <div class="field">
-        <span class="lbl">会话路由 Shadow</span>
-        <el-select
-          :model-value="preset.shadows?.conversationRouting ?? ''"
-          placeholder="关闭自动会话路由"
-          clearable
-          size="small"
-          @update:model-value="(v: string) => setConversationRoutingShadow(pname as string, v)"
-        >
-          <el-option
-            v-for="(_, shadowName) in shadowRoles"
-            :key="shadowName"
-            :value="shadowName as string"
-            :label="shadowName as string"
-          />
-        </el-select>
-        <span class="hint">
-          用户点击发送后，此 Shadow 在消息真正提交前调用 select_conversation
-          选择目标。清空即关闭自动路由。
-        </span>
-        <span v-if="!Object.keys(shadowRoles).length" class="empty">
-          请先在「角色 → 影子角色」中创建会话路由 Shadow。
-        </span>
-      </div>
-
-      <div class="field">
-        <span class="lbl">工作区</span>
-        <div class="workspace-row">
-          <el-input
-            class="workspace-input"
-            :class="{ 'is-invalid': !!props.workspaceWarnings?.[pname as string] }"
-            :model-value="preset.workspace ?? ''"
-            placeholder="项目根目录绝对路径（留空则不限定）"
-            size="small"
-            :suffix-icon="props.workspaceWarnings?.[pname as string] ? WarningFilled : undefined"
-            @update:model-value="(v: string) => updateWorkspace(pname as string, v)"
-          />
-          <button
-            v-if="canPickDir"
-            type="button"
-            class="ghost-btn"
-            @click="onPickWorkspace(pname as string)"
-          >
-            选择目录
-          </button>
+        <div class="card-grid card-grid-3 combo-row">
+          <label class="field">
+            <LabelTip
+              label="会话路由"
+              :tip="'选择会话路由影子角色（Shadow）：\n· 发送消息后、提交前，影子调用 select_conversation 决定继续的会话或新建会话\n· 留空则关闭自动路由\n影子角色在「角色 → 影子角色」中创建。'"
+            />
+            <el-select
+              :model-value="preset.shadows?.conversationRouting ?? ''"
+              placeholder="关闭自动路由"
+              clearable
+              size="small"
+              @update:model-value="(v: string) => setConversationRoutingShadow(pname as string, v)"
+            >
+              <el-option
+                v-for="(_, shadowName) in shadowRoles"
+                :key="shadowName"
+                :value="shadowName as string"
+                :label="shadowName as string"
+              />
+            </el-select>
+            <span v-if="!Object.keys(shadowRoles).length" class="empty">
+              请先在「角色 → 影子角色」中创建会话路由 Shadow。
+            </span>
+          </label>
+          <label class="field">
+            <LabelTip
+              label="工作区"
+              :tip="'该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）：\n· 留空则不限定\n· 「浏览」逐层选择服务端目录（Electron 与浏览器均可用，受 server.workspace_browse.roots 白名单限制）\n· Electron 模式另有「选择目录」原生按钮，也可手动填写绝对路径'"
+            />
+            <div class="workspace-row">
+              <el-input
+                class="workspace-input"
+                :class="{
+                  'is-invalid':
+                    !!props.workspaceWarnings?.[pname as string] ||
+                    !!workspaceFormatErrors[pname as string],
+                }"
+                :model-value="preset.workspace ?? ''"
+                placeholder="项目根目录绝对路径（留空则不限定）"
+                size="small"
+                :suffix-icon="
+                  props.workspaceWarnings?.[pname as string] || workspaceFormatErrors[pname as string]
+                    ? WarningFilled
+                    : undefined
+                "
+                @update:model-value="(v: string) => updateWorkspace(pname as string, v)"
+              />
+              <button
+                v-if="canPickDir"
+                type="button"
+                class="ghost-btn"
+                @click="onPickWorkspace(pname as string)"
+              >
+                选择目录
+              </button>
+              <button
+                type="button"
+                class="ghost-btn"
+                title="浏览服务端文件系统，逐层选择目录（全模式可用）"
+                @click="openBrowser(pname as string)"
+              >
+                浏览
+              </button>
+            </div>
+          </label>
+          <label class="field">
+            <LabelTip
+              label="审批规则"
+              :tip="'审批规则决定系统如何审批你的操作：\n· 命中规则中的危险行为（删除、格式化磁盘）→ 拦截，请你确认\n· 未命中 → 自动放行执行\n选中后与系统默认基准规则（base.yaml）合并生效。\n\n新建/修改：\n· 与「管家」对话让它生成规则文件\n· 或手动在 .chery/rule/ 下创建 yaml，点「刷新」后在本下拉选择\n· 点底部「保存」，服务自动重启后生效\n\n规则项：\n· extract 取匹配字段\n· dangerPatterns 危险模式列表\n· false 表示该操作整体需确认\n留空仅用基准。'"
+            />
+            <div class="rule-row">
+              <el-select
+                :model-value="preset.rule ?? ''"
+                placeholder="使用基准（base.yaml）"
+                clearable
+                size="small"
+                @update:model-value="(v: string) => (preset.rule = v || undefined)"
+              >
+                <el-option v-for="n in rules" :key="n" :value="n" :label="n" />
+              </el-select>
+              <button
+                type="button"
+                class="ghost-btn"
+                title="重新拉取 .chery/rule/ 下的规则文件清单"
+                @click="emit('refreshRules')"
+              >
+                刷新
+              </button>
+            </div>
+          </label>
         </div>
         <span v-if="props.workspaceWarnings?.[pname as string]" class="ws-warning">
           {{ props.workspaceWarnings[pname as string] }}
         </span>
-        <span class="hint">
-          该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）。
-          {{ canPickDir ? '' : '浏览器模式请手动填写绝对路径。' }}
-        </span>
-      </div>
-
-      <div class="field">
-        <span class="lbl">规则文件</span>
-        <el-select
-          :model-value="preset.rule ?? ''"
-          placeholder="使用基准（base.yaml）"
-          clearable
-          size="small"
-          @update:model-value="(v: string) => (preset.rule = v || undefined)"
-        >
-          <el-option v-for="n in rules" :key="n" :value="n" :label="n" />
-        </el-select>
-        <span class="hint">
-          smart 监管的敏感判定规则覆盖（与基准 base.yaml 深合并，同名 dangerPatterns
-          追加去重）。不选则仅用基准。
+        <span v-else-if="workspaceFormatErrors[pname as string]" class="ws-warning">
+          {{ workspaceFormatErrors[pname as string] }}
         </span>
       </div>
     </article>
@@ -567,6 +650,11 @@ const indexItems = computed<IndexItem[]>(() => {
       <button type="button" class="ghost-btn" @click="addPreset">+ 新增预设</button>
     </div>
   </TabShell>
+
+  <WorkspaceDirBrowser
+    v-model:open="browserOpen"
+    @select="onBrowserSelect"
+  />
 </template>
 
 <style scoped lang="less">
@@ -587,6 +675,14 @@ const indexItems = computed<IndexItem[]>(() => {
   &:hover {
     border-color: color-mix(in srgb, var(--accent) 80%, transparent);
     color: color-mix(in srgb, var(--ink) 90%, transparent);
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+    &:hover {
+      border-color: color-mix(in srgb, var(--ink) 20%, transparent);
+      color: color-mix(in srgb, var(--ink) 70%, transparent);
+    }
   }
 }
 .picker-role-option {
@@ -823,14 +919,46 @@ const indexItems = computed<IndexItem[]>(() => {
   }
 }
 
-// 工作区：输入框 + 选择目录按钮横排
+// 会话路由/工作区/审批规则三组同行：同 media-row 紧凑规则
+.combo-row {
+  gap: 6px;
+  .field {
+    gap: 2px;
+    .lbl {
+      font-size: 10px;
+    }
+  }
+}
+
+// 工作区：输入框 + 选择目录/浏览按钮横排
 .workspace-row {
   display: flex;
   gap: 6px;
   align-items: center;
+
+  .workspace-input {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .ghost-btn {
+    flex: 0 0 auto;
+    padding: 0 8px;
+    white-space: nowrap;
+  }
 }
 
-// 工作区校验告警（后端 config.save 返 warnings 时显示在输入框下方）
+// 审批规则：下拉 + 刷新按钮横排
+.rule-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  .ghost-btn {
+    flex: 0 0 auto;
+    padding: 0 8px;
+  }
+}
+
+// 工作区校验告警（后端 config.save 返 warnings / 前端格式错误，显示在输入框下方）
 .ws-warning {
   display: block;
   margin-top: 4px;

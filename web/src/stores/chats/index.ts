@@ -54,9 +54,11 @@ import {
   applyRootPatch,
   applyRootTransientEvent,
   createRootTransientState,
+  GenerationLruCache,
   installRootTimeline,
   readRootTimeline,
   runSingleFlight,
+  type GenerationPayload,
   type RootTimelinePatchResult,
   type RootTimelineTransientState,
   type RootTimelineView,
@@ -272,6 +274,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     owners.delete(ownerId)
     if (owners.size > 0) return
     rootSubscriptionOwners.delete(rootChatId)
+    // 最后观察者离开：代际图缓存随订阅一并释放（LRU 之外的内存上界）。
+    generationsCache.delete(rootChatId)
     await closeRootTimeline(rootChatId, true)
   }
 
@@ -340,7 +344,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       rootTimelineStates.value[rootChatId] = openedTransient
       installRootOpenState(opened)
       if (opened.rootTimeline) installRootTimeline(rootTimelines.value, opened.rootTimeline)
-      return { opened: true, conversation: opened.rootTimeline }
+      // timelineUnchanged 短路：服务端省略 rootTimeline，本地 conversation 缓存仍权威。
+      const conversationSnapshot =
+        opened.rootTimeline ?? (opened.timelineUnchanged ? conversation : undefined)
+      return { opened: true, conversation: conversationSnapshot }
     })()
     rootSubscriptionOpening.set(rootChatId, promise)
     try {
@@ -367,6 +374,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         ...(current ? { knownRevision: current.revision } : {}),
       })
       .then((snapshot) => {
+        // knownRevision 短路：服务端确认客户端快照仍最新，保留现有缓存不覆盖。
+        if (!snapshot) {
+          if (!current) throw new Error(`root timeline ${key} unchanged 短路但本地无缓存`)
+          return current
+        }
         installRootTimeline(rootTimelines.value, snapshot)
         return snapshot
       })
@@ -376,6 +388,31 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     } finally {
       if (rootViewOpening.get(key) === promise) rootViewOpening.delete(key)
     }
+  }
+
+  // ---- 代际图按需缓存（LRU 上限 4/root；root 订阅释放时整棵清空） ----
+  const generationsCache = new Map<string, GenerationLruCache>()
+  const generationsOpening = new Map<string, Promise<GenerationPayload>>()
+
+  /** 拉取（或命中缓存）单个已打包代际的完整图，树二层弹窗与历史抽屉二层共用。 */
+  async function loadGeneration(
+    rootChatId: string,
+    generationIndex: number,
+  ): Promise<GenerationPayload> {
+    const cacheKey = `${rootChatId}:${generationIndex}`
+    return runSingleFlight(generationsOpening, cacheKey, async () => {
+      const cache = generationsCache.get(rootChatId) ?? new GenerationLruCache()
+      const cached = cache.get(generationIndex)
+      if (cached) return cached
+      const payload = await agentApi.getTimelineGeneration({ rootChatId, generationIndex })
+      cache.set(generationIndex, {
+        generation: payload.generation,
+        nodes: payload.nodes,
+        edges: payload.edges,
+      })
+      generationsCache.set(rootChatId, cache)
+      return cache.get(generationIndex)!
+    })
   }
 
   /** Observe a visible Nyxus root. UI supplies root/view; this message-layer
@@ -1406,6 +1443,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     closeRootTimeline,
     rootTimeline,
     applyRootTimelinePatch,
+    loadGeneration,
     // 写入口
     replaceSnapshot,
     replaceTimelineSnapshot,

@@ -2,6 +2,7 @@ import type {
   ActiveTurnSnapshot,
   ActiveRunFact,
   ExecutionEdgeFact,
+  GenerationEntry,
   RootTimelineSnapshot,
   TimelineActor,
   TimelineDirection,
@@ -14,7 +15,8 @@ import {
 
 export type PersistentExecutionNodeKind =
   'message' | 'tool-batch' | 'return' | 'dispatch' | 'system' | 'spawn'
-export type ExecutionNodeKind = 'start' | PersistentExecutionNodeKind | 'fold' | 'input' | 'unknown'
+export type ExecutionNodeKind =
+  'start' | PersistentExecutionNodeKind | 'pack' | 'fold' | 'input' | 'unknown'
 export type PersistentExecutionEdgeKind = ExecutionEdgeFact['kind']
 export type ExecutionEdgeKind = 'start' | PersistentExecutionEdgeKind | 'input' | 'stream'
 export type ExecutionOrderSlot = 'start' | 'persistent' | 'transient'
@@ -39,6 +41,15 @@ export interface ExecutionNode {
   sourceFact?: TimelineNode
   inputState?: VirtualInputNode['state']
   fold?: ExecutionFold
+  /** kind === 'pack' 时携带：代际索引 + 跳转锚点 + 徽标数据。 */
+  pack?: ExecutionPack
+}
+
+export interface ExecutionPack {
+  generationIndex: number
+  boundaryNodeId: string
+  nodeCount: number
+  trigger: GenerationEntry['trigger']
 }
 
 export interface ExecutionFold {
@@ -90,7 +101,7 @@ export type ExecutionGraphProjection = (graph: Readonly<ExecutionGraph>) => Exec
 
 export type ExecutionGraphSnapshot = Pick<
   RootTimelineSnapshot,
-  'rootChatId' | 'activeBranchId' | 'branches' | 'nodes' | 'edges' | 'activeRuns'
+  'rootChatId' | 'activeBranchId' | 'branches' | 'nodes' | 'edges' | 'activeRuns' | 'generations'
 >
 
 const PERSISTENT_NODE_KINDS = new Set<PersistentExecutionNodeKind>([
@@ -324,6 +335,35 @@ function collapseToolResponseMessages(
   }
 }
 
+/** 已定稿代际（除上一代、当前代外）合成为打包节点，平铺沿根分支排在窗口最前。 */
+function projectPackNodes(
+  rootChatId: string,
+  generations: readonly GenerationEntry[],
+): ExecutionNode[] {
+  const packed = generations.filter((entry) => entry.index <= generations.length - 2)
+  return packed.map((entry) => ({
+    id: `pack:gen:${entry.index}`,
+    kind: 'pack' as const,
+    rootChatId,
+    sourceChatId: rootChatId,
+    actor: { kind: 'system' } as TimelineActor,
+    direction: 'internal' as TimelineDirection,
+    content: entry.summary,
+    createdAt: entry.createdAt,
+    status: 'transient' as const,
+    main: true,
+    orderSlot: 'persistent' as const,
+    orderKey: entry.fromOrderKey,
+    activeRuns: [],
+    pack: {
+      generationIndex: entry.index,
+      boundaryNodeId: entry.boundaryNodeId,
+      nodeCount: entry.nodeCount,
+      trigger: entry.trigger,
+    },
+  }))
+}
+
 /** Canonical graph facts -> deterministic UI-neutral persistent graph. */
 export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot): ExecutionGraph {
   const canonicalNodes = uniqueFacts(snapshot.nodes)
@@ -342,6 +382,7 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
     (node) => node.sourceChatId === snapshot.rootChatId && node.rootChatId === snapshot.rootChatId,
   )
   const startId = `start:${snapshot.rootChatId}`
+  const packNodes = projectPackNodes(snapshot.rootChatId, snapshot.generations ?? [])
   const nodes: ExecutionNode[] = [
     {
       id: startId,
@@ -358,20 +399,31 @@ export function projectPersistentExecutionGraph(snapshot: ExecutionGraphSnapshot
       orderKey: null,
       activeRuns: [],
     },
+    ...packNodes,
     ...persistentNodes,
   ]
   const edges = persistentEdges
-  if (firstMain) {
+  // 根分支 sequence 首部：start → pack₁ → … → packₙ → 窗口内最前主节点。
+  // 无打包节点时保持原 start → firstMain 直连。
+  const chainHead: Array<{ id: string; orderKey: number | null }> = [
+    { id: startId, orderKey: null },
+    ...packNodes.map((node) => ({ id: node.id, orderKey: node.orderKey })),
+  ]
+  const chainTail = firstMain ? [firstMain] : []
+  let previous = chainHead[0]!
+  for (const next of [...chainHead.slice(1), ...chainTail]) {
+    const isFirstLink = previous.id === startId
     edges.unshift({
-      id: `start:${snapshot.rootChatId}->${firstMain.id}`,
-      from: startId,
-      to: firstMain.id,
-      kind: 'start',
-      orderSlot: 'start',
-      orderKey: null,
+      id: `${isFirstLink ? 'start' : 'sequence'}:${previous.id}->${next.id}`,
+      from: previous.id,
+      to: next.id,
+      kind: isFirstLink ? 'start' : 'sequence',
+      orderSlot: isFirstLink ? 'start' : 'persistent',
+      orderKey: next.orderKey,
       sourceChatId: snapshot.rootChatId,
       targetChatId: snapshot.rootChatId,
     })
+    previous = next
   }
   return {
     rootChatId: snapshot.rootChatId,

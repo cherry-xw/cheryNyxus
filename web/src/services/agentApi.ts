@@ -560,6 +560,8 @@ export interface TimelineSnapshot {
   nextCursor?: string
   eventSeq?: number
   rootTimeline?: RootTimelineSnapshot
+  /** root 路径 knownRevision 短路时为 true，此时无 messages/rootTimeline */
+  unchanged?: boolean
 }
 
 export type TimelineActor =
@@ -722,13 +724,47 @@ export interface RootTimelineSnapshot {
   branches?: ConversationBranchSummary[]
   view: 'conversation' | 'tree' | 'audit'
   revision: number
+  /** 代际窗口内节点（当前代 + 上一代）；持久层仍全量 */
   nodes: TimelineNode[]
   edges: ExecutionEdgeFact[]
   activeRuns: ActiveRunFact[]
   pendingInputs: PendingInput[]
+  /** L0 代际索引（无 compact 时为 []）；更早代经 chat.timeline.generation.get 按需拉取 */
+  generations: GenerationEntry[]
   controlState?: TreeControlState
   nextCursor?: string
   capturedEventSeq: number
+}
+
+/**
+ * 长会话代际索引条目：第 k 次 compact（手动 /compact 与 autoCompact 统一）= 第 k 代定稿。
+ * 代际区间为 (fromOrderKey, boundaryOrderKey]。
+ */
+export interface GenerationEntry {
+  /** 1-based 代序号 */
+  index: number
+  /** 摘要 assistant 消息 id（打包锚点） */
+  boundaryMessageId: string
+  /** 对应 execution node id */
+  boundaryNodeId: string
+  /** 该代最后一个 orderKey */
+  boundaryOrderKey: number
+  /** 该代起始 orderKey（上一代 boundaryOrderKey，首代 0） */
+  fromOrderKey: number
+  /** compact 摘要文本 */
+  summary: string
+  /** 区间内 execution node 数 */
+  nodeCount: number
+  createdAt: number
+  trigger: 'manual' | 'auto'
+}
+
+/** chat.timeline.generation.get 响应：单个已打包代际的完整图。 */
+export interface TimelineGenerationSnapshot {
+  rootChatId: string
+  generation: GenerationEntry
+  nodes: TimelineNode[]
+  edges: ExecutionEdgeFact[]
 }
 
 export type TimelinePatchOperation =
@@ -808,6 +844,8 @@ export interface ChatOpenResponse {
   eventSeq: number
   timelineRevision: number
   timelineChanged: boolean
+  /** root 路径 knownTimelineRevision 短路：省略 rootTimeline（state/subscriptionId 照常） */
+  timelineUnchanged?: boolean
   rootTimeline?: RootTimelineSnapshot
   state: {
     chatIds?: string[]
@@ -1008,6 +1046,26 @@ export interface ConfigDto {
     global?: { max_count?: number; max_chars?: number }
     workspace?: { max_count?: number; max_chars?: number }
   }
+}
+
+/** config.workspace.browse.start 响应：服务端文件夹浏览会话。 */
+export interface ConfigWorkspaceBrowseStart {
+  sessionId: string
+  ttlMs: number
+  platform: string
+  sep: '/' | '\\'
+  roots: Array<{ path: string; name: string }>
+  initialPath: string
+  includeFiles: boolean
+  error?: string
+}
+
+/** config.workspace.browse.list 解密后的载荷（encData 明文形态）。 */
+export interface BrowseListPayload {
+  path: string
+  accessible: boolean
+  error?: string
+  entries: Array<{ name: string; path: string; isDir: boolean; accessible: boolean }>
 }
 
 /** hooks handler 传输对象（对齐后端 HooksHandlerDTO）*/
@@ -1400,19 +1458,29 @@ export const agentApi = {
     })
   },
 
-  /** Root timeline projection: backend joins all recursive descendants. */
+  /** Root timeline projection: backend joins all recursive descendants.
+   *  返回 undefined = knownRevision 短路（unchanged），调用方保留现有缓存快照。 */
   async getRootTimeline(params: {
     rootChatId: string
     view?: 'conversation' | 'tree' | 'audit'
     knownRevision?: number
-  }): Promise<RootTimelineSnapshot> {
+  }): Promise<RootTimelineSnapshot | undefined> {
     const response = await call<TimelineSnapshot>('chat.timeline.get', {
       rootChatId: params.rootChatId,
       view: params.view ?? 'conversation',
       ...(params.knownRevision !== undefined ? { knownRevision: params.knownRevision } : {}),
     })
+    if (response.unchanged) return undefined
     if (!response.rootTimeline) throw new Error('root timeline 响应缺少 rootTimeline')
     return response.rootTimeline
+  },
+
+  /** 按需拉取单个已打包代际的完整图（LRU 缓存由 chats store 持有）。 */
+  async getTimelineGeneration(params: {
+    rootChatId: string
+    generationIndex: number
+  }): Promise<TimelineGenerationSnapshot> {
+    return call<TimelineGenerationSnapshot>('chat.timeline.generation.get', params)
   },
 
   async getTaskTimeline(params: {
@@ -1707,6 +1775,24 @@ export const agentApi = {
       'config.workspace.validate',
       workspace ? { workspace } : {},
     )
+  },
+
+  /** config.workspace.browse.start：开启服务端文件夹浏览会话（设置页工作区「浏览」弹层）。 */
+  async browseWorkspaceStart(): Promise<ConfigWorkspaceBrowseStart> {
+    return call<ConfigWorkspaceBrowseStart>('config.workspace.browse.start', {})
+  },
+
+  /**
+   * config.workspace.browse.list：懒加载列某目录子项（逐层钻取）。
+   * 载荷加密：encPath = xorEncrypt(nonce, path)，响应 encData 用同一 nonce 解密。
+   */
+  async browseWorkspaceList(params: {
+    sessionId: string
+    nonce: string
+    encPath: string
+    includeFiles?: boolean
+  }): Promise<{ nonce: string; encData: string }> {
+    return call<{ nonce: string; encData: string }>('config.workspace.browse.list', params)
   },
 
   /**

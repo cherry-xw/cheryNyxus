@@ -23,6 +23,8 @@ export default function buildFirstSystemPrompt(
   systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
+  roleMentions?: RoleMentionInfo[],
+  historyGenerations?: HistoryGenerationInfo[],
 ): string;
 ```
 
@@ -48,6 +50,13 @@ export default function buildFirstSystemPrompt(
 本会话用于开发该项目，文件操作与命令以此目录为基准。
 </workspace>
 
+<history_generations>   ← 仅 historyGenerations 非空（存在已定稿代际）时注入
+此前对话经过 {n} 次压缩，以下是各代摘要索引：
+第1代 [手动] {YYYY-MM-DD HH:mm} · {nodeCount} 节点 · {摘要前200字}
+...
+更早细节可用 history_recall 感官查询（list_generations / search）。
+</history_generations>
+
 <skills>
 <skill name="{name}">
 {description}
@@ -61,7 +70,15 @@ export default function buildFirstSystemPrompt(
 
 **skills 段：** 调用 [getSkillMetas(skillFilter)](../../src/agent/prompt/loadSkill.ts)，扫描 `.chery/skills/`（独立）+ `.chery/plugins/*/`（插件）下所有 SKILL.md，每个 skill 仅含 `name`/`description`/`trigger`（**不含 content**）——完整指令按需由 [skill 感官](../../src/agent/sense/skill.ts) 加载，避免 system prompt 膨胀。trigger 缺省则省略「触发条件」行。插件 skill 的 `name` 为 `<plugin>__<skill>`。`skillFilter` 给出时仅保留通过 `matchSkillFilter` 的子集（per-role 裁剪，详见下文「Plugins」段）。
 
-- 调用时机：[AgentBuilder.init()](../../src/agent/builder.ts) `init(chatId, messages?, systemPromptFile?, workspace?, skillFilter?)`——构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill（向后兼容）。
+- 调用时机：[AgentBuilder.init()](../../src/agent/builder.ts) `init(chatId, messages?, systemPromptFile?, workspace?, skillFilter?, roleMentions?, historyGenerations?)`——构造首条 `{role:"system"}` 消息。`skillFilter`（per-role 技能组/插件组过滤，详见下文「Plugins」段）仅作用于 `<skills>` 块注入，`undefined` = 全部 skill（向后兼容）。
+
+**`<history_generations>` 段（LLM 历史回忆 L0 索引）**：`historyGenerations` 非空（该 chat 存在已定稿 compact 代际）时注入，每代一行摘要索引；`undefined` / 空数组 → 不注入（无 compact 历史零开销）。数据流：
+```text
+来源：service/chat/generations.ts computeGenerations(chatId)（chat 创建/进程重启时现算）
+  → ensureChat 投影为 HistoryGenerationInfo[] {index, summary, nodeCount, createdAt, trigger}
+  → builder.init(..., historyGenerations) → buildFirstSystemPrompt 注入 <history_generations> 段
+```
+注入时机为 **chat 初始化**（system 消息构造时一次性注入，内存首条 system 随后不变）——进程内新增 compact 后索引滞后一代，重启 / 切回 chat 重建时刷新；细粒度回忆由 `history_recall` 感官承担（见 [core/sense.md](../core/sense.md)「内置感官：history_recall」）。`contextUsage` / `promptSnapshot` 重建时同样传入（token 计量与快照展示一致）。
 
 ### 重启 persona 修复 + per-subagent system prompt
 
@@ -238,8 +255,10 @@ export function buildSystemPromptSegments(
   systemPromptFile?: string,
   workspace?: string,
   skillFilter?: SkillFilter,
+  roleMentions?: RoleMentionInfo[],
+  historyGenerations?: HistoryGenerationInfo[],
 ): {
-  system: string;      // 全局 base + <environment> + <workspace>
+  system: string;      // 全局 base + <environment> + <workspace> + <history_generations>（有代际时）
   userSystem: string;  // systemPromptFile 补充（合并语义，可与 system 并存）
   memory: PromptSegmentText;   // <memory global>+<workspace>，count = 记忆条数
   skills: PromptSegmentText & SkillsSegmentTokens;   // <skills> 元数据 + 预聚合 token（computeSkillTokens 累加；skillFilter 给出时仅含通过过滤的子集）
@@ -250,7 +269,7 @@ export function buildSystemPromptSegments(
 
 | 段 | 来源 | token 计算 | count |
 |----|------|------------|-------|
-| 系统提示词 | 全局 base + `<environment>` + `<workspace>` | estimateTokens(text) | — |
+| 系统提示词 | 全局 base + `<environment>` + `<workspace>` + `<history_generations>`（有已定稿代际时） | estimateTokens(text) | — |
 | 用户系统提示词 | systemPromptFile 补充（合并语义，可与系统提示词并存） | estimateTokens(text) | — |
 | 记忆 | `<memory global>` + `<memory workspace>` | estimateTokens(text) | 记忆条数 |
 | 技能 | `<skills>` 元数据 | `Σ triggerTokens`（loadSkill 预计算，单一来源） | skill 数 |

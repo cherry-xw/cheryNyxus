@@ -19,6 +19,7 @@ import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
 import { notifyRestartActivityChanged } from '@/service/restartCoordinator.js'
 import { getChatMentionableRoles } from './roleMentions.js'
+import { computeHistoryGenerationInfos } from './generations.js'
 import { buildTreeInterruptionNotice } from './treeInterruption.js'
 
 /**
@@ -322,6 +323,7 @@ export async function ensureChat(
     // 一次性加载历史到内存 + 注入 system prompt（chat metadata.systemPromptFile 合并补充；
     // 来源：spawn 写子 agent / chat.create 写预设主 agent；缺省 → undefined → 全局）
     // skillFilter：per-role 技能组/插件组过滤（metadata.skillFilter），仅 <skills> 块按角色裁剪。
+    // historyGenerations：LLM 历史回忆 L0 代际索引（存在已定稿 compact 代际时注入 <history_generations> 段）。
     const history = loadHistory(chatId)
     builder.init(
       chatId,
@@ -330,6 +332,7 @@ export async function ensureChat(
       getChatWorkspace(chatId),
       getChatSkillFilter(chatId),
       getChatMentionableRoles(chatId),
+      computeHistoryGenerationInfos(chatId),
     )
     // Restore accepted command-plane inputs that were acknowledged before a
     // process restart. If the user message already reached the durable history,

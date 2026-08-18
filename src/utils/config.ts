@@ -384,6 +384,14 @@ export const DEFAULT_COMMAND_CONFIG = {
   Record<'warn' | 'auto', Threshold>
 
 /**
+ * history_recall 感官（长会话历史回忆，只读）配置。
+ */
+export interface HistoryRecallConfig {
+  /** 单次返回的硬字符上限；超限截断并在尾部提示缩小 query / 指定 generation。 */
+  max_output_chars?: number
+}
+
+/**
  * 全局配置
  */
 interface GlobalConfig {
@@ -428,6 +436,8 @@ interface GlobalConfig {
   watchdog?: { timeout_ms?: number; wake_on_timeout?: boolean }
   /** 节点树全量渲染阈值（节点数≤此值跳过视口裁剪避免平移卡顿；0=始终裁剪） */
   tree_full_render_threshold?: number
+  /** history_recall 感官（长会话历史回忆）输出上限配置 */
+  history_recall?: HistoryRecallConfig
 }
 
 /**
@@ -456,6 +466,29 @@ interface ServerConfig {
   static_dir_override?: string
   /** OIDC/OAuth2 authorization-code login for browser control-plane access. */
   auth?: OAuth2Config
+  /**
+   * 文件夹浏览协议（config.workspace.browse.*）配置。server 侧专属：
+   * 被 config.get 剥离（设置面板不可编辑）、config.save 原样保留；改配置需编辑 config.yaml 后重启。
+   */
+  workspace_browse?: WorkspaceBrowseConfig
+}
+
+/** 文件夹浏览协议（config.workspace.browse.*）配置。 */
+interface WorkspaceBrowseConfig {
+  /** 允许浏览的根目录白名单（绝对路径，支持 ~ 展开）；缺省当前用户 home；win32 缺省枚举存在盘符。 */
+  roots?: string[]
+  /** 是否允许返回文件条目（硬上限：false 时调用方传 includeFiles:true 也被忽略为 false）。 */
+  default_include_files?: boolean
+  /** 是否显示隐藏条目（'.' 开头；.chery 恒隐藏不受此控）。 */
+  show_hidden?: boolean
+  /** 从根算起的最大浏览深度（缺省不限）。 */
+  max_depth?: number
+  /** 浏览会话存活毫秒数（缺省 600000 = 10 分钟）。 */
+  session_ttl_ms?: number
+  /** 每会话每分钟请求上限。 */
+  rpm?: number
+  /** 并发浏览会话上限。 */
+  max_sessions?: number
 }
 
 /**
@@ -666,6 +699,11 @@ function loadConfig(): Config {
     safety_margin: config.global.command?.safety_margin ?? DEFAULT_COMMAND_CONFIG.safety_margin,
   }
 
+  // history_recall 感官输出上限默认值：4000 字符（与 .chery.template 同步）
+  config.global.history_recall = {
+    max_output_chars: config.global.history_recall?.max_output_chars ?? 4000,
+  }
+
   // 服务配置默认值兜底（端口 + 传输格式；web_port 已废弃，HTTP 端口改 server.webPort，
   // 优先级 WEB_PORT 环境变量 > server.webPort > 默认 8183）
   const serverRaw = config.server as Partial<ServerConfig> | undefined
@@ -678,6 +716,7 @@ function loadConfig(): Config {
     serve_frontend: serverRaw?.serve_frontend !== false,
     static_dir_override: serverRaw?.static_dir_override,
     auth: serverRaw?.auth,
+    workspace_browse: serverRaw?.workspace_browse,
   }
 
   // 添加环境变量缺失警告
@@ -1006,6 +1045,14 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
     const g = raw.global.disconnect_grace_ms
     if (typeof g !== 'number' || !Number.isFinite(g) || g < 0) {
       errors.push(`global.disconnect_grace_ms 必须为 ≥ 0 的数字（0 = 不等待，当前：${String(g)}）`)
+    }
+  }
+
+  // history_recall：max_output_chars > 0（感官单次返回硬字符上限）
+  if (raw.global?.history_recall?.max_output_chars !== undefined) {
+    const m = raw.global.history_recall.max_output_chars
+    if (typeof m !== 'number' || !Number.isFinite(m) || m <= 0) {
+      errors.push(`global.history_recall.max_output_chars 必须为 > 0 的数字（当前：${String(m)}）`)
     }
   }
 

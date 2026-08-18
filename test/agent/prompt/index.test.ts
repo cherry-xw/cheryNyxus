@@ -54,4 +54,40 @@ describe('buildFirstSystemPrompt', () => {
       ]),
     ).not.toContain('<role-mentions>')
   })
+
+  it('有已定稿代际时注入 <history_generations>（每代一行 + history_recall 提示）', () => {
+    const prompt = buildFirstSystemPrompt(undefined, undefined, undefined, undefined, [
+      {
+        index: 1,
+        summary: '第一段摘要'.repeat(60), // > 200 字符，验证截断
+        nodeCount: 42,
+        createdAt: new Date('2026-08-01T10:00:00Z').getTime(),
+        trigger: 'manual',
+      },
+      {
+        index: 2,
+        summary: '第二段摘要',
+        nodeCount: 7,
+        createdAt: new Date('2026-08-10T10:00:00Z').getTime(),
+        trigger: 'auto',
+      },
+    ])
+    expect(prompt).toContain('<history_generations>')
+    expect(prompt).toMatch(/第1代 \[手动\]/)
+    expect(prompt).toMatch(/第2代 \[自动\]/)
+    // 摘要截断到 200 字符：第1代行不超 200 + 行前缀余量
+    const gen1Line = prompt.split('\n').find((line) => line.includes('第1代'))!
+    expect(gen1Line.length).toBeLessThanOrEqual(300)
+    expect(prompt).toContain('history_recall')
+    // 段位置：environment 之后、skills 之前
+    expect(prompt.indexOf('<history_generations>')).toBeGreaterThan(prompt.indexOf('<environment>'))
+    expect(prompt.indexOf('<skills>')).toBeGreaterThan(prompt.indexOf('<history_generations>'))
+  })
+
+  it('无已定稿代际不注入 <history_generations>（零开销）', () => {
+    expect(buildFirstSystemPrompt()).not.toContain('<history_generations>')
+    expect(buildFirstSystemPrompt(undefined, undefined, undefined, undefined, [])).not.toContain(
+      '<history_generations>',
+    )
+  })
 })

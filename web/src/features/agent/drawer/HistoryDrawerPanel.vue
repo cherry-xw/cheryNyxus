@@ -33,6 +33,7 @@ import ContextUsageBar from './ContextUsageBar.vue'
 import type {
   ChatSummary,
   ConversationBranchSummary,
+  GenerationEntry,
   GraphToolCall,
   PromptSnapshotTool,
   RootTimelineSnapshot,
@@ -40,6 +41,7 @@ import type {
   TimelineNode,
 } from '@/services/agentApi'
 import { agentApi } from '@/services/agentApi'
+import type { GenerationPayload } from '@/stores/chats/rootTimeline'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 import { detailBranchContextNodes } from './detailBranchContext'
 
@@ -357,6 +359,87 @@ const history = computed<HistoryItem[]>(() => [
 const detailBranchStartIndex = computed(() => detailContextHistory.value.length)
 const showDetailBranchDivider = computed(
   () => detailBranchStartIndex.value > 0 && branchHistory.value.length > 0,
+)
+
+// ── 打包代际（长会话代际分割）：首层卡片条 + 二层代际抽屉（栈深恒 ≤2） ──
+
+/** 已定稿代际（除上一代、当前代外），与树中 pack 节点同数据（snapshot.generations）。 */
+const packedGenerations = computed<GenerationEntry[]>(() => {
+  if (layout.value !== 'group') return []
+  const generations = chatSessions.rootTimeline(props.chatId, 'conversation')?.generations ?? []
+  return generations.filter((entry) => entry.index <= generations.length - 2)
+})
+
+const activeGenerationIndex = ref<number>()
+const generationPayload = ref<GenerationPayload>()
+const generationLoading = ref(false)
+const generationError = ref('')
+
+/** 二层开关的唯一水源是 agents.historyDrawerGeneration（卡片点击 / 树 pack 节点联动共用）。 */
+watch(
+  () => agents.historyDrawerGeneration,
+  async (request) => {
+    if (!request || request.rootChatId !== props.chatId || layout.value !== 'group') {
+      activeGenerationIndex.value = undefined
+      generationPayload.value = undefined
+      generationError.value = ''
+      return
+    }
+    if (request.generationIndex === activeGenerationIndex.value) return
+    activeGenerationIndex.value = request.generationIndex
+    generationPayload.value = undefined
+    generationError.value = ''
+    generationLoading.value = true
+    try {
+      generationPayload.value = await chatSessions.loadGeneration(
+        props.chatId,
+        request.generationIndex,
+      )
+    } catch (error) {
+      generationError.value = error instanceof Error ? error.message : '代际历史加载失败'
+    } finally {
+      generationLoading.value = false
+    }
+  },
+  { immediate: true },
+)
+
+/** 二层代际对话：generation.get nodes → 现有 conversation 投影（rootNodeToHistory）。 */
+const generationHistory = computed<HistoryItem[]>(() => {
+  const payload = generationPayload.value
+  if (!payload) return []
+  return applySubagentDisplay(
+    dedupHistoryByMsgId(
+      payload.nodes
+        .filter((node) => node.visibility === 'conversation' || !!node.termination)
+        .map(rootNodeToHistory)
+        .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)),
+    ),
+  )
+})
+
+/** 卡片 / 二层标题摘要：首行截断（换行折叠 + 限长 ellipsis）。 */
+function generationSummaryLine(entry: GenerationEntry, maxLen = 24): string {
+  const compact = entry.summary.replace(/\s+/g, ' ').trim()
+  const line = compact.length > maxLen ? compact.slice(0, maxLen) + '…' : compact
+  return line || '(无摘要)'
+}
+
+function openGenerationCard(generationIndex: number): void {
+  agents.openHistoryGeneration(props.chatId, generationIndex)
+}
+
+function closeGenerationLayer(): void {
+  agents.closeHistoryGeneration()
+}
+
+const generationScrollRef = ref<VirtualScrollInstance | null>(null)
+// 二层代际数据就绪 → 滚到底（对齐首层 loaded 行为）
+watch(
+  () => generationHistory.value.length > 0 && !generationLoading.value,
+  (ready) => {
+    if (ready) void nextTick(() => generationScrollRef.value?.scrollToEnd('auto'))
+  },
 )
 
 /** 子 agent 消息角色（role='role'/'subagent'）。 */
@@ -879,6 +962,28 @@ function onPromptSnapShow(): void {
     </ContextUsageBar>
 
     <div class="drawer-body">
+      <!-- 打包代际卡片条：与树中 pack 节点同数据，点击开二层代际抽屉 -->
+      <div
+        v-if="packedGenerations.length"
+        class="generation-cards"
+        role="group"
+        aria-label="打包历史"
+      >
+        <button
+          v-for="gen in packedGenerations"
+          :key="gen.index"
+          type="button"
+          class="generation-card"
+          :class="{ active: gen.index === activeGenerationIndex }"
+          :title="gen.summary"
+          @click="openGenerationCard(gen.index)"
+        >
+          <span class="generation-card-summary">{{ generationSummaryLine(gen) }}</span>
+          <span class="generation-card-meta">
+            {{ gen.nodeCount }} 节点 · {{ gen.trigger === 'auto' ? '自动' : '手动' }}
+          </span>
+        </button>
+      </div>
       <div v-if="!loaded && history.length === 0 && !showAgentLoading" class="loading-row">
         载入历史…
       </div>
@@ -978,6 +1083,64 @@ function onPromptSnapShow(): void {
           <span v-else class="agent-done" aria-hidden="true">✓</span>
         </div>
         <div v-if="batchReloading" class="batch-loading">正在整理全部 Agent 的完整内容…</div>
+      </div>
+    </div>
+
+    <!-- 二层代际抽屉：覆盖首层（栈深恒 ≤2，二层内无下钻/无分支入口） -->
+    <div
+      v-if="activeGenerationIndex !== undefined"
+      class="generation-layer"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`打包历史 第 ${activeGenerationIndex} 代`"
+    >
+      <header class="generation-layer-head">
+        <span class="generation-layer-title">
+          打包历史 · 第 {{ activeGenerationIndex }} 代
+          <small v-if="generationPayload">
+            {{ generationPayload.generation.nodeCount }} 节点 ·
+            {{ generationPayload.generation.trigger === 'auto' ? '自动压缩' : '手动压缩' }}
+          </small>
+        </span>
+        <button
+          type="button"
+          class="close-btn generation-layer-close"
+          aria-label="关闭打包历史"
+          @click="closeGenerationLayer"
+        >
+          ✕
+        </button>
+      </header>
+      <div class="generation-layer-body">
+        <div v-if="generationLoading" class="loading-row">载入代际历史…</div>
+        <div v-else-if="generationError" class="empty-row" role="alert">{{ generationError }}</div>
+        <div v-else-if="generationHistory.length === 0" class="empty-row">该代无对话内容</div>
+        <VirtualScroll
+          v-else
+          ref="generationScrollRef"
+          class="history-list"
+          :items="generationHistory"
+          :item-key="getHistoryItemKey"
+          :estimate-size="estimateHeight"
+          :default-render-count="12"
+        >
+          <template #default="{ index }">
+            <MessageBubble
+              :item="generationHistory[index]!"
+              layout="group"
+              :master-pet-name="masterPetName"
+              :sub-pet-name="subPetName(generationHistory[index]!)"
+              :sub-pet-face="subPetFace(generationHistory[index]!)"
+              :sub-pet-type="subPetType(generationHistory[index]!)"
+              :caller-pet-face="callerPetFace(generationHistory[index]!)"
+              :caller-pet-name="callerPetName(generationHistory[index]!)"
+              :caller-is-master="callerIsMaster(generationHistory[index]!)"
+              :show-master-badge="isLastSubReply(generationHistory[index]!)"
+              :fallback-runtime="runtimeForItem(generationHistory[index]!)"
+              :user-avatar-caption="userAvatarCaption"
+            />
+          </template>
+        </VirtualScroll>
       </div>
     </div>
   </MotionDiv>
@@ -1450,5 +1613,107 @@ function onPromptSnapShow(): void {
   &:hover {
     color: color-mix(in srgb, var(--ink) 78%, transparent);
   }
+}
+
+// ── 打包代际：首层卡片条 + 二层代际抽屉 ──
+.generation-cards {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 10px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.generation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 148px;
+  max-width: 220px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  text-align: left;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+
+  &:hover {
+    background: var(--surface);
+    border-color: color-mix(in srgb, var(--ink) 24%, transparent);
+  }
+
+  &.active {
+    background: rgba(246, 183, 60, 0.14);
+    border-color: rgba(246, 183, 60, 0.5);
+  }
+}
+
+.generation-card-summary {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generation-card-meta {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  white-space: nowrap;
+}
+
+// 二层代际抽屉：绝对定位覆盖首层（含 header），背景淡化区分层级（无左侧色条）
+.generation-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.22);
+}
+
+.generation-layer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: rgba(246, 183, 60, 0.07);
+
+  .generation-layer-title {
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 800;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    small {
+      margin-left: 8px;
+      font-size: 10.5px;
+      font-weight: 500;
+      color: color-mix(in srgb, var(--ink) 52%, transparent);
+    }
+  }
+
+  .generation-layer-close {
+    flex-shrink: 0;
+  }
+}
+
+.generation-layer-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 0 18px 14px;
+  display: flex;
+  flex-direction: column;
 }
 </style>

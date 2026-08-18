@@ -326,7 +326,11 @@ async function doExecuteSense(
       return { content: `没有 "${name}" 这个感官`, replaced }
     }
     // 路径守卫：拦 .chery/ 直接读写（仅 install_skill 豁免），引导走管家角色
-    const guardHit = checkCheryGuard(name, args)
+    // 管家（senseTable 含 install_skill，双重隔离信号）额外豁免 .chery/rule/ 读写：
+    // 生成/修改审批规则文件（与基准 base.yaml 深合并）。.chery/ 其余路径仍拦。
+    const guardHit = checkCheryGuard(name, args, {
+      allowRuleDir: ctx.runtime.senseTable.has('install_skill'),
+    })
     if (guardHit) {
       return { content: guardHit, replaced }
     }

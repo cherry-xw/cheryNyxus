@@ -15,6 +15,8 @@ const props = defineProps<{
   validate?: (newName: string) => string | null
   /** 禁用改名：true 时点击不进入编辑态（锁定角色用，向后兼容缺省 false） */
   disabled?: boolean
+  /** hover title 覆盖：默认「点击改名」；名称被省略缩略时传完整名，让 tip 展示全名 */
+  nameTitle?: string
 }>()
 const emit = defineEmits<{
   (e: 'rename', newName: string): void
@@ -69,7 +71,7 @@ defineExpose({ start, cancel })
       v-else
       class="card-name"
       :class="{ editable: !disabled }"
-      :title="disabled ? undefined : '点击改名'"
+      :title="disabled ? undefined : (nameTitle ?? '点击改名')"
       @click="start"
       >{{ modelValue }}</span
     >

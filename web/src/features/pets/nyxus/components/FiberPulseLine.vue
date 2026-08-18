@@ -119,10 +119,4 @@ function dashValues(segmentLength: number): string {
 .fiber.is-active {
   --pulse-brightness: 1.12;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .fiber-light {
-    display: none;
-  }
-}
 </style>

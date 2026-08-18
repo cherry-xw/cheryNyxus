@@ -44,7 +44,6 @@ const props = defineProps<{
   editorRefFn: (el: HTMLElement | null) => void
   commandMenuRefFn: (el: HTMLElement | null) => void
   roleMenuRefFn: (el: HTMLElement | null) => void
-  targetLocked?: boolean
 }>()
 
 type TemplateRefValue = Element | ComponentPublicInstance | null
@@ -301,7 +300,6 @@ const emit = defineEmits<{
             loading ||
             !primarySelection?.brain ||
             (supportsTools(primarySelection.brain) && !primarySelection.senseGroup)
-            || (targetLocked !== undefined && targetLocked === false)
           "
           aria-label="发送消息"
           @click="emit('send')"
@@ -464,15 +462,6 @@ const emit = defineEmits<{
     border-color: color-mix(in srgb, var(--nx-green) 54%, transparent);
     color: var(--nx-green);
     background: color-mix(in srgb, var(--nx-green) 16%, transparent);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .composer-wrap.is-nyxus-composer :is(.add-media-btn, .send-btn) {
-    transition:
-      color 120ms ease,
-      border-color 120ms ease,
-      background-color 120ms ease;
   }
 }
 </style>

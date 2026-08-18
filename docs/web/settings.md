@@ -7,10 +7,14 @@
 - `TabShell` 顶部只承载说明与固定工具栏，搜索和批量操作不会随资源列表滚动。
 - 卡片锚点与分页导航通过 Vue Teleport 挂到设置弹窗底栏左侧：少量项显示可点击序号，大量项显示窗口化序号、范围和前后翻页；关闭、保存固定在右侧。
 - 新增、复制后必须自动选择并定位新项；删除当前项后选择相邻项。
-- 趣味动效只用于状态确认（头像切换、复制、能力翻转），并遵循 `prefers-reduced-motion`。
+- 趣味动效只用于状态确认（头像切换、复制、能力翻转）；应用不跟随客户端 `prefers-reduced-motion` 判定，动效恒开（见「动效降级约定」）。
 - 错误在设置中心内部弹窗展示，列表卡片仅保留错误状态标记。
 - 全局 Tab 使用无空洞的响应式拼贴模块墙：监管、编辑器、限制、日志、压缩和记忆块按信息量拥有不同宽高。普通下拉和数字框替换为分段卡、属性调节器、编辑器卡片与标签弹匣；紫蓝玻璃光晕表达选中与聚焦，暖色只用于警告。
-- 技能与插件导入统一使用“霓虹开卡包”交互：选择 Git/ZIP 来源对应挑选卡包，读取阶段表现为拆封与洗牌，候选确认使用可选择的卡牌阵列，提交后集中收牌并揭晓导入结果。视觉使用青绿、亮粉、橙黄、电蓝与酸性绿的多色霓虹，不以紫色或魔法阵作为主视觉；弹窗底色允许青红通道错位和间歇色块抖动，但表单、文字与操作控件保持稳定。高表现力动效只表达当前状态，并在 `prefers-reduced-motion` 下退化为静态过渡。
+- 技能与插件导入统一使用“霓虹开卡包”交互：选择 Git/ZIP 来源对应挑选卡包，读取阶段表现为拆封与洗牌，候选确认使用可选择的卡牌阵列，提交后集中收牌并揭晓导入结果。视觉使用青绿、亮粉、橙黄、电蓝与酸性绿的多色霓虹，不以紫色或魔法阵作为主视觉；弹窗底色允许青红通道错位和间歇色块抖动，但表单、文字与操作控件保持稳定。高表现力动效只表达当前状态；应用不实现 `prefers-reduced-motion` 静态退化（见「动效降级约定」）。
+
+## 动效降级约定
+
+应用**不跟随**客户端 OS 的 `prefers-reduced-motion: reduce` 判定，动效恒开。原因：本项目以浏览器访问 headless 服务端为主，客户端（如 Windows/RDP 会话默认关闭系统动画）的 reduce 判定不可靠，曾导致全站 `animation/transition` 被无障碍兜底规则灭活。代码中不新增 `@media (prefers-reduced-motion: reduce)` 块与 `matchMedia('(prefers-reduced-motion: reduce)')` 门控；motion-v 保持默认 `reducedMotion: "never"`。
 
 ## 角色图鉴与装备
 
@@ -47,6 +51,20 @@
 ## 删除确认
 
 设置中心内会造成配置项或已安装资源丢失的删除统一使用 Element Plus popper 二次确认。轻删和原“重删”共用同一确认组件；影响范围以可换行正文展示。popper 主体和箭头使用同一背景、边框变量。标签关闭、附件移除等可撤销的草稿编辑不属于破坏性删除，不增加二次确认。
+
+## 预设 Tab
+
+每预设 = 团队成员多选（引用 `config.roles` 单一源）+ 组长（leader）+ 可选的解释角色（detailRole）。运行时采用组长角色配置，不在预设内重定义 brain/sense。
+
+**布局**：会话路由、工作区、审批规则三组选择并排一行（紧凑 `card-grid-3`）；媒体服务（图片/视频/音频）单独一行。三组字段的 label 均挂 info 图标（hover 出 tip，见下方「tip 排版与配色」）。
+
+**工作区选择**：除 Electron 原生「选择目录」外，新增「浏览」按钮（Electron 与浏览器均可用）——通过 `config.workspace.browse.*` 协议打开「面包屑 + 目录列表」弹层，逐层懒加载服务端文件系统并选中目录回填。**默认全盘可浏览**（POSIX 从 `/`、win32 全部盘符），权限由系统对后端的实际访问报错把关——目录无权限时列表行内提示「下级无法加载（无权限）」，不可再钻取；`.chery` 系统配置目录恒不可见。配置 `server.workspace_browse.roots` 可收窄浏览范围。选中目录走既有 `updateWorkspace` → `workspaceChange` → 即时校验链路（`config.workspace.validate`）。手动输入绝对路径不受影响。
+
+**Cherry Nexus 固定预设**：`cheryNyxus` 为系统固定预设——不可改名、删除、换组长，成员固定不可修改（roles=[cheryNyxus, housekeeper, curator, explanation]，leader=cheryNyxus，detailRole=explanation）。前端「选择成员」下拉禁用、「设置解释」禁用、成员卡全部禁用；成员配置本身不在设置页改动。
+
+**审批规则**：原「规则文件」改名为「审批规则」。下拉选择 `.chery/rule/` 下覆盖文件（`presets.<name>.rule`），与基准 `base.yaml` 深合并（详见 docs/core/sense.md「smart 规则表」）。右侧「刷新」按钮重新拉取 `rules.list`——手动新建或管家对话生成规则文件后立即可见。tip 含机制（命中危险拦截/未命中放行）+ 操作方案（与管家对话生成 / 手动编辑 `.chery/rule/` + 保存重启）。
+
+**tip 排版与配色**：`.label-tip-popper`（web/src/styles/element/index.scss）全局 `pre-line` 换行（content 内 `\n` 分节）+ 配色随主题——背景 `var(--panel)` / 文字 `var(--ink)`（深色黑底白字、浅色白底黑字）；`.el-popper.is-dark.label-tip-popper` 抬特异性覆盖 el-tooltip 默认黑底。影响所有 LabelTip（编辑器/插件导入/指令/大脑/技能导入/预设）。
 
 ## 依赖与关联
 

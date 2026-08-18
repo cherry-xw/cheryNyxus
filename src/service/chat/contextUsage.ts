@@ -27,6 +27,7 @@ import {
 } from '@/utils/token.js'
 import config from '@/utils/config'
 import { getChatMentionableRoles } from './roleMentions.js'
+import { computeHistoryGenerationInfos } from './generations.js'
 
 /** contextLimit 兜底值（token）：brain 未配 contextLimit 时使用（与 utils/token 一致）。 */
 const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192
@@ -68,12 +69,13 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
     const workspace = getChatWorkspace(chatId)
     const skillFilter = getChatSkillFilter(chatId)
 
-    // 段 1-4：提示词分段（系统消息不入库，需重建）
+    // 段 1-4：提示词分段（系统消息不入库，需重建；historyGenerations 同 init 期注入 <history_generations> 段）
     const promptSegs = buildSystemPromptSegments(
       systemPromptFile,
       workspace,
       skillFilter,
       getChatMentionableRoles(chatId),
+      computeHistoryGenerationInfos(chatId),
     )
     const system = seg(estimateTokens(promptSegs.system))
     const userSystem = seg(estimateTokens(promptSegs.userSystem))

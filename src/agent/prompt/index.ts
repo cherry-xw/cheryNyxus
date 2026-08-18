@@ -53,6 +53,18 @@ export interface RoleMentionInfo {
   description: string
 }
 
+/**
+ * history_recall 代际索引条目（LLM 历史回忆 L0 索引，注入 <history_generations> 段）。
+ * service 层 computeGenerations 结果的最小投影（agent 层不依赖 service 类型）。
+ */
+export interface HistoryGenerationInfo {
+  index: number
+  summary: string
+  nodeCount: number
+  createdAt: number
+  trigger: 'manual' | 'auto'
+}
+
 /** skills 段预聚合 token（getSkillMetas 一次性算好，buildSystemPromptSegments 直接累加）。 */
 export interface SkillsSegmentTokens {
   nameDescTokens: number
@@ -85,6 +97,7 @@ interface PromptPieces {
   /** skill 段预聚合 token（从 getSkillMetas 复用，不在本模块重算）。 */
   skillsTokens: SkillsSegmentTokens
   roleMentionsSection: string
+  historyGenerationsSection: string
   // 注意：内置命令（/.chery/command/*.md）不再预注入 system prompt；trigger 时由 send 路径临时附注。
   // 详见 docs/agent/command.md。
 }
@@ -100,6 +113,7 @@ function buildPromptPieces(
   workspace?: string,
   skillFilter?: SkillFilter,
   roleMentions: RoleMentionInfo[] = [],
+  historyGenerations: HistoryGenerationInfo[] = [],
 ): PromptPieces {
   // systemPromptFile 路径实时读（每子 agent 可不同文件）；缺失容错仅用全局 base（配置期 validateRawConfig 已校验存在）
   let userSystem = ''
@@ -182,6 +196,27 @@ function buildPromptPieces(
   // 内置命令（/.chery/command/*.md）不在默认 system prompt 注入；trigger 时由 autoCompact / manual
   // 路径临时附注到 user prompt 末尾。详见 docs/agent/command.md。
 
+  // LLM 历史回忆 L0 索引（docs/agent/prompt.md「<history_generations> 段」）：
+  // 仅当该 chat 存在已定稿 compact 代际时注入（每代一行摘要），无 compact 历史零开销。
+  // 注入时机为 chat 初始化（system 消息构造时一次性）；进程内新增 compact 后索引滞后一代，
+  // 重启 / 切回 chat 重建时刷新，细粒度回忆由 history_recall 感官承担。
+  let historyGenerationsSection = ''
+  if (historyGenerations.length > 0) {
+    const lines = historyGenerations.map(
+      (gen) =>
+        `第${gen.index}代 [${gen.trigger === 'auto' ? '自动' : '手动'}] ` +
+        `${dayjs(gen.createdAt).format('YYYY-MM-DD HH:mm')} · ${gen.nodeCount} 节点 · ` +
+        `${gen.summary.slice(0, 200)}`,
+    )
+    historyGenerationsSection =
+      `\n\n<history_generations>\n` +
+      `此前对话经过 ${historyGenerations.length} 次压缩，以下是各代摘要索引` +
+      `（第 ${historyGenerations.length} 代为最近一次定稿，其后为当前上下文）：\n` +
+      `${lines.join('\n')}\n` +
+      `更早细节可用 history_recall 感官查询（action=list_generations 列目录 / action=search 按关键词检索）。\n` +
+      `</history_generations>`
+  }
+
   return {
     globalBase: systemPrompt,
     userSystem,
@@ -193,6 +228,7 @@ function buildPromptPieces(
     skillsCount: skillMetas.length,
     skillsTokens,
     roleMentionsSection,
+    historyGenerationsSection,
   }
 }
 
@@ -206,10 +242,17 @@ export function buildSystemPromptSegments(
   workspace?: string,
   skillFilter?: SkillFilter,
   roleMentions?: RoleMentionInfo[],
+  historyGenerations?: HistoryGenerationInfo[],
 ): SystemPromptSegments {
-  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter, roleMentions)
+  const p = buildPromptPieces(
+    systemPromptFile,
+    workspace,
+    skillFilter,
+    roleMentions,
+    historyGenerations,
+  )
   return {
-    system: `<system-reminder>\n${p.globalBase}${p.roleMentionsSection}\n</system-reminder>\n\n${p.envBlock}${p.workspaceSection}`,
+    system: `<system-reminder>\n${p.globalBase}${p.roleMentionsSection}\n</system-reminder>\n\n${p.envBlock}${p.workspaceSection}${p.historyGenerationsSection}`,
     userSystem: p.userSystem,
     memory: { text: p.memorySection, count: p.memoryCount },
     skills: {
@@ -234,8 +277,15 @@ export default function buildFirstSystemPrompt(
   workspace?: string,
   skillFilter?: SkillFilter,
   roleMentions?: RoleMentionInfo[],
+  historyGenerations?: HistoryGenerationInfo[],
 ): string {
-  const p = buildPromptPieces(systemPromptFile, workspace, skillFilter, roleMentions)
+  const p = buildPromptPieces(
+    systemPromptFile,
+    workspace,
+    skillFilter,
+    roleMentions,
+    historyGenerations,
+  )
   // 合并：全局 base 在前为基础，override 在后为补充
   const base = `${p.globalBase}${p.roleMentionsSection}`
   const body = p.userSystem ? `${base}\n\n${p.userSystem}` : base
@@ -243,7 +293,7 @@ export default function buildFirstSystemPrompt(
 ${body}
 </system-reminder>
 
-${p.envBlock}${p.workspaceSection}${p.memorySection}
+${p.envBlock}${p.workspaceSection}${p.historyGenerationsSection}${p.memorySection}
 
 <skills>
 ${p.skillsInner}

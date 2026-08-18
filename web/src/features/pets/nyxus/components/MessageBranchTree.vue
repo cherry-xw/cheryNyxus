@@ -42,6 +42,7 @@ import ExecutionNodePopover from './ExecutionNodePopover.vue'
 import FoldTabRail from './FoldTabRail.vue'
 import AnchoredRunCrt from './AnchoredRunCrt.vue'
 import NodePaperStack from './NodePaperStack.vue'
+import GenerationTreeDialog from './GenerationTreeDialog.vue'
 import { terminationDisplay } from '../graph/termination'
 import { buildRunCrtModels, effectiveRunFacts, type RunCrtModel } from '../graph/crtModel'
 import { layoutAnchoredCrts, selectVisibleCrtIds } from '../graph/crtLayout'
@@ -76,6 +77,8 @@ const props = withDefaults(
     /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
     fullRenderThreshold?: number
     paperMode?: boolean
+    /** 静态历史视图（代际二层弹窗）：挂断 live 投影（输入/流式/CRT），仅渲染 timelineOverride。 */
+    staticView?: boolean
   }>(),
   { foldMode: 'partial', layoutMode: 'timeline' },
 )
@@ -120,7 +123,9 @@ const timelineSnapshot = computed(() => props.timelineOverride ?? chatSessions.r
 const timelineNodes = computed(() => timelineSnapshot.value?.nodes ?? [])
 const rootTransientState = computed(() => chatSessions.rootTimelineStates[props.rootChatId])
 const liveState = computed(() =>
-  effectiveRootLiveState(props.rootChatId, rootTransientState.value, chatSessions.sessionsById),
+  props.staticView
+    ? { activeTurns: [], activeRuns: [] }
+    : effectiveRootLiveState(props.rootChatId, rootTransientState.value, chatSessions.sessionsById),
 )
 const activeCrtRuns = computed(() =>
   effectiveRunFacts(
@@ -131,6 +136,7 @@ const activeCrtRuns = computed(() =>
   ),
 )
 const pendingInputs = computed<VirtualInputNode[]>(() => {
+  if (props.staticView) return []
   const rootState = rootTransientState.value
   const latest = Math.max(0, ...timelineNodes.value.map((node) => node.createdAt))
   return (rootState?.pendingInputs ?? [])
@@ -160,6 +166,7 @@ const persistentGraph = computed(() =>
           nodes: [],
           edges: [],
           activeRuns: activeCrtRuns.value,
+          generations: [],
         },
   ),
 )
@@ -553,6 +560,11 @@ function toolDisplayName(name: string): string {
 function nodeTitle(node: ExecutionNode): string {
   if (node.kind === 'start') return '任务起点'
   if (node.kind === 'input') return '我的指令'
+  if (node.kind === 'pack') {
+    // 打包节点标题 = 摘要首行（compactNodeTitle 统一截断）。
+    const firstLine = node.content.split('\n').map((line) => line.trim()).find(Boolean)
+    return firstLine ? `打包 · ${firstLine}` : '打包历史'
+  }
   if (node.kind === 'return') return '结果返回'
   if (node.direction === 'parent-to-child') return '委派任务'
   if (node.kind === 'tool-batch') {
@@ -680,8 +692,9 @@ function closeNodeDetail(): void {
 }
 
 function requestBranch(type: 'detail' | 'continuation', nodeId: string): void {
+  if (props.staticView) return // 静态代际视图：历史节点不提供分支入口（服务端已拒绝）
   const node = persistentGraph.value.nodes.find((candidate) => candidate.id === nodeId)
-  if (!node) return
+  if (!node || node.kind === 'pack') return
   const branchId = node.sourceFact?.branchId
   const sourceRootChatId = branchId
     ? props.timelineOverride?.branches?.find((branch) => branch.branchId === branchId)?.chatId
@@ -798,6 +811,10 @@ function isError(node: (typeof layout.value.nodes)[number]): boolean {
 
 function activateNode(node: (typeof layout.value.nodes)[number]): void {
   if (canvas.consumeClickAfterDrag()) return
+  if (node.kind === 'pack' && node.pack) {
+    openGenerationView(node.pack.generationIndex)
+    return
+  }
   if (props.paperMode && hasNodeHoverDetail(node)) {
     selectPaperNode(node.id)
     return
@@ -837,6 +854,18 @@ function selectPaperIndex(index: number): void {
 
 function returnToLatestPaper(): void {
   selectPaperIndex(paperEntries.value.length - 1)
+}
+
+// ── 打包代际二层：点 pack 节点 → 抽屉已开则联动抽屉二层，否则本组件内弹窗 ──
+const generationDialogIndex = ref<number>()
+
+function openGenerationView(generationIndex: number): void {
+  if (props.staticView) return // 二层内不再下钻（嵌套深度恒 1）
+  if (agents.historyDrawerStack.includes(props.rootChatId)) {
+    agents.openHistoryGeneration(props.rootChatId, generationIndex)
+    return
+  }
+  generationDialogIndex.value = generationIndex
 }
 
 const detailNode = computed(() => {
@@ -927,6 +956,7 @@ const pixiScene = computed<PixiExecutionScene>(() => ({
         ? { termination: terminationDisplay(node.sourceFact.termination).label }
         : {}),
       ...(node.kind === 'fold' && node.fold ? { foldCount: node.fold.members.length } : {}),
+      ...(node.kind === 'pack' && node.pack ? { foldCount: node.pack.nodeCount } : {}),
       running: runningTailIds.value.has(node.id),
       detailActive:
         hoveredDetailNodeId.value === node.id ||
@@ -1075,6 +1105,7 @@ watch(
     knownFoldCounts = new Map()
     activePaperNodeId.value = undefined
     paperHasNewTail.value = false
+    generationDialogIndex.value = undefined
     if (previousRootChatId && previousRootChatId !== rootChatId) {
       pinnedCrtIds.value = new Set()
       hiddenCrtIds.value = new Set()
@@ -1457,6 +1488,12 @@ defineExpose({ resetLayout })
         </Transition>
       </div>
     </div>
+    <GenerationTreeDialog
+      v-if="generationDialogIndex !== undefined"
+      :root-chat-id="rootChatId"
+      :generation-index="generationDialogIndex"
+      @close="generationDialogIndex = undefined"
+    />
   </section>
 </template>
 
@@ -1687,12 +1724,6 @@ defineExpose({ resetLayout })
 .node-detail-enter-from,
 .node-detail-leave-to {
   opacity: 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .node-detail-enter-active,
-  .node-detail-leave-active {
-    transition: opacity 160ms ease;
-  }
 }
 .node-halo {
   fill: none;
@@ -1939,23 +1970,5 @@ defineExpose({ resetLayout })
   stroke: url(#nx-neon);
   stroke-width: 1.5;
   opacity: 0.4;
-}
-@media (prefers-reduced-motion: reduce) {
-  .execution-node.is-running .node-halo,
-  .node-running-dot,
-  .node-ping,
-  .execution-node.is-tool-active .node-state-overlay,
-  .execution-node.is-input-consuming .node-state-overlay {
-    animation: none;
-  }
-  .node-body {
-    animation: none;
-  }
-  .execution-node .node-icon {
-    animation: none;
-  }
-  .node-neon-rim {
-    opacity: 0.35;
-  }
 }
 </style>

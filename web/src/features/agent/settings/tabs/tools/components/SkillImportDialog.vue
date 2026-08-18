@@ -890,19 +890,6 @@ button:disabled {
     width: 100%;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .drop-orbit,
-  .shuffle-cards > span,
-  .reveal-card {
-    animation: none !important;
-  }
-  .source-card,
-  .drop-core,
-  .beam-btn,
-  .launch-btn {
-    transition: none !important;
-  }
-}
 .proxy-field {
   margin-top: 8px;
 }

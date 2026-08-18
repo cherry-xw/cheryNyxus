@@ -464,6 +464,8 @@ export interface ChatOpenResponseData {
   eventSeq: number
   timelineRevision: number
   timelineChanged: boolean
+  /** root 路径 knownTimelineRevision 短路时为 true，此时省略 rootTimeline */
+  timelineUnchanged?: boolean
   rootTimeline?: RootTimelineSnapshot
   state: {
     /** Root mode identity set used to atomically clear stale descendant state. */
@@ -686,6 +688,20 @@ export type ConfigSaveRequestData = ConfigRaw
 /** config.workspace.validate：只读校验后端主机上的预设工作区目录。空值表示未限定，为有效值。 */
 export interface ConfigWorkspaceValidateRequestData {
   workspace?: string
+}
+
+/** config.workspace.browse.start 入参：严格空对象。 */
+export type ConfigWorkspaceBrowseStartRequestData = EmptyObjectData
+
+/** config.workspace.browse.list 入参：encPath 为 xorEncrypt(nonce, 绝对路径或空串)（空串=根选择层）。 */
+export interface ConfigWorkspaceBrowseListRequestData {
+  sessionId: string
+  /** hex 一次性随机数，客户端每请求新生成；响应回显供校验一致 */
+  nonce: string
+  /** base64：xorEncrypt(nonce, 绝对路径或空串)；空串表示请求根选择层 */
+  encPath: string
+  /** 是否返回文件条目；缺省取配置 default_include_files（默认 false 仅目录，为硬上限） */
+  includeFiles?: boolean
 }
 
 // ---------- Hooks 管理（hooks.get / hooks.save / hooks.events）----------
@@ -1688,6 +1704,30 @@ export interface ActiveRunFact {
   batchId?: string
 }
 
+/**
+ * 长会话代际索引条目：第 k 次 compact（手动 /compact 与 autoCompact 统一）= 第 k 代定稿。
+ * 代际区间为 (fromOrderKey, boundaryOrderKey]；由 computeGenerations 从持久事实推导，无独立表。
+ */
+export interface GenerationEntry {
+  /** 1-based 代序号 */
+  index: number
+  /** 摘要 assistant 消息 id（打包锚点） */
+  boundaryMessageId: string
+  /** 对应 execution node id（= 消息 id；消息未成节点时回退区间内最后一个节点） */
+  boundaryNodeId: string
+  /** 该代最后一个 orderKey */
+  boundaryOrderKey: number
+  /** 该代起始 orderKey（上一代 boundaryOrderKey，首代 0） */
+  fromOrderKey: number
+  /** extractSummaryBlock(摘要 assistant content)；空则回退截断 500 字符 */
+  summary: string
+  /** 区间内 execution node 数 */
+  nodeCount: number
+  createdAt: number
+  /** auto 由 send 侧内存标记 best-effort 回填；重启后重算一律 manual（装饰性字段） */
+  trigger: 'manual' | 'auto'
+}
+
 export interface RootTimelineSnapshot {
   rootChatId: string
   taskId?: string
@@ -1695,10 +1735,13 @@ export interface RootTimelineSnapshot {
   branches?: ConversationBranchSummary[]
   view: 'conversation' | 'tree' | 'audit'
   revision: number
+  /** 代际窗口内节点（当前代 + 上一代；orderKey > windowFloor），持久层仍全量 */
   nodes: TimelineNode[]
   edges: ExecutionEdgeFact[]
   activeRuns: ActiveRunFact[]
   pendingInputs: PendingInputSnapshot[]
+  /** L0 代际索引（无 compact 时为 []）；更早代经 chat.timeline.generation.get 按需拉取 */
+  generations: GenerationEntry[]
   controlState?: TreeControlState
   nextCursor?: string
   capturedEventSeq: number
@@ -1707,9 +1750,25 @@ export interface RootTimelineSnapshot {
 export interface ChatTimelineGetResponseData {
   chatId: string
   revision: number
-  messages: CanonicalMessage[]
+  /** knownRevision 短路（unchanged:true）时省略 */
+  messages?: CanonicalMessage[]
   rootTimeline?: RootTimelineSnapshot
   nextCursor?: string
+  /** root 路径请求 knownRevision >= 当前 revision 时为 true，此时无 messages/rootTimeline */
+  unchanged?: boolean
+}
+
+export interface ChatTimelineGenerationGetRequestData {
+  rootChatId: string
+  /** 1-based，指向 GenerationEntry.index */
+  generationIndex: number
+}
+
+export interface ChatTimelineGenerationGetResponseData {
+  rootChatId: string
+  generation: GenerationEntry
+  nodes: TimelineNode[]
+  edges: ExecutionEdgeFact[]
 }
 
 export type TimelinePatchOperation =
@@ -1926,6 +1985,33 @@ export interface ConfigSaveResponseData {
 export interface ConfigWorkspaceValidateResponseData {
   valid: boolean
   error?: string
+}
+
+/** config.workspace.browse.start 响应：开启浏览会话；roots 为管理员白名单明文。 */
+export interface ConfigWorkspaceBrowseStartResponseData {
+  sessionId: string
+  /** 会话存活毫秒数（到期自动清理） */
+  ttlMs: number
+  /** process.platform 原样透传（前端面包屑平台适配） */
+  platform: string
+  /** 显示分隔符：win32 为 '\\'，其余 '/' */
+  sep: '/' | '\\'
+  /** 允许浏览的根白名单（明文 = 管理员配置，非用户数据） */
+  roots: Array<{ path: string; name: string }>
+  /** 空串 = 多根选择器；单根 = 直接列其子目录 */
+  initialPath: string
+  /** 生效的 includeFiles 值 */
+  includeFiles: boolean
+  /** 无有效根时结构化返回（不抛 RpcError） */
+  error?: string
+}
+
+/** config.workspace.browse.list 响应：encData 为 xorEncrypt(nonce, JSON.stringify(payload))。 */
+export interface ConfigWorkspaceBrowseListResponseData {
+  /** 回显请求 nonce，前端校验一致后解密 encData */
+  nonce: string
+  /** base64：xorEncrypt(nonce, JSON.stringify(BrowseListPayload)) */
+  encData: string
 }
 
 /** hooks.get 响应：全局 hooks + 各 brain 级 hooks（只读展示）*/
@@ -2381,6 +2467,7 @@ export const Method = {
   CHAT_SEND: 'chat.send',
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
+  CHAT_TIMELINE_GENERATION_GET: 'chat.timeline.generation.get',
   CHAT_RESUME: 'chat.resume',
   CHAT_RESUME_TREE: 'chat.resumeTree',
   CHAT_SYNC: 'chat.sync',
@@ -2417,6 +2504,8 @@ export const Method = {
   // Config 设置（读写 .chery/config.yaml，除 server 段，重启生效）
   CONFIG_GET: 'config.get',
   CONFIG_WORKSPACE_VALIDATE: 'config.workspace.validate',
+  CONFIG_WORKSPACE_BROWSE_START: 'config.workspace.browse.start',
+  CONFIG_WORKSPACE_BROWSE_LIST: 'config.workspace.browse.list',
   CONFIG_SAVE: 'config.save',
 
   // Hooks 管理（读写 .chery/hooks/hooks.json，独立于 config.yaml）
@@ -2560,6 +2649,10 @@ export interface RpcMethodMap {
     params: ChatTimelineGetRequestData
     result: ChatTimelineGetResponseData
   }
+  [Method.CHAT_TIMELINE_GENERATION_GET]: {
+    params: ChatTimelineGenerationGetRequestData
+    result: ChatTimelineGenerationGetResponseData
+  }
   [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData }
   [Method.CHAT_RESUME_TREE]: {
     params: ChatResumeTreeRequestData
@@ -2614,6 +2707,14 @@ export interface RpcMethodMap {
   [Method.CONFIG_WORKSPACE_VALIDATE]: {
     params: ConfigWorkspaceValidateRequestData
     result: ConfigWorkspaceValidateResponseData
+  }
+  [Method.CONFIG_WORKSPACE_BROWSE_START]: {
+    params: ConfigWorkspaceBrowseStartRequestData
+    result: ConfigWorkspaceBrowseStartResponseData
+  }
+  [Method.CONFIG_WORKSPACE_BROWSE_LIST]: {
+    params: ConfigWorkspaceBrowseListRequestData
+    result: ConfigWorkspaceBrowseListResponseData
   }
   [Method.CONFIG_SAVE]: { params: ConfigSaveRequestData; result: ConfigSaveResponseData }
   [Method.HOOKS_GET]: { params: HooksGetRequestData; result: HooksGetResponseData }
