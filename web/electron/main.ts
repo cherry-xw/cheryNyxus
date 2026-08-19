@@ -1,30 +1,48 @@
 import { join, dirname } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
 
-/**
- * desktop renderer → main 请求打开控制台的导航目标。
- * main 确保 console 窗可见（惰性创建 + ready 队列）后经 `console:navigate` 转发给 console renderer。
- */
-export type ConsoleTarget =
-  | { target: 'show' }
-  | { target: 'settings' }
-  | { target: 'workbench'; presetId: string; chatId?: string }
-  | { target: 'history'; chatId: string }
+// 【诊断·临时】深色白边定位：覆盖层实验证实白线在最高 z-index 内容之上（非内容层、非合成背景），
+// 候选为 GPU 合成边缘伪影。disableHardwareAcceleration 强制软件合成验证；星系/粒子动画会走
+// 软件渲染（性能下降）。白线消失 → GPU 伪影实锤（再评估性能取舍）；白线仍在 → 转 DWM 边框假设。测完移除。
+app.disableHardwareAcceleration()
 
-/** IPC 载荷防御校验：desktop:open-console 的 target 结构不合法时静默丢弃。 */
-function isValidConsoleTarget(value: unknown): value is ConsoleTarget {
+/**
+ * desktop renderer → main 请求打开独立原生窗的目标。
+ * 仅 desktop 窗可发起；main 惰性创建 / show+focus 复用（工作台窗 hide 保活）。
+ */
+export type WindowKind = 'settings' | 'workbench'
+export interface OpenWindowRequest {
+  kind: WindowKind
+  presetId?: string
+  chatId?: string
+  /** 待处理抽屉「打开节点树」定位参数（新建工作台窗 did-finish-load 后下发）。 */
+  focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
+}
+
+/** IPC 载荷防御校验：window:open 的请求结构不合法时静默丢弃。 */
+function isValidOpenRequest(value: unknown): value is OpenWindowRequest {
   if (!value || typeof value !== 'object') return false
-  const target = value as Partial<ConsoleTarget>
-  if (target.target === 'show' || target.target === 'settings') return true
-  if (target.target === 'workbench') {
-    return typeof target.presetId === 'string' && (target.chatId === undefined || typeof target.chatId === 'string')
-  }
-  if (target.target === 'history') {
-    return typeof (target as { chatId?: unknown }).chatId === 'string'
+  const req = value as Partial<OpenWindowRequest>
+  if (req.kind === 'settings') return true
+  if (req.kind === 'workbench') {
+    return (
+      typeof req.presetId === 'string' &&
+      (req.chatId === undefined || typeof req.chatId === 'string') &&
+      (req.focus === undefined || typeof req.focus === 'object')
+    )
   }
   return false
+}
+
+/** 受管原生窗注册表项。key：'settings' | `wb:${presetId}` */
+interface ManagedWindow {
+  kind: WindowKind
+  presetId?: string
+  win: BrowserWindow
+  /** 工作台窗 keepAlive（close=hide 保 WS/run）；设置窗 close 即 destroy。 */
+  keepAlive: boolean
 }
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8182)
@@ -32,11 +50,9 @@ const WEB_PORT = Number(process.env.WEB_PORT ?? 8183)
 
 let backend: ChildProcess | null = null
 let desktopWindow: BrowserWindow | null = null
-let consoleWindow: BrowserWindow | null = null
+/** 全部受管原生窗（settings + 每 preset 一工作台窗）。 */
+const managedWindows = new Map<string, ManagedWindow>()
 let tray: Tray | null = null
-/** console 窗 did-finish-load 后置位；未就绪期间的 navigate 请求入队，就绪后补发。 */
-let consoleReady = false
-let pendingConsoleTargets: ConsoleTarget[] = []
 let isQuitting = false
 let serverConfig: { wsPort: number; webPort: number; transport: string } | null = null
 /** `getRuntimeRoot()` 解析结果缓存（启动后固定）。 */
@@ -182,42 +198,229 @@ async function waitForBackend(timeoutMs = 30000): Promise<void> {
   throw new Error(`后端启动超时（${timeoutMs}ms）`)
 }
 
-function loadRenderer(win: BrowserWindow, surface?: 'desktop' | 'console'): void {
-  const query = surface ? `?surface=${surface}` : ''
+/** 加载渲染入口。params 拼接为 query（dev 用 searchParams，prod 用 loadFile search）。 */
+function loadRenderer(win: BrowserWindow, params: Record<string, string> = {}): void {
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL)
-    if (surface) url.searchParams.set('surface', surface)
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
     void win.loadURL(url.toString())
   } else {
-    void win.loadFile(join(import.meta.dirname, '..', 'dist', 'index.html'), {
-      search: query,
-    })
+    const search = new URLSearchParams(params).toString()
+    void win.loadFile(join(import.meta.dirname, '..', 'dist', 'index.html'), { search })
   }
 }
 
-function showConsoleWindow(): void {
-  if (!consoleWindow || consoleWindow.isDestroyed()) return
-  consoleWindow.show()
-  consoleWindow.focus()
+// ── 受管原生窗 bounds 持久化 ──────────────────────────────────────────────
+// 原生窗几何由 main 拥有（renderer 无感知）。按 key 持久化常规 bounds（不存最大化态，
+// 重开默认常规窗），创建时经 screen 校验贴屏，防显示器变更后落在屏外。
+
+interface WindowStateFile {
+  [key: string]: { x: number; y: number; width: number; height: number }
 }
+
+function windowStatePath(): string {
+  return join(app.getPath('userData'), 'window-state.json')
+}
+
+function loadWindowState(): WindowStateFile {
+  try {
+    const parsed = JSON.parse(readFileSync(windowStatePath(), 'utf8')) as WindowStateFile
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveWindowState(state: WindowStateFile): void {
+  try {
+    writeFileSync(windowStatePath(), JSON.stringify(state))
+  } catch (e) {
+    console.warn('[window-state] save failed:', e)
+  }
+}
+
+/** bounds 校验：须与任一显示器 workArea 有 ≥40px 交叠（至少可见一角），否则回退默认。 */
+function clampBoundsToDisplays(bounds: Electron.Rectangle): Electron.Rectangle {
+  const visible = screen.getAllDisplays().some((d) => {
+    const a = d.workArea
+    const overlapW = Math.min(bounds.x + bounds.width, a.x + a.width) - Math.max(bounds.x, a.x)
+    const overlapH = Math.min(bounds.y + bounds.height, a.y + a.height) - Math.max(bounds.y, a.y)
+    return overlapW > 40 && overlapH > 40
+  })
+  return visible ? bounds : { x: 0, y: 0, width: 1200, height: 800 }
+}
+
+function restoreBounds(key: string): Partial<Electron.Rectangle> {
+  const bounds = loadWindowState()[key]
+  if (!bounds) return {}
+  const clamped = clampBoundsToDisplays(bounds)
+  return { x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height }
+}
+
+// ── 受管原生窗（settings / workbench） ────────────────────────────────────
+// 框架 frame:false，自绘标题栏由渲染层 WindowFrame / WorkbenchDialog 提供。
+// 原生最大化/焦点态回推；bounds 变更去抖持久化；工作台窗 close=hide 保 WS/run。
 
 /**
- * 打开（或显示）控制台并导航到指定目标。
- *
- * console 窗惰性创建：首次调用才建窗 + 加载 `?surface=console`。did-finish-load 前
- * 的 navigate 请求入队，就绪后按序补发——避免 renderer 尚未挂监听时消息丢失。
+ * settings 窗尺寸：默认按内容所需（约设置面板 1040x760 的理想尺寸 + 余量），
+ * 最小可缩到内容可用下限；屏幕 workArea 不足时两者都收敛到 workArea（屏幕最大可用）。
+ * workbench 沿用宽屏默认。无持久化 bounds 时应用默认尺寸（系统居中）。
  */
-function openConsole(target: ConsoleTarget = { target: 'show' }): void {
-  if (!consoleWindow || consoleWindow.isDestroyed()) {
-    createConsoleWindow()
-    pendingConsoleTargets.push(target)
+const SETTINGS_DEFAULT_SIZE = { width: 1080, height: 760 }
+const SETTINGS_MIN_SIZE = { width: 900, height: 640 }
+const WORKBENCH_DEFAULT_SIZE = { width: 1200, height: 800 }
+const COMMON_MIN_SIZE = { width: 640, height: 480 }
+
+/** 依 kind 计算窗口默认/最小尺寸：屏幕够则取标称值，不够则收敛到主屏 workArea。 */
+function managedWindowSizes(isSettings: boolean): {
+  defaultSize: { width: number; height: number }
+  minSize: { width: number; height: number }
+} {
+  const workArea = screen.getPrimaryDisplay().workArea
+  const nominal = isSettings ? SETTINGS_DEFAULT_SIZE : WORKBENCH_DEFAULT_SIZE
+  const minNominal = isSettings ? SETTINGS_MIN_SIZE : COMMON_MIN_SIZE
+  return {
+    defaultSize: {
+      width: Math.min(nominal.width, workArea.width),
+      height: Math.min(nominal.height, workArea.height),
+    },
+    minSize: {
+      width: Math.min(minNominal.width, workArea.width),
+      height: Math.min(minNominal.height, workArea.height),
+    },
+  }
+}
+
+function createManagedWindow(
+  key: string,
+  opts: {
+    kind: WindowKind
+    presetId?: string
+    title: string
+    surface: 'settings' | 'workbench'
+    extraParams?: Record<string, string>
+    keepAlive: boolean
+  },
+): ManagedWindow {
+  const persisted = restoreBounds(key)
+  // 无持久化记录（含首次打开）→ 不指定 x/y（系统居中），用内容所需默认尺寸
+  const sizes = managedWindowSizes(key === 'settings')
+  const win = new BrowserWindow({
+    ...persisted,
+    ...(persisted.width !== undefined ? {} : sizes.defaultSize),
+    minWidth: sizes.minSize.width,
+    minHeight: sizes.minSize.height,
+    title: opts.title,
+    frame: false,
+    show: false,
+    // 首帧兜底：深色主题 bg（渲染层 theme apply 后按主题回写 window:set-background）
+    backgroundColor: '#16181d',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: join(import.meta.dirname, 'preload.mjs'),
+    },
+  })
+  const entry: ManagedWindow = {
+    kind: opts.kind,
+    presetId: opts.presetId,
+    win,
+    keepAlive: opts.keepAlive,
+  }
+  managedWindows.set(key, entry)
+
+  win.once('ready-to-show', () => win.show())
+
+  // 原生最大化态变化（双击标题栏 / Win+↑ / 拖到屏幕边缘）→ 回推渲染层切标题栏图标
+  const pushMaximized = () => {
+    if (!win.isDestroyed()) win.webContents.send('window:maximized', win.isMaximized())
+  }
+  win.on('maximize', pushMaximized)
+  win.on('unmaximize', pushMaximized)
+  win.on('focus', () => {
+    if (!win.isDestroyed()) win.webContents.send('window:focused', true)
+  })
+  win.on('blur', () => {
+    if (!win.isDestroyed()) win.webContents.send('window:focused', false)
+  })
+
+  // bounds 去抖持久化（move/resize 期间不频繁写盘）
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+  const persistBounds = () => {
+    if (saveTimer) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      if (win.isDestroyed()) return
+      const state = loadWindowState()
+      state[key] = win.getBounds()
+      saveWindowState(state)
+    }, 400)
+  }
+  win.on('move', persistBounds)
+  win.on('resize', persistBounds)
+
+  win.on('close', (event) => {
+    if (isQuitting) return
+    if (entry.keepAlive) {
+      // 工作台窗：hide 不销毁——断 WS 会触发 disconnectGrace park 运行中任务，
+      // hide 保持连接、run 继续；重开同 preset → show+focus 还原。
+      event.preventDefault()
+      win.hide()
+      return
+    }
+    // 设置窗：默认销毁（无运行状态，重开重载 config）
+  })
+  win.on('closed', () => {
+    if (managedWindows.get(key) === entry) managedWindows.delete(key)
+  })
+
+  loadRenderer(win, { surface: opts.surface, ...opts.extraParams })
+  return entry
+}
+
+/** 显示既有受管窗（hide 保活后还原）。不存在 / 已销毁 → false。 */
+function showManagedWindow(key: string): boolean {
+  const entry = managedWindows.get(key)
+  if (!entry || entry.win.isDestroyed()) return false
+  entry.win.show()
+  entry.win.focus()
+  return true
+}
+
+function openSettingsWindow(): void {
+  if (showManagedWindow('settings')) return
+  createManagedWindow('settings', {
+    kind: 'settings',
+    title: 'CheryNyxus 设置',
+    surface: 'settings',
+    keepAlive: false,
+  })
+}
+
+function openWorkbenchWindow(req: OpenWindowRequest & { kind: 'workbench' }): void {
+  const key = `wb:${req.presetId}`
+  if (showManagedWindow(key)) {
+    // 已存在：带新 chatId → 切换会话；带 focus → 定位树节点
+    const wc = managedWindows.get(key)!.win.webContents
+    if (req.chatId) wc.send('workbench:open-chat', req.chatId)
+    if (req.focus) wc.send('workbench:focus', req.focus)
     return
   }
-  showConsoleWindow()
-  if (consoleReady) {
-    consoleWindow.webContents.send('console:navigate', target)
-  } else {
-    pendingConsoleTargets.push(target)
+  const entry = createManagedWindow(key, {
+    kind: 'workbench',
+    presetId: req.presetId,
+    title: 'CheryNyxus 工作台',
+    surface: 'workbench',
+    keepAlive: true,
+    extraParams: {
+      presetId: req.presetId!,
+      ...(req.chatId ? { chatId: req.chatId } : {}),
+    },
+  })
+  // did-finish-load 后补发 focus（renderer 尚未挂监听时消息会丢失）
+  if (req.focus) {
+    entry.win.webContents.once('did-finish-load', () => {
+      if (!entry.win.isDestroyed()) entry.win.webContents.send('workbench:focus', req.focus)
+    })
   }
 }
 
@@ -259,7 +462,7 @@ function rebuildTrayMenu(): void {
   const petVisible = desktopWindow ? desktopWindow.isVisible() : true
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: '显示控制台', click: () => openConsole() },
+      { label: '打开设置', click: () => openSettingsWindow() },
       { type: 'separator' },
       {
         label: '显示桌面宠物',
@@ -291,9 +494,9 @@ function rebuildTrayMenu(): void {
 function createTray(): void {
   tray = new Tray(createTrayIcon())
   tray.setToolTip('CheryNyxus')
-  tray.on('double-click', () => openConsole())
-  // 单击也显示控制台：托盘是唯一常驻入口，降低唤起门槛（双击保留既有语义）。
-  tray.on('click', () => openConsole())
+  // 单击/双击都打开设置窗（应用主界面锚点；desktop 宠物窗本就常驻）
+  tray.on('double-click', () => openSettingsWindow())
+  tray.on('click', () => openSettingsWindow())
   rebuildTrayMenu()
 }
 
@@ -315,6 +518,8 @@ function createDesktopWindow(): void {
     alwaysOnTop: true,
     skipTaskbar: true,
     hasShadow: false,
+    // win32：frameless 透明窗默认带 DWM 粗边框，全屏覆盖时桌面四周会露 1px 描边 → 关闭
+    thickFrame: false,
     backgroundColor: '#00000000',
     webPreferences: {
       contextIsolation: true,
@@ -323,6 +528,10 @@ function createDesktopWindow(): void {
     },
   })
   desktopWindow = win
+  // transparent 窗的 backgroundColor 选项在部分 Electron/Windows 组合下不生效，
+  // 窗口背景回退为默认白色 → 内容未铺满的边缘 1px 露白边（浅色模式与浅内容融合不明显，
+  // 深色模式深内容旁显眼）。创建后运行时强制全透明（thickFrame/setShape 均管不到背景色填充）。
+  win.setBackgroundColor('#00000000')
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   win.on('close', (event) => {
@@ -331,62 +540,13 @@ function createDesktopWindow(): void {
     win.hide()
   })
   win.on('closed', () => (desktopWindow = null))
-  loadRenderer(win, 'desktop')
+  loadRenderer(win, { surface: 'desktop' })
 }
 
 /** desktop 窗随主显示器 workArea 变化重贴（分辨率切换 / 任务栏调整）。 */
 function realignDesktopWindow(): void {
   if (!desktopWindow || desktopWindow.isDestroyed()) return
   desktopWindow.setBounds(screen.getPrimaryDisplay().workArea)
-}
-
-/**
- * 惰性控制台窗（console surface）：承载设置 / 工作台等大界面。
- * 无边框（frame:false）——标题栏由渲染层 ConsoleShell 自绘（拖拽/最大化/最小化/关闭），
- * 经 `console:window-control` IPC 驱动原生窗口。关闭仅 hide 不 destroy——disconnectGrace
- * 按发起连接跟踪 run，console 发起 run 后关窗若断 WS 会触发 park；hide 保持连接存活。
- */
-function createConsoleWindow(): void {
-  const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    title: 'CheryNyxus',
-    frame: false,
-    show: false,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      preload: join(import.meta.dirname, 'preload.mjs'),
-    },
-  })
-  consoleWindow = win
-  consoleReady = false
-  win.once('ready-to-show', () => win.show())
-  // 原生最大化态变化（双击标题栏 / Win+↑ / 拖到屏幕边缘）→ 回推渲染层切标题栏图标
-  const pushMaximized = () => {
-    if (!win.isDestroyed()) win.webContents.send('console:maximize-changed', win.isMaximized())
-  }
-  win.on('maximize', pushMaximized)
-  win.on('unmaximize', pushMaximized)
-  win.on('close', (event) => {
-    if (isQuitting) return
-    event.preventDefault()
-    win.hide()
-  })
-  win.on('closed', () => {
-    consoleWindow = null
-    consoleReady = false
-  })
-  win.webContents.on('did-finish-load', () => {
-    consoleReady = true
-    // 就绪前积压的 navigate 请求按序补发（含首开时的那一条）。
-    const queued = pendingConsoleTargets.splice(0)
-    for (const target of queued) {
-      win.webContents.send('console:navigate', target)
-    }
-    pushMaximized()
-  })
-  loadRenderer(win, 'console')
 }
 
 app.whenReady().then(async () => {
@@ -413,19 +573,23 @@ app.whenReady().then(async () => {
     if (process.platform === 'win32') desktopWindow?.setIgnoreMouseEvents(ignore, { forward: true })
   })
 
-  ipcMain.on('desktop:open-console', (event, target: unknown) => {
+  // 打开独立原生窗（仅 desktop 窗可发起；结构校验后转发工厂）。
+  ipcMain.on('window:open', (event, req: unknown) => {
     if (event.sender !== desktopWindow?.webContents) return
-    if (!isValidConsoleTarget(target)) return
-    openConsole(target)
+    if (!isValidOpenRequest(req)) return
+    if (req.kind === 'settings') {
+      openSettingsWindow()
+    } else {
+      openWorkbenchWindow(req as OpenWindowRequest & { kind: 'workbench' })
+    }
   })
 
-  // console 自绘标题栏 → 原生窗口控制（sender 校验 console 窗）。
-  ipcMain.on('console:window-control', (event, action: unknown) => {
-    const win = consoleWindow
-    if (!win || win.isDestroyed() || event.sender !== win.webContents) return
-    if (action === 'minimize' || action === 'close') {
-      // 最小化与关闭都走 hide：断 WS 会触发 disconnectGrace park 运行中任务
-      win.hide()
+  // 任一原生窗自绘标题栏 → 原生窗口控制（按 sender 定位，免传 windowId、防伪造）。
+  ipcMain.on('window:control', (event, action: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    if (action === 'minimize') {
+      win.minimize()
       return
     }
     if (action === 'maximize') {
@@ -435,6 +599,34 @@ app.whenReady().then(async () => {
     if (action === 'restore') {
       if (win.isMaximized()) win.unmaximize()
       return
+    }
+    if (action === 'close') {
+      // 工作台窗 close 事件里 keepAlive 分支 → hide；设置窗 → destroy
+      win.close()
+    }
+  })
+
+  // 渲染层主题 apply → 原生窗口底色（首帧 / resize 边缘兜底，防灰边/白边）
+  ipcMain.on('window:set-background', (event, color: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed() || typeof color !== 'string') return
+    win.setBackgroundColor(color)
+  })
+
+  // workbench attentionBlink → 任务栏闪烁
+  ipcMain.on('window:flash', (event, flag: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed() || typeof flag !== 'boolean') return
+    win.flashFrame(flag)
+  })
+
+  // 跨窗主题同步：任一窗切换 → 广播全部受管窗（除本窗）
+  ipcMain.on('theme:changed', (event, theme: unknown) => {
+    if (theme !== 'light' && theme !== 'dark') return
+    for (const entry of managedWindows.values()) {
+      if (!entry.win.isDestroyed() && entry.win.webContents !== event.sender) {
+        entry.win.webContents.send('theme:set', theme)
+      }
     }
   })
 
@@ -458,10 +650,10 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    openConsole()
+    openSettingsWindow()
   })
 
-  app.on('second-instance', () => openConsole())
+  app.on('second-instance', () => openSettingsWindow())
 })
 
 app.on('window-all-closed', () => {

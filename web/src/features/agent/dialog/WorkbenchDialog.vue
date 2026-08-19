@@ -7,7 +7,7 @@
  *   - useAgentDialogOptions 传 per-window chatId；useWorkbenchWindow 传 windowId（per-window localStorage key）
  * 历史抽屉仍为全局单例（HistoryDrawer 单例渲染），openHistory/锚点写全局 agents.historyDrawer*。
  */
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { ElMessage, ElMessageBox, ElPopover, ElTooltip } from 'element-plus'
 import RoleConfigPopover from './RoleConfigPopover.vue'
@@ -26,6 +26,7 @@ import { useAgentDialogOptions } from './useAgentDialogOptions'
 import {
   useWorkbenchWindow,
   type ResizeDirection,
+  type WorkbenchMode,
 } from './useWorkbenchWindow'
 import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
@@ -37,8 +38,10 @@ import {
 } from '@/features/pets/nyxus/composables/nodeInteraction'
 import { selectCanResume } from '@/stores/chats/selectors'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
+import { lockWindowRootColorScheme, useWindowFrame } from '@/features/desktop/useWindowFrame'
 
-const props = defineProps<{ windowId: string; presetId: string }>()
+const props = defineProps<{ windowId: string; presetId: string; native?: boolean }>()
 
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
@@ -50,9 +53,27 @@ const win = computed(() => agents.workbenchWindows[props.windowId])
 /** Phase E：需用户操作（审批/提问）时窗口闪烁。非聚焦窗由 store 置位，点击窗口熄灭。 */
 const windowBlink = computed(() => win.value?.attentionBlink ?? false)
 
+/** Electron 原生工作台窗面（surface=workbench）：shell 恒铺满窗口（即"全屏"），
+ *  保留自身 .workbench-titlebar 逐像素外观，只换驱动层（OS 拖拽 + windowControl 三键）。
+ *  浏览器 overlay 路径（native=false）逐字节不变。 */
+const isNative = computed(() => !!props.native && !!desktopBridge())
+/** 原生窗最大化态回推（双击标题栏 / Win+↑ / 拖边缘）；非 Electron 下恒 false（no-op）。 */
+const { maximized: nativeMaximized, control: nativeWindowControl } = useWindowFrame()
+/** 生效窗口模式：native 恒全屏（窗口即画布）；浏览器跟随 useWorkbenchWindow 持久化模式。 */
+const effectiveMode = computed<WorkbenchMode>(() =>
+  isNative.value ? 'fullscreen' : workbenchMode.value,
+)
+/** 最大化键显示态：native 跟随原生窗最大化回推，浏览器跟随 workbench 模式。 */
+const maxControlState = computed(() => {
+  if (isNative.value) return nativeMaximized.value ? 'restore' : 'maximize'
+  return workbenchMode.value === 'fullscreen' ? 'restore' : 'maximize'
+})
+
 /** 点击标题栏即视为用户已注意到该窗口 → 熄灭闪烁。 */
 function onTitlePointerDown(e: PointerEvent): void {
   agents.setWorkbenchWindowBlink(props.windowId, false)
+  // native 面：拖拽归 OS（-webkit-app-region: drag），不进入 pointer 拖
+  if (isNative.value) return
   workbenchWindow.onTitlePointerDown(e)
 }
 
@@ -138,6 +159,8 @@ watch(
     workbenchSize.value.height,
   ],
   () => {
+    // native 面几何由原生窗管理（main 进程持久化 bounds），本窗 store 记录不写
+    if (isNative.value) return
     agents.setWorkbenchWindowGeometry(props.windowId, {
       mode: workbenchMode.value,
       position: { x: workbenchPosition.value.x, y: workbenchPosition.value.y },
@@ -883,6 +906,14 @@ function closeWorkbench(): void {
   const observedRoot = treeRootChatId.value
   resetMedia()
   error.value = null
+  if (isNative.value) {
+    // 原生窗：释放本窗根时间线订阅后交 main 关闭（工作台窗 close=hide，任务继续、WS 保持）
+    if (observedRoot) {
+      void chatSessions.releaseRootTimeline(observedRoot, rootSubscriptionOwner)
+    }
+    nativeWindowControl('close')
+    return
+  }
   agents.closeWorkbenchWindow(props.windowId)
   if (observedRoot) {
     void chatSessions.releaseRootTimeline(observedRoot, rootSubscriptionOwner)
@@ -890,9 +921,22 @@ function closeWorkbench(): void {
 }
 
 function minimizeWorkbench(): void {
+  if (isNative.value) {
+    nativeWindowControl('minimize')
+    return
+  }
   agents.setWorkbenchWindowMinimized(props.windowId, true)
   // 后缩的胶囊盖前缩的：把本窗提升到 z 序末尾，胶囊层叠时处于最上层。
   agents.focusWorkbenchWindow(props.windowId)
+}
+
+/** 最大化/还原：native 走原生窗（main 处理，回推更新图标）；浏览器切 workbench 模式。 */
+function onMaximizeClick(): void {
+  if (isNative.value) {
+    nativeWindowControl(nativeMaximized.value ? 'restore' : 'maximize')
+    return
+  }
+  workbenchWindow.toggleMode()
 }
 
 function onDialogEditorKeydown(e: KeyboardEvent): void {
@@ -954,6 +998,10 @@ if (typeof window !== 'undefined') {
   window.addEventListener('resize', positionCommandMenu)
   window.addEventListener('scroll', positionCommandMenu, true)
 }
+onMounted(() => {
+  // native 面（无 WindowFrame 外壳）：锁定根画布 color-scheme + 加 window-surface class（灰边修复）
+  if (isNative.value) lockWindowRootColorScheme()
+})
 onBeforeUnmount(() => {
   workbenchResizeObserver?.disconnect()
   if (typeof window !== 'undefined') {
@@ -1079,7 +1127,7 @@ function onTreePromptSnapShow(): void {
     v-if="win"
     v-show="!win.minimized"
     class="dialog-overlay is-nyxus-layout"
-    :class="{ 'is-windowed-workbench': workbenchMode === 'window' }"
+    :class="{ 'is-windowed-workbench': effectiveMode === 'window' }"
     :style="{
       zIndex: OVERLAY_Z_INDEX.composer + (win.zOrder ?? 0),
       '--nx-z-canvas': NYXUS_WORKBENCH_Z_INDEX.canvas,
@@ -1099,7 +1147,7 @@ function onTreePromptSnapShow(): void {
     <section
       ref="workbenchShellRef"
       class="workbench-shell"
-      :class="`is-${workbenchMode}`"
+      :class="`is-${effectiveMode}`"
       :style="workbenchShellStyle"
       aria-label="节点树工作台"
     >
@@ -1126,11 +1174,15 @@ function onTreePromptSnapShow(): void {
 
       <header
         class="workbench-titlebar"
-        :class="{ 'is-draggable': workbenchMode === 'window', 'has-attention': windowBlink }"
+        :class="{
+          'is-draggable': effectiveMode === 'window',
+          'has-attention': windowBlink,
+          'is-native': isNative,
+        }"
         @pointerdown="onTitlePointerDown"
       >
         <span class="workbench-title">{{ presetName || '节点树工作台' }}</span>
-        <small>{{ workbenchMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台' }}</small>
+        <small>{{ effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台' }}</small>
         <div class="workbench-window-actions" role="group" aria-label="窗口控制">
           <button
             type="button"
@@ -1144,13 +1196,13 @@ function onTreePromptSnapShow(): void {
           <button
             type="button"
             class="window-control is-maximize"
-            :aria-label="workbenchMode === 'fullscreen' ? '还原窗口' : '最大化窗口'"
-            :title="workbenchMode === 'fullscreen' ? '还原' : '最大化'"
-            @click="workbenchWindow.toggleMode"
+            :aria-label="maxControlState === 'restore' ? '还原窗口' : '最大化窗口'"
+            :title="maxControlState === 'restore' ? '还原' : '最大化'"
+            @click="onMaximizeClick"
           >
             <span
               class="window-control-icon"
-              :class="workbenchMode === 'fullscreen' ? 'is-restore' : 'is-maximize'"
+              :class="maxControlState === 'restore' ? 'is-restore' : 'is-maximize'"
               aria-hidden="true"
             />
           </button>
@@ -1756,7 +1808,7 @@ function onTreePromptSnapShow(): void {
           </div>
         </MotionDiv>
       </AnimatePresence>
-      <template v-if="workbenchMode === 'window'">
+      <template v-if="effectiveMode === 'window'">
         <span
           v-for="direction in resizeDirections"
           :key="direction"
@@ -1896,6 +1948,15 @@ function onTreePromptSnapShow(): void {
   height: 40px;
   display: flex;
   align-items: stretch;
+}
+// native 面（Electron 原生工作台窗）：标题栏由 OS 拖拽移动，三键区域恢复点击；
+// 外观（渐变/字号/间距）逐像素不变，只换驱动层。
+.workbench-titlebar.is-native {
+  -webkit-app-region: drag;
+  cursor: default;
+}
+.workbench-titlebar.is-native .workbench-window-actions {
+  -webkit-app-region: no-drag;
 }
 .window-control {
   position: relative;

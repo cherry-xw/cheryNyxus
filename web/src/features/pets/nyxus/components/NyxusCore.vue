@@ -111,10 +111,10 @@ async function runCreate(opts: {
 
 function openSettings(): void {
   if (connection.status !== 'connected') return
-  // desktop surface：设置等大界面由惰性 console 窗承载；浏览器保持应用内弹窗
+  // desktop surface：设置由 Electron 原生独立窗承载（get-or-create，聚焦复用）；浏览器保持应用内弹窗
   const bridge = desktopBridge()
   if (bridge) {
-    bridge.openConsole({ target: 'settings' })
+    bridge.openWindow({ kind: 'settings' })
   } else {
     agents.settingsOpen = true
   }
@@ -136,12 +136,12 @@ async function openWorkbench(): Promise<void> {
     console.error('[CherryNyxus] load workbench catalog failed:', cause)
     return
   }
-  // desktop surface：工作台在 console 窗渲染（含 Pixi 画布等重组件），经 bridge 导航打开；
-  // 浏览器保持应用内多窗口。chatId 语义与下方分支一致：仅新建窗口时恢复活跃会话。
+  // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗，main 层 get-or-create 聚焦复用）；
+  // 浏览器保持应用内多窗口。chatId 语义与下方分支一致：新建窗口恢复活跃会话。
   const bridge = desktopBridge()
   if (bridge) {
-    bridge.openConsole({
-      target: 'workbench',
+    bridge.openWindow({
+      kind: 'workbench',
       presetId: CHERY_NYXUS_PRESET,
       chatId: agents.activeNyxusChatId ?? undefined,
     })

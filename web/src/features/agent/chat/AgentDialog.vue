@@ -366,10 +366,10 @@ async function sendFromComposer(): Promise<void> {
 function openWorkbenchForChat(): void {
   const preset = quickPresetId.value
   if (!preset) return
-  // desktop surface：工作台在 console 窗渲染，经 bridge 导航；浏览器保持应用内多窗口
+  // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗）；浏览器保持应用内多窗口
   const bridge = desktopBridge()
   if (bridge) {
-    bridge.openConsole({ target: 'workbench', presetId: preset, chatId: chatId.value ?? undefined })
+    bridge.openWindow({ kind: 'workbench', presetId: preset, chatId: chatId.value ?? undefined })
     return
   }
   const id = agents.openWorkbenchWindow(preset)
@@ -385,6 +385,17 @@ async function openWorkspaceTree(
 ): Promise<void> {
   const preset = quickPresetId.value
   if (!preset) return
+  // desktop surface：工作台渲染在另一原生窗（本 renderer 不承载），必须经 main 建窗/聚焦并下发焦点定位
+  const bridge = desktopBridge()
+  if (bridge) {
+    bridge.openWindow({
+      kind: 'workbench',
+      presetId: preset,
+      chatId: rootChatId,
+      focus: { sourceChatId, interactionId, anchorNodeId },
+    })
+    return
+  }
   const id = agents.openWorkbenchWindow(preset)
   agents.setWorkbenchWindowChat(id, rootChatId)
   agents.setWorkbenchWindowFocus(id, {

@@ -44,6 +44,10 @@ let dragCleanup: (() => void) | undefined
 
 /** 远端已登录 → 显示用户信息 + 登出；否则显示表单。 */
 const loggedIn = computed(() => auth.isRemote && auth.loggedIn)
+/** 本地 loopback 已连接成功 → 显示「已连接」态（地址 + 状态 + 断开连接），不再可重新连接。 */
+const localConnected = computed(() => !auth.isRemote && conn.status === 'connected')
+/** 信息面板展示的服务地址（远端已登录 / 本地已连接共用）。 */
+const displayServer = computed(() => auth.serverAddress || address.value || defaultAddress.value)
 
 const isLocal = computed(() => {
   const host = hostOf(normalizeAddress(address.value))
@@ -193,6 +197,12 @@ function logout(): void {
   auth.logout()
   notify('已登出')
 }
+
+/** 本地已连接 → 断开 WS 回表单（允许改地址 / 重新连接）。 */
+function disconnectLocal(): void {
+  conn.disconnect()
+  notify('已断开连接')
+}
 </script>
 
 <template>
@@ -220,20 +230,27 @@ function logout(): void {
               </button>
             </header>
 
-            <!-- 已登录态 -->
-            <template v-if="loggedIn">
+            <!-- 已连接态：远端已登录 → 用户信息 + 登出；本地已连接 → 地址 + 状态 + 断开连接 -->
+            <template v-if="loggedIn || localConnected">
               <div class="info-panel">
                 <div class="info-row">
                   <span class="info-label">服务器</span>
-                  <span class="info-value">{{ auth.serverAddress }}</span>
+                  <span class="info-value">{{ displayServer }}</span>
                 </div>
-                <div class="info-row">
+                <div v-if="localConnected" class="info-row">
+                  <span class="info-label">连接状态</span>
+                  <span class="info-value info-ok">已连接</span>
+                </div>
+                <div v-else class="info-row">
                   <span class="info-label">登录用户</span>
                   <span class="info-value">{{ auth.username || '—' }}</span>
                 </div>
               </div>
               <div class="actions">
-                <button class="btn btn--danger" @click="logout">登出</button>
+                <button v-if="loggedIn" class="btn btn--danger" @click="logout">登出</button>
+                <button v-else-if="localConnected" class="btn btn--ghost" @click="disconnectLocal">
+                  断开连接
+                </button>
               </div>
             </template>
 
@@ -634,6 +651,9 @@ function logout(): void {
 .info-value {
   word-break: break-all;
   font-weight: 600;
+}
+.info-ok {
+  color: #2f9e44;
 }
 
 /* —— 按钮 —— */

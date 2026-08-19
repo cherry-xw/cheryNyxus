@@ -68,7 +68,7 @@
 
 1. 导出目标 root 的 audit/tree snapshot，并保存原始数据库备份。
 2. 服务端根据持久 tool-call owner、spawn task 和 message link 生成显式 edge facts。
-3. 运行 `pnpm test:cp2`、`pnpm test:cp3` 和 `pnpm test:cp10`，确认无 `legacy-relation-unresolved` 或 dangling diagnostics。
+3. 运行 `vitest run --config web/vite.config.ts web/test/nyxus/graph/executionGraph.test.ts web/test/nyxus/graph/executionGraphFixtures.test.ts`，确认无 `legacy-relation-unresolved` 或 dangling diagnostics。
 4. 打开真实 root，验证历史抽屉仍消费 conversation timeline，节点树只消费 tree facts。
 
 ## 回滚

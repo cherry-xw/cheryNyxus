@@ -18,14 +18,15 @@ interface BackendConfig {
 }
 
 /**
- * desktop renderer → main 的控制台导航目标（与 main.ts 的 ConsoleTarget 保持一致）。
- * console surface 消费同一结构（经 `console:navigate` 下发）。
+ * desktop renderer → main 的独立原生窗打开请求（与 main.ts 的 OpenWindowRequest 保持一致）。
  */
-export type ConsoleTarget =
-  | { target: 'show' }
-  | { target: 'settings' }
-  | { target: 'workbench'; presetId: string; chatId?: string }
-  | { target: 'history'; chatId: string }
+export type WindowKind = 'settings' | 'workbench'
+export interface OpenWindowRequest {
+  kind: WindowKind
+  presetId?: string
+  chatId?: string
+  focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
+}
 
 const config = ipcRenderer.sendSync('get-backend-config') as BackendConfig | null
 
@@ -47,20 +48,27 @@ function subscribe<T>(channel: string, listener: (data: T) => void): () => void 
 }
 
 /**
- * 桌面 shell bridge：desktop surface 消费（穿透控制 + 打开控制台），console surface
- * 消费 onConsoleNavigate / onConsoleMaximizeChanged / consoleWindowControl。业务数据不经 IPC——两个 surface 各自直连后端 WebSocket。
+ * 桌面 shell bridge：desktop surface 消费（穿透控制 + 打开独立原生窗），settings/workbench
+ * surface 消费窗口控制 / 最大化回推 / focus / flashFrame / 主题同步。业务数据不经 IPC——
+ * 每个 surface 各自直连后端 WebSocket。
  */
 const desktopBridge = {
   setMousePassthrough: (ignore: boolean) =>
     ipcRenderer.send('desktop:mouse-passthrough', ignore),
-  openConsole: (target: ConsoleTarget) => ipcRenderer.send('desktop:open-console', target),
-  onConsoleNavigate: (listener: (target: ConsoleTarget) => void) =>
-    subscribe('console:navigate', listener),
-  /** console 自绘标题栏 → 原生窗口控制（minimize/close = hide）。 */
-  consoleWindowControl: (action: 'minimize' | 'maximize' | 'restore' | 'close') =>
-    ipcRenderer.send('console:window-control', action),
-  onConsoleMaximizeChanged: (listener: (maximized: boolean) => void) =>
-    subscribe('console:maximize-changed', listener),
+  openWindow: (req: OpenWindowRequest) => ipcRenderer.send('window:open', req),
+  windowControl: (action: 'minimize' | 'maximize' | 'restore' | 'close') =>
+    ipcRenderer.send('window:control', action),
+  onWindowMaximized: (listener: (maximized: boolean) => void) =>
+    subscribe('window:maximized', listener),
+  onWindowFocused: (listener: (focused: boolean) => void) =>
+    subscribe('window:focused', listener),
+  onWorkbenchFocus: (listener: (focus: OpenWindowRequest['focus']) => void) =>
+    subscribe('workbench:focus', listener),
+  onOpenChat: (listener: (chatId: string) => void) => subscribe('workbench:open-chat', listener),
+  flashFrame: (flag: boolean) => ipcRenderer.send('window:flash', flag),
+  setBackgroundColor: (color: string) => ipcRenderer.send('window:set-background', color),
+  emitThemeChanged: (theme: 'light' | 'dark') => ipcRenderer.send('theme:changed', theme),
+  onThemeSet: (listener: (theme: 'light' | 'dark') => void) => subscribe('theme:set', listener),
 }
 
 contextBridge.exposeInMainWorld('__DESKTOP_BRIDGE__', desktopBridge)

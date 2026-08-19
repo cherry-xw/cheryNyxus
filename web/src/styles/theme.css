@@ -166,3 +166,14 @@
   background: transparent;
 }
 [data-theme='dark'] .hljs-strong { font-weight: bold; }
+
+/* ── Electron 原生窗（settings/workbench）灰边兜底 ─────────────────────────
+ * 深色模式灰边根因：html.dark → element-plus dark css-vars → color-scheme:dark →
+ * Chromium 给根画布涂系统深灰，窗口边缘出现灰边。lockWindowRootColorScheme()
+ * 已锁根 color-scheme:light + 加 window-surface class，这里再铺 var(--bg) 兜底：
+ * 窗口边缘 / 圆角 / 拖拽残影处显示主题底色而非系统灰/白。浏览器单页无此 class，不受影响。 */
+html.window-surface,
+html.window-surface body,
+html.window-surface #app {
+  background: var(--bg);
+}

@@ -1,6 +1,6 @@
 # Electron 集成详解
 
-> 源码 [web/electron/](../../web/electron/) ｜ 上级 [README.md](./README.md) ｜ 相关 [deployment.md](./deployment.md)、[web/vite.config.ts](../../web/vite.config.ts)、[web/scripts/electron-dev.sh](../../web/scripts/electron-dev.sh)、[./env.md](./env.md)（环境抽象层）
+> 源码 [web/electron/](../../web/electron/) ｜ 上级 [README.md](./README.md) ｜ 相关 [deployment.md](./deployment.md)、[web/vite.config.ts](../../web/vite.config.ts)、[web/scripts/electron-dev.mjs](../../web/scripts/electron-dev.mjs)、[web/scripts/electron-dev.sh](../../web/scripts/electron-dev.sh)、[./env.md](./env.md)（环境抽象层）
 
 ## 职责
 
@@ -24,13 +24,26 @@ electron({
 - **`base:'./'`**:生产 `loadFile` 相对路径必需。
 - **vue-router `createWebHashHistory`**:Electron `file://` 必需。
 
-## 双 surface 模型（桌面宠物 + 惰性控制台）
+## 多 surface 模型（桌面宠物 + 独立原生窗）
 
-Electron 模式包含两个职责分离的 renderer，均直连后端 WebSocket（后端 `liveOutputByChat: Map<chatId, Set<WebSocket>>` 原生支持多连接订阅同一 chat，chunk/notification 按连接扇出）：
+Electron 模式包含多个职责分离的 renderer，均直连后端 WebSocket（后端 `liveOutputByChat: Map<chatId, Set<WebSocket>>` 原生支持多连接订阅同一 chat，chunk/notification 按连接扇出）：
 
-- **desktop 窗口**（`?surface=desktop`）：启动即创建的**全工作区透明覆盖窗**（尺寸取 `screen.getPrimaryDisplay().workArea`，`frame:false / transparent / alwaysOnTop('floating') / skipTaskbar / hasShadow:false`）。承载 PetStage（透明模式，无网格背景）、NyxusCore 星系、AgentDialog 发消息浮动窗、HistoryDrawer、ServerLoginDialog（浮动模式）。宠物与星系直接渲染在桌面上，可随意拖动，空区域鼠标点击穿透到桌面。
-- **console 窗口**（`?surface=console`）：**惰性创建**的**无边框窗**（`frame:false`，1200x800，`titleBarStyle` 不用——完全自绘标题栏）。渲染层根组件 [ConsoleShell.vue](../../web/src/features/desktop/ConsoleShell.vue) 提供自研标题栏（拖拽移动 / 最大化-还原 / 最小化-hide / 关闭-hide），经 IPC `console:window-control` 驱动原生窗口；承载 SettingsDialog、WorkbenchDialog 多窗口、WorkbenchCapsule、HistoryDrawer。启动不创建；桌面窗工具环「设置/工作台」或托盘「显示控制台」时才首次创建。关闭仅 hide 不 destroy——`disconnectGrace` 按「发起连接」跟踪 run，发起方连接断开且无人接管会 park 运行中任务，故 console 窗必须保持 WS 存活。
-- **desktop 透明窗禁止 `color-scheme: dark`**：Element Plus dark css-vars 会设 `html.dark { color-scheme: dark }`，Chromium 在 dark color-scheme 下给根画布（`html`/`body` 底色）绘制系统默认深色底，透明窗下表现为全屏灰罩。双层修复：DesktopSurface 挂载时对 `document.documentElement` 强制 inline `color-scheme: light`（主题 token 仍正常切换，只锁画布底色）；同时 desktop surface 专属全局样式 `html/body/#app { background: transparent !important }` 兜底任何组件给根画布铺底色（`!important` 压过 EP dark css-vars 的低特异性规则）。
+- **desktop 窗口**（`?surface=desktop`）：启动即创建的**全工作区透明覆盖窗**（尺寸取 `screen.getPrimaryDisplay().workArea`，`frame:false / transparent / alwaysOnTop('floating') / skipTaskbar / hasShadow:false / thickFrame:false`）。`thickFrame:false`（win32）关闭 DWM 对 frameless 透明窗绘制的粗边框（`WS_THICKFRAME`）。**深色白边根因**：transparent 窗的 `backgroundColor` 选项在部分 Electron/Windows 组合下不生效，窗口背景回退为默认白色 → 内容未铺满的边缘 1px 露白边（浅色模式与浅内容/浅壁纸融合不明显，深色模式深内容旁显眼；`thickFrame`/`setShape`/CSS 均管不到背景色填充）——创建后运行时 `win.setBackgroundColor('#00000000')` 强制全透明兜底。承载 PetStage（透明模式，无网格背景）、NyxusCore 星系、AgentDialog 发消息浮动窗、HistoryDrawer、ServerLoginDialog（浮动模式）。宠物与星系直接渲染在桌面上，可随意拖动，空区域鼠标点击穿透到桌面。**ServerLoginDialog 连接态**：本地 loopback 直连成功后（`!auth.isRemote && connection.status === 'connected'`）显示「已连接」信息面板（地址 + 状态 + 断开连接），不再可重新连接；远端登录成功显示登录用户 + 登出。
+- **settings 窗口**（`?surface=settings`）：**原生独立设置窗**（`frame:false`，无边框自绘标题栏）。惰性创建（desktop 工具环 ⚙ / 托盘点击 / `app.activate` / `second-instance` 首次触发），关闭即 **destroy**（无运行状态，重开重载 config）。外壳由 `WindowFrame.vue` 提供（40px 标题栏 + 三键 + 主题边框），内嵌 `<SettingsDialog native/>`。**尺寸**：默认按设置内容所需最小尺寸（`minWidth/minHeight` 约束，见 `createManagedWindow`），屏幕 workArea 小于该值时取屏幕最大可用尺寸；bounds 持久化于 `userData/window-state.json`。**数据加载时序**：settings 窗 renderer 的 WS 是独立连接（`bootstrap()` 异步建连），`SettingsDialog` native 面**等待 `connection.status === 'connected'` 后再 `loadSettingsData()`**（watch 连接状态，避免建连前 `config.get` RPC 报「还没连上服务器」）。
+- **workbench 窗口**（`?surface=workbench&presetId=xx&chatId=xx`）：**每预设一原生工作台窗**（key = `wb:<presetId>`）。惰性创建；**不用 WindowFrame 外壳**——保留自身 `.workbench-titlebar` 逐像素外观，`native` prop 只换驱动层（标题栏 `-webkit-app-region: drag`、三键走 `windowControl`），另渲染 `HistoryDrawer`。**点 X 关闭 = hide 不销毁**——`disconnectGrace` 按「发起连接」跟踪 run，hide 保持 WS 存活、run 继续；重开同 preset → show+focus 还原。最小化 = 原生任务栏（run 继续）。`attentionBlink` → `flashFrame`（任务栏闪烁）。
+- 浏览器单页（无 surface）：应用内多工作台窗 + 胶囊 + overlay 设置，**不受迁移影响**。
+
+> 2026-08 迁移：此前「console 窗（`?surface=console`）承载全部大界面」的模型已废弃——设置 / 工作台改为各自的原生独立窗（详见 [workbench-multi-window.md#electron-原生独立窗迁移part-3](./workbench-multi-window.md#electron-原生独立窗迁移part-3)），`ConsoleShell.vue` 与 `console:*` IPC 删除。
+
+### 深色灰边修复（全部窗口）
+
+Element Plus dark css-vars 会设 `html.dark { color-scheme: dark }`，Chromium 在 dark color-scheme 下给根画布（`html`/`body` 底色）绘制系统默认深色底，窗口四周表现为灰边。三层统一修复（Electron 全部窗 + 浏览器不受影响）：
+
+1. **color-scheme 锁定**：`lockWindowRootColorScheme()`（settings 面由 `WindowFrame.vue` 调，workbench 面由 `WorkbenchDialog` native 自身调）对 settings / workbench 面 mount 时对 `document.documentElement` 强制 inline `color-scheme: light`（主题 token 仍正常切换，只锁画布底色）；DesktopSurface 既有机制不变。
+2. **根画布兜底**（`theme.css`）：`html.window-surface, html.window-surface body, html.window-surface #app { background: var(--bg); }` —— 窗口边缘 / 圆角 / 拖拽残影显示主题底色而非系统灰/白（`window-surface` class 由 `lockWindowRootColorScheme` 加到 `<html>`）。
+3. **main 层 backgroundColor**：`theme.ts apply()` 在 Electron 面读当前主题 bg（`#16181d` 暗 / 亮色值）→ `bridge.setBackgroundColor()` → `window:set-background` IPC → `win.setBackgroundColor()`，兜底首帧与 resize 边缘。
+
+**跨窗主题同步**：任一窗 `theme.toggle()` 成功后 `bridge.emitThemeChanged()` → main `theme:changed` 广播 `theme:set` → 各 Electron 面订阅 `onThemeSet` → `applyFrom(theme)` + 重设 backgroundColor。此前各窗只在启动读 localStorage 不互相同步。**范围边界**：广播仅发 managedWindows（settings / workbench）；desktop 透明窗**不接主题桥**——`bindElectronThemeBridge()` 对 `surface==='desktop'` 直接 return（避免 `setBackgroundColor` 给透明窗铺不透明底色），其主题独立于原生窗，与迁移前一致。
 
 ### 鼠标穿透（win32）
 
@@ -47,10 +60,16 @@ desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——
 | `get-backend-config` | renderer→main sendSync | — | preload 取后端端口配置 |
 | `dialog:pickDirectory` | renderer→main invoke | → `string\|null` | 原生目录选择 |
 | `desktop:mouse-passthrough` | desktop→main | `{ ignore: boolean }` | 仅 win32 生效，sender 校验 desktop 窗 |
-| `desktop:open-console` | desktop→main | `ConsoleTarget` | main 确保 console 可见（惰性创建 + ready 队列）→ 转发 `console:navigate` |
-| `console:navigate` | main→console | `ConsoleTarget` | console surface 消费：`show`/`settings`（打开设置并最小化全部工作台窗口，避免旧工作台残留在设置后面）/`workbench{presetId,chatId?}`/`history{chatId}` |
-| `console:window-control` | console→main | `'minimize'\|'maximize'\|'restore'\|'close'` | console 自绘标题栏的原生窗口控制（sender 校验 console 窗）；minimize/close 均 hide 不销毁 |
-| `console:maximize-changed` | main→console | `boolean` | 原生最大化态回推（双击标题栏最大化 / Win+↑ 等），标题栏图标切换 |
+| `window:open` | desktop→main | `OpenWindowRequest` | 仅 desktop 窗可发起；`kind:'settings'` → 设置窗，`kind:'workbench'` → 工作台窗（惰性创建 / show+focus / `workbench:open-chat` / `workbench:focus`） |
+| `window:control` | 任一窗→main | `'minimize'\|'maximize'\|'restore'\|'close'` | 按 `BrowserWindow.fromWebContents(event.sender)` 定位窗口的原生控制；工作台窗 `close` = hide（hide 不销毁，run 继续），设置窗 close = destroy |
+| `window:maximized` | main→窗 | `boolean` | 原生最大化态回推（双击标题栏 / Win+↑ / 拖边缘），标题栏图标切换 |
+| `window:focused` | main→窗 | `boolean` | 焦点态回推（工作台标题栏高亮等） |
+| `window:set-background` | 任一窗→main | `string` | `win.setBackgroundColor()`（主题底色，首帧 / resize 边缘兜底） |
+| `window:flash` | 任一窗→main | `boolean` | `win.flashFrame()`（workbench `attentionBlink` 映射） |
+| `workbench:open-chat` | main→workbench 窗 | `string` | 已存在的工作台窗收到新 chatId（重开同 preset 带会话切换） |
+| `workbench:focus` | main→workbench 窗 | `{ sourceChatId?; interactionId?; anchorNodeId? }` | 待处理抽屉「打开节点树」的定位参数下发 |
+| `theme:changed` | 任一窗→main | `'light'\|'dark'` | 本窗主题切换广播（main 转发全部 managed 窗） |
+| `theme:set` | main→全部窗 | `'light'\|'dark'` | 跨窗主题同步：`applyFrom(theme)` + 重设 backgroundColor |
 
 ### 开机自启（托盘可选项）
 
@@ -59,13 +78,13 @@ desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——
 ### 托盘
 
 - **图标**：无磁盘图标资源时用 `nativeImage.createEmpty()` + `tray.setImage` 兜底不可靠（Windows 空图标不渲染），故用**程序化绘制**的 16x16 RGBA 位图（`nativeImage.createFromBuffer`，两位一像素的暖橙圆点 + 透明底），保证任何环境托盘区都有可见图标；打包后如需品牌图标，在 `createTray()` 里替换为 `nativeImage.createFromPath` 加载打包资源。
-- **菜单**：显示控制台 / 显示桌面宠物（toggle，checked 跟随 desktop 窗可见态）/ 开机自启（checkbox，仅打包可用）/ 退出。点击托盘图标 = 显示控制台；所有路径都可到达「退出」，无死局。
+- **菜单**：显示桌面宠物（toggle，checked 跟随 desktop 窗可见态）/ 开机自启（checkbox，仅打包可用）/ 退出。点击托盘图标 / `app.activate` / `second-instance` = 打开**设置窗**（应用主界面锚点）；所有路径都可到达「退出」，无死局。
 
 ### 显示器自适应
 
 main 监听 `screen` 的 `display-metrics-changed` / `display-added` / `display-removed`，desktop 窗口 `setBounds(新 workArea)`。渲染层自愈：`usePetWorld` 监听 `resize` 重读 bounds 并 clamp 宠物目标；`useStandaloneNyxusMotion` 以 `window.innerWidth/innerHeight` clamp 星系位置。
 
-退出必须走托盘“退出”或应用 quit 流程，随后停止后端子进程。任一窗口隐藏都不释放 WebSocket，避免丢失 Agent 通知（尤其 console 窗发起 run 后关闭——hide 保持连接，run 不被 park）。
+退出必须走托盘“退出”或应用 quit 流程，随后停止后端子进程。任一窗口隐藏都不释放 WebSocket，避免丢失 Agent 通知（尤其工作台窗发起 run 后点 X 关闭——hide 保持连接，run 不被 park，重开还原可见）。
 
 依赖版本:Vite 8 + `@vitejs/plugin-vue` 6 + `vite-plugin-electron` 1.1 + `electron` 43。`pnpm-workspace.yaml` `allowBuilds` 含 `electron:true`。[turbo.json](../../turbo.json) build outputs 含 `dist-electron/**`。[web/package.json](../../web/package.json) `"main":"dist-electron/main.js"` + `"electron":"electron ."`。
 
@@ -189,17 +208,20 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 | 命令 | 实现 | X 依赖 |
 | ------ | ------ | -------- |
 | `dev:web` | `ELECTRON_ENABLED=false vite` | 无 |
-| `dev:electron` | `bash scripts/electron-dev.sh` → `exec vite` | 有 |
+| `dev:electron` | `node scripts/electron-dev.mjs`（Windows: `vite`；其他: `bash electron-dev.sh` → `exec vite`） | Windows 无 / 其他有 |
 | `electron` | `electron .`(spawn 后端 + loadFile) | 有 |
 
 ## 运行环境坑（xrdp）
 
-[scripts/electron-dev.sh](../../web/scripts/electron-dev.sh) 自动解决每次手敲 env 问题:
+[scripts/electron-dev.mjs](../../web/scripts/electron-dev.mjs) 做平台分发:
 
-1. **选最新可用 xrdp display**:`ls /tmp/.X11-unix` 去前缀倒序 + `xset -display :N q` 验活,取第一个通的。
-2. **`unset ELECTRON_RUN_AS_NODE`**:agent shell 注入 `ELECTRON_RUN_AS_NODE=1` 会让 electron 当 node 跑不开窗。main.ts spawn 后端用系统 node(非 `ELECTRON_RUN_AS_NODE`),并 `delete env.ELECTRON_RUN_AS_NODE` 防污染子进程;dev:electron 是 vite HMR 模式,不 spawn 后端。
-3. **`export XAUTHORITY=$HOME/.Xauthority`**:xrdp Xorg `-auth .Xauthority` 相对 home。
-4. 无 display 时退回提示 `web:dev`。
+- **Windows**:无 X server,直接启动 `vite`——[vite.config.ts](../../web/vite.config.ts) 的 `vite-plugin-electron` 自动编译 `electron/main.ts` 并拉起 electron 窗口;启动前 `delete ELECTRON_RUN_AS_NODE`,防止 agent shell 注入的 `ELECTRON_RUN_AS_NODE=1` 让 electron 当 node 跑不开窗。
+- **Linux/macOS(xrdp)**:转发 [scripts/electron-dev.sh](../../web/scripts/electron-dev.sh),其自动解决每次手敲 env 问题:
+
+  1. **选最新可用 xrdp display**:`ls /tmp/.X11-unix` 去前缀倒序 + `xset -display :N q` 验活,取第一个通的。
+  2. **`unset ELECTRON_RUN_AS_NODE`**:agent shell 注入 `ELECTRON_RUN_AS_NODE=1` 会让 electron 当 node 跑不开窗。main.ts spawn 后端用系统 node(非 `ELECTRON_RUN_AS_NODE`),并 `delete env.ELECTRON_RUN_AS_NODE` 防污染子进程;dev:electron 是 vite HMR 模式,不 spawn 后端。
+  3. **`export XAUTHORITY=$HOME/.Xauthority`**:xrdp Xorg `-auth .Xauthority` 相对 home。
+  4. 无 display 时退回提示 `web:dev`。
 
 ### xrdp display 特性
 
@@ -219,7 +241,7 @@ npmRebuild: true                                # native rebuild(注:不解决 r
 
 ## 扩展点
 
-- **IPC 扩展**：当前 `ipcMain` 注册 `get-backend-config`（同步，preload 取后端端口配置）、`dialog:pickDirectory`（invoke）、desktop 穿透/开控制台通道、console 窗口控制通道（见上文「IPC 通道清单」）。业务能力优先通过现有 WebSocket RPC 扩展；只有必须在 Electron main 进程执行、且后端进程无法承担的能力，才新增 `ipcMain.handle` + preload bridge。
+- **IPC 扩展**：当前 `ipcMain` 注册 `get-backend-config`（同步，preload 取后端端口配置）、`dialog:pickDirectory`（invoke）、`window:open/control/set-background/flash`、`theme:changed` 等（见上文「IPC 通道清单」）。业务能力优先通过现有 WebSocket RPC 扩展；只有必须在 Electron main 进程执行、且后端进程无法承担的能力，才新增 `ipcMain.handle` + preload bridge。
 - **后端原生能力扩展**:配置目录打开等能力按 [../service/message.md](../service/message.md) 的 RPC 扩展流程实现，Electron 与浏览器共用；远程浏览器调用作用于后端主机。
 - **`.env` / `.chery` 用户位置扩展**:主进程用 `getWritableCheryRoot()` 返回 `cheryDir`,内部已统一探测 `exeRoot` 可写性 + 降级逻辑。若需新增可维护文件,放在 `cheryDir` 下并复用同一探测函数(避免绕过降级逻辑)。
 - **native ABI 解决**:已通过 [scripts/electron-pack.mjs](../../scripts/electron-pack.mjs)(Node 22 LTS + prebuild-install)实现,见 [native addon ABI](#native-addon-abi模式-2)。

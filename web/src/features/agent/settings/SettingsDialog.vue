@@ -10,7 +10,7 @@
  * ⚠ 入场动画只用 opacity + y（无 scale）：scale 会让 panel 视觉上 < 720px，
  *    若 RPC 在 180ms 内 resolve，content 切换会被叠在 scale 动画里导致宽高抖动。
  */
-import { computed, nextTick, onUnmounted, provide, reactive, readonly, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, provide, reactive, readonly, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { ArrowLeft, ArrowRight, Close, FolderOpened } from '@element-plus/icons-vue'
 import { useAgentsStore, useConnectionStore } from '@/stores'
@@ -30,6 +30,7 @@ import {
   type TabKey,
 } from './config/constants'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
 import BrainsTab from './tabs/brain/BrainsTab.vue'
 import MediaTab from './tabs/config/MediaTab.vue'
 import SensesTab from './tabs/tools/SensesTab.vue'
@@ -47,6 +48,12 @@ import SkeletonTab from './tabs/SkeletonTab.vue'
 const MotionDiv = motion.div
 const agents = useAgentsStore()
 const connection = useConnectionStore()
+
+const props = defineProps<{ native?: boolean }>()
+/** Electron 原生设置窗面（WindowFrame 外壳内）：铺满窗、去自绘拖拽/三键、关闭走 windowControl；
+ *  浏览器 overlay 路径（native=false）逐字节不变。 */
+const isNative = computed(() => !!props.native && !!desktopBridge())
+const bridge = desktopBridge()
 
 const draft = ref<ConfigDto | null>(null)
 const activeTab = ref<TabKey>('presets')
@@ -102,6 +109,8 @@ const panelStyles = computed(() => ({
 }))
 
 function onTitlePointerDown(e: PointerEvent): void {
+  // native 面拖拽归 WindowFrame（-webkit-app-region: drag），本面板不做 pointer 拖
+  if (isNative.value) return
   if (e.button !== 0) return
   if ((e.target as Element | null)?.closest('button')) return
   e.preventDefault()
@@ -214,6 +223,57 @@ const skillNames = ref<{
 /** HooksTab 组件引用（用于读取 hooks draft 保存）*/
 const hooksTabRef = ref<InstanceType<typeof HooksTab> | null>(null)
 
+/** 打开设置时拉取全量数据（config + 工具/角色/规则/env/技能/插件清单）。
+ *  浏览器路径每次打开调用；native 面挂载即调用（settingsOpen 永不翻转）。 */
+async function loadSettingsData(): Promise<void> {
+  loading.value = true
+  error.value = null
+  savedHint.value = null
+  workspaceWarnings.value = {}
+  try {
+    const data = await agentApi.getConfig()
+    draft.value = structuredClone(data)
+    // 打开设置时立即校验现有每个预设，避免历史无效路径要等编辑后才暴露。
+    for (const [presetName, preset] of Object.entries(data.presets ?? {})) {
+      validatePresetWorkspace(presetName, preset.workspace)
+    }
+  } catch (e) {
+    error.value = (e as Error).message
+    console.error('[SettingsDialog] getConfig failed:', e)
+  } finally {
+    loading.value = false
+  }
+  // 工具列表静态缓存：失败不阻塞编辑（下拉仍可自由输入）
+  if (!senseTools.value.length) {
+    try {
+      senseTools.value = await agentApi.listSenseTools()
+    } catch (e) {
+      console.error('[SettingsDialog] listSenseTools failed:', e)
+      senseTools.value = []
+    }
+  }
+  // prompts 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（级联框空选项 + placeholder）
+  try {
+    prompts.value = await agentApi.listPrompts()
+  } catch (e) {
+    console.error('[SettingsDialog] listPrompts failed:', e)
+    prompts.value = []
+  }
+  // rules 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（下拉空选项 + placeholder）
+  await refreshRules()
+  // env 变量列表：每次打开重新拉（.env 可能变动），失败不阻塞编辑（密钥下拉空选项）
+  try {
+    envVars.value = await agentApi.listEnvVars()
+  } catch (e) {
+    console.error('[SettingsDialog] listEnvVars failed:', e)
+    envVars.value = []
+  }
+  // skills / plugins 列表：每次打开重新拉（磁盘可能变动），SkillsTab/PluginsTab/RolesTab 共用
+  await refreshSkills()
+  await refreshPlugins()
+  await refreshSkillSources()
+}
+
 watch(
   () => agents.settingsOpen,
   async (open) => {
@@ -228,52 +288,7 @@ watch(
       rolesShadowMode.value = false
       return
     }
-    loading.value = true
-    error.value = null
-    savedHint.value = null
-    workspaceWarnings.value = {}
-    try {
-      const data = await agentApi.getConfig()
-      draft.value = structuredClone(data)
-      // 打开设置时立即校验现有每个预设，避免历史无效路径要等编辑后才暴露。
-      for (const [presetName, preset] of Object.entries(data.presets ?? {})) {
-        validatePresetWorkspace(presetName, preset.workspace)
-      }
-    } catch (e) {
-      error.value = (e as Error).message
-      console.error('[SettingsDialog] getConfig failed:', e)
-    } finally {
-      loading.value = false
-    }
-    // 工具列表静态缓存：失败不阻塞编辑（下拉仍可自由输入）
-    if (!senseTools.value.length) {
-      try {
-        senseTools.value = await agentApi.listSenseTools()
-      } catch (e) {
-        console.error('[SettingsDialog] listSenseTools failed:', e)
-        senseTools.value = []
-      }
-    }
-    // prompts 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（级联框空选项 + placeholder）
-    try {
-      prompts.value = await agentApi.listPrompts()
-    } catch (e) {
-      console.error('[SettingsDialog] listPrompts failed:', e)
-      prompts.value = []
-    }
-    // rules 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（下拉空选项 + placeholder）
-    await refreshRules()
-    // env 变量列表：每次打开重新拉（.env 可能变动），失败不阻塞编辑（密钥下拉空选项）
-    try {
-      envVars.value = await agentApi.listEnvVars()
-    } catch (e) {
-      console.error('[SettingsDialog] listEnvVars failed:', e)
-      envVars.value = []
-    }
-    // skills / plugins 列表：每次打开重新拉（磁盘可能变动），SkillsTab/PluginsTab/RolesTab 共用
-    await refreshSkills()
-    await refreshPlugins()
-    await refreshSkillSources()
+    await loadSettingsData()
   },
 )
 
@@ -322,6 +337,11 @@ async function refreshPlugins(): Promise<void> {
 }
 
 function close(): void {
+  if (isNative.value) {
+    // 原生设置窗关闭由 main 进程统一处理（默认销毁；工作台窗才是 hide 保活）
+    bridge?.windowControl('close')
+    return
+  }
   agents.settingsOpen = false
 }
 
@@ -460,7 +480,39 @@ async function save(): Promise<void> {
   }
 }
 
+/**
+ * native 面数据加载：settings 窗 renderer 的 WS 是独立异步建连（bootstrap() 在 App.vue onMounted
+ * 才执行，而 SettingsDialog 作为子组件先挂载）——若挂载立即 RPC，`config.get` 会因 wsClient 未
+ * connected 抛「还没连上服务器」。故等待 `connection.status === 'connected'` 后再拉数据。
+ */
+let nativeConnectWatch: (() => void) | undefined
+function loadNativeSettings(): void {
+  if (!isNative.value) return
+  if (connection.status === 'connected') {
+    void loadSettingsData()
+    nextTick(setupTabScroll)
+    return
+  }
+  nativeConnectWatch = watch(
+    () => connection.status,
+    (status) => {
+      if (status !== 'connected') return
+      nativeConnectWatch?.()
+      nativeConnectWatch = undefined
+      void loadSettingsData()
+      nextTick(setupTabScroll)
+    },
+  )
+}
+
+onMounted(() => {
+  // native 面：settingsOpen 永不翻转（窗开即挂载），等 WS 连接后拉数据 + 挂 tab 滚动；
+  // 浏览器路径由 watch(settingsOpen) 驱动，此处 no-op。
+  loadNativeSettings()
+})
+
 onUnmounted(() => {
+  nativeConnectWatch?.()
   dragCleanup?.()
   clearRestartWait()
   teardownTabScroll()
@@ -551,9 +603,10 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 <template>
   <AnimatePresence>
     <MotionDiv
-      v-if="agents.settingsOpen"
+      v-if="isNative || agents.settingsOpen"
       key="overlay"
       class="settings-overlay"
+      :class="{ 'is-native': isNative }"
       :style="{ zIndex: OVERLAY_Z_INDEX.modal }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
@@ -564,7 +617,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         key="panel"
         :ref="setPanelEl"
         class="settings-panel"
-        :class="{ 'is-maximized': maximized, 'is-dragging': dragging }"
+        :class="{ 'is-maximized': maximized, 'is-dragging': dragging, 'is-native': isNative }"
         :style="panelStyles"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1 }"
@@ -591,7 +644,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
               </span>
             </el-tooltip>
           </div>
-          <div class="head-actions">
+          <div v-if="!isNative" class="head-actions">
             <button
               type="button"
               class="close-btn"
@@ -825,6 +878,21 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   width: 100%;
   height: 100%;
   border-radius: 10px;
+}
+// native 面（Electron 原生设置窗，WindowFrame 外壳内）：overlay 铺满窗，去蒙层/居中内边距/模糊
+.settings-overlay.is-native {
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+// native 面：panel 100% 铺满（不再居中 1040px），去阴影/圆角/边框/transform 过渡
+.settings-panel.is-native {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
 }
 .settings-error-detail {
   margin: 0;

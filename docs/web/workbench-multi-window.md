@@ -2,6 +2,8 @@
 
 > 本文档记录节点树工作台从**单实例**改造为**每预设一窗**多窗口架构的完整实现细节。需求确认见记忆 `workbench-multi-window-plan`；Part 1（待处理交互右侧抽屉）已单独落地，见 `AgentDialog.vue`/`overlayLayers.ts`。
 
+> **2026-08 迁移（Part 3）**：Electron 面工作台/设置改为**原生独立窗**，console 窗废弃，新增跨窗主题同步与深色灰边修复。详见文末 [Electron 原生独立窗迁移（Part 3）](#electron-原生独立窗迁移part-3)。
+
 ## 目标
 
 - **每预设一窗**：窗口内经钢琴键/会话列表切换根会话。
@@ -104,3 +106,92 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **HistoryDrawer 仍为全局单例**：`useHistoryDrawerManager` 单注入，WorkbenchDialog 的 `openHistory`/锚点继续写全局。per-window `historyDrawer*` store 字段未接线（最深依赖，建议独立小步）。
 - **loadOptions 全局选项去重**：未引入共享机制，每窗口独立拉一次全局配置（可接受）。
 - **Nyxus 窗口**：`NyxusCore` 单击入口现落 composer 面板，经 ⑂/工具栏进工作台；`activeNyxusChatId` 闭包捕获未按窗口参数化（后续如需）。
+
+---
+
+## Electron 原生独立窗迁移（Part 3）
+
+> 2026-08-18。将设置 / 工作台从 console 大窗（单 BrowserWindow 内叠加）迁移为 **Electron 原生独立窗**（每预设一工作台窗），console 窗废弃；同时修复深色模式窗口边缘灰边，并顺带实现跨窗主题实时同步。需求确认见记忆 `electron-native-windows-plan`。
+
+### 动机
+
+- 设置 / 工作台当前渲染在 console 窗（`?surface=console`，1200×800 frameless）内部叠加，用户要求二者为**相互独立**的原生窗。
+- 深色模式下窗口四周出现灰色边框：`html.dark` → element-plus dark css-vars → `color-scheme:dark` → Chromium 给根画布涂系统深灰；仅 desktop 透明窗锁了 `color-scheme:light`，其余窗未锁。
+
+### 架构（Electron 面）
+
+**主进程 = 唯一窗口生命周期管理者**：
+
+- `ManagedWindow` 注册表（`web/electron/main.ts`），key = `'settings'` | `'wb:<presetId>'`，惰性创建 / 聚焦 / 复用 / hide 保活。
+- 通用 `window:control` IPC，按 `BrowserWindow.fromWebContents(event.sender)` 定位窗口，免传 windowId、防伪造。
+- bounds 持久化：`userData/window-state.json`，`move`/`resize` 去抖 400ms 保存，创建时 `screen.getAllDisplays()` 校验贴屏（只存 bounds，不存最大化态）。
+- 主题广播：任一窗 `theme:changed` → main 对全部 managed 窗 `theme:set`。
+
+**渲染层四 surface**（App.vue 分发）：
+
+| surface | 内容 |
+|---------|------|
+| `?surface=desktop` | 桌面透明宠物窗（不变：PetStage/NyxusCore/AgentDialog） |
+| `?surface=settings` | 设置原生窗：`WindowFrame`（标题栏三键/主题边框）内嵌 `<SettingsDialog native/>` |
+| `?surface=workbench&presetId=xx&chatId=xx` | 工作台原生窗（每 preset 一窗）：**不用 WindowFrame 外壳**——`<WorkbenchDialog native/>` 保留自身 `.workbench-titlebar`（逐像素不变，仅换驱动层），另渲染 `HistoryDrawer` |
+| 无 surface | 浏览器单页（**逐字节不变**：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉） |
+
+每个原生窗是独立 renderer，各连一条 WS（后端 `ConnectionManager` 支持多连接）；跨窗状态只经 query（chatId/presetId）+ 少量 IPC（`workbench:open-chat` / `workbench:focus` / `window:focused` / `theme:set`）。
+
+### 窗口生命周期
+
+| 操作 | 设置窗 | 工作台窗 |
+|------|--------|----------|
+| 点 X 关闭 | **destroy**（无运行状态，重开重载 config） | **hide 不销毁**：WS 与 run 保持、任务继续；重开同 preset → show+focus 还原（任务可见/可继续） |
+| 最小化 | 任务栏 | 任务栏，run 继续 |
+| 最大化/还原 | 原生（双击标题栏 / Win+↑ / 拖边缘均可） | 同左 |
+
+托盘点击 / `app.activate` / `second-instance`：原打开 console 壳窗 → **改为打开设置窗**（应用主界面锚点）。
+
+### 通用窗口外壳能力（三件套）
+
+- `useWindowFrame.ts`（`web/src/features/desktop/`）：composable，封装 `windowControl` / `onWindowMaximized` / `onWindowFocused` / `flashFrame` / `setBackgroundColor`；含 `lockWindowRootColorScheme()`（置 `documentElement.style.colorScheme='light'` + `<html>` 加 `window-surface` class —— 灰边修复核心）。
+- `WindowFrame.vue`：**仅设置窗外壳**。自绘 40px 标题栏（`-webkit-app-region: drag` + 双击最大化）+ 三键 + 主题边框，body slot 铺满。
+- `windowControls.less`（`web/src/styles/`）：共享三键样式，从 ConsoleShell / WorkbenchDialog 抽取，统一来源。
+
+工作台窗**不包 WindowFrame**，保留自身 `.workbench-titlebar` 外观（逐像素不变），仅换驱动层：`native` prop 下标题栏 `-webkit-app-region: drag`、三键走 `windowControl`、8 向 resize handles 隐藏、`mode` 恒 `'fullscreen'` 铺满、`attentionBlink` → `bridge.flashFrame()`；灰边锁定由 WorkbenchDialog native 自身在 onMounted 调 `lockWindowRootColorScheme()`。
+
+### 灰边修复（三层统一方案）
+
+1. **color-scheme 锁定**：`lockWindowRootColorScheme()`（settings 面由 `WindowFrame.vue` 调，workbench 面由 `WorkbenchDialog` native 自身调）对 settings / workbench 面 mount 时锁 `color-scheme:light`（DesktopSurface 既有机制扩展到全部 Electron 窗）。
+2. **根画布兜底**（`theme.css`）：`html.window-surface, html.window-surface body, html.window-surface #app { background: var(--bg); }` —— 窗口边缘/圆角/拖拽残影显示主题底色而非系统灰/白。
+3. **main 层 backgroundColor**：`theme.ts apply()` 在 Electron 面读当前主题 bg（`#16181d` 暗 / 亮色值）→ `bridge.setBackgroundColor()` → `win.setBackgroundColor()`，兜底首帧与 resize 边缘。
+
+**跨窗主题同步**：`theme.toggle()` 成功后 `bridge.emitThemeChanged()` → main 广播 `theme:set` → 各 Electron 面订阅 `onThemeSet` → `applyFrom(theme)` + 重设 backgroundColor。此前各窗只在启动读 localStorage 不互相同步，本次补齐。**范围边界**：广播仅发 managedWindows（settings / workbench）；desktop 透明窗不接主题桥（`bindElectronThemeBridge` 对 `surface==='desktop'` 直接 return，避免 `setBackgroundColor` 铺不透明底色），主题独立。
+
+### 跨进程盲点修复
+
+desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开工作台**，而工作台渲染在 console 窗（另一 renderer、另一 Pinia store）→ 点了无反应。迁移后统一经 `bridge.openWindow({kind:'workbench',...})` → main 建原生窗：
+
+- `PetToolbar.vue` 工作台按钮
+- `AgentDialog.openWorkspaceTree`（待处理抽屉「打开节点树」）
+- `NyxusCore.openWorkbench` / `openSettings`（本就走 bridge，改新 API）
+
+浏览器 fallback 全部保留现 store 路径（`desktopBridge()` 非 Electron 返回 undefined）。
+
+### 改动文件清单（Part 3）
+
+| 文件 | 变更 |
+|------|------|
+| `web/electron/main.ts` | 删 console 全套；`ManagedWindow` 注册表 + settings/workbench 工厂 + `window:open/control/set-background/flash`/`theme:changed` IPC + bounds 持久化；托盘/activate/second-instance → 打开设置窗 |
+| `web/electron/preload.ts` | 删 `ConsoleTarget`；新 bridge（openWindow/windowControl/onWindowMaximized/onWindowFocused/onWorkbenchFocus/onOpenChat/flashFrame/setBackgroundColor/emitThemeChanged/onThemeSet） |
+| `web/src/features/desktop/desktopBridge.ts` | 同上镜像类型 |
+| `web/src/features/desktop/useWindowFrame.ts` | 新：通用窗口外壳 composable + `lockWindowRootColorScheme` |
+| `web/src/features/desktop/WindowFrame.vue` | 新：自绘标题栏外壳 |
+| `web/src/styles/windowControls.less` | 新：共享三键样式 |
+| `web/src/App.vue` | surface 四分发；workbench 面同步注册 + focus/open-chat/flashFrame/主题订阅；删 console 分支与 `bindConsoleNavigation` |
+| `web/src/features/agent/settings/SettingsDialog.vue` | `native` prop（铺满窗、去自拖拽/自三键、close→windowControl、mounted 加载） |
+| `web/src/features/agent/dialog/WorkbenchDialog.vue` | `native` prop（fullscreen 恒置、三键走 windowControl、titlebar drag、resize 隐藏、attentionBlink→flashFrame） |
+| `web/src/features/pets/nyxus/components/NyxusCore.vue` | 入口改 `openWindow` |
+| `web/src/features/agent/chat/AgentDialog.vue` | 入口改 `openWindow`（含 `openWorkspaceTree` 盲点修复） |
+| `web/src/features/agent/toolbar/PetToolbar.vue` | 入口改 `openWindow`（盲点修复） |
+| `web/src/features/desktop/ConsoleShell.vue` | 删除 |
+| `web/src/stores/theme.ts` | `applyFrom(theme)` + Electron 面 `setBackgroundColor` + `emitThemeChanged` |
+| `web/src/styles/theme.css` | `html.window-surface` 兜底背景 |
+
+浏览器面（无 surface）不受影响：`uiState.ts` workbenchWindows 注册表 / capsule / 几何 / `settingsOpen` 全部保留（浏览器多窗口模式照常），Electron 原生面下这些字段自然休眠。
