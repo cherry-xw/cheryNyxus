@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useAgentsStore, useConnectionStore, useThemeStore } from '@/stores'
-import { agentApi } from '@/services/agentApi'
 import NyxusParticle from './NyxusParticle.vue'
 import NyxusToolRing from './NyxusToolRing.vue'
 import ServerLoginDialog from '@/components/dialog/ServerLoginDialog.vue'
@@ -84,17 +83,6 @@ async function openNyxusDialog(): Promise<void> {
 
 async function createPreset(name: string): Promise<void> {
   await runCreate({ preset: name })
-}
-
-async function createFallback(): Promise<void> {
-  let firstBrain = 'longcat'
-  try {
-    const list = await agentApi.listBrains()
-    firstBrain = list.brains[0]?.name ?? firstBrain
-  } catch (cause) {
-    console.warn('[CherryNyxus] brain.list unavailable:', cause)
-  }
-  await runCreate({ brain: firstBrain, senseGroup: '', mcpServers: [] })
 }
 
 async function runCreate(opts: {
@@ -218,7 +206,6 @@ onBeforeUnmount(() => {
       :excluded-presets="excludedPresets"
       :dark="themeStore.theme === 'dark'"
       @create-preset="createPreset"
-      @create-fallback="createFallback"
       @open-settings="openSettings"
       @open-workbench="openWorkbench"
       @open-login="openLogin"

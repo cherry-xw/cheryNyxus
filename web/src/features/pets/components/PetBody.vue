@@ -16,6 +16,7 @@ import type { PetInstance } from '../types/types'
 import type { RunningTool } from '@/stores/agents'
 import { flattenQuestionItems } from '@/stores/agents/actions/questionBatch'
 import PetStatusBar from './PetStatusBar.vue'
+import PetDivineHalo from './PetDivineHalo.vue'
 import PetFaceFlip from './PetFaceFlip.vue'
 import PetNameTag from './PetNameTag.vue'
 
@@ -108,15 +109,17 @@ const emit = defineEmits<{
             :transition="leftHandMotion.transition"
             >{{ leftHand }}</MotionSpan
           >
-          <MotionSpan
-            v-if="pet.isMaster"
-            class="face"
-            :initial="false"
-            :animate="face.animate"
-            :transition="face.transition"
-            >{{ faceGlyph }}</MotionSpan
-          >
-          <PetFaceFlip v-else :face-glyph="faceGlyph" :face-motion="face" />
+          <span v-if="pet.isMaster" class="face-shell">
+            <PetDivineHalo :active="isBusy" />
+            <MotionSpan
+              class="face"
+              :initial="false"
+              :animate="face.animate"
+              :transition="face.transition"
+              >{{ faceGlyph }}</MotionSpan
+            >
+          </span>
+          <PetFaceFlip v-else :face-glyph="faceGlyph" :face-motion="face" :active="isBusy" />
           <MotionSpan
             v-if="!pet.isGhost"
             class="hand hand-right"
@@ -174,6 +177,20 @@ const emit = defineEmits<{
 .pet {
   --pet-color: #f6b73c;
   --pet-accent: var(--ink);
+  // 浅色主题使用深靛光晕承托浅色颜文字。
+  --aura-center: rgba(55, 48, 163, 0.96);
+  --aura-mid: rgba(79, 70, 229, 0.58);
+  --aura-edge: rgba(34, 199, 223, 0.16);
+  --aura-ray: rgba(79, 70, 229, 0.72);
+  --aura-vein: #c7d2fe;
+  --aura-secondary: #22c7df;
+  --aura-shadow: rgba(49, 46, 129, 0.4);
+  --pet-face-ink: #f7f5ff;
+  --pet-face-outline: rgba(24, 18, 66, 0.9);
+  --pet-face-glow: rgba(221, 223, 255, 0.28);
+  --pet-console-bg: color-mix(in srgb, var(--surface) 96%, hsl(var(--tribe-hue) 70% 62%) 4%);
+  --pet-console-border: color-mix(in srgb, var(--ink) 22%, hsl(var(--tribe-hue) 58% 48%) 18%);
+  --pet-console-ink: color-mix(in srgb, var(--ink) 86%, hsl(var(--tribe-hue) 55% 38%) 14%);
   position: absolute;
   left: 0;
   top: 0;
@@ -210,6 +227,23 @@ const emit = defineEmits<{
       min-height: 0;
     }
   }
+}
+
+// 深色主题使用象牙金光背；颜文字与手部必须切为深紫，避免浅底浅字失去轮廓。
+[data-theme='dark'] .pet {
+  --aura-center: rgba(255, 255, 248, 0.98);
+  --aura-mid: rgba(255, 244, 188, 0.72);
+  --aura-edge: rgba(103, 232, 249, 0.14);
+  --aura-ray: rgba(255, 247, 199, 0.7);
+  --aura-vein: #ffffff;
+  --aura-secondary: #67e8f9;
+  --aura-shadow: rgba(253, 230, 138, 0.5);
+  --pet-face-ink: #241443;
+  --pet-face-outline: rgba(255, 255, 255, 0.55);
+  --pet-face-glow: rgba(36, 20, 67, 0.18);
+  --pet-console-bg: color-mix(in srgb, var(--surface) 94%, #10162b 6%);
+  --pet-console-border: color-mix(in srgb, var(--aura-secondary) 24%, var(--border-strong));
+  --pet-console-ink: #eef2ff;
 }
 
 .dir {
@@ -255,33 +289,45 @@ const emit = defineEmits<{
   }
 }
 
+.face-shell,
 .face,
 .hand {
+  position: relative;
   display: inline-grid;
   place-items: center;
   line-height: 1;
 }
 
+.face-shell {
+  isolation: isolate;
+}
+
 .face {
+  z-index: 1;
   min-width: 26px;
   padding: 0 2px;
-  color: var(--pet-accent);
+  color: var(--pet-face-ink);
   .glyph-font();
   font-size: 19px;
   font-weight: 400;
-  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
+  text-shadow:
+    0 1px 0 var(--pet-face-outline),
+    0 0 4px var(--pet-face-glow);
   transform-origin: center;
 }
 
 .hand {
   width: 14px;
   min-height: 20px;
-  color: var(--pet-accent);
+  z-index: 1;
+  color: var(--pet-face-ink);
   .glyph-font();
   font-size: 16px;
   font-weight: 400;
+  text-shadow:
+    0 1px 0 var(--pet-face-outline),
+    0 0 3px var(--pet-face-glow);
   transform-origin: top center;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.14);
 
   &.hand-left {
     justify-self: end;
@@ -292,11 +338,57 @@ const emit = defineEmits<{
 }
 
 .meta-row {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 3px;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: visible;
   margin-top: 3px;
+  border: 1px solid var(--pet-console-border);
+  border-radius: 8px;
+  background: var(--pet-console-bg);
+  box-shadow:
+    0 4px 12px rgba(15, 23, 42, 0.18),
+    inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
   transform: scaleX(var(--pet-direction));
+  transition:
+    border-radius 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.meta-row :deep(.pet-toolbar) {
+  max-height: 0;
+  border-top-color: transparent;
+  opacity: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition:
+    max-height 180ms ease,
+    opacity 140ms ease,
+    transform 180ms ease,
+    border-color 180ms ease,
+    visibility 0s linear 180ms;
+}
+
+.pet:hover .meta-row,
+.pet:focus-within .meta-row {
+  border-radius: 8px 8px 7px 7px;
+  box-shadow:
+    0 6px 16px rgba(15, 23, 42, 0.22),
+    0 0 0 1px color-mix(in srgb, var(--aura-secondary) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, white 66%, transparent);
+}
+
+.pet:hover .meta-row :deep(.pet-toolbar),
+.pet:focus-within .meta-row :deep(.pet-toolbar) {
+  max-height: 27px;
+  border-top-color: color-mix(in srgb, var(--pet-console-border) 68%, transparent);
+  opacity: 1;
+  overflow: visible;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
 }
 
 /* RunningTools 行：absolute 脱离流（零布局高度），避免加行把 pet 脸顶上去与气泡错位。
@@ -358,6 +450,17 @@ const emit = defineEmits<{
   50% {
     scale: 0.92;
     opacity: 0.48;
+  }
+}
+
+@media (hover: none) {
+  .meta-row :deep(.pet-toolbar) {
+    max-height: 27px;
+    border-top-color: color-mix(in srgb, var(--pet-console-border) 68%, transparent);
+    opacity: 1;
+    overflow: visible;
+    visibility: visible;
+    transform: none;
   }
 }
 </style>

@@ -56,7 +56,8 @@ defineProps<{
   flex: 1;
   height: 2px;
   border-radius: 1px;
-  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  // 不透明 track（取代 ink 14% 半透明）：深色桌面下淡条可见，fill 叠其上
+  background: color-mix(in srgb, var(--ink) 24%, var(--surface));
   overflow: hidden;
 
   .fill {
@@ -77,11 +78,8 @@ defineProps<{
   position: absolute;
   right: 0;
   align-items: center;
-  gap: 2px;
-  padding: 2px 5px;
-  border: 1px dashed color-mix(in srgb, var(--neon-indigo) 55%, transparent); /* 思考紫虚线，呼应 PetBubbles.is-thinking */
-  border-radius: 8px;
-  background: var(--surface-soft);
+  gap: 3px;
+  /* 去背景框：无 surface-soft 底 + 无紫虚线边框，只留三点紫脉冲（深色场景不再显突兀色块） */
   pointer-events: none;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
   transform-origin: center center;

@@ -1120,6 +1120,9 @@ function onTreePromptSnapShow(): void {
   if (!treeRootChatId.value) return
   void loadTreePromptSnapshot(treeRootChatId.value)
 }
+
+/** 原生 workbench 窗关闭由 WindowFrame `close` prop 接管：先释放本窗根时间线订阅再交 main 关闭。 */
+defineExpose({ closeWorkbench })
 </script>
 
 <template>
@@ -1127,7 +1130,10 @@ function onTreePromptSnapShow(): void {
     v-if="win"
     v-show="!win.minimized"
     class="dialog-overlay is-nyxus-layout"
-    :class="{ 'is-windowed-workbench': effectiveMode === 'window' }"
+    :class="{
+      'is-windowed-workbench': effectiveMode === 'window',
+      'is-native': isNative,
+    }"
     :style="{
       zIndex: OVERLAY_Z_INDEX.composer + (win.zOrder ?? 0),
       '--nx-z-canvas': NYXUS_WORKBENCH_Z_INDEX.canvas,
@@ -1147,7 +1153,7 @@ function onTreePromptSnapShow(): void {
     <section
       ref="workbenchShellRef"
       class="workbench-shell"
-      :class="`is-${effectiveMode}`"
+      :class="`is-${effectiveMode}` + (isNative ? ' is-native' : '')"
       :style="workbenchShellStyle"
       aria-label="节点树工作台"
     >
@@ -1173,6 +1179,7 @@ function onTreePromptSnapShow(): void {
       </div>
 
       <header
+        v-if="!isNative"
         class="workbench-titlebar"
         :class="{
           'is-draggable': effectiveMode === 'window',
@@ -1881,6 +1888,29 @@ function onTreePromptSnapShow(): void {
 }
 .dialog-overlay.is-windowed-workbench {
   pointer-events: none;
+}
+// native 面（Electron 原生工作台窗，WindowFrame 外壳内）：overlay 改为 absolute 只铺满
+// 外壳 body（不盖 WindowFrame 标题栏），stretch 填满去 flex-end/padding；titlebar 已隐藏，
+// 原 40px 偏移元素（画布 / ctx-bar / 抽屉）全部归零从顶开始。
+.dialog-overlay.is-native {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  align-items: stretch;
+  background: transparent;
+  backdrop-filter: none;
+}
+.workbench-shell.is-native .nyxus-branch-top {
+  inset: 0;
+}
+.workbench-shell.is-native .workbench-ctx-bar {
+  top: 0;
+}
+.workbench-shell.is-native .workspace-drawer-mask {
+  inset: 0;
+}
+.workbench-shell.is-native .workspace-drawer {
+  top: 0;
 }
 .workbench-shell.is-fullscreen {
   inset: 0;

@@ -31,8 +31,23 @@ Electron 模式包含多个职责分离的 renderer，均直连后端 WebSocket�
 - **desktop 窗口**（`?surface=desktop`）：启动即创建的**全工作区透明覆盖窗**（尺寸取 `screen.getPrimaryDisplay().workArea`，`frame:false / transparent / alwaysOnTop('floating') / skipTaskbar / hasShadow:false / thickFrame:false`）。`thickFrame:false`（win32）关闭 DWM 对 frameless 透明窗绘制的粗边框（`WS_THICKFRAME`）。**深色白边根因**：transparent 窗的 `backgroundColor` 选项在部分 Electron/Windows 组合下不生效，窗口背景回退为默认白色 → 内容未铺满的边缘 1px 露白边（浅色模式与浅内容/浅壁纸融合不明显，深色模式深内容旁显眼；`thickFrame`/`setShape`/CSS 均管不到背景色填充）——创建后运行时 `win.setBackgroundColor('#00000000')` 强制全透明兜底。承载 PetStage（透明模式，无网格背景）、NyxusCore 星系、AgentDialog 发消息浮动窗、HistoryDrawer、ServerLoginDialog（浮动模式）。宠物与星系直接渲染在桌面上，可随意拖动，空区域鼠标点击穿透到桌面。**ServerLoginDialog 连接态**：本地 loopback 直连成功后（`!auth.isRemote && connection.status === 'connected'`）显示「已连接」信息面板（地址 + 状态 + 断开连接），不再可重新连接；远端登录成功显示登录用户 + 登出。
 
 > 2026-08 单窗合并：此前短暂存在 pet / nyxus **两个独立透明小窗**（pet 在窗内移动导致只能在 360×300~640×420 小范围拖拽、漂移/teleport 动画、`surface:set-state` / `surface:drag-start/move/end` IPC、`floatingGeometry.ts` 边界工具），已合并回本单窗模型——pet 以全屏舞台为边界完整拖拽、CheryNyxus 入口窗内 standalone 自由拖拽，两小窗 / 浮窗 IPC / 漂移动画 / 浮窗边界工具全部删除（仅保留本单窗 + 设置/工作台 managed 窗）。
-- **settings 窗口**（`?surface=settings`）：**原生独立设置窗**（`frame:false`，无边框自绘标题栏）。惰性创建（desktop 工具环 ⚙ / 托盘点击 / `app.activate` / `second-instance` 首次触发），关闭即 **destroy**（无运行状态，重开重载 config）。外壳由 `WindowFrame.vue` 提供（40px 标题栏 + 三键 + 主题边框），内嵌 `<SettingsDialog native/>`。**尺寸**：默认按设置内容所需最小尺寸（`minWidth/minHeight` 约束，见 `createManagedWindow`），屏幕 workArea 小于该值时取屏幕最大可用尺寸；bounds 持久化于 `userData/window-state.json`。**数据加载时序**：settings 窗 renderer 的 WS 是独立连接（`bootstrap()` 异步建连），`SettingsDialog` native 面**等待 `connection.status === 'connected'` 后再 `loadSettingsData()`**（watch 连接状态，避免建连前 `config.get` RPC 报「还没连上服务器」）。
-- **workbench 窗口**（`?surface=workbench&presetId=xx&chatId=xx`）：**每预设一原生工作台窗**（key = `wb:<presetId>`）。惰性创建；**不用 WindowFrame 外壳**——保留自身 `.workbench-titlebar` 逐像素外观，`native` prop 只换驱动层（标题栏 `-webkit-app-region: drag`、三键走 `windowControl`），另渲染 `HistoryDrawer`。**点 X 关闭 = hide 不销毁**——`disconnectGrace` 按「发起连接」跟踪 run，hide 保持 WS 存活、run 继续；重开同 preset → show+focus 还原。最小化 = 原生任务栏（run 继续）。`attentionBlink` → `flashFrame`（任务栏闪烁）。
+
+### 颜文字对比描边（desktop 透明窗）
+
+pet 颜文字（face + 左右手 hand，同为 emoji 字符体系）的颜色不随主题深浅色单一决定，而是叠加**多重 `text-shadow` 对比描边**：保留 `--pet-accent`（深色主题下 `lightenAccent` 提亮的浅色 / 浅色主题原色）作基色，再叠深色描边环 + 亮色内光晕。透明窗中 pet 拖到浅色 / 深色桌面区域时，描边保证颜文字始终高对比度可见——**无需采样桌面像素，零 IPC 零性能成本**（`mix-blend-mode` 方案在透明窗内无法与窗外桌面混合，已弃）。实现位于 [PetBody.vue](../../web/src/features/pets/components/PetBody.vue)（`.face` / `.hand`）与 [PetFaceFlip.vue](../../web/src/features/pets/components/PetFaceFlip.vue)（子 pet 3D 脸卡）。
+
+### 全屏隐藏（win32）
+
+desktop 透明窗默认 `alwaysOnTop('floating')` 全工作区置顶，全屏视频 / 游戏会与之冲突（pet 覆盖在全屏应用上面）。主进程经 **koffi（N-API 兼容 FFI）加载 user32.dll**，定时（1s）`EnumWindows` 枚举顶层可见窗口，判定**前台窗口**（`GetForegroundWindow`）的 `GetWindowRect` 是否完全覆盖主屏 `bounds`（含任务栏区域）——即视为全屏覆盖：
+
+- 检测到全屏 → `desktopWin.hide()`（彻底隐藏，不渲染不占资源）；
+- 退出全屏（前台窗口不再全屏覆盖）→ 延迟 500ms `showInactive()` 恢复（防窗口切换抖动）。
+
+**必须锚定前台窗口**：后台 / 最小化的最大化窗口 `GetWindowRect` 也可能恰好等于屏幕 bounds（最小化窗口返回还原矩形），仅按 rect 判定会误报导致 pet 被误藏；另排除 desktop 窗自身 hwnd（防任务栏隐藏时 workArea==bounds 误判自身为全屏）。koffi 回调参数经 `koffi.pointer(proto)` 声明、`GetWindowRect` 输出参数经 `koffi.out()` 标记（Koffi 2.0+ 迁移要求）。
+
+实现位于 [fullscreenGuard.ts](../../web/electron/fullscreenGuard.ts)，`app.whenReady` 后启动，koffi 加载失败 / 枚举异常时**静默降级为不启用**（不阻塞主流程）。koffi 为 N-API 兼容原生模块，二进制经主包 `optionalDependencies` 平台分发包 `@koromix/koffi-<platform>-<arch>` 分发（pnpm 需 `allowBuilds: koffi: true`），electron-builder 打包时 `asarUnpack`（见 [electron-builder.yml](../../web/electron-builder.yml)）。
+- **settings 窗口**（`?surface=settings`）：**原生独立设置窗**（`frame:false`，无边框自绘标题栏）。惰性创建（desktop 工具环 ⚙ / 托盘点击 / `app.activate` / `second-instance` 首次触发），关闭即 **destroy**（无运行状态，重开重载 config）。外壳由 `WindowFrame.vue` 提供（40px 标题栏 + 三键 + 主题边框），内嵌 `<SettingsDialog native/>`——`SettingsDialog` 自身 header（「设置」标题 + 打开配置文件夹）在 native 面**隐藏**（`v-if="!isNative"`），标题由 `WindowFrame` 承载、「打开配置文件夹」按钮经 `title-actions` slot 并入标题栏（公共组件 `OpenConfigDirButton`，浏览器路径 header 内同款复用）；其遮罩须定位在 `WindowFrame` body 内（`.settings-overlay.is-native` 为 `position:absolute; inset:0`，相对 `position:relative` 的 body 铺满），**不可** fixed 铺满整个窗口，否则透明遮罩会拦截标题栏（拖拽 + 三键）的鼠标事件导致三键灰色暗淡、无法点击。**尺寸**：默认按设置内容所需最小尺寸（`minWidth/minHeight` 约束，见 `createManagedWindow`），屏幕 workArea 小于该值时取屏幕最大可用尺寸；bounds 持久化于 `userData/window-state.json`。**数据加载时序**：settings 窗 renderer 的 WS 是独立连接（`bootstrap()` 异步建连），`SettingsDialog` native 面**等待 `connection.status === 'connected'` 后再 `loadSettingsData()`**（watch 连接状态，避免建连前 `config.get` RPC 报「还没连上服务器」）。
+- **workbench 窗口**（`?surface=workbench&presetId=xx&chatId=xx`）：**每预设一原生工作台窗**（key = `wb:<presetId>`）。惰性创建；**也用 `WindowFrame` 公共外壳**（与 settings 统一）——标题显示预设名（App.vue 从 store 读）、`attentionBlink` → 标题栏暖橙闪烁、三键走 `windowControl`；`WorkbenchDialog` native 面隐藏自身 `.workbench-titlebar`（`v-if="!isNative"`，浏览器路径逐字节不变），其 `closeWorkbench`（先释放根时间线订阅再 `windowControl('close')`）经 `defineExpose` 由 WindowFrame 的 `close` handler 接管，overlay 同 settings 改为 relative 父级内 `position:absolute`（不遮挡标题栏），另渲染 `HistoryDrawer`。**点 X 关闭 = hide 不销毁**——`disconnectGrace` 按「发起连接」跟踪 run，hide 保持 WS 存活、run 继续；重开同 preset → show+focus 还原。最小化 = 原生任务栏（run 继续）。`attentionBlink` → `flashFrame`（任务栏闪烁）。
 - 浏览器单页（无 surface）：应用内多工作台窗 + 胶囊 + overlay 设置，**不受迁移影响**。
 
 > 2026-08 迁移：此前「console 窗（`?surface=console`）承载全部大界面」的模型已废弃——设置 / 工作台改为各自的原生独立窗（详见 [workbench-multi-window.md#electron-原生独立窗迁移part-3](./workbench-multi-window.md#electron-原生独立窗迁移part-3)），`ConsoleShell.vue` 与 `console:*` IPC 删除。
@@ -41,7 +56,7 @@ Electron 模式包含多个职责分离的 renderer，均直连后端 WebSocket�
 
 Element Plus dark css-vars 会设 `html.dark { color-scheme: dark }`，Chromium 在 dark color-scheme 下给根画布（`html`/`body` 底色）绘制系统默认深色底，窗口四周表现为灰边。三层统一修复（Electron 全部窗 + 浏览器不受影响）：
 
-1. **color-scheme 锁定**：`lockWindowRootColorScheme()`（settings 面由 `WindowFrame.vue` 调，workbench 面由 `WorkbenchDialog` native 自身调）对 settings / workbench 面 mount 时对 `document.documentElement` 强制 inline `color-scheme: light`（主题 token 仍正常切换，只锁画布底色）；DesktopSurface 既有机制不变。
+1. **color-scheme 锁定**：`lockWindowRootColorScheme()`（settings / workbench 面统一由 `WindowFrame.vue` onMounted 调，`WorkbenchDialog` native 自身的调用保留作兼容）对 settings / workbench 面 mount 时对 `document.documentElement` 强制 inline `color-scheme: light`（主题 token 仍正常切换，只锁画布底色）；DesktopSurface 既有机制不变。
 2. **根画布兜底**（`theme.css`）：`html.window-surface, html.window-surface body, html.window-surface #app { background: var(--bg); }` —— 窗口边缘 / 圆角 / 拖拽残影显示主题底色而非系统灰/白（`window-surface` class 由 `lockWindowRootColorScheme` 加到 `<html>`）。
 3. **main 层 backgroundColor**：`theme.ts apply()` 在 Electron 面读当前主题 bg（`#16181d` 暗 / 亮色值）→ `bridge.setBackgroundColor()` → `window:set-background` IPC → `win.setBackgroundColor()`，兜底首帧与 resize 边缘。
 

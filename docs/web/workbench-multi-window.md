@@ -132,8 +132,8 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 | surface | 内容 |
 |---------|------|
 | `?surface=desktop` | 桌面透明宠物窗（不变：PetStage/NyxusCore/AgentDialog） |
-| `?surface=settings` | 设置原生窗：`WindowFrame`（标题栏三键/主题边框）内嵌 `<SettingsDialog native/>` |
-| `?surface=workbench&presetId=xx&chatId=xx` | 工作台原生窗（每 preset 一窗）：**不用 WindowFrame 外壳**——`<WorkbenchDialog native/>` 保留自身 `.workbench-titlebar`（逐像素不变，仅换驱动层），另渲染 `HistoryDrawer` |
+| `?surface=settings` | 设置原生窗：`WindowFrame`（标题栏三键/主题边框）内嵌 `<SettingsDialog native/>`（native 面隐藏自身 header，标题 + 打开配置文件夹按钮并入 WindowFrame 标题栏） |
+| `?surface=workbench&presetId=xx&chatId=xx` | 工作台原生窗（每 preset 一窗）：**同用 `WindowFrame` 公共外壳**——`<WorkbenchDialog native/>` 隐藏自身 `.workbench-titlebar`，标题显示预设名、`attentionBlink` → 标题栏闪烁、关闭经 `defineExpose(closeWorkbench)` 由 WindowFrame `close` handler 接管（先释放根时间线订阅），另渲染 `HistoryDrawer` |
 | 无 surface | 浏览器单页（**逐字节不变**：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉） |
 
 每个原生窗是独立 renderer，各连一条 WS（后端 `ConnectionManager` 支持多连接）；跨窗状态只经 query（chatId/presetId）+ 少量 IPC（`workbench:open-chat` / `workbench:focus` / `window:focused` / `theme:set`）。
@@ -151,14 +151,14 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 ### 通用窗口外壳能力（三件套）
 
 - `useWindowFrame.ts`（`web/src/features/desktop/`）：composable，封装 `windowControl` / `onWindowMaximized` / `onWindowFocused` / `flashFrame` / `setBackgroundColor`；含 `lockWindowRootColorScheme()`（置 `documentElement.style.colorScheme='light'` + `<html>` 加 `window-surface` class —— 灰边修复核心）。
-- `WindowFrame.vue`：**仅设置窗外壳**。自绘 40px 标题栏（`-webkit-app-region: drag` + 双击最大化）+ 三键 + 主题边框，body slot 铺满。
+- `WindowFrame.vue`：**settings / workbench 公共外壳**。自绘 40px 标题栏（`-webkit-app-region: drag` + 双击最大化）+ 三键 + 主题边框，body slot 铺满；三键行为默认 `windowControl`，可经 `minimize`/`maximize`/`close` prop 覆盖（workbench 关闭先释放订阅），`attention` prop 驱动标题栏闪烁。**标题位置扩展点**：`title-actions` slot 紧贴标题右侧（`.window-frame-title-group` 内、与标题同行垂直居中，容器 `no-drag` 保证可点击）——settings 面在此放「打开配置文件夹」公共组件 `OpenConfigDirButton`（`App.vue` 接入），未来标题右侧功能统一在此 slot 扩展；`titlePointerDown` prop 透传标题栏点击（workbench 熄灭闪烁）。
 - `windowControls.less`（`web/src/styles/`）：共享三键样式，从 ConsoleShell / WorkbenchDialog 抽取，统一来源。
 
-工作台窗**不包 WindowFrame**，保留自身 `.workbench-titlebar` 外观（逐像素不变），仅换驱动层：`native` prop 下标题栏 `-webkit-app-region: drag`、三键走 `windowControl`、8 向 resize handles 隐藏、`mode` 恒 `'fullscreen'` 铺满、`attentionBlink` → `bridge.flashFrame()`；灰边锁定由 WorkbenchDialog native 自身在 onMounted 调 `lockWindowRootColorScheme()`。
+settings / workbench 原生窗均包 `WindowFrame` 公共外壳。`WorkbenchDialog` 浏览器路径保留自身 `.workbench-titlebar` 外观（逐字节不变）；`native` 路径隐藏自身标题栏、由外壳承载，仅保留驱动语义：8 向 resize handles 隐藏、`mode` 恒 `'fullscreen'` 铺满、`attentionBlink` → 外壳标题栏闪烁 + `bridge.flashFrame()`。灰边锁定统一由 `WindowFrame.onMounted` 调 `lockWindowRootColorScheme()`。
 
 ### 灰边修复（三层统一方案）
 
-1. **color-scheme 锁定**：`lockWindowRootColorScheme()`（settings 面由 `WindowFrame.vue` 调，workbench 面由 `WorkbenchDialog` native 自身调）对 settings / workbench 面 mount 时锁 `color-scheme:light`（DesktopSurface 既有机制扩展到全部 Electron 窗）。
+1. **color-scheme 锁定**：`lockWindowRootColorScheme()`（settings / workbench 面统一由 `WindowFrame.vue` onMounted 调）对 settings / workbench 面 mount 时锁 `color-scheme:light`（DesktopSurface 既有机制扩展到全部 Electron 窗）。
 2. **根画布兜底**（`theme.css`）：`html.window-surface, html.window-surface body, html.window-surface #app { background: var(--bg); }` —— 窗口边缘/圆角/拖拽残影显示主题底色而非系统灰/白。
 3. **main 层 backgroundColor**：`theme.ts apply()` 在 Electron 面读当前主题 bg（`#16181d` 暗 / 亮色值）→ `bridge.setBackgroundColor()` → `win.setBackgroundColor()`，兜底首帧与 resize 边缘。
 

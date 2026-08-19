@@ -6,17 +6,20 @@
  */
 import { motion } from 'motion-v'
 import type { VariantType } from 'motion-v'
+import PetDivineHalo from './PetDivineHalo.vue'
 
 const MotionSpan = motion.span
 
 defineProps<{
   faceGlyph: string
   faceMotion: { animate: VariantType; transition: VariantType['transition'] }
+  active?: boolean
 }>()
 </script>
 
 <template>
   <span class="face-flip">
+    <PetDivineHalo :active="active" />
     <span class="face-rotate">
       <span class="face-side front">
         <MotionSpan
@@ -49,20 +52,26 @@ defineProps<{
 }
 
 .face {
+  position: relative;
+  z-index: 1;
   display: inline-grid;
   place-items: center;
   line-height: 1;
   min-width: 26px;
   padding: 0 2px;
-  color: var(--pet-accent);
+  color: var(--pet-face-ink);
   .glyph-font();
   font-size: 19px;
   font-weight: 400;
-  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.16);
+  text-shadow:
+    0 1px 0 var(--pet-face-outline),
+    0 0 4px var(--pet-face-glow);
   transform-origin: center;
 }
 
 .face-flip {
+  position: relative;
+  isolation: isolate;
   display: inline-grid;
   place-items: center;
   transform: scaleX(var(--pet-direction));

@@ -12,6 +12,12 @@ files:
   - dist/**
   - dist-electron/**
 
+# koffi（N-API 原生模块，全屏覆盖检测用）：.node 不能从 asar 内加载，必须解包。
+# koffi 主包 + 平台二进制分发包 @koromix/koffi-<platform>-<arch>（optionalDependencies）都要解包。
+asarUnpack:
+  - "**/node_modules/koffi/**"
+  - "**/node_modules/@koromix/**"
+
 # 后端 bundle + 用户配置模板（afterPack 钩子把模板复制到 CheryNyxus.exe 同级：
 # resources/.env.example → appOutDir/.env
 # resources/.chery.template/ → appOutDir/.chery/

@@ -22,7 +22,24 @@ function startWorker(): void {
   worker = child
   void waitForWorkerHealth(child)
   child.on('message', (message: unknown) => {
-    if ((message as { type?: string })?.type === 'restart-ready') restartWorker()
+    const m = message as { type?: string; code?: string; port?: number } | null
+    if (!m) return
+    if (m.type === 'restart-ready') {
+      restartWorker()
+      return
+    }
+    // worker 报告不可重试的启动失败（如端口被占用）→ 停止守护循环并提示。
+    // 端口占用属环境问题，重试无效：不进入重启循环（见 docs/service/README.md）。
+    if (m.type === 'fatal') {
+      stopping = true
+      if (m.code === 'EADDRINUSE') {
+        console.error(`[guardian] 后端启动失败：端口 ${m.port} 已被其他进程占用。`)
+        console.error('[guardian] 请释放该端口后重新启动（guardian 不再自动重试）。')
+      } else {
+        console.error(`[guardian] 后端启动失败（${m.code ?? 'unknown'}），不再自动重试。`)
+      }
+      process.exit(1)
+    }
   })
   child.once('exit', (code, signal) => {
     if (worker === child) worker = undefined

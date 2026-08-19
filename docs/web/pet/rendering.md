@@ -89,7 +89,7 @@ div.pet-wrap                                                            // 根�
     span.shadow (CSS 呼吸，随 --pet-scale 缩)
     span.dir[CSS scaleX(--pet-direction)]                               // 朝向瞬切
       Motion.sprite[:animate=spriteMotion(action)]                      // grid-template-columns:100% 修复展开抖动
-        div.status-row: span.stat.emotion .fill + ContextBar            // 状态条（头顶，固定尺寸，不触发交互）：emotion 条 + contextUsage bar（取代原 fatigue bar）
+        div.status-row: span.stat.emotion .fill + ContextBar            // 状态条（头顶，固定尺寸，不触发交互）：emotion 条 + contextUsage bar（取代原 fatigue bar）；2px track 底色不透明（不再半透明，深色桌面可辨）
         span.head-row[role=button + 长按拖拽/短按抚摸 + keydown + cursor + touch-action + transform:scale(--pet-scale)]  // 命中区=身体（face+hands）；ghost 时 `.pet` pointer-events:none、head-row 收缩到 face emoji ~26px（命中区=emoji，消队列重叠遮挡）
           Motion.hand.left[:animate=handMotion(action,'left')]          hands[mood].left
           span.face-flip[scaleX(--pet-direction) 抵消父 .dir]           // 朝向翻转容器：脱离 .dir 整树镜像，face 自管朝向
@@ -99,10 +99,12 @@ div.pet-wrap                                                            // 根�
               span.face-side.back[rotateY(180°)+scaleX(-1)+backface-hidden] //   背面定位+预镜像（容器转 180° 显镜像；非 360° 抵消正向）
                 Motion.face[:animate=同上]                              face（镜像背面）
           Motion.hand.right[:animate=handMotion(action,'right')]        hands[mood].right
-        div.meta-row: span.name (per-char 彩虹流动, max-width+ellipsis 让位) + PetToolbar + RunningTools  // 工具栏（CP2/CP6）：主[历史/中止/销毁] / 子[历史/中止]；RunningTools=运行中工具 icon 组（sense_started/accept 驱动，多 icon 并发）
+        div.meta-row: PetNameTag + PetToolbar                 // 共享实色控制台：名字常驻且省略长名；工具栏 hover/focus 展开，触屏常显；仅外壳有边框，按钮以 hover 底色和危险色分区表达命中区
         span.zzz (v-if action=sleep)                                    // 休息浮字
-    svg.busy-indicator (v-if isBusy)                                   // 忙碌 loader：自定义 SVG 双圆环（外圈虚线圆 + 内圈实心弧流光），主题橙 #f6b73c，详见 §Busy indicator
+    span.busy-indicator (v-if isBusy)                                   // 忙碌指示：思考中三点紫脉冲（PetStatusBar 内 .status-stack 右端）。去背景框（无 surface-soft 底 + 无紫虚线边框），深色场景不再显突兀
 ```
+
+**颜文字渲染（神性光辉）**：`PetDivineHalo.vue` 作为脸部后的独立世界层，仅渲染中心向外渐隐的橄榄球形光晕与 68 根叶脉式细长光刺，不包含封印、轨道、节点、电路或装饰碎片。光刺以确定性噪声生成，保证每个 pet 形态稳定：左右方向最长、上方次之、下方较短，单刺最大 19px（不超过 96px 光效画布的约 20%）；每根使用叶片形渐变柔光，中央另有 0.7px 亮叶脉。每根独立设置 `reach`、持续时间、负延迟和正/负微旋转角，从中心闪现并向外生长，部分只到约 46% 长度就开始虚化，最终在各自终点消失。浅色主题使用深靛光背 + 浅色颜文字，深色主题使用象牙金光背 + **深紫颜文字与手部**；忙碌态仅增强光刺清晰度和中心呼吸速度，`prefers-reduced-motion` 下退化为静态光辉。主 pet 在 `.face-shell` 渲染一份光效；子 pet 在 `.face-flip` 根部渲染一份，翻转时光效不随脸卡旋转。
 
 位置、朝向、主体动作、手部动作、表情滤镜各在独立层，transform 不冲突。`.sprite` 用 `grid-template-columns:100%` 使各 row 独立居中，工具栏展开不再偏移 face（修复抖动）。`--pet-scale`（主 1 / 子 0.75）仅作用于 `.head-row` + `.shadow`——子 pet 体型缩小但 name/PetToolbar/status-row 尺寸不变。`.status-row` 移至 head-row 之上（头顶），固定尺寸不随 scale 缩。
 
@@ -119,7 +121,7 @@ div.pet-wrap                                                            // 根�
 | 审批 `APPROVAL_Z_INDEX` | 固定 400 | 400 | **高于 AgentDialog 300 / HistoryDrawer 280 / FAB 200 / picker-backdrop 199**；避免审批气泡被其他浮层遮挡（CP5 修复原"点空白关闭"问题，实际是被覆盖） |
 | PetIcons `petIconsStyle.zIndex` | `speechZ - 1` | 100/99 等 | pet 头部右侧 icon slot，低于气泡避免遮挡 |
 
-**name 部落色**：同部落（主+子）name 同底色 `hsl(tribe-hue)`；子 name 文字=部落深色，**主 name 文字=动态彩虹流动**——name 拆为 per-char `<span>`，每字符色相按序递增（`--char-i` 计算 `hsl(base + i*step)`），`animation-delay` 按字符序错相 → 整体从左往右波浪流动。
+**名字与工具控制台**：`.meta-row` 提供接近不透明的主题表面、统一外边框和投影，名字不再拥有独立重边框/投影，也取消影响辨识度的逐字彩虹动画；文字为 9px/700，长名省略并通过原生 `title` 展示完整内容。`PetToolbar` 位于名字下方，鼠标悬浮或键盘聚焦时展开；无 hover 的触屏设备始终展开。按钮点击区为 22×22px，取消逐按钮边框，以共享底板、hover/focus 填色表达命中区；关闭/隐藏按钮保留常态淡红底与分隔线。
 
 ## 对话框 slot 与 4 tier 气泡
 
@@ -144,6 +146,8 @@ div.pet-wrap                                                            // 根�
 ```
 
 主气泡 4 tier 由 `AnimatePresence` 互斥切换：① ChatSession 当前 approval 显 ApprovalCard；② run error 显 error-bubble；③ active message 满足 working/retain/hover 门控时显工作气泡；④默认装饰气泡。thinking 阶段显示 `activeMessage.thinking`，content 到达后主气泡显示 `activeMessage.content`，thinking 收入副气泡。done 后 presentation selector 用 `retainUntil` 保留最后消息 20 秒；新 `msgId` 到达时立即切换到新空消息。pet 身体 hover 不复现已过期历史气泡。
+
+气泡背景统一不透明化（透明窗下所有 variant 文字可辨）：`.speech` 基类与 approval/question/error/work（含 is-thinking）各 variant 背景提升至约 92-95% 不透明（提高 color-mix 基色比例 / 换实底），仅保留轻微通透感；`::after` 尾箭头背景同步。
 
 ApprovalCard 的参数内容默认展开。每条审批使用 approvalId 作为渲染 key，切换审批时重新初始化倒计时和请求状态。有限时审批到零即按 approvalId 从当前项或队列移除并推进下一项，避免保留不可操作的过期气泡；后端仍以审批超时自动拒绝为权威语义。审批气泡尾角继承主体暖色背景和边框，且不参与 pointer hit-test。
 

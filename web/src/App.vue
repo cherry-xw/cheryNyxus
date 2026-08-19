@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, provide, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import DesktopSurface from '@/features/desktop/DesktopSurface.vue'
 import LoginSurface from '@/features/desktop/LoginSurface.vue'
@@ -10,6 +10,8 @@ import WorkbenchDialog from '@/features/agent/dialog/WorkbenchDialog.vue'
 import WorkbenchCapsule from '@/features/agent/dialog/WorkbenchCapsule.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
+import OpenConfigDirButton from '@/features/agent/settings/components/OpenConfigDirButton.vue'
+import { ElMessage } from 'element-plus'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import {
   createHistoryDrawerManager,
@@ -127,7 +129,20 @@ if (surface === 'workbench' && surfacePresetId) {
   }
 }
 
-// workbench 面标题显示名由 WorkbenchDialog 自身从 store 读取（presetName），App.vue 无需持有。
+// workbench 面标题显示名 = 预设名（windowId = presetId = config.presets 键）；外层 WindowFrame 承载。
+const wbRef = ref<{ closeWorkbench: () => void } | null>(null)
+/** Phase E 闪烁回推：本窗 attentionBlink → WindowFrame 标题栏暖橙外发光（任务栏闪烁已在注册块处理）。 */
+const surfaceWindowBlink = computed(
+  () => (surfacePresetId ? agents.workbenchWindows[surfacePresetId]?.attentionBlink : false) ?? false,
+)
+/** 点击 WindowFrame 标题栏视为用户已注意到该窗口 → 熄灭闪烁（与浏览器路径 onTitlePointerDown 同语义）。 */
+function onWorkbenchTitlePointerDown(): void {
+  if (surfacePresetId) agents.setWorkbenchWindowBlink(surfacePresetId, false)
+}
+/** 标题栏「打开配置文件夹」失败：标题栏入口独立于 SettingsDialog 内部错误弹窗，用轻量消息提示。 */
+function onSettingsOpenDirError(message: string): void {
+  ElMessage.error(message)
+}
 
 onMounted(() => {
   bindElectronThemeBridge()
@@ -245,18 +260,29 @@ async function bootstrap(): Promise<void> {
   <div v-else-if="surface === 'history'" class="history-native"><HistoryDrawer /></div>
   <LoginSurface v-else-if="surface === 'login'" />
   <WindowFrame v-else-if="surface === 'settings'" title="设置">
+    <!-- 标题位置扩展点：title-actions slot（标题右侧、三键左侧）——settings 面放「打开配置文件夹」 -->
+    <template #title-actions>
+      <OpenConfigDirButton @error="onSettingsOpenDirError" />
+    </template>
     <SettingsDialog native />
   </WindowFrame>
-  <!-- workbench 面不用 WindowFrame 外壳：工作台保留自身 .workbench-titlebar（逐像素不变），
-       native 驱动层（OS 拖拽 + windowControl 三键）由 WorkbenchDialog 自身实现 -->
-  <template v-else-if="surface === 'workbench'">
+  <!-- workbench 面同用 WindowFrame 公共外壳：标题=预设名，attentionBlink→标题栏闪烁，
+       关闭经 closeWorkbench（先释放根时间线订阅再交 main hide 保活） -->
+  <WindowFrame
+    v-else-if="surface === 'workbench'"
+    :title="surfacePresetId ?? '节点树工作台'"
+    :attention="surfaceWindowBlink"
+    :close="() => wbRef?.closeWorkbench()"
+    :title-pointer-down="onWorkbenchTitlePointerDown"
+  >
     <WorkbenchDialog
+      ref="wbRef"
       :window-id="surfacePresetId!"
       :preset-id="surfacePresetId!"
       native
     />
     <HistoryDrawer />
-  </template>
+  </WindowFrame>
   <template v-else>
     <!-- 浏览器完整单页（不受 Electron 迁移影响）：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉 -->
     <PetStage />

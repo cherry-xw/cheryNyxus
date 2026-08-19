@@ -12,10 +12,18 @@ const locked: RoleConfig = {
 }
 
 describe('validateLockedRoleEdits', () => {
-  it('rejects all cheryNyxus field changes', () => {
-    const next = { ...locked, brain: 'brain-b', senseGroup: 'other', skills: ['skill-a'] }
+  it('allows changing the cheryNyxus brain', () => {
+    const next = { ...locked, brain: 'brain-b' }
+    expect(validateLockedRoleEdits({ cheryNyxus: locked }, { cheryNyxus: next })).toEqual([])
+  })
+
+  it.each([
+    ['senseGroup', 'other'],
+    ['skills', ['skill-a']],
+  ] as const)('rejects changing fixed cheryNyxus field %s', (field, value) => {
+    const next = { ...locked, [field]: value }
     expect(validateLockedRoleEdits({ cheryNyxus: locked }, { cheryNyxus: next })).toEqual([
-      'roles.cheryNyxus 是固定角色，不能修改',
+      'roles.cheryNyxus 是固定角色，除大脑外不能修改',
     ])
   })
 

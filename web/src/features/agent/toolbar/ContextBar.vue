@@ -75,7 +75,8 @@ const titleLines = computed(() => {
   width: 44px;
   height: 2px;
   border-radius: 1px;
-  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  // 不透明 track（与 PetStatusBar .stat 一致）：取代 ink 14% 半透明
+  background: color-mix(in srgb, var(--ink) 24%, var(--surface));
   overflow: hidden;
   display: flex;
   cursor: help;

@@ -25,7 +25,7 @@ import {
 } from '../message/types.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
-import { replaceEnvVars, listEnvVarNames, getCheryDir } from '@/utils/config.js'
+import { replaceEnvVars, listEnvVarNames, reloadEnvFile, getCheryDir } from '@/utils/config.js'
 import config from '@/utils/config.js'
 import { resolveThinkingLevelsBatch } from '@/utils/modelThinking.js'
 import {
@@ -281,11 +281,14 @@ async function fetchAnthropicModels(url: string, key?: string): Promise<UtilsMod
 
 /**
  * env.list：返回 .env 文件中的变量名列表（供前端密钥下拉选择）。
+ * 每次实时读盘；调用前覆盖式重载 .env → process.env，让运行期新增/修改的密钥立即生效
+ * （前端点「刷新密钥」即触发，无需重启）。
  */
 export async function handleEnvList(
   _ctx: HandlerContext,
   _data: EnvListRequestData,
 ): Promise<EnvListResponseData> {
+  reloadEnvFile(true)
   return { vars: listEnvVarNames() }
 }
 

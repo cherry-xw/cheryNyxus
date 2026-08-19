@@ -213,7 +213,7 @@ export interface RoleConfig {
    * role 激活时仅这些插件下的 skill 进入 `<skills>` 块。
    */
   plugins?: string[]
-  /** 锁定身份：禁止删除/改名/复制及修改 avatar/description/systemPrompt；cheryNyxus 作为固定角色全字段不可修改。 */
+  /** 锁定身份：禁止删除/改名/复制及修改 avatar/description/systemPrompt；cheryNyxus 仅允许切换 brain。 */
   lock?: boolean
 }
 
@@ -570,7 +570,12 @@ export function replaceEnvVars(value: unknown): unknown {
     const envVarMatch = value.match(/^\$([A-Z_][A-Z0-9_]*)$/)
     if (envVarMatch && envVarMatch[1]) {
       const envVarName = envVarMatch[1]
-      const envValue = process.env[envVarName]
+      let envValue = process.env[envVarName]
+      if (!envValue) {
+        // 运行期新增的 .env 变量未进 process.env：重读 .env 补充一次（不覆盖 OS env 既有值）
+        reloadEnvFile(false)
+        envValue = process.env[envVarName]
+      }
       if (!envValue) {
         missingEnvVars.add(envVarName)
         return value // 原样返回
@@ -1244,6 +1249,23 @@ export function listEnvVarNames(): string[] {
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) names.add(key)
   }
   return [...names].sort()
+}
+
+/**
+ * 运行期按需重读 .env 文件，同步进 process.env（dotenv.config 只在模块加载时执行一次）。
+ *  - override=false（默认）：只填充 process.env 缺失的键，不覆盖 OS env / 启动时已加载的值。
+ *  - override=true：以 .env 为准覆盖既有值（用户明确「重载文件」意图，如点击密钥刷新）。
+ * .env 不存在或不可读时静默忽略，保持现有 process.env。
+ */
+export function reloadEnvFile(override = false): void {
+  try {
+    const parsed = dotenv.parse(fs.readFileSync(rootEnvPath, 'utf8'))
+    for (const [key, value] of Object.entries(parsed)) {
+      if (override || !(key in process.env)) process.env[key] = value
+    }
+  } catch {
+    // .env 缺失/不可读：保持现状
+  }
 }
 
 /**

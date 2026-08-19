@@ -72,7 +72,9 @@ const bubbleClass = computed(() => {
   border: 1px solid var(--border);
   border-radius: 7px;
   color: var(--ink);
-  background: var(--surface-soft);
+  // 实底化（取代 --surface-soft 半透明）：深色主题下 --surface-soft 仅 7% 白近乎全透，
+  // 文字不可见；改 94% 不透明表面色，透明窗任何场景文字清晰（保留轻微通透感）。
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.16);
   font-size: 10px;
   font-weight: 800;
@@ -89,7 +91,7 @@ const bubbleClass = computed(() => {
     height: 8px;
     border-right: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
-    background: var(--surface-soft);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
     transform: rotate(45deg);
     pointer-events: none;
   }

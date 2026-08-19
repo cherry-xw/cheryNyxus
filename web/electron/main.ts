@@ -3,6 +3,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
 // 桌面单窗：pet / nyxus 两独立浮窗体系（FloatingWindow / 漂移 / teleport / surface:* IPC）已废弃，见 docs/web/electron.md「2026-08 单窗合并」。
+// 全屏覆盖检测：外部全屏视频 / 游戏出现时隐藏 desktop 窗（koffi + user32，失败降级不阻塞）。
+import { startFullscreenGuard } from './fullscreenGuard'
 
 // Electron 43 / Windows 的透明窗在 GPU 路径下，鼠标穿透的 forward pointermove 偶发不回送，
 // 导致窗口从 ignore 状态无法在宠物/Chery Nyxus 上恢复命中。暂保留软件合成以保证交互。
@@ -765,6 +767,8 @@ app.whenReady().then(async () => {
     backend = startBackend()
     await waitForBackend()
     createDesktopSurfaceWindow()
+    // 全屏视频 / 游戏出现时隐藏 desktop 窗，退出全屏恢复（koffi 加载失败自动降级不启用）
+    startFullscreenGuard(() => desktopWin)
     createTray()
     screen.on('display-metrics-changed', realignDesktopSurface)
     screen.on('display-added', realignDesktopSurface)

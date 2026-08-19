@@ -8,3 +8,5 @@ allowBuilds:
   # chery-fetch 的可选 native 依赖；当前项目代码不直接 require，但 lockfile 解析需要明确值
   '@parcel/watcher': false
   electron-winstaller: true
+  # 全屏覆盖检测（desktop 窗全屏隐藏）：install 脚本 cnoke.cjs 编译/下载 koffi 原生 .node
+  koffi: true

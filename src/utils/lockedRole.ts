@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 
 export interface LockableRoleIdentity {
+  brain?: string
   avatar?: string
   description?: string
   systemPrompt?: string
@@ -25,7 +26,10 @@ export function validateLockedRoleEdits<T extends LockableRoleIdentity>(
       continue
     }
     if (name === CHERY_NYXUS_NAME) {
-      if (!isDeepStrictEqual(next, role)) errors.push(`roles.${name} 是固定角色，不能修改`)
+      const { brain: _currentBrain, ...currentFixedFields } = role
+      const { brain: _nextBrain, ...nextFixedFields } = next
+      if (!isDeepStrictEqual(nextFixedFields, currentFixedFields))
+        errors.push(`roles.${name} 是固定角色，除大脑外不能修改`)
       continue
     }
     if (!next.lock) errors.push(`roles.${name}.lock 不能取消`)

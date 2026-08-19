@@ -5,6 +5,7 @@ import { extname, join, normalize, resolve } from 'node:path'
 import config, { DEFAULT_PRESET_NAME } from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
 import { OAuth2Auth } from '../auth/index.js'
+import { reportFatalStartupError } from '../fatalStartup.js'
 import { readMediaAsset, saveMediaAsset } from '../media/index.js'
 import { stageSkillZipBuffer } from '../skill/import.js'
 
@@ -78,6 +79,16 @@ export function createHttpServer({
   })
 
   server.listen(webPort, host)
+  // 端口监听失败（EADDRINUSE）→ fatal 上报（guardian 停止重试，见 docs/service/README.md）。
+  // 无监听会直接崩溃 worker；挂上后 EADDRINUSE 走报告路径，其他错误仅日志。
+  server.on('error', (err) => {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EADDRINUSE') {
+      reportFatalStartupError({ code, port: webPort })
+    } else {
+      logger.info(`HTTP 服务启动失败: ${(err as Error).message}`)
+    }
+  })
   if (root && existsSync(root)) {
     logger.info(`HTTP 服务启动，端口: ${webPort}（静态目录: ${root}）`)
   } else {

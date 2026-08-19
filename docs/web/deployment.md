@@ -19,6 +19,7 @@ node dist/index.js      →  WebSocket server on config.server.port (8182)
 ```
 
 - 编译:`pnpm build`(dev)/ `build:test` / `build:prod`([vite.config.ts](../../vite.config.ts) `postBuildFix`)
+  - `postBuildFix` 的 addon 导出补丁（`addon` 指向 `nativeModule` 而非 exports 壳）**独立于 native 复制执行**：`.node` 移动失败（Windows EBUSY 文件锁）只 warn 保留 dist 根副本，不再中断补丁——否则产物 `addon.setErrorConstructor is not a function` 运行期崩溃，guardian 无限重试。
 - 运行:`node dist/index.js`(`package.json` `main`)
 - WS 协议:[protocol.md](../protocol.md)
 - HTTP:/api/config + 静态 serve → [docs/service/http.md](../service/http.md)

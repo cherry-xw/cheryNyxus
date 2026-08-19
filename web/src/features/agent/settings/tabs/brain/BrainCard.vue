@@ -70,6 +70,27 @@ const brainSummary = computed(() => {
 const modelOptions = ref<Array<{ id: string; name?: string }>>([])
 const modelLoading = ref(false)
 
+// ── 密钥下拉刷新 ────────────────────────────────────────────────
+/** 本地副本：初始来自父级 envVars，刷新按钮重拉 env.list 更新（用户改 .env 后立即可见）。 */
+const keyOptions = ref<string[]>([...props.envVars])
+const keyLoading = ref(false)
+watch(
+  () => props.envVars,
+  (vars) => {
+    keyOptions.value = [...vars]
+  },
+)
+async function refreshKeyOptions(): Promise<void> {
+  keyLoading.value = true
+  try {
+    keyOptions.value = await agentApi.listEnvVars()
+  } catch (err) {
+    onError(err instanceof Error ? err.message : '刷新密钥列表失败')
+  } finally {
+    keyLoading.value = false
+  }
+}
+
 type ConnectionTestState = 'idle' | 'pending' | 'success' | 'error'
 const connectionTestState = ref<ConnectionTestState>('idle')
 const connectionTestMessage = ref('')
@@ -187,6 +208,36 @@ async function testConnection(): Promise<void> {
 function onError(msg: string): void {
   emit('error', msg)
 }
+
+/** 模板占位符（如 <YOUR_OPENAI_COMPATIBLE_URL>）视为空：不渲染占位文本，仅显示 placeholder。 */
+const PLACEHOLDER_PATTERN = /^<[^>]*>$/
+function isTemplatePlaceholder(value: string | undefined): boolean {
+  return !!value && PLACEHOLDER_PATTERN.test(value.trim())
+}
+/** 地址输入框模型：模板占位符显示为空（placeholder 呈现），写入时按真实值落草稿。 */
+const urlModel = computed({
+  get: () => (isTemplatePlaceholder(props.cfg.url) ? '' : (props.cfg.url ?? '')),
+  set: (v: string) => {
+    props.cfg.url = v
+  },
+})
+
+// ── info tip 文案（结构化多行，.label-tip-popper pre-line 渲染，\n 分点） ──
+const ADAPTER_TIP = [
+  'provider：决定 API 方言，支持：',
+  '· openai / deepseek / ollama —— OpenAI 兼容协议',
+  '· 智谱 / anthropic —— 各自原生协议',
+  '· mock —— 离线模拟，无需网络',
+  '',
+  '选 anthropic 时右侧「官方」勾选框开启 redacted_thinking 完整回传协议；关闭则按兼容模式处理。',
+].join('\n')
+const KEY_TIP = [
+  'key：API 密钥，从 .env 变量中选择（$ENV 占位符）。',
+  '· 本地服务（LM Studio / vLLM / Ollama OpenAI 模式）不校验 key，可直接输入任意字符串（如 lm-studio）',
+  '· 留空会触发运行期鉴权失败',
+  '',
+  '修改 .env 后点右侧「刷新」按钮，新密钥立即可选并生效，无需重启。',
+].join('\n')
 
 /** 复制文本到剪贴板（非 HTTPS / 旧 Electron 走 execCommand 降级）。 */
 async function copyMessage(text: string): Promise<void> {
@@ -416,16 +467,13 @@ async function openEnvFile(): Promise<void> {
               tip="url：完整 baseURL（含版本前缀）。openai/deepseek/ollama 末位自动拼 /chat/completions，anthropic 末位拼 /messages，所以版本段（如 /v1、/v4）由你写。例：https://api.openai.com/v1、https://api.deepseek.com 或 https://api.anthropic.com/v1。支持 $ENV 占位从环境变量注入"
             />
             <el-input
-              v-model="cfg.url"
+              v-model="urlModel"
               class="mono-input"
-              placeholder="https://api.openai.com/v1"
+              placeholder="LLM URL 或大模型地址（如 https://api.openai.com/v1）"
             />
           </label>
           <label class="field">
-            <LabelTip
-              label="适配器"
-              tip="provider：openai / deepseek / ollama / 智谱 / anthropic / mock，决定 API 方言。选 anthropic 时，右侧「官方」勾选框开启 redacted_thinking 完整回传协议（关闭则按兼容模式处理）"
-            />
+            <LabelTip label="适配器" :tip="ADAPTER_TIP" />
             <div class="provider-row">
               <el-select v-model="cfg.provider" size="small" class="provider-select">
                 <el-option v-for="p in PROVIDERS" :key="p" :value="p">
@@ -502,10 +550,7 @@ async function openEnvFile(): Promise<void> {
           </label>
           <div class="field">
             <div class="label-with-action">
-              <LabelTip
-                label="密钥"
-                tip="key：API 密钥，从 .env 变量中选择（$ENV 占位符）。本地 LM Studio / vLLM / Ollama OpenAI 模式等服务不校验 key，可直接输入任意字符串（如 lm-studio）；留空会触发运行期鉴权失败"
-              />
+              <LabelTip label="密钥" :tip="KEY_TIP" />
               <button
                 type="button"
                 class="icon-btn"
@@ -515,6 +560,16 @@ async function openEnvFile(): Promise<void> {
               >
                 <Document class="ico" />
               </button>
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="刷新密钥列表"
+                title="重新读取 .env，刷新密钥下拉选项"
+                :disabled="keyLoading"
+                @click="refreshKeyOptions"
+              >
+                <Refresh class="ico" :class="{ spinning: keyLoading }" />
+              </button>
             </div>
             <el-select
               v-model="cfg.key"
@@ -522,10 +577,10 @@ async function openEnvFile(): Promise<void> {
               allow-create
               clearable
               class="mono-input"
-              placeholder="选择 .env 变量（如 $OPENAI_API_KEY）"
+              placeholder="选择 .env 变量（如 OPENAI_API_KEY）"
               size="small"
             >
-              <el-option v-for="v in envVars" :key="v" :value="`$${v}`" :label="`$${v}`" />
+              <el-option v-for="v in keyOptions" :key="v" :value="`$${v}`" :label="v" />
             </el-select>
           </div>
         </div>
@@ -882,10 +937,17 @@ async function openEnvFile(): Promise<void> {
     &:hover {
       color: var(--tab-color, @accent);
     }
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
 
     .ico {
       width: 12px;
       height: 12px;
+    }
+    .ico.spinning {
+      animation: spin 1s linear infinite;
     }
   }
 }

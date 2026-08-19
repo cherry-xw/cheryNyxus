@@ -28,26 +28,33 @@ function postBuildFix(): Plugin {
       }
 
       // ===== native addon 复制到 dist/lib/（带 EBUSY 重试，应对 Windows 文件锁定）=====
+      // 复制失败只 warn 不中断：addon 导出补丁（下方 index.js 补丁）必须执行，
+      // 否则 addon 指向 exports 壳对象，运行期 addon.setErrorConstructor is not a function 崩溃。
       const nodeFiles = readdirSync(distDir).filter((f) => f.endsWith(".node"));
-      mkdirSync(libDir, { recursive: true });
-      for (const f of nodeFiles) {
-        const src = resolve(distDir, f);
-        const dst = resolve(libDir, f);
-        let ok = false;
-        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
-          try {
-            copyFileSync(src, dst);
-            rmSync(src);
-            ok = true;
-          } catch (err: any) {
-            if (err?.code === "EBUSY" && attempt < 2) {
-              // Windows 文件锁定，同步等待后重试
-              const end = Date.now() + 500;
-              while (Date.now() < end) { /* busy-wait */ }
-            } else {
-              throw err;
+      const moved: string[] = [];
+      if (nodeFiles.length > 0) {
+        mkdirSync(libDir, { recursive: true });
+        for (const f of nodeFiles) {
+          const src = resolve(distDir, f);
+          const dst = resolve(libDir, f);
+          let ok = false;
+          for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+            try {
+              copyFileSync(src, dst);
+              rmSync(src);
+              ok = true;
+            } catch (err: any) {
+              if (err?.code === "EBUSY" && attempt < 2) {
+                // Windows 文件锁定，同步等待后重试
+                const end = Date.now() + 500;
+                while (Date.now() < end) { /* busy-wait */ }
+              } else {
+                console.warn(`[post-build-fix] 移动 ${f} 到 lib/ 失败（保留 dist 根副本）:`, err?.message ?? err);
+                break; // 不再重试；该文件不参与路径补丁
+              }
             }
           }
+          if (ok) moved.push(f);
         }
       }
 
@@ -59,8 +66,9 @@ function postBuildFix(): Plugin {
       let code = readFileSync(distFile, "utf-8");
       let patched = false;
 
-      // 修正 native addon 加载路径：dist/ → dist/lib/
-      for (const f of nodeFiles) {
+      // 修正 native addon 加载路径：dist/ → dist/lib/（仅对成功移动的 .node；
+      // 复制失败的文件仍留在 dist 根，保持原路径才能加载）。
+      for (const f of moved) {
         const oldPath = `"./${f}"`;
         const newPath = `"./lib/${f}"`;
         if (code.includes(oldPath)) {
@@ -75,6 +83,13 @@ function postBuildFix(): Plugin {
       if (addonPattern.test(code)) {
         code = code.replace(addonPattern, "addon = DEFAULT_ADDON || (DEFAULT_ADDON = (init_better_sqlite3(), nativeModule))");
         patched = true;
+      } else {
+        // 兜底：bundle 结构变化时精确正则可能失效，剥壳取 nativeModule 亦可
+        const fallback = /DEFAULT_ADDON = \(init_better_sqlite3\(\), __toCommonJS\(better_sqlite3_exports\)\)/;
+        if (fallback.test(code)) {
+          code = code.replace(fallback, "DEFAULT_ADDON = (init_better_sqlite3(), better_sqlite3_exports.default)");
+          patched = true;
+        }
       }
 
       if (patched) {

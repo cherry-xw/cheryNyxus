@@ -211,37 +211,54 @@ const canHide = computed(() => {
 .pet-toolbar {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 0;
+  box-sizing: border-box;
+  padding: 2px 3px 3px;
+  border-top: 1px solid transparent;
+  background: transparent;
 }
 
 .tool-btn {
   position: relative;
-  width: 16px;
-  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
-  border-radius: 5px;
-  // 不透明实底（var(--surface)），避免半透明 rgba 在 pet 场景上通透显浅
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  appearance: none;
+  color: var(--pet-console-ink, var(--ink));
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
   overflow: visible;
+  transition:
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
 
-  &:hover {
-    background: var(--surface-hover);
+  &:hover,
+  &:focus-visible {
+    background: color-mix(in srgb, var(--pet-console-ink, var(--ink)) 10%, transparent);
+    outline: none;
+  }
+
+  &:focus-visible {
+    box-shadow: inset 0 0 0 1px
+      color-mix(in srgb, var(--aura-secondary, var(--accent)) 62%, transparent);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px) scale(0.96);
   }
 
   &:disabled {
-    color: color-mix(in srgb, var(--ink) 32%, transparent);
-    background: var(--surface-soft);
+    color: color-mix(in srgb, var(--pet-console-ink, var(--ink)) 30%, transparent);
     cursor: not-allowed;
-
-    &:hover {
-      background: var(--surface-soft);
-    }
 
     .tip {
       display: none;
@@ -249,38 +266,41 @@ const canHide = computed(() => {
   }
 
   &.compact {
-    background: rgba(255, 196, 87, 0.4);
+    color: var(--warning);
   }
 
   &.compact.urgent {
-    background: rgba(248, 113, 113, 0.55);
-    color: #7f1d1d;
+    color: var(--danger);
     animation: compact-pulse 1.1s ease-in-out infinite;
   }
 
   &.resume {
-    background: rgba(74, 222, 128, 0.4);
-    color: #15803d;
+    color: var(--success);
   }
 
   &.danger {
-    color: #b91c1c;
+    margin-left: 2px;
+    border-left: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
+    border-radius: 0 4px 4px 0;
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    color: var(--danger);
 
-    &:hover {
-      background: #fee2e2;
+    &:hover,
+    &:focus-visible {
+      background: color-mix(in srgb, var(--danger) 20%, transparent);
     }
   }
 
   .tip {
     position: absolute;
     z-index: 5;
-    bottom: 130%;
+    bottom: calc(100% + 9px);
     left: 50%;
     transform: translateX(-50%) scale(0.9);
     padding: 3px 7px;
     border-radius: 5px;
     border: 1px solid color-mix(in srgb, var(--ink) 22%, transparent);
-    background: var(--panel);
+    background: color-mix(in srgb, var(--panel) 96%, transparent);
     color: var(--ink);
     box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
     font-size: 11px;
@@ -341,6 +361,13 @@ const canHide = computed(() => {
   }
   50% {
     transform: scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clock-track,
+  .tool-btn.compact.urgent {
+    animation: none;
   }
 }
 </style>

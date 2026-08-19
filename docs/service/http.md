@@ -59,6 +59,7 @@ createHttpServer({webPort, staticDir})
   ├─ root = resolve(staticDir); 若不存在 → logger.info 提示（serve 时 404）
   ├─ server = http.createServer((req,res) => handleRequest(req,res,root))
   ├─ server.listen(webPort)
+  ├─ server.on("error"): EADDRINUSE → reportFatalStartupError({code, port})（端口占用，guardian 停止重试）
   └─ logger.info 端口 + 静态目录
 
 handleRequest:

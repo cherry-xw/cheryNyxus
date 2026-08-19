@@ -12,7 +12,7 @@
  */
 import { computed, nextTick, onMounted, onUnmounted, provide, reactive, readonly, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
-import { ArrowLeft, ArrowRight, Close, FolderOpened } from '@element-plus/icons-vue'
+import { ArrowLeft, ArrowRight, Close } from '@element-plus/icons-vue'
 import { useAgentsStore, useConnectionStore } from '@/stores'
 import {
   agentApi,
@@ -44,6 +44,7 @@ import type { SkillSource } from '@/services/agentApi'
 import PluginsTab from './tabs/tools/PluginsTab.vue'
 import HooksTab from './tabs/hooks/HooksTab.vue'
 import SkeletonTab from './tabs/SkeletonTab.vue'
+import OpenConfigDirButton from './components/OpenConfigDirButton.vue'
 
 const MotionDiv = motion.div
 const agents = useAgentsStore()
@@ -79,7 +80,6 @@ const hintLines = computed(() => HINT_LINES[activeTab.value] ?? { sect: 1, warn:
 const indexCount = computed(() => INDEX_COUNT[activeTab.value] ?? 4)
 const loading = ref(false)
 const saving = ref(false)
-const openingConfigDir = ref(false)
 const error = ref<string | null>(null)
 const savedHint = ref<string | null>(null)
 
@@ -343,21 +343,6 @@ function close(): void {
     return
   }
   agents.settingsOpen = false
-}
-
-/** 通过后端 RPC 打开后端主机的 .chery 配置目录。 */
-async function openConfigDir(): Promise<void> {
-  if (connection.status !== 'connected' || openingConfigDir.value) return
-  openingConfigDir.value = true
-  error.value = null
-  try {
-    await agentApi.openConfigDir()
-  } catch (e) {
-    error.value = (e as Error).message
-    console.error('[SettingsDialog] openConfigDir failed:', e)
-  } finally {
-    openingConfigDir.value = false
-  }
 }
 
 function onError(msg: string): void {
@@ -666,22 +651,10 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         aria-modal="true"
         aria-label="设置"
       >
-        <header class="head" @pointerdown="onTitlePointerDown">
+        <header v-if="!isNative" class="head" @pointerdown="onTitlePointerDown">
           <div class="title-row">
             <span class="title">设置</span>
-            <el-tooltip content="打开配置文件夹" placement="top" :show-after="120">
-              <span class="tooltip-trigger">
-                <button
-                  type="button"
-                  class="icon-btn open-btn"
-                  :disabled="connection.status !== 'connected' || openingConfigDir"
-                  aria-label="打开配置文件夹"
-                  @click="openConfigDir"
-                >
-                  <FolderOpened class="open-ico" />
-                </button>
-              </span>
-            </el-tooltip>
+            <OpenConfigDirButton @error="onError" />
           </div>
           <div v-if="!isNative" class="head-actions">
             <button
@@ -841,14 +814,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
           </div>
           <template #footer>
             <div class="error-footer">
-              <button
-                type="button"
-                class="ghost-btn"
-                :disabled="connection.status !== 'connected' || openingConfigDir"
-                @click="openConfigDir"
-              >
-                打开配置目录
-              </button>
+              <OpenConfigDirButton variant="ghost" @error="onError" />
               <button type="button" class="primary-btn" @click="error = null">知道了</button>
             </div>
           </template>
@@ -871,7 +837,6 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
             aria-live="polite"
           />
           <div class="foot-right">
-            <button type="button" class="ghost-btn" @click="close">关闭</button>
             <button type="button" class="primary-btn" :disabled="!draft || saving" @click="save">
               {{ saving ? '保存中…' : '保存' }}
             </button>
@@ -942,8 +907,13 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   height: 100%;
   border-radius: 10px;
 }
-// native 面（Electron 原生设置窗，WindowFrame 外壳内）：overlay 铺满窗，去蒙层/居中内边距/模糊
+// native 面（Electron 原生设置窗，WindowFrame 外壳内）：overlay 去蒙层/居中内边距/模糊。
+// ⚠ 定位必须改 absolute（相对 WindowFrame body 的 position:relative 铺满），不能保留基类的
+//   fixed inset:0 —— 否则透明遮罩覆盖整个窗口，拦截标题栏（-webkit-app-region: drag 拖拽 +
+//   最小化/最大化/关闭三键）的鼠标事件，三键灰色暗淡、无法点击。
 .settings-overlay.is-native {
+  position: absolute;
+  inset: 0;
   padding: 0;
   background: transparent;
   backdrop-filter: none;
@@ -1034,34 +1004,6 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
     font-size: 15px;
     font-weight: 800;
     color: color-mix(in srgb, var(--ink) 92%, transparent);
-  }
-  .tooltip-trigger {
-    display: inline-flex;
-  }
-  .open-btn {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--surface-soft);
-    color: color-mix(in srgb, var(--ink) 82%, transparent);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    &:hover:not(:disabled) {
-      background: var(--surface);
-      color: color-mix(in srgb, var(--ink) 92%, transparent);
-    }
-    &:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-  }
-  .open-ico {
-    width: 14px;
-    height: 14px;
   }
 }
 

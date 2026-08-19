@@ -261,6 +261,7 @@ function supportsTools(brain: string): boolean {
   return props.draft.llm.brain[brain]?.capabilities?.toolCall !== false
 }
 function setBrain(cfg: RoleDraft, brain: string): void {
+  if (isFixedRole.value && !supportsTools(brain)) return
   cfg.brain = brain
   if (!supportsTools(brain)) {
     cfg.senseGroup = ''
@@ -421,7 +422,7 @@ onMounted(() => emit('mode-change', roleMode.value))
                   disabled
                   :title="
                     isFixedRole
-                      ? '固定角色：所有配置均不可修改'
+                      ? '固定角色：仅可切换大脑'
                       : '角色已锁定：禁止改名/复制/改专属背景说明/改角色说明'
                   "
                 >
@@ -480,7 +481,7 @@ onMounted(() => emit('mode-change', roleMode.value))
                 :key="name"
                 type="button"
                 class="brain-choice"
-                :disabled="isFixedRole"
+                :disabled="isFixedRole && !supportsTools(name)"
                 :class="{ active: current.brain === name }"
                 :data-overflow-name="isOverflowing[`brain-name-${name}`] ? 'true' : undefined"
                 :data-overflow-model="isOverflowing[`brain-model-${name}`] ? 'true' : undefined"

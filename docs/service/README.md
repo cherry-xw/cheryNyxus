@@ -27,6 +27,8 @@ getSoulDb()                      // 初始化数据库
 SIGINT/SIGTERM → wss.close() + httpServer.close() + closeAllDbs() + exit
 ```
 
+**守护进程（guardian）双进程模型**：`node dist/index.js`（无参数）→ 守护进程 [src/index.ts](../../src/index.ts) spawn worker（`--worker` 标志，同文件重入）。worker 崩退 → guardian 指数退避重启（500ms 起，封顶 10s）。**端口占用不重试**：worker 监听失败（EADDRINUSE）时经 IPC `process.send({type:"fatal", code, port})` 上报（见 [fatalStartup.ts](../../src/service/fatalStartup.ts)），guardian 收到后打印「端口 N 已被占用」并退出（不进入重启循环）——因为端口被占用属环境问题，重试无效。维护子命令（`compile-senses`/`reconcile-db` 等）不进入守护循环，直接 runWorker。
+
 `startService`（[service/index.ts](../../src/service/index.ts)）：
 
 ```ts
@@ -131,7 +133,7 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `config.save` | `handleConfigSave` | 同上 | 否 | 校验 + 写回 config.yaml（除 server，重启生效） |
 | `utils.models` | `handleUtilsModels` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 基于 provider/url/key 拉取可用模型列表 |
 | `utils.testConnection` | `handleUtilsTestConnection` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 用未保存配置执行真实最小 Provider 请求，不持久化、不重试 |
-| `env.list` | `handleEnvList` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 列 .env 文件变量名供密钥下拉（前端 agentApi.listEnvVars 按凭据后缀白名单再过滤，运行时配置不进下拉） |
+| `env.list` | `handleEnvList` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 列 .env 文件变量名供密钥下拉（**每次实时读盘**；调用前触发 `reloadEnvFile(true)` 把 .env 新变量/新值同步进 `process.env`，前端点「刷新密钥」即重载生效，无需重启。前端 agentApi.listEnvVars 再按后缀过滤——任意 `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`PASSWD`/`ACCESS_KEY_ID` 结尾，运行时配置不进下拉） |
 | `utils.openFile` | `handleUtilsOpenFile` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 打开指定文件（用配置编辑器或系统默认） |
 | `utils.openConfigDir` | `handleUtilsOpenConfigDir` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 固定打开后端主机的 `CHERY_DIR/.chery` 配置目录 |
 | `utils.editors` | `handleUtilsEditors` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 检测后端主机可用的文本编辑器 |

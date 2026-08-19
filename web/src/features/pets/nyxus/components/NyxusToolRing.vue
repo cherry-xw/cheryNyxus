@@ -26,7 +26,6 @@ const props = defineProps<{
 
 defineEmits<{
   'create-preset': [name: string]
-  'create-fallback': []
   'open-settings': []
   'open-workbench': []
   'open-login': []
@@ -124,7 +123,6 @@ onBeforeUnmount(() => {
           :disabled="props.disabled"
           :excluded="props.excludedPresets"
           @pick="$emit('create-preset', $event)"
-          @fallback="$emit('create-fallback')"
           @has-creatable="hasCreate = $event"
         >
           <button

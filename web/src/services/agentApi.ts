@@ -8,15 +8,15 @@
 import { wsClient } from './ws'
 import type { RpcResponse } from './ws'
 import { httpUrl } from './http'
-import { sessionHeaders } from './platform'
+import { getServerConfig, sessionHeaders, type ServerConfig } from './platform'
 
 /**
- * 凭据类 .env 变量名后缀白名单：仅 API_KEY / APIKEY / TOKEN / SECRET(_KEY) /
- * PASSWORD / PASSWD / ACCESS_KEY(_ID) 视为可作密钥占位（`$VAR`）的凭据。
- * 运行时配置（CHERY_DIR / *_HOST / *_URL / PORT / NODE_ENV 等）不进密钥下拉。
+ * 凭据类 .env 变量名后缀过滤：任何以 KEY / TOKEN / SECRET / PASSWORD / PASSWD /
+ * ACCESS_KEY_ID 结尾的变量名都视为可作密钥占位（`$VAR`）的凭据。
+ * 放宽后缀匹配（不再强制 API_ 前缀）——兼容 AP1I_KEY 这类手写命名，避免用户新加的密钥
+ * 因名字不含标准前缀而被吞掉。运行时配置（CHERY_DIR / *_HOST / *_URL / PORT 等）仍被排除。
  */
-const SECRET_SUFFIX =
-  /(?:^|_)(?:API_?KEY|TOKEN|SECRET(?:_KEY)?|PASSWORD|PASSWD|ACCESS_?KEY(?:_ID)?)$/
+const SECRET_SUFFIX = /KEY$|TOKEN$|SECRET$|PASSWORD$|PASSWD$|ACCESS_KEY_ID$/
 function isSecretEnvVarName(name: string): boolean {
   return SECRET_SUFFIX.test(name)
 }
@@ -495,7 +495,7 @@ export interface PresetOption {
   roles: string[]
 }
 
-export interface ConfigDefault {
+export interface ConfigDefault extends ServerConfig {
   /** 派生自「默认」预设 leader 角色（AgentDialog 无 runtime 时预选用；FAB 不再用） */
   default?: RuntimeSelection
   /** 可用 senseGroups 全名单 + default 标记（= 是否在「默认」预设 main.senseGroups 内；缺省回退 [{name:"default", default:true}]） */
@@ -1802,10 +1802,12 @@ export const agentApi = {
   async saveConfig(
     payload: ConfigDto,
   ): Promise<{ needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }> {
-    return call<{ needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }>(
+    const result = await call<{ needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }>(
       'config.save',
       payload,
     )
+    serverConfigCache = null
+    return result
   },
 
   /** hooks.get：读全局 hooks.json + brain 级 hooks（只读展示）*/
@@ -1964,13 +1966,13 @@ let serverConfigCache: ConfigDefault | null | undefined
 export async function fetchServerConfig(): Promise<ConfigDefault> {
   if (serverConfigCache) return serverConfigCache
   try {
-    // 远端需带 token（非 loopback 来源）；本地 loopback 豁免无需 token。
-    const res = await fetch(httpUrl('/api/config'), { headers: sessionHeaders({}) })
-    if (!res.ok) throw new Error(`/api/config ${res.status}`)
-    serverConfigCache = (await res.json()) as ConfigDefault
-    return serverConfigCache as ConfigDefault
+    // Electron 渲染进程不能跨源直取 /api/config，必须经 preload/main IPC；
+    // 浏览器与远端则由 platform 门面选择同源 fetch / 鉴权 fetch。
+    // refresh=true 保证设置保存并重启 worker 后拿到最新预设与 sessionToken。
+    serverConfigCache = (await getServerConfig({ refresh: true })) as ConfigDefault
+    return serverConfigCache
   } catch (e) {
-    // 失败置 null（区分"未 fetch"与"fetch 成功但无 default"），下次不再重试
+    // 失败置 null；调用方可显式重试，不能把加载失败伪装成空配置。
     serverConfigCache = null
     throw e
   }

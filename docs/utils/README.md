@@ -80,7 +80,7 @@ export function resetEnvVarCache(): void;
 
 `BrainConfig` 关键字段（[源码](../../src/utils/config.ts)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）/ `capabilities?`（Tool Call、图片/视频/音频输入及生成能力）。能力缺省兼容旧配置：Tool Call 开启，媒体能力关闭。
 
-`$ENV` 替换规则：仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`（如 `url: $OLLAMA_HOST`），从 `.env`/进程环境变量取值；缺失会收集到 `missingEnvVars` 并 warn（`Set` 去重，同一变量被多 brain 引用只提示一次），原样保留字符串。不会替换值中嵌入的 `$VAR`。
+`$ENV` 替换规则：仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`（如 `url: $OLLAMA_HOST`），从 `.env`/进程环境变量取值；缺失会收集到 `missingEnvVars` 并 warn（`Set` 去重，同一变量被多 brain 引用只提示一次），原样保留字符串。不会替换值中嵌入的 `$VAR`。运行期缺失时 `replaceEnvVars` 会先调用 `reloadEnvFile(false)` 重读 `.env` 文件补充**新添加**的变量（只填缺失、不覆盖 OS env 既有值），因此运行期新增的 `.env` 变量首次被 `$VAR` 引用即可用，无需重启；修改已有变量值仍需重启或经 `env.list` 刷新（`reloadEnvFile(true)` 覆盖式重载）。
 
 ### 配置读写（config.get / config.save RPC）
 
@@ -116,7 +116,7 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 - `sense_groups.*[]` 的 `:level` 后缀必须合法
 - `llm.brain.*` 的 `model` / `provider` 必填
 - `capabilities.generate.*` 不得与 `capabilities.toolCall:false` 组合；无 Tool Call brain 的角色不得配置 senseGroup/MCP
-- **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉按后缀白名单过滤（`API_KEY` / `APIKEY` / `TOKEN` / `SECRET(_KEY)` / `PASSWORD` / `PASSWD` / `ACCESS_KEY(_ID)`），运行时配置（`CHERY_DIR` / `*_HOST` / `*_URL` 等）不进入下拉。
+- **key 不参与启动校验**：`llm.brain.*.key` / `media.*.key` 缺失不阻止启动，运行期 provider 调用时若 key 为空才抛错响应前端（见 [../agent/provider.md](../agent/provider.md)）。前端 `env.list` 返回的密钥下拉按**后缀过滤**——任何以 `KEY` / `TOKEN` / `SECRET` / `PASSWORD` / `PASSWD` / `ACCESS_KEY_ID` 结尾的变量名都视为可作密钥占位（放宽：不再强制 `API_` 前缀，兼容手写命名如 `AP1I_KEY`），运行时配置（`CHERY_DIR` / `*_HOST` / `*_URL` 等）不进入下拉。
 
 写回保留盘上 `server` 段不动（端口/传输不通过面板编辑），`js-yaml` dump 无注释；完整注释文档备份在 [.chery/config.yaml.example](../../.chery/config.yaml.example)。
 
@@ -212,7 +212,7 @@ loadConfig()
 module 顶层 `const config = loadConfig()` → 全局单例，import 即触发
 ```
 
-`.env` 加载：config.ts 在模块顶层用 `dotenv.config()` 读 `src/../.env`（tsx 开发）或 `dist/.env`（生产）。
+`.env` 加载：config.ts 在模块顶层用 `dotenv.config()` 读 `src/../.env`（tsx 开发）或 `dist/.env`（生产）——启动一次性填充 `process.env`（不覆盖 OS env 既有值）。运行期新增/修改 `.env` 后，可经 `reloadEnvFile(override?)` 按需重读：`false` 只填充缺失键（`replaceEnvVars` 兜底用），`true` 以 `.env` 为准覆盖（`env.list` 刷新时触发，见 [../service/README.md](../service/README.md)）。
 
 ### rateLimiter 滑动窗口限流（runtime）
 

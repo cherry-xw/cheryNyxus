@@ -14,6 +14,7 @@ import { transport } from './transport.js'
 import { isAsyncGenerator } from '@/utils/generator.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
+import { reportFatalStartupError } from '../fatalStartup.js'
 import { OAuth2Auth } from '../auth/index.js'
 import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
 import { disconnectGrace } from './disconnectGrace.js'
@@ -109,6 +110,22 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
             done(true)
           }
         : undefined,
+  })
+
+  // 端口监听失败（EADDRINUSE）→ fatal 上报（guardian 停止重试，见 docs/service/README.md）。
+  // ws 库把底层 _server 的 error 转发到 wss 实例的 'error' 事件（见 ws lib/websocket-server.js
+  // addListeners: `error: this.emit.bind(this, 'error')`）；若 wss 无 error listener，
+  // Node 视为 unhandled 'error' 直接 throw crash worker。挂上后 EADDRINUSE 走报告路径，
+  // 其他错误仅日志（不退出）。
+  let reported = false
+  wss.on('error', (err) => {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EADDRINUSE' && !reported) {
+      reported = true
+      reportFatalStartupError({ code, port })
+    } else if (code !== 'EADDRINUSE') {
+      logger.info(`WebSocket 服务启动失败: ${(err as Error).message}`)
+    }
   })
 
   wss.on('connection', (ws) => {

@@ -34,6 +34,8 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
 3. `ws.on("close", () => connectionManager.close(ws))`。
 4. `ws.on("error", ...)` 仅日志。
 
+**端口监听失败（EADDRINUSE）**：`new WebSocketServer({ port })` 内部 `_server.listen()` 被占用时触发底层 server 的 `error` 事件（无监听会直接崩溃）。本层给 `_server` 挂 `error` 处理：`EADDRINUSE` → 调 `reportFatalStartupError({code, port})`（见 [fatalStartup.ts](../../src/service/fatalStartup.ts)）经 IPC 通知 guardian 停止重试并给出端口占用提示；其他错误仅日志（不退出）。端口占用 → guardian 行为见 [./README.md](./README.md)「启动流程」。
+
 ### handleMessage / handleRequest 流程
 
 ```
