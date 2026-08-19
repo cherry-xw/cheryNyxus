@@ -22,11 +22,6 @@ export interface OpenWindowRequest {
 
 export interface DesktopBridge {
   setMousePassthrough(ignore: boolean): void
-  setSurfaceState(state: { interacting?: boolean; menuOpen?: boolean; visiblePetCount?: number }): void
-  startSurfaceDrag(point: { screenX: number; screenY: number }): void
-  moveSurfaceDrag(point: { screenX: number; screenY: number }): void
-  endSurfaceDrag(): void
-  onSurfaceTeleport(listener: (event: { phase: 'out' | 'in'; token: string }) => void): () => void
   /** desktop 面：打开独立原生窗（设置 / 每预设一工作台窗）。 */
   openWindow(req: OpenWindowRequest): void
   /** 原生窗自绘标题栏 → 原生窗口控制。工作台窗 close = hide（保 WS/run），设置窗 close = destroy。 */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useAgentsStore, useConnectionStore, useThemeStore } from '@/stores'
 import { agentApi } from '@/services/agentApi'
 import NyxusParticle from './NyxusParticle.vue'
@@ -12,7 +12,6 @@ import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from '../nyxusUiState'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
-const props = withDefaults(defineProps<{ floatingNative?: boolean }>(), { floatingNative: false })
 const agents = useAgentsStore()
 const connection = useConnectionStore()
 const themeStore = useThemeStore()
@@ -34,12 +33,8 @@ const {
     () => nyxusMenuOpen.value,
     closeNyxusMenu,
   )
-const nativeDragging = ref(false)
-const dragging = computed(() => props.floatingNative ? nativeDragging.value : standaloneDragging.value)
-const anchorStyle = computed(() => props.floatingNative
-  // 原生悬浮窗的工具环覆盖在透明画布上；菜单开关不能改变核心的屏幕锚点。
-  ? ({ left: '50%', top: '50%' })
-  : ({ left: `${position.x}px`, top: `${position.y}px` }))
+const dragging = computed(() => standaloneDragging.value)
+const anchorStyle = computed(() => ({ left: `${position.x}px`, top: `${position.y}px` }))
 const disabled = computed(
   () => creating.value || openingChat.value || connection.status !== 'connected',
 )
@@ -57,10 +52,6 @@ const clickIntent = createClickDisambiguator(toggleNyxusMenu, () => void openNyx
 
 /** 单击延迟到双击判定窗结束后切换工具环，避免第一次 click 抢先打开业务界面。 */
 function onNyxusClick(): void {
-  if (props.floatingNative && nativeMoved) {
-    nativeMoved = false
-    return
-  }
   if (consumeSuppressedClick()) return
   clickIntent.single()
 }
@@ -77,12 +68,6 @@ async function openNyxusDialog(): Promise<void> {
   error.value = null
   try {
     const chatId = await agents.getActiveNyxus()
-    const bridge = desktopBridge()
-    if (props.floatingNative && bridge) {
-      bridge.openWindow({ kind: 'composer', chatId, source: 'nyxus', view: 'composer' })
-      closeNyxusMenu()
-      return
-    }
     // 双击打开的 nyxus 直接发消息窗：浮动、无遮罩（同 pet），目标固定为活跃 nyxus 会话。
     agents.activeDialogSource = 'nyxus'
     // getActiveNyxus 的轻量 catalog 已足够建立钢琴索引；节点正文由树挂载后
@@ -146,73 +131,17 @@ function openSettings(): void {
 
 /** 打开登录/连接服务弹窗（远端后端对接）。 */
 function openLogin(): void {
-  const bridge = desktopBridge()
-  if (props.floatingNative && bridge) {
-    bridge.openWindow({ kind: 'login' })
-    closeNyxusMenu()
-    return
-  }
   loginOpen.value = true
 }
 
-let nativeDown: { pointerId: number; screenX: number; screenY: number; element: HTMLElement } | undefined
-let nativeMoved = false
 function onPointerDown(event: PointerEvent): void {
-  if (!props.floatingNative) {
-    onStandalonePointerDown(event)
-    return
-  }
-  if (event.button !== 0 || !(event.currentTarget instanceof HTMLElement)) return
-  desktopBridge()?.setSurfaceState({ interacting: true })
-  nativeDown = { pointerId: event.pointerId, screenX: event.screenX, screenY: event.screenY, element: event.currentTarget }
-  nativeMoved = false
+  onStandalonePointerDown(event)
 }
 function onPointerMove(event: PointerEvent): void {
-  if (!props.floatingNative) {
-    onStandalonePointerMove(event)
-    return
-  }
-  if (!nativeDown || nativeDown.pointerId !== event.pointerId) return
-  // 原生窗口移动或系统卡顿时 pointerup 可能丢失。鼠标重新进入窗口后的 move 会携带
-  // buttons=0，此时必须主动清掉 renderer 与 main 中残留的拖动状态。
-  if ((event.buttons & 1) === 0) {
-    finishNativePointer(event.pointerId)
-    return
-  }
-  if (!nativeDragging.value && Math.hypot(event.screenX - nativeDown.screenX, event.screenY - nativeDown.screenY) > 5) {
-    nativeDragging.value = true
-    nativeMoved = true
-    nativeDown.element.setPointerCapture(event.pointerId)
-    desktopBridge()?.startSurfaceDrag({ screenX: nativeDown.screenX, screenY: nativeDown.screenY })
-  }
-  if (nativeDragging.value) desktopBridge()?.moveSurfaceDrag({ screenX: event.screenX, screenY: event.screenY })
-}
-function finishNativePointer(pointerId?: number): void {
-  const active = nativeDown
-  if (!active || (pointerId !== undefined && active.pointerId !== pointerId)) return
-  const wasDragging = nativeDragging.value
-  nativeDown = undefined
-  nativeDragging.value = false
-  if (active.element.hasPointerCapture(active.pointerId)) active.element.releasePointerCapture(active.pointerId)
-  if (wasDragging) desktopBridge()?.endSurfaceDrag()
-  desktopBridge()?.setSurfaceState({ interacting: nyxusMenuOpen.value })
+  onStandalonePointerMove(event)
 }
 function endPointer(event: PointerEvent): void {
-  if (!props.floatingNative) {
-    endStandalonePointer(event)
-    return
-  }
-  finishNativePointer(event.pointerId)
-}
-
-const stopMenuState = watch(nyxusMenuOpen, (menuOpen) => {
-  if (props.floatingNative) desktopBridge()?.setSurfaceState({ menuOpen, interacting: menuOpen })
-}, { immediate: true })
-
-function onNativeHover(hovering: boolean): void {
-  if (props.floatingNative && !nativeDragging.value) {
-    desktopBridge()?.setSurfaceState({ interacting: hovering || nyxusMenuOpen.value })
-  }
+  endStandalonePointer(event)
 }
 
 /** 打开 cheryNyxus（主预设）的节点树工作台，并刷新钢琴依赖的轻量会话目录。 */
@@ -248,8 +177,6 @@ async function openWorkbench(): Promise<void> {
 }
 
 onBeforeUnmount(() => {
-  stopMenuState()
-  if (nativeDragging.value) desktopBridge()?.endSurfaceDrag()
   clickIntent.dispose()
   closeNyxusMenu()
 })
@@ -270,8 +197,6 @@ onBeforeUnmount(() => {
     :style="anchorStyle"
     data-desktop-hit
     aria-label="Cherry Nyxus 入口"
-    @pointerenter="onNativeHover(true)"
-    @pointerleave="onNativeHover(false)"
   >
     <button
       type="button"
@@ -299,7 +224,7 @@ onBeforeUnmount(() => {
       @open-login="openLogin"
       @toggle-theme="themeStore.toggle"
     />
-    <ServerLoginDialog v-if="!floatingNative" :visible="loginOpen" @update:visible="loginOpen = $event" />
+    <ServerLoginDialog :visible="loginOpen" @update:visible="loginOpen = $event" />
     <div v-if="error" class="nyxus-error" role="alert">{{ error }}</div>
   </aside>
 </template>

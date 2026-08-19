@@ -64,15 +64,6 @@ function subscribe<T>(channel: string, listener: (data: T) => void): () => void 
 const desktopBridge = {
   setMousePassthrough: (ignore: boolean) =>
     ipcRenderer.send('desktop:mouse-passthrough', ignore),
-  setSurfaceState: (state: { interacting?: boolean; menuOpen?: boolean; visiblePetCount?: number }) =>
-    ipcRenderer.send('surface:set-state', state),
-  startSurfaceDrag: (point: { screenX: number; screenY: number }) =>
-    ipcRenderer.send('surface:drag-start', point),
-  moveSurfaceDrag: (point: { screenX: number; screenY: number }) =>
-    ipcRenderer.send('surface:drag-move', point),
-  endSurfaceDrag: () => ipcRenderer.send('surface:drag-end'),
-  onSurfaceTeleport: (listener: (event: { phase: 'out' | 'in'; token: string }) => void) =>
-    subscribe('surface:teleport', listener),
   openWindow: (req: OpenWindowRequest) => ipcRenderer.send('window:open', req),
   windowControl: (action: 'minimize' | 'maximize' | 'restore' | 'close') =>
     ipcRenderer.send('window:control', action),

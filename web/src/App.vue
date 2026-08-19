@@ -2,8 +2,6 @@
 import { onBeforeUnmount, onMounted, provide, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import DesktopSurface from '@/features/desktop/DesktopSurface.vue'
-import PetSurface from '@/features/desktop/PetSurface.vue'
-import NyxusSurface from '@/features/desktop/NyxusSurface.vue'
 import LoginSurface from '@/features/desktop/LoginSurface.vue'
 import WindowFrame from '@/features/desktop/WindowFrame.vue'
 import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
@@ -59,7 +57,7 @@ function bindElectronThemeBridge(): void {
   const bridge = desktopBridge()
   if (!bridge) return
   const themeStore = useThemeStore()
-  const transparentSurface = surface === 'desktop' || surface === 'pet' || surface === 'nyxus'
+  const transparentSurface = surface === 'desktop'
   // 读当前主题 --bg（theme.css 已定义），回写原生窗底色（首帧 / resize 边缘兜底，防灰边）
   const applyWindowBackground = () => {
     const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
@@ -243,8 +241,6 @@ async function bootstrap(): Promise<void> {
 
 <template>
   <DesktopSurface v-if="surface === 'desktop'" />
-  <PetSurface v-else-if="surface === 'pet'" />
-  <NyxusSurface v-else-if="surface === 'nyxus'" />
   <AgentDialog v-else-if="surface === 'composer'" native />
   <div v-else-if="surface === 'history'" class="history-native"><HistoryDrawer /></div>
   <LoginSurface v-else-if="surface === 'login'" />

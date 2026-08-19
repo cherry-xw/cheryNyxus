@@ -96,6 +96,7 @@ watch(
       <div
         ref="overlayRef"
         class="drawer-overlay"
+        data-desktop-hit
         :class="{
           'is-top-mask': isTopMask,
           'is-workbench-docked': drawerMode === 'workbench-docked',
