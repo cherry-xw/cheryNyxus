@@ -219,8 +219,6 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   color: #3d2606;
   background: linear-gradient(135deg, rgba(255, 216, 130, 0.92), rgba(248, 190, 66, 0.86));
-  backdrop-filter: blur(6px) saturate(1.15);
-  -webkit-backdrop-filter: blur(6px) saturate(1.15);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.12),
     0 4px 12px rgba(0, 0, 0, 0.18);

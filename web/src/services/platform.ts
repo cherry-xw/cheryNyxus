@@ -32,8 +32,12 @@ declare global {
     __BACKEND_CONFIG__?: ServerConfig
     /** Electron preload 注入（http://localhost:<webPort>）；浏览器模式无 */
     __BACKEND_HTTP_URL__?: string
+    /** Electron preload 注入：invoke main 进程刷新后端配置（返回含最新 sessionToken）；浏览器模式无 */
+    __REFRESH_BACKEND_CONFIG__?: () => Promise<ServerConfig>
     /** Electron preload 注入：目录选择对话框（预设 workspace 用）；浏览器模式无 */
     __PICK_DIRECTORY__?: () => Promise<string | null>
+    /** Electron preload 注入：原生窗口与多 surface 协调桥。 */
+    __DESKTOP_BRIDGE__?: import('@/features/desktop/desktopBridge').DesktopBridge
   }
 }
 
@@ -41,6 +45,28 @@ declare global {
 
 /** 当前是否运行在 Electron 模式（preload 注入了 `__BACKEND_CONFIG__`）。 */
 export const isElectron: boolean = typeof window !== 'undefined' && !!window.__BACKEND_CONFIG__
+
+/**
+ * `/api/config` 拉取超时（ms）。worker 重启瞬间 Chromium 连接池可能把请求复用到
+ * 已死的 socket 上——无超时会让重连的 fetch 永久挂起、`conn.status` 卡在 disconnected
+ * 且无日志。超时 reject → ws.ts `reconnect()` catch → 2s 后重试直到 worker 就绪。
+ */
+const CONFIG_FETCH_TIMEOUT_MS = 5000
+
+/** 拉取后端配置（带超时 + 鉴权头，Cache-Control: no-store）。 */
+async function fetchConfig(path: string): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), CONFIG_FETCH_TIMEOUT_MS)
+  try {
+    return await fetch(path, {
+      cache: 'no-store',
+      headers: sessionHeaders({}),
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 // ---- URL 构造器 -------------------------------------------------------------
 
@@ -106,22 +132,30 @@ export function sessionHeaders(server: { sessionToken?: string }): Record<string
  * 解析后端端口 + transport + 会话 token。
  *
  * - 远端模式：`fetch/httpUrl('/api/config')` 拉取目标后端配置（Electron short-circuit 不适用）
- * - Electron 模式：读 `window.__BACKEND_CONFIG__`（preload 注入，无需 fetch）
- * - 浏览器模式：`fetch('/api/config')` 获取 `wsPort + transport`
+ * - Electron 模式：
+ *   - 非 refresh：读 `window.__BACKEND_CONFIG__`（preload 注入快照，无需 fetch）
+ *   - refresh：走 `window.__REFRESH_BACKEND_CONFIG__()`（main 进程 IPC fetch）——渲染进程
+ *     直接 fetch /api/config 会被 CORS 拦截（后端响应无 Access-Control-Allow-Origin 头）
+ * - 浏览器模式：`fetch('/api/config')` 获取 `wsPort + transport`（同源，vite proxy / 后端 serve 无 CORS）
  */
 export async function getServerConfig(options: { refresh?: boolean } = {}): Promise<ServerConfig> {
   const auth = useAuthStore()
   // 远端：必须向目标后端拉取配置（Electron 本地 short-circuit 不适用）。
   // 远端需鉴权，附 Bearer token（本地分支 sessionHeaders 返回空 {}，靠后端 loopback 豁免）。
   if (auth.isRemote) {
-    const res = await fetch(httpUrl('/api/config'), { cache: 'no-store', headers: sessionHeaders({}) })
+    const res = await fetchConfig(httpUrl('/api/config'))
     if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
     return (await res.json()) as ServerConfig
   }
-  // Electron preload 的配置只在应用启动时注入。worker 重启会轮换本地 sessionToken，
-  // 自动重连必须改从仍由守护进程恢复的 HTTP /api/config 读取新值。
-  if (window.__BACKEND_CONFIG__ && !options.refresh) return window.__BACKEND_CONFIG__
-  const res = await fetch(httpUrl('/api/config'), { cache: 'no-store', headers: sessionHeaders({}) })
+  // Electron：worker 重启会轮换本地 sessionToken，自动重连/手动重连必须经 main 进程 IPC
+  // 刷新（渲染进程 fetch /api/config 被 CORS 拦截）；非 refresh 用 preload 注入快照。
+  if (window.__BACKEND_CONFIG__) {
+    if (options.refresh && window.__REFRESH_BACKEND_CONFIG__) {
+      return await window.__REFRESH_BACKEND_CONFIG__()
+    }
+    return window.__BACKEND_CONFIG__
+  }
+  const res = await fetchConfig(httpUrl('/api/config'))
   if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
   return (await res.json()) as ServerConfig
 }

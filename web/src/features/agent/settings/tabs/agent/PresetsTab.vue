@@ -162,7 +162,7 @@ function mediaNamesByType(type: 'image' | 'video' | 'audio'): string[] {
     .map(([name]) => name)
 }
 
-/** 目录选择按钮：仅 Electron 模式（选的是后端同机路径，绝对路径有效）；浏览器模式无此能力（前端机器路径与后端无关）。 */
+/** 目录选择按钮按运行模式互斥展示：Electron 用原生「选择目录」（后端同机绝对路径）；浏览器用「浏览」服务端目录弹层（前端机器路径与后端无关）。 */
 const canPickDir = isElectron
 
 /** 每预设的绝对路径格式错误提示（前端即时校验；存在性由后端 validateWorkspace RPC 校验）。 */
@@ -540,7 +540,7 @@ const indexItems = computed<IndexItem[]>(() => {
         <div class="card-grid card-grid-3 combo-row">
           <label class="field">
             <LabelTip
-              label="会话路由"
+              label="角色选择(路由)"
               :tip="'选择会话路由影子角色（Shadow）：\n· 发送消息后、提交前，影子调用 select_conversation 决定继续的会话或新建会话\n· 留空则关闭自动路由\n影子角色在「角色 → 影子角色」中创建。'"
             />
             <el-select
@@ -564,7 +564,7 @@ const indexItems = computed<IndexItem[]>(() => {
           <label class="field">
             <LabelTip
               label="工作区"
-              :tip="'该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）：\n· 留空则不限定\n· 「浏览」逐层选择服务端目录（Electron 与浏览器均可用，受 server.workspace_browse.roots 白名单限制）\n· Electron 模式另有「选择目录」原生按钮，也可手动填写绝对路径'"
+              :tip="'该预设创建的会话把此目录作为项目工作区写入系统提示词（仅提示 AI，不限制实际文件操作）：\n· 留空则不限定\n· 「选择目录」打开系统目录选择器（Electron）或「浏览」逐层选择服务端目录（浏览器），受 server.workspace_browse.roots 白名单限制\n· 也可手动填写绝对路径'"
             />
             <div class="workspace-row">
               <el-input
@@ -593,14 +593,25 @@ const indexItems = computed<IndexItem[]>(() => {
                 选择目录
               </button>
               <button
+                v-else
                 type="button"
                 class="ghost-btn"
-                title="浏览服务端文件系统，逐层选择目录（全模式可用）"
+                title="浏览服务端文件系统，逐层选择目录"
                 @click="openBrowser(pname as string)"
               >
                 浏览
               </button>
             </div>
+            <!-- 校验告警紧跟工作区输入框（后端 config.save 返 warnings / 前端格式错误），不再放整个三列块底部 -->
+            <span
+              v-if="props.workspaceWarnings?.[pname as string]"
+              class="ws-warning"
+            >
+              {{ props.workspaceWarnings[pname as string] }}
+            </span>
+            <span v-else-if="workspaceFormatErrors[pname as string]" class="ws-warning">
+              {{ workspaceFormatErrors[pname as string] }}
+            </span>
           </label>
           <label class="field">
             <LabelTip
@@ -628,12 +639,6 @@ const indexItems = computed<IndexItem[]>(() => {
             </div>
           </label>
         </div>
-        <span v-if="props.workspaceWarnings?.[pname as string]" class="ws-warning">
-          {{ props.workspaceWarnings[pname as string] }}
-        </span>
-        <span v-else-if="workspaceFormatErrors[pname as string]" class="ws-warning">
-          {{ workspaceFormatErrors[pname as string] }}
-        </span>
       </div>
     </article>
 

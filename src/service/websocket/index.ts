@@ -170,6 +170,13 @@ async function handleMessage(
 ): Promise<void> {
   const raw = transport.parseMessage(data)
 
+  // 心跳探测：前端定时发纯 JSON {kind:'ping'}（浏览器 WebSocket 无法主动发协议层
+  // ping 帧），原样回 {kind:'pong'}，不进 RPC 路由、不产生 req.start/req.end 日志。
+  if ((raw as { kind?: string }).kind === 'ping') {
+    ws.send(transport.serializeMessage({ kind: 'pong' }))
+    return
+  }
+
   if (isRequest(raw)) {
     await handleRequest(ws, state, raw, router)
   } else {

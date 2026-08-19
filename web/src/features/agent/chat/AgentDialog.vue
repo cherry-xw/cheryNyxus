@@ -21,6 +21,7 @@ import { desktopBridge } from '@/features/desktop/desktopBridge'
 import { useAgentsStore, useInteractionsStore } from '@/stores'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 
+const props = withDefaults(defineProps<{ native?: boolean }>(), { native: false })
 const agents = useAgentsStore()
 const interactions = useInteractionsStore()
 // 共用单蒙层：仅当 AgentDialog 是栈顶 overlay 且非 pet/nyxus 来源时其蒙层带 blur，否则透明。
@@ -218,6 +219,7 @@ function bindPanelEl(el: unknown): void {
     el instanceof HTMLElement ? el : ((el as { $el?: HTMLElement } | null)?.$el ?? null)
 }
 function onHeaderPointerDown(e: PointerEvent): void {
+  if (props.native) return
   const target = e.target as HTMLElement
   if (target.closest('button, input, a, [contenteditable="true"], .el-tooltip')) return
   const panel = panelEl.value
@@ -285,6 +287,7 @@ const dragPreviewStyle = computed(() =>
 )
 /** 路由小窗锚定在发送面板右侧；实时读面板 rect，拖动/布局变化自适应。 */
 const traceWindowPos = computed(() => {
+  if (props.native) return { left: '12px', top: '52px' }
   void panelPos.value // 面板拖动变更时触发重算；未拖动时读当前居中布局的实际 rect。
   const panel = panelEl.value
   if (!panel) return { left: '0px', top: '0px' }
@@ -406,6 +409,10 @@ async function openWorkspaceTree(
 }
 
 function closeDialog(): void {
+  if (props.native) {
+    desktopBridge()?.windowControl('close')
+    return
+  }
   agents.closeAllHistory()
   closeAgentDialog()
 }
@@ -509,7 +516,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
       v-if="dialogVisible"
       key="overlay"
       class="dialog-overlay"
-      :class="{ 'is-top-mask': isTopMask, 'is-floating': isFloatingOverlay }"
+      :class="{ 'is-top-mask': isTopMask, 'is-floating': isFloatingOverlay, 'is-native': native }"
       :initial="{ opacity: 0 }"
       :animate="{ opacity: 1 }"
       :exit="{ opacity: 0 }"
@@ -841,6 +848,39 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
   color: #fff;
   font-size: 8px;
   line-height: 15px;
+}
+</style>
+
+<style lang="less">
+.dialog-overlay.is-native {
+  position: fixed;
+  inset: 0;
+  display: block;
+  padding: 8px;
+  background: var(--bg);
+  overflow: hidden;
+  pointer-events: auto;
+
+  .dialog-panel {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0 !important;
+  }
+
+  .dialog-head {
+    -webkit-app-region: drag;
+  }
+  .dialog-head button,
+  .dialog-head input,
+  .dialog-head a,
+  .dialog-head [contenteditable='true'] {
+    -webkit-app-region: no-drag;
+  }
 }
 </style>
 

@@ -35,6 +35,14 @@ interface PendingRequest {
 
 const RECONNECT_DELAY = 2000
 /**
+ * 心跳间隔（ms）。浏览器/Electron 渲染进程的 WebSocket API 无法主动发协议层 ping 帧，
+ * 只能定时发应用层纯 JSON `{kind:'ping'}` 探测（后端原样回 `{kind:'pong'}`，见
+ * src/service/websocket/index.ts handleMessage）。用于检测 worker 重启时的半开连接。
+ */
+const HEARTBEAT_INTERVAL_MS = 30000
+/** 心跳探测超时（ms）：发出 ping 后 PONG_TIMEOUT 内无 pong → 下次心跳判定半开、主动 close 走重连。 */
+const HEARTBEAT_TIMEOUT_MS = 10000
+/**
  * 非流式 rpc 超时（ms）。WS 半开时 response 永不到达，rpc Promise 既不 resolve 也不 reject
  * → ApprovalCard pending 永不复位 → 后续点击静默无效、卡片不关（"点审批无反应+卡住"根因之一）。
  * 超时 reject 让 UI fail-loud（显「请求超时」+复位 pending 允许重试）。仅 rpc() 非流式用；
@@ -79,6 +87,9 @@ export class WsClient {
   private shouldReconnect = false
   private connectionGeneration = 0
   private reconnectWaiters: Array<{ generation: number; resolve: () => void }> = []
+  /** 心跳：连接级定时器 + 单次探测超时（pong 到达时清除）。 */
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null
+  private heartbeatPending: ReturnType<typeof setTimeout> | null = null
   /** Highest consumed recoverable event sequence per chat for this page lifetime. */
   private chatSeq = new Map<string, number>()
   /** Events that arrived ahead of a missing sequence while a sync is in flight. */
@@ -157,9 +168,16 @@ export class WsClient {
     return () => this.statusHandlers.delete(handler)
   }
 
-  async connect(): Promise<void> {
-    if (!this.serverConfig) {
-      this.serverConfig = await getServerConfig()
+  /**
+   * 建立连接。serverConfig 缓存后默认复用（Electron preload 注入快照）；
+   * `refresh: true` 强制重新拉取最新配置——worker 重启会轮换本地 sessionToken，
+   * **任何「重启后重连/手动重连」必须传 refresh**，否则缓存旧 token 会被服务端
+   * verifyClient 401 拒绝。Electron 下刷新经 main 进程 IPC（渲染进程直接 fetch
+   * /api/config 会被 CORS 拦截），浏览器走同源 fetch，见 [./platform.ts](./platform.ts)。
+   */
+  async connect(options: { refresh?: boolean } = {}): Promise<void> {
+    if (!this.serverConfig || options.refresh) {
+      this.serverConfig = await getServerConfig({ refresh: options.refresh ?? false })
     }
     this.shouldReconnect = true
     this.open()
@@ -186,6 +204,47 @@ export class WsClient {
     return this.watchNextReconnect().promise
   }
 
+  // ---- 心跳（半开连接检测）---------------------------------------------------
+  /**
+   * 启动心跳定时器（ws open 后）。每 HEARTBEAT_INTERVAL_MS 发一次探测：
+   * - 若上一次 ping 的 pong 尚未到达（heartbeatPending 还挂着）→ 判定半开，主动 close() 走重连；
+   * - 否则发 `{kind:'ping'}` 并设 HEARTBEAT_TIMEOUT_MS 期待 pong（到达时清除）。
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.heartbeatInterval = setInterval(() => {
+      const ws = this.ws
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      if (this.heartbeatPending) {
+        console.warn('[ws] 心跳无响应，判定连接半开，主动断开触发重连')
+        ws.close()
+        return
+      }
+      ws.send(JSON.stringify({ kind: 'ping' }))
+      this.heartbeatPending = setTimeout(() => {
+        // 超时只清标记：不立即 close，等下一次心跳检查（避免正常抖动的误杀）。
+        this.heartbeatPending = null
+      }, HEARTBEAT_TIMEOUT_MS)
+    }, HEARTBEAT_INTERVAL_MS)
+  }
+
+  /** 停止心跳（ws close 后）。 */
+  private stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+    }
+    this.clearHeartbeatPending()
+  }
+
+  /** pong 到达：清掉本次探测超时标记。 */
+  private clearHeartbeatPending(): void {
+    if (this.heartbeatPending) {
+      clearTimeout(this.heartbeatPending)
+      this.heartbeatPending = null
+    }
+  }
+
   private open(): void {
     if (!this.serverConfig) return
     this.setStatus('connecting')
@@ -202,6 +261,7 @@ export class WsClient {
 
     ws.onopen = () => {
       this.setStatus('connected')
+      this.startHeartbeat()
       // Reuse the original Request.id after a disconnect. The server either
       // joins the in-flight execution or returns its stored terminal response.
       // 非流式 rpc 重连重发：重置超时窗口（断连期已耗去部分时间，给重发请求新窗口）。
@@ -214,6 +274,7 @@ export class WsClient {
       // 旧 socket 的迟到 close 不能覆盖新连接或重复安排重连。
       if (this.ws !== ws) return
       this.ws = null
+      this.stopHeartbeat()
       this.setStatus('disconnected')
       if (this.shouldReconnect) {
         this.scheduleReconnect()
@@ -233,6 +294,11 @@ export class WsClient {
     if (!msg || typeof msg !== 'object') return
 
     const kind = (msg as { kind?: string }).kind
+    // 心跳 pong（后端对 {kind:'ping'} 原样回）：仅清除探测超时标记，不入事件流。
+    if (kind === 'pong') {
+      this.clearHeartbeatPending()
+      return
+    }
     const envelope = msg as {
       chatId?: unknown
       seq?: unknown
@@ -409,7 +475,10 @@ export class WsClient {
         await auth.refresh()
       }
       if (this.shouldReconnect) this.open()
-    } catch {
+    } catch (e) {
+      // 重连准备失败显性化：worker 重启/网络抖动时 fetch（getServerConfig）或
+      // refresh 抛错。静默吞错会让「重连卡住」无任何日志，难以排查。
+      console.warn('[ws] 重连准备失败，2s 后重试:', e instanceof Error ? e.message : e)
       this.setStatus('disconnected')
       this.scheduleReconnect()
     }

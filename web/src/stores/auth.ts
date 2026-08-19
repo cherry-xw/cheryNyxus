@@ -249,6 +249,17 @@ export const useAuthStore = defineStore('auth', () => {
     persist()
   }
 
+  /** Electron 多 renderer：另一个原生窗更新 localStorage 后显式刷新本 Pinia 投影。 */
+  function reloadFromStorage(): void {
+    serverAddress.value = localStorage.getItem(KEY_ADDR) ?? ''
+    accessToken.value = localStorage.getItem(KEY_ACCESS) ?? ''
+    refreshToken.value = localStorage.getItem(KEY_REFRESH) ?? ''
+    username.value = localStorage.getItem(KEY_USER) ?? ''
+    rememberPassword.value = localStorage.getItem(KEY_REMEMBER_PW) === '1'
+    savedUsername.value = localStorage.getItem(KEY_SAVED_USER) ?? ''
+    savedPassword.value = localStorage.getItem(KEY_SAVED_PW) ?? ''
+  }
+
   function getBaseUrl(): string {
     return serverAddress.value
   }
@@ -354,6 +365,7 @@ export const useAuthStore = defineStore('auth', () => {
     isRemote,
     loggedIn,
     setServerAddress,
+    reloadFromStorage,
     getBaseUrl,
     authHeader,
     login,

@@ -7,17 +7,23 @@ import type { StreamState } from '@/stores'
 import { selectOwnTimeline, selectActiveMessage } from '@/stores/chats/selectors'
 import type { PetInstance } from './types/types'
 import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
 
 /**
  * 透明模式（Electron desktop surface）：清除网格纹理与渐变背景，只保留 sprite——
  * 全工作区透明覆盖窗下实体外区域全部让给桌面。
  */
-withDefaults(defineProps<{ transparent?: boolean }>(), { transparent: false })
+const props = withDefaults(defineProps<{ transparent?: boolean; floatingNative?: boolean }>(), {
+  transparent: false,
+  floatingNative: false,
+})
 
 const stageRef = ref<HTMLElement | null>(null)
 // pets 单一数据源 = agents store；usePetWorld 注入数组，RAF/交互直接作用于 store state
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
+const bridge = desktopBridge()
+const visiblePets = computed(() => agents.pets.filter((pet) => !pet.isGhost))
 /**
  * Transitional presentation bridge: Pet widgets still accept legacy StreamState,
  * while ChatSession is now authoritative for V2 timeline/session data. This
@@ -62,9 +68,10 @@ function presetAttentionCount(pet: PetInstance): number {
 function activeRoot(pet: PetInstance): string {
   return agents.activeRootForPet(pet)
 }
-const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = usePetWorld(
+const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = usePetWorld(
   stageRef,
   agents.pets,
+  (pet) => !props.floatingNative || !pet.isGhost,
 )
 
 /**
@@ -74,6 +81,15 @@ const { pets, isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = useP
  */
 async function handleClick(pet: PetInstance): Promise<void> {
   if (pet.isMaster) {
+    if (props.floatingNative && bridge) {
+      bridge.openWindow({
+        kind: 'composer',
+        chatId: activeRoot(pet),
+        source: 'pet',
+        view: 'composer',
+      })
+      return
+    }
     const restoringMinimizedWorkbench =
       agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
     agents.workbenchMinimized = false
@@ -91,11 +107,19 @@ async function handleClick(pet: PetInstance): Promise<void> {
     agents.activeDialogChatId = activeRoot(pet)
     return
   }
+  if (props.floatingNative && bridge) {
+    bridge.openWindow({ kind: 'history', chatId: pet.chatId })
+    return
+  }
   clickPet(pet)
 }
 
 function handleDoubleClick(pet: PetInstance): void {
   if (!pet.isMaster) return
+  if (props.floatingNative && bridge) {
+    bridge.openWindow({ kind: 'composer', chatId: activeRoot(pet), source: 'pet', view: 'composer' })
+    return
+  }
   const restoringMinimizedWorkbench =
     agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
   agents.workbenchMinimized = false
@@ -107,11 +131,45 @@ function handleDoubleClick(pet: PetInstance): void {
 }
 
 function handleStroke(pet: PetInstance): void {
+  if (props.floatingNative && bridge && !pet.isMaster) {
+    bridge.openWindow({ kind: 'history', chatId: pet.chatId })
+    return
+  }
   clickPet(pet)
 }
 
 function handleStartDrag(pet: PetInstance, event: PointerEvent): void {
+  if (props.floatingNative) bridge?.setSurfaceState({ interacting: true })
+  if (props.floatingNative && bridge && event.altKey) {
+    nativeDragPointer = event.pointerId
+    bridge.startSurfaceDrag({ screenX: event.screenX, screenY: event.screenY })
+    return
+  }
   startDrag(pet, event)
+}
+
+let nativeDragPointer: number | null = null
+function handleDrag(pet: PetInstance, event: PointerEvent): void {
+  if (nativeDragPointer === event.pointerId && bridge) {
+    bridge.moveSurfaceDrag({ screenX: event.screenX, screenY: event.screenY })
+    return
+  }
+  dragPet(pet, event)
+}
+function handleEndDrag(pet: PetInstance, event: PointerEvent): void {
+  if (nativeDragPointer === event.pointerId && bridge) {
+    nativeDragPointer = null
+    bridge.endSurfaceDrag()
+    bridge.setSurfaceState({ interacting: false })
+    return
+  }
+  endDrag(pet, event)
+  if (props.floatingNative) bridge?.setSurfaceState({ interacting: false })
+}
+
+function handleHover(pet: PetInstance, hovering: boolean): void {
+  hoverPet(pet, hovering)
+  if (props.floatingNative) bridge?.setSurfaceState({ interacting: hovering })
 }
 
 async function handleAbort(pet: PetInstance): Promise<void> {
@@ -134,6 +192,10 @@ async function handleHistory(pet: PetInstance): Promise<void> {
   //   抽屉内下拉可切换查看其他会话，切换不写 activeRootByPreset/activeNyxusChatId（纯查看器）。
   await agents.fetchHistoryList()
   const latest = agents.latestRootInPreset(pet.presetId, pet.preset)
+  if (props.floatingNative && bridge) {
+    bridge.openWindow({ kind: 'history', chatId: latest ?? activeRoot(pet) })
+    return
+  }
   agents.openHistoryRoot(latest ?? activeRoot(pet))
 }
 
@@ -154,6 +216,10 @@ async function handleAttention(pet: PetInstance): Promise<void> {
     seen.add(root.chatId)
     root = byId.get(root.parentChatId) ?? root
     if (!root.parentChatId) break
+  }
+  if (props.floatingNative && bridge) {
+    bridge.openWindow({ kind: 'composer', chatId: root.chatId, source: 'history', view: 'attention' })
+    return
   }
   agents.activeDialogSource = 'history'
   agents.activatePresetSession(pet.presetId, root.chatId)
@@ -180,18 +246,18 @@ async function handleResume(pet: PetInstance): Promise<void> {
 </script>
 
 <template>
-  <main ref="stageRef" class="pet-stage" :class="{ 'is-transparent': transparent }" aria-label="Interactive desktop pets">
+  <main ref="stageRef" class="pet-stage" :class="{ 'is-transparent': transparent, 'is-floating-native': floatingNative }" aria-label="Interactive desktop pets">
     <PetSprite
-      v-for="pet in pets"
+      v-for="pet in visiblePets"
       :key="pet.instanceId"
       :pet="pet"
       :paused="isPaused"
       :stream="visibleStreams[activeRoot(pet)]"
       :attention-count="presetAttentionCount(pet)"
       @start-drag="handleStartDrag"
-      @drag="dragPet"
-      @end-drag="endDrag"
-      @hover="hoverPet"
+      @drag="handleDrag"
+      @end-drag="handleEndDrag"
+      @hover="handleHover"
       @click-pet="handleClick"
       @stroke-pet="handleStroke"
       @double-click-pet="handleDoubleClick"
@@ -247,6 +313,11 @@ async function handleResume(pet: PetInstance): Promise<void> {
     &::before {
       display: none;
     }
+  }
+
+  &.is-floating-native {
+    min-width: 0;
+    min-height: 0;
   }
 }
 </style>

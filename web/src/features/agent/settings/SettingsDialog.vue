@@ -364,6 +364,45 @@ function onError(msg: string): void {
   error.value = msg || null
 }
 
+/**
+ * 后端配置域前缀 → 设置 Tab 映射。保存失败错误串逐行解析后按此跳转对应 Tab，
+ * 让用户直接看到出错字段所在的编辑位置（如 `presets.默认.workspace ...` → 📦 预设）。
+ * 未知前缀（hooks / 未来新增字段）不映射、原样展示不可跳转。
+ */
+const ERROR_TAB_BY_PREFIX: Record<string, TabKey> = {
+  presets: 'presets',
+  roles: 'roles',
+  llm: 'brains',
+  sense_groups: 'senses',
+  media: 'media',
+  mcp_servers: 'mcp',
+  global: 'global',
+  memory: 'global',
+}
+
+/** 单行错误 → 结构化条目：首段 `xxx.` 前缀命中映射时带 tab 信息（图标/名称取自 TABS）。 */
+interface ErrorLine {
+  text: string
+  tab?: { key: TabKey; icon: string; label: string }
+}
+function parseErrorLine(line: string): ErrorLine {
+  const m = /^([a-z_]+)\./.exec(line)
+  const key = m?.[1]
+  const tabKey = key ? ERROR_TAB_BY_PREFIX[key] : undefined
+  if (!tabKey) return { text: line }
+  const tab = TABS.find((t) => t.key === tabKey)
+  return tab ? { text: line, tab: { key: tab.key, icon: tab.icon, label: tab.label } } : { text: line }
+}
+/** 错误弹窗逐行条目（保存/加载失败共用）。 */
+const errorLines = computed<ErrorLine[]>(() =>
+  (error.value ?? '').split('\n').filter((l) => l.trim()).map(parseErrorLine),
+)
+/** 点击错误行跳转对应 Tab。 */
+function gotoErrorTab(key: TabKey): void {
+  activeTab.value = key
+  error.value = null
+}
+
 function setWorkspaceWarning(presetName: string, warning?: string): void {
   const next = { ...workspaceWarnings.value }
   if (warning) next[presetName] = warning
@@ -783,12 +822,36 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
             }
           "
         >
-          <pre class="settings-error-detail" role="alert">{{ error }}</pre>
-          <template #footer
-            ><button type="button" class="primary-btn" @click="error = null">
-              知道了
-            </button></template
-          >
+          <div class="settings-error-detail" role="alert">
+            <div v-for="(line, i) in errorLines" :key="i" class="error-line">
+              <span v-if="line.tab" class="error-tab-badge">
+                {{ line.tab.icon }} {{ line.tab.label }}
+              </span>
+              <span class="error-text">{{ line.text }}</span>
+              <button
+                v-if="line.tab"
+                type="button"
+                class="error-jump-btn"
+                :title="`前往「${line.tab.label}」Tab 修正`"
+                @click="gotoErrorTab(line.tab.key)"
+              >
+                前往 →
+              </button>
+            </div>
+          </div>
+          <template #footer>
+            <div class="error-footer">
+              <button
+                type="button"
+                class="ghost-btn"
+                :disabled="connection.status !== 'connected' || openingConfigDir"
+                @click="openConfigDir"
+              >
+                打开配置目录
+              </button>
+              <button type="button" class="primary-btn" @click="error = null">知道了</button>
+            </div>
+          </template>
         </el-dialog>
         <div
           v-if="savedHint"
@@ -898,18 +961,57 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   margin: 0;
   max-height: 52vh;
   overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font:
-    12px/1.55 ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
   border-radius: 8px;
   padding: 10px;
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+// 单行错误：纯展示（徽章 + 原文）+ 行尾独立「前往」跳转按钮，展示与行为分离
+.error-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-tab-badge {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+.error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.error-jump-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  &:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+}
+.error-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .head {

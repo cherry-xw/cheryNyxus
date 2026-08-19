@@ -19,7 +19,9 @@ export interface ServerConfig {                         // 后端端口 + transp
 }
 export function httpUrl(path: string): string;          // 拼绝对 HTTP URL（Electron file:// 下相对路径挂）
 export function wsUrl(cfg: ServerConfig): string;       // 收敛 WS URL 三分支
-export async function getServerConfig(): Promise<ServerConfig>;  // 注入优先，否则 fetch /api/config
+export async function getServerConfig(options?: { refresh?: boolean }): Promise<ServerConfig>;
+// 注入优先，否则 fetch /api/config；refresh=true 时强制拉最新（token 已轮换时必用）。
+// Electron 模式 refresh 走 main 进程 IPC（渲染进程直接 fetch 会被 CORS 拦截），浏览器走同源 fetch
 ```
 
 ## 设计要点
@@ -45,6 +47,19 @@ export async function getServerConfig(): Promise<ServerConfig>;  // 注入优先
 | 浏览器 / prod | `<ws/wss>://<host>:<wsPort>` | 后端静态 serve 同源 + 直连 |
 
 原 [web/src/services/ws.ts](../../web/src/services/ws.ts) 的 if-else 三分支已搬到 `wsUrl()`，调用方 `new WebSocket(wsUrl(cfg))` 即可。
+
+### 会话 token 轮换与重连刷新
+
+`ServerConfig.sessionToken` 是**本地 loopback 能力**（`wsUrl`/WS `?token=` 校验用），随后端 worker 重启**每次轮换**（[service/index.ts](../../../src/service/index.ts) `randomBytes`）。因此：
+
+- **`getServerConfig()`（默认）**：Electron 模式直接返回 preload 注入的 `__BACKEND_CONFIG__`（窗口创建时的快照，token 可能已过期）。
+- **`getServerConfig({ refresh: true })`**：强制拉**当前 worker** 的端口/token——**任何「worker 重启后重连」路径必须走 refresh**，不能复用缓存的旧 token（否则 WS 被 `verifyClient` 以 401 拒绝）。两种实现：
+  - **Electron 模式**：经 `window.__REFRESH_BACKEND_CONFIG__()`（preload 暴露，invoke `backend:refresh-config`）让 **main 进程** `fetch('/api/config')`（带 5s 超时）。渲染进程**不能直接 fetch**——后端 `/api/config` 响应无 `Access-Control-Allow-Origin` 头，Chromium 按 CORS 拦截跨源请求（渲染进程 origin 为 `file://` 或 dev `:5173`，与 `:8183` 跨源；vite proxy 只对相对路径生效，`httpUrl()` 返回绝对 URL 不走 proxy）。main 进程的 Node 全局 fetch 无 CORS 限制。
+  - **浏览器模式**：同源 `fetch('/api/config')`（vite dev proxy / 后端同源 serve，无 CORS）。
+
+**fetch 带 5s 超时**（`AbortController`）：worker 切换瞬间 Chromium 连接池可能把请求发到已死 socket 上，无超时会让重连永久挂起、`conn.status` 卡在 `disconnected` 且无日志。超时后 fetch reject → 调用方（ws.ts `reconnect()`）走 catch → 2s 后重试，直到 worker 就绪。
+
+**首次连接 vs 重连**：首次连接（`connection.init()`）**不传 refresh**——用 preload 快照直连（main 已 `waitForBackend` 就绪，token 有效，且省一次 IPC）；即使快照 token 因罕见竞态失效，WS `onclose → shouldReconnect → reconnect()` 会走 refresh 兜底。手动/自动重连（`connection.reconnect()` / ws.ts `reconnect()`）**必须传 refresh**。
 
 ### `httpUrl` 保留转发层
 

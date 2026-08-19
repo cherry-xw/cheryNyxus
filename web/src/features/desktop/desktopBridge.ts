@@ -10,16 +10,23 @@
  */
 
 /** 与 electron/main.ts 的 WindowKind / OpenWindowRequest 保持同构（IPC 载荷，无 class/enum）。 */
-export type WindowKind = 'settings' | 'workbench'
+export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
 export interface OpenWindowRequest {
   kind: WindowKind
   presetId?: string
   chatId?: string
+  source?: 'pet' | 'history' | 'nyxus'
+  view?: 'composer' | 'attention' | 'tree'
   focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
 }
 
 export interface DesktopBridge {
   setMousePassthrough(ignore: boolean): void
+  setSurfaceState(state: { interacting?: boolean; menuOpen?: boolean; visiblePetCount?: number }): void
+  startSurfaceDrag(point: { screenX: number; screenY: number }): void
+  moveSurfaceDrag(point: { screenX: number; screenY: number }): void
+  endSurfaceDrag(): void
+  onSurfaceTeleport(listener: (event: { phase: 'out' | 'in'; token: string }) => void): () => void
   /** desktop 面：打开独立原生窗（设置 / 每预设一工作台窗）。 */
   openWindow(req: OpenWindowRequest): void
   /** 原生窗自绘标题栏 → 原生窗口控制。工作台窗 close = hide（保 WS/run），设置窗 close = destroy。 */
@@ -30,6 +37,7 @@ export interface DesktopBridge {
   onWorkbenchFocus(listener: (focus: OpenWindowRequest['focus']) => void): () => void
   /** workbench 面：main 下发的会话切换（重开同 preset 带 chatId）。 */
   onOpenChat(listener: (chatId: string) => void): () => void
+  onSurfaceRetarget(listener: (target: { chatId: string; source?: 'pet' | 'history' | 'nyxus'; view?: 'composer' | 'attention' | 'tree' }) => void): () => void
   /** attentionBlink → 任务栏闪烁。 */
   flashFrame(flag: boolean): void
   /** 主题底色回写原生窗（首帧 / resize 边缘兜底）。 */
@@ -38,6 +46,8 @@ export interface DesktopBridge {
   emitThemeChanged(theme: 'light' | 'dark'): void
   /** 接收 main 广播的跨窗主题同步。 */
   onThemeSet(listener: (theme: 'light' | 'dark') => void): () => void
+  emitAuthChanged(data?: unknown): void
+  onAuthChanged(listener: (data: unknown) => void): () => void
 }
 
 export function desktopBridge(): DesktopBridge | undefined {

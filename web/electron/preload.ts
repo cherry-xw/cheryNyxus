@@ -20,11 +20,13 @@ interface BackendConfig {
 /**
  * desktop renderer → main 的独立原生窗打开请求（与 main.ts 的 OpenWindowRequest 保持一致）。
  */
-export type WindowKind = 'settings' | 'workbench'
+export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
 export interface OpenWindowRequest {
   kind: WindowKind
   presetId?: string
   chatId?: string
+  source?: 'pet' | 'history' | 'nyxus'
+  view?: 'composer' | 'attention' | 'tree'
   focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
 }
 
@@ -34,6 +36,13 @@ if (config) {
   contextBridge.exposeInMainWorld('__BACKEND_CONFIG__', config)
   contextBridge.exposeInMainWorld('__BACKEND_HTTP_URL__', `http://localhost:${config.webPort}`)
 }
+
+// 刷新后端配置（invoke → main 进程 fetch /api/config，返回含最新 sessionToken 的完整配置）。
+// 渲染进程不能直接 fetch /api/config：后端响应无 CORS 头，Chromium 拦截跨源请求；
+// main 进程 Node 全局 fetch 无此限制。worker 重启轮换 sessionToken 后，重连必须先经此刷新。
+contextBridge.exposeInMainWorld('__REFRESH_BACKEND_CONFIG__', () =>
+  ipcRenderer.invoke('backend:refresh-config'),
+)
 
 // 目录选择对话框（预设 workspace 字段用）。main 进程 dialog.showOpenDialog；canceled → null。
 // 不依赖 backend config，独立注入（仅 Electron 模式有此 preload）。
@@ -55,6 +64,15 @@ function subscribe<T>(channel: string, listener: (data: T) => void): () => void 
 const desktopBridge = {
   setMousePassthrough: (ignore: boolean) =>
     ipcRenderer.send('desktop:mouse-passthrough', ignore),
+  setSurfaceState: (state: { interacting?: boolean; menuOpen?: boolean; visiblePetCount?: number }) =>
+    ipcRenderer.send('surface:set-state', state),
+  startSurfaceDrag: (point: { screenX: number; screenY: number }) =>
+    ipcRenderer.send('surface:drag-start', point),
+  moveSurfaceDrag: (point: { screenX: number; screenY: number }) =>
+    ipcRenderer.send('surface:drag-move', point),
+  endSurfaceDrag: () => ipcRenderer.send('surface:drag-end'),
+  onSurfaceTeleport: (listener: (event: { phase: 'out' | 'in'; token: string }) => void) =>
+    subscribe('surface:teleport', listener),
   openWindow: (req: OpenWindowRequest) => ipcRenderer.send('window:open', req),
   windowControl: (action: 'minimize' | 'maximize' | 'restore' | 'close') =>
     ipcRenderer.send('window:control', action),
@@ -65,10 +83,14 @@ const desktopBridge = {
   onWorkbenchFocus: (listener: (focus: OpenWindowRequest['focus']) => void) =>
     subscribe('workbench:focus', listener),
   onOpenChat: (listener: (chatId: string) => void) => subscribe('workbench:open-chat', listener),
+  onSurfaceRetarget: (listener: (target: { chatId: string; source?: 'pet' | 'history' | 'nyxus'; view?: 'composer' | 'attention' | 'tree' }) => void) =>
+    subscribe('surface:retarget', listener),
   flashFrame: (flag: boolean) => ipcRenderer.send('window:flash', flag),
   setBackgroundColor: (color: string) => ipcRenderer.send('window:set-background', color),
   emitThemeChanged: (theme: 'light' | 'dark') => ipcRenderer.send('theme:changed', theme),
   onThemeSet: (listener: (theme: 'light' | 'dark') => void) => subscribe('theme:set', listener),
+  emitAuthChanged: (data?: unknown) => ipcRenderer.send('auth:changed', data),
+  onAuthChanged: (listener: (data: unknown) => void) => subscribe('auth:changed', listener),
 }
 
 contextBridge.exposeInMainWorld('__DESKTOP_BRIDGE__', desktopBridge)

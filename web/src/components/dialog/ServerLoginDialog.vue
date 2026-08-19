@@ -14,8 +14,9 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useAuthStore, hostOf, isLoopbackHost, normalizeAddress, type AuthError } from '@/stores/auth'
 import { isElectron } from '@/services/platform'
 import { useConnectionStore } from '@/stores'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
 
-const props = defineProps<{ visible: boolean }>()
+const props = withDefaults(defineProps<{ visible: boolean; native?: boolean }>(), { native: false })
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void }>()
 
 const auth = useAuthStore()
@@ -78,6 +79,7 @@ function close(): void {
 
 /** 标题栏拖拽（与 SettingsDialog/WorkbenchDialog 一致的 offset 方案）。 */
 function onTitlePointerDown(e: PointerEvent): void {
+  if (props.native) return
   if (e.button !== 0) return
   if ((e.target as Element | null)?.closest('button')) return
   e.preventDefault()
@@ -172,6 +174,7 @@ async function submit(): Promise<void> {
       await auth.login(base, username.value, password.value, rememberPw.value)
     }
     notify(isLocal.value ? '连接成功' : '登录成功')
+    desktopBridge()?.emitAuthChanged({ serverAddress: base })
     emit('update:visible', false)
     // 应用内重建连接（替代 reload）：bootstrap 首次连 401 后 serverConfig 为空，
     // reconnect 会带新 token 重拉 /api/config + 重连 WS，App.vue 顶层 onStatus 自动恢复。
@@ -195,6 +198,7 @@ async function submit(): Promise<void> {
 function logout(): void {
   conn.disconnect()
   auth.logout()
+  desktopBridge()?.emitAuthChanged({ loggedOut: true })
   notify('已登出')
 }
 
@@ -211,11 +215,12 @@ function disconnectLocal(): void {
       <div
         v-if="visible"
         class="glass-float"
+        :class="{ 'is-native': native }"
         data-desktop-hit
         role="dialog"
         aria-modal="true"
         aria-label="连接后端服务"
-        :style="{ transform: `translate(${offset.x}px, ${offset.y}px)` }"
+        :style="native ? undefined : { transform: `translate(${offset.x}px, ${offset.y}px)` }"
       >
         <div class="glass-card">
           <div class="glass-card-inner">
@@ -352,6 +357,21 @@ function disconnectLocal(): void {
   z-index: 3000;
   margin-left: -200px;
   margin-top: -240px;
+}
+.glass-float.is-native {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 16px;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: var(--bg);
+
+  .glass-titlebar { -webkit-app-region: drag; }
+  .glass-titlebar button,
+  .glass-titlebar input { -webkit-app-region: no-drag; }
 }
 
 .glass-fade-enter-active,

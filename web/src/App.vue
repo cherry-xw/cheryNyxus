@@ -2,6 +2,9 @@
 import { onBeforeUnmount, onMounted, provide, watch } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
 import DesktopSurface from '@/features/desktop/DesktopSurface.vue'
+import PetSurface from '@/features/desktop/PetSurface.vue'
+import NyxusSurface from '@/features/desktop/NyxusSurface.vue'
+import LoginSurface from '@/features/desktop/LoginSurface.vue'
 import WindowFrame from '@/features/desktop/WindowFrame.vue'
 import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
@@ -20,6 +23,7 @@ import {
   useChatSessionsStore,
   useInteractionsStore,
   useThemeStore,
+  useAuthStore,
 } from '@/stores'
 import { wsClient } from '@/services/ws'
 
@@ -34,22 +38,32 @@ const query = new URLSearchParams(window.location.search)
 const surface = query.get('surface')
 const surfacePresetId = query.get('presetId') ?? undefined
 const surfaceChatId = query.get('chatId') ?? undefined
+const surfaceSource = query.get('source') as 'pet' | 'history' | 'nyxus' | null
+const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | null
 
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
 
+if (surface === 'composer' && surfaceChatId) {
+  agents.activeDialogChatId = surfaceChatId
+  agents.activeDialogSource = surfaceSource ?? 'history'
+  agents.activeDialogView = surfaceView ?? 'composer'
+}
+if (surface === 'history' && surfaceChatId) agents.openHistoryRoot(surfaceChatId)
+
 // Electron settings/workbench 原生窗桥接：跨窗主题同步 + backgroundColor 灰边兜底。
 // desktop 面不接（透明宠物窗，setBackgroundColor 会把窗铺成不透明底色，破坏透明；锁 color-scheme 已由 DesktopSurface 处理）。
 const electronBridgeCleanup: Array<() => void> = []
+let workbenchBridgeCleanup: Array<() => void> = []
 function bindElectronThemeBridge(): void {
-  if (surface === 'desktop') return
   const bridge = desktopBridge()
   if (!bridge) return
   const themeStore = useThemeStore()
+  const transparentSurface = surface === 'desktop' || surface === 'pet' || surface === 'nyxus'
   // 读当前主题 --bg（theme.css 已定义），回写原生窗底色（首帧 / resize 边缘兜底，防灰边）
   const applyWindowBackground = () => {
     const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
-    if (bg) bridge.setBackgroundColor(bg)
+    if (bg && !transparentSurface) bridge.setBackgroundColor(bg)
   }
   // 本窗主动切换（toggle 触发 notifyChanged）→ 广播其它窗
   electronBridgeCleanup.push(themeStore.onChanged((t) => bridge.emitThemeChanged(t)))
@@ -58,11 +72,40 @@ function bindElectronThemeBridge(): void {
   // 每次主题应用后同步原生窗底色
   electronBridgeCleanup.push(themeStore.onChanged(applyWindowBackground))
   electronBridgeCleanup.push(bridge.onThemeSet(applyWindowBackground))
+  electronBridgeCleanup.push(bridge.onAuthChanged(() => {
+    useAuthStore().reloadFromStorage()
+    void useConnectionStore().reconnect()
+  }))
   applyWindowBackground()
 }
 
+if (surface === 'composer' || surface === 'history') {
+  const bridge = desktopBridge()
+  if (bridge) {
+    workbenchBridgeCleanup.push(bridge.onSurfaceRetarget((target) => {
+      if (surface === 'composer') {
+        agents.activeDialogChatId = target.chatId
+        agents.activeDialogSource = target.source ?? 'history'
+        agents.activeDialogView = target.view ?? 'composer'
+      } else {
+        agents.openHistoryRoot(target.chatId)
+      }
+    }))
+  }
+}
+
+if (surface === 'history') {
+  let historyOpened = !!surfaceChatId
+  workbenchBridgeCleanup.push(watch(
+    () => agents.historyDrawerStack.length,
+    (length) => {
+      if (length > 0) historyOpened = true
+      else if (historyOpened) desktopBridge()?.windowControl('close')
+    },
+  ))
+}
+
 // workbench 面：注册必须在渲染前同步完成（WorkbenchDialog setup 读 store 的 win.value）。
-let workbenchBridgeCleanup: Array<() => void> = []
 if (surface === 'workbench' && surfacePresetId) {
   const wbId = agents.openWorkbenchWindow(surfacePresetId)
   // 与入口语义一致：仅新建窗口恢复会话（chatId 为空时才设置），重开复用不覆盖浏览
@@ -200,6 +243,11 @@ async function bootstrap(): Promise<void> {
 
 <template>
   <DesktopSurface v-if="surface === 'desktop'" />
+  <PetSurface v-else-if="surface === 'pet'" />
+  <NyxusSurface v-else-if="surface === 'nyxus'" />
+  <AgentDialog v-else-if="surface === 'composer'" native />
+  <div v-else-if="surface === 'history'" class="history-native"><HistoryDrawer /></div>
+  <LoginSurface v-else-if="surface === 'login'" />
   <WindowFrame v-else-if="surface === 'settings'" title="设置">
     <SettingsDialog native />
   </WindowFrame>
@@ -255,5 +303,12 @@ body {
     BlinkMacSystemFont,
     'Segoe UI',
     sans-serif;
+}
+
+.history-native {
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  --drawer-w: 100%;
 }
 </style>

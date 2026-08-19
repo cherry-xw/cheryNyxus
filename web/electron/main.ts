@@ -2,21 +2,24 @@ import { join, dirname } from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } from 'electron'
+import { clampRectangleToWorkArea, petSurfaceSize } from './floatingGeometry'
 
-// 【诊断·临时】深色白边定位：覆盖层实验证实白线在最高 z-index 内容之上（非内容层、非合成背景），
-// 候选为 GPU 合成边缘伪影。disableHardwareAcceleration 强制软件合成验证；星系/粒子动画会走
-// 软件渲染（性能下降）。白线消失 → GPU 伪影实锤（再评估性能取舍）；白线仍在 → 转 DWM 边框假设。测完移除。
+// Electron 43 / Windows 的透明窗在 GPU 路径下，鼠标穿透的 forward pointermove 偶发不回送，
+// 导致窗口从 ignore 状态无法在宠物/Chery Nyxus 上恢复命中。暂保留软件合成以保证交互。
 app.disableHardwareAcceleration()
 
 /**
  * desktop renderer → main 请求打开独立原生窗的目标。
  * 仅 desktop 窗可发起；main 惰性创建 / show+focus 复用（工作台窗 hide 保活）。
  */
-export type WindowKind = 'settings' | 'workbench'
+export type WindowKind = 'settings' | 'workbench' | 'composer' | 'history' | 'login'
+export type FloatingSurface = 'pet' | 'nyxus'
 export interface OpenWindowRequest {
   kind: WindowKind
   presetId?: string
   chatId?: string
+  source?: 'pet' | 'history' | 'nyxus'
+  view?: 'composer' | 'attention' | 'tree'
   /** 待处理抽屉「打开节点树」定位参数（新建工作台窗 did-finish-load 后下发）。 */
   focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
 }
@@ -26,6 +29,15 @@ function isValidOpenRequest(value: unknown): value is OpenWindowRequest {
   if (!value || typeof value !== 'object') return false
   const req = value as Partial<OpenWindowRequest>
   if (req.kind === 'settings') return true
+  if (req.kind === 'login') return true
+  if (req.kind === 'history') return typeof req.chatId === 'string'
+  if (req.kind === 'composer') {
+    return (
+      typeof req.chatId === 'string' &&
+      (req.source === 'pet' || req.source === 'history' || req.source === 'nyxus') &&
+      (req.view === 'composer' || req.view === 'attention' || req.view === 'tree')
+    )
+  }
   if (req.kind === 'workbench') {
     return (
       typeof req.presetId === 'string' &&
@@ -45,16 +57,45 @@ interface ManagedWindow {
   keepAlive: boolean
 }
 
+interface FloatingWindow {
+  surface: FloatingSurface
+  win: BrowserWindow
+  interacting: boolean
+  menuOpen: boolean
+  visiblePetCount: number
+  userVisible: boolean
+  motionTimer: ReturnType<typeof setInterval> | null
+  target: { x: number; y: number } | null
+  restUntil: number
+  moveUntil: number
+  motionX: number
+  motionY: number
+  nextTeleportAt: number
+  teleporting: boolean
+  dragOffset: { x: number; y: number } | null
+}
+
 const WS_PORT = Number(process.env.WS_PORT ?? 8182)
 const WEB_PORT = Number(process.env.WEB_PORT ?? 8183)
 
+/** 后端 /api/config 拉取超时（ms）：worker 重启瞬间端口可能短暂不可用，超时让调用方快速重试而非挂死。 */
+const CONFIG_FETCH_TIMEOUT_MS = 5000
+
+/** 后端配置契约：与 /api/config 返回对齐。sessionToken 随 worker 重启轮换，IPC 刷新用。 */
+interface BackendConfig {
+  wsPort: number
+  webPort: number
+  transport: 'binary' | 'json'
+  sessionToken?: string
+}
+
 let backend: ChildProcess | null = null
-let desktopWindow: BrowserWindow | null = null
+const floatingWindows = new Map<FloatingSurface, FloatingWindow>()
 /** 全部受管原生窗（settings + 每 preset 一工作台窗）。 */
 const managedWindows = new Map<string, ManagedWindow>()
 let tray: Tray | null = null
 let isQuitting = false
-let serverConfig: { wsPort: number; webPort: number; transport: string } | null = null
+let serverConfig: BackendConfig | null = null
 /** `getRuntimeRoot()` 解析结果缓存（启动后固定）。 */
 let runtimeRoot: string | null = null
 
@@ -179,17 +220,33 @@ function startBackend(): ChildProcess {
 }
 
 /**
+ * 从后端拉取最新配置（含轮换后的 sessionToken）。带 5s 超时 + Cache-Control: no-store，
+ * worker 重启瞬间端口不可用时快速 reject，调用方（waitForBackend / IPC 刷新）各自重试。
+ */
+async function fetchBackendConfig(): Promise<BackendConfig> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), CONFIG_FETCH_TIMEOUT_MS)
+  try {
+    const res = await fetch(`http://localhost:${WEB_PORT}/api/config`, {
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`/api/config ${res.status}`)
+    return (await res.json()) as BackendConfig
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * 轮询 /api/config 等后端就绪，顺带取端口配置。
  */
 async function waitForBackend(timeoutMs = 30000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`http://localhost:${WEB_PORT}/api/config`)
-      if (res.ok) {
-        serverConfig = (await res.json()) as { wsPort: number; webPort: number; transport: string }
-        return
-      }
+      serverConfig = await fetchBackendConfig()
+      return
     } catch {
       // 后端尚未就绪
     }
@@ -214,8 +271,11 @@ function loadRenderer(win: BrowserWindow, params: Record<string, string> = {}): 
 // 原生窗几何由 main 拥有（renderer 无感知）。按 key 持久化常规 bounds（不存最大化态，
 // 重开默认常规窗），创建时经 screen 校验贴屏，防显示器变更后落在屏外。
 
+interface PersistedWindowState extends Electron.Rectangle {
+  visible?: boolean
+}
 interface WindowStateFile {
-  [key: string]: { x: number; y: number; width: number; height: number }
+  [key: string]: PersistedWindowState
 }
 
 function windowStatePath(): string {
@@ -270,15 +330,31 @@ const SETTINGS_DEFAULT_SIZE = { width: 1080, height: 760 }
 const SETTINGS_MIN_SIZE = { width: 900, height: 640 }
 const WORKBENCH_DEFAULT_SIZE = { width: 1200, height: 800 }
 const COMMON_MIN_SIZE = { width: 640, height: 480 }
+const AUX_WINDOW_SIZES: Record<'composer' | 'history' | 'login', {
+  defaultSize: { width: number; height: number }
+  minSize: { width: number; height: number }
+}> = {
+  composer: { defaultSize: { width: 440, height: 720 }, minSize: { width: 400, height: 560 } },
+  history: { defaultSize: { width: 620, height: 760 }, minSize: { width: 420, height: 520 } },
+  login: { defaultSize: { width: 440, height: 620 }, minSize: { width: 420, height: 520 } },
+}
+
+function persistFloatingState(entry: FloatingWindow): void {
+  if (entry.win.isDestroyed()) return
+  const state = loadWindowState()
+  state[`float:${entry.surface}`] = { ...entry.win.getBounds(), visible: entry.userVisible }
+  saveWindowState(state)
+}
 
 /** 依 kind 计算窗口默认/最小尺寸：屏幕够则取标称值，不够则收敛到主屏 workArea。 */
-function managedWindowSizes(isSettings: boolean): {
+function managedWindowSizes(kind: WindowKind): {
   defaultSize: { width: number; height: number }
   minSize: { width: number; height: number }
 } {
   const workArea = screen.getPrimaryDisplay().workArea
-  const nominal = isSettings ? SETTINGS_DEFAULT_SIZE : WORKBENCH_DEFAULT_SIZE
-  const minNominal = isSettings ? SETTINGS_MIN_SIZE : COMMON_MIN_SIZE
+  const aux = kind === 'composer' || kind === 'history' || kind === 'login' ? AUX_WINDOW_SIZES[kind] : undefined
+  const nominal = aux?.defaultSize ?? (kind === 'settings' ? SETTINGS_DEFAULT_SIZE : WORKBENCH_DEFAULT_SIZE)
+  const minNominal = aux?.minSize ?? (kind === 'settings' ? SETTINGS_MIN_SIZE : COMMON_MIN_SIZE)
   return {
     defaultSize: {
       width: Math.min(nominal.width, workArea.width),
@@ -297,14 +373,14 @@ function createManagedWindow(
     kind: WindowKind
     presetId?: string
     title: string
-    surface: 'settings' | 'workbench'
+    surface: 'settings' | 'workbench' | 'composer' | 'history' | 'login'
     extraParams?: Record<string, string>
     keepAlive: boolean
   },
 ): ManagedWindow {
   const persisted = restoreBounds(key)
   // 无持久化记录（含首次打开）→ 不指定 x/y（系统居中），用内容所需默认尺寸
-  const sizes = managedWindowSizes(key === 'settings')
+  const sizes = managedWindowSizes(opts.kind)
   const win = new BrowserWindow({
     ...persisted,
     ...(persisted.width !== undefined ? {} : sizes.defaultSize),
@@ -459,19 +535,35 @@ function rebuildTrayMenu(): void {
   if (!tray) return
   // 直接读注册表现值，避免自建持久化的状态漂移；开发期禁用，防止把 electron.exe dev 路径写进自启项。
   const autoLaunchEnabled = app.isPackaged && app.getLoginItemSettings().openAtLogin
-  const petVisible = desktopWindow ? desktopWindow.isVisible() : true
+  const petEntry = floatingWindows.get('pet')
+  const nyxusEntry = floatingWindows.get('nyxus')
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '打开设置', click: () => openSettingsWindow() },
       { type: 'separator' },
       {
-        label: '显示桌面宠物',
+        label: '显示 Pet',
         type: 'checkbox',
-        checked: petVisible,
+        checked: petEntry?.userVisible ?? true,
         click: () => {
-          if (!desktopWindow || desktopWindow.isDestroyed()) return
-          if (desktopWindow.isVisible()) desktopWindow.hide()
-          else desktopWindow.show()
+          if (!petEntry || petEntry.win.isDestroyed()) return
+          petEntry.userVisible = !petEntry.userVisible
+          if (petEntry.userVisible && petEntry.visiblePetCount > 0) petEntry.win.showInactive()
+          else petEntry.win.hide()
+          persistFloatingState(petEntry)
+          rebuildTrayMenu()
+        },
+      },
+      {
+        label: '显示 Chery Nyxus',
+        type: 'checkbox',
+        checked: nyxusEntry?.userVisible ?? true,
+        click: () => {
+          if (!nyxusEntry || nyxusEntry.win.isDestroyed()) return
+          nyxusEntry.userVisible = !nyxusEntry.userVisible
+          if (nyxusEntry.userVisible) nyxusEntry.win.showInactive()
+          else nyxusEntry.win.hide()
+          persistFloatingState(nyxusEntry)
           rebuildTrayMenu()
         },
       },
@@ -500,18 +592,156 @@ function createTray(): void {
   rebuildTrayMenu()
 }
 
-/**
- * 全工作区透明覆盖窗（desktop surface）：宠物 + 星系 + 发消息浮动窗直接渲染在桌面上。
- * 空区域鼠标穿透由 renderer 驱动（`desktop:mouse-passthrough`）；分辨率变化经
- * `display-*` 事件 setBounds 重贴 workArea。
- */
-function createDesktopWindow(): void {
-  const workArea = screen.getPrimaryDisplay().workArea
+function openAuxWindow(req: OpenWindowRequest & { kind: 'composer' | 'history' | 'login' }): void {
+  const key = req.kind
+  const existing = managedWindows.get(key)
+  if (existing && !existing.win.isDestroyed()) {
+    existing.win.show()
+    existing.win.focus()
+    if (req.kind === 'composer') {
+      existing.win.webContents.send('surface:retarget', {
+        chatId: req.chatId,
+        source: req.source,
+        view: req.view,
+      })
+    } else if (req.kind === 'history') {
+      existing.win.webContents.send('surface:retarget', { chatId: req.chatId })
+    }
+    return
+  }
+
+  const title = req.kind === 'composer' ? 'CheryNyxus 会话' : req.kind === 'history' ? 'CheryNyxus 历史' : '连接服务'
+  createManagedWindow(key, {
+    kind: req.kind,
+    title,
+    surface: req.kind,
+    keepAlive: req.kind === 'composer',
+    extraParams: {
+      ...(req.chatId ? { chatId: req.chatId } : {}),
+      ...(req.source ? { source: req.source } : {}),
+      ...(req.view ? { view: req.view } : {}),
+    },
+  })
+}
+
+const FLOATING_SIZES = {
+  pet: { width: 360, height: 300 },
+  nyxus: { width: 420, height: 420 },
+} satisfies Record<FloatingSurface, { width: number; height: number }>
+
+function applyFloatingShape(win: BrowserWindow): void {
+  if (process.platform !== 'win32' || win.isDestroyed()) return
+  const [width, height] = win.getSize()
+  // Windows 的透明无框窗仍可能由 DWM 合成出 1px non-client 边缘。
+  // setShape 最终走窗口 region；内缩 2 DIP 直接裁掉该区域，内容另留安全 padding。
+  win.setShape([{ x: 2, y: 2, width: Math.max(1, width - 4), height: Math.max(1, height - 4) }])
+}
+
+function clampToWorkArea(bounds: Electron.Rectangle, workArea = screen.getDisplayMatching(bounds).workArea): Electron.Rectangle {
+  return clampRectangleToWorkArea(bounds, workArea)
+}
+
+function randomTarget(entry: FloatingWindow, display = screen.getDisplayMatching(entry.win.getBounds())): { x: number; y: number } {
+  const bounds = entry.win.getBounds()
+  const a = display.workArea
+  const xSpan = Math.max(0, a.width - bounds.width - 32)
+  const ySpan = Math.max(0, a.height - bounds.height - 32)
+  return { x: Math.round(a.x + 16 + Math.random() * xSpan), y: Math.round(a.y + 16 + Math.random() * ySpan) }
+}
+
+function moveFloatingStep(entry: FloatingWindow): void {
+  if (entry.win.isDestroyed() || !entry.userVisible || !entry.win.isVisible() || entry.interacting || entry.menuOpen || entry.teleporting || entry.dragOffset) return
+  const now = Date.now()
+  if (now < entry.restUntil) return
+  if (screen.getAllDisplays().length > 1 && now >= entry.nextTeleportAt) {
+    entry.nextTeleportAt = now + 300_000 + Math.random() * 300_000
+    teleportFloating(entry)
+    return
+  }
+  const bounds = entry.win.getBounds()
+  if (!entry.target) {
+    entry.target = randomTarget(entry)
+    entry.moveUntil = now + 8_000 + Math.random() * 7_000
+  }
+  if (now >= entry.moveUntil) {
+    entry.target = null
+    entry.moveUntil = 0
+    entry.restUntil = now + 15_000 + Math.random() * 20_000
+    return
+  }
+  const dx = entry.target.x - entry.motionX
+  const dy = entry.target.y - entry.motionY
+  const distance = Math.hypot(dx, dy)
+  if (distance < 3) {
+    entry.target = null
+    entry.moveUntil = 0
+    entry.restUntil = now + 15_000 + Math.random() * 20_000
+    return
+  }
+  // 30 FPS 下约 1 DIP/s；每段只漂移 8–15 秒，随后长时间静止。
+  const step = Math.min(0.035, distance)
+  entry.motionX += (dx / distance) * step
+  entry.motionY += (dy / distance) * step
+  const next = clampToWorkArea({ ...bounds, x: entry.motionX, y: entry.motionY })
+  // clamp 只在写原生窗口时取整；motionX/Y 保留子像素余量，否则 1 DIP/s 会被逐帧 round 吞掉。
+  if (Math.abs(next.x - entry.motionX) > 1) entry.motionX = next.x
+  if (Math.abs(next.y - entry.motionY) > 1) entry.motionY = next.y
+  entry.win.setPosition(next.x, next.y, false)
+}
+
+function teleportFloating(entry: FloatingWindow): void {
+  if (entry.teleporting || entry.win.isDestroyed()) return
+  const current = screen.getDisplayMatching(entry.win.getBounds())
+  const candidates = screen.getAllDisplays().filter((display) => display.id !== current.id)
+  if (!candidates.length) return
+  entry.teleporting = true
+  const token = `${entry.surface}:${Date.now()}`
+  entry.win.webContents.send('surface:teleport', { phase: 'out', token })
+  setTimeout(() => {
+    if (entry.win.isDestroyed()) return
+    const destination = candidates[Math.floor(Math.random() * candidates.length)]!
+    const target = randomTarget(entry, destination)
+    entry.win.hide()
+    entry.win.setPosition(target.x, target.y, false)
+    entry.motionX = target.x
+    entry.motionY = target.y
+    entry.win.showInactive()
+    entry.win.webContents.send('surface:teleport', { phase: 'in', token })
+    setTimeout(() => {
+      entry.teleporting = false
+      entry.target = null
+      entry.moveUntil = 0
+      entry.restUntil = Date.now() + 15_000 + Math.random() * 20_000
+    }, 420)
+  }, 320)
+}
+
+function setFloatingSize(entry: FloatingWindow, width: number, height: number): void {
+  const old = entry.win.getBounds()
+  const next = clampToWorkArea({
+    x: old.x + (old.width - width) / 2,
+    y: old.y + (old.height - height) / 2,
+    width,
+    height,
+  })
+  entry.win.setBounds(next, false)
+  entry.motionX = next.x
+  entry.motionY = next.y
+  applyFloatingShape(entry.win)
+}
+
+function createFloatingWindow(surface: FloatingSurface): void {
+  const size = FLOATING_SIZES[surface]
+  const a = screen.getPrimaryDisplay().workArea
+  const saved = loadWindowState()[`float:${surface}`]
+  const initial = clampToWorkArea({
+    x: saved?.x ?? Math.round(a.x + a.width / 2 - size.width / 2 + (surface === 'pet' ? -180 : 180)),
+    y: saved?.y ?? Math.round(a.y + a.height / 2 - size.height / 2),
+    width: size.width,
+    height: size.height,
+  })
   const win = new BrowserWindow({
-    x: workArea.x,
-    y: workArea.y,
-    width: workArea.width,
-    height: workArea.height,
+    ...initial,
     frame: false,
     transparent: true,
     resizable: false,
@@ -527,26 +757,69 @@ function createDesktopWindow(): void {
       preload: join(import.meta.dirname, 'preload.mjs'),
     },
   })
-  desktopWindow = win
-  // transparent 窗的 backgroundColor 选项在部分 Electron/Windows 组合下不生效，
-  // 窗口背景回退为默认白色 → 内容未铺满的边缘 1px 露白边（浅色模式与浅内容融合不明显，
-  // 深色模式深内容旁显眼）。创建后运行时强制全透明（thickFrame/setShape 均管不到背景色填充）。
+  const entry: FloatingWindow = {
+    surface,
+    win,
+    interacting: false,
+    menuOpen: false,
+    visiblePetCount: surface === 'pet' ? 0 : 1,
+    userVisible: saved?.visible ?? true,
+    motionTimer: null,
+    target: null,
+    restUntil: Date.now() + 8_000 + Math.random() * 12_000,
+    moveUntil: 0,
+    motionX: initial.x,
+    motionY: initial.y,
+    nextTeleportAt: Date.now() + 300_000 + Math.random() * 300_000,
+    teleporting: false,
+    dragOffset: null,
+  }
+  floatingWindows.set(surface, entry)
   win.setBackgroundColor('#00000000')
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  win.once('ready-to-show', () => {
+    applyFloatingShape(win)
+    if (surface === 'nyxus' && entry.userVisible) win.showInactive()
+  })
+  entry.motionTimer = setInterval(() => moveFloatingStep(entry), 33)
   win.on('close', (event) => {
     if (isQuitting) return
     event.preventDefault()
     win.hide()
   })
-  win.on('closed', () => (desktopWindow = null))
-  loadRenderer(win, { surface: 'desktop' })
+  win.on('closed', () => {
+    if (entry.motionTimer) clearInterval(entry.motionTimer)
+    if (floatingWindows.get(surface) === entry) floatingWindows.delete(surface)
+  })
+  loadRenderer(win, { surface })
 }
 
-/** desktop 窗随主显示器 workArea 变化重贴（分辨率切换 / 任务栏调整）。 */
-function realignDesktopWindow(): void {
-  if (!desktopWindow || desktopWindow.isDestroyed()) return
-  desktopWindow.setBounds(screen.getPrimaryDisplay().workArea)
+function realignFloatingWindows(): void {
+  for (const entry of floatingWindows.values()) {
+    if (entry.win.isDestroyed()) continue
+    entry.win.setBounds(clampToWorkArea(entry.win.getBounds()), false)
+    const bounds = entry.win.getBounds()
+    entry.motionX = bounds.x
+    entry.motionY = bounds.y
+    applyFloatingShape(entry.win)
+    entry.target = null
+  }
+}
+
+function floatingBySender(sender: Electron.WebContents): FloatingWindow | undefined {
+  return [...floatingWindows.values()].find((entry) => entry.win.webContents === sender)
+}
+
+function isTrustedRenderer(sender: Electron.WebContents): boolean {
+  if (floatingBySender(sender)) return true
+  return [...managedWindows.values()].some((entry) => entry.win.webContents === sender)
+}
+
+function broadcast(channel: string, data: unknown, except?: Electron.WebContents): void {
+  for (const entry of [...floatingWindows.values(), ...managedWindows.values()]) {
+    if (!entry.win.isDestroyed() && entry.win.webContents !== except) entry.win.webContents.send(channel, data)
+  }
 }
 
 app.whenReady().then(async () => {
@@ -561,6 +834,18 @@ app.whenReady().then(async () => {
     event.returnValue = serverConfig ?? { wsPort: WS_PORT, webPort: WEB_PORT, transport: 'binary' }
   })
 
+  // IPC：渲染进程请求刷新后端配置（worker 重启轮换 sessionToken 后，重连必须拿最新值）。
+  // 渲染进程不能直接 fetch /api/config——后端响应无 Access-Control-Allow-Origin 头，
+  // Chromium 会按 CORS 拦截跨源请求（渲染进程 origin 为 file:// 或 dev :5173，均与 :8183 跨源）。
+  // 下沉到 main 进程用 Node 全局 fetch（无 CORS 限制），带 5s 超时，worker 切换瞬间可重试。
+  ipcMain.handle('backend:refresh-config', async () => {
+    try {
+      return await fetchBackendConfig()
+    } catch (e) {
+      throw new Error(`获取后端配置失败: ${(e as Error).message}`)
+    }
+  })
+
   // IPC：渲染进程请求选择目录（预设 workspace 字段用）。canceled → null。
   ipcMain.handle('dialog:pickDirectory', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
@@ -568,19 +853,74 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.on('desktop:mouse-passthrough', (event, ignore: unknown) => {
-    if (event.sender !== desktopWindow?.webContents || typeof ignore !== 'boolean') return
+    const entry = floatingBySender(event.sender)
+    if (!entry || typeof ignore !== 'boolean') return
     // Linux does not support forwarded mouse moves while ignored, so it would never become interactive again.
-    if (process.platform === 'win32') desktopWindow?.setIgnoreMouseEvents(ignore, { forward: true })
+    if (process.platform === 'win32') entry.win.setIgnoreMouseEvents(ignore, { forward: true })
   })
 
-  // 打开独立原生窗（仅 desktop 窗可发起；结构校验后转发工厂）。
+  ipcMain.on('surface:set-state', (event, state: unknown) => {
+    const entry = floatingBySender(event.sender)
+    if (!entry || !state || typeof state !== 'object') return
+    const value = state as { interacting?: unknown; menuOpen?: unknown; visiblePetCount?: unknown }
+    if (typeof value.interacting === 'boolean') entry.interacting = value.interacting
+    if (typeof value.menuOpen === 'boolean' && entry.surface === 'nyxus') {
+      entry.menuOpen = value.menuOpen
+    }
+    if (typeof value.visiblePetCount === 'number' && entry.surface === 'pet') {
+      entry.visiblePetCount = Math.max(0, Math.floor(value.visiblePetCount))
+      const size = petSurfaceSize(entry.visiblePetCount)
+      setFloatingSize(entry, size.width, size.height)
+      if (entry.visiblePetCount === 0 || !entry.userVisible) entry.win.hide()
+      else if (!entry.win.isVisible()) entry.win.showInactive()
+    }
+  })
+
+  ipcMain.on('surface:drag-start', (event, point: unknown) => {
+    const entry = floatingBySender(event.sender)
+    if (!entry || !point || typeof point !== 'object') return
+    const p = point as { screenX?: unknown; screenY?: unknown }
+    if (typeof p.screenX !== 'number' || typeof p.screenY !== 'number') return
+    const bounds = entry.win.getBounds()
+    entry.interacting = true
+    entry.dragOffset = { x: p.screenX - bounds.x, y: p.screenY - bounds.y }
+    entry.motionX = bounds.x
+    entry.motionY = bounds.y
+  })
+  ipcMain.on('surface:drag-move', (event, point: unknown) => {
+    const entry = floatingBySender(event.sender)
+    if (!entry?.dragOffset || !point || typeof point !== 'object') return
+    const p = point as { screenX?: unknown; screenY?: unknown }
+    if (typeof p.screenX !== 'number' || typeof p.screenY !== 'number') return
+    const bounds = entry.win.getBounds()
+    const next = clampToWorkArea({
+      ...bounds,
+      x: p.screenX - entry.dragOffset.x,
+      y: p.screenY - entry.dragOffset.y,
+    })
+    entry.win.setPosition(next.x, next.y, false)
+    entry.motionX = next.x
+    entry.motionY = next.y
+  })
+  ipcMain.on('surface:drag-end', (event) => {
+    const entry = floatingBySender(event.sender)
+    if (!entry) return
+    entry.dragOffset = null
+    entry.interacting = false
+    entry.target = null
+    persistFloatingState(entry)
+  })
+
+  // 打开独立原生窗（仅本应用已登记 renderer 可发起；结构校验后转发工厂）。
   ipcMain.on('window:open', (event, req: unknown) => {
-    if (event.sender !== desktopWindow?.webContents) return
+    if (!isTrustedRenderer(event.sender)) return
     if (!isValidOpenRequest(req)) return
     if (req.kind === 'settings') {
       openSettingsWindow()
-    } else {
+    } else if (req.kind === 'workbench') {
       openWorkbenchWindow(req as OpenWindowRequest & { kind: 'workbench' })
+    } else {
+      openAuxWindow(req as OpenWindowRequest & { kind: 'composer' | 'history' | 'login' })
     }
   })
 
@@ -623,11 +963,12 @@ app.whenReady().then(async () => {
   // 跨窗主题同步：任一窗切换 → 广播全部受管窗（除本窗）
   ipcMain.on('theme:changed', (event, theme: unknown) => {
     if (theme !== 'light' && theme !== 'dark') return
-    for (const entry of managedWindows.values()) {
-      if (!entry.win.isDestroyed() && entry.win.webContents !== event.sender) {
-        entry.win.webContents.send('theme:set', theme)
-      }
-    }
+    broadcast('theme:set', theme, event.sender)
+  })
+
+  ipcMain.on('auth:changed', (event, data: unknown) => {
+    if (!isTrustedRenderer(event.sender)) return
+    broadcast('auth:changed', data, event.sender)
   })
 
   // 启动日志：让用户在 console / 日志文件里能找到 .env 和 .chery 的真实路径
@@ -638,12 +979,12 @@ app.whenReady().then(async () => {
   try {
     backend = startBackend()
     await waitForBackend()
-    createDesktopWindow()
+    createFloatingWindow('pet')
+    createFloatingWindow('nyxus')
     createTray()
-    // 分辨率切换 / 任务栏调整 → desktop 窗重贴 workArea（渲染层 resize 后自行 clamp 宠物/星系位置）
-    screen.on('display-metrics-changed', realignDesktopWindow)
-    screen.on('display-added', realignDesktopWindow)
-    screen.on('display-removed', realignDesktopWindow)
+    screen.on('display-metrics-changed', realignFloatingWindows)
+    screen.on('display-added', realignFloatingWindows)
+    screen.on('display-removed', realignFloatingWindows)
   } catch (e) {
     console.error('启动后端失败:', e)
     app.quit()
@@ -664,6 +1005,7 @@ app.on('before-quit', async (e) => {
   // 阻止默认退出，等待清理完成
   e.preventDefault()
   isQuitting = true
+  for (const entry of floatingWindows.values()) persistFloatingState(entry)
   tray?.destroy()
   tray = null
 

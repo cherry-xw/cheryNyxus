@@ -38,8 +38,6 @@ onBeforeUnmount(() => {
 <template>
   <!-- .desktop-surface-guard：本文件底部 :has() 兜底样式的锚点（透明窗根画布禁止铺底色）。 -->
   <div class="desktop-surface-guard" aria-hidden="true" style="display: none" />
-  <!-- .desktop-edge-cover：深色模式窗口物理边缘白线遮盖（见底部样式注释）。 -->
-  <div class="desktop-edge-cover" aria-hidden="true" />
   <PetStage transparent />
   <NyxusCore />
   <AgentDialog />
@@ -53,22 +51,5 @@ html:has(.desktop-surface-guard),
 html:has(.desktop-surface-guard) body,
 html:has(.desktop-surface-guard) #app {
   background: transparent !important;
-}
-
-// 深色模式窗口边缘白线：绿环诊断证实内容层（视口）深色模式下向内缩 1px、浅色铺满，
-// 窗口物理边缘 1px 露出合成背景白线（浅色与浅内容/浅壁纸融合不明显）。修复：fixed
-// 覆盖层 inset:-1px 外扩 1px——深色视口缩 1px 时覆盖层恰好铺满窗口物理尺寸，边缘 1px
-// 主题色环盖住白线；浅色视口铺满时覆盖层超出窗口 1px、环落在窗口外不可见（零副作用）。
-// 不扩窗口 bounds（双屏无影响）、pointer-events:none（不挡交互）。box-shadow 用 !important
-// 压过 .desktop-surface-guard 的 background 规则（该规则只锁背景，环独立于背景）。
-// 【诊断·临时】深色白边定位实验：覆盖层外扩 1px + 高亮绿环（inset box-shadow）。
-// 覆盖层生效（窗口边缘显绿环）→ 白线在环之上（覆盖层/GPU/DWM 伪影）→ 试 disableHardwareAcceleration；
-// 覆盖层不生效（无绿环）→ 方案本身被 .desktop-surface-guard 背景规则干扰 → 换注入方式。测完移除。
-.desktop-edge-cover {
-  position: fixed;
-  inset: -1px;
-  pointer-events: none;
-  z-index: 2147483647;
-  box-shadow: inset 0 0 0 2px #00ff00 !important;
 }
 </style>

@@ -40,8 +40,13 @@ const hoverCooldownUntil = new Map<string, number>()
  * 工厂 createPetInstance + 纯辅助（rand/pick/clamp/randomTarget/moodForAction/actionTalk）抽到 petFactory.ts；
  * 目标选取 retarget/findMaster 抽到 motion/petTargeting.ts（纯函数，显式入参 pets/bounds）。
  */
-export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetInstance[]) {
+export function usePetWorld(
+  stageRef: Ref<HTMLElement | null>,
+  petsSource?: PetInstance[],
+  includePet: (pet: PetInstance) => boolean = () => true,
+) {
   const pets = petsSource ?? reactive<PetInstance[]>([])
+  const activePets = (): PetInstance[] => pets.filter(includePet)
   const isPaused = ref(false)
   const bounds = reactive<StageBounds>({ width: 960, height: 640 })
   let raf = 0
@@ -89,11 +94,11 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
     pet.mood = restMood(pet, status)
     pet.moodUntil = 0
     pet.lastInteractionAt = now
-    retarget(pet, pets, bounds)
+    retarget(pet, activePets(), bounds)
     showSpeech(pet, pick(['醒了', '嗯?', 'zZ...']), 800)
   }
 
-  function tickPet(pet: PetInstance, now: number, dt: number): void {
+  function tickPet(pet: PetInstance, now: number, dt: number, worldPets: PetInstance[]): void {
     if (pet.draggingPointerId !== null) {
       return
     }
@@ -142,7 +147,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
         pet.action = 'walk'
         pet.mood = restMood(pet, status)
         pet.bubbleRepelExtra = 0 // Req 8: 冻结结束，斥力增量清零
-        retarget(pet, pets, bounds)
+        retarget(pet, worldPets, bounds)
       }
       return
     }
@@ -166,7 +171,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
       } else {
         // 孤儿 ghost（主 Agent 暂不可见）退化为近原 tribe 自由移动。
         if (arrivedAtTarget(pet)) {
-          retarget(pet, pets, bounds)
+          retarget(pet, worldPets, bounds)
           pet.action = 'idle'
           pet.mood = restMood(pet, status)
           pet.moodUntil = now + rand(800, 1800)
@@ -176,7 +181,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
         }
       }
     } else if (arrivedAtTarget(pet)) {
-      retarget(pet, pets, bounds)
+      retarget(pet, worldPets, bounds)
       pet.action = 'idle'
       pet.mood = restMood(pet, status)
       pet.moodUntil = now + rand(800, 1800)
@@ -194,7 +199,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
       // tribeAttract=0：主 pet 不受同部落引力。子 pet 聚拢本主(retarget ±70) + 同部落引力双向拉拢，
       // 否则主 pet 被钉在子 pet 堆中心，被子 pet 围到屏幕边缘后斥力顶住边界无法离开 → 全部堆积边缘。
       // 只保留斥力（近距防重叠，不重叠即无力）→ 主 pet 凭 seek 全屏自由游走。
-      stepMovement(pet, pets, bounds, dt, {
+      stepMovement(pet, worldPets, bounds, dt, {
         maxSpeed: maxSpeed * 0.6,
         acceleration: MASTER_ACCELERATION,
         tribeAttract: 0,
@@ -212,7 +217,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
         const fdx = pet.targetX - pet.x
         const fdy = pet.targetY - pet.y
         const fd = Math.hypot(fdx, fdy)
-        stepMovement(pet, pets, bounds, dt, {
+        stepMovement(pet, worldPets, bounds, dt, {
           maxSpeed: maxSpeed * 1.25,
           acceleration: Math.min(GHOST_SPRING_MAX, GHOST_SPRING_K * fd),
           tribeAttract: 0,
@@ -222,14 +227,14 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
         })
       } else {
         // 孤儿 ghost 退化路径。
-        stepMovement(pet, pets, bounds, dt, {
+        stepMovement(pet, worldPets, bounds, dt, {
           maxSpeed,
           tribeAttract: 0,
           tribeRepel: 0,
         })
       }
     } else {
-      stepMovement(pet, pets, bounds, dt, { maxSpeed })
+      stepMovement(pet, worldPets, bounds, dt, { maxSpeed })
     }
   }
 
@@ -240,11 +245,12 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
 
     if (!isPaused.value && currentBounds.width > 0 && currentBounds.height > 0) {
       // 装饰 chatting（maybeTriggerChats）已移除；agent 工作态 chatting 由 store 触发（CP2）
-      for (const pet of pets) {
-        tickPet(pet, now, dt)
+      const worldPets = activePets()
+      for (const pet of worldPets) {
+        tickPet(pet, now, dt, worldPets)
       }
       // 每个 tribe 以主 Agent 为队首并采样轨迹；主 Agent 拖拽时也持续记录。
-      ghostQueue.sampleLeaders()
+      if (worldPets.some((pet) => pet.isGhost)) ghostQueue.sampleLeaders()
     }
 
     raf = requestAnimationFrame(loop)
@@ -305,7 +311,7 @@ export function usePetWorld(stageRef: Ref<HTMLElement | null>, petsSource?: PetI
     pet.dragOffsetY = 0
     keepInBounds(pet, bounds)
     setTemporaryAction(pet, 'dropped', 900, actionTalk(pet, 'dropped'))
-    retarget(pet, pets, bounds)
+    retarget(pet, activePets(), bounds)
   }
 
   function hoverPet(pet: PetInstance, hovering: boolean): void {

@@ -58,6 +58,7 @@ desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——
 | 通道 | 方向 | 载荷 | 说明 |
 | ---- | ---- | ---- | ---- |
 | `get-backend-config` | renderer→main sendSync | — | preload 取后端端口配置 |
+| `backend:refresh-config` | renderer→main invoke | → `ServerConfig` | 刷新后端配置（Electron 下 `getServerConfig({refresh:true})` 走此 IPC，main 进程 fetch `/api/config`——Node 无 CORS 限制；渲染进程直接 fetch 会被后端缺 CORS 头的响应拦截，见 [env.md#会话-token-轮换与重连刷新](./env.md#会话-token-轮换与重连刷新)） |
 | `dialog:pickDirectory` | renderer→main invoke | → `string\|null` | 原生目录选择 |
 | `desktop:mouse-passthrough` | desktop→main | `{ ignore: boolean }` | 仅 win32 生效，sender 校验 desktop 窗 |
 | `window:open` | desktop→main | `OpenWindowRequest` | 仅 desktop 窗可发起；`kind:'settings'` → 设置窗，`kind:'workbench'` → 工作台窗（惰性创建 / show+focus / `workbench:open-chat` / `workbench:focus`） |
@@ -151,6 +152,7 @@ if (config) {
 
 - main `ipcMain.on('get-backend-config')` 返回 `serverConfig`(由 `waitForBackend` 从 `/api/config` 取得,或 fallback 常量)。
 - `sendSync` 同步:preload 加载时同步取配置,渲染进程加载时 `window.__BACKEND_CONFIG__` / `window.__BACKEND_HTTP_URL__` 已就绪,无竞态。
+- **`__REFRESH_BACKEND_CONFIG__()`**(invoke `backend:refresh-config`):渲染进程**不能**直接 `fetch('/api/config')` 刷新配置——后端 `/api/config` 响应无 `Access-Control-Allow-Origin` 头,Chromium 会因 CORS 拦截跨源请求(Electron 渲染进程 origin 为 `file://` 或 dev `:5173`,均与 `:8183` 跨源;vite proxy 只对相对路径生效,`httpUrl()` 返回绝对 URL 不走 proxy)。故刷新下沉到 main 进程:`backend:refresh-config` handler 用 Node 全局 fetch(无 CORS 限制)拉当前 worker 的 `/api/config`(带 5s 超时),返回含最新 `sessionToken` 的配置。worker 重启轮换 token 后,重连必须经此 IPC 拿新值,否则旧 token 被 WS `verifyClient` 401 拒绝。
 - 渲染进程**不直接读**两个 `window.__*` 全局——全部经 [web/src/services/platform.ts](../../web/src/services/platform.ts) 抽象层消费:
   - `__BACKEND_CONFIG__` → `getServerConfig()` / `wsUrl()` / `isElectron`
   - `__BACKEND_HTTP_URL__` → `httpUrl()`
