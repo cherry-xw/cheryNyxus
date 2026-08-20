@@ -28,7 +28,7 @@ import {
   type ResizeDirection,
   type WorkbenchMode,
 } from './useWorkbenchWindow'
-import { useAgentsStore, useChatSessionsStore, useInteractionsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/stores'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 import MessageBranchTree from '@/features/pets/nyxus/components/MessageBranchTree.vue'
@@ -39,6 +39,7 @@ import {
 import { selectCanResume } from '@/stores/chats/selectors'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
+import ConnectionStatusChip from '@/features/desktop/ConnectionStatusChip.vue'
 import { lockWindowRootColorScheme, useWindowFrame } from '@/features/desktop/useWindowFrame'
 
 const props = defineProps<{ windowId: string; presetId: string; native?: boolean }>()
@@ -220,6 +221,11 @@ interface QuickTargetSelection {
   confidence?: number
 }
 const quickTarget = ref<QuickTargetSelection>()
+// 切会话清残留目标（与 AgentDialog 同约定，见 docs/interaction.md chat.route.suggest）。
+// 当前 quickTarget 无 UI 写入口恒 undefined，纯防御未来接入目标选择器时不复现残留 bug。
+watch(chatId, () => {
+  quickTarget.value = undefined
+})
 const quickRoutingPending = ref(false)
 const quickRoutingWaiters: Array<() => void> = []
 function setQuickRoutingPending(pending: boolean): void {
@@ -646,6 +652,9 @@ async function sendFromComposer(): Promise<void> {
       }
       try {
         targetChatId = await agents.createMasterPet({ preset: presetName.value })
+        // 'new' 一次性消费：会话已创建即清空，防残留导致下次发送再建（AgentDialog 同约定，
+        // 见 docs/interaction.md chat.route.suggest）。当前 quickTarget 无 UI 写入口，纯防御。
+        quickTarget.value = undefined
         await agents.fetchHistoryList()
       } catch (cause) {
         console.error('[WorkbenchDialog] create target session failed:', cause)
@@ -798,6 +807,50 @@ watch(
       .catch((cause) => console.error('[WorkbenchDialog] observe root tree failed:', cause))
   },
   { immediate: true },
+)
+
+// ── 连接就绪数据初始化（Electron 原生窗：组件 setup 早于 bootstrap 建连） ──
+// workbench 面不渲染 PetStage（浏览器面靠它拉会话目录），且上方树订阅在 WS 未连上时
+// RPC 必失败且无重试——树只剩合成起点（初始 fit 卡默认相机渲染在左上角）、钢琴琴键恒空。
+// connected 后依次幂等补齐。
+const connection = useConnectionStore()
+const historyLoading = ref(false)
+async function onConnectionReady(): Promise<void> {
+  // ① 会话目录（钢琴/会话列表数据源）
+  if (!agents.historyList && !historyLoading.value) {
+    historyLoading.value = true
+    try {
+      await agents.fetchHistoryList()
+    } catch (cause) {
+      console.warn('[WorkbenchDialog] fetchHistoryList 失败:', cause)
+    } finally {
+      historyLoading.value = false
+    }
+  }
+  // ② 无 chatId → 最近会话兜底（对齐浏览器「恢复活跃会话」语义）；setWorkbenchWindowChat
+  // 触发上方 chatId watch → treeRootChatId + acquire（此时已连接）。
+  if (!win.value?.chatId && !treeRootChatId.value) {
+    const latest = agents.latestRootInPreset(props.presetId, presetName.value)
+    if (latest) agents.setWorkbenchWindowChat(props.windowId, latest)
+  }
+  // ③ 树订阅补拉：初始 acquire 失败被吞后 rootTimeline 无缓存；owner Set 去重，幂等安全。
+  const root = treeRootChatId.value
+  if (root && !chatSessions.rootTimeline(root, 'tree')) {
+    void chatSessions
+      .acquireRootTimeline(root, rootSubscriptionOwner, 'tree')
+      .catch((cause) => console.error('[WorkbenchDialog] retry observe root tree failed:', cause))
+  }
+}
+watch(
+  () => connection.status,
+  (status) => {
+    if (status === 'connected') void onConnectionReady()
+  },
+  { immediate: true },
+)
+/** 树数据加载中（rootChatId 已定但 root timeline 快照未就绪）。 */
+const treeLoading = computed(
+  () => !!treeRootChatId.value && !chatSessions.rootTimeline(treeRootChatId.value, 'tree'),
 )
 const creating = ref(false)
 
@@ -1167,6 +1220,7 @@ defineExpose({ closeWorkbench })
           :layout-mode="topologyLayout ? 'topology' : 'timeline'"
           :fold-mode="foldMode"
           :paper-mode="paperMode"
+          :suspended="win.minimized"
           :focus-source-chat-id="treeFocusSourceChatId"
           :focus-interaction-id="treeFocusInteractionId"
           :full-render-threshold="agents.globalConfig?.global.tree_full_render_threshold"
@@ -1176,6 +1230,10 @@ defineExpose({ closeWorkbench })
           :detail-branch-unavailable-reason="detailBranchAvailability.reason"
           @branch="selectBranchTarget"
         />
+        <div v-if="treeLoading" class="workbench-tree-loading" aria-live="polite">
+          <span class="workbench-spinner" aria-hidden="true" />
+          节点树加载中…
+        </div>
       </div>
 
       <header
@@ -1190,6 +1248,7 @@ defineExpose({ closeWorkbench })
       >
         <span class="workbench-title">{{ presetName || '节点树工作台' }}</span>
         <small>{{ effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台' }}</small>
+        <ConnectionStatusChip class="workbench-conn-chip" />
         <div class="workbench-window-actions" role="group" aria-label="窗口控制">
           <button
             type="button"
@@ -1621,24 +1680,6 @@ defineExpose({ closeWorkbench })
                 </button>
               </span>
             </el-tooltip>
-            <el-tooltip
-              v-if="!isNyxus"
-              content="返回快速发送窗口"
-              placement="left"
-              :show-after="200"
-              :hide-after="0"
-            >
-              <span class="nyxus-tool-tip-anchor">
-                <button
-                  type="button"
-                  class="nyxus-rail-action"
-                  aria-label="返回快速发送窗口"
-                  @click="closeWorkbench"
-                >
-                  <span aria-hidden="true">↙</span>
-                </button>
-              </span>
-            </el-tooltip>
             <div
               class="nyxus-fold-tool"
               :class="{ 'is-open': foldToolOpen }"
@@ -1729,6 +1770,7 @@ defineExpose({ closeWorkbench })
               :preset-id="quickPresetId"
               :preset-name="presetName"
               :active-chat-id="chatId"
+              :loading="historyLoading"
               @select="switchSession"
               @create="createSession"
               @delete="isNyxus ? deleteNyxusSession($event) : deletePresetSession($event)"
@@ -1815,6 +1857,22 @@ defineExpose({ closeWorkbench })
           </div>
         </MotionDiv>
       </AnimatePresence>
+      <!-- 断连遮罩：仅 disconnected（数据不可用）时阻断操作；connecting 只亮标题栏状态不遮罩。
+           native 面关闭三键在 WindowFrame 层，不受遮罩影响。 -->
+      <div
+        v-if="connection.status === 'disconnected'"
+        class="workbench-offline-mask"
+        role="alert"
+      >
+        <div class="offline-panel">
+          <span class="workbench-spinner is-large" aria-hidden="true" />
+          <strong>未连接到服务器</strong>
+          <span>部分功能不可用，正在自动重连…</span>
+          <button type="button" class="offline-retry" @click="connection.reconnect()">
+            立即重试
+          </button>
+        </div>
+      </div>
       <template v-if="effectiveMode === 'window'">
         <span
           v-for="direction in resizeDirections"
@@ -2409,6 +2467,86 @@ defineExpose({ closeWorkbench })
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+// 断连遮罩：盖住画布与 rail（native 面三键在 WindowFrame 层），阻断进一步操作防出错。
+.workbench-offline-mask {
+  position: absolute;
+  z-index: calc(var(--nx-z-chrome) + 2);
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--nx-bg) 72%, transparent);
+  backdrop-filter: blur(6px);
+}
+.offline-panel {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 22px 34px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
+  border-radius: 12px;
+  color: var(--nx-text);
+  background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 8%);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+}
+.offline-panel strong {
+  font-size: 13px;
+}
+.offline-panel > span {
+  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
+  font-size: 11px;
+}
+.offline-retry {
+  margin-top: 6px;
+  padding: 5px 14px;
+  border: 1px solid color-mix(in srgb, var(--nx-cyan) 38%, transparent);
+  border-radius: 8px;
+  color: var(--nx-cyan);
+  background: color-mix(in srgb, var(--nx-cyan) 10%, transparent);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.offline-retry:hover {
+  background: color-mix(in srgb, var(--nx-cyan) 18%, transparent);
+}
+// 树数据加载指示：rootChatId 已定但 root timeline 快照未就绪时的居中轻提示。
+.workbench-tree-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--nx-text) 70%, transparent);
+  background: color-mix(in srgb, var(--nx-bg) 78%, transparent);
+  font-size: 11px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+// 通用小 spinner（树加载 / 断连面板共用）。
+.workbench-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentcolor;
+  border-radius: 50%;
+  animation: workbench-spinner-rotate 0.9s linear infinite;
+}
+.workbench-spinner.is-large {
+  width: 18px;
+  height: 18px;
+}
+@keyframes workbench-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+// 浏览器面自绘标题栏的连接状态 chip（native 面由 App.vue WindowFrame title-actions 承载）。
+.workbench-titlebar .workbench-conn-chip {
+  margin-left: 2px;
 }
 // 抽屉内复用 WorkspaceSessionBrowser：隐藏其自带 header（计数移至抽屉头），列表撑满滚动。
 .workspace-drawer :deep(.workspace-browser) {

@@ -30,7 +30,12 @@ import {
   type ExecutionLayoutMode,
 } from '../graph/executionLayout'
 import { DETAIL_BRANCH_COLOR, edgeStyle } from '../graph/edgeStyles'
-import { accentForTheme, canPinNodeDetail, hasNodeHoverDetail, skinForNode } from '../graph/nodeSkins'
+import {
+  accentForTheme,
+  canPinNodeDetail,
+  hasNodeHoverDetail,
+  skinForNode,
+} from '../graph/nodeSkins'
 import {
   anchoredPopoverPosition,
   oppositePopoverPlacement,
@@ -77,18 +82,22 @@ const props = withDefaults(
     /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
     fullRenderThreshold?: number
     paperMode?: boolean
+    /** Parent workbench is minimized/hidden; keep state but suspend GPU work. */
+    suspended?: boolean
     /** 静态历史视图（代际二层弹窗）：挂断 live 投影（输入/流式/CRT），仅渲染 timelineOverride。 */
     staticView?: boolean
   }>(),
   { foldMode: 'partial', layoutMode: 'timeline' },
 )
 const emit = defineEmits<{
-  branch: [payload: {
-    type: 'detail' | 'continuation'
-    nodeId: string
-    sourceRootChatId: string
-    ordinary?: boolean
-  }]
+  branch: [
+    payload: {
+      type: 'detail' | 'continuation'
+      nodeId: string
+      sourceRootChatId: string
+      ordinary?: boolean
+    },
+  ]
 }>()
 const chatSessions = useChatSessionsStore()
 const agents = useAgentsStore()
@@ -119,7 +128,9 @@ let gpuMountGeneration = 0
 let lastGpuSceneSignature = ''
 let detailHideTimer: ReturnType<typeof setTimeout> | undefined
 
-const timelineSnapshot = computed(() => props.timelineOverride ?? chatSessions.rootTimeline(props.rootChatId, 'tree'))
+const timelineSnapshot = computed(
+  () => props.timelineOverride ?? chatSessions.rootTimeline(props.rootChatId, 'tree'),
+)
 const timelineNodes = computed(() => timelineSnapshot.value?.nodes ?? [])
 const rootTransientState = computed(() => chatSessions.rootTimelineStates[props.rootChatId])
 const liveState = computed(() =>
@@ -127,14 +138,32 @@ const liveState = computed(() =>
     ? { activeTurns: [], activeRuns: [] }
     : effectiveRootLiveState(props.rootChatId, rootTransientState.value, chatSessions.sessionsById),
 )
-const activeCrtRuns = computed(() =>
-  effectiveRunFacts(
+let cachedActiveRunKey = ''
+let cachedActiveCrtRuns: ReturnType<typeof effectiveRunFacts> = []
+const activeCrtRuns = computed(() => {
+  // Token deltas change turn content but not run topology. Keep the durable
+  // projection graph from rebuilding until run IDs/statuses actually change.
+  const canonicalRuns = timelineSnapshot.value?.activeRuns ?? []
+  const key = [
     props.rootChatId,
-    timelineSnapshot.value?.activeRuns ?? [],
+    ...canonicalRuns.map((run) => `${run.chatId ?? ''}:${run.runId ?? ''}:${run.status ?? ''}`),
+    ...liveState.value.activeRuns.map(
+      (run) => `${run.chatId ?? ''}:${run.runId ?? ''}:${run.status ?? run.state ?? ''}`,
+    ),
+    ...liveState.value.activeTurns.map(
+      (turn) => `${turn.chatId ?? ''}:${turn.runId ?? ''}:${turn.turnId}:${turn.status}`,
+    ),
+  ].join('\u0001')
+  if (key === cachedActiveRunKey) return cachedActiveCrtRuns
+  cachedActiveRunKey = key
+  cachedActiveCrtRuns = effectiveRunFacts(
+    props.rootChatId,
+    canonicalRuns,
     liveState.value.activeRuns,
     liveState.value.activeTurns,
-  ),
-)
+  )
+  return cachedActiveCrtRuns
+})
 const pendingInputs = computed<VirtualInputNode[]>(() => {
   if (props.staticView) return []
   const rootState = rootTransientState.value
@@ -186,7 +215,69 @@ const foldProjection = computed(() => {
 const graph = computed(() => foldProjection.value.graph)
 const coreFlowProjection = computed(() => projectCoreFlowExecutionGraph(graph.value))
 const paperGraph = computed(() => coreFlowProjection.value.paperGraph)
-const paperEntries = computed(() => buildPaperStack(paperGraph.value.nodes, nodeTitle))
+type CachedPaperEntry = {
+  version: string
+  entry: ReturnType<typeof buildPaperStack>[number]
+}
+let paperEntryCache = new Map<string, CachedPaperEntry>()
+
+function paperTextHash(value?: string): number {
+  if (!value) return 0
+  let hash = 2166136261
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function paperNodeVersion(node: ExecutionNode): string {
+  const fact = node.sourceFact
+  const own = [
+    node.id,
+    node.status,
+    node.inputState ?? '',
+    paperTextHash(node.content),
+    paperTextHash(node.thinking),
+    fact?.updatedAt ?? '',
+    fact?.status ?? '',
+    ...(fact?.toolCalls ?? []).flatMap((call) => [
+      call.callId ?? '',
+      call.status ?? '',
+      paperTextHash(call.arguments),
+      paperTextHash(call.result),
+    ]),
+  ]
+  if (node.kind === 'fold') {
+    own.push(
+      ...(node.fold?.members ?? []).flatMap((member) => {
+        const display = member.displayNode
+        return [
+          display.id,
+          display.status,
+          display.sourceFact?.updatedAt ?? '',
+          paperTextHash(display.content),
+          paperTextHash(display.thinking),
+        ]
+      }),
+    )
+  }
+  return own.join('\u0001')
+}
+
+const paperEntries = computed(() => {
+  const nextCache = new Map<string, CachedPaperEntry>()
+  const entries = buildPaperStack(paperGraph.value.nodes, nodeTitle).map((entry) => {
+    const version = paperNodeVersion(entry.node)
+    const cached = paperEntryCache.get(entry.id)
+    const stable =
+      cached?.version === version && cached.entry.title === entry.title ? cached.entry : entry
+    nextCache.set(entry.id, { version, entry: stable })
+    return stable
+  })
+  paperEntryCache = nextCache
+  return entries
+})
 const activePaperNodeId = ref<string>()
 const paperHasNewTail = ref(false)
 const paperCurrentIndex = computed(() => {
@@ -261,14 +352,21 @@ const forcedGpuNodeIds = computed(
         pinnedDetailNodeId.value,
         props.paperMode ? activePaperNodeId.value : undefined,
         ...runningTailIds.value,
-      ].filter(
-        (id): id is string => !!id,
-      ),
+      ].filter((id): id is string => !!id),
     ),
 )
 const executionViewportIndex = computed(() => createExecutionViewportIndex(layout.value))
 /** 全量渲染默认阈值（config 未配置时兜底）：节点数≤此值跳过视口裁剪。 */
 const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 500
+const fullRenderThreshold = computed(
+  () => {
+    const configured = props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT
+    // The reader leaves only half a viewport for the graph. Avoid keeping hundreds
+    // of offscreen text textures in the software-rendered Electron canvas.
+    return props.paperMode ? Math.min(configured, 120) : configured
+  },
+)
+const fullRenderActive = computed(() => layout.value.nodes.length <= fullRenderThreshold.value)
 const visibleExecutionItems = computed(() =>
   selectVisibleExecutionItems(
     layout.value,
@@ -276,7 +374,7 @@ const visibleExecutionItems = computed(() =>
     forcedGpuNodeIds.value,
     executionViewportIndex.value,
     VIEWPORT_RETENTION_OVERSCAN,
-    props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT,
+    fullRenderThreshold.value,
   ),
 )
 const visibleExecutionKey = computed(() => visibleItemsKey(visibleExecutionItems.value))
@@ -295,11 +393,15 @@ function setDragOverlayTranslation(x: number, y: number): void {
 
 function startGpuDrag(transform: CanvasTransform): void {
   gpuRenderer?.setCamera(dragExecutionCamera(transform))
+  gpuRenderer?.setMotionPaused(true)
   viewportRef.value?.classList.add('is-panning')
   setDragOverlayTranslation(0, 0)
 }
 
 function retainCameraSelection(camera: ExecutionCamera): void {
+  // Full-render scenes are camera-independent. Updating the selection ref here
+  // would only invalidate Vue and repatch every transparent hit target per frame.
+  if (fullRenderActive.value) return
   if (
     !viewportSelectionContainsCamera(
       visibleExecutionItems.value.bounds,
@@ -313,7 +415,8 @@ function retainCameraSelection(camera: ExecutionCamera): void {
 
 function presentGpuDrag(transform: CanvasTransform): void {
   const camera = dragExecutionCamera(transform)
-  gpuRenderer?.setCamera(camera)
+  // Freeze the expensive Pixi scene while panning. The already rendered canvas
+  // and all camera-bound DOM overlays are translated as compositor bitmaps.
   setDragOverlayTranslation(transform.x - canvas.offsetX.value, transform.y - canvas.offsetY.value)
   retainCameraSelection(camera)
 }
@@ -322,6 +425,7 @@ function finishGpuDrag(transform: CanvasTransform): void {
   const camera = dragExecutionCamera(transform)
   gpuRenderer?.setCamera(camera)
   retainCameraSelection(camera)
+  gpuRenderer?.setMotionPaused(false)
   void nextTick(() => {
     setDragOverlayTranslation(0, 0)
     viewportRef.value?.classList.remove('is-panning')
@@ -403,16 +507,18 @@ const initialCrtPlacements = computed(() => {
     visibleCrts.value.flatMap((card, order) => {
       const node = positioned.get(card.anchorNodeId)
       if (!node) return []
-      return [{
-        id: card.id,
-        anchor: canvas.worldToScreen(node),
-        panel: { width: 360, height: Math.min(heightLimit, 476) },
-        main: card.main,
-        actionable: false,
-        pinned: pinnedCrtIds.value.has(card.id),
-        order: card.updatedAt || order,
-        lineTargetOffsetY: 16,
-      }]
+      return [
+        {
+          id: card.id,
+          anchor: canvas.worldToScreen(node),
+          panel: { width: 360, height: Math.min(heightLimit, 476) },
+          main: card.main,
+          actionable: false,
+          pinned: pinnedCrtIds.value.has(card.id),
+          order: card.updatedAt || order,
+          lineTargetOffsetY: 16,
+        },
+      ]
     }),
     { ...viewportSize.value, margin: 12 },
   )
@@ -441,24 +547,29 @@ const crtPlacements = computed(() => {
     const state = crtWindowState.value.get(card.id)
     if (!node || !state) return []
     const anchor = canvas.worldToScreen(node)
-    const panel = { width: 360, height: Math.min(Math.max(160, viewportSize.value.height - 96), 476) }
+    const panel = {
+      width: 360,
+      height: Math.min(Math.max(160, viewportSize.value.height - 96), 476),
+    }
     const centerX = state.left + panel.width / 2
-    const placement = anchor.x <= centerX ? 'right' as const : 'left' as const
+    const placement = anchor.x <= centerX ? ('right' as const) : ('left' as const)
     const edgeX = placement === 'right' ? state.left : state.left + panel.width
-    return [{
-      id: card.id,
-      anchor,
-      panel,
-      main: card.main,
-      actionable: card.actionable,
-      pinned: pinnedCrtIds.value.has(card.id),
-      order: card.updatedAt || order,
-      left: state.left,
-      top: state.top,
-      placement,
-      windowZ: state.z,
-      line: { from: anchor, to: { x: edgeX, y: state.top + 16 } },
-    }]
+    return [
+      {
+        id: card.id,
+        anchor,
+        panel,
+        main: card.main,
+        actionable: card.actionable,
+        pinned: pinnedCrtIds.value.has(card.id),
+        order: card.updatedAt || order,
+        left: state.left,
+        top: state.top,
+        placement,
+        windowZ: state.z,
+        line: { from: anchor, to: { x: edgeX, y: state.top + 16 } },
+      },
+    ]
   })
 })
 
@@ -484,7 +595,10 @@ const defaultPopoverPlacements = computed(() => {
     { ...viewportSize.value, margin: 12 },
   )
 })
-const overlayPlacements = computed(() => [...crtPlacements.value, ...defaultPopoverPlacements.value])
+const overlayPlacements = computed(() => [
+  ...crtPlacements.value,
+  ...defaultPopoverPlacements.value,
+])
 
 const crtById = computed(() => new Map(visibleCrts.value.map((card) => [card.id, card])))
 const crtsByAnchor = computed(() => {
@@ -536,8 +650,14 @@ function dragCrt(id: string, delta: { x: number; y: number }): void {
   if (!current) return
   const width = 360
   const headerVisible = 32
-  const left = Math.min(viewportSize.value.width - headerVisible, Math.max(-width + headerVisible, current.left + delta.x))
-  const top = Math.min(viewportSize.value.height - headerVisible, Math.max(0, current.top + delta.y))
+  const left = Math.min(
+    viewportSize.value.width - headerVisible,
+    Math.max(-width + headerVisible, current.left + delta.x),
+  )
+  const top = Math.min(
+    viewportSize.value.height - headerVisible,
+    Math.max(0, current.top + delta.y),
+  )
   const next = new Map(crtWindowState.value)
   next.set(id, { left, top, z: current.z })
   crtWindowState.value = next
@@ -547,7 +667,10 @@ function actorLabel(node: ExecutionNode): string {
   const actor = node.actor
   if (actor.kind === 'user') return actor.displayName?.trim() || '我'
   if (actor.kind === 'agent') {
-    return actor.roleType?.trim() || (node.sourceChatId === node.rootChatId ? 'Cherry Nyxus' : '协作节点')
+    return (
+      actor.roleType?.trim() ||
+      (node.sourceChatId === node.rootChatId ? 'Cherry Nyxus' : '协作节点')
+    )
   }
   if (actor.kind === 'tool') return toolDisplayName(actor.toolName)
   return '系统事件'
@@ -562,7 +685,10 @@ function nodeTitle(node: ExecutionNode): string {
   if (node.kind === 'input') return '我的指令'
   if (node.kind === 'pack') {
     // 打包节点标题 = 摘要首行（compactNodeTitle 统一截断）。
-    const firstLine = node.content.split('\n').map((line) => line.trim()).find(Boolean)
+    const firstLine = node.content
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean)
     return firstLine ? `打包 · ${firstLine}` : '打包历史'
   }
   if (node.kind === 'return') return '结果返回'
@@ -629,7 +755,10 @@ watch(
     if (!sourceChatId && !interactionId) return
     const node = currentLayout.nodes.find((candidate) => {
       if (interactionId && candidate.id === interactionId) return true
-      if (interactionId && toolBatchDetail(candidate)?.calls.some((call) => call.callId === interactionId))
+      if (
+        interactionId &&
+        toolBatchDetail(candidate)?.calls.some((call) => call.callId === interactionId)
+      )
         return true
       return !!sourceChatId && candidate.sourceChatId === sourceChatId
     })
@@ -891,9 +1020,13 @@ function containsBranchAnchor(node: (typeof layout.value.nodes)[number]): boolea
   const anchorId = props.branchAnchorNodeId
   if (!anchorId) return false
   if (node.id === anchorId || node.sourceFact?.id === anchorId) return true
-  return !!node.fold?.members.some((member) =>
-    member.id === anchorId || member.displayNode.sourceFact?.id === anchorId ||
-    member.nodes.some((candidate) => candidate.id === anchorId || candidate.sourceFact?.id === anchorId),
+  return !!node.fold?.members.some(
+    (member) =>
+      member.id === anchorId ||
+      member.displayNode.sourceFact?.id === anchorId ||
+      member.nodes.some(
+        (candidate) => candidate.id === anchorId || candidate.sourceFact?.id === anchorId,
+      ),
   )
 }
 const detailRelatedEdges = computed(() => {
@@ -1094,6 +1227,8 @@ watch(
   (rootChatId, previousRootChatId) => {
     if (!rootChatId) return
     initialFitPending = true
+    cachedActiveRunKey = ''
+    cachedActiveCrtRuns = []
     layoutEngine.reset()
     endpointLayoutEngine.reset()
     recoveryError.value = ''
@@ -1105,6 +1240,7 @@ watch(
     knownFoldCounts = new Map()
     activePaperNodeId.value = undefined
     paperHasNewTail.value = false
+    paperEntryCache = new Map()
     generationDialogIndex.value = undefined
     if (previousRootChatId && previousRootChatId !== rootChatId) {
       pinnedCrtIds.value = new Set()
@@ -1227,6 +1363,16 @@ watch(
 watch(pixiScene, (scene) => syncGpuScene(scene))
 // 主题切换：更新画布调色板并重画静态层（accent 随 pixiScene 重算）。
 watch(canvasPalette, (palette) => gpuRenderer?.setPalette(palette))
+watch(
+  () => props.paperMode,
+  (paperMode) => gpuRenderer?.setMotionFrameRate(paperMode ? 24 : 30),
+  { immediate: true },
+)
+watch(
+  () => props.suspended,
+  (suspended) => gpuRenderer?.setSuspended(!!suspended),
+  { immediate: true },
+)
 
 async function mountGpuRenderer(): Promise<void> {
   const host = pixiMountRef.value
@@ -1236,6 +1382,8 @@ async function mountGpuRenderer(): Promise<void> {
   gpuRenderer = renderer
   renderer.setScene(pixiScene.value)
   renderer.setPalette(canvasPalette.value)
+  renderer.setMotionFrameRate(props.paperMode ? 24 : 30)
+  renderer.setSuspended(!!props.suspended)
   try {
     await renderer.mount(host)
   } catch (error) {
@@ -1318,29 +1466,41 @@ defineExpose({ resetLayout })
     >
       <div ref="pixiMountRef" class="tree-gpu-surface" role="img" aria-label="任务执行节点图" />
       <div class="tree-overlay" aria-live="polite">
-        <button
-          v-for="node in visibleInteractiveNodes"
-          :key="`${node.id}:hit-target`"
-          type="button"
-          class="gpu-node-hit-target"
-          :style="gpuNodeHitStyle(node)"
-          :aria-label="nodeAriaLabel(node)"
-          :data-execution-node-id="node.id"
-          @pointerdown="onNodePointerDown($event, node)"
-          @pointerenter="showNodeDetail(node)"
-          @pointerleave="hideNodeDetail(node)"
-          @focus="focusNode(node)"
-          @blur="hideNodeDetail(node)"
-          @keydown.enter.prevent.stop="activateNode(node)"
-          @keydown.space.prevent.stop="activateNode(node)"
-          @keydown.down.prevent.stop="focusRelativeNode(node.id, 1)"
-          @keydown.right.prevent.stop="focusRelativeNode(node.id, 1)"
-          @keydown.up.prevent.stop="focusRelativeNode(node.id, -1)"
-          @keydown.left.prevent.stop="focusRelativeNode(node.id, -1)"
-          @keydown.home.prevent.stop="focusRelativeNode(node.id, 'first')"
-          @keydown.end.prevent.stop="focusRelativeNode(node.id, 'last')"
-          @click.stop="activateNode(node)"
-        />
+        <div class="gpu-node-hit-layer">
+          <button
+            v-for="node in visibleInteractiveNodes"
+            :key="`${node.id}:hit-target`"
+            type="button"
+            class="gpu-node-hit-target"
+            :style="gpuNodeHitStyle(node)"
+            :aria-label="nodeAriaLabel(node)"
+            :data-execution-node-id="node.id"
+            v-memo="[
+              node.id,
+              node.x,
+              node.y,
+              nodeTitle(node),
+              node.status,
+              canvas.scale.value,
+              canvas.offsetX.value,
+              canvas.offsetY.value,
+            ]"
+            @pointerdown="onNodePointerDown($event, node)"
+            @pointerenter="showNodeDetail(node)"
+            @pointerleave="hideNodeDetail(node)"
+            @focus="focusNode(node)"
+            @blur="hideNodeDetail(node)"
+            @keydown.enter.prevent.stop="activateNode(node)"
+            @keydown.space.prevent.stop="activateNode(node)"
+            @keydown.down.prevent.stop="focusRelativeNode(node.id, 1)"
+            @keydown.right.prevent.stop="focusRelativeNode(node.id, 1)"
+            @keydown.up.prevent.stop="focusRelativeNode(node.id, -1)"
+            @keydown.left.prevent.stop="focusRelativeNode(node.id, -1)"
+            @keydown.home.prevent.stop="focusRelativeNode(node.id, 'first')"
+            @keydown.end.prevent.stop="focusRelativeNode(node.id, 'last')"
+            @click.stop="activateNode(node)"
+          />
+        </div>
         <div v-if="gpuRenderError" class="graph-diagnostic" role="alert">
           <span>GPU 图形渲染器不可用</span>
           <small>{{ gpuRenderError }}</small>
@@ -1513,6 +1673,7 @@ defineExpose({ resetLayout })
   background: transparent;
   user-select: none;
   -webkit-user-select: none;
+  contain: layout paint style;
 }
 .execution-tree.is-paper-mode .tree-viewport {
   left: 50%;
@@ -1559,11 +1720,16 @@ defineExpose({ resetLayout })
   background: transparent;
   cursor: pointer;
   pointer-events: auto;
-  will-change: transform;
+}
+.gpu-node-hit-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 .tree-viewport.is-panning
   :is(
-    .gpu-node-hit-target,
+    .tree-gpu-surface,
+    .gpu-node-hit-layer,
     .crt-anchor-lines,
     .run-crt-anchor,
     .node-detail-anchor
@@ -1970,5 +2136,11 @@ defineExpose({ resetLayout })
   stroke: url(#nx-neon);
   stroke-width: 1.5;
   opacity: 0.4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .node-detail-enter-active,
+  .node-detail-leave-active {
+    transition: opacity 100ms linear;
+  }
 }
 </style>

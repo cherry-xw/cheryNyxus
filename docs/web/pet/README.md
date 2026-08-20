@@ -68,6 +68,8 @@
 | [nyxus/components/NyxusParticle.vue](../../../web/src/features/pets/nyxus/components/NyxusParticle.vue) | canvas 宿主（瘦）：RAF frame 编排，委托 nyxusRenderer + useNyxusParticleInput |
 | [nyxus/components/NyxusToolRing.vue](../../../web/src/features/pets/nyxus/components/NyxusToolRing.vue) | 创建、聊天和设置工具环；单击 Nyxus 入口时显示 |
 | [nyxus/components/MessageBranchTree.vue](../../../web/src/features/pets/nyxus/components/MessageBranchTree.vue) | canonical graph 画布编排：节点、连线、pan/zoom、输入、Fold、popover 与锚定 CRT |
+| [nyxus/components/NodePaperStack.vue](../../../web/src/features/pets/nyxus/components/NodePaperStack.vue) | 卡牌阅读模式（工作台 paperMode）：按时间排列的纸牌堆 + 滑块选卡，当前卡渲染 PaperGameCard |
+| [nyxus/components/PaperGameCard.vue](../../../web/src/features/pets/nyxus/components/PaperGameCard.vue) | 单张卡牌渲染。普通节点卡自上而下：记录摘要 → 属性行（状态/技能/关联，`秘法推演` thinking 存在时追加一格，满 3 格时第 4 格自动换行；点击/悬浮仍弹侧边卡）→ 情报栏（**专做正文内联 markdown 渲染**，复用 2 万字截断，不再走弹窗）→ 技能槽 → 技能实录栏（技能铭文/技能产物按钮，悬浮预览/点击钉住弹侧边卡）。冒险者卡正文内联、Fold 卡过程阶段不变 |
 | [nyxus/components/FiberPulseLine.vue](../../../web/src/features/pets/nyxus/components/FiberPulseLine.vue) | 分支树轴突连线：低亮纤维、前沿波与渐隐尾焰 |
 | [nyxus/composables/useNyxusWorkState.ts](../../../web/src/features/pets/nyxus/composables/useNyxusWorkState.ts) | chatSessions→Nyxus `working` Loading 布尔投影 |
 | [nyxus/graph/executionGraph.ts](../../../web/src/features/pets/nyxus/graph/executionGraph.ts) | canonical graph facts 的唯一 UI-neutral 投影；不按时间、正文或角色猜测跨 Agent 关系 |

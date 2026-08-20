@@ -17,7 +17,7 @@ defineProps<{
 <template>
   <div
     class="status-stack"
-    :aria-label="`emotion ${Math.round(emotion)}, context ${Math.round(contextUsage * 100)}%`"
+    :aria-label="`情绪 ${Math.round(emotion)}，上下文 ${Math.round(contextUsage * 100)}%`"
   >
     <div class="status-row">
       <span class="stat emotion"><span class="fill" :style="{ width: `${emotion}%` }" /></span>
@@ -36,6 +36,7 @@ defineProps<{
 @ink: var(--ink);
 
 .status-stack {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -44,11 +45,28 @@ defineProps<{
 }
 
 .status-row {
+  isolation: isolate;
   display: flex;
   gap: 3px;
   width: 44px;
   position: relative;
   top: -4px; /* 上移避免与 .busy-indicator 绝对定位重叠 */
+
+  /* 始终可见的轻量底板：不增加布局高度，因此不会改变脸部锚点。 */
+  &::before {
+    position: absolute;
+    inset: -3px -4px;
+    z-index: -1;
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    box-shadow:
+      0 2px 7px rgba(15, 23, 42, 0.2),
+      inset 0 1px 0 color-mix(in srgb, white 48%, transparent);
+    backdrop-filter: blur(3px);
+    content: '';
+    pointer-events: none;
+  }
 }
 
 .stat {

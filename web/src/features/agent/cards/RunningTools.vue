@@ -2,7 +2,7 @@
 import type { QuestionItemState, RunningTool } from '@/stores/agents'
 import { useAgentsStore } from '@/stores'
 
-const props = defineProps<{
+defineProps<{
   tools: RunningTool[]
   questions: QuestionItemState[]
   chatId: string
@@ -18,6 +18,12 @@ function isDrafted(question: QuestionItemState): boolean {
       question.draftAnswer?.cancelled,
     )
   )
+}
+
+/** Pet 工具图标只展示中文提示；优先使用后端维护的中文说明与显示名。 */
+function runningToolTip(name: string): string {
+  const meta = agents.senseTools.find((tool) => tool.name === name)
+  return meta?.description?.trim() || meta?.label?.trim() || '正在运行工具'
 }
 </script>
 
@@ -44,9 +50,13 @@ function isDrafted(question: QuestionItemState): boolean {
         {{ question.localStatus === 'ready' ? '👌' : '✍️' }}
       </button>
     </el-tooltip>
-    <span v-for="tool in tools" :key="tool.id" class="run-icon" :title="tool.name">{{
-      agents.iconForTool(tool.name)
-    }}</span>
+    <span
+      v-for="tool in tools"
+      :key="tool.id"
+      class="run-icon"
+      :title="runningToolTip(tool.name)"
+      >{{ agents.iconForTool(tool.name) }}</span
+    >
   </div>
 </template>
 

@@ -4,8 +4,10 @@ script:
     senseCalls:
       - id: sa-0
         name: write_file
-        arguments: '{"path":"/tmp/cheryNyxus-test-NpWGoh/a.txt","content":"a"}'
+        arguments: >-
+          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryNyxus-test-p75hka/a.txt","content":"a"}
       - id: sa-1
         name: write_file
-        arguments: '{"path":"/tmp/cheryNyxus-test-NpWGoh/b.txt","content":"b"}'
+        arguments: >-
+          {"path":"C:\\Users\\chc\\AppData\\Local\\Temp\\cheryNyxus-test-p75hka/b.txt","content":"b"}
   - content: done

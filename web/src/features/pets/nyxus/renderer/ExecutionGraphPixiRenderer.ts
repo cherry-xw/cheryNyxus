@@ -64,6 +64,9 @@ const EMPTY_SCENE: PixiExecutionScene = { nodes: [], edges: [] }
 const MIN_SAMPLE_STEPS = 12
 const MAX_SAMPLE_STEPS = 512
 const MOTION_VIEWPORT_OVERSCAN = 120
+const MOTION_SELECTION_BUCKET = 128
+const MOTION_FRAME_INTERVAL = 1000 / 30
+const DEFAULT_MOTION_FPS = 30
 const DEEMPHASIZED_ALPHA = 0.3
 const DETAIL_BRANCH_ALPHA = 0.55
 
@@ -173,6 +176,17 @@ function colorNumber(color: string): number {
   return Number.parseInt(color.replace('#', ''), 16)
 }
 
+function isElectronRuntime(): boolean {
+  return /\bElectron\//.test(navigator.userAgent)
+}
+
+function rendererResolution(): number {
+  const dpr = window.devicePixelRatio || 1
+  // Keep the desktop graph at one physical pixel per CSS pixel. It leaves enough GPU fill-rate for
+  // Chromium to composite card scrolling and drag transforms at 60Hz on high-DPI displays.
+  return isElectronRuntime() ? Math.min(dpr, 1) : Math.min(dpr, 2)
+}
+
 async function initializeApplication(
   host: HTMLElement,
 ): Promise<{ app: Application; backend: 'webgpu' | 'webgl' }> {
@@ -181,9 +195,12 @@ async function initializeApplication(
     backgroundAlpha: 0,
     antialias: true,
     autoDensity: true,
-    resolution: Math.min(window.devicePixelRatio || 1, 2),
+    resolution: rendererResolution(),
   }
-  if ('gpu' in navigator) {
+  // Electron uses several simultaneous transparent/non-transparent windows. The previous GPU crash
+  // was not isolated from WebGPU device creation, so retain hardware composition while using mature
+  // D3D-backed WebGL for Pixi. Normal browsers can still select WebGPU.
+  if (!isElectronRuntime() && 'gpu' in navigator) {
     const app = new Application()
     try {
       // 不给 WebGPU requestAdapter 传 powerPreference：Windows 上该选项被忽略（crbug 369219127）
@@ -214,7 +231,17 @@ export class ExecutionGraphPixiRenderer {
   private readonly visibleMotionEdges: SampledEdge[] = []
   private readonly visibleMotionNodes: PixiExecutionNode[] = []
   private camera?: ExecutionCamera
+  private motionSelectionKey = ''
+  private motionPaused = false
+  private suspended = false
+  private reduceMotion = false
+  private lastMotionDrawAt = 0
+  private motionFps = DEFAULT_MOTION_FPS
+  private interactionFpsTimer?: ReturnType<typeof setTimeout>
   private ticker?: () => void
+  private media?: MediaQueryList
+  private motionPreferenceListener?: () => void
+  private visibilityListener?: () => void
   private canvasPalette: PixiCanvasPalette = PIXI_CANVAS_PALETTES.dark
   /** 标签纹理分辨率。随相机缩放逐档提升，避免放大后文字（含数字角标）糊。 */
   private labelResolution = 1
@@ -225,6 +252,7 @@ export class ExecutionGraphPixiRenderer {
     if (this.canvasPalette === palette) return
     this.canvasPalette = palette
     this.drawStatic()
+    this.renderWhenTickerStopped()
   }
 
   async mount(host: HTMLElement): Promise<void> {
@@ -243,9 +271,62 @@ export class ExecutionGraphPixiRenderer {
       this.labels,
     )
     this.app.stage.addChild(this.world)
+    this.media = window.matchMedia('(prefers-reduced-motion: reduce)')
+    this.motionPreferenceListener = () => {
+      this.reduceMotion = this.media?.matches ?? false
+      if (this.reduceMotion) this.clearMotion()
+      else this.lastMotionDrawAt = 0
+      this.syncTickerState()
+      this.renderWhenTickerStopped()
+    }
+    this.motionPreferenceListener()
+    this.media.addEventListener('change', this.motionPreferenceListener)
+    this.visibilityListener = () => this.syncTickerState()
+    document.addEventListener('visibilitychange', this.visibilityListener)
     this.ticker = () => this.drawMotion(performance.now())
+    this.app.ticker.maxFPS = this.motionFps
     this.app.ticker.add(this.ticker)
     this.drawStatic()
+    this.syncTickerState()
+  }
+
+  /** Suspend hidden/minimized workbenches without destroying their GPU scene. */
+  setSuspended(suspended: boolean): void {
+    if (this.suspended === suspended) return
+    this.suspended = suspended
+    this.syncTickerState()
+  }
+
+  /** Decorative motion can run slower than interaction without changing camera responsiveness. */
+  setMotionFrameRate(fps: number): void {
+    const next = Math.max(12, Math.min(DEFAULT_MOTION_FPS, Math.round(fps)))
+    if (this.motionFps === next) return
+    this.motionFps = next
+    if (this.app && !this.interactionFpsTimer) this.app.ticker.maxFPS = next
+  }
+
+  /** Keep camera presentation smooth while pausing decorative motion during drag. */
+  setMotionPaused(paused: boolean): void {
+    if (this.motionPaused === paused) return
+    this.motionPaused = paused
+    if (paused) this.clearMotion()
+    else this.lastMotionDrawAt = 0
+    this.syncTickerState()
+    this.renderWhenTickerStopped()
+  }
+
+  private syncTickerState(): void {
+    if (!this.app) return
+    if (this.suspended || this.motionPaused || this.reduceMotion || document.hidden) {
+      this.app.ticker.stop()
+    }
+    else this.app.ticker.start()
+  }
+
+  /** Pixi's application ticker normally presents the stage; paused paths need one explicit frame. */
+  private renderWhenTickerStopped(): void {
+    if (!this.app || this.suspended || document.hidden) return
+    if (this.motionPaused || this.reduceMotion) this.app.render()
   }
 
   setCamera(camera: ExecutionCamera): void {
@@ -259,12 +340,24 @@ export class ExecutionGraphPixiRenderer {
       this.rebuildLabels()
     }
     this.refreshMotionItems()
+    this.boostInteractionFrameRate()
+    this.renderWhenTickerStopped()
+  }
+
+  /** Wheel/reset camera motion gets a short 60Hz window; idle decoration returns to 24/30Hz. */
+  private boostInteractionFrameRate(): void {
+    if (!this.app || this.suspended || document.hidden) return
+    this.app.ticker.maxFPS = 60
+    if (this.interactionFpsTimer) clearTimeout(this.interactionFpsTimer)
+    this.interactionFpsTimer = setTimeout(() => {
+      this.interactionFpsTimer = undefined
+      if (this.app) this.app.ticker.maxFPS = this.motionFps
+    }, 120)
   }
 
   /** 标签纹理目标分辨率：≥ 渲染器分辨率 × 相机缩放，保证放大后按 1:1 命中设备像素。 */
   private labelResolutionNeeded(scale: number): number {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    return Math.max(1, Math.ceil(dpr * scale))
+    return Math.max(1, Math.ceil(rendererResolution() * scale))
   }
 
   /**
@@ -275,21 +368,37 @@ export class ExecutionGraphPixiRenderer {
   resize(width: number, height: number): void {
     if (!this.app || width <= 0 || height <= 0) return
     this.app.renderer.resize(width, height)
+    this.renderWhenTickerStopped()
   }
 
   setScene(scene: PixiExecutionScene): void {
     this.scene = scene
     this.sampledEdges = scene.edges.map(sampleEdge)
-    this.refreshMotionItems()
+    this.motionSelectionKey = ''
+    this.refreshMotionItems(true)
     this.drawStatic()
+    this.renderWhenTickerStopped()
   }
 
-  private refreshMotionItems(): void {
+  private refreshMotionItems(force = false): void {
+    const key = this.camera
+      ? (() => {
+          const bounds = cameraWorldBounds(this.camera!, MOTION_VIEWPORT_OVERSCAN)
+          return [
+            Math.floor(bounds.minX / MOTION_SELECTION_BUCKET),
+            Math.floor(bounds.minY / MOTION_SELECTION_BUCKET),
+            Math.floor(bounds.maxX / MOTION_SELECTION_BUCKET),
+            Math.floor(bounds.maxY / MOTION_SELECTION_BUCKET),
+          ].join(':')
+        })()
+      : 'all'
+    if (!force && key === this.motionSelectionKey) return
+    this.motionSelectionKey = key
     this.visibleMotionEdges.length = 0
     this.visibleMotionNodes.length = 0
     if (!this.camera) {
       this.visibleMotionEdges.push(...this.sampledEdges)
-      this.visibleMotionNodes.push(...this.scene.nodes)
+      this.visibleMotionNodes.push(...this.scene.nodes.filter((node) => node.running))
       return
     }
     const bounds = cameraWorldBounds(this.camera, MOTION_VIEWPORT_OVERSCAN)
@@ -298,6 +407,7 @@ export class ExecutionGraphPixiRenderer {
     }
     for (const node of this.scene.nodes) {
       if (
+        node.running &&
         node.x >= bounds.minX &&
         node.x <= bounds.maxX &&
         node.y >= bounds.minY &&
@@ -306,6 +416,11 @@ export class ExecutionGraphPixiRenderer {
         this.visibleMotionNodes.push(node)
       }
     }
+  }
+
+  private clearMotion(): void {
+    this.motionEdges.clear()
+    this.motionNodes.clear()
   }
 
   private drawStatic(): void {
@@ -354,6 +469,11 @@ export class ExecutionGraphPixiRenderer {
           width: 1.8,
           alpha: 0.82 * alpha,
         })
+      }
+      if (node.detailActive) {
+        this.staticNodes
+          .circle(node.x, node.y, 22)
+          .stroke({ color: accent, width: 2.4, alpha: 0.92 * alpha })
       }
       if (node.foldCount) {
         this.staticNodes
@@ -429,7 +549,10 @@ export class ExecutionGraphPixiRenderer {
   }
 
   private drawMotion(now: number): void {
-    if (!this.app || document.hidden) return
+    if (!this.app || this.reduceMotion || document.hidden) return
+    if (this.suspended || this.motionPaused) return
+    if (now - this.lastMotionDrawAt < MOTION_FRAME_INTERVAL) return
+    this.lastMotionDrawAt = now
     const seconds = now / 1000
     this.motionEdges.clear()
     for (const edge of this.visibleMotionEdges) {
@@ -460,53 +583,31 @@ export class ExecutionGraphPixiRenderer {
     for (const node of this.visibleMotionNodes) {
       const accent = colorNumber(node.accent)
       const emphasis = emphasisAlpha(node.deemphasized, node.detailBranch)
-      if (node.branchAnchorKind) {
-        const markerColor = colorNumber(node.branchAnchorKind === 'detail' ? '#38bdf8' : '#f59e0b')
-        const markerPhase = ((seconds + (node.x + node.y) * 0.0004) % 1.25) / 1.25
-        this.motionNodes.circle(node.x, node.y, 23 + markerPhase * 15).stroke({
-          color: markerColor,
-          width: 3.5,
-          alpha: 0.95 * (1 - markerPhase) * emphasis,
-        })
-        const secondMarkerPhase = (markerPhase + 0.5) % 1
-        this.motionNodes.circle(node.x, node.y, 23 + secondMarkerPhase * 15).stroke({
-          color: markerColor,
-          width: 2.5,
-          alpha: 0.72 * (1 - secondMarkerPhase) * emphasis,
-        })
-      }
-      const duration = node.detailActive ? 1.05 : node.running ? 1.2 : 1.8
-      const phase = ((seconds + (node.x + node.y) * 0.0007) % duration) / duration
-      const maxScale = node.detailActive ? 1.9 : node.running ? 1.8 : 1.7
-      const opacity =
-        (node.detailActive ? 0.92 : node.running ? 0.85 : 0.35) * (1 - phase) * emphasis
-      this.motionNodes.circle(node.x, node.y, 19 * (1 + (maxScale - 1) * phase)).stroke({
+      const phase = ((seconds + (node.x + node.y) * 0.0007) % 1.2) / 1.2
+      this.motionNodes.circle(node.x, node.y, 19 * (1 + 0.8 * phase)).stroke({
         color: accent,
-        width: node.running || node.detailActive ? 3 : 2,
-        alpha: opacity,
+        width: 3,
+        alpha: 0.85 * (1 - phase) * emphasis,
       })
-      if (node.detailActive) {
-        const secondPhase = (phase + 0.5) % 1
-        this.motionNodes.circle(node.x, node.y, 19 * (1 + 0.9 * secondPhase)).stroke({
-          color: accent,
-          width: 3,
-          alpha: 0.92 * (1 - secondPhase) * emphasis,
-        })
-      }
-      if (node.running) {
-        const breathe = 0.3 + 0.4 * (0.5 + Math.sin((seconds * Math.PI * 2) / 0.9) * 0.5)
-        this.motionNodes
-          .circle(node.x, node.y, 18 + breathe * 5)
-          .stroke({ color: accent, width: 6, alpha: breathe * 0.45 * emphasis })
-        this.motionNodes
-          .circle(node.x + 11, node.y - 11, 3)
-          .fill({ color: accent, alpha: (0.55 + breathe * 0.45) * emphasis })
-      }
+      const breathe = 0.3 + 0.4 * (0.5 + Math.sin((seconds * Math.PI * 2) / 0.9) * 0.5)
+      this.motionNodes
+        .circle(node.x + 11, node.y - 11, 3)
+        .fill({ color: accent, alpha: (0.55 + breathe * 0.45) * emphasis })
     }
   }
 
   destroy(): void {
+    if (this.interactionFpsTimer) clearTimeout(this.interactionFpsTimer)
     if (this.ticker) this.app?.ticker.remove(this.ticker)
+    if (this.motionPreferenceListener) {
+      this.media?.removeEventListener('change', this.motionPreferenceListener)
+    }
+    if (this.visibilityListener) {
+      document.removeEventListener('visibilitychange', this.visibilityListener)
+    }
+    this.motionPreferenceListener = undefined
+    this.visibilityListener = undefined
+    this.media = undefined
     this.app?.destroy({ removeView: true }, { children: true })
     this.app = undefined
     this.backend = 'uninitialized'

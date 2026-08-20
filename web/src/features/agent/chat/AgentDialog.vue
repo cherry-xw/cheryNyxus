@@ -117,6 +117,12 @@ function enableAiQuickTarget(): void {
   quickTarget.value = undefined
   error.value = null
 }
+// 切会话清残留目标：钢琴键/历史列表/retarget 等外部切换不经过 picker，旧会话的选择
+// （尤其 'new'）对新会话无意义；composer 原生窗 keepAlive 不销毁组件，残留 'new' 会在
+// 下次发送时静默 chat.create 新会话。生命周期约定见 docs/interaction.md chat.route.suggest。
+watch(chatId, () => {
+  quickTarget.value = undefined
+})
 const dialogView = computed({
   get: () => agents.activeDialogView,
   set: (view: 'composer' | 'attention' | 'tree') => {
@@ -348,6 +354,9 @@ async function sendFromComposer(): Promise<void> {
       }
       try {
         targetChatId = await agents.createMasterPet({ preset: presetName.value })
+        // 'new' 是一次性目标：会话已创建即消费完毕。残留会让发送失败重试 / 下次发送
+        // 再建一个新会话（本次 targetChatId 已捕获在局部变量，清空不影响本条发送）。
+        quickTarget.value = undefined
         await agents.fetchHistoryList()
       } catch (cause) {
         console.error('[AgentDialog] create target session failed:', cause)
@@ -415,6 +424,11 @@ function closeDialog(): void {
   }
   agents.closeAllHistory()
   closeAgentDialog()
+}
+
+/** 待处理交互视图切换（非 native 面由 dialog-head 内按钮触发；native 面经 defineExpose 由 WindowFrame title-actions 调用）。 */
+function toggleAttention(): void {
+  dialogView.value = dialogView.value === 'attention' ? 'composer' : 'attention'
 }
 
 function onDialogEditorKeydown(e: KeyboardEvent): void {
@@ -508,6 +522,19 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
 
 /** dialog-head 工作区模式：workspace 有值时 pet name 前 📁（路径失效改 ⚠ 红色），hover 显全路径。无 workspace 纯文本。 */
 const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
+
+// native 面（Electron composer 原生窗，WindowFrame 外壳）：AgentDialog 自绘标题栏隐藏，
+// 标题 / 能力按钮 / 三键全部由 WindowFrame 承载。能力按钮经 title-actions slot 渲染，
+// 操作与状态经此暴露给 App.vue（🌳 节点树 / ! 待处理交互）。计数与视图态用函数返回
+// 响应式值（App.vue 以 computed 包装读取，保持追踪）。
+defineExpose({
+  openWorkbenchForChat,
+  openWorkspaceTree,
+  closeDialog,
+  toggleAttention,
+  getWorkspaceAttentionCount: () => workspaceAttentionCount.value,
+  isAttentionView: () => dialogView.value === 'attention',
+})
 </script>
 
 <template>
@@ -537,7 +564,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
         aria-modal="true"
         :aria-label="`向 ${pet?.name ?? '智能体'} 发送消息`"
       >
-        <header class="dialog-head" @pointerdown="onHeaderPointerDown">
+        <header v-if="!native" class="dialog-head" @pointerdown="onHeaderPointerDown">
           <span class="title">
             <span class="title-row">
               <el-tooltip
@@ -584,7 +611,7 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
                 :class="{ 'is-active': dialogView === 'attention' }"
                 aria-label="待处理交互"
                 :aria-pressed="dialogView === 'attention'"
-                @click="dialogView = dialogView === 'attention' ? 'composer' : 'attention'"
+                @click="toggleAttention"
               >
                 !<b v-if="workspaceAttentionCount">{{ workspaceAttentionCount }}</b>
               </button>
@@ -853,13 +880,24 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
 
 <style lang="less">
 .dialog-overlay.is-native {
-  position: fixed;
+  // 铺满 WindowFrame body（position:relative），不盖标题栏；绝对定位避免 fixed 覆盖整个 viewport。
+  // 保持 flex（对齐 settings/workbench native 先例：仅 center→stretch）——display:block 会摧毁
+  // 内部 flex 布局链，导致 .dialog-composer-content（角色编制/发送区）塌缩不可见。
+  position: absolute;
   inset: 0;
-  display: block;
-  padding: 8px;
-  background: var(--bg);
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
   overflow: hidden;
+  // pet 来源 activeDialogSource==='pet' → isFloatingOverlay=true → .dialog-overlay.is-floating
+  // 置 pointer-events:none（scoped 带 [data-v-x] 优先级更高）。native 整窗铺满必须可点，
+  // 复合选择器抬升优先级并晚声明，确保覆盖。
   pointer-events: auto;
+  &.is-floating {
+    pointer-events: auto;
+  }
 
   .dialog-panel {
     position: relative !important;
@@ -870,16 +908,21 @@ const workspaceInvalid = computed(() => pet.value?.workspaceValid === false)
     height: 100%;
     max-height: none;
     margin: 0 !important;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    // 与 WindowFrame 统一：内容区底色 --bg（标题栏 --panel 对比清晰），panel 卡片底色让位
+    background: var(--bg);
   }
 
-  .dialog-head {
-    -webkit-app-region: drag;
-  }
-  .dialog-head button,
-  .dialog-head input,
-  .dialog-head a,
-  .dialog-head [contenteditable='true'] {
-    -webkit-app-region: no-drag;
+  // 发送内容区铺满剩余空间（角色编制在上、发送区占满），超高时内部滚动
+  .dialog-composer-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 }
 </style>

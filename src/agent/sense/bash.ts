@@ -80,6 +80,7 @@ export default sense(
       const proc = spawn(command, [], {
         shell: true,
         detached: true, // 新会话/进程组组长，供 processRegistry 用 process.kill(-pid) 杀整个进程组
+        windowsHide: true, // Windows: CREATE_NO_WINDOW，隐藏 cmd.exe 控制台窗口（不影响 detached 进程组语义）
       })
 
       const processPid = proc.pid!

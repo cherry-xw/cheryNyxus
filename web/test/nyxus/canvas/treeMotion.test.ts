@@ -35,6 +35,14 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('if (!this.app || this.reduceMotion || document.hidden) return')
   })
 
+  it('keeps Electron on hardware-composited WebGL instead of initializing WebGPU', async () => {
+    const source = await rendererSource()
+
+    expect(source).toContain("if (!isElectronRuntime() && 'gpu' in navigator)")
+    expect(source).toContain("preference: 'webgl'")
+    expect(source).toContain('return isElectronRuntime() ? Math.min(dpr, 1)')
+  })
+
   it('renders fixed-length repeated pulses without SVG animation instances', async () => {
     const renderer = await rendererSource()
     const component = await treeComponentSource()
@@ -88,6 +96,24 @@ describe('Nyxus tree motion contract', () => {
     expect(drawMotion).toContain('for (const node of this.visibleMotionNodes)')
     expect(drawMotion).not.toContain('this.sampledEdges')
     expect(drawMotion).not.toContain('this.scene.nodes')
+    expect(source).toContain('.filter((node) => node.running)')
+    expect(source).toContain('if (node.detailActive)')
+    expect(source).toContain('const MOTION_FRAME_INTERVAL = 1000 / 30')
+  })
+
+  it('keeps full-render dragging outside Vue and moves one hit-target layer', async () => {
+    const source = await treeComponentSource()
+
+    expect(source).toContain('if (fullRenderActive.value) return')
+    expect(source).toContain('class="gpu-node-hit-layer"')
+    expect(source).toContain('.gpu-node-hit-layer,')
+    expect(source).toContain('.tree-gpu-surface,')
+    const dragFrame = source.slice(
+      source.indexOf('function presentGpuDrag'),
+      source.indexOf('function finishGpuDrag'),
+    )
+    expect(dragFrame).not.toContain('gpuRenderer?.setCamera(camera)')
+    expect(source).not.toContain('.gpu-node-hit-target,\n    .crt-anchor-lines')
   })
 
   it('lets the destination progressively consume the pulse tail after its head arrives', () => {

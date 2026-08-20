@@ -49,6 +49,8 @@ const currentPaperRef = ref<HTMLElement>()
 const titleRail = ref({ top: 26, height: props.maxHeight })
 let keyboardNavigationTimer: ReturnType<typeof setTimeout> | undefined
 let titleRailRO: ResizeObserver | undefined
+let scrubberFrame = 0
+let pendingScrubberIndex: number | undefined
 
 const visibleLimits = computed(() =>
   paperVisibleLimits(props.entries.length, props.currentIndex, titleRail.value.height),
@@ -97,19 +99,52 @@ const progress = computed(() =>
   props.entries.length <= 1 ? 0 : (visibleScrubberIndex.value / (props.entries.length - 1)) * 100,
 )
 const currentDisplayNode = computed(() => currentEntry.value?.node)
+let cachedCurrentCard:
+  | {
+      entry: PaperStackEntry
+      index: number
+      total: number
+      edgeKey: string
+      selectedCallId?: string
+      senseTools?: SenseToolInfo[]
+      model: ReturnType<typeof buildPaperGameCard>
+    }
+  | undefined
 const currentCard = computed(() => {
   const entry = currentEntry.value
   const node = currentDisplayNode.value
   if (!entry || !node) return undefined
-  return buildPaperGameCard(node, {
+  const selectedCallId = selectedCalls.value.get(entry.id)
+  const edgeKey = currentRelatedEdges.value.map((edge) => edge.id).join('\u0001')
+  if (
+    cachedCurrentCard?.entry === entry &&
+    cachedCurrentCard.index === props.currentIndex &&
+    cachedCurrentCard.total === props.entries.length &&
+    cachedCurrentCard.edgeKey === edgeKey &&
+    cachedCurrentCard.selectedCallId === selectedCallId &&
+    cachedCurrentCard.senseTools === props.senseTools
+  ) {
+    return cachedCurrentCard.model
+  }
+  const model = buildPaperGameCard(node, {
     title: entry.title,
     index: props.currentIndex,
     total: props.entries.length,
     relatedEdges: currentRelatedEdges.value,
-    selectedCallId: selectedCalls.value.get(entry.id),
+    selectedCallId,
     ...(entry.node.kind === 'fold' ? { foldNode: entry.node } : {}),
     senseTools: props.senseTools,
   })
+  cachedCurrentCard = {
+    entry,
+    index: props.currentIndex,
+    total: props.entries.length,
+    edgeKey,
+    selectedCallId,
+    senseTools: props.senseTools,
+    model,
+  }
+  return model
 })
 
 watch(
@@ -129,7 +164,10 @@ watch(
   },
 )
 
-watch(currentCard, () => void nextTick(observeTitleRail))
+watch(
+  () => currentEntry.value?.id,
+  () => void nextTick(observeTitleRail),
+)
 
 onMounted(() => {
   titleRailRO = new ResizeObserver(measureTitleRail)
@@ -138,6 +176,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (keyboardNavigationTimer) clearTimeout(keyboardNavigationTimer)
+  if (scrubberFrame) cancelAnimationFrame(scrubberFrame)
   titleRailRO?.disconnect()
 })
 
@@ -153,10 +192,10 @@ function measureTitleRail(): void {
   const paper = currentPaperRef.value
   if (!viewport || !paper) return
   const top = Math.max(0, paper.offsetTop - paper.offsetHeight / 2)
-  titleRail.value = {
-    top: Math.round(top),
-    height: Math.min(paper.offsetHeight, Math.max(0, viewport.clientHeight - top)),
-  }
+  const nextTop = Math.round(top)
+  const nextHeight = Math.min(paper.offsetHeight, Math.max(0, viewport.clientHeight - top))
+  if (titleRail.value.top === nextTop && titleRail.value.height === nextHeight) return
+  titleRail.value = { top: nextTop, height: nextHeight }
 }
 
 function clampIndex(index: number): number {
@@ -246,20 +285,36 @@ function onScrubberPointerDown(): void {
   keyboardNavigation.value = false
   canceledPointerChange.value = false
   previewIndex.value = committedIndex.value
+  pendingScrubberIndex = undefined
   dragging.value = true
+}
+
+function flushScrubberPreview(): void {
+  scrubberFrame = 0
+  if (pendingScrubberIndex === undefined) return
+  previewIndex.value = pendingScrubberIndex
+  pendingScrubberIndex = undefined
 }
 
 function onScrubberInput(event: Event): void {
   const next = rangeIndex(event)
-  previewIndex.value = next
-  if (dragging.value) return
+  if (dragging.value) {
+    pendingScrubberIndex = next
+    if (!scrubberFrame) scrubberFrame = requestAnimationFrame(flushScrubberPreview)
+    return
+  }
 
   // Assistive technology may update a range without dispatching a keyboard event.
+  previewIndex.value = next
   committedIndex.value = next
   selectIndex(next, 'keyboard')
 }
 
 function commitScrubber(event?: Event): void {
+  if (scrubberFrame) {
+    cancelAnimationFrame(scrubberFrame)
+    flushScrubberPreview()
+  }
   if (canceledPointerChange.value) {
     canceledPointerChange.value = false
     previewIndex.value = committedIndex.value
@@ -274,6 +329,9 @@ function commitScrubber(event?: Event): void {
 }
 
 function cancelScrubber(): void {
+  if (scrubberFrame) cancelAnimationFrame(scrubberFrame)
+  scrubberFrame = 0
+  pendingScrubberIndex = undefined
   dragging.value = false
   canceledPointerChange.value = true
   previewIndex.value = committedIndex.value
@@ -358,6 +416,14 @@ function onScrubberKeydown(event: KeyboardEvent): void {
           }"
           :aria-label="`阅读第 ${index + 1} 张：${entry.title}`"
           :aria-current="index === currentIndex ? 'true' : undefined"
+          v-memo="[
+            entry,
+            index === currentIndex,
+            layer.role,
+            layer.opacity,
+            placement.offset,
+            titleRail.height,
+          ]"
           @click="selectIndex(index)"
         >
           <span class="paper-title-strip-content">
@@ -387,7 +453,7 @@ function onScrubberKeydown(event: KeyboardEvent): void {
             :node="currentDisplayNode"
             :fold-node="currentEntry.node.kind === 'fold' ? currentEntry.node : undefined"
             :max-height="maxHeight"
-            :quiet-motion="keyboardNavigation"
+            :quiet-motion="true"
             :chat-id="chatId"
             :question="question"
             :question-node-id="questionNodeId"
@@ -416,17 +482,13 @@ function onScrubberKeydown(event: KeyboardEvent): void {
         <span>最新</span>
       </div>
 
-      <div class="paper-scrubber-track" :style="{ '--paper-progress': `${progress}%` }">
-        <span
-          v-for="(_, index) in entries"
-          :key="index"
-          class="paper-scrubber-tick"
-          :style="{
-            left: entries.length <= 1 ? '50%' : `${(index / (entries.length - 1)) * 100}%`,
-          }"
-          aria-hidden="true"
-        />
-
+      <div
+        class="paper-scrubber-track"
+        :style="{
+          '--paper-progress': `${progress}%`,
+          '--paper-tick-step': entries.length <= 1 ? '100%' : `${100 / (entries.length - 1)}%`,
+        }"
+      >
         <div v-if="dragging && previewEntry" class="paper-scrubber-preview" aria-live="polite">
           <span>{{ previewIndex + 1 }} / {{ entries.length }}</span>
           <strong>{{ previewEntry.title }}</strong>
@@ -486,6 +548,7 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   pointer-events: auto;
   font-family: 'HYPixel Paper', system-ui, sans-serif;
   font-synthesis: none;
+  contain: layout style;
 }
 
 .paper-stack-viewport {
@@ -499,7 +562,6 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   position: absolute;
   inset: 0;
   z-index: 1;
-  will-change: transform;
 }
 
 .paper-title-strip {
@@ -613,7 +675,6 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   text-align: left;
   transform-origin: top center;
   cursor: pointer;
-  will-change: transform, opacity;
   transition:
     transform 220ms var(--paper-ease-in-out),
     opacity 220ms var(--paper-ease-out);
@@ -645,7 +706,7 @@ function onScrubberKeydown(event: KeyboardEvent): void {
 
 .paper-bundle.is-future i {
   border-color: color-mix(in srgb, #66594d 68%, transparent);
-  filter: saturate(0.55) brightness(0.72);
+  opacity: 0.72;
 }
 
 .paper-bundle span {
@@ -675,7 +736,6 @@ function onScrubberKeydown(event: KeyboardEvent): void {
 }
 
 .paper-title-strip.is-current {
-  filter: brightness(1.18) saturate(1.22);
   box-shadow:
     0 0 0 2px #2c1b0f,
     0 0 0 5px var(--paper-accent),
@@ -698,7 +758,7 @@ function onScrubberKeydown(event: KeyboardEvent): void {
 }
 
 .paper-title-strip.is-future {
-  filter: saturate(0.52) brightness(0.72);
+  color: color-mix(in srgb, var(--paper-ink) 72%, transparent);
 }
 
 .paper-title-strip-content {
@@ -755,7 +815,7 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   overflow: visible;
   transform: translate3d(-50%, -50%, 0);
   transform-origin: center;
-  will-change: transform, opacity;
+  contain: layout style;
 }
 
 .paper-reader-enter-active,
@@ -839,23 +899,14 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   right: 8px;
   left: 8px;
   height: 4px;
-  background: linear-gradient(
-    90deg,
-    #c9a45e 0 var(--paper-progress),
-    #33281e var(--paper-progress)
-  );
+  background:
+    repeating-linear-gradient(
+      90deg,
+      color-mix(in srgb, #e5c278 64%, #25170d) 0 2px,
+      transparent 2px var(--paper-tick-step)
+    ),
+    linear-gradient(90deg, #c9a45e 0 var(--paper-progress), #33281e var(--paper-progress));
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.14);
-}
-
-.paper-scrubber-tick {
-  position: absolute;
-  z-index: 1;
-  top: 10px;
-  width: 2px;
-  height: 10px;
-  background: color-mix(in srgb, #e5c278 64%, #25170d);
-  transform: translateX(-50%);
-  pointer-events: none;
 }
 
 .paper-scrubber-thumb-position {
@@ -876,7 +927,6 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   width: 20px;
   height: 34px;
   color: #d5b76d;
-  filter: drop-shadow(2px 3px 0 rgba(0, 0, 0, 0.36));
   transform: translateX(-50%);
   pointer-events: none;
 }
@@ -1014,6 +1064,38 @@ function onScrubberKeydown(event: KeyboardEvent): void {
   .paper-bundle {
     left: 20%;
     width: min(52%, 230px);
+  }
+}
+
+/* The card surface is paint-heavy under Electron's software compositor. Keep
+   selection feedback short and opacity-only so switching cards does not repaint
+   two translated card trees for a quarter second. */
+.node-paper-stage .paper-reader-enter-active,
+.node-paper-stage .paper-reader-leave-active {
+  transition: opacity 100ms linear;
+}
+.node-paper-stage .paper-reader-enter-from,
+.node-paper-stage .paper-reader-leave-to {
+  opacity: 0;
+  transform: translate3d(-50%, -50%, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paper-reader-enter-active,
+  .paper-reader-leave-active,
+  .paper-title-strip,
+  .paper-bundle {
+    transition: opacity 100ms linear;
+  }
+  .paper-reader-enter-from,
+  .paper-reader-leave-to {
+    opacity: 0;
+    transform: translate3d(-50%, -50%, 0);
+  }
+  .paper-title-strip-content,
+  .paper-latest,
+  .paper-scrubber-thumb-position {
+    transition-duration: 0ms;
   }
 }
 

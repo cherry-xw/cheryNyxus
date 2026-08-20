@@ -48,7 +48,7 @@
 | [settings.md](./settings.md) | 设置中心资源工作台、角色头像与装备、大量技能分页和仓库检查交互。 |
 | [frontend-protocol-binding.md](./frontend-protocol-binding.md) | 前端协议消费手册：RPC / Notification / Chunk 字段映射到 store / StreamState / UI 组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口 |
 | [frontend-refactor-handoff.md](./frontend-refactor-handoff.md) | F1-F5 重构执行手册（transient，F4 落地后归档/并入 [pet/](./pet/) 等永久架构文档） |
-| [web/src/features/agent/AgentDialog.vue](../../web/src/features/agent/AgentDialog.vue) | 会话消息弹窗：配置角色临时编制、以富文本正文编辑消息与 slash 指令 token，并在独立附件区选择、预览和移除媒体。 |
+| [web/src/features/agent/AgentDialog.vue](../../web/src/features/agent/AgentDialog.vue) | 会话消息弹窗：配置角色临时编制、以富文本正文编辑消息与 slash 指令 token，并在独立附件区选择、预览和移除媒体。发送目标选择（quickTarget）生命周期约定见 [../interaction.md](../interaction.md) chat.route.suggest 章节。 |
 | [web/electron/main.ts](../../web/electron/main.ts) | Electron 主进程：desktop 全工作区透明宠物窗（启动即建）+ settings/workbench 原生独立窗（ManagedWindow 注册表，托盘打开设置）+ Tray（含开机自启开关），详见 [./electron.md](./electron.md) |
 | [web/scripts/electron-dev.mjs](../../web/scripts/electron-dev.mjs) | `electron:dev` 跨平台 wrapper：Windows 直接 `vite`（vite-plugin-electron 拉起 electron）；其他平台转发 [electron-dev.sh](../../web/scripts/electron-dev.sh) 选 xrdp display + `unset ELECTRON_RUN_AS_NODE` |
 

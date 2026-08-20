@@ -94,7 +94,7 @@ export class ClassifiedError extends Error {
 }
 ```
 
-retry 读 `ClassifiedError.category`（不再靠 message 关键词）；表层出口（compose / streamMapper）优先用 `userMessage`，否则 `friendlyMessage(category, source)`。
+retry 读 `ClassifiedError.category`（不再靠 message 关键词）；表层出口（streamMapper / compose 最外层兜底）优先用 `userMessage`，否则 `friendlyMessage(category, source)`。**注意：** compose 的 `executeChain` 对 `ClassifiedError` **原样上浮**（保留分类身份供 retry 判重试），仅未被任何中间件处理时在最外层兜底转用户面——见 [middleware.md「调整 retry 策略」](./agent/middleware.md#调整-retry-策略)。
 
 ### throwUserFacing()
 
@@ -131,7 +131,7 @@ throw new ClassifiedError({
 |------|---------|------|------|
 | Provider 抛错（openai 无 key / 占位符） | [src/agent/provider/openai.ts](../src/agent/provider/openai.ts) | ✓ 已实施 | 详见 [agent/provider.md](./agent/provider.md) |
 | Provider 抛错（ollama / mock） | [src/agent/provider/](../src/agent/provider/) | 审视 | ollama 不需要 key，mock 一般不抛 401；如有其他错误路径，按需 |
-| Middleware 通用错误包装 | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts) | ✓ 已实施 | 合规错误（前置 tracingId）原样上浮；`ClassifiedError` 取其 `userMessage`；其余按 `classifyError`+`friendlyMessage(category,"系统")` 重包。详细走 logger |
+| Middleware 通用错误包装 | [src/core/middleware/compose.ts](../src/core/middleware/compose.ts) | ✓ 已实施 | 合规错误（前置 tracingId）原样上浮；`ClassifiedError` **原样上浮**（保分类身份给 retry 判重试，仅最外层兜底取 `userMessage`）；其余裸抛按 `classifyError`+`friendlyMessage(category,"系统")` 重包。详细走 logger |
 | Sense 执行错误 | [src/agent/middleware/](../src/agent/middleware/) | TODO | sense 抛错同样要分层 |
 | WebSocket 错误帧（router 结构校验失败） | [src/service/message/router.ts](../src/service/message/router.ts) | ✓ 已实施 | `safeParse` 失败（INVALID_PARAMS）：message 一行中文 + `tracingId`，完整 Zod issues（path/code/expected/received）走 `logger.event("req.invalid_params")` 落盘。handler 业务校验错误（如 `saveRawConfig`）仍各自返回中文 join 串，未走本工具 |
 | HTTP 错误响应 | [src/service/http/](../src/service/http/) | TODO | 401/500 等响应 body 同样分层 |

@@ -156,6 +156,18 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const rootTimelineStates = ref<Record<string, RootTimelineTransientState>>({})
   /** Root subscription cursor; one subscription covers all descendants. */
   const rootSubscriptions = ref<Record<string, { subscriptionId: string; eventSeq: number }>>({})
+  type RootTransientEvent = {
+    chatId?: unknown
+    runId?: unknown
+    type?: unknown
+    data?: unknown
+  }
+  /** Root deltas may arrive far above display refresh rate; preserve protocol order.
+   * The tree/card projection is paint-heavy, so 64ms keeps streaming responsive
+   * while leaving most display frames free for scrolling and pointer interaction. */
+  const ROOT_DELTA_FRAME_MS = 64
+  const pendingRootDeltas = new Map<string, RootTransientEvent[]>()
+  const rootDeltaTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Visible owners of a root subscription. A root closes only after its final owner leaves. */
   const rootSubscriptionOwners = new Map<string, Set<string>>()
   /** requestId -> chatId（流式 RPC chunk 路由用；chunk.chatId 缺失时兜底）。 */
@@ -176,6 +188,29 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   /** startup 幂等守卫（首次成功后不再重跑；F5 重连由 reconnect 处理）。 */
   let started = false
   const effects = ref<ChatSessionEffects>({})
+
+  function flushRootDeltas(rootChatId: string): void {
+    const timer = rootDeltaTimers.get(rootChatId)
+    if (timer) clearTimeout(timer)
+    rootDeltaTimers.delete(rootChatId)
+    const events = pendingRootDeltas.get(rootChatId)
+    pendingRootDeltas.delete(rootChatId)
+    if (!events?.length) return
+    const transient = rootTimelineStates.value[rootChatId]
+    if (!transient) return
+    for (const event of events) applyRootTransientEvent(transient, event)
+  }
+
+  function queueRootDelta(rootChatId: string, event: RootTransientEvent): void {
+    const pending = pendingRootDeltas.get(rootChatId) ?? []
+    pending.push(event)
+    pendingRootDeltas.set(rootChatId, pending)
+    if (rootDeltaTimers.has(rootChatId)) return
+    rootDeltaTimers.set(
+      rootChatId,
+      setTimeout(() => flushRootDeltas(rootChatId), ROOT_DELTA_FRAME_MS),
+    )
+  }
 
   // ---- 实体管理 ----
 
@@ -245,6 +280,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
    * nodes remain available for an instant stale-while-revalidate reopen. */
   async function closeRootTimeline(rootChatId: string, force = false): Promise<void> {
     if (!force && (rootSubscriptionOwners.get(rootChatId)?.size ?? 0) > 0) return
+    flushRootDeltas(rootChatId)
     const subscription = rootSubscriptions.value[rootChatId]
     if (!subscription) return
     delete rootSubscriptions.value[rootChatId]
@@ -440,7 +476,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     rootChatId: string,
     views: readonly RootTimelineView[],
   ): Promise<void> {
-    const cachedViews = [...new Set(views)].filter((view) => Boolean(rootTimeline(rootChatId, view)))
+    const cachedViews = [...new Set(views)].filter((view) =>
+      Boolean(rootTimeline(rootChatId, view)),
+    )
     await Promise.all(cachedViews.map((view) => loadRootTimelineView(rootChatId, view)))
   }
 
@@ -491,6 +529,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (!subscription || subscription.subscriptionId !== event.subscriptionId) return false
     if (rootEventSeq <= subscription.eventSeq) return true
     if (rootEventSeq !== subscription.eventSeq + 1) {
+      flushRootDeltas(event.rootChatId)
       void reopenRootSubscription(event.rootChatId).catch((e) =>
         console.warn(`[chats] root subscription resync ${event.rootChatId} 失败:`, e),
       )
@@ -498,7 +537,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
     subscription.eventSeq = rootEventSeq
     const transient = (rootTimelineStates.value[event.rootChatId] ??= createRootTransientState())
-    applyRootTransientEvent(transient, event)
+    if (event.type === 'turn.delta') queueRootDelta(event.rootChatId, event)
+    else {
+      // Structural/terminal events must observe all preceding deltas first.
+      flushRootDeltas(event.rootChatId)
+      applyRootTransientEvent(transient, event)
+    }
     if (event.type === 'timeline.patch') {
       const patchData = event.data as
         { rootPatch?: RootTimelinePatch; rootPatches?: RootTimelinePatch[] } | undefined

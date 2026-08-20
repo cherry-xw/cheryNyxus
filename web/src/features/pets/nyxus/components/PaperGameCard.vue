@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import type { ExecutionNode } from '../graph/executionGraph'
@@ -9,10 +9,12 @@ import type {
   PaperGameCardModel,
   PaperProcessStage,
 } from '../paper/paperCardModel'
+import { buildPaperGameCard } from '../paper/paperCardModel'
 import PaperPixelIcon from './PaperPixelIcon.vue'
 import ToolFieldTree from './ToolFieldTree.vue'
 
-const DETAIL_PREVIEW_LIMIT = 20_000
+const DETAIL_PREVIEW_LIMIT = 12_000
+const MARKDOWN_UPDATE_INTERVAL_MS = 240
 const props = defineProps<{
   model: PaperGameCardModel
   maxHeight: number
@@ -41,15 +43,31 @@ const copied = ref(false)
 let previewTimer: ReturnType<typeof setTimeout> | undefined
 let closeTimer: ReturnType<typeof setTimeout> | undefined
 let copyTimer: ReturnType<typeof setTimeout> | undefined
+const markdownTimers = new Set<ReturnType<typeof setTimeout>>()
 
 const isAdventurer = computed(() => props.model.kind === 'adventurer')
 const inlineMessageDetail = computed(() =>
   isAdventurer.value ? props.model.details.find((detail) => detail.kind === 'content') : undefined,
 )
-const renderedInlineMessage = computed(() => {
-  const content = inlineMessageDetail.value?.content ?? ''
-  return content ? renderMarkdown(content) : ''
+const inlineMessageSource = computed(() => inlineMessageDetail.value?.content ?? '')
+const renderedInlineMessage = useThrottledMarkdown(inlineMessageSource, false)
+/** 普通节点卡：秘法推演入住属性行空位格，交互仍走侧边卡。 */
+const thinkingDetail = computed(() =>
+  props.model.details.find((detail) => detail.kind === 'thinking'),
+)
+/** 普通节点卡：情报栏专用正文，内联渲染不走弹窗。 */
+const inlineContentDetail = computed(() =>
+  props.model.details.find((detail) => detail.kind === 'content'),
+)
+const inlineContentSource = computed(() => {
+  const detail = inlineContentDetail.value
+  return detail?.format === 'markdown' ? detail.content : ''
 })
+const renderedInlineContent = useThrottledMarkdown(inlineContentSource)
+/** 技能实录栏：铭文/产物保留按钮 + 侧边卡弹窗交互。 */
+const popupDetails = computed(() =>
+  props.model.details.filter((detail) => detail.kind !== 'content' && detail.kind !== 'thinking'),
+)
 const activeStage = computed<PaperProcessStage | undefined>(() =>
   props.model.processStages?.find((stage) => stage.id === activeStageId.value),
 )
@@ -72,7 +90,10 @@ const activeStageStyle = computed(() => {
 const activeStageCard = computed(() => {
   const stage = activeStage.value
   if (!stage) return undefined
-  return stage.nodeCardsByCallId[activeStageCallId.value ?? ''] ?? stage.nodeCard
+  return buildPaperGameCard(stage.node, {
+    ...stage.cardOptions,
+    selectedCallId: activeStageCallId.value,
+  })
 })
 const currentQuestion = computed(() =>
   props.question && props.node && props.questionNodeId === props.node.id
@@ -91,15 +112,11 @@ const batchInfo = computed(() => {
     isLast: current.currentIndex === current.batch.questions.length - 1,
   }
 })
-const renderedDetail = computed(() => {
+const detailMarkdownSource = computed(() => {
   const detail = activeDetail.value
-  if (!detail || detail.format !== 'markdown') return ''
-  const content =
-    detail.content.length > DETAIL_PREVIEW_LIMIT
-      ? `${detail.content.slice(0, DETAIL_PREVIEW_LIMIT)}\n\n> 内容较长，当前展示前半部分。`
-      : detail.content
-  return renderMarkdown(content)
+  return detail?.format === 'markdown' ? detail.content : ''
 })
+const renderedDetail = useThrottledMarkdown(detailMarkdownSource)
 
 watch(
   () => props.model.id,
@@ -124,12 +141,50 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   clearTimers()
+  for (const timer of markdownTimers) clearTimeout(timer)
+  markdownTimers.clear()
   window.removeEventListener('pointerdown', onWindowPointerDown)
   window.removeEventListener('keydown', onWindowKeydown)
 })
 
 function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '-')
+}
+
+/** 超长 markdown 截断到预览上限后渲染，弹窗与内联正文共用。 */
+function renderMarkdownCapped(content: string): string {
+  const capped =
+    content.length > DETAIL_PREVIEW_LIMIT
+      ? `${content.slice(0, DETAIL_PREVIEW_LIMIT)}\n\n> 内容较长，当前展示前半部分。`
+      : content
+  return renderMarkdown(capped)
+}
+
+/** Keep markdown parsing/DOM replacement well outside the 16.7ms interaction budget. */
+function useThrottledMarkdown(source: ComputedRef<string>, capped = true): Ref<string> {
+  const rendered = ref('')
+  let latest = ''
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const render = (): void => {
+    if (timer) markdownTimers.delete(timer)
+    timer = undefined
+    rendered.value = latest ? (capped ? renderMarkdownCapped(latest) : renderMarkdown(latest)) : ''
+  }
+  watch(
+    source,
+    (content) => {
+      latest = content
+      if (!rendered.value && content) {
+        render()
+        return
+      }
+      if (timer) return
+      timer = setTimeout(render, MARKDOWN_UPDATE_INTERVAL_MS)
+      markdownTimers.add(timer)
+    },
+    { immediate: true },
+  )
+  return rendered
 }
 
 function clearTimers(): void {
@@ -428,7 +483,7 @@ async function copyDetail(): Promise<void> {
           </section>
         </template>
 
-        <!-- 普通节点卡：保留记录摘要 + 技能槽 + 情报栏 -->
+        <!-- 普通节点卡：记录摘要 → 属性行（含推演格）→ 情报栏（正文专栏）→ 技能槽 → 技能实录 -->
         <template v-else>
           <section class="quest-summary">
             <span class="section-rune" aria-hidden="true"><PaperPixelIcon name="quill" /></span>
@@ -446,7 +501,36 @@ async function copyDetail(): Promise<void> {
                 ><strong>{{ stat.value }}</strong></span
               >
             </div>
+            <!-- 秘法推演：占属性行空位格（满 3 格时自动换行为第 4 格），弹侧边卡看全文 -->
+            <button
+              v-if="thinkingDetail"
+              type="button"
+              class="stat-tile is-thinking"
+              :class="{
+                active: thinkingDetail.id === activeDetailId,
+                pinned: thinkingDetail.id === pinnedDetailId,
+              }"
+              :aria-expanded="thinkingDetail.id === activeDetailId"
+              :aria-controls="detailPanelId"
+              @pointerenter="openPreview(thinkingDetail)"
+              @pointerleave="schedulePreviewClose"
+              @focus="focusPreview(thinkingDetail)"
+              @blur="schedulePreviewClose"
+              @click="togglePinned(thinkingDetail)"
+            >
+              <PaperPixelIcon :name="thinkingDetail.icon" />
+              <span
+                ><small>{{ thinkingDetail.title }}</small
+                ><strong>{{ thinkingDetail.hint }}</strong></span
+              >
+            </button>
           </div>
+
+          <!-- 情报栏：专做正文内联展示，不再经侧边卡弹窗 -->
+          <section v-if="inlineContentDetail" class="detail-section content-section">
+            <header><span>情报栏</span><small>正文全览</small></header>
+            <div class="inline-content" v-html="renderedInlineContent" />
+          </section>
 
           <section v-if="model.skills.length" class="skill-section">
             <header>
@@ -469,11 +553,12 @@ async function copyDetail(): Promise<void> {
             </div>
           </section>
 
-          <section v-if="model.details.length" class="detail-section">
-            <header><span>情报栏</span><small>悬浮预览 · 点击钉住</small></header>
+          <!-- 技能实录：铭文/产物按钮，悬浮预览 / 点击钉住弹侧边卡 -->
+          <section v-if="popupDetails.length" class="detail-section">
+            <header><span>技能实录</span><small>悬浮预览 · 点击钉住</small></header>
             <div class="detail-grid">
               <button
-                v-for="detail in model.details"
+                v-for="detail in popupDetails"
                 :key="detail.id"
                 type="button"
                 class="detail-tile"
@@ -619,7 +704,6 @@ async function copyDetail(): Promise<void> {
   width: 100%;
   height: 100%;
   color: var(--card-ink);
-  filter: drop-shadow(10px 14px 0 rgba(20, 12, 7, 0.34));
   font-synthesis: none;
   isolation: isolate;
 }
@@ -968,6 +1052,29 @@ async function copyDetail(): Promise<void> {
   margin-top: 2px;
   font-size: var(--paper-font-label);
 }
+/* 秘法推演格：占属性行空位的可点击变体，tone-magic 呼情报栏推演配色 */
+.stat-tile.is-thinking {
+  --detail-tone: #7266b5;
+  border-color: color-mix(in srgb, var(--detail-tone) 74%, var(--card-ink));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    background-color 140ms ease;
+}
+.stat-tile.is-thinking > svg,
+.stat-tile.is-thinking small {
+  color: var(--detail-tone);
+}
+.stat-tile.is-thinking.active {
+  color: var(--card-accent-bright);
+  background: #3a3026;
+}
+.stat-tile.is-thinking.active > svg,
+.stat-tile.is-thinking.active small {
+  color: var(--card-accent-bright);
+}
 
 .skill-section,
 .detail-section {
@@ -1054,6 +1161,39 @@ async function copyDetail(): Promise<void> {
 .detail-grid {
   display: grid;
   gap: 5px;
+}
+/* 情报栏正文专栏：全文 markdown 内联渲染（复用侧边卡的墨色变量与字号修正） */
+.inline-content {
+  --ink: #302010;
+  --accent: #704897;
+  --border-strong: var(--card-accent);
+  padding: 8px;
+  border: 3px double color-mix(in srgb, var(--card-ink) 76%, var(--card-accent));
+  background: color-mix(in srgb, var(--card-paper-light) 72%, transparent);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--card-paper-dark) 45%, transparent);
+  overflow-wrap: anywhere;
+  font-size: var(--paper-font-body);
+  line-height: 1.55;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px;
+
+  .md-content();
+
+  :deep(h1),
+  :deep(h2),
+  :deep(h3),
+  :deep(h4),
+  :deep(h5),
+  :deep(h6) {
+    font-size: 15px;
+  }
+  :deep(code),
+  :deep(pre code) {
+    font-size: var(--paper-font-label);
+  }
+  :deep(table) {
+    font-size: var(--paper-font-small);
+  }
 }
 .detail-tile {
   display: grid;
@@ -1254,10 +1394,11 @@ async function copyDetail(): Promise<void> {
 }
 .process-name-viewport.is-looping .process-name-track {
   animation: process-name-loop 11s linear infinite;
+  animation-play-state: paused;
 }
 .process-step-trigger:hover .process-name-track,
 .process-step-trigger:focus-visible .process-name-track {
-  animation-play-state: paused;
+  animation-play-state: running;
 }
 .process-step-copy small {
   margin-top: 3px;
@@ -1649,7 +1790,7 @@ async function copyDetail(): Promise<void> {
   .skill-section,
   .detail-section,
   .game-card-footer {
-    animation: quiet-card-enter 100ms linear both;
+    animation: none;
   }
 }
 @keyframes quiet-card-enter {
@@ -1666,6 +1807,13 @@ async function copyDetail(): Promise<void> {
   .detail-tile.active:hover {
     background: #3a3026;
   }
+  .stat-tile.is-thinking:hover {
+    transform: translateX(3px);
+    background: color-mix(in srgb, var(--card-paper-light) 60%, white);
+  }
+  .stat-tile.is-thinking.active:hover {
+    background: #3a3026;
+  }
   .skill-slots button:hover,
   .branch-actions button:not(:disabled):hover,
   .paper-side-card footer button:hover {
@@ -1673,6 +1821,7 @@ async function copyDetail(): Promise<void> {
   }
 }
 .detail-tile:active,
+.stat-tile.is-thinking:active,
 .skill-slots button:active,
 .branch-actions button:not(:disabled):active,
 .paper-side-card footer button:active {
@@ -1696,4 +1845,37 @@ button:focus-visible {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .pixel-spark-field {
+    display: none;
+  }
+  .process-name-viewport.is-looping .process-name-track {
+    animation: none;
+  }
+  .side-card-enter-active,
+  .side-card-leave-active {
+    transition: opacity 100ms linear;
+  }
+  .side-card-enter-from,
+  .side-card-leave-to {
+    opacity: 0;
+    transform: none;
+  }
+  .detail-tile,
+  .stat-tile.is-thinking,
+  .skill-slots button,
+  .branch-actions button,
+  .paper-side-card footer button {
+    transition-duration: 0ms;
+  }
+  .game-card-header,
+  .status-ribbon,
+  .quest-summary,
+  .stat-grid,
+  .skill-section,
+  .detail-section,
+  .game-card-footer {
+    animation: none;
+  }
+}
 </style>

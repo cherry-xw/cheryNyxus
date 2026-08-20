@@ -1,5 +1,10 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 import { desktopBridge } from './desktopBridge'
+import {
+  createDesktopPassthroughState,
+  type DesktopHitBounds,
+  type DesktopHitProbe,
+} from './desktopPassthroughState'
 
 /**
  * 桌面透明窗鼠标穿透命中测试的交互根选择器：
@@ -36,6 +41,8 @@ export interface UseDesktopPassthroughOptions {
  * - 命中交互根 → 撤销穿透（鼠标事件进入本窗）；
  * - pointerdown 命中即 `lockInteractive()` 锁定不穿透直到 pointerup/cancel——
  *   拖拽/长按手势中指针可能移过实体边缘，若期间恢复穿透则手势中断丢事件；
+ * - 离开实体后延迟 120ms，并在最近命中区域外保留 6px 滞回，避免 pet 边缘来回移动时
+ *   连续翻转整屏透明窗的原生穿透态；
  * - 状态变化才发 IPC（rAF 节流），避免每次 move 刷 IPC。
  *
  * 非 Electron / 无 bridge 环境为 no-op。
@@ -45,12 +52,11 @@ export function useDesktopPassthrough(options: UseDesktopPassthroughOptions = {}
   const hitSelector = options.hitSelector ?? DESKTOP_HIT_SELECTOR
   /** pointerdown 锁：手势进行中强制不穿透。 */
   let locked = false
-  /** 上次下发的穿透态，仅变化时发 IPC。 */
-  let ignoring = false
   /** 最近一次 pointermove 位置，供 refresh() 无事件重判。 */
   let lastX = -1
   let lastY = -1
   let frame = 0
+  const MAX_HYSTERESIS_TARGET_SIZE = 480
 
   function isInteracting(): boolean {
     if (locked) return true
@@ -64,13 +70,46 @@ export function useDesktopPassthrough(options: UseDesktopPassthroughOptions = {}
     return false
   }
 
-  function evaluate(x: number, y: number): void {
-    const hit = document.elementFromPoint(x, y)?.closest(hitSelector) != null
-    const shouldIgnore = !hit && !isInteracting()
-    if (shouldIgnore === ignoring) return
-    ignoring = shouldIgnore
-    bridge?.setMousePassthrough(shouldIgnore)
+  /**
+   * 命中根自身可能没有布局尺寸（PetSprite 的 `.pet-wrap` 即如此），因此从实际命中节点
+   * 到根之间选择面积最大的紧凑矩形，作为边界滞回基准。整屏 overlay 不参与滞回，避免
+   * 弹层关闭后把整个工作区短暂保留为交互区。
+   */
+  function hitBounds(element: Element, root: Element): DesktopHitBounds | undefined {
+    let current: Element | null = element
+    let largest: DesktopHitBounds | undefined
+    let largestArea = 0
+    while (current) {
+      const rect = current.getBoundingClientRect()
+      const area = rect.width * rect.height
+      if (
+        area > largestArea &&
+        rect.width <= MAX_HYSTERESIS_TARGET_SIZE &&
+        rect.height <= MAX_HYSTERESIS_TARGET_SIZE
+      ) {
+        largestArea = area
+        largest = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+      }
+      if (current === root) break
+      current = current.parentElement
+    }
+    return largest
   }
+
+  function probe(x: number, y: number): DesktopHitProbe {
+    const element = document.elementFromPoint(x, y)
+    const root = element?.closest(hitSelector)
+    if (!element || !root) return { interactive: false }
+    return { interactive: true, bounds: hitBounds(element, root) }
+  }
+
+  const passthrough = bridge
+    ? createDesktopPassthroughState({
+        probe,
+        isInteracting,
+        setMousePassthrough: (ignore) => bridge.setMousePassthrough(ignore),
+      })
+    : undefined
 
   function onPointerMove(event: PointerEvent): void {
     lastX = event.clientX
@@ -78,17 +117,14 @@ export function useDesktopPassthrough(options: UseDesktopPassthroughOptions = {}
     if (frame) return
     frame = requestAnimationFrame(() => {
       frame = 0
-      evaluate(lastX, lastY)
+      passthrough?.move(lastX, lastY)
     })
   }
 
   function onPointerDown(event: PointerEvent): void {
     if (document.elementFromPoint(event.clientX, event.clientY)?.closest(hitSelector)) {
       locked = true
-      if (ignoring) {
-        ignoring = false
-        bridge?.setMousePassthrough(false)
-      }
+      passthrough?.forceInteractive()
     }
   }
 
@@ -102,7 +138,7 @@ export function useDesktopPassthrough(options: UseDesktopPassthroughOptions = {}
   /** 立即按最近指针位置重判（弹层开合、DOM 变化后调用）；指针从未进入过窗口则跳过。 */
   function refresh(): void {
     if (!bridge || lastX < 0) return
-    evaluate(lastX, lastY)
+    passthrough?.move(lastX, lastY)
   }
 
   onMounted(() => {
@@ -115,6 +151,7 @@ export function useDesktopPassthrough(options: UseDesktopPassthroughOptions = {}
 
   onBeforeUnmount(() => {
     if (frame) cancelAnimationFrame(frame)
+    passthrough?.dispose()
     window.removeEventListener('pointermove', onPointerMove)
     window.removeEventListener('pointerdown', onPointerDown)
     window.removeEventListener('pointerup', releaseLock)

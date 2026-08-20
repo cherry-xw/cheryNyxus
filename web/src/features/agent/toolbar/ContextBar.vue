@@ -28,9 +28,9 @@ const legacyColor = computed(() => {
 const segs = computed(() => breakdownSegments(props.breakdown))
 const titleLines = computed(() => {
   const pct = Math.round((props.breakdown?.usage ?? clamped.value) * 100)
-  if (!props.breakdown) return [`context ${pct}%`]
+  if (!props.breakdown) return [`上下文 ${pct}%`]
   return [
-    `context ${pct}%`,
+    `上下文 ${pct}%`,
     ...segs.value
       .filter((s) => s.tokens > 0)
       .map((s) => {
@@ -54,17 +54,17 @@ const titleLines = computed(() => {
       :aria-valuenow="Math.round(clamped * 100)"
       aria-valuemin="0"
       aria-valuemax="100"
-      :aria-label="`context usage ${Math.round(clamped * 100)}%`"
+      :aria-label="`上下文用量 ${Math.round(clamped * 100)}%`"
     >
-    <template v-if="segs.length">
-      <span
-        v-for="s in segs"
-        :key="s.key"
-        class="seg"
-        :style="{ width: `${s.pct}%`, background: s.color }"
-      />
-    </template>
-    <span v-else class="fill" :style="{ width: `${clamped * 100}%`, background: legacyColor }" />
+      <template v-if="segs.length">
+        <span
+          v-for="s in segs"
+          :key="s.key"
+          class="seg"
+          :style="{ width: `${s.pct}%`, background: s.color }"
+        />
+      </template>
+      <span v-else class="fill" :style="{ width: `${clamped * 100}%`, background: legacyColor }" />
     </div>
   </el-tooltip>
 </template>

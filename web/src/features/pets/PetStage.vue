@@ -7,6 +7,7 @@ import type { StreamState } from '@/stores'
 import { selectOwnTimeline, selectActiveMessage } from '@/stores/chats/selectors'
 import type { PetInstance } from './types/types'
 import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
+import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
 
 /**
  * 透明模式（Electron desktop surface）：清除网格纹理与渐变背景，只保留 sprite——
@@ -74,6 +75,9 @@ const { isPaused, startDrag, dragPet, endDrag, hoverPet, clickPet } = usePetWorl
  */
 async function handleClick(pet: PetInstance): Promise<void> {
   if (pet.isMaster) {
+    // Electron desktop 面：发消息改走 composer 原生窗（WindowFrame 外壳承载标题/能力按钮/三键），
+    // 会话切换经 main `surface:retarget` 下发，水合由 composer 窗内 App.vue 负责（本面不再管）。
+    if (openQuickComposerWindow(activeRoot(pet), 'pet')) return
     const restoringMinimizedWorkbench =
       agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
     agents.workbenchMinimized = false
@@ -96,6 +100,8 @@ async function handleClick(pet: PetInstance): Promise<void> {
 
 function handleDoubleClick(pet: PetInstance): void {
   if (!pet.isMaster) return
+  // Electron desktop 面：双击与单击同语义（打开 composer 原生窗）
+  if (openQuickComposerWindow(activeRoot(pet), 'pet')) return
   const restoringMinimizedWorkbench =
     agents.workbenchMinimized && agents.activeDialogChatId === activeRoot(pet)
   agents.workbenchMinimized = false
@@ -165,6 +171,17 @@ async function handleAttention(pet: PetInstance): Promise<void> {
     seen.add(root.chatId)
     root = byId.get(root.parentChatId) ?? root
     if (!root.parentChatId) break
+  }
+  // Electron desktop 面：待处理交互在 composer 原生窗以 attention 视图打开（不抢占 desktop 面状态）。
+  const bridge = desktopBridge()
+  if (bridge) {
+    bridge.openWindow({
+      kind: 'composer',
+      chatId: root.chatId,
+      source: 'history',
+      view: 'attention',
+    })
+    return
   }
   agents.activeDialogSource = 'history'
   agents.activatePresetSession(pet.presetId, root.chatId)

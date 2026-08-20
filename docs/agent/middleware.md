@@ -40,7 +40,7 @@ export const defaultHandlers: MiddlewareHandler<MiddlewareChunk>[] = [
 |----|------|
 | checkpoint | 归纳所有 chunk；生成 `staged`（thinking_end/content_end/sense_end）；构建并维护 `ctx.soul.messages`；声明 `message_created`/`message_updated`/`sense_pending`/`consumed` effect |
 | sense | 收集 sense_end，smart/manual 等审批，执行感官，yield `sense_accept`/`sense_reject` |
-| retry | 捕获 LLM 调用错误，可恢复错误重试 3 次，不可恢复直接 yield ErrorChunk |
+| retry | 捕获 LLM 调用错误，可恢复错误指数退避重试（最多 5 次尝试），不可恢复直接 yield ErrorChunk |
 | chat | 调用 LLM（`llmAdapter.chatStream` 或 `chat`），yield `StreamChunk`（含 thinkingDelta/contentDelta/senseDelta） |
 
 ### Chunk 类型（运行时产出的子集）
@@ -407,7 +407,9 @@ if (needsApproval.length > 0) {
 
 **职责：** 捕获 chat 层错误，分类重试，失败 yield ErrorChunk。详见「关键流程 F」。
 
-**常量：** `MAX_RETRIES = 3`、`RETRY_DELAY_MS = 1000`。
+**常量：** `MAX_RETRIES = 5`（最多 5 次尝试）、`RETRY_BASE_DELAY_MS = 1000`（退避基数）。
+
+**重试间隔（指数退避 + jitter）：** 第 `attempt` 次失败后等待 `1000 * 2^(attempt-1)` ms（1s/2s/4s/8s/16s）± 20% 随机抖动，累计约 31s。jitter 避免多 pet/多会话同时失败时同步重试形成限流风暴。
 
 ### 4. chatMiddleware（[chat.ts](../../src/agent/middleware/chat.ts)）
 
@@ -467,4 +469,6 @@ if (needsApproval.length > 0) {
 
 ### 调整 retry 策略
 
-[retry.ts](../../src/agent/middleware/retry.ts) 的 `MAX_RETRIES` / `RETRY_DELAY_MS` / `classifyError` / `isRecoverable` 均可改。注意保持 `approval aborted` 的 re-throw 语义（否则 abort 不能穿透 retry）。
+[retry.ts](../../src/agent/middleware/retry.ts) 的 `MAX_RETRIES` / `RETRY_BASE_DELAY_MS` / `classifyError` / `isRecoverable` 均可改。注意保持 `approval aborted` 的 re-throw 语义（否则 abort 不能穿透 retry）。
+
+**错误身份保持（429 等限流可重试的前提）：** [compose.ts](../../src/core/middleware/compose.ts) 的 `executeChain` 对 `ClassifiedError` **原样上浮**（不转用户面、保留 `category`/`source` 身份），保证 retry 层能以 `instanceof ClassifiedError` 识别 provider/network/timeout 可重试错误。仅未被任何中间件处理的 `ClassifiedError` 在最外层 `executeChain(0)` 兜底转用户面。若此处改为提前 `throwUserFacing` 转换，会丢失分类身份——retry 只能判为 `unknown`/不可恢复，限流 429 将一次失败即整轮报错。

@@ -5,8 +5,11 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { classifyError, ClassifiedError, type ErrorCategory } from '@/utils/error.js'
 
 // ========== 配置常量 ==========
-const MAX_RETRIES = 3
-const RETRY_DELAY_MS = 1000
+// 最多尝试 MAX_RETRIES 次（含首次）。重试间隔指数退避：第 attempt 次失败后等
+// base * 2^(attempt-1) ms（1s/2s/4s/8s/16s）+ ±20% jitter，累计约 31s。
+// jitter 让多 pet / 多会话同时失败时错峰重试，避免同步重试放大上游限流（429）。
+const MAX_RETRIES = 5
+const RETRY_BASE_DELAY_MS = 1000
 
 /**
  * 判断错误是否可恢复（可重试）
@@ -37,6 +40,16 @@ function createErrorInfo(attempt: number, error: unknown): ErrorChunk['errors'][
 
 async function delay(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * 指数退避等待：第 attempt 次失败后等 base * 2^(attempt-1) ms ±20% jitter。
+ * attempt 从 1 起：1s → 2s → 4s → 8s → 16s（5 次尝试累计约 31s）。
+ */
+async function delayWithBackoff(attempt: number): Promise<void> {
+  const base = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)
+  const jitter = base * 0.2 * (Math.random() * 2 - 1)
+  await delay(Math.max(0, Math.round(base + jitter)))
 }
 
 // ========== Middleware 实现 ==========
@@ -91,9 +104,9 @@ export async function* retryMiddleware(
       // 回滚本轮 checkpoint 已 append 的半截 message，恢复历史干净后再重试
       messages.length = snapshot
 
-      // 非最后一次且可恢复：等待后继续
+      // 非最后一次且可恢复：指数退避等待后继续
       if (attempt < MAX_RETRIES && errorInfo.recoverable) {
-        await delay(RETRY_DELAY_MS)
+        await delayWithBackoff(attempt)
         continue
       }
 

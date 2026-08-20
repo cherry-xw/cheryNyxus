@@ -159,7 +159,13 @@ describe('paper game card model', () => {
         kind: 'tool-batch',
         toolCalls: [
           { callId: 'read', index: 1, name: 'read_file', arguments: '{}', status: 'completed' },
-          { callId: 'search', index: 0, name: 'search_codebase', arguments: '{}', status: 'completed' },
+          {
+            callId: 'search',
+            index: 0,
+            name: 'search_codebase',
+            arguments: '{}',
+            status: 'completed',
+          },
         ],
       }),
     })
@@ -188,14 +194,16 @@ describe('paper game card model', () => {
       '读取文件',
     ])
 
-    const directCard = buildPaperGameCard(memberNode, {
-      title: '工具执行',
-      index: 0,
-      total: 1,
-      senseTools,
+    const stage = result.processStages![0]!
+    const directCard = buildPaperGameCard(stage.node, stage.cardOptions)
+    const readCard = buildPaperGameCard(stage.node, {
+      ...stage.cardOptions,
+      selectedCallId: 'read',
     })
-    expect(result.processStages?.[0]?.nodeCard).toEqual(directCard)
-    expect(result.processStages?.[0]?.nodeCardsByCallId.read?.title).toBe('读取文件')
+    expect(directCard.title).toBe('搜索代码库')
+    expect(readCard.title).toBe('读取文件')
+    expect(stage).not.toHaveProperty('nodeCard')
+    expect(stage).not.toHaveProperty('nodeCardsByCallId')
   })
 
   it('maps returns, delegation, system, and folds to their game panels', () => {

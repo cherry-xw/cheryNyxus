@@ -122,10 +122,14 @@ function cancelToAuto(): void {
   emit('enable-auto')
 }
 
-/** 单击循环一档：未选→指定→半指定→取消（未选）。 */
+/** 单击循环一档：未选→指定→半指定→取消（未选）。「＋新对话」是破坏性动作（锁定即建会话）：
+ *  首击仅半选高亮、次击才锁定、再击取消，与历史会话循环同构但多一道确认，防误触即静默新建。 */
 function selectByUser(target: string | 'new'): void {
   if (target === 'new') {
-    commitUserSelection('new')
+    const state = cycleStateOf('new')
+    if (state === 'idle') enterManualHalf('new')
+    else if (state === 'half') commitUserSelection('new')
+    else cancelToAuto()
     return
   }
   const next = nextTargetCycleState(cycleStateOf(target))
@@ -238,13 +242,15 @@ function timeOf(session: ChatSummary): string {
 }
 
 /** 外部选中目标变化（AI 自动选定 / 父级清空）时，若不再对应当前手动半选则清除半选态。
- * 例外：我们自己清掉「＋新会话」（selected:'new'→undefined）时保留本次历史会话半选，否则半选会被误清。 */
+ * 自清保护：clear-target 由 enterManualHalf 自己 emit（旧目标→undefined），此时半选是刚设的
+ * 目标，不能被本 watch 误清——原例外仅覆盖 previous==='new'，历史会话与「＋新对话」从锁定
+ * 态转半选（selected→undefined）同样命中，导致半选视觉闪失、两段式确认失效。 */
 watch(
   () => props.selected,
-  (selected, previous) => {
+  (selected) => {
     if (!manualHalfId.value) return
     if (selected === manualHalfId.value) return
-    if (previous === 'new' && selected === undefined) return
+    if (selected === undefined) return
     manualHalfId.value = undefined
   },
 )
@@ -444,7 +450,10 @@ onBeforeUnmount(() => {
         type="button"
         class="target-option is-new"
         :disabled="routing"
-        :class="{ 'is-selected': selected === 'new' }"
+        :class="{
+          'is-selected': ['manual', 'ai-selected'].includes(visualStateOf('new')),
+          'is-suggested': visualStateOf('new') === 'recommended',
+        }"
         @click="selectByUser('new')"
       >
         <span class="target-label">＋新对话</span>

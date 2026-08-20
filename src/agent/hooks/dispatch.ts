@@ -241,6 +241,7 @@ async function runHandler<TDecision>(
     try {
       child = spawn('sh', ['-c', expandedCommand], {
         stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true, // Windows: 隐藏控制台窗口（约定见 docs/web/electron.md）
       })
     } catch (err) {
       logger.event(

@@ -1,6 +1,10 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { agentApi, type ChatOpenResponse, type RootTimelineSnapshot } from '../../src/services/agentApi'
+import {
+  agentApi,
+  type ChatOpenResponse,
+  type RootTimelineSnapshot,
+} from '../../src/services/agentApi'
 import { wsClient } from '../../src/services/ws'
 import { useChatSessionsStore } from '../../src/stores/chats'
 
@@ -48,9 +52,7 @@ describe('Nyxus root message controller', () => {
           resolveOpen = resolve
         }),
     )
-    const getTimeline = vi
-      .spyOn(agentApi, 'getRootTimeline')
-      .mockResolvedValue(snapshot('tree'))
+    const getTimeline = vi.spyOn(agentApi, 'getRootTimeline').mockResolvedValue(snapshot('tree'))
     vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
 
     const store = useChatSessionsStore()
@@ -70,9 +72,7 @@ describe('Nyxus root message controller', () => {
 
   it('reuses the live subscription and installed tree without snapshot polling', async () => {
     const open = vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
-    const getTimeline = vi
-      .spyOn(agentApi, 'getRootTimeline')
-      .mockResolvedValue(snapshot('tree'))
+    const getTimeline = vi.spyOn(agentApi, 'getRootTimeline').mockResolvedValue(snapshot('tree'))
     vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
 
     const store = useChatSessionsStore()
@@ -181,11 +181,107 @@ describe('Nyxus root message controller', () => {
     }
   })
 
+  it('batches contiguous root turn deltas into one reactive publish window', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
+    vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
+    const store = useChatSessionsStore()
+    await store.observeRootTimeline('root-live', 'conversation')
+    store.bindWsClient()
+
+    try {
+      const dispatch = wsClient as unknown as {
+        dispatchEvent(message: unknown, kind: unknown): void
+      }
+      const rootEvent = (rootEventSeq: number, type: string, data: unknown) =>
+        dispatch.dispatchEvent(
+          {
+            kind: 'notification',
+            chatId: 'root-live',
+            rootChatId: 'root-live',
+            rootEventSeq,
+            subscriptionId: 'subscription-live',
+            type,
+            data,
+          },
+          'notification',
+        )
+
+      rootEvent(10, 'turn.started', { turnId: 'turn-live', messageId: 'message-live' })
+      rootEvent(11, 'turn.delta', {
+        turnId: 'turn-live',
+        channel: 'content',
+        offset: 0,
+        delta: 'hello',
+      })
+      rootEvent(12, 'turn.delta', {
+        turnId: 'turn-live',
+        channel: 'content',
+        offset: 5,
+        delta: ' world',
+      })
+
+      expect(store.rootSubscriptions['root-live']?.eventSeq).toBe(12)
+      expect(store.rootTimelineStates['root-live']?.activeTurns[0]?.content).toBe('')
+      await vi.advanceTimersByTimeAsync(63)
+      expect(store.rootTimelineStates['root-live']?.activeTurns[0]?.content).toBe('')
+      await vi.advanceTimersByTimeAsync(1)
+      expect(store.rootTimelineStates['root-live']?.activeTurns[0]?.content).toBe('hello world')
+    } finally {
+      store.unbindWsClient()
+      vi.useRealTimers()
+    }
+  })
+
+  it('flushes queued root deltas before applying the next structural event', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
+    vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
+    const store = useChatSessionsStore()
+    await store.observeRootTimeline('root-live', 'conversation')
+    store.bindWsClient()
+
+    try {
+      const dispatch = wsClient as unknown as {
+        dispatchEvent(message: unknown, kind: unknown): void
+      }
+      const rootEvent = (rootEventSeq: number, type: string, data: unknown) =>
+        dispatch.dispatchEvent(
+          {
+            kind: 'notification',
+            chatId: 'root-live',
+            rootChatId: 'root-live',
+            rootEventSeq,
+            subscriptionId: 'subscription-live',
+            type,
+            data,
+          },
+          'notification',
+        )
+
+      rootEvent(10, 'turn.started', { turnId: 'turn-live', messageId: 'message-live' })
+      rootEvent(11, 'turn.delta', {
+        turnId: 'turn-live',
+        channel: 'content',
+        offset: 0,
+        delta: 'complete before status',
+      })
+      rootEvent(12, 'run.updated', { runId: 'run-live', status: 'running' })
+
+      expect(store.rootTimelineStates['root-live']?.activeTurns[0]?.content).toBe(
+        'complete before status',
+      )
+      expect(store.rootTimelineStates['root-live']?.activeRuns[0]?.runId).toBe('run-live')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      store.unbindWsClient()
+      vi.useRealTimers()
+    }
+  })
+
   it('ignores patches for uncached views without reopening the root subscription', async () => {
     const open = vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
-    const getTimeline = vi
-      .spyOn(agentApi, 'getRootTimeline')
-      .mockResolvedValue(snapshot('tree'))
+    const getTimeline = vi.spyOn(agentApi, 'getRootTimeline').mockResolvedValue(snapshot('tree'))
     const close = vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
     const store = useChatSessionsStore()
     await store.observeRootTimeline('root-live', 'tree')

@@ -77,6 +77,7 @@ describe('paper stack workbench integration', () => {
     expect(card).toContain('class="process-stage-list"')
     expect(card).toContain('class="process-name-viewport"')
     expect(card).toContain('animation: process-name-loop 11s linear infinite')
+    expect(card).toContain('animation-play-state: paused')
     expect(card).toContain('<QuestionCard')
     expect(card).toContain('v-if="currentQuestion && chatId"')
     expect(card.match(/<PaperGameCard/g)).toHaveLength(1)
@@ -107,7 +108,7 @@ describe('paper stack workbench integration', () => {
     )
     expect(stack).toContain('type="range"')
     expect(stack).toContain('aria-label="选择节点卡牌"')
-    expect(stack).toContain('if (dragging.value) return')
+    expect(stack).toContain('requestAnimationFrame(flushScrubberPreview)')
     expect(stack).toContain('@pointerup="commitScrubber"')
     expect(stack).toContain('@change="commitScrubber"')
     expect(stack).toContain('@pointercancel="cancelScrubber"')
@@ -115,6 +116,7 @@ describe('paper stack workbench integration', () => {
     expect(stack).toContain('previewIndex.value = committedIndex.value')
     expect(stack).toContain('@keydown.stop="onScrubberKeydown"')
     expect(stack).toContain("selectIndex(clamped, 'keyboard')")
+    expect(stack).toContain(':quiet-motion="true"')
   })
 
   it('uses retargetable short motion with keyboard and reduced-motion fallbacks', async () => {
@@ -122,7 +124,7 @@ describe('paper stack workbench integration', () => {
       resolve('src/features/pets/nyxus/components/NodePaperStack.vue'),
       'utf8',
     )
-    expect(stack).toContain('transform 280ms var(--paper-ease-in-out)')
+    expect(stack).toContain('transform 260ms var(--paper-ease-in-out)')
     expect(stack).toContain('opacity 220ms var(--paper-ease-out)')
     expect(stack).not.toContain('transition: all')
     expect(stack).toContain('@media (hover: hover) and (pointer: fine)')

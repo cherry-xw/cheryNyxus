@@ -149,13 +149,17 @@ const emit = defineEmits<{
             @compact="emit('compact', pet)"
             @resume="emit('resume', pet)"
           />
-        </div>
-        <!-- RunningTools 独占第二行（absolute 不占高度）：提问 ❓ hover 显问题 + click 开卡片，非提问纯展示 -->
-        <div
-          v-if="!pet.isGhost && (runningTools.length > 0 || questionItems().length > 0)"
-          class="running-row"
-        >
-          <RunningTools :tools="runningTools" :questions="questionItems()" :chat-id="pet.chatId" />
+          <!-- 运行中工具锚定在控制台底部；meta-row 自身脱离主体布局，数量变化不会推动脸部。 -->
+          <div
+            v-if="!pet.isGhost && (runningTools.length > 0 || questionItems().length > 0)"
+            class="running-row"
+          >
+            <RunningTools
+              :tools="runningTools"
+              :questions="questionItems()"
+              :chat-id="pet.chatId"
+            />
+          </div>
         </div>
       </MotionSpan>
     </span>
@@ -249,13 +253,15 @@ const emit = defineEmits<{
 .dir {
   position: absolute;
   left: 0;
-  bottom: 8px;
+  // 脸部锚点固定在 pet 坐标中；下方 name / toolbar 改变高度时只向下展开。
+  bottom: 33px;
   width: 100%;
   transform: scaleX(var(--pet-direction));
   transform-origin: center bottom;
 }
 
 .sprite {
+  position: relative;
   display: grid;
   grid-template-columns: 100%;
   justify-items: center;
@@ -338,19 +344,20 @@ const emit = defineEmits<{
 }
 
 .meta-row {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 3px);
   display: inline-flex;
   flex-direction: column;
   align-items: stretch;
   overflow: visible;
-  margin-top: 3px;
   border: 1px solid var(--pet-console-border);
   border-radius: 8px;
   background: var(--pet-console-bg);
   box-shadow:
     0 4px 12px rgba(15, 23, 42, 0.18),
     inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
-  transform: scaleX(var(--pet-direction));
+  transform: translateX(-50%) scaleX(var(--pet-direction));
   transition:
     border-radius 180ms ease,
     box-shadow 180ms ease;
@@ -391,16 +398,14 @@ const emit = defineEmits<{
   transition-delay: 0s;
 }
 
-/* RunningTools 行：absolute 脱离流（零布局高度），避免加行把 pet 脸顶上去与气泡错位。
-   锚定 .dir（positioned 祖先）底部正下方（top:100% = meta-row 下方），水平居中。
-   pet 位置/脸位/气泡对齐不再随 0/1/N 个工具变动。 */
+/* RunningTools 锚定绝对定位的 meta-row 底部；工具数量和工具栏展开都只向下延伸。 */
 .running-row {
   position: absolute;
   left: 50%;
   top: 100%;
   display: flex;
   justify-content: center;
-  transform: translateX(-50%) scaleX(var(--pet-direction));
+  transform: translateX(-50%);
 }
 
 .zzz {

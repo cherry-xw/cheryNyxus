@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compose } from "@/core/middleware/compose";
 import { isAgentAbortError } from "@/core/middleware/errors";
+import { ClassifiedError } from "@/utils/error";
 import type { MiddlewareContext } from "@/core/middleware/types";
 
 /** 最小 ctx：compose 只透传 ctx 给 handler，不读取其字段 */
@@ -202,6 +203,52 @@ describe("compose middleware", () => {
       await expect(
         drain(compose([handler]).run(createMockContext())),
       ).rejects.toThrow(/^\[[0-9a-f]{8}\] 系统出了点小问题$/);
+    });
+
+    it("内层 ClassifiedError 原样上浮（保分类身份，不转用户面）", async () => {
+      // 回归：内层（如 chat 层）抛出的 ClassifiedError 须原样上浮，
+      // 外层 retry 才能以 instanceof 命中 category 判可重试（429/network 等）。
+      // 若在此层 throwUserFacing 转换，retry 只见 unknown/不可恢复 → 不重试。
+      const caught: unknown[] = [];
+      const outer = async function* (_c: any, next: any) {
+        try {
+          yield* next();
+        } catch (err) {
+          caught.push(err);
+          throw err;
+        }
+      };
+      const inner = async function* () {
+        throw new ClassifiedError({
+          message: "upstream 429: too frequent",
+          userMessage: "脑子忙不过来了，稍后再试",
+          category: "provider",
+          source: "brain",
+        });
+      };
+
+      // outer(内层 ClassifiedError) → outer catch 收到 ClassifiedError 本体 → 再 throw → 最外层兜底转用户面
+      await expect(
+        drain(compose([outer, inner]).run(createMockContext())),
+      ).rejects.toThrow(/^\[[0-9a-f]{8}\] 脑子忙不过来了，稍后再试$/);
+      expect(caught[0]).toBeInstanceOf(ClassifiedError);
+      expect((caught[0] as ClassifiedError).category).toBe("provider");
+    });
+
+    it("最外层（单 handler）ClassifiedError 兜底转用户面 + tracingId", async () => {
+      // 最外层（index=0）已无任何中间件可处理 → 兜底取 userMessage 转用户面（行为不变）
+      const handler = async function* () {
+        throw new ClassifiedError({
+          message: "upstream 429: too frequent",
+          userMessage: "脑子忙不过来了，稍后再试",
+          category: "provider",
+          source: "brain",
+        });
+      };
+
+      await expect(
+        drain(compose([handler]).run(createMockContext())),
+      ).rejects.toThrow(/^\[[0-9a-f]{8}\] 脑子忙不过来了，稍后再试$/);
     });
   });
 

@@ -28,9 +28,9 @@ electron({
 
 Electron 模式包含多个职责分离的 renderer，均直连后端 WebSocket（后端 `liveOutputByChat: Map<chatId, Set<WebSocket>>` 原生支持多连接订阅同一 chat，chunk/notification 按连接扇出）：
 
-- **desktop 窗口**（`?surface=desktop`）：启动即创建的**全工作区透明覆盖窗**（尺寸取 `screen.getPrimaryDisplay().workArea`，`frame:false / transparent / alwaysOnTop('floating') / skipTaskbar / hasShadow:false / thickFrame:false`）。`thickFrame:false`（win32）关闭 DWM 对 frameless 透明窗绘制的粗边框（`WS_THICKFRAME`）。**深色白边根因**：transparent 窗的 `backgroundColor` 选项在部分 Electron/Windows 组合下不生效，窗口背景回退为默认白色 → 内容未铺满的边缘 1px 露白边（浅色模式与浅内容/浅壁纸融合不明显，深色模式深内容旁显眼；`thickFrame`/`setShape`/CSS 均管不到背景色填充）——创建后运行时 `win.setBackgroundColor('#00000000')` 强制全透明兜底。承载 PetStage（透明模式，无网格背景）、NyxusCore 星系、AgentDialog 发消息浮动窗、HistoryDrawer、ServerLoginDialog（浮动模式）。宠物与星系直接渲染在桌面上，可随意拖动，空区域鼠标点击穿透到桌面。**ServerLoginDialog 连接态**：本地 loopback 直连成功后（`!auth.isRemote && connection.status === 'connected'`）显示「已连接」信息面板（地址 + 状态 + 断开连接），不再可重新连接；远端登录成功显示登录用户 + 登出。
+- **desktop 窗口**（`?surface=desktop`）：启动即创建的**全工作区透明覆盖窗**（尺寸取 `screen.getPrimaryDisplay().workArea`，`frame:false / transparent / alwaysOnTop('floating') / skipTaskbar / hasShadow:false / thickFrame:false`）。`thickFrame:false`（win32）关闭 DWM 对 frameless 透明窗绘制的粗边框（`WS_THICKFRAME`）。**深色白边根因**：transparent 窗的 `backgroundColor` 选项在部分 Electron/Windows 组合下不生效，窗口背景回退为默认白色 → 内容未铺满的边缘 1px 露白边（浅色模式与浅内容/浅壁纸融合不明显，深色模式深内容旁显眼；`thickFrame`/`setShape`/CSS 均管不到背景色填充）——创建后运行时 `win.setBackgroundColor('#00000000')` 强制全透明兜底。承载 PetStage（透明模式，无网格背景）、NyxusCore 星系、HistoryDrawer、ServerLoginDialog（浮动模式）。宠物与星系直接渲染在桌面上，可随意拖动，空区域鼠标点击穿透到桌面。**发消息 / 待处理交互入口**：点击宠物（单击/双击）与 `!` 待处理交互在 Electron 下统一打开 **composer 原生窗**（见下），desktop 面不再承载 AgentDialog 浮动面板——`pet.isMaster` 点击路径里 `desktopBridge()` 存在即 `openWindow({ kind:'composer' })`，浏览器单页仍走原浮动面板。**ServerLoginDialog 连接态**：本地 loopback 直连成功后（`!auth.isRemote && connection.status === 'connected'`）显示「已连接」信息面板（地址 + 状态 + 断开连接），不再可重新连接；远端登录成功显示登录用户 + 登出。
 
-> 2026-08 单窗合并：此前短暂存在 pet / nyxus **两个独立透明小窗**（pet 在窗内移动导致只能在 360×300~640×420 小范围拖拽、漂移/teleport 动画、`surface:set-state` / `surface:drag-start/move/end` IPC、`floatingGeometry.ts` 边界工具），已合并回本单窗模型——pet 以全屏舞台为边界完整拖拽、CheryNyxus 入口窗内 standalone 自由拖拽，两小窗 / 浮窗 IPC / 漂移动画 / 浮窗边界工具全部删除（仅保留本单窗 + 设置/工作台 managed 窗）。
+> 2026-08 单窗合并：此前短暂存在 pet / nyxus **两个独立透明小窗**（pet 在窗内移动导致只能在 360×300~640×420 小范围拖拽、漂移/teleport 动画、`surface:set-state` / `surface:drag-start/move/end` IPC、`floatingGeometry.ts` 边界工具），已合并回本单窗模型——pet 以全屏舞台为边界完整拖拽、CheryNyxus 入口窗内 standalone 自由拖拽，两小窗 / 浮窗 IPC / 漂移动画 / 浮窗边界工具全部删除（仅保留本单窗 + 设置/工作台/composer managed 窗）。
 
 ### 颜文字对比描边（desktop 透明窗）
 
@@ -48,6 +48,10 @@ desktop 透明窗默认 `alwaysOnTop('floating')` 全工作区置顶，全屏视
 实现位于 [fullscreenGuard.ts](../../web/electron/fullscreenGuard.ts)，`app.whenReady` 后启动，koffi 加载失败 / 枚举异常时**静默降级为不启用**（不阻塞主流程）。koffi 为 N-API 兼容原生模块，二进制经主包 `optionalDependencies` 平台分发包 `@koromix/koffi-<platform>-<arch>` 分发（pnpm 需 `allowBuilds: koffi: true`），electron-builder 打包时 `asarUnpack`（见 [electron-builder.yml](../../web/electron-builder.yml)）。
 - **settings 窗口**（`?surface=settings`）：**原生独立设置窗**（`frame:false`，无边框自绘标题栏）。惰性创建（desktop 工具环 ⚙ / 托盘点击 / `app.activate` / `second-instance` 首次触发），关闭即 **destroy**（无运行状态，重开重载 config）。外壳由 `WindowFrame.vue` 提供（40px 标题栏 + 三键 + 主题边框），内嵌 `<SettingsDialog native/>`——`SettingsDialog` 自身 header（「设置」标题 + 打开配置文件夹）在 native 面**隐藏**（`v-if="!isNative"`），标题由 `WindowFrame` 承载、「打开配置文件夹」按钮经 `title-actions` slot 并入标题栏（公共组件 `OpenConfigDirButton`，浏览器路径 header 内同款复用）；其遮罩须定位在 `WindowFrame` body 内（`.settings-overlay.is-native` 为 `position:absolute; inset:0`，相对 `position:relative` 的 body 铺满），**不可** fixed 铺满整个窗口，否则透明遮罩会拦截标题栏（拖拽 + 三键）的鼠标事件导致三键灰色暗淡、无法点击。**尺寸**：默认按设置内容所需最小尺寸（`minWidth/minHeight` 约束，见 `createManagedWindow`），屏幕 workArea 小于该值时取屏幕最大可用尺寸；bounds 持久化于 `userData/window-state.json`。**数据加载时序**：settings 窗 renderer 的 WS 是独立连接（`bootstrap()` 异步建连），`SettingsDialog` native 面**等待 `connection.status === 'connected'` 后再 `loadSettingsData()`**（watch 连接状态，避免建连前 `config.get` RPC 报「还没连上服务器」）。
 - **workbench 窗口**（`?surface=workbench&presetId=xx&chatId=xx`）：**每预设一原生工作台窗**（key = `wb:<presetId>`）。惰性创建；**也用 `WindowFrame` 公共外壳**（与 settings 统一）——标题显示预设名（App.vue 从 store 读）、`attentionBlink` → 标题栏暖橙闪烁、三键走 `windowControl`；`WorkbenchDialog` native 面隐藏自身 `.workbench-titlebar`（`v-if="!isNative"`，浏览器路径逐字节不变），其 `closeWorkbench`（先释放根时间线订阅再 `windowControl('close')`）经 `defineExpose` 由 WindowFrame 的 `close` handler 接管，overlay 同 settings 改为 relative 父级内 `position:absolute`（不遮挡标题栏），另渲染 `HistoryDrawer`。**点 X 关闭 = hide 不销毁**——`disconnectGrace` 按「发起连接」跟踪 run，hide 保持 WS 存活、run 继续；重开同 preset → show+focus 还原。最小化 = 原生任务栏（run 继续）。`attentionBlink` → `flashFrame`（任务栏闪烁）。
+  - **连接状态常驻标题栏**：公共组件 `ConnectionStatusChip.vue`（`useConnectionStore` 自取状态，绿点已连接 / 黄点转圈连接中 / 红点未连接）——native 面经 App.vue 的 `WindowFrame` `title-actions` slot 放标题右侧，浏览器面放 `WorkbenchDialog` 自绘 titlebar。**仅 `disconnected`（影响功能）时全幅遮罩**阻断操作：spinner + 「未连接服务器，正在自动重连…」+ 「立即重试」按钮（`connection.reconnect()`，refresh token 直连）；`connecting` 只亮标题栏状态不遮罩（本地后端启动瞬时即连，避免闪遮罩）。
+  - **连接就绪数据初始化**（`WorkbenchDialog` watch `connection.status`，connected 触发）：workbench 面 renderer 是独立 WS 连接且组件 setup 早于 `bootstrap()` 建连——初始 `acquireRootTimeline` RPC 必失败（catch 仅 log，此前无重试 → 树只剩合成起点、初始 fit 卡默认相机渲染在左上角），且该面不渲染 PetStage、无人调 `fetchHistoryList` → 钢琴琴键恒空。connected 后依次幂等执行：① `fetchHistoryList()`（钢琴数据源，`historyLoading` 态传 `NyxusPianoStrip` `loading` prop 显「会话加载中…」占位）；② `win.chatId` 为空时 `latestRootInPreset(presetId, presetName)` 兜底自动定位最近 root 会话（对齐浏览器「恢复活跃会话」语义）；③ `rootTimeline` 缓存缺失时重试 `acquireRootTimeline`（owner Set 去重幂等）。数据到达后 MessageBranchTree 既有 revision/bounds watch 触发 `tryInitialFit`，初始视图自动居中。树区域在「有 rootChatId 但 rootTimeline 未就绪」时显「节点树加载中…」轻提示。
+  - rail 的「返回快速发送窗口」按钮（`v-if="!isNyxus"` 的 ↙，closeWorkbench）已移除——关闭工作台统一走标题栏三键，浏览器面胶囊还原入口不变。
+- **composer 窗口**（`?surface=composer&chatId=xx&source=pet|history&view=composer|attention`）：**发消息 / 待处理交互原生窗**（key = `composer`，单实例）。**开启路径**：desktop 面点击宠物（单击 / 双击）与 `!` 待处理交互经 `bridge.openWindow({ kind:'composer', chatId, source, view })` 打开（见 [PetStage.vue](../../web/src/features/pets/PetStage.vue)）——统一由 main 建窗/聚焦，会话经 `surface:retarget` 下发切换，浏览器单页不受影响。**外壳复用全局 `WindowFrame` 公共组件**（与 settings/workbench 统一）：`App.vue` 在 `surface==='composer'` 分支渲染 `<WindowFrame :title="composerTitle">` 包裹 `<AgentDialog native/>`——标题 = 当前会话 pet 名（回退该会话历史 summary 预设名 / URL presetId / 「发消息」），随 main `surface:retarget` 切换会话时经 `agents.activeDialogChatId` 响应更新；**🌳 节点树 / `!` 待处理交互能力按钮经 `title-actions` slot 放在靠左标题后**（与三键 space-between 分离），操作与状态经 `AgentDialog` `defineExpose` 暴露（`openWorkbenchForChat` / `toggleAttention` / `getWorkspaceAttentionCount` / `isAttentionView`）由 App.vue 以 computed 包装读取；`AgentDialog` native 面自身隐藏自绘 `.dialog-head`（`v-if="!native"`，浏览器路径不变），overlay 同 settings/workbench 改为 `position:absolute` 铺满 WindowFrame body（不遮挡标题栏）。**keepAlive 保活**：`close` = hide（keep WS/run），重开同会话 show+focus 还原并重定位会话。
 - 浏览器单页（无 surface）：应用内多工作台窗 + 胶囊 + overlay 设置，**不受迁移影响**。
 
 > 2026-08 迁移：此前「console 窗（`?surface=console`）承载全部大界面」的模型已废弃——设置 / 工作台改为各自的原生独立窗（详见 [workbench-multi-window.md#electron-原生独立窗迁移part-3](./workbench-multi-window.md#electron-原生独立窗迁移part-3)），`ConsoleShell.vue` 与 `console:*` IPC 删除。
@@ -62,11 +66,34 @@ Element Plus dark css-vars 会设 `html.dark { color-scheme: dark }`，Chromium 
 
 **跨窗主题同步**：任一窗 `theme.toggle()` 成功后 `bridge.emitThemeChanged()` → main `theme:changed` 广播 `theme:set` → 各 Electron 面订阅 `onThemeSet` → `applyFrom(theme)` + 重设 backgroundColor。此前各窗只在启动读 localStorage 不互相同步。**范围边界**：广播仅发 managedWindows（settings / workbench）；desktop 透明窗**不接主题桥**——`bindElectronThemeBridge()` 对 `surface==='desktop'` 直接 return（避免 `setBackgroundColor` 给透明窗铺不透明底色），其主题独立于原生窗，与迁移前一致。
 
+### 硬件加速(GPU)
+
+工作台默认启用 Electron 硬件合成；Pixi 在 Electron 中固定使用 WebGL，浏览器版仍可优先使用 WebGPU。这样既避免整页软件栅格化造成的桌面版低帧率，也绕开多窗口场景下 WebGPU device 初始化的不稳定路径。
+
+> 2026-08-20 曾实证：恢复 GPU 且让 Pixi 优先创建 WebGPU device 后，新开的非透明受管窗（workbench / composer / settings）出现过渲染进程崩溃。当前策略不再直接组合这两条路径：Electron Pixi 固定走 WebGL；main 若观察到 GPU 子进程异常退出，会写入 `userData/gpu-safe-mode.json`，下次启动在创建任何窗口前自动调用 `app.disableHardwareAcceleration()` 进入软件安全模式。
+>
+> 历史背景（此前长期禁用的原因）：Electron 43 / Windows 透明窗在 GPU 路径下，鼠标穿透的 `forward pointermove` 偶发不回送，导致 desktop 窗从 ignore 状态无法在宠物/Chery Nyxus 上恢复命中。
+
+手动覆盖方式：进程环境变量 `CHERY_GRAPHICS_MODE=hardware|software`；命令行可用 `--chery-force-gpu` 或 `--chery-software-rendering`。GPU 故障修复后，可先用 `--chery-force-gpu` 验证，确认稳定后删除 `gpu-safe-mode.json` 恢复默认硬件模式。图形模式必须重启应用才能切换；启动日志中的 `[graphics] mode=...` 与 Chromium feature status 可用于确认实际路径。
+
+### 渲染进程崩溃观测
+
+main 对全部窗口（desktop + 受管窗）注册三类事件日志（`web/electron/main.ts`）：
+
+| 事件 | 级别 | 触发场景 |
+| ---- | ---- | ---- |
+| `webContents.on('render-process-gone')` | error | 渲染进程崩溃/被杀（`details.reason`：`gpu-process-crashed` / `oom` 等）——窗口只剩 backgroundColor 兜底色、DevTools 打不开时先查这里 |
+| `app.on('child-process-gone')` | warn | GPU 进程等工具子进程异常退出 |
+| `webContents.on('did-fail-load')` | error | 页面加载失败（dev server 未起 / 产物路径缺失） |
+
+定位新窗黑屏类问题时：开 dev 终端看 main 日志输出——`render-process-gone` 命中即渲染进程层问题（GPU / 崩溃），`did-fail-load` 命中即加载层问题（URL / 产物），两者皆无再查渲染层自身（Vue 报错需 DevTools）。
+
 ### 鼠标穿透（win32）
 
 desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——Windows 在忽略鼠标时仍转发 move 事件。渲染层 [web/src/features/desktop/useDesktopPassthrough.ts](../../web/src/features/desktop/useDesktopPassthrough.ts) 在 forwarded `pointermove` 中做 `document.elementFromPoint(x,y)?.closest(DESKTOP_HIT_SELECTOR)` 命中测试：
 
 - 命中交互根（`[data-desktop-hit]` 标记的宠物/星系/工具环/弹窗面板，及 ElementPlus teleport 弹层 `.el-popper` 等）→ 撤销穿透；
+- 离开交互根后等待 120ms，并在最近命中矩形外保留 6px 滞回；宽限期内重新进入会取消切换，避免鼠标在 pet 边缘来回移动时频繁触发整屏透明窗重合成与闪白；
 - pointerdown 命中后 `lockInteractive()` 锁定 non-passthrough 直到 pointerup——防止拖拽/长按中途穿透丢事件；
 - 状态变化才发 IPC（rAF 节流），避免每次 move 刷 IPC。
 
@@ -78,7 +105,7 @@ desktop 窗口默认整体 `setIgnoreMouseEvents(true, { forward: true })`——
 | `backend:refresh-config` | renderer→main invoke | → `ServerConfig` | 刷新后端配置（Electron 下 `getServerConfig({refresh:true})` 走此 IPC，main 进程 fetch `/api/config`——Node 无 CORS 限制；渲染进程直接 fetch 会被后端缺 CORS 头的响应拦截，见 [env.md#会话-token-轮换与重连刷新](./env.md#会话-token-轮换与重连刷新)） |
 | `dialog:pickDirectory` | renderer→main invoke | → `string\|null` | 原生目录选择 |
 | `desktop:mouse-passthrough` | desktop→main | `{ ignore: boolean }` | 仅 win32 生效，sender 校验 desktop 窗 |
-| `window:open` | desktop→main | `OpenWindowRequest` | 仅 desktop 窗可发起；`kind:'settings'` → 设置窗，`kind:'workbench'` → 工作台窗（惰性创建 / show+focus / `workbench:open-chat` / `workbench:focus`） |
+| `window:open` | desktop→main | `OpenWindowRequest` | 仅 desktop 窗可发起；`kind:'settings'` → 设置窗，`kind:'workbench'` → 工作台窗，`kind:'composer'` → 发消息窗（均惰性创建 / show+focus / `workbench:open-chat` / `workbench:focus`） |
 | `window:control` | 任一窗→main | `'minimize'\|'maximize'\|'restore'\|'close'` | 按 `BrowserWindow.fromWebContents(event.sender)` 定位窗口的原生控制；工作台窗 `close` = hide（hide 不销毁，run 继续），设置窗 close = destroy |
 | `window:maximized` | main→窗 | `boolean` | 原生最大化态回推（双击标题栏 / Win+↑ / 拖边缘），标题栏图标切换 |
 | `window:focused` | main→窗 | `boolean` | 焦点态回推（工作台标题栏高亮等） |
@@ -130,9 +157,12 @@ const cheryDir = getRuntimeRoot();          // 2. CHERY_DIR 父目录（默认 C
 spawn(getNodeExecutable(), [getBackendBundle()], {
   env: { ...process.env, CHERY_DIR, ...(app.isPackaged ? { DB_DIR } : {}) },
   stdio: ['ignore', 'pipe', 'pipe'],
+  windowsHide: true,  // Windows: 主进程是 GUI 进程无控制台，缺省 spawn 控制台子进程会闪 cmd 窗
 })
 // delete env.ELECTRON_RUN_AS_NODE  // 防 shell 注入污染
 ```
+
+- **`windowsHide: true` 约定**：Electron main 进程（GUI 子系统、无控制台）spawn 控制台子系统程序（node.exe 等）时，Windows 默认会给子进程分配新控制台窗口（一闪而逝）。须显式 `windowsHide: true`（CREATE_NO_WINDOW）隐藏。**所有 `spawn`/`execFile` 一律显式加 `windowsHide: true`**（`exec`/`execSync` 默认已隐藏）；同约定适用于后端 guardian 双进程模型（[service/README.md](../service/README.md#guardian)）与 utils.openFile 编辑器 spawn（[handler.ts](../../src/service/utils/handler.ts)）。
 
 - **`getNodeExecutable()`**:优先打包的 node(extraResources 内 `../node`),否则系统 PATH `node`。用系统 node 跑后端,better-sqlite3 用系统 Node ABI,与后端 build 一致,**无跨 ABI 问题**(弃用 `ELECTRON_RUN_AS_NODE`,因 Electron 内嵌 node ABI ≠ 系统 node ABI)。
 - **后端 bundle 路径**:`join(app.getAppPath(), '..', 'dist', 'index.js')`。开发期 `<root>/dist/index.js`;打包后 `resources/dist/index.js`。

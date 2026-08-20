@@ -4,6 +4,7 @@ import PetStage from '@/features/pets/PetStage.vue'
 import DesktopSurface from '@/features/desktop/DesktopSurface.vue'
 import LoginSurface from '@/features/desktop/LoginSurface.vue'
 import WindowFrame from '@/features/desktop/WindowFrame.vue'
+import ConnectionStatusChip from '@/features/desktop/ConnectionStatusChip.vue'
 import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import WorkbenchDialog from '@/features/agent/dialog/WorkbenchDialog.vue'
@@ -11,7 +12,7 @@ import WorkbenchCapsule from '@/features/agent/dialog/WorkbenchCapsule.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
 import OpenConfigDirButton from '@/features/agent/settings/components/OpenConfigDirButton.vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElTooltip } from 'element-plus'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import {
   createHistoryDrawerManager,
@@ -34,6 +35,7 @@ import { wsClient } from '@/services/ws'
 // 节点树工作台多窗口：浏览器面每预设一窗（windowId = presetId），由 workbenchWindowsList 驱动渲染；
 // Electron workbench 面本窗 store 只含一条记录（原生窗本身即"每预设一窗"）。
 const agents = useAgentsStore()
+const chatSessions = useChatSessionsStore()
 const query = new URLSearchParams(window.location.search)
 const surface = query.get('surface')
 const surfacePresetId = query.get('presetId') ?? undefined
@@ -44,10 +46,47 @@ const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | nul
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
 
+// ── composer 原生窗（surface==='composer'）：WindowFrame 外壳承载标题栏与三键 ──
+// 标题 = 当前会话 pet 名（回退预设名）；🌳 节点树 / ! 待处理交互能力按钮经 title-actions
+// slot 放靠左标题后，操作经 AgentDialog defineExpose 暴露调用（native 面自身隐藏 dialog-head）。
+interface AgentDialogExpose {
+  openWorkbenchForChat: () => void
+  openWorkspaceTree: (
+    rootChatId: string,
+    sourceChatId?: string,
+    interactionId?: string,
+    anchorNodeId?: string,
+  ) => Promise<void>
+  closeDialog: () => void
+  toggleAttention: () => void
+  getWorkspaceAttentionCount: () => number
+  isAttentionView: () => boolean
+}
+const agentDialogRef = ref<AgentDialogExpose | null>(null)
+/** composer 窗当前会话：初始 surfaceChatId，main `surface:retarget` 切换后跟随 activeDialogChatId。 */
+const composerChatId = computed(() => agents.activeDialogChatId)
+const composerTitle = computed(() => {
+  const chatId = composerChatId.value
+  if (!chatId) return '发消息'
+  const pet = agents.petForChat(chatId)
+  if (pet?.name) return pet.name
+  const summary = agents.historyList.find((item) => item.chatId === chatId)
+  return summary?.preset ?? surfacePresetId ?? '发消息'
+})
+const composerAttentionActive = computed(() => agentDialogRef.value?.isAttentionView() ?? false)
+const composerAttentionCount = computed(() => agentDialogRef.value?.getWorkspaceAttentionCount() ?? 0)
+/** composer 窗内按需水合会话树（与 PetStage 点击路径同语义；desktop 面不再负责）。 */
+function hydrateComposerChat(chatId: string): void {
+  void chatSessions.hydrateTree(chatId).catch((e) =>
+    console.warn(`[App] hydrateTree ${chatId} 失败:`, e),
+  )
+}
+
 if (surface === 'composer' && surfaceChatId) {
   agents.activeDialogChatId = surfaceChatId
   agents.activeDialogSource = surfaceSource ?? 'history'
   agents.activeDialogView = surfaceView ?? 'composer'
+  hydrateComposerChat(surfaceChatId)
 }
 if (surface === 'history' && surfaceChatId) agents.openHistoryRoot(surfaceChatId)
 
@@ -87,6 +126,7 @@ if (surface === 'composer' || surface === 'history') {
         agents.activeDialogChatId = target.chatId
         agents.activeDialogSource = target.source ?? 'history'
         agents.activeDialogView = target.view ?? 'composer'
+        hydrateComposerChat(target.chatId)
       } else {
         agents.openHistoryRoot(target.chatId)
       }
@@ -256,7 +296,44 @@ async function bootstrap(): Promise<void> {
 
 <template>
   <DesktopSurface v-if="surface === 'desktop'" />
-  <AgentDialog v-else-if="surface === 'composer'" native />
+  <!-- composer 原生窗：复用 WindowFrame 公共外壳（与 settings/workbench 统一），标题靠左显示 pet 名，
+       能力按钮经 title-actions slot 放标题后（紧贴标题），三键保持最右；AgentDialog native 隐藏自绘标题栏 -->
+  <WindowFrame
+    v-else-if="surface === 'composer'"
+    :title="composerTitle"
+  >
+    <template #title-actions>
+      <el-tooltip placement="bottom" :show-after="120" :hide-after="0">
+        <template #content>
+          <span>打开当前会话的节点树工作台</span>
+        </template>
+        <button
+          type="button"
+          class="composer-title-action"
+          aria-label="打开当前会话节点树工作台"
+          @click="agentDialogRef?.openWorkbenchForChat()"
+        >
+          🌳
+        </button>
+      </el-tooltip>
+      <el-tooltip placement="bottom" :show-after="120" :hide-after="0">
+        <template #content>
+          <span>待处理交互（审批 / 提问）</span>
+        </template>
+        <button
+          type="button"
+          class="composer-title-action composer-title-attention"
+          :class="{ 'is-active': composerAttentionActive }"
+          aria-label="待处理交互"
+          :aria-pressed="composerAttentionActive"
+          @click="agentDialogRef?.toggleAttention()"
+        >
+          !<b v-if="composerAttentionCount">{{ composerAttentionCount }}</b>
+        </button>
+      </el-tooltip>
+    </template>
+    <AgentDialog ref="agentDialogRef" native />
+  </WindowFrame>
   <div v-else-if="surface === 'history'" class="history-native"><HistoryDrawer /></div>
   <LoginSurface v-else-if="surface === 'login'" />
   <WindowFrame v-else-if="surface === 'settings'" title="设置">
@@ -267,7 +344,8 @@ async function bootstrap(): Promise<void> {
     <SettingsDialog native />
   </WindowFrame>
   <!-- workbench 面同用 WindowFrame 公共外壳：标题=预设名，attentionBlink→标题栏闪烁，
-       关闭经 closeWorkbench（先释放根时间线订阅再交 main hide 保活） -->
+       关闭经 closeWorkbench（先释放根时间线订阅再交 main hide 保活）；
+       title-actions 放常驻连接状态 chip（断连遮罩由 WorkbenchDialog 内部渲染） -->
   <WindowFrame
     v-else-if="surface === 'workbench'"
     :title="surfacePresetId ?? '节点树工作台'"
@@ -275,6 +353,9 @@ async function bootstrap(): Promise<void> {
     :close="() => wbRef?.closeWorkbench()"
     :title-pointer-down="onWorkbenchTitlePointerDown"
   >
+    <template #title-actions>
+      <ConnectionStatusChip />
+    </template>
     <WorkbenchDialog
       ref="wbRef"
       :window-id="surfacePresetId!"
@@ -332,5 +413,50 @@ body {
   height: 100%;
   background: var(--bg);
   --drawer-w: 100%;
+}
+
+// composer 原生窗标题栏能力按钮（WindowFrame title-actions slot）：紧贴标题、垂直居中。
+// title-actions 容器已 no-drag，按钮可正常点击（标题栏其余区域保持 OS 拖拽）。
+.composer-title-action {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    color 100ms ease,
+    background-color 100ms ease;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--ink);
+  }
+}
+.composer-title-action.is-active {
+  border-color: #7c3aed;
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.1);
+}
+.composer-title-attention b {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 8px;
+  line-height: 14px;
 }
 </style>

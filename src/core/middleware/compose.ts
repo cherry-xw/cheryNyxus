@@ -85,8 +85,13 @@ async function* executeChain<T>(
       throw err
     }
 
-    // ClassifiedError（provider/sense 等已知分类来源的可重试错误）：取其友好文案作用户面。
+    // ClassifiedError（provider/sense 等已知分类来源的可重试错误）：
+    // - 内层（index>0）原样上浮，保留 category/source 身份 —— 让外层 retry 能以
+    //   instanceof 识别 provider/network/timeout 并指数退避重试。若在此转 throwUserFacing
+    //   会丢失分类身份，retry 只能判 unknown/不可恢复，429 限流将一次失败即整轮报错。
+    // - 最外层（index=0，已无任何中间件可处理）兜底取其友好文案转用户面。
     if (err instanceof ClassifiedError) {
+      if (index > 0) throw err
       throwUserFacing('compose.unhandled', err.userMessage, {
         source: err.source,
         category: err.category,

@@ -6,9 +6,44 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, Tray, nativeImage, screen } 
 // 全屏覆盖检测：外部全屏视频 / 游戏出现时隐藏 desktop 窗（koffi + user32，失败降级不阻塞）。
 import { startFullscreenGuard } from './fullscreenGuard'
 
-// Electron 43 / Windows 的透明窗在 GPU 路径下，鼠标穿透的 forward pointermove 偶发不回送，
-// 导致窗口从 ignore 状态无法在宠物/Chery Nyxus 上恢复命中。暂保留软件合成以保证交互。
-app.disableHardwareAcceleration()
+/**
+ * Electron graphics policy.
+ *
+ * Workbench animation is intentionally hardware accelerated by default. The previous unconditional
+ * `disableHardwareAcceleration()` made Pixi, scrolling and transparent-layer composition compete on
+ * Chromium's software raster thread and produced a large desktop-vs-browser frame-rate gap.
+ *
+ * A GPU child-process crash records a persistent safe-mode marker. The following launch then falls
+ * back to software rendering before any BrowserWindow is created. Operators can override either way:
+ * `CHERY_GRAPHICS_MODE=hardware|software`, `--chery-force-gpu`, or `--chery-software-rendering`.
+ */
+type GraphicsMode = 'hardware' | 'software'
+
+const GPU_SAFE_MODE_PATH = join(app.getPath('userData'), 'gpu-safe-mode.json')
+const graphicsModeEnv = process.env.CHERY_GRAPHICS_MODE?.trim().toLowerCase()
+const forceHardware =
+  process.argv.includes('--chery-force-gpu') || graphicsModeEnv === 'hardware'
+const forceSoftware =
+  process.argv.includes('--chery-software-rendering') ||
+  process.argv.includes('--disable-gpu') ||
+  graphicsModeEnv === 'software'
+const gpuSafeModeActive = !forceHardware && existsSync(GPU_SAFE_MODE_PATH)
+const graphicsMode: GraphicsMode = forceSoftware || gpuSafeModeActive ? 'software' : 'hardware'
+
+if (graphicsMode === 'software') app.disableHardwareAcceleration()
+
+function recordGpuSafeMode(reason: string): void {
+  if (graphicsMode !== 'hardware') return
+  try {
+    writeFileSync(
+      GPU_SAFE_MODE_PATH,
+      JSON.stringify({ reason, recordedAt: new Date().toISOString() }),
+    )
+    console.error(`[graphics] GPU 异常，已记录软件渲染安全模式: ${GPU_SAFE_MODE_PATH}`)
+  } catch (error) {
+    console.error('[graphics] 无法写入 GPU 安全模式标记:', error)
+  }
+}
 
 /**
  * desktop renderer → main 请求打开独立原生窗的目标。
@@ -194,6 +229,8 @@ function startBackend(): ChildProcess {
   const child = spawn(getNodeExecutable(), [getBackendBundle()], {
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    // Windows: main 是 GUI 进程无控制台，缺省 spawn 控制台子进程会闪 cmd 窗
+    windowsHide: true,
   })
   child.stdout?.on('data', (d) => process.stdout.write(`[backend] ${d}`))
   child.stderr?.on('data', (d) => process.stderr.write(`[backend] ${d}`))
@@ -241,14 +278,29 @@ async function waitForBackend(timeoutMs = 30000): Promise<void> {
 
 /** 加载渲染入口。params 拼接为 query（dev 用 searchParams，prod 用 loadFile search）。 */
 function loadRenderer(win: BrowserWindow, params: Record<string, string> = {}): void {
+  const rendererParams = { ...params, graphicsMode }
   if (process.env.VITE_DEV_SERVER_URL) {
     const url = new URL(process.env.VITE_DEV_SERVER_URL)
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v)
+    for (const [k, v] of Object.entries(rendererParams)) url.searchParams.set(k, v)
     void win.loadURL(url.toString())
   } else {
-    const search = new URLSearchParams(params).toString()
+    const search = new URLSearchParams(rendererParams).toString()
     void win.loadFile(join(import.meta.dirname, '..', 'dist', 'index.html'), { search })
   }
+}
+
+/**
+ * 渲染进程诊断日志（全部窗口注册）：黑屏类问题先看这里（详见 docs/web/electron.md「渲染进程崩溃观测」）。
+ * - render-process-gone：渲染进程崩溃/被杀——GPU 崩溃时窗口只剩 backgroundColor 兜底色、DevTools 打不开。
+ * - did-fail-load：主帧加载失败——dev server 未起 / 产物路径缺失。
+ */
+function attachWindowDiagnostics(win: BrowserWindow, label: string): void {
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error(`[${label}] 渲染进程异常退出: reason=${details.reason} exitCode=${details.exitCode}`)
+  })
+  win.webContents.on('did-fail-load', (_e, code, desc, url, isMain) => {
+    if (isMain) console.error(`[${label}] 页面加载失败: ${code} ${desc} ${url}`)
+  })
 }
 
 // ── 受管原生窗 bounds 持久化 ──────────────────────────────────────────────
@@ -318,7 +370,7 @@ const AUX_WINDOW_SIZES: Record<'composer' | 'history' | 'login', {
   defaultSize: { width: number; height: number }
   minSize: { width: number; height: number }
 }> = {
-  composer: { defaultSize: { width: 440, height: 720 }, minSize: { width: 400, height: 560 } },
+  composer: { defaultSize: { width: 420, height: 640 }, minSize: { width: 380, height: 520 } },
   history: { defaultSize: { width: 620, height: 760 }, minSize: { width: 420, height: 520 } },
   login: { defaultSize: { width: 440, height: 620 }, minSize: { width: 420, height: 520 } },
 }
@@ -355,9 +407,15 @@ function createManagedWindow(
     keepAlive: boolean
   },
 ): ManagedWindow {
-  const persisted = restoreBounds(key)
-  // 无持久化记录（含首次打开）→ 不指定 x/y（系统居中），用内容所需默认尺寸
   const sizes = managedWindowSizes(opts.kind)
+  const storedBounds = restoreBounds(key)
+  // Compact composer migration: replace only the previous 440x720 default.
+  // Any user-resized geometry is still respected.
+  const persisted =
+    opts.kind === 'composer' && storedBounds.width === 440 && storedBounds.height === 720
+      ? { ...storedBounds, ...sizes.defaultSize }
+      : storedBounds
+  // 无持久化记录（含首次打开）→ 不指定 x/y（系统居中），用内容所需默认尺寸
   const win = new BrowserWindow({
     ...persisted,
     ...(persisted.width !== undefined ? {} : sizes.defaultSize),
@@ -382,6 +440,7 @@ function createManagedWindow(
   }
   managedWindows.set(key, entry)
 
+  attachWindowDiagnostics(win, key)
   win.once('ready-to-show', () => win.show())
 
   // 原生最大化态变化（双击标题栏 / Win+↑ / 拖到屏幕边缘）→ 回推渲染层切标题栏图标
@@ -620,6 +679,7 @@ function createDesktopSurfaceWindow(): BrowserWindow {
     },
   })
   desktopWin = win
+  attachWindowDiagnostics(win, 'desktop')
   win.setBackgroundColor('#00000000')
   win.setAlwaysOnTop(true, 'floating')
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -667,6 +727,23 @@ app.whenReady().then(async () => {
     app.quit()
     return
   }
+
+  // GPU 进程等工具子进程异常退出观测（与 attachWindowDiagnostics 渲染进程日志互补）
+  app.on('child-process-gone', (_e, details) => {
+    console.warn(`[main] 子进程异常退出: type=${details.type} reason=${details.reason}`)
+    if (
+      !isQuitting &&
+      details.type.toLowerCase() === 'gpu' &&
+      details.reason !== 'clean-exit'
+    ) {
+      recordGpuSafeMode(`${details.type}:${details.reason}`)
+    }
+  })
+
+  console.log(
+    `[graphics] mode=${graphicsMode}${gpuSafeModeActive ? ' (persistent safe mode)' : ''}`,
+  )
+  console.log(`[graphics] Chromium features=${JSON.stringify(app.getGPUFeatureStatus())}`)
 
   // IPC：preload 同步取后端端口配置（createWindow 在 waitForBackend 之后，配置已就绪）
   ipcMain.on('get-backend-config', (event) => {

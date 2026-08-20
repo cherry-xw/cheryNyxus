@@ -4,7 +4,12 @@ import type { ExecutionEdge, ExecutionNode, ExecutionFoldMember } from '../graph
 import { skinForNode } from '../graph/nodeSkins'
 import { terminationDisplay } from '../graph/termination'
 import { selectedToolCall, toolBatchDetail } from '../graph/toolBatchDetails'
-import { displayValue, parseFieldViews, parseRecord, type FieldView } from '../graph/toolArgumentFields'
+import {
+  displayValue,
+  parseFieldViews,
+  parseRecord,
+  type FieldView,
+} from '../graph/toolArgumentFields'
 
 export type PaperPixelIconName =
   | 'adventurer'
@@ -75,10 +80,8 @@ export interface PaperProcessStage {
   summary: string
   /** A multi-call batch remains one ordered process stage. */
   calls: PaperProcessCall[]
-  /** 与第一层直接打开节点使用完全相同的卡牌卡模型。 */
-  nodeCard: PaperGameCardModel
-  /** 多工具阶段切换时仍使用同一 PaperGameCard 模型构建路径。 */
-  nodeCardsByCallId: Record<string, PaperGameCardModel>
+  /** Inactive stages keep only cheap inputs; the nested card is built on demand. */
+  cardOptions: FoldMemberCardOptions
 }
 
 export interface PaperSkillSlot {
@@ -200,7 +203,7 @@ function canBranchFrom(node: ExecutionNode): boolean {
   )
 }
 
-interface FoldMemberCardOptions {
+export interface FoldMemberCardOptions {
   title: string
   index: number
   total: number
@@ -237,7 +240,8 @@ function buildProcessStages(
         icon: toolIcon(call.name),
         status: call.status,
       }))
-    const stageStatus = calls.at(-1)?.status ?? node.inputState ?? node.sourceFact?.status ?? node.status
+    const stageStatus =
+      calls.at(-1)?.status ?? node.inputState ?? node.sourceFact?.status ?? node.status
     const cardOptions = {
       title: skinForNode(node).label,
       index: memberIndex,
@@ -245,16 +249,6 @@ function buildProcessStages(
       relatedEdges: options.relatedEdges,
       senseTools: options.senseTools,
     }
-    const nodeCardsByCallId = Object.fromEntries(
-      calls.map((item) => [
-        item.id,
-        buildPaperGameCard(node, { ...cardOptions, selectedCallId: item.id }),
-      ]),
-    )
-    const nodeCard =
-      nodeCardsByCallId[options.selectedCallId ?? ''] ??
-      nodeCardsByCallId[calls[0]?.id ?? ''] ??
-      buildPaperGameCard(node, cardOptions)
     return {
       id: member.id,
       index: memberIndex,
@@ -265,8 +259,7 @@ function buildProcessStages(
       tone: statusTone(stageStatus),
       summary: plainSummary(node.content || node.thinking || '', skinForNode(node).label),
       calls,
-      nodeCard,
-      nodeCardsByCallId,
+      cardOptions,
     }
   })
 }
@@ -379,8 +372,9 @@ export function buildPaperGameCard(
     id: node.id,
     ...identity,
     title:
-      (selectedCall ? toolDisplayName(selectedCall.name, options.senseTools) : options.title.trim()) ||
-      skinForNode(node).label,
+      (selectedCall
+        ? toolDisplayName(selectedCall.name, options.senseTools)
+        : options.title.trim()) || skinForNode(node).label,
     status: statusLabel(status),
     statusTone: statusTone(status),
     time: formatTime(node.createdAt),

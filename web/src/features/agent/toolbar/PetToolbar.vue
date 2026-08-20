@@ -149,58 +149,58 @@ const canHide = computed(() => {
     <button
       type="button"
       class="tool-btn"
-      aria-label="节点树工作台"
+      aria-label="打开节点树工作台"
       :disabled="!workbenchPresetId"
       @click="openWorkbench"
     >
-      🌳<span class="tip">工作台</span>
+      🌳<span class="tip">打开节点树工作台</span>
     </button>
     <button
       v-if="showCompact"
       type="button"
       class="tool-btn compact"
       :class="{ urgent: compactUrgent }"
-      aria-label="Compact context"
+      aria-label="压缩上下文"
       @click="emit('compact', pet)"
     >
-      ⊛<span class="tip">Compact</span>
+      ⊛<span class="tip">压缩上下文</span>
     </button>
-    <button type="button" class="tool-btn" aria-label="History" @click="emit('history', pet)">
+    <button type="button" class="tool-btn" aria-label="查看历史会话" @click="emit('history', pet)">
       <span v-if="pet.isWorking" class="clock-strip" aria-hidden="true">
         <span class="clock-track">
           <span v-for="(c, i) in CLOCK_EMOJIS" :key="i" class="clock-frame">{{ c }}</span>
         </span>
       </span>
       <span v-else aria-hidden="true">🕐</span>
-      <span class="tip">History</span>
+      <span class="tip">查看历史会话</span>
     </button>
     <button
       v-if="pet.isWorking"
       type="button"
       class="tool-btn"
-      aria-label="Abort"
+      aria-label="中止运行"
       @click="emit('abort', pet)"
     >
-      ⏹<span class="tip">Abort</span>
+      ⏹<span class="tip">中止运行</span>
     </button>
     <button
       v-if="showResume"
       type="button"
       class="tool-btn resume"
-      aria-label="Resume"
+      aria-label="继续运行"
       @click="emit('resume', pet)"
     >
-      ▶<span class="tip">继续</span>
+      ▶<span class="tip">继续运行</span>
     </button>
     <button
       v-if="pet.isMaster"
       type="button"
       class="tool-btn danger"
-      aria-label="隐藏"
+      aria-label="隐藏宠物"
       :disabled="!canHide"
       @click="emit('destroy', pet)"
     >
-      ✕<span class="tip">隐藏</span>
+      ✕<span class="tip">隐藏宠物</span>
     </button>
   </div>
 </template>

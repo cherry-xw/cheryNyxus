@@ -48,3 +48,19 @@ export interface DesktopBridge {
 export function desktopBridge(): DesktopBridge | undefined {
   return window.__DESKTOP_BRIDGE__
 }
+
+/**
+ * Open the one shared Electron quick-conversation window.
+ * Pet and Cherry Nyxus deliberately use this same entry so their native shell,
+ * composer controls, retargeting, and keep-alive behavior cannot drift apart.
+ * Returns false in the browser, where callers keep their in-page fallback.
+ */
+export function openQuickComposerWindow(
+  chatId: string,
+  source: NonNullable<OpenWindowRequest['source']>,
+): boolean {
+  const bridge = desktopBridge()
+  if (!bridge) return false
+  bridge.openWindow({ kind: 'composer', chatId, source, view: 'composer' })
+  return true
+}

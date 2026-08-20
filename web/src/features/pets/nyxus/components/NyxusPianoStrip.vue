@@ -39,6 +39,8 @@ const props = withDefaults(
     presetId?: string
     presetName?: string
     activeChatId?: string | null
+    /** 会话目录拉取中（WorkbenchDialog 连接就绪初始化传入）：无会话数据时显示加载占位。 */
+    loading?: boolean
   }>(),
   { presetName: CHERY_NYXUS_PRESET },
 )
@@ -564,6 +566,10 @@ onScopeDispose(() => {
           </ElTooltip>
         </div>
         <div v-else class="piano-empty">暂无历史会话</div>
+        <!-- 会话目录拉取中：琴键仍是空档位键，叠占位防误读为「无历史会话」。 -->
+        <div v-if="loading && !sessions.length" class="piano-loading" aria-live="polite">
+          会话加载中…
+        </div>
       </div>
       <!-- 清除按钮：hover 可删键时在其顶部中心显示，按住拖到上方垃圾桶才删除。 -->
       <button
@@ -697,6 +703,33 @@ onScopeDispose(() => {
     Consolas,
     monospace;
   letter-spacing: 0.08em;
+}
+// 会话目录加载占位：铺满琴键视口的半透明层（暖棕底 + 呼吸点），与钢琴面板同色系。
+.piano-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  color: rgba(255, 239, 205, 0.82);
+  background: rgba(50, 32, 15, 0.72);
+  font:
+    600 11px/1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.08em;
+  animation: piano-loading-breathe 1.4s ease-in-out infinite;
+}
+@keyframes piano-loading-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 .piano-viewport:active {
   cursor: grabbing;

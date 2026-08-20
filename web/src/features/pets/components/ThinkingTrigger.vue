@@ -9,7 +9,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="thinking-trigger" aria-label="查看 thinking">
+  <div class="thinking-trigger" aria-label="查看思考过程">
     <span class="thinking-icon" aria-hidden="true">🤔</span>
     <div class="thinking-flyout" role="tooltip">{{ displayThinking }}</div>
   </div>

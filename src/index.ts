@@ -18,6 +18,8 @@ function startWorker(): void {
   const child = spawn(process.execPath, workerArgs(), {
     env: process.env,
     stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
+    // Windows: guardian 无控制台，worker 是控制台子进程，隐藏避免闪 cmd 窗
+    windowsHide: true,
   })
   worker = child
   void waitForWorkerHealth(child)

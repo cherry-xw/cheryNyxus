@@ -336,7 +336,7 @@ export async function handleUtilsOpenFile(
       args = [filePath]
     }
 
-    spawn(command, args, { detached: true, stdio: 'ignore' }).unref()
+    spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref()
   } else {
     logger.event('utils.openFile', { path: filePath, editor: 'system default' }, LogLevel.info)
     await openWithSystem(filePath)

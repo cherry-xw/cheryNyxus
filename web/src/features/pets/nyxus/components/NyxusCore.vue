@@ -8,7 +8,7 @@ import { useNyxusWorkState } from '../composables/useNyxusWorkState'
 import { useStandaloneNyxusMotion } from '../composables/useStandaloneNyxusMotion'
 import { createClickDisambiguator } from '../composables/clickDisambiguator'
 import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from '../nyxusUiState'
-import { desktopBridge } from '@/features/desktop/desktopBridge'
+import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 
 const agents = useAgentsStore()
@@ -67,6 +67,12 @@ async function openNyxusDialog(): Promise<void> {
   error.value = null
   try {
     const chatId = await agents.getActiveNyxus()
+    // Electron desktop uses the exact same native quick composer as Pet.
+    // The source only preserves conversation identity; the window and feature set are shared.
+    if (openQuickComposerWindow(chatId, 'nyxus')) {
+      closeNyxusMenu()
+      return
+    }
     // 双击打开的 nyxus 直接发消息窗：浮动、无遮罩（同 pet），目标固定为活跃 nyxus 会话。
     agents.activeDialogSource = 'nyxus'
     // getActiveNyxus 的轻量 catalog 已足够建立钢琴索引；节点正文由树挂载后

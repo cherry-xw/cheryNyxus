@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { UploadFile } from 'element-plus'
 import { useAgentsStore, useChatSessionsStore } from '@/stores'
+import { wsClient } from '@/services/ws'
 import {
   agentApi,
   fetchServerConfig,
@@ -198,9 +199,42 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     }
   }
 
+  // 单次触发：connected 后 resume（首拉通常在 setup 时被「还没连上服务器」reject，不再自动重试）。
+  // 订阅在 connect 时主动 resume 并解绑；未连上时保持待命，一方建连即执行，避免重复订阅。
+  let connectRetryUnsub: (() => void) | null = null
+  let connectResumed = false
+  function armRetryOnConnect(): void {
+    if (connectResumed) return
+    if (wsClient.getStatus() === 'connected') {
+      connectResumed = true
+      void refreshForChat()
+      return
+    }
+    connectRetryUnsub?.()
+    connectRetryUnsub = wsClient.onStatus((status) => {
+      if (status === 'connected') {
+        connectRetryUnsub?.()
+        connectRetryUnsub = null
+        connectResumed = true
+        void refreshForChat()
+      }
+    })
+  }
+  onBeforeUnmount(() => {
+    connectRetryUnsub?.()
+    connectRetryUnsub = null
+  })
+
+  // immediate watcher 只能在重连守卫完成初始化后注册。真实 chatId 会在注册时同步执行回调；
+  // 若它位于上方，armRetryOnConnect 会读取仍处于 TDZ 的 connectResumed，导致整个原生窗首屏渲染中断。
   watch(
     chatId,
     (v) => {
+      // chatId 有值但全局选项未加载 → 可能 WS 尚未建连（composer 原生窗 onMounted 才 conn.init，
+      // 远晚于 setup 的 immediate watch），RPC 首拉全失败。订阅连接状态，connected 后再补拉。
+      if (v && !loaded.value) {
+        armRetryOnConnect()
+      }
       if (v) {
         resetEditor()
         resetMedia()

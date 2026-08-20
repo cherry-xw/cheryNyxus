@@ -89,7 +89,7 @@ if (result?.definition?.function?.name) {
 input { command, description }
   ├─ cleanOldBashLogs（按 LOG_RETENTION_HOURS 清理）
   ├─ senseCtx?.chatId → chatId（tool.ts doExecuteSense 第 3 参注入）
-  ├─ spawn(command, [], { shell:true, detached:true })   ← 新进程组
+  ├─ spawn(command, [], { shell:true, detached:true, windowsHide:true })   ← 新进程组（Windows 不弹 cmd 窗）
   ├─ registerBashProcess(chatId, proc, meta)             ← 进注册表
   │
   ├─ stdout/stderr 实时累积 outputBuffer
@@ -208,7 +208,7 @@ chatId → (pid → BashProcessRecord)
 | `killBashProcess(chatId, pid)` | service `bash.kill` RPC | `process.kill(-pid, SIGTERM)` 杀整个进程组 |
 | `listBashProcesses(chatId)` | service `bash.list` RPC | 返回 BashProcessEntry[]（不含 ChildProcess 句柄） |
 
-**进程组 kill 的必要性：** spawn 时 `detached:true` 使子进程成为进程组组长，`kill(-pid)` 终止整个进程组——避免 `sh -c` 的孙子进程泄漏。`-pid` 失败时（进程组已不存在）兜底 `entry.proc.kill()`。
+**进程组 kill 的必要性：** spawn 时 `detached:true` 使子进程成为进程组组长，`kill(-pid)` 终止整个进程组——避免 `sh -c` 的孙子进程泄漏。`-pid` 失败时（进程组已不存在）兜底 `entry.proc.kill()`。`windowsHide:true`（CREATE_NO_WINDOW）仅隐藏子进程控制台窗口，不影响 `detached` 的进程组语义。
 
 **chatId 注入机制（[processRegistry.ts 文件注释](../../src/agent/sense/processRegistry.ts)）：** sense executor 支持可选第 3 参 `SenseRuntimeContext`。由 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 调 `execute(args, sharedData, { chatId })` 时注入，bash executor 读取 `senseCtx?.chatId`。测试场景（无 ctx）为 undefined → register 跳过，执行不受影响。
 
