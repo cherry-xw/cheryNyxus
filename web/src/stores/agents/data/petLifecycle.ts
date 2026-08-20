@@ -8,6 +8,7 @@ import type { ChatSummary } from '@/services/agentApi'
 import type { StreamState } from '../types'
 import { defaultBounds } from './streamAccumulator'
 import { collectDescendantChatIds } from './historyMerge'
+import type { SessionCatalog } from './sessionCatalog'
 
 export const CHERY_NYXUS_PRESET = 'cheryNyxus'
 
@@ -123,11 +124,12 @@ export function createPetLifecycle(
   pets: Ref<PetInstance[]>,
   streams: Ref<Record<string, StreamState>>,
   historyList: Ref<ChatSummary[]>,
+  sessionCatalog: SessionCatalog,
   historyListOpen: Ref<boolean>,
   getRuntime: (chatId: string) => RuntimeSelection | undefined,
   setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
   removePetsOnly: (removeIds: string[]) => void,
-  removePetsAndStreams: (removeIds: string[]) => void,
+  purgeDeletedChats: (removeIds: readonly string[]) => Promise<void>,
   activeNyxusChatId: Ref<string | null>,
 ) {
   /**
@@ -255,16 +257,20 @@ export function createPetLifecycle(
    * 调用方（NyxusCore）负责 chatSessions.hydrateTree 灌入投影。
    */
   async function getActiveNyxus(): Promise<string> {
-    // listChats(false) 轻量取 recent root（不需 preview），避免打开节点树时阻塞在所有会话的
+    // preset scope 轻量取 recent root（不需 preview），避免打开节点树时阻塞在所有会话的
     // preview 计算上；已有 active id 时也刷新目录，保证从 Cherry Nyxus 直接进入工作台后钢琴能渲染当前全部根会话。
     // 轻量目录缺 preview 等 includePreview 扩展字段；覆盖前合并旧目录中同 chatId 的 preview，
     // 否则钢琴键提示/路由选择器标题（nyxus 与 pet 共用 historyList）会退化为「无消息」。
-    const chats = await agentApi.listChats(false)
+    const chats = await agentApi.listChats({
+      scope: 'preset',
+      preset: CHERY_NYXUS_PRESET,
+    })
     const prevPreviewById = new Map(historyList.value.map((c) => [c.chatId, c.preview]))
-    historyList.value = chats.map((c) => {
+    const mergedChats = chats.map((c) => {
       const prevPreview = prevPreviewById.get(c.chatId)
       return prevPreview ? { ...c, preview: prevPreview } : c
     })
+    sessionCatalog.replacePreset(CHERY_NYXUS_PRESET, mergedChats)
     if (activeNyxusChatId.value && chats.some((chat) => chat.chatId === activeNyxusChatId.value)) {
       return activeNyxusChatId.value
     }
@@ -281,7 +287,9 @@ export function createPetLifecycle(
   /** 始终新建一条 Nyxus 会话并设为活跃（AgentDialog 索引签「+新建」、Nyxus 历史面板新建入口调用）。 */
   async function createNyxusSession(): Promise<string> {
     const result = await agentApi.createAgent({ preset: CHERY_NYXUS_PRESET })
-    historyList.value = registerNewNyxusSession(historyList.value, result.chatId)
+    const nextCatalog = registerNewNyxusSession(historyList.value, result.chatId)
+    const created = nextCatalog.find((chat) => chat.chatId === result.chatId)
+    if (created) sessionCatalog.upsert(created)
     activeNyxusChatId.value = result.chatId
     return result.chatId
   }
@@ -302,11 +310,9 @@ export function createPetLifecycle(
    * 前端同步移除 historyList + pets（若在 stage）+ active 焦点。
    */
   async function deleteSession(chatId: string): Promise<void> {
-    await agentApi.destroyAgent(chatId)
-    const childIds = collectDescendantChatIds(historyList.value, chatId)
-    const removeIds = [chatId, ...childIds]
-    historyList.value = historyList.value.filter((c) => !removeIds.includes(c.chatId))
-    removePetsAndStreams(removeIds)
+    const result = await agentApi.destroyAgent(chatId)
+    const removeIds = result.deletedChatIds.length > 0 ? result.deletedChatIds : [chatId]
+    await purgeDeletedChats(removeIds)
   }
 
   /**

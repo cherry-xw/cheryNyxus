@@ -338,6 +338,42 @@ export function createUiState() {
     }
   }
 
+  /** Remove every UI reference to permanently deleted chats while preserving
+   * cross-session preferences such as window geometry, layout and theme. */
+  function pruneDeletedChats(removeIds: readonly string[]): void {
+    if (removeIds.length === 0) return
+    const removed = new Set(removeIds)
+    pruneHistoryStack([...removed])
+
+    if (activeDialogChatId.value && removed.has(activeDialogChatId.value)) {
+      activeDialogChatId.value = null
+    }
+    if (activeNyxusChatId.value && removed.has(activeNyxusChatId.value)) {
+      activeNyxusChatId.value = null
+    }
+    for (const [preset, chatId] of Object.entries(activeRootByPreset.value)) {
+      if (removed.has(chatId)) delete activeRootByPreset.value[preset]
+    }
+    historyDrawerTaskBranches.value = historyDrawerTaskBranches.value.filter(
+      (branch) => !removed.has(branch.chatId),
+    )
+
+    for (const window of Object.values(workbenchWindows.value)) {
+      if (window.chatId && removed.has(window.chatId)) window.chatId = null
+      window.historyDrawerStack = window.historyDrawerStack.filter((id) => !removed.has(id))
+      if (
+        window.interactionFocus?.sourceChatId &&
+        removed.has(window.interactionFocus.sourceChatId)
+      ) {
+        delete window.interactionFocus
+      }
+      if (window.historyDrawerStack.length === 0) {
+        window.historyDrawerMode = 'overlay'
+        window.historyDrawerAnchor = null
+      }
+    }
+  }
+
   return {
     activeDialogChatId,
     activeRootByPreset,
@@ -360,6 +396,7 @@ export function createUiState() {
     closeHistoryTop,
     closeAllHistory,
     pruneHistoryStack,
+    pruneDeletedChats,
     historyListOpen,
     settingsOpen,
     pendingScrollSenseCallId,

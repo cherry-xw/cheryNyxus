@@ -206,6 +206,7 @@ async function bootstrap(): Promise<void> {
     onWorkingChange: agents.setWorkingForChat,
     onRoleDestroyed: (chatId) => agents.removePetsOnly([chatId]),
   })
+  agents.bindSessionEvictor((chatIds) => chatSessions.evictSessions(chatIds))
 
   // 会话树是子 pet 身份的唯一权威源。无论来自 live role_created、快照还是
   // 重连回放，catalog 一变化就幂等补建舞台视觉，避免把某条瞬时通知当唯一来源。

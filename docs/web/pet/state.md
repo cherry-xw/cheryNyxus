@@ -30,7 +30,7 @@
 - **自动休息**：`fatigue ≥ StatusConfig.fatigueSleep`（默认 80）→ `action="sleep"`（谓词 `shouldSleep`）。
 - **恢复**：休息时 `fatigue↓` 且 `emotion↑`（睡觉双回血），由 `stepVitals(pet, dt, status)` 在 sleep 分支处理。
 - **唤醒**：`fatigue ≤ StatusConfig.fatigueWake`（默认 10，谓词 `shouldWake`）或被鼠标交互打扰 → 醒（`walk`）。
-- **contextUsage 已接入**：pet 作为 agent 显示层，`contextUsage` 字段（独立于 fatigue）由后端 `done` notification / `chat.get` response 返传 token/brain.contextLimit 估算驱动（CP7，[src/utils/token.ts](../../../src/utils/token.ts)），由 [ContextBar](../../../web/src/features/agent/ContextBar.vue) 渲染。`fatigue` 不再承担上下文语义，保留为移动生活感（与 contextUsage 并存）。
+- **contextUsage 已接入**：pet 作为 agent 显示层，`contextUsage` 字段（独立于 fatigue）由当前执行完成时的 `done` notification 驱动（CP7，[src/utils/token.ts](../../../src/utils/token.ts)），由 [ContextBar](../../../web/src/features/agent/ContextBar.vue) 渲染。纯历史查看不计算该值。
 
 ## Mood / Action / 触发
 

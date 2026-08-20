@@ -27,7 +27,7 @@ const props = defineProps<{
   chatId: string
   /** batch 进度信息（可选，单问题时为 null） */
   batchInfo?: BatchInfo | null
-  variant?: 'default' | 'paper'
+  variant?: 'default' | 'bubble' | 'paper'
 }>()
 
 const chatSessions = useChatSessionsStore()
@@ -286,6 +286,18 @@ function back(): void {
   color: @ink;
   background: var(--surface-hover);
   box-shadow: 0 18px 46px rgba(20, 22, 26, 0.2);
+}
+.question-card.is-bubble {
+  /* bubble 模式（pet 提问气泡内）：去卡片自身边框/背景/圆角/阴影/最小宽度，由外层
+     .speech.question-bubble 统一承载框架；width:100% 跟随气泡宽度，避免内层溢出外层。 */
+  min-width: 0;
+  max-width: none;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .question-card.is-paper {
   --ink: #342312;

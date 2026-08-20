@@ -7,9 +7,9 @@ describe('Nyxus demand loading contract', () => {
     const source = await readFile(resolve('web/src/stores/chats/index.ts'), 'utf8')
     const startup = source.slice(source.indexOf('async function startup()'), source.indexOf('async function reconnect()'))
 
-    expect(startup).toContain('agentApi.listChats(false)')
+    expect(startup).toContain("agentApi.listChats({ scope: 'stage' })")
     expect(startup).not.toContain('hydrateTree(')
-    expect(startup).not.toContain('agentApi.listChats(true)')
+    expect(startup).not.toContain("scope: 'history'")
   })
 
   it('switches only the selected root tree and never aborts or replays chat.sync', async () => {

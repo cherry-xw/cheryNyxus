@@ -139,6 +139,29 @@ describe('Nyxus root message controller', () => {
     expect(store.rootSubscriptions['root-live']).toBeUndefined()
   })
 
+  it('evicts deleted sessions, root projections and subscriptions together', async () => {
+    vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
+    vi.spyOn(agentApi, 'getRootTimeline').mockResolvedValue(snapshot('tree'))
+    const close = vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
+    const store = useChatSessionsStore()
+    store.ensureCatalogEntity({
+      chatId: 'root-live',
+      preset: 'cheryNyxus',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    await store.acquireRootTimeline('root-live', 'workbench:a', 'tree')
+
+    await store.evictSessions(['root-live'])
+
+    expect(close).toHaveBeenCalledWith('subscription-live')
+    expect(store.sessionsById['root-live']).toBeUndefined()
+    expect(store.rootSubscriptions['root-live']).toBeUndefined()
+    expect(store.rootTimelineStates['root-live']).toBeUndefined()
+    expect(store.rootTimeline('root-live', 'conversation')).toBeUndefined()
+    expect(store.rootTimeline('root-live', 'tree')).toBeUndefined()
+  })
+
   it('applies a root input event without opening a direct session for its source cursor', async () => {
     const open = vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
     vi.spyOn(agentApi, 'getRootTimeline').mockResolvedValue(snapshot('tree'))

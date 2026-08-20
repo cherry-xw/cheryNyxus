@@ -522,10 +522,14 @@ export function projectActiveTurnNodes(
   const previousByChat = new Map<string, ExecutionNode>()
   for (const node of nodes) {
     if (node.kind === 'start') continue
-    previousByChat.set(node.sourceChatId, node)
     if ((node.kind === 'dispatch' || node.kind === 'spawn') && node.target?.kind === 'agent') {
+      // dispatch/spawn 是子 chat 的入口锚点，优先于该 chat 自己的消息节点：
+      // 子 chat 的首个流式回复从派发点连出，而非其旧消息。
       previousByChat.set(node.target.chatId, node)
     }
+    const prior = previousByChat.get(node.sourceChatId)
+    if (prior?.kind === 'dispatch' || prior?.kind === 'spawn') continue // 派发锚点不被普通节点覆盖
+    if (!prior || node.createdAt >= prior.createdAt) previousByChat.set(node.sourceChatId, node)
   }
   const start = nodes.find((node) => node.kind === 'start') ?? nodes[0]
   const latestCreatedAt = Math.max(0, ...nodes.map((node) => node.createdAt))

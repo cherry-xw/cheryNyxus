@@ -47,7 +47,7 @@ Nyxus 对话框上方的 `MessageBranchTree` 是独立的 SVG 画布：消息和
 
 车道按 spawn 树分配，横向 lane 间距为 110px：root 固定 lane 0，直接子代按负载落在 lane -1 或 +1；同一工具批次并发派发的同侧子代各占一列向外递增不复用，跨批次串行同侧子代仍复用该列；单个后代向父同侧外移一列。一个 agent 派生多个后代时，其整列先向外移一格，再让子分支从内侧到外侧连续展开（例如左侧 child -1 派生两个孙代后，child 改为 -2、孙代为 -1 与 -3；右侧镜像）。紧凑 lane 下节点标题使用约 96px 的单行省略展示，完整内容由详情弹窗提供。树以二维画布呈现：初次载入、切换根会话、切换折叠/布局模式或显式复位时按可用顶部空间 fit；普通发送、流式追加、输入框开合和 ResizeObserver 只更新内容/渲染尺寸，保持当前平移与缩放不动。用户拖动或缩放后停止末尾自动跟随；停止跟随期间若有新节点追加，画布右下角浮现「回到底部」浮标，点击才恢复 fit。存在待审批节点时仅在其不在视窗内时定位到审核节点。4px 阈值区分点击与拖动，滚轮以指针位置为锚点缩放。主线末节点承载运行控制。系统请求减少动态效果时复位直接完成，保留静态层级与状态可读性。
 
-真实数据下 assistant 消息的工具调用按响应批次聚合为单个 `tool-batch` 节点（排除 `spawn_role`——它由 spawn 分支线表达子 agent，重复会冲突）；同一批次内含多个工具调用时，在节点详情 popover 顶部以 tabs 按 `index` 切换，单工具直接展示，不拆分为独立节点。运行节点与 CRT 读取同一 canonical message，每个 assistant `messageId` 对应一台 CRT。CRT 首次出现时在节点旁计算默认屏幕坐标；之后用户可拖动标题栏，拖动后的坐标不再随树 pan/zoom，多个 CRT 允许重叠，点击任意 CRT 提升其局部 z-index。节点连线起点跟随节点、终点跟随 CRT。CRT 宽约 360px，标题栏、页签、正文、页脚、内外边距和字号相对旧版统一收紧约 15%；位置与层级只在当前工作台打开周期内保留。
+真实数据下 assistant 消息的工具调用按响应批次聚合为单个 `tool-batch` 节点（排除 `spawn_role`——它由 spawn 分支线表达子 agent，重复会冲突）；同一批次内含多个工具调用时，在节点详情 popover 顶部以 tabs 按 `index` 切换，单工具直接展示，不拆分为独立节点。运行节点与 CRT 读取同一 canonical message，每个 assistant `messageId` 对应一台 CRT。CRT 始终以标题栏贴靠所属节点的左侧或右侧，不参与窗口间避碰；多个 CRT 允许重叠，点击任意 CRT 提升其局部 z-index。用户可拖动 CRT 标题栏调整位置；节点树 pan/zoom 或布局改变后，CRT 会重新吸附到所属节点旁。节点连线起点跟随节点、终点跟随 CRT。CRT 宽约 360px，不为保证正文底部留在视口内而把窗口推离节点；标题栏、页签、正文、页脚、内外边距和字号相对旧版统一收紧约 15%；位置与层级只在当前工作台打开周期内保留。
 
 节点树内部使用独立于应用 overlay 的语义层级：GPU 画布与连线位于最底层，其上依次为节点命中层、节点 hover 详情、CRT 实时运行卡、消息 composer、待审批/待回答等强制交互，最后是工作台关闭按钮和侧边工具。内部层级只在 `AgentDialog` 的工作台 stacking context 中比较，不得使用 `410/430` 等应用级数字越过 HistoryDrawer 或 SettingsDialog。hover 详情是被动预览，不覆盖 CRT；composer 是用户主动输入，始终高于 hover 和 CRT；审批/提问要求用户决策，始终高于 composer。
 
@@ -145,7 +145,9 @@ div.pet-wrap                                                            // 根�
 </AnimatePresence>
 ```
 
-主气泡 4 tier 由 `AnimatePresence` 互斥切换：① ChatSession 当前 approval 显 ApprovalCard；② run error 显 error-bubble；③ active message 满足 working/retain/hover 门控时显工作气泡；④默认装饰气泡。thinking 阶段显示 `activeMessage.thinking`，content 到达后主气泡显示 `activeMessage.content`，thinking 收入副气泡。done 后 presentation selector 用 `retainUntil` 保留最后消息 20 秒；新 `msgId` 到达时立即切换到新空消息。pet 身体 hover 不复现已过期历史气泡。
+主气泡 4 tier 由 `AnimatePresence` 互斥切换（优先级：提问 > 审批 > error > work-main > 装饰）：⓪ ChatSession 当前提问（`activeQuestion`）显 `variant="question"` 气泡内嵌 `QuestionCard`；① ChatSession 当前 approval 显 ApprovalCard；② run error 显 error-bubble；③ active message 满足 working/retain/hover 门控时显工作气泡；④默认装饰气泡。thinking 阶段显示 `activeMessage.thinking`，content 到达后主气泡显示 `activeMessage.content`，thinking 收入副气泡。done 后 presentation selector 用 `retainUntil` 保留最后消息 20 秒；新 `msgId` 到达时立即切换到新空消息。pet 身体 hover 不复现已过期历史气泡。
+
+**提问气泡**：`QuestionCard` 以 `variant="bubble"` 渲染在 `.speech.question-bubble` 内——`is-bubble` 样式去除卡片自身边框/背景/圆角/阴影/`min-width`（`width:100%`、`max-width:none`、padding 归零，由气泡统一承载框架与 6px 9px 内边距），避免双层边框与内层溢出外层；气泡 `max-width: 320px`（比 approval 220px / work 180px 略宽以容纳选项卡排版），`::after` 尾箭头背景与边框对齐 neon-indigo 气泡色（同 `.approval-bubble` 覆写模式）。
 
 气泡背景统一不透明化（透明窗下所有 variant 文字可辨）：`.speech` 基类与 approval/question/error/work（含 is-thinking）各 variant 背景提升至约 92-95% 不透明（提高 color-mix 基色比例 / 换实底），仅保留轻微通透感；`::after` 尾箭头背景同步。
 

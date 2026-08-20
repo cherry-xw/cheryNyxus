@@ -6,7 +6,6 @@ import {
   type ChatSendAttachment,
   type CommandConfigDataDto,
   type ConfigDto,
-  type ContextBreakdown,
   type CurrentStateData,
   type RuntimeSelection,
   type SenseToolInfo,
@@ -19,6 +18,7 @@ import { sameRuntime, defaultBounds, pushHistoryItem } from './data/streamAccumu
 import { replaceQuestionBatches, type QuestionBatchPayload } from './actions/questionBatch'
 import { collectDescendantChatIds } from './data/historyMerge'
 import { hasActiveChatRun } from './data/historyLoadState'
+import { createSessionCatalog } from './data/sessionCatalog'
 import { wsClient } from '@/services/ws'
 
 // 模块 factories
@@ -62,10 +62,10 @@ export const useAgentsStore = defineStore('agents', () => {
   // ── 核心数据状态 ──
   const pets = ref<PetInstance[]>([])
   const streams = ref<Record<string, StreamState>>({})
-  // 完整 chat 列表缓存（initFromChats 时拉取，getHistory 用它找子 chat，避免仅依赖 pets 的 top-5 限制）
-  const allChatsCache = ref<ChatSummary[]>([])
-  // CP8 会话列表：historyList 缓存 chat.list(includePreview) 全量会话
-  const historyList = ref<ChatSummary[]>([])
+  // chat.list 的唯一前端目录；旧名称暂作兼容别名，所有消费者读取同一个 ref。
+  const sessionCatalog = createSessionCatalog()
+  const historyList = sessionCatalog.summaries
+  const allChatsCache = sessionCatalog.summaries
   // 内置工具元信息（sense.tools，name→icon/label）+ sense 组解析（sense.list，group→senses）。
   // initFromChats 载入；供 RunningTools icon 查询 + 能力判定（pet senseGroups 含某工具，如 update_todo）。
   const senseTools = ref<SenseToolInfo[]>([])
@@ -79,6 +79,7 @@ export const useAgentsStore = defineStore('agents', () => {
   /** 同一 chat 的恢复任务唯一，确保 attach 快照与 sync cursor 串行。 */
   const attachRecoveryTasks = new Map<string, Promise<void>>()
   const ATTACH_RECOVERY_DELAY_MS = 1000
+  let sessionEvictor: (chatIds: readonly string[]) => Promise<void> = async () => {}
 
   // ── UI 状态（独立模块） ──
   const ui = createUiState()
@@ -186,10 +187,25 @@ export const useAgentsStore = defineStore('agents', () => {
       if (idx >= 0) pets.value.splice(idx, 1)
       delete streams.value[id]
     }
-    if (ui.activeDialogChatId.value && removeIds.includes(ui.activeDialogChatId.value)) {
-      ui.activeDialogChatId.value = null
+    ui.pruneDeletedChats(removeIds)
+  }
+
+  /** Single destructive catalog transition used by every delete surface. */
+  async function purgeDeletedChats(removeIds: readonly string[]): Promise<void> {
+    const removed = new Set(removeIds)
+    sessionCatalog.remove([...removed])
+    for (const [requestId, chatId] of requestMap) {
+      if (removed.has(chatId)) requestMap.delete(requestId)
     }
-    ui.pruneHistoryStack(removeIds)
+    for (const chatId of removed) attachRecoveryTasks.delete(chatId)
+    removePetsAndStreams([...removed])
+    await sessionEvictor([...removed])
+  }
+
+  function bindSessionEvictor(
+    evictor: (chatIds: readonly string[]) => Promise<void>,
+  ): void {
+    sessionEvictor = evictor
   }
 
   // ── 模块初始化（按依赖顺序） ──
@@ -263,11 +279,12 @@ export const useAgentsStore = defineStore('agents', () => {
     pets,
     streams,
     historyList,
+    sessionCatalog,
     ui.historyListOpen,
     getRuntime,
     setWorking,
     removePetsOnly,
-    removePetsAndStreams,
+    purgeDeletedChats,
     ui.activeNyxusChatId,
   )
 
@@ -419,8 +436,8 @@ export const useAgentsStore = defineStore('agents', () => {
    */
   async function recoverChildChat(chatId: string): Promise<void> {
     try {
-      const chats = await agentApi.listChats()
-      allChatsCache.value = chats
+      const chats = await agentApi.listChats({ scope: 'stage' })
+      sessionCatalog.merge(chats)
       const child = chats.find((chat) => chat.chatId === chatId)
       if (!child) return
       await recoverUnattachedChat(child, true, true)
@@ -486,6 +503,7 @@ export const useAgentsStore = defineStore('agents', () => {
             recover: false,
             working: session.run.status === 'running',
             finished: meta.finished === true,
+            canResume: session.context.canResume ?? session.run.status === 'paused',
           },
         )
         continue
@@ -494,6 +512,9 @@ export const useAgentsStore = defineStore('agents', () => {
         turnChildIntoGhost(existing, pets.value, lifecycle.pickGhostFace)
       } else {
         setWorking(existing, session.run.status === 'running')
+        // canResume 回写（与 selectCanResume 同源）：done 被跳过/重连恢复后
+        // 「继续运行」按钮不残留；turnChildIntoGhost 已置 false 对齐。
+        existing.canResume = session.context.canResume ?? session.run.status === 'paused'
       }
     }
   }
@@ -549,7 +570,7 @@ export const useAgentsStore = defineStore('agents', () => {
     if (initialized) return
     // listChats 失败 → initialized 不置位，下次 status=connected 时可重试
     const [chats, configSnapshot] = await Promise.all([
-      agentApi.listChats(),
+      agentApi.listChats({ scope: 'stage' }),
       agentApi.getConfig().catch((cause) => {
         console.warn('[agents] 读取预设目录失败，暂保留历史 Pet 投影:', cause)
         return undefined
@@ -562,7 +583,7 @@ export const useAgentsStore = defineStore('agents', () => {
     loadSenseMeta().catch((e) => console.warn('[agents] loadSenseMeta 失败:', e))
 
     // 缓存完整 chat 列表（getHistory 用它找子 chat，避免仅依赖 pets 的 top-5 限制）
-    allChatsCache.value = chats
+    sessionCatalog.merge(chats)
     console.log('[agents] initFromChats: allChatsCache 已初始化', {
       totalChats: chats.length,
       mainChats: chats.filter((c) => !c.parentChatId).length,
@@ -620,28 +641,6 @@ export const useAgentsStore = defineStore('agents', () => {
     // F5 是新的浏览器进程，尚无 seq cursor；只恢复当前舞台上的普通 Pet。
     // Nyxus 及其后代由用户打开具体 root 后通过 root timeline 原子恢复。
     await syncChatEvents()
-
-    // 初始载入 contextUsage（ContextBar 渲染用）。
-    // initFromChats 仅用 chat.list（不含 contextUsage），需单独拉；done/chat.get 是后续实时路径。
-    // 拉全部主 chat（非仅 top 5），确保所有可见 pet 的 ContextBar 初始渲染正确。
-    // 失败不阻塞初始化（静默降级：bar 留 0 等下次 done 刷新）。
-    Promise.all(
-      mains.map((m) =>
-        agentApi.contextUsage(m.chatId).then(
-          (res) => {
-            const pet = pets.value.find((p) => p.chatId === m.chatId)
-            if (pet) {
-              if (typeof res.contextUsage === 'number') pet.contextUsage = res.contextUsage
-              if (typeof res.contextUsed === 'number') pet.contextUsed = res.contextUsed
-              if (typeof res.contextTotal === 'number') pet.contextTotal = res.contextTotal
-              if (res.contextBreakdown) pet.contextBreakdown = res.contextBreakdown
-              if (res.commandConfig) pet.commandConfig = res.commandConfig
-            }
-          },
-          (e) => console.warn(`[agents] contextUsage(${m.chatId}) 失败:`, e),
-        ),
-      ),
-    ).catch(() => {})
 
   }
 
@@ -726,8 +725,8 @@ export const useAgentsStore = defineStore('agents', () => {
         }
         firstAttempt = false
         try {
-          const chats = await agentApi.listChats()
-          allChatsCache.value = chats
+          const chats = await agentApi.listChats({ scope: 'stage' })
+          sessionCatalog.merge(chats)
           const latest = chats.find((item) => item.chatId === chat.chatId)
           if (!latest || latest.finished) {
             if (latest) await syncOneChat(latest, 'replay')
@@ -818,19 +817,19 @@ export const useAgentsStore = defineStore('agents', () => {
   /**
    * M1+M2+M9 修复后：主 chat 历史完全走 chat.get（syncOneChat loadHistory 模式），子 chat 仍 chat.get + remapChildHistory。
    * 双 RPC 语义对齐后端契约：
-   * - chat.get = 全量历史（messages 表 + contextUsage + workspace + canResume 一并到位）
+   * - chat.get = 全量历史（messages 表 + workspace + canResume，不解析历史 runtime）
    * - chat.sync = 增量回放（chat_events seq>afterSeq + 超窗回填，attach 后补回 disconnect-window）
    * - chat.attach = 重定向 + cursor 锚点（response 携带 snapshotSeq，前端 resetChatSeq 推进 cursor）
    *
-   * 主 chat 串行（chat.get 灌满 stream.history + 写 pet.contextUsage/workspace 后再合流子 remap）；
+   * 主 chat 串行（chat.get 灌满 stream.history + 写 workspace 后再合流子 remap）；
    * 子 chat 并行（childHistoryPromises 各自 chat.get + remap）。
    * 同步全由 streamRouter.routeChunk → accumulateStaged → stream.history 写入，无需 doLoadHistory 介入累积。
    */
   async function doLoadHistory(chatId: string): Promise<void> {
     // 先刷新 allChatsCache（确保包含最新创建的后代 agent，避免子 spawn 孙后主 cache 缺孙的信息）
     try {
-      const chats = await agentApi.listChats()
-      allChatsCache.value = chats
+      const chats = await agentApi.listChats({ scope: 'history' })
+      sessionCatalog.replace(chats)
     } catch (e) {
       console.warn('[agents] getHistory: 刷新 allChatsCache 失败，使用缓存', e)
     }
@@ -864,7 +863,7 @@ export const useAgentsStore = defineStore('agents', () => {
         }
         // 子 chat direct 视图：不拉 contextUsage（ContextBar 仅主 pet 渲染；pet 无 contextUsage 字段兜底 0）
       } else {
-        // 主 chat：syncOneChat(loadHistory) 内部走 chat.get（全量历史 + contextUsage/workspace/canResume 一并到位，无需独立 RPC 兜底）
+        // 主 chat：syncOneChat(loadHistory) 内部走 chat.get（全量历史 + workspace/canResume）。
         if (openedSummary) await syncOneChat(openedSummary, 'loadHistory')
 
         // 并行获取所有子 chat 的历史（子 chat 仍走 chat.get 仅取消息 + remap，不走 staged 累积）
@@ -970,9 +969,8 @@ export const useAgentsStore = defineStore('agents', () => {
 
   /** 拉取全量会话列表（includePreview=true）缓存到 historyList。CP8：会话列表打开时调。 */
   async function fetchHistoryList(): Promise<void> {
-    const chats = await agentApi.listChats(true)
-    historyList.value = chats
-    allChatsCache.value = chats
+    const chats = await agentApi.listChats({ scope: 'history', includePreview: true })
+    sessionCatalog.replace(chats)
   }
 
   /**
@@ -1039,7 +1037,7 @@ export const useAgentsStore = defineStore('agents', () => {
         setWorking(pet, false)
       }
     }
-    // replay 模式：仅 chat.sync（增量 + cursor）；loadHistory 模式：仅 chat.get（全量 + contextUsage）。
+    // replay 模式：仅 chat.sync（增量 + cursor）；loadHistory 模式：仅 chat.get（全量历史）。
     // 两条路径语义对齐后端契约：chat.get = 全量历史（messages 表，retention-independent），
     // chat.sync = 增量回放（chat_events seq>afterSeq + 超窗回填）。
     if (mode === 'loadHistory') {
@@ -1049,17 +1047,12 @@ export const useAgentsStore = defineStore('agents', () => {
       const response = await done
       requestMap.delete(requestId)
       if (response.success) {
-        // chat.get response 字段齐全：currentState + snapshotSeq + pendingQuestionBatches + canResume + contextUsage + workspace
-        // 一次性 consume 全字段；无独立 contextUsage RPC 兜底
+        // 历史查看不计算 context breakdown；只有后续真实执行的 done 事件会写入实时用量。
         applyQuestionSnapshot(chat.chatId, response.data)
         applyCurrentState(chat.chatId, response.data)
         const data = response.data as
           | {
               canResume?: boolean
-              contextUsage?: number
-              contextUsed?: number
-              contextTotal?: number
-              contextBreakdown?: ContextBreakdown
               commandConfig?: CommandConfigDataDto
               workspace?: string
               workspaceValid?: boolean
@@ -1068,10 +1061,10 @@ export const useAgentsStore = defineStore('agents', () => {
         const pet = pets.value.find((p) => p.chatId === chat.chatId)
         if (pet) {
           if (typeof data?.canResume === 'boolean') pet.canResume = data.canResume
-          if (typeof data?.contextUsage === 'number') pet.contextUsage = data.contextUsage
-          if (typeof data?.contextUsed === 'number') pet.contextUsed = data.contextUsed
-          if (typeof data?.contextTotal === 'number') pet.contextTotal = data.contextTotal
-          if (data?.contextBreakdown) pet.contextBreakdown = data.contextBreakdown
+          pet.contextUsage = 0
+          pet.contextUsed = 0
+          pet.contextTotal = 0
+          pet.contextBreakdown = undefined
           if (data?.commandConfig) pet.commandConfig = data.commandConfig
           if (typeof data?.workspace === 'string') pet.workspace = data.workspace
           if (typeof data?.workspaceValid === 'boolean') pet.workspaceValid = data.workspaceValid
@@ -1139,8 +1132,8 @@ export const useAgentsStore = defineStore('agents', () => {
   }
 
   async function syncChatEvents(): Promise<void> {
-    const chats = await agentApi.listChats()
-    allChatsCache.value = chats
+    const chats = await agentApi.listChats({ scope: 'stage' })
+    sessionCatalog.merge(chats)
     const recoveryChats = selectRefreshRecoveryChats(
       chats,
       new Set(pets.value.map((pet) => pet.chatId)),
@@ -1219,6 +1212,8 @@ export const useAgentsStore = defineStore('agents', () => {
     petForChat,
     reconcilePetsFromSessions,
     removePetsOnly,
+    purgeDeletedChats,
+    bindSessionEvictor,
     ...router,
   }
 })

@@ -20,6 +20,7 @@ import { initLogger, logger, LogLevel } from '@/utils/logger/index.js'
 import config, { readRawConfig } from '@/utils/config.js'
 import { hashPassword, isHashed } from '@/utils/password.js'
 import { hasRunningChats } from '@/service/chat/runtime.js'
+import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
 import {
   configureRestartCoordinator,
   requestRestartWhenIdle,
@@ -85,6 +86,15 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
 
   await bootstrapAgentRuntime()
 
+  const recoveredRuns = reconcileOrphanedExecutionRuns()
+  if (recoveredRuns.length > 0) {
+    logger.event(
+      'chat.runs.recovered',
+      { count: recoveredRuns.length, chatIds: recoveredRuns.map((run) => run.chatId) },
+      LogLevel.warn,
+    )
+  }
+
   // 启动自检：文件夹浏览协议（config.workspace.browse.*）根白名单有效性（rule12 fail loud）
   const browseRootWarnings = validateBrowseRoots()
   for (const w of browseRootWarnings) logger.warn(w)
@@ -96,7 +106,7 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   }
   const { wss, httpServer } = startService({
     port: config.server.port,
-webPort: config.server.webPort,
+    webPort: config.server.webPort,
     staticDir,
     host: config.server.host,
     auth: config.server.auth,
@@ -109,14 +119,6 @@ webPort: config.server.webPort,
   )
 
   getSoulDb()
-  const reconcileResult = reconcileMessageCounts()
-  if (reconcileResult.fixed > 0) {
-    logger.event(
-      'db.reconcile',
-      { checked: reconcileResult.checked, fixed: reconcileResult.fixed },
-      LogLevel.warn,
-    )
-  }
 
   let shuttingDown = false
   async function gracefulShutdown(signal: string): Promise<void> {

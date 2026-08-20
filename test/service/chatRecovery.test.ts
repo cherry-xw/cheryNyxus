@@ -9,8 +9,16 @@ import {
   getMessages,
 } from '@/db/chat.js'
 import { getMonthlyDb, getSoulDb } from '@/db/index.js'
-import { createSpawnTask, finishSpawnTask } from '@/db/delivery.js'
+import {
+  createSpawnTask,
+  finishSpawnTask,
+  listSpawnTasksNeedingWakeRecovery,
+} from '@/db/delivery.js'
 import { buildRootTimeline, handleChatList } from '@/service/chat/handler.js'
+import { getExecutionActiveRun } from '@/db/executionGraph.js'
+import { computeCanResume } from '@/service/chat/canResume.js'
+import { recordRunFact } from '@/service/chat/executionFacts.js'
+import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
 import type { HandlerContext } from '@/service/message/router.js'
 
 const cleanupChats: string[] = []
@@ -57,8 +65,62 @@ describe('chat recovery state', () => {
     finishSpawnTask(task.taskId)
 
     expect(JSON.parse(getChat(childChatId)!.metadata ?? '{}')).not.toHaveProperty('finished')
-    const response = await handleChatList({} as HandlerContext, {})
+    const response = await handleChatList({} as HandlerContext, { scope: 'history' })
     expect(response.chats.find((chat) => chat.chatId === childChatId)?.finished).toBe(true)
+  })
+
+  it('loads only spawn tasks that still need startup wake recovery', () => {
+    const parentChatId = randomUUID()
+    const pendingChildId = randomUUID()
+    const finishedChildId = randomUUID()
+    const injectedChildId = randomUUID()
+    cleanupChats.push(parentChatId, pendingChildId, finishedChildId, injectedChildId)
+    createChat(parentChatId)
+    createChat(pendingChildId, { wake: 'immediate' }, parentChatId)
+    createChat(finishedChildId, { wake: 'immediate', finished: true }, parentChatId)
+    createChat(
+      injectedChildId,
+      { wake: 'immediate', finished: true, roleInjected: true },
+      parentChatId,
+    )
+
+    const pending = createSpawnTask({
+      childChatId: pendingChildId,
+      parentChatId,
+      type: 'coder',
+      prompt: 'pending',
+      brain: 'mock',
+      senseGroup: 'default',
+      wait: true,
+    })
+    const finished = createSpawnTask({
+      childChatId: finishedChildId,
+      parentChatId,
+      type: 'coder',
+      prompt: 'finished but not injected',
+      brain: 'mock',
+      senseGroup: 'default',
+      wait: true,
+    })
+    const injected = createSpawnTask({
+      childChatId: injectedChildId,
+      parentChatId,
+      type: 'coder',
+      prompt: 'already injected',
+      brain: 'mock',
+      senseGroup: 'default',
+      wait: true,
+    })
+    cleanupTasks.push(pending.taskId, finished.taskId, injected.taskId)
+    finishSpawnTask(finished.taskId)
+    finishSpawnTask(injected.taskId)
+
+    const matchingTaskIds = listSpawnTasksNeedingWakeRecovery()
+      .filter((task) => task.parentChatId === parentChatId)
+      .map((task) => task.taskId)
+
+    expect(matchingTaskIds).toHaveLength(2)
+    expect(matchingTaskIds).toEqual(expect.arrayContaining([pending.taskId, finished.taskId]))
   })
 
   it('projects a root timeline with explicit child actors and directions', () => {
@@ -129,5 +191,41 @@ describe('chat recovery state', () => {
       childRuntime,
     )
     expect(nodes.find((node) => node.id === 'child-return-runtime')?.runtime).toEqual(childRuntime)
+  })
+
+  it('parks an orphaned durable run as paused and recoverable after restart', () => {
+    const chatId = randomUUID()
+    cleanupChats.push(chatId)
+    createChat(chatId)
+    addMessage('unfinished-role-return', chatId, { role: 'role', content: '[角色 coder] done' })
+    recordRunFact({
+      chatId,
+      runId: 'orphaned-run',
+      status: 'running',
+      turnId: 'unfinished-turn',
+    })
+    const run = getExecutionActiveRun(chatId, 'orphaned-run')!
+
+    expect(reconcileOrphanedExecutionRuns({ runs: [run], isLive: () => false })).toEqual([
+      expect.objectContaining({ chatId, runId: 'orphaned-run', status: 'paused' }),
+    ])
+    expect(getExecutionActiveRun(chatId, 'orphaned-run')?.status).toBe('paused')
+    expect(buildRootTimeline(chatId).activeRuns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ chatId, runId: 'orphaned-run', status: 'paused' }),
+      ]),
+    )
+    expect(computeCanResume(chatId)).toBe(true)
+  })
+
+  it('leaves a durable run running while its in-memory runtime is still live', () => {
+    const chatId = randomUUID()
+    cleanupChats.push(chatId)
+    createChat(chatId)
+    recordRunFact({ chatId, runId: 'live-run', status: 'waiting' })
+    const run = getExecutionActiveRun(chatId, 'live-run')!
+
+    expect(reconcileOrphanedExecutionRuns({ runs: [run], isLive: () => true })).toEqual([])
+    expect(getExecutionActiveRun(chatId, 'live-run')?.status).toBe('waiting')
   })
 })

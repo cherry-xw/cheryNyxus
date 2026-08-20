@@ -161,10 +161,12 @@ export interface ChatCreateRequestData {
 }
 
 export interface ChatListRequestData {
-  /**
-   * true：每项增返 preview（首条 user 消息截断）+ turnCount（user 消息数），供会话列表渲染。
-   * 省略/false：lean，不查 messages，供初始化重建 pet 树（免 N+1）。CP8。
-   */
+  /** stage=当前舞台；preset=用户打开的预设；history=显式历史列表。 */
+  scope: 'stage' | 'preset' | 'history'
+  /** preset scope 优先使用稳定 id；旧记录可用名称回退。 */
+  presetId?: string
+  preset?: string
+  /** 仅显式历史/预设目录需要首条消息预览。 */
   includePreview?: boolean
 }
 
@@ -1376,19 +1378,6 @@ export interface ChatListResponseData {
      * 上下文 token 用量比例（0-1）。仅 includePreview=true 时返（SessionList 渲染用）。
      * = 当前 chat 总 token / brain.contextLimit（见 computeContextUsage）。
      */
-    contextUsage?: number
-    /**
-     * 已用 token 数（估算值，字符数/4）。仅 includePreview=true 时返。配合 contextTotal 显示详情。
-     */
-    contextUsed?: number
-    /**
-     * 上下文上限 token 数。仅 includePreview=true 时返。
-     */
-    contextTotal?: number
-    /**
-     * 上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。仅 includePreview=true 时返。
-     */
-    contextBreakdown?: ContextBreakdown
     /**
      * 角色是否已完成（metadata.finished 解析）。前端据 finished===true 重建子 pet 为 ghost（灵魂态）。
      * 主 chat 恒 undefined。无论 includePreview 与否都返（initFromChats 重建 pet 树需）。
@@ -1476,7 +1465,7 @@ export interface CurrentStateData {
 }
 
 export interface ChatSessionSnapshotData {
-  /** 当前持久化 runtime selection。 */
+  /** 历史执行时保存的 runtime，仅用于展示，不参与新一轮运行时解析。 */
   runtime?: RuntimeSelection
   /** 主 chat 创建时所选预设。 */
   preset?: string
@@ -1488,14 +1477,6 @@ export interface ChatSessionSnapshotData {
   workspace?: string
   /** workspace 路径当前是否为可访问目录。 */
   workspaceValid?: boolean
-  /** 当前 chat 上下文 token 用量比例（0-1）。 */
-  contextUsage?: number
-  /** 已用 token 数（估算值）。 */
-  contextUsed?: number
-  /** 上下文上限 token 数。 */
-  contextTotal?: number
-  /** 上下文用量 6 段分解。 */
-  contextBreakdown?: ContextBreakdown
   /** 当前命令系统配置投影。 */
   commandConfig?: CommandConfigData
 }
@@ -1506,6 +1487,8 @@ export interface ChatGetResponseData extends QuestionStateSnapshotData, ChatSess
 
 export interface ChatDeleteResponseData {
   chatId: string
+  /** Authoritative set removed by the service, including cascaded descendants. */
+  deletedChatIds: string[]
 }
 
 export interface ChatContextUsageResponseData {
@@ -2790,6 +2773,8 @@ export const ErrorCode = {
   INVALID_PARAMS: 'INVALID_PARAMS',
   /** 资源当前状态不允许该操作，例如用旧 runId 中止已替换的新运行。 */
   CONFLICT: 'CONFLICT',
+  /** 历史任务无法关联到当前 preset/type，执行前需要用户选择当前运行配置。 */
+  RUNTIME_SELECTION_REQUIRED: 'RUNTIME_SELECTION_REQUIRED',
 } as const
 
 // ========== 工厂函数 ==========

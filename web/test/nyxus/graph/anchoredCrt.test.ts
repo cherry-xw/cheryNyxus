@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { RootTimelineSnapshot } from '../../../src/services/agentApi'
 import type { ChatSession } from '../../../src/stores/chats/types'
@@ -22,6 +22,7 @@ import {
 } from '../../../src/features/pets/nyxus/graph/crtModel'
 import {
   layoutAnchoredCrts,
+  layoutCrtWindowsBesideAnchors,
   selectVisibleCrtIds,
   type CrtPlacement,
 } from '../../../src/features/pets/nyxus/graph/crtLayout'
@@ -30,6 +31,14 @@ interface Fixture {
   source: string
   snapshot: RootTimelineSnapshot
   sessions: Record<string, ChatSession>
+}
+
+function fixturePath(name: string): string {
+  return fileURLToPath(new URL(`../../fixtures/${name}`, import.meta.url))
+}
+
+function sourcePath(name: string): string {
+  return fileURLToPath(new URL(`../../../src/${name}`, import.meta.url))
 }
 
 function overlap(a: CrtPlacement, b: CrtPlacement): boolean {
@@ -605,7 +614,7 @@ describe('anchored CRT model', () => {
 
   it('maps captured active runs to canonical node/batch anchors and keeps patch identity stable', async () => {
     const fixture = JSON.parse(
-      await readFile(resolve('test/fixtures/cp9-real-anchored-crt.json'), 'utf8'),
+      await readFile(fixturePath('cp9-real-anchored-crt.json'), 'utf8'),
     ) as Fixture
     expect(fixture.source).toBe('captured-and-redacted')
     const graph = projectPersistentExecutionGraph(fixture.snapshot)
@@ -646,7 +655,62 @@ describe('anchored CRT model', () => {
   })
 })
 
-describe('CRT collision layout', () => {
+describe('CRT anchored layout', () => {
+  it('keeps concurrent CRTs beside their nodes and allows overlap', () => {
+    const placements = layoutCrtWindowsBesideAnchors(
+      [
+        {
+          id: 'first',
+          anchor: { x: 500, y: 700 },
+          panel: { width: 360, height: 476 },
+          anchorClearance: 34,
+          main: true,
+          actionable: false,
+          order: 1,
+          lineTargetOffsetY: 16,
+        },
+        {
+          id: 'second',
+          anchor: { x: 500, y: 700 },
+          panel: { width: 360, height: 476 },
+          anchorClearance: 34,
+          main: true,
+          actionable: false,
+          order: 2,
+          lineTargetOffsetY: 16,
+        },
+      ],
+      { width: 1200, height: 800, margin: 12 },
+    )
+
+    expect(placements.map(({ left, top, placement }) => ({ left, top, placement }))).toEqual([
+      { left: 534, top: 684, placement: 'right' },
+      { left: 534, top: 684, placement: 'right' },
+    ])
+    expect(placements[0]!.top + placements[0]!.panel.height).toBeGreaterThan(800)
+    expect(placements[0]!.line.to).toEqual({ x: 534, y: 700 })
+  })
+
+  it('uses the left side when a CRT does not fit to the right', () => {
+    const [placement] = layoutCrtWindowsBesideAnchors(
+      [
+        {
+          id: 'near-right-edge',
+          anchor: { x: 1080, y: 300 },
+          panel: { width: 360, height: 300 },
+          anchorClearance: 34,
+          main: false,
+          actionable: false,
+          order: 1,
+        },
+      ],
+      { width: 1200, height: 800, margin: 12 },
+    )
+
+    expect(placement).toMatchObject({ placement: 'left', left: 686, top: 284 })
+    expect(placement!.line.to).toEqual({ x: 1046, y: 300 })
+  })
+
   it('places child branches outward, staggers main cards, avoids collision and stays in bounds', () => {
     const viewport = { width: 1280, height: 800, margin: 12 }
     const placements = layoutAnchoredCrts(
@@ -717,7 +781,7 @@ describe('CRT collision layout', () => {
 
   it('keeps pointer/wheel events, aria tabs and reduced motion inside the CRT contract', async () => {
     const source = await readFile(
-      resolve('web/src/features/pets/nyxus/components/AnchoredRunCrt.vue'),
+      sourcePath('features/pets/nyxus/components/AnchoredRunCrt.vue'),
       'utf8',
     )
     expect(source).toContain('@pointerdown.stop')

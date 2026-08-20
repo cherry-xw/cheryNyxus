@@ -26,6 +26,8 @@ pet 模块已由纯装饰桌宠改造为 **主从 Agent 可视化交互系统**�
 
 Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置、速度、拖拽、hover、表情及 ghost 动画时间。审批、运行中工具、ask_user_question 批次、todo、消息气泡、runtime、上下文与可继续状态必须从 ChatSession selector 投影；pet 组件发出的操作委托 ChatSession action，再由该 action 调 RPC。
 
+`reconcilePetsFromSessions`（会话树→舞台对账）回写 `pet.canResume = session.context.canResume ?? session.run.status === 'paused'`（与 `selectCanResume` 同源），与 `turnChildIntoGhost` 置 false、`buildMasterAndChildren` 从 `chat.list` 映射对齐——保证 done 通知被跳过/重连恢复后「继续运行」按钮不残留。
+
 启动只完整 hydration 舞台最近 5 个主 chat 及其全部后代；其他会话只建立 catalog 实体，用户从 SessionList 加载时原位升级。running chat 遵循 `attach → sync`：attach 只重定向后续实时输出，不提前跳过 cursor；sync 从本地 cursor（冷启动为 0）补齐历史和当前实时消息，再在 `snapshotSeq` 边界应用 currentState/question/session metadata。HistoryDrawer、Pet hover、SessionList 打开均不触发 `chat.get`，只消费已构建实体。
 
 > “完整上下文”在前端仅指 UI 会话投影。system prompt、memory、skills、tools 和压缩后的 LLM 上下文仍由后端 `AgentBuilder` 独占构建。
@@ -115,7 +117,7 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
 ### CP7（contextUsage 后端计算）
 
 - **后端 token 估算**（[src/utils/token.ts](../../../src/utils/token.ts)）：`estimateTokens = Math.ceil(text.length / 4)`（英文近似 4 char/token，中文偏保守）；`sumChatTokens` 累加 chat 所有非 revoked 消息 content+thinking；`computeContextUsage(chatId)` = used /（brain.contextLimit × `TOKENS_PER_KB`=256）（`contextLimit` 语义为**记忆容量 KB**，换算 1KB≈1024char÷4=256token 后作分母；clamp [0,1]，brain 未配 contextLimit 兜底 32 KB）。
-- **返传通道**：`done` notification + `chat.get` response 各携 `contextUsage`；agents store `routeNotification`（done 分支）/ `getHistory`（response.then）写入 `pet.contextUsage` → ContextBar 渲染。
+- **返传通道**：当前执行的 `done` notification 携 `contextUsage`；agents store `routeNotification` 写入 `pet.contextUsage` → ContextBar 渲染。`chat.get` 只读历史，不计算用量。
 - **估算失败 fail loud**：兜底 0 + console.warn，不阻塞 chat.send/get 主流程（规则 12）。
 
 ### CP8（会话列表 + 销毁语义分离）
@@ -220,10 +222,10 @@ F1+F2+F3 已落地 hydration 单一水源 + currentState 快照消费 + replayMo
 
 [doLoadHistory](../../../web/src/stores/agents/index.ts) 改造：
 
-- **主 chat**（`!openedSummary?.parentChatId`）`syncOneChat(openedSummary, 'loadHistory')` → 内部走 **`chat.get`**（loadHistory 模式），取全量历史 + currentState + contextUsage + workspace + canResume 一并到位
+- **主 chat**（`!openedSummary?.parentChatId`）`syncOneChat(openedSummary, 'loadHistory')` → 内部走 **`chat.get`**（loadHistory 模式），取全量历史 + currentState + workspace + canResume
 - **子 chat**（direct 视图 & 后代合流）仍走 `agentApi.getHistory` + `lifecycle.remapChildHistory` — 子 chat 只要消息 + remap
 - **M1 修订注**：F4 原方案「chat.sync(0) 唯一历史源」因 `chat.sync(afterSeq)` 增量语义 + `afterSeq=wsClient.getLastSeq()` 永不 0 + chat_events retention 边界，触发刷新后主 chat sync 流返空；本期回归「双 RPC 各司其职」：`chat.get` = 全量（loadHistory，messages 表 retention-independent），`chat.sync` = 增量（replay/attach，chat_events seq>afterSeq + 超窗回填）
-- **contextUsage 一次到位**：`chat.get` response 含 contextUsage/contextUsed/contextTotal/contextBreakdown/commandConfig/workspace/workspaceValid，`syncOneChat(loadHistory)` 一次性 consume；无需独立 `agentApi.contextUsage` 兜底 RPC
+- **历史查看不算 contextUsage**：加载历史时重置旧用量；只有会话真实执行后的 `done` 才更新 contextUsage/contextBreakdown
 - **dirty/loaded 时机**：chat.get 流灌满 history + applyQuestionSnapshot 已推 cursor → 尾清 `historyDirty=false` + `historyLoaded=true`，取代原依赖 `loaded` notification 清 dirty 的路径
 
 #### attach + sync 组合（M2+M9 修复）
@@ -277,7 +279,7 @@ F1+F2+F3 已落地 hydration 单一水源 + currentState 快照消费 + replayMo
 CP7 后两者职责彻底分离：
 
 - **fatigue**：保留为 pet 移动生活感（移动/拖拽累积，≥80 自动休息，休息时 emotion 回血）。与 agent 无关，纯装饰。
-- **contextUsage**：CP7 已接入后端 token 估算（[src/utils/token.ts](../../../src/utils/token.ts)），由 `done` / `chat.get` 返传 → `pet.contextUsage` → ContextBar 渲染（色阶：<50% 绿 / 50-80% 黄 / ≥80% 红）。PetToolbar `contextUsage ≥ 50%` 显 compact 按钮（compact RPC 预留）。
+- **contextUsage**：CP7 已接入后端 token 估算（[src/utils/token.ts](../../../src/utils/token.ts)），由实时 `done` 返传 → `pet.contextUsage` → ContextBar 渲染（色阶：<50% 绿 / 50-80% 黄 / ≥80% 红）。纯历史查看不触发计算。
 
 原 PetSprite status-row 的 fatigue bar 已被 ContextBar 组件取代（emotion 条保留，统一橙色）。
 

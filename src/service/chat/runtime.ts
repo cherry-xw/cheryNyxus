@@ -1,5 +1,6 @@
 import { AgentBuilder } from '@/agent/builder.js'
 import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
+import { resolveSelectionIssues, type RuntimeIssue } from '@/agent/runtimeResolver.js'
 import {
   getMessages,
   parseMessageRow,
@@ -10,11 +11,14 @@ import {
   getChatRule,
   updateChatMetadata,
   getChat,
+  getChatType,
   getChatBranchContext,
   findChildChatsWithType,
   listPendingInputs,
   markPendingInputsConsumed,
 } from '@/db/chat.js'
+import config from '@/utils/config'
+import { ErrorCode } from '@/service/message/types.js'
 import type { LLMResponse } from '@/core/message/adapter'
 import { extractSummaryBlock } from '@/core/middleware/messageJournal.js'
 import { notifyRestartActivityChanged } from '@/service/restartCoordinator.js'
@@ -119,13 +123,74 @@ async function ensureRuntime(chatId: string): Promise<ChatRuntime> {
 /**
  * 原子解析并注入完整 runtime。
  * 主 agent（parent_chat_id 为空）硬编码注入 memory_manage；子 agent 排除。
+ * @param persist 是否写回 metadata.runtime（默认 true）。只读跟随恢复（resolveEffectiveSelection status=followed）
+ *   传 false：配置演化后按当前角色重解析的结果不落盘，历史快照保持纯净，每次恢复幂等重算。
  */
-function configureRuntime(runtime: ChatRuntime, chatId: string, selection: RuntimeSelection): void {
+function configureRuntime(
+  runtime: ChatRuntime,
+  chatId: string,
+  selection: RuntimeSelection,
+  persist = true,
+): void {
   runtime.selection = selection
   const isMainAgent = !getChat(chatId)?.parent_chat_id
   runtime.builder.configureRuntime(selection, isMainAgent, getChatRule(chatId), chatId)
   // 持久化 selection 到 metadata.runtime，服务重启后 ensureChat 自动恢复
-  updateChatMetadata(chatId, { runtime: selection })
+  if (persist) {
+    updateChatMetadata(chatId, { runtime: selection })
+  }
+}
+
+/**
+ * 解析 chat 的有效 runtime selection（快照投影，只读，不写回）。
+ *
+ * 配置演化（brain/感官组/预设/角色增删改）是常态，持久化快照（metadata.runtime）引用的名称可能已失效——
+ * 这是预期状态而非 bug。三态（见 docs/service/chat.md「配置演化与 runtime 快照失效」）：
+ * 历史 metadata.runtime 仅供展示，不参与此处解析。显式会话选择优先；否则主会话按当前
+ * presetId/旧 preset 名关联 leader，子会话按当前 metadata.type 关联角色。关联缺失时返回
+ * invalid，由执行入口要求用户显式选择当前运行配置。
+ */
+export function resolveEffectiveSelection(
+  chatId: string,
+):
+  | { status: 'ok' | 'followed' | 'invalid'; selection: RuntimeSelection; issues: RuntimeIssue[] }
+  | undefined {
+  const type = getChatType(chatId)
+  const selectedForSession =
+    ephemeralChatRuntimes.get(chatId) ??
+    sessionRoleRuntimes.get(chatId)?.primary ??
+    (type ? getSessionRoleRuntime(chatId, type) : undefined)
+  if (selectedForSession) {
+    const issues = resolveSelectionIssues(selectedForSession)
+    return issues.length
+      ? { status: 'invalid', selection: selectedForSession, issues }
+      : { status: 'followed', selection: selectedForSession, issues: [] }
+  }
+
+  // Historical metadata.runtime is display-only. New execution follows the
+  // current preset/type association and therefore never validates an obsolete
+  // brain or sense group stored in the database.
+  const role = type ? config.roles?.[type] : undefined
+  if (role?.brain) {
+    const followed: RuntimeSelection = {
+      brain: role.brain,
+      senseGroup: role.senseGroup ?? '',
+      mcpServers: role.mcpServers ?? [],
+    }
+    const issues = resolveSelectionIssues(followed)
+    return issues.length
+      ? { status: 'invalid', selection: followed, issues }
+      : { status: 'followed', selection: followed, issues: [] }
+  }
+
+  const historical = getChatRuntimeSelection(chatId)
+  return historical
+    ? {
+        status: 'invalid',
+        selection: historical,
+        issues: [{ kind: 'brain', name: 'current preset/type association' }],
+      }
+    : undefined
 }
 
 /**
@@ -157,10 +222,19 @@ export async function setSessionRoleRuntimes(
   primary: RuntimeSelection,
   roles: Record<string, RuntimeSelection>,
 ): Promise<SessionRoleRuntimeResult> {
-  const runtime = await ensureRuntime(chatId)
+  const previous = sessionRoleRuntimes.get(chatId)
+  sessionRoleRuntimes.set(chatId, { primary, roles })
+  let runtime: ChatRuntime
+  try {
+    await ensureChat(chatId)
+    runtime = chatRuntimes.get(chatId)!
+  } catch (error) {
+    if (previous) sessionRoleRuntimes.set(chatId, previous)
+    else sessionRoleRuntimes.delete(chatId)
+    throw error
+  }
   runtime.selection = primary
   runtime.builder.configureRuntime(primary, true, getChatRule(chatId), chatId)
-  sessionRoleRuntimes.set(chatId, { primary, roles })
 
   // 回灌已存在的同 type 子 chat（修主发送界面改子角色 brain 不作用于已派发子的缺口）。
   const applied: string[] = []
@@ -312,12 +386,29 @@ export async function ensureChat(
   chatRuntimes.set(chatId, runtime)
   try {
     // 原子配置 runtime selection：
-    //   1. 显式传入（chat.create/runtime.set）
-    //   2. 否则从持久化 metadata.runtime 恢复（服务重启后内存丢失，自动恢复）
-    const resolvedSelection =
-      selection ?? ephemeralChatRuntimes.get(chatId) ?? getChatRuntimeSelection(chatId)
-    if (resolvedSelection) {
-      configureRuntime(runtime, chatId, resolvedSelection)
+    //   1. 显式传入（chat.create/runtime.set）→ 严格路径（输入校验已过），持久化
+    //   2. 否则按当前 preset/type 关联或会话级临时编制恢复；历史 metadata.runtime 不参与执行。
+    //      followed→只读注入（不写回历史）；invalid→要求用户显式选择当前运行配置。
+    if (selection) {
+      configureRuntime(runtime, chatId, selection)
+    } else {
+      const effective = resolveEffectiveSelection(chatId)
+      if (effective) {
+        if (effective.status === 'invalid') {
+          const err = new Error(
+            '该历史任务无法关联到当前 preset/type，请先选择当前运行配置',
+          ) as Error & { code: string }
+          err.code = ErrorCode.RUNTIME_SELECTION_REQUIRED
+          throw err
+        }
+        configureRuntime(runtime, chatId, effective.selection, effective.status === 'ok')
+      } else {
+        const err = new Error('该历史任务没有当前运行配置，请先选择') as Error & {
+          code: string
+        }
+        err.code = ErrorCode.RUNTIME_SELECTION_REQUIRED
+        throw err
+      }
     }
 
     // 一次性加载历史到内存 + 注入 system prompt（chat metadata.systemPromptFile 合并补充；

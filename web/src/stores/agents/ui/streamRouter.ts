@@ -529,7 +529,7 @@ export function createStreamRouter(
    */
   function applyRoleCreated(
     data: RoleCreatedData,
-    options: { recover?: boolean; working?: boolean; finished?: boolean } = {},
+    options: { recover?: boolean; working?: boolean; finished?: boolean; canResume?: boolean } = {},
   ): void {
     // taskId/prompt 属于 eager launcher 的任务信息；创建可视 pet 只需要身份字段。
     // 重放或裁剪通知缺少可选任务描述时，仍必须显示子 pet。
@@ -555,6 +555,7 @@ export function createStreamRouter(
       agentType: data.type,
       finished: options.finished,
     })
+    pet.canResume = options.canResume ?? false
     pet.runtime = {
       brain: data.brain ?? '',
       senseGroup: data.senseGroup ?? '',

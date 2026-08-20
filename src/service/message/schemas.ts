@@ -10,6 +10,8 @@ import { Method, type Method as MethodName, type ParamsOf } from './types.js'
  */
 
 const chatIdSchema = z.object({ chatId: z.string() })
+// 注意：本文件仅定义「请求参数」zod schema（router.safeParse 校验 params，见 requestSchemas）。
+// 响应数据结构一律在 types.ts 定义（*ResponseData / ChatSummary），不在此处。
 const emptySchema = z.object({}).strict()
 
 /** mcpServers 缺省 []：旧 client 不携带视为关闭所有 MCP（向后兼容） */
@@ -241,10 +243,16 @@ export const requestSchemas = {
     mcpServers: mcpServersSchema,
     parentChatId: z.string().optional(),
   }),
-  [Method.CHAT_LIST]: z.object({
-    /** CP8：true 增返 preview/turnCount（会话列表用）；省略=lean（初始化重建 pet 树用） */
-    includePreview: z.boolean().optional(),
-  }),
+  [Method.CHAT_LIST]: z
+    .object({
+      scope: z.enum(['stage', 'preset', 'history']),
+      presetId: z.string().min(1).optional(),
+      preset: z.string().min(1).optional(),
+      includePreview: z.boolean().optional(),
+    })
+    .refine((value) => value.scope !== 'preset' || !!value.presetId || !!value.preset, {
+      message: 'preset scope 需要 presetId 或 preset',
+    }),
   [Method.CHAT_ROUTE_SUGGEST]: z.object({
     presetId: z.string().min(1),
     draft: z.string().trim().min(1).max(12000),

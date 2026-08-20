@@ -50,7 +50,11 @@ import NodePaperStack from './NodePaperStack.vue'
 import GenerationTreeDialog from './GenerationTreeDialog.vue'
 import { terminationDisplay } from '../graph/termination'
 import { buildRunCrtModels, effectiveRunFacts, type RunCrtModel } from '../graph/crtModel'
-import { layoutAnchoredCrts, selectVisibleCrtIds } from '../graph/crtLayout'
+import {
+  layoutAnchoredCrts,
+  layoutCrtWindowsBesideAnchors,
+  selectVisibleCrtIds,
+} from '../graph/crtLayout'
 import { buildDefaultNodePopovers, type DefaultNodePopover } from '../graph/nodePopoverModel'
 import {
   ExecutionGraphPixiRenderer,
@@ -426,6 +430,7 @@ function finishGpuDrag(transform: CanvasTransform): void {
   gpuRenderer?.setCamera(camera)
   retainCameraSelection(camera)
   gpuRenderer?.setMotionPaused(false)
+  snapCrtWindowsToAnchors()
   void nextTick(() => {
     setDragOverlayTranslation(0, 0)
     viewportRef.value?.classList.remove('is-panning')
@@ -503,7 +508,7 @@ const visibleCrts = computed(() =>
 const initialCrtPlacements = computed(() => {
   const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
   const heightLimit = Math.max(160, viewportSize.value.height - 96)
-  return layoutAnchoredCrts(
+  return layoutCrtWindowsBesideAnchors(
     visibleCrts.value.flatMap((card, order) => {
       const node = positioned.get(card.anchorNodeId)
       if (!node) return []
@@ -512,6 +517,7 @@ const initialCrtPlacements = computed(() => {
           id: card.id,
           anchor: canvas.worldToScreen(node),
           panel: { width: 360, height: Math.min(heightLimit, 476) },
+          anchorClearance: 23 * canvas.scale.value + 10,
           main: card.main,
           actionable: false,
           pinned: pinnedCrtIds.value.has(card.id),
@@ -524,21 +530,45 @@ const initialCrtPlacements = computed(() => {
   )
 })
 
+let crtAnchorPlacementKeys = new Map<string, string>()
 watch(
   initialCrtPlacements,
   (placements) => {
     const live = new Set(visibleCrts.value.map((card) => card.id))
     const next = new Map(crtWindowState.value)
+    const nextPlacementKeys = new Map<string, string>()
     for (const id of next.keys()) if (!live.has(id)) next.delete(id)
     for (const placement of placements) {
-      if (!next.has(placement.id)) {
+      const placementKey = [
+        placement.anchor.x,
+        placement.anchor.y,
+        placement.left,
+        placement.top,
+      ].join(':')
+      nextPlacementKeys.set(placement.id, placementKey)
+      const current = next.get(placement.id)
+      if (!current)
         next.set(placement.id, { left: placement.left, top: placement.top, z: nextCrtZ++ })
-      }
+      else if (crtAnchorPlacementKeys.get(placement.id) !== placementKey)
+        next.set(placement.id, { ...current, left: placement.left, top: placement.top })
     }
+    crtAnchorPlacementKeys = nextPlacementKeys
     crtWindowState.value = next
   },
   { immediate: true },
 )
+
+function snapCrtWindowsToAnchors(): void {
+  const next = new Map(crtWindowState.value)
+  let changed = false
+  for (const placement of initialCrtPlacements.value) {
+    const current = next.get(placement.id)
+    if (!current || (current.left === placement.left && current.top === placement.top)) continue
+    next.set(placement.id, { ...current, left: placement.left, top: placement.top })
+    changed = true
+  }
+  if (changed) crtWindowState.value = next
+}
 
 const crtPlacements = computed(() => {
   const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))

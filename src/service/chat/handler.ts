@@ -2,6 +2,7 @@ import type { HandlerContext } from '../message/router.js'
 import {
   createChunk,
   createNotification,
+  ErrorCode,
   Method,
   type Chunk,
   type Notification,
@@ -47,6 +48,8 @@ import {
 import {
   createChat,
   listAllChats,
+  listRootChatsForPresets,
+  listChatTrees,
   getChat,
   deleteChat,
   getMessages,
@@ -83,13 +86,11 @@ import {
   isChatRunning,
   getActiveChatRunId,
   getPendingChatInputs,
+  getChatSelection,
 } from './runtime.js'
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
-import {
-  getPendingQuestionAttention,
-  getQuestionStateSnapshot,
-} from '@/db/question.js'
+import { getPendingQuestionAttention, getQuestionStateSnapshot } from '@/db/question.js'
 import { randomUUID } from 'crypto'
 import {
   parseRuntimeSelection,
@@ -141,9 +142,7 @@ import {
   getConversationTask,
   listConversationBranches,
 } from '@/db/conversationBranch.js'
-import {
-  markActiveTreeTargetDelegated,
-} from '@/db/treeControl.js'
+import { markActiveTreeTargetDelegated } from '@/db/treeControl.js'
 import { buildTreeInterruptionNotice } from './treeInterruption.js'
 
 /**
@@ -231,12 +230,11 @@ function getCommandConfig(): import('../message/types.js').CommandConfigData {
   }
 }
 
-/** 构建 chat.get/chat.sync 共用的前端会话快照，避免启动阶段再发 context/runtime RPC。 */
+/** 构建 chat.get/chat.sync 共用的只读会话快照；历史 runtime 仅回显，不做解析或校验。 */
 function buildChatSessionSnapshot(chatId: string): ChatSessionSnapshotData {
   const chat = getChat(chatId)
   if (!chat) throw new Error('这个会话不见了')
   const metadata = chat.metadata ? (safeJsonParse(chat.metadata, {}) as { preset?: string }) : {}
-  const contextBreakdown = computeContextBreakdown(chatId)
   const workspace = getChatWorkspace(chatId)
   const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
   const runtime = getChatRuntimeSelection(chatId)
@@ -245,10 +243,6 @@ function buildChatSessionSnapshot(chatId: string): ChatSessionSnapshotData {
     ...(metadata.preset ? { preset: metadata.preset } : {}),
     canResume: computeCanResume(chatId),
     currentState: computeCurrentState(chatId),
-    contextUsage: contextBreakdown.usage,
-    contextUsed: breakdownUsed(contextBreakdown),
-    contextTotal: contextBreakdown.total,
-    contextBreakdown,
     commandConfig: getCommandConfig(),
     ...(workspace ? { workspace, workspaceValid } : {}),
   }
@@ -262,7 +256,42 @@ export async function handleChatList(
   _ctx: HandlerContext,
   data: ChatListRequestData,
 ): Promise<ChatListResponseData> {
-  const rows = listAllChats()
+  const rootMeta = (chat: ReturnType<typeof listRootChatsForPresets>[number]) =>
+    chat.metadata
+      ? (safeJsonParse(chat.metadata, {}) as { preset?: string; presetId?: string })
+      : {}
+  let rows: ReturnType<typeof listAllChats>
+  if (data.scope === 'history') {
+    rows = listAllChats()
+  } else {
+    const associations =
+      data.scope === 'preset'
+        ? [{ presetId: data.presetId, preset: data.preset }]
+        : Object.entries(config.presets ?? {}).map(([preset, value]) => ({
+            presetId: value.id,
+            preset,
+          }))
+    const matchingRoots = listRootChatsForPresets(associations)
+    if (data.scope === 'stage') {
+      const latestByPreset = new Map<string, (typeof matchingRoots)[number]>()
+      for (const chat of matchingRoots) {
+        const meta = rootMeta(chat)
+        const association = meta.presetId
+          ? associations.find((candidate) => candidate.presetId === meta.presetId)
+          : associations.find((candidate) => candidate.preset === meta.preset)
+        if (!association) continue
+        // A legacy name-only root and a newer stable-id root can belong to the
+        // same current preset. Normalize both before choosing the newest root.
+        const key = association.presetId
+          ? `id:${association.presetId}`
+          : `name:${association.preset}`
+        if (!latestByPreset.has(key)) latestByPreset.set(key, chat)
+      }
+      rows = listChatTrees([...latestByPreset.values()].map((chat) => chat.id))
+    } else {
+      rows = listChatTrees(matchingRoots.map((chat) => chat.id))
+    }
+  }
   const previews = data.includePreview ? getChatPreviews(rows) : undefined
 
   const chats = rows.map((chat) => {
@@ -340,19 +369,18 @@ export async function handleChatList(
     }
     if (!data.includePreview || !previews) return base
     const p = previews.get(chat.id)
-    const bd = computeContextBreakdown(chat.id)
     return {
       ...base,
       preview: p?.preview ?? '',
       turnCount: p?.turnCount ?? 0,
-      contextUsage: bd.usage,
-      contextUsed: breakdownUsed(bd),
-      contextTotal: bd.total,
-      contextBreakdown: bd,
     }
   })
 
-  logger.event('chat.list', { count: chats.length, includePreview: !!data.includePreview })
+  logger.event('chat.list', {
+    count: chats.length,
+    scope: data.scope,
+    includePreview: !!data.includePreview,
+  })
   return { chats }
 }
 
@@ -1324,7 +1352,9 @@ export async function handleChatTimelineGet(
           branchId: branch.branchId,
         })
       }
-      activeRuns.push(...timeline.activeRuns.map((run) => ({ ...run, rootChatId: task.originalChatId })))
+      activeRuns.push(
+        ...timeline.activeRuns.map((run) => ({ ...run, rootChatId: task.originalChatId })),
+      )
       pendingInputs.push(...timeline.pendingInputs)
       orderOffset += maxOrder + 1
     }
@@ -1362,14 +1392,17 @@ export async function handleChatTimelineGet(
       branches: snapshots.map(({ branch, timeline }) => {
         const firstUserMessage = timeline.nodes
           .filter((node) => node.status === 'committed' && node.actor.kind === 'user')
-          .sort((a, b) => a.orderKey - b.orderKey)[0]?.content.trim()
+          .sort((a, b) => a.orderKey - b.orderKey)[0]
+          ?.content.trim()
         const snapshotMetadata = branch.runtimeSnapshot.metadata
-        const storedTitle = snapshotMetadata && typeof snapshotMetadata === 'object'
-          ? (snapshotMetadata as Record<string, unknown>).branchTitle
-          : undefined
-        const title = typeof storedTitle === 'string' && storedTitle.trim()
-          ? storedTitle.trim()
-          : firstUserMessage
+        const storedTitle =
+          snapshotMetadata && typeof snapshotMetadata === 'object'
+            ? (snapshotMetadata as Record<string, unknown>).branchTitle
+            : undefined
+        const title =
+          typeof storedTitle === 'string' && storedTitle.trim()
+            ? storedTitle.trim()
+            : firstUserMessage
         return {
           branchId: branch.branchId,
           taskId: branch.taskId,
@@ -1453,8 +1486,7 @@ export async function handleChatTimelineGet(
 
 /**
  * 获取聊天详情（载入历史对话）
- * runtime selection 持久化在 chats.metadata.runtime，服务重启后 ensureChat 自动恢复，
- * 前端无需重新 runtime.set（除非持久化的 brain/group 已从 config.yaml 删除，恢复时报错）。
+ * 历史 runtime selection 仅随快照回显；读取历史不会初始化 Agent 或校验旧配置。
  */
 export async function* handleChatGet(
   ctx: HandlerContext,
@@ -1484,7 +1516,6 @@ export async function* handleChatGet(
     chatId: p.chatId,
     messageCount: messages.length,
     canResume: snapshot.canResume,
-    contextUsage: snapshot.contextUsage,
     pendingQuestionBatches: questionSnapshot.pendingQuestionBatches.length,
     snapshotSeq: questionSnapshot.snapshotSeq,
   })
@@ -1649,6 +1680,7 @@ export async function handleChatDelete(
   // 主 chat 级联全部后代：后序删除保证孙级先于父级，容忍异常 parent 环。
   const isMaster = !chat.parent_chat_id
   let cascaded = 0
+  const deletedChatIds: string[] = []
   if (isMaster) {
     const descendants: Array<{ id: string }> = []
     const seen = new Set<string>([p.chatId])
@@ -1665,26 +1697,36 @@ export async function handleChatDelete(
     for (const child of descendants) {
       clearChatRuntime(child.id)
       deleteChat(child.id)
+      deletedChatIds.push(child.id)
     }
   }
 
   // 清理运行时缓存 + 删除目标 chat
   clearChatRuntime(p.chatId)
   deleteChat(p.chatId)
+  deletedChatIds.push(p.chatId)
 
-  logger.event('chat.delete', { chatId: p.chatId, cascaded })
-  return { chatId: p.chatId }
+  logger.event('chat.delete', { chatId: p.chatId, cascaded, deletedChatIds })
+  return { chatId: p.chatId, deletedChatIds }
 }
 
 /**
- * chat.contextUsage：轻量取上下文用量详情（不流式回历史）。
- * 前端 initFromChats 后为每个可见 pet 拉一次，驱动 ContextBar 初始渲染。
+ * chat.contextUsage：仅对已建立当前执行 runtime 的活跃会话计算上下文用量。
+ * 历史浏览不得调用此接口，避免为展示历史而解析运行配置。
  */
 export async function handleChatContextUsage(
   _ctx: HandlerContext,
   data: ChatContextUsageRequestData,
 ): Promise<ChatContextUsageResponseData> {
-  const bd = computeContextBreakdown(data.chatId)
+  const selection = getChatSelection(data.chatId)
+  if (!selection) {
+    const error = new Error('该历史任务尚未建立当前运行配置，请先发送或继续') as Error & {
+      code: string
+    }
+    error.code = ErrorCode.RUNTIME_SELECTION_REQUIRED
+    throw error
+  }
+  const bd = computeContextBreakdown(data.chatId, selection)
   return {
     chatId: data.chatId,
     contextUsage: bd.usage,
@@ -1828,9 +1870,6 @@ export async function handleChatOpen(
     const subscriptionId = connectionManager.beginRootSessionOpen(data.rootChatId, ctx.connectionId)
     try {
       const chatIds = [data.rootChatId, ...collectDescendantsChatIds(data.rootChatId)]
-      // Rehydrate durable input queues before the boundary is captured. Events
-      // produced while runtimes are restored remain fenced by the subscription.
-      await Promise.all(chatIds.map((chatId) => ensureChat(chatId)))
       const page = getRootEvents(data.rootChatId, Number.MAX_SAFE_INTEGER)
       const eventSeq = page.latestSeq
       connectionManager.setSessionBoundary(subscriptionId, eventSeq)
@@ -1918,10 +1957,6 @@ export async function handleChatOpen(
   const chatId = data.chatId!
   const subscriptionId = connectionManager.beginSessionOpen(chatId, ctx.connectionId)
   try {
-    // Recreate the runtime before taking the session boundary. This restores
-    // durable accepted inputs after a process restart and lets the snapshot
-    // expose the same queue the runner will consume.
-    await ensureChat(chatId)
     // getChatEvents is synchronous; registration and boundary capture therefore execute
     // without an await gap, while outgoing events are fenced by ConnectionManager.
     const page = getChatEvents(chatId, Number.MAX_SAFE_INTEGER)
@@ -1966,41 +2001,6 @@ export async function handleChatOpen(
     }
     connectionManager.finishSessionOpen(subscriptionId)
     logger.event('chat.open', { chatId, subscriptionId, eventSeq })
-    if (!runId && pendingInputs.length > 0) {
-      const prompt = pendingInputs[0]!.content
-      const resumedRunId = randomUUID()
-      void (async () => {
-        try {
-          const generator = handleChatSend(
-            { ...ctx, requestId: resumedRunId },
-            { chatId, prompt, inputAlreadyQueued: true },
-          )
-          for await (const item of generator) {
-            const event = item as Chunk | Notification
-            if (event.chatId) {
-              event.seq = appendChatEvent(event.chatId, event as unknown as Record<string, unknown>)
-            }
-            for (const ws of connectionManager.getChatOutputs(chatId)) {
-              if (ws.readyState !== ws.OPEN) continue
-              for (const routed of connectionManager.prepareSessionEvent(ws, event)) {
-                try {
-                  ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-                } catch (error) {
-                  logger.event('chat.open.resume_output_failed', {
-                    message: (error as Error).message,
-                  })
-                }
-              }
-            }
-          }
-        } catch (error) {
-          logger.event('chat.open.resume_failed', {
-            chatId,
-            message: (error as Error).message,
-          })
-        }
-      })()
-    }
     return snapshot
   } catch (error) {
     connectionManager.closeSession(subscriptionId)

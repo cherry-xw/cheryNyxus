@@ -230,7 +230,7 @@ sense(
   - `child_done` chunk：子 agent 真正完成（所有任务执行完毕），设 `finished=true`，前端据此变 ghost。
 - **chat.list 暴露 finished**（[handler.ts](../../src/service/chat/handler.ts) `handleChatList`）：解析 `metadata.finished` 映射到 `ChatSummary.finished`，刷新后前端据 `finished` 重建 ghost pet。
 - **前端 ghost 化**（[stores/agents](../../web/src/stores/agents/index.ts)）：done notification `finished===true` → 子 pet `isGhost=true` + pick `ghostFace`（灵魂 emoji 池，**按 tribe 内创建序号顺序取** `GHOST_FACES[N % 池长]`，N=本主已存在 ghost 数；非随机、不跨实例去重--同主 ghost 固定序列 0,1,2...，不同主可同 emoji）；`buildMasterAndChildren` 重建 finished 子 pet 同样设 `isGhost`，N 按 children 迭代顺序（= `ghostCreatedAt` 队列顺序，face 与队列位一一对应）。
-- **ghost 视觉**（[GhostDot.vue](../../web/src/features/pets/components/GhostDot.vue)）：约 10px 的个体颜色发光点 + 常显短名，仅保留移动和呼吸闪烁；不再复用 PetBody，不渲染表情、手、状态、气泡、历史图标或工具栏，也不接受点击、hover、键盘和拖拽。
+- **ghost 视觉**（[GhostDot.vue](../../web/src/features/pets/components/GhostDot.vue)）：约 10px 的个体颜色发光点 + 常显短名，仅保留移动和呼吸闪烁；不再复用 PetBody，不渲染表情、手、状态、气泡、历史图标或工具栏，也不接受点击、hover、键盘和拖拽。`PetStage` 渲染全部 pets（不过滤 isGhost），`PetSprite` 模板 `v-if="pet.isGhost"` 走 GhostDot 分支（无任何交互事件绑定）；`usePetWorld` 对 ghost 走纯运动态——`ghostQueue` 持续 seek 主 Agent trail 点（弹簧跟随），孤儿 ghost 退化为近原 tribe 自由移动。
 - **名字**：ghost 保留原 pet 名字（身份延续），不重新随机。
 
 ### 5.3 协议扩展（[protocol.md](./protocol.md)）
@@ -310,7 +310,7 @@ sense(
 **feed-dog 看门狗**（取代旧固定 5min setTimeout，[spawnBroker.ts feedWatchdog](../../src/agent/spawnBroker.ts)）：子 observer for-await 每条 chunk 调 `feedWatchdog(childChatId)` 重置计时。子 `timeout_ms`（`config.global.watchdog.timeout_ms`，默认 300000=5min）内无 chunk 喂狗 → 判定卡死 → `handleAsyncWakeTimeout`（[wake.ts](../../src/service/chat/wake.ts)）按 `config.global.watchdog.wake_on_timeout` 分流：
 
 - **true**：子标记 `abandoned=true, finished=true`（metadata）→ 变 ghost，**用户无法再对子 Agent 做任何操作**（chat.send/resume 拒绝；computeCanResume=false）。同时 `wakeParent` 唤主告知「任务已结束，无法完成」（resumePending + notification 推送），清唤醒链（wakeParent 内部 clearWaitedChild）+ abort 子 generator + 清子 runtime。父决策后续补救（spawn 新子 / 改 prompt / 告知用户）。子历史可见「超时」末条（chat.get/sync 仍允许）。
-- **false**（默认）：**主无限等待**，不被超时唤醒。清子 generator + 清子 runtime，但**保留唤醒链**（不清 waitedChildren） — 用户可在子会话手动 resume（chat.send/chat.resume，ensureChat 重建 builder）；子最终完成仍走 `child_done` → `wakeParent` 正常唤主（不依赖 timeout 通知路径，修复前 wake 链被清导致结果丢失）。
+- **false**（默认）：**主无限等待**，不被超时唤醒。清子 generator + 清子 runtime，但**保留唤醒链**（不清 waitedChildren） — 用户可在子会话手动 resume（chat.send/chat.resume，ensureChat 重建 builder）；子最终完成仍走 `child_done` → `wakeParent` 正常唤主（不依赖 timeout 通知路径，修复前 wake 链被清导致结果丢失）。该分支仍向子订阅端推 `run.updated{paused}` 终态（`createNotification` + `appendChatEvent` + `broadcastChatNotification`，与 role_reply/child_abandoned 同模式），使前端子 pet/CRT「工作中」随看门狗超时复位，不留 running 残留。
 
 两态共性：看门狗 timer 已 fire 一次不再自动 fire（无 chunk → 不 reset）；用户 resume 后子再产 chunk → `feedWatchdog` 重启 timer → 子再次 hang → 再 fire。重启容错 `rebuildWaitedChildren` 跳过 `abandoned=true` 子（避免重复唤主）。超时回调由 service 启动期 `setAsyncWakeHandler` 注入（agent 层不直调 service）。
 
@@ -320,11 +320,11 @@ sense(
 
 ### 5.5 context usage（CP7 已实现简化估算）
 
-- `chat.get` response 增返 `contextUsage`（当前 chat 总 token / brain.contextLimit，0-1）
 - `chat.send`/`chat.resume` 完成时 `done` notification 增携 `contextUsage`（每轮 loop 后实时重算推送）
+- 纯历史查看不计算 context usage；`chat.get/sync/open` 不解析 runtime。只有当前会话已建立执行 runtime 后，实时 `done`（或显式 `chat.contextUsage`）才计算
 - `brain.list` response 增返每 brain 的 `contextLimit`（CP2 已实现）
 - token 用量计算：**简化估算 `Math.ceil(text.length / 4)`**（字符数近似，英文 4 char/token；中文偏保守），累加 chat 所有非 revoked 消息 content+thinking。实现见 [src/utils/token.ts](../../src/utils/token.ts)。后续接 tokenizer（如 js-tiktoken）时替换 `estimateTokens` 实现，调用点不变
-- 估算失败兜底 0 + console.warn（规则 12 fail loud：不阻塞 chat.send/get 主流程）
+- 估算失败兜底 0 + console.warn（不阻塞当前执行流）
 
 ### 5.7 消息级 runtime 记录（每轮配置溯源）
 

@@ -4,9 +4,7 @@
  * 从 PetBody 拆出（纯展示）。workspaceFolder/workspaceIcon computed 留在父组件，结果作 prop 传入。
  * tribe 色由 CSS var --tribe-hue 提供（DOM 继承）；朝向由 --pet-direction 提供。
  */
-import { computed } from 'vue'
-
-const props = defineProps<{
+defineProps<{
   nameChars: string[]
   isMaster: boolean
   isSub: boolean
@@ -15,12 +13,14 @@ const props = defineProps<{
   workspaceFolder: string
   workspaceIcon: string
 }>()
-
-const fullName = computed(() => props.nameChars.join(''))
 </script>
 
 <template>
-  <span class="name" :class="{ 'is-master': isMaster, 'is-sub': isSub }" :title="fullName">
+  <span
+    class="name"
+    :class="{ 'is-master': isMaster, 'is-sub': isSub }"
+    :title="nameChars.join('')"
+  >
     <span
       v-if="isMaster && workspace"
       class="workspace-icon"
@@ -113,6 +113,49 @@ const fullName = computed(() => props.nameChars.join(''))
   pointer-events: none;
   text-align: center;
   /* meta-row 有 scaleX(direction)；bubble 反向 scaleX 抵消，避免 pet 朝左时文字镜像 */
+  transform: translateX(-50%) scaleX(var(--pet-direction));
+}
+
+/* 运行配置已变更标记：名字右侧 ⚠，hover 弹失效项详情（brain/感官组缺失）。
+   点击不可行（pet 单击已绑打开 AgentDialog）——仅提示，重选动作在 AgentDialog 内完成。 */
+.runtime-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 3px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--danger);
+  cursor: default;
+  user-select: none;
+
+  &:hover .rt-bubble {
+    display: block;
+  }
+}
+
+.rt-bubble {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  z-index: 20;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: 160px;
+  margin-bottom: 4px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: var(--panel);
+  border: 1px solid var(--danger);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.14);
+  color: color-mix(in srgb, var(--danger) 88%, var(--ink));
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+  text-align: center;
   transform: translateX(-50%) scaleX(var(--pet-direction));
 }
 </style>

@@ -57,7 +57,7 @@ compact 事件（手动 `[[command:/compact]]` 与 autoCompact 统一）把 root
 - `runId` 标识一次 send/resume；工具循环中的每次 LLM 调用产生不同 `msgId`。
 - 每个实时 stream delta 必带 `msgId` 和 `createdAt`。前端首次看到新 id 时建立空 streaming message，再追加 delta；Pet 和历史抽屉读取同一对象。
 - `consumed` notification 携本次进入 journal 的完整 user messages（含真实 id），覆盖主 chat 排队输入和子 chat 初始 prompt。
-- `chat.sync` response 携 session metadata/runtime/context/currentState/question snapshot；冷启动 `chat.sync(0)` 可构建完整 ChatSession，正常运行不再依赖 `chat.get` 收敛。
+- `chat.sync` response 携 session metadata/历史 runtime/currentState/question snapshot；历史 runtime 仅回显，不解析。冷启动 `chat.sync(0)` 可构建完整 ChatSession，正常运行不再依赖 `chat.get` 收敛。
 - 所有 live chat 事件先持久化再发 socket，并携 `seq`。前端以 `seq` 去事件重放、以 `msgId` 做消息 upsert。
 
 running chat hydration 顺序固定：`chat.attach` 先建立实时输出重定向，但不推进客户端 cursor；随后 `chat.sync(lastSeq)` 填补缺口，sync response 在 `snapshotSeq` 边界应用权威快照，再继续消费更晚事件。attach snapshot 不得提前跳过当前 active message 的既有 delta。
@@ -68,7 +68,7 @@ running chat hydration 顺序固定：`chat.attach` 先建立实时输出重定�
 |------|--------|
 | [src/service/chat/send.ts](../../src/service/chat/send.ts) | `handleChatSend` / `handleChatResume` / `handleSenseApproval` / `handleChatAbort` + `registerChatHandlers` |
 | [src/service/chat/handler.ts](../../src/service/chat/handler.ts) | `handleChatCreate` / `handleChatList` / `handleChatGet`（流式历史 + canResume）/ `handleChatDelete` + `registerChatManageHandlers` |
-| [src/service/chat/contextUsage.ts](../../src/service/chat/contextUsage.ts) | `computeContextBreakdown`：6 段 token 用量分解（chat.contextUsage / chat.get 快照共用） |
+| [src/service/chat/contextUsage.ts](../../src/service/chat/contextUsage.ts) | `computeContextBreakdown`：仅针对已建立当前执行 runtime 的活跃会话计算 6 段 token 用量 |
 | [src/service/chat/generations.ts](../../src/service/chat/generations.ts) | `computeGenerations`（compact 边界推导代际索引）+ `handleChatTimelineGenerationGet`（chat.timeline.generation.get）+ 分支代际校验辅助 |
 | [src/service/chat/promptSnapshot.ts](../../src/service/chat/promptSnapshot.ts) | `handleChatPromptSnapshot`：重建 chat 当前 runtime 的 system prompt 全文 + 工具定义（chat.promptSnapshot RPC，供历史抽屉「上下文」hover 面板） |
 | [src/service/chat/observer.ts](../../src/service/chat/observer.ts) | `observeAgentChunks`：消费 effect chunk 做 DB 副作用 + 审批注册 + child_done 调度，finally abort flush + 每条 chunk feed-dog 喂狗 |
@@ -96,9 +96,19 @@ export function clearChatRuntime(chatId: string): void;        // chat.delete / 
 export function abortChatRuntime(chatId: string): void;        // builder.abort → compose.abort throw 注入
 ```
 
-`ensureChat` 幂等：已存在直接返回（带 selection 则 `configureRuntime` 原子更新 + 持久化）；不存在则 `new AgentBuilder().build()` + 从 `metadata.runtime` 或显式 selection 解析 runtime + `loadHistory` 一次性注入内存。
+`ensureChat` 幂等：已存在直接返回（带 selection 则 `configureRuntime` 原子更新）；不存在则 `new AgentBuilder().build()`，从显式会话选择或当前 preset/type 关联解析 runtime，再由 `loadHistory` 一次性注入消息。历史 `metadata.runtime` 不参与新执行。
 
 `configureRuntime` 内部：`runtime.selection = selection` + `builder.configureRuntime(selection)` + `updateChatMetadata(chatId, {runtime: selection})`（持久化供重启恢复）。
+
+#### 历史 runtime 与当前执行关联（resolveEffectiveSelection）
+
+`metadata.runtime` 是历史执行快照，只用于回显当时使用的 brain/senseGroup/mcpServers。启动、目录加载、`chat.get/sync/open` 和节点树打开都不会解析或校验它。
+
+新一轮执行只从当前设置解析：显式 `session.runtime.set` 优先；主 chat 按稳定 `presetId` 查当前 preset（旧数据再回退 preset 名）并取当前 leader；子 chat 按历史 `metadata.type` 查当前 role。关联结果只注入内存，不覆盖历史快照。
+
+找不到当前 preset/type 关联时，历史仍可正常查看；执行入口返回 `RUNTIME_SELECTION_REQUIRED`，要求用户显式选择当前运行配置。`chat.create` / `runtime.set` 对用户主动选择仍做严格校验。
+
+`chat.list` 必须显式指定范围：`stage` 仅在数据库中查询当前配置关联的各 preset 最新根及后代；`preset` 在用户打开某预设时加载该预设目录；`history` 只在用户打开完整历史时加载全部目录。
 
 #### session.runtime.set —— 主角色 + 子角色编制（带回灌已存在子）
 
@@ -182,6 +192,10 @@ handleChatDelete(ctx, params): Promise<{chatId}>                       // clearC
    // 统一暂停语义：final Response 恒 success:true。AI 报错（retry 耗尽 ErrorChunk）等异常归 paused，
    // streamMapper 已下发 error notification（含 canResume）；前端据 canResume 显继续按钮。
    // 结束态（ended）仅 loop 自然完成（末条 assistant 无 senseCalls）。
+   // streamMapper 终态兜底：generator 抛异常（park/abort/未预期）时，streamMapper 的 catch/finally
+   // 先补发 run.updated{paused} + 未完成 turn 的 turn.completed（abort/park 静默不弹 error；未预期故障
+   // 补发 error 含 canResume），随后 rethrow 交本层 catch 记日志 + finally 释放——前端在 RPC resolve
+   // 前已收到终态通知清 running，无重复、无时序冲突。
    return { chatId, runId, ...(userMsgId ? { userMsgId } : {}) }
 ```
 
@@ -241,8 +255,8 @@ finally:                                                // abort 兜底 flush
 | `sense_reject` | `createNotification("rejected", rid, {approvalId:id, senseName, reason})` | 被拒 |
 | `question_batch_pending` | `createNotification("question_batch_requested", rid, {batchId,assistantMessageId,createdAt,questions})` | 同一 assistant turn 的完整 ask_user_question 批次；observer 已先持久化领域状态 |
 | `consumed` | `createNotification("consumed", rid, {count,messages})` | 输入入队；messages 为已写 journal 的规范化 user 消息，含真实 id，前端据此 upsert/rekey 乐观消息。 |
-| `error` | `createNotification("error", rid, {message: errors[0].message})` | 软失败 |
-| `done` | `createNotification("done", rid, null)` | loop 结束 |
+| `error` | `createNotification("error", rid, {message: errors[0].message})` | 软失败（error chunk 分支）。另有 catch 兜底：generator 抛未预期异常时补发同款 error（含 `canResume`）；abort/park 静默不弹 error |
+| `done` | `createNotification("done", rid, null)` | loop 结束。done 分支构造前先跑 `finalizeSpawnChildIfDone`（幂等），使独立 `chat.resume` 完成的子 chat 的 `finished:true` 就位（修复 resume 路径时序竞态）；`finished` 供前端子 pet 转 ghost |
 | `message_updated`（带 replace） | `createNotification("replaced", rid, {id, content, originalContent, by})` | 感官去重 |
 | `message_created` / `sense_pending` | `continue`（被 observer 消费） | 不进传输层 |
 
@@ -263,7 +277,7 @@ finally:                                                // abort 兜底 flush
 
 `agent.resume()`（builder.ts）：末尾有 pending sense → 置 `resumePending=true`，首轮 senseMiddleware skip chat 层、重发 `sense_end`→`interrupt`（按监管等级）；全 done → `run("")` 正常 loop。续接规则与交互序列见 [../interaction.md](../interaction.md) chat.resume，agent 侧实现见 [../agent/middleware.md](../agent/middleware.md)。
 
-**防御性 finalize**（[spawnFinalize.ts](../../src/service/chat/spawnFinalize.ts) `finalizeSpawnChildIfDone`）：`handleChatResume` 末尾若 `chat.parent_chat_id` 非空（子 chat）调一次。子 loop 暂停后经独立 `chat.resume` 续跑完成的场景，resume 路径本身不写 finished——此 helper 兜底：末条 assistant + 未 finished → `finishSpawnTask` + `updateChatMetadata({finished:true})`，保证子最终转 ghost（与 `handleChatStartSpawn` 路径一致，幂等，不调 wakeParent 避免重复唤主）。统一暂停语义下错误只归 paused 可续，最终一次 resume 跑完必须标 finished。
+**防御性 finalize**（[spawnFinalize.ts](../../src/service/chat/spawnFinalize.ts) `finalizeSpawnChildIfDone`）：done 分支构造前（streamMapper.ts done 分支）先调一次——子 chat 走独立 `chat.resume` 续跑完成的场景，loop 不 yield `child_done`、observer 不在流内设 finished，此调用使 done 通知携带 `finished:true`（修复时序竞态：原兜底在 send.ts 末尾、done 通知之后执行，为时已晚）。判定：末条 assistant **且无 sense_calls**（带 sense_calls = yield-turn 子 spawn 孙后等待，不标）→ `finishSpawnTask` + `updateChatMetadata({finished:true})`；幂等（非子 chat / 已 finished / 末条非 assistant / 带 sense_calls 均短路），不调 wakeParent 避免重复唤主。`handleChatSend`/`handleChatResume` 末尾的调用保留为防御性兜底。统一暂停语义下错误只归 paused 可续，最终一次 resume 跑完必须标 finished。
 
 ### chat.get 流式载入历史（handler.ts `handleChatGet`）
 
@@ -331,15 +345,21 @@ wakeParent(parentChatId, childChatId, type, content, { silent? })
 子 timeout_ms（config.global.watchdog.timeout_ms，默认 5min）内无 chunk 喂狗 → 判定卡死
   wakeOnTimeout = config.global.watchdog.wake_on_timeout ?? false  // 默认 false
   if wakeOnTimeout:
+    recordSpawnTerminationFact + emitTimelinePatch(child)         // 结构化 termination 入 timeline
     wakeParent(parent, child, type, "[角色 type] 子任务执行超时（已暂停，可在子会话点击继续）")
       └─ silent=false 完整唤主（通知主决策重派/放弃）
+    emitChildAbandoned(parent, child, type, reason)               // 前端子 pet 即时转 ghost（独立于 role_reply）
+    updateChatMetadata(child, { abandoned:true, finished:true })  // 标记 ghost
   else:
-    clearWaitedChild(child)  // 不唤主也需释放唤醒链 + 看门狗
+    recordTerminationFact({actor:'system', code:'watchdog'}) + emitTimelinePatch(child)  // 结构化终止入 timeline
+    push run.updated{paused}（createNotification + appendChatEvent + broadcastChatNotification）
+      └─ 前端据终态清 run.status，避免子 chat 永久「工作中」（订阅端离线则跳过，重连由 chat.list 重建）
+    // 不唤主、不清 waitedChildren——用户可 resume 子续跑，子最终完成仍走 child_done → wakeParent
   abortChatRuntime(child) + clearChatRuntime(child)  // 释放挂死 generator + 内存
   // 子 chat 保持末条派生 canResume，用户可 resume 续跑
 ```
 
-**看门狗与唤醒链解耦**（修问题2根因）：`wake_on_timeout=false`（默认）下，子卡死不影响主——主继续等真正完成的子唤主；子被 abort 后可由用户从子会话 resume 续跑。
+**看门狗与唤醒链解耦**（修问题2根因）：`wake_on_timeout=false`（默认）下，子卡死不影响主——主继续等真正完成的子唤主；子被 abort 后可由用户从子会话 resume 续跑。false 分支仍向子订阅端推 `run.updated{paused}` 终态（复用 role_reply/child_abandoned 的 createNotification + appendChatEvent + broadcastChatNotification 模式），使前端子 pet/CRT 的「工作中」状态随看门狗超时复位，不留 running 残留。
 
 **rebuildWaitedChildren（启动重建）**（[wake.ts](../../src/service/chat/wake.ts)，service/index.ts init 调，broadcaster / asyncWake 注入之后）：扫所有子 chat（parent_chat_id 非空）按 wake 策略分流：
 

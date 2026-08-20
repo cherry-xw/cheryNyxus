@@ -406,11 +406,32 @@ export function listOpenSpawnTasks(parentChatId: string): SpawnTask[] {
   return rows.map(toSpawnTask)
 }
 
+/**
+ * Startup recovery reads only spawn tasks that may still require parent wake
+ * reconstruction. Completed historical children with an injected result stay
+ * on disk and are not materialized into the startup catalog.
+ */
+export function listSpawnTasksNeedingWakeRecovery(): SpawnTask[] {
+  const rows = getSoulDb()
+    .prepare(
+      `SELECT task.* FROM spawn_tasks task
+       JOIN chats child ON child.id = task.child_chat_id
+       WHERE child.parent_chat_id IS NOT NULL
+         AND COALESCE(json_extract(child.metadata, '$.roleInjected'), 0) != 1
+         AND COALESCE(json_extract(child.metadata, '$.abandoned'), 0) != 1
+       ORDER BY task.created_at, task.task_id`,
+    )
+    .all() as Record<string, unknown>[]
+  return rows.map(toSpawnTask)
+}
+
 export function listSpawnTasksByParents(parentChatIds: readonly string[]): SpawnTask[] {
   if (!parentChatIds.length) return []
   const placeholders = parentChatIds.map(() => '?').join(',')
   const rows = getSoulDb()
-    .prepare(`SELECT * FROM spawn_tasks WHERE parent_chat_id IN (${placeholders}) ORDER BY created_at, task_id`)
+    .prepare(
+      `SELECT * FROM spawn_tasks WHERE parent_chat_id IN (${placeholders}) ORDER BY created_at, task_id`,
+    )
     .all(...parentChatIds) as Record<string, unknown>[]
   return rows.map(toSpawnTask)
 }
@@ -423,8 +444,10 @@ export function rerouteSpawnTasks(
 ): void {
   if (!taskIds.length) return
   const placeholders = taskIds.map(() => '?').join(',')
-  getSoulDb().prepare(
-    `UPDATE spawn_tasks SET delivery_chat_id = ?, delivery_branch_id = ?, delivery_generation = ?, updated_at = ?
+  getSoulDb()
+    .prepare(
+      `UPDATE spawn_tasks SET delivery_chat_id = ?, delivery_branch_id = ?, delivery_generation = ?, updated_at = ?
      WHERE task_id IN (${placeholders}) AND status IN ('pending', 'started')`,
-  ).run(deliveryChatId, deliveryBranchId, generation, Date.now(), ...taskIds)
+    )
+    .run(deliveryChatId, deliveryBranchId, generation, Date.now(), ...taskIds)
 }

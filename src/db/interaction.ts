@@ -1,17 +1,10 @@
 import { getSoulDb } from './index.js'
-import { getChat, getMessages, getRootChatId, listAllChats, parseMessageRow } from './chat.js'
-import { getPendingQuestionBatches } from './question.js'
-import config from '@/utils/config.js'
+import { getChat, getRootChatId } from './chat.js'
 import { safeJsonParse } from '@/utils/json.js'
 
 export type InteractionKind = 'approval' | 'question_batch'
 export type InteractionStatus =
-  | 'pending'
-  | 'resolving'
-  | 'completed'
-  | 'expired'
-  | 'cancelled'
-  | 'blocked'
+  'pending' | 'resolving' | 'completed' | 'expired' | 'cancelled' | 'blocked'
 
 export interface InteractionRecord {
   interactionId: string
@@ -191,43 +184,4 @@ export function listOverdueApprovals(now = Date.now()): InteractionRecord[] {
     )
     .all(now) as InteractionRow[]
   return rows.map(toRecord)
-}
-
-/** Idempotent upgrade bridge for interactions created before the inbox table existed. */
-export function reconcileInteractionInbox(): void {
-  for (const chat of listAllChats()) {
-    for (const batch of getPendingQuestionBatches(chat.id)) {
-      if (getInteraction(batch.batchId)) continue
-      upsertPendingInteraction({
-        interactionId: batch.batchId,
-        kind: 'question_batch',
-        chatId: chat.id,
-        anchorNodeId: batch.assistantMessageId,
-        payload: { assistantMessageId: batch.assistantMessageId, questions: batch.questions },
-      })
-    }
-
-    const messages = getMessages(chat.id)
-    for (let index = messages.length - 1; index >= 0; index--) {
-      const parsed = parseMessageRow(messages[index]!)
-      if (parsed.role !== 'sense' || parsed.revoked) break
-      if (parsed.content) break
-      const call = parsed.senseCall?.[0]
-      if (!call || getInteraction(call.id)) continue
-      const createdAt = messages[index]!.created_at
-      const timeout = config.global.approval_timeout ?? 0
-      upsertPendingInteraction({
-        interactionId: call.id,
-        kind: 'approval',
-        chatId: chat.id,
-        anchorNodeId: call.id,
-        payload: {
-          senseName: call.name,
-          arguments: call.arguments,
-          supervisionLevel: 1,
-        },
-        ...(timeout > 0 ? { deadlineAt: createdAt + timeout } : {}),
-      })
-    }
-  }
 }

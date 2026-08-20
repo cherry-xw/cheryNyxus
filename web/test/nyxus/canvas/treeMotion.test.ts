@@ -112,7 +112,12 @@ describe('Nyxus tree motion contract', () => {
       source.indexOf('function presentGpuDrag'),
       source.indexOf('function finishGpuDrag'),
     )
+    const dragEnd = source.slice(
+      source.indexOf('function finishGpuDrag'),
+      source.indexOf('const projectedCrts'),
+    )
     expect(dragFrame).not.toContain('gpuRenderer?.setCamera(camera)')
+    expect(dragEnd).toContain('snapCrtWindowsToAnchors()')
     expect(source).not.toContain('.gpu-node-hit-target,\n    .crt-anchor-lines')
   })
 

@@ -548,6 +548,11 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
       }
       if (preparedInput) chatSessions.rollbackPreparedInput(preparedInput, e)
       error.value = (e as Error).message
+      // 历史 runtime 仅供展示。无法关联当前 preset/type 时保留后端错误，
+      // 用户可直接在上方角色编制中选择当前运行配置后再次提交。
+      if ((e as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {
+        console.info('[AgentDialog] historical task requires a current runtime selection')
+      }
       console.error('[AgentDialog] submit input failed:', e)
       return false
     } finally {

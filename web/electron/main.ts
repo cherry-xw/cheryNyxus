@@ -56,6 +56,8 @@ export interface OpenWindowRequest {
   chatId?: string
   source?: 'pet' | 'history' | 'nyxus'
   view?: 'composer' | 'attention' | 'tree'
+  /** Hide the Pet composer until the workbench it opened is closed. */
+  returnToComposer?: boolean
   /** 待处理抽屉「打开节点树」定位参数（新建工作台窗 did-finish-load 后下发）。 */
   focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
 }
@@ -78,6 +80,7 @@ function isValidOpenRequest(value: unknown): value is OpenWindowRequest {
     return (
       typeof req.presetId === 'string' &&
       (req.chatId === undefined || typeof req.chatId === 'string') &&
+      (req.returnToComposer === undefined || typeof req.returnToComposer === 'boolean') &&
       (req.focus === undefined || typeof req.focus === 'object')
     )
   }
@@ -91,6 +94,8 @@ interface ManagedWindow {
   win: BrowserWindow
   /** 工作台窗 keepAlive（close=hide 保 WS/run）；设置窗 close 即 destroy。 */
   keepAlive: boolean
+  /** Source window restored when this keep-alive workbench is hidden. */
+  restoreWindowKeyOnHide?: string
 }
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8182)
@@ -477,6 +482,7 @@ function createManagedWindow(
       // hide 保持连接、run 继续；重开同 preset → show+focus 还原。
       event.preventDefault()
       win.hide()
+      restoreSourceWindow(entry)
       return
     }
     // 设置窗：默认销毁（无运行状态，重开重载 config）
@@ -498,6 +504,21 @@ function showManagedWindow(key: string): boolean {
   return true
 }
 
+/** Keep the Pet composer and its draft alive, but remove the duplicate surface. */
+function suspendComposerForWorkbench(entry: ManagedWindow): void {
+  const composer = managedWindows.get('composer')
+  if (!composer || composer.win.isDestroyed() || !composer.win.isVisible()) return
+  composer.win.hide()
+  entry.restoreWindowKeyOnHide = 'composer'
+}
+
+function restoreSourceWindow(entry: ManagedWindow): void {
+  const key = entry.restoreWindowKeyOnHide
+  if (!key) return
+  delete entry.restoreWindowKeyOnHide
+  showManagedWindow(key)
+}
+
 function openSettingsWindow(): void {
   if (showManagedWindow('settings')) return
   createManagedWindow('settings', {
@@ -515,6 +536,7 @@ function openWorkbenchWindow(req: OpenWindowRequest & { kind: 'workbench' }): vo
     const wc = managedWindows.get(key)!.win.webContents
     if (req.chatId) wc.send('workbench:open-chat', req.chatId)
     if (req.focus) wc.send('workbench:focus', req.focus)
+    if (req.returnToComposer) suspendComposerForWorkbench(managedWindows.get(key)!)
     return
   }
   const entry = createManagedWindow(key, {
@@ -528,6 +550,7 @@ function openWorkbenchWindow(req: OpenWindowRequest & { kind: 'workbench' }): vo
       ...(req.chatId ? { chatId: req.chatId } : {}),
     },
   })
+  if (req.returnToComposer) suspendComposerForWorkbench(entry)
   // did-finish-load 后补发 focus（renderer 尚未挂监听时消息会丢失）
   if (req.focus) {
     entry.win.webContents.once('did-finish-load', () => {

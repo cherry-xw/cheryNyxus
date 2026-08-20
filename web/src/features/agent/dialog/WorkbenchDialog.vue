@@ -733,6 +733,19 @@ async function executeSessionControl(): Promise<void> {
     } else await chatSessions.resumeAgent(id)
   } catch (cause) {
     console.error(`[WorkbenchDialog] ${mode} failed:`, cause)
+    if ((cause as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {
+      const bridge = desktopBridge()
+      if (bridge) {
+        bridge.openWindow({ kind: 'composer', chatId: id, source: 'history', view: 'composer' })
+      } else {
+        agents.closeWorkbenchWindow(props.windowId)
+        agents.activeDialogSource = 'history'
+        agents.activeDialogView = 'composer'
+        agents.activeDialogChatId = id
+      }
+      ElMessage.warning('请先选择当前运行配置，再继续该历史任务')
+      return
+    }
     ElMessage.error(cause instanceof Error ? cause.message : '会话控制失败，请重试')
   } finally {
     sessionControlPending.value = false
@@ -770,24 +783,30 @@ watch(
 watch(
   chatId,
   (id) => {
-    if (id) {
-      nyxusDraftActive.value = false
-      treeRootChatId.value = id
-      const summary = agents.historyList.find((item) => item.chatId === id)
-      if (summary?.taskId) {
-        const requestedChatId = id
-        taskTimeline.value = undefined
-        void agentApi
-          .getTaskTimeline({ taskId: summary.taskId, view: 'tree' })
-          .then((snapshot) => {
-            if (treeRootChatId.value === requestedChatId) taskTimeline.value = snapshot
-          })
-          .catch(() => {
-            if (treeRootChatId.value === requestedChatId) taskTimeline.value = undefined
-          })
-      } else {
-        taskTimeline.value = undefined
-      }
+    if (!id) {
+      treeRootChatId.value = ''
+      taskTimeline.value = undefined
+      treeFocusSourceChatId.value = undefined
+      treeFocusInteractionId.value = undefined
+      branchTarget.value = undefined
+      return
+    }
+    nyxusDraftActive.value = false
+    treeRootChatId.value = id
+    const summary = agents.historyList.find((item) => item.chatId === id)
+    if (summary?.taskId) {
+      const requestedChatId = id
+      taskTimeline.value = undefined
+      void agentApi
+        .getTaskTimeline({ taskId: summary.taskId, view: 'tree' })
+        .then((snapshot) => {
+          if (treeRootChatId.value === requestedChatId) taskTimeline.value = snapshot
+        })
+        .catch(() => {
+          if (treeRootChatId.value === requestedChatId) taskTimeline.value = undefined
+        })
+    } else {
+      taskTimeline.value = undefined
     }
   },
   { immediate: true },
@@ -796,7 +815,12 @@ watch(
 watch(
   treeRootChatId,
   (rootChatId, previousRootChatId) => {
-    if (!rootChatId) return
+    if (!rootChatId) {
+      if (previousRootChatId) {
+        void chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
+      }
+      return
+    }
     void chatSessions
       .acquireRootTimeline(rootChatId, rootSubscriptionOwner, 'tree')
       .then(async () => {
@@ -888,20 +912,19 @@ async function openWorkspaceTree(
 
 async function deletePresetSession(targetId: string): Promise<void> {
   if (!targetId) return
-  if (targetId === chatId.value) {
-    const remaining = quickSessions.value.find((session) => session.chatId !== targetId)
-    if (remaining) await switchSession(remaining.chatId)
-    else {
-      error.value = '请先新建一个会话，再删除当前会话'
-      return
-    }
+  try {
+    await agents.deleteSession(targetId)
+    ElMessage.success('会话已删除')
+  } catch (cause) {
+    console.error('[WorkbenchDialog] deletePresetSession failed:', cause)
+    error.value = '删除会话失败，请重试'
+    ElMessage.error(error.value)
   }
-  await agents.deleteSession(targetId)
 }
 
 /**
  * 加号「新建会话」：复用已有空白会话；无则新建。均跳转定位过去。
- * 刷新后 historyList 来自 listChats(false)(无 turnCount)；fetchHistoryList 取 listChats(true)
+ * 刷新后 historyList 来自 stage scope（无 turnCount）；fetchHistoryList 取 history scope
  * 才有 turnCount(0=空白，>0=有内容)，确保空白判定可靠。
  */
 async function createSession(): Promise<void> {
@@ -935,23 +958,13 @@ async function createSession(): Promise<void> {
  */
 async function deleteNyxusSession(targetId: string): Promise<void> {
   if (!targetId) return
-  const wasFocus = targetId === chatId.value
-  if (wasFocus) {
-    const remaining = (agents.historyList ?? [])
-      .filter((c) => !c.parentChatId && c.preset === CHERY_NYXUS_PRESET && c.chatId !== targetId)
-      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0]
-    if (remaining) {
-      await switchSession(remaining.chatId)
-    } else {
-      treeRootChatId.value = ''
-    }
-  }
   try {
     await agents.deleteSession(targetId)
+    ElMessage.success('会话已删除')
   } catch (e) {
     console.error('[WorkbenchDialog] deleteNyxusSession failed:', e)
-    error.value = '删除会话失败'
-    return
+    error.value = '删除会话失败，请重试'
+    ElMessage.error(error.value)
   }
 }
 
@@ -1099,33 +1112,17 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
 )
 
 // ── 节点树工作台上下文占用 ──
-// Nyxus 会话不建 PetInstance，不走 pet.contextUsage。session 的 context.contextUsage/contextBreakdown
-// 仅在会话发生 stream.done 后水合（树模式 observeRootTimeline 走 rootTimelines，不水合 sessionsById），
-// 故对刚加载的历史树可能为空 → 显式调 chat.contextUsage RPC 拉取权威快照兜底。
+// 历史/纯查看工作台不解析 runtime 或补算完整上下文；仅实时 done 更新该区域。
 const rootSessionData = useChatSessionData(() => treeRootChatId.value || undefined)
 const treeCtxUsage = ref<{ usage: number; breakdown: ContextBreakdown | null }>({
   usage: 0,
   breakdown: null,
 })
-let treeCtxUsageChatId = ''
-async function loadTreeContextUsage(chatId: string): Promise<void> {
-  if (treeCtxUsageChatId === chatId) return
-  treeCtxUsageChatId = chatId
-  try {
-    const res = await agentApi.contextUsage(chatId)
-    if (treeCtxUsageChatId === chatId) {
-      treeCtxUsage.value = { usage: res.contextUsage, breakdown: res.contextBreakdown }
-    }
-  } catch {
-    // 拉取失败保持当前值；session 水合后仍可实时补上
-  }
-}
 watch(
   treeRootChatId,
-  (id) => {
-    if (id) void loadTreeContextUsage(id)
+  () => {
+    treeCtxUsage.value = { usage: 0, breakdown: null }
   },
-  { immediate: true },
 )
 // 实时 session 数据优先；未水合（undefined/null）时退回 RPC 快照。
 const treeUsage = computed(() => rootSessionData.contextUsage.value ?? treeCtxUsage.value.usage) // 0-1
@@ -1230,6 +1227,10 @@ defineExpose({ closeWorkbench })
           :detail-branch-unavailable-reason="detailBranchAvailability.reason"
           @branch="selectBranchTarget"
         />
+        <div v-else class="workbench-empty-state" aria-live="polite">
+          <span>暂无历史会话</span>
+          <button type="button" @click="createSession">新建会话</button>
+        </div>
         <div v-if="treeLoading" class="workbench-tree-loading" aria-live="polite">
           <span class="workbench-spinner" aria-hidden="true" />
           节点树加载中…
@@ -2635,6 +2636,27 @@ defineExpose({ closeWorkbench })
 
 .nyxus-branch-top :deep(.tree-viewport) {
   pointer-events: auto;
+}
+
+.workbench-empty-state {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
+  pointer-events: auto;
+}
+
+.workbench-empty-state button {
+  padding: 7px 14px;
+  border: 1px solid var(--nx-border);
+  border-radius: 8px;
+  color: var(--nx-text);
+  background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 8%);
+  cursor: pointer;
+}
+
+.workbench-empty-state button:hover {
+  border-color: var(--nx-cyan);
 }
 
 .nyxus-composer-dock {

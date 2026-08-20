@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { logger } from '@/utils/logger/index.js'
-import { listOverdueApprovals, reconcileInteractionInbox, transitionInteraction } from '@/db/interaction.js'
+import { listOverdueApprovals, transitionInteraction } from '@/db/interaction.js'
 import { approvalManager } from '../approval/manager.js'
 import { launchDetachedResume } from '../chat/send.js'
 import { broadcastInteractionChanged } from './events.js'
@@ -42,12 +42,13 @@ async function expireOne(interactionId: string, chatId: string): Promise<void> {
 }
 
 async function sweep(): Promise<void> {
-  await Promise.all(listOverdueApprovals().map((item) => expireOne(item.interactionId, item.chatId)))
+  await Promise.all(
+    listOverdueApprovals().map((item) => expireOne(item.interactionId, item.chatId)),
+  )
 }
 
 export function startInteractionLifecycle(): void {
   if (timer) return
-  reconcileInteractionInbox()
   void sweep()
   timer = setInterval(() => void sweep(), 1000)
 }

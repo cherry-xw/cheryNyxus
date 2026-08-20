@@ -3,7 +3,7 @@
 ## 模块边界
 
 - `web/src/stores/chats/rootTimeline.ts` 只维护 canonical snapshot、root transient plane 和 patch 原子应用；revision gap 由 store 触发 resync。
-- `web/src/features/pets/nyxus/graph/executionGraph.ts` 只把显式节点、边和 active run facts 投影为 UI-neutral graph，不读取数据库结构，不按正文、时间相邻或角色名称推断关系。
+- `web/src/features/pets/nyxus/graph/executionGraph.ts` 只把显式节点、边和 active run facts 投影为 UI-neutral graph，不读取数据库结构，不按正文、时间相邻或角色名称推断关系。`projectActiveTurnNodes` 的 transient 锚点：`dispatch`/`spawn` 节点优先作为其 `target.chatId` 子 chat 的前驱（子 chat 流式回复从派发点连出），普通消息节点按 `createdAt` 取该 chat 最新（不依赖持久图数组遍历顺序）；同 chat 连续 stream 节点在单次投影内串联成链；子 chat 无任何持久/stream 节点时才 `?? start` 兜底。
 - `web/src/features/pets/nyxus/graph/executionLayout.ts` 只处理稳定 lane、全局纵向顺序和坐标缓存；流式正文变化复用坐标，拓扑变化才重算。
 - `web/src/features/pets/nyxus/graph/nodeSkins.ts`、`edgeStyles.ts`、`termination.ts` 和 `web/src/styles/overlayLayers.ts` 分别集中 skin、edge、termination 文案和 overlay 层级。
 - `MessageBranchTree.vue` 只编排画布、HTML overlay、输入和可访问性交互，不重新构造 canonical relation。
@@ -45,7 +45,7 @@
 - 高频悬浮反馈仅用于空间连续性和状态辨识：进入/退出使用不超过 200ms 的 `opacity/transform`，内容切换使用短淡入；禁止正文持续位移或颗粒抖动。应用不跟随 `prefers-reduced-motion`（见 `docs/web/settings.md` 动效降级约定），动效恒开。
 - 暂停后发新消息且存在被中止子 Agent 时，节点树显示一条稳定 ID 的“系统事件”；不得伪装成用户消息，重试、刷新和回放不得重复生成。
 - 运行 CRT 与节点详情共用石墨终端色板：深石墨背景、灰白正文、青色交互强调、琥珀运行态、绿色完成态、红色失败态。禁止整卡扫描线、循环边框、噪点位移和逐字输出；流式状态仅允许小状态点低幅反馈，正文页签切换只做短淡入。
-- 运行 CRT 默认尺寸较旧版缩小约 15%，标题栏可拖动。用户拖动后的 CRT 使用工作台屏幕坐标，不随节点树 pan/zoom；多个 CRT 可重叠，点击窗口提升其局部层级。坐标与层级只保留到当前工作台组件销毁。
+- 运行 CRT 默认尺寸较旧版缩小约 15%，标题栏可拖动。CRT 默认以标题栏贴靠所属节点左右侧且不做窗口间避碰；多个 CRT 可重叠，点击窗口提升其局部层级。用户手动拖动的位置保留到下一次节点树 pan/zoom 或布局变化，随后重新吸附到所属节点旁；无需为了让正文底部留在视口内而推远窗口。坐标与层级只保留到当前工作台组件销毁。
 - 普通消息提交、流式节点追加和视口 ResizeObserver 不得自动修改用户当前相机；只有初次挂载、切根、切换折叠/布局档位和显式复位允许 fit。
 - 工作台历史入口在任务含分支时固定打开 `activeBranchId`；标题栏按活动主干、其他继续分支、解释分支排序。`original` 仅表示最初分支，不再永久标记为“主流程”。用户可把任一 original/continuation 直接设为主干；该操作只切换身份与节点树 lane，不复制消息或启动执行。分支标题取该分支第一条用户消息。
 - continuation 的首条用户消息之前必须展示一个持久“结果汇总”系统节点：其前方由来源锚点的 `fork-continuation` 连线接入，继承的已完成任务返回连入该节点；后方再连接新用户消息。迟到的继承任务结果分别显示为独立返回节点并连接到当前活动主干，不合并进旧汇总节点。

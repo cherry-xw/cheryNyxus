@@ -11,10 +11,11 @@
  * 放 service 层（非 utils/token）：需依赖 agent/prompt + agent/runtimeResolver，避免 utils→agent 反向依赖。
  */
 import { RuntimeResolver } from '@/agent/runtimeResolver.js'
+import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import { buildSystemPromptSegments } from '@/agent/prompt/index.js'
+import { getChatSelection } from './runtime.js'
 import {
   getChat,
-  getChatRuntimeSelection,
   getChatSystemPromptFile,
   getChatWorkspace,
   getChatSkillFilter,
@@ -36,7 +37,6 @@ const DEFAULT_CONTEXT_LIMIT_TOKENS = 8192
 function seg(tokens: number, count?: number): Segment {
   return count === undefined ? { tokens } : { tokens, count }
 }
-
 /** 全 0 兜底 breakdown（异常降级，规则 12 fail loud：warn 已在调用处输出）。 */
 function zeroBreakdown(): ContextBreakdown {
   const z = seg(0)
@@ -51,7 +51,6 @@ function zeroBreakdown(): ContextBreakdown {
     usage: 0,
   }
 }
-
 /**
  * 计算 chat 上下文用量的 6 段分解（比例 usage + total + 各段 tokens/count）。
  *
@@ -63,7 +62,10 @@ function zeroBreakdown(): ContextBreakdown {
  * limit 来源：chat runtime 的 brain → config.llm.brain[brain].contextLimit；缺失 → DEFAULT 兜底。
  * 异常（chat 不存在 / DB 读失败）→ 兜底 zeroBreakdown + console.warn（不阻塞调用方）。
  */
-export function computeContextBreakdown(chatId: string): ContextBreakdown {
+export function computeContextBreakdown(
+  chatId: string,
+  executionSelection: RuntimeSelection | undefined = getChatSelection(chatId),
+): ContextBreakdown {
   try {
     const systemPromptFile = getChatSystemPromptFile(chatId)
     const workspace = getChatWorkspace(chatId)
@@ -84,13 +86,12 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
     // 旧实现用 triggerTokens 仅算触发条件（无 trigger 的 skill 显示 0，严重低估），改为直接估算 text。
     const skills = seg(estimateTokens(promptSegs.skills.text), promptSegs.skills.count)
 
-    // 段 5：工具定义（重建 runtime senseTable；主 agent 注入 memory_manage，子 agent 不注入——同 init）
+    // 段 5：工具定义（重建 effective runtime senseTable；主 agent 注入 memory_manage，子 agent 不注入——同 init）。
     let tools = seg(0, 0)
-    const selection = getChatRuntimeSelection(chatId)
-    if (selection) {
+    if (executionSelection) {
       try {
         const isSubagent = !!getChat(chatId)?.parent_chat_id
-        const runtime = new RuntimeResolver().resolve(selection, {
+        const runtime = new RuntimeResolver().resolve(executionSelection, {
           injectMemoryManage: !isSubagent,
           chatId,
         })
@@ -123,7 +124,7 @@ export function computeContextBreakdown(chatId: string): ContextBreakdown {
       skills.tokens +
       tools.tokens +
       conversation.tokens
-    const brainName = selection?.brain
+    const brainName = executionSelection?.brain
     const limitTokens =
       (brainName && config.llm.brain[brainName]?.contextLimit) || DEFAULT_CONTEXT_LIMIT_TOKENS
     const total = limitTokens > 0 ? limitTokens : 0

@@ -93,14 +93,6 @@ export interface ChatSummary {
   preview?: string
   /** 仅 includePreview=true 返：user 消息数 = 会话轮次。CP8 */
   turnCount?: number
-  /** 仅 includePreview=true 返：上下文 token 用量比例（0-1）。SessionList 渲染用。 */
-  contextUsage?: number
-  /** 仅 includePreview=true 返：已用 token 数（估算值）。配合 contextTotal 显示详情。 */
-  contextUsed?: number
-  /** 仅 includePreview=true 返：上下文上限 token 数。 */
-  contextTotal?: number
-  /** 仅 includePreview=true 返：上下文用量 6 段分解（系统/用户系统/记忆/技能/工具定义/用户对话）。 */
-  contextBreakdown?: ContextBreakdown
   /** 子 agent 是否已完成（后端 metadata.finished）。前端据 finished===true 重建子 pet 为 ghost。主 chat 恒 undefined。 */
   finished?: boolean
   /** chat 当前是否正在运行（后端 chatRuntimes.get(chatId)?.builder.isRunning()）。前端据此判断子 agent 是否还活着、主 chat 是否卡死。 */
@@ -1093,8 +1085,11 @@ export interface HookEventMeta {
   matcherField?: string
 }
 
+/** RPC 错误构造：透传后端 ErrorCode 到 Error.code（调用方可按码分支引导选择当前运行配置）。 */
 function fail(method: string, res: RpcResponse): Error {
-  return new Error(res.error?.message ?? `${method} failed`)
+  const err = new Error(res.error?.message ?? `${method} failed`) as Error & { code?: string }
+  if (res.error?.code) err.code = res.error.code
+  return err
 }
 
 /** 非流式 RPC：返回 success 时解包 data，否则 throw。 */
@@ -1349,9 +1344,14 @@ export const agentApi = {
     await call<{ ok: true }>('credentials.delete', { id })
   },
 
-  /** chat.list：列出所有 chat（主 chat → 主 pet；子 chat 按 parentChatId 挂主附近）。CP8：includePreview=true 增返 preview/turnCount（会话列表用）。 */
-  async listChats(includePreview = false): Promise<ChatSummary[]> {
-    const data = await call<{ chats?: ChatSummary[] }>('chat.list', { includePreview })
+  /** chat.list：stage 只取当前舞台，preset/history 仅在用户显式打开时按需取。 */
+  async listChats(options: {
+    scope: 'stage' | 'preset' | 'history'
+    presetId?: string
+    preset?: string
+    includePreview?: boolean
+  }): Promise<ChatSummary[]> {
+    const data = await call<{ chats?: ChatSummary[] }>('chat.list', options)
     return data?.chats ?? []
   },
 
@@ -1672,8 +1672,8 @@ export const agentApi = {
   },
 
   /** chat.delete：真删 chat（CP8 仅会话列表 ✕ deleteSession 调用；主 chat 后端级联删子 chat）。stage 隐藏走 store.hide，不调本方法。 */
-  async destroyAgent(chatId: string): Promise<void> {
-    await call('chat.delete', { chatId })
+  async destroyAgent(chatId: string): Promise<{ chatId: string; deletedChatIds: string[] }> {
+    return call<{ chatId: string; deletedChatIds: string[] }>('chat.delete', { chatId })
   },
 
   /**

@@ -40,12 +40,34 @@ describe('Nyxus workbench preferences and entry regressions', () => {
       core.indexOf('onBeforeUnmount(()'),
     )
 
-    expect(getActive).toContain('agentApi.listChats(false)')
-    expect(getActive.indexOf('agentApi.listChats(false)')).toBeLessThan(
+    expect(getActive).toContain("scope: 'preset'")
+    expect(getActive.indexOf("scope: 'preset'")).toBeLessThan(
       getActive.indexOf('activeNyxusChatId.value &&'),
     )
     expect(openWorkbench).toContain('await agents.getActiveNyxus()')
     expect(openWorkbench).not.toContain('fetchHistoryList')
+  })
+
+  it('allows deleting the final session and gives the user an explicit result', async () => {
+    const source = await readFile(resolve('src/features/agent/dialog/WorkbenchDialog.vue'), 'utf8')
+    const deletePreset = source.slice(
+      source.indexOf('async function deletePresetSession'),
+      source.indexOf('/**\n * 加号'),
+    )
+    const deleteNyxus = source.slice(
+      source.indexOf('async function deleteNyxusSession'),
+      source.indexOf('\nfunction closeWorkbench'),
+    )
+
+    expect(deletePreset).not.toContain('请先新建一个会话')
+    expect(deletePreset).toContain('await agents.deleteSession(targetId)')
+    expect(deleteNyxus).toContain('await agents.deleteSession(targetId)')
+    expect(deleteNyxus).not.toContain("treeRootChatId.value = ''")
+    expect(deleteNyxus).not.toContain('await switchSession(')
+    expect(deletePreset).toContain("ElMessage.success('会话已删除')")
+    expect(deleteNyxus).toContain("ElMessage.success('会话已删除')")
+    expect(deletePreset).toContain("ElMessage.error(error.value)")
+    expect(deleteNyxus).toContain("ElMessage.error(error.value)")
   })
 
   it('provides explicit high-contrast context colors in dark mode', async () => {

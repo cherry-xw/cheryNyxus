@@ -275,6 +275,24 @@ export function listLatestExecutionRuns(rootChatId: string): ExecutionActiveRunR
   return latest
 }
 
+/** Latest durable run per chat across every root, used once during process recovery. */
+export function listLatestExecutionRunsAcrossRoots(): ExecutionActiveRunRow[] {
+  const rows = getSoulDb()
+    .prepare(
+      'SELECT * FROM execution_active_runs ORDER BY updated_at DESC, chat_id ASC, rowid DESC',
+    )
+    .all() as Record<string, unknown>[]
+  const seen = new Set<string>()
+  const latest: ExecutionActiveRunRow[] = []
+  for (const row of rows) {
+    const run = activeRunFromRow(row)
+    if (seen.has(run.chatId)) continue
+    seen.add(run.chatId)
+    latest.push(run)
+  }
+  return latest
+}
+
 function activeRunFromRow(row: Record<string, unknown>): ExecutionActiveRunRow {
   return {
     rootChatId: String(row.root_chat_id),

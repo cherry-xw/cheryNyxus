@@ -35,7 +35,7 @@ export function createEmptySession(chatId: string, meta?: Partial<ChatMetadata>)
 
 /** chat.list 摘要 -> catalog 实体（未 hydration；meta 投影自 ChatSummary）。 */
 export function createCatalogEntity(summary: ChatSummary): ChatSession {
-  return createEmptySession(summary.chatId, {
+  const session = createEmptySession(summary.chatId, {
     chatId: summary.chatId,
     parentChatId: summary.parentChatId ?? undefined,
     agentType: summary.agentType,
@@ -50,7 +50,17 @@ export function createCatalogEntity(summary: ChatSummary): ChatSession {
     preset: summary.preset,
     workspace: summary.workspace,
     workspaceValid: summary.workspaceValid,
+    running: summary.running,
   })
+  session.context.canResume = summary.canResume
+  session.run.status = summary.running
+    ? 'running'
+    : summary.canResume
+      ? 'paused'
+      : summary.finished
+        ? 'ended'
+        : 'idle'
+  return session
 }
 
 /**

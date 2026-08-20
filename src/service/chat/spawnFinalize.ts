@@ -13,7 +13,9 @@ import { logger } from '@/utils/logger/index.js'
  * 本 helper 兜底 child_done 未走的边界（如 startSpawn RPC 中断后前端改发独立 chat.resume），与 handleChatStartSpawn
  * 的 4 处标记逻辑对齐，幂等不重复唤主。
  *
- * 判定权威：末条 assistant（真正完成的唯一标志，见 docs/agent/middleware.md 统一暂停语义）。
+ * 判定权威：末条 assistant 且无 sense_calls（真正完成的唯一标志，与 computeCanResume ended 同源，
+ * 见 docs/agent/middleware.md 统一暂停语义）。带 sense_calls 的末条 assistant 是 yield-turn 子
+ * （spawn 孙后等待）或 AI 尚未基于工具结果回复，不标 finished。
  * 不调 wakeParent——observer.child_done 路径已唤主，此处仅补持久态。
  *
  * @returns true 表示本次标记了终态；false 表示非子 chat / 已终态 / 未真正完成（paused/中断）。
@@ -27,6 +29,11 @@ export function finalizeSpawnChildIfDone(chatId: string): boolean {
 
   const last = getLastMessage(chatId)
   if (last?.role !== 'assistant') return false // 末条非 assistant，未真正完成（paused / 中断）
+  // 末条 assistant 但带 sense_calls（yield-turn 子 spawn 孙后等待 / AI 尚未基于工具结果回复）
+  // → 未真正完成，不标 finished。与 computeCanResume 的 ended 判定同源（统一暂停语义），
+  // 修 yield-turn 子经 done 分支 finalize 时被误标 finished 的边界。
+  const senseCalls = last.sense_calls ? safeJsonParse<Array<unknown>>(last.sense_calls, []) : []
+  if (Array.isArray(senseCalls) && senseCalls.length > 0) return false
 
   const task = getSpawnTaskByChild(chatId)
   if (task && task.status !== 'finished') finishSpawnTask(task.taskId)

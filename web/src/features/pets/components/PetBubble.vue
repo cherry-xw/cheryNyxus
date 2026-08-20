@@ -129,10 +129,16 @@ const bubbleClass = computed(() => {
 }
 
 .question-bubble {
-  max-width: 230px;
+  max-width: 320px;
   padding: 6px 9px;
   background: color-mix(in srgb, var(--neon-indigo) 12%, var(--surface));
   border-color: color-mix(in srgb, var(--neon-indigo) 42%, transparent);
+
+  &::after {
+    border-right-color: color-mix(in srgb, var(--neon-indigo) 42%, transparent);
+    border-bottom-color: color-mix(in srgb, var(--neon-indigo) 42%, transparent);
+    background: color-mix(in srgb, var(--neon-indigo) 12%, var(--surface));
+  }
 }
 
 .error-bubble {

@@ -445,4 +445,18 @@ function onEscape(event: KeyboardEvent): void {
     opacity: 0.42;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .status-running .live-dot {
+    animation: none;
+  }
+
+  .crt-content-enter-active,
+  .crt-content-leave-active,
+  .crt-actions button,
+  .crt-tabs button,
+  .crt-tabs button::after {
+    transition: none;
+  }
+}
 </style>

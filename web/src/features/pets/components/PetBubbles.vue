@@ -98,6 +98,7 @@ const batchInfo = computed(() => {
         :question="activeQuestion!"
         :chat-id="pet.chatId"
         :batch-info="batchInfo"
+        variant="bubble"
       />
     </PetBubble>
     <PetBubble

@@ -22,6 +22,29 @@ export interface RuntimeSelection {
   mcpServers: string[]
 }
 
+/** runtime selection 失效清单（仅展示/恢复用；用户主动输入仍走 parseRuntimeSelection 严格抛错）。 */
+export interface RuntimeIssue {
+  kind: 'brain' | 'senseGroup'
+  name: string
+}
+
+/**
+ * 只读校验 selection 引用的名称是否存在于当前 config（纯函数，不抛错、不触 db）。
+ * 快照投影（历史 chat 恢复）用：配置演化导致 brain/感官组失效是常态，返回问题清单供
+ * 上层（resolveEffectiveSelection）判定「跟随 / 真·失效」，而非 fail loud。
+ * 空数组 = 全部有效。mcpServers 不在此校验（连接态由 resolveSense 运行时判定）。
+ */
+export function resolveSelectionIssues(selection: RuntimeSelection): RuntimeIssue[] {
+  const issues: RuntimeIssue[] = []
+  if (!selection.brain || !config.llm.brain[selection.brain]) {
+    issues.push({ kind: 'brain', name: selection.brain })
+  }
+  if (selection.senseGroup && !config.sense_groups?.[selection.senseGroup]) {
+    issues.push({ kind: 'senseGroup', name: selection.senseGroup })
+  }
+  return issues
+}
+
 /**
  * 解析并校验 runtime selection（brain + senseGroup + mcpServers）。
  * 供 chat.create / runtime.set 共用，methodName 用于错误消息。

@@ -1,4 +1,4 @@
-import { getChat, getLastMessage } from '@/db/chat.js'
+import { getChat, getLastMessage, listPendingInputs } from '@/db/chat.js'
 import { hasPendingQuestionBatches } from '@/db/question.js'
 import { safeJsonParse } from '@/utils/json.js'
 
@@ -22,6 +22,7 @@ export function computeCanResume(chatId: string): boolean {
     if (meta.abandoned === true) return false
   }
   if (hasPendingQuestionBatches(chatId)) return false
+  if (listPendingInputs(chatId).length > 0) return true
   const last = getLastMessage(chatId)
   if (!last) return false
   const role = last.role

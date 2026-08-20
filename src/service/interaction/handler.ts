@@ -14,7 +14,6 @@ import {
   claimInteraction,
   getInteraction,
   listInteractions,
-  reconcileInteractionInbox,
   transitionInteraction,
   type InteractionRecord,
 } from '@/db/interaction.js'
@@ -43,7 +42,6 @@ async function handleList(
   _ctx: HandlerContext,
   data: InteractionListRequestData,
 ): Promise<InteractionListResponseData> {
-  reconcileInteractionInbox()
   return { interactions: listInteractions(data) }
 }
 
@@ -52,7 +50,8 @@ async function handleApprovalDecide(
   data: InteractionApprovalDecideRequestData,
 ): Promise<InteractionApprovalDecideResponseData> {
   const command = claimRequest(data.commandId, Method.INTERACTION_APPROVAL_DECIDE, data)
-  if (command.state === 'completed') return JSON.parse(command.responseJson) as InteractionApprovalDecideResponseData
+  if (command.state === 'completed')
+    return JSON.parse(command.responseJson) as InteractionApprovalDecideResponseData
   if (command.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
   if (command.state === 'active') throw new Error('该操作正在处理中')
   try {
@@ -60,10 +59,15 @@ async function handleApprovalDecide(
     if (!record || record.kind !== 'approval') throw new Error('审批待办不存在')
     assertRevision(record, data.expectedRevision)
     if (record.deadlineAt !== undefined && record.deadlineAt <= Date.now()) {
-      const expired = transitionInteraction(record.interactionId, ['pending', 'blocked'], 'expired', {
-        action: 'reject',
-        reason: '审批超时，工具未执行',
-      })
+      const expired = transitionInteraction(
+        record.interactionId,
+        ['pending', 'blocked'],
+        'expired',
+        {
+          action: 'reject',
+          reason: '审批超时，工具未执行',
+        },
+      )
       broadcastInteractionChanged(expired)
       // Rebuild the suspended core promise so ApprovalManager.register can replay
       // the already-durable rejection and let the Agent continue.
@@ -80,9 +84,10 @@ async function handleApprovalDecide(
     if (!approvalManager.has(record.interactionId)) {
       await launchDetachedResume(ctx, record.chatId, randomUUID())
       if (!(await waitForApproval(record.interactionId))) {
-        record = transitionInteraction(record.interactionId, ['resolving'], 'blocked', {
-          reason: '无法恢复原工具审批，请检查当前角色与工具配置',
-        }) ?? record
+        record =
+          transitionInteraction(record.interactionId, ['resolving'], 'blocked', {
+            reason: '无法恢复原工具审批，请检查当前角色与工具配置',
+          }) ?? record
         broadcastInteractionChanged(record)
         const response = { interaction: record }
         completeRequest(data.commandId, response)
@@ -98,9 +103,11 @@ async function handleApprovalDecide(
   } catch (cause) {
     const current = getInteraction(data.interactionId)
     if (current?.status === 'resolving') {
-      broadcastInteractionChanged(transitionInteraction(data.interactionId, ['resolving'], 'blocked', {
-        reason: cause instanceof Error ? cause.message : '审批恢复失败',
-      }))
+      broadcastInteractionChanged(
+        transitionInteraction(data.interactionId, ['resolving'], 'blocked', {
+          reason: cause instanceof Error ? cause.message : '审批恢复失败',
+        }),
+      )
     }
     abandonRequest(data.commandId)
     throw cause
@@ -112,7 +119,8 @@ async function handleQuestionAnswer(
   data: InteractionQuestionAnswerRequestData,
 ): Promise<InteractionQuestionAnswerResponseData> {
   const command = claimRequest(data.commandId, Method.INTERACTION_QUESTION_ANSWER, data)
-  if (command.state === 'completed') return JSON.parse(command.responseJson) as InteractionQuestionAnswerResponseData
+  if (command.state === 'completed')
+    return JSON.parse(command.responseJson) as InteractionQuestionAnswerResponseData
   if (command.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
   if (command.state === 'active') throw new Error('该操作正在处理中')
   try {
@@ -134,7 +142,9 @@ async function handleQuestionAnswer(
   } catch (cause) {
     const current = getInteraction(data.interactionId)
     if (current?.status === 'resolving') {
-      broadcastInteractionChanged(transitionInteraction(data.interactionId, ['resolving'], 'pending'))
+      broadcastInteractionChanged(
+        transitionInteraction(data.interactionId, ['resolving'], 'pending'),
+      )
     }
     abandonRequest(data.commandId)
     throw cause

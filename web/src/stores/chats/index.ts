@@ -126,8 +126,19 @@ export function beginLiveRun(
 }
 
 /** 仅实时 role_reply 可续跑父会话；历史回放只能恢复消息。 */
-export function shouldResumeRoleReply(session: ChatSession): boolean {
-  return !session.sync.replaying
+export type ChatEventProvenance = 'live' | 'replay'
+
+export function shouldResumeRoleReply(provenance: ChatEventProvenance): boolean {
+  return provenance === 'live'
+}
+
+function responseError(
+  response: { error?: { code?: string; message?: string } },
+  fallback: string,
+): Error & { code?: string } {
+  const error = new Error(response.error?.message ?? fallback) as Error & { code?: string }
+  if (response.error?.code) error.code = response.error.code
+  return error
 }
 
 /**
@@ -170,8 +181,13 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const rootDeltaTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Visible owners of a root subscription. A root closes only after its final owner leaves. */
   const rootSubscriptionOwners = new Map<string, Set<string>>()
+  /** Deleted roots reject late async snapshots so stale requests cannot resurrect UI. */
+  const evictedRoots = new Set<string>()
   /** requestId -> chatId（流式 RPC chunk 路由用；chunk.chatId 缺失时兜底）。 */
   const requestMap = new Map<string, string>()
+  /** chat.sync 会通过普通 notification 通道回放兼容事件；按请求标记其历史来源，
+   * 不能再从被路由到的 parent session 当前 replaying 状态反推。 */
+  const replayRequestIds = new Set<string>()
   /** 每 chat hydration in-flight 去重（避免并发 loadSession 重复 sync）。 */
   const hydrating = new Map<string, Promise<void>>()
   /** V2 chat.open in-flight 去重（event gap 期间可能同时收到多个事件）。 */
@@ -242,6 +258,18 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         preview: summary.preview ?? existing.meta.preview,
         turnCount: summary.turnCount ?? existing.meta.turnCount,
       })
+      if (summary.canResume !== undefined) existing.context.canResume = summary.canResume
+      // A loaded session owns its event-derived run state. Catalog-only entities instead need
+      // the chat.list projection so Workbench/Pet expose Pause vs Resume before hydration.
+      if (!existing.sync.loaded) {
+        existing.run.status = summary.running
+          ? 'running'
+          : summary.canResume
+            ? 'paused'
+            : summary.finished
+              ? 'ended'
+              : 'idle'
+      }
       return existing
     }
     const s = createCatalogEntity(summary)
@@ -257,6 +285,57 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   function deleteSession(chatId: string): void {
     delete sessionsById.value[chatId]
     hydrating.delete(chatId)
+  }
+
+  /**
+   * Permanently evict deleted chats from every client-side session plane.
+   * This is intentionally stronger than closeSession/closeRootTimeline: deleted
+   * history must not be able to reappear from a durable or transient cache.
+   */
+  async function evictSessions(chatIds: readonly string[]): Promise<void> {
+    const removed = new Set(chatIds)
+    if (removed.size === 0) return
+
+    const affectedRoots = new Set<string>()
+    for (const chatId of removed) affectedRoots.add(rootIdOf(chatId))
+    for (const rootChatId of affectedRoots) evictedRoots.add(rootChatId)
+
+    await Promise.all(
+      [...affectedRoots].map((rootChatId) => closeRootTimeline(rootChatId, true)),
+    )
+
+    for (const rootChatId of affectedRoots) {
+      flushRootDeltas(rootChatId)
+      const timer = rootDeltaTimers.get(rootChatId)
+      if (timer) clearTimeout(timer)
+      rootDeltaTimers.delete(rootChatId)
+      pendingRootDeltas.delete(rootChatId)
+      rootSubscriptionOwners.delete(rootChatId)
+      rootResyncing.delete(rootChatId)
+      rootSubscriptionOpening.delete(rootChatId)
+      generationsCache.delete(rootChatId)
+      delete rootTimelineStates.value[rootChatId]
+      delete rootSubscriptions.value[rootChatId]
+      for (const key of Object.keys(rootTimelines.value)) {
+        if (key.startsWith(`${rootChatId}:`)) delete rootTimelines.value[key]
+      }
+      for (const key of rootViewOpening.keys()) {
+        if (key.startsWith(`${rootChatId}:`)) rootViewOpening.delete(key)
+      }
+      for (const key of generationsOpening.keys()) {
+        if (key.startsWith(`${rootChatId}:`)) generationsOpening.delete(key)
+      }
+    }
+
+    for (const chatId of removed) {
+      deleteSession(chatId)
+      opening.delete(chatId)
+    }
+    for (const [requestId, chatId] of requestMap) {
+      if (!removed.has(chatId)) continue
+      requestMap.delete(requestId)
+      replayRequestIds.delete(requestId)
+    }
   }
 
   function rootIdOf(chatId: string): string {
@@ -337,6 +416,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   async function ensureRootSubscription(
     rootChatId: string,
   ): Promise<{ opened: boolean; conversation?: RootTimelineSnapshot }> {
+    if (evictedRoots.has(rootChatId)) throw new Error(`root timeline ${rootChatId} was deleted`)
     if (rootSubscriptions.value[rootChatId]) return { opened: false }
     const existing = rootSubscriptionOpening.get(rootChatId)
     if (existing) return existing
@@ -350,6 +430,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         knownTimelineRevision: conversation?.revision,
         knownEventSeq: conversation?.capturedEventSeq,
       })
+      if (evictedRoots.has(rootChatId)) {
+        await agentApi.closeChat(opened.subscriptionId).catch(() => undefined)
+        throw new Error(`root timeline ${rootChatId} was deleted`)
+      }
       rootSubscriptions.value[rootChatId] = {
         subscriptionId: opened.subscriptionId,
         eventSeq: opened.eventSeq,
@@ -410,6 +494,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         ...(current ? { knownRevision: current.revision } : {}),
       })
       .then((snapshot) => {
+        if (evictedRoots.has(rootChatId)) throw new Error(`root timeline ${rootChatId} was deleted`)
         // knownRevision 短路：服务端确认客户端快照仍最新，保留现有缓存不覆盖。
         if (!snapshot) {
           if (!current) throw new Error(`root timeline ${key} unchanged 短路但本地无缓存`)
@@ -441,6 +526,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       const cached = cache.get(generationIndex)
       if (cached) return cached
       const payload = await agentApi.getTimelineGeneration({ rootChatId, generationIndex })
+      if (evictedRoots.has(rootChatId)) throw new Error(`root timeline ${rootChatId} was deleted`)
       cache.set(generationIndex, {
         generation: payload.generation,
         nodes: payload.nodes,
@@ -510,6 +596,47 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     await reopenRootSubscription(rootChatId)
   }
 
+  /** 终态事件判定：done/error/turn.completed/run.updated{paused|completed|failed}。
+   * 终态事件对 transient 是幂等清理；栅栏丢弃分支据此决定是否重拉权威快照。 */
+  function isTerminalRootEvent(event: { type?: unknown; data?: unknown }): boolean {
+    if (event.type === 'turn.completed') return true
+    if (event.type === 'done' || event.type === 'error') return true
+    if (event.type === 'run.updated') {
+      const data = (event.data && typeof event.data === 'object' ? event.data : {}) as Record<
+        string,
+        unknown
+      >
+      const status = data.status ?? data.state
+      return status === 'paused' || status === 'completed' || status === 'failed'
+    }
+    return false
+  }
+
+  /** 终态事件在 transient 中是否仍有对应残留（有残留 → 静默丢弃会让 run/turn
+   * 永久卡 running，需重拉自愈；已清理则无需无谓重拉）。 */
+  function terminalEventHasResidual(
+    rootChatId: string,
+    event: { type?: unknown; data?: unknown; chatId?: unknown; runId?: unknown },
+  ): boolean {
+    const transient = rootTimelineStates.value[rootChatId]
+    if (!transient) return false
+    const chatId = event.chatId
+    const data = (event.data && typeof event.data === 'object' ? event.data : {}) as Record<
+      string,
+      unknown
+    >
+    if (event.type === 'done' || event.type === 'error') {
+      return typeof chatId === 'string' && transient.activeRuns.some((run) => run.chatId === chatId)
+    }
+    if (event.type === 'turn.completed' && typeof data.turnId === 'string') {
+      return transient.activeTurns.some((turn) => turn.turnId === data.turnId)
+    }
+    if (event.type === 'run.updated' && typeof data.runId === 'string') {
+      return typeof chatId === 'string' && transient.activeRuns.some((run) => run.chatId === chatId)
+    }
+    return false
+  }
+
   function applyRootSubscriptionEvent(event: {
     rootChatId?: unknown
     rootEventSeq?: unknown
@@ -518,6 +645,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     type?: unknown
     data?: unknown
   }): boolean {
+    if (typeof event.rootChatId === 'string' && evictedRoots.has(event.rootChatId)) return true
     if (
       typeof event.rootChatId !== 'string' ||
       typeof (event.rootEventSeq ?? event.eventSeq) !== 'number' ||
@@ -527,7 +655,19 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const rootEventSeq = (event.rootEventSeq ?? event.eventSeq) as number
     const subscription = rootSubscriptions.value[event.rootChatId]
     if (!subscription || subscription.subscriptionId !== event.subscriptionId) return false
-    if (rootEventSeq <= subscription.eventSeq) return true
+    if (rootEventSeq <= subscription.eventSeq) {
+      // 重复/乱序事件：快照已覆盖，常规直接丢弃。但终态事件若指向 transient
+      // 仍残留的 run/turn（跨窗并发下 cursor 漂移，该终态曾被跳过未应用），
+      // 静默丢弃会让 CRT/工作台恒显「执行中」。此时 flush 待处理 deltas 后
+      // 重拉权威快照（openChat 的 state.runs 已空自愈）。
+      if (isTerminalRootEvent(event) && terminalEventHasResidual(event.rootChatId, event)) {
+        flushRootDeltas(event.rootChatId)
+        void reopenRootSubscription(event.rootChatId).catch((e) =>
+          console.warn(`[chats] root subscription terminal resync ${event.rootChatId} 失败:`, e),
+        )
+      }
+      return true
+    }
     if (rootEventSeq !== subscription.eventSeq + 1) {
       flushRootDeltas(event.rootChatId)
       void reopenRootSubscription(event.rootChatId).catch((e) =>
@@ -829,7 +969,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
    * WS 事件应用：单 session 数据经 reducer；跨 session 事件（role_created/role_reply/role_destroyed）
    * 路由 + 副作用（gated by session.sync.replaying）。
    */
-  function applyEvent(chatId: string, event: ChatEvent): void {
+  function applyEvent(
+    chatId: string,
+    event: ChatEvent,
+    provenance: ChatEventProvenance = 'live',
+  ): void {
     const ctx: ReduceContext = { now: Date.now() }
     const session = ensureEntity(chatId)
 
@@ -859,11 +1003,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (event.kind === 'notification') {
       const type = event.type
       if (type === 'role_created') {
-        handleRoleCreated(event, ctx)
+        handleRoleCreated(event, ctx, provenance)
         return
       }
       if (type === 'role_reply') {
-        handleRoleReply(event, ctx)
+        handleRoleReply(event, ctx, provenance)
         return
       }
       if (type === 'role_destroyed') {
@@ -871,7 +1015,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         const target = d.chatId ?? chatId
         if (target) {
           deleteSession(target)
-          ;(effects.value.onRoleDestroyed ?? noop)(target)
+          if (provenance === 'live') {
+            ;(effects.value.onRoleDestroyed ?? noop)(target)
+          }
         }
         return
       }
@@ -893,7 +1039,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         return
       }
       if (type === 'auto_compacted') {
-        if (!session.sync.replaying) {
+        if (provenance === 'live' && !session.sync.replaying) {
           ;(effects.value.onAutoCompacted ?? noop)(
             (event.data ?? {}) as { reason?: string; usedBefore?: number; total?: number },
           )
@@ -910,6 +1056,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     // V2 发送经 chatSessions，setWorking 不再由 agents.store 驱动 → 经 effect 注入。
     // 回放期（chat.sync 历史）不触发实时 pet 动画。
     if (
+      provenance === 'live' &&
       !session.sync.replaying &&
       session.run.status !== prevStatus &&
       (prevStatus === 'running' || session.run.status === 'running')
@@ -923,7 +1070,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   /** role_created：建子 catalog 实体 + meta；副作用（createPet）仅 live 期触发。 */
-  function handleRoleCreated(event: NotificationMessage, _ctx: ReduceContext): void {
+  function handleRoleCreated(
+    event: NotificationMessage,
+    _ctx: ReduceContext,
+    provenance: ChatEventProvenance,
+  ): void {
     const d = (event.data ?? {}) as RoleCreatedData
     if (!d.chatId || !d.parentChatId || !d.type) {
       console.warn('[chats] role_created: 字段残缺', d)
@@ -943,18 +1094,22 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     // when root is active. Replay (hydrateTree) fills per-chat canonical via syncOne;
     // only live non-root spawns need openSession as the turn-event source.
     const rootActive = Boolean(rootSubscriptions.value[rootIdOf(d.chatId)])
-    if (!rootActive && !parent?.sync.replaying) {
+    if (provenance === 'live' && !rootActive && !parent?.sync.replaying) {
       void openSession(d.chatId).catch((e) =>
         console.warn(`[chats] child session open ${d.chatId} 失败:`, e),
       )
     }
-    if (parent && !parent.sync.replaying) {
+    if (provenance === 'live' && parent && !parent.sync.replaying) {
       ;(effects.value.onRoleCreated ?? noop)(d)
     }
   }
 
   /** role_reply：实时事件写父消息后续跑父会话；回放仅恢复消息，不得重新启动。 */
-  function handleRoleReply(event: NotificationMessage, ctx: ReduceContext): void {
+  function handleRoleReply(
+    event: NotificationMessage,
+    ctx: ReduceContext,
+    provenance: ChatEventProvenance,
+  ): void {
     const d = (event.data ?? {}) as RoleReplyData
     if (!d.parentChatId) {
       console.warn('[chats] role_reply: 缺 parentChatId', d)
@@ -962,7 +1117,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
     const parent = ensureEntity(d.parentChatId)
     reduceRoleReply(parent, d, ctx)
-    if (shouldResumeRoleReply(parent)) {
+    if (shouldResumeRoleReply(provenance) && !parent.sync.replaying) {
       void resumeAgent(parent.chatId).catch((error) =>
         console.error(`[chats] role_reply resume ${parent.chatId} 失败:`, error),
       )
@@ -1047,8 +1202,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     for (let attempt = 0; attempt < 2; attempt++) {
       const { requestId, done } = agentApi.syncChat(chatId, afterSeq)
       trackRequest(requestId, chatId)
-      const response = await done
-      requestMap.delete(requestId)
+      replayRequestIds.add(requestId)
+      const response = await done.finally(() => {
+        requestMap.delete(requestId)
+        replayRequestIds.delete(requestId)
+      })
       if (!response.success) break
       const data = (response.data ?? {}) as {
         latestSeq?: number
@@ -1174,7 +1332,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       trackRequest(requestId, chatId)
       const response = await done
       if (!response.success) {
-        throw new Error(response.error?.message ?? '恢复执行失败')
+        throw responseError(response, '恢复执行失败')
       }
       const data = (response.data ?? {}) as { runId?: string }
       if (data.runId) session.run.activeRunId = data.runId
@@ -1363,7 +1521,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (started) return
     started = true
     try {
-      const summaries = await agentApi.listChats(false)
+      const summaries = await agentApi.listChats({ scope: 'stage' })
       initCatalog(summaries)
     } catch (e) {
       // 失败不保留 started 位，下次 connected 可重试（对齐旧 initFromChats 语义）
@@ -1404,6 +1562,34 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   let unbindNotif: (() => void) | undefined
   let unbindEvent: (() => void) | undefined
 
+  /** Root subscription snapshots fence events at eventSeq. Compatibility notifications at or
+   * before that boundary are historical even though they arrive on the same callback as live data. */
+  function notificationProvenance(
+    notification: NotificationMessage & {
+      requestId?: string
+      rootChatId?: unknown
+      rootEventSeq?: unknown
+      eventSeq?: unknown
+      subscriptionId?: unknown
+    },
+  ): ChatEventProvenance {
+    if (notification.requestId && replayRequestIds.has(notification.requestId)) return 'replay'
+    if (
+      typeof notification.rootChatId === 'string' &&
+      typeof notification.subscriptionId === 'string'
+    ) {
+      const subscription = rootSubscriptions.value[notification.rootChatId]
+      const rootEventSeq = notification.rootEventSeq ?? notification.eventSeq
+      if (
+        subscription?.subscriptionId === notification.subscriptionId &&
+        typeof rootEventSeq === 'number'
+      ) {
+        return rootEventSeq === subscription.eventSeq + 1 ? 'live' : 'replay'
+      }
+    }
+    return 'live'
+  }
+
   function bindWsClient(): void {
     if (wsBound) return
     wsBound = true
@@ -1420,6 +1606,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       const n = notif as (NotificationMessage & { background?: boolean }) | null
       if (!n?.type) return
       if (n.background) return
+      const provenance = notificationProvenance(n)
       const isRootEvent = applyRootSubscriptionEvent(n)
       const chatId = n.chatId ?? (n.requestId ? requestMap.get(n.requestId) : undefined)
       // role_created/role_reply/role_destroyed 携自身 chatId（data.chatId / data.parentChatId）；
@@ -1436,7 +1623,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       }
       const { kind: _kind, ...notificationData } = n
       void _kind
-      applyEvent(target, { kind: 'notification', ...notificationData } as ChatEvent)
+      applyEvent(target, { kind: 'notification', ...notificationData } as ChatEvent, provenance)
     })
     unbindEvent = wsClient.onEvent((raw) => {
       // notification 已由 onNotification 统一推进 session 序号并处理兼容逻辑，
@@ -1480,6 +1667,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     ensureCatalogEntity,
     initCatalog,
     deleteSession,
+    evictSessions,
     observeRootTimeline,
     acquireRootTimeline,
     releaseRootTimeline,

@@ -194,6 +194,14 @@ export function createRouter(): RpcRouter {
 
 function toRpcError(err: unknown): { code: string; message: string } {
   if (err instanceof Error) {
+    // 显式携带 ErrorCode 的错误（如 ensureChat 抛 RUNTIME_SELECTION_REQUIRED）按码透传；其余归 INTERNAL。
+    const code = (err as Error & { code?: string }).code
+    if (
+      code &&
+      Object.values(ErrorCode).includes(code as (typeof ErrorCode)[keyof typeof ErrorCode])
+    ) {
+      return { code, message: err.message }
+    }
     return { code: ErrorCode.INTERNAL, message: err.message }
   }
   return { code: ErrorCode.INTERNAL, message: String(err) }

@@ -247,6 +247,57 @@ export function listAllChats(): ChatRow[] {
   return stmt.all() as ChatRow[]
 }
 
+/**
+ * Load only roots associated with the requested current presets. Filtering is
+ * performed by SQLite so stage startup never materializes the historical root
+ * catalog merely to discard unrelated entries in JavaScript.
+ */
+export function listRootChatsForPresets(
+  presets: ReadonlyArray<{ presetId?: string; preset?: string }>,
+): ChatRow[] {
+  const clauses: string[] = []
+  const params: string[] = []
+  for (const association of presets) {
+    if (association.presetId && association.preset) {
+      clauses.push(
+        `(json_extract(metadata, '$.presetId') = ? OR (` +
+          `json_extract(metadata, '$.presetId') IS NULL AND json_extract(metadata, '$.preset') = ?))`,
+      )
+      params.push(association.presetId, association.preset)
+    } else if (association.presetId) {
+      clauses.push(`json_extract(metadata, '$.presetId') = ?`)
+      params.push(association.presetId)
+    } else if (association.preset) {
+      clauses.push(`json_extract(metadata, '$.preset') = ?`)
+      params.push(association.preset)
+    }
+  }
+  if (clauses.length === 0) return []
+  return getSoulDb()
+    .prepare(
+      `SELECT * FROM chats
+       WHERE parent_chat_id IS NULL AND (${clauses.join(' OR ')})
+       ORDER BY updated_at DESC`,
+    )
+    .all(...params) as ChatRow[]
+}
+
+/** Return the selected roots and all descendants using one recursive catalog query. */
+export function listChatTrees(rootChatIds: readonly string[]): ChatRow[] {
+  if (rootChatIds.length === 0) return []
+  const placeholders = rootChatIds.map(() => '?').join(', ')
+  return getSoulDb()
+    .prepare(
+      `WITH RECURSIVE tree AS (
+         SELECT * FROM chats WHERE id IN (${placeholders})
+         UNION ALL
+         SELECT child.* FROM chats child JOIN tree parent ON child.parent_chat_id = parent.id
+       )
+       SELECT * FROM tree ORDER BY created_at ASC`,
+    )
+    .all(...rootChatIds) as ChatRow[]
+}
+
 /** Return the current authoritative timeline revision for a chat. */
 export function getTimelineRevision(chatId: string): number {
   const row = getSoulDb()
@@ -325,8 +376,7 @@ export function getChatRuntimeSelection(
 
 export function getChatMetadata(chatId: string): Record<string, unknown> {
   const row = getSoulDb().prepare('SELECT metadata FROM chats WHERE id = ?').get(chatId) as
-    | { metadata: string | null }
-    | undefined
+    { metadata: string | null } | undefined
   return row?.metadata ? (safeJsonParse(row.metadata, {}) as Record<string, unknown>) : {}
 }
 
@@ -414,6 +464,13 @@ export function getChatType(chatId: string): string | undefined {
   const t = parsed.type
   if (typeof t === 'string' && t.length > 0) return t
   const presetName = parsed.preset
+  const presetId = parsed.presetId
+  if (typeof presetId === 'string' && presetId.length > 0) {
+    const preset = Object.values(config.presets ?? {}).find(
+      (candidate) => candidate.id === presetId,
+    )
+    if (preset?.leader) return preset.leader
+  }
   if (typeof presetName === 'string' && presetName.length > 0) {
     const leader = config.presets?.[presetName]?.leader
     if (typeof leader === 'string' && leader.length > 0) return leader

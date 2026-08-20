@@ -94,7 +94,6 @@ const {
 } = useAgentDialogOptions()
 
 /** 快速发送 composer 单例面板：仅有活跃 chatId 时可见（Pet 单击/PetStage 打开）。 */
-const dialogVisible = computed(() => !!chatId.value)
 interface QuickTargetSelection {
   target: string | 'new'
   source: 'ai' | 'user'
@@ -141,6 +140,16 @@ const quickPresetId = computed(() => {
     : undefined
   return summary?.presetId
 })
+/**
+ * Pet quick chat and its preset workbench are mutually exclusive. Keep the
+ * dialog state and draft alive so closing the workbench restores the bubble.
+ */
+const petWorkbenchOpen = computed(() => {
+  if (agents.activeDialogSource !== 'pet') return false
+  const presetId = quickPresetId.value
+  return !!presetId && !!agents.workbenchWindows[presetId]
+})
+const dialogVisible = computed(() => !!chatId.value && !petWorkbenchOpen.value)
 const quickSessions = computed(() =>
   (agents.historyList ?? [])
     .filter(
@@ -381,7 +390,12 @@ function openWorkbenchForChat(): void {
   // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗）；浏览器保持应用内多窗口
   const bridge = desktopBridge()
   if (bridge) {
-    bridge.openWindow({ kind: 'workbench', presetId: preset, chatId: chatId.value ?? undefined })
+    bridge.openWindow({
+      kind: 'workbench',
+      presetId: preset,
+      chatId: chatId.value ?? undefined,
+      returnToComposer: agents.activeDialogSource === 'pet',
+    })
     return
   }
   const id = agents.openWorkbenchWindow(preset)
@@ -404,6 +418,7 @@ async function openWorkspaceTree(
       kind: 'workbench',
       presetId: preset,
       chatId: rootChatId,
+      returnToComposer: agents.activeDialogSource === 'pet',
       focus: { sourceChatId, interactionId, anchorNodeId },
     })
     return
@@ -924,6 +939,7 @@ defineExpose({
     flex-direction: column;
     gap: 10px;
   }
+
 }
 </style>
 

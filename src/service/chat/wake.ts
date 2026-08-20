@@ -2,7 +2,6 @@ import {
   addMessage,
   updateChatMetadata,
   getChat,
-  listAllChats,
   getMessages,
   getLastMessage,
   getMessageLinksForRoot,
@@ -18,7 +17,12 @@ import { createNotification } from '../message/types.js'
 import { clearWaitedChild, registerWaitedChild, type WakePolicy } from '@/agent/spawnBroker.js'
 import config from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
-import { appendChatEvent, getSpawnTaskByChild, timeoutSpawnTask } from '@/db/delivery.js'
+import {
+  appendChatEvent,
+  getSpawnTaskByChild,
+  listSpawnTasksNeedingWakeRecovery,
+  timeoutSpawnTask,
+} from '@/db/delivery.js'
 import {
   completeQuestionBatch,
   type CompletedQuestionBatch,
@@ -220,9 +224,14 @@ export async function resolveQuestionBatch(
   if (!getChat(chatId)) throw new Error('这个会话不见了')
 
   const completed = completeQuestionBatch(chatId, batchId, answers)
-  const interaction = transitionInteraction(batchId, ['pending', 'resolving', 'blocked'], 'completed', {
-    answers: completed.answers,
-  })
+  const interaction = transitionInteraction(
+    batchId,
+    ['pending', 'resolving', 'blocked'],
+    'completed',
+    {
+      answers: completed.answers,
+    },
+  )
   broadcastInteractionChanged(interaction)
 
   updateChatMetadata(chatId, { resumePending: true })
@@ -331,6 +340,21 @@ export async function handleAsyncWakeTimeout(child: {
       detail: `${timeoutSec}s without output`,
     })
     emitTimelinePatch(child.childChatId, baseRevision)
+    // false 分支仍推 run.updated{paused} 终态：前端据终态清 run.status，
+    // 避免子 pet / CRT「工作中」在看门狗超时后永久残留（与 emitChildAbandoned 同广播模式）。
+    const notif = createNotification(
+      'run.updated',
+      undefined,
+      { runId: activeRunId, status: 'paused' },
+      { chatId: child.childChatId },
+    )
+    notif.seq = appendChatEvent(child.childChatId, notif as unknown as Record<string, unknown>)
+    if (!broadcastChatNotification(child.childChatId, notif)) {
+      logger.event('watchdog.paused-offline', {
+        chatId: child.childChatId,
+        runId: activeRunId,
+      })
+    }
   }
   // false：主无限等待；唤醒链保留（不清 waitedChildren）；释放子 runtime。
   // 子若恢复 chunk → feedWatchdog 续命；子若最终完成 → child_done → wakeParent 正常唤主。
@@ -357,9 +381,10 @@ export async function handleAsyncWakeTimeout(child: {
  * 内存态 waitedChildren 重启即丢，本函数从持久化 metadata 重建，使唤醒链跨后端重启可恢复。
  */
 export async function rebuildWaitedChildren(): Promise<void> {
-  const rows = listAllChats()
-  for (const row of rows) {
-    if (!row.parent_chat_id) continue // 仅子 chat
+  const tasks = listSpawnTasksNeedingWakeRecovery()
+  for (const spawnTask of tasks) {
+    const row = getChat(spawnTask.childChatId)
+    if (!row?.parent_chat_id) continue
     const meta = row.metadata
       ? (safeJsonParse(row.metadata, {}) as {
           wake?: WakePolicy
@@ -382,7 +407,6 @@ export async function rebuildWaitedChildren(): Promise<void> {
       continue
     }
 
-    const spawnTask = getSpawnTaskByChild(childChatId)
     if (spawnTask?.status === 'timed_out') {
       const timeoutSec = (config.global.watchdog?.timeout_ms ?? 5 * 60 * 1000) / 1000
       const termination = recordSpawnTerminationFact({

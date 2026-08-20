@@ -1,0 +1,66 @@
+{
+  "source": "captured-and-redacted",
+  "snapshot": {
+    "rootChatId": "root-cp9-real",
+    "view": "tree",
+    "revision": 42,
+    "nodes": [
+      {
+        "id": "message:root-live",
+        "rootChatId": "root-cp9-real",
+        "sourceChatId": "root-cp9-real",
+        "sourceMessageId": "root-live",
+        "kind": "message",
+        "actor": { "kind": "agent", "chatId": "root-cp9-real" },
+        "direction": "forward",
+        "visibility": "conversation",
+        "content": "正在生成已脱敏的实时回复",
+        "orderKey": 420,
+        "createdAt": 1724150000000,
+        "updatedAt": 1724150000100,
+        "status": "committed"
+      }
+    ],
+    "edges": [],
+    "activeRuns": [
+      {
+        "rootChatId": "root-cp9-real",
+        "chatId": "root-cp9-real",
+        "runId": "run:root-live",
+        "status": "running",
+        "turnId": "turn:root-live",
+        "nodeId": "message:root-live"
+      }
+    ],
+    "pendingInputs": [],
+    "generations": [],
+    "capturedEventSeq": 9001
+  },
+  "sessions": {
+    "root-cp9-real": {
+      "chatId": "root-cp9-real",
+      "meta": { "chatId": "root-cp9-real", "preset": "主会话" },
+      "messagesById": {},
+      "messageOrder": [],
+      "run": { "status": "running", "activeRunId": "run:root-live" },
+      "interaction": { "approvalQueue": [], "questionBatches": [], "runningTools": [] },
+      "context": {},
+      "sync": { "loaded": true, "replaying": false, "lastSeq": 9001 },
+      "ui": { "drawerOpen": false, "autoScroll": true, "bubbleVisible": false },
+      "pendingInputs": [],
+      "activeTurns": [
+        {
+          "turnId": "turn:root-live",
+          "runId": "run:root-live",
+          "messageId": "root-live",
+          "chatId": "root-cp9-real",
+          "thinking": "已脱敏思考片段",
+          "content": "正在生成已脱敏的实时回复",
+          "status": "running",
+          "createdAt": 1724150000100
+        }
+      ],
+      "activeRun": { "runId": "run:root-live", "chatId": "root-cp9-real", "status": "running" }
+    }
+  }
+}

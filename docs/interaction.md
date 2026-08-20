@@ -71,26 +71,29 @@
 ### chat.list
 
 ```json
-// lean（初始化重建 pet 树用，不查 messages）
-→ {"id":"r5","kind":"request","method":"chat.list","params":{}}
+// 当前舞台（启动用，不查 messages preview；每个当前 preset 只取最新根及后代）
+→ {"id":"r5","kind":"request","method":"chat.list","params":{"scope":"stage"}}
 ← {"id":"a5","kind":"response","requestId":"r5","success":true,
    "data":{"chats":[{"chatId":"c1","createdAt":1718150400000,"updatedAt":1718151000000,"messageCount":12,"parentChatId":null}]}}
 
 // includePreview（会话列表用，按 messages_month 分组批量查首条 user 消息 + 计数）
-→ {"id":"r5b","kind":"request","method":"chat.list","params":{"includePreview":true}}
+→ {"id":"r5b","kind":"request","method":"chat.list","params":{"scope":"history","includePreview":true}}
 ← {"id":"a5b","kind":"response","requestId":"r5b","success":true,
    "data":{"chats":[{"chatId":"c1","createdAt":1718150400000,"updatedAt":1718151000000,"messageCount":12,"parentChatId":null,"preview":"读一下 a.txt","turnCount":3,"pendingApproval":null}]}}
 ```
 
 > `includePreview=true` 时每项增返 `preview`（首条 user 消息截断 ≤40 字符）+ `turnCount`（user 消息数）。"指令"跳过规则待定，默认取首条 user 消息。lean 模式省略该二字段，免 N+1。
+> 历史目录中的 runtime 只用于展示，不进行有效性校验，也不返回任何运行时有效性字段。
 > 每项恒带 `pendingApproval`（与 `includePreview` 无关，源自 approvalManager 内存索引，非 messages 查询）：非 null = 该 chat 有 in-flight sense 审批待用户 accept/reject，形如 `{ senseName, waitTime, createdAt }`——`waitTime` = 审批窗口 ms（= `global.approval_timeout`，0 = 不限时），`createdAt` = interrupt 触发时间戳（ms），前端倒计时 = `waitTime - (now - createdAt)`；null = 无挂起审批。供会话列表「琴键」闪烁提示（含未 hydration 的 chat）。与 `chat.get`/`chat.sync` 的 `currentState.pendingApproval`（computeCurrentState 扫事件重建）一致——同为 approval 生命周期。**非请求参数**（响应未做 schema 校验）。
 
 ### chat.delete
 
 ```json
 → {"id":"r6","kind":"request","method":"chat.delete","params":{"chatId":"c1"}}
-← {"id":"a6","kind":"response","requestId":"r6","success":true,"data":{"chatId":"c1"}}
+← {"id":"a6","kind":"response","requestId":"r6","success":true,"data":{"chatId":"c1","deletedChatIds":["child-c1","c1"]}}
 ```
+
+`deletedChatIds` 是服务端实际删除的权威集合，包含目标会话及级联删除的全部后代；前端据此原子清理目录、时间线缓存、订阅和 UI 引用。
 
 > 目标为主 chat（无 `parent_chat_id`）时级联删其所有子 chat + 各自消息 + 清内存 runtime（`clearChatRuntime`），避免孤儿子 chat。子 chat 自身删除不级联。
 
@@ -255,6 +258,8 @@
 ```
 
 > 内部 effect chunk（`message_created`/`message_updated`/`sense_pending`）由 service observer 消费，不发出传输层。
+>
+> **当前执行配置关联**：历史 `metadata.runtime` 不参与新执行。主会话按稳定 `presetId`（旧数据回退 preset 名）关联当前 leader，子会话按历史 type 关联当前 role；缺少关联时返回 `RUNTIME_SELECTION_REQUIRED`，用户显式选择当前运行配置后再执行。
 >
 > **末尾未完成自动撤回（仅 chat.get 恢复场景）**：此情况只在服务重启后 `chat.get` 暴露出末尾未完成周期时出现——正常运行中 loop 会自动续接，不会留下 pending。此时 `chat.send` 触发撤回：先发 `staged.reverse` chunk（携带被撤回的 messageIds），**撤回整个当前周期的 AI 响应（think + content + tool/senseCalls + pending sense），回退到上一周期结束**（标记 `revoked`，buildMessages 过滤），再用新 prompt 重跑。
 >

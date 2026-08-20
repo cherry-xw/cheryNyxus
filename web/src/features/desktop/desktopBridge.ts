@@ -17,6 +17,8 @@ export interface OpenWindowRequest {
   chatId?: string
   source?: 'pet' | 'history' | 'nyxus'
   view?: 'composer' | 'attention' | 'tree'
+  /** Hide the Pet composer until the workbench it opened is closed. */
+  returnToComposer?: boolean
   focus?: { sourceChatId?: string; interactionId?: string; anchorNodeId?: string }
 }
 

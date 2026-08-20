@@ -16,6 +16,8 @@ export interface CrtLayoutInput {
   actionable: boolean
   pinned?: boolean
   order: number
+  /** Screen-space distance from the node centre to the panel edge. */
+  anchorClearance?: number
   /** Optional panel-local Y coordinate for the anchor line endpoint. */
   lineTargetOffsetY?: number
 }
@@ -33,6 +35,47 @@ export interface CrtViewport extends CrtSize {
 
 const GAP = 12
 const COLLISION_GAP = 10
+
+/**
+ * Places live CRT windows directly beside their nodes. Unlike interaction
+ * popovers, live windows deliberately do not avoid one another: concurrent
+ * turns may overlap, but every window must remain visibly attached to its own
+ * node instead of drifting through the viewport in search of free space.
+ */
+export function layoutCrtWindowsBesideAnchors(
+  cards: readonly CrtLayoutInput[],
+  viewport: CrtViewport,
+): CrtPlacement[] {
+  const margin = viewport.margin ?? 12
+
+  return cards.map((card) => {
+    const clearance = card.anchorClearance ?? GAP
+    const lineTargetOffsetY = card.lineTargetOffsetY ?? 16
+    const rightLeft = card.anchor.x + clearance
+    const leftLeft = card.anchor.x - clearance - card.panel.width
+    const rightFits = rightLeft + card.panel.width <= viewport.width - margin
+    const leftFits = leftLeft >= margin
+    const placement: 'left' | 'right' = rightFits || !leftFits ? 'right' : 'left'
+    const rawLeft = placement === 'right' ? rightLeft : leftLeft
+    const maxLeft = Math.max(margin, viewport.width - card.panel.width - margin)
+    const left = Math.max(margin, Math.min(maxLeft, rawLeft))
+    // Align the node with the title bar. Do not pull a low CRT upward merely to
+    // keep its body above the viewport bottom; users can drag the window.
+    const top = Math.max(0, card.anchor.y - lineTargetOffsetY)
+    const edgeX = placement === 'right' ? left : left + card.panel.width
+
+    return {
+      ...card,
+      left,
+      top,
+      placement,
+      line: {
+        from: card.anchor,
+        to: { x: edgeX, y: top + lineTargetOffsetY },
+      },
+    }
+  })
+}
 
 function overlaps(
   a: { left: number; top: number; width: number; height: number },
