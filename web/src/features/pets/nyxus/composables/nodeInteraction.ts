@@ -19,17 +19,17 @@ export interface NodeInteractionView {
   interactive: boolean
 }
 
-export type TerminalActionMode = 'stop' | 'run'
+export type TerminalActionMode = 'stop' | 'run' | 'continue'
 
-/** 与 PetToolbar 一致：运行中可停止；可恢复且未等待直接子会话时才可运行。 */
+/** 运行中可停止；可恢复时直接续跑；自然结束时继续入口回到消息编辑。 */
 export function terminalActionMode(
   running: boolean,
   canResume: boolean,
   hasUnfinishedDirectChild: boolean,
-): TerminalActionMode | undefined {
+): TerminalActionMode {
   if (running) return 'stop'
   if (canResume && !hasUnfinishedDirectChild) return 'run'
-  return undefined
+  return 'continue'
 }
 
 export function interactionView(

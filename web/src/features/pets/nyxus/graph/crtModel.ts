@@ -57,6 +57,13 @@ export function effectiveRunFacts(
   activeTurns: readonly ActiveTurnSnapshot[] = [],
 ): ActiveRunFact[] {
   const eligibleSnapshot = snapshotRuns.filter((run) => ACTIVE_CRT_STATUSES.has(run.status))
+  const terminalSnapshotRuns = new Set(
+    snapshotRuns
+      .filter(
+        (run) => run.status === 'paused' || run.status === 'completed' || run.status === 'failed',
+      )
+      .map((run) => runKey(run.chatId, run.runId)),
+  )
   if (!transientRuns && activeTurns.length === 0) return eligibleSnapshot
   const transientChatIds = new Set(
     (transientRuns ?? []).map((run) => run.chatId).filter((chatId): chatId is string => !!chatId),
@@ -73,10 +80,12 @@ export function effectiveRunFacts(
     if (!run.chatId) continue
     const status = runStatus(run)
     if (!status) continue
+    const key = runKey(run.chatId, run.runId)
+    if (terminalSnapshotRuns.has(key)) continue
     const durable = eligibleSnapshot.find(
       (candidate) => candidate.chatId === run.chatId && candidate.runId === run.runId,
     )
-    byRun.set(runKey(run.chatId, run.runId), {
+    byRun.set(key, {
       ...(durable ?? {}),
       rootChatId,
       chatId: run.chatId,
@@ -93,6 +102,7 @@ export function effectiveRunFacts(
     )
       continue
     const key = runKey(turn.chatId, turn.runId)
+    if (terminalSnapshotRuns.has(key)) continue
     if (byRun.has(key)) continue
     byRun.set(key, {
       rootChatId,
@@ -176,6 +186,10 @@ export function buildRunCrtModels(input: BuildRunCrtModelsInput): RunCrtModel[] 
     })
   }
   for (const run of runs.values()) {
+    // CRTs are live output monitors, so they must disappear as soon as the
+    // authoritative run leaves the running state. Waiting/paused facts remain
+    // useful to the execution graph, but should not keep a monitor on screen.
+    if (run.status !== 'running') continue
     const session = input.sessionsById[run.chatId]
     const turns = (input.activeTurns ?? session?.activeTurns ?? [])
       .filter(

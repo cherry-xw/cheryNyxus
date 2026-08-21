@@ -681,10 +681,10 @@ function openHistory(): void {
 }
 /**
  * 会话控制（停止/继续运行）：原挂 MessageBranchTree 终点节点，现移至弹窗 header 刷新按钮边。
- * running 显停止、canResume 且无未完成直接子会话显继续运行；逻辑参考 pet resume/abort。
+ * 运行中显示暂停；未完成周期直接恢复；自然结束则显示继续并打开消息编辑器。
  */
 const sessionControlPending = ref(false)
-type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root'
+type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root' | 'continue-root'
 const taskHasRunningBranches = computed(() =>
   taskTimeline.value?.activeRuns.some(
     (run) => run.status === 'running' || run.status === 'waiting',
@@ -717,7 +717,9 @@ const sessionControl = computed<{ mode: WorkbenchControlMode; label: string } | 
     selectCanResume(session),
     hasUnfinishedDirectChild,
   )
-  return mode === 'run' ? { mode: 'resume-root', label: '继续' } : undefined
+  return mode === 'run'
+    ? { mode: 'resume-root', label: '继续' }
+    : { mode: 'continue-root', label: '继续' }
 })
 async function executeSessionControl(): Promise<void> {
   const mode = sessionControl.value?.mode
@@ -730,7 +732,8 @@ async function executeSessionControl(): Promise<void> {
       const pauseId = chatSessions.rootTimeline(id, 'tree')?.controlState?.pauseId
       if (!pauseId) throw new Error('暂停状态已变化，请重试')
       await chatSessions.resumeTree(id, pauseId)
-    } else await chatSessions.resumeAgent(id)
+    } else if (mode === 'resume-root') await chatSessions.resumeAgent(id)
+    else activateNyxusInput()
   } catch (cause) {
     console.error(`[WorkbenchDialog] ${mode} failed:`, cause)
     if ((cause as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {

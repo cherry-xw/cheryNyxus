@@ -93,23 +93,27 @@ export function effectiveRootLiveState(
   for (const session of Object.values(sessionsById)) {
     if (!belongsToRoot(session.chatId, rootChatId, sessionsById)) continue
     if (rootState?.observedChatIds.has(session.chatId)) continue
+    const activeRun = session.activeRun
+    const sessionRunStatus = activeRun ? activeRunStatus(activeRun) : undefined
+    const runIsLive = sessionRunStatus === 'running' || sessionRunStatus === 'waiting'
     for (const turn of session.activeTurns) {
       if (turn.status === 'completed' || turn.status === 'error') continue
+      // A terminal snapshot for this exact run is authoritative. Hydration can
+      // briefly leave the corresponding turn marked running after run.updated
+      // completed, but it must not resurrect the tree's live projection.
+      if (turn.runId && activeRun?.runId === turn.runId && !runIsLive) continue
       const normalized = { ...turn, chatId: turn.chatId ?? session.chatId }
       turns.set(
         `${normalized.chatId}:${normalized.runId ?? ''}:${normalized.messageId}`,
         normalized,
       )
     }
-    const activeRun = session.activeRun
-    if (
-      activeRun?.runId &&
-      (activeRunStatus(activeRun) === 'running' || activeRunStatus(activeRun) === 'waiting')
-    ) {
+    if (activeRun?.runId && runIsLive) {
       runs.set(`${session.chatId}:${activeRun.runId}`, { ...activeRun, chatId: session.chatId })
     }
     for (const turn of session.activeTurns) {
       if (!turn.runId || turn.status === 'completed' || turn.status === 'error') continue
+      if (activeRun?.runId === turn.runId && !runIsLive) continue
       const key = `${session.chatId}:${turn.runId}`
       if (!runs.has(key)) {
         runs.set(key, { chatId: session.chatId, runId: turn.runId, status: 'running' })

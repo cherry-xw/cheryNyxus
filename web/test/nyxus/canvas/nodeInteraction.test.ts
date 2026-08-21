@@ -46,7 +46,7 @@ describe('Nyxus node interaction state', () => {
   it('uses the same stop/resume guard for the terminal tree node', () => {
     expect(terminalActionMode(true, false, true)).toBe('stop')
     expect(terminalActionMode(false, true, false)).toBe('run')
-    expect(terminalActionMode(false, true, true)).toBeUndefined()
-    expect(terminalActionMode(false, false, false)).toBeUndefined()
+    expect(terminalActionMode(false, true, true)).toBe('continue')
+    expect(terminalActionMode(false, false, false)).toBe('continue')
   })
 })

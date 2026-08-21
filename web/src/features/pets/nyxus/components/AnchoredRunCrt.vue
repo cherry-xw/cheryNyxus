@@ -210,6 +210,14 @@ function onEscape(event: KeyboardEvent): void {
 </template>
 
 <style scoped lang="less">
+@font-face {
+  font-family: 'HYPixel Paper';
+  src: url('@/assets/fonts/HYPixel11pxU-2.ttf') format('truetype');
+  font-style: normal;
+  font-weight: normal;
+  font-display: swap;
+}
+
 @bg: #0b1116;
 @surface: #101820;
 @ink: #d9e4e8;
@@ -370,7 +378,9 @@ function onEscape(event: KeyboardEvent): void {
   overscroll-behavior: contain;
   color: var(--ink);
   color: #d4dfe2;
-  font-size: 10px;
+  font-family: 'HYPixel Paper', system-ui, sans-serif;
+  font-size: 13px;
+  font-synthesis: none;
   line-height: 1.55;
   scrollbar-color: rgba(114, 147, 154, 0.58) transparent;
   scrollbar-width: thin;

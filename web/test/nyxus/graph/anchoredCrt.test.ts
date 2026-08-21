@@ -95,6 +95,41 @@ describe('anchored CRT model', () => {
     ])
   })
 
+  it('does not render a CRT when its run is no longer running', () => {
+    const session = createEmptySession('root')
+    session.activeTurns = [
+      {
+        turnId: 'turn:live',
+        runId: 'run:live',
+        messageId: 'message:live',
+        thinking: '',
+        content: 'last streamed output',
+        status: 'running',
+        createdAt: 2,
+      },
+    ]
+    const node = {
+      id: 'message:live',
+      kind: 'message',
+      sourceChatId: 'root',
+      status: 'committed',
+      orderKey: 2,
+    } as ExecutionNode
+
+    for (const status of ['waiting', 'paused', 'completed', 'failed'] as const) {
+      expect(
+        buildRunCrtModels({
+          rootChatId: 'root',
+          runs: [{ rootChatId: 'root', chatId: 'root', runId: 'run:live', status }],
+          activeTurns: session.activeTurns,
+          canonicalNodes: [node],
+          visibleNodes: [node],
+          sessionsById: { root: session },
+        }),
+      ).toEqual([])
+    }
+  })
+
   it('keeps a pending approval popover open and its node expanded', () => {
     const session = createEmptySession('root')
     session.interaction.approval = {
@@ -187,6 +222,25 @@ describe('anchored CRT model', () => {
           { rootChatId: 'root', chatId: 'child', runId: 'failed', status: 'failed' },
         ],
         [],
+      ),
+    ).toEqual([])
+
+    expect(
+      effectiveRunFacts(
+        'root',
+        [{ rootChatId: 'root', chatId: 'root', runId: 'completed', status: 'completed' }],
+        [{ chatId: 'root', runId: 'completed', status: 'running' }],
+        [
+          {
+            chatId: 'root',
+            turnId: 'turn:stale',
+            runId: 'completed',
+            messageId: 'message:stale',
+            thinking: 'stale',
+            content: 'stale output',
+            status: 'running',
+          },
+        ],
       ),
     ).toEqual([])
 

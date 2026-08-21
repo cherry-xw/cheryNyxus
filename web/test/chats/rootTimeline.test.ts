@@ -100,6 +100,26 @@ describe('RootTimelineStore', () => {
     })
   })
 
+  it('does not synthesize a live run from a stale turn after its session run completed', () => {
+    const root = createEmptySession('root')
+    root.activeTurns = [
+      {
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: 'message-1',
+        thinking: 'stale',
+        content: 'stale output',
+        status: 'running',
+      },
+    ]
+    root.activeRun = { runId: 'run-1', status: 'completed' }
+
+    expect(effectiveRootLiveState('root', undefined, { root })).toEqual({
+      activeTurns: [],
+      activeRuns: [],
+    })
+  })
+
   it('coalesces concurrent gap recovery into one resync', async () => {
     const flights = new Map<string, Promise<number>>()
     let calls = 0
