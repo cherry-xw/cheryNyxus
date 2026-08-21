@@ -47,6 +47,9 @@ const props = defineProps<{
   fallbackRuntime?: RuntimeSelection
   /** 真人头像 hover 的「系统提示」描述（6d，抽屉打开时随机选一套，整次打开稳定）。 */
   userAvatarCaption?: string
+  /** 工具调用折叠为小 tag（抽屉头部「折叠工具调用」开关）：senseCalls 渲染为一行 tag，
+   *  hover tag 悬浮显完整渲染器内容；thinking / content 渲染不受影响。 */
+  collapseSenseCalls?: boolean
 }>()
 
 const showThinking = ref(false)
@@ -72,6 +75,20 @@ const isMarkdown = computed(
     props.item.role === 'role' ||
     props.item.role === 'master',
 )
+
+// 折叠 tag 的状态符号（与 SenseCallBox.statusGlyph 同款映射）
+const senseStatusGlyph = (call: NonNullable<HistoryItem['senseCalls']>[number]): string => {
+  switch (call.status) {
+    case 'running':
+      return '⋯'
+    case 'done':
+      return '✓'
+    case 'error':
+      return '✗'
+    default:
+      return '?'
+  }
+}
 const renderedContent = computed(() => renderMarkdown(props.item.content ?? ''))
 const userContentSegments = computed(() => splitCommandPrompt(props.item.content ?? ''))
 
@@ -177,7 +194,35 @@ const emit = defineEmits<{
             :assets="props.item.mediaAssets"
           />
         </div>
-        <div v-if="hasSenseCalls" class="sense-list">
+        <!-- 工具调用：折叠态一行小 tag（hover 悬浮显完整渲染器内容），展开态逐个渲染器 box -->
+        <div v-if="hasSenseCalls && collapseSenseCalls" class="sense-tags">
+          <el-popover
+            v-for="(call, idx) in props.item.senseCalls"
+            :key="call.id ?? `${call.name}-${idx}`"
+            trigger="hover"
+            placement="top"
+            :show-after="150"
+            :width="440"
+            popper-class="sense-tag-detail-popper"
+          >
+            <template #reference>
+              <button
+                type="button"
+                class="sense-tag"
+                :class="`tag-${call.status}`"
+                :title="call.name"
+              >
+                <span class="sense-tag-name">{{ call.name || '(unknown sense)' }}</span>
+                <span class="sense-tag-status" aria-hidden="true">{{
+                  senseStatusGlyph(call)
+                }}</span>
+              </button>
+            </template>
+            <!-- 悬浮详情 = 原渲染器完整内容（专用渲染器优先，参数/结果默认展开） -->
+            <SenseCallRenderer :call="call" default-expanded />
+          </el-popover>
+        </div>
+        <div v-else-if="hasSenseCalls" class="sense-list">
           <SenseCallRenderer
             v-for="(call, idx) in props.item.senseCalls"
             :id="call.id ? `sensecall-${call.id}` : `sensecall-idx-${idx}`"
@@ -414,6 +459,45 @@ const emit = defineEmits<{
   margin-top: 2px;
 }
 
+// 折叠态：工具调用一行小 tag（hover el-popover 悬浮显完整渲染器内容）
+.sense-tags {
+  display: flex;
+  flex-flow: row wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.sense-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  cursor: default;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--ink) 30%, transparent);
+  }
+
+  // 状态着色（与 SenseCallBox .sense-status 同款语义色）
+  &.tag-running {
+    color: #b67c1c;
+  }
+  &.tag-error {
+    border-color: rgba(180, 35, 59, 0.4);
+    color: #b4233b;
+  }
+  &.tag-done {
+    color: color-mix(in srgb, #456342 72%, var(--ink));
+  }
+}
+
 // 气泡右上角时间戳：bubble-head 内靠右、低饱和、小字号；缺失不渲染（v-if 控制）
 .time {
   margin-left: auto;
@@ -422,5 +506,14 @@ const emit = defineEmits<{
   color: color-mix(in srgb, var(--ink) 40%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   white-space: nowrap;
+}
+</style>
+
+<style lang="less">
+// 折叠 tag 悬浮详情 popper：el-popper 渲染在 body 外，scoped 不命中，需全局样式。
+// 限高 + 内滚，避免长 result 撑爆悬浮窗。
+.sense-tag-detail-popper {
+  max-height: 60vh;
+  overflow: auto;
 }
 </style>

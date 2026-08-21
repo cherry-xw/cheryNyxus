@@ -1071,11 +1071,13 @@ export const useAgentsStore = defineStore('agents', () => {
         }
       }
     } else {
-      // replay 模式：chat.sync 设回放标记，sync 流抑制副作用 RPC + 终态 + stream chunk 累加
+      // replay 模式：chat.sync 只恢复持久化历史/状态，绝不驱动 pet 实时气泡。
+      // 运行中会话的当前未完成文本由 ChatSession 的 chat.attach.activeTurns
+      // 快照一次性恢复；快照边界之后的新 delta 才走实时路径。
       // 回放期一律 true（含非运行 chat）：历史 role_reply/done 等事件不得触发 resumeAgent/retainUntil，
-      // 非运行 chat 的历史 stream delta 不得累加进气泡；运行中 chat 则重建最后一个未结束 run。
+      // 所有历史 stream delta 都不得累加进气泡。
       stream.replaying = true
-      stream.replayLiveChunks = !!chat.running
+      stream.replayLiveChunks = false
       try {
         const afterSeq = wsClient.getLastSeq(chat.chatId)
         const { requestId, done } = agentApi.syncChat(chat.chatId, afterSeq)

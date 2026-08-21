@@ -441,6 +441,7 @@ const projectedCrts = computed(() =>
   buildRunCrtModels({
     rootChatId: props.rootChatId,
     runs: activeCrtRuns.value,
+    authoritativeRuns: timelineSnapshot.value?.activeRuns,
     activeTurns: liveState.value.activeTurns,
     canonicalNodes: persistentGraph.value.nodes,
     visibleNodes: graph.value.nodes,

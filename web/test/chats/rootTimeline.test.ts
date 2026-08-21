@@ -317,6 +317,29 @@ describe('RootTimelineStore', () => {
     expect(state.activeRuns).toEqual([])
   })
 
+  it('uses a terminal run event to clear a turn even when turn.completed was missed', () => {
+    const state = createRootTransientState()
+    applyRootTransientEvent(state, {
+      chatId: 'root',
+      type: 'turn.started',
+      data: { turnId: 'turn-1', runId: 'run-1', messageId: 'message-1' },
+    })
+    applyRootTransientEvent(state, {
+      chatId: 'root',
+      type: 'run.updated',
+      data: { runId: 'run-1', status: 'running' },
+    })
+
+    applyRootTransientEvent(state, {
+      chatId: 'root',
+      type: 'run.updated',
+      data: { runId: 'run-1', status: 'completed' },
+    })
+
+    expect(state.activeTurns).toEqual([])
+    expect(state.activeRuns).toEqual([])
+  })
+
   it('rekeys a provisional input in place by clientMessageId', () => {
     const state = createRootTransientState({
       pendingInputs: [

@@ -47,13 +47,20 @@ import { detailBranchContextNodes } from './detailBranchContext'
 
 const MotionDiv = motion.div
 
-/** 按消息内容估算未量测项的高度，量测完成后由 VirtualScroll 替换。 */
-function estimateHeight(item: HistoryItem | undefined): number {
+/** 按消息内容估算未量测项的高度，量测完成后由 VirtualScroll 替换。
+ *  senseCollapsed=true 时 senseCalls 折叠为一行小 tag（~22px），不再按逐个 box 叠高度。 */
+function estimateHeight(item: HistoryItem | undefined, senseCollapsed = false): number {
   if (!item) return 120
   const role = item.role
   if (role === 'user' || role === 'master') return 90
   const hasThinking = !!item.thinking && item.thinking.trim().length > 0
   const senseCount = item.senseCalls?.length ?? 0
+  if (senseCollapsed) {
+    if (hasThinking && senseCount > 0) return 240
+    if (hasThinking) return 220
+    if (senseCount > 0) return 150
+    return 130
+  }
   if (hasThinking && senseCount > 0) return 320
   if (hasThinking) return 220
   if (senseCount > 0) return 180
@@ -150,6 +157,10 @@ const chatSessions = useChatSessionsStore()
 const manager = useHistoryDrawerManager()
 const sessionData = useChatSessionData(() => props.chatId)
 
+/** 估高入口：感知工具调用折叠开关（VirtualScroll 只在未量测时用估值，实测后自动替换）。 */
+const estimateSize = (item: HistoryItem | undefined): number =>
+  estimateHeight(item, agents.senseCallsCollapsed)
+
 const pet = computed(() => agents.petForChat(props.chatId))
 const chatPetName = computed(() => pet.value?.name ?? '')
 
@@ -200,10 +211,6 @@ function rootOptionLabel(c: ChatSummary): string {
     : ''
   return `${when}${plain ? ' · ' + plain : ''}`
 }
-function onSwitchRoot(cid: string): void {
-  if (!cid || cid === props.chatId) return
-  manager.openRoot(cid)
-}
 
 const taskBranches = ref<ConversationBranchSummary[]>([])
 const taskTimeline = ref<RootTimelineSnapshot>()
@@ -249,9 +256,80 @@ function branchOptionLabel(branch: ConversationBranchSummary): string {
   const plain = splitCommandPrompt(branch.title?.trim() || '未命名问题').map((segment) => segment.value).join('')
   return `${prefix} · ${plain}`
 }
-function onSwitchTaskBranch(cid: string): void {
+// ── 会话级联切换（原「根会话 + 任务分支」两个下拉合并为一个两级 cascader）：
+//    第一级 = 任务（rootOptions 按 ChatSummary.taskId 分组，无 taskId 各自成组）；
+//    第二级 = 该任务的分支会话--当前任务用 timeline 分支摘要（主流程排前），其他任务用
+//    ChatSummary.branchKind 前缀退化。checkStrictly：点第一级任务节点直接切到其代表会话
+//    （当前任务 = activeBranch，其他 = 最近会话）。value 恒为 chatId，change 统一 openRoot。 ──
+interface SessionCascadeOption {
+  value: string
+  label: string
+  children?: SessionCascadeOption[]
+}
+
+/** 非 timeline 来源的分支前缀（其他任务的分支会话仅 ChatSummary.branchKind 可用）。 */
+function summaryBranchPrefix(c: ChatSummary): string {
+  if (c.branchKind === 'original') return '原流程 · '
+  if (c.branchKind === 'continuation') return '继续 · '
+  if (c.branchKind === 'detail') return '解释 · '
+  return ''
+}
+
+const cascadeOptions = computed<SessionCascadeOption[]>(() => {
+  // 按 taskId 聚任务组；无 taskId 的会话各自成组（key 唯一即可）
+  const groups = new Map<string, ChatSummary[]>()
+  for (const c of rootOptions.value) {
+    const key = c.taskId ?? `chat:${c.chatId}`
+    const list = groups.get(key)
+    if (list) list.push(c)
+    else groups.set(key, [c])
+  }
+  const options: SessionCascadeOption[] = []
+  for (const [key, chats] of groups) {
+    const sorted = chats.slice().sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    const latest = sorted[0]!
+    // 当前任务：分支摘要做第二级；不在分支列表的会话兜底追加（historyList 未含分支 chat 时）
+    if (key === taskId.value && orderedTaskBranches.value.length > 0) {
+      const branches = orderedTaskBranches.value
+      const branchChatIds = new Set(branches.map((b) => b.chatId))
+      const children: SessionCascadeOption[] = branches.map((b) => ({
+        value: b.chatId,
+        label: branchOptionLabel(b),
+      }))
+      for (const c of sorted) {
+        if (!branchChatIds.has(c.chatId))
+          children.push({ value: c.chatId, label: rootOptionLabel(c) })
+      }
+      const activeChatId =
+        branches.find((b) => b.branchId === taskTimeline.value?.activeBranchId)?.chatId ??
+        branches[0]!.chatId
+      options.push({ value: activeChatId, label: rootOptionLabel(latest), children })
+      continue
+    }
+    // 单会话组（无分支）：叶子节点直接可选，不展开空二级
+    if (sorted.length === 1) {
+      options.push({ value: sorted[0]!.chatId, label: rootOptionLabel(sorted[0]!) })
+      continue
+    }
+    options.push({
+      value: latest.chatId,
+      label: rootOptionLabel(latest),
+      children: sorted.map((c) => ({
+        value: c.chatId,
+        label: summaryBranchPrefix(c) + rootOptionLabel(c),
+      })),
+    })
+  }
+  return options
+})
+
+/** el-cascader 行为：任意层级可选（emitPath:false -> value 为节点值即 chatId）。 */
+const cascadeProps = { checkStrictly: true, emitPath: false } as const
+
+function onSwitchCascade(value: unknown): void {
+  const cid = typeof value === 'string' ? value : ''
   if (!cid || cid === props.chatId) return
-  manager.openRoot(cid, agents.historyDrawerMode, agents.historyDrawerAnchor)
+  manager.openRoot(cid)
 }
 const activatingBranch = ref(false)
 async function activateCurrentBranch(): Promise<void> {
@@ -720,13 +798,13 @@ const titleText = computed(() => {
   return `历史 · ${props.chatId.slice(0, 8)}…`
 })
 
-/** 下拉作为标题：存在任一可切换下拉（根会话 / 任务分支）时，静态标题隐去，由下拉承载占位。 */
+/** 级联下拉作为标题：同 preset 存在多个可切换会话/分支且非 workbench-docked 模式时，静态标题
+ *  隐去，由级联下拉承载占位。工作台 dock 模式不显示任何切换下拉（分支/会话切换走工作台自身节点树）。 */
 const dropdownAsTitle = computed(
   () =>
-    (layout.value === 'group' &&
-      rootOptions.value.length > 1 &&
-      agents.historyDrawerMode !== 'workbench-docked') ||
-    orderedTaskBranches.value.length > 1,
+    layout.value === 'group' &&
+    agents.historyDrawerMode !== 'workbench-docked' &&
+    (rootOptions.value.length > 1 || orderedTaskBranches.value.length > 1),
 )
 
 /** 6c：解析某条历史消息所属 chat 的 pet runtime 兜底（subPetChatId 优先 → agentChatId → 当前 drawer chat）。
@@ -848,39 +926,18 @@ function onPromptSnapShow(): void {
     <header class="drawer-head">
       <div class="title-block">
         <span v-if="!dropdownAsTitle" class="title">{{ titleText }}</span>
-        <el-select
-          v-if="layout === 'group' && rootOptions.length > 1 && agents.historyDrawerMode !== 'workbench-docked'"
-          class="root-switch"
+        <!-- 会话级联切换：第一级任务，第二级分支；仅 pet 直开的 overlay 抽屉显示（工作台 dock 模式走自身节点树） -->
+        <el-cascader
+          v-if="dropdownAsTitle"
+          class="cascade-switch"
           size="small"
           :model-value="props.chatId"
-          :placeholder="'切换会话'"
-          @change="onSwitchRoot"
-        >
-          <el-option
-            v-for="c in rootOptions"
-            :key="c.chatId"
-            :value="c.chatId"
-            :label="rootOptionLabel(c)"
-          />
-        </el-select>
-        <el-select
-          v-if="orderedTaskBranches.length > 1"
-          class="branch-switch"
-          size="small"
-          :model-value="props.chatId"
-          placeholder="任务分支"
-          aria-label="切换任务分支历史"
-          @change="onSwitchTaskBranch"
-        >
-          <el-option
-            v-for="branch in orderedTaskBranches"
-            :key="branch.branchId"
-            :value="branch.chatId"
-            :label="branchOptionLabel(branch)"
-          >
-            <span :title="branchOptionLabel(branch)">{{ branchOptionLabel(branch) }}</span>
-          </el-option>
-        </el-select>
+          :options="cascadeOptions"
+          :props="cascadeProps"
+          placeholder="切换会话"
+          aria-label="切换会话或任务分支"
+          @change="onSwitchCascade"
+        />
         <button
           v-if="currentTaskBranch && currentTaskBranch.kind !== 'detail' && currentTaskBranch.branchId !== taskTimeline?.activeBranchId"
           type="button"
@@ -901,6 +958,16 @@ function onPromptSnapShow(): void {
         </button>
       </div>
       <div v-if="isTop" class="head-actions">
+        <button
+          type="button"
+          class="tool-collapse-btn"
+          :class="{ active: agents.senseCallsCollapsed }"
+          :aria-pressed="agents.senseCallsCollapsed"
+          title="折叠工具调用为标签（hover 标签查看详情）"
+          @click="agents.setSenseCallsCollapsed(!agents.senseCallsCollapsed)"
+        >
+          🧰
+        </button>
         <div v-if="layout === 'group'" class="display-mode-seg" role="group" aria-label="子 agent 消息显示模式">
           <button
             type="button"
@@ -996,7 +1063,7 @@ function onPromptSnapShow(): void {
         class="history-list"
         :items="history"
         :item-key="getHistoryItemKey"
-        :estimate-size="estimateHeight"
+        :estimate-size="estimateSize"
         :default-render-count="12"
       >
         <template #default="{ index }">
@@ -1013,6 +1080,7 @@ function onPromptSnapShow(): void {
             <MessageBubble
               :item="history[index]!"
               :layout="layout"
+              :collapse-sense-calls="agents.senseCallsCollapsed"
               :master-pet-name="masterPetName"
               :sub-pet-name="subPetName(history[index]!)"
               :sub-pet-face="subPetFace(history[index]!)"
@@ -1121,13 +1189,14 @@ function onPromptSnapShow(): void {
           class="history-list"
           :items="generationHistory"
           :item-key="getHistoryItemKey"
-          :estimate-size="estimateHeight"
+          :estimate-size="estimateSize"
           :default-render-count="12"
         >
           <template #default="{ index }">
             <MessageBubble
               :item="generationHistory[index]!"
               layout="group"
+              :collapse-sense-calls="agents.senseCallsCollapsed"
               :master-pet-name="masterPetName"
               :sub-pet-name="subPetName(generationHistory[index]!)"
               :sub-pet-face="subPetFace(generationHistory[index]!)"
@@ -1224,8 +1293,12 @@ function onPromptSnapShow(): void {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  background: var(--surface-soft);
+  // 标题栏与滚动区区分：着色带底（浅色主题略深、深色主题略亮）+ 加深底边 + 轻投影。
+  // 原 --surface-soft 半透明层与列表区 --panel 几乎无差，辨识度不足。
+  background: color-mix(in srgb, var(--ink) 5%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
 
   .title-block {
     display: flex;
@@ -1284,37 +1357,68 @@ function onPromptSnapShow(): void {
     }
   }
 
-  // 根会话 / 任务分支切换下拉：作为标题展示（方案 A）。
-  // 存在下拉时静态 .title 隐去，下拉 flex:1 抢占标题区并先 ellipsis，承载标题职能。
-  .root-switch,
-  .branch-switch {
+  // 会话级联切换（el-cascader）：作为标题展示。
+  // 存在下拉时静态 .title 隐去，下拉 flex:1 抢占标题区，承载标题职能。
+  .cascade-switch {
     align-self: center;
     flex: 1 1 0;
     min-width: 0;
-    :deep(.el-select__wrapper) {
+    :deep(.el-input__wrapper) {
       background: var(--surface-soft);
       box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent) inset;
       font-size: 13px;
       font-weight: 800;
+      cursor: pointer;
     }
-    :deep(.el-select__placeholder) {
+    :deep(.el-input__inner) {
+      color: color-mix(in srgb, var(--ink) 86%, transparent);
+      font-weight: 800;
+      cursor: pointer;
+    }
+    :deep(.el-input__inner::placeholder) {
       color: color-mix(in srgb, var(--ink) 45%, transparent);
     }
-    :deep(.el-select__selected-item) {
-      color: color-mix(in srgb, var(--ink) 86%, transparent);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    :deep(.el-input__suffix) {
+      color: color-mix(in srgb, var(--ink) 45%, transparent);
     }
   }
 }
 
-// 头部右侧操作组（折叠子 agent + 关闭）
+// 头部右侧操作组（工具调用折叠开关 + 折叠子 agent + 关闭）
 .head-actions {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+// 工具调用折叠开关：单按钮 toggle，active 高亮与 .display-mode-seg .mode-btn.active 一致
+.tool-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+
+  &:hover {
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
+  }
+
+  &.active {
+    background: rgba(246, 183, 60, 0.16);
+    color: #16a34a;
+  }
 }
 
 // 子 agent 消息三态显示选择器（group 合并视图）：肩并肩分段按钮，active 高亮。

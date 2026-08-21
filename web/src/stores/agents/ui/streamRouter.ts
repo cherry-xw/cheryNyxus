@@ -131,11 +131,9 @@ export function createStreamRouter(
       return
     }
 
-    // stream chunk：实时增量累积
-    // 普通历史回放不渲染临时气泡。只有仍在运行的 chat 才允许用回放
-    // chunk 重建最后一个未结束 run；旧 run 的 done/error 会在 notification
-    // 路径清掉其暂存文本，因而不会把前几轮串到当前 run。
-    if (stream.replaying && !stream.replayLiveChunks) return
+    // stream chunk：仅实时增量可驱动 pet 气泡。chat.sync 即使在恢复
+    // running chat，也属于历史回放；当前未完成文本由 activeTurns 快照恢复。
+    if (stream.replaying) return
     const pet = pets.value.find((p) => p.chatId === chatId)
     // 看门狗终止后，网络缓冲区仍可能投递旧 stream chunk。ghost 是终态，
     // 忽略迟到增量，避免 HistoryDrawer 又显示该子 agent「输入中」。

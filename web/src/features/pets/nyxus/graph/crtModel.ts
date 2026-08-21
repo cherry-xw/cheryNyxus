@@ -25,6 +25,8 @@ export interface RunCrtModel {
 export interface BuildRunCrtModelsInput {
   rootChatId: string
   runs: readonly ActiveRunFact[]
+  /** Canonical snapshot facts can tombstone a stale transient run at render time. */
+  authoritativeRuns?: readonly ActiveRunFact[]
   /** Root session plane. Optional only for compatibility with isolated model callers. */
   activeTurns?: readonly ActiveTurnSnapshot[]
   canonicalNodes: readonly ExecutionNode[]
@@ -165,6 +167,13 @@ function labelFor(node: ExecutionNode, session: ChatSession | undefined): string
  */
 export function buildRunCrtModels(input: BuildRunCrtModelsInput): RunCrtModel[] {
   const models = new Map<string, RunCrtModel>()
+  const terminalAuthoritativeRuns = new Set(
+    (input.authoritativeRuns ?? [])
+      .filter(
+        (run) => run.status === 'paused' || run.status === 'completed' || run.status === 'failed',
+      )
+      .map((run) => runKey(run.chatId, run.runId)),
+  )
   const runs = new Map(input.runs.map((run) => [runKey(run.chatId, run.runId), run]))
   for (const turn of input.activeTurns ?? []) {
     if (
@@ -190,6 +199,7 @@ export function buildRunCrtModels(input: BuildRunCrtModelsInput): RunCrtModel[] 
     // authoritative run leaves the running state. Waiting/paused facts remain
     // useful to the execution graph, but should not keep a monitor on screen.
     if (run.status !== 'running') continue
+    if (terminalAuthoritativeRuns.has(runKey(run.chatId, run.runId))) continue
     const session = input.sessionsById[run.chatId]
     const turns = (input.activeTurns ?? session?.activeTurns ?? [])
       .filter(

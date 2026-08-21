@@ -2029,6 +2029,7 @@ export async function handleChatClose(
  * chat.attach：F5 后重连运行中 run，把后续实时输出重定向到本连接。
  * 非流式；attach 立即返回，后续 chunk/notification 由原 run 的（已重定向）流式循环持续投递。
  * 前端时序：先 chat.attach（开启重定向）→ 再 chat.sync（回放补齐当前实时态，见 web streamRouter resume 模式）。
+ * attach 同时返回 activeTurns 完整快照，当前未完成文本无需由 chat.sync 的历史 delta 拼装。
  */
 export async function handleChatAttach(
   ctx: HandlerContext,
@@ -2045,7 +2046,7 @@ export async function handleChatAttach(
   if (!ws) {
     // 连接已不可达（竞态）：无法重定向，按未运行回落。
     logger.event('chat.attach.no-ws', { chatId, connectionId: ctx.connectionId })
-    return { chatId, running: false, ...questionSnapshot }
+    return { chatId, running: false, activeTurns: [], ...questionSnapshot }
   }
 
   // attach 同时是订阅登记：idle 主 chat 也要接收随后由子完成触发的
@@ -2054,18 +2055,21 @@ export async function handleChatAttach(
 
   // 未在运行时仍保留订阅，用于后续子完成等异步 notification。
   if (!isChatRunning(chatId)) {
-    return { chatId, running: false, ...questionSnapshot }
+    return { chatId, running: false, activeTurns: [], ...questionSnapshot }
   }
 
   // 加入后续实时输出订阅 + 取消该 run 的断连 park（子 run 未跟踪则 no-op）。
   connectionManager.setLiveOutput(chatId, ws)
   disconnectGrace.rebindByChatId(chatId, ctx.connectionId, ws)
+  const activeRunId = getActiveChatRunId(chatId)
 
   logger.event('chat.attach', { chatId, connectionId: ctx.connectionId })
   return {
     chatId,
     running: true,
     attached: true,
+    ...(activeRunId ? { runId: activeRunId } : {}),
+    activeTurns: buildActiveTurns(chatId),
     currentState: computeCurrentState(chatId),
     ...questionSnapshot,
   }

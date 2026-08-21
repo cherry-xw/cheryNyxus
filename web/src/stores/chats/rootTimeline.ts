@@ -265,6 +265,12 @@ export function applyRootTransientEvent(
     string,
     unknown
   >
+  const eventRunId =
+    typeof data.runId === 'string'
+      ? data.runId
+      : typeof event.runId === 'string'
+        ? event.runId
+        : undefined
 
   if (event.type === 'input.updated' && typeof data.inputId === 'string') {
     const existing = state.pendingInputs.find(
@@ -320,10 +326,18 @@ export function applyRootTransientEvent(
     const status = run.status ?? run.state
     state.activeRuns = state.activeRuns.filter((item) => item.chatId !== chatId)
     if (status === 'running' || status === 'waiting') state.activeRuns.push(run)
+    else {
+      state.activeTurns = state.activeTurns.filter(
+        (turn) => turn.chatId !== chatId || (!!eventRunId && turn.runId !== eventRunId),
+      )
+    }
     return
   }
 
   if (event.type === 'done' || event.type === 'error') {
     state.activeRuns = state.activeRuns.filter((run) => run.chatId !== chatId)
+    state.activeTurns = state.activeTurns.filter(
+      (turn) => turn.chatId !== chatId || (!!eventRunId && turn.runId !== eventRunId),
+    )
   }
 }

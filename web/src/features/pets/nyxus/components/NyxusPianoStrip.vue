@@ -16,6 +16,7 @@ import {
   BASE_MIDI,
   WHITE_W,
   isBlackKey,
+  isPianoRootSession,
   keyboardKeyCount,
   layoutPianoKeys,
   sessionPianoKeyCount,
@@ -59,10 +60,14 @@ function belongsToPreset(c: ChatSummary): boolean {
   return c.preset === props.presetName || c.presetId === props.presetId
 }
 
-/** One key per root conversation in the selected preset workspace. */
+/**
+ * 琴键只映射原生 root 会话（isPianoRootSession：`!parentChatId` 且 branchKind
+ * 缺省或 'original'，剔 spawn 子角色与延续/解释分支）。被激活为主干的
+ * continuation 也经工作台标题栏访问，不占琴键（约定见 docs/web/pet/rendering.md）。
+ */
 const sessions = computed<ChatSummary[]>(() =>
   (agents.historyList ?? [])
-    .filter((c) => !c.parentChatId && belongsToPreset(c))
+    .filter((c) => isPianoRootSession(c) && belongsToPreset(c))
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
 )
 

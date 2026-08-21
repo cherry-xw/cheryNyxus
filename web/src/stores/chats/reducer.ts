@@ -469,6 +469,11 @@ function reduceNotification(
   const d = (n.data ?? {}) as Record<string, unknown>
 
   if (type === 'done' || type === 'error') {
+    const terminalRunId =
+      n.runId ?? (typeof d.runId === 'string' ? (d.runId as string) : undefined)
+    session.activeTurns = session.activeTurns.filter(
+      (turn) => !!terminalRunId && turn.runId !== terminalRunId,
+    )
     // run 结束：无 runId 或 runId 匹配当前活跃 run -> 清 activeRunId（与旧 routeNotification 一致）
     if (!n.runId || n.runId === session.run.activeRunId) session.run.activeRunId = undefined
     session.interaction.runningTools = []
@@ -1005,14 +1010,22 @@ export function reduceSessionEvent(
     }
     case 'run.updated': {
       session.activeRun = data as unknown as RunSnapshot
-      const status = session.activeRun.status
+      const status = session.activeRun.status ?? session.activeRun.state
+      const live = status === 'running' || status === 'waiting'
       session.run.status =
-        status === 'running' || status === 'waiting'
+        live
           ? 'running'
           : status === 'paused'
             ? 'paused'
             : 'ended'
-      session.run.activeRunId = session.activeRun.runId
+      if (live) session.run.activeRunId = session.activeRun.runId
+      else {
+        const terminalRunId = session.activeRun.runId
+        session.activeTurns = session.activeTurns.filter(
+          (turn) => turn.runId !== terminalRunId,
+        )
+        session.run.activeRunId = undefined
+      }
       break
     }
     case 'timeline.patch':

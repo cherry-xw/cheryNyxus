@@ -70,6 +70,9 @@ export function createUiState() {
   const pendingScrollSenseCallId = ref<string | null>(null)
   // 子 agent 消息显示模式（跨所有 chat 持久；VirtualScroll 离屏销毁 MessageBubble 会丢 local 态，故放 store 兜底）。
   const subagentDisplay = ref<SubagentDisplayMode>('show')
+  // 工具调用折叠开关：开启后 MessageBubble 的 senseCalls 折叠为一行小 tag，hover tag 悬浮显完整渲染器内容。
+  // 与 subagentDisplay 同款内存态（离屏销毁丢 local 态，故放 store）。
+  const senseCallsCollapsed = ref(false)
 
   /** 栈顶 chatId（无抽屉时 null）。供仅需“当前焦点”的旧调用方读。 */
   const topHistoryChatId: ComputedRef<string | null> = computed(() => {
@@ -154,6 +157,11 @@ export function createUiState() {
   /** 设置子 agent 消息显示模式。 */
   function setSubagentDisplay(mode: SubagentDisplayMode): void {
     subagentDisplay.value = mode
+  }
+
+  /** 切换工具调用折叠开关（true = senseCalls 折叠为小 tag）。 */
+  function setSenseCallsCollapsed(collapsed: boolean): void {
+    senseCallsCollapsed.value = collapsed
   }
 
   // ---- 节点树工作台多窗口注册表（每预设一窗，key = presetId） ----
@@ -402,6 +410,8 @@ export function createUiState() {
     pendingScrollSenseCallId,
     subagentDisplay,
     setSubagentDisplay,
+    senseCallsCollapsed,
+    setSenseCallsCollapsed,
     workbenchWindows,
     workbenchWindowOrder,
     focusedWorkbenchWindowId,

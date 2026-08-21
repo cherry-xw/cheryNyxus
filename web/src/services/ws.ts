@@ -83,6 +83,13 @@ export class WsClient {
   private notificationHandlers = new Set<NotificationHandler>()
   private eventHandlers = new Set<EventHandler>()
   private statusHandlers = new Set<StatusHandler>()
+  /**
+   * chat.sync re-emits persisted envelopes through the normal WS channels.
+   * Keep provenance on the envelope itself (rather than in one Pinia store's
+   * request map), so every consumer can distinguish replay from live output.
+   * A WeakSet also survives gap-buffering without retaining completed events.
+   */
+  private replayEvents = new WeakSet<object>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private shouldReconnect = false
   private connectionGeneration = 0
@@ -116,6 +123,10 @@ export class WsClient {
     if (!pending) return highest
     for (const seq of pending.keys()) highest = Math.max(highest, seq)
     return highest
+  }
+
+  isReplayEvent(event: unknown): boolean {
+    return typeof event === 'object' && event !== null && this.replayEvents.has(event)
   }
 
   /** Start replaying through a stable server snapshot cursor. */
@@ -300,12 +311,17 @@ export class WsClient {
       return
     }
     const envelope = msg as {
+      requestId?: unknown
       chatId?: unknown
       seq?: unknown
       eventSeq?: unknown
       rootChatId?: unknown
       rootEventSeq?: unknown
       subscriptionId?: unknown
+    }
+    if (kind !== 'response' && typeof envelope.requestId === 'string') {
+      const sourceRequest = this.pending.get(envelope.requestId)?.request
+      if (sourceRequest?.method === 'chat.sync') this.replayEvents.add(msg)
     }
     if (kind === 'response') {
       const response = msg as RpcResponse

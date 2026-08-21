@@ -128,6 +128,22 @@ describe('anchored CRT model', () => {
         }),
       ).toEqual([])
     }
+
+    expect(
+      buildRunCrtModels({
+        rootChatId: 'root',
+        runs: [
+          { rootChatId: 'root', chatId: 'root', runId: 'run:live', status: 'running' },
+        ],
+        authoritativeRuns: [
+          { rootChatId: 'root', chatId: 'root', runId: 'run:live', status: 'completed' },
+        ],
+        activeTurns: session.activeTurns,
+        canonicalNodes: [node],
+        visibleNodes: [node],
+        sessionsById: { root: session },
+      }),
+    ).toEqual([])
   })
 
   it('keeps a pending approval popover open and its node expanded', () => {

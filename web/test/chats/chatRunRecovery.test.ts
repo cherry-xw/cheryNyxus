@@ -2,14 +2,14 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createEmptySession } from '../../src/stores/chats/hydration'
 import { agentApi } from '../../src/services/agentApi'
-import { wsClient } from '../../src/services/ws'
+import { WsClient, wsClient } from '../../src/services/ws'
 import {
   beginLiveRun,
   shouldResumeRoleReply,
   toSequencedSessionEvent,
   useChatSessionsStore,
 } from '../../src/stores/chats'
-import { installActiveTurns, reduceSessionEvent } from '../../src/stores/chats/reducer'
+import { installActiveTurns, reduce, reduceSessionEvent } from '../../src/stores/chats/reducer'
 import { selectCanResume, selectIsWorking } from '../../src/stores/chats/selectors'
 
 describe('chat live run recovery', () => {
@@ -173,5 +173,168 @@ describe('chat live run recovery', () => {
       content: 'partial',
       status: 'streaming',
     })
+  })
+
+  it('marks chat.sync envelopes as replay provenance for every store consumer', () => {
+    const client = new WsClient()
+    const internals = client as unknown as {
+      pending: Map<string, { request: { id: string; kind: 'request'; method: string; params: unknown } }>
+      handleMessage: (event: MessageEvent) => void
+    }
+    internals.pending.set('sync-request', {
+      request: { id: 'sync-request', kind: 'request', method: 'chat.sync', params: {} },
+    })
+    let observed: unknown
+    const stop = client.onNotification((event) => {
+      observed = event
+    })
+
+    try {
+      internals.handleMessage({
+        data: JSON.stringify({
+          kind: 'notification',
+          type: 'turn.delta',
+          requestId: 'sync-request',
+          chatId: 'parent-chat',
+          data: { turnId: 'turn-1', messageId: 'message-1', delta: 'old' },
+        }),
+      } as MessageEvent)
+      expect(client.isReplayEvent(observed)).toBe(true)
+    } finally {
+      stop()
+    }
+  })
+
+  it('advances replayed turn events without exposing them to the Pet bubble', () => {
+    const store = useChatSessionsStore()
+    const session = store.ensureEntity('parent-chat')
+
+    store.applyEvent(
+      'parent-chat',
+      {
+        kind: 'session',
+        type: 'turn.started',
+        chatId: 'parent-chat',
+        eventSeq: 1,
+        data: { turnId: 'old-turn', messageId: 'old-message', runId: 'old-run' },
+      },
+      'replay',
+    )
+    store.applyEvent(
+      'parent-chat',
+      {
+        kind: 'session',
+        type: 'turn.delta',
+        chatId: 'parent-chat',
+        eventSeq: 2,
+        data: {
+          turnId: 'old-turn',
+          messageId: 'old-message',
+          channel: 'content',
+          offset: 0,
+          delta: 'historical response',
+        },
+      },
+      'replay',
+    )
+
+    expect(session.sync.eventSeq).toBe(2)
+    expect(session.activeTurns).toEqual([])
+    expect(session.activeMessageId).toBeUndefined()
+    expect(session.messagesById['old-message']).toBeUndefined()
+    expect(session.run.retainUntil).toBeUndefined()
+  })
+
+  it('restores a running Pet response from one attach snapshot', async () => {
+    vi.spyOn(agentApi, 'listChats').mockResolvedValue([
+      { chatId: 'running-chat', running: true, canResume: false },
+    ])
+    vi.spyOn(agentApi, 'attachChat').mockResolvedValue({
+      chatId: 'running-chat',
+      running: true,
+      attached: true,
+      runId: 'run-1',
+      snapshotSeq: 12,
+      pendingQuestionBatches: [],
+      activeTurns: [
+        {
+          turnId: 'turn-1',
+          runId: 'run-1',
+          messageId: 'message-1',
+          thinking: 'complete recovered thought',
+          content: 'complete recovered response',
+        },
+      ],
+    })
+    const store = useChatSessionsStore()
+
+    await store.startup()
+
+    const session = store.sessionsById['running-chat']!
+    expect(session.run).toMatchObject({ status: 'running', activeRunId: 'run-1' })
+    expect(session.activeTurns).toHaveLength(1)
+    expect(session.messagesById['message-1']).toMatchObject({
+      thinking: 'complete recovered thought',
+      content: 'complete recovered response',
+      status: 'streaming',
+    })
+  })
+
+  it('clears residual active turns when the run reaches a terminal state', () => {
+    const session = createEmptySession('parent-chat')
+    session.activeTurns = [
+      {
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: 'message-1',
+        thinking: 'partial',
+        content: '',
+        status: 'running',
+      },
+    ]
+    session.run.status = 'running'
+    session.run.activeRunId = 'run-1'
+
+    reduceSessionEvent(
+      session,
+      {
+        kind: 'session',
+        type: 'run.updated',
+        chatId: 'parent-chat',
+        eventSeq: 1,
+        data: { runId: 'run-1', status: 'completed' },
+      },
+      { now: 1 },
+    )
+
+    expect(session.activeTurns).toEqual([])
+    expect(session.run).toMatchObject({ status: 'ended', activeRunId: undefined })
+
+    session.activeTurns = [
+      {
+        turnId: 'turn-2',
+        runId: 'run-2',
+        messageId: 'message-2',
+        thinking: '',
+        content: 'partial',
+        status: 'running',
+      },
+    ]
+    session.run.status = 'running'
+    session.run.activeRunId = 'run-2'
+    reduce(
+      session,
+      {
+        kind: 'notification',
+        type: 'done',
+        chatId: 'parent-chat',
+        runId: 'run-2',
+        data: { canResume: false },
+      },
+      { now: 2 },
+    )
+
+    expect(session.activeTurns).toEqual([])
+    expect(session.run).toMatchObject({ status: 'ended', activeRunId: undefined })
   })
 })

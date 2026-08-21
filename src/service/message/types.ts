@@ -1889,6 +1889,10 @@ export interface ChatAttachResponseData extends QuestionStateSnapshotData {
   chatId: string
   /** run 是否仍在运行；false → 前端回落历史，不重连实时流。 */
   running: boolean
+  /** 当前运行标识；可能早于首个 assistant turn 出现。 */
+  runId?: string
+  /** 已产生的当前未完成回复，一次性恢复，禁止客户端重放历史 turn.delta 拼装。 */
+  activeTurns: ActiveTurnSnapshot[]
   /** running 时是否已完成输出重定向到本连接。 */
   attached?: boolean
   /** 刷新当前态快照（running 时含存活的 pending approval / 运行中工具 / 当前 todo）。 */

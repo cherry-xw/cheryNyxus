@@ -1651,11 +1651,14 @@ export const agentApi = {
    * 返回 running=false → 前端回落历史；running=true → 已重定向，后续 chunk 经 WS envelope(chatId) 路由。
    * 非流式；须在 syncChatEvents（回放补齐）之前调用（先开启重定向再回放，seq 无缝衔接）。
    * response.currentState：running 时含存活的 pending approval / 运行中工具 / 当前 todo（见 CurrentStateData）。
+   * response.activeTurns：当前未完成回复的完整快照；恢复 UI 时一次性安装，不重放历史 delta。
    */
   async attachChat(chatId: string): Promise<{
     chatId: string
     running: boolean
     attached?: boolean
+    runId?: string
+    activeTurns: ActiveTurnSnapshot[]
     /** Stable event cursor captured together with the question snapshot. */
     snapshotSeq: number
     pendingQuestionBatches: unknown[]
@@ -1665,6 +1668,8 @@ export const agentApi = {
       chatId: string
       running: boolean
       attached?: boolean
+      runId?: string
+      activeTurns: ActiveTurnSnapshot[]
       snapshotSeq: number
       pendingQuestionBatches: unknown[]
       currentState?: CurrentStateData

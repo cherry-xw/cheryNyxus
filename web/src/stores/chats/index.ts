@@ -128,6 +128,17 @@ export function beginLiveRun(
 /** 仅实时 role_reply 可续跑父会话；历史回放只能恢复消息。 */
 export type ChatEventProvenance = 'live' | 'replay'
 
+/** Session-plane events that describe transient rendering state. During
+ * chat.sync they are historical facts, not fresh UI deltas. The current open
+ * turn is restored atomically from chat.attach.activeTurns instead. */
+const REPLAY_TRANSIENT_EVENT_TYPES = new Set([
+  'turn.started',
+  'turn.delta',
+  'turn.completed',
+  'run.updated',
+  'legacy.stream',
+])
+
 export function shouldResumeRoleReply(provenance: ChatEventProvenance): boolean {
   return provenance === 'live'
 }
@@ -730,6 +741,44 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     session.sync.loaded = true
   }
 
+  /** chat.attach 的 session-plane 快照：当前未完成回复整体替换，不经过
+   * turn.delta reducer，因此连接恢复只产生一次可见文本更新。 */
+  function applyAttachRunSnapshot(
+    chatId: string,
+    snapshot: Awaited<ReturnType<typeof agentApi.attachChat>>,
+  ): void {
+    const session = ensureEntity(chatId)
+    applySnapshot(
+      session,
+      {
+        chatId,
+        snapshotSeq: snapshot.snapshotSeq,
+        ...(snapshot.currentState ? { currentState: snapshot.currentState } : {}),
+        pendingQuestionBatches:
+          snapshot.pendingQuestionBatches as ChatSessionSnapshot['pendingQuestionBatches'],
+      },
+      Date.now(),
+    )
+    session.activeTurns = (snapshot.activeTurns ?? []).map((turn) => ({
+      ...turn,
+      nextThinkingOffset: turn.nextThinkingOffset ?? turn.thinkingOffset ?? turn.thinking.length,
+      nextContentOffset: turn.nextContentOffset ?? turn.contentOffset ?? turn.content.length,
+    }))
+    session.activeMessageId = undefined
+    installActiveTurns(session, session.activeTurns, Date.now())
+    session.run.activeRunId = snapshot.runId
+    session.run.status = snapshot.running
+      ? 'running'
+      : session.context.canResume
+        ? 'paused'
+        : 'idle'
+    session.meta.running = snapshot.running
+    session.sync.loaded = true
+    // attach snapshot is authoritative through snapshotSeq. Drop replayable
+    // events at/before that boundary; only later live deltas may reach the Pet.
+    wsClient.resetChatSeq(chatId, snapshot.snapshotSeq)
+  }
+
   /** V2 revision patch. A false return marks the session for authoritative refetch. */
   function applyTimelinePatchEvent(chatId: string, patch: TimelinePatch): boolean {
     const session = ensureEntity(chatId)
@@ -769,6 +818,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
           : runState === 'paused'
             ? 'paused'
             : 'ended'
+    } else {
+      session.activeRun = undefined
+      session.run.activeRunId = undefined
+      session.run.status = session.context.canResume ? 'paused' : 'idle'
     }
     session.sync.loaded = true
   }
@@ -978,7 +1031,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const session = ensureEntity(chatId)
 
     if (event.kind === 'session') {
-      reduceSessionEvent(session, event, ctx)
+      // chat.sync replays the original turn deltas one envelope at a time.
+      // Advance the canonical event cursor, but do not rebuild transient UI
+      // from those historical deltas; chat.attach supplies one activeTurns block.
+      const reducedEvent =
+        provenance === 'replay' && REPLAY_TRANSIENT_EVENT_TYPES.has(event.type)
+          ? { ...event, type: 'replay.ignored' }
+          : event
+      reduceSessionEvent(session, reducedEvent, ctx)
       resyncOrClear(chatId, session)
       return
     }
@@ -986,6 +1046,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     // chunks are emitted in parallel during rollout; consuming both would append
     // every token twice. Staged/history chunks remain available until timeline
     // snapshot migration is complete.
+    if (event.kind === 'chunk' && event.type === 'stream' && provenance === 'replay') {
+      const sequenced = toSequencedSessionEvent(event)
+      if (sequenced) {
+        reduceSessionEvent(session, { ...sequenced, type: 'replay.ignored' }, ctx)
+        resyncOrClear(chatId, session)
+      }
+      return
+    }
     if (event.kind === 'chunk' && event.type === 'stream' && session.sync.subscriptionId) {
       const sequenced = toSequencedSessionEvent(event)
       if (sequenced) {
@@ -1021,6 +1089,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         }
         return
       }
+      // All remaining compatibility notifications from chat.sync are
+      // historical. Staged chunks/timeline patches restore durable messages;
+      // replayed done/error/consumed must not mutate live run or bubble state.
+      if (provenance === 'replay') return
       if (type === 'consumed') {
         const d = (event.data ?? {}) as {
           messages?: Array<{
@@ -1523,6 +1595,17 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     try {
       const summaries = await agentApi.listChats({ scope: 'stage' })
       initCatalog(summaries)
+      // Catalog is intentionally lightweight. Running chats additionally need
+      // one atomic attach snapshot so Pet receives the already-produced portion
+      // in a single assignment rather than replaying historical turn.delta.
+      await Promise.all(
+        summaries
+          .filter((summary) => summary.running)
+          .map(async (summary) => {
+            const snapshot = await agentApi.attachChat(summary.chatId)
+            applyAttachRunSnapshot(summary.chatId, snapshot)
+          }),
+      )
     } catch (e) {
       // 失败不保留 started 位，下次 connected 可重试（对齐旧 initFromChats 语义）
       started = false
@@ -1546,8 +1629,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       ),
       ...running.map(async (s) => {
         try {
-          const res = await agentApi.attachChat(s.chatId)
-          if (res.running) await syncOne(s.chatId, true)
+          const snapshot = await agentApi.attachChat(s.chatId)
+          applyAttachRunSnapshot(s.chatId, snapshot)
         } catch (e) {
           console.warn(`[chats] reconnect ${s.chatId} 失败:`, e)
         }
@@ -1573,6 +1656,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       subscriptionId?: unknown
     },
   ): ChatEventProvenance {
+    if (wsClient.isReplayEvent(notification)) return 'replay'
     if (notification.requestId && replayRequestIds.has(notification.requestId)) return 'replay'
     if (
       typeof notification.rootChatId === 'string' &&
@@ -1598,9 +1682,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       if (!c) return
       const chatId = c.chatId ?? (c.requestId ? requestMap.get(c.requestId) : undefined)
       if (!chatId) return
+      const provenance: ChatEventProvenance = wsClient.isReplayEvent(c) ? 'replay' : 'live'
       const { kind: _kind, ...chunkData } = c
       void _kind
-      applyEvent(chatId, { kind: 'chunk', ...chunkData } as ChatEvent)
+      applyEvent(chatId, { kind: 'chunk', ...chunkData } as ChatEvent, provenance)
     })
     unbindNotif = wsClient.onNotification((notif) => {
       const n = notif as (NotificationMessage & { background?: boolean }) | null
@@ -1619,7 +1704,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       // opens a direct subscription that races the authoritative root observer.
       if (!isRootEvent) {
         const sessionEvent = toSequencedSessionEvent(n)
-        if (sessionEvent) applyEvent(sessionEvent.chatId, sessionEvent)
+        if (sessionEvent) applyEvent(sessionEvent.chatId, sessionEvent, provenance)
       }
       const { kind: _kind, ...notificationData } = n
       void _kind

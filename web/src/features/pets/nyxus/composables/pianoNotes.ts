@@ -23,6 +23,20 @@ export function sessionPianoKeyCount(historyCount: number): number {
   return Math.max(0, Math.floor(historyCount))
 }
 
+/**
+ * 琴键只映射原生 root 会话：`!parentChatId`（剔 spawn 子角色）且
+ * `branchKind` 缺省或 'original'（剔延续/解释分支）。分支会话（chat.branch.create
+ * 产物）本身是无 parentChatId 的独立 root chat，仅靠 `!parentChatId` 过滤不掉，
+ * 必须按 branchKind 显式剔除；被激活为主干的 continuation 也不占琴键
+ * （约定见 docs/web/pet/rendering.md NyxusPianoStrip 章节）。
+ */
+export function isPianoRootSession(c: {
+  parentChatId?: string | null
+  branchKind?: 'original' | 'continuation' | 'detail'
+}): boolean {
+  return !c.parentChatId && (!c.branchKind || c.branchKind === 'original')
+}
+
 /** 每八度半音键数（12）。 */
 export const OCTAVE_KEYS = 12
 /** 每八度白键数（7）。 */
