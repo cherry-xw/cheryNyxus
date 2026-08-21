@@ -20,6 +20,7 @@
 ```ts
 interface WorkbenchWindowState {
   id: string; presetId: string
+  presetName: string | null   // 入口携带的预设名（空白工作台/会话未水合时角色编制据此解析，不靠会话推导）
   chatId: string | null       // 当前根会话（钢琴/会话列表切换）
   view; minimized              // 胶囊态
   mode; position; size        // 窗口几何
@@ -30,7 +31,7 @@ interface WorkbenchWindowState {
 ```
 
 - refs：`workbenchWindows`、`workbenchWindowOrder`（末尾=最上）、`focusedWorkbenchWindowId`
-- actions：`openWorkbenchWindow(presetId)` / `closeWorkbenchWindow` / `focusWorkbenchWindow` / `setWorkbenchWindowMinimized/Chat/View/Geometry/CapsulePos/Blink/Drawer/WorkspaceBrowser`
+- actions：`openWorkbenchWindow(presetId, presetName?)` / `closeWorkbenchWindow` / `focusWorkbenchWindow` / `setWorkbenchWindowMinimized/Chat/View/Geometry/CapsulePos/Blink/Drawer/WorkspaceBrowser`
 - computed：`workbenchWindowsList`
 
 ### 数据层：多根观察（`web/src/stores/chats/index.ts`）
@@ -52,6 +53,7 @@ interface WorkbenchWindowState {
 自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、钢琴/角色 popout、右侧待处理抽屉、composer dock、resize handles。
 
 - chatId 来源：`useAgentDialogOptions({ chatId: () => win.chatId ?? null })`，不再读全局单例。
+- **presetName 来源**：`useAgentDialogOptions` 同传 `presetName: () => win.presetName ?? null`——窗口打开时由**入口携带**（Nyxus 传预设名 `'cheryNyxus'`、Pet 传历史 summary 的 `preset` 名），不依赖 pet/session/history 推导。空白工作台（无历史会话、会话未水合）下角色编制、Nyxus 判定、`quickTargetRequired`、`roleMentions` 等据此立即正确。
 - 几何/视图/最小化写回 per-window store actions。
 - 树订阅：`observeRootTimeline(win.chatId, 'tree')`，close 清理。
 - 最小化按钮写 `minimized=true`，shell `v-show` 隐藏。
@@ -84,9 +86,13 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 
 ### 入口：`PetToolbar.vue`
 
-工具栏**第一个按钮**（🌳「工作台」）调 `agents.openWorkbenchWindow(presetId)`。presetId 回退链：`pet.presetId` → `historyList[].presetId`。无 preset 时按钮 `:disabled`。工具栏容器已有 `@click.stop`，不触发生单击 composer。
+工具栏**第一个按钮**（🌳「工作台」）调 `agents.openWorkbenchWindow(presetId, presetName)`。presetId 回退链：`pet.presetId` → `historyList[].presetId`；**presetName 顺带取同条 `summary.preset`**（Pet 工作台以真实 presetId 开窗，预设名必须随窗携带——角色编制解析需要预设名）。无 preset 时按钮 `:disabled`。工具栏容器已有 `@click.stop`，不触发生单击 composer。
 
 **打开即恢复会话**：新建窗口初始 `chatId: null`，空树不渲染。入口须在新建窗口时恢复该 preset 活跃根会话——Pet 用 `activeRootForPet(pet)`（`activeRootByPreset` 优先，回退 pet 当前会话），Nyxus 用 `activeNyxusChatId`（空则 `getActiveNyxus()` 取最近/新建）。仅当窗口 `chatId` 为空时设置，已存在窗口重开复用不覆盖当前浏览。
+
+**入口统一携带预设名（2026-08-21）**：窗口 id/presetId 语义双通道——Nyxus 入口直接传**预设名** `'cheryNyxus'`（`CHERY_NYXUS_PRESET`），Pet/AgentDialog 入口传**真实 presetId**。为让 `useAgentDialogOptions` 的 `presetName` 不依赖可能为空的会话数据（空白工作台根因），三处入口（`NyxusCore.openWorkbench` / `PetToolbar.openWorkbench` / `AgentDialog` 的 `openWorkbenchForChat`/`openWorkspaceTree`）在 `openWorkbenchWindow` 第二参 / `bridge.openWindow` 的 `OpenWindowRequest.presetName` 统一携带预设名；`WorkbenchWindowState.presetName` 打开时存入，已存在窗口重开时防御性补写（入口解析失败留下的旧窗 presetName 恒 null 也可被后续打开纠正）。Electron 原生窗经 `OpenWindowRequest` → main `extraParams` → URL `?presetName=` → App.vue 读入（见 [electron.md#多-surface-模型桌面宠物--独立原生窗](./electron.md#多-surface-模型桌面宠物--独立原生窗)）。
+
+**空态新建会话**：窗口 `chatId` 为空且无任何会话时渲染空态「新建会话」按钮（`WorkbenchDialog.createSession`）。该场景下 `presetName`/`isNyxus` 不再推导不到——2026-08-21 起入口随窗携带 `presetName`（`win.presetName` 打开即定），预设判定优先用 `win.presetName`：等于 `'cheryNyxus'`（Nyxus 窗口以预设名开窗）→ `createNyxusSession()`；普通预设窗口（稳定 id）→ 复用空白会话或 `createMasterPet({ preset })`，无 preset 名可解析时明确报错而非静默失败（`props.presetId` 与 `win.presetName` 双保险，仍以窗口自身为准而非会话推导）。空白会话匹配键同样按窗口形态区分（Nyxus 用 `preset` 名、普通预设用 `presetId`），避免 Nyxus 空白会话永不命中而重复新建。
 
 ## 通知高亮（Phase E）
 
@@ -103,11 +109,13 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 | `web/src/stores/chats/index.ts` | 移除根观察单例守卫 |
 | `web/src/features/agent/dialog/WorkbenchDialog.vue` | 新：自包含窗口组件 |
 | `web/src/features/agent/dialog/WorkbenchCapsule.vue` | 新：胶囊最小化 |
-| `web/src/features/agent/dialog/useAgentDialogOptions.ts` | 参数化 chatId 来源 |
+| `web/src/features/agent/dialog/useAgentDialogOptions.ts` | 参数化 chatId 来源（2026-08-21 加 presetName 入口） |
 | `web/src/features/agent/dialog/useWorkbenchWindow.ts` | 参数化 windowId + per-window key |
 | `web/src/features/agent/chat/AgentDialog.vue` | 精简为 composer 单例 |
-| `web/src/features/agent/toolbar/PetToolbar.vue` | 工作台 icon 入口 |
-| `web/src/App.vue` | 多窗口/胶囊渲染 |
+| `web/src/features/agent/toolbar/PetToolbar.vue` | 工作台 icon 入口（携带 presetName） |
+| `web/src/features/pets/nyxus/components/NyxusCore.vue` | 工作台入口携带 `CHERY_NYXUS_PRESET` |
+| `web/src/App.vue` | 多窗口/胶囊渲染（workbench 面读 URL `presetName`） |
+| `web/src/features/desktop/desktopBridge.ts` + `web/electron/main.ts` + `web/electron/preload.ts` | `OpenWindowRequest` 透传 `presetName` |
 
 ## 保留耦合点 / 未来工作
 
@@ -141,7 +149,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 |---------|------|
 | `?surface=desktop` | 桌面透明宠物窗（不变：PetStage/NyxusCore/AgentDialog） |
 | `?surface=settings` | 设置原生窗：`WindowFrame`（标题栏三键/主题边框）内嵌 `<SettingsDialog native/>`（native 面隐藏自身 header，标题 + 打开配置文件夹按钮并入 WindowFrame 标题栏） |
-| `?surface=workbench&presetId=xx&chatId=xx` | 工作台原生窗（每 preset 一窗）：**同用 `WindowFrame` 公共外壳**——`<WorkbenchDialog native/>` 隐藏自身 `.workbench-titlebar`，标题显示预设名、`attentionBlink` → 标题栏闪烁、关闭经 `defineExpose(closeWorkbench)` 由 WindowFrame `close` handler 接管（先释放根时间线订阅），另渲染 `HistoryDrawer` |
+| `?surface=workbench&presetId=xx&chatId=xx&presetName=xx` | 工作台原生窗（每 preset 一窗）：**同用 `WindowFrame` 公共外壳**——`<WorkbenchDialog native/>` 隐藏自身 `.workbench-titlebar`，标题显示预设名、`attentionBlink` → 标题栏闪烁、关闭经 `defineExpose(closeWorkbench)` 由 WindowFrame `close` handler 接管（先释放根时间线订阅），另渲染 `HistoryDrawer`。`presetName` 由入口经 `OpenWindowRequest` 携带 → main `extraParams` 拼入 URL → App.vue 读 `?presetName=` 写 `win.presetName`（空白工作台角色编制解析必需） |
 | 无 surface | 浏览器单页（**逐字节不变**：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉） |
 
 每个原生窗是独立 renderer，各连一条 WS（后端 `ConnectionManager` 支持多连接）；跨窗状态只经 query（chatId/presetId）+ 少量 IPC（`workbench:open-chat` / `workbench:focus` / `window:focused` / `theme:set`）。

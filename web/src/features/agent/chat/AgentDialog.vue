@@ -140,6 +140,14 @@ const quickPresetId = computed(() => {
     : undefined
   return summary?.presetId
 })
+/** 与 quickPresetId 同源配对的预设名（pet.preset / 同条 summary.preset），工作台入口随窗携带。 */
+const quickPresetName = computed(() => {
+  if (pet.value?.preset) return pet.value.preset
+  const summary = chatId.value
+    ? agents.historyList.find((item) => item.chatId === chatId.value)
+    : undefined
+  return summary?.preset
+})
 /**
  * Pet quick chat and its preset workbench are mutually exclusive. Keep the
  * dialog state and draft alive so closing the workbench restores the bubble.
@@ -387,18 +395,20 @@ async function sendFromComposer(): Promise<void> {
 function openWorkbenchForChat(): void {
   const preset = quickPresetId.value
   if (!preset) return
+  const presetName = quickPresetName.value
   // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗）；浏览器保持应用内多窗口
   const bridge = desktopBridge()
   if (bridge) {
     bridge.openWindow({
       kind: 'workbench',
       presetId: preset,
+      presetName,
       chatId: chatId.value ?? undefined,
       returnToComposer: agents.activeDialogSource === 'pet',
     })
     return
   }
-  const id = agents.openWorkbenchWindow(preset)
+  const id = agents.openWorkbenchWindow(preset, presetName)
   if (chatId.value) agents.setWorkbenchWindowChat(id, chatId.value)
 }
 
@@ -411,19 +421,21 @@ async function openWorkspaceTree(
 ): Promise<void> {
   const preset = quickPresetId.value
   if (!preset) return
+  const presetName = quickPresetName.value
   // desktop surface：工作台渲染在另一原生窗（本 renderer 不承载），必须经 main 建窗/聚焦并下发焦点定位
   const bridge = desktopBridge()
   if (bridge) {
     bridge.openWindow({
       kind: 'workbench',
       presetId: preset,
+      presetName,
       chatId: rootChatId,
       returnToComposer: agents.activeDialogSource === 'pet',
       focus: { sourceChatId, interactionId, anchorNodeId },
     })
     return
   }
-  const id = agents.openWorkbenchWindow(preset)
+  const id = agents.openWorkbenchWindow(preset, presetName)
   agents.setWorkbenchWindowChat(id, rootChatId)
   agents.setWorkbenchWindowFocus(id, {
     sourceChatId,

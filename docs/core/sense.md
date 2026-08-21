@@ -179,7 +179,9 @@ smart 档的「危险/放行」判定规则**外置**到 `.chery/rule/` 目录�
 - `base.yaml`（基准，固定名）：默认合并基底，所有 smart 调用先以此打底。前端下拉**不可选**基准（`rules.list` 排除它）。
 - `<name>.yaml`（覆盖文件）：预设经 `presets.<name>.rule` 引用一个，与基准**深合并**。
 
-**AI 生成（管家豁免）**：前端预设 Tab 该字段显示名「审批规则」（原「规则文件」）。管家（housekeeper）角色可对 `.chery/rule/` 读写——pathGuard 对管家（senseTable 含 `install_skill`，双重隔离信号）放行该目录的 `read_file`/`write_file`（`checkCheryGuard` 的 `allowRuleDir`），用于对话生成/修改审批规则文件；`.chery/` 其余路径仍拦。管家提示词（`.chery/prompt/housekeeper/housekeeper.md`）含规则编写规范，铁律：只允许**加严**（新增危险模式/改为需确认），禁止**放宽**（删除危险模式/改为放行）——防 AI 自授权绕过审批。
+**AI 生成（Cherry Nexus 豁免）**：前端预设 Tab 该字段显示名「审批规则」（原「规则文件」）。Cherry Nexus（cheryNyxus，senseTable 含 `install_skill`，双重隔离信号）可对 `.chery/rule/` 读写——pathGuard 放行该目录的 `read_file`/`write_file`（`checkCheryGuard` 的 `allowRuleDir`），用于对话生成/修改审批规则文件；`.chery/` 其余路径仍拦。Cherry Nexus 提示词（`.chery/prompt/cheryNyxus/cheryNyxus.md`）含规则编写规范，铁律：只允许**加严**（新增危险模式/改为需确认），禁止**放宽**（删除危险模式/改为放行）——防 AI 自授权绕过审批。
+
+**config_manage 感官**：`config_manage` 是结构化感官（action=get/save/rollback），参数不携带路径 → `extractSensePaths` 返回 `[]`，天然不触发 `.chery/` 路径守卫，可直接读写 `.chery/config.yaml`（配置管理核心角色 cheryNyxus 独占）。仅 leader 组含此感官 → 其他角色调不到。备份：`saveRawConfig` 写盘前自动备份旧配置到 `.chery/backups/`（保留最近 10 份），出错可 `rollback`。详见 [agent/config-manage.md](../agent/config-manage.md)。
 
 **深合并语义**（[`ruleLoader.loadMergedRuleSet`](../../src/core/sense/ruleLoader.ts)，per sense）：
 - 覆盖文件未提及的 sense → 用基准条目。
@@ -308,7 +310,7 @@ export default sense(
 1. `registerBuiltinSenses()` 数组加入；
 2. `BUILTIN_SENSE_TOOLS` 追加元信息（`name` 与模块 `definition.function.name` 一致，前端感官下拉用）。
 
-**管家专用感官**（如 `install_skill`）：只在管家角色的 senseGroup 列出，其他角色 senseTable 不含 → 不可调用（senseGroup 隔离，无需 per-role 白名单字段）。详见 [agent/skill-install.md](../agent/skill-install.md)。
+**角色专用感官**（如 `install_skill` / `config_manage`）：只在对应角色的 senseGroup 列出，其他角色 senseTable 不含 → 不可调用（senseGroup 隔离，无需 per-role 白名单字段）。详见 [agent/skill-install.md](../agent/skill-install.md) 与 [agent/config-manage.md](../agent/config-manage.md)。
 
 ### 加外部感官
 

@@ -54,7 +54,7 @@ skill(name: string) → string    // 加载技能正文，注入当前对话上�
 
 ## 模板示例（install-skill）
 
-[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)：识别用户「安装技能」意图后，调用 `spawn_role` 派出 `housekeeper` 角色执行安装。演示技能如何协调其他感官与角色。
+[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)：识别用户「安装技能」意图后，调用 `spawn_role` 派出 `cheryNyxus` 角色执行安装。演示技能如何协调其他感官与角色。
 
 ## 字段参考表
 
@@ -85,5 +85,5 @@ skill(name: string) → string    // 加载技能正文，注入当前对话上�
 ## 关联
 
 - 技能加载：[src/agent/prompt/loadSkill](../../src/agent/prompt/loadSkill.ts)
-- 安装技能：由 `housekeeper` 角色的 `install_skill` 感官负责（详见 [./prompt.md](./prompt.md#housekeeper-角色)）
+- 安装技能：由 `cheryNyxus` 角色的 `install_skill` 感官负责（详见 [./prompt.md](./prompt.md#cherrynexus-提示词)）
 - 模板示例：[../skills/haveFun/SKILL.md](../skills/haveFun/SKILL.md)、[../skills/install-skill/SKILL.md](../skills/install-skill/SKILL.md)

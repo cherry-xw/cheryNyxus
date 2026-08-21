@@ -60,22 +60,30 @@ const workbenchPresetId = computed(() => {
   const summary = agents.historyList.find((item) => item.chatId === props.pet.chatId)
   return summary?.presetId ?? null
 })
+/** 工作台 presetName：与 presetId 同源配对（pet.preset / 同条 summary.preset），随窗携带供角色编制解析。 */
+const workbenchPresetName = computed(() => {
+  if (props.pet.preset) return props.pet.preset
+  const summary = agents.historyList.find((item) => item.chatId === props.pet.chatId)
+  return summary?.preset ?? null
+})
 
 /** 打开该 pet 预设的节点树工作台多窗口（重复打开复用状态，不重复创建）。 */
 function openWorkbench(): void {
   const presetId = workbenchPresetId.value
   if (!presetId) return
+  const presetName = workbenchPresetName.value ?? undefined
   // desktop surface：工作台渲染在另一原生窗（本 renderer 不承载），经 main 建窗/聚焦并下发会话
   const bridge = desktopBridge()
   if (bridge) {
     bridge.openWindow({
       kind: 'workbench',
       presetId,
+      presetName,
       chatId: agents.activeRootForPet(props.pet) ?? undefined,
     })
     return
   }
-  const id = agents.openWorkbenchWindow(presetId)
+  const id = agents.openWorkbenchWindow(presetId, presetName)
   // 仅新建窗口（chatId 为空）时恢复该 preset 活跃根会话，避免打开即空树；已存在窗口不覆盖当前浏览。
   if (!agents.workbenchWindows[id]?.chatId) {
     const root = agents.activeRootForPet(props.pet)

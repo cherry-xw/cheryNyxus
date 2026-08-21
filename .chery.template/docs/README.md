@@ -20,21 +20,21 @@
 
 ## AI 自动修改配置
 
-管家角色（`housekeeper`）是**唯一**被授权管理 `.chery/` 配置的角色。本目录的字段参考表即是为 AI 自动改配置设计：
+Cherry Nexus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配置的角色，通过 `config_manage` 感官完成（roles / sense_groups / global / llm 等完整配置域）。本目录的字段参考表即是为 AI 自动改配置设计：
 
 ### 入口
 
 ```
-用户：「把 LLM 改为 claude-sonnet-4-5 / 把监管等级改为 manual / 给 housekeeper 加 write_file 感官」
+用户：「把 LLM 改为 claude-sonnet-4-5 / 把监管等级改为 manual / 给 coder 加 write_file 感官」
   ↓
-主 agent → spawn_role(type: "housekeeper") → 转述修改需求
+主 agent 识别为配置管理需求 → 由 cheryNyxus 直接处理（或移交其接管）
   ↓
-housekeeper 角色：
-  1. read_file 读取当前配置（路径守卫已豁免）
+cherryNyxus 角色：
+  1. config_manage(action="get") 读取当前配置（返回精简摘要：roles 列表 + 锁定状态）
   2. 对照本目录的字段参考表，定位目标字段
-  3. 用 spawn_role 派出 leader 角色分析变更影响（跨字段校验）
-  4. 用 ask_user_question 确认变更
-  5. write_file 落盘（路径守卫已豁免）
+  3. 用 ask_user_question 确认变更（含改动前后对比、影响范围）
+  4. config_manage(action="save") 落盘 —— saveRawConfig 层自动备份旧配置到 .chery/backups/
+  5. 若校验失败（返回 errors）：不落盘，回报错误原文，用 config_manage(action="rollback") 回滚后重试
   6. 提示用户重启（运行时配置不热更）
 ```
 
@@ -62,24 +62,23 @@ housekeeper 角色：
 
 启用 AI 自动改配置，需满足：
 
-1. **`housekeeper` 角色的 `senseGroup` 含 `write_file`**（当前模板只含 `read_file` / `search_codebase` / `ask_user_question` / `install_skill`；如未加，先改 [`config.yaml`](../config.yaml) 的 `sense_groups.housekeeper`）
-2. **`write_file` 路径守卫豁免 `.chery/`**（`GUARD_EXEMPT` 加 `config.yaml` / `model-thinking.yaml` / `hooks/hooks.json` 等白名单路径）
-3. **housekeeper 提示词已加载配置管理章节**（当前模板的 [../prompt/housekeeper/housekeeper.md](../prompt/housekeeper/housekeeper.md) 已包含）
+1. **`cheryNyxus` 角色的 `senseGroup` 含 `config_manage`**（当前模板的 `sense_groups.chery_nexus` 已包含；`config_manage` 是结构化感官，天然不触发 `.chery/` 路径守卫）
+2. **自动备份已启用**（`saveRawConfig` 写盘前自动备份 config.yaml 到 `.chery/backups/config-<timestamp>.yaml`，保留最近 10 份）
+3. **cheryNyxus 提示词已加载配置管理章节**（当前模板的 [../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md) 已包含）
 
 ### 失败处理
 
-- **校验失败**（`validateRawConfig` 返回错误数组）：把错误原文回报主 agent，由主 agent 转述用户，**不**落盘
-- **跨字段影响未知**：先 spawn leader 分析，再决定；不要直接写
-- **路径守卫拦截**：未配置豁免 → 报错而非绕过；提示用户调整 `GUARD_EXEMPT`
+- **校验失败**（`validateRawConfig` 返回错误数组）：不落盘，把错误原文回报用户，说明可回滚
+- **落盘后发现问题**：用 `config_manage(action="rollback")` 回滚到 `.chery/backups/` 中最近的备份，基于旧配置 + 报错信息调整重试
+- **备份自动清理**：`backups/` 目录只保留最近 10 份，超出的自动删除
 
 ### 写入流程规范
 
-1. **读全文**（不要 patch）：`read_file(.chery/config.yaml)` 拿原文
+1. **读摘要**（不要 patch）：`config_manage(action="get")` 拿精简配置摘要（roles 列表 + 锁定状态）
 2. **校验当前状态**：对照字段参考表确认字段存在 / 类型正确
-3. **构造新内容**：保留未改字段原样、注释、字段顺序（`saveRawConfig` 会丢注释，但模板注释可帮助理解）
-4. **预校验**：本地 `js-yaml.load` 解析新内容，捕获语法错误
-5. **落盘**：`write_file(.chery/config.yaml, newContent)`
-6. **重启提示**：配置不热更，必须告诉用户重启
+3. **构造变更**：`config_manage(action="save")` 传完整配置对象（缺省字段按默认值补齐；server 段保留不动）
+4. **落盘**：`saveRawConfig` 层校验 + 自动备份 + 写回（含锁角色 / 固定预设编辑校验）
+5. **重启提示**：配置不热更，必须告诉用户重启
 
 ## 文档约定
 

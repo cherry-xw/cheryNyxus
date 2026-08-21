@@ -58,6 +58,10 @@ export interface ComboCommandGroup {
 export interface UseAgentDialogOptionsOptions {
   /** 本实例的 chatId 来源。传入时优先使用（Ref 直接复用，函数包成 computed）；未传入回退全局单例 activeDialogChatId。 */
   chatId?: Ref<string | null> | (() => string | null)
+  /** 本实例的 presetName 入口来源（工作台窗口携带的预设名；空白工作台/会话未水合时据此解析）。
+   *  同 chatId 形态（Ref 直接复用，函数包成 computed）；值为 null/undefined 时归一化回退
+   *  pet → session.meta → historyList 推导链，对外保持返回 string | undefined。 */
+  presetName?: Ref<string | null> | (() => string | null)
 }
 
 export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
@@ -68,12 +72,20 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     typeof options?.chatId === 'function'
       ? computed(options.chatId)
       : options?.chatId ?? computed<string | null>(() => agents.activeDialogChatId)
+  /** 入口 presetName（工作台窗口携带）；null/undefined 时 presetName computed 回退推导链。 */
+  const entryPresetName: Ref<string | null> =
+    typeof options?.presetName === 'function'
+      ? computed(options.presetName)
+      : options?.presetName ?? ref<string | null>(null)
   const pet = computed<PetInstance | undefined>(() =>
     chatId.value ? agents.petForChat(chatId.value) : undefined,
   )
   // Cherry Nyxus 会话不建 PetInstance；琴键切到尚未水合的会话时，historyList 先提供 preset，
   // 避免上方树在 hydrate 期间被误判为非 Nyxus 而卸载。
+  // 入口 presetName（工作台窗口打开时携带）优先——空白工作台/会话未水合时不依赖推导链。
   const presetName = computed<string | undefined>(() => {
+    const fromEntry = entryPresetName.value
+    if (fromEntry) return fromEntry
     const fromPet = pet.value?.preset
     if (fromPet) return fromPet
     const s = chatId.value ? chatSessions.sessionsById[chatId.value] : undefined

@@ -28,7 +28,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'error', msg: string): void
   (e: 'workspaceChange', presetName: string, workspace: string | undefined): void
-  /** 规则文件下拉刷新：SettingsDialog 重新拉取 rules.list（手动新建/管家生成后立即可见）。 */
+  /** 规则文件下拉刷新：SettingsDialog 重新拉取 rules.list（手动新建/Cherry Nexus 生成后立即可见）。 */
   (e: 'refreshRules'): void
 }>()
 
@@ -616,7 +616,7 @@ const indexItems = computed<IndexItem[]>(() => {
           <label class="field">
             <LabelTip
               label="审批规则"
-              :tip="'审批规则决定系统如何审批你的操作：\n· 命中规则中的危险行为（删除、格式化磁盘）→ 拦截，请你确认\n· 未命中 → 自动放行执行\n选中后与系统默认基准规则（base.yaml）合并生效。\n\n新建/修改：\n· 与「管家」对话让它生成规则文件\n· 或手动在 .chery/rule/ 下创建 yaml，点「刷新」后在本下拉选择\n· 点底部「保存」，服务自动重启后生效\n\n规则项：\n· extract 取匹配字段\n· dangerPatterns 危险模式列表\n· false 表示该操作整体需确认\n留空仅用基准。'"
+              :tip="'审批规则决定系统如何审批你的操作：\n· 命中规则中的危险行为（删除、格式化磁盘）→ 拦截，请你确认\n· 未命中 → 自动放行执行\n选中后与系统默认基准规则（base.yaml）合并生效。\n\n新建/修改：\n· 与「Cherry Nexus」对话让它生成规则文件\n· 或手动在 .chery/rule/ 下创建 yaml，点「刷新」后在本下拉选择\n· 点底部「保存」，服务自动重启后生效\n\n规则项：\n· extract 取匹配字段\n· dangerPatterns 危险模式列表\n· false 表示该操作整体需确认\n留空仅用基准。'"
             />
             <div class="rule-row">
               <el-select

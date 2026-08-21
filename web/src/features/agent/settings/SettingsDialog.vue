@@ -292,7 +292,7 @@ watch(
   },
 )
 
-/** 重新拉取审批规则文件清单（PresetsTab 审批规则下拉用；手动新建/管家生成后触发）。 */
+/** 重新拉取审批规则文件清单（PresetsTab 审批规则下拉用；手动新建/Cherry Nexus 生成后触发）。 */
 async function refreshRules(): Promise<void> {
   try {
     rules.value = await agentApi.listRules()

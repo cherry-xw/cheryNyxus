@@ -54,6 +54,8 @@ export interface OpenWindowRequest {
   kind: WindowKind
   presetId?: string
   chatId?: string
+  /** 入口携带的预设名（workbench 窗空白态角色编制解析；经 extraParams 拼 URL 供 App.vue 读）。 */
+  presetName?: string
   source?: 'pet' | 'history' | 'nyxus'
   view?: 'composer' | 'attention' | 'tree'
   /** Hide the Pet composer until the workbench it opened is closed. */
@@ -80,6 +82,7 @@ function isValidOpenRequest(value: unknown): value is OpenWindowRequest {
     return (
       typeof req.presetId === 'string' &&
       (req.chatId === undefined || typeof req.chatId === 'string') &&
+      (req.presetName === undefined || typeof req.presetName === 'string') &&
       (req.returnToComposer === undefined || typeof req.returnToComposer === 'boolean') &&
       (req.focus === undefined || typeof req.focus === 'object')
     )
@@ -548,6 +551,7 @@ function openWorkbenchWindow(req: OpenWindowRequest & { kind: 'workbench' }): vo
     extraParams: {
       presetId: req.presetId!,
       ...(req.chatId ? { chatId: req.chatId } : {}),
+      ...(req.presetName ? { presetName: req.presetName } : {}),
     },
   })
   if (req.returnToComposer) suspendComposerForWorkbench(entry)

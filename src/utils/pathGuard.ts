@@ -7,10 +7,12 @@
  * 与 envGuard 的关系：envGuard 是后置输出脱敏（执行后替换变量名），本守卫是前置拦截
  *   （执行前拒）。参考 envGuard 的"统一拦截层位置 + 注入说明"模式，语义不同。
  *
- * 豁免：install_skill（管家专用感官，合法写 .chery/skills/）。install_skill 只在管家
- *   senseGroup → 其他角色 senseTable 无此感官 → 双重隔离（调不到 + 写 .chery 被拦）。
- * 另：管家角色（senseTable 含 install_skill）额外豁免 .chery/rule/ 的读写，用于生成/
+ * 豁免：install_skill（配置管理核心角色 cheryNyxus 专用感官，合法写 .chery/skills/）。
+ * install_skill 只在 cheryNyxus senseGroup（chery_nexus）→ 其他角色 senseTable 无此感官 →
+ * 双重隔离（调不到 + 写 .chery 被拦）。
+ * 另：配置管理核心角色（senseTable 含 install_skill）额外豁免 .chery/rule/ 的读写，用于生成/
  *   修改审批规则文件（与基准 base.yaml 深合并）。仅限该目录，.chery/ 其余路径仍拦。
+ * 注：config_manage 感官（结构化，无路径参数）天然不触发本守卫，无需加入 GUARD_EXEMPT。
  */
 import { resolve, isAbsolute } from 'path'
 
@@ -83,14 +85,15 @@ export function extractSensePaths(name: string, args: Record<string, unknown>): 
   }
 }
 
-/** 拦截文案（注入给 LLM，引导走管家角色）。 */
+/** 拦截文案（注入给 LLM，引导交配置管理核心角色）。 */
 export const CHERY_GUARD_MESSAGE =
   '.chery/ 是系统配置目录（技能/插件/提示词/命令/数据库），不能直接读写。' +
-  '安装或修改技能请用 spawn_role 派出「管家」角色（type: housekeeper），通过 install_skill 感官完成。'
+  '配置管理请交给 Cherry Nexus（cheryNyxus，通过 config_manage 感官），' +
+  '安装或修改技能请用 spawn_role 派出「Cherry Nexus」角色（type: cheryNyxus）完成。'
 
 export interface CheryGuardOptions {
   /**
-   * 管家角色（senseTable 含 install_skill）：允许对 .chery/rule/ 读写（生成/修改审批规则）。
+   * 配置管理核心角色（senseTable 含 install_skill）：允许对 .chery/rule/ 读写（生成/修改审批规则）。
    * 仅限该目录；.chery/ 其余路径仍拦截。
    */
   allowRuleDir?: boolean
@@ -99,7 +102,7 @@ export interface CheryGuardOptions {
 /**
  * 守卫主入口。返回拦截文案（命中）或 null（放行）。
  * 豁免感官直接放行；否则提取路径参数，任一命中 isCheryPath 即拦。
- * allowRuleDir：管家对 .chery/rule/ 的读写放行（全部命中路径都在规则目录），其余仍拦。
+ * allowRuleDir：配置管理核心角色对 .chery/rule/ 的读写放行（全部命中路径都在规则目录），其余仍拦。
  */
 export function checkCheryGuard(
   name: string,
@@ -108,7 +111,7 @@ export function checkCheryGuard(
 ): string | null {
   if (GUARD_EXEMPT.has(name)) return null
   const paths = extractSensePaths(name, args).filter((p) => p.trim())
-  // 管家写/读 .chery/rule/（审批规则）：全部命中路径都在规则目录 → 放行
+  // 配置管理核心角色写/读 .chery/rule/（审批规则）：全部命中路径都在规则目录 → 放行
   if (opts?.allowRuleDir && paths.length && paths.every((p) => isRuleDirPath(p))) return null
   for (const p of paths) {
     if (isCheryPath(p)) return CHERY_GUARD_MESSAGE

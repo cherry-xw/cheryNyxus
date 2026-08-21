@@ -129,7 +129,7 @@ media: {}
 #   search_codebase / spawn_role / update_todo / skill
 # ------------------------------------------------------------
 sense_groups:
-  leader:
+  leader: # 纯组长组（coordinator 等）：不配配置管理感官，配置需交 Cherry Nexus
     - read_file
     - skill
     - write_file
@@ -138,6 +138,17 @@ sense_groups:
     - spawn_role
     - ask_user_question
     - history_recall
+  chery_nexus: # Cherry Nexus 专属组：组长能力 + 配置管理（install_skill/config_manage 独占）
+    - read_file
+    - skill
+    - write_file
+    - execute_command
+    - search_codebase
+    - spawn_role
+    - ask_user_question
+    - history_recall
+    - install_skill
+    - config_manage
   plan:
     - update_todo
     - skill
@@ -159,11 +170,6 @@ sense_groups:
     - read_file
     - search_codebase
     - execute_command
-  housekeeper: # 管家角色：安装/维护 .chery/ 配置（install_skill 独占）
-    - install_skill
-    - read_file
-    - search_codebase
-    - ask_user_question
   curator: # 记忆维护角色：Extract（每轮提取）/ Dream（定期整理）
     - memory_manage
     - read_file
@@ -181,10 +187,10 @@ roles:
   cheryNyxus:
     brain: my-brain
     avatar: '🐈‍⬛'
-    senseGroup: leader
+    senseGroup: chery_nexus
     mcpServers: []
-    systemPrompt: prompt/prefebMain/leader.md
-    description: Chery Nyxus：固定像素猫形态的系统桌宠组长
+    systemPrompt: prompt/cheryNyxus/cheryNyxus.md
+    description: Chery Nyxus：系统配置管理核心角色（管理所有角色配置）+ 桌宠组长
     lock: true
   coordinator:
     brain: my-brain # 引用 llm.brain 中的 key
@@ -214,14 +220,6 @@ roles:
     systemPrompt: prompt/prefebMain/reviewer.md
     description: 审查者：只读评审代码与实现，不修改文件
     mentionable: true
-  housekeeper: # 管家：安装技能（install_skill 感官独占，.chery/ 路径守卫豁免）
-    brain: my-brain
-    senseGroup: housekeeper
-    mcpServers: []
-    systemPrompt: prompt/housekeeper/housekeeper.md
-    description: 管家：安装与维护 .chery/ 技能、配置（install_skill 独占，.chery 路径守卫豁免）
-    mentionable: true
-    lock: true # 锁定禁止删除（保护 install 能力）
   curator: # 记忆维护：Extract（每轮提取）/ Dream（定时整理）
     brain: my-brain
     senseGroup: curator
@@ -256,7 +254,6 @@ presets:
     detailRole: explanation
     roles:
       - cheryNyxus
-      - housekeeper
       - curator
       - explanation
     shadows:
@@ -269,7 +266,7 @@ presets:
       - coder
       - coordinator
       - reviewer
-      - housekeeper # 管家（安装技能专用，主 agent 可 spawn）
+      - cheryNyxus # 配置管理核心角色（改配置/装技能专用，主 agent 可 spawn）
       - explanation # 专用解释角色，不可由主 agent 派发
     shadows:
       conversationRouting: conversation_router

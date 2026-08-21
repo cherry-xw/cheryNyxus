@@ -128,7 +128,11 @@ const {
   senseTool,
   brainConfig,
   supportsTools,
-} = useAgentDialogOptions({ chatId: () => win.value?.chatId ?? null })
+} = useAgentDialogOptions({
+  chatId: () => win.value?.chatId ?? null,
+  // 入口携带的预设名：空白工作台/会话未水合时角色编制、Nyxus 判定据此解析（不靠会话推导）
+  presetName: () => win.value?.presetName ?? null,
+})
 
 const isNyxus = computed(() => presetName.value === CHERY_NYXUS_PRESET)
 
@@ -853,8 +857,13 @@ async function onConnectionReady(): Promise<void> {
   }
   // ② 无 chatId → 最近会话兜底（对齐浏览器「恢复活跃会话」语义）；setWorkbenchWindowChat
   // 触发上方 chatId watch → treeRootChatId + acquire（此时已连接）。
+  // latestRootInPreset(presetId, presetName)：presetId truthy 才按 presetId 匹配。
+  // Nyxus 窗口以预设名 'cheryNyxus' 作 presetId（非真实 id），传 undefined + presetName 走预设名匹配，否则恒不命中。
   if (!win.value?.chatId && !treeRootChatId.value) {
-    const latest = agents.latestRootInPreset(props.presetId, presetName.value)
+    const latest = agents.latestRootInPreset(
+      isNyxus.value ? undefined : props.presetId,
+      presetName.value,
+    )
     if (latest) agents.setWorkbenchWindowChat(props.windowId, latest)
   }
   // ③ 树订阅补拉：初始 acquire 失败被吞后 rootTimeline 无缓存；owner Set 去重，幂等安全。
@@ -926,27 +935,40 @@ async function deletePresetSession(targetId: string): Promise<void> {
  * 加号「新建会话」：复用已有空白会话；无则新建。均跳转定位过去。
  * 刷新后 historyList 来自 stage scope（无 turnCount）；fetchHistoryList 取 history scope
  * 才有 turnCount(0=空白，>0=有内容)，确保空白判定可靠。
+ * 预设判定用窗口自身 presetId（props.presetId，打开时确定），不依赖无会话时解析不到的
+ * presetName/isNyxus——否则空态下会退化为无参数 createMasterPet 而失败且被静默吞掉。
  */
 async function createSession(): Promise<void> {
   if (creating.value) return
   creating.value = true
   try {
     await agents.fetchHistoryList()
+    // Nyxus 工作台窗口以预设名 'cheryNyxus' 为 windowId/presetId（NyxusCore 打开），
+    // 其余预设窗口为稳定 id；空白匹配键据此区分，避免 Nyxus 空白会话永不命中。
+    const isNyxusWindow = quickPresetId.value === CHERY_NYXUS_PRESET
     const blank = agents.historyList.find(
       (c) =>
         !c.parentChatId &&
-        c.presetId === quickPresetId.value &&
+        (isNyxusWindow ? c.preset === CHERY_NYXUS_PRESET : c.presetId === quickPresetId.value) &&
         (c.turnCount ?? 0) === 0,
     )
-    const id = blank
-      ? blank.chatId
-      : isNyxus.value
-        ? await agents.createNyxusSession()
-        : await agents.createMasterPet({ preset: presetName.value })
+    let id: string
+    if (blank) {
+      id = blank.chatId
+    } else if (isNyxusWindow || isNyxus.value) {
+      id = await agents.createNyxusSession()
+    } else {
+      if (!presetName.value) {
+        throw new Error('工作台未关联到预设，无法新建会话，请在设置中配置预设')
+      }
+      id = await agents.createMasterPet({ preset: presetName.value })
+    }
     if (!blank) await agents.fetchHistoryList()
     await switchSession(id)
   } catch (e) {
     console.error('[WorkbenchDialog] createSession failed:', e)
+    error.value = e instanceof Error ? e.message : '新建会话失败，请重试'
+    ElMessage.error(error.value)
   } finally {
     creating.value = false
   }

@@ -13,7 +13,7 @@
 
 - prompt：[.chery.template/prompt/curator/curator.md](../../.chery.template/prompt/curator/curator.md)
 - senseGroup：`curator`（含 `memory_manage` / `read_file` / `search_codebase` / `ask_user_question`）
-- brain：与 housekeeper 同（用户在 config.yaml 配置）
+- brain：与 cheryNyxus 同（用户在 config.yaml 配置）
 - `lock: true` 禁止删除（保护记忆维护能力）
 
 ## 边界
@@ -21,7 +21,7 @@
 - **唯一操作对象**：项目记忆（双层 `.chery/memory/` + `.chery/workspace/<hash>/memory/`）
 - **唯一写入口**：`memory_manage` 感官（带 scope）；不直接 `write_file` 落盘记忆文件，保证 frontmatter / 索引 / 淘汰元数据一致
 - **只读辅助**：`read_file` / `search_codebase`（仅 Dream 阶段核查矛盾）
-- **不碰** `.chery/config.yaml` / skills / hooks（管家职责）
+- **不碰** `.chery/config.yaml` / skills / hooks（Cherry Nexus 职责）
 - `memory_manage` sense 主 agent 硬编码注入（[runtimeResolver.ts:206-214](../../src/agent/runtimeResolver.ts#L206)），curator 作为子 agent 通过 senseGroup 显式列 `memory_manage` 获取——无需改 runtimeResolver
 
 ## Extract 流程
@@ -77,5 +77,5 @@
 ## 关联文档
 
 - 记忆模块：[docs/memory/README.md](../memory/README.md)（存储结构 / 类型 / 漂移防护 / 定时触发器）
-- 管家角色（对比）：[.chery.template/docs/README.md](../../.chery.template/docs/README.md)
+- 配置管理角色（对比）：[.chery.template/docs/README.md](../../.chery.template/docs/README.md)
 - spawn_role sense：[src/agent/sense/spawn.ts](../../src/agent/sense/spawn.ts)

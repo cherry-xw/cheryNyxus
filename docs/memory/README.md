@@ -255,7 +255,7 @@ memory:
 | **Extract**（每轮提取） | 主 agent 一轮 done 后（observer 自然结束） | `src/service/chat/extractTrigger.ts` → `runMaintenanceChat`（子 chat, wake=deferred 不唤主） |
 | **Dream**（定期整理） | 「维护」预设 `schedule.cron` 到点 | `src/service/schedule/scheduler.ts` Cron → `runMaintenanceChat`（独立主 chat） |
 
-curator 通过 `memory_manage` sense 写记忆（路径由 sense 内部 scope 参数收敛，无需 housekeeper 的 GUARD_EXEMPT 白名单）。角色 prompt 见 [.chery.template/prompt/curator/curator.md](../../.chery.template/prompt/curator/curator.md)；角色文档见 [docs/agent/curator.md](../agent/curator.md)。
+curator 通过 `memory_manage` sense 写记忆（路径由 sense 内部 scope 参数收敛，无需 Cherry Nexus 的 config_manage 权限）。角色 prompt 见 [.chery.template/prompt/curator/curator.md](../../.chery.template/prompt/curator/curator.md)；角色文档见 [docs/agent/curator.md](../agent/curator.md)。
 
 **互斥**：curator Extract prompt 指示「主 agent 本轮已写记忆则跳过」+ 调 `memory_manage list` 比对 manifest 判断重复。
 

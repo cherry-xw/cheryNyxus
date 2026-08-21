@@ -17,7 +17,7 @@ import { cloneRepo, ensureGitAvailable } from '@/service/skill/gitClone.js'
 import { analyzeSkillStaging } from '@/service/skill/import.js'
 
 /**
- * install_skill 感官：管家角色专用，从 URL 安装技能到 .chery/skills/。
+ * install_skill 感官：配置管理核心角色（cheryNyxus）专用，从 URL 安装技能到 .chery/skills/。
  *
  * 两阶段（stage → commit）：
  *   - stage：fetch URL → 三态分发（zip/git/manifest）→ /tmp 解压 → 候选列表
@@ -202,7 +202,7 @@ function doCommit(args: {
   }
 }
 
-const installDescription = `从 URL 安装技能到 .chery/skills/（管家角色专用）。
+const installDescription = `从 URL 安装技能到 .chery/skills/（配置管理核心角色 cheryNyxus 专用）。
 两阶段调用：
 1. phase="stage" + url（+ 可选 branch）：获取来源（zip 直链 / git 仓库 / manifest）到临时区，返回候选技能列表 + stagingId。
    支持三种来源（自动识别）：zip 压缩包、git 仓库 URL（https|git@|ssh）、manifest（YAML frontmatter 含 source 字段，指向真实 zip/git）。

@@ -100,13 +100,13 @@
 
 **senseName 格式：** `<sense>:<level>`，`<level>` 取 `auto` / `smart` / `manual`。优先级：感官配置覆盖 > 感官内置声明 > `global.supervision`。
 
-**内置 Sense：** `read_file` / `write_file` / `execute_command` / `search_codebase` / `spawn_role` / `update_todo` / `skill` / `install_skill` / `ask_user_question`。
+**内置 Sense：** `read_file` / `write_file` / `execute_command` / `search_codebase` / `spawn_role` / `update_todo` / `skill` / `install_skill` / `config_manage` / `ask_user_question`。
 
 **示例：**
 
 ```yaml
 sense_groups:
-  leader:
+  leader:                    # 纯组长组：不配配置管理感官，配置需交 Cherry Nexus
     - read_file
     - skill
     - write_file
@@ -114,15 +114,22 @@ sense_groups:
     - search_codebase
     - spawn_role
     - ask_user_question
-  reviewer:                              # 只读组
+    - history_recall
+  chery_nexus:               # Cherry Nexus 专属组：组长能力 + 配置管理（install_skill/config_manage 独占）
+    - read_file
+    - skill
+    - write_file
+    - execute_command
+    - search_codebase
+    - spawn_role
+    - ask_user_question
+    - history_recall
+    - install_skill                # 技能安装（Cherry Nexus 职责）
+    - config_manage                # 配置管理（Cherry Nexus 独占，.chery/ 路径守卫天然豁免）
+  reviewer:                  # 只读组
     - read_file
     - search_codebase
     - skill
-  housekeeper:                           # 管家：install_skill 独占，.chery/ 路径守卫豁免
-    - install_skill
-    - read_file
-    - search_codebase
-    - ask_user_question
 ```
 
 ## roles.<role> 字段
@@ -134,7 +141,7 @@ sense_groups:
 | `senseGroup` | string | ❌ | — | 引用 `sense_groups` 的 key；无 Tool Call 能力的 brain 不得配置 |
 | `mcpServers` | string[] | ❌ | `[]` | MCP 服务器列表（占位，当前为空） |
 | `systemPrompt` | string | ✅ | — | system prompt 文件路径（相对 `.chery/`，如 `prompt/prefebMain/leader.md`）；启动校验文件必须存在 |
-| `lock` | bool | ❌ | `false` | 锁定禁止删除（保护关键角色如 `housekeeper`） |
+| `lock` | bool | ❌ | `false` | 锁定禁止删除（保护关键角色如 `cheryNyxus` / `curator`） |
 
 **校验（启动期）：** `brain` / `systemPrompt` 必须存在；无 Tool Call 能力的 brain 不得配置 `senseGroup` / `mcpServers`。
 

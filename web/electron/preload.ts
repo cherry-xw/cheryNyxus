@@ -25,6 +25,8 @@ export interface OpenWindowRequest {
   kind: WindowKind
   presetId?: string
   chatId?: string
+  /** 入口携带的预设名（workbench 窗空白态角色编制解析；经 main extraParams 拼 URL 供 App.vue 读）。 */
+  presetName?: string
   source?: 'pet' | 'history' | 'nyxus'
   view?: 'composer' | 'attention' | 'tree'
   /** Hide the Pet composer until the workbench it opened is closed. */

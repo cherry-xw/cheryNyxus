@@ -36,4 +36,21 @@ describe('deleted chat UI pruning', () => {
     expect(window.position).toEqual({ x: 120, y: 80 })
     expect(window.size).toEqual({ width: 900, height: 700 })
   })
+
+  it('carries the entry presetName on open and defensively backfills on reopen', () => {
+    const ui = createUiState()
+    // 缺省无 presetName → null
+    const noName = ui.openWorkbenchWindow('preset-a')
+    expect(ui.workbenchWindows.value[noName]!.presetName).toBeNull()
+    // 携带 presetName → 写入
+    const withName = ui.openWorkbenchWindow('preset-b', 'presetNameB')
+    expect(ui.workbenchWindows.value[withName]!.presetName).toBe('presetNameB')
+    // 已存在窗口重开：防御性补写（旧窗 presetName 恒 null 也可被后续打开纠正）
+    const reopened = ui.openWorkbenchWindow('preset-a', 'presetNameA')
+    expect(reopened).toBe(noName)
+    expect(ui.workbenchWindows.value[reopened]!.presetName).toBe('presetNameA')
+    // 已存在窗口重开未带 presetName → 保留既有值
+    const keep = ui.openWorkbenchWindow('preset-b')
+    expect(ui.workbenchWindows.value[keep]!.presetName).toBe('presetNameB')
+  })
 })

@@ -400,7 +400,7 @@ if (needsApproval.length > 0) {
 
 - 覆盖感官：`write_file`/`read_file`/`search_codebase` 取 `args.path`，`execute_command` 取 `args.command`（含 `.chery` 路径段即拦）。
 - 与 `.env` 后置脱敏（[envGuard.ts](../../src/utils/envGuard.ts) `redactEnvKeys` + tool.ts:293，执行后替换变量名）的区别：守卫是**前置拦截**（执行前拒，不执行）。参考 envGuard 的「统一拦截层位置 + 注入说明」模式，语义不同。
-- 双重隔离：install_skill 只在管家 senseGroup → 其他角色调不到；守卫 `GUARD_EXEMPT` 只豁免 install_skill → 其他角色绕路用 write_file/bash 写 `.chery/` 也被拦。
+- 双重隔离：install_skill / config_manage 只在 Cherry Nexus（chery_nexus 组）→ 其他角色调不到；守卫 `GUARD_EXEMPT` 只豁免 install_skill → 其他角色绕路用 write_file/bash 写 `.chery/` 也被拦。
 - 详见 [agent/skill-install.md](../agent/skill-install.md)。
 
 ### 3. retryMiddleware（[retry.ts](../../src/agent/middleware/retry.ts)）

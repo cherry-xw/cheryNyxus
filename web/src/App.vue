@@ -39,6 +39,8 @@ const chatSessions = useChatSessionsStore()
 const query = new URLSearchParams(window.location.search)
 const surface = query.get('surface')
 const surfacePresetId = query.get('presetId') ?? undefined
+/** 入口携带的预设名（workbench 窗空白态角色编制解析；main extraParams 拼入 URL）。 */
+const surfacePresetName = query.get('presetName') ?? undefined
 const surfaceChatId = query.get('chatId') ?? undefined
 const surfaceSource = query.get('source') as 'pet' | 'history' | 'nyxus' | null
 const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | null
@@ -147,7 +149,7 @@ if (surface === 'history') {
 
 // workbench 面：注册必须在渲染前同步完成（WorkbenchDialog setup 读 store 的 win.value）。
 if (surface === 'workbench' && surfacePresetId) {
-  const wbId = agents.openWorkbenchWindow(surfacePresetId)
+  const wbId = agents.openWorkbenchWindow(surfacePresetId, surfacePresetName)
   // 与入口语义一致：仅新建窗口恢复会话（chatId 为空时才设置），重开复用不覆盖浏览
   if (surfaceChatId && !agents.workbenchWindows[wbId]?.chatId) {
     agents.setWorkbenchWindowChat(wbId, surfaceChatId)

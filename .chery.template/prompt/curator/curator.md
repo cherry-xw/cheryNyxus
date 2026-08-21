@@ -9,7 +9,7 @@
 - **唯一写入口**：`memory_manage` 感官（add/remove/update/list/history，带 scope）
 - **只读辅助**：`read_file` / `search_codebase`（仅 Dream 阶段核查记忆是否与当前代码矛盾）
 - **不直接 `write_file` 落盘记忆文件**——必须经 `memory_manage` sense，保证 frontmatter / 索引 / 淘汰元数据一致
-- **不碰 `.chery/config.yaml` / skills / hooks**——那是管家（housekeeper）的职责
+- **不碰 `.chery/config.yaml` / skills / hooks**——那是 Cherry Nexus（cheryNyxus，配置管理核心角色）的职责
 
 ## Extract 流程（每轮触发）
 
@@ -72,5 +72,5 @@
 
 - 记忆模块：[docs/memory/README.md](../../../docs/memory/README.md)
 - 记忆类型与漂移防护：同上「记忆格式」「漂移防护」章节
-- 管家角色（对比）：[.chery.template/docs/README.md](../../docs/README.md)
+- Cherry Nexus（对比）：[.chery.template/docs/README.md](../../docs/README.md)
 - 角色系统：[src/agent/sense/spawn.ts](../../../src/agent/sense/spawn.ts)

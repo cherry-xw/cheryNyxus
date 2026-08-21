@@ -99,7 +99,7 @@ presets:
 - `roles.<type>.kind`：`role | shadow`，缺省按 `role`。Shadow 是内部临时流程角色，不得成为 leader/detailRole、预设 team member、`@` 提及或 `spawn_role` 目标，也不会创建 Pet、Chat 或节点树节点；Shadow 不允许 `mentionable:true`。
 - `systemPrompt` 路径相对 `.chery`（loadConfig 解析为绝对）；缺省 → 全局。per-agent prompt 数据流见 [agent/prompt.md](./agent/prompt.md)。
 - `roles.<type>.description`：角色说明文本，**仅 UI 展示**（角色名下方注释样式，点击 inline 编辑；不注入 prompt，与 `systemPrompt` 职责不重叠）；`lock:true` 角色只读不可编辑；缺省则显示占位。
-- `roles.<type>.lock`：`true` 时前端锁定该角色--禁止改名/复制/改专属背景说明/改角色说明（`description`）；大脑/器官套装/装备栏仍可改。保护 `housekeeper`/`curator` 等系统默认角色不被误改。
+- `roles.<type>.lock`：`true` 时前端锁定该角色--禁止改名/复制/改专属背景说明/改角色说明（`description`）；大脑/器官套装/装备栏仍可改。保护 `cheryNyxus`/`curator` 等系统默认角色不被误改。
 
 **T6 选择与解析（已落地）**：
 

@@ -17,8 +17,8 @@ prompt/
     planner.md
     coder.md
     reviewer.md
-  housekeeper/                   # 管家角色提示词
-    housekeeper.md
+  cheryNyxus/                    # Cherry Nexus 专属提示词（配置管理核心角色）
+    cheryNyxus.md
 ```
 
 ## 文件类型
@@ -30,7 +30,7 @@ prompt/
 | `prefebMain/planner.md` | 计划角色（plan）的专属指令 | `roles.plan.systemPrompt` |
 | `prefebMain/coder.md` | 编码角色（coder）的专属指令 | `roles.coder.systemPrompt` |
 | `prefebMain/reviewer.md` | 审查角色（reviewer）的专属指令 | `roles.reviewer.systemPrompt` |
-| `housekeeper/housekeeper.md` | 管家角色（安装技能 / 管理配置） | `roles.housekeeper.systemPrompt` |
+| `cheryNyxus/cheryNyxus.md` | Cherry Nexus（配置管理核心角色：管理角色/感官/全局/llm 配置 + 组长） | `roles.cheryNyxus.systemPrompt` |
 
 ## 字段参考表
 
@@ -60,26 +60,25 @@ prompt/
 | `## 协作接口` | 与其他角色的交互（如 spawn_role / 转述结果） |
 | `## 注意事项` | 失败处理、回报规范 |
 
-## 模板示例（housekeeper）
+## 模板示例（cherryNyxus）
 
 ```md
-你是「管家」角色，负责安装与维护技能（.chery/skills/）与管理配置（.chery/config.yaml）。
-你不直接处理用户的业务任务，只在需要安装/更新/排查技能或被要求调整配置时被主 agent 派出（spawn_role）。
+你是 Cherry Nexus：系统的配置管理核心角色，也是桌宠组长。
+你的核心任务是管理所有角色配置相关的任务（对设置相关信息进行维护调整）。
 
 ## 职责
 
-收到安装请求时：
-1. 调用 install_skill 感官...
-...
-
 收到配置调整请求时：
-1. 用 read_file 读取当前 .chery/config.yaml（路径守卫已豁免）
-2. 用 spawn_role 派出 leader 角色分析配置变更影响
-3. 在用户确认后调用 write_file 落盘
+1. 用 config_manage(action="get") 读取当前配置摘要（roles 列表 + 锁定状态）
+2. 对照 .chery.template/docs/ 字段参考表，定位目标字段
+3. 用 ask_user_question 向用户确认变更（含改动前后对比、影响范围）
+4. 用 config_manage(action="save") 落盘（saveRawConfig 层自动备份旧配置到 .chery/backups/）
+5. 若校验失败：不落盘，回报错误原文，可 config_manage(action="rollback") 回滚
+6. 提示用户重启生效（配置不热更）
 ...
 ```
 
-详见 [../prompt/housekeeper/housekeeper.md](../prompt/housekeeper/housekeeper.md)。
+详见 [../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)。
 
 ## 编写建议
 
@@ -100,4 +99,5 @@ prompt/
 
 - 角色配置：[./config.md#rolesrole-字段](./config.md#rolesrole-字段)
 - 提示词系统：[../../docs/system-prompt.md](../../docs/system-prompt.md)
-- 管家角色：[../prompt/housekeeper/housekeeper.md](../prompt/housekeeper/housekeeper.md)（安装技能 + 配置管理）
+- Cherry Nexus 提示词：[../prompt/cheryNyxus/cheryNyxus.md](../prompt/cheryNyxus/cheryNyxus.md)（配置管理 + 组长）
+- 配置管理感官：[../../docs/core/sense.md](../../docs/core/sense.md#config_manage-感官)（get/save/backup/rollback）

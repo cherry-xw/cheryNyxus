@@ -22,6 +22,7 @@ import memorySense from './memory'
 import mediaSenses from './media'
 import askSense from './ask'
 import installSkillSense from './installSkill'
+import configManageSense from './configManage'
 import childControlSenses from './childControl'
 import selectConversationSense from './selectConversation'
 import { logger } from '@/utils/logger/index.js'
@@ -97,8 +98,14 @@ export const BUILTIN_SENSE_TOOLS: BuiltinSenseTool[] = [
   {
     name: 'install_skill',
     label: '安装技能',
-    description: '从 URL 安装技能（管家角色专用，zip/git/manifest）',
+    description: '从 URL 安装技能（配置管理核心角色专用，zip/git/manifest）',
     icon: '📥',
+  },
+  {
+    name: 'config_manage',
+    label: '配置管理',
+    description: '读写 .chery/config.yaml（Cherry Nexus 独占：get/save/rollback，写盘自动备份）',
+    icon: '⚙️',
   },
   {
     name: 'select_conversation',
@@ -124,6 +131,7 @@ function registerBuiltinSenses(): void {
     memorySense,
     askSense,
     installSkillSense,
+    configManageSense,
     selectConversationSense,
     ...childControlSenses,
     ...mediaSenses,

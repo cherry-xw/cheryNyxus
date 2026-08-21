@@ -28,6 +28,8 @@ export type SubagentDisplayMode = 'show' | 'collapse' | 'round'
 export interface WorkbenchWindowState {
   id: string // = presetId（每预设一窗）
   presetId: string
+  /** 入口携带的预设名（空白工作台/会话未水合时角色编制据此解析，不靠会话推导）。 */
+  presetName: string | null
   chatId: string | null // 当前根会话
   view: 'composer' | 'attention' | 'tree'
   minimized: boolean
@@ -179,10 +181,13 @@ export function createUiState() {
     return true
   }
 
-  /** 打开窗口：已存在同 presetId 则置焦点并返回其 id；否则新建并注册。 */
-  function openWorkbenchWindow(presetId: string): string {
+  /** 打开窗口：已存在同 presetId 则置焦点并返回其 id；否则新建并注册。
+   *  presetName 为入口携带的预设名（非 presetId）；已存在窗口时防御性补写（入口解析失败
+   *  留下的旧窗 presetName 恒 null 也可被后续打开纠正）。 */
+  function openWorkbenchWindow(presetId: string, presetName?: string): string {
     const existing = workbenchWindows.value[presetId]
     if (existing) {
+      if (presetName && existing.presetName !== presetName) existing.presetName = presetName
       focusWorkbenchWindow(existing.id)
       return existing.id
     }
@@ -191,6 +196,7 @@ export function createUiState() {
     const window: WorkbenchWindowState = {
       id,
       presetId,
+      presetName: presetName ?? null,
       chatId: null,
       view: 'tree',
       minimized: false,

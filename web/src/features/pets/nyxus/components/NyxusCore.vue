@@ -150,17 +150,20 @@ async function openWorkbench(): Promise<void> {
   }
   // desktop surface：工作台由 Electron 原生独立窗承载（每预设一窗，main 层 get-or-create 聚焦复用）；
   // 浏览器保持应用内多窗口。chatId 语义与下方分支一致：新建窗口恢复活跃会话。
+  // presetName 随窗携带：Nyxus 窗口以预设名 'cheryNyxus' 作 windowId/presetId，空白工作台角色编制
+  // 据此解析（不靠会话推导——独立 store 下 historyList 初始为空）。
   const bridge = desktopBridge()
   if (bridge) {
     bridge.openWindow({
       kind: 'workbench',
       presetId: CHERY_NYXUS_PRESET,
+      presetName: CHERY_NYXUS_PRESET,
       chatId: agents.activeNyxusChatId ?? undefined,
     })
     closeNyxusMenu()
     return
   }
-  const id = agents.openWorkbenchWindow(CHERY_NYXUS_PRESET)
+  const id = agents.openWorkbenchWindow(CHERY_NYXUS_PRESET, CHERY_NYXUS_PRESET)
   // 仅新建窗口（chatId 为空）时恢复活跃 Nyxus 会话，避免打开即空树；已存在窗口不覆盖当前浏览。
   if (!agents.workbenchWindows[id]?.chatId) {
     const active = agents.activeNyxusChatId

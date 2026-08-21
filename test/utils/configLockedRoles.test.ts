@@ -33,27 +33,27 @@ describe('validateLockedRoleEdits', () => {
   })
 
   it('rejects deleting or unlocking a locked role', () => {
-    expect(validateLockedRoleEdits({ housekeeper: locked }, {})).toEqual([
-      'roles.housekeeper 是锁定角色，不能删除或改名',
+    expect(validateLockedRoleEdits({ curator: locked }, {})).toEqual([
+      'roles.curator 是锁定角色，不能删除或改名',
     ])
     expect(
-      validateLockedRoleEdits({ housekeeper: locked }, { housekeeper: { ...locked, lock: false } }),
-    ).toContain('roles.housekeeper.lock 不能取消')
+      validateLockedRoleEdits({ curator: locked }, { curator: { ...locked, lock: false } }),
+    ).toContain('roles.curator.lock 不能取消')
   })
 
   it.each(['avatar', 'description', 'systemPrompt'] as const)(
     'rejects changing locked identity field %s',
     (field) => {
       const next = { ...locked, [field]: 'changed' }
-      expect(validateLockedRoleEdits({ housekeeper: locked }, { housekeeper: next })).toContain(
-        `roles.housekeeper.${field} 是锁定身份字段，不能修改`,
+      expect(validateLockedRoleEdits({ curator: locked }, { curator: next })).toContain(
+        `roles.curator.${field} 是锁定身份字段，不能修改`,
       )
     },
   )
 
   it('keeps the identity-only behavior for other locked roles', () => {
     const next = { ...locked, brain: 'brain-b' }
-    expect(validateLockedRoleEdits({ housekeeper: locked }, { housekeeper: next })).toEqual([])
+    expect(validateLockedRoleEdits({ curator: locked }, { curator: next })).toEqual([])
   })
 })
 
@@ -76,7 +76,7 @@ describe('validateFixedPresetEdits', () => {
   it('allows changing non-fixed preset fields', () => {
     expect(
       validateFixedPresetEdits(current, {
-        cheryNyxus: { leader: 'cheryNyxus', roles: ['cheryNyxus', 'housekeeper'] },
+        cheryNyxus: { leader: 'cheryNyxus', roles: ['cheryNyxus', 'curator'] },
       }),
     ).toEqual([])
   })

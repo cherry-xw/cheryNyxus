@@ -614,8 +614,9 @@ interface McpServerConfigRaw extends Omit<McpServerConfig, 'supervision'> {
 /**
  * 原始配置（config.get 返回 / config.save 入参）：无 server 段、无路径补全、
  * supervision 为字符串、key 仍为 $ENV 占位符。读写均不碰运行时内存单例（重启生效）。
+ * export 供 config_manage 感官复用 saveRawConfig 入参类型。
  */
-interface ConfigRaw {
+export interface ConfigRaw {
   global: GlobalConfigRaw
   llm: LLMConfig
   media?: MediaConfig
@@ -1257,11 +1258,73 @@ export function readRawConfig(): ConfigRaw {
 }
 
 /**
- * 校验 + 写回 .chery/config.yaml（供 config.save）。
+ * 配置备份：保留最近 BACKUP_KEEP 份。备份目录 .chery/backups/，文件名 config-<YYYYMMDD-HHmmss>.yaml。
+ * 写盘前快照（保存修改前状态），供出错回滚。返回备份文件绝对路径。
+ */
+export const BACKUP_KEEP = 10
+
+export function backupConfig(configPath: string): string {
+  const backupsDir = path.join(path.dirname(configPath), 'backups')
+  fs.mkdirSync(backupsDir, { recursive: true })
+  const now = new Date()
+  const stamp =
+    `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}` +
+    `-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`
+  const dest = path.join(backupsDir, `config-${stamp}.yaml`)
+  fs.copyFileSync(configPath, dest)
+  // 保留最近 BACKUP_KEEP 份（文件名定宽前缀 → 字典序 = 时间序）
+  const files = fs
+    .readdirSync(backupsDir)
+    .filter((f) => /^config-\d{8}-\d{6}\.yaml$/.test(f))
+    .sort()
+  while (files.length > BACKUP_KEEP) {
+    const oldest = files.shift()
+    if (oldest) fs.rmSync(path.join(backupsDir, oldest), { force: true })
+  }
+  return dest
+}
+
+/**
+ * 列出 .chery/backups/ 下的配置备份（按时间倒序，最近在前）。供 config_manage(action="get") 展示回滚点。
+ */
+export function listConfigBackups(): string[] {
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const backupsDir = path.join(cheryDir, '.chery', 'backups')
+  if (!fs.existsSync(backupsDir)) return []
+  return fs
+    .readdirSync(backupsDir)
+    .filter((f) => /^config-\d{8}-\d{6}\.yaml$/.test(f))
+    .sort()
+    .reverse()
+}
+
+/**
+ * 回滚配置：从 .chery/backups/ 恢复指定（或缺省最近）备份到 config.yaml。
+ * 返回 { backup: 文件名 }；backups/ 不存在或为空时抛错。
+ */
+export function rollbackConfig(backupName?: string): { backup: string } {
+  const cheryDir = process.env.CHERY_DIR || process.cwd()
+  const configPath = path.join(cheryDir, '.chery', 'config.yaml')
+  const backupsDir = path.join(cheryDir, '.chery', 'backups')
+  if (!fs.existsSync(backupsDir)) throw new Error('备份目录不存在（.chery/backups/），无可回滚项')
+  const candidates = fs
+    .readdirSync(backupsDir)
+    .filter((f) => /^config-\d{8}-\d{6}\.yaml$/.test(f))
+    .sort()
+    .reverse()
+  const target = backupName && candidates.includes(backupName) ? backupName : candidates[0]
+  if (!target) throw new Error('备份目录为空，无可回滚项')
+  fs.copyFileSync(path.join(backupsDir, target), configPath)
+  return { backup: target }
+}
+
+/**
+ * 校验 + 写回 .chery/config.yaml（供 config.save 与 config_manage 感官）。
  * 不碰运行时内存单例（重启生效）。失败 fail loud 返回 errors，不写盘。
  * 返回分离 errors（硬错误）+ warnings（软错误：workspace 路径无效），供 UI 分层展示。
  * workspace 路径校验仅在保存期做（启动期不关心 workspace 数据正确性）。
  * 写回保留盘上 server 段不动，js-yaml dump 无注释（注释文档备份在 config.yaml.example）。
+ * 写盘前自动备份旧配置到 .chery/backups/（保留最近 10 份，见 backupConfig），出错可 rollbackConfig 回滚。
  */
 export function saveRawConfig(
   partial: ConfigRaw,
@@ -1301,6 +1364,9 @@ export function saveRawConfig(
   ensureRoleIds(partial.roles)
   const merged = { ...partial, server: disk.server ?? { port: 8182, transport: 'binary' as const } }
 
+  // 写盘前备份旧配置（.chery/backups/，保留最近 10 份）——回滚到修改前状态的唯一依据。
+  // 校验失败路径已提前 return，不会走到这里，故不会产生无效备份。
+  backupConfig(configPath)
   fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))
   return { ok: true }
 }
@@ -1351,7 +1417,6 @@ export function getCheryDir(): string {
 
 export type {
   Config,
-  ConfigRaw,
   BrainConfig,
   GlobalConfig,
   LoggerConfig,
