@@ -10,6 +10,15 @@ import EquipmentPicker from '../../controls/EquipmentPicker.vue'
 import EquipmentEditor from '../../controls/EquipmentEditor.vue'
 import { resolveRoleAvatar } from '../../config/roleAvatar'
 import { computeSelectionTokens } from '../../config/shared'
+import {
+  EFFECT_LABELS,
+  READ_LABELS,
+  SANDBOX_LABELS,
+  TEMPLATE_CARDS,
+  WRITE_LABELS,
+  resolveEffectivePolicy,
+} from '../../config/rolePermissions'
+import LabelTip from '../config/LabelTip.vue'
 import { buildPromptTree } from '../promptTree'
 
 const CHERY_NYXUS_ROLE = 'cheryNyxus'
@@ -109,8 +118,32 @@ const equipmentEditor = computed(() => {
 const permissionTemplate = computed({
   get: () => current.value?.permissions?.template ?? 'supervised',
   set: (template: NonNullable<RoleDraft['permissions']>['template']) => {
-    if (current.value) current.value.permissions = { template }
+    // 换模板只换基线，保留显式覆盖项（与后端 mergePolicy 行为一致）
+    if (current.value) current.value.permissions = { ...current.value.permissions, template }
   },
+})
+// 生效结果预览：模板默认 + 显式覆盖的合并镜像，见 config/rolePermissions.ts
+const effectivePermission = computed(() => resolveEffectivePolicy(current.value?.permissions))
+const permissionPreview = computed(() => {
+  const e = effectivePermission.value
+  return [
+    { key: 'read', label: '读', value: READ_LABELS[e.read] ?? e.read, customized: e.customized.read },
+    { key: 'write', label: '写', value: WRITE_LABELS[e.write] ?? e.write, customized: e.customized.write },
+    {
+      key: 'sandbox',
+      label: '命令',
+      value: SANDBOX_LABELS[e.maxSandboxMode] ?? e.maxSandboxMode,
+      customized: e.customized.maxSandboxMode,
+    },
+    {
+      key: 'shells',
+      label: '方言',
+      value: e.shells.length ? e.shells.join(' / ') : '全部禁用',
+      customized: e.customized.shells,
+    },
+    { key: 'mcp', label: 'MCP', value: EFFECT_LABELS[e.mcpDefault] ?? e.mcpDefault, customized: e.customized.mcpDefault },
+    { key: 'spawn', label: '派遣', value: EFFECT_LABELS[e.spawnEffect] ?? e.spawnEffect, customized: e.customized.spawnEffect },
+  ]
 })
 function ensurePermissions(): NonNullable<RoleDraft['permissions']> | undefined {
   if (!current.value) return undefined
@@ -586,29 +619,120 @@ onMounted(() => emit('mode-change', roleMode.value))
 
         <section class="detail-section permission-section">
           <h3>行为权限</h3>
-          <p class="permission-hint">器官套装决定工具是否可见；这里决定每次调用允许、审核或拒绝。策略修改从下一次调用生效。</p>
-          <div class="permission-grid">
-            <label><span>策略模板</span><el-select v-model="permissionTemplate" size="small">
-              <el-option label="只读" value="read-only" /><el-option label="工作区开发" value="workspace-developer" />
-              <el-option label="全程监管" value="supervised" /><el-option label="受信任" value="trusted" />
-            </el-select></label>
-            <label><span>读取范围</span><el-select :model-value="current.permissions?.filesystem?.read" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'read', v)">
-              <el-option label="禁止" value="deny" /><el-option label="仅工作区" value="workspace" /><el-option label="任意路径" value="any" />
-            </el-select></label>
-            <label><span>写入范围</span><el-select :model-value="current.permissions?.filesystem?.write" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'write', v)">
-              <el-option label="禁止" value="deny" /><el-option label="仅工作区" value="workspace" /><el-option label="区外需审核" value="any-with-approval" />
-            </el-select></label>
-            <label><span>最大沙箱权限</span><el-select :model-value="current.permissions?.commands?.maxSandboxMode" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('commands', 'maxSandboxMode', v)">
-              <el-option label="只读" value="read-only" /><el-option label="工作区可写" value="workspace-write" /><el-option label="完全访问（仍经 OS 沙箱）" value="danger-full-access" />
-            </el-select></label>
-            <label><span>MCP 默认</span><el-select :model-value="current.permissions?.mcp?.default" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('mcp', 'default', v)">
-              <el-option label="继承" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
-            </el-select></label>
-            <label><span>派遣角色</span><el-select :model-value="current.permissions?.spawn?.effect" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('spawn', 'effect', v)">
-              <el-option label="继承" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
-            </el-select></label>
+          <p class="permission-hint">器官套装决定角色能看到哪些工具；这里决定每次调用时直接放行、弹审批卡还是拒绝。修改从下一次调用生效。</p>
+          <div class="perm-board-head">
+            <LabelTip
+              label="策略模板"
+              :tip="'预设的安全基线，四档风险递增。\n下方覆盖项在模板基础上逐项调整，留空即继承模板值；切换模板会保留已设置的覆盖项。更细粒度的规则（按工具通配、命令风险分类）可手改 config.yaml。'"
+            />
           </div>
-          <div class="shell-choice"><span>允许脚本方言</span><el-checkbox-group v-model="allowedShells"><el-checkbox value="bash">Bash</el-checkbox><el-checkbox value="powershell">PowerShell</el-checkbox></el-checkbox-group></div>
+          <div class="permission-template-board">
+            <button
+              v-for="card in TEMPLATE_CARDS"
+              :key="card.value"
+              type="button"
+              class="tpl-card"
+              :class="[`risk-${card.risk}`, { active: permissionTemplate === card.value }]"
+              @click="permissionTemplate = card.value"
+            >
+              <b class="tpl-name"
+                ><i class="risk-dot" />{{ card.label }}<em v-if="card.isDefault" class="tpl-default">默认</em></b
+              >
+              <small class="tpl-tagline">{{ card.tagline }}</small>
+              <small class="tpl-summary">{{ card.summary }}</small>
+            </button>
+          </div>
+          <div class="permission-groups">
+            <div class="perm-group">
+              <h4>文件</h4>
+              <label class="perm-field" :class="{ customized: effectivePermission.customized.read }">
+                <span class="perm-field-head">
+                  <LabelTip
+                    label="读取范围"
+                    :tip="'角色读文件可触达的路径。\n工作区 = 会话工作区目录内；越出范围的读取直接拒绝。'"
+                  />
+                  <em v-if="effectivePermission.customized.read">已自定义</em>
+                </span>
+                <el-select :model-value="current.permissions?.filesystem?.read" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'read', v)">
+                  <el-option label="禁止" value="deny" /><el-option label="仅工作区" value="workspace" /><el-option label="任意路径" value="any" />
+                </el-select>
+              </label>
+              <label class="perm-field" :class="{ customized: effectivePermission.customized.write }">
+                <span class="perm-field-head">
+                  <LabelTip
+                    label="写入范围"
+                    :tip="'角色写文件的范围。\n仅工作区内：区外一律拒绝；区内直写 · 区外需审核：工作区内直接写入，工作区外先弹审批卡确认。'"
+                  />
+                  <em v-if="effectivePermission.customized.write">已自定义</em>
+                </span>
+                <el-select :model-value="current.permissions?.filesystem?.write" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'write', v)">
+                  <el-option label="禁止" value="deny" /><el-option label="仅工作区内" value="workspace" /><el-option label="区内直写 · 区外需审核" value="any-with-approval" />
+                </el-select>
+              </label>
+            </div>
+            <div class="perm-group">
+              <h4>命令</h4>
+              <label class="perm-field" :class="{ customized: effectivePermission.customized.maxSandboxMode }">
+                <span class="perm-field-head">
+                  <LabelTip
+                    label="最大沙箱权限"
+                    :tip="'execute_command 的 OS 沙箱权限上限。\n命令分析器判定需要更高权限的命令会被直接拒绝而非降级执行；完全访问也仍运行在 OS 沙箱内。'"
+                  />
+                  <em v-if="effectivePermission.customized.maxSandboxMode">已自定义</em>
+                </span>
+                <el-select :model-value="current.permissions?.commands?.maxSandboxMode" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('commands', 'maxSandboxMode', v)">
+                  <el-option label="只读沙箱" value="read-only" /><el-option label="工作区可写" value="workspace-write" /><el-option label="完全访问（仍经 OS 沙箱）" value="danger-full-access" />
+                </el-select>
+              </label>
+              <div class="perm-field" :class="{ customized: effectivePermission.customized.shells }">
+                <span class="perm-field-head">
+                  <LabelTip
+                    label="允许脚本方言"
+                    :tip="'角色执行命令可用的 shell 方言。\n未勾选的方言调用会被直接拒绝。'"
+                  />
+                  <em v-if="effectivePermission.customized.shells">已自定义</em>
+                </span>
+                <el-checkbox-group v-model="allowedShells"><el-checkbox value="bash">Bash</el-checkbox><el-checkbox value="powershell">PowerShell</el-checkbox></el-checkbox-group>
+              </div>
+            </div>
+            <div class="perm-group">
+              <h4>集成</h4>
+              <label class="perm-field" :class="{ customized: effectivePermission.customized.mcpDefault }">
+                <span class="perm-field-head">
+                  <LabelTip
+                    label="MCP 默认"
+                    :tip="'调用 MCP 工具的默认处置。\n继承 = 按模板与未知工具监管处理：受信模板放行，其余模板每次审核。'"
+                  />
+                  <em v-if="effectivePermission.customized.mcpDefault">已自定义</em>
+                </span>
+                <el-select :model-value="current.permissions?.mcp?.default" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('mcp', 'default', v)">
+                  <el-option label="继承（按模板监管）" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
+                </el-select>
+              </label>
+              <label class="perm-field" :class="{ customized: effectivePermission.customized.spawnEffect }">
+                <span class="perm-field-head">
+                  <LabelTip
+                    label="派遣角色"
+                    :tip="'spawn_role 派遣子角色的处置。\n继承 = 按模板默认（只读模板拒绝，其余允许）。'"
+                  />
+                  <em v-if="effectivePermission.customized.spawnEffect">已自定义</em>
+                </span>
+                <el-select :model-value="current.permissions?.spawn?.effect" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('spawn', 'effect', v)">
+                  <el-option label="继承（按模板）" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
+                </el-select>
+              </label>
+            </div>
+          </div>
+          <div class="effective-preview">
+            <span class="preview-k">生效策略</span>
+            <span
+              v-for="dim in permissionPreview"
+              :key="dim.key"
+              class="preview-dim"
+              :class="{ customized: dim.customized }"
+              >{{ dim.label }} {{ dim.value }}<em v-if="dim.customized">自定义</em></span
+            >
+          </div>
         </section>
 
         <section class="detail-section">
@@ -703,9 +827,155 @@ onMounted(() => emit('mode-change', roleMode.value))
   flex: 1;
 }
 .permission-hint { margin: 0 0 8px; color: color-mix(in srgb, var(--ink) 58%, transparent); font-size: 10px; }
-.permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.permission-grid label { display: grid; gap: 3px; font-size: 10px; font-weight: 700; }
-.shell-choice { display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: 10px; font-weight: 700; }
+.perm-board-head { margin: -2px 0 4px; }
+// 模板卡片：风险色点 + 定位句 + 维度摘要，选中态对齐 choice-board active 的视觉语言
+.permission-template-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 5px;
+}
+.tpl-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 8px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  &:hover {
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 40%, transparent);
+  }
+  &.active {
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+    background: color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
+    color: color-mix(in srgb, var(--tab-color, @accent) 75%, var(--ink));
+  }
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+    outline-offset: 2px;
+  }
+}
+.tpl-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.risk-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: none;
+}
+.tpl-card.risk-0 .risk-dot { background: #34d399; }
+.tpl-card.risk-1 .risk-dot { background: #fbbf24; }
+.tpl-card.risk-2 .risk-dot { background: #fb923c; }
+.tpl-card.risk-3 .risk-dot { background: #f87171; }
+.tpl-default {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+}
+.tpl-tagline {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+}
+.tpl-summary {
+  font-size: 9px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  word-break: break-all;
+}
+// 覆盖项三组（文件 / 命令 / 集成）：label 挂 LabelTip，自定义时点亮主题色标记
+.permission-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.perm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 10%, transparent);
+  border-radius: 8px;
+  h4 {
+    margin: 0;
+    font-size: 10px;
+    font-weight: 800;
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
+  }
+}
+.perm-field {
+  display: grid;
+  gap: 3px;
+  font-size: 10px;
+}
+.perm-field-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  em {
+    font-size: 9px;
+    font-style: normal;
+    font-weight: 700;
+    color: var(--tab-color, @accent);
+    &::before {
+      content: '';
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      margin-right: 3px;
+      border-radius: 999px;
+      background: currentColor;
+      vertical-align: 1px;
+    }
+  }
+}
+.perm-field .el-checkbox-group {
+  display: flex;
+  gap: 4px;
+  min-height: 24px;
+  align-items: center;
+}
+// 生效结果预览条：常驻展示模板 + 覆盖合并结果，自定义维度主题色高亮
+.effective-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  font-size: 10px;
+}
+.preview-k {
+  font-weight: 800;
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+}
+.preview-dim {
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  &.customized {
+    font-weight: 700;
+    color: color-mix(in srgb, var(--tab-color, @accent) 82%, @ink);
+  }
+  em {
+    margin-left: 3px;
+    font-size: 9px;
+    font-style: normal;
+    opacity: 0.85;
+  }
+}
 .role-mode-stack {
   position: relative;
   width: 142px;
@@ -1035,6 +1305,9 @@ onMounted(() => emit('mode-change', roleMode.value))
 }
 @media (max-width: 950px) {
   .equipment-grid {
+    grid-template-columns: 1fr;
+  }
+  .permission-groups {
     grid-template-columns: 1fr;
   }
   .core-field {
