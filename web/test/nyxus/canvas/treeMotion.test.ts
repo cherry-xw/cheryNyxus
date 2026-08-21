@@ -35,12 +35,13 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('if (!this.app || this.reduceMotion || document.hidden) return')
   })
 
-  it('keeps Electron on hardware-composited WebGL instead of initializing WebGPU', async () => {
+  it('keeps Electron on hardware-composited WebGL with a high-DPI backing buffer', async () => {
     const source = await rendererSource()
 
     expect(source).toContain("if (!isElectronRuntime() && 'gpu' in navigator)")
     expect(source).toContain("preference: 'webgl'")
-    expect(source).toContain('return isElectronRuntime() ? Math.min(dpr, 1)')
+    expect(source).toContain('return Math.min(dpr, 2)')
+    expect(source).not.toContain('Math.min(dpr, 1)')
   })
 
   it('renders fixed-length repeated pulses without SVG animation instances', async () => {

@@ -74,6 +74,8 @@
 
 **tip 排版与配色**：`.label-tip-popper`（web/src/styles/element/index.scss）全局 `pre-line` 换行（content 内 `\n` 分节）+ 配色随主题——背景 `var(--panel)` / 文字 `var(--ink)`（深色黑底白字、浅色白底黑字）；`.el-popper.is-dark.label-tip-popper` 抬特异性覆盖 el-tooltip 默认黑底。影响所有 LabelTip（编辑器/插件导入/指令/大脑/技能导入/预设）。
 
+**tip/title 使用边界（硬性要求）**：任何提示性内容**默认必须用 tip 展示**（LabelTip / el-tooltip，走 `.label-tip-popper` 排版）；只有**非常不重要**的信息才允许降级为原生 `title` 属性。新增 UI 一律按此判定，不得以 `title` 作为提示性内容的默认载体。
+
 ## 依赖与关联
 
 - `web/src/features/agent/settings/SettingsDialog.vue`：一级 Tab、保存和错误弹窗。

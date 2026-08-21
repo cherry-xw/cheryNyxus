@@ -182,9 +182,10 @@ function isElectronRuntime(): boolean {
 
 function rendererResolution(): number {
   const dpr = window.devicePixelRatio || 1
-  // Keep the desktop graph at one physical pixel per CSS pixel. It leaves enough GPU fill-rate for
-  // Chromium to composite card scrolling and drag transforms at 60Hz on high-DPI displays.
-  return isElectronRuntime() ? Math.min(dpr, 1) : Math.min(dpr, 2)
+  // Match the backing buffer to the display on both the browser and Electron. Capping Electron at
+  // 1 made Chromium upscale the whole graph on Windows display scaling, blurring node outlines and
+  // every Pixi text label. A 2x ceiling keeps the fill-rate bounded on very dense displays.
+  return Math.min(dpr, 2)
 }
 
 async function initializeApplication(
