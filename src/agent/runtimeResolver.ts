@@ -24,6 +24,16 @@ export interface RuntimeSelection {
   mcpServers: string[]
 }
 
+/**
+ * 消息级 runtime 溯源（messages.runtime 列 + 前端历史消息展示）：
+ * RuntimeSelection + 消息发送时 brain 的 model/provider 快照。
+ * brain 内容后续修改不影响已落盘消息的溯源展示（快照语义）。
+ */
+export interface RuntimeProvenance extends RuntimeSelection {
+  brainModel?: string
+  brainProvider?: string
+}
+
 /** runtime selection 失效清单（仅展示/恢复用；用户主动输入仍走 parseRuntimeSelection 严格抛错）。 */
 export interface RuntimeIssue {
   kind: 'brain' | 'senseGroup'
@@ -78,6 +88,10 @@ export function parseRuntimeSelection(
 export function resolvePresetSelection(presetName: string): {
   presetId: string
   selection: RuntimeSelection
+  /** leader 角色名（chat.create 快照入 metadata.type 冗余 + 错误消息） */
+  leaderName: string
+  /** leader 角色稳定身份 id（chat.create 快照入 metadata.roleId，getChatType ID 优先反查当前名） */
+  leaderId: string
   systemPromptFile?: string
   /** 该预设选中的角色 type 列表（chat.create 快照入 metadata.spawnTypes，spawn roster gate 用） */
   spawnTypes: string[]
@@ -113,6 +127,8 @@ export function resolvePresetSelection(presetName: string): {
   return {
     presetId: preset.id!,
     selection,
+    leaderName: preset.leader,
+    leaderId: leader.id!,
     systemPromptFile: leader.systemPrompt,
     spawnTypes: (preset.roles ?? []).filter((name) => isOrdinaryRole(config.roles?.[name])),
     workspace: preset.workspace,

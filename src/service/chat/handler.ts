@@ -63,6 +63,7 @@ import {
   findChatsByParent,
   getChatPreviews,
   getChatWorkspace,
+  getChatPreset,
   getChatRuntimeSelection,
   getTimelineRevision,
   bumpTimelineRevision,
@@ -174,6 +175,9 @@ export async function handleChatCreate(
     selection = resolved.selection
     metadata.preset = p.preset
     metadata.presetId = resolved.presetId
+    // leader 角色稳定身份快照（getChatType ID 优先反查当前名，角色改名不影响历史主 chat 身份）。
+    // 注意：不写 metadata.type —— type 是子 chat（spawn_role 创建）的判定标记。
+    metadata.roleId = resolved.leaderId
     metadata.lastUserActivityAt = Date.now()
     metadata.spawnTypes = resolved.spawnTypes
     if (resolved.systemPromptFile) metadata.systemPromptFile = resolved.systemPromptFile
@@ -238,9 +242,12 @@ function buildChatSessionSnapshot(chatId: string): ChatSessionSnapshotData {
   const workspace = getChatWorkspace(chatId)
   const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
   const runtime = getChatRuntimeSelection(chatId)
+  // preset 显示名 ID 优先反查（getChatPreset：presetId -> 当前名，旧数据回退 metadata.preset），
+  // 预设改名后历史会话快照显示新名而非 stale 旧名。
+  const presetName = getChatPreset(chatId) ?? metadata.preset
   return {
     ...(runtime ? { runtime } : {}),
-    ...(metadata.preset ? { preset: metadata.preset } : {}),
+    ...(presetName ? { preset: presetName } : {}),
     canResume: computeCanResume(chatId),
     currentState: computeCurrentState(chatId),
     commandConfig: getCommandConfig(),
@@ -293,6 +300,11 @@ export async function handleChatList(
     }
   }
   const previews = data.includePreview ? getChatPreviews(rows) : undefined
+
+  // preset 显示名 ID 优先反查（一次性映射免 N+1）：presetId -> 当前名；旧数据/预设已删回退 metadata.preset 旧名。
+  const presetNameById = new Map(
+    Object.entries(config.presets ?? {}).map(([name, preset]) => [preset.id, name] as const),
+  )
 
   const chats = rows.map((chat) => {
     const conversationBranch = getConversationBranchByChat(chat.id)
@@ -351,7 +363,9 @@ export async function handleChatList(
       // 目录只携带计数与裁剪后的问题标题；完整选项在打开对应根会话后按需取得。
       pendingQuestionCount: pendingQuestions.length,
       pendingQuestions,
-      preset: typeof meta.preset === 'string' ? meta.preset : undefined,
+      preset:
+        (typeof meta.presetId === 'string' ? presetNameById.get(meta.presetId) : undefined) ??
+        (typeof meta.preset === 'string' ? meta.preset : undefined),
       presetId:
         typeof meta.presetId === 'string'
           ? meta.presetId

@@ -209,6 +209,12 @@ export interface RuntimeSelection {
   mcpServers?: string[]
 }
 
+/** 消息级 runtime 溯源：RuntimeSelection + 消息发送时 brain 的 model/provider 快照（历史消息展示用）。 */
+export interface RuntimeProvenance extends RuntimeSelection {
+  brainModel?: string
+  brainProvider?: string
+}
+
 /** 当前会话临时角色编制；服务重启后自动失效，不写入会话默认配置。 */
 export interface SessionRuntimeSelection {
   primary: RuntimeSelection
@@ -534,7 +540,7 @@ export interface CanonicalMessage {
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
-  runtime?: RuntimeSelection
+  runtime?: RuntimeProvenance
   senseCalls?: CanonicalSenseCall[]
   origin?: {
     parentChatId?: string
@@ -652,8 +658,8 @@ export interface TimelineNode {
   visibility: 'conversation' | 'detail' | 'internal'
   content: string
   thinking?: string
-  /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。 */
-  runtime?: RuntimeSelection
+  /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。brainModel/brainProvider 为溯源快照。 */
+  runtime?: RuntimeProvenance
   toolCalls?: GraphToolCall[]
   batchId?: string
   orderKey: number
@@ -1055,6 +1061,8 @@ export interface ConfigDto {
     string,
     {
       kind?: 'role' | 'shadow'
+      /** 角色稳定身份 id（legacyRoleId 自动补全；改名保持不变，历史 chat roleId 据此反查当前名） */
+      id?: string
       brain: string
       avatar?: string
       description?: string

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { SupervisionLevel } from '@/core/config.js'
 import type { McpServerInfo } from '@/core/mcp/types.js'
-import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
+import type { RuntimeSelection, RuntimeProvenance } from '@/agent/runtimeResolver.js'
 import type { ConfigRaw } from '@/utils/config.js'
 import type { ContextBreakdown } from '@/utils/token.js'
 import type { ThinkingBlockDelta } from '@/core/message/adapter.js'
@@ -1590,7 +1590,7 @@ export interface CanonicalMessage {
   createdAt: number
   updatedAt: number
   status: 'committed' | 'revoked'
-  runtime?: RuntimeSelection
+  runtime?: RuntimeProvenance
   senseCalls?: CanonicalSenseCall[]
   origin?: { parentChatId?: string; childChatId?: string; spawnCallId?: string }
   /** 该消息是 wakeParent 注入的子返回（child_return 链接）。前端据此标 mergedView 从主轴过滤。 */
@@ -1638,7 +1638,7 @@ export interface TimelineNode {
   content: string
   thinking?: string
   /** 消息执行时的 runtime；assistant 继承同 chat 前一条 user 消息的快照。 */
-  runtime?: RuntimeSelection
+  runtime?: RuntimeProvenance
   toolCalls?: GraphToolCall[]
   batchId?: string
   orderKey: number
@@ -2112,8 +2112,8 @@ export interface StagedChunkData {
   replace?: { state: boolean; by: string; content: string }
   /** 被替换时的原内容（溯源/前端展示） */
   originalContent?: string
-  /** content_end 携带：user=发送时配置（messages.runtime），assistant=前一条 user runtime（后端关联）。供前端 hover 历史消息显该消息用的 brain/工具 */
-  runtime?: RuntimeSelection
+  /** content_end 携带：user=发送时配置（messages.runtime），assistant=前一条 user runtime（后端关联）。供前端 hover 历史消息显该消息用的 brain/工具；brainModel/brainProvider 为溯源快照 */
+  runtime?: RuntimeProvenance
   /** 消息创建时间戳（ms），用于合并多 chat 历史时按时间排序 */
   createdAt?: number
   /**

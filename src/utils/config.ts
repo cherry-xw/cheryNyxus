@@ -230,6 +230,11 @@ export interface RolePermissionPolicy {
  *   缺省 → 角色用全局 system_prompt。per-role system prompt（T7）。
  */
 export interface RoleConfig {
+  /**
+   * 稳定身份 id（与 PresetConfig.id 同构）：DB（chat metadata.roleId）按 id 关联角色，
+   * 改名必须保留本值。旧配置缺省时由 ensureRoleIds 按名字确定性生成（legacyRoleId）。
+   */
+  id?: string
   /** 角色类别；缺省为普通角色。Shadow 仅供内部临时 Agent 流程使用。 */
   kind?: 'role' | 'shadow'
   brain: string
@@ -314,6 +319,11 @@ export function legacyPresetId(name: string): string {
   return `preset-${createHash('sha256').update(name).digest('hex').slice(0, 16)}`
 }
 
+/** Deterministic compatibility id for configs created before role ids existed. */
+export function legacyRoleId(name: string): string {
+  return `role-${createHash('sha256').update(name).digest('hex').slice(0, 16)}`
+}
+
 /** 缺省 kind 兼容现有配置：未声明的一律是普通角色。 */
 export function isShadowRole(
   role: RoleConfig | undefined,
@@ -329,6 +339,14 @@ function ensurePresetIds(presets?: Record<string, PresetConfig>): void {
   if (!presets) return
   for (const [name, preset] of Object.entries(presets)) {
     if (!preset.id?.trim()) preset.id = legacyPresetId(name)
+  }
+}
+
+/** 补全缺失的角色稳定 id（缺省按名字确定性生成，见 legacyRoleId）。 */
+export function ensureRoleIds(roles?: Record<string, RoleConfig>): void {
+  if (!roles) return
+  for (const [name, role] of Object.entries(roles)) {
+    if (!role.id?.trim()) role.id = legacyRoleId(name)
   }
 }
 
@@ -666,6 +684,7 @@ function loadConfig(): Config {
   const config = replaceEnvVars(rawConfig) as Config
 
   ensurePresetIds(config.presets)
+  ensureRoleIds(config.roles)
 
   // 业务校验（raw 形态：supervision 仍为字符串）。启动期 fail loud（规则12）。
   // brain 引用 / supervision 合法值 / sense :level / brain 必填项均在此（原内联块抽出共用）。
@@ -927,6 +946,9 @@ export function validateRawConfig(raw: ConfigRaw): string[] {
   if (raw.roles) {
     const cheryDir = process.env.CHERY_DIR || process.cwd()
     for (const [name, cfg] of Object.entries(raw.roles)) {
+      if (cfg.id !== undefined && !/^role-[a-zA-Z0-9_-]{8,}$/.test(cfg.id)) {
+        errors.push(`roles.${name}.id 非法（必须以 role- 开头且至少包含 8 位标识）`)
+      }
       if (cfg.kind !== undefined && cfg.kind !== 'role' && cfg.kind !== 'shadow') {
         errors.push(`roles.${name}.kind "${String(cfg.kind)}" 非法（合法：role/shadow）`)
       }
@@ -1220,6 +1242,7 @@ export function readRawConfig(): ConfigRaw {
   const { server: _server, ...rest } = raw
   void _server
   ensurePresetIds(rest.presets)
+  ensureRoleIds(rest.roles)
   // routingBrain 已废弃；读取设置时主动剥离，下一次保存自然从磁盘删除。
   for (const preset of Object.values(rest.presets ?? {})) {
     delete (preset as PresetConfig & { routingBrain?: string }).routingBrain
@@ -1273,6 +1296,9 @@ export function saveRawConfig(
   errors.push(...validateLockedRoleEdits(disk.roles, partial.roles))
   errors.push(...validateFixedPresetEdits(disk.presets, partial.presets))
   if (errors.length > 0) return { ok: false, errors, warnings }
+  // 落盘前补全缺失 id（前端新建角色未带 id；改名场景 value 对象随行携带 id，此处不覆盖）。
+  ensurePresetIds(partial.presets)
+  ensureRoleIds(partial.roles)
   const merged = { ...partial, server: disk.server ?? { port: 8182, transport: 'binary' as const } }
 
   fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))

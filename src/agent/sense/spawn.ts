@@ -268,6 +268,8 @@ async function spawnHandler(
         // T9.10 重启容错：wake+type 持久化，rebuildWaitedChildren 扫 metadata.wake 按策略重建唤醒链
         wake,
         type,
+        // 角色稳定身份 id（getChatType ID 优先反查当前名；config.save 改名迁移同步更新）
+        ...(roleCfg.id ? { roleId: roleCfg.id } : {}),
         // spawn 复用条件：type + spawnPromptHash 精确匹配（见上方 existingChildren.find）
         spawnPromptHash: inputPromptHash,
       },

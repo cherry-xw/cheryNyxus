@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 
 export interface LockableRoleIdentity {
+  id?: string
   brain?: string
   avatar?: string
   description?: string
@@ -27,8 +28,9 @@ export function validateLockedRoleEdits<T extends LockableRoleIdentity>(
       continue
     }
     if (name === CHERY_NYXUS_NAME) {
-      const { brain: _currentBrain, permissions: _currentPermissions, ...currentFixedFields } = role
-      const { brain: _nextBrain, permissions: _nextPermissions, ...nextFixedFields } = next
+      // id 除外：稳定身份 id 由 ensureRoleIds 自动补全，盘上旧配置无 id / 前端带回 id 均合法。
+      const { brain: _b, permissions: _p, id: _id, ...currentFixedFields } = role
+      const { brain: _nb, permissions: _np, id: _nid, ...nextFixedFields } = next
       if (!isDeepStrictEqual(nextFixedFields, currentFixedFields))
         errors.push(`roles.${name} 是固定角色，除大脑外不能修改`)
       continue

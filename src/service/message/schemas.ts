@@ -20,6 +20,9 @@ const runtimeSelectionSchema = z.object({
   brain: z.string(),
   senseGroup: z.string().optional(),
   mcpServers: mcpServersSchema,
+  /** 消息级溯源快照（messages.runtime / content_end.runtime）：消息发送时 brain 的 model/provider */
+  brainModel: z.string().optional(),
+  brainProvider: z.string().optional(),
 })
 
 // ---------- config.save schema（结构与 ConfigRaw 一一对应，除 server 段）----------

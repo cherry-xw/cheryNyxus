@@ -12,8 +12,10 @@
 - **按创建月固定分片**：chat 创建时固化 `messages_month`，该 chat 全生命周期所有消息写入同一月份库，跨月不迁移。
 - **chat 生命周期 CRUD**：创建、查询、列出（含冗余 `message_count`）、更新时间戳、metadata JSON merge、删除（跨库）。
 - **message CRUD**：路由到对应月份库的插入、查询、审批结果回填、批量撤回、感官去重 replace 标记。
+- **消息级 runtime 溯源**：仅 user 消息落库时记 `messages.runtime`（发送时 selection + 当时 brain 的 model/provider 快照）；回答「历史这一轮当时用的是什么模型」，与 chat 级 metadata 快照互补。
 - **问题批次投影**：`question_batches` + `question_items` 持久化 ask_user_question 批次；支持旧消息回填、事件游标快照和整批原子回答。
 - **运行时配置持久化**：`metadata.runtime` 存储 brain + senseGroup + mcpServers，服务重启后自动恢复（单组化：读时兼容旧 `senseGroups[]` 取首项）；预设创建的会话还快照 `metadata.workspace`（项目工作目录）、`metadata.systemPromptFile`（角色 systemPrompt 合并到全局 base 之后）、`metadata.skillFilter`（per-role 技能组/插件组白名单，`{skills?, plugins?}`，仅裁剪 system prompt `<skills>` 块），使后续更改 `config.yaml` 不影响历史会话。
+- **稳定身份引用（ID 优先、名字回退）**：预设/角色在 config 中有稳定 `id`（`presets.<name>.id` / `roles.<name>.id`，加载/保存期 `ensurePresetIds`/`ensureRoleIds` 自动补全，旧配置缺省时按名字确定性生成 `legacyPresetId`/`legacyRoleId`）。chat metadata 双写 `presetId`/`roleId`（创建时快照），读取一律 ID 优先、名字回退（`getChatType`/`getChatPreset`），配置改名不改变关联。`config.save` 检测到同 id 改名时同步迁移存量 DB 引用（见「角色改名迁移」）。
 - **自动 schema 迁移**：旧库缺列时按列检查补 `ALTER TABLE ADD COLUMN`，无需手动迁移。
 
 三大隐喻映射：**Chat**（chatId）是顶层实体存于 soul.db；**消息**（含 Brain 响应与 Sense 调用结果）按月分片存于 `YYYY-MM.db`。审批与撤回不建独立表，靠 `content` 空与 `revoked=1` 判定。
@@ -80,7 +82,7 @@ CREATE TABLE messages (
   replace_content  TEXT,                    -- 替换说明（短）
   original_content TEXT,                    -- 被替换时的原内容（溯源）
   revoked          INTEGER DEFAULT 0,       -- 1 = 撤回（buildMessages 过滤）
-  runtime          TEXT,                    -- JSON {brain,senseGroup,mcpServers}，仅 user 消息记（发送时配置）；assistant 不记（回放关联前一条 user）
+  runtime          TEXT,                    -- JSON {brain,senseGroup,mcpServers,brainModel?,brainProvider?}，仅 user 消息记（发送时配置 + brain 内容快照）；assistant 不记（回放关联前一条 user）
   created_at       INTEGER NOT NULL
 );
 CREATE INDEX idx_messages_chat ON messages(chat_id);
@@ -91,6 +93,28 @@ CREATE INDEX idx_messages_chat ON messages(chat_id);
 ```
 
 > **compact 代际（Generations）无新表**：代际索引（`computeGenerations`，src/service/chat/generations.ts）为纯推导计算——以 messages 行 `context_compaction=1` 的 assistant 消息（observer 按 `addMessage` data.contextCompaction 落库，手动/自动 compact 统一携带）为边界，配合 `execution_nodes` 按 orderKey 区间统计 nodeCount。每次查询现算，不持久化、无迁移。注意 autoCompact 注入的 `[[command:/compact]]` token 经 `persistedContent` 剥离不落库，代际检测不得依赖 token 扫描。
+
+### chat metadata 字段语义表（冻结 / 活引用 / 派生）
+
+配置（预设、角色、大脑、感官组）可随时修改，历史会话的「编制冻结」边界由下表界定：
+
+| 语义 | 字段 | 规则 |
+|------|------|------|
+| **冻结**（创建期快照，永不漂移） | `systemPromptFile` / `skillFilter` / `spawnTypes` / `workspace` / `rule` | `chat.create`（预设路径）或 `spawn_role`（子 chat 继承父）时写入；后续改 config 不影响本会话 |
+| **活引用**（ID 稳定，内容实时） | `presetId` / `roleId` / `runtime.brain` / `runtime.senseGroup` / `runtime.mcpServers` | 指向靠稳定 ID（或名字，改名经迁移保持一致）不漂移；指向的**内容**（模型、感官组条目、角色 permissions）每次 resolve 实时读当前 config（换模型 / 感官热修 / 权限收紧下一轮生效） |
+| **派生身份** | `type`（子 chat）/ `roleId`（主 chat） | 子 chat `type` = 角色名（迁移保持同步）；主 chat 创建时快照 `roleId`，`getChatType` 按 roleId 解析当前名，消除「改 preset.leader 导致历史主 chat 身份漂移」 |
+| **纯展示**（display-only） | `preset` / `runtime`（读取侧） | 仅溯源回显，不参与新执行关联（见 [service/chat.md](./service/chat.md) `resolveEffectiveSelection` 三态） |
+
+**ID 优先读取**：`getChatType` 顺序为 `metadata.roleId` ->（按 id 在当前 `config.roles` 找角色，返回**当前名**）-> `metadata.type`（旧数据/角色已删，原样返回名字）-> `presetId`/`preset` 回退当前 leader。`getChatPreset` 顺序为 `metadata.presetId` -> 当前 config 预设名 -> `metadata.preset` 旧名。改名后关联与显示均指向新名。
+
+### 角色改名迁移（config.save 触点）
+
+`config.save` 成功后，service 层比对保存前后 `roles`（同 `id` 不同名 = 改名），对每个改名执行 `migrateRoleRename(old, new)`（src/service/config/roleRename.ts）：
+
+- `UPDATE spawn_tasks SET type = new WHERE type = old`（session.runtime.set 回灌按 type 匹配子 chat 的关联键）。
+- 遍历 `metadata.type = old` 的 chats（`json_extract` 定位）：重写 `type`，并同步替换 `metadata.spawnTypes` 数组中的旧名条目（spawn roster gate 快照）。
+
+预设改名**无需迁移**：`presetId` 稳定 + 读取侧 ID 优先已覆盖显示与关联。
 
 ### CRUD 函数（chat.ts）
 
@@ -121,7 +145,7 @@ export interface MessageRow {
   replace_state: number | null; replace_by: string | null;
   replace_content: string | null; original_content: string | null;
   revoked: number; created_at: number;
-  runtime: string | null;                // JSON {brain,senseGroup,mcpServers}，仅 user 消息记
+  runtime: string | null;                // JSON {brain,senseGroup,mcpServers,brainModel?,brainProvider?}，仅 user 消息记
 }
 
 export interface MessageData {
@@ -132,7 +156,7 @@ export interface MessageData {
   replace?: { state: boolean; by: string; content: string };
   originalContent?: string;
   revoked?: boolean;
-  runtime?: { brain: string; senseGroup: string; mcpServers: string[] }; // 仅 user 消息传（发送时配置）
+  runtime?: { brain: string; senseGroup: string; mcpServers: string[]; brainModel?: string; brainProvider?: string }; // 仅 user 消息传（发送时配置；brainModel/brainProvider 为当时 brain 内容快照，供历史溯源）
 }
 ```
 

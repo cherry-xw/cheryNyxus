@@ -1,5 +1,5 @@
 import { AgentBuilder } from '@/agent/builder.js'
-import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
+import type { RuntimeSelection, RuntimeProvenance } from '@/agent/runtimeResolver.js'
 import { resolveSelectionIssues, type RuntimeIssue } from '@/agent/runtimeResolver.js'
 import {
   getMessages,
@@ -56,6 +56,21 @@ const ephemeralChatRuntimes = new Map<string, RuntimeSelection>()
  */
 export function getChatSelection(chatId: string): RuntimeSelection | undefined {
   return chatRuntimes.get(chatId)?.selection
+}
+
+/**
+ * 消息级 runtime 溯源：selection + 当前 brain 的 model/provider 快照。
+ * observer 入库 user 消息时记 messages.runtime（brain 配置后续修改不影响历史消息展示）。
+ */
+export function getChatRuntimeProvenance(chatId: string): RuntimeProvenance | undefined {
+  const selection = chatRuntimes.get(chatId)?.selection
+  if (!selection) return undefined
+  const brain = config.llm.brain[selection.brain]
+  return {
+    ...selection,
+    ...(brain?.model ? { brainModel: brain.model } : {}),
+    ...(brain?.provider ? { brainProvider: brain.provider } : {}),
+  }
 }
 
 /** Read-only queued user input snapshot for chat.open session hydration. */

@@ -15,6 +15,7 @@ import {
 import { readRawConfig, saveRawConfig, validateWorkspacePath } from '@/utils/config.js'
 import { logger } from '@/utils/logger/index.js'
 import { requestRestartWhenIdle } from '@/service/restartCoordinator.js'
+import { detectRoleRenames, migrateRoleRename } from './roleRename.js'
 
 /**
  * Config 设置 RPC handler。
@@ -43,12 +44,14 @@ async function handleConfigWorkspaceValidate(
   return validateWorkspacePath(data.workspace)
 }
 
-/** config.save：校验 + 写回；成功后安排空闲重启。 */
+/** config.save：校验 + 写回；成功后迁移角色改名引用 + 安排空闲重启。 */
 export async function handleConfigSave(
   ctx: HandlerContext,
   data: ConfigSaveRequestData,
 ): Promise<ConfigSaveResponseData | Response> {
   const rid = ctx.requestId ?? ''
+  // 保存前快照（含 ensureRoleIds 补全的 id），用于保存后检测同 id 改名
+  const before = readRawConfig()
   const result = saveRawConfig(data)
   if (!result.ok) {
     // errors（硬错误）+ warnings（软错误，如 workspace 路径无效）合并展示给 UI；
@@ -60,6 +63,19 @@ export async function handleConfigSave(
       undefined,
       createError(ErrorCode.INVALID_PARAMS, combined.join('\n')),
     )
+  }
+  // 角色改名迁移：存量 DB（metadata.type/spawnTypes + spawn_tasks.type）旧名 -> 新名，
+  // 使改名对历史 chat 关联不可见（见 docs/db.md「角色改名迁移」）。失败不阻断保存（迁移幂等可重试）。
+  for (const { from, to } of detectRoleRenames(before.roles, data.roles)) {
+    try {
+      migrateRoleRename(from, to)
+    } catch (err) {
+      logger.event('role.rename.failed', {
+        from,
+        to,
+        error: (err as Error).message,
+      })
+    }
   }
   // logger 在统一边界递归脱敏 key/token/secret/env 等字段。
   logger.event('config.save', { config: data })

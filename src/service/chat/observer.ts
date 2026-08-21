@@ -6,7 +6,7 @@ import {
   updateChatMetadata,
   getTimelineRevision,
 } from '@/db/chat.js'
-import { getActiveChatRunId, getChatSelection } from './runtime.js'
+import { getActiveChatRunId, getChatRuntimeProvenance } from './runtime.js'
 import { approvalManager } from '../approval/manager.js'
 
 import { onChildDone } from './wakeScheduler.js'
@@ -61,8 +61,8 @@ export async function* observeAgentChunks(
             hash: chunk.message.hash,
             contextCompaction: chunk.message.contextCompaction,
             contextCompactionTokens: chunk.message.contextCompactionTokens,
-            // 仅 user 消息记 runtime（发送时配置）；assistant/sense 不记 NULL
-            runtime: chunk.message.role === 'user' ? getChatSelection(chatId) : undefined,
+            // 仅 user 消息记 runtime（发送时配置 + brain model/provider 溯源快照）；assistant/sense 不记 NULL
+            runtime: chunk.message.role === 'user' ? getChatRuntimeProvenance(chatId) : undefined,
             ...(chunk.message.linkRelation
               ? { link: { relation: chunk.message.linkRelation } }
               : {}),
@@ -281,8 +281,8 @@ export async function* observeAgentChunks(
         hash: m.hash,
         contextCompaction: m.contextCompaction,
         contextCompactionTokens: m.contextCompactionTokens,
-        // 仅 user 消息记 runtime（发送时配置）
-        runtime: m.role === 'user' ? getChatSelection(chatId) : undefined,
+        // 仅 user 消息记 runtime（发送时配置 + brain model/provider 溯源快照）
+        runtime: m.role === 'user' ? getChatRuntimeProvenance(chatId) : undefined,
       })
       syncedIds.add(m.id)
       emitTimelinePatch(chatId, baseRevision)

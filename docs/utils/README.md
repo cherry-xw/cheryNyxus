@@ -106,7 +106,16 @@ export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，
 
 `config.workspace.validate` 接收 `{ workspace }`，只在后端主机上检查非空路径是否为绝对、可访问的目录，返回 `{ valid, error? }`；它不读取或写入配置，也不触发重启。设置页在预设工作区输入变化后调用它，因此浏览器客户端同样能得到后端文件系统的即时结果。保存时 `saveRawConfig` 仍执行同一类校验，避免绕过 UI 写入无效配置。
 
+#### 稳定身份 id（presets / roles）
+
+预设与角色是配置里唯二被 DB（chat metadata）长期引用的实体，各自带稳定 `id` 字段（`presets.<name>.id` / `roles.<name>.id`），语义与 `PresetConfig.id` 一致：**改显示名必须保留 id**。
+
+- `legacyPresetId(name)` / `legacyRoleId(name)`：旧配置缺 id 时按名字 sha256 前 16 位确定性生成（`preset-` / `role-` 前缀）。确定性意味着「删除后同名重建」得到同一 id，旧 chat 引用自动接回。
+- `ensurePresetIds` / `ensureRoleIds`：`loadConfig`、`readRawConfig`（config.get）与 `saveRawConfig`（落盘前）三处补全，前端拿到的 DTO 恒有 id；设置页改名时移动整个 value 对象（id 随行），保存原样落盘。
+- `config.save` 后 service 层比对前后 `roles`（同 id 不同名）触发存量 DB 引用迁移（`migrateRoleRename`，见 [../db.md](../db.md)「角色改名迁移」）。
+
 校验规则（`validateRawConfig`，返回错误字符串数组，空=通过）：
+- `roles.*.id` / `presets.*.id`（如配置）必须匹配 `role-` / `preset-` 前缀 + 至少 8 位标识
 - `roles.*.brain` 必须存在于 `llm.brain`；`roles.*.systemPrompt`（如配置）必须存在
 - `presets.*.leader` 必须引用 `roles` 中的角色，并包含于该预设的 `roles`；`presets.*.roles[*]` 必须引用已定义角色
 - `presets.*.workspace`（如配置）必须是已存在的目录绝对路径（`fs.accessSync` 校验，fail loud；该字段仅作 system prompt 提示词注入，不约束 sense 行为）

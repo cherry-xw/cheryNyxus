@@ -104,9 +104,11 @@ export function abortChatRuntime(chatId: string): void;        // builder.abort 
 
 `metadata.runtime` 是历史执行快照，只用于回显当时使用的 brain/senseGroup/mcpServers。启动、目录加载、`chat.get/sync/open` 和节点树打开都不会解析或校验它。
 
-新一轮执行只从当前设置解析：显式 `session.runtime.set` 优先；主 chat 按稳定 `presetId` 查当前 preset（旧数据再回退 preset 名）并取当前 leader；子 chat 按历史 `metadata.type` 查当前 role。关联结果只注入内存，不覆盖历史快照。
+新一轮执行只从当前设置解析：显式 `session.runtime.set` 优先；主 chat 按稳定 `presetId` 查当前 preset（旧数据再回退 preset 名）并取当前 leader；子 chat 按稳定 `roleId`（`config.save` 改名迁移保持同步；旧数据回退 `metadata.type` 名）查当前 role。关联结果只注入内存，不覆盖历史快照。主 chat 的自身身份在创建时快照 `metadata.roleId`（leader 角色），`getChatType` 按 roleId 解析当前名--预设后续改 leader 不影响历史主 chat 身份。
 
 找不到当前 preset/type 关联时，历史仍可正常查看；执行入口返回 `RUNTIME_SELECTION_REQUIRED`，要求用户显式选择当前运行配置。`chat.create` / `runtime.set` 对用户主动选择仍做严格校验。
+
+`config.save` 检测到角色改名（同 `roles.<name>.id` 不同名）时，经 `migrateRoleRename` 同步迁移存量 DB 引用（`metadata.type` / `metadata.spawnTypes` / `spawn_tasks.type`），使改名对历史子 chat 关联不可见（详见 [../db.md](../db.md)「角色改名迁移」）。
 
 `chat.list` 必须显式指定范围：`stage` 仅在数据库中查询当前配置关联的各 preset 最新根及后代；`preset` 在用户打开某预设时加载该预设目录；`history` 只在用户打开完整历史时加载全部目录。
 
@@ -208,7 +210,9 @@ for await chunk of generator:
   feedWatchdog(chatId)                                  // 每条 chunk 喂狗重置看门狗（非注册唤醒子自动忽略）
   message_created:
     if !syncedIds.has(message.id):
-      addMessage(message.id, chatId, {role, content, thinking, senseCall, hash})
+      addMessage(message.id, chatId, {role, content, thinking, senseCall, hash,
+        runtime: role==user ? getChatRuntimeProvenance(chatId) : undefined})
+        // 仅 user 消息记 runtime 溯源：selection + 当时 brain 的 model/provider 快照（见 db.md「消息级 runtime 溯源」）
       syncedIds.add(message.id)
     continue                                            // effect 不透传
   message_updated:

@@ -60,8 +60,8 @@ export interface MessageData {
   }
   originalContent?: string
   revoked?: boolean
-  /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传 */
-  runtime?: { brain: string; senseGroup: string; mcpServers: string[] }
+  /** 仅 user 消息传（发送时配置，记入 messages.runtime）；assistant/sense 不传。brainModel/brainProvider 为溯源快照（展示用）。 */
+  runtime?: { brain: string; senseGroup: string; mcpServers: string[]; brainModel?: string; brainProvider?: string }
   contextCompaction?: boolean
   contextCompactionTokens?: number
   /** Cross-chat provenance used by the root timeline projector. */
@@ -435,8 +435,9 @@ export function getChatSkillFilter(
 }
 
 /**
- * 读取 chat 关联的预设名（metadata.preset）。chat.create 选预设时写入。
+ * 读取 chat 关联的预设名（ID 优先：metadata.presetId -> 当前 config 预设名；旧数据回退 metadata.preset 名）。
  * 仅溯源展示 + spawn 解析角色 roster 用；主 agent 运行编制靠 metadata.runtime 快照（不回读预设）。
+ * 预设改名后此处返回新名（显示不 stale、roster 回退分支指向新键）。
  * 缺省（非预设主 agent / 子 agent / 旧 chat）→ undefined。
  */
 export function getChatPreset(chatId: string): string | undefined {
@@ -445,14 +446,22 @@ export function getChatPreset(chatId: string): string | undefined {
     { metadata: string | null } | undefined
   if (!row?.metadata) return undefined
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  // ID 优先：presetId -> 当前 config 预设名（改名后显示/关联均指向新名）；旧数据回退 metadata.preset 名
+  const presetId = parsed.presetId
+  if (typeof presetId === 'string' && presetId.length > 0) {
+    const current = Object.entries(config.presets ?? {}).find(
+      ([, preset]) => preset.id === presetId,
+    )
+    if (current?.[0]) return current[0]
+  }
   const p = parsed.preset
   return typeof p === 'string' && p.length > 0 ? p : undefined
 }
 
 /**
  * 读取 chat 自身的角色 type（self-spawn 禁止用：角色不能派发任务给自己）。
- * - 子 chat：metadata.type（spawn_role 创建时写入，如 housekeeper）。
- * - 主 chat：无 type 字段 → 回退 preset.leader（config.presets[preset].leader，主 chat 自身角色）。
+ * ID 优先（rename-safe）：metadata.roleId -> 当前 config.roles 内该 id 角色的当前名；找不到（角色已删/旧数据）回退名字链。
+ * - 主 chat：无 type 字段 -> 回退 preset.leader（config.presets[preset].leader，主 chat 自身角色）。创建时快照 metadata.roleId 后优先走 ID。
  * 缺省（无 preset 的非子 chat / 未知）→ undefined → 不做 self 排除。
  */
 export function getChatType(chatId: string): string | undefined {
@@ -461,6 +470,14 @@ export function getChatType(chatId: string): string | undefined {
     { metadata: string | null } | undefined
   if (!row?.metadata) return undefined
   const parsed = safeJsonParse(row.metadata, {}) as Record<string, unknown>
+  // ID 优先（rename-safe）：roleId -> 按 id 在当前 config.roles 找角色，返回当前名。
+  // 主 chat 创建时快照 leader 的 roleId（不回读 live preset.leader，改 leader 不影响历史主 chat 身份）；
+  // 子 chat 由 spawn_role 写入 roleId + type（config.save 改名迁移保持同步）。
+  const roleId = parsed.roleId
+  if (typeof roleId === 'string' && roleId.length > 0) {
+    const current = Object.entries(config.roles ?? {}).find(([, role]) => role.id === roleId)
+    if (current?.[0]) return current[0]
+  }
   const t = parsed.type
   if (typeof t === 'string' && t.length > 0) return t
   const presetName = parsed.preset
@@ -1109,6 +1126,8 @@ export function parseMessageRow(row: MessageRow): MessageData {
               brain: string
               senseGroup: string
               mcpServers: string[]
+              brainModel?: string
+              brainProvider?: string
             }
           | undefined
         >(row.runtime, undefined)
