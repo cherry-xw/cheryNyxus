@@ -58,7 +58,7 @@ describe('execution node hover details', () => {
   })
 
   it('uses user-facing Chinese names instead of internal English node kinds', () => {
-    expect(NODE_SKINS['root-agent'].label).toBe('核心节点')
+    expect(NODE_SKINS['root-agent'].label).toBe('Cherry Nyxus')
     expect(NODE_SKINS['child-agent'].label).toBe('协作节点')
     expect(NODE_SKINS.fold.label).toBe('过程组')
     expect(NODE_SKINS['tool-batch'].label).toBe('工具执行')
@@ -78,7 +78,17 @@ describe('execution node hover details', () => {
     expect(source).not.toContain('正在处理这一步所需的工具操作')
     expect(source).not.toContain('batchMessageNode')
     expect(source).toContain('props.node.thinking?.trim()')
-    expect(source.indexOf('class="batch-lead"')).toBeLessThan(source.indexOf('class="tool-tabs"'))
+    // Bug 2 布局（询问场景）：标题 → batch-lead(思考/正文) → question-tabs(指示器) → 选项区
+    // 非询问场景的 header tool-tabs 位于 batch-lead 之前（点击切换工具详情），二者互斥。
+    expect(source.indexOf('class="question-title-row"')).toBeLessThan(
+      source.indexOf('v-if="batch" class="batch-lead"'),
+    )
+    expect(source.indexOf('v-if="batch" class="batch-lead"')).toBeLessThan(
+      source.indexOf('class="tool-tabs question-tabs"'),
+    )
+    expect(source.indexOf('class="tool-tabs question-tabs"')).toBeLessThan(
+      source.indexOf(':show-heading="false"'),
+    )
     expect(source).toContain('v-if="batch" class="batch-lead"')
     expect(source).toContain('v-if="batch && toolBatchUsesTabs(batch.calls)"')
   })

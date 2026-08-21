@@ -127,6 +127,10 @@ watch(
 const selectedCall = computed(() =>
   selectedToolCall(batch.value?.calls ?? [], props.selectedCallId),
 )
+/** 询问场景当前活动问题对应的调用（calls 与 questions 按序一一对应）。驱动 tab 高亮联动。 */
+const activeQuestionCall = computed(() =>
+  props.question ? batch.value?.calls[props.question.currentIndex] : undefined,
+)
 const toolMeta = computed(() => {
   const name = selectedCall.value?.name
   return name ? agents.senseTools.find((tool) => tool.name === name) : undefined
@@ -449,7 +453,7 @@ async function copyField(key: string, value: string): Promise<void> {
       </header>
 
       <div
-        v-if="batch && toolBatchUsesTabs(batch.calls)"
+        v-if="batch && toolBatchUsesTabs(batch.calls) && !question"
         class="tool-tabs"
         role="tablist"
         aria-label="工具类型"
@@ -470,7 +474,80 @@ async function copyField(key: string, value: string): Promise<void> {
     </div>
 
     <div class="popover-body">
-      <div v-if="batch" class="batch-lead">
+      <!-- 询问节点（question 场景）：标题 → 思考 → 正文 → tabs(指示器) → 选项区+操作。
+           tabs 高亮由当前活动问题（activeQuestionCall）联动，"下一步"推进后高亮跟走；
+           点击 tab 不切换问题内容（问题只由"下一步"实质切换）。 -->
+      <template v-if="question">
+        <div class="question-title-row">
+          <span class="question-symbol" aria-hidden="true">?</span>
+          <span class="heading-copy">
+            <span class="heading-kicker">{{ question.question.header || '需要你的选择' }}</span>
+            <span class="question-text">{{ question.question.question }}</span>
+          </span>
+          <span v-if="batchInfo && batchInfo.total > 1" class="question-progress">
+            {{ batchInfo.currentIndex + 1 }} / {{ batchInfo.total }}
+          </span>
+        </div>
+        <div v-if="batch" class="batch-lead">
+          <section v-if="nodeThinking" class="thinking-block">
+            <button
+              type="button"
+              class="thinking-toggle"
+              :aria-expanded="thinkingOpen"
+              @click="thinkingOpen = !thinkingOpen"
+            >
+              <span class="thinking-glyph" aria-hidden="true">✦</span>
+              <span>思考</span>
+              <span class="thinking-toggle-hint" aria-hidden="true">
+                {{ thinkingOpen ? '−' : '+' }}
+              </span>
+            </button>
+            <div v-if="thinkingOpen" class="thinking-body">
+              <div class="markdown-body thinking-copy" v-html="renderMarkdown(nodeThinking)" />
+            </div>
+          </section>
+          <section v-if="nodeDescription" class="actual-description detail-field">
+            <small class="detail-label">说明</small>
+            <div class="detail-value">
+              <div class="markdown-body" v-html="renderMarkdown(nodeDescription)" />
+            </div>
+          </section>
+          <div
+            v-if="nodeContent"
+            class="markdown-body primary-content batch-lead-content"
+            v-html="renderedNodeContent"
+          />
+        </div>
+        <div
+          v-if="batch && toolBatchUsesTabs(batch.calls)"
+          class="tool-tabs question-tabs"
+          role="tablist"
+          aria-label="问题批次"
+        >
+          <button
+            v-for="call in batch.calls"
+            :key="call.callId"
+            type="button"
+            role="tab"
+            :aria-selected="call.callId === activeQuestionCall?.callId"
+            :class="{ active: call.callId === activeQuestionCall?.callId }"
+            @click="!question && emit('selectCall', call.callId)"
+          >
+            <span class="tool-tab-icon" aria-hidden="true">{{ toolGlyph(call.name) }}</span>
+            <span class="tool-tab-label">{{ toolLabel(call.name) }}</span>
+          </button>
+        </div>
+        <section v-if="chatId" class="node-action">
+          <QuestionCard
+            :question="question.question"
+            :chat-id="chatId"
+            :batch-info="batchInfo"
+            :show-heading="false"
+          />
+        </section>
+      </template>
+
+      <div v-if="batch && !question" class="batch-lead">
         <section v-if="nodeThinking" class="thinking-block">
           <button
             type="button"
@@ -500,14 +577,8 @@ async function copyField(key: string, value: string): Promise<void> {
           v-html="renderedNodeContent"
         />
       </div>
-      <section v-if="approval || question" class="node-action">
+      <section v-if="approval && !question" class="node-action">
         <ApprovalCard v-if="approval && chatId" :approval="approval" :chat-id="chatId" />
-        <QuestionCard
-          v-else-if="question && chatId"
-          :question="question.question"
-          :chat-id="chatId"
-          :batch-info="batchInfo"
-        />
       </section>
 
       <template v-if="batch && !approval && !question">
@@ -1509,6 +1580,48 @@ async function copyField(key: string, value: string): Promise<void> {
     monospace;
   white-space: pre-wrap;
   word-break: break-word;
+}
+.question-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0 4px;
+}
+.question-symbol {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 3px;
+  color: var(--nx-text);
+  background: color-mix(in srgb, var(--nx-purple) 26%, transparent);
+  border: 1px solid color-mix(in srgb, var(--nx-purple) 42%, transparent);
+  font-size: 13px;
+  font-weight: 900;
+}
+.heading-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+.heading-kicker {
+  color: var(--nx-purple);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.question-progress {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--nx-purple) 36%, transparent);
+  border-radius: 3px;
+  color: var(--nx-purple);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
 }
 .question-heading {
   display: flex;

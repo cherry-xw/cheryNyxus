@@ -1258,9 +1258,91 @@ export function readRawConfig(): ConfigRaw {
 }
 
 /**
- * 配置备份：保留最近 BACKUP_KEEP 份。备份目录 .chery/backups/，文件名 config-<YYYYMMDD-HHmmss>.yaml。
- * 写盘前快照（保存修改前状态），供出错回滚。返回备份文件绝对路径。
+ * 配置敏感字段脱敏（供 config_manage get 返回 / 前端 config.get 前过滤）。
+ * 规则（对照 docs/agent/config-manage.md「敏感字段脱敏」）：
+ *  - `$ENV` 占位符（/^\$[A-Z_][A-Z0-9_]*$/）原样保留——运行时由 replaceEnvVars 注入，占位符本身非敏感。
+ *  - `llm.brain.*.key` / `media.*.key`：非 $ENV 明文 → `[REDACTED]`。
+ *  - `mcp_servers.*.env`：每个值非 $ENV → `[REDACTED]`。
+ *  - `mcp_servers.*.url`：内联凭证（scheme://user:pass@host）→ 凭证段 `[REDACTED]`（url 其余保留）。
+ * 深拷贝返回，不改入参。
  */
+const ENV_PLACEHOLDER_RE = /^\$[A-Z_][A-Z0-9_]*$/
+
+function redactSecretValue(value: string): string {
+  return ENV_PLACEHOLDER_RE.test(value) ? value : '[REDACTED]'
+}
+
+function redactUrlSecret(url: string): string {
+  // scheme://user:pass@host 或 scheme://token@host → 凭证段替换；无凭证则原样
+  const m = /^(https?:\/\/)[^/@]+@/.exec(url)
+  return m ? `${m[1]}[REDACTED]@${url.slice(m[0].length)}` : url
+}
+
+export function redactConfigSecrets(raw: ConfigRaw): ConfigRaw {
+  const copy = structuredClone(raw)
+  if (copy.llm?.brain) {
+    for (const cfg of Object.values(copy.llm.brain)) {
+      if (cfg.key !== undefined) cfg.key = redactSecretValue(cfg.key)
+    }
+  }
+  if (copy.media) {
+    for (const svc of Object.values(copy.media)) {
+      if (svc.key !== undefined) svc.key = redactSecretValue(svc.key)
+    }
+  }
+  if (copy.mcp_servers) {
+    for (const srv of Object.values(copy.mcp_servers)) {
+      if (srv.env) {
+        for (const k of Object.keys(srv.env)) {
+          const v = srv.env[k]
+          if (v !== undefined) srv.env[k] = redactSecretValue(v)
+        }
+      }
+      if (typeof srv.url === 'string') srv.url = redactUrlSecret(srv.url)
+    }
+  }
+  return copy
+}
+
+/**
+ * 配置敏感字段还原（供 config_manage save / 前端 config.save 落盘前）。
+ * 把 partial 中值为 `[REDACTED]` 的敏感字段替换为盘上（disk）原值——模型 get → 改无关字段 → save
+ * 传回 [REDACTED] 不会覆盖真实 key；若模型显式给出新明文（非 [REDACTED]）则以新值为准（允许换 key）。
+ * 深拷贝返回，不改入参。
+ */
+function restoreUrlSecret(partialUrl: string, diskUrl: string): string {
+  return partialUrl.includes('[REDACTED]@') ? diskUrl : partialUrl
+}
+
+export function restoreRedactedSecrets(partial: ConfigRaw, disk: ConfigRaw): ConfigRaw {
+  const copy = structuredClone(partial)
+  if (copy.llm?.brain && disk.llm?.brain) {
+    for (const [name, cfg] of Object.entries(copy.llm.brain)) {
+      const diskCfg = disk.llm.brain[name]
+      if (cfg.key === '[REDACTED]' && diskCfg?.key !== undefined) cfg.key = diskCfg.key
+    }
+  }
+  if (copy.media && disk.media) {
+    for (const [name, svc] of Object.entries(copy.media)) {
+      const diskSvc = disk.media[name]
+      if (svc.key === '[REDACTED]' && diskSvc?.key !== undefined) svc.key = diskSvc.key
+    }
+  }
+  if (copy.mcp_servers && disk.mcp_servers) {
+    for (const [name, srv] of Object.entries(copy.mcp_servers)) {
+      const diskSrv = disk.mcp_servers[name]
+      if (srv.env && diskSrv?.env) {
+        for (const k of Object.keys(srv.env)) {
+          if (srv.env[k] === '[REDACTED]' && diskSrv.env[k] !== undefined) srv.env[k] = diskSrv.env[k]
+        }
+      }
+      if (typeof srv.url === 'string' && typeof diskSrv?.url === 'string') {
+        srv.url = restoreUrlSecret(srv.url, diskSrv.url)
+      }
+    }
+  }
+  return copy
+}
 export const BACKUP_KEEP = 10
 
 export function backupConfig(configPath: string): string {
@@ -1369,6 +1451,50 @@ export function saveRawConfig(
   backupConfig(configPath)
   fs.writeFileSync(configPath, yaml.dump(merged, { lineWidth: -1 }))
   return { ok: true }
+}
+
+/**
+ * 配置可加载性预检（供重启前 dry-run：避免坏配置 crash-loop 永不恢复）。
+ * 模拟 loadConfig 的校验步骤，只检查不落地、不改 process.env、不 throw：
+ *  1. `$ENV` 占位符指向缺失变量 → 硬错误（loadConfig 仅警告；预检从严——key 指向缺失 env
+ *     会致 replaceEnvVars 原样返回占位符，运行时凭证失效）。
+ *  2. validateRawConfig 全量业务校验（loadConfig 阶段 throw 的唯一来源，含 roles.*.systemPrompt
+ *     文件存在性）→ 硬错误。
+ * 返回分离 errors（硬错误，阻塞重启）+ warnings（透传 validateRawConfig 的软警告）。
+ */
+export function validateLoadable(
+  raw: ConfigRaw,
+): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
+  const copy = structuredClone(raw)
+  // 1) $ENV 占位符缺失变量 → 硬错误（占位符匹配规则与 replaceEnvVars 一致）
+  const errors: string[] = []
+  const missing = new Set<string>()
+  collectEnvPlaceholders(copy, missing)
+  for (const name of missing) {
+    if (!process.env[name]) errors.push(`环境变量未配置: ${name}`)
+  }
+  // 2) 核心业务校验（loadConfig 阶段 throw 的唯一来源；systemPrompt 存在性在其内为硬错误）
+  const validationErrors = validateRawConfig(copy)
+  // 软警告与硬错误分离：validateRawConfig 仅返回 errors，此处无独立 warnings（保留字段供扩展）
+  return validationErrors.length > 0 || errors.length > 0
+    ? { ok: false, errors: [...errors, ...validationErrors], warnings: [] }
+    : { ok: true }
+}
+
+/** 递归收集对象中所有 `$ENV` 占位符指向的变量名（匹配 replaceEnvVars 的 /^\$([A-Z_][A-Z0-9_]*)$/）。 */
+function collectEnvPlaceholders(value: unknown, out: Set<string>): void {
+  if (typeof value === 'string') {
+    const m = value.match(/^\$([A-Z_][A-Z0-9_]*)$/)
+    if (m?.[1]) out.add(m[1])
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectEnvPlaceholders(item, out)
+    return
+  }
+  if (value && typeof value === 'object') {
+    for (const v of Object.values(value)) collectEnvPlaceholders(v, out)
+  }
 }
 
 /**

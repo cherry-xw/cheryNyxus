@@ -12,8 +12,8 @@ import {
   type ConfigSaveRequestData,
   type ConfigSaveResponseData,
 } from '../message/types.js'
-import { readRawConfig, saveRawConfig, validateWorkspacePath } from '@/utils/config.js'
-import { logger } from '@/utils/logger/index.js'
+import { readRawConfig, saveRawConfig, validateWorkspacePath, validateLoadable, rollbackConfig } from '@/utils/config.js'
+import { logger, LogLevel } from '@/utils/logger/index.js'
 import { requestRestartWhenIdle } from '@/service/restartCoordinator.js'
 import { detectRoleRenames, migrateRoleRename } from './roleRename.js'
 
@@ -79,6 +79,24 @@ export async function handleConfigSave(
   }
   // logger 在统一边界递归脱敏 key/token/secret/env 等字段。
   logger.event('config.save', { config: data })
+  // 重启前 dry-run 预检：模拟 loadConfig 校验（坏配置会致重启后 crash-loop 永不恢复）。
+  // 失败 → 自动回滚最近备份 + 返回失败信息（未重启，进程保持运行）。
+  const loadable = validateLoadable(data)
+  if (!loadable.ok) {
+    const backup = rollbackConfig()
+    logger.event(
+      'config.restart.validation_failed',
+      { errors: loadable.errors, warnings: loadable.warnings, rollback: backup.backup },
+      LogLevel.warn,
+    )
+    return {
+      needRestart: false,
+      restart: 'manual',
+      validationErrors: loadable.errors,
+      validationWarnings: loadable.warnings,
+      rollbackBackup: backup.backup,
+    }
+  }
   return { needRestart: true, restart: requestRestartWhenIdle() }
 }
 

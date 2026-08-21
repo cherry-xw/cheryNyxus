@@ -25,7 +25,7 @@ z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('save'),
-    config: z.record(z.unknown()).describe('完整配置对象（roles/sense_groups/global/llm 等）'),
+    config: z.record(z.unknown()).describe('完整配置对象（roles/sense_groups/global/llm/presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 返回的完整脱敏配置改造，未改字段保留原值；敏感 key 字段可原样传回 [REDACTED] 哨兵（自动保留盘上原值）'),
   }),
   z.object({
     action: z.literal('rollback'),
@@ -39,17 +39,34 @@ z.discriminatedUnion('action', [
 
 | action | 行为 | 返回 |
 |--------|------|------|
-| `get` | `readRawConfig()` 读盘（剥离 server 段），返回精简摘要 | roles 列表 + 锁定状态 + 各字段是否存在 |
-| `save` | 复用 `saveRawConfig()`（校验 + 锁角色/固定预设编辑校验 + 写回） | `ok` / `errors`+`warnings`（失败不落盘） |
+| `get` | `readRawConfig()` 读盘（剥离 server 段），经 `redactConfigSecrets` 脱敏后返回**完整配置** | 完整 `config.yaml`（key 为 `$ENV` 占位符原样 / `[REDACTED]` 哨兵）+ `backups` 回滚点；可直接 round-trip 传回 save |
+| `save` | 先 `readRawConfig()` 读盘 → `restoreRedactedSecrets` 还原 `[REDACTED]` 为盘上原值 → 复用 `saveRawConfig()`（校验 + 锁角色/固定预设编辑校验 + 写回） | `ok` / `errors`+`warnings`（失败不落盘） |
 | `rollback` | 从 `.chery/backups/` 恢复指定/最近备份到 `config.yaml` | 恢复的文件名 + 时间 |
+
+### 敏感字段脱敏（round-trip 契约）
+
+配置中 `llm.brain.*.key`、`media.*.key`、`mcp_servers.*.env`（子进程环境变量值）等字段含密钥/令牌，不随 `get` 原文暴露给模型：
+
+- **`$ENV` 占位符**（值形如 `$OPENAI_KEY`，匹配 `/^\$[A-Z_][A-Z0-9_]*$/`）**原样保留**——运行时由 `replaceEnvVars` 从进程环境注入，占位符本身非敏感。
+- **明文密钥** → 替换为 `[REDACTED]` 哨兵。
+- **save 还原**：`restoreRedactedSecrets(partial, disk)` 将 partial 中值为 `[REDACTED]` 的敏感字段用盘上原值替换，再走 `saveRawConfig`。因此模型 get → 改无关字段 → save 传回 `[REDACTED]` 不会覆盖真实 key；若模型显式给出**新明文值**（非 `[REDACTED]`），则以新值为准（允许换 key）。
+- 实现：[redactConfigSecrets](../../src/utils/config.ts) / [restoreRedactedSecrets](../../src/utils/config.ts)（均深拷贝，不改入参）。
 
 ### 使用流程（提示词约束）
 
-1. **get**：先读配置摘要（roles 列表 + 锁定状态），对照 `.chery.template/docs/` 字段参考表定位目标字段
+1. **get**：读完整脱敏配置（roles/sense_groups/global/llm/presets 全量，key 为 `$ENV`/`[REDACTED]`），对照 `.chery.template/docs/` 字段参考表定位目标字段
 2. **确认**：用 `ask_user_question` 把变更呈现给用户确认（含改动前后对比、影响范围）
-3. **save**：传完整配置对象落盘（`saveRawConfig` 层自动备份旧配置）
+3. **save**：基于 get 返回对象改动目标字段后整体传回（未改字段保留原值；`[REDACTED]` 原样保留即可），`saveRawConfig` 层自动备份旧配置
 4. **失败处理**：校验失败 → 不落盘，回报错误原文；已落盘但发现问题 → `rollback` 回滚后基于旧配置 + 报错信息重试
-5. **重启提示**：配置不热更（运行时内存单例），必须告诉用户重启
+5. **重启提示**：配置不热更（运行时内存单例），必须告诉用户重启；重启前系统会做 dry-run 预检（见下），通过才重启，失败自动回滚不重启
+
+### 重启前预检（dry-run）
+
+配置保存后不立即重启：`restartCoordinator` 通知守护进程替换 worker 前，先跑 [validateLoadable](../../src/utils/config.ts) 预检——
+
+- 读盘 `config.yaml` → 深拷贝模拟 `loadConfig` 校验：`$ENV` 占位符指向缺失变量（硬错误）、`validateRawConfig` 全量业务校验（`loadConfig` 阶段 throw 的唯一来源，硬错误；**含 `roles.*.systemPrompt` 文件存在性**——缺失会导致 loadConfig throw）。预检只分 `errors`（硬错误，阻塞重启），不再有独立软警告层。
+- 预检通过 → 正常重启；预检失败 → **自动回滚最近备份 + 通知前端 toast「配置预检未通过，已回滚，未重启」**，进程保持运行（避免坏配置 crash-loop 永不恢复）。
+- 被"提问挂起 / 审批挂起 / running"中断的任务，重启后由 `reconcileOrphanedExecutionRuns` 恢复为 paused（可经现有「继续」按钮续跑）。
 
 ## 自动备份回滚（[saveRawConfig](../../src/utils/config.ts) 写盘层）
 
@@ -114,7 +131,8 @@ persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../.chery.templat
 |------|------|
 | [src/agent/sense/configManage.ts](../../src/agent/sense/configManage.ts) | `config_manage` 感官（get/save/rollback） |
 | [src/agent/sense/index.ts](../../src/agent/sense/index.ts) | import + `registerBuiltinSenses` + `BUILTIN_SENSE_TOOLS` |
-| [src/utils/config.ts](../../src/utils/config.ts) | `saveRawConfig` 写盘前自动备份（保留最近 10 份） |
+| [src/utils/config.ts](../../src/utils/config.ts) | `saveRawConfig` 写盘前自动备份（保留最近 10 份）+ `redactConfigSecrets`/`restoreRedactedSecrets` 敏感字段脱敏/还原 |
+| [test/utils/configSecretRedact.test.ts](../../test/utils/configSecretRedact.test.ts) | 脱敏（`$ENV` 保留 / 明文→`[REDACTED]`）与还原（`[REDACTED]`→盘上原值 / 新明文覆盖）测试 |
 | [.chery.template/prompt/cheryNyxus/cheryNyxus.md](../../.chery.template/prompt/cheryNyxus/cheryNyxus.md) | Cherry Nexus persona |
 | [.chery.template/config.yaml](../../.chery.template/config.yaml) | sense_groups.chery_nexus（含 config_manage）+ roles.cheryNyxus |
 
@@ -122,7 +140,7 @@ persona [`.chery.template/prompt/cheryNyxus/cheryNyxus.md`](../../.chery.templat
 
 | 依赖 | 用途 |
 |------|------|
-| [utils/config](../../src/utils/config.ts) | `readRawConfig` / `saveRawConfig` / `ConfigRaw` |
+| [utils/config](../../src/utils/config.ts) | `readRawConfig` / `saveRawConfig` / `redactConfigSecrets` / `restoreRedactedSecrets` / `ConfigRaw` |
 | [core/sense/senseCreator](../../src/core/sense/senseCreator.ts) | `sense()` 工厂（name/description/schema/handler/supervisionLevel） |
 | [utils/pathGuard](../../src/utils/pathGuard.ts) | `extractSensePaths` 对非文件感官返回空 → 天然豁免 |
 

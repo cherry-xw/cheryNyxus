@@ -17,7 +17,7 @@ import { clearAllApprovals } from '@/core/sense'
 import { clearAllWaitedChildren } from '@/agent/spawnBroker.js'
 import { closeAllConnections } from '@/service/websocket/index.js'
 import { initLogger, logger, LogLevel } from '@/utils/logger/index.js'
-import config, { readRawConfig } from '@/utils/config.js'
+import config, { readRawConfig, validateLoadable, rollbackConfig } from '@/utils/config.js'
 import { hashPassword, isHashed } from '@/utils/password.js'
 import { hasRunningChats } from '@/service/chat/runtime.js'
 import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
@@ -58,6 +58,28 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
   configureRestartCoordinator({
     isIdle: () => !hasRunningChats(),
     onRestartReady: process.send ? () => process.send?.({ type: 'restart-ready' }) : undefined,
+    // 重启前 dry-run 兜底预检（config.save handler 已同步预检；此处防 save 后到空闲前配置被改）。
+    // 失败 → 自动回滚最近备份 + 事件日志，不通知守护进程（进程保持运行，前端已在 save 响应得知）。
+    validateBeforeRestart: () => {
+      const raw = readRawConfig()
+      const loadable = validateLoadable(raw)
+      if (loadable.ok) return { ok: true }
+      try {
+        const backup = rollbackConfig()
+        logger.event(
+          'config.restart.validation_failed',
+          { errors: loadable.errors, warnings: loadable.warnings, rollback: backup.backup },
+          LogLevel.warn,
+        )
+      } catch (err) {
+        logger.event(
+          'config.restart.rollback_failed',
+          { error: (err as Error).message },
+          LogLevel.error,
+        )
+      }
+      return { ok: false, error: loadable.errors.join('\n') }
+    },
   })
 
   const subcommand = args[0]

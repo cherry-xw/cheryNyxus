@@ -444,7 +444,23 @@ async function save(): Promise<void> {
     // 在 worker 关闭前登记等待者，避免它已开始重启时漏掉这一次重连。
     reconnectWatcher = wsClient.watchNextReconnect()
     const results = await Promise.all(savePromises)
-    const result = results[0] as { needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }
+    const result = results[0] as
+      | { needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }
+      | {
+          needRestart: false
+          restart: 'manual'
+          validationErrors: string[]
+          validationWarnings: string[]
+          rollbackBackup: string
+        }
+    if (!result.needRestart) {
+      // 重启前预检失败：后端已自动回滚到备份，未重启（避免坏配置 crash-loop）。
+      reconnectWatcher?.cancel()
+      reconnectWatcher = null
+      error.value = `配置预检未通过，已自动回滚到 ${result.rollbackBackup}，未重启。\n${result.validationErrors.join('\n')}`
+      clearRestartWait()
+      return
+    }
     if (result.restart === 'immediate') {
       savedHint.value = '服务正在更新…'
       isWaitingReconnect.value = true

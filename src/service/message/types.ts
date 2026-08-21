@@ -1963,12 +1963,24 @@ export type ConfigGetResponseData = ConfigRaw
 /**
  * config.save 响应：校验通过已写盘，需重启后端生效。
  * 校验失败走 error（INVALID_PARAMS + errors 列表），不返此 data。
+ * 预检失败（needRestart:false）：已自动回滚，未重启（避免坏配置 crash-loop）。
  */
-export interface ConfigSaveResponseData {
-  needRestart: true
-  /** immediate=当前空闲、即将替换 worker；scheduled=等待 chat 空闲；manual=当前 worker 未受守护。 */
-  restart: 'immediate' | 'scheduled' | 'manual'
-}
+export type ConfigSaveResponseData =
+  | {
+      needRestart: true
+      /** immediate=当前空闲、即将替换 worker；scheduled=等待 chat 空闲；manual=当前 worker 未受守护。 */
+      restart: 'immediate' | 'scheduled' | 'manual'
+    }
+  | {
+      needRestart: false
+      restart: 'manual'
+      /** 预检（模拟 loadConfig）硬错误列表 */
+      validationErrors: string[]
+      /** 预检软警告列表 */
+      validationWarnings: string[]
+      /** 已回滚到的备份文件名（.chery/backups/ 下） */
+      rollbackBackup: string
+    }
 
 /** config.workspace.validate 响应：无副作用的后端目录校验结果。 */
 export interface ConfigWorkspaceValidateResponseData {

@@ -28,6 +28,8 @@ const props = defineProps<{
   /** batch 进度信息（可选，单问题时为 null） */
   batchInfo?: BatchInfo | null
   variant?: 'default' | 'bubble' | 'paper'
+  /** 是否显示自带标题区（问题标题行）。工作台询问节点场景由 popover 独立渲染标题，传 false 隐藏避免重复。 */
+  showHeading?: boolean
 }>()
 
 const chatSessions = useChatSessionsStore()
@@ -60,6 +62,20 @@ function syncDraft(): void {
 }
 
 watch([selectedLabels, otherText, otherExpanded], syncDraft)
+
+// Bug 3 修复：进入新问题（"下一步"推进，questionId 变化）时重置本地草稿态——
+// 新问题节点与上一题完全无关联。工作台 popover 用 :key=batchId 复用组件实例，
+// questionId 变化即代表切换题目；pet 气泡同样经 store 切换 question 对象。
+watch(
+  () => props.question.questionId,
+  () => {
+    selectedLabels.value = new Set(props.question.draftAnswer?.selectedLabels ?? [])
+    otherText.value = props.question.draftAnswer?.freeText ?? ''
+    otherExpanded.value = Boolean(otherText.value)
+    pending.value = null
+    submitError.value = ''
+  },
+)
 
 /** 统一 submit 条件：「其他」展开且有文本→允许纯 freeText；否则单选=恰好1，多选=≥1 */
 const canSubmit = computed(() => {
@@ -165,7 +181,7 @@ function back(): void {
     role="group"
     :aria-label="`问题：${question.question}`"
   >
-    <header class="question-heading">
+    <header v-if="showHeading !== false" class="question-heading">
       <span class="question-symbol" aria-hidden="true">?</span>
       <span class="heading-copy">
         <span class="heading-kicker">{{ question.header || '需要你的选择' }}</span>

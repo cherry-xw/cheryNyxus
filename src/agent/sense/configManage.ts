@@ -6,6 +6,8 @@ import {
   saveRawConfig,
   rollbackConfig,
   listConfigBackups,
+  redactConfigSecrets,
+  restoreRedactedSecrets,
   type ConfigRaw,
 } from '@/utils/config.js'
 
@@ -13,9 +15,10 @@ import {
  * config_manage 感官：配置管理核心角色（cheryNyxus）专用，读写 .chery/config.yaml。
  *
  * action 三态：
- *   - get：readRawConfig() 读盘（剥离 server 段），返回精简摘要（roles 列表 + 锁定状态 +
- *     sense_groups / global.supervision / llm.brain 概览 + backups 回滚点）。
- *   - save：复用 saveRawConfig()（校验 + 锁角色/固定预设编辑校验 + 写盘）。
+ *   - get：readRawConfig() 读盘（剥离 server 段），经 redactConfigSecrets 脱敏后返回**完整配置**
+ *     （key 为 $ENV 占位符原样 / [REDACTED] 哨兵）+ backups 回滚点，可直接 round-trip 传回 save。
+ *   - save：先 readRawConfig() 读盘 → restoreRedactedSecrets 把 [REDACTED] 还原为盘上原值 →
+ *     复用 saveRawConfig()（校验 + 锁角色/固定预设编辑校验 + 写盘）。
  *     写盘前 saveRawConfig 层自动备份旧配置到 .chery/backups/（保留最近 10 份），出错可 rollback。
  *   - rollback：从 .chery/backups/ 恢复指定（或缺省最近）备份到 config.yaml。
  *
@@ -35,7 +38,7 @@ const saveSchema = z.object({
   config: z
     .record(z.string(), z.unknown())
     .describe(
-      '完整配置对象（roles / sense_groups / global / llm / presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 摘要 + 字段参考表构造，未改字段保留原值',
+      '完整配置对象（roles / sense_groups / global / llm / media / mcp_servers / presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 返回的完整脱敏配置改造，未改字段保留原值；敏感 key 传回 [REDACTED] 哨兵自动保留盘上原值',
     ),
 })
 
@@ -47,40 +50,28 @@ const rollbackSchema = z.object({
     .describe('回滚目标备份文件名（.chery/backups/ 下，如 config-20260821-120000.yaml）；缺省用最近一份'),
 })
 
-/** get：读盘返回精简配置摘要（供定位目标字段 + 了解锁定约束）。 */
+/** get：读盘返回完整脱敏配置（可 round-trip 传回 save）+ backups 回滚点。backups 独立于 config 对象，避免污染 save 入参。 */
 function doGet(): SenseResult {
   const raw = readRawConfig()
-  const roles = Object.entries(raw.roles ?? {}).map(([name, cfg]) => ({
-    name,
-    senseGroup: cfg.senseGroup,
-    lock: cfg.lock === true,
-    kind: cfg.kind ?? 'role',
-  }))
-  const summary = {
-    roles,
-    sense_groups: raw.sense_groups,
-    global: raw.global,
-    llm_brain_names: Object.keys(raw.llm?.brain ?? {}),
-    presets: Object.entries(raw.presets ?? {}).map(([name, cfg]) => ({
-      name,
-      leader: cfg.leader,
-      roles: cfg.roles,
-      schedule: cfg.schedule ?? null,
-    })),
-    backups: listConfigBackups(),
-  }
+  const config = redactConfigSecrets(raw)
+  const backups = listConfigBackups()
   return {
     content:
-      `当前 .chery/config.yaml 配置摘要：\n` +
-      JSON.stringify(summary, null, 2) +
-      `\n请对照 .chery.template/docs/ 字段参考表定位目标字段，构造 config_manage(action="save") 传回完整配置对象。`,
+      `当前 .chery/config.yaml 配置（完整、已脱敏，可直接 round-trip 传给 config_manage(action="save")）：\n` +
+      JSON.stringify(config, null, 2) +
+      `\n回滚点（.chery/backups/，最近在前）：\n` +
+      (backups.length ? backups.join('\n') : '（无）') +
+      `\n说明：未改字段保留原值；敏感 key 字段为 [REDACTED] 哨兵（$ENV 占位符原样保留），` +
+      `save 时原样传回 [REDACTED] 即保留盘上原值，显式给出新值则以新值为准。`,
     hash: '',
   }
 }
 
-/** save：复用 saveRawConfig 校验 + 写盘（自动备份旧配置）。校验失败不落盘。 */
+/** save：先读盘还原 [REDACTED] 为盘上原值，再复用 saveRawConfig 校验 + 写盘（自动备份旧配置）。校验失败不落盘。 */
 function doSave(config: Record<string, unknown>): SenseResult {
-  const result = saveRawConfig(config as unknown as ConfigRaw)
+  const disk = readRawConfig()
+  const restored = restoreRedactedSecrets(config as unknown as ConfigRaw, disk)
+  const result = saveRawConfig(restored)
   if (!result.ok) {
     const combined = [...result.errors, ...(result.warnings ?? [])]
     return {
@@ -111,8 +102,8 @@ function doRollback(backup: string | undefined): SenseResult {
 
 const configManageDescription = `管理 .chery/config.yaml 配置（配置管理核心角色 cheryNyxus 专用）。
 action 三态：
-1. action="get"：读当前配置，返回精简摘要（roles 列表 + 锁定状态 + sense_groups + global + llm.brain 概览 + backups 回滚点）。
-2. action="save" + config：保存完整配置对象（roles / sense_groups / global / llm / presets 等；server 段保留不动）。
+1. action="get"：读当前配置，返回完整脱敏配置（roles / sense_groups / global / llm / media / mcp_servers / presets 等全量字段，key 为 $ENV 占位符原样或 [REDACTED] 哨兵）+ backups 回滚点。
+2. action="save" + config：基于 get 返回的完整对象改动目标字段后整体传回（未改字段保留原值；[REDACTED] 哨兵原样传回即保留盘上原值，显式给出新明文则以新值为准）。
    写盘前自动备份旧配置到 .chery/backups/（保留最近 10 份）。校验失败不落盘并返回错误。
 3. action="rollback"（+ 可选 backup）：从 .chery/backups/ 恢复指定（或缺省最近）备份，撤销之前的保存。
 使用流程：先 get 了解现状与锁定约束 → 用 ask_user_question 向用户确认变更（含改动前后对比、影响范围）→ save 落盘 → 提示重启生效；出错先 rollback 再基于报错重试。`

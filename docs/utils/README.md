@@ -102,6 +102,9 @@ export function readRawConfig(): ConfigRaw;        // 读原文，剥离 server 
 export function saveRawConfig(partial: ConfigRaw): { ok: true } | { ok: false; errors: string[] };
 //   校验(validateRawConfig) -> 读盘取 server 段 -> merge -> js-yaml dump(无注释) -> writeFileSync
 export function validateRawConfig(raw: ConfigRaw): string[];  // 业务校验，loadConfig 启动期亦调用
+export function validateLoadable(raw: ConfigRaw): { ok: true } | { ok: false; errors: string[]; warnings: string[] };
+//   重启前 dry-run 预检：深拷贝模拟 loadConfig 关键步骤（$ENV 缺失变量→硬错误 + validateRawConfig 全量业务校验），
+//   只检查不落地、不 throw；供 restartCoordinator 在通知守护进程替换 worker 前兜底，失败自动回滚不重启（见 ../agent/config-manage.md）
 ```
 
 `config.workspace.validate` 接收 `{ workspace }`，只在后端主机上检查非空路径是否为绝对、可访问的目录，返回 `{ valid, error? }`；它不读取或写入配置，也不触发重启。设置页在预设工作区输入变化后调用它，因此浏览器客户端同样能得到后端文件系统的即时结果。保存时 `saveRawConfig` 仍执行同一类校验，避免绕过 UI 写入无效配置。
