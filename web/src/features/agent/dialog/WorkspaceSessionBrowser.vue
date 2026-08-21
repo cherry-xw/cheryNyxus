@@ -40,10 +40,28 @@ function draftOf(item: InteractionRecord, questionId: string) {
 }
 function toggleOption(item: InteractionRecord, questionId: string, label: string, multi: boolean): void {
   const draft = draftOf(item, questionId)
-  if (!multi) draft.selectedLabels = [label]
-  else if (draft.selectedLabels.includes(label)) {
+  if (!multi) {
+    // 单选：点已选 → 清空（可取消）；未选 → 替换，并与「其他」互斥（清空 freeText）
+    if (draft.selectedLabels.includes(label)) {
+      draft.selectedLabels = []
+    } else {
+      draft.selectedLabels = [label]
+      draft.freeText = ''
+    }
+  } else if (draft.selectedLabels.includes(label)) {
     draft.selectedLabels = draft.selectedLabels.filter((value) => value !== label)
   } else draft.selectedLabels.push(label)
+}
+/** 「其他补充」输入：手动双向绑定；单选模式下输入即清空已选选项（与选项互斥，单选二选一）。 */
+function onOtherInput(
+  item: InteractionRecord,
+  questionId: string,
+  event: Event,
+): void {
+  const draft = draftOf(item, questionId)
+  draft.freeText = (event.target as HTMLInputElement).value
+  const question = questionsOf(item).find((q) => q.questionId === questionId)
+  if (question && !question.multiSelect && draft.freeText.trim()) draft.selectedLabels = []
 }
 function titleOf(item: InteractionRecord): string {
   if (item.kind === 'approval') return `确认 ${String(payload(item).senseName ?? '工具调用')}`
@@ -72,13 +90,22 @@ async function answer(item: InteractionRecord): Promise<void> {
       questionId: question.questionId,
       selectedLabels: [...draft.selectedLabels],
       ...(draft.freeText.trim() ? { freeText: draft.freeText.trim() } : {}),
+      ...({ multiSelect: question.multiSelect } satisfies Record<string, boolean>),
     }
   })
   if (answers.some((answer) => answer.selectedLabels.length === 0 && !answer.freeText)) {
     submitError.value = '请完成全部问题后提交'
     return
   }
-  try { await interactions.answer(item, answers) }
+  // 单选强制「选项 or 其他」二选一，禁止并存（服务端会落库冲突答案）
+  if (
+    answers.some((answer) => !answer.multiSelect && answer.selectedLabels.length > 0 && answer.freeText)
+  ) {
+    submitError.value = '单选题请在选项与「其他补充」中二选一'
+    return
+  }
+  const submit = answers.map(({ multiSelect, ...rest }) => rest)
+  try { await interactions.answer(item, submit) }
   catch (cause) { submitError.value = cause instanceof Error ? cause.message : '回答失败' }
 }
 
@@ -122,7 +149,11 @@ onMounted(() => void interactions.refresh().catch(() => undefined))
                 <b>{{ option.label }}</b><span v-if="option.description">{{ option.description }}</span>
               </button>
             </div>
-            <input v-model="draftOf(item, question.questionId).freeText" placeholder="其他补充（可选）" />
+            <input
+              :value="draftOf(item, question.questionId).freeText"
+              placeholder="其他补充（可选）"
+              @input="onOtherInput(item, question.questionId, $event)"
+            />
           </fieldset>
         </div>
 

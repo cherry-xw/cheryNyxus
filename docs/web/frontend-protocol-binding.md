@@ -188,6 +188,17 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 - `draftAnswer?: {selectedLabels, freeText?, cancelled?}` ← 前端草稿，每次勾选触发 `agents.updateQuestionDraft`
 - 整批原子提交 → `agentApi.answerQuestionBatch({chatId, batchId, answers})` → 响应 `shouldResume` → 必要时 `agents.resumeAgent(chatId)`
 
+**QuestionCard / 交互收件箱交互约束**（单选+「其他」互斥、失败反馈、状态兜底）：
+
+- **单选与「其他」双向互斥**：单选题下，「其他」自由文本与具体选项**不可同时作答**——
+  - 点选具体选项 → 清空该题 `freeText`（含收件箱 `WorkspaceSessionBrowser` 的「其他补充」输入与 pet 气泡 `QuestionCard` 的 `toggleOther`）
+  - 输入/展开「其他」 → 清空该题 `selectedLabels`（单选模式）
+  - 提交校验对单选强制二选一（否则服务端会落库「选项 + 其他」并存答案，LLM 收到冲突语义）
+- **单选可取消**：单选点已选选项 → 清空（可取消），对齐多选 toggle 语义；不要求必须保留一个选项
+- **提交失败必须反馈**：`submitError` 在 catch 路径赋值（禁止只 `console.error` 静默吞错，用户会停留在「已勾选待提交」假象）
+- **`pending` 提交锁成功路径必须复位**：`advanceOrSubmit`/`cancel` 完成后统一复位 `pending`（含成功路径），防止 store 层 guard 静默 return 时整卡永久 disabled
+- **decide/answer 失败状态兜底**：收件箱 `decide`/`answer` 失败后即使 `refresh()` 也失败，仍须把本地 `status` 还原为 `pending`，避免卡死 `resolving` 导致按钮不可再操作
+
 **RunningTools**（[types.ts:33-36](../../web/src/stores/agents/types.ts#L33) `RunningTool`）：
 - `id` ← `sense_started.data.id`（= sense call id）→ `accept.data.approvalId` 命中即 filter 移除
 - `name` ← `sense_started.data.senseName` → `agents.iconForTool(name)`（查 `senseTools[]`，fallback ⚙）
