@@ -45,7 +45,12 @@ export const useInteractionsStore = defineStore('interactions', () => {
       })
       records.value[next.interactionId] = next
     } catch (cause) {
-      await refresh().catch(() => undefined)
+      try {
+        await refresh()
+      } catch {
+        // refresh 也失败：还原为调用前状态（pending/blocked），避免卡死 resolving 无法再操作
+        records.value[item.interactionId] = { ...item }
+      }
       throw cause
     }
   }
@@ -64,7 +69,12 @@ export const useInteractionsStore = defineStore('interactions', () => {
       })
       records.value[next.interactionId] = next
     } catch (cause) {
-      await refresh().catch(() => undefined)
+      try {
+        await refresh()
+      } catch {
+        // refresh 也失败：还原为调用前状态，避免卡死 resolving 无法再操作
+        records.value[item.interactionId] = { ...item }
+      }
       throw cause
     }
   }

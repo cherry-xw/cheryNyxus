@@ -6,7 +6,7 @@
  * 渲染：
  * 单题只编辑本地草稿；“下一步”把题目标为 ready，最后一题通过 batchAnswer 原子提交。
  * 「跳过」按钮把该题以 cancelled 答案进入同一批次提交。
- * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
+ * 错误：console.error 上报 + submitError 展示（规则 12 fail loud），pending 复位允许重试。
  */
 import { computed, ref, watch } from 'vue'
 import { useChatSessionsStore } from '@/stores'
@@ -117,6 +117,7 @@ async function advanceOrSubmit(): Promise<void> {
     await chatSessions.advanceQuestion(props.chatId, props.question.questionId, draft)
   } catch (e) {
     console.error(`[QuestionCard] submit failed (id=${props.question.questionId}):`, e)
+    submitError.value = '提交失败，请重试'
   } finally {
     // 成功/失败均复位 pending；成功路径不复位会致所有 chip 永久 disabled（bug2）
     pending.value = null
@@ -143,6 +144,9 @@ async function cancel(): Promise<void> {
     await chatSessions.cancelQuestion(props.chatId, props.question.questionId)
   } catch (e) {
     console.error(`[QuestionCard] cancel failed (id=${props.question.questionId}):`, e)
+    submitError.value = '提交失败，请重试'
+  } finally {
+    // 成功/失败均复位 pending；成功路径不复位会致 store guard 静默 return 时整卡永久 disabled
     pending.value = null
   }
 }
