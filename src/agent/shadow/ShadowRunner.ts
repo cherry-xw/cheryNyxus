@@ -44,6 +44,9 @@ export class ShadowRunner {
           mcpServers: options.role.mcpServers ?? [],
         },
         false,
+        undefined,
+        undefined,
+        options.roleName,
       )
       .initEphemeral(runId, options.systemPrompt)
 

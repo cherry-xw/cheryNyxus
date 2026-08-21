@@ -146,6 +146,7 @@ export async function* observeAgentChunks(
           createdAt: Date.now(),
           arguments: chunk.arguments,
           supervisionLevel: chunk.supervisionLevel,
+          security: chunk.security,
         })
         logger.event('approval.pending', {
           approvalId: chunk.approvalId,

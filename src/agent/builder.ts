@@ -48,11 +48,13 @@ export class AgentBuilder {
     injectMemoryManage = true,
     ruleName?: string,
     chatId?: string,
+    roleName?: string,
   ): this {
     const runtime = this.runtimeResolver.resolve(selection, {
       injectMemoryManage,
       ruleName,
       chatId,
+      roleName,
     })
     this.requireAgent().configureRuntime(runtime)
     return this

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { SupervisionLevel } from '../config'
+import type { ToolAuthorization } from '../security/rolePolicy.js'
 
 /**
  * 感官执行结果
@@ -60,6 +61,10 @@ export interface SenseRuntimeContext {
    * 缺省 → sense 不关注 messageId。
    */
   messageId?: string
+  /** 已在统一工具门完成复核的本次授权；执行器只能消费，不能自行扩大。 */
+  security?: ToolAuthorization
+  /** 当前会话的规范工作区根目录。需要文件系统或命令执行的工具必须 fail closed。 */
+  workspaceRoot?: string
 }
 
 export interface SenseExecutor<T extends z.ZodType> {

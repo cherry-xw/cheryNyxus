@@ -186,6 +186,7 @@ export async function* checkpointMiddleware(
             senseName: trigger.name,
             arguments: trigger.arguments,
             supervisionLevel: trigger.supervisionLevel,
+            security: trigger.security,
           } as MiddlewareChunk
         } else if (trigger.name === 'ask_user_question') {
           // 这里只收集候选题，不立即通知前端。必须等 finally 将 ask handler 返回的 placeholder

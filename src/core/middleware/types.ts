@@ -9,6 +9,8 @@ import type { LLMAdapter } from '../llm/adapter'
 import type { SenseAdapter, SenseCallData, SenseFunction } from '../sense/adapter'
 import type { SenseResult, SenseSharedData, SenseRuntimeContext } from '../sense/senseCreator'
 import type { CompiledRuleSet } from '../sense/ruleLoader.js'
+import type { CompiledRoleSecurity } from '../security/rolePolicy.js'
+import type { ToolAuthorization } from '../security/rolePolicy.js'
 import type { GlobalConfig, BrainConfig } from '@/utils/config'
 import type { Logger } from '@/utils/logger/types.js'
 import type { MessageJournal } from './messageJournal.js'
@@ -92,6 +94,8 @@ export interface RuntimeConfig {
   senseTable: Map<string, SenseEntry>
   /** smart 监管敏感判定规则集（resolve 期从 .chery/rule/ 合并编译冻结，供 isSafeSenseCall） */
   sensitivityRules: CompiledRuleSet
+  /** 当前 chat 的稳定角色身份与实时编译行为策略。 */
+  roleSecurity?: CompiledRoleSecurity
 }
 
 /**
@@ -225,6 +229,8 @@ export interface SenseTriggerChunk {
   arguments: string
   /** 监管等级 */
   supervisionLevel: SupervisionLevel
+  /** 角色策略与语义分析产生的可审计裁决。 */
+  security?: ToolAuthorization
   // P1-11：approvalResolve/approvalReject 移除，审批 Promise 由 core approvalRegistry 管理，
   //        service ApprovalManager 经 resolveApproval/rejectApproval 触发（去 chunk 函数指针，解耦 core↔service）。
 }
@@ -327,6 +333,8 @@ export interface SensePendingChunk {
   senseName: string
   arguments: string
   supervisionLevel: SupervisionLevel
+  /** 审批展示与持久化所需的确定性安全判定。 */
+  security?: ToolAuthorization
 }
 
 /**

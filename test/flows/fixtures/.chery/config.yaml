@@ -110,6 +110,8 @@ roles:
   reviewer:                      # S14/S15 子：mock_content 纯 content 即完成
     brain: mock_content
     senseGroup: auto_senses
+    permissions:
+      template: trusted
   reviewer_stream:               # S16 子：流式慢响应，造刷新重连窗口
     brain: mock_child_stream
     senseGroup: auto_senses

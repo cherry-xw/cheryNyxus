@@ -27,7 +27,7 @@
 
 | sense 函数名 | 文件 | 监管等级 | schema 关键字段 |
 |--------------|------|----------|-----------------|
-| `execute_command` | [bash.ts](../../src/agent/sense/bash.ts) | manual | `command`、`description` |
+| `execute_command` | [bash.ts](../../src/agent/sense/bash.ts) | smart | `shell`、`command`、`description`、可选 `workdir` |
 | `read_file` | [read.ts](../../src/agent/sense/read.ts) | auto | `path`、`limit?`、`offset?`、`compression?` |
 | `write_file` | [write.ts](../../src/agent/sense/write.ts) | manual | `path`、`content`、`offset?`、`limit?` |
 | `skill` | [skill.ts](../../src/agent/sense/skill.ts) | auto | `name` |
@@ -86,7 +86,7 @@ if (result?.definition?.function?.name) {
 ### A. execute_command（[bash.ts](../../src/agent/sense/bash.ts)）
 
 ```text
-input { command, description }
+input { shell: 'bash' | 'powershell', command, description, workdir? }
   ├─ cleanOldBashLogs（按 LOG_RETENTION_HOURS 清理）
   ├─ senseCtx?.chatId → chatId（tool.ts doExecuteSense 第 3 参注入）
   ├─ spawn(command, [], { shell:true, detached:true, windowsHide:true })   ← 新进程组（Windows 不弹 cmd 窗）

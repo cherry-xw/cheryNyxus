@@ -368,13 +368,10 @@ export async function ensureChat(
     if (selection) {
       configureRuntime(existing, chatId, selection)
     } else {
-      // P1-6：registry 变更（mcp.reload/重编译）后，存量 chat 的 senseTable 快照过期。
-      // send/resume 入口（无 selection）用持久化 selection 重建 senseTable，拾取新增/移除感官。
+      // 每轮都重建 runtime：除拾取 registry 变更外，还让角色权限配置在下一次调用立即生效。
       // 重建在 loop 启动前，ctx.runtime 引用替换安全（generator 尚未运行）。
       const sel = existing.selection
-      if (sel && existing.builder.isSenseTableStale()) {
-        configureRuntime(existing, chatId, sel)
-      }
+      if (sel) configureRuntime(existing, chatId, sel, false)
     }
     return existing.builder
   }

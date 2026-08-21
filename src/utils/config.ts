@@ -178,6 +178,51 @@ interface LLMConfig {
   brain: Record<string, BrainConfig>
 }
 
+export type RolePermissionTemplate =
+  | 'read-only'
+  | 'workspace-developer'
+  | 'supervised'
+  | 'trusted'
+
+export type RolePermissionEffect = 'inherit' | 'allow' | 'ask' | 'deny'
+export type CommandRiskCategory =
+  | 'filesystem'
+  | 'destructive'
+  | 'privilege'
+  | 'system'
+  | 'process'
+  | 'network'
+  | 'credential'
+  | 'dynamic-code'
+  | 'obfuscation'
+  | 'unknown'
+
+/**
+ * 角色行为权限。senseGroup 决定「能看见哪些工具」，本策略决定「本次调用能否执行」。
+ * allow 只表示本角色不额外收紧，不能绕过系统守卫、全局监管或语义风险判断。
+ */
+export interface RolePermissionPolicy {
+  template: RolePermissionTemplate
+  tools?: Record<string, RolePermissionEffect>
+  filesystem?: {
+    read?: 'deny' | 'workspace' | 'any'
+    write?: 'deny' | 'workspace' | 'any-with-approval'
+  }
+  commands?: {
+    shells?: Array<'bash' | 'powershell'>
+    maxSandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+    categories?: Partial<Record<CommandRiskCategory, RolePermissionEffect>>
+  }
+  mcp?: {
+    default?: RolePermissionEffect
+    tools?: Record<string, RolePermissionEffect>
+  }
+  spawn?: {
+    allowedRoles?: string[]
+    effect?: RolePermissionEffect
+  }
+}
+
 /**
  * 角色配置（spawn_role sense 按 type 查这里；预设 leader 角色亦由此定义）。
  * 名 = 给 AI 的角色名；brain 必须存在于 llm.brain（loadConfig 校验）。
@@ -213,6 +258,8 @@ export interface RoleConfig {
    * role 激活时仅这些插件下的 skill 进入 `<skills>` 块。
    */
   plugins?: string[]
+  /** 参数级行为限制；缺省采用 supervised，避免新旧角色无策略静默放行。 */
+  permissions?: RolePermissionPolicy
   /** 锁定身份：禁止删除/改名/复制及修改 avatar/description/systemPrompt；cheryNyxus 仅允许切换 brain。 */
   lock?: boolean
 }

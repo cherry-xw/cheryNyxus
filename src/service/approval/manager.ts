@@ -7,6 +7,7 @@ import {
   upsertPendingInteraction,
 } from '@/db/interaction.js'
 import { broadcastInteractionChanged } from '../interaction/events.js'
+import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
 
 /**
  * 审批管理器（极简版）
@@ -25,6 +26,7 @@ export type ApprovalPayload = {
   createdAt: number
   arguments: string
   supervisionLevel: number
+  security?: ToolAuthorization
 }
 
 export class ApprovalManager {
@@ -50,6 +52,17 @@ export class ApprovalManager {
       // an invisible in-memory approval or revive the inbox row.
       const action = existing.result?.action === 'accept' ? 'accept' : 'reject'
       const reason = typeof existing.result?.reason === 'string' ? existing.result.reason : undefined
+      const previousSecurity = existing.payload.security as ToolAuthorization | undefined
+      const sameGrant =
+        action !== 'accept' ||
+        (!!previousSecurity &&
+          !!payload?.security &&
+          previousSecurity.policyHash === payload.security.policyHash &&
+          previousSecurity.assessmentHash === payload.security.assessmentHash)
+      if (!sameGrant) {
+        resolveApproval(approvalId, 'reject', '安全策略或工具参数已变化，旧批准已失效')
+        return
+      }
       resolveApproval(approvalId, action, reason)
       return
     }
@@ -66,6 +79,7 @@ export class ApprovalManager {
           senseName: payload.senseName,
           arguments: payload.arguments,
           supervisionLevel: payload.supervisionLevel,
+          security: payload.security,
         },
         ...(deadlineAt !== undefined ? { deadlineAt } : {}),
       })

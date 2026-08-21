@@ -5,6 +5,7 @@ export interface LockableRoleIdentity {
   avatar?: string
   description?: string
   systemPrompt?: string
+  permissions?: unknown
   lock?: boolean
 }
 
@@ -26,8 +27,8 @@ export function validateLockedRoleEdits<T extends LockableRoleIdentity>(
       continue
     }
     if (name === CHERY_NYXUS_NAME) {
-      const { brain: _currentBrain, ...currentFixedFields } = role
-      const { brain: _nextBrain, ...nextFixedFields } = next
+      const { brain: _currentBrain, permissions: _currentPermissions, ...currentFixedFields } = role
+      const { brain: _nextBrain, permissions: _nextPermissions, ...nextFixedFields } = next
       if (!isDeepStrictEqual(nextFixedFields, currentFixedFields))
         errors.push(`roles.${name} 是固定角色，除大脑外不能修改`)
       continue

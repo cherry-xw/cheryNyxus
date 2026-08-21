@@ -69,6 +69,7 @@ export interface CurrentStateData {
     supervisionLevel: number
     waitTime: number
     createdAt: number
+    security?: ToolAuthorizationDto
   }
   runningTools: { id: string; senseName: string }[]
   currentTodo?: unknown[]
@@ -921,6 +922,40 @@ export interface McpServerConfigDto {
   supervision?: 'auto' | 'smart' | 'manual'
 }
 
+export type RolePermissionEffectDto = 'inherit' | 'allow' | 'ask' | 'deny'
+export interface SecurityFindingDto {
+  code: string
+  category: string
+  severity: 'low' | 'medium' | 'high' | 'unknown'
+  message: string
+  fragment?: string
+  start?: number
+  end?: number
+}
+export interface ToolAuthorizationDto {
+  decision: 'allow' | 'ask' | 'deny'
+  roleType: string
+  policyHash: string
+  requiredSandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+  findings: SecurityFindingDto[]
+  assessmentHash: string
+}
+export interface RolePermissionPolicyDto {
+  template: 'read-only' | 'workspace-developer' | 'supervised' | 'trusted'
+  tools?: Record<string, RolePermissionEffectDto>
+  filesystem?: {
+    read?: 'deny' | 'workspace' | 'any'
+    write?: 'deny' | 'workspace' | 'any-with-approval'
+  }
+  commands?: {
+    shells?: Array<'bash' | 'powershell'>
+    maxSandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access'
+    categories?: Record<string, RolePermissionEffectDto>
+  }
+  mcp?: { default?: RolePermissionEffectDto; tools?: Record<string, RolePermissionEffectDto> }
+  spawn?: { allowedRoles?: string[]; effect?: RolePermissionEffectDto }
+}
+
 export type MediaKindDto = 'image' | 'video' | 'audio'
 export interface MediaServiceConfigDto {
   type: MediaKindDto
@@ -1029,6 +1064,7 @@ export interface ConfigDto {
       systemPrompt?: string
       skills?: string[]
       plugins?: string[]
+      permissions?: RolePermissionPolicyDto
       lock?: boolean
     }
   >

@@ -54,7 +54,13 @@ export interface CreateAgentOptions {
 export function createAgent(opts: CreateAgentOptions): AgentBuilder {
   const agent = new AgentBuilder()
     .build()
-    .configureRuntime({ brain: opts.brain, senseGroup: opts.senseGroup, mcpServers: [] });
+    .configureRuntime(
+      { brain: opts.brain, senseGroup: opts.senseGroup, mcpServers: [] },
+      true,
+      undefined,
+      undefined,
+      'reviewer',
+    );
   agent.init(opts.chatId ?? randomUUID(), opts.history);
   return agent;
 }

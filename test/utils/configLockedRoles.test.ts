@@ -17,6 +17,11 @@ describe('validateLockedRoleEdits', () => {
     expect(validateLockedRoleEdits({ cheryNyxus: locked }, { cheryNyxus: next })).toEqual([])
   })
 
+  it('allows tightening behavior permissions on a fixed role', () => {
+    const next = { ...locked, permissions: { template: 'read-only' as const } }
+    expect(validateLockedRoleEdits({ cheryNyxus: locked }, { cheryNyxus: next })).toEqual([])
+  })
+
   it.each([
     ['senseGroup', 'other'],
     ['skills', ['skill-a']],

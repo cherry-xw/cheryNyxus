@@ -14,6 +14,9 @@ import { checkCheryGuard } from '@/utils/pathGuard.js'
 import { SenseCallAssembler } from './senseCallAssembler.js'
 import { dispatch } from '@/agent/hooks/index.js'
 import { ClassifiedError } from '@/utils/error.js'
+import { authorizeToolCall, compileRoleSecurity, type ToolAuthorization } from '@/core/security/index.js'
+import { getChatWorkspace } from '@/db/chat.js'
+import config from '@/utils/config.js'
 
 /**
  * 待批量执行的 sense call
@@ -25,6 +28,8 @@ interface PendingSenseCall {
   supervisionLevel: SupervisionLevel
   /** smart/manual 时存在，用于 Promise.all 批量等待审批 */
   approvalPromise?: Promise<{ action: 'accept' | 'reject'; reason?: string }>
+  authorization: ToolAuthorization
+  preDenied?: boolean
 }
 
 /**
@@ -119,7 +124,26 @@ async function* executeCollectedCalls(
   // Auto sense 先执行（不等待审批）
   const autoCalls = calls.filter((c) => c.supervisionLevel === SupervisionLevel.auto)
   for (const call of autoCalls) {
-    const { content, hash, replaced } = await doExecuteSense(ctx, call.name, call.argsJson, call.id)
+    if (call.preDenied) {
+      yield {
+        type: 'sense_reject',
+        id: call.id,
+        name: call.name,
+        reason: call.authorization.findings.map((finding) => finding.message).join('；') || '角色策略禁止执行',
+      }
+      continue
+    }
+    const { content, hash, replaced, rejected } = await doExecuteSense(
+      ctx,
+      call.name,
+      call.argsJson,
+      call.id,
+      call.authorization,
+    )
+    if (rejected) {
+      yield { type: 'sense_reject', id: call.id, name: call.name, reason: rejected }
+      continue
+    }
     yield { type: 'sense_accept', id: call.id, name: call.name, result: content, hash }
     // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
     for (const r of replaced) {
@@ -167,12 +191,17 @@ async function* executeCollectedCalls(
       const decision = await call.approvalPromise!
 
       if (decision.action === 'accept') {
-        const { content, hash, replaced } = await doExecuteSense(
+        const { content, hash, replaced, rejected } = await doExecuteSense(
           ctx,
           call.name,
           call.argsJson,
           call.id,
+          call.authorization,
         )
+        if (rejected) {
+          yield { type: 'sense_reject', id: call.id, name: call.name, reason: rejected }
+          continue
+        }
         yield { type: 'sense_accept', id: call.id, name: call.name, result: content, hash }
         // 被替换的历史 sense 消息：yield message_updated 让 observer 落库 replace 状态
         for (const r of replaced) {
@@ -256,21 +285,25 @@ function buildSenseTrigger(
   if (!ctx.runtime) throw new Error('Runtime not configured.')
   const senseEntry = ctx.runtime.senseTable.get(name)
   const configuredLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.smart
-
-  // smart 监管：按规则表（core/sense/sensitivity.ts isSafeSenseCall）确定性判定本次是否安全。
-  //   ruleSet 来自 ctx.runtime.sensitivityRules（resolve 期从 .chery/rule/ 合并编译，进程内冻结）。
-  //   黑名单 fail-open：safe（未命中 dangerPatterns / 未知 sense）→ effectiveLevel=auto（不建审批，归入 autoCalls 直接执行）
-  //   unsafe（命中危险 / false 硬开关 / 取参异常）→ effectiveLevel=smart（建审批，走 interrupt 等待确认，fail-safe 默认确认）
-  // 仅 smart 走规则表；auto/manual 原样透传。trigger/call 都带 effectiveLevel →
-  // executeCollectedCalls(===auto/approvalPromise 有无)、streamMapper(>auto)、checkpoint(>0)
-  // 等下游数值分支自动正确，无需改消费方。确定性保证 resume 续接结论一致。
-  let effectiveLevel = configuredLevel
-  if (configuredLevel === SupervisionLevel.smart) {
-    const args = safeJsonParse(argsJson, {})
-    effectiveLevel = isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
-      ? SupervisionLevel.auto
+  const args = safeJsonParse(argsJson, {})
+  const legacySafe = configuredLevel === SupervisionLevel.smart
+    ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
+    : undefined
+  const roleSecurity = ctx.runtime.roleSecurity ?? compileRoleSecurity(undefined, undefined)
+  const authorization = authorizeToolCall({
+    security: roleSecurity,
+    name,
+    args,
+    workspace: getChatWorkspace(ctx.soul.chatId),
+    configuredLevel,
+    legacySafe,
+  })
+  const preDenied = authorization.decision === 'deny'
+  const effectiveLevel = preDenied || authorization.decision === 'allow'
+    ? SupervisionLevel.auto
+    : configuredLevel === SupervisionLevel.manual
+      ? SupervisionLevel.manual
       : SupervisionLevel.smart
-  }
 
   let approvalPromise: Promise<{ action: 'accept' | 'reject'; reason?: string }> | undefined
 
@@ -291,11 +324,20 @@ function buildSenseTrigger(
     name,
     arguments: argsJson,
     supervisionLevel: effectiveLevel,
+    security: authorization,
   }
 
   return {
     trigger,
-    call: { id, name, argsJson, supervisionLevel: effectiveLevel, approvalPromise },
+    call: {
+      id,
+      name,
+      argsJson,
+      supervisionLevel: effectiveLevel,
+      approvalPromise,
+      authorization,
+      preDenied,
+    },
   }
 }
 
@@ -307,9 +349,11 @@ async function doExecuteSense(
   name: string,
   argsJson: string,
   id: string,
+  authorization: ToolAuthorization,
 ): Promise<{
   content: string
   hash?: string
+  rejected?: string
   replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>
 }> {
   const replaced: Array<{
@@ -352,6 +396,33 @@ async function doExecuteSense(
       throw err
     }
 
+    // 审批绑定精确参数与当前角色策略。Hook 改参或审批等待期间策略变化都必须重新发起，
+    // 不能拿旧授权执行新动作。
+    const liveRole = config.roles?.[authorization.roleType]
+    const liveSecurity = compileRoleSecurity(authorization.roleType, liveRole)
+    const currentAuthorization = authorizeToolCall({
+      security: liveSecurity,
+      name,
+      args,
+      workspace: getChatWorkspace(ctx.soul.chatId),
+      configuredLevel: senseEntry.supervisionLevel,
+      legacySafe:
+        senseEntry.supervisionLevel === SupervisionLevel.smart
+          ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
+          : undefined,
+    })
+    if (
+      currentAuthorization.policyHash !== authorization.policyHash ||
+      currentAuthorization.assessmentHash !== authorization.assessmentHash
+    ) {
+      const rejected = '安全策略或工具参数已变化，本次旧授权已失效，请重新发起调用'
+      return { content: rejected, rejected, replaced }
+    }
+    if (currentAuthorization.decision === 'deny') {
+      const rejected = `角色策略拒绝执行：${currentAuthorization.findings.map((finding) => finding.message).join('；')}`
+      return { content: rejected, rejected, replaced }
+    }
+
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
     // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
     // T9：yieldTurn 闭包让 sense（spawn_role wait=true）请求 loop 本轮后立即结束（置 soul.yieldTurn）。
@@ -362,6 +433,8 @@ async function doExecuteSense(
       },
       // 透传当前 sense call id（= sense message.id）。spawn_role 等需用此 id 回写 metadata 关联。
       messageId: id,
+      security: currentAuthorization,
+      workspaceRoot: getChatWorkspace(ctx.soul.chatId),
     })
 
     // 历史替换逻辑：hash 命中（read_file hash 含 mtime）= 文件未变动，新旧读取内容相同。

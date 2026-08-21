@@ -260,6 +260,7 @@ export const useAgentsStore = defineStore('agents', () => {
         args: cs.pendingApproval.arguments,
         waitTime: cs.pendingApproval.waitTime,
         createdAt: cs.pendingApproval.createdAt,
+        security: cs.pendingApproval.security,
       }
       stream.approvalQueue = []
     } else {

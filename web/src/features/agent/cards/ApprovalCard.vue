@@ -48,6 +48,14 @@ const remainingMs = computed(() =>
 const remainingSec = computed(() => Math.ceil(remainingMs.value / 1000))
 // 倒计时归零：后端超时 reject 已触发，按钮禁用等 rejected notification 卸载
 const expired = computed(() => showCountdown.value && remainingMs.value <= 0)
+const security = computed(() => props.approval.security)
+const riskLevel = computed(() => {
+  const findings = security.value?.findings ?? []
+  if (findings.some((item) => item.severity === 'unknown')) return '未知'
+  if (findings.some((item) => item.severity === 'high')) return '高风险'
+  if (findings.some((item) => item.severity === 'medium')) return '中风险'
+  return '低风险'
+})
 
 watch(expired, (value) => {
   if (value) chatSessions.expireApproval(props.chatId, props.approval.approvalId)
@@ -100,6 +108,19 @@ function closeToQueue(): void {
         ✕
       </button>
     </div>
+    <div v-if="security" class="security-summary">
+      <div class="security-meta">
+        <span>角色：{{ security.roleType }}</span>
+        <span>{{ riskLevel }}</span>
+        <span v-if="security.requiredSandboxMode">沙箱：{{ security.requiredSandboxMode }}</span>
+      </div>
+      <ul v-if="security.findings.length" class="security-findings">
+        <li v-for="(finding, index) in security.findings" :key="`${finding.code}-${index}`">
+          {{ finding.message }}
+          <code v-if="finding.fragment">{{ finding.fragment }}</code>
+        </li>
+      </ul>
+    </div>
     <ParsedArgs :args="approval.args" />
     <p v-if="submitError" class="submit-error" role="alert">{{ submitError }}</p>
     <div class="actions">
@@ -109,7 +130,7 @@ function closeToQueue(): void {
         :disabled="pending !== null || expired"
         @click="submit('accept')"
       >
-        Accept
+        批准本次执行
       </button>
       <button
         type="button"
@@ -117,7 +138,7 @@ function closeToQueue(): void {
         :disabled="pending !== null || expired"
         @click="submit('reject')"
       >
-        Reject
+        拒绝
       </button>
     </div>
   </div>
@@ -131,7 +152,7 @@ function closeToQueue(): void {
   flex-direction: column;
   gap: 4px;
   min-width: 140px;
-  max-width: 200px;
+  max-width: 320px;
 }
 
 .header {
@@ -207,6 +228,18 @@ function closeToQueue(): void {
   gap: 4px;
   margin-top: 2px;
 }
+
+.security-summary {
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, #dc2626 22%, var(--border));
+  border-radius: 5px;
+  background: color-mix(in srgb, #fef2f2 55%, var(--surface));
+  font-size: 9px;
+}
+.security-meta { display: flex; flex-wrap: wrap; gap: 3px 7px; font-weight: 700; }
+.security-findings { margin: 4px 0 0; padding-left: 14px; }
+.security-findings li { margin-top: 2px; overflow-wrap: anywhere; }
+.security-findings code { display: block; margin-top: 2px; white-space: pre-wrap; color: var(--ink); }
 
 .submit-error {
   margin: 1px 0 0;

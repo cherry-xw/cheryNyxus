@@ -5,6 +5,7 @@ import type { RuntimeSelection } from '@/agent/runtimeResolver.js'
 import type { ConfigRaw } from '@/utils/config.js'
 import type { ContextBreakdown } from '@/utils/token.js'
 import type { ThinkingBlockDelta } from '@/core/message/adapter.js'
+import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
 
 // ========== 消息基础类型 ==========
 
@@ -1457,6 +1458,7 @@ export interface CurrentStateData {
     supervisionLevel: number
     waitTime: number
     createdAt: number
+    security?: ToolAuthorization
   }
   /** 已发 sense_end/sense_started 但无 accept/rejected 的工具（含待审批）。run 未运行时为空。 */
   runningTools: { id: string; senseName: string }[]
@@ -2170,6 +2172,7 @@ export interface InterruptNotificationData {
   waitTime: number
   /** 审批发起时间戳（ms，Date.now()）。前端倒计时 = waitTime - (now - createdAt)。 */
   createdAt: number
+  security?: ToolAuthorization
 }
 
 /**

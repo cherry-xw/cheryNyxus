@@ -334,6 +334,7 @@ export function createStreamRouter(
         needsApproval?: boolean
         waitTime?: number
         createdAt?: number
+        security?: ApprovalState['security']
       }
       if (!d.approvalId || !d.senseName) {
         console.warn('[agents] interrupt: 字段残缺', d)
@@ -349,6 +350,7 @@ export function createStreamRouter(
           args: d.arguments,
           waitTime: d.waitTime ?? 0,
           createdAt: d.createdAt ?? Date.now(),
+          security: d.security,
         }
         if (stream.approval) {
           stream.approvalQueue.push(newApproval)

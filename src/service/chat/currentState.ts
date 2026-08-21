@@ -3,6 +3,7 @@ import { approvalManager } from '../approval/manager.js'
 import { isChatRunning } from './runtime.js'
 import { safeJsonParse } from '@/utils/json.js'
 import type { CurrentStateData } from '../message/types.js'
+import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
 
 /**
  * 计算刷新当前态快照（G8）。扫描近期 chat 事件 + 内存审批态，权威给出：
@@ -26,6 +27,7 @@ export function computeCurrentState(chatId: string): CurrentStateData {
     supervisionLevel: number
     waitTime: number
     createdAt: number
+    security?: ToolAuthorization
   }
 
   // 迭代近期事件（升序）：跟踪最近未决 interrupt + 未决 sense 调用 + 最近 todo
@@ -50,6 +52,7 @@ export function computeCurrentState(chatId: string): CurrentStateData {
             supervisionLevel: (data.supervisionLevel as number) ?? 1,
             waitTime: (data.waitTime as number) ?? 0,
             createdAt: (data.createdAt as number) ?? 0,
+            security: data.security as ToolAuthorization | undefined,
           }
           runningToolsMap.set(id, { id, senseName: (data.senseName as string) ?? '' })
         }

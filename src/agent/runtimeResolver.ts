@@ -13,6 +13,8 @@ import { getConnectedServerSenseNames } from '@/core/mcp'
 import { getSense as getBuiltinSense } from '@/core/sense'
 import type { SkillFilter } from '@/agent/prompt/loadSkill'
 import { buildSpawnRoleSense } from './sense/spawn.js'
+import { compileRoleSecurity } from '@/core/security/index.js'
+import { getChatType } from '@/db/chat.js'
 
 export interface RuntimeSelection {
   brain: string
@@ -161,7 +163,7 @@ export class RuntimeResolver {
    */
   resolve(
     selection: RuntimeSelection,
-    opts?: { injectMemoryManage?: boolean; ruleName?: string; chatId?: string },
+    opts?: { injectMemoryManage?: boolean; ruleName?: string; chatId?: string; roleName?: string },
   ): RuntimeConfig {
     this.validateSelection(selection)
 
@@ -175,12 +177,14 @@ export class RuntimeResolver {
       opts?.chatId,
     )
 
+    const roleType = opts?.roleName ?? (opts?.chatId ? getChatType(opts.chatId) : undefined)
     return {
       brain,
       adapters,
       builtSenses,
       senseTable,
       sensitivityRules: loadMergedRuleSet(opts?.ruleName),
+      roleSecurity: compileRoleSecurity(roleType, roleType ? config.roles?.[roleType] : undefined),
     }
   }
 

@@ -136,7 +136,7 @@ Preset 配置了 `workspace` 时注入：
 
 Workspace 从 preset 写入 chat metadata，子 chat 继承主 chat workspace。VCS 信息由 [src/utils/vcs.ts](../src/utils/vcs.ts) 检测并格式化。
 
-该段只是告诉模型目标项目目录，**不会**改变 `execute_command`、`read_file`、`write_file` 等 Sense 的 cwd、路径权限或沙箱边界。实际文件操作约束由对应 Sense 决定。
+该段同时是角色文件范围检查与 `execute_command` OS 沙箱的工作区根。命令的 `workdir` 必须位于其中；没有有效工作区时命令执行会 fail closed。
 
 ### 5. Memory
 

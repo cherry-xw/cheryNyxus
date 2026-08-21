@@ -25,6 +25,36 @@ const runtimeSelectionSchema = z.object({
 // ---------- config.save schema（结构与 ConfigRaw 一一对应，除 server 段）----------
 
 const supervisionNameSchema = z.enum(['auto', 'smart', 'manual'])
+const permissionEffectSchema = z.enum(['inherit', 'allow', 'ask', 'deny'])
+const rolePermissionSchema = z.object({
+  template: z.enum(['read-only', 'workspace-developer', 'supervised', 'trusted']),
+  tools: z.record(z.string(), permissionEffectSchema).optional(),
+  filesystem: z
+    .object({
+      read: z.enum(['deny', 'workspace', 'any']).optional(),
+      write: z.enum(['deny', 'workspace', 'any-with-approval']).optional(),
+    })
+    .optional(),
+  commands: z
+    .object({
+      shells: z.array(z.enum(['bash', 'powershell'])).optional(),
+      maxSandboxMode: z.enum(['read-only', 'workspace-write', 'danger-full-access']).optional(),
+      categories: z.record(z.string(), permissionEffectSchema).optional(),
+    })
+    .optional(),
+  mcp: z
+    .object({
+      default: permissionEffectSchema.optional(),
+      tools: z.record(z.string(), permissionEffectSchema).optional(),
+    })
+    .optional(),
+  spawn: z
+    .object({
+      allowedRoles: z.array(z.string()).optional(),
+      effect: permissionEffectSchema.optional(),
+    })
+    .optional(),
+})
 
 const brainSchema = z.object({
   url: z.string().optional(),
@@ -176,6 +206,7 @@ const configSaveSchema = z
           systemPrompt: z.string().optional(),
           skills: z.array(z.string()).optional(),
           plugins: z.array(z.string()).optional(),
+          permissions: rolePermissionSchema.optional(),
           lock: z.boolean().optional(),
         }),
       )

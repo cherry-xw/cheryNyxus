@@ -5,7 +5,7 @@
  * - store 内部协议：StreamChunkData / StagedChunkData / ChunkMessage / NotificationMessage
  */
 
-import type { RuntimeSelection, TerminationFact } from '@/services/agentApi'
+import type { RuntimeSelection, TerminationFact, ToolAuthorizationDto } from '@/services/agentApi'
 
 /** 消息内嵌媒体引用（从 content/result 解析 `/api/media/` URL）。 */
 export interface MediaAssetRef {
@@ -103,6 +103,7 @@ export interface ApprovalState {
   waitTime: number
   /** 审批发起时间戳（ms，来自 interrupt.createdAt）。倒计时 = waitTime - (now - createdAt)。 */
   createdAt: number
+  security?: ToolAuthorizationDto
 }
 
 export interface QuestionDraftAnswer {

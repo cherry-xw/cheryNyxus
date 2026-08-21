@@ -106,6 +106,36 @@ const equipmentEditor = computed(() => {
     tokenMap: mcpTokens.value,
   }
 })
+const permissionTemplate = computed({
+  get: () => current.value?.permissions?.template ?? 'supervised',
+  set: (template: NonNullable<RoleDraft['permissions']>['template']) => {
+    if (current.value) current.value.permissions = { template }
+  },
+})
+function ensurePermissions(): NonNullable<RoleDraft['permissions']> | undefined {
+  if (!current.value) return undefined
+  current.value.permissions ??= { template: 'supervised' }
+  return current.value.permissions
+}
+const allowedShells = computed<Array<'bash' | 'powershell'>>({
+  get: () => current.value?.permissions?.commands?.shells ?? ['bash', 'powershell'],
+  set: (shells) => {
+    const policy = ensurePermissions()
+    if (policy) policy.commands = { ...policy.commands, shells }
+  },
+})
+function setPermissionSection(
+  section: 'filesystem' | 'commands' | 'mcp' | 'spawn',
+  key: string,
+  value: unknown,
+): void {
+  const policy = ensurePermissions()
+  if (!policy) return
+  ;(policy as unknown as Record<string, unknown>)[section] = {
+    ...((policy as unknown as Record<string, unknown>)[section] as Record<string, unknown> | undefined),
+    [key]: value,
+  }
+}
 const promptOptions = computed(() => buildPromptTree(props.prompts))
 // clearable 清空时 cascader emit 空串，归一为 undefined（= 无专属背景，仅用全局）
 const systemPromptModel = computed<string>({
@@ -554,6 +584,33 @@ onMounted(() => emit('mode-change', roleMode.value))
           </div>
         </section>
 
+        <section class="detail-section permission-section">
+          <h3>行为权限</h3>
+          <p class="permission-hint">器官套装决定工具是否可见；这里决定每次调用允许、审核或拒绝。策略修改从下一次调用生效。</p>
+          <div class="permission-grid">
+            <label><span>策略模板</span><el-select v-model="permissionTemplate" size="small">
+              <el-option label="只读" value="read-only" /><el-option label="工作区开发" value="workspace-developer" />
+              <el-option label="全程监管" value="supervised" /><el-option label="受信任" value="trusted" />
+            </el-select></label>
+            <label><span>读取范围</span><el-select :model-value="current.permissions?.filesystem?.read" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'read', v)">
+              <el-option label="禁止" value="deny" /><el-option label="仅工作区" value="workspace" /><el-option label="任意路径" value="any" />
+            </el-select></label>
+            <label><span>写入范围</span><el-select :model-value="current.permissions?.filesystem?.write" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('filesystem', 'write', v)">
+              <el-option label="禁止" value="deny" /><el-option label="仅工作区" value="workspace" /><el-option label="区外需审核" value="any-with-approval" />
+            </el-select></label>
+            <label><span>最大沙箱权限</span><el-select :model-value="current.permissions?.commands?.maxSandboxMode" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('commands', 'maxSandboxMode', v)">
+              <el-option label="只读" value="read-only" /><el-option label="工作区可写" value="workspace-write" /><el-option label="完全访问（仍经 OS 沙箱）" value="danger-full-access" />
+            </el-select></label>
+            <label><span>MCP 默认</span><el-select :model-value="current.permissions?.mcp?.default" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('mcp', 'default', v)">
+              <el-option label="继承" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
+            </el-select></label>
+            <label><span>派遣角色</span><el-select :model-value="current.permissions?.spawn?.effect" placeholder="继承模板" clearable size="small" @update:model-value="(v: string | undefined) => setPermissionSection('spawn', 'effect', v)">
+              <el-option label="继承" value="inherit" /><el-option label="允许" value="allow" /><el-option label="每次审核" value="ask" /><el-option label="拒绝" value="deny" />
+            </el-select></label>
+          </div>
+          <div class="shell-choice"><span>允许脚本方言</span><el-checkbox-group v-model="allowedShells"><el-checkbox value="bash">Bash</el-checkbox><el-checkbox value="powershell">PowerShell</el-checkbox></el-checkbox-group></div>
+        </section>
+
         <section class="detail-section">
           <h3>装备栏</h3>
           <div class="equipment-grid">
@@ -645,6 +702,10 @@ onMounted(() => emit('mode-change', roleMode.value))
 .roles-workspace :deep(.resource-workbench) {
   flex: 1;
 }
+.permission-hint { margin: 0 0 8px; color: color-mix(in srgb, var(--ink) 58%, transparent); font-size: 10px; }
+.permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.permission-grid label { display: grid; gap: 3px; font-size: 10px; font-weight: 700; }
+.shell-choice { display: flex; align-items: center; gap: 12px; margin-top: 8px; font-size: 10px; font-weight: 700; }
 .role-mode-stack {
   position: relative;
   width: 142px;

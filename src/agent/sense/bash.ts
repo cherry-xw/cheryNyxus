@@ -1,11 +1,15 @@
 import { z } from 'zod'
-import { spawn } from 'child_process'
 import { writeFileSync } from 'fs'
 import { sense, type SenseResult } from '@/core/sense'
 import { SupervisionLevel } from '@/core/config'
 import config from '@/utils/config'
 import { logger, type BashLogInfo } from '@/utils/logger/index.js'
 import { registerBashProcess, unregisterBashProcess } from './processRegistry.js'
+import {
+  resolveShellExecutable,
+  resolveWorkdir,
+  spawnSandboxedCommand,
+} from '@/core/security/sandbox.js'
 
 const DEFAULT_TIMEOUT = config.global.sense_execute_timeout ?? 30000
 const LOG_RETENTION_HOURS = config.global.bash_log_retention_hours ?? 24
@@ -53,16 +57,18 @@ function formatBashResult(result: BashResult): string {
 }
 
 const BashSchema = z.object({
-  command: z.string().describe('要执行的 bash 命令'),
+  shell: z.enum(['bash', 'powershell']).describe('脚本方言，必须显式指定'),
+  command: z.string().describe('要执行的脚本源码'),
   description: z.string().describe('命令说明描述命令用途'),
+  workdir: z.string().optional().describe('工作目录（相对会话工作区，缺省为工作区根目录）'),
 })
 
 export default sense(
   'execute_command',
-  `执行 shell 命令（Unix: bash/sh，Windows: cmd/powershell）。如需切换工作目录，请在命令中使用 "cd <目录> && ..." 格式`,
+  `在 OS 沙箱中按精确 argv 执行 Bash 或 PowerShell。必须显式指定 shell；workdir 只能位于会话工作区内。`,
   BashSchema,
   async (input, _senseSharedData, senseCtx): Promise<SenseResult> => {
-    const { command, description } = input
+    const { shell, command, description, workdir } = input
 
     const startTime = Date.now()
     const hash = ''
@@ -73,15 +79,34 @@ export default sense(
     // 测试场景（无 ctx）为 undefined → register 跳过，执行不受影响
     const chatId = senseCtx?.chatId
 
+    if (!senseCtx?.workspaceRoot) {
+      return { content: '状态: error\n说明: 当前会话没有有效工作区，已拒绝执行命令' }
+    }
+    if (!senseCtx.security?.requiredSandboxMode) {
+      return { content: '状态: error\n说明: 缺少已复核的沙箱授权，已拒绝执行命令' }
+    }
+
+    let cwd: string
+    let sandboxed: ReturnType<typeof spawnSandboxedCommand>
+    try {
+      cwd = resolveWorkdir(senseCtx.workspaceRoot, workdir)
+      const shellCommand = resolveShellExecutable(shell)
+      sandboxed = spawnSandboxedCommand({
+        executable: shellCommand.executable,
+        args: [...shellCommand.args, command],
+        cwd,
+        workspaceRoot: senseCtx.workspaceRoot,
+        mode: senseCtx.security.requiredSandboxMode,
+      })
+    } catch (error) {
+      return { content: `状态: error\n说明: ${(error as Error).message}` }
+    }
+
     return new Promise((resolve) => {
       let timedOut = false
       let outputBuffer = '' // 实时累积 stdout/stderr
 
-      const proc = spawn(command, [], {
-        shell: true,
-        detached: true, // 新会话/进程组组长，供 processRegistry 用 process.kill(-pid) 杀整个进程组
-        windowsHide: true, // Windows: CREATE_NO_WINDOW，隐藏 cmd.exe 控制台窗口（不影响 detached 进程组语义）
-      })
+      const proc = sandboxed.process
 
       const processPid = proc.pid!
 
@@ -129,6 +154,7 @@ export default sense(
 
       proc.on('close', (code) => {
         clearTimeout(timer)
+        sandboxed.cleanup()
         // 运行结束清除 / 杀死后清除：kill 亦触发 close，统一在此注销（超时挂起项此时才清除）
         unregisterBashProcess(chatId, processPid)
         if (!timedOut) {
@@ -151,6 +177,7 @@ export default sense(
 
       proc.on('error', (err) => {
         clearTimeout(timer)
+        sandboxed.cleanup()
         unregisterBashProcess(chatId, processPid)
         if (!timedOut) {
           const endTime = Date.now()
@@ -171,5 +198,5 @@ export default sense(
       })
     })
   },
-  SupervisionLevel.manual,
+  SupervisionLevel.smart,
 )

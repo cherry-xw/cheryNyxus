@@ -24,6 +24,7 @@ import type { GlobalConfig, BrainConfig } from "@/utils/config.js";
 import type { ZodType } from "zod";
 import { logger } from "@/utils/logger/index.js";
 import { MessageJournal } from "@/core/middleware/messageJournal.js";
+import { compileRoleSecurity } from '@/core/security/rolePolicy.js'
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   thinking: false,
@@ -124,6 +125,9 @@ export function createMockRuntime(opts: {
     },
     builtSenses: senses.map((s) => ({ type: "function", function: s.definition.function })),
     senseTable: buildSenseTable(senses),
+    roleSecurity: compileRoleSecurity('__testHarness', {
+      brain: 'test', senseGroup: 'test', permissions: { template: 'trusted' },
+    }),
   };
 }
 

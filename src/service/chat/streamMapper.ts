@@ -194,6 +194,7 @@ export async function* streamAgentChunks(
               needsApproval,
               waitTime: config.global.approval_timeout ?? 0,
               createdAt: Date.now(),
+              security: sc.security,
             },
             { chatId, runId },
           )
