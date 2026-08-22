@@ -112,7 +112,7 @@ const statusGlyph = (s: TodoItem['status']): string =>
   }
   .head-title {
     flex: 1;
-    font-weight: 800;
+    font-weight: 600;
   }
   .head-count {
     font-size: 9px;

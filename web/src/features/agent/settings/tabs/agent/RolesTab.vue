@@ -865,7 +865,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
 }
 .risk-dot {
   width: 7px;
@@ -883,7 +883,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   background: color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
   font-size: 9px;
   font-style: normal;
-  font-weight: 700;
+  font-weight: 600;
 }
 .tpl-tagline {
   font-size: 10px;
@@ -911,7 +911,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   h4 {
     margin: 0;
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 60%, transparent);
   }
 }
@@ -927,7 +927,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   em {
     font-size: 9px;
     font-style: normal;
-    font-weight: 700;
+    font-weight: 600;
     color: var(--tab-color, @accent);
     &::before {
       content: '';
@@ -960,13 +960,13 @@ onMounted(() => emit('mode-change', roleMode.value))
   font-size: 10px;
 }
 .preview-k {
-  font-weight: 800;
+  font-weight: 400;
   color: color-mix(in srgb, var(--ink) 62%, transparent);
 }
 .preview-dim {
   color: color-mix(in srgb, var(--ink) 66%, transparent);
   &.customized {
-    font-weight: 700;
+    font-weight: 400;
     color: color-mix(in srgb, var(--tab-color, @accent) 82%, @ink);
   }
   em {
@@ -995,7 +995,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   color: color-mix(in srgb, var(--ink) 72%, transparent);
   font: inherit;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   text-align: left;
   cursor: pointer;
   transform-origin: center;
@@ -1064,7 +1064,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   border: 0;
   border-radius: 6px;
   background: var(--tab-color, @accent);
-  font-weight: 800;
+  font-weight: 600;
   cursor: pointer;
   padding: 0 11px;
 }
@@ -1148,7 +1148,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .detail-section {
   padding: 10px;
@@ -1173,7 +1173,7 @@ onMounted(() => emit('mode-change', roleMode.value))
 .core-field > span {
   padding-top: 6px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 .choice-board {
@@ -1212,14 +1212,14 @@ onMounted(() => emit('mode-change', roleMode.value))
 
 .brain-choice-name {
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
 }
 
 .brain-choice-model {
   font-size: 10px;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
-  font-weight: 500;
+  font-weight: 400;
 }
 .choice-board.compact button {
   min-height: 26px;
@@ -1271,7 +1271,7 @@ onMounted(() => emit('mode-change', roleMode.value))
   flex: none;
   width: 32px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 400;
   color: color-mix(in srgb, var(--ink) 66%, transparent);
 }
 .roster-tag {

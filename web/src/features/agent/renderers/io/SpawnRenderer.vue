@@ -166,7 +166,7 @@ function onDrillDetail(): void {
   }
 
   .spawn-name {
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
@@ -177,7 +177,7 @@ function onDrillDetail(): void {
     border-radius: 3px;
     background: rgba(168, 85, 247, 0.12);
     color: #2563eb;
-    font-weight: 700;
+    font-weight: 400;
     text-align: right;
   }
 
@@ -214,7 +214,7 @@ function onDrillDetail(): void {
 .spawn-label {
   flex-shrink: 0;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
@@ -238,7 +238,7 @@ function onDrillDetail(): void {
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 400;
   background: rgba(59, 130, 246, 0.12);
   color: #2563eb;
 }

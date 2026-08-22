@@ -132,7 +132,7 @@ function setMode(value: string[] | undefined): void {
 .equipment-token {
   flex-shrink: 0;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
 }
 .equipment-mode {
@@ -153,7 +153,7 @@ function setMode(value: string[] | undefined): void {
   background: color-mix(in srgb, var(--tab-color, @accent) 15%, var(--surface));
   border-color: color-mix(in srgb, var(--tab-color, @accent) 48%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
-  font-weight: 800;
+  font-weight: 600;
 }
 .equipment-mode button:disabled,
 .manage-btn:disabled {

@@ -109,12 +109,12 @@ const selectedLabel = computed(() => {
 }
 .routing-trace-title {
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
   color: var(--accent-ink);
 }
 .routing-trace-status {
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 400;
   color: color-mix(in srgb, var(--ink) 55%, transparent);
   &.is-routing {
     color: var(--accent-ink);
@@ -124,7 +124,7 @@ const selectedLabel = computed(() => {
 .routing-trace-section-title {
   margin-bottom: 4px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 48%, transparent);
 }
 
@@ -145,7 +145,7 @@ const selectedLabel = computed(() => {
   &.is-selected {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
     color: var(--accent-ink);
-    font-weight: 700;
+    font-weight: 400;
   }
 }
 .routing-trace-check {
@@ -167,7 +167,7 @@ const selectedLabel = computed(() => {
   border-radius: 4px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent-ink);
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .routing-trace-block {

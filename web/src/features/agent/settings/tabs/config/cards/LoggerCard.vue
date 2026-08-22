@@ -97,7 +97,7 @@ function toggleLoggerOutput(value: 'console' | 'file'): void {
 }
 .logger-console > div > span {
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
 </style>

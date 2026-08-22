@@ -997,7 +997,7 @@ defineExpose({
   border-radius: 7px;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 400;
   color: var(--ink);
   transition: background-color 100ms ease;
 
@@ -1013,7 +1013,7 @@ defineExpose({
 .media-svc-tag {
   margin-left: auto;
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 1px 6px;
   border-radius: 4px;
   background: rgba(246, 183, 60, 0.15);
@@ -1039,7 +1039,7 @@ defineExpose({
   box-shadow: 0 7px 18px rgba(20, 22, 26, 0.18);
   color: var(--ink);
   font-size: 10.5px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.45;
   pointer-events: none;
 }
@@ -1047,7 +1047,7 @@ defineExpose({
 .instruction-token-floating-title {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .instruction-token-floating-description {
@@ -1063,6 +1063,6 @@ defineExpose({
   color: var(--accent-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
 }
 </style>

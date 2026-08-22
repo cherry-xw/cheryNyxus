@@ -198,7 +198,7 @@ onBeforeUnmount(() => {
 
   .file-name {
     flex: 1;
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
@@ -236,7 +236,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   line-height: 17px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 

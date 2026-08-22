@@ -312,7 +312,7 @@ onMounted(loadHooks)
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.5;
   white-space: nowrap;
   &.action {
@@ -368,7 +368,7 @@ onMounted(loadHooks)
 
 .ev-label {
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -558,7 +558,7 @@ onMounted(loadHooks)
 
 .guide-title {
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
@@ -616,7 +616,7 @@ onMounted(loadHooks)
 .brain-title {
   margin: 0 0 4px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
 }
 

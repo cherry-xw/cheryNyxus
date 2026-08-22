@@ -447,7 +447,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   padding: 0 3px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
   background: var(--surface-soft);
   border-radius: 3px;

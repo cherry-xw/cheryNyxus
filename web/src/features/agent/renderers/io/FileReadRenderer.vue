@@ -219,7 +219,7 @@ const fallback = computed(() => {
 
   .file-name {
     flex: 1;
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
@@ -257,7 +257,7 @@ const fallback = computed(() => {
   flex-shrink: 0;
   font-size: 10px;
   line-height: 17px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
@@ -377,7 +377,7 @@ const fallback = computed(() => {
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 400;
   background: rgba(234, 179, 8, 0.16);
   color: #ca8a04;
 }

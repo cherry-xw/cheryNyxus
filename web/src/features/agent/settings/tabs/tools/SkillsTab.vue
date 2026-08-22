@@ -475,14 +475,14 @@ code {
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   padding: 3px 9px;
   cursor: pointer;
 }
 .sect-title {
   margin: 0 0 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
   border-bottom: 1px dashed color-mix(in srgb, var(--ink) 12%, transparent);
   padding-bottom: 3px;
@@ -515,7 +515,7 @@ code {
   flex: 1 1 180px;
   min-width: 0;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   white-space: normal;
   overflow-wrap: anywhere;
@@ -556,7 +556,7 @@ code {
 }
 .badge {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
   cursor: default;
@@ -593,7 +593,7 @@ code {
   flex-direction: column;
   gap: 3px;
   .k {
-    font-weight: 700;
+    font-weight: 400;
     color: color-mix(in srgb, var(--ink) 88%, transparent);
   }
 }
@@ -631,7 +631,7 @@ code {
   text-align: center;
   .empty-title {
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {

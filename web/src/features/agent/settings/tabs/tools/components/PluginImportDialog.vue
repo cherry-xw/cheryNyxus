@@ -664,7 +664,7 @@ onMounted(() => {
   background: rgba(255, 138, 0, 0.08);
   color: #ffd49a;
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 600;
   cursor: pointer;
   transition: 0.18s ease;
 }
@@ -944,7 +944,7 @@ button:disabled {
   padding: 0 13px;
   border-radius: 8px;
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 600;
   cursor: pointer;
 }
 .ghost-btn {

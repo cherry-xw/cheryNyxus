@@ -145,7 +145,7 @@ function pickPreset(name: string): void {
 
 .picker-title {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
   padding: 2px 6px 4px;
   letter-spacing: 0.02em;
@@ -198,7 +198,7 @@ function pickPreset(name: string): void {
 
   .pi-name {
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 

@@ -297,7 +297,7 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   color: #7c3aed;
   user-select: none;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -340,7 +340,7 @@ const emit = defineEmits<{
   border-top: 1px dashed rgba(70, 76, 86, 0.2);
   color: var(--ink);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
 }
 .termination-tail.tone-warning,
 .termination-tail.tone-user {
@@ -360,7 +360,7 @@ const emit = defineEmits<{
   background: rgba(75, 108, 69, 0.12);
   color: var(--ink);
   color: #456342;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 // 气泡头部：thinking 开关（左）+ 时间戳（右）同行
@@ -441,7 +441,7 @@ const emit = defineEmits<{
   background: color-mix(in srgb, #f6b73c 18%, var(--surface-soft));
   color: color-mix(in srgb, #b67c1c 72%, var(--ink));
   font-size: 10.5px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.45;
   vertical-align: baseline;
 }

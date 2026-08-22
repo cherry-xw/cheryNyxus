@@ -453,7 +453,7 @@ function disconnectLocal(): void {
 .glass-title {
   margin: 0;
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.3px;
 }
 .glass-sub {

@@ -471,8 +471,8 @@ onBeforeUnmount(() => {
   border-color: #f6b73c;
   box-shadow:
     0 9px 22px rgba(31, 35, 40, 0.14),
-    0 0 0 1px rgba(246, 183, 60, 0.18),
-    0 0 16px rgba(246, 183, 60, 0.12);
+    0 0 0 1px rgba(246, 183, 60, 0.32),
+    0 0 16px rgba(246, 183, 60, 0.16);
 }
 .fold-wheel-card.is-ghost {
   display: grid;
@@ -581,8 +581,8 @@ onBeforeUnmount(() => {
     border-color: #b5fff2;
     box-shadow:
       0 9px 22px rgba(0, 0, 0, 0.4),
-      0 0 0 1px rgba(181, 255, 242, 0.18),
-      0 0 16px rgba(107, 207, 247, 0.2);
+      0 0 0 1px rgba(181, 255, 242, 0.34),
+      0 0 16px rgba(107, 207, 247, 0.26);
   }
   .fold-wheel-card.is-ghost {
     color: rgba(157, 216, 238, 0.44);

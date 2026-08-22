@@ -743,7 +743,7 @@ const indexItems = computed<IndexItem[]>(() => {
   align-items: center;
   gap: 9px;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 600;
   line-height: 1.2;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
@@ -845,7 +845,7 @@ const indexItems = computed<IndexItem[]>(() => {
   align-items: center;
   gap: 3px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 86%, transparent);
 }
 .member-role-card {
@@ -876,7 +876,7 @@ const indexItems = computed<IndexItem[]>(() => {
   gap: 6px;
   b {
     color: color-mix(in srgb, var(--ink) 66%, transparent);
-    font-weight: 700;
+    font-weight: 600;
   }
 }
 .member-card-senses {

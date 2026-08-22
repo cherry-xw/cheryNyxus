@@ -145,7 +145,7 @@ function onKeydown(e: KeyboardEvent): void {
   &.current {
     transform: translateY(-1px);
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-    font-weight: 800;
+    font-weight: 600;
   }
 
   &:hover {

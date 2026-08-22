@@ -312,13 +312,13 @@ code {
 
 .card-title {
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 
 .badge.warn {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--danger) 18%, transparent);
@@ -341,7 +341,7 @@ code {
   text-align: center;
   .empty-title {
     font-size: 14px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 80%, transparent);
   }
   .empty-hint {

@@ -630,7 +630,7 @@ watch(
   background: rgba(46, 242, 255, 0.08);
   color: #c9fbff;
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 600;
   cursor: pointer;
   transition: 0.18s ease;
 }

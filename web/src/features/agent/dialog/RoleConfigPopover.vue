@@ -288,7 +288,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   background: #d99717;
   color: #fff;
   font-size: 20px;
-  font-weight: 800;
+  font-weight: 600;
   box-shadow: 0 2px 8px rgba(129, 88, 15, 0.2);
 }
 
@@ -318,7 +318,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
 
 .identity-kind {
   color: var(--accent-ink);
-  font-weight: 750;
+  font-weight: 600;
 }
 .brain-name {
   color: color-mix(in srgb, var(--ink) 72%, transparent);
@@ -342,7 +342,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   b {
     margin-right: 3px;
     color: color-mix(in srgb, var(--ink) 42%, transparent);
-    font-weight: 700;
+    font-weight: 600;
   }
 
   .brain-fact-icon {
@@ -412,7 +412,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
   margin-bottom: 4px;
   color: color-mix(in srgb, var(--ink) 68%, transparent);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: 0.03em;
 }
 
@@ -481,7 +481,7 @@ const roleDefault = computed<{ brain: string; senseGroup: string }>(() => {
     border-color: color-mix(in srgb, var(--accent) 33%, transparent);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     color: var(--accent-ink);
-    font-weight: 750;
+    font-weight: 400;
 
     &:hover {
       background: color-mix(in srgb, var(--accent) 15%, transparent);

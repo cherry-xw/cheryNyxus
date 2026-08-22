@@ -240,7 +240,7 @@ const canHide = computed(() => {
   appearance: none;
   color: var(--pet-console-ink, var(--ink));
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   cursor: pointer;
   overflow: visible;
@@ -312,7 +312,7 @@ const canHide = computed(() => {
     color: var(--ink);
     box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 400;
     line-height: 1.2;
     white-space: nowrap;
     opacity: 0;

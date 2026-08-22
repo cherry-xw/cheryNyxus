@@ -290,7 +290,7 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
   gap: 5px;
   color: #646d84;
   font-size: 9px;
-  font-weight: 850;
+  font-weight: 600;
   white-space: nowrap;
   transition: 0.22s ease;
 }
@@ -890,7 +890,7 @@ const opening = computed(() => props.phase === 'scanning' || props.phase === 'co
       rgba(255, 138, 0, 0.12)
     );
     color: #c9ff43;
-    font-weight: 900;
+    font-weight: 600;
     text-shadow: 0 0 8px rgba(201, 255, 67, 0.28);
   }
   .el-select-dropdown__empty {

@@ -48,6 +48,7 @@
 | [settings.md](./settings.md) | 设置中心资源工作台、角色头像与装备、大量技能分页和仓库检查交互。 |
 | [frontend-protocol-binding.md](./frontend-protocol-binding.md) | 前端协议消费手册：RPC / Notification / Chunk 字段映射到 store / StreamState / UI 组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口 |
 | [frontend-refactor-handoff.md](./frontend-refactor-handoff.md) | F1-F5 重构执行手册（transient，F4 落地后归档/并入 [pet/](./pet/) 等永久架构文档） |
+| [font-style-guide.md](./font-style-guide.md) | **前端字体字重规范**：全局 400/600 字重收敛规则、豁免清单（图标/pet 特殊视觉/markdown strong）、判别流程。新 UI 样式开发遵循 |
 | [web/src/features/agent/AgentDialog.vue](../../web/src/features/agent/AgentDialog.vue) | 会话消息弹窗：配置角色临时编制、以富文本正文编辑消息与 slash 指令 token，并在独立附件区选择、预览和移除媒体。发送目标选择（quickTarget）生命周期约定见 [../interaction.md](../interaction.md) chat.route.suggest 章节。 |
 | [web/electron/main.ts](../../web/electron/main.ts) | Electron 主进程：desktop 全工作区透明宠物窗（启动即建）+ settings/workbench 原生独立窗（ManagedWindow 注册表，托盘打开设置）+ Tray（含开机自启开关），详见 [./electron.md](./electron.md) |
 | [web/scripts/electron-dev.mjs](../../web/scripts/electron-dev.mjs) | `electron:dev` 跨平台 wrapper：Windows 直接 `vite`（vite-plugin-electron 拉起 electron）；其他平台转发 [electron-dev.sh](../../web/scripts/electron-dev.sh) 选 xrdp display + `unset ELECTRON_RUN_AS_NODE` |
@@ -78,6 +79,16 @@
 | [web/dist-electron/main.js](../../web/dist-electron/) | rollup 经 `vite-plugin-electron` 产出的主进程 ESM |
 
 `base:'./'` 保证 Electron `loadFile` 相对路径正确。
+
+### 主题对比度 token（2026-08-22 统一增强）
+
+全局主题 token 定义在 [theme.css](../../web/src/styles/theme.css)（`:root` 浅色 / `[data-theme='dark']` 深色两套）：
+
+- **文字层级**：`--ink` / `--nx-text`（正文）→ `--nx-text-dim`（次级）→ `--nx-text-faint`（弱化）。统一拉大层级间与背景的对比（深色 `--nx-text` #d7dfd8→#f0f5f1、`--nx-text-faint` 0.5→0.7；浅色边框/弱化同步增强）。
+- **底色**：深色 `--nx-bg` 由青灰 `rgba(55,61,60,0.97)` → **更深 `rgba(37,43,41,0.98)`** 增加文字对比；浅色 `--nx-bg` 更白 `rgba(252,251,248,0.98)`。
+- **选中/高亮**：深色面板选中态原用 `color-mix(in srgb, var(--nx-*) 10-18%, transparent)` 低透明叠层（浅紫/浅蓝可读性差）→ 系统提升至 **26-34%（底色更实）+ 边框 55%→70%+（亮边框）**，集中收敛于 [nyxusPopoverTheme.less](../../web/src/features/pets/nyxus/styles/nyxusPopoverTheme.less)（C2/C7/C10/C11/D3/approval-frame 区块）。新增/修改选中态沿用此数值区间，勿回退到 <20%。
+- **字重**：深色 CRT 面板（待确认面板 / 节点弹窗）统一 **400 字重**（小字号下 600+ 会糊字）。
+- **约定**：组件样式一律引用 `var(--nx-*)` / `var(--ink)` 语义 token，不硬编码 hex / 低透明叠层数值。
 
 ## 关键流程
 

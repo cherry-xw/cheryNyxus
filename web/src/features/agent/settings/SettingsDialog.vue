@@ -973,7 +973,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 }
 .error-tab-badge {
   flex: 0 0 auto;
-  font-weight: 700;
+  font-weight: 600;
 }
 .error-text {
   flex: 1 1 auto;
@@ -1018,7 +1018,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   }
   .title {
     font-size: 15px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 92%, transparent);
   }
 }
@@ -1159,7 +1159,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   &.active {
     background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
     color: color-mix(in srgb, var(--tab-color, @accent) 80%, @ink);
-    font-weight: 700;
+    font-weight: 600;
     box-shadow: 0 0 12px color-mix(in srgb, var(--tab-color, @accent) 28%, transparent);
     // conic 转圈边框：伪元素 mask 镂空，只让 1px 边框显 conic 渐变并旋转
     &::before {
@@ -1284,7 +1284,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   );
   color: #3b2b12;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   &:disabled {
     opacity: 0.5;

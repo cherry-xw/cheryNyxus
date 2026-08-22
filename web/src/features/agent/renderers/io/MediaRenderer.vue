@@ -185,7 +185,7 @@ const fallback = computed(() => {
 
   .media-name {
     flex: 1;
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 

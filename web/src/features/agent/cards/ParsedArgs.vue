@@ -58,13 +58,13 @@ const hasArgs = computed(() => {
 }
 
 .args-toggle {
-  padding: 1px 5px;
+  padding: 2px 7px;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface-soft);
-  color: color-mix(in srgb, var(--ink) 70%, transparent);
-  font-size: 9px;
-  font-weight: 700;
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  font-size: 13px;
+  font-weight: 400;
   cursor: pointer;
 
   &:hover {
@@ -76,7 +76,7 @@ const hasArgs = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-left: 4px;
+  padding-left: 8px;
   width: 100%;
 }
 
@@ -96,9 +96,9 @@ const hasArgs = computed(() => {
 .arg-key {
   flex-shrink: 0;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 9px;
-  font-weight: 700;
-  color: color-mix(in srgb, var(--ink) 60%, transparent);
+  font-size: 13px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
 }
 
 .arg-val {
@@ -107,33 +107,29 @@ const hasArgs = computed(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 9px;
-  line-height: 1.4;
-  color: color-mix(in srgb, var(--ink) 82%, transparent);
-  max-height: 80px;
-  overflow: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--ink) 90%, transparent);
 }
 
 .arg-empty {
-  font-size: 9px;
+  font-size: 12px;
   font-style: italic;
-  color: color-mix(in srgb, var(--ink) 44%, transparent);
+  color: color-mix(in srgb, var(--ink) 58%, transparent);
 }
 
 .args-pre {
   margin: 0;
-  padding: 3px 5px;
+  padding: 4px 6px;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
-  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: color-mix(in srgb, var(--ink) 90%, transparent);
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 9px;
-  font-weight: 500;
-  line-height: 1.4;
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  max-height: 80px;
-  overflow: auto;
   width: 100%;
 }
 </style>

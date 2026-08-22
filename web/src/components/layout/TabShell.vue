@@ -108,7 +108,7 @@ function scrollTo(item: IndexItem, i: number): void {
 
   .index-card-title {
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 88%, transparent);
     line-height: 1.3;
     word-break: break-all;
@@ -123,7 +123,7 @@ function scrollTo(item: IndexItem, i: number): void {
     line-height: 1.4;
 
     b {
-      font-weight: 700;
+      font-weight: 600;
       color: color-mix(in srgb, var(--ink) 55%, transparent);
       font-size: 10px;
       letter-spacing: 0.02em;

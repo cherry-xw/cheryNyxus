@@ -172,20 +172,20 @@ function closeToQueue(): void {
 
   .sense-name {
     color: color-mix(in srgb, #dc2626 80%, var(--ink));
-    font-size: 11px;
-    font-weight: 800;
+    font-size: 13px;
+    font-weight: 400;
     line-height: 1.2;
     overflow-wrap: anywhere;
   }
 
   .countdown {
     margin-left: auto;
-    padding: 1px 5px;
+    padding: 1px 6px;
     border-radius: 4px;
     background: rgba(234, 88, 12, 0.12);
     color: color-mix(in srgb, #16a34a 80%, var(--ink));
-    font-size: 9px;
-    font-weight: 800;
+    font-size: 12px;
+    font-weight: 400;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
 
@@ -197,15 +197,15 @@ function closeToQueue(): void {
 
   .close-btn {
     flex-shrink: 0;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     padding: 0;
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--surface-soft);
-    color: color-mix(in srgb, var(--ink) 56%, transparent);
-    font-size: 9px;
-    font-weight: 700;
+    color: color-mix(in srgb, var(--ink) 58%, transparent);
+    font-size: 11px;
+    font-weight: 400;
     line-height: 1;
     cursor: pointer;
     transition:
@@ -231,13 +231,13 @@ function closeToQueue(): void {
 }
 
 .security-summary {
-  padding: 5px;
+  padding: 6px;
   border: 1px solid color-mix(in srgb, #dc2626 22%, var(--border));
   border-radius: 5px;
   background: color-mix(in srgb, #fef2f2 55%, var(--surface));
-  font-size: 9px;
+  font-size: 12px;
 }
-.security-meta { display: flex; flex-wrap: wrap; gap: 3px 7px; font-weight: 700; }
+.security-meta { display: flex; flex-wrap: wrap; gap: 3px 7px; font-weight: 400; }
 .security-findings { margin: 4px 0 0; padding-left: 14px; }
 .security-findings li { margin-top: 2px; overflow-wrap: anywhere; }
 .security-findings code { display: block; margin-top: 2px; white-space: pre-wrap; color: var(--ink); }
@@ -245,17 +245,18 @@ function closeToQueue(): void {
 .submit-error {
   margin: 1px 0 0;
   color: color-mix(in srgb, #dc2626 80%, var(--ink));
+  font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
 
 .btn {
   flex: 1;
-  padding: 3px 6px;
+  padding: 4px 7px;
   border: 1px solid;
   border-radius: 5px;
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 13px;
+  font-weight: 400;
   cursor: pointer;
   transition:
     background 120ms ease,

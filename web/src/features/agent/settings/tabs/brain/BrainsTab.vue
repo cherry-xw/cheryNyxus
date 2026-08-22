@@ -147,7 +147,7 @@ function add(): void {
   border: 0;
   border-radius: 6px;
   background: var(--tab-color, @accent);
-  font-weight: 800;
+  font-weight: 600;
   cursor: pointer;
   padding: 0 11px;
 }

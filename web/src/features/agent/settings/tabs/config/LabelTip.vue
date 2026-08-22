@@ -21,7 +21,7 @@ defineProps<{ label: string; tip: string }>()
 <style scoped lang="less">
 .lbl {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
   display: inline-flex;
   align-items: center;

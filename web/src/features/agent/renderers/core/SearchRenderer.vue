@@ -178,7 +178,7 @@ const fallback = computed(() => {
 
   .search-name {
     flex: 1;
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
@@ -188,7 +188,7 @@ const fallback = computed(() => {
     border-radius: 3px;
     background: rgba(59, 130, 246, 0.12);
     color: #2563eb;
-    font-weight: 700;
+    font-weight: 400;
   }
 
   .search-status {
@@ -224,7 +224,7 @@ const fallback = computed(() => {
 .search-label {
   flex-shrink: 0;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
 
@@ -246,7 +246,7 @@ const fallback = computed(() => {
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 400;
   background: rgba(168, 85, 247, 0.12);
   color: #2563eb;
 }

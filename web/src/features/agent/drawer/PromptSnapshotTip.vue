@@ -139,7 +139,7 @@ function paramFields(
   gap: 6px;
   color: color-mix(in srgb, var(--ink) 82%, transparent);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.04em;
 }
 .ps-count {
@@ -193,7 +193,7 @@ function paramFields(
   color: #047857;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 .ps-tool-desc {
   color: color-mix(in srgb, var(--ink) 66%, transparent);

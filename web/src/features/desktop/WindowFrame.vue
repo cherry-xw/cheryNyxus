@@ -135,12 +135,13 @@ onMounted(() => {
 .window-frame-title-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
   -webkit-app-region: no-drag;
 }
 
 .window-frame-title {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
 }
 

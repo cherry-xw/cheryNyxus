@@ -278,7 +278,7 @@ function onPointerDown(e: PointerEvent): void {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 600;
 }
 // 尾部操作区：还原在前、关闭结尾，按钮全高贴边与胶囊融合。
 .workbench-capsule-actions {

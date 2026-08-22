@@ -262,7 +262,7 @@ function onAvatarClick(): void {
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
   color: #7c3aed;
   user-select: none;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -355,7 +355,7 @@ function onAvatarClick(): void {
 
   .panel-name {
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 88%, transparent);
     margin-bottom: 6px;
     word-break: break-word;

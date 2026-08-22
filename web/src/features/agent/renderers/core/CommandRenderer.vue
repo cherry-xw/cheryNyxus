@@ -263,7 +263,7 @@ onBeforeUnmount(() => {
   }
 
   .cmd-name {
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
   }
 
@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
 .cmd-label {
   flex-shrink: 0;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 17px;
   color: color-mix(in srgb, var(--ink) 56%, transparent);
 }
@@ -329,7 +329,7 @@ onBeforeUnmount(() => {
   margin-left: 2px;
   margin-right: 8px;
   font-size: 9.5px;
-  font-weight: 500;
+  font-weight: 400;
   color: color-mix(in srgb, var(--ink) 48%, transparent);
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   overflow: hidden;
@@ -341,7 +341,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 17px;
   color: color-mix(in srgb, var(--ink) 92%, transparent);
   white-space: pre-wrap;
@@ -434,7 +434,7 @@ onBeforeUnmount(() => {
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 9px;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .timeout-badge {

@@ -120,7 +120,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
 
   .sense-name {
     flex: 1;
-    font-weight: 700;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
     word-break: break-all;
   }
@@ -205,7 +205,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   flex-shrink: 0;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 10.5px;
-  font-weight: 700;
+  font-weight: 400;
   color: color-mix(in srgb, var(--ink) 64%, transparent);
 }
 

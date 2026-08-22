@@ -78,7 +78,7 @@ function commit(): void {
   white-space: nowrap;
   font-size: 10px;
   line-height: 13px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 .neon-number-console {

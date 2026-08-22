@@ -152,7 +152,7 @@ function remove(name: string): void {
   background: color-mix(in srgb, var(--tab-color, @accent) 14%, var(--surface));
   color: color-mix(in srgb, var(--tab-color, @accent) 76%, @ink);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   cursor: pointer;
 }
 .selected-roster {

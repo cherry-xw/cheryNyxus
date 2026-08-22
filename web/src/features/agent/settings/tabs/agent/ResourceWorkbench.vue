@@ -266,7 +266,7 @@ watch(
   text-overflow: ellipsis;
 }
 .resource-capacity {
-  font-weight: 700;
+  font-weight: 400;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
   flex-shrink: 0;
 }
@@ -299,7 +299,7 @@ watch(
   background: color-mix(in srgb, var(--tab-color, @accent) 20%, transparent);
   color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 600;
 }
 .resource-detail {
   min-width: 0;

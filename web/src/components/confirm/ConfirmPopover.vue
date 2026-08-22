@@ -115,7 +115,7 @@ function onCancel(): void {
   border-radius: 8px;
   background: var(--confirm-pop-bg);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   // 凸出态：外阴影（右下暗 + 左上亮）
   box-shadow:

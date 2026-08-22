@@ -1315,7 +1315,7 @@ function onPromptSnapShow(): void {
     flex: 1 1 0;
     min-width: 0;
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1367,12 +1367,12 @@ function onPromptSnapShow(): void {
       background: var(--surface-soft);
       box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent) inset;
       font-size: 13px;
-      font-weight: 800;
+      font-weight: 600;
       cursor: pointer;
     }
     :deep(.el-input__inner) {
       color: color-mix(in srgb, var(--ink) 86%, transparent);
-      font-weight: 800;
+      font-weight: 600;
       cursor: pointer;
     }
     :deep(.el-input__inner::placeholder) {
@@ -1599,7 +1599,7 @@ function onPromptSnapShow(): void {
   strong {
     justify-self: end;
     color: color-mix(in srgb, var(--ink) 72%, transparent);
-    font-weight: 700;
+    font-weight: 400;
   }
 }
 
@@ -1794,7 +1794,7 @@ function onPromptSnapShow(): void {
   .generation-layer-title {
     min-width: 0;
     font-size: 13px;
-    font-weight: 800;
+    font-weight: 600;
     color: color-mix(in srgb, var(--ink) 86%, transparent);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1803,7 +1803,7 @@ function onPromptSnapShow(): void {
     small {
       margin-left: 8px;
       font-size: 10.5px;
-      font-weight: 500;
+      font-weight: 400;
       color: color-mix(in srgb, var(--ink) 52%, transparent);
     }
   }

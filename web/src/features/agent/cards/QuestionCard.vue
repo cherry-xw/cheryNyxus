@@ -352,7 +352,7 @@ function back(): void {
 .submit-error {
   color: color-mix(in srgb, #dc2626 80%, var(--ink));
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 400;
 }
 .question-heading {
   display: flex;
@@ -382,7 +382,7 @@ function back(): void {
 .heading-kicker {
   color: color-mix(in srgb, #6d28d9 78%, var(--ink));
   font-size: 9px;
-  font-weight: 850;
+  font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -398,7 +398,7 @@ function back(): void {
 
 .question-text {
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 600;
   line-height: 1.4;
   color: @ink;
   white-space: pre-wrap;
@@ -481,13 +481,13 @@ function back(): void {
 }
 .option-label {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 400;
   line-height: 1.25;
 }
 .option-description {
   color: color-mix(in srgb, var(--ink) 58%, transparent);
   font-size: 9px;
-  font-weight: 550;
+  font-weight: 400;
   line-height: 1.35;
 }
 
@@ -525,7 +525,7 @@ function back(): void {
   border: 1px solid transparent;
   border-radius: 9px;
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   cursor: pointer;
   transition:
     transform 120ms ease,
@@ -554,6 +554,7 @@ function back(): void {
   &.ghost {
     color: color-mix(in srgb, var(--ink) 55%, transparent);
     background: transparent;
+    font-weight: 400;
   }
 }
 

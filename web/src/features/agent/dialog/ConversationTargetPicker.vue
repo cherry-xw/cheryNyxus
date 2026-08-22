@@ -543,7 +543,7 @@ onBeforeUnmount(() => {
   flex: none;
   color: var(--accent-ink);
   font-size: 8px;
-  font-weight: 800;
+  font-weight: 600;
 }
 .target-label {
   min-width: 0;
@@ -555,7 +555,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 9.5px;
-  font-weight: 650;
+  font-weight: 600;
 }
 .target-label-text {
   /* 省略作用在文本 span 上：flex 容器自身的 text-overflow 不生效（裸文本是匿名 flex item），
@@ -572,7 +572,7 @@ onBeforeUnmount(() => {
   border-radius: 4px;
   font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
   font-size: 8.5px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.5;
 }
 .target-label-tag.is-command {
@@ -596,7 +596,7 @@ onBeforeUnmount(() => {
   .target-tip-state {
     margin-bottom: 4px;
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 600;
     color: var(--accent-ink);
   }
   .target-tip-content {

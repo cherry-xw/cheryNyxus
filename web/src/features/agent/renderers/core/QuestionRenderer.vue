@@ -120,7 +120,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
   .q-header {
     color: color-mix(in srgb, var(--ink) 80%, transparent);
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 600;
     line-height: 1.2;
     overflow-wrap: anywhere;
   }
@@ -132,7 +132,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
     border-radius: 4px;
     color: var(--violet);
     font-size: 9px;
-    font-weight: 800;
+    font-weight: 400;
   }
 
   .q-badge {
@@ -140,7 +140,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
     padding: 1px 6px;
     border-radius: 4px;
     font-size: 9px;
-    font-weight: 800;
+    font-weight: 400;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
     max-width: 60%;
@@ -170,7 +170,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 
 .q-text {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.35;
   color: color-mix(in srgb, var(--ink) 88%, transparent);
   white-space: pre-wrap;
@@ -226,7 +226,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
 
   strong {
     overflow-wrap: anywhere;
-    font-weight: 750;
+    font-weight: 400;
   }
 
   small {
@@ -246,7 +246,7 @@ const answerBadge = computed<{ text: string; cls: string }>(() => {
     display: block;
     margin-bottom: 3px;
     color: var(--violet);
-    font-weight: 800;
+    font-weight: 600;
   }
 
   p {

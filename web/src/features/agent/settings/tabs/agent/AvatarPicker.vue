@@ -135,7 +135,7 @@ function applyCustom(): void {
 }
 .avatar-group-title {
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 .avatar-grid {

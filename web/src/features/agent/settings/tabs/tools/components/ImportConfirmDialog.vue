@@ -373,7 +373,7 @@ function formatDate(iso: string | undefined): string {
 }
 .cargo-toggle span {
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 600;
 }
 .cargo-toggle.on {
   border-color: #67e8f9;
@@ -390,7 +390,7 @@ function formatDate(iso: string | undefined): string {
   min-width: 0;
 }
 .cand-name {
-  font-weight: 700;
+  font-weight: 600;
   font-size: 13px;
   color: #f1f5f9;
   white-space: nowrap;
@@ -400,7 +400,7 @@ function formatDate(iso: string | undefined): string {
 .badge {
   margin-left: 6px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 1px 6px;
   border-radius: 8px;
   background: rgba(251, 113, 133, 0.16);
@@ -453,7 +453,7 @@ function formatDate(iso: string | undefined): string {
   border-radius: 6px;
   background: linear-gradient(135deg, #67e8f9, #818cf8);
   color: #07111e;
-  font-weight: 800;
+  font-weight: 600;
   font-size: 12px;
   cursor: pointer;
   &:disabled {
@@ -668,7 +668,7 @@ function formatDate(iso: string | undefined): string {
   border-radius: 8px;
   background: linear-gradient(105deg, #ff8a00, #ff3cac 40%, #2ef2ff 76%, #c9ff43);
   color: #071018;
-  font-weight: 900;
+  font-weight: 600;
   box-shadow: 3px 3px 0 rgba(255, 255, 255, 0.1);
 }
 .candidate-pages button {

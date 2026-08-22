@@ -23,8 +23,8 @@
   --surface-soft: rgba(255, 255, 255, 0.7); /* 半透明白表面（icon-btn / 浅卡） */
 
   /* 边框 / 遮罩 */
-  --border: rgba(36, 38, 45, 0.14);
-  --border-strong: rgba(36, 38, 45, 0.2);
+  --border: rgba(36, 38, 45, 0.2);
+  --border-strong: rgba(36, 38, 45, 0.28);
   --scrim: rgba(15, 17, 22, 0.42); /* overlay 遮罩 */
 
   /* 语义色 */
@@ -41,20 +41,20 @@
   --neon-magenta: #d946ef;
 
   /* ── nyxus CRT 终端调色板（浅色变体） ── */
-  --nx-bg: rgba(244, 243, 239, 0.97);
-  --nx-border: rgba(60, 68, 64, 0.5);
-  --nx-border-soft: rgba(60, 68, 64, 0.22);
-  --nx-text: #2a2f2c;
-  --nx-text-dim: #3d4440;
-  --nx-text-faint: rgba(42, 47, 44, 0.55);
-  --nx-code-bg: rgba(0, 0, 0, 0.06);
-  --nx-code-bg-soft: rgba(0, 0, 0, 0.05);
-  --nx-green: #1a9e6b;
-  --nx-yellow: #b7791f;
-  --nx-red: #d6455d;
-  --nx-blue: #3b6fd4;
-  --nx-cyan: #0e9bb8;
-  --nx-purple: #7a5bd6;
+  --nx-bg: rgba(252, 251, 248, 0.98);
+  --nx-border: rgba(52, 60, 56, 0.68);
+  --nx-border-soft: rgba(52, 60, 56, 0.34);
+  --nx-text: #1f2421;
+  --nx-text-dim: #2c332e;
+  --nx-text-faint: rgba(31, 36, 33, 0.7);
+  --nx-code-bg: rgba(0, 0, 0, 0.09);
+  --nx-code-bg-soft: rgba(0, 0, 0, 0.07);
+  --nx-green: #0f7a52;
+  --nx-yellow: #9c6413;
+  --nx-red: #c02e47;
+  --nx-blue: #2d55ad;
+  --nx-cyan: #0c7890;
+  --nx-purple: #6240b8;
   --nx-hljs-keyword: #b45309;
   --nx-hljs-string: #15803d;
   --nx-hljs-comment: #64748b;
@@ -64,7 +64,7 @@
 
 [data-theme='dark'] {
   /* 文字 */
-  --ink: #e6e8ec;
+  --ink: #eceef2;
   --accent: #f6b73c;
   --accent-ink: #f7d98a;
   --accent-soft: rgba(246, 183, 60, 0.2);
@@ -74,11 +74,11 @@
   --panel: #1c1f26;
   --surface: #23262e;
   --surface-hover: #2a2e37;
-  --surface-soft: rgba(255, 255, 255, 0.07);
+  --surface-soft: rgba(255, 255, 255, 0.09);
 
   /* 边框 / 遮罩 */
-  --border: rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(255, 255, 255, 0.2);
+  --border: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.26);
   --scrim: rgba(15, 17, 22, 0.42);
 
   /* 语义色 */
@@ -95,20 +95,20 @@
   --neon-magenta: #d946ef;
 
   /* ── nyxus CRT 终端调色板（深色变体 = 现行深灰绿） ── */
-  --nx-bg: rgba(55, 61, 60, 0.97);
-  --nx-border: rgba(188, 202, 191, 0.72);
-  --nx-border-soft: rgba(192, 205, 195, 0.34);
-  --nx-text: #d7dfd8;
-  --nx-text-dim: #cbd6cd;
-  --nx-text-faint: rgba(215, 223, 216, 0.5);
-  --nx-code-bg: rgba(0, 0, 0, 0.4);
-  --nx-code-bg-soft: rgba(21, 26, 25, 0.5);
-  --nx-green: #5be5b0;
+  --nx-bg: rgba(37, 43, 41, 0.98);
+  --nx-border: rgba(210, 224, 213, 0.88);
+  --nx-border-soft: rgba(210, 224, 213, 0.5);
+  --nx-text: #f0f5f1;
+  --nx-text-dim: #e0e9e2;
+  --nx-text-faint: rgba(235, 244, 237, 0.7);
+  --nx-code-bg: rgba(0, 0, 0, 0.46);
+  --nx-code-bg-soft: rgba(16, 21, 20, 0.56);
+  --nx-green: #7bf5c8;
   --nx-yellow: #ffe18b;
-  --nx-red: #ff809b;
-  --nx-blue: #7da7ff;
-  --nx-cyan: #5ce1f5;
-  --nx-purple: #c9b6ff;
+  --nx-red: #ff8ba3;
+  --nx-blue: #94b8ff;
+  --nx-cyan: #6fe8fa;
+  --nx-purple: #d9cbff;
   --nx-hljs-keyword: #ffb86c;
   --nx-hljs-string: #a8e7a1;
   --nx-hljs-comment: #89a4ad;

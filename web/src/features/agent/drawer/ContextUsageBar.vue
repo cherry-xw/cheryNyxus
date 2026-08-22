@@ -188,7 +188,7 @@ function shortLabel(key: BreakdownKey): string {
   }
   .ctx-usage-used {
     color: var(--usage-color);
-    font-weight: 800;
+    font-weight: 600;
   }
   .ctx-usage-sep {
     opacity: 0.5;
@@ -202,7 +202,7 @@ function shortLabel(key: BreakdownKey): string {
     border-radius: 4px;
     background: var(--usage-bg);
     color: var(--usage-color);
-    font-weight: 800;
+    font-weight: 600;
     font-size: 10px;
   }
 

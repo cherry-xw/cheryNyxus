@@ -670,7 +670,7 @@ async function openEnvFile(): Promise<void> {
   > span {
     color: color-mix(in srgb, var(--ink) 80%, transparent);
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 600;
   }
 
   small {
