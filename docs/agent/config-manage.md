@@ -16,6 +16,8 @@ Cherry Nexus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配�
 - 因此无需修改 `GUARD_EXEMPT` 白名单，`config_manage` 即可读写 `.chery/config.yaml`。
 - 仅 Cherry Nexus 的 senseGroup（`chery_nexus`）含 `config_manage` → 其他角色 senseTable 无此感官 → 调不到（角色隔离）。
 
+**工具级读取放行（能力驱动）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`）经 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 接线——`authorizeToolCall` 传 `filesystemRead: 'any'`（read_file/search_codebase 读放行，绕过 filesystem workspace 校验）、`checkCheryGuard` 传 `allowConfigRead: true`（读 `.chery/` 全树放行）。唯一拦截点是 [envGuard.ts](../../src/utils/envGuard.ts) 对 `.env` 敏感 key 值的后置遮蔽（key 名保留、值 → `[REDACTED]`）。`write_file`/`execute_command` 对 `.chery/` 仍拦——写走 `config_manage`（结构化脱敏），`execute_command` 的 `cat .chery/config.yaml` 会泄露非 .env 字面密钥，故不放行。
+
 ### schema（action 三态）
 
 ```ts
@@ -46,6 +48,8 @@ z.discriminatedUnion('action', [
 ### 敏感字段脱敏（round-trip 契约）
 
 配置中 `llm.brain.*.key`、`media.*.key`、`mcp_servers.*.env`（子进程环境变量值）等字段含密钥/令牌，不随 `get` 原文暴露给模型：
+
+> **两层脱敏的区别**：本节 `redactConfigSecrets`/`restoreRedactedSecrets` 是 **config_manage 结构化脱敏**（配置对象级：`$ENV` 占位符保留、明文 key → `[REDACTED]`，save 可 round-trip 还原）；另有 **envGuard 工具输出层脱敏**（`redactEnvKeys`，[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) L474）——对 read_file/search_codebase/execute_command 等所有工具输出统一遮蔽 `.env` 敏感 key 的值（key 名保留、值 → `[REDACTED]`），防 `.env` 原文经普通文件读取泄露。两者互补：`read_file('.env')` 过 envGuard 值遮蔽；`read_file('.chery/config.yaml')` 会拿到字面密钥（未过 `redactConfigSecrets`）——设计内接受，建议优先 `config_manage(action="get")`（结构化脱敏）。
 
 - **`$ENV` 占位符**（值形如 `$OPENAI_KEY`，匹配 `/^\$[A-Z_][A-Z0-9_]*$/`）**原样保留**——运行时由 `replaceEnvVars` 从进程环境注入，占位符本身非敏感。
 - **明文密钥** → 替换为 `[REDACTED]` 哨兵。

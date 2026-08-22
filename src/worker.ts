@@ -21,6 +21,7 @@ import config, { readRawConfig, validateLoadable, rollbackConfig } from '@/utils
 import { hashPassword, isHashed } from '@/utils/password.js'
 import { hasRunningChats } from '@/service/chat/runtime.js'
 import { reconcileOrphanedExecutionRuns } from '@/service/chat/runRecovery.js'
+import { sweepOrphanQuestionBatchesAcrossRoots } from '@/db/question.js'
 import {
   configureRestartCoordinator,
   requestRestartWhenIdle,
@@ -115,6 +116,13 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
       { count: recoveredRuns.length, chatIds: recoveredRuns.map((run) => run.chatId) },
       LogLevel.warn,
     )
+  }
+
+  // 启动期清扫僵尸提问批（batch pending 但零 pending item），防重启后 hasPendingQuestionBatches
+  // 长期短路 canResume 造成"无卡片无按钮"硬死锁（见 docs/interaction.md 工作台树级暂停与续接）。
+  const sweptQuestionBatches = sweepOrphanQuestionBatchesAcrossRoots()
+  if (sweptQuestionBatches > 0) {
+    logger.event('chat.questions.swept', { count: sweptQuestionBatches }, LogLevel.warn)
   }
 
   // 启动自检：文件夹浏览协议（config.workspace.browse.*）根白名单有效性（rule12 fail loud）

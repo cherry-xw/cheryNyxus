@@ -68,10 +68,18 @@ export function selectRunStatus(session: ChatSession): ChatSession['run']['statu
   return session.run.status
 }
 
-/** 可显式继续（统一暂停语义：paused 显继续按钮；ended 无按钮）。 */
-export function selectCanResume(session: ChatSession): boolean {
-  return session.context.canResume ?? session.run.status === 'paused'
+/**
+ * 可显式继续（统一暂停语义：paused 显继续按钮；ended 无按钮）。
+ * 显式三段（不 `??` 退化）：context.canResume 权威（后端 chat.list/chat.get 投影 +
+ * 前端操作方维护），undefined 时才回退 run.status。stale false 会错误隐藏「继续」按钮。
+ * 消费方（agents store / hydration）必须复用本函数，消除三处漂移（docs/web/pet/agent-integration.md）。
+ */
+export function resolveCanResume(session: ChatSession): boolean {
+  return session.context.canResume !== undefined
+    ? session.context.canResume
+    : session.run.status === 'paused'
 }
+export const selectCanResume = resolveCanResume
 
 /** 当前 runtime（ContextBar / AgentDialog 数据源）。 */
 export function selectRuntime(session: ChatSession): RuntimeSelection | undefined {

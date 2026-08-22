@@ -313,6 +313,13 @@ C→S chat.resumeTree {rootChatId:root,pauseId,commandId}
   ← root subscription 持续收到各 chat 的 run.updated/stream/done
 ```
 
+**目标可续语义（回落）**：`tree_control_targets.status` 由 `paused`→`resumed` 后，若续跑中途再次失败/被暂停，目标不会在 DB 回落回 `paused`。判定"可续"以**运行时为准**：目标为 `paused`/`failed`，或虽为 `resumed` 但该 chat 最新 run 处于 `paused` 且 `computeCanResume` 成立 → 均可续。`chat.resumeTree` 匹配放宽到该判据（不再要求 `latest.runId===target.pausedRunId`），续接前把 `paused_run_id` 对齐到当前 run。已被 `send_to_child` 接管的 `delegated` 目标与 `skipped` 目标不参与续接。
+
+**提问态与继续的关系**：`chat` 存在 `status='pending'` 的提问批（`question_batches`）时，`chat.list`/`chat.get` 的 `canResume=false` 是设计——答案必须走 `chat.answerQuestionBatch`（批完成 → 置 `resumePending` → 返回 `shouldResume`），由前端在批完成后调 `chat.resume` 续跑。因此：
+- `chat.resume` **拒绝**带 pending 批的直接调用（防御守卫），避免带着未答问题跑执行死循环。
+- 前端**必须保证**工作台/会话打开即恢复提问快照（hydrateTree→syncOne→pendingQuestionBatches），不得出现"无卡片无按钮"的硬死锁。
+- 孤立 pending 批（`status='pending'` 但零 `status='pending'` 的 item）视为僵尸，会被读时自愈清扫标 `completed`，不再阻塞 `canResume`。清扫语义单测见 [test/db/questionOrphanSweep.test.ts](../test/db/questionOrphanSweep.test.ts)。
+
 暂停后用户直接发送新消息时，不等价于 `chat.resumeTree`：服务端只启动根 Agent。若本次暂停还有子 Agent 目标，则在用户消息之后追加一条持久 system 执行事件，列出角色、`chatId` 和 `pauseId`；根 Agent 据此决定是否调用 `send_to_child`。事件 ID 由 `pauseId + 输入 commandId` 稳定派生；若进程在输入确认后、事件落库前退出，恢复 accepted input 时必须检测并补回，已存在则不得重复。被 `send_to_child` 接管的目标标记为 `delegated`，旧暂停命令不再恢复它。
 
 ---

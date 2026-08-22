@@ -183,6 +183,8 @@ smart 档的「危险/放行」判定规则**外置**到 `.chery/rule/` 目录�
 
 **config_manage 感官**：`config_manage` 是结构化感官（action=get/save/rollback），参数不携带路径 → `extractSensePaths` 返回 `[]`，天然不触发 `.chery/` 路径守卫，可直接读写 `.chery/config.yaml`（配置管理核心角色 cheryNyxus 独占）。仅 leader 组含此感官 → 其他角色调不到。备份：`saveRawConfig` 写盘前自动备份旧配置到 `.chery/backups/`（保留最近 10 份），出错可 `rollback`。详见 [agent/config-manage.md](../agent/config-manage.md)。
 
+**配置读取放行（`filesystemRead` override）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`，能力驱动）经 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 接线，`authorizeToolCall` 传 `filesystemRead: 'any'`——read_file/search_codebase 的读取范围整体放行（绕过 filesystem workspace 校验，即使策略 deny）；该 override **不进 assessmentHash**（两处授权同源计算 → hash 恒等，不误触「策略已变化」拒绝）；`write_file`/`execute_command` 不受影响。结合 pathGuard 的 `allowConfigRead`（读 `.chery/` 全树放行），配置读取仅剩 envGuard 对 `.env` 敏感 key 值的后置遮蔽一道防线。
+
 **深合并语义**（[`ruleLoader.loadMergedRuleSet`](../../src/core/sense/ruleLoader.ts)，per sense）：
 - 覆盖文件未提及的 sense → 用基准条目。
 - 覆盖文件给某 sense `false` → 结果 `false`（硬开关：整体需确认）。

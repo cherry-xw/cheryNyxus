@@ -27,13 +27,24 @@ const resumingRoots = new Set<string>()
 export function toTreeControlState(rootChatId: string): TreeControlState | undefined {
   const operation = getActiveTreeControl(rootChatId)
   if (!operation) return undefined
+  // 目标回落（视图层）：resumed 目标若最新 run 已回到 paused 且 computeCanResume
+  // （续跑失败/再次暂停），投影为 paused，前端「继续」按钮重现。
+  // 语义见 docs/interaction.md 工作台树级暂停与续接「目标可续语义（回落）」。
+  const latestRuns = new Map(listLatestExecutionRuns(rootChatId).map((run) => [run.chatId, run]))
   return {
     pauseId: operation.pauseId,
     rootChatId: operation.rootChatId,
     status: operation.status,
     createdAt: operation.createdAt,
     updatedAt: operation.updatedAt,
-    targets: operation.targets.map(({ pauseId: _pauseId, ...target }) => target),
+    targets: operation.targets.map(({ pauseId: _pauseId, ...target }) => {
+      if (target.status !== 'resumed') return target
+      const latest = latestRuns.get(target.chatId)
+      if (latest?.status === 'paused' && computeCanResume(target.chatId)) {
+        return { ...target, status: 'paused' as const, pausedRunId: latest.runId }
+      }
+      return target
+    }),
   }
 }
 
@@ -83,7 +94,9 @@ export async function handleChatResumeTree(
     // run. With no live in-process owner, turn those targets back into an
     // explicit retryable failure before starting this new command.
     if (operation.status === 'resuming') {
-      for (const target of operation.targets.filter((candidate) => candidate.status === 'resuming')) {
+      for (const target of operation.targets.filter(
+        (candidate) => candidate.status === 'resuming',
+      )) {
         updateTreeControlTarget(data.pauseId, target.chatId, 'failed', {
           detail: '上次续接在完成前中断',
         })
@@ -96,9 +109,15 @@ export async function handleChatResumeTree(
       listLatestExecutionRuns(data.rootChatId).map((run) => [run.chatId, run]),
     )
     const targets = currentOperation.targets
-      .filter((target) => target.status === 'paused' || target.status === 'failed')
+      // resumed 目标也纳入续接范围：若续跑后再次失败/暂停（最新 run paused 且可续），
+      // 仍属可续目标（回落语义）；delegated/skipped 永不参与续接。
+      .filter(
+        (target) =>
+          target.status === 'paused' || target.status === 'failed' || target.status === 'resumed',
+      )
       .sort((a, b) => {
-        const depthDelta = chatDepth(data.rootChatId, b.chatId) - chatDepth(data.rootChatId, a.chatId)
+        const depthDelta =
+          chatDepth(data.rootChatId, b.chatId) - chatDepth(data.rootChatId, a.chatId)
         return depthDelta || a.chatId.localeCompare(b.chatId)
       })
 
@@ -116,7 +135,13 @@ export async function handleChatResumeTree(
         })
         continue
       }
-      if (!latest || latest.runId !== target.pausedRunId || latest.status !== 'paused') {
+      // 匹配放宽：resumed 目标（续跑失败回落后）不再要求 runId===pausedRunId，
+      // 改以「最新 run paused 且 computeCanResume」判定可续；paused/failed 保持原判据。
+      const runMatch =
+        target.status === 'resumed'
+          ? !!latest && latest.status === 'paused'
+          : !!latest && latest.runId === target.pausedRunId && latest.status === 'paused'
+      if (!runMatch) {
         updateTreeControlTarget(data.pauseId, target.chatId, 'skipped', {
           detail: '原暂停运行已被新状态取代',
         })
@@ -127,6 +152,13 @@ export async function handleChatResumeTree(
           detail: '目标当前不可续接',
         })
         continue
+      }
+      // resumed 目标续接前回落为 paused，并把 paused_run_id 对齐当前 run，
+      // 保证后续（再失败再暂停）投影与续接判据一致（toTreeControlState 同判据）。
+      if (target.status === 'resumed') {
+        updateTreeControlTarget(data.pauseId, target.chatId, 'paused', {
+          pausedRunId: latest!.runId,
+        })
       }
       const resumeRunId = `tree-resume:${data.commandId}:${target.chatId}`
       updateTreeControlTarget(data.pauseId, target.chatId, 'resuming', { resumeRunId })

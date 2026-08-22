@@ -243,10 +243,54 @@ export function backfillLegacyPendingQuestionBatches(chatId: string): void {
   backfill()
 }
 
+/** 清扫僵尸提问批：batch pending 但零 pending item → 标 completed（读时自愈，防止硬死锁 canResume）。 */
+function sweepOrphanQuestionBatchesIn(db: ReturnType<typeof getMonthlyDb>, chatId: string): number {
+  const orphans = db
+    .prepare(
+      `SELECT batch_id FROM question_batches b
+       WHERE b.chat_id = ? AND b.status = 'pending'
+         AND NOT EXISTS (
+           SELECT 1 FROM question_items i
+           WHERE i.batch_id = b.batch_id AND i.status = 'pending'
+         )`,
+    )
+    .all(chatId) as Array<{ batch_id: string }>
+  for (const orphan of orphans) {
+    db.prepare(
+      "UPDATE question_batches SET status = 'completed', completed_at = ? WHERE batch_id = ? AND status = 'pending'",
+    ).run(Date.now(), orphan.batch_id)
+  }
+  return orphans.length
+}
+
+/** per-chat 僵尸批清扫（公开入口，读时自愈与全局清扫共用）。返回清扫批数。 */
+export function sweepOrphanQuestionBatches(chatId: string): number {
+  backfillLegacyPendingQuestionBatches(chatId)
+  return sweepOrphanQuestionBatchesIn(monthlyDbForChat(chatId), chatId)
+}
+
+/** 跨所有 chat 清扫僵尸提问批（启动期/维护用）。返回清扫批数。 */
+export function sweepOrphanQuestionBatchesAcrossRoots(): number {
+  const chats = getSoulDb().prepare('SELECT id, messages_month FROM chats').all() as Array<{
+    id: string
+    messages_month: string
+  }>
+  let total = 0
+  for (const chat of chats) {
+    // 与 findPendingQuestionBatchByQuestionId 同款跨库遍历：逐 chat 打开月库清扫
+    backfillLegacyPendingQuestionBatches(chat.id)
+    total += sweepOrphanQuestionBatchesIn(getMonthlyDb(chat.messages_month), chat.id)
+  }
+  return total
+}
+
 function readPendingQuestionBatches(
   db: ReturnType<typeof getMonthlyDb>,
   chatId: string,
 ): PendingQuestionBatchSnapshot[] {
+  // 读时自愈：pending 但零 pending item 的僵尸批标 completed，避免 hasPendingQuestionBatches
+  // 长期短路 canResume 造成"无卡片无按钮"硬死锁（见 docs/interaction.md 工作台树级暂停与续接）。
+  sweepOrphanQuestionBatchesIn(db, chatId)
   const batches = db
     .prepare(
       `SELECT batch_id, chat_id, assistant_message_id, status, created_at, completed_at
@@ -310,6 +354,7 @@ export function getQuestionStateSnapshot(chatId: string): QuestionStateSnapshot 
 export function hasPendingQuestionBatches(chatId: string): boolean {
   backfillLegacyPendingQuestionBatches(chatId)
   const db = monthlyDbForChat(chatId)
+  sweepOrphanQuestionBatchesIn(db, chatId)
   return Boolean(
     db
       .prepare("SELECT 1 FROM question_batches WHERE chat_id = ? AND status = 'pending' LIMIT 1")
@@ -335,12 +380,12 @@ export function getPendingQuestionAttention(chatId: string): Array<{
        ORDER BY qi.created_at ASC, qi.position ASC`,
     )
     .all(chatId) as Array<{
-      batch_id: string
-      question_id: string
-      header: string | null
-      question: string
-      created_at: number
-    }>
+    batch_id: string
+    question_id: string
+    header: string | null
+    question: string
+    created_at: number
+  }>
   return rows.map((row) => ({
     batchId: row.batch_id,
     questionId: row.question_id,

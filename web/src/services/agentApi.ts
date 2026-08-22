@@ -1957,7 +1957,7 @@ export const agentApi = {
   /**
    * env.list：读取 .env 文件中的变量名列表（供密钥下拉选择）。
    * 前端再按密钥后缀白名单过滤，只把凭据类变量名透出给下拉（CHERY_DIR / HOST / URL 等
-   * 运行时配置不进下拉，避免误选）。后端 redactEnvKeys 仍按全量脱敏，不受影响。
+   * 运行时配置不进下拉，避免误选）。后端 redactEnvKeys 现改为仅遮蔽敏感 key 的值（key 名保留），与下拉无耦合。
    */
   async listEnvVars(): Promise<string[]> {
     const data = await call<{ vars: string[] }>('env.list', {})

@@ -32,6 +32,24 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
 
 > “完整上下文”在前端仅指 UI 会话投影。system prompt、memory、skills、tools 和压缩后的 LLM 上下文仍由后端 `AgentBuilder` 独占构建。
 
+### 工作台打开即恢复提问快照
+
+**sessionControl 运行中判定数据源**（WorkbenchDialog）：`treeRunning` 以 **transient 实时权威**（`chatSessions.rootLiveActiveRuns` → `rootTimelineStates`）为准——`error/done/run.updated` 经 `applyRootTransientEvent` 即时清理，不受 rootTimeline 快照残留影响。原因：`acquireRootTimeline` 快照在 acquire 时刻含 running run，而终态事件不更新 cache 快照，报错后 `rootTimeline.activeRuns` 会恒残留 running → 误显「运行中」。cache 快照仅当 canonical `session.run.status` 仍为 `running` 时补充（未观测到实时运行态前的乐观兜底）；`session.run.status` 仅当 timeline 完全缺失才回退信任。
+
+**canonical 终态不被 replay 吞**（`applyEvent` 兼容通知分支）：事件间隙（rootEventSeq 跳号）导致 `done/error` 判 `replay` 时，历史 chat.sync 回放仍整体跳过（`session.sync.replaying`），但事件间隙 replay 的终态通知**照常应用**（幂等封印 `run.status`）——否则 canonical `session.run.status` 残留 `running`，而 canonical 无 resync 自愈路径（rootTimeline 有、session 没有），会恒显「暂停」。
+
+提问态（`question_batches` 存在 pending 批）在实时事件流里由 `question_batch_requested` 驱动 reducer upsert；但工作台打开走 `chat.timeline.get`（acquireRootTimeline）+ `getTaskTimeline` 轮询，**两条路都不携带提问快照**——只有 `chat.get`/`chat.sync` 返回 `pendingQuestionBatches`。重启后停在提问态的会话非 running，`startup()` 不 attach，若无显式加载，`sessionsById[root].interaction.questionBatches` 为空 → 树里扫不到 question → 无提问卡片；同时后端 `computeCanResume` 因 pending 批返回 false → 无继续按钮。这是"重启后无卡片无按钮"的硬死锁。
+
+修复：工作台观察 root 时（`treeRootChatId` watch / `onConnectionReady` 兜底）调用 `ensureQuestionHydrated(rootChatId)` → 内部仅当 `session.sync.loaded && !session.meta.running && questionBatches.length===0` 才触发 `hydrateTree`（逐 chat `syncOne` → `replaceSnapshot`，单飞幂等）。渲染链路 `replaceSnapshot → replaceQuestionBatches → ensureActiveQuestion → buildDefaultNodePopovers` 自动把带提问的节点标为 actionable 并打开 → `ExecutionNodePopover` 渲染 QuestionCard。兜底：`sessionControl` 在提问态显示"回答提问"，点击聚焦/恢复卡片，不做后端 resume。
+
+### abort 级联更新后代工作态
+
+后端 `chat.abort` 已级联停所有后代（按孙→子→根，每子发 termination fact + timeline patch），但**不发 `run.updated{paused}` 通知**——子会话/pet 的工作态若只靠事件回放收敛，存在窗口差，可能永远卡在"工作中"。前端 `abortAgent` 必须消费后端响应中的 `results: ChildControlTargetResult[]`，把每个后代的 `run.status` 置 `paused`、清 `activeRunId`/`runningTools`、置 `context.canResume=true`（树暂停后子可经 `chat.resumeTree` 续，**非 ghost**——与旧 `agents.abort` 把子转 ghost 语义刻意区分）。随后触发 `reconcilePetsFromSessions` 让 PetStage 视觉即时更新。
+
+### selectCanResume 权威语义
+
+`selectCanResume(session)` 必须是**显式三段**：`context.canResume !== undefined ? context.canResume : session.run.status === 'paused'`（不能 `??` 让 undefined 静默退化）。`context.canResume` 由后端 `chat.list`/`chat.get` 投影 + 前端操作方维护：`abortAgent` 成功后置 `true`（暂停即可续）、`resumeAgent` 失败回滚时与 `run.status` 同步维护，避免 stale false 错误隐藏"继续"按钮。`agents` store 与 `hydration.ts` 必须消费同一 `resolveCanResume`，消除三处漂移。
+
 ## 工具栏（CP1 去装饰记录）
 
 > **CP1 移除装饰工具栏**：原 `pet/feed/sleep/dismiss/summon` 装饰工具及 `invokeTool`/`masterTools`/`PetStage toolbar`（+pet/pause/reset/mood）已删（见下 [CP1](#cp1接线骨架--去装饰化)）。CP2 起工具栏由 [PetToolbar](../../../web/src/features/agent/PetToolbar.vue) 组件承担 agent 操作（历史/中止/销毁，非装饰交互）。下文为 CP1 前装饰工具栏的设计记录（CSS `.tools`/`.tool-icon` 已置 `display:none`）。

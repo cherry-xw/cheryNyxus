@@ -1,20 +1,10 @@
 import { getSoulDb } from './index.js'
 
 export type TreeControlOperationStatus =
-  | 'pausing'
-  | 'paused'
-  | 'resuming'
-  | 'partial'
-  | 'completed'
-  | 'superseded'
+  'pausing' | 'paused' | 'resuming' | 'partial' | 'completed' | 'superseded'
 
 export type TreeControlTargetStatus =
-  | 'paused'
-  | 'resuming'
-  | 'resumed'
-  | 'delegated'
-  | 'skipped'
-  | 'failed'
+  'paused' | 'resuming' | 'resumed' | 'delegated' | 'skipped' | 'failed'
 
 export interface TreeControlTargetRow {
   pauseId: string
@@ -87,16 +77,18 @@ export function updateTreeControlTarget(
   pauseId: string,
   chatId: string,
   status: TreeControlTargetStatus,
-  options: { resumeRunId?: string; detail?: string } = {},
+  options: { pausedRunId?: string; resumeRunId?: string; detail?: string } = {},
 ): void {
   getSoulDb()
     .prepare(
       `UPDATE tree_control_targets
-       SET status = ?, resume_run_id = COALESCE(?, resume_run_id), detail = ?, updated_at = ?
+       SET status = ?, paused_run_id = COALESCE(?, paused_run_id),
+           resume_run_id = COALESCE(?, resume_run_id), detail = ?, updated_at = ?
        WHERE pause_id = ? AND chat_id = ?`,
     )
     .run(
       status,
+      options.pausedRunId ?? null,
       options.resumeRunId ?? null,
       options.detail ?? null,
       Date.now(),

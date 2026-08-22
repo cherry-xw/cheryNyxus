@@ -125,6 +125,23 @@ export function beginLiveRun(
   return started
 }
 
+/** run.status 写者收敛（阶段 3.3，docs/web/pet/agent-integration.md）：
+ * 快照/投影类写者（chat.list / chat.open / chat.attach）不得把已终态的会话
+ * 回滚为 running —— 否则「暂停」后迟到的快照会让「停止」按钮复现。
+ * 乐观操作（beginLiveRun 等）与严格 seq 序的 reducer 事件不走本函数。
+ * 终态集合：paused / completed / failed / ended（idle 属骨架态，可被 running 覆盖）。 */
+const TERMINAL_RUN_STATUSES = new Set(['paused', 'completed', 'failed', 'ended'])
+export function applyRunStatus(
+  session: ChatSession,
+  status: ChatSession['run']['status'],
+  allowRunning = false,
+): void {
+  if (status === 'running' && !allowRunning && TERMINAL_RUN_STATUSES.has(session.run.status)) {
+    return
+  }
+  session.run.status = status
+}
+
 /** 仅实时 role_reply 可续跑父会话；历史回放只能恢复消息。 */
 export type ChatEventProvenance = 'live' | 'replay'
 
@@ -205,6 +222,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const opening = new Map<string, Promise<void>>()
   /** Root event-stream resync guard. View revision gaps never reopen subscriptions. */
   const rootResyncing = new Map<string, Promise<void>>()
+  /** resumeAgent 单飞（连续双击「继续」只发起一次 resumeChat；S7）。 */
+  const resumingChats = new Map<string, Promise<void>>()
   /** One protocol subscription per root. Timeline views share this flight. */
   const rootSubscriptionOpening = new Map<
     string,
@@ -419,7 +438,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       const run = response.state.runs?.find((candidate) => candidate.chatId === chatId)
       session.activeRun = run
       session.run.activeRunId = run?.runId
-      session.run.status = run ? 'running' : 'idle'
+      // 快照写者不覆盖已终态为 running（applyRunStatus 收敛，见 3.3）
+      applyRunStatus(session, run ? 'running' : 'idle')
       session.sync.loaded = true
     }
   }
@@ -767,11 +787,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     session.activeMessageId = undefined
     installActiveTurns(session, session.activeTurns, Date.now())
     session.run.activeRunId = snapshot.runId
-    session.run.status = snapshot.running
-      ? 'running'
-      : session.context.canResume
-        ? 'paused'
-        : 'idle'
+    // 快照写者收敛（3.3）：快照 running 不得把已终态（含用户刚暂停）回滚为 running；
+    // 且仅当快照 seq 不倒退已观察事件（getHighestSeenSeq <= snapshotSeq）才可信。
+    const seqFresh = wsClient.getHighestSeenSeq(chatId) <= snapshot.snapshotSeq
+    if (snapshot.running && seqFresh) {
+      applyRunStatus(session, 'running', false)
+    } else {
+      applyRunStatus(session, session.context.canResume ? 'paused' : 'idle')
+    }
     session.meta.running = snapshot.running
     session.sync.loaded = true
     // attach snapshot is authoritative through snapshotSeq. Drop replayable
@@ -812,16 +835,19 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (response.state.run) {
       session.run.activeRunId = response.state.run.runId
       const runState = response.state.run.status ?? response.state.run.state
-      session.run.status =
+      // 快照写者不覆盖已终态为 running（applyRunStatus 收敛，见 3.3）
+      applyRunStatus(
+        session,
         runState === 'running' || runState === 'waiting'
           ? 'running'
           : runState === 'paused'
             ? 'paused'
-            : 'ended'
+            : 'ended',
+      )
     } else {
       session.activeRun = undefined
       session.run.activeRunId = undefined
-      session.run.status = session.context.canResume ? 'paused' : 'idle'
+      applyRunStatus(session, session.context.canResume ? 'paused' : 'idle')
     }
     session.sync.loaded = true
   }
@@ -1092,7 +1118,13 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       // All remaining compatibility notifications from chat.sync are
       // historical. Staged chunks/timeline patches restore durable messages;
       // replayed done/error/consumed must not mutate live run or bubble state.
-      if (provenance === 'replay') return
+      // Exception: terminal facts (done/error) must survive event-gap replay —
+      // a replayed terminal notification is idempotent (seal run.status), and
+      // swallowing it leaves canonical run.status stuck at running (no resync
+      // path repairs canonical sessions). Historical chat.sync replay is still
+      // fully skipped via session.sync.replaying.
+      const terminalReplay = !session.sync.replaying && (type === 'done' || type === 'error')
+      if (provenance === 'replay' && !terminalReplay) return
       if (type === 'consumed') {
         const d = (event.data ?? {}) as {
           messages?: Array<{
@@ -1262,6 +1294,19 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   /**
+   * 工作台打开即恢复提问快照（防止"无卡片无按钮"硬死锁，见 docs/web/pet/agent-integration.md）。
+   * 提问态只活在前端事件流（question_batch_requested）；重启后非 running 会话不 attach，
+   * 工作台的 acquireRootTimeline/getTaskTimeline 均不带 pendingQuestionBatches，必须经 syncOne
+   * 快照恢复。running 会话靠 live 事件驱动不重复回放；已 hydration 且已有批次即就绪。
+   */
+  async function ensureQuestionHydrated(rootChatId: string): Promise<void> {
+    const session = sessionsById.value[rootChatId]
+    if (session?.meta.running) return
+    if (session?.sync.loaded && session.interaction.questionBatches.length > 0) return
+    await hydrateTree(rootChatId)
+  }
+
+  /**
    * 单 chat sync 回放。replaying 一律 true（含非运行 chat）：历史 role_reply/done 不得触发
    * resumeAgent/retainUntil，历史 stream delta 不得累加进气泡。回放结束清 false，running 保留实时态。
    * 注：question snapshot 推进致 snapshotSeq 前移的二次回放边界（旧 syncOneChat 2-attempt）暂单次处理，
@@ -1397,35 +1442,52 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   async function resumeAgent(chatId: string): Promise<void> {
-    const session = ensureEntity(chatId)
-    const started = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
-    try {
-      const { requestId, done } = agentApi.resumeChat(chatId)
-      trackRequest(requestId, chatId)
-      const response = await done
-      if (!response.success) {
-        throw responseError(response, '恢复执行失败')
+    // 重入保护：连续双击「继续」只发起一次 resumeChat（复用 runSingleFlight，S7）。
+    // 重入的调用方拿到同一个进行中的 promise；失败由首发起方回滚并抛错。
+    return runSingleFlight(resumingChats, chatId, async () => {
+      const session = ensureEntity(chatId)
+      const started = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
+      try {
+        const { requestId, done } = agentApi.resumeChat(chatId)
+        trackRequest(requestId, chatId)
+        const response = await done
+        if (!response.success) {
+          throw responseError(response, '恢复执行失败')
+        }
+        const data = (response.data ?? {}) as { runId?: string }
+        if (data.runId) session.run.activeRunId = data.runId
+      } catch (e) {
+        if (started) {
+          session.run.status = 'paused'
+          session.run.error = e instanceof Error ? e.message : '连接中断'
+          session.run.activeRunId = undefined
+          ;(effects.value.onWorkingChange ?? noop)(chatId, false)
+        }
+        throw e
       }
-      const data = (response.data ?? {}) as { runId?: string }
-      if (data.runId) session.run.activeRunId = data.runId
-    } catch (e) {
-      if (started) {
-        session.run.status = 'paused'
-        session.run.error = e instanceof Error ? e.message : '连接中断'
-        session.run.activeRunId = undefined
-        ;(effects.value.onWorkingChange ?? noop)(chatId, false)
-      }
-      throw e
-    }
+    })
   }
 
   async function abortAgent(chatId: string): Promise<void> {
     const session = ensureEntity(chatId)
-    await agentApi.abortAgent(chatId, session.run.activeRunId, makeClientId('pause'))
-    session.run.status = 'paused'
-    session.run.activeRunId = undefined
-    session.interaction.runningTools = []
-    ;(effects.value.onWorkingChange ?? noop)(chatId, false)
+    const response = await agentApi.abortAgent(chatId, session.run.activeRunId, makeClientId('pause'))
+    // 级联（统一暂停语义）：后端已递归暂停主+全部后代（results 含每 chat 终态）。
+    // 前端同步各 session 运行态 + canResume 镜像，子 pet 视觉立即解除工作态（不等 WS 通知）。
+    // outcome=unchanged 的 idle/paused 项本非 running，置 paused 幂等无害。
+    for (const r of response?.results ?? []) {
+      const s = sessionsById.value[r.chatId]
+      if (!s) continue
+      const wasRunning = s.run.status === 'running'
+      s.run.status = 'paused'
+      s.run.activeRunId = undefined
+      s.interaction.runningTools = []
+      // canResume 镜像：暂停即可续，但存在待答提问时仍不可续（computeCanResume 短路一致，
+      // 由 questionBatches 覆盖「继续」判定为「回答提问」）。
+      s.context.canResume = s.interaction.questionBatches.length === 0
+      if (wasRunning || r.outcome === 'stopped') {
+        ;(effects.value.onWorkingChange ?? noop)(r.chatId, false)
+      }
+    }
   }
 
   async function resumeTree(rootChatId: string, pauseId: string): Promise<void> {
@@ -1774,9 +1836,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     trackRequest,
     // hydration
     hydrateTree,
+    ensureQuestionHydrated,
     syncOne,
     startup,
     reconnect,
+    /** transient 实时权威运行态：error/done/run.updated 经 applyRootTransientEvent 即时清理，
+     *  不受 rootTimeline 快照残留影响（快照在 acquire 时含 running run，终态事件不更新它）。 */
+    rootLiveActiveRuns: (rootChatId: string) =>
+      rootTimelineStates.value[rootChatId]?.activeRuns ?? [],
     // 命令
     sendMessage,
     resumeAgent,

@@ -688,22 +688,39 @@ function openHistory(): void {
  * running 显停止、canResume 且无未完成直接子会话显继续运行；逻辑参考 pet resume/abort。
  */
 const sessionControlPending = ref(false)
-type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root'
+type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root' | 'answer-question'
 const taskHasRunningBranches = computed(() =>
   taskTimeline.value?.activeRuns.some(
     (run) => run.status === 'running' || run.status === 'waiting',
   ) ?? false,
 )
+// 判定/执行共用同一数据源：taskTimeline（1.2s 轮询，含 controlState）优先，
+// 否则回退 rootTimeline（WS patch 实时）。避免 sessionControl 用 taskTimeline 判定、
+// executeSessionControl 用 rootTimeline 取 pauseId 的窗口差（见 docs/web/pet/agent-integration.md）。
+const controlTimeline = computed(() => {
+  const id = chatId.value
+  if (!id) return undefined
+  return taskTimeline.value ?? chatSessions.rootTimeline(id, 'tree')
+})
 const sessionControl = computed<{ mode: WorkbenchControlMode; label: string } | undefined>(() => {
   const id = chatId.value
   if (!id) return undefined
   const session = chatSessions.sessionsById[id]
   if (!session) return undefined
-  const timeline = taskTimeline.value ?? chatSessions.rootTimeline(id, 'tree')
-  const treeRunning = timeline?.activeRuns.some(
-    (run) => run.status === 'running' || run.status === 'waiting',
-  )
-  if (treeRunning || (!taskTimeline.value && session.run.status === 'running')) {
+  const timeline = controlTimeline.value
+  // 运行中判定以 transient 实时权威（rootLiveActiveRuns）为准：error/done/run.updated
+  // 经 applyRootTransientEvent 即时清理，不受 rootTimeline 快照残留影响——快照在 acquire
+  // 时含 running run，终态事件不更新它，报错后会恒显「运行中」。
+  // cache 快照仅当 canonical 仍 running 时补充（未观测到实时运行态前的乐观兜底）。
+  const liveRuns = chatSessions.rootLiveActiveRuns(id)
+  const cacheRuns = timeline?.activeRuns ?? []
+  const treeRunning =
+    liveRuns.some((run) => run.status === 'running' || run.status === 'waiting') ||
+    (session.run.status === 'running' &&
+      cacheRuns.some((run) => run.status === 'running' || run.status === 'waiting'))
+  // canonical session 仅在没有 timeline 权威视图时才信任 run.status（避免事件间隙吞 done 后残留 running 误显暂停）
+  const sessionRunning = !timeline && session.run.status === 'running'
+  if (treeRunning || sessionRunning) {
     return { mode: 'pause', label: '暂停' }
   }
   const control = timeline?.controlState
@@ -712,6 +729,11 @@ const sessionControl = computed<{ mode: WorkbenchControlMode; label: string } | 
   )
   if (control && resumableTargets && resumableTargets.length > 0) {
     return { mode: 'resume-tree', label: '继续' }
+  }
+  // 提问态兜底：有待答提问批（canResume 已被 pending 批置 false，无法走 resume-root）时
+  // 提供显式「回答提问」入口，防止 hydration 意外未落地时"无卡片无按钮"（见 docs 同上）。
+  if (session.interaction.questionBatches.length > 0) {
+    return { mode: 'answer-question', label: '回答提问' }
   }
   const hasUnfinishedDirectChild = Object.values(chatSessions.sessionsById).some(
     (candidate) => candidate.meta.parentChatId === id && candidate.meta.finished !== true,
@@ -731,29 +753,52 @@ async function executeSessionControl(): Promise<void> {
   try {
     if (mode === 'pause') await chatSessions.abortAgent(id)
     else if (mode === 'resume-tree') {
-      const pauseId = chatSessions.rootTimeline(id, 'tree')?.controlState?.pauseId
+      let pauseId = controlTimeline.value?.controlState?.pauseId
+      // 数据源兜底：taskTimeline 轮询窗口内可能缺 controlState，刷新一次再取
+      if (!pauseId && taskTimeline.value?.taskId) {
+        const snapshot = await agentApi.getTaskTimeline({
+          taskId: taskTimeline.value.taskId,
+          view: 'tree',
+        })
+        if (snapshot) taskTimeline.value = snapshot
+        pauseId = snapshot?.controlState?.pauseId
+      }
       if (!pauseId) throw new Error('暂停状态已变化，请重试')
       await chatSessions.resumeTree(id, pauseId)
-    } else await chatSessions.resumeAgent(id)
-  } catch (cause) {
-    console.error(`[WorkbenchDialog] ${mode} failed:`, cause)
-    if ((cause as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {
-      const bridge = desktopBridge()
-      if (bridge) {
-        bridge.openWindow({ kind: 'composer', chatId: id, source: 'history', view: 'composer' })
-      } else {
-        agents.closeWorkbenchWindow(props.windowId)
-        agents.activeDialogSource = 'history'
-        agents.activeDialogView = 'composer'
-        agents.activeDialogChatId = id
-      }
-      ElMessage.warning('请先选择当前运行配置，再继续该历史任务')
-      return
+    } else if (mode === 'answer-question') {
+      // 恢复提问快照并聚焦卡片（已 hydrated 则幂等跳过；questionBatches 驱动 QuestionCard 渲染）
+      await chatSessions.ensureQuestionHydrated(id)
+    } else {
+      // resume-root 是流式启动：resumeAgent 的 done 在 LLM 运行结束时才 resolve。
+      // 若在此 await，sessionControlPending 在运行期间恒 true → 暂停按钮被 disabled、
+      // 显示「正在处理」——违背「运行中必须能暂停」。故请求受理即返回，
+      // 运行态由事件流驱动 treeRunning 反映；失败仍走统一错误处理。
+      void chatSessions.resumeAgent(id).catch((cause) => handleControlError('resume-root', cause))
     }
-    ElMessage.error(cause instanceof Error ? cause.message : '会话控制失败，请重试')
+  } catch (cause) {
+    handleControlError(mode, cause)
   } finally {
     sessionControlPending.value = false
   }
+}
+function handleControlError(mode: string, cause: unknown): void {
+  console.error(`[WorkbenchDialog] ${mode} failed:`, cause)
+  if ((cause as Error & { code?: string }).code === 'RUNTIME_SELECTION_REQUIRED') {
+    const id = chatId.value
+    if (!id) return
+    const bridge = desktopBridge()
+    if (bridge) {
+      bridge.openWindow({ kind: 'composer', chatId: id, source: 'history', view: 'composer' })
+    } else {
+      agents.closeWorkbenchWindow(props.windowId)
+      agents.activeDialogSource = 'history'
+      agents.activeDialogView = 'composer'
+      agents.activeDialogChatId = id
+    }
+    ElMessage.warning('请先选择当前运行配置，再继续该历史任务')
+    return
+  }
+  ElMessage.error(cause instanceof Error ? cause.message : '会话控制失败，请重试')
 }
 const taskControlPending = ref(false)
 async function pauseWholeTask(): Promise<void> {
@@ -831,6 +876,10 @@ watch(
         if (previousRootChatId && previousRootChatId !== rootChatId) {
           await chatSessions.releaseRootTimeline(previousRootChatId, rootSubscriptionOwner)
         }
+        // 恢复提问快照：重启后停在提问态的非 running 会话不 attach，工作台打开须经
+        // hydrateTree→syncOne 恢复 pendingQuestionBatches，否则"无卡片无按钮"硬死锁
+        // （见 docs/web/pet/agent-integration.md「工作台打开即恢复提问快照」）。
+        void chatSessions.ensureQuestionHydrated(rootChatId)
       })
       .catch((cause) => console.error('[WorkbenchDialog] observe root tree failed:', cause))
   },
@@ -871,6 +920,7 @@ async function onConnectionReady(): Promise<void> {
   if (root && !chatSessions.rootTimeline(root, 'tree')) {
     void chatSessions
       .acquireRootTimeline(root, rootSubscriptionOwner, 'tree')
+      .then(() => void chatSessions.ensureQuestionHydrated(root))
       .catch((cause) => console.error('[WorkbenchDialog] retry observe root tree failed:', cause))
   }
 }

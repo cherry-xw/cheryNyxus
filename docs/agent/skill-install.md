@@ -130,7 +130,7 @@ const result = await senseEntry.execute(args, ...);
 
 ### 前置 vs 后置（与 .env 脱敏的区别）
 
-- `.env` 现状 = **后置输出脱敏**（[envGuard.ts redactEnvKeys](../../src/utils/envGuard.ts) + tool.ts:293，感官执行后把变量名替换 `[REDACTED]`，值仍明文）。
+- `.env` 现状 = **后置输出脱敏**（[envGuard.ts redactEnvKeys](../../src/utils/envGuard.ts) + [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) L474，感官执行后遮蔽 `.env` 敏感 key 的值——key 名保留、值 → `[REDACTED]`）。
 - 本守卫 = **前置拦截**（感官执行前直接拒，不执行 handler）。
 - 参考的是 envGuard 的「统一拦截层位置 + 注入说明」模式，**语义不同**（拦 vs 脱敏）。
 

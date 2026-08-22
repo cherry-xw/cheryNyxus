@@ -13,6 +13,7 @@ import {
 } from '@/services/agentApi'
 import type { PetInstance, PetMood } from '@/features/pets/types/types'
 import type { ChatSession } from '../chats/types'
+import { resolveCanResume } from '../chats/selectors'
 import type { StreamState, HistoryItem } from './types'
 import { sameRuntime, defaultBounds, pushHistoryItem } from './data/streamAccumulator'
 import { replaceQuestionBatches, type QuestionBatchPayload } from './actions/questionBatch'
@@ -488,7 +489,17 @@ export const useAgentsStore = defineStore('agents', () => {
   function reconcilePetsFromSessions(sessions: Record<string, ChatSession>): void {
     for (const session of Object.values(sessions)) {
       const meta = session.meta
-      if (!meta.parentChatId || !meta.agentType) continue
+      // master（无 parentChatId）只走镜像分支：主 pet 由别处创建（buildMasterAndChildren），
+      // 这里仅回写运行态与 canResume（否则主 pet 暂停后工具栏「继续」不显，见 docs/web/pet/agent-integration.md）。
+      if (!meta.parentChatId) {
+        const master = pets.value.find((pet) => pet.chatId === session.chatId)
+        if (master) {
+          setWorking(master, session.run.status === 'running')
+          master.canResume = resolveCanResume(session)
+        }
+        continue
+      }
+      if (!meta.agentType) continue
       const existing = pets.value.find((pet) => pet.chatId === session.chatId)
       if (!existing) {
         router.applyRoleCreated(
@@ -504,7 +515,7 @@ export const useAgentsStore = defineStore('agents', () => {
             recover: false,
             working: session.run.status === 'running',
             finished: meta.finished === true,
-            canResume: session.context.canResume ?? session.run.status === 'paused',
+            canResume: resolveCanResume(session),
           },
         )
         continue
@@ -513,9 +524,9 @@ export const useAgentsStore = defineStore('agents', () => {
         turnChildIntoGhost(existing, pets.value, lifecycle.pickGhostFace)
       } else {
         setWorking(existing, session.run.status === 'running')
-        // canResume 回写（与 selectCanResume 同源）：done 被跳过/重连恢复后
+        // canResume 回写（resolveCanResume 同源）：done 被跳过/重连恢复后
         // 「继续运行」按钮不残留；turnChildIntoGhost 已置 false 对齐。
-        existing.canResume = session.context.canResume ?? session.run.status === 'paused'
+        existing.canResume = resolveCanResume(session)
       }
     }
   }

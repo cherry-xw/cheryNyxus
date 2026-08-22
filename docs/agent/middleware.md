@@ -396,10 +396,11 @@ if (needsApproval.length > 0) {
 
 **chatId 注入（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) + processRegistry）：** executor 支持可选第 3 参 `SenseRuntimeContext`。`doExecuteSense` 调 `senseEntry.execute(args, ctx.soul.senseSharedData, { chatId: ctx.soul.chatId })`，bash executor 读取 `senseCtx?.chatId` 后注册子进程；不再占用 sharedData 的保留 namespace。
 
-**路径守卫（[pathGuard.ts](../../src/utils/pathGuard.ts) + [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 前置拦截）：** 感官 execute 前，`doExecuteSense` 调 `checkCheryGuard(name, args)`——若感官名不在 `GUARD_EXEMPT`（当前仅 `install_skill`）且提取的路径参数命中 `isCheryPath`（`.chery` 作为路径段），直接返回拦截文案、**不执行 handler**。
+**路径守卫（[pathGuard.ts](../../src/utils/pathGuard.ts) + [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 前置拦截）：** 感官 execute 前，`doExecuteSense` 调 `checkCheryGuard(name, args, opts)`——若感官名不在 `GUARD_EXEMPT`（当前仅 `install_skill`）且提取的路径参数命中 `isCheryPath`（`.chery` 作为路径段），直接返回拦截文案、**不执行 handler**。
 
 - 覆盖感官：`write_file`/`read_file`/`search_codebase` 取 `args.path`，`execute_command` 取 `args.command`（含 `.chery` 路径段即拦）。
-- 与 `.env` 后置脱敏（[envGuard.ts](../../src/utils/envGuard.ts) `redactEnvKeys` + tool.ts:293，执行后替换变量名）的区别：守卫是**前置拦截**（执行前拒，不执行）。参考 envGuard 的「统一拦截层位置 + 注入说明」模式，语义不同。
+- **读放行（`allowConfigRead`）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`，能力驱动）对 `read_file`/`search_codebase` 读 `.chery/` **全树放行**（按工具名旁路，优先级在 `allowRuleDir` 与 `isCheryPath` 之前）——其定位就是读写全部配置；`write_file`/`execute_command` 对 `.chery/` 仍拦（写走 config_manage/install_skill 结构化通道；execute_command 的 `cat .chery/config.yaml` 会泄露非 .env 字面密钥、绕过结构化脱敏层，且命令字符串无法可靠区分读写）。
+- 与 `.env` 后置脱敏（[envGuard.ts](../../src/utils/envGuard.ts) `redactEnvKeys` + [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) L474，执行后遮蔽 `.env` 敏感 key 的值——key 名保留、值 → `[REDACTED]`）的区别：守卫是**前置拦截**（执行前拒，不执行）。参考 envGuard 的「统一拦截层位置 + 注入说明」模式，语义不同。
 - 双重隔离：install_skill / config_manage 只在 Cherry Nexus（chery_nexus 组）→ 其他角色调不到；守卫 `GUARD_EXEMPT` 只豁免 install_skill → 其他角色绕路用 write_file/bash 写 `.chery/` 也被拦。
 - 详见 [agent/skill-install.md](../agent/skill-install.md)。
 

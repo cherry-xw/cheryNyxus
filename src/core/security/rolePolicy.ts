@@ -145,6 +145,13 @@ export function authorizeToolCall(input: {
   workspace?: string
   configuredLevel: SupervisionLevel
   legacySafe?: boolean
+  /**
+   * 配置管理核心角色（senseTable 含 config_manage/install_skill）读放行：
+   * 'any' = read_file/search_codebase 读取范围整体放行（绕过 filesystem workspace 校验，即使策略 deny）；
+   * 缺省 'workspace' = 保持现有策略。只作用于读，write_file/execute_command 不受影响。
+   * 不进 assessmentHash（两处授权同源计算 → hash 恒等，不误触 tool.ts 的「策略或参数已变化」校验）。
+   */
+  filesystemRead?: 'workspace' | 'any'
 }): ToolAuthorization {
   const { security, name, args, workspace } = input
   const { policy } = security
@@ -168,7 +175,11 @@ export function authorizeToolCall(input: {
   if (name === 'write_file' || name === 'read_file' || name === 'search_codebase') {
     const path = args.path
     const write = name === 'write_file'
-    const scope = write ? policy.filesystem?.write : policy.filesystem?.read
+    const scope = write
+      ? policy.filesystem?.write
+      : input.filesystemRead === 'any'
+        ? 'any'
+        : policy.filesystem?.read
     if (scope === 'deny') decision = 'deny'
     else if (scope === 'workspace' && !contained(workspace, path)) decision = 'deny'
     else if (write && scope === 'any-with-approval' && !contained(workspace, path)) decision = addEffect(decision, 'ask')

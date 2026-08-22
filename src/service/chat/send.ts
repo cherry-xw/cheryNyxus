@@ -33,7 +33,7 @@ import {
   bumpTimelineRevision,
 } from '@/db/chat.js'
 import { approvalManager } from '../approval/manager.js'
-import { findPendingQuestionBatchByQuestionId } from '@/db/question.js'
+import { findPendingQuestionBatchByQuestionId, hasPendingQuestionBatches } from '@/db/question.js'
 import { resolveQuestionBatch } from './wake.js'
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
@@ -63,11 +63,7 @@ import { emitTimelinePatch } from './rootGraphPatch.js'
 import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
 import { transport } from '../websocket/transport.js'
-import {
-  addTreePauseTarget,
-  createTreePause,
-  refreshTreeControlStatus,
-} from '@/db/treeControl.js'
+import { addTreePauseTarget, createTreePause, refreshTreeControlStatus } from '@/db/treeControl.js'
 
 // P2-1：runtime 缓存/observer/streamMapper 已按职责拆出。
 // runtime API（ensureChat/clearChatRuntime/setRuntime/abortChatRuntime）由 ./runtime.js 直接导出，
@@ -319,6 +315,13 @@ export async function* handleChatResume(
     : false
   if (isAbandoned) {
     throw new Error('子会话已废弃，无法继续')
+  }
+
+  // pending 提问批守卫：提问占位期间禁止 resume，答案必须走 chat.answerQuestionBatch
+  // （批完成 → 置 resumePending → 返回 shouldResume，前端批完成后才调 resume）。
+  // 防御前端竞态/绕过带着未答问题跑 Case2 死循环；见 docs/interaction.md 工作台树级暂停与续接。
+  if (hasPendingQuestionBatches(chatId)) {
+    throw new Error('该会话有待回答的问题，请先完成提问')
   }
 
   logger.event('chat.send.start', { mode: 'resume' })
@@ -667,9 +670,7 @@ export async function handleChatAbort(
   })
   const response: ChatAbortResponseData = {
     chatId: data.chatId,
-    ...(treePauseId
-      ? { pauseId: treePauseId, status: refreshTreeControlStatus(treePauseId) }
-      : {}),
+    ...(treePauseId ? { pauseId: treePauseId, status: refreshTreeControlStatus(treePauseId) } : {}),
     ...(activeRunId ? { runId: activeRunId } : {}),
     aborted: !!activeRunId,
     cascaded: descendants.length,

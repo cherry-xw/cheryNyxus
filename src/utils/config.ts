@@ -1517,6 +1517,16 @@ export function listEnvVarNames(): string[] {
 }
 
 /**
+ * 读取 .env 文件 → key→value 映射（供 envGuard 值遮蔽）。
+ * 用 dotenv.parse 纯解析：跳过空行/# 注释、值去引号。与 listEnvVarNames（仅取 key 名，供前端下拉）
+ * 并存、互不派生——dotenv.parse 不做 /^[A-Za-z_][A-Za-z0-9_]*$/ 过滤，派生会改变下拉 key 集合。
+ */
+export function listEnvVarMap(): Record<string, string> {
+  if (!fs.existsSync(rootEnvPath)) return {}
+  return dotenv.parse(fs.readFileSync(rootEnvPath, 'utf8'))
+}
+
+/**
  * 运行期按需重读 .env 文件，同步进 process.env（dotenv.config 只在模块加载时执行一次）。
  *  - override=false（默认）：只填充 process.env 缺失的键，不覆盖 OS env / 启动时已加载的值。
  *  - override=true：以 .env 为准覆盖既有值（用户明确「重载文件」意图，如点击密钥刷新）。

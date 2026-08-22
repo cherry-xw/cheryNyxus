@@ -26,6 +26,7 @@ import {
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { replaceEnvVars, listEnvVarNames, reloadEnvFile, getCheryDir } from '@/utils/config.js'
+import { resetEnvVarCache } from '@/utils/envGuard.js'
 import config from '@/utils/config.js'
 import { resolveThinkingLevelsBatch } from '@/utils/modelThinking.js'
 import {
@@ -289,6 +290,8 @@ export async function handleEnvList(
   _data: EnvListRequestData,
 ): Promise<EnvListResponseData> {
   reloadEnvFile(true)
+  // .env 已覆盖重载 → 失效 envGuard 模块级缓存（否则运行期新增/轮换的 key 与新值不被脱敏）
+  resetEnvVarCache()
   return { vars: listEnvVarNames() }
 }
 

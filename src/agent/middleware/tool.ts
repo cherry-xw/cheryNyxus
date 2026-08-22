@@ -46,6 +46,16 @@ interface PendingSenseCall {
 const NON_DEDUPABLE_SENSES = new Set<string>(['spawn_role'])
 
 /**
+ * 配置管理核心角色判定：能力驱动（不依赖角色名，改名/仿冒免疫）。
+ * senseTable 含 config_manage（结构化配置管理）或 install_skill（技能安装）即视为配置管理角色。
+ * 两处授权（buildSenseTrigger 首次 / doExecuteSense 重授权）均从此函数**同源**计算，保证
+ * filesystemRead override 一致 → assessmentHash 恒等 → 不误触「策略或参数已变化」校验。
+ */
+function isConfigManager(senseTable: { has(name: string): boolean }): boolean {
+  return senseTable.has('config_manage') || senseTable.has('install_skill')
+}
+
+/**
  * Sense Middleware（批量模式）
  * 职责：
  * 1. Phase 1：从 stream chunks 收集 senseDelta，检测完整 sense call，yield sense_end 触发器
@@ -297,6 +307,8 @@ function buildSenseTrigger(
     workspace: getChatWorkspace(ctx.soul.chatId),
     configuredLevel,
     legacySafe,
+    // 配置管理核心角色读放行：read_file/search_codebase 绕过 filesystem workspace 校验
+    filesystemRead: isConfigManager(ctx.runtime.senseTable) ? 'any' : undefined,
   })
   const preDenied = authorization.decision === 'deny'
   const effectiveLevel = preDenied || authorization.decision === 'allow'
@@ -369,11 +381,16 @@ async function doExecuteSense(
     if (!senseEntry) {
       return { content: `没有 "${name}" 这个感官`, replaced }
     }
+    // 配置管理核心角色：能力驱动（senseTable 含 config_manage/install_skill），同源用于守卫 + 重授权
+    const configManager = isConfigManager(ctx.runtime.senseTable)
     // 路径守卫：拦 .chery/ 直接读写（仅 install_skill 豁免），引导走配置管理核心角色
     // 配置管理核心角色（senseTable 含 install_skill，双重隔离信号）额外豁免 .chery/rule/ 读写：
     // 生成/修改审批规则文件（与基准 base.yaml 深合并）。.chery/ 其余路径仍拦。
+    // 读放行（allowConfigRead）：配置管理核心角色 read_file/search_codebase 读 .chery/ 全树放行，
+    // 写（write_file/execute_command）仍拦——写走 config_manage/install_skill 结构化通道。
     const guardHit = checkCheryGuard(name, args, {
-      allowRuleDir: ctx.runtime.senseTable.has('install_skill'),
+      allowRuleDir: configManager,
+      allowConfigRead: configManager,
     })
     if (guardHit) {
       return { content: guardHit, replaced }
@@ -410,6 +427,8 @@ async function doExecuteSense(
         senseEntry.supervisionLevel === SupervisionLevel.smart
           ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
           : undefined,
+      // 与 buildSenseTrigger 同源（isConfigManager(ctx.runtime.senseTable)）→ override 一致 → hash 恒等
+      filesystemRead: configManager ? 'any' : undefined,
     })
     if (
       currentAuthorization.policyHash !== authorization.policyHash ||

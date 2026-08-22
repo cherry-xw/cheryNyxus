@@ -337,4 +337,49 @@ describe('chat live run recovery', () => {
     expect(session.activeTurns).toEqual([])
     expect(session.run).toMatchObject({ status: 'ended', activeRunId: undefined })
   })
+
+  it('applies a replayed done over an event gap so canonical status does not stick at running', () => {
+    const store = useChatSessionsStore()
+    const session = store.ensureEntity('parent-chat')
+    session.sync.replaying = false
+    session.run.status = 'running'
+    session.run.activeRunId = 'run-3'
+
+    // event-gap replay：rootEventSeq 跳号后 done 判 replay，但仍须封印终态（幂等），
+    // 否则 canonical run.status 残留 running → 工作台误显「运行中/暂停」
+    store.applyEvent(
+      'parent-chat',
+      {
+        kind: 'notification',
+        type: 'done',
+        chatId: 'parent-chat',
+        runId: 'run-3',
+        data: { canResume: false },
+      },
+      'replay',
+    )
+
+    expect(session.run.status).toBe('ended')
+    expect(session.run.activeRunId).toBeUndefined()
+  })
+
+  it('keeps skipping replayed non-terminal notifications during historical chat.sync replay', () => {
+    const store = useChatSessionsStore()
+    const session = store.ensureEntity('parent-chat')
+    session.sync.replaying = true
+    session.run.status = 'running'
+
+    store.applyEvent(
+      'parent-chat',
+      {
+        kind: 'notification',
+        type: 'consumed',
+        chatId: 'parent-chat',
+        data: null,
+      },
+      'replay',
+    )
+
+    expect(session.run.status).toBe('running')
+  })
 })

@@ -22,7 +22,7 @@
 | 文件 | 一句话 |
 |------|--------|
 | [config.ts](../../src/utils/config.ts) | 加载 `.chery/config.yaml`，`$ENV` 替换 + 路径补全 + 默认值兜底；导出 `Config` 单例与 `BrainConfig`/`GlobalConfig`/`LoggerConfig` 类型；重导出 `SupervisionLevel` |
-| [envGuard.ts](../../src/utils/envGuard.ts) | 环境变量敏感信息脱敏：从 `.env` 提取变量名，在文本中替换为占位符，供 sense 中间件统一调用 |
+| [envGuard.ts](../../src/utils/envGuard.ts) | 环境变量敏感值脱敏：遮蔽 `.env` 中敏感 key（KEY/SECRET/TOKEN/PASSWORD/AUTH）的值，供 sense 中间件统一调用 |
 | [hash.ts](../../src/utils/hash.ts) | `hashGenerator(...parts)` — SHA256 柯里化，`${prefix}::${rest.join(":")}` 作为输入；用于感官 cache key |
 | [json.ts](../../src/utils/json.ts) | `safeJsonParse(raw, fallback)` — 失败返回 fallback 不抛错 |
 | [generator.ts](../../src/utils/generator.ts) | `isAsyncGenerator(value)` — 类型守卫，判断值是否为 `AsyncGenerator` |
@@ -47,26 +47,32 @@ export type { Config, BrainConfig, GlobalConfig, LoggerConfig };
 export { SupervisionLevel } from "@/core/config";   // 从 core 重导出
 ```
 
-### envGuard.ts — 环境变量脱敏
+### envGuard.ts — 环境变量敏感值脱敏
 
 ```ts
-// 从 .env 提取环境变量名，在文本中替换为占位符（默认 '[REDACTED]'）
+// 对 content 遮蔽 .env 中敏感 key（key 名匹配 /KEY|SECRET|TOKEN|PASSWORD|AUTH/i）的值：
+//   行内 KEY=value → KEY=[REDACTED]（key 名保留、值替换）；值长 ≥ 8 的裸值子串 → [REDACTED]
 export function redactEnvKeys(content: string, placeholder?: string): string;
 
-// 获取环境变量名列表（带缓存，供测试使用）
-export function getEnvVarNames(): string[];
+// 纯函数：给定 key→value 映射做值遮蔽（无 IO，可测）
+export function redactSensitiveValues(content: string, envMap: Record<string, string>, placeholder?: string): string;
 
-// 重置缓存（供测试使用）
+// 获取 .env key→value 映射（带缓存）
+export function getEnvVarMap(): Record<string, string>;
+
+// 重置缓存（供测试 / .env 变更失效用）
 export function resetEnvVarCache(): void;
 ```
 
-**使用场景：** sense 中间件在返回工具输出前，统一调用 `redactEnvKeys()` 脱敏环境变量名，防止敏感信息泄露。复用 [config.ts](../../src/utils/config.ts) 的 `listEnvVarNames()` 函数，避免重复读取 `.env` 文件。
+**使用场景：** sense 中间件在返回工具输出前，统一调用 `redactEnvKeys()`（[tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) L474）遮蔽 `.env` 敏感 key 的值，防止敏感信息泄露。复用 [config.ts](../../src/utils/config.ts) 的 `listEnvVarMap()` 解析 `.env`，避免重复读取文件。
 
-**替换规则：**
+**替换规则（与旧版「替换变量名」相反：旧版遮 key 名、留值；现版 key 名保留、遮值）：**
 
-- 使用正则表达式匹配所有 `.env` 中定义的环境变量名
-- 词边界匹配（`\b`）确保只匹配完整变量名
-- 示例：`API_KEY` 匹配 `"API_KEY=xxx"`，但不匹配 `"MY_API_KEY=xxx"`
+- 仅遮蔽**敏感 key**（key 名匹配 `/KEY|SECRET|TOKEN|PASSWORD|AUTH/i`，如 `API_KEY`/`APq_KEY`/`CHERY_AUTH_SESSION_SECRET`）的值；**非敏感 key（如 `NODE_ENV`）的 key 名与值完全不动**（行为变化：旧版全量遮名）。
+- 行内 `KEY=value` → `KEY=[REDACTED]`（`[^\n]*` 覆盖带引号形式，无论值长短）。
+- 裸值子串：值长 ≥ `MIN_BARE_VALUE_LENGTH`（8）时按值长降序替换为 `[REDACTED]`（避免短值为长值子串时二次替换错位）。
+- 例：`API_KEY=sk-12345` → `API_KEY=[REDACTED]`；正文中出现 `sk-12345` 同样被替换。
+- ⚠ 含凭证但无敏感词的 key（如 `DATABASE_URL`）不受遮蔽——设计内接受，如需扩展可在 `SENSITIVE_KEY_RE` 增加规则。
 
 `Config` 顶层结构（详见 [config.ts 类型定义](../../src/utils/config.ts#L55-L132)）：
 

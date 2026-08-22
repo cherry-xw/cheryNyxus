@@ -65,3 +65,45 @@ describe('角色行为权限', () => {
     expect(first.policyHash).not.toBe(changedPolicy.policyHash)
   })
 })
+
+describe('filesystemRead override（配置管理角色读放行）', () => {
+  const security = compileRoleSecurity('reader', role('read-only'))
+  const base = {
+    security,
+    name: 'read_file',
+    args: { path: '../../secret.txt' },
+    workspace,
+    configuredLevel: SupervisionLevel.auto,
+  }
+
+  it("read-only + 越界路径 + filesystemRead:'any' → allow（读整体放行）", () => {
+    expect(authorizeToolCall({ ...base, filesystemRead: 'any' }).decision).toBe('allow')
+  })
+
+  it('同场景不带 override → deny（锚定现状）', () => {
+    expect(authorizeToolCall(base).decision).toBe('deny')
+  })
+
+  it("会话无 workspace + filesystemRead:'any' → 仍 allow（修复原死锁：无 workspace 不再 fail-closed）", () => {
+    expect(authorizeToolCall({ ...base, workspace: undefined, filesystemRead: 'any' }).decision).toBe('allow')
+  })
+
+  it("write_file + filesystemRead:'any' → deny（写不受 override 影响）", () => {
+    expect(
+      authorizeToolCall({
+        ...base,
+        name: 'write_file',
+        args: { path: '../../secret.txt' },
+        filesystemRead: 'any',
+      }).decision,
+    ).toBe('deny')
+  })
+
+  it('assessmentHash 含 findings，override 经 findings 间接改变 hash（语义：两处授权须同传 override 保持一致）', () => {
+    const without = authorizeToolCall(base) // deny + filesystem-read finding
+    const withAny = authorizeToolCall({ ...base, filesystemRead: 'any' }) // allow + 无 finding
+    expect(withAny.findings).toEqual([])
+    expect(without.findings.length).toBeGreaterThan(0)
+    expect(without.assessmentHash).not.toBe(withAny.assessmentHash)
+  })
+})
