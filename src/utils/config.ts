@@ -1382,20 +1382,21 @@ export function listConfigBackups(): string[] {
 
 /**
  * 回滚配置：从 .chery/backups/ 恢复指定（或缺省最近）备份到 config.yaml。
- * 返回 { backup: 文件名 }；backups/ 不存在或为空时抛错。
+ * 返回 { backup: 文件名 }；备份目录不存在时自愈创建（避免"目录不存在"误导性报错），为空时抛错。
  */
 export function rollbackConfig(backupName?: string): { backup: string } {
   const cheryDir = process.env.CHERY_DIR || process.cwd()
   const configPath = path.join(cheryDir, '.chery', 'config.yaml')
   const backupsDir = path.join(cheryDir, '.chery', 'backups')
-  if (!fs.existsSync(backupsDir)) throw new Error('备份目录不存在（.chery/backups/），无可回滚项')
+  // 自愈：确保备份目录存在；缺省回滚目标由候选备份决定。
+  fs.mkdirSync(backupsDir, { recursive: true })
   const candidates = fs
     .readdirSync(backupsDir)
     .filter((f) => /^config-\d{8}-\d{6}\.yaml$/.test(f))
     .sort()
     .reverse()
   const target = backupName && candidates.includes(backupName) ? backupName : candidates[0]
-  if (!target) throw new Error('备份目录为空，无可回滚项')
+  if (!target) throw new Error('备份目录为空，尚无可用备份（首次 action="save" 后才会生成）')
   fs.copyFileSync(path.join(backupsDir, target), configPath)
   return { backup: target }
 }

@@ -80,10 +80,16 @@ export default sense(
     const chatId = senseCtx?.chatId
 
     if (!senseCtx?.workspaceRoot) {
-      return { content: '状态: error\n说明: 当前会话没有有效工作区，已拒绝执行命令' }
+      return {
+        content:
+          '状态: error\n说明: 当前会话没有有效工作区（preset 未配置 workspace），无法执行命令。' +
+          '读取/修改 .chery 配置请改用 config_manage 感官（action="get"/"save"/"rollback"）。',
+      }
     }
     if (!senseCtx.security?.requiredSandboxMode) {
-      return { content: '状态: error\n说明: 缺少已复核的沙箱授权，已拒绝执行命令' }
+      return {
+        content: '状态: error\n说明: 缺少已复核的沙箱授权，已拒绝执行命令。请通过统一工具门的审批后重试。',
+      }
     }
 
     let cwd: string

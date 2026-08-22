@@ -398,8 +398,9 @@ if (needsApproval.length > 0) {
 
 **路径守卫（[pathGuard.ts](../../src/utils/pathGuard.ts) + [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 前置拦截）：** 感官 execute 前，`doExecuteSense` 调 `checkCheryGuard(name, args, opts)`——若感官名不在 `GUARD_EXEMPT`（当前仅 `install_skill`）且提取的路径参数命中 `isCheryPath`（`.chery` 作为路径段），直接返回拦截文案、**不执行 handler**。
 
-- 覆盖感官：`write_file`/`read_file`/`search_codebase` 取 `args.path`，`execute_command` 取 `args.command`（含 `.chery` 路径段即拦）。
-- **读放行（`allowConfigRead`）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`，能力驱动）对 `read_file`/`search_codebase` 读 `.chery/` **全树放行**（按工具名旁路，优先级在 `allowRuleDir` 与 `isCheryPath` 之前）——其定位就是读写全部配置；`write_file`/`execute_command` 对 `.chery/` 仍拦（写走 config_manage/install_skill 结构化通道；execute_command 的 `cat .chery/config.yaml` 会泄露非 .env 字面密钥、绕过结构化脱敏层，且命令字符串无法可靠区分读写）。
+- 覆盖感官：`write_file`/`read_file`/`search_codebase` 取 `args.path`，`execute_command` 取 `args.command`（含 `.chery` 路径段且非信息获取即拦）。
+- **execute_command 分级**（`isCheryInfoOnlyCommand`）：命令命中信息获取白名单（ls/dir/find/stat/du/df/pwd/tree/where/which 等，含 PowerShell 版）且无文件重定向/命令替换/读取写入动词时放行（如 `ls -la .chery/`、`find .chery -type f`）；`cat/type/grep/head` 等读配置内容、cp/mv/rm/echo 重定向等修改、以及未知动词均 fail-closed 拦截。
+- **读放行（`allowConfigRead`）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`，能力驱动）对 `read_file`/`search_codebase` 读 `.chery/` **全树放行**（按工具名旁路，优先级在 `allowRuleDir` 与 `isCheryPath` 之前）——其定位就是读写全部配置；`write_file`/`execute_command` 对 `.chery/` 的**修改**仍拦（写走 config_manage/install_skill 结构化通道；execute_command 的 `cat .chery/config.yaml` 会泄露非 .env 字面密钥、绕过结构化脱敏层）。
 - 与 `.env` 后置脱敏（[envGuard.ts](../../src/utils/envGuard.ts) `redactEnvKeys` + [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) L474，执行后遮蔽 `.env` 敏感 key 的值——key 名保留、值 → `[REDACTED]`）的区别：守卫是**前置拦截**（执行前拒，不执行）。参考 envGuard 的「统一拦截层位置 + 注入说明」模式，语义不同。
 - 双重隔离：install_skill / config_manage 只在 Cherry Nexus（chery_nexus 组）→ 其他角色调不到；守卫 `GUARD_EXEMPT` 只豁免 install_skill → 其他角色绕路用 write_file/bash 写 `.chery/` 也被拦。
 - 详见 [agent/skill-install.md](../agent/skill-install.md)。

@@ -12,11 +12,11 @@ Cherry Nexus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配�
 
 ### 与 install_skill 的关系
 
-- `config_manage` 是**结构化感官**：action 参数不携带路径，`extractSensePaths` 对非文件类感官返回 `[]` → **天然不触发 `.chery/` 路径守卫**（[pathGuard.ts](../../src/utils/pathGuard.ts) 只对 write_file/read_file/search_codebase/execute_command 提取路径）。
+- `config_manage` 是**结构化感官**：action 参数必填（get / save / rollback），不携带路径 → `extractSensePaths` 对非文件类感官返回 `[]` → **天然不触发 `.chery/` 路径守卫**（[pathGuard.ts](../../src/utils/pathGuard.ts) 只对 write_file/read_file/search_codebase/execute_command 提取路径）。缺/未知 action → fail-loud 返回用法引导，**绝不静默兜底为 rollback**（避免误触无备份回滚、误报"备份目录不存在"）。
 - 因此无需修改 `GUARD_EXEMPT` 白名单，`config_manage` 即可读写 `.chery/config.yaml`。
 - 仅 Cherry Nexus 的 senseGroup（`chery_nexus`）含 `config_manage` → 其他角色 senseTable 无此感官 → 调不到（角色隔离）。
 
-**工具级读取放行（能力驱动）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`）经 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 接线——`authorizeToolCall` 传 `filesystemRead: 'any'`（read_file/search_codebase 读放行，绕过 filesystem workspace 校验）、`checkCheryGuard` 传 `allowConfigRead: true`（读 `.chery/` 全树放行）。唯一拦截点是 [envGuard.ts](../../src/utils/envGuard.ts) 对 `.env` 敏感 key 值的后置遮蔽（key 名保留、值 → `[REDACTED]`）。`write_file`/`execute_command` 对 `.chery/` 仍拦——写走 `config_manage`（结构化脱敏），`execute_command` 的 `cat .chery/config.yaml` 会泄露非 .env 字面密钥，故不放行。
+**工具级读取放行（能力驱动）**：配置管理核心角色（senseTable 含 `config_manage`/`install_skill`）经 [tool.ts doExecuteSense](../../src/agent/middleware/tool.ts) 接线——`authorizeToolCall` 传 `filesystemRead: 'any'`（read_file/search_codebase 读放行，绕过 filesystem workspace 校验）、`checkCheryGuard` 传 `allowConfigRead: true`（读 `.chery/` 全树放行）。唯一拦截点是 [envGuard.ts](../../src/utils/envGuard.ts) 对 `.env` 敏感 key 值的后置遮蔽（key 名保留、值 → `[REDACTED]`）。`write_file` 对 `.chery/` 仍拦、`execute_command` 对 `.chery/` 的**修改**仍拦——写走 `config_manage`（结构化脱敏），`execute_command` 的 `cat .chery/config.yaml` 会泄露非 .env 字面密钥，故不放行；但 `ls/dir/find/stat` 等**信息获取**命令（无文件重定向/命令替换/读写动词）放行，便于目录盘点。
 
 ### schema（action 三态）
 
@@ -43,7 +43,8 @@ z.discriminatedUnion('action', [
 |--------|------|------|
 | `get` | `readRawConfig()` 读盘（剥离 server 段），经 `redactConfigSecrets` 脱敏后返回**完整配置** | 完整 `config.yaml`（key 为 `$ENV` 占位符原样 / `[REDACTED]` 哨兵）+ `backups` 回滚点；可直接 round-trip 传回 save |
 | `save` | 先 `readRawConfig()` 读盘 → `restoreRedactedSecrets` 还原 `[REDACTED]` 为盘上原值 → 复用 `saveRawConfig()`（校验 + 锁角色/固定预设编辑校验 + 写回） | `ok` / `errors`+`warnings`（失败不落盘） |
-| `rollback` | 从 `.chery/backups/` 恢复指定/最近备份到 `config.yaml` | 恢复的文件名 + 时间 |
+| `rollback` | 从 `.chery/backups/` 恢复指定/最近备份到 `config.yaml` | 恢复的文件名 + 时间；**无备份**时自愈创建备份目录并返回可行动报错（"尚无可用备份，首次 action='save' 后才会生成"），不抛异常 |
+| （缺/未知 action） | 不执行任何操作，返回用法引导 | `config_manage` 必须显式指定 action（get / save / rollback）；请先调用 `action="get"` |
 
 ### 敏感字段脱敏（round-trip 契约）
 

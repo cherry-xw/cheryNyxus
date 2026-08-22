@@ -114,9 +114,12 @@ describe('config 自动备份回滚', () => {
     expect(readFileSync(join(tempCheryDir, '.chery', 'config.yaml'), 'utf8')).toBe('# older')
   })
 
-  it('rollbackConfig 备份目录不存在时抛错', () => {
+  it('rollbackConfig 备份目录不存在时自愈创建并报"尚无可用备份"（不再报误导性的目录不存在）', () => {
     setupConfigYaml(minimalConfigYaml())
-    expect(() => rollbackConfig()).toThrow(/备份目录不存在/)
+    expect(() => rollbackConfig()).toThrow(/备份目录为空|尚无可用备份/)
+    // 自愈：目录被创建（幂等，不抛"目录不存在"）
+    expect(existsSync(join(tempCheryDir, '.chery', 'backups'))).toBe(true)
+    expect(listConfigBackups()).toEqual([])
   })
 
   it('saveRawConfig 成功写盘前自动备份旧配置', () => {

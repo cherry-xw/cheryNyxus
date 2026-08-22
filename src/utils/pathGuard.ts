@@ -75,6 +75,39 @@ export function isRuleDirPath(target: string): boolean {
 export const GUARD_EXEMPT = new Set<string>(['install_skill'])
 
 /**
+ * 信息获取型命令动词：仅列目录/查询状态，不读取文件内容、不修改文件。
+ * 命中任一即视为"信息获取"，对 .chery/ 的 execute_command 放行。
+ */
+const CHERY_INFO_COMMAND_RE =
+  /(?:^|[\s;|&()])(?:ls|dir|find|stat|du|df|pwd|tree|test|where|which|get-childitem|get-item|get-location|get-acl|resolve-path|split-path|join-path|test-path)\b/i
+
+/**
+ * 读内容/修改型命令动词：读取配置文件内容或修改 .chery 文件，命中即拦（fail-closed）。
+ * 覆盖 bash 与 PowerShell 常见命令；未知动词触碰 .chery 也走 fail-closed（见 isCheryInfoOnlyCommand）。
+ */
+const CHERY_READ_WRITE_COMMAND_RE =
+  /\b(?:cat|more|less|head|tail|sed|awk|grep|egrep|fgrep|rg|vi|vim|nano|tee|echo|printf|cp|mv|rm|rmdir|mkdir|touch|truncate|dd|install|chmod|chown|tar|unzip|curl|wget|python|python3|node|npm|pnpm|bash|sh|source|exec|xargs|get-content|select-string|set-content|add-content|out-file|clear-content|remove-item|copy-item|move-item|new-item|icacls|takeown|set-acl)\b/i
+
+/** 文件 I/O 重定向（排除 fd 重定向 2>&1 / 1>&2 / 2>&- 等 N[<>]&M 形式）。 */
+function hasFileRedirection(command: string): boolean {
+  const stripped = command.replace(/\d[<>]&(-|\d)|[0-9]?[<>]&-/g, '')
+  return /[<>]/.test(stripped)
+}
+
+/**
+ * execute_command 触碰 .chery/ 时的分级判定：
+ *  - 纯信息获取（ls/dir/find/stat 等列目录、查询状态）→ true（放行）
+ *  - 读取文件内容 / 修改 .chery / 动态执行 / 文件重定向 / 未知动词 → false（fail-closed 拦截）
+ * 判据：不读配置内容（防泄密）、不改 .chery（防损坏）、不动态求值。
+ */
+export function isCheryInfoOnlyCommand(command: string): boolean {
+  if (CHERY_READ_WRITE_COMMAND_RE.test(command)) return false
+  if (hasFileRedirection(command)) return false
+  if (/\$\(|`/.test(command)) return false
+  return CHERY_INFO_COMMAND_RE.test(command)
+}
+
+/**
  * 从感官 args 提取路径参数（可能命中 .chery 的字段）。
  * execute_command 取 command（shell 字符串里可能含 .chery 路径）。
  */
@@ -93,8 +126,11 @@ export function extractSensePaths(name: string, args: Record<string, unknown>): 
 
 /** 拦截文案（注入给 LLM，引导交配置管理核心角色）。 */
 export const CHERY_GUARD_MESSAGE =
-  '.chery/ 是系统配置目录（技能/插件/提示词/命令/数据库），不能直接读写。' +
-  '配置管理请交给 Cherry Nexus（cheryNyxus，通过 config_manage 感官），' +
+  '.chery/ 是系统配置目录（技能/插件/提示词/命令/数据库）。' +
+  '读取/修改 .chery 配置请使用 config_manage 感官（action="get"/"save"/"rollback"），' +
+  '它可完整替代对配置文件的直接指令读写；禁止用 cat/type/grep/head 等读取配置内容、' +
+  '或用 cp/mv/rm/echo 重定向等修改 .chery（会绕过脱敏并可能损坏配置）。' +
+  '仅信息获取类命令（ls/dir/find/stat 等列目录、查询状态）放行。' +
   '安装或修改技能请用 spawn_role 派出「Cherry Nexus」角色（type: cheryNyxus）完成。'
 
 export interface CheryGuardOptions {
@@ -115,6 +151,7 @@ export interface CheryGuardOptions {
  * 守卫主入口。返回拦截文案（命中）或 null（放行）。
  * 豁免感官直接放行；否则提取路径参数，任一命中 isCheryPath 即拦。
  * allowRuleDir：配置管理核心角色对 .chery/rule/ 的读写放行（全部命中路径都在规则目录），其余仍拦。
+ * execute_command 触碰 .chery/：信息获取型命令（ls/dir/find/stat 等）放行，其余（读内容/修改/动态求值）拦截。
  */
 export function checkCheryGuard(
   name: string,
@@ -129,7 +166,11 @@ export function checkCheryGuard(
   // 配置管理核心角色写/读 .chery/rule/（审批规则）：全部命中路径都在规则目录 → 放行
   if (opts?.allowRuleDir && paths.length && paths.every((p) => isRuleDirPath(p))) return null
   for (const p of paths) {
-    if (isCheryPath(p)) return CHERY_GUARD_MESSAGE
+    if (!isCheryPath(p)) continue
+    // execute_command：信息获取型命令（ls/dir/find/stat 等列目录、查询状态）放行；
+    // 读取配置内容 / 修改 .chery / 动态求值 / 未知动词 → fail-closed 拦截。
+    if (name === 'execute_command' && isCheryInfoOnlyCommand(p)) continue
+    return CHERY_GUARD_MESSAGE
   }
   return null
 }
