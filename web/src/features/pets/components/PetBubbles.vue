@@ -16,7 +16,7 @@ import { computed } from 'vue'
 import type { VariantType } from 'motion-v'
 import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
 import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
-import type { StreamState } from '@/stores'
+import { useAgentsStore, type StreamState } from '@/stores'
 import type { QuestionItemState } from '@/stores/agents'
 import { findQuestion } from '@/stores/agents/actions/questionBatch'
 import type { PetInstance } from '../types/types'
@@ -30,6 +30,8 @@ defineEmits<{
 
 const props = defineProps<{
   pet: PetInstance
+  /** 本气泡对应 stream 的 chatId（master = 活跃根，子 = 自身），接力棒判定用。 */
+  chatId: string
   stream?: StreamState
   // display state (from useStreamBubble)
   hasStream: boolean
@@ -60,6 +62,14 @@ defineSlots<{
   dialog?: (props: { pet: PetInstance }) => unknown
 }>()
 
+const agents = useAgentsStore()
+
+/**
+ * 接力棒：该 chat 的提问/审批已被某个打开的工作台窗口接管时，pet 气泡隐藏（工作台就地消费），
+ * 避免同一交互出现两份窗口；工作台关闭/最小化后自动交还 pet（最终兜底）。
+ */
+const consumedByWorkbench = computed(() => agents.workbenchConsumesChat(props.chatId))
+
 /**
  * activeQuestion：根据 stream.activeQuestionId 从 questions[] 查找当前选中问题。
  * batchInfo：当前 question 所属 batch 的进度信息（控制"下一步"vs"提交"按钮）。
@@ -87,7 +97,7 @@ const batchInfo = computed(() => {
 <template>
   <AnimatePresence>
     <PetBubble
-      v-if="activeQuestion"
+      v-if="activeQuestion && !consumedByWorkbench"
       key="question"
       variant="question"
       :speech="speech"
@@ -102,7 +112,7 @@ const batchInfo = computed(() => {
       />
     </PetBubble>
     <PetBubble
-      v-else-if="stream?.approval"
+      v-else-if="stream?.approval && !consumedByWorkbench"
       :key="`approval-${stream.approval.approvalId}`"
       variant="approval"
       :speech="speech"

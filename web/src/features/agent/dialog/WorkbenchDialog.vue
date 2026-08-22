@@ -12,13 +12,14 @@ import { AnimatePresence, motion } from 'motion-v'
 import { ElMessage, ElMessageBox, ElPopover, ElTooltip } from 'element-plus'
 import RoleConfigPopover from './RoleConfigPopover.vue'
 import AgentComposer from './AgentComposer.vue'
-import WorkspaceSessionBrowser from './WorkspaceSessionBrowser.vue'
+import PendingOperationsPanel, { type PendingInteractionFocus } from './PendingOperationsPanel.vue'
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
 import {
   agentApi,
   type ContextBreakdown,
+  type InteractionRecord,
   type PromptSnapshotTool,
   type RootTimelineSnapshot,
 } from '@/services/agentApi'
@@ -28,7 +29,7 @@ import {
   type ResizeDirection,
   type WorkbenchMode,
 } from './useWorkbenchWindow'
-import { useAgentsStore, useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/stores'
+import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/stores'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 import MessageBranchTree from '@/features/pets/nyxus/components/MessageBranchTree.vue'
@@ -46,7 +47,6 @@ const props = defineProps<{ windowId: string; presetId: string; native?: boolean
 
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
-const interactions = useInteractionsStore()
 
 /** 本窗口状态（store 注册表按 windowId 索引）。窗口关闭/不存在时组件不渲染。 */
 const win = computed(() => agents.workbenchWindows[props.windowId])
@@ -256,9 +256,6 @@ const quickSessions = computed(() =>
         (b.lastUserActivityAt ?? b.createdAt ?? 0) -
         (a.lastUserActivityAt ?? a.createdAt ?? 0),
     ),
-)
-const workspaceAttentionCount = computed(() =>
-  interactions.pending.filter((item) => item.presetId === quickPresetId.value).length,
 )
 
 const nyxusDraftActive = ref(false)
@@ -489,7 +486,6 @@ function selectFoldMode(mode: FoldMode): void {
 }
 watch([topologyLayout, foldMode, paperMode], saveWorkbenchViewPreference)
 const pianoOpen = ref(false)
-const workspaceBrowserMode = ref<'attention'>()
 /** 删除交互期间锁定 popout：hover 可删键 / 拖拽 / 倒掉动画时为 true，跳过延迟关闭。 */
 const pianoPinned = ref(false)
 let pianoCloseTimer: ReturnType<typeof setTimeout> | undefined
@@ -515,7 +511,6 @@ function showPiano(): void {
   // 与角色列表互斥：展开钢琴时收起角色列表。
   closeRoleList()
   agents.closeAllHistory()
-  workspaceBrowserMode.value = undefined
   pianoOpen.value = true
 }
 function schedulePianoClose(): void {
@@ -547,7 +542,6 @@ function showRoleList(): void {
   pianoCloseTimer = undefined
   pianoOpen.value = false
   agents.closeAllHistory()
-  workspaceBrowserMode.value = undefined
   roleListOpen.value = true
 }
 function scheduleRoleListClose(): void {
@@ -568,23 +562,6 @@ function toggleRoleList(): void {
   if (roleListOpen.value) closeRoleList()
   else showRoleList()
 }
-function toggleWorkspaceBrowser(mode: 'attention'): void {
-  closeRoleList()
-  pianoOpen.value = false
-  agents.closeAllHistory()
-  workspaceBrowserMode.value = workspaceBrowserMode.value === mode ? undefined : mode
-}
-/** 抽屉为 modal：遮罩点击/✕/ESC 关闭，关闭前底层内容不可交互。 */
-function onWorkspaceDrawerKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && workspaceBrowserMode.value) {
-    e.preventDefault()
-    toggleWorkspaceBrowser('attention')
-  }
-}
-watch(workspaceBrowserMode, (open) => {
-  if (open) window.addEventListener('keydown', onWorkspaceDrawerKeydown)
-  else window.removeEventListener('keydown', onWorkspaceDrawerKeydown)
-})
 /** 点击 popout/按钮之外 → 关闭（配置面板点外部关闭）。 */
 function onRoleOutsidePointerDown(e: PointerEvent): void {
   const t = e.target as HTMLElement | null
@@ -688,7 +665,7 @@ function openHistory(): void {
  * running 显停止、canResume 且无未完成直接子会话显继续运行；逻辑参考 pet resume/abort。
  */
 const sessionControlPending = ref(false)
-type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root' | 'answer-question'
+type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root'
 const taskHasRunningBranches = computed(() =>
   taskTimeline.value?.activeRuns.some(
     (run) => run.status === 'running' || run.status === 'waiting',
@@ -730,11 +707,6 @@ const sessionControl = computed<{ mode: WorkbenchControlMode; label: string } | 
   if (control && resumableTargets && resumableTargets.length > 0) {
     return { mode: 'resume-tree', label: '继续' }
   }
-  // 提问态兜底：有待答提问批（canResume 已被 pending 批置 false，无法走 resume-root）时
-  // 提供显式「回答提问」入口，防止 hydration 意外未落地时"无卡片无按钮"（见 docs 同上）。
-  if (session.interaction.questionBatches.length > 0) {
-    return { mode: 'answer-question', label: '回答提问' }
-  }
   const hasUnfinishedDirectChild = Object.values(chatSessions.sessionsById).some(
     (candidate) => candidate.meta.parentChatId === id && candidate.meta.finished !== true,
   )
@@ -765,9 +737,6 @@ async function executeSessionControl(): Promise<void> {
       }
       if (!pauseId) throw new Error('暂停状态已变化，请重试')
       await chatSessions.resumeTree(id, pauseId)
-    } else if (mode === 'answer-question') {
-      // 恢复提问快照并聚焦卡片（已 hydrated 则幂等跳过；questionBatches 驱动 QuestionCard 渲染）
-      await chatSessions.ensureQuestionHydrated(id)
     } else {
       // resume-root 是流式启动：resumeAgent 的 done 在 LLM 运行结束时才 resolve。
       // 若在此 await，sessionControlPending 在运行期间恒 true → 暂停按钮被 disabled、
@@ -818,6 +787,8 @@ async function pauseWholeTask(): Promise<void> {
 const treeRootChatId = ref('')
 const treeFocusSourceChatId = ref<string>()
 const treeFocusInteractionId = ref<string>()
+/** 待操作面板 ↔ 节点树双向关联：树侧激活带待处理交互节点时同步聚焦面板条目。 */
+const treeFocusedInteraction = ref<PendingInteractionFocus>()
 const rootSubscriptionOwner = `workbench:${props.windowId}`
 watch(
   () => win.value?.interactionFocus,
@@ -962,11 +933,35 @@ async function openWorkspaceTree(
   interactionId?: string,
   anchorNodeId?: string,
 ): Promise<void> {
-  workspaceBrowserMode.value = undefined
   treeFocusSourceChatId.value = sourceChatId
   treeFocusInteractionId.value = anchorNodeId ?? interactionId
   winView.value = 'tree'
   await switchSession(rootChatId)
+}
+
+/**
+ * 待操作任务面板「在节点树中查看」：当前树内命中 → 直接聚焦节点；
+ * 其它根 → 切换到对应根会话并定位（openWorkspaceTree）。与节点高亮双向关联。
+ */
+function locateInteraction(item: InteractionRecord): void {
+  const root = item.rootChatId
+  treeFocusedInteraction.value = {
+    chatId: item.chatId,
+    interactionId: item.interactionId,
+    anchorNodeId: item.anchorNodeId,
+  }
+  if (root && root === treeRootChatId.value) {
+    treeFocusSourceChatId.value = item.chatId
+    treeFocusInteractionId.value = item.anchorNodeId ?? item.interactionId
+    winView.value = 'tree'
+    return
+  }
+  void openWorkspaceTree(root, item.chatId, item.interactionId, item.anchorNodeId)
+}
+
+/** 树侧激活带待处理交互的节点 → 面板聚焦对应条目（并展开）。 */
+function onTreeInteractionFocus(focus: PendingInteractionFocus): void {
+  treeFocusedInteraction.value = focus
 }
 
 async function deletePresetSession(targetId: string): Promise<void> {
@@ -1151,7 +1146,6 @@ onBeforeUnmount(() => {
   if (foldCloseTimer) clearTimeout(foldCloseTimer)
   if (taskTimelineRefreshTimer) clearInterval(taskTimelineRefreshTimer)
   window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
-  window.removeEventListener('keydown', onWorkspaceDrawerKeydown)
   if (treeRootChatId.value) {
     void chatSessions.releaseRootTimeline(treeRootChatId.value, rootSubscriptionOwner)
   }
@@ -1298,6 +1292,7 @@ defineExpose({ closeWorkbench })
           :detail-branch-available="detailBranchAvailability.available"
           :detail-branch-unavailable-reason="detailBranchAvailability.reason"
           @branch="selectBranchTarget"
+          @interaction-focus="onTreeInteractionFocus"
         />
         <div v-else class="workbench-empty-state" aria-live="polite">
           <span>暂无历史会话</span>
@@ -1364,6 +1359,14 @@ defineExpose({ closeWorkbench })
           variant="divider"
         />
       </div>
+
+      <!-- 待操作任务面板：常驻右上（rail 左侧），收敛全部待处理交互入口（审批 + 提问）。 -->
+      <PendingOperationsPanel
+        v-if="treeRootChatId"
+        :root-chat-id="treeRootChatId"
+        :focused-interaction="treeFocusedInteraction"
+        @locate="locateInteraction"
+      />
 
       <Transition name="nyxus-composer">
         <section
@@ -1621,25 +1624,6 @@ defineExpose({ closeWorkbench })
               </span>
             </el-tooltip>
             <el-tooltip
-              content="待处理交互"
-              placement="left"
-              :show-after="200"
-              :hide-after="0"
-            >
-              <span class="nyxus-tool-tip-anchor">
-                <button
-                  type="button"
-                  class="nyxus-rail-action attention-rail-action"
-                  :class="{ 'is-active': workspaceBrowserMode === 'attention' }"
-                  aria-label="待处理交互"
-                  @click="toggleWorkspaceBrowser('attention')"
-                >
-                  <span aria-hidden="true">!</span>
-                  <b v-if="workspaceAttentionCount">{{ workspaceAttentionCount }}</b>
-                </button>
-              </span>
-            </el-tooltip>
-            <el-tooltip
               content="新建会话"
               placement="left"
               :show-after="200"
@@ -1885,51 +1869,6 @@ defineExpose({ closeWorkbench })
           </MotionDiv>
         </AnimatePresence>
       </nav>
-      <AnimatePresence>
-        <MotionDiv
-          v-if="workspaceBrowserMode"
-          key="workspace-drawer-mask"
-          class="workspace-drawer-mask"
-          aria-hidden="true"
-          :initial="{ opacity: 0 }"
-          :animate="{ opacity: 1 }"
-          :exit="{ opacity: 0 }"
-          :transition="{ duration: 0.18 }"
-          @click="toggleWorkspaceBrowser('attention')"
-        />
-        <MotionDiv
-          v-if="workspaceBrowserMode"
-          key="workspace-drawer"
-          class="workspace-drawer"
-          role="dialog"
-          aria-modal="true"
-          aria-label="待处理交互"
-          :initial="{ transform: 'translateX(100%)' }"
-          :animate="{ transform: 'translateX(0)' }"
-          :exit="{ transform: 'translateX(100%)' }"
-          :transition="{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }"
-        >
-          <header class="workspace-drawer-head">
-            <strong>待处理交互</strong>
-            <span v-if="workspaceAttentionCount">{{ workspaceAttentionCount }} 项待处理</span>
-            <button
-              type="button"
-              class="workspace-drawer-close"
-              aria-label="关闭待处理交互"
-              title="关闭"
-              @click="toggleWorkspaceBrowser('attention')"
-            >
-              ✕
-            </button>
-          </header>
-          <div class="workspace-drawer-body">
-            <WorkspaceSessionBrowser
-              :preset-id="quickPresetId"
-              @tree="openWorkspaceTree"
-            />
-          </div>
-        </MotionDiv>
-      </AnimatePresence>
       <!-- 断连遮罩：仅 disconnected（数据不可用）时阻断操作；connecting 只亮标题栏状态不遮罩。
            native 面关闭三键在 WindowFrame 层，不受遮罩影响。 -->
       <div
@@ -1994,7 +1933,7 @@ defineExpose({ closeWorkbench })
 }
 :global([data-theme='dark']) .role-usage-chip {
   border: 1px solid currentColor;
-  font-weight: 700;
+  font-weight: 600;
 }
 :global([data-theme='dark']) .role-usage-chip.usage-low {
   background: rgba(74, 222, 128, 0.2);
@@ -2037,11 +1976,9 @@ defineExpose({ closeWorkbench })
 .workbench-shell.is-native .workbench-ctx-bar {
   top: 0;
 }
-.workbench-shell.is-native .workspace-drawer-mask {
-  inset: 0;
-}
-.workbench-shell.is-native .workspace-drawer {
-  top: 0;
+// native 面无标题栏（branch-top 从顶开始）→ 待操作面板贴顶。
+.workbench-shell.is-native :deep(.pending-panel) {
+  top: 8px;
 }
 .workbench-shell.is-fullscreen {
   inset: 0;
@@ -2097,7 +2034,7 @@ defineExpose({ closeWorkbench })
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 600;
 }
 .workbench-titlebar small {
   color: color-mix(in srgb, var(--nx-text) 56%, transparent);
@@ -2459,88 +2396,6 @@ defineExpose({ closeWorkbench })
     0 18px 34px rgba(0, 0, 0, 0.42),
     inset 0 1px 0 rgba(255, 221, 151, 0.38);
 }
-.attention-rail-action b {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 999px;
-  color: #fff;
-  background: var(--nx-red);
-  font-size: 8px;
-  line-height: 15px;
-}
-.workspace-drawer-mask {
-  position: absolute;
-  z-index: var(--nx-z-drawer-mask);
-  inset: 40px 0 0 0; /* 从标题栏下方开始，永遮不住上方关闭/最大化/最小化按钮 */
-  background: rgba(2, 8, 12, 0.5);
-  backdrop-filter: blur(2px);
-  pointer-events: auto;
-}
-// 右侧抽屉：内容区内部满高，盖住右侧 rail 与 ctx-bar，遮罩之下须关闭抽屉才能继续使用。
-.workspace-drawer {
-  position: absolute;
-  z-index: var(--nx-z-drawer);
-  top: 40px;
-  right: 0;
-  bottom: 0;
-  width: min(440px, 72%);
-  display: flex;
-  flex-direction: column;
-  color: var(--ink);
-  background: var(--panel);
-  border-left: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
-  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.35);
-  pointer-events: auto;
-}
-.workspace-drawer-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 8px 0 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
-}
-.workspace-drawer-head strong {
-  color: var(--ink);
-  font-size: 13px;
-}
-.workspace-drawer-head span {
-  flex: 1;
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
-  font-size: 10px;
-}
-.workspace-drawer-close {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  color: color-mix(in srgb, var(--ink) 70%, transparent);
-  background: transparent;
-  font-size: 13px;
-  cursor: pointer;
-  transition:
-    color 100ms ease,
-    background-color 100ms ease;
-}
-.workspace-drawer-close:hover,
-.workspace-drawer-close:focus-visible {
-  color: var(--ink);
-  background: color-mix(in srgb, var(--ink) 12%, transparent);
-}
-.workspace-drawer-body {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
 // 断连遮罩：盖住画布与 rail（native 面三键在 WindowFrame 层），阻断进一步操作防出错。
 .workbench-offline-mask {
   position: absolute;
@@ -2620,21 +2475,6 @@ defineExpose({ closeWorkbench })
 // 浏览器面自绘标题栏的连接状态 chip（native 面由 App.vue WindowFrame title-actions 承载）。
 .workbench-titlebar .workbench-conn-chip {
   margin-left: 2px;
-}
-// 抽屉内复用 WorkspaceSessionBrowser：隐藏其自带 header（计数移至抽屉头），列表撑满滚动。
-.workspace-drawer :deep(.workspace-browser) {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.workspace-drawer :deep(.browser-head) {
-  display: none;
-}
-.workspace-drawer :deep(.browser-list) {
-  flex: 1;
-  min-height: 0;
-  max-height: none;
 }
 .nyxus-piano-popout :deep(.piano-keyboard) {
   position: relative;
@@ -2963,7 +2803,7 @@ defineExpose({ closeWorkbench })
   border-radius: 7px;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 400;
   color: var(--ink);
   transition: background-color 100ms ease;
 
@@ -2979,7 +2819,7 @@ defineExpose({ closeWorkbench })
 .media-svc-tag {
   margin-left: auto;
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 1px 6px;
   border-radius: 4px;
   background: rgba(246, 183, 60, 0.15);
@@ -3005,7 +2845,7 @@ defineExpose({ closeWorkbench })
   box-shadow: 0 7px 18px rgba(20, 22, 26, 0.18);
   color: var(--ink);
   font-size: 10.5px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.45;
   pointer-events: none;
 }
@@ -3013,7 +2853,7 @@ defineExpose({ closeWorkbench })
 .instruction-token-floating-title {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 600;
 }
 
 .instruction-token-floating-description {
@@ -3029,6 +2869,6 @@ defineExpose({ closeWorkbench })
   color: var(--accent-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
 }
 </style>

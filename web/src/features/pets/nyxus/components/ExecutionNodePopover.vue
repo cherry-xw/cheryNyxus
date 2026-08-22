@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElTooltip } from 'element-plus'
-import ApprovalCard from '@/features/agent/cards/ApprovalCard.vue'
-import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import { splitCommandPrompt } from '@/features/agent/composables/commands'
 import {
   parseQuestionAnswer,
@@ -78,15 +76,42 @@ const props = defineProps<{
   detailBranchAvailable?: boolean
   detailBranchUnavailableReason?: string
   variant?: 'popover' | 'paper'
+  /** 标题栏可拖动（常驻弹窗）。拖动通过 drag emit 上报增量位移。 */
+  draggable?: boolean
 }>()
 const emit = defineEmits<{
   close: []
   selectCall: [callId: string]
   branch: [type: 'detail' | 'continuation', nodeId: string]
+  drag: [delta: { x: number; y: number }]
 }>()
 const agents = useAgentsStore()
 const batch = computed(() => toolBatchDetail(props.node))
 const copiedFieldKey = ref('')
+
+// ── 标题栏拖拽（常驻弹窗）：pointer-capture 模式，drag emit 上报增量位移 ──
+let dragPointerId = -1
+let dragX = 0
+let dragY = 0
+function onHeaderPointerDown(event: PointerEvent): void {
+  if (!props.draggable) return
+  dragPointerId = event.pointerId
+  dragX = event.clientX
+  dragY = event.clientY
+  ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
+}
+function onHeaderPointerMove(event: PointerEvent): void {
+  if (event.pointerId !== dragPointerId) return
+  emit('drag', { x: event.clientX - dragX, y: event.clientY - dragY })
+  dragX = event.clientX
+  dragY = event.clientY
+}
+function onHeaderPointerUp(event: PointerEvent): void {
+  if (event.pointerId !== dragPointerId) return
+  const target = event.currentTarget as HTMLElement
+  if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId)
+  dragPointerId = -1
+}
 const nodeTermination = computed(() =>
   props.node.sourceFact?.termination
     ? terminationDisplay(props.node.sourceFact.termination)
@@ -399,7 +424,14 @@ async function copyField(key: string, value: string): Promise<void> {
     :aria-label="`${nodeTitle}详情`"
   >
     <div class="popover-chrome">
-      <header class="popover-head">
+      <header
+        class="popover-head"
+        :class="{ 'is-draggable': draggable }"
+        @pointerdown.stop="onHeaderPointerDown"
+        @pointermove.stop="onHeaderPointerMove"
+        @pointerup.stop="onHeaderPointerUp"
+        @pointercancel.stop="onHeaderPointerUp"
+      >
         <span class="title-icon" aria-hidden="true">
           {{ batch ? toolIcon : skinForNode(node).glyph }}
         </span>
@@ -442,7 +474,7 @@ async function copyField(key: string, value: string): Promise<void> {
           </span>
         </div>
         <button
-          v-if="pinned && !approval && !question"
+          v-if="pinned"
           type="button"
           class="icon-button close-button"
           aria-label="关闭详情"
@@ -537,14 +569,6 @@ async function copyField(key: string, value: string): Promise<void> {
             <span class="tool-tab-label">{{ toolLabel(call.name) }}</span>
           </button>
         </div>
-        <section v-if="chatId" class="node-action">
-          <QuestionCard
-            :question="question.question"
-            :chat-id="chatId"
-            :batch-info="batchInfo"
-            :show-heading="false"
-          />
-        </section>
       </template>
 
       <div v-if="batch && !question" class="batch-lead">
@@ -577,11 +601,8 @@ async function copyField(key: string, value: string): Promise<void> {
           v-html="renderedNodeContent"
         />
       </div>
-      <section v-if="approval && !question" class="node-action">
-        <ApprovalCard v-if="approval && chatId" :approval="approval" :chat-id="chatId" />
-      </section>
 
-      <template v-if="batch && !approval && !question">
+      <template v-if="batch && !question">
         <Transition name="tool-content" mode="out-in">
           <section v-if="selectedCall" :key="selectedCall.callId" class="tool-detail">
             <div class="single-tool-status">
@@ -1086,6 +1107,11 @@ async function copyField(key: string, value: string): Promise<void> {
   padding: 0 8px 0 10px;
   border-bottom: 1px solid @line;
 }
+.popover-head.is-draggable {
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
 .title-icon {
   flex: 0 0 auto;
   display: grid;
@@ -1270,11 +1296,6 @@ async function copyField(key: string, value: string): Promise<void> {
   --surface-soft: color-mix(in srgb, var(--nx-bg) 90%, transparent);
   --border: @line;
   color: @ink;
-}
-.node-action :deep(.approval-card),
-.node-action :deep(.question-card) {
-  width: auto;
-  max-width: none;
 }
 .tool-detail,
 .node-content {
@@ -1585,7 +1606,8 @@ async function copyField(key: string, value: string): Promise<void> {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 2px 0 4px;
+  // 与下方 .batch-lead（10px）/ .tool-tabs（8px）内容基线对齐，避免标题行贴左缘错位
+  padding: 2px 10px 4px;
 }
 .question-symbol {
   flex: 0 0 auto;
@@ -1610,7 +1632,7 @@ async function copyField(key: string, value: string): Promise<void> {
 .heading-kicker {
   color: var(--nx-purple);
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1632,7 +1654,7 @@ async function copyField(key: string, value: string): Promise<void> {
   min-width: 0;
   flex: 1;
   color: var(--nx-text);
-  font-weight: 650;
+  font-weight: 600;
   overflow-wrap: anywhere;
   font-size: 14px;
 }
@@ -1693,6 +1715,7 @@ async function copyField(key: string, value: string): Promise<void> {
 }
 .question-option-copy strong {
   font-size: 10.5px;
+  font-weight: 400;
   overflow-wrap: anywhere;
 }
 .question-option-copy small {
@@ -1730,7 +1753,7 @@ async function copyField(key: string, value: string): Promise<void> {
   border: 1px solid color-mix(in srgb, var(--nx-cyan) 36%, transparent);
   border-radius: 3px;
   color: var(--nx-cyan);
-  font-weight: 650;
+  font-weight: 600;
 }
 .search-configuration {
   display: flex;

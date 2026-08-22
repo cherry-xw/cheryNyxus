@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
-import QuestionCard from '@/features/agent/cards/QuestionCard.vue'
 import type { ExecutionNode } from '../graph/executionGraph'
 import type { NodePopoverQuestion } from '../graph/nodePopoverModel'
 import type {
@@ -94,23 +93,6 @@ const activeStageCard = computed(() => {
     ...stage.cardOptions,
     selectedCallId: activeStageCallId.value,
   })
-})
-const currentQuestion = computed(() =>
-  props.question && props.node && props.questionNodeId === props.node.id
-    ? props.question
-    : undefined,
-)
-const batchInfo = computed(() => {
-  const current = currentQuestion.value
-  if (!current) return null
-  return {
-    batchId: current.batch.batchId,
-    total: current.batch.questions.length,
-    readyCount: current.batch.questions.filter((question) => question.localStatus === 'ready')
-      .length,
-    currentIndex: current.currentIndex,
-    isLast: current.currentIndex === current.batch.questions.length - 1,
-  }
 })
 const detailMarkdownSource = computed(() => {
   const detail = activeDetail.value
@@ -364,15 +346,6 @@ async function copyDetail(): Promise<void> {
       </div>
 
       <div class="card-scroll-body">
-        <section v-if="currentQuestion && chatId" class="paper-inline-question">
-          <QuestionCard
-            :question="currentQuestion.question"
-            :chat-id="chatId"
-            :batch-info="batchInfo"
-            variant="paper"
-          />
-        </section>
-
         <!-- 过程组：按发生顺序串成流程，批量工具仍为一个阶段。 -->
         <template v-if="model.processStages?.length">
           <div class="stat-grid" aria-label="节点属性">
@@ -754,14 +727,6 @@ async function copyDetail(): Promise<void> {
   --card-paper: #a9b4a3;
   --card-paper-light: #d5ddc5;
   --card-paper-dark: #48666a;
-}
-.paper-inline-question {
-  margin: 4px 0 10px;
-}
-.paper-inline-question :deep(.question-card) {
-  width: auto;
-  max-width: none;
-  box-shadow: none;
 }
 
 .game-card-face {

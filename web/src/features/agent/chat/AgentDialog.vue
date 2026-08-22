@@ -652,6 +652,7 @@ defineExpose({
         <WorkspaceSessionBrowser
           v-show="dialogView === 'attention'"
           :preset-id="quickPresetId"
+          :native="native"
           @tree="openWorkspaceTree"
         />
 

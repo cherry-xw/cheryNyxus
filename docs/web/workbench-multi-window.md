@@ -100,6 +100,50 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **熄灭**：标题栏 pointerdown / 胶囊还原时清 blink；`accept`/`rejected`/`question_batch_completed` 后仅当该 chat 无挂起审批/提问批次才熄灭。
 - **动画**：`.has-attention` 加暖橙 `#f6b73c` box-shadow 外发光 + 边框脉冲 `@keyframes` infinite 恒开（应用不跟随 `prefers-reduced-motion`，见 `docs/web/settings.md` 动效降级约定）。
 
+## 待操作面板（PendingOperationsPanel）交互优化（2026-08-22）
+
+工作台右上「待操作」面板收敛全部待确认交互（审批 + 提问批次）。本次优化：
+
+### 工具能力解释
+
+- 后端审批注册时从 senseRegistry 注入 sense 定义 `description` → `ApprovalPayload.senseDescription` → interaction payload（[manager.ts](../../src/service/approval/manager.ts) / [observer.ts](../../src/service/chat/observer.ts)）。
+- 前端卡片展开时在参数区上方以**小字 + 主题色左条**展示（`.sense-desc`）；config_manage 等用户不了解能力的工具据此说明 get/save/rollback 全部能力。缺失描述不展示。
+
+### 节点展开与动画
+
+- **布局放宽**：面板 `width` 300px → **440px**，内容不再细长。
+- **展开限制 1**：`activeId` 状态一次只展开一个节点；点击卡片头切换（再点当前卡收起，`activeInitialized` 哨兵区分手动收起与 active 项移除）。
+- **短/长节点**：收起节点仅显示卡片头（kind + 标题 + 状态，固定高度）；active 节点展开完整内容，`grid-template-rows 0fr↔1fr` + opacity CSS 动画。
+- **隐藏动画**：`<TransitionGroup name="card">` —— 交互完成（decide/answer 后记录移出 pending）旧卡以 `translateX + scale + opacity` 渐隐消失，watch 自动激活下一个 pending 节点继续交互。
+- **标题细字体**：卡片头标题 `font-weight` → 400（全区域去加粗）。
+- **超高内容滚动（2026-08-22 修复）**：`.pending-card` 加 `flex-shrink: 0`。列表是 `flex-direction: column` + `max-height: min(52vh, 420px)`，卡片默认 `flex-shrink: 1` 会被 max-height 压缩 → grid 展开轨道 `1fr` 随之收缩、`.card-body` 的 `overflow: hidden` 裁剪超高选项 → 列表不出现滚动条，交互无法完成。`flex-shrink: 0` 令卡片高度 = 内容高度，超高内容撑起列表滚动（`.pending-panel-list` 的 `overflow-y: auto` 生效）。
+
+### 可读性规范（2026-08-22 实测修订）
+
+- **字号**：正文/按钮/选项 ≥ **13px**（卡片头标题 14px、次级/徽章 12px），弱化文字不低于 11px。`nyxusPopoverTheme.less` 节点弹窗同步放大（原 8.5-11px → 12-13px）。
+- **字重**：待确认面板与节点树弹窗全部 **400**（原 600/700/800 加粗去除，避免小字号糊字）。
+- **工具解释排版**：`.sense-desc` 不设 `max-height` 滚动（避免内容被挤压小空间），随面板列表自然滚动；字号 13px、行高 1.65、正文色。
+- **倒计时**：approval 卡头状态旁显示 `剩余 Ns`（后端 `deadlineAt` = createdAt + approval_timeout），归零变红显示「已超时」，`now` 250ms 定时器驱动。
+- **中文名**：sense 英文名 → 中文统一走共享 [senseName.ts](../../web/src/utils/senseName.ts)（`toSenseNameZh`：config_manage→配置管理、execute_command→执行命令、read_file→读取文件、spawn_role→委派角色等，未知工具回退原名），待确认标题与 pet 审批气泡共用。
+- **同步入口**：同一可读性规范同步到平行待确认入口 [WorkspaceSessionBrowser.vue](../../web/src/features/agent/dialog/WorkspaceSessionBrowser.vue)（设置窗会话浏览器：13px/14px 字号、字重 400、中文名、倒计时）与 [ApprovalCard.vue](../../web/src/features/agent/cards/ApprovalCard.vue)（pet 气泡审批：13px 字号、字重 400、中文名）。
+
+### 左右分栏重构（2026-08-23）
+
+「待操作」面板由「单列卡片列表（点卡头展开）」改为**「入口行 + 左右两栏」**，一屏内完成全部交互、不依赖滚动：
+
+- **入口行**：`待操作` 标题 + 计数 + 下拉箭头 与 范围切换（当前树/全部）**同一行**（`.pending-panel-head` 为 flex 行，segmented 右对齐）；收起态不再重复 hint（切按钮自身即状态）。
+- **左栏任务导航**（`.task-nav`）：任务小按钮**顺序排列**（参考卡牌阅读器左侧 title-strip，但顺序不交错），点击切换右栏详情（=`activeId`，天然互斥，替代原 `toggleActive` 展开/收起）。每页固定 8 个，超出后**点击 ▲/▼ 翻页**（`.page-up`/`.page-down`，不用滚动条）；`activeId` 被移除或聚焦到页外任务时自动翻页定位（`syncPageToActive` watch）。
+- **右栏详情**（`.task-detail`）：当前任务内容**默认全部展开、不滚动**；顶部「在节点树中查看」链接 + sense 描述（`.sense-desc`），中部 ParsedArgs（审批）/ 选项表单（提问），底部**固定操作栏**（`.detail-actions`：接受/拒绝、提交回答），一屏可操作。
+- **窗体简化**：去掉 `.card-body-wrap` 的 `grid-template-rows 0fr↔1fr` 折叠动画与两层嵌套，改为单层 `.panel-main` 两栏 flex；宽度 440px → **600px**。
+- **保留契约**：`expanded`（整体收起/展开）、`scope`、`focusedInteraction` 聚焦、`locate` 事件、倒计时、draft 草稿、`pickNextActive` 自动激活——全部不变。
+
+### 二次优化（2026-08-23，布局对调 + 单选交互）
+
+- **左右对调**：内容展示固定**左栏**（`.task-detail`）；任务导航 + 操作按钮并入**右栏**（`.side-col`）：▲/▼ 分页 → 任务按钮 → 页码 → 底部操作区（`.side-actions`，`margin-top: auto` 贴列底）。操作不再占左内容底部整行，宽度不变、高度短一截。
+- **单选提示**：选项区上方提示行 `.options-hint`——单选显示「单选 · 再次点击可取消」、多选显示「可多选」，明确告知单选可取消（用户此前困惑：选了选项又填「其他补充」以为叠加，实际互斥清空）。
+- **提交状态关联**：`canSubmitOf` 前置判定——单选恰好 1 项或有「其他补充」输入、多选 ≥1，否则「提交回答」禁用（灰不可点）。
+- **同步**：[WorkspaceSessionBrowser.vue](../../web/src/features/agent/dialog/WorkspaceSessionBrowser.vue)（会话浏览器）同步单选提示 + 提交禁用逻辑。
+
 ## 改动文件清单
 
 | 文件 | 变更 |
@@ -149,6 +193,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 |---------|------|
 | `?surface=desktop` | 桌面透明宠物窗（不变：PetStage/NyxusCore/AgentDialog） |
 | `?surface=settings` | 设置原生窗：`WindowFrame`（标题栏三键/主题边框）内嵌 `<SettingsDialog native/>`（native 面隐藏自身 header，标题 + 打开配置文件夹按钮并入 WindowFrame 标题栏） |
+| `?surface=composer&chatId=xx&view=composer|attention` | 发消息（快速发送）原生窗：`WindowFrame` 外壳承载标题栏（标题=当前会话 pet 名，回退预设名），`title-actions` slot 放两个能力按钮——🌳 打开当前会话节点树工作台 + ! 待处理交互（有待处理时充能高亮：accent 金底白字 + 徽标脉动光晕；点击切 attention 视图）。`<AgentDialog native/>` 隐藏自绘标题栏，按钮操作经 `defineExpose` 暴露调用。待处理视图（`WorkspaceSessionBrowser` native 模式）**整窗铺满布局**（无二次内边距，列表区 `flex:1` 内部滚动 + `.inner-scrollbar` 弱化滚动条），按 `rootChatId` 会话分组（分组头显会话名 + 计数），顶部导航 chip 点击滚动定位到对应分组；「需确认 / 需回答」kind 标签全局双色高对比（金/紫实色底白字，native 与浮动窗一致） |
 | `?surface=workbench&presetId=xx&chatId=xx&presetName=xx` | 工作台原生窗（每 preset 一窗）：**同用 `WindowFrame` 公共外壳**——`<WorkbenchDialog native/>` 隐藏自身 `.workbench-titlebar`，标题显示预设名、`attentionBlink` → 标题栏闪烁、关闭经 `defineExpose(closeWorkbench)` 由 WindowFrame `close` handler 接管（先释放根时间线订阅），另渲染 `HistoryDrawer`。`presetName` 由入口经 `OpenWindowRequest` 携带 → main `extraParams` 拼入 URL → App.vue 读 `?presetName=` 写 `win.presetName`（空白工作台角色编制解析必需） |
 | 无 surface | 浏览器单页（**逐字节不变**：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉） |
 

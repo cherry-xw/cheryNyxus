@@ -78,6 +78,19 @@ describe('tool batch detail projection', () => {
       }),
     ).toEqual({ left: 406, top: 110, placement: 'left' })
   })
+
+  it('keeps a short panel beside a low anchor instead of dragging it to the viewport top', () => {
+    // 回归：定位高度必须用实测矮高，不得用视口上限高度参与垂直钳制——
+    // 否则 maxTop = viewport - 640 会把矮窗顶到视口顶部（「飘高」）。
+    expect(
+      anchoredPopoverPosition({
+        anchor: { x: 400, y: 600 },
+        viewport: { width: 1000, height: 700 },
+        panel: { width: 480, height: 200 },
+        margin: 12,
+      }),
+    ).toEqual({ left: 424, top: 488, placement: 'right' })
+  })
 })
 
 describe('topology and real fixture', () => {

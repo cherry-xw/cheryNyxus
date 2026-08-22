@@ -326,7 +326,7 @@ async function bootstrap(): Promise<void> {
         <button
           type="button"
           class="composer-title-action composer-title-attention"
-          :class="{ 'is-active': composerAttentionActive }"
+          :class="{ 'is-active': composerAttentionActive, 'has-attention': composerAttentionCount > 0 }"
           aria-label="待处理交互"
           :aria-pressed="composerAttentionActive"
           @click="agentDialogRef?.toggleAttention()"
@@ -461,5 +461,34 @@ body {
   color: #fff;
   font-size: 8px;
   line-height: 14px;
+}
+// 有待处理交互时充能高亮：accent 金底白字 + 徽标脉动光晕（与 accept 按钮金底同风格，突出入口）。
+// has-attention 声明在 is-active 之后 → 有待处理时金底优先于紫色选中态，避免两色叠加混淆。
+.composer-title-attention.has-attention {
+  border-color: #d88a26;
+  background: #d88a26;
+  color: #fff;
+  box-shadow: 0 1px 6px color-mix(in srgb, #d88a26 55%, transparent);
+
+  &:hover {
+    background: #c97b1f;
+    color: #fff;
+  }
+}
+.composer-title-attention.has-attention b {
+  background: #fff;
+  color: #b73e0c;
+  animation: composer-attention-badge-pulse 1.6s ease-in-out infinite;
+}
+@keyframes composer-attention-badge-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(220, 38, 38, 0);
+    transform: scale(1.12);
+  }
 }
 </style>

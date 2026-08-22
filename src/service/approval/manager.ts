@@ -20,6 +20,8 @@ import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
 export type ApprovalPayload = {
   chatId: string
   senseName: string
+  /** 工具能力解释（sense 定义 description；config_manage 等用户可见。缺失时省略）。 */
+  senseDescription?: string
   /** 审批窗口 ms（= global.approval_timeout，0 = 不限时）。与 interrupt 通知 waitTime 同源。 */
   waitTime: number
   /** interrupt 触发时间戳（ms，Date.now()）。与 interrupt 通知 createdAt 同源。 */
@@ -77,6 +79,7 @@ export class ApprovalManager {
         anchorNodeId: approvalId,
         payload: {
           senseName: payload.senseName,
+          senseDescription: payload.senseDescription,
           arguments: payload.arguments,
           supervisionLevel: payload.supervisionLevel,
           security: payload.security,

@@ -8,6 +8,7 @@ import {
 } from '@/db/chat.js'
 import { getActiveChatRunId, getChatRuntimeProvenance } from './runtime.js'
 import { approvalManager } from '../approval/manager.js'
+import { getSense } from '@/core/sense/senseRegistry.js'
 
 import { onChildDone } from './wakeScheduler.js'
 import type { LLMResponse } from '@/core/message/adapter'
@@ -142,6 +143,8 @@ export async function* observeAgentChunks(
         approvalManager.register(chunk.approvalId, {
           chatId,
           senseName: chunk.senseName,
+          // 工具能力解释（config_manage 等）：待确认面板小字展示。来源 sense 定义，缺失时 undefined。
+          senseDescription: getSense(chunk.senseName)?.definition?.function?.description,
           waitTime: config.global.approval_timeout ?? 0,
           createdAt: Date.now(),
           arguments: chunk.arguments,

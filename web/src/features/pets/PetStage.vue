@@ -227,6 +227,7 @@ async function handleResume(pet: PetInstance): Promise<void> {
       :pet="pet"
       :paused="isPaused"
       :stream="visibleStreams[activeRoot(pet)]"
+      :stream-chat-id="activeRoot(pet)"
       :attention-count="presetAttentionCount(pet)"
       @start-drag="handleStartDrag"
       @drag="handleDrag"

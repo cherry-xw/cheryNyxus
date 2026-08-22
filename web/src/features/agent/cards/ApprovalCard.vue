@@ -16,6 +16,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useChatSessionsStore } from '@/stores'
 import type { ApprovalState } from '@/stores/agents'
 import ParsedArgs from './ParsedArgs.vue'
+import { toSenseNameZh } from '@/utils/senseName'
 
 const props = defineProps<{
   approval: ApprovalState
@@ -95,7 +96,7 @@ function closeToQueue(): void {
   >
     <div class="header">
       <span class="indicator" aria-hidden="true" />
-      <span class="sense-name" :title="approval.senseName">{{ approval.senseName }}</span>
+      <span class="sense-name" :title="approval.senseName">{{ toSenseNameZh(approval.senseName) }}</span>
       <span v-if="showCountdown" class="countdown" :class="{ expired }">{{ remainingSec }}s</span>
       <button
         type="button"

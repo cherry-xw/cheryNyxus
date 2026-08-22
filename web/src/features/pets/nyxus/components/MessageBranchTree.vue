@@ -50,11 +50,7 @@ import NodePaperStack from './NodePaperStack.vue'
 import GenerationTreeDialog from './GenerationTreeDialog.vue'
 import { terminationDisplay } from '../graph/termination'
 import { buildRunCrtModels, effectiveRunFacts, type RunCrtModel } from '../graph/crtModel'
-import {
-  layoutAnchoredCrts,
-  layoutCrtWindowsBesideAnchors,
-  selectVisibleCrtIds,
-} from '../graph/crtLayout'
+import { layoutCrtWindowsBesideAnchors, selectVisibleCrtIds } from '../graph/crtLayout'
 import { buildDefaultNodePopovers, type DefaultNodePopover } from '../graph/nodePopoverModel'
 import {
   ExecutionGraphPixiRenderer,
@@ -102,6 +98,8 @@ const emit = defineEmits<{
       ordinary?: boolean
     },
   ]
+  /** 用户激活了带待处理交互（审批/提问）的节点 → 父级同步到待操作面板聚焦。 */
+  interactionFocus: [focus: { chatId: string; interactionId?: string; anchorNodeId?: string }]
 }>()
 const chatSessions = useChatSessionsStore()
 const agents = useAgentsStore()
@@ -604,32 +602,127 @@ const crtPlacements = computed(() => {
   })
 })
 
+/** 定位高度未测到前的合理小初始值：避免用视口上限高度参与垂直钳制导致矮窗「飘高」。 */
+const POPOVER_INITIAL_HEIGHT = 220
+
+/** 审批/提问等 action 弹窗被用户拖动后的手动位置；缺省 = 跟随自动定位（贴节点右侧）。 */
+const actionPopoverManual = ref<Map<string, { left: number; top: number }>>(new Map())
+/** action 弹窗的实测内容高度（ResizeObserver 上报），定位用真实高度而非滚动上限。 */
+const actionPopoverHeights = ref<Map<string, number>>(new Map())
+
+/**
+ * 高度测量指令：观察宿主元素尺寸变化并回传实测高度，供定位使用。
+ * 每帧回传的是闭包里的最新回调（updated 钩子同步），避免 ResizeObserver 回调拿到过期引用。
+ */
+const vMeasureHeight = {
+  mounted(el: HTMLElement, binding: { value: (height: number) => void }): void {
+    const host = el as HTMLElement & {
+      __popoverMeasure?: ResizeObserver
+      __popoverMeasureCallback?: (height: number) => void
+    }
+    host.__popoverMeasureCallback = binding.value
+    const observer = new ResizeObserver(() => {
+      host.__popoverMeasureCallback?.(host.offsetHeight)
+    })
+    observer.observe(el)
+    host.__popoverMeasure = observer
+  },
+  updated(el: HTMLElement, binding: { value: (height: number) => void }): void {
+    ;(el as HTMLElement & { __popoverMeasureCallback?: (height: number) => void })
+      .__popoverMeasureCallback = binding.value
+  },
+  unmounted(el: HTMLElement): void {
+    ;(el as HTMLElement & { __popoverMeasure?: ResizeObserver }).__popoverMeasure?.disconnect()
+  },
+}
+
+function setActionPopoverHeight(id: string, height: number): void {
+  if (height <= 0 || actionPopoverHeights.value.get(id) === height) return
+  const next = new Map(actionPopoverHeights.value)
+  next.set(id, height)
+  actionPopoverHeights.value = next
+}
+
+/** v-measure-height 的具名回调工厂：模板内联箭头无法推断 height 类型（TS7006）。 */
+function recordActionPopoverHeight(id: string): (height: number) => void {
+  return (height: number) => setActionPopoverHeight(id, height)
+}
+
+function dragActionPopover(id: string, delta: { x: number; y: number }): void {
+  const placement = defaultPopoverPlacements.value.find((item) => item.id === id)
+  if (!placement) return
+  const current = actionPopoverManual.value.get(id) ?? {
+    left: placement.left,
+    top: placement.top,
+  }
+  const headerVisible = 32
+  const left = Math.min(
+    viewportSize.value.width - headerVisible,
+    Math.max(-480 + headerVisible, current.left + delta.x),
+  )
+  const top = Math.min(
+    viewportSize.value.height - headerVisible,
+    Math.max(0, current.top + delta.y),
+  )
+  const next = new Map(actionPopoverManual.value)
+  next.set(id, { left, top })
+  actionPopoverManual.value = next
+}
+
+// 模型消失（审批已处理/提问已答复）→ 清掉该 id 的手动位置与实测高度，重开后回自动定位。
+watch(
+  () => defaultNodePopovers.value.map((model) => model.id),
+  (ids) => {
+    const idSet = new Set(ids)
+    const nextManual = new Map(actionPopoverManual.value)
+    const nextHeights = new Map(actionPopoverHeights.value)
+    for (const id of nextManual.keys()) if (!idSet.has(id)) nextManual.delete(id)
+    for (const id of nextHeights.keys()) if (!idSet.has(id)) nextHeights.delete(id)
+    actionPopoverManual.value = nextManual
+    actionPopoverHeights.value = nextHeights
+  },
+)
+
 const defaultPopoverPlacements = computed(() => {
   const positioned = new Map(layout.value.nodes.map((node) => [node.id, node]))
   const heightLimit = Math.max(160, viewportSize.value.height - 96)
-  return layoutAnchoredCrts(
-    defaultNodePopovers.value.flatMap((model, order) => {
-      const node = positioned.get(model.anchorNodeId)
-      if (!node) return []
-      return [
-        {
-          id: model.id,
-          anchor: canvas.worldToScreen(node),
-          panel: { width: 480, height: Math.min(heightLimit, 640) },
-          main: node.main,
-          actionable: true,
-          pinned: false,
-          order: model.createdAt || order,
-        },
-      ]
-    }),
-    { ...viewportSize.value, margin: 12 },
-  )
+  return defaultNodePopovers.value.flatMap((model, order) => {
+    const node = positioned.get(model.anchorNodeId)
+    if (!node) return []
+    const anchor = canvas.worldToScreen(node)
+    const measured = actionPopoverHeights.value.get(model.id)
+    const auto = anchoredPopoverPosition({
+      anchor,
+      viewport: viewportSize.value,
+      panel: { width: 480, height: measured ?? POPOVER_INITIAL_HEIGHT },
+      margin: 12,
+    })
+    const manual = actionPopoverManual.value.get(model.id)
+    const left = manual?.left ?? auto.left
+    const top = manual?.top ?? auto.top
+    const placement = manual
+      ? anchor.x <= left + 480 / 2
+        ? ('left' as const)
+        : ('right' as const)
+      : auto.placement
+    return [
+      {
+        id: model.id,
+        anchor,
+        panel: { width: 480, height: Math.min(heightLimit, 640) },
+        main: node.main,
+        actionable: true,
+        pinned: false,
+        order: model.createdAt || order,
+        left,
+        top,
+        placement,
+      },
+    ]
+  })
 })
-const overlayPlacements = computed(() => [
-  ...crtPlacements.value,
-  ...defaultPopoverPlacements.value,
-])
+/** 锚点连线只服务运行 CRT；节点悬浮框（详情/审批/提问）一律不画线。 */
+const overlayPlacements = computed(() => [...crtPlacements.value])
 
 const crtById = computed(() => new Map(visibleCrts.value.map((card) => [card.id, card])))
 const crtsByAnchor = computed(() => {
@@ -845,6 +938,7 @@ function leaveNodeDetail(): void {
 
 function closeNodeDetail(): void {
   cancelDetailHide()
+  detailManualPos.value = null
   pinnedDetailNodeId.value = undefined
   hoveredDetailNodeId.value = undefined
   selectedCallId.value = undefined
@@ -979,8 +1073,17 @@ function activateNode(node: (typeof layout.value.nodes)[number]): void {
     selectPaperNode(node.id)
     return
   }
-  if (defaultPopoverAnchorIds.value.has(node.id)) return
-  else if (crtsByAnchor.value.has(node.id)) {
+  if (defaultPopoverAnchorIds.value.has(node.id)) {
+    const model = defaultNodePopovers.value.find((candidate) => candidate.anchorNodeId === node.id)
+    if (model && (model.approval || model.question)) {
+      emit('interactionFocus', {
+        chatId: model.chatId,
+        interactionId: model.approval?.approvalId ?? model.question?.batch.batchId,
+        anchorNodeId: model.anchorNodeId,
+      })
+    }
+    return
+  } else if (crtsByAnchor.value.has(node.id)) {
     for (const card of crtsByAnchor.value.get(node.id) ?? []) pinCrt(card.id)
   } else if (canPinNodeDetail(node)) {
     pinnedDetailNodeId.value = node.id
@@ -1085,21 +1188,49 @@ watch(detailAnchorEl, (el) => {
   })
   detailHeightRO.observe(el)
 })
+/** pinned 详情弹窗被用户拖动后的手动位置；null = 跟随自动定位（贴节点右侧）。hover 临时详情不参与拖拽。 */
+const detailManualPos = ref<{ left: number; top: number } | null>(null)
+function dragDetailPopover(delta: { x: number; y: number }): void {
+  const current = detailPlacement.value
+  if (!current) return
+  const base = detailManualPos.value ?? {
+    left: parseFloat(current.style.left),
+    top: parseFloat(current.style.top),
+  }
+  const headerVisible = 32
+  const left = Math.min(
+    viewportSize.value.width - headerVisible,
+    Math.max(-480 + headerVisible, base.left + delta.x),
+  )
+  const top = Math.min(
+    viewportSize.value.height - headerVisible,
+    Math.max(0, base.top + delta.y),
+  )
+  detailManualPos.value = { left, top }
+}
 const detailPlacement = computed(() => {
   const node = detailNode.value
   const viewport = viewportRef.value
   if (!node || !viewport) return undefined
   const anchor = canvas.worldToScreen(node)
-  const position = anchoredPopoverPosition({
+  const auto = anchoredPopoverPosition({
     anchor,
     viewport: viewportSize.value,
-    panel: { width: 480, height: measuredDetailHeight.value || detailMaxHeight.value },
+    panel: { width: 480, height: measuredDetailHeight.value || POPOVER_INITIAL_HEIGHT },
     margin: 12,
   })
+  const manual = detailPinned.value ? detailManualPos.value : undefined
+  const left = manual?.left ?? auto.left
+  const top = manual?.top ?? auto.top
+  const placement = manual
+    ? anchor.x <= left + 480 / 2
+      ? ('left' as const)
+      : ('right' as const)
+    : auto.placement
   return {
-    style: { left: `${position.left}px`, top: `${position.top}px` },
-    nodeOffset: { x: anchor.x - position.left, y: anchor.y - position.top },
-    placement: position.placement,
+    style: { left: `${left}px`, top: `${top}px` },
+    nodeOffset: { x: anchor.x - left, y: anchor.y - top },
+    placement,
   }
 })
 const detailAnchorStyle = computed(() => detailPlacement.value?.style)
@@ -1610,6 +1741,7 @@ defineExpose({ resetLayout })
         <div
           v-for="view in defaultPopoverViews"
           :key="view.model.id"
+          v-measure-height="recordActionPopoverHeight(view.model.id)"
           :style="{
             left: `${view.placement.left}px`,
             top: `${view.placement.top}px`,
@@ -1633,7 +1765,9 @@ defineExpose({ resetLayout })
             :chat-id="view.model.chatId"
             :approval="view.model.approval"
             :question="view.model.question"
+            :draggable="true"
             @select-call="selectActionCall(view.model.id, $event)"
+            @drag="dragActionPopover(view.model.id, $event)"
           />
         </div>
         <Transition name="node-detail">
@@ -1671,9 +1805,11 @@ defineExpose({ resetLayout })
               :selected-call-id="selectedCallId"
               :detail-branch-available="detailBranchAvailable"
               :detail-branch-unavailable-reason="detailBranchUnavailableReason"
+              :draggable="detailPinned"
               @select-call="selectedCallId = $event"
               @branch="requestBranch"
               @close="closeNodeDetail"
+              @drag="dragDetailPopover"
             />
           </div>
         </Transition>

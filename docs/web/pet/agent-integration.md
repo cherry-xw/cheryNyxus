@@ -40,7 +40,7 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
 
 提问态（`question_batches` 存在 pending 批）在实时事件流里由 `question_batch_requested` 驱动 reducer upsert；但工作台打开走 `chat.timeline.get`（acquireRootTimeline）+ `getTaskTimeline` 轮询，**两条路都不携带提问快照**——只有 `chat.get`/`chat.sync` 返回 `pendingQuestionBatches`。重启后停在提问态的会话非 running，`startup()` 不 attach，若无显式加载，`sessionsById[root].interaction.questionBatches` 为空 → 树里扫不到 question → 无提问卡片；同时后端 `computeCanResume` 因 pending 批返回 false → 无继续按钮。这是"重启后无卡片无按钮"的硬死锁。
 
-修复：工作台观察 root 时（`treeRootChatId` watch / `onConnectionReady` 兜底）调用 `ensureQuestionHydrated(rootChatId)` → 内部仅当 `session.sync.loaded && !session.meta.running && questionBatches.length===0` 才触发 `hydrateTree`（逐 chat `syncOne` → `replaceSnapshot`，单飞幂等）。渲染链路 `replaceSnapshot → replaceQuestionBatches → ensureActiveQuestion → buildDefaultNodePopovers` 自动把带提问的节点标为 actionable 并打开 → `ExecutionNodePopover` 渲染 QuestionCard。兜底：`sessionControl` 在提问态显示"回答提问"，点击聚焦/恢复卡片，不做后端 resume。
+修复：工作台观察 root 时（`treeRootChatId` watch / `onConnectionReady` 兜底）调用 `ensureQuestionHydrated(rootChatId)` → 内部仅当 `session.sync.loaded && !session.meta.running && questionBatches.length===0` 才触发 `hydrateTree`（逐 chat `syncOne` → `replaceSnapshot`，单飞幂等）。渲染链路 `replaceSnapshot → replaceQuestionBatches → ensureActiveQuestion → buildDefaultNodePopovers` 自动把带提问的节点标为 actionable 并打开（`ExecutionNodePopover` 只读展示提问，不再内嵌交互卡）。待操作任务的**唯一交互面**是工作台右上常驻的「待操作任务面板」（[PendingOperationsPanel.vue](../../../web/src/features/agent/dialog/PendingOperationsPanel.vue)，数据源 = interactions store，含审批 + 提问），`sessionControl` 的「回答提问」入口已移除。
 
 ### abort 级联更新后代工作态
 
@@ -109,7 +109,7 @@ Pet 实例只拥有不可由会话推导的视觉状态：位置、目标位置�
 
 ### CP5（审批 + 队列 + PetIcons 闪烁）
 
-- **ApprovalCard**（[ApprovalCard.vue](../../../web/src/features/agent/ApprovalCard.vue)）：pet 气泡内审批卡片（最高优先级，z-index=400 单独自提避开 AgentDialog 300/HistoryDrawer 280/FAB 200 的覆盖），显 senseName + arguments 折叠 + Accept/Reject + ✕关闭 三按钮（请求中三按钮都禁用防双击）。✕关闭调 `agents.dismissApprovalToQueue(chatId)` → 当前审批移入 `approvalQueue` 末尾保留（不调 RPC，等服务端超时 reject 自动清，或用户点 icon 重新唤起）。
+- **ApprovalCard**（[ApprovalCard.vue](../../../web/src/features/agent/ApprovalCard.vue)）：pet 气泡内审批卡片（最高优先级；气泡与 pet 共享交互层 `speechZIndex`，不再 400 置顶——交互窗口归属由「接力棒」仲裁，工作台打开时工作台消费、pet 气泡隐藏，关闭后交还 pet 兜底），显 senseName + arguments 折叠 + Accept/Reject + ✕关闭 三按钮（请求中三按钮都禁用防双击）。✕关闭调 `agents.dismissApprovalToQueue(chatId)` → 当前审批移入 `approvalQueue` 末尾保留（不调 RPC，等服务端超时 reject 自动清，或用户点 icon 重新唤起）。
 - **StreamState.approval / approvalQueue**：
   - `approval`：当前在气泡展示的审批（最多 1）
   - `approvalQueue`：已隐藏但未处理的审批队列（任意长度）。PetIcons 渲染为闪烁 icon，频率 = `max(0.2, min(5, remainingSec * 0.1))` 秒（剩余越少闪得越快）。倒计时归零 → 按 approvalId 精确移除并推进下一条，不保留不可点击死卡。
@@ -290,7 +290,7 @@ F1+F2+F3 已落地 hydration 单一水源 + currentState 快照消费 + replayMo
 
 - **status-row**：原 `span.bar.emotion + span.bar.fatigue` 改为 `span.stat.emotion .fill` + `<ContextBar :usage="pet.contextUsage" />`（CP2/CP7）。emotion 条保留（统一橙色），fatigue bar 移除。
 - **meta-row**：原 `div.tools`（core 常驻）+ `div.tools-extra`（hover 展开）被 `<PetToolbar>` 组件取代（CP2/CP6）；CSS `.tools`/`.tool-icon` 已置 `display:none`（保留兼容）。
-- **speech**：原单一 Motion.speech + `#dialog` slot 扩为 4 tier 互斥（ApprovalCard / error-bubble / work-bubble / 默认 slot）+ 独立 `AnimatePresence` 侧气泡（thinking 副本）。审批存在时优先显 ApprovalCard（`v-if="stream?.approval"`，z-index=400 单独避开浮层覆盖），同时抑制侧气泡（避免与 interrupt 视觉冲突）。
+- **speech**：原单一 Motion.speech + `#dialog` slot 扩为 4 tier 互斥（ApprovalCard / error-bubble / work-bubble / 默认 slot）+ 独立 `AnimatePresence` 侧气泡（thinking 副本）。审批存在时优先显 ApprovalCard（`v-if="stream?.approval"`，气泡与 pet 共享交互层 `speechZIndex`，不再 400 置顶），同时抑制侧气泡（避免与 interrupt 视觉冲突）。
 
 ## fatigue 与 contextUsage 语义解耦
 

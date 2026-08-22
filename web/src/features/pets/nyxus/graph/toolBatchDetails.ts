@@ -165,7 +165,19 @@ export function actorDetail(actor: TimelineActor | undefined): string {
   return '系统'
 }
 
-/** Position a node detail beside its icon while reserving the piano strip at the viewport bottom. */
+/** 标题栏高度近似值：节点垂直对齐到标题栏中下沿的偏移量。 */
+export const POPOVER_TITLE_BAR_OFFSET = 44
+
+/**
+ * Position a node detail beside its icon while reserving the piano strip at the viewport bottom.
+ * Right-first: the panel hugs the node's right side (falling back to the left when the right
+ * side is too narrow) and the node lands on the title-bar lower edge (anchor.y - 44).
+ *
+ * IMPORTANT: `panel.height` must be the panel's *measured* content height, NOT the viewport
+ * height cap. Clamping `top` against a 640px cap drags short panels up to the viewport top
+ * ("floating high") because `maxTop = usableBottom - panel.height` collapses for tall caps.
+ * Use a small sensible fallback (e.g. 220) until the real height is measured.
+ */
 export function anchoredPopoverPosition(input: {
   anchor: { x: number; y: number }
   viewport: { width: number; height: number }
@@ -188,7 +200,7 @@ export function anchoredPopoverPosition(input: {
   const maxTop = Math.max(margin, usableBottom - input.panel.height)
   return {
     left: Math.min(maxLeft, Math.max(margin, idealLeft)),
-    top: Math.min(maxTop, Math.max(margin, input.anchor.y - 44)),
+    top: Math.min(maxTop, Math.max(margin, input.anchor.y - POPOVER_TITLE_BAR_OFFSET)),
     placement,
   }
 }

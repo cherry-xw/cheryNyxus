@@ -124,6 +124,37 @@ export const useAgentsStore = defineStore('agents', () => {
   }
 
   /**
+   * 接力棒：把 chat 沿 parentChatId 上溯到根会话（master 的活跃根即自身；子会话取祖先根）。
+   * pets / sessionCatalog 均带 parentChatId，缺一可互补（未水合会话优先走目录）。
+   */
+  function rootChatForChat(chatId: string): string {
+    let current = chatId
+    const seen = new Set<string>()
+    while (current && !seen.has(current)) {
+      seen.add(current)
+      const summary = summaryForChat(current)
+      const parent =
+        summary?.parentChatId ?? pets.value.find((pet) => pet.chatId === current)?.parentChatId
+      if (!parent) break
+      current = parent
+    }
+    return current
+  }
+
+  /**
+   * 接力棒判定：该 chat 的交互（提问/审批）是否已被某个「打开且未最小化」的工作台窗口接管。
+   * 工作台树以 win.chatId 为根并包含全部后代，故子会话命中其根即视为被接管；pet 层据此隐藏
+   * 提问/审批气泡（工作台就地消费），工作台关闭/最小化后自动交还 pet（pet 层为最终兜底）。
+   */
+  function workbenchConsumesChat(chatId: string): boolean {
+    const root = rootChatForChat(chatId)
+    if (!root) return false
+    return ui.workbenchWindowsList.value.some(
+      (window) => !window.minimized && window.chatId === root,
+    )
+  }
+
+  /**
    * 切 pet 工作态视觉：action=chatting（复用现有 chatting motion，不新增 action——plan §10 决策）。
    * interactionUntil=0 → usePetWorld tickPet chatting 分支不回收（agent 工作态无超时，由 done/error 解除）。
    *
@@ -1223,6 +1254,8 @@ export const useAgentsStore = defineStore('agents', () => {
     setWorkingForChat,
     activatePresetSession,
     activeRootForPet,
+    rootChatForChat,
+    workbenchConsumesChat,
     petForChat,
     reconcilePetsFromSessions,
     removePetsOnly,

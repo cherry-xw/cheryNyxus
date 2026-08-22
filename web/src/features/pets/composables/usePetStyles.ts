@@ -17,9 +17,9 @@ import type { PetInstance } from '../types/types'
  * 输入 pet + stream + petHover，输出 PetBody / PetBubbles / orchestrator 所需的全部视觉数据。
  */
 
-import { APPROVAL_Z_INDEX, hashHue, petBodyZIndex, speechZIndex } from '../motion/petStyle'
+import { hashHue, petBodyZIndex, speechZIndex } from '../motion/petStyle'
 
-export { APPROVAL_Z_INDEX, hashHue, petBodyZIndex, speechZIndex } from '../motion/petStyle'
+export { hashHue, petBodyZIndex, speechZIndex } from '../motion/petStyle'
 
 /** 深色主题下把 pet accent 提亮成浅色（脸/手部颜文字文本在深底可读）。 */
 function lightenAccent(hex: string, weight = 0.72): string {
@@ -77,10 +77,13 @@ export function usePetStyles(
     zIndex: String(speechZIndex(pet())),
   }))
 
+  // 提问/审批气泡与 pet 共享同一交互层（speechZIndex 区间，不再 400 置顶盖住工作台/对话框）。
+  // 交互窗口归属由「接力棒」仲裁（workbenchConsumesChat）：工作台打开时 pet 气泡隐藏、工作台消费，
+  // 关闭后交还 pet 兜底；本 style 仅负责坐标与层级，显隐由 PetBubbles 门控。
   const approvalStyle = computed(() => ({
     left: `${pet().x + pet().width / 2}px`,
     top: `${pet().y + bubbleOffsetY.value}px`,
-    zIndex: String(APPROVAL_Z_INDEX),
+    zIndex: String(speechZIndex(pet())),
   }))
 
   const runningTools = computed(() => stream()?.runningTools ?? [])
