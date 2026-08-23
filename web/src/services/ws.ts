@@ -77,6 +77,8 @@ function uuid(): string {
 export class WsClient {
   private ws: WebSocket | null = null
   private serverConfig: ServerConfig | null = null
+  /** 附加 URL 查询参数（lite 实例专用，见 connect()）。 */
+  private extraQuery: Record<string, string> | null = null
   private pending = new Map<string, PendingRequest>()
   private status: ConnectionStatus = 'disconnected'
   private chunkHandlers = new Set<ChunkHandler>()
@@ -186,7 +188,12 @@ export class WsClient {
    * verifyClient 401 拒绝。Electron 下刷新经 main 进程 IPC（渲染进程直接 fetch
    * /api/config 会被 CORS 拦截），浏览器走同源 fetch，见 [./platform.ts](./platform.ts)。
    */
-  async connect(options: { refresh?: boolean } = {}): Promise<void> {
+  async connect(
+    options: { refresh?: boolean; query?: Record<string, string> } = {},
+  ): Promise<void> {
+    // query（T33 lite）：附加 URL 查询参数，随实例持久、重连自动携带。仅供独立 lite
+    // 实例使用——主 UI 单例不得传（lite 连接信封最小化会破坏主 UI gap-buffer/replay 协议）。
+    if (options.query) this.extraQuery = options.query
     if (!this.serverConfig || options.refresh) {
       this.serverConfig = await getServerConfig({ refresh: options.refresh ?? false })
     }
@@ -263,9 +270,16 @@ export class WsClient {
     // 远端走 access token（browser WS 无法设 Authorization 头 → URL ?token=）；本地走进程 sessionToken。
     const auth = useAuthStore()
     const token = auth.isRemote ? auth.accessToken : this.serverConfig.sessionToken
+    const extra = this.extraQuery
+      ? Object.entries(this.extraQuery)
+          .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+          .join('&')
+      : ''
     const url = token
-      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
-      : baseUrl
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}${extra ? `&${extra}` : ''}`
+      : extra
+        ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${extra}`
+        : baseUrl
     const ws = new WebSocket(url)
     ws.binaryType = 'arraybuffer'
     this.ws = ws

@@ -41,12 +41,38 @@ import { selectCanResume } from '@/stores/chats/selectors'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import ConnectionStatusChip from '@/features/desktop/ConnectionStatusChip.vue'
+import LiteView from '@/features/lite/LiteView.vue'
+import { useLiteStore } from '@/features/lite/liteStore'
 import { lockWindowRootColorScheme, useWindowFrame } from '@/features/desktop/useWindowFrame'
 
 const props = defineProps<{ windowId: string; presetId: string; native?: boolean }>()
 
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
+
+/** lite 极简视图（T33 L0）：标题栏 ⚡ 切换，per-window 持久化（§2.1）。 */
+const liteStore = useLiteStore()
+const LITE_VIEW_KEY_PREFIX = 'cherynyxus:workbench-lite-view'
+function liteViewKey(windowId: string): string {
+  return `${LITE_VIEW_KEY_PREFIX}:${windowId}`
+}
+function readLiteViewPersisted(): boolean {
+  try {
+    return localStorage.getItem(liteViewKey(props.windowId)) === '1'
+  } catch {
+    return false
+  }
+}
+const liteViewEnabled = ref<boolean>(readLiteViewPersisted())
+watch(liteViewEnabled, (enabled) => {
+  try {
+    localStorage.setItem(liteViewKey(props.windowId), enabled ? '1' : '0')
+  } catch {
+    /* localStorage 不可用时仅会话内生效 */
+  }
+  liteStore.setActive(props.windowId, enabled)
+})
+liteStore.setActive(props.windowId, liteViewEnabled.value)
 
 /** 本窗口状态（store 注册表按 windowId 索引）。窗口关闭/不存在时组件不渲染。 */
 const win = computed(() => agents.workbenchWindows[props.windowId])
@@ -1179,16 +1205,36 @@ const roleUsages = computed<Record<string, { used: number; total: number; usage:
 
 // ── 节点树工作台上下文占用 ──
 // 历史/纯查看工作台不解析 runtime 或补算完整上下文；仅实时 done 更新该区域。
+// 但树模式 observeRootTimeline 走 rootTimelines，不水合 sessionsById——刚加载的历史树
+// session.context.contextUsage/contextBreakdown 为空，实时 done 未到来前恒 0。
+// 故显式调 chat.contextUsage RPC 拉取权威快照兜底（ffe7cf2 曾误删此兜底，导致
+// 工作台上下文用量条在加载历史树时显示消失，此处恢复）。
 const rootSessionData = useChatSessionData(() => treeRootChatId.value || undefined)
 const treeCtxUsage = ref<{ usage: number; breakdown: ContextBreakdown | null }>({
   usage: 0,
   breakdown: null,
 })
+let treeCtxUsageChatId = ''
+async function loadTreeContextUsage(chatId: string): Promise<void> {
+  if (treeCtxUsageChatId === chatId) return
+  treeCtxUsageChatId = chatId
+  try {
+    const res = await agentApi.contextUsage(chatId)
+    if (treeCtxUsageChatId === chatId) {
+      treeCtxUsage.value = { usage: res.contextUsage, breakdown: res.contextBreakdown }
+    }
+  } catch {
+    // RUNTIME_SELECTION_REQUIRED（该历史会话尚未建立当前运行配置）等失败保持当前值；
+    // 会话水合（stream.done）后仍可实时补上
+  }
+}
 watch(
   treeRootChatId,
-  () => {
+  (id) => {
     treeCtxUsage.value = { usage: 0, breakdown: null }
+    if (id) void loadTreeContextUsage(id)
   },
+  { immediate: true },
 )
 // 实时 session 数据优先；未水合（undefined/null）时退回 RPC 快照。
 const treeUsage = computed(() => rootSessionData.contextUsage.value ?? treeCtxUsage.value.usage) // 0-1
@@ -1269,7 +1315,7 @@ defineExpose({ closeWorkbench })
     <section
       ref="workbenchShellRef"
       class="workbench-shell"
-      :class="`is-${effectiveMode}` + (isNative ? ' is-native' : '')"
+      :class="`is-${effectiveMode}` + (isNative ? ' is-native' : '') + (liteViewEnabled ? ' is-lite' : '')"
       :style="workbenchShellStyle"
       aria-label="节点树工作台"
     >
@@ -1317,6 +1363,17 @@ defineExpose({ closeWorkbench })
         <span class="workbench-title">{{ presetName || '节点树工作台' }}</span>
         <small>{{ effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台' }}</small>
         <ConnectionStatusChip class="workbench-conn-chip" />
+        <button
+          type="button"
+          class="workbench-lite-toggle"
+          :class="{ 'is-active': liteViewEnabled }"
+          :aria-pressed="liteViewEnabled"
+          aria-label="切换极简 lite 视图"
+          title="切换极简 lite 视图"
+          @click="liteViewEnabled = !liteViewEnabled"
+        >
+          ⚡
+        </button>
         <div class="workbench-window-actions" role="group" aria-label="窗口控制">
           <button
             type="button"
@@ -1351,6 +1408,13 @@ defineExpose({ closeWorkbench })
           </button>
         </div>
       </header>
+
+      <!-- lite 极简视图（T33 L0）：激活时替代完整视图主体（CSS .is-lite 隐藏富 UI 元素） -->
+      <LiteView
+        v-if="liteViewEnabled"
+        :window-id="windowId"
+        :preset-name="presetName"
+      />
 
       <div v-if="treeRootChatId" class="workbench-ctx-bar">
         <ContextUsageBar
@@ -1946,6 +2010,45 @@ defineExpose({ closeWorkbench })
 :global([data-theme='dark']) .role-usage-chip.usage-high {
   background: rgba(248, 113, 113, 0.2);
   color: #fca5a5;
+}
+
+/* T33 lite 视图：隐藏完整视图主体（树/ctx/面板/composer），由 LiteView 接管。 */
+.workbench-shell.is-lite .nyxus-branch-top,
+.workbench-shell.is-lite .workbench-ctx-bar,
+.workbench-shell.is-lite :deep(.pending-panel),
+.workbench-shell.is-lite .nyxus-composer-dock,
+.workbench-shell.is-lite .nyxus-piano-strip {
+  display: none;
+}
+
+.workbench-shell.is-lite {
+  display: flex;
+  flex-direction: column;
+}
+
+.workbench-lite-toggle {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-left: 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.workbench-lite-toggle:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+}
+
+.workbench-lite-toggle.is-active {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
 }
 
 .workbench-shell {

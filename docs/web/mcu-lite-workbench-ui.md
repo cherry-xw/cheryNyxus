@@ -1,6 +1,6 @@
 # 工作台 Lite 极简 UI（交互设计）
 
-> **状态：定稿 v0.2（T31 评审通过；W1-W5 契约修正已落盘，5 个遗漏场景与 A-E 定案由本版补全）**。目标：在 Web 工作台模式中，基于已实现的 lite profile API（P0+P1）增加一套全新的极简 UI，顶层一键切换，突出展示「极少量流量即可完成完整交互」这一方案核心优势。
+> **状态：定稿 v0.2（T31 评审通过；W1-W5 契约修正已落盘，5 个遗漏场景与 A-E 定案由本版补全）**。实现状态：**L0 进行中（in_progress）**。目标：在 Web 工作台模式中，基于已实现的 lite profile API（P0+P1）增加一套全新的极简 UI，顶层一键切换，突出展示「极少量流量即可完成完整交互」这一方案核心优势。
 > 本文件是**交互设计定稿**，按 doc-first 规范可进入 L0 实现；后续变更须先改本文并标注状态。
 
 ## 修订记录
@@ -81,7 +81,7 @@
 ### 4.2 运行中状态
 - run.updated 且 chatId==rootChatId 是唯一权威工作态信号（T26 规则）：running → 状态条显示「运行中…」，对话流显示 ⟳ 行。
 - 子 agent 事件（chatId≠rootChatId）只驱动子任务状态行，不污染主视图（T26 折叠规则）。
-- turn.delta **默认关闭**（A 定案：G1 原则「默认只展示最终回复」+lite 叙事纯度）；标题栏提供「流式」开关——turnDelta 是**连接级参数**，开关的实现 = 断开当前 lite 连接并以 turnDelta=1 重连（**不能热切换**，切换后重跑 hydration 链）；开启时增量文字按 ≤512B/帧分片渲染（T24）。
+- turn.delta **默认关闭**（A 定案：G1 原则「默认只展示最终回复」+lite 叙事纯度）；标题栏提供「流式」开关——turnDelta 是**连接级参数**，开关的实现 = 断开当前 lite 连接并以 turnDelta=1 重连（**不能热切换**，切换后重跑 hydration 链）；开关 tooltip/确认文案须预告「切换将断开并重连 lite 连接（约 1-2 秒）」；开启时增量文字按 ≤512B/帧分片渲染（T24）。
 
 ### 4.3 审批 / 提问交互（G4 全量下发，交互必须）
 - interrupt（审批）：**全量下发**（approvalId/senseName/arguments + supervisionLevel/security?；超长单字段服务端已按 maxFrameBytes 字段级截断并附 truncations:[{field,contentLength,contentHash}]，键名结构与短字段完整）→ 弹出审批行：显示工具名 + 参数键值表（短字段全文、超长字段截断值 +「查看全文」），按钮【批准】【拒绝】。
@@ -185,7 +185,7 @@
 
 | 阶段 | 内容 | 依赖 |
 |---|---|---|
-| L0 连接与骨架 | ws.ts profile 支持 + 标题栏切换 + LiteView 骨架 + 状态条 | P0/P1 API 已就绪 |
+| L0 连接与骨架 | ws.ts profile 支持 + 标题栏切换 + LiteView 骨架 + 状态条 | P0/P1 API 已就绪；**in_progress（T33）** |
 | L1 对话流 | lean 数据流 + 用户消息/最终回复/状态行渲染 + 分页 | L0 |
 | L2 交互闭环 | 发送(chat.input.submit) + 审批(decide) + 提问(answer) + 停止 | L1 |
 | L3 按需详情 | node.get 详情抽屉 + 截断续拉 | L1 |
