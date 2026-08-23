@@ -5,12 +5,27 @@
  * L2：发送/审批/停止；L3：详情抽屉（node.get）。
  */
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { useLiteStore, type LeanTimelineNode, type LiteInteraction } from './liteStore'
+import { useLiteStore } from './liteStore'
+import {
+  useLiteCanonicalView,
+  type LeanTimelineNode,
+  type LiteInteraction,
+} from './useLiteCanonicalView'
 import DetailDrawer from './DetailDrawer.vue'
 
-const props = defineProps<{ windowId: string; presetName?: string }>()
+const props = defineProps<{ windowId: string; rootChatId: string; presetName?: string }>()
 
-const lite = useLiteStore()
+const liteUi = useLiteStore()
+const lite = useLiteCanonicalView(
+  () => props.windowId,
+  () => props.rootChatId,
+)
+watch(
+  () => [props.windowId, props.rootChatId] as const,
+  ([windowId, rootChatId]) => liteUi.ensureRootUi(windowId, rootChatId),
+  { immediate: true },
+)
+const rootUi = computed(() => liteUi.ensureRootUi(props.windowId, props.rootChatId))
 
 const connectionLabel = computed(() => {
   switch (lite.connection.phase) {
@@ -21,29 +36,18 @@ const connectionLabel = computed(() => {
     case 'connected':
       return '已连接'
     case 'reconnecting':
-      return `重连中…（第 ${lite.connection.reconnectAttempts} 次退避）`
-    case 'unsupported':
-      return '版本不兼容（服务端 lite profile 版本过新，请升级）'
+      return '重连中…'
     default:
       return '—'
   }
-})
-
-const trafficLabel = computed(() => {
-  const kb = lite.connection.receivedBytes / 1024
-  return kb >= 1 ? `${kb.toFixed(1)} KB` : `${lite.connection.receivedBytes} B`
 })
 
 const hydrationLabel = computed(() => {
   switch (lite.hydration) {
     case 'idle':
       return ''
-    case 'chat-list':
-      return '加载会话…'
     case 'chat-open':
       return '加载时间线…'
-    case 'interaction-list':
-      return '加载待办…'
     case 'ready':
       return ''
     case 'failed':
@@ -112,16 +116,29 @@ async function loadOlder() {
 }
 
 // ---- 子任务展开（§4.1 v0.2）----
-const subTaskExpanded = ref(false)
+const subTaskExpanded = computed({
+  get: () => rootUi.value.expandedItemIds.includes('subtasks'),
+  set: (expanded: boolean) => {
+    const remaining = rootUi.value.expandedItemIds.filter((id) => id !== 'subtasks')
+    liteUi.patchRootUi(props.windowId, props.rootChatId, {
+      expandedItemIds: expanded ? [...remaining, 'subtasks'] : remaining,
+    })
+  },
+})
 const subTaskNodes = computed(() => lite.subTaskNodes)
 
 // ---- 自动滚动（新消息到底，除非用户上滚；加载更早保持视口）----
 const streamEl = ref<HTMLElement | null>(null)
-const autoScroll = ref(true)
+const autoScroll = computed({
+  get: () => rootUi.value.autoScroll,
+  set: (value: boolean) =>
+    liteUi.patchRootUi(props.windowId, props.rootChatId, { autoScroll: value }),
+})
 function onStreamScroll() {
   const el = streamEl.value
   if (!el) return
   autoScroll.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  liteUi.patchRootUi(props.windowId, props.rootChatId, { scrollTop: el.scrollTop })
 }
 async function scrollToBottom() {
   if (!autoScroll.value) return
@@ -129,7 +146,13 @@ async function scrollToBottom() {
   const el = streamEl.value
   if (el) el.scrollTop = el.scrollHeight
 }
-onMounted(scrollToBottom)
+onMounted(async () => {
+  await nextTick()
+  const el = streamEl.value
+  if (!el) return
+  if (rootUi.value.autoScroll) await scrollToBottom()
+  else el.scrollTop = rootUi.value.scrollTop
+})
 watch(
   () => [streamRows.value.length, lite.finalMessage?.receivedAt, lite.runningState !== null],
   scrollToBottom,
@@ -147,7 +170,11 @@ const nodeCountLabel = computed(() =>
 )
 
 // ---- L2：发送（§4.5）----
-const inputText = ref('')
+const inputText = computed({
+  get: () => rootUi.value.inputDraft,
+  set: (value: string) =>
+    liteUi.patchRootUi(props.windowId, props.rootChatId, { inputDraft: value }),
+})
 const sending = ref(false)
 async function onSend() {
   const content = inputText.value.trim()
@@ -205,7 +232,11 @@ function questionsOf(interaction: LiteInteraction): QuestionView[] {
     freeText: !Array.isArray(q.options) || (q.options as unknown[]).length === 0,
   }))
 }
-const questionDrafts = ref<Record<string, Record<string, string[] | string>>>({})
+const questionDrafts = computed({
+  get: () => rootUi.value.interactionDrafts,
+  set: (value: Record<string, Record<string, string[] | string>>) =>
+    liteUi.patchRootUi(props.windowId, props.rootChatId, { interactionDrafts: value }),
+})
 function selectedOf(batchId: string, questionId: string): string[] {
   const draft = questionDrafts.value[batchId]?.[questionId]
   return Array.isArray(draft) ? draft : []
@@ -268,9 +299,7 @@ async function onResume() {
   }
 }
 /** 重连期间禁用态（§4.8）：连接非 connected 时交互禁用。 */
-const connectionBlocked = computed(
-  () => lite.connection.phase === 'reconnecting' || lite.connection.phase === 'unsupported',
-)
+const connectionBlocked = computed(() => lite.connection.phase !== 'connected')
 
 // ---- L2：审批超时倒计时（§4.9：deadlineAt − (now+Δ)；本地提示性，终态以 interaction.changed 驱动）----
 const nowTick = ref(Date.now())
@@ -319,8 +348,18 @@ async function onErrorAction() {
 }
 
 // ---- L3：详情抽屉（§4.4）----
-const detailNodeId = ref<string | null>(null)
-const detailFocusToolCall = ref<string | null>(null)
+const detailNodeId = computed({
+  get: () => rootUi.value.detailNodeId,
+  set: (value: string | null) =>
+    liteUi.patchRootUi(props.windowId, props.rootChatId, { detailNodeId: value }),
+})
+const detailFocusToolCall = computed({
+  get: () => rootUi.value.detailFocusToolCallId,
+  set: (value: string | null) =>
+    liteUi.patchRootUi(props.windowId, props.rootChatId, {
+      detailFocusToolCallId: value,
+    }),
+})
 function openDetail(nodeId: string) {
   detailFocusToolCall.value = null
   detailNodeId.value = nodeId
@@ -348,7 +387,6 @@ function openApprovalDetail(interaction: LiteInteraction) {
       <span v-if="hydrationLabel" class="lite-hydration">{{ hydrationLabel }}</span>
       <span v-if="lite.runningState" class="lite-running">⟳ 运行中…</span>
       <span class="lite-session">{{ props.presetName || '会话' }}{{ lite.rootChatId ? ' · ' + lite.rootChatId.slice(0, 8) : '' }}</span>
-      <span class="lite-traffic">≈ {{ trafficLabel }}</span>
     </div>
 
     <div ref="streamEl" class="lite-stream" aria-label="对话流" @scroll="onStreamScroll">
@@ -485,7 +523,7 @@ function openApprovalDetail(interaction: LiteInteraction) {
           </div>
         </template>
 
-        <template v-else-if="interaction.kind === 'question'">
+        <template v-else-if="interaction.kind === 'question_batch'">
           <div class="lite-interaction-head">
             <strong>提问</strong>
             <span class="lite-countdown" :data-expired="remainingLabel(interaction) === '已超时'">{{ remainingLabel(interaction) }}</span>
@@ -507,7 +545,7 @@ function openApprovalDetail(interaction: LiteInteraction) {
                   :name="interaction.interactionId + ':' + q.questionId"
                   :checked="selectedOf(interaction.interactionId, q.questionId).includes(opt.label)"
                   @change="toggleOption(interaction.interactionId, q, opt.label)"
-                >
+                />
                 <span>{{ opt.label }}</span>
               </label>
             </template>
@@ -542,7 +580,7 @@ function openApprovalDetail(interaction: LiteInteraction) {
         :disabled="sending || connectionBlocked"
         @keydown.ctrl.enter.prevent="onSend"
         @keydown.meta.enter.prevent="onSend"
-      >
+      />
       <button
         type="button"
         class="lite-send-btn"
@@ -558,6 +596,8 @@ function openApprovalDetail(interaction: LiteInteraction) {
 
     <!-- L3：详情抽屉（§4.4） -->
     <DetailDrawer
+      :window-id="windowId"
+      :root-chat-id="rootChatId"
       :node-id="detailNodeId"
       :focus-tool-call-id="detailFocusToolCall"
       @close="detailNodeId = null"
@@ -591,8 +631,6 @@ function openApprovalDetail(interaction: LiteInteraction) {
 .lite-conn[data-phase='reconnecting'],
 .lite-conn[data-phase='connecting'] { color: var(--el-color-warning); }
 .lite-conn[data-phase='unsupported'] { color: var(--el-color-danger); }
-
-.lite-traffic { margin-left: auto; }
 
 .lite-stream {
   flex: 1;

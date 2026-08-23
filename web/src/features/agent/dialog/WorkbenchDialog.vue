@@ -42,6 +42,7 @@ import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import ConnectionStatusChip from '@/features/desktop/ConnectionStatusChip.vue'
 import LiteView from '@/features/lite/LiteView.vue'
+import { useLiteStore } from '@/features/lite/liteStore'
 import { useLiteViewToggle } from './useLiteViewToggle'
 import { lockWindowRootColorScheme, useWindowFrame } from '@/features/desktop/useWindowFrame'
 
@@ -54,7 +55,8 @@ const chatSessions = useChatSessionsStore()
  * Electron 面（surface=workbench）标题栏由 WindowFrame title-actions 承载，与 App.vue
  * 共用 useLiteViewToggle 保证两模式状态一致（native 模式 WorkbenchDialog 内部 titlebar
  * 被 v-if="!isNative" 隐藏，切换入口在 App.vue title-actions）。 */
-const { liteViewEnabled } = useLiteViewToggle(props.windowId)
+const liteUi = useLiteStore()
+const { liteViewEnabled, toggleLiteView } = useLiteViewToggle(props.windowId)
 
 /** 本窗口状态（store 注册表按 windowId 索引）。窗口关闭/不存在时组件不渲染。 */
 const win = computed(() => agents.workbenchWindows[props.windowId])
@@ -793,6 +795,8 @@ async function pauseWholeTask(): Promise<void> {
 }
 /** 顶部树的独立根：琴键按下即同步更新，不等待对话框 options/hydration 的异步链。 */
 const treeRootChatId = ref('')
+/** 无 root 时继续展示工作台既有的「新建会话」入口；创建后自动进入 Lite。 */
+const liteViewVisible = computed(() => liteViewEnabled.value && !!treeRootChatId.value)
 const treeFocusSourceChatId = ref<string>()
 const treeFocusInteractionId = ref<string>()
 /** 待操作面板 ↔ 节点树双向关联：树侧激活带待处理交互节点时同步聚焦面板条目。 */
@@ -1047,6 +1051,8 @@ function closeWorkbench(): void {
   const observedRoot = treeRootChatId.value
   resetMedia()
   error.value = null
+  // 只清理本窗口的 Lite 草稿/展开/滚动等 UI state；canonical root 数据与其它窗口不动。
+  liteUi.clearWindow(props.windowId)
   if (isNative.value) {
     // 原生窗：释放本窗根时间线订阅后交 main 关闭（工作台窗 close=hide，任务继续、WS 保持）
     if (observedRoot) {
@@ -1297,7 +1303,7 @@ defineExpose({ closeWorkbench })
     <section
       ref="workbenchShellRef"
       class="workbench-shell"
-      :class="`is-${effectiveMode}` + (isNative ? ' is-native' : '') + (liteViewEnabled ? ' is-lite' : '')"
+      :class="`is-${effectiveMode}` + (isNative ? ' is-native' : '') + (liteViewVisible ? ' is-lite' : '')"
       :style="workbenchShellStyle"
       aria-label="节点树工作台"
     >
@@ -1352,7 +1358,7 @@ defineExpose({ closeWorkbench })
           :aria-pressed="liteViewEnabled"
           aria-label="切换极简 lite 视图"
           title="切换极简 lite 视图"
-          @click="liteViewEnabled = !liteViewEnabled"
+          @click="toggleLiteView"
         >
           ⚡
         </button>
@@ -1393,8 +1399,9 @@ defineExpose({ closeWorkbench })
 
       <!-- lite 极简视图（T33 L0）：激活时替代完整视图主体（CSS .is-lite 隐藏富 UI 元素） -->
       <LiteView
-        v-if="liteViewEnabled"
+        v-if="liteViewVisible"
         :window-id="windowId"
+        :root-chat-id="treeRootChatId"
         :preset-name="presetName"
       />
 

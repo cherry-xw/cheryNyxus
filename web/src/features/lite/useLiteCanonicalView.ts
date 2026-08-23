@@ -1,0 +1,296 @@
+import { reactive } from 'vue'
+import { agentApi, type InteractionRecord, type TimelineNode } from '@/services/agentApi'
+import { useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/stores'
+import { selectCanResume } from '@/stores/chats/selectors'
+import { useLiteStore } from './liteStore'
+
+export interface LeanTimelineNode {
+  id: string
+  kind: TimelineNode['kind']
+  actorKind: TimelineNode['actor']['kind']
+  direction: TimelineNode['direction']
+  orderKey: number
+  status: TimelineNode['status']
+  createdAt: number
+  summary: string
+  contentLength: number
+  toolNames?: string[]
+  termination?: Record<string, unknown>
+}
+
+export type LiteInteraction = InteractionRecord
+
+type LiteConnectionPhase = 'idle' | 'connecting' | 'connected' | 'reconnecting'
+
+function toLeanNode(node: TimelineNode): LeanTimelineNode {
+  const toolNames = node.toolCalls?.map((call) => call.name).filter(Boolean)
+  const isConversationMessage =
+    node.actor.kind === 'user' ||
+    (node.actor.kind === 'agent' && node.direction === 'agent-to-user')
+  return {
+    id: node.id,
+    kind: node.kind,
+    actorKind: node.actor.kind,
+    direction: node.direction,
+    orderKey: node.orderKey,
+    status: node.status,
+    createdAt: node.createdAt,
+    // Internal/tool rows remain name-only in Lite. Full content stays in the
+    // canonical timeline and is requested by the existing detail affordance.
+    summary: isConversationMessage ? node.content : toolNames?.join(', ') || node.kind,
+    contentLength: node.content.length,
+    ...(toolNames?.length ? { toolNames } : {}),
+    ...(node.termination
+      ? { termination: node.termination as unknown as Record<string, unknown> }
+      : {}),
+  }
+}
+
+function errorFact(cause: unknown, fallback: string): { code: string; message: string } {
+  const error = cause as Error & { code?: string }
+  return {
+    code: error?.code ?? 'INTERNAL',
+    message: error instanceof Error ? error.message : fallback,
+  }
+}
+
+/**
+ * Compatibility view model for the existing Lite shell. Every domain read and
+ * command delegates to the canonical stores already used by WorkbenchDialog.
+ * It deliberately owns no connection, subscription, hydration or replay state.
+ */
+export function useLiteCanonicalView(windowId: () => string, rootChatId: () => string) {
+  const chats = useChatSessionsStore()
+  const connection = useConnectionStore()
+  const interactions = useInteractionsStore()
+  const uiStore = useLiteStore()
+
+  const root = () => rootChatId()
+  const timeline = () =>
+    chats.rootTimeline(root(), 'conversation') ??
+    chats.rootTimeline(root(), 'tree') ??
+    chats.rootTimeline(root(), 'audit')
+  const execution = () => chats.executionReadModel(root())
+  const rootUi = () => uiStore.ensureRootUi(windowId(), root())
+
+  function setCommandError(
+    error: { code: string; message: string; interactionId?: string } | null,
+  ): void {
+    uiStore.patchRootUi(windowId(), root(), { commandError: error })
+  }
+
+  return reactive({
+    get rootChatId(): string {
+      return root()
+    },
+    get connection(): {
+      phase: LiteConnectionPhase
+    } {
+      const phase: LiteConnectionPhase =
+        connection.status === 'connected'
+          ? 'connected'
+          : connection.status === 'connecting'
+            ? 'connecting'
+            : connection.error || root() || timeline()
+              ? 'reconnecting'
+              : 'idle'
+      return { phase }
+    },
+    get hydration(): 'idle' | 'chat-open' | 'ready' | 'failed' {
+      if (timeline()) return 'ready'
+      if (connection.status === 'connected') return 'chat-open'
+      return connection.error ? 'failed' : 'idle'
+    },
+    get hydrationError(): string | null {
+      return connection.error
+    },
+    get leanTimeline(): LeanTimelineNode[] {
+      return (timeline()?.nodes ?? []).map(toLeanNode)
+    },
+    get mainStreamNodes(): LeanTimelineNode[] {
+      return (timeline()?.nodes ?? [])
+        .filter(
+          (node) =>
+            node.status === 'committed' &&
+            node.sourceChatId === root() &&
+            (node.actor.kind === 'user' ||
+              (node.actor.kind === 'agent' && node.direction === 'agent-to-user')),
+        )
+        .map(toLeanNode)
+        .sort((a, b) => a.orderKey - b.orderKey)
+    },
+    get processNodes(): LeanTimelineNode[] {
+      return (timeline()?.nodes ?? [])
+        .filter(
+          (node) =>
+            node.status === 'committed' &&
+            node.actor.kind === 'agent' &&
+            node.direction !== 'agent-to-user',
+        )
+        .map(toLeanNode)
+        .sort((a, b) => a.orderKey - b.orderKey)
+    },
+    get subTaskNodes(): LeanTimelineNode[] {
+      return (timeline()?.nodes ?? [])
+        .filter(
+          (node) =>
+            node.status === 'committed' &&
+            (node.direction === 'parent-to-child' || node.direction === 'child-to-parent'),
+        )
+        .map(toLeanNode)
+        .sort((a, b) => a.orderKey - b.orderKey)
+    },
+    get nodeCount(): number {
+      return timeline()?.nodes.length ?? 0
+    },
+    get hasMoreOlder(): boolean {
+      // Canonical generations are loaded through the shared chat store. Task 4
+      // supplies the explicit lazy-detail control instead of a private pager.
+      return false
+    },
+    get finalMessage(): {
+      msgId: string
+      content: string
+      contentLength: number
+      receivedAt: number
+    } | null {
+      const final = execution().finalResponse
+      return final
+        ? {
+            msgId: final.id,
+            content: final.content,
+            contentLength: final.content.length,
+            receivedAt: final.updatedAt,
+          }
+        : null
+    },
+    get runningState(): { runId: string; status: string; startedAt: number } | null {
+      const model = execution()
+      return model.status === 'running' || model.status === 'waiting'
+        ? {
+            runId: model.runId ?? '',
+            status: model.status,
+            startedAt: model.startedAt ?? Date.now(),
+          }
+        : null
+    },
+    get canResume(): boolean {
+      const session = chats.sessionsById[root()]
+      return session ? selectCanResume(session) : execution().status === 'paused'
+    },
+    get interactions(): InteractionRecord[] {
+      return interactions.pending.filter((item) => item.rootChatId === root())
+    },
+    get lastCommandError(): {
+      code: string
+      message: string
+      interactionId?: string
+    } | null {
+      return rootUi().commandError
+    },
+    set lastCommandError(value) {
+      setCommandError(value)
+    },
+    async loadOlder(): Promise<boolean> {
+      return false
+    },
+    async refreshInteractions(): Promise<void> {
+      await interactions.refresh()
+    },
+    async submitInput(content: string): Promise<boolean> {
+      try {
+        const prepared = chats.prepareInput(root(), content)
+        await chats.submitInput(root(), content, undefined, prepared)
+        setCommandError(null)
+        return true
+      } catch (cause) {
+        setCommandError(errorFact(cause, '发送失败'))
+        return false
+      }
+    },
+    async decideApproval(interactionId: string, action: 'accept' | 'reject'): Promise<boolean> {
+      const interaction = interactions.records[interactionId]
+      if (!interaction) return false
+      try {
+        await interactions.decide(interaction, action)
+        setCommandError(null)
+        return true
+      } catch (cause) {
+        setCommandError({ ...errorFact(cause, '操作失败'), interactionId })
+        return false
+      }
+    },
+    async answerQuestion(
+      interactionId: string,
+      answers: Array<{
+        questionId: string
+        selectedLabels?: string[]
+        freeText?: string
+        cancelled?: boolean
+      }>,
+    ): Promise<boolean> {
+      const interaction = interactions.records[interactionId]
+      if (!interaction) return false
+      try {
+        await interactions.answer(
+          interaction,
+          answers.map((answer) => ({
+            questionId: answer.questionId,
+            selectedLabels: answer.selectedLabels ?? [],
+            ...(answer.freeText ? { freeText: answer.freeText } : {}),
+            ...(answer.cancelled ? { cancelled: true } : {}),
+          })),
+        )
+        setCommandError(null)
+        return true
+      } catch (cause) {
+        setCommandError({ ...errorFact(cause, '提交失败'), interactionId })
+        return false
+      }
+    },
+    async abortRun(): Promise<boolean> {
+      try {
+        await chats.abortAgent(root())
+        setCommandError(null)
+        return true
+      } catch (cause) {
+        setCommandError(errorFact(cause, '停止失败'))
+        return false
+      }
+    },
+    async resumeRun(): Promise<boolean> {
+      try {
+        await chats.resumeAgent(root())
+        setCommandError(null)
+        return true
+      } catch (cause) {
+        setCommandError(errorFact(cause, '继续失败'))
+        return false
+      }
+    },
+    async fetchNodeDetail(
+      nodeId: string,
+      options: {
+        sections?: Array<'content' | 'thinking' | 'toolCalls'>
+        offset?: number
+        limit?: number
+      } = {},
+    ) {
+      try {
+        const data = await agentApi.getTimelineNode({
+          rootChatId: root(),
+          nodeId,
+          ...options,
+        })
+        return { success: true as const, data }
+      } catch (cause) {
+        const error = errorFact(cause, '详情加载失败')
+        if (error.code === 'RATE_LIMITED') setCommandError(error)
+        return { success: false as const, error }
+      }
+    },
+    calibratedNow(): number {
+      return Date.now()
+    },
+  })
+}

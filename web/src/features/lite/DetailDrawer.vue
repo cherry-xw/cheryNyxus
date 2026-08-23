@@ -5,16 +5,21 @@
  * refs(contentHash) 引用、hasMore 续拉；审批「查看全文」走 toolCalls sections（id 映射）。
  */
 import { computed, ref, watch } from 'vue'
-import { useLiteStore, type LeanTimelineNode } from './liteStore'
+import { useLiteCanonicalView, type LeanTimelineNode } from './useLiteCanonicalView'
 
 const props = defineProps<{
+  windowId: string
+  rootChatId: string
   nodeId: string | null | undefined
   /** 审批查看全文模式：定位 toolCall 用（interactionId = sense call id，D 定案）。 */
   focusToolCallId?: string | null
 }>()
 const emit = defineEmits<{ close: [] }>()
 
-const lite = useLiteStore()
+const lite = useLiteCanonicalView(
+  () => props.windowId,
+  () => props.rootChatId,
+)
 
 interface NodeDetail {
   id: string
@@ -125,7 +130,7 @@ function toolField(call: Record<string, unknown>, key: string): string {
         <header class="lite-drawer-head">
           <strong>{{ leanNode?.kind ?? '节点' }} 详情</strong>
           <label class="lite-drawer-toggle">
-            <input type="checkbox" v-model="showThinking">思考
+            <input v-model="showThinking" type="checkbox" />思考
           </label>
           <button type="button" class="lite-drawer-close" aria-label="关闭" @click="emit('close')">✕</button>
         </header>

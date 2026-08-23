@@ -698,6 +698,13 @@ export interface TimelineNode {
   forkAnchor?: boolean
 }
 
+export interface TimelineNodeDetailResponse {
+  rootChatId: string
+  node: TimelineNode
+  refs: Array<{ field: string; contentLength: number; contentHash: string }>
+  hasMore: boolean
+}
+
 export type ExecutionEdgeKind =
   'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation' |
   'fork-continuation' | 'fork-detail'
@@ -1546,6 +1553,24 @@ export const agentApi = {
     if (response.unchanged) return undefined
     if (!response.rootTimeline) throw new Error('root timeline 响应缺少 rootTimeline')
     return response.rootTimeline
+  },
+
+  /** Root node details use the canonical application WebSocket. Lite controls
+   * only when this read is requested; it does not create a profile connection. */
+  async getTimelineNode(params: {
+    rootChatId: string
+    nodeId: string
+    sections?: Array<'content' | 'thinking' | 'toolCalls'>
+    offset?: number
+    limit?: number
+  }): Promise<TimelineNodeDetailResponse> {
+    return call<TimelineNodeDetailResponse>('chat.timeline.node.get', {
+      rootChatId: params.rootChatId,
+      nodeId: params.nodeId,
+      ...(params.sections ? { sections: params.sections } : {}),
+      ...(params.offset !== undefined ? { offset: params.offset } : {}),
+      ...(params.limit !== undefined ? { limit: params.limit } : {}),
+    })
   },
 
   /** 按需拉取单个已打包代际的完整图（LRU 缓存由 chats store 持有）。 */

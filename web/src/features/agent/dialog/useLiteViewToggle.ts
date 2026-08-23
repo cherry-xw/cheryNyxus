@@ -1,4 +1,4 @@
-import { computed, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import { useLiteStore } from '@/features/lite/liteStore'
 
 /**
@@ -27,22 +27,28 @@ export function useLiteViewToggle(windowId: Ref<string> | string): {
   toggleLiteView: () => void
 } {
   const liteStore = useLiteStore()
-  const id = typeof windowId === 'string' ? windowId : windowId.value
+  const id = typeof windowId === 'string' ? ref(windowId) : windowId
 
   // 单一事实源：store.activeByWindow。首次访问若 store 无记录，用 localStorage 种子值
-  // 初始化（保证刷新后保持 + 两入口首读一致）。
-  if (!(id in liteStore.activeByWindow)) {
-    const seeded = readLiteViewPersisted(id)
-    liteStore.setActive(id, seeded)
-  }
+  // 初始化（保证刷新后保持 + 两入口首读一致）。切换只写纯 UI state，不触碰连接或订阅。
+  watch(
+    id,
+    (currentId) => {
+      if (!(currentId in liteStore.activeByWindow)) {
+        liteStore.setActive(currentId, readLiteViewPersisted(currentId))
+      }
+    },
+    { immediate: true },
+  )
 
-  const liteViewEnabled = computed<boolean>(() => !!liteStore.activeByWindow[id])
+  const liteViewEnabled = computed<boolean>(() => !!liteStore.activeByWindow[id.value])
 
   function toggleLiteView(): void {
-    const next = !liteStore.activeByWindow[id]
-    liteStore.setActive(id, next)
+    const currentId = id.value
+    const next = !liteStore.activeByWindow[currentId]
+    liteStore.setActive(currentId, next)
     try {
-      localStorage.setItem(liteViewKey(id), next ? '1' : '0')
+      localStorage.setItem(liteViewKey(currentId), next ? '1' : '0')
     } catch {
       /* localStorage 不可用时仅会话内生效 */
     }
