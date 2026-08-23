@@ -60,6 +60,23 @@ interface LiteStoreState {
   /** interaction.changed 失效信号（§3.2：无 seq 必重拉；L2 消费）。 */
   interactionsStale: boolean
   pendingInteractionIds: string[]
+  /** 待处理交互明细（L2：审批/提问渲染源；interaction.list 拉取）。 */
+  interactions: LiteInteraction[]
+  /** serverNow 校准偏移（Δ=server−local；interaction.list/done 每轮免费校准，§4.9）。 */
+  serverNowOffsetMs: number
+  /** 最近一次交互命令错误（D13 六码 UI 分支渲染源）。 */
+  lastCommandError: { code: string; message: string; interactionId?: string } | null
+}
+
+/** lite 交互记录（interaction.list 响应 lean 形态）。 */
+export interface LiteInteraction {
+  interactionId: string
+  kind: 'approval' | 'question' | string
+  status: string
+  revision: number
+  presetId?: string
+  deadlineAt?: number
+  payload?: Record<string, unknown>
 }
 
 interface ChatSummary {
@@ -91,6 +108,9 @@ export const useLiteStore = defineStore('lite-workbench', {
     finalMessage: null,
     interactionsStale: false,
     pendingInteractionIds: [],
+    interactions: [],
+    serverNowOffsetMs: 0,
+    lastCommandError: null,
   }),
   getters: {
     isLiteActive(state): (windowId: string) => boolean {
@@ -208,12 +228,14 @@ export const useLiteStore = defineStore('lite-workbench', {
         const ilRes = await liteClient.client.rpc('interaction.list', { maxItems: 20 })
         if (!ilRes.success) throw new Error(ilRes.error?.message ?? 'interaction.list 失败')
         const il = asRecord(ilRes.data)
+        // serverNow 校准（§4.9：Δ=server−local，倒计时单源 deadlineAt）。
+        if (typeof il?.serverNow === 'number') {
+          this.serverNowOffsetMs = il.serverNow - Date.now()
+        }
         const interactions = Array.isArray(il?.interactions)
           ? (il!.interactions as Array<Record<string, unknown>>)
           : []
-        this.pendingInteractionIds = interactions
-          .filter((i) => typeof i.interactionId === 'string')
-          .map((i) => i.interactionId as string)
+        this.setInteractions(interactions)
         this.interactionsStale = false
 
         this.hydration = 'ready'
@@ -300,10 +322,16 @@ export const useLiteStore = defineStore('lite-workbench', {
         return
       }
 
-      // interaction.changed：失效信号（无 seq 必重拉，C5；L2 消费重拉）。
+      // interaction.changed：失效信号（无 seq 必重拉，C5）。L2：标记 + 防抖重拉。
       if (type === 'interaction.changed') {
         this.interactionsStale = true
+        this.scheduleInteractionRefresh()
         return
+      }
+
+      // done：每轮免费 serverNow 校准（§3.2 第 5 步，T28）。
+      if (type === 'done' && rec.data && typeof rec.data.serverNow === 'number') {
+        this.serverNowOffsetMs = rec.data.serverNow - Date.now()
       }
 
       // turn.started/completed、子 chat 事件：T26 折叠——不驱动主视图（状态由 run.updated +
@@ -331,6 +359,163 @@ export const useLiteStore = defineStore('lite-workbench', {
       }
       if (typeof patch.revision === 'number') this.timelineRevision = patch.revision
     },
+    /** interaction.list 结果写入（含 expired 终态过滤——超时行不可操作但仍展示，§4.9）。 */
+    setInteractions(raw: Array<Record<string, unknown>>) {
+      this.interactions = raw
+        .filter((i) => typeof i.interactionId === 'string' && typeof i.revision === 'number')
+        .map((i) => ({
+          interactionId: i.interactionId as string,
+          kind: typeof i.kind === 'string' ? i.kind : 'approval',
+          status: typeof i.status === 'string' ? i.status : 'pending',
+          revision: i.revision as number,
+          ...(typeof i.presetId === 'string' ? { presetId: i.presetId } : {}),
+          ...(typeof i.deadlineAt === 'number' ? { deadlineAt: i.deadlineAt } : {}),
+          ...(asRecord(i.payload) ? { payload: asRecord(i.payload)! } : {}),
+        }))
+      this.pendingInteractionIds = this.interactions
+        .filter((i) => ['pending', 'resolving', 'blocked'].includes(i.status))
+        .map((i) => i.interactionId)
+    },
+    /** interaction.list 重拉（C5 无 seq 必重拉；interaction.changed/错误分支 STALE 共用）。 */
+    async refreshInteractions() {
+      if (!liteClient) return
+      const res = await liteClient.client.rpc('interaction.list', { maxItems: 20 })
+      if (!res.success) return
+      const il = asRecord(res.data)
+      if (typeof il?.serverNow === 'number') this.serverNowOffsetMs = il.serverNow - Date.now()
+      const interactions = Array.isArray(il?.interactions) ? (il!.interactions as Array<Record<string, unknown>>) : []
+      this.setInteractions(interactions)
+      this.interactionsStale = false
+    },
+    /** interaction.changed 防抖重拉（500ms 窗口合并突发）。 */
+    scheduleInteractionRefresh() {
+      if (interactionRefreshTimer !== null) clearTimeout(interactionRefreshTimer)
+      interactionRefreshTimer = setTimeout(() => {
+        interactionRefreshTimer = null
+        void this.refreshInteractions()
+      }, 500)
+    },
+
+    // ---- L2 交互命令（D13 六码错误分支统一入口） ----
+    /** 发送（§4.5）：chat.input.submit，立即 ack + messageId 预分配本地回显。 */
+    async submitInput(content: string): Promise<boolean> {
+      if (!liteClient || !this.rootChatId || !content.trim()) return false
+      const commandId = liteUuid()
+      const messageId = liteUuid() // 客户端预分配持久节点 id（§3.5）
+      // 本地立即回显（§4.5：不等 ack）
+      this.leanTimeline.push({
+        id: messageId,
+        kind: 'message',
+        actorKind: 'user',
+        direction: 'user-to-agent',
+        orderKey: (this.leanTimeline.at(-1)?.orderKey ?? 0) + 1,
+        status: 'committed',
+        createdAt: Date.now(),
+        summary: content,
+        contentLength: content.length,
+      })
+      const res = await liteClient.client.rpc('chat.input.submit', {
+        chatId: this.rootChatId,
+        commandId,
+        clientMessageId: messageId,
+        messageId,
+        content,
+      })
+      if (!res.success) {
+        this.lastCommandError = {
+          code: res.error?.code ?? 'INTERNAL',
+          message: res.error?.message ?? '发送失败',
+        }
+        return false
+      }
+      this.lastCommandError = null
+      return true
+    },
+    /** 审批（§4.3）：interaction.approval.decide（interactionId+action+expectedRevision+commandId）。 */
+    async decideApproval(interactionId: string, action: 'accept' | 'reject'): Promise<boolean> {
+      if (!liteClient) return false
+      const interaction = this.interactions.find((i) => i.interactionId === interactionId)
+      if (!interaction) return false
+      const res = await liteClient.client.rpc('interaction.approval.decide', {
+        interactionId,
+        action,
+        expectedRevision: interaction.revision,
+        commandId: liteUuid(),
+      })
+      if (!res.success) {
+        this.lastCommandError = {
+          code: res.error?.code ?? 'INTERNAL',
+          message: res.error?.message ?? '操作失败',
+          interactionId,
+        }
+        return false
+      }
+      this.lastCommandError = null
+      // C4：以返回 interaction.status 终结状态机（不推断）
+      void this.refreshInteractions()
+      return true
+    },
+    /** 提问（§4.3）：interaction.question.answer 原子整批（multiSelect/freeText 由 answers 形态表达）。 */
+    async answerQuestion(
+      interactionId: string,
+      answers: Array<{ questionId: string; selectedLabels?: string[]; freeText?: string; cancelled?: boolean }>,
+    ): Promise<boolean> {
+      if (!liteClient) return false
+      const interaction = this.interactions.find((i) => i.interactionId === interactionId)
+      if (!interaction) return false
+      const res = await liteClient.client.rpc('interaction.question.answer', {
+        interactionId,
+        expectedRevision: interaction.revision,
+        commandId: liteUuid(),
+        answers,
+      })
+      if (!res.success) {
+        this.lastCommandError = {
+          code: res.error?.code ?? 'INTERNAL',
+          message: res.error?.message ?? '提交失败',
+          interactionId,
+        }
+        return false
+      }
+      this.lastCommandError = null
+      void this.refreshInteractions()
+      return true
+    },
+    /** 停止（§4.6 B 定案）：chat.abort（commandId 幂等，递归停后代）。 */
+    async abortRun(): Promise<boolean> {
+      if (!liteClient || !this.rootChatId) return false
+      const res = await liteClient.client.rpc('chat.abort', {
+        chatId: this.rootChatId,
+        commandId: liteUuid(),
+      })
+      if (!res.success) {
+        this.lastCommandError = {
+          code: res.error?.code ?? 'INTERNAL',
+          message: res.error?.message ?? '停止失败',
+        }
+        return false
+      }
+      this.lastCommandError = null
+      return true
+    },
+    /** 继续（§4.6）：chat.resume（canResume 驱动显隐）。 */
+    async resumeRun(): Promise<boolean> {
+      if (!liteClient || !this.rootChatId) return false
+      const res = await liteClient.client.rpc('chat.resume', { chatId: this.rootChatId })
+      if (!res.success) {
+        this.lastCommandError = {
+          code: res.error?.code ?? 'INTERNAL',
+          message: res.error?.message ?? '继续失败',
+        }
+        return false
+      }
+      this.lastCommandError = null
+      return true
+    },
+    /** 校准后当前时刻（§4.9：deadlineAt − (now + Δ)）。 */
+    calibratedNow(): number {
+      return Date.now() + this.serverNowOffsetMs
+    },
     disconnect() {
       liteClient?.disconnect()
       liteClient = null
@@ -348,6 +533,20 @@ export const useLiteStore = defineStore('lite-workbench', {
 
 /** lite 连接实例（模块级：Pinia state 需可序列化，连接对象为非响应式资源）。 */
 let liteClient: LiteClient | null = null
+/** interaction.changed 防抖重拉定时器（模块级，同上）。 */
+let interactionRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+/** commandId/messageId 生成（§5.1：一次用户意图一个 id）。 */
+function liteUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
 
 export function getLiteClient(): LiteClient | null {
   return liteClient

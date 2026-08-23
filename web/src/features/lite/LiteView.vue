@@ -4,8 +4,8 @@
  * 布局契约：docs/web/mcu-lite-workbench-ui.md §2.2；渲染规则 §4.1；分页 §4.7。
  * L2：发送/审批/停止；L3：详情抽屉（node.get）。
  */
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useLiteStore, type LeanTimelineNode } from './liteStore'
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { useLiteStore, type LeanTimelineNode, type LiteInteraction } from './liteStore'
 
 const props = defineProps<{ windowId: string; presetName?: string }>()
 
@@ -144,6 +144,165 @@ async function loadOlderPreserve() {
 const nodeCountLabel = computed(() =>
   lite.nodeCount !== null ? `${lite.nodeCount} 节点` : `${lite.leanTimeline.length} 节点`,
 )
+
+// ---- L2：发送（§4.5）----
+const inputText = ref('')
+const sending = ref(false)
+async function onSend() {
+  const content = inputText.value.trim()
+  if (!content || sending.value) return
+  sending.value = true
+  try {
+    await lite.submitInput(content)
+    if (!lite.lastCommandError) inputText.value = ''
+  } finally {
+    sending.value = false
+  }
+}
+
+// ---- L2：待处理交互（§4.3/§4.9）----
+const actionableInteractions = computed(() =>
+  lite.interactions.filter((i) => ['pending', 'resolving', 'blocked'].includes(i.status)),
+)
+/** 审批参数键值表（截断值展示；全文留 L3 node.get）。 */
+function approvalEntries(interaction: LiteInteraction): Array<[string, string]> {
+  const args = interaction.payload?.arguments
+  if (args && typeof args === 'object') {
+    return Object.entries(args as Record<string, unknown>).map(([k, v]) => [
+      k,
+      typeof v === 'string' ? (v.length > 60 ? v.slice(0, 60) + '…' : v) : JSON.stringify(v),
+    ])
+  }
+  return []
+}
+const deciding = ref<string | null>(null)
+async function onDecide(interaction: LiteInteraction, action: 'accept' | 'reject') {
+  deciding.value = interaction.interactionId
+  try {
+    await lite.decideApproval(interaction.interactionId, action)
+  } finally {
+    deciding.value = null
+  }
+}
+
+/** 提问渲染（§4.3 multiSelect/freeText）。 */
+interface QuestionView {
+  questionId: string
+  question: string
+  options: Array<{ label: string }>
+  multiSelect: boolean
+  freeText: boolean
+}
+function questionsOf(interaction: LiteInteraction): QuestionView[] {
+  const qs = interaction.payload?.questions
+  if (!Array.isArray(qs)) return []
+  return (qs as Array<Record<string, unknown>>).map((q) => ({
+    questionId: typeof q.questionId === 'string' ? q.questionId : '',
+    question: typeof q.question === 'string' ? q.question : '',
+    options: Array.isArray(q.options) ? (q.options as Array<{ label: string }>) : [],
+    multiSelect: q.multiSelect === true,
+    freeText: !Array.isArray(q.options) || (q.options as unknown[]).length === 0,
+  }))
+}
+const questionDrafts = ref<Record<string, Record<string, string[] | string>>>({})
+function selectedOf(batchId: string, questionId: string): string[] {
+  const draft = questionDrafts.value[batchId]?.[questionId]
+  return Array.isArray(draft) ? draft : []
+}
+function toggleOption(batchId: string, q: QuestionView, label: string) {
+  const batch = { ...questionDrafts.value[batchId] }
+  const current = new Set(selectedOf(batchId, q.questionId))
+  if (q.multiSelect) {
+    if (current.has(label)) current.delete(label)
+    else current.add(label)
+    batch[q.questionId] = [...current]
+  } else {
+    batch[q.questionId] = current.has(label) ? [] : [label]
+  }
+  questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
+}
+function textDraftOf(batchId: string, questionId: string): string {
+  const draft = questionDrafts.value[batchId]?.[questionId]
+  return typeof draft === 'string' ? draft : ''
+}
+function setTextDraft(batchId: string, questionId: string, value: string) {
+  const batch = { ...questionDrafts.value[batchId] }
+  batch[questionId] = value
+  questionDrafts.value = { ...questionDrafts.value, [batchId]: batch }
+}
+const answering = ref<string | null>(null)
+async function onAnswerBatch(interaction: LiteInteraction) {
+  const batchId = interaction.interactionId
+  const answers = questionsOf(interaction).map((q) => {
+    const sel = selectedOf(batchId, q.questionId)
+    const text = textDraftOf(batchId, q.questionId)
+    if (q.freeText) return { questionId: q.questionId, freeText: text }
+    return { questionId: q.questionId, selectedLabels: sel }
+  })
+  answering.value = batchId
+  try {
+    await lite.answerQuestion(batchId, answers)
+  } finally {
+    answering.value = null
+  }
+}
+
+// ---- L2：停止（§4.6 B 定案）----
+const aborting = ref(false)
+async function onStop() {
+  aborting.value = true
+  try {
+    await lite.abortRun()
+  } finally {
+    aborting.value = false
+  }
+}
+
+// ---- L2：审批超时倒计时（§4.9：deadlineAt − (now+Δ)；本地提示性，终态以 interaction.changed 驱动）----
+const nowTick = ref(Date.now())
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => {
+  countdownTimer = setInterval(() => (nowTick.value = Date.now()), 1000)
+})
+onBeforeUnmount(() => {
+  if (countdownTimer) clearInterval(countdownTimer)
+})
+function remainingLabel(interaction: LiteInteraction): string {
+  void nowTick.value // 响应性锚点：每秒 tick 驱动倒计时重渲染
+  if (typeof interaction.deadlineAt !== 'number') return ''
+  const remaining = interaction.deadlineAt - lite.calibratedNow()
+  if (remaining <= 0) return '已超时'
+  const s = Math.ceil(remaining / 1000)
+  return s >= 60 ? `${Math.floor(s / 60)}m${s % 60}s` : `${s}s`
+}
+
+// ---- L2：错误码分支（§4.10 D13 六码）----
+const errorBanner = computed(() => {
+  const err = lite.lastCommandError
+  if (!err) return null
+  switch (err.code) {
+    case 'INTERACTION_STALE':
+      return { text: '内容已变化，请刷新后重试', action: 'refresh' as const }
+    case 'INTERACTION_ALREADY_RESOLVED':
+      return { text: '已在其他视图处理', action: 'refresh' as const }
+    case 'COMMAND_CONFLICT':
+      return { text: '该操作正在处理中', action: null }
+    case 'INPUT_QUEUE_FULL':
+      return { text: '正在处理上一条，稍候', action: null }
+    case 'RATE_LIMITED':
+      return { text: '请求过于频繁，请稍后再试', action: null }
+    case 'PROFILE_VERSION_UNSUPPORTED':
+      return { text: '版本不兼容，请升级客户端', action: null }
+    default:
+      return { text: err.message, action: null }
+  }
+})
+async function onErrorAction() {
+  if (errorBanner.value?.action === 'refresh') {
+    await lite.refreshInteractions()
+    lite.lastCommandError = null
+  }
+}
 </script>
 
 <template>
@@ -194,7 +353,12 @@ const nodeCountLabel = computed(() =>
       <div v-if="showRunningRow" class="lite-row lite-process">
         <span class="lite-icon">⟳</span>
         <span class="lite-text">运行中…</span>
-        <button type="button" class="lite-stop-btn" title="停止（L2 上线）" disabled>停止</button>
+        <button
+          type="button"
+          class="lite-stop-btn"
+          :disabled="aborting"
+          @click="onStop"
+        >{{ aborting ? '停止中…' : '停止' }}</button>
       </div>
 
       <div v-if="subTaskNodes.length > 0" class="lite-subtask">
@@ -215,15 +379,115 @@ const nodeCountLabel = computed(() =>
       </div>
     </div>
 
-    <div class="lite-interaction-slot" aria-hidden="true" />
+    <!-- 错误条（§4.10 D13 六码分支） -->
+    <div v-if="errorBanner" class="lite-error-banner" role="alert">
+      <span>{{ errorBanner.text }}</span>
+      <button
+        v-if="errorBanner.action === 'refresh'"
+        type="button"
+        class="lite-error-action"
+        @click="onErrorAction"
+      >刷新</button>
+    </div>
 
+    <!-- 审批/提问区（§4.3/§4.9） -->
+    <div v-if="actionableInteractions.length > 0" class="lite-interactions">
+      <div
+        v-for="interaction in actionableInteractions"
+        :key="interaction.interactionId"
+        class="lite-interaction"
+      >
+        <template v-if="interaction.kind === 'approval'">
+          <div class="lite-interaction-head">
+            <strong>审批：{{ interaction.payload?.senseName ?? interaction.interactionId.slice(0, 8) }}</strong>
+            <span class="lite-countdown" :data-expired="remainingLabel(interaction) === '已超时'">{{ remainingLabel(interaction) }}</span>
+          </div>
+          <dl class="lite-args">
+            <template v-for="entry in approvalEntries(interaction)" :key="entry[0]">
+              <dt>{{ entry[0] }}</dt>
+              <dd>{{ entry[1] }}</dd>
+            </template>
+          </dl>
+          <div class="lite-interaction-actions">
+            <button
+              type="button"
+              class="lite-btn is-accept"
+              :disabled="deciding === interaction.interactionId || remainingLabel(interaction) === '已超时'"
+              @click="onDecide(interaction, 'accept')"
+            >批准</button>
+            <button
+              type="button"
+              class="lite-btn is-reject"
+              :disabled="deciding === interaction.interactionId || remainingLabel(interaction) === '已超时'"
+              @click="onDecide(interaction, 'reject')"
+            >拒绝</button>
+          </div>
+        </template>
+
+        <template v-else-if="interaction.kind === 'question'">
+          <div class="lite-interaction-head">
+            <strong>提问</strong>
+            <span class="lite-countdown" :data-expired="remainingLabel(interaction) === '已超时'">{{ remainingLabel(interaction) }}</span>
+          </div>
+          <div
+            v-for="q in questionsOf(interaction)"
+            :key="q.questionId"
+            class="lite-question"
+          >
+            <p class="lite-question-text">{{ q.question }}</p>
+            <template v-if="!q.freeText">
+              <label
+                v-for="opt in q.options"
+                :key="opt.label"
+                class="lite-option"
+              >
+                <input
+                  :type="q.multiSelect ? 'checkbox' : 'radio'"
+                  :name="interaction.interactionId + ':' + q.questionId"
+                  :checked="selectedOf(interaction.interactionId, q.questionId).includes(opt.label)"
+                  @change="toggleOption(interaction.interactionId, q, opt.label)"
+                >
+                <span>{{ opt.label }}</span>
+              </label>
+            </template>
+            <textarea
+              v-else
+              class="lite-freetext"
+              rows="2"
+              :value="textDraftOf(interaction.interactionId, q.questionId)"
+              placeholder="输入回答"
+              @input="setTextDraft(interaction.interactionId, q.questionId, ($event.target as HTMLTextAreaElement).value)"
+            />
+          </div>
+          <div class="lite-interaction-actions">
+            <button
+              type="button"
+              class="lite-btn is-accept"
+              :disabled="answering === interaction.interactionId"
+              @click="onAnswerBatch(interaction)"
+            >提交回答</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- 输入区（§4.5：Ctrl+Enter 发送） -->
     <div class="lite-input">
       <input
+        v-model="inputText"
         type="text"
         class="lite-input-box"
-        placeholder="发送消息（L2 上线）"
-        disabled
+        placeholder="发送消息（Ctrl+Enter）"
+        :disabled="sending"
+        @keydown.ctrl.enter.prevent="onSend"
+        @keydown.meta.enter.prevent="onSend"
       >
+      <button
+        type="button"
+        class="lite-send-btn"
+        :disabled="sending || !inputText.trim()"
+        @click="onSend"
+      >发送</button>
     </div>
 
     <div class="lite-footer">
@@ -326,7 +590,101 @@ const nodeCountLabel = computed(() =>
 }
 .lite-subtask-row { font-size: 12px; color: var(--el-text-color-secondary); }
 
-.lite-interaction-slot { flex: none; }
+/* L2：错误条（§4.10） */
+.lite-error-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  border-top: 1px solid var(--el-color-danger-light-7);
+}
+.lite-error-action {
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--el-color-primary);
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* L2：审批/提问区（§4.3） */
+.lite-interactions {
+  flex: none;
+  max-height: 40%;
+  overflow-y: auto;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding: 8px 12px;
+}
+.lite-interaction {
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+}
+.lite-interaction-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lite-countdown { font-size: 12px; color: var(--el-color-warning); }
+.lite-countdown[data-expired='true'] { color: var(--el-color-danger); }
+.lite-args {
+  display: grid;
+  grid-template-columns: minmax(60px, auto) 1fr;
+  gap: 2px 10px;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.lite-args dt { color: var(--el-text-color-secondary); }
+.lite-args dd { margin: 0; word-break: break-all; }
+.lite-interaction-actions { display: flex; gap: 8px; margin-top: 6px; }
+.lite-btn {
+  padding: 2px 14px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--el-border-color);
+  background: transparent;
+  cursor: pointer;
+}
+.lite-btn.is-accept { color: var(--el-color-success); border-color: var(--el-color-success); }
+.lite-btn.is-reject { color: var(--el-color-danger); border-color: var(--el-color-danger); }
+.lite-btn:disabled { opacity: 0.5; cursor: default; }
+.lite-question { margin: 6px 0; }
+.lite-question-text { margin: 2px 0; font-size: 12px; }
+.lite-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.lite-freetext {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: var(--el-fill-color-blank);
+  color: inherit;
+  font-size: 12px;
+}
+.lite-send-btn {
+  margin-left: 8px;
+  padding: 4px 14px;
+  font-size: 12px;
+  color: var(--el-color-primary);
+  background: transparent;
+  border: 1px solid var(--el-color-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.lite-send-btn:disabled { opacity: 0.5; cursor: default; }
+.lite-input { display: flex; align-items: center; }
 
 .lite-input {
   flex: none;
