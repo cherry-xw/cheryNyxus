@@ -6,6 +6,7 @@
  */
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useLiteStore, type LeanTimelineNode, type LiteInteraction } from './liteStore'
+import DetailDrawer from './DetailDrawer.vue'
 
 const props = defineProps<{ windowId: string; presetName?: string }>()
 
@@ -303,6 +304,28 @@ async function onErrorAction() {
     lite.lastCommandError = null
   }
 }
+
+// ---- L3：详情抽屉（§4.4）----
+const detailNodeId = ref<string | null>(null)
+const detailFocusToolCall = ref<string | null>(null)
+function openDetail(nodeId: string) {
+  detailFocusToolCall.value = null
+  detailNodeId.value = nodeId
+}
+/** 审批查看全文（D 定案 id 映射：interactionId = sense call id = toolCall id）。 */
+function openApprovalDetail(interaction: LiteInteraction) {
+  detailFocusToolCall.value = interaction.interactionId
+  const anchor = interaction.payload?.anchorNodeId
+  if (typeof anchor === 'string') {
+    detailNodeId.value = anchor
+    return
+  }
+  // 无 anchor：在 leanTimeline 中按 call id 定位所属消息节点（toolNames 非空的最新节点）
+  const node = [...lite.leanTimeline]
+    .reverse()
+    .find((n) => n.kind === 'message' && (n.toolNames?.length ?? 0) > 0)
+  detailNodeId.value = node?.id ?? null
+}
 </script>
 
 <template>
@@ -335,10 +358,17 @@ async function onErrorAction() {
         <div v-else-if="row.kind === 'agent-reply'" class="lite-row lite-reply">
           <span class="lite-role">[agent]</span>
           <span class="lite-text">{{ row.node?.summary }}</span>
-          <button type="button" class="lite-detail-btn" title="详情（L3 上线）" disabled>详情 &gt;</button>
+          <button type="button" class="lite-detail-btn" @click="openDetail(row.node!.id)">详情 &gt;</button>
         </div>
 
-        <div v-else class="lite-row lite-process" role="button" tabindex="0">
+        <div
+          v-else
+          class="lite-row lite-process"
+          role="button"
+          tabindex="0"
+          @click="openDetail(row.node!.id)"
+          @keydown.enter="openDetail(row.node!.id)"
+        >
           <span class="lite-icon">{{ processIcon(row.node!) }}</span>
           <span class="lite-text">{{ processLabel(row.node!) }}</span>
         </div>
@@ -347,7 +377,7 @@ async function onErrorAction() {
       <div v-if="liveFinalMessage" class="lite-row lite-reply">
         <span class="lite-role">[agent]</span>
         <span class="lite-text">{{ liveFinalMessage.content }}</span>
-        <button type="button" class="lite-detail-btn" title="详情（L3 上线）" disabled>详情 &gt;</button>
+        <button type="button" class="lite-detail-btn" @click="openDetail(liveFinalMessage!.msgId)">详情 &gt;</button>
       </div>
 
       <div v-if="showRunningRow" class="lite-row lite-process">
@@ -408,6 +438,12 @@ async function onErrorAction() {
               <dd>{{ entry[1] }}</dd>
             </template>
           </dl>
+          <button
+            type="button"
+            class="lite-view-full"
+            :disabled="!interaction.payload?.anchorNodeId && detailNodeId === null"
+            @click="openApprovalDetail(interaction)"
+          >查看全文</button>
           <div class="lite-interaction-actions">
             <button
               type="button"
@@ -494,6 +530,13 @@ async function onErrorAction() {
       <span class="lite-nodecount">{{ nodeCountLabel }}</span>
       <span class="lite-actions">…</span>
     </div>
+
+    <!-- L3：详情抽屉（§4.4） -->
+    <DetailDrawer
+      :node-id="detailNodeId"
+      :focus-tool-call-id="detailFocusToolCall"
+      @close="detailNodeId = null"
+    />
   </div>
 </template>
 
@@ -642,6 +685,16 @@ async function onErrorAction() {
 .lite-args dt { color: var(--el-text-color-secondary); }
 .lite-args dd { margin: 0; word-break: break-all; }
 .lite-interaction-actions { display: flex; gap: 8px; margin-top: 6px; }
+.lite-view-full {
+  margin-top: 4px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--el-color-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.lite-view-full:disabled { opacity: 0.5; cursor: default; }
 .lite-btn {
   padding: 2px 14px;
   font-size: 12px;

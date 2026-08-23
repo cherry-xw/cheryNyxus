@@ -512,6 +512,26 @@ export const useLiteStore = defineStore('lite-workbench', {
       this.lastCommandError = null
       return true
     },
+    /** L3：node.get 按需详情（§4.4）。返回原始 RpcResponse（抽屉自行处理 refs/hasMore/续拉）。 */
+    async fetchNodeDetail(
+      nodeId: string,
+      options: { sections?: Array<'content' | 'thinking' | 'toolCalls'>; offset?: number; limit?: number } = {},
+    ) {
+      if (!liteClient || !this.rootChatId) {
+        return { success: false as const, error: { code: 'INTERNAL', message: '会话未就绪' } }
+      }
+      const res = await liteClient.client.rpc('chat.timeline.node.get', {
+        rootChatId: this.rootChatId,
+        nodeId,
+        sections: options.sections,
+        ...(options.offset !== undefined ? { offset: options.offset } : {}),
+        ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      })
+      if (!res.success && res.error?.code === 'RATE_LIMITED') {
+        this.lastCommandError = { code: res.error.code, message: res.error.message }
+      }
+      return res
+    },
     /** 校准后当前时刻（§4.9：deadlineAt − (now + Δ)）。 */
     calibratedNow(): number {
       return Date.now() + this.serverNowOffsetMs

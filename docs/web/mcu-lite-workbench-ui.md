@@ -1,6 +1,6 @@
 # 工作台 Lite 极简 UI（交互设计）
 
-> **状态：定稿 v0.2（T31 评审通过；W1-W5 契约修正已落盘，5 个遗漏场景与 A-E 定案由本版补全）**。实现状态：**L0/L1 已实现（implemented，T33/T34）；L2 进行中（in_progress，T35）**。目标：在 Web 工作台模式中，基于已实现的 lite profile API（P0+P1）增加一套全新的极简 UI，顶层一键切换，突出展示「极少量流量即可完成完整交互」这一方案核心优势。
+> **状态：定稿 v0.2（T31 评审通过；W1-W5 契约修正已落盘，5 个遗漏场景与 A-E 定案由本版补全）**。实现状态：**L0/L1/L2 已实现（implemented，T33/T34/T35）；L3 进行中（in_progress，T36）**。目标：在 Web 工作台模式中，基于已实现的 lite profile API（P0+P1）增加一套全新的极简 UI，顶层一键切换，突出展示「极少量流量即可完成完整交互」这一方案核心优势。
 > 本文件是**交互设计定稿**，按 doc-first 规范可进入 L0 实现；后续变更须先改本文并标注状态。
 
 ## 修订记录
@@ -187,8 +187,8 @@
 |---|---|---|
 | L0 连接与骨架 | ws.ts profile 支持 + 标题栏切换 + LiteView 骨架 + 状态条 | P0/P1 API 已就绪；**implemented（T33）** |
 | L1 对话流 | lean 数据流 + 用户消息/最终回复/状态行渲染 + 分页 | L0；**implemented（T34）** |
-| L2 交互闭环 | 发送(chat.input.submit) + 审批(decide) + 提问(answer) + 停止 | L1；**in_progress（T35）** |
-| L3 按需详情 | node.get 详情抽屉 + 截断续拉 | L1 |
+| L2 交互闭环 | 发送(chat.input.submit) + 审批(decide) + 提问(answer) + 停止 | L1；**implemented（T35）** |
+| L3 按需详情 | node.get 详情抽屉 + 截断续拉 | L1；**in_progress（T36）** |
 | L4 收尾 | 流量计数 + 断线重连自愈 + 验收 | L0-L3 |
 
 > 本设计文档为 v0.2 定稿（T31 评审通过），按 doc-first 规范可进入 L0 实现；后续变更先改本文并补修订记录。

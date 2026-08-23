@@ -55,6 +55,17 @@ export class LiteClient {
     return { ...this.state }
   }
 
+  /** RPC 计数包装（C 定案：应用层帧 payload 含 Response）。 */
+  async rpc(method: string, params: unknown = {}, options?: { timeoutMs?: number }) {
+    const res = await this.client.rpc(method, params, options)
+    try {
+      this.setState({ receivedBytes: this.state.receivedBytes + JSON.stringify(res).length })
+    } catch {
+      /* 不可序列化不计 */
+    }
+    return res
+  }
+
   private setState(patch: Partial<LiteConnectionState>): void {
     this.state = { ...this.state, ...patch }
     this.options.onState?.(this.getState())
