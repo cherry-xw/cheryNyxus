@@ -8,7 +8,10 @@ import type { ToolAuthorization } from '@/core/security/rolePolicy.js'
 
 const CURRENT_RUN_EVENT_LIMIT = 10_000
 
-function eventRunId(event: Record<string, unknown>, data: Record<string, unknown>): string | undefined {
+function eventRunId(
+  event: Record<string, unknown>,
+  data: Record<string, unknown>,
+): string | undefined {
   return typeof data.runId === 'string'
     ? data.runId
     : typeof event.runId === 'string'
@@ -45,26 +48,20 @@ function rebuildRunTiming(
 }
 
 /** 活动步骤优先，再用最新终态步骤填满严格数量预算；活动超限时保留最新项。 */
-export function limitExecutionSteps(
-  steps: ExecutionStep[],
-  limit?: number,
-): ExecutionStep[] {
+export function limitExecutionSteps(steps: ExecutionStep[], limit?: number): ExecutionStep[] {
   const chronological = [...steps].sort(
     (a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id),
   )
   if (limit === undefined || chronological.length <= limit) return chronological
   const effectiveLimit = Math.max(0, Math.floor(limit))
   if (effectiveLimit === 0) return []
-  const running = chronological
-    .filter((step) => step.status === 'running')
-    .slice(-effectiveLimit)
+  const running = chronological.filter((step) => step.status === 'running').slice(-effectiveLimit)
   const remaining = effectiveLimit - running.length
   const terminal = chronological
     .filter((step) => step.status !== 'running')
     .sort(
       (a, b) =>
-        (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt) ||
-        b.id.localeCompare(a.id),
+        (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt) || b.id.localeCompare(a.id),
     )
     .slice(0, remaining)
   return [...running, ...terminal].sort(
@@ -131,7 +128,7 @@ function rebuildExecutionSteps(
     if (type === 'turn.completed' && typeof data.turnId === 'string') {
       const key = `model:${data.turnId}`
       const step = steps.get(key)
-      if (step && typeof data.completedAt === 'number') {
+      if (step?.status === 'running' && typeof data.completedAt === 'number') {
         steps.set(key, { ...step, status: 'completed', completedAt: data.completedAt })
       }
       continue

@@ -105,7 +105,14 @@ describe('computeCurrentState（G8）', () => {
     appendChatEvent(chatId, {
       kind: 'notification',
       type: 'interrupt',
-      data: { approvalId: 'ap2', senseName: 'write_file', arguments: '{}', supervisionLevel: 1, waitTime: 0, createdAt: 0 },
+      data: {
+        approvalId: 'ap2',
+        senseName: 'write_file',
+        arguments: '{}',
+        supervisionLevel: 1,
+        waitTime: 0,
+        createdAt: 0,
+      },
       chatId,
     })
     appendChatEvent(chatId, {
@@ -207,7 +214,12 @@ describe('computeCurrentState（G8）', () => {
 
     // 数量预算优先保留活动步骤，再取最新终态；审批等待不计入工具耗时。
     expect(computeCurrentState(chatId, { executionStepLimit: 2 }).executionSteps).toEqual([
-      expect.objectContaining({ id: 'tool-rejected', status: 'rejected', startedAt: 160, completedAt: 160 }),
+      expect.objectContaining({
+        id: 'tool-rejected',
+        status: 'rejected',
+        startedAt: 160,
+        completedAt: 160,
+      }),
       expect.objectContaining({ id: 'tool-running', status: 'running' }),
     ])
   })
@@ -248,9 +260,13 @@ describe('computeCurrentState（G8）', () => {
     createChat(failedChatId)
     const failedEvents = [
       ['run.updated', { runId: 'failed-run', status: 'running', at: 10, startedAt: 10 }],
-      ['turn.started', { turnId: 'failed-turn', messageId: 'failed-turn', runId: 'failed-run', createdAt: 11 }],
+      [
+        'turn.started',
+        { turnId: 'failed-turn', messageId: 'failed-turn', runId: 'failed-run', createdAt: 11 },
+      ],
       ['error', { message: 'boom' }],
       ['run.updated', { runId: 'failed-run', status: 'paused', at: 19 }],
+      ['turn.completed', { turnId: 'failed-turn', messageId: 'failed-turn', completedAt: 20 }],
     ] as const
     for (const [type, data] of failedEvents) {
       appendChatEvent(failedChatId, {
