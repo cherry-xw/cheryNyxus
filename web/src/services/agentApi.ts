@@ -614,19 +614,9 @@ export interface TerminationFact {
 }
 
 export type TreeControlOperationStatus =
-  | 'pausing'
-  | 'paused'
-  | 'resuming'
-  | 'partial'
-  | 'completed'
-  | 'superseded'
+  'pausing' | 'paused' | 'resuming' | 'partial' | 'completed' | 'superseded'
 export type TreeControlTargetStatus =
-  | 'paused'
-  | 'resuming'
-  | 'resumed'
-  | 'delegated'
-  | 'skipped'
-  | 'failed'
+  'paused' | 'resuming' | 'resumed' | 'delegated' | 'skipped' | 'failed'
 export interface TreeControlTarget {
   chatId: string
   pausedRunId: string
@@ -706,8 +696,14 @@ export interface TimelineNodeDetailResponse {
 }
 
 export type ExecutionEdgeKind =
-  'sequence' | 'spawn' | 'continue' | 'dispatch' | 'return' | 'return-continuation' |
-  'fork-continuation' | 'fork-detail'
+  | 'sequence'
+  | 'spawn'
+  | 'continue'
+  | 'dispatch'
+  | 'return'
+  | 'return-continuation'
+  | 'fork-continuation'
+  | 'fork-detail'
 
 export interface ExecutionEdgeFact {
   id: string
@@ -1196,11 +1192,23 @@ function callStream(
 }
 
 export const agentApi = {
+  async listInteractionPage(params?: {
+    presetId?: string
+    includeActivity?: boolean
+  }): Promise<{ interactions: InteractionRecord[]; serverNow?: number; hasMore?: boolean }> {
+    return call<{ interactions: InteractionRecord[]; serverNow?: number; hasMore?: boolean }>(
+      'interaction.list',
+      params ?? {},
+    )
+  },
   async listInteractions(params?: {
     presetId?: string
     includeActivity?: boolean
   }): Promise<InteractionRecord[]> {
-    const response = await call<{ interactions: InteractionRecord[] }>('interaction.list', params ?? {})
+    const response = await call<{ interactions: InteractionRecord[] }>(
+      'interaction.list',
+      params ?? {},
+    )
     return response.interactions
   },
 
@@ -1211,7 +1219,10 @@ export const agentApi = {
     commandId: string
     reason?: string
   }): Promise<InteractionRecord> {
-    const response = await call<{ interaction: InteractionRecord }>('interaction.approval.decide', params)
+    const response = await call<{ interaction: InteractionRecord }>(
+      'interaction.approval.decide',
+      params,
+    )
     return response.interaction
   },
 
@@ -1226,7 +1237,10 @@ export const agentApi = {
       cancelled?: boolean
     }>
   }): Promise<InteractionRecord> {
-    const response = await call<{ interaction: InteractionRecord }>('interaction.question.answer', params)
+    const response = await call<{ interaction: InteractionRecord }>(
+      'interaction.question.answer',
+      params,
+    )
     return response.interaction
   },
   /** skills.list：实时列出用户可加载的技能（独立 + 插件）；内置命令不在此结果中。支持可选分页与搜索。 */
@@ -1593,12 +1607,21 @@ export const agentApi = {
     return response.rootTimeline
   },
 
-  async previewBranch(rootChatId: string, anchorNodeId: string): Promise<{
+  async previewBranch(
+    rootChatId: string,
+    anchorNodeId: string,
+  ): Promise<{
     taskId: string
     sourceBranchId: string
     eligible: boolean
     reason?: string
-    sideEffects: Array<{ nodeId: string; callId: string; toolName: string; arguments: string; result?: string }>
+    sideEffects: Array<{
+      nodeId: string
+      callId: string
+      toolName: string
+      arguments: string
+      result?: string
+    }>
     effectDigest: string
   }> {
     return call<{
@@ -1606,7 +1629,13 @@ export const agentApi = {
       sourceBranchId: string
       eligible: boolean
       reason?: string
-      sideEffects: Array<{ nodeId: string; callId: string; toolName: string; arguments: string; result?: string }>
+      sideEffects: Array<{
+        nodeId: string
+        callId: string
+        toolName: string
+        arguments: string
+        result?: string
+      }>
       effectDigest: string
     }>('chat.branch.preview', { rootChatId, anchorNodeId })
   },
@@ -1624,7 +1653,10 @@ export const agentApi = {
     return call<ConversationBranchSummary & { input: InputAccepted }>('chat.branch.create', params)
   },
 
-  async activateBranch(branchId: string, commandId: string): Promise<{
+  async activateBranch(
+    branchId: string,
+    commandId: string,
+  ): Promise<{
     taskId: string
     activeBranchId: string
     activeChatId: string
@@ -1633,8 +1665,14 @@ export const agentApi = {
     return call('chat.branch.activate', { branchId, commandId })
   },
 
-  async abortTask(taskId: string, commandId: string): Promise<{ taskId: string; abortedBranches: string[] }> {
-    return call<{ taskId: string; abortedBranches: string[] }>('chat.abortTask', { taskId, commandId })
+  async abortTask(
+    taskId: string,
+    commandId: string,
+  ): Promise<{ taskId: string; abortedBranches: string[] }> {
+    return call<{ taskId: string; abortedBranches: string[] }>('chat.abortTask', {
+      taskId,
+      commandId,
+    })
   },
 
   /** V2 session plane：原子建立订阅并返回当前运行态快照。 */

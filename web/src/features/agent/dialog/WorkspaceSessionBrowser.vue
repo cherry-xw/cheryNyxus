@@ -15,7 +15,6 @@ const agents = useAgentsStore()
 const interactions = useInteractionsStore()
 const scope = ref<'workspace' | 'all'>(props.presetId ? 'workspace' : 'all')
 const section = ref<'pending' | 'activity'>('pending')
-const submitError = ref('')
 const drafts = reactive<
   Record<string, Record<string, { selectedLabels: string[]; freeText: string }>>
 >({})
@@ -157,27 +156,14 @@ function timeOf(timestamp?: number): string {
   return timestamp ? new Date(timestamp).toLocaleString() : ''
 }
 async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Promise<void> {
-  submitError.value = ''
   try {
     await interactions.decide(item, action)
-  } catch (cause) {
-    submitError.value = cause instanceof Error ? cause.message : '审批失败'
+  } catch {
+    // The shared store binds the error to this interaction.
   }
 }
 /** 提交可点判定：单选恰好 1 项或有「其他补充」输入；多选 ≥1。无选择/输入时提交按钮禁用（灰）。 */
-function canSubmitOf(item: InteractionRecord): boolean {
-  const qs = questionsOf(item)
-  if (!qs.length) return false
-  return qs.every((question) => {
-    const draft = draftOf(item, question.questionId)
-    if (draft.freeText.trim()) return true
-    return question.multiSelect
-      ? draft.selectedLabels.length > 0
-      : draft.selectedLabels.length === 1
-  })
-}
 async function answer(item: InteractionRecord): Promise<void> {
-  submitError.value = ''
   const answers = questionsOf(item).map((question) => {
     const draft = draftOf(item, question.questionId)
     return {
@@ -187,19 +173,6 @@ async function answer(item: InteractionRecord): Promise<void> {
       ...({ multiSelect: question.multiSelect } satisfies Record<string, boolean>),
     }
   })
-  if (answers.some((answer) => answer.selectedLabels.length === 0 && !answer.freeText)) {
-    submitError.value = '请完成全部问题后提交'
-    return
-  }
-  // 单选强制「选项 or 其他」二选一，禁止并存（服务端会落库冲突答案）
-  if (
-    answers.some(
-      (answer) => !answer.multiSelect && answer.selectedLabels.length > 0 && answer.freeText,
-    )
-  ) {
-    submitError.value = '单选题请在选项与「其他补充」中二选一'
-    return
-  }
   // 丢弃 multiSelect 哨兵字段后提交（显式构造，避免解构未用变量）
   const submit = answers.map((answer) => ({
     questionId: answer.questionId,
@@ -208,8 +181,8 @@ async function answer(item: InteractionRecord): Promise<void> {
   }))
   try {
     await interactions.answer(item, submit)
-  } catch (cause) {
-    submitError.value = cause instanceof Error ? cause.message : '回答失败'
+  } catch {
+    // Per-question and per-interaction errors are rendered from the shared store.
   }
 }
 
@@ -280,8 +253,8 @@ onBeforeUnmount(() => {
       </button>
     </nav>
 
-    <p v-if="submitError || interactions.error" class="error">
-      {{ submitError || interactions.error }}
+    <p v-if="interactions.error" class="error">
+      {{ interactions.error }}
     </p>
     <div ref="listEl" class="inbox-list">
       <section
@@ -356,8 +329,22 @@ onBeforeUnmount(() => {
                 placeholder="其他补充（可选）"
                 @input="onOtherInput(item, question.questionId, $event)"
               />
+              <p
+                v-if="interactions.questionErrorsById[item.interactionId]?.[question.questionId]"
+                class="object-error"
+                role="alert"
+              >
+                {{
+                  interactions.questionErrorsById[item.interactionId]?.[question.questionId]
+                    ?.message
+                }}
+              </p>
             </fieldset>
           </div>
+
+          <p v-if="interactions.errorsById[item.interactionId]" class="object-error" role="alert">
+            {{ interactions.errorsById[item.interactionId]?.message }}
+          </p>
 
           <footer>
             <button
@@ -391,7 +378,7 @@ onBeforeUnmount(() => {
               v-else-if="section === 'pending' && item.kind === 'question_batch'"
               type="button"
               class="accept"
-              :disabled="item.status !== 'pending' || !canSubmitOf(item)"
+              :disabled="item.status !== 'pending'"
               @click="answer(item)"
             >
               提交回答
@@ -702,6 +689,11 @@ article footer button {
   border-radius: 8px;
   background: color-mix(in srgb, #e35a49 13%, var(--surface));
   color: #b74438;
+  font-size: 12px;
+}
+.object-error {
+  margin: 6px 0 0;
+  color: var(--el-color-danger);
   font-size: 12px;
 }
 .empty {

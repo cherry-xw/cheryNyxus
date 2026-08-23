@@ -105,7 +105,23 @@ const termination = computed(() =>
 // jumpToSpawn 转发：MessageAvatar 点击头像 → 透传给 HistoryDrawer
 const emit = defineEmits<{
   (e: 'jumpToSpawn', payload: { senseCallId: string }): void
+  (e: 'retryMessage', payload: { messageId: string; chatId?: string }): void
+  (e: 'removeMessage', payload: { messageId: string; chatId?: string }): void
 }>()
+function retryDelivery(): void {
+  if (props.item.msgId)
+    emit('retryMessage', {
+      messageId: props.item.msgId,
+      ...(props.item.agentChatId ? { chatId: props.item.agentChatId } : {}),
+    })
+}
+function removeDelivery(): void {
+  if (props.item.msgId)
+    emit('removeMessage', {
+      messageId: props.item.msgId,
+      ...(props.item.agentChatId ? { chatId: props.item.agentChatId } : {}),
+    })
+}
 </script>
 
 <template>
@@ -194,6 +210,19 @@ const emit = defineEmits<{
             :assets="props.item.mediaAssets"
           />
         </div>
+        <div
+          v-if="props.item.delivery"
+          class="delivery-state"
+          :data-status="props.item.delivery.status"
+        >
+          <span v-if="props.item.delivery.status === 'sending'">发送中…</span>
+          <span v-else-if="props.item.delivery.status === 'committed'">已发送</span>
+          <template v-else>
+            <span>{{ props.item.delivery.error?.message ?? '发送失败' }}</span>
+            <button v-if="props.item.msgId" type="button" @click="retryDelivery">重试</button>
+            <button v-if="props.item.msgId" type="button" @click="removeDelivery">移除</button>
+          </template>
+        </div>
         <!-- 工具调用：折叠态一行小 tag（hover 悬浮显完整渲染器内容），展开态逐个渲染器 box -->
         <div v-if="hasSenseCalls && collapseSenseCalls" class="sense-tags">
           <el-popover
@@ -248,6 +277,18 @@ const emit = defineEmits<{
 @import '@/styles/scrollbar.less';
 
 @ink: var(--ink);
+
+.delivery-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-size: 11px;
+}
+.delivery-state[data-status='failed'] {
+  color: var(--el-color-danger);
+}
 
 .msg-row {
   display: flex;

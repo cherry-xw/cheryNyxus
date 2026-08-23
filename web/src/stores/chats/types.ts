@@ -24,6 +24,7 @@ import type {
   RunSnapshot,
   ChatSessionEvent,
   ExecutionStep,
+  ChatSendAttachment,
 } from '@/services/agentApi'
 import type {
   SenseCallRecord,
@@ -82,6 +83,23 @@ export interface ChatMessage {
   mergedView?: 'child-to-master'
   /** spawn sense call id（role_reply notification 可携带；跳到触发该角色的工具调用用）。 */
   spawnSenseCallId?: string
+  /**
+   * Client command-plane delivery fact for an outgoing user message.
+   *
+   * This is deliberately separate from `status`: message status describes the
+   * durable/streaming timeline entity, while delivery describes the local RPC
+   * acknowledgement lifecycle.  Keeping the idempotency keys here lets a
+   * reconnect retry reuse the original command without creating a duplicate.
+   */
+  delivery?: {
+    status: 'sending' | 'failed' | 'committed'
+    commandId: string
+    clientMessageId: string
+    provisionalInputId: string
+    /** Immutable copy of the canonical submit payload, reused by failed-message retry. */
+    attachments?: ChatSendAttachment[]
+    error?: { code: string; message: string; retryable: boolean; retryAfterMs?: number }
+  }
 }
 
 /** chat 元数据（catalog 与 hydrated 实体共享；来自 ChatSummary）。 */
@@ -145,6 +163,8 @@ export interface ChatContextState {
   contextTotal?: number
   contextBreakdown?: ContextBreakdown
   commandConfig?: CommandConfigData
+  /** `serverNow - clientReceiveNow`; used only for deadline display. */
+  serverClockOffsetMs?: number
   /** workspace 已在 metadata；此处不重复，ContextBar 直读 meta。 */
 }
 

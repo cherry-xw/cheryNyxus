@@ -3,7 +3,7 @@
  * ApprovalCard：sense 审批卡片（CP5）。
  * 触发：interrupt notification → store routeNotification 设 stream.approval（或入队 approvalQueue）。
  * 操作：
- *   - accept / reject → agentApi.approval(approvalId, action) → 成功后 dismissApproval 立即关闭
+ *   - accept / reject → chatSessions.submitApproval(...) → interactions store 统一校验、幂等提交并关闭
  *     （不等 accept/rejected notification 回来；store 仍会清，已 undefined 无害）。
  *     清空后自动从 queue pop 下一个（连续处理多审批）。
  *   - ✕ 关闭 → dismissApprovalToQueue 移到 queue 末尾（不丢失，PetIcons 渲染闪烁 icon）。
@@ -13,7 +13,7 @@
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useChatSessionsStore } from '@/stores'
+import { useChatSessionsStore, useInteractionsStore } from '@/stores'
 import type { ApprovalState } from '@/stores/agents'
 import ParsedArgs from './ParsedArgs.vue'
 import { toSenseNameZh } from '@/utils/senseName'
@@ -25,6 +25,8 @@ const props = defineProps<{
 }>()
 
 const chatSessions = useChatSessionsStore()
+const interactions = useInteractionsStore()
+const objectError = computed(() => interactions.errorsById[props.approval.approvalId])
 
 // 待执行动作（请求中两按钮都禁用防双击；null = idle）
 const pending = ref<'accept' | 'reject' | null>(null)
@@ -96,7 +98,9 @@ function closeToQueue(): void {
   >
     <div class="header">
       <span class="indicator" aria-hidden="true" />
-      <span class="sense-name" :title="approval.senseName">{{ toSenseNameZh(approval.senseName) }}</span>
+      <span class="sense-name" :title="approval.senseName">{{
+        toSenseNameZh(approval.senseName)
+      }}</span>
       <span v-if="showCountdown" class="countdown" :class="{ expired }">{{ remainingSec }}s</span>
       <button
         type="button"
@@ -123,7 +127,9 @@ function closeToQueue(): void {
       </ul>
     </div>
     <ParsedArgs :args="approval.args" />
-    <p v-if="submitError" class="submit-error" role="alert">{{ submitError }}</p>
+    <p v-if="objectError || submitError" class="submit-error" role="alert">
+      {{ objectError?.message || submitError }}
+    </p>
     <div class="actions">
       <button
         type="button"
@@ -237,10 +243,26 @@ function closeToQueue(): void {
   background: color-mix(in srgb, #fef2f2 55%, var(--surface));
   font-size: 12px;
 }
-.security-meta { display: flex; flex-wrap: wrap; gap: 3px 7px; font-weight: 400; }
-.security-findings { margin: 4px 0 0; padding-left: 14px; }
-.security-findings li { margin-top: 2px; overflow-wrap: anywhere; }
-.security-findings code { display: block; margin-top: 2px; white-space: pre-wrap; color: var(--ink); }
+.security-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+  font-weight: 400;
+}
+.security-findings {
+  margin: 4px 0 0;
+  padding-left: 14px;
+}
+.security-findings li {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.security-findings code {
+  display: block;
+  margin-top: 2px;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
 
 .submit-error {
   margin: 1px 0 0;

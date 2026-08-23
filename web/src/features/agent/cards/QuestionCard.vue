@@ -9,7 +9,7 @@
  * 错误：console.error 上报 + submitError 展示（规则 12 fail loud），pending 复位允许重试。
  */
 import { computed, ref, watch } from 'vue'
-import { useChatSessionsStore } from '@/stores'
+import { useChatSessionsStore, useInteractionsStore } from '@/stores'
 import type { QuestionItemState } from '@/stores/agents'
 
 /** batch 进度信息（多问题批次时传入，控制"下一步"vs"提交"按钮） */
@@ -33,6 +33,15 @@ const props = defineProps<{
 }>()
 
 const chatSessions = useChatSessionsStore()
+const interactions = useInteractionsStore()
+const objectError = computed(() => {
+  const batchId = props.batchInfo?.batchId
+  if (!batchId) return undefined
+  return (
+    interactions.questionErrorsById[batchId]?.[props.question.questionId]?.message ??
+    interactions.errorsById[batchId]?.message
+  )
+})
 
 // 待提交（「其他」submit / 选项 submit 任一动作进行中；null = idle）
 const pending = ref<'other' | 'submit' | 'cancel' | null>(null)
@@ -257,7 +266,9 @@ function back(): void {
         @keydown.enter.meta="advanceOrSubmit"
       />
     </div>
-    <div v-if="submitError" class="submit-error" role="alert">{{ submitError }}</div>
+    <div v-if="objectError || submitError" class="submit-error" role="alert">
+      {{ objectError || submitError }}
+    </div>
 
     <footer class="question-actions">
       <button

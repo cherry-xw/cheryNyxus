@@ -15,6 +15,7 @@ export const useConnectionStore = defineStore('connection', () => {
     initialized = true
     wsClient.onStatus((s) => {
       status.value = s
+      if (s === 'connected') error.value = null
     })
     try {
       // 首次连接不 refresh：main 进程在创建窗口前已 waitForBackend 就绪，preload 注入的

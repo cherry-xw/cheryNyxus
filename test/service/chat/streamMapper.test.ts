@@ -183,15 +183,17 @@ describe('streamAgentChunks run lifecycle', () => {
       approvalId: 'tool-timed',
       completedAt: expect.any(Number),
     })
-    expect(typed.find(([type]) => type === 'done')?.[1]).toMatchObject({
+    const done = typed.find(([type]) => type === 'done')?.[1] as
+      { completedAt?: number; serverNow?: number } | undefined
+    expect(done).toMatchObject({
       completedAt: expect.any(Number),
+      serverNow: expect.any(Number),
     })
+    expect(done?.serverNow).toBe(done?.completedAt)
     expect(typed.find(([type]) => type === 'turn.completed')?.[1]).toMatchObject({
       completedAt: expect.any(Number),
     })
-    const terminalRun = typed
-      .filter(([type]) => type === 'run.updated')
-      .at(-1)?.[1]
+    const terminalRun = typed.filter(([type]) => type === 'run.updated').at(-1)?.[1]
     expect(terminalRun).toMatchObject({ at: expect.any(Number) })
   })
 })

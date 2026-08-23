@@ -43,6 +43,7 @@ import type {
 import { agentApi } from '@/services/agentApi'
 import type { GenerationPayload } from '@/stores/chats/rootTimeline'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
+import { toHistoryItem } from '@/stores/chats/selectors'
 import { detailBranchContextNodes } from './detailBranchContext'
 
 const MotionDiv = motion.div
@@ -235,25 +236,30 @@ watch(
   },
   { immediate: true },
 )
-const orderedTaskBranches = computed(() => taskBranches.value.slice().sort((a, b) => {
-  if (a.branchId === taskTimeline.value?.activeBranchId) return -1
-  if (b.branchId === taskTimeline.value?.activeBranchId) return 1
-  if (a.kind === 'detail' && b.kind !== 'detail') return 1
-  if (b.kind === 'detail' && a.kind !== 'detail') return -1
-  return a.createdAt - b.createdAt || a.branchId.localeCompare(b.branchId)
-}))
+const orderedTaskBranches = computed(() =>
+  taskBranches.value.slice().sort((a, b) => {
+    if (a.branchId === taskTimeline.value?.activeBranchId) return -1
+    if (b.branchId === taskTimeline.value?.activeBranchId) return 1
+    if (a.kind === 'detail' && b.kind !== 'detail') return 1
+    if (b.kind === 'detail' && a.kind !== 'detail') return -1
+    return a.createdAt - b.createdAt || a.branchId.localeCompare(b.branchId)
+  }),
+)
 const currentTaskBranch = computed(() =>
   taskBranches.value.find((branch) => branch.chatId === props.chatId),
 )
 function branchOptionLabel(branch: ConversationBranchSummary): string {
-  const prefix = branch.branchId === taskTimeline.value?.activeBranchId
-    ? '主流程'
-    : branch.kind === 'detail'
-      ? '解释'
-      : branch.kind === 'original'
-        ? '原流程'
-        : '继续'
-  const plain = splitCommandPrompt(branch.title?.trim() || '未命名问题').map((segment) => segment.value).join('')
+  const prefix =
+    branch.branchId === taskTimeline.value?.activeBranchId
+      ? '主流程'
+      : branch.kind === 'detail'
+        ? '解释'
+        : branch.kind === 'original'
+          ? '原流程'
+          : '继续'
+  const plain = splitCommandPrompt(branch.title?.trim() || '未命名问题')
+    .map((segment) => segment.value)
+    .join('')
   return `${prefix} · ${plain}`
 }
 // ── 会话级联切换（原「根会话 + 任务分支」两个下拉合并为一个两级 cascader）：
@@ -334,11 +340,16 @@ function onSwitchCascade(value: unknown): void {
 const activatingBranch = ref(false)
 async function activateCurrentBranch(): Promise<void> {
   const branch = currentTaskBranch.value
-  if (!branch || branch.kind === 'detail' || branch.branchId === taskTimeline.value?.activeBranchId) return
+  if (!branch || branch.kind === 'detail' || branch.branchId === taskTimeline.value?.activeBranchId)
+    return
   activatingBranch.value = true
   try {
     await agentApi.activateBranch(branch.branchId, crypto.randomUUID())
-    if (taskId.value) taskTimeline.value = await agentApi.getTaskTimeline({ taskId: taskId.value, view: 'conversation' })
+    if (taskId.value)
+      taskTimeline.value = await agentApi.getTaskTimeline({
+        taskId: taskId.value,
+        view: 'conversation',
+      })
   } finally {
     activatingBranch.value = false
   }
@@ -375,6 +386,11 @@ const branchHistory = computed<HistoryItem[]>(() => {
         msgId: input.messageId ?? `pending:${input.inputId}`,
         agentChatId: input.chatId ?? props.chatId,
       })
+    }
+    const rootSession = chatSessions.sessionsById[props.chatId]
+    for (const messageId of rootSession?.messageOrder ?? []) {
+      const message = rootSession?.messagesById[messageId]
+      if (message?.delivery?.status === 'failed') transient.push(toHistoryItem(message))
     }
     for (const turn of rootState?.activeTurns ?? []) {
       transient.push({
@@ -774,6 +790,16 @@ function onJumpToSpawn(payload: { senseCallId: string }): void {
   }
 }
 
+function retryOutgoing(payload: { messageId: string; chatId?: string }): void {
+  void chatSessions
+    .retryInput(payload.chatId ?? props.chatId, payload.messageId)
+    .catch(() => undefined)
+}
+
+function removeOutgoing(payload: { messageId: string; chatId?: string }): void {
+  chatSessions.removeFailedInput(payload.chatId ?? props.chatId, payload.messageId)
+}
+
 // F：rail 点击把 idx 项对齐到视窗顶部（顶/底按钮不复用此：顶走 idx 0，底走 scrollToEnd）。
 function onRailJump(idx: number): void {
   scrollToItem(idx, 'start')
@@ -939,13 +965,19 @@ function onPromptSnapShow(): void {
           @change="onSwitchCascade"
         />
         <button
-          v-if="currentTaskBranch && currentTaskBranch.kind !== 'detail' && currentTaskBranch.branchId !== taskTimeline?.activeBranchId"
+          v-if="
+            currentTaskBranch &&
+            currentTaskBranch.kind !== 'detail' &&
+            currentTaskBranch.branchId !== taskTimeline?.activeBranchId
+          "
           type="button"
           class="activate-branch-btn"
           :disabled="activatingBranch"
           title="将当前分支切换为任务主流程；不会复制消息或启动执行"
           @click="activateCurrentBranch"
-        >设为主流程</button>
+        >
+          设为主流程
+        </button>
         <button
           type="button"
           class="copy-id-btn"
@@ -968,7 +1000,12 @@ function onPromptSnapShow(): void {
         >
           🧰
         </button>
-        <div v-if="layout === 'group'" class="display-mode-seg" role="group" aria-label="子 agent 消息显示模式">
+        <div
+          v-if="layout === 'group'"
+          class="display-mode-seg"
+          role="group"
+          aria-label="子 agent 消息显示模式"
+        >
           <button
             type="button"
             class="mode-btn"
@@ -976,7 +1013,8 @@ function onPromptSnapShow(): void {
             :aria-pressed="agents.subagentDisplay === 'show'"
             title="不折叠子 Agent 消息"
             @click="agents.setSubagentDisplay('show')"
-          >👥</button
+          >
+            👥</button
           ><button
             type="button"
             class="mode-btn"
@@ -984,7 +1022,8 @@ function onPromptSnapShow(): void {
             :aria-pressed="agents.subagentDisplay === 'collapse'"
             title="折叠子 Agent 消息"
             @click="agents.setSubagentDisplay('collapse')"
-          >🙈</button
+          >
+            🙈</button
           ><button
             type="button"
             class="mode-btn"
@@ -992,7 +1031,9 @@ function onPromptSnapShow(): void {
             :aria-pressed="agents.subagentDisplay === 'round'"
             title="只保留用户和大模型单个轮次最后一条消息"
             @click="agents.setSubagentDisplay('round')"
-          >🎯</button>
+          >
+            🎯
+          </button>
         </div>
         <button type="button" class="close-btn" aria-label="Close" @click="manager.closeTop()">
           ✕
@@ -1092,6 +1133,8 @@ function onPromptSnapShow(): void {
               :fallback-runtime="runtimeForItem(history[index]!)"
               :user-avatar-caption="userAvatarCaption"
               @jump-to-spawn="onJumpToSpawn"
+              @retry-message="retryOutgoing"
+              @remove-message="removeOutgoing"
             />
           </div>
         </template>
@@ -1562,7 +1605,10 @@ function onPromptSnapShow(): void {
   font-size: 11px;
   cursor: pointer;
 
-  &:disabled { cursor: wait; opacity: 0.5; }
+  &:disabled {
+    cursor: wait;
+    opacity: 0.5;
+  }
 }
 
 .detail-branch-divider {

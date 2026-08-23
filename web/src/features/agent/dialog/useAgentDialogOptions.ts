@@ -71,12 +71,12 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
   const chatId: Ref<string | null> =
     typeof options?.chatId === 'function'
       ? computed(options.chatId)
-      : options?.chatId ?? computed<string | null>(() => agents.activeDialogChatId)
+      : (options?.chatId ?? computed<string | null>(() => agents.activeDialogChatId))
   /** 入口 presetName（工作台窗口携带）；null/undefined 时 presetName computed 回退推导链。 */
   const entryPresetName: Ref<string | null> =
     typeof options?.presetName === 'function'
       ? computed(options.presetName)
-      : options?.presetName ?? ref<string | null>(null)
+      : (options?.presetName ?? ref<string | null>(null))
   const pet = computed<PetInstance | undefined>(() =>
     chatId.value ? agents.petForChat(chatId.value) : undefined,
   )
@@ -90,7 +90,9 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     if (fromPet) return fromPet
     const s = chatId.value ? chatSessions.sessionsById[chatId.value] : undefined
     if (s?.meta.preset) return s.meta.preset
-    return chatId.value ? agents.historyList.find((item) => item.chatId === chatId.value)?.preset : undefined
+    return chatId.value
+      ? agents.historyList.find((item) => item.chatId === chatId.value)?.preset
+      : undefined
   })
 
   const brains = ref<BrainInfo[]>([])
@@ -129,7 +131,8 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
     primaryRole.value = preset?.leader ?? '主角色'
     const fallback: RuntimeSelection = {
       brain: brains.value.find((b) => b.default)?.name ?? brains.value[0]?.name ?? '',
-      senseGroup: senseGroups.value.find((g) => g.default)?.name ?? senseGroups.value[0]?.name ?? '',
+      senseGroup:
+        senseGroups.value.find((g) => g.default)?.name ?? senseGroups.value[0]?.name ?? '',
       mcpServers: [],
     }
     const selections: Record<string, RuntimeSelection> = {}
@@ -546,10 +549,16 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
         await chatSessions.openSession(targetChatId)
       }
       await chatSessions.submitInput(targetChatId, prompt, attachments, preparedInput)
-      if (presetName.value === CHERY_NYXUS_PRESET) {
-        await chatSessions.releaseRootTimeline(targetChatId, 'agent-dialog-submit')
-      }
+      // The server has acknowledged this command. From this point onward a UI
+      // cleanup failure must never roll the committed message back to failed.
       preparedInput = undefined
+      if (presetName.value === CHERY_NYXUS_PRESET) {
+        await chatSessions
+          .releaseRootTimeline(targetChatId, 'agent-dialog-submit')
+          .catch((cause) =>
+            console.warn('[AgentDialog] release submit timeline failed after commit:', cause),
+          )
+      }
       resetEditor()
       // Nyxus 是持续会话工作台：提交后保留输入窗口，等待下一轮指令；其他预设维持原关闭行为。
       if (presetName.value !== CHERY_NYXUS_PRESET && !options.keepOpen) close()

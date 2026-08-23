@@ -130,18 +130,32 @@ async function onSend(): Promise<void> {
   if (!content || sending.value) return
   sending.value = true
   try {
-    await lite.submitInput(content)
-    if (!lite.lastCommandError) inputText.value = ''
+    const sent = await lite.submitInput(content)
+    if (sent) inputText.value = ''
   } finally {
     sending.value = false
   }
 }
 
-const actionableInteractions = computed(() =>
-  lite.interactions.filter((interaction) =>
-    ['pending', 'resolving', 'blocked'].includes(interaction.status),
-  ),
-)
+const actionableInteractions = computed(() => lite.interactions)
+
+function interactionStatusLabel(interaction: LiteInteraction): string {
+  return {
+    pending: '待处理',
+    resolving: '处理中',
+    blocked: '恢复失败，可重试',
+    completed: '已处理',
+    expired: '已超时，未执行',
+    cancelled: '已取消',
+  }[interaction.status]
+}
+
+function interactionActionable(interaction: LiteInteraction): boolean {
+  return (
+    interaction.status === 'pending' ||
+    (interaction.kind === 'approval' && interaction.status === 'blocked')
+  )
+}
 
 function approvalRiskSummary(interaction: LiteInteraction): string {
   const security = interaction.payload.security
@@ -256,7 +270,10 @@ async function onResume(): Promise<void> {
     resuming.value = false
   }
 }
-const connectionBlocked = computed(() => lite.connection.phase !== 'connected')
+const connectionBlocked = computed(() => !lite.commandGate.allowed)
+const operationBlockReason = computed(() =>
+  lite.commandGate.allowed ? '' : lite.commandGate.reason,
+)
 
 function remainingLabel(interaction: LiteInteraction): string {
   void clock.now.value
@@ -459,6 +476,7 @@ async function closeDetail(): Promise<void> {
         v-for="interaction in actionableInteractions"
         :key="interaction.interactionId"
         class="lite-interaction"
+        :data-status="interaction.status"
       >
         <template v-if="interaction.kind === 'approval'">
           <div class="lite-interaction-head">
@@ -468,10 +486,17 @@ async function closeDetail(): Promise<void> {
               }}</strong
             >
             <span class="lite-countdown" :data-expired="remainingLabel(interaction) === '已超时'">
-              {{ remainingLabel(interaction) }}
+              {{ interactionStatusLabel(interaction) }} · {{ remainingLabel(interaction) }}
             </span>
           </div>
           <p class="lite-risk-summary">{{ approvalRiskSummary(interaction) }}</p>
+          <p
+            v-if="lite.interactionError(interaction.interactionId)"
+            class="lite-object-error"
+            role="alert"
+          >
+            {{ lite.interactionError(interaction.interactionId)?.message }}
+          </p>
           <button
             type="button"
             class="lite-view-full"
@@ -480,7 +505,7 @@ async function closeDetail(): Promise<void> {
           >
             查看工具详情
           </button>
-          <div class="lite-interaction-actions">
+          <div v-if="interactionActionable(interaction)" class="lite-interaction-actions">
             <button
               type="button"
               class="lite-btn is-accept"
@@ -512,7 +537,7 @@ async function closeDetail(): Promise<void> {
           <div class="lite-interaction-head">
             <strong>提问</strong>
             <span class="lite-countdown" :data-expired="remainingLabel(interaction) === '已超时'">
-              {{ remainingLabel(interaction) }}
+              {{ interactionStatusLabel(interaction) }} · {{ remainingLabel(interaction) }}
             </span>
           </div>
           <div
@@ -521,11 +546,19 @@ async function closeDetail(): Promise<void> {
             class="lite-followup-question"
           >
             <p>{{ question.question }}</p>
+            <p
+              v-if="lite.questionError(interaction.interactionId, question.questionId)"
+              class="lite-question-error"
+              role="alert"
+            >
+              {{ lite.questionError(interaction.interactionId, question.questionId)?.message }}
+            </p>
             <template v-if="!question.freeText">
               <label v-for="option in question.options" :key="option.label" class="lite-option">
                 <input
                   :type="question.multiSelect ? 'checkbox' : 'radio'"
                   :name="interaction.interactionId + ':' + question.questionId"
+                  :disabled="!interactionActionable(interaction)"
                   :checked="
                     selectedOf(interaction.interactionId, question.questionId).includes(
                       option.label,
@@ -541,6 +574,7 @@ async function closeDetail(): Promise<void> {
               class="lite-freetext"
               rows="2"
               :value="textDraftOf(interaction.interactionId, question.questionId)"
+              :disabled="!interactionActionable(interaction)"
               placeholder="输入回答"
               @input="
                 setTextDraft(
@@ -551,7 +585,14 @@ async function closeDetail(): Promise<void> {
               "
             />
           </div>
-          <div class="lite-interaction-actions">
+          <p
+            v-if="lite.interactionError(interaction.interactionId)"
+            class="lite-object-error"
+            role="alert"
+          >
+            {{ lite.interactionError(interaction.interactionId)?.message }}
+          </p>
+          <div v-if="interactionActionable(interaction)" class="lite-interaction-actions">
             <button
               type="button"
               class="lite-btn is-accept"
@@ -565,12 +606,29 @@ async function closeDetail(): Promise<void> {
       </div>
     </div>
 
+    <div
+      v-if="lite.outgoingMessages.some((message) => message?.delivery?.status === 'failed')"
+      class="lite-failed-inputs"
+    >
+      <div
+        v-for="message in lite.outgoingMessages.filter(
+          (item) => item?.delivery?.status === 'failed',
+        )"
+        :key="message.msgId"
+        class="lite-failed-input"
+      >
+        <span>{{ message.delivery?.error?.message ?? '发送失败' }}</span>
+        <button type="button" @click="lite.retryInput(message.msgId)">重试</button>
+        <button type="button" @click="lite.removeFailedInput(message.msgId)">移除</button>
+      </div>
+    </div>
+
     <div class="lite-input">
       <input
         v-model="inputText"
         type="text"
         class="lite-input-box"
-        :placeholder="connectionBlocked ? '重连中…' : '发送消息（Ctrl+Enter）'"
+        :placeholder="connectionBlocked ? operationBlockReason : '发送消息（Ctrl+Enter）'"
         :disabled="sending || connectionBlocked"
         @keydown.ctrl.enter.prevent="onSend"
         @keydown.meta.enter.prevent="onSend"
@@ -866,6 +924,28 @@ async function closeDetail(): Promise<void> {
 }
 .lite-followup-question p {
   margin: 2px 0;
+}
+.lite-object-error,
+.lite-question-error {
+  margin: 4px 0;
+  color: var(--el-color-danger);
+  font-size: 12px;
+}
+.lite-failed-inputs {
+  flex: none;
+  padding: 5px 12px;
+  border-top: 1px solid var(--el-color-danger-light-7);
+  background: var(--el-color-danger-light-9);
+}
+.lite-failed-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--el-color-danger);
+  font-size: 12px;
+}
+.lite-failed-input span {
+  flex: 1;
 }
 .lite-option {
   display: flex;

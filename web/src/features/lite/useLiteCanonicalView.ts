@@ -190,7 +190,28 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
       return session ? selectCanResume(session) : execution().status === 'paused'
     },
     get interactions(): InteractionRecord[] {
-      return interactions.pending.filter((item) => item.rootChatId === root())
+      return interactions.all
+        .filter((item) => item.rootChatId === root())
+        .sort((a, b) => {
+          const aPending = ['pending', 'resolving', 'blocked'].includes(a.status) ? 0 : 1
+          const bPending = ['pending', 'resolving', 'blocked'].includes(b.status) ? 0 : 1
+          return aPending - bPending || b.updatedAt - a.updatedAt
+        })
+    },
+    get commandGate() {
+      // Register the reactive dependency; canonical availability reads the same
+      // socket's imperative status to keep every command adapter on one gate.
+      void connection.status
+      return chats.commandAvailability(root())
+    },
+    get outgoingMessages() {
+      const session = chats.sessionsById[root()]
+      return (session?.messageOrder ?? [])
+        .map((id) => session?.messagesById[id])
+        .filter(
+          (message): message is NonNullable<typeof message> =>
+            message?.role === 'user' && !!message.delivery,
+        )
     },
     get lastCommandError(): {
       code: string
@@ -212,22 +233,35 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
       try {
         const prepared = chats.prepareInput(root(), content)
         await chats.submitInput(root(), content, undefined, prepared)
-        setCommandError(null)
         return true
-      } catch (cause) {
-        setCommandError(errorFact(cause, '发送失败'))
+      } catch {
         return false
       }
+    },
+    async retryInput(messageId: string): Promise<boolean> {
+      try {
+        await chats.retryInput(root(), messageId)
+        return true
+      } catch {
+        return false
+      }
+    },
+    removeFailedInput(messageId: string): boolean {
+      return chats.removeFailedInput(root(), messageId)
+    },
+    interactionError(interactionId: string) {
+      return interactions.errorsById[interactionId] ?? null
+    },
+    questionError(interactionId: string, questionId: string) {
+      return interactions.questionErrorsById[interactionId]?.[questionId] ?? null
     },
     async decideApproval(interactionId: string, action: 'accept' | 'reject'): Promise<boolean> {
       const interaction = interactions.records[interactionId]
       if (!interaction) return false
       try {
         await interactions.decide(interaction, action)
-        setCommandError(null)
         return true
-      } catch (cause) {
-        setCommandError({ ...errorFact(cause, '操作失败'), interactionId })
+      } catch {
         return false
       }
     },
@@ -252,10 +286,8 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
             ...(answer.cancelled ? { cancelled: true } : {}),
           })),
         )
-        setCommandError(null)
         return true
-      } catch (cause) {
-        setCommandError({ ...errorFact(cause, '提交失败'), interactionId })
+      } catch {
         return false
       }
     },
@@ -301,7 +333,8 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
       }
     },
     calibratedNow(): number {
-      return Date.now()
+      const offset = chats.sessionsById[root()]?.context.serverClockOffsetMs
+      return offset === undefined ? interactions.calibratedNow() : Date.now() + offset
     },
     detailNodeIdForMessage(messageId: string): string | null {
       return resolveDetailNodeId(messageId)

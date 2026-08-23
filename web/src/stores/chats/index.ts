@@ -65,6 +65,13 @@ import {
 } from './rootTimeline'
 import { applyExecutionTimingEvent } from './executionTiming'
 import { selectExecutionReadModel } from './executionReadModel'
+import { useInteractionsStore } from '../interactions'
+import {
+  commandErrorFact,
+  commandGate,
+  commandGateError,
+  type CommandGate,
+} from '../commandLifecycle'
 
 /** role_created notification data 形（store 层路由用）。 */
 interface RoleCreatedData {
@@ -92,6 +99,7 @@ interface RoleReplyData {
 export interface PreparedChatInput {
   chatId: string
   content: string
+  attachments?: ChatSendAttachment[]
   clientMessageId: string
   commandId: string
   messageId: string
@@ -226,6 +234,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const rootResyncing = new Map<string, Promise<void>>()
   /** resumeAgent 单飞（连续双击「继续」只发起一次 resumeChat；S7）。 */
   const resumingChats = new Map<string, Promise<void>>()
+  /** Workbench tree resume single-flight, keyed by the durable pause operation. */
+  const resumingTrees = new Map<string, Promise<void>>()
   /** One protocol subscription per root. Timeline views share this flight. */
   const rootSubscriptionOpening = new Map<
     string,
@@ -332,9 +342,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     for (const chatId of removed) affectedRoots.add(rootIdOf(chatId))
     for (const rootChatId of affectedRoots) evictedRoots.add(rootChatId)
 
-    await Promise.all(
-      [...affectedRoots].map((rootChatId) => closeRootTimeline(rootChatId, true)),
-    )
+    await Promise.all([...affectedRoots].map((rootChatId) => closeRootTimeline(rootChatId, true)))
 
     for (const rootChatId of affectedRoots) {
       flushRootDeltas(rootChatId)
@@ -385,6 +393,29 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     view: RootTimelineView = 'conversation',
   ): RootTimelineSnapshot | undefined {
     return readRootTimeline(rootTimelines.value, rootChatId, view)
+  }
+
+  function commandAvailability(chatId: string | undefined): CommandGate {
+    const rootChatId = chatId ? rootIdOf(chatId) : undefined
+    const session = rootChatId ? sessionsById.value[rootChatId] : undefined
+    const hasTimeline = rootChatId
+      ? Boolean(
+          rootTimeline(rootChatId, 'conversation') ??
+          rootTimeline(rootChatId, 'tree') ??
+          rootTimeline(rootChatId, 'audit'),
+        )
+      : false
+    return commandGate({
+      connectionStatus: wsClient.getStatus(),
+      rootChatId,
+      hydrated: Boolean(session?.sync.loaded || hasTimeline),
+      hydrating: Boolean(
+        rootChatId &&
+        (hydrating.has(rootChatId) ||
+          opening.has(rootChatId) ||
+          rootSubscriptionOpening.has(rootChatId)),
+      ),
+    })
   }
 
   /** Stop observing one root without touching its Agent runtime. Cached durable
@@ -480,7 +511,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       const openedTransient = createRootTransientState(opened.state)
       if (localTransient) {
         if (opened.state.executionSteps === undefined) {
-          openedTransient.executionSteps = localTransient.executionSteps.map((step) => ({ ...step }))
+          openedTransient.executionSteps = localTransient.executionSteps.map((step) => ({
+            ...step,
+          }))
         }
         for (const input of localTransient.pendingInputs) {
           if (
@@ -918,12 +951,19 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`
   }
 
+  function cloneAttachments(
+    attachments: ChatSendAttachment[] | undefined,
+  ): ChatSendAttachment[] | undefined {
+    return attachments?.map((attachment) => ({ ...attachment }))
+  }
+
   /** Synchronously transfer the editor draft into the root queue projection.
    * Runtime selection and the command RPC may still be pending afterwards. */
   function prepareInput(chatId: string, content: string): PreparedChatInput {
     const clientMessageId = makeClientId('client-msg')
     const commandId = makeClientId('command')
     const messageId = makeClientId('message')
+    const provisionalInputId = `optimistic-input:${clientMessageId}`
     const session = ensureEntity(chatId)
     // ACK 与首个 turn/stream event 之间可能跨越多轮 LLM 调用；工作视觉不能
     // 等待首个带 messageId 的 delta。请求失败时仅回滚本次自己启动的工作态。
@@ -940,12 +980,17 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       createdAt: optimisticNow,
       updatedAt: optimisticNow,
       agentChatId: chatId,
+      delivery: {
+        status: 'sending',
+        commandId,
+        clientMessageId,
+        provisionalInputId,
+      },
     }
     session.messageOrder.push(optimisticId)
 
     const rootChatId = rootIdOf(chatId)
     const rootState = (rootTimelineStates.value[rootChatId] ??= createRootTransientState())
-    const provisionalInputId = `optimistic-input:${clientMessageId}`
     if (rootState) {
       rootState.pendingInputs.push({
         chatId,
@@ -975,8 +1020,18 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   function rollbackPreparedInput(prepared: PreparedChatInput, error?: unknown): void {
     const session = sessionsById.value[prepared.chatId]
     if (!session) return
-    delete session.messagesById[prepared.messageId]
-    session.messageOrder = session.messageOrder.filter((id) => id !== prepared.messageId)
+    const message = session.messagesById[prepared.messageId]
+    if (
+      message?.delivery?.commandId === prepared.commandId &&
+      message.delivery.status === 'committed'
+    ) {
+      return
+    }
+    if (message?.delivery?.commandId === prepared.commandId) {
+      message.delivery.status = 'failed'
+      message.delivery.error = commandErrorFact(error, '发送失败')
+      message.updatedAt = Date.now()
+    }
     const rootState = rootTimelineStates.value[rootIdOf(prepared.chatId)]
     if (rootState) {
       rootState.pendingInputs = rootState.pendingInputs.filter(
@@ -993,6 +1048,66 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
   }
 
+  /** Retry one failed optimistic message with the original idempotency keys. */
+  async function retryInput(
+    chatId: string,
+    messageId: string,
+    attachments?: ChatSendAttachment[],
+  ): Promise<PendingInput> {
+    const session = sessionsById.value[chatId]
+    const message = session?.messagesById[messageId]
+    if (!session || !message?.delivery || message.delivery.status !== 'failed') {
+      const error = new Error('只有发送失败的消息可以重试') as Error & { code: string }
+      error.code = 'MESSAGE_NOT_RETRYABLE'
+      throw error
+    }
+    const startedRun = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
+    message.delivery.status = 'sending'
+    delete message.delivery.error
+    const retryAttachments = cloneAttachments(attachments ?? message.delivery.attachments)
+    const prepared: PreparedChatInput = {
+      chatId,
+      content: message.content,
+      ...(retryAttachments ? { attachments: cloneAttachments(retryAttachments) } : {}),
+      clientMessageId: message.delivery.clientMessageId,
+      commandId: message.delivery.commandId,
+      messageId,
+      provisionalInputId: message.delivery.provisionalInputId,
+      startedRun,
+    }
+    const rootState = (rootTimelineStates.value[rootIdOf(chatId)] ??= createRootTransientState())
+    if (!rootState.pendingInputs.some((input) => input.inputId === prepared.provisionalInputId)) {
+      rootState.pendingInputs.push({
+        chatId,
+        inputId: prepared.provisionalInputId,
+        clientMessageId: prepared.clientMessageId,
+        messageId,
+        content: message.content,
+        state: 'accepted',
+        acceptedAt: Date.now(),
+      })
+    }
+    return submitInput(chatId, message.content, retryAttachments, prepared)
+  }
+
+  /** Failed local messages have no durable server entity and may be removed safely. */
+  function removeFailedInput(chatId: string, messageId: string): boolean {
+    const session = sessionsById.value[chatId]
+    const message = session?.messagesById[messageId]
+    if (!session || message?.delivery?.status !== 'failed') return false
+    delete session.messagesById[messageId]
+    session.messageOrder = session.messageOrder.filter((id) => id !== messageId)
+    const rootState = rootTimelineStates.value[rootIdOf(chatId)]
+    if (rootState) {
+      rootState.pendingInputs = rootState.pendingInputs.filter(
+        (input) =>
+          input.messageId !== messageId &&
+          input.clientMessageId !== message.delivery?.clientMessageId,
+      )
+    }
+    return true
+  }
+
   /** V2 command ACK: stable IDs are installed before any transient event arrives. */
   async function submitInput(
     chatId: string,
@@ -1001,6 +1116,18 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     preparedInput?: PreparedChatInput,
   ): Promise<PendingInput> {
     const prepared = preparedInput ?? prepareInput(chatId, content)
+    const submittedAttachments = cloneAttachments(attachments ?? prepared.attachments)
+    prepared.attachments = cloneAttachments(submittedAttachments)
+    const preparedMessage = sessionsById.value[chatId]?.messagesById[prepared.messageId]
+    if (preparedMessage?.delivery?.commandId === prepared.commandId) {
+      preparedMessage.delivery.attachments = cloneAttachments(submittedAttachments)
+    }
+    const gate = commandAvailability(chatId)
+    if (!gate.allowed) {
+      const cause = commandGateError(gate)
+      rollbackPreparedInput(prepared, cause)
+      throw cause
+    }
     if (prepared.chatId !== chatId || prepared.content !== content) {
       rollbackPreparedInput(prepared)
       throw new Error('预备输入与提交内容不一致')
@@ -1017,7 +1144,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         clientMessageId,
         messageId,
         content,
-        attachments,
+        attachments: submittedAttachments,
       })
     } catch (error) {
       rollbackPreparedInput(prepared, error)
@@ -1033,7 +1160,19 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       acceptedAt: accepted.acceptedAt,
     }
     const optimistic = session.messagesById[messageId]
-    if (optimistic) optimistic.msgId = accepted.messageId
+    if (optimistic) {
+      if (optimistic.delivery) {
+        optimistic.delivery.status = 'committed'
+        delete optimistic.delivery.error
+      }
+      if (accepted.messageId !== messageId) {
+        optimistic.msgId = accepted.messageId
+        session.messagesById[accepted.messageId] = optimistic
+        delete session.messagesById[messageId]
+        const messageIndex = session.messageOrder.indexOf(messageId)
+        if (messageIndex >= 0) session.messageOrder[messageIndex] = accepted.messageId
+      }
+    }
     const old = session.pendingInputs.findIndex((i) => i.inputId === pending.inputId)
     if (old >= 0) session.pendingInputs.splice(old, 1, pending)
     else session.pendingInputs.push(pending)
@@ -1096,7 +1235,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
             ? data.runId
             : typeof event.runId === 'string'
               ? event.runId
-              : session.activeRun?.runId ?? session.run.activeRunId
+              : (session.activeRun?.runId ?? session.run.activeRunId)
         session.executionSteps = applyExecutionTimingEvent(session.executionSteps, {
           chatId,
           ...(runId ? { runId } : {}),
@@ -1262,7 +1401,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const parent = ensureEntity(d.parentChatId)
     reduceRoleReply(parent, d, ctx)
     if (shouldResumeRoleReply(provenance) && !parent.sync.replaying) {
-      void resumeAgent(parent.chatId).catch((error) =>
+      void resumeAgent(parent.chatId, { skipGate: true }).catch((error) =>
         console.error(`[chats] role_reply resume ${parent.chatId} 失败:`, error),
       )
     }
@@ -1481,7 +1620,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
   }
 
-  async function resumeAgent(chatId: string): Promise<void> {
+  async function resumeAgent(chatId: string, options: { skipGate?: boolean } = {}): Promise<void> {
+    if (!options.skipGate) {
+      const gate = commandAvailability(chatId)
+      if (!gate.allowed) throw commandGateError(gate)
+    }
     // 重入保护：连续双击「继续」只发起一次 resumeChat（复用 runSingleFlight，S7）。
     // 重入的调用方拿到同一个进行中的 promise；失败由首发起方回滚并抛错。
     return runSingleFlight(resumingChats, chatId, async () => {
@@ -1509,8 +1652,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   async function abortAgent(chatId: string): Promise<void> {
+    const gate = commandAvailability(chatId)
+    if (!gate.allowed) throw commandGateError(gate)
     const session = ensureEntity(chatId)
-    const response = await agentApi.abortAgent(chatId, session.run.activeRunId, makeClientId('pause'))
+    const response = await agentApi.abortAgent(
+      chatId,
+      session.run.activeRunId,
+      makeClientId('pause'),
+    )
     // 级联（统一暂停语义）：后端已递归暂停主+全部后代（results 含每 chat 终态）。
     // 前端同步各 session 运行态 + canResume 镜像，子 pet 视觉立即解除工作态（不等 WS 通知）。
     // outcome=unchanged 的 idle/paused 项本非 running，置 paused 幂等无害。
@@ -1533,7 +1682,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   async function resumeTree(rootChatId: string, pauseId: string): Promise<void> {
-    await agentApi.resumeTree(rootChatId, pauseId, makeClientId('resume-tree'))
+    const gate = commandAvailability(rootChatId)
+    if (!gate.allowed) throw commandGateError(gate)
+    const operationKey = `${rootChatId}:${pauseId}`
+    return runSingleFlight(resumingTrees, operationKey, async () => {
+      await agentApi.resumeTree(rootChatId, pauseId, makeClientId('resume-tree'))
+    })
   }
 
   async function submitApproval(
@@ -1541,7 +1695,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     approvalId: string,
     action: 'accept' | 'reject',
   ): Promise<void> {
-    await agentApi.approval(approvalId, action)
+    const interactions = useInteractionsStore()
+    let record = interactions.records[approvalId]
+    if (!record) {
+      await interactions.refresh()
+      record = interactions.records[approvalId]
+    }
+    if (!record || record.kind !== 'approval') throw new Error('审批待办不存在或已结束')
+    await interactions.decide(record, action)
     // 即时清 pending（不等 accept/rejected notification 回来）
     const session = sessionsById.value[chatId]
     if (session) {
@@ -1635,9 +1796,17 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
     batch.status = 'submitting'
     try {
-      const response = await agentApi.answerQuestionBatch(
-        chatId,
-        batch.batchId,
+      const interactions = useInteractionsStore()
+      let interaction = interactions.records[batch.batchId]
+      if (!interaction) {
+        await interactions.refresh()
+        interaction = interactions.records[batch.batchId]
+      }
+      if (!interaction || interaction.kind !== 'question_batch') {
+        throw new Error('问题待办不存在或已结束')
+      }
+      await interactions.answer(
+        interaction,
         batch.questions.map((item) => ({
           questionId: item.questionId,
           selectedLabels: [...item.draftAnswer!.selectedLabels],
@@ -1648,7 +1817,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       session!.interaction.questionBatches = session!.interaction.questionBatches.filter(
         (item) => item.batchId !== batch.batchId,
       )
-      if (response.shouldResume) await resumeAgent(chatId)
     } catch (error) {
       batch.status = 'pending'
       throw error
@@ -1684,7 +1852,16 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       cancelled?: boolean
     }>,
   ): Promise<void> {
-    await agentApi.answerQuestionBatch(chatId, batchId, answers)
+    const interactions = useInteractionsStore()
+    let interaction = interactions.records[batchId]
+    if (!interaction) {
+      await interactions.refresh()
+      interaction = interactions.records[batchId]
+    }
+    if (!interaction || interaction.chatId !== chatId || interaction.kind !== 'question_batch') {
+      throw new Error('问题待办不存在或已结束')
+    }
+    await interactions.answer(interaction, answers)
   }
 
   // ---- 启动 / 重连（与旧 store 并行；迁移桥接，非破坏）----
@@ -1863,6 +2040,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     resyncRootTimeline,
     closeRootTimeline,
     rootTimeline,
+    commandAvailability,
     applyRootTimelinePatch,
     loadGeneration,
     // 写入口
@@ -1872,6 +2050,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     openSession,
     prepareInput,
     rollbackPreparedInput,
+    retryInput,
+    removeFailedInput,
     closeSession,
     submitInput,
     applyEvent,

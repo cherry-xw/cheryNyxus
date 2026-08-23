@@ -12,11 +12,7 @@
 
 import type { ChatSession, ChatMessage } from './types'
 import type { HistoryItem } from '../agents/types'
-import type {
-  ContextBreakdown,
-  CurrentStateData,
-  RuntimeSelection,
-} from '@/services/agentApi'
+import type { ContextBreakdown, CurrentStateData, RuntimeSelection } from '@/services/agentApi'
 import {
   collectDescendantChatIds,
   dedupHistoryByMsgId,
@@ -104,7 +100,10 @@ export function selectCurrentState(session: ChatSession): CurrentStateData | und
           pendingApproval: {
             approvalId: approval.approvalId,
             senseName: approval.senseName,
-            arguments: typeof approval.args === 'string' ? approval.args : JSON.stringify(approval.args ?? ''),
+            arguments:
+              typeof approval.args === 'string'
+                ? approval.args
+                : JSON.stringify(approval.args ?? ''),
             supervisionLevel: 0,
             waitTime: approval.waitTime,
             createdAt: approval.createdAt,
@@ -172,7 +171,17 @@ export function toHistoryItem(msg: ChatMessage): HistoryItem {
     msgId: msg.msgId,
     agentChatId: msg.agentChatId,
     ...(msg.contextCompaction ? { contextCompaction: true } : {}),
-    ...(msg.contextCompactionTokens !== undefined ? { contextCompactionTokens: msg.contextCompactionTokens } : {}),
+    ...(msg.contextCompactionTokens !== undefined
+      ? { contextCompactionTokens: msg.contextCompactionTokens }
+      : {}),
+    ...(msg.delivery
+      ? {
+          delivery: {
+            status: msg.delivery.status,
+            ...(msg.delivery.error ? { error: { ...msg.delivery.error } } : {}),
+          },
+        }
+      : {}),
   }
 }
 

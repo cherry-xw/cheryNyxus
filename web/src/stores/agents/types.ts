@@ -92,6 +92,11 @@ export interface HistoryItem {
   contextCompactionTokens?: number
   /** Structured terminal annotation shared by history and the execution tree. */
   termination?: TerminationFact
+  /** Local command acknowledgement state for an outgoing user message. */
+  delivery?: {
+    status: 'sending' | 'failed' | 'committed'
+    error?: { code: string; message: string; retryable: boolean; retryAfterMs?: number }
+  }
 }
 
 /** 当前 chat 的待审批（interrupt 写入；accept/rejected/超时/新轮清空；submit 后 dismissApproval 立即清）。 */

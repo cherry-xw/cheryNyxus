@@ -115,6 +115,7 @@ import {
   listOpenSpawnTasks,
   appendChatEvent,
   getRootEvents,
+  abandonRequest,
   claimRequest,
   completeRequest,
 } from '@/db/delivery.js'
@@ -1094,142 +1095,150 @@ export async function handleChatInputSubmit(
   if (claimed.state === 'active') throw new Error('该输入命令正在处理中')
   if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
 
-  const chat = getChat(data.chatId)
-  if (!chat) throw new Error('这个会话不见了')
-  if (chat.parent_chat_id && data.controlRootChatId !== getRootChatId(data.chatId)) {
-    throw new Error('用户输入只能提交到主 Agent')
-  }
-  const agent = await ensureChat(data.chatId)
-  const running = agent.isRunning()
-  const pending = getPendingChatInputs(data.chatId)
-  if (pending.length >= 16) throw new UserInputQueueFullError()
-
-  const inputId = randomUUID()
-  const messageId = data.messageId
-  const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
-  const acceptedAt = Date.now()
-  updateChatMetadata(data.chatId, { lastUserActivityAt: acceptedAt })
-  const queueSequence = pending.length + 1
-  const prompt = attachmentsToPromptMarkers(data.attachments, data.content)
-  const entry = agent.enqueueInput(prompt, {
-    inputId,
-    messageId,
-    clientMessageId: data.clientMessageId,
-    commandId: data.commandId,
-  })
-  if (!entry) throw new Error('输入内容不能为空')
-
-  // A new root instruction resumes only the root. Interrupted children remain
-  // paused and are exposed to the main Agent as one durable, auditable notice.
-  if (!running && !chat.parent_chat_id) {
-    const notice = buildTreeInterruptionNotice(data.chatId, data.commandId)
-    if (notice) {
-      agent.enqueueInput(notice.content, {
-        messageId: notice.messageId,
-        role: 'role',
-        linkRelation: 'system',
-      })
+  try {
+    const chat = getChat(data.chatId)
+    if (!chat) throw new Error('这个会话不见了')
+    if (chat.parent_chat_id && data.controlRootChatId !== getRootChatId(data.chatId)) {
+      throw new Error('用户输入只能提交到主 Agent')
     }
-    markActiveTreeTargetDelegated(data.chatId, data.chatId)
-  }
+    const agent = await ensureChat(data.chatId)
+    const running = agent.isRunning()
+    const pending = getPendingChatInputs(data.chatId)
+    if (pending.length >= 16) throw new UserInputQueueFullError()
 
-  addPendingInput({
-    inputId,
-    chatId: data.chatId,
-    messageId,
-    clientMessageId: data.clientMessageId,
-    commandId: data.commandId,
-    content: prompt,
-    queueSequence,
-    state: running ? 'queued' : 'started',
-    acceptedAt,
-  })
+    const inputId = randomUUID()
+    const messageId = data.messageId
+    const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
+    const acceptedAt = Date.now()
+    updateChatMetadata(data.chatId, { lastUserActivityAt: acceptedAt })
+    const queueSequence = pending.length + 1
+    const prompt = attachmentsToPromptMarkers(data.attachments, data.content)
+    const entry = agent.enqueueInput(prompt, {
+      inputId,
+      messageId,
+      clientMessageId: data.clientMessageId,
+      commandId: data.commandId,
+    })
+    if (!entry) throw new Error('输入内容不能为空')
 
-  const response: ChatInputSubmitResponseData = {
-    chatId: data.chatId,
-    inputId,
-    clientMessageId: data.clientMessageId,
-    messageId,
-    runId,
-    state: running ? 'queued' : 'started',
-    queueSequence,
-    acceptedAt,
-  }
-  completeRequest(data.commandId, response)
+    // A new root instruction resumes only the root. Interrupted children remain
+    // paused and are exposed to the main Agent as one durable, auditable notice.
+    if (!running && !chat.parent_chat_id) {
+      const notice = buildTreeInterruptionNotice(data.chatId, data.commandId)
+      if (notice) {
+        agent.enqueueInput(notice.content, {
+          messageId: notice.messageId,
+          role: 'role',
+          linkRelation: 'system',
+        })
+      }
+      markActiveTreeTargetDelegated(data.chatId, data.chatId)
+    }
 
-  // Session-plane lifecycle event: consumers can render the optimistic input
-  // without coupling it to the command RPC's requestId.
-  const inputUpdated = createNotification(
-    'input.updated',
-    undefined,
-    {
+    addPendingInput({
+      inputId,
+      chatId: data.chatId,
+      messageId,
+      clientMessageId: data.clientMessageId,
+      commandId: data.commandId,
+      content: prompt,
+      queueSequence,
+      state: running ? 'queued' : 'started',
+      acceptedAt,
+    })
+
+    const response: ChatInputSubmitResponseData = {
+      chatId: data.chatId,
       inputId,
       clientMessageId: data.clientMessageId,
       messageId,
-      content: data.content,
-      state: response.state,
+      runId,
+      state: running ? 'queued' : 'started',
       queueSequence,
       acceptedAt,
-    },
-    { chatId: data.chatId, runId },
-  )
-  inputUpdated.seq = appendChatEvent(
-    data.chatId,
-    inputUpdated as unknown as Record<string, unknown>,
-  )
-  for (const ws of connectionManager.getChatOutputs(data.chatId)) {
-    if (ws.readyState !== ws.OPEN) continue
-    for (const routed of connectionManager.prepareSessionEvent(ws, inputUpdated)) {
-      try {
-        ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-      } catch (err) {
-        logger.event('chat.input.submit.ack_output_failed', { message: (err as Error).message })
+    }
+    completeRequest(data.commandId, response)
+
+    // Session-plane lifecycle event: consumers can render the optimistic input
+    // without coupling it to the command RPC's requestId.
+    const inputUpdated = createNotification(
+      'input.updated',
+      undefined,
+      {
+        inputId,
+        clientMessageId: data.clientMessageId,
+        messageId,
+        content: data.content,
+        state: response.state,
+        queueSequence,
+        acceptedAt,
+      },
+      { chatId: data.chatId, runId },
+    )
+    inputUpdated.seq = appendChatEvent(
+      data.chatId,
+      inputUpdated as unknown as Record<string, unknown>,
+    )
+    for (const ws of connectionManager.getChatOutputs(data.chatId)) {
+      if (ws.readyState !== ws.OPEN) continue
+      for (const routed of connectionManager.prepareSessionEvent(ws, inputUpdated)) {
+        try {
+          ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+        } catch (err) {
+          logger.event('chat.input.submit.ack_output_failed', { message: (err as Error).message })
+        }
       }
     }
-  }
 
-  // Start the normal stream out-of-band. Existing chat.send remains unchanged;
-  // this path only feeds the pre-enqueued, ID-bearing input into that runner.
-  void (async () => {
-    try {
-      const generator = handleChatSend(
-        { ...ctx, requestId: runId },
-        {
-          chatId: data.chatId,
-          prompt,
-          inputAlreadyQueued: true,
-          inputMeta: {
-            inputId,
-            messageId,
-            clientMessageId: data.clientMessageId,
-            commandId: data.commandId,
+    // Start the normal stream out-of-band. Existing chat.send remains unchanged;
+    // this path only feeds the pre-enqueued, ID-bearing input into that runner.
+    void (async () => {
+      try {
+        const generator = handleChatSend(
+          { ...ctx, requestId: runId },
+          {
+            chatId: data.chatId,
+            prompt,
+            inputAlreadyQueued: true,
+            inputMeta: {
+              inputId,
+              messageId,
+              clientMessageId: data.clientMessageId,
+              commandId: data.commandId,
+            },
           },
-        },
-      )
-      for await (const item of generator) {
-        const event = item as Chunk | Notification
-        if (event.chatId)
-          event.seq = appendChatEvent(event.chatId, event as unknown as Record<string, unknown>)
-        for (const ws of connectionManager.getChatOutputs(data.chatId)) {
-          if (ws.readyState !== ws.OPEN) continue
-          for (const routed of connectionManager.prepareSessionEvent(ws, event)) {
-            try {
-              ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
-            } catch (err) {
-              logger.event('chat.input.submit.output_failed', { message: (err as Error).message })
+        )
+        for await (const item of generator) {
+          const event = item as Chunk | Notification
+          if (event.chatId)
+            event.seq = appendChatEvent(event.chatId, event as unknown as Record<string, unknown>)
+          for (const ws of connectionManager.getChatOutputs(data.chatId)) {
+            if (ws.readyState !== ws.OPEN) continue
+            for (const routed of connectionManager.prepareSessionEvent(ws, event)) {
+              try {
+                ws.send(transport.encode(routed as Parameters<typeof transport.encode>[0]))
+              } catch (err) {
+                logger.event('chat.input.submit.output_failed', { message: (err as Error).message })
+              }
             }
           }
         }
+      } catch (err) {
+        logger.event('chat.input.submit.run_failed', {
+          chatId: data.chatId,
+          message: (err as Error).message,
+        })
       }
-    } catch (err) {
-      logger.event('chat.input.submit.run_failed', {
-        chatId: data.chatId,
-        message: (err as Error).message,
-      })
-    }
-  })()
+    })()
 
-  return response
+    return response
+  } catch (cause) {
+    // Queue/full/runtime validation failures happen after the journal claim.
+    // Release that claim so a user retry with the same idempotency key can be
+    // evaluated again instead of being permanently reported as active.
+    abandonRequest(data.commandId)
+    throw cause
+  }
 }
 
 /** Main-agent-only dispatch path used by the send_to_child sense. */
@@ -1472,8 +1481,7 @@ export async function handleChatTimelineGet(
   const revision = getTimelineRevision(requestedChatId)
   let messages = buildCanonicalTimeline(requestedChatId)
   // lite P1-② 的 number 游标（orderKey）不进本 legacy 消息路径（由 lite 投影层消费）；仅字符串复合游标在此解码。
-  const cursor =
-    typeof data.before === 'string' ? decodeTimelineCursor(data.before) : undefined
+  const cursor = typeof data.before === 'string' ? decodeTimelineCursor(data.before) : undefined
   if (typeof data.before === 'string' && !cursor) throw new Error('历史分页游标无效')
   if (cursor) {
     messages = messages.filter(
@@ -1907,21 +1915,26 @@ export async function handleChatOpen(
         buildActiveTurns(chatId).map((turn) => ({ ...turn, chatId })),
       )
       const currentStates = new Map(
-        chatIds.map((chatId) => [
-          chatId,
-          computeCurrentState(chatId, { executionStepLimit: data.executionStepLimit }),
-        ] as const),
+        chatIds.map(
+          (chatId) =>
+            [
+              chatId,
+              computeCurrentState(chatId, { executionStepLimit: data.executionStepLimit }),
+            ] as const,
+        ),
       )
       const runs = chatIds.flatMap((chatId) => {
         const runId = getActiveChatRunId(chatId)
         if (!runId) return []
         const runTiming = currentStates.get(chatId)?.runTiming
-        return [{
-          chatId,
-          runId,
-          state: 'running' as const,
-          ...(runTiming?.runId === runId ? { startedAt: runTiming.startedAt } : {}),
-        }]
+        return [
+          {
+            chatId,
+            runId,
+            state: 'running' as const,
+            ...(runTiming?.runId === runId ? { startedAt: runTiming.startedAt } : {}),
+          },
+        ]
       })
       const executionSteps = limitExecutionSteps(
         chatIds.flatMap((chatId) => currentStates.get(chatId)?.executionSteps ?? []),

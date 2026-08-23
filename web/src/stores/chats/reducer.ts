@@ -473,7 +473,7 @@ function reduceNotification(
       ? d.runId
       : typeof n.runId === 'string'
         ? n.runId
-        : session.activeRun?.runId ?? session.run.activeRunId
+        : (session.activeRun?.runId ?? session.run.activeRunId)
   session.executionSteps = applyExecutionTimingEvent(session.executionSteps, {
     chatId: session.chatId,
     ...(timingRunId ? { runId: timingRunId } : {}),
@@ -482,8 +482,7 @@ function reduceNotification(
   })
 
   if (type === 'done' || type === 'error') {
-    const terminalRunId =
-      n.runId ?? (typeof d.runId === 'string' ? (d.runId as string) : undefined)
+    const terminalRunId = n.runId ?? (typeof d.runId === 'string' ? (d.runId as string) : undefined)
     session.activeTurns = session.activeTurns.filter(
       (turn) => !!terminalRunId && turn.runId !== terminalRunId,
     )
@@ -501,8 +500,7 @@ function reduceNotification(
         ...(session.activeRun?.runId === terminalRunId ? session.activeRun : {}),
         chatId: session.chatId,
         runId: terminalRunId,
-        status:
-          type === 'error' ? 'failed' : d.canResume === true ? 'paused' : 'completed',
+        status: type === 'error' ? 'failed' : d.canResume === true ? 'paused' : 'completed',
         ...(completedAt !== undefined ? { at: completedAt, completedAt } : {}),
       }
     }
@@ -550,6 +548,9 @@ function reduceNotification(
       session.run.status = canResume ? 'paused' : 'ended'
       if (!replaying) session.run.retainUntil = ctx.now + 20000
       if (typeof d.contextUsage === 'number') session.context.contextUsage = d.contextUsage
+      if (!replaying && typeof d.serverNow === 'number') {
+        session.context.serverClockOffsetMs = d.serverNow - ctx.now
+      }
       if (typeof d.used === 'number') session.context.contextUsed = d.used
       if (typeof d.total === 'number') session.context.contextTotal = d.total
       if (d.contextBreakdown)
@@ -804,11 +805,25 @@ export function replaceTimeline(
   session: ChatSession,
   snapshot: { chatId: string; revision: number; messages: CanonicalMessage[]; eventSeq?: number },
 ): number {
+  // A failed/unknown local command has no durable timeline row yet. Preserve it
+  // across reconnect hydration so the user can retry with the same commandId or
+  // explicitly remove it instead of silently losing the draft.
+  const recoverableOutgoing = session.messageOrder
+    .map((id) => session.messagesById[id])
+    .filter(
+      (message): message is ChatMessage =>
+        !!message?.delivery && message.delivery.status !== 'committed',
+    )
   const byId: Record<string, ChatMessage> = {}
   const order: string[] = []
   for (const canonical of snapshot.messages ?? []) {
     if (!canonical?.id || byId[canonical.id]) continue
     const message = canonicalToChatMessage(canonical, session.chatId)
+    byId[message.msgId] = message
+    order.push(message.msgId)
+  }
+  for (const message of recoverableOutgoing) {
+    if (byId[message.msgId]) continue
     byId[message.msgId] = message
     order.push(message.msgId)
   }
@@ -980,7 +995,7 @@ export function reduceSessionEvent(
       ? data.runId
       : typeof event.runId === 'string'
         ? event.runId
-        : session.activeRun?.runId ?? session.run.activeRunId
+        : (session.activeRun?.runId ?? session.run.activeRunId)
   session.executionSteps = applyExecutionTimingEvent(session.executionSteps, {
     chatId: session.chatId,
     ...(timingRunId ? { runId: timingRunId } : {}),
@@ -1032,14 +1047,29 @@ export function reduceSessionEvent(
       const input = data as unknown as Partial<PendingInput>
       if (!input.inputId) break
       if (input.clientMessageId && input.messageId) {
-        const optimisticId = `optimistic-input:${input.clientMessageId}`
-        const optimistic = session.messagesById[optimisticId]
-        if (optimistic && input.messageId !== optimisticId) {
+        const optimistic = session.messageOrder
+          .map((id) => session.messagesById[id])
+          .find((message) => message?.delivery?.clientMessageId === input.clientMessageId)
+        const optimisticId = optimistic?.msgId
+        if (optimistic && optimisticId && input.messageId !== optimisticId) {
           optimistic.msgId = input.messageId
           session.messagesById[input.messageId] = optimistic
-          delete session.messagesById[optimisticId]
+          if (optimisticId) delete session.messagesById[optimisticId]
           const messageIndex = session.messageOrder.indexOf(optimisticId)
           if (messageIndex >= 0) session.messageOrder[messageIndex] = input.messageId
+        }
+        if (optimistic?.delivery) {
+          if (input.state === 'rejected' || input.state === 'cancelled') {
+            optimistic.delivery.status = 'failed'
+            optimistic.delivery.error = {
+              code: input.state === 'rejected' ? 'INPUT_REJECTED' : 'INPUT_CANCELLED',
+              message: input.reason ?? (input.state === 'rejected' ? '发送被拒绝' : '发送已取消'),
+              retryable: input.state === 'rejected',
+            }
+          } else {
+            optimistic.delivery.status = 'committed'
+            delete optimistic.delivery.error
+          }
         }
       }
       const existing = session.pendingInputs.find((i) => i.inputId === input.inputId)
@@ -1057,18 +1087,11 @@ export function reduceSessionEvent(
       }
       const status = session.activeRun.status ?? session.activeRun.state
       const live = status === 'running' || status === 'waiting'
-      session.run.status =
-        live
-          ? 'running'
-          : status === 'paused'
-            ? 'paused'
-            : 'ended'
+      session.run.status = live ? 'running' : status === 'paused' ? 'paused' : 'ended'
       if (live) session.run.activeRunId = session.activeRun.runId
       else {
         const terminalRunId = session.activeRun.runId
-        session.activeTurns = session.activeTurns.filter(
-          (turn) => turn.runId !== terminalRunId,
-        )
+        session.activeTurns = session.activeTurns.filter((turn) => turn.runId !== terminalRunId)
         session.run.activeRunId = undefined
       }
       break

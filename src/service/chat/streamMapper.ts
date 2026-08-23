@@ -436,22 +436,21 @@ export async function* streamAgentChunks(
         const canResume = computeCanResume(chatId)
         const completedAt = Date.now()
         recordRunFact({ chatId, runId, status: canResume ? 'paused' : 'completed' })
-        yield createNotification(
-          'done',
-          rid,
-          {
-            contextUsage: ctxBd.usage,
-            used: breakdownUsed(ctxBd),
-            total: ctxBd.total,
-            contextBreakdown: ctxBd,
-            ...(finished === true ? { finished: true } : {}),
-            ...(finalMessage ? { finalMessage } : {}),
-            // 权威 canResume：前端据此区分 paused（显继续）/ ended（无按钮），取代旧 done→canResume=false 硬编码。
-            canResume,
-            completedAt,
-          },
-          { chatId, runId },
-        )
+        // Canonical 与 Lite 共用同一时钟校准点；与 completion 同时取值，
+        // 避免 reducer 的总计时封口与 deadline 校准观察到不同服务器时刻。
+        const doneData = {
+          contextUsage: ctxBd.usage,
+          used: breakdownUsed(ctxBd),
+          total: ctxBd.total,
+          contextBreakdown: ctxBd,
+          ...(finished === true ? { finished: true } : {}),
+          ...(finalMessage ? { finalMessage } : {}),
+          // 权威 canResume：前端据此区分 paused（显继续）/ ended（无按钮），取代旧 done→canResume=false 硬编码。
+          canResume,
+          completedAt,
+          serverNow: completedAt,
+        }
+        yield createNotification('done', rid, doneData, { chatId, runId })
         yield createNotification(
           'run.updated',
           rid,

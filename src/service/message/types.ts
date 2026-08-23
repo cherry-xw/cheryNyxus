@@ -2335,6 +2335,8 @@ export interface DoneNotificationData {
   contextUsage: number
   /** root loop 结束时间戳（ms）；旧事件可省略。 */
   completedAt?: number
+  /** 服务端时钟校准点；与既有 Lite done 投影字段一致，旧客户端可忽略。 */
+  serverNow?: number
   /** 已用 token 数（估算值）。前端据实时更新 pet.contextUsed。 */
   used?: number
   /** 上下文上限 token 数。前端据实时更新 pet.contextTotal。 */
