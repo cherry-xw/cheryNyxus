@@ -350,19 +350,16 @@ describe('Nyxus root message controller', () => {
     }
   })
 
-  it('refreshes only a cached view on revision gap without reopening the subscription', async () => {
+  it('applies a newer cached-view patch without refreshing or reopening the subscription', async () => {
     const open = vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
-    let treeRevision = 1
     const getTimeline = vi.spyOn(agentApi, 'getRootTimeline').mockImplementation(({ view }) =>
       Promise.resolve({
         ...snapshot(view ?? 'conversation'),
-        revision: view === 'tree' ? treeRevision : 1,
       }),
     )
     const close = vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
     const store = useChatSessionsStore()
     await store.observeRootTimeline('root-live', 'tree')
-    treeRevision = 6
     store.bindWsClient()
 
     try {
@@ -399,7 +396,7 @@ describe('Nyxus root message controller', () => {
         'notification',
       )
 
-      await vi.waitFor(() => expect(getTimeline).toHaveBeenCalledTimes(2))
+      expect(getTimeline).toHaveBeenCalledTimes(1)
       expect(open).toHaveBeenCalledTimes(1)
       expect(close).not.toHaveBeenCalled()
       expect(store.rootTimeline('root-live', 'tree')?.revision).toBe(6)

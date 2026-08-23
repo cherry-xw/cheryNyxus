@@ -23,6 +23,7 @@ import type {
   ActiveTurnSnapshot,
   RunSnapshot,
   ChatSessionEvent,
+  ExecutionStep,
 } from '@/services/agentApi'
 import type {
   SenseCallRecord,
@@ -194,6 +195,8 @@ export interface ChatSession {
   pendingInputs: PendingInput[]
   activeTurns: ActiveTurnSnapshot[]
   activeRun?: RunSnapshot
+  /** 当前/最近一次 run 的计时步骤；来自 currentState/chat.open 或实时事件。 */
+  executionSteps: ExecutionStep[]
 }
 
 /**

@@ -63,6 +63,8 @@ import {
   type RootTimelineTransientState,
   type RootTimelineView,
 } from './rootTimeline'
+import { applyExecutionTimingEvent } from './executionTiming'
+import { selectExecutionReadModel } from './executionReadModel'
 
 /** role_created notification data 形（store 层路由用）。 */
 interface RoleCreatedData {
@@ -434,6 +436,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       session.activeTurns = response.state.activeTurns
         .filter((turn) => turn.chatId === chatId)
         .map((turn) => ({ ...turn }))
+      if (response.state.executionSteps !== undefined) {
+        session.executionSteps = response.state.executionSteps
+          .filter((step) => step.chatId === chatId)
+          .map((step) => ({ ...step }))
+      }
       installActiveTurns(session, session.activeTurns, Date.now())
       const run = response.state.runs?.find((candidate) => candidate.chatId === chatId)
       session.activeRun = run
@@ -472,6 +479,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       const localTransient = rootTimelineStates.value[rootChatId]
       const openedTransient = createRootTransientState(opened.state)
       if (localTransient) {
+        if (opened.state.executionSteps === undefined) {
+          openedTransient.executionSteps = localTransient.executionSteps.map((step) => ({ ...step }))
+        }
         for (const input of localTransient.pendingInputs) {
           if (
             input.inputId.startsWith('optimistic-input:') &&
@@ -787,6 +797,14 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     session.activeMessageId = undefined
     installActiveTurns(session, session.activeTurns, Date.now())
     session.run.activeRunId = snapshot.runId
+    if (snapshot.runId) {
+      session.activeRun = {
+        ...(session.activeRun?.runId === snapshot.runId ? session.activeRun : {}),
+        chatId,
+        runId: snapshot.runId,
+        status: snapshot.running ? 'running' : session.context.canResume ? 'paused' : 'completed',
+      }
+    }
     // 快照写者收敛（3.3）：快照 running 不得把已终态（含用户刚暂停）回滚为 running；
     // 且仅当快照 seq 不倒退已观察事件（getHighestSeenSeq <= snapshotSeq）才可信。
     const seqFresh = wsClient.getHighestSeenSeq(chatId) <= snapshot.snapshotSeq
@@ -830,6 +848,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       nextThinkingOffset: turn.nextThinkingOffset ?? turn.thinkingOffset ?? turn.thinking.length,
       nextContentOffset: turn.nextContentOffset ?? turn.contentOffset ?? turn.content.length,
     }))
+    if (response.state.executionSteps !== undefined) {
+      session.executionSteps = response.state.executionSteps.map((step) => ({ ...step }))
+    }
     installActiveTurns(session, session.activeTurns, Date.now())
     session.activeRun = response.state.run
     if (response.state.run) {
@@ -1064,6 +1085,25 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         provenance === 'replay' && REPLAY_TRANSIENT_EVENT_TYPES.has(event.type)
           ? { ...event, type: 'replay.ignored' }
           : event
+      const currentEventSeq = session.sync.eventSeq ?? 0
+      if (reducedEvent !== event && event.eventSeq === currentEventSeq + 1) {
+        const data =
+          event.data && typeof event.data === 'object'
+            ? (event.data as Record<string, unknown>)
+            : (event as unknown as Record<string, unknown>)
+        const runId =
+          typeof data.runId === 'string'
+            ? data.runId
+            : typeof event.runId === 'string'
+              ? event.runId
+              : session.activeRun?.runId ?? session.run.activeRunId
+        session.executionSteps = applyExecutionTimingEvent(session.executionSteps, {
+          chatId,
+          ...(runId ? { runId } : {}),
+          type: event.type,
+          data,
+        })
+      }
       reduceSessionEvent(session, reducedEvent, ctx)
       resyncOrClear(chatId, session)
       return
@@ -1846,6 +1886,17 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
      *  不受 rootTimeline 快照残留影响（快照在 acquire 时含 running run，终态事件不更新它）。 */
     rootLiveActiveRuns: (rootChatId: string) =>
       rootTimelineStates.value[rootChatId]?.activeRuns ?? [],
+    /** 完整工作台与 Lite 共用的无副作用执行监控投影。 */
+    executionReadModel: (rootChatId: string) =>
+      selectExecutionReadModel({
+        rootChatId,
+        sessionsById: sessionsById.value,
+        timeline:
+          rootTimeline(rootChatId, 'conversation') ??
+          rootTimeline(rootChatId, 'tree') ??
+          rootTimeline(rootChatId, 'audit'),
+        transient: rootTimelineStates.value[rootChatId],
+      }),
     // 命令
     sendMessage,
     resumeAgent,

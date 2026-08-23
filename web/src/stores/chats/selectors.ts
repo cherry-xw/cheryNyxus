@@ -112,6 +112,15 @@ export function selectCurrentState(session: ChatSession): CurrentStateData | und
         }
       : {}),
     runningTools: s.runningTools.map((t) => ({ id: t.id, senseName: t.name })),
+    executionSteps: session.executionSteps.map((step) => ({ ...step })),
+    ...(session.activeRun?.runId && typeof session.activeRun.startedAt === 'number'
+      ? {
+          runTiming: {
+            runId: session.activeRun.runId,
+            startedAt: session.activeRun.startedAt,
+          },
+        }
+      : {}),
     ...(s.currentTodo ? { currentTodo: s.currentTodo } : {}),
   }
 }
@@ -205,6 +214,22 @@ function byCreatedAt(a: HistoryItem, b: HistoryItem): number {
   if (ca !== cb) return ca - cb
   return (a.msgId ?? '').localeCompare(b.msgId ?? '')
 }
+
+export {
+  FULL_EXECUTION_PRESENTATION,
+  LITE_EXECUTION_PRESENTATION,
+  selectExecutionReadModel,
+} from './executionReadModel'
+export type {
+  ExecutionAgentActivity,
+  ExecutionFinalResponse,
+  ExecutionPresentationOptions,
+  ExecutionQuestion,
+  ExecutionReadModel,
+  ExecutionReadModelSource,
+  ExecutionReadStep,
+  ExecutionRootStatus,
+} from './executionReadModel'
 
 /**
  * catalog 列表（SessionList 数据源）：所有 session 的 meta 投影为摘要，按 updatedAt 降序。

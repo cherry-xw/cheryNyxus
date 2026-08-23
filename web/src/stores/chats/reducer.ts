@@ -35,6 +35,7 @@ import type {
 } from '@/services/agentApi'
 import { extractMediaUrls } from '@/utils/markdown'
 import type { QuestionBatchPayload } from '../agents/actions/questionBatch'
+import { applyExecutionTimingEvent } from './executionTiming'
 
 /** reducer 调用上下文（注入时间，保持纯函数）。 */
 export interface ReduceContext {
@@ -467,6 +468,18 @@ function reduceNotification(
   const type = n.type
   const replaying = session.sync.replaying
   const d = (n.data ?? {}) as Record<string, unknown>
+  const timingRunId =
+    typeof d.runId === 'string'
+      ? d.runId
+      : typeof n.runId === 'string'
+        ? n.runId
+        : session.activeRun?.runId ?? session.run.activeRunId
+  session.executionSteps = applyExecutionTimingEvent(session.executionSteps, {
+    chatId: session.chatId,
+    ...(timingRunId ? { runId: timingRunId } : {}),
+    type,
+    data: d,
+  })
 
   if (type === 'done' || type === 'error') {
     const terminalRunId =
@@ -477,6 +490,22 @@ function reduceNotification(
     // run 结束：无 runId 或 runId 匹配当前活跃 run -> 清 activeRunId（与旧 routeNotification 一致）
     if (!n.runId || n.runId === session.run.activeRunId) session.run.activeRunId = undefined
     session.interaction.runningTools = []
+    if (terminalRunId) {
+      const completedAt =
+        typeof d.completedAt === 'number'
+          ? d.completedAt
+          : typeof d.at === 'number'
+            ? d.at
+            : undefined
+      session.activeRun = {
+        ...(session.activeRun?.runId === terminalRunId ? session.activeRun : {}),
+        chatId: session.chatId,
+        runId: terminalRunId,
+        status:
+          type === 'error' ? 'failed' : d.canResume === true ? 'paused' : 'completed',
+        ...(completedAt !== undefined ? { at: completedAt, completedAt } : {}),
+      }
+    }
 
     if (type === 'done') {
       // finalMessage 幂等补全并 seal
@@ -946,6 +975,18 @@ export function reduceSessionEvent(
     string,
     unknown
   >
+  const timingRunId =
+    typeof data.runId === 'string'
+      ? data.runId
+      : typeof event.runId === 'string'
+        ? event.runId
+        : session.activeRun?.runId ?? session.run.activeRunId
+  session.executionSteps = applyExecutionTimingEvent(session.executionSteps, {
+    chatId: session.chatId,
+    ...(timingRunId ? { runId: timingRunId } : {}),
+    type: event.type,
+    data,
+  })
   switch (event.type) {
     case 'turn.started': {
       const turn = data as unknown as ActiveTurnSnapshot
@@ -1009,7 +1050,11 @@ export function reduceSessionEvent(
       break
     }
     case 'run.updated': {
-      session.activeRun = data as unknown as RunSnapshot
+      const incomingRun = data as unknown as RunSnapshot
+      session.activeRun = {
+        ...(session.activeRun?.runId === incomingRun.runId ? session.activeRun : {}),
+        ...incomingRun,
+      }
       const status = session.activeRun.status ?? session.activeRun.state
       const live = status === 'running' || status === 'waiting'
       session.run.status =

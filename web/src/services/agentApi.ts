@@ -72,7 +72,23 @@ export interface CurrentStateData {
     security?: ToolAuthorizationDto
   }
   runningTools: { id: string; senseName: string }[]
+  /** 当前 run 的模型/工具计时事实；旧服务端可能省略。 */
+  executionSteps?: ExecutionStep[]
+  /** 当前活动 run 的持久开始时间；旧服务端可能省略。 */
+  runTiming?: { runId: string; startedAt: number }
   currentTodo?: unknown[]
+}
+
+/** 可从持久事件重建的执行计时步骤。 */
+export interface ExecutionStep {
+  id: string
+  runId: string
+  chatId: string
+  kind: 'model' | 'tool'
+  name: string
+  status: 'running' | 'completed' | 'failed' | 'rejected' | 'cancelled'
+  startedAt: number
+  completedAt?: number
 }
 
 /** chat.list 返回的单条 chat 摘要（对齐后端 listAllChats）。brain/senseGroups 在 metadata.runtime 不暴露于 list。 */
@@ -840,6 +856,12 @@ export interface RunSnapshot {
   runId: string
   status?: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | string
   state?: 'running' | 'waiting' | 'paused' | 'completed' | 'failed' | string
+  /** run 第一次进入 running 的时间戳。 */
+  startedAt?: number
+  /** 本次 run 状态变化的时间戳。 */
+  at?: number
+  /** done/error 兼容事件携带的终态时间戳。 */
+  completedAt?: number
   [key: string]: unknown
 }
 
@@ -858,6 +880,7 @@ export interface ChatOpenResponse {
     runs?: RunSnapshot[]
     pendingInputs: PendingInput[]
     activeTurns: ActiveTurnSnapshot[]
+    executionSteps?: ExecutionStep[]
     pendingApproval?: unknown
     questionBatches?: unknown[]
     runningTools?: unknown[]

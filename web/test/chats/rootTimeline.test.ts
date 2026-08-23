@@ -150,7 +150,7 @@ describe('RootTimelineStore', () => {
     expect(readRootTimeline(cache, 'root', 'audit')).toBeUndefined()
   })
 
-  it('rejects a revision gap without mutating the installed snapshot', () => {
+  it('applies a monotonically newer patch even when baseRevision skips ahead', () => {
     const cache: Record<string, RootTimelineSnapshot> = {}
     installRootTimeline(cache, snapshot('conversation', 3))
 
@@ -162,8 +162,8 @@ describe('RootTimelineStore', () => {
         revision: 5,
         operations: [],
       }),
-    ).toBe('gap')
-    expect(readRootTimeline(cache, 'root', 'conversation')?.revision).toBe(3)
+    ).toBe('applied')
+    expect(readRootTimeline(cache, 'root', 'conversation')?.revision).toBe(5)
   })
 
   it('reports a patch for an unopened view as missing so callers can resync it', () => {

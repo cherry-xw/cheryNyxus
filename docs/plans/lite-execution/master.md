@@ -86,7 +86,7 @@ interface ExecutionStep {
 | 顺序 | 任务 | 计划文件 | 状态 | 预期提交 |
 | --- | --- | --- | --- | --- |
 | 1 | 计时事实与协议 | 已删除 | 已完成 | `feat(protocol): add execution timing facts` |
-| 2 | Canonical Web 执行读模型 | `task-2.md` | 待执行 | `refactor(web): derive lite state from canonical sessions` |
+| 2 | Canonical Web 执行读模型 | 已删除 | 已完成 | `refactor(web): derive lite state from canonical sessions` |
 | 3 | Lite 单连接集成 | `task-3.md` | 待执行 | `fix(web): switch lite mode without reconnecting` |
 | 4 | 执行监控 UI 与懒加载详情 | `task-4.md` | 待执行 | `feat(web): add lite execution monitor` |
 | 5 | 交互状态机闭环 | `task-5.md` | 待执行 | `fix(web): complete lite interaction state machine` |

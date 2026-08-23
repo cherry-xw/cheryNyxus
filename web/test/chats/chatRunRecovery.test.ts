@@ -245,6 +245,38 @@ describe('chat live run recovery', () => {
     expect(session.run.retainUntil).toBeUndefined()
   })
 
+  it('does not restore stale timing facts from replay after a newer event cursor', () => {
+    const store = useChatSessionsStore()
+    const session = store.ensureEntity('parent-chat')
+    session.sync.eventSeq = 5
+    session.executionSteps = [
+      {
+        id: 'new-turn',
+        runId: 'new-run',
+        chatId: 'parent-chat',
+        kind: 'model',
+        name: '模型响应',
+        status: 'running',
+        startedAt: 500,
+      },
+    ]
+
+    store.applyEvent(
+      'parent-chat',
+      {
+        kind: 'session',
+        type: 'turn.started',
+        chatId: 'parent-chat',
+        eventSeq: 4,
+        data: { turnId: 'old-turn', messageId: 'old-message', runId: 'old-run', createdAt: 100 },
+      },
+      'replay',
+    )
+
+    expect(session.sync.eventSeq).toBe(5)
+    expect(session.executionSteps.map((step) => step.id)).toEqual(['new-turn'])
+  })
+
   it('restores a running Pet response from one attach snapshot', async () => {
     vi.spyOn(agentApi, 'listChats').mockResolvedValue([
       { chatId: 'running-chat', running: true, canResume: false },

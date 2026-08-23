@@ -7,8 +7,10 @@ import type {
   RunSnapshot,
   TimelineNode,
   ExecutionEdgeFact,
+  ExecutionStep,
 } from '@/services/agentApi'
 import type { ChatSession } from './types'
+import { applyExecutionTimingEvent } from './executionTiming'
 
 export type RootTimelineView = RootTimelineSnapshot['view']
 
@@ -49,6 +51,10 @@ export interface RootTimelineTransientState {
   pendingInputs: PendingInput[]
   activeTurns: ActiveTurnSnapshot[]
   activeRuns: RunSnapshot[]
+  /** 每个 chat 最近一次 run（含终态），用于总状态与总计时派生。 */
+  runStates: RunSnapshot[]
+  /** currentState 快照与实时事件共享的当前执行窗口。 */
+  executionSteps: ExecutionStep[]
   /** Chats whose live plane is already owned by this root subscription. */
   observedChatIds: Set<string>
 }
@@ -236,18 +242,29 @@ export function createRootTransientState(
   state?: {
     pendingInputs?: PendingInput[]
     activeTurns?: ActiveTurnSnapshot[]
+    run?: RunSnapshot
     runs?: RunSnapshot[]
+    executionSteps?: ExecutionStep[]
   },
 ): RootTimelineTransientState {
   const pendingInputs = [...(state?.pendingInputs ?? [])]
   const activeTurns = [...(state?.activeTurns ?? [])]
-  const activeRuns = [...(state?.runs ?? [])]
+  const runStates = [...(state?.runs ?? []), ...(state?.run ? [state.run] : [])].map((run) => ({
+    ...run,
+  }))
+  const activeRuns = runStates.filter((run) => {
+    const status = activeRunStatus(run)
+    return status === 'running' || status === 'waiting'
+  })
+  const executionSteps = (state?.executionSteps ?? []).map((step) => ({ ...step }))
   return {
     pendingInputs,
     activeTurns,
     activeRuns,
+    runStates,
+    executionSteps,
     observedChatIds: new Set(
-      [...pendingInputs, ...activeTurns, ...activeRuns]
+      [...pendingInputs, ...activeTurns, ...runStates, ...executionSteps]
         .map((item) => item.chatId)
         .filter((chatId): chatId is string => typeof chatId === 'string'),
     ),
@@ -271,6 +288,16 @@ export function applyRootTransientEvent(
       : typeof event.runId === 'string'
         ? event.runId
         : undefined
+  const latestRunId =
+    eventRunId ??
+    state.activeRuns.find((run) => run.chatId === chatId)?.runId ??
+    state.runStates.find((run) => run.chatId === chatId)?.runId
+  state.executionSteps = applyExecutionTimingEvent(state.executionSteps, {
+    chatId,
+    ...(latestRunId ? { runId: latestRunId } : {}),
+    type: event.type,
+    data,
+  })
 
   if (event.type === 'input.updated' && typeof data.inputId === 'string') {
     const existing = state.pendingInputs.find(
@@ -322,8 +349,13 @@ export function applyRootTransientEvent(
   }
 
   if (event.type === 'run.updated' && typeof data.runId === 'string') {
-    const run = { ...data, chatId } as unknown as RunSnapshot
+    const previous = state.runStates.find(
+      (item) => item.chatId === chatId && item.runId === data.runId,
+    )
+    const run = { ...previous, ...data, chatId } as unknown as RunSnapshot
     const status = run.status ?? run.state
+    state.runStates = state.runStates.filter((item) => item.chatId !== chatId)
+    state.runStates.push(run)
     state.activeRuns = state.activeRuns.filter((item) => item.chatId !== chatId)
     if (status === 'running' || status === 'waiting') state.activeRuns.push(run)
     else {
@@ -335,6 +367,30 @@ export function applyRootTransientEvent(
   }
 
   if (event.type === 'done' || event.type === 'error') {
+    if (latestRunId) {
+      const previous = state.runStates.find(
+        (run) => run.chatId === chatId && run.runId === latestRunId,
+      )
+      const completedAt =
+        typeof data.completedAt === 'number'
+          ? data.completedAt
+          : typeof data.at === 'number'
+            ? data.at
+            : undefined
+      state.runStates = state.runStates.filter((run) => run.chatId !== chatId)
+      state.runStates.push({
+        ...previous,
+        chatId,
+        runId: latestRunId,
+        status:
+          event.type === 'error'
+            ? 'failed'
+            : data.canResume === true
+              ? 'paused'
+              : 'completed',
+        ...(completedAt !== undefined ? { at: completedAt, completedAt } : {}),
+      })
+    }
     state.activeRuns = state.activeRuns.filter((run) => run.chatId !== chatId)
     state.activeTurns = state.activeTurns.filter(
       (turn) => turn.chatId !== chatId || (!!eventRunId && turn.runId !== eventRunId),

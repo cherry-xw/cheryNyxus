@@ -30,6 +30,7 @@ export function createEmptySession(chatId: string, meta?: Partial<ChatMetadata>)
     ui: { drawerOpen: false, autoScroll: true, bubbleVisible: false },
     pendingInputs: [],
     activeTurns: [],
+    executionSteps: [],
   }
 }
 
@@ -86,6 +87,18 @@ export function applyCurrentState(
     inter.approval = undefined
   }
   inter.runningTools = (cs?.runningTools ?? []).map((t) => ({ id: t.id, name: t.senseName }))
+  if (cs?.executionSteps !== undefined) {
+    session.executionSteps = cs.executionSteps.map((step) => ({ ...step }))
+  }
+  if (cs?.runTiming) {
+    const currentStatus = session.activeRun?.status ?? session.activeRun?.state
+    session.activeRun = {
+      ...session.activeRun,
+      runId: cs.runTiming.runId,
+      status: currentStatus ?? 'running',
+      startedAt: cs.runTiming.startedAt,
+    }
+  }
   inter.currentTodo = cs?.currentTodo
   // currentState 携带 pending approval 意味 run 仍 running（非 paused）；无则 run 已停（done/error/park）
   // 不在此推断 run.status——run.status 由事件流（done/error）权威推进，避免快照与事件争抢。
