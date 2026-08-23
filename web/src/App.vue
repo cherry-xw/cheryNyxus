@@ -12,6 +12,7 @@ import WorkbenchCapsule from '@/features/agent/dialog/WorkbenchCapsule.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
 import OpenConfigDirButton from '@/features/agent/settings/components/OpenConfigDirButton.vue'
+import { useLiteViewToggle } from '@/features/agent/dialog/useLiteViewToggle'
 import { ElMessage, ElTooltip } from 'element-plus'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import {
@@ -44,6 +45,12 @@ const surfacePresetName = query.get('presetName') ?? undefined
 const surfaceChatId = query.get('chatId') ?? undefined
 const surfaceSource = query.get('source') as 'pet' | 'history' | 'nyxus' | null
 const surfaceView = query.get('view') as 'composer' | 'attention' | 'tree' | null
+
+/** workbench 原生窗 lite 极简视图切换（§2.1）：标题栏 ⚡ 与 WorkbenchDialog 共享 useLiteViewToggle，
+ * 保证 Electron 面（surface=workbench）与浏览器面状态一致。非 workbench 面 windowId 兜底无害。
+ * 顶层解构为 ref 变量以便模板自动 unwrap（对象属性访问不自动 unwrap）。 */
+const { liteViewEnabled: workbenchLiteEnabled, toggleLiteView: toggleWorkbenchLiteView } =
+  useLiteViewToggle(surfacePresetId ?? 'workbench')
 
 // 历史抽屉跨层管理层：顶层 provide，供 SpawnRenderer「详情」/ HistoryDrawer / panel inject（不耦合 store 数据层）
 provide(HISTORY_DRAWER_MANAGER_KEY, createHistoryDrawerManager())
@@ -358,6 +365,19 @@ async function bootstrap(): Promise<void> {
   >
     <template #title-actions>
       <ConnectionStatusChip />
+      <!-- lite 极简视图切换（§2.1）：native 面 WorkbenchDialog 内部 titlebar 被 v-if="!isNative"
+           隐藏，切换入口放 WindowFrame title-actions，与 WorkbenchDialog 共享 useLiteViewToggle -->
+      <button
+        type="button"
+        class="workbench-lite-toggle"
+        :class="{ 'is-active': workbenchLiteEnabled }"
+        :aria-pressed="workbenchLiteEnabled"
+        aria-label="切换极简 lite 视图"
+        title="切换极简 lite 视图"
+        @click="toggleWorkbenchLiteView"
+      >
+        ⚡
+      </button>
     </template>
     <WorkbenchDialog
       ref="wbRef"
@@ -490,5 +510,28 @@ body {
     box-shadow: 0 0 0 4px rgba(220, 38, 38, 0);
     transform: scale(1.12);
   }
+}
+/* workbench 原生窗 title-actions 的 lite 切换钮（§2.1，与 WorkbenchDialog 内同名样式同观感） */
+.workbench-lite-toggle {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-left: 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.workbench-lite-toggle:hover {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+}
+.workbench-lite-toggle.is-active {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
 }
 </style>

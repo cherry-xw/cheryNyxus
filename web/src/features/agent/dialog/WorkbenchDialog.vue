@@ -42,7 +42,7 @@ import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import ConnectionStatusChip from '@/features/desktop/ConnectionStatusChip.vue'
 import LiteView from '@/features/lite/LiteView.vue'
-import { useLiteStore } from '@/features/lite/liteStore'
+import { useLiteViewToggle } from './useLiteViewToggle'
 import { lockWindowRootColorScheme, useWindowFrame } from '@/features/desktop/useWindowFrame'
 
 const props = defineProps<{ windowId: string; presetId: string; native?: boolean }>()
@@ -50,29 +50,11 @@ const props = defineProps<{ windowId: string; presetId: string; native?: boolean
 const agents = useAgentsStore()
 const chatSessions = useChatSessionsStore()
 
-/** lite 极简视图（T33 L0）：标题栏 ⚡ 切换，per-window 持久化（§2.1）。 */
-const liteStore = useLiteStore()
-const LITE_VIEW_KEY_PREFIX = 'cherynyxus:workbench-lite-view'
-function liteViewKey(windowId: string): string {
-  return `${LITE_VIEW_KEY_PREFIX}:${windowId}`
-}
-function readLiteViewPersisted(): boolean {
-  try {
-    return localStorage.getItem(liteViewKey(props.windowId)) === '1'
-  } catch {
-    return false
-  }
-}
-const liteViewEnabled = ref<boolean>(readLiteViewPersisted())
-watch(liteViewEnabled, (enabled) => {
-  try {
-    localStorage.setItem(liteViewKey(props.windowId), enabled ? '1' : '0')
-  } catch {
-    /* localStorage 不可用时仅会话内生效 */
-  }
-  liteStore.setActive(props.windowId, enabled)
-})
-liteStore.setActive(props.windowId, liteViewEnabled.value)
+/** lite 极简视图（T33 L0 + native 入口修复）：标题栏 ⚡ 切换，per-window 持久化（§2.1）。
+ * Electron 面（surface=workbench）标题栏由 WindowFrame title-actions 承载，与 App.vue
+ * 共用 useLiteViewToggle 保证两模式状态一致（native 模式 WorkbenchDialog 内部 titlebar
+ * 被 v-if="!isNative" 隐藏，切换入口在 App.vue title-actions）。 */
+const { liteViewEnabled } = useLiteViewToggle(props.windowId)
 
 /** 本窗口状态（store 注册表按 windowId 索引）。窗口关闭/不存在时组件不渲染。 */
 const win = computed(() => agents.workbenchWindows[props.windowId])
