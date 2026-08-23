@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "json_lite.h"
+#include "device_config.h"
+#include "execution_state.h"
 
 #define NODE_CACHE_SLOTS   20
 #define SUMMARY_MAX        192      /* 服务端截断 ≤180B + 终止符余量（D5 字节定义） */
@@ -30,7 +32,7 @@ typedef struct {
     int64_t created_at;
     char summary[SUMMARY_MAX];
     int content_length;
-    /* toolNames 数组不驻留（显示时从事件响应取或忽略——参考固件仅日志） */
+    bool has_tool_calls;
 } lean_node;
 
 /* ---- pending 审批（interactions 契约字段）---- */
@@ -52,7 +54,8 @@ typedef enum {
 typedef struct {
     char run_id[ID_MAX];
     char status[12];       /* running|waiting|paused|completed|failed */
-    int64_t started_at_ms; /* turn.started.createdAt（时长显示） */
+    int64_t started_at_ms; /* run.updated.startedAt（总时长显示/重连恢复） */
+    int64_t completed_at_ms;
     bool present;
 } run_row;
 
@@ -72,6 +75,8 @@ void model_set_state(app_state_t s);
 /* 时钟：Δ = serverNow − 本地收包时刻（§3.9 B-3：interaction.list 响应 + done 两到达点） */
 void model_on_server_now(int64_t server_now, int64_t local_ms);
 int64_t model_deadline_remaining(int64_t deadline_at, int64_t local_ms);
+int64_t model_server_now(int64_t local_ms);
+uint64_t model_run_elapsed_ms(int64_t local_ms);
 
 /* 会话与游标 */
 void model_set_root(const char *root_chat_id);
@@ -83,6 +88,10 @@ void model_set_known_revision(int64_t rev);
 void model_upsert_node(const lean_node *n);
 const lean_node *model_nodes(void);       /* orderKey 有序视图（缓存内） */
 int model_node_count(void);
+void model_set_question(const char *question);
+const char *model_question(void);
+const char *model_final_summary(void);  /* 最新 agent-to-user 正文；不受内部节点覆盖 */
+const char *model_detail_node_id(bool prefer_tool_calls);
 
 /* 审批槽 */
 approval_slot *model_approval_alloc(void);
@@ -91,6 +100,10 @@ void model_approval_clear(const char *interaction_id);
 /* run/子行 */
 run_row *model_run(void);
 child_row *model_child_row(int i);
+ExecutionTimeline *model_execution_timeline(void);
+
+/* chat.open.data.state/currentState 的权威重连快照。 */
+void model_restore_execution_state(const jl_doc *doc, const jl_view *state_view);
 
 /* 事件入口（main.c 的白名单分发调用；实现 §3.2 三分类的「精简/透传」处理） */
 void model_on_notification(jl_doc *doc);      /* 白名单命中后调用 */
@@ -98,5 +111,8 @@ bool model_is_whitelisted(const jl_view *type); /* 三分类判定（抑制名�
 
 /* hydration 状态 */
 extern bool g_hydrated;   /* chat.open+interaction.list 完成 */
+
+/* timeline/open 响应共用的 lean 节点解码入口。 */
+void model_store_lean_node(const jl_doc *doc, const jl_view *node_view);
 
 #endif

@@ -3,7 +3,8 @@
  * 依据：protocol.md「lite profile 连接级投影」。
  * - URL: ws://host:port/?profile=lite&v=1&maxFrameBytes=2048[&token=...]
  * - 未知 v：握手期 close(4001, reason=JSON{supportedVersions:[...]})——机读判定后停机提示升级固件。
- * - 接收：binary 帧 0x02(JSON) 交回调；0x01(stream) 服务端已抑制，防御性忽略+计数。
+ * - 接收：RPC Response 的 WebSocket text JSON 与 binary 0x02 Notification JSON 均交回调；
+ *   binary 0x01(stream) 因 turnDelta=0 防御性拒绝并计数。
  * - 缓冲：esp_websocket_client buffer_size = LITE_MAX_FRAME（2048）＝声明的 maxFrameBytes，
  *   服务端保证任何帧 ≤2KB（§3.7 含响应帧）。超限防御：组装缓冲溢出→丢帧+rx_overflow 计数。
  */
@@ -13,16 +14,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "device_config.h"
 
-#define LITE_MAX_FRAME   2048
-/* 注意（T27 实测发现）：当前服务端 Response 投影只截断字符串字段、不按 maxFrameBytes
- * 切分节点数组（liteProjection.ts:441 "void profile ... 归 T16"），默认 20 节点页 ≈9KB
- * 会超出任何 C3 档帧缓冲。因此本固件 timeline.get 显式 limit=3（实测 1643B/124 token，
- * 2048B/160 token 预算内），用 nextCursor 游标分页循环（P1-② 已实现）拉满窗口。 */
-#define LITE_PROFILE_URL "?profile=lite&v=1&maxFrameBytes=2048"
-#define LITE_PAGE_LIMIT   3
+#define LITE_MAX_FRAME          MCU_MAX_FRAME_BYTES
+#define LITE_PAGE_LIMIT         MCU_TIMELINE_PAGE_SIZE
+#define LITE_EXECUTION_LIMIT    MCU_EXECUTION_STEP_CAPACITY
 
-/* 一次性整帧回调（json_lite 解析在回调内完成） */
+/* 一次性 JSON 回调（text response / binary notification 共用） */
 typedef void (*ws_on_json_frame)(const char *json, size_t len);
 
 /* 生命周期事件 */
@@ -37,7 +35,7 @@ typedef void (*ws_on_event)(ws_event ev);
 /* 统计（串口/日志展示，验证 §3.7 服务端保证是否成立） */
 typedef struct {
     uint32_t rx_json;        /* 0x02 帧数 */
-    uint32_t rx_stream;      /* 0x01 帧数（应为 0——lite 抑制） */
+    uint32_t rx_stream;      /* 0x01 帧数（turnDelta=0 时收到即拒绝/忽略） */
     uint32_t rx_overflow;    /* 超 LITE_MAX_FRAME 丢弃（应为 0——契约保证） */
     uint32_t rx_parse_fail;  /* JSON/token 超限（应为 0） */
 } ws_stats;
@@ -49,5 +47,16 @@ bool ws_lite_start(const char *host, uint16_t port, const char *token,
 void ws_lite_stop(void);
 bool ws_lite_send_text(const char *buf, size_t len);   /* RPC 请求上行 */
 bool ws_lite_is_connected(void);
+
+#ifdef MCU_HOST_TEST
+/* host 回归入口：模拟 ESP-IDF 的 text/binary 分片投递。 */
+void ws_lite_test_feed_fragment(
+    const char *data,
+    size_t len,
+    size_t payload_offset,
+    size_t payload_length,
+    int opcode
+);
+#endif
 
 #endif

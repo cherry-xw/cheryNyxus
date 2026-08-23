@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define JL_MAX_TOKENS 160   /* T27 实测：limit=3 节点页 124 token；单事件 ≤43 token；预算 160 */
+#define JL_MAX_TOKENS 160   /* 2048B lite 投影 + limit=3/ExecutionStep 收缩后的静态预算 */
 
 /* jsmn 兼容 token（紧凑版，8B/token 目标由 padding 决定） */
 typedef struct {
@@ -51,5 +51,11 @@ bool jl_streq(const jl_view *v, const char *lit);  /* 无拷贝比较 */
 
 /* 拷贝辅助（带界，用于需驻留的字段） */
 void jl_copy(const jl_view *v, char *dst, size_t dstsz);
+
+/* JSON 字符串反转义到固定缓冲（含 \uXXXX/代理对）；返回写入的 UTF-8 字节数。 */
+size_t jl_copy_unescaped(const jl_view *v, char *dst, size_t dstsz);
+
+/* 反转义后按 JavaScript UTF-16 code unit 计数，对齐 node.get offset/limit。 */
+uint32_t jl_utf16_units_unescaped(const jl_view *v);
 
 #endif /* JSON_LITE_H */

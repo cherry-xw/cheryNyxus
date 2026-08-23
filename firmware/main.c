@@ -27,6 +27,7 @@
 #include "rpc.h"
 #include "model.h"
 #include "ui_stub.h"
+#include "detail_pager.h"
 
 /* —— 配置（部署时按环境改）—— */
 #define WIFI_SSID "your-ssid"
@@ -34,9 +35,9 @@
 #define BACKEND_HOST "192.168.1.10"
 #define BACKEND_WS_PORT 8182
 
-static const char *TAG = "main";
 static char s_token[64];
 static uint32_t s_backoff_ms = 1000;
+static DetailPager s_detail;
 
 /* ---------- id 生成与 NVS（§1.3 C2 规范） ---------- */
 static void gen_id(char *dst, size_t n, const char *ns) {
@@ -80,13 +81,16 @@ static void on_chat_list(jl_doc *r, void *user) {
     jl_copy(&rid, root, sizeof root);
     model_set_root(root);
     /* chat.open：knownRevision 快照（重连短路判据，F9） */
-    char params[128];
-    snprintf(params, sizeof params,
-        "{\"rootChatId\":\"%s\"%s%lld}",
-        root,
-        model_known_revision() > 0 ? ",\"knownTimelineRevision\":" : "",
-        model_known_revision() > 0 ? (long long)model_known_revision() : 0LL);
-    if (model_known_revision() == 0) snprintf(params, sizeof params, "{\"rootChatId\":\"%s\"}", root);
+    char params[192];
+    if (model_known_revision() > 0) {
+        snprintf(params, sizeof params,
+            "{\"rootChatId\":\"%s\",\"knownTimelineRevision\":%lld,\"executionStepLimit\":%u}",
+            root, (long long)model_known_revision(), (unsigned)LITE_EXECUTION_LIMIT);
+    } else {
+        snprintf(params, sizeof params,
+            "{\"rootChatId\":\"%s\",\"executionStepLimit\":%u}",
+            root, (unsigned)LITE_EXECUTION_LIMIT);
+    }
     rpc_call("chat.open", params, NULL, NULL);   /* 响应在通用 response 分发处理（见 on_json_frame） */
     model_set_state(ST_HYDRATING);
 }
@@ -112,23 +116,23 @@ static void on_json_frame(const char *json, size_t len) {
         /* hydration 链在响应回调外做简化状态推进（参考固件：成功即进下一环） */
         rpc_on_response(&doc);
         jl_view d = jl_get(&doc, "data");
+        jl_view state = jl_get_in(&doc, &d, "state");
+        if (state.found) model_restore_execution_state(&doc, &state);
+        jl_view current_state = jl_get_in(&doc, &d, "currentState");
+        if (current_state.found) model_restore_execution_state(&doc, &current_state);
         jl_view rev = jl_get_in(&doc, &d, "timelineRevision");
         if (rev.found) {
             model_set_known_revision(jl_i64(&rev, 0));
             jl_view unc = jl_get_in(&doc, &d, "timelineUnchanged");
             if (unc.found && jl_streq(&unc, "true")) { hydrate_after_open(); return; }
-            /* rootTimeline 分页（D6 双做 + P1-② 游标）：
-             * T27 实测：C3 档（maxFrameBytes=2048）必须 limit=LITE_PAGE_LIMIT(3)
-             * ——服务端 Response 投影暂不按 maxFrameBytes 切节点数组（归 T16），
-             *   默认 20 节点页 ≈9KB 超缓冲。chat.open 首页若超缓冲由 ws_lite 丢帧
-             *   计数暴露（rx_overflow），随后固件改走 timeline.get limit=3 自愈。 */
+            /* rootTimeline 分页（D6 双做 + P1-② 游标）：服务端按 maxFrameBytes
+             * 自动装箱，设备仍以 LITE_PAGE_LIMIT=3 主动限制 token 数并沿 nextCursor 续拉。 */
             jl_view rt = jl_get_in(&doc, &d, "rootTimeline");
             jl_view nodes = jl_get_in(&doc, &rt, "nodes");
             if (nodes.found) {
                 int n = jl_array_len(&doc, &nodes);
                 for (int i = 0; i < n; i++) {
                     jl_view nv = jl_array_at(&doc, &nodes, i);
-                    extern void model_store_lean_node(const jl_doc *, const jl_view *);
                     model_store_lean_node(&doc, &nv);
                 }
                 jl_view cursor = jl_get_in(&doc, &rt, "nextCursor");
@@ -197,10 +201,81 @@ static void on_send_text(const char *text) {
     gen_id(cmd, sizeof cmd, "cmd");
     gen_id(mid, sizeof mid, "msg");
     nvs_store_last_command(cmd, mid);
+    model_set_question(text);
+    ui_render_execution(ui_now_ms());
     snprintf(params, sizeof params,
         "{\"chatId\":\"%s\",\"commandId\":\"%s\",\"clientMessageId\":\"%s\",\"messageId\":\"%s\",\"content\":\"%s\"}",
         model_root(), cmd, mid, mid, text);
     rpc_call("chat.input.submit", params, NULL, NULL);
+}
+
+/* ---------- 用户触发的 node.get 懒加载（每次只保留 DetailPager 当前页） ---------- */
+static void on_detail_response(jl_doc *response, void *user) {
+    (void)user;
+    jl_view success = jl_get(response, "success");
+    if (success.found && jl_streq(&success, "false")) {
+        detail_pager_request_failed(&s_detail);
+        ui_render_detail(&s_detail);
+        return;
+    }
+    jl_view data = jl_get(response, "data");
+    jl_view node = jl_get_in(response, &data, "node");
+    if (!node.found) {
+        detail_pager_request_failed(&s_detail);
+        ui_render_detail(&s_detail);
+        return;
+    }
+    jl_view value = jl_get_in(response, &node, detail_section_name(s_detail.section));
+    size_t bytes = 0;
+    uint32_t units = 0;
+    if (s_detail.section == DETAIL_TOOL_CALLS) {
+        jl_copy(&value, s_detail.content, sizeof s_detail.content);
+        bytes = strlen(s_detail.content);
+        /* toolCalls 内每个 arguments/result 都使用同一 offset/limit；下一页按请求 limit 推进。 */
+        units = bytes > 0 ? MCU_DETAIL_PAGE_CHARS : 0;
+    } else {
+        bytes = jl_copy_unescaped(&value, s_detail.content, sizeof s_detail.content);
+        units = jl_utf16_units_unescaped(&value);
+    }
+    jl_view has_more = jl_get_in(response, &data, "hasMore");
+    detail_pager_apply(&s_detail, s_detail.content, bytes, units,
+                       has_more.found && jl_streq(&has_more, "true"));
+    ui_render_detail(&s_detail);
+}
+
+static void request_detail_page(void) {
+    char params[256];
+    int written = snprintf(params, sizeof params,
+        "{\"rootChatId\":\"%s\",\"nodeId\":\"%s\",\"sections\":[\"%s\"],\"offset\":%lu,\"limit\":%u}",
+        model_root(), s_detail.node_id, detail_section_name(s_detail.section),
+        (unsigned long)s_detail.offset, (unsigned)MCU_DETAIL_PAGE_CHARS);
+    if (written <= 0 || (size_t)written >= sizeof params) {
+        detail_pager_request_failed(&s_detail);
+        ui_render_detail(&s_detail);
+        return;
+    }
+    detail_pager_request_started(&s_detail);
+    ui_render_detail(&s_detail);
+    if (!rpc_call("chat.timeline.node.get", params, on_detail_response, NULL)) {
+        detail_pager_request_failed(&s_detail);
+        ui_render_detail(&s_detail);
+    }
+}
+
+static void on_detail_input(detail_section_t section, ui_page_action_t action) {
+    if (s_detail.in_flight) return; /* 当前页 single-flight，避免迟到响应写入另一 section。 */
+    if (action == UI_PAGE_OPEN) {
+        const char *node_id = model_detail_node_id(section == DETAIL_TOOL_CALLS);
+        if (!detail_pager_begin(&s_detail, node_id, section)) {
+            ui_log("detail unavailable: no completed node yet");
+            return;
+        }
+    } else if (action == UI_PAGE_NEXT) {
+        if (!detail_pager_next(&s_detail)) return;
+    } else if (action == UI_PAGE_PREVIOUS) {
+        if (!detail_pager_previous(&s_detail)) return;
+    }
+    request_detail_page();
 }
 
 /* ---------- WS 生命周期 ---------- */
@@ -229,7 +304,8 @@ extern int wifi_join(const char *ssid, const char *pass);  /* wifi join 封装�
 void app_main(void) {
     nvs_flash_init();
     model_init();
-    ui_input_init(on_decide, on_send_text);
+    detail_pager_init(&s_detail);
+    ui_input_init(on_decide, on_send_text, on_detail_input);
     model_set_state(ST_WIFI);
     wifi_join(WIFI_SSID, WIFI_PASS);
     model_set_state(ST_CONFIG);
@@ -262,6 +338,8 @@ void app_main(void) {
             rpc_call("interaction.list", "{\"maxItems\":20}", NULL, NULL);
         }
 
+        rpc_tick(ui_now_ms());
+        ui_tick(ui_now_ms());             /* 本地计时刷新，不产生网络帧 */
         vTaskDelay(pdMS_TO_TICKS(100));   /* C3 单核：低占空轮询，WS 回调在独立任务 */
     }
 }

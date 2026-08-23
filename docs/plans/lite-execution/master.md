@@ -90,7 +90,7 @@ interface ExecutionStep {
 | 3 | Lite 单连接集成 | 已删除 | 已完成 | `fix(web): switch lite mode without reconnecting` |
 | 4 | 执行监控 UI 与懒加载详情 | 已删除 | 已完成 | `feat(web): add lite execution monitor` |
 | 5 | 交互状态机闭环 | 已删除 | 已完成 | `fix(web): complete lite interaction state machine` |
-| 6 | MCU 有界执行界面 | `task-6.md` | 待执行 | `feat(firmware): render bounded execution timeline` |
+| 6 | MCU 有界执行界面 | 已删除 | 已完成 | `feat(firmware): render bounded execution timeline` |
 
 执行规则：
 
