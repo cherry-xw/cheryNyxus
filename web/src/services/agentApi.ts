@@ -261,6 +261,12 @@ export interface SenseToolInfo {
   icon: string
 }
 
+/** sense.tools.docs 响应单项：内置工具完整说明文档（【作用】【能力】【边界】【注意】分节，换行分隔，hover 展示）。 */
+export interface SenseToolDocInfo {
+  name: string
+  doc: string
+}
+
 /**
  * 命令元信息（command.list / command.read 通用）。
  * 后端读 .chery/command/<name>.md frontmatter + 正文；
@@ -1882,6 +1888,17 @@ export const agentApi = {
   async listSenseTools(): Promise<SenseToolInfo[]> {
     const data = await call<Partial<{ tools: SenseToolInfo[] }>>('sense.tools', {})
     return Array.isArray(data?.tools) ? data.tools : []
+  },
+
+  /**
+   * sense.tools.docs：统一获取内置工具完整说明文档。
+   * 不传 tools = 全量返回（前端缓存后按需展示）；传 tools = 后端按 name 列表一次性返回对应说明，
+   * 减少请求数量与流量。返回形状容错（缺字段 -> 空数组）。
+   */
+  async listSenseToolDocs(tools?: string[]): Promise<SenseToolDocInfo[]> {
+    const params = tools?.length ? { tools } : {}
+    const data = await call<Partial<{ docs: SenseToolDocInfo[] }>>('sense.tools.docs', params)
+    return Array.isArray(data?.docs) ? data.docs : []
   },
 
   /**

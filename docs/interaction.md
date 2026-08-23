@@ -46,6 +46,19 @@
 
 > 列出代码维护的全部内置工具（`BUILTIN_SENSE_TOOLS`）。`name` 作 sense_groups 条目 key，`label` 供 UI 显示，`description` 作解释。自定义/外部/MCP 工具不在内，前端组合框允许自由输入。设置面板「感官分组」tab 打开时调用，填充工具下拉建议。
 
+### sense.tools.docs
+
+```json
+-> {"id":"r4","kind":"request","method":"sense.tools.docs","params":{}}
+<- {"id":"a4","kind":"response","requestId":"r4","success":true,
+   "data":{"docs":[
+     {"name":"execute_command","doc":"【作用】在 shell 中执行命令（bash / powershell）……"},
+     {"name":"read_file","doc":"【作用】读取文件内容……"}
+   ]}}
+```
+
+> 统一获取内置工具完整说明文档。params `{tools?: string[]}`：省略/空 = 全量返回（前端一次拉取缓存、按需展示）；提供 `tools` = 后端按 name 列表一次性返回对应说明（未知 name 自动忽略）。每项 `{name, doc}`，`doc` 按【作用】【能力】【边界】【注意】分节、换行分隔，统一定义于 `BUILTIN_SENSE_TOOLS.doc`；`sense.tools` 不携带 doc，避免下拉响应臃肿。设置面板「器官」tab 打开时调用一次并缓存，hover tag 时按需展示，无需每次重新提取。
+
 ### runtime.set
 
 ```json

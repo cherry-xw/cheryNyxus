@@ -17,6 +17,7 @@ import { useAgentsStore, useConnectionStore } from '@/stores'
 import {
   agentApi,
   type ConfigDto,
+  type SenseToolDocInfo,
   type SenseToolInfo,
   type SkillInfo,
   type PluginInfo,
@@ -196,6 +197,9 @@ function clearRestartWait(): void {
 /** sense.tools 返回的内置工具清单（缓存，SensesTab 下拉建议 + label/description 显示用）。失败置 []。 */
 const senseTools = ref<SenseToolInfo[]>([])
 
+/** sense.tools.docs 返回的内置工具完整说明文档（缓存，SensesTab hover 展示用；一次拉取按需取用）。失败置 []。 */
+const senseDocs = ref<SenseToolDocInfo[]>([])
+
 /** prompts.list 返回的 .chery/prompt/ 下 .md 路径清单（RolesTab/PresetsTab systemPrompt 级联选择器用）。每次打开重新拉。 */
 const prompts = ref<string[]>([])
 
@@ -250,6 +254,15 @@ async function loadSettingsData(): Promise<void> {
     } catch (e) {
       console.error('[SettingsDialog] listSenseTools failed:', e)
       senseTools.value = []
+    }
+  }
+  // 工具完整说明文档静态缓存（全量一次拉取，hover 按需展示）：失败不阻塞编辑（hover 回退短描述）
+  if (!senseDocs.value.length) {
+    try {
+      senseDocs.value = await agentApi.listSenseToolDocs()
+    } catch (e) {
+      console.error('[SettingsDialog] listSenseToolDocs failed:', e)
+      senseDocs.value = []
     }
   }
   // prompts 列表：每次打开重新拉（磁盘文件可能变动），失败不阻塞编辑（级联框空选项 + placeholder）
@@ -751,6 +764,7 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
               v-show="activeTab === 'senses'"
               :draft="draft"
               :sense-tools="senseTools"
+              :sense-docs="senseDocs"
               @error="onError"
             />
             <RolesTab

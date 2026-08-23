@@ -3,16 +3,20 @@
  * SensesTab：器官（sense_groups）配置。
  * 瀑布流：组卡按工具数自然分列（CSS columns），列高随工具数；无需 footer 圆点导航。
  * 组名可点击改名（迁移 default/roles 引用）。
- * tag 化：每组已配工具显为可关闭 el-tag，监管等级挂 tag 内（点循环：继承→auto→confirm→manual）；
+ * 标题栏只留组名 + 删除按钮；「危险」标识与「添加工具」搜索框独占标题下一整行，
+ * 空间宽裕所以搜索框常驻展示（不再 + 图标展开）。
+ * tag 化：每组已配工具显为可关闭 el-tag，监管等级挂 tag 内（点循环：继承→auto→smart→manual）；
  * 一个 el-select（filterable + allow-create）作「加工具」入口，选项显中文名 + 说明。
  *   - 防重复：同组同名工具只一份；下拉剔除已选工具；allow-create 输入已选名也被拦。
- *   - 一列一个：flex-direction column，tag 名 ellipsis；hover tag 显工具描述（title）。
+ *   - 一列一个：flex-direction column，tag 名 ellipsis。
+ * hover tag 显完整说明（toolDoc：优先 sense.tools.docs 的【作用/能力/边界/注意】文档，缺失回退短描述）
+ *   + 危险标志 + 监管等级/继承信息（pre-line 换行，popper-class sense-level-tip）。
  * 删组走 ConfirmPopover 二次确认；工具移除=tag 关闭（频繁操作，不二次确认）。
  * 字段名 sense_groups / senseGroup 保留（后端协议），仅 UI 文案改"器官"。
  */
-import { ref, computed, reactive, nextTick } from 'vue'
-import { Delete, Plus } from '@element-plus/icons-vue'
-import type { ConfigDto, SenseToolInfo } from '@/services/agentApi'
+import { ref, computed } from 'vue'
+import { Delete } from '@element-plus/icons-vue'
+import type { ConfigDto, SenseToolDocInfo, SenseToolInfo } from '@/services/agentApi'
 import { SUPERVISIONS, SUPERVISION_LABEL } from '../../config/constants'
 import { toolName, toolLevel, isDangerousSense, matchedTool } from '../../config/shared'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
@@ -20,7 +24,10 @@ import EditableTitle from '@/components/input/EditableTitle.vue'
 import SenseIcon from './SenseIcon.vue'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
 
-const props = defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[] }>()
+const props = withDefaults(
+  defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[]; senseDocs?: SenseToolDocInfo[] }>(),
+  { senseDocs: () => [] },
+)
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()
 
 const newGroupName = ref('')
@@ -94,21 +101,6 @@ function onAddTool(group: string, raw: unknown): void {
   }
   arr.push(raw)
 }
-// 加工具 popover 内 el-select 实例表（per-group）：popover 展开时自动 focus select，直达选项过滤/输入。
-const addSelectRefs: Record<string, { focus: () => void } | undefined> = {}
-function setAddSelectRef(group: string, el: unknown): void {
-  if (el) addSelectRefs[group] = el as { focus: () => void }
-  else delete addSelectRefs[group]
-}
-// 行内加工具：点 + 切换为行内 select（替换 icon），失焦收起；选完复位可连续加。
-const addingGroups = reactive(new Set<string>())
-function openAdd(group: string): void {
-  addingGroups.add(group)
-  nextTick(() => addSelectRefs[group]?.focus())
-}
-function closeAdd(group: string): void {
-  addingGroups.delete(group)
-}
 // 点 tag 内等级标循环切换
 function cycleLevel(group: string, idx: number): void {
   const arr = props.draft.sense_groups?.[group]
@@ -125,9 +117,24 @@ function availableTools(group: string): SenseToolInfo[] {
   const used = new Set(arr.map((e) => toolName(e)))
   return props.senseTools.filter((t) => !used.has(t.name))
 }
-// tag hover 描述：命中内置工具返回其 description，自定义工具返回空（title="" 不显）
+// tag 短描述：命中内置工具返回其 description，自定义工具返回空
 function toolDesc(entry: string): string {
   return matchedTool(entry, props.senseTools)?.description ?? ''
+}
+
+// sense.tools.docs 全量文档 → name→doc 映射（一次拉取缓存，hover 按需取用）。
+const docsByTool = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const d of props.senseDocs) map[d.name] = d.doc
+  return map
+})
+/**
+ * 工具完整说明：优先 sense.tools.docs 的专用文档（【作用】【能力】【边界】【注意】），
+ * 缺失（未拉取/自定义工具）回退内置短描述；自定义工具无任何说明返回 ''。
+ */
+function toolDoc(entry: string): string {
+  const name = toolName(entry)
+  return docsByTool.value[name] ?? toolDesc(entry)
 }
 // tag 显示名：命中内置工具显中文 label，自定义工具回退原名
 function toolLabel(entry: string): string {
@@ -144,12 +151,12 @@ const SUPERVISION_DESC: Record<(typeof SUPERVISIONS)[number], string> = {
   smart: '安全操作自动执行，敏感操作先问你',
   manual: '最谨慎，每次需手动放行',
 }
-// tag tooltip：合并工具描述 + 危险标志 + 监管等级/继承信息（pre-line 换行，popper-class sense-level-tip）。
-// 替代原 el-tag 上的原生 title，所有 hover 信息汇入一个 tip。
+// tag tooltip：完整说明（sense.tools.docs 文档，缺失回退短描述）+ 危险标志 + 监管等级/继承信息
+// （pre-line 换行，popper-class sense-level-tip）。替代原 el-tag 上的原生 title，所有 hover 信息汇入一个 tip。
 function tagTip(entry: string): string {
   const lines: string[] = []
-  const desc = toolDesc(entry)
-  if (desc) lines.push(desc)
+  const doc = toolDoc(entry)
+  if (doc) lines.push(doc)
   if (isDangerousSense(entry)) lines.push('⚠ 危险器官')
   const lv = toolLevel(entry)
   if (lv) {
@@ -184,7 +191,7 @@ const indexItems = computed<IndexItem[]>(() => [])
     <template #hints>
       <p class="sect-hint">
         给宠物装配的器官套餐。组名可点击改名；每组工具显为 tag，点 tag 内等级标切换监管，✕
-        移除，hover 看说明。
+        移除，hover 看完整说明。
       </p>
       <p class="warn-hint">
         ⚠️ execute_command / write_file 类器官危险（能跑命令/写文件）；配 :auto
@@ -230,49 +237,6 @@ const indexItems = computed<IndexItem[]>(() => [])
             @error="onError"
           >
             <template #actions>
-              <span
-                v-if="(draft.sense_groups?.[gname as string] ?? []).some(isDangerousSense)"
-                class="warn-hint inline-warn"
-                title="含危险器官"
-                >⚠️ 危险</span
-              >
-              <button
-                v-if="!addingGroups.has(gname as string)"
-                type="button"
-                class="icon-btn"
-                title="加工具"
-                aria-label="加工具"
-                @click="openAdd(gname as string)"
-              >
-                <Plus class="ico" />
-              </button>
-              <el-select
-                v-else
-                :ref="(el: unknown) => setAddSelectRef(gname as string, el)"
-                :model-value="''"
-                filterable
-                allow-create
-                default-first-option
-                size="small"
-                placeholder="搜工具"
-                class="add-tool-inline-select"
-                popper-class="sense-tool-popper"
-                @update:model-value="onAddTool(gname as string, $event)"
-                @blur="closeAdd(gname as string)"
-              >
-                <el-option
-                  v-for="t in availableTools(gname as string)"
-                  :key="t.name"
-                  :value="t.name"
-                  :label="t.label"
-                >
-                  <div class="opt-item">
-                    <SenseIcon :name="t.name" :tools="senseTools" />
-                    <span class="opt-label">{{ t.label }}</span>
-                    <span class="opt-desc" :title="t.description">{{ t.description }}</span>
-                  </div>
-                </el-option>
-              </el-select>
               <ConfirmPopover
                 :title="`确认删除器官组「${gname}」？`"
                 @confirm="removeGroup(gname as string)"
@@ -286,6 +250,39 @@ const indexItems = computed<IndexItem[]>(() => [])
             </template>
           </EditableTitle>
         </header>
+        <!-- 标题下一整行：危险标识 + 常驻「添加工具」搜索框（空间宽裕，不再用 + 图标展开） -->
+        <div class="card-actions">
+          <span
+            v-if="(draft.sense_groups?.[gname as string] ?? []).some(isDangerousSense)"
+            class="warn-hint inline-warn"
+            title="含危险器官"
+            >⚠️ 危险</span
+          >
+          <el-select
+            :model-value="''"
+            filterable
+            allow-create
+            default-first-option
+            size="small"
+            placeholder="搜工具 / 添加工具…"
+            class="add-tool-select"
+            popper-class="sense-tool-popper"
+            @update:model-value="onAddTool(gname as string, $event)"
+          >
+            <el-option
+              v-for="t in availableTools(gname as string)"
+              :key="t.name"
+              :value="t.name"
+              :label="t.label"
+            >
+              <div class="opt-item">
+                <SenseIcon :name="t.name" :tools="senseTools" />
+                <span class="opt-label">{{ t.label }}</span>
+                <span class="opt-desc" :title="t.description">{{ t.description }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </div>
         <div class="tags">
           <el-tag
             v-for="(entry, idx) in draft.sense_groups?.[gname as string] ?? []"
@@ -317,7 +314,7 @@ const indexItems = computed<IndexItem[]>(() => [])
             </el-tooltip>
           </el-tag>
           <span v-if="!draft.sense_groups?.[gname as string]?.length" class="empty"
-            >无工具，点标题 ＋</span
+            >无工具，用上方搜索框添加</span
           >
         </div>
       </article>
@@ -383,10 +380,17 @@ const indexItems = computed<IndexItem[]>(() => [])
     gap: 4px;
   }
 }
-// 行内加工具 select：替换 + icon 原位展开；size=small 已对齐标题行高（24px），限宽 + 小字号适配行内。
-.add-tool-inline-select {
-  display: inline-flex;
-  width: 80px;
+// 标题下一整行：危险标识 + 常驻添加工具搜索框。flex 布局，搜索框吸收剩余宽度。
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 8px;
+  min-width: 0;
+}
+.add-tool-select {
+  flex: 1 1 auto;
+  min-width: 0;
   :deep(.el-input__inner) {
     font-size: 12px;
   }
@@ -459,8 +463,11 @@ const indexItems = computed<IndexItem[]>(() => [])
   }
 }
 // 等级标 tooltip：popper teleport 到 body，scoped 不穿透，故置全局样式；
-// pre-line 让 content 内 \n 换行（三行：切换提示 / 行为说明 / 继承来源）。
+// pre-line 让 content 内 \n 换行（完整说明 / 切换提示 / 行为说明 / 继承来源）。
+// max-width 限宽 + 自动换行，避免长文档把气泡撑到屏幕外。
 .sense-level-tip {
+  max-width: 320px;
   white-space: pre-line;
+  word-break: break-word;
 }
 </style>

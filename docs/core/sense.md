@@ -314,7 +314,7 @@ export default sense(
 然后在 [`agent/sense/index.ts`](../../src/agent/sense/index.ts)：
 
 1. `registerBuiltinSenses()` 数组加入；
-2. `BUILTIN_SENSE_TOOLS` 追加元信息（`name` 与模块 `definition.function.name` 一致，前端感官下拉用）。
+2. `BUILTIN_SENSE_TOOLS` 追加元信息（`name` 与模块 `definition.function.name` 一致，前端感官下拉用；`doc` 填写【作用】【能力】【边界】【注意】完整说明，供 `sense.tools.docs` 统一返回、前端 hover 展示）。
 
 **角色专用感官**（如 `install_skill` / `config_manage`）：只在对应角色的 senseGroup 列出，其他角色 senseTable 不含 → 不可调用（senseGroup 隔离，无需 per-role 白名单字段）。详见 [agent/skill-install.md](../agent/skill-install.md) 与 [agent/config-manage.md](../agent/config-manage.md)。
 

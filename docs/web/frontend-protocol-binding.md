@@ -50,6 +50,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 | `allChatsCache` | `ChatSummary[]` | `chat.list`（每次 `doLoadHistory` 刷新） | `HistoryDrawerPanel` 找子 chat / `PetToolbar` 检查 wait-子 |
 | `historyList` | `ChatSummary[]` | `chat.list({includePreview:true})` → `fetchHistoryList` | `SessionList`（CP8 会话列表） |
 | `senseTools` | `SenseToolInfo[]` | `sense.tools` → `loadSenseMeta` | `RunningTools`（icon）/ `SensesTab`（下拉建议）/ `EquipmentPicker` |
+| `senseDocs`（SettingsDialog 局部） | `SenseToolDocInfo[]` | `sense.tools.docs`（全量一次拉取缓存） | `SensesTab`（hover 展示【作用/能力/边界/注意】完整说明） |
 | `senseGroupsResolved` | `{name,senses}[]` | `sense.list` → `loadSenseMeta` | `TodoPanel` 能力判定 / `EquipmentPicker` 能力显示 |
 
 ### 1.2 `StreamState` 字段（按组件读取）

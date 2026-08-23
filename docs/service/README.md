@@ -97,7 +97,8 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 |----------|---------|------|------|--------|
 | `brain.list` | `handleBrainList` | [brain/list.ts](../../src/service/brain/list.ts) | 否 | 列 config.yaml 的 brain + 全局 senseGroups + 已连接 mcpServers |
 | `sense.list` | `handleSenseList` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列 config.yaml 的 sense_groups（原始字符串，含 `:level` 后缀） |
-| `sense.tools` | `handleSenseTools` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列代码维护的全部内置工具（name/label/description）供设置面板下拉 |
+| `sense.tools` | `handleSenseTools` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 列代码维护的全部内置工具（name/label/description/icon）供设置面板下拉 |
+| `sense.tools.docs` | `handleSenseToolDocs` | [sense/list.ts](../../src/service/sense/list.ts) | 否 | 统一返回内置工具完整说明（全量或按 name 列表过滤），供设置面板 hover 展示 |
 | `skills.list` | `handleSkillsList` | [skill/list.ts](../../src/service/skill/list.ts) | 否 | 实时列 `.chery/skills/`（独立）+ `.chery/plugins/*/`（插件）skill 元数据（含 contextTokens） |
 | `skills.importUrl` | `handleSkillsImportUrl` | [skill/import.ts](../../src/service/skill/import.ts) | 否 | 拉 GitHub 独立技能集合到 staging，返 `{stagingId, candidates}`（两阶段） |
 | `skills.commit` | `handleSkillsCommit` | 同上 | 否 | 按 `{stagingId, selections}` 落盘 stage 候选为独立 skill |
