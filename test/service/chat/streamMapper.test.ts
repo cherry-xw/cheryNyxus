@@ -61,7 +61,12 @@ describe('streamAgentChunks run lifecycle', () => {
       type: 'run.updated',
       chatId: 'chat-1',
       runId: 'run-1',
-      data: { runId: 'run-1', status: 'running' },
+      data: {
+        runId: 'run-1',
+        status: 'running',
+        at: expect.any(Number),
+        startedAt: expect.any(Number),
+      },
     })
   })
 
@@ -136,6 +141,58 @@ describe('streamAgentChunks run lifecycle', () => {
       ['done', expect.objectContaining({ canResume: false })],
       ['run.updated', expect.objectContaining({ runId: 'run-shared', status: 'completed' })],
     ])
+  })
+
+  it('映射工具真实 started 与所有终态可选时间戳', async () => {
+    const chatId = 'chat-timing'
+    cleanup.push(chatId)
+    createChat(chatId)
+    async function* timed(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+      yield {
+        type: 'sense_started',
+        id: 'tool-timed',
+        name: 'read_file',
+        arguments: '{}',
+        startedAt: 1234,
+      }
+      yield {
+        type: 'sense_accept',
+        id: 'tool-timed',
+        name: 'read_file',
+        result: 'ok',
+      }
+      yield {
+        type: 'stream',
+        thinkingDelta: '',
+        contentDelta: '',
+        msgId: 'turn-timed',
+        createdAt: 2345,
+      }
+      yield { type: 'done' }
+    }
+    const events: unknown[] = []
+    for await (const event of streamAgentChunks(timed(), 'request-timing', chatId, 'run-timing')) {
+      events.push(event)
+    }
+    const typed = notifications(events)
+    expect(typed.find(([type]) => type === 'sense_started')?.[1]).toMatchObject({
+      id: 'tool-timed',
+      startedAt: 1234,
+    })
+    expect(typed.find(([type]) => type === 'accept')?.[1]).toMatchObject({
+      approvalId: 'tool-timed',
+      completedAt: expect.any(Number),
+    })
+    expect(typed.find(([type]) => type === 'done')?.[1]).toMatchObject({
+      completedAt: expect.any(Number),
+    })
+    expect(typed.find(([type]) => type === 'turn.completed')?.[1]).toMatchObject({
+      completedAt: expect.any(Number),
+    })
+    const terminalRun = typed
+      .filter(([type]) => type === 'run.updated')
+      .at(-1)?.[1]
+    expect(terminalRun).toMatchObject({ at: expect.any(Number) })
   })
 })
 

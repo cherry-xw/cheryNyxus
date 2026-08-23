@@ -121,7 +121,7 @@ import {
 import { resolveRoleAvatar } from '@/utils/roleAvatar.js'
 import { handleChatResume, handleChatSend, attachmentsToPromptMarkers } from './send.js'
 import { computeCanResume } from './canResume.js'
-import { computeCurrentState } from './currentState.js'
+import { computeCurrentState, limitExecutionSteps } from './currentState.js'
 import { transport } from '../websocket/transport.js'
 import { approvalManager } from '../approval/manager.js'
 import { UserInputQueueFullError } from '@/core/middleware/messageJournal.js'
@@ -1906,10 +1906,27 @@ export async function handleChatOpen(
       const activeTurns = chatIds.flatMap((chatId) =>
         buildActiveTurns(chatId).map((turn) => ({ ...turn, chatId })),
       )
+      const currentStates = new Map(
+        chatIds.map((chatId) => [
+          chatId,
+          computeCurrentState(chatId, { executionStepLimit: data.executionStepLimit }),
+        ] as const),
+      )
       const runs = chatIds.flatMap((chatId) => {
         const runId = getActiveChatRunId(chatId)
-        return runId ? [{ chatId, runId, state: 'running' as const }] : []
+        if (!runId) return []
+        const runTiming = currentStates.get(chatId)?.runTiming
+        return [{
+          chatId,
+          runId,
+          state: 'running' as const,
+          ...(runTiming?.runId === runId ? { startedAt: runTiming.startedAt } : {}),
+        }]
       })
+      const executionSteps = limitExecutionSteps(
+        chatIds.flatMap((chatId) => currentStates.get(chatId)?.executionSteps ?? []),
+        data.executionStepLimit,
+      )
       // knownTimelineRevision 短路：客户端已持有该 revision 的窗口快照，
       // 省略 rootTimeline（订阅栅栏与 state 照常返回）
       const revision = getTimelineRevision(data.rootChatId)
@@ -1936,6 +1953,7 @@ export async function handleChatOpen(
             runs,
             questionBatches: [],
             runningTools: [],
+            executionSteps,
             roles: [],
           },
         }
@@ -1963,6 +1981,7 @@ export async function handleChatOpen(
           runs,
           questionBatches: [],
           runningTools: [],
+          executionSteps,
           roles: [],
         },
       }
@@ -1980,7 +1999,9 @@ export async function handleChatOpen(
     const eventSeq = page.latestSeq
     const timelineRevision = getTimelineRevision(chatId)
     connectionManager.setSessionBoundary(subscriptionId, eventSeq)
-    const currentState = computeCurrentState(chatId)
+    const currentState = computeCurrentState(chatId, {
+      executionStepLimit: data.executionStepLimit,
+    })
     const questionSnapshot = getQuestionStateSnapshot(chatId)
     const pendingInputs = listPendingInputs(chatId).map((entry) => ({
       inputId: entry.input_id,
@@ -1993,6 +2014,7 @@ export async function handleChatOpen(
       acceptedAt: entry.accepted_at,
     }))
     const runId = getActiveChatRunId(chatId)
+    const runTiming = currentState.runTiming
     const roles = listOpenSpawnTasks(chatId).map((task) => ({
       taskId: task.taskId,
       chatId: task.childChatId,
@@ -2007,12 +2029,21 @@ export async function handleChatOpen(
       timelineRevision,
       timelineChanged: data.knownTimelineRevision !== timelineRevision,
       state: {
-        ...(runId ? { run: { runId, state: 'running' as const } } : {}),
+        ...(runId
+          ? {
+              run: {
+                runId,
+                state: 'running' as const,
+                ...(runTiming?.runId === runId ? { startedAt: runTiming.startedAt } : {}),
+              },
+            }
+          : {}),
         pendingInputs,
         activeTurns: buildActiveTurns(chatId),
         ...(currentState.pendingApproval ? { pendingApproval: currentState.pendingApproval } : {}),
         questionBatches: questionSnapshot.pendingQuestionBatches,
         runningTools: currentState.runningTools,
+        executionSteps: currentState.executionSteps,
         roles,
       },
     }

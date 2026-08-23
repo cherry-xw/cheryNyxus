@@ -243,6 +243,24 @@ export interface SenseTriggerChunk {
 }
 
 /**
+ * 感官真正开始执行。
+ *
+ * 该事实只能在审批、安全复检与 PreToolUse 全部通过后、调用 sense handler 前产生；
+ * 不得在模型仅生成 sense call 时提前产生。
+ */
+export interface SenseStartedChunk {
+  type: 'sense_started'
+  /** 与 sense_end.id 一致 */
+  id: string
+  /** 感官名称 */
+  name: string
+  /** 实际执行所关联的原始参数 JSON（保持既有 wire 字段语义） */
+  arguments: string
+  /** 真正开始执行的时间戳（ms） */
+  startedAt: number
+}
+
+/**
  * 感官执行成功
  * id 与 sense_end.id 一致
  */
@@ -419,6 +437,7 @@ export interface ChildDoneChunk {
 export type MiddlewareChunk =
   | StreamChunk
   | SenseTriggerChunk
+  | SenseStartedChunk
   | SenseAcceptChunk
   | SenseRejectChunk
   | StagedChunk

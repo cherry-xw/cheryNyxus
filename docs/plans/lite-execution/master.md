@@ -83,14 +83,14 @@ interface ExecutionStep {
 
 ## 顺序任务与提交边界
 
-| 顺序 | 任务 | 计划文件 | 预期提交 |
-| --- | --- | --- | --- |
-| 1 | 计时事实与协议 | `task-1.md` | `feat(protocol): add execution timing facts` |
-| 2 | Canonical Web 执行读模型 | `task-2.md` | `refactor(web): derive lite state from canonical sessions` |
-| 3 | Lite 单连接集成 | `task-3.md` | `fix(web): switch lite mode without reconnecting` |
-| 4 | 执行监控 UI 与懒加载详情 | `task-4.md` | `feat(web): add lite execution monitor` |
-| 5 | 交互状态机闭环 | `task-5.md` | `fix(web): complete lite interaction state machine` |
-| 6 | MCU 有界执行界面 | `task-6.md` | `feat(firmware): render bounded execution timeline` |
+| 顺序 | 任务 | 计划文件 | 状态 | 预期提交 |
+| --- | --- | --- | --- | --- |
+| 1 | 计时事实与协议 | 已删除 | 已完成 | `feat(protocol): add execution timing facts` |
+| 2 | Canonical Web 执行读模型 | `task-2.md` | 待执行 | `refactor(web): derive lite state from canonical sessions` |
+| 3 | Lite 单连接集成 | `task-3.md` | 待执行 | `fix(web): switch lite mode without reconnecting` |
+| 4 | 执行监控 UI 与懒加载详情 | `task-4.md` | 待执行 | `feat(web): add lite execution monitor` |
+| 5 | 交互状态机闭环 | `task-5.md` | 待执行 | `fix(web): complete lite interaction state machine` |
+| 6 | MCU 有界执行界面 | `task-6.md` | 待执行 | `feat(firmware): render bounded execution timeline` |
 
 执行规则：
 
@@ -148,4 +148,3 @@ interface ExecutionStep {
 - 同一 chat 内工具顺序执行；不同子 Agent 可并行。
 - 完成节点保留一行摘要；MCU 最多保留 16 项，溢出时汇总最早完成项。
 - Web/Electron 默认拥有完整能力，但 Lite 首屏仍遵循懒加载，避免无意义的渲染与内存占用。
-

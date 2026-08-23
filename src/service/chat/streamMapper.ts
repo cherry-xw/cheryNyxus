@@ -9,6 +9,7 @@ import {
 import type {
   MiddlewareChunk,
   SenseTriggerChunk,
+  SenseStartedChunk,
   SenseAcceptChunk,
   SenseRejectChunk,
   StagedChunk,
@@ -64,10 +65,16 @@ export async function* streamAgentChunks(
   const turnStarted = new Set<string>()
   const completedTurns = new Set<string>()
   const offsets = new Map<string, { thinking: number; content: number }>()
+  const runStartedAt = Date.now()
   recordRunFact({ chatId, runId, status: 'running' })
   // A run is active before the provider emits its first token. Consumers must
   // not infer working state from turn.started/assistant output.
-  yield createNotification('run.updated', rid, { runId, status: 'running' }, { chatId, runId })
+  yield createNotification(
+    'run.updated',
+    rid,
+    { runId, status: 'running', at: runStartedAt, startedAt: runStartedAt },
+    { chatId, runId },
+  )
   try {
     for await (const chunk of generator) {
       if (chunk.type === 'stream') {
@@ -179,8 +186,8 @@ export async function* streamAgentChunks(
           arguments: sc.arguments, // 完整参数（JSON字符串）
         })
 
-        // smart/manual（needsApproval）→ interrupt（前端弹审核卡 + 倒计时）；
-        // auto → sense_started（前端 pet bar 显「运行中工具」icon，id 与 accept.approvalId 同源，accept 时移除）。
+        // smart/manual（needsApproval）→ interrupt（前端弹审核卡 + 倒计时）。
+        // sense_started 不再在模型生成调用时产生；由 middleware 在真实执行边界单独 yield。
         // approval_timeout 缺省 → waitTime=0（不超时，前端不显倒计时）。
         if (needsApproval) {
           yield createNotification(
@@ -198,18 +205,20 @@ export async function* streamAgentChunks(
             },
             { chatId, runId },
           )
-        } else if (sc.name !== 'ask_user_question') {
-          yield createNotification(
-            'sense_started',
-            rid,
-            {
-              id: sc.id,
-              senseName: sc.name,
-              arguments: sc.arguments,
-            },
-            { chatId, runId },
-          )
         }
+      } else if (chunk.type === 'sense_started') {
+        const sc = chunk as SenseStartedChunk
+        yield createNotification(
+          'sense_started',
+          rid,
+          {
+            id: sc.id,
+            senseName: sc.name,
+            arguments: sc.arguments,
+            startedAt: sc.startedAt,
+          },
+          { chatId, runId },
+        )
       } else if (chunk.type === 'sense_accept') {
         const sc = chunk as SenseAcceptChunk
         logger.event('sense.result', {
@@ -225,6 +234,7 @@ export async function* streamAgentChunks(
             approvalId: sc.id,
             senseName: sc.name,
             result: sc.result,
+            completedAt: Date.now(),
           },
           { chatId, runId },
         )
@@ -242,6 +252,7 @@ export async function* streamAgentChunks(
             approvalId: sc.id,
             senseName: sc.name,
             reason: sc.reason,
+            completedAt: Date.now(),
           },
           { chatId, runId },
         )
@@ -347,14 +358,20 @@ export async function* streamAgentChunks(
           },
           { chatId, runId },
         )
-        yield createNotification('run.updated', rid, { runId, status: 'paused' }, { chatId, runId })
+        const completedAt = Date.now()
+        yield createNotification(
+          'run.updated',
+          rid,
+          { runId, status: 'paused', at: completedAt },
+          { chatId, runId },
+        )
         for (const turnId of turnStarted) {
           if (completedTurns.has(turnId)) continue
           completedTurns.add(turnId)
           yield createNotification(
             'turn.completed',
             rid,
-            { turnId, messageId: turnId },
+            { turnId, messageId: turnId, completedAt },
             { chatId, runId },
           )
         }
@@ -417,6 +434,7 @@ export async function* streamAgentChunks(
               }
             : undefined
         const canResume = computeCanResume(chatId)
+        const completedAt = Date.now()
         recordRunFact({ chatId, runId, status: canResume ? 'paused' : 'completed' })
         yield createNotification(
           'done',
@@ -430,13 +448,14 @@ export async function* streamAgentChunks(
             ...(finalMessage ? { finalMessage } : {}),
             // 权威 canResume：前端据此区分 paused（显继续）/ ended（无按钮），取代旧 done→canResume=false 硬编码。
             canResume,
+            completedAt,
           },
           { chatId, runId },
         )
         yield createNotification(
           'run.updated',
           rid,
-          { runId, status: canResume ? 'paused' : 'completed' },
+          { runId, status: canResume ? 'paused' : 'completed', at: completedAt },
           { chatId, runId },
         )
         for (const turnId of turnStarted) {
@@ -445,7 +464,7 @@ export async function* streamAgentChunks(
           yield createNotification(
             'turn.completed',
             rid,
-            { turnId, messageId: turnId },
+            { turnId, messageId: turnId, completedAt },
             { chatId, runId },
           )
         }
@@ -495,7 +514,7 @@ export async function* streamAgentChunks(
           yield createNotification(
             'turn.completed',
             rid,
-            { turnId, messageId: turnId },
+            { turnId, messageId: turnId, completedAt: Date.now() },
             { chatId, runId },
           )
         }
@@ -529,14 +548,20 @@ export async function* streamAgentChunks(
       )
     }
     // 无论 abort/park/故障都补发 paused + 未完成 turn 的 turn.completed。
-    yield createNotification('run.updated', rid, { runId, status: 'paused' }, { chatId, runId })
+    const completedAt = Date.now()
+    yield createNotification(
+      'run.updated',
+      rid,
+      { runId, status: 'paused', at: completedAt },
+      { chatId, runId },
+    )
     for (const turnId of turnStarted) {
       if (completedTurns.has(turnId)) continue
       completedTurns.add(turnId)
       yield createNotification(
         'turn.completed',
         rid,
-        { turnId, messageId: turnId },
+        { turnId, messageId: turnId, completedAt },
         { chatId, runId },
       )
     }
@@ -551,14 +576,20 @@ export async function* streamAgentChunks(
     // 真实 loop 中间件恒 yield done/error 或 throw，此处仅防御；无调用方对链条调 gen.return()
     //（observer/checkpoint/connection 显式规避），finally 内 yield 安全。
     if (!terminated) {
-      yield createNotification('run.updated', rid, { runId, status: 'paused' }, { chatId, runId })
+      const completedAt = Date.now()
+      yield createNotification(
+        'run.updated',
+        rid,
+        { runId, status: 'paused', at: completedAt },
+        { chatId, runId },
+      )
       for (const turnId of turnStarted) {
         if (completedTurns.has(turnId)) continue
         completedTurns.add(turnId)
         yield createNotification(
           'turn.completed',
           rid,
-          { turnId, messageId: turnId },
+          { turnId, messageId: turnId, completedAt },
           { chatId, runId },
         )
       }

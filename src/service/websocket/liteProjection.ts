@@ -184,7 +184,7 @@ function projectNotificationData(
   switch (type) {
     case 'done': {
       // §3.4 DoneLeanData：去 contextBreakdown/used/total；finalMessage 截断。
-      const projected: UnknownRecord = pick(data, ['canResume', 'finished'])
+      const projected: UnknownRecord = pick(data, ['canResume', 'finished', 'completedAt'])
       // B-3（§3.9）：done.serverNow 每轮免费时钟校准——事件产生面（streamMapper）不改，
       // lite 投影层注入（wire 字段已在 DoneLeanData 契约与固件 model.c 消费，T28 补缺）。
       projected.serverNow = Date.now()
@@ -217,11 +217,11 @@ function projectNotificationData(
     case 'accept':
     case 'rejected': {
       // 去 result 全文（可达数十 KB），按需经 node.get。
-      return pick(data, ['approvalId', 'senseName', 'ok'])
+      return pick(data, ['approvalId', 'senseName', 'ok', 'completedAt'])
     }
     case 'sense_started': {
       // G3 工具名级：去 arguments。
-      return pick(data, ['id', 'senseName'])
+      return pick(data, ['id', 'senseName', 'startedAt'])
     }
     case 'role_created': {
       // 去 prompt/brain/senseGroup。
@@ -445,6 +445,17 @@ export function applyLiteResponse(
   if (!rec || rec.success === false) return response
   const data = asRecord(rec.data)
   if (!data) return response
+  if (!asRecord(data.rootTimeline) && !asRecord(data.state) && !asRecord(data.currentState)) {
+    return response
+  }
+  const params = asRecord(requestParams)
+  const requestedStepLimit =
+    typeof params?.executionStepLimit === 'number' &&
+    Number.isInteger(params.executionStepLimit) &&
+    params.executionStepLimit > 0
+      ? params.executionStepLimit
+      : 16
+  let projectedData: UnknownRecord = { ...data }
 
   // chat.timeline.get / chat.open 的 rootTimeline 节点投影。
   const timeline = asRecord(data.rootTimeline)
@@ -457,7 +468,6 @@ export function applyLiteResponse(
     // 取 orderKey 最大的 20 条（最新窗口）；hasMore + total 供设备按需再拉更早页。
     const DEFAULT_PAGE = 20
     // P1-② 游标分页：before（orderKey 排他下界）+ limit（1..100，缺省 20）→ nextCursor 续拉。
-    const params = asRecord(requestParams)
     const before = typeof params?.before === 'number' ? params.before : undefined
     const cursorLimit =
       typeof params?.limit === 'number' && Number.isInteger(params.limit) && params.limit >= 1 && params.limit <= 100
@@ -498,29 +508,34 @@ export function applyLiteResponse(
     const nextCursor =
       page.length < total && oldest ? { nextCursor: oldest.orderKey } : {}
     // state 快照 lean 投影（B-11）：activeTurns 不带累计文本、questionBatches/roles 不带题干/全量字段。
-    const state = asRecord(data.state)
-    return {
-      ...rec,
-      data: {
-        ...data,
-        rootTimeline: {
-          ...timeline,
-          nodes: page,
-          // T30：hasMore 判定用实际下发页 vs total（含字节收缩场景：total ≤ limit 但超 maxFrameBytes）。
-          ...(total > page.length ? { nodeCount: total, hasMore: true } : { nodeCount: total }),
-          ...nextCursor,
-          edges: [], // D7：edges 不投影
-          // activeRuns/pendingInputs/generations 等保留（低频快照，有界负载归 T16）
-        },
-        ...(state ? { state: projectStateSnapshot(state) } : {}),
+    projectedData = {
+      ...projectedData,
+      rootTimeline: {
+        ...timeline,
+        nodes: page,
+        // T30：hasMore 判定用实际下发页 vs total（含字节收缩场景：total ≤ limit 但超 maxFrameBytes）。
+        ...(total > page.length ? { nodeCount: total, hasMore: true } : { nodeCount: total }),
+        ...nextCursor,
+        edges: [], // D7：edges 不投影
+        // activeRuns/pendingInputs/generations 等保留（低频快照，有界负载归 T16）
       },
     }
   }
-  return response
+  const state = asRecord(data.state)
+  if (state) {
+    projectedData.state = projectStateSnapshot(state, requestedStepLimit)
+  }
+  const currentState = asRecord(data.currentState)
+  if (currentState) {
+    projectedData.currentState = projectStateSnapshot(currentState, requestedStepLimit)
+  }
+
+  const projected: UnknownRecord = { ...rec, data: projectedData }
+  return shrinkLiteResponseToBudget(projected, profile.maxFrameBytes)
 }
 
 /** chat.open state 快照的 lean 字段集（mcu-lite-api.md §3.6 表，B-11）。 */
-function projectStateSnapshot(state: UnknownRecord): UnknownRecord {
+function projectStateSnapshot(state: UnknownRecord, executionStepLimit: number): UnknownRecord {
   const projected: UnknownRecord = { ...state }
   // activeTurns：{chatId, turnId, messageId, createdAt}——不带累计文本（thinking/content 等 CRT 字段剔除）。
   if (Array.isArray(projected.activeTurns)) {
@@ -543,6 +558,47 @@ function projectStateSnapshot(state: UnknownRecord): UnknownRecord {
       .filter((t): t is UnknownRecord => !!t)
       .map((t) => pick(t, ['id', 'senseName']))
   }
+  // executionSteps：活动步骤优先，再用最新终态填满严格数量预算；活动超限时保留最新项。
+  if (Array.isArray(projected.executionSteps)) {
+    const steps = (projected.executionSteps as unknown[])
+      .map((step) => asRecord(step))
+      .filter((step): step is UnknownRecord => !!step)
+      .map((step) => {
+        const lean = pick(step, [
+          'id',
+          'runId',
+          'chatId',
+          'kind',
+          'name',
+          'status',
+          'startedAt',
+          'completedAt',
+        ])
+        if (typeof lean.name === 'string') {
+          lean.name = truncateByBytes(lean.name, 96).text
+        }
+        return lean
+      })
+    const running = steps
+      .filter((step) => step.status === 'running')
+      .sort(
+        (a, b) =>
+          (Number(a.startedAt) || 0) - (Number(b.startedAt) || 0) ||
+          String(a.id ?? '').localeCompare(String(b.id ?? '')),
+      )
+      .slice(-executionStepLimit)
+    const terminal = steps
+      .filter((step) => step.status !== 'running')
+      .sort(
+        (a, b) =>
+          (Number(b.completedAt ?? b.startedAt) || 0) -
+          (Number(a.completedAt ?? a.startedAt) || 0),
+      )
+      .slice(0, Math.max(0, executionStepLimit - running.length))
+    projected.executionSteps = [...running, ...terminal].sort(
+      (a, b) => (Number(a.startedAt) || 0) - (Number(b.startedAt) || 0),
+    )
+  }
   // roles：{taskId, chatId, parentChatId, type, state}（去 prompt 等长字段）。
   if (Array.isArray(projected.roles)) {
     projected.roles = (projected.roles as unknown[])
@@ -552,4 +608,47 @@ function projectStateSnapshot(state: UnknownRecord): UnknownRecord {
   }
   // pendingInputs：content 保留（冷启动恢复路径，计入响应帧预算——恢复用户输入属必要数据）。
   return projected
+}
+
+/**
+ * 以完整序列化帧为准二次收缩：先移除最旧终态步骤，再移除最旧时间线节点，
+ * 最后才移除最旧活动步骤。优先保住当前执行态，并至少保留最新活动步骤。
+ * 至少保留一个时间线节点，并在收缩后重算 nextCursor，避免分页跳过被移除节点。
+ */
+function shrinkLiteResponseToBudget(response: UnknownRecord, maxFrameBytes: number): UnknownRecord {
+  const size = () => Buffer.byteLength(JSON.stringify(response), 'utf8')
+  const data = asRecord(response.data)
+  const state = asRecord(data?.state) ?? asRecord(data?.currentState)
+  const steps = Array.isArray(state?.executionSteps)
+    ? (state.executionSteps as UnknownRecord[])
+    : undefined
+  while (steps && size() > maxFrameBytes) {
+    const terminalIndex = steps.findIndex((step) => step.status !== 'running')
+    if (terminalIndex < 0) break
+    steps.splice(terminalIndex, 1)
+  }
+
+  const timeline = asRecord(data?.rootTimeline)
+  const nodes = Array.isArray(timeline?.nodes) ? (timeline.nodes as unknown[]) : undefined
+  const updateNextCursor = () => {
+    if (!nodes || nodes.length === 0 || timeline?.hasMore !== true) return
+    const oldest = nodes
+      .map((node) => asRecord(node))
+      .filter((node): node is UnknownRecord => !!node)
+      .sort((a, b) => (Number(a.orderKey) || 0) - (Number(b.orderKey) || 0))[0]
+    if (typeof oldest?.orderKey === 'number') timeline.nextCursor = oldest.orderKey
+  }
+  while (nodes && nodes.length > 1 && size() > maxFrameBytes) {
+    nodes.shift()
+    timeline!.hasMore = true
+    updateNextCursor()
+  }
+  updateNextCursor()
+
+  // projectStateSnapshot 已按 startedAt 升序排列。历史页缩到最小后仍超预算时，
+  // 再淘汰最旧 running；最新活动步骤必须留下，供 MCU 显示当前正在执行的工具。
+  while (steps && steps.length > 1 && size() > maxFrameBytes) {
+    steps.shift()
+  }
+  return response
 }

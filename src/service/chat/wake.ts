@@ -345,7 +345,7 @@ export async function handleAsyncWakeTimeout(child: {
     const notif = createNotification(
       'run.updated',
       undefined,
-      { runId: activeRunId, status: 'paused' },
+      { runId: activeRunId, status: 'paused', at: Date.now() },
       { chatId: child.childChatId },
     )
     notif.seq = appendChatEvent(child.childChatId, notif as unknown as Record<string, unknown>)

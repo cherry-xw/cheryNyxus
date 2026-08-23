@@ -190,7 +190,8 @@ interface RootTimelineSnapshot {
 chat.open({
   rootChatId: string,
   knownRevision?: number,
-  knownEventSeq?: number
+  knownEventSeq?: number,
+  executionStepLimit?: number // int 1..500；标准客户端省略时返回完整窗口，lite 省略时默认 16
 })
 ```
 
@@ -199,7 +200,7 @@ chat.open({
 1. 注册 root-tree subscription；
 2. 读取当前所有后代 chat 集合和 `eventSeq` 边界；
 3. 读取 root timeline revision；
-4. 返回 snapshot fence；
+4. 返回 snapshot fence 与从持久事件重建的 `state.executionSteps`；
 5. 将边界之后来自任何后代 chat 的事件缓冲并随后按 root `eventSeq` 推送。
 
 已持久化的变化仅通过 root 维度的 patch 发给客户端：
@@ -234,8 +235,14 @@ CP2 实施契约：root-tree subscription 与 root graph patch 作为 canonical 
 ```ts
 turn.started({ rootChatId, sourceChatId, turnId, messageId, actor, createdAt })
 turn.delta({ rootChatId, sourceChatId, turnId, messageId, channel, offset, delta })
-turn.completed({ rootChatId, sourceChatId, turnId, messageId })
+turn.completed({ rootChatId, sourceChatId, turnId, messageId, completedAt? })
+run.updated({ rootChatId, sourceChatId, runId, status, at?, startedAt? })
+sense_started({ rootChatId, sourceChatId, id, senseName, arguments, startedAt? })
+accept({ rootChatId, sourceChatId, approvalId, senseName, result, completedAt? })
+rejected({ rootChatId, sourceChatId, approvalId, senseName, reason, completedAt? })
 ```
+
+这些 epoch-ms 时间字段均为向后兼容的可选字段。首个 `run.updated{status:'running'}` 同时给出 `at` 与 `startedAt`；终态 `run.updated` 给出 `at`。`sense_started` 只在工具通过审批、schema/security 与 PreToolUse 检查后、即将调用真实工具 handler 时发出：auto 工具按真实顺序逐个开始，审批工具在用户批准后才开始，拒绝工具不会产生 started。`accept`/`rejected`、`turn.completed` 与 `done` 分别携各自的 `completedAt`。
 
 前端按 `messageId` 建立 transient node，使用 event 的 `actor` 渲染正确的子 agent 头像。数据库提交后收到 `timeline.patch`，用同一 `sourceMessageId/messageId` 原子替换 transient node；禁止同时把 transient 和 committed 节点显示为两条消息。
 
@@ -251,6 +258,27 @@ turn.completed({ rootChatId, sourceChatId, turnId, messageId })
 节点树历史读取不得调用 `chat.sync` 重播已完成 turn 的 delta。`turn.delta` 只服务当前打开的 root subscription；已完成历史只由 `RootTimelineSnapshot.nodes/edges` 返回完整节点。切换 root 时关闭旧 subscription 仅表示停止观察，绝不隐含 pause/abort；旧 root 的 Agent、输入队列和子 Agent 在后台继续运行。
 
 刷新中断后，不保证恢复“已经错过的逐 token 动画”；正确行为是 `chat.open` 返回 active turn 的当前累计文本，随后继续接收新的 delta。最终内容始终以 timeline snapshot/patch 为准。
+
+#### 3.4.1 可重建的执行步骤计时
+
+`chat.open.state.executionSteps` 使用统一的轻量步骤形态：
+
+```ts
+interface ExecutionStep {
+  id: string
+  runId: string
+  chatId: string
+  kind: 'model' | 'tool'
+  name: string
+  status: 'running' | 'completed' | 'failed' | 'rejected' | 'cancelled'
+  startedAt: number
+  completedAt?: number
+}
+```
+
+步骤不是进程内临时计时器，而是从各 chat 最多最近 10,000 条持久事件中，以最新 `run.updated{status:'running'}` 为窗口起点重建。root open 聚合全部后代 chat 的当前窗口，因此并行子 Agent 可以同时出现多个 `running` 步骤；同一 chat 的顺序工具仍按 `sense_started → accept/rejected` 的真实顺序排列。执行前拒绝的工具用 `startedAt=completedAt` 表达零时长 rejected，审批等待不计入工具耗时。
+
+`executionStepLimit` 是严格总数上限：活动步骤优先；活动数超限时只保留最新 limit 项，剩余额度由最新终态步骤填充。`knownTimelineRevision` 短路只省略未变化的 `rootTimeline`，`state.executionSteps` 仍照常返回，供重连恢复本地计时。
 
 ### 3.5 长会话代际分割（Generations）
 
@@ -315,6 +343,7 @@ type LeanTimelineNode = {
 3. **return 节点是子任务完成的唯一权威投影**：lite 连接抑制 role_reply 通知（其与 return 节点无对齐键，靠 childChatId 猜配对违反归属规则）；子完成只经 timeline patch 的 return lean 节点表达——与 §4 child_return/child_output 显式合并规则同源，不在投影层引入第二事实。
 4. **子 chat 事件路由**：子 chat 的 done/staged 全部抑制（最终回复只认 rootChatId 维度 done）；子 turn.started/completed 折叠为「子任务运行中」状态；**子 run.updated 只驱动该子任务状态行**（「工作态唯一权威信号」限定为 chatId==rootChatId 的 run.updated）；子 error 折叠为子任务失败态（message 原样保留，不当主回复错误展示）；子 accept/rejected 折叠进子任务状态行，子 interrupt 不折叠（G4 审批全量不分根/子）；seq 游标按 chatId 分道。判定规则与完整语义见 mcu-lite-api.md §3.2（唯一维护处）。
 5. **事件白名单**：lite 连接的完整推送裁剪矩阵（原样/投影精简/抑制三分类）以 [mcu-lite-api.md §3.2](mcu-lite-api.md) 为唯一维护处，本节不重复。
+6. **执行步骤投影**：`chat.open.state.executionSteps` 保留 `ExecutionStep` 计时字段，名称截至 96 UTF-8 bytes；活动 `run` / `runs[]` 保留从持久 `run.updated` 重建的可选 `startedAt`，供重连恢复总计时。lite 省略 `executionStepLimit` 时默认 16。活动步骤优先，但总数严格不超过 limit（活动超限取最新项）；`executionStepLimit` 与连接 `maxFrameBytes` 同时约束响应，超预算先丢最旧终态步骤，再丢最旧 lean timeline 节点（至少保留一个）并重算 `nextCursor`；若仍超预算，再丢最旧活动步骤，但至少保留最新活动项。
 
 #### 3.6.3 chat.timeline.node.get【implemented】
 

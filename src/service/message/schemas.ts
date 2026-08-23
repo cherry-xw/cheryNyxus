@@ -390,6 +390,7 @@ export const requestSchemas = {
       rootChatId: z.string().optional(),
       knownTimelineRevision: z.number().int().min(0).optional(),
       knownEventSeq: z.number().int().min(0).optional(),
+      executionStepLimit: z.number().int().positive().max(500).optional(),
     })
     .refine((value) => !!value.chatId || !!value.rootChatId, {
       message: 'chatId 或 rootChatId 至少提供一个',

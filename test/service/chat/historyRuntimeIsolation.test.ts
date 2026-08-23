@@ -11,6 +11,7 @@ import {
   listPendingInputs,
 } from '@/db/chat.js'
 import { getSoulDb } from '@/db/index.js'
+import { appendChatEvent } from '@/db/delivery.js'
 import {
   handleChatClose,
   handleChatGet,
@@ -19,7 +20,13 @@ import {
   handleChatSync,
 } from '@/service/chat/handler.js'
 import { handleChatResume } from '@/service/chat/send.js'
-import { clearChatRuntime, ensureChat, resolveEffectiveSelection } from '@/service/chat/runtime.js'
+import {
+  activateChatRun,
+  clearChatRuntime,
+  ensureChat,
+  releaseChatRun,
+  resolveEffectiveSelection,
+} from '@/service/chat/runtime.js'
 import { connectionManager } from '@/service/websocket/connection.js'
 import type { HandlerContext } from '@/service/message/router.js'
 import { logger } from '@/utils/logger/index.js'
@@ -59,6 +66,38 @@ async function drain<T>(generator: AsyncGenerator<unknown, T, unknown>): Promise
 }
 
 describe('historical runtime isolation', () => {
+  it('restores active run startedAt in direct and root chat.open snapshots', async () => {
+    const chatId = randomUUID()
+    const runId = `run-${chatId}`
+    const startedAt = Date.now() - 12_345
+    cleanupChats.push(chatId)
+    const presetId = config.presets?.['detail-test']?.id
+    createChat(chatId, { preset: 'detail-test', presetId })
+    await ensureChat(chatId)
+    activateChatRun(chatId, runId)
+    appendChatEvent(chatId, {
+      kind: 'notification',
+      type: 'run.updated',
+      data: { runId, status: 'running', at: startedAt, startedAt },
+      chatId,
+      runId,
+    })
+
+    try {
+      const directContext = createContext().ctx
+      const direct = await handleChatOpen(directContext, { chatId })
+      expect(direct.state.run).toEqual({ runId, state: 'running', startedAt })
+      await handleChatClose(directContext, { subscriptionId: direct.subscriptionId })
+
+      const rootContext = createContext().ctx
+      const root = await handleChatOpen(rootContext, { rootChatId: chatId })
+      expect(root.state.runs).toContainEqual({ chatId, runId, state: 'running', startedAt })
+      await handleChatClose(rootContext, { subscriptionId: root.subscriptionId })
+    } finally {
+      releaseChatRun(chatId, runId)
+    }
+  })
+
   it('does not resolve obsolete runtime during list/get/sync/open', async () => {
     const chatId = randomUUID()
     cleanupChats.push(chatId)

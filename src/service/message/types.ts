@@ -440,6 +440,8 @@ export interface ChatOpenRequestData {
   rootChatId?: string
   knownTimelineRevision?: number
   knownEventSeq?: number
+  /** 当前执行窗口最多返回的计时步骤数；省略时标准客户端返回完整窗口。 */
+  executionStepLimit?: number
 }
 
 export interface ActiveTurnSnapshot {
@@ -482,18 +484,26 @@ export interface ChatOpenResponseData {
   state: {
     /** Root mode identity set used to atomically clear stale descendant state. */
     chatIds?: string[]
-    run?: { runId: string; state: 'running' | 'paused' | 'completed' | 'failed' }
+    run?: {
+      runId: string
+      state: 'running' | 'paused' | 'completed' | 'failed'
+      /** 从持久 run.updated 重建，供断线后恢复顶部总计时。 */
+      startedAt?: number
+    }
     /** Root mode returns every active descendant run; direct mode leaves this empty. */
     runs?: Array<{
       chatId: string
       runId: string
       state: 'running' | 'paused' | 'completed' | 'failed'
+      /** 从持久 run.updated 重建，供断线后恢复顶部总计时。 */
+      startedAt?: number
     }>
     pendingInputs: PendingInputSnapshot[]
     activeTurns: ActiveTurnSnapshot[]
     pendingApproval?: CurrentStateData['pendingApproval']
     questionBatches: PendingQuestionBatchData[]
     runningTools: CurrentStateData['runningTools']
+    executionSteps: ExecutionStep[]
     roles: Array<Record<string, unknown>>
   }
 }
@@ -1499,8 +1509,24 @@ export interface CurrentStateData {
   }
   /** 已发 sense_end/sense_started 但无 accept/rejected 的工具（含待审批）。run 未运行时为空。 */
   runningTools: { id: string; senseName: string }[]
+  /** 从持久 chat events 重建的当前 run 模型轮次与真实工具执行步骤。 */
+  executionSteps: ExecutionStep[]
+  /** 当前活动 run 的持久开始时间；供 chat.open 复用，避免重复扫描事件。 */
+  runTiming?: { runId: string; startedAt: number }
   /** 最近一条 update_todo 的结构化 todos；无则省略。 */
   currentTodo?: unknown[]
+}
+
+/** 当前执行窗口中的可计时步骤；可由持久 chat events 完整重建。 */
+export interface ExecutionStep {
+  id: string
+  runId: string
+  chatId: string
+  kind: 'model' | 'tool'
+  name: string
+  status: 'running' | 'completed' | 'failed' | 'rejected' | 'cancelled'
+  startedAt: number
+  completedAt?: number
 }
 
 export interface ChatSessionSnapshotData {
@@ -1869,6 +1895,8 @@ export interface TurnDeltaNotificationData {
 export interface TurnCompletedNotificationData {
   turnId: string
   messageId: string
+  /** 模型轮次结束时间戳（ms）；旧事件可省略。 */
+  completedAt?: number
 }
 
 export interface InputUpdatedNotificationData {
@@ -1885,6 +1913,10 @@ export interface InputUpdatedNotificationData {
 export interface RunUpdatedNotificationData {
   runId: string
   status: 'running' | 'waiting' | 'paused' | 'completed' | 'failed'
+  /** 本次状态变化时间戳（ms）；旧事件可省略。 */
+  at?: number
+  /** run 首次进入 running 的时间戳（ms）；仅首次 running 通知携带。 */
+  startedAt?: number
 }
 
 export interface RuntimeSetResponseData {
@@ -2259,18 +2291,24 @@ export interface SenseStartedNotificationData {
   id: string
   senseName: string
   arguments: string
+  /** 工具真正开始执行的时间戳（ms）；旧事件可省略。 */
+  startedAt?: number
 }
 
 export interface AcceptNotificationData {
   approvalId: string
   senseName: string
   result: string
+  /** 工具结束时间戳（ms）；旧事件可省略。 */
+  completedAt?: number
 }
 
 export interface RejectedNotificationData {
   approvalId: string
   senseName: string
   reason: string
+  /** 拒绝决定或执行前拒绝的时间戳（ms）；旧事件可省略。 */
+  completedAt?: number
 }
 
 export interface ConsumedMessageData {
@@ -2295,6 +2333,8 @@ export interface ConsumedNotificationData {
  */
 export interface DoneNotificationData {
   contextUsage: number
+  /** root loop 结束时间戳（ms）；旧事件可省略。 */
+  completedAt?: number
   /** 已用 token 数（估算值）。前端据实时更新 pet.contextUsed。 */
   used?: number
   /** 上下文上限 token 数。前端据实时更新 pet.contextTotal。 */

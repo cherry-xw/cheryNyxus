@@ -6,6 +6,7 @@
 
 | 版本 | 变更 |
 |---|---|
+| v3.3（执行计时） | 增加真实工具执行边界与可选时间字段、`chat.open.executionStepLimit`、可重建的 `state.executionSteps`；lite 默认 16 步并与 `maxFrameBytes` 联合收缩，活动步骤优先且严格受数量上限约束。 |
 | v3.2（P0 落地回写） | P0 全部落地并回写状态：①T15 连接级投影（prepareSessionEvent profile 分支 + interaction.changed/Response 两旁路 + 事件白名单 + 信封最小化 + state lean 集）；②T16 数据面（chat.timeline.node.get 新 RPC、interaction.list serverNow/maxItems≤20+hasMore+payload 截断引用、utils/boundedContent.ts 共用截断工具）；③T20 D13 六错误码注册与抛出（error.code 并列字段，router 透传）。wire 层事实已补录 protocol.md「lite profile 连接级投影」节。P1/P2 维持 planned |
 | v3.1（定稿） | T10 终审通过。用户拍板：D13=完整实施 6 码（error.code 并列字段，枚举随 v1 冻结）、D14=完整版本化 v1（未知版本握手期 close 拒绝）。终审三处收尾：子 chat done 锁定纯抑制、pendingInputs content 不对称补设计理由、D3/D8 标注「评审裁定（用户可推翻）」 |
 | v3（本版） | 合并 T4 对抗评审（5 前置修正+细则）、T6 设备复核（6 条件）、T7 事实核验（3 修正+2 建议）、captain 最终清单 C/D 组。核心变更：D3 改字段级智能截断；新增子 chat 事件路由语义与 role_reply 抑制；node.get 提前 P0；state 快照 lean 定义；§3.7 有界负载扩展覆盖 RPC 响应帧+默认分页；截断参数全部改字节定义（summary ≤180B）+扣 256B 信封开销；G6 措辞消除缓冲矛盾；新增低档交互降级节；D13 错误码 6 码+error.code 并列载体；未知 v 握手期拒绝；决策点扩至 D1–D19；收口点表述修正（interaction.changed/Response 为旁路）；run.updated/input.updated 体积实测修正 |
@@ -111,18 +112,18 @@ lite 连接的推送分三类：**原样透传**（已足够小）、**投影精
 
 | 事件 | lite 行为 | 投影后形态 / 抑制理由 | 依据 |
 |---|---|---|---|
-| `run.updated` | 原样+去重 | {runId, status}。T7 实测：全格式 279B、最小化（去 requestId）226B——v1 声称 ≤128B 不成立；lite 信封省 requestId + data.runId 与信封 runId 去重后 ~150–180B，在 ≤512B 硬约束内。run.updated 是**工作态唯一权威信号**（先于首 token 发出，T5 精化 #8） | G2 状态核心 |
+| `run.updated` | 原样+去重 | `{runId, status, at?, startedAt?}`。首个 running 的 `at=startedAt`，终态用 `at` 封口；lite 信封仍会去掉与外层重复的 data.runId。run.updated 是**工作态唯一权威信号**（先于首 token 发出） | G2 状态核心 |
 | `input.updated` | **投影精简** | {inputId, state, queueSequence, acceptedAt}（**去 content**——T7 发现 ack 路径携带用户原始输入全文回显，实测 503B+，设备本地已有刚发送的文本，id 对齐即可） | G2；T7 修正③ |
 | `interaction.changed` | 原样+加字段 | {interactionId, status, revision, **presetId**}（T7 实测 150B；加 presetId +4B 供设备判断是否需重拉，消多 agent 放大器）。设备侧 500ms 防抖后重拉 interaction.list（C5） | G2 |
-| `turn.started` / `turn.completed` | 原样 | 起始时间 → 设备本地算运行时长 | G2、本地推导原则 |
-| `done` | 投影精简 | {finalMessage?, canResume, finished?, contextUsage?, **serverNow**}；去 contextBreakdown/used/total。**负向语义（B-9，逐条）**：① done≠必有 finalMessage（loop 结束在审批 yield 时根本不发 done；结束在 sense 循环时末条可能是 tool 结果）——无 finalMessage 的 done 只更新状态不显回复；② serverNow 每轮免费校准时钟（B-3），时钟误差容忍条款见 §3.9 | G1；§3.4 |
+| `turn.started` / `turn.completed` | 原样 | started `{turnId,messageId,createdAt}`；completed `{turnId,messageId,completedAt?}`。设备用两端时间在本地计算模型轮次耗时 | G2、本地推导原则 |
+| `done` | 投影精简 | `{finalMessage?, canResume, finished?, contextUsage?, completedAt?, **serverNow**}`；去 contextBreakdown/used/total。**负向语义（B-9，逐条）**：① done≠必有 finalMessage（loop 结束在审批 yield 时根本不发 done；结束在 sense 循环时末条可能是 tool 结果）——无 finalMessage 的 done 只更新状态不显回复；② serverNow 每轮免费校准时钟（B-3），时钟误差容忍条款见 §3.9 | G1；§3.4 |
 | `error` | 原样 | {message, canResume}。message 含前置 [tracingId] 码（error-conventions 规范），设备**原样显示不得截前缀**（那是用户报障唯一线索）、不得自行生成文案（A-2/F11 全文引用） | F11 |
 | `consumed` | 投影精简 | {count, messages:[{id, role, createdAt, **msgId**}]}（去 content；附 msgId 供对齐，D10 裁定） | G1 |
 | `interrupt`（审批） | **全量下发**（有界） | arguments 字段级智能截断（§3.7-2）；**投影剔除 waitTime/createdAt**——统一以 deadlineAt 为单一倒计时源（interactions 表 deadline_at；T5 精化：payload 持久侧本就不含这两个字段，防两套公式并存，C5） | G4；D3 |
 | `question_batch_requested` | **全量下发**（有界） | 题干+选项全量；双层约束（D8）：上游软提示拆题、投影层硬保证（description 截断 ≤60B 或剔除、批次 ≤2KB、>20 选项分页） | G4 |
 | `question_batch_completed` | 原样 | {batchId}（实测 172B） | — |
-| `accept` / `rejected` | 投影精简 | {approvalId, senseName, ok}（去 result 全文，按需；result 可达数十 KB） | G1 |
-| `sense_started` | 投影精简 | {id, senseName}（去 arguments；实测 144B） | G3 |
+| `accept` / `rejected` | 投影精简 | `{approvalId, senseName, completedAt?, ok?}`（去 result/reason 全文；`completedAt` 封口对应工具步骤） | G1 |
+| `sense_started` | 投影精简 | `{id, senseName, startedAt?}`（去 arguments）。只在 auto 或已批准工具真正调用 handler 前产生，审批等待期不产生 | G3 |
 | `role_created` | 投影精简 | {taskId, childChatId, parentChatId, type, wake}（去 prompt/brain/senseGroup） | G2 子任务存在性 |
 | `role_reply` | **抑制**（D15-b） | lean 下直接抑制——role_reply 与 timeline return 节点无对齐键（role_reply 无 msgId/nodeId），靠 childChatId 猜配对=变相推断归属擦 F1 边缘；子任务完成态只靠 patch 的 return lean 节点（感知延迟毫秒级可忽略，更符合 G1/G2） | F1；B-2 |
 | `role_destroyed` / `child_abandoned` | 原样 | 极小，子任务终态 | — |
@@ -135,6 +136,13 @@ lite 连接的推送分三类：**原样透传**（已足够小）、**投影精
 | staged `content_end` | 抑制 | 最终回复由 done.finalMessage + patch 权威下发 | G1、F2 |
 | staged `sense_end` | 抑制 | interrupt（smart/manual）已全量；auto 工具靠 sense_started | G2 |
 | `loaded` | 抑制 | chat.get 专用，MCU 不走 V1 历史路径 | F12 |
+
+**设备计时交互（本地推导，不增加高频网络帧）**：
+
+- 顶部问题卡以 root `run.updated{status:'running',startedAt}` 启动总计时，以同 run 的终态 `run.updated.at` 或 `done.completedAt` 封口；页面渲染时每秒本地刷新，不要求服务端持续推送 tick。
+- 下方每个模型/工具子节点使用 `ExecutionStep.startedAt/completedAt` 独立计时。当前 `running` 节点保持展开并显示工具名或模型轮次；收到终态后冻结耗时、标记结果并收起，随后下一步骤按自己的 `startedAt` 开始。
+- 多子 Agent 可同时有多个 `running` 步骤，设备按 `chatId+runId+id` 区分；同一 chat 的多个 auto 工具按真实执行次序切换。审批工具只有批准并真正开始执行后才进入工具计时，审批等待单独由 `deadlineAt` 表达。
+- 断线重连不续猜本地计时：顶部总计时以 `chat.open.state.run.startedAt` 或 root `state.runs[]` 中对应项恢复，子步骤以 `state.executionSteps` 重建。终态耗时为 `completedAt-startedAt`，活动耗时为校准后的 `now-startedAt`。
 
 **子 chat 事件路由语义（B-1，三条规则文档化）**：
 
@@ -209,12 +217,12 @@ interface DoneLeanData {
   1. GET /api/config → {wsPort, webPort, transport}（T7：实际另含 sessionToken/senseGroups/presets/default 可选字段，MCU 可忽略但应知晓）
   2. WS 连接 ws://host:port/?profile=lite&v=1[&token=…]（未知 v → 握手期 close(4xxx, reason=JSON{supportedVersions})）
   3. chat.list {scope:'stage'}（lean 目录，无 preview）
-  4. chat.open {rootChatId, knownTimelineRevision?}（原子栅栏：state 快照 lean（§3.2b）+ rootTimeline lean 分页或 timelineUnchanged；响应含 nodeCount 供设备预判分批，R6/D6）
+  4. chat.open {rootChatId, knownTimelineRevision?, executionStepLimit:16}（原子栅栏：state 快照 lean（§3.2b）+ rootTimeline lean 分页或 timelineUnchanged；响应含 nodeCount 供设备预判分批，R6/D6）
   5. interaction.list（待办全量含 deadlineAt + serverNow；maxItems 分页）
   6. 事件驱动等待
 
 断线重连（含判定规则，B-7）：
-  1. 重连（同 profile）→ chat.open {rootChatId, knownTimelineRevision}
+  1. 重连（同 profile）→ chat.open {rootChatId, knownTimelineRevision, executionStepLimit:16}
        ├─ timelineUnchanged → 直接进入事件等待
        ├─ revision 落后 → timeline.get 分页全量自愈（F9：缺口靠全量拉取，不猜）后等待
        └─ state 含 activeTurns/runs → 恢复「运行中」UI
@@ -232,9 +240,10 @@ interface DoneLeanData {
 |---|---|
 | pendingInputs | {inputId, messageId, state, queueSequence, acceptedAt, content}（content 计入响应帧预算）。与 §3.2 input.updated 去 content 的不对称是**有意的**：事件是高频路径、ack 时设备本地必有刚发送的文本（去 content 零损失）；state 快照是低频拉取路径、断线/重启重连后设备本地可能已丢失队列中未消费输入的文本（NVram 只存未确认 id），保留 content 才能恢复排队消息的展示 |
 | activeTurns | {chatId, turnId, messageId, createdAt}——**不带累计文本**（当前文本按需经 node.get 拉或等最终定稿） |
-| runs | {chatId, runId, state} 原样（极小） |
+| run / runs | direct `{runId,state,startedAt?}`；root `[{chatId,runId,state,startedAt?}]`。`startedAt` 从持久 `run.updated` 重建，供重连恢复顶部总计时 |
 | questionBatches | {batchId, interactionId}——**不带题干**（详情走收件箱 interaction.list） |
 | runningTools | {id, senseName}（工具名级） |
+| executionSteps | `{id,runId,chatId,kind,name,status,startedAt,completedAt?}[]`。`kind ∈ model\|tool`，`status ∈ running\|completed\|failed\|rejected\|cancelled`；名称最多 96 UTF-8 bytes。省略 `executionStepLimit` 时 lite 默认 16；活动步骤优先但数组总数严格不超过 limit，活动超限时保留最新项，再由最新终态步骤填满剩余额度。该数组从持久事件重建，是重连恢复计时的权威输入 |
 | roles | {taskId, chatId, parentChatId, type, state} |
 
 ### 3.7 有界负载与服务端保证（扩展覆盖全部出站帧，T6③）
@@ -242,11 +251,12 @@ interface DoneLeanData {
 **范围**：lite 连接的**全部出站帧**——推送事件（Notification/Chunk）**与 RPC 响应帧（Response）**（v1 只管事件是缺口；T6 实测 chat.open 20 节点单帧 7.6–11.4KB、interaction.list 3.6KB+ 直击设备缓冲）。
 
 1. **响应帧分页默认值**：`chat.timeline.get`/`chat.open` rootTimeline **默认 limit=20 分页 + 响应附 nodeCount**（窗口内节点总数，设备预判分批，D6 双做：分页+预告）；**limit 受 maxFrameBytes 自动收缩（T30，P1）**：页大小 = min(请求 limit, maxFrameBytes−512B 可容纳 lean 节点数)，从最新端按 lean 实际字节数装箱、至少 1 节点，hasMore/nextCursor 续拉补齐——chat.open 首页天然有界；`interaction.list` lite 投影 **maxItems≤20 + hasMore**（C1：现状 LIMIT 500 静默截断无 hasMore，必须消除）。
-2. **审批 arguments 字段级智能截断（A1/D3 最终方案）**：投影层**保留全部键名与短字段全文，仅对超长单字段截断并附 `{field, contentLength, contentHash}` 引用**——决策结构完整，仅体量受限。v2 的「头部截断」废弃（头部截断使 write_file/apply_patch 类 {path 短, content 长} 工具的参数被盲批——用户看到文件名看不到内容就被要求批准写入，安全级错误）。收件箱 payload 内 arguments 同策略（R7）。
-3. **question batch 双层约束（D8 最终方案）**：上游 ask_user_question **软约束**（超限提示 agent 拆题，不硬拒——硬拒上游会卡死既有合法长题对话，属隐蔽回归）；lite 投影层**硬保证**（批次 ≤2KB、题干 ≤500B、选项标签 ≤60B、description 截断 ≤60B 或剔除（推荐剔除——tooltip 用，低档无 hover）、>20 选项分页）。
-4. **finalMessage**：截断至 maxFrameBytes−256B。
-5. **turn.delta（可选订阅时）**：delta 本体 ≤512B/帧；offset 保留（丢帧自愈）。
-6. **截断先例**（T7 建议，doc-first 论证增强）：项目内已有成熟服务端截断先例——chat.list preview ≤40 字符（db/chat.ts:676）、generations summary 回退截断 500 字符（generations.ts:41）、gitClone stderr 400 字符、media 上传上限；「服务端截断责任」非新发明。
+2. **执行步骤双重限制**：`executionStepLimit`（1..500，lite 缺省 16）严格控制计时步骤总数，`maxFrameBytes` 控制最终序列化帧。服务端先取最新活动步骤（不超过 limit）、用最新终态填满数量预算；若全帧仍超预算，依次移除最旧终态步骤和最旧 timeline 节点，但至少保留一个 timeline 节点，并把 `nextCursor` 更新为保留页最小 `orderKey`；如果仍然超预算，继续淘汰最旧活动步骤，至少保留最新活动项供设备显示当前工具。标准 Web/Electron 连接省略该参数时不裁剪当前 run 的步骤窗口。
+3. **审批 arguments 字段级智能截断（A1/D3 最终方案）**：投影层**保留全部键名与短字段全文，仅对超长单字段截断并附 `{field, contentLength, contentHash}` 引用**——决策结构完整，仅体量受限。v2 的「头部截断」废弃（头部截断使 write_file/apply_patch 类 {path 短, content 长} 工具的参数被盲批——用户看到文件名看不到内容就被要求批准写入，安全级错误）。收件箱 payload 内 arguments 同策略（R7）。
+4. **question batch 双层约束（D8 最终方案）**：上游 ask_user_question **软约束**（超限提示 agent 拆题，不硬拒——硬拒上游会卡死既有合法长题对话，属隐蔽回归）；lite 投影层**硬保证**（批次 ≤2KB、题干 ≤500B、选项标签 ≤60B、description 截断 ≤60B 或剔除（推荐剔除——tooltip 用，低档无 hover）、>20 选项分页）。
+5. **finalMessage**：截断至 maxFrameBytes−256B。
+6. **turn.delta（可选订阅时）**：delta 本体 ≤512B/帧；offset 保留（丢帧自愈）。
+7. **截断先例**（T7 建议，doc-first 论证增强）：项目内已有成熟服务端截断先例——chat.list preview ≤40 字符（db/chat.ts:676）、generations summary 回退截断 500 字符（generations.ts:41）、gitClone stderr 400 字符、media 上传上限；「服务端截断责任」非新发明。
 
 ### 3.8 帧格式与信封
 

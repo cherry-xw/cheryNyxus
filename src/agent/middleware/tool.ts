@@ -2,6 +2,7 @@ import type {
   MiddlewareContext,
   MiddlewareChunk,
   SenseTriggerChunk,
+  SenseStartedChunk,
   StreamChunk,
 } from '@/core/middleware/types'
 import type { ReplaceInfo } from '@/core/message/adapter'
@@ -143,7 +144,7 @@ async function* executeCollectedCalls(
       }
       continue
     }
-    const { content, hash, replaced, rejected } = await doExecuteSense(
+    const { content, hash, replaced, rejected } = yield* doExecuteSense(
       ctx,
       call.name,
       call.argsJson,
@@ -201,7 +202,7 @@ async function* executeCollectedCalls(
       const decision = await call.approvalPromise!
 
       if (decision.action === 'accept') {
-        const { content, hash, replaced, rejected } = await doExecuteSense(
+        const { content, hash, replaced, rejected } = yield* doExecuteSense(
           ctx,
           call.name,
           call.argsJson,
@@ -405,18 +406,18 @@ function buildSenseTrigger(
 /**
  * 实际执行感官
  */
-async function doExecuteSense(
+async function* doExecuteSense(
   ctx: MiddlewareContext,
   name: string,
   argsJson: string,
   id: string,
   authorization: ToolAuthorization,
-): Promise<{
+): AsyncGenerator<SenseStartedChunk, {
   content: string
   hash?: string
   rejected?: string
   replaced: Array<{ id: string; content: string; replace: ReplaceInfo; originalContent: string }>
-}> {
+}, unknown> {
   const replaced: Array<{
     id: string
     content: string
@@ -494,6 +495,15 @@ async function doExecuteSense(
     // P2-11：chatId 经 SenseRuntimeContext 第 3 参注入（取代 sharedData namespace 临时方案），
     // bash 等需按会话归属的 sense 从 ctx.chatId 读取。
     // T9：yieldTurn 闭包让 sense（spawn_role wait=true）请求 loop 本轮后立即结束（置 soul.yieldTurn）。
+    // 真实执行边界：只有审批与所有执行前校验通过后才产生 started；下游先持久化并
+    // 发送该事实，generator 下一次推进时才真正调用工具 handler。
+    yield {
+      type: 'sense_started',
+      id,
+      name,
+      arguments: argsJson,
+      startedAt: Date.now(),
+    }
     const result = await senseEntry.execute(args, ctx.soul.senseSharedData, {
       chatId: ctx.soul.chatId,
       yieldTurn: () => {

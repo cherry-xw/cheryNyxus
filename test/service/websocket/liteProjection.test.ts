@@ -406,6 +406,164 @@ describe('applyLiteResponse：timeline 投影', () => {
     const out = applyLiteResponse(tinyProfile, fatResponse) as Record<string, unknown>
     expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(2048 + 600) // 页内节点 ≤1536B + 信封/固定字段余量
   })
+
+  it('T30：二次预算收缩后 nextCursor 对齐当前保留页最小 orderKey', () => {
+    const baseline = applyLiteResponse(tinyProfile, fatResponse) as Record<string, unknown>
+    const responseWithRunning = {
+      ...fatResponse,
+      data: {
+        ...fatResponse.data,
+        state: {
+          executionSteps: Array.from({ length: 4 }, (_, index) => ({
+            id: `running-${index}`,
+            runId: 'run-budget',
+            chatId: 'c1',
+            kind: 'tool',
+            name: `tool-${index}-${'长名称'.repeat(20)}`,
+            status: 'running',
+            startedAt: index + 1,
+          })),
+        },
+      },
+    }
+    const out = applyLiteResponse(tinyProfile, responseWithRunning, {
+      executionStepLimit: 4,
+    }) as Record<string, unknown>
+    const page = pageOf(out)
+    const timeline = timelineOf(out)
+
+    expect(page.length).toBeGreaterThanOrEqual(1)
+    expect(page.length).toBeLessThan(pageOf(baseline).length)
+    expect(timeline.hasMore).toBe(true)
+    expect(timeline.nextCursor).toBe(page[0].orderKey)
+  })
+
+  it('executionSteps 默认 16 项、保留活动步骤并与 maxFrameBytes 同时生效', () => {
+    const steps = Array.from({ length: 24 }, (_, index) => ({
+      id: `step-${index}`,
+      runId: 'run-1',
+      chatId: index % 2 === 0 ? 'root' : 'child',
+      kind: index % 3 === 0 ? 'tool' : 'model',
+      name: `tool-${index}-${'长名称'.repeat(20)}`,
+      status: index === 0 || index === 23 ? 'running' : 'completed',
+      startedAt: index + 1,
+      ...(index === 0 || index === 23 ? {} : { completedAt: index + 2 }),
+    }))
+    const response = {
+      id: 'steps-1',
+      kind: 'response',
+      requestId: 'steps-request',
+      success: true,
+      data: {
+        chatId: 'root',
+        state: {
+          pendingInputs: [],
+          activeTurns: [],
+          questionBatches: [],
+          runningTools: [],
+          executionSteps: steps,
+          roles: [],
+        },
+      },
+    }
+    const out = applyLiteResponse(tinyProfile, response) as Record<string, unknown>
+    const state = ((out.data as Record<string, unknown>).state) as Record<string, unknown>
+    const projected = state.executionSteps as Array<Record<string, unknown>>
+    expect(projected.length).toBeLessThanOrEqual(16)
+    expect(projected.some((step) => step.id === 'step-0' && step.status === 'running')).toBe(true)
+    expect(projected.some((step) => step.id === 'step-23' && step.status === 'running')).toBe(true)
+    expect(projected.every((step) => step.name === undefined || Buffer.byteLength(String(step.name), 'utf8') <= 96)).toBe(true)
+    expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(2048)
+  })
+
+  it('executionStepLimit 是显式数量上界，时间字段在 lean state 中保留', () => {
+    const response = {
+      id: 'steps-2',
+      kind: 'response',
+      requestId: 'steps-request-2',
+      success: true,
+      data: {
+        chatId: 'root',
+        state: {
+          executionSteps: Array.from({ length: 8 }, (_, index) => ({
+            id: `step-${index}`,
+            runId: 'run-2',
+            chatId: 'root',
+            kind: 'tool',
+            name: 'read_file',
+            status: 'completed',
+            startedAt: index * 10,
+            completedAt: index * 10 + 5,
+          })),
+        },
+      },
+    }
+    const out = applyLiteResponse(profile, response, { executionStepLimit: 3 }) as Record<string, unknown>
+    const state = ((out.data as Record<string, unknown>).state) as Record<string, unknown>
+    const projected = state.executionSteps as Array<Record<string, unknown>>
+    expect(projected.map((step) => step.id)).toEqual(['step-5', 'step-6', 'step-7'])
+    expect(projected[0]).toMatchObject({ startedAt: 50, completedAt: 55 })
+  })
+
+  it('executionStepLimit 在 running 数量超限时严格保留最新活动步骤', () => {
+    const response = {
+      id: 'steps-running-limit',
+      kind: 'response',
+      requestId: 'steps-running-limit-request',
+      success: true,
+      data: {
+        chatId: 'root',
+        state: {
+          executionSteps: Array.from({ length: 6 }, (_, index) => ({
+            id: `running-${index}`,
+            runId: 'run-running-limit',
+            chatId: 'root',
+            kind: 'tool',
+            name: `tool-${index}`,
+            status: 'running',
+            startedAt: index + 1,
+          })),
+        },
+      },
+    }
+    const out = applyLiteResponse(profile, response, { executionStepLimit: 3 }) as Record<string, unknown>
+    const state = ((out.data as Record<string, unknown>).state) as Record<string, unknown>
+    const projected = state.executionSteps as Array<Record<string, unknown>>
+
+    expect(projected.map((step) => step.id)).toEqual(['running-3', 'running-4', 'running-5'])
+  })
+
+  it('16 个 running 步骤在 2048B 预算下收缩并保留最新活动项', () => {
+    const response = {
+      id: 'steps-running-budget',
+      kind: 'response',
+      requestId: 'steps-running-budget-request',
+      success: true,
+      data: {
+        chatId: 'root',
+        state: {
+          executionSteps: Array.from({ length: 16 }, (_, index) => ({
+            id: `running-budget-${index}`,
+            runId: 'run-running-budget',
+            chatId: 'root',
+            kind: 'tool',
+            name: `tool-${index}-${'长名称'.repeat(30)}`,
+            status: 'running',
+            startedAt: index + 1,
+          })),
+        },
+      },
+    }
+
+    const out = applyLiteResponse(tinyProfile, response) as Record<string, unknown>
+    const state = ((out.data as Record<string, unknown>).state) as Record<string, unknown>
+    const projected = state.executionSteps as Array<Record<string, unknown>>
+
+    expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(2048)
+    expect(projected.length).toBeGreaterThanOrEqual(1)
+    expect(projected.length).toBeLessThan(16)
+    expect(projected.at(-1)?.id).toBe('running-budget-15')
+  })
 })
 
 describe('parseLiteProfile', () => {
