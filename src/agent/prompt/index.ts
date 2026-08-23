@@ -130,10 +130,15 @@ function buildPromptPieces(
     date: dayjs().format('YYYY-MM-DD'),
     time: dayjs().toISOString(),
   }
+  // .chery 配置目录绝对路径（恒注入：即使 preset 未配 workspace，LLM 也至少持有一个绝对路径锚点，
+  // 避免"要求绝对路径却无任何路径信息"导致 LLM 猜相对路径 / 执行 pwd 自救——历史事故见 docs/agent/prompt-guide.md 案例 25c894db）
+  const cheryDir = path.resolve(process.env.CHERY_DIR || process.cwd(), '.chery')
   const envBlock = `<environment>
 操作系统: ${envInfo.os}
 当前日期: ${envInfo.date}
 当前时间: ${envInfo.time}
+配置目录: ${cheryDir}
+（本会话唯一确定的绝对路径锚点：read_file / search_codebase 等需要绝对路径的操作可从该目录推导；存在配置管理类结构化感官时，读写配置请走该感官，勿用文件工具或命令直接操作）
 </environment>`
 
   // workspace（预设级项目工作目录）：仅提示词层声明本会话专属该项目，不改变 sense 实际行为

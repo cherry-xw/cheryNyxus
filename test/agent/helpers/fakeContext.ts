@@ -25,12 +25,27 @@ import type { ZodType } from "zod";
 import { logger } from "@/utils/logger/index.js";
 import { MessageJournal } from "@/core/middleware/messageJournal.js";
 import { compileRoleSecurity } from '@/core/security/rolePolicy.js'
+import config from "@/utils/config.js";
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   thinking: false,
   supervision: SupervisionLevel.auto,
   stream: true,
 };
+
+/**
+ * 测试角色：注册到 config.roles（幂等），使 createMockRuntime 的 roleSecurity('__testHarness')
+ * 与 doExecuteSense 重授权的 config.roles['__testHarness'] 一致 → policyHash 恒等，
+ * 不误触「安全策略或工具参数已变化」校验（历史预存 bug：resume 测试因此失败）。
+ * 放在模块级：vitest forks pool 每文件独立进程，跨文件无污染。
+ */
+if (!config.roles?.['__testHarness']) {
+  (config.roles ??= {})['__testHarness'] = {
+    brain: 'test',
+    senseGroup: 'test',
+    permissions: { template: 'trusted' },
+  }
+}
 
 /** 构造测试 sense（位置参数，对齐 senseCreator） */
 export function createTestSense(
@@ -48,7 +63,7 @@ export function createTestSense(
   );
 }
 
-/** 摊平 senses 为 senseTable（监管等级 + 执行器），对齐 runtimeResolver.buildSenseTable */
+/** 摊平 senses 为 senseTable（监管等级 + 执行器 + schema），对齐 runtimeResolver.buildSenseTable */
 export function buildSenseTable(senses: Sense<ZodType>[]): Map<string, SenseEntry> {
   const table = new Map<string, SenseEntry>();
   for (const s of senses) {
@@ -60,6 +75,8 @@ export function buildSenseTable(senses: Sense<ZodType>[]): Map<string, SenseEntr
           args as Parameters<typeof s.executor.execute>[0],
           sd,
         ),
+      // 透传 schema（对齐 runtimeResolver：senseMiddleware 执行前 safeParse 拦截缺参调用）
+      schema: s.executor.schema,
     });
   }
   return table;
@@ -125,6 +142,7 @@ export function createMockRuntime(opts: {
     },
     builtSenses: senses.map((s) => ({ type: "function", function: s.definition.function })),
     senseTable: buildSenseTable(senses),
+    sensitivityRules: {},
     roleSecurity: compileRoleSecurity('__testHarness', {
       brain: 'test', senseGroup: 'test', permissions: { template: 'trusted' },
     }),

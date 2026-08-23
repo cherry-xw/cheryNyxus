@@ -31,6 +31,7 @@ export default function buildFirstSystemPrompt(
 - 全局 base：模块加载期读取固定路径 `config.global.prompts_dir + "/system.md"`（即 `CHERY_DIR/.chery/prompt/system.md`，统一目录源；不再走 `config.global.system_prompt` 配置字段）。
 - `systemPromptFile` 给出（每 chat agent 专属；主 agent 来自 `config.roles[preset.leader].systemPrompt`，子 agent 来自 `config.roles[type].systemPrompt`）→ 实时 `readFileSync` 该路径作为**补充**拼接到全局 base 之后（**合并**而非替换；**不**走模块缓存，支持每 agent 不同 prompt 文件）；文件缺失则 warn 并仅用全局 base（运行期容错，配置期 `validateRawConfig` 已 existsSync 校验）。
 - `workspace` 给出（预设 `presets.<name>.workspace`）→ 在 `<environment>` 后注入 `<workspace>` 段（提示词层面声明本会话的项目工作目录，**不**改变 sense 实际行为）；缺省 → 不注入该段。
+- `<environment>` 段除 OS/日期/时间外，**恒注入 `.chery` 配置目录绝对路径**（`config.global` 派生，`CHERY_DIR || process.cwd()`）——保证 LLM 至少有一个绝对路径锚点（即使 preset 未配 workspace），避免"要求绝对路径却无路径信息"导致 LLM 猜相对路径（历史事故见 [prompt-guide.md](./prompt-guide.md) 规范 #1）。
 
 输出结构（XML 标签包裹；`<workspace>` 仅 `workspace` 给出时出现）：
 
@@ -43,6 +44,7 @@ export default function buildFirstSystemPrompt(
 操作系统: {os.type()} {os.release()}
 当前日期: {YYYY-MM-DD}
 当前时间: {ISO}
+配置目录: {CHERY_DIR/.chery 绝对路径}
 </environment>
 
 <workspace>              ← 仅 workspace 给出时注入

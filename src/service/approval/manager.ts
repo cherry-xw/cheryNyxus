@@ -189,12 +189,27 @@ export class ApprovalManager {
    * pending sense 在 DB 保持 content=NULL，重启后 chat.get 判定 canResume=true，
    * 前端可走 chat.resume 撤回重跑。用户主动 chat.abort 触发，observer 唤主报错。
    */
-  abort(approvalId: string): void {
-    if (this.approvals.has(approvalId)) {
-      rejectApproval(approvalId, new AgentAbortError())
-      this.approvals.delete(approvalId)
-      this.clearExpiry(approvalId)
-    }
+  abort(approvalId: string, reason = '用户停止运行'): boolean {
+    if (!this.approvals.has(approvalId)) return false
+    const interaction = transitionInteraction(
+      approvalId,
+      ['pending', 'resolving', 'blocked'],
+      'cancelled',
+      { action: 'reject', reason },
+    )
+    broadcastInteractionChanged(interaction)
+    rejectApproval(approvalId, new AgentAbortError())
+    this.approvals.delete(approvalId)
+    this.clearExpiry(approvalId)
+    return true
+  }
+
+  /** Abort every live approval owned by a chat, including detached input runs. */
+  abortForChat(chatId: string, reason = '用户停止运行'): string[] {
+    const approvalIds = [...this.approvals.entries()]
+      .filter(([, payload]) => payload?.chatId === chatId)
+      .map(([approvalId]) => approvalId)
+    return approvalIds.filter((approvalId) => this.abort(approvalId, reason))
   }
 }
 

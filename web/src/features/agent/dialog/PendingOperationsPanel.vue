@@ -17,6 +17,7 @@ import { useInteractionsStore } from '@/stores'
 import type { InteractionRecord } from '@/services/agentApi'
 import ParsedArgs from '@/features/agent/cards/ParsedArgs.vue'
 import { toSenseNameZh } from '@/utils/senseName'
+import { parseArgs } from '@/utils/parseArgs'
 
 const props = defineProps<{
   /** 当前工作台窗口的根会话 id（「当前树」范围判定；缺省则默认全部）。 */
@@ -161,8 +162,39 @@ function toggleExpanded(): void {
   expanded.value = !expanded.value
 }
 
-/** 工具能力解释（后端注入 sense 定义 description；config_manage 等）。缺失时不展示。 */
+/**
+ * config_manage 各 action 的用户可见短描述（核心任务 + 当前操作一句，前端维护）。
+ * 仅展示实际发起的 action，避免全量能力说明堆叠——「用到哪里看到哪里」。
+ */
+const CONFIG_MANAGE_ACTION_DESC: Record<string, string> = {
+  get: '读取 .chery/config.yaml 完整脱敏配置并返回回滚点列表',
+  save: '把改动后的完整配置写盘保存（写盘前自动备份旧配置）',
+  rollback: '从 .chery/backups/ 恢复指定（或缺省最近）备份',
+}
+
+/** 从审批 arguments（JSON 字符串或对象，复用 parseArgs 契约）安全提取 action 字段。 */
+function argsActionOf(item: InteractionRecord): string | undefined {
+  const { parsed } = parseArgs(payload(item).arguments)
+  const action = parsed?.entries.find((entry) => entry.key === 'action')?.value
+  return typeof action === 'string' && action.trim() ? action : undefined
+}
+
+/**
+ * config_manage 审批说明：按实际发起的 action 裁剪为「核心任务 + 当前操作」一句。
+ * action 缺失/未知时返回 undefined（不展示说明，宁缺毋滥）。
+ */
+function configManageDescriptionOf(item: InteractionRecord): string | undefined {
+  const action = argsActionOf(item)
+  const actionDesc = action ? CONFIG_MANAGE_ACTION_DESC[action] : undefined
+  if (!actionDesc) return undefined
+  return `核心任务：管理 .chery/config.yaml 配置。\n当前操作（${action}）：${actionDesc}`
+}
+
+/** 工具能力解释（后端注入 sense 定义 description；config_manage 按 action 裁剪）。缺失时不展示。 */
 function senseDescriptionOf(item: InteractionRecord): string | undefined {
+  if (String(payload(item).senseName ?? '') === 'config_manage') {
+    return configManageDescriptionOf(item)
+  }
   const desc = payload(item).senseDescription
   return typeof desc === 'string' && desc.trim() ? desc.trim() : undefined
 }

@@ -32,6 +32,7 @@
 - [agent/README.md](./agent/README.md) — 总览
 - [middleware.md](./agent/middleware.md) — checkpoint / sense / retry / chat / loop 五中间件 + 审批（**核心文档**）
 - [prompt.md](./agent/prompt.md) — system prompt 构建 + skill / plugin 加载
+- [prompt-guide.md](./agent/prompt-guide.md) — **提示词编写规范 + 问题排查清单**（感官/schema/提示词踩坑要点 + 历史 bug 诊断库，新增感官前必读）
 - [provider.md](./agent/provider.md) — openai / ollama / mock 三 Adapter
 - [sense.md](./agent/sense.md) — 内置感官 bash / read / write / skill
 - [curator.md](./agent/curator.md) — curator 角色（记忆维护者：Extract / Dream）

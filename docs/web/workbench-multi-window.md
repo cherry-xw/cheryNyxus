@@ -108,6 +108,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 
 - 后端审批注册时从 senseRegistry 注入 sense 定义 `description` → `ApprovalPayload.senseDescription` → interaction payload（[manager.ts](../../src/service/approval/manager.ts) / [observer.ts](../../src/service/chat/observer.ts)）。
 - 前端卡片展开时在参数区上方以**小字 + 主题色左条**展示（`.sense-desc`）；config_manage 等用户不了解能力的工具据此说明 get/save/rollback 全部能力。缺失描述不展示。
+- **config_manage 按实际发起 action 裁剪（2026-08-23）**：解析 `arguments.action`（复用 [parseArgs](../../web/src/utils/parseArgs.ts)），仅展示「核心任务：管理 .chery/config.yaml 配置」+ 当前 action 对应一句（get/save/rollback 映射 `CONFIG_MANAGE_ACTION_DESC`，见 [PendingOperationsPanel.vue](../../web/src/features/agent/dialog/PendingOperationsPanel.vue)），避免全量能力说明堆叠——「用到哪里看到哪里」；action 缺失/未知时不展示。其余 sense 仍回退原始 `senseDescription`。
 
 ### 节点展开与动画
 

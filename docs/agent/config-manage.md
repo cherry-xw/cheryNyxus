@@ -20,21 +20,17 @@ Cherry Nexus（`cheryNyxus`）是**唯一**被授权直接管理 `.chery/` 配�
 
 ### schema（action 三态）
 
+> **陷阱提醒**：不可用 `z.discriminatedUnion('action', [...])`——其转 JSON Schema 时顶层 `required`/`properties` 丢失（仅 `oneOf` 分支内部有），`senseCreator` 以 `required ?? []` 兜底 → 模型端 tool 定义 `required: []`，action 不再被强制，LLM 会漏传（历史事故见 [prompt-guide.md](./prompt-guide.md) 规范 #3）。必须用普通 object + enum，保证 `toJSONSchema().required` 含 `action`。
+
 ```ts
-z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('get'),
-  }),
-  z.object({
-    action: z.literal('save'),
-    config: z.record(z.unknown()).describe('完整配置对象（roles/sense_groups/global/llm/presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 返回的完整脱敏配置改造，未改字段保留原值；敏感 key 字段可原样传回 [REDACTED] 哨兵（自动保留盘上原值）'),
-  }),
-  z.object({
-    action: z.literal('rollback'),
-    // 可选：指定备份文件名（.chery/backups/ 下）；缺省用最近一份
-    backup: z.string().optional().describe('回滚目标备份文件名（缺省最近一份）'),
-  }),
-])
+z.object({
+  action: z.enum(['get', 'save', 'rollback']).describe('操作类型，必填：get 读取 / save 保存 / rollback 回滚'),
+  config: z
+    .record(z.unknown())
+    .optional()
+    .describe('save 用：完整配置对象（roles/sense_groups/global/llm/presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 返回的完整脱敏配置改造，未改字段保留原值；敏感 key 字段可原样传回 [REDACTED] 哨兵（自动保留盘上原值）'),
+  backup: z.string().optional().describe('rollback 用：回滚目标备份文件名（.chery/backups/ 下，缺省最近一份）'),
+})
 ```
 
 ### action 行为

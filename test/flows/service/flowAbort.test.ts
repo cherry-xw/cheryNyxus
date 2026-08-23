@@ -8,14 +8,18 @@
  * runId = chat.send 的 Request.id（types.ts：runId 等于启动该运行的 Request.id）。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
+import { randomUUID } from 'node:crypto'
 import { deleteChat } from '@/db/chat.js'
+import { getInteraction } from '@/db/interaction.js'
+import { approvalManager } from '@/service/approval/manager.js'
+import { isChatRunning } from '@/service/chat/runtime.js'
 import type {
   ChatAbortResponseData,
   ChatGetResponseData,
   ChatCreateResponseData,
 } from '@/service/message/types.js'
 import { bootFlowService, connectClient, type FlowService } from '../helpers/serviceHarness.js'
-import { allEvents, interrupts, waitForNotification } from '../helpers/eventsAssert.js'
+import { allEvents, interrupts, waitFor, waitForNotification } from '../helpers/eventsAssert.js'
 import type { RpcClient } from '../../helpers/rpcClient.js'
 
 describe('S13 停止后刷新仍 resume（Tier 2 地基垂直切片）', () => {
@@ -71,5 +75,42 @@ describe('S13 停止后刷新仍 resume（Tier 2 地基垂直切片）', () => {
     const getRes = await client.call('chat.get', { chatId })
     expect(getRes.success).toBe(true)
     expect((getRes.data as ChatGetResponseData).canResume).toBe(true)
+  }, 15000)
+
+  it('chat.input.submit 脱钩运行中 abort 立即取消审批并释放 runtime', async () => {
+    const createRes = await client.call('chat.create', {
+      brain: 'mock_confirm',
+      senseGroup: 'confirm_senses',
+    })
+    expect(createRes.success).toBe(true)
+    chatId = (createRes.data as ChatCreateResponseData).chatId
+    await client.call('chat.open', { chatId })
+
+    const input = client.request('chat.input.submit', {
+      chatId,
+      commandId: randomUUID(),
+      clientMessageId: randomUUID(),
+      messageId: randomUUID(),
+      content: '写文件',
+    })
+    const ack = await client.awaitResponse(input)
+    expect(ack.success).toBe(true)
+    const interrupt = await waitForNotification(() => input.events, 'interrupt')
+    const approvalId = (interrupt.data as { approvalId: string }).approvalId
+    expect(approvalManager.has(approvalId)).toBe(true)
+    expect(getInteraction(approvalId)?.status).toBe('pending')
+
+    const abortRes = await client.call('chat.abort', { chatId })
+    expect(abortRes.success).toBe(true)
+    expect((abortRes.data as ChatAbortResponseData).aborted).toBe(true)
+    expect(approvalManager.has(approvalId)).toBe(false)
+    expect(getInteraction(approvalId)).toMatchObject({
+      status: 'cancelled',
+      result: { action: 'reject', reason: '用户停止运行' },
+    })
+    await waitFor(
+      () => input.events,
+      () => (!isChatRunning(chatId) ? true : undefined),
+    )
   }, 15000)
 })

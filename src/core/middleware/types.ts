@@ -14,6 +14,7 @@ import type { ToolAuthorization } from '../security/rolePolicy.js'
 import type { GlobalConfig, BrainConfig } from '@/utils/config'
 import type { Logger } from '@/utils/logger/types.js'
 import type { MessageJournal } from './messageJournal.js'
+import type { ZodType } from 'zod'
 import { SupervisionLevel } from '../config.js'
 
 export type { LLMAdapter } from '../llm/adapter'
@@ -77,6 +78,12 @@ export interface SenseEntry {
     sharedData: SenseSharedData,
     ctx?: SenseRuntimeContext,
   ) => Promise<SenseResult>
+  /**
+   * 感官声明 schema（可选：内置/外部 sense 由 builder 摊平时注入；无 schema 的入口
+   * 如 MCP 场景为 undefined → buildSenseTrigger 跳过运行时校验）。
+   * 用途：执行前 safeParse 拦截缺参/非法参数调用，避免空参数直达 handler 或进入审批。
+   */
+  schema?: ZodType
 }
 
 /**

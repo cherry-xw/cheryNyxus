@@ -48,6 +48,8 @@ export interface Sense<T extends z.ZodType> {
 
 `definition` 由 `schema.toJSONSchema()` 自动生成（zod → JSON Schema），无需手写参数描述：
 
+> ⚠ **schema 陷阱**：`z.discriminatedUnion('action', [...])` 转 JSON Schema 时顶层 `required`/`properties` 为 `undefined`（仅 `oneOf` 分支内部有），`required ?? []` 兜底后模型端 tool 定义 `required: []`——必填参数不再被强制，LLM 会漏传（历史事故见 [prompt-guide.md](../agent/prompt-guide.md) 规范 #3）。**必填参数用普通 `z.object` + `z.enum`，且断言 `toJSONSchema().required` 非空**。
+
 ```ts
 export interface SenseFunction {
   type: "function";
@@ -77,6 +79,8 @@ export interface SenseRuntimeContext {
 `hash` 用于**历史去重**（如 `read_file` 的 hash 含文件 mtime：新读取命中相同 hash = 文件未变 → 旧 sense 消息被替换为短说明，详见 [`agent/middleware/tool.ts`](../../src/agent/middleware/tool.ts) `doExecuteSense`）。
 
 **hash 语义约束**：hash 仅用于"内容稳定可折叠"型 sense（如 read_file 类文件读取）。**派发标识型** sense（hash 命中 ≠ 重复派发任务，仅是同一子 chat 复用等）不应返回 hash，否则会被 `doExecuteSense` 错误触发 `replaceSense` 折叠，造成 prompt 参数丢失 + 链式替换。`tool.ts` 维护 `NON_DEDUPABLE_SENSES` 黑名单作为双保险（当前含 `spawn_role`）。
+
+**运行时 schema 校验**：`doExecuteSense`（[agent/middleware/tool.ts](../../src/agent/middleware/tool.ts)）执行前对 `senseEntry.executor.schema` 做 `safeParse`——校验失败返回结构化错误（列出缺失/非法字段），**不再把原始参数直接丢给 handler**。两个收益：① 空参数调用在进入监管审批**之前**被拦截（避免"空调用进 smart 审批 → 超时被拒"的恶性循环）；② handler 可少写参数兜底逻辑（fail-loud fallback 保留为双保险）。
 
 ### SenseSharedData（感官间共享数据）
 

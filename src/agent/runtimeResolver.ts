@@ -353,6 +353,8 @@ export class RuntimeResolver {
         supervisionLevel: s.supervisionLevel ?? config.global.supervision,
         execute: (args, sharedData, ctx) =>
           s.executor.execute(args as Parameters<typeof s.executor.execute>[0], sharedData, ctx),
+        // 透传 schema 供 senseMiddleware 执行前 safeParse（运行时校验拦截缺参调用）
+        schema: s.executor.schema,
       })
     }
     return senseTable

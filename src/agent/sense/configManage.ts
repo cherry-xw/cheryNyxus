@@ -30,25 +30,23 @@ import {
  * 详见 docs/agent/config-manage.md。
  */
 
-const getSchema = z.object({
-  action: z.literal('get'),
-})
-
-const saveSchema = z.object({
-  action: z.literal('save'),
+// 注意：不可用 z.discriminatedUnion（转 JSON Schema 顶层 required/properties 丢失 → 模型端
+// required=[] → action 不被强制，LLM 会漏传）。必须普通 object + enum，保证 required 含 action。
+// 详见 docs/agent/prompt-guide.md 规范 #3。
+const ConfigManageSchema = z.object({
+  action: z
+    .enum(['get', 'save', 'rollback'])
+    .describe('操作类型，必填：get 读取 / save 保存 / rollback 回滚'),
   config: z
     .record(z.string(), z.unknown())
+    .optional()
     .describe(
-      '完整配置对象（roles / sense_groups / global / llm / media / mcp_servers / presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 返回的完整脱敏配置改造，未改字段保留原值；敏感 key 传回 [REDACTED] 哨兵自动保留盘上原值',
+      'save 必填：完整配置对象（roles / sense_groups / global / llm / media / mcp_servers / presets 等 config.yaml 字段；server 段保留不动）。由 config_manage(action="get") 返回的完整脱敏配置改造，未改字段保留原值；敏感 key 传回 [REDACTED] 哨兵自动保留盘上原值',
     ),
-})
-
-const rollbackSchema = z.object({
-  action: z.literal('rollback'),
   backup: z
     .string()
     .optional()
-    .describe('回滚目标备份文件名（.chery/backups/ 下，如 config-20260821-120000.yaml）；缺省用最近一份'),
+    .describe('rollback 用：回滚目标备份文件名（.chery/backups/ 下，如 config-20260821-120000.yaml）；缺省用最近一份'),
 })
 
 /** get：读盘返回完整脱敏配置（可 round-trip 传回 save）+ backups 回滚点。backups 独立于 config 对象，避免污染 save 入参。 */
@@ -121,12 +119,24 @@ const configManageDescription = `管理 .chery/config.yaml 配置（配置管理
 export default sense(
   'config_manage',
   configManageDescription,
-  z.discriminatedUnion('action', [getSchema, saveSchema, rollbackSchema]),
+  ConfigManageSchema,
   async (args): Promise<SenseResult> => {
     if (args.action === 'get') return doGet()
-    if (args.action === 'save') return doSave(args.config)
+    if (args.action === 'save') {
+      // config 为 optional（enum 后无法用 discriminatedUnion 表达"save 时必填"），此处显式校验
+      if (!args.config) {
+        return {
+          content:
+            '错误：config_manage action="save" 需要 config 参数（基于 get 返回的完整对象改动后整体传回）。\n' +
+            '请先调用 config_manage(action="get") 获取当前配置，修改后以 action="save"+config 传回。',
+          hash: '',
+        }
+      }
+      return doSave(args.config)
+    }
     if (args.action === 'rollback') return doRollback(args.backup)
     // 缺/未知 action：明确报错并给出用法，绝不静默兜底为 rollback（避免误触发无备份回滚）。
+    // （运行时 schema safeParse 已在前置拦截缺 action，此处为双保险 fail-loud。）
     return {
       content:
         '错误：config_manage 必须显式指定 action（get / save / rollback），本次调用缺少 action，未执行任何操作。\n' +

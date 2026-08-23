@@ -296,6 +296,55 @@ function buildSenseTrigger(
   const senseEntry = ctx.runtime.senseTable.get(name)
   const configuredLevel = senseEntry?.supervisionLevel ?? SupervisionLevel.smart
   const args = safeJsonParse(argsJson, {})
+
+  // 运行时 schema 校验：审批创建前拦截缺参/非法参数调用（纵深防御）。
+  // 背景：zod schema 转 JSON Schema 可能丢失 required（如 z.discriminatedUnion 顶层 required 缺失，
+  //   见 docs/agent/prompt-guide.md 规范 #3），且 LLM 可能漏传必填参数（历史事故：config_manage 空调用）。
+  // 校验失败 → 构造 deny 授权 + preDenied call → Phase 2 直接 yield sense_reject，
+  //   不进审批（避免"空调用进 smart 审批 → 超时被拒"恶性循环）。schema 缺省（MCP 等入口）跳过校验。
+  const entrySchema = senseEntry?.schema
+  if (entrySchema) {
+    const parsed = entrySchema.safeParse(args)
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((issue) => `${issue.path.join('.') || '(根)'}: ${issue.message}`)
+        .join('；')
+      const deniedAuth: ToolAuthorization = {
+        decision: 'deny',
+        roleType: 'unassigned',
+        policyHash: '',
+        findings: [
+          {
+            code: 'schema.invalid-arguments',
+            category: 'unknown',
+            severity: 'unknown',
+            message: `参数校验失败（${name}）：${issues}。请补充/修正必填参数后重试。`,
+          },
+        ],
+        assessmentHash: '',
+      }
+      const trigger: SenseTriggerChunk = {
+        type: 'sense_end',
+        id,
+        name,
+        arguments: argsJson,
+        supervisionLevel: SupervisionLevel.auto,
+        security: deniedAuth,
+      }
+      return {
+        trigger,
+        call: {
+          id,
+          name,
+          argsJson,
+          supervisionLevel: SupervisionLevel.auto,
+          authorization: deniedAuth,
+          preDenied: true,
+        },
+      }
+    }
+  }
+
   const legacySafe = configuredLevel === SupervisionLevel.smart
     ? isSafeSenseCall(ctx.runtime.sensitivityRules, name, args)
     : undefined

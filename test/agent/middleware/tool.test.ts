@@ -30,10 +30,12 @@ import {
   sensePendings,
   messageUpdated,
 } from "../helpers/chunkAssert.js";
-import { createMockContext, createMockRuntime, createTestSense, makeNext } from "../helpers/fakeContext.js";
+import { createMockContext, createMockRuntime, createTestSense, makeNext, streamChunk } from "../helpers/fakeContext.js";
 import { addMockBrain, scriptItem } from "../helpers/mockScripts.js";
 import { createTempDir, cleanupTempDir, createTempFile } from "../../helpers/tempDir.js";
 import { AgentAbortError } from "@/core/middleware/errors.js";
+import { SupervisionLevel } from "@/core/config.js";
+import { z } from "zod";
 
 describe("senseMiddleware 集成：auto 执行", () => {
   beforeAll(async () => {
@@ -242,5 +244,75 @@ describe("senseMiddleware 集成：批量审批 sequential（P1.9）", () => {
     } finally {
       cleanupTempDir(dir);
     }
+  });
+});
+
+describe("senseMiddleware 运行时 schema 校验（P1 缺参拦截）", () => {
+  it("smart 级缺必填参数调用 → 直接 sense_reject，不产生 sense_pending（不进审批）", async () => {
+    const testSense = createTestSense(
+      "strict_tool",
+      async () => ({ content: "executed", hash: "" }),
+      SupervisionLevel.smart,
+      z.object({ action: z.enum(["get", "save"]) }),
+    );
+    const ctx = createMockContext({
+      runtime: createMockRuntime({ senses: [testSense] }),
+    });
+    // 空参数调用：schema safeParse 失败 → preDenied → sense_reject，且不创建审批
+    const out = await collectChunks(
+      senseMiddleware(
+        ctx,
+        makeNext([streamChunk({ senseDelta: [{ id: "c1", name: "strict_tool", arguments: "{}" }] })]),
+      ),
+    );
+    expect(sensePendings(out)).toHaveLength(0);
+    const rejects = senseRejects(out);
+    expect(rejects).toHaveLength(1);
+    expect(rejects[0]?.name).toBe("strict_tool");
+    expect(rejects[0]?.reason).toContain("参数校验失败");
+    expect(senseAccepts(out)).toHaveLength(0);
+  });
+
+  it("合法参数 → 正常执行（schema 校验不误拦）", async () => {
+    const testSense = createTestSense(
+      "strict_tool",
+      async () => ({ content: "executed", hash: "" }),
+      SupervisionLevel.smart,
+      z.object({ action: z.enum(["get", "save"]) }),
+    );
+    const ctx = createMockContext({
+      runtime: createMockRuntime({ senses: [testSense] }),
+    });
+    const out = await collectChunks(
+      senseMiddleware(
+        ctx,
+        makeNext([
+          streamChunk({
+            senseDelta: [{ id: "c2", name: "strict_tool", arguments: JSON.stringify({ action: "get" }) }],
+          }),
+        ]),
+      ),
+    );
+    expect(senseRejects(out)).toHaveLength(0);
+    const accepts = senseAccepts(out);
+    expect(accepts).toHaveLength(1);
+    expect(accepts[0]?.result).toBe("executed");
+  });
+
+  it("无 schema 的 sense 跳过校验（空参数仍可执行）", async () => {
+    // 默认 createTestSense schema = z.record(z.unknown())（宽松），空对象可通过 → 正常执行
+    const testSense = createTestSense("loose_tool", async () => ({ content: "ok", hash: "" }));
+    const ctx = createMockContext({
+      runtime: createMockRuntime({ senses: [testSense] }),
+    });
+    const out = await collectChunks(
+      senseMiddleware(
+        ctx,
+        makeNext([streamChunk({ senseDelta: [{ id: "c3", name: "loose_tool", arguments: "{}" }] })]),
+      ),
+    );
+    const accepts = senseAccepts(out);
+    expect(accepts).toHaveLength(1);
+    expect(accepts[0]?.result).toBe("ok");
   });
 });

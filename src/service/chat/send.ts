@@ -36,7 +36,6 @@ import { approvalManager } from '../approval/manager.js'
 import { findPendingQuestionBatchByQuestionId, hasPendingQuestionBatches } from '@/db/question.js'
 import { resolveQuestionBatch } from './wake.js'
 import { connectionManager } from '../websocket/connection.js'
-import { disconnectGrace } from '../websocket/disconnectGrace.js'
 import {
   ensureChat,
   clearChatRuntime,
@@ -535,15 +534,15 @@ export async function handleSenseQuestionBatchAnswer(
  * pending sense content 保持 NULL，下次 chat.get canResume=true 重新审核。
  */
 /**
- * reject 该 run 的挂起审批（若存在）：approvalManager.abort → rejectApproval(AgentAbortError)，
+ * reject 该 chat 的挂起审批（若存在）：approvalManager.abort → rejectApproval(AgentAbortError)，
  * 使 senseMiddleware 的 `await Promise.all(approvals)` 抛错退出 generator。
  * 单独的 compose.abort()→gen.throw 注入到「await 外部 pending promise」挂起点在此 yield* 链不可靠，
  * 故 abort-during-approval 必须走 promise reject 路径（与 park/用户超时一致）。
+ * 审批归属是 chat 域事实，不能依赖 WebSocket/disconnectGrace 的 request 跟踪：
+ * chat.input.submit 在 RPC ACK 后脱钩运行，此时传输层跟踪已经结束。
  */
-export function abortPendingApproval(runId: string | undefined): void {
-  if (!runId) return
-  const approvalId = disconnectGrace.getPendingApprovalId(runId)
-  if (approvalId) approvalManager.abort(approvalId)
+export function abortPendingApprovals(chatId: string): void {
+  approvalManager.abortForChat(chatId)
 }
 
 export async function handleChatAbort(
@@ -607,7 +606,7 @@ export async function handleChatAbort(
       if (treePauseId) addTreePauseTarget(treePauseId, childId, childRunId)
       emitTimelinePatch(childId, baseRevision)
       // 先 reject 挂起审批（可靠中断 approval.wait），再 gen.throw（中断流式 yield 挂起）。
-      abortPendingApproval(childRunId)
+      abortPendingApprovals(childId)
       abortChatRuntime(childId)
       results.push({
         chatId: childId,
@@ -641,7 +640,7 @@ export async function handleChatAbort(
     })
     if (treePauseId) addTreePauseTarget(treePauseId, data.chatId, activeRunId)
     emitTimelinePatch(data.chatId, baseRevision)
-    abortPendingApproval(activeRunId)
+    abortPendingApprovals(data.chatId)
     abortChatRuntime(data.chatId)
     results.push({
       chatId: data.chatId,

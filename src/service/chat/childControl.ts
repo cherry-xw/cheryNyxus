@@ -21,7 +21,7 @@ import { computeCanResume } from './canResume.js'
 import { recordTerminationFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { abortChatRuntime, clearChatRuntime, getActiveChatRunId, isChatRunning } from './runtime.js'
-import { abortPendingApproval } from './send.js'
+import { abortPendingApprovals } from './send.js'
 
 function metadataOf(chatId: string): Record<string, unknown> {
   const raw = getChat(chatId)?.metadata
@@ -110,7 +110,7 @@ function redirectOne(
     emitTimelinePatch(chatId, baseRevision)
     clearWaitedChild(chatId)
     clearWaitedChildrenByParent(chatId)
-    abortPendingApproval(getActiveChatRunId(chatId))
+    abortPendingApprovals(chatId)
     abortChatRuntime(chatId)
     connectionManager.forceReleaseChatConnection(chatId)
     clearChatRuntime(chatId)

@@ -83,6 +83,8 @@ export default sense(
       return {
         content:
           '状态: error\n说明: 当前会话没有有效工作区（preset 未配置 workspace），无法执行命令。' +
+          '本会话没有可用的工作目录基准：路径类操作（read_file / search_codebase 等）请以系统提示词 ' +
+          '<environment> 段的「配置目录」绝对路径为锚点推导，不要使用相对路径或 pwd 猜测；' +
           '读取/修改 .chery 配置请改用 config_manage 感官（action="get"/"save"/"rollback"）。',
       }
     }

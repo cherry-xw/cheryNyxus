@@ -1480,6 +1480,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       const wasRunning = s.run.status === 'running'
       s.run.status = 'paused'
       s.run.activeRunId = undefined
+      s.interaction.approval = undefined
+      s.interaction.approvalQueue = []
       s.interaction.runningTools = []
       // canResume 镜像：暂停即可续，但存在待答提问时仍不可续（computeCanResume 短路一致，
       // 由 questionBatches 覆盖「继续」判定为「回答提问」）。
