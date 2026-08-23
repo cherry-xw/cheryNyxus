@@ -1604,7 +1604,8 @@ export interface ChatTimelineGetRequestData {
   rootChatId?: string
   taskId?: string
   view?: 'conversation' | 'tree' | 'audit'
-  before?: string
+  /** Legacy 路径 = 字符串复合游标（createdAt/id 编码，chat.get 同构）；lite P1-② = number（orderKey 排他下界，返回 orderKey < before 的更早页）。 */
+  before?: string | number
   limit?: number
   knownRevision?: number
 }

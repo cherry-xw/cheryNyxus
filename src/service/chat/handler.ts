@@ -1471,8 +1471,10 @@ export async function handleChatTimelineGet(
   }
   const revision = getTimelineRevision(requestedChatId)
   let messages = buildCanonicalTimeline(requestedChatId)
-  const cursor = data.before ? decodeTimelineCursor(data.before) : undefined
-  if (data.before && !cursor) throw new Error('历史分页游标无效')
+  // lite P1-② 的 number 游标（orderKey）不进本 legacy 消息路径（由 lite 投影层消费）；仅字符串复合游标在此解码。
+  const cursor =
+    typeof data.before === 'string' ? decodeTimelineCursor(data.before) : undefined
+  if (typeof data.before === 'string' && !cursor) throw new Error('历史分页游标无效')
   if (cursor) {
     messages = messages.filter(
       (m) =>

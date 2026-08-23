@@ -5,12 +5,14 @@ import { LogLevel } from '@/utils/logger/types.js'
 import { getRootChatId } from '@/db/chat.js'
 import { applyLiteEvent, type LiteProfile } from './liteProjection.js'
 
-/** 对一批出站 item 应用 lite 投影；抑制项从数组中剔除。 */
+/** 对一批出站 item 应用 lite 投影；抑制项从数组中剔除；分片多帧（turn.delta 超预算）摊平。 */
 function projectLite(profile: LiteProfile, items: unknown[]): unknown[] {
   const out: unknown[] = []
   for (const item of items) {
     const projected = applyLiteEvent(profile, item)
-    if (projected !== undefined) out.push(projected)
+    if (projected === undefined) continue
+    if (Array.isArray(projected)) out.push(...projected)
+    else out.push(projected)
   }
   return out
 }

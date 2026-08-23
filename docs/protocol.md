@@ -502,7 +502,7 @@ Web 静态服务（端口 `config.server.webPort`，优先级 `WEB_PORT` 环境�
 
 ### 连接声明与握手
 
-- **URL 查询参数**：`?profile=lite&v=1`（与 `?token=` 同风格）。可选参数：`maxFrameBytes=N`（512–65536，缺省 4096，单帧字节预算）、`turnDelta=1`（订阅 turn.delta 单通道流，P1 语义）。
+- **URL 查询参数**：`?profile=lite&v=1`（与 `?token=` 同风格）。可选参数：`maxFrameBytes=N`（512–65536，缺省 4096，单帧字节预算）、`turnDelta=1`（订阅 turn.delta 单通道流，P1 语义，in_progress）。
 - **未知版本拒绝（D14）**：`profile=lite` 但 `v` 不在支持列表时，握手期 `close(4001, JSON.stringify({supportedVersions: [1]}))`——设备在握手层机读判定，不进入消息循环（websocket/index.ts parseLiteProfile）。
 
 ### 信封最小化（lite 连接的 Notification 帧）
@@ -515,6 +515,7 @@ lite 连接上 `chat.timeline.get` 与 `chat.open` 的响应经传输层投影�
 
 - `rootTimeline.nodes` 逐节点映射为 **LeanTimelineNode**（字段集见 canonical §3.6.2；`contentLength` 为字符数口径，与 web 端 TimelineNode 一致；超预算截断时附 `contentHash`）；`edges` 置 `[]`（D7：conversation 顺序 = orderKey 全序）。
 - **分页与预告（D6）**：节点数 > 20 时取 orderKey 最大的 20 条（最新窗口），响应附 `nodeCount`（窗口内总节点数）与 `hasMore: true`（≤20 时仅 `nodeCount`）。
+- **游标分页（P1-2，已实现）**：lite 连接上 `chat.timeline.get` / `chat.open` 请求可携带 `before`（number = 上一页返回的 `nextCursor`，orderKey 排他下界：只返回 orderKey < before 的更早节点）与 `limit`（int 1..100，缺省 20）。响应增 `nextCursor`（number = 本页最小 orderKey，hasMore:true 时携带，客户端以它续拉）。与 P0 兼容：不带参数时行为与 P0 完全一致；nodeCount/hasMore 语义不变。**服务端按 maxFrameBytes 自动收缩 limit（T30）**：页大小 = min(请求 limit, maxFrameBytes−512B 信封开销可容纳的 lean 节点数)——从最新端（orderKey 大者）按 lean 实际序列化字节数装箱，超预算即止；至少保留 1 节点，hasMore/nextCursor 续拉补齐。收缩后 hasMore 判定为「实际下发页 < 窗口内总数」（含 total ≤ limit 但超字节的场景）。`interaction.list` 维持 P0 的 maxItems+hasMore 全量重拉窗口（T6 R8 决策不变，无 OFFSET 游标）。历史分页游标以 orderKey 直接表达（非 legacy chat.get 的 createdAt/id 复合编码）。
 - **state 快照 lean 集（B-11）**：`activeTurns` → `{chatId, turnId, messageId, createdAt}`（去累计文本）；`questionBatches` → `{batchId, interactionId}`（去题干，详情走 interaction.list）；`runningTools` → `{id, senseName}`（工具名级）；`roles` → `{taskId, chatId, parentChatId, type, state}`（去 prompt 等长字段）；`pendingInputs` **保留 content**（冷启动恢复用户输入）。activeRuns/generations 等其余快照键保留。
 
 ### 事件截断引用（truncations）
@@ -586,7 +587,7 @@ pending ──claim(CAS: WHERE revision=?)──▶ resolving ──决策/应�
 
 ## 版本定位（lite profile 依赖）
 
-上述 interaction.* / chat.input.submit / 六种通知为**已实现（implemented）**，即 MCU lite profile（[mcu-lite-api.md](./mcu-lite-api.md)，P0 已实现）的 v1 基础。lite profile 的连接级裁剪、LeanTimelineNode 投影、`chat.timeline.node.get` 均已随 **P0 落地（implemented）**，wire 层事实（连接声明/信封最小化/Response 投影/truncations/node.get）见「lite profile 连接级投影」节；节点投影定义见 [multi-agent-canonical-timeline.md §3.6 精简投影（lite profile）](./multi-agent-canonical-timeline.md)。D13 扩展错误码（INTERACTION_STALE / INTERACTION_ALREADY_RESOLVED / COMMAND_CONFLICT / INPUT_QUEUE_FULL / PROFILE_VERSION_UNSUPPORTED / RATE_LIMITED）已随 T20 全部注册并按场景抛出（interaction handler 显式抛码；INPUT_QUEUE_FULL 复用既有错误类 code 自动透传；PROFILE_VERSION_UNSUPPORTED/RATE_LIMITED 为注册备用/预留位，见错误码表）。P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）与 P2（HTTP lite 面/短键名/maxFrameBytes 协商）保持 planned。
+上述 interaction.* / chat.input.submit / 六种通知为**已实现（implemented）**，即 MCU lite profile（[mcu-lite-api.md](./mcu-lite-api.md)，P0 已实现）的 v1 基础。lite profile 的连接级裁剪、LeanTimelineNode 投影、`chat.timeline.node.get` 均已随 **P0 落地（implemented）**，wire 层事实（连接声明/信封最小化/Response 投影/truncations/node.get）见「lite profile 连接级投影」节；节点投影定义见 [multi-agent-canonical-timeline.md §3.6 精简投影（lite profile）](./multi-agent-canonical-timeline.md)。D13 扩展错误码（INTERACTION_STALE / INTERACTION_ALREADY_RESOLVED / COMMAND_CONFLICT / INPUT_QUEUE_FULL / PROFILE_VERSION_UNSUPPORTED / RATE_LIMITED）已随 T20 全部注册并按场景抛出（interaction handler 显式抛码；INPUT_QUEUE_FULL 复用既有错误类 code 自动透传；PROFILE_VERSION_UNSUPPORTED/RATE_LIMITED 为注册备用/预留位，见错误码表）。P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）为 in_progress（实现中）；P2（HTTP lite 面/短键名/maxFrameBytes 协商）保持 planned。
 
 ### 错误处理
 

@@ -20,7 +20,7 @@ export interface LiteProfile {
   turnDelta: boolean
 }
 
-import { truncateByBytes } from '@/utils/boundedContent.js'
+import { truncateByBytes, utf8ByteLength } from '@/utils/boundedContent.js'
 import { getRootChatId } from '@/db/chat.js'
 
 /** 当前支持的 lite 字段集版本。升级字段集必须发布新 v（D14）。 */
@@ -173,6 +173,9 @@ function pick(source: UnknownRecord, keys: readonly string[]): UnknownRecord {
 /** 常量帧开销预算：截断/投影按 maxFrameBytes − ENVELOPE_OVERHEAD 计算有效载荷（B4）。 */
 const ENVELOPE_OVERHEAD = 256
 
+/** turn.delta 单帧 delta 本体字节预算（§3.7 P1-1：≤512B/帧）。 */
+const TURN_DELTA_BYTE_BUDGET = 512
+
 function projectNotificationData(
   type: string,
   data: UnknownRecord,
@@ -180,8 +183,11 @@ function projectNotificationData(
 ): UnknownRecord {
   switch (type) {
     case 'done': {
-      // §3.4 DoneLeanData：去 contextBreakdown/used/total；finalMessage 截断；+serverNow 由 T16 增强字段（handler 侧），此处不注入。
+      // §3.4 DoneLeanData：去 contextBreakdown/used/total；finalMessage 截断。
       const projected: UnknownRecord = pick(data, ['canResume', 'finished'])
+      // B-3（§3.9）：done.serverNow 每轮免费时钟校准——事件产生面（streamMapper）不改，
+      // lite 投影层注入（wire 字段已在 DoneLeanData 契约与固件 model.c 消费，T28 补缺）。
+      projected.serverNow = Date.now()
       const fm = asRecord(data.finalMessage)
       if (fm) {
         const content = typeof fm.content === 'string' ? fm.content : ''
@@ -359,7 +365,11 @@ function boundRecordFields(
  * 对 lite 连接应用事件投影（prepareSessionEvent 与 interaction.changed 旁路共用）。
  * @returns 投影后事件；undefined = 抑制不下发。非 lite 语义由调用方短路（本函数只处理 lite）。
  */
-export function applyLiteEvent(profile: LiteProfile, event: unknown): unknown | undefined {
+export function applyLiteEvent(
+  profile: LiteProfile,
+  event: unknown,
+): unknown | undefined {
+  // 注：turn.delta 超预算时返回 unknown[]（分片多帧），由 projectLite 摊平；其余类型单值。
   const rec = asRecord(event)
   if (!rec) return event
 
@@ -384,7 +394,28 @@ export function applyLiteEvent(profile: LiteProfile, event: unknown): unknown | 
     if (SUPPRESSED_NOTIFICATION_TYPES.has(type)) return undefined
     if (type === 'turn.delta') {
       // D4：默认关；turnDelta=1 才订阅（单通道替代 0x01）。
-      return profile.turnDelta ? minimizeEnvelope(rec) : undefined
+      if (!profile.turnDelta) return undefined
+      // §3.7 P1-1：delta 本体 ≤512B/帧；offset 单调（设备按 offset 重组，丢帧自愈）；
+      // 分片不撕裂多字节字符。裁剪：仅保留 channel/offset/delta/turnId/messageId。
+      const data = asRecord(rec.data) ?? {}
+      const delta = typeof data.delta === 'string' ? data.delta : ''
+      const leanData = pick(data, ['turnId', 'messageId', 'channel', 'offset'])
+      if (utf8ByteLength(delta) <= TURN_DELTA_BYTE_BUDGET) {
+        return minimizeEnvelope({ ...rec, data: { ...leanData, delta } })
+      }
+      // 超预算：字节分片（多帧由 applyLiteEventMulti 展开，每帧独立信封+连续 offset）。
+      const frames: unknown[] = []
+      let offset = typeof data.offset === 'number' ? data.offset : 0
+      let rest = delta
+      while (rest.length > 0) {
+        const cut = truncateByBytes(rest, TURN_DELTA_BYTE_BUDGET)
+        frames.push(
+          minimizeEnvelope({ ...rec, data: { ...leanData, offset, delta: cut.text } }),
+        )
+        offset += cut.text.length // offset 按字符数递增（streamMapper 现状口径，:117-127 state.content += length）
+        rest = rest.slice(cut.text.length)
+      }
+      return frames.length > 0 ? frames : undefined
     }
     if (PROJECTED_NOTIFICATION_TYPES.has(type)) {
       const data = asRecord(rec.data) ?? {}
@@ -405,8 +436,11 @@ export function applyLiteEvent(profile: LiteProfile, event: unknown): unknown | 
  * 只做传输层裁剪，不改 handler 响应结构（serverNow/maxItems/node.get 等增强归 T16）。
  * @returns 投影后 Response；非 lite 或非目标方法原样返回。
  */
-export function applyLiteResponse(profile: LiteProfile, response: unknown): unknown {
-  void profile // 预留：Response 帧预算随 profile.maxFrameBytes 收紧（B4 有界负载归 T16）
+export function applyLiteResponse(
+  profile: LiteProfile,
+  response: unknown,
+  requestParams?: unknown,
+): unknown {
   const rec = asRecord(response)
   if (!rec || rec.success === false) return response
   const data = asRecord(rec.data)
@@ -415,21 +449,54 @@ export function applyLiteResponse(profile: LiteProfile, response: unknown): unkn
   // chat.timeline.get / chat.open 的 rootTimeline 节点投影。
   const timeline = asRecord(data.rootTimeline)
   if (timeline && Array.isArray(timeline.nodes)) {
-    const projectedNodes = timeline.nodes
+    let projectedNodes = timeline.nodes
       .map((n) => asRecord(n))
       .map((n) => (n ? projectTimelineNode(n) : undefined))
       .filter((n): n is LeanTimelineNode => !!n)
     // D6 双做（lite 连接）：默认 limit=20 分页 + nodeCount 预告（超大会话首刷防超预算）。
     // 取 orderKey 最大的 20 条（最新窗口）；hasMore + total 供设备按需再拉更早页。
     const DEFAULT_PAGE = 20
+    // P1-② 游标分页：before（orderKey 排他下界）+ limit（1..100，缺省 20）→ nextCursor 续拉。
+    const params = asRecord(requestParams)
+    const before = typeof params?.before === 'number' ? params.before : undefined
+    const cursorLimit =
+      typeof params?.limit === 'number' && Number.isInteger(params.limit) && params.limit >= 1 && params.limit <= 100
+        ? params.limit
+        : DEFAULT_PAGE
+    if (before !== undefined) {
+      projectedNodes = projectedNodes.filter((n) => n.orderKey < before)
+    }
     const total = projectedNodes.length
     let page = projectedNodes
-    if (total > DEFAULT_PAGE) {
+    if (total > cursorLimit) {
       page = projectedNodes
         .slice()
         .sort((a, b) => a.orderKey - b.orderKey)
-        .slice(total - DEFAULT_PAGE)
+        .slice(total - cursorLimit)
     }
+    // T30（§3.7 有界负载）：lite 连接按 maxFrameBytes 自动收缩 limit——chat.open 首页
+    // 与 timeline.get 在 lite 上天然 ≤maxFrameBytes。从最新端（orderKey 大者）逐节点
+    // 按 lean 实际序列化字节数装箱（JSON.stringify 精确口径，非估算），超预算即止；
+    // 至少保留 1 节点（进度可见），hasMore/nextCursor 续拉补齐。请求 limit 仍有效（作为上界约束前的页大小）。
+    const BUDGET_FIXED_OVERHEAD = 512 // 信封/固定字段（nodeCount/state 快照等）保守预算
+    const byteBudget = Math.max(1024, profile.maxFrameBytes) - BUDGET_FIXED_OVERHEAD
+    const sortedAsc = [...page].sort((a, b) => a.orderKey - b.orderKey)
+    let used = 0
+    let fitFromNewest = 0
+    for (let i = sortedAsc.length - 1; i >= 0; i--) {
+      const nodeBytes = Buffer.byteLength(JSON.stringify(sortedAsc[i]), 'utf8')
+      if (used + nodeBytes > byteBudget) break
+      used += nodeBytes
+      fitFromNewest++
+    }
+    const effectiveFit = Math.max(1, fitFromNewest)
+    if (effectiveFit < sortedAsc.length) {
+      page = sortedAsc.slice(sortedAsc.length - effectiveFit)
+    }
+    // P1-②：hasMore 时附 nextCursor（本页最小 orderKey），客户端以它作为下页 before。
+    const oldest = [...page].sort((a, b) => a.orderKey - b.orderKey)[0]
+    const nextCursor =
+      page.length < total && oldest ? { nextCursor: oldest.orderKey } : {}
     // state 快照 lean 投影（B-11）：activeTurns 不带累计文本、questionBatches/roles 不带题干/全量字段。
     const state = asRecord(data.state)
     return {
@@ -439,7 +506,9 @@ export function applyLiteResponse(profile: LiteProfile, response: unknown): unkn
         rootTimeline: {
           ...timeline,
           nodes: page,
-          ...(total > DEFAULT_PAGE ? { nodeCount: total, hasMore: true } : { nodeCount: total }),
+          // T30：hasMore 判定用实际下发页 vs total（含字节收缩场景：total ≤ limit 但超 maxFrameBytes）。
+          ...(total > page.length ? { nodeCount: total, hasMore: true } : { nodeCount: total }),
+          ...nextCursor,
           edges: [], // D7：edges 不投影
           // activeRuns/pendingInputs/generations 等保留（低频快照，有界负载归 T16）
         },

@@ -42,10 +42,38 @@ describe('lite 白名单矩阵：抑制类', () => {
     }
   })
 
-  it('turn.delta 默认关（turnDelta=0 抑制，=1 透传）', () => {
-    const delta = notification('turn.delta', { turnId: 't1', messageId: 't1', channel: 'content', offset: 0, delta: 'x' })
+  it('turn.delta 默认关（turnDelta=0 抑制）；开启时 data 裁剪为 channel/offset/delta/turnId/messageId', () => {
+    const delta = notification('turn.delta', { turnId: 't1', messageId: 't1', channel: 'content', offset: 0, delta: 'x', runId: 'r1', extra: 'noise' })
     expect(applyLiteEvent(profile, delta)).toBeUndefined()
-    expect(applyLiteEvent(turnDeltaProfile, delta)).toBeDefined()
+    const out = applyLiteEvent(turnDeltaProfile, delta) as Notification
+    expect(out.data).toEqual({ turnId: 't1', messageId: 't1', channel: 'content', offset: 0, delta: 'x' })
+  })
+
+  it('turn.delta 小增量（≤512B）单帧直发', () => {
+    const small = notification('turn.delta', { turnId: 't1', messageId: 't1', channel: 'content', offset: 10, delta: '短增量' })
+    const out = applyLiteEvent(turnDeltaProfile, small)
+    expect(Array.isArray(out)).toBe(false)
+    expect((out as Notification).data).toEqual({ turnId: 't1', messageId: 't1', channel: 'content', offset: 10, delta: '短增量' })
+  })
+
+  it('turn.delta 超预算分片：每帧 ≤512B、不撕裂多字节、offset 字符数连续', () => {
+    // 200 个中文 = 600 字节，必然分片
+    const big = '汉'.repeat(200)
+    const out = applyLiteEvent(turnDeltaProfile, notification('turn.delta', { turnId: 't1', messageId: 't1', channel: 'content', offset: 5, delta: big }))
+    expect(Array.isArray(out)).toBe(true)
+    const frames = (out as Array<Notification>).map(f => f.data as Record<string, unknown>)
+    let reassembled = ''
+    let expectedOffset = 5
+    for (const f of frames) {
+      const delta = f.delta as string
+      expect(Buffer.byteLength(delta, 'utf8')).toBeLessThanOrEqual(512)
+      expect(delta).not.toMatch(/[\uD800-\uDBFF]$/) // 不以代理对高半区结尾（不撕裂）
+      expect(f.offset).toBe(expectedOffset)
+      expectedOffset += delta.length // 字符数口径（与 streamMapper state.content += length 一致）
+      reassembled += delta
+    }
+    expect(reassembled).toBe(big)
+    expect(frames.length).toBeGreaterThanOrEqual(2)
   })
 
   it('role_reply 抑制（D16）；loaded/replaced 抑制', () => {
@@ -266,6 +294,117 @@ describe('applyLiteResponse：timeline 投影', () => {
   it('失败响应原样返回', () => {
     const response = { id: 'a1', kind: 'response', requestId: 'r1', success: false, error: { code: 'INTERNAL', message: 'x' } }
     expect(applyLiteResponse(profile, response)).toBe(response)
+  })
+
+  // ---- P1-② 游标分页（before=orderKey 排他下界 / limit / nextCursor）----
+  const nodes30 = Array.from({ length: 30 }, (_, i) => ({
+    id: 'n' + i, kind: 'message', actor: { kind: 'user', actorId: 'human' },
+    direction: 'user-to-agent', orderKey: i + 1, status: 'committed', createdAt: i + 1,
+    content: 'm' + i, toolCalls: [], thinking: '',
+  }))
+  const response30 = {
+    id: 'a2', kind: 'response', requestId: 'r2', success: true,
+    data: { chatId: 'c1', revision: 2, rootTimeline: { rootChatId: 'c1', revision: 2, nodes: nodes30, edges: [], generations: [] } },
+  }
+  function pageOf(out: Record<string, unknown>): Array<Record<string, unknown>> {
+    return ((out.data as Record<string, unknown>).rootTimeline as Record<string, unknown>).nodes as Array<Record<string, unknown>>
+  }
+  function timelineOf(out: Record<string, unknown>): Record<string, unknown> {
+    return ((out.data as Record<string, unknown>).rootTimeline) as Record<string, unknown>
+  }
+
+  it('无参数保持 P0 行为：最新 20 条 + nodeCount + hasMore', () => {
+    const out = applyLiteResponse(profile, response30) as Record<string, unknown>
+    const tl = timelineOf(out)
+    expect(pageOf(out)).toHaveLength(20)
+    expect(pageOf(out)[0].orderKey).toBe(11)
+    expect(pageOf(out)[19].orderKey).toBe(30)
+    expect(tl.nodeCount).toBe(30)
+    expect(tl.hasMore).toBe(true)
+  })
+
+  it('before 游标返回更早页（排他下界）', () => {
+    const out = applyLiteResponse(profile, response30, { before: 11 }) as Record<string, unknown>
+    const tl = timelineOf(out)
+    expect(pageOf(out)).toHaveLength(10) // orderKey 1..10
+    expect(pageOf(out)[0].orderKey).toBe(1)
+    expect(pageOf(out)[9].orderKey).toBe(10)
+    expect(tl.hasMore).toBeUndefined() // 全部返回完
+    expect(tl.nodeCount).toBe(10)
+  })
+
+  it('before + limit 自定义页大小 + nextCursor 续拉字段', () => {
+    const out = applyLiteResponse(profile, response30, { before: 21, limit: 5 }) as Record<string, unknown>
+    const tl = timelineOf(out)
+    expect(pageOf(out)).toHaveLength(5) // orderKey 16..20
+    expect(pageOf(out)[0].orderKey).toBe(16)
+    expect(tl.hasMore).toBe(true)
+    expect(tl.nextCursor).toBe(16)
+  })
+
+  it('越界 before（小于最小 orderKey）返回空页', () => {
+    const out = applyLiteResponse(profile, response30, { before: 0 }) as Record<string, unknown>
+    expect(pageOf(out)).toHaveLength(0)
+    expect(timelineOf(out).nodeCount).toBe(0)
+  })
+
+  it('limit 边界：非法值回退默认 20', () => {
+    const out = applyLiteResponse(profile, response30, { limit: 999 }) as Record<string, unknown>
+    expect(pageOf(out)).toHaveLength(20)
+    const out2 = applyLiteResponse(profile, response30, { limit: 0 }) as Record<string, unknown>
+    expect(pageOf(out2)).toHaveLength(20)
+  })
+
+  // ---- T30：maxFrameBytes 自动收缩 limit（§3.7 有界负载）----
+  const tinyProfile: LiteProfile = { ...profile, maxFrameBytes: 2048 } // 预算 2048-512=1536B
+  const fatNodes = Array.from({ length: 30 }, (_, i) => ({
+    id: 'n' + i, kind: 'message', actor: { kind: 'user', actorId: 'human' },
+    direction: 'user-to-agent', orderKey: i + 1, status: 'committed', createdAt: i + 1,
+    content: '内容'.repeat(60), // summary 顶满 180B → 单 lean 节点 ≈400+B
+    toolCalls: [], thinking: '',
+  }))
+  const fatResponse = {
+    id: 'a3', kind: 'response', requestId: 'r3', success: true,
+    data: { chatId: 'c1', revision: 2, rootTimeline: { rootChatId: 'c1', revision: 2, nodes: fatNodes, edges: [], generations: [] } },
+  }
+
+  it('T30：小 maxFrameBytes 下页被字节装箱收缩（≤预算，从最新端保留）', () => {
+    const out = applyLiteResponse(tinyProfile, fatResponse) as Record<string, unknown>
+    const tl = timelineOf(out)
+    const page = pageOf(out)
+    expect(page.length).toBeLessThan(20) // 被收缩
+    expect(page.length).toBeGreaterThanOrEqual(1) // 至少 1 节点
+    // 从最新端装箱：本页最后一条 = orderKey 30
+    expect(page[page.length - 1].orderKey).toBe(30)
+    // 实际字节数 ≤ 预算（1536B）
+    const bytes = Buffer.byteLength(JSON.stringify(page), 'utf8')
+    expect(bytes).toBeLessThanOrEqual(1536)
+    // 续拉链完整
+    expect(tl.nodeCount).toBe(30)
+    expect(tl.hasMore).toBe(true)
+    expect(tl.nextCursor).toBe(page[0].orderKey)
+  })
+
+  it('T30：收缩后 nextCursor 续拉链衔接（下页 before=上页最小 orderKey）', () => {
+    const first = applyLiteResponse(tinyProfile, fatResponse) as Record<string, unknown>
+    const cursor = (timelineOf(first).nextCursor as number)
+    const second = applyLiteResponse(tinyProfile, fatResponse, { before: cursor }) as Record<string, unknown>
+    const secondPage = pageOf(second)
+    expect(secondPage.length).toBeGreaterThanOrEqual(1)
+    expect(Math.max(...secondPage.map((n) => n.orderKey as number))).toBeLessThan(cursor) // 排他下界，无重叠
+  })
+
+  it('T30：显式 limit=3 不被放大（min 语义），hasMore/nextCursor 仍附', () => {
+    const out = applyLiteResponse(tinyProfile, fatResponse, { limit: 3 }) as Record<string, unknown>
+    const tl = timelineOf(out)
+    expect(pageOf(out)).toHaveLength(3)
+    expect(tl.hasMore).toBe(true)
+    expect(tl.nextCursor).toBe(28)
+  })
+
+  it('T30：大页响应序列化后整体不超 maxFrameBytes（含 nodeCount 等固定字段开销）', () => {
+    const out = applyLiteResponse(tinyProfile, fatResponse) as Record<string, unknown>
+    expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(2048 + 600) // 页内节点 ≤1536B + 信封/固定字段余量
   })
 })
 

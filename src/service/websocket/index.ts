@@ -240,7 +240,18 @@ async function handleRequest(
     return
   }
   if (claim.state === 'completed') {
-    if (ws.readyState === ws.OPEN) ws.send(claim.responseJson)
+    // 幂等重放：同一 requestId 重复调用时回放已存响应。lite 连接必须同样过投影——
+    // 否则 timeline.get 等大响应会以全量形态绕过 lean 裁剪直击设备缓冲（T28 预审修复）。
+    if (ws.readyState === ws.OPEN) {
+      let replayed: unknown
+      try {
+        replayed = JSON.parse(claim.responseJson)
+      } catch {
+        replayed = undefined
+      }
+      if (replayed !== undefined) sendResponse(ws, replayed as RpcResponse, request.params)
+      else ws.send(claim.responseJson)
+    }
     return
   }
   if (claim.state === 'active') {
@@ -257,7 +268,7 @@ async function handleRequest(
       const reboundChatId = disconnectGrace.getChatId(request.id)
       if (reboundChatId) connectionManager.setLiveOutput(reboundChatId, ws)
       const response = await running
-      sendResponse(ws, response)
+      sendResponse(ws, response, request.params)
       return
     }
     // An active row without a local promise means the process restarted. Do
@@ -387,7 +398,7 @@ async function handleRequest(
     disconnectGrace.onRequestFinished(request.id)
     // 若当前 ws 还活着：发终态 response + 释放 pending。rebinds 场景下 ws 已替换，
     // 仍允许向新 ws 投递。
-    sendResponse(ws, response)
+    sendResponse(ws, response, request.params)
     // chat.open releases its snapshot fence before returning. Flush events that
     // arrived after the captured boundary only after the RPC response is visible.
     if (request.method === 'chat.open' && response.success) {
@@ -453,11 +464,12 @@ export function parseLiteProfile(url: string | undefined): LiteProfile | 'unsupp
  * 发送 RPC Response（T7 旁路二收口）：lite 连接上先做传输层投影
  * （timeline.get/open 的 LeanTimelineNode 投影等），非 lite 原样直出。
  * 不改 handler 响应结构本身（serverNow/maxItems/node.get 等增强归 handler 侧）。
+ * P1-②：requestParams 透传给投影层做 before/limit 游标分页（canonical §3.2 目标契约）。
  */
-function sendResponse(ws: WebSocket, response: RpcResponse): void {
+function sendResponse(ws: WebSocket, response: RpcResponse, requestParams?: unknown): void {
   if (ws.readyState !== ws.OPEN) return
   const profile = connectionManager.get(ws)?.profile
-  const out = profile ? applyLiteResponse(profile, response) : response
+  const out = profile ? applyLiteResponse(profile, response, requestParams) : response
   ws.send(transport.serializeMessage(out))
 }
 

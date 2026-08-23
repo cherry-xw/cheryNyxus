@@ -1,6 +1,6 @@
 # MCU 精简 API 设计方案（lite profile）
 
-> **文档状态：定稿（T10 终审通过，D1–D19 全部落定，用户已拍板 D13/D14）；P0 已实现（implemented），P1/P2 保持 planned**。任何条目落地前必须遵循 doc-first 规范：先更新 [multi-agent-canonical-timeline.md](multi-agent-canonical-timeline.md)（权威；本文的精简投影契约已收录为其 [§3.6 精简投影（lite profile）](multi-agent-canonical-timeline.md)）与 [protocol.md](protocol.md)（方法/字段/通知协议面已由 T11 补录）并标注 `planned/in_progress/implemented`，再写代码。
+> **文档状态：定稿（T10 终审通过，D1–D19 全部落定，用户已拍板 D13/D14）；P0 implemented；P1 实现中（in_progress，含 turn.delta 可选订阅/分页游标/折叠调优/参考固件），P2 保持 planned**。任何条目落地前必须遵循 doc-first 规范：先更新 [multi-agent-canonical-timeline.md](multi-agent-canonical-timeline.md)（权威；本文的精简投影契约已收录为其 [§3.6 精简投影（lite profile）](multi-agent-canonical-timeline.md)）与 [protocol.md](protocol.md)（方法/字段/通知协议面已由 T11 补录）并标注 `planned/in_progress/implemented`，再写代码。
 
 ## 修订记录
 
@@ -138,9 +138,13 @@ lite 连接的推送分三类：**原样透传**（已足够小）、**投影精
 
 **子 chat 事件路由语义（B-1，三条规则文档化）**：
 
-1. **子 chat 的 done / staged 全部抑制**（终审裁定：二选一锁定为纯抑制，不做纯状态化投影——子完成态已由 timeline patch 的 return lean 节点权威表达，重复通道徒增歧义）——最终回复**只认 rootChatId 维度的 done**（chatId==rootChatId）；子 chat done 携 finished=true（types.ts:2269），若都按「本轮最终回复」处理即错乱（多 agent 必现）。
-2. **子 chat 的 turn.started/completed** 透传但设备按 `chatId ≠ rootChatId` 折叠为「子任务运行中」状态行——判定规则固化于此，固件实现者不得猜测。
+1. **子 chat 的 done / staged 全部抑制**（终审裁定：二选一锁定为纯抑制，不做纯状态化投影——子完成态已由 timeline patch 的 return lean 节点权威表达，重复通道徒增歧义）——最终回复**只认 rootChatId 维度的 done**（chatId==rootChatId）；子 chat done 携 finished=true（types.ts:2269），若都按「本轮最终回复」处理即错乱（多 agent 必现）。**服务端已实现**（liteProjection：done 事件按 getRootChatId(chatId)===chatId 判定，非 root 整帧抑制；chat 已删除等异常路径按 root 透传，保守不丢数据）。
+2. **子 chat 的 turn.started/completed** 透传但设备按 `chatId ≠ rootChatId` 折叠为「子任务运行中」状态行——判定规则固化于此，固件实现者不得猜测。**注意（T26 实测补充）**：子事件信封无 rootChatId（streamMapper 只携 {chatId,runId}），设备判定依据 = 连接期记录的 rootChatId（chat.open 时获得）与事件 chatId 比对。
 3. **role_reply 抑制**（见矩阵行）：子任务完成唯一权威 = timeline patch 的 return lean 节点（actor=子 agent、direction=child-to-parent）。
+4. **子 chat 的 run.updated 语义限定（T26 补充）**：`run.updated` 的「工作态唯一权威信号」**仅指 chatId==rootChatId 的 run.updated**（驱动设备全局「运行中」指示）；子 chat 的 run.updated（信封 chatId=子）只驱动该子任务状态行的起止，**不得**据此翻转设备全局工作态——子 run 的 running/paused 与主 run 形态完全相同（{runId,status}），不分流会把子 run 结束误判为整体结束。
+5. **子 chat 的 error 折叠（T26 补充）**：error 原样透传且不分根/子（F11：message 保持一行中文原样）。设备按 chatId≠rootChatId 把子 error 折叠为该子任务状态行的失败态（消息可点开看 message 原文），**不得**当主回复失败展示全局错误页。子 error 的 canResume 语义同 F4（子的 paused 可由父流程 resume，设备不单独发起）。
+6. **游标分道（T26 补充）**：子事件不经订阅匹配（无 subscriptionId/eventSeq 信封），seq 为 per-chat 单调游标——设备「按序应用」的 seq 缓冲必须按 chatId 分道（T2-F2 游标顺序原则的细化），跨 chat 的 seq 不可比较。
+7. **accept/rejected（子）**：按 chatId 折叠进子任务状态行；但 **interrupt（子审批）不折叠**——G4 审批全量下发不分根/子，设备必须完整呈现交互。
 
 > staged content_end 抑制后，最终回复两条权威到达路径：done.finalMessage（即时终态）与 timeline.patch upsert（历史权威），同源同 msgId 按 id upsert 去重，不违 F2（lite 无 transient）。
 
@@ -237,7 +241,7 @@ interface DoneLeanData {
 
 **范围**：lite 连接的**全部出站帧**——推送事件（Notification/Chunk）**与 RPC 响应帧（Response）**（v1 只管事件是缺口；T6 实测 chat.open 20 节点单帧 7.6–11.4KB、interaction.list 3.6KB+ 直击设备缓冲）。
 
-1. **响应帧分页默认值**：`chat.timeline.get`/`chat.open` rootTimeline **默认 limit=20 分页 + 响应附 nodeCount**（窗口内节点总数，设备预判分批，D6 双做：分页+预告）；`interaction.list` lite 投影 **maxItems≤20 + hasMore**（C1：现状 LIMIT 500 静默截断无 hasMore，必须消除）。
+1. **响应帧分页默认值**：`chat.timeline.get`/`chat.open` rootTimeline **默认 limit=20 分页 + 响应附 nodeCount**（窗口内节点总数，设备预判分批，D6 双做：分页+预告）；**limit 受 maxFrameBytes 自动收缩（T30，P1）**：页大小 = min(请求 limit, maxFrameBytes−512B 可容纳 lean 节点数)，从最新端按 lean 实际字节数装箱、至少 1 节点，hasMore/nextCursor 续拉补齐——chat.open 首页天然有界；`interaction.list` lite 投影 **maxItems≤20 + hasMore**（C1：现状 LIMIT 500 静默截断无 hasMore，必须消除）。
 2. **审批 arguments 字段级智能截断（A1/D3 最终方案）**：投影层**保留全部键名与短字段全文，仅对超长单字段截断并附 `{field, contentLength, contentHash}` 引用**——决策结构完整，仅体量受限。v2 的「头部截断」废弃（头部截断使 write_file/apply_patch 类 {path 短, content 长} 工具的参数被盲批——用户看到文件名看不到内容就被要求批准写入，安全级错误）。收件箱 payload 内 arguments 同策略（R7）。
 3. **question batch 双层约束（D8 最终方案）**：上游 ask_user_question **软约束**（超限提示 agent 拆题，不硬拒——硬拒上游会卡死既有合法长题对话，属隐蔽回归）；lite 投影层**硬保证**（批次 ≤2KB、题干 ≤500B、选项标签 ≤60B、description 截断 ≤60B 或剔除（推荐剔除——tooltip 用，低档无 hover）、>20 选项分页）。
 4. **finalMessage**：截断至 maxFrameBytes−256B。
@@ -285,7 +289,7 @@ interface DoneLeanData {
 |---|---|---|
 | **P0 前置（doc-first，先于任何代码）** | ① T5 schema 定稿 → protocol.md 补录（已由 T11 落盘）d/turn.*/interaction.changed（补全部欠账）；② canonical-timeline.md 增 lean 投影章节；③ 本文按评审裁定定稿 | A-3 顺序条款化 |
 | **P0 最小可用**【implemented】 | ① `?profile=lite&v=1` + ConnectionState.profile + 未知 v 握手期 close(4xxx)；② 投影插入：prepareSessionEvent 内 profile 分支 + **interaction.changed 广播旁路** + **Response 帧旁路**（T7 修正：三个插入点缺一不可）；③ 事件白名单过滤（关 0x01 通道/thinking/staged/role_reply/子 chat done；input.updated 去 content）；④ LeanTimelineNode 投影（timeline.get/open/patch/state 快照共用）；⑤ done/consumed/accept/interaction.list 精简字段集 + serverNow；⑥ 有界负载检查覆盖全部出站帧（§3.7 含响应帧分页/maxItems/字段级截断）；⑦ **chat.timeline.node.get（P0 必含，G5 原则级）**；⑧ 错误码最小集（D13 六码，error.code 并列字段） | T6 固件评估：C3 单人 2 周可交付 |
-| **P1 体验补全** | ① turn.delta 可选订阅（turnDelta=1）；② 分页参数细化（before/limit 游标形态统一）；③ role_reply/子 chat 折叠策略实测调优；④ MCU 参考固件（ESP32-C3 档验证 ≤4KB 缓冲解析） | node.get 已入 P0 |
+| **P1 体验补全**【in_progress】 | ① turn.delta 可选订阅（turnDelta=1）；② 分页参数细化（before/limit 游标形态统一）；③ role_reply/子 chat 折叠策略实测调优；④ MCU 参考固件（ESP32-C3 档验证 ≤4KB 缓冲解析） | node.get 已入 P0 |
 | **P2 可选** | ① HTTP lite 面（方案 B，出现纯 HTTP 部署需求才做，须复用同一 handler 与投影函数）；② 热点事件短键名（D9 维持不做）；③ maxFrameBytes 协商细化 | 全部按需 |
 
 ## 6. 待决策点清单（D1–D19，含裁定状态）

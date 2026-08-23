@@ -313,7 +313,7 @@ type LeanTimelineNode = {
 1. **revision/orderKey 语义不变**：snapshot 与 patch 的 revision、knownRevision 短路、缺口全量自愈（§3.5）对 lean 投影同等适用；edges 不投影（conversation 视图顺序 = orderKey 全序），tree/audit 视图不属于 lite 范围。
 2. **conversation 视图降采样**：`visibility='conversation'` 节点逐一映射为 lean 节点（无额外抽样）；`tool-batch`/`spawn`/`tool-group` 不产生独立节点，归并进所属 message 节点的 toolNames。
 3. **return 节点是子任务完成的唯一权威投影**：lite 连接抑制 role_reply 通知（其与 return 节点无对齐键，靠 childChatId 猜配对违反归属规则）；子完成只经 timeline patch 的 return lean 节点表达——与 §4 child_return/child_output 显式合并规则同源，不在投影层引入第二事实。
-4. **子 chat 事件路由**：子 chat 的 done/staged 全部抑制（最终回复只认 rootChatId 维度 done）；子 turn.started/completed 折叠为「子任务运行中」状态（判定规则见 mcu-lite-api.md §3.2）。
+4. **子 chat 事件路由**：子 chat 的 done/staged 全部抑制（最终回复只认 rootChatId 维度 done）；子 turn.started/completed 折叠为「子任务运行中」状态；**子 run.updated 只驱动该子任务状态行**（「工作态唯一权威信号」限定为 chatId==rootChatId 的 run.updated）；子 error 折叠为子任务失败态（message 原样保留，不当主回复错误展示）；子 accept/rejected 折叠进子任务状态行，子 interrupt 不折叠（G4 审批全量不分根/子）；seq 游标按 chatId 分道。判定规则与完整语义见 mcu-lite-api.md §3.2（唯一维护处）。
 5. **事件白名单**：lite 连接的完整推送裁剪矩阵（原样/投影精简/抑制三分类）以 [mcu-lite-api.md §3.2](mcu-lite-api.md) 为唯一维护处，本节不重复。
 
 #### 3.6.3 chat.timeline.node.get【implemented】
@@ -456,7 +456,7 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 3. 删除 V2-to-legacy `StreamState` 展示桥和前端 `mergeChildReplyHistory` 业务去重；
 4. 旧 `chat.get/chat.sync/chat.attach` 仅保留兼容期，之后移除。
 
-### Phase 5：lite profile 精简投影（implemented，P0）
+### Phase 5：lite profile 精简投影（implemented，P0；P1 体验补全 in_progress）
 
 1. 按 §3.6 与 [mcu-lite-api.md](mcu-lite-api.md) P0 分期实施：prepareSessionEvent profile 分支、interaction.changed 广播与 RPC Response 两个旁路插入点、LeanTimelineNode 投影、chat.timeline.node.get。
 2. 状态在本文件与 protocol.md 同步回写。
@@ -487,7 +487,7 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 
 ## 9. 当前实现状态
 
-> **lite profile 精简投影（§3.6）为 implemented（P0 已落地：T15 事件/Response 投影、T16 数据面、T20 D13 错误码；测试见 test/service/websocket/liteProjection.test.ts 与 test/service/interaction/errorCodes.test.ts）**——设计定稿见 [mcu-lite-api.md](mcu-lite-api.md)（v3.1/v3.2，D1–D19 已落定）；P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）与 P2（HTTP lite 面/短键名/maxFrameBytes 协商）保持 planned。
+> **lite profile 精简投影（§3.6）为 implemented（P0 已落地：T15 事件/Response 投影、T16 数据面、T20 D13 错误码；测试见 test/service/websocket/liteProjection.test.ts 与 test/service/interaction/errorCodes.test.ts）**——设计定稿见 [mcu-lite-api.md](mcu-lite-api.md)（v3.1/v3.2，D1–D19 已落定）；P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）为 **in_progress（P1 实现中，见 mcu-lite-api.md §5 P1 行）**；P2（HTTP lite 面/短键名/maxFrameBytes 协商）保持 planned。
 
 本轮已落地：
 

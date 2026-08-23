@@ -354,7 +354,8 @@ export const requestSchemas = {
       rootChatId: z.string().optional(),
       taskId: z.string().optional(),
       view: z.enum(['conversation', 'tree', 'audit']).optional(),
-      before: z.string().optional(),
+      // before：legacy chat.get 路径为字符串复合游标（createdAt/id 编码）；lite P1-② 为 number（orderKey 排他下界）。两者按类型分流，handler/投影层各自消费。
+      before: z.union([z.string(), z.number()]).optional(),
       limit: z.number().int().positive().max(500).optional(),
       knownRevision: z.number().int().nonnegative().optional(),
     })
