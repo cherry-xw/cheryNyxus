@@ -2,6 +2,7 @@ import { reactive } from 'vue'
 import { agentApi, type InteractionRecord, type TimelineNode } from '@/services/agentApi'
 import { useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/stores'
 import { selectCanResume } from '@/stores/chats/selectors'
+import type { ExecutionReadModel } from '@/stores/chats/executionReadModel'
 import { useLiteStore } from './liteStore'
 
 export interface LeanTimelineNode {
@@ -79,6 +80,11 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     uiStore.patchRootUi(windowId(), root(), { commandError: error })
   }
 
+  function resolveDetailNodeId(id: string): string | null {
+    const nodes = timeline()?.nodes ?? []
+    return nodes.find((node) => node.id === id || node.sourceMessageId === id)?.id ?? null
+  }
+
   return reactive({
     get rootChatId(): string {
       return root()
@@ -103,6 +109,9 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     },
     get hydrationError(): string | null {
       return connection.error
+    },
+    get execution(): ExecutionReadModel {
+      return execution()
     },
     get leanTimeline(): LeanTimelineNode[] {
       return (timeline()?.nodes ?? []).map(toLeanNode)
@@ -150,6 +159,7 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     },
     get finalMessage(): {
       msgId: string
+      nodeId: string | null
       content: string
       contentLength: number
       receivedAt: number
@@ -158,6 +168,7 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
       return final
         ? {
             msgId: final.id,
+            nodeId: resolveDetailNodeId(final.id),
             content: final.content,
             contentLength: final.content.length,
             receivedAt: final.updatedAt,
@@ -291,6 +302,15 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     },
     calibratedNow(): number {
       return Date.now()
+    },
+    detailNodeIdForMessage(messageId: string): string | null {
+      return resolveDetailNodeId(messageId)
+    },
+    detailNodeIdForToolCall(callId: string): string | null {
+      return (
+        timeline()?.nodes.find((node) => node.toolCalls?.some((call) => call.callId === callId))
+          ?.id ?? null
+      )
     },
   })
 }

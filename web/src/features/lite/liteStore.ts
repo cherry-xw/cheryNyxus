@@ -1,4 +1,12 @@
 import { defineStore } from 'pinia'
+import {
+  createLiteNodeDetailCache,
+  type LiteDetailSectionName,
+  type LiteDetailSectionState,
+  type LiteNodeDetailCache,
+} from './detailSections'
+
+const DETAIL_NODE_CACHE_LIMIT = 12
 
 /**
  * Lite is a presentation of the canonical workbench session. This store must
@@ -12,6 +20,8 @@ export interface LiteRootUiState {
   autoScroll: boolean
   detailNodeId: string | null
   detailFocusToolCallId: string | null
+  detailInitialSection: LiteDetailSectionName | null
+  detailCache: Record<string, LiteNodeDetailCache>
   interactionDrafts: Record<string, Record<string, string[] | string>>
   commandError: { code: string; message: string; interactionId?: string } | null
 }
@@ -31,6 +41,8 @@ export function createLiteRootUiState(): LiteRootUiState {
     autoScroll: true,
     detailNodeId: null,
     detailFocusToolCallId: null,
+    detailInitialSection: null,
+    detailCache: {},
     interactionDrafts: {},
     commandError: null,
   }
@@ -73,6 +85,35 @@ export const useLiteStore = defineStore('lite-workbench', {
           [rootChatId]: { ...current, ...patch },
         },
       }
+    },
+    ensureNodeDetail(windowId: string, rootChatId: string, nodeId: string): LiteNodeDetailCache {
+      const current = this.ensureRootUi(windowId, rootChatId)
+      const existing = current.detailCache[nodeId]
+      if (existing) return existing
+      const created = createLiteNodeDetailCache()
+      const retained = Object.fromEntries(
+        Object.entries(current.detailCache).slice(-(DETAIL_NODE_CACHE_LIMIT - 1)),
+      )
+      this.patchRootUi(windowId, rootChatId, {
+        detailCache: { ...retained, [nodeId]: created },
+      })
+      return created
+    },
+    patchDetailSection(
+      windowId: string,
+      rootChatId: string,
+      nodeId: string,
+      section: LiteDetailSectionName,
+      value: LiteDetailSectionState,
+    ): void {
+      const detail = this.ensureNodeDetail(windowId, rootChatId, nodeId)
+      const current = this.ensureRootUi(windowId, rootChatId)
+      this.patchRootUi(windowId, rootChatId, {
+        detailCache: {
+          ...current.detailCache,
+          [nodeId]: { ...detail, [section]: value },
+        },
+      })
     },
     clearWindow(windowId: string): void {
       const { [windowId]: _ui, ...uiByWindowRoot } = this.uiByWindowRoot
