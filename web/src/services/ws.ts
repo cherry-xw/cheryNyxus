@@ -22,7 +22,7 @@ type ChunkHandler = (chunk: unknown) => void
 type NotificationHandler = (notification: unknown) => void
 /** V2 session/timeline event handler. Kept separate from legacy chunk/notification subscriptions. */
 type EventHandler = (event: unknown) => void
-type StatusHandler = (status: ConnectionStatus) => void
+type StatusHandler = (status: ConnectionStatus, detail?: { closeCode?: number; closeReason?: string }) => void
 
 interface PendingRequest {
   request: { id: string; kind: 'request'; method: string; params: unknown }
@@ -295,12 +295,12 @@ export class WsClient {
         ws.send(encodeRequest(pending.request))
       }
     }
-    ws.onclose = () => {
+    ws.onclose = (ev: CloseEvent) => {
       // 旧 socket 的迟到 close 不能覆盖新连接或重复安排重连。
       if (this.ws !== ws) return
       this.ws = null
       this.stopHeartbeat()
-      this.setStatus('disconnected')
+      this.setStatus('disconnected', { closeCode: ev.code, closeReason: ev.reason })
       if (this.shouldReconnect) {
         this.scheduleReconnect()
       } else {
@@ -470,7 +470,10 @@ export class WsClient {
     this.ws = null
   }
 
-  private setStatus(status: ConnectionStatus): void {
+  private setStatus(
+    status: ConnectionStatus,
+    detail?: { closeCode?: number; closeReason?: string },
+  ): void {
     const previous = this.status
     this.status = status
     if (status === 'connected' && previous !== 'connected') {
@@ -483,7 +486,7 @@ export class WsClient {
       )
       ready.forEach((waiter) => waiter.resolve())
     }
-    this.statusHandlers.forEach((h) => h(status))
+    this.statusHandlers.forEach((h) => h(status, detail))
   }
 
   private scheduleReconnect(): void {

@@ -44,7 +44,7 @@ export class LiteClient {
 
   constructor(options: LiteClientOptions = {}) {
     this.options = { v: 1, maxFrameBytes: 2048, turnDelta: false, ...options }
-    this.client.onStatus((status) => this.onStatus(status))
+    this.client.onStatus((status, detail) => this.onStatus(status, detail))
     this.client.onEvent((event) => {
       this.countBytes(event)
       this.options.onEvent?.(event)
@@ -96,7 +96,10 @@ export class LiteClient {
     this.setState({ phase: 'idle', reconnectAttempts: 0 })
   }
 
-  private onStatus(status: 'connected' | 'connecting' | 'disconnected'): void {
+  private onStatus(
+    status: 'connected' | 'connecting' | 'disconnected',
+    detail?: { closeCode?: number; closeReason?: string },
+  ): void {
     if (this.sawUnsupported) return // 版本拒绝后不再翻转状态（unsupported 为终态，UI 提示升级）
     if (status === 'connected') {
       this.setState({ phase: 'connected', reconnectAttempts: 0 })
@@ -104,12 +107,20 @@ export class LiteClient {
     }
     if (status === 'disconnected') {
       if (this.state.phase === 'idle') return
-      // 首连失败（未成功过）→ unsupported 候选：服务端 close(4001) 的握手拒绝。
-      // 浏览器 WS API 不暴露 close code 给 onStatus 回调，此处以「首次连接立即断开」
-      // 近似判定；精确 code 判定由 WsClient 扩展 close-event 透出（L4 收尾增强）。
-      if (this.state.phase === 'connecting') {
+      // 精确判定（L4）：服务端 D14 握手期 close(4001, JSON{supportedVersions})。
+      if (detail?.closeCode === 4001) {
         this.sawUnsupported = true
+        try {
+          this.client.disconnect() // 停止重连（握手拒绝重试无意义）
+        } catch {
+          /* 已断开 */
+        }
         this.setState({ phase: 'unsupported' })
+        return
+      }
+      if (this.state.phase === 'connecting') {
+        // 首连失败但非 4001：走重连退避（网络不可达等）
+        this.setState({ phase: 'reconnecting', reconnectAttempts: this.state.reconnectAttempts + 1 })
         return
       }
       this.setState({ phase: 'reconnecting', reconnectAttempts: this.state.reconnectAttempts + 1 })

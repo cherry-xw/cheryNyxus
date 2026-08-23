@@ -66,6 +66,8 @@ interface LiteStoreState {
   serverNowOffsetMs: number
   /** 最近一次交互命令错误（D13 六码 UI 分支渲染源）。 */
   lastCommandError: { code: string; message: string; interactionId?: string } | null
+  /** done.canResume（B 定案：继续按钮显隐）。 */
+  canResume: boolean
 }
 
 /** lite 交互记录（interaction.list 响应 lean 形态）。 */
@@ -111,6 +113,7 @@ export const useLiteStore = defineStore('lite-workbench', {
     interactions: [],
     serverNowOffsetMs: 0,
     lastCommandError: null,
+    canResume: false,
   }),
   getters: {
     isLiteActive(state): (windowId: string) => boolean {
@@ -159,7 +162,12 @@ export const useLiteStore = defineStore('lite-workbench', {
       if (!liteClient) {
         liteClient = new LiteClient({
           onState: (s) => {
+            const wasDisconnected = this.connection.phase === 'reconnecting'
             this.connection = s
+            // 断线自愈（§4.8）：恢复连接后重跑 hydration 链（knownRevision 命中短路）。
+            if (wasDisconnected && s.phase === 'connected' && this.hydration === 'ready') {
+              void this.hydrate()
+            }
           },
           onEvent: (event) => this.onLiteEvent(event),
         })
@@ -329,9 +337,12 @@ export const useLiteStore = defineStore('lite-workbench', {
         return
       }
 
-      // done：每轮免费 serverNow 校准（§3.2 第 5 步，T28）。
-      if (type === 'done' && rec.data && typeof rec.data.serverNow === 'number') {
-        this.serverNowOffsetMs = rec.data.serverNow - Date.now()
+      // done：每轮免费 serverNow 校准（§3.2 第 5 步，T28）+ canResume（B 定案按钮显隐）。
+      if (type === 'done' && rec.data) {
+        if (typeof rec.data.serverNow === 'number') {
+          this.serverNowOffsetMs = rec.data.serverNow - Date.now()
+        }
+        if (typeof rec.data.canResume === 'boolean') this.canResume = rec.data.canResume
       }
 
       // turn.started/completed、子 chat 事件：T26 折叠——不驱动主视图（状态由 run.updated +

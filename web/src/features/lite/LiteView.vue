@@ -248,7 +248,7 @@ async function onAnswerBatch(interaction: LiteInteraction) {
   }
 }
 
-// ---- L2：停止（§4.6 B 定案）----
+// ---- L2：停止/继续（§4.6 B 定案：abort 幂等 / resume canResume 显隐）----
 const aborting = ref(false)
 async function onStop() {
   aborting.value = true
@@ -258,6 +258,19 @@ async function onStop() {
     aborting.value = false
   }
 }
+const resuming = ref(false)
+async function onResume() {
+  resuming.value = true
+  try {
+    await lite.resumeRun()
+  } finally {
+    resuming.value = false
+  }
+}
+/** 重连期间禁用态（§4.8）：连接非 connected 时交互禁用。 */
+const connectionBlocked = computed(
+  () => lite.connection.phase === 'reconnecting' || lite.connection.phase === 'unsupported',
+)
 
 // ---- L2：审批超时倒计时（§4.9：deadlineAt − (now+Δ)；本地提示性，终态以 interaction.changed 驱动）----
 const nowTick = ref(Date.now())
@@ -386,9 +399,21 @@ function openApprovalDetail(interaction: LiteInteraction) {
         <button
           type="button"
           class="lite-stop-btn"
-          :disabled="aborting"
+          :disabled="aborting || connectionBlocked"
           @click="onStop"
         >{{ aborting ? '停止中…' : '停止' }}</button>
+      </div>
+
+      <!-- 继续按钮（B 定案：canResume 驱动显隐） -->
+      <div v-if="!lite.runningState && lite.canResume" class="lite-row lite-process">
+        <span class="lite-icon">⏸</span>
+        <span class="lite-text">已暂停</span>
+        <button
+          type="button"
+          class="lite-stop-btn"
+          :disabled="resuming || connectionBlocked"
+          @click="onResume"
+        >{{ resuming ? '继续中…' : '继续' }}</button>
       </div>
 
       <div v-if="subTaskNodes.length > 0" class="lite-subtask">
@@ -448,13 +473,13 @@ function openApprovalDetail(interaction: LiteInteraction) {
             <button
               type="button"
               class="lite-btn is-accept"
-              :disabled="deciding === interaction.interactionId || remainingLabel(interaction) === '已超时'"
+              :disabled="deciding === interaction.interactionId || remainingLabel(interaction) === '已超时' || connectionBlocked"
               @click="onDecide(interaction, 'accept')"
             >批准</button>
             <button
               type="button"
               class="lite-btn is-reject"
-              :disabled="deciding === interaction.interactionId || remainingLabel(interaction) === '已超时'"
+              :disabled="deciding === interaction.interactionId || remainingLabel(interaction) === '已超时' || connectionBlocked"
               @click="onDecide(interaction, 'reject')"
             >拒绝</button>
           </div>
@@ -499,7 +524,7 @@ function openApprovalDetail(interaction: LiteInteraction) {
             <button
               type="button"
               class="lite-btn is-accept"
-              :disabled="answering === interaction.interactionId"
+              :disabled="answering === interaction.interactionId || connectionBlocked"
               @click="onAnswerBatch(interaction)"
             >提交回答</button>
           </div>
@@ -513,15 +538,15 @@ function openApprovalDetail(interaction: LiteInteraction) {
         v-model="inputText"
         type="text"
         class="lite-input-box"
-        placeholder="发送消息（Ctrl+Enter）"
-        :disabled="sending"
+        :placeholder="connectionBlocked ? '重连中…' : '发送消息（Ctrl+Enter）'"
+        :disabled="sending || connectionBlocked"
         @keydown.ctrl.enter.prevent="onSend"
         @keydown.meta.enter.prevent="onSend"
       >
       <button
         type="button"
         class="lite-send-btn"
-        :disabled="sending || !inputText.trim()"
+        :disabled="sending || !inputText.trim() || connectionBlocked"
         @click="onSend"
       >发送</button>
     </div>
