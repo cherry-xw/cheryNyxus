@@ -11,6 +11,7 @@ import {
 } from '../message/index.js'
 import { connectionManager, type ConnectionState } from './connection.js'
 import { transport } from './transport.js'
+import { SUPPORTED_LITE_VERSIONS, applyLiteResponse, type LiteProfile } from './liteProjection.js'
 import { isAsyncGenerator } from '@/utils/generator.js'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
@@ -128,9 +129,21 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
     }
   })
 
-  wss.on('connection', (ws) => {
-    const state = connectionManager.create(ws)
-    logger.run({ connectionId: state.id }, () => logger.event('conn.open'))
+  wss.on('connection', (ws, req) => {
+    // lite profile 声明（canonical §3.6.1）：?profile=lite&v=1（与 ?token= 同风格）。
+    // 未知版本按 D14 在握手期拒绝——close frame 携带 JSON{supportedVersions}，设备可机读判定。
+    const liteProfile = parseLiteProfile(req?.url)
+    if (liteProfile === 'unsupported') {
+      ws.close(4001, JSON.stringify({ supportedVersions: SUPPORTED_LITE_VERSIONS }))
+      logger.event('conn.lite_rejected', { supported: SUPPORTED_LITE_VERSIONS })
+      return
+    }
+    const state = connectionManager.create(ws, liteProfile ?? undefined)
+    logger.run(
+      { connectionId: state.id },
+      () =>
+        logger.event('conn.open', liteProfile ? { profile: 'lite', v: liteProfile.v } : undefined),
+    )
 
     ws.on('message', async (data) => {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer)
@@ -223,7 +236,7 @@ async function handleRequest(
       undefined,
       createError(ErrorCode.CONFLICT, '请求重复了，请重试'),
     )
-    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
+    sendResponse(ws, response)
     return
   }
   if (claim.state === 'completed') {
@@ -244,7 +257,7 @@ async function handleRequest(
       const reboundChatId = disconnectGrace.getChatId(request.id)
       if (reboundChatId) connectionManager.setLiveOutput(reboundChatId, ws)
       const response = await running
-      if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
+      sendResponse(ws, response)
       return
     }
     // An active row without a local promise means the process restarted. Do
@@ -257,7 +270,7 @@ async function handleRequest(
       createError(ErrorCode.CONFLICT, '我刚重启了一下，重新打开会话试试'),
     )
     completeRequest(request.id, interrupted)
-    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(interrupted))
+    sendResponse(ws, interrupted)
     return
   }
 
@@ -374,7 +387,7 @@ async function handleRequest(
     disconnectGrace.onRequestFinished(request.id)
     // 若当前 ws 还活着：发终态 response + 释放 pending。rebinds 场景下 ws 已替换，
     // 仍允许向新 ws 投递。
-    if (ws.readyState === ws.OPEN) ws.send(transport.serializeMessage(response))
+    sendResponse(ws, response)
     // chat.open releases its snapshot fence before returning. Flush events that
     // arrived after the captured boundary only after the RPC response is visible.
     if (request.method === 'chat.open' && response.success) {
@@ -402,6 +415,50 @@ function extractChatId(params: unknown): string | undefined {
     if (typeof v === 'string') return v
   }
   return undefined
+}
+
+/**
+ * 解析连接 URL 的 lite profile 查询参数（?profile=lite&v=1[&maxFrameBytes=N][&turnDelta=1]）。
+ * - 非 lite 连接 → undefined（行为零变化）
+ * - profile=lite 但 v 未知 → 'unsupported'（调用方握手期 close 4001）
+ */
+export function parseLiteProfile(url: string | undefined): LiteProfile | 'unsupported' | undefined {
+  if (!url) return undefined
+  let query: URLSearchParams
+  try {
+    query = new URL(url, 'ws://localhost').searchParams
+  } catch {
+    return undefined
+  }
+  if (query.get('profile') !== 'lite') return undefined
+  const vRaw = query.get('v') ?? '1'
+  const v = Number(vRaw)
+  if (!Number.isInteger(v) || !(SUPPORTED_LITE_VERSIONS as readonly number[]).includes(v)) {
+    return 'unsupported'
+  }
+  const maxFrameRaw = Number(query.get('maxFrameBytes'))
+  const turnDeltaRaw = query.get('turnDelta')
+  return {
+    kind: 'lite',
+    v,
+    maxFrameBytes:
+      Number.isInteger(maxFrameRaw) && maxFrameRaw >= 512 && maxFrameRaw <= 65536
+        ? maxFrameRaw
+        : 4096,
+    turnDelta: turnDeltaRaw === '1' || turnDeltaRaw === 'true',
+  }
+}
+
+/**
+ * 发送 RPC Response（T7 旁路二收口）：lite 连接上先做传输层投影
+ * （timeline.get/open 的 LeanTimelineNode 投影等），非 lite 原样直出。
+ * 不改 handler 响应结构本身（serverNow/maxItems/node.get 等增强归 handler 侧）。
+ */
+function sendResponse(ws: WebSocket, response: RpcResponse): void {
+  if (ws.readyState !== ws.OPEN) return
+  const profile = connectionManager.get(ws)?.profile
+  const out = profile ? applyLiteResponse(profile, response) : response
+  ws.send(transport.serializeMessage(out))
 }
 
 /**

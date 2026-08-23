@@ -248,6 +248,9 @@ export const requestSchemas = {
   [Method.BRAIN_LIST]: emptySchema,
   [Method.SENSE_LIST]: emptySchema,
   [Method.SENSE_TOOLS]: emptySchema,
+  [Method.SENSE_TOOLS_DOCS]: z.object({
+    tools: z.array(z.string()).optional(),
+  }),
   [Method.SKILLS_LIST]: z.object({
     page: z.number().optional(),
     pageSize: z.number().optional(),
@@ -362,6 +365,14 @@ export const requestSchemas = {
     rootChatId: z.string().min(1),
     generationIndex: z.number().int().positive(),
   }),
+  // lite profile：按需单节点详情（canonical §3.6.3）。offset/limit 为字符分段；单响应 ≤32KB 硬保证。
+  [Method.CHAT_TIMELINE_NODE_GET]: z.object({
+    rootChatId: z.string().min(1),
+    nodeId: z.string().min(1),
+    sections: z.array(z.enum(['content', 'thinking', 'toolCalls'])).optional(),
+    offset: z.number().int().min(0).optional(),
+    limit: z.number().int().positive().max(32000).optional(),
+  }),
   [Method.CHAT_RESUME]: chatIdSchema,
   [Method.CHAT_RESUME_TREE]: z.object({
     rootChatId: z.string().min(1),
@@ -404,6 +415,8 @@ export const requestSchemas = {
   [Method.INTERACTION_LIST]: z.object({
     presetId: z.string().min(1).optional(),
     includeActivity: z.boolean().optional(),
+    // lite profile（P0，R8）：分页上限 ≤20（mcu-lite-api.md §3.7-1 maxItems≤20）
+    maxItems: z.number().int().positive().max(20).optional(),
   }),
   [Method.INTERACTION_APPROVAL_DECIDE]: z.object({
     interactionId: z.string().min(1),

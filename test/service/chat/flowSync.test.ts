@@ -23,6 +23,8 @@ import {
 } from '@/service/chat/runtime.js'
 import type { HandlerContext } from '@/service/message/router.js'
 import type { Chunk, Notification } from '@/service/message/types.js'
+import { registerBuiltinProviders } from '@/agent/provider/index.js'
+import { reloadSenses } from '@/agent/sense/index.js'
 
 const cleanup: string[] = []
 afterEach(() => {
@@ -133,11 +135,16 @@ describe('root event journal', () => {
 
 describe('active turn snapshot recovery', () => {
   it('以 V2 turn 生命周期恢复 CRT 状态且不重复累积 legacy stream', async () => {
+    // mock_content brain 的 provider/sense 需先注册（同 treeControl.test.ts 模式）。
+    registerBuiltinProviders()
+    await reloadSenses()
     const chatId = randomUUID()
     const runId = randomUUID()
     cleanup.push(chatId)
     createChat(chatId)
-    await ensureChat(chatId)
+    // ffe7cf2 起 ensureChat 无显式 selection 时要求可恢复的 preset/type 关联，
+    // 裸 createChat 会抛 RUNTIME_SELECTION_REQUIRED——显式传 selection（同 treeControl.test.ts 模式）。
+    await ensureChat(chatId, { brain: 'mock_content', senseGroup: 'auto_senses', mcpServers: [] })
     activateChatRun(chatId, runId)
     try {
       appendChatEvent(chatId, {

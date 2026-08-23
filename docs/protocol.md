@@ -109,6 +109,14 @@ interface Notification {
     | 'question_answered'
     | 'question_batch_requested'
     | 'question_batch_completed'
+    | 'auto_compacted'
+    | 'timeline.patch'
+    | 'turn.started'
+    | 'turn.delta'
+    | 'turn.completed'
+    | 'input.updated'
+    | 'run.updated'
+    | 'interaction.changed'
   requestId?: string // 仅与某次 RPC 有直接因果关系时携带
   chatId?: string // 异步推送（role_created/role_reply 等）以此路由
   runId?: string // 运行中事件的稳定关联 id
@@ -147,8 +155,16 @@ interface Notification {
 | `question_batch_requested`                 | `{batchId, assistantMessageId, createdAt, questions:[{questionId,position,question,header?,options,multiSelect,createdAt}]}` | 一个 assistant turn 的完整问题批次。`batchId = assistantMessageId`，服务端在所有 placeholder sense 和批次领域状态持久化完成后才发出；事件按 `batchId` 幂等，可安全重放。前端只保存本地草稿，不逐题回传。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `question_batch_completed`                 | `{batchId}`                                                                                                                  | 整批答案已在单个 SQLite 事务中写入 sense 消息并关闭批次。事件进入 chat event log，前端收到或重放时仅清理对应批次；是否启动 `chat.resume` 由 `sense.question.batchAnswer` RPC 的 `shouldResume` 决定，避免重复续跑。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `question_requested` / `question_answered` | 旧逐题结构                                                                                                                   | 仅兼容历史事件和旧客户端；新前端不再据此构造问题状态。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `auto_compacted` | 轻量 toast 数据 | 自动压缩：chat 上下文超阈值自动注入 `[[command:/compact]]`，推前端显「已自动压缩」提示。 |
+| `timeline.patch` | `{chatId, baseRevision, revision, operations, rootPatch?, rootPatches?}` | 持久化消息事务提交后的权威时间线增量 patch（root 维度 diff，详见 [multi-agent-canonical-timeline.md](./multi-agent-canonical-timeline.md)）。 |
+| `turn.started` | `{turnId, messageId, runId?, createdAt}` | 该 msgId 的首个 stream chunk 到达时发出（同 turn 只发一次，服务端 Set 去重）。`turnId = messageId` = checkpoint 预分配的 assistant msgId（= 最终落库 messages.id）。 |
+| `turn.delta` | `{turnId, messageId, channel, offset, delta}` | 实时打字机增量（V2 session 通道）。`channel ∈ thinking | content`；`offset` 为该 channel 内字符偏移（服务端维护）。**与 legacy 0x01 stream chunk 双通道并存**（同内容两条通道同时发出）。 |
+| `turn.completed` | `{turnId, messageId}` | 该 turn 的节点事实已提交；staged 完成处发出，run 终态时对所有未完成 turn 补发（completedTurns 去重）。 |
+| `input.updated` | `{inputId, clientMessageId?, messageId?, state, content?, queueSequence?, acceptedAt?, reason?}` | 用户输入生命周期。`state ∈ accepted | started | queued | consumed | cancelled | rejected`（accepted/cancelled/rejected 当前无发射方，属类型预留）。`chat.input.submit` ack 时携 `content`（用户原始输入全文回显，无截断）与 `state: started/queued`；`consumed` 通知后逐 input 补发 `state: consumed`。 |
+| `run.updated` | `{runId, status}` | run 状态变更。`status ∈ running | waiting | paused | completed | failed`。**run 启动即发 running，先于首个 token**——工作态判定的唯一权威信号，前端不得从 turn.started / assistant 输出推断；done 按 canResume 发 paused/completed；abort/park/未预期异常一律补发 paused（兜底安全网）。 |
+| `interaction.changed` | `{interactionId, status, revision}`（三字段；lite 连接增携 `presetId?`，D18） | interactions 表任何状态迁移后的轻量失效信号。**无 chatId、无 seq、不进 chat_events、不经 prepareSessionEvent 路由**——广播到所有已连接客户端（含未订阅任何 chat 的连接）。纯失效通知：客户端据此重拉 `interaction.list`；断线错过的通知由重连/重拉兜底，无重放语义。lite 连接的 `presetId` 供设备判断是否需重拉（消多 agent 放大）；非 lite 连接不携带。 |
 
-> `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。auto sense（`needsApproval:false`）不推 `interrupt`（无审批需求，前端不弹审核卡）；仅 smart/manual 推送。`waitTime` = `global.approval_timeout`（ms，字段约束 `>= 0`：`0` = 不限时，不显倒计时；省略 = `0` 同义），`createdAt` = 发起时间戳（ms），前端据此算倒计时：`remaining = waitTime - (now - createdAt)`，归零后端超时 reject → `rejected` notification；用户 accept/reject 后前端立即关闭（不等 `accept`/`rejected` notification 回来）。`approval_timeout` 的范围校验在 [config.ts §validateRawConfig](./utils/config.md) 与 [schemas.ts §globalSchema](./service/message.md) 双层执行。
+> `supervisionLevel` 为数字枚举（0/1/2，见 [core/sense.md](./core/sense.md)「Sense 监管等级」）。`needsApproval = supervisionLevel > 0`。auto sense（`needsApproval:false`）不推 `interrupt`（无审批需求，前端不弹审核卡）；仅 smart/manual 推送。`waitTime` = `global.approval_timeout`（ms，字段约束 `>= 0`：`0` = 不限时，不显倒计时；省略 = `0` 同义），`createdAt` = 发起时间戳（ms），前端据此算倒计时：`remaining = waitTime - (now - createdAt)`，归零后端超时 reject → `rejected` notification；用户 accept/reject 后前端立即关闭（不等 `accept`/`rejected` notification 回来）。`approval_timeout` 的范围校验在 [config.ts §validateRawConfig](./utils/README.md) 与 [schemas.ts §globalSchema](./service/message.md) 双层执行。
 
 > **断连宽限 vs 审批超时**：WS 断连不立即 park 挂起审批（由 `disconnect_grace_ms` 宽限期接管，宽限期内 approval Promise 存活、重连可用**原 approvalId** 审批续跑，到期才 park；见 [websocket.md 断连宽限](./service/websocket.md)）。但 `approval_timeout>0` 的用户超时 timer 在宽限期内**仍计时**——若断连期间到点，registry resolve-as-reject（loop 继续，= 用户拒绝），重连后该工具显 rejected。即「断连推迟 park，但不暂停用户超时计时」。`approval_timeout=0`（不限时）的资源上限由 `global.approval_hard_timeout`（默认 30min）兜底，到点 park 归 paused 可续（非拒绝）。
 
@@ -235,6 +251,7 @@ idle chat:
 | `brain.list`                                    | 列出所有可用 brain（含 `capabilities`：Tool Call、三类媒体输入/生成；每项 `default` 标记 = 是否为「默认」预设 `leader` 角色用的 brain；`senseGroups` 支持 `string \| string[]`——前者单组，后者为历史多组兼容）+ 当前已连 MCP server 名（`mcpServers`）                                                                                                                                                                                                                                                                                                                                                                                                                                    | 否   |
 | `sense.list`                                    | 列出所有可用 sense group（senses 含 `:level` 后缀未解析）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 否   |
 | `sense.tools`                                   | 列出全部内置工具（代码维护的 `BUILTIN_SENSE_TOOLS`），每项 `{name, label, description, icon}`：`name`=原名（作 sense_groups 条目 key）、`label`=中文名（UI 显示）、`description`=解释（tooltip）、`icon`=glyph/emoji 字符串（pet bar 运行中工具图标用，非内置工具前端 fallback ⚙）。自定义/外部/MCP 工具不在此列，靠前端组合框自由输入                                                                                                                                                                                                                                                                                                                                                    | 否   |
+| `sense.tools.docs`                             | 统一获取内置工具完整说明文档。params `{tools?: string[]}`：省略/空 = 全量返回（前端一次拉取缓存、按需展示）；提供 `tools` = 后端按 name 列表一次性返回对应说明（未知 name 自动忽略）。每项 `{name, doc}`，`doc` 按【作用】【能力】【边界】【注意】分节、换行分隔，文档统一定义于 `BUILTIN_SENSE_TOOLS.doc`（sense.tools 不携带 doc，避免下拉响应臃肿）。自定义/外部/MCP 工具不在内                                                                                                                                                                                                                                                                                                                                                     | 否   |
 | `skills.list`                                   | 分页列出独立或插件技能。params `{page?,pageSize?,search?,plugin?}`，`pageSize` 最大 200，返回 `{skills,total,page,pageSize}`；目录扫描只解析 frontmatter，当前页才读取正文并计算 token。`plugin` 省略=独立技能、`*`=全部、具体值=该插件。                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 否   |
 | `skills.listNames`                              | 角色装备使用的轻量目录，返回独立技能名、插件名以及各自系统提示词 token 汇总；不读取技能正文。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 否   |
 | `skills.preImportUrl`                           | **前置**：拉取远端分支列表 + 探测鉴权需求。params `{url, credentialId?}` → `{gitNotInstalled, needsAuth, branches, defaultBranch?}` 或 `{gitNotInstalled: true}`。与 `plugins.preImportUrl` 区别：不返 `suggestedName/nameConflict`（技能多候选，冲突在 stage 时逐候选检测）。git CLI 硬性前提，缺失不降级                                                                                                                                                                                                                                                                                                                                                                                | 否   |
@@ -281,6 +298,11 @@ idle chat:
 | `sense.approval`                                | 感官审批（accept/reject）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 否   |
 | `sense.question.batchAnswer`                    | 原子回答完整批次。params `{chatId,batchId,answers:[{questionId,selectedLabels,freeText?,cancelled?}]}`，必须恰好覆盖批次中所有 pending 项；服务端校验单/多选和合法 label，在同一事务中写入全部 sense 答案并关闭批次。返回 `{chatId,batchId,completed,shouldResume}`。                                                                                                                                                                                                                                                                                                                                                                                                                     | 否   |
 | `sense.question.answer`                         | 旧单题兼容接口；仅允许单题批次，多题批次会拒绝并要求使用 `sense.question.batchAnswer`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 否   |
+| `chat.timeline.node.get`                        | **lite P0（已实现）**：单节点按需全文详情。params `{rootChatId, nodeId, sections?: ['content','thinking','toolCalls'], offset?, limit?}` → `{rootChatId, node(完整 TimelineNode，未请求 section 字段省略), refs, hasMore}`；单响应 ≤32KB 硬保证，超限附 `refs:[{field, contentLength, contentHash}]`（详见「lite profile 连接级投影」节）。低频、用户触发、只读，不改变 snapshot/patch 权威性；节流位（RATE_LIMITED）预留。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 否   |
+| `interaction.list`                              | **持久交互收件箱（跨断线/刷新/重启）**。params `{presetId?, includeActivity?, maxItems?}`：默认仅返回待办（status ∈ pending/resolving/blocked），`includeActivity: true` 含终态历史；`presetId` 过滤。排序：待办态优先，组内 created_at 升序 + updated_at 降序；**LIMIT 500 静默截断**（lite 传 `maxItems`（1..20）时改为单页窗口 + `hasMore`，详见「lite profile 连接级投影」节）。返回 `{interactions: InteractionData[], serverNow, hasMore?, truncations?}`（`serverNow` 恒带；approval payload 超长字段截断时附 `truncations`；结构见「interactions 数据存储」节）。审批遗漏/断线重连的重拉兜底就是此方法。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | 否   |
+| `interaction.approval.decide`                   | **收件箱审批决策**（推荐入口；`sense.approval` 并存）。params `{interactionId, action: 'accept'|'reject', expectedRevision, commandId, reason?}`：`interactionId = approvalId = sense call id`；`expectedRevision` 乐观锁（必须等于当前行 revision，不匹配报错刷新重试）；`commandId` 幂等键（见「命令幂等层」）。返回 `{interaction: InteractionData}`。特殊行为：**已过期审批（deadlineAt ≤ now）的调用返回成功响应**（interaction.status=expired，result={action:'reject'}）并自动恢复 Agent 继续跑，不报错——客户端必须以 interaction.status 为准；服务端重启后审批不在内存时自动 detached resume 重建（轮询最多 8s），恢复失败转 blocked。成功副作用：resolveApproval 解除 senseMiddleware await → interactions 转 completed → 广播 interaction.changed。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | 否   |
+| `interaction.question.answer`                   | **收件箱问题应答**。`sense.question.batchAnswer` 的收件箱化包装。params `{interactionId(=batchId), expectedRevision, commandId, answers:[{questionId, selectedLabels, freeText?, cancelled?}]}`（校验规则同 batchAnswer：恰好覆盖、白名单 label、单选数、非空、cancelled 旁路；服务端对 selectedLabels 去重）。单事务写入全部答案 + interactions 转 completed + resumePending + 自动 detached resume。返回 `{interaction: InteractionData}`。                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | 否   |
+| `chat.input.submit`                             | **命令面用户输入**（chat.send 的命令化变体）。params `{chatId, commandId, clientMessageId, messageId, content, attachments?}`：`messageId` 为**客户端预分配的持久节点 id**（accepted input 与最终 timeline node 复用同一 id，树不删重建）；`commandId` 幂等键。行为：立即 ack 返回 `{chatId, inputId, clientMessageId, messageId, runId, state: 'started'|'queued', queueSequence, acceptedAt}`（运行中提交 state=queued 归并活跃 run），**执行与响应分离**——分离运行的最终 Response 不发客户端，run 可见性全靠通知流（input.updated/consumed/run.updated/done 等）。root-only：`controlRootChatId` 为内部专用（websocket schema 刻意剥离，WS 客户端对子 chat 提交恒拒「用户输入只能提交到主 Agent」）。内存队列上限 16，超限抛错（错误消息「输入队列已满，请稍后重试」）。**注：该上限错误当前 error.code 归 INTERNAL（INPUT_QUEUE_FULL 尚未注册为协议错误码，planned 见 mcu-lite-api.md D13）**。 | 否   |
 | `bash.list`                                     | 列出当前 chat 挂起的 bash 进程                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 否   |
 | `bash.kill`                                     | 显式杀死当前 chat 的挂起 bash 进程组                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 否   |
 | `mcp.list`                                      | 列出所有 config 声明的 MCP server 及运行期状态                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 否   |
@@ -474,6 +496,98 @@ Web 静态服务（端口 `config.server.webPort`，优先级 `WEB_PORT` 环境�
 - **失败**：`400 {error}`（解压或解析异常）。
 - **下一步**：前端据 `candidates` 逐项确认后调 `skills.commit` 落盘。
 
+## lite profile 连接级投影（已实现，P0）
+
+> 面向 MCU/资源受限前端的连接级精简投影。**同一后端、同一 handler**：lite 连接的全部出站帧（Notification 与 RPC Response）经发送端投影裁剪；不带 profile 的连接行为完全不变。契约总纲见 [mcu-lite-api.md](./mcu-lite-api.md)（定稿 v3.1），节点投影（LeanTimelineNode）定义见 [multi-agent-canonical-timeline.md §3.6](./multi-agent-canonical-timeline.md)。本节只记录 wire 层事实。
+
+### 连接声明与握手
+
+- **URL 查询参数**：`?profile=lite&v=1`（与 `?token=` 同风格）。可选参数：`maxFrameBytes=N`（512–65536，缺省 4096，单帧字节预算）、`turnDelta=1`（订阅 turn.delta 单通道流，P1 语义）。
+- **未知版本拒绝（D14）**：`profile=lite` 但 `v` 不在支持列表时，握手期 `close(4001, JSON.stringify({supportedVersions: [1]}))`——设备在握手层机读判定，不进入消息循环（websocket/index.ts parseLiteProfile）。
+
+### 信封最小化（lite 连接的 Notification 帧）
+
+lite 连接的通知信封省略 `requestId / subscriptionId / eventSeq / rootEventSeq / sourceEventSeq`，保留 `type / chatId / runId? / seq`；`data.runId` 与信封 `runId` 重复时去重（仅保留信封位）。
+
+### RPC Response 帧投影（timeline.get / chat.open）
+
+lite 连接上 `chat.timeline.get` 与 `chat.open` 的响应经传输层投影（不改 handler 语义）：
+
+- `rootTimeline.nodes` 逐节点映射为 **LeanTimelineNode**（字段集见 canonical §3.6.2；`contentLength` 为字符数口径，与 web 端 TimelineNode 一致；超预算截断时附 `contentHash`）；`edges` 置 `[]`（D7：conversation 顺序 = orderKey 全序）。
+- **分页与预告（D6）**：节点数 > 20 时取 orderKey 最大的 20 条（最新窗口），响应附 `nodeCount`（窗口内总节点数）与 `hasMore: true`（≤20 时仅 `nodeCount`）。
+- **state 快照 lean 集（B-11）**：`activeTurns` → `{chatId, turnId, messageId, createdAt}`（去累计文本）；`questionBatches` → `{batchId, interactionId}`（去题干，详情走 interaction.list）；`runningTools` → `{id, senseName}`（工具名级）；`roles` → `{taskId, chatId, parentChatId, type, state}`（去 prompt 等长字段）；`pendingInputs` **保留 content**（冷启动恢复用户输入）。activeRuns/generations 等其余快照键保留。
+
+### 事件截断引用（truncations）
+
+lite 连接上，事件/响应中的超长字符串字段按字节预算截断后，载体对象附：
+
+```
+truncations: [{ field, contentLength, contentHash }]   // contentHash = 原文 sha256 hex
+```
+
+- `interrupt`（审批，G4 全量下发但字段级截断）与 `interaction.list` 响应 payload（approval arguments）共用该策略：**保留全部键名与短字段全文，仅超长单字段截断**（D3）；`field` 为被截字段名（嵌套为 `key.subKey` 形态）。
+- `done.finalMessage.content` 截断至帧预算（maxFrameBytes − 信封开销），截断时附 `contentLength`（字符数）+ `contentHash`；全文经 `chat.timeline.node.get` 拉取。
+- `interaction.list` 响应的 truncations 携带 `interactionId` 定位（`{interactionId, field, contentLength, contentHash}`）。
+
+### interaction.list 的 lite 参数（已实现，handler 层，非 lite 亦可安全调用）
+
+- 请求增 `maxItems`（int 1..20）：单页上限；服务端取 maxItems+1 探测，响应 `hasMore: true` 表示仍有未返回条目（无 OFFSET 游标，客户端重拉全量窗口）。未传时维持 LIMIT 500 全量窗口（现状不变）。
+- 响应恒附 `serverNow`（服务端毫秒时间戳；设备无 NTP 时校准本地钟，倒计时 `remaining = deadlineAt − (now + Δ)`）。
+- lite 连接的 `interaction.changed` 增携 `presetId`（D18，消多 agent 重拉放大；非 lite 连接不携带）。
+
+### chat.timeline.node.get（新方法，已实现）
+
+lean 摘要的按需全文出口（canonical §3.6.3）：`{rootChatId, nodeId, sections?: ['content','thinking','toolCalls'], offset?, limit?}` → `{rootChatId, node, refs, hasMore}`。`node` 为完整 TimelineNode（未请求 section 的字段省略）；单响应 ≤32KB 硬保证，超限/预算耗尽字段附 `refs: [{field, contentLength, contentHash}]`（contentLength 为原文字节数）且 `hasMore: true`（客户端调 offset 续拉）。低频、用户触发、只读；节流位（RATE_LIMITED）预留。
+
+## 命令幂等层（request_journal）
+
+> 数据存储：soul.db `request_journal` 表（request_id PK / method / params_hash = sha256(method + '\n' + JSON(params)) / status(active|completed) / response_json / created_at / updated_at），保留 24h（claim 时惰性清理）。
+
+`interaction.*` 与 `chat.input.submit` 的 `commandId` 走本层（与 Request.id 的协议层幂等是**两层独立机制**，本层跨服务重启持久化）：
+
+| claim 结果 | 行为 |
+|---|---|
+| new（无记录） | 插入 active，正常执行 |
+| completed 且指纹一致 | 原样重放存储的响应 JSON，不重复执行 |
+| 指纹不一致（method 或 params 变了） | 报错「commandId 已用于另一条命令」 |
+| active（并发处理中） | 报错「该操作正在处理中」 |
+| handler 抛错 | abandonRequest 删除 active 行——同 commandId 同参可安全重试 |
+
+## interactions 数据存储（持久交互收件箱）
+
+> 数据存储：soul.db `interactions` 表（[src/db/index.ts](../src/db/index.ts)）。**跨断线/刷新/重启的用户可见交互事实源**；运行时审批 Promise（approvalRegistry）不是权威。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| interaction_id | TEXT PK | approval: = sense call id；question: = batchId |
+| kind | TEXT | 'approval' \| 'question_batch' |
+| chat_id / root_chat_id | TEXT | root 由 getRootChatId 派生 |
+| preset_id / anchor_node_id | TEXT? | preset 来自 chat metadata；anchor：approval=approvalId，question=assistantMessageId |
+| status | TEXT | 见下方状态机 |
+| payload_json | TEXT | approval: {senseName, senseDescription?, arguments, supervisionLevel, security?}（**不含 waitTime/createdAt**——interrupt 通知才带，持久侧等价物是 deadline_at）；question: {assistantMessageId, questions:[…]}（与 question_batch_requested.data 同构） |
+| deadline_at | INTEGER? | 仅 approval 且审批限时（waitTime>0）时 = createdAt + waitTime；question 恒 NULL。倒计时 = deadlineAt − now |
+| result_json | TEXT? | approval: {action, reason?}；question: {answers:[{questionId, answerText, cancelled}]} |
+| revision | INTEGER | 乐观锁 token：INSERT=1，upsert 重注册 / claim(CAS) / 状态迁移各 +1 |
+| created_at / updated_at / completed_at | INTEGER | completed_at 仅终态写入 |
+
+**状态机**：
+
+```
+pending ──claim(CAS: WHERE revision=?)──▶ resolving ──决策/应答──▶ completed（终态）
+   │                                        │
+   │ upsert 同 id 重注册：revision+1          │ 恢复失败/审批恢复窗口超时 → blocked（可再 claim）
+   │ （resolving 保持 resolving，否则 pending）│ 审批 deadline 到点（仅 approval）→ expired（终态）
+   └────────────────────────────────────────┘ cancelled：枚举存在，当前无写入方（预留）
+```
+
+- 终态行（completed/expired/cancelled）**永不被 upsert 复活**；服务重启后 register 命中终态行直接 replay 终态决定到重建的 core promise（accept 需 security 的 policyHash + assessmentHash 一致，否则强制 reject）。
+- **deadline 生命周期**：后台 sweeper 每 1s 扫描过期 approval（pending 且 deadline_at ≤ now）→ 审批不在内存时先 detached resume 重建（轮询最多 8s）→ expire = interactions 转 expired + resolveApproval('reject','审批超时，工具未执行')（Agent 循环继续，非终止）。
+- 对应 `InteractionData` RPC 返回结构：{interactionId, kind, chatId, rootChatId, presetId?, anchorNodeId?, status, payload, deadlineAt?, result?, revision, createdAt, updatedAt, completedAt?}。
+
+## 版本定位（lite profile 依赖）
+
+上述 interaction.* / chat.input.submit / 六种通知为**已实现（implemented）**，即 MCU lite profile（[mcu-lite-api.md](./mcu-lite-api.md)，P0 已实现）的 v1 基础。lite profile 的连接级裁剪、LeanTimelineNode 投影、`chat.timeline.node.get` 均已随 **P0 落地（implemented）**，wire 层事实（连接声明/信封最小化/Response 投影/truncations/node.get）见「lite profile 连接级投影」节；节点投影定义见 [multi-agent-canonical-timeline.md §3.6 精简投影（lite profile）](./multi-agent-canonical-timeline.md)。D13 扩展错误码（INTERACTION_STALE / INTERACTION_ALREADY_RESOLVED / COMMAND_CONFLICT / INPUT_QUEUE_FULL / PROFILE_VERSION_UNSUPPORTED / RATE_LIMITED）已随 T20 全部注册并按场景抛出（interaction handler 显式抛码；INPUT_QUEUE_FULL 复用既有错误类 code 自动透传；PROFILE_VERSION_UNSUPPORTED/RATE_LIMITED 为注册备用/预留位，见错误码表）。P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）与 P2（HTTP lite 面/短键名/maxFrameBytes 协商）保持 planned。
+
 ### 错误处理
 
 错误响应结构：
@@ -499,3 +613,4 @@ Web 静态服务（端口 `config.server.webPort`，优先级 `WEB_PORT` 环境�
 | `NOT_FOUND`        | chat / MCP server 等资源不存在                              |
 | `INVALID_PARAMS`   | 参数缺失或非法                                              |
 | `RUNTIME_SELECTION_REQUIRED` | 历史任务无法关联当前 preset/type，且本会话没有显式当前运行配置。只读历史仍可查看；仅发送/继续等执行入口返回此码，引导用户选择当前配置 |
+| _（implemented，T20 已注册）交互命令专用码_ | INTERACTION_STALE（revision 过期，interaction.* decide/answer 乐观锁不匹配）/ INTERACTION_ALREADY_RESOLVED（审批/问题已处理）/ COMMAND_CONFLICT（commandId 冲突或处理中）/ INPUT_QUEUE_FULL（chat.input.submit 队列满，上限 16）/ PROFILE_VERSION_UNSUPPORTED（注册备用；握手期实际用 close(4001)）/ RATE_LIMITED（node.get 节流预留位，注册未触发）——见 [mcu-lite-api.md](./mcu-lite-api.md) D13。router toRpcError 按码透传（handler 抛带 code 错误）；message 保持中文用户面（F11）。测试断言见 test/service/interaction/errorCodes.test.ts |

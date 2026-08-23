@@ -3,6 +3,17 @@ import { randomUUID } from 'crypto'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
 import { getRootChatId } from '@/db/chat.js'
+import { applyLiteEvent, type LiteProfile } from './liteProjection.js'
+
+/** 对一批出站 item 应用 lite 投影；抑制项从数组中剔除。 */
+function projectLite(profile: LiteProfile, items: unknown[]): unknown[] {
+  const out: unknown[] = []
+  for (const item of items) {
+    const projected = applyLiteEvent(profile, item)
+    if (projected !== undefined) out.push(projected)
+  }
+  return out
+}
 
 /**
  * 待处理请求
@@ -63,6 +74,8 @@ export interface ConnectionState {
   id: string
   ws: WebSocket
   pendingRequests: Map<string, PendingRequest>
+  /** 连接级 lite profile（MCU 精简投影）；未声明 profile 的连接为 undefined（行为零变化）。 */
+  profile?: LiteProfile
 }
 
 /**
@@ -96,11 +109,12 @@ export class ConnectionManager {
   /**
    * 创建连接状态
    */
-  create(ws: WebSocket): ConnectionState {
+  create(ws: WebSocket, profile?: LiteProfile): ConnectionState {
     const state: ConnectionState = {
       id: randomUUID(),
       ws,
       pendingRequests: new Map(),
+      ...(profile ? { profile } : {}),
     }
     this.connections.set(ws, state)
     return state
@@ -373,7 +387,13 @@ export class ConnectionManager {
       rootEventSeq?: number
       sourceEventSeq?: number
     }
-    if (!event.chatId) return [item]
+    // lite profile 投影（canonical §3.6）：在「每条出站 item」最终出口处应用，
+    // 不改变 buffering / 订阅匹配 / mutedRoots 原流程（opening 期事件仍先进 buffer，
+    // 由 drainSessionBuffer 重入本方法，届时同样被投影）。抑制 → 从输出中剔除。
+    const liteProfile = this.get(ws)?.profile
+    if (!event.chatId) {
+      return liteProfile ? projectLite(liteProfile, [item]) : [item]
+    }
     const matchingSubs = [...this.sessionSubscriptions.values()].filter((s) => {
       if (s.connectionId !== this.get(ws)?.id) return false
       return s.rootChatId ? s.rootChatId === event.rootChatId : s.chatId === event.chatId
@@ -386,7 +406,8 @@ export class ConnectionManager {
       this.mutedRootsByConnection.get(connectionId)?.has(event.rootChatId)
     ) {
       const compact = backgroundControlEvent(event as Record<string, unknown>)
-      return compact ? [compact] : []
+      if (!compact) return []
+      return liteProfile ? projectLite(liteProfile, [compact]) : [compact]
     }
     // A root subscription is the authoritative superset for this connection.
     // Emitting both root and direct envelopes repeats the same source chat/seq;
@@ -402,6 +423,7 @@ export class ConnectionManager {
       // The boundary is not authoritative until snapshot construction captures
       // it. Buffer every sequenced event while opening; finishSessionOpen drops
       // events covered by the snapshot and releases only events above the fence.
+      // lite 连接的 buffered item 保持原始形态（投影发生在 drain 后的再次出站时）。
       if (sub.status === 'opening' && typeof subscriptionSeq === 'number') {
         sub.buffer.push(item)
         continue
@@ -413,7 +435,7 @@ export class ConnectionManager {
         ...(sub.rootChatId && typeof seq === 'number' ? { sourceEventSeq: seq } : {}),
       })
     }
-    return output
+    return liteProfile ? projectLite(liteProfile, output) : output
   }
 
   /** chat.attach 命中运行中 run：兼容旧调用，语义改为加入订阅而非抢占。 */

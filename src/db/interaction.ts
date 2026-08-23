@@ -133,6 +133,8 @@ export function getInteraction(interactionId: string): InteractionRecord | undef
 export function listInteractions(input?: {
   presetId?: string
   includeActivity?: boolean
+  /** lite profile（P0，R8）：单页上限（≤20）。待办优先排序不变；条目数超限时由调用方置 hasMore。 */
+  maxItems?: number
 }): InteractionRecord[] {
   const clauses = input?.includeActivity
     ? ["status IN ('pending','resolving','blocked','completed','expired','cancelled')"]
@@ -142,13 +144,15 @@ export function listInteractions(input?: {
     clauses.push('preset_id = ?')
     params.push(input.presetId)
   }
+  // lite 分页：请求 maxItems 时取 maxItems+1 条探测 hasMore；否则沿用全量窗口 LIMIT 500。
+  const limit = input?.maxItems !== undefined ? input.maxItems + 1 : 500
   const rows = getSoulDb()
     .prepare(
       `SELECT * FROM interactions WHERE ${clauses.join(' AND ')}
        ORDER BY CASE WHEN status IN ('pending','resolving','blocked') THEN 0 ELSE 1 END,
-                created_at ASC, updated_at DESC LIMIT 500`,
+                created_at ASC, updated_at DESC LIMIT ?`,
     )
-    .all(...params) as InteractionRow[]
+    .all(...params, limit) as InteractionRow[]
   return rows.map(toRecord)
 }
 

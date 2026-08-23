@@ -137,6 +137,7 @@ import {
   generationWindowFloor,
   handleChatTimelineGenerationGet,
 } from './generations.js'
+import { handleChatTimelineNodeGet } from './nodeDetail.js'
 import { handleChatResumeTree, toTreeControlState } from './treeControl.js'
 import {
   getConversationBranchByChat,
@@ -2098,6 +2099,7 @@ export function registerChatManageHandlers(router: import('../message/router.js'
   router.register(Method.CHAT_GET, handleChatGet) // 流式返回历史
   router.register(Method.CHAT_TIMELINE_GET, handleChatTimelineGet)
   router.register(Method.CHAT_TIMELINE_GENERATION_GET, handleChatTimelineGenerationGet)
+  router.register(Method.CHAT_TIMELINE_NODE_GET, handleChatTimelineNodeGet) // lite P0：单节点按需详情
   router.register(Method.CHAT_INPUT_SUBMIT, handleChatInputSubmit)
   router.register(Method.CHAT_RESUME_TREE, handleChatResumeTree)
   router.register(Method.CHAT_SYNC, handleChatSync)

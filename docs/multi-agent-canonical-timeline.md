@@ -277,6 +277,64 @@ interface GenerationEntry {
 - **`knownRevision` 短路**：`chat.timeline.get` root 路径请求 `knownRevision >= revision` 时返回 `{chatId, revision, unchanged: true}`（无 nodes/edges/generations/messages）；`chat.open` root 路径 `knownTimelineRevision >= revision` 时省略 `rootTimeline` 并返回 `timelineUnchanged: true`（订阅栅栏与 state 照常返回）。
 - **patch 增量化**：`timeline.patch` 的 rootPatch 与单 chat canonical operations 均为**diff**——服务端模块级缓存上次已发送的 JSON 事实，新增/变化 upsert、消失 remove（node→remove、edge→remove-edge、run→remove-run、input→remove-input、message→remove）。缓存未命中（进程重启后首次）退化为全量 upsert（等价旧行为）。窗口滑动（新 compact 定稿）时，滑出窗口的节点以 remove 下发，前端收拢为打包节点。`baseRevision` 语义不变，缺口仍触发整体 resync。
 
+### 3.6 精简投影（lite profile）【implemented】
+
+> 状态标注：**implemented（P0 已落地）**。面向资源受限前端（单片机）的连接级投影。lite 不改变 canonical 事实层与 revision 语义，是**同一权威时间线的设备投影形态**，不是第二套协议。完整设备侧设计（传输选型/字节预算/分档/降级策略/事件白名单矩阵）见 [mcu-lite-api.md](mcu-lite-api.md)（定稿 v3.1），本节只固化 timeline 契约的投影规则；方法/字段/通知的协议面定义归 [protocol.md](protocol.md)（interaction.* 等已补录）。
+
+#### 3.6.1 连接级 profile 声明【implemented】
+
+WS 连接 URL 携带 `?profile=lite&v=1`：`v` 为 lite 字段集版本号，v1 **冻结只增不改**（新增字段可选；删除/改名必须发布新 v）；未知版本在 WS 握手期 `close(4xxx, reason=JSON{supportedVersions})` 拒绝。lite 连接的全部出站帧（事件与 RPC 响应）经发送端投影裁剪；不带 profile 的连接行为完全不变。投影插入点共三处：`prepareSessionEvent` 内 profile 分支（chat 路由类事件主收口）+ interaction.changed 广播旁路 + RPC Response 帧旁路（详见 mcu-lite-api.md §3.1）。
+
+#### 3.6.2 LeanTimelineNode【implemented】
+
+`chat.timeline.get` / `chat.open` rootTimeline / `timeline.patch` upsert node 在 lite 连接上统一投影为：
+
+```ts
+type LeanTimelineNode = {
+  id: string                    // = TimelineNode.id（大多数 = sourceMessageId）
+  kind: 'message' | 'return' | 'dispatch' | 'system'   // tool-batch/spawn/tool-group 归并进所属节点
+  actorKind: 'user' | 'agent' | 'system'               // TimelineNode.actor.kind 扁平化
+  actorRoleType?: string        // = TimelineNode.actor.roleType（子 agent 角色名）
+  direction: Direction          // = TimelineNode.direction 同值同义
+  orderKey: number              // = TimelineNode.orderKey；排序/游标唯一依据不变
+  status: 'committed' | 'revoked'
+  createdAt: number
+  summary: string               // content 服务端截断，字节定义 ≤180B（预算依据见 mcu-lite-api.md §3.3）
+  contentLength: number         // 全文长度；按需拉取（3.6.3）的展开判据
+  toolNames?: string[]          // toolCalls 投影为工具名列表（Actor.kind='tool' 同并入）
+  termination?: TerminationFact
+}
+```
+
+**与 TimelineNode 的对应关系**：LeanTimelineNode 是 TimelineNode 的**有损投影**——扁平化 `actor/target` 为 `actorKind/actorRoleType`、砍 `content/thinking` 全文（留 summary+contentLength）、砍 `runtime`/`toolCalls` 全量（留 toolNames）、砍 edges 与 legacy 字段。**归属语义只扁平化不改写**：`actorKind+actorRoleType+direction` 三元组与 §3.1 的 actor/target/direction 机械映射，lite 端（客户端或投影层）禁止从文本、时间邻近或 sourceChatId 推断归属——本条是 §1/§8 反模式在投影侧的延伸。
+
+**投影规则**：
+
+1. **revision/orderKey 语义不变**：snapshot 与 patch 的 revision、knownRevision 短路、缺口全量自愈（§3.5）对 lean 投影同等适用；edges 不投影（conversation 视图顺序 = orderKey 全序），tree/audit 视图不属于 lite 范围。
+2. **conversation 视图降采样**：`visibility='conversation'` 节点逐一映射为 lean 节点（无额外抽样）；`tool-batch`/`spawn`/`tool-group` 不产生独立节点，归并进所属 message 节点的 toolNames。
+3. **return 节点是子任务完成的唯一权威投影**：lite 连接抑制 role_reply 通知（其与 return 节点无对齐键，靠 childChatId 猜配对违反归属规则）；子完成只经 timeline patch 的 return lean 节点表达——与 §4 child_return/child_output 显式合并规则同源，不在投影层引入第二事实。
+4. **子 chat 事件路由**：子 chat 的 done/staged 全部抑制（最终回复只认 rootChatId 维度 done）；子 turn.started/completed 折叠为「子任务运行中」状态（判定规则见 mcu-lite-api.md §3.2）。
+5. **事件白名单**：lite 连接的完整推送裁剪矩阵（原样/投影精简/抑制三分类）以 [mcu-lite-api.md §3.2](mcu-lite-api.md) 为唯一维护处，本节不重复。
+
+#### 3.6.3 chat.timeline.node.get【implemented】
+
+lean 摘要的按需全文出口（对应 mcu-lite-api.md G5）：
+
+```ts
+chat.timeline.node.get({
+  rootChatId: string,
+  nodeId: string,
+  sections?: ('content' | 'thinking' | 'toolCalls')[],   // 缺省全部
+  offset?: number, limit?: number                          // 长内容分段；单响应 ≤32KB
+}) → { node: TimelineNode }   // 返回完整 TimelineNode（非 lean）
+```
+
+只读、低频用户触发；与 §3.2 查询 API 同层，不改变 snapshot/patch 的权威性；协议面（错误码/节流位）在 protocol.md 侧定义。
+
+#### 3.6.4 版本维护
+
+本节所有条目随 mcu-lite-api.md 的 profile 版本（v1）冻结演进；实现状态在本节回写标注（planned → in_progress → implemented）。按 §10 规则：实现前必须先更新本节与 protocol.md，代码完成后立即回写实际行为与测试证据；禁止把 lean 投影写成当前能力。
+
 ## 4. Projection 规则
 
 `RootTimelineProjector(rootChatId, view)` 的职责如下：
@@ -398,6 +456,11 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 3. 删除 V2-to-legacy `StreamState` 展示桥和前端 `mergeChildReplyHistory` 业务去重；
 4. 旧 `chat.get/chat.sync/chat.attach` 仅保留兼容期，之后移除。
 
+### Phase 5：lite profile 精简投影（implemented，P0）
+
+1. 按 §3.6 与 [mcu-lite-api.md](mcu-lite-api.md) P0 分期实施：prepareSessionEvent profile 分支、interaction.changed 广播与 RPC Response 两个旁路插入点、LeanTimelineNode 投影、chat.timeline.node.get。
+2. 状态在本文件与 protocol.md 同步回写。
+
 ## 7. 验收标准
 
 必须覆盖以下端到端场景：
@@ -410,6 +473,8 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 6. 多层子 agent，头像和 caller 徽章按 `actor/target` 正确区分。
 7. timeline patch 或 eventSeq 断档时自动全量重取，不能混入重复/错序节点。
 8. 服务重启后，持久化的输入队列、child task、已提交 timeline 与因果关系可完整恢复。
+9. 【implemented】lite 连接的 timeline.get/open/patch 均返回 LeanTimelineNode，revision/knownRevision 语义与富前端路径一致；同一 root 双端（富+lite）看到的 revision 与 orderKey 序列一致。
+10. 【implemented】lean 摘要经 chat.timeline.node.get 可取回与完整 TimelineNode 一致的全文（分段）；投影不改变归属三元组语义。
 
 ## 8. 反模式
 
@@ -421,6 +486,8 @@ subscription，不能删除同连接上的 root subscription。事件路由同�
 - 仅在实时 `role_reply` 事件中携带 child 身份，而不在数据库/快照中持久化该关联。
 
 ## 9. 当前实现状态
+
+> **lite profile 精简投影（§3.6）为 implemented（P0 已落地：T15 事件/Response 投影、T16 数据面、T20 D13 错误码；测试见 test/service/websocket/liteProjection.test.ts 与 test/service/interaction/errorCodes.test.ts）**——设计定稿见 [mcu-lite-api.md](mcu-lite-api.md)（v3.1/v3.2，D1–D19 已落定）；P1（turn.delta 可选订阅/分页细化/折叠调优/参考固件）与 P2（HTTP lite 面/短键名/maxFrameBytes 协商）保持 planned。
 
 本轮已落地：
 

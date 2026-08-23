@@ -130,6 +130,15 @@ export type SenseListRequestData = EmptyObjectData
 
 export type SenseToolsRequestData = EmptyObjectData
 
+/**
+ * sense.tools.docs 请求：统一获取内置工具的完整说明文档。
+ * 省略 tools（或传空数组）= 全量返回；提供 tools = 后端按 name 列表一次性返回对应说明。
+ */
+export interface SenseToolsDocsRequestData {
+  /** 需要的工具 name 列表；省略或空 = 全量。未知 name 自动忽略，不报错。 */
+  tools?: string[]
+}
+
 /** skills.list：列出用户配置目录中当前可用的 Skill 元数据。支持可选分页与搜索。 */
 export interface SkillsListRequestData {
   /** 1-based 页码；省略或 1 = 第一页；未给 pageSize 时忽略（返回全量）。 */
@@ -513,6 +522,8 @@ export interface SenseApprovalRequestData {
 export interface InteractionListRequestData {
   presetId?: string
   includeActivity?: boolean
+  /** lite profile（P0，R8）：单页上限，≤20；缺省 = 服务端默认窗口。超出的待办以 hasMore 标志暴露。 */
+  maxItems?: number
 }
 
 export interface InteractionData {
@@ -534,6 +545,17 @@ export interface InteractionData {
 
 export interface InteractionListResponseData {
   interactions: InteractionData[]
+  /** lite（P0）：服务端时钟校准（B-3：设备无 NTP 时以 serverNow 校准本地钟）。 */
+  serverNow?: number
+  /** lite（P0，R8）：maxItems 分页时携带；true = 仍有未返回条目（无 OFFSET 游标，客户端重拉全量窗口即可）。 */
+  hasMore?: boolean
+  /** lite（P0）：payload 被字段级截断的条目引用（interactionId + 被截字段 + 原文长度/哈希；全文走交互详情）。 */
+  truncations?: Array<{
+    interactionId: string
+    field: string
+    contentLength: number
+    contentHash: string
+  }>
 }
 export interface InteractionApprovalDecideRequestData {
   interactionId: string
@@ -875,6 +897,21 @@ export interface SenseToolMeta {
 
 export interface SenseToolsResponseData {
   tools: SenseToolMeta[]
+}
+
+/**
+ * sense.tools.docs 单项：内置工具的完整说明文档。
+ * doc 按【作用】【能力】【边界】【注意】分节，换行分隔；前端 hover 悬浮按 pre-line 展示。
+ * 文档在工具开发阶段统一定义于 BUILTIN_SENSE_TOOLS.doc，sense.tools.docs 只是统一出口，
+ * 前端一次拉取缓存即可，无需每次展示都重新提取。
+ */
+export interface SenseToolDoc {
+  name: string
+  doc: string
+}
+
+export interface SenseToolsDocsResponseData {
+  docs: SenseToolDoc[]
 }
 
 /** skills.list 响应：用户 `.chery/skills/` 独立 skill + `.chery/plugins/` 插件 skill；不含前端内置命令。 */
@@ -1756,6 +1793,31 @@ export interface ChatTimelineGenerationGetResponseData {
   edges: ExecutionEdgeFact[]
 }
 
+/**
+ * chat.timeline.node.get（lite profile P0，canonical §3.6.3）：
+ * lean 摘要的按需全文出口。低频、用户触发、只读；不改变 snapshot/patch 权威性。
+ */
+export interface ChatTimelineNodeGetRequestData {
+  rootChatId: string
+  nodeId: string
+  /** 缺省 = 全部 section；提供 = 只返回指定段（未请求段省略字段）。 */
+  sections?: Array<'content' | 'thinking' | 'toolCalls'>
+  /** 长内容分段（字符 offset，作用 sections 内每个文本字段）；与 limit 搭配。 */
+  offset?: number
+  /** 单次返回的字符上限；单响应 ≤32KB（服务端硬保证，超限截断并附引用）。 */
+  limit?: number
+}
+
+export interface ChatTimelineNodeGetResponseData {
+  rootChatId: string
+  /** 完整 TimelineNode（非 lean）；未请求的 section 字段被省略。 */
+  node: TimelineNode
+  /** 分段信息：sections 内文本字段被 offset/limit 或 32KB 硬上限截断时携带。 */
+  refs: Array<{ field: string; contentLength: number; contentHash: string }>
+  /** 是否还有未返回的剩余内容（任一字段被截断即 true；客户端续拉调 offset）。 */
+  hasMore: boolean
+}
+
 export type TimelinePatchOperation =
   | { type: 'upsert'; message: CanonicalMessage }
   | { type: 'revoke'; messageId: string }
@@ -2427,6 +2489,8 @@ export const Method = {
   SENSE_LIST: 'sense.list',
   // 列出代码维护的全部内置工具（name/label/description），供设置面板感官分组下拉
   SENSE_TOOLS: 'sense.tools',
+  // 统一获取内置工具完整说明文档（全量或按 name 列表过滤），供设置面板 hover 展示
+  SENSE_TOOLS_DOCS: 'sense.tools.docs',
   // 实时列出用户配置目录中的 Skill 元数据，供发送窗口 / 命令菜单使用
   SKILLS_LIST: 'skills.list',
   // 轻量接口：仅返回 skill/plugin 名称列表（不算 token），供角色卡下拉
@@ -2470,6 +2534,8 @@ export const Method = {
   CHAT_INPUT_SUBMIT: 'chat.input.submit',
   CHAT_TIMELINE_GET: 'chat.timeline.get',
   CHAT_TIMELINE_GENERATION_GET: 'chat.timeline.generation.get',
+  // lite profile：按需拉取单个节点的完整详情（P0，canonical §3.6.3；低频用户触发，只读）
+  CHAT_TIMELINE_NODE_GET: 'chat.timeline.node.get',
   CHAT_RESUME: 'chat.resume',
   CHAT_RESUME_TREE: 'chat.resumeTree',
   CHAT_SYNC: 'chat.sync',
@@ -2567,6 +2633,10 @@ export interface RpcMethodMap {
   [Method.BRAIN_LIST]: { params: BrainListRequestData; result: BrainListResponseData }
   [Method.SENSE_LIST]: { params: SenseListRequestData; result: SenseListResponseData }
   [Method.SENSE_TOOLS]: { params: SenseToolsRequestData; result: SenseToolsResponseData }
+  [Method.SENSE_TOOLS_DOCS]: {
+    params: SenseToolsDocsRequestData
+    result: SenseToolsDocsResponseData
+  }
   [Method.SKILLS_LIST]: { params: SkillsListRequestData; result: SkillsListResponseData }
   [Method.SKILLS_LIST_NAMES]: {
     params: SkillsListNamesRequestData
@@ -2654,6 +2724,10 @@ export interface RpcMethodMap {
   [Method.CHAT_TIMELINE_GENERATION_GET]: {
     params: ChatTimelineGenerationGetRequestData
     result: ChatTimelineGenerationGetResponseData
+  }
+  [Method.CHAT_TIMELINE_NODE_GET]: {
+    params: ChatTimelineNodeGetRequestData
+    result: ChatTimelineNodeGetResponseData
   }
   [Method.CHAT_RESUME]: { params: ChatResumeRequestData; result: ChatResumeResponseData }
   [Method.CHAT_RESUME_TREE]: {
@@ -2794,6 +2868,19 @@ export const ErrorCode = {
   CONFLICT: 'CONFLICT',
   /** 历史任务无法关联到当前 preset/type，执行前需要用户选择当前运行配置。 */
   RUNTIME_SELECTION_REQUIRED: 'RUNTIME_SELECTION_REQUIRED',
+  // ---- D13 交互命令专用码（mcu-lite-api.md D13 定稿六码；lite v1 冻结集）----
+  /** 交互 expectedRevision 过期（乐观锁不匹配 / claim 失败），客户端重拉收件箱后重试。 */
+  INTERACTION_STALE: 'INTERACTION_STALE',
+  /** 交互已处理（status ∉ pending/blocked），以 interaction.status 为准，不报错重放语义。 */
+  INTERACTION_ALREADY_RESOLVED: 'INTERACTION_ALREADY_RESOLVED',
+  /** commandId 已用于另一条命令或该命令正在处理中（幂等层冲突）。 */
+  COMMAND_CONFLICT: 'COMMAND_CONFLICT',
+  /** chat.input.submit 输入队列满（上限 16；此前归 INTERNAL，现按 D13 显式注册）。 */
+  INPUT_QUEUE_FULL: 'INPUT_QUEUE_FULL',
+  /** lite profile 握手期版本不支持（当前以 close(4001) 表达；注册为协议码备用，handler 不抛）。 */
+  PROFILE_VERSION_UNSUPPORTED: 'PROFILE_VERSION_UNSUPPORTED',
+  /** node.get 等按需详情的节流触发（预留位：当前注册不触发，落地时在 handler 抛）。 */
+  RATE_LIMITED: 'RATE_LIMITED',
 } as const
 
 // ========== 工厂函数 ==========
