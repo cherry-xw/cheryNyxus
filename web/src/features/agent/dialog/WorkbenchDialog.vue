@@ -190,9 +190,10 @@ const branchTreeRef = ref<{ resetLayout: () => void } | null>(null)
 function workbenchDrawerAnchor() {
   const rect = workbenchShellRef.value?.getBoundingClientRect()
   if (!rect) return null
-  // 完全参考「待处理交互抽屉」：从标题栏（40px）下方起始、铺满内容区全宽，
-  // 使历史抽屉盖住右侧 rail 按钮；标题栏窗口控制按钮（关闭/最大化/最小化）保持可用。
-  const TITLEBAR_H = 40
+  // 从标题栏下方起始、铺满内容区全宽，使历史抽屉盖住右侧 rail 按钮；标题栏窗口控制按钮保持可用。
+  // native 面（Electron 原生窗）标题栏由 WindowFrame 外壳承载在 shell 之外，shell 顶部即内容区
+  // 顶部，不再偏移；浏览器面自绘标题栏（40px）在 shell 内，需下移标题栏高。
+  const TITLEBAR_H = isNative.value ? 0 : 40
   return {
     top: rect.top + TITLEBAR_H,
     left: rect.left,
@@ -623,8 +624,11 @@ async function sendFromComposer(): Promise<void> {
       branchTarget.value = undefined
       resetEditor()
       resetMedia()
-      agents.setWorkbenchWindowChat(props.windowId, created.chatId)
-      treeRootChatId.value = created.chatId
+      // 仅 continuation 切换工作台会话/树（成为新主流程）；detail 不切换，只作为轻量子分支留在当前树上。
+      if (target.type === 'continuation') {
+        agents.setWorkbenchWindowChat(props.windowId, created.chatId)
+        treeRootChatId.value = created.chatId
+      }
       taskTimeline.value = await agentApi.getTaskTimeline({ taskId: created.taskId, view: 'tree' })
       await chatSessions.openSession(created.chatId).catch(() => undefined)
       return
@@ -2068,9 +2072,10 @@ defineExpose({ closeWorkbench })
 .workbench-shell.is-native .workbench-ctx-bar {
   top: 0;
 }
-// native 面无标题栏（branch-top 从顶开始）→ 待操作面板贴顶。
+// native 面无标题栏（branch-top 从顶开始）→ 待操作面板贴顶，限高按贴顶定位用满工作台。
 .workbench-shell.is-native :deep(.pending-panel) {
   top: 8px;
+  max-height: calc(100% - 8px);
 }
 .workbench-shell.is-fullscreen {
   inset: 0;

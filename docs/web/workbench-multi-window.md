@@ -58,6 +58,25 @@ interface WorkbenchWindowState {
 - 树订阅：`observeRootTimeline(win.chatId, 'tree')`，close 清理。
 - 最小化按钮写 `minimized=true`，shell `v-show` 隐藏。
 
+### 分支创建后的工作台切换契约（2026-08-24）
+
+composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat（`WorkbenchDialog.sendFromComposer`），创建成功后的切换行为**按分支类型区分**：
+
+- **`continuation`（从此处继续）**：切换工作台到新分支——`setWorkbenchWindowChat(windowId, created.chatId)` + `treeRootChatId = created.chatId`，新分支成为当前主流程，后续发送/交互落在新分支。
+- **`detail`（解释该节点）**：**不切换**工作台会话/树——`setWorkbenchWindowChat` 与 `treeRootChatId` 均不更新，解释分支只作为轻量子分支渲染在当前树上（与子分支同级），核心主流程保持不变。
+- 两种类型创建成功后都**无条件刷新** `taskTimeline`（`getTaskTimeline({ taskId, view: 'tree' })`，让新分支出现在树上）并 `openSession(created.chatId)` 打开会话。
+
+与后端语义对齐：`detail` 永远不能成为 `active_branch_id` 主干（见 `src/service/chat/conversationBranch.ts` 与 [docs/service/chat.md](../service/chat.md#任务分支语义)「任务分支语义」），故前端只在 `continuation` 时切换工作台身份。
+
+### 历史抽屉分支管理契约（2026-08-24）
+
+工作台历史抽屉（`openHistory` 经 `openHistoryRoot(id, 'workbench-docked', anchor)` 打开）标题栏的级联下拉与「设为主流程」按钮（`HistoryDrawerPanel.vue`）：
+
+- **级联下拉显示条件**（`dropdownAsTitle`）：`layout === 'group'` 且（非 workbench-docked 模式且同 preset 可切换 root 会话 >1，**或** 任务分支数 >1）。任务含多个分支时 dock 模式也显示下拉（分支/会话切换入口，与 pet 直开抽屉一致）；仅单分支且无多 root 会话时才隐藏为静态标题。
+- **下拉切换保持锚定**：`onSwitchCascade` 切根时透传当前 `historyDrawerMode` + `historyDrawerAnchor`（`manager.openRoot(cid, mode, anchor)`），dock 抽屉切分支后仍保持 dock 锚定，不回退 overlay。
+- **「设为主流程」按钮**（`activateCurrentBranch`）：当前打开分支 `kind !== 'detail'` 且 `branchId !== activeBranchId` 时显示；点击经 `chat.branch.activate` 切换主干后刷新 `getTaskTimeline({ view: 'conversation' })`。`detail` 永远不能设为主干（对齐后端语义）。
+- **native 面抽屉锚定**：`workbenchDrawerAnchor` 的标题栏偏移在 native 面（Electron 原生窗，标题栏由 WindowFrame 外壳承载于 shell 之外）为 0，浏览器面为 40px——保证抽屉顶部紧贴标题栏下沿，不留空白。
+
 ### `WorkbenchCapsule.vue`（新，`web/src/features/agent/dialog/`）
 
 胶囊最小化 UI，`defineProps<{ windowId }>`。App.vue 按 `workbenchWindowsList` 中 `minimized===true` 渲染。
@@ -144,6 +163,17 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **单选提示**：选项区上方提示行 `.options-hint`——单选显示「单选 · 再次点击可取消」、多选显示「可多选」，明确告知单选可取消（用户此前困惑：选了选项又填「其他补充」以为叠加，实际互斥清空）。
 - **提交状态关联**：`canSubmitOf` 前置判定——单选恰好 1 项或有「其他补充」输入、多选 ≥1，否则「提交回答」禁用（灰不可点）。
 - **同步**：[WorkspaceSessionBrowser.vue](../../web/src/features/agent/dialog/WorkspaceSessionBrowser.vue)（会话浏览器）同步单选提示 + 提交禁用逻辑。
+
+### 内容撑开与空状态可见（2026-08-24 修复）
+
+`.pending-panel` 高度 auto（仅 `max-height` 上限工作台可用空间），展开后纵向 flex 链若用 `flex-basis: 0`，会在 auto-height 容器中无确定尺寸可 grow 而**逐层塌陷为 0**（`.pending-panel-body` → `.panel-main` → `.task-nav` → `.task-nav-list`），配合 `overflow: hidden` 把全部内容（含 `.pending-panel-empty` 空状态）裁剪掉——面板只剩几像素高、无法交互。
+
+**修复**：纵向 flex 链全部改 `flex-basis: auto`（保留 `flex-shrink` + `min-height: 0`）：
+
+- **内容少/空**：面板高度 = 内容高度（由内容自然撑开，空状态「没有待操作任务」正常显示）。
+- **内容超高**：面板被 `max-height` 截断为确定高度，左栏 `.task-detail` / 右栏 `.task-nav-list` 各自内部滚动（不超出工作台）。
+
+涉及选择器：`.pending-panel-body` / `.panel-main` / `.task-nav` / `.task-nav-list`（`flex: 1 1 0` → `flex: 1 1 auto`）。横向链不受影响：`.task-detail` 的 `flex: 1` 是宽度分配，其高度由 `.panel-main` 的 `align-items: stretch` 决定。
 
 ## 改动文件清单
 

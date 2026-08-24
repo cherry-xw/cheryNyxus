@@ -335,7 +335,8 @@ const cascadeProps = { checkStrictly: true, emitPath: false } as const
 function onSwitchCascade(value: unknown): void {
   const cid = typeof value === 'string' ? value : ''
   if (!cid || cid === props.chatId) return
-  manager.openRoot(cid)
+  // 透传当前 mode + anchor：dock 抽屉切分支后仍保持 dock 锚定，不回退 overlay。
+  manager.openRoot(cid, agents.historyDrawerMode, agents.historyDrawerAnchor)
 }
 const activatingBranch = ref(false)
 async function activateCurrentBranch(): Promise<void> {
@@ -824,13 +825,14 @@ const titleText = computed(() => {
   return `历史 · ${props.chatId.slice(0, 8)}…`
 })
 
-/** 级联下拉作为标题：同 preset 存在多个可切换会话/分支且非 workbench-docked 模式时，静态标题
- *  隐去，由级联下拉承载占位。工作台 dock 模式不显示任何切换下拉（分支/会话切换走工作台自身节点树）。 */
+/** 级联下拉作为标题：同 preset 存在多个可切换会话，或任务含多个分支时，静态标题隐去，
+ *  由级联下拉承载占位。任务分支 >1 时 workbench-docked 模式也显示（分支/会话切换与 pet
+ *  抽屉一致）；仅单分支且无多 root 会话时才隐藏为静态标题。 */
 const dropdownAsTitle = computed(
   () =>
     layout.value === 'group' &&
-    agents.historyDrawerMode !== 'workbench-docked' &&
-    (rootOptions.value.length > 1 || orderedTaskBranches.value.length > 1),
+    ((agents.historyDrawerMode !== 'workbench-docked' && rootOptions.value.length > 1) ||
+      orderedTaskBranches.value.length > 1),
 )
 
 /** 6c：解析某条历史消息所属 chat 的 pet runtime 兜底（subPetChatId 优先 → agentChatId → 当前 drawer chat）。
@@ -952,7 +954,7 @@ function onPromptSnapShow(): void {
     <header class="drawer-head">
       <div class="title-block">
         <span v-if="!dropdownAsTitle" class="title">{{ titleText }}</span>
-        <!-- 会话级联切换：第一级任务，第二级分支；仅 pet 直开的 overlay 抽屉显示（工作台 dock 模式走自身节点树） -->
+        <!-- 会话级联切换：第一级任务，第二级分支；任务含多分支时 dock 抽屉也显示（切分支保持 dock 锚定） -->
         <el-cascader
           v-if="dropdownAsTitle"
           class="cascade-switch"

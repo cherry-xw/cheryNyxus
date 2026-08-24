@@ -251,6 +251,17 @@ function statusOf(item: InteractionRecord): string {
   }[item.status]
 }
 
+// ── 左栏详情分块折叠：能力解释默认折叠；每个问题块独立折叠（默认展开） ──
+const senseDescCollapsed = ref(true)
+/** 按 questionId 记录各问题块的折叠态（缺省=展开）；切换 active 任务后新块自然回落到展开。 */
+const collapsedQuestions = reactive<Record<string, boolean>>({})
+function toggleQuestion(questionId: string): void {
+  collapsedQuestions[questionId] = !collapsedQuestions[questionId]
+}
+function isQuestionCollapsed(questionId: string): boolean {
+  return collapsedQuestions[questionId] === true
+}
+
 /**
  * 审批倒计时：approval 且带 deadlineAt 时返回剩余毫秒与是否超时；否则 total=0（不显示）。
  * 与 ApprovalCard 语义一致（deadlineAt = createdAt + waitTime，后端写入）。
@@ -404,10 +415,23 @@ onBeforeUnmount(() => {
                 <span class="detail-status">{{ statusOf(activeItem) }}</span>
               </div>
 
-              <!-- 工具能力解释（后端注入 sense 定义 description；config_manage 等）。 -->
-              <p v-if="senseDescriptionOf(activeItem)" class="sense-desc">
-                {{ senseDescriptionOf(activeItem) }}
-              </p>
+              <!-- 工具能力解释（后端注入 sense 定义 description；config_manage 等）。默认折叠，点击标题展开。 -->
+              <div v-if="senseDescriptionOf(activeItem)" class="detail-block">
+                <button
+                  type="button"
+                  class="detail-block-toggle"
+                  :aria-expanded="!senseDescCollapsed"
+                  @click="senseDescCollapsed = !senseDescCollapsed"
+                >
+                  <span class="detail-block-glyph" aria-hidden="true">{{
+                    senseDescCollapsed ? '▸' : '▾'
+                  }}</span>
+                  工具能力解释
+                </button>
+                <p v-show="!senseDescCollapsed" class="sense-desc">
+                  {{ senseDescriptionOf(activeItem) }}
+                </p>
+              </div>
 
               <ParsedArgs
                 v-if="activeItem.kind === 'approval'"
@@ -419,39 +443,50 @@ onBeforeUnmount(() => {
                   :key="question.questionId"
                   :disabled="activeItem.status !== 'pending'"
                 >
-                  <legend>{{ question.header || question.question }}</legend>
-                  <small v-if="question.header">{{ question.question }}</small>
-                  <p class="options-hint">
-                    {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
-                  </p>
-                  <div class="options">
-                    <button
-                      v-for="option in question.options"
-                      :key="option.label"
-                      type="button"
-                      :class="{
-                        selected: draftOf(activeItem, question.questionId).selectedLabels.includes(
-                          option.label,
-                        ),
-                      }"
-                      @click="
-                        toggleOption(
-                          activeItem,
-                          question.questionId,
-                          option.label,
-                          question.multiSelect,
-                        )
-                      "
-                    >
-                      <b>{{ option.label }}</b
-                      ><span v-if="option.description">{{ option.description }}</span>
-                    </button>
-                  </div>
-                  <input
-                    :value="draftOf(activeItem, question.questionId).freeText"
-                    placeholder="其他补充（可选）"
-                    @input="onOtherInput(activeItem, question.questionId, $event)"
-                  />
+                  <legend
+                    class="question-toggle"
+                    :aria-expanded="!isQuestionCollapsed(question.questionId)"
+                    @click="toggleQuestion(question.questionId)"
+                  >
+                    <span class="detail-block-glyph" aria-hidden="true">{{
+                      isQuestionCollapsed(question.questionId) ? '▸' : '▾'
+                    }}</span>
+                    {{ question.header || question.question }}
+                  </legend>
+                  <template v-if="!isQuestionCollapsed(question.questionId)">
+                    <small v-if="question.header">{{ question.question }}</small>
+                    <p class="options-hint">
+                      {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
+                    </p>
+                    <div class="options">
+                      <button
+                        v-for="option in question.options"
+                        :key="option.label"
+                        type="button"
+                        :class="{
+                          selected: draftOf(activeItem, question.questionId).selectedLabels.includes(
+                            option.label,
+                          ),
+                        }"
+                        @click="
+                          toggleOption(
+                            activeItem,
+                            question.questionId,
+                            option.label,
+                            question.multiSelect,
+                          )
+                        "
+                      >
+                        <b>{{ option.label }}</b
+                        ><span v-if="option.description">{{ option.description }}</span>
+                      </button>
+                    </div>
+                    <input
+                      :value="draftOf(activeItem, question.questionId).freeText"
+                      placeholder="其他补充（可选）"
+                      @input="onOtherInput(activeItem, question.questionId, $event)"
+                    />
+                  </template>
                 </fieldset>
               </div>
             </template>
@@ -568,15 +603,21 @@ onBeforeUnmount(() => {
   right: 52px; // 位于右侧 rail 左侧，避免盖住 rail 按钮
   width: 600px; // 左右分栏后加宽：左栏导航 + 右栏详情一屏容纳，降低滚动依赖
   max-width: calc(100% - 120px);
+  max-height: calc(100% - 44px); // 最高不超过工作台可用空间（从 top:44px 定位到工作台底部）
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   color: var(--nx-text);
   font-size: 13px;
   pointer-events: auto;
+  overflow: hidden; // 兜底：任何子栏未及时收缩时也不让内容溢出工作台窗口
 }
 // 入口行：标题 toggle + 范围切换 + 刷新同一行。
 .pending-panel-head {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0; // 入口行固定，不随 body 滚动区收缩
   padding: 7px 10px;
   border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
   border-radius: 10px;
@@ -686,6 +727,11 @@ onBeforeUnmount(() => {
 .pending-panel-body {
   margin-top: 6px;
   padding: 10px;
+  min-height: 0; // 允许随面板限高收缩（flex column 子项）
+  flex: 1 1 auto; // basis auto：高度由内容自然撑开（空状态也可见）；面板被 max-height 截断为确定高度时才收缩
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; // 滚动交由左栏 task-detail 内部承载
   border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 6%);
@@ -713,15 +759,17 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-// 左右两栏：左栏任务详情 + 右栏任务导航/操作。
+// 左右两栏：左栏任务详情 + 右栏任务导航/操作；两栏各自内部滚动（超高不出工作台窗口）。
 .panel-main {
   display: flex;
   align-items: stretch;
   gap: 10px;
+  flex: 1 1 auto; // basis auto：高度由两栏内容中较高者撑开；面板被 max-height 截断时收缩，两栏在其内各自滚动
+  min-width: 0;
   min-height: 0;
 }
 
-// ── 右栏：任务导航（顺序排列、分页 ▲/▼、无滚动条）+ 底部操作按钮同列 ──
+// ── 右栏：任务导航（▲/▼ 分页、中间列表内部滚动）+ 底部操作按钮同列、贴列底固定 ──
 .side-col {
   display: flex;
   flex-direction: column;
@@ -729,11 +777,14 @@ onBeforeUnmount(() => {
   width: 176px;
   flex-shrink: 0;
   align-self: stretch;
+  min-height: 0; // 允许随面板限高收缩，超高时任务列表内部滚动而非撑破面板
 }
 .task-nav {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 1 auto; // basis auto：高度由内容撑开；右栏超高（side-col 高度受限）时收缩，列表内部滚动
+  min-height: 0;
 }
 .page-nav {
   border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
@@ -757,6 +808,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1 1 auto; // basis auto：高度由任务按钮内容撑开；超高时随 task-nav 收缩、列表内部滚动
+  min-height: 0;
+  overflow-y: auto; // 任务按钮超高时仅右栏列表滚动，▲/▼、meta 与底部操作按钮固定可见
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nx-text) 30%, transparent) transparent;
 }
 .task-nav-btn {
   display: flex;
@@ -828,13 +884,17 @@ onBeforeUnmount(() => {
   font-variant-numeric: tabular-nums;
 }
 
-// ── 左栏：任务详情（全部展开不滚动） ──
+// ── 左栏：任务详情（节点树中查看 / 工具能力解释 / 参数 整区内部滚动，最高不超工作台可用空间） ──
 .task-detail {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto; // 左半边整区内部滚动：内容超高时仅左栏滚动，不撑出工作台窗口
   padding: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nx-text) 30%, transparent) transparent;
 }
 .detail-top {
   display: flex;
@@ -860,9 +920,47 @@ onBeforeUnmount(() => {
   }
 }
 
-// 工具能力解释（config_manage 等）：主题色左条 + 正常排版。
+// ── 左栏详情分块折叠头（工具能力解释 / 每个问题块） ──
+.detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.detail-block-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--nx-text) 74%, transparent);
+  font-size: 13px;
+  font-weight: 400;
+  cursor: pointer;
+  &:hover {
+    color: var(--nx-text);
+  }
+}
+.question-toggle {
+  cursor: pointer;
+  color: color-mix(in srgb, var(--nx-text) 84%, transparent);
+  &:hover {
+    color: var(--nx-text);
+  }
+}
+.detail-block-glyph {
+  display: inline-block;
+  flex-shrink: 0;
+  margin-right: 2px;
+  color: color-mix(in srgb, var(--nx-green) 68%, transparent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+// 工具能力解释（config_manage 等）：主题色左条 + 正常排版。间距由 .detail-block 承担。
 .sense-desc {
-  margin: 0 0 10px;
+  margin: 0;
   padding: 9px 11px;
   border-left: 2px solid color-mix(in srgb, var(--nx-green) 58%, transparent);
   border-radius: 0 7px 7px 0;
@@ -962,6 +1060,7 @@ input {
   flex-direction: column;
   gap: 7px;
   margin-top: auto;
+  flex-shrink: 0; // 超高时操作区固定贴列底，不被压缩（task-nav 单独收缩内部滚动）
   padding-top: 8px;
   border-top: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
   button {
