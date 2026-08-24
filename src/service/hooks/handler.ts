@@ -12,6 +12,7 @@ import {
   type HooksHandlerDTO,
 } from '../message/types.js'
 import { readGlobalHooks, readBrainHooksMap, writeGlobalHooks } from '@/agent/hooks/registry.js'
+import { describePosixShell } from '@/core/security/sandbox.js'
 import type { HookEvent } from '@/agent/hooks/types.js'
 import type { HookHandlerConfig } from '@/agent/hooks/matcher.js'
 import { logger } from '@/utils/logger/index.js'
@@ -164,7 +165,15 @@ async function handleHooksGet(_ctx: HandlerContext): Promise<HooksGetResponseDat
     eventCount: Object.keys(handlers).length,
     brainCount: Object.keys(brainHooks).length,
   })
-  return { handlers, brainHooks }
+  // handler 执行器平台状态（HooksTab 页头展示；describe 不抛，失败转 available:false + 指引）
+  const shell = describePosixShell()
+  const shellInfo = {
+    platform: process.platform,
+    ...(shell.available
+      ? { available: true as const, executable: shell.executable }
+      : { available: false as const, hint: shell.hint }),
+  }
+  return { handlers, brainHooks, shellInfo }
 }
 
 /** hooks.save：校验 + 写回 */

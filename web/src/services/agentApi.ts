@@ -1144,10 +1144,22 @@ export interface HookHandlerDTO {
   timeout?: number
 }
 
-/** hooks.get 响应：全局 hooks + brain 级只读 hooks */
+/** hooks.get 响应：全局 hooks + brain 级只读 hooks + handler 执行器平台状态 */
+export interface HooksShellInfo {
+  /** 服务进程平台（process.platform）*/
+  platform: string
+  /** 是否解析到可用 POSIX shell */
+  available: boolean
+  /** available=true 时解析到的 shell（PATH 名或绝对路径）*/
+  executable?: string
+  /** available=false 时的安装指引 */
+  hint?: string
+}
+
 export interface HooksGetResult {
   handlers: Record<string, HookHandlerDTO[]>
   brainHooks: Record<string, Record<string, HookHandlerDTO[]>>
+  shellInfo: HooksShellInfo
 }
 
 /** hooks.events 响应：事件元数据 */

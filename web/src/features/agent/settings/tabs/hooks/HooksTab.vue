@@ -17,7 +17,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import { agentApi, type HookHandlerDTO, type HookEventMeta } from '@/services/agentApi'
+import { agentApi, type HookHandlerDTO, type HookEventMeta, type HooksShellInfo } from '@/services/agentApi'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 
@@ -31,6 +31,8 @@ const draft = ref<Record<string, HookHandlerDTO[]>>({})
 const brainHooks = ref<Record<string, Record<string, HookHandlerDTO[]>>>({})
 /** 事件元数据 */
 const eventMeta = ref<HookEventMeta[]>([])
+/** Handler 执行器平台状态（hooks.get shellInfo；不可用时 handler dispatch 会被阻断）*/
+const shellInfo = ref<HooksShellInfo | null>(null)
 /** 加载状态 */
 const loading = ref(false)
 
@@ -72,6 +74,7 @@ async function loadHooks(): Promise<void> {
     const [hooksData, meta] = await Promise.all([agentApi.getHooks(), agentApi.getHookEvents()])
     draft.value = hooksData.handlers
     brainHooks.value = hooksData.brainHooks
+    shellInfo.value = hooksData.shellInfo ?? null
     eventMeta.value = meta
   } catch (err) {
     emitError(err)
@@ -151,6 +154,21 @@ onMounted(loadHooks)
     <div v-if="loading" class="loading-hint">加载中…</div>
 
     <template v-else>
+      <!-- Handler 执行器平台状态（POSIX shell 解析结果；不可用时每次 dispatch 会被阻断）-->
+      <div v-if="shellInfo" class="neu-card shell-status" :class="shellInfo.available ? 'ok' : 'bad'">
+        <span class="shell-icon">{{ shellInfo.available ? '✅' : '⚠️' }}</span>
+        <span class="shell-text">
+          <template v-if="shellInfo.available">
+            Handler 执行器：<code>{{ shellInfo.executable }}</code>
+            <small>（{{ shellInfo.platform }}）</small>
+          </template>
+          <template v-else>
+            {{ shellInfo.hint }}
+            <small>（{{ shellInfo.platform }}）</small>
+          </template>
+        </span>
+      </div>
+
       <!-- Cherry Nexus 引导卡（顶部：先讲清楚怎么用，再列事件细节）-->
       <article class="neu-card guide-card">
         <header class="guide-head">
@@ -538,6 +556,41 @@ onMounted(loadHooks)
 }
 
 // ============ Cherry Nexus 引导卡 ============
+
+// ============ Shell 执行器状态条 ============
+
+.shell-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-top: 4px;
+  font-size: 12px;
+  flex-shrink: 0;
+  .shell-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .shell-text {
+    min-width: 0;
+    color: color-mix(in srgb, var(--ink) 75%, transparent);
+    line-height: 1.4;
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 11px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: color-mix(in srgb, var(--ink) 8%, transparent);
+      word-break: break-all;
+    }
+    small {
+      color: color-mix(in srgb, var(--ink) 55%, transparent);
+    }
+  }
+  &.bad .shell-text {
+    color: var(--danger);
+  }
+}
 
 .guide-card {
   position: relative;

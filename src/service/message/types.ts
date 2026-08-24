@@ -2141,10 +2141,22 @@ export interface ConfigWorkspaceBrowseListResponseData {
   encData: string
 }
 
-/** hooks.get 响应：全局 hooks + 各 brain 级 hooks（只读展示）*/
+/** hooks.get 响应：全局 hooks + 各 brain 级 hooks（只读展示）+ handler 执行器平台状态 */
+export interface HooksShellInfo {
+  /** 服务进程平台（process.platform，如 win32/linux/darwin） */
+  platform: string
+  /** 是否解析到可用 POSIX shell（handler 执行器，见 docs/agent/hooks.md 跨平台执行） */
+  available: boolean
+  /** available=true 时解析到的 shell（PATH 名或绝对路径，如 Git Bash bash.exe） */
+  executable?: string
+  /** available=false 时的安装指引 */
+  hint?: string
+}
+
 export interface HooksGetResponseData {
   handlers: Record<string, HooksHandlerDTO[]>
   brainHooks: Record<string, Record<string, HooksHandlerDTO[]>>
+  shellInfo: HooksShellInfo
 }
 
 /** hooks.save 响应：写入成功 */

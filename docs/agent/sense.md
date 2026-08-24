@@ -106,6 +106,8 @@ input { shell: 'bash' | 'powershell', command, description, workdir? }
 
 **输出截取（[bash.ts formatBashResult](../../src/agent/sense/bash.ts)）：** output 超 30 行显示前 15 + 后 15，中间「省略 N 行」。结果含 `pid` / `exitCode` / `duration` / `logPath`（超时时）。
 
+**shell 方言解析（[sandbox.ts](../../src/core/security/sandbox.ts)）：** `powershell` 走 pwsh → legacy `powershell.exe` 降级链；`bash` 在 win32 下经 `resolvePosixShell()` 探测链解析（PATH bash → PATH sh → git 反查 → 常见路径，详见 [agent/hooks.md](./hooks.md) 跨平台执行），非 win32 直接 `bash -lc`。解析失败返回错误说明（fail-soft：错误作为 sense 结果回给 AI，AI 可改用 powershell 方言重试）。
+
 ### B. read_file（[read.ts](../../src/agent/sense/read.ts)）
 
 ```text

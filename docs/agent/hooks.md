@@ -15,7 +15,7 @@
 | [types.ts](../../src/agent/hooks/types.ts) | 事件枚举 + 每个事件的 input/output/decision 类型 |
 | [matcher.ts](../../src/agent/hooks/matcher.ts) | matcher（provider/exact/regex）+ `if` 谓词（jq-lite 子集） |
 | [registry.ts](../../src/agent/hooks/registry.ts) | 加载 `.chery/hooks/hooks.json` + brain 级 hooks；schema 校验；mtime 重读 |
-| [dispatch.ts](../../src/agent/hooks/dispatch.ts) | `dispatch(event, payload, ctx)` 主流程；spawn `sh -c`；解析 stdout JSON；应用决策 |
+| [dispatch.ts](../../src/agent/hooks/dispatch.ts) | `dispatch(event, payload, ctx)` 主流程；spawn 解析后的 POSIX shell `-c`（见「跨平台执行」）；解析 stdout JSON；应用决策 |
 | [index.ts](../../src/agent/hooks/index.ts) | barrel：聚合导出 |
 
 ## 事件清单
@@ -96,7 +96,7 @@ async function dispatch<TIn, TOut>(
 1. registry 查 event → 合并全局 + brain 级 handler 列表
 2. 按 matcher 过滤 → 按 `if` 谓词过滤
 3. **顺序执行**（不支持并发：避免 stdout 竞态）handler：
-   - spawn `sh -c command`，stdin 写 `{event, payload, ctx}` JSON（Windows 下 `sh` 不存在通常启动失败，但须同样带 `windowsHide: true` 防漏——任何 spawn 控制台子进程都应隐藏窗口，约定见 [web/electron.md](../web/electron.md#electron-spawn-后端模式-2)）
+   - spawn `<resolved> -c command`（经 `resolvePosixShell()` 解析，见「跨平台执行」），stdin 写 `{event, payload, ctx}` JSON；任何 spawn 控制台子进程都须带 `windowsHide: true` 防漏（约定见 [web/electron.md](../web/electron.md#electron-spawn-后端模式-2)）
    - 解析 stdout JSON（catch 单行解析失败，跳过该 handler）
    - 应用决策：
      - `{body}` → 替换 `payload.body`
@@ -110,6 +110,36 @@ async function dispatch<TIn, TOut>(
 - `bootstrapAgentRuntime` 启动期读 `.chery/hooks/hooks.json` + 各 brain 级 hooks.json，校验 schema
 - **handler 进程不预热**（仿 mock 哲学：每次 dispatch 按需 read+spawn→dev 改 hooks.json 免重启）
 - `.chery/hooks/*.sh` 是脚本，按需 `cat`/`exec`；不是闭包，不需缓存
+
+### 6. 跨平台执行（POSIX shell 解析）
+
+hooks 的 command 是 **POSIX shell 语法**（`$VAR` 展开、管道、单引号、`.sh` 脚本 shebang），不能用 `cmd /c` 执行。dispatcher 统一经 `resolvePosixShell()`（[core/security/sandbox.ts](../../src/core/security/sandbox.ts)）解析执行器：
+
+- **Linux / macOS**：直接 `sh`（历史行为不变）
+- **Windows** 探测链（模块级缓存，仿 `resolveShellExecutable('powershell')` 的探测→降级→缓存先例）：
+  1. PATH 上的 `bash`（`bash -c true` 探测）
+  2. PATH 上的 `sh`
+  3. `where git` 反查 git.exe 安装位置 → 推导 `<Git 安装目录>/usr/bin/bash.exe`（Git for Windows 标准布局）
+  4. 常见安装路径直查（如 `C:\Program Files\Git\usr\bin\bash.exe`）
+  5. 全部失败 → 抛 `HOOK_SHELL_UNAVAILABLE`（userMessage 附安装指引）
+
+Git Bash 的 `bash` 完全兼容 `/bin/sh` 脚本与 POSIX 语法；`${CHERY_DIR}` 等模板展开由框架完成（`expandCommandTemplate`），与平台无关；handler 脚本自身的工具依赖（如 `jq`）由脚本保证，缺失时以 exit 非零落回非阻断语义。
+
+**失败语义表**（区分「平台缺失」与「handler 业务失败」）：
+
+| 情形 | 行为 | 依据 |
+|------|------|------|
+| shell 解析失败 / spawn ENOENT | **阻断**（fail-loud）：抛 ClassifiedError，userMessage 指路（装 Git Bash 或删该 handler） | 对安全类 handler 静默跳过 = fail-open，不可接受 |
+| exit 0 + stdout JSON | 解析为决策 | 正常路径 |
+| exit 2 | 阻断，stderr 作为 reason | handler 显式阻断 |
+| exit 其他非零 | **非阻断**：log `hook.failed`，继续下一 handler | handler 业务失败 |
+| timeout | kill + log `hook.timeout`，跳过该 handler | 超时防护 |
+
+**启动期健康检查**：`loadHookRegistry()` 首次构建表后，若注册了任何 handler，立即探测 shell；失败打 `hooks.registry.shell_unavailable` warn（先例：git 导入的 `gitNotInstalled` 预探测）——平台缺失在**事故前**暴露，而非在会话中反复撞墙。
+
+**设置页状态**：`hooks.get` 响应携带 `shellInfo { platform, available, executable?, hint? }`，HooksTab 页头展示当前解析结果。
+
+**Windows 前提**：安装 Git for Windows（或任何把 bash.exe 放进 PATH 的环境，如 MSYS2）。
 
 ## 关键流程
 
@@ -127,7 +157,7 @@ sequenceDiagram
     Chat->>Anthropic: chat(messages, senses, options)
     Anthropic->>Anthropic: 构造 body (内置 thinking 默认)
     Anthropic->>Dispatch: dispatch("PreLLMRequest", {body, provider, thinking, ...})
-    Dispatch->>Shell: spawn sh -c, stdin = {event,payload,ctx}
+    Dispatch->>Shell: spawn resolved-shell -c, stdin = {event,payload,ctx}
     Shell->>Shell: 修改 body.thinking 或 max_tokens
     Shell-->>Dispatch: stdout = {body: <new>}  (exit 0)
     Dispatch-->>Anthropic: payload.body (已替换)

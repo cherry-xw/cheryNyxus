@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import config from '@/utils/config.js'
+import { resolvePosixShell } from '@/core/security/sandbox.js'
 import type { HookEvent } from './types.js'
 import type { HookHandlerConfig } from './matcher.js'
 
@@ -56,6 +57,21 @@ export function loadHookRegistry(): HookHandlerMap {
   }
 
   handlersCache = merged
+  // 启动期健康检查（先例：git 导入的 gitNotInstalled 预探测）：注册了 handler 但
+  // POSIX shell 不可用 → 显著 warn 提前暴露（Windows 无 sh 会阻断每次 dispatch，
+  // 见 docs/agent/hooks.md「跨平台执行」失败语义表），而非在会话中反复撞墙。
+  const handlerCount = Object.values(merged).reduce((sum, list) => sum + (list?.length ?? 0), 0)
+  if (handlerCount > 0) {
+    try {
+      resolvePosixShell()
+    } catch (err) {
+      logger.event(
+        'hooks.registry.shell_unavailable',
+        { handlerCount, error: (err as Error).message },
+        LogLevel.warn,
+      )
+    }
+  }
   logger.event('hooks.registry.loaded', {
     globalExists: !!global,
     eventCount: Object.keys(merged).length,

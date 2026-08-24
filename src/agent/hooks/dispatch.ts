@@ -13,6 +13,7 @@
 import { spawn } from 'node:child_process'
 import { logger, LogLevel } from '@/utils/logger/index.js'
 import { ClassifiedError } from '@/utils/error.js'
+import { POSIX_SHELL_HINT, resolvePosixShell } from '@/core/security/sandbox.js'
 import { loadHookRegistry } from './registry.js'
 import { matches, evalIf, expandCommandTemplate, type HookHandlerConfig } from './matcher.js'
 import type { HookEvent, HookDispatchContext, HookPayloadMap, HookDecisionMap } from './types.js'
@@ -214,7 +215,8 @@ function throwDecision(event: HookEvent, decision: { reason?: string; decision?:
 }
 
 /**
- * 执行单个 handler：spawn sh -c command，stdin 写 JSON，stdout 解析为 decision。
+ * 执行单个 handler：spawn 解析后的 POSIX shell（resolvePosixShell，见「跨平台执行」）执行
+ * `shell -c command`，stdin 写 JSON，stdout 解析为 decision。
  *
  * 返回值：
  * - `{ok:true, decision}`：exit 0 + stdout JSON 解析成功（或空，decision=null）
@@ -232,6 +234,25 @@ async function runHandler<TDecision>(
   const expandedCommand = expandCommandTemplate(handler.command, env)
   const timeoutMs = (handler.timeout ?? 10) * 1000
 
+  // 平台解析（Windows 无裸 sh，探测链见 docs/agent/hooks.md「跨平台执行」）。
+  // 解析失败 fail-loud 阻断——静默跳过安全类 handler 等于 fail-open；userMessage 带安装指引。
+  let shellExecutable: string
+  try {
+    shellExecutable = resolvePosixShell().executable
+  } catch (err) {
+    const hint = (err as Error).message
+    logger.event('hook.shell_unavailable', { command: handler.command, error: hint }, LogLevel.warn)
+    return {
+      ok: false,
+      error: new ClassifiedError({
+        message: `Hook shell unavailable: ${handler.command}`,
+        userMessage: hint,
+        category: 'validation',
+        source: 'hook',
+      }),
+    }
+  }
+
   return new Promise<RunHandlerResult<TDecision>>((resolve) => {
     let stdout = ''
     let stderr = ''
@@ -239,7 +260,7 @@ async function runHandler<TDecision>(
     let child
 
     try {
-      child = spawn('sh', ['-c', expandedCommand], {
+      child = spawn(shellExecutable, ['-c', expandedCommand], {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true, // Windows: 隐藏控制台窗口（约定见 docs/web/electron.md）
       })
@@ -307,7 +328,11 @@ async function runHandler<TDecision>(
         ok: false,
         error: new ClassifiedError({
           message: `Hook spawn error: ${handler.command}`,
-          userMessage: '钩子执行失败',
+          // 平台化指路（本次事故根因：ENOENT 只有短 ID 无法定位）：ENOENT = shell
+          // 本身启动失败，与 handler 业务失败（exit 非零，非阻断）区分开
+          userMessage: err.message.includes('ENOENT')
+            ? `钩子无法启动：${err.message}。${POSIX_SHELL_HINT}`
+            : `钩子执行失败：${err.message}`,
           category: 'validation',
           source: 'hook',
           cause: err,
