@@ -84,7 +84,7 @@ export function resetEnvVarCache(): void;
 | `sense_groups` | `Record<string, string[]>` | 感官分组（值如 `"read_file"` 或 `"execute_command:auto"` 覆盖监管等级） |
 | `server` | `ServerConfig` | WebSocket `port`（默认 8182）+ `transport`（默认 `"binary"`）；HTTP 静态服务端口原 `web_port` 已废弃，改由环境变量 `WEB_PORT`（默认 8183）指定，与 `electron/main.ts` 一致 |
 
-`BrainConfig` 关键字段（[源码](../../src/utils/config.ts)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）/ `capabilities?`（Tool Call、图片/视频/音频输入及生成能力）。能力缺省兼容旧配置：Tool Call 开启，媒体能力关闭。
+`BrainConfig` 关键字段（[源码](../../src/utils/config.ts)）：`provider` / `model` / `url?` / `key?` / `thinking?` / `rpm?`（每分钟最大请求数）/ `fullUrl?`（true=URL 已含版本段，provider 只拼 endpoint 不自动补 `/v1`；缺省自动补全，各 provider 补全规则见 [../agent/provider.md](../agent/provider.md)「URL 解析与自动补全」）/ `mock?`（脚本化响应，见 [../mock.md](../mock.md)）/ `capabilities?`（Tool Call、图片/视频/音频输入及生成能力）。能力缺省兼容旧配置：Tool Call 开启，媒体能力关闭。
 
 `$ENV` 替换规则：仅匹配**整段值**的正则 `^\$([A-Z_][A-Z0-9_]*)$`（如 `url: $OLLAMA_HOST`），从 `.env`/进程环境变量取值；缺失会收集到 `missingEnvVars` 并 warn（`Set` 去重，同一变量被多 brain 引用只提示一次），原样保留字符串。不会替换值中嵌入的 `$VAR`。运行期缺失时 `replaceEnvVars` 会先调用 `reloadEnvFile(false)` 重读 `.env` 文件补充**新添加**的变量（只填缺失、不覆盖 OS env 既有值），因此运行期新增的 `.env` 变量首次被 `$VAR` 引用即可用，无需重启；修改已有变量值仍需重启或经 `env.list` 刷新（`reloadEnvFile(true)` 覆盖式重载）。
 

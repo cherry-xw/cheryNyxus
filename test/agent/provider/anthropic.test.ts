@@ -3,6 +3,7 @@ import { registerAnthropicAdapter } from '@/agent/provider/anthropic.js'
 import { getLLMAdapter } from '@/core/llm/adapter.js'
 import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { ThinkingBlockAssembler } from '@/agent/provider/thinkingBlockAssembler.js'
+import { ClassifiedError } from '@/utils/error.js'
 
 const { mockDispatch } = vi.hoisted(() => ({
   mockDispatch: vi.fn(async () => undefined),
@@ -69,6 +70,125 @@ describe('Anthropic Provider Hook 控制', () => {
 
     expect(mockDispatch).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledOnce()
+  })
+})
+
+describe('Anthropic Provider URL 解析与流完整性', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', fetchMock)
+    registerAnthropicAdapter()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** 消费 chatStream（skipHooks 直连 fetch）；返回事件列表或抛 ClassifiedError */
+  async function consumeChatStream(url: string, fullUrl?: boolean): Promise<unknown[]> {
+    const llm = getLLMAdapter('anthropic')!
+    const stream = await llm.chatStream(buildProbeMessages() as never, [], {
+      ...options,
+      url,
+      ...(fullUrl !== undefined ? { fullUrl } : {}),
+      skipHooks: true,
+    })
+    const events: unknown[] = []
+    for await (const ev of stream) events.push(ev)
+    return events
+  }
+
+  function sseResponse(chunks: string[], contentType = 'text/event-stream'): Response {
+    const encoder = new TextEncoder()
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const c of chunks) controller.enqueue(encoder.encode(c))
+          controller.close()
+        },
+      }),
+      { status: 200, headers: { 'content-type': contentType } },
+    )
+  }
+
+  it('流式 url 无路径自动补 /v1/messages（旧配置兼容）', async () => {
+    fetchMock.mockResolvedValue(sseResponse([])) // url 断言在触发 fetch 后即可读
+    await consumeChatStream('https://gw.example.com:11411').catch(() => undefined)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://gw.example.com:11411/v1/messages',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('流式 url 已含 /v1 只拼 /messages（不重复补）', async () => {
+    fetchMock.mockResolvedValue(sseResponse([]))
+    await consumeChatStream('https://gw.example.com:11411/v1').catch(() => undefined)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://gw.example.com:11411/v1/messages',
+      expect.anything(),
+    )
+  })
+
+  it('fullUrl=true 只拼 /messages（无路径也不补版本段）', async () => {
+    fetchMock.mockResolvedValue(sseResponse([]))
+    await consumeChatStream('https://gw.example.com:11411', true).catch(() => undefined)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://gw.example.com:11411/messages',
+      expect.anything(),
+    )
+  })
+
+  it('伪 200（text/html 网关 SPA 回退）→ validation 配置错误', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('<!doctype html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    )
+    await expect(consumeChatStream('https://gw.example.com:11411')).rejects.toSatisfy(
+      (err: unknown) => {
+        expect(err).toBeInstanceOf(ClassifiedError)
+        const e = err as ClassifiedError
+        expect(e.category).toBe('validation')
+        expect(e.userMessage).toContain('大脑配置可能有误')
+        return true
+      },
+    )
+  })
+
+  it('空流（event-stream 0 事件即关闭）→ provider 空流错误', async () => {
+    fetchMock.mockResolvedValue(sseResponse([]))
+    await expect(consumeChatStream('https://gw.example.com:11411/v1')).rejects.toSatisfy(
+      (err: unknown) => {
+        const e = err as ClassifiedError
+        expect(e.category).toBe('provider')
+        expect(e.userMessage).toContain('响应流为空')
+        return true
+      },
+    )
+  })
+
+  it('正常事件流（message_start → message_stop）→ 正常 yield 并停止', async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse([
+        'data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
+        'data: {"type":"message_stop"}\n\n',
+      ]),
+    )
+    const events = await consumeChatStream('https://gw.example.com:11411/v1')
+    expect(events.map((e) => (e as { type: string }).type)).toEqual(['message_start', 'message_stop'])
+  })
+
+  it('非流式 content-type 非 JSON → validation 配置错误', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('<html/>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    )
+    const llm = getLLMAdapter('anthropic')!
+    await expect(
+      llm.chat(buildProbeMessages() as never, [], { ...options, skipHooks: true }),
+    ).rejects.toSatisfy((err: unknown) => {
+      const e = err as ClassifiedError
+      expect(e.category).toBe('validation')
+      expect(e.userMessage).toContain('大脑配置可能有误')
+      return true
+    })
   })
 })
 

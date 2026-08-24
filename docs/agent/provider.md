@@ -117,6 +117,46 @@ llm:
 
 前端 BrainCard 在 `provider === 'anthropic'` 时显示「官方」勾选开关，与 yaml 同步。
 
+### URL 解析与自动补全（`fullUrl` 开关）
+
+**背景**：早期 anthropic provider 曾自动在 base URL 后拼 `/v1/messages`；后改为「版本前缀由用户在 `cfg.url` 自己写」但未做迁移提示，导致旧配置（url 不带 `/v1`）静默失效——请求落到网关的 Web 控制台回退页（200 + HTML），表现为「run 空转、无任何报错」（见下节流完整性校验）。现恢复**自动补全为默认行为**，并提供 brain 级 `fullUrl` 开关关闭补全：
+
+```yaml
+llm:
+  brain:
+    glm5:
+      provider: anthropic
+      url: https://gw.example.com:11411     # 无路径 → 自动补 /v1/messages
+    anthropic_proxy:
+      provider: anthropic
+      url: https://gw.example.com:11411/v1/messages  # 勾选 fullUrl → 原样使用（须含完整路径）
+      fullUrl: true                          # 或勾选「完整 URL」：后端不拼接任何字符串
+```
+
+| provider | 未勾选（默认：自动补全） | 勾选 `fullUrl`（完全不拼接） |
+|----------|------------------------|--------------------------------|
+| anthropic | path 为空 → 补 `/v1/messages`；已含版本段（`/v1`、`/v4` 等 `/v\d+`）→ 拼 `/messages` | url 原样使用，不做任何拼接（须含版本段与端点，如 `…/v1/messages`） |
+| openai 兼容（fetchBase：bigmodel/deepseek） | path 为空 → 补 `/v1/chat/completions`；已含版本段 → 拼 `/chat/completions` | url 原样使用，不做任何拼接（须含版本段与端点，如 `…/v1/chat/completions`） |
+| openai（SDK） | path 为空 → baseURL 补 `/v1` 后交 SDK；否则原样交 SDK | baseURL 原样交 SDK |
+| ollama / mock | 不变（host 语义，无版本段概念） | 不变 |
+
+- 补全逻辑**由各 provider 自己提供**（anthropic 在 `joinAnthropicUrl`，openai 兼容在 fetchBase 的 `buildEndpointUrl`，openai 在 `chat`/`chatStream` 内）——endpoint 路径是 provider 协议的一部分，不能全局统一。
+- `fullUrl` 经 `BrainConfig` → `LLMOptions` → provider 逐层透传（[middleware.md chat.ts](./middleware.md)）；前端 BrainCard 显示「完整 URL」勾选，与 yaml 同步。勾选后**后端不做任何拼接**，请求 URL 即用户填写的原值（须含版本段与端点）。
+- 兼容性：旧配置（无 `fullUrl` 字段）默认走自动补全——url 已含版本段的配置行为不变（只拼 endpoint），url 无路径的旧 anthropic 配置**从静默失效恢复为可用**。
+- ⚠️ `fullUrl` 语义（2026-08）：勾选从「只拼 endpoint」改为「完全不拼接」——已勾选且 url 只写 base（未含端点）的存量配置会失效，需把 url 补成完整请求地址（如 `…/v1/messages`）。
+
+### 流完整性校验（伪 200 / 空流拦截）
+
+网关（new-api/one-api 类）对未知 API 路径常回退到 Web 控制台 SPA（**HTTP 200 + HTML**）；若端点异常也可能返回 200 但流内 0 个事件。两者原先都被 SSE 解析器当「正常空响应」静默吞掉，用户只看到「点了运行但毫无动静」。现两条路径都显式拦截：
+
+| 场景 | 检测点 | 错误分类 | 用户文案 | retry 行为 |
+|------|--------|---------|---------|-----------|
+| 伪 200（content-type 非 `text/event-stream` / `application/json`） | `res.ok` 之后、读流之前 | `validation` | 大脑配置可能有误：端点返回的不是事件流（url 可能缺 /v1 前缀），请在设置里检查 | 不重试，立即报前端 |
+| 空流（流正常结束但 0 个有效事件） | SSE 行循环结束处 | `provider` | 大模型调用失败：响应流为空 | 按 provider 类可重试一次，仍空则报前端 |
+| 非流式响应体非 JSON（`res.json()` 失败） | `anthropicFetch` / `jsonRequest` | `validation` | 同伪 200 | 不重试 |
+
+覆盖文件：[anthropic.ts](../../src/agent/provider/anthropic.ts)（`anthropicFetch`/`anthropicStreamSSE`）与 [fetchBase.ts](../../src/agent/provider/fetchBase.ts)（`jsonRequest`/`streamSSE`）——openai SDK 路径的等价校验由 SDK 自身抛错 + `classifyBrainError` 兜底。错误经 `ClassifiedError` → retry 中间件 → streamMapper 出口（`[tracingId] 文案`）到达前端。
+
 ### 三 Provider 共有约定
 
 - **sense 消息转 tool result：** openai/ollama 的 `buildMessages` 都把 `role:"sense"` 历史消息转成 provider 的 tool 结果消息（openai 用 `tool_call_id`，ollama 用 `role:"tool"`），并处理 `replace.state`（历史 hash 替换）时改用 `replace.content`。
@@ -377,10 +417,11 @@ interface MockResponse { thinking?: string; content?: string; toolCalls?: MockTo
 
 新 provider **优先用原生 fetch 而非引第三方 SDK**（Node ≥20 自带 fetch/ReadableStream/AbortController）。基座提供：
 
-- `streamSSE(url, body, headers): AsyncGenerator<Record<string,unknown>>` —— SSE 流式：内部自建 `AbortController`、`getReader()` + `TextDecoder` 跨 chunk 行缓冲、按 `\n` 切行、跳过空行/`:` 注释心跳、剥离 `data:` 前缀、`[DONE]` 主动结束；**finally 必跑 `controller.abort()` + `reader.cancel()`**（对接现有 abort 机制：`compose.ts` 的 `generator.throw()` → for-await 释放 → finally 切断 HTTP）。
-- `jsonRequest(url, body, headers): Promise<Record<string,unknown>>` —— 非流式。
+- `streamSSE(url, body, key, signal?, opts?): AsyncGenerator<Record<string,unknown>>` —— SSE 流式：内部自建 `AbortController`、`getReader()` + `TextDecoder` 跨 chunk 行缓冲、按 `\n` 切行、跳过空行/`:` 注释心跳、剥离 `data:` 前缀、`[DONE]` 主动结束；**finally 必跑 `controller.abort()` + `reader.cancel()`**（对接现有 abort 机制：`compose.ts` 的 `generator.throw()` → for-await 释放 → finally 切断 HTTP）。`opts.fullUrl` 控制 url 解析（见上文「URL 解析与自动补全」）；**content-type 校验 + 空流拦截**见上文「流完整性校验」。
+- `jsonRequest(url, body, key, signal?, opts?): Promise<Record<string,unknown>>` —— 非流式；`opts.fullUrl` 同上，响应体非 JSON 报 `validation` 错。
+- `buildEndpointUrl(url, opts)` —— 导出的 url 补全工具（`{fullUrl, versionPath, endpoint}`）：path 为空补版本段+endpoint、已含 `/v\d+` 版本段只拼 endpoint、`fullUrl` 原样返回（不拼接任何字符串）。openai 兼容 provider 共用；anthropic 自有同款实现（`joinAnthropicUrl`）。
 - `assertChatOptions(options)` —— model/url/key 校验 + `$ENV` 占位符检测（从 openai.ts 抽出，共用）。
-- 错误封装：`!res.ok` → `throwUserFacing("llm.fetch.http", ...)`，message 避开 retry 关键词；网络错误 `llm.fetch.network`。
+- 错误封装：`!res.ok` → `brainHttpError`（按 status 定 category）；网络错误 `brainNetworkError`；伪 200/空流见「流完整性校验」表。
 
 > abort 不靠下传 signal，而靠 generator 生命周期：外层 `for await` 被 `.throw()` 打断时 async generator 的 finally 自动跑、HTTP 连接被切断（与现有 openai SDK 路径行为一致）。
 

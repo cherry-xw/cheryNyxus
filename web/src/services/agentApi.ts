@@ -930,6 +930,8 @@ export interface BrainConfigDto {
   thinking?: ThinkingLevel
   provider: string
   rpm?: number
+  /** true=URL 已含版本段（如 /v1），provider 只拼 endpoint 不自动补全；缺省自动补全（无路径时补 /v1） */
+  fullUrl?: boolean
   mock?: { enabled?: boolean; file: string }
   contextLimit?: number
   capabilities?: BrainCapabilitiesDto

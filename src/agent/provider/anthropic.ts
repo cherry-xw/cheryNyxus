@@ -2,7 +2,7 @@
  * Anthropic Provider（适配 Anthropic Messages API，原生 fetch）。
  *
  * 三层 adapter：
- * - LLM：POST {url}/messages（版本前缀如 /v1 由用户在 cfg.url 自己提供），header x-api-key + anthropic-version + content-type
+ * - LLM：POST {url}/messages（url 自动补全规则见 docs/agent/provider.md「URL 解析与自动补全」：base 无路径自动补 /v1，fullUrl=true 只拼 /messages），header x-api-key + anthropic-version + content-type
  * - Message：buildMessages 返回 {system, messages} 元组（system 顶层分离）；content/thinking 来自 content blocks
  * - Sense：tool_use → {id, name, arguments:JSON.stringify(input)}；流式 delta 经 SenseCallAssembler 累积
  *
@@ -41,8 +41,11 @@ import type { ZodType } from 'zod'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
 import {
   assertChatOptions,
+  brainEmptyStream,
   brainHttpError,
+  brainInvalidStream,
   brainNetworkError,
+  buildEndpointUrl,
   readErrorSnippet,
 } from './fetchBase.js'
 import { acquireRpm } from './openaiCompat.js'
@@ -517,7 +520,7 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
       // PreLLMRequest 钩子：handler 可改 body（thinking/max_tokens/tools） 或阻断
       if (options?.skipHooks !== true) body = await applyPreLLMRequest(body, options)
 
-      return anthropicFetch(url, body, key)
+      return anthropicFetch(url, body, key, options?.fullUrl === true)
     },
 
     async chatStream(
@@ -542,7 +545,7 @@ const anthropicLLMAdapter: LLMAdapter<AnthropicSplitResult, AnthropicResponse, A
 
       if (options?.skipHooks !== true) body = await applyPreLLMRequest(body, options)
 
-      return anthropicStreamSSE(url, body, key, options?.signal)
+      return anthropicStreamSSE(url, body, key, options?.signal, options?.fullUrl === true)
     },
   }
 
@@ -576,11 +579,14 @@ async function applyPreLLMRequest(
 
 // ========== fetch + SSE ==========
 
-/** 拼接 base URL + /messages。
- * 版本前缀（如 `/v1`）由用户在 `cfg.url` 自己写，代码不接管——与 openai 模式一致。
+/** 拼接 base URL + /messages（规则见 docs/agent/provider.md「URL 解析与自动补全」，复用 fetchBase.buildEndpointUrl）。
+ * - fullUrl=true：只拼 /messages（版本段由用户写全）
+ * - base 无路径：自动补 /v1/messages（兼容早期自动补全时代的旧配置——曾改为「版本段用户自写」
+ *   导致旧配置静默失效打到网关 SPA 回退页，2026-08 恢复补全为默认）
+ * - base 已有路径（/v1、自定义网关前缀等）：只拼 /messages
  */
-function joinAnthropicUrl(base: string): string {
-  return `${base.replace(/\/+$/, '')}/messages`
+function joinAnthropicUrl(base: string, fullUrl = false): string {
+  return buildEndpointUrl(base, { fullUrl, endpoint: '/messages' })
 }
 
 /** Anthropic headers：x-api-key + anthropic-version + content-type */
@@ -593,15 +599,17 @@ function anthropicHeaders(key: string, stream: boolean): Record<string, string> 
   }
 }
 
-/** 非流式 fetch：POST {base}/messages → AnthropicResponse */
+/** 非流式 fetch：POST {base}/messages → AnthropicResponse。
+ * 伪 200（content-type 非 JSON / 响应体非法 JSON，如网关 SPA 回退）→ validation 配置错误。 */
 async function anthropicFetch(
   url: string,
   body: AnthropicBody,
   key: string,
+  fullUrl = false,
 ): Promise<AnthropicResponse> {
   let res: Response
   try {
-    res = await fetch(joinAnthropicUrl(url), {
+    res = await fetch(joinAnthropicUrl(url, fullUrl), {
       method: 'POST',
       headers: anthropicHeaders(key, false),
       body: JSON.stringify(body),
@@ -613,15 +621,25 @@ async function anthropicFetch(
     const snippet = await readErrorSnippet(res)
     throw brainHttpError(res.status, snippet)
   }
-  return (await res.json()) as AnthropicResponse
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    throw brainInvalidStream(`端点返回的不是 JSON 响应（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+  }
+  try {
+    return (await res.json()) as AnthropicResponse
+  } catch (err) {
+    throw brainInvalidStream(`响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`)
+  }
 }
 
 /**
  * 流式 SSE：POST {base}/messages（stream:true）→ yield 每条 data: JSON
  *
- * 仿 fetchBase.ts:210-270 行缓冲骨架，但改：
- * - endpoint /messages（版本前缀由用户在 base URL 提供）
+ * 仿 fetchBase.ts 的行缓冲骨架，但改：
+ * - endpoint /messages（url 解析规则见 joinAnthropicUrl）
  * - 终止 message_stop（非 [DONE]）
+ * - 流完整性校验（docs/agent/provider.md「流完整性校验」）：伪 200（content-type
+ *   非 event-stream，如网关 SPA 回退）→ validation；流结束 0 有效事件 → provider（空流）
  * - finally 必跑 controller.abort() + reader.cancel()
  */
 async function* anthropicStreamSSE(
@@ -629,6 +647,7 @@ async function* anthropicStreamSSE(
   body: AnthropicBody,
   key: string,
   signal?: AbortSignal,
+  fullUrl = false,
 ): AsyncGenerator<AnthropicSSEEvent, void, unknown> {
   const controller = new AbortController()
   const abortFromParent = () => controller.abort()
@@ -636,7 +655,7 @@ async function* anthropicStreamSSE(
   else signal?.addEventListener('abort', abortFromParent, { once: true })
   let res: Response
   try {
-    res = await fetch(joinAnthropicUrl(url), {
+    res = await fetch(joinAnthropicUrl(url, fullUrl), {
       method: 'POST',
       headers: anthropicHeaders(key, true),
       body: JSON.stringify(body),
@@ -653,10 +672,18 @@ async function* anthropicStreamSSE(
     signal?.removeEventListener('abort', abortFromParent)
     throw brainHttpError(res.status, snippet)
   }
+  // 伪 200 拦截：SSE 请求收到非事件流（典型如网关对未知路径回退 Web 控制台 HTML）
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('event-stream')) {
+    controller.abort()
+    signal?.removeEventListener('abort', abortFromParent)
+    throw brainInvalidStream(`端点返回的不是事件流（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+  }
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let yielded = 0
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -677,6 +704,7 @@ async function* anthropicStreamSSE(
         try {
           const ev = JSON.parse(payload) as AnthropicSSEEvent
           yield ev
+          yielded++
           // message_stop 主动结束（与 OpenAI [DONE] 等价）
           if (ev.type === 'message_stop') {
             controller.abort()
@@ -687,6 +715,8 @@ async function* anthropicStreamSSE(
         }
       }
     }
+    // 流正常关闭但 0 有效事件（连 message_start 都没收到）→ 空流
+    if (yielded === 0) throw brainEmptyStream()
   } finally {
     controller.abort()
     await reader.cancel().catch(() => {})

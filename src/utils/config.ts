@@ -139,6 +139,9 @@ interface BrainConfig {
   provider: string
   /** 每分钟最大请求数（RPM）限额，provider 层滑动窗口限流，未配置则不限流 */
   rpm?: number
+  /** true=URL 已含版本段（如 /v1），provider 只拼 endpoint 不自动补全；
+   * 缺省 false=自动补全（无路径时补 /v1 等版本段）。规则见 docs/agent/provider.md「URL 解析与自动补全」。 */
+  fullUrl?: boolean
   /** mock provider 专用：脚本化响应 */
   mock?: MockConfig
   /** 记忆容量（KB），供前端 context bar 显示用量（后端按 KB×256 折算 token 预算）。缺省兜底 */

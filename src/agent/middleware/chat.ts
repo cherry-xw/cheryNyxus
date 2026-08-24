@@ -87,6 +87,8 @@ export async function* chatMiddleware(
     // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/on/low/medium/high/xhigh）
     thinking: ctx.global.thinking ? (ctx.runtime.brain.thinking ?? 'off') : 'off',
     ...(ctx.runtime.brain.rpm && { rpm: ctx.runtime.brain.rpm }),
+    // URL 完整性开关：true=url 已含版本段（/v1 等），provider 只拼 endpoint 不自动补全
+    fullUrl: ctx.runtime.brain.fullUrl === true,
     // Anthropic 官方开关：brain.anthropicCompat.official=true 时保留 redacted_thinking 原样回传；
     // 默认 false → strip（兼容 3rd-party coding-plan 代理）。
     anthropicOfficial: ctx.runtime.brain.anthropicCompat?.official === true,

@@ -21,7 +21,7 @@ import {
   acquireRpm,
   mapThinkingToReasoningEffort,
 } from './openaiCompat.js'
-import { assertChatOptions, classifyBrainError, wrapBrainStream } from './fetchBase.js'
+import { assertChatOptions, buildEndpointUrl, classifyBrainError, wrapBrainStream } from './fetchBase.js'
 
 // ========== LLM Adapter 定义 ==========
 
@@ -31,7 +31,11 @@ const openaiLLMAdapter: LLMAdapter = {
     const msgArray = messages as ChatCompletionMessageParam[]
     const effort = mapThinkingToReasoningEffort(options?.thinking)
     await acquireRpm(options)
-    const client = new OpenAI({ baseURL: url, apiKey: key })
+    // SDK 自拼 /chat/completions，baseURL 只补版本段（无路径时补 /v1，见 buildEndpointUrl）
+    const client = new OpenAI({
+      baseURL: buildEndpointUrl(url, { fullUrl: options?.fullUrl === true, endpoint: '' }),
+      apiKey: key,
+    })
     try {
       return await client.chat.completions.create({
         model,
@@ -53,7 +57,10 @@ const openaiLLMAdapter: LLMAdapter = {
     const msgArray = messages as ChatCompletionMessageParam[]
     const effort = mapThinkingToReasoningEffort(options?.thinking)
     await acquireRpm(options)
-    const client = new OpenAI({ baseURL: url, apiKey: key })
+    const client = new OpenAI({
+      baseURL: buildEndpointUrl(url, { fullUrl: options?.fullUrl === true, endpoint: '' }),
+      apiKey: key,
+    })
     try {
       const stream = await client.chat.completions.create(
         {

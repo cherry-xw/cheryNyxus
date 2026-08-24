@@ -60,7 +60,10 @@ describe('DeepSeek provider', () => {
     ['xhigh', { thinking: { type: 'enabled' }, reasoning_effort: 'max' }],
   ] as const)('按 %s 映射思考请求参数', async (thinking, expected) => {
     fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), { status: 200 }),
+      new Response(JSON.stringify({ choices: [{ message: { content: 'OK' } }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
     )
     await getLLMAdapter('deepseek')!.chat([], [], {
       model: 'deepseek-v4-pro',

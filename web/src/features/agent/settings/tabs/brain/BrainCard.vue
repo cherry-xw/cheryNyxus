@@ -238,6 +238,12 @@ const KEY_TIP = [
   '',
   '修改 .env 后点右侧「刷新」按钮，新密钥立即可选并生效，无需重启。',
 ].join('\n')
+const URL_TIP = [
+  'url：请求地址，支持 $ENV 占位从环境变量注入。',
+  '· 未勾选「完整 URL」：自动补全——无路径时补版本段+端点（openai/deepseek/bigmodel → …/v1/chat/completions，anthropic → …/v1/messages）；已含版本段（如 /v1）只拼端点',
+  '· 勾选「完整 URL」：后端不拼接任何字符串，请求地址即你填写的整个 URL（须含版本段与端点，如 https://api.openai.com/v1/chat/completions）',
+  '· ollama 填 host（如 http://localhost:11434），无版本段概念',
+].join('\n')
 
 /** 复制文本到剪贴板（非 HTTPS / 旧 Electron 走 execCommand 降级）。 */
 async function copyMessage(text: string): Promise<void> {
@@ -302,6 +308,21 @@ function setAnthropicOfficial(cfg: BrainConfigDto, value: unknown): void {
   if (!cfg.anthropicCompat) cfg.anthropicCompat = {}
   cfg.anthropicCompat.official = value === true
 }
+
+/** 地址输入框示例（随 provider 变化；未勾选默认自动补全版本段+端点，勾选「完整 URL」则提示填完整请求地址） */
+const urlPlaceholder = computed(() => {
+  if (props.cfg.provider === 'ollama') return '如 http://localhost:11434'
+  if (props.cfg.provider === 'mock') return 'mock 无需真实地址'
+  if (props.cfg.fullUrl === true) {
+    return props.cfg.provider === 'anthropic'
+      ? '完整 URL，如 https://api.anthropic.com/v1/messages'
+      : '完整 URL，如 https://api.openai.com/v1/chat/completions'
+  }
+  if (props.cfg.provider === 'anthropic') {
+    return '如 https://api.anthropic.com → 自动补全为 …/v1/messages'
+  }
+  return '如 https://api.openai.com → 自动补全为 …/v1/chat/completions'
+})
 
 // ── brain mutations ───────────────────────────────────────────────
 
@@ -462,15 +483,27 @@ async function openEnvFile(): Promise<void> {
         </div>
         <div class="brain-fields connection-fields">
           <label class="field field-wide">
-            <LabelTip
-              label="地址"
-              tip="url：完整 baseURL（含版本前缀）。openai/deepseek/ollama 末位自动拼 /chat/completions，anthropic 末位拼 /messages，所以版本段（如 /v1、/v4）由你写。例：https://api.openai.com/v1、https://api.deepseek.com 或 https://api.anthropic.com/v1。支持 $ENV 占位从环境变量注入"
-            />
-            <el-input
-              v-model="urlModel"
-              class="mono-input"
-              placeholder="LLM URL 或大模型地址（如 https://api.openai.com/v1）"
-            />
+            <LabelTip label="地址" :tip="URL_TIP" />
+            <div class="url-input-row">
+              <el-input
+                v-model="urlModel"
+                class="mono-input"
+                :placeholder="urlPlaceholder"
+              />
+              <el-tooltip
+                content="勾选=后端不拼接任何字符串，请求地址即填写的整个 URL（须含版本段与端点）；未勾选=无路径时自动补 /v1 + 端点"
+                placement="top"
+                :show-after="120"
+              >
+                <el-checkbox
+                  :model-value="cfg.fullUrl === true"
+                  class="fullurl-checkbox"
+                  @change="(v: unknown) => (cfg.fullUrl = v === true)"
+                >
+                  完整 URL
+                </el-checkbox>
+              </el-tooltip>
+            </div>
           </label>
           <label class="field">
             <LabelTip label="适配器" :tip="ADAPTER_TIP" />
@@ -845,6 +878,30 @@ async function openEnvFile(): Promise<void> {
 .provider-select {
   flex: 1;
   min-width: 0;
+}
+// 地址输入框 + 「完整 URL」勾选：同行 flex，勾选态语义见 urlPlaceholder/tip
+.url-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  .mono-input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.fullurl-checkbox {
+  // 同 official-checkbox：主题色勾选 + 固定高度对齐 + 不被压缩换行
+  --el-checkbox-checked-bg-color: var(--tab-color, @accent);
+  --el-checkbox-checked-border-color: var(--tab-color, @accent);
+  --el-checkbox-checked-input-border-color: var(--tab-color, @accent);
+  --el-checkbox-checked-icon-color: #fff;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 // el-checkbox 主题色覆盖：勾选态用 tab 主题色（取代默认 primary 蓝）
 .official-checkbox {

@@ -36,7 +36,7 @@ const bigmodelLLMAdapter: LLMAdapter = {
       ...(effort && { reasoning_effort: effort }),
       ...(senses.length > 0 && { tools: senses }),
     }
-    return jsonRequest(url, body, key, options?.signal)
+    return jsonRequest(url, body, key, options?.signal, { fullUrl: options?.fullUrl === true })
   },
   async chatStream(
     messages: unknown[],
@@ -53,7 +53,7 @@ const bigmodelLLMAdapter: LLMAdapter = {
       ...(effort && { reasoning_effort: effort }),
       ...(senses.length > 0 && { tools: senses }),
     }
-    return streamSSE(url, body, key, options?.signal)
+    return streamSSE(url, body, key, options?.signal, { fullUrl: options?.fullUrl === true })
   },
 }
 

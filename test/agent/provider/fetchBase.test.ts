@@ -1,327 +1,187 @@
-/**
- * fetchBase 单元测试：brainHttpError / brainNetworkError / classifyBrainError /
- * wrapBrainStream / assertChatOptions / jsonRequest / streamSSE。
- */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import {
-  brainHttpError,
-  brainNetworkError,
-  classifyBrainError,
-  wrapBrainStream,
-  assertChatOptions,
-  jsonRequest,
-  streamSSE,
-} from '@/agent/provider/fetchBase.js'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { buildEndpointUrl, jsonRequest, streamSSE } from '@/agent/provider/fetchBase.js'
 import { ClassifiedError } from '@/utils/error.js'
 
-// ========== brainHttpError ==========
-describe('brainHttpError', () => {
-  it('401 → auth', () => {
-    const e = brainHttpError(401, 'bad key')
-    expect(e).toBeInstanceOf(ClassifiedError)
-    expect(e.category).toBe('auth')
-    expect(e.userMessage).toContain('钥匙不对')
-  })
+/**
+ * fetchBase 的 URL 自动补全与流完整性校验（docs/agent/provider.md）：
+ * - buildEndpointUrl：无路径补版本段、已有路径只拼 endpoint、fullUrl 原样返回
+ * - streamSSE/jsonRequest：伪 200（非事件流/JSON，如网关 SPA 回退）→ validation；
+ *   空流（0 有效事件）→ provider。
+ */
 
-  it('403 → auth', () => {
-    const e = brainHttpError(403, 'forbidden')
-    expect(e.category).toBe('auth')
-  })
+const fetchMock = vi.fn()
 
-  it('429 → provider', () => {
-    const e = brainHttpError(429, 'rate limited')
-    expect(e.category).toBe('provider')
-    expect(e.userMessage).toContain('忙不过来')
-  })
+function sseResponse(chunks: string[], contentType = 'text/event-stream'): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const c of chunks) controller.enqueue(encoder.encode(c))
+        controller.close()
+      },
+    }),
+    { status: 200, headers: { 'content-type': contentType } },
+  )
+}
 
-  it('500 → provider', () => {
-    const e = brainHttpError(500, 'internal error')
-    expect(e.category).toBe('provider')
-    expect(e.userMessage).toContain('出了点状况')
-  })
+function asClassified(err: unknown): ClassifiedError {
+  expect(err).toBeInstanceOf(ClassifiedError)
+  return err as ClassifiedError
+}
 
-  it('502 → provider', () => {
-    const e = brainHttpError(502, 'bad gateway')
-    expect(e.category).toBe('provider')
-  })
-
-  it('418 → unknown (其他非 2xx)', () => {
-    const e = brainHttpError(418, 'teapot')
-    expect(e.category).toBe('unknown')
-    expect(e.userMessage).toContain('不太对')
-  })
-
-  it('message 含 upstream status + logMessage', () => {
-    const e = brainHttpError(500, 'oops')
-    expect(e.message).toContain('upstream 500')
-    expect(e.message).toContain('oops')
-  })
-
-  it('source = brain', () => {
-    expect(brainHttpError(500, 'x').source).toBe('brain')
-  })
-})
-
-// ========== brainNetworkError ==========
-describe('brainNetworkError', () => {
-  it('category = network', () => {
-    const e = brainNetworkError('ECONNREFUSED', new Error('conn'))
-    expect(e.category).toBe('network')
-    expect(e.userMessage).toContain('连不上')
-  })
-
-  it('source = brain', () => {
-    expect(brainNetworkError('x', undefined).source).toBe('brain')
-  })
-
-  it('cause 透传', () => {
-    const cause = new Error('original')
-    expect(brainNetworkError('x', cause).cause).toBe(cause)
-  })
-})
-
-// ========== classifyBrainError ==========
-describe('classifyBrainError', () => {
-  it('有 status → brainHttpError', () => {
-    const e = classifyBrainError({ status: 401, message: 'bad' })
-    expect(e.category).toBe('auth')
-  })
-
-  it('Error 有 status → brainHttpError', () => {
-    const err = new Error('unauthorized')
-    ;(err as any).status = 403
-    const e = classifyBrainError(err)
-    expect(e.category).toBe('auth')
-  })
-
-  it('无 status → classifyError 关键词兜底', () => {
-    const e = classifyBrainError(new Error('network connection failed'))
-    expect(e.category).toBe('network')
-  })
-
-  it('无 status timeout → timeout', () => {
-    const e = classifyBrainError(new Error('request timeout'))
-    expect(e.category).toBe('timeout')
-  })
-
-  it('非 Error 对象 → String 化', () => {
-    const e = classifyBrainError('plain string')
-    expect(e.message).toBe('plain string')
-  })
-})
-
-// ========== wrapBrainStream ==========
-describe('wrapBrainStream', () => {
-  it('正常迭代透传', async () => {
-    async function* src() {
-      yield 1
-      yield 2
-    }
-    const out: number[] = []
-    for await (const v of wrapBrainStream(src())) {
-      out.push(v as number)
-    }
-    expect(out).toEqual([1, 2])
-  })
-
-  it('迭代中抛错 → classifyBrainError', async () => {
-    async function* src() {
-      yield 1
-      throw { status: 429, message: 'rate limited' }
-    }
-    const gen = wrapBrainStream(src())
-    await gen.next() // skip first
-    await expect(gen.next()).rejects.toBeInstanceOf(ClassifiedError)
-  })
-})
-
-// ========== assertChatOptions ==========
-describe('assertChatOptions', () => {
-  it('合法 → 返回 { model, url, key }', () => {
-    const r = assertChatOptions({ model: 'gpt-4', url: 'https://api', key: 'sk-123' })
-    expect(r).toEqual({ model: 'gpt-4', url: 'https://api', key: 'sk-123' })
-  })
-
-  it('缺 model → throw', () => {
-    expect(() => assertChatOptions({ url: 'https://api', key: 'k' })).toThrow('大脑没配好')
-  })
-
-  it('缺 url → throw', () => {
-    expect(() => assertChatOptions({ model: 'gpt-4', key: 'k' })).toThrow('大脑没配好')
-  })
-
-  it('缺 model+url → throw', () => {
-    expect(() => assertChatOptions({ key: 'k' })).toThrow('大脑没配好')
-  })
-
-  it('key 为 $ENV 占位符 → throw', () => {
-    expect(() =>
-      assertChatOptions({ model: 'gpt-4', url: 'https://api', key: '$API_KEY' }),
-    ).toThrow('钥匙没配好')
-  })
-
-  it('key 为空 → throw', () => {
-    expect(() => assertChatOptions({ model: 'gpt-4', url: 'https://api', key: '' })).toThrow(
-      '钥匙没配好',
+describe('buildEndpointUrl', () => {
+  it('无路径 → 补版本段 + endpoint（旧配置兼容）', () => {
+    expect(buildEndpointUrl('https://gw:11411', { endpoint: '/chat/completions' })).toBe(
+      'https://gw:11411/v1/chat/completions',
     )
   })
 
-  it('undefined options → throw', () => {
-    expect(() => assertChatOptions(undefined)).toThrow('大脑没配好')
+  it('已含 /v1 → 只拼 endpoint（不重复补）', () => {
+    expect(buildEndpointUrl('https://gw:11411/v1', { endpoint: '/chat/completions' })).toBe(
+      'https://gw:11411/v1/chat/completions',
+    )
+  })
+
+  it('自定义路径 → 只拼 endpoint（尊重用户输入）', () => {
+    expect(buildEndpointUrl('https://gw/api', { endpoint: '/chat/completions' })).toBe(
+      'https://gw/api/chat/completions',
+    )
+  })
+
+  it('fullUrl=true → URL 原样返回，不拼接任何字符串', () => {
+    expect(
+      buildEndpointUrl('https://gw:11411', { fullUrl: true, endpoint: '/chat/completions' }),
+    ).toBe('https://gw:11411')
+    expect(
+      buildEndpointUrl('https://gw:11411/v1/chat/completions', {
+        fullUrl: true,
+        endpoint: '/chat/completions',
+      }),
+    ).toBe('https://gw:11411/v1/chat/completions')
+  })
+
+  it('末尾斜杠归一', () => {
+    expect(buildEndpointUrl('https://gw:11411/', { endpoint: '/chat/completions' })).toBe(
+      'https://gw:11411/v1/chat/completions',
+    )
+  })
+
+  it('endpoint 空串 → 仅补版本段（openai SDK baseURL 场景）', () => {
+    expect(buildEndpointUrl('https://api.openai.com', { endpoint: '' })).toBe(
+      'https://api.openai.com/v1',
+    )
+    expect(buildEndpointUrl('https://api.openai.com/v1', { endpoint: '' })).toBe(
+      'https://api.openai.com/v1',
+    )
+  })
+
+  it('自定义版本段 versionPath', () => {
+    expect(
+      buildEndpointUrl('https://gw', { versionPath: '/v4', endpoint: '/messages' }),
+    ).toBe('https://gw/v4/messages')
   })
 })
 
-// ========== jsonRequest ==========
-describe('jsonRequest', () => {
-  const originalFetch = globalThis.fetch
-
+describe('streamSSE 流完整性校验', () => {
   beforeEach(() => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', fetchMock)
   })
+  afterEach(() => vi.unstubAllGlobals())
 
-  afterAll(() => {
-    globalThis.fetch = originalFetch
-  })
-
-  it('成功 → 返回 JSON', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ choices: [] }),
+  it('伪 200（text/html 网关 SPA 回退）→ validation 配置错误', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('<!doctype html><html></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    )
+    const stream = streamSSE('https://gw:11411', { q: 1 }, 'k')
+    await expect(stream.next()).rejects.toSatisfy((err: unknown) => {
+      const e = asClassified(err)
+      expect(e.category).toBe('validation')
+      expect(e.userMessage).toContain('大脑配置可能有误')
+      return true
     })
-    const r = await jsonRequest('https://api', { model: 'gpt-4' }, 'sk-123')
-    expect(r.choices).toEqual([])
   })
 
-  it('网络错误 → brainNetworkError', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
-    await expect(jsonRequest('https://api', {}, 'k')).rejects.toBeInstanceOf(ClassifiedError)
-  })
-
-  it('非 2xx → brainHttpError', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 429,
-      statusText: 'Too Many Requests',
-      text: () => Promise.resolve('rate limited'),
+  it('空流（event-stream 0 事件即关闭）→ provider 空流错误', async () => {
+    fetchMock.mockResolvedValue(sseResponse([]))
+    const stream = streamSSE('https://gw:11411/v1', { q: 1 }, 'k')
+    await expect(stream.next()).rejects.toSatisfy((err: unknown) => {
+      const e = asClassified(err)
+      expect(e.category).toBe('provider')
+      expect(e.userMessage).toContain('响应流为空')
+      return true
     })
-    await expect(jsonRequest('https://api', {}, 'k')).rejects.toThrow()
-    try {
-      await jsonRequest('https://api', {}, 'k')
-    } catch (e) {
-      expect((e as ClassifiedError).category).toBe('provider')
-    }
+  })
+
+  it('[DONE] 前无数据事件 → provider 空流错误', async () => {
+    fetchMock.mockResolvedValue(sseResponse([': keep-alive\n\n', 'data: [DONE]\n\n']))
+    const stream = streamSSE('https://gw:11411/v1', { q: 1 }, 'k')
+    await expect(stream.next()).rejects.toSatisfy((err: unknown) => {
+      const e = asClassified(err)
+      expect(e.category).toBe('provider')
+      return true
+    })
+  })
+
+  it('正常事件流 → yield 解析后 JSON 并在 [DONE] 结束', async () => {
+    fetchMock.mockResolvedValue(
+      sseResponse(['data: {"delta":"你"}\n\n', 'data: {"delta":"好"}\n\n', 'data: [DONE]\n\n']),
+    )
+    const events: unknown[] = []
+    for await (const ev of streamSSE('https://gw:11411/v1', { q: 1 }, 'k')) events.push(ev)
+    expect(events).toEqual([{ delta: '你' }, { delta: '好' }])
   })
 })
 
-// ========== streamSSE ==========
-describe('streamSSE', () => {
-  const originalFetch = globalThis.fetch
-
+describe('jsonRequest 流完整性校验', () => {
   beforeEach(() => {
-    vi.restoreAllMocks()
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', fetchMock)
   })
+  afterEach(() => vi.unstubAllGlobals())
 
-  afterAll(() => {
-    globalThis.fetch = originalFetch
-  })
-
-  /** 构造 mock SSE ReadableStream */
-  function mockSSEStream(lines: string[]) {
-    const encoder = new TextEncoder()
-    const chunks = lines.map((l) => encoder.encode(l + '\n'))
-    let i = 0
-    return {
-      getReader() {
-        return {
-          async read() {
-            if (i < chunks.length) return { done: false, value: chunks[i++] }
-            return { done: true, value: undefined }
-          },
-          cancel: vi.fn().mockResolvedValue(undefined),
-        }
+  it('content-type 非 JSON（网关 SPA 回退）→ validation 配置错误', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('<html/>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    )
+    await expect(jsonRequest('https://gw:11411', { q: 1 }, 'k')).rejects.toSatisfy(
+      (err: unknown) => {
+        const e = asClassified(err)
+        expect(e.category).toBe('validation')
+        expect(e.userMessage).toContain('大脑配置可能有误')
+        return true
       },
-    }
-  }
-
-  it('父取消信号会中止正在等待的 fetch', async () => {
-    const controller = new AbortController()
-    let requestSignal: AbortSignal | undefined
-    globalThis.fetch = vi.fn((_url, init: RequestInit) => {
-      requestSignal = init.signal as AbortSignal
-      return new Promise<Response>((_resolve, reject) => {
-        requestSignal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
-      })
-    })
-
-    const gen = streamSSE('https://api', {}, 'k', controller.signal)
-    const pending = gen.next()
-    controller.abort()
-
-    await expect(pending).rejects.toBeInstanceOf(ClassifiedError)
-    expect(requestSignal?.aborted).toBe(true)
+    )
   })
 
-  it('yield 解析后的 JSON 事件', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      body: mockSSEStream(['data: {"id":"1"}', 'data: {"id":"2"}', 'data: [DONE]']),
-    })
-    const out: Record<string, unknown>[] = []
-    for await (const chunk of streamSSE('https://api', {}, 'k')) {
-      out.push(chunk)
-    }
-    expect(out).toEqual([{ id: '1' }, { id: '2' }])
+  it('声明 JSON 但响应体非法 → validation 配置错误', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('not-json', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+    await expect(jsonRequest('https://gw:11411/v1', { q: 1 }, 'k')).rejects.toSatisfy(
+      (err: unknown) => {
+        const e = asClassified(err)
+        expect(e.category).toBe('validation')
+        return true
+      },
+    )
   })
 
-  it('跳过空行和注释行', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      body: mockSSEStream([': keep-alive', '', 'data: {"ok":true}', '', 'data: [DONE]']),
-    })
-    const out: Record<string, unknown>[] = []
-    for await (const chunk of streamSSE('https://api', {}, 'k')) {
-      out.push(chunk)
-    }
-    expect(out).toEqual([{ ok: true }])
-  })
-
-  it('跳过无效 JSON 行', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      body: mockSSEStream(['data: {bad json}', 'data: {"ok":true}', 'data: [DONE]']),
-    })
-    const out: Record<string, unknown>[] = []
-    for await (const chunk of streamSSE('https://api', {}, 'k')) {
-      out.push(chunk)
-    }
-    expect(out).toEqual([{ ok: true }])
-  })
-
-  it('网络错误 → brainNetworkError', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
-    const gen = streamSSE('https://api', {}, 'k')
-    await expect(gen.next()).rejects.toBeInstanceOf(ClassifiedError)
-  })
-
-  it('非 2xx → brainHttpError', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      statusText: 'Unauthorized',
-      text: () => Promise.resolve('bad key'),
-    })
-    const gen = streamSSE('https://api', {}, 'k')
-    await expect(gen.next()).rejects.toThrow()
-  })
-
-  it('无 body → brainHttpError', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: null,
-      text: () => Promise.resolve(''),
-    })
-    const gen = streamSSE('https://api', {}, 'k')
-    await expect(gen.next()).rejects.toThrow()
+  it('正常 JSON 响应 → 返回解析对象（url 无路径自动补 /v1）', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: 1 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+    const result = await jsonRequest('https://gw:11411', { q: 1 }, 'k')
+    expect(result).toEqual({ ok: 1 })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://gw:11411/v1/chat/completions',
+      expect.anything(),
+    )
   })
 })

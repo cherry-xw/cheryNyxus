@@ -24,6 +24,27 @@ import {
 
 // ========== 大脑错误的友好映射（fetch 路径与 openai SDK 路径共用） ==========
 
+/** 伪 200（非事件流/JSON 响应，典型如网关对未知路径回退 Web 控制台 SPA）→ 配置类错误：
+ *  不重试（validation），文案指引检查 brain 的 url。见 docs/agent/provider.md「流完整性校验」。 */
+export function brainInvalidStream(detail: string): ClassifiedError {
+  return new ClassifiedError({
+    message: `invalid stream: ${detail}`,
+    userMessage: `大脑配置可能有误：${detail}，请在设置里检查 brain 的 url`,
+    category: 'validation',
+    source: 'brain',
+  })
+}
+
+/** 流正常结束但 0 个有效事件 → 端点/模型服务异常：provider 类可重试，仍空则报前端。 */
+export function brainEmptyStream(): ClassifiedError {
+  return new ClassifiedError({
+    message: 'empty stream: 0 SSE events before close',
+    userMessage: '大模型调用失败：响应流为空，请稍后重试或检查 brain 配置',
+    category: 'provider',
+    source: 'brain',
+  })
+}
+
 /** 上游返回非 2xx → 按 status 定 category + 直观文案。返回 ClassifiedError 供调用方 throw。 */
 export function brainHttpError(status: number, logMessage: string): ClassifiedError {
   let category: ErrorCategory
@@ -153,9 +174,27 @@ export function assertChatOptions(options?: LLMOptions): {
 
 // ========== fetch 工具 ==========
 
-/** url 末尾斜杠归一后拼接 path（如 base + "/chat/completions"）。 */
-function joinUrl(base: string, p: string): string {
-  return `${base.replace(/\/+$/, '')}${p}`
+/** scheme 后是否还有路径段（https://gw:1 无 → false；https://gw:1/v1 有 → true）。 */
+function hasUrlPath(base: string): boolean {
+  return base.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').includes('/')
+}
+
+/**
+ * URL 自动补全（[docs/agent/provider.md「URL 解析与自动补全」](../../../docs/agent/provider.md)）：
+ * - fullUrl=true：URL 原样使用，不做任何拼接（请求地址须含版本段与端点）
+ * - base 无路径：补 versionPath + endpoint（如 /v1/chat/completions）——兼容早期自动补全时代的旧配置
+ * - base 已有路径（/v1、自定义网关前缀等）：只拼 endpoint（尊重用户输入）
+ * endpoint 传空串时仅做版本段补全（openai SDK baseURL 场景：SDK 自拼 endpoint）。
+ */
+export function buildEndpointUrl(
+  url: string,
+  opts: { fullUrl?: boolean; versionPath?: string; endpoint: string },
+): string {
+  const base = url.replace(/\/+$/, '')
+  const { fullUrl, versionPath = '/v1', endpoint } = opts
+  if (fullUrl) return base
+  if (hasUrlPath(base)) return `${base}${endpoint}`
+  return `${base}${versionPath}${endpoint}`
 }
 
 /** 构造 OpenAI 兼容的 Authorization header（Bearer key）。 */
@@ -171,17 +210,20 @@ export async function readErrorSnippet(res: Response): Promise<string> {
 
 /**
  * 非流式 POST JSON 请求（OpenAI 兼容 /chat/completions）。
- * !res.ok 或网络错误 → 抛 ClassifiedError（可重试，retry 据 category 判重试）。
+ * !res.ok 或网络错误 → 抛 ClassifiedError（可重试，retry 据 category 判重试）；
+ * 伪 200（content-type 非 JSON / 响应体非法 JSON，如网关 SPA 回退）→ validation 配置错误。
  */
 export async function jsonRequest(
   url: string,
   body: unknown,
   key: string,
   signal?: AbortSignal,
+  opts?: { fullUrl?: boolean },
 ): Promise<Record<string, unknown>> {
+  const endpoint = buildEndpointUrl(url, { fullUrl: opts?.fullUrl, endpoint: '/chat/completions' })
   let res: Response
   try {
-    res = await fetch(joinUrl(url, '/chat/completions'), {
+    res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders(key) },
       body: JSON.stringify(body),
@@ -194,7 +236,15 @@ export async function jsonRequest(
     const snippet = await readErrorSnippet(res)
     throw brainHttpError(res.status, snippet)
   }
-  return (await res.json()) as Record<string, unknown>
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    throw brainInvalidStream(`端点返回的不是 JSON 响应（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+  }
+  try {
+    return (await res.json()) as Record<string, unknown>
+  } catch (err) {
+    throw brainInvalidStream(`响应体不是合法 JSON（${err instanceof Error ? err.message : String(err)}；url 可能缺 /v1 前缀）`)
+  }
 }
 
 /**
@@ -204,6 +254,8 @@ export async function jsonRequest(
  * - getReader() + TextDecoder 跨 TCP chunk 行缓冲，按 \n 切行。
  * - 跳过空行（SSE 事件分隔）与 `:` 开头（SSE 注释 / keep-alive 心跳）。
  * - 剥离 `data:` 前缀；`[DONE]` 主动结束。
+ * - 流完整性校验（docs/agent/provider.md「流完整性校验」）：伪 200（content-type 非
+ *   event-stream，如网关 SPA 回退）→ validation；流结束 0 有效事件 → provider（空流）。
  * - finally 必跑 controller.abort() + reader.cancel()：正常结束或 generator.throw() 注入的
  *   abort 都会切断 HTTP 连接（对接现有 abort 机制，避免 socket hang up 堆栈泄漏）。
  *
@@ -214,14 +266,16 @@ export async function* streamSSE(
   body: unknown,
   key: string,
   signal?: AbortSignal,
+  opts?: { fullUrl?: boolean },
 ): AsyncGenerator<Record<string, unknown>, void, unknown> {
+  const endpoint = buildEndpointUrl(url, { fullUrl: opts?.fullUrl, endpoint: '/chat/completions' })
   const controller = new AbortController()
   const abortFromParent = () => controller.abort()
   if (signal?.aborted) controller.abort()
   else signal?.addEventListener('abort', abortFromParent, { once: true })
   let res: Response
   try {
-    res = await fetch(joinUrl(url, '/chat/completions'), {
+    res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -242,9 +296,17 @@ export async function* streamSSE(
     signal?.removeEventListener('abort', abortFromParent)
     throw brainHttpError(res.status, snippet)
   }
+  // 伪 200 拦截：SSE 请求收到非事件流（典型如网关对未知路径回退 Web 控制台 HTML）
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('event-stream')) {
+    controller.abort()
+    signal?.removeEventListener('abort', abortFromParent)
+    throw brainInvalidStream(`端点返回的不是事件流（content-type: ${contentType || '未知'}；url 可能缺 /v1 前缀）`)
+  }
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let yielded = 0
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -261,15 +323,19 @@ export async function* streamSSE(
         const payload = line.slice(5).trim()
         if (payload === '[DONE]') {
           controller.abort()
+          if (yielded === 0) throw brainEmptyStream()
           return
         }
         try {
           yield JSON.parse(payload) as Record<string, unknown>
+          yielded++
         } catch {
           // 单行 JSON 解析失败不致命，跳过该事件
         }
       }
     }
+    // 流正常关闭但 0 有效事件（连 [DONE] 都未收到）→ 空流
+    if (yielded === 0) throw brainEmptyStream()
   } finally {
     // 正常结束或 generator.throw() 注入的 abort，都切断 HTTP 连接
     controller.abort()

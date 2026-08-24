@@ -40,6 +40,7 @@ import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { openWithSystem } from './openWithSystem.js'
 import { readErrorSnippet } from '@/agent/provider/fetchBase.js'
 import { ANTHROPIC_VERSION } from '@/agent/provider/anthropic.js'
+import { buildEndpointUrl } from '@/agent/provider/fetchBase.js'
 
 const exec = promisify(execCallback)
 
@@ -205,7 +206,8 @@ async function fetchAnthropicModels(url: string, key?: string): Promise<UtilsMod
     }
   }
 
-  const modelsUrl = `${url.replace(/\/+$/, '')}/models?limit=1000`
+  // models 端点与 /messages 同规则自动补全（无路径补 /v1，见 docs/agent/provider.md「URL 解析与自动补全」）
+  const modelsUrl = buildEndpointUrl(url, { endpoint: '/models?limit=1000' })
   let res: Response
   try {
     res = await fetch(modelsUrl, {
