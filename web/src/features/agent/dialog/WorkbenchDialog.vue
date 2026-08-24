@@ -1594,6 +1594,32 @@ defineExpose({ closeWorkbench })
         </section>
       </Transition>
       <nav class="nyxus-side-tools" aria-label="节点树工作台功能工具栏">
+        <el-tooltip
+          :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
+          placement="left"
+          :show-after="200"
+          :hide-after="0"
+        >
+          <span class="nyxus-tool-tip-anchor nyxus-pinned-layout-action">
+            <button
+              type="button"
+              class="nyxus-rail-action is-layout-action"
+              data-view-action="layout"
+              :class="{ 'is-active': topologyLayout }"
+              :aria-label="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
+              :aria-pressed="topologyLayout"
+              @click="topologyLayout = !topologyLayout"
+            >
+              <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
+                <circle cx="12" cy="4" r="2" />
+                <circle cx="7" cy="15" r="2" />
+                <circle cx="17" cy="15" r="2" />
+                <path d="M7 17v3M17 17v3" />
+              </svg>
+            </button>
+          </span>
+        </el-tooltip>
         <div class="nyxus-tool-column">
           <div class="nyxus-primary-tools" aria-label="主要操作">
             <el-tooltip
@@ -1760,32 +1786,6 @@ defineExpose({ closeWorkbench })
                   <svg class="nyxus-paper-icon" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M7 4h10l2 3v13H7z" />
                     <path d="M5 7v13h11M9 9h7M9 12h7M9 15h5" />
-                  </svg>
-                </button>
-              </span>
-            </el-tooltip>
-            <el-tooltip
-              :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
-              placement="left"
-              :show-after="200"
-              :hide-after="0"
-            >
-              <span class="nyxus-tool-tip-anchor nyxus-pinned-layout-action">
-                <button
-                  type="button"
-                  class="nyxus-rail-action is-layout-action"
-                  data-view-action="layout"
-                  :class="{ 'is-active': topologyLayout }"
-                  :aria-label="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
-                  :aria-pressed="topologyLayout"
-                  @click="topologyLayout = !topologyLayout"
-                >
-                  <svg class="nyxus-layout-icon" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 4v5M7 9h10M7 9v4M17 9v4" />
-                    <circle cx="12" cy="4" r="2" />
-                    <circle cx="7" cy="15" r="2" />
-                    <circle cx="17" cy="15" r="2" />
-                    <path d="M7 17v3M17 17v3" />
                   </svg>
                 </button>
               </span>
