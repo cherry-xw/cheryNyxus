@@ -603,14 +603,19 @@ onBeforeUnmount(() => {
   right: 52px; // 位于右侧 rail 左侧，避免盖住 rail 按钮
   width: 600px; // 左右分栏后加宽：左栏导航 + 右栏详情一屏容纳，降低滚动依赖
   max-width: calc(100% - 120px);
-  max-height: calc(100% - 44px); // 最高不超过工作台可用空间（从 top:44px 定位到工作台底部）
+  // 最大高度固定上限 560px，叠加窗口可用空间约束（min 取小者）：任务再多也保持适中尺寸，窗口过小不溢出
+  max-height: min(560px, calc(100% - 44px)); // 原：calc(100% - 44px) 跟随窗口可占满
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 0; // 收起态仅入口行不撑高；展开态由 .is-expanded 覆盖为保底高度
   color: var(--nx-text);
   font-size: 13px;
   pointer-events: auto;
   overflow: hidden; // 兜底：任何子栏未及时收缩时也不让内容溢出工作台窗口
+}
+// 展开态最小高度保底：内容少（仅 1 个短任务）时也保证 1-2 任务按钮 + 操作区 + 头部可容纳，不局促。
+.pending-panel.is-expanded {
+  min-height: 280px;
 }
 // 入口行：标题 toggle + 范围切换 + 刷新同一行。
 .pending-panel-head {

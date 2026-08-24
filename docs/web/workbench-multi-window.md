@@ -175,6 +175,14 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 
 涉及选择器：`.pending-panel-body` / `.panel-main` / `.task-nav` / `.task-nav-list`（`flex: 1 1 0` → `flex: 1 1 auto`）。横向链不受影响：`.task-detail` 的 `flex: 1` 是宽度分配，其高度由 `.panel-main` 的 `align-items: stretch` 决定。
 
+### 高度上下限约束（2026-08-24）
+
+`.pending-panel` 增加显式高度约束（上节 flex-basis: auto 链不变，min/max 兜底两端极端态）：
+
+- **最小高度（仅展开态）**：`.pending-panel.is-expanded { min-height: 280px }`——内容少（如仅 1 个短任务）时也保证 1-2 个任务按钮 + 操作区 + 头部可容纳，不局促。收起态不撑高（收起态仅入口行约 36px，`min-height` 不应用避免产生透明拦截热区）。
+- **最大高度固定上限**：`.pending-panel { max-height: min(560px, calc(100% - 44px)) }`——固定上限 560px 叠加窗口可用空间约束（`min()` 取小者）：任务满一页（8 个）+ 操作区 + 头部也能完整容纳，且窗口过小时不溢出。任务再多由左栏 `.task-detail` / 右栏 `.task-nav-list` 内部滚动承接。
+- **native 面同步**：`.workbench-shell.is-native :deep(.pending-panel)` 同步为 `max-height: min(560px, calc(100% - 8px))` + `min-height: 280px`（仅保留其 `top: 8px` 定位差异），原生窗与浏览器 overlay 视觉一致。
+
 ## 改动文件清单
 
 | 文件 | 变更 |

@@ -2072,10 +2072,13 @@ defineExpose({ closeWorkbench })
 .workbench-shell.is-native .workbench-ctx-bar {
   top: 0;
 }
-// native 面无标题栏（branch-top 从顶开始）→ 待操作面板贴顶，限高按贴顶定位用满工作台。
+// native 面无标题栏（branch-top 从顶开始）→ 待操作面板贴顶，高度约束同步浏览器面（仅 top:8px 定位余量不同）。
 .workbench-shell.is-native :deep(.pending-panel) {
   top: 8px;
-  max-height: calc(100% - 8px);
+  max-height: min(560px, calc(100% - 8px));
+}
+.workbench-shell.is-native :deep(.pending-panel.is-expanded) {
+  min-height: 280px;
 }
 .workbench-shell.is-fullscreen {
   inset: 0;
