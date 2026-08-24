@@ -112,15 +112,15 @@ void ui_render_approval(const approval_slot *approval) {
 void ui_render_detail(const DetailPager *pager) {
     if (!pager) return;
     if (pager->in_flight) {
-        UI_INFO("detail %s @%" PRIu32 ": loading...", detail_section_name(pager->section), pager->offset);
+        UI_INFO("detail %s @%" PRIu32 ": loading...", detail_section_name(pager->section), pager->cursor.offset);
         return;
     }
     if (pager->failed) {
-        UI_WARN("detail %s @%" PRIu32 ": load failed", detail_section_name(pager->section), pager->offset);
+        UI_WARN("detail %s @%" PRIu32 ": load failed", detail_section_name(pager->section), pager->cursor.offset);
         return;
     }
     UI_INFO("== detail %s @%" PRIu32 " (%uB)%s ==", detail_section_name(pager->section),
-            pager->offset, (unsigned)pager->content_bytes, pager->has_more ? " [more]" : "");
+            pager->cursor.offset, (unsigned)pager->content_bytes, pager->has_more ? " [more]" : "");
     UI_INFO("%s", pager->content);
 }
 

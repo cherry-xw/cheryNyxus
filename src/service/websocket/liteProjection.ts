@@ -22,6 +22,7 @@ export interface LiteProfile {
 
 import { truncateByBytes, utf8ByteLength } from '@/utils/boundedContent.js'
 import { getRootChatId } from '@/db/chat.js'
+import type { ChatTimelineNodeToolCursor } from '@/service/message/types.js'
 
 /** 当前支持的 lite 字段集版本。升级字段集必须发布新 v（D14）。 */
 export const SUPPORTED_LITE_VERSIONS = [1] as const
@@ -327,6 +328,225 @@ function minimizeEnvelope(event: UnknownRecord): UnknownRecord {
 // 主入口：applyLiteEvent / applyLiteResponse
 // ---------------------------------------------------------------------------
 
+type NodeDetailSection = 'content' | 'thinking' | 'toolCalls'
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff
+}
+
+function safePrefixEnd(text: string, end: number): number {
+  const bounded = Math.max(0, Math.min(text.length, end))
+  return bounded > 0 && bounded < text.length && isHighSurrogate(text.charCodeAt(bounded - 1))
+    ? bounded - 1
+    : bounded
+}
+
+function serializedBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8')
+}
+
+/** 以最终 RPC 信封序列化结果做二分装箱；返回值始终是合法 UTF-16 边界。 */
+function fitUtf16Prefix(
+  text: string,
+  maxFrameBytes: number,
+  build: (end: number) => UnknownRecord,
+): number {
+  let low = 0
+  let high = text.length
+  let best = 0
+  while (low <= high) {
+    const midpoint = Math.floor((low + high) / 2)
+    const end = safePrefixEnd(text, midpoint)
+    if (serializedBytes(build(end)) <= maxFrameBytes) {
+      best = Math.max(best, end)
+      low = midpoint + 1
+    } else {
+      high = midpoint - 1
+    }
+  }
+  return best
+}
+
+function parseToolCursor(value: unknown): ChatTimelineNodeToolCursor | undefined {
+  const cursor = asRecord(value)
+  if (
+    !cursor ||
+    !Number.isSafeInteger(cursor.callIndex) ||
+    Number(cursor.callIndex) < 0 ||
+    !Number.isSafeInteger(cursor.offset) ||
+    Number(cursor.offset) < 0 ||
+    (cursor.field !== 'arguments' && cursor.field !== 'result')
+  ) {
+    return undefined
+  }
+  return {
+    callIndex: Number(cursor.callIndex),
+    field: cursor.field,
+    offset: Number(cursor.offset),
+  }
+}
+
+function selectedNodeDetailSection(params: UnknownRecord | undefined): NodeDetailSection {
+  const sections = Array.isArray(params?.sections) ? params.sections : []
+  const first = sections.find(
+    (section): section is NodeDetailSection =>
+      section === 'content' || section === 'thinking' || section === 'toolCalls',
+  )
+  return first ?? 'content'
+}
+
+const CORRELATION_JSON_BYTE_BUDGET = 128
+
+/** 正常 correlation 原样保留；异常超长/高转义值降级为固定长度、确定性的 sha256 标识。 */
+function boundedCorrelation(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  if (serializedBytes(value) <= CORRELATION_JSON_BYTE_BUDGET) return value
+  return `sha256:${truncateByBytes(value, 0).contentHash}`
+}
+
+function nodeDetailBudgetFailure(
+  response: UnknownRecord,
+  maxFrameBytes: number,
+  fallbackMessage = '详情页无法适配当前帧预算',
+): UnknownRecord {
+  const error = asRecord(response.error)
+  const sourceMessage = typeof error?.message === 'string' ? error.message : fallbackMessage
+  const sourceCode =
+    typeof error?.code === 'string' && serializedBytes(error.code) <= 64 ? error.code : 'INTERNAL'
+  const correlation = {
+    id: boundedCorrelation(response.id),
+    kind: 'response',
+    requestId: boundedCorrelation(response.requestId),
+    success: false,
+  }
+  const build = (end: number): UnknownRecord => ({
+    ...correlation,
+    error: { code: sourceCode, message: sourceMessage.slice(0, safePrefixEnd(sourceMessage, end)) },
+  })
+  const consumed = fitUtf16Prefix(sourceMessage, maxFrameBytes, build)
+  const failure = build(consumed)
+  // maxFrameBytes 最小为 512；两个 correlation 最坏降级为 71B ASCII hash，空错误信封可证明有界。
+  return serializedBytes(failure) <= maxFrameBytes
+    ? failure
+    : {
+        id: boundedCorrelation(response.id),
+        kind: 'response',
+        requestId: boundedCorrelation(response.requestId),
+        success: false,
+        error: { code: 'INTERNAL', message: '' },
+      }
+}
+
+/**
+ * node.get 专用投影：lite 每次只返回一个 section，先裁掉 canonical 节点元数据，
+ * 再按完整 RPC Response 精确装箱，最后生成真实 next cursor。
+ */
+function projectLiteNodeDetailResponse(
+  profile: LiteProfile,
+  response: UnknownRecord,
+  data: UnknownRecord,
+  params: UnknownRecord | undefined,
+): UnknownRecord {
+  const sourceNode = asRecord(data.node)
+  if (!sourceNode) return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+  const section = selectedNodeDetailSection(params)
+  const rootChatId = typeof data.rootChatId === 'string' ? data.rootChatId : ''
+  const nodeId = typeof sourceNode.id === 'string' ? sourceNode.id : ''
+
+  if (section === 'content' || section === 'thinking') {
+    const source = typeof sourceNode[section] === 'string' ? sourceNode[section] : ''
+    const offset =
+      typeof params?.offset === 'number' &&
+      Number.isSafeInteger(params.offset) &&
+      params.offset >= 0
+        ? params.offset
+        : 0
+    const limit =
+      typeof params?.limit === 'number' && Number.isSafeInteger(params.limit) && params.limit > 0
+        ? params.limit
+        : undefined
+    // legacy handler 未在恰好由 limit 截断时设置 hasMore；满页允许一次空终页探测。
+    const sourceHasMore = data.hasMore === true || (limit !== undefined && source.length >= limit)
+    const build = (end: number): UnknownRecord => {
+      const consumed = safePrefixEnd(source, end)
+      const hasMore = consumed < source.length || sourceHasMore
+      return {
+        ...response,
+        data: {
+          rootChatId,
+          node: { id: nodeId, [section]: source.slice(0, consumed) },
+          refs: [],
+          hasMore,
+          page: {
+            section,
+            offset,
+            consumed,
+            ...(hasMore && consumed > 0 ? { nextOffset: offset + consumed } : {}),
+          },
+        },
+      }
+    }
+    const consumed = fitUtf16Prefix(source, profile.maxFrameBytes, build)
+    if (source.length > 0 && consumed === 0) {
+      return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+    }
+    const projected = build(consumed)
+    return serializedBytes(projected) <= profile.maxFrameBytes
+      ? projected
+      : nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+  }
+
+  const handlerPage = asRecord(data.page)
+  const cursor = parseToolCursor(handlerPage?.cursor) ??
+    parseToolCursor(params?.toolCursor) ?? { callIndex: 0, field: 'arguments', offset: 0 }
+  const handlerNext = parseToolCursor(handlerPage?.nextCursor)
+  const sourceCall = Array.isArray(sourceNode.toolCalls)
+    ? asRecord(sourceNode.toolCalls[0])
+    : undefined
+  const source =
+    sourceCall && typeof sourceCall[cursor.field] === 'string'
+      ? String(sourceCall[cursor.field])
+      : ''
+  const callMeta: UnknownRecord | undefined = sourceCall
+    ? pick(sourceCall, ['callId', 'index', 'name', 'status'])
+    : undefined
+  const build = (end: number): UnknownRecord => {
+    const consumed = safePrefixEnd(source, end)
+    const nextCursor =
+      consumed < source.length ? { ...cursor, offset: cursor.offset + consumed } : handlerNext
+    const toolCall = callMeta
+      ? {
+          ...callMeta,
+          arguments: cursor.field === 'arguments' ? source.slice(0, consumed) : '',
+          ...(cursor.field === 'result' ? { result: source.slice(0, consumed) } : {}),
+        }
+      : undefined
+    return {
+      ...response,
+      data: {
+        rootChatId,
+        node: { id: nodeId, toolCalls: toolCall ? [toolCall] : [] },
+        refs: [],
+        hasMore: !!nextCursor,
+        page: {
+          section: 'toolCalls',
+          cursor,
+          consumed,
+          ...(nextCursor ? { nextCursor } : {}),
+        },
+      },
+    }
+  }
+  const consumed = fitUtf16Prefix(source, profile.maxFrameBytes, build)
+  if (source.length > 0 && consumed === 0) {
+    return nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+  }
+  const projected = build(consumed)
+  return serializedBytes(projected) <= profile.maxFrameBytes
+    ? projected
+    : nodeDetailBudgetFailure(response, profile.maxFrameBytes)
+}
+
 /**
  * 字段级智能截断（D3/A1，与 interaction/handler.ts boundApprovalPayload 同策略）：
  * 遍历 record 的顶层字符串字段，仅对超过 byteBudget 的字段按字节截断（不撕裂多字节），
@@ -355,7 +575,11 @@ function boundRecordFields(
       if (bytes <= byteBudget) continue
       const cut = truncateByBytes(subValue, byteBudget)
       nested[subKey] = cut.text
-      truncations.push({ field: key + '.' + subKey, contentLength: bytes, contentHash: cut.contentHash })
+      truncations.push({
+        field: key + '.' + subKey,
+        contentLength: bytes,
+        contentHash: cut.contentHash,
+      })
     }
   }
   return truncations
@@ -365,10 +589,7 @@ function boundRecordFields(
  * 对 lite 连接应用事件投影（prepareSessionEvent 与 interaction.changed 旁路共用）。
  * @returns 投影后事件；undefined = 抑制不下发。非 lite 语义由调用方短路（本函数只处理 lite）。
  */
-export function applyLiteEvent(
-  profile: LiteProfile,
-  event: unknown,
-): unknown | undefined {
+export function applyLiteEvent(profile: LiteProfile, event: unknown): unknown | undefined {
   // 注：turn.delta 超预算时返回 unknown[]（分片多帧），由 projectLite 摊平；其余类型单值。
   const rec = asRecord(event)
   if (!rec) return event
@@ -409,9 +630,7 @@ export function applyLiteEvent(
       let rest = delta
       while (rest.length > 0) {
         const cut = truncateByBytes(rest, TURN_DELTA_BYTE_BUDGET)
-        frames.push(
-          minimizeEnvelope({ ...rec, data: { ...leanData, offset, delta: cut.text } }),
-        )
+        frames.push(minimizeEnvelope({ ...rec, data: { ...leanData, offset, delta: cut.text } }))
         offset += cut.text.length // offset 按字符数递增（streamMapper 现状口径，:117-127 state.content += length）
         rest = rest.slice(cut.text.length)
       }
@@ -440,15 +659,24 @@ export function applyLiteResponse(
   profile: LiteProfile,
   response: unknown,
   requestParams?: unknown,
+  requestMethod?: string,
 ): unknown {
   const rec = asRecord(response)
-  if (!rec || rec.success === false) return response
+  if (!rec) return response
+  if (requestMethod === 'chat.timeline.node.get' && rec.success === false) {
+    return nodeDetailBudgetFailure(rec, profile.maxFrameBytes)
+  }
+  if (rec.success === false) return response
   const data = asRecord(rec.data)
+  const params = asRecord(requestParams)
+  if (requestMethod === 'chat.timeline.node.get') {
+    if (!data) return nodeDetailBudgetFailure(rec, profile.maxFrameBytes)
+    return projectLiteNodeDetailResponse(profile, rec, data, params)
+  }
   if (!data) return response
   if (!asRecord(data.rootTimeline) && !asRecord(data.state) && !asRecord(data.currentState)) {
     return response
   }
-  const params = asRecord(requestParams)
   const requestedStepLimit =
     typeof params?.executionStepLimit === 'number' &&
     Number.isInteger(params.executionStepLimit) &&
@@ -470,7 +698,10 @@ export function applyLiteResponse(
     // P1-② 游标分页：before（orderKey 排他下界）+ limit（1..100，缺省 20）→ nextCursor 续拉。
     const before = typeof params?.before === 'number' ? params.before : undefined
     const cursorLimit =
-      typeof params?.limit === 'number' && Number.isInteger(params.limit) && params.limit >= 1 && params.limit <= 100
+      typeof params?.limit === 'number' &&
+      Number.isInteger(params.limit) &&
+      params.limit >= 1 &&
+      params.limit <= 100
         ? params.limit
         : DEFAULT_PAGE
     if (before !== undefined) {
@@ -505,8 +736,7 @@ export function applyLiteResponse(
     }
     // P1-②：hasMore 时附 nextCursor（本页最小 orderKey），客户端以它作为下页 before。
     const oldest = [...page].sort((a, b) => a.orderKey - b.orderKey)[0]
-    const nextCursor =
-      page.length < total && oldest ? { nextCursor: oldest.orderKey } : {}
+    const nextCursor = page.length < total && oldest ? { nextCursor: oldest.orderKey } : {}
     // state 快照 lean 投影（B-11）：activeTurns 不带累计文本、questionBatches/roles 不带题干/全量字段。
     projectedData = {
       ...projectedData,
@@ -591,8 +821,7 @@ function projectStateSnapshot(state: UnknownRecord, executionStepLimit: number):
       .filter((step) => step.status !== 'running')
       .sort(
         (a, b) =>
-          (Number(b.completedAt ?? b.startedAt) || 0) -
-          (Number(a.completedAt ?? a.startedAt) || 0),
+          (Number(b.completedAt ?? b.startedAt) || 0) - (Number(a.completedAt ?? a.startedAt) || 0),
       )
       .slice(0, Math.max(0, executionStepLimit - running.length))
     projected.executionSteps = [...running, ...terminal].sort(

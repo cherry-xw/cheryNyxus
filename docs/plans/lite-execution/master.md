@@ -91,6 +91,7 @@ interface ExecutionStep {
 | 4 | 执行监控 UI 与懒加载详情 | 已删除 | 已完成 | `feat(web): add lite execution monitor` |
 | 5 | 交互状态机闭环 | 已删除 | 已完成 | `fix(web): complete lite interaction state machine` |
 | 6 | MCU 有界执行界面 | 已删除 | 已完成 | `feat(firmware): render bounded execution timeline` |
+| 7 | node.get 帧预算与连续分页 | 已删除 | 已完成 | `fix(protocol): bound lite node detail pages` |
 
 执行规则：
 

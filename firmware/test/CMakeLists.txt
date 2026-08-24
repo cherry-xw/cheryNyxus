@@ -29,6 +29,13 @@ add_library(firmware_config_override_static OBJECT
     ../detail_pager.c
     ../execution_state.c
 )
+
+add_executable(firmware_frame_512_tests
+    frame_budget_512.c
+    ../json_lite.c
+)
+target_include_directories(firmware_frame_512_tests PRIVATE ..)
+target_compile_definitions(firmware_frame_512_tests PRIVATE MCU_MAX_FRAME_BYTES=512)
 target_include_directories(firmware_config_override_static PRIVATE ..)
 target_compile_definitions(firmware_config_override_static PRIVATE
     MCU_MAX_FRAME_BYTES=4096
@@ -43,10 +50,12 @@ else()
     target_compile_options(firmware_host_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
     target_compile_options(firmware_device_static PRIVATE -Wall -Wextra -Werror -Wpedantic)
     target_compile_options(firmware_config_override_static PRIVATE -Wall -Wextra -Werror -Wpedantic)
+    target_compile_options(firmware_frame_512_tests PRIVATE -Wall -Wextra -Werror -Wpedantic)
 endif()
 
 enable_testing()
 add_test(NAME firmware_host_tests COMMAND firmware_host_tests)
+add_test(NAME firmware_frame_512_tests COMMAND firmware_frame_512_tests)
 add_test(
     NAME firmware_static_budget
     COMMAND ${CMAKE_COMMAND}

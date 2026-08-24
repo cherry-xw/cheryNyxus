@@ -366,14 +366,40 @@ export const requestSchemas = {
     rootChatId: z.string().min(1),
     generationIndex: z.number().int().positive(),
   }),
-  // lite profile：按需单节点详情（canonical §3.6.3）。offset/limit 为字符分段；单响应 ≤32KB 硬保证。
-  [Method.CHAT_TIMELINE_NODE_GET]: z.object({
-    rootChatId: z.string().min(1),
-    nodeId: z.string().min(1),
-    sections: z.array(z.enum(['content', 'thinking', 'toolCalls'])).optional(),
-    offset: z.number().int().min(0).optional(),
-    limit: z.number().int().positive().max(32000).optional(),
-  }),
+  // lite profile：按需单节点详情（canonical §3.6.3）。offset/limit 为 UTF-16 code unit 分段。
+  [Method.CHAT_TIMELINE_NODE_GET]: z
+    .object({
+      rootChatId: z.string().min(1),
+      nodeId: z.string().min(1),
+      sections: z.array(z.enum(['content', 'thinking', 'toolCalls'])).optional(),
+      offset: z.number().int().min(0).max(0x7fffffff).optional(),
+      limit: z.number().int().positive().max(32000).optional(),
+      toolCursor: z
+        .object({
+          callIndex: z.number().int().min(0).max(0x7fffffff),
+          field: z.enum(['arguments', 'result']),
+          offset: z.number().int().min(0).max(0x7fffffff),
+        })
+        .strict()
+        .optional(),
+    })
+    .superRefine((value, ctx) => {
+      if (!value.toolCursor) return
+      if (value.offset !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['offset'],
+          message: 'toolCursor 不能与 offset 同时使用',
+        })
+      }
+      if (value.sections?.length !== 1 || value.sections[0] !== 'toolCalls') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sections'],
+          message: "toolCursor 仅支持 sections:['toolCalls']",
+        })
+      }
+    }),
   [Method.CHAT_RESUME]: chatIdSchema,
   [Method.CHAT_RESUME_TREE]: z.object({
     rootChatId: z.string().min(1),

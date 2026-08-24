@@ -36,7 +36,7 @@
 | 断线重连：指数退避 1s→60s 封顶±20% 抖动；重连后 chat.open+interaction.list | §3.6 |
 | 重连判定「错过事件不重放不推演」：state 快照无 runId + revision 自愈完成 | §3.6 B-7 |
 | 重连从 `state.run/runs[].startedAt + executionSteps` 恢复总计时和所有并行活动步骤，不从零计时 | §3.2「设备计时交互」+ §3.6 |
-| 按键才调用 `chat.timeline.node.get{sections,offset,limit}`；正文/thinking/toolCalls 每次只驻留当前页 | protocol.md「chat.timeline.node.get」 |
+| 按键才调用 `chat.timeline.node.get`；正文/thinking 使用真实 `page.nextOffset`，toolCalls 使用结构化 `page.nextCursor`，每次只驻留当前页正文 | protocol.md「chat.timeline.node.get」 |
 
 ## 设备配置
 
@@ -46,8 +46,9 @@
 |---|---:|---|
 | `MCU_MAX_FRAME_BYTES` | 2048 | WS 声明、接收与组装缓冲上限；范围 512–65536 |
 | `MCU_TIMELINE_PAGE_SIZE` | 3 | `chat.timeline.get.limit`；服务端仍会按帧预算自动收缩 |
-| `MCU_DETAIL_PAGE_CHARS` | 256 | `node.get.limit` 和上一页/下一页的 offset 步长 |
-| `MCU_DETAIL_PAGE_BUFFER_BYTES` | `maxFrameBytes-384` | 当前详情页驻留字节数，不累积全文 |
+| `MCU_DETAIL_PAGE_CHARS` | 256 | `node.get.limit` 请求上界；实际下一页只认服务端游标 |
+| `MCU_DETAIL_CURSOR_HISTORY` | 8 | 上一页的固定容量轻量游标历史；不缓存历史正文 |
+| `MCU_DETAIL_PAGE_BUFFER_BYTES` | `maxFrameBytes+1` | 完整 section token + NUL；编译期禁止缩小，不累积历史正文 |
 | `MCU_EXECUTION_STEP_CAPACITY` | 16 | 固定 `ExecutionStep` 数组和 `chat.open.executionStepLimit` |
 | `MCU_QUESTION_BYTES` | 160 | 顶部问题 UTF-8 截断缓冲 |
 
@@ -66,7 +67,7 @@
 | JSON token 工作区（静态） | ~5.1KB | `jl_doc` + tokenizer raw 各 160 token，串行复用 |
 | LeanTimelineNode 环形缓存 | 20×328B≈6.4KB | 静态结构体数组，无 malloc |
 | ExecutionStep 窗口 | 16×~240B≈3.8KB | 固定数组；活动优先，最早完成项进入计数/累计耗时 |
-| node.get 当前页 | 1664B | 正文/thinking/toolCalls 共用一个缓冲，不保留前页 |
+| node.get 当前页 | 2049B | 正文/thinking/toolCalls 共用一个完整帧缓冲，不保留前页 |
 | RPC pending 表 | 4×48B | id/method/callback |
 | 显示行缓冲 | 512B | 串口桩；真实 OLED 需 ~1–2KB |
 | NVS 命名空间 | ~256B blob | commandId/messageId |
@@ -80,7 +81,9 @@
 
 ### 2048B 硬上限
 
-服务端 lite 投影按 `maxFrameBytes` 自动收缩 timeline 节点与 executionSteps；固件同时显式请求 `timeline limit=3`、`executionStepLimit=16`，详情请求使用 `limit=256`。WS 组装缓冲严格等于设备声明值，任何违约帧会整帧丢弃并增加 `rx_overflow`，不会写越界。`turnDelta=0` 时 0x01 路径只计数，不进入正文状态。
+服务端 lite 投影按 `maxFrameBytes` 自动收缩 timeline 节点、executionSteps 与 node detail 完整 RPC 信封；固件同时显式请求 `timeline limit=3`、`executionStepLimit=16`，详情请求使用 `limit=256` 作为上界。正文/thinking 从 `page.nextOffset` 续拉，工具从 `page.nextCursor{callIndex,field,offset}` 续拉；相同/倒退游标会被拒绝，空终页不会重复请求。WS 组装缓冲严格等于设备声明值，任何违约帧会整帧丢弃并增加 `rx_overflow`，不会写越界。`turnDelta=0` 时 0x01 路径只计数，不进入正文状态。
+
+详情页缓冲固定为 `MCU_MAX_FRAME_BYTES + 1`，用于容纳完整的 content/thinking 字符串 token 或整个 toolCalls 数组 token（含结尾 NUL），编译期禁止不安全缩小。只有 token 完整复制成功才应用 `page.nextOffset/page.nextCursor`；复制失败保留当前游标并标记请求失败，绝不静默截断后推进游标造成永久缺段。
 
 步骤窗口溢出时先合并最早终态为“较早步骤 N 项 / 累计耗时”；running 节点不会被终态挤掉。若 16 个槽全部为 running 后服务端仍发送第 17 个 running（违反本连接 `executionStepLimit`），固件保持已有节点并增加显式 `active_overflow_count` 告警，避免内存越界。
 

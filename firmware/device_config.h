@@ -21,9 +21,14 @@
 #define MCU_DETAIL_PAGE_CHARS 256
 #endif
 
-/* 当前详情页驻留缓冲。只保存当前页，不累积全文。 */
+/* 只保留当前页正文；上一页仅保存固定数量的轻量游标。 */
+#ifndef MCU_DETAIL_CURSOR_HISTORY
+#define MCU_DETAIL_CURSOR_HISTORY 8
+#endif
+
+/* 当前详情页驻留缓冲。必须能保存任意合法接收帧中的完整 section token + NUL。 */
 #ifndef MCU_DETAIL_PAGE_BUFFER_BYTES
-#define MCU_DETAIL_PAGE_BUFFER_BYTES (MCU_MAX_FRAME_BYTES - 384)
+#define MCU_DETAIL_PAGE_BUFFER_BYTES (MCU_MAX_FRAME_BYTES + 1)
 #endif
 
 /* 固件编译期 ExecutionStep 数组容量；默认/推荐值与 lite profile 缺省值一致。 */
@@ -48,8 +53,11 @@
 #if MCU_DETAIL_PAGE_CHARS < 1 || MCU_DETAIL_PAGE_CHARS > 32000
 #error "MCU_DETAIL_PAGE_CHARS must be in [1, 32000]"
 #endif
-#if MCU_DETAIL_PAGE_BUFFER_BYTES < 128 || MCU_DETAIL_PAGE_BUFFER_BYTES > MCU_MAX_FRAME_BYTES
-#error "MCU_DETAIL_PAGE_BUFFER_BYTES must be in [128, MCU_MAX_FRAME_BYTES]"
+#if MCU_DETAIL_CURSOR_HISTORY < 1 || MCU_DETAIL_CURSOR_HISTORY > 32
+#error "MCU_DETAIL_CURSOR_HISTORY must be in [1, 32]"
+#endif
+#if MCU_DETAIL_PAGE_BUFFER_BYTES != MCU_MAX_FRAME_BYTES + 1
+#error "MCU_DETAIL_PAGE_BUFFER_BYTES must equal MCU_MAX_FRAME_BYTES + 1"
 #endif
 #if MCU_EXECUTION_STEP_CAPACITY < 1 || MCU_EXECUTION_STEP_CAPACITY > 500
 #error "MCU_EXECUTION_STEP_CAPACITY must be in [1, 500]"

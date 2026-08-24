@@ -14,11 +14,24 @@ typedef enum {
     DETAIL_TOOL_CALLS,
 } detail_section_t;
 
+typedef enum {
+    DETAIL_TOOL_ARGUMENTS,
+    DETAIL_TOOL_RESULT,
+} detail_tool_field_t;
+
+typedef struct {
+    uint32_t call_index;
+    detail_tool_field_t field;
+    uint32_t offset;
+} detail_cursor_t;
+
 typedef struct {
     char node_id[EXECUTION_ID_BYTES];
     detail_section_t section;
-    uint32_t offset;
-    uint32_t next_offset;
+    detail_cursor_t cursor;
+    detail_cursor_t next_cursor;
+    detail_cursor_t history[MCU_DETAIL_CURSOR_HISTORY];
+    uint8_t history_count;
     uint16_t page_units;
     uint16_t content_bytes;
     bool has_page;
@@ -35,15 +48,16 @@ bool detail_pager_previous(DetailPager *pager);
 void detail_pager_request_started(DetailPager *pager);
 void detail_pager_request_failed(DetailPager *pager);
 
-/* decoded 是已解码 UTF-8（toolCalls 可传有界 JSON 文本）；utf16_units 对齐服务端 JS slice offset。 */
+/* decoded 是已解码 UTF-8（toolCalls 可传有界 JSON 文本）；next_cursor 必须来自服务端 page 元数据。 */
 void detail_pager_apply(
     DetailPager *pager,
     const char *decoded,
     size_t decoded_bytes,
     uint32_t utf16_units,
-    bool server_has_more
+    const detail_cursor_t *next_cursor
 );
 
 const char *detail_section_name(detail_section_t section);
+const char *detail_tool_field_name(detail_tool_field_t field);
 
 #endif /* DETAIL_PAGER_H */

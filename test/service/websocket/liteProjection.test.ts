@@ -566,6 +566,276 @@ describe('applyLiteResponse：timeline 投影', () => {
   })
 })
 
+describe('applyLiteResponse：node.get 精确帧预算与真实游标', () => {
+  const method = 'chat.timeline.node.get'
+
+  function responseForNode(node: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+    return {
+      id: 'node-detail-response',
+      kind: 'response',
+      requestId: 'node-detail-request',
+      success: true,
+      data: {
+        rootChatId: 'root',
+        node: { id: 'node-1', ...node },
+        refs: [],
+        hasMore: false,
+        ...extra,
+      },
+    }
+  }
+
+  function safePage(text: string, offset: number, limit: number): string {
+    let end = Math.min(text.length, offset + limit)
+    const last = end > offset ? text.charCodeAt(end - 1) : 0
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end++
+    return text.slice(offset, end)
+  }
+
+  for (const maxFrameBytes of [512, 2048]) {
+    it(`${maxFrameBytes}B：JSON 转义与超长 Unicode 正文按实际 UTF-16 nextOffset 连续重组`, () => {
+      const constrained: LiteProfile = { ...profile, maxFrameBytes }
+      const full = '引号"\\换行\n😀中'.repeat(180)
+      let offset = 0
+      let rebuilt = ''
+      for (let guard = 0; guard < 200; guard++) {
+        const source = safePage(full, offset, 256)
+        const raw = responseForNode(
+          { content: source },
+          { hasMore: offset + source.length < full.length },
+        )
+        const out = applyLiteResponse(
+          constrained,
+          raw,
+          { sections: ['content'], offset, limit: 256 },
+          method,
+        ) as Record<string, unknown>
+        expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(maxFrameBytes)
+        const data = out.data as Record<string, unknown>
+        const node = data.node as Record<string, unknown>
+        const page = data.page as Record<string, unknown>
+        const chunk = String(node.content ?? '')
+        expect(page.offset).toBe(offset)
+        expect(page.consumed).toBe(chunk.length)
+        expect(chunk).not.toMatch(/[\uD800-\uDBFF]$/)
+        rebuilt += chunk
+        if (page.nextOffset === undefined) break
+        const next = Number(page.nextOffset)
+        expect(next).toBe(offset + chunk.length)
+        expect(next).toBeGreaterThan(offset)
+        offset = next
+      }
+      expect(rebuilt).toBe(full)
+    })
+  }
+
+  it('thinking 使用独立 UTF-16 offset，恰好整页只产生一次空终页探测', () => {
+    const constrained: LiteProfile = { ...profile, maxFrameBytes: 512 }
+    const full = '😀'.repeat(128) // 256 UTF-16 code units，恰好命中请求 limit
+    const first = applyLiteResponse(
+      constrained,
+      responseForNode({ thinking: full }),
+      { sections: ['thinking'], offset: 0, limit: 256 },
+      method,
+    ) as Record<string, unknown>
+    const firstData = first.data as Record<string, unknown>
+    const firstPage = firstData.page as Record<string, unknown>
+    expect(firstPage.nextOffset).toBeDefined()
+    const nextOffset = Number(firstPage.nextOffset)
+
+    const terminal = applyLiteResponse(
+      constrained,
+      responseForNode({ thinking: '' }),
+      { sections: ['thinking'], offset: nextOffset, limit: 256 },
+      method,
+    ) as Record<string, unknown>
+    const terminalData = terminal.data as Record<string, unknown>
+    const terminalPage = terminalData.page as Record<string, unknown>
+    expect(terminalData.hasMore).toBe(false)
+    expect(terminalPage.nextOffset).toBeUndefined()
+    expect(terminalPage.consumed).toBe(0)
+  })
+
+  it('toolCalls 跨数组、arguments/result 字段连续分页且每帧 ≤512B', () => {
+    const constrained: LiteProfile = { ...profile, maxFrameBytes: 512 }
+    const calls = Array.from({ length: 40 }, (_, index) => ({
+      callId: `call-${index}`,
+      index,
+      name: `tool_${index}`,
+      status: 'completed',
+      arguments: `{"路径":"C:\\\\${index}","值":"😀"}`.repeat(12),
+      result: `结果"${index}\\😀`.repeat(18),
+    }))
+    type Cursor = { callIndex: number; field: 'arguments' | 'result'; offset: number }
+    let cursor: Cursor | undefined = { callIndex: 0, field: 'arguments', offset: 0 }
+    const rebuilt = calls.map(() => ({ arguments: '', result: '' }))
+    for (let guard = 0; cursor && guard < 1000; guard++) {
+      const call = calls[cursor.callIndex]!
+      const fieldText = call[cursor.field]
+      const chunk = safePage(fieldText, cursor.offset, 256)
+      const end = cursor.offset + chunk.length
+      const handlerNext: Cursor | undefined =
+        end < fieldText.length
+          ? { ...cursor, offset: end }
+          : cursor.field === 'arguments'
+            ? { callIndex: cursor.callIndex, field: 'result', offset: 0 }
+            : cursor.callIndex + 1 < calls.length
+              ? { callIndex: cursor.callIndex + 1, field: 'arguments', offset: 0 }
+              : undefined
+      const raw = responseForNode(
+        {
+          toolCalls: [
+            {
+              callId: call.callId,
+              index: call.index,
+              name: call.name,
+              status: call.status,
+              arguments: cursor.field === 'arguments' ? chunk : '',
+              ...(cursor.field === 'result' ? { result: chunk } : {}),
+            },
+          ],
+        },
+        {
+          hasMore: !!handlerNext,
+          page: {
+            section: 'toolCalls',
+            cursor,
+            consumed: chunk.length,
+            ...(handlerNext ? { nextCursor: handlerNext } : {}),
+          },
+        },
+      )
+      const out = applyLiteResponse(
+        constrained,
+        raw,
+        { sections: ['toolCalls'], limit: 256, toolCursor: cursor },
+        method,
+      ) as Record<string, unknown>
+      expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(512)
+      const data = out.data as Record<string, unknown>
+      const node = data.node as Record<string, unknown>
+      const page = data.page as Record<string, unknown>
+      const pageCursor = page.cursor as Cursor
+      const pageCalls = node.toolCalls as Array<Record<string, unknown>>
+      expect(pageCalls.length).toBeLessThanOrEqual(1)
+      const returned = pageCalls[0] ? String(pageCalls[0]![pageCursor.field] ?? '') : ''
+      rebuilt[pageCursor.callIndex]![pageCursor.field] += returned
+      const next = page.nextCursor as Cursor | undefined
+      if (next) {
+        expect(JSON.stringify(next)).not.toBe(JSON.stringify(cursor))
+      }
+      cursor = next
+    }
+    expect(cursor).toBeUndefined()
+    expect(rebuilt).toEqual(
+      calls.map((call) => ({ arguments: call.arguments, result: call.result })),
+    )
+  })
+
+  it('node.get 失败响应在 512B 内精确收缩 message，并保留正常 correlation', () => {
+    const constrained: LiteProfile = { ...profile, maxFrameBytes: 512 }
+    const raw = {
+      id: 'normal-response-id',
+      kind: 'response',
+      requestId: 'normal-request-id',
+      success: false,
+      error: { code: 'NODE_NOT_FOUND', message: '失败"\\\n😀'.repeat(400) },
+    }
+
+    const out = applyLiteResponse(constrained, raw, undefined, method) as Record<
+      string,
+      unknown
+    >
+    const error = out.error as Record<string, unknown>
+
+    expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(512)
+    expect(out.id).toBe(raw.id)
+    expect(out.requestId).toBe(raw.requestId)
+    expect(out.success).toBe(false)
+    expect(error.code).toBe('NODE_NOT_FOUND')
+    expect(String(error.message).length).toBeLessThan(raw.error.message.length)
+  })
+
+  it('异常超长 correlation 稳定降级为 sha256 标识，且失败信封字段完整', () => {
+    const constrained: LiteProfile = { ...profile, maxFrameBytes: 512 }
+    const raw = {
+      id: 'id"\\\n😀'.repeat(100),
+      kind: 'response',
+      requestId: 'request"\\\n😀'.repeat(100),
+      success: false,
+      error: { code: 'INTERNAL', message: 'x'.repeat(2000) },
+    }
+
+    const first = applyLiteResponse(constrained, raw, undefined, method) as Record<
+      string,
+      unknown
+    >
+    const second = applyLiteResponse(constrained, raw, undefined, method) as Record<
+      string,
+      unknown
+    >
+
+    expect(Buffer.byteLength(JSON.stringify(first), 'utf8')).toBeLessThanOrEqual(512)
+    expect(first).toHaveProperty('id')
+    expect(first).toHaveProperty('requestId')
+    expect(first.id).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(first.requestId).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect(first.id).not.toBe(raw.id)
+    expect(first.requestId).not.toBe(raw.requestId)
+    expect(first.id).toBe(second.id)
+    expect(first.requestId).toBe(second.requestId)
+    expect(first.success).toBe(false)
+  })
+
+  it('toolCalls 基础 metadata 无法装入 512B 时返回有界失败，不伪造不可续拉成功页', () => {
+    const constrained: LiteProfile = { ...profile, maxFrameBytes: 512 }
+    const raw = responseForNode(
+      {
+        toolCalls: [
+          {
+            callId: 'call-'.repeat(100),
+            index: 0,
+            name: 'tool-'.repeat(100),
+            status: 'completed',
+            arguments: '{}',
+          },
+        ],
+      },
+      {
+        page: {
+          section: 'toolCalls',
+          cursor: { callIndex: 0, field: 'arguments', offset: 0 },
+          consumed: 2,
+        },
+      },
+    )
+
+    const out = applyLiteResponse(
+      constrained,
+      raw,
+      { sections: ['toolCalls'], toolCursor: { callIndex: 0, field: 'arguments', offset: 0 } },
+      method,
+    ) as Record<string, unknown>
+
+    expect(Buffer.byteLength(JSON.stringify(out), 'utf8')).toBeLessThanOrEqual(512)
+    expect(out.success).toBe(false)
+    expect(out.data).toBeUndefined()
+    expect(out.error).toMatchObject({ code: 'INTERNAL' })
+  })
+
+  it('仅显式 node.get 方法命中详情投影，其他响应保持同一对象引用', () => {
+    const raw = responseForNode({ content: 'x'.repeat(4000) })
+    expect(
+      applyLiteResponse(
+        { ...profile, maxFrameBytes: 512 },
+        raw,
+        { sections: ['content'] },
+        'chat.list',
+      ),
+    ).toBe(raw)
+  })
+})
+
 describe('parseLiteProfile', () => {
   it('?profile=lite&v=1 → LiteProfile（缺省 maxFrameBytes=4096 turnDelta=false）', () => {
     expect(parseLiteProfile('/?profile=lite&v=1')).toEqual({

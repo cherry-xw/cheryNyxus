@@ -139,10 +139,8 @@ export function createWebSocketServer(config: WebSocketServerConfig): WebSocketS
       return
     }
     const state = connectionManager.create(ws, liteProfile ?? undefined)
-    logger.run(
-      { connectionId: state.id },
-      () =>
-        logger.event('conn.open', liteProfile ? { profile: 'lite', v: liteProfile.v } : undefined),
+    logger.run({ connectionId: state.id }, () =>
+      logger.event('conn.open', liteProfile ? { profile: 'lite', v: liteProfile.v } : undefined),
     )
 
     ws.on('message', async (data) => {
@@ -236,7 +234,7 @@ async function handleRequest(
       undefined,
       createError(ErrorCode.CONFLICT, '请求重复了，请重试'),
     )
-    sendResponse(ws, response)
+    sendResponse(ws, response, request.params, request.method)
     return
   }
   if (claim.state === 'completed') {
@@ -249,7 +247,8 @@ async function handleRequest(
       } catch {
         replayed = undefined
       }
-      if (replayed !== undefined) sendResponse(ws, replayed as RpcResponse, request.params)
+      if (replayed !== undefined)
+        sendResponse(ws, replayed as RpcResponse, request.params, request.method)
       else ws.send(claim.responseJson)
     }
     return
@@ -268,7 +267,7 @@ async function handleRequest(
       const reboundChatId = disconnectGrace.getChatId(request.id)
       if (reboundChatId) connectionManager.setLiveOutput(reboundChatId, ws)
       const response = await running
-      sendResponse(ws, response, request.params)
+      sendResponse(ws, response, request.params, request.method)
       return
     }
     // An active row without a local promise means the process restarted. Do
@@ -281,7 +280,7 @@ async function handleRequest(
       createError(ErrorCode.CONFLICT, '我刚重启了一下，重新打开会话试试'),
     )
     completeRequest(request.id, interrupted)
-    sendResponse(ws, interrupted)
+    sendResponse(ws, interrupted, request.params, request.method)
     return
   }
 
@@ -398,7 +397,7 @@ async function handleRequest(
     disconnectGrace.onRequestFinished(request.id)
     // 若当前 ws 还活着：发终态 response + 释放 pending。rebinds 场景下 ws 已替换，
     // 仍允许向新 ws 投递。
-    sendResponse(ws, response, request.params)
+    sendResponse(ws, response, request.params, request.method)
     // chat.open releases its snapshot fence before returning. Flush events that
     // arrived after the captured boundary only after the RPC response is visible.
     if (request.method === 'chat.open' && response.success) {
@@ -463,13 +462,20 @@ export function parseLiteProfile(url: string | undefined): LiteProfile | 'unsupp
 /**
  * 发送 RPC Response（T7 旁路二收口）：lite 连接上先做传输层投影
  * （timeline.get/open 的 LeanTimelineNode 投影等），非 lite 原样直出。
- * 不改 handler 响应结构本身（serverNow/maxItems/node.get 等增强归 handler 侧）。
+ * node.get 的游标页由 handler 构造，最终 maxFrameBytes 收缩与真实 next cursor 在投影层完成。
  * P1-②：requestParams 透传给投影层做 before/limit 游标分页（canonical §3.2 目标契约）。
  */
-function sendResponse(ws: WebSocket, response: RpcResponse, requestParams?: unknown): void {
+function sendResponse(
+  ws: WebSocket,
+  response: RpcResponse,
+  requestParams?: unknown,
+  requestMethod?: string,
+): void {
   if (ws.readyState !== ws.OPEN) return
   const profile = connectionManager.get(ws)?.profile
-  const out = profile ? applyLiteResponse(profile, response, requestParams) : response
+  const out = profile
+    ? applyLiteResponse(profile, response, requestParams, requestMethod)
+    : response
   ws.send(transport.serializeMessage(out))
 }
 

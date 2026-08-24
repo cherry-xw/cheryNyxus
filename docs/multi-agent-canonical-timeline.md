@@ -354,11 +354,12 @@ chat.timeline.node.get({
   rootChatId: string,
   nodeId: string,
   sections?: ('content' | 'thinking' | 'toolCalls')[],   // 缺省全部
-  offset?: number, limit?: number                          // 长内容分段；单响应 ≤32KB
-}) → { node: TimelineNode }   // 返回完整 TimelineNode（非 lean）
+  offset?: number, limit?: number,                         // content/thinking：UTF-16 code unit
+  toolCursor?: { callIndex: number, field: 'arguments' | 'result', offset: number }
+}) → { node: TimelineNode, hasMore: boolean, page?: NodeDetailPage }
 ```
 
-只读、低频用户触发；与 §3.2 查询 API 同层，不改变 snapshot/patch 的权威性；协议面（错误码/节流位）在 protocol.md 侧定义。
+只读、低频用户触发；与 §3.2 查询 API 同层，不改变 snapshot/patch 的权威性。canonical handler 仍以 32KB 为上限并可返回完整节点；lite 连接每次只投影一个 section，成功与失败的完整 RPC 信封都严格受连接 `maxFrameBytes` 约束。`page.nextOffset` 是 content/thinking 实际消费后的 UTF-16 游标；`page.nextCursor` 让 toolCalls 按数组下标及 arguments/result 字段连续分页。游标只在最终帧装箱后生成，客户端不得按请求 limit 猜测；基础 metadata 无法装入时必须返回有界失败而非不可续拉的成功页。异常超长 correlation 的确定性 hash 降级规则见 protocol.md。
 
 #### 3.6.4 版本维护
 

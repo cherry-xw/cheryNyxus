@@ -1833,7 +1833,36 @@ export interface ChatTimelineNodeGetRequestData {
   offset?: number
   /** 单次返回的字符上限；单响应 ≤32KB（服务端硬保证，超限截断并附引用）。 */
   limit?: number
+  /**
+   * toolCalls 的结构化游标。callIndex 是 toolCalls 数组下标，offset 使用
+   * JavaScript UTF-16 code unit；仅允许与 sections:['toolCalls'] 一起使用。
+   */
+  toolCursor?: ChatTimelineNodeToolCursor
 }
+
+export interface ChatTimelineNodeToolCursor {
+  callIndex: number
+  field: 'arguments' | 'result'
+  offset: number
+}
+
+export type ChatTimelineNodePage =
+  | {
+      section: 'content' | 'thinking'
+      offset: number
+      /** 本帧实际返回的 JavaScript UTF-16 code unit 数。 */
+      consumed: number
+      /** 仅在仍有后续内容时存在；客户端必须使用它续拉。 */
+      nextOffset?: number
+    }
+  | {
+      section: 'toolCalls'
+      cursor: ChatTimelineNodeToolCursor
+      /** 当前 arguments/result 分片实际返回的 UTF-16 code unit 数。 */
+      consumed: number
+      /** 跨字段、跨调用连续续拉的服务端游标。 */
+      nextCursor?: ChatTimelineNodeToolCursor
+    }
 
 export interface ChatTimelineNodeGetResponseData {
   rootChatId: string
@@ -1843,6 +1872,8 @@ export interface ChatTimelineNodeGetResponseData {
   refs: Array<{ field: string; contentLength: number; contentHash: string }>
   /** 是否还有未返回的剩余内容（任一字段被截断即 true；客户端续拉调 offset）。 */
   hasMore: boolean
+  /** 分页实际进度；lite 投影在最终帧预算收缩后重算。 */
+  page?: ChatTimelineNodePage
 }
 
 export type TimelinePatchOperation =

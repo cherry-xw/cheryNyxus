@@ -208,7 +208,7 @@ interface DoneLeanData {
 | 续接/中止 | `chat.resume` / `chat.abort` | 已有，低频原样复用 |
 | 历史 | `chat.timeline.get {rootChatId, view:'conversation', knownRevision?, limit?}` | 已有 + lean 投影 + **默认 limit=20 分页**（T6③） |
 | 代际详情 | `chat.timeline.generation.get {rootChatId, generationIndex}` | 已有（体量有界） |
-| **单节点详情** | `chat.timeline.node.get {rootChatId, nodeId, sections?: ['content','thinking','toolCalls'], offset?, limit?}` | **新增（P0）**：G5 按需详情；分段 ≤32KB；标注「低频用户触发」语义+预留服务端节流位（RATE_LIMITED 码预留，B-10/C3） |
+| **单节点详情** | `chat.timeline.node.get {rootChatId, nodeId, sections:[one], offset?, limit?, toolCursor?}` | **已实现**：canonical handler ≤32KB；lite 的成功与失败 RPC 帧都严格 ≤连接 `maxFrameBytes`。content/thinking 按响应 `page.nextOffset`（UTF-16）续拉；toolCalls 按 `{callIndex,field,offset}` 的 `page.nextCursor` 做数组级+字段级分页。正常 correlation 原样保留，异常超长值确定性降级为 `sha256:` 标识；基础 metadata 无法装入时返回有界失败，不伪造成功页。低频用户触发，RATE_LIMITED 码预留。 |
 
 ### 3.6 冷启动 hydration、断线重连与重连判定规则
 
@@ -257,6 +257,7 @@ interface DoneLeanData {
 5. **finalMessage**：截断至 maxFrameBytes−256B。
 6. **turn.delta（可选订阅时）**：delta 本体 ≤512B/帧；offset 保留（丢帧自愈）。
 7. **截断先例**（T7 建议，doc-first 论证增强）：项目内已有成熟服务端截断先例——chat.list preview ≤40 字符（db/chat.ts:676）、generations summary 回退截断 500 字符（generations.ts:41）、gitClone stderr 400 字符、media 上传上限；「服务端截断责任」非新发明。
+8. **node.get 失败帧**：详情成功页与 `success:false` 响应统一按完整序列化信封精确装箱。错误正文按剩余预算收缩；异常超长/高转义 `id/requestId` 以原值 SHA-256 确定性降级，避免 correlation 本身挤爆最小帧。若 section 的基础 metadata 已超预算，直接返回有界失败，客户端不得推进详情游标。
 
 ### 3.8 帧格式与信封
 

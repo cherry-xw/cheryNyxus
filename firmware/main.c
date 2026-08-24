@@ -210,6 +210,25 @@ static void on_send_text(const char *text) {
 }
 
 /* ---------- 用户触发的 node.get 懒加载（每次只保留 DetailPager 当前页） ---------- */
+static bool decode_detail_tool_cursor(
+    const jl_doc *doc,
+    const jl_view *view,
+    detail_cursor_t *cursor
+) {
+    if (!doc || !view || !view->found || !cursor) return false;
+    jl_view field = jl_get_in(doc, view, "field");
+    jl_view call_index = jl_get_in(doc, view, "callIndex");
+    jl_view offset = jl_get_in(doc, view, "offset");
+    int call_value = jl_int(&call_index, -1);
+    int offset_value = jl_int(&offset, -1);
+    if (call_value < 0 || offset_value < 0 ||
+        (!jl_streq(&field, "arguments") && !jl_streq(&field, "result"))) return false;
+    cursor->call_index = (uint32_t)call_value;
+    cursor->field = jl_streq(&field, "result") ? DETAIL_TOOL_RESULT : DETAIL_TOOL_ARGUMENTS;
+    cursor->offset = (uint32_t)offset_value;
+    return true;
+}
+
 static void on_detail_response(jl_doc *response, void *user) {
     (void)user;
     jl_view success = jl_get(response, "success");
@@ -226,29 +245,96 @@ static void on_detail_response(jl_doc *response, void *user) {
         return;
     }
     jl_view value = jl_get_in(response, &node, detail_section_name(s_detail.section));
+    /* 完整帧有界不代表调用方目标缓冲自动有界；复制前验证整个字符串/数组 token。
+     * 失败时不调用 detail_pager_apply，因此绝不会按未驻留内容推进服务端游标。 */
+    if (!value.found || value.len < 0 || (size_t)value.len >= sizeof s_detail.content) {
+        detail_pager_request_failed(&s_detail);
+        ui_render_detail(&s_detail);
+        return;
+    }
     size_t bytes = 0;
-    uint32_t units = 0;
+    uint32_t decoded_units = 0;
     if (s_detail.section == DETAIL_TOOL_CALLS) {
         jl_copy(&value, s_detail.content, sizeof s_detail.content);
         bytes = strlen(s_detail.content);
-        /* toolCalls 内每个 arguments/result 都使用同一 offset/limit；下一页按请求 limit 推进。 */
-        units = bytes > 0 ? MCU_DETAIL_PAGE_CHARS : 0;
     } else {
         bytes = jl_copy_unescaped(&value, s_detail.content, sizeof s_detail.content);
-        units = jl_utf16_units_unescaped(&value);
+        decoded_units = jl_utf16_units_unescaped(&value);
     }
-    jl_view has_more = jl_get_in(response, &data, "hasMore");
-    detail_pager_apply(&s_detail, s_detail.content, bytes, units,
-                       has_more.found && jl_streq(&has_more, "true"));
+    jl_view page = jl_get_in(response, &data, "page");
+    jl_view page_section = jl_get_in(response, &page, "section");
+    jl_view consumed_view = jl_get_in(response, &page, "consumed");
+    int consumed = jl_int(&consumed_view, -1);
+    if (!page.found || consumed < 0 || consumed > MCU_DETAIL_PAGE_CHARS + 1 ||
+        !jl_streq(&page_section, detail_section_name(s_detail.section)) ||
+        (s_detail.section != DETAIL_TOOL_CALLS && decoded_units != (uint32_t)consumed)) {
+        detail_pager_request_failed(&s_detail);
+        ui_render_detail(&s_detail);
+        return;
+    }
+
+    detail_cursor_t next = {0};
+    detail_cursor_t *next_ptr = NULL;
+    if (s_detail.section == DETAIL_TOOL_CALLS) {
+        jl_view current_cursor = jl_get_in(response, &page, "cursor");
+        detail_cursor_t decoded_current = {0};
+        if (!decode_detail_tool_cursor(response, &current_cursor, &decoded_current) ||
+            decoded_current.call_index != s_detail.cursor.call_index ||
+            decoded_current.field != s_detail.cursor.field ||
+            decoded_current.offset != s_detail.cursor.offset) {
+            detail_pager_request_failed(&s_detail);
+            ui_render_detail(&s_detail);
+            return;
+        }
+        jl_view next_cursor = jl_get_in(response, &page, "nextCursor");
+        if (next_cursor.found) {
+            if (!decode_detail_tool_cursor(response, &next_cursor, &next)) {
+                detail_pager_request_failed(&s_detail);
+                ui_render_detail(&s_detail);
+                return;
+            }
+            next_ptr = &next;
+        }
+    } else {
+        jl_view page_offset = jl_get_in(response, &page, "offset");
+        if (jl_int(&page_offset, -1) != (int)s_detail.cursor.offset) {
+            detail_pager_request_failed(&s_detail);
+            ui_render_detail(&s_detail);
+            return;
+        }
+        jl_view next_offset = jl_get_in(response, &page, "nextOffset");
+        if (next_offset.found) {
+            int value_int = jl_int(&next_offset, -1);
+            if (value_int < 0) {
+                detail_pager_request_failed(&s_detail);
+                ui_render_detail(&s_detail);
+                return;
+            }
+            next.offset = (uint32_t)value_int;
+            next_ptr = &next;
+        }
+    }
+    detail_pager_apply(&s_detail, s_detail.content, bytes, (uint32_t)consumed, next_ptr);
     ui_render_detail(&s_detail);
 }
 
 static void request_detail_page(void) {
-    char params[256];
-    int written = snprintf(params, sizeof params,
-        "{\"rootChatId\":\"%s\",\"nodeId\":\"%s\",\"sections\":[\"%s\"],\"offset\":%lu,\"limit\":%u}",
-        model_root(), s_detail.node_id, detail_section_name(s_detail.section),
-        (unsigned long)s_detail.offset, (unsigned)MCU_DETAIL_PAGE_CHARS);
+    char params[320];
+    int written;
+    if (s_detail.section == DETAIL_TOOL_CALLS) {
+        written = snprintf(params, sizeof params,
+            "{\"rootChatId\":\"%s\",\"nodeId\":\"%s\",\"sections\":[\"toolCalls\"],"
+            "\"limit\":%u,\"toolCursor\":{\"callIndex\":%lu,\"field\":\"%s\",\"offset\":%lu}}",
+            model_root(), s_detail.node_id, (unsigned)MCU_DETAIL_PAGE_CHARS,
+            (unsigned long)s_detail.cursor.call_index,
+            detail_tool_field_name(s_detail.cursor.field),
+            (unsigned long)s_detail.cursor.offset);
+    } else {
+        written = snprintf(params, sizeof params,
+            "{\"rootChatId\":\"%s\",\"nodeId\":\"%s\",\"sections\":[\"%s\"],\"offset\":%lu,\"limit\":%u}",
+            model_root(), s_detail.node_id, detail_section_name(s_detail.section),
+            (unsigned long)s_detail.cursor.offset, (unsigned)MCU_DETAIL_PAGE_CHARS);
+    }
     if (written <= 0 || (size_t)written >= sizeof params) {
         detail_pager_request_failed(&s_detail);
         ui_render_detail(&s_detail);

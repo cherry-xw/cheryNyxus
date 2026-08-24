@@ -13,6 +13,10 @@
 #include "ws_lite.h"
 
 _Static_assert(MCU_MAX_FRAME_BYTES == 2048, "host regression assumes the MCU default frame budget");
+_Static_assert(
+    MCU_DETAIL_PAGE_BUFFER_BYTES == MCU_MAX_FRAME_BYTES + 1,
+    "detail page buffer must hold a complete received section token plus NUL"
+);
 _Static_assert(MCU_EXECUTION_STEP_CAPACITY == 16, "default firmware must expose exactly 16 slots");
 _Static_assert(
     sizeof(((ExecutionTimeline *)0)->steps) / sizeof(ExecutionStep) == 16,
@@ -301,43 +305,61 @@ static void test_detail_pages_are_contiguous_and_single_page_only(void) {
     assert(detail_pager_begin(&pager, "node-1", DETAIL_CONTENT));
     detail_pager_request_started(&pager);
     const char first[] = "ab😀";
-    detail_pager_apply(&pager, first, strlen(first), 4, true);
+    detail_cursor_t next = { .offset = 4 };
+    detail_pager_apply(&pager, first, strlen(first), 4, &next);
     assert(strcmp(pager.content, first) == 0);
-    assert(pager.next_offset == 4);
+    assert(pager.next_cursor.offset == 4);
     assert(detail_pager_next(&pager));
-    assert(pager.offset == 4);
+    assert(pager.cursor.offset == 4);
     detail_pager_request_started(&pager);
     const char second[] = "中z";
-    detail_pager_apply(&pager, second, strlen(second), 2, false);
+    detail_pager_apply(&pager, second, strlen(second), 2, NULL);
     assert(strcmp(pager.content, second) == 0);
     assert(strstr(pager.content, "ab") == NULL); /* 不累计前页 */
-    assert(pager.next_offset == 6);
     assert(!pager.has_more);
     assert(detail_pager_previous(&pager));
-    assert(pager.offset == 0);
+    assert(pager.cursor.offset == 0);
 
     /* 超长详情连续六页：offset 无重复/缺段，驻留窗口始终只有当前 256 字符。 */
     assert(detail_pager_begin(&pager, "node-long", DETAIL_THINKING));
     char page[MCU_DETAIL_PAGE_CHARS + 1];
     for (uint32_t index = 0; index < 6; index++) {
-        assert(pager.offset == index * MCU_DETAIL_PAGE_CHARS);
+        assert(pager.cursor.offset == index * MCU_DETAIL_PAGE_CHARS);
         memset(page, (int)('A' + index), MCU_DETAIL_PAGE_CHARS);
         page[MCU_DETAIL_PAGE_CHARS] = 0;
         detail_pager_request_started(&pager);
+        detail_cursor_t page_next = { .offset = (index + 1) * MCU_DETAIL_PAGE_CHARS };
         detail_pager_apply(&pager, page, MCU_DETAIL_PAGE_CHARS,
-                           MCU_DETAIL_PAGE_CHARS, index < 5);
+                           MCU_DETAIL_PAGE_CHARS, index < 5 ? &page_next : NULL);
         assert(pager.content_bytes == MCU_DETAIL_PAGE_CHARS);
         assert(pager.content[0] == (char)('A' + index));
         assert(pager.content[MCU_DETAIL_PAGE_CHARS - 1] == (char)('A' + index));
         if (index < 5) assert(detail_pager_next(&pager));
     }
-    assert(pager.next_offset == 6 * MCU_DETAIL_PAGE_CHARS);
-    /* 恰好整页时客户端防御性探测一页；空页才确认结束，offset 不跳跃。 */
-    assert(pager.has_more);
-    assert(detail_pager_next(&pager));
-    assert(pager.offset == 6 * MCU_DETAIL_PAGE_CHARS);
+    assert(!pager.has_more);
+
+    /* toolCalls 使用服务端跨字段/跨数组游标；相同游标与空终页不会死循环。 */
+    assert(detail_pager_begin(&pager, "node-tool", DETAIL_TOOL_CALLS));
     detail_pager_request_started(&pager);
-    detail_pager_apply(&pager, "", 0, 0, false);
+    detail_cursor_t tool_result = {
+        .call_index = 0, .field = DETAIL_TOOL_RESULT, .offset = 0,
+    };
+    const char tool_args[] = "[{\"name\":\"read\",\"arguments\":\"{}\"}]";
+    detail_pager_apply(&pager, tool_args, strlen(tool_args), 2, &tool_result);
+    assert(detail_pager_next(&pager));
+    assert(pager.cursor.call_index == 0);
+    assert(pager.cursor.field == DETAIL_TOOL_RESULT);
+    detail_pager_request_started(&pager);
+    detail_cursor_t second_call = {
+        .call_index = 1, .field = DETAIL_TOOL_ARGUMENTS, .offset = 0,
+    };
+    const char tool_result_page[] =
+        "[{\"name\":\"read\",\"arguments\":\"\",\"result\":\"ok\"}]";
+    detail_pager_apply(&pager, tool_result_page, strlen(tool_result_page), 2, &second_call);
+    assert(detail_pager_next(&pager));
+    assert(pager.cursor.call_index == 1);
+    detail_pager_request_started(&pager);
+    detail_pager_apply(&pager, "[]", 2, 0, &second_call); /* 相同游标必须终止 */
     assert(!pager.has_more);
 }
 
