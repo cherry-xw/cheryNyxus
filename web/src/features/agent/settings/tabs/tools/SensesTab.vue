@@ -276,8 +276,10 @@ const indexItems = computed<IndexItem[]>(() => [])
               :label="t.label"
             >
               <div class="opt-item">
-                <SenseIcon :name="t.name" :tools="senseTools" />
-                <span class="opt-label">{{ t.label }}</span>
+                <div class="opt-title-row">
+                  <SenseIcon :name="t.name" :tools="senseTools" />
+                  <span class="opt-label">{{ t.label }}</span>
+                </div>
                 <span class="opt-desc" :title="t.description">{{ t.description }}</span>
               </div>
             </el-option>
@@ -393,13 +395,14 @@ const indexItems = computed<IndexItem[]>(() => [])
   min-width: 0;
   :deep(.el-input__inner) {
     font-size: 12px;
+    font-weight: 400;
   }
 }
 .tag-name {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-weight: 600;
+  font-weight: 400;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -428,11 +431,14 @@ const indexItems = computed<IndexItem[]>(() => [])
 
 // 行内警告：缩到与 icon-btn 同档（24px 行高内），置于删除按钮左侧。
 // 全局 .warn-hint 在 shared.less 中 padding 5px 8px、行高 1.4，对 24px 标题行偏厚。
+// nowrap + flex-shrink:0：防止「⚠️ 危险」被 flex 压缩在空格处断行（"危险"换到第二行）。
 .warn-hint.inline-warn {
   padding: 2px 6px;
   font-size: 10px;
   line-height: 1.4;
   border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 </style>
 
@@ -442,24 +448,39 @@ const indexItems = computed<IndexItem[]>(() => [])
 -->
 <style lang="less">
 .sense-tool-popper {
+  // 弹框选项全部文本字重 400（Element 选中态默认 700，一并覆盖为 400）
+  .el-select-dropdown__item,
+  .el-select-dropdown__item.is-hovering,
+  .el-select-dropdown__item.is-selected {
+    font-weight: 400;
+  }
+  // 选项两行布局：第一行图标+标题，第二行描述（可换行完整展示）
   .opt-item {
     display: flex;
-    align-items: baseline;
-    gap: 6px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
     width: 100%;
-    overflow: hidden;
+  }
+  .opt-title-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
   }
   .opt-label {
     font-size: 13px;
-    flex-shrink: 0;
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .opt-desc {
     font-size: 11px;
+    font-weight: 400;
     color: color-mix(in srgb, var(--ink) 64%, transparent);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
+    line-height: 1.4;
+    word-break: break-word;
   }
 }
 // 等级标 tooltip：popper teleport 到 body，scoped 不穿透，故置全局样式；
