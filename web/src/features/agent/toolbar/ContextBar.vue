@@ -101,9 +101,9 @@ const titleLines = computed(() => {
 .ctxbar-tip {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  line-height: 1.4;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.5;
   white-space: nowrap;
 }
 </style>

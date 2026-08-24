@@ -53,11 +53,11 @@ defineProps<{ breakdown?: ContextBreakdown }>()
   flex: 1;
 }
 .ctx-tip-count {
-  font-size: 10px;
+  font-size: 12px;
   opacity: 0.6;
 }
 .ctx-tip-thinking {
-  font-size: 10px;
+  font-size: 12px;
   opacity: 0.6;
 }
 .ctx-tip-val {
