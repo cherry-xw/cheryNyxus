@@ -1460,29 +1460,27 @@ export function saveRawConfig(
 /**
  * 配置可加载性预检（供重启前 dry-run：避免坏配置 crash-loop 永不恢复）。
  * 模拟 loadConfig 的校验步骤，只检查不落地、不改 process.env、不 throw：
- *  1. `$ENV` 占位符指向缺失变量 → 硬错误（loadConfig 仅警告；预检从严——key 指向缺失 env
- *     会致 replaceEnvVars 原样返回占位符，运行时凭证失效）。
- *  2. validateRawConfig 全量业务校验（loadConfig 阶段 throw 的唯一来源，含 roles.*.systemPrompt
- *     文件存在性）→ 硬错误。
- * 返回分离 errors（硬错误，阻塞重启）+ warnings（透传 validateRawConfig 的软警告）。
+ *  1. validateRawConfig 全量业务校验（loadConfig 阶段 throw 的唯一来源，含 roles.*.systemPrompt
+ *     文件存在性）→ 结构硬错误，阻塞重启（唯一硬错误来源）。
+ *  2. `$ENV` 占位符指向缺失变量 → 软警告（不阻塞）。与启动期 loadConfig 一致只 warn——
+ *     缺失 key 只影响运行期实际调用该 brain（assertChatOptions 抛用户可见的 llm.key.missing），
+ *     不破坏配置结构；未使用的 brain key 缺失更不应卡住整个保存/重启流程。
+ * 返回分离 errors（结构硬错误，阻塞重启）+ warnings（软告警：缺失环境变量等，仅提示）。
  */
 export function validateLoadable(
   raw: ConfigRaw,
-): { ok: true } | { ok: false; errors: string[]; warnings: string[] } {
+): { ok: true; warnings: string[] } | { ok: false; errors: string[]; warnings: string[] } {
   const copy = structuredClone(raw)
-  // 1) $ENV 占位符缺失变量 → 硬错误（占位符匹配规则与 replaceEnvVars 一致）
-  const errors: string[] = []
+  // 1) 核心业务校验（loadConfig 阶段 throw 的唯一来源；systemPrompt 存在性在其内为硬错误）
+  const errors = validateRawConfig(copy)
+  // 2) $ENV 占位符缺失变量 → 软警告（占位符匹配规则与 replaceEnvVars 一致；不阻塞重启）
+  const warnings: string[] = []
   const missing = new Set<string>()
   collectEnvPlaceholders(copy, missing)
   for (const name of missing) {
-    if (!process.env[name]) errors.push(`环境变量未配置: ${name}`)
+    if (!process.env[name]) warnings.push(`环境变量未配置: ${name}`)
   }
-  // 2) 核心业务校验（loadConfig 阶段 throw 的唯一来源；systemPrompt 存在性在其内为硬错误）
-  const validationErrors = validateRawConfig(copy)
-  // 软警告与硬错误分离：validateRawConfig 仅返回 errors，此处无独立 warnings（保留字段供扩展）
-  return validationErrors.length > 0 || errors.length > 0
-    ? { ok: false, errors: [...errors, ...validationErrors], warnings: [] }
-    : { ok: true }
+  return errors.length > 0 ? { ok: false, errors, warnings } : { ok: true, warnings }
 }
 
 /** 递归收集对象中所有 `$ENV` 占位符指向的变量名（匹配 replaceEnvVars 的 /^\$([A-Z_][A-Z0-9_]*)$/）。 */

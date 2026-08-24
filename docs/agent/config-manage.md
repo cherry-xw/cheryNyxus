@@ -65,8 +65,9 @@ z.object({
 
 配置保存后不立即重启：`restartCoordinator` 通知守护进程替换 worker 前，先跑 [validateLoadable](../../src/utils/config.ts) 预检——
 
-- 读盘 `config.yaml` → 深拷贝模拟 `loadConfig` 校验：`$ENV` 占位符指向缺失变量（硬错误）、`validateRawConfig` 全量业务校验（`loadConfig` 阶段 throw 的唯一来源，硬错误；**含 `roles.*.systemPrompt` 文件存在性**——缺失会导致 loadConfig throw）。预检只分 `errors`（硬错误，阻塞重启），不再有独立软警告层。
-- 预检通过 → 正常重启；预检失败 → **自动回滚最近备份 + 通知前端 toast「配置预检未通过，已回滚，未重启」**，进程保持运行（避免坏配置 crash-loop 永不恢复）。
+- 读盘 `config.yaml` → 深拷贝模拟 `loadConfig` 校验：`validateRawConfig` 全量业务校验（`loadConfig` 阶段 throw 的唯一来源，硬错误；**含 `roles.*.systemPrompt` 文件存在性**——缺失会导致 loadConfig throw）→ 结构硬错误，阻塞重启。
+- `$ENV` 占位符指向缺失变量 → **软警告，不阻塞**（与启动期 `loadConfig` 一致只 warn）：缺失 key 不破坏配置结构，运行期实际调用该 brain 时由 `assertChatOptions` 抛用户可见的 `llm.key.missing`；未使用的 brain key 缺失更不应卡住整个保存/重启流程。软警告随保存成功响应（`warnings`）与日志（`config.save.warnings` / `config.restart.warnings`）带出，仅提示。
+- 预检通过 → 正常重启；预检失败（仅结构硬错误）→ **自动回滚最近备份 + 通知前端 toast「配置预检未通过，已回滚，未重启」**，进程保持运行（避免坏配置 crash-loop 永不恢复）。
 - 被"提问挂起 / 审批挂起 / running"中断的任务，重启后由 `reconcileOrphanedExecutionRuns` 恢复为 paused（可经现有「继续」按钮续跑）。
 
 ## 自动备份回滚（[saveRawConfig](../../src/utils/config.ts) 写盘层）

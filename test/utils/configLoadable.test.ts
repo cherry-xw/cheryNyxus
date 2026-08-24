@@ -31,8 +31,8 @@ describe('validateLoadable 重启前预检', () => {
     delete process.env.CHERY_DIR
   })
 
-  it('正常配置 → ok', () => {
-    expect(validateLoadable(validRaw())).toEqual({ ok: true })
+  it('正常配置 → ok（无软告警）', () => {
+    expect(validateLoadable(validRaw())).toEqual({ ok: true, warnings: [] })
   })
 
   it('llm.brain 为空 → errors（loadConfig 阶段会 throw）', () => {
@@ -42,19 +42,21 @@ describe('validateLoadable 重启前预检', () => {
     if (!result.ok) expect(result.errors.join('\n')).toMatch(/llm\.brain/)
   })
 
-  it('$ENV 占位符指向缺失变量 → errors（硬错误）', () => {
+  it('$ENV 占位符指向缺失变量 → 软警告，不阻塞（ok）', () => {
     const raw = validRaw()
     if (raw.llm?.brain?.['brain-a']) raw.llm.brain['brain-a'].key = `$${ENV_NAME}`
     const result = validateLoadable(raw)
-    expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.errors.join('\n')).toContain(`环境变量未配置: ${ENV_NAME}`)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.warnings).toContain(`环境变量未配置: ${ENV_NAME}`)
+    }
   })
 
-  it('$ENV 占位符已配置 → ok', () => {
+  it('$ENV 占位符已配置 → ok（无软告警）', () => {
     process.env[ENV_NAME] = 'sk-test'
     const raw = validRaw()
     if (raw.llm?.brain?.['brain-a']) raw.llm.brain['brain-a'].key = `$${ENV_NAME}`
-    expect(validateLoadable(raw)).toEqual({ ok: true })
+    expect(validateLoadable(raw)).toEqual({ ok: true, warnings: [] })
   })
 
   it('roles.*.systemPrompt 指向不存在文件 → errors（validateRawConfig 硬错误，loadConfig 会 throw）', () => {
@@ -71,6 +73,6 @@ describe('validateLoadable 重启前预检', () => {
     writeFileSync(join(dir, 'exists.md'), '# p')
     const raw = validRaw()
     raw.roles = { r1: { id: 'role-test1234', brain: 'brain-a', systemPrompt: 'prompt/exists.md' } }
-    expect(validateLoadable(raw)).toEqual({ ok: true })
+    expect(validateLoadable(raw)).toEqual({ ok: true, warnings: [] })
   })
 })

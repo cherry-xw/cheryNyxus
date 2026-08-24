@@ -1956,11 +1956,16 @@ export const agentApi = {
    */
   async saveConfig(
     payload: ConfigDto,
-  ): Promise<{ needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }> {
-    const result = await call<{ needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }>(
-      'config.save',
-      payload,
-    )
+  ): Promise<{
+    needRestart: true
+    restart: 'immediate' | 'scheduled' | 'manual'
+    warnings?: string[]
+  }> {
+    const result = await call<{
+      needRestart: true
+      restart: 'immediate' | 'scheduled' | 'manual'
+      warnings?: string[]
+    }>('config.save', payload)
     serverConfigCache = null
     return result
   },

@@ -60,11 +60,17 @@ export async function startWorker(args: string[] = process.argv.slice(2)): Promi
     isIdle: () => !hasRunningChats(),
     onRestartReady: process.send ? () => process.send?.({ type: 'restart-ready' }) : undefined,
     // 重启前 dry-run 兜底预检（config.save handler 已同步预检；此处防 save 后到空闲前配置被改）。
-    // 失败 → 自动回滚最近备份 + 事件日志，不通知守护进程（进程保持运行，前端已在 save 响应得知）。
+    // 仅结构硬错误阻塞：失败 → 自动回滚最近备份 + 事件日志，不通知守护进程（进程保持运行，前端已在 save 响应得知）。
+    // 软告警（$ENV 缺失等）不阻塞，仅记录日志。
     validateBeforeRestart: () => {
       const raw = readRawConfig()
       const loadable = validateLoadable(raw)
-      if (loadable.ok) return { ok: true }
+      if (loadable.ok) {
+        if (loadable.warnings.length > 0) {
+          logger.event('config.restart.warnings', { warnings: loadable.warnings }, LogLevel.warn)
+        }
+        return { ok: true }
+      }
       try {
         const backup = rollbackConfig()
         logger.event(

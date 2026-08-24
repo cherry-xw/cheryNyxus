@@ -80,7 +80,8 @@ export async function handleConfigSave(
   // logger 在统一边界递归脱敏 key/token/secret/env 等字段。
   logger.event('config.save', { config: data })
   // 重启前 dry-run 预检：模拟 loadConfig 校验（坏配置会致重启后 crash-loop 永不恢复）。
-  // 失败 → 自动回滚最近备份 + 返回失败信息（未重启，进程保持运行）。
+  // 仅结构硬错误（validateRawConfig）会阻塞：失败 → 自动回滚最近备份 + 返回失败信息（未重启，进程保持运行）。
+  // 软告警（如 $ENV 缺失变量）不阻塞：照常写盘并重启，随成功响应带出提示，运行期实际调用时再报错。
   const loadable = validateLoadable(data)
   if (!loadable.ok) {
     const backup = rollbackConfig()
@@ -97,7 +98,14 @@ export async function handleConfigSave(
       rollbackBackup: backup.backup,
     }
   }
-  return { needRestart: true, restart: requestRestartWhenIdle() }
+  if (loadable.warnings.length > 0) {
+    logger.event('config.save.warnings', { warnings: loadable.warnings }, LogLevel.warn)
+  }
+  return {
+    needRestart: true,
+    restart: requestRestartWhenIdle(),
+    warnings: loadable.warnings.length > 0 ? loadable.warnings : undefined,
+  }
 }
 
 export function registerConfigHandlers(router: RpcRouter): void {

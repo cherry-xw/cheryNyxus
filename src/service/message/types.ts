@@ -2096,6 +2096,8 @@ export type ConfigSaveResponseData =
       needRestart: true
       /** immediate=当前空闲、即将替换 worker；scheduled=等待 chat 空闲；manual=当前 worker 未受守护。 */
       restart: 'immediate' | 'scheduled' | 'manual'
+      /** 软告警（如 $ENV 缺失变量）：已写盘并正常重启，仅供提示，不阻塞。 */
+      warnings?: string[]
     }
   | {
       needRestart: false

@@ -83,6 +83,7 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
 const savedHint = ref<string | null>(null)
+const savedWarnings = ref<string[] | null>(null)
 
 // ── 窗口拖动最大化：拖标题栏到屏幕顶部边缘 → 最大化；最大化后标题栏按钮还原 ──
 const maximized = ref(false)
@@ -233,6 +234,7 @@ async function loadSettingsData(): Promise<void> {
   loading.value = true
   error.value = null
   savedHint.value = null
+  savedWarnings.value = null
   workspaceWarnings.value = {}
   try {
     const data = await agentApi.getConfig()
@@ -295,6 +297,7 @@ watch(
       draft.value = null
       error.value = null
       savedHint.value = null
+      savedWarnings.value = null
       workspaceWarnings.value = {}
       workspaceValidationSeq.clear()
       activeTab.value = 'presets'
@@ -434,6 +437,7 @@ async function save(): Promise<void> {
   saving.value = true
   error.value = null
   savedHint.value = null
+  savedWarnings.value = null
   workspaceWarnings.value = {}
   clearRestartWait()
   try {
@@ -458,7 +462,11 @@ async function save(): Promise<void> {
     reconnectWatcher = wsClient.watchNextReconnect()
     const results = await Promise.all(savePromises)
     const result = results[0] as
-      | { needRestart: true; restart: 'immediate' | 'scheduled' | 'manual' }
+      | {
+          needRestart: true
+          restart: 'immediate' | 'scheduled' | 'manual'
+          warnings?: string[]
+        }
       | {
           needRestart: false
           restart: 'manual'
@@ -514,6 +522,8 @@ async function save(): Promise<void> {
       reconnectWatcher = null
       savedHint.value = '✓ 已保存，需重启后端生效'
     }
+    // 软告警（如 $ENV 缺失变量）：已写盘并正常重启，不阻塞，仅提示。
+    savedWarnings.value = result.warnings?.length ? result.warnings : null
   } catch (e) {
     const msg = (e as Error).message
     error.value = msg
@@ -857,6 +867,14 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
         >
           <span class="saved-text">{{ savedHint }}</span>
           <span v-if="isWaitingReconnect" class="wait-elapsed">已等待 {{ waitElapsed }}s</span>
+        </div>
+        <div v-if="savedWarnings?.length" class="saved-row saved-warnings-row" role="status">
+          <span class="saved-text"
+            >⚠️ 已保存，但存在软告警（不阻塞运行，相关功能使用时可能报错）：</span
+          >
+          <ul class="saved-warnings">
+            <li v-for="w in savedWarnings" :key="w">{{ w }}</li>
+          </ul>
         </div>
 
         <footer class="foot">
@@ -1239,6 +1257,24 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
 .wait-elapsed {
   color: color-mix(in srgb, var(--warning) 70%, transparent);
   font-variant-numeric: tabular-nums;
+}
+
+.saved-warnings-row {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+
+.saved-warnings {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-word;
 }
 
 .foot {
