@@ -536,13 +536,13 @@ function removeDelivery(): void {
 
 // 仅状态符号（勾/叉）随执行结果着色（与 SenseCallBox .sense-status 同款语义色）
 .sense-tag.tag-running .sense-tag-status {
-  color: #b67c1c;
+  color: #eab308;
 }
 .sense-tag.tag-error .sense-tag-status {
-  color: #b4233b;
+  color: #dc2626;
 }
 .sense-tag.tag-done .sense-tag-status {
-  color: color-mix(in srgb, #456342 72%, var(--ink));
+  color: #16a34a;
 }
 
 // 气泡右上角时间戳：bubble-head 内靠右、低饱和、小字号；缺失不渲染（v-if 控制）
