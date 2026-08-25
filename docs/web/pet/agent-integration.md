@@ -278,6 +278,8 @@ F1+F2+F3 已落地 hydration 单一水源 + currentState 快照消费 + replayMo
 
 [MessageBubble.vue](../../../web/src/features/agent/chat/MessageBubble.vue) 单 item 契约不变。VirtualScroll key（`getHistoryItemKey` [vue:138-140](../../../web/src/features/agent/drawer/HistoryDrawerPanel.vue#L138)）`item.msgId ?? idx-<index>`：E 乐观 push tempMsgId 保证首帧稳定 key，userMsgId 替换后切一次（单条 user，可接受）。
 
+**VirtualScroll 定位约束**：item 绝对定位偏移 `translate3d(0, ${offset}px, 0)` 的 offset **必须 `Math.round()` 取整**（[VirtualScroll.vue:411](../../../web/src/components/VirtualScroll.vue#L411)）。offset 由 ResizeObserver 实测高度（`getBoundingClientRect().height`，浮点）累加而来；`will-change: transform` 提升合成层后，浮点位移触发亚像素光栅化，文字会明显模糊——折叠工具调用开关（`senseCallsCollapsed`）触发高度全量重排到浮点 offset 时最明显。取整到整数像素不产生可感知的位置误差（0.5px 级）。
+
 #### 关键风险与缓解
 
 - **syncOneChat 单 chat + 子串行时序**：doLoadHistory `await syncOneChat(main)` 串行守卫，否则空数组合并

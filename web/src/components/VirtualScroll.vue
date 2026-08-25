@@ -408,7 +408,7 @@ defineExpose({
           :key="itemKeys[index]!"
           :ref="(element) => registerItem(itemKeys[index]!, element)"
           class="virtual-scroll-item"
-          :style="{ transform: `translate3d(0, ${offsets[index]}px, 0)` }"
+          :style="{ transform: `translate3d(0, ${Math.round(offsets[index] ?? 0)}px, 0)` }"
         >
           <slot :item="items[index]" :index="index" />
         </div>
