@@ -2,7 +2,7 @@
  * Anthropic Provider（适配 Anthropic Messages API，原生 fetch）。
  *
  * 三层 adapter：
- * - LLM：POST {url}/messages（url 自动补全规则见 docs/agent/provider.md「URL 解析与自动补全」：base 无路径自动补 /v1，fullUrl=true 只拼 /messages），header x-api-key + anthropic-version + content-type
+ * - LLM：POST {url}/messages（url 拼接规则见 docs/agent/provider.md「URL 解析与端点拼接」：版本段 /v1 由用户填写、后端只拼 /messages；fullUrl=true 完全不拼接），header x-api-key + anthropic-version + content-type
  * - Message：buildMessages 返回 {system, messages} 元组（system 顶层分离）；content/thinking 来自 content blocks
  * - Sense：tool_use → {id, name, arguments:JSON.stringify(input)}；流式 delta 经 SenseCallAssembler 累积
  *
@@ -23,6 +23,7 @@ import {
   type LLMOptions,
   type ThinkingLevel,
 } from '@/core/llm/adapter'
+import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import {
   registerMessageAdapter,
   type LLMResponse,
@@ -45,7 +46,7 @@ import {
   brainHttpError,
   brainInvalidStream,
   brainNetworkError,
-  buildEndpointUrl,
+  resolveProviderUrl,
   readErrorSnippet,
 } from './fetchBase.js'
 import { acquireRpm } from './openaiCompat.js'
@@ -579,14 +580,12 @@ async function applyPreLLMRequest(
 
 // ========== fetch + SSE ==========
 
-/** 拼接 base URL + /messages（规则见 docs/agent/provider.md「URL 解析与自动补全」，复用 fetchBase.buildEndpointUrl）。
- * - fullUrl=true：只拼 /messages（版本段由用户写全）
- * - base 无路径：自动补 /v1/messages（兼容早期自动补全时代的旧配置——曾改为「版本段用户自写」
- *   导致旧配置静默失效打到网关 SPA 回退页，2026-08 恢复补全为默认）
- * - base 已有路径（/v1、自定义网关前缀等）：只拼 /messages
+/** 拼接 base URL + /messages（规则见 docs/agent/provider.md「URL 解析与端点拼接」，走统一入口 resolveProviderUrl）。
+ * - fullUrl=true：URL 原样使用，不拼接（仅去尾斜杠）
+ * - 否则：base + /messages（版本段 /v1 由用户填写，后端只拼端点；url 未含版本段时请求落点缺 /v1）
  */
 function joinAnthropicUrl(base: string, fullUrl = false): string {
-  return buildEndpointUrl(base, { fullUrl, endpoint: '/messages' })
+  return resolveProviderUrl('anthropic', base, { fullUrl, kind: 'chat' })
 }
 
 /** Anthropic headers：x-api-key + anthropic-version + content-type */
@@ -740,4 +739,9 @@ export function registerAnthropicAdapter(): void {
     anthropicSenseAdapterConfig as unknown as SenseAdapter<AnthropicResponse>,
   )
   registerLLMAdapter('anthropic', anthropicLLMAdapter as unknown as LLMAdapter)
+  // URL 端点声明：chat 拼 /messages；models 拼 /models?limit=1000
+  registerProviderUrlPattern('anthropic', {
+    chatEndpoint: '/messages',
+    modelsEndpoint: '/models?limit=1000',
+  })
 }

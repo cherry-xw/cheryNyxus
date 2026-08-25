@@ -787,6 +787,8 @@ export interface UtilsModelsRequestData {
   provider: string
   url: string
   key?: string
+  /** true=URL 已含完整端点，后端不补全、原样访问（与正式 chat 同规则） */
+  fullUrl?: boolean
 }
 
 /**
@@ -798,6 +800,8 @@ export interface UtilsTestConnectionRequestData {
   url: string
   key?: string
   model: string
+  /** true=URL 已含完整端点，后端不补全、原样访问（与正式 chat 同规则） */
+  fullUrl?: boolean
 }
 
 /**

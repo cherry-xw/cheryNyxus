@@ -13,6 +13,7 @@
 import OpenAI from 'openai'
 import type { ChatCompletion, ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
+import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import { registerMessageAdapter } from '@/core/message/adapter'
 import { registerSenseAdapter, type SenseFunction } from '@/core/sense'
 import {
@@ -21,7 +22,7 @@ import {
   acquireRpm,
   mapThinkingToReasoningEffort,
 } from './openaiCompat.js'
-import { assertChatOptions, buildEndpointUrl, classifyBrainError, wrapBrainStream } from './fetchBase.js'
+import { assertChatOptions, jsonRequest, resolveProviderUrl, streamSSE, classifyBrainError, wrapBrainStream } from './fetchBase.js'
 
 // ========== LLM Adapter 定义 ==========
 
@@ -31,9 +32,26 @@ const openaiLLMAdapter: LLMAdapter = {
     const msgArray = messages as ChatCompletionMessageParam[]
     const effort = mapThinkingToReasoningEffort(options?.thinking)
     await acquireRpm(options)
-    // SDK 自拼 /chat/completions，baseURL 只补版本段（无路径时补 /v1，见 buildEndpointUrl）
+    const fullUrl = options?.fullUrl === true
+    if (fullUrl) {
+      // fullUrl=true：绕开 SDK（SDK 强制拼 /chat/completions），原生 fetch 直接请求用户填写的
+      // URL——实际请求 = 用户值本身，与 bigmodel/deepseek 的 fetch 路径一致（docs/agent/provider.md）。
+      return jsonRequest(
+        url,
+        {
+          model,
+          messages: msgArray,
+          ...(effort ? { reasoning_effort: effort } : {}),
+          ...(senses.length > 0 && { tools: senses }),
+        },
+        key,
+        options?.signal,
+        { fullUrl: true },
+      )
+    }
+    // 未勾选：SDK 自拼 /chat/completions，baseURL 原样（版本段由用户填写，见 resolveProviderUrl）
     const client = new OpenAI({
-      baseURL: buildEndpointUrl(url, { fullUrl: options?.fullUrl === true, endpoint: '' }),
+      baseURL: resolveProviderUrl('openai', url, { fullUrl: false, kind: 'chat' }),
       apiKey: key,
     })
     try {
@@ -57,8 +75,25 @@ const openaiLLMAdapter: LLMAdapter = {
     const msgArray = messages as ChatCompletionMessageParam[]
     const effort = mapThinkingToReasoningEffort(options?.thinking)
     await acquireRpm(options)
+    const fullUrl = options?.fullUrl === true
+    if (fullUrl) {
+      // fullUrl=true：绕开 SDK，原生 SSE 直接请求用户填写的 URL（实际请求 = 用户值本身）
+      return streamSSE(
+        url,
+        {
+          model,
+          messages: msgArray,
+          stream: true,
+          ...(effort ? { reasoning_effort: effort } : {}),
+          ...(senses.length > 0 && { tools: senses }),
+        },
+        key,
+        options?.signal,
+        { fullUrl: true },
+      )
+    }
     const client = new OpenAI({
-      baseURL: buildEndpointUrl(url, { fullUrl: options?.fullUrl === true, endpoint: '' }),
+      baseURL: resolveProviderUrl('openai', url, { fullUrl: false, kind: 'chat' }),
       apiKey: key,
     })
     try {
@@ -89,4 +124,6 @@ export function registerOpenAIAdapter(): void {
   >('openai', openaiMessageAdapterConfig)
   registerSenseAdapter<ChatCompletion>('openai', openaiSenseAdapterConfig)
   registerLLMAdapter('openai', openaiLLMAdapter)
+  // URL 端点声明：SDK 自拼端点，base 原样（''）；chat/models 同规则
+  registerProviderUrlPattern('openai', { chatEndpoint: '', modelsEndpoint: '' })
 }

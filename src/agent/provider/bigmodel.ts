@@ -11,6 +11,7 @@
  */
 import type { SenseFunction } from '@/core/sense'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
+import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import { registerMessageAdapter, type MessageProviderAdapterConfig } from '@/core/message/adapter'
 import { registerSenseAdapter, type SenseAdapter } from '@/core/sense'
 import {
@@ -66,4 +67,6 @@ export function registerBigmodelAdapter(): void {
     openaiSenseAdapterConfig as unknown as SenseAdapter<Record<string, unknown>>,
   )
   registerLLMAdapter('bigmodel', bigmodelLLMAdapter)
+  // URL 端点声明：chat 拼 /chat/completions（jsonRequest/streamSSE 协议常量消费）；models 不支持
+  registerProviderUrlPattern('bigmodel', { chatEndpoint: '/chat/completions' })
 }

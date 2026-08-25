@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildEndpointUrl, jsonRequest, streamSSE } from '@/agent/provider/fetchBase.js'
+import { buildEndpointUrl, jsonRequest, resolveProviderUrl, streamSSE } from '@/agent/provider/fetchBase.js'
+import { registerProviderUrlPattern } from '@/core/llm/urlPattern.js'
 import { ClassifiedError } from '@/utils/error.js'
 
 /**
- * fetchBase 的 URL 自动补全与流完整性校验（docs/agent/provider.md）：
- * - buildEndpointUrl：无路径补版本段、已有路径只拼 endpoint、fullUrl 原样返回
+ * fetchBase 的 URL 端点拼接与流完整性校验（docs/agent/provider.md）：
+ * - buildEndpointUrl：base + endpoint（版本段由用户填写，不自动补 /v1）、fullUrl 原样返回
  * - streamSSE/jsonRequest：伪 200（非事件流/JSON，如网关 SPA 回退）→ validation；
  *   空流（0 有效事件）→ provider。
  */
@@ -30,19 +31,19 @@ function asClassified(err: unknown): ClassifiedError {
 }
 
 describe('buildEndpointUrl', () => {
-  it('无路径 → 补版本段 + endpoint（旧配置兼容）', () => {
+  it('无版本段 → base + endpoint（版本段由用户填写，不自动补 /v1）', () => {
     expect(buildEndpointUrl('https://gw:11411', { endpoint: '/chat/completions' })).toBe(
-      'https://gw:11411/v1/chat/completions',
+      'https://gw:11411/chat/completions',
     )
   })
 
-  it('已含 /v1 → 只拼 endpoint（不重复补）', () => {
+  it('已含 /v1 → base + endpoint（不重复补）', () => {
     expect(buildEndpointUrl('https://gw:11411/v1', { endpoint: '/chat/completions' })).toBe(
       'https://gw:11411/v1/chat/completions',
     )
   })
 
-  it('自定义路径 → 只拼 endpoint（尊重用户输入）', () => {
+  it('自定义路径 → base + endpoint（尊重用户输入）', () => {
     expect(buildEndpointUrl('https://gw/api', { endpoint: '/chat/completions' })).toBe(
       'https://gw/api/chat/completions',
     )
@@ -62,23 +63,104 @@ describe('buildEndpointUrl', () => {
 
   it('末尾斜杠归一', () => {
     expect(buildEndpointUrl('https://gw:11411/', { endpoint: '/chat/completions' })).toBe(
-      'https://gw:11411/v1/chat/completions',
+      'https://gw:11411/chat/completions',
     )
   })
 
-  it('endpoint 空串 → 仅补版本段（openai SDK baseURL 场景）', () => {
+  it('endpoint 空串 → base 原样（openai SDK baseURL 场景：SDK 自拼端点，版本段用户填写）', () => {
     expect(buildEndpointUrl('https://api.openai.com', { endpoint: '' })).toBe(
-      'https://api.openai.com/v1',
+      'https://api.openai.com',
     )
     expect(buildEndpointUrl('https://api.openai.com/v1', { endpoint: '' })).toBe(
       'https://api.openai.com/v1',
     )
   })
+})
 
-  it('自定义版本段 versionPath', () => {
+describe('resolveProviderUrl 统一入口', () => {
+  // 各 provider 的注册在 register*Adapter() 时生效；这里直接 register 模拟能力声明，
+  // 验证「注册能力 → 解析」链路与两分支行为（与正式 chat / utils.models / testConnection 同规则）。
+  beforeEach(() => {
+    registerProviderUrlPattern('openai', { chatEndpoint: '', modelsEndpoint: '' })
+    registerProviderUrlPattern('anthropic', {
+      chatEndpoint: '/messages',
+      modelsEndpoint: '/models?limit=1000',
+    })
+    registerProviderUrlPattern('bigmodel', { chatEndpoint: '/chat/completions' })
+    registerProviderUrlPattern('deepseek', {
+      chatEndpoint: '/chat/completions',
+      modelsEndpoint: '',
+    })
+  })
+
+  it('未注册 provider → host 模式原样（仅去尾斜杠）', () => {
+    expect(resolveProviderUrl('ollama', 'http://localhost:11434', { kind: 'chat' })).toBe(
+      'http://localhost:11434',
+    )
+    expect(resolveProviderUrl('ollama', 'http://localhost:11434/', { kind: 'models' })).toBe(
+      'http://localhost:11434',
+    )
+  })
+
+  it('openai：chat/models 端点由 SDK 拼，base 原样（版本段用户填写，不补 /v1）', () => {
+    expect(resolveProviderUrl('openai', 'https://api.openai.com', { kind: 'chat' })).toBe(
+      'https://api.openai.com',
+    )
+    expect(resolveProviderUrl('openai', 'https://api.openai.com/v1', { kind: 'chat' })).toBe(
+      'https://api.openai.com/v1',
+    )
+    expect(resolveProviderUrl('openai', 'https://api.openai.com/v1', { kind: 'models' })).toBe(
+      'https://api.openai.com/v1',
+    )
+  })
+
+  it('anthropic：base + endpoint（版本段用户填写，不补 /v1）', () => {
+    expect(resolveProviderUrl('anthropic', 'https://api.anthropic.com', { kind: 'chat' })).toBe(
+      'https://api.anthropic.com/messages',
+    )
+    expect(resolveProviderUrl('anthropic', 'https://api.anthropic.com', { kind: 'models' })).toBe(
+      'https://api.anthropic.com/models?limit=1000',
+    )
+    expect(resolveProviderUrl('anthropic', 'https://api.anthropic.com/v1', { kind: 'chat' })).toBe(
+      'https://api.anthropic.com/v1/messages',
+    )
+  })
+
+  it('fullUrl=true → URL 原样（仅去尾斜杠），不补任何东西', () => {
+    expect(resolveProviderUrl('anthropic', 'https://gw:11411', { fullUrl: true, kind: 'chat' })).toBe(
+      'https://gw:11411',
+    )
     expect(
-      buildEndpointUrl('https://gw', { versionPath: '/v4', endpoint: '/messages' }),
-    ).toBe('https://gw/v4/messages')
+      resolveProviderUrl('openai', 'https://api.openai.com/v1/chat/completions', {
+        fullUrl: true,
+        kind: 'chat',
+      }),
+    ).toBe('https://api.openai.com/v1/chat/completions')
+    expect(
+      resolveProviderUrl('openai', 'https://api.openai.com/v1/', { fullUrl: true, kind: 'models' }),
+    ).toBe('https://api.openai.com/v1')
+  })
+
+  it('一致性锁：bigmodel/deepseek chat 与 buildEndpointUrl 协议常量一致（防 jsonRequest 漂移）', () => {
+    for (const url of [
+      'https://gw:11411',
+      'https://gw:11411/',
+      'https://gw:11411/v1',
+      'https://gw:11411/api',
+    ]) {
+      expect(resolveProviderUrl('bigmodel', url, { kind: 'chat' })).toBe(
+        buildEndpointUrl(url, { endpoint: '/chat/completions' }),
+      )
+      expect(resolveProviderUrl('deepseek', url, { kind: 'chat' })).toBe(
+        buildEndpointUrl(url, { endpoint: '/chat/completions' }),
+      )
+    }
+  })
+
+  it('bigmodel models 未声明 → host 模式原样（utils.models 对该 provider 报「不支持」）', () => {
+    expect(resolveProviderUrl('bigmodel', 'https://gw:11411', { kind: 'models' })).toBe(
+      'https://gw:11411',
+    )
   })
 })
 
@@ -170,18 +252,18 @@ describe('jsonRequest 流完整性校验', () => {
     )
   })
 
-  it('正常 JSON 响应 → 返回解析对象（url 无路径自动补 /v1）', async () => {
+  it.each([
+    ['无版本段 → base + endpoint（不补 /v1）', 'https://gw:11411', 'https://gw:11411/chat/completions'],
+    ['含 /v1 → base + endpoint', 'https://gw:11411/v1', 'https://gw:11411/v1/chat/completions'],
+  ])('正常 JSON 响应 → 返回解析对象（%s）', async (_label, inputUrl, expected) => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ ok: 1 }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       }),
     )
-    const result = await jsonRequest('https://gw:11411', { q: 1 }, 'k')
+    const result = await jsonRequest(inputUrl, { q: 1 }, 'k')
     expect(result).toEqual({ ok: 1 })
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://gw:11411/v1/chat/completions',
-      expect.anything(),
-    )
+    expect(fetchMock).toHaveBeenCalledWith(expected, expect.anything())
   })
 })

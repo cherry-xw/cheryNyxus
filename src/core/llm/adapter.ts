@@ -29,8 +29,8 @@ export interface LLMOptions {
    *  false=strip redacted_thinking 块（默认；兼容第三方 Anthropic 模式端点）。
    *  仅 Anthropic provider 读取，其它 provider 忽略。 */
   anthropicOfficial?: boolean
-  /** true=URL 已含版本段（如 /v1），provider 只拼 endpoint 不自动补全；缺省自动补全。
-   *  各 provider 补全规则见 docs/agent/provider.md「URL 解析与自动补全」。 */
+  /** true=URL 已含完整端点（如 /v1/messages），provider 完全不拼接、原样访问；缺省只拼端点（版本段 /v1 由用户填写）。
+   *  端点拼接是注册 provider 的注册能力，规则见 docs/agent/provider.md「URL 解析与端点拼接」。 */
   fullUrl?: boolean
   /** 当前 chat run 的取消信号。watchdog/用户 abort 时 provider 应立即终止请求流。 */
   signal?: AbortSignal

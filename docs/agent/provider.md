@@ -117,33 +117,56 @@ llm:
 
 前端 BrainCard 在 `provider === 'anthropic'` 时显示「官方」勾选开关，与 yaml 同步。
 
-### URL 解析与自动补全（`fullUrl` 开关）
+### URL 解析与端点拼接（provider 注册能力）
 
-**背景**：早期 anthropic provider 曾自动在 base URL 后拼 `/v1/messages`；后改为「版本前缀由用户在 `cfg.url` 自己写」但未做迁移提示，导致旧配置（url 不带 `/v1`）静默失效——请求落到网关的 Web 控制台回退页（200 + HTML），表现为「run 空转、无任何报错」（见下节流完整性校验）。现恢复**自动补全为默认行为**，并提供 brain 级 `fullUrl` 开关关闭补全：
+**背景**：早期 anthropic provider 曾自动在 base URL 后拼 `/v1/messages`；后改为「版本前缀由用户在 `cfg.url` 自己写」但未做迁移提示，导致旧配置（url 不带 `/v1`）静默失效——请求落到网关的 Web 控制台回退页（200 + HTML），表现为「run 空转、无任何报错」（见下节流完整性校验）。现收敛为**注册 provider 必须提供的能力**：`ProviderUrlPattern` 注册表 + 统一入口 `resolveProviderUrl`，地址只做简单拼接，最多对结尾 `/` 做归一（`https://x:11411/` 与 `https://x:11411` 等价）。
 
-```yaml
-llm:
-  brain:
-    glm5:
-      provider: anthropic
-      url: https://gw.example.com:11411     # 无路径 → 自动补 /v1/messages
-    anthropic_proxy:
-      provider: anthropic
-      url: https://gw.example.com:11411/v1/messages  # 勾选 fullUrl → 原样使用（须含完整路径）
-      fullUrl: true                          # 或勾选「完整 URL」：后端不拼接任何字符串
+**规则（2026-08 简化）**：**版本段（`/v1` 等）由用户填写，后端只自动拼端点**（`/chat/completions`、`/messages`、`/models`）——不再自动补 `/v1`。未勾选「完整 URL」时 url 须含版本段，如 `https://yz.xcherry.top:11411/v1`，请求落点为 `…/v1/chat/completions`。前端地址输入框 placeholder 已注明此约定。
+
+#### 能力声明（`ProviderUrlPattern`）
+
+URL 端点是 provider 的**注册能力**，不是全局通用逻辑——endpoint 路径是 provider 协议的一部分，不能全局统一。每个 provider 注册时声明 `chat` / `models` 两种 kind 的端点模式（[core/llm/urlPattern.ts](../../src/core/llm/urlPattern.ts)，纯数据注册表，零 import）：
+
+| provider | `chatEndpoint` | `modelsEndpoint` | 说明 |
+|----------|---------------|------------------|------|
+| openai | `''`（base 原样，SDK 自拼端点） | `''`（同左） | 未勾选：SDK 自拼 `/chat/completions`、`/models`；**勾选 fullUrl：绕开 SDK**，`chat`/`chatStream`/models 拉取全部改走 fetchBase 原生请求，实际请求 = 用户填写的 URL 本身 |
+| anthropic | `/messages` | `/models?limit=1000` | 原生 fetch，`base + endpoint` |
+| deepseek | `/chat/completions` | `''`（base 原样，openai SDK） | chat 走 fetchBase，models 走 openai SDK |
+| bigmodel | `/chat/completions` | 未声明 | `models` 不支持（`utils.models` 报「不支持」） |
+| ollama / mock | 不注册 | 不注册 | host 模式，无版本段概念 |
+
+- `chatEndpoint` / `modelsEndpoint` **三态语义**：
+  - `undefined` → host 模式，不拼接（未注册，或该 kind 不支持）。
+  - `''` → 不拼端点，base 原样（端点由 openai SDK 自拼；**版本段由用户填写**）。
+  - `'/xxx'` → 拼端点（如 `/messages`、`/chat/completions`）。
+- `fullUrl=true` 时**完全不拼接**（仅去尾斜杠），直接以用户填写的 URL 访问后端。
+
+#### 统一入口 `resolveProviderUrl`
+
+```ts
+resolveProviderUrl(provider, url, { fullUrl, kind })   // kind ∈ 'chat' | 'models'
 ```
 
-| provider | 未勾选（默认：自动补全） | 勾选 `fullUrl`（完全不拼接） |
-|----------|------------------------|--------------------------------|
-| anthropic | path 为空 → 补 `/v1/messages`；已含版本段（`/v1`、`/v4` 等 `/v\d+`）→ 拼 `/messages` | url 原样使用，不做任何拼接（须含版本段与端点，如 `…/v1/messages`） |
-| openai 兼容（fetchBase：bigmodel/deepseek） | path 为空 → 补 `/v1/chat/completions`；已含版本段 → 拼 `/chat/completions` | url 原样使用，不做任何拼接（须含版本段与端点，如 `…/v1/chat/completions`） |
-| openai（SDK） | path 为空 → baseURL 补 `/v1` 后交 SDK；否则原样交 SDK | baseURL 原样交 SDK |
-| ollama / mock | 不变（host 语义，无版本段概念） | 不变 |
+- 定义在 [`agent/provider/fetchBase.ts`](../../src/agent/provider/fetchBase.ts)：查注册表取 `pattern[kind]` → `undefined` 走 host 模式（原样去尾斜杠），否则交 `buildEndpointUrl` 两分支（`fullUrl` 原样 / 否则 `base + endpoint`）。
+- 注册表在 [`core/llm/urlPattern.ts`](../../src/core/llm/urlPattern.ts)：只持类型 + Map（`registerProviderUrlPattern` / `getProviderUrlPattern`），**零 import**；解析逻辑放 agent 层（core 不反向依赖 agent）。
+- **chat / models 拉取 / 测试连接全部走同一入口**：正式 chat、`utils.models`、`utils.testConnection` 三处 URL 行为一致，不会出现「测试连通、实际跑挂」的拼接不一致。
 
-- 补全逻辑**由各 provider 自己提供**（anthropic 在 `joinAnthropicUrl`，openai 兼容在 fetchBase 的 `buildEndpointUrl`，openai 在 `chat`/`chatStream` 内）——endpoint 路径是 provider 协议的一部分，不能全局统一。
-- `fullUrl` 经 `BrainConfig` → `LLMOptions` → provider 逐层透传（[middleware.md chat.ts](./middleware.md)）；前端 BrainCard 显示「完整 URL」勾选，与 yaml 同步。勾选后**后端不做任何拼接**，请求 URL 即用户填写的原值（须含版本段与端点）。
-- 兼容性：旧配置（无 `fullUrl` 字段）默认走自动补全——url 已含版本段的配置行为不变（只拼 endpoint），url 无路径的旧 anthropic 配置**从静默失效恢复为可用**。
-- ⚠️ `fullUrl` 语义（2026-08）：勾选从「只拼 endpoint」改为「完全不拼接」——已勾选且 url 只写 base（未含端点）的存量配置会失效，需把 url 补成完整请求地址（如 `…/v1/messages`）。
+#### 分层调用
+
+| 场景 | 入口 | kind |
+|------|------|------|
+| openai chat | 未勾选：`resolveProviderUrl('openai', url, { kind: 'chat' })`（SDK baseURL，base 原样）；**勾选 fullUrl：`jsonRequest` / `streamSSE` 直接请求用户 URL** | chat |
+| anthropic chat（`joinAnthropicUrl`） | `resolveProviderUrl('anthropic', url, { fullUrl, kind: 'chat' })` | chat |
+| bigmodel / deepseek chat | `jsonRequest` / `streamSSE` 内部协议常量（见下） | chat |
+| `utils.models` openai/deepseek | 未勾选：`resolveProviderUrl(provider, url, { kind: 'models' })` → SDK baseURL（base 原样）；**勾选 fullUrl：原生 fetch 直接请求用户 URL** | models |
+| `utils.models` anthropic | `resolveProviderUrl('anthropic', url, { fullUrl, kind: 'models' })` → 原生 fetch | models |
+
+- ⚠️ **openai 勾选 fullUrl 的语义**：openai SDK 强制在 baseURL 后拼 `/chat/completions` / `/models`，无法做到「零拼接」。因此勾选 fullUrl 后 openai 的 `chat`/`chatStream` **绕开 SDK**，改走 fetchBase 的 `jsonRequest` / `streamSSE`（与 bigmodel/deepseek 的 fetch 路径同款），models 拉取改原生 fetch——**实际请求 URL = 用户填写的值本身**（仅去尾斜杠），彻底兑现「完整 URL 完全自负责」。请求体仍为 OpenAI 兼容协议（POST 到用户 URL）。
+- ⚠️ `jsonRequest` / `streamSSE`（fetchBase.ts）内部的 `/chat/completions` 是 **openai 兼容协议常量**（bigmodel/deepseek 共用），非 provider 特性，**保持不收敛**——它们已正确透传 `fullUrl`，与注册值的一致性由单测锁死防漂移。
+- `fullUrl` 经 `BrainConfig` → `LLMOptions` → provider 逐层透传（[middleware.md chat.ts](./middleware.md)）；前端 BrainCard 显示「完整 URL」勾选，与 yaml 同步。勾选后**后端不做任何拼接**（仅去尾斜杠），请求 URL 即用户填写的原值。
+- ⚠️ `fullUrl` 语义（2026-08）：勾选 = **完全不拼接**。若勾选且 url 未含完整端点，请求直接落到该地址（如填 `…/v1` 访问 anthropic 会 404）——fullUrl 下 url 由用户完全自负责。
+- ⚠️ 已知边界：anthropic 勾选 fullUrl 后，「刷新模型」请求地址 = 用户填写的完整 URL（须含 `/models` 端点），与 chat 的 `…/v1/messages` 同用一个 `url` 字段**不可兼得**——fullUrl「完全自负责」语义的固有张力，填完整 URL 时按需取舍。
+- ⚠️ 兼容性（2026-08 简化）：**不再自动补版本段**——url 未含版本段的旧配置会失效（如 openai 填 `https://x:11411` 未勾选会请求到 `https://x:11411/chat/completions` 而非 `…/v1/chat/completions`），需在 url 中补上版本段（如 `https://x:11411/v1`）。placeholder 已提示。
 
 ### 流完整性校验（伪 200 / 空流拦截）
 
@@ -417,9 +440,9 @@ interface MockResponse { thinking?: string; content?: string; toolCalls?: MockTo
 
 新 provider **优先用原生 fetch 而非引第三方 SDK**（Node ≥20 自带 fetch/ReadableStream/AbortController）。基座提供：
 
-- `streamSSE(url, body, key, signal?, opts?): AsyncGenerator<Record<string,unknown>>` —— SSE 流式：内部自建 `AbortController`、`getReader()` + `TextDecoder` 跨 chunk 行缓冲、按 `\n` 切行、跳过空行/`:` 注释心跳、剥离 `data:` 前缀、`[DONE]` 主动结束；**finally 必跑 `controller.abort()` + `reader.cancel()`**（对接现有 abort 机制：`compose.ts` 的 `generator.throw()` → for-await 释放 → finally 切断 HTTP）。`opts.fullUrl` 控制 url 解析（见上文「URL 解析与自动补全」）；**content-type 校验 + 空流拦截**见上文「流完整性校验」。
+- `streamSSE(url, body, key, signal?, opts?): AsyncGenerator<Record<string,unknown>>` —— SSE 流式：内部自建 `AbortController`、`getReader()` + `TextDecoder` 跨 chunk 行缓冲、按 `\n` 切行、跳过空行/`:` 注释心跳、剥离 `data:` 前缀、`[DONE]` 主动结束；**finally 必跑 `controller.abort()` + `reader.cancel()`**（对接现有 abort 机制：`compose.ts` 的 `generator.throw()` → for-await 释放 → finally 切断 HTTP）。`opts.fullUrl` 控制 url 解析（见上文「URL 解析与端点拼接」）；**content-type 校验 + 空流拦截**见上文「流完整性校验」。
 - `jsonRequest(url, body, key, signal?, opts?): Promise<Record<string,unknown>>` —— 非流式；`opts.fullUrl` 同上，响应体非 JSON 报 `validation` 错。
-- `buildEndpointUrl(url, opts)` —— 导出的 url 补全工具（`{fullUrl, versionPath, endpoint}`）：path 为空补版本段+endpoint、已含 `/v\d+` 版本段只拼 endpoint、`fullUrl` 原样返回（不拼接任何字符串）。openai 兼容 provider 共用；anthropic 自有同款实现（`joinAnthropicUrl`）。
+- `buildEndpointUrl(url, opts)` —— 导出的 url 拼接工具（`{fullUrl, endpoint}`）：`fullUrl` 原样返回（不拼接任何字符串）；否则 `base + endpoint`（版本段由用户填写，后端只拼端点，不再自动补 `/v1`）。openai 兼容 provider 共用；anthropic 自有同款实现（`joinAnthropicUrl`）。
 - `assertChatOptions(options)` —— model/url/key 校验 + `$ENV` 占位符检测（从 openai.ts 抽出，共用）。
 - 错误封装：`!res.ok` → `brainHttpError`（按 status 定 category）；网络错误 `brainNetworkError`；伪 200/空流见「流完整性校验」表。
 

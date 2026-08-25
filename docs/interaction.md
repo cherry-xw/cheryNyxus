@@ -170,6 +170,10 @@
 // 成功（anthropic）- 原生 fetch GET {base}/models，header x-api-key + anthropic-version
 -> {"id":"ru5","kind":"request","method":"utils.models","params":{"provider":"anthropic","url":"https://api.anthropic.com/v1","key":"sk-ant-..."}}
 ← {"id":"au5","kind":"response","requestId":"ru5","success":true,"data":{"models":[{"id":"claude-sonnet-4-5","name":"Claude Sonnet 4.5"},{"id":"claude-opus-4-5","name":"Claude Opus 4.5"}]}}
+
+// 成功（openai，勾选「完整 URL」fullUrl=true → 不补全，baseURL 直接用用户地址，须含版本段）
+→ {"id":"ru6","kind":"request","method":"utils.models","params":{"provider":"openai","url":"https://api.openai.com/v1","key":"sk-...","fullUrl":true}}
+← {"id":"au6","kind":"response","requestId":"ru6","success":true,"data":{"models":[{"id":"gpt-4o","name":"gpt-4o","ownedBy":"system"}]}}
 ```
 
 > 独立工具方法，不依赖 chat/brain 运行时。后续该模块会扩展其他便捷信息查询工具。

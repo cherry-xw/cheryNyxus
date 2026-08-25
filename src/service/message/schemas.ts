@@ -545,6 +545,7 @@ export const requestSchemas = {
     provider: z.string(),
     url: z.string(),
     key: z.string().optional(),
+    fullUrl: z.boolean().optional(),
   }),
   // 真实最小 Provider 请求：使用未保存的 provider/url/key/model，不持久化
   [Method.UTILS_TEST_CONNECTION]: z.object({
@@ -552,6 +553,7 @@ export const requestSchemas = {
     url: z.string().min(1),
     key: z.string().optional(),
     model: z.string().min(1),
+    fullUrl: z.boolean().optional(),
   }),
   // Env 环境变量：空参，返回 .env 变量名列表
   [Method.ENV_LIST]: emptySchema,

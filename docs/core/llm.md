@@ -13,8 +13,11 @@
 | 文件 | 职责 |
 |------|------|
 | [adapter.ts](../../src/core/llm/adapter.ts) | `LLMOptions`、`LLMAdapter` 接口、`registerLLMAdapter` / `getLLMAdapter` / `resetLLMAdapters` 注册表 |
+| [urlPattern.ts](../../src/core/llm/urlPattern.ts) | `ProviderUrlPattern`、`registerProviderUrlPattern` / `getProviderUrlPattern` 注册表（纯数据，零 import） |
 
-> ⚠ 真实代码**没有** `src/core/llm/index.ts`（CLAUDE.md 旧描述与源码不符）；整个 llm 子模块就一个 `adapter.ts`。
+> ⚠ 真实代码**没有** `src/core/llm/index.ts`（CLAUDE.md 旧描述与源码不符）；llm 子模块就 `adapter.ts` + `urlPattern.ts` 两个文件。
+
+`urlPattern.ts` 只持类型 + Map，URL 解析逻辑（`resolveProviderUrl`）在 agent 层的 [fetchBase.ts](../../src/agent/provider/fetchBase.ts)（agent 依赖 core 方向合法，core 不反向依赖 agent）。详见 [provider.md](../agent/provider.md)「URL 解析与端点拼接」。
 
 ## 核心概念 / 导出
 
@@ -128,4 +131,5 @@ AgentBuilder.configureRuntime(selection)
 1. 在 `src/agent/provider/<name>.ts` 实现 `LLMAdapter`（`chat` / `chatStream`）。
 2. 同文件一并实现并注册 [`MessageAdapter`](./message.md) 和 [`SenseAdapter`](./sense.md)（三者通常成套，因为响应格式同源）。
 3. 调 `registerLLMAdapter("<provider>", adapter)`，在 [`agent/provider/index.ts`](../../src/agent/provider/index.ts) 的 `registerBuiltinProviders()` 中调用注册函数。
-4. 在 `.chery/config.yaml` 添加 brain 配置，`provider` 字段对应注册名。
+4. 调 `registerProviderUrlPattern("<provider>", { chatEndpoint, modelsEndpoint })` 声明 URL 端点拼接能力（**必须提供**，见 [provider.md](../agent/provider.md)「URL 解析与端点拼接」）；host 模式的 provider（ollama 类）可不注册。
+5. 在 `.chery/config.yaml` 添加 brain 配置，`provider` 字段对应注册名。

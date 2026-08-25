@@ -12,6 +12,7 @@ import {
   type LLMOptions,
   type ThinkingLevel,
 } from '@/core/llm/adapter'
+import { registerProviderUrlPattern } from '@/core/llm/urlPattern'
 import { registerMessageAdapter, type MessageProviderAdapterConfig } from '@/core/message/adapter'
 import { registerSenseAdapter } from '@/core/sense/adapter'
 import {
@@ -91,4 +92,6 @@ export function registerDeepseekAdapter(): void {
     openaiSenseAdapterConfig as unknown as SenseAdapter<Record<string, unknown>>,
   )
   registerLLMAdapter('deepseek', deepseekLLMAdapter)
+  // URL 端点声明：chat 拼 /chat/completions；models 走 openai SDK（base 原样）
+  registerProviderUrlPattern('deepseek', { chatEndpoint: '/chat/completions', modelsEndpoint: '' })
 }

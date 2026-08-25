@@ -8,7 +8,7 @@
  * - sense adapter：buildSenses(strict:true) / senseCalls(id 缺省 sense-${i}) / extractSenseCallDeltas
  * - LLM：chat / chatStream / thinking 选项 / model|url 缺失 throw
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { registerOpenAIAdapter } from "@/agent/provider/openai.js";
 import { getLLMAdapter } from "@/core/llm/adapter.js";
 import { getMessageAdapter } from "@/core/message/adapter.js";
@@ -191,6 +191,9 @@ describe("OpenAI LLM adapter", () => {
     senseAdapterRegistry.clear();
     registerOpenAIAdapter();
   });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it("chat 调用返回响应", async () => {
     const llm = getLLMAdapter("openai")!;
@@ -228,5 +231,72 @@ describe("OpenAI LLM adapter", () => {
     const senses = [{ type: "function", function: { name: "t", description: "d", parameters: { type: "object", properties: {}, required: [], additionalProperties: false } } }] as SenseFunction[];
     const r = await llm.chat([], senses, { model: "gpt-4", url: "https://x", key: "k", thinking: true });
     expect(r).toBeDefined();
+  });
+
+  it("chat fullUrl=true → 原生 fetch 请求用户填写的 URL 原样（不拼 /chat/completions）", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const llm = getLLMAdapter("openai")!;
+    const r = await llm.chat([{ role: "user", content: "hi" }], [], {
+      model: "gpt-4",
+      url: "https://yz.xcherry.top:11411",
+      key: "k",
+      fullUrl: true,
+    });
+    expect((r as { choices: Array<{ message: { content: string } }> }).choices[0]!.message.content).toBe("OK");
+    expect(fetchMock).toHaveBeenCalledWith("https://yz.xcherry.top:11411", expect.anything());
+  });
+
+  it("chat fullUrl=true 尾斜杠归一：.../ 与 ... 等价，消除 //", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ choices: [{ message: { content: "OK" } }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const llm = getLLMAdapter("openai")!;
+    await llm.chat([{ role: "user", content: "hi" }], [], {
+      model: "gpt-4",
+      url: "https://yz.xcherry.top:11411/",
+      key: "k",
+      fullUrl: true,
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://yz.xcherry.top:11411", expect.anything());
+  });
+
+  it("chatStream fullUrl=true → 原生 SSE 请求用户填写的 URL 原样", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"你"}}]}\n\n'));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const llm = getLLMAdapter("openai")!;
+    const stream = await llm.chatStream([], [], {
+      model: "gpt-4",
+      url: "https://yz.xcherry.top:11411",
+      key: "k",
+      fullUrl: true,
+    });
+    const parts: string[] = [];
+    for await (const c of stream as AsyncIterable<{ choices: Array<{ delta: { content?: string } }> }>) {
+      if (c.choices[0]?.delta.content) parts.push(c.choices[0].delta.content);
+    }
+    expect(parts.join("")).toBe("你");
+    expect(fetchMock).toHaveBeenCalledWith("https://yz.xcherry.top:11411", expect.anything());
   });
 });

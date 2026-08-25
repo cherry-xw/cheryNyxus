@@ -132,8 +132,8 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `subagent.result` | `handleSubagentResult` | [subagent/index.ts](../../src/service/subagent/index.ts) | 否 | 子 agent 结果回传（唤醒主 agent 挂起的 spawn） |
 | `config.get` | `handleConfigGet` | [config/handler.ts](../../src/service/config/handler.ts) | 否 | 读 .chery/config.yaml 原文（除 server 段） |
 | `config.save` | `handleConfigSave` | 同上 | 否 | 校验 + 写回 config.yaml（除 server，重启生效） |
-| `utils.models` | `handleUtilsModels` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 基于 provider/url/key 拉取可用模型列表 |
-| `utils.testConnection` | `handleUtilsTestConnection` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 用未保存配置执行真实最小 Provider 请求，不持久化、不重试 |
+| `utils.models` | `handleUtilsModels` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 基于 provider/url/key/fullUrl 拉取可用模型列表（fullUrl=true 不补全 URL，与正式 chat 同规则） |
+| `utils.testConnection` | `handleUtilsTestConnection` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 用未保存配置执行真实最小 Provider 请求（透传 fullUrl），不持久化、不重试 |
 | `env.list` | `handleEnvList` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 列 .env 文件变量名供密钥下拉（**每次实时读盘**；调用前触发 `reloadEnvFile(true)` 把 .env 新变量/新值同步进 `process.env`，前端点「刷新密钥」即重载生效，无需重启。前端 agentApi.listEnvVars 再按后缀过滤——任意 `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`PASSWD`/`ACCESS_KEY_ID` 结尾，运行时配置不进下拉） |
 | `utils.openFile` | `handleUtilsOpenFile` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 打开指定文件（用配置编辑器或系统默认） |
 | `utils.openConfigDir` | `handleUtilsOpenConfigDir` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 固定打开后端主机的 `CHERY_DIR/.chery` 配置目录 |

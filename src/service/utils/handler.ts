@@ -40,7 +40,7 @@ import { getMessageAdapter, type LLMResponse } from '@/core/message/adapter.js'
 import { openWithSystem } from './openWithSystem.js'
 import { readErrorSnippet } from '@/agent/provider/fetchBase.js'
 import { ANTHROPIC_VERSION } from '@/agent/provider/anthropic.js'
-import { buildEndpointUrl } from '@/agent/provider/fetchBase.js'
+import { resolveProviderUrl } from '@/agent/provider/fetchBase.js'
 
 const exec = promisify(execCallback)
 
@@ -60,11 +60,11 @@ export async function handleUtilsModels(
     switch (provider) {
       case 'openai':
       case 'deepseek':
-        return await fetchOpenAIModels(url, key)
+        return await fetchOpenAIModels(url, key, provider, data.fullUrl === true)
       case 'ollama':
         return await fetchOllamaModels(url)
       case 'anthropic':
-        return await fetchAnthropicModels(url, key)
+        return await fetchAnthropicModels(url, key, data.fullUrl === true)
       default:
         return {
           models: [],
@@ -118,6 +118,7 @@ export async function handleUtilsTestConnection(
       model,
       url,
       key,
+      fullUrl: data.fullUrl === true,
       thinking: 'off',
       skipHooks: true,
     })
@@ -140,7 +141,12 @@ function connectionErrorMessage(err: unknown): string {
   return friendlyMessage(classifyError(err), 'brain')
 }
 
-async function fetchOpenAIModels(url: string, key?: string): Promise<UtilsModelsResponseData> {
+async function fetchOpenAIModels(
+  url: string,
+  key: string | undefined,
+  provider: string,
+  fullUrl: boolean,
+): Promise<UtilsModelsResponseData> {
   // 前端可传空 key（Ollama/Mock 不需要、用户在脑设置里留空保存）。
   // 直接 `apiKey: ''` 会被 OpenAI SDK 抛英文 `Missing credentials...`，这里短路成中文友好提示。
   const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/)
@@ -157,7 +163,27 @@ async function fetchOpenAIModels(url: string, key?: string): Promise<UtilsModels
         '未配置密钥（OpenAI 兼容服务一般需要 Authorization Bearer 头；本地 LM Studio / vLLM / Ollama OpenAI 模式等服务不校验，填任意非空字符串即可，如 `lm-studio`）',
     }
   }
-  const client = new OpenAI({ baseURL: url, apiKey: key })
+  if (fullUrl) {
+    // fullUrl=true：绕开 SDK（SDK 会拼 /models），原生 fetch 直接请求用户填写的 URL——
+    // 实际请求 = 用户值本身，与 chat 的 fullUrl 语义一致（docs/agent/provider.md「URL 解析与端点拼接」）。
+    const res = await fetch(url, {
+      headers: key ? { Authorization: `Bearer ${key}` } : undefined,
+    })
+    if (!res.ok) throw new Error(`upstream ${res.status}`)
+    const json = (await res.json()) as { data?: Array<{ id: string; owned_by?: string }> }
+    return {
+      models: (json.data ?? []).map((m) => ({
+        id: m.id,
+        name: m.id,
+        ownedBy: m.owned_by,
+      })),
+    }
+  }
+  // 未勾选：SDK 自拼 /models，baseURL 原样（版本段由用户填写，见 resolveProviderUrl）
+  const client = new OpenAI({
+    baseURL: resolveProviderUrl(provider, url, { fullUrl: false, kind: 'models' }),
+    apiKey: key,
+  })
   const response = await client.models.list()
   return {
     models: response.data.map((m) => ({
@@ -189,7 +215,11 @@ async function fetchOllamaModels(url: string): Promise<UtilsModelsResponseData> 
  * 网络/HTTP/JSON 解析三类失败就地返回 {models:[], error} 携带真实 status+片段，
  * 仅占位符/空 key 同 fetchOpenAIModels 早返模式。
  */
-async function fetchAnthropicModels(url: string, key?: string): Promise<UtilsModelsResponseData> {
+async function fetchAnthropicModels(
+  url: string,
+  key: string | undefined,
+  fullUrl: boolean,
+): Promise<UtilsModelsResponseData> {
   // 镜像 fetchOpenAIModels 的占位符/空 key 短路：Anthropic 公共 API 必须带 x-api-key。
   const placeholderMatch = key?.match(/^\$([A-Z_][A-Z0-9_]*)$/)
   if (placeholderMatch) {
@@ -206,8 +236,9 @@ async function fetchAnthropicModels(url: string, key?: string): Promise<UtilsMod
     }
   }
 
-  // models 端点与 /messages 同规则自动补全（无路径补 /v1，见 docs/agent/provider.md「URL 解析与自动补全」）
-  const modelsUrl = buildEndpointUrl(url, { endpoint: '/models?limit=1000' })
+  // models 端点走统一入口（拼 /models?limit=1000；fullUrl=true 原样访问，须含 /models，见
+  // docs/agent/provider.md「URL 解析与端点拼接」）
+  const modelsUrl = resolveProviderUrl('anthropic', url, { fullUrl, kind: 'models' })
   let res: Response
   try {
     res = await fetch(modelsUrl, {

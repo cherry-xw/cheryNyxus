@@ -2066,10 +2066,11 @@ export const agentApi = {
     provider: string,
     url: string,
     key?: string,
+    fullUrl?: boolean,
   ): Promise<{ models: Array<{ id: string; name?: string }>; error?: string }> {
     return await call<{ models: Array<{ id: string; name?: string }>; error?: string }>(
       'utils.models',
-      { provider, url, key },
+      { provider, url, key, fullUrl },
     )
   },
 
@@ -2079,10 +2080,11 @@ export const agentApi = {
     url: string,
     key: string | undefined,
     model: string,
+    fullUrl?: boolean,
   ): Promise<{ ok: true; error?: never } | { ok: false; error: string }> {
     return await call<{ ok: true; error?: never } | { ok: false; error: string }>(
       'utils.testConnection',
-      { provider, url, key, model },
+      { provider, url, key, model, fullUrl },
     )
   },
 

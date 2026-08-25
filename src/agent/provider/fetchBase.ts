@@ -1,4 +1,5 @@
 import type { LLMOptions } from '@/core/llm/adapter'
+import { getProviderUrlPattern, type ProviderUrlKind } from '@/core/llm/urlPattern'
 import {
   throwUserFacing,
   ClassifiedError,
@@ -174,27 +175,40 @@ export function assertChatOptions(options?: LLMOptions): {
 
 // ========== fetch 工具 ==========
 
-/** scheme 后是否还有路径段（https://gw:1 无 → false；https://gw:1/v1 有 → true）。 */
-function hasUrlPath(base: string): boolean {
-  return base.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '').includes('/')
-}
-
 /**
- * URL 自动补全（[docs/agent/provider.md「URL 解析与自动补全」](../../../docs/agent/provider.md)）：
- * - fullUrl=true：URL 原样使用，不做任何拼接（请求地址须含版本段与端点）
- * - base 无路径：补 versionPath + endpoint（如 /v1/chat/completions）——兼容早期自动补全时代的旧配置
- * - base 已有路径（/v1、自定义网关前缀等）：只拼 endpoint（尊重用户输入）
- * endpoint 传空串时仅做版本段补全（openai SDK baseURL 场景：SDK 自拼 endpoint）。
+ * URL 端点拼接（[docs/agent/provider.md「URL 解析与端点拼接」](../../../docs/agent/provider.md)）：
+ * - fullUrl=true：URL 原样使用，不做任何拼接（请求地址须含完整端点）
+ * - 否则：base + endpoint（版本段 /v1 由用户填写，后端只拼端点，不再自动补 /v1）
+ * endpoint 传空串时 base 原样（openai SDK baseURL 场景：SDK 自拼 endpoint）。
  */
 export function buildEndpointUrl(
   url: string,
-  opts: { fullUrl?: boolean; versionPath?: string; endpoint: string },
+  opts: { fullUrl?: boolean; endpoint: string },
 ): string {
   const base = url.replace(/\/+$/, '')
-  const { fullUrl, versionPath = '/v1', endpoint } = opts
+  const { fullUrl, endpoint } = opts
   if (fullUrl) return base
-  if (hasUrlPath(base)) return `${base}${endpoint}`
-  return `${base}${versionPath}${endpoint}`
+  return `${base}${endpoint}`
+}
+
+/**
+ * Provider URL 统一解析入口（docs/agent/provider.md「URL 解析与端点拼接」）。
+ * 查 provider 注册的 URL 模式表（core/llm/urlPattern.ts，注册 provider 必须提供的能力）取该
+ * kind 的端点声明：
+ * - 未注册或该 kind 未声明（undefined）→ host 模式：URL 原样去尾斜杠，不拼接；
+ * - 声明了端点（'' 不拼 / '/xxx' 拼端点）→ 交 buildEndpointUrl 两分支拼接。
+ * 版本段（/v1）由用户填写，后端只拼端点。
+ * 正式 chat、utils.models 拉取、utils.testConnection 三处 URL 行为统一走此入口。
+ */
+export function resolveProviderUrl(
+  provider: string,
+  url: string,
+  opts: { fullUrl?: boolean; kind: ProviderUrlKind },
+): string {
+  const pattern = getProviderUrlPattern(provider)
+  const endpoint = pattern?.[opts.kind === 'chat' ? 'chatEndpoint' : 'modelsEndpoint']
+  if (endpoint === undefined) return url.replace(/\/+$/, '')
+  return buildEndpointUrl(url, { fullUrl: opts.fullUrl, endpoint })
 }
 
 /** 构造 OpenAI 兼容的 Authorization header（Bearer key）。 */

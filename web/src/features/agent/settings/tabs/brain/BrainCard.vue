@@ -156,7 +156,7 @@ async function refreshModels(): Promise<void> {
   }
   modelLoading.value = true
   try {
-    const res = await agentApi.fetchModels(provider, url, key || undefined)
+    const res = await agentApi.fetchModels(provider, url, key || undefined, props.cfg.fullUrl === true)
     if (res.error) {
       connectionTestState.value = 'error'
       connectionTestMessage.value = res.error
@@ -187,7 +187,13 @@ async function testConnection(): Promise<void> {
   connectionTestState.value = 'pending'
   connectionTestMessage.value = ''
   try {
-    const result = await agentApi.testConnection(provider, url, key || undefined, model)
+    const result = await agentApi.testConnection(
+      provider,
+      url,
+      key || undefined,
+      model,
+      props.cfg.fullUrl === true,
+    )
     if (reqId !== connectionTestReqId) return
     if (result.ok) {
       connectionTestState.value = 'success'
@@ -240,7 +246,7 @@ const KEY_TIP = [
 ].join('\n')
 const URL_TIP = [
   'url：请求地址，支持 $ENV 占位从环境变量注入。',
-  '· 未勾选「完整 URL」：自动补全——无路径时补版本段+端点（openai/deepseek/bigmodel → …/v1/chat/completions，anthropic → …/v1/messages）；已含版本段（如 /v1）只拼端点',
+  '· 未勾选「完整 URL」：版本段（/v1 等）由你填写，后端自动拼端点——openai/deepseek/bigmodel → …/v1/chat/completions，anthropic → …/v1/messages',
   '· 勾选「完整 URL」：后端不拼接任何字符串，请求地址即你填写的整个 URL（须含版本段与端点，如 https://api.openai.com/v1/chat/completions）',
   '· ollama 填 host（如 http://localhost:11434），无版本段概念',
 ].join('\n')
@@ -309,7 +315,7 @@ function setAnthropicOfficial(cfg: BrainConfigDto, value: unknown): void {
   cfg.anthropicCompat.official = value === true
 }
 
-/** 地址输入框示例（随 provider 变化；未勾选默认自动补全版本段+端点，勾选「完整 URL」则提示填完整请求地址） */
+/** 地址输入框示例（随 provider 变化）：未勾选填 base（须含版本段，端点自动拼接）；勾选「完整 URL」填完整请求地址 */
 const urlPlaceholder = computed(() => {
   if (props.cfg.provider === 'ollama') return '如 http://localhost:11434'
   if (props.cfg.provider === 'mock') return 'mock 无需真实地址'
@@ -319,9 +325,9 @@ const urlPlaceholder = computed(() => {
       : '完整 URL，如 https://api.openai.com/v1/chat/completions'
   }
   if (props.cfg.provider === 'anthropic') {
-    return '如 https://api.anthropic.com → 自动补全为 …/v1/messages'
+    return '须含版本段，如 https://api.anthropic.com/v1 → 自动拼 /messages'
   }
-  return '如 https://api.openai.com → 自动补全为 …/v1/chat/completions'
+  return '须含版本段，如 https://api.openai.com/v1 → 自动拼 /chat/completions'
 })
 
 // ── brain mutations ───────────────────────────────────────────────
@@ -491,7 +497,7 @@ async function openEnvFile(): Promise<void> {
                 :placeholder="urlPlaceholder"
               />
               <el-tooltip
-                content="勾选=后端不拼接任何字符串，请求地址即填写的整个 URL（须含版本段与端点）；未勾选=无路径时自动补 /v1 + 端点"
+                content="勾选=后端不拼接任何字符串，请求地址即填写的整个 URL（须含版本段与端点）；未勾选=填版本段（如 /v1），后端自动拼端点"
                 placement="top"
                 :show-after="120"
               >

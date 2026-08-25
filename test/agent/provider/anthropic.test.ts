@@ -14,7 +14,8 @@ vi.mock('@/agent/hooks/index.js', () => ({ dispatch: mockDispatch }))
 const fetchMock = vi.fn()
 const options = {
   model: 'claude-test',
-  url: 'https://api.anthropic.com',
+  // 新语义：版本段（/v1）由用户填写，后端只拼端点
+  url: 'https://api.anthropic.com/v1',
   key: 'test-key',
 } as const
 
@@ -111,11 +112,11 @@ describe('Anthropic Provider URL 解析与流完整性', () => {
     )
   }
 
-  it('流式 url 无路径自动补 /v1/messages（旧配置兼容）', async () => {
+  it('流式 url 无版本段 → base + /messages（版本段用户填写，不补 /v1）', async () => {
     fetchMock.mockResolvedValue(sseResponse([])) // url 断言在触发 fetch 后即可读
     await consumeChatStream('https://gw.example.com:11411').catch(() => undefined)
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://gw.example.com:11411/v1/messages',
+      'https://gw.example.com:11411/messages',
       expect.objectContaining({ method: 'POST' }),
     )
   })
@@ -129,11 +130,11 @@ describe('Anthropic Provider URL 解析与流完整性', () => {
     )
   })
 
-  it('fullUrl=true 只拼 /messages（无路径也不补版本段）', async () => {
+  it('fullUrl=true 完全不拼接（URL 原样访问，仅去尾斜杠）', async () => {
     fetchMock.mockResolvedValue(sseResponse([]))
     await consumeChatStream('https://gw.example.com:11411', true).catch(() => undefined)
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://gw.example.com:11411/messages',
+      'https://gw.example.com:11411',
       expect.anything(),
     )
   })
