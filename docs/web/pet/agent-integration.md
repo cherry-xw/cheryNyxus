@@ -278,7 +278,7 @@ F1+F2+F3 已落地 hydration 单一水源 + currentState 快照消费 + replayMo
 
 [MessageBubble.vue](../../../web/src/features/agent/chat/MessageBubble.vue) 单 item 契约不变。VirtualScroll key（`getHistoryItemKey` [vue:138-140](../../../web/src/features/agent/drawer/HistoryDrawerPanel.vue#L138)）`item.msgId ?? idx-<index>`：E 乐观 push tempMsgId 保证首帧稳定 key，userMsgId 替换后切一次（单条 user，可接受）。
 
-**VirtualScroll 定位约束**：item 绝对定位偏移 `translate3d(0, ${offset}px, 0)` 的 offset **必须 `Math.round()` 取整**（[VirtualScroll.vue:411](../../../web/src/components/VirtualScroll.vue#L411)）。offset 由 ResizeObserver 实测高度（`getBoundingClientRect().height`，浮点）累加而来；`will-change: transform` 提升合成层后，浮点位移触发亚像素光栅化，文字会明显模糊——折叠工具调用开关（`senseCallsCollapsed`）触发高度全量重排到浮点 offset 时最明显。取整到整数像素不产生可感知的位置误差（0.5px 级）。
+**VirtualScroll 定位约束**：item 绝对定位偏移 `translate3d(0, ${offset}px, 0)` 的 offset **必须 `Math.round()` 取整**（[VirtualScroll.vue:411](../../../web/src/components/VirtualScroll.vue#L411)）。offset 由 ResizeObserver 实测高度（`getBoundingClientRect().height`，浮点）累加而来。同时 **禁止加 `will-change: transform`**（[VirtualScroll.vue:476](../../../web/src/components/VirtualScroll.vue#L476) 已移除）——`will-change` 强制把 item 提升为透明合成层，Chromium 对透明合成层文本用灰度抗锯齿（subpixel/ClearType 依赖不透明层才能正确混合），dpr=1 的 Windows 上小字号（11.5px）文字发虚明显；折叠工具调用开关触发高度全量重排、合成层重建时最明显。两条约束缺一不可：取整消除亚像素位移、去 will-change 让文字回落普通层走 subpixel 渲染；滚动时浏览器会自动临时提升合成层加速、静止回落，不影响性能。
 
 #### 关键风险与缓解
 
