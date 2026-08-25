@@ -372,7 +372,13 @@ export async function handleUtilsOpenFile(
       args = [filePath]
     }
 
-    spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+    // 注意：不带 windowsHide——编辑器多为 GUI 程序（notepad/vscode），windowsHide:true 会使其
+    // 无窗口运行（回归 a3fd2c2）。控制台子进程（execute_command/hooks）仍按约定带 windowsHide 防 cmd 窗闪。
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' })
+    child.on('error', (err) => {
+      logger.error(`utils.openFile: 启动编辑器失败 ${editor}: ${err.message}`)
+    })
+    child.unref()
   } else {
     logger.event('utils.openFile', { path: filePath, editor: 'system default' }, LogLevel.info)
     await openWithSystem(filePath)

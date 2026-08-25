@@ -135,7 +135,7 @@ Router 分发要点：handler 返回普通 `Promise` → 直接 Response；返�
 | `utils.models` | `handleUtilsModels` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 基于 provider/url/key/fullUrl 拉取可用模型列表（fullUrl=true 不补全 URL，与正式 chat 同规则） |
 | `utils.testConnection` | `handleUtilsTestConnection` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 用未保存配置执行真实最小 Provider 请求（透传 fullUrl），不持久化、不重试 |
 | `env.list` | `handleEnvList` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 列 .env 文件变量名供密钥下拉（**每次实时读盘**；调用前触发 `reloadEnvFile(true)` 把 .env 新变量/新值同步进 `process.env`，前端点「刷新密钥」即重载生效，无需重启。前端 agentApi.listEnvVars 再按后缀过滤——任意 `KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`PASSWD`/`ACCESS_KEY_ID` 结尾，运行时配置不进下拉） |
-| `utils.openFile` | `handleUtilsOpenFile` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 打开指定文件（用配置编辑器或系统默认） |
+| `utils.openFile` | `handleUtilsOpenFile` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 打开指定文件（用配置编辑器或系统默认）；win32 以 `detached:true` 新进程组拉起编辑器，**不带 `windowsHide`**（GUI 编辑器如 notepad 需显示窗口；spawn 失败仅记 error 日志，不弹窗） |
 | `utils.openConfigDir` | `handleUtilsOpenConfigDir` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 固定打开后端主机的 `CHERY_DIR/.chery` 配置目录 |
 | `utils.editors` | `handleUtilsEditors` | [utils/handler.ts](../../src/service/utils/handler.ts) | 否 | 检测后端主机可用的文本编辑器 |
 | `config.workspace.browse.start` | `handleBrowseStart` | [browse/handler.ts](../../src/service/browse/handler.ts) | 否 | 开启浏览会话（根锚定 + 一次性 sessionId + 限流） |
