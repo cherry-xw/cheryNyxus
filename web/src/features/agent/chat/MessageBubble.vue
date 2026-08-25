@@ -22,6 +22,7 @@ import { SenseCallRenderer } from '../renderers/index'
 import MessageAvatar from './MessageAvatar.vue'
 import MediaInlineRenderer from '../dialog/media/MediaInlineRenderer.vue'
 import { terminationDisplay } from '@/features/pets/nyxus/graph/termination'
+import { toSenseNameZh } from '@/utils/senseName'
 
 const props = defineProps<{
   item: HistoryItem
@@ -241,7 +242,7 @@ function removeDelivery(): void {
                 :class="`tag-${call.status}`"
                 :title="call.name"
               >
-                <span class="sense-tag-name">{{ call.name || '(unknown sense)' }}</span>
+                <span class="sense-tag-name">{{ toSenseNameZh(call.name) }}</span>
                 <span class="sense-tag-status" aria-hidden="true">{{
                   senseStatusGlyph(call)
                 }}</span>
@@ -469,6 +470,7 @@ function removeDelivery(): void {
 // （{{ }} 插值已 HTML 转义，字面 #/* 不被误解释为富文本）
 .msg-row.role-user .content {
   white-space: pre-wrap;
+  font-weight: 400;
 }
 
 .instruction-message-token {
@@ -525,17 +527,22 @@ function removeDelivery(): void {
   &:hover {
     border-color: color-mix(in srgb, var(--ink) 30%, transparent);
   }
+}
 
-  // 状态着色（与 SenseCallBox .sense-status 同款语义色）
-  &.tag-running {
-    color: #b67c1c;
-  }
-  &.tag-error {
-    color: #b4233b;
-  }
-  &.tag-done {
-    color: color-mix(in srgb, #456342 72%, var(--ink));
-  }
+// 工具名称固定默认色（继承 .sense-tag 基础色），不随执行结果变色
+.sense-tag-name {
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+// 仅状态符号（勾/叉）随执行结果着色（与 SenseCallBox .sense-status 同款语义色）
+.sense-tag.tag-running .sense-tag-status {
+  color: #b67c1c;
+}
+.sense-tag.tag-error .sense-tag-status {
+  color: #b4233b;
+}
+.sense-tag.tag-done .sense-tag-status {
+  color: color-mix(in srgb, #456342 72%, var(--ink));
 }
 
 // 气泡右上角时间戳：bubble-head 内靠右、低饱和、小字号；缺失不渲染（v-if 控制）

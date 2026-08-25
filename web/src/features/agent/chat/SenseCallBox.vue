@@ -13,6 +13,7 @@ import { computed, ref } from 'vue'
 import type { SenseCallRecord } from '@/stores/agents'
 import { formatArgValue, formatValue, parseArgs } from '@/utils/parseArgs'
 import { extractMediaUrls } from '@/utils/markdown'
+import { toSenseNameZh } from '@/utils/senseName'
 import MediaInlineRenderer from '../dialog/media/MediaInlineRenderer.vue'
 
 const props = defineProps<{ call: SenseCallRecord; defaultExpanded?: boolean }>()
@@ -57,7 +58,7 @@ const statusClass = computed(() => `status-${props.call.status}`)
   <div class="sense-box">
     <div class="sense-head">
       <span class="sense-icon" aria-hidden="true">⚙</span>
-      <span class="sense-name">{{ props.call.name || '(unknown sense)' }}</span>
+      <span class="sense-name">{{ toSenseNameZh(props.call.name) }}</span>
       <span class="sense-status" :class="statusClass" aria-hidden="true">{{ statusGlyph }}</span>
     </div>
     <div v-if="hasArgs" class="sense-section">
