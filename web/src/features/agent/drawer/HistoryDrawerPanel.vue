@@ -219,7 +219,12 @@ const taskId = computed(() => agents.summaryForChat(props.chatId)?.taskId)
 watch(
   taskId,
   (id) => {
-    taskBranches.value = agents.historyDrawerTaskBranches
+    // 注入值仅当属于当前任务时暂用（工作台 openHistory 即时显示优化）；跨任务残留
+    // （switchSession 切会话不更新全局 historyDrawerTaskBranches）或无任务会话时
+    // 过滤为空，避免下拉泄漏别的任务分支。真实数据以 timeline 拉取结果为准。
+    taskBranches.value = agents.historyDrawerTaskBranches.filter(
+      (branch) => branch.taskId === id,
+    )
     taskTimeline.value = undefined
     if (!id) return
     const requestedTaskId = id
@@ -263,9 +268,11 @@ function branchOptionLabel(branch: ConversationBranchSummary): string {
   return `${prefix} · ${plain}`
 }
 // ── 会话级联切换（原「根会话 + 任务分支」两个下拉合并为一个两级 cascader）：
-//    第一级 = 任务（rootOptions 按 ChatSummary.taskId 分组，无 taskId 各自成组）；
-//    第二级 = 该任务的分支会话--当前任务用 timeline 分支摘要（主流程排前），其他任务用
-//    ChatSummary.branchKind 前缀退化。checkStrictly：点第一级任务节点直接切到其代表会话
+//    workbench-docked：平铺当前任务分支为一级（主流程/继续/解释，branchOptionLabel 打标，
+//    checkStrictly 可点解释分支切换查看）；overlay：两级——一级 = 任务（rootOptions 按
+//    ChatSummary.taskId 分组，无 taskId 各自成组），二级 = 该任务的分支会话--当前任务用
+//    timeline 分支摘要（主流程排前）且**过滤解释分支**，其他任务用 ChatSummary.branchKind
+//    前缀退化（也过滤解释分支）。checkStrictly：点一级任务节点直接切到其代表会话
 //    （当前任务 = activeBranch，其他 = 最近会话）。value 恒为 chatId，change 统一 openRoot。 ──
 interface SessionCascadeOption {
   value: string
@@ -282,7 +289,20 @@ function summaryBranchPrefix(c: ChatSummary): string {
 }
 
 const cascadeOptions = computed<SessionCascadeOption[]>(() => {
-  // 按 taskId 聚任务组；无 taskId 的会话各自成组（key 唯一即可）
+  // workbench-docked：平铺当前任务分支为一级（含解释流程，可点击切换查看）；
+  // 无任务分支（非任务会话 / 分支已清空）时仅当前会话单选项，绝不退化两级跨任务显示。
+  if (agents.historyDrawerMode === 'workbench-docked') {
+    const branches = orderedTaskBranches.value
+    if (branches.length > 0) {
+      return branches.map((b) => ({
+        value: b.chatId,
+        label: branchOptionLabel(b),
+      }))
+    }
+    const current = rootOptions.value.find((c) => c.chatId === props.chatId)
+    return current ? [{ value: current.chatId, label: rootOptionLabel(current) }] : []
+  }
+  // overlay：按 taskId 聚任务组；无 taskId 的会话各自成组（key 唯一即可）
   const groups = new Map<string, ChatSummary[]>()
   for (const c of rootOptions.value) {
     const key = c.taskId ?? `chat:${c.chatId}`
@@ -294,33 +314,42 @@ const cascadeOptions = computed<SessionCascadeOption[]>(() => {
   for (const [key, chats] of groups) {
     const sorted = chats.slice().sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
     const latest = sorted[0]!
-    // 当前任务：分支摘要做第二级；不在分支列表的会话兜底追加（historyList 未含分支 chat 时）
+    // 当前任务：分支摘要做第二级（过滤解释分支）；不在分支列表的会话兜底追加（historyList 未含分支 chat 时）
     if (key === taskId.value && orderedTaskBranches.value.length > 0) {
-      const branches = orderedTaskBranches.value
-      const branchChatIds = new Set(branches.map((b) => b.chatId))
-      const children: SessionCascadeOption[] = branches.map((b) => ({
-        value: b.chatId,
-        label: branchOptionLabel(b),
-      }))
-      for (const c of sorted) {
-        if (!branchChatIds.has(c.chatId))
-          children.push({ value: c.chatId, label: rootOptionLabel(c) })
+      const branches = orderedTaskBranches.value.filter((b) => b.kind !== 'detail')
+      if (branches.length > 0) {
+        const branchChatIds = new Set(branches.map((b) => b.chatId))
+        const children: SessionCascadeOption[] = branches.map((b) => ({
+          value: b.chatId,
+          label: branchOptionLabel(b),
+        }))
+        for (const c of sorted) {
+          if (c.branchKind !== 'detail' && !branchChatIds.has(c.chatId))
+            children.push({ value: c.chatId, label: rootOptionLabel(c) })
+        }
+        const activeChatId =
+          branches.find((b) => b.branchId === taskTimeline.value?.activeBranchId)?.chatId ??
+          branches[0]!.chatId
+        options.push({ value: activeChatId, label: rootOptionLabel(latest), children })
+        continue
       }
-      const activeChatId =
-        branches.find((b) => b.branchId === taskTimeline.value?.activeBranchId)?.chatId ??
-        branches[0]!.chatId
-      options.push({ value: activeChatId, label: rootOptionLabel(latest), children })
-      continue
+      // 该任务仅剩解释分支：降级走下方通用分组逻辑
     }
     // 单会话组（无分支）：叶子节点直接可选，不展开空二级
     if (sorted.length === 1) {
       options.push({ value: sorted[0]!.chatId, label: rootOptionLabel(sorted[0]!) })
       continue
     }
+    // 多会话组：二级过滤解释分支；仅剩解释分支时退化为叶子（一级直接可选）
+    const nonDetail = sorted.filter((c) => c.branchKind !== 'detail')
+    if (nonDetail.length === 0) {
+      options.push({ value: latest.chatId, label: rootOptionLabel(latest) })
+      continue
+    }
     options.push({
       value: latest.chatId,
       label: rootOptionLabel(latest),
-      children: sorted.map((c) => ({
+      children: nonDetail.map((c) => ({
         value: c.chatId,
         label: summaryBranchPrefix(c) + rootOptionLabel(c),
       })),
@@ -825,14 +854,16 @@ const titleText = computed(() => {
   return `历史 · ${props.chatId.slice(0, 8)}…`
 })
 
-/** 级联下拉作为标题：同 preset 存在多个可切换会话，或任务含多个分支时，静态标题隐去，
- *  由级联下拉承载占位。任务分支 >1 时 workbench-docked 模式也显示（分支/会话切换与 pet
- *  抽屉一致）；仅单分支且无多 root 会话时才隐藏为静态标题。 */
+/** 级联下拉作为标题：workbench-docked 恒显示（分支/会话切换入口，平铺当前任务分支一级）；
+ *  overlay 在同 preset 存在多个可切换会话或任务含多个分支时显示。overlay 打开解释分支会话时
+ *  其 chatId 不在过滤解释后的二级选项中，降为静态标题（titleText）避免 cascader 值失配。 */
 const dropdownAsTitle = computed(
   () =>
     layout.value === 'group' &&
-    ((agents.historyDrawerMode !== 'workbench-docked' && rootOptions.value.length > 1) ||
-      orderedTaskBranches.value.length > 1),
+    (agents.historyDrawerMode === 'workbench-docked'
+      ? true
+      : currentTaskBranch.value?.kind !== 'detail' &&
+        (rootOptions.value.length > 1 || orderedTaskBranches.value.length > 1)),
 )
 
 /** 6c：解析某条历史消息所属 chat 的 pet runtime 兜底（subPetChatId 优先 → agentChatId → 当前 drawer chat）。
@@ -954,7 +985,7 @@ function onPromptSnapShow(): void {
     <header class="drawer-head">
       <div class="title-block">
         <span v-if="!dropdownAsTitle" class="title">{{ titleText }}</span>
-        <!-- 会话级联切换：第一级任务，第二级分支；任务含多分支时 dock 抽屉也显示（切分支保持 dock 锚定） -->
+        <!-- 会话级联切换：dock 恒显示平铺当前任务分支一级（主流程/继续/解释）；overlay 两级（一级任务、二级分支，二级去除解释） -->
         <el-cascader
           v-if="dropdownAsTitle"
           class="cascade-switch"
