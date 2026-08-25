@@ -46,6 +46,9 @@ export function createQuestionActions(
         batch.questions.map((question) => ({
           questionId: question.questionId,
           selectedLabels: [...question.draftAnswer!.selectedLabels],
+          ...(question.draftAnswer!.optionNotes
+            ? { optionNotes: question.draftAnswer!.optionNotes }
+            : {}),
           ...(question.draftAnswer!.freeText ? { freeText: question.draftAnswer!.freeText } : {}),
           ...(question.draftAnswer!.cancelled ? { cancelled: true } : {}),
         })),

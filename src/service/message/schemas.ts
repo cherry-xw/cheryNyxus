@@ -462,6 +462,7 @@ export const requestSchemas = {
         z.object({
           questionId: z.string().min(1),
           selectedLabels: z.array(z.string()),
+          optionNotes: z.record(z.string(), z.string()).optional(),
           freeText: z.string().optional(),
           cancelled: z.boolean().optional(),
         }),
@@ -471,6 +472,7 @@ export const requestSchemas = {
   [Method.SENSE_QUESTION_ANSWER]: z.object({
     questionId: z.string(),
     selectedLabels: z.array(z.string()),
+    optionNotes: z.record(z.string(), z.string()).optional(),
     freeText: z.string().optional(),
     cancelled: z.boolean().optional(),
   }),
@@ -482,6 +484,7 @@ export const requestSchemas = {
         z.object({
           questionId: z.string(),
           selectedLabels: z.array(z.string()),
+          optionNotes: z.record(z.string(), z.string()).optional(),
           freeText: z.string().optional(),
           cancelled: z.boolean().optional(),
         }),

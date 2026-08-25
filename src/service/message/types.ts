@@ -596,6 +596,8 @@ export interface InteractionQuestionAnswerResponseData {
 export interface SenseQuestionAnswerRequestData {
   questionId: string
   selectedLabels: string[]
+  /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+  optionNotes?: Record<string, string>
   freeText?: string
   cancelled?: boolean
 }
@@ -612,6 +614,8 @@ export interface SenseQuestionBatchAnswerRequestData {
   answers: Array<{
     questionId: string
     selectedLabels: string[]
+    /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+    optionNotes?: Record<string, string>
     freeText?: string
     cancelled?: boolean
   }>

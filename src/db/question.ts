@@ -36,6 +36,8 @@ export interface QuestionStateSnapshot {
 export interface QuestionBatchAnswerInput {
   questionId: string
   selectedLabels: string[]
+  /** 每选项补充描述：label → note（仅作用于已选选项；可选，向后兼容）。 */
+  optionNotes?: Record<string, string>
   freeText?: string
   cancelled?: boolean
 }
@@ -419,13 +421,28 @@ function normalizeAnswer(
     throw new Error(`Question "${item.question_id}" has no answer`)
   }
 
+  // 每选项补充描述：仅保留已选且非空白的 note（label → note）。
+  const selected = new Set(selectedLabels)
+  const optionNotes: Record<string, string> = {}
+  for (const [label, note] of Object.entries(answer.optionNotes ?? {})) {
+    const trimmed = note?.trim()
+    if (selected.has(label) && trimmed) optionNotes[label] = trimmed
+  }
+  const hasNotes = Object.keys(optionNotes).length > 0
+
   const answerText = cancelled
     ? '(用户取消了此问题)'
-    : `用户回答: ${[...selectedLabels, ...(freeText ? [`其他: ${freeText}`] : [])].join(', ')}`
+    : `用户回答: ${[
+        ...selectedLabels.map((label) =>
+          optionNotes[label] ? `${label}（补充: ${optionNotes[label]}）` : label,
+        ),
+        ...(freeText ? [`其他: ${freeText}`] : []),
+      ].join(', ')}`
   return {
     answerText,
     answerJson: JSON.stringify({
       selectedLabels,
+      ...(hasNotes ? { optionNotes } : {}),
       ...(freeText ? { freeText } : {}),
       ...(cancelled ? { cancelled: true } : {}),
     }),

@@ -16,7 +16,13 @@ const interactions = useInteractionsStore()
 const scope = ref<'workspace' | 'all'>(props.presetId ? 'workspace' : 'all')
 const section = ref<'pending' | 'activity'>('pending')
 const drafts = reactive<
-  Record<string, Record<string, { selectedLabels: string[]; freeText: string }>>
+  Record<
+    string,
+    Record<
+      string,
+      { selectedLabels: string[]; optionNotes: Record<string, string>; freeText: string }
+    >
+  >
 >({})
 /** 审批倒计时驱动：now 每 250ms 刷新，重算各卡剩余秒。 */
 const now = ref(Date.now())
@@ -94,7 +100,7 @@ function questionsOf(item: InteractionRecord): Array<{
 }
 function draftOf(item: InteractionRecord, questionId: string) {
   const group = (drafts[item.interactionId] ??= {})
-  return (group[questionId] ??= { selectedLabels: [], freeText: '' })
+  return (group[questionId] ??= { selectedLabels: [], optionNotes: {}, freeText: '' })
 }
 function toggleOption(
   item: InteractionRecord,
@@ -107,13 +113,29 @@ function toggleOption(
     // 单选：点已选 → 清空（可取消）；未选 → 替换，并与「其他」互斥（清空 freeText）
     if (draft.selectedLabels.includes(label)) {
       draft.selectedLabels = []
+      const { [label]: _removed, ...rest } = draft.optionNotes
+      draft.optionNotes = rest
     } else {
       draft.selectedLabels = [label]
       draft.freeText = ''
+      // 单选切选项：丢弃其他选项的补充描述
+      draft.optionNotes = { ...(draft.optionNotes[label] ? { [label]: draft.optionNotes[label] } : {}) }
     }
   } else if (draft.selectedLabels.includes(label)) {
     draft.selectedLabels = draft.selectedLabels.filter((value) => value !== label)
+    const { [label]: _removed, ...rest } = draft.optionNotes
+    draft.optionNotes = rest
   } else draft.selectedLabels.push(label)
+}
+/** 某选项的补充描述输入（仅选中选项可编辑）。 */
+function onOptionNoteInput(
+  item: InteractionRecord,
+  questionId: string,
+  label: string,
+  event: Event,
+): void {
+  const draft = draftOf(item, questionId)
+  draft.optionNotes = { ...draft.optionNotes, [label]: (event.target as HTMLInputElement).value }
 }
 /** 「其他补充」输入：手动双向绑定；单选模式下输入即清空已选选项（与选项互斥，单选二选一）。 */
 function onOtherInput(item: InteractionRecord, questionId: string, event: Event): void {
@@ -166,9 +188,15 @@ async function decide(item: InteractionRecord, action: 'accept' | 'reject'): Pro
 async function answer(item: InteractionRecord): Promise<void> {
   const answers = questionsOf(item).map((question) => {
     const draft = draftOf(item, question.questionId)
+    const notes: Record<string, string> = {}
+    for (const label of draft.selectedLabels) {
+      const note = draft.optionNotes[label]?.trim()
+      if (note) notes[label] = note
+    }
     return {
       questionId: question.questionId,
       selectedLabels: [...draft.selectedLabels],
+      ...(Object.keys(notes).length ? { optionNotes: notes } : {}),
       ...(draft.freeText.trim() ? { freeText: draft.freeText.trim() } : {}),
       ...({ multiSelect: question.multiSelect } satisfies Record<string, boolean>),
     }
@@ -177,6 +205,7 @@ async function answer(item: InteractionRecord): Promise<void> {
   const submit = answers.map((answer) => ({
     questionId: answer.questionId,
     selectedLabels: answer.selectedLabels,
+    ...(answer.optionNotes !== undefined ? { optionNotes: answer.optionNotes } : {}),
     ...(answer.freeText !== undefined ? { freeText: answer.freeText } : {}),
   }))
   try {
@@ -307,22 +336,33 @@ onBeforeUnmount(() => {
                 {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
               </p>
               <div class="options">
-                <button
-                  v-for="option in question.options"
-                  :key="option.label"
-                  type="button"
-                  :class="{
-                    selected: draftOf(item, question.questionId).selectedLabels.includes(
-                      option.label,
-                    ),
-                  }"
-                  @click="
-                    toggleOption(item, question.questionId, option.label, question.multiSelect)
-                  "
-                >
-                  <b>{{ option.label }}</b
-                  ><span v-if="option.description">{{ option.description }}</span>
-                </button>
+                <div v-for="option in question.options" :key="option.label" class="option-row">
+                  <button
+                    type="button"
+                    :class="{
+                      selected: draftOf(item, question.questionId).selectedLabels.includes(
+                        option.label,
+                      ),
+                    }"
+                    @click="
+                      toggleOption(item, question.questionId, option.label, question.multiSelect)
+                    "
+                  >
+                    <b>{{ option.label }}</b
+                    ><span v-if="option.description">{{ option.description }}</span>
+                  </button>
+                  <input
+                    v-if="
+                      draftOf(item, question.questionId).selectedLabels.includes(option.label)
+                    "
+                    class="option-note-input"
+                    :value="draftOf(item, question.questionId).optionNotes[option.label] ?? ''"
+                    placeholder="为这个选项补充描述（可选）"
+                    @input="
+                      onOptionNoteInput(item, question.questionId, option.label, $event)
+                    "
+                  />
+                </div>
               </div>
               <input
                 :value="draftOf(item, question.questionId).freeText"
@@ -625,6 +665,10 @@ fieldset > small {
   display: grid;
   gap: 5px;
 }
+.option-row {
+  display: grid;
+  gap: 5px;
+}
 .options button {
   display: grid;
   gap: 2px;
@@ -658,6 +702,9 @@ input {
   background: var(--surface);
   color: var(--ink);
   font-size: 13px;
+}
+.option-note-input {
+  margin-top: 0;
 }
 article footer {
   justify-content: flex-end;

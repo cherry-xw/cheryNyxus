@@ -1810,6 +1810,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         batch.questions.map((item) => ({
           questionId: item.questionId,
           selectedLabels: [...item.draftAnswer!.selectedLabels],
+          ...(item.draftAnswer!.optionNotes ? { optionNotes: item.draftAnswer!.optionNotes } : {}),
           ...(item.draftAnswer!.freeText ? { freeText: item.draftAnswer!.freeText } : {}),
           ...(item.draftAnswer!.cancelled ? { cancelled: true } : {}),
         })),
@@ -1848,6 +1849,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     answers: Array<{
       questionId: string
       selectedLabels: string[]
+      /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+      optionNotes?: Record<string, string>
       freeText?: string
       cancelled?: boolean
     }>,

@@ -14,8 +14,12 @@ function isDrafted(question: QuestionItemState): boolean {
     question.localStatus === 'pending' &&
     Boolean(
       question.draftAnswer?.selectedLabels.length ||
-      question.draftAnswer?.freeText?.trim() ||
-      question.draftAnswer?.cancelled,
+        (question.draftAnswer?.optionNotes &&
+          Object.keys(question.draftAnswer.optionNotes).some(
+            (label) => question.draftAnswer!.optionNotes![label]?.trim(),
+          )) ||
+        question.draftAnswer?.freeText?.trim() ||
+        question.draftAnswer?.cancelled,
     )
   )
 }

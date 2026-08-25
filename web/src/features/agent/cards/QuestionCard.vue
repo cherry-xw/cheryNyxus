@@ -50,27 +50,44 @@ const submitError = ref('')
 // 用户已选的 label 集合（单选互斥 / 多选累加）
 const selectedLabels = ref<Set<string>>(new Set(props.question.draftAnswer?.selectedLabels ?? []))
 
+// 每选项补充描述：label → note（选中某选项后可为该选项补充一段描述）
+const optionNotes = ref<Record<string, string>>({
+  ...(props.question.draftAnswer?.optionNotes ?? {}),
+})
+
 // 「其他」inline textarea 输入内容
 const otherText = ref(props.question.draftAnswer?.freeText ?? '')
 
 /** 「其他」chip 是否 inline 展开（刷新卡片时保留已有自由文本） */
 const otherExpanded = ref(Boolean(otherText.value))
 
+/** 仅保留仍选中选项的非空白 note（取消选中即丢弃对应 note）。 */
+function collectOptionNotes(): Record<string, string> {
+  const notes: Record<string, string> = {}
+  for (const label of selectedLabels.value) {
+    const note = optionNotes.value[label]?.trim()
+    if (note) notes[label] = note
+  }
+  return notes
+}
+
 /** 勾选即同步草稿，让 pet 的问号可显示「已勾选、待下一步」中间态。 */
 function syncDraft(): void {
   const freeText = otherExpanded.value ? otherText.value.trim() : ''
   const selected = Array.from(selectedLabels.value)
+  const notes = collectOptionNotes()
   if (!selected.length && !freeText) {
     chatSessions.updateQuestionDraft(props.chatId, props.question.questionId)
     return
   }
   chatSessions.updateQuestionDraft(props.chatId, props.question.questionId, {
     selectedLabels: selected,
+    ...(Object.keys(notes).length ? { optionNotes: notes } : {}),
     ...(freeText ? { freeText } : {}),
   })
 }
 
-watch([selectedLabels, otherText, otherExpanded], syncDraft)
+watch([selectedLabels, otherText, otherExpanded, optionNotes], syncDraft)
 
 // Bug 3 修复：进入新问题（"下一步"推进，questionId 变化）时重置本地草稿态——
 // 新问题节点与上一题完全无关联。工作台 popover 用 :key=batchId 复用组件实例，
@@ -79,6 +96,7 @@ watch(
   () => props.question.questionId,
   () => {
     selectedLabels.value = new Set(props.question.draftAnswer?.selectedLabels ?? [])
+    optionNotes.value = { ...(props.question.draftAnswer?.optionNotes ?? {}) }
     otherText.value = props.question.draftAnswer?.freeText ?? ''
     otherExpanded.value = Boolean(otherText.value)
     pending.value = null
@@ -110,11 +128,12 @@ function toggleSingle(label: string): void {
   const next = new Set<string>()
   if (!selectedLabels.value.has(label)) next.add(label)
   selectedLabels.value = next
-  // 单选选了具体选项 → 收起「其他」（互斥）
+  // 单选选了具体选项 → 收起「其他」（互斥）并丢弃其他选项的补充描述
   if (otherExpanded.value) {
     otherExpanded.value = false
     otherText.value = ''
   }
+  optionNotes.value = { ...(next.has(label) ? { [label]: optionNotes.value[label] ?? '' } : {}) }
 }
 
 /** 多选 chip 点击：切换选中状态 */
@@ -124,6 +143,11 @@ function toggleMulti(label: string): void {
   if (next.has(label)) next.delete(label)
   else next.add(label)
   selectedLabels.value = next
+  // 取消选中 → 丢弃该选项的补充描述
+  if (!next.has(label)) {
+    const { [label]: _removed, ...rest } = optionNotes.value
+    optionNotes.value = rest
+  }
 }
 
 /** 统一 Submit："下一步"模式保存 draft 后决定提交或切下一个 */
@@ -132,8 +156,14 @@ async function advanceOrSubmit(): Promise<void> {
   pending.value = 'submit'
   submitError.value = ''
   try {
-    const draft: { selectedLabels: string[]; freeText?: string } = {
+    const notes = collectOptionNotes()
+    const draft: {
+      selectedLabels: string[]
+      optionNotes?: Record<string, string>
+      freeText?: string
+    } = {
       selectedLabels: Array.from(selectedLabels.value),
+      ...(Object.keys(notes).length ? { optionNotes: notes } : {}),
     }
     if (otherExpanded.value && otherText.value.trim()) {
       draft.freeText = otherText.value.trim()
@@ -147,6 +177,11 @@ async function advanceOrSubmit(): Promise<void> {
     // 成功/失败均复位 pending；成功路径不复位会致所有 chip 永久 disabled（bug2）
     pending.value = null
   }
+}
+
+/** 某选项的补充描述输入（仅选中选项可编辑）。 */
+function setOptionNote(label: string, value: string): void {
+  optionNotes.value = { ...optionNotes.value, [label]: value }
 }
 
 function toggleOther(): void {
@@ -206,30 +241,40 @@ function back(): void {
       role="listbox"
       :aria-multiselectable="question.multiSelect ? 'true' : 'false'"
     >
-      <button
-        v-for="opt in question.options"
-        :key="opt.label"
-        type="button"
-        class="option-card"
-        :class="{
-          selected: selectedLabels.has(opt.label),
-          disabled: pending !== null,
-          'is-multi': question.multiSelect,
-          'is-single': !question.multiSelect,
-        }"
-        role="option"
-        :aria-selected="selectedLabels.has(opt.label)"
-        :disabled="pending !== null"
-        @click="question.multiSelect ? toggleMulti(opt.label) : toggleSingle(opt.label)"
-      >
-        <span class="choice-mark" aria-hidden="true">
-          <span v-if="selectedLabels.has(opt.label)">✓</span>
-        </span>
-        <span class="option-copy">
-          <span class="option-label">{{ opt.label }}</span>
-          <span v-if="opt.description" class="option-description">{{ opt.description }}</span>
-        </span>
-      </button>
+      <div v-for="opt in question.options" :key="opt.label" class="option-wrap">
+        <button
+          type="button"
+          class="option-card"
+          :class="{
+            selected: selectedLabels.has(opt.label),
+            disabled: pending !== null,
+            'is-multi': question.multiSelect,
+            'is-single': !question.multiSelect,
+          }"
+          role="option"
+          :aria-selected="selectedLabels.has(opt.label)"
+          :disabled="pending !== null"
+          @click="question.multiSelect ? toggleMulti(opt.label) : toggleSingle(opt.label)"
+        >
+          <span class="choice-mark" aria-hidden="true">
+            <span v-if="selectedLabels.has(opt.label)">✓</span>
+          </span>
+          <span class="option-copy">
+            <span class="option-label">{{ opt.label }}</span>
+            <span v-if="opt.description" class="option-description">{{ opt.description }}</span>
+          </span>
+        </button>
+        <textarea
+          v-if="selectedLabels.has(opt.label)"
+          class="option-note-input"
+          rows="2"
+          :value="optionNotes[opt.label] ?? ''"
+          :disabled="pending !== null"
+          placeholder="为这个选项补充描述（可选）"
+          maxlength="500"
+          @input="setOptionNote(opt.label, ($event.target as HTMLTextAreaElement).value)"
+        />
+      </div>
       <button
         type="button"
         class="option-card other"
@@ -421,6 +466,37 @@ function back(): void {
   gap: 7px;
 }
 
+.option-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.option-note-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: @ink;
+  font-size: 11px;
+  line-height: 1.45;
+  resize: vertical;
+  &::placeholder {
+    color: color-mix(in srgb, var(--ink) 45%, transparent);
+  }
+  &:focus {
+    outline: none;
+    border-color: rgba(124, 58, 237, 0.5);
+    box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.22) inset;
+  }
+  &:disabled {
+    opacity: 0.55;
+  }
+}
+
 .option-card {
   appearance: none;
   width: 100%;
@@ -593,6 +669,7 @@ function back(): void {
     font-size: var(--paper-font-body, 13px);
   }
   .option-label,
+  .option-note-input,
   :deep(.el-textarea__inner) {
     font-size: var(--paper-font-body, 13px);
   }

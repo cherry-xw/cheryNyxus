@@ -113,6 +113,8 @@ export interface ApprovalState {
 
 export interface QuestionDraftAnswer {
   selectedLabels: string[]
+  /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+  optionNotes?: Record<string, string>
   freeText?: string
   cancelled?: boolean
 }

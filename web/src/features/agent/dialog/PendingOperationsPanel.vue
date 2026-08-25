@@ -49,7 +49,13 @@ const now = ref(Date.now())
 let countdownTimer: ReturnType<typeof setInterval> | undefined
 /** 各交互的作答草稿（interactionId → questionId → 草稿），跨刷新保留。 */
 const drafts = reactive<
-  Record<string, Record<string, { selectedLabels: string[]; freeText: string }>>
+  Record<
+    string,
+    Record<
+      string,
+      { selectedLabels: string[]; optionNotes: Record<string, string>; freeText: string }
+    >
+  >
 >({})
 
 interface PanelQuestion {
@@ -207,7 +213,7 @@ function questionsOf(item: InteractionRecord): PanelQuestion[] {
 }
 function draftOf(item: InteractionRecord, questionId: string) {
   const group = (drafts[item.interactionId] ??= {})
-  return (group[questionId] ??= { selectedLabels: [], freeText: '' })
+  return (group[questionId] ??= { selectedLabels: [], optionNotes: {}, freeText: '' })
 }
 function toggleOption(
   item: InteractionRecord,
@@ -221,10 +227,24 @@ function toggleOption(
     else {
       draft.selectedLabels = [label]
       draft.freeText = ''
+      // 单选切选项：丢弃其他选项的补充描述
+      draft.optionNotes = { ...(draft.optionNotes[label] ? { [label]: draft.optionNotes[label] } : {}) }
     }
   } else if (draft.selectedLabels.includes(label)) {
     draft.selectedLabels = draft.selectedLabels.filter((value) => value !== label)
+    const { [label]: _removed, ...rest } = draft.optionNotes
+    draft.optionNotes = rest
   } else draft.selectedLabels.push(label)
+}
+/** 某选项的补充描述输入（仅选中选项可编辑）。 */
+function onOptionNoteInput(
+  item: InteractionRecord,
+  questionId: string,
+  label: string,
+  event: Event,
+): void {
+  const draft = draftOf(item, questionId)
+  draft.optionNotes = { ...draft.optionNotes, [label]: (event.target as HTMLInputElement).value }
 }
 /** 「其他补充」输入：单选模式下输入即清空已选选项（与选项互斥，单选二选一）。 */
 function onOtherInput(item: InteractionRecord, questionId: string, event: Event): void {
@@ -303,9 +323,15 @@ async function answer(item: InteractionRecord): Promise<void> {
   submitError.value = ''
   const answers = questionsOf(item).map((question) => {
     const draft = draftOf(item, question.questionId)
+    const notes: Record<string, string> = {}
+    for (const label of draft.selectedLabels) {
+      const note = draft.optionNotes[label]?.trim()
+      if (note) notes[label] = note
+    }
     return {
       questionId: question.questionId,
       selectedLabels: [...draft.selectedLabels],
+      ...(Object.keys(notes).length ? { optionNotes: notes } : {}),
       ...(draft.freeText.trim() ? { freeText: draft.freeText.trim() } : {}),
       ...({ multiSelect: question.multiSelect } satisfies Record<string, boolean>),
     }
@@ -326,6 +352,7 @@ async function answer(item: InteractionRecord): Promise<void> {
   const submit = answers.map((answer) => ({
     questionId: answer.questionId,
     selectedLabels: answer.selectedLabels,
+    ...(answer.optionNotes !== undefined ? { optionNotes: answer.optionNotes } : {}),
     ...(answer.freeText !== undefined ? { freeText: answer.freeText } : {}),
   }))
   try {
@@ -459,27 +486,53 @@ onBeforeUnmount(() => {
                       {{ question.multiSelect ? '可多选' : '单选 · 再次点击可取消' }}
                     </p>
                     <div class="options">
-                      <button
+                      <div
                         v-for="option in question.options"
                         :key="option.label"
-                        type="button"
-                        :class="{
-                          selected: draftOf(activeItem, question.questionId).selectedLabels.includes(
-                            option.label,
-                          ),
-                        }"
-                        @click="
-                          toggleOption(
-                            activeItem,
-                            question.questionId,
-                            option.label,
-                            question.multiSelect,
-                          )
-                        "
+                        class="option-row"
                       >
-                        <b>{{ option.label }}</b
-                        ><span v-if="option.description">{{ option.description }}</span>
-                      </button>
+                        <button
+                          type="button"
+                          :class="{
+                            selected: draftOf(
+                              activeItem,
+                              question.questionId,
+                            ).selectedLabels.includes(option.label),
+                          }"
+                          @click="
+                            toggleOption(
+                              activeItem,
+                              question.questionId,
+                              option.label,
+                              question.multiSelect,
+                            )
+                          "
+                        >
+                          <b>{{ option.label }}</b
+                          ><span v-if="option.description">{{ option.description }}</span>
+                        </button>
+                        <input
+                          v-if="
+                            draftOf(activeItem, question.questionId).selectedLabels.includes(
+                              option.label,
+                            )
+                          "
+                          class="option-note-input"
+                          :value="
+                            draftOf(activeItem, question.questionId).optionNotes[option.label] ??
+                            ''
+                          "
+                          placeholder="为这个选项补充描述（可选）"
+                          @input="
+                            onOptionNoteInput(
+                              activeItem,
+                              question.questionId,
+                              option.label,
+                              $event,
+                            )
+                          "
+                        />
+                      </div>
                     </div>
                     <input
                       :value="draftOf(activeItem, question.questionId).freeText"
@@ -1018,6 +1071,10 @@ fieldset {
   display: grid;
   gap: 5px;
 }
+.option-row {
+  display: grid;
+  gap: 5px;
+}
 .options button {
   display: grid;
   gap: 2px;
@@ -1057,6 +1114,9 @@ input {
   &::placeholder {
     color: color-mix(in srgb, var(--nx-text) 48%, transparent);
   }
+}
+.option-note-input {
+  margin-top: 0;
 }
 
 // 右列底部操作区（margin-top:auto 贴列底，与任务按钮同列）。

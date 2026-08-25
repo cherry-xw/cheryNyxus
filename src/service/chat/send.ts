@@ -497,6 +497,7 @@ export async function handleSenseQuestionAnswer(
     {
       questionId: data.questionId,
       selectedLabels: data.selectedLabels,
+      ...(data.optionNotes ? { optionNotes: data.optionNotes } : {}),
       ...(data.freeText !== undefined ? { freeText: data.freeText } : {}),
       ...(cancelled ? { cancelled: true } : {}),
     },

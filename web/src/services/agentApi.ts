@@ -1247,6 +1247,8 @@ export const agentApi = {
     answers: Array<{
       questionId: string
       selectedLabels: string[]
+      /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+      optionNotes?: Record<string, string>
       freeText?: string
       cancelled?: boolean
     }>
@@ -1888,7 +1890,13 @@ export const agentApi = {
    */
   async answerQuestion(
     questionId: string,
-    answer: { selectedLabels: string[]; freeText?: string; cancelled?: boolean },
+    answer: {
+      selectedLabels: string[]
+      /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+      optionNotes?: Record<string, string>
+      freeText?: string
+      cancelled?: boolean
+    },
   ): Promise<void> {
     await call('sense.question.answer', { questionId, ...answer })
   },
@@ -1900,6 +1908,8 @@ export const agentApi = {
     answers: Array<{
       questionId: string
       selectedLabels: string[]
+      /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+      optionNotes?: Record<string, string>
       freeText?: string
       cancelled?: boolean
     }>,
