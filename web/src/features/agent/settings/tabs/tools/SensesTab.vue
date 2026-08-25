@@ -9,19 +9,20 @@
  * 一个 el-select（filterable + allow-create）作「加工具」入口，选项显中文名 + 说明。
  *   - 防重复：同组同名工具只一份；下拉剔除已选工具；allow-create 输入已选名也被拦。
  *   - 一列一个：flex-direction column，tag 名 ellipsis。
- * hover tag 显完整说明（toolDoc：优先 sense.tools.docs 的【作用/能力/边界/注意】文档，缺失回退短描述）
- *   + 危险标志 + 监管等级/继承信息（pre-line 换行，popper-class sense-level-tip）。
+ * hover tag 显结构化完整说明（ToolInfoTip.vue：toolDoc 优先 sense.tools.docs 的
+ *   【作用/能力/边界/注意】分节文档，缺失回退短描述 + 危险标志 + 监管等级/继承信息，重点强调）。
  * 删组走 ConfirmPopover 二次确认；工具移除=tag 关闭（频繁操作，不二次确认）。
  * 字段名 sense_groups / senseGroup 保留（后端协议），仅 UI 文案改"器官"。
  */
 import { ref, computed } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
 import type { ConfigDto, SenseToolDocInfo, SenseToolInfo } from '@/services/agentApi'
-import { SUPERVISIONS, SUPERVISION_LABEL } from '../../config/constants'
+import { SUPERVISIONS } from '../../config/constants'
 import { toolName, toolLevel, isDangerousSense, matchedTool } from '../../config/shared'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import EditableTitle from '@/components/input/EditableTitle.vue'
 import SenseIcon from './SenseIcon.vue'
+import ToolInfoTip from './ToolInfoTip.vue'
 import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
 
 const props = withDefaults(
@@ -144,31 +145,16 @@ function toolLabel(entry: string): string {
 function levelLabel(level: string): string {
   return level || '继承'
 }
-// 监管等级行为说明：tooltip 用，让用户直观看到等级/继承到的具体权限含义。
-// 文案与 GlobalTab 全局监管说明对齐（自动更流畅 / 确认关键操作前询问 / 手动最谨慎）。
-const SUPERVISION_DESC: Record<(typeof SUPERVISIONS)[number], string> = {
-  auto: 'AI 自行调用，无需确认（更流畅）',
-  smart: '安全操作自动执行，敏感操作先问你',
-  manual: '最谨慎，每次需手动放行',
-}
-// tag tooltip：完整说明（sense.tools.docs 文档，缺失回退短描述）+ 危险标志 + 监管等级/继承信息
-// （pre-line 换行，popper-class sense-level-tip）。替代原 el-tag 上的原生 title，所有 hover 信息汇入一个 tip。
-function tagTip(entry: string): string {
-  const lines: string[] = []
-  const doc = toolDoc(entry)
-  if (doc) lines.push(doc)
-  if (isDangerousSense(entry)) lines.push('⚠ 危险器官')
-  const lv = toolLevel(entry)
-  if (lv) {
-    lines.push(`监管等级（点等级标切换）：${SUPERVISION_LABEL[lv as (typeof SUPERVISIONS)[number]] ?? lv}`)
-    lines.push(SUPERVISION_DESC[lv as (typeof SUPERVISIONS)[number]] ?? '')
-  } else {
-    const g = props.draft.global.supervision
-    lines.push('继承（点等级标切换）')
-    lines.push(SUPERVISION_DESC[g])
-    lines.push(`继承全局监管：${SUPERVISION_LABEL[g]}（${g}）`)
+// tag hover 结构化 tip 的 props：完整文档（sense.tools.docs，缺失回退短描述）+ 危险 + 监管/继承。
+// 渲染交给 ToolInfoTip.vue（分节解析 + 重点强调样式，整 tag 一个 tip）。
+function tipProps(entry: string) {
+  return {
+    label: toolLabel(entry),
+    doc: toolDoc(entry),
+    dangerous: isDangerousSense(entry),
+    level: toolLevel(entry),
+    globalSupervision: props.draft.global.supervision,
   }
-  return lines.join('\n')
 }
 // tag 着色按监管松紧：auto（放权）= danger，smart = warning，manual/info = info，继承 = info+plain
 function levelTagType(level: string): 'info' | 'warning' | 'danger' {
@@ -286,35 +272,35 @@ const indexItems = computed<IndexItem[]>(() => [])
           </el-select>
         </div>
         <div class="tags">
-          <el-tag
+          <el-tooltip
             v-for="(entry, idx) in draft.sense_groups?.[gname as string] ?? []"
             :key="idx"
-            :type="levelTagType(toolLevel(entry))"
-            :effect="toolLevel(entry) ? 'light' : 'plain'"
-            closable
-            size="default"
-            class="sense-tag"
-            @close="removeTool(gname as string, idx)"
+            placement="top"
+            :show-after="120"
+            popper-class="tool-tip-popper"
           >
-            <span class="tag-name">
-              <SenseIcon :name="entry" :tools="senseTools" />
-              <span v-if="isDangerousSense(entry)" class="danger-mark">⚠</span
-              >{{ toolLabel(entry) }}
-            </span>
-            <el-tooltip
-              :content="tagTip(entry)"
-              placement="top"
-              :show-after="120"
-              popper-class="sense-level-tip"
+            <template #content><ToolInfoTip v-bind="tipProps(entry)" /></template>
+            <el-tag
+              :type="levelTagType(toolLevel(entry))"
+              :effect="toolLevel(entry) ? 'light' : 'plain'"
+              closable
+              size="default"
+              class="sense-tag"
+              @close="removeTool(gname as string, idx)"
             >
+              <span class="tag-name">
+                <SenseIcon :name="entry" :tools="senseTools" />
+                <span v-if="isDangerousSense(entry)" class="danger-mark">⚠</span
+                >{{ toolLabel(entry) }}
+              </span>
               <span
                 class="tag-level-btn"
                 :class="{ inherit: !toolLevel(entry) }"
                 @click.stop="cycleLevel(gname as string, idx)"
                 >{{ levelLabel(toolLevel(entry)) }}</span
               >
-            </el-tooltip>
-          </el-tag>
+            </el-tag>
+          </el-tooltip>
           <span v-if="!draft.sense_groups?.[gname as string]?.length" class="empty"
             >无工具，用上方搜索框添加</span
           >
@@ -393,8 +379,19 @@ const indexItems = computed<IndexItem[]>(() => [])
 .add-tool-select {
   flex: 1 1 auto;
   min-width: 0;
-  :deep(.el-input__inner) {
-    font-size: 12px;
+  // EP 2.8 触发框为 .el-select__wrapper（无 .el-input__inner），整体字重收敛 400；
+  // filterable 搜索输入即触发框内 .el-select__input，placeholder 一并覆盖 400。
+  :deep(.el-select__wrapper) {
+    font-weight: 400;
+  }
+  :deep(.el-select__placeholder),
+  :deep(.el-select__placeholder.is-transparent) {
+    font-weight: 400;
+  }
+  :deep(.el-select__input) {
+    font-weight: 400;
+  }
+  :deep(.el-select__input)::placeholder {
     font-weight: 400;
   }
 }
@@ -429,13 +426,17 @@ const indexItems = computed<IndexItem[]>(() => [])
   }
 }
 
-// 行内警告：缩到与 icon-btn 同档（24px 行高内），置于删除按钮左侧。
-// 全局 .warn-hint 在 shared.less 中 padding 5px 8px、行高 1.4，对 24px 标题行偏厚。
-// nowrap + flex-shrink:0：防止「⚠️ 危险」被 flex 压缩在空格处断行（"危险"换到第二行）。
+// 行内警告：高度对齐右侧 small el-select（--el-component-size-small: 24px），一行不换行。
+// 固定高度 + inline-flex 居中，行高不再撑高；全局 .warn-hint 在 shared.less 中 padding 5px 8px、行高 1.4，
+// 对 24px 行偏厚。nowrap + flex-shrink:0：防止「⚠️ 危险」被 flex 压缩在空格处断行（"危险"换到第二行）。
 .warn-hint.inline-warn {
-  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 6px;
+  box-sizing: border-box;
   font-size: 10px;
-  line-height: 1.4;
+  line-height: 1;
   border-radius: 4px;
   white-space: nowrap;
   flex-shrink: 0;
@@ -453,6 +454,19 @@ const indexItems = computed<IndexItem[]>(() => [])
   .el-select-dropdown__item.is-hovering,
   .el-select-dropdown__item.is-selected {
     font-weight: 400;
+  }
+  // EP 默认 item 固定 height:34px + overflow:hidden + nowrap，会裁掉两行布局的第二行说明，
+  // 覆盖为 auto 高度 + 正常换行；显式 padding 压过 .el-select-dropdown__list>.el-select-dropdown__item 的
+  // padding-left:32px（同特异性靠后置源序生效）；单选无右侧 ✓，32px 右内边距作保险。
+  .el-select-dropdown__item {
+    height: auto;
+    min-height: 34px;
+    line-height: 1.3;
+    white-space: normal;
+    overflow: visible;
+    padding: 6px 32px 6px 20px;
+    display: flex;
+    align-items: center;
   }
   // 选项两行布局：第一行图标+标题，第二行描述（可换行完整展示）
   .opt-item {
@@ -482,13 +496,5 @@ const indexItems = computed<IndexItem[]>(() => [])
     line-height: 1.4;
     word-break: break-word;
   }
-}
-// 等级标 tooltip：popper teleport 到 body，scoped 不穿透，故置全局样式；
-// pre-line 让 content 内 \n 换行（完整说明 / 切换提示 / 行为说明 / 继承来源）。
-// max-width 限宽 + 自动换行，避免长文档把气泡撑到屏幕外。
-.sense-level-tip {
-  max-width: 320px;
-  white-space: pre-line;
-  word-break: break-word;
 }
 </style>

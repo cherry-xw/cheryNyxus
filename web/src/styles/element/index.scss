@@ -56,3 +56,14 @@
   line-height: 1.5;
   word-break: break-word;
 }
+
+// 全局字重规则：所有 tooltip/popover 弹出内容默认一律 400（不随宿主继承加粗）；
+// tip 内强调词（b/strong，如技能名加粗）上限 600。teleport 到 body，故置全局非 scoped。
+.el-popper {
+  font-weight: 400;
+
+  b,
+  strong {
+    font-weight: 600;
+  }
+}

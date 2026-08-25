@@ -44,7 +44,7 @@ const items = computed<ResourceRailItem[]>(() =>
       avatar: meta && !isAsset ? meta.icon : undefined,
       avatarIcon: meta && isAsset ? meta.icon : undefined,
       capacity: formatContextLimit(cfg.contextLimit),
-      meta: cfg.model || '未配置型号',
+      meta: cfg.model || '未配置模型',
       badge: cfg.capabilities?.toolCall === false ? '💬' : '🔧',
     }
   }),

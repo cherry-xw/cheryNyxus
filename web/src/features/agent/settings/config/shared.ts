@@ -26,6 +26,36 @@ export function isDangerousSense(entry: string): boolean {
   return DANGEROUS_SENSES.includes(base)
 }
 
+/** 工具文档分节：label=节名（作用/能力/边界/注意），text=节内正文。 */
+export interface SenseDocSection {
+  label: string
+  text: string
+}
+
+/**
+ * 解析 sense.tools.docs 文档为分节数组：按行切分，识别【X】节头，节内续行并入上一节（防御性）。
+ * 无节头的纯文本（如短描述回退）返回 []，调用方回退普通段落展示。
+ */
+export function parseSenseDoc(doc: string): SenseDocSection[] {
+  if (!doc) return []
+  const sections: SenseDocSection[] = []
+  let cur: SenseDocSection | null = null
+  for (const raw of doc.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const m = /^【(.+?)】([\s\S]*)$/.exec(line)
+    if (m) {
+      const text = (m[2] ?? '').trim()
+      if (!text) continue // 空节跳过
+      cur = { label: m[1] ?? '', text }
+      sections.push(cur)
+    } else if (cur) {
+      cur.text += '\n' + line // 防御：节内出现多行段落时并入上一节
+    }
+  }
+  return sections
+}
+
 /**
  * 计算装备 token 总和：values 为空（继承全部模式）则按 options 全量累加。
  * RolesTab.roleTokens / EquipmentPicker.tokens 共用，消除重复估算逻辑。

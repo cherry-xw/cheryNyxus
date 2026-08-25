@@ -531,7 +531,6 @@ function removeDelivery(): void {
     color: #b67c1c;
   }
   &.tag-error {
-    border-color: rgba(180, 35, 59, 0.4);
     color: #b4233b;
   }
   &.tag-done {

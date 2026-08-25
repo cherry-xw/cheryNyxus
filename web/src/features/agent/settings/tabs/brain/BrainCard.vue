@@ -97,6 +97,45 @@ const connectionTestMessage = ref('')
 const isMockProvider = computed(() => props.cfg.provider === 'mock')
 let connectionTestReqId = 0
 
+/**
+ * 测试连接按钮禁用原因（null=可测）：前置字段缺失时按钮置灰 + 悬停引导缺什么，
+ * 而非可点后报错——交互上先选后测。
+ */
+const connectionBlockedBy = computed<string | null>(() => {
+  if (isMockProvider.value) return '离线模拟无需测试'
+  if (!props.cfg.provider) return '请先填写适配器'
+  // url/model 可能是模板占位符（<YOUR_...>）：UI 显示为空但字符串非空，须归一后判断
+  if (!props.cfg.url || isTemplatePlaceholder(props.cfg.url)) return '请先填写地址'
+  if (!props.cfg.key) return '请先填写密钥'
+  if (!props.cfg.model || isTemplatePlaceholder(props.cfg.model)) return '请先选择模型'
+  return null
+})
+/** 测试连接按钮禁用：pending 中或前置字段缺失。 */
+const connectionTestDisabled = computed(
+  () => connectionTestState.value === 'pending' || connectionBlockedBy.value !== null,
+)
+/** 按钮悬停提示：pending → 测试中；字段缺失 → 缺什么；否则 → 连通说明。 */
+const connectionTestTip = computed(() => {
+  if (connectionTestState.value === 'pending') return '正在测试连接…'
+  return connectionBlockedBy.value ?? '测试地址与密钥是否连通'
+})
+
+/** 刷新模型按钮禁用原因（null=可点）：mock 无需拉取模型；缺失前置字段置灰 + 悬停引导。 */
+const refreshModelsBlockedBy = computed<string | null>(() => {
+  if (isMockProvider.value) return '离线模拟无需刷新模型'
+  if (!props.cfg.provider) return '请先填写适配器'
+  if (!props.cfg.url || isTemplatePlaceholder(props.cfg.url)) return '请先填写地址'
+  if (!props.cfg.key) return '请先填写密钥'
+  return null
+})
+const refreshModelsDisabled = computed(
+  () => modelLoading.value || refreshModelsBlockedBy.value !== null,
+)
+const refreshTip = computed(() => {
+  if (modelLoading.value) return '正在获取模型列表…'
+  return refreshModelsBlockedBy.value ?? '获取最新模型列表；亦可测试连通'
+})
+
 watch(
   () => [props.cfg.provider, props.cfg.url, props.cfg.key, props.cfg.model] as const,
   () => {
@@ -179,7 +218,7 @@ async function testConnection(): Promise<void> {
   if (provider === 'mock') return
   if (!provider || !url || !model) {
     connectionTestState.value = 'error'
-    connectionTestMessage.value = '请先填写适配器、地址和型号'
+    connectionTestMessage.value = '请先填写适配器、地址和模型'
     return
   }
 
@@ -225,6 +264,13 @@ const urlModel = computed({
   get: () => (isTemplatePlaceholder(props.cfg.url) ? '' : (props.cfg.url ?? '')),
   set: (v: string) => {
     props.cfg.url = v
+  },
+})
+/** 模型输入框模型：占位符（<YOUR_MODEL_NAME>）显示为空，placeholder 呈现；写入落草稿。 */
+const modelModel = computed({
+  get: () => (isTemplatePlaceholder(props.cfg.model) ? '' : (props.cfg.model ?? '')),
+  set: (v: string) => {
+    props.cfg.model = v
   },
 })
 
@@ -439,26 +485,29 @@ async function openEnvFile(): Promise<void> {
       <section class="brain-section">
         <div class="section-heading connection-heading">
           <span class="heading-text">连接<small>模型与服务</small></span>
-          <button
-            type="button"
-            class="connection-test-btn"
-            :class="{ pending: connectionTestState === 'pending' }"
-            :disabled="connectionTestState === 'pending' || isMockProvider"
-            :title="isMockProvider ? '离线模拟无需测试' : '测试地址与密钥是否连通'"
-            @click="testConnection"
-          >
-            <span v-if="connectionTestState === 'pending'" class="dot spinning" />
-            <span
-              v-else
-              class="dot"
-              :class="{
-                success: connectionTestState === 'success',
-                error: connectionTestState === 'error',
-                idle: connectionTestState === 'idle',
-              }"
-            />
-            {{ connectionTestState === 'pending' ? '测试中' : '测试连接' }}
-          </button>
+          <el-tooltip :content="connectionTestTip" placement="top" :show-after="120" popper-class="brain-action-tip">
+            <span class="connection-test-btn-wrap">
+              <button
+                type="button"
+                class="connection-test-btn"
+                :class="{ pending: connectionTestState === 'pending' }"
+                :disabled="connectionTestDisabled"
+                @click="testConnection"
+              >
+                <span v-if="connectionTestState === 'pending'" class="dot spinning" />
+                <span
+                  v-else
+                  class="dot"
+                  :class="{
+                    success: connectionTestState === 'success',
+                    error: connectionTestState === 'error',
+                    idle: connectionTestState === 'idle',
+                  }"
+                />
+                {{ connectionTestState === 'pending' ? '测试中' : '测试连接' }}
+              </button>
+            </span>
+          </el-tooltip>
           <el-tooltip
             v-if="
               isMockProvider || connectionTestState === 'success' || connectionTestState === 'error'
@@ -551,10 +600,10 @@ async function openEnvFile(): Promise<void> {
             </div>
           </label>
           <label class="field">
-            <span class="lbl">型号 *</span>
+            <span class="lbl">模型 *</span>
             <div class="model-input-row">
               <el-select
-                v-model="cfg.model"
+                v-model="modelModel"
                 filterable
                 allow-create
                 default-first-option
@@ -569,21 +618,18 @@ async function openEnvFile(): Promise<void> {
                   :value="m.id"
                 />
               </el-select>
-              <el-tooltip
-                :content="modelLoading ? '正在获取模型列表…' : '获取最新模型列表；亦可测试连通'"
-                placement="top"
-                :show-after="120"
-                :disabled="false"
-              >
-                <button
-                  type="button"
-                  class="icon-btn refresh-btn"
-                  aria-label="刷新模型列表"
-                  :disabled="modelLoading"
-                  @click="refreshModels"
-                >
-                  <Refresh class="ico" :class="{ spinning: modelLoading }" />
-                </button>
+              <el-tooltip :content="refreshTip" placement="top" :show-after="120" popper-class="brain-action-tip">
+                <span class="icon-btn-wrap">
+                  <button
+                    type="button"
+                    class="icon-btn refresh-btn"
+                    aria-label="刷新模型列表"
+                    :disabled="refreshModelsDisabled"
+                    @click="refreshModels"
+                  >
+                    <Refresh class="ico" :class="{ spinning: modelLoading }" />
+                  </button>
+                </span>
               </el-tooltip>
             </div>
           </label>
@@ -759,6 +805,12 @@ async function openEnvFile(): Promise<void> {
     align-items: baseline;
     gap: 6px;
   }
+}
+
+// el-tooltip 触发容器：disabled 的原生 button 不触发 hover，需外包一层 span（inline-flex 保持按钮原布局）
+.connection-test-btn-wrap,
+.icon-btn-wrap {
+  display: inline-flex;
 }
 
 .connection-test-btn {

@@ -564,7 +564,7 @@ onMounted(() => emit('mode-change', roleMode.value))
                   >
                 </el-tooltip>
                 <el-tooltip
-                  :content="draft.llm.brain[name]?.model || '未配置型号'"
+                  :content="draft.llm.brain[name]?.model || '未配置模型'"
                   placement="bottom"
                   :show-after="300"
                   :disabled="!isOverflowing[`brain-model-${name}`]"
@@ -573,7 +573,7 @@ onMounted(() => emit('mode-change', roleMode.value))
                     :ref="(el) => setOverflowRef(el, `brain-model-${name}`)"
                     class="brain-choice-model"
                     @mouseenter="checkOverflow(`brain-model-${name}`, $event)"
-                    >{{ draft.llm.brain[name]?.model || '未配置型号' }}</small
+                    >{{ draft.llm.brain[name]?.model || '未配置模型' }}</small
                   >
                 </el-tooltip>
               </button>

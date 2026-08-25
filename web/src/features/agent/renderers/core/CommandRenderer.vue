@@ -246,11 +246,6 @@ onBeforeUnmount(() => {
   background: var(--surface);
   font-size: 11px;
   color: color-mix(in srgb, var(--ink) 80%, transparent);
-
-  &.status-error {
-    border-color: color-mix(in srgb, var(--danger) 32%, transparent);
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
-  }
 }
 
 .cmd-head {
