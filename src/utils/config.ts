@@ -23,22 +23,22 @@ if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath })
 }
 
-// 会话签名密钥持久化：确保 .chery/.env 存在 CHERY_AUTH_SESSION_SECRET，跨重启复用。
+// 会话签名密钥持久化：确保后端同级的 .env（rootEnvPath）存在 CHERY_AUTH_SESSION_SECRET，跨重启复用。
 // 必须在 config.yaml 加载前注入 process.env，供 server.auth 鉴权（OAuth2Auth）读取。
 ensureAuthSessionSecret()
 
 /**
- * 生成/复用会话签名密钥（CHERY_AUTH_SESSION_SECRET），写入 .chery/.env 持久化。
+ * 生成/复用会话签名密钥（CHERY_AUTH_SESSION_SECRET），写入根 .env（rootEnvPath）持久化。
  * - 进程环境已设置：直接复用，不改文件。
- * - .chery/.env 已含该键：读入注入进程环境。
+ * - .env 已含该键：读入注入进程环境。
  * - 否则生成 32 字节随机 hex 并追加写入。
- * 失效/轮换方案：删除 .chery/.env 中该行（或整文件）后重启，即重新生成新密钥，
+ * .env 是唯一 env 文件（与后端产物同级，可设置 CHERY_DIR 指向 .chery/ 配置目录），不再使用 .chery/.env。
+ * 失效/轮换方案：删除 .env 中该行（或整文件）后重启，即重新生成新密钥，
  * 所有已签发 access/refresh token 立即失效（HMAC 验签失败），需重新登录。
  */
 function ensureAuthSessionSecret(): void {
   if (process.env.CHERY_AUTH_SESSION_SECRET) return
-  const cheryDir = process.env.CHERY_DIR || process.cwd()
-  const envPath = path.join(cheryDir, '.chery', '.env')
+  const envPath = rootEnvPath
   const envKey = 'CHERY_AUTH_SESSION_SECRET'
   if (fs.existsSync(envPath)) {
     const existing = fs.readFileSync(envPath, 'utf8')

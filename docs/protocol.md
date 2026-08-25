@@ -491,7 +491,7 @@ Web 静态服务（端口 `config.server.webPort`，优先级 `WEB_PORT` 环境�
 
 #### 认证（用户名/密码）
 
-`server.auth.username`+`password`（加盐 scrypt 哈希）配置后启用。**授权规则：本地 loopback 信任豁免；非本地未登录的接口请求 401 拒绝。** 登录成功签发双 token（HMAC 无状态）：access token（15min，`Authorization: Bearer` 或 WS `?token=`）+ refresh token（7d）。签名密钥 `server.auth.sessionSecret`（或环境变量 `CHERY_AUTH_SESSION_SECRET`）默认由后端启动自动生成 32 字节随机值并持久化到 `.chery/.env` 跨重启复用；**失效/轮换：删除 `.chery/.env` 中该行后重启即重新生成，所有已签发 token 立即失效需重新登录**。
+`server.auth.username`+`password`（加盐 scrypt 哈希）配置后启用。**授权规则：本地 loopback 信任豁免；非本地未登录的接口请求 401 拒绝。** 登录成功签发双 token（HMAC 无状态）：access token（15min，`Authorization: Bearer` 或 WS `?token=`）+ refresh token（7d）。签名密钥 `server.auth.sessionSecret`（或环境变量 `CHERY_AUTH_SESSION_SECRET`）默认由后端启动自动生成 32 字节随机值并持久化到后端同级的 `.env`（`rootEnvPath`，即项目根 / exe 同级）跨重启复用——`.env` 是**唯一**的 env 文件，`.chery/` 下不再存放 `.env`；**失效/轮换：删除 `.env` 中该行后重启即重新生成，所有已签发 token 立即失效需重新登录**。
 
 - `POST /api/auth/challenge` — 分发一次性登录挑战（公开，无需鉴权）：`200 {challengeId, nonce}`。`nonce` 供前端作为 keyHex 经 **SHA-256 CTR 流密码**加密凭据；challenge 单次使用、TTL 120s，解密后即作废（防重放）。纯 JS 实现（前端 `web/src/utils/obfuscate.ts`、后端 `xorDecrypt`），非安全上下文（非 HTTPS 远端）亦可用。仅密码认证模式启用，否则 `404`。
 - `POST /api/auth/login` — body 为**加密凭据信封** `{challengeId, cipher}`（信封明文 = `JSON.stringify({username, password})`，keyHex = challenge nonce，`keystream = SHA-256(nonce_U8 || BE32(counter))` 逐字节异或）→ `200 {username, accessToken, refreshToken, expiresIn}`；challenge 无效/解密失败/凭据错误一律 `401 {error}`。`username` 供前端登录面板展示已登录用户信息（凭据不落明文在网）。

@@ -77,7 +77,7 @@ export class OAuth2Auth {
       trustedOrigins: config?.trustedOrigins ?? [],
     }
     // 会话签名密钥：环境变量 > 后端动态生成。由 config.ts ensureAuthSessionSecret 持久化到
-    // .chery/.env（CHERY_AUTH_SESSION_SECRET）跨重启复用；未注入时动态生成兜底。
+    // 根 .env（CHERY_AUTH_SESSION_SECRET）跨重启复用；未注入时动态生成兜底。
     this.secret = process.env.CHERY_AUTH_SESSION_SECRET || randomBytes(32).toString('hex')
     // 密码认证或 OAuth2 任一启用即开启鉴权门禁。
     this.enabled = config?.enabled === true || !!config?.username

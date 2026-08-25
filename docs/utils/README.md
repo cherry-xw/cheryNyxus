@@ -231,7 +231,9 @@ loadConfig()
 module 顶层 `const config = loadConfig()` → 全局单例，import 即触发
 ```
 
-`.env` 加载：config.ts 在模块顶层用 `dotenv.config()` 读 `src/../.env`（tsx 开发）或 `dist/.env`（生产）——启动一次性填充 `process.env`（不覆盖 OS env 既有值）。运行期新增/修改 `.env` 后，可经 `reloadEnvFile(override?)` 按需重读：`false` 只填充缺失键（`replaceEnvVars` 兜底用），`true` 以 `.env` 为准覆盖（`env.list` 刷新时触发，见 [../service/README.md](../service/README.md)）。
+`.env` 加载：config.ts 在模块顶层用 `dotenv.config()` 读 `src/../.env`（tsx 开发）或 `dist/.env`（生产）——启动一次性填充 `process.env`（不覆盖 OS env 既有值）。`.env` 是**唯一** env 文件（与后端产物同级，可设置 `CHERY_DIR` 指向 `.chery/` 配置目录）；`.chery/.env` 已废弃不再使用。运行期新增/修改 `.env` 后，可经 `reloadEnvFile(override?)` 按需重读：`false` 只填充缺失键（`replaceEnvVars` 兜底用），`true` 以 `.env` 为准覆盖（`env.list` 刷新时触发，见 [../service/README.md](../service/README.md)）。
+
+会话签名密钥 `CHERY_AUTH_SESSION_SECRET` 同样持久化到该 `.env`（`ensureAuthSessionSecret`）：进程环境或 `.env` 已有则复用，否则生成 32 字节随机 hex 追加写入；删除该行后重启即轮换（见 [protocol.md](../protocol.md) 认证章节）。
 
 ### rateLimiter 滑动窗口限流（runtime）
 
