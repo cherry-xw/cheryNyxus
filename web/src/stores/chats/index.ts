@@ -246,6 +246,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   /** startup 幂等守卫（首次成功后不再重跑；F5 重连由 reconnect 处理）。 */
   let started = false
   const effects = ref<ChatSessionEffects>({})
+  /** 非响应式 hydration/opening 单飞 Map 的变更版本号：即使只删除 Map 条目（无任何响应式字段变化），
+   * 也令 commandGate 重新计算，保证 lite 输入框在 hydration 完成后自动解禁。 */
+  const hydrationRevision = ref(0)
+  function bumpHydration(): void {
+    hydrationRevision.value += 1
+  }
 
   function flushRootDeltas(rootChatId: string): void {
     const timer = rootDeltaTimers.get(rootChatId)
@@ -327,6 +333,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   function deleteSession(chatId: string): void {
     delete sessionsById.value[chatId]
     hydrating.delete(chatId)
+    bumpHydration()
   }
 
   /**
@@ -353,6 +360,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       rootSubscriptionOwners.delete(rootChatId)
       rootResyncing.delete(rootChatId)
       rootSubscriptionOpening.delete(rootChatId)
+      bumpHydration()
       generationsCache.delete(rootChatId)
       delete rootTimelineStates.value[rootChatId]
       delete rootSubscriptions.value[rootChatId]
@@ -370,6 +378,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     for (const chatId of removed) {
       deleteSession(chatId)
       opening.delete(chatId)
+      bumpHydration()
     }
     for (const [requestId, chatId] of requestMap) {
       if (!removed.has(chatId)) continue
@@ -396,6 +405,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   }
 
   function commandAvailability(chatId: string | undefined): CommandGate {
+    // 注册对 hydration 生命周期（非响应式 Map 变更）的响应式依赖，gate 随 hydration 完成重算。
+    void hydrationRevision.value
     const rootChatId = chatId ? rootIdOf(chatId) : undefined
     const session = rootChatId ? sessionsById.value[rootChatId] : undefined
     const hasTimeline = rootChatId
@@ -544,11 +555,13 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       return { opened: true, conversation: conversationSnapshot }
     })()
     rootSubscriptionOpening.set(rootChatId, promise)
+    bumpHydration()
     try {
       return await promise
     } finally {
       if (rootSubscriptionOpening.get(rootChatId) === promise) {
         rootSubscriptionOpening.delete(rootChatId)
+        bumpHydration()
       }
     }
   }
@@ -654,6 +667,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         ),
       )
       rootSubscriptionOpening.delete(rootChatId)
+      bumpHydration()
       for (const key of rootViewOpening.keys()) {
         if (key.startsWith(`${rootChatId}:`)) rootViewOpening.delete(key)
       }
@@ -912,10 +926,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (previous) return previous
     const promise = openSessionOnce(chatId)
     opening.set(chatId, promise)
+    bumpHydration()
     try {
       await promise
     } finally {
       opening.delete(chatId)
+      bumpHydration()
     }
   }
 
@@ -1465,10 +1481,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       }
     })()
     hydrating.set(rootChatId, promise)
+    bumpHydration()
     try {
       await promise
     } finally {
       hydrating.delete(rootChatId)
+      bumpHydration()
     }
   }
 
