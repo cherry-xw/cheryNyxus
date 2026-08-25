@@ -585,44 +585,81 @@ function durationTier(elapsedMs: number): 'fast' | 'medium' | 'long' | null {
   return 'long'
 }
 
-// ── 时间瀑布流（需求 2/4d-3/5：多轨多 Agent，参考浏览器控制台请求时间线窗口）──
+// ── 时间轴（v0.3 重做：多流水线运行轨迹）──
+// 时间→x 线性映射（均匀刻度参照）；块宽 = log 压缩 × zoom，等待区间 = 缺口（空）。
 const TRAJECTORY_PX_PER_SECOND = 14
 const TRAJECTORY_PAD_MS = 2000
+/** 轨道宽上限（px）：放大时随 zoom 抬升，避免长会话/高倍率撑爆画布。 */
 const TRAJECTORY_MAX_TRACK_WIDTH = 1600
-const MIN_BAR_PX = 5
-const BAR_LOG_K = 4.5
-const WAIT_THRESHOLD_MS = 3000
-const TRAJECTORY_NONLINEAR_K = 8
+/** 块宽下限（px）：保证可点击命中（点击关联下方节点高亮）。 */
+const MIN_BAR_PX = 10
+/** 块宽上限（px）：放大有极限，单块不撑爆轨道。 */
+const MAX_BAR_PX = 240
+/** 相邻块间隔（px）：紧邻块留 1px 空隙，等待区间自然成缺口。 */
+const BAR_GAP_PX = 1
+/** log 压缩系数：w(s) = MIN + K·ln(1+s)，1s≈17px、10s≈36px、1h≈100px、1000h≈176px（亚线性有极限）。 */
+const BAR_LOG_K = 11
 interface TrajectoryBar {
   node: LiteRunNode
   left: number
   width: number
 }
-interface TrajectoryWait {
-  left: number
-  width: number
-  gapMs: number
-}
 interface TrajectoryTrack {
   chatId: string
+  /** 行号（1 起），行标记「第 N 行」用。 */
+  barIndex: number
   agentLabel: string
   bars: TrajectoryBar[]
-  waits: TrajectoryWait[]
+}
+interface TrajectoryTick {
+  left: number
+  label: string
 }
 interface TrajectoryLayout {
   tracks: TrajectoryTrack[]
   trackWidth: number
   minTime: number
   maxTime: number
+  ticks: TrajectoryTick[]
 }
-/** 时长 → 渐近压缩宽度：minPx + k*log(1+t)，短节点保持可见、长节点亚线性增长。 */
-function compressedBarWidth(elapsedMs: number): number {
+/** 时长 → 渐近压缩宽度（×zoom）：minPx + k*log(1+t)，短节点保持可见、长节点亚线性增长；缩放有上下限。 */
+function compressedBarWidth(elapsedMs: number, zoom: number): number {
   const seconds = Math.max(0, elapsedMs) / 1000
-  return Math.max(MIN_BAR_PX, MIN_BAR_PX + BAR_LOG_K * Math.log(1 + seconds))
+  const base = MIN_BAR_PX + BAR_LOG_K * Math.log(1 + seconds)
+  return Math.max(MIN_BAR_PX, Math.min(MAX_BAR_PX, base * zoom))
+}
+/** 均匀时间刻度：自适应步长（刻度间距约 targetPx），相对时间标签（首块为 0），仅作缩放/跨度参照。 */
+function computeTrajectoryTicks(
+  minTime: number,
+  maxTime: number,
+  spanMs: number,
+  trackWidth: number,
+  xOf: (t: number) => number,
+): TrajectoryTick[] {
+  const totalSeconds = Math.max(1, spanMs / 1000)
+  const pxPerSecond = trackWidth / totalSeconds
+  const targetPx = 70
+  const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400]
+  let step = STEPS[STEPS.length - 1]!
+  for (const s of STEPS) {
+    if (s * pxPerSecond >= targetPx) {
+      step = s
+      break
+    }
+  }
+  const stepMs = step * 1000
+  const ticks: TrajectoryTick[] = []
+  const start = Math.ceil(minTime / stepMs) * stepMs
+  for (let t = start; t <= maxTime + 1; t += stepMs) {
+    ticks.push({ left: xOf(t), label: trajectoryLabel(t - minTime) })
+  }
+  return ticks
 }
 function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
   const nodes = history.value.nodes
-  if (!nodes.length) return { tracks: [], trackWidth: 0, minTime: 0, maxTime: 0 }
+  if (!nodes.length) {
+    return { tracks: [], trackWidth: 0, minTime: 0, maxTime: 0, ticks: [] }
+  }
   let minTime = Infinity
   let maxTime = -Infinity
   for (const node of nodes) {
@@ -637,17 +674,11 @@ function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
   minTime -= TRAJECTORY_PAD_MS
   maxTime += TRAJECTORY_PAD_MS
   const spanMs = Math.max(1, maxTime - minTime)
-  // 轨道宽度随会话时长次线性增长并封顶：长时间会话压缩在固定宽度内，配合横向超细滚动条。
-  // zoom（t13 滚轮缩放）：Ctrl/⌘+滚轮整体缩放时间比例尺，调整瀑布流横向密度。
+  // 轨道宽度：随会话时长线性增长（基础比例尺 × zoom），放大时整体变宽、配横向滚动条。
   const scaled = Math.ceil((spanMs / 1000) * TRAJECTORY_PX_PER_SECOND * zoom)
   const trackWidth = Math.max(width, Math.min(TRAJECTORY_MAX_TRACK_WIDTH * zoom, scaled))
-  // 时间→x 的非线性（近期加权）映射：压缩长空闲区间，近期活动保留更多横向空间。
-  const logK1 = Math.log(1 + TRAJECTORY_NONLINEAR_K)
-  const xOf = (t: number): number => {
-    const T = Math.min(1, Math.max(0, (t - minTime) / spanMs))
-    const g = Math.log(1 + TRAJECTORY_NONLINEAR_K * (1 - T)) / logK1
-    return (1 - g) * trackWidth
-  }
+  // 时间→x 线性映射：均匀刻度间距与时间跨度成正比（可直接参照缩放比例与跨度）。
+  const xOf = (t: number): number => ((t - minTime) / spanMs) * trackWidth
   const byChat = new Map<string, LiteRunNode[]>()
   for (const node of nodes) {
     const list = byChat.get(node.sourceChatId)
@@ -657,30 +688,23 @@ function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
   const tracks: TrajectoryTrack[] = []
   for (const [chatId, list] of byChat) {
     const sorted = [...list].sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
-    const bars = sorted.map((node) => ({
-      node,
-      left: xOf(node.startedAt),
-      width: compressedBarWidth(node.elapsedMs),
-    }))
-    // 长空闲（等待）区间 → 虚线块
-    const waits: TrajectoryWait[] = []
-    for (let i = 1; i < sorted.length; i += 1) {
-      const prev = sorted[i - 1]
-      const next = sorted[i]
-      if (!prev || !next) continue
-      const prevEnd = Math.max(prev.startedAt, prev.completedAt ?? prev.startedAt)
-      const gapMs = next.startedAt - prevEnd
-      if (gapMs > WAIT_THRESHOLD_MS) {
-        const left = xOf(prevEnd)
-        const right = xOf(next.startedAt)
-        waits.push({ left, width: Math.max(MIN_BAR_PX, right - left), gapMs })
-      }
+    const bars: TrajectoryBar[] = []
+    for (let i = 0; i < sorted.length; i += 1) {
+      const node = sorted[i]
+      if (!node) continue
+      const left = xOf(node.startedAt)
+      const next = sorted[i + 1]
+      const nextLeft = next ? xOf(next.startedAt) : trackWidth
+      const target = compressedBarWidth(node.elapsedMs, zoom)
+      // 块宽受「到下一个块可用空间」约束：等待区间 → 缺口（空），紧邻块留 1px 间隔。
+      const available = Math.max(MIN_BAR_PX, nextLeft - left - BAR_GAP_PX)
+      bars.push({ node, left, width: Math.max(MIN_BAR_PX, Math.min(target, available)) })
     }
     tracks.push({
       chatId,
+      barIndex: 0,
       agentLabel: list[0]?.agentLabel ?? (chatId === lite.rootChatId ? '主 Agent' : '子 Agent'),
       bars,
-      waits,
     })
   }
   tracks.sort(
@@ -688,7 +712,11 @@ function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
       (a.bars[0]?.node.startedAt ?? 0) - (b.bars[0]?.node.startedAt ?? 0) ||
       a.chatId.localeCompare(b.chatId),
   )
-  return { tracks, trackWidth, minTime, maxTime }
+  tracks.forEach((track, index) => {
+    track.barIndex = index + 1
+  })
+  const ticks = computeTrajectoryTicks(minTime, maxTime, spanMs, trackWidth, xOf)
+  return { tracks, trackWidth, minTime, maxTime, ticks }
 }
 function trajectoryLabel(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))
@@ -996,74 +1024,72 @@ function rowKey(row: LiteRunRow): string {
         </span>
         <LiteScrollbar axis="x">
           <template #default="{ width }">
-            <div
-              class="lite-trajectory-track"
-              :style="{ width: trajectoryLayout(width, trajectoryZoom).trackWidth + 'px' }"
+            <!-- 单元素 v-for 缓存 layout，避免重复计算轨迹布局 -->
+            <template
+              v-for="(layout, index) in [trajectoryLayout(width, trajectoryZoom)]"
+              :key="index"
             >
-              <div
-                v-for="track in trajectoryLayout(width, trajectoryZoom).tracks"
-                :key="track.chatId"
-                class="lite-trajectory-lane"
-                :aria-label="track.agentLabel + ' 时间轴'"
-              >
-                <div class="lite-trajectory-lane-label">
-                  <span
-                    class="lite-trajectory-lane-dot"
-                    :data-root="track.chatId === lite.rootChatId"
-                  />
-                  {{ track.agentLabel }}
+              <div class="lite-trajectory-track" :style="{ width: layout.trackWidth + 'px' }">
+                <div
+                  v-for="track in layout.tracks"
+                  :key="track.chatId"
+                  class="lite-trajectory-lane"
+                  :aria-label="'第 ' + track.barIndex + ' 行 · ' + track.agentLabel"
+                >
+                  <div class="lite-trajectory-lane-label">
+                    <span
+                      class="lite-trajectory-lane-dot"
+                      :data-root="track.chatId === lite.rootChatId"
+                    />
+                    <span class="lite-trajectory-lane-index">{{ track.barIndex }}</span>
+                    <span class="lite-trajectory-lane-agent">{{ track.agentLabel }}</span>
+                  </div>
+                  <div class="lite-trajectory-lane-track">
+                    <button
+                      v-for="bar in track.bars"
+                      :key="bar.node.key"
+                      type="button"
+                      class="lite-trajectory-bar"
+                      :class="[
+                        'is-' + bar.node.kind,
+                        bar.node.kind === 'tool'
+                          ? 'is-tooltype-' + (bar.node.toolType ?? 'other')
+                          : '',
+                        {
+                          'is-running': bar.node.active,
+                          'is-selected': isDetailNode(bar.node),
+                          'is-focused': bar.node.nodeId === focusNodeId,
+                        },
+                      ]"
+                      :data-kind="bar.node.kind"
+                      :data-tooltype="bar.node.toolType"
+                      :data-node-id="bar.node.nodeId"
+                      :style="{ left: bar.left + 'px', width: bar.width + 'px' }"
+                      :title="
+                        bar.node.label +
+                        ' · ' +
+                        runStatusLabel(bar.node.status) +
+                        ' · 点击定位下方内容'
+                      "
+                      @pointerenter="showBarTip(bar.node, $event)"
+                      @pointermove="moveBarTip"
+                      @pointerleave="hideBarTip"
+                      @click="focusNodeFromTrajectory(bar.node, $event)"
+                    />
+                  </div>
                 </div>
-                <div class="lite-trajectory-lane-track">
-                  <span
-                    v-for="(wait, index) in track.waits"
-                    :key="'wait-' + index"
-                    class="lite-trajectory-wait"
-                    :style="{ left: wait.left + 'px', width: wait.width + 'px' }"
-                    :title="'等待 ' + formatElapsed(wait.gapMs)"
-                  />
-                  <button
-                    v-for="bar in track.bars"
-                    :key="bar.node.key"
-                    type="button"
-                    class="lite-trajectory-bar"
-                    :class="[
-                      'is-' + bar.node.kind,
-                      bar.node.kind === 'tool'
-                        ? 'is-tooltype-' + (bar.node.toolType ?? 'other')
-                        : '',
-                      {
-                        'is-running': bar.node.active,
-                        'is-selected': isDetailNode(bar.node),
-                        'is-focused': bar.node.nodeId === focusNodeId,
-                      },
-                    ]"
-                    :data-kind="bar.node.kind"
-                    :data-tooltype="bar.node.toolType"
-                    :data-node-id="bar.node.nodeId"
-                    :style="{ left: bar.left + 'px', width: bar.width + 'px' }"
-                    :title="
-                      bar.node.label +
-                      ' · ' +
-                      runStatusLabel(bar.node.status) +
-                      ' · 点击定位下方内容'
-                    "
-                    @pointerenter="showBarTip(bar.node, $event)"
-                    @pointermove="moveBarTip"
-                    @pointerleave="hideBarTip"
-                    @click="focusNodeFromTrajectory(bar.node, $event)"
-                  />
-                </div>
+                <!-- 均匀时间刻度：相对时间标签，只作缩放/跨度参照 -->
+                <span class="lite-trajectory-axis">
+                  <time
+                    v-for="tick in layout.ticks"
+                    :key="tick.left"
+                    :style="{ left: tick.left + 'px' }"
+                  >
+                    {{ tick.label }}
+                  </time>
+                </span>
               </div>
-              <span class="lite-trajectory-axis">
-                <time>{{ trajectoryLabel(0) }}</time>
-                <time>{{
-                  trajectoryLabel(
-                    trajectoryLayout(width, trajectoryZoom).maxTime -
-                      trajectoryLayout(width, trajectoryZoom).minTime,
-                  )
-                }}</time>
-              </span>
-            </div>
+            </template>
           </template>
         </LiteScrollbar>
       </section>
@@ -1249,6 +1275,12 @@ function rowKey(row: LiteRunRow): string {
   font-size: 13px;
 }
 
+/* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，
+   遵循 font-style-guide「内容字段不加粗」，标题层级亦随轻量风格降为 400。 */
+.lite-view strong {
+  font-weight: 400;
+}
+
 /* ── 顶部状态栏：轻量状态 + 节点数（需求 2：去掉「已连接」，改为轻量状态/节点数）── */
 .lite-statusbar {
   flex: none;
@@ -1427,26 +1459,34 @@ function rowKey(row: LiteRunRow): string {
 .lite-trajectory-lane-dot[data-root='true'] {
   background: var(--el-color-primary);
 }
+/* 行标记：序号（第 N 行）+ 角色名，方形小徽标 + 角色名省略 */
+.lite-trajectory-lane-index {
+  flex: none;
+  min-width: 16px;
+  padding: 0 3px;
+  text-align: center;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.lite-trajectory-lane-agent {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .lite-trajectory-lane-track {
   position: relative;
   height: 13px;
 }
-.lite-trajectory-wait {
-  position: absolute;
-  top: 3px;
-  height: 7px;
-  border: 1px dashed var(--el-text-color-placeholder);
-  border-radius: 3px;
-  opacity: 0.6;
-  pointer-events: none;
-  box-sizing: border-box;
-}
+/* 块为标准矩形：无圆角、无虚线等待块——等待区间 = 缺口，由块间空余空间自然呈现 */
 .lite-trajectory-bar {
   position: absolute;
   top: 0;
   height: 13px;
   border: none;
-  border-radius: 3px;
+  border-radius: 0;
   padding: 0;
   cursor: pointer;
   opacity: 0.72;
@@ -1500,16 +1540,23 @@ function rowKey(row: LiteRunRow): string {
   opacity: 1;
   z-index: 3;
 }
+/* 均匀时间刻度：多个相对时间标签绝对定位（间隔随步长均布），只作缩放/跨度参照 */
 .lite-trajectory-axis {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  display: flex;
-  justify-content: space-between;
+  height: 12px;
   color: var(--el-text-color-placeholder);
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
+}
+.lite-trajectory-axis time {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* ── 运行历史列表（需求 1c / 4a）：用户消息与轮末响应独占一行，中间节点为 cluster 小按钮 ── */
@@ -1699,6 +1746,9 @@ function rowKey(row: LiteRunRow): string {
   gap: 6px;
   margin-bottom: 3px;
   font-size: 12px;
+}
+.lite-tip-head strong {
+  font-weight: 400;
 }
 .lite-tip-icon {
   color: var(--el-text-color-secondary);

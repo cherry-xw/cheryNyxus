@@ -480,7 +480,7 @@ watch(
   margin: 0 0 6px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0.02em;
 }
 .lite-pre {
@@ -591,7 +591,7 @@ watch(
 .lite-tool-call-result h5 {
   margin: 0 0 4px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--el-text-color-secondary);
 }
 .lite-tool-call-args,
