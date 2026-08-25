@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSProperties } from 'vue'
 import { useLiteStore, type LiteQuestionDraft } from './liteStore'
 import { useLiteCanonicalView, type LiteInteraction } from './useLiteCanonicalView'
 import {
@@ -132,20 +132,34 @@ async function onSend(): Promise<void> {
   sending.value = true
   try {
     const sent = await lite.submitInput(content)
-    if (sent) inputText.value = ''
+    if (sent) {
+      inputText.value = ''
+      // v0.4.2 多行输入：清空后等 DOM 更新，把 textarea 高度重置回单行
+      await nextTick()
+      autoGrowInput()
+    }
   } finally {
     sending.value = false
   }
 }
 
 /**
- * 回车发送（需求：普通 Enter 直接发送；保留 Ctrl/Cmd+Enter；单行 input 无换行语义，
- * shift+Enter 同样发送；中文输入法组合确认（isComposing / keyCode 229）时不触发，避免误发）。
+ * 回车发送（v0.4.2 多行输入框）：Enter 直接发送、Shift+Enter 换行（textarea 默认插入换行，不做 preventDefault）；
+ * 中文输入法组合确认（isComposing / keyCode 229）时不触发，避免误发。
  */
 function onInputKeydown(event: KeyboardEvent): void {
   if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229) return
+  if (event.shiftKey) return
   event.preventDefault()
   void onSend()
+}
+
+/** v0.4.2：多行自适应增高——默认单行（rows=1），换行/长内容时按 scrollHeight 自动撑高，上限内滚动。 */
+function autoGrowInput(): void {
+  const el = liteInputEl.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = el.scrollHeight + 'px'
 }
 
 function interactionStatusLabel(interaction: LiteInteraction): string {
@@ -194,6 +208,8 @@ interface PendingTabView {
   id: string
   kind: 'approval' | 'question'
   label: string
+  /** 页签图标（v0.4.2：审批=工具 icon，提问=❓） */
+  icon: string
   countdown: string
   expired: boolean
 }
@@ -208,6 +224,7 @@ const pendingTabs = computed<PendingTabView[]>(() =>
         id: interaction.interactionId,
         kind: 'approval' as const,
         label: senseName.length > 12 ? senseName.slice(0, 12) + '…' : senseName,
+        icon: lite.toolMeta(senseName)?.icon?.trim() || '⚙',
         countdown: remainingLabel(interaction),
         expired: remainingLabel(interaction) === '已超时',
       }
@@ -217,6 +234,7 @@ const pendingTabs = computed<PendingTabView[]>(() =>
       id: interaction.interactionId,
       kind: 'question' as const,
       label: count > 1 ? '提问 ' + count + ' 问' : '提问',
+      icon: '❓',
       countdown: remainingLabel(interaction),
       expired: remainingLabel(interaction) === '已超时',
     }
@@ -374,7 +392,7 @@ const connectionBlocked = computed(() => !lite.commandGate.allowed)
 const operationBlockReason = computed(() =>
   lite.commandGate.allowed ? '' : lite.commandGate.reason,
 )
-const liteInputEl = ref<HTMLInputElement | null>(null)
+const liteInputEl = ref<HTMLTextAreaElement | null>(null)
 /** t10：hydration/命令门从禁用→放行时聚焦 lite 输入框——新建会话 hydration 完成后立即可用，无需切页。 */
 watch(
   () => lite.commandGate.allowed,
@@ -585,20 +603,22 @@ function durationTier(elapsedMs: number): 'fast' | 'medium' | 'long' | null {
   return 'long'
 }
 
-// ── 时间轴（v0.3 重做：多流水线运行轨迹）──
-// 时间→x 线性映射（均匀刻度参照）；块宽 = log 压缩 × zoom，等待区间 = 缺口（空）。
-const TRAJECTORY_PX_PER_SECOND = 14
-const TRAJECTORY_PAD_MS = 2000
-/** 轨道宽上限（px）：放大时随 zoom 抬升，避免长会话/高倍率撑爆画布。 */
-const TRAJECTORY_MAX_TRACK_WIDTH = 1600
+// ── 时间轴（v0.4 无间隔紧凑流式 + 执行线性化：块按出现顺序紧凑排列，不做时间定位/不留时间空隙）──
+// 大模型执行块宽 = 耗时秒数 × 1px（线性映射，上限 180px），执行时间真实区分；
+// 工具节点一律固定宽度（等待与否依赖用户设置、不可追踪，不按耗时）；
+// 用户消息固定宽度（无执行耗时语义）。块间仅 1px 间隔；无时间刻度轴、无行标记。
 /** 块宽下限（px）：保证可点击命中（点击关联下方节点高亮）。 */
 const MIN_BAR_PX = 10
-/** 块宽上限（px）：放大有极限，单块不撑爆轨道。 */
-const MAX_BAR_PX = 240
-/** 相邻块间隔（px）：紧邻块留 1px 空隙，等待区间自然成缺口。 */
+/** 块宽上限（px）：大模型执行线性映射封顶，块不撑爆轨道。 */
+const MAX_BAR_PX = 180
+/** 相邻块间隔（px）：紧邻块 1px，紧凑流式、无时间空余。 */
 const BAR_GAP_PX = 1
-/** log 压缩系数：w(s) = MIN + K·ln(1+s)，1s≈17px、10s≈36px、1h≈100px、1000h≈176px（亚线性有极限）。 */
-const BAR_LOG_K = 11
+/** 大模型执行节点线性比例（px/秒）：1 秒 = 1 像素，执行时间真实区分出来。 */
+const MODEL_PX_PER_SEC = 1
+/** 工具节点固定宽度（px）：等待与否依赖 supervision 设置且会变、不可追踪，一律固定长度。 */
+const TOOL_FIXED_PX = 24
+/** 用户消息节点固定宽度（px）：无执行耗时语义。 */
+const USER_FIXED_PX = 16
 interface TrajectoryBar {
   node: LiteRunNode
   left: number
@@ -606,79 +626,64 @@ interface TrajectoryBar {
 }
 interface TrajectoryTrack {
   chatId: string
-  /** 行号（1 起），行标记「第 N 行」用。 */
-  barIndex: number
-  agentLabel: string
   bars: TrajectoryBar[]
-}
-interface TrajectoryTick {
-  left: number
-  label: string
 }
 interface TrajectoryLayout {
   tracks: TrajectoryTrack[]
   trackWidth: number
-  minTime: number
-  maxTime: number
-  ticks: TrajectoryTick[]
 }
-/** 时长 → 渐近压缩宽度（×zoom）：minPx + k*log(1+t)，短节点保持可见、长节点亚线性增长；缩放有上下限。 */
-function compressedBarWidth(elapsedMs: number, zoom: number): number {
-  const seconds = Math.max(0, elapsedMs) / 1000
-  const base = MIN_BAR_PX + BAR_LOG_K * Math.log(1 + seconds)
+/** 块宽：按节点类型取基准宽（model=耗时秒数线性 / tool=固定 / user=固定），再 ×zoom 并 clamp 到 [10, 180]。 */
+function barWidthFor(node: LiteRunNode, zoom: number): number {
+  const base =
+    node.kind === 'model'
+      ? (Math.max(0, node.elapsedMs) / 1000) * MODEL_PX_PER_SEC
+      : node.kind === 'tool'
+        ? TOOL_FIXED_PX
+        : USER_FIXED_PX
   return Math.max(MIN_BAR_PX, Math.min(MAX_BAR_PX, base * zoom))
 }
-/** 均匀时间刻度：自适应步长（刻度间距约 targetPx），相对时间标签（首块为 0），仅作缩放/跨度参照。 */
-function computeTrajectoryTicks(
-  minTime: number,
-  maxTime: number,
-  spanMs: number,
-  trackWidth: number,
-  xOf: (t: number) => number,
-): TrajectoryTick[] {
-  const totalSeconds = Math.max(1, spanMs / 1000)
-  const pxPerSecond = trackWidth / totalSeconds
-  const targetPx = 70
-  const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400]
-  let step = STEPS[STEPS.length - 1]!
-  for (const s of STEPS) {
-    if (s * pxPerSecond >= targetPx) {
-      step = s
-      break
-    }
-  }
-  const stepMs = step * 1000
-  const ticks: TrajectoryTick[] = []
-  const start = Math.ceil(minTime / stepMs) * stepMs
-  for (let t = start; t <= maxTime + 1; t += stepMs) {
-    ticks.push({ left: xOf(t), label: trajectoryLabel(t - minTime) })
-  }
-  return ticks
-}
+
+/** v0.4.2（性能修正）：轨迹布局 memo——签名 = zoom + 视口宽 + 各节点 [key/kind/status/sourceChatId/startedAt]，
+    显式**排除 elapsedMs**：运行中块宽由 CSS 动画推进（见 trajectoryBarStyle / .is-model.is-running），
+    布局不随每秒时钟 tick 重算，返回同一对象引用 → 模板 diff 无变化 → 不重写任何 inline style（消除持续重绘）。
+    节点增删 / 状态变化（running→completed 定格精确宽）/ zoom / 视口 resize 时签名变化 → 重算。 */
+let trajectoryLayoutMemoKey = ''
+let trajectoryLayoutMemoValue: TrajectoryLayout | null = null
 function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
   const nodes = history.value.nodes
   if (!nodes.length) {
-    return { tracks: [], trackWidth: 0, minTime: 0, maxTime: 0, ticks: [] }
+    return { tracks: [], trackWidth: 0 }
   }
-  let minTime = Infinity
-  let maxTime = -Infinity
-  for (const node of nodes) {
-    minTime = Math.min(minTime, node.startedAt)
-    maxTime = Math.max(
-      maxTime,
-      node.startedAt,
-      node.completedAt ?? 0,
-      node.startedAt + node.elapsedMs,
-    )
+  let sig = String(zoom) + '|' + String(width) + '|'
+  for (const n of nodes) {
+    sig += n.key + ':' + n.kind + ':' + n.status + ':' + n.sourceChatId + ':' + n.startedAt + ';'
   }
-  minTime -= TRAJECTORY_PAD_MS
-  maxTime += TRAJECTORY_PAD_MS
-  const spanMs = Math.max(1, maxTime - minTime)
-  // 轨道宽度：随会话时长线性增长（基础比例尺 × zoom），放大时整体变宽、配横向滚动条。
-  const scaled = Math.ceil((spanMs / 1000) * TRAJECTORY_PX_PER_SECOND * zoom)
-  const trackWidth = Math.max(width, Math.min(TRAJECTORY_MAX_TRACK_WIDTH * zoom, scaled))
-  // 时间→x 线性映射：均匀刻度间距与时间跨度成正比（可直接参照缩放比例与跨度）。
-  const xOf = (t: number): number => ((t - minTime) / spanMs) * trackWidth
+  if (trajectoryLayoutMemoValue && trajectoryLayoutMemoKey === sig) {
+    return trajectoryLayoutMemoValue
+  }
+  trajectoryLayoutMemoKey = sig
+  trajectoryLayoutMemoValue = computeTrajectoryLayout(nodes, width, zoom)
+  return trajectoryLayoutMemoValue
+}
+
+/** v0.4.2：bar 内联样式——运行中 model 块注入 CSS 变量驱动增长动画：
+    --bar-from 当前宽 → --bar-to（MAX 180px）经 --bar-dur 秒线性增长（1px×zoom/秒），
+    动画期间布局 memo 命中、JS 不更新宽；结束布局重算写入精确终宽并移除动画。 */
+function trajectoryBarStyle(bar: TrajectoryBar): CSSProperties {
+  const style: CSSProperties = { left: bar.left + 'px', width: bar.width + 'px' }
+  if (bar.node.active && bar.node.kind === 'model') {
+    style['--bar-from'] = `${bar.width}px`
+    style['--bar-to'] = `${MAX_BAR_PX}px`
+    style['--bar-dur'] = `${Math.max(1, (MAX_BAR_PX - bar.width) / trajectoryZoom.value)}s`
+  }
+  return style
+}
+
+function computeTrajectoryLayout(
+  nodes: LiteRunNode[],
+  width: number,
+  zoom: number,
+): TrajectoryLayout {
   const byChat = new Map<string, LiteRunNode[]>()
   for (const node of nodes) {
     const list = byChat.get(node.sourceChatId)
@@ -686,46 +691,26 @@ function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
     else byChat.set(node.sourceChatId, [node])
   }
   const tracks: TrajectoryTrack[] = []
+  let maxTrackWidth = 0
   for (const [chatId, list] of byChat) {
     const sorted = [...list].sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
+    // 无间隔紧凑流式：块按出现顺序排列，left 紧跟上一块 + 1px——不做时间定位、不留时间空余。
     const bars: TrajectoryBar[] = []
-    for (let i = 0; i < sorted.length; i += 1) {
-      const node = sorted[i]
-      if (!node) continue
-      const left = xOf(node.startedAt)
-      const next = sorted[i + 1]
-      const nextLeft = next ? xOf(next.startedAt) : trackWidth
-      const target = compressedBarWidth(node.elapsedMs, zoom)
-      // 块宽受「到下一个块可用空间」约束：等待区间 → 缺口（空），紧邻块留 1px 间隔。
-      const available = Math.max(MIN_BAR_PX, nextLeft - left - BAR_GAP_PX)
-      bars.push({ node, left, width: Math.max(MIN_BAR_PX, Math.min(target, available)) })
+    let cursor = 0
+    for (const node of sorted) {
+      const barWidth = barWidthFor(node, zoom)
+      bars.push({ node, left: cursor, width: barWidth })
+      cursor += barWidth + BAR_GAP_PX
     }
-    tracks.push({
-      chatId,
-      barIndex: 0,
-      agentLabel: list[0]?.agentLabel ?? (chatId === lite.rootChatId ? '主 Agent' : '子 Agent'),
-      bars,
-    })
+    maxTrackWidth = Math.max(maxTrackWidth, cursor - BAR_GAP_PX)
+    tracks.push({ chatId, bars })
   }
   tracks.sort(
     (a, b) =>
       (a.bars[0]?.node.startedAt ?? 0) - (b.bars[0]?.node.startedAt ?? 0) ||
       a.chatId.localeCompare(b.chatId),
   )
-  tracks.forEach((track, index) => {
-    track.barIndex = index + 1
-  })
-  const ticks = computeTrajectoryTicks(minTime, maxTime, spanMs, trackWidth, xOf)
-  return { tracks, trackWidth, minTime, maxTime, ticks }
-}
-function trajectoryLabel(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(total / 3600)
-  const minutes = Math.floor((total % 3600) / 60)
-  const seconds = total % 60
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-    : `${minutes}:${String(seconds).padStart(2, '0')}`
+  return { tracks, trackWidth: Math.max(width, maxTrackWidth) }
 }
 
 // t13 滚轮缩放：Ctrl/⌘+滚轮在 0.4x–5x 之间缩放时间比例尺；普通滚轮仍走 LiteScrollbar 的横向平移。
@@ -799,210 +784,6 @@ function rowKey(row: LiteRunRow): string {
     </header>
 
     <div class="lite-body">
-      <section v-if="pendingTabs.length" class="lite-pending-bar" aria-label="待处理操作">
-        <button
-          v-for="tab in pendingTabs"
-          :key="tab.id"
-          type="button"
-          role="tab"
-          class="lite-pending-tab"
-          :class="[
-            { 'is-active': tab.id === activePendingTabId, 'is-expired': tab.expired },
-            'is-' + tab.kind,
-          ]"
-          :aria-selected="tab.id === activePendingTabId"
-          @click="pendingTab = tab.id"
-        >
-          <span class="lite-pending-tab-label">{{ tab.label }}</span>
-          <span v-if="tab.countdown" class="lite-pending-badge" :data-expired="tab.expired">
-            {{ tab.countdown }}
-          </span>
-        </button>
-      </section>
-
-      <section v-if="activeInteraction" class="lite-pending-panel" aria-label="待处理详情">
-        <div
-          v-if="activeInteraction.kind === 'approval'"
-          class="lite-interaction"
-          :data-status="activeInteraction.status"
-        >
-          <div class="lite-interaction-head">
-            <strong
-              >审批：{{
-                activeInteraction.payload.senseName ?? activeInteraction.interactionId.slice(0, 8)
-              }}</strong
-            >
-            <span class="lite-interaction-head-right">
-              <span
-                v-if="activeInteraction.status !== 'pending'"
-                class="lite-status-pill"
-                :data-status="activeInteraction.status"
-                >{{ interactionStatusLabel(activeInteraction) }}</span
-              >
-              <span
-                v-if="remainingLabel(activeInteraction)"
-                class="lite-countdown"
-                :data-expired="remainingLabel(activeInteraction) === '已超时'"
-              >
-                {{ remainingLabel(activeInteraction) }}
-              </span>
-            </span>
-          </div>
-          <p class="lite-risk-summary">{{ approvalRiskSummary(activeInteraction) }}</p>
-          <p
-            v-if="lite.interactionError(activeInteraction.interactionId)"
-            class="lite-object-error"
-            role="alert"
-          >
-            {{ lite.interactionError(activeInteraction.interactionId)?.message }}
-          </p>
-          <button
-            type="button"
-            class="lite-view-full"
-            :disabled="!approvalDetailNodeId(activeInteraction)"
-            @click="openApprovalDetail(activeInteraction, $event)"
-          >
-            查看工具详情
-          </button>
-          <div v-if="interactionActionable(activeInteraction)" class="lite-interaction-actions">
-            <button
-              type="button"
-              class="lite-btn is-accept"
-              :disabled="
-                deciding === activeInteraction.interactionId ||
-                remainingLabel(activeInteraction) === '已超时' ||
-                connectionBlocked
-              "
-              @click="onDecide(activeInteraction, 'accept')"
-            >
-              {{ deciding === activeInteraction.interactionId ? '处理中…' : '允许' }}
-            </button>
-            <button
-              type="button"
-              class="lite-btn is-reject"
-              :disabled="
-                deciding === activeInteraction.interactionId ||
-                remainingLabel(activeInteraction) === '已超时' ||
-                connectionBlocked
-              "
-              @click="onDecide(activeInteraction, 'reject')"
-            >
-              {{ deciding === activeInteraction.interactionId ? '处理中…' : '拒绝' }}
-            </button>
-          </div>
-        </div>
-        <div v-else class="lite-interaction" :data-status="activeInteraction.status">
-          <div class="lite-interaction-head">
-            <strong>提问</strong>
-            <span class="lite-interaction-head-right">
-              <span
-                v-if="activeInteraction.status !== 'pending'"
-                class="lite-status-pill"
-                :data-status="activeInteraction.status"
-                >{{ interactionStatusLabel(activeInteraction) }}</span
-              >
-              <span
-                v-if="remainingLabel(activeInteraction)"
-                class="lite-countdown"
-                :data-expired="remainingLabel(activeInteraction) === '已超时'"
-              >
-                {{ remainingLabel(activeInteraction) }}
-              </span>
-            </span>
-          </div>
-          <div
-            v-for="question in questionsOf(activeInteraction)"
-            :key="question.questionId"
-            class="lite-followup-question"
-          >
-            <p>{{ question.question }}</p>
-            <p
-              v-if="lite.questionError(activeInteraction.interactionId, question.questionId)"
-              class="lite-question-error"
-              role="alert"
-            >
-              {{
-                lite.questionError(activeInteraction.interactionId, question.questionId)?.message
-              }}
-            </p>
-            <template v-if="!question.freeText">
-              <div v-for="option in question.options" :key="option.label" class="lite-option-wrap">
-                <label class="lite-option">
-                  <input
-                    :type="question.multiSelect ? 'checkbox' : 'radio'"
-                    :name="activeInteraction.interactionId + ':' + question.questionId"
-                    :disabled="!interactionActionable(activeInteraction)"
-                    :checked="
-                      selectedOf(activeInteraction.interactionId, question.questionId).includes(
-                        option.label,
-                      )
-                    "
-                    @change="toggleOption(activeInteraction.interactionId, question, option.label)"
-                  />
-                  <span class="lite-option-label">{{ option.label }}</span>
-                  <span v-if="option.description" class="lite-option-description">{{
-                    option.description
-                  }}</span>
-                </label>
-                <textarea
-                  v-if="
-                    selectedOf(activeInteraction.interactionId, question.questionId).includes(
-                      option.label,
-                    )
-                  "
-                  class="lite-option-note"
-                  rows="2"
-                  :value="
-                    noteOf(activeInteraction.interactionId, question.questionId, option.label)
-                  "
-                  :disabled="!interactionActionable(activeInteraction)"
-                  placeholder="为这个选项补充描述（可选）"
-                  @input="
-                    setOptionNote(
-                      activeInteraction.interactionId,
-                      question.questionId,
-                      option.label,
-                      ($event.target as HTMLTextAreaElement).value,
-                    )
-                  "
-                />
-              </div>
-            </template>
-            <textarea
-              v-else
-              class="lite-freetext"
-              rows="2"
-              :value="textDraftOf(activeInteraction.interactionId, question.questionId)"
-              :disabled="!interactionActionable(activeInteraction)"
-              placeholder="输入回答"
-              @input="
-                setTextDraft(
-                  activeInteraction.interactionId,
-                  question.questionId,
-                  ($event.target as HTMLTextAreaElement).value,
-                )
-              "
-            />
-          </div>
-          <p
-            v-if="lite.interactionError(activeInteraction.interactionId)"
-            class="lite-object-error"
-            role="alert"
-          >
-            {{ lite.interactionError(activeInteraction.interactionId)?.message }}
-          </p>
-          <div v-if="interactionActionable(activeInteraction)" class="lite-interaction-actions">
-            <button
-              type="button"
-              class="lite-btn is-accept"
-              :disabled="answering === activeInteraction.interactionId || connectionBlocked"
-              @click="onAnswerBatch(activeInteraction)"
-            >
-              提交回答
-            </button>
-          </div>
-        </div>
-      </section>
       <section
         v-if="history.nodes.length"
         class="lite-trajectory"
@@ -1010,10 +791,8 @@ function rowKey(row: LiteRunRow): string {
         @wheel.capture="onTrajectoryWheel"
         @keydown="onTrajectoryKeydown"
       >
-        <span class="lite-trajectory-head">
-          <span class="lite-trajectory-title">时间轴</span>
+        <span v-if="trajectoryZoom !== 1" class="lite-trajectory-head">
           <button
-            v-if="trajectoryZoom !== 1"
             type="button"
             class="lite-trajectory-zoom"
             :title="'重置缩放（Ctrl/⌘ + 滚轮缩放）'"
@@ -1034,16 +813,7 @@ function rowKey(row: LiteRunRow): string {
                   v-for="track in layout.tracks"
                   :key="track.chatId"
                   class="lite-trajectory-lane"
-                  :aria-label="'第 ' + track.barIndex + ' 行 · ' + track.agentLabel"
                 >
-                  <div class="lite-trajectory-lane-label">
-                    <span
-                      class="lite-trajectory-lane-dot"
-                      :data-root="track.chatId === lite.rootChatId"
-                    />
-                    <span class="lite-trajectory-lane-index">{{ track.barIndex }}</span>
-                    <span class="lite-trajectory-lane-agent">{{ track.agentLabel }}</span>
-                  </div>
                   <div class="lite-trajectory-lane-track">
                     <button
                       v-for="bar in track.bars"
@@ -1064,7 +834,7 @@ function rowKey(row: LiteRunRow): string {
                       :data-kind="bar.node.kind"
                       :data-tooltype="bar.node.toolType"
                       :data-node-id="bar.node.nodeId"
-                      :style="{ left: bar.left + 'px', width: bar.width + 'px' }"
+                      :style="trajectoryBarStyle(bar)"
                       :title="
                         bar.node.label +
                         ' · ' +
@@ -1078,16 +848,6 @@ function rowKey(row: LiteRunRow): string {
                     />
                   </div>
                 </div>
-                <!-- 均匀时间刻度：相对时间标签，只作缩放/跨度参照 -->
-                <span class="lite-trajectory-axis">
-                  <time
-                    v-for="tick in layout.ticks"
-                    :key="tick.left"
-                    :style="{ left: tick.left + 'px' }"
-                  >
-                    {{ tick.label }}
-                  </time>
-                </span>
               </div>
             </template>
           </template>
@@ -1200,15 +960,222 @@ function rowKey(row: LiteRunRow): string {
         </button>
       </div>
 
+      <section v-if="activeInteraction" class="lite-pending-panel" aria-label="待处理详情">
+        <div v-if="pendingTabs.length" class="lite-pending-tabs-bar" role="tablist">
+          <button
+            v-for="tab in pendingTabs"
+            :key="tab.id"
+            type="button"
+            role="tab"
+            class="lite-pending-tab"
+            :class="[
+              { 'is-active': tab.id === activePendingTabId, 'is-expired': tab.expired },
+              'is-' + tab.kind,
+            ]"
+            :aria-selected="tab.id === activePendingTabId"
+            :title="tab.label"
+            @click="pendingTab = tab.id"
+          >
+            <span class="lite-pending-tab-icon" aria-hidden="true">{{ tab.icon }}</span>
+            <span class="lite-pending-tab-label">{{ tab.label }}</span>
+            <span v-if="tab.countdown" class="lite-pending-badge" :data-expired="tab.expired">
+              {{ tab.countdown }}
+            </span>
+          </button>
+        </div>
+        <div class="lite-pending-content">
+          <div
+            v-if="activeInteraction.kind === 'approval'"
+            class="lite-interaction"
+            :data-status="activeInteraction.status"
+          >
+          <div class="lite-interaction-head">
+            <!-- v0.4.2 双层标题去除：名称由上方页签承载，这里只保留状态与倒计时（靠左展示） -->
+            <span class="lite-interaction-head-right">
+              <span
+                v-if="activeInteraction.status !== 'pending'"
+                class="lite-status-pill"
+                :data-status="activeInteraction.status"
+                >{{ interactionStatusLabel(activeInteraction) }}</span
+              >
+              <span
+                v-if="remainingLabel(activeInteraction)"
+                class="lite-countdown"
+                :data-expired="remainingLabel(activeInteraction) === '已超时'"
+              >
+                {{ remainingLabel(activeInteraction) }}
+              </span>
+            </span>
+          </div>
+          <p class="lite-risk-summary">{{ approvalRiskSummary(activeInteraction) }}</p>
+          <p
+            v-if="lite.interactionError(activeInteraction.interactionId)"
+            class="lite-object-error"
+            role="alert"
+          >
+            {{ lite.interactionError(activeInteraction.interactionId)?.message }}
+          </p>
+          <button
+            type="button"
+            class="lite-view-full"
+            :disabled="!approvalDetailNodeId(activeInteraction)"
+            @click="openApprovalDetail(activeInteraction, $event)"
+          >
+            查看工具详情
+          </button>
+          <div v-if="interactionActionable(activeInteraction)" class="lite-interaction-actions">
+            <button
+              type="button"
+              class="lite-btn is-accept"
+              :disabled="
+                deciding === activeInteraction.interactionId ||
+                remainingLabel(activeInteraction) === '已超时' ||
+                connectionBlocked
+              "
+              @click="onDecide(activeInteraction, 'accept')"
+            >
+              {{ deciding === activeInteraction.interactionId ? '处理中…' : '允许' }}
+            </button>
+            <button
+              type="button"
+              class="lite-btn is-reject"
+              :disabled="
+                deciding === activeInteraction.interactionId ||
+                remainingLabel(activeInteraction) === '已超时' ||
+                connectionBlocked
+              "
+              @click="onDecide(activeInteraction, 'reject')"
+            >
+              {{ deciding === activeInteraction.interactionId ? '处理中…' : '拒绝' }}
+            </button>
+          </div>
+        </div>
+        <div v-else class="lite-interaction" :data-status="activeInteraction.status">
+          <div class="lite-interaction-head">
+            <!-- v0.4.2 双层标题去除：名称由上方页签承载，这里只保留状态与倒计时（靠左展示） -->
+            <span class="lite-interaction-head-right">
+              <span
+                v-if="activeInteraction.status !== 'pending'"
+                class="lite-status-pill"
+                :data-status="activeInteraction.status"
+                >{{ interactionStatusLabel(activeInteraction) }}</span
+              >
+              <span
+                v-if="remainingLabel(activeInteraction)"
+                class="lite-countdown"
+                :data-expired="remainingLabel(activeInteraction) === '已超时'"
+              >
+                {{ remainingLabel(activeInteraction) }}
+              </span>
+            </span>
+          </div>
+          <div
+            v-for="question in questionsOf(activeInteraction)"
+            :key="question.questionId"
+            class="lite-followup-question"
+          >
+            <p>{{ question.question }}</p>
+            <p
+              v-if="lite.questionError(activeInteraction.interactionId, question.questionId)"
+              class="lite-question-error"
+              role="alert"
+            >
+              {{
+                lite.questionError(activeInteraction.interactionId, question.questionId)?.message
+              }}
+            </p>
+            <template v-if="!question.freeText">
+              <div v-for="option in question.options" :key="option.label" class="lite-option-wrap">
+                <label class="lite-option">
+                  <input
+                    :type="question.multiSelect ? 'checkbox' : 'radio'"
+                    :name="activeInteraction.interactionId + ':' + question.questionId"
+                    :disabled="!interactionActionable(activeInteraction)"
+                    :checked="
+                      selectedOf(activeInteraction.interactionId, question.questionId).includes(
+                        option.label,
+                      )
+                    "
+                    @change="toggleOption(activeInteraction.interactionId, question, option.label)"
+                  />
+                  <span class="lite-option-label">{{ option.label }}</span>
+                  <span v-if="option.description" class="lite-option-description">{{
+                    option.description
+                  }}</span>
+                </label>
+                <textarea
+                  v-if="
+                    selectedOf(activeInteraction.interactionId, question.questionId).includes(
+                      option.label,
+                    )
+                  "
+                  class="lite-option-note"
+                  rows="2"
+                  :value="
+                    noteOf(activeInteraction.interactionId, question.questionId, option.label)
+                  "
+                  :disabled="!interactionActionable(activeInteraction)"
+                  placeholder="为这个选项补充描述（可选）"
+                  @input="
+                    setOptionNote(
+                      activeInteraction.interactionId,
+                      question.questionId,
+                      option.label,
+                      ($event.target as HTMLTextAreaElement).value,
+                    )
+                  "
+                />
+              </div>
+            </template>
+            <textarea
+              v-else
+              class="lite-freetext"
+              rows="2"
+              :value="textDraftOf(activeInteraction.interactionId, question.questionId)"
+              :disabled="!interactionActionable(activeInteraction)"
+              placeholder="输入回答"
+              @input="
+                setTextDraft(
+                  activeInteraction.interactionId,
+                  question.questionId,
+                  ($event.target as HTMLTextAreaElement).value,
+                )
+              "
+            />
+          </div>
+          <p
+            v-if="lite.interactionError(activeInteraction.interactionId)"
+            class="lite-object-error"
+            role="alert"
+          >
+            {{ lite.interactionError(activeInteraction.interactionId)?.message }}
+          </p>
+          <div v-if="interactionActionable(activeInteraction)" class="lite-interaction-actions">
+            <button
+              type="button"
+              class="lite-btn is-accept"
+              :disabled="answering === activeInteraction.interactionId || connectionBlocked"
+              @click="onAnswerBatch(activeInteraction)"
+            >
+              提交回答
+            </button>
+          </div>
+        </div>
+        </div>
+      </section>
+
       <div class="lite-input">
-        <input
+        <textarea
           ref="liteInputEl"
           v-model="inputText"
-          type="text"
           class="lite-input-box"
-          :placeholder="connectionBlocked ? operationBlockReason : '发送消息（Enter）'"
+          rows="1"
+          :placeholder="
+            connectionBlocked ? operationBlockReason : '发送消息（Enter 发送 / Shift+Enter 换行）'
+          "
           :disabled="sending || connectionBlocked"
           @keydown="onInputKeydown"
+          @input="autoGrowInput"
         />
         <button
           type="button"
@@ -1273,6 +1240,8 @@ function rowKey(row: LiteRunRow): string {
   background: var(--el-bg-color);
   color: var(--el-text-color-primary);
   font-size: 13px;
+  /* 字重基线 400（用户强制规则）：lite 全部内容继承 400，杜绝任何加粗继承。 */
+  font-weight: 400;
 }
 
 /* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，
@@ -1380,31 +1349,29 @@ function rowKey(row: LiteRunRow): string {
   flex-direction: column;
 }
 
-/* ── 时间瀑布流（需求 2/4d-3/5：多轨多 Agent，顶部外挂、参考浏览器控制台请求时间线窗口）── */
+/* ── 时间瀑布流（v0.3.2 无间隔紧凑流式：多轨多 Agent，块按序紧凑排列、无时间空余）── */
 .lite-trajectory {
   position: relative;
   flex: none;
-  padding: 5px 12px 2px;
+  /* v0.4.2（修正）：轨迹区块高度随内容自适应（不固定、不居中大留白）——任务条多轨时自然变高，
+     上下仅对称留白 10px（顶部 padding 10 = 底部 padding 3 + 横向滚动条轨道占位 7）；
+     max-height 仅作多轨溢出的兜底滚动上限。运行中块宽由 CSS 动画推进（.is-model.is-running），
+     区块高度不随每秒时钟 tick 变化 */
+  padding: 10px 12px 3px;
   border-bottom: 1px solid var(--el-border-color-lighter);
-  max-height: 132px;
+  max-height: 168px;
   overflow-y: auto;
   scrollbar-width: none;
 }
+/* 头部为常规文档流行，仅缩放重置按钮（v0.3.2：去掉「时间轴」标题；zoom=1 时不渲染）——不悬浮、不覆盖行标记。 */
 .lite-trajectory-head {
-  position: absolute;
-  top: 3px;
-  left: 6px;
-  z-index: 3;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 10.5px;
   line-height: 1;
   color: var(--el-text-color-secondary);
-  background: color-mix(in srgb, var(--el-bg-color) 82%, transparent);
-  border-radius: 6px;
-  padding: 2px 6px;
-  pointer-events: none;
+  padding: 0 2px 4px;
 }
 .lite-trajectory-zoom {
   pointer-events: auto;
@@ -1420,61 +1387,21 @@ function rowKey(row: LiteRunRow): string {
 .lite-trajectory-zoom:hover {
   background: color-mix(in srgb, var(--el-color-primary) 24%, transparent);
 }
-.lite-trajectory-lane-label {
-  padding-right: 64px;
-}
 .lite-trajectory::-webkit-scrollbar {
   display: none;
 }
-.lite-trajectory :deep(.lite-scrollbar) {
-  height: 100%;
-}
 .lite-trajectory-track {
   position: relative;
+  /* v0.4.2：轨道组紧凑排列——高度=内容高度（随轨数自适应），gap 28px 控制轨间间距（20-40px 区间取值）；
+     不撑满不居中（区块高即内容高，无需多余留白） */
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
   min-width: 100%;
-  padding-bottom: 15px;
 }
 .lite-trajectory-lane {
   position: relative;
-  margin-bottom: 5px;
-}
-.lite-trajectory-lane-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  line-height: 14px;
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.lite-trajectory-lane-dot {
   flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--el-text-color-placeholder);
-}
-.lite-trajectory-lane-dot[data-root='true'] {
-  background: var(--el-color-primary);
-}
-/* 行标记：序号（第 N 行）+ 角色名，方形小徽标 + 角色名省略 */
-.lite-trajectory-lane-index {
-  flex: none;
-  min-width: 16px;
-  padding: 0 3px;
-  text-align: center;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-secondary);
-  font-variant-numeric: tabular-nums;
-}
-.lite-trajectory-lane-agent {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .lite-trajectory-lane-track {
   position: relative;
@@ -1530,9 +1457,26 @@ function rowKey(row: LiteRunRow): string {
 .lite-trajectory-bar.is-tool[data-tooltype='other'] {
   background: var(--el-color-warning);
 }
+/* v0.4.1：运行中块移除脉冲闪烁动画——宽度随执行时间持续增长即为运行反馈（barWidthFor 线性映射），
+   仅保留常亮高亮（opacity:1）。 */
 .lite-trajectory-bar.is-running {
   opacity: 1;
-  animation: lite-pulse 1.4s ease-in-out infinite;
+}
+/* v0.4.2（性能修正）：运行中 model 块宽度增长改 **CSS 动画**推进（1px×zoom/秒），运行期间零 JS 更新——
+   轨迹布局已与每秒时钟 tick 解耦（trajectoryLayout memo 签名排除 elapsedMs，trajectoryBarStyle 注入
+   --bar-from/--bar-to/--bar-dur），块宽从当前值平滑增长到上限（180px）后定格，
+   运行结束由布局重算写入精确终宽并移除动画。width 动画仅 re-paint 该绝对定位块、不回流兄弟（低成本）。 */
+.lite-trajectory-bar.is-model.is-running {
+  max-width: var(--bar-to, 180px);
+  animation: lite-bar-grow var(--bar-dur, 180s) linear forwards;
+}
+@keyframes lite-bar-grow {
+  from {
+    width: var(--bar-from, 10px);
+  }
+  to {
+    width: var(--bar-to, 180px);
+  }
 }
 .lite-trajectory-bar.is-selected {
   outline: 2px solid var(--el-text-color-primary);
@@ -1540,24 +1484,7 @@ function rowKey(row: LiteRunRow): string {
   opacity: 1;
   z-index: 3;
 }
-/* 均匀时间刻度：多个相对时间标签绝对定位（间隔随步长均布），只作缩放/跨度参照 */
-.lite-trajectory-axis {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 12px;
-  color: var(--el-text-color-placeholder);
-  font-size: 9.5px;
-  font-variant-numeric: tabular-nums;
-}
-.lite-trajectory-axis time {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  pointer-events: none;
-}
+/* 无时间刻度轴（v0.3.2：时间跨度展示被放弃，改为紧凑块流） */
 
 /* ── 运行历史列表（需求 1c / 4a）：用户消息与轮末响应独占一行，中间节点为 cluster 小按钮 ── */
 .lite-monitor {
@@ -1624,6 +1551,8 @@ function rowKey(row: LiteRunRow): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 强制字重规则：内容/标签一律 400，不随 <strong> 默认加粗。 */
+  font-weight: 400;
 }
 .lite-history-status {
   font-size: 11px;
@@ -1654,6 +1583,8 @@ function rowKey(row: LiteRunRow): string {
   overflow-wrap: anywhere;
   line-height: 1.55;
   font-size: 12.5px;
+  /* 强制字重规则：用户提问/模型响应正文一律 400。 */
+  font-weight: 400;
 }
 .lite-empty {
   margin: 14px 2px 2px;
@@ -1850,55 +1781,64 @@ function rowKey(row: LiteRunRow): string {
   border-color: color-mix(in srgb, var(--el-color-danger) 55%, var(--el-border-color));
 }
 
-/* ── 顶部待操作 Tab 栏（需求 1a/1b/4e）：外挂在内容窗上方，Element UI tabs 风格，每个交互独立 Tab ── */
-.lite-pending-bar {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  padding: 5px 10px 0;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-  background: var(--el-bg-color);
-}
+/* ── 待操作页签（v0.4.2 浏览器式）：标签栏内多 tab，样式照抄浏览器顶部 tab——
+   上圆角下直角、底部与内容区连接（无底边框）；激活 tab 亮背景（= 内容区背景，与其连体）
+   + 主色边框文字 + 略高盖过非激活；非激活 tab 透明背景（= 标签栏灰）+ 略矮；
+   激活不收缩，其余空间不足时互相挤压、最短只剩 icon ── */
 .lite-pending-tab {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px 7px;
-  border: 0;
+  gap: 5px;
+  min-width: 0;
+  max-width: 160px;
+  /* 非激活 tab 底部 padding 更薄 → 总高矮于激活 tab（底部对齐后顶部低 4px，浏览器 tab 层次） */
+  padding: 6px 14px 5px;
+  /* 浏览器 tab：直角矩形（用户强制规则：无圆角）、底部与内容区连接（无底边框） */
+  border: 1px solid var(--el-border-color);
+  border-bottom: none;
   background: transparent;
   color: var(--el-text-color-secondary);
-  font-size: 12.5px;
+  font-size: 12px;
   cursor: pointer;
-  transition: color 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+  /* 标签挤压：不撑满（flex-grow 0），空间不足时非激活可收缩（flex-shrink 1） */
+  flex: 0 1 auto;
 }
-.lite-pending-tab:hover {
+.lite-pending-tab:hover:not(.is-active) {
+  border-color: var(--el-color-primary-light-5);
   color: var(--el-color-primary);
 }
 .lite-pending-tab.is-active {
+  /* 当前展示页签不挤压 */
+  flex: 0 0 auto;
+  /* 激活 tab：底部 padding 更厚 → 更高盖过非激活；亮背景与内容区同色连体、主色边框与文字 */
+  padding: 6px 14px 9px;
+  background: var(--el-bg-color);
+  border-color: var(--el-color-primary);
   color: var(--el-color-primary);
 }
-.lite-pending-tab.is-active::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 0;
-  height: 2px;
-  border-radius: 2px 2px 0 0;
-  background: var(--el-color-primary);
+.lite-pending-tab-icon {
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
 }
 .lite-pending-tab-label {
-  max-width: 120px;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .lite-pending-badge {
-  min-width: 14px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
   padding: 0 5px;
-  border-radius: 999px;
   background: color-mix(in srgb, var(--el-color-warning) 16%, transparent);
   color: var(--el-color-warning);
   font-size: 10px;
@@ -1910,17 +1850,38 @@ function rowKey(row: LiteRunRow): string {
   background: color-mix(in srgb, var(--el-color-danger) 16%, transparent);
   color: var(--el-color-danger);
 }
-/* ── 待处理详情面板：Tab 栏正下方，展示激活的交互卡片 ── */
+/* ── 待处理详情面板（v0.4.2 浏览器式多 tab）：独立卡片（直角边框，无圆角——用户强制规则）与上方对话流区分；
+   卡内两级结构——标签栏（灰背景）+ 内容区（亮背景）；激活 tab 亮背景与内容区同色连体、
+   底部直通内容区无分隔（切换 tab 内容随之切换）── */
 .lite-pending-panel {
   flex: none;
+  display: flex;
+  flex-direction: column;
   max-height: 36%;
+  margin: 4px 10px 0;
+  border: 1px solid var(--el-border-color-lighter);
+  overflow: hidden;
+}
+/* 标签栏：灰背景（浏览器 tab 栏），页签靠左排、不撑满、右侧留白 */
+.lite-pending-tabs-bar {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 12px 0;
+  background: var(--el-fill-color-lighter);
+  overflow: hidden;
+}
+/* 内容区：亮背景卡片，激活 tab 底部与此同色连体 */
+.lite-pending-content {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 4px 12px 8px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 8px 12px;
   background: var(--el-bg-color);
   scrollbar-width: none;
 }
-.lite-pending-panel::-webkit-scrollbar {
+.lite-pending-content::-webkit-scrollbar {
   display: none;
 }
 
@@ -1934,7 +1895,8 @@ function rowKey(row: LiteRunRow): string {
 .lite-interaction-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* v0.4.2 去掉内容区标题后：状态与倒计时靠左展示 */
+  justify-content: flex-start;
   gap: 8px;
 }
 .lite-interaction-head-right {
@@ -2085,27 +2047,39 @@ function rowKey(row: LiteRunRow): string {
 .lite-input {
   flex: none;
   display: flex;
-  align-items: center;
+  /* v0.4.2 多行输入：按钮贴底对齐 */
+  align-items: flex-end;
   padding: 8px 12px;
   border-top: 1px solid var(--el-border-color-lighter);
 }
 .lite-input-box {
   width: 100%;
   box-sizing: border-box;
+  /* v0.4.2 多行自适应：默认单行，换行/长内容自动增高（autoGrowInput），上限内滚动 */
+  resize: none;
+  max-height: 120px;
   padding: 7px 10px;
   border: 1px solid var(--el-border-color);
-  border-radius: 6px;
   background: var(--el-fill-color-blank);
   color: inherit;
+  font: inherit;
+  line-height: 1.5;
 }
 .lite-send-btn {
+  flex: none;
   margin-left: 8px;
-  padding: 5px 14px;
-  border: 1px solid var(--el-color-primary);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--el-color-primary);
+  padding: 6px 16px;
+  border: none;
+  background: var(--el-color-primary);
+  color: #fff;
+  font-size: 12.5px;
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+.lite-send-btn:hover:not(:disabled) {
+  background: var(--el-color-primary-light-3);
 }
 .lite-send-btn:disabled {
   cursor: default;

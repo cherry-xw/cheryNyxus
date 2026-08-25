@@ -611,7 +611,7 @@ defineExpose({
               </el-tooltip>
               <span v-else class="who">{{ pet?.name ?? presetName ?? 'agent' }}</span>
             </span>
-            <span class="hint">Cmd/Ctrl+Enter 发送 · Esc 关闭</span>
+            <span class="hint">Enter 发送 · Shift+Enter 换行 · Esc 关闭</span>
           </span>
           <div class="head-actions">
             <el-tooltip placement="bottom" :show-after="120" :hide-after="0">

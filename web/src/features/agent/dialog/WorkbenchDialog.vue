@@ -1602,7 +1602,7 @@ defineExpose({ closeWorkbench })
           />
           <footer class="nyxus-composer-hint">
             <span><kbd>/</kbd> 指令 · <kbd>@</kbd> 角色</span>
-            <span><kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> 发送</span>
+            <span><kbd>Enter</kbd> 发送 · <kbd>Shift</kbd> + <kbd>Enter</kbd> 换行</span>
           </footer>
         </section>
       </Transition>
@@ -2037,6 +2037,12 @@ defineExpose({ closeWorkbench })
 .workbench-shell.is-lite {
   display: flex;
   flex-direction: column;
+}
+/* v0.4.2 修复：非 native 面 titlebar 为 absolute（inset:0 0 auto; height:40px）悬浮于 shell 顶部，
+   且 .is-lite 未隐藏它（⚡ 切换钮/窗口控制在其上）——lite 内容必须从 titlebar 下方开始，
+   否则 .lite-view 顶部被标题栏遮挡（lite-body 与 title 重叠、上下不对称的根因）。native 面无 titlebar，保持从顶。 */
+.workbench-shell.is-lite:not(.is-native) {
+  padding-top: 40px;
 }
 
 .workbench-lite-toggle {

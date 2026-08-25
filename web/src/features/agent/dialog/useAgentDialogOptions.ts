@@ -646,7 +646,9 @@ export function useAgentDialogOptions(options?: UseAgentDialogOptionsOptions) {
         return
       }
     }
-    if (e.key === 'Enter' && !e.isComposing && (e.metaKey || e.ctrlKey)) {
+    // v0.4.2 输入行为统一：Enter 发送、Shift+Enter 换行（contenteditable 默认插入换行，
+    // 由 shiftKey 分支放行不拦截；原 Cmd/Ctrl+Enter 发送废弃）。
+    if (e.key === 'Enter' && !e.isComposing && !e.shiftKey) {
       e.preventDefault()
       if (send) send()
       else void handleSend()

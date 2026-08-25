@@ -414,6 +414,8 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 150px;
+  /* 强制字重规则：lite 内容一律 400，标题亦收敛（不随 <strong> 默认加粗）。 */
+  font-weight: 400;
 }
 .lite-drawer-status {
   flex: none;
