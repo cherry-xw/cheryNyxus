@@ -473,8 +473,8 @@ defineExpose({
   left: 0;
   box-sizing: border-box;
   padding-bottom: var(--virtual-scroll-gap, 0px);
-  // 不加 will-change: transform——透明合成层强制灰度抗锯齿，dpr=1 下小字号文字发虚
-  // （见 docs/web/pet/agent-integration.md「VirtualScroll 定位约束」；滚动时浏览器自动临时提升合成层）
+  /* 不加 will-change: transform——透明合成层强制灰度抗锯齿，dpr=1 下小字号文字发虚
+     （见 docs/web/pet/agent-integration.md「VirtualScroll 定位约束」；滚动时浏览器自动临时提升合成层） */
 }
 
 /* 自定义滚动条层：外层 flex 子（不随 viewport 滚动），自身作 track/thumb 定位上下文 */
