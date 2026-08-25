@@ -5,16 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   agentApi,
   type ExecutionStep,
+  type GraphToolCall,
   type RootTimelineSnapshot,
   type TimelineNode,
   type TimelineNodeDetailResponse,
 } from '../../src/services/agentApi'
 import {
+  classifyToolType,
   createLiteExecutionClock,
   FINAL_PREVIEW_CHAR_LIMIT,
   finalContentPreview,
   firstParagraph,
   projectLiteExecution,
+  projectLiteHistory,
+  toolTypeEmoji,
 } from '../../src/features/lite/executionMonitor'
 import {
   createLiteDetailSectionState,
@@ -479,14 +483,413 @@ describe('Lite detail lazy pagination', () => {
     expect(view).not.toContain('payload.arguments')
     expect(view).not.toContain('payload.result')
     expect(view).not.toContain('lite-actions')
-    expect(view).toContain("step.kind === 'tool' ? step.name : '模型响应'")
-    expect(view).toContain("monitor.finalHasMore ? '加载更多' : '查看详情'")
-    expect(view).toContain("monitor.value.finalHasMore ? 'content' : null")
+    // 上半部运行历史列表（需求 1c）+ 顶部时间瀑布流（需求：放在节点区顶部）+ 底部 tab 栏（需求 1a/1b）
+    expect(view).toContain('projectLiteHistory(')
+    expect(view).toContain('lite-history-row')
+    expect(view).toContain('lite-cluster')
+    expect(view).toContain('lite-trajectory')
+    expect(view).toContain('LiteScrollbar')
+    expect(view).toContain('activePendingTab')
+    expect(view).toContain('lite-pending-tab')
+    expect(view).toContain('remainingLabel(')
+    expect(view).toContain('detailReturnFocus.value?.focus()')
+    expect(view).toContain('<button')
+    // 详情抽屉（需求 3）：单节点详情 + 遮罩，点击遮罩关闭；不含轨迹/节点列表
+    expect(drawer).toContain('lite-drawer-mask')
+    expect(drawer).toContain('lite-tool-call')
+    expect(drawer).not.toContain('lite-trajectory')
+    expect(drawer).not.toContain('lite-node-list')
     expect(drawer).toContain('sections: [section]')
     expect(drawer).toContain("event.key === 'Escape'")
     expect(drawer).toContain("event.key !== 'Tab'")
     expect(drawer).toContain('aria-modal="true"')
-    expect(view).toContain('detailReturnFocus.value?.focus()')
-    expect(view).toContain('<button')
+  })
+})
+
+describe('projectLiteHistory run-history projection', () => {
+  function userNode(
+    id: string,
+    content: string,
+    orderKey: number,
+    createdAt = orderKey,
+  ): TimelineNode {
+    return {
+      id,
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: id,
+      kind: 'message',
+      actor: { kind: 'user', actorId: 'human' },
+      target: { kind: 'agent', chatId: 'root' },
+      direction: 'user-to-agent',
+      visibility: 'conversation',
+      content,
+      orderKey,
+      createdAt,
+      updatedAt: createdAt,
+      status: 'committed',
+    }
+  }
+  function modelNode(
+    id: string,
+    content: string,
+    orderKey: number,
+    createdAt = orderKey,
+  ): TimelineNode {
+    return {
+      id,
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: id,
+      kind: 'message',
+      actor: { kind: 'agent', chatId: 'root' },
+      target: { kind: 'user', actorId: 'human' },
+      direction: 'agent-to-user',
+      visibility: 'conversation',
+      content,
+      orderKey,
+      createdAt,
+      updatedAt: createdAt + 4_000,
+      status: 'committed',
+    }
+  }
+  function toolBatch(
+    id: string,
+    orderKey: number,
+    calls: Array<Partial<GraphToolCall> & { name: string }>,
+  ): TimelineNode {
+    return {
+      id,
+      rootChatId: 'root',
+      sourceChatId: 'root',
+      sourceMessageId: id,
+      kind: 'tool-batch',
+      actor: { kind: 'agent', chatId: 'root' },
+      direction: 'internal',
+      visibility: 'detail',
+      content: '',
+      toolCalls: calls.map((call, index) => ({
+        callId: `call-${index}`,
+        index,
+        status: 'completed' as const,
+        arguments: '',
+        ...call,
+      })),
+      orderKey,
+      createdAt: orderKey,
+      updatedAt: orderKey,
+      status: 'committed',
+    }
+  }
+
+  const emptyModel: ExecutionReadModel = {
+    rootChatId: 'root',
+    status: 'completed',
+    completedAt: 10_000,
+    steps: [],
+    agents: [],
+  }
+
+  it('lists user question, tool runs and model responses in order from the start node', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        toolBatch('batch-1', 20, [{ name: 'search' }]),
+        modelNode('m1', '回答一', 30),
+        userNode('q2', '问题二', 40),
+        modelNode('m2', '回答二', 50),
+      ],
+      emptyModel,
+      100,
+    )
+    expect(view.nodes.map((node) => node.kind)).toEqual(['user', 'tool', 'model', 'user', 'model'])
+    expect(view.nodes.map((node) => node.label)).toEqual([
+      '用户问题',
+      'search',
+      '模型响应',
+      '用户问题',
+      '模型响应',
+    ])
+    expect(view.nodes.map((node) => node.roundIndex)).toEqual([0, 0, 0, 1, 1])
+  })
+
+  it('collapses everything except user messages and the round-final message (需求 3d-1)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        toolBatch('batch-1', 20, [{ name: 'search' }, { name: 'read' }]),
+        toolBatch('batch-2', 30, [{ name: 'write' }]),
+        modelNode('m1', '回答一', 40),
+      ],
+      emptyModel,
+      100,
+    )
+    const byId = new Map(view.nodes.map((node) => [node.nodeId, node]))
+    expect(byId.get('q1')?.collapsed).toBe(false)
+    expect(byId.get('batch-1')?.collapsed).toBe(true)
+    expect(byId.get('batch-2')?.collapsed).toBe(true)
+    expect(byId.get('m1')?.collapsed).toBe(false)
+    expect(byId.get('m1')?.isRoundFinal).toBe(true)
+    // 折叠的工具节点仍携带工具名标签（参考历史抽屉「折叠工具调用状态」）
+    expect(byId.get('batch-1')?.toolNames).toEqual(['search', 'read'])
+  })
+
+  it('marks only running tool nodes as active and seals terminal durations (需求 2)', () => {
+    const running = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10, 0),
+        toolBatch('batch-1', 20, [{ name: 'search', status: 'pending' }]),
+      ],
+      {
+        rootChatId: 'root',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: 0,
+        steps: [
+          {
+            id: 'step-tool',
+            runId: 'run-1',
+            chatId: 'root',
+            kind: 'tool',
+            name: 'search',
+            status: 'running',
+            startedAt: 20,
+          },
+        ],
+        agents: [],
+      },
+      60,
+    )
+    const tool = running.nodes.find((node) => node.kind === 'tool')
+    expect(tool?.active).toBe(true)
+    expect(tool?.status).toBe('running')
+    expect(tool?.elapsedMs).toBe(40)
+
+    const terminal = projectLiteHistory(
+      [userNode('q1', '问题一', 10, 0), toolBatch('batch-1', 20, [{ name: 'search' }])],
+      {
+        rootChatId: 'root',
+        status: 'completed',
+        completedAt: 90,
+        steps: [
+          {
+            id: 'step-tool',
+            runId: 'run-1',
+            chatId: 'root',
+            kind: 'tool',
+            name: 'search',
+            status: 'completed',
+            startedAt: 20,
+            completedAt: 60,
+          },
+        ],
+        agents: [],
+      },
+      200,
+    )
+    const done = terminal.nodes.find((node) => node.kind === 'tool')
+    expect(done?.active).toBe(false)
+    expect(done?.status).toBe('completed')
+    // 终态节点耗时固定，不再随 now 增长（不对未运行节点做进行时计时）
+    expect(done?.elapsedMs).toBe(40)
+  })
+
+  it('synthesizes in-flight running steps with no committed node as placeholder nodes (需求 3 进行中节点)', () => {
+    const view = projectLiteHistory(
+      [userNode('q1', '问题一', 10), toolBatch('batch-1', 20, [{ name: 'search' }])],
+      {
+        rootChatId: 'root',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: 0,
+        steps: [
+          {
+            id: 'turn-9',
+            runId: 'run-1',
+            chatId: 'root',
+            kind: 'model',
+            name: '模型响应',
+            status: 'running',
+            startedAt: 200,
+          },
+          {
+            id: 'step-late',
+            runId: 'run-1',
+            chatId: 'root',
+            kind: 'tool',
+            name: 'web_search',
+            status: 'running',
+            startedAt: 260,
+          },
+          {
+            id: 'step-search',
+            runId: 'run-1',
+            chatId: 'root',
+            kind: 'tool',
+            name: 'search',
+            status: 'completed',
+            startedAt: 20,
+            completedAt: 40,
+          },
+        ],
+        agents: [],
+      },
+      300,
+    )
+    const byId = new Map(view.nodes.map((node) => [node.nodeId, node]))
+    const inflightModel = byId.get('inflight:turn-9')
+    expect(inflightModel).toBeDefined()
+    expect(inflightModel?.kind).toBe('model')
+    expect(inflightModel?.status).toBe('running')
+    expect(inflightModel?.active).toBe(true)
+    expect(inflightModel?.label).toBe('正在生成回答…')
+    expect(inflightModel?.startedAt).toBe(200)
+    expect(inflightModel?.elapsedMs).toBe(100)
+    expect(inflightModel?.isRoundFinal).toBe(true)
+    // 进行中的模型回合占一行（full 行）
+    expect(
+      view.rows.some((row) => row.kind === 'full' && row.node?.nodeId === 'inflight:turn-9'),
+    ).toBe(true)
+    // 无已提交节点的运行中工具 step 也合成占位（工具类型归类）
+    const inflightTool = byId.get('inflight:step-late')
+    expect(inflightTool?.kind).toBe('tool')
+    expect(inflightTool?.toolType).toBe('web')
+    expect(inflightTool?.status).toBe('running')
+    expect(inflightTool?.active).toBe(true)
+    // 已匹配到已提交节点的 step 不重复合成占位
+    expect(byId.has('inflight:step-search')).toBe(false)
+    // 已提交工具节点仍由匹配 step 驱动状态（此处 step 已终态 → completed）
+    expect(byId.get('batch-1')?.status).toBe('completed')
+    // 按 startedAt 排序：q1(10) < batch-1(20) < turn-9(200) < step-late(260)
+    expect(view.nodes.map((node) => node.nodeId)).toEqual([
+      'q1',
+      'batch-1',
+      'inflight:turn-9',
+      'inflight:step-late',
+    ])
+  })
+
+  it('ignores bookkeeping nodes (return/dispatch/system) in the run history', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'dispatch-1',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          kind: 'dispatch',
+          actor: { kind: 'agent', chatId: 'root' },
+          direction: 'parent-to-child',
+          visibility: 'detail',
+          content: '',
+          orderKey: 15,
+          createdAt: 15,
+          updatedAt: 15,
+          status: 'committed',
+        },
+        modelNode('m1', '回答一', 30),
+      ],
+      emptyModel,
+      100,
+    )
+    expect(view.nodes.map((node) => node.nodeId)).toEqual(['q1', 'm1'])
+  })
+
+  it('builds full/cluster rows: user and round-final on their own line, middle nodes clustered', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        toolBatch('batch-1', 20, [{ name: 'search' }]),
+        modelNode('think-1', '思考', 25, 22),
+        toolBatch('batch-2', 30, [{ name: 'write' }]),
+        modelNode('m1', '回答一', 40),
+        userNode('q2', '问题二', 50),
+        modelNode('m2', '回答二', 60),
+      ],
+      emptyModel,
+      100,
+    )
+    expect(view.rows.map((row) => row.kind)).toEqual(['full', 'cluster', 'full', 'full', 'full'])
+    expect(view.rows[0].node?.nodeId).toBe('q1')
+    expect(view.rows[1].kind).toBe('cluster')
+    expect((view.rows[1].nodes ?? []).map((node) => node.nodeId)).toEqual([
+      'batch-1',
+      'think-1',
+      'batch-2',
+    ])
+    expect(view.rows[2].node?.nodeId).toBe('m1')
+    expect(view.rows[3].node?.nodeId).toBe('q2')
+    expect(view.rows[3].node?.kind).toBe('user')
+    expect(view.rows[4].node?.nodeId).toBe('m2')
+    expect(view.rows[4].node?.isRoundFinal).toBe(true)
+  })
+
+  it('uses Chinese tool names and per-tool icons when toolMeta is supplied', () => {
+    const view = projectLiteHistory(
+      [userNode('q1', '问题一', 10), toolBatch('batch-1', 20, [{ name: 'search' }])],
+      emptyModel,
+      100,
+      (name) => (name === 'search' ? { label: '搜索', icon: '🔍' } : undefined),
+    )
+    const tool = view.nodes.find((node) => node.kind === 'tool')
+    expect(tool?.toolNames).toEqual(['搜索'])
+    expect(tool?.label).toBe('搜索')
+    expect(tool?.icon).toBe('🔍')
+  })
+
+  it('never matches a user node to an execution step (its timing stays static)', () => {
+    const view = projectLiteHistory(
+      [userNode('q1', '问题一', 10, 0), toolBatch('batch-1', 20, [{ name: 'search' }])],
+      {
+        rootChatId: 'root',
+        status: 'running',
+        runId: 'run-1',
+        startedAt: 0,
+        steps: [
+          {
+            id: 'step-model',
+            runId: 'run-1',
+            chatId: 'root',
+            kind: 'model',
+            name: '',
+            status: 'running',
+            startedAt: 5,
+          },
+        ],
+        agents: [],
+      },
+      60,
+    )
+    const user = view.nodes.find((node) => node.kind === 'user')
+    // 用户节点仍是终态，且 active=false（需求 2：不对未运行节点做进行时计时）
+    expect(user?.active).toBe(false)
+    expect(user?.status).toBe('completed')
+    expect(user?.elapsedMs).toBe(0)
+  })
+})
+
+describe('classifyToolType tool-type classification (需求 5 配色)', () => {
+  it('maps known tool raw names to display types and falls back to other', () => {
+    expect(classifyToolType('execute_command')).toBe('exec')
+    expect(classifyToolType('bash')).toBe('exec')
+    expect(classifyToolType('read_file')).toBe('read')
+    expect(classifyToolType('search_codebase')).toBe('read')
+    expect(classifyToolType('write_file')).toBe('write')
+    expect(classifyToolType('config_manage')).toBe('write')
+    expect(classifyToolType('web_search')).toBe('web')
+    expect(classifyToolType('spawn_role')).toBe('dispatch')
+    expect(classifyToolType('whatever_custom')).toBe('other')
+  })
+})
+
+describe('toolTypeEmoji tool-type emoji marker (需求 5 工具小块标记)', () => {
+  it('maps every tool type to a distinct emoji and falls back for unknown/missing', () => {
+    expect(toolTypeEmoji('exec')).toBe('⚙️')
+    expect(toolTypeEmoji('read')).toBe('📖')
+    expect(toolTypeEmoji('write')).toBe('✍️')
+    expect(toolTypeEmoji('web')).toBe('🌐')
+    expect(toolTypeEmoji('dispatch')).toBe('📨')
+    expect(toolTypeEmoji('other')).toBe('🧩')
+    expect(toolTypeEmoji(undefined)).toBe('🧩')
   })
 })

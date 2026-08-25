@@ -9,6 +9,16 @@ import {
 const DETAIL_NODE_CACHE_LIMIT = 12
 
 /**
+ * 单个问题在本 Lite 窗口内的作答草稿（UI 态，仅存于 store）。
+ * selected：已选 label；notes：label → 补充描述；freeText：自由文本（无选项时）。
+ */
+export interface LiteQuestionDraft {
+  selected: string[]
+  notes: Record<string, string>
+  freeText: string
+}
+
+/**
  * Lite is a presentation of the canonical workbench session. This store must
  * therefore contain UI state only: no socket, subscription, timeline, replay
  * cursor, interaction inbox or command lifecycle is allowed here.
@@ -22,8 +32,10 @@ export interface LiteRootUiState {
   detailFocusToolCallId: string | null
   detailInitialSection: LiteDetailSectionName | null
   detailCache: Record<string, LiteNodeDetailCache>
-  interactionDrafts: Record<string, Record<string, string[] | string>>
+  interactionDrafts: Record<string, Record<string, LiteQuestionDraft>>
   commandError: { code: string; message: string; interactionId?: string } | null
+  /** 顶部待操作 tab：激活的 interactionId（null=收起）。 */
+  pendingTab: string | null
 }
 
 interface LiteStoreState {
@@ -45,6 +57,7 @@ export function createLiteRootUiState(): LiteRootUiState {
     detailCache: {},
     interactionDrafts: {},
     commandError: null,
+    pendingTab: null,
   }
 }
 

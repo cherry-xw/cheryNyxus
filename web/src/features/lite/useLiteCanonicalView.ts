@@ -1,8 +1,14 @@
-import { reactive } from 'vue'
-import { agentApi, type InteractionRecord, type TimelineNode } from '@/services/agentApi'
+import { reactive, ref } from 'vue'
+import {
+  agentApi,
+  type InteractionRecord,
+  type SenseToolInfo,
+  type TimelineNode,
+} from '@/services/agentApi'
 import { useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/stores'
 import { selectCanResume } from '@/stores/chats/selectors'
 import type { ExecutionReadModel } from '@/stores/chats/executionReadModel'
+import type { LiteToolMeta } from './executionMonitor'
 import { useLiteStore } from './liteStore'
 
 export interface LeanTimelineNode {
@@ -74,6 +80,23 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
   const execution = () => chats.executionReadModel(root())
   const rootUi = () => uiStore.ensureRootUi(windowId(), root())
 
+  /** sense.tools 元信息缓存：工具中文名 + 图标（展示用，失败降级为空表）。 */
+  const senseTools = ref<SenseToolInfo[]>([])
+  let senseToolsLoaded = false
+  async function fetchSenseTools(): Promise<void> {
+    if (senseToolsLoaded) return
+    senseToolsLoaded = true
+    try {
+      senseTools.value = await agentApi.listSenseTools()
+    } catch {
+      // 容错降级：保持空表，展示时回退英文原名 / 默认图标
+    }
+  }
+  function toolMeta(name: string): LiteToolMeta | undefined {
+    const tool = senseTools.value.find((item) => item.name === name)
+    return tool ? { label: tool.label, icon: tool.icon } : undefined
+  }
+
   function setCommandError(
     error: { code: string; message: string; interactionId?: string } | null,
   ): void {
@@ -115,6 +138,10 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
     },
     get leanTimeline(): LeanTimelineNode[] {
       return (timeline()?.nodes ?? []).map(toLeanNode)
+    },
+    /** 运行历史投影的权威数据源：全部已提交节点（含工具批/消息），按 orderKey 排序由投影器处理。 */
+    get runNodes(): TimelineNode[] {
+      return (timeline()?.nodes ?? []).filter((node) => node.status === 'committed')
     },
     get mainStreamNodes(): LeanTimelineNode[] {
       return (timeline()?.nodes ?? [])
@@ -270,6 +297,8 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
       answers: Array<{
         questionId: string
         selectedLabels?: string[]
+        /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
+        optionNotes?: Record<string, string>
         freeText?: string
         cancelled?: boolean
       }>,
@@ -282,6 +311,7 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
           answers.map((answer) => ({
             questionId: answer.questionId,
             selectedLabels: answer.selectedLabels ?? [],
+            ...(answer.optionNotes ? { optionNotes: answer.optionNotes } : {}),
             ...(answer.freeText ? { freeText: answer.freeText } : {}),
             ...(answer.cancelled ? { cancelled: true } : {}),
           })),
@@ -345,5 +375,10 @@ export function useLiteCanonicalView(windowId: () => string, rootChatId: () => s
           ?.id ?? null
       )
     },
+    get senseTools(): SenseToolInfo[] {
+      return senseTools.value
+    },
+    loadSenseTools: fetchSenseTools,
+    toolMeta,
   })
 }
