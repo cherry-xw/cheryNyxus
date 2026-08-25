@@ -79,6 +79,7 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 - **下拉切换保持锚定**：`onSwitchCascade` 切根时透传当前 `historyDrawerMode` + `historyDrawerAnchor`（`manager.openRoot(cid, mode, anchor)`），dock 抽屉切分支后仍保持 dock 锚定，不回退 overlay。
 - **「设为主流程」按钮**（`activateCurrentBranch`）：当前打开分支 `kind !== 'detail'` 且 `branchId !== activeBranchId` 时显示；点击经 `chat.branch.activate` 切换主干后刷新 `getTaskTimeline({ view: 'conversation' })`。`detail` 永远不能设为主干（对齐后端语义）。
 - **native 面抽屉锚定**：`workbenchDrawerAnchor` 的标题栏偏移在 native 面（Electron 原生窗，标题栏由 WindowFrame 外壳承载于 shell 之外）为 0，浏览器面为 40px——保证抽屉顶部紧贴标题栏下沿，不留空白。
+- **关闭工作台清理 docked 抽屉（2026-08-25）**：`closeWorkbench()`（窗口内关闭按钮，浏览器 + native 两路）与 `WorkbenchCapsule.close()`（胶囊关闭）在 `historyDrawerMode === 'workbench-docked'` 时先调 `closeAllHistory()` 清空全局单例抽屉栈/锚定——否则工作台关闭后历史抽屉及其遮罩残留页面（HistoryDrawer 读全局单例）。overlay 全局抽屉（可能属于 PetStage 等其他入口）保留不清。
 
 ### `WorkbenchCapsule.vue`（新，`web/src/features/agent/dialog/`）
 
@@ -88,7 +89,7 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 - **层叠**：`stackIndex` = minimized 列表位置，渲染 pos = capsulePos + index×偏移，后缩盖前缩，只露前标题。
 - **hover z**：`focusWorkbenchWindow` 提 z 到顶。
 - **还原**：`setWorkbenchWindowMinimized(false)` + `focusWorkbenchWindow`（mode/pos/size 保留）。
-- **关闭**：`closeWorkbenchWindow`。
+- **关闭**：`closeWorkbenchWindow`；若全局单例处于 `workbench-docked`（历史抽屉归属本窗）则先 `closeAllHistory()` 清空抽屉与遮罩，overlay 抽屉不受影响。
 
 ### `AgentDialog.vue`（精简）
 

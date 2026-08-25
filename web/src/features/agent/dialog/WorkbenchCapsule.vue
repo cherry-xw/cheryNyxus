@@ -126,6 +126,9 @@ function restore(): void {
   agents.focusWorkbenchWindow(props.windowId)
 }
 function close(): void {
+  // 关闭工作台即关闭其 docked 历史抽屉：HistoryDrawer 读全局单例，不清理则抽屉及遮罩残留
+  // （与 WorkbenchDialog.closeWorkbench 同款，见 docs/web/workbench-multi-window.md）。overlay 抽屉保留。
+  if (agents.historyDrawerMode === 'workbench-docked') agents.closeAllHistory()
   const rootChatId = win.value?.chatId
   if (rootChatId) void chatSessions.releaseRootTimeline(rootChatId, `workbench:${props.windowId}`)
   agents.closeWorkbenchWindow(props.windowId)

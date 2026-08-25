@@ -141,7 +141,7 @@ interface RendererProps {
 
 **标题栏会话级联切换**：panel 标题栏原「根会话」+「任务分支」两个下拉已合并为单个 `el-cascader` 两级菜单（仅 pet 直开的 overlay 抽屉显示；`workbench-docked` 模式隐藏全部切换下拉、只显静态标题，分支/会话切换走工作台自身节点树与会话浏览器）。第一级按 `ChatSummary.taskId` 分任务（无 taskId 的会话各自成组，组标签取组内最近会话的时间·预览）；第二级为该任务的分支会话--当前任务用 `getTaskTimeline` 分支摘要（主流程/解释/继续前缀，主流程排前），其他任务退化用 `ChatSummary.branchKind` 前缀（原流程/继续/解释）。`checkStrictly` + `emitPath:false`：点第一级任务节点直接切到其代表会话（当前任务=activeBranch，其他=最近会话），value 恒为 chatId，change 统一 `manager.openRoot(chatId)`。
 
-**工具调用折叠标签**：标题栏操作区提供「折叠工具调用」开关（uiState `senseCallsCollapsed`，内存态，与 `subagentDisplay` 同款）。开启后 MessageBubble 内 `senseCalls` 不再渲染 SenseCallRenderer 列表，改为一行小 tag（工具中文名 + 状态符号）；工具名经 `toSenseNameZh` 映射中文（未收录回退原名）、固定标签默认色，仅状态符号（勾/叉）按执行结果着色（running 琥珀 / done 绿 / error 红）；hover tag 经 `el-popover` 悬浮展示完整渲染器内容（专用渲染器优先、默认展开参数/结果）。展开态 SenseCallBox 的工具名同样走 `toSenseNameZh` 中文。thinking 与正文 content 渲染不受影响；主列表与二层代际列表共用同一开关，虚拟滚动估高感知折叠态。
+**工具调用折叠标签**：标题栏操作区提供「折叠工具调用」开关（uiState `senseCallsCollapsed`，内存态，与 `subagentDisplay` 同款）。开启后 MessageBubble 内 `senseCalls` 不再渲染 SenseCallRenderer 列表，改为一行小 tag（工具中文名 + 状态符号）；工具名经 `toSenseNameZh` 映射中文（未收录回退原名）、固定标签默认色，仅状态符号（勾/叉）按执行结果着色（running 琥珀 / done 绿 / error 红）；hover tag 经 `el-popover` 悬浮展示完整渲染器内容（专用渲染器优先、默认展开参数/结果）。**悬浮窗为一层（2026-08-25）**：`.sense-tag-detail-popper` 仅作定位层——去 `max-height/overflow` 外层滚动边界与 el 默认 padding/背景/边框/阴影/箭头，视觉只剩内层渲染器自身一层；各渲染器内容区自带 120-240px 限高滚动（SenseCallBox `.sense-pre`/`.arg-val`、专用渲染器 `.content-pre`/`.results-body` 等），长结果不撑爆。展开态 SenseCallBox 的工具名同样走 `toSenseNameZh` 中文。thinking 与正文 content 渲染不受影响；主列表与二层代际列表共用同一开关，虚拟滚动估高感知折叠态。
 
 **消息缓存（预留）**：`loadHistory(chatId)` 当前透传 `store.getHistory`（全量）；`historyCache: Map` 接口已预留，命中逻辑待后续接入——实时对话与缓存的一致性需额外设计（脏标记/版本号），当前不启用，避免陈旧。
 

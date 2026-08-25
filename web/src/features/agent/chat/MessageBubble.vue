@@ -558,9 +558,18 @@ function removeDelivery(): void {
 
 <style lang="less">
 // 折叠 tag 悬浮详情 popper：el-popper 渲染在 body 外，scoped 不命中，需全局样式。
-// 限高 + 内滚，避免长 result 撑爆悬浮窗。
-.sense-tag-detail-popper {
-  max-height: 60vh;
-  overflow: auto;
+// 与外层滚动边界合并为一层（2026-08-25）：popper 仅作定位层，去 el 默认 padding/背景/边框/阴影/
+// 箭头与外层滚动边界（max-height/overflow），视觉只剩内层渲染器自身一层。各渲染器内容区自带
+// 120-240px 限高滚动（SenseCallBox .sense-pre/.arg-val、专用渲染器 .content-pre/.results-body 等），长结果不撑爆。
+.sense-tag-detail-popper.el-popper {
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  max-height: none;
+  overflow: visible;
+}
+.sense-tag-detail-popper .el-popper__arrow {
+  display: none;
 }
 </style>

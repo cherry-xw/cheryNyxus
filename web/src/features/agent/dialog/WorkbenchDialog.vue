@@ -1047,6 +1047,9 @@ async function deleteNyxusSession(targetId: string): Promise<void> {
 
 function closeWorkbench(): void {
   const observedRoot = treeRootChatId.value
+  // 关闭工作台即关闭其 docked 历史抽屉：HistoryDrawer 读全局单例，不清理则抽屉及遮罩残留页面
+  // （见 docs/web/workbench-multi-window.md「关闭工作台清理 docked 抽屉」）。overlay 全局抽屉保留。
+  if (agents.historyDrawerMode === 'workbench-docked') agents.closeAllHistory()
   resetMedia()
   error.value = null
   // 只清理本窗口的 Lite 草稿/展开/滚动等 UI state；canonical root 数据与其它窗口不动。
