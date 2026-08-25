@@ -24,19 +24,13 @@ import {
   type RootTimelineSnapshot,
 } from '@/services/agentApi'
 import { useAgentDialogOptions } from './useAgentDialogOptions'
-import {
-  useWorkbenchWindow,
-  type ResizeDirection,
-  type WorkbenchMode,
-} from './useWorkbenchWindow'
+import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
 import { useAgentsStore, useChatSessionsStore, useConnectionStore } from '@/stores'
 import { useChatSessionData } from '@/stores/chats/useChatSessionData'
 import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
 import MessageBranchTree from '@/features/pets/nyxus/components/MessageBranchTree.vue'
 import NyxusPianoStrip from '@/features/pets/nyxus/components/NyxusPianoStrip.vue'
-import {
-  terminalActionMode,
-} from '@/features/pets/nyxus/composables/nodeInteraction'
+import { terminalActionMode } from '@/features/pets/nyxus/composables/nodeInteraction'
 import { selectCanResume } from '@/stores/chats/selectors'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
@@ -257,15 +251,10 @@ const quickTargetRequired = computed(
 )
 const quickSessions = computed(() =>
   (agents.historyList ?? [])
-    .filter(
-      (item) =>
-        !item.parentChatId &&
-        item.presetId === quickPresetId.value,
-    )
+    .filter((item) => !item.parentChatId && item.presetId === quickPresetId.value)
     .sort(
       (a, b) =>
-        (b.lastUserActivityAt ?? b.createdAt ?? 0) -
-        (a.lastUserActivityAt ?? a.createdAt ?? 0),
+        (b.lastUserActivityAt ?? b.createdAt ?? 0) - (a.lastUserActivityAt ?? a.createdAt ?? 0),
     ),
 )
 
@@ -291,9 +280,9 @@ function workbenchViewStorageKey(): string {
 function loadWorkbenchViewPreference(): WorkbenchViewPreference {
   if (typeof localStorage === 'undefined') return DEFAULT_WORKBENCH_VIEW
   try {
-    const value = JSON.parse(localStorage.getItem(workbenchViewStorageKey()) ?? 'null') as
-      | Partial<WorkbenchViewPreference>
-      | null
+    const value = JSON.parse(
+      localStorage.getItem(workbenchViewStorageKey()) ?? 'null',
+    ) as Partial<WorkbenchViewPreference> | null
     return {
       layout: value?.layout === 'topology' ? 'topology' : 'timeline',
       foldMode:
@@ -338,8 +327,10 @@ const taskTimeline = ref<RootTimelineSnapshot>()
 const detailBranchAvailability = computed(() => {
   const loaded = config.value
   const preset = presetName.value ? loaded?.presets?.[presetName.value] : undefined
-  if (!preset?.detailRole) return { available: false, reason: '当前预设未指定解释角色，请在预设成员卡中设置。' }
-  if (!(preset.roles ?? []).includes(preset.detailRole)) return { available: false, reason: '解释角色必须是当前预设成员。' }
+  if (!preset?.detailRole)
+    return { available: false, reason: '当前预设未指定解释角色，请在预设成员卡中设置。' }
+  if (!(preset.roles ?? []).includes(preset.detailRole))
+    return { available: false, reason: '解释角色必须是当前预设成员。' }
   const detail = loaded?.roles?.[preset.detailRole]
   return detail?.kind !== 'shadow' && detail?.brain && detail.senseGroup
     ? { available: true, reason: '' }
@@ -669,7 +660,9 @@ async function sendFromComposer(): Promise<void> {
 }
 /** 查看 Nyxus 会话完整对话历史：打开根历史抽屉（与 PetStage 同款；panel 挂载自动 loadHistory）。 */
 function openHistory(): void {
-  const id = taskTimeline.value?.branches?.find((branch) => branch.kind === 'original')?.chatId ?? chatId.value
+  const id =
+    taskTimeline.value?.branches?.find((branch) => branch.kind === 'original')?.chatId ??
+    chatId.value
   if (!id) return
   agents.historyDrawerTaskBranches = taskTimeline.value?.branches ?? []
   agents.openHistoryRoot(id, 'workbench-docked', workbenchDrawerAnchor())
@@ -680,10 +673,11 @@ function openHistory(): void {
  */
 const sessionControlPending = ref(false)
 type WorkbenchControlMode = 'pause' | 'resume-tree' | 'resume-root'
-const taskHasRunningBranches = computed(() =>
-  taskTimeline.value?.activeRuns.some(
-    (run) => run.status === 'running' || run.status === 'waiting',
-  ) ?? false,
+const taskHasRunningBranches = computed(
+  () =>
+    taskTimeline.value?.activeRuns.some(
+      (run) => run.status === 'running' || run.status === 'waiting',
+    ) ?? false,
 )
 // 判定/执行共用同一数据源：taskTimeline（1.2s 轮询，含 controlState）优先，
 // 否则回退 rootTimeline（WS patch 实时）。避免 sessionControl 用 taskTimeline 判定、
@@ -1249,7 +1243,11 @@ const treePromptSnap = ref<{
 let treePromptSnapChatId = ''
 
 async function loadTreePromptSnapshot(chatId: string): Promise<void> {
-  if (treePromptSnapChatId === chatId && treePromptSnap.value && treePromptSnap.value.status !== 'error')
+  if (
+    treePromptSnapChatId === chatId &&
+    treePromptSnap.value &&
+    treePromptSnap.value.status !== 'error'
+  )
     return
   treePromptSnapChatId = chatId
   treePromptSnap.value = { systemPrompt: '', tools: [], status: 'loading' }
@@ -1307,7 +1305,9 @@ defineExpose({ closeWorkbench })
     <section
       ref="workbenchShellRef"
       class="workbench-shell"
-      :class="`is-${effectiveMode}` + (isNative ? ' is-native' : '') + (liteViewVisible ? ' is-lite' : '')"
+      :class="
+        `is-${effectiveMode}` + (isNative ? ' is-native' : '') + (liteViewVisible ? ' is-lite' : '')
+      "
       :style="workbenchShellStyle"
       aria-label="节点树工作台"
     >
@@ -1353,7 +1353,9 @@ defineExpose({ closeWorkbench })
         @pointerdown="onTitlePointerDown"
       >
         <span class="workbench-title">{{ presetName || '节点树工作台' }}</span>
-        <small>{{ effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台' }}</small>
+        <small>{{
+          effectiveMode === 'window' ? '拖动标题栏移动 · 拖动边缘缩放' : '节点树工作台'
+        }}</small>
         <ConnectionStatusChip class="workbench-conn-chip" />
         <button
           type="button"
@@ -1410,11 +1412,7 @@ defineExpose({ closeWorkbench })
       />
 
       <div v-if="treeRootChatId" class="workbench-ctx-bar">
-        <ContextUsageBar
-          :usage="treeUsage"
-          :breakdown="treeBreakdown"
-          variant="divider"
-        />
+        <ContextUsageBar :usage="treeUsage" :breakdown="treeBreakdown" variant="divider" />
       </div>
 
       <!-- 待操作任务面板：常驻右上（rail 左侧），收敛全部待处理交互入口（审批 + 提问）。 -->
@@ -1443,7 +1441,13 @@ defineExpose({ closeWorkbench })
             :class="branchTarget ? `is-${branchTarget.type}` : undefined"
           >
             <span class="nyxus-composer-status" aria-hidden="true">
-              {{ branchTarget?.type === 'detail' ? '◉' : branchTarget?.type === 'continuation' ? '⑂' : '' }}
+              {{
+                branchTarget?.type === 'detail'
+                  ? '◉'
+                  : branchTarget?.type === 'continuation'
+                    ? '⑂'
+                    : ''
+              }}
             </span>
             <span class="nyxus-composer-title">
               <strong>{{ composerBranchTitle }}</strong>
@@ -1451,9 +1455,11 @@ defineExpose({ closeWorkbench })
             </span>
             <el-tooltip
               v-if="branchTarget"
-              :content="branchTarget.type === 'detail'
-                ? '解释分支使用专用诊断角色，可读取、搜索和运行诊断命令，但不会回传或修改原任务。'
-                : '继续分支继承来源分支角色和工具；它与原流程并列，已经发生的外部副作用不会回退。'"
+              :content="
+                branchTarget.type === 'detail'
+                  ? '解释分支使用专用诊断角色，可读取、搜索和运行诊断命令，但不会回传或修改原任务。'
+                  : '继续分支继承来源分支角色和工具；它与原流程并列，已经发生的外部副作用不会回退。'
+              "
               placement="top"
             >
               <span class="nyxus-composer-info" aria-label="分支影响说明">ⓘ</span>
@@ -1649,7 +1655,13 @@ defineExpose({ closeWorkbench })
             </el-tooltip>
             <el-tooltip
               v-if="chatId && sessionControl"
-              :content="sessionControlPending ? '正在处理…' : sessionControl.mode === 'pause' ? '暂停任务树' : '继续任务树'"
+              :content="
+                sessionControlPending
+                  ? '正在处理…'
+                  : sessionControl.mode === 'pause'
+                    ? '暂停任务树'
+                    : '继续任务树'
+              "
               placement="left"
               :show-after="200"
               :hide-after="0"
@@ -1668,7 +1680,11 @@ defineExpose({ closeWorkbench })
               </span>
             </el-tooltip>
             <el-tooltip
-              v-if="taskTimeline?.taskId && taskHasRunningBranches && (taskTimeline.branches?.length ?? 0) > 1"
+              v-if="
+                taskTimeline?.taskId &&
+                taskHasRunningBranches &&
+                (taskTimeline.branches?.length ?? 0) > 1
+              "
               :content="taskControlPending ? '正在暂停全部分支…' : '暂停全部分支'"
               placement="left"
               :show-after="200"
@@ -1688,12 +1704,7 @@ defineExpose({ closeWorkbench })
             </el-tooltip>
           </div>
           <div class="nyxus-tool-group" role="group" aria-label="会话工具">
-            <el-tooltip
-              content="对话历史"
-              placement="left"
-              :show-after="200"
-              :hide-after="0"
-            >
+            <el-tooltip content="对话历史" placement="left" :show-after="200" :hide-after="0">
               <span class="nyxus-tool-tip-anchor">
                 <button
                   type="button"
@@ -1706,12 +1717,7 @@ defineExpose({ closeWorkbench })
                 </button>
               </span>
             </el-tooltip>
-            <el-tooltip
-              content="新建会话"
-              placement="left"
-              :show-after="200"
-              :hide-after="0"
-            >
+            <el-tooltip content="新建会话" placement="left" :show-after="200" :hide-after="0">
               <span class="nyxus-tool-tip-anchor">
                 <button
                   type="button"
@@ -1724,7 +1730,12 @@ defineExpose({ closeWorkbench })
                 </button>
               </span>
             </el-tooltip>
-            <div class="nyxus-piano-tool" @pointerenter="showPiano" @focusin="showPiano" @pointerleave="schedulePianoClose">
+            <div
+              class="nyxus-piano-tool"
+              @pointerenter="showPiano"
+              @focusin="showPiano"
+              @pointerleave="schedulePianoClose"
+            >
               <button
                 type="button"
                 class="nyxus-rail-action"
@@ -1802,7 +1813,7 @@ defineExpose({ closeWorkbench })
               @pointerleave="scheduleFoldToolClose"
             >
               <el-tooltip
-                v-for="mode in (['none', 'partial', 'participant', 'full'] as FoldMode[])"
+                v-for="mode in ['none', 'partial', 'participant', 'full'] as FoldMode[]"
                 :key="mode"
                 :content="FOLD_TIPS[mode]"
                 placement="top"
@@ -1854,7 +1865,12 @@ defineExpose({ closeWorkbench })
                 </svg>
               </span>
             </div>
-            <div class="nyxus-role-tool" @pointerenter="showRoleList" @focusin="showRoleList" @pointerleave="scheduleRoleListClose">
+            <div
+              class="nyxus-role-tool"
+              @pointerenter="showRoleList"
+              @focusin="showRoleList"
+              @pointerleave="scheduleRoleListClose"
+            >
               <button
                 type="button"
                 class="nyxus-rail-action"
@@ -1928,11 +1944,7 @@ defineExpose({ closeWorkbench })
       </nav>
       <!-- 断连遮罩：仅 disconnected（数据不可用）时阻断操作；connecting 只亮标题栏状态不遮罩。
            native 面关闭三键在 WindowFrame 层，不受遮罩影响。 -->
-      <div
-        v-if="connection.status === 'disconnected'"
-        class="workbench-offline-mask"
-        role="alert"
-      >
+      <div v-if="connection.status === 'disconnected'" class="workbench-offline-mask" role="alert">
         <div class="offline-panel">
           <span class="workbench-spinner is-large" aria-hidden="true" />
           <strong>未连接到服务器</strong>
@@ -2011,6 +2023,11 @@ defineExpose({ closeWorkbench })
 .workbench-shell.is-lite :deep(.pending-panel),
 .workbench-shell.is-lite .nyxus-composer-dock,
 .workbench-shell.is-lite .nyxus-piano-strip {
+  display: none;
+}
+/* t10：lite 视图下隐藏「继续编辑消息/发送消息」rail 按钮——lite 唯一消息入口是底部输入框，
+   避免误导（该按钮激活的是完整视图 composer，在 lite 下无效）。 */
+.workbench-shell.is-lite .nyxus-rail-action.is-message {
   display: none;
 }
 
@@ -2227,8 +2244,12 @@ defineExpose({ closeWorkbench })
   width: 12px;
   border-top: 1px solid currentcolor;
 }
-.window-control-icon.is-close::before { transform: rotate(45deg); }
-.window-control-icon.is-close::after { transform: rotate(-45deg); }
+.window-control-icon.is-close::before {
+  transform: rotate(45deg);
+}
+.window-control-icon.is-close::after {
+  transform: rotate(-45deg);
+}
 .workbench-shell.is-fullscreen .window-control-icon.is-restore::after {
   background: var(--nx-bg);
 }
@@ -2243,8 +2264,12 @@ defineExpose({ closeWorkbench })
   height: 8px;
   cursor: ns-resize;
 }
-.workbench-resize-handle.is-n { top: -3px; }
-.workbench-resize-handle.is-s { bottom: -3px; }
+.workbench-resize-handle.is-n {
+  top: -3px;
+}
+.workbench-resize-handle.is-s {
+  bottom: -3px;
+}
 .workbench-resize-handle.is-e,
 .workbench-resize-handle.is-w {
   top: 10px;
@@ -2252,8 +2277,12 @@ defineExpose({ closeWorkbench })
   width: 8px;
   cursor: ew-resize;
 }
-.workbench-resize-handle.is-e { right: -3px; }
-.workbench-resize-handle.is-w { left: -3px; }
+.workbench-resize-handle.is-e {
+  right: -3px;
+}
+.workbench-resize-handle.is-w {
+  left: -3px;
+}
 .workbench-resize-handle.is-ne,
 .workbench-resize-handle.is-se,
 .workbench-resize-handle.is-sw,
@@ -2261,10 +2290,26 @@ defineExpose({ closeWorkbench })
   width: 15px;
   height: 15px;
 }
-.workbench-resize-handle.is-ne { top: -4px; right: -4px; cursor: nesw-resize; }
-.workbench-resize-handle.is-se { right: -4px; bottom: -4px; cursor: nwse-resize; }
-.workbench-resize-handle.is-sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
-.workbench-resize-handle.is-nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.workbench-resize-handle.is-ne {
+  top: -4px;
+  right: -4px;
+  cursor: nesw-resize;
+}
+.workbench-resize-handle.is-se {
+  right: -4px;
+  bottom: -4px;
+  cursor: nwse-resize;
+}
+.workbench-resize-handle.is-sw {
+  bottom: -4px;
+  left: -4px;
+  cursor: nesw-resize;
+}
+.workbench-resize-handle.is-nw {
+  top: -4px;
+  left: -4px;
+  cursor: nwse-resize;
+}
 
 .nyxus-side-tools {
   position: absolute;
@@ -2722,8 +2767,12 @@ defineExpose({ closeWorkbench })
   background: color-mix(in srgb, var(--nx-yellow) 16%, var(--nx-bg));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-yellow) 12%, transparent);
 }
-.nyxus-composer-head.is-detail { border-color: color-mix(in srgb, var(--nx-cyan) 38%, transparent); }
-.nyxus-composer-head.is-continuation { border-color: color-mix(in srgb, var(--nx-yellow) 38%, transparent); }
+.nyxus-composer-head.is-detail {
+  border-color: color-mix(in srgb, var(--nx-cyan) 38%, transparent);
+}
+.nyxus-composer-head.is-continuation {
+  border-color: color-mix(in srgb, var(--nx-yellow) 38%, transparent);
+}
 .nyxus-composer-info {
   flex: 0 0 auto;
   color: color-mix(in srgb, var(--nx-text) 62%, transparent);
