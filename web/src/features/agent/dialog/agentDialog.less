@@ -15,9 +15,9 @@
   backdrop-filter: none;
 }
 .dialog-overlay.is-top-mask {
-  // 栈顶 overlay：带 blur 遮罩盖住下层
+  // 栈顶 overlay：纯 scrim 半透明盖住下层。禁用 backdrop-filter blur——桌面 pet/Nyxus
+  // 持续 rAF 动画下，blur 每帧重采样底层导致整屏持续重绘闪烁（见 docs/web/renderer.md 遮罩实现约束）
   background: var(--scrim);
-  backdrop-filter: blur(2px);
 }
 .dialog-overlay.is-nyxus-layout {
   // 标题信息条默认停靠底部；钢琴和功能入口已迁移到页面右侧工具栏。

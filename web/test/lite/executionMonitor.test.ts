@@ -498,7 +498,9 @@ describe('Lite detail lazy pagination', () => {
     expect(view).toContain('<button')
     // 详情抽屉（需求 3）：单节点详情 + 遮罩，点击遮罩关闭；不含轨迹/节点列表
     expect(drawer).toContain('lite-drawer-mask')
-    expect(drawer).toContain('lite-tool-call')
+    // 工具调用详情已拆到 LiteToolCallDetail（按工具类型解析参数/结果 + JSON 键中文翻译）
+    expect(drawer).toContain('LiteToolCallDetail')
+    expect(drawer).toContain('LiteMarkdown')
     expect(drawer).not.toContain('lite-trajectory')
     expect(drawer).not.toContain('lite-node-list')
     expect(drawer).toContain('sections: [section]')

@@ -316,6 +316,19 @@ export function toolTypeEmoji(type: LiteToolType | undefined): string {
   return type ? (TOOL_TYPE_EMOJI[type] ?? '🧩') : '🧩'
 }
 
+/** 工具类型 → 中文短标签（cluster 小按钮 / 详情徽标辨识用）。 */
+export const TOOL_TYPE_LABELS: Readonly<Record<LiteToolType, string>> = {
+  exec: '命令',
+  read: '读取',
+  write: '写入',
+  web: '网页',
+  dispatch: '委派',
+  other: '工具',
+}
+export function toolTypeLabel(type: LiteToolType | undefined): string {
+  return type ? (TOOL_TYPE_LABELS[type] ?? '工具') : '工具'
+}
+
 export interface LiteRunNode {
   /** 稳定 key（含 nodeId 与顺序），列表渲染用 */
   key: string

@@ -3,7 +3,10 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useLiteStore } from './liteStore'
 import { useLiteCanonicalView } from './useLiteCanonicalView'
 import {
+  classifyToolType,
   formatElapsed,
+  toolTypeEmoji,
+  toolTypeLabel,
   type LiteRunNode,
   type LiteRunNodeKind,
   type LiteRunNodeStatus,
@@ -13,6 +16,8 @@ import {
   mergeDetailSectionPage,
   type LiteDetailSectionName,
 } from './detailSections'
+import LiteMarkdown from './LiteMarkdown.vue'
+import LiteToolCallDetail from './LiteToolCallDetail.vue'
 
 /**
  * DetailDrawer：单个节点的详情抽屉（需求 3：点击详情只展示该节点本身的信息，
@@ -76,22 +81,6 @@ function kindLabel(kind: LiteRunNodeKind): string {
       return '创建协作节点'
     case 'system':
       return '系统事件'
-  }
-}
-function toolStatusLabel(status: string | undefined): string {
-  switch (status) {
-    case 'pending':
-      return '等待中'
-    case 'accepted':
-      return '执行中'
-    case 'rejected':
-      return '已拒绝'
-    case 'error':
-      return '出错'
-    case 'completed':
-      return '已完成'
-    default:
-      return status || '未知'
   }
 }
 function toolLabel(call: { name: string }): string {
@@ -261,6 +250,13 @@ watch(
         <span class="lite-drawer-status" :data-status="props.node.status">{{
           runStatusLabel(props.node.status)
         }}</span>
+        <span
+          v-if="props.node.kind === 'tool'"
+          class="lite-drawer-type"
+          :data-tooltype="props.node.toolType"
+          :title="'工具类型：' + toolTypeLabel(props.node.toolType)"
+          >{{ toolTypeEmoji(props.node.toolType) }} {{ toolTypeLabel(props.node.toolType) }}</span
+        >
         <time v-if="props.node.elapsedMs > 0" class="lite-drawer-elapsed">{{
           formatElapsed(props.node.elapsedMs)
         }}</time>
@@ -290,7 +286,7 @@ watch(
             <template v-else>
               <p v-if="!sectionLoaded('thinking')" class="lite-drawer-hint is-muted">加载中…</p>
               <template v-else-if="sectionText('thinking')">
-                <pre class="lite-pre">{{ sectionText('thinking') }}</pre>
+                <LiteMarkdown :text="sectionText('thinking')" />
                 <button
                   v-if="sectionHasMore('thinking')"
                   type="button"
@@ -313,7 +309,7 @@ watch(
             <template v-else>
               <p v-if="!sectionLoaded('content')" class="lite-drawer-hint is-muted">加载中…</p>
               <template v-else-if="sectionText('content')">
-                <pre class="lite-pre">{{ sectionText('content') }}</pre>
+                <LiteMarkdown :text="sectionText('content')" :plain="props.node.kind === 'user'" />
                 <button
                   v-if="sectionHasMore('content')"
                   type="button"
@@ -336,35 +332,16 @@ watch(
             <template v-else>
               <p v-if="!sectionLoaded('toolCalls')" class="lite-drawer-hint is-muted">加载中…</p>
               <template v-else-if="sectionToolCalls().length">
-                <article
+                <!-- 专用渲染：按工具类型解析参数 / 结果（命令、路径、URL、任务说明…）+ JSON 键中文翻译 -->
+                <LiteToolCallDetail
                   v-for="call in sectionToolCalls()"
                   :key="call.callId"
-                  class="lite-tool-call"
-                  :class="{ 'is-focused': call.callId === props.focusToolCallId }"
-                >
-                  <header class="lite-tool-call-head">
-                    <span class="lite-tool-call-icon" aria-hidden="true">{{ toolIcon(call) }}</span>
-                    <strong>{{ toolLabel(call) }}</strong>
-                    <span class="lite-tool-call-status" :data-status="call.status">{{
-                      toolStatusLabel(call.status)
-                    }}</span>
-                  </header>
-                  <div class="lite-tool-call-args">
-                    <h5>参数</h5>
-                    <pre class="lite-pre">{{ call.arguments || '（无参数）' }}</pre>
-                  </div>
-                  <div class="lite-tool-call-result">
-                    <h5>结果</h5>
-                    <pre v-if="call.result" class="lite-pre">{{ call.result }}</pre>
-                    <p
-                      v-else-if="call.status === 'pending' || call.status === 'accepted'"
-                      class="lite-drawer-hint is-muted"
-                    >
-                      等待工具返回…
-                    </p>
-                    <p v-else class="lite-drawer-hint is-muted">（无结果）</p>
-                  </div>
-                </article>
+                  :call="call"
+                  :label="toolLabel(call)"
+                  :icon="toolIcon(call)"
+                  :type="classifyToolType(call.name)"
+                  :focused="call.callId === props.focusToolCallId"
+                />
                 <button
                   v-if="sectionHasMore('toolCalls')"
                   type="button"
@@ -498,21 +475,42 @@ watch(
   font-weight: 400;
   letter-spacing: 0.02em;
 }
-.lite-pre {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--el-fill-color-lighter);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  font-family: var(--el-font-family-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--el-text-color-primary);
-  max-height: 280px;
-  overflow: auto;
-  scrollbar-width: none;
+.lite-drawer-type {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 17px;
+  border: 1px solid var(--el-border-color);
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+}
+.lite-drawer-type[data-tooltype='exec'] {
+  border-color: color-mix(in srgb, #9b59b6 55%, var(--el-border-color));
+  color: #9b59b6;
+}
+.lite-drawer-type[data-tooltype='read'] {
+  border-color: color-mix(in srgb, #6b7f92 55%, var(--el-border-color));
+  color: #6b7f92;
+}
+.lite-drawer-type[data-tooltype='write'] {
+  border-color: color-mix(in srgb, #2f9e63 55%, var(--el-border-color));
+  color: #2f9e63;
+}
+.lite-drawer-type[data-tooltype='web'] {
+  border-color: color-mix(in srgb, #00a8a8 55%, var(--el-border-color));
+  color: #00a8a8;
+}
+.lite-drawer-type[data-tooltype='dispatch'] {
+  border-color: color-mix(in srgb, #e67e22 55%, var(--el-border-color));
+  color: #e67e22;
+}
+.lite-drawer-type[data-tooltype='other'] {
+  border-color: color-mix(in srgb, #c58a1f 55%, var(--el-border-color));
+  color: #c58a1f;
 }
 .lite-drawer-error {
   margin: 0;
@@ -551,66 +549,5 @@ watch(
 .lite-drawer-more:disabled {
   opacity: 0.5;
   cursor: default;
-}
-.lite-tool-call {
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
-  background: var(--el-fill-color-lighter);
-}
-.lite-tool-call.is-focused {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 1px;
-}
-.lite-tool-call-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.lite-tool-call-icon {
-  font-size: 14px;
-  line-height: 1;
-}
-.lite-tool-call-head strong {
-  font-size: 12.5px;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.lite-tool-call-status {
-  flex: none;
-  font-size: 10.5px;
-  color: var(--el-text-color-secondary);
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid var(--el-border-color);
-}
-.lite-tool-call-status[data-status='accepted'],
-.lite-tool-call-status[data-status='pending'] {
-  color: var(--el-color-warning);
-  border-color: color-mix(in srgb, var(--el-color-warning) 50%, var(--el-border-color));
-}
-.lite-tool-call-status[data-status='error'],
-.lite-tool-call-status[data-status='rejected'] {
-  color: var(--el-color-danger);
-  border-color: color-mix(in srgb, var(--el-color-danger) 50%, var(--el-border-color));
-}
-.lite-tool-call-status[data-status='completed'] {
-  color: var(--el-color-success);
-  border-color: color-mix(in srgb, var(--el-color-success) 50%, var(--el-border-color));
-}
-.lite-tool-call-args h5,
-.lite-tool-call-result h5 {
-  margin: 0 0 4px;
-  font-size: 11px;
-  font-weight: 400;
-  color: var(--el-text-color-secondary);
-}
-.lite-tool-call-args,
-.lite-tool-call-result {
-  margin-top: 8px;
 }
 </style>

@@ -12,6 +12,7 @@ import {
   projectLiteExecution,
   projectLiteHistory,
   toolTypeEmoji,
+  toolTypeLabel,
   type LiteRunNode,
   type LiteRunNodeStatus,
   type LiteRunRow,
@@ -19,6 +20,7 @@ import {
 import type { LiteDetailSectionName } from './detailSections'
 import LiteScrollbar from './LiteScrollbar.vue'
 import DetailDrawer from './DetailDrawer.vue'
+import LiteMarkdown from './LiteMarkdown.vue'
 
 const props = defineProps<{ windowId: string; rootChatId: string; presetName?: string }>()
 
@@ -68,6 +70,10 @@ const visibleRows = computed(() => buildLiteRows(visibleNodes.value))
 /** 事件类节点与轮末响应在正文行内展示正文内容（工具/中间思考节点不展示正文）。 */
 function showsRowContent(node: LiteRunNode): boolean {
   return isStandaloneNodeKind(node.kind) || node.isRoundFinal
+}
+/** 用户消息正文为纯文本（不渲染 markdown，避免 # / * 被误解释）；其余（Agent/事件/委派）走 markdown。 */
+function isPlainRowContent(node: LiteRunNode): boolean {
+  return node.kind === 'user'
 }
 
 // ── v0.5 链路标签栏：正文列表顶部常驻，主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，
@@ -1044,7 +1050,9 @@ function rowKey(row: LiteRunRow): string {
               {{ entryExpanded ? '收起' : '展开全文' }}
             </button>
           </div>
-          <p class="lite-entry-dispatch-content">{{ entryPreview }}</p>
+          <div class="lite-entry-dispatch-content">
+            <LiteMarkdown :text="entryPreview" />
+          </div>
         </div>
         <ol v-if="visibleRows.length" class="lite-history">
           <li
@@ -1076,9 +1084,9 @@ function rowKey(row: LiteRunRow): string {
                   详情
                 </button>
               </div>
-              <p v-if="showsRowContent(row.node)" class="lite-history-content">
-                {{ row.node.content || '（空）' }}
-              </p>
+              <div v-if="showsRowContent(row.node)" class="lite-history-content">
+                <LiteMarkdown :text="row.node.content || '（空）'" :plain="isPlainRowContent(row.node)" />
+              </div>
             </template>
             <div v-else class="lite-cluster" role="group" aria-label="本轮中间节点">
               <button
@@ -1096,6 +1104,7 @@ function rowKey(row: LiteRunRow): string {
                 ]"
                 :data-status="node.status"
                 :data-duration="node.active ? durationTier(node.elapsedMs) : null"
+                :data-tooltype="node.kind === 'tool' ? node.toolType : undefined"
                 :title="`${node.label} · ${runStatusLabel(node.status)}`"
                 @click="openNodeDetail(node, $event)"
               >
@@ -1103,11 +1112,10 @@ function rowKey(row: LiteRunRow): string {
                 <span class="lite-cluster-icon" aria-hidden="true">{{ node.icon }}</span>
                 <span
                   v-if="node.kind === 'tool'"
-                  class="lite-cluster-type"
+                  class="lite-cluster-type-label"
                   :data-tooltype="node.toolType"
-                  aria-hidden="true"
-                  :title="node.toolType"
-                  >{{ toolTypeEmoji(node.toolType) }}</span
+                  :title="'工具类型：' + toolTypeLabel(node.toolType)"
+                  >{{ toolTypeLabel(node.toolType) }}</span
                 >
                 <span class="lite-cluster-elapsed">{{
                   node.elapsedMs > 0 ? formatElapsed(node.elapsedMs) : ''
@@ -1805,8 +1813,6 @@ function rowKey(row: LiteRunRow): string {
 .lite-entry-dispatch-content {
   margin: 0;
   padding: 0 10px 8px 34px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   line-height: 1.55;
   font-size: 12.5px;
   color: var(--el-text-color-secondary);
@@ -1919,8 +1925,6 @@ function rowKey(row: LiteRunRow): string {
 .lite-history-content {
   margin: 0;
   padding: 0 10px 8px 36px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   line-height: 1.55;
   font-size: 12.5px;
   /* 强制字重规则：用户提问/模型响应正文一律 400。 */
@@ -2032,38 +2036,54 @@ function rowKey(row: LiteRunRow): string {
   color: var(--el-text-color-placeholder);
   min-width: 34px;
 }
-/* t15：工具小块标记——工具类型 emoji 角标（右上方） */
-.lite-cluster-type {
-  position: absolute;
-  top: -8px;
-  right: -5px;
-  z-index: 2;
-  font-size: 9px;
-  line-height: 1;
-  padding: 1px 3px;
-  border-radius: 999px;
-  background: var(--el-fill-color);
-  border: 1px solid var(--el-border-color);
-  box-shadow: 0 0 0 1px var(--el-bg-color);
-  pointer-events: none;
+/* t15+：工具类型辨识——pill 内中文类型标签 + 按类型着色（边框/底色/标签字），一眼区分命令/读取/写入/网页/委派 */
+.lite-cluster-type-label {
+  flex: none;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
 }
-.lite-cluster-type[data-tooltype='exec'] {
-  background: color-mix(in srgb, #9b59b6 18%, var(--el-fill-color));
+.lite-cluster-type-label[data-tooltype='exec'] {
+  color: #9b59b6;
 }
-.lite-cluster-type[data-tooltype='read'] {
-  background: color-mix(in srgb, var(--el-color-info) 18%, var(--el-fill-color));
+.lite-cluster-type-label[data-tooltype='read'] {
+  color: #6b7f92;
 }
-.lite-cluster-type[data-tooltype='write'] {
-  background: color-mix(in srgb, var(--el-color-success) 18%, var(--el-fill-color));
+.lite-cluster-type-label[data-tooltype='write'] {
+  color: #2f9e63;
 }
-.lite-cluster-type[data-tooltype='web'] {
-  background: color-mix(in srgb, #00a8a8 18%, var(--el-fill-color));
+.lite-cluster-type-label[data-tooltype='web'] {
+  color: #00a8a8;
 }
-.lite-cluster-type[data-tooltype='dispatch'] {
-  background: color-mix(in srgb, #e67e22 20%, var(--el-fill-color));
+.lite-cluster-type-label[data-tooltype='dispatch'] {
+  color: #e67e22;
 }
-.lite-cluster-type[data-tooltype='other'] {
-  background: color-mix(in srgb, var(--el-color-warning) 18%, var(--el-fill-color));
+.lite-cluster-type-label[data-tooltype='other'] {
+  color: #c58a1f;
+}
+.lite-cluster-node[data-tooltype='exec'] {
+  border-color: color-mix(in srgb, #9b59b6 52%, var(--el-border-color));
+  background: color-mix(in srgb, #9b59b6 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='read'] {
+  border-color: color-mix(in srgb, #6b7f92 52%, var(--el-border-color));
+  background: color-mix(in srgb, #6b7f92 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='write'] {
+  border-color: color-mix(in srgb, #2f9e63 52%, var(--el-border-color));
+  background: color-mix(in srgb, #2f9e63 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='web'] {
+  border-color: color-mix(in srgb, #00a8a8 52%, var(--el-border-color));
+  background: color-mix(in srgb, #00a8a8 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='dispatch'] {
+  border-color: color-mix(in srgb, #e67e22 52%, var(--el-border-color));
+  background: color-mix(in srgb, #e67e22 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='other'] {
+  border-color: color-mix(in srgb, #c58a1f 52%, var(--el-border-color));
+  background: color-mix(in srgb, #c58a1f 8%, var(--el-fill-color-blank));
 }
 /* t15：运行时间变色——运行中的工具块按运行时长绿→黄→红，运行越久越醒目 */
 .lite-cluster-node[data-duration='fast'] {

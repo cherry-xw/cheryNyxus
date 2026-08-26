@@ -82,8 +82,9 @@ export function createUiState() {
     return stack.length > 0 ? (stack[stack.length - 1] ?? null) : null
   })
 
-  /** 当前栈顶 overlay 类型（按 z 优先级）。用于“共用单蒙层”：同屏仅栈顶 overlay 蒙层带 blur，
-   *  非栈顶蒙层透明，避免多层 blur 叠加导致底层完全不可见。
+  /** 当前栈顶 overlay 类型（按 z 优先级）。用于“共用单蒙层”：同屏仅栈顶 overlay 蒙层盖纯 scrim
+   *  （无 backdrop-filter blur——pet rAF 持续动画下 blur 每帧重采样整屏重绘，见 docs/web/renderer.md
+   *  遮罩实现约束），非栈顶蒙层透明，避免多层遮罩叠加导致底层完全不可见。
    *  优先级：settings > historyDrawer > agentDialog > sessionList。
    *  历史由 Nyxus 输入弹窗主动打开时，抽屉是当前浏览焦点，应处于该弹窗之上。 */
   const topOverlay: ComputedRef<OverlayKind | null> = computed(() => {

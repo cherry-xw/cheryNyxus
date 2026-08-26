@@ -907,7 +907,8 @@ function sanitizeSenseGroups(cfg: ConfigDto): void {
   justify-content: center;
   padding: 16px;
   background: var(--scrim);
-  backdrop-filter: blur(2px);
+  /* 同上：禁 backdrop-filter blur——桌面 pet/Nyxus 持续 rAF 动画下每帧重采样整屏重绘，
+     见 docs/web/renderer.md 遮罩实现约束（Electron native 面本就 none，两形态一致） */
 }
 
 .settings-panel {
