@@ -204,8 +204,63 @@ export function createLiteExecutionClock(
 
   return { now, start, stop, refresh }
 }
-export type LiteRunNodeKind = 'user' | 'model' | 'tool'
+/**
+ * 轻量视图节点类型（对齐节点树 nodeSkins.ts 的语义分类）。
+ * 相比旧的 user/model/tool 三分类，补齐：主/子 Agent 消息、结果返回、任务委派、
+ * 创建协作节点、系统事件——避免把 return/dispatch/system 等账务节点整体丢弃。
+ */
+export type LiteRunNodeKind =
+  | 'user' // 用户提问（我）
+  | 'root-agent' // 主 Agent 消息
+  | 'child-agent' // 子 Agent 消息
+  | 'tool' // 工具执行（tool-batch）
+  | 'return' // 结果返回
+  | 'dispatch' // 任务委派
+  | 'spawn' // 创建协作节点
+  | 'system' // 系统事件
+
 export type LiteRunNodeStatus = 'running' | 'completed' | 'failed' | 'rejected' | 'cancelled'
+
+/** 节点类型中文文案（对齐 nodeSkins 的 label）。 */
+export const LITE_NODE_LABELS: Readonly<Record<LiteRunNodeKind, string>> = {
+  user: '用户问题',
+  'root-agent': '模型响应',
+  'child-agent': '模型响应',
+  tool: '工具执行',
+  return: '结果返回',
+  dispatch: '任务委派',
+  spawn: '创建协作节点',
+  system: '系统事件',
+}
+
+/** 节点类型图标（对齐 nodeSkins 的 glyph；工具节点实际用 sense.tools 图标覆盖）。 */
+export const LITE_NODE_GLYPHS: Readonly<Record<LiteRunNodeKind, string>> = {
+  user: '❯',
+  'root-agent': '✧',
+  'child-agent': '◆',
+  tool: '⚙',
+  return: '↩',
+  dispatch: '⇢',
+  spawn: '⑂',
+  system: '◇',
+}
+
+/** 是否为「执行节点」：宽度按真实执行耗时线性映射（工具 / 主·子 Agent 响应）。 */
+export function isTimedNodeKind(kind: LiteRunNodeKind): boolean {
+  return kind === 'root-agent' || kind === 'child-agent' || kind === 'tool'
+}
+
+/** 是否为「事件类节点」：用户提问 / 结果返回 / 任务委派 / 创建协作节点 / 系统事件——
+    这类节点在正文列表独占一行展示（含正文内容）。 */
+export function isStandaloneNodeKind(kind: LiteRunNodeKind): boolean {
+  return (
+    kind === 'user' ||
+    kind === 'return' ||
+    kind === 'dispatch' ||
+    kind === 'spawn' ||
+    kind === 'system'
+  )
+}
 
 /** 工具元信息（来自 sense.tools：中文名 label + 图标 icon）。 */
 export interface LiteToolMeta {
@@ -289,6 +344,8 @@ export interface LiteRunNode {
   sourceChatId: string
   /** 归属 Agent 显示名（主 Agent / 子 Agent 角色名） */
   agentLabel: string
+  /** 目标子 Agent 的 chatId（仅 dispatch 节点；子 Agent 链路据此关联主 Agent 派发任务） */
+  targetChatId?: string
   /** 工具类型（仅工具节点；按类型配色） */
   toolType?: LiteToolType
 }
@@ -306,21 +363,67 @@ export interface LiteRunHistoryView {
   running: boolean
 }
 
+/**
+ * 行布局（需求 4a / 需求 4 链路过滤）：把节点列表拆成「独占一行」与「cluster 小按钮行」。
+ * - 独占一行：事件类节点（用户提问 / 结果返回 / 任务委派 / 创建协作节点 / 系统事件）与轮末响应；
+ * - cluster：中间的思考 / 工具节点挤成一行小按钮（可换行）。
+ * 独立导出供链路过滤复用（正文列表按选中链路重建行时使用同一规则）。
+ */
+export function buildLiteRows(nodes: LiteRunNode[]): LiteRunRow[] {
+  const rows: LiteRunRow[] = []
+  let cluster: LiteRunNode[] = []
+  const flushCluster = () => {
+    if (cluster.length > 0) {
+      rows.push({ kind: 'cluster', nodes: cluster })
+      cluster = []
+    }
+  }
+  for (const run of nodes) {
+    if (isStandaloneNodeKind(run.kind) || run.isRoundFinal) {
+      flushCluster()
+      rows.push({ kind: 'full', node: run })
+    } else {
+      cluster.push(run)
+    }
+  }
+  flushCluster()
+  return rows
+}
+
 /** 与 execution step 匹配的时间窗口：超过则视为无实时计时（旧轮次回退到节点时间）。 */
 const STEP_MATCH_WINDOW_MS = 5 * 60_000
 
-function isUserNode(node: TimelineNode): boolean {
-  return node.kind === 'message' && node.actor?.kind === 'user'
-}
-
-function isModelNode(node: TimelineNode): boolean {
-  return (
-    node.kind === 'message' && node.actor?.kind === 'agent' && node.direction === 'agent-to-user'
-  )
-}
-
-function isToolNode(node: TimelineNode): boolean {
-  return node.kind === 'tool-batch'
+/**
+ * 节点类型分类（对齐节点树 nodeSkins.skinKeyForNode）：
+ * - message + user → user；message + agent → 主/子 Agent（按 sourceChatId 是否 root 区分）；
+ * - tool-batch / tool-group → tool；return/dispatch/spawn/system 原样保留。
+ * 返回 null 表示该节点不属于时间瀑布流（如内部账务节点）。
+ */
+function classifyNodeKind(node: TimelineNode, rootChatId: string): LiteRunNodeKind | null {
+  // 内部账务节点（spawn-target 锚点、termination 事实等）不进瀑布流。
+  if (node.visibility === 'internal') return null
+  switch (node.kind) {
+    case 'message': {
+      if (node.actor?.kind === 'user') return 'user'
+      if (node.actor?.kind === 'agent') {
+        return node.sourceChatId === rootChatId ? 'root-agent' : 'child-agent'
+      }
+      return 'system'
+    }
+    case 'tool-batch':
+    case 'tool-group':
+      return 'tool'
+    case 'return':
+      return 'return'
+    case 'dispatch':
+      return 'dispatch'
+    case 'spawn':
+      return 'spawn'
+    case 'system':
+      return 'system'
+    default:
+      return null
+  }
 }
 
 function toolBatchStatus(calls: readonly GraphToolCall[] | undefined): LiteRunNodeStatus {
@@ -374,15 +477,20 @@ export function projectLiteHistory(
   for (const step of model.steps) {
     if (!agentLabelByChat.has(step.chatId)) agentLabelByChat.set(step.chatId, step.agentLabel)
   }
+  const committed = nodes
+    .filter((node) => node.status === 'committed')
+    .slice()
+    .sort((a, b) => a.orderKey - b.orderKey || a.id.localeCompare(b.id))
+  // 角色名优先用节点的 roleType（更具角色辨识度），其次 model.agents / step.agentLabel。
+  for (const node of committed) {
+    const roleType = node.actor?.kind === 'agent' ? node.actor.roleType?.trim() : ''
+    if (roleType) agentLabelByChat.set(node.sourceChatId, roleType)
+  }
   const agentLabelOf = (chatId: string): string => {
     const label = agentLabelByChat.get(chatId)
     if (label && label.trim()) return label
     return chatId === model.rootChatId ? '主 Agent' : '子 Agent'
   }
-  const committed = nodes
-    .filter((node) => node.status === 'committed')
-    .slice()
-    .sort((a, b) => a.orderKey - b.orderKey || a.id.localeCompare(b.id))
 
   const stepsByChat = new Map<string, ExecutionStep[]>()
   for (const step of model.steps) {
@@ -401,10 +509,7 @@ export function projectLiteHistory(
   let roundIndex = 0
 
   for (const node of committed) {
-    let kind: LiteRunNodeKind | null = null
-    if (isUserNode(node)) kind = 'user'
-    else if (isModelNode(node)) kind = 'model'
-    else if (isToolNode(node)) kind = 'tool'
+    const kind = classifyNodeKind(node, model.rootChatId)
     if (!kind) continue
 
     if (kind === 'user' && (rounds[roundIndex]?.length ?? 0) > 0) {
@@ -418,30 +523,30 @@ export function projectLiteHistory(
       .map((call) => toolMetaOf(call.name)?.label?.trim() || call.name)
       .filter(Boolean)
     const toolIcons = toolCalls.map((call) => toolMetaOf(call.name)?.icon?.trim()).filter(Boolean)
+    // v0.5.2：主/子 Agent 节点不再要求 direction==='agent-to-user' 才匹配 model step——
+    // canonical rootTimeline 不投影 direction 字段，原条件恒不成立导致模型节点全部回退
+    // 0 耗时、宽度全落 10px 下限；直接按 sourceChatId + createdAt 匹配（窗口 5 分钟）。
     const matchedStep =
-      kind === 'user'
-        ? undefined
-        : matchStep(
-            stepsByChat,
-            node.sourceChatId,
-            node.createdAt,
-            kind === 'tool' ? 'tool' : 'model',
-          )
+      kind === 'tool'
+        ? matchStep(stepsByChat, node.sourceChatId, node.createdAt, 'tool')
+        : kind === 'root-agent' || kind === 'child-agent'
+          ? matchStep(stepsByChat, node.sourceChatId, node.createdAt, 'model')
+          : undefined
     const base: LiteRunNode = {
       key: `${node.id}:${node.orderKey}`,
       nodeId: node.id,
       kind,
       label:
-        kind === 'user'
-          ? '用户问题'
-          : kind === 'tool'
-            ? toolNames.join(', ') || '工具执行'
-            : '模型响应',
-      icon: kind === 'user' ? '❯' : kind === 'tool' ? (toolIcons[0] ?? '⚙') : '✧',
-      content: kind === 'user' || kind === 'model' ? node.content : '',
+        kind === 'tool' ? (toolNames.join(', ') || LITE_NODE_LABELS.tool) : LITE_NODE_LABELS[kind],
+      icon: kind === 'tool' ? (toolIcons[0] ?? LITE_NODE_GLYPHS.tool) : LITE_NODE_GLYPHS[kind],
+      content: kind === 'tool' ? '' : node.content,
       toolNames,
       sourceChatId: node.sourceChatId,
       agentLabel: agentLabelOf(node.sourceChatId),
+      // 委派节点保留目标子 Agent 关联：子 Agent 链路据此展示主 Agent 派发任务（入口消息）。
+      ...(kind === 'dispatch' && node.target?.kind === 'agent'
+        ? { targetChatId: node.target.chatId }
+        : {}),
       ...(kind === 'tool' ? { toolType: classifyToolType(toolCalls[0]?.name ?? '') } : {}),
       status: 'completed',
       active: false,
@@ -518,13 +623,16 @@ export function projectLiteHistory(
   for (const step of model.steps) {
     if (step.status !== 'running' || matchedStepIds.has(step.id)) continue
     const isModel = step.kind === 'model'
+    const modelKind: LiteRunNodeKind = step.chatId === model.rootChatId ? 'root-agent' : 'child-agent'
     const toolLabel = toolMetaOf(step.name)?.label?.trim()
     nodesOut.push({
       key: `inflight:${step.id}`,
       nodeId: `inflight:${step.id}`,
-      kind: isModel ? 'model' : 'tool',
-      label: isModel ? '正在生成回答…' : toolLabel || step.name || '工具执行',
-      icon: isModel ? '✧' : toolMetaOf(step.name)?.icon?.trim() || '⚙',
+      kind: isModel ? modelKind : 'tool',
+      label: isModel ? '正在生成回答…' : toolLabel || step.name || LITE_NODE_LABELS.tool,
+      icon: isModel
+        ? LITE_NODE_GLYPHS[modelKind]
+        : toolMetaOf(step.name)?.icon?.trim() || LITE_NODE_GLYPHS.tool,
       content: '',
       toolNames: isModel ? [] : [toolLabel || step.name].filter(Boolean),
       ...(!isModel ? { toolType: classifyToolType(step.name) } : {}),
@@ -546,24 +654,6 @@ export function projectLiteHistory(
   }
 
   // 行布局（需求 4a）：用户消息与轮末响应单独占一行；中间的思考/工具节点
-  // 挤成一个 cluster 小按钮行（可换行），不单独占行。
-  const rows: LiteRunRow[] = []
-  let cluster: LiteRunNode[] = []
-  const flushCluster = () => {
-    if (cluster.length > 0) {
-      rows.push({ kind: 'cluster', nodes: cluster })
-      cluster = []
-    }
-  }
-  for (const run of nodesOut) {
-    if (run.kind === 'user' || run.isRoundFinal) {
-      flushCluster()
-      rows.push({ kind: 'full', node: run })
-    } else {
-      cluster.push(run)
-    }
-  }
-  flushCluster()
-
-  return { nodes: nodesOut, rows, running: rootRunning }
+  // 挤成一个 cluster 小按钮行（可换行），不单独占行。复用 buildLiteRows 统一规则。
+  return { nodes: nodesOut, rows: buildLiteRows(nodesOut), running: rootRunning }
 }

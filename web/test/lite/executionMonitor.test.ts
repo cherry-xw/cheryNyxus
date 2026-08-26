@@ -11,11 +11,13 @@ import {
   type TimelineNodeDetailResponse,
 } from '../../src/services/agentApi'
 import {
+  buildLiteRows,
   classifyToolType,
   createLiteExecutionClock,
   FINAL_PREVIEW_CHAR_LIMIT,
   finalContentPreview,
   firstParagraph,
+  isStandaloneNodeKind,
   projectLiteExecution,
   projectLiteHistory,
   toolTypeEmoji,
@@ -602,7 +604,13 @@ describe('projectLiteHistory run-history projection', () => {
       emptyModel,
       100,
     )
-    expect(view.nodes.map((node) => node.kind)).toEqual(['user', 'tool', 'model', 'user', 'model'])
+    expect(view.nodes.map((node) => node.kind)).toEqual([
+      'user',
+      'tool',
+      'root-agent',
+      'user',
+      'root-agent',
+    ])
     expect(view.nodes.map((node) => node.label)).toEqual([
       '用户问题',
       'search',
@@ -694,6 +702,33 @@ describe('projectLiteHistory run-history projection', () => {
     expect(done?.elapsedMs).toBe(40)
   })
 
+  it('matches model steps for agent nodes regardless of direction (v0.5.2)', () => {
+    // canonical rootTimeline 不投影 direction 字段（缺省/非 agent-to-user），修复前该条件
+    // 恒不成立 → 模型节点全部回退 0 耗时、宽度全落 10px 下限。放宽后直接按 chatId+时间匹配。
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        { ...modelNode('m1', '回答一', 30), direction: 'child-to-parent' },
+      ],
+      {
+        rootChatId: 'root',
+        status: 'completed',
+        runId: 'run-1',
+        startedAt: 0,
+        steps: [
+          step({ id: 'turn-1', kind: 'model', startedAt: 30, status: 'completed', completedAt: 50 }),
+        ],
+        agents: [],
+      },
+      100,
+    )
+    const m = view.nodes.find((node) => node.nodeId === 'm1')
+    // 匹配到 model step → 耗时 = completedAt - startedAt（而非回退的 updatedAt - createdAt）。
+    expect(m?.elapsedMs).toBe(20)
+    expect(m?.status).toBe('completed')
+    expect(m?.startedAt).toBe(30)
+  })
+
   it('synthesizes in-flight running steps with no committed node as placeholder nodes (需求 3 进行中节点)', () => {
     const view = projectLiteHistory(
       [userNode('q1', '问题一', 10), toolBatch('batch-1', 20, [{ name: 'search' }])],
@@ -739,7 +774,7 @@ describe('projectLiteHistory run-history projection', () => {
     const byId = new Map(view.nodes.map((node) => [node.nodeId, node]))
     const inflightModel = byId.get('inflight:turn-9')
     expect(inflightModel).toBeDefined()
-    expect(inflightModel?.kind).toBe('model')
+    expect(inflightModel?.kind).toBe('root-agent')
     expect(inflightModel?.status).toBe('running')
     expect(inflightModel?.active).toBe(true)
     expect(inflightModel?.label).toBe('正在生成回答…')
@@ -769,7 +804,85 @@ describe('projectLiteHistory run-history projection', () => {
     ])
   })
 
-  it('ignores bookkeeping nodes (return/dispatch/system) in the run history', () => {
+  it('classifies return/dispatch/system as distinct kinds instead of dropping them (需求 5 节点分类对齐节点树)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'dispatch-1',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          kind: 'dispatch',
+          actor: { kind: 'agent', chatId: 'root' },
+          target: { kind: 'agent', chatId: 'child' },
+          direction: 'parent-to-child',
+          visibility: 'detail',
+          content: '委派任务',
+          orderKey: 15,
+          createdAt: 15,
+          updatedAt: 15,
+          status: 'committed',
+        },
+        {
+          id: 'return-1',
+          rootChatId: 'root',
+          sourceChatId: 'child',
+          kind: 'return',
+          actor: { kind: 'agent', chatId: 'child' },
+          direction: 'child-to-parent',
+          visibility: 'conversation',
+          content: '子结果',
+          orderKey: 20,
+          createdAt: 20,
+          updatedAt: 20,
+          status: 'committed',
+        },
+        {
+          id: 'system-1',
+          rootChatId: 'root',
+          sourceChatId: 'root',
+          kind: 'system',
+          actor: { kind: 'system' },
+          direction: 'internal',
+          visibility: 'conversation',
+          content: '',
+          orderKey: 25,
+          createdAt: 25,
+          updatedAt: 25,
+          status: 'committed',
+        },
+        modelNode('m1', '回答一', 30),
+      ],
+      emptyModel,
+      100,
+    )
+    expect(view.nodes.map((node) => node.nodeId)).toEqual([
+      'q1',
+      'dispatch-1',
+      'return-1',
+      'system-1',
+      'm1',
+    ])
+    expect(view.nodes.map((node) => node.kind)).toEqual([
+      'user',
+      'dispatch',
+      'return',
+      'system',
+      'root-agent',
+    ])
+    expect(view.nodes.map((node) => node.label)).toEqual([
+      '用户问题',
+      '任务委派',
+      '结果返回',
+      '系统事件',
+      '模型响应',
+    ])
+    // v0.5：dispatch 节点保留目标子 Agent 关联（子 Agent 链路入口消息数据源），其余节点不携带。
+    expect(view.nodes.find((node) => node.nodeId === 'dispatch-1')?.targetChatId).toBe('child')
+    expect(view.nodes.find((node) => node.nodeId === 'return-1')?.targetChatId).toBeUndefined()
+  })
+
+  it('keeps event nodes (return/dispatch/spawn/system) as standalone rows (需求 4 链路过滤)', () => {
     const view = projectLiteHistory(
       [
         userNode('q1', '问题一', 10),
@@ -781,10 +894,38 @@ describe('projectLiteHistory run-history projection', () => {
           actor: { kind: 'agent', chatId: 'root' },
           direction: 'parent-to-child',
           visibility: 'detail',
-          content: '',
+          content: '委派任务',
           orderKey: 15,
           createdAt: 15,
           updatedAt: 15,
+          status: 'committed',
+        },
+        modelNode('m1', '回答一', 30),
+      ],
+      emptyModel,
+      100,
+    )
+    expect(view.rows.map((row) => row.kind)).toEqual(['full', 'full', 'full'])
+    expect(view.rows[1].node?.nodeId).toBe('dispatch-1')
+  })
+
+  it('skips internal-visibility bookkeeping anchors (spawn-target/termination)', () => {
+    const view = projectLiteHistory(
+      [
+        userNode('q1', '问题一', 10),
+        {
+          id: 'spawn-target:x',
+          rootChatId: 'root',
+          sourceChatId: 'child',
+          kind: 'dispatch',
+          actor: { kind: 'agent', chatId: 'root' },
+          target: { kind: 'agent', chatId: 'child' },
+          direction: 'parent-to-child',
+          visibility: 'internal',
+          content: '',
+          orderKey: 12,
+          createdAt: 12,
+          updatedAt: 12,
           status: 'committed',
         },
         modelNode('m1', '回答一', 30),
@@ -891,5 +1032,41 @@ describe('toolTypeEmoji tool-type emoji marker (需求 5 工具小块标记)', (
     expect(toolTypeEmoji('dispatch')).toBe('📨')
     expect(toolTypeEmoji('other')).toBe('🧩')
     expect(toolTypeEmoji(undefined)).toBe('🧩')
+  })
+})
+
+describe('isStandaloneNodeKind / buildLiteRows (需求 4 链路过滤行重建)', () => {
+  it('marks event kinds as standalone and clusters tools/intermediate agent messages', () => {
+    expect(isStandaloneNodeKind('user')).toBe(true)
+    expect(isStandaloneNodeKind('return')).toBe(true)
+    expect(isStandaloneNodeKind('dispatch')).toBe(true)
+    expect(isStandaloneNodeKind('spawn')).toBe(true)
+    expect(isStandaloneNodeKind('system')).toBe(true)
+    expect(isStandaloneNodeKind('tool')).toBe(false)
+    expect(isStandaloneNodeKind('root-agent')).toBe(false)
+    expect(isStandaloneNodeKind('child-agent')).toBe(false)
+  })
+
+  it('builds rows where a round-final response is kept standalone even when not an event kind', () => {
+    const roundFinalResponse: Parameters<typeof buildLiteRows>[0][number] = {
+      key: 'm1:1',
+      nodeId: 'm1',
+      kind: 'root-agent',
+      label: '模型响应',
+      icon: '✧',
+      content: '回答',
+      toolNames: [],
+      status: 'completed',
+      active: false,
+      startedAt: 30,
+      elapsedMs: 0,
+      roundIndex: 0,
+      isRoundFinal: true,
+      collapsed: false,
+      sourceChatId: 'root',
+      agentLabel: '主 Agent',
+    }
+    const rows = buildLiteRows([roundFinalResponse])
+    expect(rows).toEqual([{ kind: 'full', node: roundFinalResponse }])
   })
 })

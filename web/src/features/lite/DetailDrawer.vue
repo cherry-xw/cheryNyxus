@@ -62,10 +62,20 @@ function kindLabel(kind: LiteRunNodeKind): string {
   switch (kind) {
     case 'user':
       return '用户消息'
-    case 'model':
-      return '模型节点'
+    case 'root-agent':
+      return '主 Agent 响应'
+    case 'child-agent':
+      return '子 Agent 响应'
     case 'tool':
       return '工具节点'
+    case 'return':
+      return '结果返回'
+    case 'dispatch':
+      return '任务委派'
+    case 'spawn':
+      return '创建协作节点'
+    case 'system':
+      return '系统事件'
   }
 }
 function toolStatusLabel(status: string | undefined): string {
@@ -91,12 +101,15 @@ function toolIcon(call: { name: string }): string {
   return lite.toolMeta(call.name)?.icon?.trim() || '⚙'
 }
 
-/** 按节点类型列出要展示的详情分节：用户→正文；模型→思考+正文；工具→工具调用。 */
+/** 按节点类型列出要展示的详情分节：用户→正文；工具→工具调用；主·子 Agent→思考+正文；其余事件→正文。 */
 const sections = computed<LiteDetailSectionName[]>(() => {
   if (!props.node) return []
   if (props.node.kind === 'user') return ['content']
   if (props.node.kind === 'tool') return ['toolCalls']
-  return ['thinking', 'content']
+  if (props.node.kind === 'root-agent' || props.node.kind === 'child-agent') {
+    return ['thinking', 'content']
+  }
+  return ['content']
 })
 
 function detailState(section: LiteDetailSectionName) {

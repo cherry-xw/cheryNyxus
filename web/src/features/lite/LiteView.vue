@@ -3,8 +3,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type CSSPro
 import { useLiteStore, type LiteQuestionDraft } from './liteStore'
 import { useLiteCanonicalView, type LiteInteraction } from './useLiteCanonicalView'
 import {
+  buildLiteRows,
   createLiteExecutionClock,
   formatElapsed,
+  isStandaloneNodeKind,
+  isTimedNodeKind,
+  LITE_NODE_LABELS,
   projectLiteExecution,
   projectLiteHistory,
   toolTypeEmoji,
@@ -41,6 +45,82 @@ const monitor = computed(() => projectLiteExecution(lite.execution, clock.now.va
 const history = computed(() =>
   projectLiteHistory(lite.runNodes, lite.execution, clock.now.value, lite.toolMeta),
 )
+
+// ── 需求 4：正文列表一次只显示一条链路（主 Agent 链路 / 子 Agent 链路），点击行头 name 切换 ──
+const activeLane = ref<string>(props.rootChatId)
+watch(
+  () => [props.windowId, props.rootChatId] as const,
+  ([, rootChatId]) => {
+    activeLane.value = rootChatId
+  },
+  { immediate: true },
+)
+/** 节点归属链路 id：用户消息并入主 Agent 链路（需求 5：用户消息发给主 Agent）。 */
+function laneIdOf(node: LiteRunNode): string {
+  return node.kind === 'user' ? props.rootChatId : node.sourceChatId
+}
+/** 选中链路下的节点（正文列表据此过滤）。 */
+const visibleNodes = computed(() =>
+  history.value.nodes.filter((node) => laneIdOf(node) === activeLane.value),
+)
+/** 选中链路下的行（复用 buildLiteRows 统一规则重建）。 */
+const visibleRows = computed(() => buildLiteRows(visibleNodes.value))
+/** 事件类节点与轮末响应在正文行内展示正文内容（工具/中间思考节点不展示正文）。 */
+function showsRowContent(node: LiteRunNode): boolean {
+  return isStandaloneNodeKind(node.kind) || node.isRoundFinal
+}
+
+// ── v0.5 链路标签栏：正文列表顶部常驻，主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，
+// 与轨迹行头角色名按钮联动（链路展示改造：切换入口从轨迹行头移到正文顶部，直观可见）。 ──
+interface LaneTab {
+  chatId: string
+  label: string
+  isRootLane: boolean
+}
+const laneTabs = computed<LaneTab[]>(() => {
+  const seen = new Set<string>()
+  const rootTabs: LaneTab[] = []
+  const childTabs: LaneTab[] = []
+  for (const node of history.value.nodes) {
+    const laneId = laneIdOf(node)
+    if (seen.has(laneId)) continue
+    seen.add(laneId)
+    const tab: LaneTab = {
+      chatId: laneId,
+      label: node.agentLabel || (laneId === props.rootChatId ? '主 Agent' : '子 Agent'),
+      isRootLane: laneId === props.rootChatId,
+    }
+    if (tab.isRootLane) rootTabs.push(tab)
+    else childTabs.push(tab)
+  }
+  // 主 Agent 链路固定最前，子 Agent 按出现顺序。
+  return [...rootTabs, ...childTabs]
+})
+
+// ── v0.5 子 Agent 入口消息：主 Agent 派发给该子 Agent 的任务（dispatch 节点 content），
+// 取最早一条 targetChatId = activeLane 的委派节点，正文列表顶部独立块展示。 ──
+const entryDispatch = computed<LiteRunNode | null>(() => {
+  if (activeLane.value === props.rootChatId) return null
+  const candidates = history.value.nodes.filter(
+    (node) => node.kind === 'dispatch' && node.targetChatId === activeLane.value,
+  )
+  if (!candidates.length) return null
+  return (
+    [...candidates].sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))[0] ??
+    null
+  )
+})
+const entryExpanded = ref(false)
+/** 入口消息全文预览：默认截断 ≤120 字，展开显示全文。 */
+const entryPreview = computed(() => {
+  const content = entryDispatch.value?.content ?? ''
+  if (entryExpanded.value) return content
+  return content.length > 120 ? content.slice(0, 120) + '…' : content
+})
+const entryHasMore = computed(() => {
+  const content = entryDispatch.value?.content ?? ''
+  return !entryExpanded.value && content.length > 120
+})
 
 const connectionLabel = computed(() => {
   switch (lite.connection.phase) {
@@ -498,7 +578,7 @@ function setRowEl(key: string, el: unknown): void {
   rowEls.set(key, (el as HTMLElement | null) ?? null)
 }
 function rowKeyForNodeId(nodeId: string): string | null {
-  const rows = history.value.rows
+  const rows = visibleRows.value
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i]
     if (!row) continue
@@ -509,9 +589,6 @@ function rowKeyForNodeId(nodeId: string): string | null {
     }
   }
   return null
-}
-function rowKeyForNode(node: LiteRunNode): string | null {
-  return rowKeyForNodeId(node.nodeId)
 }
 function isRowFocused(row: LiteRunRow): boolean {
   const id = focusNodeId.value
@@ -524,9 +601,11 @@ function flashRow(el: HTMLElement): void {
   void el.offsetWidth
   el.classList.add('lite-flash')
 }
-/** t14 定位：把 focusNodeId 对应内容行滚入 monitor 可视区并高亮。 */
-function locateNode(nodeId: string): void {
+/** t14 定位：把 focusNodeId 对应内容行滚入 monitor 可视区并高亮。
+    异步：切换链路后需等 DOM 渲染出新行（rowEls 注册完成）再滚动定位。 */
+async function locateNode(nodeId: string): Promise<void> {
   focusNodeId.value = nodeId
+  await nextTick()
   const key = rowKeyForNodeId(nodeId)
   const el = key ? (rowEls.get(key) ?? null) : null
   const mon = monitorEl.value
@@ -542,8 +621,10 @@ function locateNode(nodeId: string): void {
     flashRow(el)
   }
 }
-function focusNodeFromTrajectory(node: LiteRunNode, event: Event): void {
-  locateNode(node.nodeId)
+function focusNodeFromTrajectory(node: LiteRunNode): void {
+  // 点击轨迹块：先切到该块所在链路（正文列表按链路过滤），再定位高亮对应内容。
+  activeLane.value = laneIdOf(node)
+  void locateNode(node.nodeId)
 }
 
 // t16：hover 放大 + tip 展示详情（时间轴 bar 悬停浮层）。
@@ -563,9 +644,8 @@ function hideBarTip(): void {
   hoverNode.value = null
 }
 function nodeKindLabel(node: LiteRunNode): string {
-  if (node.kind === 'tool') return `${toolTypeEmoji(node.toolType)} 工具`
-  if (node.kind === 'user') return '用户消息'
-  return '模型响应'
+  if (node.kind === 'tool') return `${toolTypeEmoji(node.toolType)} ${LITE_NODE_LABELS.tool}`
+  return LITE_NODE_LABELS[node.kind]
 }
 
 // t16：MCU 方向键选中（预留）——左右/上下移动时间轴 bar 焦点并同步定位高亮。
@@ -591,7 +671,7 @@ function onTrajectoryKeydown(event: KeyboardEvent): void {
   if (!el) return
   el.focus()
   const nodeId = el.dataset.nodeId
-  if (nodeId) locateNode(nodeId)
+  if (nodeId) void locateNode(nodeId)
 }
 
 // t15：运行时长分级（运行时间变色）——快/中/久三档，用块边框颜色表达。
@@ -603,22 +683,30 @@ function durationTier(elapsedMs: number): 'fast' | 'medium' | 'long' | null {
   return 'long'
 }
 
-// ── 时间轴（v0.4 无间隔紧凑流式 + 执行线性化：块按出现顺序紧凑排列，不做时间定位/不留时间空隙）──
-// 大模型执行块宽 = 耗时秒数 × 1px（线性映射，上限 180px），执行时间真实区分；
-// 工具节点一律固定宽度（等待与否依赖用户设置、不可追踪，不按耗时）；
-// 用户消息固定宽度（无执行耗时语义）。块间仅 1px 间隔；无时间刻度轴、无行标记。
-/** 块宽下限（px）：保证可点击命中（点击关联下方节点高亮）。 */
+// ── 时间瀑布流（v3 共享压缩时间轴）──
+// 所有链路共享一条全局时间轴：节点按 startedAt 绝对定位（需求 3/6：不是每条链路从头画起），
+// 同一时间轴上大段等待被压缩（封顶 MAX_GAP_PX），执行时长差异保留可见性。
+// 执行节点（工具 / 主·子 Agent 响应）宽 = 真实执行耗时秒数 × 1px，两档上限：
+//   · 正常档（空间足够）：1s=1px，超过 180s 封顶 180px（MAX_BAR_PX）；
+//   · 压缩档（一行放不下）：整体挤压，clamp 到 [MIN_BAR_PX, COMPRESSED_MAX_BAR_PX]。
+// 事件节点（用户提问 / 结果返回 / 任务委派 / 协作节点 / 系统）固定窄宽。
+/** 执行块宽下限（px）：保证可点击命中（10s 节点 ≥ 10px，即 1px/秒 的下限）。 */
 const MIN_BAR_PX = 10
-/** 块宽上限（px）：大模型执行线性映射封顶，块不撑爆轨道。 */
+/** 正常档执行块宽上限（px）：空间足够时 1s=1px，超过 180s 封顶 180px。 */
 const MAX_BAR_PX = 180
-/** 相邻块间隔（px）：紧邻块 1px，紧凑流式、无时间空余。 */
-const BAR_GAP_PX = 1
-/** 大模型执行节点线性比例（px/秒）：1 秒 = 1 像素，执行时间真实区分出来。 */
+/** 压缩档执行块宽上限（px）：一行放不下时整体挤压，块宽 clamp 到 [MIN_BAR_PX, 30]。 */
+const COMPRESSED_MAX_BAR_PX = 30
+/** 执行节点线性比例（px/秒）：1 秒 = 1 像素。 */
 const MODEL_PX_PER_SEC = 1
-/** 工具节点固定宽度（px）：等待与否依赖 supervision 设置且会变、不可追踪，一律固定长度。 */
-const TOOL_FIXED_PX = 24
-/** 用户消息节点固定宽度（px）：无执行耗时语义。 */
+/** 相邻节点等待间隔上限（px）：真实空闲 > 此值按此封顶，剔除大段等待（等审批/隔几天）。 */
+const MAX_GAP_PX = 24
+/** 事件节点固定宽度（px）：结果返回 / 委派 / 协作 / 系统。 */
+const EVENT_FIXED_PX = 12
+/** 用户提问固定宽度（px）：比普通事件稍宽，突出每轮发起。 */
 const USER_FIXED_PX = 16
+/** 行头角色名 gutter 宽度（px）：块从此偏移开始排布，避开行头角色名标签；与 CSS .lite-trajectory-lane-label 宽度保持一致。 */
+const LABEL_GUTTER_PX = 76
+
 interface TrajectoryBar {
   node: LiteRunNode
   left: number
@@ -626,27 +714,36 @@ interface TrajectoryBar {
 }
 interface TrajectoryTrack {
   chatId: string
+  label: string
+  isRootLane: boolean
+  firstStartedAt: number
   bars: TrajectoryBar[]
 }
 interface TrajectoryLayout {
   tracks: TrajectoryTrack[]
   trackWidth: number
 }
-/** 块宽：按节点类型取基准宽（model=耗时秒数线性 / tool=固定 / user=固定），再 ×zoom 并 clamp 到 [10, 180]。 */
-function barWidthFor(node: LiteRunNode, zoom: number): number {
-  const base =
-    node.kind === 'model'
-      ? (Math.max(0, node.elapsedMs) / 1000) * MODEL_PX_PER_SEC
-      : node.kind === 'tool'
-        ? TOOL_FIXED_PX
-        : USER_FIXED_PX
-  return Math.max(MIN_BAR_PX, Math.min(MAX_BAR_PX, base * zoom))
+/** 执行节点宽 = 真实执行耗时线性映射并 clamp（maxPx 为当前档上限）；事件节点固定宽度。 */
+function barWidthFor(node: LiteRunNode, zoom: number, maxPx = MAX_BAR_PX): number {
+  if (isTimedNodeKind(node.kind)) {
+    const seconds = Math.max(0, node.elapsedMs) / 1000
+    const base = seconds * MODEL_PX_PER_SEC
+    return Math.max(MIN_BAR_PX, Math.min(maxPx, base * zoom))
+  }
+  const fixed = node.kind === 'user' ? USER_FIXED_PX : EVENT_FIXED_PX
+  // 事件节点固定宽 × zoom 同样 clamp 下限 10（缩放 0.4x 时不窄于 10px，保证可点击命中）。
+  return Math.max(MIN_BAR_PX, fixed * zoom)
 }
 
-/** v0.4.2（性能修正）：轨迹布局 memo——签名 = zoom + 视口宽 + 各节点 [key/kind/status/sourceChatId/startedAt]，
-    显式**排除 elapsedMs**：运行中块宽由 CSS 动画推进（见 trajectoryBarStyle / .is-model.is-running），
-    布局不随每秒时钟 tick 重算，返回同一对象引用 → 模板 diff 无变化 → 不重写任何 inline style（消除持续重绘）。
-    节点增删 / 状态变化（running→completed 定格精确宽）/ zoom / 视口 resize 时签名变化 → 重算。 */
+/** 相邻节点时间间隔（px）：真实空闲 × 1px，封顶 MAX_GAP_PX，剔除大段等待。 */
+function gapPxBetweenTimes(prevStartedAt: number, nextStartedAt: number, zoom: number): number {
+  const gapMs = Math.max(0, nextStartedAt - prevStartedAt)
+  return Math.min((gapMs / 1000) * MODEL_PX_PER_SEC, MAX_GAP_PX) * zoom
+}
+
+/** v3：轨迹布局 memo——签名 = zoom + 视口宽 + 各节点 [key/kind/status/sourceChatId/startedAt/agentLabel]，
+    并纳入**运行中节点**的 elapsedMs：运行中块宽随 elapsedMs 逐秒增长（需求 3.1 先创建→变长→结束固定），
+    每秒时钟 tick 仅重算含运行中节点的布局；已终态节点不触发重算。 */
 let trajectoryLayoutMemoKey = ''
 let trajectoryLayoutMemoValue: TrajectoryLayout | null = null
 function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
@@ -656,61 +753,109 @@ function trajectoryLayout(width: number, zoom = 1): TrajectoryLayout {
   }
   let sig = String(zoom) + '|' + String(width) + '|'
   for (const n of nodes) {
-    sig += n.key + ':' + n.kind + ':' + n.status + ':' + n.sourceChatId + ':' + n.startedAt + ';'
+    sig += `${n.key}:${n.kind}:${n.status}:${n.sourceChatId}:${n.startedAt}:${n.agentLabel}`
+    if (n.active) sig += `:${n.elapsedMs}`
+    sig += ';'
   }
   if (trajectoryLayoutMemoValue && trajectoryLayoutMemoKey === sig) {
     return trajectoryLayoutMemoValue
   }
   trajectoryLayoutMemoKey = sig
-  trajectoryLayoutMemoValue = computeTrajectoryLayout(nodes, width, zoom)
+  trajectoryLayoutMemoValue = computeTrajectoryLayout(nodes, width, zoom, props.rootChatId)
   return trajectoryLayoutMemoValue
 }
 
-/** v0.4.2：bar 内联样式——运行中 model 块注入 CSS 变量驱动增长动画：
-    --bar-from 当前宽 → --bar-to（MAX 180px）经 --bar-dur 秒线性增长（1px×zoom/秒），
-    动画期间布局 memo 命中、JS 不更新宽；结束布局重算写入精确终宽并移除动画。 */
+/** v3：bar 内联样式——纯 left/width 定位（运行中块宽由 elapsedMs 驱动的布局重算推进，不再用 CSS 动画）。 */
 function trajectoryBarStyle(bar: TrajectoryBar): CSSProperties {
-  const style: CSSProperties = { left: bar.left + 'px', width: bar.width + 'px' }
-  if (bar.node.active && bar.node.kind === 'model') {
-    style['--bar-from'] = `${bar.width}px`
-    style['--bar-to'] = `${MAX_BAR_PX}px`
-    style['--bar-dur'] = `${Math.max(1, (MAX_BAR_PX - bar.width) / trajectoryZoom.value)}s`
-  }
-  return style
+  return { left: bar.left + 'px', width: bar.width + 'px' }
 }
 
 function computeTrajectoryLayout(
   nodes: LiteRunNode[],
   width: number,
   zoom: number,
+  rootChatId: string,
 ): TrajectoryLayout {
-  const byChat = new Map<string, LiteRunNode[]>()
+  // 需求 5：用户消息并入主 Agent 链路（用户消息发给主 Agent）；其余按归属 Agent（sourceChatId）分链路。
+  const laneIdOf = (node: LiteRunNode): string =>
+    node.kind === 'user' ? rootChatId : node.sourceChatId
+
+  // 需求 3/6：全局共享压缩时间轴——所有节点按 startedAt 绝对定位，而非每条链路从头画起。
+  // 逐个全局事件累加压缩间隔，得到每个节点在时间轴上的 X 坐标（大段等待被封顶剔除）。
+  const sorted = [...nodes].sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
+  const xByKey = new Map<string, number>()
+  let cursor = LABEL_GUTTER_PX
+  let prevStartedAt: number | null = null
+  for (const node of sorted) {
+    if (prevStartedAt !== null) cursor += gapPxBetweenTimes(prevStartedAt, node.startedAt, zoom)
+    xByKey.set(node.key, cursor)
+    prevStartedAt = node.startedAt
+  }
+
+  const byLane = new Map<string, LiteRunNode[]>()
   for (const node of nodes) {
-    const list = byChat.get(node.sourceChatId)
+    const laneId = laneIdOf(node)
+    const list = byLane.get(laneId)
     if (list) list.push(node)
-    else byChat.set(node.sourceChatId, [node])
+    else byLane.set(laneId, [node])
   }
-  const tracks: TrajectoryTrack[] = []
-  let maxTrackWidth = 0
-  for (const [chatId, list] of byChat) {
-    const sorted = [...list].sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
-    // 无间隔紧凑流式：块按出现顺序排列，left 紧跟上一块 + 1px——不做时间定位、不留时间空余。
-    const bars: TrajectoryBar[] = []
-    let cursor = 0
-    for (const node of sorted) {
-      const barWidth = barWidthFor(node, zoom)
-      bars.push({ node, left: cursor, width: barWidth })
-      cursor += barWidth + BAR_GAP_PX
+
+  // 按给定上限档位排布各链路块，并返回整条时间轴的右边界（决定是否溢出）。
+  const buildTracks = (
+    maxPx: number,
+  ): { tracks: TrajectoryTrack[]; contentWidth: number; compactWidth: number } => {
+    const tracks: TrajectoryTrack[] = []
+    let contentWidth = 0
+    let compactWidth = 0
+    for (const [laneId, list] of byLane) {
+      const laneSorted = [...list].sort(
+        (a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key),
+      )
+      // v0.5.2：序列化推进——left 取「时间 gap 位置」与「前一块右缘 + 1px」的较大者，
+      // 线性流程同一轨道内块间最低 1px 间隔、绝不互相遮挡（gap 增量上限 24px 远小于
+      // 块宽上限 180px，纯时间定位下长耗时块必然压住后续块）；时间 gap 在块不挤时仍占位。
+      const bars: TrajectoryBar[] = []
+      let laneRight = LABEL_GUTTER_PX - 1
+      for (const node of laneSorted) {
+        const timeX = xByKey.get(node.key) ?? LABEL_GUTTER_PX
+        const width = barWidthFor(node, zoom, maxPx)
+        const left = Math.max(timeX, laneRight + 1)
+        bars.push({ node, left, width })
+        laneRight = left + width
+      }
+      const label = laneSorted[0]?.agentLabel || (laneId === rootChatId ? '主 Agent' : '子 Agent')
+      const firstStartedAt = laneSorted[0]?.startedAt ?? 0
+      // 实际内容宽（含时间 gap 占位）：决定容器宽（超视口配横向滚动条），不参与挤压判定。
+      const laneWidth = bars.reduce((max, bar) => Math.max(max, bar.left + bar.width), 0)
+      contentWidth = Math.max(contentWidth, laneWidth)
+      // 紧凑口径宽（块固有宽之和 + 1px 间隙，排除时间 gap 占位）：决定是否切换挤压档——
+      // 挤压只由「块排不排得下」触发（挤压后执行节点封顶 30px），时间空隙不撑爆宽度、
+      // 不误伤空间足够的 180px 正常档。
+      const laneCompact =
+        LABEL_GUTTER_PX +
+        bars.reduce((sum, bar) => sum + bar.width, 0) +
+        Math.max(0, bars.length - 1)
+      compactWidth = Math.max(compactWidth, laneCompact)
+      tracks.push({
+        chatId: laneId,
+        label,
+        isRootLane: laneId === rootChatId,
+        firstStartedAt,
+        bars,
+      })
     }
-    maxTrackWidth = Math.max(maxTrackWidth, cursor - BAR_GAP_PX)
-    tracks.push({ chatId, bars })
+    // 需求 2：上下链路之间按发起时间线性排序（最早发起自然靠上）。
+    tracks.sort((a, b) => a.firstStartedAt - b.firstStartedAt || a.chatId.localeCompare(b.chatId))
+    return { tracks, contentWidth, compactWidth }
   }
-  tracks.sort(
-    (a, b) =>
-      (a.bars[0]?.node.startedAt ?? 0) - (b.bars[0]?.node.startedAt ?? 0) ||
-      a.chatId.localeCompare(b.chatId),
-  )
-  return { tracks, trackWidth: Math.max(width, maxTrackWidth) }
+
+  // 需求（本次）：空间足够 → 1s=1px（封顶 180px）；一行放不下 → 整体挤压到 [10, 30]。
+  // 先用正常档排布，若紧凑口径内容宽度超出视口（width），改用压缩档重排。
+  let { tracks, contentWidth, compactWidth } = buildTracks(MAX_BAR_PX)
+  if (compactWidth > width) {
+    ;({ tracks, contentWidth, compactWidth } = buildTracks(COMPRESSED_MAX_BAR_PX))
+  }
+  return { tracks, trackWidth: Math.max(width, contentWidth) }
 }
 
 // t13 滚轮缩放：Ctrl/⌘+滚轮在 0.4x–5x 之间缩放时间比例尺；普通滚轮仍走 LiteScrollbar 的横向平移。
@@ -813,7 +958,19 @@ function rowKey(row: LiteRunRow): string {
                   v-for="track in layout.tracks"
                   :key="track.chatId"
                   class="lite-trajectory-lane"
+                  :class="{
+                    'is-root-lane': track.isRootLane,
+                    'is-active': track.chatId === activeLane,
+                  }"
                 >
+                  <button
+                    type="button"
+                    class="lite-trajectory-lane-label"
+                    :title="'切换到 ' + track.label + ' 链路'"
+                    @click="activeLane = track.chatId"
+                  >
+                    {{ track.label }}
+                  </button>
                   <div class="lite-trajectory-lane-track">
                     <button
                       v-for="bar in track.bars"
@@ -844,7 +1001,7 @@ function rowKey(row: LiteRunRow): string {
                       @pointerenter="showBarTip(bar.node, $event)"
                       @pointermove="moveBarTip"
                       @pointerleave="hideBarTip"
-                      @click="focusNodeFromTrajectory(bar.node, $event)"
+                      @click="focusNodeFromTrajectory(bar.node)"
                     />
                   </div>
                 </div>
@@ -854,10 +1011,44 @@ function rowKey(row: LiteRunRow): string {
         </LiteScrollbar>
       </section>
 
+      <nav v-if="laneTabs.length > 1" class="lite-lane-bar" aria-label="切换链路">
+        <button
+          v-for="tab in laneTabs"
+          :key="tab.chatId"
+          type="button"
+          class="lite-lane-tab"
+          :class="[
+            { 'is-active': tab.chatId === activeLane },
+            { 'is-root-lane': tab.isRootLane },
+          ]"
+          :title="'切换到 ' + tab.label + ' 链路'"
+          @click="activeLane = tab.chatId"
+        >
+          <span class="lite-lane-tab-icon" aria-hidden="true">{{ tab.isRootLane ? '✧' : '◆' }}</span>
+          <span class="lite-lane-tab-label">{{ tab.label }}</span>
+        </button>
+      </nav>
+
       <main ref="monitorEl" class="lite-monitor" aria-label="执行监控" @scroll="onMonitorScroll">
-        <ol v-if="history.rows.length" class="lite-history">
+        <div v-if="entryDispatch" class="lite-entry-dispatch">
+          <div class="lite-entry-dispatch-head">
+            <span class="lite-entry-dispatch-icon" aria-hidden="true">{{ entryDispatch.icon }}</span>
+            <span class="lite-entry-dispatch-actor">{{ entryDispatch.agentLabel }}</span>
+            <span class="lite-entry-dispatch-verb">任务委派</span>
+            <button
+              v-if="entryHasMore"
+              type="button"
+              class="lite-entry-dispatch-toggle"
+              @click="entryExpanded = !entryExpanded"
+            >
+              {{ entryExpanded ? '收起' : '展开全文' }}
+            </button>
+          </div>
+          <p class="lite-entry-dispatch-content">{{ entryPreview }}</p>
+        </div>
+        <ol v-if="visibleRows.length" class="lite-history">
           <li
-            v-for="row in history.rows"
+            v-for="row in visibleRows"
             :key="rowKey(row)"
             :ref="(el) => setRowEl(rowKey(row), el)"
             class="lite-history-row"
@@ -885,10 +1076,7 @@ function rowKey(row: LiteRunRow): string {
                   详情
                 </button>
               </div>
-              <p
-                v-if="row.node.kind === 'user' || row.node.isRoundFinal"
-                class="lite-history-content"
-              >
+              <p v-if="showsRowContent(row.node)" class="lite-history-content">
                 {{ row.node.content || '（空）' }}
               </p>
             </template>
@@ -1349,15 +1537,13 @@ function rowKey(row: LiteRunRow): string {
   flex-direction: column;
 }
 
-/* ── 时间瀑布流（v0.3.2 无间隔紧凑流式：多轨多 Agent，块按序紧凑排列、无时间空余）── */
+/* ── 时间瀑布流（v3 共享压缩时间轴：多轨多 Agent，节点按绝对时间定位、大段等待压缩）── */
 .lite-trajectory {
   position: relative;
   flex: none;
-  /* v0.4.2（修正）：轨迹区块高度随内容自适应（不固定、不居中大留白）——任务条多轨时自然变高，
-     上下仅对称留白 10px（顶部 padding 10 = 底部 padding 3 + 横向滚动条轨道占位 7）；
-     max-height 仅作多轨溢出的兜底滚动上限。运行中块宽由 CSS 动画推进（.is-model.is-running），
-     区块高度不随每秒时钟 tick 变化 */
-  padding: 10px 12px 3px;
+  /* v3：轨迹区块高度随内容自适应（不固定、不居中大留白）——任务条多轨时自然变高；
+     max-height 仅作多轨溢出的兜底滚动上限。运行中块宽由 elapsedMs 驱动的布局重算逐秒增长。 */
+  padding: 10px 12px 8px;
   border-bottom: 1px solid var(--el-border-color-lighter);
   max-height: 168px;
   overflow-y: auto;
@@ -1392,19 +1578,58 @@ function rowKey(row: LiteRunRow): string {
 }
 .lite-trajectory-track {
   position: relative;
-  /* v0.4.2：轨道组紧凑排列——高度=内容高度（随轨数自适应），gap 28px 控制轨间间距（20-40px 区间取值）；
-     不撑满不居中（区块高即内容高，无需多余留白） */
+  /* v0.4.2：轨道组紧凑排列——高度=内容高度（随轨数自适应），gap 3px 控制链路间距（需求：2-4px）； */
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 3px;
   min-width: 100%;
 }
 .lite-trajectory-lane {
   position: relative;
   flex: none;
+  height: 13px;
+  line-height: 0;
+}
+/* 行头角色名（需求 c/2/4）：独立分配空间展示，实心背景盖住横向滚动时滚过的块，不与节点重叠/冲突；
+   本身是按钮，点击切换正文列表显示该链路（需求 4）。 */
+.lite-trajectory-lane-label {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  display: inline-block;
+  box-sizing: border-box;
+  width: 76px;
+  height: 13px;
+  line-height: 13px;
+  padding: 0 8px 0 0;
+  border: none;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-bg-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.lite-trajectory-lane-label:hover {
+  color: var(--el-color-primary);
+}
+.lite-trajectory-lane.is-root-lane .lite-trajectory-lane-label {
+  color: var(--el-color-primary);
+}
+.lite-trajectory-lane.is-active .lite-trajectory-lane-label {
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 14%, var(--el-bg-color));
 }
 .lite-trajectory-lane-track {
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
   height: 13px;
 }
 /* 块为标准矩形：无圆角、无虚线等待块——等待区间 = 缺口，由块间空余空间自然呈现 */
@@ -1422,21 +1647,34 @@ function rowKey(row: LiteRunRow): string {
     box-shadow 120ms ease,
     transform 120ms ease;
 }
-/* t16：hover 放大（垂直放大到约 1.75 倍，置顶显示） */
+/* t16：hover 提示（不再放大，避免遮挡上下链路；用 inset 描边高亮，不溢出遮挡两侧块） */
 .lite-trajectory-bar:hover {
   opacity: 1;
-  z-index: 3;
-  transform: scaleY(1.75);
-  transform-origin: center;
+  box-shadow: inset 0 0 0 1px var(--el-text-color-primary);
 }
 .lite-trajectory-bar.is-user {
   background: var(--el-color-primary);
 }
-.lite-trajectory-bar.is-model {
+.lite-trajectory-bar.is-root-agent {
   background: var(--el-color-success);
+}
+.lite-trajectory-bar.is-child-agent {
+  background: #ed79bd;
 }
 .lite-trajectory-bar.is-tool {
   background: var(--el-color-warning);
+}
+.lite-trajectory-bar.is-return {
+  background: #3ddc97;
+}
+.lite-trajectory-bar.is-dispatch {
+  background: #c58af9;
+}
+.lite-trajectory-bar.is-spawn {
+  background: #c58af9;
+}
+.lite-trajectory-bar.is-system {
+  background: #a99df6;
 }
 /* 按工具类型配色（需求 5） */
 .lite-trajectory-bar.is-tool[data-tooltype='exec'] {
@@ -1462,31 +1700,120 @@ function rowKey(row: LiteRunRow): string {
 .lite-trajectory-bar.is-running {
   opacity: 1;
 }
-/* v0.4.2（性能修正）：运行中 model 块宽度增长改 **CSS 动画**推进（1px×zoom/秒），运行期间零 JS 更新——
-   轨迹布局已与每秒时钟 tick 解耦（trajectoryLayout memo 签名排除 elapsedMs，trajectoryBarStyle 注入
-   --bar-from/--bar-to/--bar-dur），块宽从当前值平滑增长到上限（180px）后定格，
-   运行结束由布局重算写入精确终宽并移除动画。width 动画仅 re-paint 该绝对定位块、不回流兄弟（低成本）。 */
-.lite-trajectory-bar.is-model.is-running {
-  max-width: var(--bar-to, 180px);
-  animation: lite-bar-grow var(--bar-dur, 180s) linear forwards;
-}
-@keyframes lite-bar-grow {
-  from {
-    width: var(--bar-from, 10px);
-  }
-  to {
-    width: var(--bar-to, 180px);
-  }
-}
+/* v3：运行中执行块宽度由 elapsedMs 驱动的布局重算逐秒增长（需求 3.1 先创建→变长→结束固定），
+   不再使用 CSS 动画（trajectoryLayout memo 已纳入 active.elapsedMs）。 */
 .lite-trajectory-bar.is-selected {
-  outline: 2px solid var(--el-text-color-primary);
-  outline-offset: 1px;
+  box-shadow: inset 0 0 0 2px var(--el-text-color-primary);
   opacity: 1;
-  z-index: 3;
 }
 /* 无时间刻度轴（v0.3.2：时间跨度展示被放弃，改为紧凑块流） */
 
 /* ── 运行历史列表（需求 1c / 4a）：用户消息与轮末响应独占一行，中间节点为 cluster 小按钮 ── */
+/* ── 链路标签栏（v0.5 链路展示改造）：正文列表顶部常驻（monitor 上方、固定不滚动），
+   主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，与轨迹行头角色名按钮联动；
+   直角矩形（用户强制规则：无圆角）── */
+.lite-lane-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lite-lane-bar::-webkit-scrollbar {
+  display: none;
+}
+.lite-lane-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 0;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.lite-lane-tab:hover:not(.is-active) {
+  border-color: var(--el-color-primary-light-5);
+  color: var(--el-color-primary);
+}
+.lite-lane-tab.is-active {
+  background: color-mix(in srgb, var(--el-color-primary) 12%, var(--el-bg-color));
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+.lite-lane-tab-icon {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+}
+.lite-lane-tab.is-root-lane .lite-lane-tab-icon {
+  color: var(--el-color-primary);
+}
+.lite-lane-tab-label {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 子 Agent 入口消息块（v0.5 链路展示改造）：主 Agent 派发给该子 Agent 的任务说明，
+   独立于历史列表（不进时间轴/轮次排序），打开子 Agent 链路即可看到其任务 ── */
+.lite-entry-dispatch {
+  border: 1px solid color-mix(in srgb, #c58af9 55%, var(--el-border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, #c58af9 7%, var(--el-bg-color));
+  overflow: hidden;
+}
+.lite-entry-dispatch-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+}
+.lite-entry-dispatch-icon {
+  flex: none;
+  width: 18px;
+  text-align: center;
+  color: #c58af9;
+}
+.lite-entry-dispatch-actor {
+  color: var(--el-text-color-primary);
+}
+.lite-entry-dispatch-verb {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+.lite-entry-dispatch-toggle {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.lite-entry-dispatch-content {
+  margin: 0;
+  padding: 0 10px 8px 34px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  font-size: 12.5px;
+  color: var(--el-text-color-secondary);
+  /* 强制字重规则：正文一律 400。 */
+  font-weight: 400;
+}
+
 .lite-monitor {
   flex: 1;
   min-height: 0;
@@ -1537,8 +1864,21 @@ function rowKey(row: LiteRunRow): string {
 .lite-history-row.is-tool .lite-history-icon {
   color: var(--el-color-warning);
 }
-.lite-history-row.is-model .lite-history-icon {
+.lite-history-row.is-root-agent .lite-history-icon {
   color: var(--el-color-success);
+}
+.lite-history-row.is-child-agent .lite-history-icon {
+  color: #ed79bd;
+}
+.lite-history-row.is-return .lite-history-icon {
+  color: #3ddc97;
+}
+.lite-history-row.is-dispatch .lite-history-icon,
+.lite-history-row.is-spawn .lite-history-icon {
+  color: #c58af9;
+}
+.lite-history-row.is-system .lite-history-icon {
+  color: #a99df6;
 }
 .lite-history-meta {
   flex: 1;
@@ -1649,10 +1989,8 @@ function rowKey(row: LiteRunRow): string {
   background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
 }
 .lite-trajectory-bar.is-focused {
-  outline: 2px solid var(--el-text-color-primary);
-  outline-offset: 1px;
+  box-shadow: inset 0 0 0 2px var(--el-color-primary);
   opacity: 1;
-  z-index: 3;
 }
 /* t16：时间轴 bar 悬停详情浮层（跟随鼠标，fixed 定位） */
 .lite-tip {
