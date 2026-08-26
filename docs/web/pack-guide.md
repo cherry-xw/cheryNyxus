@@ -195,6 +195,7 @@ electron-builder 仅在当前 host 平台打包对应平台，跨平台需在目
 | `NODE_MODULE_VERSION` 不匹配 | Node 二进制 / SQLite 预编译过期，重跑 `electron:pack` |
 | `Cannot find module 'app-builder-lib/.../load'` | `pnpm update app-builder-lib@25.1.0 --filter web` |
 | 跨平台构建失败 | electron-builder 不支持跨平台，需在目标 host 执行 |
+| `pnpm build` 报 `EBUSY: resource busy or locked` | Windows 下 electron 后端 worker 运行中（dlopen 后 `dist/lib/*.node` 句柄保持到进程退出，Windows 独占写锁），post-build 复制 native addon 撞锁；`vite` 主输出仍会落盘但 addon patch 未执行。**先关 electron 再 build**；排查：`netstat -ano \| findstr :8182` 找后端 worker PID（electron 实例的 guardian 拉起的） |
 
 ## 依赖与关联
 

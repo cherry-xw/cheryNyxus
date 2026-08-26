@@ -71,7 +71,8 @@
 - [web/README.md](./web/README.md) — 总览：技术栈、双运行模式（浏览器/Electron）、构建产物、monorepo 定位、依赖关联
 - [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) — **前端协议消费手册**：RPC/Notification/Chunk 字段映射到 store / StreamState / 视图组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口
 - [standards/web-frontend-architecture.md](./standards/web-frontend-architecture.md) — **前端强制架构与目录规范**：owner、依赖矩阵、公开面、目录与迁移门禁
-- [standards/ui-visual-and-interaction.md](./standards/ui-visual-and-interaction.md) — **前端 UI 视觉与交互规范**：字重 400/600 规则、动作按钮前置禁用（先选后测）
+- [standards/ui-visual-and-interaction.md](./standards/ui-visual-and-interaction.md) — **前端 UI 视觉与交互规范**：字重 400/600 规则、动作按钮前置禁用（先选后测）、圆角规则（默认全直角）
+- [standards/ai-collaboration.md](./standards/ai-collaboration.md) — **AI 协作与工作流规范**：未验收不提交、图片验证交用户、文档先行
 - [web/frontend-refactor-handoff.md](./web/frontend-refactor-handoff.md) — 前端 canonical owner、协议生命周期与迁移状态交接
 - [web/electron.md](./web/electron.md) — Electron 集成详解：主进程路径解析坑、xrdp 运行环境、sandbox SUID
 - [web/deployment.md](./web/deployment.md) — 前后端连接与部署模式：后端独立 / Electron 一体 / Web 浏览器三模式 + 实现路线 + 关键坑
