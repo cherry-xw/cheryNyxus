@@ -4,8 +4,8 @@ import { agentApi, type InteractionRecord } from '../../src/services/agentApi'
 import { wsClient } from '../../src/services/ws'
 import { commandGate } from '../../src/stores/commandLifecycle'
 import { useChatSessionsStore } from '../../src/stores/chats'
-import { createEmptySession } from '../../src/stores/chats/hydration'
-import { reduce } from '../../src/stores/chats/reducer'
+import { createEmptySession } from '../../src/stores/chats/model/hydration'
+import { reduce } from '../../src/stores/chats/model/reducer'
 import { useInteractionsStore, validateInteractionAnswers } from '../../src/stores/interactions'
 
 function interaction(

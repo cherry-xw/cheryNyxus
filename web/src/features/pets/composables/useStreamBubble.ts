@@ -7,7 +7,7 @@ import {
   watch,
   type MaybeRefOrGetter,
 } from 'vue'
-import type { StreamState } from '@/stores'
+import type { StreamState } from '@/application/public'
 import { renderMarkdown } from '@/utils/markdown'
 
 /**

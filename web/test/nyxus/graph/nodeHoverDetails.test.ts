@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { splitCommandPrompt } from '../../../src/features/agent/composables/commands'
@@ -66,7 +66,7 @@ describe('execution node hover details', () => {
   })
 
   it('keeps chrome fixed and only renders descriptions returned in node data', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('src/features/pets/nyxus/components/ExecutionNodePopover.vue'),
       'utf8',
     )
@@ -94,7 +94,7 @@ describe('execution node hover details', () => {
   })
 
   it('renders every user command token with the dedicated node-tree treatment', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('src/features/pets/nyxus/components/ExecutionNodePopover.vue'),
       'utf8',
     )
@@ -116,7 +116,7 @@ describe('execution node hover details', () => {
   })
 
   it('localizes dispatch details, keeps tab status in content and exposes copy actions', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('src/features/pets/nyxus/components/ExecutionNodePopover.vue'),
       'utf8',
     )
@@ -147,7 +147,7 @@ describe('execution node hover details', () => {
   })
 
   it('renders code search and skill loading with dedicated native detail sections', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('src/features/pets/nyxus/components/ExecutionNodePopover.vue'),
       'utf8',
     )
@@ -170,7 +170,7 @@ describe('execution node hover details', () => {
   })
 
   it('limits continuous CRT motion to the small live status dot', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('src/features/pets/nyxus/components/AnchoredRunCrt.vue'),
       'utf8',
     )

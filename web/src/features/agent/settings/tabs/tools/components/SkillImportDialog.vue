@@ -18,7 +18,7 @@ import {
   type SkillImportRequest,
   type SkillImportResponse,
   type CredentialListItemDTO,
-} from '@/services/agentApi'
+} from '@/application/backend/public'
 import ImportConfirmDialog from './ImportConfirmDialog.vue'
 import ImportPortalFrame, { type PortalPhase } from './ImportPortalFrame.vue'
 import LabelTip from '../../../tabs/config/LabelTip.vue'

@@ -60,6 +60,7 @@ import { randomUUID } from 'crypto'
 import { recordTerminationFact } from './executionFacts.js'
 import { emitTimelinePatch } from './rootGraphPatch.js'
 import { appendChatEvent, claimRequest, completeRequest } from '@/db/delivery.js'
+import type { ChatRunResumeRequest } from '@chery/protocol'
 import { getExecutionActiveRun } from '@/db/executionGraph.js'
 import { transport } from '../websocket/transport.js'
 import { addTreePauseTarget, createTreePause, refreshTreeControlStatus } from '@/db/treeControl.js'
@@ -443,6 +444,37 @@ export async function launchDetachedResume(
   })()
 }
 
+/** Canonical command-plane resume: durable idempotent ack, output stays on subscriptions. */
+export async function handleChatRunResume(
+  ctx: HandlerContext,
+  data: ChatRunResumeRequest,
+): Promise<{ chatId: string; commandId: string; runId: string; status: 'started' | 'already-running' }> {
+  const claimed = claimRequest(data.commandId, Method.CHAT_RUN_RESUME, data)
+  if (claimed.state === 'completed') {
+    return JSON.parse(claimed.responseJson) as {
+      chatId: string
+      commandId: string
+      runId: string
+      status: 'started' | 'already-running'
+    }
+  }
+  if (claimed.state === 'active') throw new Error('该继续命令正在处理')
+  if (claimed.state === 'mismatch') throw new Error('commandId 已用于另一条命令')
+
+  if (!getChat(data.chatId)) throw new Error('这个会话不见了')
+  const activeRunId = getActiveChatRunId(data.chatId)
+  const runId = activeRunId ?? randomUUID()
+  const response = {
+    chatId: data.chatId,
+    commandId: data.commandId,
+    runId,
+    status: activeRunId ? ('already-running' as const) : ('started' as const),
+  }
+  if (!activeRunId) await launchDetachedResume(ctx, data.chatId, runId)
+  completeRequest(data.commandId, response)
+  return response
+}
+
 /**
  * 审批 Sense
  */
@@ -689,10 +721,6 @@ export async function handleChatAbort(
  * 注册 Chat handlers
  */
 export function registerChatHandlers(router: import('../message/router.js').RpcRouter): void {
-  router.register(Method.CHAT_SEND, handleChatSend)
-  router.register(Method.CHAT_RESUME, handleChatResume)
-  router.register(Method.SENSE_APPROVAL, handleSenseApproval)
-  router.register(Method.SENSE_QUESTION_ANSWER, handleSenseQuestionAnswer)
-  router.register(Method.SENSE_QUESTION_BATCH_ANSWER, handleSenseQuestionBatchAnswer)
+  router.register(Method.CHAT_RUN_RESUME, handleChatRunResume)
   router.register(Method.CHAT_ABORT, handleChatAbort)
 }

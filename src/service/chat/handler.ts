@@ -1889,9 +1889,9 @@ export async function handleChatOpen(
   ctx: HandlerContext,
   data: ChatOpenRequestData,
 ): Promise<ChatOpenResponseData> {
-  const requestedChatId = data.rootChatId ?? data.chatId
+  const requestedChatId = data.scope === 'root' ? data.rootChatId : data.chatId
   if (!requestedChatId || !getChat(requestedChatId)) throw new Error('这个会话不见了')
-  if (data.rootChatId) {
+  if (data.scope === 'root') {
     const subscriptionId = connectionManager.beginRootSessionOpen(data.rootChatId, ctx.connectionId)
     try {
       const chatIds = [data.rootChatId, ...collectDescendantsChatIds(data.rootChatId)]
@@ -1971,7 +1971,7 @@ export async function handleChatOpen(
           },
         }
       }
-      const rootTimeline = buildRootTimeline(data.rootChatId, 'conversation')
+      const rootTimeline = buildRootTimeline(data.rootChatId, data.view)
       rootTimeline.capturedEventSeq = eventSeq
       connectionManager.finishSessionOpen(subscriptionId)
       logger.event('chat.open.root', {
@@ -2003,7 +2003,7 @@ export async function handleChatOpen(
       throw error
     }
   }
-  const chatId = data.chatId!
+  const chatId = data.chatId
   const subscriptionId = connectionManager.beginSessionOpen(chatId, ctx.connectionId)
   try {
     // getChatEvents is synchronous; registration and boundary capture therefore execute
@@ -2142,20 +2142,15 @@ export async function handleChatAttach(
 export function registerChatManageHandlers(router: import('../message/router.js').RpcRouter): void {
   router.register(Method.CHAT_CREATE, handleChatCreate)
   router.register(Method.CHAT_LIST, handleChatList)
-  router.register(Method.CHAT_GET, handleChatGet) // 流式返回历史
   router.register(Method.CHAT_TIMELINE_GET, handleChatTimelineGet)
   router.register(Method.CHAT_TIMELINE_GENERATION_GET, handleChatTimelineGenerationGet)
   router.register(Method.CHAT_TIMELINE_NODE_GET, handleChatTimelineNodeGet) // lite P0：单节点按需详情
   router.register(Method.CHAT_INPUT_SUBMIT, handleChatInputSubmit)
   router.register(Method.CHAT_RESUME_TREE, handleChatResumeTree)
-  router.register(Method.CHAT_SYNC, handleChatSync)
   router.register(Method.CHAT_OPEN, handleChatOpen)
   router.register(Method.CHAT_CLOSE, handleChatClose)
-  router.register(Method.CHAT_START_SPAWN, handleChatStartSpawn)
   router.register(Method.CHAT_STOP_CHILD, handleChatStopChild)
-  router.register(Method.CHAT_SEND_TO_CHILD, handleChatSendToChild)
   router.register(Method.CHAT_DELETE, handleChatDelete)
   router.register(Method.CHAT_CONTEXT_USAGE, handleChatContextUsage)
   registerPromptSnapshotHandler(router)
-  router.register(Method.CHAT_ATTACH, handleChatAttach)
 }

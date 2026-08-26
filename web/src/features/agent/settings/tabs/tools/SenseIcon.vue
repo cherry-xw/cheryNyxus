@@ -5,7 +5,7 @@
  * 让设置、角色名片及之后的任何入口保持相同的降级表现。
  */
 import { computed } from 'vue'
-import type { SenseToolInfo } from '@/services/agentApi'
+import type { SenseToolInfo } from '@/application/backend/public'
 
 const props = withDefaults(
   defineProps<{

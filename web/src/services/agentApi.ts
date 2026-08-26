@@ -1,7 +1,7 @@
 /**
- * agentApi：基于 wsClient.rpc / rpcTrack 的高层 RPC 封装。
+ * agentApi：基于 wsClient.rpc 的高层 RPC 封装。
  * CP1 骨架：方法签名定好，错误抛出由调用方（agents store）处理。
- * 流式方法（sendMessage/getHistory）暴露 requestId 供 chunk 路由。
+ * 长耗时路由建议仍可通过 rpcTrack 暴露 requestId。
  *
  * 协议见 docs/protocol.md。方法：chat.* / runtime.set / sense.approval / brain.list。
  */
@@ -9,6 +9,33 @@ import { wsClient } from './ws'
 import type { RpcResponse } from './ws'
 import { httpUrl } from './http'
 import { getServerConfig, sessionHeaders, type ServerConfig } from './platform'
+import type {
+  ChatInputSubmitRequest,
+  ChatInputSubmitResponse,
+  ChatOpenRequest,
+  ChatRunResumeRequest,
+  ChatRunResumeResponse,
+  ChatTimelineResponse,
+} from '@chery/protocol'
+import type { ContextBreakdown } from '@/domain/chat/context'
+import type {
+  RuntimeProvenance,
+  RuntimeSelection,
+  SessionRuntimeSelection,
+} from '@/domain/chat/runtime'
+import type { CommandConfigDataDto, CommandConfigDto } from '@/domain/chat/commands'
+
+export type { ContextBreakdown, ContextSegment } from '@/domain/chat/context'
+export type {
+  RuntimeProvenance,
+  RuntimeSelection,
+  SessionRuntimeSelection,
+} from '@/domain/chat/runtime'
+export type {
+  CommandConfigDataDto,
+  CommandConfigDto,
+  ThresholdDto,
+} from '@/domain/chat/commands'
 
 /**
  * 凭据类 .env 变量名后缀过滤：任何以 KEY / TOKEN / SECRET / PASSWORD / PASSWD /
@@ -22,24 +49,6 @@ function isSecretEnvVarName(name: string): boolean {
 }
 
 /** 上下文用量单段（镜像后端 utils/token.ts Segment）：tokens = 段 token 估算；count = 条目数（记忆/技能/工具/消息）；thinking = 用户对话段思考拆分（仅 conversation，已含在 tokens 内）。 */
-export interface ContextSegment {
-  tokens: number
-  count?: number
-  thinking?: number
-}
-
-/** 上下文用量 6 段分解（镜像后端 utils/token.ts ContextBreakdown）。 */
-export interface ContextBreakdown {
-  system: ContextSegment
-  userSystem: ContextSegment
-  memory: ContextSegment
-  skills: ContextSegment
-  tools: ContextSegment
-  conversation: ContextSegment
-  total: number
-  usage: number
-}
-
 /** 单个工具定义快照（镜像后端 PromptSnapshotTool；统一 OpenAI 形状，剥离 provider 差异）。 */
 export interface PromptSnapshotTool {
   name: string
@@ -215,26 +224,6 @@ export interface CreateAgentResult {
   workspace?: string
   /** workspace 当前是否有效；workspace 缺省时不返回。 */
   workspaceValid?: boolean
-}
-
-/** runtime.set 选择（每轮可换 brain + 单一工具组）。 */
-export interface RuntimeSelection {
-  brain: string
-  /** 无 Tool Call 模型使用空字符串。 */
-  senseGroup: string
-  mcpServers?: string[]
-}
-
-/** 消息级 runtime 溯源：RuntimeSelection + 消息发送时 brain 的 model/provider 快照（历史消息展示用）。 */
-export interface RuntimeProvenance extends RuntimeSelection {
-  brainModel?: string
-  brainProvider?: string
-}
-
-/** 当前会话临时角色编制；服务重启后自动失效，不写入会话默认配置。 */
-export interface SessionRuntimeSelection {
-  primary: RuntimeSelection
-  roles: Record<string, RuntimeSelection>
 }
 
 export type ApprovalAction = 'accept' | 'reject'
@@ -574,7 +563,10 @@ export interface CanonicalMessage {
   [key: string]: unknown
 }
 
-export interface TimelineSnapshot {
+export interface TimelineSnapshot extends ChatTimelineResponse<
+  CanonicalMessage,
+  RootTimelineSnapshot
+> {
   chatId: string
   revision: number
   messages: CanonicalMessage[]
@@ -902,16 +894,7 @@ export interface ChatSessionEvent {
   [key: string]: unknown
 }
 
-export interface InputAccepted {
-  chatId: string
-  inputId: string
-  clientMessageId: string
-  messageId: string
-  runId?: string
-  state: 'started' | 'queued' | 'accepted'
-  queueSequence?: number
-  acceptedAt: number
-}
+export type InputAccepted = ChatInputSubmitResponse
 
 /** 思考强度档位（对齐后端 ThinkingLevel）：
  * - off：关闭
@@ -1010,26 +993,6 @@ export interface MediaConfigDto {
 }
 
 /** 阈值线型（对齐后端 utils/config.ts Threshold）：tokens 绝对值 / percent 0..1 占比。 */
-export interface ThresholdDto {
-  unit: 'tokens' | 'percent'
-  value: number
-}
-
-/** command 配置（对齐后端 CommandConfig / config.save globalSchema）。字段均 optional。 */
-export interface CommandConfigDto {
-  warn?: ThresholdDto
-  auto?: ThresholdDto
-  min_context_limit?: number
-  safety_margin?: number
-}
-
-/** chat.get / chat.contextUsage 携带的 command 系统配置投影（对齐后端 CommandConfigData）。 */
-export interface CommandConfigDataDto {
-  warn: ThresholdDto
-  auto: ThresholdDto
-  minContextLimit: number
-}
-
 export interface GlobalConfigDto {
   thinking: boolean
   supervision: 'auto' | 'smart' | 'manual'
@@ -1191,18 +1154,6 @@ async function call<T>(
   const res = await wsClient.rpc(method, params, options)
   if (!res.success) throw fail(method, res)
   return res.data as T
-}
-
-/**
- * 流式 RPC：返回 requestId（供 routeChunk 映射 chatId）+ 完成承诺。
- * response 在流式结束（done notification）后 resolve；调用方按需 await。
- */
-function callStream(
-  method: string,
-  params: unknown,
-): { requestId: string; done: Promise<RpcResponse> } {
-  const { requestId, response } = wsClient.rpcTrack(method, params)
-  return { requestId, done: response }
 }
 
 export const agentApi = {
@@ -1535,14 +1486,7 @@ export const agentApi = {
   },
 
   /** V2 command plane：立即确认输入，不承载 Agent 流生命周期。 */
-  async submitChatInput(params: {
-    chatId: string
-    commandId: string
-    clientMessageId: string
-    messageId: string
-    content: string
-    attachments?: ChatSendAttachment[]
-  }): Promise<InputAccepted> {
+  async submitChatInput(params: ChatInputSubmitRequest): Promise<InputAccepted> {
     return call<InputAccepted>('chat.input.submit', {
       chatId: params.chatId,
       commandId: params.commandId,
@@ -1692,20 +1636,8 @@ export const agentApi = {
   },
 
   /** V2 session plane：原子建立订阅并返回当前运行态快照。 */
-  async openChat(params: {
-    chatId?: string
-    rootChatId?: string
-    knownTimelineRevision?: number
-    knownEventSeq?: number
-  }): Promise<ChatOpenResponse> {
-    return call<ChatOpenResponse>('chat.open', {
-      ...(params.chatId ? { chatId: params.chatId } : {}),
-      ...(params.rootChatId ? { rootChatId: params.rootChatId } : {}),
-      ...(params.knownTimelineRevision !== undefined
-        ? { knownTimelineRevision: params.knownTimelineRevision }
-        : {}),
-      ...(params.knownEventSeq !== undefined ? { knownEventSeq: params.knownEventSeq } : {}),
-    })
+  async openChat(params: ChatOpenRequest): Promise<ChatOpenResponse> {
+    return call<ChatOpenResponse>('chat.open', params)
   },
 
   /** V2 session plane：显式关闭订阅。 */
@@ -1713,42 +1645,8 @@ export const agentApi = {
     await call('chat.close', { subscriptionId })
   },
 
-  /**
-   * chat.send：流式发消息。返回 requestId（agents store 记录 requestId→chatId 供 routeChunk）。
-   * done 在流式结束 resolve；CP1 可不 await（chunk 路由独立）。
-   * P4：可选 attachments 参数，结构化附件（替代旧 [[media:]] 文本标记）。
-   *   服务端据 assetId + mimeType 合成 [[media:<filename>]] 标记追加到 prompt，
-   *   兼容既有 enrichMediaInputs 流程。前端 AgentDialog 把 MediaAttachment[] 传过来即可。
-   */
-  sendMessage(
-    chatId: string,
-    text: string,
-    attachments?: ChatSendAttachment[],
-  ): { requestId: string; done: Promise<RpcResponse> } {
-    return callStream('chat.send', {
-      chatId,
-      prompt: text,
-      ...(attachments && attachments.length > 0 ? { attachments } : {}),
-    })
-  },
-
-  /**
-   * chat.resume：流式续跑（无 prompt，run("") 起流）。T9 wait=true 唤醒轮用：
-   * 后端注入角色回复后推 role_reply → 前端调本方法 resume 主处理注入消息。
-   * 也用于重连续跑 interrupted wait-子。返回 requestId 供 chunk 路由。
-   */
-  resumeChat(chatId: string): { requestId: string; done: Promise<RpcResponse> } {
-    return callStream('chat.resume', { chatId })
-  },
-
-  /** Atomically claims and starts a persisted role spawn task. Safe to call after role_created replay. */
-  startSpawn(taskId: string): { requestId: string; done: Promise<RpcResponse> } {
-    return callStream('chat.startSpawn', { taskId })
-  },
-
-  /** chat.sync：单一水源回放（chat.sync(0) = 全量）；后端不再发 reset:true，超窗淘汰由消息合成事件回填。response 含 currentState 快照（见 CurrentStateData）。 */
-  syncChat(chatId: string, afterSeq: number): { requestId: string; done: Promise<RpcResponse> } {
-    return callStream('chat.sync', { chatId, afterSeq })
+  async resumeRun(params: ChatRunResumeRequest): Promise<ChatRunResumeResponse> {
+    return call('chat.run.resume', params)
   },
 
   /** runtime.set：原子设置 chat 的 brain + 工具组 + mcpServers。 */
@@ -1798,47 +1696,9 @@ export const agentApi = {
     return call<TreeResumeResponse>('chat.resumeTree', { rootChatId, pauseId, commandId })
   },
 
-  /**
-   * chat.attach：F5 后重连运行中 run，请求后端把后续实时输出重定向到本连接。
-   * 返回 running=false → 前端回落历史；running=true → 已重定向，后续 chunk 经 WS envelope(chatId) 路由。
-   * 非流式；须在 syncChatEvents（回放补齐）之前调用（先开启重定向再回放，seq 无缝衔接）。
-   * response.currentState：running 时含存活的 pending approval / 运行中工具 / 当前 todo（见 CurrentStateData）。
-   * response.activeTurns：当前未完成回复的完整快照；恢复 UI 时一次性安装，不重放历史 delta。
-   */
-  async attachChat(chatId: string): Promise<{
-    chatId: string
-    running: boolean
-    attached?: boolean
-    runId?: string
-    activeTurns: ActiveTurnSnapshot[]
-    /** Stable event cursor captured together with the question snapshot. */
-    snapshotSeq: number
-    pendingQuestionBatches: unknown[]
-    currentState?: CurrentStateData
-  }> {
-    return call<{
-      chatId: string
-      running: boolean
-      attached?: boolean
-      runId?: string
-      activeTurns: ActiveTurnSnapshot[]
-      snapshotSeq: number
-      pendingQuestionBatches: unknown[]
-      currentState?: CurrentStateData
-    }>('chat.attach', { chatId })
-  },
-
   /** chat.delete：真删 chat（CP8 仅会话列表 ✕ deleteSession 调用；主 chat 后端级联删子 chat）。stage 隐藏走 store.hide，不调本方法。 */
   async destroyAgent(chatId: string): Promise<{ chatId: string; deletedChatIds: string[] }> {
     return call<{ chatId: string; deletedChatIds: string[] }>('chat.delete', { chatId })
-  },
-
-  /**
-   * chat.get：流式载入历史。返回 requestId；历史块（staged chunks, role=user/assistant/...）
-   * 经 routeChunk 路由到对应 StreamState。CP1 骨架仅返回 requestId，CP4 接 HistoryDrawer 渲染。
-   */
-  getHistory(chatId: string): { requestId: string; done: Promise<RpcResponse> } {
-    return callStream('chat.get', { chatId })
   },
 
   /** chat.contextUsage：轻量取上下文用量详情（比例 + 已用 token / 上限 + 6 段分解 + commandConfig）。initFromChats 后驱动 ContextBar 初始渲染。 */
@@ -1875,46 +1735,6 @@ export const agentApi = {
       systemPrompt: string
       tools: PromptSnapshotTool[]
     }>('chat.promptSnapshot', { chatId })
-  },
-
-  /** sense.approval：审批（accept/reject）。approvalId 来自 interrupt notification。 */
-  async approval(approvalId: string, action: ApprovalAction): Promise<void> {
-    await call('sense.approval', { approvalId, action })
-  },
-
-  /**
-   * sense.question.answer：回答 ask_user_question 感官（questionId 来自 question_requested notification）。
-   * selectedLabels：用户点选的 label 数组（单选=1 项；多选=N 项；「其他」自由文本时为 []）。
-   * freeText：「其他」chip 触发模态对话框时输入的自由文本（普通 chip 选中时省略）。
-   * cancelled：true = 用户点 ✕ 取消；正常答案时省略。
-   */
-  async answerQuestion(
-    questionId: string,
-    answer: {
-      selectedLabels: string[]
-      /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
-      optionNotes?: Record<string, string>
-      freeText?: string
-      cancelled?: boolean
-    },
-  ): Promise<void> {
-    await call('sense.question.answer', { questionId, ...answer })
-  },
-
-  /** 原子提交一个完整问题批次；服务端成功落库后由 shouldResume 指示是否续跑 agent。 */
-  async answerQuestionBatch(
-    chatId: string,
-    batchId: string,
-    answers: Array<{
-      questionId: string
-      selectedLabels: string[]
-      /** 每选项补充描述：label → note（可选，向后兼容；仅已选选项生效）。 */
-      optionNotes?: Record<string, string>
-      freeText?: string
-      cancelled?: boolean
-    }>,
-  ): Promise<{ chatId: string; batchId: string; completed: boolean; shouldResume: boolean }> {
-    return await call('sense.question.batchAnswer', { chatId, batchId, answers })
   },
 
   /**
@@ -1964,9 +1784,7 @@ export const agentApi = {
    * config.save：校验（brain 引用/supervision 合法/`:level` 合法/必填）+ 写回（保留 server 段、无注释）。
    * 不碰内存单例，重启生效。校验失败 throw（error.message 含全部错误，设置面板红框展示）。
    */
-  async saveConfig(
-    payload: ConfigDto,
-  ): Promise<{
+  async saveConfig(payload: ConfigDto): Promise<{
     needRestart: true
     restart: 'immediate' | 'scheduled' | 'manual'
     warnings?: string[]

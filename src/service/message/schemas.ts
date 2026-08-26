@@ -1,5 +1,10 @@
 import { z } from 'zod'
 import { Method, type Method as MethodName, type ParamsOf } from './types.js'
+import {
+  ChatInputSubmitRequestSchema,
+  ChatOpenRequestSchema,
+  ChatRunResumeRequestSchema,
+} from '@chery/protocol'
 
 /**
  * RPC 请求参数 zod schema（每 method 一个）。
@@ -332,22 +337,7 @@ export const requestSchemas = {
       )
       .optional(),
   }),
-  [Method.CHAT_INPUT_SUBMIT]: z.object({
-    chatId: z.string(),
-    commandId: z.string().min(1),
-    clientMessageId: z.string().min(1),
-    messageId: z.string().min(1),
-    content: z.string(),
-    attachments: z
-      .array(
-        z.object({
-          assetId: z.string(),
-          kind: z.enum(['image', 'video', 'audio']),
-          mimeType: z.string(),
-        }),
-      )
-      .optional(),
-  }),
+  [Method.CHAT_INPUT_SUBMIT]: ChatInputSubmitRequestSchema,
   [Method.CHAT_TIMELINE_GET]: z
     .object({
       chatId: z.string().optional(),
@@ -401,6 +391,7 @@ export const requestSchemas = {
       }
     }),
   [Method.CHAT_RESUME]: chatIdSchema,
+  [Method.CHAT_RUN_RESUME]: ChatRunResumeRequestSchema,
   [Method.CHAT_RESUME_TREE]: z.object({
     rootChatId: z.string().min(1),
     pauseId: z.string().min(1),
@@ -410,17 +401,7 @@ export const requestSchemas = {
     chatId: z.string(),
     afterSeq: z.number().int().min(0),
   }),
-  [Method.CHAT_OPEN]: z
-    .object({
-      chatId: z.string().optional(),
-      rootChatId: z.string().optional(),
-      knownTimelineRevision: z.number().int().min(0).optional(),
-      knownEventSeq: z.number().int().min(0).optional(),
-      executionStepLimit: z.number().int().positive().max(500).optional(),
-    })
-    .refine((value) => !!value.chatId || !!value.rootChatId, {
-      message: 'chatId 或 rootChatId 至少提供一个',
-    }),
+  [Method.CHAT_OPEN]: ChatOpenRequestSchema,
   [Method.CHAT_CLOSE]: z.object({ subscriptionId: z.string() }),
   [Method.CHAT_START_SPAWN]: z.object({ taskId: z.string() }),
   [Method.CHAT_STOP_CHILD]: z.object({

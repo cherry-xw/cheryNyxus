@@ -148,7 +148,7 @@ export interface SkillArgs {
 
 // ============== 渲染器 Props 契约 ==============
 
-import type { SenseCallRecord } from '@/stores/agents'
+import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 
 /**
  * 所有专用渲染器的 Props 契约。

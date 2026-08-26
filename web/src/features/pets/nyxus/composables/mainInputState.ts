@@ -1,4 +1,4 @@
-import type { PendingInput } from '@/services/agentApi'
+import type { PendingInput } from '@/application/backend/public'
 
 export type MainInputPhase = 'idle' | 'editing' | 'pending' | 'consuming' | 'entity'
 

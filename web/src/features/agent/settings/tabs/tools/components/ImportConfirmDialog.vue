@@ -10,7 +10,7 @@
  */
 import { computed, ref, watch } from 'vue'
 import { Search } from '@element-plus/icons-vue'
-import type { SkillCandidate, SkillCommitSelection } from '@/services/agentApi'
+import type { SkillCandidate, SkillCommitSelection } from '@/application/backend/public'
 
 const props = defineProps<{
   visible: boolean

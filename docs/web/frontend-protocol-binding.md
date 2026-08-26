@@ -75,7 +75,7 @@ root 由对话容器通知 `ChatSessionsStore`，消息层保证该 root 只有�
 
 ### 1.3 `PetInstance` 字段（按组件读取）
 
-完整类型：[`web/src/features/pets/types/types.ts`](../../web/src/features/pets/types/types.ts)
+完整类型：[`web/src/domain/pets/types.ts`](../../web/src/domain/pets/types.ts)
 
 | 字段 | 类型 | 来源 RPC 字段 | 主要消费组件 |
 |------|------|--------------|------------|

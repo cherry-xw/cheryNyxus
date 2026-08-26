@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** SupervisionCard：默认监管等级 + 流式输出开关。 */
-import type { GlobalConfigDto } from '@/services/agentApi'
+import type { GlobalConfigDto } from '@/application/backend/public'
 import { SUPERVISIONS, SUPERVISION_LABEL } from '../../../config/constants'
 
 defineProps<{ global: GlobalConfigDto; no: number }>()

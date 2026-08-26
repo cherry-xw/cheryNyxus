@@ -1,5 +1,12 @@
 # WebSocket 协议规范
 
+> Canonical Chat 协议说明（2026-08）：`chat.list`、`chat.open/close`、
+> `chat.timeline.*`、`chat.input.submit`、`chat.run.resume` 与显式 tree/abort control
+> 是当前公开会话 API。请求 schema 和跨端 envelope 类型以 `packages/protocol` 为唯一来源。
+> `chat.send/get/sync/attach/resume/startSpawn/sendToChild` 以及旧 sense approval/question
+> 路由不再对外注册；本文后续仍出现的这些名称仅是历史帧格式说明，不构成可调用契约。
+> 新客户端不得实现 attach + sync replay，也不得从流式 RPC 生命周期推断 run 状态。
+
 > [← 返回 README](../README.md) ｜ [交互流程示例](interaction.md) ｜ [数据存储](db.md)
 
 > **当前实现说明（V2）**：连续输入、权威历史和多 Agent 根时间线的最新契约见

@@ -1,4 +1,4 @@
-import type { PetAction, PetMood } from '@/features/pets/types/types'
+import type { PetAction, PetMood } from '@/domain/pets/types'
 
 export interface Vec2 {
   x: number

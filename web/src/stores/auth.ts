@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { randomHex, xorDecrypt, xorEncrypt } from '@/utils/obfuscate'
+import { hostOf, isLoopbackHost, normalizeAddress } from '@/domain/auth/serverAddress'
+
+export { hostOf, isLoopbackHost, normalizeAddress } from '@/domain/auth/serverAddress'
 
 const KEY_ADDR = 'chery.serverAddress'
 const KEY_ACCESS = 'chery.accessToken'
@@ -10,30 +13,6 @@ const KEY_REMEMBER_PW = 'chery.rememberPassword'
 const KEY_SAVED_USER = 'chery.savedUsername'
 const KEY_SAVED_PW = 'chery.savedPassword'
 const KEY_PW_KEY = 'chery.pwKey'
-
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
-
-/** 从服务地址中提取 host（小写）。解析失败退化为取 `://` 后第一段。 */
-export function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  } catch {
-    return url.split('://')[1]?.split(/[/:]/)[0]?.toLowerCase() ?? ''
-  }
-}
-
-/** 是否为 loopback host（本地直连不鉴权）。 */
-export function isLoopbackHost(host: string): boolean {
-  if (LOOPBACK_HOSTS.has(host)) return true
-  return host.startsWith('127.') || host.startsWith('::ffff:127.')
-}
-
-/** 补全 scheme（用户可能只输入 host:port）。 */
-export function normalizeAddress(addr: string): string {
-  const trimmed = addr.trim()
-  if (!trimmed) return ''
-  return trimmed.includes('://') ? trimmed : `http://${trimmed}`
-}
 
 /**
  * 登录 / 连接失败的分类信息（用于 UI 渲染分类化错误卡片）。

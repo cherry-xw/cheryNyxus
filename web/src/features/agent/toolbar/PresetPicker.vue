@@ -6,7 +6,7 @@
  * 无任何预设配置 → 显式空态；加载失败 → 显式错误与重试，二者都不得降级成无感官组会话。
  */
 import { computed, onMounted, ref, watch } from 'vue'
-import { fetchServerConfig, type PresetOption } from '@/services/agentApi'
+import { fetchServerConfig, type PresetOption } from '@/application/backend/public'
 
 const props = withDefaults(
   defineProps<{

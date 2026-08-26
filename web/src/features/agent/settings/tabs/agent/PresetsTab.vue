@@ -7,13 +7,13 @@
  */
 import { ref, computed } from 'vue'
 import { ArrowDown, Check, Delete, Lock, WarningFilled } from '@element-plus/icons-vue'
-import type { ConfigDto, SenseToolInfo } from '@/services/agentApi'
-import { pickDirectory, isElectron } from '@/services/platform'
+import type { ConfigDto, SenseToolInfo } from '@/application/backend/public'
+import { pickDirectory, isElectron } from '@/application/platform/public'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
-import EditableTitle from '@/components/input/EditableTitle.vue'
+import EditableTitle from '@/features/agent/settings/controls/EditableTitle.vue'
 import LabelTip from '../config/LabelTip.vue'
 import SenseIcon from '../tools/SenseIcon.vue'
-import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
+import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import { resolveRoleAvatar } from '../../config/roleAvatar'
 import WorkspaceDirBrowser from './WorkspaceDirBrowser.vue'
 

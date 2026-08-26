@@ -29,10 +29,10 @@
 
 | 路径 | 职责 |
 |------|------|
-| [types/types.ts](../../../web/src/features/pets/types/types.ts) | PetMood/Action/**Form**/Hands/Tool/Behavior/SleepConfig/Preset/Instance 类型（含 chatId/parentChatId/agentType/isWorking/contextUsage/runtime agent 字段） |
-| [types/petPresets.ts](../../../web/src/features/pets/types/petPresets.ts) | 生成逻辑：`generatePet(form, excludeFaces?)`（face 去重）+ `applyRoleAvatar` + `masterFacePool`/`subFacePool`/`GHOST_FACES` 导出 |
-| [types/petPresetData.ts](../../../web/src/features/pets/types/petPresetData.ts) | 纯数据池：face 部件（KAOMOJI/EMOJI_FACES）+ `HAND_PAIRS` + COLOR/TALK/NAME 部件 + TOOL |
-| [petFactory.ts](../../../web/src/features/pets/petFactory.ts) | `createPetInstance` 工厂（供 agents store 复用，切断 store→composable 反向依赖）+ rand/pick/clamp/randomTarget/moodForAction/actionTalk 纯辅助 |
+| [types.ts](../../../web/src/domain/pets/types.ts) | PetMood/Action/**Form**/Hands/Tool/Behavior/SleepConfig/Preset/Instance 类型（含 chatId/parentChatId/agentType/isWorking/contextUsage/runtime agent 字段） |
+| [presetsFactory.ts](../../../web/src/domain/pets/presetsFactory.ts) | 生成逻辑：`generatePet(form, excludeFaces?)`（face 去重）+ `applyRoleAvatar` + `masterFacePool`/`subFacePool`/`GHOST_FACES` 导出 |
+| [presetData.ts](../../../web/src/domain/pets/presetData.ts) | 纯数据池：face 部件（KAOMOJI/EMOJI_FACES）+ `HAND_PAIRS` + COLOR/TALK/NAME 部件 + TOOL |
+| [factory.ts](../../../web/src/domain/pets/factory.ts) | `createPetInstance` 工厂（供 PetPresentation store 复用，切断 store→composable 反向依赖）+ rand/pick/clamp/randomTarget/moodForAction/actionTalk 纯辅助 |
 | [PetStage.vue](../../../web/src/features/pets/PetStage.vue) | 舞台 + agent 事件接线（abort/destroy/history/compact 委托 store）+ PetSprite 渲染 |
 | [components/PetSprite.vue](../../../web/src/features/pets/components/PetSprite.vue) | 单 pet 编排器：组合 usePetDrag/useStreamBubble/usePetStyles + PetBody + PetIcons |
 | [components/PetBody.vue](../../../web/src/features/pets/components/PetBody.vue) | pet 身体骨架（.pet/.dir/.sprite/.head-row 排版）；脸/状态条/名字已拆子组件 |
@@ -50,11 +50,11 @@
 | [composables/usePetStyles.ts](../../../web/src/features/pets/composables/usePetStyles.ts) | pet 视觉样式 composable（face/hand/name motion + 气泡 z-index 派发） |
 | [composables/useStreamBubble.ts](../../../web/src/features/pets/composables/useStreamBubble.ts) | 工作气泡 composable（Pet + Nyxus 共用，不依赖 PetInstance）：4 tier 显隐 + retainUntil + auto-scroll |
 | [composables/useNow.ts](../../../web/src/features/pets/composables/useNow.ts) | 通用时基 composable（250ms tick，PetIcons/审批计时共用） |
-| [motion/petMotion.ts](../../../web/src/features/pets/motion/petMotion.ts) | sprite/hand/face/speech variant helper（含 sleep） |
-| [motion/petMovement.ts](../../../web/src/features/pets/motion/petMovement.ts) | 运动学纯函数：stepMovement（力积分 seek+部落引力/斥力）/ arrivedAtTarget / findSpawnPosition / keepInBounds / ghost trail |
-| [motion/petStatus.ts](../../../web/src/features/pets/motion/petStatus.ts) | 状态数值算法纯函数：StatusConfig + resolveStatus + adjustEmotion/adjustFatigue/restMood/stepVitals/shouldSleep/shouldWake |
-| [motion/petTargeting.ts](../../../web/src/features/pets/motion/petTargeting.ts) | 目标选取纯函数：retarget（部落聚拢 ±TRIBE_CLUSTER_RADIUS）+ findMaster |
-| [motion/petStyle.ts](../../../web/src/features/pets/motion/petStyle.ts) | 纯函数：hashHue / petBodyZIndex / speechZIndex / APPROVAL_Z_INDEX |
+| [animation.ts](../../../web/src/domain/pets/motion/animation.ts) | sprite/hand/face/speech variant helper（含 sleep） |
+| [movement.ts](../../../web/src/domain/pets/motion/movement.ts) | 运动学纯函数：stepMovement（力积分 seek+部落引力/斥力）/ arrivedAtTarget / findSpawnPosition / keepInBounds / ghost trail |
+| [status.ts](../../../web/src/domain/pets/motion/status.ts) | 状态数值算法纯函数：StatusConfig + resolveStatus + adjustEmotion/adjustFatigue/restMood/stepVitals/shouldSleep/shouldWake |
+| [targeting.ts](../../../web/src/domain/pets/motion/targeting.ts) | 目标选取纯函数：retarget（部落聚拢 ±TRIBE_CLUSTER_RADIUS）+ findMaster |
+| [style.ts](../../../web/src/domain/pets/motion/style.ts) | 纯函数：hashHue / petBodyZIndex / speechZIndex / APPROVAL_Z_INDEX |
 | [utils/historyPreview.ts](../../../web/src/features/pets/utils/historyPreview.ts) | 历史预览纯函数：parseToolDetail/toolSummaryOf/previewOf/truncate |
 | [utils/approvalTiming.ts](../../../web/src/features/pets/utils/approvalTiming.ts) | 审批计时纯函数：remainingSecOf/flashPeriodOf/isExpired |
 
@@ -89,7 +89,7 @@
 
 胶囊内部使用两行图标：第一行是会话（对话历史、新建、会话钢琴），第二行是视图与配置（节点折叠、角色）；分组只用行距与细分隔线表达，不产生分组页签、详情面板或二级菜单。历史会话浏览统一由会话钢琴承担，不再提供会话列表。图标通过 tooltip 说明功能与状态。钢琴声音与删除属于钢琴局部操作，固定在钢琴面板右上角。执行树节点只负责查看和固定执行详情，不再兼任输入入口。胶囊开合使用裁切揭示；空间位移动效恒开（应用不跟随 `prefers-reduced-motion`，见 `docs/web/settings.md` 动效降级约定）。
 
-**待操作任务面板**（[PendingOperationsPanel.vue](../../../web/src/features/agent/dialog/PendingOperationsPanel.vue)）收敛全部待处理交互入口：常驻工作台右上角（右侧 rail 左侧），数据源为 interactions store（服务端 interaction 权威记录，含审批 + 提问批次）；有任务自动展开、无任务自动收起成细条，可手动开合；范围默认「当前树」（rootChatId 命中），可切「全部」。审批用 ParsedArgs 结构化参数 + 接受/拒绝，提问直接内嵌选项/其他补充表单 + 提交回答；每条「在节点树中查看」→ 定位并高亮节点，树侧激活待处理节点 → 面板同步聚焦（双向关联）。节点弹窗/纸牌不再内嵌提问/审批交互卡（只保留只读节点信息），右侧 `!` 抽屉与 composer「回答提问」入口已被面板取代；Pet 小窗口模式保持自身气泡交互。
+**待操作任务面板**（[PendingOperationsPanel.vue](../../../web/src/features/agent/attention/PendingOperationsPanel.vue)）收敛全部待处理交互入口：常驻工作台右上角（右侧 rail 左侧），数据源为 interactions store（服务端 interaction 权威记录，含审批 + 提问批次）；有任务自动展开、无任务自动收起成细条，可手动开合；范围默认「当前树」（rootChatId 命中），可切「全部」。审批用 ParsedArgs 结构化参数 + 接受/拒绝，提问直接内嵌选项/其他补充表单 + 提交回答；每条「在节点树中查看」→ 定位并高亮节点，树侧激活待处理节点 → 面板同步聚焦（双向关联）。节点弹窗/纸牌不再内嵌提问/审批交互卡（只保留只读节点信息），右侧 `!` 抽屉与 composer「回答提问」入口已被面板取代；Pet 小窗口模式保持自身气泡交互。
 
 ### agent 交互 UI 层（[features/agent/](../../../web/src/features/agent/)）
 

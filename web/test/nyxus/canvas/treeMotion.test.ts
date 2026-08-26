@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -14,14 +14,14 @@ import {
 } from '../../../src/features/pets/nyxus/graph/edgeMotion'
 
 async function rendererSource(): Promise<string> {
-  return readFile(
+  return readComponentSource(
     resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
     'utf8',
   )
 }
 
 async function treeComponentSource(): Promise<string> {
-  return readFile(resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'), 'utf8')
+  return readComponentSource(resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'), 'utf8')
 }
 
 describe('Nyxus tree motion contract', () => {

@@ -8,9 +8,9 @@
  * 中止/销毁/历史的具体调用由父（PetStage）处理，本组件仅 emit。
  */
 import { computed } from 'vue'
-import type { PetInstance } from '@/features/pets/types/types'
-import { useAgentsStore } from '@/stores'
-import { collectDescendantChatIds } from '@/stores/agents/data/historyMerge'
+import type { PetInstance } from '@/domain/pets/types'
+import { useAgentsStore } from '@/application/public'
+import { collectDescendantChatIds } from '@/domain/chat/sessionTree'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 
 const CLOCK_EMOJIS = [

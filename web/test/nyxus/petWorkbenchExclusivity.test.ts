@@ -1,10 +1,10 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../helpers/componentSource'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 describe('Pet composer and workbench exclusivity', () => {
   it('keeps the browser composer state while hiding its duplicate surface', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       fileURLToPath(new URL('../../src/features/agent/chat/AgentDialog.vue', import.meta.url)),
       'utf8',
     )
@@ -16,11 +16,11 @@ describe('Pet composer and workbench exclusivity', () => {
 
   it('restores the native composer when its workbench closes', async () => {
     const [dialog, main] = await Promise.all([
-      readFile(
+      readComponentSource(
         fileURLToPath(new URL('../../src/features/agent/chat/AgentDialog.vue', import.meta.url)),
         'utf8',
       ),
-      readFile(fileURLToPath(new URL('../../electron/main.ts', import.meta.url)), 'utf8'),
+      readComponentSource(fileURLToPath(new URL('../../electron/main.ts', import.meta.url)), 'utf8'),
     ])
 
     expect(dialog).toContain("returnToComposer: agents.activeDialogSource === 'pet'")

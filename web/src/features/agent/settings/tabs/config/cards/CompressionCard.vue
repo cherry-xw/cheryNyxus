@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** CompressionCard：读取大文件内容压缩阈值 + 日志扩展名白名单增删。 */
 import { ref } from 'vue'
-import type { GlobalConfigDto } from '@/services/agentApi'
+import type { GlobalConfigDto } from '@/application/backend/public'
 import NeonNumberControl from '../../../controls/NeonNumberControl.vue'
 
 type CompressionCfg = NonNullable<GlobalConfigDto['file_compression']>

@@ -2,6 +2,8 @@
 export { useConnectionStore } from './connection'
 export { useAgentsStore } from './agents'
 export type { StreamState } from './agents'
+export { useWorkspaceStore } from './workspace'
+export { usePetPresentationStore } from './pets'
 export { useChatSessionsStore } from './chats'
 export { useThemeStore } from './theme'
 export { useInteractionsStore } from './interactions'

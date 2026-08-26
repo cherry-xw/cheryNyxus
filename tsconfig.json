@@ -41,7 +41,9 @@
     "moduleResolution": "bundler",
     "paths": {
       "@/*": ["src/*"],
-      "@test/*": ["test/*"]
+      "@test/*": ["test/*"],
+      "@chery/protocol": ["packages/protocol/src/index.ts"],
+      "@chery/protocol/*": ["packages/protocol/src/*"]
     },
     "baseUrl": "."
 

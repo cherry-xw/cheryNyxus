@@ -14,8 +14,8 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Delete, Refresh, Search } from '@element-plus/icons-vue'
-import { agentApi, type SkillInfo, type SkillSource } from '@/services/agentApi'
-import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
+import { agentApi, type SkillInfo, type SkillSource } from '@/application/backend/public'
+import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import SkillImportDialog from './components/SkillImportDialog.vue'
 

@@ -1,6 +1,6 @@
 import { encodeRequest, decodeMessage } from './transport'
 import { getServerConfig, wsUrl, type ServerConfig } from './platform'
-import { useAuthStore } from '@/stores/auth'
+import { serviceAuth } from './authContext'
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
 
@@ -22,7 +22,10 @@ type ChunkHandler = (chunk: unknown) => void
 type NotificationHandler = (notification: unknown) => void
 /** V2 session/timeline event handler. Kept separate from legacy chunk/notification subscriptions. */
 type EventHandler = (event: unknown) => void
-type StatusHandler = (status: ConnectionStatus, detail?: { closeCode?: number; closeReason?: string }) => void
+type StatusHandler = (
+  status: ConnectionStatus,
+  detail?: { closeCode?: number; closeReason?: string },
+) => void
 
 interface PendingRequest {
   request: { id: string; kind: 'request'; method: string; params: unknown }
@@ -46,7 +49,7 @@ const HEARTBEAT_TIMEOUT_MS = 10000
  * 非流式 rpc 超时（ms）。WS 半开时 response 永不到达，rpc Promise 既不 resolve 也不 reject
  * → ApprovalCard pending 永不复位 → 后续点击静默无效、卡片不关（"点审批无反应+卡住"根因之一）。
  * 超时 reject 让 UI fail-loud（显「请求超时」+复位 pending 允许重试）。仅 rpc() 非流式用；
- * rpcTrack() 流式（chat.send/resume/get/startSpawn/sync）靠 done/stream 自然结束，不加超时。
+ * rpcTrack() 仅用于需要暴露 requestId 的长耗时请求，不施加普通 RPC 超时。
  */
 const RPC_TIMEOUT_MS = 15000
 
@@ -85,13 +88,6 @@ export class WsClient {
   private notificationHandlers = new Set<NotificationHandler>()
   private eventHandlers = new Set<EventHandler>()
   private statusHandlers = new Set<StatusHandler>()
-  /**
-   * chat.sync re-emits persisted envelopes through the normal WS channels.
-   * Keep provenance on the envelope itself (rather than in one Pinia store's
-   * request map), so every consumer can distinguish replay from live output.
-   * A WeakSet also survives gap-buffering without retaining completed events.
-   */
-  private replayEvents = new WeakSet<object>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private shouldReconnect = false
   private connectionGeneration = 0
@@ -103,12 +99,6 @@ export class WsClient {
   private chatSeq = new Map<string, number>()
   /** Events that arrived ahead of a missing sequence while a sync is in flight. */
   private pendingChatEvents = new Map<string, Map<number, unknown>>()
-  /**
-   * Per-chat replay fence.  While recovering `(cursor, throughSeq]`, newer
-   * live events must stay pending: dispatching them into a replaying stream
-   * would make the UI intentionally ignore them while still advancing seq.
-   */
-  private chatReplayFences = new Map<string, number>()
 
   getStatus(): ConnectionStatus {
     return this.status
@@ -125,28 +115,6 @@ export class WsClient {
     if (!pending) return highest
     for (const seq of pending.keys()) highest = Math.max(highest, seq)
     return highest
-  }
-
-  isReplayEvent(event: unknown): boolean {
-    return typeof event === 'object' && event !== null && this.replayEvents.has(event)
-  }
-
-  /** Start replaying through a stable server snapshot cursor. */
-  beginChatReplay(chatId: string, throughSeq: number): void {
-    const current = this.chatReplayFences.get(chatId)
-    // Recovery for one chat is single-flight in the store.  Keep the earlier
-    // fence if a caller accidentally nests it: releasing events earlier would
-    // reintroduce the replay/live race.
-    if (current === undefined || throughSeq < current) {
-      this.chatReplayFences.set(chatId, throughSeq)
-    }
-    this.drainChatEvents(chatId)
-  }
-
-  /** Release live events that arrived while the replay fence was active. */
-  endChatReplay(chatId: string): void {
-    this.chatReplayFences.delete(chatId)
-    this.drainChatEvents(chatId)
   }
 
   /** A reset snapshot supersedes all retained events at or before latestSeq. */
@@ -268,8 +236,8 @@ export class WsClient {
     this.setStatus('connecting')
     const baseUrl = wsUrl(this.serverConfig)
     // 远端走 access token（browser WS 无法设 Authorization 头 → URL ?token=）；本地走进程 sessionToken。
-    const auth = useAuthStore()
-    const token = auth.isRemote ? auth.accessToken : this.serverConfig.sessionToken
+    const auth = serviceAuth()
+    const token = auth.isRemote() ? auth.accessToken() : this.serverConfig.sessionToken
     const extra = this.extraQuery
       ? Object.entries(this.extraQuery)
           .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
@@ -333,10 +301,6 @@ export class WsClient {
       rootEventSeq?: unknown
       subscriptionId?: unknown
     }
-    if (kind !== 'response' && typeof envelope.requestId === 'string') {
-      const sourceRequest = this.pending.get(envelope.requestId)?.request
-      if (sourceRequest?.method === 'chat.sync') this.replayEvents.add(msg)
-    }
     if (kind === 'response') {
       const response = msg as RpcResponse
       const pending = this.pending.get(response.requestId)
@@ -387,9 +351,7 @@ export class WsClient {
     const pending = this.pendingChatEvents.get(chatId)
     if (!pending) return
     let consumed = this.chatSeq.get(chatId) ?? 0
-    const replayThrough = this.chatReplayFences.get(chatId)
     while (true) {
-      if (replayThrough !== undefined && consumed + 1 > replayThrough) break
       const next = pending.get(consumed + 1)
       if (!next) break
       pending.delete(consumed + 1)
@@ -503,8 +465,8 @@ export class WsClient {
       this.serverConfig = await getServerConfig({ refresh: true })
       // 远端：重连前用 refresh token 续期 access（过期则自动重新登录；失败登出）。
       // 仅当已登录（有 access token）才续期，未登录连接不触发。
-      const auth = useAuthStore()
-      if (auth.isRemote && auth.accessToken) {
+      const auth = serviceAuth()
+      if (auth.isRemote() && auth.accessToken()) {
         await auth.refresh()
       }
       if (this.shouldReconnect) this.open()

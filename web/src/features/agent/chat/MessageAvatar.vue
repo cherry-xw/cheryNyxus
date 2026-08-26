@@ -13,8 +13,8 @@
  * 被唤起 agent 头像可点击 → emit jumpToSpawn，由父组件转发到 HistoryDrawer smooth scroll。
  */
 import { computed } from 'vue'
-import type { HistoryItem } from '@/stores/agents'
-import type { RuntimeSelection } from '@/services/agentApi'
+import type { HistoryItem } from '@/domain/chat/projectionTypes'
+import type { RuntimeSelection } from '@/application/backend/public'
 
 const props = defineProps<{
   item: HistoryItem

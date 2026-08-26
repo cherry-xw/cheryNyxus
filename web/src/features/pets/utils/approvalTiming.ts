@@ -1,4 +1,4 @@
-import type { ApprovalState } from '@/stores/agents'
+import type { ApprovalState } from '@/domain/chat/projectionTypes'
 
 /**
  * 剩余秒数（用于闪烁周期）。

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** EditorCard：文本编辑器选择。onMounted 拉取可用编辑器列表，支持自定义命令。 */
 import { onMounted, ref } from 'vue'
-import { agentApi, type EditorInfo, type GlobalConfigDto } from '@/services/agentApi'
+import { agentApi, type EditorInfo, type GlobalConfigDto } from '@/application/backend/public'
 import LabelTip from '../LabelTip.vue'
 
 defineProps<{ global: GlobalConfigDto; no: number }>()

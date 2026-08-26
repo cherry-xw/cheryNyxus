@@ -17,7 +17,11 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ChatSession, ChatSessionSnapshot, ChatEvent, ChatTimelineSnapshot } from './types'
-import type { QuestionDraftAnswer } from '../agents/types'
+import type {
+  QuestionDraftAnswer,
+  ChunkMessage,
+  NotificationMessage,
+} from '@/domain/chat/projectionTypes'
 import type {
   ChatSummary,
   ChatSendAttachment,
@@ -28,13 +32,7 @@ import type {
   RootTimelineSnapshot,
   RootTimelinePatch,
 } from '@/services/agentApi'
-import {
-  createCatalogEntity,
-  createEmptySession,
-  applySnapshot,
-  setReplaying,
-  markLoaded,
-} from './hydration'
+import { createCatalogEntity, createEmptySession, applySnapshot } from './model/hydration'
 import {
   reduce,
   reduceRoleCreated,
@@ -45,11 +43,10 @@ import {
   reduceSessionEvent,
   installActiveTurns,
   type ReduceContext,
-} from './reducer'
-import { collectDescendantChatIds } from '../agents/data/historyMerge'
+} from './model/reducer'
+import { collectDescendantChatIds } from '@/domain/chat/sessionTree'
 import { wsClient } from '@/services/ws'
 import { agentApi } from '@/services/agentApi'
-import type { ChunkMessage, NotificationMessage } from '../agents/types'
 import {
   applyRootPatch,
   applyRootTransientEvent,
@@ -62,9 +59,9 @@ import {
   type RootTimelinePatchResult,
   type RootTimelineTransientState,
   type RootTimelineView,
-} from './rootTimeline'
-import { applyExecutionTimingEvent } from './executionTiming'
-import { selectExecutionReadModel } from './executionReadModel'
+} from './read-model/rootTimeline'
+import { applyExecutionTimingEvent } from './read-model/executionTiming'
+import { selectExecutionReadModel } from './read-model/executionReadModel'
 import { useInteractionsStore } from '../interactions'
 import {
   commandErrorFact,
@@ -170,15 +167,6 @@ export function shouldResumeRoleReply(provenance: ChatEventProvenance): boolean 
   return provenance === 'live'
 }
 
-function responseError(
-  response: { error?: { code?: string; message?: string } },
-  fallback: string,
-): Error & { code?: string } {
-  const error = new Error(response.error?.message ?? fallback) as Error & { code?: string }
-  if (response.error?.code) error.code = response.error.code
-  return error
-}
-
 /**
  * 会话订阅中的旧通知与 V2 事件共用同一递增序号。即便旧通知仍由兼容分支消费，
  * 也必须先进入规范序号流，否则其后的 turn.delta 会被误判为缺失事件。
@@ -199,6 +187,8 @@ export function toSequencedSessionEvent(
 
 export const useChatSessionsStore = defineStore('chatSessions', () => {
   const sessionsById = ref<Record<string, ChatSession>>({})
+  /** Authoritative lightweight catalog. Session entities are hydrated projections of this list. */
+  const catalogSummaries = ref<ChatSummary[]>([])
   /** Root-owned projection; one snapshot covers the entire recursive tree. */
   const rootTimelines = ref<Record<string, RootTimelineSnapshot>>({})
   /** Root-owned transient plane, shared by every view of the same root. */
@@ -225,7 +215,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const requestMap = new Map<string, string>()
   /** chat.sync 会通过普通 notification 通道回放兼容事件；按请求标记其历史来源，
    * 不能再从被路由到的 parent session 当前 replaying 状态反推。 */
-  const replayRequestIds = new Set<string>()
   /** 每 chat hydration in-flight 去重（避免并发 loadSession 重复 sync）。 */
   const hydrating = new Map<string, Promise<void>>()
   /** V2 chat.open in-flight 去重（event gap 期间可能同时收到多个事件）。 */
@@ -327,7 +316,33 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
 
   /** chat.list(includePreview=true) 后建全部 catalog 实体 + 索引。 */
   function initCatalog(summaries: ChatSummary[]): void {
+    catalogSummaries.value = [...summaries]
     for (const summary of summaries) ensureCatalogEntity(summary)
+  }
+
+  function upsertCatalog(summary: ChatSummary): void {
+    const index = catalogSummaries.value.findIndex((chat) => chat.chatId === summary.chatId)
+    if (index >= 0) catalogSummaries.value.splice(index, 1, summary)
+    else catalogSummaries.value.unshift(summary)
+    ensureCatalogEntity(summary)
+  }
+
+  function replacePresetCatalog(preset: string, summaries: ChatSummary[]): void {
+    const incoming = new Set(summaries.map((chat) => chat.chatId))
+    catalogSummaries.value = [
+      ...summaries,
+      ...catalogSummaries.value.filter(
+        (chat) => chat.preset !== preset && !incoming.has(chat.chatId),
+      ),
+    ]
+    for (const summary of summaries) ensureCatalogEntity(summary)
+  }
+
+  /** Refresh catalog facts without opening timelines or creating transport subscriptions. */
+  async function refreshCatalog(): Promise<ChatSummary[]> {
+    const summaries = await agentApi.listChats({ scope: 'stage' })
+    initCatalog(summaries)
+    return summaries
   }
 
   function deleteSession(chatId: string): void {
@@ -344,6 +359,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   async function evictSessions(chatIds: readonly string[]): Promise<void> {
     const removed = new Set(chatIds)
     if (removed.size === 0) return
+    catalogSummaries.value = catalogSummaries.value.filter((chat) => !removed.has(chat.chatId))
 
     const affectedRoots = new Set<string>()
     for (const chatId of removed) affectedRoots.add(rootIdOf(chatId))
@@ -383,7 +399,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     for (const [requestId, chatId] of requestMap) {
       if (!removed.has(chatId)) continue
       requestMap.delete(requestId)
-      replayRequestIds.delete(requestId)
     }
   }
 
@@ -506,7 +521,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       if (rootSubscriptions.value[rootChatId]) return { opened: false }
       const conversation = rootTimeline(rootChatId, 'conversation')
       const opened = await agentApi.openChat({
+        scope: 'root',
         rootChatId,
+        view: 'conversation',
         knownTimelineRevision: conversation?.revision,
         knownEventSeq: conversation?.capturedEventSeq,
       })
@@ -818,55 +835,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     session.sync.loaded = true
   }
 
-  /** chat.attach 的 session-plane 快照：当前未完成回复整体替换，不经过
-   * turn.delta reducer，因此连接恢复只产生一次可见文本更新。 */
-  function applyAttachRunSnapshot(
-    chatId: string,
-    snapshot: Awaited<ReturnType<typeof agentApi.attachChat>>,
-  ): void {
-    const session = ensureEntity(chatId)
-    applySnapshot(
-      session,
-      {
-        chatId,
-        snapshotSeq: snapshot.snapshotSeq,
-        ...(snapshot.currentState ? { currentState: snapshot.currentState } : {}),
-        pendingQuestionBatches:
-          snapshot.pendingQuestionBatches as ChatSessionSnapshot['pendingQuestionBatches'],
-      },
-      Date.now(),
-    )
-    session.activeTurns = (snapshot.activeTurns ?? []).map((turn) => ({
-      ...turn,
-      nextThinkingOffset: turn.nextThinkingOffset ?? turn.thinkingOffset ?? turn.thinking.length,
-      nextContentOffset: turn.nextContentOffset ?? turn.contentOffset ?? turn.content.length,
-    }))
-    session.activeMessageId = undefined
-    installActiveTurns(session, session.activeTurns, Date.now())
-    session.run.activeRunId = snapshot.runId
-    if (snapshot.runId) {
-      session.activeRun = {
-        ...(session.activeRun?.runId === snapshot.runId ? session.activeRun : {}),
-        chatId,
-        runId: snapshot.runId,
-        status: snapshot.running ? 'running' : session.context.canResume ? 'paused' : 'completed',
-      }
-    }
-    // 快照写者收敛（3.3）：快照 running 不得把已终态（含用户刚暂停）回滚为 running；
-    // 且仅当快照 seq 不倒退已观察事件（getHighestSeenSeq <= snapshotSeq）才可信。
-    const seqFresh = wsClient.getHighestSeenSeq(chatId) <= snapshot.snapshotSeq
-    if (snapshot.running && seqFresh) {
-      applyRunStatus(session, 'running', false)
-    } else {
-      applyRunStatus(session, session.context.canResume ? 'paused' : 'idle')
-    }
-    session.meta.running = snapshot.running
-    session.sync.loaded = true
-    // attach snapshot is authoritative through snapshotSeq. Drop replayable
-    // events at/before that boundary; only later live deltas may reach the Pet.
-    wsClient.resetChatSeq(chatId, snapshot.snapshotSeq)
-  }
-
   /** V2 revision patch. A false return marks the session for authoritative refetch. */
   function applyTimelinePatchEvent(chatId: string, patch: TimelinePatch): boolean {
     const session = ensureEntity(chatId)
@@ -938,6 +906,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   async function openSessionOnce(chatId: string): Promise<void> {
     const session = ensureEntity(chatId)
     const response = await agentApi.openChat({
+      scope: 'chat',
       chatId,
       knownTimelineRevision: session.sync.timelineRevision,
       knownEventSeq: session.sync.eventSeq ?? wsClient.getLastSeq(chatId),
@@ -1445,12 +1414,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (requestId) requestMap.set(requestId, chatId)
   }
 
-  // ---- hydration 内核（attach -> sync；启动/加载/重连共用）----
+  // ---- canonical hydration（chat.open 原子快照 + subscription fence）----
 
-  /**
-   * hydrate root + 全部后代。running chat 先 attach 重定向，再 sync(0/lastSeq) 回放。
-   * 冷启动 / 显式 loadSession / 重连共用本内核；无 drawer 专属加载逻辑（不变式 4）。
-   */
+  /** Hydrate a root and all known descendants through the canonical open contract. */
   async function hydrateTree(rootChatId: string): Promise<void> {
     const existing = hydrating.get(rootChatId)
     if (existing) return existing
@@ -1462,22 +1428,10 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       const descendantIds = collectDescendantChatIds(chats, rootChatId)
       const allIds = [rootChatId, ...descendantIds]
 
-      // 1. running chat 先 attach（仅重定向；不提前跳 cursor，sync 从当前 cursor 回放）
-      const runningIds = new Set<string>()
+      // Canonical hydration: chat.open atomically installs state and fences later events.
+      // Timeline data is revisioned and fetched by openSession only when the revision changed.
       for (const id of allIds) {
-        const s = sessionsById.value[id]
-        if (!s?.meta.running) continue
-        try {
-          const res = await agentApi.attachChat(id)
-          if (res.running) runningIds.add(id)
-        } catch (e) {
-          console.warn(`[chats] attachChat 失败 ${id}:`, e)
-        }
-      }
-
-      // 2. 逐 chat sync 回放（顺序：先 root 后 descendants，保证父消息先就位）
-      for (const id of allIds) {
-        await syncOne(id, runningIds.has(id))
+        await openSession(id)
       }
     })()
     hydrating.set(rootChatId, promise)
@@ -1490,12 +1444,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     }
   }
 
-  /**
-   * 工作台打开即恢复提问快照（防止"无卡片无按钮"硬死锁，见 docs/web/pet/agent-integration.md）。
-   * 提问态只活在前端事件流（question_batch_requested）；重启后非 running 会话不 attach，
-   * 工作台的 acquireRootTimeline/getTaskTimeline 均不带 pendingQuestionBatches，必须经 syncOne
-   * 快照恢复。running 会话靠 live 事件驱动不重复回放；已 hydration 且已有批次即就绪。
-   */
+  /** Ensure the canonical open snapshot has restored pending question batches. */
   async function ensureQuestionHydrated(rootChatId: string): Promise<void> {
     const session = sessionsById.value[rootChatId]
     if (session?.meta.running) return
@@ -1503,160 +1452,24 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     await hydrateTree(rootChatId)
   }
 
-  /**
-   * 单 chat sync 回放。replaying 一律 true（含非运行 chat）：历史 role_reply/done 不得触发
-   * resumeAgent/retainUntil，历史 stream delta 不得累加进气泡。回放结束清 false，running 保留实时态。
-   * 注：question snapshot 推进致 snapshotSeq 前移的二次回放边界（旧 syncOneChat 2-attempt）暂单次处理，
-   * 该边界由后端保证持久化一致；如遇 question 批次缺失需补，后续按 needsQuestionReplay 加循环。
-   */
-  async function syncOne(chatId: string, running: boolean): Promise<void> {
-    const session = ensureEntity(chatId)
-    setReplaying(session, true)
-    let afterSeq = wsClient.getLastSeq(chatId)
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const { requestId, done } = agentApi.syncChat(chatId, afterSeq)
-      trackRequest(requestId, chatId)
-      replayRequestIds.add(requestId)
-      const response = await done.finally(() => {
-        requestMap.delete(requestId)
-        replayRequestIds.delete(requestId)
-      })
-      if (!response.success) break
-      const data = (response.data ?? {}) as {
-        latestSeq?: number
-        snapshotSeq?: number
-        pendingQuestionBatches?: ChatSessionSnapshot['pendingQuestionBatches']
-        currentState?: ChatSessionSnapshot['currentState']
-        runtime?: ChatSessionSnapshot['runtime']
-        preset?: string
-        canResume?: boolean
-        contextUsage?: number
-        contextUsed?: number
-        contextTotal?: number
-        contextBreakdown?: ChatSessionSnapshot['contextBreakdown']
-        commandConfig?: ChatSessionSnapshot['commandConfig']
-        workspace?: string
-        workspaceValid?: boolean
-      }
-      // snapshot 在 snapshotSeq 边界权威 replace；latestSeq 推进 wsClient cursor（drop 已回放事件）
-      replaceSnapshot(chatId, {
-        chatId,
-        ...(data.runtime ? { runtime: data.runtime } : {}),
-        ...(data.preset !== undefined ? { preset: data.preset } : {}),
-        ...(data.canResume !== undefined ? { canResume: data.canResume } : {}),
-        ...(data.currentState !== undefined ? { currentState: data.currentState } : {}),
-        ...(data.contextUsage !== undefined ? { contextUsage: data.contextUsage } : {}),
-        ...(data.contextUsed !== undefined ? { contextUsed: data.contextUsed } : {}),
-        ...(data.contextTotal !== undefined ? { contextTotal: data.contextTotal } : {}),
-        ...(data.contextBreakdown ? { contextBreakdown: data.contextBreakdown } : {}),
-        ...(data.commandConfig ? { commandConfig: data.commandConfig } : {}),
-        ...(data.workspace !== undefined ? { workspace: data.workspace } : {}),
-        ...(data.workspaceValid !== undefined ? { workspaceValid: data.workspaceValid } : {}),
-        ...(data.snapshotSeq !== undefined ? { snapshotSeq: data.snapshotSeq } : {}),
-        ...(data.pendingQuestionBatches !== undefined
-          ? { pendingQuestionBatches: data.pendingQuestionBatches }
-          : {}),
-      })
-      if (typeof data.latestSeq === 'number') {
-        wsClient.resetChatSeq(chatId, data.latestSeq)
-      }
-      // question snapshot 未推进则结束；推进则按 snapshotSeq 二次回放
-      if (typeof data.snapshotSeq !== 'number' || data.snapshotSeq <= afterSeq) break
-      afterSeq = data.snapshotSeq
-    }
-    setReplaying(session, false)
-    markLoaded(session, wsClient.getLastSeq(chatId))
-    if (running && session.run.status !== 'ended' && session.run.status !== 'paused') {
-      // sync 回放若已消费 done/error，reducer 已写入 ended/paused；不能再用 attach
-      // 前的旧 running 标记把会话反向改回 running。
-      session.run.status = 'running'
-      ;(effects.value.onWorkingChange ?? noop)(chatId, true)
-    }
-  }
-
   // ---- 命令 actions（消费层 #10 调用；委托 agentApi，事件经 wsClient -> applyEvent 回流）----
 
   /** 发送消息：乐观 push user 消息 + 流式 send。 */
-  async function sendMessage(
-    chatId: string,
-    text: string,
-    attachments?: ChatSendAttachment[],
-  ): Promise<void> {
-    const session = ensureEntity(chatId)
-    // 清上一轮残留：封口 active + 清 error + 重置 run
-    if (session.activeMessageId) {
-      const am = session.messagesById[session.activeMessageId]
-      if (am && am.status === 'streaming') am.status = 'sealed'
-      session.activeMessageId = undefined
-    }
-    const started = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
-
-    const { requestId, done } = agentApi.sendMessage(chatId, text, attachments)
-    trackRequest(requestId, chatId)
-    // 乐观 user 消息（temp msgId；consumed/Response 到达后 rekey 为真实 msgId）
-    const optimisticId = `optimistic-${requestId}`
-    requestMap.set(`optimistic:${requestId}`, optimisticId)
-    session.messagesById[optimisticId] = {
-      msgId: optimisticId,
-      role: 'user',
-      thinking: '',
-      content: text,
-      senseCalls: [],
-      status: 'sealed',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      agentChatId: chatId,
-    }
-    session.messageOrder.push(optimisticId)
-
-    try {
-      const response = await done
-      if (response.success) {
-        const data = (response.data ?? {}) as { userMsgId?: string; runId?: string }
-        if (data.runId) session.run.activeRunId = data.runId
-        // Response 携 userMsgId -> 原地 rekey 乐观项为真实 msgId（consumed 未到也不残留 temp）。
-        // 若 consumed 已先到并 rekey 过（opt 已删），此处 opt=undefined 跳过。
-        if (data.userMsgId && data.userMsgId !== optimisticId) {
-          const opt = session.messagesById[optimisticId]
-          if (opt) {
-            opt.msgId = data.userMsgId
-            session.messagesById[data.userMsgId] = opt
-            delete session.messagesById[optimisticId]
-            const idx = session.messageOrder.indexOf(optimisticId)
-            if (idx >= 0) session.messageOrder[idx] = data.userMsgId
-          }
-          requestMap.delete(`optimistic:${requestId}`)
-        }
-      }
-    } catch (e) {
-      if (started) {
-        session.run.status = 'paused'
-        session.run.error = e instanceof Error ? e.message : '连接中断'
-        session.run.activeRunId = undefined
-        ;(effects.value.onWorkingChange ?? noop)(chatId, false)
-      }
-    }
-  }
-
   async function resumeAgent(chatId: string, options: { skipGate?: boolean } = {}): Promise<void> {
     if (!options.skipGate) {
       const gate = commandAvailability(chatId)
       if (!gate.allowed) throw commandGateError(gate)
     }
-    // 重入保护：连续双击「继续」只发起一次 resumeChat（复用 runSingleFlight，S7）。
-    // 重入的调用方拿到同一个进行中的 promise；失败由首发起方回滚并抛错。
+    // 命令面单飞：运行输出只经 chat.open subscription 回流，不再绑定流式 RPC 生命周期。
     return runSingleFlight(resumingChats, chatId, async () => {
       const session = ensureEntity(chatId)
       const started = beginLiveRun(session, effects.value.onWorkingChange ?? noop)
       try {
-        const { requestId, done } = agentApi.resumeChat(chatId)
-        trackRequest(requestId, chatId)
-        const response = await done
-        if (!response.success) {
-          throw responseError(response, '恢复执行失败')
-        }
-        const data = (response.data ?? {}) as { runId?: string }
-        if (data.runId) session.run.activeRunId = data.runId
+        const response = await agentApi.resumeRun({
+          chatId,
+          commandId: makeClientId('resume'),
+        })
+        session.run.activeRunId = response.runId
       } catch (e) {
         if (started) {
           session.run.status = 'paused'
@@ -1895,18 +1708,12 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (started) return
     started = true
     try {
-      const summaries = await agentApi.listChats({ scope: 'stage' })
-      initCatalog(summaries)
-      // Catalog is intentionally lightweight. Running chats additionally need
-      // one atomic attach snapshot so Pet receives the already-produced portion
-      // in a single assignment rather than replaying historical turn.delta.
+      const summaries = await refreshCatalog()
+      // Running chats need an atomic open snapshot; no attach/sync replay path remains.
       await Promise.all(
         summaries
           .filter((summary) => summary.running)
-          .map(async (summary) => {
-            const snapshot = await agentApi.attachChat(summary.chatId)
-            applyAttachRunSnapshot(summary.chatId, snapshot)
-          }),
+          .map((summary) => openSession(summary.chatId)),
       )
     } catch (e) {
       // 失败不保留 started 位，下次 connected 可重试（对齐旧 initFromChats 语义）
@@ -1931,8 +1738,8 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       ),
       ...running.map(async (s) => {
         try {
-          const snapshot = await agentApi.attachChat(s.chatId)
-          applyAttachRunSnapshot(s.chatId, snapshot)
+          s.sync.subscriptionId = undefined
+          await openSession(s.chatId)
         } catch (e) {
           console.warn(`[chats] reconnect ${s.chatId} 失败:`, e)
         }
@@ -1958,8 +1765,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       subscriptionId?: unknown
     },
   ): ChatEventProvenance {
-    if (wsClient.isReplayEvent(notification)) return 'replay'
-    if (notification.requestId && replayRequestIds.has(notification.requestId)) return 'replay'
     if (
       typeof notification.rootChatId === 'string' &&
       typeof notification.subscriptionId === 'string'
@@ -1984,7 +1789,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       if (!c) return
       const chatId = c.chatId ?? (c.requestId ? requestMap.get(c.requestId) : undefined)
       if (!chatId) return
-      const provenance: ChatEventProvenance = wsClient.isReplayEvent(c) ? 'replay' : 'live'
+      const provenance: ChatEventProvenance = 'live'
       const { kind: _kind, ...chunkData } = c
       void _kind
       applyEvent(chatId, { kind: 'chunk', ...chunkData } as ChatEvent, provenance)
@@ -2046,6 +1851,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
 
   return {
     sessionsById,
+    catalogSummaries,
     rootTimelines,
     rootTimelineStates,
     rootSubscriptions,
@@ -2053,6 +1859,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     ensureEntity,
     ensureCatalogEntity,
     initCatalog,
+    upsertCatalog,
+    replacePresetCatalog,
+    refreshCatalog,
     deleteSession,
     evictSessions,
     observeRootTimeline,
@@ -2080,7 +1889,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     // hydration
     hydrateTree,
     ensureQuestionHydrated,
-    syncOne,
     startup,
     reconnect,
     /** transient 实时权威运行态：error/done/run.updated 经 applyRootTransientEvent 即时清理，
@@ -2099,7 +1907,6 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
         transient: rootTimelineStates.value[rootChatId],
       }),
     // 命令
-    sendMessage,
     resumeAgent,
     resumeTree,
     abortAgent,

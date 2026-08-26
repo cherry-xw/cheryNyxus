@@ -48,7 +48,7 @@ interface WorkbenchWindowState {
 
 ## 组件
 
-### `WorkbenchDialog.vue`（新，`web/src/features/agent/dialog/`）
+### `WorkbenchDialog.vue`（新，`web/src/features/agent/workbench/`）
 
 自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、钢琴/角色 popout、右侧待处理抽屉、composer dock、resize handles。
 
@@ -81,7 +81,7 @@ composer 在 `branchTarget` 存在时经 `chat.branch.create` 创建新根 Chat�
 - **native 面抽屉锚定**：`workbenchDrawerAnchor` 的标题栏偏移在 native 面（Electron 原生窗，标题栏由 WindowFrame 外壳承载于 shell 之外）为 0，浏览器面为 40px——保证抽屉顶部紧贴标题栏下沿，不留空白。
 - **关闭工作台清理 docked 抽屉（2026-08-25）**：`closeWorkbench()`（窗口内关闭按钮，浏览器 + native 两路）与 `WorkbenchCapsule.close()`（胶囊关闭）在 `historyDrawerMode === 'workbench-docked'` 时先调 `closeAllHistory()` 清空全局单例抽屉栈/锚定——否则工作台关闭后历史抽屉及其遮罩残留页面（HistoryDrawer 读全局单例）。overlay 全局抽屉（可能属于 PetStage 等其他入口）保留不清。
 
-### `WorkbenchCapsule.vue`（新，`web/src/features/agent/dialog/`）
+### `WorkbenchCapsule.vue`（新，`web/src/features/agent/workbench/`）
 
 胶囊最小化 UI，`defineProps<{ windowId }>`。App.vue 按 `workbenchWindowsList` 中 `minimized===true` 渲染。
 
@@ -131,7 +131,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 
 - 后端审批注册时从 senseRegistry 注入 sense 定义 `description` → `ApprovalPayload.senseDescription` → interaction payload（[manager.ts](../../src/service/approval/manager.ts) / [observer.ts](../../src/service/chat/observer.ts)）。
 - 前端卡片展开时在参数区上方以**小字 + 主题色左条**展示（`.sense-desc`）；config_manage 等用户不了解能力的工具据此说明 get/save/rollback 全部能力。缺失描述不展示。
-- **config_manage 按实际发起 action 裁剪（2026-08-23）**：解析 `arguments.action`（复用 [parseArgs](../../web/src/utils/parseArgs.ts)），仅展示「核心任务：管理 .chery/config.yaml 配置」+ 当前 action 对应一句（get/save/rollback 映射 `CONFIG_MANAGE_ACTION_DESC`，见 [PendingOperationsPanel.vue](../../web/src/features/agent/dialog/PendingOperationsPanel.vue)），避免全量能力说明堆叠——「用到哪里看到哪里」；action 缺失/未知时不展示。其余 sense 仍回退原始 `senseDescription`。
+- **config_manage 按实际发起 action 裁剪（2026-08-23）**：解析 `arguments.action`（复用 [parseArgs](../../web/src/utils/parseArgs.ts)），仅展示「核心任务：管理 .chery/config.yaml 配置」+ 当前 action 对应一句（get/save/rollback 映射 `CONFIG_MANAGE_ACTION_DESC`，见 [PendingOperationsPanel.vue](../../web/src/features/agent/attention/PendingOperationsPanel.vue)），避免全量能力说明堆叠——「用到哪里看到哪里」；action 缺失/未知时不展示。其余 sense 仍回退原始 `senseDescription`。
 
 ### 节点展开与动画
 
@@ -149,7 +149,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **工具解释排版**：`.sense-desc` 不设 `max-height` 滚动（避免内容被挤压小空间），随面板列表自然滚动；字号 13px、行高 1.65、正文色。
 - **倒计时**：approval 卡头状态旁显示 `剩余 Ns`（后端 `deadlineAt` = createdAt + approval_timeout），归零变红显示「已超时」，`now` 250ms 定时器驱动。
 - **中文名**：sense 英文名 → 中文统一走共享 [senseName.ts](../../web/src/utils/senseName.ts)（`toSenseNameZh`：config_manage→配置管理、execute_command→执行命令、read_file→读取文件、spawn_role→委派角色等，未知工具回退原名），待确认标题与 pet 审批气泡共用。
-- **同步入口**：同一可读性规范同步到平行待确认入口 [WorkspaceSessionBrowser.vue](../../web/src/features/agent/dialog/WorkspaceSessionBrowser.vue)（设置窗会话浏览器：13px/14px 字号、字重 400、中文名、倒计时）与 [ApprovalCard.vue](../../web/src/features/agent/cards/ApprovalCard.vue)（pet 气泡审批：13px 字号、字重 400、中文名）。
+- **同步入口**：同一可读性规范同步到平行待确认入口 [WorkspaceSessionBrowser.vue](../../web/src/features/agent/attention/WorkspaceSessionBrowser.vue)（设置窗会话浏览器：13px/14px 字号、字重 400、中文名、倒计时）与 [ApprovalCard.vue](../../web/src/features/agent/cards/ApprovalCard.vue)（pet 气泡审批：13px 字号、字重 400、中文名）。
 
 ### 左右分栏重构（2026-08-23）
 
@@ -166,7 +166,7 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 - **左右对调**：内容展示固定**左栏**（`.task-detail`）；任务导航 + 操作按钮并入**右栏**（`.side-col`）：▲/▼ 分页 → 任务按钮 → 页码 → 底部操作区（`.side-actions`，`margin-top: auto` 贴列底）。操作不再占左内容底部整行，宽度不变、高度短一截。
 - **单选提示**：选项区上方提示行 `.options-hint`——单选显示「单选 · 再次点击可取消」、多选显示「可多选」，明确告知单选可取消（用户此前困惑：选了选项又填「其他补充」以为叠加，实际互斥清空）。
 - **提交状态关联**：`canSubmitOf` 前置判定——单选恰好 1 项或有「其他补充」输入、多选 ≥1，否则「提交回答」禁用（灰不可点）。
-- **同步**：[WorkspaceSessionBrowser.vue](../../web/src/features/agent/dialog/WorkspaceSessionBrowser.vue)（会话浏览器）同步单选提示 + 提交禁用逻辑。
+- **同步**：[WorkspaceSessionBrowser.vue](../../web/src/features/agent/attention/WorkspaceSessionBrowser.vue)（会话浏览器）同步单选提示 + 提交禁用逻辑。
 
 ### 内容撑开与空状态可见（2026-08-24 修复）
 
@@ -194,10 +194,10 @@ authenticated 分支保留 `<AgentDialog />`，新增：
 | `web/src/stores/agents/ui/uiState.ts` | 窗口注册表 + actions |
 | `web/src/stores/agents/ui/streamRouter.ts` | 通知→blink 触发/熄灭 |
 | `web/src/stores/chats/index.ts` | 移除根观察单例守卫 |
-| `web/src/features/agent/dialog/WorkbenchDialog.vue` | 新：自包含窗口组件 |
-| `web/src/features/agent/dialog/WorkbenchCapsule.vue` | 新：胶囊最小化 |
-| `web/src/features/agent/dialog/useAgentDialogOptions.ts` | 参数化 chatId 来源（2026-08-21 加 presetName 入口） |
-| `web/src/features/agent/dialog/useWorkbenchWindow.ts` | 参数化 windowId + per-window key |
+| `web/src/features/agent/workbench/WorkbenchDialog.vue` | 新：自包含窗口组件 |
+| `web/src/features/agent/workbench/WorkbenchCapsule.vue` | 新：胶囊最小化 |
+| `web/src/features/agent/composer/useAgentDialogOptions.ts` | 参数化 chatId 来源（2026-08-21 加 presetName 入口） |
+| `web/src/features/agent/workbench/useWorkbenchWindow.ts` | 参数化 windowId + per-window key |
 | `web/src/features/agent/chat/AgentDialog.vue` | 精简为 composer 单例 |
 | `web/src/features/agent/toolbar/PetToolbar.vue` | 工作台 icon 入口（携带 presetName） |
 | `web/src/features/pets/nyxus/components/NyxusCore.vue` | 工作台入口携带 `CHERY_NYXUS_PRESET` |
@@ -290,7 +290,7 @@ desktop 面（桌面透明窗 renderer）此前有三处**直接调 store 打开
 | `web/src/styles/windowControls.less` | 新：共享三键样式 |
 | `web/src/App.vue` | surface 四分发；workbench 面同步注册 + focus/open-chat/flashFrame/主题订阅；删 console 分支与 `bindConsoleNavigation` |
 | `web/src/features/agent/settings/SettingsDialog.vue` | `native` prop（铺满窗、去自拖拽/自三键、close→windowControl、mounted 加载） |
-| `web/src/features/agent/dialog/WorkbenchDialog.vue` | `native` prop（fullscreen 恒置、三键走 windowControl、titlebar drag、resize 隐藏、attentionBlink→flashFrame） |
+| `web/src/features/agent/workbench/WorkbenchDialog.vue` | `native` prop（fullscreen 恒置、三键走 windowControl、titlebar drag、resize 隐藏、attentionBlink→flashFrame） |
 | `web/src/features/pets/nyxus/components/NyxusCore.vue` | 入口改 `openWindow` |
 | `web/src/features/agent/chat/AgentDialog.vue` | 入口改 `openWindow`（含 `openWorkspaceTree` 盲点修复） |
 | `web/src/features/agent/toolbar/PetToolbar.vue` | 入口改 `openWindow`（盲点修复） |

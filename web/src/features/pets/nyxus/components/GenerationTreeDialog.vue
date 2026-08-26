@@ -7,9 +7,9 @@
  * staticView 挂断 live 投影（输入/流式/CRT），二层内再无 pack 节点（generations 空）。
  */
 import { computed, ref, watch } from 'vue'
-import { useChatSessionsStore } from '@/stores'
-import type { RootTimelineSnapshot } from '@/services/agentApi'
-import type { GenerationPayload } from '@/stores/chats/rootTimeline'
+import { useNyxusHost } from '../application/host'
+import type { RootTimelineSnapshot } from '@/application/backend/public'
+import type { GenerationPayload } from '@/application/chat/public'
 import MessageBranchTree from './MessageBranchTree.vue'
 
 const props = defineProps<{
@@ -19,7 +19,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: [] }>()
 
-const chatSessions = useChatSessionsStore()
+const { chats: chatSessions } = useNyxusHost()
 const payload = ref<GenerationPayload>()
 const loading = ref(false)
 const loadError = ref('')

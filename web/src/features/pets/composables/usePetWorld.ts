@@ -1,5 +1,5 @@
 import { onMounted, onUnmounted, reactive, ref, type Ref } from 'vue'
-import { arrivedAtTarget, keepInBounds, stepMovement } from '../motion/petMovement'
+import { arrivedAtTarget, keepInBounds, stepMovement } from '@/domain/pets/motion/movement'
 import {
   adjustEmotion,
   adjustFatigue,
@@ -8,11 +8,11 @@ import {
   shouldSleep,
   shouldWake,
   stepVitals,
-} from '../motion/petStatus'
-import { rand, pick, clamp, moodForAction, actionTalk } from '../petFactory'
-import { retarget } from '../motion/petTargeting'
+} from '@/domain/pets/motion/status'
+import { rand, pick, clamp, moodForAction, actionTalk } from '@/domain/pets/factory'
+import { retarget } from '@/domain/pets/motion/targeting'
 import { useGhostQueue } from './useGhostQueue'
-import type { PetAction, PetInstance, StageBounds } from '../types/types'
+import type { PetAction, PetInstance, StageBounds } from '@/domain/pets/types'
 
 const RAPID_CLICK_WINDOW = 1200
 const RAPID_CLICK_THRESHOLD = 3

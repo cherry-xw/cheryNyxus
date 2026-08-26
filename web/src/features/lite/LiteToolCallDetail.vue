@@ -7,7 +7,7 @@
  * - 解析失败回退原文 <pre>。
  */
 import { computed } from 'vue'
-import type { GraphToolCall } from '@/services/agentApi'
+import type { GraphToolCall } from '@/application/backend/public'
 import type { LiteToolType } from './executionMonitor'
 import { toolTypeEmoji, toolTypeLabel } from './executionMonitor'
 import {

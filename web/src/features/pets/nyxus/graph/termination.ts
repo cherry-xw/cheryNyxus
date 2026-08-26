@@ -1,4 +1,4 @@
-import type { TerminationFact } from '@/services/agentApi'
+import type { TerminationFact } from '@/application/backend/public'
 
 export type TerminationTone = 'user' | 'system' | 'warning' | 'error' | 'redirect'
 

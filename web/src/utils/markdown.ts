@@ -7,7 +7,7 @@
  */
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
-import type { MediaAssetRef } from '@/stores/agents/types'
+import type { MediaAssetRef } from '@/domain/chat/projectionTypes'
 
 const md: MarkdownIt = new MarkdownIt({
   html: false,

@@ -6,7 +6,7 @@
  * 不持有 RAF 循环与 canvas（归 NyxusParticle.vue 宿主）。零行为变更。
  */
 import { onMounted, type Ref } from 'vue'
-import { useConnectionStore } from '@/stores'
+import { useNyxusHost } from '../application/host'
 import {
   createNyxusParticles,
   kickNyxusParticles,
@@ -24,7 +24,7 @@ import {
   nyxusMenuTargets,
   type NyxusMenuTool,
 } from '../nyxusUiState'
-import type { PetAction, PetMood } from '@/features/pets/types/types'
+import type { PetAction, PetMood } from '@/domain/pets/types'
 import { createNyxusCosmicScheduler, nyxusForcedCosmicState } from './cosmicScheduler'
 
 export interface NyxusInputProps {
@@ -69,7 +69,7 @@ export function useNyxusParticleInput(opts: {
   particleCount: () => number
 }) {
   const { props, rootRef, canvasExtent, particleCount } = opts
-  const connection = useConnectionStore()
+  const { connection } = useNyxusHost()
 
   let particles: NyxusParticle[] = []
   let mountedAt = 0

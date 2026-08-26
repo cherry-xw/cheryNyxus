@@ -1,4 +1,4 @@
-import type { GraphToolCall, TimelineNodeDetailResponse } from '@/services/agentApi'
+import type { GraphToolCall, TimelineNodeDetailResponse } from '@/application/backend/public'
 
 export type LiteDetailSectionName = 'content' | 'thinking' | 'toolCalls'
 

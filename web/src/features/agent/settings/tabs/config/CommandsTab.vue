@@ -16,14 +16,14 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
-import { agentApi, type CommandInfo, type ConfigDto } from '@/services/agentApi'
+import { agentApi, type CommandInfo, type ConfigDto } from '@/application/backend/public'
 import {
   formatThreshold,
   formatTokenCount,
   parseThreshold,
   parseTokenCount,
 } from '@/features/agent/composables/commands'
-import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
+import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import LabelTip from './LabelTip.vue'
 
 const props = defineProps<{ draft: ConfigDto }>()

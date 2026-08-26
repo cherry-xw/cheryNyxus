@@ -7,7 +7,7 @@
  */
 
 import type { RuntimeSelection } from '@/services/agentApi'
-import type { StageBounds } from '@/features/pets/types/types'
+import type { StageBounds } from '@/domain/pets/types'
 import type { HistoryItem, StreamState, StagedChunkData } from '../types'
 import { extractMediaUrls } from '@/utils/markdown'
 

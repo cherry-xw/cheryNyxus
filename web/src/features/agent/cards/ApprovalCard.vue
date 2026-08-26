@@ -13,8 +13,8 @@
  * 错误：console.error 上报（规则 12 fail loud），pending 复位允许重试。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useChatSessionsStore, useInteractionsStore } from '@/stores'
-import type { ApprovalState } from '@/stores/agents'
+import { useChatSessionsStore, useInteractionsStore } from '@/application/public'
+import type { ApprovalState } from '@/domain/chat/projectionTypes'
 import ParsedArgs from './ParsedArgs.vue'
 import { toSenseNameZh } from '@/utils/senseName'
 

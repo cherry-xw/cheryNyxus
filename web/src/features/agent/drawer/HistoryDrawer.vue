@@ -11,7 +11,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { useHistoryDrawerManager } from './useHistoryDrawerManager'
-import { useAgentsStore } from '@/stores'
+import { useAgentsStore } from '@/application/public'
 import HistoryDrawerPanel from './HistoryDrawerPanel.vue'
 import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 

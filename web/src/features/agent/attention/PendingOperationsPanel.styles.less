@@ -1,0 +1,509 @@
+.pending-panel {
+  position: absolute;
+  z-index: var(--nx-z-drawer);
+  top: 44px;
+  right: 52px; // 位于右侧 rail 左侧，避免盖住 rail 按钮
+  width: 600px; // 左右分栏后加宽：左栏导航 + 右栏详情一屏容纳，降低滚动依赖
+  max-width: calc(100% - 120px);
+  // 最大高度固定上限 560px，叠加窗口可用空间约束（min 取小者）：任务再多也保持适中尺寸，窗口过小不溢出
+  max-height: min(560px, calc(100% - 44px)); // 原：calc(100% - 44px) 跟随窗口可占满
+  display: flex;
+  flex-direction: column;
+  min-height: 0; // 收起态仅入口行不撑高；展开态由 .is-expanded 覆盖为保底高度
+  color: var(--nx-text);
+  font-size: 13px;
+  pointer-events: auto;
+  overflow: hidden; // 兜底：任何子栏未及时收缩时也不让内容溢出工作台窗口
+}
+// 展开态最小高度保底：内容少（仅 1 个短任务）时也保证 1-2 任务按钮 + 操作区 + 头部可容纳，不局促。
+.pending-panel.is-expanded {
+  min-height: 280px;
+}
+// 入口行：标题 toggle + 范围切换 + 刷新同一行。
+.pending-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0; // 入口行固定，不随 body 滚动区收缩
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--nx-bg) 86%, var(--nx-text) 8%);
+  backdrop-filter: blur(9px) saturate(115%);
+  color: inherit;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+  &:hover {
+    border-color: color-mix(in srgb, var(--nx-green) 34%, transparent);
+  }
+}
+.pending-panel.has-tasks .pending-panel-head {
+  border-color: color-mix(in srgb, var(--nx-green) 42%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--nx-green) 22%, transparent),
+    0 4px 16px rgba(0, 0, 0, 0.28);
+}
+.pending-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+}
+.pending-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  strong {
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+  }
+}
+.pending-panel-glyph {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--nx-green) 26%, transparent);
+  color: var(--nx-green);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+.pending-panel-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--nx-green);
+  color: var(--nx-bg);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.pending-panel-toggle-icon {
+  color: color-mix(in srgb, var(--nx-text) 64%, transparent);
+  font-size: 12px;
+}
+.segmented {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--nx-text) 8%, transparent);
+}
+.segmented button,
+.refresh {
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 11px;
+  background: transparent;
+  color: color-mix(in srgb, var(--nx-text) 66%, transparent);
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+  &:hover:not(:disabled) {
+    color: var(--nx-text);
+  }
+  &.active {
+    background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 8%);
+    color: var(--nx-text);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--nx-text) 12%, transparent);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+}
+.refresh {
+  flex-shrink: 0;
+}
+
+.pending-panel-body {
+  margin-top: 6px;
+  padding: 10px;
+  min-height: 0; // 允许随面板限高收缩（flex column 子项）
+  flex: 1 1 auto; // basis auto：高度由内容自然撑开（空状态也可见）；面板被 max-height 截断为确定高度时才收缩
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; // 滚动交由左栏 task-detail 内部承载
+  border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--nx-bg) 94%, var(--nx-text) 6%);
+  backdrop-filter: blur(12px) saturate(115%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+.pending-panel-body-enter-active,
+.pending-panel-body-leave-active {
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+.pending-panel-body-enter-from,
+.pending-panel-body-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.pending-panel-error {
+  margin: 0 0 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #e35a49 13%, var(--nx-bg));
+  color: #ff8d7e;
+  font-size: 12px;
+}
+
+// 左右两栏：左栏任务详情 + 右栏任务导航/操作；两栏各自内部滚动（超高不出工作台窗口）。
+.panel-main {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex: 1 1 auto; // basis auto：高度由两栏内容中较高者撑开；面板被 max-height 截断时收缩，两栏在其内各自滚动
+  min-width: 0;
+  min-height: 0;
+}
+
+// ── 右栏：任务导航（▲/▼ 分页、中间列表内部滚动）+ 底部操作按钮同列、贴列底固定 ──
+.side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 176px;
+  flex-shrink: 0;
+  align-self: stretch;
+  min-height: 0; // 允许随面板限高收缩，超高时任务列表内部滚动而非撑破面板
+}
+.task-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto; // basis auto：高度由内容撑开；右栏超高（side-col 高度受限）时收缩，列表内部滚动
+  min-height: 0;
+}
+.page-nav {
+  border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
+  border-radius: 8px;
+  padding: 3px 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--nx-text) 62%, transparent);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  &:hover:not(:disabled) {
+    color: var(--nx-text);
+    border-color: color-mix(in srgb, var(--nx-green) 40%, transparent);
+  }
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+.task-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto; // basis auto：高度由任务按钮内容撑开；超高时随 task-nav 收缩、列表内部滚动
+  min-height: 0;
+  overflow-y: auto; // 任务按钮超高时仅右栏列表滚动，▲/▼、meta 与底部操作按钮固定可见
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nx-text) 30%, transparent) transparent;
+}
+.task-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 13%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--nx-bg) 90%, var(--nx-text) 6%);
+  color: var(--nx-text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+  &:hover {
+    background: color-mix(in srgb, var(--nx-text) 7%, transparent);
+  }
+  &.is-active {
+    border-color: color-mix(in srgb, var(--nx-green) 66%, transparent);
+    background: color-mix(in srgb, var(--nx-green) 16%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--nx-green) 30%, transparent);
+  }
+  &.is-focused:not(.is-active) {
+    border-color: color-mix(in srgb, var(--nx-green) 55%, transparent);
+  }
+  .nav-kind {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    line-height: 1.4;
+    &.is-approval {
+      background: color-mix(in srgb, #f6b73c 22%, transparent);
+      color: #f6b73c;
+    }
+    &.is-question {
+      background: color-mix(in srgb, #9d6bff 20%, transparent);
+      color: #b794ff;
+    }
+  }
+  .nav-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 400;
+    }
+    .nav-countdown {
+      color: var(--nx-green);
+      font-size: 11px;
+      &.is-expired {
+        color: var(--nx-red);
+      }
+    }
+  }
+}
+.task-nav-meta {
+  text-align: center;
+  color: color-mix(in srgb, var(--nx-text) 48%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+// ── 左栏：任务详情（节点树中查看 / 工具能力解释 / 参数 整区内部滚动，最高不超工作台可用空间） ──
+.task-detail {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto; // 左半边整区内部滚动：内容超高时仅左栏滚动，不撑出工作台窗口
+  padding: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nx-text) 30%, transparent) transparent;
+}
+.detail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  .locate {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: color-mix(in srgb, var(--nx-text) 72%, transparent);
+    font-size: 12px;
+    cursor: pointer;
+    &:hover {
+      color: var(--nx-text);
+      text-decoration: underline;
+    }
+  }
+  .detail-status {
+    color: color-mix(in srgb, var(--nx-text) 62%, transparent);
+    font-size: 12px;
+  }
+}
+
+// ── 左栏详情分块折叠头（工具能力解释 / 每个问题块） ──
+.detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.detail-block-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--nx-text) 74%, transparent);
+  font-size: 13px;
+  font-weight: 400;
+  cursor: pointer;
+  &:hover {
+    color: var(--nx-text);
+  }
+}
+.question-toggle {
+  cursor: pointer;
+  color: color-mix(in srgb, var(--nx-text) 84%, transparent);
+  &:hover {
+    color: var(--nx-text);
+  }
+}
+.detail-block-glyph {
+  display: inline-block;
+  flex-shrink: 0;
+  margin-right: 2px;
+  color: color-mix(in srgb, var(--nx-green) 68%, transparent);
+  font-size: 11px;
+  line-height: 1;
+}
+
+// 工具能力解释（config_manage 等）：主题色左条 + 正常排版。间距由 .detail-block 承担。
+.sense-desc {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 2px solid color-mix(in srgb, var(--nx-green) 58%, transparent);
+  border-radius: 0 7px 7px 0;
+  background: color-mix(in srgb, var(--nx-code-bg) 40%, transparent);
+  color: var(--nx-text);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+
+// ParsedArgs（浅色基组件）在深色 CRT 面板内需反相：调用共享主题 override 命名空间。
+.task-detail :deep(.args) {
+  margin: 6px 0;
+  color: var(--nx-text);
+}
+
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+fieldset {
+  margin: 0;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 14%, transparent);
+  border-radius: 9px;
+  &:disabled {
+    opacity: 0.6;
+  }
+  legend {
+    padding: 0 4px;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--nx-text);
+  }
+  > small {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    opacity: 0.88;
+  }
+}
+// 单选/多选提示行：明确告知「单选可再次点击取消」（此前用户误以为选项与补充会叠加）。
+.options-hint {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--nx-text) 52%, transparent);
+}
+.options {
+  display: grid;
+  gap: 5px;
+}
+.option-row {
+  display: grid;
+  gap: 5px;
+}
+.options button {
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--nx-text);
+  text-align: left;
+  cursor: pointer;
+  &:hover {
+    background: color-mix(in srgb, var(--nx-text) 7%, transparent);
+  }
+  &.selected {
+    border-color: color-mix(in srgb, var(--nx-green) 64%, transparent);
+    background: color-mix(in srgb, var(--nx-green) 20%, transparent);
+  }
+  b {
+    font-size: 13px;
+    font-weight: 400;
+  }
+  span {
+    font-size: 12px;
+    opacity: 0.72;
+  }
+}
+input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--nx-text) 16%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--nx-bg) 92%, var(--nx-text) 8%);
+  color: var(--nx-text);
+  font-size: 13px;
+  &::placeholder {
+    color: color-mix(in srgb, var(--nx-text) 48%, transparent);
+  }
+}
+.option-note-input {
+  margin-top: 0;
+}
+
+// 右列底部操作区（margin-top:auto 贴列底，与任务按钮同列）。
+.side-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: auto;
+  flex-shrink: 0; // 超高时操作区固定贴列底，不被压缩（task-nav 单独收缩内部滚动）
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--nx-text) 12%, transparent);
+  button {
+    width: 100%;
+    padding: 6px 11px;
+    border: 0;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 400;
+    cursor: pointer;
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+  .reject {
+    background: color-mix(in srgb, #e35a49 16%, transparent);
+    color: #ff8d7e;
+  }
+  .accept {
+    background: var(--nx-green);
+    color: var(--nx-bg);
+    font-weight: 400;
+  }
+}
+
+.pending-panel-empty {
+  margin: 24px 0;
+  text-align: center;
+  opacity: 0.55;
+  font-size: 13px;
+}

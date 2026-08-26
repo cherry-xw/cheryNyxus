@@ -13,8 +13,8 @@
 import { ref } from 'vue'
 import { ElTooltip } from 'element-plus'
 import { FolderOpened } from '@element-plus/icons-vue'
-import { useConnectionStore } from '@/stores'
-import { agentApi } from '@/services/agentApi'
+import { useConnectionStore } from '@/application/public'
+import { agentApi } from '@/application/backend/public'
 
 const props = withDefaults(
   defineProps<{

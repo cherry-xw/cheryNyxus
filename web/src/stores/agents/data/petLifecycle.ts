@@ -1,16 +1,15 @@
 import type { Ref } from 'vue'
 import { agentApi, type RuntimeSelection } from '@/services/agentApi'
-import { applyRoleAvatar, generatePet, GHOST_FACES } from '@/features/pets/types/petPresets'
-import { findSpawnPosition } from '@/features/pets/motion/petMovement'
-import { createPetInstance } from '@/features/pets/petFactory'
-import type { PetInstance, PetMood } from '@/features/pets/types/types'
+import { applyRoleAvatar, generatePet, GHOST_FACES } from '@/domain/pets/presetsFactory'
+import { findSpawnPosition } from '@/domain/pets/motion/movement'
+import { createPetInstance } from '@/domain/pets/factory'
+import type { PetInstance, PetMood } from '@/domain/pets/types'
 import type { ChatSummary } from '@/services/agentApi'
-import type { StreamState } from '../types'
 import { defaultBounds } from './streamAccumulator'
-import { collectDescendantChatIds } from './historyMerge'
-import type { SessionCatalog } from './sessionCatalog'
+import { collectDescendantChatIds } from '@/domain/chat/sessionTree'
 
-export const CHERY_NYXUS_PRESET = 'cheryNyxus'
+export { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
+import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 
 /**
  * Legacy Pet recovery may only touch chats that currently have a stage visual.
@@ -122,9 +121,11 @@ export function remapChildHistory(
 
 export function createPetLifecycle(
   pets: Ref<PetInstance[]>,
-  streams: Ref<Record<string, StreamState>>,
   historyList: Ref<ChatSummary[]>,
-  sessionCatalog: SessionCatalog,
+  catalog: {
+    replacePreset: (preset: string, chats: ChatSummary[]) => void
+    upsert: (chat: ChatSummary) => void
+  },
   historyListOpen: Ref<boolean>,
   getRuntime: (chatId: string) => RuntimeSelection | undefined,
   setWorking: (pet: PetInstance | undefined, working: boolean, freezeUntil?: number) => void,
@@ -270,7 +271,7 @@ export function createPetLifecycle(
       const prevPreview = prevPreviewById.get(c.chatId)
       return prevPreview ? { ...c, preview: prevPreview } : c
     })
-    sessionCatalog.replacePreset(CHERY_NYXUS_PRESET, mergedChats)
+    catalog.replacePreset(CHERY_NYXUS_PRESET, mergedChats)
     if (activeNyxusChatId.value && chats.some((chat) => chat.chatId === activeNyxusChatId.value)) {
       return activeNyxusChatId.value
     }
@@ -289,7 +290,7 @@ export function createPetLifecycle(
     const result = await agentApi.createAgent({ preset: CHERY_NYXUS_PRESET })
     const nextCatalog = registerNewNyxusSession(historyList.value, result.chatId)
     const created = nextCatalog.find((chat) => chat.chatId === result.chatId)
-    if (created) sessionCatalog.upsert(created)
+    if (created) catalog.upsert(created)
     activeNyxusChatId.value = result.chatId
     return result.chatId
   }

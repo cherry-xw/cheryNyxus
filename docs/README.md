@@ -13,6 +13,10 @@
 3. **按「依赖与关联」扩展**：每篇末尾的「依赖与关联」列出**真实**的依赖与被依赖关系。只顺藤读真正相关的文档，不要全读。
 4. **跨模块的协议 / 交互 / 数据流**：查「按主题」横切文档。
 
+## 开发规范（强制执行）
+
+> **强制规范操作准则声明**：所有开发与评审（含 AI 协作工具）必须遵守 [standards/](./standards/README.md) 下的开发规范，违反即 Review 不通过。规范以「文档先行 + 唯一归集」管理：新增/修订规范先落文档后改代码；所有规范细节一律归入 `docs/standards/`，禁止散落他处。当前规范清单见 [standards/ 索引](./standards/README.md)。
+
 ## 按模块（镜像 `src/`）
 
 ### [core/](./core/README.md) — 框架抽象层
@@ -66,7 +70,8 @@
 
 - [web/README.md](./web/README.md) — 总览：技术栈、双运行模式（浏览器/Electron）、构建产物、monorepo 定位、依赖关联
 - [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) — **前端协议消费手册**：RPC/Notification/Chunk 字段映射到 store / StreamState / 视图组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口
-- [web/frontend-refactor-handoff.md](./web/frontend-refactor-handoff.md) — F1-F5 前端重构执行手册（缓存数组收敛 + currentState 消费，transient）
+- [standards/web-frontend-architecture.md](./standards/web-frontend-architecture.md) — **前端强制架构与目录规范**：owner、依赖矩阵、公开面、目录与迁移门禁
+- [web/frontend-refactor-handoff.md](./web/frontend-refactor-handoff.md) — 前端 canonical owner、协议生命周期与迁移状态交接
 - [web/electron.md](./web/electron.md) — Electron 集成详解：主进程路径解析坑、xrdp 运行环境、sandbox SUID
 - [web/deployment.md](./web/deployment.md) — 前后端连接与部署模式：后端独立 / Electron 一体 / Web 浏览器三模式 + 实现路线 + 关键坑
 

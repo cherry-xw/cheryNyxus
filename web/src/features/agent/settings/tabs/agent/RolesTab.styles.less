@@ -1,0 +1,502 @@
+@import '../../config/shared.less';
+.roles-workspace {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.roles-workspace :deep(.resource-workbench) {
+  flex: 1;
+}
+.permission-hint { margin: 0 0 8px; color: color-mix(in srgb, var(--ink) 58%, transparent); font-size: 10px; }
+.perm-board-head { margin: -2px 0 4px; }
+// 模板卡片：风险色点 + 定位句 + 维度摘要，选中态对齐 choice-board active 的视觉语言
+.permission-template-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 5px;
+}
+.tpl-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 8px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  &:hover {
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 40%, transparent);
+  }
+  &.active {
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+    background: color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
+    color: color-mix(in srgb, var(--tab-color, @accent) 75%, var(--ink));
+  }
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+    outline-offset: 2px;
+  }
+}
+.tpl-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.risk-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex: none;
+}
+.tpl-card.risk-0 .risk-dot { background: #34d399; }
+.tpl-card.risk-1 .risk-dot { background: #fbbf24; }
+.tpl-card.risk-2 .risk-dot { background: #fb923c; }
+.tpl-card.risk-3 .risk-dot { background: #f87171; }
+.tpl-default {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+}
+.tpl-tagline {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+}
+.tpl-summary {
+  font-size: 9px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  word-break: break-all;
+}
+// 覆盖项三组（文件 / 命令 / 集成）：label 挂 LabelTip，自定义时点亮主题色标记
+.permission-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.perm-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 10%, transparent);
+  border-radius: 8px;
+  h4 {
+    margin: 0;
+    font-size: 10px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 60%, transparent);
+  }
+}
+.perm-field {
+  display: grid;
+  gap: 3px;
+  font-size: 10px;
+}
+.perm-field-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  em {
+    font-size: 9px;
+    font-style: normal;
+    font-weight: 600;
+    color: var(--tab-color, @accent);
+    &::before {
+      content: '';
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      margin-right: 3px;
+      border-radius: 999px;
+      background: currentColor;
+      vertical-align: 1px;
+    }
+  }
+}
+.perm-field .el-checkbox-group {
+  display: flex;
+  gap: 4px;
+  min-height: 24px;
+  align-items: center;
+}
+// 生效结果预览条：常驻展示模板 + 覆盖合并结果，自定义维度主题色高亮
+.effective-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  font-size: 10px;
+}
+.preview-k {
+  font-weight: 400;
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+}
+.preview-dim {
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  &.customized {
+    font-weight: 400;
+    color: color-mix(in srgb, var(--tab-color, @accent) 82%, @ink);
+  }
+  em {
+    margin-left: 3px;
+    font-size: 9px;
+    font-style: normal;
+    opacity: 0.85;
+  }
+}
+.role-mode-stack {
+  position: relative;
+  width: 142px;
+  height: 39px;
+  flex: none;
+  margin: 0 8px 2px;
+}
+.role-kind-card {
+  position: absolute;
+  inset: 0;
+  width: 134px;
+  height: 29px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  border-radius: 8px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transform-origin: center;
+  transition:
+    transform 220ms cubic-bezier(0.77, 0, 0.175, 1),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+  &.is-front {
+    z-index: 2;
+    transform: translate3d(0, 0, 0) rotate(0) scale(1);
+    border-color: color-mix(in srgb, var(--tab-color, @accent) 52%, transparent);
+    background: color-mix(in srgb, var(--tab-color, @accent) 14%, var(--surface));
+    color: color-mix(in srgb, var(--tab-color, @accent) 82%, var(--ink));
+    box-shadow: 0 5px 12px color-mix(in srgb, var(--tab-color, @accent) 15%, transparent);
+  }
+  &.is-back {
+    z-index: 1;
+  }
+  &.is-ordinary.is-back {
+    transform: translate3d(-8px, 10px, 0) rotate(-1.5deg) scale(0.97);
+  }
+  &.is-shadow.is-back {
+    transform: translate3d(8px, 10px, 0) rotate(1.5deg) scale(0.97);
+  }
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+    outline-offset: 2px;
+  }
+}
+// 卡牌换位分离段：上层卡向上、下层卡向下各拉 14px（合计 28px > 19px 竖向重叠高度，保证完全不重叠）；
+// JS 在 150ms 分离顶点翻转 roleMode，z-index 随 is-front/is-back 同帧互换后按基础 220ms 合拢交叉换层。
+// 减弱动态偏好下跳过分离位移，仅保留原有小位移过渡。
+@media (prefers-reduced-motion: no-preference) {
+  .role-mode-stack.is-swapping .role-kind-card {
+    transition-duration: 140ms;
+    &.is-front {
+      transform: translate3d(0, -14px, 0);
+    }
+    &.is-ordinary.is-back {
+      transform: translate3d(-8px, 24px, 0) rotate(-1.5deg) scale(0.97);
+    }
+    &.is-shadow.is-back {
+      transform: translate3d(8px, 24px, 0) rotate(1.5deg) scale(0.97);
+    }
+  }
+}
+.rail-add {
+  width: 27px;
+  height: 27px;
+  border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 38%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+  cursor: pointer;
+}
+.rail-add svg {
+  width: 13px;
+}
+.new-role-pop {
+  display: flex;
+  gap: 5px;
+}
+.primary-btn {
+  border: 0;
+  border-radius: 6px;
+  background: var(--tab-color, @accent);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 11px;
+}
+.role-detail-card {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.role-detail-card.copied {
+  animation: role-spawn 0.65s ease-out;
+}
+.role-identity {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+.role-title-zone {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+// 角色名超长：单行省略 + 原生 title 兜底显示完整名
+.role-name-edit {
+  max-width: 100%;
+  min-width: 0;
+  .card-name {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    &.editable {
+      display: block;
+    }
+  }
+}
+.role-name-edit-tooltip {
+  max-width: 240px;
+  white-space: normal;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.role-status-line {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.role-desc-line {
+  margin-top: 3px;
+  min-height: 16px;
+  max-width: 100%;
+}
+.role-desc-text {
+  display: inline-block;
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  word-break: break-word;
+  &.editable {
+    cursor: text;
+    border-radius: 4px;
+    &:hover {
+      color: color-mix(in srgb, var(--ink) 68%, transparent);
+      background: color-mix(in srgb, var(--tab-color, @accent) 8%, transparent);
+    }
+  }
+}
+.status-chip {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tab-color, @accent) 14%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+  font-size: 10px;
+  font-weight: 600;
+}
+.detail-section {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 11%, transparent);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.detail-section h3 {
+  margin: 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--ink) 68%, transparent);
+}
+.core-field {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+}
+.core-field > span {
+  padding-top: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+.choice-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 5px;
+}
+.choice-board.compact {
+  display: flex;
+  flex-wrap: wrap;
+}
+.choice-board button {
+  min-height: 38px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: 8px;
+  background: var(--surface);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.brain-choice-name,
+.brain-choice-model {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brain-choice-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+}
+
+.brain-choice-model {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+  font-weight: 400;
+}
+.choice-board.compact button {
+  min-height: 26px;
+  padding: 3px 10px;
+}
+.choice-board button.active {
+  border-color: color-mix(in srgb, var(--tab-color, @accent) 55%, transparent);
+  background: color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
+  color: color-mix(in srgb, var(--tab-color, @accent) 75%, @ink);
+}
+.choice-board small {
+  font-size: 9px;
+  color: color-mix(in srgb, var(--ink) 64%, transparent);
+}
+.prompt-cascader {
+  width: 100%;
+  // 覆盖 element 默认主题色 #f6b73c（黄）为角色 tab 粉；trigger 区（输入框 focus/hover 边框、清除图标）
+  --el-color-primary: #fb7185;
+}
+.equipment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.equipment-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 10%, transparent);
+  border-radius: 8px;
+  // 主题自适应底：深色时为深灰而非硬编码白 32%（白底 + 白字不可读）
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+}
+// 装备整理面板展开时，给装备栏胶囊加主题色发光，提示正在编辑这一栏。
+.equipment-roster.equipment-editing {
+  border-color: color-mix(in srgb, var(--tab-color, @accent) 50%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--tab-color, @accent) 16%, transparent);
+}
+.roster-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+}
+.roster-k {
+  flex: none;
+  width: 32px;
+  font-size: 10px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--ink) 66%, transparent);
+}
+.roster-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
+  font-size: 10px;
+  color: color-mix(in srgb, var(--tab-color, @accent) 88%, @ink);
+}
+.roster-tag small {
+  font-size: 9px;
+  opacity: 0.9;
+}
+.roster-empty {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+  font-style: italic;
+}
+@keyframes role-spawn {
+  0% {
+    transform: translateY(10px);
+    opacity: 0.2;
+  }
+  55% {
+    transform: translateY(-2px);
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+@media (max-width: 950px) {
+  .equipment-grid {
+    grid-template-columns: 1fr;
+  }
+  .permission-groups {
+    grid-template-columns: 1fr;
+  }
+  .core-field {
+    grid-template-columns: 1fr;
+  }
+  .core-field > span {
+    padding: 0;
+  }
+}

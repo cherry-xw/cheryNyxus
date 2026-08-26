@@ -5,7 +5,7 @@
  * 无 breakdown：退化为单段填充（<50% 绿 / 50-80% 黄 / >80% 红）。
  */
 import { computed } from 'vue'
-import type { ContextBreakdown } from '@/services/agentApi'
+import type { ContextBreakdown } from '@/application/backend/public'
 import { breakdownSegments, fmtTokens, segmentThinkingNote } from './contextBreakdown'
 
 const props = defineProps<{

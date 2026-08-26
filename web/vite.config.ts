@@ -50,6 +50,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@chery/protocol': fileURLToPath(new URL('../packages/protocol/src', import.meta.url)),
     },
   },
   server: {

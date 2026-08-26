@@ -20,8 +20,8 @@
  * 位置：pet 头部右侧（继承 .pet-wrap 坐标系，与 pet 同步移动）。
  */
 import { computed, watch } from 'vue'
-import { useAgentsStore, useChatSessionsStore } from '@/stores'
-import type { ApprovalState, HistoryItem, StreamState } from '@/stores/agents'
+import { useAgentsStore, useChatSessionsStore, type StreamState } from '@/application/public'
+import type { ApprovalState, HistoryItem } from '@/domain/chat/projectionTypes'
 import { previewOf } from '../utils/historyPreview'
 import { flashPeriodOf, isExpired } from '../utils/approvalTiming'
 import { useNow } from '../composables/useNow'

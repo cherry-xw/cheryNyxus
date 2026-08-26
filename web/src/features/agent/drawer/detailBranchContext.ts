@@ -2,7 +2,7 @@ import type {
   ConversationBranchSummary,
   RootTimelineSnapshot,
   TimelineNode,
-} from '@/services/agentApi'
+} from '@/application/backend/public'
 
 /**
  * Return the committed conversation path that led to a detail branch's fork anchor.

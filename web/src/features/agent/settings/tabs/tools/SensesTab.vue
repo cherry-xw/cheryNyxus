@@ -16,14 +16,14 @@
  */
 import { ref, computed } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import type { ConfigDto, SenseToolDocInfo, SenseToolInfo } from '@/services/agentApi'
+import type { ConfigDto, SenseToolDocInfo, SenseToolInfo } from '@/application/backend/public'
 import { SUPERVISIONS } from '../../config/constants'
 import { toolName, toolLevel, isDangerousSense, matchedTool } from '../../config/shared'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
-import EditableTitle from '@/components/input/EditableTitle.vue'
+import EditableTitle from '@/features/agent/settings/controls/EditableTitle.vue'
 import SenseIcon from './SenseIcon.vue'
 import ToolInfoTip from './ToolInfoTip.vue'
-import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
+import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 
 const props = withDefaults(
   defineProps<{ draft: ConfigDto; senseTools: SenseToolInfo[]; senseDocs?: SenseToolDocInfo[] }>(),

@@ -13,7 +13,7 @@ import {
   segmentThinkingNote,
 } from '../toolbar/contextBreakdown'
 import type { BreakdownKey } from '../toolbar/contextBreakdown'
-import type { ContextBreakdown } from '@/services/agentApi'
+import type { ContextBreakdown } from '@/application/backend/public'
 
 const props = withDefaults(
   defineProps<{

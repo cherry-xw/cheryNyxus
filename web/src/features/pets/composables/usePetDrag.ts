@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref } from 'vue'
-import type { PetInstance } from '../types/types'
+import type { PetInstance } from '@/domain/pets/types'
 
 /**
  * PetSprite 拖拽 composable：长按拖拽 + 短按抚摸状态机 + pet 身体 hover。

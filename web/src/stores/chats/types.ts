@@ -7,8 +7,7 @@
  * - 主/子群聊时间线由 selector 动态聚合，不把子消息复制进父实体。
  * - 消息唯一轴 = `msgId`（= 后端 messages.id；checkpoint 在每轮 LLM turn 开始时预分配）。
  *
- * 复用既有协议类型，不重复定义：`SenseCallRecord`/`ApprovalState`/`QuestionBatchState`/`RunningTool`
- * 来自 [../agents/types](../agents/types.ts)；`RuntimeSelection`/`ContextBreakdown`/`CurrentStateData`/`ChatSummary`
+ * 展示投影类型来自纯 chat domain；wire DTO 暂由 services contract 提供，进入 reducer 前统一映射。
  * 来自 [@/services/agentApi](../../../services/agentApi.ts)。
  */
 
@@ -36,8 +35,8 @@ import type {
   StagedChunkData,
   ChunkMessage,
   NotificationMessage,
-} from '../agents/types'
-import type { QuestionBatchPayload } from '../agents/actions/questionBatch'
+  QuestionBatchPayload,
+} from '@/domain/chat/projectionTypes'
 
 /** 协议命令配置投影（镜像后端 CommandConfigData；camelCase）。 */
 export interface CommandConfigData {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import ServerLoginDialog from '@/components/dialog/ServerLoginDialog.vue'
+import { ServerLoginDialog } from '@/features/auth/public'
 import { desktopBridge } from './desktopBridge'
 
 function close(): void {

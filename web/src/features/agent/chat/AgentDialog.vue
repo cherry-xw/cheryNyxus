@@ -5,21 +5,23 @@
  * 节点树工作台已抽到 WorkbenchDialog（多窗口），此处不再承载 .workbench-shell 子树。
  * 状态/逻辑下沉 useAgentDialogOptions；角色卡下沉 RoleConfigPopover；媒体预览下沉 MediaPreviewBar。
  */
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { ElPopover, ElTooltip } from 'element-plus'
-import RoleConfigPopover from '../dialog/RoleConfigPopover.vue'
-import AgentComposer from '../dialog/AgentComposer.vue'
-import ConversationTargetPicker from '../dialog/ConversationTargetPicker.vue'
-import RoutingTraceWindow from '../dialog/RoutingTraceWindow.vue'
-import WorkspaceSessionBrowser from '../dialog/WorkspaceSessionBrowser.vue'
+import { RoleConfigPopover } from '../runtime/public'
+import {
+  AgentComposer,
+  ConversationTargetPicker,
+  RoutingTraceWindow,
+  useAgentDialogOptions,
+  useComposerMenuPosition,
+  type RouteStatus,
+} from '../composer/public'
+import { WorkspaceSessionBrowser } from '../attention/public'
 import ContextBreakdownTip from '../toolbar/ContextBreakdownTip.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
-import { useAgentDialogOptions } from '../dialog/useAgentDialogOptions'
-import type { RouteStatus } from '../dialog/conversationTargetRouting'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
-import { useAgentsStore, useInteractionsStore } from '@/stores'
-import { OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
+import { useAgentsStore, useInteractionsStore } from '@/application/public'
 
 const props = withDefaults(defineProps<{ native?: boolean }>(), { native: false })
 const agents = useAgentsStore()
@@ -332,15 +334,16 @@ watch(chatId, (v) => {
 })
 
 // AgentComposer 的 3 个 DOM ref 桥接回 useAgentDialogOptions（selectCommand / commandMenuStyle 等依赖）。
-const editorRefFn = (el: HTMLElement | null) => {
-  editorRef.value = el
-}
-const commandMenuRefFn = (el: HTMLElement | null) => {
-  commandMenuRef.value = el
-}
-const roleMenuRefFn = (el: HTMLElement | null) => {
-  roleMenuRef.value = el
-}
+const { commandMenuStyle, editorRefFn, commandMenuRefFn, roleMenuRefFn } =
+  useComposerMenuPosition({
+    editorRef,
+    commandMenuRef,
+    roleMenuRef,
+    showCommandMenu,
+    showRoleMenu,
+    activeCommandIndex,
+    layoutDependencies: [activeCommandTab, commandOptions],
+  })
 
 function selectQuickTarget(selection: QuickTargetSelection): void {
   if (quickTarget.value?.source === 'user' && selection.source === 'ai') return
@@ -463,58 +466,8 @@ function onDialogEditorKeydown(e: KeyboardEvent): void {
 }
 
 // ── 斜杠指令菜单定位（Teleport 到 body 后用 fixed 定位；锚定 .msg-input 顶部，向上展开） ──
-const commandMenuStyle = reactive({
-  zIndex: OVERLAY_Z_INDEX.composerMenu,
-  bottom: '0px',
-  left: '0px',
-  width: '390px',
-  maxHeight: '280px',
-})
-function positionCommandMenu(): void {
-  const editor = editorRef.value
-  const menu = commandMenuRef.value ?? roleMenuRef.value
-  if (!editor || !menu) return
-  const editorRect = editor.getBoundingClientRect()
-  const margin = 8
-  const minWidth = 280
-  const maxWidth = Math.min(420, window.innerWidth - margin * 2)
-  const width = Math.max(minWidth, Math.min(maxWidth, editorRect.width))
-  const left = Math.max(margin, Math.min(editorRect.left, window.innerWidth - width - margin))
-  // 菜单底边固定在输入框上沿 6px；内容/Tab 高度变化时只向上伸缩。
-  commandMenuStyle.bottom = `${window.innerHeight - editorRect.top + 6}px`
-  commandMenuStyle.left = `${left}px`
-  commandMenuStyle.width = `${width}px`
-  commandMenuStyle.maxHeight = `${Math.min(280, Math.max(0, editorRect.top - margin - 6))}px`
-}
-watch(showCommandMenu, async (open) => {
-  if (open) {
-    await nextTick()
-    positionCommandMenu()
-  }
-})
-watch(showRoleMenu, async (open) => {
-  if (open) {
-    await nextTick()
-    positionCommandMenu()
-  }
-})
-watch(activeCommandIndex, () => {
-  // 高亮项滚动进视口后再校准菜单位置（菜单高度变化时）
-  if (showCommandMenu.value) {
-    nextTick(() => positionCommandMenu())
-  }
-})
-watch([activeCommandTab, commandOptions], () => {
-  if (showCommandMenu.value) nextTick(() => positionCommandMenu())
-})
-if (typeof window !== 'undefined') {
-  window.addEventListener('resize', positionCommandMenu)
-  window.addEventListener('scroll', positionCommandMenu, true)
-}
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
-    window.removeEventListener('resize', positionCommandMenu)
-    window.removeEventListener('scroll', positionCommandMenu, true)
     window.removeEventListener('pointermove', onPanelPointerMove)
     window.removeEventListener('pointerup', onPanelPointerUp)
   }
@@ -829,240 +782,6 @@ defineExpose({
   </AnimatePresence>
 </template>
 
-<style scoped lang="less">
-@import '../dialog/agentDialog.less';
-
-/* 拖拽占位框：拖动中只显示此边框，尺寸在 pointerdown 时记录一次；松开后 panel 瞬移，本框消失。 */
-.dialog-drag-preview {
-  z-index: 2;
-  border: 1.5px dashed color-mix(in srgb, var(--accent) 65%, transparent);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
-  pointer-events: none;
-  will-change: transform;
-}
-
-.role-usage-chip {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.4;
-}
-.role-usage-chip.usage-low {
-  background: rgba(34, 197, 94, 0.14);
-  color: #16a34a;
-}
-.role-usage-chip.usage-mid {
-  background: rgba(234, 179, 8, 0.16);
-  color: #a16207;
-}
-.role-usage-chip.usage-high {
-  background: rgba(239, 68, 68, 0.16);
-  color: #b91c1c;
-}
-.role-summary-meta-row {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 0;
-  max-width: 100%;
-}
-.history-keys-btn {
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  color: color-mix(in srgb, var(--ink) 70%, transparent);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  margin-right: 6px;
-}
-.history-keys-btn.is-active {
-  border-color: #7c3aed;
-  color: #6d28d9;
-  background: rgba(124, 58, 237, 0.1);
-}
-.attention-head-btn {
-  position: relative;
-}
-.attention-head-btn b {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 999px;
-  background: #dc2626;
-  color: #fff;
-  font-size: 8px;
-  line-height: 15px;
-}
-</style>
-
-<style lang="less">
-.dialog-overlay.is-native {
-  // 铺满 WindowFrame body（position:relative），不盖标题栏；绝对定位避免 fixed 覆盖整个 viewport。
-  // 保持 flex（对齐 settings/workbench native 先例：仅 center→stretch）——display:block 会摧毁
-  // 内部 flex 布局链，导致 .dialog-composer-content（角色编制/发送区）塌缩不可见。
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: stretch;
-  padding: 0;
-  background: transparent;
-  backdrop-filter: none;
-  overflow: hidden;
-  // pet 来源 activeDialogSource==='pet' → isFloatingOverlay=true → .dialog-overlay.is-floating
-  // 置 pointer-events:none（scoped 带 [data-v-x] 优先级更高）。native 整窗铺满必须可点，
-  // 复合选择器抬升优先级并晚声明，确保覆盖。
-  pointer-events: auto;
-  &.is-floating {
-    pointer-events: auto;
-  }
-
-  .dialog-panel {
-    position: relative !important;
-    left: auto !important;
-    top: auto !important;
-    width: 100%;
-    max-width: none;
-    height: 100%;
-    max-height: none;
-    margin: 0 !important;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-    // 与 WindowFrame 统一：内容区底色 --bg（标题栏 --panel 对比清晰），panel 卡片底色让位
-    background: var(--bg);
-  }
-
-  // 发送内容区铺满剩余空间（角色编制在上、发送区占满），超高时内部滚动
-  .dialog-composer-content {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-}
-</style>
-
-<!-- Popover 挂载到 Teleport 根节点，需用非 scoped 样式去除 Element Plus 的外层壳。 -->
-<style lang="less">
-.role-runtime-popper.el-popper {
-  --el-popover-border-color: transparent;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.role-runtime-popper .el-popper__arrow {
-  display: none;
-}
-
-.add-media-popper.el-popover {
-  border-radius: 10px;
-}
-
-.add-media-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.add-media-upload {
-  width: 100%;
-
-  .el-upload {
-    width: 100%;
-    display: block;
-  }
-}
-
-.add-media-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--ink);
-  transition: background-color 100ms ease;
-
-  &:hover {
-    background: rgba(246, 183, 60, 0.12);
-  }
-
-  span:first-child {
-    font-size: 14px;
-  }
-}
-
-.media-svc-tag {
-  margin-left: auto;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(246, 183, 60, 0.15);
-  color: #9a7422;
-  &.missing {
-    background: rgba(180, 30, 30, 0.08);
-    color: #b04040;
-  }
-}
-
-// 指令卡片由富文本编辑器在 hover 时挂到 body，避免被输入框和弹窗滚动容器裁剪。
-.instruction-token-floating-popover {
-  position: fixed;
-  z-index: 320;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  width: 248px;
-  padding: 8px 9px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface-hover);
-  box-shadow: 0 7px 18px rgba(20, 22, 26, 0.18);
-  color: var(--ink);
-  font-size: 10.5px;
-  font-weight: 400;
-  line-height: 1.45;
-  pointer-events: none;
-}
-
-.instruction-token-floating-title {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.instruction-token-floating-description {
-  color: color-mix(in srgb, var(--ink) 76%, transparent);
-}
-
-.instruction-token-floating-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 5px;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
-  color: var(--accent-ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-  font-weight: 400;
-}
-</style>
+<style scoped lang="less" src="./AgentDialog.scoped.less"></style>
+<style lang="less" src="./AgentDialog.popovers.less"></style>
+<style lang="less" src="./AgentDialog.editor.less"></style>

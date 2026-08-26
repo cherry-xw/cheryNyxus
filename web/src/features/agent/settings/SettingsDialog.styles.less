@@ -1,0 +1,446 @@
+@import './config/shared.less';
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 310;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--scrim);
+  /* 同上：禁 backdrop-filter blur——桌面 pet/Nyxus 持续 rAF 动画下每帧重采样整屏重绘，
+     见 docs/web/renderer.md 遮罩实现约束（Electron native 面本就 none，两形态一致） */
+}
+
+.settings-panel {
+  width: min(1040px, 96vw);
+  height: min(760px, 92vh);
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  background:
+    radial-gradient(
+      circle at 8% 18%,
+      color-mix(in srgb, var(--tab-color, @accent) 15%, transparent),
+      transparent 29%
+    ),
+    radial-gradient(
+      circle at 88% 12%,
+      color-mix(in srgb, var(--tab-highlight, var(--tab-color, @accent)) 12%, transparent),
+      transparent 27%
+    ),
+    radial-gradient(
+      circle at 72% 88%,
+      color-mix(in srgb, var(--tab-color, @accent) 11%, transparent),
+      transparent 31%
+    ),
+    color-mix(in srgb, var(--panel) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tab-color, @accent) 28%, transparent);
+  box-shadow:
+    0 18px 36px rgba(0, 0, 0, 0.28),
+    0 4px 8px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    color 180ms ease;
+}
+// 拖动中禁用 transform 过渡，避免拖拽跟手延迟；释放回弹或最大化时才启用过渡。
+.settings-panel.is-dragging {
+  transition: none;
+}
+// 最大化：铺满 overlay（overlay 自带 16px padding），仅留圆角收边。
+.settings-panel.is-maximized {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+}
+// native 面（Electron 原生设置窗，WindowFrame 外壳内）：overlay 去蒙层/居中内边距/模糊。
+// ⚠ 定位必须改 absolute（相对 WindowFrame body 的 position:relative 铺满），不能保留基类的
+//   fixed inset:0 —— 否则透明遮罩覆盖整个窗口，拦截标题栏（-webkit-app-region: drag 拖拽 +
+//   最小化/最大化/关闭三键）的鼠标事件，三键灰色暗淡、无法点击。
+.settings-overlay.is-native {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+// native 面：panel 100% 铺满（不再居中 1040px），去阴影/圆角/边框/transform 过渡
+.settings-panel.is-native {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
+}
+.settings-error-detail {
+  margin: 0;
+  max-height: 52vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
+  border-radius: 8px;
+  padding: 10px;
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+// 单行错误：纯展示（徽章 + 原文）+ 行尾独立「前往」跳转按钮，展示与行为分离
+.error-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px;
+  border-radius: 5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-tab-badge {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+.error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.error-jump-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--danger);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  &:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+}
+.error-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+  user-select: none;
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .title {
+    font-size: 15px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
+  }
+}
+
+.close-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  &:hover {
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
+  }
+}
+.close-ico {
+  width: 12px;
+  height: 12px;
+}
+
+.mx-glyph {
+  position: relative;
+  display: block;
+  width: 10px;
+  height: 10px;
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 1px solid currentColor;
+  }
+  // 还原态：右下主框 + 左上叠一层小框（原生窗口还原图标）
+  // 两个框都加粗到 2px，与「最大化」单框（1px）形成强对比，能一眼看出处于最大化态。
+  &.restore::before {
+    border-width: 2px;
+  }
+  &.restore::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: 2px;
+    width: 8px;
+    height: 8px;
+    border: 2px solid currentColor;
+    background: var(--panel);
+  }
+}
+// 拖动中标题栏抓手态
+.settings-panel.is-dragging .head {
+  cursor: grabbing;
+}
+
+.tab-bar-wrap {
+  position: relative;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.tab-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  // 隐藏横向滚动条，仅用左右箭头滚动（scrollbar-width: Firefox；::-webkit-scrollbar: Chromium）
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.tab-arrow {
+  position: absolute;
+  top: 0;
+  // bottom = .tab-bar-wrap padding-bottom，让 arrow 拉伸对齐 tab-bar 全高；
+  // icon 用 flex 居中 → 与 tab 自动水平对齐，不依赖固定高度
+  bottom: 8px;
+  z-index: 2;
+  width: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  // absolute 脱流 + opacity 切换 → 不占 flex 位、不改布局：tab 起点紧贴左边无偏移、显隐无抖动
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  &.visible {
+    opacity: 1;
+    pointer-events: auto;
+    &:hover {
+      background: var(--surface);
+      color: color-mix(in srgb, var(--ink) 92%, transparent);
+    }
+  }
+  &.tab-arrow-left {
+    left: 0;
+  }
+  &.tab-arrow-right {
+    right: 0;
+  }
+}
+.tab-arrow-ico {
+  width: 12px;
+  height: 12px;
+}
+
+.tab {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  // 默认态轻显主题色（hover），非选中不发光；active 满色 + conic 转圈边框（签名克制）
+  // 主题色统一混入 @ink 28% 提对比，避免浅色（金黄/青/翠绿）在淡底上对比度不足
+  &:hover {
+    color: color-mix(in srgb, var(--tab-color, @accent) 85%, @ink);
+    background: color-mix(in srgb, var(--tab-color, @accent) 8%, transparent);
+  }
+  &.active {
+    background: color-mix(in srgb, var(--tab-color, @accent) 12%, transparent);
+    color: color-mix(in srgb, var(--tab-color, @accent) 80%, @ink);
+    font-weight: 600;
+    box-shadow: 0 0 12px color-mix(in srgb, var(--tab-color, @accent) 28%, transparent);
+    // conic 转圈边框：伪元素 mask 镂空，只让 1px 边框显 conic 渐变并旋转
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      padding: 1px;
+      background: conic-gradient(
+        from var(--neon-angle, 0deg),
+        var(--tab-color, @accent),
+        transparent 28%,
+        var(--tab-color, @accent) 55%,
+        transparent 82%
+      );
+      -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      animation: neon-spin-border 3s linear infinite;
+      pointer-events: none;
+    }
+  }
+  .tab-icon {
+    font-size: 13px;
+  }
+}
+
+.tab-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  // 滚动交给各 tab 内部的 TabShell.shell-scroll；本层只做容器。
+}
+
+.error-row {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.saved-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  color: var(--success);
+  font-size: 11px;
+  &.waiting {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--warning);
+  }
+}
+
+.wait-elapsed {
+  color: color-mix(in srgb, var(--warning) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.saved-warnings-row {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
+}
+
+.saved-warnings {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.foot-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.foot-right {
+  display: flex;
+  gap: 8px;
+}
+
+.ghost-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
+  font-size: 12px;
+  cursor: pointer;
+  &:hover:not(:disabled) {
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 94%, transparent);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.primary-btn {
+  padding: 6px 18px;
+  border: none;
+  border-radius: 6px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--tab-color, @accent) 72%, #fff),
+    var(--tab-color, @accent)
+  );
+  color: #3b2b12;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}

@@ -4,7 +4,7 @@
  * 从 PetBody 拆出（纯展示）。显隐守卫（v-if="!pet.isGhost"）由父组件承担。
  */
 import ContextBar from '@/features/agent/toolbar/ContextBar.vue'
-import type { ContextBreakdown } from '@/services/agentApi'
+import type { ContextBreakdown } from '@/application/backend/public'
 
 defineProps<{
   emotion: number

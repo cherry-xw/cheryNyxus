@@ -6,11 +6,11 @@
  */
 import { ref, computed, watch } from 'vue'
 import { Delete, Refresh, Search } from '@element-plus/icons-vue'
-import { agentApi, type PluginInfo } from '@/services/agentApi'
-import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
+import { agentApi, type PluginInfo } from '@/application/backend/public'
+import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 import PluginImportDialog from './components/PluginImportDialog.vue'
-import { useThemeStore } from '@/stores'
+import { useThemeStore } from '@/application/public'
 
 const props = defineProps<{ plugins: PluginInfo[] }>()
 const emit = defineEmits<{ (e: 'error', msg: string): void; (e: 'refresh-plugins'): void }>()

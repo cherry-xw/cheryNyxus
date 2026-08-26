@@ -13,7 +13,7 @@
  */
 import { computed, ref } from 'vue'
 import type { RendererProps, GenerateMediaArgs, MediaKind } from '../types'
-import { httpUrl } from '@/services/http'
+import { httpUrl } from '@/application/platform/public'
 
 const props = defineProps<RendererProps>()
 

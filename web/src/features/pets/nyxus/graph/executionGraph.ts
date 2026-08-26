@@ -7,7 +7,7 @@ import type {
   TimelineActor,
   TimelineDirection,
   TimelineNode,
-} from '@/services/agentApi'
+} from '@/application/backend/public'
 import {
   diagnoseExecutionGraphFacts,
   type ExecutionGraphDiagnostic,

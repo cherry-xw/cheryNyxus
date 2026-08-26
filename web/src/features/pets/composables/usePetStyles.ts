@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import type { Ref } from 'vue'
-import type { StreamState } from '@/stores'
-import { useAgentsStore, useThemeStore } from '@/stores'
+import type { StreamState } from '@/application/public'
+import { useAgentsStore, useThemeStore } from '@/application/public'
 import {
   faceMotion,
   ghostFaceMotion,
@@ -9,17 +9,17 @@ import {
   handMotion,
   speechMotion,
   spriteMotion,
-} from '../motion/petMotion'
-import type { PetInstance } from '../types/types'
+} from '@/domain/pets/motion/animation'
+import type { PetInstance } from '@/domain/pets/types'
 
 /**
  * PetSprite 视觉计算 composable：所有 computed style / motion config / 辅助函数。
  * 输入 pet + stream + petHover，输出 PetBody / PetBubbles / orchestrator 所需的全部视觉数据。
  */
 
-import { hashHue, petBodyZIndex, speechZIndex } from '../motion/petStyle'
+import { hashHue, petBodyZIndex, speechZIndex } from '@/domain/pets/motion/style'
 
-export { hashHue, petBodyZIndex, speechZIndex } from '../motion/petStyle'
+export { hashHue, petBodyZIndex, speechZIndex } from '@/domain/pets/motion/style'
 
 /** 深色主题下把 pet accent 提亮成浅色（脸/手部颜文字文本在深底可读）。 */
 function lightenAccent(hex: string, weight = 0.72): string {

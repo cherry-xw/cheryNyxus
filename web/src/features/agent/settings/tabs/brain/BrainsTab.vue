@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import type { ConfigDto } from '@/services/agentApi'
+import type { ConfigDto } from '@/application/backend/public'
 import { PROVIDER_META, isProviderIconAsset, type ProviderId } from './providerMeta'
 import BrainCard from './BrainCard.vue'
 import ResourceWorkbench, { type ResourceRailItem } from '../agent/ResourceWorkbench.vue'

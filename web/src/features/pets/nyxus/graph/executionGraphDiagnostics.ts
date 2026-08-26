@@ -1,4 +1,4 @@
-import type { ExecutionEdgeFact, TimelineNode } from '@/services/agentApi'
+import type { ExecutionEdgeFact, TimelineNode } from '@/application/backend/public'
 
 export type ExecutionGraphDiagnosticCode =
   | 'cross-root-reference'

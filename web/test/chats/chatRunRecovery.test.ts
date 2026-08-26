@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createEmptySession } from '../../src/stores/chats/hydration'
+import { createEmptySession } from '../../src/stores/chats/model/hydration'
 import { agentApi } from '../../src/services/agentApi'
 import { WsClient, wsClient } from '../../src/services/ws'
 import {
@@ -9,8 +9,8 @@ import {
   toSequencedSessionEvent,
   useChatSessionsStore,
 } from '../../src/stores/chats'
-import { installActiveTurns, reduce, reduceSessionEvent } from '../../src/stores/chats/reducer'
-import { selectCanResume, selectIsWorking } from '../../src/stores/chats/selectors'
+import { installActiveTurns, reduce, reduceSessionEvent } from '../../src/stores/chats/model/reducer'
+import { selectCanResume, selectIsWorking } from '../../src/stores/chats/read-model/selectors'
 
 describe('chat live run recovery', () => {
   beforeEach(() => {
@@ -57,14 +57,11 @@ describe('chat live run recovery', () => {
   })
 
   it('suppresses historical root role replies while preserving live auto-resume', () => {
-    const resume = vi.spyOn(agentApi, 'resumeChat').mockReturnValue({
-      requestId: 'resume-request',
-      done: Promise.resolve({
-        id: 'resume-response',
-        kind: 'response',
-        requestId: 'resume-request',
-        success: true,
-      }),
+    const resume = vi.spyOn(agentApi, 'resumeRun').mockResolvedValue({
+      chatId: 'parent-chat',
+      commandId: 'resume-command',
+      runId: 'resume-run',
+      status: 'started',
     })
     const store = useChatSessionsStore()
     store.ensureEntity('parent-chat')
@@ -102,7 +99,10 @@ describe('chat live run recovery', () => {
 
       deliver(roleReply(10, 'live-return'))
       expect(resume).toHaveBeenCalledTimes(1)
-      expect(resume).toHaveBeenCalledWith('parent-chat')
+      expect(resume).toHaveBeenCalledWith({
+        chatId: 'parent-chat',
+        commandId: expect.any(String),
+      })
     } finally {
       store.unbindWsClient()
     }
@@ -175,34 +175,10 @@ describe('chat live run recovery', () => {
     })
   })
 
-  it('marks chat.sync envelopes as replay provenance for every store consumer', () => {
+  it('does not expose the removed transport replay API', () => {
     const client = new WsClient()
-    const internals = client as unknown as {
-      pending: Map<string, { request: { id: string; kind: 'request'; method: string; params: unknown } }>
-      handleMessage: (event: MessageEvent) => void
-    }
-    internals.pending.set('sync-request', {
-      request: { id: 'sync-request', kind: 'request', method: 'chat.sync', params: {} },
-    })
-    let observed: unknown
-    const stop = client.onNotification((event) => {
-      observed = event
-    })
-
-    try {
-      internals.handleMessage({
-        data: JSON.stringify({
-          kind: 'notification',
-          type: 'turn.delta',
-          requestId: 'sync-request',
-          chatId: 'parent-chat',
-          data: { turnId: 'turn-1', messageId: 'message-1', delta: 'old' },
-        }),
-      } as MessageEvent)
-      expect(client.isReplayEvent(observed)).toBe(true)
-    } finally {
-      stop()
-    }
+    expect('isReplayEvent' in client).toBe(false)
+    expect('replayEvents' in client).toBe(false)
   })
 
   it('advances replayed turn events without exposing them to the Pet bubble', () => {
@@ -277,30 +253,40 @@ describe('chat live run recovery', () => {
     expect(session.executionSteps.map((step) => step.id)).toEqual(['new-turn'])
   })
 
-  it('restores a running Pet response from one attach snapshot', async () => {
+  it('restores a running Pet response from one atomic chat.open snapshot', async () => {
     vi.spyOn(agentApi, 'listChats').mockResolvedValue([
       { chatId: 'running-chat', running: true, canResume: false },
     ])
-    vi.spyOn(agentApi, 'attachChat').mockResolvedValue({
+    const open = vi.spyOn(agentApi, 'openChat').mockResolvedValue({
       chatId: 'running-chat',
-      running: true,
-      attached: true,
-      runId: 'run-1',
-      snapshotSeq: 12,
-      pendingQuestionBatches: [],
-      activeTurns: [
-        {
-          turnId: 'turn-1',
-          runId: 'run-1',
-          messageId: 'message-1',
-          thinking: 'complete recovered thought',
-          content: 'complete recovered response',
-        },
-      ],
+      subscriptionId: 'subscription-1',
+      eventSeq: 12,
+      timelineRevision: 4,
+      timelineChanged: false,
+      state: {
+        pendingInputs: [],
+        run: { runId: 'run-1', status: 'running' },
+        activeTurns: [
+          {
+            turnId: 'turn-1',
+            runId: 'run-1',
+            messageId: 'message-1',
+            thinking: 'complete recovered thought',
+            content: 'complete recovered response',
+          },
+        ],
+      },
     })
     const store = useChatSessionsStore()
 
     await store.startup()
+
+    expect(open).toHaveBeenCalledWith({
+      scope: 'chat',
+      chatId: 'running-chat',
+      knownTimelineRevision: undefined,
+      knownEventSeq: 0,
+    })
 
     const session = store.sessionsById['running-chat']!
     expect(session.run).toMatchObject({ status: 'running', activeRunId: 'run-1' })

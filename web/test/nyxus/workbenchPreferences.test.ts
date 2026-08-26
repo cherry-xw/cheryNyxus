@@ -1,10 +1,13 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('Nyxus workbench preferences and entry regressions', () => {
   it('defaults to timeline with the third fold level and persists both selections', async () => {
-    const source = await readFile(resolve('src/features/agent/dialog/WorkbenchDialog.vue'), 'utf8')
+    const source = await readComponentSource(
+      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
+      'utf8',
+    )
 
     expect(source).toContain("layout: 'timeline'")
     expect(source).toContain("foldMode: 'participant'")
@@ -29,12 +32,18 @@ describe('Nyxus workbench preferences and entry regressions', () => {
   })
 
   it('refreshes only the lightweight catalog before opening from Cherry Nyxus', async () => {
-    const lifecycle = await readFile(resolve('src/stores/agents/data/petLifecycle.ts'), 'utf8')
+    const lifecycle = await readComponentSource(
+      resolve('src/stores/agents/data/petLifecycle.ts'),
+      'utf8',
+    )
     const getActive = lifecycle.slice(
       lifecycle.indexOf('async function getActiveNyxus'),
       lifecycle.indexOf('/** 始终新建一条 Nyxus 会话'),
     )
-    const core = await readFile(resolve('src/features/pets/nyxus/components/NyxusCore.vue'), 'utf8')
+    const core = await readComponentSource(
+      resolve('src/features/pets/nyxus/components/NyxusCore.vue'),
+      'utf8',
+    )
     const openWorkbench = core.slice(
       core.indexOf('async function openWorkbench'),
       core.indexOf('onBeforeUnmount(()'),
@@ -49,29 +58,33 @@ describe('Nyxus workbench preferences and entry regressions', () => {
   })
 
   it('allows deleting the final session and gives the user an explicit result', async () => {
-    const source = await readFile(resolve('src/features/agent/dialog/WorkbenchDialog.vue'), 'utf8')
+    const source = await readComponentSource(
+      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
+      'utf8',
+    )
     const deletePreset = source.slice(
       source.indexOf('async function deletePresetSession'),
-      source.indexOf('/**\n * 加号'),
+      source.indexOf('async function createSession'),
     )
     const deleteNyxus = source.slice(
       source.indexOf('async function deleteNyxusSession'),
-      source.indexOf('\nfunction closeWorkbench'),
+      source.indexOf('onScopeDispose(releaseCurrentRoot)'),
     )
 
     expect(deletePreset).not.toContain('请先新建一个会话')
-    expect(deletePreset).toContain('await agents.deleteSession(targetId)')
-    expect(deleteNyxus).toContain('await agents.deleteSession(targetId)')
+    expect(deletePreset).toContain('await agents.deleteSession(chatId)')
+    expect(deleteNyxus).toContain('await deletePresetSession(chatId)')
     expect(deleteNyxus).not.toContain("treeRootChatId.value = ''")
     expect(deleteNyxus).not.toContain('await switchSession(')
     expect(deletePreset).toContain("ElMessage.success('会话已删除')")
-    expect(deleteNyxus).toContain("ElMessage.success('会话已删除')")
-    expect(deletePreset).toContain("ElMessage.error(error.value)")
-    expect(deleteNyxus).toContain("ElMessage.error(error.value)")
+    expect(deletePreset).toContain('options.setError(message)')
   })
 
   it('provides explicit high-contrast context colors in dark mode', async () => {
-    const source = await readFile(resolve('src/features/agent/dialog/WorkbenchDialog.vue'), 'utf8')
+    const source = await readComponentSource(
+      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
+      'utf8',
+    )
 
     expect(source).toContain(":global([data-theme='dark']) .role-usage-chip.usage-low")
     expect(source).toContain('color: #86efac;')

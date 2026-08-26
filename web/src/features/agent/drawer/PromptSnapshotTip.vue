@@ -6,7 +6,7 @@
  * 数据由父级拉取后传入（父级 hover 顶部「上下文」标签触发 chat.promptSnapshot RPC）。
  */
 import { ref } from 'vue'
-import type { PromptSnapshotTool } from '@/services/agentApi'
+import type { PromptSnapshotTool } from '@/application/backend/public'
 
 defineProps<{
   /** system 消息全文（<system-reminder>+<environment>+<workspace>+<memory>+<skills>）。 */

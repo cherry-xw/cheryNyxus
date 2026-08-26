@@ -1,28 +1,20 @@
-/**
- * 流程测试 Tier 2：停止后刷新仍 resume S13（service+WS 级，真实 startService）。
- *
- * 规约见 [docs/flow-test.md](../../../docs/flow-test.md) §3.C。本场景同时是 Tier 2 地基垂直切片——
- * 验证 bootFlowService + RpcClient(binary 帧解码) + eventsAssert 全链路打通。
- *
- * 流程：chat.create → chat.send(confirm 挂起审批) → chat.abort → chat.get(canResume=true)。
- * runId = chat.send 的 Request.id（types.ts：runId 等于启动该运行的 Request.id）。
- */
-import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
+/** Canonical command-plane abort recovery flow. */
 import { randomUUID } from 'node:crypto'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { deleteChat } from '@/db/chat.js'
 import { getInteraction } from '@/db/interaction.js'
 import { approvalManager } from '@/service/approval/manager.js'
 import { isChatRunning } from '@/service/chat/runtime.js'
 import type {
   ChatAbortResponseData,
-  ChatGetResponseData,
   ChatCreateResponseData,
+  ChatListResponseData,
 } from '@/service/message/types.js'
-import { bootFlowService, connectClient, type FlowService } from '../helpers/serviceHarness.js'
 import { allEvents, interrupts, waitFor, waitForNotification } from '../helpers/eventsAssert.js'
+import { bootFlowService, connectClient, type FlowService } from '../helpers/serviceHarness.js'
 import type { RpcClient } from '../../helpers/rpcClient.js'
 
-describe('S13 停止后刷新仍 resume（Tier 2 地基垂直切片）', () => {
+describe('S13 canonical abort recovery', () => {
   let svc: FlowService
   let client: RpcClient
   let chatId: string
@@ -32,13 +24,12 @@ describe('S13 停止后刷新仍 resume（Tier 2 地基垂直切片）', () => {
     client = await connectClient(svc)
   })
 
-  afterEach(async () => {
-    if (chatId) {
-      try {
-        deleteChat(chatId)
-      } catch {
-        /* chat may already be gone */
-      }
+  afterEach(() => {
+    if (!chatId) return
+    try {
+      deleteChat(chatId)
+    } catch {
+      // The test may already have removed it.
     }
   })
 
@@ -47,62 +38,66 @@ describe('S13 停止后刷新仍 resume（Tier 2 地基垂直切片）', () => {
     await svc.close()
   })
 
-  it('chat.abort → paused；刷新 chat.get canResume=true', async () => {
-    // 1. 创建 confirm 审批 chat
-    const createRes = await client.call('chat.create', {
+  async function createAndOpenConfirmChat(): Promise<void> {
+    const create = await client.call('chat.create', {
       brain: 'mock_confirm',
       senseGroup: 'confirm_senses',
     })
-    expect(createRes.success).toBe(true)
-    chatId = (createRes.data as ChatCreateResponseData).chatId
+    expect(create.success).toBe(true)
+    chatId = (create.data as ChatCreateResponseData).chatId
+    const open = await client.call('chat.open', { scope: 'chat', chatId })
+    expect(open.success).toBe(true)
+  }
 
-    // 2. send 触发 write_file:confirm → interrupt（不 await 终态，run 挂在审批）
-    const send = client.request('chat.send', { chatId, prompt: '写文件' })
-    await waitForNotification(() => send.events, 'interrupt')
-    expect(interrupts(allEvents(send.events)).length).toBeGreaterThanOrEqual(1)
-
-    // 3. abort 活跃 run（无条件，免 runId CONFLICT）
-    const abortRes = await client.call('chat.abort', { chatId })
-    expect(abortRes.success).toBe(true)
-    expect((abortRes.data as ChatAbortResponseData).aborted).toBe(true)
-
-    // 4. send 终态：handleChatAbort 走 approvalManager.abort（rejectApproval(AgentAbortError)）
-    //    可靠中断 approval.wait → generator 结束 → finally 投递终态；统一暂停语义 success:true。
-    const sendFinal = await client.awaitResponse(send)
-    expect(sendFinal.success).toBe(true)
-
-    // 5. 刷新：chat.get canResume=true（abort 归 paused，末条为 sense）
-    const getRes = await client.call('chat.get', { chatId })
-    expect(getRes.success).toBe(true)
-    expect((getRes.data as ChatGetResponseData).canResume).toBe(true)
-  }, 15000)
-
-  it('chat.input.submit 脱钩运行中 abort 立即取消审批并释放 runtime', async () => {
-    const createRes = await client.call('chat.create', {
-      brain: 'mock_confirm',
-      senseGroup: 'confirm_senses',
-    })
-    expect(createRes.success).toBe(true)
-    chatId = (createRes.data as ChatCreateResponseData).chatId
-    await client.call('chat.open', { chatId })
-
-    const input = client.request('chat.input.submit', {
+  function submitConfirmInput() {
+    return client.request('chat.input.submit', {
       chatId,
       commandId: randomUUID(),
       clientMessageId: randomUUID(),
       messageId: randomUUID(),
       content: '写文件',
     })
+  }
+
+  it('projects canResume through the canonical catalog after abort', async () => {
+    await createAndOpenConfirmChat()
+    const input = submitConfirmInput()
     const ack = await client.awaitResponse(input)
     expect(ack.success).toBe(true)
+
+    await waitForNotification(() => input.events, 'interrupt')
+    expect(interrupts(allEvents(input.events))).toHaveLength(1)
+
+    const abort = await client.call('chat.abort', { chatId })
+    expect(abort.success).toBe(true)
+    expect((abort.data as ChatAbortResponseData).aborted).toBe(true)
+    await waitFor(
+      () => input.events,
+      () => (!isChatRunning(chatId) ? true : undefined),
+    )
+
+    const catalog = await client.call('chat.list', { scope: 'history' })
+    expect(catalog.success).toBe(true)
+    const summary = (catalog.data as ChatListResponseData).chats.find(
+      (entry) => entry.chatId === chatId,
+    )
+    expect(summary?.canResume).toBe(true)
+  }, 15_000)
+
+  it('cancels approval and releases runtime immediately after detached input abort', async () => {
+    await createAndOpenConfirmChat()
+    const input = submitConfirmInput()
+    const ack = await client.awaitResponse(input)
+    expect(ack.success).toBe(true)
+
     const interrupt = await waitForNotification(() => input.events, 'interrupt')
     const approvalId = (interrupt.data as { approvalId: string }).approvalId
     expect(approvalManager.has(approvalId)).toBe(true)
     expect(getInteraction(approvalId)?.status).toBe('pending')
 
-    const abortRes = await client.call('chat.abort', { chatId })
-    expect(abortRes.success).toBe(true)
-    expect((abortRes.data as ChatAbortResponseData).aborted).toBe(true)
+    const abort = await client.call('chat.abort', { chatId })
+    expect(abort.success).toBe(true)
+    expect((abort.data as ChatAbortResponseData).aborted).toBe(true)
     expect(approvalManager.has(approvalId)).toBe(false)
     expect(getInteraction(approvalId)).toMatchObject({
       status: 'cancelled',
@@ -112,5 +107,5 @@ describe('S13 停止后刷新仍 resume（Tier 2 地基垂直切片）', () => {
       () => input.events,
       () => (!isChatRunning(chatId) ? true : undefined),
     )
-  }, 15000)
+  }, 15_000)
 })

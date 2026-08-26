@@ -13,15 +13,15 @@
  *   子 pet name/face/agentType 由 HistoryDrawer 按 item.subPetChatId 从 pets 查得（缺则 fallback）。
  */
 import { computed, ref } from 'vue'
-import type { HistoryItem } from '@/stores/agents'
-import type { RuntimeSelection } from '@/services/agentApi'
+import type { HistoryItem } from '@/domain/chat/projectionTypes'
+import type { RuntimeSelection } from '@/application/backend/public'
 import { renderMarkdown } from '@/utils/markdown'
 import { formatTime } from '@/utils/formatTime'
 import { splitCommandPrompt } from '../composables/commands'
 import { SenseCallRenderer } from '../renderers/index'
 import MessageAvatar from './MessageAvatar.vue'
-import MediaInlineRenderer from '../dialog/media/MediaInlineRenderer.vue'
-import { terminationDisplay } from '@/features/pets/nyxus/graph/termination'
+import { MediaInlineRenderer } from '../composer/public'
+import { terminationDisplay } from '@/features/pets/nyxus/public'
 import { toSenseNameZh } from '@/utils/senseName'
 
 const props = defineProps<{

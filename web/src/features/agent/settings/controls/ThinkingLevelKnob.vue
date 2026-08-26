@@ -19,7 +19,7 @@
  *  - 数字键 1-N 跳指定档
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import type { ThinkingLevel } from '@/services/agentApi'
+import type { ThinkingLevel } from '@/application/backend/public'
 
 const model = defineModel<ThinkingLevel>({ default: 'off' })
 

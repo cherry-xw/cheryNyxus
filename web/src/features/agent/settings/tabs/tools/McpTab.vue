@@ -5,10 +5,10 @@
  */
 import { ref, computed } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import type { ConfigDto } from '@/services/agentApi'
+import type { ConfigDto } from '@/application/backend/public'
 import { SUPERVISIONS, SUPERVISION_LABEL } from '../../config/constants'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
-import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
+import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 
 const props = defineProps<{ draft: ConfigDto }>()
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()

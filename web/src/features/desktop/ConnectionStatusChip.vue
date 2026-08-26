@@ -6,7 +6,7 @@
  * 仅作状态展示；断连遮罩与重试由 WorkbenchDialog 负责（connecting 不遮罩，避免启动闪遮罩）。
  */
 import { computed } from 'vue'
-import { useConnectionStore } from '@/stores'
+import { useConnectionStore } from '@/application/public'
 
 const connection = useConnectionStore()
 

@@ -1,5 +1,5 @@
-import type { GraphToolCall, TerminationFact, TimelineActor } from '@/services/agentApi'
-import type { SenseCallRecord } from '@/stores/agents'
+import type { GraphToolCall, TerminationFact, TimelineActor } from '@/application/backend/public'
+import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import type { ExecutionNode } from './executionGraph'
 
 export type ToolBatchVisualStatus = 'active' | 'pending' | 'completed' | 'error' | 'rejected'

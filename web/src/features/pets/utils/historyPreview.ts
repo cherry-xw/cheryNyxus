@@ -1,5 +1,5 @@
-import type { HistoryItem, SenseCallRecord } from '@/stores/agents'
-import type { useAgentsStore } from '@/stores'
+import type { HistoryItem, SenseCallRecord } from '@/domain/chat/projectionTypes'
+import type { useAgentsStore } from '@/application/public'
 import { hasRenderer } from '@/features/agent/renderers/registry'
 
 /** AgentsStore 实例类型（iconForTool 等方法来源）。 */

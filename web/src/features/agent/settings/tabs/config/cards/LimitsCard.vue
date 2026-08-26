@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** LimitsCard：超时 / 上限矩阵 + 看门狗。ms↔秒换算集中在此 computed。 */
 import { computed } from 'vue'
-import type { GlobalConfigDto } from '@/services/agentApi'
+import type { GlobalConfigDto } from '@/application/backend/public'
 import NeonNumberControl from '../../../controls/NeonNumberControl.vue'
 
 const props = defineProps<{ global: GlobalConfigDto; no: number }>()

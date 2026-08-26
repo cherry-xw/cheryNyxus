@@ -1,4 +1,4 @@
-import type { ConversationBranchSummary } from '@/services/agentApi'
+import type { ConversationBranchSummary } from '@/application/backend/public'
 import type { ExecutionGraph, ExecutionNode } from './executionGraph'
 
 export interface CoreFlowProjection {

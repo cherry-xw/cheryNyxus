@@ -12,7 +12,7 @@ import {
   agentApi,
   type BrowseListPayload,
   type ConfigWorkspaceBrowseStart,
-} from '@/services/agentApi'
+} from '@/application/backend/public'
 import { randomHex, xorEncrypt, xorDecrypt } from '@/utils/obfuscate'
 
 const props = defineProps<{ open: boolean }>()

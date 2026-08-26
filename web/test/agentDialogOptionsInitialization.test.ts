@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 describe('agent dialog option initialization', () => {
   it('initializes the reconnect guard before registering the immediate chat watcher', async () => {
     const source = await readFile(
-      resolve(import.meta.dirname, '../src/features/agent/dialog/useAgentDialogOptions.ts'),
+      resolve(import.meta.dirname, '../src/features/agent/composer/useAgentDialogOptions.ts'),
       'utf8',
     )
     const reconnectGuard = source.indexOf('let connectResumed = false')

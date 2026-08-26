@@ -1,19 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { useAgentsStore, useConnectionStore, useThemeStore } from '@/stores'
+import { useNyxusHost } from '../application/host'
 import NyxusParticle from './NyxusParticle.vue'
 import NyxusToolRing from './NyxusToolRing.vue'
-import ServerLoginDialog from '@/components/dialog/ServerLoginDialog.vue'
+import { ServerLoginDialog } from '@/features/auth/public'
 import { useNyxusWorkState } from '../composables/useNyxusWorkState'
 import { useStandaloneNyxusMotion } from '../composables/useStandaloneNyxusMotion'
 import { createClickDisambiguator } from '../composables/clickDisambiguator'
 import { closeNyxusMenu, nyxusMenuOpen, toggleNyxusMenu } from '../nyxusUiState'
 import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
-import { CHERY_NYXUS_PRESET } from '@/stores/agents/data/petLifecycle'
+import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
 
-const agents = useAgentsStore()
-const connection = useConnectionStore()
-const themeStore = useThemeStore()
+const { agents, connection, theme: themeStore } = useNyxusHost()
 const creating = ref(false)
 const openingChat = ref(false)
 const loginOpen = ref(false)

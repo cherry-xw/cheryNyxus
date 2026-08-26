@@ -1,0 +1,1022 @@
+.lite-view {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+  font-size: 13px;
+  /* 字重基线 400（用户强制规则）：lite 全部内容继承 400，杜绝任何加粗继承。 */
+  font-weight: 400;
+}
+
+/* 字重收敛：lite 视图内 <strong>（审批标题/历史 label 等）一律 400——lite 为轻量界面，
+   遵循 font-style-guide「内容字段不加粗」，标题层级亦随轻量风格降为 400。 */
+.lite-view strong {
+  font-weight: 400;
+}
+
+/* ── 顶部状态栏：轻量状态 + 节点数（需求 2：去掉「已连接」，改为轻量状态/节点数）── */
+.lite-statusbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.lite-status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--el-text-color-placeholder);
+}
+.lite-status-dot[data-tone='busy'] {
+  background: var(--el-color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--el-color-primary) 22%, transparent);
+  animation: lite-pulse 1.4s ease-in-out infinite;
+}
+.lite-status-dot[data-tone='ok'] {
+  background: var(--el-color-success);
+}
+.lite-status-dot[data-tone='danger'] {
+  background: var(--el-color-danger);
+}
+@keyframes lite-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.lite-status-text {
+  flex: none;
+  white-space: nowrap;
+}
+.lite-hydration {
+  flex: none;
+  color: var(--el-color-warning);
+}
+.lite-node-count {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.lite-session {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lite-total {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.lite-run-controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lite-inline-action {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.lite-inline-action:hover:not(:disabled) {
+  border-color: var(--el-color-primary-light-5);
+  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+}
+.lite-inline-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* 主体容器：DetailDrawer 在此 absolute 定位（需求 3a：标题栏下方开始，不盖标题栏） */
+.lite-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 时间瀑布流（v3 共享压缩时间轴：多轨多 Agent，节点按绝对时间定位、大段等待压缩）── */
+.lite-trajectory {
+  position: relative;
+  flex: none;
+  /* v3：轨迹区块高度随内容自适应（不固定、不居中大留白）——任务条多轨时自然变高；
+     max-height 仅作多轨溢出的兜底滚动上限。运行中块宽由 elapsedMs 驱动的布局重算逐秒增长。 */
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  max-height: 168px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+/* 头部为常规文档流行，仅缩放重置按钮（v0.3.2：去掉「时间轴」标题；zoom=1 时不渲染）——不悬浮、不覆盖行标记。 */
+.lite-trajectory-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--el-text-color-secondary);
+  padding: 0 2px 4px;
+}
+.lite-trajectory-zoom {
+  pointer-events: auto;
+  border: none;
+  background: color-mix(in srgb, var(--el-color-primary) 14%, transparent);
+  color: var(--el-color-primary);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.lite-trajectory-zoom:hover {
+  background: color-mix(in srgb, var(--el-color-primary) 24%, transparent);
+}
+.lite-trajectory::-webkit-scrollbar {
+  display: none;
+}
+.lite-trajectory-track {
+  position: relative;
+  /* v0.4.2：轨道组紧凑排列——高度=内容高度（随轨数自适应），gap 3px 控制链路间距（需求：2-4px）； */
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 100%;
+}
+.lite-trajectory-lane {
+  position: relative;
+  flex: none;
+  height: 13px;
+  line-height: 0;
+}
+/* 行头角色名（需求 c/2/4）：独立分配空间展示，实心背景盖住横向滚动时滚过的块，不与节点重叠/冲突；
+   本身是按钮，点击切换正文列表显示该链路（需求 4）。 */
+.lite-trajectory-lane-label {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  display: inline-block;
+  box-sizing: border-box;
+  width: 76px;
+  height: 13px;
+  line-height: 13px;
+  padding: 0 8px 0 0;
+  border: none;
+  border-radius: 0;
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--el-text-color-secondary);
+  background: var(--el-bg-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.lite-trajectory-lane-label:hover {
+  color: var(--el-color-primary);
+}
+.lite-trajectory-lane.is-root-lane .lite-trajectory-lane-label {
+  color: var(--el-color-primary);
+}
+.lite-trajectory-lane.is-active .lite-trajectory-lane-label {
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 14%, var(--el-bg-color));
+}
+.lite-trajectory-lane-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 13px;
+}
+/* 块为标准矩形：无圆角、无虚线等待块——等待区间 = 缺口，由块间空余空间自然呈现 */
+.lite-trajectory-bar {
+  position: absolute;
+  top: 0;
+  height: 13px;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.72;
+  transition:
+    opacity 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+/* t16：hover 提示（不再放大，避免遮挡上下链路；用 inset 描边高亮，不溢出遮挡两侧块） */
+.lite-trajectory-bar:hover {
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px var(--el-text-color-primary);
+}
+.lite-trajectory-bar.is-user {
+  background: var(--el-color-primary);
+}
+.lite-trajectory-bar.is-root-agent {
+  background: var(--el-color-success);
+}
+.lite-trajectory-bar.is-child-agent {
+  background: #ed79bd;
+}
+.lite-trajectory-bar.is-tool {
+  background: var(--el-color-warning);
+}
+.lite-trajectory-bar.is-return {
+  background: #3ddc97;
+}
+.lite-trajectory-bar.is-dispatch {
+  background: #c58af9;
+}
+.lite-trajectory-bar.is-spawn {
+  background: #c58af9;
+}
+.lite-trajectory-bar.is-system {
+  background: #a99df6;
+}
+/* 按工具类型配色（需求 5） */
+.lite-trajectory-bar.is-tool[data-tooltype='exec'] {
+  background: #9b59b6;
+}
+.lite-trajectory-bar.is-tool[data-tooltype='read'] {
+  background: var(--el-color-info);
+}
+.lite-trajectory-bar.is-tool[data-tooltype='write'] {
+  background: var(--el-color-success);
+}
+.lite-trajectory-bar.is-tool[data-tooltype='web'] {
+  background: #00a8a8;
+}
+.lite-trajectory-bar.is-tool[data-tooltype='dispatch'] {
+  background: #e67e22;
+}
+.lite-trajectory-bar.is-tool[data-tooltype='other'] {
+  background: var(--el-color-warning);
+}
+/* v0.4.1：运行中块移除脉冲闪烁动画——宽度随执行时间持续增长即为运行反馈（barWidthFor 线性映射），
+   仅保留常亮高亮（opacity:1）。 */
+.lite-trajectory-bar.is-running {
+  opacity: 1;
+}
+/* v3：运行中执行块宽度由 elapsedMs 驱动的布局重算逐秒增长（需求 3.1 先创建→变长→结束固定），
+   不再使用 CSS 动画（trajectoryLayout memo 已纳入 active.elapsedMs）。 */
+.lite-trajectory-bar.is-selected {
+  box-shadow: inset 0 0 0 2px var(--el-text-color-primary);
+  opacity: 1;
+}
+/* 无时间刻度轴（v0.3.2：时间跨度展示被放弃，改为紧凑块流） */
+
+/* ── 运行历史列表（需求 1c / 4a）：用户消息与轮末响应独占一行，中间节点为 cluster 小按钮 ── */
+/* ── 链路标签栏（v0.5 链路展示改造）：正文列表顶部常驻（monitor 上方、固定不滚动），
+   主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，与轨迹行头角色名按钮联动；
+   直角矩形（用户强制规则：无圆角）── */
+.lite-lane-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lite-lane-bar::-webkit-scrollbar {
+  display: none;
+}
+.lite-lane-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 0;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.lite-lane-tab:hover:not(.is-active) {
+  border-color: var(--el-color-primary-light-5);
+  color: var(--el-color-primary);
+}
+.lite-lane-tab.is-active {
+  background: color-mix(in srgb, var(--el-color-primary) 12%, var(--el-bg-color));
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+.lite-lane-tab-icon {
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+}
+.lite-lane-tab.is-root-lane .lite-lane-tab-icon {
+  color: var(--el-color-primary);
+}
+.lite-lane-tab-label {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 子 Agent 入口消息块（v0.5 链路展示改造）：主 Agent 派发给该子 Agent 的任务说明，
+   独立于历史列表（不进时间轴/轮次排序），打开子 Agent 链路即可看到其任务 ── */
+.lite-entry-dispatch {
+  border: 1px solid color-mix(in srgb, #c58af9 55%, var(--el-border-color));
+  border-radius: 8px;
+  background: color-mix(in srgb, #c58af9 7%, var(--el-bg-color));
+  overflow: hidden;
+}
+.lite-entry-dispatch-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+}
+.lite-entry-dispatch-icon {
+  flex: none;
+  width: 18px;
+  text-align: center;
+  color: #c58af9;
+}
+.lite-entry-dispatch-actor {
+  color: var(--el-text-color-primary);
+}
+.lite-entry-dispatch-verb {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+.lite-entry-dispatch-toggle {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.lite-entry-dispatch-content {
+  margin: 0;
+  padding: 0 10px 8px 34px;
+  line-height: 1.55;
+  font-size: 12.5px;
+  color: var(--el-text-color-secondary);
+  /* 强制字重规则：正文一律 400。 */
+  font-weight: 400;
+}
+
+.lite-monitor {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 14px 12px;
+  scrollbar-width: none;
+}
+.lite-monitor::-webkit-scrollbar {
+  display: none;
+}
+.lite-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lite-history-row {
+  margin-top: 6px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.lite-history-row.is-round-start {
+  border-color: color-mix(in srgb, var(--el-color-primary) 38%, var(--el-border-color));
+}
+.lite-history-row.is-cluster {
+  border-style: dashed;
+  border-color: var(--el-border-color);
+  background: color-mix(in srgb, var(--el-fill-color-lighter) 55%, transparent);
+}
+.lite-history-row[data-status='failed'] {
+  border-color: var(--el-color-danger-light-5);
+}
+.lite-history-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+}
+.lite-history-icon {
+  flex: none;
+  width: 18px;
+  text-align: center;
+  color: var(--el-text-color-secondary);
+}
+.lite-history-row.is-user .lite-history-icon {
+  color: var(--el-color-primary);
+}
+.lite-history-row.is-tool .lite-history-icon {
+  color: var(--el-color-warning);
+}
+.lite-history-row.is-root-agent .lite-history-icon {
+  color: var(--el-color-success);
+}
+.lite-history-row.is-child-agent .lite-history-icon {
+  color: #ed79bd;
+}
+.lite-history-row.is-return .lite-history-icon {
+  color: #3ddc97;
+}
+.lite-history-row.is-dispatch .lite-history-icon,
+.lite-history-row.is-spawn .lite-history-icon {
+  color: #c58af9;
+}
+.lite-history-row.is-system .lite-history-icon {
+  color: #a99df6;
+}
+.lite-history-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lite-history-meta strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 强制字重规则：内容/标签一律 400，不随 <strong> 默认加粗。 */
+  font-weight: 400;
+}
+.lite-history-status {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+.lite-history-meta time {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.lite-history-detail,
+.lite-view-full {
+  border: 0;
+  background: transparent;
+  color: var(--el-color-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+.lite-history-detail:disabled,
+.lite-view-full:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.lite-history-content {
+  margin: 0;
+  padding: 0 10px 8px 36px;
+  line-height: 1.55;
+  font-size: 12.5px;
+  /* 强制字重规则：用户提问/模型响应正文一律 400。 */
+  font-weight: 400;
+}
+.lite-empty {
+  margin: 14px 2px 2px;
+  color: var(--el-text-color-placeholder);
+}
+
+/* ── cluster 小按钮行（需求 4a/4b）：多个中间节点挤成一行的小按钮，只显示 icon + 状态 ── */
+.lite-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 7px 10px;
+}
+.lite-cluster-node {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 999px;
+  background: var(--el-fill-color-blank);
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.6;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+.lite-cluster-node:hover {
+  border-color: var(--el-color-primary-light-5);
+  transform: translateY(-1px);
+}
+.lite-cluster-node.is-selected {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-primary) 20%, transparent);
+}
+/* t14：时间轴点击定位 → 高亮下方对应内容块（行 + 具体节点），并做一次短暂闪光动画。 */
+.lite-history-row.is-focused {
+  border-color: var(--el-color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-primary) 18%, transparent);
+}
+.lite-history-row.lite-flash {
+  animation: lite-focus-flash 900ms ease;
+}
+@keyframes lite-focus-flash {
+  0% {
+    box-shadow: 0 0 0 2px var(--el-color-primary);
+    background: color-mix(in srgb, var(--el-color-primary) 16%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+    background: transparent;
+  }
+}
+.lite-cluster-node.is-focused {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 1px;
+  border-color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+}
+.lite-trajectory-bar.is-focused {
+  box-shadow: inset 0 0 0 2px var(--el-color-primary);
+  opacity: 1;
+}
+/* t16：时间轴 bar 悬停详情浮层（跟随鼠标，fixed 定位） */
+.lite-tip {
+  position: fixed;
+  z-index: 4000;
+  transform: translate(10px, 12px);
+  max-width: 280px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color);
+  background: var(--el-bg-color-overlay, var(--el-bg-color));
+  color: var(--el-text-color-regular);
+  font-size: 11.5px;
+  line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.lite-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 12px;
+}
+.lite-tip-head strong {
+  font-weight: 400;
+}
+.lite-tip-icon {
+  color: var(--el-text-color-secondary);
+}
+.lite-tip-row {
+  display: flex;
+  gap: 6px;
+  color: var(--el-text-color-secondary);
+}
+.lite-tip-key {
+  flex: none;
+  color: var(--el-text-color-placeholder);
+  min-width: 34px;
+}
+/* t15+：工具类型辨识——pill 内中文类型标签 + 按类型着色（边框/底色/标签字），一眼区分命令/读取/写入/网页/委派 */
+.lite-cluster-type-label {
+  flex: none;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+.lite-cluster-type-label[data-tooltype='exec'] {
+  color: #9b59b6;
+}
+.lite-cluster-type-label[data-tooltype='read'] {
+  color: #6b7f92;
+}
+.lite-cluster-type-label[data-tooltype='write'] {
+  color: #2f9e63;
+}
+.lite-cluster-type-label[data-tooltype='web'] {
+  color: #00a8a8;
+}
+.lite-cluster-type-label[data-tooltype='dispatch'] {
+  color: #e67e22;
+}
+.lite-cluster-type-label[data-tooltype='other'] {
+  color: #c58a1f;
+}
+.lite-cluster-node[data-tooltype='exec'] {
+  border-color: color-mix(in srgb, #9b59b6 52%, var(--el-border-color));
+  background: color-mix(in srgb, #9b59b6 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='read'] {
+  border-color: color-mix(in srgb, #6b7f92 52%, var(--el-border-color));
+  background: color-mix(in srgb, #6b7f92 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='write'] {
+  border-color: color-mix(in srgb, #2f9e63 52%, var(--el-border-color));
+  background: color-mix(in srgb, #2f9e63 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='web'] {
+  border-color: color-mix(in srgb, #00a8a8 52%, var(--el-border-color));
+  background: color-mix(in srgb, #00a8a8 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='dispatch'] {
+  border-color: color-mix(in srgb, #e67e22 52%, var(--el-border-color));
+  background: color-mix(in srgb, #e67e22 8%, var(--el-fill-color-blank));
+}
+.lite-cluster-node[data-tooltype='other'] {
+  border-color: color-mix(in srgb, #c58a1f 52%, var(--el-border-color));
+  background: color-mix(in srgb, #c58a1f 8%, var(--el-fill-color-blank));
+}
+/* t15：运行时间变色——运行中的工具块按运行时长绿→黄→红，运行越久越醒目 */
+.lite-cluster-node[data-duration='fast'] {
+  border-color: color-mix(in srgb, var(--el-color-success) 72%, var(--el-border-color));
+}
+.lite-cluster-node[data-duration='medium'] {
+  border-color: color-mix(in srgb, var(--el-color-warning) 78%, var(--el-border-color));
+}
+.lite-cluster-node[data-duration='long'] {
+  border-color: var(--el-color-danger);
+}
+.lite-cluster-node[data-duration='long'] .lite-cluster-dot {
+  background: var(--el-color-danger);
+  animation: lite-pulse 1.2s ease-in-out infinite;
+}
+.lite-cluster-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--el-text-color-placeholder);
+}
+.lite-cluster-dot[data-status='running'] {
+  background: var(--el-color-primary);
+  animation: lite-pulse 1.4s ease-in-out infinite;
+}
+.lite-cluster-dot[data-status='completed'] {
+  background: var(--el-color-success);
+}
+.lite-cluster-dot[data-status='failed'],
+.lite-cluster-dot[data-status='rejected'] {
+  background: var(--el-color-danger);
+}
+.lite-cluster-dot[data-status='cancelled'] {
+  background: var(--el-text-color-placeholder);
+}
+.lite-cluster-icon {
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+}
+.lite-cluster-elapsed {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--el-text-color-placeholder);
+}
+.lite-cluster-node.is-status-running {
+  border-color: color-mix(in srgb, var(--el-color-primary) 55%, var(--el-border-color));
+}
+.lite-cluster-node.is-status-failed,
+.lite-cluster-node.is-status-rejected {
+  border-color: color-mix(in srgb, var(--el-color-danger) 55%, var(--el-border-color));
+}
+
+/* ── 待操作页签（v0.4.2 浏览器式）：标签栏内多 tab，样式照抄浏览器顶部 tab——
+   上圆角下直角、底部与内容区连接（无底边框）；激活 tab 亮背景（= 内容区背景，与其连体）
+   + 主色边框文字 + 略高盖过非激活；非激活 tab 透明背景（= 标签栏灰）+ 略矮；
+   激活不收缩，其余空间不足时互相挤压、最短只剩 icon ── */
+.lite-pending-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 160px;
+  /* 非激活 tab 底部 padding 更薄 → 总高矮于激活 tab（底部对齐后顶部低 4px，浏览器 tab 层次） */
+  padding: 6px 14px 5px;
+  /* 浏览器 tab：直角矩形（用户强制规则：无圆角）、底部与内容区连接（无底边框） */
+  border: 1px solid var(--el-border-color);
+  border-bottom: none;
+  background: transparent;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+  /* 标签挤压：不撑满（flex-grow 0），空间不足时非激活可收缩（flex-shrink 1） */
+  flex: 0 1 auto;
+}
+.lite-pending-tab:hover:not(.is-active) {
+  border-color: var(--el-color-primary-light-5);
+  color: var(--el-color-primary);
+}
+.lite-pending-tab.is-active {
+  /* 当前展示页签不挤压 */
+  flex: 0 0 auto;
+  /* 激活 tab：底部 padding 更厚 → 更高盖过非激活；亮背景与内容区同色连体、主色边框与文字 */
+  padding: 6px 14px 9px;
+  background: var(--el-bg-color);
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
+}
+.lite-pending-tab-icon {
+  flex: none;
+  font-size: 12px;
+  line-height: 1;
+}
+.lite-pending-tab-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lite-pending-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  padding: 0 5px;
+  background: color-mix(in srgb, var(--el-color-warning) 16%, transparent);
+  color: var(--el-color-warning);
+  font-size: 10px;
+  text-align: center;
+  line-height: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.lite-pending-badge[data-expired='true'] {
+  background: color-mix(in srgb, var(--el-color-danger) 16%, transparent);
+  color: var(--el-color-danger);
+}
+/* ── 待处理详情面板（v0.4.2 浏览器式多 tab）：独立卡片（直角边框，无圆角——用户强制规则）与上方对话流区分；
+   卡内两级结构——标签栏（灰背景）+ 内容区（亮背景）；激活 tab 亮背景与内容区同色连体、
+   底部直通内容区无分隔（切换 tab 内容随之切换）── */
+.lite-pending-panel {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 36%;
+  margin: 4px 10px 0;
+  border: 1px solid var(--el-border-color-lighter);
+  overflow: hidden;
+}
+/* 标签栏：灰背景（浏览器 tab 栏），页签靠左排、不撑满、右侧留白 */
+.lite-pending-tabs-bar {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px 12px 0;
+  background: var(--el-fill-color-lighter);
+  overflow: hidden;
+}
+/* 内容区：亮背景卡片，激活 tab 底部与此同色连体 */
+.lite-pending-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: var(--el-bg-color);
+  scrollbar-width: none;
+}
+.lite-pending-content::-webkit-scrollbar {
+  display: none;
+}
+
+.lite-interaction {
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+}
+.lite-interaction:last-child {
+  border-bottom: 0;
+}
+.lite-interaction-head {
+  display: flex;
+  align-items: center;
+  /* v0.4.2 去掉内容区标题后：状态与倒计时靠左展示 */
+  justify-content: flex-start;
+  gap: 8px;
+}
+.lite-interaction-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.lite-status-pill {
+  padding: 0 7px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 999px;
+  color: var(--el-text-color-secondary);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+.lite-status-pill[data-status='resolving'] {
+  border-color: color-mix(in srgb, var(--el-color-warning) 55%, var(--el-border-color));
+  color: var(--el-color-warning);
+}
+.lite-status-pill[data-status='blocked'] {
+  border-color: color-mix(in srgb, var(--el-color-danger) 55%, var(--el-border-color));
+  color: var(--el-color-danger);
+}
+.lite-countdown {
+  color: var(--el-color-warning);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.lite-countdown[data-expired='true'] {
+  color: var(--el-color-danger);
+}
+.lite-risk-summary {
+  margin: 5px 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.lite-interaction-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 7px;
+}
+.lite-btn {
+  padding: 2px 14px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.lite-btn.is-accept {
+  border-color: var(--el-color-success);
+  color: var(--el-color-success);
+}
+.lite-btn.is-reject {
+  border-color: var(--el-color-danger);
+  color: var(--el-color-danger);
+}
+.lite-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.lite-followup-question {
+  margin: 7px 0;
+}
+.lite-followup-question p {
+  margin: 2px 0;
+}
+.lite-object-error,
+.lite-question-error {
+  margin: 4px 0;
+  color: var(--el-color-danger);
+  font-size: 12px;
+}
+.lite-option-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lite-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.lite-option-label {
+  min-width: 0;
+  flex: 0 0 auto;
+}
+.lite-option-description {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--el-text-color-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.lite-option-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 5px;
+  background: var(--el-fill-color-blank);
+  color: inherit;
+  resize: vertical;
+}
+.lite-freetext {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 5px;
+  background: var(--el-fill-color-blank);
+  color: inherit;
+}
+
+.lite-error-banner {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--el-color-danger-light-7);
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
+.lite-error-action {
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.lite-failed-inputs {
+  flex: none;
+  padding: 5px 12px;
+  border-top: 1px solid var(--el-color-danger-light-7);
+  background: var(--el-color-danger-light-9);
+}
+.lite-failed-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--el-color-danger);
+  font-size: 12px;
+}
+.lite-failed-input span {
+  flex: 1;
+}
+
+.lite-input {
+  flex: none;
+  display: flex;
+  /* v0.4.2 多行输入：按钮贴底对齐 */
+  align-items: flex-end;
+  padding: 8px 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.lite-input-box {
+  width: 100%;
+  box-sizing: border-box;
+  /* v0.4.2 多行自适应：默认单行，换行/长内容自动增高（autoGrowInput），上限内滚动 */
+  resize: none;
+  max-height: 120px;
+  padding: 7px 10px;
+  border: 1px solid var(--el-border-color);
+  background: var(--el-fill-color-blank);
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+}
+.lite-send-btn {
+  flex: none;
+  margin-left: 8px;
+  padding: 6px 16px;
+  border: none;
+  background: var(--el-color-primary);
+  color: #fff;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+.lite-send-btn:hover:not(:disabled) {
+  background: var(--el-color-primary-light-3);
+}
+.lite-send-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (max-width: 560px) {
+  .lite-history-content {
+    padding-left: 26px;
+  }
+}

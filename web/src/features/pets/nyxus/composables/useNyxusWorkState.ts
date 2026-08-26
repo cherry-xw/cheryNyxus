@@ -1,11 +1,10 @@
 import { computed } from 'vue'
-import { useAgentsStore, useChatSessionsStore } from '@/stores'
-import { selectNyxusSession } from '@/stores/chats/selectors'
+import { useNyxusHost } from '../application/host'
+import { selectNyxusSession } from '@/application/chat/public'
 
 /** Cherry Nyxus 入口只投影运行中/空闲，不暴露 Agent 的细分过程状态。 */
 export function useNyxusWorkState() {
-  const chatSessions = useChatSessionsStore()
-  const agents = useAgentsStore()
+  const { chats: chatSessions, agents } = useNyxusHost()
   const session = computed(() =>
     selectNyxusSession(chatSessions.sessionsById, agents.activeNyxusChatId),
   )

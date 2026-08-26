@@ -1,0 +1,47 @@
+.dialog-overlay.is-native {
+  // 铺满 WindowFrame body（position:relative），不盖标题栏；绝对定位避免 fixed 覆盖整个 viewport。
+  // 保持 flex（对齐 settings/workbench native 先例：仅 center→stretch）——display:block 会摧毁
+  // 内部 flex 布局链，导致 .dialog-composer-content（角色编制/发送区）塌缩不可见。
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  overflow: hidden;
+  // pet 来源 activeDialogSource==='pet' → isFloatingOverlay=true → .dialog-overlay.is-floating
+  // 置 pointer-events:none（scoped 带 [data-v-x] 优先级更高）。native 整窗铺满必须可点，
+  // 复合选择器抬升优先级并晚声明，确保覆盖。
+  pointer-events: auto;
+  &.is-floating {
+    pointer-events: auto;
+  }
+
+  .dialog-panel {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0 !important;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    // 与 WindowFrame 统一：内容区底色 --bg（标题栏 --panel 对比清晰），panel 卡片底色让位
+    background: var(--bg);
+  }
+
+  // 发送内容区铺满剩余空间（角色编制在上、发送区占满），超高时内部滚动
+  .dialog-composer-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+}

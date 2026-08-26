@@ -1,131 +1,118 @@
-# 前端重构执行手册（handoff）
+# 前端架构边界与重构交接
 
-> **用途**：后端协议改造（G1–G8 + 流程测试 S1–S16）已全绿交付，本手册是**前端重构（F1–F5）的执行入口**，供新会话直接上手，不依赖任何前置对话上下文。
->
-> **性质**：执行手册（transient），F1–F5 落地后归档或并入 [docs/web/](./) 永久架构文档。
+本文描述当前前端已经落地的 owner、迁移状态和后续工作。强制目录与依赖规则以 [Web 前端架构与目录规范](../standards/web-frontend-architecture.md) 为唯一来源；本文不重复定义另一套规范。
 
----
+## 1. 架构目标
 
-## 0. 一句话目标
+前端采用“有边界的渐进重构”，核心不是控制单文件或单目录数量，而是确保：
 
-让前端历史面板成为「**单一缓存数组**」：刷新重连后，`chat.get`（loadHistory）+ `chat.sync`（replay/attach 补回 disconnect-window）双 RPC 各司其职 + 一个 `currentState` 快照定实时态，消除当前「双路合并 + 事件推导实时态 + 5 源 6 层去重 ≈ 470 行」的复杂度。原始需求明示「釜底抽薪、完全重构、不考虑现有实现」。
+- 每类业务事实只有一个 canonical owner；
+- 依赖只能沿规定方向流动；
+- UI 只依赖稳定的 application public port；
+- DTO、领域变换和 Vue binding 分离；
+- 纯模块可以脱离 Vue、Pinia 和 WebSocket 单测；
+- 协议变更在 `@chery/protocol` 统一定义，Web 与服务端不各自复制契约。
 
-> M1+M2+M9 修复注：F4 实施时把主 chat 历史统一走 `chat.sync(0)`，但因 sync(afterSeq) 增量语义、`afterSeq=wsClient.getLastSeq()` 永不 0、且 chat_events retention 边界不稳，导致刷新后主 chat 历史空白。本期改回**双 RPC 语义对齐**：`chat.get` = 全量历史（loadHistory / messages 表 retention-independent），`chat.sync` = 增量回放（attach 后补回 / 启动批 replay / chat_events seq>afterSeq）。详见 §3 F4 修订。
+## 2. 依赖方向
 
----
+```text
+features (Vue UI / controller)
+        |
+        v
+application public ports  <----  composition root / runtime adapters
+        |
+        v
+stores (state ownership + orchestration) ----> domain (pure reducer / projection)
+        |
+        v
+services (RPC / HTTP adapters) ----> @chery/protocol ----> WebSocket transport
+```
 
-## 1. 背景：后端已就绪的契约（前端要消费的新协议）
+硬约束：
 
-后端阶段已完成（[plan §1–3](../../../home/chery/.claude/plans/virtual-splashing-yao.md) + [docs/flow-test.md](../flow-test.md) S1–S16 全绿）。前端需消费三项：
+- `domain/**` 不得依赖 Vue、Pinia、store、service 或 feature；
+- `services/**` 不得依赖 store、feature 或 application，认证等运行时状态由 composition root 注入；
+- `stores/**` 不得依赖 feature；
+- `stores/chats/**` 不得依赖 `stores/agents/**`；
+- 普通 feature 不得直接 import `@/stores` 或 `@/services`；
+- Nyxus 内部不得访问 store，只能通过它的 host adapter；
+- service 负责协议调用，不负责 UI 状态和领域归并；
+- store 负责状态所有权与用例编排，不内联协议 DTO 映射算法。
 
-| 后端契约 | 位置 | 前端用途 |
-|---------|------|---------|
-| `chat.sync(afterSeq)` 增量回放（attach 后补回 disconnect-window；超窗时自动 messages 合成回填 + backfilled:true） | [handler.ts:364-435](../../../src/service/chat/handler.ts#L364) | 启动批量 replay / attach 后补回 / 断连重连同步 |
-| `chat.get` 全量历史（messages 表，与 chat_events retention 解耦） | [handler.ts:304-356](../../../src/service/chat/handler.ts#L304) | 抽屉打开 / 显式 reload / doLoadHistory 主 chat 路径 |
-| `chat.attach` 响应携带 `snapshotSeq`（cursor 锚点）+ `currentState`（实时态快照） | [handler.ts:562-606](../../../src/service/chat/handler.ts#L562)（M2 修复补 snapshotSeq；**eager 启动** 下子 chat 走此 recovery 路径，2026-07-23 收敛，见 [agent-pet.md §5.1](../../agent-pet.md)） | 重连运行中 run：resetChatSeq + applyCurrentState + applyQuestionSnapshot + syncOneChat('replay') 补回 disconnect-window |
-| `currentState{pendingApproval, runningTools, currentTodo}` 挂在 response | [handler.ts:347/432/595](../../../src/service/chat/handler.ts#L347)（chat.get/sync/attach）；计算 [currentState.ts](../../../src/service/chat/currentState.ts) | 权威给实时态，取代事件推导 |
-| 断连不立即 park，重连续审批**原 approvalId**（G1） | [connection.ts:201](../../../src/service/websocket/connection.ts#L201) + disconnectGrace | 审批气泡刷新后用原 id 命中 |
-| 不限时审批 30min → park paused（G2） | `approval_hard_timeout` | 审批气泡存活判定依据 |
+这些规则同时由 ESLint 和 `web/test/architecture/dependencyBoundaries.test.ts` 强制，不能只靠评审约定。
 
-**关键**：`currentState` 刻意**不含 `currentTurnContent`**（[currentState.ts:14-16](../../../src/service/chat/currentState.ts#L14) 注释）——打字机 content 仍由 stream delta 事件流恢复，避免双内容源。前端**不可**要求后端加 currentTurnContent。
+## 3. 状态所有权
 
-`CurrentStateData` 类型：[src/service/message/types.ts:1029-1046](../../../src/service/message/types.ts#L1029)。
+| Owner | 唯一拥有的状态 | 不得拥有 |
+| --- | --- | --- |
+| `ChatSession` | catalog、消息、run、interaction、direct/root subscription、timeline projection cache | Pet 坐标动画、窗口/抽屉状态 |
+| `Workspace` | dialog、drawer、workbench window、active root、overlay 与窗口布局 | 会话消息、run、Pet 动画 |
+| `PetPresentation` | Pet 实例、位置、动作、表情、ghost/动画状态 | 会话事实、审批、问题、runtime |
+| `agents` facade | 工具展示元数据与迁移期兼容方法 | canonical catalog、消息、run、interaction、subscription |
 
----
+`agents` 是兼容 facade，不是第二个领域 store。新代码不得向它增加会话状态；现有兼容调用应逐步迁往 chat、workspace、pets application ports，最终删除 facade。
 
-## 2. 前端现状（要消除的复杂度）
+## 4. 会话协议与生命周期
 
-### 2.1 双路 hydration
-- `chat.sync`（事件增量 → 重建实时态 thinking/content/runningTools/approval）+ `chat.get`（staged → 重建 `stream.history`），两路写 StreamState 不同字段；`sync` 返 `reset:true` 时 fallback `getHistory`（[index.ts:810](../../../web/src/stores/agents/index.ts#L810)）——**后端已不再发 reset，此分支死代码**。
-- 两条重连路径（[App.vue:54-77](../../../web/src/App.vue#L54) 按 `prevStatus` 分流）：
-  - 瞬断：`markAllStreamsDirty` + `syncChatEvents`，不 attach/get，靠 ws active-join 重定向。
-  - F5/冷启动：`initFromChats` → `attachRunningChats`（[index.ts:503](../../../web/src/stores/agents/index.ts#L503)，sync 之前）→ `syncChatEvents` → 预加载 getHistory。
+canonical 命令面：
 
-### 2.2 缓存数组 5 源 6 层去重 ≈ 470 行
-- **5 个写入路径同写 `stream.history` 互不知情**：A `chat.get` staged / B `chat.sync` staged / C `done.finalMessage` 内联 / D `role_reply` 内联 / E `sendMessage` 乐观 push。
-- **6 层去重/合并**：①staged 幂等 ②done 内联 dedup ③role_reply 内联 dedup ④`doLoadHistory` 合流([index.ts:671-688](../../../web/src/stores/agents/index.ts#L671)) ⑤`dedupHistoryByMsgId`([historyMerge.ts:7-71](../../../web/src/stores/agents/data/historyMerge.ts#L7)) ⑥`mergeChildReplyHistory` A/B 配对([historyMerge.ts:111-203](../../../web/src/stores/agents/data/historyMerge.ts#L111))。
-- 一致性补丁：`historyDirty` 全栈传播 + `replayMode` 8 处守卫 + `markAllStreamsDirty` + `inFlightHistory` + WS seq 整流([ws.ts:215-228](../../../web/src/services/ws.ts#L215))。
+- `chat.input.submit`：幂等提交输入并立即确认；run 输出与 RPC 生命周期分离；
+- `chat.run.resume`：使用稳定 `commandId` 恢复暂停 run；
+- `chat.abort` / tree control：显式控制运行状态。
 
-### 2.3 实时态靠事件推导（`replayMode 'sync'/'resume'`）
-- `routeNotification`/`routeChunk`（[streamRouter.ts](../../../web/src/stores/agents/ui/streamRouter.ts)）从**事件顺序**重建 `stream.approval/runningTools/thinking/content`，8 处 `if (replayMode===...)` 守卫（行 114/152/239/276/315/349/367/474/536）。
+canonical 查询与订阅面：
 
-### 2.4 两口真实显示态缺口（ currentState 要补）
-| 显示态 | 当前 | 缺口 |
-|--------|------|------|
-| 审批气泡/队列 | `interrupt` 事件回放 | park **不发 rejected** → 事件流无法判定存活 → 已 park 审批可能「复活」 |
-| smart/manual 工具态 | 无独立事件，只走 approval 气泡 | F5 后 `runningTools` **不含**待审批工具 |
+- `chat.list`：轻量 catalog；
+- `chat.open`：原子建立 direct/root subscription，并返回同一水位的运行快照；
+- `chat.timeline.get`：按 revision 获取权威 timeline；
+- `chat.close`：释放观察者，不改变 Agent 生命周期。
 
-当前前端**零 currentState 消费**（grep 证实）。
+`chat.send`、`chat.resume`、`chat.get`、`chat.sync`、`chat.attach`、`chat.startSpawn` 和 `chat.sendToChild` 不再作为外部 WebSocket RPC 注册。前端也不得重新引入这些 client wrapper。
 
----
+启动与重连由 `application/runtime/startApplicationRuntime.ts` 统一编排：
 
-## 3. 执行路径 F1–F5（低 → 高风险）
+1. ChatSession 绑定唯一 transport consumer；
+2. 加载轻量 catalog；
+3. 对需要恢复实时展示的运行中会话执行原子 `chat.open`；
+4. PetPresentation 从 ChatSession 投影视觉实例；
+5. 断线后以最后确认的 revision/event sequence 重新 `chat.open`，不走 attach + sync replay。
 
-> **关键先例**：`applyQuestionSnapshot`（[index.ts:148-173](../../../web/src/stores/agents/index.ts#L148)，`pendingQuestionBatches` 来自 response 的「快照权威 replace」模式）= currentState 接线应**复用的同款模式**。
+## 5. 公开端口
 
-### F1 — hydration 单一水源 + 重连路径收敛（低风险）
-- `syncChatEvents`([index.ts:780](../../../web/src/stores/agents/index.ts#L780))：删 `data.reset → getHistory()` fallback（死代码）。
-- `chat.sync(0)` 成为唯一历史+实时水源。`getHistory` 退化为**仅子 chat 合并视图**（group layout 纯前端合并）+ 消息级回填兜底，不再 chat.get staged 重拉。
-- 两条重连路径（瞬断 / F5）实时态恢复统一：均由 currentState 快照给定（F2），消除态恢复差异。
+Feature 只能从 `web/src/application/public.ts` 或更窄的子端口导入应用能力。公开端口可以暴露用例 action、稳定 selector/read model、只读类型以及明确的 host/controller adapter。
 
-### F2 — currentState 快照消费（**核心**，复用 applyQuestionSnapshot 模式）
-- [agentApi.ts](../../../web/src/services/agentApi.ts)：`syncChat`(:883)/`attachChat`(:908)/`getChat` response 类型加 `currentState: CurrentStateData`（对齐 [types.ts:1029](../../../src/service/message/types.ts#L1029)）。
-- 新增 `applyCurrentState(stream, cs)`（**镜像 [applyQuestionSnapshot:148](../../../web/src/stores/agents/index.ts#L148)**）：权威 replace `stream.approval`(=pendingApproval，含 waitTime/createdAt 倒计时) / `stream.runningTools`(含 smart/manual) / currentTodo。
-- sync/attach response 到达后调用 `applyCurrentState`；`routeNotification` 删 `replayMode==='resume'` 下 interrupt/sense_started/accept/rejected 的**实时态重建**分支（改由快照给定）；这些事件仅留实时运行期增量 + 副作用抑制。
-- **补齐两口缺口**：审批气泡存活判定 + smart/manual 工具执行态。
-- 打字机 content **保留** stream delta（不入快照，单一内容源）。
+公开端口不得暴露 `data/**`、reducer 内部 helper 或协议游标。端口的存在不代表可以无限制暴露整个 store；迁移期 backend/transport facade 的删除条件记录在 `docs/architecture-issues.md`，后续应持续收窄为面向用例的接口。
 
-### F3 — replayMode 收敛（中风险）
-- `'sync'`/`'resume'` → 单一「回放中」标记：回放期事件幂等累加进缓存数组 + 抑制副作用 RPC（startSpawn/resumeAgent）+ 抑制终态（done retainUntil / error-bubble）；实时态由 currentState 回放后 apply。
-- 删 8 处 `if (replayMode===...)` 守卫（[streamRouter.ts](../../../web/src/stores/agents/ui/streamRouter.ts)）。
+## 6. Nyxus 边界
 
-### F4 — 缓存数组统一 + 去重栈瘦身（高风险，~470 行 → 大幅缩减）
-- 5 源演变（**修订后**）：A `chat.get staged`（loadHistory 模式） + B `chat.sync staged`（replay / attach 模式） + C·D·E（done/role_reply/sendMessage 乐观，实时路径保留，与 B **同形累加** 同 `accumulateStaged` / `pushHistoryItem`）。
-- 去重栈瘦身：层①(staged 幂等)保留；层②③(done/role_reply 内联 dedup)简化；层④(doLoadHistory 合流)随主 chat 走 chat.get 独立水源而减；层⑤(dedupHistoryByMsgId)降为防御性可选。
-- **M1+M2+M9 修复**（F4 上线后回归）：
-  - M1：主 chat loadHistory 改回 `chat.get`（messages 表 retention-independent），放弃「chat.sync(0) 单一水源」的 F4 字面承诺。原方案因 sync(afterSeq) 增量语义 + `afterSeq=wsClient.getLastSeq()` 永不 0，触发刷新后主 chat sync 流返空。
-  - M2：`chat.attach` 响应补 `snapshotSeq`（cursor 锚点）；前端 `applyCurrentState` 借此 `resetChatSeq` 推进 cursor。
-  - M9：`attachRunningChats` 在 attach 后补 `applyQuestionSnapshot` + `syncOneChat(c, 'replay')`，把 disconnect-window 事件补回。
-  - 新增 S17 验收测试 [flowAttachSync.test.ts](../../../test/flows/service/flowAttachSync.test.ts) 锁住 attach + sync 组合行为。
-- **层⑥ `mergeChildReplyHistory` A/B 配对保留**：根因是后端 role_reply 注入主 chat 的 `role` 行 vs 子 chat `assistant` 行两条物理记录（数据模型层，非水源问题）；**本期不做**，待后端数据模型统一后再议。
-- `stream.history`(已完成轮) + 实时轮 content/thinking → 单一有序数组视图（实时轮 = 末尾 in-progress 项）；[MessageBubble](../../../web/src/features/agent/chat/MessageBubble.vue)/[HistoryDrawerPanel](../../../web/src/features/agent/drawer/HistoryDrawerPanel.vue) 单源渲染。
+Nyxus 是独立有界上下文。它的唯一外部入口是：
 
-### F5 — pet 显示态逐态验证（对应 §2.4 + plan §4.2 视角三表）
-F1–F4 后逐态手验刷新恢复：审批气泡（原 id 命中 + 存活判定）/ 运行工具（含 smart/manual）/ todo（[TodoPanel.vue:19](../../../web/src/features/agent/cards/TodoPanel.vue#L19) 改读 currentTodo）/ 打字机 / role 气泡 / error·resume。F2 已补两口缺口，预期全充足；若仍缺 → 协议层补 currentState 字段。
+- `features/pets/nyxus/public.ts`：对宿主暴露组件与公共类型；
+- `features/pets/nyxus/application/host.ts`：把 application ports 适配成 NyxusHostPort。
 
----
+Nyxus component、graph、composable 和 presenter 不能 import store。测试、Story 或其他宿主应注入 host port，而不是 mock store 内部结构。
 
-## 4. 必须遵守的约定（新会话务必先读）
+## 7. 拆分判据
 
-| 约定 | 说明 |
-|------|------|
-| **改码前先确认需求** | 启动 `structured-requirement-confirmation` 技能确认需求后再改 |
-| **Doc-first** | 先改 [docs/web/](./)（pet/rendering/agent-integration），再改码；纯重构/格式化可豁免 |
-| **前端验证交用户** | 不跑 vue-tsc/vite build/vitest，改完码即止，用户自验 |
-| **封闭开发不做向下兼容** | 新字段直接 required、缺字段直接丢弃/失败；改 schema 后删 `.chery/db/` 重跑 |
-| **TSC + lint 门控** | 改 [src/service/message/types.ts](../../../src/service/message/types.ts) 等后端契约 → `pnpm type-check` + `pnpm lint` |
-| **预存 TSC 基线**（不计入本次） | 前端 agentApi:261、HistoryDrawer:149；后端 proxy/list.ts、db/chat.ts parseMessageRow |
-| **不写左边高亮色条** | 不写 `border-left:Npx solid` 强调/警示，也不用 absolute left:0 色块；改用背景淡化/图标/文案前缀 |
-| **web 默认 element-plus** | 全局已 app.use(ElementPlus)，不写原生 input/select |
-| **core/agent 必跑测试** | 若触动 src/core 或 src/agent → `pnpm test`（core≥90%/agent≥70%） |
-| **web 目录结构** | 每文件夹 ≤5 文件；跨 feature 用 `@/` 绝对路径 |
+不再使用“每文件夹不超过 5 个文件”作为架构规则。目录与文件按状态 owner、依赖方向、纯 presenter 与 Vue binding、public API 与 internal implementation、独立变化和测试单元来拆分。
 
----
+大 composable 的首选拆法是先抽取纯 presenter/read model，再保留薄 Vue binding。按函数数量或页面区域机械切分只能作为最后的可读性整理。
 
-## 5. 参考资源
+当前目录角色、feature 子切片、store 内部 `model/read-model/bindings` 结构及依赖矩阵不在本文重复维护，统一见 [目录规范](../standards/web-frontend-architecture.md)。
 
-- **完整分析 + 路径**：`/home/chery/.claude/plans/virtual-splashing-yao.md` §4（核对表 + 三视角影响 + F1–F5 + 文件矩阵 + 验证）
-- **memory**：`protocol-hydration-redesign`（后端 G1–G8 + 前端分析结论）、`frontend-verification-user-only`、`closed-dev-no-backward-compat`、`no-left-accent-bar`、`web-element-plus-default`、`web-src-folder-structure`
-- **流程测试规约**：[docs/flow-test.md](../flow-test.md)（S1–S16 场景矩阵 + 24 分支覆盖，后端全绿不受前端改动影响）
-- **后端 currentState 实现**：[src/service/chat/currentState.ts](../../../src/service/chat/currentState.ts)
-- **前端关键文件**：[stores/agents/index.ts](../../../web/src/stores/agents/index.ts)、[ui/streamRouter.ts](../../../web/src/stores/agents/ui/streamRouter.ts)、[data/streamAccumulator.ts](../../../web/src/stores/agents/data/streamAccumulator.ts)、[data/historyMerge.ts](../../../web/src/stores/agents/data/historyMerge.ts)、[stores/agents/types.ts](../../../web/src/stores/agents/types.ts)、[services/agentApi.ts](../../../web/src/services/agentApi.ts)、[App.vue](../../../web/src/App.vue)、[services/ws.ts](../../../web/src/services/ws.ts)
+## 8. 变更门禁
 
-> 行号随代码漂移，**以函数名/symbol 定位为准**（可辅以 codegraph）。
+架构改动至少验证：
 
----
+```powershell
+pnpm type-check
+pnpm --filter web type-check
+pnpm test -- --root web test/architecture test/chats
+pnpm --filter web build
+```
 
-## 6. 建议起步
+涉及纯 domain/read model 时增加对应单测；涉及状态 owner 时必须覆盖重连、快照替换、乱序/重复事件与 active-root 投影。格式化只处理本次改动文件，避免覆盖工作树中无关的 UI 修改。
 
-- **优先 F2**（currentState 消费）：收益最大、补两口真实缺口、有 applyQuestionSnapshot 先例可镜像。
-- 或按 **F1 → F5** 顺序：F1 先清死代码降低噪声，F2 核心，F3/F4 逐步收敛。
-- 每步遵循「doc-first → 确认需求 → 改码 → (触动后端契约则 TSC+lint) → 交用户验证」。
+## 9. 完成定义
+
+一次架构迁移只有在以下条件同时满足时才完成：旧入口不再被生产代码调用且不再对外注册；canonical owner 是唯一写入者；feature 通过公开端口消费能力；纯逻辑已从框架与 transport 解耦；lint、架构测试和类型检查能阻止边界回潮；文档描述当前实现而不是过渡期双轨方案。

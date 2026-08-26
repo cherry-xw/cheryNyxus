@@ -3,11 +3,11 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { RootTimelineSnapshot } from '../../../src/services/agentApi'
 import type { ChatSession } from '../../../src/stores/chats/types'
-import { createEmptySession } from '../../../src/stores/chats/hydration'
+import { createEmptySession } from '../../../src/stores/chats/model/hydration'
 import {
   createRootTransientState,
   effectiveRootLiveState,
-} from '../../../src/stores/chats/rootTimeline'
+} from '../../../src/stores/chats/read-model/rootTimeline'
 import {
   projectActiveTurnNodes,
   projectPersistentExecutionGraph,

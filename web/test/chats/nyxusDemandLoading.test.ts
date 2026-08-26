@@ -1,61 +1,64 @@
-import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { readComponentSource } from '../helpers/componentSource'
 
 describe('Nyxus demand loading contract', () => {
-  it('keeps startup catalog-only instead of hydrating every running root', async () => {
-    const source = await readFile(resolve('web/src/stores/chats/index.ts'), 'utf8')
-    const startup = source.slice(source.indexOf('async function startup()'), source.indexOf('async function reconnect()'))
+  it('restores only running direct sessions from an atomic open snapshot', async () => {
+    const source = await readComponentSource(resolve('web/src/stores/chats/index.ts'), 'utf8')
+    const startup = source.slice(
+      source.indexOf('async function startup()'),
+      source.indexOf('async function reconnect()'),
+    )
 
-    expect(startup).toContain("agentApi.listChats({ scope: 'stage' })")
+    expect(startup).toContain('refreshCatalog()')
+    expect(startup).toContain('.filter((summary) => summary.running)')
+    expect(startup).toContain('openSession(summary.chatId)')
     expect(startup).not.toContain('hydrateTree(')
-    expect(startup).not.toContain("scope: 'history'")
+    expect(startup).not.toContain('attachChat(')
+    expect(startup).not.toContain('syncChat(')
   })
 
-  it('switches only the selected root tree and never aborts or replays chat.sync', async () => {
-    const source = await readFile(
-      resolve('web/src/features/agent/chat/AgentDialog.vue'),
+  it('keeps selected-root observation in the Workbench controller', async () => {
+    const source = await readComponentSource(
+      resolve('web/src/features/agent/workbench/useWorkbenchTreeSession.ts'),
       'utf8',
     )
-    const switchSession = source.slice(
-      source.indexOf('async function switchSession'),
-      source.indexOf('/** 钢琴键「新建会话」'),
-    )
 
-    expect(switchSession).toContain("observeRootTimeline(id, 'tree')")
-    expect(switchSession).not.toContain('hydrateTree(')
-    expect(switchSession).not.toContain('abortAgent(')
+    expect(source).toContain("acquireRootTimeline(rootChatId, rootSubscriptionOwner, 'tree')")
+    expect(source).not.toContain('hydrateTree(')
+    expect(source).not.toContain('abortAgent(')
+    expect(source).not.toContain('chat.sync')
   })
 
-  it('does not scan all conversation previews when the Nyxus workspace opens', async () => {
-    const core = await readFile(
+  it('does not scan conversation previews when the Nyxus workspace opens', async () => {
+    const core = await readComponentSource(
       resolve('web/src/features/pets/nyxus/components/NyxusCore.vue'),
       'utf8',
     )
-    const dialog = await readFile(
+    const dialog = await readComponentSource(
       resolve('web/src/features/agent/chat/AgentDialog.vue'),
       'utf8',
     )
 
     expect(core).not.toContain('fetchHistoryList()')
-    expect(dialog).not.toContain('fetchHistoryList()')
+    expect(dialog.indexOf('fetchHistoryList()')).toBeGreaterThan(
+      dialog.indexOf('targetChatId = await agents.createMasterPet'),
+    )
   })
 
-  it('does not preload histories during legacy Pet startup', async () => {
-    const source = await readFile(resolve('web/src/stores/agents/index.ts'), 'utf8')
-    const startup = source.slice(
-      source.indexOf('async function initFromChats()'),
-      source.indexOf('async function attachRunningChats'),
-    )
+  it('keeps transport ownership out of the agents compatibility facade', async () => {
+    const source = await readComponentSource(resolve('web/src/stores/agents/index.ts'), 'utf8')
+    const startup = source.slice(source.indexOf('async function initFromChats()'))
 
     expect(startup).not.toContain('getHistory(')
     expect(startup).not.toContain('preloadTargets')
-    expect(source).toContain('selectRefreshRecoveryChats(')
+    expect(source).not.toContain('agentApi.openChat(')
+    expect(source).not.toContain('bindWsClient(')
   })
 
-  it('moves the first draft into the root queue before runtime RPC work begins', async () => {
-    const source = await readFile(
-      resolve('web/src/features/agent/dialog/useAgentDialogOptions.ts'),
+  it('queues the first draft before runtime RPC and root observation', async () => {
+    const source = await readComponentSource(
+      resolve('web/src/features/agent/composer/useAgentDialogOptions.ts'),
       'utf8',
     )
     const send = source.slice(
@@ -67,12 +70,15 @@ describe('Nyxus demand loading contract', () => {
     expect(send.indexOf('chatSessions.prepareInput')).toBeLessThan(
       send.indexOf('agents.setSessionRuntime'),
     )
-    expect(send).toContain('chatSessions.observeRootTimeline')
-    expect(send).not.toContain('chatSessions.openSession(targetChatId),')
+    expect(send).toContain('chatSessions.acquireRootTimeline')
+    expect(send.indexOf('chatSessions.acquireRootTimeline')).toBeGreaterThan(
+      send.indexOf('agents.setSessionRuntime'),
+    )
+    expect(send).toContain('chatSessions.releaseRootTimeline')
   })
 
   it('keeps protocol subscription ownership out of the tree renderer', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )
@@ -82,11 +88,11 @@ describe('Nyxus demand loading contract', () => {
     expect(source).not.toContain('subscriptionId')
   })
 
-  it('does not reopen a root after its timeline patch has entered the message reducer', async () => {
-    const source = await readFile(resolve('web/src/stores/chats/index.ts'), 'utf8')
+  it('does not reopen a root after its timeline patch enters the message reducer', async () => {
+    const source = await readComponentSource(resolve('web/src/stores/chats/index.ts'), 'utf8')
     const applyEvent = source.slice(
       source.indexOf('function applyEvent('),
-      source.indexOf('// ---- hydration 内核'),
+      source.indexOf('// ---- hydration'),
     )
 
     expect(applyEvent).not.toContain('root timeline refresh')

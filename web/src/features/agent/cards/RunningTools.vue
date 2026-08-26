@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type { QuestionItemState, RunningTool } from '@/stores/agents'
-import { useAgentsStore } from '@/stores'
+import type { QuestionItemState, RunningTool } from '@/domain/chat/projectionTypes'
+import { useAgentsStore, useChatSessionsStore } from '@/application/public'
 
 defineProps<{
   tools: RunningTool[]
@@ -8,6 +8,7 @@ defineProps<{
   chatId: string
 }>()
 const agents = useAgentsStore()
+const chats = useChatSessionsStore()
 
 function isDrafted(question: QuestionItemState): boolean {
   return (
@@ -49,7 +50,7 @@ function runningToolTip(name: string): string {
           'is-question-done': question.localStatus === 'ready',
         }"
         :aria-label="question.header ?? question.question"
-        @click="agents.selectQuestion(chatId, question.questionId)"
+        @click="chats.setActiveQuestion(chatId, question.questionId)"
       >
         {{ question.localStatus === 'ready' ? '👌' : '✍️' }}
       </button>

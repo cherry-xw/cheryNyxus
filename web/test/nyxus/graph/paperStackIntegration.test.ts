@@ -1,11 +1,11 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 describe('paper stack workbench integration', () => {
   it('connects the persistent toolbar mode to the execution tree', async () => {
-    const workbench = await readFile(
-      resolve('src/features/agent/dialog/WorkbenchDialog.vue'),
+    const workbench = await readComponentSource(
+      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
       'utf8',
     )
     expect(workbench).toContain('paperMode: false')
@@ -16,7 +16,7 @@ describe('paper stack workbench integration', () => {
   })
 
   it('suppresses hover details and bridges the current paper to GPU highlighting', async () => {
-    const tree = await readFile(
+    const tree = await readComponentSource(
       resolve('src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )
@@ -36,7 +36,7 @@ describe('paper stack workbench integration', () => {
   })
 
   it('keeps the foreground reader and exposes clickable chronological title strips', async () => {
-    const stack = await readFile(
+    const stack = await readComponentSource(
       resolve('src/features/pets/nyxus/components/NodePaperStack.vue'),
       'utf8',
     )
@@ -61,7 +61,7 @@ describe('paper stack workbench integration', () => {
   })
 
   it('uses the dedicated pixel game card and hover-to-pin side intelligence card', async () => {
-    const card = await readFile(
+    const card = await readComponentSource(
       resolve('src/features/pets/nyxus/components/PaperGameCard.vue'),
       'utf8',
     )
@@ -87,9 +87,9 @@ describe('paper stack workbench integration', () => {
 
   it('keeps pixel-font card content at readable sizes across reused paper windows', async () => {
     const [card, stack, question] = await Promise.all([
-      readFile(resolve('src/features/pets/nyxus/components/PaperGameCard.vue'), 'utf8'),
-      readFile(resolve('src/features/pets/nyxus/components/NodePaperStack.vue'), 'utf8'),
-      readFile(resolve('src/features/agent/cards/QuestionCard.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/pets/nyxus/components/PaperGameCard.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/pets/nyxus/components/NodePaperStack.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/agent/cards/QuestionCard.vue'), 'utf8'),
     ])
     expect(card).toContain('--paper-font-caption: 10px')
     expect(card).toContain('--paper-font-body: 13px')
@@ -102,7 +102,7 @@ describe('paper stack workbench integration', () => {
   })
 
   it('previews pointer scrubbing, commits on release, and restores on cancellation', async () => {
-    const stack = await readFile(
+    const stack = await readComponentSource(
       resolve('src/features/pets/nyxus/components/NodePaperStack.vue'),
       'utf8',
     )
@@ -120,7 +120,7 @@ describe('paper stack workbench integration', () => {
   })
 
   it('uses retargetable short motion with keyboard and reduced-motion fallbacks', async () => {
-    const stack = await readFile(
+    const stack = await readComponentSource(
       resolve('src/features/pets/nyxus/components/NodePaperStack.vue'),
       'utf8',
     )

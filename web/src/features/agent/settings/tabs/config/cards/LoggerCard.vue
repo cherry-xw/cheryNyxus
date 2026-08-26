@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** LoggerCard：应用日志等级 / 格式 / 输出信号开关。 */
-import type { GlobalConfigDto } from '@/services/agentApi'
+import type { GlobalConfigDto } from '@/application/backend/public'
 
 type LoggerCfg = NonNullable<GlobalConfigDto['logger']>
 

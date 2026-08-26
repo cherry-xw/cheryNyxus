@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { GraphToolCall, RootTimelineSnapshot, TimelineNode } from '../../../src/services/agentApi'
@@ -96,7 +96,7 @@ describe('tool batch detail projection', () => {
 describe('topology and real fixture', () => {
   it('preserves multi/nested spawn, continue and return paths and excludes rejected spawn edges', async () => {
     const fixture = JSON.parse(
-      await readFile(resolve('test/fixtures/cp3-topology-matrix.json'), 'utf8'),
+      await readComponentSource(resolve('test/fixtures/cp3-topology-matrix.json'), 'utf8'),
     ) as { snapshot: RootTimelineSnapshot }
     const graph = projectPersistentExecutionGraph(fixture.snapshot)
     const rootSpawnEdges = graph.edges
@@ -124,7 +124,7 @@ describe('topology and real fixture', () => {
 
   it('keeps real streaming spawn calls in index order without rebuilding the batch', async () => {
     const fixture = JSON.parse(
-      await readFile(resolve('test/fixtures/cp6-real-tool-batch.json'), 'utf8'),
+      await readComponentSource(resolve('test/fixtures/cp6-real-tool-batch.json'), 'utf8'),
     ) as { batchId: string; streamStates: GraphToolCall[][] }
     const [initial, final] = fixture.streamStates
     expect(initial).toHaveLength(1)
@@ -136,7 +136,7 @@ describe('topology and real fixture', () => {
   })
 
   it('isolates popover selection, scrolling and pointer gestures from the canvas', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )

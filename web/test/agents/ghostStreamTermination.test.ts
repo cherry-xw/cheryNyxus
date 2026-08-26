@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ref } from 'vue'
 import { createStreamRouter } from '../../src/stores/agents/ui/streamRouter'
-import type { PetInstance } from '../../src/features/pets/types/types'
+import type { PetInstance } from '../../src/domain/pets/types'
 import type { StreamState } from '../../src/stores/agents/types'
 
 function makeChildPet(overrides: Partial<PetInstance> = {}): PetInstance {

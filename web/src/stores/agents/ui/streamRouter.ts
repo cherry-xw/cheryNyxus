@@ -1,8 +1,8 @@
 import type { Ref } from 'vue'
-import { applyRoleAvatar, generatePet } from '@/features/pets/types/petPresets'
-import { findSpawnPosition } from '@/features/pets/motion/petMovement'
-import { createPetInstance } from '@/features/pets/petFactory'
-import type { PetInstance } from '@/features/pets/types/types'
+import { applyRoleAvatar, generatePet } from '@/domain/pets/presetsFactory'
+import { findSpawnPosition } from '@/domain/pets/motion/movement'
+import { createPetInstance } from '@/domain/pets/factory'
+import type { PetInstance } from '@/domain/pets/types'
 import type { ChatSummary, ContextBreakdown } from '@/services/agentApi'
 import type {
   StreamState,

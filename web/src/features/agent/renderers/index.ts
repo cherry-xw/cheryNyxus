@@ -8,7 +8,7 @@
  */
 
 import { defineComponent, defineAsyncComponent, type PropType, h } from 'vue'
-import type { SenseCallRecord } from '@/stores/agents'
+import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import { registerRenderer, getRenderer, hasRenderer } from './registry'
 
 // ============== 注册内置工具渲染器 ==============

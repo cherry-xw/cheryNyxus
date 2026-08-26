@@ -1,7 +1,7 @@
 import { computed, type ComputedRef } from 'vue'
-import { useAgentsStore } from '@/stores'
-import type { HistoryItem } from '@/stores/agents'
-import type { PetInstance } from '@/features/pets/types/types'
+import { useAgentsStore } from '@/application/public'
+import type { HistoryItem } from '@/domain/chat/projectionTypes'
+import type { PetInstance } from '@/domain/pets/types'
 
 /**
  * useSubPetResolution：子 pet 解析辅助函数集合。

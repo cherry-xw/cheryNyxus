@@ -10,11 +10,11 @@ import PetBubbles from './PetBubbles.vue'
 import PetIcons from './PetIcons.vue'
 import GhostDot from './GhostDot.vue'
 import TodoPanel from '@/features/agent/cards/TodoPanel.vue'
-import type { StreamState } from '@/stores'
+import type { StreamState } from '@/application/public'
 import { usePetDrag } from '../composables/usePetDrag'
 import { usePetStyles } from '../composables/usePetStyles'
 import { useStreamBubble } from '../composables/useStreamBubble'
-import type { PetInstance } from '../types/types'
+import type { PetInstance } from '@/domain/pets/types'
 
 const props = defineProps<{
   pet: PetInstance

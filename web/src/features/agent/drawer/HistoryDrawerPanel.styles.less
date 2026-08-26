@@ -1,0 +1,607 @@
+@ink: var(--ink);
+
+// 面板绝对定位叠加（栈中多面板同位置 right:0，靠 z-index + DOM 顺序层叠）
+.drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(var(--drawer-w, clamp(320px, 40vw, 560px)), calc(100% - 16px));
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.15s;
+
+  &:hover,
+  &:active {
+    background: color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+}
+
+// 滚动条轨道上的 user 消息标记（minimap）：浅黄细线 + 大热区。
+// button 本体透明 14px 高作 hover/click 热区（2px 线难点不准）；视觉线由 ::before 画。
+// top 由父 inline-style 按 ratioOf(idx)*trackHeight 给定；margin-top 负值让热区垂直居中于 ratio 锚点。
+.scrollbar-mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 14px; // 热区高度（远大于视觉线，易 hover/click）
+  margin-top: -7px; // 居中于 ratio 锚点
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.scrollbar-mark::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: #fbbf24; // 浅黄（amber-400）默认
+  border-radius: 1px;
+  transition:
+    background 0.12s ease,
+    box-shadow 0.12s ease,
+    height 0.12s ease;
+}
+.scrollbar-mark:hover::before,
+.scrollbar-mark:focus-visible::before {
+  background: #ca8a04; // 深黄（yellow-600）hover
+  box-shadow: 0 0 4px rgba(202, 138, 4, 0.55);
+}
+.scrollbar-mark:focus-visible {
+  outline: none;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  // 标题栏与滚动区区分：着色带底（浅色主题略深、深色主题略亮）+ 加深底边 + 轻投影。
+  // 原 --surface-soft 半透明层与列表区 --panel 几乎无差，辨识度不足。
+  background: color-mix(in srgb, var(--ink) 5%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+
+  .title-block {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .title {
+    // 标题抢占剩余空间并先 ellipsis（flex-basis 0 + flex:1 + overflow ellipsis），
+    // 让过长标题截断而非推挤右侧操作组（6a）。
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  // 复制 chatId 按钮：纯 icon（📋/✓），hover title 提示。不随空间压缩（flex-shrink:0）。
+  .copy-id-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+    border-radius: 5px;
+    background: var(--surface-soft);
+    color: color-mix(in srgb, var(--ink) 50%, transparent);
+    font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition:
+      background 120ms ease,
+      color 120ms ease;
+
+    &:hover {
+      background: var(--surface);
+      color: color-mix(in srgb, var(--ink) 78%, transparent);
+    }
+
+    &.copied {
+      border-color: rgba(34, 197, 94, 0.4);
+      background: rgba(34, 197, 94, 0.1);
+      color: #16a34a;
+    }
+
+    .copy-glyph {
+      font-size: 11px;
+    }
+  }
+
+  // 会话级联切换（el-cascader）：作为标题展示。
+  // 存在下拉时静态 .title 隐去，下拉 flex:1 抢占标题区，承载标题职能。
+  .cascade-switch {
+    align-self: center;
+    flex: 1 1 0;
+    min-width: 0;
+    :deep(.el-input__wrapper) {
+      background: var(--surface-soft);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent) inset;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    :deep(.el-input__inner) {
+      color: color-mix(in srgb, var(--ink) 86%, transparent);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    :deep(.el-input__inner::placeholder) {
+      color: color-mix(in srgb, var(--ink) 45%, transparent);
+    }
+    :deep(.el-input__suffix) {
+      color: color-mix(in srgb, var(--ink) 45%, transparent);
+    }
+  }
+}
+
+// 头部右侧操作组（工具调用折叠开关 + 折叠子 agent + 关闭）
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+// 工具调用折叠开关：单按钮 toggle，active 高亮与 .display-mode-seg .mode-btn.active 一致
+.tool-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+
+  &:hover {
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
+  }
+
+  &.active {
+    background: rgba(246, 183, 60, 0.16);
+    color: #16a34a;
+  }
+}
+
+// 子 agent 消息三态显示选择器（group 合并视图）：肩并肩分段按钮，active 高亮。
+.display-mode-seg {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  overflow: hidden;
+
+  .mode-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 26px;
+    padding: 0 7px;
+    border: 0;
+    background: transparent;
+    color: color-mix(in srgb, var(--ink) 55%, transparent);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background 120ms ease,
+      color 120ms ease;
+
+    & + .mode-btn {
+      border-left: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+    }
+
+    &:hover {
+      background: var(--surface);
+      color: color-mix(in srgb, var(--ink) 88%, transparent);
+    }
+
+    &.active {
+      background: rgba(246, 183, 60, 0.16);
+      color: #16a34a;
+    }
+  }
+}
+
+.close-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 88%, transparent);
+  }
+}
+
+.drawer-body {
+  flex: 1;
+  padding: 12px 0 18px 14px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative; // 滚动按钮 .scroll-actions 绝对定位的参照
+}
+
+// 滚动顶部 / 底部按钮：堆叠在 drawer-body 右下角（绝对定位，不挤压列表布局）
+.scroll-actions {
+  position: absolute;
+  right: 14px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none; // 容器不拦截，单独恢复给按钮
+}
+
+.scroll-btn {
+  pointer-events: auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 78%, transparent);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  opacity: 0.3;
+  transition: opacity 120ms ease;
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
+
+  &:hover {
+    background: var(--surface);
+    color: color-mix(in srgb, var(--ink) 92%, transparent);
+    transform: translateY(-1px);
+    opacity: 1;
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+}
+
+.loading-row,
+.empty-row {
+  padding: 16px 8px;
+  text-align: center;
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.history-list {
+  flex: 1;
+  min-height: 0;
+  --virtual-scroll-gap: 10px;
+}
+
+.detail-context-item {
+  opacity: 0.68;
+}
+
+.activate-branch-btn {
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  border-radius: 4px;
+  padding: 4px 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 72%, transparent);
+  font-size: 11px;
+  cursor: pointer;
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.5;
+  }
+}
+
+.detail-branch-divider {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 6px 14px 0;
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+  font-size: 11px;
+  line-height: 1.35;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    left: 0;
+    border-top: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent);
+  }
+
+  span,
+  strong {
+    position: relative;
+    padding: 0 6px;
+    background: var(--panel);
+  }
+
+  span {
+    justify-self: start;
+  }
+
+  strong {
+    justify-self: end;
+    color: color-mix(in srgb, var(--ink) 72%, transparent);
+    font-weight: 400;
+  }
+}
+
+.agent-loading-list {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 14px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--ink) 13%, transparent);
+}
+.agent-loading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid rgba(99, 102, 241, 0.16);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+.agent-loading-face {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+/* master：实心圆（靛蓝填充 + 深墨字），主 agent 视觉最重。白字在靛蓝上过亮，改深墨提对比（6b）。 */
+.agent-loading-face.is-master {
+  background: #6366f1;
+  color: var(--ink);
+  border: 1px solid #f6b73c;
+}
+/* sub：描边圆（透明底 + 暖橙描边 + 橙字），子 agent 运行中。 */
+.agent-loading-face.is-sub {
+  background: transparent;
+  color: var(--ink);
+  color: #b45309;
+}
+/* ghost：虚线圆 + 降透明度，子 agent 已完成等待。 */
+.agent-loading-face.is-ghost {
+  background: transparent;
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 32%, transparent);
+  opacity: 0.55;
+}
+.agent-loading-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.agent-loading-copy b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--ink) 80%, transparent);
+  font-size: 11px;
+}
+.agent-loading-copy small,
+.batch-loading {
+  color: color-mix(in srgb, var(--ink) 48%, transparent);
+  font-size: 9.5px;
+}
+.typing-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+.typing-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #6366f1;
+}
+.typing-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.typing-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.agent-done {
+  color: var(--ink);
+  color: #16a34a;
+  font-weight: 900;
+}
+.batch-loading {
+  padding: 3px 4px;
+  text-align: center;
+}
+@keyframes history-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.usage-label {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  letter-spacing: 0.02em;
+}
+.usage-label-hover {
+  cursor: pointer;
+  &:hover {
+    color: color-mix(in srgb, var(--ink) 78%, transparent);
+  }
+}
+
+// ── 打包代际：首层卡片条 + 二层代际抽屉 ──
+.generation-cards {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px 10px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.generation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 148px;
+  max-width: 220px;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  text-align: left;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+
+  &:hover {
+    background: var(--surface);
+    border-color: color-mix(in srgb, var(--ink) 24%, transparent);
+  }
+
+  &.active {
+    background: rgba(246, 183, 60, 0.14);
+    border-color: rgba(246, 183, 60, 0.5);
+  }
+}
+
+.generation-card-summary {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ink) 82%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generation-card-meta {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--ink) 52%, transparent);
+  white-space: nowrap;
+}
+
+// 二层代际抽屉：绝对定位覆盖首层（含 header），背景淡化区分层级（无左侧色条）
+.generation-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.22);
+}
+
+.generation-layer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: rgba(246, 183, 60, 0.07);
+
+  .generation-layer-title {
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ink) 86%, transparent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    small {
+      margin-left: 8px;
+      font-size: 10.5px;
+      font-weight: 400;
+      color: color-mix(in srgb, var(--ink) 52%, transparent);
+    }
+  }
+
+  .generation-layer-close {
+    flex-shrink: 0;
+  }
+}
+
+.generation-layer-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 0 18px 14px;
+  display: flex;
+  flex-direction: column;
+}

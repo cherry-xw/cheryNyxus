@@ -1,5 +1,5 @@
-import type { ActiveRunFact, ActiveTurnSnapshot, RunSnapshot } from '@/services/agentApi'
-import type { ChatSession } from '@/stores/chats/types'
+import type { ActiveRunFact, ActiveTurnSnapshot, RunSnapshot } from '@/application/backend/public'
+import type { ChatSession } from '@/application/chat/public'
 import type { ExecutionNode } from './executionGraph'
 
 export type RunCrtStatus = ActiveRunFact['status']

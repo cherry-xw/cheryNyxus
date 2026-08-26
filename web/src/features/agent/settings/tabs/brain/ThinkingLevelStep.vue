@@ -8,7 +8,7 @@
  * 交互：点击选档；键盘 ArrowLeft/Right/Up/Down + 数字键 0-3 快捷；radiogroup 语义。
  */
 import { computed } from 'vue'
-import type { ThinkingLevel } from '@/services/agentApi'
+import type { ThinkingLevel } from '@/application/backend/public'
 
 const model = defineModel<ThinkingLevel>({ default: 'off' })
 

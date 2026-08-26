@@ -6,7 +6,7 @@
  */
 import { Microphone, Picture, VideoCamera } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
-import type { MediaCapabilitiesDto } from '@/services/agentApi'
+import type { MediaCapabilitiesDto } from '@/application/backend/public'
 
 type Kind = keyof MediaCapabilitiesDto
 

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useAgentsStore } from '../../src/stores/agents'
-import type { PetInstance } from '../../src/features/pets/types/types'
+import type { PetInstance } from '../../src/domain/pets/types'
 
 describe('preset workspace active root', () => {
   beforeEach(() => setActivePinia(createPinia()))

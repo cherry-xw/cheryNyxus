@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../helpers/componentSource'
 import { resolve } from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,12 +28,12 @@ import {
 } from '../../src/features/lite/detailSections'
 import { useLiteCanonicalView } from '../../src/features/lite/useLiteCanonicalView'
 import { useLiteStore } from '../../src/features/lite/liteStore'
-import { createEmptySession } from '../../src/stores/chats/hydration'
+import { createEmptySession } from '../../src/stores/chats/model/hydration'
 import { useChatSessionsStore } from '../../src/stores/chats'
 import {
   selectExecutionReadModel,
   type ExecutionReadModel,
-} from '../../src/stores/chats/executionReadModel'
+} from '../../src/stores/chats/read-model/executionReadModel'
 
 function step(input: Partial<ExecutionStep> & Pick<ExecutionStep, 'id' | 'kind' | 'startedAt'>) {
   return {
@@ -477,8 +477,8 @@ describe('Lite detail lazy pagination', () => {
 
   it('keeps internal payloads out of summaries and exposes accessible detail controls', async () => {
     const [view, drawer] = await Promise.all([
-      readFile(resolve('src/features/lite/LiteView.vue'), 'utf8'),
-      readFile(resolve('src/features/lite/DetailDrawer.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/LiteView.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/DetailDrawer.vue'), 'utf8'),
     ])
 
     expect(view).not.toContain('approvalEntries')

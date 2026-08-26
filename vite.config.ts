@@ -176,6 +176,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": resolve(__dirname, "./src"),
+        "@chery/protocol": resolve(__dirname, "./packages/protocol/src"),
         "@test": resolve(__dirname, "./test"),
       },
     },

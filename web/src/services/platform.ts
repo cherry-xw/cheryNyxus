@@ -15,7 +15,9 @@
  * 详细：[docs/web/env.md](../../../docs/web/env.md)
  */
 
-import { useAuthStore, hostOf } from '@/stores/auth'
+import { hostOf } from '@/domain/auth/serverAddress'
+import type { DesktopBridge } from '@/domain/shell/desktopBridge'
+import { serviceAuth } from './authContext'
 
 /** 后端端口 + transport + 会话 token。preload 注入 / `/api/config` 双源对齐。 */
 export interface ServerConfig {
@@ -37,7 +39,7 @@ declare global {
     /** Electron preload 注入：目录选择对话框（预设 workspace 用）；浏览器模式无 */
     __PICK_DIRECTORY__?: () => Promise<string | null>
     /** Electron preload 注入：原生窗口与多 surface 协调桥。 */
-    __DESKTOP_BRIDGE__?: import('@/features/desktop/desktopBridge').DesktopBridge
+    __DESKTOP_BRIDGE__?: DesktopBridge
   }
 }
 
@@ -81,8 +83,8 @@ async function fetchConfig(path: string): Promise<Response> {
  * - 远端模式（auth store 配置非 loopback 服务地址）：前缀该地址。
  */
 export function httpUrl(path: string): string {
-  const auth = useAuthStore()
-  if (auth.isRemote) return `${auth.getBaseUrl()}${path}`
+  const auth = serviceAuth()
+  if (auth.isRemote()) return `${auth.baseUrl()}${path}`
   const base = typeof window !== 'undefined' ? (window.__BACKEND_HTTP_URL__ ?? '') : ''
   return `${base}${path}`
 }
@@ -95,9 +97,9 @@ export function httpUrl(path: string): string {
  * - 浏览器 / prod（后端静态 serve）：`<ws/wss>://<host>:<wsPort>`
  */
 export function wsUrl(cfg: ServerConfig): string {
-  const auth = useAuthStore()
-  if (auth.isRemote) {
-    const base = auth.getBaseUrl()
+  const auth = serviceAuth()
+  if (auth.isRemote()) {
+    const base = auth.baseUrl()
     const scheme = base.startsWith('https:') ? 'wss' : 'ws'
     return `${scheme}://${hostOf(base)}:${cfg.wsPort}`
   }
@@ -123,8 +125,8 @@ export function wsUrl(cfg: ServerConfig): string {
  * `ConfigDefault`（agentApi 的 /api/config 结果）均可。
  */
 export function sessionHeaders(server: { sessionToken?: string }): Record<string, string> {
-  const auth = useAuthStore()
-  if (auth.isRemote) return auth.authHeader()
+  const auth = serviceAuth()
+  if (auth.isRemote()) return auth.headers()
   return server.sessionToken ? { 'X-Chery-Session-Token': server.sessionToken } : {}
 }
 
@@ -139,10 +141,10 @@ export function sessionHeaders(server: { sessionToken?: string }): Record<string
  * - 浏览器模式：`fetch('/api/config')` 获取 `wsPort + transport`（同源，vite proxy / 后端 serve 无 CORS）
  */
 export async function getServerConfig(options: { refresh?: boolean } = {}): Promise<ServerConfig> {
-  const auth = useAuthStore()
+  const auth = serviceAuth()
   // 远端：必须向目标后端拉取配置（Electron 本地 short-circuit 不适用）。
   // 远端需鉴权，附 Bearer token（本地分支 sessionHeaders 返回空 {}，靠后端 loopback 豁免）。
-  if (auth.isRemote) {
+  if (auth.isRemote()) {
     const res = await fetchConfig(httpUrl('/api/config'))
     if (!res.ok) throw new Error(`获取 /api/config 失败: ${res.status}`)
     return (await res.json()) as ServerConfig

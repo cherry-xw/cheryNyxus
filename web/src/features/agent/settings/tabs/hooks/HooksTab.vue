@@ -17,8 +17,8 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import { agentApi, type HookHandlerDTO, type HookEventMeta, type HooksShellInfo } from '@/services/agentApi'
-import TabShell, { type IndexItem } from '@/components/layout/TabShell.vue'
+import { agentApi, type HookHandlerDTO, type HookEventMeta, type HooksShellInfo } from '@/application/backend/public'
+import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 
 const emit = defineEmits<{ (e: 'error', msg: string): void }>()

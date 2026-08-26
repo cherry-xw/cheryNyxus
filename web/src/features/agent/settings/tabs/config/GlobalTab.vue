@@ -14,8 +14,8 @@
  *  - 窄屏 (<760px) 回退堆叠滚动；左下数字索引点数字置顶对应卡。
  */
 import { computed, provide, ref, watch } from 'vue'
-import type { ConfigDto } from '@/services/agentApi'
-import TabShell from '@/components/layout/TabShell.vue'
+import type { ConfigDto } from '@/application/backend/public'
+import TabShell from '@/features/agent/settings/components/TabShell.vue'
 import { SCATTER_KEY, useCardScatter, type GlobalCardAnchor } from '../useCardScatter'
 import ScatterCard from './cards/ScatterCard.vue'
 import SupervisionCard from './cards/SupervisionCard.vue'

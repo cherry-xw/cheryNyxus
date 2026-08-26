@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../../helpers/componentSource'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type {
@@ -108,7 +108,7 @@ describe('Agent-local Fold projection', () => {
   })
   it('keeps a single terminal member canonical, then creates Fold after the successor resolves', async () => {
     const fixture = JSON.parse(
-      await readFile(resolve('test/fixtures/cp7-real-fold.json'), 'utf8'),
+      await readComponentSource(resolve('test/fixtures/cp7-real-fold.json'), 'utf8'),
     ) as { snapshot: RootTimelineSnapshot }
     const activeCanonical = projectPersistentExecutionGraph(fixture.snapshot)
     const before = structuredClone(activeCanonical)
@@ -425,9 +425,9 @@ describe('Agent-local Fold projection', () => {
     expect(canonical).toEqual(before)
 
     const [treeSource, railSource, dialogSource] = await Promise.all([
-      readFile(resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'), 'utf8'),
-      readFile(resolve('web/src/features/pets/nyxus/components/FoldTabRail.vue'), 'utf8'),
-      readFile(resolve('web/src/features/agent/dialog/WorkbenchDialog.vue'), 'utf8'),
+      readComponentSource(resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'), 'utf8'),
+      readComponentSource(resolve('web/src/features/pets/nyxus/components/FoldTabRail.vue'), 'utf8'),
+      readComponentSource(resolve('web/src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
     ])
     expect(treeSource).toContain("props.foldMode === 'full'")
     expect(treeSource).toContain('projectFullFoldExecutionGraph')
@@ -436,7 +436,7 @@ describe('Agent-local Fold projection', () => {
     expect(treeSource).not.toContain('node-detail-bookmark')
     expect(treeSource).not.toContain('class="fold-card"')
     expect(treeSource).toContain('foldCount: node.fold.members.length')
-    const rendererSource = await readFile(
+    const rendererSource = await readComponentSource(
       resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
       'utf8',
     )

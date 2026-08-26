@@ -85,12 +85,16 @@ describe('historical runtime isolation', () => {
 
     try {
       const directContext = createContext().ctx
-      const direct = await handleChatOpen(directContext, { chatId })
+      const direct = await handleChatOpen(directContext, { scope: 'chat', chatId })
       expect(direct.state.run).toEqual({ runId, state: 'running', startedAt })
       await handleChatClose(directContext, { subscriptionId: direct.subscriptionId })
 
       const rootContext = createContext().ctx
-      const root = await handleChatOpen(rootContext, { rootChatId: chatId })
+      const root = await handleChatOpen(rootContext, {
+        scope: 'root',
+        rootChatId: chatId,
+        view: 'conversation',
+      })
       expect(root.state.runs).toContainEqual({ chatId, runId, state: 'running', startedAt })
       await handleChatClose(rootContext, { subscriptionId: root.subscriptionId })
     } finally {
@@ -111,7 +115,7 @@ describe('historical runtime isolation', () => {
     await handleChatList(ctx, { scope: 'history' })
     await drain(handleChatGet(ctx, { chatId }))
     await drain(handleChatSync(ctx, { chatId, afterSeq: 0 }))
-    const opened = await handleChatOpen(ctx, { chatId })
+    const opened = await handleChatOpen(ctx, { scope: 'chat', chatId })
     await handleChatClose(ctx, { subscriptionId: opened.subscriptionId })
 
     expect(resolveSpy).not.toHaveBeenCalled()
@@ -194,7 +198,7 @@ describe('historical runtime isolation', () => {
     })
 
     const { ctx } = createContext()
-    const opened = await handleChatOpen(ctx, { chatId })
+    const opened = await handleChatOpen(ctx, { scope: 'chat', chatId })
     expect(getMessages(chatId)).toHaveLength(0)
     expect(listPendingInputs(chatId)).toHaveLength(1)
 

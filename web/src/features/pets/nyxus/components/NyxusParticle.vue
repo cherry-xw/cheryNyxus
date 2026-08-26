@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useConnectionStore } from '@/stores'
+import { useNyxusHost } from '../application/host'
 import {
   resolveNyxusMode,
   stepNyxusParticles,
@@ -10,7 +10,7 @@ import {
 } from '../particles/nyxusParticleEngine'
 import { createNyxusRenderer } from '../particles/nyxusRenderer'
 import { useNyxusParticleInput } from '../composables/useNyxusParticleInput'
-import type { PetAction, PetMood } from '@/features/pets/types/types'
+import type { PetAction, PetMood } from '@/domain/pets/types'
 
 const props = withDefaults(
   defineProps<{
@@ -41,7 +41,7 @@ const props = withDefaults(
   },
 )
 
-const connection = useConnectionStore()
+const { connection } = useNyxusHost()
 const rootRef = ref<HTMLElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const mode = ref('idle')

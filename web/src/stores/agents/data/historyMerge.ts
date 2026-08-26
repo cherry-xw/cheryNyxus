@@ -1,4 +1,5 @@
 import type { HistoryItem } from '../types'
+export { collectDescendantChatIds } from '@/domain/chat/sessionTree'
 
 /**
  * 按 msgId 合并多来源投影，且不修改调用方传入的 HistoryItem。
@@ -74,31 +75,6 @@ function senseFingerprint(call: NonNullable<HistoryItem['senseCalls']>[number]):
  * 取得以 rootChatId 为根的所有后代 chat id（广度优先、去重，容忍异常环）。
  * 主历史聚合用它收集全部层级；子 pet 的 direct 历史不调用此函数。
  */
-export function collectDescendantChatIds(
-  chats: readonly { chatId: string; parentChatId?: string | null }[],
-  rootChatId: string,
-): string[] {
-  const childrenByParent = new Map<string, string[]>()
-  for (const chat of chats) {
-    if (!chat.parentChatId) continue
-    const ids = childrenByParent.get(chat.parentChatId) ?? []
-    ids.push(chat.chatId)
-    childrenByParent.set(chat.parentChatId, ids)
-  }
-
-  const descendants: string[] = []
-  const seen = new Set<string>([rootChatId])
-  const pending = [...(childrenByParent.get(rootChatId) ?? [])]
-  while (pending.length > 0) {
-    const chatId = pending.shift()!
-    if (seen.has(chatId)) continue
-    seen.add(chatId)
-    descendants.push(chatId)
-    pending.push(...(childrenByParent.get(chatId) ?? []))
-  }
-  return descendants
-}
-
 /**
  * 主历史展示去重：数据库中保留两条独立记录，只有 UI 将其折叠为一项。
  *

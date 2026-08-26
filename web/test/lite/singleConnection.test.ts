@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../helpers/componentSource'
 import { resolve } from 'node:path'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
@@ -8,7 +8,7 @@ import {
   type TimelineNodeDetailResponse,
 } from '../../src/services/agentApi'
 import { wsClient } from '../../src/services/ws'
-import { useLiteViewToggle } from '../../src/features/agent/dialog/useLiteViewToggle'
+import { useLiteViewToggle } from '../../src/features/agent/workbench/useLiteViewToggle'
 import { useLiteStore } from '../../src/features/lite/liteStore'
 import { useLiteCanonicalView } from '../../src/features/lite/useLiteCanonicalView'
 import { useChatSessionsStore } from '../../src/stores/chats'
@@ -165,10 +165,10 @@ describe('workbench Lite single-connection integration', () => {
 
   it('keeps Lite integration free of a private client, hydration and root guessing', async () => {
     const [store, adapter, toggle, workbench] = await Promise.all([
-      readFile(resolve('src/features/lite/liteStore.ts'), 'utf8'),
-      readFile(resolve('src/features/lite/useLiteCanonicalView.ts'), 'utf8'),
-      readFile(resolve('src/features/agent/dialog/useLiteViewToggle.ts'), 'utf8'),
-      readFile(resolve('src/features/agent/dialog/WorkbenchDialog.vue'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/liteStore.ts'), 'utf8'),
+      readComponentSource(resolve('src/features/lite/useLiteCanonicalView.ts'), 'utf8'),
+      readComponentSource(resolve('src/features/agent/workbench/useLiteViewToggle.ts'), 'utf8'),
+      readComponentSource(resolve('src/features/agent/workbench/WorkbenchDialog.vue'), 'utf8'),
     ])
     const productionLite = `${store}\n${adapter}\n${toggle}`
 

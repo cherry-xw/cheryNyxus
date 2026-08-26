@@ -19,7 +19,7 @@ import {
   createRootTransientState,
   installRootTimeline,
   readRootTimeline,
-} from '../../../src/stores/chats/rootTimeline'
+} from '../../../src/stores/chats/read-model/rootTimeline'
 
 function node(id: string, orderKey: number, sourceChatId = 'root'): TimelineNode {
   return {

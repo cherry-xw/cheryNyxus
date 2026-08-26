@@ -2,10 +2,10 @@
 import { computed, ref } from 'vue'
 import PetSprite from './components/PetSprite.vue'
 import { usePetWorld } from './composables/usePetWorld'
-import { useAgentsStore, useChatSessionsStore } from '@/stores'
-import type { StreamState } from '@/stores'
-import { selectOwnTimeline, selectActiveMessage } from '@/stores/chats/selectors'
-import type { PetInstance } from './types/types'
+import { useAgentsStore, useChatSessionsStore } from '@/application/public'
+import type { StreamState } from '@/application/public'
+import { selectOwnTimeline, selectActiveMessage } from '@/application/chat/public'
+import type { PetInstance } from '@/domain/pets/types'
 import { COMPACT_COMMAND, serializeCommandToken } from '@/features/agent/composables/commands'
 import { desktopBridge, openQuickComposerWindow } from '@/features/desktop/desktopBridge'
 
@@ -33,8 +33,17 @@ const visiblePets = computed(() => agents.pets)
 const visibleStreams = computed<Record<string, StreamState>>(() => {
   const result = { ...agents.streams }
   for (const session of Object.values(chatSessions.sessionsById)) {
-    const base = result[session.chatId]
-    if (!base) continue
+    const base: StreamState = result[session.chatId] ?? {
+      thinking: '',
+      content: '',
+      isWorking: false,
+      history: [],
+      historyLoaded: false,
+      historyDirty: false,
+      runningTools: [],
+      approvalQueue: [],
+      questionBatches: [],
+    }
     const active = selectActiveMessage(session)
     const turn = session.activeTurns[session.activeTurns.length - 1]
     result[session.chatId] = {
@@ -195,7 +204,10 @@ async function handleAttention(pet: PetInstance): Promise<void> {
 
 async function handleCompact(pet: PetInstance): Promise<void> {
   try {
-    await chatSessions.sendMessage(activeRoot(pet), serializeCommandToken(COMPACT_COMMAND))
+    const chatId = activeRoot(pet)
+    const content = serializeCommandToken(COMPACT_COMMAND)
+    const prepared = chatSessions.prepareInput(chatId, content)
+    await chatSessions.submitInput(chatId, content, undefined, prepared)
   } catch (e) {
     console.error('[PetStage] compact failed:', e)
   }

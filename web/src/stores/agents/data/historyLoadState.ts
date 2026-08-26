@@ -1,4 +1,4 @@
-import type { PetInstance } from '@/features/pets/types/types'
+import type { PetInstance } from '@/domain/pets/types'
 import type { StreamState } from '../types'
 
 /**

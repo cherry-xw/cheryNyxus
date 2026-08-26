@@ -7,15 +7,25 @@ import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'
 
 import App from './App.vue'
-import { useThemeStore } from '@/stores'
+import { useAuthStore, useThemeStore } from '@/stores'
+import { configureServiceAuth } from '@/services/authContext'
 
 const app = createApp(App)
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
 app.use(ElementPlus)
+const auth = useAuthStore(pinia)
+configureServiceAuth({
+  isRemote: () => auth.isRemote,
+  baseUrl: () => auth.getBaseUrl(),
+  accessToken: () => auth.accessToken,
+  headers: () => auth.authHeader(),
+  refresh: () => auth.refresh(),
+})
 // 首渲前应用持久化的主题（data-theme + html.dark）
 app.use({
   install(): void {
-    useThemeStore().apply()
+    useThemeStore(pinia).apply()
   },
 })
 app.mount('#app')

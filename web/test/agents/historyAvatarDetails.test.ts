@@ -1,13 +1,11 @@
-import { readFileSync } from 'node:fs'
+import { readComponentSourceSync } from '../helpers/componentSource'
 import { describe, expect, it } from 'vitest'
 
-const drawer = readFileSync(
+const drawer = readComponentSourceSync(
   new URL('../../src/features/agent/drawer/HistoryDrawerPanel.vue', import.meta.url),
-  'utf8',
 )
-const avatar = readFileSync(
+const avatar = readComponentSourceSync(
   new URL('../../src/features/agent/chat/MessageAvatar.vue', import.meta.url),
-  'utf8',
 )
 
 describe('history avatar details regressions', () => {

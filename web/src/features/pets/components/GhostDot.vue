@@ -4,7 +4,7 @@
  * 不显示 name；4px 白核 + 十字渐变射线 = 星星炫光；每实例按 instanceId 哈希异色异步闪烁。
  */
 import { computed } from 'vue'
-import type { PetInstance } from '../types/types'
+import type { PetInstance } from '@/domain/pets/types'
 
 const props = defineProps<{
   pet: PetInstance

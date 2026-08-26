@@ -1,7 +1,7 @@
 /**
  * Settings 面板共享纯函数。依赖 draft/senseTools 的 mutate 操作留在各自 tab 内。
  */
-import type { SenseToolInfo } from '@/services/agentApi'
+import type { SenseToolInfo } from '@/application/backend/public'
 import { DANGEROUS_SENSES } from './constants'
 
 /** entry = "name" 或 "name:level"，取工具名部分。 */

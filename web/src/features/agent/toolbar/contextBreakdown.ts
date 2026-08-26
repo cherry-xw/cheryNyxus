@@ -2,7 +2,7 @@
  * 上下文用量分段显示共享工具（6 段：系统/用户系统提示词·记忆·技能·工具定义·用户对话）。
  * 供 AgentDialog / SessionList（chip 悬浮）与 HistoryDrawerPanel / ContextBar（分段条）共用。
  */
-import type { ContextBreakdown, ContextSegment } from '@/services/agentApi'
+import type { ContextBreakdown, ContextSegment } from '@/application/backend/public'
 
 /** 段 key（ContextBreakdown 的 6 个分段字段）。 */
 export type BreakdownKey = 'system' | 'userSystem' | 'memory' | 'skills' | 'tools' | 'conversation'

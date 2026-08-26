@@ -1,0 +1,74 @@
+@import '../composer/agentDialog.less';
+
+/* 拖拽占位框：拖动中只显示此边框，尺寸在 pointerdown 时记录一次；松开后 panel 瞬移，本框消失。 */
+.dialog-drag-preview {
+  z-index: 2;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 65%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.role-usage-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.role-usage-chip.usage-low {
+  background: rgba(34, 197, 94, 0.14);
+  color: #16a34a;
+}
+.role-usage-chip.usage-mid {
+  background: rgba(234, 179, 8, 0.16);
+  color: #a16207;
+}
+.role-usage-chip.usage-high {
+  background: rgba(239, 68, 68, 0.16);
+  color: #b91c1c;
+}
+.role-summary-meta-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+.history-keys-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  margin-right: 6px;
+}
+.history-keys-btn.is-active {
+  border-color: #7c3aed;
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.1);
+}
+.attention-head-btn {
+  position: relative;
+}
+.attention-head-btn b {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 8px;
+  line-height: 15px;
+}

@@ -1,4 +1,4 @@
-import type { GraphToolCall, SenseToolInfo } from '@/services/agentApi'
+import type { GraphToolCall, SenseToolInfo } from '@/application/backend/public'
 import { formatTime } from '@/utils/formatTime'
 import type { ExecutionEdge, ExecutionNode, ExecutionFoldMember } from '../graph/executionGraph'
 import { skinForNode } from '../graph/nodeSkins'

@@ -5,18 +5,18 @@ import type {
   RootTimelineSnapshot,
   TimelineNode,
 } from '../../src/services/agentApi'
-import { createEmptySession, applyCurrentState } from '../../src/stores/chats/hydration'
-import { reduceSessionEvent } from '../../src/stores/chats/reducer'
+import { createEmptySession, applyCurrentState } from '../../src/stores/chats/model/hydration'
+import { reduceSessionEvent } from '../../src/stores/chats/model/reducer'
 import {
   FULL_EXECUTION_PRESENTATION,
   LITE_EXECUTION_PRESENTATION,
   selectExecutionReadModel,
-} from '../../src/stores/chats/executionReadModel'
+} from '../../src/stores/chats/read-model/executionReadModel'
 import {
   applyRootTransientEvent,
   createRootTransientState,
-} from '../../src/stores/chats/rootTimeline'
-import { applyExecutionTimingEvent } from '../../src/stores/chats/executionTiming'
+} from '../../src/stores/chats/read-model/rootTimeline'
+import { applyExecutionTimingEvent } from '../../src/stores/chats/read-model/executionTiming'
 
 function userNode(rootChatId: string, id: string, content: string, orderKey: number): TimelineNode {
   return {

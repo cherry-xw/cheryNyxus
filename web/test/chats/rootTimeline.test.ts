@@ -8,8 +8,8 @@ import {
   installRootTimeline,
   readRootTimeline,
   runSingleFlight,
-} from '../../src/stores/chats/rootTimeline'
-import { createEmptySession } from '../../src/stores/chats/hydration'
+} from '../../src/stores/chats/read-model/rootTimeline'
+import { createEmptySession } from '../../src/stores/chats/model/hydration'
 
 function snapshot(view: RootTimelineSnapshot['view'], revision = 1): RootTimelineSnapshot {
   return {

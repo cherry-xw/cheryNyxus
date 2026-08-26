@@ -1,7 +1,7 @@
 import { computed, inject, type ComputedRef, type InjectionKey } from 'vue'
-import { useAgentsStore, useChatSessionsStore } from '@/stores'
-import type { HistoryItem } from '@/stores/agents'
-import type { HistoryDrawerAnchor, HistoryDrawerMode } from '@/stores/agents/ui/uiState'
+import { useAgentsStore, useChatSessionsStore } from '@/application/public'
+import type { HistoryItem } from '@/domain/chat/projectionTypes'
+import type { HistoryDrawerAnchor, HistoryDrawerMode } from '@/application/workbench/types'
 
 /**
  * useHistoryDrawerManager：历史抽屉跨层管理层。

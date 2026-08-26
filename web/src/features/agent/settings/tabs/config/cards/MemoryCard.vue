@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** MemoryCard：记忆上限。scope='global' 跨 chat 共享 / 'workspace' per 项目；复用同一结构。 */
 import { computed } from 'vue'
-import type { ConfigDto } from '@/services/agentApi'
+import type { ConfigDto } from '@/application/backend/public'
 import NeonNumberControl from '../../../controls/NeonNumberControl.vue'
 
 type MemoryCfg = NonNullable<ConfigDto['memory']>

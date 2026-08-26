@@ -7,11 +7,11 @@
  * 支持实时显示：当 runningTools 中有 update_todo 时，显示"执行中"占位符。
  */
 import { computed } from 'vue'
-import type { PetInstance } from '@/features/pets/types/types'
-import { useChatSessionsStore } from '@/stores'
-import type { SenseCallRecord } from '@/stores/agents'
+import type { PetInstance } from '@/domain/pets/types'
+import { useChatSessionsStore } from '@/application/public'
+import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import type { TodoItem } from '../renderers/types'
-import { selectOwnTimeline } from '@/stores/chats/selectors'
+import { selectOwnTimeline } from '@/application/chat/public'
 
 const props = defineProps<{ pet: PetInstance }>()
 const chatSessions = useChatSessionsStore()

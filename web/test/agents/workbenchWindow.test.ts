@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   clampWorkbenchGeometry,
   defaultWorkbenchSize,
-} from '../../src/features/agent/dialog/useWorkbenchWindow'
+} from '../../src/features/agent/workbench/useWorkbenchWindow'
 
 describe('workbench window geometry', () => {
   it('uses a large adaptive default without exceeding the viewport', () => {

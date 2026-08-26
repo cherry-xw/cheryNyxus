@@ -4,10 +4,10 @@ import {
   type InteractionRecord,
   type SenseToolInfo,
   type TimelineNode,
-} from '@/services/agentApi'
-import { useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/stores'
-import { selectCanResume } from '@/stores/chats/selectors'
-import type { ExecutionReadModel } from '@/stores/chats/executionReadModel'
+} from '@/application/backend/public'
+import { useChatSessionsStore, useConnectionStore, useInteractionsStore } from '@/application/public'
+import { selectCanResume } from '@/application/chat/public'
+import type { ExecutionReadModel } from '@/application/chat/public'
 import type { LiteToolMeta } from './executionMonitor'
 import { useLiteStore } from './liteStore'
 

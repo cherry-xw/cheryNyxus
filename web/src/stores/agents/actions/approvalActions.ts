@@ -1,5 +1,5 @@
 import type { Ref } from 'vue'
-import type { PetInstance } from '@/features/pets/types/types'
+import type { PetInstance } from '@/domain/pets/types'
 import type { StreamState } from '../types'
 
 /** 按 approvalId 精确移除当前项或队列项；当前槽空时自动推进队首。 */

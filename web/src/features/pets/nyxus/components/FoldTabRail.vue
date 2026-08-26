@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch, type CSSProperties } from 'vue'
-import { useAgentsStore, useThemeStore } from '@/stores'
+import { useNyxusHost } from '../application/host'
 import type { ExecutionFoldMember } from '../graph/executionGraph'
 import {
   FOLD_WHEEL_LAYER_CAPACITY,
@@ -22,8 +22,7 @@ const emit = defineEmits<{
   select: [memberId: string]
   interaction: [active: boolean]
 }>()
-const agents = useAgentsStore()
-const themeStore = useThemeStore()
+const { agents, theme: themeStore } = useNyxusHost()
 
 const WHEEL_THRESHOLD = 46
 const ANIMATION_MS = 220

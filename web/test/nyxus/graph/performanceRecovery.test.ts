@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readComponentSource } from '../../helpers/componentSource'
 import { performance } from 'node:perf_hooks'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -95,7 +95,7 @@ describe('performance and recovery boundaries', () => {
 
   it('renders a recoverable graph and reports captured dangling facts instead of throwing', async () => {
     const fixture = JSON.parse(
-      await readFile(resolve('test/fixtures/cp10-real-invalid-graph.json'), 'utf8'),
+      await readComponentSource(resolve('test/fixtures/cp10-real-invalid-graph.json'), 'utf8'),
     ) as { source: string; snapshot: RootTimelineSnapshot }
 
     expect(fixture.source).toBe('captured-and-redacted')
@@ -108,7 +108,7 @@ describe('performance and recovery boundaries', () => {
   })
 
   it('keeps keyboard, aria, diagnostics and reduced-motion contracts in the tree renderer', async () => {
-    const source = await readFile(
+    const source = await readComponentSource(
       resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
       'utf8',
     )
@@ -118,7 +118,7 @@ describe('performance and recovery boundaries', () => {
     expect(source).toContain('@keydown.down.prevent.stop')
     expect(source).toContain('@keydown.home.prevent.stop')
     expect(source).toContain('class="graph-diagnostic" role="alert"')
-    const renderer = await readFile(
+    const renderer = await readComponentSource(
       resolve('web/src/features/pets/nyxus/renderer/ExecutionGraphPixiRenderer.ts'),
       'utf8',
     )

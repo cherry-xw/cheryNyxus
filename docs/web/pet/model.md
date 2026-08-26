@@ -1,6 +1,6 @@
 # 核心模型
 
-> 源码 [types.ts](../../../web/src/features/pets/types.ts) + [petPresets.ts](../../../web/src/features/pets/petPresets.ts) ｜ 上级 [README.md](./README.md) ｜ 状态见 [state.md](./state.md) ｜ 主/子产生见 [movement.md](./movement.md)
+> 源码 [types.ts](../../../web/src/domain/pets/types.ts) + [presetsFactory.ts](../../../web/src/domain/pets/presetsFactory.ts) ｜ 上级 [README.md](./README.md) ｜ 状态见 [state.md](./state.md) ｜ 主/子产生见 [movement.md](./movement.md)
 
 ## 角色（PetPreset）— 程序化生成（部件池 + `generatePet`）
 

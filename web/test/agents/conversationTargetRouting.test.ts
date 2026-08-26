@@ -3,7 +3,7 @@ import {
   conversationTargetVisualState,
   nextTargetCycleState,
   visibleConversationTargetSessions,
-} from '../../src/features/agent/dialog/conversationTargetRouting'
+} from '../../src/features/agent/composer/conversationTargetRouting'
 
 describe('conversation target routing', () => {
   it('keeps manual selection, AI selection, recommendation, and idle sessions visually distinct', () => {

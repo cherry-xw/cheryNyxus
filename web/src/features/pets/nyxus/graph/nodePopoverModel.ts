@@ -1,5 +1,9 @@
-import type { ApprovalState, QuestionBatchState, QuestionItemState } from '@/stores/agents'
-import type { ChatSession } from '@/stores/chats/types'
+import type {
+  ApprovalState,
+  QuestionBatchState,
+  QuestionItemState,
+} from '@/domain/chat/projectionTypes'
+import type { ChatSession } from '@/application/chat/public'
 import type { ExecutionNode } from './executionGraph'
 import { toolBatchDetail } from './toolBatchDetails'
 

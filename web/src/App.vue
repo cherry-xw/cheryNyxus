@@ -5,14 +5,12 @@ import DesktopSurface from '@/features/desktop/DesktopSurface.vue'
 import LoginSurface from '@/features/desktop/LoginSurface.vue'
 import WindowFrame from '@/features/desktop/WindowFrame.vue'
 import ConnectionStatusChip from '@/features/desktop/ConnectionStatusChip.vue'
-import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
+import { NyxusCore } from '@/features/pets/nyxus/public'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
-import WorkbenchDialog from '@/features/agent/dialog/WorkbenchDialog.vue'
-import WorkbenchCapsule from '@/features/agent/dialog/WorkbenchCapsule.vue'
+import { WorkbenchCapsule, WorkbenchDialog, useLiteViewToggle } from '@/features/agent/workbench/public'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
 import OpenConfigDirButton from '@/features/agent/settings/components/OpenConfigDirButton.vue'
-import { useLiteViewToggle } from '@/features/agent/dialog/useLiteViewToggle'
 import { ElMessage, ElTooltip } from 'element-plus'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import {
@@ -23,11 +21,11 @@ import {
   useConnectionStore,
   useAgentsStore,
   useChatSessionsStore,
-  useInteractionsStore,
+  useWorkspaceStore,
   useThemeStore,
   useAuthStore,
 } from '@/stores'
-import { wsClient } from '@/services/ws'
+import { startApplicationRuntime } from '@/application/runtime/startApplicationRuntime'
 
 // 鉴权非强制：本地直连不鉴权；远端由 cheryNyxus 登录弹窗对接（token 存 auth store）。
 // surface 分发：desktop（Electron 全工作区透明宠物窗）/ settings（Electron 原生设置窗）/
@@ -36,6 +34,7 @@ import { wsClient } from '@/services/ws'
 // 节点树工作台多窗口：浏览器面每预设一窗（windowId = presetId），由 workbenchWindowsList 驱动渲染；
 // Electron workbench 面本窗 store 只含一条记录（原生窗本身即"每预设一窗"）。
 const agents = useAgentsStore()
+const workspace = useWorkspaceStore()
 const chatSessions = useChatSessionsStore()
 const query = new URLSearchParams(window.location.search)
 const surface = query.get('surface')
@@ -73,13 +72,13 @@ interface AgentDialogExpose {
 }
 const agentDialogRef = ref<AgentDialogExpose | null>(null)
 /** composer 窗当前会话：初始 surfaceChatId，main `surface:retarget` 切换后跟随 activeDialogChatId。 */
-const composerChatId = computed(() => agents.activeDialogChatId)
+const composerChatId = computed(() => workspace.activeDialogChatId)
 const composerTitle = computed(() => {
   const chatId = composerChatId.value
   if (!chatId) return '发消息'
   const pet = agents.petForChat(chatId)
   if (pet?.name) return pet.name
-  const summary = agents.historyList.find((item) => item.chatId === chatId)
+  const summary = chatSessions.catalogSummaries.find((item) => item.chatId === chatId)
   return summary?.preset ?? surfacePresetId ?? '发消息'
 })
 const composerAttentionActive = computed(() => agentDialogRef.value?.isAttentionView() ?? false)
@@ -92,12 +91,12 @@ function hydrateComposerChat(chatId: string): void {
 }
 
 if (surface === 'composer' && surfaceChatId) {
-  agents.activeDialogChatId = surfaceChatId
-  agents.activeDialogSource = surfaceSource ?? 'history'
-  agents.activeDialogView = surfaceView ?? 'composer'
+  workspace.activeDialogChatId = surfaceChatId
+  workspace.activeDialogSource = surfaceSource ?? 'history'
+  workspace.activeDialogView = surfaceView ?? 'composer'
   hydrateComposerChat(surfaceChatId)
 }
-if (surface === 'history' && surfaceChatId) agents.openHistoryRoot(surfaceChatId)
+if (surface === 'history' && surfaceChatId) workspace.openHistoryRoot(surfaceChatId)
 
 // Electron settings/workbench 原生窗桥接：跨窗主题同步 + backgroundColor 灰边兜底。
 // desktop 面不接（透明宠物窗，setBackgroundColor 会把窗铺成不透明底色，破坏透明；锁 color-scheme 已由 DesktopSurface 处理）。
@@ -132,12 +131,12 @@ if (surface === 'composer' || surface === 'history') {
   if (bridge) {
     workbenchBridgeCleanup.push(bridge.onSurfaceRetarget((target) => {
       if (surface === 'composer') {
-        agents.activeDialogChatId = target.chatId
-        agents.activeDialogSource = target.source ?? 'history'
-        agents.activeDialogView = target.view ?? 'composer'
+        workspace.activeDialogChatId = target.chatId
+        workspace.activeDialogSource = target.source ?? 'history'
+        workspace.activeDialogView = target.view ?? 'composer'
         hydrateComposerChat(target.chatId)
       } else {
-        agents.openHistoryRoot(target.chatId)
+        workspace.openHistoryRoot(target.chatId)
       }
     }))
   }
@@ -146,7 +145,7 @@ if (surface === 'composer' || surface === 'history') {
 if (surface === 'history') {
   let historyOpened = !!surfaceChatId
   workbenchBridgeCleanup.push(watch(
-    () => agents.historyDrawerStack.length,
+    () => workspace.historyDrawerStack.length,
     (length) => {
       if (length > 0) historyOpened = true
       else if (historyOpened) desktopBridge()?.windowControl('close')
@@ -156,22 +155,22 @@ if (surface === 'history') {
 
 // workbench 面：注册必须在渲染前同步完成（WorkbenchDialog setup 读 store 的 win.value）。
 if (surface === 'workbench' && surfacePresetId) {
-  const wbId = agents.openWorkbenchWindow(surfacePresetId, surfacePresetName)
+  const wbId = workspace.openWorkbenchWindow(surfacePresetId, surfacePresetName)
   // 与入口语义一致：仅新建窗口恢复会话（chatId 为空时才设置），重开复用不覆盖浏览
-  if (surfaceChatId && !agents.workbenchWindows[wbId]?.chatId) {
-    agents.setWorkbenchWindowChat(wbId, surfaceChatId)
+  if (surfaceChatId && !workspace.workbenchWindows[wbId]?.chatId) {
+    workspace.setWorkbenchWindowChat(wbId, surfaceChatId)
   }
   const bridge = desktopBridge()
   if (bridge) {
     // main 下发「打开节点树」定位 / 会话切换 → 写本窗 store
     workbenchBridgeCleanup.push(
-      bridge.onWorkbenchFocus((focus) => agents.setWorkbenchWindowFocus(wbId, focus)),
+      bridge.onWorkbenchFocus((focus) => workspace.setWorkbenchWindowFocus(wbId, focus)),
     )
-    workbenchBridgeCleanup.push(bridge.onOpenChat((chatId) => agents.setWorkbenchWindowChat(wbId, chatId)))
+    workbenchBridgeCleanup.push(bridge.onOpenChat((chatId) => workspace.setWorkbenchWindowChat(wbId, chatId)))
     // attentionBlink（Phase E 审批/提问闪烁）→ 原生任务栏闪烁
     workbenchBridgeCleanup.push(
       watch(
-        () => agents.workbenchWindows[wbId]?.attentionBlink,
+        () => workspace.workbenchWindows[wbId]?.attentionBlink,
         (blink) => bridge.flashFrame(!!blink),
       ),
     )
@@ -182,11 +181,11 @@ if (surface === 'workbench' && surfacePresetId) {
 const wbRef = ref<{ closeWorkbench: () => void } | null>(null)
 /** Phase E 闪烁回推：本窗 attentionBlink → WindowFrame 标题栏暖橙外发光（任务栏闪烁已在注册块处理）。 */
 const surfaceWindowBlink = computed(
-  () => (surfacePresetId ? agents.workbenchWindows[surfacePresetId]?.attentionBlink : false) ?? false,
+  () => (surfacePresetId ? workspace.workbenchWindows[surfacePresetId]?.attentionBlink : false) ?? false,
 )
 /** 点击 WindowFrame 标题栏视为用户已注意到该窗口 → 熄灭闪烁（与浏览器路径 onTitlePointerDown 同语义）。 */
 function onWorkbenchTitlePointerDown(): void {
-  if (surfacePresetId) agents.setWorkbenchWindowBlink(surfacePresetId, false)
+  if (surfacePresetId) workspace.setWorkbenchWindowBlink(surfacePresetId, false)
 }
 /** 标题栏「打开配置文件夹」失败：标题栏入口独立于 SettingsDialog 内部错误弹窗，用轻量消息提示。 */
 function onSettingsOpenDirError(message: string): void {
@@ -198,110 +197,17 @@ onMounted(() => {
   void bootstrap()
 })
 onBeforeUnmount(() => {
+  stopApplicationRuntime?.()
   electronBridgeCleanup.splice(0).forEach((cleanup) => cleanup())
   workbenchBridgeCleanup.splice(0).forEach((cleanup) => cleanup())
 })
 
+let stopApplicationRuntime: (() => void) | undefined
+
 async function bootstrap(): Promise<void> {
-  const conn = useConnectionStore()
-  const agents = useAgentsStore()
-  const chatSessions = useChatSessionsStore()
-  const interactions = useInteractionsStore()
-  chatSessions.bindWsClient()
-  // #9 接线：chatSessions 副作用 → agents pet 变更。
-  // V2 发送经 chatSessions（openSession+submitInput），pet 视觉（setWorking/role_created）
-  // 不再由 agents.store 驱动 → 经 effect 注入为唯一来源。
-  chatSessions.bindEffects({
-    onWorkingChange: agents.setWorkingForChat,
-    onRoleDestroyed: (chatId) => agents.removePetsOnly([chatId]),
-  })
-  agents.bindSessionEvictor((chatIds) => chatSessions.evictSessions(chatIds))
-
-  // 会话树是子 pet 身份的唯一权威源。无论来自 live role_created、快照还是
-  // 重连回放，catalog 一变化就幂等补建舞台视觉，避免把某条瞬时通知当唯一来源。
-  watch(
-    () =>
-      Object.values(chatSessions.sessionsById).map((session) =>
-        [
-          session.chatId,
-          session.meta.parentChatId,
-          session.meta.agentType,
-          session.meta.avatar,
-          session.meta.finished,
-          session.run.status,
-        ].join('|'),
-      ),
-    () => agents.reconcilePetsFromSessions(chatSessions.sessionsById),
-    { immediate: true },
-  )
-
-  // 订阅 chunk/notification → agents store 路由
-  wsClient.onChunk((chunk) => agents.routeChunk(chunk))
-  wsClient.onNotification((notif) => {
-    const event = notif as { background?: boolean; type?: string; chatId?: string } | null
-    if (event?.type === 'interaction.changed') {
-      void interactions.refresh().catch((cause) =>
-        console.warn('[App] refresh interactions failed:', cause),
-      )
-    }
-    if (event?.background) {
-      // 后台控制面事件不进入流式 reducer：只刷新轻量会话目录。用户点 Pet/琴键后，
-      // 再由 chat.open 获取完整审批参数或问题批次。
-      void agents.fetchHistoryList().catch((cause) =>
-        console.warn('[App] refresh background attention failed:', cause),
-      )
-      return
-    }
-    agents.routeNotification(notif)
-    if (
-      event?.type &&
-      ['interrupt', 'accept', 'rejected', 'question_batch_requested', 'question_batch_completed'].includes(
-        event.type,
-      )
-    ) {
-      void interactions.refresh().catch((cause) =>
-        console.warn('[App] refresh interactions failed:', cause),
-      )
-      void agents.fetchHistoryList().catch((cause) =>
-        console.warn('[App] refresh foreground attention failed:', cause),
-      )
-    }
-  })
-
-  // 建连成功后拉 chat.list 重建 pet 树（store 内部幂等，断线重连后可再触发）
-  let prevStatus: string | null = null
-  wsClient.onStatus((s) => {
-    if (s === 'connected') {
-      void interactions.refresh().catch((e) => console.warn('[interactions] refresh 失败:', e))
-      // F5 刷新:initialized=false → initFromChats 重建 pet 树 + rebuildSpawnWaits
-      // 瞬断重连:initialized=true → 仅 rebuildSpawnWaits(重建子等待 + 检测主卡死)
-      if (prevStatus === 'disconnected') {
-        // 瞬断重连:跳过 initFromChats(已初始化),直接 rebuildSpawnWaits
-        // 先按 seq 补增量；保留期外才由 store 自动 chat.get 重拉快照。
-        agents.markAllStreamsDirty()
-        agents
-          .syncChatEvents()
-          .then(() => agents.rebuildSpawnWaits())
-          .catch((e) => {
-            console.error('[agents] rebuildSpawnWaits 失败:', e)
-          })
-        // ChatSession 层：仅重连已 hydrated 且 running 的 session（attach->sync(lastSeq)）
-        chatSessions.reconnect().catch((e) => console.warn('[chatSessions] reconnect 失败:', e))
-      } else {
-        // 首次建连或 F5 后重连:initFromChats(内部会调 rebuildSpawnWaits)
-        agents.initFromChats().catch((e) => {
-          // 规则12 fail loud：initFromChats 失败显性化（静默吞错会导致空白难定位）
-          console.error('[agents] initFromChats 失败:', e)
-        })
-        // ChatSession 层：catalog + top-5 root 后代完整 hydration（attach->sync 内核）
-        chatSessions.startup().catch((e) => console.warn('[chatSessions] startup 失败:', e))
-      }
-    }
-    prevStatus = s
-  })
-
-  conn.init()
+  stopApplicationRuntime = startApplicationRuntime()
 }
+
 </script>
 
 <template>
@@ -393,12 +299,12 @@ async function bootstrap(): Promise<void> {
     <NyxusCore />
     <AgentDialog />
     <WorkbenchDialog
-      v-for="win in agents.workbenchWindowsList"
+      v-for="win in workspace.workbenchWindowsList"
       :key="win.id"
       :window-id="win.id"
       :preset-id="win.presetId"
     />
-    <template v-for="win in agents.workbenchWindowsList" :key="`capsule-${win.id}`">
+    <template v-for="win in workspace.workbenchWindowsList" :key="`capsule-${win.id}`">
       <WorkbenchCapsule v-if="win.minimized" :window-id="win.id" />
     </template>
     <HistoryDrawer />

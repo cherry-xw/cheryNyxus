@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { reconcileAgentLoadingEntries } from '../../src/stores/agents/data/historyLoading'
-import { ghostTrailDistance, pointAtArc } from '../../src/features/pets/motion/petMovement'
+import { ghostTrailDistance, pointAtArc } from '../../src/domain/pets/motion/movement'
 
 describe('multi-agent history loading', () => {
   it('keeps completed agents while another agent is still running', () => {

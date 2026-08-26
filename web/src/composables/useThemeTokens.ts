@@ -1,5 +1,5 @@
 import { computed, type ComputedRef } from 'vue'
-import { useThemeStore } from '@/stores'
+import { useThemeStore } from '@/application/public'
 
 /**
  * JS 侧随主题翻转的色值（Pixi canvas 等非 CSS 场景）。

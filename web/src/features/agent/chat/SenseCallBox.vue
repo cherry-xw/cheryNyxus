@@ -10,11 +10,11 @@
  * result 渲染：unknown → string。后端 staged arguments 契约 = JSON 字符串（store 注释），pretty-print；object 走 JSON.stringify。
  */
 import { computed, ref } from 'vue'
-import type { SenseCallRecord } from '@/stores/agents'
+import type { SenseCallRecord } from '@/domain/chat/projectionTypes'
 import { formatArgValue, formatValue, parseArgs } from '@/utils/parseArgs'
 import { extractMediaUrls } from '@/utils/markdown'
 import { toSenseNameZh } from '@/utils/senseName'
-import MediaInlineRenderer from '../dialog/media/MediaInlineRenderer.vue'
+import { MediaInlineRenderer } from '../composer/public'
 
 const props = defineProps<{ call: SenseCallRecord; defaultExpanded?: boolean }>()
 
