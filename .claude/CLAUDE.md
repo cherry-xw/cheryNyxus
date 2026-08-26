@@ -57,6 +57,7 @@ pnpm test             # vitest（套件有预存问题，开发期仅关注 TSC 
 ## 约定
 
 - **文档先于实现（Doc-First）**：每次修改代码前，先更新涉及的 `docs/` 模块文档，保证文档先于实现。先改代码后补文档视为违规；纯重构、格式化、修复 typo 可豁免。
+- **规范强制 + 读规范凭证**：[docs/standards/](../docs/standards/README.md) 操作声明为强制门禁（字重 400 / 全直角 / 未验收不提交 / 图片验证交用户等，见 [操作声明](../docs/standards/README.md)）。**每个写入型任务动手前必须先读操作声明 + 相关规范，并在 `.claude/read-proof/` 写入带时分秒命名的读后凭证（一句话：读了什么 + 将如何按规范执行）；缺失凭证 = 未读规范，操作不受认可。** 纯阅读/搜索/解释类任务（无写入）不触发。详见 [ai-collaboration.md §4](../docs/standards/ai-collaboration.md)。
 - **TypeScript**：ESM（`"type":"module"`）、严格模式（`noUncheckedIndexedAccess`）、bundler 模块解析（Vite 8）、路径别名 `@/*`→`src/*`、`@test/*`→`test/*`。`interface`/`type` 用 `import type`，`class`/`enum`/函数用 `import`。
 - **扩展**：新增 Provider / Sense（内置 / 外部）/ Middleware / Skill 的步骤，见对应模块文档的「扩展点」章节：
   - Provider → [agent/provider.md](../docs/agent/provider.md)
