@@ -37,7 +37,7 @@
 - [middleware.md](./agent/middleware.md) — checkpoint / sense / retry / chat / loop 五中间件 + 审批（**核心文档**）
 - [prompt.md](./agent/prompt.md) — system prompt 构建 + skill / plugin 加载
 - [prompt-guide.md](./agent/prompt-guide.md) — **提示词编写规范 + 问题排查清单**（感官/schema/提示词踩坑要点 + 历史 bug 诊断库，新增感官前必读）
-- [provider.md](./agent/provider.md) — openai / ollama / mock 三 Adapter
+- [provider.md](./agent/provider.md) — openai / ollama / mock 三 Adapter（URL 端点拼接强制规范见 [standards/provider-url-resolution.md](./standards/provider-url-resolution.md)）
 - [sense.md](./agent/sense.md) — 内置感官 bash / read / write / skill
 - [curator.md](./agent/curator.md) — curator 角色（记忆维护者：Extract / Dream）
 
@@ -71,6 +71,7 @@
 - [web/README.md](./web/README.md) — 总览：技术栈、双运行模式（浏览器/Electron）、构建产物、monorepo 定位、依赖关联
 - [web/frontend-protocol-binding.md](./web/frontend-protocol-binding.md) — **前端协议消费手册**：RPC/Notification/Chunk 字段映射到 store / StreamState / 视图组件 + 端到端数据通路（App.vue → ws.ts → streamRouter → store → 视图）。新会话接手前端 / 后端改协议时定位受影响前端点的入口
 - [standards/web-frontend-architecture.md](./standards/web-frontend-architecture.md) — **前端强制架构与目录规范**：owner、依赖矩阵、公开面、目录与迁移门禁
+- [standards/ui-visual-and-interaction.md](./standards/ui-visual-and-interaction.md) — **前端 UI 视觉与交互规范**：字重 400/600 规则、动作按钮前置禁用（先选后测）
 - [web/frontend-refactor-handoff.md](./web/frontend-refactor-handoff.md) — 前端 canonical owner、协议生命周期与迁移状态交接
 - [web/electron.md](./web/electron.md) — Electron 集成详解：主进程路径解析坑、xrdp 运行环境、sandbox SUID
 - [web/deployment.md](./web/deployment.md) — 前后端连接与部署模式：后端独立 / Electron 一体 / Web 浏览器三模式 + 实现路线 + 关键坑
