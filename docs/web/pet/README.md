@@ -87,7 +87,7 @@
 
 `AgentDialog` 的 Nyxus 模式把右侧操作区收纳为轻量按钮与一枚固定高度的可扩展胶囊。发送消息始终外露；停止 / 继续仅在当前会话存在对应状态时外露。更多工具的胶囊默认只露出右侧手柄，鼠标悬浮、键盘聚焦或触屏点击时，胶囊自身向左水平变宽并一次展示全部次级工具，不连接或挂载独立窗口。
 
-胶囊内部使用两行图标：第一行是会话（对话历史、新建、会话钢琴），第二行是视图与配置（节点折叠、角色）；分组只用行距与细分隔线表达，不产生分组页签、详情面板或二级菜单。历史会话浏览统一由会话钢琴承担，不再提供会话列表。图标通过 tooltip 说明功能与状态。钢琴声音与删除属于钢琴局部操作，固定在钢琴面板右上角。执行树节点只负责查看和固定执行详情，不再兼任输入入口。胶囊开合使用裁切揭示；空间位移动效恒开（应用不跟随 `prefers-reduced-motion`，见 `docs/web/settings.md` 动效降级约定）。
+胶囊内部使用两行图标：第一行是会话（对话历史、新建、会话列表），第二行是视图与配置（节点折叠、角色）；分组只用行距与细分隔线表达，不产生分组页签、详情面板或二级菜单。历史会话浏览统一由**会话列表**承担（翻页 + 点击选择，见 [rendering.md#工作台会话列表nyxussessionlist](./rendering.md#工作台会话列表nyxussessionlist)）。图标通过 tooltip 说明功能与状态。钢琴已降级为节点树彩蛋，无独立 rail 入口（见 [rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](./rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。执行树节点只负责查看和固定执行详情，不再兼任输入入口。胶囊开合使用裁切揭示；空间位移动效恒开（应用不跟随 `prefers-reduced-motion`，见 `docs/web/settings.md` 动效降级约定）。
 
 **待操作任务面板**（[PendingOperationsPanel.vue](../../../web/src/features/agent/attention/PendingOperationsPanel.vue)）收敛全部待处理交互入口：常驻工作台右上角（右侧 rail 左侧），数据源为 interactions store（服务端 interaction 权威记录，含审批 + 提问批次）；有任务自动展开、无任务自动收起成细条，可手动开合；范围默认「当前树」（rootChatId 命中），可切「全部」。审批用 ParsedArgs 结构化参数 + 接受/拒绝，提问直接内嵌选项/其他补充表单 + 提交回答；每条「在节点树中查看」→ 定位并高亮节点，树侧激活待处理节点 → 面板同步聚焦（双向关联）。节点弹窗/纸牌不再内嵌提问/审批交互卡（只保留只读节点信息），右侧 `!` 抽屉与 composer「回答提问」入口已被面板取代；Pet 小窗口模式保持自身气泡交互。
 
@@ -100,7 +100,6 @@
 | [ContextBar.vue](../../../web/src/features/agent/ContextBar.vue) | contextUsage 0-1 progressbar，色阶 <50% 绿 / 50-80% 黄 / ≥80% 红 |
 | [PetToolbar.vue](../../../web/src/features/agent/PetToolbar.vue) | pet 工具栏按钮组：主[历史/中止/隐藏(destroy=hide)] / 子[历史/中止] / contextUsage≥50% 显 compact；隐藏按钮 isWorking/hasWorkingChild 时 disabled（CP8） |
 | [HistoryDrawer.vue](../../../web/src/features/agent/HistoryDrawer.vue) | 右侧抽屉历史流：`activeHistoryChatId` 驱动滑入滑出；`getHistory` 触发 staged 流；空/加载/历史三态 |
-| [SessionList.vue](../../../web/src/features/agent/SessionList.vue) | 会话列表抽屉（CP8）：`historyListOpen` 驱动；`fetchHistoryList`（chat.list includePreview）缓存 `historyList`；行显 preview/last-run/轮次，点行 `loadSession`，✕ `deleteSession`。Nyxus 开窗轻量目录刷新（`getActiveNyxus` 用 chat.list 无 preview）会保留旧目录同 chatId 的 preview，避免共享 `historyList` 的钢琴键提示/路由选择器标题退化「无消息」 |
 | [MessageBubble.vue](../../../web/src/features/agent/MessageBubble.vue) | 单条历史消息渲染（群消息样式）：user 右 / assistant 左 / subagent 标名 + thinking 折叠 + senseCalls 嵌套；hover 头像弹详情面板（brain/senseGroup 等），user 不弹 |
 | [SenseCallBox.vue](../../../web/src/features/agent/SenseCallBox.vue) | sense 调用独立 box（assistant 消息内子项）：name + 状态指示 + arguments/result 可折叠 |
 | [ApprovalCard.vue](../../../web/src/features/agent/ApprovalCard.vue) | 审批卡片（pet 气泡内，与 pet 共享交互层 `speechZIndex`，不再 400 置顶）：senseName + arguments 折叠 + Accept/Reject + ✕关闭（移队列保留）+ 倒计时 |

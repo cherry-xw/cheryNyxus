@@ -15,11 +15,11 @@ import { PendingOperationsPanel } from '../attention/public'
 import ContextUsageBar from '../drawer/ContextUsageBar.vue'
 import { fmtTokens } from '../toolbar/contextBreakdown'
 import PromptSnapshotTip from '../drawer/PromptSnapshotTip.vue'
-import { agentApi } from '@/application/backend/public'
+import { agentApi, type ChatSummary } from '@/application/backend/public'
 import { useWorkbenchWindow, type ResizeDirection, type WorkbenchMode } from './useWorkbenchWindow'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
 import { CHERY_NYXUS_PRESET } from '@/domain/pets/presets'
-import { MessageBranchTree, NyxusPianoStrip } from '@/features/pets/nyxus/public'
+import { MessageBranchTree, NyxusPianoStrip, isPianoRootSession } from '@/features/pets/nyxus/public'
 import { NYXUS_WORKBENCH_Z_INDEX, OVERLAY_Z_INDEX } from '@/styles/overlayLayers'
 import {
   ConnectionStatusChip,
@@ -32,6 +32,7 @@ import { useLiteViewToggle } from './useLiteViewToggle'
 import { useWorkbenchContextInspector, usageClass } from './useWorkbenchContextInspector'
 import { useWorkbenchTaskController } from './useWorkbenchTaskController'
 import { useWorkbenchTreeSession } from './useWorkbenchTreeSession'
+import NyxusSessionList from './NyxusSessionList.vue'
 import { useWorkbenchViewPreferences, type FoldMode } from './useWorkbenchViewPreferences'
 
 export type WorkbenchDialogControllerProps = {
@@ -387,14 +388,13 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     foldMode.value = mode
   }
   const pianoOpen = ref(false)
-  /** 删除交互期间锁定 popout：hover 可删键 / 拖拽 / 倒掉动画时为 true，跳过延迟关闭。 */
-  const pianoPinned = ref(false)
-  let pianoCloseTimer: ReturnType<typeof setTimeout> | undefined
-  let pianoCloseRequested = false
   const roleListOpen = ref(false)
   /** 角色列表配置交互期间锁定：点击内部控件（select 等）时置位，防 hover 误关。 */
   const roleListPinned = ref(false)
   let roleListCloseTimer: ReturnType<typeof setTimeout> | undefined
+  /** 会话列表 popout 状态（仿角色列表：hover/click 展开、延迟关闭、交互期间锁定）。 */
+  const sessionListOpen = ref(false)
+  let sessionListCloseTimer: ReturnType<typeof setTimeout> | undefined
   // AgentComposer 的 3 个 DOM ref 桥接回 useAgentDialogOptions（selectCommand / commandMenuStyle 等依赖）。
   const { commandMenuStyle, editorRefFn, commandMenuRefFn, roleMenuRefFn } =
     useComposerMenuPosition({
@@ -407,43 +407,26 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       layoutDependencies: [activeCommandTab, commandOptions],
     })
 
-  function showPiano(): void {
-    if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
-    pianoCloseTimer = undefined
-    pianoCloseRequested = false
-    // 与角色列表互斥：展开钢琴时收起角色列表。
+  /** 彩蛋浮层打开：收起会话/角色 popout + 历史抽屉，置位浮层可见性。 */
+  function openPiano(): void {
+    closeSessionList()
     closeRoleList()
     agents.closeAllHistory()
     pianoOpen.value = true
   }
-  function schedulePianoClose(): void {
-    if (pianoPinned.value) {
-      pianoCloseRequested = true
-      return
-    }
-    pianoCloseRequested = false
-    if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
-    pianoCloseTimer = setTimeout(() => {
-      pianoOpen.value = false
-      pianoCloseTimer = undefined
-    }, 160)
+  function closePiano(): void {
+    pianoOpen.value = false
   }
-  function onPianoInteracting(v: boolean): void {
-    pianoPinned.value = v
-    if (v) {
-      showPiano()
-      return
-    }
-    if (pianoCloseRequested) schedulePianoClose()
+  /** 节点树彩蛋连点序列触发 → 打开钢琴浮层。 */
+  function onEasterEgg(): void {
+    openPiano()
   }
   // ── 角色列表（参照钢琴 popout：hover/click 展开、延迟关闭、交互期间锁定） ──
   function showRoleList(): void {
     if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
     roleListCloseTimer = undefined
-    // 与钢琴互斥：展开角色列表时收起钢琴。
-    if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
-    pianoCloseTimer = undefined
-    pianoOpen.value = false
+    // 与会话列表互斥：展开角色列表时收起会话列表。
+    closeSessionList()
     agents.closeAllHistory()
     roleListOpen.value = true
   }
@@ -475,6 +458,96 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     if (open) window.addEventListener('pointerdown', onRoleOutsidePointerDown)
     else window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
   })
+  // ── 会话列表（仿角色列表 popout：hover/click 展开、延迟关闭、互斥） ──
+  function showSessionList(): void {
+    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
+    sessionListCloseTimer = undefined
+    closeRoleList()
+    agents.closeAllHistory()
+    sessionListOpen.value = true
+  }
+  function scheduleSessionListClose(): void {
+    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
+    sessionListCloseTimer = setTimeout(() => {
+      sessionListOpen.value = false
+      sessionListCloseTimer = undefined
+    }, 160)
+  }
+  function closeSessionList(): void {
+    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
+    sessionListCloseTimer = undefined
+    sessionListOpen.value = false
+  }
+  function toggleSessionList(): void {
+    if (sessionListOpen.value) closeSessionList()
+    else showSessionList()
+  }
+  /** 点击 popout/按钮之外 → 关闭会话列表。 */
+  function onSessionOutsidePointerDown(e: PointerEvent): void {
+    const t = e.target as HTMLElement | null
+    if (t?.closest('.nyxus-session-popout') || t?.closest('.nyxus-session-tool')) return
+    closeSessionList()
+  }
+  watch(sessionListOpen, (open) => {
+    if (open) window.addEventListener('pointerdown', onSessionOutsidePointerDown)
+    else window.removeEventListener('pointerdown', onSessionOutsidePointerDown)
+  })
+  /** 会话列表数据：按需拉取全部 root 会话（history scope 全量 + includePreview），前端按预设过滤。
+   * 不用 scope:'preset' + presetId/preset——后端 listRootChatsForPresets（src/db/chat.ts）对 metadata
+   * 原始字段精确匹配，会话 metadata 带非空 presetId 且与 props.presetId 不一致时双分支均 false，
+   * 曾致列表全空（2026-08-26 实测 bug）；也不复用 agents.historyList——它来自 scope:'stage'，
+   * 每预设仅保留最新 1 个 root（src/service/chat/handler.ts latestByPreset）且 lean 不带 preview，
+   * 既列不出历史会话、preview/turnCount 也恒空。history scope 走 listAllChats() 全量返回，
+   * 由下方 rootSessions 按预设过滤（与旧版 proven 逻辑一致）。 */
+  const sessionListChats = ref<ChatSummary[]>([])
+  const sessionListLoading = ref(false)
+  async function refreshSessionList(): Promise<void> {
+    sessionListLoading.value = true
+    try {
+      const chats = await agentApi.listChats({
+        scope: 'history',
+        includePreview: true,
+      })
+      sessionListChats.value = chats
+    } catch (cause) {
+      console.warn('[WorkbenchDialog] 会话列表拉取失败:', cause)
+      // 失败回退 stage 目录（agents.historyList），保证列表不空。
+      sessionListChats.value = agents.historyList ?? []
+    } finally {
+      sessionListLoading.value = false
+    }
+  }
+  /** 打开时刷新一次（hover/click 均经 open 变 true 触发，不重复拉取）。 */
+  watch(sessionListOpen, (open) => {
+    if (open) void refreshSessionList()
+  })
+  const rootSessions = computed<ChatSummary[]>(() =>
+    sessionListChats.value
+      .filter(
+        (c) =>
+          isPianoRootSession(c) && (c.preset === presetName.value || c.presetId === props.presetId),
+      )
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
+  )
+  async function onSessionDelete(targetChatId: string): Promise<void> {
+    try {
+      if (isNyxus.value) await deleteNyxusSession(targetChatId)
+      else await deletePresetSession(targetChatId)
+    } catch (cause) {
+      ElMessage.error(cause instanceof Error ? cause.message : '删除会话失败')
+      return
+    }
+    // 删的是当前会话：兜底切到该预设最新根会话，无则清空工作台聊天。
+    if (targetChatId === chatId.value) {
+      const latest = agents.latestRootInPreset(
+        isNyxus.value ? undefined : props.presetId,
+        presetName.value ?? undefined,
+      )
+      if (latest) await switchSession(latest)
+      else agents.setWorkbenchWindowChat(props.windowId, null)
+    }
+    void refreshSessionList()
+  }
   function activateNyxusInput(): void {
     nyxusDraftActive.value = true
     void nextTick(() => editorRef.value?.focus())
@@ -577,7 +650,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     creating,
     deleteNyxusSession,
     deletePresetSession,
-    historyLoading,
     locateInteraction,
     onTreeInteractionFocus,
     releaseCurrentRoot,
@@ -659,10 +731,11 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     workbenchResizeObserver?.disconnect()
     if (typeof window !== 'undefined') {
     }
-    if (pianoCloseTimer) clearTimeout(pianoCloseTimer)
+    if (sessionListCloseTimer) clearTimeout(sessionListCloseTimer)
     if (roleListCloseTimer) clearTimeout(roleListCloseTimer)
     if (foldCloseTimer) clearTimeout(foldCloseTimer)
     window.removeEventListener('pointerdown', onRoleOutsidePointerDown)
+    window.removeEventListener('pointerdown', onSessionOutsidePointerDown)
   })
   const {
     onTreePromptSnapShow,
@@ -690,6 +763,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     MotionDiv,
     NYXUS_WORKBENCH_Z_INDEX,
     NyxusPianoStrip,
+    NyxusSessionList,
     OVERLAY_Z_INDEX,
     PendingOperationsPanel,
     PromptSnapshotTip,
@@ -726,7 +800,6 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     fmtTokens,
     foldMode,
     foldToolOpen,
-    historyLoading,
     isNative,
     isNyxus,
     liteViewEnabled,
@@ -746,7 +819,10 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     onEditorSelectionChange,
     onMaximizeClick,
     onMediaSelected,
-    onPianoInteracting,
+    closePiano,
+    closeSessionList,
+    onEasterEgg,
+    onSessionDelete,
     onTitlePointerDown,
     onTreeInteractionFocus,
     onTreePromptSnapShow,
@@ -764,11 +840,14 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     resizeDirections,
     roleListOpen,
     roleListPinned,
+    rootSessions,
+    sessionListLoading,
+    sessionListOpen,
     roleMenuRefFn,
     roleSelections,
     roleUsages,
     scheduleFoldToolClose,
-    schedulePianoClose,
+    scheduleSessionListClose,
     scheduleRoleListClose,
     selectBranchTarget,
     selectCommand,
@@ -785,7 +864,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     sessionControlPending,
     showCommandMenu,
     showFoldTool,
-    showPiano,
+    showSessionList,
     showRoleList,
     showRoleMenu,
     supportsTools,
@@ -796,6 +875,7 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
     text,
     toggleLiteView,
     toggleRoleList,
+    toggleSessionList,
     topologyLayout,
     treeBreakdown,
     treeFocusInteractionId,

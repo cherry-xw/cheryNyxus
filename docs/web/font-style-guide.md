@@ -30,7 +30,7 @@
 - **pet 特殊视觉**：
   - 气泡小字：`PetBubble.vue` `.speech`（800@10px）——极小字号维持可读的刻意设计
   - CRT 终端：`nyxusPopoverTheme.less`、`ExecutionNodePopover.vue` 状态字形、`AnchoredRunCrt.vue`
-  - 钢琴键：`NyxusPianoStrip.vue` 键面 700/800@7-9px
+  - ~~钢琴键：`NyxusPianoStrip.vue` 键面 700/800@7-9px~~（2026-08-26 钢琴彩蛋化后键面/面板字重一律 400，不再豁免；见 [pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](./pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）
   - paper 像素：`PaperGameCard.vue` / `NodePaperStack.vue`（`font-synthesis: none` + 单字重像素字体，900/950 声明在像素字体下不生效）
 - **markdown 内容 `strong`**：内容作者显式语义加粗，浏览器默认 700 保留
 

@@ -6,7 +6,7 @@
 
 ## 目标
 
-- **每预设一窗**：窗口内经钢琴键/会话列表切换根会话。
+- **每预设一窗**：窗口内经**会话列表**切换根会话（钢琴已降级为节点树彩蛋，切换语义由会话列表承接，见 [pet/rendering.md#工作台会话列表nyxussessionlist](./pet/rendering.md#工作台会话列表nyxussessionlist)）。
 - **多窗口布局**：窗口模式可拖动/缩放，多窗口层叠/平铺同时可见，后开的盖前开的。
 - **最小化**：缩成「小胶囊」——可拖摆放、多胶囊**层叠**（后缩盖前缩，前一个只露标题）、hover 调整 z 轴悬浮最上、可关闭或还原。
 - **标题栏高亮**：收到需用户操作的通知时，窗口标题栏 + 胶囊加高亮闪烁。
@@ -21,7 +21,7 @@
 interface WorkbenchWindowState {
   id: string; presetId: string
   presetName: string | null   // 入口携带的预设名（空白工作台/会话未水合时角色编制据此解析，不靠会话推导）
-  chatId: string | null       // 当前根会话（钢琴/会话列表切换）
+  chatId: string | null       // 当前根会话（会话列表切换）
   view; minimized              // 胶囊态
   mode; position; size        // 窗口几何
   capsulePos                  // 胶囊摆放位置（可拖，持久化）
@@ -50,7 +50,7 @@ interface WorkbenchWindowState {
 
 ### `WorkbenchDialog.vue`（新，`web/src/features/agent/workbench/`）
 
-自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、钢琴/角色 popout、右侧待处理抽屉、composer dock、resize handles。
+自包含窗口组件，`defineProps<{ windowId; presetId }>`。整段 `.workbench-shell` 子树从 AgentDialog 迁入：titlebar、MessageBranchTree、rail、会话列表/角色 popout、右侧待处理抽屉、composer dock、resize handles。rail 的钢琴按钮已移除——钢琴仅经**节点树彩蛋**触发浮层出现（见 [pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](./pet/rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
 
 - chatId 来源：`useAgentDialogOptions({ chatId: () => win.chatId ?? null })`，不再读全局单例。
 - **presetName 来源**：`useAgentDialogOptions` 同传 `presetName: () => win.presetName ?? null`——窗口打开时由**入口携带**（Nyxus 传预设名 `'cheryNyxus'`、Pet 传历史 summary 的 `preset` 名），不依赖 pet/session/history 推导。空白工作台（无历史会话、会话未水合）下角色编制、Nyxus 判定、`quickTargetRequired`、`roleMentions` 等据此立即正确。

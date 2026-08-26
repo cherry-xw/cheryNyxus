@@ -70,11 +70,26 @@ popover 内所有 renderer 折叠区（命令输出/搜索结果/参数/结果/�
 
 **约束**：基组件（`ApprovalCard`/`QuestionCard`/`ParsedArgs`/各 renderer/`SenseCallBox`）自身的浅色样式不动--它们仍服务主聊天面 `MessageBubble` 的暖米黄 `.bubble` 卡片。节点树只通过 `:deep()` 在 `.popover-tool`/`.approval-frame`/`.question-frame` 等组件内真实 class 下穿透覆写，不影响主界面。`:deep()` 均带父选择器以兼容 scoped + less `@import` 编译序（less 编译合并在前，Vue PostCSS scoped 识别 `:deep()` 在后）。
 
-### Nyxus 钢琴键条（NyxusPianoStrip）
+### Nyxus 钢琴彩蛋（NyxusPianoStrip）
 
-对话框底部边框线外挂的标准钢琴键盘（按视口宽度选 1/2/3 八度档位--取不超过视口的最大整八度，不足 1 八度取小档；渲染键数 = max(档位键数 12/24/36, 会话数)）。琴键只映射**原生 root 会话**：过滤 `!parentChatId`（剔 spawn 子角色）且 `branchKind` 缺省或 `'original'`（剔延续/解释分支）。分支会话（`chat.branch.create` 产物）本身是无 `parentChatId` 的独立 root chat（从属关系存 `conversation_branches` 表，且 metadata 继承原会话 preset），仅靠 `!parentChatId` 过滤不掉，必须按 `branchKind` 显式剔除；被激活为主干的 continuation 也经工作台标题栏分支切换访问，不占琴键。会话按 `createdAt` 降序映射到琴键，最左侧是最新创建的数据，最右侧是最老数据。铺满判定：渲染白键 × 32px ≤ 视口时白键按比例均分填满视口（消除右侧空隙，单键宽随档位接近 32px 钢琴规制）；会话多于档位致轨宽超出视口则固定 32px 横向拖拽平移。档位下限保证黑键在琴轨内完整渲染（不出现半个键）。所有键点击都会发声并短暂高亮；只有存在会话摘要的键才切换活跃会话并保留选中态（无会话的空键发声但不切换）。hover 始终显示音名与 MIDI 编号，有首条用户消息时追加消息摘要，已有会话但无消息时追加“无消息”。运行中且有 pending 审批的键显示倒计时并闪烁（临近过期加速），时间标签使用高对比度样式。tooltip show-after 与键 hoverLeave 同为 150ms，快速划过不残留。
+> 2026-08-26 起钢琴降级为**纯键盘弹奏彩蛋**，不再承载会话切换。会话切换改由 rail 的会话列表 popout 承接（见下节）；钢琴与列表的关联已全部剔除。
 
-钢琴面板右上角固定放置无边框的静音与垃圾桶，声音和删除不再占用通用工具抽屉。会话删除继续走拖拽二次确认（不开弹窗）：hover 可删键时琴轨最底部（统一位置，不随白/黑键高度变化）显示「清除」圆形按钮（拖拽源）；按住后把会话拖到右上角垃圾桶释放即触发 `agents.deleteSession`（后端 `destroyAgent` 级联后代 + 同步清 historyList/pets/streams）。拖拽期间源会话琴键保持主题色描边、抬升与内发光，明确标记当前拖拽来自哪个节点；命中垃圾桶后自然衔接删除收缩动画。命中判定仅针对垃圾桶元素的 `getBoundingClientRect`。拖拽幽灵通过 `Teleport` 挂到 `body`，不受钢琴 popout 的 transform containing block 影响，始终以视口坐标跟随指针并显示会话消息气泡 icon。运行中（`run.status==='running'`）或有 pending 审批的键不可删（按钮不显示）。**删除交互期间锁定钢琴 popout 不关闭**：hover 可删键 / 拖拽中 / 倒掉动画任一为真时，NyxusPianoStrip emit `interacting-change=true`，AgentDialog 置 `pianoPinned=true`；交互结束只解除锁定，不将其等同于鼠标离开。删除完成后 `historyList → sessions → keyViews` 自动重算并在原钢琴组件中更新琴键，钢琴保持打开；仅当锁定期间确实收到面板离开请求时，解除锁定后才执行延迟关闭。释放命中后 ghost 飞向垃圾桶中心并缩小消失，被删键收缩、淡出、下沉，随后播放桶盖与桶身反馈。删的若是弹窗当前焦点会话，**先把焦点切到剩余 updatedAt 最近一条（无剩余则进入空态）再级联删除**，避免弹窗因 active id 清空而重挂载。
+钢琴组件 `NyxusPianoStrip` 只在**节点树彩蛋触发**时以浮层出现在节点树视口中央（触发序列见 [nyxus-node-tree-maintenance.md#节点树钢琴彩蛋](./nyxus-node-tree-maintenance.md#节点树钢琴彩蛋)）。固定绘制 **2 个八度 24 键标准钢琴**（C4–B5）：白键 14 + 黑键 10，复用 `layoutPianoKeys(24)`（`pianoNotes.ts`）按真实钢琴比例排版（黑键骑白键边界、z 叠上层）——白键象牙渐变、黑键乌木渐变+高光、键前缘与面板**全直角**（`border-radius:0`）；面板标题 `NYXUS PIANO · C4–B5` + 键位提示行，全部字重 400（`docs/web/font-style-guide.md` 豁免清单同步收敛）。
+
+**键盘映射（VirtualPiano 两行键位排版）**：低八度白键 `Z X C V B N M` = C4..B4（MIDI 60..71）、黑键 `S D G H J` = C#4..A#4（61/63/66/68/70）；高八度白键 `Q W E R T Y U` = C5..B5（72..83）、黑键 `2 3 5 6 7` = 73/75/78/80/82。监听用 `KeyboardEvent.code` 匹配（规避键盘布局/输入法差异）；输入控件（`input/textarea/select/[contenteditable]`）内的按键忽略、`e.repeat` 忽略；命中键 `preventDefault` 并调 `usePianoAudio.play(noteFrequency(midi))`（`usePianoKeyboard.ts`，仅浮层挂载期间监听，弹琴不误触 composer 输入）。音频为 Web Audio 三角波 + ADSR 包络，`AudioContext` 在用户手势同步链内懒建解锁（`usePianoAudio.ts` 保留，含静音开关，静音态持久化 localStorage）。指针点击与键盘按键共用按下高亮。浮层自包含关闭：点 ✕ / 点浮层外 / `Esc`。
+
+### 工作台会话列表（NyxusSessionList）
+
+> 2026-08-26 起替代原钢琴键的会话切换：滚动加载 + 点击选择，与钢琴彻底解耦。
+
+工作台 rail 的「会话」按钮（原钢琴按钮位）打开 `NyxusSessionList` popout（`web/src/features/agent/workbench/NyxusSessionList.vue`），**滚动加载 + 点击选择**切换根会话：
+
+- **数据范围（按需拉取）**：仅该工作台预设的**原生 root 会话**（复用 `isPianoRootSession`：`!parentChatId` 且 `branchKind` 缺省或 `'original'`，剔 spawn 子角色与 continuation/detail 分支），按 `createdAt` 降序。**数据源是打开时按需 `agentApi.listChats({ scope: 'history', includePreview: true })`（全量目录）后在前端过滤**——不依赖后端 metadata 匹配，最稳。⚠️ 曾尝试 `scope:'preset' + presetId/preset` 双参：后端 `listRootChatsForPresets`（`src/db/chat.ts`）对 metadata **原始字段**精确匹配，会话 metadata 带非空 presetId 且与窗口 `props.presetId` 不一致时，`presetId=? OR (presetId IS NULL AND preset=?)` 两分支均 false → **列表全空**（2026-08-26 实测 bug），故放弃；也不复用 `agents.historyList`（`scope:'stage'` 每预设仅留最新 1 个 root 且 lean 无 preview）。`scope:'history'` 走 `listAllChats()` 全量返回（含 preview/turnCount），前端经 `isPianoRootSession && (preset===presetName || presetId===props.presetId)` 过滤、按 `createdAt` 降序注入 `NyxusSessionList`，配 `loading` 占位；拉取失败回退 `agents.historyList ?? []` 保证不空。
+- **列表行**：全局序号（自 1 递增）+ 首条 user 消息预览（无则「无消息」）+ 末次时间（HH:mm / M/d）+ 轮次；标题单行 ellipsis（宽度受限），`title` 属性携带完整信息；当前会话行高亮 `.is-active`。
+- **滚动加载**：去掉翻页，列表为固定最大高度的滚动容器（`overflow-y: auto`），数据已一次拉全（该预设全部 root，行轻量）直接全量渲染，滚动浏览最自然；打开时滚动定位到含当前会话的位置。
+- **关闭逻辑**：点击行经 `switchSession(chatId)`（`useWorkbenchTreeSession`）切换**但不收起 popout**（用户可先确认切换效果）；鼠标移出 popout 区间后延迟关闭（复用 pointerenter/pointerleave + 160ms 延迟，鼠标移回即取消）。
+- **删除**：行 hover 显放大删除按钮（带边框与图标、hover 变红），点击原位变「确认？」红字 2s 二次确认再删；运行中会话禁用删除。删除走 `deletePresetSession` / `deleteNyxusSession`（级联删除后代）；删除的是当前会话时先切到剩余最近会话，无剩余则清空工作台当前会话（`setWorkbenchWindowChat(windowId, null)`）。
+- **空态**：无原生 root 会话时显示「该预设暂无会话，可用右侧新建会话按钮」。
 
 ```text
 div.pet-wrap                                                            // 根容器（无 z-index/position → 不创建 stacking context，气泡 z-index 跨 pet 比较）

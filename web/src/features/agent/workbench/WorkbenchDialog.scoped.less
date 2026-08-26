@@ -50,8 +50,7 @@
 .workbench-shell.is-lite .nyxus-branch-top,
 .workbench-shell.is-lite .workbench-ctx-bar,
 .workbench-shell.is-lite :deep(.pending-panel),
-.workbench-shell.is-lite .nyxus-composer-dock,
-.workbench-shell.is-lite .nyxus-piano-strip {
+.workbench-shell.is-lite .nyxus-composer-dock {
   display: none;
 }
 /* t10：lite 视图下隐藏「继续编辑消息/发送消息」rail 按钮——lite 唯一消息入口是底部输入框，
@@ -449,7 +448,7 @@
   /* 折叠按钮变宽时会撑宽本组；右对齐让角色按钮等保持贴 rail 边缘，不随折叠按钮左移。 */
   align-items: flex-end;
 }
-.nyxus-piano-tool,
+.nyxus-session-tool,
 .nyxus-role-tool,
 .nyxus-fold-tool {
   position: relative;
@@ -552,29 +551,27 @@
   outline: 2px solid color-mix(in srgb, var(--nx-cyan) 86%, transparent);
   outline-offset: 2px;
 }
-.nyxus-piano-popout {
+// 会话列表 popout：镜像角色 popout（rail 右侧悬浮、垂直居中）+ 不透明暖深面板与边框（内容突出）。
+.nyxus-session-popout {
   position: absolute;
   right: calc(100% + 8px);
   top: 50%;
-  width: min(680px, calc(100vw - 190px));
-  height: 153px;
-  margin-top: -76px;
-  padding: 0 7px 7px;
+  width: min(380px, calc(100vw - 190px));
+  padding: 6px;
+  box-sizing: border-box;
   transform-origin: right center;
   pointer-events: auto;
-  border: 1px solid rgba(255, 223, 157, 0.48);
-  border-radius: 12px;
-  background:
-    linear-gradient(
-      90deg,
-      rgba(66, 36, 15, 0.97),
-      rgba(132, 76, 25, 0.98) 50%,
-      rgba(66, 36, 15, 0.97)
-    ),
-    #5f3312;
-  box-shadow:
-    0 18px 34px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 221, 151, 0.38);
+  border: 1px solid rgba(150, 130, 100, 0.45);
+  border-radius: 0;
+  background: #241a10;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+// 钢琴彩蛋浮层：作为 .nyxus-branch-top 的 flex 子元素自然居中于节点树视口中央。
+.nyxus-piano-flyout {
+  position: relative;
+  z-index: var(--nx-z-chrome);
+  pointer-events: auto;
+  border-radius: 0;
 }
 // 断连遮罩：盖住画布与 rail（native 面三键在 WindowFrame 层），阻断进一步操作防出错。
 .workbench-offline-mask {
@@ -655,15 +652,6 @@
 // 浏览器面自绘标题栏的连接状态 chip（native 面由 App.vue WindowFrame title-actions 承载）。
 .workbench-titlebar .workbench-conn-chip {
   margin-left: 2px;
-}
-.nyxus-piano-popout :deep(.piano-keyboard) {
-  position: relative;
-  inset: auto;
-  height: 146px;
-  padding: 0;
-}
-.nyxus-piano-popout :deep(.piano-viewport) {
-  height: 112px;
 }
 .nyxus-role-popout {
   position: absolute;
@@ -907,13 +895,6 @@
   .nyxus-side-tools {
     top: 50%;
     right: 8px;
-  }
-  .nyxus-piano-popout {
-    right: -62px;
-    top: auto;
-    bottom: calc(100% + 10px);
-    width: calc(100vw - 72px);
-    margin-top: 0;
   }
   .nyxus-composer-dock {
     right: 52px;

@@ -16,7 +16,8 @@ const {
   pinnedCrtIds, pixiMountRef, recordActionPopoverHeight, recoverGraph, recoveringGraph,
   recoveryError, ref, requestBranch, resetLayout, returnToBottom, returnToLatestPaper,
   selectActionCall, selectFoldMember, selectPaperIndex, selectedActionCall, selectedCallId,
-  showNodeDetail, unpinCrt, unreadFoldMembers, viewportRef, viewportSize, visibleInteractiveNodes,
+  showNodeDetail, unpinCrt, unreadFoldMembers, vMeasureHeight, viewportRef, viewportSize,
+  visibleInteractiveNodes,
 } = controller
 defineExpose({ resetLayout: controller.resetLayout })
 </script>

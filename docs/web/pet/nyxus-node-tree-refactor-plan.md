@@ -50,7 +50,7 @@
 3. 全局暂停按钮仍可用，但结构化 termination 没有完整进入 timeline；“用户手动截断”“系统停止”“watchdog/error”“agent redirect”无法可靠刷新恢复。
 4. `stop_child` / `send_to_child` 及 running/paused child 的状态转换和持久边尚未实现。
 5. 独立 CRT 堆栈虽然从当前模板移除，但 CRT 尚未锚定 running 节点；“合并”目前只是隐藏旧 UI，不是完成新交互。
-6. 钢琴弹窗已具备拖动和收缩原型，分割线已隐藏，但层级、拖动边界、持久位置、树手势隔离尚未完整验收。
+6. 钢琴弹窗曾具备拖动和收缩原型，分割线已隐藏；**2026-08-26 起钢琴已降级为纯键盘弹奏彩蛋**（节点树连点序列触发、视口中央浮层，无拖动/收缩/会话映射，见 [rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](./rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)），本项拖动/收缩规划作废。
 7. 历史抽屉曾被输入框遮挡，说明 overlay/z-index 尚无统一层级契约。
 
 ### 2.5 工程状态
@@ -81,7 +81,7 @@
 | 15 | 主线居中，子树两侧平衡 | 初版 lane | 基于真实 spawn 子树的稳定布局 |
 | 16 | CRT 合并进节点树 | 未实现 | running node anchor、避碰、层级 |
 
-后续修订状态：全页面画板、仅 icon+name、icon-to-icon 曲线脉冲、整图 pan/zoom、钢琴可拖动/收缩、隐藏分割线均已出现原型，但尚未作为一个完整 checkpoint 验收；active 工具节点保持展开、结束后默认 fold 尚未实现。
+后续修订状态：全页面画板、仅 icon+name、icon-to-icon 曲线脉冲、整图 pan/zoom、隐藏分割线均已出现原型，但尚未作为一个完整 checkpoint 验收；active 工具节点保持展开、结束后默认 fold 尚未实现。**钢琴可拖动/收缩已随 2026-08-26 彩蛋化作废**（见 §2.4 修订注记），不再属于节点树规划范围。
 
 ## 4. 新的 canonical graph contract
 
@@ -185,8 +185,8 @@ endpoint idle
 - 边从 icon 几何边缘到下一个 icon 几何边缘，底线全部使用低亮实线，只以颜色区分关系类型，不按关系类型切换虚线；静态底线必须退居背景，亮度显著低于传播光束。所有方向和运行状态都叠加同一套 SVG 原生路径光束，沿 source→target 以统一 `100px/s` 线性传播。单个光效物理长度固定为 `120px`，由同宽的 `72px` 高亮头和 `48px` 逐级透明尾焰组成，不能用加粗描边冒充光效。光效固定每 `2.4s` 生成一次，相邻前缘的空间周期固定为 `240px`，不得以“上一束离开终点”触发补位，也不得让路径长度参与生成周期；因此长边可以同时出现多束光，短边可以只有一束、半束或暂时没有。`active` 只能增强整体亮度，不能改变速度、长度、宽度或生成间隔。光束由路径边界自然裁切，不在终点前做整体透明度呼吸；传播层不得依赖默认 `objectBoundingBox` SVG filter，避免纯纵向或纯横向路径因零宽/零高滤镜区域被裁掉。`prefers-reduced-motion` 下关闭光束并保留静态实线。
 - 主 agent 车道固定页面中线。子 agent 以完整 spawn 子树为单位分配左右两侧，以高度/节点数为权重平衡；已出现分支在新增事件时尽量保持侧别和 x 位置稳定。
 - 运行 CRT、输入框、工具详情是锚定节点的 HTML overlay，使用 world-to-screen 坐标转换，不嵌入节点 `<g>` 的二次坐标系。
-- 统一层级：页面画布 < 节点/边 < 节点 popover/CRT < 可拖动钢琴/主输入编辑浮层 < 历史抽屉 < modal/系统审批。历史抽屉不得被输入框遮挡。
-- 钢琴面板可拖动、可收缩为按钮；拖动手势不能传给画布，位置需限制在可视区域，窗口 resize 后自动纠正。
+- 统一层级：页面画布 < 节点/边 < 节点 popover/CRT < 主输入编辑浮层 < 历史抽屉 < modal/系统审批。历史抽屉不得被输入框遮挡。
+- 钢琴不再作为节点树成员：2026-08-26 起仅以**彩蛋浮层**出现在节点树视口中央（不参与拖拽/收缩/层级排序，见 [rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](./rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
 
 ## 7. 新 Checkpoints
 
@@ -200,7 +200,7 @@ endpoint idle
 
 - 将现有 CP2/CP3 标为未验收原型，不继续扩展。
 - 为运行 ID `67dabe81-00fd-4021-92e0-f65cd061e94f` 和至少一个多 spawn fixture 固化 root snapshot/graph fixture。
-- 记录当前历史抽屉、首次发送、暂停恢复、画板和钢琴的基线行为。
+- 记录当前历史抽屉、首次发送、暂停恢复、画板的基线行为（钢琴已彩蛋化，不再属于基线验收范围，见 §2.4 修订注记）。
 
 Checkpoint：用户运行现版本并确认基线用例、目标截图/录屏和必须保留的交互范围。
 
@@ -242,9 +242,9 @@ Checkpoint：fixture 的图快照经用户检查无缺边、无重复边、无�
 - 实现 viewport/world/overlay 三层坐标模型。
 - 渲染统一的 icon+name skin、icon-to-icon 曲线脉冲、中心主线和两侧子树。
 - 完成整图 pan/zoom/reset、禁止文字误选、click-after-drag 抑制和 reduced-motion。
-- 保留钢琴拖动/收缩，统一手势边界与层级；不显示额外画布背景或开始按钮。
+- 不显示额外画布背景或开始按钮（开始节点仍为纯装饰 icon，其可点化仅服务于钢琴彩蛋首步，见 [nyxus-node-tree-maintenance.md#节点树钢琴彩蛋](./nyxus-node-tree-maintenance.md#节点树钢琴彩蛋)）。
 
-Checkpoint：用户在真实会话中验证全页面均可拖拽缩放、无文字误选；开始只是首个 icon 节点；主/子所有双向边可见；钢琴可拖动收缩且不带动画布。
+Checkpoint：用户在真实会话中验证全页面均可拖拽缩放、无文字误选；开始只是首个 icon 节点；主/子所有双向边可见。
 
 ### CP5：主线虚拟输入状态机
 

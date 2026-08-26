@@ -49,8 +49,22 @@
 - 节点悬浮框（hover 详情 / 常驻审批气泡 / 提问气泡）统一定位：优先固定贴靠所属节点**右侧**（右侧放不下时回退左侧），垂直方向使节点落在标题栏中下沿。**定位高度一律使用实测内容高度**（未测量前用合理小初始值），不得用视口上限高度参与垂直钳制——否则矮窗会被 `viewport - 上限` 顶到视口顶部（“飘高”）。悬浮框**不绘制锚点连线**：连线仅运行 CRT 保留（`crtPlacements`），审批/提问等 action 弹窗与详情弹窗均无连线。
 - 常驻悬浮框（pinned 详情 / 审批 / 提问气泡）标题栏可拖动：拖动后固定在用户放置的位置（钳制在视口内、保留标题栏可见），关闭重开即清除手动位置重新吸附回自动定位；hover 临时详情不参与拖拽。实现复用 CRT 的 pointer-capture 拖拽模式（`AnchoredRunCrt`），不走窗口间避碰。
 - 普通消息提交、流式节点追加和视口 ResizeObserver 不得自动修改用户当前相机；只有初次挂载、切根、切换折叠/布局档位和显式复位允许 fit。
-- 工作台历史入口在任务含分支时固定打开 `activeBranchId`；标题栏按活动主干、其他继续分支、解释分支排序。`original` 仅表示最初分支，不再永久标记为“主流程”。用户可把任一 original/continuation 直接设为主干；该操作只切换身份与节点树 lane，不复制消息或启动执行。分支标题取该分支第一条用户消息。会话钢琴键不随主干切换增减键位：琴键恒只映射 `original` 分支（约定见 `docs/web/pet/rendering.md` NyxusPianoStrip 章节），continuation/detail 一律经工作台标题栏访问。
+- 工作台历史入口在任务含分支时固定打开 `activeBranchId`；标题栏按活动主干、其他继续分支、解释分支排序。`original` 仅表示最初分支，不再永久标记为“主流程”。用户可把任一 original/continuation 直接设为主干；该操作只切换身份与节点树 lane，不复制消息或启动执行。分支标题取该分支第一条用户消息。工作台会话列表不随主干切换增减条目：列表恒只列 `original` 分支（复用 `isPianoRootSession`，约定见 [rendering.md#工作台会话列表nyxussessionlist](./rendering.md#工作台会话列表nyxussessionlist)），continuation/detail 一律经工作台标题栏访问。
 - continuation 的首条用户消息之前必须展示一个持久“结果汇总”系统节点：其前方由来源锚点的 `fork-continuation` 连线接入，继承的已完成任务返回连入该节点；后方再连接新用户消息。迟到的继承任务结果分别显示为独立返回节点并连接到当前活动主干，不合并进旧汇总节点。
+
+## 节点树钢琴彩蛋
+
+钢琴降级为纯键盘弹奏彩蛋后，入口完全藏在节点树内（无任何 rail/工具栏按钮）。触发为**多节点连点序列**，整段流程须在 8 秒时间窗内完成，错步或超时立即复位：
+
+1. 点击**开始节点**（`start`）；
+2. 依次点击三个**不同特征节点**——顺序为 `tool-batch`（工具执行）→ `dispatch`（任务委派）→ `fold`（过程组），且每个都必须是**未点过的新节点**（`seenIds` 防重复点同一节点刷序列）；
+3. 最后点击**主流程最后一个节点**（`mainExecutionEndpoint(graph.value).id`，取**渲染图**投影——折叠档位下视觉尾节点可能是 fold 卡，仍可点）。
+
+序列由 `usePianoEasterEgg.ts` 状态机维护：`consume(node)` 在 `activateNode` 顶部消费，返回 `true` 即 `emit('easter-egg')` 并吞掉本次点击（不触发节点正常点击行为）；时间窗 `PIANO_EASTER_EGG_WINDOW_MS=8000`，每次成功推进重置，超时/错步复位并清 `seenIds`。
+
+**开始节点可点化**：`start` 本不在 `NODE_HOVER_DETAIL_KINDS`（纯装饰节点），`visibleInteractiveNodes` 默认过滤。为承载彩蛋首步，工作台（非 `staticView`）下把 `start` 加入命中层（`isInteractiveNode(node) || (!props.staticView && node.kind === 'start')`），`onNodePointerDown` 同条件 `stopPropagation()` 防画布 pointer capture 抢点击；`showNodeDetail` 已有 `hasNodeHoverDetail` 守卫，start 悬停不弹详情。**GenerationTreeDialog 二层（`static-view`）不挂命中层、状态机 `enabled: () => !props.staticView` 禁用**，彩蛋只在工作台主树生效。
+
+触发后 `MessageBranchTree` 上抛 `@easter-egg`，工作台打开节点树视口中央浮层钢琴（`openPiano`，见 [rendering.md#nyxus-钢琴彩蛋nyxuspianostrip](./rendering.md#nyxus-钢琴彩蛋nyxuspianostrip)）。
 
 ## 性能基线
 

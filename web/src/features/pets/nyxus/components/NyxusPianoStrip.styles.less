@@ -1,502 +1,160 @@
+// ── Nyxus 彩蛋钢琴浮层样式（全直角，字重 400/600） ──
 .piano-keyboard {
-  position: relative;
-  z-index: 5;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 146px;
+  width: 460px;
   box-sizing: border-box;
+  border-radius: 0;
+  border: 1px solid rgba(62, 36, 12, 0.9);
+  background: #2b1d10;
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.55),
+    0 2px 8px rgba(0, 0, 0, 0.35);
+  user-select: none;
 }
 .piano-panel-head {
   flex: 0 0 28px;
   height: 28px;
   display: flex;
   align-items: center;
-  justify-content: flex-start;
   gap: 6px;
-  padding: 0 2px 0 5px;
+  padding: 0 6px;
   box-sizing: border-box;
 }
 .piano-panel-title {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  color: rgba(255, 230, 177, 0.76);
+  color: rgba(255, 230, 177, 0.78);
   font:
-    700 8px/1 ui-monospace,
+    600 10px/1 ui-monospace,
     SFMono-Regular,
     Menlo,
     Consolas,
     monospace;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.12em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .piano-panel-action,
-.piano-trash-target {
-  width: 24px;
-  height: 24px;
+.piano-close {
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
+  padding: 0;
   box-sizing: border-box;
   border: 0;
-  border-radius: 7px;
-  color: rgba(255, 232, 187, 0.62);
-  background: rgba(45, 24, 8, 0.26);
-}
-.piano-panel-action {
-  padding: 0;
+  border-radius: 0;
+  color: rgba(255, 232, 187, 0.66);
+  background: rgba(45, 24, 8, 0.3);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
   transition:
-    transform 140ms cubic-bezier(0.23, 1, 0.32, 1),
-    color 120ms ease,
-    background-color 120ms ease;
+    transform 120ms ease,
+    color 100ms ease,
+    background-color 100ms ease;
   &:active {
-    transform: scale(0.97);
+    transform: scale(0.96);
   }
   &.is-active {
     color: #ffe4a6;
-    background: rgba(111, 65, 16, 0.46);
+    background: rgba(111, 65, 16, 0.5);
+  }
+}
+.piano-close {
+  font-size: 14px;
+  &:hover {
+    color: #fff;
+    background: rgba(140, 74, 16, 0.5);
   }
 }
 .piano-stage {
   position: relative;
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
   padding: 0 6px 6px;
   box-sizing: border-box;
-}
-
-.piano-viewport {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
   overflow: hidden;
-  border: 1px solid rgba(48, 25, 7, 0.84);
-  border-top: 1px solid rgba(255, 223, 157, 0.48);
-  border-radius: 3px 3px 8px 8px;
-  background: #32200f;
-  box-shadow:
-    0 5px 10px rgba(0, 0, 0, 0.38),
-    inset 0 1px 0 rgba(255, 239, 200, 0.22);
-  cursor: grab;
-  touch-action: none;
 }
-.piano-empty {
-  min-height: 112px;
-  display: grid;
-  place-items: center;
-  color: rgba(255, 239, 205, 0.58);
-  font:
-    600 11px/1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
-  letter-spacing: 0.08em;
-}
-// 会话目录加载占位：铺满琴键视口的半透明层（暖棕底 + 呼吸点），与钢琴面板同色系。
-.piano-loading {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  color: rgba(255, 239, 205, 0.82);
-  background: rgba(50, 32, 15, 0.72);
-  font:
-    600 11px/1 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    Consolas,
-    monospace;
-  letter-spacing: 0.08em;
-  animation: piano-loading-breathe 1.4s ease-in-out infinite;
-}
-@keyframes piano-loading-breathe {
-  0%,
-  100% {
-    opacity: 0.72;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-.piano-viewport:active {
-  cursor: grabbing;
-}
-
 .piano-track {
   position: relative;
   height: 112px;
 }
 
-// ── 真实钢琴键外观 ──
+// ── 真实钢琴键外观（全直角） ──
 .piano-key {
   position: absolute;
   top: 0;
   padding: 0;
   border: 0;
+  border-radius: 0;
   cursor: pointer;
   touch-action: none;
-  transition:
-    filter 70ms ease,
-    transform 70ms ease;
+  transition: filter 60ms ease;
 
-  // 白键：象牙色长键，前缘圆角 + 侧缝 + 前端阴影。
+  // 白键：象牙渐变 + 侧缝 + 前缘阴影。
   &.is-white {
-    background: linear-gradient(180deg, #fffefb 0%, #fbf6ec 55%, #efe4cd 100%);
+    background: linear-gradient(180deg, #fffdf8 0%, #f7f0e2 55%, #e8dcc2 100%);
     border-right: 1px solid rgba(120, 100, 60, 0.28);
-    border-radius: 0 0 5px 5px;
-    color: #6b5436;
+    box-shadow: inset 0 -3px 4px rgba(120, 110, 90, 0.18);
     &:last-child {
       border-right: 0;
     }
+    &:hover {
+      filter: brightness(1.02);
+    }
+    &.is-pressed {
+      background: linear-gradient(180deg, #ffe7a0 0%, #f6bb4b 58%, #d88626 100%);
+      box-shadow: inset 0 -3px 5px rgba(140, 88, 20, 0.35);
+    }
   }
-  // 黑键：乌木质感，短而居上，亮顶高光 + 前端圆角 + 投影到白键。
+  // 黑键：乌木渐变 + 亮顶高光 + 投影到白键。
   &.is-black {
-    background: linear-gradient(180deg, #4a4239 0%, #1d1813 55%, #080706 100%);
-    border-radius: 0 0 3px 3px;
+    background: linear-gradient(180deg, #4c443b 0%, #1e1914 55%, #0a0806 100%);
     box-shadow:
       inset 0 -2px 3px rgba(0, 0, 0, 0.7),
-      inset 0 2px 1px rgba(255, 255, 255, 0.14),
+      inset 0 2px 1px rgba(255, 255, 255, 0.16),
       0 3px 4px rgba(0, 0, 0, 0.45);
-    color: #d8cdb6;
-  }
-
-  &:hover {
-    filter: brightness(1.04);
-  }
-  &.is-white:not(.is-nodata):active {
-    background: linear-gradient(180deg, #f7f1e3 0%, #f1e8d3 60%, #e6d9bd 100%);
-  }
-  &.is-pressed {
-    filter: saturate(1.12);
-  }
-  &.is-white.is-pressed {
-    background: linear-gradient(180deg, #ffe7a0 0%, #f6bb4b 58%, #d88626 100%);
-    color: #62400c;
-  }
-  &.is-black.is-pressed {
-    background: linear-gradient(180deg, #9a6328 0%, #593212 55%, #2e1908 100%);
-  }
-  &.is-blink {
-    animation: nx-key-flash var(--flash-period, 1s) ease-in-out infinite;
-  }
-  &.is-deleting {
-    transform: scale(0.6) translateY(10px);
-    opacity: 0;
-    transition: transform 300ms ease, opacity 300ms ease;
-  }
-  &.is-drag-source {
-    filter: brightness(1.08) saturate(1.18);
-    outline: 2px solid rgba(246, 183, 60, 0.94);
-    outline-offset: -2px;
-    box-shadow:
-      0 0 0 2px rgba(246, 183, 60, 0.22),
-      0 0 12px rgba(246, 183, 60, 0.5),
-      inset 0 0 10px rgba(246, 183, 60, 0.18);
-    transform: translateY(-2px);
-  }
-
-  // 无数据键：置灰不可用。
-  &.is-nodata {
-    cursor: pointer;
-    &.is-white {
-      background: linear-gradient(180deg, #dedacf 0%, #cdc8bf 60%, #bdb8af 100%);
-      box-shadow:
-        inset 0 -4px 5px rgba(120, 110, 90, 0.18),
-        inset 2px 0 0 rgba(255, 255, 255, 0.4);
-      color: #9a958c;
+    &:hover {
+      filter: brightness(1.08);
     }
-    &.is-black {
-      background: linear-gradient(180deg, #5e5950 0%, #3a3631 60%, #2a2622 100%);
-      box-shadow:
-        inset 0 -2px 3px rgba(0, 0, 0, 0.5),
-        inset 0 2px 1px rgba(255, 255, 255, 0.08);
-      color: #7a766e;
+    &.is-pressed {
+      background: linear-gradient(180deg, #9a6328 0%, #593212 55%, #2e1908 100%);
     }
   }
 }
 
-// 当前会话标记：仅占键体内的一个小金点，不改动琴键圆角、阴影或层级。
-.key-selected-marker {
+// 键面键位提示（键盘弹奏的物理键字母）。
+.key-hint {
   position: absolute;
-  top: 7px;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  transform: translateX(-50%);
-  border: 1px solid rgba(92, 52, 9, 0.65);
-  border-radius: 50%;
-  background: #f6b73c;
-  box-shadow: 0 1px 2px rgba(56, 29, 5, 0.35);
-  pointer-events: none;
-}
-.key-attention-count {
-  position: absolute;
-  top: 5px;
-  right: 3px;
-  min-width: 13px;
-  height: 13px;
-  padding: 0 3px;
-  border-radius: 7px;
-  color: #fff;
-  background: #d85b27;
-  box-shadow: 0 1px 4px rgba(75, 28, 5, 0.38);
-  font: 800 8px/13px ui-monospace, Menlo, monospace;
-  pointer-events: none;
-}
-
-// 白键键面文字（底端）。
-.key-face {
-  position: absolute;
-  inset: auto 0 5px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  line-height: 1;
-  pointer-events: none;
-}
-.key-time {
-  font-size: 8px;
-  color: #6b4a20;
-  opacity: 0.9;
-  font-weight: 700;
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-}
-.key-black-face {
-  position: absolute;
-  inset: auto 0 4px 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  pointer-events: none;
-}
-.key-time.is-on-black {
-  color: rgba(255, 244, 216, 0.94);
-  font-size: 7px;
-  text-shadow: 0 1px 1px #000;
-}
-
-.key-countdown {
-  position: absolute;
-  top: 6px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 9px;
-  font-weight: 800;
-  color: #b94a1f;
-  text-shadow: 0 0 4px rgba(255, 255, 255, 0.85);
+  font:
+    400 8px/1 ui-monospace,
+    Menlo,
+    Consolas,
+    monospace;
+  pointer-events: none;
+  letter-spacing: 0;
+  &.is-on-white {
+    bottom: 6px;
+    color: rgba(107, 84, 54, 0.72);
+  }
   &.is-on-black {
-    color: #ffb27a;
-    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+    top: 7px;
+    color: rgba(255, 244, 216, 0.9);
+    text-shadow: 0 1px 1px #000;
   }
 }
-
-@keyframes nx-key-flash {
-  0%,
-  100% {
-    opacity: 1;
-    box-shadow:
-      0 0 0 2px rgba(185, 74, 31, 0.85),
-      0 0 8px rgba(185, 74, 31, 0.55),
-      inset 0 -3px 5px rgba(150, 120, 60, 0.2);
-  }
-  50% {
-    opacity: 0.45;
-    box-shadow:
-      0 0 0 2px rgba(246, 183, 60, 0.85),
-      0 0 5px rgba(246, 183, 60, 0.4),
-      inset 0 -3px 5px rgba(150, 120, 60, 0.2);
-  }
-}
-
-// ── 拖拽删除：琴键顶部中心圆形 × 按钮 ──
-.key-clear-icon {
-  position: absolute;
-  transform: translateX(-50%);
-  z-index: 6;
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1px solid rgba(255, 236, 186, 0.72);
-  border-radius: 50%;
-  background: #8b4a18;
-  color: #fff3d4;
-  cursor: grab;
-  box-shadow: 0 1px 4px rgba(37, 18, 4, 0.42);
-  transition:
-    transform 120ms ease,
-    box-shadow 120ms ease;
-  animation: nx-clear-pulse 1.8s ease-in-out infinite;
-  &:hover {
-    transform: translateX(-50%) scale(1.06);
-    background: #b46422;
-    box-shadow: 0 3px 8px rgba(246, 183, 60, 0.35);
-  }
-  &:active {
-    cursor: grabbing;
-    transform: translateX(-50%) scale(0.96);
-  }
-}
-@keyframes nx-clear-pulse {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 0 rgba(246, 183, 60, 0));
-  }
-  50% {
-    filter: drop-shadow(0 0 6px rgba(246, 183, 60, 0.7));
-  }
-}
-.key-clear-glyph {
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1;
-  pointer-events: none;
-}
-.piano-trash-target {
-  position: absolute;
-  top: 2px;
-  z-index: 30;
-  pointer-events: none;
-  transition:
-    left 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    color 140ms ease,
-    background-color 140ms ease;
-  .trash-svg {
-    width: 16px;
-    height: 16px;
-    opacity: 0.58;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
-    transition:
-      transform 180ms cubic-bezier(0.23, 1, 0.32, 1),
-      filter 180ms ease,
-      opacity 140ms ease;
-  }
-  .trash-lid {
-    transform-box: fill-box;
-    transform-origin: 50% 100%;
-    transition: transform 220ms ease;
-    rect {
-      fill: currentcolor;
-    }
-  }
-  .trash-body {
-    transform-box: fill-box;
-    transform-origin: 50% 100%;
-    transition: transform 220ms ease;
-    path {
-      fill: currentcolor;
-      stroke: rgba(57, 31, 8, 0.7);
-      stroke-width: 1;
-      stroke-linejoin: round;
-    }
-  }
-  .trash-content {
-    stroke: rgba(69, 38, 10, 0.82);
-    stroke-width: 1.4;
-    stroke-linecap: round;
-    transition:
-      transform 220ms ease,
-      opacity 220ms ease;
-  }
-  &.is-ready {
-    color: #ffe4a6;
-    background: rgba(111, 65, 16, 0.52);
-    .trash-svg {
-      opacity: 1;
-      transform: scale(1.08);
-    }
-  }
-  &.is-over {
-    color: #fff0bd;
-    background: rgba(163, 91, 18, 0.72);
-    .trash-svg {
-      opacity: 1;
-      filter: drop-shadow(0 0 7px rgba(246, 183, 60, 0.9));
-      transform: scale(1.16);
-    }
-  }
-}
-// 释放命中：倒掉动画（盖子弹性翻开 + 桶身下沉倾斜 + 内容粒子化散落 + 回弹）。
-.piano-trash-target.is-dumping .trash-svg {
-  .trash-lid {
-    transform: rotate(-74deg);
-    transition: transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-  .trash-body {
-    transform: rotate(-14deg) translateY(2px);
-    transition: transform 380ms ease;
-  }
-  .trash-content {
-    opacity: 0;
-    transition: transform 300ms ease, opacity 300ms ease;
-  }
-  .trash-content:nth-child(2) {
-    transform: translateY(13px) translateX(-3px) rotate(-14deg);
-    transition-delay: 0ms;
-  }
-  .trash-content:nth-child(3) {
-    transform: translateY(14px) rotate(8deg);
-    transition-delay: 70ms;
-  }
-  .trash-content:nth-child(4) {
-    transform: translateY(13px) translateX(3px) rotate(16deg);
-    transition-delay: 140ms;
-  }
-}
-
-// ── 拖拽幽灵（fixed 跟随光标，会话消息气泡 icon） ──
-.clear-ghost {
-  position: fixed;
-  z-index: 1000;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  &.is-flying {
-    transition: left 250ms cubic-bezier(0.4, 0, 0.6, 1), top 250ms cubic-bezier(0.4, 0, 0.6, 1);
-  }
-  .ghost-msg {
-    width: 26px;
-    height: 26px;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.45));
-    animation: nx-ghost-wobble 1.4s ease-in-out infinite;
-    path {
-      fill: #f6b73c;
-      stroke: #9a6b1a;
-      stroke-width: 1.2;
-      stroke-linejoin: round;
-    }
-    line {
-      stroke: #5a3a0a;
-      stroke-width: 1.6;
-      stroke-linecap: round;
-    }
-  }
-  &.is-flying .ghost-msg {
-    animation: none;
-    transform: scale(0.2);
-    opacity: 0;
-    transition: transform 250ms ease, opacity 250ms ease;
-  }
-}
-@keyframes nx-ghost-wobble {
-  0%,
-  100% {
-    transform: rotate(-8deg) scale(1);
-  }
-  50% {
-    transform: rotate(8deg) scale(1.06);
-  }
+.piano-keyboard-hint {
+  flex: 0 0 auto;
+  padding: 0 6px 6px;
+  color: rgba(255, 239, 205, 0.5);
+  font:
+    400 9px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  letter-spacing: 0.02em;
 }

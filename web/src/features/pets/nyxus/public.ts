@@ -4,3 +4,4 @@ export { default as MessageBranchTree } from './components/MessageBranchTree.vue
 export { default as NyxusPianoStrip } from './components/NyxusPianoStrip.vue'
 export { terminationDisplay } from './graph/termination'
 export { terminalActionMode } from './composables/nodeInteraction'
+export { isPianoRootSession } from './composables/pianoNotes'

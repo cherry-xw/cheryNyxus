@@ -4,26 +4,28 @@ const props = defineProps<WorkbenchDialogControllerProps>()
 const controller = useWorkbenchDialogController(props)
 const {
   AgentComposer, AnimatePresence, ConnectionStatusChip, ContextUsageBar, FOLD_ICONS, FOLD_TIPS,
-  LiteView, MessageBranchTree, MotionDiv, NYXUS_WORKBENCH_Z_INDEX, NyxusPianoStrip, OVERLAY_Z_INDEX,
-  PendingOperationsPanel, PromptSnapshotTip, RoleConfigPopover, activateNyxusInput,
-  activeCommandIndex, activeCommandTab, activeRoleIndex, agents, brains, branchTarget,
-  branchTreeRef, cancelNyxusInput, chatId, closeWorkbench, comboCommandGroups, commandMenuRefFn,
-  commandMenuStyle, commandOptions, commandTabs, composerBranchDescription, composerBranchTitle,
-  config, connection, createSession, creating, deleteNyxusSession, deletePresetSession,
-  detailBranchAvailability, editorRefFn, effectiveMode, error, executeSessionControl, fmtTokens,
-  foldMode, foldToolOpen, historyLoading, isNative, isNyxus, liteViewEnabled, liteViewVisible,
-  loading, locateInteraction, matchingRoleMentions, maxControlState, mediaAttachments, mediaHint,
-  mediaServicesByType, minimizeWorkbench, nyxusDraftActive, onDialogEditorKeydown, onEditorInput,
-  onEditorPaste, onEditorSelectionChange, onMaximizeClick, onMediaSelected, onPianoInteracting,
+  LiteView, MessageBranchTree, MotionDiv, NYXUS_WORKBENCH_Z_INDEX, NyxusPianoStrip,
+  NyxusSessionList, OVERLAY_Z_INDEX, PendingOperationsPanel, PromptSnapshotTip, RoleConfigPopover,
+  activateNyxusInput, activeCommandIndex, activeCommandTab, activeRoleIndex, agents, brains,
+  branchTarget, branchTreeRef, cancelNyxusInput, chatId, closePiano,
+  closeWorkbench, comboCommandGroups, commandMenuRefFn, commandMenuStyle, commandOptions,
+  commandTabs, composerBranchDescription, composerBranchTitle, config, connection, createSession,
+  creating, detailBranchAvailability, editorRefFn,
+  effectiveMode, error, executeSessionControl, fmtTokens, foldMode, foldToolOpen,
+  isNative, liteViewEnabled, liteViewVisible, loading, locateInteraction,
+  matchingRoleMentions, maxControlState, mediaAttachments, mediaHint, mediaServicesByType,
+  minimizeWorkbench, nyxusDraftActive, onDialogEditorKeydown, onEasterEgg, onEditorInput,
+  onEditorPaste, onEditorSelectionChange, onMaximizeClick, onMediaSelected, onSessionDelete,
   onTitlePointerDown, onTreeInteractionFocus, onTreePromptSnapShow, openHistory,
   orderedRoleSelections, paperMode, pauseWholeTask, pianoOpen, presetName, primaryRole,
-  primarySelection, quickPresetId, ref, removeMedia, resizeDirections, roleListOpen, roleListPinned,
-  roleMenuRefFn, roleSelections, roleUsages, scheduleFoldToolClose, schedulePianoClose,
-  scheduleRoleListClose, selectBranchTarget, selectCommand, selectCommandTab, selectFoldMode,
-  selectRoleMention, sendFromComposer, sending, senseEntries, senseGroups, senseTool, senseTools,
-  sessionControl, sessionControlPending, showCommandMenu, showFoldTool, showPiano, showRoleList,
-  showRoleMenu, supportsTools, switchSession, taskControlPending, taskHasRunningBranches,
-  taskTimeline, text, toggleLiteView, toggleRoleList, topologyLayout, treeBreakdown,
+  primarySelection, ref, removeMedia, resizeDirections, roleListOpen, roleListPinned,
+  roleMenuRefFn, roleSelections, roleUsages, rootSessions, scheduleFoldToolClose,
+  scheduleRoleListClose, scheduleSessionListClose, selectBranchTarget, selectCommand,
+  selectCommandTab, selectFoldMode, selectRoleMention, sendFromComposer, sending, senseEntries,
+  senseGroups, senseTool, senseTools, sessionControl, sessionControlPending, sessionListLoading,
+  sessionListOpen, showCommandMenu, showFoldTool, showRoleList, showRoleMenu, showSessionList,
+  supportsTools, switchSession, taskControlPending, taskHasRunningBranches, taskTimeline, text,
+  toggleLiteView, toggleRoleList, toggleSessionList, topologyLayout, treeBreakdown,
   treeFocusInteractionId, treeFocusSourceChatId, treeFocusedInteraction, treeLoading,
   treePromptSnap, treeRootChatId, treeUsage, treeUsagePct, uploading, usageClass, win, windowBlink,
   workbenchShellRef, workbenchShellStyle, workbenchWindow,
@@ -85,6 +87,7 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           :detail-branch-unavailable-reason="detailBranchAvailability.reason"
           @branch="selectBranchTarget"
           @interaction-focus="onTreeInteractionFocus"
+          @easter-egg="onEasterEgg"
         />
         <div v-else class="workbench-empty-state" aria-live="polite">
           <span>暂无历史会话</span>
@@ -94,6 +97,8 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           <span class="workbench-spinner" aria-hidden="true" />
           节点树加载中…
         </div>
+        <!-- 钢琴彩蛋浮层：节点树视口中央悬浮（✕/点外/Esc 关闭），flex 子元素自然居中。 -->
+        <NyxusPianoStrip v-if="pianoOpen" class="nyxus-piano-flyout" @close="closePiano" />
       </div>
 
       <header
@@ -485,20 +490,20 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
               </span>
             </el-tooltip>
             <div
-              class="nyxus-piano-tool"
-              @pointerenter="showPiano"
-              @focusin="showPiano"
-              @pointerleave="schedulePianoClose"
+              class="nyxus-session-tool"
+              @pointerenter="showSessionList"
+              @focusin="showSessionList"
+              @pointerleave="scheduleSessionListClose"
             >
               <button
                 type="button"
                 class="nyxus-rail-action"
-                :class="{ 'is-active': pianoOpen }"
-                aria-label="会话钢琴"
-                :aria-expanded="pianoOpen"
-                @click="showPiano"
+                :class="{ 'is-active': sessionListOpen }"
+                aria-label="会话列表"
+                :aria-expanded="sessionListOpen"
+                @click="toggleSessionList"
               >
-                <span aria-hidden="true">▥</span>
+                <span aria-hidden="true">≡</span>
               </button>
             </div>
             <el-tooltip
@@ -640,30 +645,6 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
         </div>
         <AnimatePresence>
           <MotionDiv
-            v-if="pianoOpen"
-            key="piano-popout"
-            class="nyxus-piano-popout"
-            :initial="{ opacity: 0, transform: 'translateX(18px) scale(0.96)' }"
-            :animate="{ opacity: 1, transform: 'translateX(0) scale(1)' }"
-            :exit="{ opacity: 0, transform: 'translateX(14px) scale(0.97)' }"
-            :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
-            @pointerenter="showPiano()"
-            @pointerleave="schedulePianoClose()"
-          >
-            <NyxusPianoStrip
-              :preset-id="quickPresetId"
-              :preset-name="presetName"
-              :active-chat-id="chatId"
-              :loading="historyLoading"
-              @select="switchSession"
-              @create="createSession"
-              @delete="isNyxus ? deleteNyxusSession($event) : deletePresetSession($event)"
-              @interacting-change="onPianoInteracting"
-            />
-          </MotionDiv>
-        </AnimatePresence>
-        <AnimatePresence>
-          <MotionDiv
             v-if="roleListOpen"
             key="role-popout"
             class="nyxus-role-popout"
@@ -693,6 +674,27 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
                 />
               </template>
             </div>
+          </MotionDiv>
+        </AnimatePresence>
+        <AnimatePresence>
+          <MotionDiv
+            v-if="sessionListOpen"
+            key="session-popout"
+            class="nyxus-session-popout"
+            :initial="{ opacity: 0, transform: 'translateX(18px) translateY(-50%) scale(0.96)' }"
+            :animate="{ opacity: 1, transform: 'translateX(0) translateY(-50%) scale(1)' }"
+            :exit="{ opacity: 0, transform: 'translateX(14px) translateY(-50%) scale(0.97)' }"
+            :transition="{ duration: 0.18, ease: [0.23, 1, 0.32, 1] }"
+            @pointerenter="showSessionList()"
+            @pointerleave="scheduleSessionListClose()"
+          >
+            <NyxusSessionList
+              :sessions="rootSessions"
+              :active-chat-id="chatId"
+              :loading="sessionListLoading"
+              @select="(id) => void switchSession(id)"
+              @delete="onSessionDelete"
+            />
           </MotionDiv>
         </AnimatePresence>
       </nav>

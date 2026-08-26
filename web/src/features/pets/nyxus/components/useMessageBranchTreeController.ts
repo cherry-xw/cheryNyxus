@@ -42,6 +42,7 @@ import {
 } from '../graph/toolBatchDetails'
 import { useTreeCanvas, type CanvasTransform } from '../composables/useTreeCanvas'
 import { pendingInputAnchor, pendingInputPhase } from '../composables/mainInputState'
+import { usePianoEasterEgg } from '../composables/usePianoEasterEgg'
 import ExecutionNodePopover from './ExecutionNodePopover.vue'
 import FoldTabRail from './FoldTabRail.vue'
 import AnchoredRunCrt from './AnchoredRunCrt.vue'
@@ -96,6 +97,8 @@ export type MessageBranchTreeControllerEmits = {
   ]
   /** 用户激活了带待处理交互（审批/提问）的节点 → 父级同步到待操作面板聚焦。 */
   interactionFocus: [focus: { chatId: string; interactionId?: string; anchorNodeId?: string }]
+  /** 钢琴彩蛋连点序列触发 → 父级（工作台）打开钢琴浮层。 */
+  'easter-egg': []
 }
 type ControllerEmit<T> = <K extends keyof T>(event: K, ...args: T[K] extends unknown[] ? T[K] : never) => void
 
@@ -211,6 +214,11 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     return projectFoldExecutionGraph(liveGraph.value)
   })
   const graph = computed(() => foldProjection.value.graph)
+  // 钢琴彩蛋触发状态机：consume 命中序列 → emit('easter-egg') 并吞掉本次节点点击。
+  const pianoEasterEgg = usePianoEasterEgg({
+    graph: () => graph.value,
+    enabled: () => !props.staticView,
+  })
   const coreFlowProjection = computed(() => projectCoreFlowExecutionGraph(graph.value))
   const paperGraph = computed(() => coreFlowProjection.value.paperGraph)
   type CachedPaperEntry = {
@@ -372,7 +380,10 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   )
   const visibleExecutionKey = computed(() => visibleItemsKey(visibleExecutionItems.value))
   const visibleInteractiveNodes = computed(() =>
-    visibleExecutionItems.value.nodes.filter(isInteractiveNode),
+    visibleExecutionItems.value.nodes.filter(
+      // start 为纯装饰节点，默认不在命中层；工作台（非 staticView）下可点化以承载钢琴彩蛋首步。
+      (node) => isInteractiveNode(node) || (!props.staticView && node.kind === 'start'),
+    ),
   )
   function dragExecutionCamera(transform: CanvasTransform): ExecutionCamera {
     return { ...transform, width: viewportSize.value.width, height: viewportSize.value.height }
@@ -962,7 +973,9 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   function onNodePointerDown(event: PointerEvent, node: (typeof layout.value.nodes)[number]): void {
     // Interactive nodes must retain pointer ownership. Otherwise the viewport's
     // pointer capture retargets the eventual click to the canvas.
-    if (isInteractiveNode(node)) event.stopPropagation()
+    // start 节点在非 staticView 下同样保留所有权（钢琴彩蛋首步可点化）。
+    if (isInteractiveNode(node) || (!props.staticView && node.kind === 'start'))
+      event.stopPropagation()
   }
   async function recoverGraph(): Promise<void> {
     if (recoveringGraph.value) return
@@ -998,6 +1011,10 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   }
   function activateNode(node: (typeof layout.value.nodes)[number]): void {
     if (canvas.consumeClickAfterDrag()) return
+    if (pianoEasterEgg.consume(node)) {
+      emit('easter-egg')
+      return
+    }
     if (node.kind === 'pack' && node.pack) {
       openGenerationView(node.pack.generationIndex)
       return
@@ -1312,6 +1329,7 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
       cachedActiveCrtRuns = []
       layoutEngine.reset()
       endpointLayoutEngine.reset()
+      pianoEasterEgg.reset()
       recoveryError.value = ''
       hasNewTail.value = false
       knownTailIds = new Set()
@@ -1519,7 +1537,7 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     persistentGraph, pinCrt, pinnedCrtIds, pixiMountRef, recordActionPopoverHeight, recoverGraph,
     recoveringGraph, recoveryError, ref, requestBranch, resetLayout, returnToBottom,
     returnToLatestPaper, selectActionCall, selectFoldMember, selectPaperIndex, selectedActionCall,
-    selectedCallId, showNodeDetail, unpinCrt, unreadFoldMembers, viewportRef, viewportSize,
-    visibleInteractiveNodes,
+    selectedCallId, showNodeDetail, unpinCrt, unreadFoldMembers, vMeasureHeight, viewportRef,
+    viewportSize, visibleInteractiveNodes,
   }
 }
