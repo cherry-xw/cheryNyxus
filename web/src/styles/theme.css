@@ -116,9 +116,62 @@
   --nx-ts: 0.55px 0 rgba(228, 239, 230, 0.44), -0.55px 0 rgba(15, 21, 19, 0.72);
 }
 
+/* ── Element Plus 深色语义色覆盖（主题色调统一） ─────────────────────────
+ * element-plus/theme-chalk/dark/css-vars.css 硬编码 html.dark 默认蓝 #409eff，
+ * 特异性 html.dark(0,1,1) 高于 :root(0,1,0)，会覆盖 SCSS 配置的金色主题。
+ * main.ts 已将该文件 import 提前到 theme.css 之前，这里以同特异性块显式覆盖为
+ * 主题色调（暖金 #f6b73c）+ 深色语义色（--success/--warning/--danger/--info）。
+ * 深色模式 light-N 派生方向与浅色相反：向暗底 #141414 混色（见 EP dark/var.scss）。 */
+html.dark {
+  --el-color-primary: #f6b73c;
+  --el-color-primary-light-3: #b28630;
+  --el-color-primary-light-5: #856628;
+  --el-color-primary-light-7: #584520;
+  --el-color-primary-light-8: #41351c;
+  --el-color-primary-light-9: #2b2418;
+  --el-color-primary-dark-2: #f8c563;
+  --el-color-success: #4ade80;
+  --el-color-success-light-3: #3aa160;
+  --el-color-success-light-5: #2f794a;
+  --el-color-success-light-7: #245134;
+  --el-color-success-light-8: #1f3c2a;
+  --el-color-success-light-9: #19281f;
+  --el-color-success-dark-2: #6ee599;
+  --el-color-warning: #fbbf24;
+  --el-color-warning-light-3: #b68c1f;
+  --el-color-warning-light-5: #886a1c;
+  --el-color-warning-light-7: #594719;
+  --el-color-warning-light-8: #423617;
+  --el-color-warning-light-9: #2b2516;
+  --el-color-warning-dark-2: #fccc50;
+  --el-color-danger: #f87171;
+  --el-color-danger-light-3: #b45555;
+  --el-color-danger-light-5: #864343;
+  --el-color-danger-light-7: #583030;
+  --el-color-danger-light-8: #422727;
+  --el-color-danger-light-9: #2b1d1d;
+  --el-color-danger-dark-2: #f98d8d;
+  --el-color-error: #f87171;
+  --el-color-error-light-3: #b45555;
+  --el-color-error-light-5: #864343;
+  --el-color-error-light-7: #583030;
+  --el-color-error-light-8: #422727;
+  --el-color-error-light-9: #2b1d1d;
+  --el-color-error-dark-2: #f98d8d;
+  --el-color-info: #9ca3af;
+  --el-color-info-light-3: #737881;
+  --el-color-info-light-5: #585c62;
+  --el-color-info-light-7: #3d3f43;
+  --el-color-info-light-8: #2f3133;
+  --el-color-info-light-9: #222224;
+  --el-color-info-dark-2: #b0b5bf;
+}
+
 /* ── 代码高亮（highlight.js github 浅色主题）深色翻转 ──────────────────
  * main.ts 全局 import github.css（浅底深字）。深色下必须整组覆盖 token 色，
- * 否则 markdown 代码块白底黑字。背景置透明，随宿主 pre 底色。 */
+ * 否则 markdown 代码块白底黑字。背景置透明，随宿主 pre 底色。
+ * 调色板为暖色系、不含蓝（主题色调规范 ui-visual-and-interaction.md §4）：
+ * 关键词红 / 数字与变量金 / 字符串绿 / 标题紫 / 标签绿 / 符号橙 / 注释灰。 */
 [data-theme='dark'] .hljs {
   background: transparent;
   color: #e6edf3;
@@ -132,9 +185,9 @@
 [data-theme='dark'] .hljs-literal,
 [data-theme='dark'] .hljs-variable,
 [data-theme='dark'] .hljs-template-variable,
-[data-theme='dark'] .hljs-tag .hljs-attr { color: #79c0ff; }
+[data-theme='dark'] .hljs-tag .hljs-attr { color: #f2cc60; }
 [data-theme='dark'] .hljs-string,
-[data-theme='dark'] .hljs-doctag { color: #a5d6ff; }
+[data-theme='dark'] .hljs-doctag { color: #8ee6a8; }
 [data-theme='dark'] .hljs-title,
 [data-theme='dark'] .hljs-section,
 [data-theme='dark'] .hljs-selector-id,
@@ -145,11 +198,11 @@
 [data-theme='dark'] .hljs-name,
 [data-theme='dark'] .hljs-attribute { color: #7ee787; }
 [data-theme='dark'] .hljs-regexp,
-[data-theme='dark'] .hljs-link { color: #a5d6ff; }
+[data-theme='dark'] .hljs-link { color: #8ee6a8; }
 [data-theme='dark'] .hljs-symbol,
 [data-theme='dark'] .hljs-bullet { color: #ffa657; }
 [data-theme='dark'] .hljs-built_in,
-[data-theme='dark'] .hljs-builtin-name { color: #79c0ff; }
+[data-theme='dark'] .hljs-builtin-name { color: #f2cc60; }
 [data-theme='dark'] .hljs-meta { color: #8b949e; }
 [data-theme='dark'] .hljs-deletion { color: #ffa198; }
 [data-theme='dark'] .hljs-addition { color: #aff5b4; }

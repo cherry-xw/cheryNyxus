@@ -1,7 +1,9 @@
 import 'highlight.js/styles/github.css'
 import './styles/element/index.scss'
-import './styles/theme.css'
+// dark/css-vars.css 必须在 theme.css 之前：官方深色变量（默认蓝）先落地，
+// 由 theme.css 的 html.dark 块以同特异性覆盖为主题色调（见 styles/theme.css）。
 import 'element-plus/theme-chalk/dark/css-vars.css'
+import './styles/theme.css'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import ElementPlus from 'element-plus'

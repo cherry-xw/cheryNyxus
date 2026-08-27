@@ -140,6 +140,8 @@ function previewOf(s: ChatSummary): string {
 
 <style scoped lang="less">
 // 全直角 + 字重 400（标题/强调 ≤600）。
+// 颜色走主题 token（--ink/--accent/--border/--danger + color-mix），
+// 浅深双端自适应，统一主题色调（ui-visual-and-interaction.md §4）。
 .session-list {
   display: flex;
   flex-direction: column;
@@ -162,15 +164,15 @@ function previewOf(s: ChatSummary): string {
   padding: 8px 9px;
   box-sizing: border-box;
   border-radius: 0;
-  border-bottom: 1px solid rgba(70, 56, 44, 0.4);
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
   &:hover {
-    background: rgba(120, 100, 70, 0.12);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   &.is-active {
-    background: rgba(200, 150, 60, 0.16);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
     .session-row-preview {
-      color: #f0d9a6;
+      color: var(--accent-ink);
     }
   }
 }
@@ -184,7 +186,7 @@ function previewOf(s: ChatSummary): string {
     Menlo,
     Consolas,
     monospace;
-  color: rgba(200, 190, 175, 0.4);
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
 }
 .session-row-body {
   flex: 1 1 auto;
@@ -195,7 +197,7 @@ function previewOf(s: ChatSummary): string {
 }
 .session-row-preview {
   overflow: hidden;
-  color: rgba(230, 220, 205, 0.88);
+  color: color-mix(in srgb, var(--ink) 88%, transparent);
   font-weight: 400;
   font-size: 12px;
   line-height: 1.4;
@@ -212,7 +214,7 @@ function previewOf(s: ChatSummary): string {
     Menlo,
     Consolas,
     monospace;
-  color: rgba(200, 190, 175, 0.55);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 .session-row-del {
   flex: 0 0 auto;
@@ -222,10 +224,10 @@ function previewOf(s: ChatSummary): string {
   place-items: center;
   padding: 0;
   box-sizing: border-box;
-  border: 1px solid rgba(120, 100, 80, 0.45);
+  border: 1px solid color-mix(in srgb, var(--ink) 45%, transparent);
   border-radius: 0;
-  color: rgba(230, 220, 205, 0.7);
-  background: rgba(120, 100, 70, 0.14);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
@@ -239,21 +241,21 @@ function previewOf(s: ChatSummary): string {
     opacity: 1;
   }
   &:hover:not(:disabled) {
-    color: #ffb4a0;
-    border-color: rgba(255, 122, 92, 0.7);
-    background: rgba(255, 90, 56, 0.14);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 70%, transparent);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
   &.is-confirming {
     width: auto;
     padding: 0 8px;
-    color: #ff7a5c;
-    border-color: rgba(255, 122, 92, 0.7);
-    background: rgba(255, 90, 56, 0.16);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 70%, transparent);
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
     font-size: 11px;
     font-weight: 600;
     opacity: 1;
     &:hover {
-      color: #ff5a38;
+      color: color-mix(in srgb, var(--danger) 70%, var(--ink));
     }
   }
   &:disabled {
@@ -267,7 +269,7 @@ function previewOf(s: ChatSummary): string {
   min-height: 80px;
   display: grid;
   place-items: center;
-  color: rgba(200, 190, 175, 0.5);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   font-weight: 400;
   font-size: 12px;
 }
