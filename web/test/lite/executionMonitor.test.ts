@@ -20,7 +20,7 @@ import {
   isStandaloneNodeKind,
   projectLiteExecution,
   projectLiteHistory,
-  toolTypeEmoji,
+  toolTypeGlyph,
 } from '../../src/features/lite/executionMonitor'
 import {
   createLiteDetailSectionState,
@@ -489,6 +489,9 @@ describe('Lite detail lazy pagination', () => {
     expect(view).toContain('projectLiteHistory(')
     expect(view).toContain('lite-history-row')
     expect(view).toContain('lite-cluster')
+    expect(view).not.toContain('lite-cluster-type-label')
+    expect(view).toContain('lite-cluster-status')
+    expect(view).not.toContain('lite-cluster-dot')
     expect(view).toContain('lite-trajectory')
     expect(view).toContain('LiteScrollbar')
     expect(view).toContain('activePendingTab')
@@ -967,7 +970,7 @@ describe('projectLiteHistory run-history projection', () => {
     expect(view.rows[4].node?.isRoundFinal).toBe(true)
   })
 
-  it('uses Chinese tool names and per-tool icons when toolMeta is supplied', () => {
+  it('uses Chinese tool names and MCU-safe glyphs when toolMeta is supplied', () => {
     const view = projectLiteHistory(
       [userNode('q1', '问题一', 10), toolBatch('batch-1', 20, [{ name: 'search' }])],
       emptyModel,
@@ -977,7 +980,9 @@ describe('projectLiteHistory run-history projection', () => {
     const tool = view.nodes.find((node) => node.kind === 'tool')
     expect(tool?.toolNames).toEqual(['搜索'])
     expect(tool?.label).toBe('搜索')
-    expect(tool?.icon).toBe('🔍')
+    expect(tool?.icon).toBe('<')
+    expect(view.rows.at(-1)).toMatchObject({ kind: 'cluster' })
+    expect(view.rows.at(-1)?.nodes?.[0]?.nodeId).toBe('batch-1')
   })
 
   it('never matches a user node to an execution step (its timing stays static)', () => {
@@ -1025,15 +1030,15 @@ describe('classifyToolType tool-type classification (需求 5 配色)', () => {
   })
 })
 
-describe('toolTypeEmoji tool-type emoji marker (需求 5 工具小块标记)', () => {
-  it('maps every tool type to a distinct emoji and falls back for unknown/missing', () => {
-    expect(toolTypeEmoji('exec')).toBe('⚙️')
-    expect(toolTypeEmoji('read')).toBe('📖')
-    expect(toolTypeEmoji('write')).toBe('✍️')
-    expect(toolTypeEmoji('web')).toBe('🌐')
-    expect(toolTypeEmoji('dispatch')).toBe('📨')
-    expect(toolTypeEmoji('other')).toBe('🧩')
-    expect(toolTypeEmoji(undefined)).toBe('🧩')
+describe('toolTypeGlyph MCU-safe tool marker', () => {
+  it('maps every tool type to a fixed-width-safe ASCII glyph', () => {
+    expect(toolTypeGlyph('exec')).toBe('>_')
+    expect(toolTypeGlyph('read')).toBe('<')
+    expect(toolTypeGlyph('write')).toBe('>')
+    expect(toolTypeGlyph('web')).toBe('@')
+    expect(toolTypeGlyph('dispatch')).toBe('>>')
+    expect(toolTypeGlyph('other')).toBe('*')
+    expect(toolTypeGlyph(undefined)).toBe('*')
   })
 })
 

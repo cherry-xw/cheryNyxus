@@ -232,48 +232,30 @@
   box-shadow: inset 0 0 0 1px var(--el-text-color-primary);
 }
 .lite-trajectory-bar.is-user {
-  background: var(--el-color-primary);
+  background: var(--lite-tone-user);
 }
 .lite-trajectory-bar.is-root-agent {
-  background: var(--el-color-success);
+  background: var(--lite-tone-root-agent);
 }
 .lite-trajectory-bar.is-child-agent {
-  background: #ed79bd;
+  background: var(--lite-tone-child-agent);
 }
 .lite-trajectory-bar.is-tool {
-  background: var(--el-color-warning);
+  background: var(--lite-tone-tool);
 }
 .lite-trajectory-bar.is-return {
-  background: #3ddc97;
+  background: var(--lite-tone-return);
 }
 .lite-trajectory-bar.is-dispatch {
-  background: #c58af9;
+  background: var(--lite-tone-dispatch);
 }
 .lite-trajectory-bar.is-spawn {
-  background: #c58af9;
+  background: var(--lite-tone-spawn);
 }
 .lite-trajectory-bar.is-system {
-  background: #a99df6;
+  background: var(--lite-tone-system);
 }
-/* 按工具类型配色（需求 5） */
-.lite-trajectory-bar.is-tool[data-tooltype='exec'] {
-  background: #9b59b6;
-}
-.lite-trajectory-bar.is-tool[data-tooltype='read'] {
-  background: var(--el-color-info);
-}
-.lite-trajectory-bar.is-tool[data-tooltype='write'] {
-  background: var(--el-color-success);
-}
-.lite-trajectory-bar.is-tool[data-tooltype='web'] {
-  background: #00a8a8;
-}
-.lite-trajectory-bar.is-tool[data-tooltype='dispatch'] {
-  background: #e67e22;
-}
-.lite-trajectory-bar.is-tool[data-tooltype='other'] {
-  background: var(--el-color-warning);
-}
+/* 工具子类型不再用于窄条色块——统一 tool-batch 暖金（悬停浮层有工具名/类型） */
 /* v0.4.1：运行中块移除脉冲闪烁动画——宽度随执行时间持续增长即为运行反馈（barWidthFor 线性映射），
    仅保留常亮高亮（opacity:1）。 */
 .lite-trajectory-bar.is-running {
@@ -288,15 +270,16 @@
 /* 无时间刻度轴（v0.3.2：时间跨度展示被放弃，改为紧凑块流） */
 
 /* ── 运行历史列表（需求 1c / 4a）：用户消息与轮末响应独占一行，中间节点为 cluster 小按钮 ── */
-/* ── 链路标签栏（v0.5 链路展示改造）：正文列表顶部常驻（monitor 上方、固定不滚动），
-   主 Agent ✧ + 各子 Agent ◆ 角色名，激活高亮、点击切换 activeLane，与轨迹行头角色名按钮联动；
-   直角矩形（用户强制规则：无圆角）── */
+/* ── 链路标签栏（v0.5.3 迁移）：迁入顶部状态条（lite-statusbar）内，
+   顶层直接展示多个 Agent（主 Agent ✧ + 各子 Agent ◆ 角色名），激活高亮、点击切换 activeLane，
+   与轨迹行头角色名按钮联动；直角矩形 + 字重 400（用户强制规则）。
+   flex 弹性占位、多标签横向滚动（不挤压右侧会话/耗时/运行控件）── */
 .lite-lane-bar {
-  flex: none;
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 14px 0;
+  gap: 4px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -306,15 +289,17 @@
 .lite-lane-tab {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex: 0 0 auto;
-  padding: 3px 10px;
-  border: 1px solid var(--el-border-color);
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 400;
   cursor: pointer;
   transition:
     border-color 120ms ease,
@@ -326,13 +311,13 @@
   color: var(--el-color-primary);
 }
 .lite-lane-tab.is-active {
-  background: color-mix(in srgb, var(--el-color-primary) 12%, var(--el-bg-color));
+  background: color-mix(in srgb, var(--el-color-primary) 14%, var(--el-bg-color));
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
 }
 .lite-lane-tab-icon {
   flex: none;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
 }
 .lite-lane-tab.is-root-lane .lite-lane-tab-icon {
@@ -349,9 +334,9 @@
 /* ── 子 Agent 入口消息块（v0.5 链路展示改造）：主 Agent 派发给该子 Agent 的任务说明，
    独立于历史列表（不进时间轴/轮次排序），打开子 Agent 链路即可看到其任务 ── */
 .lite-entry-dispatch {
-  border: 1px solid color-mix(in srgb, #c58af9 55%, var(--el-border-color));
+  border: 1px solid color-mix(in srgb, var(--lite-tone-dispatch) 55%, var(--el-border-color));
   border-radius: 8px;
-  background: color-mix(in srgb, #c58af9 7%, var(--el-bg-color));
+  background: color-mix(in srgb, var(--lite-tone-dispatch) 7%, var(--el-bg-color));
   overflow: hidden;
 }
 .lite-entry-dispatch-head {
@@ -364,7 +349,7 @@
   flex: none;
   width: 18px;
   text-align: center;
-  color: #c58af9;
+  color: var(--lite-tone-dispatch);
 }
 .lite-entry-dispatch-actor {
   color: var(--el-text-color-primary);
@@ -436,26 +421,26 @@
   color: var(--el-text-color-secondary);
 }
 .lite-history-row.is-user .lite-history-icon {
-  color: var(--el-color-primary);
+  color: var(--lite-tone-user);
 }
 .lite-history-row.is-tool .lite-history-icon {
-  color: var(--el-color-warning);
+  color: var(--lite-tone-tool);
 }
 .lite-history-row.is-root-agent .lite-history-icon {
-  color: var(--el-color-success);
+  color: var(--lite-tone-root-agent);
 }
 .lite-history-row.is-child-agent .lite-history-icon {
-  color: #ed79bd;
+  color: var(--lite-tone-child-agent);
 }
 .lite-history-row.is-return .lite-history-icon {
-  color: #3ddc97;
+  color: var(--lite-tone-return);
 }
 .lite-history-row.is-dispatch .lite-history-icon,
 .lite-history-row.is-spawn .lite-history-icon {
-  color: #c58af9;
+  color: var(--lite-tone-dispatch);
 }
 .lite-history-row.is-system .lite-history-icon {
-  color: #a99df6;
+  color: var(--lite-tone-system);
 }
 .lite-history-meta {
   flex: 1;
@@ -506,38 +491,53 @@
   color: var(--el-text-color-placeholder);
 }
 
-/* ── cluster 小按钮行（需求 4a/4b）：多个中间节点挤成一行的小按钮，只显示 icon + 状态 ── */
+/* ── MCU 同构工具 tag：纯 ASCII glyph + 底部状态条 + 字符竖线分隔 ── */
 .lite-cluster {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 7px 10px;
+  padding: 4px 10px;
 }
 .lite-cluster-node {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 999px;
-  background: var(--el-fill-color-blank);
+  justify-content: center;
+  min-width: 16px;
+  height: 17px;
+  padding: 0 2px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--el-text-color-secondary);
   cursor: pointer;
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: 10px;
+  line-height: 1;
   transition:
-    border-color 120ms ease,
-    box-shadow 120ms ease,
-    transform 120ms ease;
+    background-color 120ms ease,
+    color 120ms ease;
 }
 .lite-cluster-node:hover {
-  border-color: var(--el-color-primary-light-5);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+  color: var(--el-text-color-primary);
 }
 .lite-cluster-node.is-selected {
-  border-color: var(--el-color-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--el-color-primary) 20%, transparent);
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+}
+/* 用字符竖线分隔相邻节点：Web 与 MCU 都可直接复用同一个 `|`。 */
+.lite-cluster-node:not(:last-child)::after {
+  content: '|';
+  position: absolute;
+  top: 50%;
+  right: -5px;
+  transform: translateY(-55%);
+  color: var(--el-border-color);
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1;
+  pointer-events: none;
 }
 /* t14：时间轴点击定位 → 高亮下方对应内容块（行 + 具体节点），并做一次短暂闪光动画。 */
 .lite-history-row.is-focused {
@@ -558,10 +558,9 @@
   }
 }
 .lite-cluster-node.is-focused {
-  outline: 2px solid var(--el-color-primary);
-  outline-offset: 1px;
-  border-color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 10%, transparent);
+  outline: 1px dotted var(--el-color-primary);
+  outline-offset: 0;
+  background: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
 }
 .lite-trajectory-bar.is-focused {
   box-shadow: inset 0 0 0 2px var(--el-color-primary);
@@ -607,107 +606,60 @@
   color: var(--el-text-color-placeholder);
   min-width: 34px;
 }
-/* t15+：工具类型辨识——pill 内中文类型标签 + 按类型着色（边框/底色/标签字），一眼区分命令/读取/写入/网页/委派 */
-.lite-cluster-type-label {
-  flex: none;
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--el-text-color-secondary);
+/* 工具只显示 ASCII 字符；中文名称仅保留在 title / aria-label / 详情中。 */
+.lite-cluster-node.is-tool .lite-cluster-icon {
+  color: var(--lite-tone-tool);
 }
-.lite-cluster-type-label[data-tooltype='exec'] {
-  color: #9b59b6;
-}
-.lite-cluster-type-label[data-tooltype='read'] {
-  color: #6b7f92;
-}
-.lite-cluster-type-label[data-tooltype='write'] {
-  color: #2f9e63;
-}
-.lite-cluster-type-label[data-tooltype='web'] {
-  color: #00a8a8;
-}
-.lite-cluster-type-label[data-tooltype='dispatch'] {
-  color: #e67e22;
-}
-.lite-cluster-type-label[data-tooltype='other'] {
-  color: #c58a1f;
-}
-.lite-cluster-node[data-tooltype='exec'] {
-  border-color: color-mix(in srgb, #9b59b6 52%, var(--el-border-color));
-  background: color-mix(in srgb, #9b59b6 8%, var(--el-fill-color-blank));
-}
-.lite-cluster-node[data-tooltype='read'] {
-  border-color: color-mix(in srgb, #6b7f92 52%, var(--el-border-color));
-  background: color-mix(in srgb, #6b7f92 8%, var(--el-fill-color-blank));
-}
-.lite-cluster-node[data-tooltype='write'] {
-  border-color: color-mix(in srgb, #2f9e63 52%, var(--el-border-color));
-  background: color-mix(in srgb, #2f9e63 8%, var(--el-fill-color-blank));
-}
-.lite-cluster-node[data-tooltype='web'] {
-  border-color: color-mix(in srgb, #00a8a8 52%, var(--el-border-color));
-  background: color-mix(in srgb, #00a8a8 8%, var(--el-fill-color-blank));
-}
-.lite-cluster-node[data-tooltype='dispatch'] {
-  border-color: color-mix(in srgb, #e67e22 52%, var(--el-border-color));
-  background: color-mix(in srgb, #e67e22 8%, var(--el-fill-color-blank));
-}
-.lite-cluster-node[data-tooltype='other'] {
-  border-color: color-mix(in srgb, #c58a1f 52%, var(--el-border-color));
-  background: color-mix(in srgb, #c58a1f 8%, var(--el-fill-color-blank));
-}
-/* t15：运行时间变色——运行中的工具块按运行时长绿→黄→红，运行越久越醒目 */
-.lite-cluster-node[data-duration='fast'] {
-  border-color: color-mix(in srgb, var(--el-color-success) 72%, var(--el-border-color));
-}
-.lite-cluster-node[data-duration='medium'] {
-  border-color: color-mix(in srgb, var(--el-color-warning) 78%, var(--el-border-color));
-}
-.lite-cluster-node[data-duration='long'] {
-  border-color: var(--el-color-danger);
-}
-.lite-cluster-node[data-duration='long'] .lite-cluster-dot {
-  background: var(--el-color-danger);
-  animation: lite-pulse 1.2s ease-in-out infinite;
-}
-.lite-cluster-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+.lite-cluster-status {
+  position: absolute;
+  z-index: 1;
+  right: 2px;
+  bottom: 0;
+  left: 2px;
+  height: 2px;
+  border-radius: 0;
   background: var(--el-text-color-placeholder);
+  pointer-events: none;
 }
-.lite-cluster-dot[data-status='running'] {
-  background: var(--el-color-primary);
-  animation: lite-pulse 1.4s ease-in-out infinite;
+.lite-cluster-status[data-status='running'] {
+  background: var(--el-color-success);
+  animation: lite-tool-blink 900ms steps(1, end) infinite;
 }
-.lite-cluster-dot[data-status='completed'] {
+.lite-cluster-status[data-status='completed'] {
   background: var(--el-color-success);
 }
-.lite-cluster-dot[data-status='failed'],
-.lite-cluster-dot[data-status='rejected'] {
+.lite-cluster-status[data-status='failed'],
+.lite-cluster-status[data-status='rejected'] {
   background: var(--el-color-danger);
 }
-.lite-cluster-dot[data-status='cancelled'] {
+.lite-cluster-status[data-status='cancelled'] {
   background: var(--el-text-color-placeholder);
 }
 .lite-cluster-icon {
   flex: none;
-  font-size: 12px;
-  line-height: 1;
-}
-.lite-cluster-elapsed {
-  flex: none;
-  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 10px;
-  color: var(--el-text-color-placeholder);
+  line-height: 1;
+  letter-spacing: -0.08em;
+  text-align: center;
 }
-.lite-cluster-node.is-status-running {
-  border-color: color-mix(in srgb, var(--el-color-primary) 55%, var(--el-border-color));
+@keyframes lite-tool-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.16;
+  }
 }
-.lite-cluster-node.is-status-failed,
-.lite-cluster-node.is-status-rejected {
-  border-color: color-mix(in srgb, var(--el-color-danger) 55%, var(--el-border-color));
+/* 底部状态条：成功绿、运行中绿闪、失败/拒绝红、取消灰。 */
+
+@media (prefers-reduced-motion: reduce) {
+  .lite-cluster-status[data-status='running'] {
+    animation: none;
+  }
 }
 
 /* ── 待操作页签（v0.4.2 浏览器式）：标签栏内多 tab，样式照抄浏览器顶部 tab——
@@ -754,6 +706,10 @@
   flex: none;
   font-size: 12px;
   line-height: 1;
+}
+/* 审批页签标记（工具 icon）用暖金指示「工具审批」（与节点树 tool-batch 一致） */
+.lite-pending-tab.is-approval .lite-pending-tab-icon {
+  color: var(--lite-tone-tool);
 }
 .lite-pending-tab-label {
   flex: 0 1 auto;
@@ -827,6 +783,33 @@
   /* v0.4.2 去掉内容区标题后：状态与倒计时靠左展示 */
   justify-content: flex-start;
   gap: 8px;
+}
+/* 审批/提问交互的状态小色点：与节点同一套状态表达（待处理=暖金 / 处理中=主色脉冲 /
+   失败·超时=红 / 已完成=绿 / 已取消=灰），一眼看状态 */
+.lite-interaction-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--el-text-color-placeholder);
+}
+.lite-interaction-dot[data-status='pending'] {
+  background: var(--lite-tone-tool);
+  animation: lite-pulse 1.4s ease-in-out infinite;
+}
+.lite-interaction-dot[data-status='resolving'] {
+  background: var(--el-color-primary);
+  animation: lite-pulse 1.2s ease-in-out infinite;
+}
+.lite-interaction-dot[data-status='blocked'],
+.lite-interaction-dot[data-status='expired'] {
+  background: var(--el-color-danger);
+}
+.lite-interaction-dot[data-status='completed'] {
+  background: var(--el-color-success);
+}
+.lite-interaction-dot[data-status='cancelled'] {
+  background: var(--el-text-color-placeholder);
 }
 .lite-interaction-head-right {
   display: inline-flex;

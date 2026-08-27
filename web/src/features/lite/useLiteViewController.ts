@@ -3,6 +3,7 @@ import { useLiteStore, type LiteQuestionDraft } from './liteStore'
 import { useLiteCanonicalView, type LiteInteraction } from './useLiteCanonicalView'
 import {
   buildLiteRows,
+  classifyToolType,
   createLiteExecutionClock,
   formatElapsed,
   isStandaloneNodeKind,
@@ -10,8 +11,7 @@ import {
   LITE_NODE_LABELS,
   projectLiteExecution,
   projectLiteHistory,
-  toolTypeEmoji,
-  toolTypeLabel,
+  toolTypeGlyph,
   type LiteRunNode,
   type LiteRunNodeStatus,
   type LiteRunRow,
@@ -20,6 +20,7 @@ import type { LiteDetailSectionName } from './detailSections'
 import LiteScrollbar from './LiteScrollbar.vue'
 import DetailDrawer from './DetailDrawer.vue'
 import LiteMarkdown from './LiteMarkdown.vue'
+import { useLiteNodeTones } from './useLiteNodeTones'
 
 export type LiteViewControllerProps = { windowId: string; rootChatId: string; presetName?: string }
 
@@ -35,6 +36,8 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     { immediate: true },
   )
   const rootUi = computed(() => liteUi.ensureRootUi(props.windowId, props.rootChatId))
+  /** 节点色调（与节点树 nodeSkins 同源，随主题切换）：以 CSS 变量绑定 .lite-view 根元素。 */
+  const { nodeToneVars } = useLiteNodeTones()
   const clock = createLiteExecutionClock()
   onMounted(() => {
     clock.start()
@@ -277,7 +280,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     id: string
     kind: 'approval' | 'question'
     label: string
-    /** 页签图标（v0.4.2：审批=工具 icon，提问=❓） */
+    /** 页签标记（审批=MCU ASCII 工具字符，提问保留独立交互标记） */
     icon: string
     countdown: string
     expired: boolean
@@ -293,7 +296,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
           id: interaction.interactionId,
           kind: 'approval' as const,
           label: senseName.length > 12 ? senseName.slice(0, 12) + '…' : senseName,
-          icon: lite.toolMeta(senseName)?.icon?.trim() || '⚙',
+          icon: toolTypeGlyph(classifyToolType(senseName)),
           countdown: remainingLabel(interaction),
           expired: remainingLabel(interaction) === '已超时',
         }
@@ -625,7 +628,7 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     hoverNode.value = null
   }
   function nodeKindLabel(node: LiteRunNode): string {
-    if (node.kind === 'tool') return `${toolTypeEmoji(node.toolType)} ${LITE_NODE_LABELS.tool}`
+    if (node.kind === 'tool') return `${toolTypeGlyph(node.toolType)} ${LITE_NODE_LABELS.tool}`
     return LITE_NODE_LABELS[node.kind]
   }
   // t16：MCU 方向键选中（预留）——左右/上下移动时间轴 bar 焦点并同步定位高亮。
@@ -652,14 +655,6 @@ export function useLiteViewController(props: LiteViewControllerProps) {
     el.focus()
     const nodeId = el.dataset.nodeId
     if (nodeId) void locateNode(nodeId)
-  }
-  // t15：运行时长分级（运行时间变色）——快/中/久三档，用块边框颜色表达。
-  function durationTier(elapsedMs: number): 'fast' | 'medium' | 'long' | null {
-    if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return null
-    const seconds = elapsedMs / 1000
-    if (seconds < 10) return 'fast'
-    if (seconds < 30) return 'medium'
-    return 'long'
   }
   // ── 时间瀑布流（v3 共享压缩时间轴）──
   // 所有链路共享一条全局时间轴：节点按 startedAt 绝对定位（需求 3/6：不是每条链路从头画起），
@@ -868,16 +863,17 @@ export function useLiteViewController(props: LiteViewControllerProps) {
   return {
     DetailDrawer, LiteMarkdown, LiteScrollbar, aborting, activeInteraction, activeLane,
     activePendingTabId, answering, approvalDetailNodeId, approvalRiskSummary, autoGrowInput,
-    closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex, durationTier,
+    closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
     entryDispatch, entryExpanded, entryHasMore, entryPreview, errorBanner, focusNodeFromTrajectory,
     focusNodeId, formatElapsed, hideBarTip, history, hoverNode, hydrationLabel, inputText,
     interactionActionable, interactionStatusLabel, isDetailNode, isInFlightNode, isPlainRowContent,
     isRowFocused, laneTabs, lite, liteInputEl, liteStatus, monitor, monitorEl, moveBarTip,
-    nodeKindLabel, noteOf, onAnswerBatch, onDecide, onErrorAction, onInputKeydown, onMonitorScroll,
+    nodeKindLabel, nodeToneVars, noteOf, onAnswerBatch, onDecide, onErrorAction, onInputKeydown,
+    onMonitorScroll,
     onResume, onSend, onStop, onTrajectoryKeydown, onTrajectoryWheel, openApprovalDetail,
-    openNodeDetail, operationBlockReason, pendingTab, pendingTabs, questionsOf, ref, remainingLabel,
+    openNodeDetail, operationBlockReason, pendingTab, pendingTabs, questionsOf, remainingLabel,
     resetTrajectoryZoom, resuming, rootUi, rowKey, runStatusLabel, selectedOf, sending,
     setOptionNote, setRowEl, setTextDraft, showBarTip, showsRowContent, textDraftOf, tipPos,
-    toggleOption, toolTypeLabel, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
+    toggleOption, toolTypeGlyph, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
   }
 }

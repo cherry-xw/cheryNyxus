@@ -9,7 +9,7 @@
 import { computed } from 'vue'
 import type { GraphToolCall } from '@/application/backend/public'
 import type { LiteToolType } from './executionMonitor'
-import { toolTypeEmoji, toolTypeLabel } from './executionMonitor'
+import { toolTypeGlyph, toolTypeLabel } from './executionMonitor'
 import {
   isPrimaryField,
   isScalarValue,
@@ -126,7 +126,7 @@ const waiting = computed(() => props.call.status === 'pending' || props.call.sta
         :title="'工具类型：' + toolTypeLabel(type)"
       >
         <span class="lite-tool-type-dot" aria-hidden="true" />
-        {{ toolTypeEmoji(type) }} {{ toolTypeLabel(type) }}
+        {{ toolTypeGlyph(type) }} {{ toolTypeLabel(type) }}
       </span>
       <span class="lite-tool-call-status" :data-status="call.status">{{
         statusLabel(call.status)

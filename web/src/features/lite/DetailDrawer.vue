@@ -5,7 +5,7 @@ import { useLiteCanonicalView } from './useLiteCanonicalView'
 import {
   classifyToolType,
   formatElapsed,
-  toolTypeEmoji,
+  toolTypeGlyph,
   toolTypeLabel,
   type LiteRunNode,
   type LiteRunNodeKind,
@@ -87,7 +87,7 @@ function toolLabel(call: { name: string }): string {
   return lite.toolMeta(call.name)?.label?.trim() || call.name
 }
 function toolIcon(call: { name: string }): string {
-  return lite.toolMeta(call.name)?.icon?.trim() || '⚙'
+  return toolTypeGlyph(classifyToolType(call.name))
 }
 
 /** 按节点类型列出要展示的详情分节：用户→正文；工具→工具调用；主·子 Agent→思考+正文；其余事件→正文。 */
@@ -255,7 +255,7 @@ watch(
           class="lite-drawer-type"
           :data-tooltype="props.node.toolType"
           :title="'工具类型：' + toolTypeLabel(props.node.toolType)"
-          >{{ toolTypeEmoji(props.node.toolType) }} {{ toolTypeLabel(props.node.toolType) }}</span
+          >{{ toolTypeGlyph(props.node.toolType) }} {{ toolTypeLabel(props.node.toolType) }}</span
         >
         <time v-if="props.node.elapsedMs > 0" class="lite-drawer-elapsed">{{
           formatElapsed(props.node.elapsedMs)

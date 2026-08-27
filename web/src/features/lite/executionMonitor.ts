@@ -233,12 +233,12 @@ export const LITE_NODE_LABELS: Readonly<Record<LiteRunNodeKind, string>> = {
   system: '系统事件',
 }
 
-/** 节点类型图标（对齐 nodeSkins 的 glyph；工具节点实际用 sense.tools 图标覆盖）。 */
+/** 节点类型字符（工具节点会按工具类型换成 MCU 可直接显示的 ASCII glyph）。 */
 export const LITE_NODE_GLYPHS: Readonly<Record<LiteRunNodeKind, string>> = {
   user: '❯',
   'root-agent': '✧',
   'child-agent': '◆',
-  tool: '⚙',
+  tool: '*',
   return: '↩',
   dispatch: '⇢',
   spawn: '⑂',
@@ -303,17 +303,20 @@ export function classifyToolType(name: string): LiteToolType {
   return 'other'
 }
 
-/** 工具类型 → emoji 标记（t15：工具小块「工具类型 emoji」）。 */
-export const TOOL_TYPE_EMOJI: Record<LiteToolType, string> = {
-  exec: '⚙️',
-  read: '📖',
-  write: '✍️',
-  web: '🌐',
-  dispatch: '📨',
-  other: '🧩',
+/**
+ * 工具类型 → MCU 安全字符。
+ * 仅使用 ASCII，避免 emoji 的多码点、字体回退和不同设备宽度差异。
+ */
+export const TOOL_TYPE_GLYPHS: Readonly<Record<LiteToolType, string>> = {
+  exec: '>_',
+  read: '<',
+  write: '>',
+  web: '@',
+  dispatch: '>>',
+  other: '*',
 }
-export function toolTypeEmoji(type: LiteToolType | undefined): string {
-  return type ? (TOOL_TYPE_EMOJI[type] ?? '🧩') : '🧩'
+export function toolTypeGlyph(type: LiteToolType | undefined): string {
+  return type ? (TOOL_TYPE_GLYPHS[type] ?? '*') : '*'
 }
 
 /** 工具类型 → 中文短标签（cluster 小按钮 / 详情徽标辨识用）。 */
@@ -378,8 +381,8 @@ export interface LiteRunHistoryView {
 
 /**
  * 行布局（需求 4a / 需求 4 链路过滤）：把节点列表拆成「独占一行」与「cluster 小按钮行」。
- * - 独占一行：事件类节点（用户提问 / 结果返回 / 任务委派 / 创建协作节点 / 系统事件）与轮末响应；
- * - cluster：中间的思考 / 工具节点挤成一行小按钮（可换行）。
+ * - 独占一行：事件类节点（用户提问 / 结果返回 / 任务委派 / 创建协作节点 / 系统事件）与轮末 Agent 响应；
+ * - cluster：中间的思考 / 工具节点挤成一行小按钮（可换行）；工具即使暂居轮末也不得展开为内容行。
  * 独立导出供链路过滤复用（正文列表按选中链路重建行时使用同一规则）。
  */
 export function buildLiteRows(nodes: LiteRunNode[]): LiteRunRow[] {
@@ -392,7 +395,9 @@ export function buildLiteRows(nodes: LiteRunNode[]): LiteRunRow[] {
     }
   }
   for (const run of nodes) {
-    if (isStandaloneNodeKind(run.kind) || run.isRoundFinal) {
+    const isFinalAgentResponse =
+      run.isRoundFinal && (run.kind === 'root-agent' || run.kind === 'child-agent')
+    if (isStandaloneNodeKind(run.kind) || isFinalAgentResponse) {
       flushCluster()
       rows.push({ kind: 'full', node: run })
     } else {
@@ -535,7 +540,7 @@ export function projectLiteHistory(
     const toolNames = toolCalls
       .map((call) => toolMetaOf(call.name)?.label?.trim() || call.name)
       .filter(Boolean)
-    const toolIcons = toolCalls.map((call) => toolMetaOf(call.name)?.icon?.trim()).filter(Boolean)
+    const toolType = classifyToolType(toolCalls[0]?.name ?? '')
     // v0.5.2：主/子 Agent 节点不再要求 direction==='agent-to-user' 才匹配 model step——
     // canonical rootTimeline 不投影 direction 字段，原条件恒不成立导致模型节点全部回退
     // 0 耗时、宽度全落 10px 下限；直接按 sourceChatId + createdAt 匹配（窗口 5 分钟）。
@@ -551,7 +556,7 @@ export function projectLiteHistory(
       kind,
       label:
         kind === 'tool' ? (toolNames.join(', ') || LITE_NODE_LABELS.tool) : LITE_NODE_LABELS[kind],
-      icon: kind === 'tool' ? (toolIcons[0] ?? LITE_NODE_GLYPHS.tool) : LITE_NODE_GLYPHS[kind],
+      icon: kind === 'tool' ? toolTypeGlyph(toolType) : LITE_NODE_GLYPHS[kind],
       content: kind === 'tool' ? '' : node.content,
       toolNames,
       sourceChatId: node.sourceChatId,
@@ -560,7 +565,7 @@ export function projectLiteHistory(
       ...(kind === 'dispatch' && node.target?.kind === 'agent'
         ? { targetChatId: node.target.chatId }
         : {}),
-      ...(kind === 'tool' ? { toolType: classifyToolType(toolCalls[0]?.name ?? '') } : {}),
+      ...(kind === 'tool' ? { toolType } : {}),
       status: 'completed',
       active: false,
       startedAt: node.createdAt,
@@ -643,9 +648,7 @@ export function projectLiteHistory(
       nodeId: `inflight:${step.id}`,
       kind: isModel ? modelKind : 'tool',
       label: isModel ? '正在生成回答…' : toolLabel || step.name || LITE_NODE_LABELS.tool,
-      icon: isModel
-        ? LITE_NODE_GLYPHS[modelKind]
-        : toolMetaOf(step.name)?.icon?.trim() || LITE_NODE_GLYPHS.tool,
+      icon: isModel ? LITE_NODE_GLYPHS[modelKind] : toolTypeGlyph(classifyToolType(step.name)),
       content: '',
       toolNames: isModel ? [] : [toolLabel || step.name].filter(Boolean),
       ...(!isModel ? { toolType: classifyToolType(step.name) } : {}),
@@ -663,7 +666,9 @@ export function projectLiteHistory(
   nodesOut.sort((a, b) => a.startedAt - b.startedAt || a.key.localeCompare(b.key))
 
   for (const run of nodesOut) {
-    run.collapsed = !(run.kind === 'user' || run.isRoundFinal)
+    const isFinalAgentResponse =
+      run.isRoundFinal && (run.kind === 'root-agent' || run.kind === 'child-agent')
+    run.collapsed = !(isStandaloneNodeKind(run.kind) || isFinalAgentResponse)
   }
 
   // 行布局（需求 4a）：用户消息与轮末响应单独占一行；中间的思考/工具节点

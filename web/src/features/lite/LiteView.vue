@@ -5,27 +5,47 @@ const controller = useLiteViewController(props)
 const {
   DetailDrawer, LiteMarkdown, LiteScrollbar, aborting, activeInteraction, activeLane,
   activePendingTabId, answering, approvalDetailNodeId, approvalRiskSummary, autoGrowInput,
-  closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex, durationTier,
+  closeDetail, connectionBlocked, deciding, detailNode, detailNodeIndex,
   entryDispatch, entryExpanded, entryHasMore, entryPreview, errorBanner, focusNodeFromTrajectory,
   focusNodeId, formatElapsed, hideBarTip, history, hoverNode, hydrationLabel, inputText,
   interactionActionable, interactionStatusLabel, isDetailNode, isInFlightNode, isPlainRowContent,
   isRowFocused, laneTabs, lite, liteInputEl, liteStatus, monitor, monitorEl, moveBarTip,
-  nodeKindLabel, noteOf, onAnswerBatch, onDecide, onErrorAction, onInputKeydown, onMonitorScroll,
+  nodeKindLabel, nodeToneVars, noteOf, onAnswerBatch, onDecide, onErrorAction, onInputKeydown,
+  onMonitorScroll,
   onResume, onSend, onStop, onTrajectoryKeydown, onTrajectoryWheel, openApprovalDetail,
-  openNodeDetail, operationBlockReason, pendingTab, pendingTabs, questionsOf, ref, remainingLabel,
+  openNodeDetail, operationBlockReason, pendingTab, pendingTabs, questionsOf, remainingLabel,
   resetTrajectoryZoom, resuming, rootUi, rowKey, runStatusLabel, selectedOf, sending, setOptionNote,
   setRowEl, setTextDraft, showBarTip, showsRowContent, textDraftOf, tipPos, toggleOption,
-  toolTypeLabel, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
+  toolTypeGlyph, trajectoryBarStyle, trajectoryLayout, trajectoryZoom, visibleRows,
 } = controller
 </script>
 
 <template>
-  <div class="lite-view" :data-window="props.windowId">
+  <div class="lite-view" :data-window="props.windowId" :style="nodeToneVars">
     <header class="lite-statusbar">
       <span class="lite-status-dot" :data-tone="liteStatus.tone" aria-hidden="true" />
       <span class="lite-status-text">轻量状态：{{ liteStatus.text }}</span>
       <span v-if="hydrationLabel" class="lite-hydration">{{ hydrationLabel }}</span>
       <span class="lite-node-count">{{ history.nodes.length }} 节点</span>
+      <!-- v0.5.3 链路标签栏迁入状态条：顶层直接展示多个 Agent（主 Agent ✧ + 各子 Agent ◆ 角色名），
+           点击切换 activeLane，与轨迹行头角色名按钮联动 -->
+      <nav v-if="laneTabs.length > 1" class="lite-lane-bar" aria-label="切换链路">
+        <button
+          v-for="tab in laneTabs"
+          :key="tab.chatId"
+          type="button"
+          class="lite-lane-tab"
+          :class="[
+            { 'is-active': tab.chatId === activeLane },
+            { 'is-root-lane': tab.isRootLane },
+          ]"
+          :title="'切换到 ' + tab.label + ' 链路'"
+          @click="activeLane = tab.chatId"
+        >
+          <span class="lite-lane-tab-icon" aria-hidden="true">{{ tab.isRootLane ? '✧' : '◆' }}</span>
+          <span class="lite-lane-tab-label">{{ tab.label }}</span>
+        </button>
+      </nav>
       <span class="lite-session">{{ props.presetName || '会话' }}</span>
       <time class="lite-total" aria-label="总耗时"
         >总耗时 {{ formatElapsed(monitor.elapsedMs) }}</time
@@ -135,24 +155,6 @@ const {
         </LiteScrollbar>
       </section>
 
-      <nav v-if="laneTabs.length > 1" class="lite-lane-bar" aria-label="切换链路">
-        <button
-          v-for="tab in laneTabs"
-          :key="tab.chatId"
-          type="button"
-          class="lite-lane-tab"
-          :class="[
-            { 'is-active': tab.chatId === activeLane },
-            { 'is-root-lane': tab.isRootLane },
-          ]"
-          :title="'切换到 ' + tab.label + ' 链路'"
-          @click="activeLane = tab.chatId"
-        >
-          <span class="lite-lane-tab-icon" aria-hidden="true">{{ tab.isRootLane ? '✧' : '◆' }}</span>
-          <span class="lite-lane-tab-label">{{ tab.label }}</span>
-        </button>
-      </nav>
-
       <main ref="monitorEl" class="lite-monitor" aria-label="执行监控" @scroll="onMonitorScroll">
         <div v-if="entryDispatch" class="lite-entry-dispatch">
           <div class="lite-entry-dispatch-head">
@@ -221,23 +223,19 @@ const {
                   },
                 ]"
                 :data-status="node.status"
-                :data-duration="node.active ? durationTier(node.elapsedMs) : null"
                 :data-tooltype="node.kind === 'tool' ? node.toolType : undefined"
-                :title="`${node.label} · ${runStatusLabel(node.status)}`"
+                :title="`${node.label} · ${runStatusLabel(node.status)}${
+                  node.elapsedMs > 0 ? ' · ' + formatElapsed(node.elapsedMs) : ''
+                }`"
+                :aria-label="`${node.label}，${runStatusLabel(node.status)}${
+                  node.elapsedMs > 0 ? '，' + formatElapsed(node.elapsedMs) : ''
+                }`"
                 @click="openNodeDetail(node, $event)"
               >
-                <span class="lite-cluster-dot" :data-status="node.status" aria-hidden="true" />
-                <span class="lite-cluster-icon" aria-hidden="true">{{ node.icon }}</span>
-                <span
-                  v-if="node.kind === 'tool'"
-                  class="lite-cluster-type-label"
-                  :data-tooltype="node.toolType"
-                  :title="'工具类型：' + toolTypeLabel(node.toolType)"
-                  >{{ toolTypeLabel(node.toolType) }}</span
-                >
-                <span class="lite-cluster-elapsed">{{
-                  node.elapsedMs > 0 ? formatElapsed(node.elapsedMs) : ''
+                <span class="lite-cluster-icon" aria-hidden="true">{{
+                  node.kind === 'tool' ? toolTypeGlyph(node.toolType) : node.icon
                 }}</span>
+                <span class="lite-cluster-status" :data-status="node.status" aria-hidden="true" />
               </button>
             </div>
           </li>
@@ -305,6 +303,7 @@ const {
           >
           <div class="lite-interaction-head">
             <!-- v0.4.2 双层标题去除：名称由上方页签承载，这里只保留状态与倒计时（靠左展示） -->
+            <span class="lite-interaction-dot" :data-status="activeInteraction.status" aria-hidden="true" />
             <span class="lite-interaction-head-right">
               <span
                 v-if="activeInteraction.status !== 'pending'"
@@ -367,6 +366,7 @@ const {
         <div v-else class="lite-interaction" :data-status="activeInteraction.status">
           <div class="lite-interaction-head">
             <!-- v0.4.2 双层标题去除：名称由上方页签承载，这里只保留状态与倒计时（靠左展示） -->
+            <span class="lite-interaction-dot" :data-status="activeInteraction.status" aria-hidden="true" />
             <span class="lite-interaction-head-right">
               <span
                 v-if="activeInteraction.status !== 'pending'"
