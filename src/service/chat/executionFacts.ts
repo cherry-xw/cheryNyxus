@@ -45,42 +45,26 @@ export function recordTerminationFact(input: {
     : undefined
   const node =
     annotated ??
-    upsertExecutionNode(
-      active?.nodeId
-        ? {
-            id: active.nodeId,
-            rootChatId,
-            sourceChatId: input.chatId,
-            sourceMessageId: active.nodeId,
-            kind: 'message',
-            actor: { kind: 'agent', chatId: input.chatId } satisfies TimelineActor,
-            direction: 'agent-to-user',
-            visibility: 'conversation',
-            content: '',
-            runId: input.runId,
-            ...(active.turnId ? { turnId: active.turnId } : {}),
-            termination,
-            createdAt: termination.at,
-            updatedAt: termination.at,
-            status: 'committed',
-          }
-        : {
-            id: `termination:${input.runId}:${input.code}`,
-            rootChatId,
-            sourceChatId: input.chatId,
-            kind: 'system',
-            actor: { kind: 'system' } satisfies TimelineActor,
-            direction: 'internal',
-            visibility: 'internal',
-            content: '',
-            runId: input.runId,
-            ...(active?.turnId ? { turnId: active.turnId } : {}),
-            termination,
-            createdAt: termination.at,
-            updatedAt: termination.at,
-            status: 'committed',
-          },
-    )
+    upsertExecutionNode({
+      // nodeId is reserved before the assistant message is committed. If an
+      // early failure happens first, annotateExecutionNode deliberately misses:
+      // persist only an internal lifecycle fact instead of fabricating a
+      // conversation-visible message with no backing row in messages.
+      id: `termination:${input.runId}:${input.code}`,
+      rootChatId,
+      sourceChatId: input.chatId,
+      kind: 'system',
+      actor: { kind: 'system' } satisfies TimelineActor,
+      direction: 'internal',
+      visibility: 'internal',
+      content: '',
+      runId: input.runId,
+      ...(active?.turnId ? { turnId: active.turnId } : {}),
+      termination,
+      createdAt: termination.at,
+      updatedAt: termination.at,
+      status: 'committed',
+    })
   upsertExecutionActiveRun({
     rootChatId,
     chatId: input.chatId,
