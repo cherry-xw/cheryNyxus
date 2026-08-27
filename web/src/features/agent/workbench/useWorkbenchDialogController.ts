@@ -530,6 +530,8 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
   )
   async function onSessionDelete(targetChatId: string): Promise<void> {
+    // Deletion prunes the active workbench chat before the request resolves, so preserve intent now.
+    const deletingActiveSession = targetChatId === chatId.value
     try {
       if (isNyxus.value) await deleteNyxusSession(targetChatId)
       else await deletePresetSession(targetChatId)
@@ -537,12 +539,9 @@ export function useWorkbenchDialogController(props: WorkbenchDialogControllerPro
       ElMessage.error(cause instanceof Error ? cause.message : '删除会话失败')
       return
     }
-    // 删的是当前会话：兜底切到该预设最新根会话，无则清空工作台聊天。
-    if (targetChatId === chatId.value) {
-      const latest = agents.latestRootInPreset(
-        isNyxus.value ? undefined : props.presetId,
-        presetName.value ?? undefined,
-      )
+    // Do not override a session the user selected while deletion was in flight.
+    if (deletingActiveSession && !chatId.value) {
+      const latest = rootSessions.value.find((session) => session.chatId !== targetChatId)?.chatId
       if (latest) await switchSession(latest)
       else agents.setWorkbenchWindowChat(props.windowId, null)
     }

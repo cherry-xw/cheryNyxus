@@ -357,6 +357,9 @@
   transform: translateY(-50%);
   pointer-events: none;
 }
+.nyxus-side-tools.has-open-popout {
+  z-index: var(--nx-z-side-popover);
+}
 .nyxus-pinned-layout-action {
   flex: none;
   margin-bottom: 7px;
@@ -576,7 +579,7 @@
 // 断连遮罩：盖住画布与 rail（native 面三键在 WindowFrame 层），阻断进一步操作防出错。
 .workbench-offline-mask {
   position: absolute;
-  z-index: calc(var(--nx-z-chrome) + 2);
+  z-index: var(--nx-z-connection-mask);
   inset: 0;
   display: grid;
   place-items: center;

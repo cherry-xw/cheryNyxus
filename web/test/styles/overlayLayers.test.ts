@@ -17,10 +17,10 @@ describe('overlay layer contract', () => {
     expect(NYXUS_WORKBENCH_Z_INDEX.nodeHitTarget).toBeLessThan(
       NYXUS_WORKBENCH_Z_INDEX.nodeOverlay,
     )
-    expect(NYXUS_WORKBENCH_Z_INDEX.nodeOverlay).toBeLessThan(
-      NYXUS_WORKBENCH_Z_INDEX.runCrt,
-    )
     expect(NYXUS_WORKBENCH_Z_INDEX.runCrt).toBeLessThan(
+      NYXUS_WORKBENCH_Z_INDEX.nodeOverlay,
+    )
+    expect(NYXUS_WORKBENCH_Z_INDEX.nodeOverlay).toBeLessThan(
       NYXUS_WORKBENCH_Z_INDEX.composer,
     )
     expect(NYXUS_WORKBENCH_Z_INDEX.composer).toBeLessThan(
@@ -28,6 +28,12 @@ describe('overlay layer contract', () => {
     )
     expect(NYXUS_WORKBENCH_Z_INDEX.blockingInteraction).toBeLessThan(
       NYXUS_WORKBENCH_Z_INDEX.chrome,
+    )
+    expect(NYXUS_WORKBENCH_Z_INDEX.drawer).toBeLessThan(
+      NYXUS_WORKBENCH_Z_INDEX.sidePopover,
+    )
+    expect(NYXUS_WORKBENCH_Z_INDEX.sidePopover).toBeLessThan(
+      NYXUS_WORKBENCH_Z_INDEX.connectionMask,
     )
   })
 })

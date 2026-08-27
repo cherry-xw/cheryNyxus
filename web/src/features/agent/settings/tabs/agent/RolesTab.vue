@@ -3,6 +3,7 @@ import { useRolesTabController, type RolesTabControllerProps, type RolesTabContr
 const props = defineProps<RolesTabControllerProps>()
 const emit = defineEmits<RolesTabControllerEmits>()
 const controller = useRolesTabController(props, emit)
+const vFocus = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
 const {
   AvatarPicker, ConfirmPopover, CopyDocument, Delete, EditableTitle, EquipmentEditor,
   EquipmentPicker, LabelTip, Lock, Plus, ResourceWorkbench, TEMPLATE_CARDS, activeEquipment,

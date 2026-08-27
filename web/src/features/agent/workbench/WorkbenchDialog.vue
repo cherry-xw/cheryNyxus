@@ -53,6 +53,8 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
       '--nx-z-chrome': NYXUS_WORKBENCH_Z_INDEX.chrome,
       '--nx-z-drawer-mask': NYXUS_WORKBENCH_Z_INDEX.drawerMask,
       '--nx-z-drawer': NYXUS_WORKBENCH_Z_INDEX.drawer,
+      '--nx-z-side-popover': NYXUS_WORKBENCH_Z_INDEX.sidePopover,
+      '--nx-z-connection-mask': NYXUS_WORKBENCH_Z_INDEX.connectionMask,
     }"
     :initial="{ opacity: 0 }"
     :animate="{ opacity: 1 }"
@@ -362,7 +364,11 @@ defineExpose({ closeWorkbench: controller.closeWorkbench })
           </footer>
         </section>
       </Transition>
-      <nav class="nyxus-side-tools" aria-label="节点树工作台功能工具栏">
+      <nav
+        class="nyxus-side-tools"
+        :class="{ 'has-open-popout': roleListOpen || sessionListOpen }"
+        aria-label="节点树工作台功能工具栏"
+      >
         <el-tooltip
           :content="topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'"
           placement="left"

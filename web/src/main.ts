@@ -20,6 +20,7 @@ import {
   ElImageViewer,
   ElInput,
   ElInputNumber,
+  ElLoading,
   ElOption,
   ElPopover,
   ElSelect,
@@ -35,6 +36,7 @@ import { configureServiceAuth } from '@/services/authContext'
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
+app.use(ElLoading)
 // 模板中实际使用的组件显式注册，避免 app.use(ElementPlus) 将完整组件库纳入首包。
 const elementComponents = [
   ElAvatar,

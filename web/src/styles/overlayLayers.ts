@@ -22,4 +22,8 @@ export const NYXUS_WORKBENCH_Z_INDEX = {
   // 但抽屉 top 从标题栏下方（40px）开始，永远不遮上方关闭/最大化/最小化按钮。
   drawerMask: 70,
   drawer: 75,
+  // Right-rail popouts must remain above workbench drawers such as pending operations.
+  sidePopover: 80,
+  // Connection loss is a true blocker and must stay above every interactive workbench surface.
+  connectionMask: 90,
 } as const

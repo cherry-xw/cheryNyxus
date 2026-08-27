@@ -19,7 +19,7 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     )
     expect(source).toContain(':aria-pressed="paperMode"')
     expect(source).toContain('data-view-action="layout"')
-    const sideTools = source.indexOf('<nav class="nyxus-side-tools"')
+    const sideTools = source.indexOf('class="nyxus-side-tools"')
     const pinnedLayout = source.indexOf('nyxus-pinned-layout-action', sideTools)
     const layoutAction = source.indexOf('data-view-action="layout"', pinnedLayout)
     const scrollColumn = source.indexOf('<div class="nyxus-tool-column">', layoutAction)
@@ -28,6 +28,11 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(layoutAction).toBeGreaterThan(pinnedLayout)
     expect(scrollColumn).toBeGreaterThan(layoutAction)
     expect(source).toContain('max-height: calc(100% - 37px)')
+    expect(source).toContain(
+      `:class="{ 'has-open-popout': roleListOpen || sessionListOpen }"`,
+    )
+    expect(source).toContain('z-index: var(--nx-z-side-popover)')
+    expect(source).toContain('z-index: var(--nx-z-connection-mask)')
     expect(source).toContain("topologyLayout ? '按节点顺序逐行排列' : '允许并行节点同行'")
   })
 
@@ -78,6 +83,29 @@ describe('Nyxus workbench preferences and entry regressions', () => {
     expect(deleteNyxus).not.toContain('await switchSession(')
     expect(deletePreset).toContain("ElMessage.success('会话已删除')")
     expect(deletePreset).toContain('options.setError(message)')
+  })
+
+  it('keeps enough active-session state to select the newest remaining session after deletion', async () => {
+    const source = await readComponentSource(
+      resolve('src/features/agent/workbench/WorkbenchDialog.vue'),
+      'utf8',
+    )
+    const deletion = source.slice(
+      source.indexOf('async function onSessionDelete'),
+      source.indexOf('function activateNyxusInput'),
+    )
+    const captureActiveSession = deletion.indexOf(
+      'const deletingActiveSession = targetChatId === chatId.value',
+    )
+    const deleteRequest = deletion.indexOf('await deleteNyxusSession(targetChatId)')
+
+    expect(captureActiveSession).toBeGreaterThan(-1)
+    expect(captureActiveSession).toBeLessThan(deleteRequest)
+    expect(deletion).toContain('if (deletingActiveSession && !chatId.value)')
+    expect(deletion).toContain(
+      'rootSessions.value.find((session) => session.chatId !== targetChatId)?.chatId',
+    )
+    expect(deletion).not.toContain('if (targetChatId === chatId.value)')
   })
 
   it('provides explicit high-contrast context colors in dark mode', async () => {

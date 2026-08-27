@@ -337,8 +337,6 @@ export function useRolesTabController(props: RolesTabControllerProps, emit: Role
   
   const descEditValue = ref('')
   
-  const vFocus = { mounted: (el: HTMLElement) => el.querySelector('input')?.focus() }
-  
   function startDescEdit(): void {
   
     if (current.value?.lock || isFixedRole.value) return
