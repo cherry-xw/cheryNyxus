@@ -16,6 +16,8 @@ import {
 } from '../graph/edgeMotion'
 import { PIXI_CANVAS_PALETTES, type PixiCanvasPalette } from '@/composables/useThemeTokens'
 import { DETAIL_BRANCH_COLOR } from '../graph/edgeStyles'
+import { renderQualityProfile, type RenderQualityTier } from '@/composables/renderQuality'
+import { incrementPerformanceCounter, setPerformanceMetric } from '@/utils/performanceDiagnostics'
 
 export interface PixiExecutionNode {
   id: string
@@ -180,23 +182,21 @@ function isElectronRuntime(): boolean {
   return /\bElectron\//.test(navigator.userAgent)
 }
 
-function rendererResolution(): number {
+export function rendererResolution(tier: RenderQualityTier = 'balanced'): number {
   const dpr = window.devicePixelRatio || 1
-  // Match the backing buffer to the display on both the browser and Electron. Capping Electron at
-  // 1 made Chromium upscale the whole graph on Windows display scaling, blurring node outlines and
-  // every Pixi text label. A 2x ceiling keeps the fill-rate bounded on very dense displays.
-  return Math.min(dpr, 2)
+  return Math.min(dpr, renderQualityProfile(tier).graphDpr)
 }
 
 async function initializeApplication(
   host: HTMLElement,
+  tier: RenderQualityTier,
 ): Promise<{ app: Application; backend: 'webgpu' | 'webgl' }> {
   const baseOptions = {
     resizeTo: host,
     backgroundAlpha: 0,
     antialias: true,
     autoDensity: true,
-    resolution: rendererResolution(),
+    resolution: rendererResolution(tier),
   }
   // Electron uses several simultaneous transparent/non-transparent windows. The previous GPU crash
   // was not isolated from WebGPU device creation, so retain hardware composition while using mature
@@ -238,6 +238,14 @@ export class ExecutionGraphPixiRenderer {
   private reduceMotion = false
   private lastMotionDrawAt = 0
   private motionFps = DEFAULT_MOTION_FPS
+  private requestedMotionFps = DEFAULT_MOTION_FPS
+  private qualityTier: RenderQualityTier = 'balanced'
+  private viewportWidth = 0
+  private viewportHeight = 0
+  private labelsReleased = false
+  private geometrySignature = ''
+  private staticSignature = ''
+  private labelSignature = ''
   private interactionFpsTimer?: ReturnType<typeof setTimeout>
   private ticker?: () => void
   private media?: MediaQueryList
@@ -253,11 +261,12 @@ export class ExecutionGraphPixiRenderer {
     if (this.canvasPalette === palette) return
     this.canvasPalette = palette
     this.drawStatic()
+    this.rebuildLabels()
     this.renderWhenTickerStopped()
   }
 
   async mount(host: HTMLElement): Promise<void> {
-    const initialized = await initializeApplication(host)
+    const initialized = await initializeApplication(host, this.qualityTier)
     this.app = initialized.app
     this.backend = initialized.backend
     this.app.canvas.classList.add('execution-pixi-canvas')
@@ -288,19 +297,54 @@ export class ExecutionGraphPixiRenderer {
     this.app.ticker.maxFPS = this.motionFps
     this.app.ticker.add(this.ticker)
     this.drawStatic()
+    this.rebuildLabels()
     this.syncTickerState()
+  }
+
+  setQualityTier(tier: RenderQualityTier): void {
+    if (this.qualityTier === tier) return
+    this.qualityTier = tier
+    this.applyMotionFrameRate()
+    if (this.app && this.viewportWidth > 0 && this.viewportHeight > 0) {
+      this.app.renderer.resize(
+        this.viewportWidth,
+        this.viewportHeight,
+        rendererResolution(this.qualityTier),
+      )
+    }
+    const needed = this.labelResolutionNeeded(this.camera?.scale ?? 1)
+    if (needed !== this.labelResolution) {
+      this.labelResolution = needed
+      this.rebuildLabels()
+    }
+    this.renderWhenTickerStopped()
   }
 
   /** Suspend hidden/minimized workbenches without destroying their GPU scene. */
   setSuspended(suspended: boolean): void {
     if (this.suspended === suspended) return
     this.suspended = suspended
+    if (suspended) {
+      this.clearMotion()
+      this.releaseLabels()
+    } else if (this.labelsReleased) {
+      this.rebuildLabels()
+    }
     this.syncTickerState()
+    this.renderWhenTickerStopped()
   }
 
   /** Decorative motion can run slower than interaction without changing camera responsiveness. */
   setMotionFrameRate(fps: number): void {
-    const next = Math.max(12, Math.min(DEFAULT_MOTION_FPS, Math.round(fps)))
+    this.requestedMotionFps = Math.max(12, Math.min(DEFAULT_MOTION_FPS, Math.round(fps)))
+    this.applyMotionFrameRate()
+  }
+
+  private applyMotionFrameRate(): void {
+    const next = Math.min(
+      this.requestedMotionFps,
+      renderQualityProfile(this.qualityTier).graphMotionFps,
+    )
     if (this.motionFps === next) return
     this.motionFps = next
     if (this.app && !this.interactionFpsTimer) this.app.ticker.maxFPS = next
@@ -320,8 +364,7 @@ export class ExecutionGraphPixiRenderer {
     if (!this.app) return
     if (this.suspended || this.motionPaused || this.reduceMotion || document.hidden) {
       this.app.ticker.stop()
-    }
-    else this.app.ticker.start()
+    } else this.app.ticker.start()
   }
 
   /** Pixi's application ticker normally presents the stage; paused paths need one explicit frame. */
@@ -358,7 +401,9 @@ export class ExecutionGraphPixiRenderer {
 
   /** 标签纹理目标分辨率：≥ 渲染器分辨率 × 相机缩放，保证放大后按 1:1 命中设备像素。 */
   private labelResolutionNeeded(scale: number): number {
-    return Math.max(1, Math.ceil(rendererResolution() * scale))
+    const profile = renderQualityProfile(this.qualityTier)
+    const scaled = Math.ceil(rendererResolution(this.qualityTier) * scale * 2) / 2
+    return Math.min(profile.graphLabelResolution, Math.max(1, scaled))
   }
 
   /**
@@ -368,16 +413,76 @@ export class ExecutionGraphPixiRenderer {
    */
   resize(width: number, height: number): void {
     if (!this.app || width <= 0 || height <= 0) return
-    this.app.renderer.resize(width, height)
+    this.viewportWidth = width
+    this.viewportHeight = height
+    this.app.renderer.resize(width, height, rendererResolution(this.qualityTier))
     this.renderWhenTickerStopped()
   }
 
   setScene(scene: PixiExecutionScene): void {
+    const geometrySignature = scene.edges
+      .map((edge) =>
+        [edge.id, edge.from.x, edge.from.y, edge.to.x, edge.to.y, edge.routeX ?? ''].join(':'),
+      )
+      .join('|')
+    const staticSignature = [
+      ...scene.nodes.map((node) =>
+        [
+          node.id,
+          node.x,
+          node.y,
+          node.accent,
+          node.paused,
+          node.error,
+          node.revoked,
+          node.detailActive,
+          node.branchAnchorKind ?? '',
+          node.detailBranch,
+          node.deemphasized,
+        ].join(':'),
+      ),
+      ...scene.edges.map((edge) =>
+        [edge.id, edge.color, edge.active, edge.detailBranch, edge.deemphasized].join(':'),
+      ),
+    ].join('|')
+    const labelSignature = scene.nodes
+      .map((node) =>
+        [
+          node.id,
+          node.x,
+          node.y,
+          node.accent,
+          node.glyph,
+          node.title,
+          node.termination ?? '',
+          node.foldCount ?? '',
+          node.detailBranch,
+          node.deemphasized,
+        ].join(':'),
+      )
+      .join('|')
+    const geometryChanged = geometrySignature !== this.geometrySignature
+    const staticChanged = geometryChanged || staticSignature !== this.staticSignature
+    const labelsChanged = labelSignature !== this.labelSignature
     this.scene = scene
-    this.sampledEdges = scene.edges.map(sampleEdge)
+    if (geometryChanged) this.sampledEdges = scene.edges.map(sampleEdge)
+    else {
+      // 几何采样可以复用，但 phase/active/color 等运行态仍须更新；否则静态层和脉冲
+      // 会在仅状态变化时继续读取上一帧的边属性。
+      scene.edges.forEach((edge, index) => Object.assign(this.sampledEdges[index]!, edge))
+    }
+    this.geometrySignature = geometrySignature
+    this.staticSignature = staticSignature
+    this.labelSignature = labelSignature
     this.motionSelectionKey = ''
     this.refreshMotionItems(true)
-    this.drawStatic()
+    if (staticChanged) this.drawStatic()
+    if (labelsChanged) this.rebuildLabels()
+    incrementPerformanceCounter('pixi.sceneSyncs')
+    if (staticChanged) incrementPerformanceCounter('pixi.staticRedraws')
+    if (labelsChanged) incrementPerformanceCounter('pixi.labelRebuilds')
+    setPerformanceMetric('pixi.visibleNodes', scene.nodes.length)
+    setPerformanceMetric('pixi.visibleEdges', scene.edges.length)
     this.renderWhenTickerStopped()
   }
 
@@ -485,12 +590,17 @@ export class ExecutionGraphPixiRenderer {
           .stroke({ color: accent, width: 1, alpha })
       }
     }
-    this.rebuildLabels()
   }
 
   /** 重建全部标签（glyph/title/termination/数字角标）。分辨率用当前档位，随相机缩放逐档重渲。 */
   private rebuildLabels(): void {
+    if (!this.app) return
+    if (this.suspended) {
+      this.releaseLabels()
+      return
+    }
     this.labels.removeChildren().forEach((child) => child.destroy())
+    this.labelsReleased = false
     const p = this.canvasPalette
     const resolution = this.labelResolution
     for (const node of this.scene.nodes) {
@@ -547,6 +657,15 @@ export class ExecutionGraphPixiRenderer {
         this.labels.addChild(foldCount)
       }
     }
+    setPerformanceMetric('pixi.labels', this.labels.children.length)
+    setPerformanceMetric('pixi.labelResolution', resolution)
+  }
+
+  private releaseLabels(): void {
+    if (this.labelsReleased) return
+    this.labels.removeChildren().forEach((child) => child.destroy())
+    this.labelsReleased = true
+    setPerformanceMetric('pixi.labels', 0)
   }
 
   private drawMotion(now: number): void {
@@ -611,6 +730,13 @@ export class ExecutionGraphPixiRenderer {
     this.media = undefined
     this.app?.destroy({ removeView: true }, { children: true })
     this.app = undefined
+    this.scene = EMPTY_SCENE
+    this.sampledEdges = []
+    this.visibleMotionEdges.length = 0
+    this.visibleMotionNodes.length = 0
+    this.geometrySignature = ''
+    this.staticSignature = ''
+    this.labelSignature = ''
     this.backend = 'uninitialized'
   }
 }

@@ -383,6 +383,9 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   watch(
     () => agents.settingsOpen,
     async (open) => {
+      // 原生设置窗由 loadNativeSettings 等待独立 renderer 的 WS 连通后再加载。
+      // 浏览器设置改为按需挂载后，组件创建时 settingsOpen 已经为 true，必须立即执行本监听。
+      if (isNative.value) return
       if (!open) {
         clearRestartWait()
         draft.value = null
@@ -401,6 +404,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
       }
       await loadSettingsData()
     },
+    { immediate: true },
   )
   /** 重新拉取审批规则文件清单（PresetsTab 审批规则下拉用；手动新建/Cherry Nexus 生成后触发）。 */
   async function refreshRules(): Promise<void> {
@@ -655,7 +659,7 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   }
   onMounted(() => {
     // native 面：settingsOpen 永不翻转（窗开即挂载），等 WS 连接后拉数据 + 挂 tab 滚动；
-    // 浏览器路径由 watch(settingsOpen) 驱动，此处 no-op。
+    // 浏览器路径由 immediate watch(settingsOpen) 驱动，此处 no-op。
     loadNativeSettings()
   })
   onUnmounted(() => {
@@ -721,9 +725,11 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   watch(
     () => agents.settingsOpen,
     (open) => {
+      if (isNative.value) return
       if (open) nextTick(setupTabScroll)
       else teardownTabScroll()
     },
+    { immediate: true },
   )
   /** 保存前清理：丢弃组内空工具名条目（与旧 textarea filter(Boolean) 行为一致）。 */
   function sanitizeSenseGroups(cfg: ConfigDto): void {

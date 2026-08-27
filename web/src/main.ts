@@ -6,7 +6,27 @@ import 'element-plus/theme-chalk/dark/css-vars.css'
 import './styles/theme.css'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
+import {
+  ElAvatar,
+  ElButton,
+  ElCard,
+  ElCascader,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElDialog,
+  ElDropdown,
+  ElDropdownMenu,
+  ElIcon,
+  ElImageViewer,
+  ElInput,
+  ElInputNumber,
+  ElOption,
+  ElPopover,
+  ElSelect,
+  ElSwitch,
+  ElTag,
+  ElTooltip,
+} from 'element-plus'
 
 import App from './App.vue'
 import { useAuthStore, useThemeStore } from '@/stores'
@@ -15,7 +35,29 @@ import { configureServiceAuth } from '@/services/authContext'
 const app = createApp(App)
 const pinia = createPinia()
 app.use(pinia)
-app.use(ElementPlus)
+// 模板中实际使用的组件显式注册，避免 app.use(ElementPlus) 将完整组件库纳入首包。
+const elementComponents = [
+  ElAvatar,
+  ElButton,
+  ElCard,
+  ElCascader,
+  ElCheckbox,
+  ElCheckboxGroup,
+  ElDialog,
+  ElDropdown,
+  ElDropdownMenu,
+  ElIcon,
+  ElImageViewer,
+  ElInput,
+  ElInputNumber,
+  ElOption,
+  ElPopover,
+  ElSelect,
+  ElSwitch,
+  ElTag,
+  ElTooltip,
+]
+for (const component of elementComponents) app.component(component.name!, component)
 const auth = useAuthStore(pinia)
 configureServiceAuth({
   isRemote: () => auth.isRemote,

@@ -1,0 +1,80 @@
+import type { RenderQualityTier } from '@/composables/renderQuality'
+
+export interface FrontendPerformanceSnapshot {
+  qualityTier: RenderQualityTier
+  metrics: Readonly<Record<string, number>>
+  counters: Readonly<Record<string, number>>
+  longTasks: { count: number; longestMs: number }
+  memory?: { usedJsHeapBytes: number; totalJsHeapBytes: number; heapLimitBytes: number }
+}
+
+interface ChromePerformance extends Performance {
+  memory?: {
+    usedJSHeapSize: number
+    totalJSHeapSize: number
+    jsHeapSizeLimit: number
+  }
+}
+
+const metrics = new Map<string, number>()
+const counters = new Map<string, number>()
+let longTaskCount = 0
+let longestLongTaskMs = 0
+let observer: PerformanceObserver | undefined
+
+export function setPerformanceMetric(name: string, value: number): void {
+  if (!import.meta.env.DEV || !Number.isFinite(value)) return
+  metrics.set(name, value)
+}
+
+export function incrementPerformanceCounter(name: string, amount = 1): void {
+  if (!import.meta.env.DEV) return
+  counters.set(name, (counters.get(name) ?? 0) + amount)
+}
+
+function memorySnapshot(): FrontendPerformanceSnapshot['memory'] {
+  const memory = (performance as ChromePerformance).memory
+  if (!memory) return undefined
+  return {
+    usedJsHeapBytes: memory.usedJSHeapSize,
+    totalJsHeapBytes: memory.totalJSHeapSize,
+    heapLimitBytes: memory.jsHeapSizeLimit,
+  }
+}
+
+export function installPerformanceDiagnostics(qualityTier: () => RenderQualityTier): () => void {
+  if (!import.meta.env.DEV) return () => undefined
+  if (typeof PerformanceObserver !== 'undefined') {
+    try {
+      observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          longTaskCount += 1
+          longestLongTaskMs = Math.max(longestLongTaskMs, entry.duration)
+        }
+      })
+      observer.observe({ type: 'longtask', buffered: true })
+    } catch {
+      observer = undefined
+    }
+  }
+  window.__CHERY_PERF__ = {
+    snapshot: () => ({
+      qualityTier: qualityTier(),
+      metrics: Object.fromEntries(metrics),
+      counters: Object.fromEntries(counters),
+      longTasks: { count: longTaskCount, longestMs: longestLongTaskMs },
+      ...(memorySnapshot() ? { memory: memorySnapshot() } : {}),
+    }),
+    reset: () => {
+      metrics.clear()
+      counters.clear()
+      longTaskCount = 0
+      longestLongTaskMs = 0
+    },
+  }
+  return () => {
+    observer?.disconnect()
+    observer = undefined
+    delete window.__CHERY_PERF__
+  }
+}

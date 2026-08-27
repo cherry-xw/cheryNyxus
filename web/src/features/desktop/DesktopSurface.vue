@@ -9,7 +9,7 @@
  */
 import { onBeforeUnmount, onMounted } from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
-import { NyxusCore } from '@/features/pets/nyxus/public'
+import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
 import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
 import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
 import { useDesktopPassthrough } from './useDesktopPassthrough'

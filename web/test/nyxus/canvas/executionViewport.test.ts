@@ -62,25 +62,25 @@ describe('GPU execution viewport selection', () => {
   })
 
   it('retains a buffered drag selection until the camera approaches its boundary', () => {
-    const retained = cameraWorldBounds({ scale: 1, x: 0, y: 0, width: 800, height: 600 }, 1600)
+    const retained = cameraWorldBounds({ scale: 1, x: 0, y: 0, width: 800, height: 600 }, 800)
 
     expect(
       viewportSelectionContainsCamera(
         retained,
-        { scale: 1, x: 1360, y: 0, width: 800, height: 600 },
-        240,
+        { scale: 1, x: 600, y: 0, width: 800, height: 600 },
+        160,
       ),
     ).toBe(true)
     expect(
       viewportSelectionContainsCamera(
         retained,
-        { scale: 1, x: 1400, y: 0, width: 800, height: 600 },
-        240,
+        { scale: 1, x: 660, y: 0, width: 800, height: 600 },
+        160,
       ),
     ).toBe(false)
   })
 
-  it('bounds a 1600px retained scene while allowing a much larger drag runway', () => {
+  it('bounds a viewport-sized retained scene while allowing a buffered drag runway', () => {
     const layout = layoutWithNodes(10_000, true)
     const camera = { scale: 0.32, x: 100, y: -128_000, width: 800, height: 600 }
     const retained = selectVisibleExecutionItems(
@@ -88,11 +88,11 @@ describe('GPU execution viewport selection', () => {
       camera,
       new Set(),
       createExecutionViewportIndex(layout),
-      1600,
+      800,
     )
 
-    expect(retained.nodes.length).toBeGreaterThan(100)
-    expect(retained.nodes.length).toBeLessThan(180)
+    expect(retained.nodes.length).toBeGreaterThan(70)
+    expect(retained.nodes.length).toBeLessThan(110)
   })
 
   it('detects animation primitives that intersect the live camera bounds', () => {

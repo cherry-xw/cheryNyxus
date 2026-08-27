@@ -6,6 +6,7 @@
  * and visual skin. Later checkpoints add termination controls and CRT anchoring.
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { renderQualityTier } from '@/composables/renderQuality'
 import { useNyxusHost } from '../application/host'
 import { useThemeTokens } from '@/composables/useThemeTokens'
 import { effectiveRootLiveState } from '@/application/chat/public'
@@ -68,24 +69,24 @@ import type { RootTimelineSnapshot } from '@/application/backend/public'
 import { buildPaperStack } from '../paper/paperStackModel'
 
 export type MessageBranchTreeControllerProps = {
-    rootChatId: string
-    timelineOverride?: RootTimelineSnapshot
-    branchAnchorNodeId?: string
-    branchAnchorKind?: 'detail' | 'continuation'
-    detailBranchAvailable?: boolean
-    detailBranchUnavailableReason?: string
-    layoutMode?: ExecutionLayoutMode
-    foldMode?: 'none' | 'partial' | 'full' | 'participant'
-    focusSourceChatId?: string
-    focusInteractionId?: string
-    /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
-    fullRenderThreshold?: number
-    paperMode?: boolean
-    /** Parent workbench is minimized/hidden; keep state but suspend GPU work. */
-    suspended?: boolean
-    /** 静态历史视图（代际二层弹窗）：挂断 live 投影（输入/流式/CRT），仅渲染 timelineOverride。 */
-    staticView?: boolean
-  }
+  rootChatId: string
+  timelineOverride?: RootTimelineSnapshot
+  branchAnchorNodeId?: string
+  branchAnchorKind?: 'detail' | 'continuation'
+  detailBranchAvailable?: boolean
+  detailBranchUnavailableReason?: string
+  layoutMode?: ExecutionLayoutMode
+  foldMode?: 'none' | 'partial' | 'full' | 'participant'
+  focusSourceChatId?: string
+  focusInteractionId?: string
+  /** 节点数≤此值跳过视口裁剪全量渲染（消除平移卡顿）。undefined → 用默认阈值。 */
+  fullRenderThreshold?: number
+  paperMode?: boolean
+  /** Parent workbench is minimized/hidden; keep state but suspend GPU work. */
+  suspended?: boolean
+  /** 静态历史视图（代际二层弹窗）：挂断 live 投影（输入/流式/CRT），仅渲染 timelineOverride。 */
+  staticView?: boolean
+}
 export type MessageBranchTreeControllerEmits = {
   branch: [
     payload: {
@@ -100,9 +101,15 @@ export type MessageBranchTreeControllerEmits = {
   /** 钢琴彩蛋连点序列触发 → 父级（工作台）打开钢琴浮层。 */
   'easter-egg': []
 }
-type ControllerEmit<T> = <K extends keyof T>(event: K, ...args: T[K] extends unknown[] ? T[K] : never) => void
+type ControllerEmit<T> = <K extends keyof T>(
+  event: K,
+  ...args: T[K] extends unknown[] ? T[K] : never
+) => void
 
-export function useMessageBranchTreeController(props: MessageBranchTreeControllerProps, emit: ControllerEmit<MessageBranchTreeControllerEmits>): any {
+export function useMessageBranchTreeController(
+  props: MessageBranchTreeControllerProps,
+  emit: ControllerEmit<MessageBranchTreeControllerEmits>,
+): any {
   const { chats: chatSessions, agents, theme: themeStore } = useNyxusHost()
   const { canvasPalette } = useThemeTokens()
   const viewportRef = ref<HTMLElement | null>(null)
@@ -137,7 +144,11 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   const liveState = computed(() =>
     props.staticView
       ? { activeTurns: [], activeRuns: [] }
-      : effectiveRootLiveState(props.rootChatId, rootTransientState.value, chatSessions.sessionsById),
+      : effectiveRootLiveState(
+          props.rootChatId,
+          rootTransientState.value,
+          chatSessions.sessionsById,
+        ),
   )
   let cachedActiveRunKey = ''
   let cachedActiveCrtRuns: ReturnType<typeof effectiveRunFacts> = []
@@ -210,7 +221,8 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   const foldProjection = computed(() => {
     if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
     if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
-    if (props.foldMode === 'participant') return projectParticipantFoldExecutionGraph(liveGraph.value)
+    if (props.foldMode === 'participant')
+      return projectParticipantFoldExecutionGraph(liveGraph.value)
     return projectFoldExecutionGraph(liveGraph.value)
   })
   const graph = computed(() => foldProjection.value.graph)
@@ -305,7 +317,8 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   const endpointFoldProjection = computed(() => {
     if (props.foldMode === 'none') return { graph: liveGraph.value, ranges: [] }
     if (props.foldMode === 'full') return projectFullFoldExecutionGraph(liveGraph.value)
-    if (props.foldMode === 'participant') return projectParticipantFoldExecutionGraph(liveGraph.value)
+    if (props.foldMode === 'participant')
+      return projectParticipantFoldExecutionGraph(liveGraph.value)
     return projectFoldExecutionGraph(liveGraph.value)
   })
   const endpointGraph = computed(() => endpointFoldProjection.value.graph)
@@ -343,8 +356,10 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     height: viewportSize.value.height,
   }))
   const viewportSelectionCamera = shallowRef<ExecutionCamera>(executionCamera.value)
-  const VIEWPORT_RETENTION_OVERSCAN = 1600
-  const VIEWPORT_RETENTION_SAFETY_MARGIN = 240
+  const VIEWPORT_RETENTION_SAFETY_MARGIN = 160
+  const viewportRetentionOverscan = computed(() =>
+    Math.max(480, Math.min(960, Math.max(viewportSize.value.width, viewportSize.value.height))),
+  )
   const forcedGpuNodeIds = computed(
     () =>
       new Set(
@@ -358,15 +373,13 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   )
   const executionViewportIndex = computed(() => createExecutionViewportIndex(layout.value))
   /** 全量渲染默认阈值（config 未配置时兜底）：节点数≤此值跳过视口裁剪。 */
-  const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 500
-  const fullRenderThreshold = computed(
-    () => {
-      const configured = props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT
-      // The reader leaves only half a viewport for the graph. Avoid keeping hundreds
-      // of offscreen text textures in the software-rendered Electron canvas.
-      return props.paperMode ? Math.min(configured, 120) : configured
-    },
-  )
+  const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 150
+  const fullRenderThreshold = computed(() => {
+    const configured = props.fullRenderThreshold ?? TREE_FULL_RENDER_THRESHOLD_DEFAULT
+    // The reader leaves only half a viewport for the graph. Avoid keeping hundreds
+    // of offscreen text textures in the software-rendered Electron canvas.
+    return props.paperMode ? Math.min(configured, 120) : configured
+  })
   const fullRenderActive = computed(() => layout.value.nodes.length <= fullRenderThreshold.value)
   const visibleExecutionItems = computed(() =>
     selectVisibleExecutionItems(
@@ -374,7 +387,7 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
       viewportSelectionCamera.value,
       forcedGpuNodeIds.value,
       executionViewportIndex.value,
-      VIEWPORT_RETENTION_OVERSCAN,
+      viewportRetentionOverscan.value,
       fullRenderThreshold.value,
     ),
   )
@@ -416,7 +429,10 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     const camera = dragExecutionCamera(transform)
     // Freeze the expensive Pixi scene while panning. The already rendered canvas
     // and all camera-bound DOM overlays are translated as compositor bitmaps.
-    setDragOverlayTranslation(transform.x - canvas.offsetX.value, transform.y - canvas.offsetY.value)
+    setDragOverlayTranslation(
+      transform.x - canvas.offsetX.value,
+      transform.y - canvas.offsetY.value,
+    )
     retainCameraSelection(camera)
   }
   function finishGpuDrag(transform: CanvasTransform): void {
@@ -611,8 +627,9 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
       host.__popoverMeasure = observer
     },
     updated(el: HTMLElement, binding: { value: (height: number) => void }): void {
-      ;(el as HTMLElement & { __popoverMeasureCallback?: (height: number) => void })
-        .__popoverMeasureCallback = binding.value
+      ;(
+        el as HTMLElement & { __popoverMeasureCallback?: (height: number) => void }
+      ).__popoverMeasureCallback = binding.value
     },
     unmounted(el: HTMLElement): void {
       ;(el as HTMLElement & { __popoverMeasure?: ResizeObserver }).__popoverMeasure?.disconnect()
@@ -1024,7 +1041,9 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
       return
     }
     if (defaultPopoverAnchorIds.value.has(node.id)) {
-      const model = defaultNodePopovers.value.find((candidate) => candidate.anchorNodeId === node.id)
+      const model = defaultNodePopovers.value.find(
+        (candidate) => candidate.anchorNodeId === node.id,
+      )
       if (model && (model.approval || model.question)) {
         emit('interactionFocus', {
           chatId: model.chatId,
@@ -1145,10 +1164,7 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
       viewportSize.value.width - headerVisible,
       Math.max(-480 + headerVisible, base.left + delta.x),
     )
-    const top = Math.min(
-      viewportSize.value.height - headerVisible,
-      Math.max(0, base.top + delta.y),
-    )
+    const top = Math.min(viewportSize.value.height - headerVisible, Math.max(0, base.top + delta.y))
     detailManualPos.value = { left, top }
   }
   const detailPlacement = computed(() => {
@@ -1381,7 +1397,8 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     () => props.paperMode,
     (enabled) => {
       closeNodeDetail()
-      if (enabled && !activePaperNodeId.value) activePaperNodeId.value = paperEntries.value.at(-1)?.id
+      if (enabled && !activePaperNodeId.value)
+        activePaperNodeId.value = paperEntries.value.at(-1)?.id
       // 卡牌模式开关会让树视口在「全宽 ↔ 右半区」间切换，旧相机位置不再对齐新视口。
       // 与折叠档位/布局模式一致：开关后重新 fit，使节点树在新视口内居中。
       void nextTick(resetLayout)
@@ -1444,6 +1461,7 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     canvas.fitToView({ animate: true, duration: 460 })
   }
   function syncGpuScene(scene = pixiScene.value): void {
+    if (props.suspended) return
     const signature = executionSceneSignature(scene, visibleExecutionKey.value)
     const appliedToPixi = signature !== lastGpuSceneSignature
     if (!appliedToPixi) return
@@ -1459,6 +1477,7 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     { deep: true, flush: 'sync' },
   )
   watch(pixiScene, (scene) => syncGpuScene(scene))
+  watch(renderQualityTier, (tier) => gpuRenderer?.setQualityTier(tier))
   // 主题切换：更新画布调色板并重画静态层（accent 随 pixiScene 重算）。
   watch(canvasPalette, (palette) => gpuRenderer?.setPalette(palette))
   watch(
@@ -1468,7 +1487,10 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   )
   watch(
     () => props.suspended,
-    (suspended) => gpuRenderer?.setSuspended(!!suspended),
+    (suspended) => {
+      gpuRenderer?.setSuspended(!!suspended)
+      if (!suspended) syncGpuScene()
+    },
     { immediate: true },
   )
   async function mountGpuRenderer(): Promise<void> {
@@ -1479,6 +1501,7 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
     gpuRenderer = renderer
     renderer.setScene(pixiScene.value)
     renderer.setPalette(canvasPalette.value)
+    renderer.setQualityTier(renderQualityTier.value)
     renderer.setMotionFrameRate(props.paperMode ? 24 : 30)
     renderer.setSuspended(!!props.suspended)
     try {
@@ -1525,19 +1548,79 @@ export function useMessageBranchTreeController(props: MessageBranchTreeControlle
   })
 
   return {
-    AnchoredRunCrt, ExecutionNodePopover, FoldTabRail, GenerationTreeDialog, NodePaperStack,
-    activateNode, activePaperQuestionPopover, agents, canvas, closeCrt, closeNodeDetail, crtById,
-    crtPlacements, crtVisibility, defaultPopoverAnchorIds, defaultPopoverViews, detailAnchorEl,
-    detailAnchorStyle, detailDisplayNode, detailFoldMember, detailMaxHeight, detailNode,
-    detailPinned, detailPlacement, detailRelatedEdges, dragActionPopover, dragCrt,
-    dragDetailPopover, focusCrt, focusNode, focusRelativeNode, foldRailSide, generationDialogIndex,
-    gpuNodeHitStyle, gpuRenderError, graph, hasNewTail, hideNodeDetail, keepNodeDetailOpen,
-    leaveNodeDetail, nodeAriaLabel, nodeTitle, onFoldRailInteraction, onNodePointerDown,
-    overlayPlacements, paperCurrentIndex, paperEntries, paperGraph, paperHasNewTail,
-    persistentGraph, pinCrt, pinnedCrtIds, pixiMountRef, recordActionPopoverHeight, recoverGraph,
-    recoveringGraph, recoveryError, ref, requestBranch, resetLayout, returnToBottom,
-    returnToLatestPaper, selectActionCall, selectFoldMember, selectPaperIndex, selectedActionCall,
-    selectedCallId, showNodeDetail, unpinCrt, unreadFoldMembers, vMeasureHeight, viewportRef,
-    viewportSize, visibleInteractiveNodes,
+    AnchoredRunCrt,
+    ExecutionNodePopover,
+    FoldTabRail,
+    GenerationTreeDialog,
+    NodePaperStack,
+    activateNode,
+    activePaperQuestionPopover,
+    agents,
+    canvas,
+    closeCrt,
+    closeNodeDetail,
+    crtById,
+    crtPlacements,
+    crtVisibility,
+    defaultPopoverAnchorIds,
+    defaultPopoverViews,
+    detailAnchorEl,
+    detailAnchorStyle,
+    detailDisplayNode,
+    detailFoldMember,
+    detailMaxHeight,
+    detailNode,
+    detailPinned,
+    detailPlacement,
+    detailRelatedEdges,
+    dragActionPopover,
+    dragCrt,
+    dragDetailPopover,
+    focusCrt,
+    focusNode,
+    focusRelativeNode,
+    foldRailSide,
+    generationDialogIndex,
+    gpuNodeHitStyle,
+    gpuRenderError,
+    graph,
+    hasNewTail,
+    hideNodeDetail,
+    keepNodeDetailOpen,
+    leaveNodeDetail,
+    nodeAriaLabel,
+    nodeTitle,
+    onFoldRailInteraction,
+    onNodePointerDown,
+    overlayPlacements,
+    paperCurrentIndex,
+    paperEntries,
+    paperGraph,
+    paperHasNewTail,
+    persistentGraph,
+    pinCrt,
+    pinnedCrtIds,
+    pixiMountRef,
+    recordActionPopoverHeight,
+    recoverGraph,
+    recoveringGraph,
+    recoveryError,
+    ref,
+    requestBranch,
+    resetLayout,
+    returnToBottom,
+    returnToLatestPaper,
+    selectActionCall,
+    selectFoldMember,
+    selectPaperIndex,
+    selectedActionCall,
+    selectedCallId,
+    showNodeDetail,
+    unpinCrt,
+    unreadFoldMembers,
+    vMeasureHeight,
+    viewportRef,
+    viewportSize,
+    visibleInteractiveNodes,
   }
 }

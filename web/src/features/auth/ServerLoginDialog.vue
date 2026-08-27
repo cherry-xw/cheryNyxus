@@ -20,7 +20,7 @@ import {
   type AuthError,
 } from '@/application/auth/public'
 import { isElectron } from '@/application/platform/public'
-import { desktopBridge } from '@/features/desktop/public'
+import { desktopBridge } from '@/features/desktop/desktopBridge'
 
 const props = withDefaults(defineProps<{ visible: boolean; native?: boolean }>(), { native: false })
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void }>()

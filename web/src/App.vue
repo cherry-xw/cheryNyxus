@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  onBeforeUnmount,
+  onMounted,
+  provide,
+  ref,
+  watch,
+} from 'vue'
 import PetStage from '@/features/pets/PetStage.vue'
-import DesktopSurface from '@/features/desktop/DesktopSurface.vue'
-import LoginSurface from '@/features/desktop/LoginSurface.vue'
-import WindowFrame from '@/features/desktop/WindowFrame.vue'
-import ConnectionStatusChip from '@/features/desktop/ConnectionStatusChip.vue'
-import { NyxusCore } from '@/features/pets/nyxus/public'
-import AgentDialog from '@/features/agent/chat/AgentDialog.vue'
-import { WorkbenchCapsule, WorkbenchDialog, useLiteViewToggle } from '@/features/agent/workbench/public'
-import HistoryDrawer from '@/features/agent/drawer/HistoryDrawer.vue'
-import SettingsDialog from '@/features/agent/settings/SettingsDialog.vue'
-import OpenConfigDirButton from '@/features/agent/settings/components/OpenConfigDirButton.vue'
+import NyxusCore from '@/features/pets/nyxus/components/NyxusCore.vue'
+import { useLiteViewToggle } from '@/features/agent/workbench/useLiteViewToggle'
 import { ElMessage, ElTooltip } from 'element-plus'
 import { desktopBridge } from '@/features/desktop/desktopBridge'
 import {
@@ -26,6 +26,33 @@ import {
   useAuthStore,
 } from '@/stores'
 import { startApplicationRuntime } from '@/application/runtime/startApplicationRuntime'
+import { renderQualityTier } from '@/composables/renderQuality'
+import { installPerformanceDiagnostics } from '@/utils/performanceDiagnostics'
+
+// Electron 的每种 surface 与浏览器 overlay 互斥。重界面按实际状态下载，避免冷启动时
+// 同时解析设置、历史、会话和 Pixi 工作台，并确保关闭后组件实例及其图形资源可回收。
+const DesktopSurface = defineAsyncComponent(() => import('@/features/desktop/DesktopSurface.vue'))
+const LoginSurface = defineAsyncComponent(() => import('@/features/desktop/LoginSurface.vue'))
+const WindowFrame = defineAsyncComponent(() => import('@/features/desktop/WindowFrame.vue'))
+const ConnectionStatusChip = defineAsyncComponent(
+  () => import('@/features/desktop/ConnectionStatusChip.vue'),
+)
+const AgentDialog = defineAsyncComponent(() => import('@/features/agent/chat/AgentDialog.vue'))
+const WorkbenchDialog = defineAsyncComponent(
+  () => import('@/features/agent/workbench/WorkbenchDialog.vue'),
+)
+const WorkbenchCapsule = defineAsyncComponent(
+  () => import('@/features/agent/workbench/WorkbenchCapsule.vue'),
+)
+const HistoryDrawer = defineAsyncComponent(
+  () => import('@/features/agent/drawer/HistoryDrawer.vue'),
+)
+const SettingsDialog = defineAsyncComponent(
+  () => import('@/features/agent/settings/SettingsDialog.vue'),
+)
+const OpenConfigDirButton = defineAsyncComponent(
+  () => import('@/features/agent/settings/components/OpenConfigDirButton.vue'),
+)
 
 // 鉴权非强制：本地直连不鉴权；远端由 cheryNyxus 登录弹窗对接（token 存 auth store）。
 // surface 分发：desktop（Electron 全工作区透明宠物窗）/ settings（Electron 原生设置窗）/
@@ -82,12 +109,14 @@ const composerTitle = computed(() => {
   return summary?.preset ?? surfacePresetId ?? '发消息'
 })
 const composerAttentionActive = computed(() => agentDialogRef.value?.isAttentionView() ?? false)
-const composerAttentionCount = computed(() => agentDialogRef.value?.getWorkspaceAttentionCount() ?? 0)
+const composerAttentionCount = computed(
+  () => agentDialogRef.value?.getWorkspaceAttentionCount() ?? 0,
+)
 /** composer 窗内按需水合会话树（与 PetStage 点击路径同语义；desktop 面不再负责）。 */
 function hydrateComposerChat(chatId: string): void {
-  void chatSessions.hydrateTree(chatId).catch((e) =>
-    console.warn(`[App] hydrateTree ${chatId} 失败:`, e),
-  )
+  void chatSessions
+    .hydrateTree(chatId)
+    .catch((e) => console.warn(`[App] hydrateTree ${chatId} 失败:`, e))
 }
 
 if (surface === 'composer' && surfaceChatId) {
@@ -119,38 +148,44 @@ function bindElectronThemeBridge(): void {
   // 每次主题应用后同步原生窗底色
   electronBridgeCleanup.push(themeStore.onChanged(applyWindowBackground))
   electronBridgeCleanup.push(bridge.onThemeSet(applyWindowBackground))
-  electronBridgeCleanup.push(bridge.onAuthChanged(() => {
-    useAuthStore().reloadFromStorage()
-    void useConnectionStore().reconnect()
-  }))
+  electronBridgeCleanup.push(
+    bridge.onAuthChanged(() => {
+      useAuthStore().reloadFromStorage()
+      void useConnectionStore().reconnect()
+    }),
+  )
   applyWindowBackground()
 }
 
 if (surface === 'composer' || surface === 'history') {
   const bridge = desktopBridge()
   if (bridge) {
-    workbenchBridgeCleanup.push(bridge.onSurfaceRetarget((target) => {
-      if (surface === 'composer') {
-        workspace.activeDialogChatId = target.chatId
-        workspace.activeDialogSource = target.source ?? 'history'
-        workspace.activeDialogView = target.view ?? 'composer'
-        hydrateComposerChat(target.chatId)
-      } else {
-        workspace.openHistoryRoot(target.chatId)
-      }
-    }))
+    workbenchBridgeCleanup.push(
+      bridge.onSurfaceRetarget((target) => {
+        if (surface === 'composer') {
+          workspace.activeDialogChatId = target.chatId
+          workspace.activeDialogSource = target.source ?? 'history'
+          workspace.activeDialogView = target.view ?? 'composer'
+          hydrateComposerChat(target.chatId)
+        } else {
+          workspace.openHistoryRoot(target.chatId)
+        }
+      }),
+    )
   }
 }
 
 if (surface === 'history') {
   let historyOpened = !!surfaceChatId
-  workbenchBridgeCleanup.push(watch(
-    () => workspace.historyDrawerStack.length,
-    (length) => {
-      if (length > 0) historyOpened = true
-      else if (historyOpened) desktopBridge()?.windowControl('close')
-    },
-  ))
+  workbenchBridgeCleanup.push(
+    watch(
+      () => workspace.historyDrawerStack.length,
+      (length) => {
+        if (length > 0) historyOpened = true
+        else if (historyOpened) desktopBridge()?.windowControl('close')
+      },
+    ),
+  )
 }
 
 // workbench 面：注册必须在渲染前同步完成（WorkbenchDialog setup 读 store 的 win.value）。
@@ -166,7 +201,9 @@ if (surface === 'workbench' && surfacePresetId) {
     workbenchBridgeCleanup.push(
       bridge.onWorkbenchFocus((focus) => workspace.setWorkbenchWindowFocus(wbId, focus)),
     )
-    workbenchBridgeCleanup.push(bridge.onOpenChat((chatId) => workspace.setWorkbenchWindowChat(wbId, chatId)))
+    workbenchBridgeCleanup.push(
+      bridge.onOpenChat((chatId) => workspace.setWorkbenchWindowChat(wbId, chatId)),
+    )
     // attentionBlink（Phase E 审批/提问闪烁）→ 原生任务栏闪烁
     workbenchBridgeCleanup.push(
       watch(
@@ -181,7 +218,9 @@ if (surface === 'workbench' && surfacePresetId) {
 const wbRef = ref<{ closeWorkbench: () => void } | null>(null)
 /** Phase E 闪烁回推：本窗 attentionBlink → WindowFrame 标题栏暖橙外发光（任务栏闪烁已在注册块处理）。 */
 const surfaceWindowBlink = computed(
-  () => (surfacePresetId ? workspace.workbenchWindows[surfacePresetId]?.attentionBlink : false) ?? false,
+  () =>
+    (surfacePresetId ? workspace.workbenchWindows[surfacePresetId]?.attentionBlink : false) ??
+    false,
 )
 /** 点击 WindowFrame 标题栏视为用户已注意到该窗口 → 熄灭闪烁（与浏览器路径 onTitlePointerDown 同语义）。 */
 function onWorkbenchTitlePointerDown(): void {
@@ -193,31 +232,30 @@ function onSettingsOpenDirError(message: string): void {
 }
 
 onMounted(() => {
+  stopPerformanceDiagnostics = installPerformanceDiagnostics(() => renderQualityTier.value)
   bindElectronThemeBridge()
   void bootstrap()
 })
 onBeforeUnmount(() => {
   stopApplicationRuntime?.()
+  stopPerformanceDiagnostics?.()
   electronBridgeCleanup.splice(0).forEach((cleanup) => cleanup())
   workbenchBridgeCleanup.splice(0).forEach((cleanup) => cleanup())
 })
 
 let stopApplicationRuntime: (() => void) | undefined
+let stopPerformanceDiagnostics: (() => void) | undefined
 
 async function bootstrap(): Promise<void> {
   stopApplicationRuntime = startApplicationRuntime()
 }
-
 </script>
 
 <template>
   <DesktopSurface v-if="surface === 'desktop'" />
   <!-- composer 原生窗：复用 WindowFrame 公共外壳（与 settings/workbench 统一），标题靠左显示 pet 名，
        能力按钮经 title-actions slot 放标题后（紧贴标题），三键保持最右；AgentDialog native 隐藏自绘标题栏 -->
-  <WindowFrame
-    v-else-if="surface === 'composer'"
-    :title="composerTitle"
-  >
+  <WindowFrame v-else-if="surface === 'composer'" :title="composerTitle">
     <template #title-actions>
       <el-tooltip placement="bottom" :show-after="120" :hide-after="0">
         <template #content>
@@ -239,7 +277,10 @@ async function bootstrap(): Promise<void> {
         <button
           type="button"
           class="composer-title-action composer-title-attention"
-          :class="{ 'is-active': composerAttentionActive, 'has-attention': composerAttentionCount > 0 }"
+          :class="{
+            'is-active': composerAttentionActive,
+            'has-attention': composerAttentionCount > 0,
+          }"
           aria-label="待处理交互"
           :aria-pressed="composerAttentionActive"
           @click="agentDialogRef?.toggleAttention()"
@@ -297,7 +338,7 @@ async function bootstrap(): Promise<void> {
     <!-- 浏览器完整单页（不受 Electron 迁移影响）：应用内多工作台窗 + 胶囊 + overlay 设置 + 抽屉 -->
     <PetStage />
     <NyxusCore />
-    <AgentDialog />
+    <AgentDialog v-if="workspace.activeDialogChatId" />
     <WorkbenchDialog
       v-for="win in workspace.workbenchWindowsList"
       :key="win.id"
@@ -307,8 +348,8 @@ async function bootstrap(): Promise<void> {
     <template v-for="win in workspace.workbenchWindowsList" :key="`capsule-${win.id}`">
       <WorkbenchCapsule v-if="win.minimized" :window-id="win.id" />
     </template>
-    <HistoryDrawer />
-    <SettingsDialog />
+    <HistoryDrawer v-if="workspace.historyDrawerStack.length > 0" />
+    <SettingsDialog v-if="workspace.settingsOpen" />
   </template>
 </template>
 

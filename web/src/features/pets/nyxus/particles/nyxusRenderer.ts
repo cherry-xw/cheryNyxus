@@ -24,7 +24,12 @@ import {
 import { clamp, smoothstep } from './math'
 
 export interface NyxusRenderer {
-  resizeCanvas(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D, extent: number): void
+  resizeCanvas(
+    canvas: HTMLCanvasElement,
+    context: CanvasRenderingContext2D,
+    extent: number,
+    pixelRatio: number,
+  ): void
   render(
     context: CanvasRenderingContext2D,
     particles: NyxusParticle[],
@@ -32,6 +37,7 @@ export interface NyxusRenderer {
     extent: number,
     statusDot: boolean,
     connectionStatus: string,
+    options: { pixelRatio: number; refreshAtmosphere: boolean },
   ): void
   dispose(): void
 }
@@ -42,14 +48,21 @@ export function createNyxusRenderer(): NyxusRenderer {
   let shadowContext: CanvasRenderingContext2D | null = null
   let nebulaCanvas: HTMLCanvasElement | undefined
   let nebulaContext: CanvasRenderingContext2D | null = null
+  const rgbaColors = new Map<string, string>()
+  let glowCellCounts = new Uint8Array()
 
   function colorWithAlpha(hex: string, alpha: number): string {
+    const key = `${hex}:${alpha}`
+    const cached = rgbaColors.get(key)
+    if (cached) return cached
     const normalized = hex.replace('#', '')
     const value = Number.parseInt(normalized, 16)
     const red = (value >> 16) & 255
     const green = (value >> 8) & 255
     const blue = value & 255
-    return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+    const color = `rgba(${red}, ${green}, ${blue}, ${alpha})`
+    rgbaColors.set(key, color)
+    return color
   }
 
   function glowTexture(color: string): HTMLCanvasElement {
@@ -77,8 +90,9 @@ export function createNyxusRenderer(): NyxusRenderer {
     canvas: HTMLCanvasElement,
     context: CanvasRenderingContext2D,
     extent: number,
+    pixelRatio: number,
   ): void {
-    const ratio = Math.min(2.5, window.devicePixelRatio || 1)
+    const ratio = Math.max(1, pixelRatio)
     const width = Math.round(extent * ratio)
     if (canvas.width === width && canvas.height === width) return
     canvas.width = width
@@ -161,69 +175,84 @@ export function createNyxusRenderer(): NyxusRenderer {
     particles: NyxusParticle[],
     input: NyxusParticleInput,
     extent: number,
+    ratio: number,
+    refresh: boolean,
   ): void {
-    const ratio = Math.min(2.5, window.devicePixelRatio || 1)
     const mask = ensureShadowSurface(extent, ratio)
     if (!mask || !shadowCanvas) return
-    const maskTexture = glowTexture('#ffffff')
+    if (refresh) {
+      const maskTexture = glowTexture('#ffffff')
 
-    mask.setTransform(ratio, 0, 0, ratio, 0, 0)
-    mask.clearRect(0, 0, extent, extent)
-    mask.save()
-    mask.translate(extent / 2, extent / 2)
-    mask.globalCompositeOperation = 'lighter'
-    const renderMode = resolveNyxusMode(input)
+      mask.setTransform(ratio, 0, 0, ratio, 0, 0)
+      mask.clearRect(0, 0, extent, extent)
+      mask.save()
+      mask.translate(extent / 2, extent / 2)
+      mask.globalCompositeOperation = 'lighter'
+      const renderMode = resolveNyxusMode(input)
 
-    if (input.serviceState !== 'disconnected') {
-      // 常规星云保留小而克制的聚焦亮核，外围旋转光晕维持整体体积感。
-      const centerRadius = input.size * 0.145
-      mask.globalAlpha = 0.2
-      mask.drawImage(maskTexture, -centerRadius, -centerRadius, centerRadius * 2, centerRadius * 2)
-      mask.globalAlpha = 0.09
-      for (let index = 0; index < 2; index += 1) {
-        const angle = input.time * 0.12 + index * Math.PI
-        const offset = input.size * 0.075
-        const radius = input.size * 0.18
-        const x = Math.cos(angle) * offset
-        const y = Math.sin(angle * 1.3) * offset
-        mask.drawImage(maskTexture, x - radius, y - radius, radius * 2, radius * 2)
+      if (input.serviceState !== 'disconnected') {
+        // 常规星云保留小而克制的聚焦亮核，外围旋转光晕维持整体体积感。
+        const centerRadius = input.size * 0.145
+        mask.globalAlpha = 0.2
+        mask.drawImage(
+          maskTexture,
+          -centerRadius,
+          -centerRadius,
+          centerRadius * 2,
+          centerRadius * 2,
+        )
+        mask.globalAlpha = 0.09
+        for (let index = 0; index < 2; index += 1) {
+          const angle = input.time * 0.12 + index * Math.PI
+          const offset = input.size * 0.075
+          const radius = input.size * 0.18
+          const x = Math.cos(angle) * offset
+          const y = Math.sin(angle * 1.3) * offset
+          mask.drawImage(maskTexture, x - radius, y - radius, radius * 2, radius * 2)
+        }
       }
-    }
 
-    mask.globalAlpha = 0.18
-    for (const particle of particles) {
-      if (!contributesToNyxusFog(particle)) continue
-      const radius = input.size * (0.095 + particle.size * 0.045)
-      mask.drawImage(maskTexture, particle.x - radius, particle.y - radius, radius * 2, radius * 2)
-    }
-
-    if (renderMode === 'reach') renderReachFog(mask, input, maskTexture)
-
-    if (input.menuOpen && input.menuTargets.length > 0) {
-      const targets = fogMenuTargets(input)
-      mask.filter = `blur(${Math.max(3, input.size * 0.035)}px)`
-      mask.lineCap = 'round'
-      for (let index = 0; index < targets.length; index += 1) {
-        const target = targets[index]!
-        const highlighted = index === input.highlightedMenuIndex
-        mask.globalAlpha = highlighted ? 0.58 : 0.27
-        mask.lineWidth = input.size * (highlighted ? 0.095 : 0.065)
-        mask.strokeStyle = '#ffffff'
-        mask.beginPath()
-        mask.moveTo(0, 0)
-        mask.quadraticCurveTo(-target.y * 0.16, target.x * 0.16, target.x, target.y)
-        mask.stroke()
+      mask.globalAlpha = 0.18
+      for (const particle of particles) {
+        if (!contributesToNyxusFog(particle)) continue
+        const radius = input.size * (0.095 + particle.size * 0.045)
+        mask.drawImage(
+          maskTexture,
+          particle.x - radius,
+          particle.y - radius,
+          radius * 2,
+          radius * 2,
+        )
       }
-      mask.filter = 'none'
-    }
-    mask.restore()
 
-    mask.setTransform(ratio, 0, 0, ratio, 0, 0)
-    mask.globalCompositeOperation = 'source-in'
-    mask.globalAlpha = 1
-    mask.fillStyle = toneForNyxus(input).core
-    mask.fillRect(0, 0, extent, extent)
-    mask.globalCompositeOperation = 'source-over'
+      if (renderMode === 'reach') renderReachFog(mask, input, maskTexture)
+
+      if (input.menuOpen && input.menuTargets.length > 0) {
+        const targets = fogMenuTargets(input)
+        mask.filter = `blur(${Math.max(3, input.size * 0.035)}px)`
+        mask.lineCap = 'round'
+        for (let index = 0; index < targets.length; index += 1) {
+          const target = targets[index]!
+          const highlighted = index === input.highlightedMenuIndex
+          mask.globalAlpha = highlighted ? 0.58 : 0.27
+          mask.lineWidth = input.size * (highlighted ? 0.095 : 0.065)
+          mask.strokeStyle = '#ffffff'
+          mask.beginPath()
+          mask.moveTo(0, 0)
+          mask.quadraticCurveTo(-target.y * 0.16, target.x * 0.16, target.x, target.y)
+          mask.stroke()
+        }
+        mask.filter = 'none'
+      }
+      mask.restore()
+
+      mask.setTransform(ratio, 0, 0, ratio, 0, 0)
+      mask.globalCompositeOperation = 'source-in'
+      mask.globalAlpha = 1
+      mask.fillStyle = toneForNyxus(input).core
+      mask.fillRect(0, 0, extent, extent)
+      mask.globalCompositeOperation = 'source-over'
+    }
 
     const spread = input.size * 0.07
     context.save()
@@ -281,11 +310,16 @@ export function createNyxusRenderer(): NyxusRenderer {
       if (!contributesToNyxusFog(particle)) continue
       if (foregroundOnly && !isBlackHoleForeground(particle, input)) continue
       const color = nyxusCloudColor(particle, input.time, gathering)
-      const normalizedDistance = clamp(Math.hypot(particle.x, particle.y) / (input.size * 0.42), 0, 1)
+      const normalizedDistance = clamp(
+        Math.hypot(particle.x, particle.y) / (input.size * 0.42),
+        0,
+        1,
+      )
       // 云斑必须窄于旋臂间距，否则目标场虽有旋臂，合成后仍会被填回均匀圆盘。
       const radius = input.size * (0.075 + particle.size * 0.055 + normalizedDistance * 0.025)
       const pulse = 0.78 + Math.sin(input.time * 0.22 + particle.phase) * 0.14
-      const centerDensity = 1 - clamp(Math.hypot(particle.x, particle.y) / (input.size * 0.38), 0, 1)
+      const centerDensity =
+        1 - clamp(Math.hypot(particle.x, particle.y) / (input.size * 0.38), 0, 1)
       const centerFade = 0.1 + (1 - centerDensity) * 0.9
       const colorLift = 0.9 + gathering * 0.2
       const spreadShade = 0.82 + (1 - gathering) * 0.14
@@ -328,11 +362,12 @@ export function createNyxusRenderer(): NyxusRenderer {
     // 黑洞是断连时唯一的中心焦点，在线状态点不再与暗核竞争注意力。
     if (input.serviceState === 'disconnected') return
     // 双星及并合形态有自身双心结构；状态点复用形态过渡曲线渐隐/渐显，避免切换时闪断。
-    const binaryOpacity = input.cosmicMode === 'binary'
-      ? 1 - nyxusBinaryGeometry(input).displayStrength
-      : input.cosmicMode === 'merger'
-        ? 1 - nyxusCosmicTransitionStrength(input.cosmicProgress)
-        : 1
+    const binaryOpacity =
+      input.cosmicMode === 'binary'
+        ? 1 - nyxusBinaryGeometry(input).displayStrength
+        : input.cosmicMode === 'merger'
+          ? 1 - nyxusCosmicTransitionStrength(input.cosmicProgress)
+          : 1
     if (binaryOpacity <= 0.01) return
     const status = connectionStatus
     const breath = status === 'connecting' ? 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(input.time * 4)) : 1
@@ -438,7 +473,10 @@ export function createNyxusRenderer(): NyxusRenderer {
     const nearby = input.nearbyPet
     if (!nearby || nearby.distance < 190 || nearby.distance > 390) return
     const directionLength = Math.max(1, Math.hypot(nearby.position.x, nearby.position.y))
-    const direction = { x: nearby.position.x / directionLength, y: nearby.position.y / directionLength }
+    const direction = {
+      x: nearby.position.x / directionLength,
+      y: nearby.position.y / directionLength,
+    }
     const start = { x: direction.x * input.size * 0.27, y: direction.y * input.size * 0.27 }
     const alpha = clamp(1 - (nearby.distance - 190) / 200, 0, 1) * 0.12
     context.save()
@@ -484,23 +522,26 @@ export function createNyxusRenderer(): NyxusRenderer {
     extent: number,
     statusDot: boolean,
     connectionStatus: string,
+    options: { pixelRatio: number; refreshAtmosphere: boolean },
   ): void {
-    const ratio = Math.min(2.5, window.devicePixelRatio || 1)
+    const ratio = Math.max(1, options.pixelRatio)
     const tone = toneForNyxus(input)
 
     context.clearRect(0, 0, extent, extent)
-    renderShadowMask(context, particles, input, extent)
+    renderShadowMask(context, particles, input, extent, ratio, options.refreshAtmosphere)
     const nebula = ensureNebulaSurface(extent, ratio)
     if (nebula && nebulaCanvas) {
-      nebula.setTransform(ratio, 0, 0, ratio, 0, 0)
-      nebula.clearRect(0, 0, extent, extent)
-      nebula.save()
-      nebula.translate(extent / 2, extent / 2)
+      if (options.refreshAtmosphere) {
+        nebula.setTransform(ratio, 0, 0, ratio, 0, 0)
+        nebula.clearRect(0, 0, extent, extent)
+        nebula.save()
+        nebula.translate(extent / 2, extent / 2)
 
-      // 云团在独立图层以内常规混合：暖小核、冷外盘和少量形成结各自成层，不以叠加白光充满中心。
-      nebula.globalCompositeOperation = 'source-over'
-      drawNebulaClouds(nebula, particles, input, false)
-      nebula.restore()
+        // 云团在独立图层以内常规混合：暖小核、冷外盘和少量形成结各自成层，不以叠加白光充满中心。
+        nebula.globalCompositeOperation = 'source-over'
+        drawNebulaClouds(nebula, particles, input, false)
+        nebula.restore()
+      }
 
       // 云团作为单一图层落到主画布，实际合成透明度硬性不超过 80%。
       context.save()
@@ -545,15 +586,26 @@ export function createNyxusRenderer(): NyxusRenderer {
     }
 
     context.globalCompositeOperation = 'lighter'
-    const glowCells = new Map<string, number>()
     const glowCellSize = Math.max(3, (input.size / 112) * 4)
+    const glowGridWidth = Math.ceil(extent / glowCellSize) + 2
+    const glowGridSize = glowGridWidth * glowGridWidth
+    if (glowCellCounts.length < glowGridSize) glowCellCounts = new Uint8Array(glowGridSize)
+    else glowCellCounts.fill(0, 0, glowGridSize)
     for (const particle of particles) {
       const chromaticStrength = nyxusChromaticStrength(particle, input.time)
       if (particle.brightness < 2 && chromaticStrength <= 0) continue
-      const cellKey = `${Math.floor(particle.x / glowCellSize)}:${Math.floor(particle.y / glowCellSize)}`
-      const cellCount = glowCells.get(cellKey) ?? 0
+      const gridX = Math.max(
+        0,
+        Math.min(glowGridWidth - 1, Math.floor((particle.x + extent / 2) / glowCellSize)),
+      )
+      const gridY = Math.max(
+        0,
+        Math.min(glowGridWidth - 1, Math.floor((particle.y + extent / 2) / glowCellSize)),
+      )
+      const cellIndex = gridY * glowGridWidth + gridX
+      const cellCount = glowCellCounts[cellIndex] ?? 0
       if (cellCount >= 3) continue
-      glowCells.set(cellKey, cellCount + 1)
+      glowCellCounts[cellIndex] = cellCount + 1
       const twinkle =
         0.52 + Math.sin(input.time * (0.65 + particle.orbit * 0.45) + particle.phase) * 0.32
       const highlighted =
@@ -652,6 +704,8 @@ export function createNyxusRenderer(): NyxusRenderer {
 
   function dispose(): void {
     glowTextures.clear()
+    rgbaColors.clear()
+    glowCellCounts = new Uint8Array()
     shadowCanvas = undefined
     shadowContext = null
     nebulaCanvas = undefined

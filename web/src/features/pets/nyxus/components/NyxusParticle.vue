@@ -11,6 +11,14 @@ import {
 import { createNyxusRenderer } from '../particles/nyxusRenderer'
 import { useNyxusParticleInput } from '../composables/useNyxusParticleInput'
 import type { PetAction, PetMood } from '@/domain/pets/types'
+import {
+  particleCountForSize,
+  reportDisplayFrame,
+  renderQualityProfile,
+  useRenderQuality,
+} from '@/composables/renderQuality'
+import { setPerformanceMetric } from '@/utils/performanceDiagnostics'
+import { nyxusMenuOpen } from '../nyxusUiState'
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +34,8 @@ const props = withDefaults(
     nearbyPet?: NyxusNearbyPet | null
     /** 中心在线状态点(仅主 pet):connected 白发光 / connecting 明灭 / disconnected 黑发光 */
     statusDot?: boolean
+    /** A covering application surface is active; keep one low-cost decorative frame loop. */
+    background?: boolean
   }>(),
   {
     action: 'idle',
@@ -38,6 +48,7 @@ const props = withDefaults(
     respectConnection: true,
     nearbyPet: null,
     statusDot: false,
+    background: false,
   },
 )
 
@@ -46,7 +57,10 @@ const rootRef = ref<HTMLElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const mode = ref('idle')
 const cosmicModeLabel = ref<NyxusCosmicMode | 'nebula'>('nebula')
-const particleCount = computed(() => Math.round(Math.min(800, Math.max(500, props.size * 5.1))))
+const quality = useRenderQuality()
+const effectiveTier = computed(() => (props.background ? 'low' : quality.tier.value))
+const profile = computed(() => renderQualityProfile(effectiveTier.value))
+const particleCount = computed(() => particleCountForSize(props.size, effectiveTier.value))
 const canvasExtent = computed(() => Math.round(props.size * 2.35))
 
 const renderer = createNyxusRenderer()
@@ -58,38 +72,98 @@ const inputState = useNyxusParticleInput({
 })
 
 let raf = 0
-let lastFrameAt = 0
+let lastRafAt = 0
+let lastRenderAt = 0
+let lastAtmosphereAt = 0
+let simulationAccumulator = 0
 let pausedByVisibility = false
+let insideViewport = true
+let intersectionObserver: IntersectionObserver | undefined
+
+const SIMULATION_STEP_SECONDS = 1 / 30
+
+function activeFrameRate(): number {
+  if (props.background) return profile.value.particleIdleFps
+  const active =
+    props.working ||
+    (props.action !== 'idle' && props.action !== 'walk') ||
+    !!props.reaction ||
+    nyxusMenuOpen.value
+  return active ? profile.value.particleActiveFps : profile.value.particleIdleFps
+}
+
+function pixelRatio(): number {
+  return Math.min(window.devicePixelRatio || 1, profile.value.particleDpr)
+}
+
+function resumeFrameLoop(): void {
+  if (pausedByVisibility || !insideViewport || raf) return
+  lastRafAt = performance.now()
+  raf = requestAnimationFrame(frame)
+}
 
 function onVisibilityChange(): void {
   pausedByVisibility = document.hidden
   if (!pausedByVisibility) {
-    lastFrameAt = performance.now()
-    raf = requestAnimationFrame(frame)
+    resumeFrameLoop()
   }
 }
 
 function frame(now: number): void {
-  if (pausedByVisibility) return
+  raf = 0
+  if (pausedByVisibility || !insideViewport) return
+  if (lastRafAt > 0) reportDisplayFrame(now - lastRafAt, now)
+  lastRafAt = now
+  raf = requestAnimationFrame(frame)
+
+  const renderIntervalMs = 1000 / activeFrameRate()
+  if (lastRenderAt && now - lastRenderAt < renderIntervalMs) return
   const canvas = canvasRef.value
   const context = canvas?.getContext('2d')
   if (!canvas || !context) return
-  if (lastFrameAt === 0) lastFrameAt = now
-  const dt = Math.min((now - lastFrameAt) / 1000, 1 / 30)
-  lastFrameAt = now
-  inputState.decay(dt)
+  const elapsedSeconds = lastRenderAt ? Math.min((now - lastRenderAt) / 1000, 0.1) : 0
+  lastRenderAt = now
+  simulationAccumulator = Math.min(0.1, simulationAccumulator + elapsedSeconds)
 
-  renderer.resizeCanvas(canvas, context, canvasExtent.value)
-  const input = inputState.createInput(now)
+  const ratio = pixelRatio()
+  renderer.resizeCanvas(canvas, context, canvasExtent.value, ratio)
   const particles = inputState.getParticles()
-  stepNyxusParticles(particles, input, inputState.isReducedMotion() ? Math.min(dt, 1 / 45) : dt)
+  const simulationStep = inputState.isReducedMotion() ? 1 / 45 : SIMULATION_STEP_SECONDS
+  let simulationSteps = 0
+  while (simulationAccumulator >= simulationStep && simulationSteps < 3) {
+    simulationAccumulator -= simulationStep
+    simulationSteps += 1
+  }
+  if (simulationSteps > 0) inputState.decay(simulationSteps * simulationStep)
+  const input = inputState.createInput(now)
+  for (let index = 0; index < simulationSteps; index += 1) {
+    stepNyxusParticles(particles, input, simulationStep)
+  }
   mode.value = resolveNyxusMode(input)
   cosmicModeLabel.value = input.cosmicMode ?? 'nebula'
-  renderer.render(context, particles, input, canvasExtent.value, props.statusDot, connection.status)
-  raf = requestAnimationFrame(frame)
+  const atmosphereInterval = 1000 / profile.value.particleAtmosphereFps
+  const refreshAtmosphere = !lastAtmosphereAt || now - lastAtmosphereAt >= atmosphereInterval
+  if (refreshAtmosphere) lastAtmosphereAt = now
+  const renderStartedAt = performance.now()
+  renderer.render(
+    context,
+    particles,
+    input,
+    canvasExtent.value,
+    props.statusDot,
+    connection.status,
+    { pixelRatio: ratio, refreshAtmosphere },
+  )
+  setPerformanceMetric('nyxus.renderMs', performance.now() - renderStartedAt)
+  setPerformanceMetric('nyxus.particleCount', particles.length)
+  setPerformanceMetric('nyxus.pixelRatio', ratio)
+  setPerformanceMetric('nyxus.canvasBytes', canvas.width * canvas.height * 4 * 3)
 }
 
-watch(particleCount, () => inputState.resetParticles())
+watch(particleCount, () => {
+  inputState.resetParticles()
+  lastAtmosphereAt = 0
+})
 
 onMounted(() => {
   inputState.resetParticles()
@@ -100,7 +174,18 @@ onMounted(() => {
     window.addEventListener('pointercancel', inputState.onPointerUp, { passive: true })
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
-  raf = requestAnimationFrame(frame)
+  if (typeof IntersectionObserver !== 'undefined') {
+    intersectionObserver = new IntersectionObserver(([entry]) => {
+      insideViewport = entry?.isIntersecting ?? true
+      if (insideViewport) resumeFrameLoop()
+      else if (raf) {
+        cancelAnimationFrame(raf)
+        raf = 0
+      }
+    })
+    if (rootRef.value) intersectionObserver.observe(rootRef.value)
+  }
+  resumeFrameLoop()
 })
 
 onBeforeUnmount(() => {
@@ -112,6 +197,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('pointercancel', inputState.onPointerUp)
   }
   document.removeEventListener('visibilitychange', onVisibilityChange)
+  intersectionObserver?.disconnect()
   renderer.dispose()
 })
 </script>

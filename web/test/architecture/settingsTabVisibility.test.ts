@@ -67,4 +67,15 @@ describe('settings tab visibility', () => {
     expect(controller).toContain('await waitForLoadingPaint()')
     expect(controller).toContain('if (seq !== tabRenderSeq) return')
   })
+
+  it('initializes browser settings when the dialog is mounted already open', async () => {
+    const controller = await readFile(SETTINGS_CONTROLLER, 'utf8')
+    const settingsOpenWatch = controller.match(
+      /watch\(\s*\(\) => agents\.settingsOpen,\s*async \(open\) => \{([\s\S]*?)\n\s*\},\s*\{ immediate: true \},\s*\)/,
+    )
+
+    expect(settingsOpenWatch).not.toBeNull()
+    expect(settingsOpenWatch?.[1]).toContain('if (isNative.value) return')
+    expect(settingsOpenWatch?.[1]).toContain('await loadSettingsData()')
+  })
 })

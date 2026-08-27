@@ -2,7 +2,7 @@ import { computed, onScopeDispose, ref, watch, type MaybeRefOrGetter, toValue } 
 import { ElMessage } from 'element-plus'
 import { agentApi, type RootTimelineSnapshot } from '@/application/backend/public'
 import { useAgentsStore, useChatSessionsStore } from '@/application/public'
-import { terminalActionMode } from '@/features/pets/nyxus/public'
+import { terminalActionMode } from '@/features/pets/nyxus/composables/nodeInteraction'
 import { selectCanResume } from '@/application/chat/public'
 import { desktopBridge } from '@/features/desktop/public'
 

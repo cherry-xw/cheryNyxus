@@ -21,7 +21,7 @@ import { splitCommandPrompt } from '../composables/commands'
 import { SenseCallRenderer } from '../renderers/index'
 import MessageAvatar from './MessageAvatar.vue'
 import { MediaInlineRenderer } from '../composer/public'
-import { terminationDisplay } from '@/features/pets/nyxus/public'
+import { terminationDisplay } from '@/features/pets/nyxus/graph/termination'
 import { toSenseNameZh } from '@/utils/senseName'
 
 const props = defineProps<{

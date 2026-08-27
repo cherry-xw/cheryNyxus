@@ -1,5 +1,5 @@
 import { computed, ref, watch, type Ref } from 'vue'
-import { useLiteStore } from '@/features/lite/public'
+import { useLiteStore } from '@/features/lite/liteStore'
 
 /**
  * useLiteViewToggle：工作台 lite 极简视图切换（§2.1）。

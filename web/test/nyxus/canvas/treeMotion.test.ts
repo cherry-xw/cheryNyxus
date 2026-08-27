@@ -21,7 +21,17 @@ async function rendererSource(): Promise<string> {
 }
 
 async function treeComponentSource(): Promise<string> {
-  return readComponentSource(resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'), 'utf8')
+  return readComponentSource(
+    resolve('web/src/features/pets/nyxus/components/MessageBranchTree.vue'),
+    'utf8',
+  )
+}
+
+async function treeControllerSource(): Promise<string> {
+  return readComponentSource(
+    resolve('web/src/features/pets/nyxus/components/useMessageBranchTreeController.ts'),
+    'utf8',
+  )
 }
 
 describe('Nyxus tree motion contract', () => {
@@ -35,13 +45,14 @@ describe('Nyxus tree motion contract', () => {
     expect(source).toContain('if (!this.app || this.reduceMotion || document.hidden) return')
   })
 
-  it('keeps Electron on hardware-composited WebGL with a high-DPI backing buffer', async () => {
+  it('keeps Electron on WebGL while bounding the backing buffer by adaptive quality', async () => {
     const source = await rendererSource()
 
     expect(source).toContain("if (!isElectronRuntime() && 'gpu' in navigator)")
     expect(source).toContain("preference: 'webgl'")
-    expect(source).toContain('return Math.min(dpr, 2)')
-    expect(source).not.toContain('Math.min(dpr, 1)')
+    expect(source).toContain('return Math.min(dpr, renderQualityProfile(tier).graphDpr)')
+    expect(source).toContain("private qualityTier: RenderQualityTier = 'balanced'")
+    expect(source).toContain('rendererResolution(this.qualityTier)')
   })
 
   it('renders fixed-length repeated pulses without SVG animation instances', async () => {
@@ -59,29 +70,36 @@ describe('Nyxus tree motion contract', () => {
   })
 
   it('keeps pointer-down and pointer-up outside scene reconstruction', async () => {
-    const source = await treeComponentSource()
-    const dragStart = source.slice(
-      source.indexOf('function startGpuDrag'),
-      source.indexOf('function retainCameraSelection'),
+    const [component, controller] = await Promise.all([
+      treeComponentSource(),
+      treeControllerSource(),
+    ])
+    const dragStart = controller.slice(
+      controller.indexOf('function startGpuDrag'),
+      controller.indexOf('function retainCameraSelection'),
     )
 
-    expect(source).toContain('const VIEWPORT_RETENTION_OVERSCAN = 1600')
-    expect(source).toContain('VIEWPORT_RETENTION_OVERSCAN,')
-    expect(source).not.toContain('canvas.dragging.value ? DRAG_VIEWPORT_OVERSCAN')
-    expect(source).not.toContain(`:class="{ 'is-panning': canvas.dragging.value }"`)
+    expect(controller).toContain('Math.max(480, Math.min(960')
+    expect(controller).toContain('viewportRetentionOverscan.value,')
+    expect(controller).toContain('const TREE_FULL_RENDER_THRESHOLD_DEFAULT = 150')
+    expect(controller).not.toContain('canvas.dragging.value ? DRAG_VIEWPORT_OVERSCAN')
+    expect(component).not.toContain(`:class="{ 'is-panning': canvas.dragging.value }"`)
     expect(dragStart).not.toContain('viewportSelectionCamera.value =')
-    expect(source).toContain("viewportRef.value?.classList.add('is-panning')")
-    expect(source).toContain('retainCameraSelection(camera)')
+    expect(controller).toContain("viewportRef.value?.classList.add('is-panning')")
+    expect(controller).toContain('retainCameraSelection(camera)')
   })
 
   it('retries the shared reset layout until initial timeline geometry is ready', async () => {
-    const source = await treeComponentSource()
+    const [component, controller] = await Promise.all([
+      treeComponentSource(),
+      treeControllerSource(),
+    ])
 
-    expect(source).toContain('if (!initialFitPending || !timelineSnapshot.value) return')
-    expect(source).toContain('if (resetLayout()) initialFitPending = false')
-    expect(source).toContain('() => layout.value.bounds.maxY')
-    expect(source).toContain('() => viewportSize.value.height')
-    expect(source).toContain('@click.stop="resetLayout"')
+    expect(controller).toContain('if (!initialFitPending || !timelineSnapshot.value) return')
+    expect(controller).toContain('if (resetLayout()) initialFitPending = false')
+    expect(controller).toContain('() => layout.value.bounds.maxY')
+    expect(controller).toContain('() => viewportSize.value.height')
+    expect(component).toContain('@click.stop="resetLayout"')
   })
 
   it('keeps the enlarged static cache out of the per-frame animation loops', async () => {
@@ -103,23 +121,42 @@ describe('Nyxus tree motion contract', () => {
   })
 
   it('keeps full-render dragging outside Vue and moves one hit-target layer', async () => {
-    const source = await treeComponentSource()
+    const [component, controller] = await Promise.all([
+      treeComponentSource(),
+      treeControllerSource(),
+    ])
 
-    expect(source).toContain('if (fullRenderActive.value) return')
-    expect(source).toContain('class="gpu-node-hit-layer"')
-    expect(source).toContain('.gpu-node-hit-layer,')
-    expect(source).toContain('.tree-gpu-surface,')
-    const dragFrame = source.slice(
-      source.indexOf('function presentGpuDrag'),
-      source.indexOf('function finishGpuDrag'),
+    expect(controller).toContain('if (fullRenderActive.value) return')
+    expect(component).toContain('class="gpu-node-hit-layer"')
+    expect(component).toContain('.gpu-node-hit-layer,')
+    expect(component).toContain('.tree-gpu-surface,')
+    const dragFrame = controller.slice(
+      controller.indexOf('function presentGpuDrag'),
+      controller.indexOf('function finishGpuDrag'),
     )
-    const dragEnd = source.slice(
-      source.indexOf('function finishGpuDrag'),
-      source.indexOf('const projectedCrts'),
+    const dragEnd = controller.slice(
+      controller.indexOf('function finishGpuDrag'),
+      controller.indexOf('const projectedCrts'),
     )
     expect(dragFrame).not.toContain('gpuRenderer?.setCamera(camera)')
     expect(dragEnd).toContain('snapCrtWindowsToAnchors()')
-    expect(source).not.toContain('.gpu-node-hit-target,\n    .crt-anchor-lines')
+    expect(component).not.toContain('.gpu-node-hit-target,\n    .crt-anchor-lines')
+  })
+
+  it('caps label textures and releases them while a workbench is suspended', async () => {
+    const source = await rendererSource()
+
+    expect(source).toContain('return Math.min(profile.graphLabelResolution, Math.max(1, scaled))')
+    expect(source).toContain('if (suspended) {')
+    expect(source).toContain('this.releaseLabels()')
+    expect(source).toContain('this.labels.removeChildren().forEach((child) => child.destroy())')
+  })
+
+  it('reuses sampled geometry while refreshing edge runtime state', async () => {
+    const source = await rendererSource()
+
+    expect(source).toContain('if (geometryChanged) this.sampledEdges = scene.edges.map(sampleEdge)')
+    expect(source).toContain('Object.assign(this.sampledEdges[index]!, edge)')
   })
 
   it('lets the destination progressively consume the pulse tail after its head arrives', () => {

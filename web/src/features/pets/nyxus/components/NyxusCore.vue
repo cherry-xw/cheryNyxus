@@ -24,26 +24,30 @@ const {
   onPointerMove: onStandalonePointerMove,
   endPointer: endStandalonePointer,
   consumeSuppressedClick,
-} =
-  useStandaloneNyxusMotion(
-    () => true,
-    () => nyxusMenuOpen.value,
-    closeNyxusMenu,
-  )
+} = useStandaloneNyxusMotion(
+  () => true,
+  () => nyxusMenuOpen.value,
+  closeNyxusMenu,
+)
 const dragging = computed(() => standaloneDragging.value)
 const anchorStyle = computed(() => ({ left: `${position.x}px`, top: `${position.y}px` }))
 const disabled = computed(
   () => creating.value || openingChat.value || connection.status !== 'connected',
 )
 /** 已打开成 pet 的预设（master）→ 从创建列表隐藏；全部打开时 PresetPicker 隐藏按钮。 */
-const openedPresets = computed(() =>
-  [...new Set(
-    agents.pets
-      .filter((pet) => pet.isMaster && pet.preset)
-      .map((pet) => pet.preset as string),
-  )],
-)
+const openedPresets = computed(() => [
+  ...new Set(
+    agents.pets.filter((pet) => pet.isMaster && pet.preset).map((pet) => pet.preset as string),
+  ),
+])
 const excludedPresets = computed(() => [CHERY_NYXUS_PRESET, ...openedPresets.value])
+const backgroundRendering = computed(
+  () =>
+    !!agents.activeDialogChatId ||
+    agents.settingsOpen ||
+    agents.historyDrawerStack.length > 0 ||
+    agents.workbenchWindowsList.some((window) => !window.minimized),
+)
 
 const clickIntent = createClickDisambiguator(toggleNyxusMenu, () => void openNyxusDialog())
 
@@ -205,7 +209,14 @@ onBeforeUnmount(() => {
       @click="onNyxusClick"
       @dblclick="onNyxusDoubleClick"
     >
-      <NyxusParticle :size="112" :working="working" :interactive="false" :status-dot="true" boot />
+      <NyxusParticle
+        :size="112"
+        :working="working"
+        :interactive="false"
+        :status-dot="true"
+        :background="backgroundRendering"
+        boot
+      />
     </button>
     <NyxusToolRing
       :disabled="disabled"

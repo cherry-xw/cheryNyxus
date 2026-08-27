@@ -209,6 +209,9 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
   const rootDeltaTimers = new Map<string, ReturnType<typeof setTimeout>>()
   /** Visible owners of a root subscription. A root closes only after its final owner leaves. */
   const rootSubscriptionOwners = new Map<string, Set<string>>()
+  /** 最近关闭的根时间线仅保留少量用于快速重开；Map 顺序即 LRU 顺序。 */
+  const INACTIVE_ROOT_CACHE_LIMIT = 3
+  const inactiveRootTimelineLru = new Map<string, true>()
   /** Deleted roots reject late async snapshots so stale requests cannot resurrect UI. */
   const evictedRoots = new Set<string>()
   /** requestId -> chatId（流式 RPC chunk 路由用；chunk.chatId 缺失时兜底）。 */
@@ -252,6 +255,52 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     const transient = rootTimelineStates.value[rootChatId]
     if (!transient) return
     for (const event of events) applyRootTransientEvent(transient, event)
+  }
+
+  function hasRootFlight(rootChatId: string): boolean {
+    if (rootSubscriptionOpening.has(rootChatId) || rootResyncing.has(rootChatId)) return true
+    const prefix = `${rootChatId}:`
+    return (
+      [...rootViewOpening.keys()].some((key) => key.startsWith(prefix)) ||
+      [...generationsOpening.keys()].some((key) => key.startsWith(prefix))
+    )
+  }
+
+  function evictRootTimelineCache(rootChatId: string): void {
+    inactiveRootTimelineLru.delete(rootChatId)
+    generationsCache.delete(rootChatId)
+    delete rootTimelineStates.value[rootChatId]
+    for (const key of Object.keys(rootTimelines.value)) {
+      if (key.startsWith(`${rootChatId}:`)) delete rootTimelines.value[key]
+    }
+  }
+
+  function trimInactiveRootTimelines(): void {
+    while (inactiveRootTimelineLru.size > INACTIVE_ROOT_CACHE_LIMIT) {
+      let evicted = false
+      for (const rootChatId of inactiveRootTimelineLru.keys()) {
+        const owned = (rootSubscriptionOwners.get(rootChatId)?.size ?? 0) > 0
+        if (owned || rootSubscriptions.value[rootChatId] || hasRootFlight(rootChatId)) continue
+        evictRootTimelineCache(rootChatId)
+        evicted = true
+        break
+      }
+      if (!evicted) break
+    }
+  }
+
+  function markRootTimelineInactive(rootChatId: string): void {
+    if (
+      (rootSubscriptionOwners.get(rootChatId)?.size ?? 0) > 0 ||
+      rootSubscriptions.value[rootChatId] ||
+      hasRootFlight(rootChatId)
+    ) {
+      inactiveRootTimelineLru.delete(rootChatId)
+      return
+    }
+    inactiveRootTimelineLru.delete(rootChatId)
+    inactiveRootTimelineLru.set(rootChatId, true)
+    trimInactiveRootTimelines()
   }
 
   function queueRootDelta(rootChatId: string, event: RootTransientEvent): void {
@@ -378,6 +427,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
       rootSubscriptionOpening.delete(rootChatId)
       bumpHydration()
       generationsCache.delete(rootChatId)
+      inactiveRootTimelineLru.delete(rootChatId)
       delete rootTimelineStates.value[rootChatId]
       delete rootSubscriptions.value[rootChatId]
       for (const key of Object.keys(rootTimelines.value)) {
@@ -450,9 +500,11 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     if (!force && (rootSubscriptionOwners.get(rootChatId)?.size ?? 0) > 0) return
     flushRootDeltas(rootChatId)
     const subscription = rootSubscriptions.value[rootChatId]
-    if (!subscription) return
-    delete rootSubscriptions.value[rootChatId]
-    await agentApi.closeChat(subscription.subscriptionId).catch(() => undefined)
+    if (subscription) {
+      delete rootSubscriptions.value[rootChatId]
+      await agentApi.closeChat(subscription.subscriptionId).catch(() => undefined)
+    }
+    markRootTimelineInactive(rootChatId)
   }
 
   async function acquireRootTimeline(
@@ -460,6 +512,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     ownerId: string,
     view: 'conversation' | 'tree' | 'audit' = 'conversation',
   ): Promise<RootTimelineSnapshot> {
+    inactiveRootTimelineLru.delete(rootChatId)
     const owners = rootSubscriptionOwners.get(rootChatId) ?? new Set<string>()
     owners.add(ownerId)
     rootSubscriptionOwners.set(rootChatId, owners)
@@ -648,6 +701,7 @@ export const useChatSessionsStore = defineStore('chatSessions', () => {
     rootChatId: string,
     view: 'conversation' | 'tree' | 'audit' = 'conversation',
   ): Promise<RootTimelineSnapshot> {
+    inactiveRootTimelineLru.delete(rootChatId)
     const subscription = await ensureRootSubscription(rootChatId)
     if (view === 'conversation' && subscription.conversation) return subscription.conversation
     const current = rootTimeline(rootChatId, view)

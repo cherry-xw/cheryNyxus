@@ -10,7 +10,7 @@
  */
 import { computed, type ComputedRef } from 'vue'
 import { useThemeStore } from '@/application/public'
-import { accentForTheme, type NodeSkinKey } from '@/features/pets/nyxus/public'
+import { accentForTheme, type NodeSkinKey } from '@/features/pets/nyxus/graph/nodeSkins'
 import type { LiteRunNodeKind } from './executionMonitor'
 
 /** lite 节点类型 → 节点树皮肤键（tool-batch 对应工具执行）。 */

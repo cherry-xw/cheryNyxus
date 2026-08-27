@@ -178,12 +178,13 @@ export function stepNyxusParticles(
     particle.y += particle.vy * boundedDt
   }
 
-  const highlights = particles.filter((particle) => particle.brightness >= 2)
   const minimumDistance = Math.max(2.2, (input.size / 112) * 3)
-  for (let leftIndex = 0; leftIndex < highlights.length; leftIndex += 1) {
-    const left = highlights[leftIndex]!
-    for (let rightIndex = leftIndex + 1; rightIndex < highlights.length; rightIndex += 1) {
-      const right = highlights[rightIndex]!
+  for (let leftIndex = 0; leftIndex < particles.length; leftIndex += 1) {
+    const left = particles[leftIndex]!
+    if (left.brightness < 2) continue
+    for (let rightIndex = leftIndex + 1; rightIndex < particles.length; rightIndex += 1) {
+      const right = particles[rightIndex]!
+      if (right.brightness < 2) continue
       let dx = right.x - left.x
       let dy = right.y - left.y
       let distance = Math.hypot(dx, dy)
@@ -230,7 +231,10 @@ export function kickNyxusParticles(
  * 将外盘落点附近的一颗普通粒子晋升为新生恒星。
  * 保持总粒子数不变，并复用 stepNyxusExplosions 的出生—稳定—消亡周期。
  */
-export function promoteNyxusParticleAt(particles: NyxusParticle[], point: { x: number; y: number }): boolean {
+export function promoteNyxusParticleAt(
+  particles: NyxusParticle[],
+  point: { x: number; y: number },
+): boolean {
   let selected: NyxusParticle | undefined
   let selectedDistance = Number.POSITIVE_INFINITY
   for (const particle of particles) {

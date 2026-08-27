@@ -139,6 +139,34 @@ describe('Nyxus root message controller', () => {
     expect(store.rootSubscriptions['root-live']).toBeUndefined()
   })
 
+  it('keeps at most three inactive root projections while preserving active roots', async () => {
+    vi.spyOn(agentApi, 'openChat').mockImplementation(({ rootChatId }) =>
+      Promise.resolve({
+        ...opened(),
+        chatId: rootChatId!,
+        subscriptionId: `subscription:${rootChatId}`,
+        rootTimeline: { ...snapshot('conversation'), rootChatId: rootChatId! },
+      }),
+    )
+    vi.spyOn(agentApi, 'closeChat').mockResolvedValue(undefined)
+    const store = useChatSessionsStore()
+
+    await store.acquireRootTimeline('root-active', 'workbench:active')
+    for (const rootChatId of ['root-1', 'root-2', 'root-3', 'root-4']) {
+      await store.acquireRootTimeline(rootChatId, `history:${rootChatId}`)
+      await store.releaseRootTimeline(rootChatId, `history:${rootChatId}`)
+    }
+
+    expect(store.rootTimeline('root-active')).toBeDefined()
+    expect(store.rootTimelineStates['root-active']).toBeDefined()
+    expect(store.rootTimeline('root-1')).toBeUndefined()
+    expect(store.rootTimelineStates['root-1']).toBeUndefined()
+    for (const rootChatId of ['root-2', 'root-3', 'root-4']) {
+      expect(store.rootTimeline(rootChatId)).toBeDefined()
+      expect(store.rootTimelineStates[rootChatId]).toBeDefined()
+    }
+  })
+
   it('evicts deleted sessions, root projections and subscriptions together', async () => {
     vi.spyOn(agentApi, 'openChat').mockResolvedValue(opened())
     vi.spyOn(agentApi, 'getRootTimeline').mockResolvedValue(snapshot('tree'))
