@@ -6,12 +6,14 @@ const {
   AnimatePresence, ArrowLeft, ArrowRight, BrainsTab, Close, CommandsTab, GlobalTab, HooksTab,
   McpTab, MediaTab, MotionDiv, OVERLAY_Z_INDEX, OpenConfigDirButton, PluginsTab, PresetsTab,
   RolesTab, SensesTab, SkeletonTab, SkillsTab, TABS, activeTab, agents, canLeft, canRight, close,
-  draft, dragging, envVars, error, errorLines, gotoErrorTab, hintLines, hooksTabRef, indexCount,
+  draft, dragging, envVars, error, errorLines, gotoErrorTab, hintLines, hooksState, indexCount,
   isNative, isWaitingReconnect, loading, maximized, onError, onTitlePointerDown, overflowed,
   panelStyles, plugins, prompts, ref, refreshPlugins, refreshRules, refreshSkillSources,
-  refreshSkills, rolesShadowMode, rules, save, savedHint, savedWarnings, saving, scrollTabBar,
+  refreshSkills, renderedTab, rolesShadowMode, rules, save, savedHint, savedWarnings, saving,
+  scrollTabBar,
   senseDocs, senseTools, setPanelEl, settingsThemeStyle, skillNames, skillSources, skills,
-  tabBarRef, toggleMaximize, validatePresetWorkspace, waitElapsed, workspaceWarnings,
+  tabBarRef, tabSwitching, toggleMaximize, updateHooksHandlers, validatePresetWorkspace,
+  waitElapsed, workspaceWarnings,
 } = controller
 </script>
 
@@ -102,77 +104,92 @@ const {
           </button>
         </nav>
 
-        <div class="tab-body">
+        <div class="tab-body" :aria-busy="loading || tabSwitching">
           <SkeletonTab
-            v-if="loading"
+            v-if="loading || tabSwitching"
             :sect-hints="hintLines.sect"
             :warn-hints="hintLines.warn"
             :index-count="indexCount"
           />
           <template v-else-if="draft">
-            <BrainsTab
-              v-show="activeTab === 'brains'"
-              :draft="draft"
-              :env-vars="envVars"
-              @error="onError"
-            />
-            <MediaTab
-              v-show="activeTab === 'media'"
-              :draft="draft"
-              :env-vars="envVars"
-              @error="onError"
-            />
-            <SensesTab
-              v-show="activeTab === 'senses'"
-              :draft="draft"
-              :sense-tools="senseTools"
-              :sense-docs="senseDocs"
-              @error="onError"
-            />
-            <RolesTab
-              v-show="activeTab === 'roles'"
-              :draft="draft"
-              :prompts="prompts"
-              :skill-catalog="skillNames"
-              @mode-change="(mode) => (rolesShadowMode = mode === 'shadow')"
-              @error="onError"
-            />
-            <PresetsTab
-              v-show="activeTab === 'presets'"
-              :draft="draft"
-              :sense-tools="senseTools"
-              :rules="rules"
-              :workspace-warnings="workspaceWarnings"
-              @workspace-change="validatePresetWorkspace"
-              @refresh-rules="refreshRules"
-              @error="onError"
-            />
-            <McpTab v-show="activeTab === 'mcp'" :draft="draft" @error="onError" />
-            <GlobalTab v-show="activeTab === 'global'" :draft="draft" />
-            <CommandsTab v-show="activeTab === 'commands'" :draft="draft" @error="onError" />
-            <HooksTab
-              ref="hooksTabRef"
-              v-show="activeTab === 'hooks'"
-              @error="onError"
-            />
-            <SkillsTab
-              v-show="activeTab === 'skills'"
-              :initial-skills="skills"
-              :sources="skillSources"
-              @error="onError"
-              @refresh-skills="
-                () => {
-                  refreshSkills()
-                  refreshSkillSources()
-                }
-              "
-            />
-            <PluginsTab
-              v-show="activeTab === 'plugins'"
-              :plugins="plugins"
-              @error="onError"
-              @refresh-plugins="refreshPlugins"
-            />
+            <!--
+              每次只挂载当前 Tab。可编辑配置统一写入父级 draft；Hooks 的独立草稿
+              也由父级 hooksState 持有，因此卸载子页不会丢失未保存的数据。
+            -->
+            <div v-if="renderedTab === 'brains'" class="tab-pane">
+              <BrainsTab :draft="draft" :env-vars="envVars" @error="onError" />
+            </div>
+            <div v-else-if="renderedTab === 'media'" class="tab-pane">
+              <MediaTab :draft="draft" :env-vars="envVars" @error="onError" />
+            </div>
+            <div v-else-if="renderedTab === 'senses'" class="tab-pane">
+              <SensesTab
+                :draft="draft"
+                :sense-tools="senseTools"
+                :sense-docs="senseDocs"
+                @error="onError"
+              />
+            </div>
+            <div v-else-if="renderedTab === 'roles'" class="tab-pane">
+              <RolesTab
+                :draft="draft"
+                :prompts="prompts"
+                :skill-catalog="skillNames"
+                @mode-change="(mode) => (rolesShadowMode = mode === 'shadow')"
+                @error="onError"
+              />
+            </div>
+            <div v-else-if="renderedTab === 'presets'" class="tab-pane">
+              <PresetsTab
+                :draft="draft"
+                :sense-tools="senseTools"
+                :rules="rules"
+                :workspace-warnings="workspaceWarnings"
+                @workspace-change="validatePresetWorkspace"
+                @refresh-rules="refreshRules"
+                @error="onError"
+              />
+            </div>
+            <div v-else-if="renderedTab === 'mcp'" class="tab-pane">
+              <McpTab :draft="draft" @error="onError" />
+            </div>
+            <div v-else-if="renderedTab === 'global'" class="tab-pane">
+              <GlobalTab :draft="draft" />
+            </div>
+            <div v-else-if="renderedTab === 'commands'" class="tab-pane">
+              <CommandsTab :draft="draft" @error="onError" />
+            </div>
+            <div v-else-if="renderedTab === 'hooks'" class="tab-pane">
+              <HooksTab
+                :handlers="hooksState.handlers"
+                :brain-hooks="hooksState.brainHooks"
+                :event-meta="hooksState.eventMeta"
+                :shell-info="hooksState.shellInfo"
+                :loading="hooksState.loading"
+                @update:handlers="updateHooksHandlers"
+                @error="onError"
+              />
+            </div>
+            <div v-else-if="renderedTab === 'skills'" class="tab-pane">
+              <SkillsTab
+                :initial-skills="skills"
+                :sources="skillSources"
+                @error="onError"
+                @refresh-skills="
+                  () => {
+                    refreshSkills()
+                    refreshSkillSources()
+                  }
+                "
+              />
+            </div>
+            <div v-else-if="renderedTab === 'plugins'" class="tab-pane">
+              <PluginsTab
+                :plugins="plugins"
+                @error="onError"
+                @refresh-plugins="refreshPlugins"
+              />
+            </div>
           </template>
         </div>
 

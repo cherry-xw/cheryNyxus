@@ -11,30 +11,31 @@
  * 风格：新拟物化（Neumorphism）事件卡 + 凹陷 handler 行；能力 chip 用语义色。
  *
  * 数据流：
- * - hooks.get 拉全局 + brain 级 hooks
- * - hooks.events 拉事件元数据（含 capabilities + matcherField）
- * - 删除 handler → splice draft → SettingsDialog 保存时 hooks.save
+ * - SettingsDialog 按需拉取 hooks.get + hooks.events，并持有受控草稿
+ * - 本页只负责展示；删除 handler 后发 update:handlers 替换父级草稿
+ * - SettingsDialog 保存时调用 hooks.save，切换 Tab 卸载本页也不会丢数据
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, toRefs } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import { agentApi, type HookHandlerDTO, type HookEventMeta, type HooksShellInfo } from '@/application/backend/public'
+import type { HookHandlerDTO, HookEventMeta, HooksShellInfo } from '@/application/backend/public'
 import TabShell, { type IndexItem } from '@/features/agent/settings/components/TabShell.vue'
 import ConfirmPopover from '@/components/confirm/ConfirmPopover.vue'
 
-const emit = defineEmits<{ (e: 'error', msg: string): void }>()
+const props = defineProps<{
+  handlers: Record<string, HookHandlerDTO[]>
+  brainHooks: Record<string, Record<string, HookHandlerDTO[]>>
+  eventMeta: HookEventMeta[]
+  shellInfo: HooksShellInfo | null
+  loading: boolean
+}>()
+const emit = defineEmits<{
+  (e: 'error', msg: string): void
+  (e: 'update:handlers', handlers: Record<string, HookHandlerDTO[]>): void
+}>()
 
 // ============ 数据 ============
 
-/** 全局 hooks draft（event → handler 列表）*/
-const draft = ref<Record<string, HookHandlerDTO[]>>({})
-/** Brain 级 hooks（只读）*/
-const brainHooks = ref<Record<string, Record<string, HookHandlerDTO[]>>>({})
-/** 事件元数据 */
-const eventMeta = ref<HookEventMeta[]>([])
-/** Handler 执行器平台状态（hooks.get shellInfo；不可用时 handler dispatch 会被阻断）*/
-const shellInfo = ref<HooksShellInfo | null>(null)
-/** 加载状态 */
-const loading = ref(false)
+const { handlers, brainHooks, eventMeta, shellInfo, loading } = toRefs(props)
 
 // ============ 计算 ============
 
@@ -59,43 +60,18 @@ function capKind(cap: string): 'action' | 'block' | 'info' | 'readonly' {
 
 // ============ 方法 ============
 
-function onError(msg: string): void {
-  emit('error', msg)
-}
-
-function emitError(err: unknown): void {
-  const e = err as { message?: string }
-  onError(e?.message ?? String(err))
-}
-
-async function loadHooks(): Promise<void> {
-  loading.value = true
-  try {
-    const [hooksData, meta] = await Promise.all([agentApi.getHooks(), agentApi.getHookEvents()])
-    draft.value = hooksData.handlers
-    brainHooks.value = hooksData.brainHooks
-    shellInfo.value = hooksData.shellInfo ?? null
-    eventMeta.value = meta
-  } catch (err) {
-    emitError(err)
-  } finally {
-    loading.value = false
-  }
-}
-
 /** 删除 handler */
 function removeHandler(eventName: string, index: number): void {
-  const list = draft.value[eventName]
+  const list = handlers.value[eventName]
   if (!list) return
-  list.splice(index, 1)
-  if (list.length === 0) {
-    delete draft.value[eventName]
-  }
+  const next = { ...handlers.value, [eventName]: list.filter((_, i) => i !== index) }
+  if (next[eventName]?.length === 0) delete next[eventName]
+  emit('update:handlers', next)
 }
 
 /** 获取事件的 handler 列表 */
 function getHandlers(eventName: string): HookHandlerDTO[] {
-  return draft.value[eventName] ?? []
+  return handlers.value[eventName] ?? []
 }
 
 /** 有 brain 级 hooks 的 brain 列表 */
@@ -108,10 +84,6 @@ const brainList = computed(() =>
     })),
 )
 
-/** 暴露 draft 供 SettingsDialog 保存 */
-defineExpose({ draft })
-
-onMounted(loadHooks)
 </script>
 
 <template>

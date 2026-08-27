@@ -20,6 +20,9 @@ import {
   type SenseToolInfo,
   type SkillInfo,
   type PluginInfo,
+  type HookEventMeta,
+  type HookHandlerDTO,
+  type HooksShellInfo,
 } from '@/application/backend/public'
 import { wsClient } from '@/application/transport/public'
 import {
@@ -58,6 +61,9 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
   const bridge = desktopBridge()
   const draft = ref<ConfigDto | null>(null)
   const activeTab = ref<TabKey>('presets')
+  /** 实际已揭示的 Tab；切换时先置空，让骨架屏完成一帧绘制后再挂载目标页。 */
+  const renderedTab = ref<TabKey | null>('presets')
+  const tabSwitching = ref(false)
   const rolesShadowMode = ref(false)
   provide(SETTINGS_ACTIVE_TAB_KEY, readonly(activeTab))
   /** 当前激活 tab 的主题色：提升到 panel 根作为 --tab-color，让保存按钮/序号/卡片强调点/panel 背景/边框随 tab 整体变色。
@@ -208,8 +214,112 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     skillTokens: Record<string, number>
     pluginTokens: Record<string, number>
   }>({ skills: [], plugins: [], skillTokens: {}, pluginTokens: {} })
-  /** HooksTab 组件引用（用于读取 hooks draft 保存）*/
-  const hooksTabRef = ref<InstanceType<typeof HooksTab> | null>(null)
+
+  /**
+   * Hooks 不属于 config.yaml，单独由设置外壳持有受控草稿。
+   * HooksTab 可随 v-if 卸载；再次进入时仍读取这里的 handlers，不依赖子组件实例保活。
+   */
+  const hooksState = reactive<{
+    handlers: Record<string, HookHandlerDTO[]>
+    brainHooks: Record<string, Record<string, HookHandlerDTO[]>>
+    eventMeta: HookEventMeta[]
+    shellInfo: HooksShellInfo | null
+    loading: boolean
+    loaded: boolean
+    dirty: boolean
+  }>({
+    handlers: {},
+    brainHooks: {},
+    eventMeta: [],
+    shellInfo: null,
+    loading: false,
+    loaded: false,
+    dirty: false,
+  })
+  let hooksLoadSeq = 0
+  let hooksLoadPromise: Promise<void> | null = null
+
+  function resetHooksState(): void {
+    hooksLoadSeq += 1
+    hooksLoadPromise = null
+    hooksState.handlers = {}
+    hooksState.brainHooks = {}
+    hooksState.eventMeta = []
+    hooksState.shellInfo = null
+    hooksState.loading = false
+    hooksState.loaded = false
+    hooksState.dirty = false
+  }
+
+  /** Hooks 数据按需加载：只有第一次进入 Hooks Tab 才发 RPC。 */
+  function loadHooksData(): Promise<void> {
+    if (hooksState.loaded) return Promise.resolve()
+    if (hooksLoadPromise) return hooksLoadPromise
+    const seq = ++hooksLoadSeq
+    hooksState.loading = true
+    hooksLoadPromise = Promise.all([agentApi.getHooks(), agentApi.getHookEvents()])
+      .then(([hooksData, eventMeta]) => {
+        if (seq !== hooksLoadSeq) return
+        hooksState.handlers = structuredClone(hooksData.handlers)
+        hooksState.brainHooks = hooksData.brainHooks
+        hooksState.shellInfo = hooksData.shellInfo ?? null
+        hooksState.eventMeta = eventMeta
+        hooksState.loaded = true
+        hooksState.dirty = false
+      })
+      .catch((e: unknown) => {
+        if (seq !== hooksLoadSeq) return
+        error.value = (e as Error).message
+        console.error('[SettingsDialog] getHooks failed:', e)
+      })
+      .finally(() => {
+        if (seq !== hooksLoadSeq) return
+        hooksState.loading = false
+        hooksLoadPromise = null
+      })
+    return hooksLoadPromise
+  }
+
+  /** HooksTab 的受控更新入口；替换引用以便父级明确记录未保存修改。 */
+  function updateHooksHandlers(handlers: Record<string, HookHandlerDTO[]>): void {
+    hooksState.handlers = handlers
+    hooksState.dirty = true
+  }
+
+  /** 等两个 animation frame：第一帧提交骨架，第二帧再开始目标页挂载。 */
+  function waitForLoadingPaint(): Promise<void> {
+    if (typeof requestAnimationFrame !== 'function') {
+      return new Promise((resolve) => setTimeout(resolve, 16))
+    }
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    })
+  }
+
+  let tabRenderSeq = 0
+  async function renderActiveTab(tab: TabKey): Promise<void> {
+    const seq = ++tabRenderSeq
+    renderedTab.value = null
+    tabSwitching.value = true
+    await nextTick()
+    await waitForLoadingPaint()
+    if (tab === 'hooks') await loadHooksData()
+    if (seq !== tabRenderSeq) return
+    renderedTab.value = tab
+    tabSwitching.value = false
+  }
+
+  watch(activeTab, (tab) => {
+    // 浏览器 overlay 关闭时只复位状态，不启动一次不可见的切换动画。
+    if (!isNative.value && !agents.settingsOpen) {
+      tabRenderSeq += 1
+      renderedTab.value = tab
+      tabSwitching.value = false
+      return
+    }
+    void renderActiveTab(tab)
+  })
+
   /** 打开设置时拉取全量数据（config + 工具/角色/规则/env/技能/插件清单）。
    *  浏览器路径每次打开调用；native 面挂载即调用（settingsOpen 永不翻转）。 */
   async function loadSettingsData(): Promise<void> {
@@ -228,8 +338,6 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     } catch (e) {
       error.value = (e as Error).message
       console.error('[SettingsDialog] getConfig failed:', e)
-    } finally {
-      loading.value = false
     }
     // 工具列表静态缓存：失败不阻塞编辑（下拉仍可自由输入）
     if (!senseTools.value.length) {
@@ -269,6 +377,8 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     await refreshSkills()
     await refreshPlugins()
     await refreshSkillSources()
+    // config 与所有父级依赖均就绪后才揭示初始 Tab，避免空选项逐段跳入。
+    loading.value = false
   }
   watch(
     () => agents.settingsOpen,
@@ -281,7 +391,11 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
         savedWarnings.value = null
         workspaceWarnings.value = {}
         workspaceValidationSeq.clear()
+        resetHooksState()
+        tabRenderSeq += 1
         activeTab.value = 'presets'
+        renderedTab.value = 'presets'
+        tabSwitching.value = false
         rolesShadowMode.value = false
         return
       }
@@ -416,24 +530,24 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     try {
       sanitizeSenseGroups(draft.value)
       // 并行保存 config.yaml + hooks.json
-      const hooksDraft = hooksTabRef.value?.draft
       const savePromises: Promise<unknown>[] = [
         agentApi.saveConfig(draft.value),
       ]
-      if (hooksDraft && Object.keys(hooksDraft).length > 0) {
+      const saveHooks = hooksState.dirty
+      if (saveHooks) {
         // 过滤掉 command 为空的 handler（前端可能留空行）
-        const cleaned: Record<string, typeof hooksDraft[string]> = {}
-        for (const [event, list] of Object.entries(hooksDraft)) {
+        const cleaned: Record<string, HookHandlerDTO[]> = {}
+        for (const [event, list] of Object.entries(hooksState.handlers)) {
           const valid = list.filter(h => h.command?.trim())
           if (valid.length > 0) cleaned[event] = valid
         }
-        if (Object.keys(cleaned).length > 0) {
-          savePromises.push(agentApi.saveHooks(cleaned))
-        }
+        // 空对象同样需要保存，表示用户删除了最后一个全局 Hook。
+        savePromises.push(agentApi.saveHooks(cleaned))
       }
       // 在 worker 关闭前登记等待者，避免它已开始重启时漏掉这一次重连。
       reconnectWatcher = wsClient.watchNextReconnect()
       const results = await Promise.all(savePromises)
+      if (saveHooks) hooksState.dirty = false
       const result = results[0] as
         | {
             needRestart: true
@@ -629,11 +743,13 @@ export function useSettingsDialogController(props: SettingsDialogControllerProps
     AnimatePresence, ArrowLeft, ArrowRight, BrainsTab, Close, CommandsTab, GlobalTab, HooksTab,
     McpTab, MediaTab, MotionDiv, OVERLAY_Z_INDEX, OpenConfigDirButton, PluginsTab, PresetsTab,
     RolesTab, SensesTab, SkeletonTab, SkillsTab, TABS, activeTab, agents, canLeft, canRight, close,
-    draft, dragging, envVars, error, errorLines, gotoErrorTab, hintLines, hooksTabRef, indexCount,
+    draft, dragging, envVars, error, errorLines, gotoErrorTab, hintLines, hooksState, indexCount,
     isNative, isWaitingReconnect, loading, maximized, onError, onTitlePointerDown, overflowed,
     panelStyles, plugins, prompts, ref, refreshPlugins, refreshRules, refreshSkillSources,
-    refreshSkills, rolesShadowMode, rules, save, savedHint, savedWarnings, saving, scrollTabBar,
+    refreshSkills, renderedTab, rolesShadowMode, rules, save, savedHint, savedWarnings, saving,
+    scrollTabBar,
     senseDocs, senseTools, setPanelEl, settingsThemeStyle, skillNames, skillSources, skills,
-    tabBarRef, toggleMaximize, validatePresetWorkspace, waitElapsed, workspaceWarnings,
+    tabBarRef, tabSwitching, toggleMaximize, updateHooksHandlers, validatePresetWorkspace, waitElapsed,
+    workspaceWarnings,
   }
 }

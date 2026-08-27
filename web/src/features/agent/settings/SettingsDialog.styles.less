@@ -331,6 +331,14 @@
   // 滚动交给各 tab 内部的 TabShell.shell-scroll；本层只做容器。
 }
 
+// v-if 分支的真实 DOM pane 继续把完整可用高度传给 TabShell，
+// 同一时刻只存在一个 pane，非活动 Tab 不保留 DOM、监听器和渲染开销。
+.tab-pane {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
 .error-row {
   padding: 6px 8px;
   border-radius: 6px;

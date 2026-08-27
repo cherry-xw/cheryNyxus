@@ -25,7 +25,7 @@ withDefaults(
 </script>
 
 <template>
-  <section class="sect shell-sect">
+  <section class="sect shell-sect" role="status" aria-label="正在加载设置内容">
     <div class="shell-sticky">
       <div class="shell-hints">
         <p
