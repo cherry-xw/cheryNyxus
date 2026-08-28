@@ -15,6 +15,9 @@ export type ThinkingLevel = 'off' | 'on' | 'low' | 'medium' | 'high' | 'xhigh' |
  */
 export interface LLMOptions {
   model: string
+  /** Internal execution identity used by deterministic providers and tracing. */
+  chatId?: string
+  runId?: string
   url?: string
   key?: string
   /** 思考强度档位（见 ThinkingLevel）；off=不发思考参数，其余按 provider 映射 */

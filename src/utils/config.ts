@@ -61,6 +61,24 @@ export { SupervisionLevel } from '@/core/config'
  * mock provider 脚本项（单次 LLM 调用的预定响应）
  * 用于离线测试 send/resume/revoke/loop 流程，不接真实 LLM。
  */
+export type MockScriptError =
+  | string
+  | {
+      message: string
+      userMessage?: string
+      category?: 'auth' | 'network' | 'provider' | 'timeout' | 'validation' | 'unknown'
+      source?: 'brain' | 'sense' | 'media' | 'mcp' | 'chat' | 'system' | 'hook'
+    }
+
+/** One deterministic provider stream step. Error is thrown after this step's deltas are yielded. */
+export interface MockScriptChunk {
+  thinking?: string
+  content?: string
+  senseCalls?: { id?: string; name: string; arguments: string }[]
+  delayMs?: number
+  error?: MockScriptError
+}
+
 export interface MockScriptResponse {
   /** 思考增量 */
   thinking?: string
@@ -69,7 +87,11 @@ export interface MockScriptResponse {
   /** 工具调用（监管等级由 sense_groups 的 :level 决定，非脚本） */
   senseCalls?: { id?: string; name: string; arguments: string }[]
   /** 抛错（测 retry 中间件） */
-  error?: string
+  error?: MockScriptError
+  /** Ordered stream script. When present it replaces the legacy thinking/content/senseCalls split. */
+  chunks?: MockScriptChunk[]
+  /** Per-call outcomes for retries within this logical assistant turn. */
+  attempts?: Array<Omit<MockScriptResponse, 'attempts'>>
   /** 每个 delta chunk 之间 sleep 毫秒（模拟流式节奏，刷新/重连测试用）；缺省取 brain.mock.chunkDelayMs */
   chunkDelayMs?: number
   /** 本轮首次响应前 sleep 毫秒（模拟首 token 延迟）；缺省取 brain.mock.preRespondMs */

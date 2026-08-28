@@ -12,9 +12,14 @@ import {
 import type { ZodType } from 'zod'
 import { registerLLMAdapter, type LLMAdapter, type LLMOptions } from '@/core/llm/adapter'
 import { buildBaseSenseFunction } from '@/core/sense/compiler/utils.js'
-import config, { type MockScriptResponse } from '@/utils/config'
+import config, {
+  type MockScriptChunk,
+  type MockScriptError,
+  type MockScriptResponse,
+} from '@/utils/config'
 import { logger } from '@/utils/logger/index.js'
 import { LogLevel } from '@/utils/logger/types.js'
+import { ClassifiedError } from '@/utils/error.js'
 
 // ========== mock raw 格式（自定义，不接真实 API）==========
 
@@ -47,11 +52,52 @@ interface MockScriptFile {
   script: MockScriptResponse[]
 }
 
+export interface MockProviderTranscriptEntry {
+  model: string
+  chatId: string
+  turn: number
+  attempt: number
+  outcome: 'response' | 'error'
+  toolNames: string[]
+}
+
+const attemptCursor = new Map<string, number>()
+const transcript: MockProviderTranscriptEntry[] = []
+
+export function resetMockProviderState(): void {
+  attemptCursor.clear()
+  transcript.length = 0
+}
+
+export function getMockProviderTranscript(): readonly MockProviderTranscriptEntry[] {
+  return transcript.map((entry) => ({ ...entry, toolNames: [...entry.toolNames] }))
+}
+
 /** .chery 目录（与 config.ts 同源） */
 const cheryDir = process.env.CHERY_DIR || process.cwd()
 
-/** sleep 辅助（流式延迟用，仿 utils/rateLimiter） */
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+function expandFixtureVariables(value: string): string {
+  // Keep YAML fixtures portable across Windows/Linux workspaces while still
+  // feeding absolute paths to real filesystem tools.
+  return value.replaceAll('{{CHERY_DIR}}', cheryDir.replaceAll('\\', '/'))
+}
+
+/** Abort-aware delay so chat.abort can stop mock first-token/stream waits immediately. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('aborted'))
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(signal?.reason ?? new Error('aborted'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
 
 /**
  * 按 model 查找 mock brain 的脚本文件配置（config.llm.brain 按 name 索引，遍历匹配 provider+model）
@@ -102,7 +148,7 @@ function toResponse(item: MockScriptResponse): MockResponse {
       // 脚本显式声明的 id 仅作可读标签，实际入库 id 由 adapter 保证唯一。
       id: sc.id ?? randomUUID(),
       name: sc.name,
-      arguments: sc.arguments,
+      arguments: expandFixtureVariables(sc.arguments),
     })),
   }
 }
@@ -113,7 +159,9 @@ function toResponse(item: MockScriptResponse): MockResponse {
  * 无状态、天然 per-chat；撤回 revoked 被过滤 → 索引自动回退。
  * 耗尽后 repeat:last 时重复最后一条，否则返回空。
  */
-function pickScriptItem(model: string, messages: LLMResponse[]): MockScriptResponse {
+function pickScriptItem(options: LLMOptions | undefined, messages: LLMResponse[]): MockScriptResponse {
+  const model = options?.model ?? ''
+  const chatId = options?.chatId ?? 'unscoped'
   const file = findMockFile(model)
   const { repeat, script } = file
     ? loadScriptFile(file)
@@ -122,18 +170,63 @@ function pickScriptItem(model: string, messages: LLMResponse[]): MockScriptRespo
 
   if (script.length === 0) {
     logger.event('mock.script.empty', { model, file }, LogLevel.warn)
+    if (process.env.CHERY_MOCK_STRICT === 'true') {
+      throw new Error(`Mock script is empty: ${model} (${file ?? 'no file'})`)
+    }
     return { content: '' }
   }
+  let selected: MockScriptResponse
   if (index < script.length) {
     logger.event('mock.turn', { model, file, turn: index })
-    return script[index]!
-  }
-  if (repeat === 'last') {
+    selected = script[index]!
+  } else if (repeat === 'last') {
     logger.event('mock.exhausted.repeat', { model, turn: index })
-    return script[script.length - 1]!
+    selected = script[script.length - 1]!
+  } else {
+    logger.event('mock.exhausted.empty', { model, turn: index }, LogLevel.warn)
+    if (process.env.CHERY_MOCK_STRICT === 'true') {
+      throw new Error(`Mock script exhausted: ${model} turn ${index}`)
+    }
+    selected = { content: '' }
   }
-  logger.event('mock.exhausted.empty', { model, turn: index })
-  return { content: '' }
+
+  const key = `${model}\u0000${chatId}\u0000${index}`
+  const attempt = attemptCursor.get(key) ?? 0
+  attemptCursor.set(key, attempt + 1)
+  const scriptedAttempts = selected.attempts
+  const attemptItem = scriptedAttempts?.length
+    ? scriptedAttempts[Math.min(attempt, scriptedAttempts.length - 1)]!
+    : undefined
+  if (
+    scriptedAttempts?.length &&
+    attempt >= scriptedAttempts.length &&
+    process.env.CHERY_MOCK_STRICT === 'true'
+  ) {
+    throw new Error(`Mock attempts exhausted: ${model} turn ${index} attempt ${attempt + 1}`)
+  }
+  const resolved = attemptItem ? { ...selected, ...attemptItem, attempts: undefined } : selected
+  transcript.push({
+    model,
+    chatId,
+    turn: index,
+    attempt: attempt + 1,
+    outcome: resolved.error || resolved.chunks?.some((chunk) => chunk.error) ? 'error' : 'response',
+    toolNames: [
+      ...(resolved.senseCalls?.map((call) => call.name) ?? []),
+      ...(resolved.chunks?.flatMap((chunk) => chunk.senseCalls?.map((call) => call.name) ?? []) ?? []),
+    ],
+  })
+  return resolved
+}
+
+function throwScriptError(error: MockScriptError): never {
+  if (typeof error === 'string') throw new Error(error)
+  throw new ClassifiedError({
+    message: error.message,
+    userMessage: error.userMessage ?? error.message,
+    category: error.category ?? 'unknown',
+    source: error.source ?? 'brain',
+  })
 }
 
 // ========== Message Adapter ==========
@@ -176,40 +269,63 @@ const mockSenseAdapterConfig = {
 const mockLLMAdapter: LLMAdapter = {
   async chat(messages, _senses, options?: LLMOptions): Promise<unknown> {
     const model = options?.model ?? ''
-    const item = pickScriptItem(model, messages as LLMResponse[])
-    if (item.error) throw new Error(item.error)
+    const item = pickScriptItem(options, messages as LLMResponse[])
+    if (item.error) throwScriptError(item.error)
     const preRespond = item.preRespondMs ?? findMockDelays(model).preRespondMs ?? 0
-    if (preRespond > 0) await sleep(preRespond)
+    if (preRespond > 0) await sleep(preRespond, options?.signal)
     return toResponse(item)
   },
   async chatStream(messages, _senses, options?: LLMOptions): Promise<AsyncIterable<unknown>> {
     const model = options?.model ?? ''
-    const item = pickScriptItem(model, messages as LLMResponse[])
-    if (item.error) throw new Error(item.error)
+    const item = pickScriptItem(options, messages as LLMResponse[])
+    if (item.error) throwScriptError(item.error)
     const resp = toResponse(item)
     const delays = findMockDelays(model)
     const chunkDelay = item.chunkDelayMs ?? delays.chunkDelayMs ?? 0
     const preRespond = item.preRespondMs ?? delays.preRespondMs ?? 0
-    if (preRespond > 0) await sleep(preRespond)
+    if (preRespond > 0) await sleep(preRespond, options?.signal)
 
     // 拆 delta：thinking / content / toolCalls 各一 chunk（触发 checkpoint delta 状态机）。
     // chunkDelay>0 时每个 delta 前 sleep，模拟流式节奏（刷新/重连测试可靠落在流式窗口内）。
     async function* gen(): AsyncIterable<MockStreamChunk> {
+      if (item.chunks) {
+        for (const scripted of item.chunks) {
+          const delayMs = scripted.delayMs ?? chunkDelay
+          if (delayMs > 0) await sleep(delayMs, options?.signal)
+          const chunk = toStreamChunk(scripted)
+          if (chunk.thinking || chunk.content || chunk.toolCalls?.length) yield chunk
+          if (scripted.error) throwScriptError(scripted.error)
+        }
+        return
+      }
       if (resp.thinking) {
-        if (chunkDelay > 0) await sleep(chunkDelay)
+        if (chunkDelay > 0) await sleep(chunkDelay, options?.signal)
         yield { thinking: resp.thinking }
       }
       if (resp.content) {
-        if (chunkDelay > 0) await sleep(chunkDelay)
+        if (chunkDelay > 0) await sleep(chunkDelay, options?.signal)
         yield { content: resp.content }
       }
       if (resp.toolCalls && resp.toolCalls.length > 0) {
-        if (chunkDelay > 0) await sleep(chunkDelay)
+        if (chunkDelay > 0) await sleep(chunkDelay, options?.signal)
         yield { toolCalls: resp.toolCalls }
       }
     }
     return gen()
   },
+}
+
+function toStreamChunk(item: MockScriptChunk): MockStreamChunk {
+  return {
+    thinking: item.thinking,
+    content: item.content,
+    toolCalls: item.senseCalls?.map((call, index) => ({
+      index,
+      id: call.id ?? randomUUID(),
+      name: call.name,
+      arguments: expandFixtureVariables(call.arguments),
+    })),
+  }
 }
 
 // ========== 注册函数 ==========

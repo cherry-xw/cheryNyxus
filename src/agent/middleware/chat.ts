@@ -82,6 +82,7 @@ export async function* chatMiddleware(
   // 构建请求选项（P1-6：LLMOptions 显式类型，替代 Record<string, unknown>）
   const options: LLMOptions = {
     model: ctx.runtime.brain.model,
+    chatId: ctx.soul.chatId,
     url: ctx.runtime.brain.url,
     key: ctx.runtime.brain.key,
     // AND 闸：global.thinking 总闸关 → 强制 off；开 → 取 brain.thinking 档位（ThinkingLevel，off/on/low/medium/high/xhigh）
