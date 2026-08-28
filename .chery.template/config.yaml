@@ -186,7 +186,7 @@ sense_groups:
 roles:
   cheryNyxus:
     brain: my-brain
-    avatar: '🐈‍⬛'
+    avatar: '🐈‍'
     senseGroup: chery_nexus
     mcpServers: []
     systemPrompt: prompt/cheryNyxus/cheryNyxus.md
