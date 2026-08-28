@@ -93,6 +93,7 @@ import {
 import { connectionManager } from '../websocket/connection.js'
 import { disconnectGrace } from '../websocket/disconnectGrace.js'
 import { getPendingQuestionAttention, getQuestionStateSnapshot } from '@/db/question.js'
+import { listBranchFamilyChatIds } from '@/db/conversationBranch.js'
 import { randomUUID } from 'crypto'
 import {
   parseRuntimeSelection,
@@ -1738,6 +1739,8 @@ export async function* handleChatStartSpawn(
  * 删除聊天
  * CP8：目标为主 chat（无 parent_chat_id）时级联删其全部后代 chat + 各自消息 + 清内存 runtime，
  *   避免多级 spawn 留下孤儿 chat。子 chat 自身删除不级联。
+ * 分支链路：主 chat 属 conversation_branches.task_id 家族时，同 task 下的所有分支根
+ *   （continuation/detail，parent 为 NULL）连同各自后代一并级联删除，杜绝孤儿分支根。
  */
 export async function handleChatDelete(
   _ctx: HandlerContext,
@@ -1767,6 +1770,15 @@ export async function handleChatDelete(
       }
     }
     visit(p.chatId)
+    // 分支链路级联：同 task（conversation_branches.task_id）下的其他分支根一并删除 + 各自后代。
+    // 否则分支根（parent 为 NULL 的 continuation/detail）脱离会话列表却残留内容，重开工作台被
+    // 自动选中造成「列表为空但内容仍在」。从未分支的普通根 listBranchFamilyChatIds 返 []，无副作用。
+    for (const familyChatId of listBranchFamilyChatIds(p.chatId)) {
+      if (seen.has(familyChatId)) continue
+      seen.add(familyChatId)
+      visit(familyChatId)
+      descendants.push({ id: familyChatId })
+    }
     cascaded = descendants.length
     deletionOrder.push(...descendants)
   }

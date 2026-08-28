@@ -109,6 +109,7 @@
 `deletedChatIds` 是服务端实际删除的权威集合，包含目标会话及级联删除的全部后代；前端据此原子清理目录、时间线缓存、订阅和 UI 引用。
 
 > 目标为主 chat（无 `parent_chat_id`）时级联删其所有子 chat + 各自消息 + 清内存 runtime（`clearChatRuntime`），避免孤儿子 chat。子 chat 自身删除不级联。
+> 若该主 chat 属分支链路（`conversation_branches.task_id` 关联，含分支根 `parent_chat_id=NULL` 的 continuation/detail 会话），则同 task 下**所有分支根**连同各自子 chat 一并级联删除——否则分支根脱离会话列表（`isPianoRootSession` 排除）却残留内容，重开工作台被自动选中造成「列表为空但内容仍在」。`deletedChatIds` 为整条链路（分支根 + 各自身后代）的权威集合。从未分支的普通根不受影响。
 
 ### chat.timeline.generation.get — 按需拉取已打包代际
 

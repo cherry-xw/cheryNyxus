@@ -106,6 +106,23 @@ export function getConversationBranchByChat(chatId: string): ConversationBranchR
   return row ? branchFromRow(row) : undefined
 }
 
+/**
+ * 返回与给定 chat 同属一个分支链路（conversation_branches.task_id）的其他分支根会话 chat_id。
+ * chat 从未分支（无 conversation_branches 行）时返回 []。
+ * 用途：chat.delete 级联整条分支链路——删除主根或任一分支根时，同 task 的所有分支根一并删除，
+ * 避免孤儿分支根（isPianoRootSession 排除出会话列表但内容仍残留，重开工作台被自动选中）。
+ */
+export function listBranchFamilyChatIds(chatId: string): string[] {
+  const branch = getConversationBranchByChat(chatId)
+  if (!branch) return []
+  const rows = getSoulDb()
+    .prepare(
+      'SELECT chat_id FROM conversation_branches WHERE task_id = ? AND chat_id != ? ORDER BY created_at, branch_id',
+    )
+    .all(branch.taskId, chatId) as Array<{ chat_id: string }>
+  return rows.map((row) => String(row.chat_id))
+}
+
 export function listConversationBranches(taskId: string): ConversationBranchRow[] {
   const rows = getSoulDb()
     .prepare('SELECT * FROM conversation_branches WHERE task_id = ? ORDER BY created_at, branch_id')
