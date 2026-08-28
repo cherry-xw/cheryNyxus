@@ -73,6 +73,14 @@ export async function* checkpointMiddleware(
   // === 执行内层 handlers ===
   try {
     for await (const chunk of next()) {
+      if (chunk.type === 'retry_reset') {
+        const messageId = state.resetAttempt()
+        thinkingActive = false
+        contentActive = false
+        questionCandidates.length = 0
+        yield { ...chunk, messageId }
+        continue
+      }
       state.ingest(chunk)
 
       // 边界检测和 staged yield（三 delta 状态机）

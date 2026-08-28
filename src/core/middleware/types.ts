@@ -243,6 +243,16 @@ export interface SenseTriggerChunk {
 }
 
 /**
+ * Internal retry boundary. Checkpoint discards the failed attempt and the
+ * service maps it to the existing staged.reverse wire event.
+ */
+export interface RetryResetChunk {
+  type: 'retry_reset'
+  /** Filled by checkpoint with the failed preallocated assistant message id. */
+  messageId?: string
+}
+
+/**
  * 感官真正开始执行。
  *
  * 该事实只能在审批、安全复检与 PreToolUse 全部通过后、调用 sense handler 前产生；
@@ -436,6 +446,7 @@ export interface ChildDoneChunk {
  */
 export type MiddlewareChunk =
   | StreamChunk
+  | RetryResetChunk
   | SenseTriggerChunk
   | SenseStartedChunk
   | SenseAcceptChunk

@@ -100,6 +100,7 @@ export function classifyError(error: unknown): ErrorCategory {
       msg.includes('network') ||
       msg.includes('connection') ||
       msg.includes('econnrefused') ||
+      msg.includes('econnreset') ||
       msg.includes('enotfound') ||
       msg.includes('fetch failed')
     ) {

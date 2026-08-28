@@ -134,6 +134,20 @@ function rebuildExecutionSteps(
       continue
     }
 
+    if (type === 'turn.cancelled' && typeof data.turnId === 'string') {
+      const key = `model:${data.turnId}`
+      const step = steps.get(key)
+      if (step?.status === 'running') {
+        const completedAt = typeof data.cancelledAt === 'number' ? data.cancelledAt : undefined
+        steps.set(key, {
+          ...step,
+          status: 'cancelled',
+          ...(completedAt !== undefined ? { completedAt } : {}),
+        })
+      }
+      continue
+    }
+
     if (
       type === 'sense_started' &&
       typeof data.id === 'string' &&

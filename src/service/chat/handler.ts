@@ -45,6 +45,7 @@ import {
   type ChatSendToChildResponseData,
   type Response as RpcResponse,
 } from '../message/types.js'
+import { InternalCommand } from '../message/internalCommand.js'
 import {
   createChat,
   listAllChats,
@@ -347,14 +348,17 @@ export async function handleChatList(
     const workspace = getChatWorkspace(chat.id)
     const workspaceValid = workspace ? validateWorkspacePath(workspace).valid : undefined
     const pendingQuestions = getPendingQuestionAttention(chat.id)
+    const lifecycle = chat.lifecycle ?? 'active'
     const base = {
       chatId: chat.id,
       createdAt: chat.created_at,
       updatedAt: chat.updated_at,
       messageCount: chat.message_count,
       parentChatId: chat.parent_chat_id ?? null,
-      ...epochStats,
-      lifecycle: chat.lifecycle ?? 'active',
+      ...(lifecycle === 'active'
+        ? epochStats
+        : { epochCount: epochStats.epochCount }),
+      lifecycle,
       ...(conversationBranch
         ? {
             taskId: conversationBranch.taskId,
@@ -1119,7 +1123,9 @@ export async function handleChatInputSubmit(
     const runId = getActiveChatRunId(data.chatId) ?? ctx.requestId ?? randomUUID()
     const acceptedAt = Date.now()
     updateChatMetadata(data.chatId, { lastUserActivityAt: acceptedAt })
-    const queueSequence = pending.length + 1
+    // The active input has already left builder.pending when a later command
+    // arrives, but it remains sequence 1 in the current run.
+    const queueSequence = pending.length + (running ? 2 : 1)
     const prompt = attachmentsToPromptMarkers(data.attachments, data.content)
     const entry = agent.enqueueInput(prompt, {
       inputId,
@@ -1271,7 +1277,7 @@ export async function dispatchToChild(
     }
   }
 
-  const claimed = claimRequest(data.commandId, Method.CHAT_SEND_TO_CHILD, data)
+  const claimed = claimRequest(data.commandId, InternalCommand.CHAT_SEND_TO_CHILD, data)
   if (claimed.state === 'completed') {
     return JSON.parse(claimed.responseJson) as ChatSendToChildResponseData
   }
@@ -1885,7 +1891,7 @@ export function buildActiveTurns(chatId: string): ActiveTurnSnapshot[] {
     }
     if (
       e.kind === 'notification' &&
-      e.type === 'turn.completed' &&
+      (e.type === 'turn.completed' || e.type === 'turn.cancelled') &&
       typeof data.turnId === 'string'
     ) {
       const completed = turns.get(data.turnId)

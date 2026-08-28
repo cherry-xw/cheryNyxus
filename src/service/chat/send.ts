@@ -35,6 +35,7 @@ import {
 import { approvalManager } from '../approval/manager.js'
 import { findPendingQuestionBatchByQuestionId, hasPendingQuestionBatches } from '@/db/question.js'
 import { resolveQuestionBatch } from './wake.js'
+import type { StagedReverseChunkData } from '@chery/protocol'
 import { connectionManager } from '../websocket/connection.js'
 import {
   ensureChat,
@@ -202,10 +203,11 @@ export async function* handleChatSend(
       markMessagesRevoked(chatId, revokedIds)
       emitTimelinePatch(chatId, baseRevision)
       logger.event('chat.send.revoke', { count: revokedIds.length, messageIds: revokedIds })
+      const reverse: StagedReverseChunkData = { type: 'reverse', messageIds: revokedIds }
       yield createChunk(
         'staged',
         rid,
-        { type: 'reverse', messageIds: revokedIds },
+        reverse,
         { chatId, runId },
       )
     }

@@ -6,10 +6,31 @@ import { classifyError, ClassifiedError, type ErrorCategory } from '@/utils/erro
 
 // ========== 配置常量 ==========
 // 最多尝试 MAX_RETRIES 次（含首次）。重试间隔指数退避：第 attempt 次失败后等
-// base * 2^(attempt-1) ms（1s/2s/4s/8s/16s）+ ±20% jitter，累计约 31s。
+// base * 2^(attempt-1) ms（1s/2s/4s/8s）+ ±20% jitter，最多 4 次等待、累计约 15s。
 // jitter 让多 pet / 多会话同时失败时错峰重试，避免同步重试放大上游限流（429）。
 const MAX_RETRIES = 5
 const RETRY_BASE_DELAY_MS = 1000
+
+interface RetryTiming {
+  sleep(ms: number): Promise<void>
+  random(): number
+}
+
+const defaultRetryTiming: RetryTiming = {
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  random: () => Math.random(),
+}
+
+let retryTiming: RetryTiming = defaultRetryTiming
+
+/** Test-only deterministic timing seam; returns a restore callback. */
+export function configureRetryTimingForTests(overrides: Partial<RetryTiming>): () => void {
+  const previous = retryTiming
+  retryTiming = { ...retryTiming, ...overrides }
+  return () => {
+    retryTiming = previous
+  }
+}
 
 /**
  * 判断错误是否可恢复（可重试）
@@ -39,16 +60,16 @@ function createErrorInfo(attempt: number, error: unknown): ErrorChunk['errors'][
 }
 
 async function delay(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms))
+  await retryTiming.sleep(ms)
 }
 
 /**
  * 指数退避等待：第 attempt 次失败后等 base * 2^(attempt-1) ms ±20% jitter。
- * attempt 从 1 起：1s → 2s → 4s → 8s → 16s（5 次尝试累计约 31s）。
+ * attempt 从 1 起：1s → 2s → 4s → 8s（第 5 次失败后直接返回，不再等待）。
  */
 async function delayWithBackoff(attempt: number): Promise<void> {
   const base = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)
-  const jitter = base * 0.2 * (Math.random() * 2 - 1)
+  const jitter = base * 0.2 * (retryTiming.random() * 2 - 1)
   await delay(Math.max(0, Math.round(base + jitter)))
 }
 
@@ -76,9 +97,13 @@ export async function* retryMiddleware(
     const messages = ctx.soul.messages
     if (!messages) throw new Error('soul.messages not initialized before retry')
     const snapshot = messages.length
+    let emitted = false
     try {
       // 透传所有 chunks（chat 只 yield StreamChunk/StagedChunk）
-      yield* next()
+      for await (const chunk of next()) {
+        emitted = true
+        yield chunk
+      }
       return // 成功，结束
     } catch (error) {
       // provider 因 AbortSignal 抛出的网络错误不能落入 retry；watchdog 已终止此 run。
@@ -103,6 +128,7 @@ export async function* retryMiddleware(
 
       // 回滚本轮 checkpoint 已 append 的半截 message，恢复历史干净后再重试
       messages.length = snapshot
+      if (emitted) yield { type: 'retry_reset' }
 
       // 非最后一次且可恢复：指数退避等待后继续
       if (attempt < MAX_RETRIES && errorInfo.recoverable) {

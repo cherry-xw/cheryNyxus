@@ -17,6 +17,7 @@ import type {
   MessageCreatedChunk,
   MessageUpdatedChunk,
   ErrorChunk,
+  RetryResetChunk,
 } from '@/core/middleware/types'
 import { SupervisionLevel } from '@/core/config'
 import { logger } from '@/utils/logger/index.js'
@@ -38,6 +39,10 @@ import { finalizeSpawnChildIfDone } from './spawnFinalize.js'
 import { isAgentAbortError } from '@/core/middleware/errors.js'
 import config from '@/utils/config.js'
 import { recordRunFact, recordTerminationFact } from './executionFacts.js'
+import type {
+  StagedReverseChunkData,
+  TurnCancelledNotificationData,
+} from '@chery/protocol'
 
 /**
  * 将 agent generator 的 MiddlewareChunk 转换为 WebSocket 协议的 Chunk/Notification
@@ -77,7 +82,30 @@ export async function* streamAgentChunks(
   )
   try {
     for await (const chunk of generator) {
-      if (chunk.type === 'stream') {
+      if (chunk.type === 'retry_reset') {
+        const reset = chunk as RetryResetChunk
+        if (!reset.messageId) throw new Error('retry reset missing checkpoint messageId')
+        const cancellation: TurnCancelledNotificationData = {
+          turnId: reset.messageId,
+          messageId: reset.messageId,
+          reason: 'retry_reset',
+          cancelledAt: Date.now(),
+        }
+        yield createNotification('turn.cancelled', rid, cancellation, { chatId, runId })
+        turnStarted.delete(reset.messageId)
+        completedTurns.delete(reset.messageId)
+        offsets.delete(reset.messageId)
+        const reverse: StagedReverseChunkData = {
+          type: 'reverse',
+          messageIds: [reset.messageId],
+        }
+        yield createChunk(
+          'staged',
+          rid,
+          reverse,
+          { chatId, runId },
+        )
+      } else if (chunk.type === 'stream') {
         if (!chunk.msgId || typeof chunk.createdAt !== 'number') {
           throw new Error('stream chunk missing checkpoint msgId/createdAt')
         }
@@ -316,10 +344,12 @@ export async function* streamAgentChunks(
           LogLevel.error,
         )
         // 合规（已前置 tracingId，如终态 throwUserFacing 错误）→ 原样；否则按 userMessage / friendlyMessage 出，前置 tracingId。
+        const embeddedTracingId = raw?.match(/^\[([0-9a-f]{8})\]\s/i)?.[1]
+        const tracingId = embeddedTracingId ?? newTracingId()
         const message =
           raw && COMPLIANT_TRACE_PATTERN.test(raw)
             ? raw
-            : `[${newTracingId()}] ${info?.userMessage ?? friendlyMessage(info?.category ?? 'unknown', info?.source ?? 'system')}`
+            : `[${tracingId}] ${info?.userMessage ?? friendlyMessage(info?.category ?? 'unknown', info?.source ?? 'system')}`
         errored = true
         terminated = true
         const terminationBaseRevision = getTimelineRevision(chatId)
@@ -337,7 +367,14 @@ export async function* streamAgentChunks(
         yield createNotification(
           'error',
           rid,
-          { message, canResume: computeCanResume(chatId) },
+          {
+            code: `RUN_${(info?.category ?? 'unknown').toUpperCase()}`,
+            message,
+            source: info?.source ?? 'system',
+            retryable: info?.recoverable ?? false,
+            tracingId,
+            canResume: computeCanResume(chatId),
+          },
           { chatId, runId },
         )
         yield createNotification(
@@ -538,11 +575,19 @@ export async function* streamAgentChunks(
       // 与 error chunk 分支同款友好文案（前置 tracingId；无 category/source → unknown/system）。
       // 注意：此处绝不 recordTerminationFact / 发 timeline.patch——observer.ts 已在 catch 里对
       // park/未预期记过终止事实并发 patch，重复会双发。
-      const message = `[${newTracingId()}] ${friendlyMessage('unknown', 'system')}`
+      const tracingId = newTracingId()
+      const message = `[${tracingId}] ${friendlyMessage('unknown', 'system')}`
       yield createNotification(
         'error',
         rid,
-        { message, canResume: computeCanResume(chatId) },
+        {
+          code: 'RUN_UNKNOWN',
+          message,
+          source: 'system',
+          retryable: false,
+          tracingId,
+          canResume: computeCanResume(chatId),
+        },
         { chatId, runId },
       )
     }

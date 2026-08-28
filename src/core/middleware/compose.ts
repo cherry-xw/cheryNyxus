@@ -73,6 +73,14 @@ async function* executeChain<T>(
     // downstream pipeline beginning at index + 1.
     yield* handler(ctx, () => executeChain(ctx, handlers, index + 1))
   } catch (err) {
+    // AbortSignal-aware providers commonly reject with the platform's
+    // DOMException("AbortError"). Once the pipeline has accepted an abort,
+    // that rejection is control flow rather than a provider/system fault.
+    // Normalize it before any compose layer can classify and wrap it.
+    if (ctx.pipeline?.isAbortRequested()) {
+      if (isAgentAbortError(err)) throw err
+      throw new AgentAbortError()
+    }
     // AgentAbortError 是控制流信号（chat.abort/审批 reject），非可调试故障：
     // 原样上浮，不包装前缀，保证下游 retry/send 的 isAgentAbortError 判定命中。
     if (isAgentAbortError(err)) throw err

@@ -21,7 +21,7 @@ export class CheckpointState {
   private senseDeltas: SenseCallData[] = []
   private senseResults: (SenseAcceptChunk | SenseRejectChunk)[] = []
   /** Anthropic 扩展：thinking blocks 累积器（按 index 累积 text/signature） */
-  private readonly thinkingBlockAssembler = new ThinkingBlockAssembler()
+  private thinkingBlockAssembler = new ThinkingBlockAssembler()
   /** 第一次 flush 时记录的 thinkingBlocks（防止 finally flush 时清空后取不到） */
   private thinkingBlocks: ThinkingBlock[] = []
   /** 本轮 assistant 是否已在 sense_end 时 flush（避免 finally 重复 push） */
@@ -30,9 +30,9 @@ export class CheckpointState {
   private flushedAssistantId: string | null = null
   /** 预分配的本轮 assistant 消息 id（= 落库 id = chat.get 回放 id）。
    *  staged chunk 携此 msgId 供前端实时累积，与 done.finalMessage / chat.get 三路同 id 去重。 */
-  private readonly assistantId = randomUUID()
+  private assistantId = randomUUID()
   /** turn 起始时间戳，staged chunk 携此作为实时项 createdAt（reload 后由 DB 值替换）。 */
-  private readonly turnStartedAt = Date.now()
+  private turnStartedAt = Date.now()
   /** 第一次 flush 时记录的 senseCalls（流结束后比对是否需要补充） */
   private flushedAssistantSenseCalls: Array<{ id: string; name: string; arguments: string }> = []
 
@@ -69,6 +69,23 @@ export class CheckpointState {
         this.senseResults.push(chunk as SenseAcceptChunk | SenseRejectChunk)
         break
     }
+  }
+
+  /** Reset every provider-attempt accumulator and rotate the optimistic turn id. */
+  resetAttempt(): string {
+    const previousAssistantId = this.assistantId
+    this.thinking = ''
+    this.content = ''
+    this.senseDeltas = []
+    this.senseResults = []
+    this.thinkingBlockAssembler = new ThinkingBlockAssembler()
+    this.thinkingBlocks = []
+    this.assistantFlushed = false
+    this.flushedAssistantId = null
+    this.flushedAssistantSenseCalls = []
+    this.assistantId = randomUUID()
+    this.turnStartedAt = Date.now()
+    return previousAssistantId
   }
 
   /**
