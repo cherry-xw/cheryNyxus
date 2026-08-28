@@ -221,6 +221,7 @@ describe('lite 白名单矩阵：原样透传类（信封仍最小化）', () =>
   const passthrough = [
     ['run.updated', { runId: 'r1', status: 'running' as const }],
     ['turn.started', { turnId: 't1', messageId: 't1', createdAt: 1 }],
+    ['turn.cancelled', { turnId: 't1', messageId: 't1', reason: 'retry_reset' as const }],
     ['turn.completed', { turnId: 't1', messageId: 't1' }],
     ['question_batch_completed', { batchId: 'b1' }],
     ['error', { message: '[abc12345] 出错了', canResume: true }],

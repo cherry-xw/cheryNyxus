@@ -283,4 +283,35 @@ describe('computeCurrentState（G8）', () => {
       completedAt: 19,
     })
   })
+
+  it('rebuilds a retry-reset model step as cancelled', () => {
+    const chatId = randomUUID()
+    cleanup.push(chatId)
+    createChat(chatId)
+    const runId = 'retry-run'
+    for (const [type, data] of [
+      ['run.updated', { runId, status: 'running', at: 10, startedAt: 10 }],
+      [
+        'turn.started',
+        { turnId: 'failed-turn', messageId: 'failed-turn', runId, createdAt: 11 },
+      ],
+      [
+        'turn.cancelled',
+        {
+          turnId: 'failed-turn',
+          messageId: 'failed-turn',
+          reason: 'retry_reset',
+          cancelledAt: 12,
+        },
+      ],
+    ] as const) {
+      appendChatEvent(chatId, { kind: 'notification', type, data, chatId, runId })
+    }
+
+    expect(computeCurrentState(chatId).executionSteps[0]).toMatchObject({
+      id: 'failed-turn',
+      status: 'cancelled',
+      completedAt: 12,
+    })
+  })
 })

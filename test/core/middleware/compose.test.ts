@@ -290,5 +290,27 @@ describe("compose middleware", () => {
       // 严格断言：abort 注入的是 AgentAbortError，且 compose 未包装（原样上浮）
       expect(seen.some(isAgentAbortError)).toBe(true);
     });
+
+    it("normalizes an AbortSignal rejection after pipeline abort", async () => {
+      const ctx = createMockContext();
+      ctx.pipeline = {
+        consumeParkAfterTurn: () => false,
+        isAbortRequested: () => true,
+        getAbortSignal: () => undefined,
+      };
+      const provider = async function* () {
+        throw new DOMException("This operation was aborted", "AbortError");
+      };
+
+      let thrown: unknown;
+      try {
+        await drain(compose([provider]).run(ctx));
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(isAgentAbortError(thrown)).toBe(true);
+      expect((thrown as Error).name).toBe("AgentAbortError");
+    });
   });
 });

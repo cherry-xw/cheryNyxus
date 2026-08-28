@@ -6,6 +6,8 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest'
 import { bootstrapForTests, createAgent, runSend } from '../helpers/agentHarness.js'
+import { checkpointMiddleware } from '@/agent/middleware/checkpoint.js'
+import { createMockContext } from '../helpers/fakeContext.js'
 import {
   stagedTypes,
   messageCreated,
@@ -16,8 +18,9 @@ import {
   senseAccepts,
   filterType,
   hasDone,
+  collectChunks,
 } from '../helpers/chunkAssert.js'
-import type { StreamChunk, StagedChunk } from '@/core/middleware/types.js'
+import type { MiddlewareChunk, StreamChunk, StagedChunk } from '@/core/middleware/types.js'
 
 describe('checkpointMiddleware 集成', () => {
   beforeAll(async () => {
@@ -114,5 +117,33 @@ describe('checkpointMiddleware 集成', () => {
     const chunks = await runSend(agent, '纯文本')
     expect(stagedTypes(chunks)).not.toContain('sense_end')
     expect(senseEnds(chunks)).toHaveLength(0)
+  })
+
+  it('rotates the assistant turn and discards accumulated content on retry_reset', async () => {
+    const ctx = createMockContext({ messages: [] })
+    const next = async function* (): AsyncGenerator<MiddlewareChunk> {
+      yield { type: 'stream', thinkingDelta: '', contentDelta: 'discard-me' }
+      yield { type: 'retry_reset' }
+      yield { type: 'stream', thinkingDelta: '', contentDelta: 'clean-result' }
+    }
+
+    const chunks = await collectChunks(checkpointMiddleware(ctx, next))
+    const streams = filterType<StreamChunk>(chunks, 'stream')
+    const reset = chunks.find((chunk) => chunk.type === 'retry_reset') as
+      | { type: 'retry_reset'; messageId?: string }
+      | undefined
+    const contentEnd = filterType<StagedChunk>(chunks, 'staged')
+      .find((chunk) => chunk.stagedType === 'content_end')
+
+    const firstTurnId = streams[0]?.msgId
+    const retriedTurnId = streams.at(-1)?.msgId
+    expect(firstTurnId).toBeTruthy()
+    expect(reset?.messageId).toBe(firstTurnId)
+    expect(retriedTurnId).toBeTruthy()
+    expect(retriedTurnId).not.toBe(firstTurnId)
+    expect(contentEnd).toMatchObject({ content: 'clean-result', msgId: retriedTurnId })
+    expect(ctx.soul.messages?.filter((message) => message.role === 'assistant')).toEqual([
+      expect.objectContaining({ id: retriedTurnId, content: 'clean-result' }),
+    ])
   })
 })

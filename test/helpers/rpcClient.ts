@@ -61,6 +61,12 @@ export class RpcClient {
   private ws?: WebSocket
   private readonly options: RpcClientOptions
   private readonly pending = new Map<string, PendingEntry>()
+  /**
+   * Every inbound chunk/notification, appended exactly once before request
+   * projection. Async protocol assertions must read this journal instead of
+   * guessing whether an event belongs to a request handle or to background.
+   */
+  readonly received: Array<Chunk | Notification> = []
   /** 无 requestId 归属的异步事件（role_created / role_reply / 重连后旧 run 的实时输出）。 */
   readonly background: Array<Chunk | Notification> = []
 
@@ -155,7 +161,13 @@ export class RpcClient {
   /** 便捷：发起请求并 await 终态 Response（适用于短请求 / 无需观察流中事件）。 */
   async call(method: string, params: unknown, timeoutMs = 10000): Promise<Response> {
     const handle = this.request(method, params)
-    return this.awaitResponse(handle, timeoutMs)
+    try {
+      return await this.awaitResponse(handle, timeoutMs)
+    } finally {
+      // call() is for unary RPCs. Streaming/ACK-then-events callers use
+      // request() and release the handle after observing a terminal event.
+      this.release(handle)
+    }
   }
 
   async awaitResponse(handle: RequestHandle, timeoutMs = 10000): Promise<Response> {
@@ -163,6 +175,16 @@ export class RpcClient {
       setTimeout(() => reject(new Error(`response timeout: ${handle.id}`)), timeoutMs),
     )
     return Promise.race([handle.response, timer])
+  }
+
+  /** Release request correlation while retaining events in the global journal. */
+  release(handle: RequestHandle | string): void {
+    this.pending.delete(typeof handle === 'string' ? handle : handle.id)
+  }
+
+  /** Test diagnostics: number of request handles still retaining correlation. */
+  get pendingCount(): number {
+    return this.pending.size
   }
 
   private onMessage(data: Buffer): void {
@@ -176,6 +198,7 @@ export class RpcClient {
       }
       return
     }
+    this.received.push(msg)
     const requestId = (msg as Chunk | Notification).requestId
     const entry = requestId ? this.pending.get(requestId) : undefined
     if (entry) entry.events.push(msg)

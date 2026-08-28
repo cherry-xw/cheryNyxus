@@ -44,6 +44,34 @@ async function* twoCommittedTurnsGenerator(): AsyncGenerator<MiddlewareChunk, vo
   yield { type: 'done' }
 }
 
+async function* retriedTurnGenerator(): AsyncGenerator<MiddlewareChunk, void, unknown> {
+  yield {
+    type: 'stream',
+    thinkingDelta: '',
+    contentDelta: 'discard-me',
+    msgId: 'failed-turn',
+    createdAt: 123,
+  }
+  yield { type: 'retry_reset', messageId: 'failed-turn' }
+  yield {
+    type: 'stream',
+    thinkingDelta: '',
+    contentDelta: 'clean-result',
+    msgId: 'clean-turn',
+    createdAt: 456,
+  }
+  yield {
+    type: 'staged',
+    stagedType: 'content_end',
+    thinking: '',
+    content: 'clean-result',
+    role: 'assistant',
+    msgId: 'clean-turn',
+    createdAt: 456,
+  }
+  yield { type: 'done' }
+}
+
 function notifications(events: unknown[]): Array<[string, unknown]> {
   return events
     .filter((event) => (event as { kind?: string }).kind === 'notification')
@@ -141,6 +169,67 @@ describe('streamAgentChunks run lifecycle', () => {
       ['done', expect.objectContaining({ canResume: false })],
       ['run.updated', expect.objectContaining({ runId: 'run-shared', status: 'completed' })],
     ])
+  })
+
+  it('maps retry_reset to staged.reverse and restarts turn offsets from zero', async () => {
+    const chatId = 'chat-retry-reset'
+    cleanup.push(chatId)
+    createChat(chatId)
+    const events: unknown[] = []
+    for await (const event of streamAgentChunks(
+      retriedTurnGenerator(),
+      'request-retry',
+      chatId,
+      'run-retry',
+    )) {
+      events.push(event)
+    }
+
+    const reverse = events.find(
+      (event) =>
+        (event as { kind?: string }).kind === 'chunk' &&
+        (event as { type?: string }).type === 'staged' &&
+        ((event as { data?: { type?: string } }).data?.type === 'reverse'),
+    ) as { data?: unknown } | undefined
+    expect(reverse?.data).toEqual({ type: 'reverse', messageIds: ['failed-turn'] })
+
+    const typed = notifications(events)
+    expect(typed.find(([type]) => type === 'turn.cancelled')?.[1]).toMatchObject({
+      turnId: 'failed-turn',
+      messageId: 'failed-turn',
+      reason: 'retry_reset',
+      cancelledAt: expect.any(Number),
+    })
+    const retryLifecycle = events
+      .map((event) => {
+        const envelope = event as { kind?: string; type?: string; data?: { type?: string; turnId?: string } }
+        if (envelope.type === 'turn.started') return `started:${envelope.data?.turnId}`
+        if (envelope.type === 'turn.cancelled') return `cancelled:${envelope.data?.turnId}`
+        if (envelope.type === 'staged' && envelope.data?.type === 'reverse') return 'reverse'
+        return undefined
+      })
+      .filter(Boolean)
+    expect(retryLifecycle).toEqual([
+      'started:failed-turn',
+      'cancelled:failed-turn',
+      'reverse',
+      'started:clean-turn',
+    ])
+    expect(
+      typed.filter(([type]) => type === 'turn.started').map(([, data]) => data),
+    ).toEqual([
+      expect.objectContaining({ turnId: 'failed-turn' }),
+      expect.objectContaining({ turnId: 'clean-turn' }),
+    ])
+    expect(
+      typed.filter(([type]) => type === 'turn.delta').map(([, data]) => data),
+    ).toEqual([
+      expect.objectContaining({ turnId: 'failed-turn', offset: 0, delta: 'discard-me' }),
+      expect.objectContaining({ turnId: 'clean-turn', offset: 0, delta: 'clean-result' }),
+    ])
+    expect(
+      typed.filter(([type]) => type === 'turn.completed').map(([, data]) => data),
+    ).toEqual([expect.objectContaining({ turnId: 'clean-turn' })])
   })
 
   it('映射工具真实 started 与所有终态可选时间戳', async () => {

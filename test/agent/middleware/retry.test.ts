@@ -12,7 +12,10 @@
  * - 错误分类（network/timeout/validation/provider/unknown）
  */
 import { describe, it, expect, vi } from "vitest";
-import { retryMiddleware } from "@/agent/middleware/retry.js";
+import {
+  configureRetryTimingForTests,
+  retryMiddleware,
+} from "@/agent/middleware/retry.js";
 import { AgentAbortError } from "@/core/middleware/errors.js";
 import { ClassifiedError } from "@/utils/error.js";
 import type { MiddlewareChunk, ErrorChunk, StreamChunk } from "@/core/middleware/types.js";
@@ -154,6 +157,43 @@ describe("retryMiddleware messages 回滚", () => {
     // 半截 assistant 被回滚，仅剩 base + 第2次成功的 assistant（由 checkpoint 构建，这里 next 不构建）
     expect(ctx.soul.messages!.some((m) => m.id === "half")).toBe(false);
     expect(ctx.soul.messages!.some((m) => m.id === "base")).toBe(true);
+  });
+
+  it("emits one retry_reset after partial output before forwarding the clean attempt", async () => {
+    const restoreTiming = configureRetryTimingForTests({
+      sleep: async () => undefined,
+      random: () => 0.5,
+    });
+    try {
+      const ctx = createMockContext({ messages: [] });
+      const next = sequenceNext([
+        async function* () {
+          yield {
+            type: "stream",
+            thinkingDelta: "",
+            contentDelta: "discard-me",
+          } as StreamChunk;
+          throw new Error("ECONNRESET after partial output");
+        },
+        yieldsChunks([{
+          type: "stream",
+          thinkingDelta: "",
+          contentDelta: "clean-result",
+        } as StreamChunk]),
+      ]);
+
+      const out = await collectChunks(retryMiddleware(ctx, next));
+
+      expect(out.map((chunk) => chunk.type)).toEqual(["stream", "retry_reset", "stream"]);
+      expect(
+        out
+          .filter((chunk) => chunk.type === "stream")
+          .map((chunk) => (chunk as StreamChunk).contentDelta),
+      ).toEqual(["discard-me", "clean-result"]);
+      expect(firstError(out)).toBeUndefined();
+    } finally {
+      restoreTiming();
+    }
   });
 });
 

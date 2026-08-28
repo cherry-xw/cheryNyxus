@@ -59,8 +59,8 @@ describe('T26 子 chat 折叠：服务端语义', () => {
     expect((out as { chatId?: string }).chatId).toBe(CHILD)
   })
 
-  it('子 turn.started/completed 透传（设备折叠为「子任务运行中」）', () => {
-    for (const type of ['turn.started', 'turn.completed']) {
+  it('子 turn.started/cancelled/completed 透传（设备折叠为「子任务运行中」）', () => {
+    for (const type of ['turn.started', 'turn.cancelled', 'turn.completed']) {
       const out = applyLiteEvent(profile, notification(type, { turnId: 't1' }, CHILD))
       expect(out).toBeDefined()
     }
