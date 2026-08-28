@@ -70,6 +70,7 @@ const PASSTHROUGH_NOTIFICATION_TYPES = new Set([
   'run.updated',
   'interaction.changed',
   'turn.started',
+  'turn.cancelled',
   'turn.completed',
   'question_batch_completed',
   'role_destroyed',
@@ -413,16 +414,44 @@ function nodeDetailBudgetFailure(
   const sourceMessage = typeof error?.message === 'string' ? error.message : fallbackMessage
   const sourceCode =
     typeof error?.code === 'string' && serializedBytes(error.code) <= 64 ? error.code : 'INTERNAL'
+  const source =
+    typeof error?.source === 'string' &&
+    ['brain', 'sense', 'media', 'mcp', 'chat', 'system', 'hook', 'config', 'transport'].includes(
+      error.source,
+    )
+      ? error.source
+      : 'system'
+  const retryable = typeof error?.retryable === 'boolean' ? error.retryable : false
+  const tracingId =
+    typeof error?.tracingId === 'string' && error.tracingId.length > 0
+      ? boundedCorrelation(error.tracingId)
+      : boundedCorrelation(response.requestId) || 'lite:node-detail'
+  const retryAfterMs =
+    typeof error?.retryAfterMs === 'number' &&
+    Number.isSafeInteger(error.retryAfterMs) &&
+    error.retryAfterMs >= 0
+      ? error.retryAfterMs
+      : undefined
   const correlation = {
     id: boundedCorrelation(response.id),
     kind: 'response',
     requestId: boundedCorrelation(response.requestId),
     success: false,
   }
-  const build = (end: number): UnknownRecord => ({
-    ...correlation,
-    error: { code: sourceCode, message: sourceMessage.slice(0, safePrefixEnd(sourceMessage, end)) },
-  })
+  const build = (end: number): UnknownRecord => {
+    const message = sourceMessage.slice(0, safePrefixEnd(sourceMessage, end)) || 'E'
+    return {
+      ...correlation,
+      error: {
+        code: sourceCode,
+        message,
+        source,
+        retryable,
+        tracingId,
+        ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      },
+    }
+  }
   const consumed = fitUtf16Prefix(sourceMessage, maxFrameBytes, build)
   const failure = build(consumed)
   // maxFrameBytes 最小为 512；两个 correlation 最坏降级为 71B ASCII hash，空错误信封可证明有界。
@@ -433,7 +462,13 @@ function nodeDetailBudgetFailure(
         kind: 'response',
         requestId: boundedCorrelation(response.requestId),
         success: false,
-        error: { code: 'INTERNAL', message: '' },
+        error: {
+          code: 'INTERNAL',
+          message: 'E',
+          source: 'system',
+          retryable: false,
+          tracingId: boundedCorrelation(response.requestId) || 'lite:node-detail',
+        },
       }
 }
 
