@@ -10,8 +10,9 @@ import { AgentParkError } from '@/core/middleware/errors.js'
  * chunk 只产 {approvalId, needsApproval} 事实；service ApprovalManager 通过
  * resolveApproval/rejectApproval 触发对应 Promise，结果经独立 channel 回填到 await。
  *
- * 审批超时：createApproval 接 timeoutMs，超时 park（不是用户拒绝）。
- *   - 用户未在窗口内操作 → pending sense 保持可恢复，停止自动向下运行
+ * 审批超时：registry 仍支持 timeoutMs，但当前 service 集成固定传 0；业务审批窗口
+ *   由 ApprovalManager.expire 解析为 reject 并允许 Agent 继续。
+ *   - registry timeout 仅供独立 core 调用；到点 park，pending sense 保持可恢复
  *   - 断连 abort → rejectApproval(AgentAbortError) → throw → pending NULL → resume Case1 重跑
  *
  * 不限时审批资源上限（G2 改造D）：approval_timeout=0 时由 hardTimeoutMs（global.approval_hard_timeout，
@@ -35,7 +36,7 @@ const registry = new Map<string, PendingApproval>()
 
 /**
  * 创建审批 Promise 并注册 resolve/reject（core senseMiddleware 调用）。
- * @param timeoutMs 用户超时毫秒（来自 `global.approval_timeout`，校验 `>= 0`）。
+ * @param timeoutMs core 级 park 超时；当前 service 集成传 0，业务窗口由 ApprovalManager 管理。
  *                  `> 0` → 到点 reject AgentParkError，保留为可恢复交互。
  *                  `undefined` 或 `<= 0` = 不限时（无用户超时）。
  * @param hardTimeoutMs 不限时审批的资源上限毫秒（来自 `global.approval_hard_timeout`，默认 30min）。

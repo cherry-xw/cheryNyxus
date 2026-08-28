@@ -341,12 +341,12 @@ async function handleRequest(
 
             // Notification 消息
             if (item.kind === 'notification') {
-              // interrupt：记 approvalId→requestId 映射（供 close(ws) park；限时超时由 core approvalRegistry 管）
+              // interrupt：记 approvalId→requestId 映射（供 close(ws) park；业务限时由 ApprovalManager 管）
               if (item.type === 'interrupt' && item.data && 'approvalId' in item.data) {
                 // 仅记 approvalId→requestId 映射，供 close(ws) 时 park 该审批（WS 断连路径）。
-                // 限时超时由 core approvalRegistry 独占管理（createApproval(id, global.approval_timeout)，
-                // 见 tool.ts:266）：超时 resolve as reject→sense_reject→rejected notification→子 loop 继续
-                // （= 用户点 Reject）。service 层不再起重复 timer——旧 startApprovalTimeout 超时
+                // 限时超时由 service ApprovalManager 管理：到点 resolve as reject →
+                // sense_reject → rejected notification → 子 loop 继续（语义等同用户点 Reject）。
+                // core registry 只保留不限时审批的 hard-timeout park。旧 startApprovalTimeout 超时
                 // ws.send(TIMEOUT)+close(ws) 拆连接是 bug 源（覆盖 registry 的正确 reject），已废。
                 const interrupt = item.data as { approvalId: string }
                 connectionManager.setRequestApprovalId(ws, request.id, interrupt.approvalId)
